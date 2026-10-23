@@ -39,7 +39,7 @@ library (lists cut to 2 items, `data` cut).
 | `stopped` | ended by Stop (nothing half done) |
 | `protected` | the version is DRM-protected (yt-dlp refuses it; Discjockey never works around DRM) → the plain message; "Wrong song?" takes the version off its list, and later searches leave it out (`.cache/protected_sources.json`) |
 | `no_library` | no music folder is bound (not chosen yet, or the chosen one isn't there) → Setup's music step or the missing-folder screen; every method in `LIBRARY_METHODS` answers it while unbound |
-| `crashed` | unexpected error → "Something went wrong" + message; for a sync: "The sync stopped unexpectedly" + Open report (report path from the last `RunFinished`) |
+| `crashed` | unexpected error → "Something went wrong" + message; for a sync: + Open report. A crashed sync is filed like any run: its report (`reports/<run_id>.md`, exit code 1) starts with a plain crash note (when, the step it was on, the error, that what was done is saved; the traceback only at the very end), its .json has `crashed` (that note); `RunFinished` (exit code 1, that report) comes first, and the `JobFinished` carries the same `result` as a finished sync. A crash in another job files nothing (`result` null) |
 
 Use the kind for the card/headline; always show `message` as the detail.
 
@@ -1081,7 +1081,7 @@ such tracks change ("24 tracks will go to 03_06_2026 instead of Powertrance"), n
 
 | method (positional args) | job kind | JobFinished.result |
 |---|---|---|
-| `start_sync(selected)` — list of ticked `key`s from `sync_preview` | `sync` | `{exit_code, report, actions, new_since_preview}` (`report`: absolute .md path) |
+| `start_sync(selected)` — list of ticked `key`s from `sync_preview` | `sync` | `{exit_code, report, actions, new_since_preview}` (`report`: absolute .md path); also on a `crashed` sync (`exit_code` 1, `report` its crash note; `actions` 0 when it crashed before the plan) |
 | `stop()` → `{"stopped": bool}` (not a job) — Stop safely: current write job (sync, download, Spotify login) | | |
 | `save_playlists(lines, loaded_version)` | `save_playlists` | `{version}`; problem `changed` = "playlists.txt was changed elsewhere…" |
 | `save_limits(service, limit, extra_today)` — the service must be set up (else refused); 1–500, 0–200 (0 clears the extra) | `save_limits` | `{service, limit, extra_today}` |
@@ -1331,7 +1331,7 @@ the third action).
 | `Checked` | `track_id`, `file_duration_s`, `spotify_duration_s`, `codec`, `ok` ("Length matches (3:12 = Spotify 3:12)") |
 | `AccountUsage` | `service`, `used`, `allowance` ("Qobuz 42 of 80 today") |
 | `ActionFinished` | `action` (as above), `result` Result — Problems = sections missing/errors/conflicts/ambiguous; `error_kind: network` → "NO INTERNET" |
-| `RunFinished` | `exit_code` (0, 1, 130), `report_path` (.md) — then `run(run_id)` with the report's stem for the end screen |
+| `RunFinished` | `exit_code` (0, 1, 130), `report_path` (.md) — then `run(run_id)` with the report's stem for the end screen; also sent for a crashed sync (1, its crash note), before its `JobFinished` |
 | `Message` | `level` `info|warning|debug`, `text` (hide debug) |
 | `ReadingPlaylist` | `index`, `total`, `folder` — before each playlist is read (a refresh, or a sync's start) |
 

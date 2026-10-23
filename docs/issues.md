@@ -24,15 +24,6 @@ on the music folder (now `~/Music/Discjockey`). Left:
   sign in to YouTube and SoundCloud both ways: a login found in Chrome → **Use this login**, and **Sign in** → the
   browser opens → Discjockey notices the login by itself. Also one Qobuz **Check again**.
 
-## 9. Engine: a crashed sync leaves no note in `reports/` (from the Task 10B review, 2026-10-21)
-
-- **A crash writes nothing the user can open.** `discjockey/hub/jobs.py` (around line 349) only prints the traceback to
-  the terminal, so a sync that crashes before its RunFinished has no report. The end screen's crash card then has no
-  Open report, and Show reports folder was dropped from it (it opened older runs only).
-- **Fix at the root:** the engine writes a short crash note into `reports/` (when, the step it was on, the error in
-  plain words, that the state is saved) and files it as the run's report, so the card's own "Open report" has
-  something to open. Contract: `JobFinished` for a crash then carries the report like a finished run.
-
 ## 7. Live check: bought file by drag and drop (was hub plan Task 74; needs a bought WAV, AIFF or FLAC)
 
 - **Sync: "Later" ignores the panel's scope (from the 9B review, M8).** In `sync-scope` the DayBar's "Later 185"

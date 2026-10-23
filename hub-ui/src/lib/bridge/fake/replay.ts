@@ -54,7 +54,8 @@ export type ReplayOpts = {
   reportPath: string;
   emit: (e: HubEvent) => void;
   onDone?: () => void;
-  /** turns the last part into a crash: stop after this line, then JobFinished crashed without RunFinished */
+  /** turns the last part into a crash: stop after this line, then the run filed with its crash note (RunFinished
+   *  exit 1) and JobFinished crashed carrying that report, as jobs.sync_work does */
   crashAfter?: number | null;
 };
 
@@ -117,9 +118,18 @@ export class Replay {
   }
 
   private crash(): void {
+    const report = this.o.reportPath;
+    this.o.emit({ type: 'RunFinished', exit_code: 1, report_path: report });
     this.o.emit({ type: 'JobFinished', job_id: this.o.jobId, kind: 'sync', ok: false, problem: 'crashed',
-      message: 'KeyError while writing the report. The state and the report are saved.', result: null });
+      message: "Something went wrong (KeyError: 'path').",
+      result: { exit_code: 1, report, actions: this.actions(), new_since_preview: 0 } });
     this.finish();
+  }
+
+  /** How many actions the replayed run planned (its RunStarted), for the crashed sync's result. */
+  private actions(): number {
+    const started = this.o.events.find((e) => e.type === 'RunStarted');
+    return started && started.type === 'RunStarted' ? started.total : 0;
   }
 
   private finish(): void {

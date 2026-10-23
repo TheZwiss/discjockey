@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from .. import config, events as ev, library, playlists_file, qobuz, run, settings, spotify, upgrades
+from .. import config, events as ev, library, playlists_file, qobuz, report as rep, run, settings, spotify, upgrades
 from ..events import Cancelled, CancelToken, Emit
 from ..library import LockHeld, Paths
 from ..models import Protected
@@ -207,6 +207,8 @@ def lock_free(path) -> bool:
 
 def problem_of(e: BaseException) -> tuple[str, str]:
     """(problem kind, plain message) for anything a job raised. Never a traceback."""
+    if isinstance(e, run.RunCrashed):  # whatever it was, it stopped a running sync
+        return "crashed", rep.plain_error(e.error)
     if isinstance(e, (Cancelled, KeyboardInterrupt)):
         return "stopped", "Stopped. Nothing was left half-done."
     if isinstance(e, library.NoLibrary):
@@ -229,7 +231,7 @@ def problem_of(e: BaseException) -> tuple[str, str]:
         return "protected", str(e)
     if isinstance(e, ValueError):
         return "refused", str(e)
-    return "crashed", f"Something went wrong ({type(e).__name__}: {e})."
+    return "crashed", rep.plain_error(e)
 
 
 @dataclass
@@ -238,6 +240,7 @@ class JobContext:
     kind: str
     token: CancelToken
     emit: Emit  # records into the snapshot and sends to the window
+    failed_result: dict | None = None  # JobFinished.result if the work raises (a crashed sync: its report)
 
 
 @dataclass
@@ -413,8 +416,8 @@ class Jobs:
         emit = self._job_emit(job)
         emit(JobStarted(job.id, job.kind, job.track_id))
         ok, problem, message, result = True, None, "", None
+        ctx = JobContext(job.id, job.kind, job.token, emit)
         try:
-            ctx = JobContext(job.id, job.kind, job.token, emit)
             if write:
                 lock = library.run_lock(self.lock) if self.lock is not None else nullcontext()
                 with lock, self.keep_awake("Discjockey is changing your library"):
@@ -428,6 +431,7 @@ class Jobs:
         except BaseException as e:  # noqa: BLE001 - every outcome becomes a JobFinished for the window
             ok = False
             problem, message = problem_of(e)
+            result = ctx.failed_result
             if problem == "crashed":
                 traceback.print_exc()  # for whoever looks at the terminal; the window gets the plain message
         self._finish(job, ok, problem, message, result)
@@ -552,21 +556,44 @@ def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str
         previewed = store.keys()
         if not previewed and store.prep is None:
             raise ValueError("Read your Spotify playlists first (↻), so you can check the plan before it starts.")
-        prep = run.prepare(paths, emit=ctx.emit, token=ctx.token)
-        read_at = now()
-        new_since = sum(1 for a in prep.plan.actions if run.action_key(a) not in previewed)
-        run.select_actions(prep, previewed, ticked)
+        started = now()
+        prep, read_at, new_since = None, started, 0
+        step = "reading your Spotify playlists and working out the plan"
+
+        def outcome(code: int, report: Path) -> dict:
+            return {"exit_code": code, "report": str(report), "actions": len(prep.plan.actions) if prep else 0,
+                    "new_since_preview": new_since}
+
         try:
+            prep = run.prepare(paths, emit=ctx.emit, token=ctx.token)
+            read_at = now()
+            new_since = sum(1 for a in prep.plan.actions if run.action_key(a) not in previewed)
+            run.select_actions(prep, previewed, ticked)
             if not prep.plan.actions:
+                step = "saving the results"
                 code, report = run.finish_quietly(prep, emit=ctx.emit)
                 ctx.emit(ev.RunFinished(code, str(report)))
             else:
+                step = "signing in to Qobuz"
                 qobuz_source = run.open_qobuz(prep)
                 code, report = run.execute(prep, qobuz_source, emit=ctx.emit, token=ctx.token)
+        except run.RunCrashed as e:  # execute filed the run with its crash note and sent RunFinished
+            ctx.failed_result = outcome(1, e.report)
+            raise
+        except Exception as e:
+            if problem_of(e)[0] != "crashed":  # a setup problem, offline, ...: not a crash, nothing to file
+                raise
+            try:
+                report = rep.write_crash(paths, prep.log if prep else rep.RunLog(started), now(), step, e)
+            except OSError:  # reports/ can't be written: the crash itself is what the window shows
+                raise e from None
+            ctx.emit(ev.RunFinished(1, str(report)))
+            ctx.failed_result = outcome(1, report)
+            raise
         finally:
-            preview_after_run(store, prep, read_at)
-        return {"exit_code": code, "report": str(report), "actions": len(prep.plan.actions),
-                "new_since_preview": new_since}
+            if prep is not None:
+                preview_after_run(store, prep, read_at)
+        return outcome(code, report)
     return work
 
 

@@ -5,7 +5,7 @@
   // long. `compact` is the one-line form that sits inside another control or row (SpotifyStatus in the page header,
   // a playlist row, a dialog's search): no box of its own, since a box inside a row would be a container in a
   // container (§4), but still marked `data-note`.
-  // `actions`: the caller's own recovery control for this problem (Sync's crashed card: Show reports folder), set
+  // `actions`: the caller's own recovery control for this problem, set
   // beside the card's own action inside the card, so it sits with the problem it answers instead of loose on the
   // background below it (§4, grouping by proximity; spec §11, Task 10B).
   import type { Snippet } from 'svelte';
