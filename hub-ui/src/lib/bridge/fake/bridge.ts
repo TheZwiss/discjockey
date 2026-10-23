@@ -21,7 +21,7 @@ import { toneUrl } from './audio';
 import { BROWSER_NAMES, defaultBrowsers } from './browsers';
 import { CRASHED_MESSAGE } from '../../copy';
 import { downloads } from './downloads';
-import { SERVICES, NAMES, RECOMMENDED, serviceOf, limits as limitsOf, whatIf as whatIfOf, gate, split, cards } from './limits';
+import { SERVICES, NAMES, RECOMMENDED, serviceOf, limits as limitsOf, whatIf as whatIfOf, gate, syncSplit, cards } from './limits';
 
 /** library.FOLDER_PROBLEMS verbatim: what a refused folder says */
 const FOLDER_PROBLEMS: Record<FolderProblem, string> = {
@@ -97,8 +97,9 @@ export function pageScenarios(): Record<string, (s: FakeState) => void> {
 export const SCENARIOS = ['normal', 'update_available', 'first_run', 'offline', 'console', 'syncing', 'pause', 'break', 'stopped',
   'finished', 'big', 'errors', 'no_music', 'music_missing'] as const;
 
-/** The dashboard's estimate has no minutes table (only the Sync page ticks subsets). */
-const dashboardEstimate = ({ minutes_by_downloads: _table, ...rest }: SyncEstimate) => rest;
+/** The dashboard's estimate has no minutes or uses tables (only the Sync page ticks subsets). */
+const dashboardEstimate = ({ minutes_by_downloads: _table, accounts, ...rest }: SyncEstimate) =>
+  ({ ...rest, accounts: accounts.map(({ uses_by_downloads: _uses, ...a }) => a) });
 
 export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Handlers & { _ctx: FakeContext } {
   const baseScenario = scenario.includes(':') ? 'normal' : scenario;
@@ -225,7 +226,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     const uses = Math.min(needed, left);
     const minutes = minutesByDownloads(uses);
     const estimate = { duration_min: minutes[uses], qobuz_limit: g?.limit ?? 0,
-      qobuz_needed: needed, qobuz_left: left, qobuz_uses: uses, accounts: split(s, needed),
+      qobuz_needed: needed, qobuz_left: left, qobuz_uses: uses, accounts: syncSplit(s, needed, uses),
       left: g ? g.remaining : null, limit: g?.limit ?? 0, minutes_by_downloads: minutes };
     const folders = s.playlists.filter((p) => p.enabled).map((p) => p.folder);
     const in_playlists = s.tracks.filter((t) => t.in_playlists).length + s.newTracks.length;

@@ -1,7 +1,7 @@
 // The Sync page's plan before the start (docs/archive/pre-public/hub-ui-pages/sync-REDESIGN.md): kinds and tags of the rows, the scope (playlists and kinds
 // in this run), the "how many" presets, the "next sync" tags and the "This run" summary. Pure, so it is tested.
 import type { SegOption } from '$lib/components/segmentedModel';
-import type { EstimateAccount, PreviewAction, SyncPreview } from '$lib/bridge/types';
+import type { PreviewAction, SyncAccount, SyncPreview } from '$lib/bridge/types';
 import { daysToLoad } from '$lib/days';
 import type { DayBarInput } from '$lib/components/dayBarModel';
 import type { ToggleItem } from '$lib/components/toggleModel';
@@ -156,21 +156,19 @@ export type RunTotals = {
   days: number;            // more days for those at the daily limit (today counts while some is left: daysToLoad)
 };
 /** One row per service with a daily limit (spec §7, §8 several services), for the `downloads` the DJ ticked
- * (views.split on the client: the server's numbers are for the whole plan). Qobuz takes min(downloads, left),
- * exactly; behind Qobuz the accounts only catch the tracks Qobuz doesn't have; without Qobuz the accounts fill up in
- * order, as estimates. `short` is the number column ("10 of 10", "~4 of 30" for an estimate, "30 left" for a
+ * (looked up in each account's `uses_by_downloads`, the engine's views.split for every count; a count over the table
+ * takes its last entry). Qobuz takes min(downloads, left), exactly; behind Qobuz the accounts only catch the tracks
+ * Qobuz doesn't have; without Qobuz the accounts fill up in order, as estimates. `short` is the number column ("10 of 10", "~4 of 30" for an estimate, "30 left" for a
  * backup); `value` the mini bar's share, null for a backup behind Qobuz (no bar: an empty one reads as unused);
  * `text` the full sentence (the row's tooltip, Dashboard's quota line). `limitReached`: the "limit is reached"
  * warning shows, so a used-up service says nothing more. */
 export type ServiceRow = { service: string; name: string; text: string; value: number | null; short: string };
-export function serviceRows(accounts: EstimateAccount[], downloads: number, { limitReached = false } = {}): ServiceRow[] {
+export function serviceRows(accounts: SyncAccount[], downloads: number, { limitReached = false } = {}): ServiceRow[] {
   if (!downloads) return [];
-  const qobuz = accounts.some((a) => a.service === 'qobuz');
-  let rest = downloads;
   const out: ServiceRow[] = [];
   for (const a of accounts) {
-    const uses = qobuz && a.service !== 'qobuz' ? null : Math.min(rest, Math.max(a.left, 0));
-    rest -= uses ?? 0;
+    const table = a.uses_by_downloads;
+    const uses = table === null ? null : (table[Math.min(downloads, table.length - 1)] ?? 0);
     if (limitReached && a.left <= 0) continue;
     const about = a.about ? 'about ' : '';
     out.push(uses === null

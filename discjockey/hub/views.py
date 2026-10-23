@@ -183,11 +183,19 @@ def estimate(actions: list, money: dict | None, accounts: list | tuple = ()) -> 
             "accounts": list(accounts), "left": left, "limit": limit}
 
 
-def sync_estimate(actions: list, money: dict | None, accounts: list | tuple = ()) -> dict:
-    """The preview's estimate: `estimate()` plus the minutes for every download count up to what fits today, which
-    is the most any ticked subset of the plan can run (a subset has fewer downloads, and at most `left` of them run)."""
-    e = estimate(actions, money, accounts)
-    return {**e, "minutes_by_downloads": minutes_by_downloads(e["qobuz_uses"])}
+def sync_estimate(actions: list, money: dict[str, dict]) -> dict:
+    """The preview's estimate: `estimate()` plus what the page needs for any ticked subset of the plan. A subset has
+    fewer downloads, and at most `left` of them run, so `qobuz_uses` is the most it can run today. `minutes_by_downloads`
+    is the time for 0 .. that many downloads. Each account also gets `uses_by_downloads`: its `uses` (split()) for
+    each of those counts, null for an account behind Qobuz; a larger count runs no more, so the page takes the last
+    entry. The page looks these up and never repeats split() or the formula. `money`: moneys()."""
+    needed = downloads_in(actions)
+    e = estimate(actions, gate(money), split(needed, money))
+    most = e["qobuz_uses"]
+    by_count = [split(n, money) for n in range(most + 1)]
+    accounts = [{**acc, "uses_by_downloads": None if acc["uses"] is None else [rows[i]["uses"] for rows in by_count]}
+                for i, acc in enumerate(e["accounts"])]
+    return {**e, "accounts": accounts, "minutes_by_downloads": minutes_by_downloads(most)}
 
 
 def planned(prep, state: dict) -> tuple[list, list]:
@@ -766,7 +774,7 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
             "groups": [{"key": key, "label": label,
                         "actions": [{**action_row(a, plan_state, cover), "run": run_index[id(a)]} for a in groups[key]]}
                        for key, label in PLAN_LABELS if key in groups],
-            "estimate": sync_estimate(todo, gate(m), split(downloads_in(todo), m)),
+            "estimate": sync_estimate(todo, m),
             "never": [action_row(a, plan_state, cover) for a in never],
             "folders": [line.folder for line in prep.lines],
             "in_playlists": len(in_playlists),

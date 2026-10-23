@@ -11,7 +11,7 @@
   import type { Snippet } from 'svelte';
   import { Button, DayBar, Hint, ListRow, NoteCard, ProgressBar, Segmented, StatCard, Surface, ToggleGroup } from '$lib/components';
   import { Panel } from '$lib/frames';
-  import type { EstimateAccount } from '$lib/bridge/types';
+  import type { SyncAccount } from '$lib/bridge/types';
   import {
     dayBarInput, folderItems, howManyOptions, isKindKey, kindItems, runCount, runTime, serviceRows, type Facet, type HowMany, type Preset,
     type RunTotals, type Scope,
@@ -21,7 +21,7 @@
   let { summary, left, limit, accounts, presets, howMany, folders, kinds, scope, moves, onhowmany, onscope, onscopeall,
     start }: {
     /** left null: no daily limit (only free sources are set up) */
-    summary: RunTotals; left: number | null; limit: number; accounts: EstimateAccount[];
+    summary: RunTotals; left: number | null; limit: number; accounts: SyncAccount[];
     presets: Preset[]; howMany: HowMany | 'custom';
     folders: Facet[]; kinds: Facet[]; scope: Scope;
     /** ticked moves (they run even when today's downloads are used up) */
