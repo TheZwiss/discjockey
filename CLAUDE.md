@@ -124,6 +124,8 @@ their Qobuz daily limit. Long commands run in the background with a status line.
   show it) looked at by you. Ask the user only for what needs a human: sound, feel, rekordbox, decisions.
 - **Scale the checks to the change; the full suite runs once.** `npm run verify` takes about 20 minutes (its rule
   checker shoots every page), so it runs **once per branch, before the merge**, never after each fix or review round.
+  The full Python suite is slow too: run it by pushing the branch and reading CI's result (`check.yml` runs it on
+  every branch push), not locally after each change.
   While working and for a fix, check only what changed: `npm run check`, the touched tests
   (`npx vitest run <file>`, `uv run pytest -q tests/test_<x>.py`), `npm run rules -- --page P --only <shots>` for
   the shots it affects, one screenshot or a measuring script for a visual or motion fix, and `npm run build` when

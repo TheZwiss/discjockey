@@ -54,8 +54,9 @@ Every brief has the same parts, in this order, and stays under about 60 lines:
    and report it, rather than reading on to resolve it.
 4. **Don'ts.** No `docs/archive/` (unless a cited reason is needed: search it, don't read it); no `npm run verify`;
    no real library, Spotify, Qobuz or yt-dlp calls; no code in plans; nothing outside the task group.
-5. **Checks to run.** Only the touched tests (`uv run pytest -q tests/test_x.py`, `npx vitest run <file>`,
-   `npm run rules -- --page P --only …`), plus the full Python suite once at the end of the group.
+5. **Checks to run.** Only the test files of the code the agent changed (`uv run pytest -q tests/test_x.py`,
+   `npx vitest run <file>`, `npm run rules -- --page P --only …`), at the end of a task, not after every edit. Never
+   the full Python suite, never `npm run verify` (§6).
 6. **Report format.** At most 15 lines, no code, no diffs: what was done, commits (hash + subject), checks run with
    their result, what is left or doubtful, anything added to `docs/issues.md`.
 
@@ -79,8 +80,15 @@ Opus implementer: up to about 150k; a Sonnet task: 40–100k).
 - **Per task group:** one Sonnet review of the group's diff against its plan tasks and CLAUDE.md's invariants.
   It does not review the whole stage.
 - **Per stage, before the merge:** one Opus review of the whole stage branch against the spec's sections for that
-  stage. The orchestrator then runs `npm run verify` (when `hub-ui` changed) and the full Python suite once, in the
-  background, and reads only the result lines.
+  stage.
+- **The full suites never run locally during the work.** The full Python suite (1,351 tests) runs in CI: the
+  orchestrator pushes the stage branch, `check.yml` runs it on GitHub's machine, and the orchestrator reads only the
+  run's result (`gh run list` / `gh run view --log-failed`). A failure goes to a fix round with the failing tests'
+  names, never "run everything again". `npm run verify` isn't in CI (its design rules take 15+ minutes there); the
+  orchestrator runs it once in the background, only for stages that change `hub-ui`, and reads only its last lines.
+- **The touched-tests rule** (§4.5) is the only testing agents do. When a change reaches into a module many tests
+  use (`library.py`, `db.py`, `planner.py`, `models.py`), the plan names the test files that cover it, so agents run
+  those files and not the suite.
 - The orchestrator checks claims cheaply: `git log --oneline`, `git diff --stat`, and the test summaries. It reads
   code only to settle a disagreement between an implementer and a reviewer.
 
@@ -88,7 +96,8 @@ Opus implementer: up to about 150k; a Sonnet task: 40–100k).
 
 - One branch per stage (`feat/library-<stage>`). Each task group works in a worktree off it and is merged back after
   its review.
-- A stage merges into `main` after its final review and checks, and `main` is pushed. Stages 1 and 2 are merged
+- The stage branch is pushed for CI before the merge (§6). A stage merges into `main` after its final review and a
+  green CI run, and `main` is pushed. Stages 1 and 2 are merged
   together.
 - A release (`git tag v…`) is outward-facing: the orchestrator asks the user once per release.
 
