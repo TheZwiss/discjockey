@@ -40,12 +40,6 @@ on the music folder (now `~/Music/Discjockey`). Left:
 - **Cosmetic.** When a long path is shortened (`~/M… /Discjockey`) a small gap shows before the last part. One CSS
   change did not close it.
 
-## 12. Old runtime files in the checkout (2026-10-23)
-
-- **They stay after the move to the music folder and the support folder:** `state.json`, `settings.json`, `reports/`,
-  `not_lossless.md`, `.spotify_*.json`, `.streamrip/` and `.cache/` in the maintainer's checkout. Nothing reads them
-  now. Delete them only when the user says so.
-
 ## 11. Live check: signing in from Settings (Settings/Setup redesign, 2026-10-22)
 
 - **Not tried in the real window yet** (the user couldn't test before the merge). Restart the app, open Settings and
