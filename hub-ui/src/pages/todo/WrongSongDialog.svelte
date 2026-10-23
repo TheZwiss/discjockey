@@ -7,7 +7,7 @@
   import { Button, Dialog, ProblemCard, ProgressBar, Spinner, TextField, WriteButton, confirm } from '$lib/components';
   import { problemCopy } from '$lib/copy';
   import { networkReadsAllowed } from '$lib/stores/hub';
-  import { player } from '$lib/stores/player';
+  import { CANT_PLAY, claimSound, releaseSound } from '$lib/stores/player';
   import { run } from '$lib/stores/run';
   import {
     NONE_CONFIRM, NOTHING_FOUND, SEARCHING, SEARCH_BLOCKED, canUse, dialogTitle, lengthText, lengthTone, matchText,
@@ -28,7 +28,7 @@
   let previewKey = $state<string | null>(null);     // preview being fetched
   let gone = $state(new Set<string>());             // DRM-protected: taken off the list (the backend remembers them)
   const shown = $derived(res ? res.candidates.filter((c) => !gone.has(c.key)) : []);
-  let playingKey = $state<string | null>(null);     // preview we started in the player
+  let playingKey = $state<string | null>(null);     // preview playing now
 
   const blocked = $derived(!$networkReadsAllowed || problem?.kind === 'sync_running');
   const noneOfThese = $derived(actionsFor(track).noneOfThese);
@@ -48,11 +48,28 @@
     untrack(() => { if (allowed && !res && !searching && (!problem || problem.kind === 'sync_running')) void search(); });
   });
 
-  function stopPreview() { if (playingKey && $player.playing) player.pause(); playingKey = null; }
+  // The clips have their own element, not the player's: a clip pauses a queue (claimSound) and the queue's track
+  // keeps its place, which swapping the shared element's src would lose.
+  const CLIP = Symbol('clip');
+  const CLIP_S = 20;
+  let clip: HTMLAudioElement | null = null;
+  function stopPreview() {
+    if (clip) { clip.pause(); clip.removeAttribute('src'); clip.load(); }
+    playingKey = null;
+    releaseSound(CLIP);
+  }
+  function clipElement(): HTMLAudioElement {
+    if (clip) return clip;
+    const el = new Audio();
+    el.addEventListener('timeupdate', () => { if (el.currentTime >= CLIP_S) stopPreview(); });
+    el.addEventListener('ended', stopPreview);
+    el.addEventListener('error', () => { if (playingKey) { message = CANT_PLAY; stopPreview(); } });
+    return (clip = el);
+  }
   onDestroy(stopPreview);
 
   async function preview(c: Candidate) {
-    if (playingKey === c.key && $player.playing) { stopPreview(); return; }
+    if (playingKey === c.key) { stopPreview(); return; }
     message = null; previewKey = c.key;
     const r = await api.preview(track.track_id, c);
     previewKey = null;
@@ -61,8 +78,11 @@
       if (r.kind === 'protected') gone = new Set([...gone, c.key]);
       return;
     }
+    claimSound(CLIP, stopPreview);
+    const el = clipElement();
     playingKey = c.key;
-    player.play({ url: r.url, title: `${c.artist} – ${c.title}`, track_id: track.track_id, stop_after_s: 20 });
+    el.src = r.url;
+    el.play().catch(() => { if (playingKey === c.key) { message = CANT_PLAY; stopPreview(); } });
   }
 
   function after(o: JobOutcome<unknown>) {
@@ -115,7 +135,7 @@
                 {#if pv.show}
                   <button type="button" class="pbtn" aria-label="Play a 20-second preview of {c.title}"
                     disabled={blocked || job !== null} onclick={() => preview(c)} data-test="preview">
-                    {#if previewKey === c.key}<Spinner size={10} />{:else if playingKey === c.key && $player.playing}❚❚{:else}▶{/if}
+                    {#if previewKey === c.key}<Spinner size={10} />{:else if playingKey === c.key}❚❚{:else}▶{/if}
                   </button>
                 {:else if pv.title}
                   <span class="pbtn off" title={pv.title} aria-label={pv.title}>▶</span>
