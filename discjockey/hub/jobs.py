@@ -205,8 +205,12 @@ def lock_free(path) -> bool:
     return True
 
 
+UNEXPECTED = "Something unexpected went wrong. Try again, and if it keeps happening, restart Discjockey."
+
+
 def problem_of(e: BaseException) -> tuple[str, str]:
-    """(problem kind, plain message) for anything a job raised. Never a traceback."""
+    """(problem kind, plain message) for anything a job or bridge method raised. Never a traceback. A sync's own crash
+    arrives as RunCrashed (sync_work files it first), so only a sync says "The sync stopped unexpectedly"."""
     if isinstance(e, run.RunCrashed):  # whatever it was, it stopped a running sync
         return "crashed", rep.CRASH_MESSAGE
     if isinstance(e, (Cancelled, KeyboardInterrupt)):
@@ -231,7 +235,7 @@ def problem_of(e: BaseException) -> tuple[str, str]:
         return "protected", str(e)
     if isinstance(e, ValueError):
         return "refused", str(e)
-    return "crashed", rep.CRASH_MESSAGE
+    return "crashed", UNEXPECTED
 
 
 @dataclass
@@ -589,7 +593,7 @@ def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str
                 raise e from None
             ctx.emit(ev.RunFinished(1, str(report)))
             ctx.failed_result = outcome(1, report)
-            raise
+            raise run.RunCrashed(e, report) from e
         finally:
             if prep is not None:
                 preview_after_run(store, prep, read_at)

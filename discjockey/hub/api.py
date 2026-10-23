@@ -44,7 +44,7 @@ from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, load
 from ..setup_cmd import TOOL_HINTS
 from ..spotify import REDIRECT_URI
 from . import media as media_mod, spectrum as spec, views
-from .jobs import AppUpdate, Busy, FileDropped, Jobs, PreviewStore, SignInPhase, problem_of, refresh_work, sync_work
+from .jobs import UNEXPECTED, AppUpdate, Busy, FileDropped, Jobs, PreviewStore, SignInPhase, problem_of, refresh_work, sync_work
 
 RUN_ID = re.compile(r"\d{4}-\d{2}-\d{2}_\d{6}")
 WHICH = ("current", "upgrade")
@@ -120,9 +120,6 @@ def _open_in(browser: str, url: str, profile: str | None = None) -> None:
     subprocess.run(cmd, check=False)
 
 
-BRIDGE_CRASH = "Something unexpected went wrong. Try again, and if it keeps happening, restart Discjockey."
-
-
 def bridge(fn):
     """{"ok": true, **result} or {"ok": false, "kind", "message"}; never raises into pywebview."""
     @functools.wraps(fn)
@@ -137,12 +134,11 @@ def bridge(fn):
             return {"ok": False, "kind": "config_invalid", "message": str(e)}
         except TypeError as e:  # the page called with wrong arguments
             traceback.print_exc()
-            return {"ok": False, "kind": "crashed", "message": BRIDGE_CRASH}
+            return {"ok": False, "kind": "crashed", "message": UNEXPECTED}
         except BaseException as e:  # noqa: BLE001 - nothing may reach the page as a traceback
             kind, message = problem_of(e)
-            if kind == "crashed":  # problem_of words a crash for a sync; this is any other bridge method
+            if kind == "crashed":  # for whoever looks at the terminal; the page gets the plain message
                 traceback.print_exc()
-                message = BRIDGE_CRASH
             return {"ok": False, "kind": kind, "message": message}
 
     call.__signature__ = inspect.signature(fn)  # pywebview reads the parameter names from it

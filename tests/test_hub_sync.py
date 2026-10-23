@@ -180,7 +180,7 @@ def test_a_crash_before_the_run_starts_still_files_a_note(env, monkeypatch):
     monkeypatch.setattr(run.planner, "plan", broken)
     sync(js, paths, store, store.keys())
     finished = rec.finished()
-    assert (finished.ok, finished.problem) == (False, "crashed")
+    assert (finished.ok, finished.problem) == (False, "crashed") and finished.message == run.rep.CRASH_MESSAGE
     note = main_text(open(finished.result["report"], encoding="utf-8").read())
     assert "reading your Spotify playlists" in note and "RuntimeError" not in note
     assert "RuntimeError: bad plan" in open(finished.result["report"], encoding="utf-8").read()
