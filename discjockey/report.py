@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import traceback
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -70,6 +71,8 @@ class RunLog:
     """Everything one run did, as structured results. Rendered to reports/<time>.md and saved as .json for the hub."""
     started: datetime
     results: list[Result] = field(default_factory=list)
+    crashed: str | None = None  # the crash note (crash_note) when the run stopped on an unexpected error
+    crash_details: str = ""  # its traceback, for a bug report: below the note, never in it
 
     def add(self, result: Result) -> None:
         self.results.append(result)
@@ -97,13 +100,40 @@ def render_line(r: Result) -> str:
 
 def render_report(log: RunLog, finished: datetime) -> str:
     out = [f"# Discjockey run {log.started:%Y-%m-%d %H:%M:%S}", "", f"Finished at {finished:%H:%M:%S}.", ""]
+    if log.crashed:
+        out += [f"## {CRASHED}", "", log.crashed, ""]
     for key, heading in SECTIONS:
         items = log.section(key)
         if items:
             out += [f"## {heading} ({len(items)})", "", *(render_line(r) for r in items), ""]
-    if log.is_empty():
+    if log.is_empty() and not log.crashed:
         out.append("Nothing happened in this run.")
+    if log.crash_details:
+        out += ["## Details for a bug report", "", "```", log.crash_details.rstrip(), "```", ""]
     return "\n".join(out) + "\n"
+
+
+CRASHED = "The sync stopped unexpectedly"
+
+
+def plain_error(error: BaseException) -> str:
+    """An unexpected error in one plain line: what the window and the crash note say (never a traceback)."""
+    return f"Something went wrong ({type(error).__name__}: {error})."
+
+
+def crash_note(at: datetime, step: str, error: BaseException) -> str:
+    """The crash note's main text: when, the step it was on, the error, and that what was done is saved."""
+    return (f"{CRASHED} at {at:%H:%M:%S} while {step}. {plain_error(error)} Everything done up to then is saved, "
+            "and the next sync carries on from there.")
+
+
+def write_crash(paths: Paths, log: RunLog, at: datetime, step: str, error: BaseException,
+                state: dict | None = None) -> Path:
+    """Files a run that stopped on an unexpected error: its report (exit code 1) with the crash note on top, the
+    results so far under it, and the traceback at the very end. Returns the .md path."""
+    log.crashed = crash_note(at, step, error)
+    log.crash_details = "".join(traceback.format_exception(error))
+    return write_run(paths, log, at, 1, state)
 
 
 def check_text(check: dict) -> str:
@@ -130,6 +160,8 @@ def write_run(paths: Paths, log: RunLog, finished: datetime, exit_code: int, sta
     md.write_text(render_report(log, finished), encoding="utf-8")
     data = {"started": log.started.isoformat(timespec="seconds"), "finished": finished.isoformat(timespec="seconds"),
             "exit_code": exit_code, "results": [asdict(r) for r in log.results]}
+    if log.crashed:
+        data["crashed"] = log.crashed
     stem.with_suffix(".json").write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     return md
 

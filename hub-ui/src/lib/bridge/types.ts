@@ -308,7 +308,7 @@ export type ChangePreview = {
 };
 export type OpResult = { track_id: string; result: Result; recovered: [string, boolean][] };
 
-// JobFinished.result per job kind
+// JobFinished.result per job kind (a crashed sync carries its SyncResult too: exit_code 1, report = the crash note)
 export type SyncResult = { exit_code: number; report: string; actions: number; new_since_preview: number };
 export type JobResults = {
   refresh: { actions: number }; sync: SyncResult; save_playlists: { version: string };

@@ -1,4 +1,5 @@
 import json
+from datetime import date, datetime
 import threading
 import time
 from contextlib import contextmanager
@@ -9,8 +10,10 @@ from discjockey import run, spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.events import RunFinished
 from discjockey.hub import jobs
+from discjockey.hub import views
 from discjockey.hub.jobs import Jobs, PreviewStore
-from discjockey.library import Paths, empty_state, save_state
+from discjockey.library import Paths, empty_state, load_state, save_state
+from discjockey.settings import load_settings
 from discjockey.models import FetchedPlaylist, SpotifyTrack
 
 PLAYLISTS = "Hard_Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n"
@@ -114,7 +117,82 @@ def test_sync_runs_only_ticked_actions(env):
     report = json.loads(open(finished.result["report"].replace(".md", ".json")).read())
     assert {r["track_id"]: r["note"] for r in report["results"] if r["section"] == "queued"} == {
         "t2": "left out of this run by you"}
-    assert store.stale
+    # the plan is worked out again from the run's own Spotify read and the library as the run left it (issue 20)
+    assert [a.track_id for a in store.prep.plan.actions] == ["t2"] and not store.stale
+
+
+def test_after_a_full_sync_the_preview_is_up_to_date_without_another_read(env, monkeypatch):
+    paths, js, store, rec, acq, logins, tracks = env
+    refresh(js, paths, store)
+    reads = []
+    monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: reads.append(1) or FetchedPlaylist(line, list(tracks), []))
+    sync(js, paths, store, store.keys())
+    assert reads == [1]  # only the sync's own read
+    assert store.prep.plan.actions == [] and not store.stale and store.read_at is not None
+    preview = views.sync_preview(store, load_state(paths.state_file), load_settings(paths.settings_file),
+                                 date.today(), datetime.now(), False)
+    assert preview["empty"] == "up_to_date" and preview["counts"] is not None
+
+
+def crash_on(track_id, monkeypatch):
+    """A bug outside the per-track safety net (each action's own errors only fail that track): the run itself stops."""
+    add = run.rep.RunLog.add
+
+    def broken(self, result):
+        if result.track_id == track_id:
+            raise KeyError("path")
+        add(self, result)
+    monkeypatch.setattr(run.rep.RunLog, "add", broken)
+
+
+def main_text(md: str) -> str:
+    return md.split("## Details for a bug report")[0]
+
+
+def test_a_crash_during_the_run_files_a_crash_note_as_the_runs_report(env, monkeypatch):
+    paths, js, store, rec, acq, logins, tracks = env
+    refresh(js, paths, store)
+    crash_on("t2", monkeypatch)
+    sync(js, paths, store, store.keys())
+    finished = rec.finished()
+    assert (finished.ok, finished.problem) == (False, "crashed") and "KeyError" in finished.message
+    result = finished.result
+    assert result["exit_code"] == 1 and result["actions"] == 3 and result["new_since_preview"] == 0
+    md = open(result["report"], encoding="utf-8").read()
+    note = main_text(md)
+    assert "The sync stopped unexpectedly" in note and "Artist - Song 2" in note and "KeyError" in note
+    assert "saved" in note and "Traceback" not in note
+    assert "Traceback" in md  # below the note, for a bug report
+    data = json.loads(open(result["report"].replace(".md", ".json")).read())
+    assert data["exit_code"] == 1 and "Song 2" in data["crashed"]
+    assert [r["track_id"] for r in data["results"] if r["section"] == "new_lossless"] == ["t1"]
+    assert [(e.exit_code, e.report_path) for e in rec.events if isinstance(e, RunFinished)] == [(1, result["report"])]
+    assert [a.track_id for a in store.prep.plan.actions] == ["t3"]  # t2 was in place before the crash: saved state
+
+
+def test_a_crash_before_the_run_starts_still_files_a_note(env, monkeypatch):
+    paths, js, store, rec, acq, logins, tracks = env
+    refresh(js, paths, store)
+
+    def broken(*a, **k):
+        raise RuntimeError("bad plan")
+
+    monkeypatch.setattr(run.planner, "plan", broken)
+    sync(js, paths, store, store.keys())
+    finished = rec.finished()
+    assert (finished.ok, finished.problem) == (False, "crashed")
+    note = main_text(open(finished.result["report"], encoding="utf-8").read())
+    assert "reading your Spotify playlists" in note and "RuntimeError: bad plan" in note
+    assert finished.result["actions"] == 0 and finished.result["exit_code"] == 1
+
+
+def test_a_setup_problem_writes_no_crash_note(env, monkeypatch):
+    paths, js, store, rec, acq, logins, tracks = env
+    refresh(js, paths, store)
+    monkeypatch.setattr(run, "open_qobuz", lambda prep: (_ for _ in ()).throw(run.SetupProblem("x", "not_set_up")))
+    sync(js, paths, store, store.keys())
+    assert rec.finished().problem == "not_set_up" and rec.finished().result is None
+    assert not (paths.data / "reports").exists()
 
 
 def test_actions_new_since_the_preview_wait_for_the_next_run(env):

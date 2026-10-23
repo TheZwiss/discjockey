@@ -5,7 +5,7 @@
 //   sync:rereading   Spotify is read again, the old plan dims below the reading card
 //   sync:converting  a sync already running, frozen at fixture line 66 (StepChanged convert of "non stop")
 //   sync:up-to-date  Spotify read, nothing to do (2 "never download" tracks)
-//   sync:crashed-without-report  a sync already running crashes before its RunFinished (no report)
+//   sync:crashed           a sync already running crashes; its crash note is filed as the run's report
 //   sync:stop-refused  a sync already running (as sync:converting) whose Stop safely fails
 //   sync:no-qobuz    the long plan for a colleague without Qobuz: YouTube Premium 30/day (26 used), SoundCloud Go+ 60/day
 //   sync:up-to-date-console  up to date while a sync runs in the terminal: no Start, so the shell's banner says it
@@ -20,7 +20,7 @@
 //   sync:long-names  the long plan with three titles over 120 characters and one track by six artists
 import type { PageFake } from '$lib/bridge/fake/bridge';
 import type { FakeState } from '$lib/bridge/fake/data';
-import { previewAction, samplePlaylists } from '$lib/bridge/fake/data';
+import { FAKE_MUSIC, previewAction, runId, samplePlaylists } from '$lib/bridge/fake/data';
 import { STREAMS, SYNC_START_LINE } from '$lib/bridge/fake/replay';
 import type { SyncPreview } from '$lib/bridge/types';
 
@@ -144,7 +144,7 @@ export const scenarios: PageFake['scenarios'] = {
   'up-to-date': (s) => { s.scenario = 'sync:up-to-date'; },
   'up-to-date-console': (s) => { s.scenario = 'sync:up-to-date'; s.console_running = true; },
   'up-to-date-wait': (s) => { s.scenario = 'sync:up-to-date-wait'; },
-  'crashed-without-report': (s) => { s.scenario = 'sync:crashed-without-report'; },
+  'crashed': (s) => { s.scenario = 'sync:crashed'; },
   'stop-refused': (s) => { s.scenario = 'sync:stop-refused'; },
 };
 
@@ -183,12 +183,18 @@ export const overrides: PageFake['overrides'] = {
         for (const e of STREAMS.sync.slice(SYNC_START_LINE, CONVERT_FREEZE_LINE)) ctx.emit(e);
       });
     }
-    if (ctx.s.scenario === 'sync:crashed-without-report' && !crashStarted) {
+    if (ctx.s.scenario === 'sync:crashed' && !crashStarted) {
       crashStarted = true;
       ctx.startJob('sync', null, (finish) => {
         for (const e of STREAMS.sync.slice(SYNC_START_LINE, CRASH_LINE)) ctx.emit(e);
-        setTimeout(() => finish(false, null, 'crashed',
-          'KeyError while reading the plan. The state is saved; no report was written.'), 800 / ctx.speed);
+        // as jobs.sync_work: the run is filed with its crash note (RunFinished exit 1), then the crashed JobFinished
+        // carries that report like a finished sync
+        const report = `${FAKE_MUSIC}/.discjockey/reports/${runId(new Date())}.md`;
+        setTimeout(() => {
+          ctx.emit({ type: 'RunFinished', exit_code: 1, report_path: report });
+          finish(false, { exit_code: 1, report, actions: 9, new_since_preview: 0 }, 'crashed',
+            "Something went wrong (KeyError: 'path').");
+        }, 800 / ctx.speed);
       });
     }
     // Spotify is being read when the window opens, frozen at playlist 3 of 7

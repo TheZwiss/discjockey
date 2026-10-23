@@ -307,15 +307,19 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     replay.start();
     return { ok: true, job_id: id };
   }
-  /** After a replayed sync: its run is in the reports, Spotify is stale. */
+  /** After a replayed sync: its run is in the reports, and the plan is worked out again from the sync's own read
+   *  and what the run left (like jobs.preview_after_run, issue 20), so what the run did is not offered again. */
   function afterSync(rid: string, rec: JobRecord) {
+    const results = rec.results.map((e) => e.result as Result);
+    const done = new Set(results.filter((r) => r.track_id && r.section !== 'queued' && r.section !== 'errors')
+      .map((r) => r.track_id));
+    s.spotify = { ...s.spotify, stale: false, read_at: rec.started, minutes_ago: 0 };
+    s.newTracks = s.newTracks.filter((t) => t.track_id === 't5' || !done.has(t.track_id));
     const run = rec.last.RunFinished;
     if (!run) return;
-    const results = rec.results.map((e) => e.result as Result);
     const started = new Date(rec.started);
     s.runs.unshift(runDetail(rid, started, Math.round((Date.now() - started.getTime()) / 1000), run.exit_code,
       results, run.exit_code === 130 ? results.length : null, s.tracks.filter((t) => t.upgrade).length));
-    s.spotify = { ...s.spotify, stale: true };
     const t5 = s.newTracks.find((t) => t.track_id === 't5');
     if (t5 && results.some((r) => r.track_id === 't5' && r.section === 'new_not_lossless')) {
       s.newTracks = s.newTracks.filter((t) => t.track_id !== 't5');
