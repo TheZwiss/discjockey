@@ -83,7 +83,9 @@ def test_errors_are_plain_json_never_a_traceback(root):
 
 def test_wrong_arguments_from_the_page(root, capsys):
     api, _ = make_api(root)
-    assert api.track()["kind"] == "crashed"
+    answer = api.track()
+    assert answer["kind"] == "crashed" and answer["message"].startswith("Something unexpected went wrong.")
+    assert "TypeError" not in answer["message"] and "TypeError" in capsys.readouterr().err  # the detail goes to the terminal
     assert api.library(None, "", "everything")["kind"] == "refused"
 
 

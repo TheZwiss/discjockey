@@ -193,7 +193,7 @@ export const overrides: PageFake['overrides'] = {
         setTimeout(() => {
           ctx.emit({ type: 'RunFinished', exit_code: 1, report_path: report });
           finish(false, { exit_code: 1, report, actions: 9, new_since_preview: 0 }, 'crashed',
-            "Something went wrong (KeyError: 'path').");
+            "The sync stopped unexpectedly. Everything done up to then is saved, and the next sync carries on from there.");
         }, 800 / ctx.speed);
       });
     }

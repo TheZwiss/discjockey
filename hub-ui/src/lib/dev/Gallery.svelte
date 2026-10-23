@@ -735,8 +735,8 @@
         <ProblemCard kind={k} message="The backend's message, shown verbatim." onretry={() => toasts.show({ tone: 'info', title: 'Retry' })}
           report={k === 'crashed' ? { run_id: '2026-10-16_141111' } : null} />
       {/each}
-      <ProblemCard kind="crashed" sync message="KeyError while writing the report." report={{ run_id: '2026-10-16_141111' }} />
-      <ProblemCard kind="crashed" sync message="KeyError while reading the plan. The state is saved; no report was written.">
+      <ProblemCard kind="crashed" sync message="The sync stopped unexpectedly. Everything done up to then is saved, and the next sync carries on from there." report={{ run_id: '2026-10-16_141111' }} />
+      <ProblemCard kind="crashed" sync message="The sync stopped unexpectedly. No report could be written, but everything done up to then is saved.">
         {#snippet actions()}<Button size="sm" onclick={() => toasts.show({ tone: 'info', title: 'Show reports folder' })}>Show reports folder</Button>{/snippet}
       </ProblemCard>
       <Surface label="compact, inside a card"><ProblemCard kind="login_expired" message="" compact /></Surface>
