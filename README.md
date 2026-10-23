@@ -36,12 +36,21 @@ this once for every version you download.
 
 1. Open the `.dmg` you downloaded and drag **Discjockey** onto **Applications**.
 2. Open Discjockey from your Applications folder. macOS doesn't open it and shows a warning instead.
-3. Close the warning with the button that isn't **Move to Trash**.
+
+   <img src="docs/readme/open-anyway-1-warning.png" width="274" alt="The warning: Discjockey Not Opened, with Move to Trash and Done">
+
+3. Click **Done** (the button that isn't **Move to Trash**).
 4. Open **System Settings** and click **Privacy & Security** (on macOS 12: **System Preferences**, then
    **Security & Privacy**, then **General**). Near the bottom is a line about Discjockey. It only shows after you
    tried to open Discjockey, and only for about an hour; if it's gone, open Discjockey once more.
-5. Click **Open Anyway** on that line and confirm with your Mac's password or Touch ID.
-6. The warning shows once more. Click its **Open** button (on newer macOS it says **Open Anyway**).
+
+   <img src="docs/readme/open-anyway-2-privacy.png" width="560" alt="Privacy &amp; Security: Discjockey was blocked to protect your Mac, with Open Anyway">
+
+5. Click **Open Anyway** on that line.
+6. The warning shows once more. Click **Open Anyway** (on older macOS: **Open**), then confirm with your Mac's
+   password or Touch ID.
+
+   <img src="docs/readme/open-anyway-3-confirm.png" width="269" alt="The second warning, with Open Anyway"> <img src="docs/readme/open-anyway-4-password.png" width="278" alt="macOS asks for Touch ID or the password">
 
 Discjockey opens and starts Setup.
 

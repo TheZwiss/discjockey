@@ -3,20 +3,6 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
-## 23. README screenshots of "Open Anyway" (2026-10-23)
-
-The README's Install and "Open Anyway" steps read complete without pictures; three screenshots would help. File
-names and where each goes, as an image line right under its step:
-
-- `docs/readme/open-anyway-1-warning.png`: the warning macOS shows the first time (under step 2).
-- `docs/readme/open-anyway-2-privacy.png`: the Discjockey line with **Open Anyway** in System Settings, Privacy &
-  Security (under step 4).
-- `docs/readme/open-anyway-3-confirm.png`: the warning that shows once more, with its **Open** button (under step 6).
-
-Take them on a Mac with a quarantined .dmg (issue 16's `xattr` line, or the draft release's download), crop each to
-the dialog or the settings line, add them, then link them in the README. `tests/test_docs_links.py` fails while a
-linked image isn't committed.
-
 ## 22. Go public (needs the user's go) (2026-10-23)
 
 Decide before the go:

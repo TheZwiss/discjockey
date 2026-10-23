@@ -19,6 +19,7 @@ RELEASES = "https://github.com/TheZwiss/discjockey/releases/latest"
 LINK = re.compile(r"!?\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
 FENCE = re.compile(r"^```.*?^```", re.S | re.M)
 CODE = re.compile(r"`[^`\n]*`")
+IMG = re.compile(r"<img\b[^>]*\bsrc=\"([^\"]+)\"")
 
 
 def _text(name: str) -> str:
@@ -53,7 +54,7 @@ def test_relative_links_and_images_resolve_to_tracked_files(name):
     tracked = _tracked()
     assert name in tracked
     base = (ROOT / name).parent
-    targets = LINK.findall(_prose(_text(name)))
+    targets = LINK.findall(_prose(_text(name))) + IMG.findall(_prose(_text(name)))
     assert targets, f"{name} has no links at all; the pattern is broken"
     for target in targets:
         if re.match(r"^[a-z][a-z0-9+.-]*:", target) or target.startswith("#"):
