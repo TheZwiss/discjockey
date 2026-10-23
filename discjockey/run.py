@@ -104,6 +104,17 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
     return Prepared(paths, plan.state, settings, plan, log, lines, fetched)
 
 
+def replan(prep: Prepared) -> Prepared:
+    """The plan worked out again after a run, read-only: the run's own Spotify read (`prep.fetched`) against the
+    state.json and the files the run left behind. What the hub's Sync page shows once a sync ends, so a finished
+    run is not offered again and nothing needs another Spotify read (issue 20). Raises StateError or SettingsError
+    when those files can't be read."""
+    state = library.load_state(prep.paths.state_file)
+    plan = planner.plan(prep.fetched, state, library.list_files(prep.paths), date.today())
+    return Prepared(prep.paths, plan.state, load_settings(prep.paths.settings_file), plan, rep.RunLog(datetime.now()),
+                    prep.lines, prep.fetched)
+
+
 LEFT_OUT = "left out of this run by you"
 NEW_SINCE_PREVIEW = "new since the preview, next run"
 

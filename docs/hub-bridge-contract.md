@@ -12,8 +12,11 @@ library (lists cut to 2 items, `data` cut).
 - Write methods return `{"ok": true, "job_id": <int>}` at once; the outcome arrives as a `JobFinished` event with the
   same `job_id` (see Jobs). At most one write job runs; others are refused with kind `busy` (hub) or `console`
   (a terminal run holds the lock).
-- After a write job finishes, re-fetch the screens you show (`track`, `todo`, `sidebar`, ...). After a sync or a
-  playlists save, `spotify.stale` is true: offer ↻ (`refresh()`).
+- After a write job finishes, re-fetch the screens you show (`track`, `todo`, `sidebar`, ...). After a playlists save,
+  `spotify.stale` is true: offer ↻ (`refresh()`). After a sync (finished, stopped or crashed) `sync_preview` is the
+  plan worked out again from the sync's own Spotify read and the library as the run left it (`read_at` = that read,
+  `stale` false), so what the run did is not offered again; only when state.json or settings.json can't be read then
+  does the old plan stay, with `stale` true.
 - Disable write buttons while `job_status().job.running` or `console_running`. ↻ is refused during the hub's own sync.
 
 ### Problem kinds (`kind` on ok:false, `problem` on JobFinished)

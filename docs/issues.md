@@ -3,13 +3,6 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
-## 20. Sync page offers the last run's tracks again after a finished sync (bug, 2026-10-23)
-
-When a sync has finished and nothing is left to sync, the Sync page still offers to sync the last run's tracks, even
-though they are fully synced. It shows "all complete" only after another Spotify read. Expected: right after the run
-finishes, the page shows that everything is synced. Check first: whether the page's plan comes from the Spotify read
-taken before the run and is not worked out again from the library once the run finishes.
-
 ## 16. Live check: the installed app (phase 7, spec public-release §11)
 
 Done 2026-10-23: v1.0.0 installed from the release, Open Anyway walked through (README screenshots), the window opens

@@ -542,14 +542,18 @@ def read_infos(paths: Paths, playlist_ids: list[str], infos: dict, token: Cancel
         pass
 
 
-def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str]]):
+def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str]],
+              now: Callable[[], datetime] = datetime.now):
     """A sync from the preview: a fresh plan (recovery, .tmp cleanup, new Spotify read), only the actions the user saw
-    and left ticked, filtered before open_qobuz; nothing left -> finish_quietly."""
+    and left ticked, filtered before open_qobuz; nothing left -> finish_quietly. Afterwards the preview is the plan
+    worked out again from that read and the library as the run left it (run.replan), so the Sync page shows what is
+    really left without reading Spotify again."""
     def work(ctx: JobContext) -> dict:
         previewed = store.keys()
         if not previewed and store.prep is None:
             raise ValueError("Read your Spotify playlists first (↻), so you can check the plan before it starts.")
         prep = run.prepare(paths, emit=ctx.emit, token=ctx.token)
+        read_at = now()
         new_since = sum(1 for a in prep.plan.actions if run.action_key(a) not in previewed)
         run.select_actions(prep, previewed, ticked)
         try:
@@ -560,7 +564,16 @@ def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str
                 qobuz_source = run.open_qobuz(prep)
                 code, report = run.execute(prep, qobuz_source, emit=ctx.emit, token=ctx.token)
         finally:
-            store.mark_stale()
+            preview_after_run(store, prep, read_at)
         return {"exit_code": code, "report": str(report), "actions": len(prep.plan.actions),
                 "new_since_preview": new_since}
     return work
+
+
+def preview_after_run(store: PreviewStore, prep: run.Prepared, read_at: datetime) -> None:
+    """The preview once a sync has ended (finished, stopped or not): the run's Spotify read planned again against
+    the library it left. If state.json or settings.json can't be read now, the old preview stays, marked stale."""
+    try:
+        store.ready(run.replan(prep), read_at)
+    except (library.StateError, settings.SettingsError):
+        store.mark_stale()

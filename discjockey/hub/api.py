@@ -848,7 +848,7 @@ class HubApi:
             if not (isinstance(key, (list, tuple)) and len(key) == 3 and all(isinstance(k, str) for k in key)):
                 raise ValueError("Each ticked action is [kind, track_id, to_dir].")
             ticked.add(tuple(key))
-        job = self._jobs.start("sync", sync_work(self._paths, self._store, ticked))
+        job = self._jobs.start("sync", sync_work(self._paths, self._store, ticked, self._svc.now))
         with self._lock:  # the sync has its own auto-stop; "Use this" starts a new streak after it
             self._qobuz_streak = {"failures_in_a_row": 0, "download_failed_in_row": False, "stopped": False}
             self._account_streaks = {}

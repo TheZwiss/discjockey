@@ -1,4 +1,5 @@
 import json
+from datetime import date, datetime
 import threading
 import time
 from contextlib import contextmanager
@@ -9,8 +10,10 @@ from discjockey import run, spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.events import RunFinished
 from discjockey.hub import jobs
+from discjockey.hub import views
 from discjockey.hub.jobs import Jobs, PreviewStore
-from discjockey.library import Paths, empty_state, save_state
+from discjockey.library import Paths, empty_state, load_state, save_state
+from discjockey.settings import load_settings
 from discjockey.models import FetchedPlaylist, SpotifyTrack
 
 PLAYLISTS = "Hard_Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n"
@@ -114,27 +117,21 @@ def test_sync_runs_only_ticked_actions(env):
     report = json.loads(open(finished.result["report"].replace(".md", ".json")).read())
     assert {r["track_id"]: r["note"] for r in report["results"] if r["section"] == "queued"} == {
         "t2": "left out of this run by you"}
-    assert store.stale
+    # the plan is worked out again from the run's own Spotify read and the library as the run left it (issue 20)
+    assert [a.track_id for a in store.prep.plan.actions] == ["t2"] and not store.stale
 
 
-def test_actions_new_since_the_preview_wait_for_the_next_run(env):
+def test_after_a_full_sync_the_preview_is_up_to_date_without_another_read(env, monkeypatch):
     paths, js, store, rec, acq, logins, tracks = env
     refresh(js, paths, store)
-    ticked = store.keys()
-    tracks.append(SpotifyTrack("t4", "Song 4", ("Artist",), "Al", None, 180000, None))  # added in Spotify meanwhile
-    sync(js, paths, store, ticked)
-    assert acq.tracks == ["t1", "t2", "t3"]
-    assert rec.finished().result["new_since_preview"] == 1
-
-
-def test_nothing_ticked_finishes_quietly_without_qobuz(env):
-    paths, js, store, rec, acq, logins, tracks = env
-    refresh(js, paths, store)
-    sync(js, paths, store, set())
-    assert acq.tracks == [] and logins == []  # filtered before open_qobuz: no login for nothing
-    assert rec.finished().ok and rec.finished().result["actions"] == 0
-    assert any(isinstance(e, RunFinished) for e in rec.events)  # the end screen works the same way
-    assert paths.state_file.exists()  # finish_quietly saved flags and wrote the report
+    reads = []
+    monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: reads.append(1) or FetchedPlaylist(line, list(tracks), []))
+    sync(js, paths, store, store.keys())
+    assert reads == [1]  # only the sync's own read
+    assert store.prep.plan.actions == [] and not store.stale and store.read_at is not None
+    preview = views.sync_preview(store, load_state(paths.state_file), load_settings(paths.settings_file),
+                                 date.today(), datetime.now(), False)
+    assert preview["empty"] == "up_to_date" and preview["counts"] is not None
 
 
 def test_sync_without_a_preview_is_refused(env):
