@@ -1,16 +1,19 @@
 <script lang="ts">
-  // Shell (spec §4, mockup layout.html option B): sidebar | content (banners on top, page below) | activity bar.
+  // Shell (spec §4, mockup layout.html option B; plan now-playing): sidebar | content (banners on top, page below),
+  // and under both the frame's foot (the player bar and/or the sync). Sidebar and foot are one L-shaped frame in one
+  // material, painted here once; the page sits inside it on the black background.
   import type { Component } from 'svelte';
   import { route, go } from '$lib/router';
   import { pageFor, type PageProps } from './pages/registry';
   import { hubSyncRunning, hub } from '$lib/stores/hub';
   import { musicGate } from '$lib/musicFolder';
-  import { attachAudio } from '$lib/stores/player';
+  import { attachAudio, player } from '$lib/stores/player';
+  import { keyTarget, playerKey } from '$lib/shell/footModel';
   import { onEvent } from '$lib/bridge/events';
   import { toasts } from '$lib/stores/toasts';
   import { clearReady } from '$lib/ready';
   import Sidebar from '$lib/shell/Sidebar.svelte';
-  import ActivityBar from '$lib/shell/ActivityBar.svelte';
+  import Foot from '$lib/shell/Foot.svelte';
   import Banners from '$lib/shell/Banners.svelte';
   import ToastHost from '$lib/shell/ToastHost.svelte';
   import ErrorBoundary from '$lib/shell/ErrorBoundary.svelte';
@@ -42,7 +45,18 @@
     }
   });
   const chrome = $derived(entry.chrome === 'app' && gate !== 'missing');
-  const showActivity = $derived(chrome && $hubSyncRunning && $route.name !== 'sync');
+  const syncInFoot = $derived(chrome && $hubSyncRunning && $route.name !== 'sync');
+
+  // the player's keys, on every page (plan now-playing, Keys): Space, ⌘→, ⌘←, only while a queue is up
+  function keys(e: KeyboardEvent) {
+    if (!$player.queue || e.defaultPrevented) return;
+    const k = playerKey(e, keyTarget(document.activeElement), !!document.querySelector('dialog[open]'));
+    if (!k) return;
+    e.preventDefault();
+    if (k === 'toggle') player.toggle();
+    else if (k === 'next') player.next();
+    else player.prev();
+  }
 
   let audio: HTMLAudioElement | undefined = $state();
   $effect(() => (audio ? attachAudio(audio) : undefined));
@@ -82,16 +96,20 @@
       <ToastHost />
     </div>
   </div>
-  {#if showActivity}<ActivityBar />{/if}
+  {#if chrome}<Foot p={$player} sync={syncInFoot} />{/if}
 </div>
+<svelte:window onkeydown={keys} />
 <audio bind:this={audio} hidden preload="auto"></audio>
 <ConfirmHost />
 {#if FakeToolbar}<FakeToolbar />{/if}
 
 <style>
-  .app { height: 100vh; display: flex; flex-direction: column; min-width: 1100px; min-height: 0; }
+  .app { height: 100vh; display: flex; flex-direction: column; min-width: 1100px; min-height: 0; background: var(--bg); }
+  /* the frame's one material behind sidebar and foot; the page area covers it in black */
+  .app:not(.nochrome) { background: var(--sidebar-bg); }
   .body { flex: 1; display: flex; min-height: 0; }
-  .content { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
+  .content { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative;
+    background: var(--bg); }
   .page { flex: 1; min-height: 0; overflow: auto; }
   .nochrome .page { overflow-y: auto; }
   .loading { width: min(100%, var(--content-max)); padding: var(--s-5); }

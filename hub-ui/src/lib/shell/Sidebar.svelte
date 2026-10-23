@@ -1,10 +1,14 @@
 <script lang="ts">
-  // Spec §4 / mockup layout.html option B: brand, the five areas, "Library" with every folder, Settings at the bottom.
+  // Spec §4 / mockup layout.html option B: brand, the five areas, "Library" with every folder, Settings at the bottom;
+  // while the player bar is hidden, its Now playing row above Settings. The frame's material (--sidebar-bg) is painted
+  // by App behind the sidebar and the foot together, so the L they form has no seam.
   import { hub } from '../stores/hub';
   import { route, link, libraryHref } from '../router';
   import { NOT_IN_PLAYLIST } from '../bridge/types';
   import { updateLink } from '../appUpdate';
   import { ExternalLink } from '../components';
+  import { player } from '../stores/player';
+  import NowPlayingRow from './NowPlayingRow.svelte';
 
   const side = $derived($hub.sidebar);
   const update = $derived(updateLink($hub.app_update));
@@ -52,13 +56,16 @@
     {/if}
   </div>
 
+  <!-- the hidden player bar, folded into the sidebar's foot (plan now-playing); the folders above give way -->
+  <NowPlayingRow p={$player} />
+
   <a class="nav settings" class:on={r.name === 'settings'} href="#/settings" use:link data-test="nav-settings">
     <span class="g" aria-hidden="true"><span class="gl">⚙</span></span><span class="t">Settings</span>
   </a>
 </nav>
 
 <style>
-  .side { width: var(--sidebar-w); flex-shrink: 0; background: var(--sidebar-bg); border-right: var(--bw) solid var(--surface-line);
+  .side { width: var(--sidebar-w); flex-shrink: 0; border-right: var(--bw) solid var(--surface-line);
     padding: var(--s-4) 10px;
     display: flex; flex-direction: column; gap: 2px; min-height: 0; }
   .head { margin: 0 6px var(--s-3); min-width: 0; }

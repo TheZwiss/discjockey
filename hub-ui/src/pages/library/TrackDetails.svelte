@@ -17,10 +17,12 @@
 
   type Spec = ComponentProps<typeof Spectrum>['spectrum'];
   let { detail, loading = false, gone = false, error = null, spectrum = null, spectrumLoading = false,
-    spectrumError = null, upgradeSpectrum = null, swapping = false, onretry, onfinder, ontodo, onswap }: {
+    spectrumError = null, upgradeSpectrum = null, swapping = false, onretry, onfinder, ontodo, onswap, onlisten }: {
     detail: TrackDetail | null; loading?: boolean; gone?: boolean; error?: Fail | null; spectrum?: Spec;
     spectrumLoading?: boolean; spectrumError?: string | null; upgradeSpectrum?: Spec; swapping?: boolean;
     onretry: () => void; onfinder: () => void; ontodo: () => void; onswap: () => void;
+    /** ▶ in the player: start the folder from this track (the page's queue) */
+    onlisten?: () => void;
   } = $props();
 
   const t = $derived(detail);
@@ -66,7 +68,7 @@
           {/if}
           {#if !t.upgrade}
             <MiniPlayer url={t.audio_url} title={artistTitle(t.artist, t.title)} track_id={t.track_id}
-              envelope={envelope(spectrum)} length_s={t.duration_s} />
+              envelope={envelope(spectrum)} length_s={t.duration_s} start={onlisten} />
           {/if}
           <div class="facts">
             {#if t.format_line}<KeyValue keyWidth={64} k="Format" v={t.format_line} />{/if}

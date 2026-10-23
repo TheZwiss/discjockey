@@ -122,6 +122,12 @@ their Qobuz daily limit. Long commands run in the background with a status line.
 - **Done means verified:** `uv run pytest -q` green; for any `hub-ui` change also `npm run verify`, `npm run build`
   and `npm run smoke` green; for visible changes, screenshots in fake mode (and the real window where the fake can't
   show it) looked at by you. Ask the user only for what needs a human: sound, feel, rekordbox, decisions.
+- **Scale the checks to the change; the full suite runs once.** `npm run verify` takes about 20 minutes (its rule
+  checker shoots every page), so it runs **once per branch, before the merge**, never after each fix or review round.
+  While working and for a fix, check only what changed: `npm run check`, the touched tests
+  (`npx vitest run <file>`, `uv run pytest -q tests/test_<x>.py`), `npm run rules -- --page P --only <shots>` for
+  the shots it affects, one screenshot or a measuring script for a visual or motion fix, and `npm run build` when
+  the user will run the app. Anything over a minute goes in the background with a status line.
 - New behaviour gets tests: engine logic in `tests/`, UI logic in a pure `*Model.ts` / `*.ts` with a `*.test.ts` next
   to it, a fake scenario + `shots.json` entry for each new screen state.
 - **UI work reads `docs/hub-design-language.md` first; pages use only the blocks; a missing pattern is added
@@ -131,7 +137,7 @@ their Qobuz daily limit. Long commands run in the background with a status line.
   - Choices are `ToggleGroup` rows or `Segmented`, never loose pills.
   - No prose on the background: one-line `Hint` under its control, `InfoTip`, or `NoteCard`.
   - Pages use only the blocks; a missing pattern is added centrally.
-  - `npm run verify` (it runs the rule checker) green before done.
+  - `npm run verify` (it runs the rule checker) green before the merge; per fix, `npm run rules` on the touched shots.
   - Improve, don't preserve: critique what you touch (edges, grouping, space at 1100 and 2560, hierarchy,
     consistency, intent) and fix what you find; consistency is absolute; every change names a reason, system changes
     happen once in the block, and taste goes to the user (spec §12).

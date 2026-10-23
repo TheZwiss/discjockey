@@ -21,6 +21,8 @@
     selectFromTrack,
   } from './todoModel';
   import Details from './Details.svelte';
+  import { listen } from '$lib/listen';
+  import { player } from '$lib/stores/player';
   import WrongSongDialog from './WrongSongDialog.svelte';
 
   let { params: _params, query }: { params: Record<string, string>; query: URLSearchParams } = $props();
@@ -35,6 +37,13 @@
 
   const items = $derived(flatten(data));
   const selected = $derived(items.find((i) => itemKey(i) === selKey) ?? null);
+
+  // ▶ in the details starts the to-do list as the queue: its rows with a file, in the order shown. A track that
+  // isn't among them (the list changed meanwhile) plays on its own.
+  function listenFrom(t: TrackDetail) {
+    if (listen(items, t.track_id, { label: 'To-do', href: '#/todo' })) return;
+    if (t.audio_url) player.play({ url: t.audio_url, title: artistTitle(t.artist, t.title), track_id: t.track_id });
+  }
 
   async function load() {
     const my = ++seq;
@@ -196,7 +205,7 @@
 {#snippet panel()}
   {#if track}
     <Details {track} item={selected?.track_id === track.track_id ? selected : null} onhidden={hidden}
-      onversions={openVersions} />
+      onversions={openVersions} onlisten={() => track && listenFrom(track)} />
   {:else}
     <Panel head={trackError ? failed : waiting} />
   {/if}

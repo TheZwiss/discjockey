@@ -23,8 +23,10 @@
   import UpgradeBox from './UpgradeBox.svelte';
   import BoughtFile from './BoughtFile.svelte';
 
-  let { track, item, onhidden, onversions }: {
+  let { track, item, onhidden, onversions, onlisten }: {
     track: TrackDetail; item: TodoItem | null;
+    /** ▶ in the player: start the to-do list (its rows with a file, in the order shown) from this track */
+    onlisten?: () => void;
     /** after "Hide" finished */
     onhidden: () => void;
     /** "Wrong song?" / "Find a version" (part B opens the dialog) */
@@ -156,7 +158,7 @@
         {/if}
         {#if act.listen && !track.upgrade}
           <MiniPlayer url={track.audio_url} title={artistTitle(track.artist, track.title)} track_id={track.track_id}
-            envelope={envelope(current)} length_s={track.duration_s} />
+            envelope={envelope(current)} length_s={track.duration_s} start={onlisten} />
         {/if}
         {#if track.format_line || qobuz}
           <div class="facts">

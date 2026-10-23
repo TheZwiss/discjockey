@@ -1,5 +1,7 @@
 <script lang="ts">
-  // Fake mode only: bottom-left pill "FAKE · normal ▾" to switch scenario and poke the fake backend.
+  // Fake mode only: a small "FAKE ▾" pill in the sidebar's head, right of the brand (the scenario in its tooltip and
+  // menu), to switch scenario and poke the fake backend. Up there it covers nothing the shots show: the window's
+  // bottom holds the frame's foot and the sidebar's Now playing row.
   import { SCENARIOS, pageScenarios } from '../bridge/fake';
   import { toasts } from '../stores/toasts';
 
@@ -43,11 +45,12 @@
       <a href="#/dev/gallery">Component gallery</a>
     </div>
   {/if}
-  <button type="button" class="pill" aria-expanded={open} onclick={() => (open = !open)}>FAKE · {current} ▾</button>
+  <button type="button" class="pill" aria-expanded={open} onclick={() => (open = !open)}
+    title="Fake mode · {current}">FAKE ▾</button>
 </div>
 
 <style>
-  .fake { position: fixed; left: 10px; bottom: 54px; z-index: 50; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+  .fake { position: fixed; left: 108px; top: 14px; z-index: 50; display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 6px; }
   .pill { border: var(--bw) dashed var(--line-control-hover); border-radius: var(--r-pill); background: var(--bg); color: var(--text-label);
     font-size: var(--fs-label); padding: 2px 9px; letter-spacing: .3px; }
   .menu { background: var(--bg); border: var(--bw) solid var(--line-control); border-radius: var(--r-card); padding: var(--s-2);

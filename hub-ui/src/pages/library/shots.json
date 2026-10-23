@@ -48,5 +48,20 @@
  { "name": "library-sorted-quality-desc", "route": "#/library/folder/Hard_Bounce", "scenario": "normal",
    "steps": [{ "wait": "[data-test^=row-]" }, { "click": "[data-test=sort-quality]" }, { "sleep": 300 },
      { "click": "[data-test=sort-quality]" }, { "sleep": 400 },
-     { "eval": "localStorage.removeItem('discjockey.library.sort')" }] }
+     { "eval": "localStorage.removeItem('discjockey.library.sort')" }] },
+ { "name": "library-now-playing", "route": "#/library/folder/Hard_Bounce?track=t2", "scenario": "normal",
+   "steps": [{ "wait": "[data-test=library-table] [data-test^=row-]" }, { "click": "[data-test=row-t2] [data-test=cover-play]" }, { "wait": "[data-test=foot-play][aria-label=Pause]" }, { "sleep": 1500 }] },
+ { "name": "library-now-playing-shuffle", "route": "#/library/folder/Hard_Bounce", "scenario": "normal",
+   "steps": [{ "wait": "[data-test=library-table] [data-test^=row-]" }, { "click": "[data-test=row-t2] [data-test=cover-play]" }, { "wait": "[data-test=foot-play][aria-label=Pause]" }, { "click": "[data-test=foot-shuffle]" }, { "click": "[data-test=foot-next]" }, { "sleep": 800 }] },
+ { "name": "library-now-playing-hidden", "route": "#/library/folder/Hard_Bounce", "scenario": "normal",
+   "steps": [{ "wait": "[data-test=library-table] [data-test^=row-]" }, { "click": "[data-test=row-t2] [data-test=cover-play]" }, { "wait": "[data-test=foot-play][aria-label=Pause]" }, { "click": "[data-test=foot-hide]" }, { "wait": "[data-test=now-playing-row]" }, { "sleep": 700 }] },
+ { "name": "library-now-playing-cant-play", "route": "#/library/folder/Hard_Bounce", "scenario": "library:cant_play",
+   "steps": [{ "wait": "[data-test=library-table] [data-test^=row-]" }, { "click": "[data-test=row-t2] [data-test=cover-play]" }, { "wait": "[data-test=foot-play][aria-label=Pause]" }, { "click": "[data-test=foot-next]" }, { "wait": "[data-test=foot-sub].err" }, { "sleep": 400 }] },
+ { "name": "library-now-playing-one", "route": "#/library/folder/Hard_Bounce", "scenario": "normal",
+   "steps": [{ "fill": ["input[type=search]", "naughty"] }, { "sleep": 500 }, { "wait": "[data-test=library-table] [data-test^=row-]" }, { "click": "[data-test=row-t2] [data-test=cover-play]" }, { "wait": "[data-test=foot-play][aria-label=Pause]" }, { "sleep": 400 }] },
+ { "name": "library-now-playing-end", "route": "#/library/folder/Hard_Bounce", "scenario": "normal",
+   "steps": [{ "wait": "[data-test=library-table] [data-test^=row-]" }, { "eval": "[...document.querySelectorAll('[data-test=library-table] [data-test^=row-]')].at(-1).querySelector('[data-test=cover-play]').click()" },
+     { "wait": "[data-test=foot-play][aria-label=Pause]" },
+     { "eval": "const a = document.querySelector('audio'); a.currentTime = a.duration - 0.2" },
+     { "wait": "[data-test=foot-play][aria-label=Play]" }, { "sleep": 400 }] }
 ]

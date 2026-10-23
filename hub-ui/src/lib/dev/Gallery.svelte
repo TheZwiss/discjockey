@@ -12,6 +12,11 @@
   import { fakeSpectrum } from '../bridge/fake/spectrum';
   import { toneUrl } from '../bridge/fake/audio';
   import { toasts } from '../stores/toasts';
+  import type { PlayerState } from '../stores/player';
+  import { EMPTY_RUN } from '../stores/run';
+  import { goTo, makeQueue, setShuffle as shuffleQueue, type QueueItem } from '../stores/queueModel';
+  import Foot from '../shell/Foot.svelte';
+  import NowPlayingRow from '../shell/NowPlayingRow.svelte';
   import { ColumnFrame, ListPanelFrame, Panel } from '../frames';
   import {
     AccountPanel, AddRow, CopyCode, NumberedSteps, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
@@ -43,6 +48,32 @@
   const upDifferent = makeUpgrade(weak, 'different', dateOnly(now));
   const toneA = toneUrl(40, 220);
   const toneB = toneUrl(40, 330);
+
+  // Foot · Now playing row: fixed player states (the real store is untouched; the buttons still act on it)
+  const qItems: QueueItem[] = tracks.filter((x) => x.path !== null).slice(0, 8)
+    .map(({ track_id, title, artist, cover_url, duration_s }) => ({ track_id, title, artist, cover_url, duration_s }));
+  const longItem: QueueItem = { ...qItems[0], title: 'Sonnenfinsternis (Extended Hardstyle Remix)',
+    artist: 'DJ Fluxkompensator & The Bounce Brigade' };
+  const np = (o: Partial<PlayerState> & { at?: number; items?: QueueItem[]; label?: string; shuffle?: boolean } = {}): PlayerState => {
+    const { at = 1, items = qItems, label = 'All tracks', shuffle = false, ...rest } = o;
+    const q = shuffleQueue(goTo(makeQueue(items, 0, { label, href: '#/library' }), Math.min(at, items.length - 1)), shuffle, () => .3);
+    const d = items[Math.min(at, items.length - 1)].duration_s;
+    return { url: 'blob:gallery', title: '', track_id: items[0].track_id, playing: true, loading: false,
+      position_s: (d ?? 200) * .48, duration_s: d, error: null, queue: q, hidden: false, ended: false, ...rest };
+  };
+  const syncRun = { ...EMPTY_RUN, phase: 'running' as const, total: 6, index: 4, qobuz: { used: 1, allowance: 80 } };
+  const FOOTS: [string, string, PlayerState, { edge?: number; sync?: boolean }][] = [
+    ['Playing', 'the page\'s lower edge is the position', np(), {}],
+    ['Pointer on the edge', 'it thickens, a knob at the position, the time under the pointer; click or drag', np(), { edge: .71 }],
+    ['Paused', '', np({ playing: false }), {}],
+    ['Loading the next track', 'the new title at once, no fill', np({ at: 2, url: null, loading: true, playing: false, position_s: 0, duration_s: null }), {}],
+    ["Can't play", "doesn't skip by itself; ⏮ ⏭ go on", np({ at: 2, url: null, playing: false, error: "Can't play this file.", position_s: 0 }), {}],
+    ['End of the list', '▶ plays it again from the top', np({ at: qItems.length - 1, playing: false, ended: true }), {}],
+    ['A list of one', 'a search with one hit: ⤮ ⏮ ⏭ grey', np({ at: 0, items: qItems.slice(0, 1), label: 'Bouncy · “neonf”' }), {}],
+    ['Shuffle on, from To-do', 'colour plus a dot', np({ label: 'To-do', shuffle: true }), {}],
+    ['Long names', 'cut with …, the full name in the tooltip', np({ at: 0, items: [longItem, ...qItems], label: 'Hard_Bounce_Classics_2026' }), {}],
+    ['Playing while a sync runs', 'the sync\'s short form at the right end, a link to Sync', np(), { sync: true }],
+  ];
   const sp = (o: Partial<SpotifyStatusT>): SpotifyStatusT => ({ read_at: new Date(now.getTime() - 120000).toISOString(),
     minutes_ago: 2, problem: null, message: '', stale: false, reading: false, offline: false, auto_read: true, ...o });
   const EMPTY_KINDS: EmptyKind[] = ['no_playlists', 'not_set_up', 'empty_library', 'no_preview', 'up_to_date', 'no_match',
@@ -975,6 +1006,24 @@
     </div>
   </section>
 
+  <section data-test="gallery-foot">
+    {@render head('Foot · Now playing row', 'The frame\'s foot: sidebar and a 44 px bar are one L in one material; the line along the page is the position; ⏯ sits on the window\'s centre; Hide folds it into the sidebar\'s row')}
+    {#each FOOTS as [title, sub, p, o] (title)}
+      <span class="cap">{sub ? `${title} · ${sub}` : title}</span>
+      <div class="footbox"><div class="pg"><span class="sb"></span></div>
+        <Foot {p} sync={o.sync ?? false} motion={false} edge={o.edge ?? null} run={syncRun} /></div>
+    {/each}
+    <span class="cap">Sync only · no queue, or the player hidden</span>
+    <div class="footbox"><div class="pg"><span class="sb"></span></div>
+      <Foot p={np({ queue: null })} sync motion={false} run={syncRun} /></div>
+    <span class="cap">The row, while hidden · playing · paused · the pointer on ⌃ Show player</span>
+    <div class="row">
+      <div class="rowbox"><NowPlayingRow p={np({ hidden: true })} motion={false} /></div>
+      <div class="rowbox"><NowPlayingRow p={np({ hidden: true, playing: false })} motion={false} /></div>
+      <div class="rowbox"><NowPlayingRow p={np({ hidden: true })} motion={false} hovered /></div>
+    </div>
+  </section>
+
   <section data-test="gallery-trackhead">
     {@render head('TrackHead · UpgradeCard', 'A details panel\'s head (beside: 64 px cover, one line each, an action at the title\'s end; stacked: Library) and the parked better version, compared and with its cue verdict (§7)')}
     <div class="col w360">
@@ -1110,4 +1159,11 @@
   .w480 { width: 480px; max-width: 100%; }
   .w640 { width: 640px; max-width: 100%; }
   .w800 { width: 800px; max-width: 100%; }
+  /* the foot with a sliver of page above it: the sidebar's 168 px column and its border, the frame's material */
+  .footbox { position: relative; display: flex; flex-direction: column; height: 88px; border-radius: var(--r-surface);
+    overflow: hidden; background: var(--sidebar-bg); border: var(--bw) solid var(--surface-line); }
+  .footbox .pg { flex: 1; display: flex; background: var(--bg); }
+  .footbox .sb { width: var(--sidebar-w); border-right: var(--bw) solid var(--surface-line); }
+  .rowbox { width: var(--sidebar-w); padding: 0 10px var(--s-2); background: var(--sidebar-bg); border-radius: var(--r-surface);
+    border: var(--bw) solid var(--surface-line); }
 </style>
