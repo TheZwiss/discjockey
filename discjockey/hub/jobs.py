@@ -208,7 +208,7 @@ def lock_free(path) -> bool:
 def problem_of(e: BaseException) -> tuple[str, str]:
     """(problem kind, plain message) for anything a job raised. Never a traceback."""
     if isinstance(e, run.RunCrashed):  # whatever it was, it stopped a running sync
-        return "crashed", rep.plain_error(e.error)
+        return "crashed", rep.CRASH_MESSAGE
     if isinstance(e, (Cancelled, KeyboardInterrupt)):
         return "stopped", "Stopped. Nothing was left half-done."
     if isinstance(e, library.NoLibrary):
@@ -231,7 +231,7 @@ def problem_of(e: BaseException) -> tuple[str, str]:
         return "protected", str(e)
     if isinstance(e, ValueError):
         return "refused", str(e)
-    return "crashed", rep.plain_error(e)
+    return "crashed", rep.CRASH_MESSAGE
 
 
 @dataclass

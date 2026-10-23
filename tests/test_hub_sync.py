@@ -155,14 +155,14 @@ def test_a_crash_during_the_run_files_a_crash_note_as_the_runs_report(env, monke
     crash_on("t2", monkeypatch)
     sync(js, paths, store, store.keys())
     finished = rec.finished()
-    assert (finished.ok, finished.problem) == (False, "crashed") and "KeyError" in finished.message
+    assert (finished.ok, finished.problem) == (False, "crashed") and finished.message == run.rep.CRASH_MESSAGE
     result = finished.result
     assert result["exit_code"] == 1 and result["actions"] == 3 and result["new_since_preview"] == 0
     md = open(result["report"], encoding="utf-8").read()
     note = main_text(md)
-    assert "The sync stopped unexpectedly" in note and "Artist - Song 2" in note and "KeyError" in note
+    assert "The sync stopped unexpectedly" in note and "Artist - Song 2" in note and "KeyError" not in note
     assert "saved" in note and "Traceback" not in note
-    assert "Traceback" in md  # below the note, for a bug report
+    assert "Traceback" in md and "KeyError: 'path'" in md.split("## Details for a bug report")[1]  # below the note
     data = json.loads(open(result["report"].replace(".md", ".json")).read())
     assert data["exit_code"] == 1 and "Song 2" in data["crashed"]
     assert [r["track_id"] for r in data["results"] if r["section"] == "new_lossless"] == ["t1"]
@@ -182,7 +182,8 @@ def test_a_crash_before_the_run_starts_still_files_a_note(env, monkeypatch):
     finished = rec.finished()
     assert (finished.ok, finished.problem) == (False, "crashed")
     note = main_text(open(finished.result["report"], encoding="utf-8").read())
-    assert "reading your Spotify playlists" in note and "RuntimeError: bad plan" in note
+    assert "reading your Spotify playlists" in note and "RuntimeError" not in note
+    assert "RuntimeError: bad plan" in open(finished.result["report"], encoding="utf-8").read()
     assert finished.result["actions"] == 0 and finished.result["exit_code"] == 1
 
 

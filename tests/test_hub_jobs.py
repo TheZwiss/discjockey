@@ -135,7 +135,8 @@ def test_problems_become_a_kind_and_a_plain_message(env, error, problem):
     js.start("x", work).done.wait(5)
     finished = rec.of(jobs.JobFinished)[-1]
     assert (finished.ok, finished.problem) == (False, problem)
-    assert str(error) in finished.message and "Traceback" not in finished.message
+    expected = jobs.rep.CRASH_MESSAGE if problem == "crashed" else str(error)  # a crash never shows the error itself
+    assert expected in finished.message and "Traceback" not in finished.message
 
 
 def test_the_snapshot_keeps_the_last_event_of_each_kind_and_all_results(env):

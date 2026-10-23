@@ -72,7 +72,7 @@ class RunLog:
     started: datetime
     results: list[Result] = field(default_factory=list)
     crashed: str | None = None  # the crash note (crash_note) when the run stopped on an unexpected error
-    crash_details: str = ""  # its traceback, for a bug report: below the note, never in it
+    crash_details: str = ""  # the error and its traceback, for a bug report: below the note, never in it
 
     def add(self, result: Result) -> None:
         self.results.append(result)
@@ -116,23 +116,22 @@ def render_report(log: RunLog, finished: datetime) -> str:
 CRASHED = "The sync stopped unexpectedly"
 
 
-def plain_error(error: BaseException) -> str:
-    """An unexpected error in one plain line: what the window and the crash note say (never a traceback)."""
-    return f"Something went wrong ({type(error).__name__}: {error})."
+CRASH_SAVED = "Everything done up to then is saved, and the next sync carries on from there."
+CRASH_MESSAGE = f"{CRASHED}. {CRASH_SAVED}"  # what the window says about a crashed sync
 
 
-def crash_note(at: datetime, step: str, error: BaseException) -> str:
-    """The crash note's main text: when, the step it was on, the error, and that what was done is saved."""
-    return (f"{CRASHED} at {at:%H:%M:%S} while {step}. {plain_error(error)} Everything done up to then is saved, "
-            "and the next sync carries on from there.")
+def crash_note(at: datetime, step: str) -> str:
+    """The crash note's main text: when, the step it was on, and that what was done is saved (no error type)."""
+    return f"{CRASHED} at {at:%H:%M:%S} while {step}. {CRASH_SAVED}"
 
 
 def write_crash(paths: Paths, log: RunLog, at: datetime, step: str, error: BaseException,
                 state: dict | None = None) -> Path:
     """Files a run that stopped on an unexpected error: its report (exit code 1) with the crash note on top, the
-    results so far under it, and the traceback at the very end. Returns the .md path."""
-    log.crashed = crash_note(at, step, error)
-    log.crash_details = "".join(traceback.format_exception(error))
+    results so far under it, and the technical details (the error, then the traceback) at the very end. Returns
+    the .md path."""
+    log.crashed = crash_note(at, step)
+    log.crash_details = f"{type(error).__name__}: {error}\n\n" + "".join(traceback.format_exception(error))
     return write_run(paths, log, at, 1, state)
 
 
