@@ -17,11 +17,6 @@ though they are fully synced. It shows "all complete" only after another Spotify
 finishes, the page shows that everything is synced. Check first: whether the page's plan comes from the Spotify read
 taken before the run and is not worked out again from the library once the run finishes.
 
-## 14. Folder field: a small gap before the last path part when a long path is cut (2026-10-23)
-
-- **Cosmetic.** When a long path is shortened (`~/M… /Discjockey`) a small gap shows before the last part. One CSS
-  change did not close it.
-
 ## 9. Engine: a crashed sync leaves no note in `reports/` (from the Task 10B review, 2026-10-21)
 
 - **A crash writes nothing the user can open.** `discjockey/hub/jobs.py` (around line 349) only prints the traceback to
