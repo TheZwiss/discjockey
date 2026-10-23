@@ -119,6 +119,26 @@ def test_plan_counts_and_estimate():
     assert views.estimate(many, {"remaining": 0, "limit": 60})["duration_min"] == 0
 
 
+def test_minutes_table_is_the_formula_once():
+    table = views.minutes_by_downloads(200)
+    assert len(table) == 201 and table[0] == 0
+    assert [table[n] for n in (1, 10, 45, 195)] == [5, 10, 50, 230]  # round(10.5) == 10, round(45.5) == 46
+    assert table == [views.run_minutes(n) for n in range(201)]
+    assert views.minutes_by_downloads(0) == [0]
+
+
+def test_sync_preview_gives_the_minutes_for_every_count_the_page_can_tick():
+    actions = [a("acquire", f"n{i}", "new") for i in range(12)] + [a("move", "m1"), a("upgrade", "u1")]
+    st = state()
+    p = views.sync_preview(store_with(actions, st), st, Settings(), TODAY, NOW, False)
+    est = p["estimate"]
+    assert est["qobuz_needed"] == 13
+    # one entry for 0 .. the downloads that fit today: the page ticks any subset of them
+    assert est["minutes_by_downloads"] == views.minutes_by_downloads(est["qobuz_uses"])
+    assert est["duration_min"] == est["minutes_by_downloads"][-1]
+    assert "minutes_by_downloads" not in views.estimate(actions, None)  # the dashboard's estimate stays as it was
+
+
 def test_still_to_load():
     money = {"remaining": 10, "limit": 60}
     store = store_with([a("acquire", f"t{i}", "new") for i in range(12)] + [a("upgrade", "u")])
@@ -666,6 +686,30 @@ def test_without_qobuz_the_accounts_fill_up_in_order():
     assert views.gate(m) == {"remaining": 4 + 80, "limit": 90}
     assert [(x["service"], x["uses"], x["about"]) for x in views.split(10, m)] == [("youtube", 4, True),
                                                                                     ("soundcloud", 6, True)]
+
+
+def test_the_estimate_table_agrees_with_split_for_every_count():
+    qobuz_low = state()
+    qobuz_low["qobuz_usage"]["days"] = {"2026-10-19": 60, "2026-10-20": 50}
+    yt_low = state()
+    yt_low["youtube_usage"] = {"days": {"2026-10-19": 30, "2026-10-20": 26}, "signals": []}
+    cases = [(qobuz_low, Settings()), (qobuz_low, BOTH),  # Qobuz first, the accounts behind it
+             (yt_low, Settings(qobuz_skipped=True, accounts=BOTH.accounts)),  # the accounts fill up in order
+             (state(), Settings(qobuz_skipped=True))]  # no limit at all
+    for st, settings in cases:
+        m = views.moneys(st, settings, TODAY)
+        for needed in (0, 3, 12, 120):
+            est = views.sync_estimate([a("acquire", f"n{i}") for i in range(needed)], m)
+            most = est["qobuz_uses"]
+            for count in range(most + 1):  # every subset the page can tick
+                for row, want in zip(est["accounts"], views.split(count, m)):
+                    table = row["uses_by_downloads"]
+                    assert (table is None) == (want["uses"] is None)
+                    assert table is None or len(table) == most + 1
+                    assert (None if table is None else table[count]) == want["uses"], (row["service"], count)
+            for row, whole in zip(est["accounts"], views.split(needed, m)):  # the whole plan is the last entry
+                assert row["uses"] == whole["uses"]
+                assert row["uses_by_downloads"] is None or row["uses_by_downloads"][-1] == row["uses"]
 
 
 def test_no_limit_without_any_account():

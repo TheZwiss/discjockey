@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { ActionKey, EstimateAccount, PreviewAction, SyncPreview } from '$lib/bridge/types';
+import type { ActionKey, EstimateAccount, PreviewAction, SyncAccount, SyncPreview } from '$lib/bridge/types';
 import {
-  FULL_SCOPE, dayBarInput, defaultHowMany, facets, folderItems, foldText, howManyOptions, inRunOrder, isKindKey, kindItems,
-  kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount, runMinutes,
-  runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
+  FULL_SCOPE, type Scope, dayBarInput, defaultHowMany, downloadsInScope, inScope, facets, folderItems, foldText, howManyOptions, inRunOrder, isKindKey, kindItems,
+  kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount,
+  minutesFor, runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
   startLabel, tagOf, toggleScope, waitsWhole, whyColumn,
 } from './planModel';
 import { keyId } from './selection';
@@ -105,20 +105,38 @@ describe('next sync and the summary', () => {
     const noA = new Set([...all].filter((k) => JSON.parse(k)[1] !== 'a'));
     expect(ids(nextSyncSet(ordered, noA, FULL_SCOPE, 2))).toEqual(['u']);
   });
+  // the engine's table (views.minutes_by_downloads): the page never repeats the formula, it looks the count up
+  const table = [0, 5, 5, 5, 5, 5, 5, 10, 10, 10, 10];
+  it('the minutes for a count of downloads are looked up in the engine\'s table', () => {
+    expect(minutesFor(table, 0)).toBe(0);
+    expect(minutesFor(table, 4)).toBe(5);
+    expect(minutesFor(table, 10)).toBe(10);
+    expect(minutesFor(table, 99)).toBe(10);   // never more than the table's last entry (what fits today)
+    expect(minutesFor([], 3)).toBe(0);        // no preview yet
+  });
   it('only the downloads that fit today take time; the rest follow over days', () => {
-    expect(runMinutes(0)).toBe(0);
-    expect(runMinutes(1)).toBe(5);
-    expect(runMinutes(10)).toBe(10);
-    expect(runMinutes(195)).toBe(230);   // round(45.5) == 46, as in Python
-    expect(runMinutes(45)).toBe(50);     // round(10.5) == 10, as in Python
-    expect(runTotals(ordered, 195, 10, 60)).toEqual({ tracks: 5, downloads: 4, uses: 4, minutes: 5, waiting: 0,
+    expect(runTotals(ordered, 195, 10, 60, table)).toEqual({ tracks: 5, downloads: 4, uses: 4, minutes: 5, waiting: 0,
       after: 191, days: 1 + 4 });  // 6 still fit today, so today counts
-    expect(runTotals(ordered, 4, 2, 60)).toMatchObject({ uses: 2, waiting: 2, after: 2, days: 1 });
-    expect(runTotals([], 0, 10, 60)).toMatchObject({ tracks: 0, minutes: 0, after: 0, days: 0 });
+    expect(runTotals(ordered, 4, 2, 60, table)).toMatchObject({ uses: 2, waiting: 2, after: 2, days: 1, minutes: 5 });
+    expect(runTotals([], 0, 10, 60, table)).toMatchObject({ tracks: 0, minutes: 0, after: 0, days: 0 });
     // the issue's numbers: 108 to go, today's limit used up, 66 a day → 2 more days, as the dashboard says
-    expect(runTotals(ordered, 108, 0, 66)).toMatchObject({ uses: 0, after: 108, days: 2 });
+    expect(runTotals(ordered, 108, 0, 66, [0])).toMatchObject({ uses: 0, minutes: 0, after: 108, days: 2 });
     // 4 ticked of 30 left today: the other 26 can still load today, so today counts (views.days_to_load)
-    expect(runTotals(ordered, 108, 30, 66)).toMatchObject({ uses: 4, after: 104, days: 1 + 2 });
+    expect(runTotals(ordered, 108, 30, 66, table)).toMatchObject({ uses: 4, after: 104, days: 1 + 2 });
+  });
+  it('Later counts only the downloads in scope, so Today + Later is "All N" (issue 7)', () => {
+    const plan = [act('acquire', 'a'), act('acquire', 'b'), act('acquire', 'c'), act('move', 'm'),
+      act('acquire', 'x', 'Off_List'), act('acquire', 'y', 'Off_List'), act('upgrade', 'w')];
+    const scope: Scope = { folders: ['Off_List'], kinds: ['weekly'] };
+    expect(downloadsInScope(plan, scope)).toBe(3);   // a, b, c: not Off_List's two, not the weekly check
+    expect(downloadsInScope(plan, FULL_SCOPE)).toBe(6);
+    const chosen = plan.filter((a) => inScope(a, scope));
+    const t = runTotals(chosen, downloadsInScope(plan, scope), 2, 60, table);
+    expect(t).toMatchObject({ uses: 2, after: 1, days: 1 });
+    expect(t.uses + t.after).toBe(presets(downloadsInScope(plan, scope), 2).at(-1)!.n);   // "All 3"
+    // nothing in scope: no Later, the switched-off tracks are only the plan's "left out" note
+    expect(runTotals([], downloadsInScope(plan, { folders: ['Hard_Bounce', 'Off_List'], kinds: [] }), 2, 60, table))
+      .toMatchObject({ after: 0, days: 0 });
   });
 });
 
@@ -139,12 +157,24 @@ describe('search and run order', () => {
   });
 });
 
+type DropFirst<T extends unknown[]> = T extends [unknown, ...infer R] ? R : never;
+// The engine's tables (views.sync_estimate: `uses_by_downloads` for every count), built here from the accounts'
+// `left`: Qobuz first takes up to what is left, a backup behind Qobuz gets none, without Qobuz the accounts fill up in
+// order. tests/test_hub_views.py pins the engine's own numbers against views.split.
+const withTables = (accounts: EstimateAccount[], most = 200): SyncAccount[] => {
+  const qobuz = accounts.some((a) => a.service === 'qobuz');
+  const at = (n: number) => { let rest = n; return accounts.map((a) => {
+    const uses = qobuz && a.service !== 'qobuz' ? null : Math.min(rest, Math.max(a.left, 0));
+    rest -= uses ?? 0; return uses; }); };
+  const tables = Array.from({ length: most + 1 }, (_, n) => at(n));
+  return accounts.map((a, i) => ({ ...a, uses_by_downloads: tables[0][i] === null ? null : tables.map((t) => t[i] as number) }));
+};
 const acc = (over: Partial<EstimateAccount>): EstimateAccount => ({ service: 'qobuz', name: 'Qobuz', uses: 10,
   left: 10, limit: 60, about: false, ...over });
 
 // a service row's words and bar (`value` null: a backup behind Qobuz, drawn without a bar)
-const lines = (...args: Parameters<typeof serviceRows>) =>
-  serviceRows(...args).map(({ service, text, value }) => ({ service, text, value }));
+const lines = (accounts: EstimateAccount[], ...rest: DropFirst<Parameters<typeof serviceRows>>) =>
+  serviceRows(withTables(accounts), ...rest).map(({ service, text, value }) => ({ service, text, value }));
 describe('service rows', () => {
   it('Qobuz first, the accounts catch what Qobuz lacks', () => {
     expect(lines([acc({}), acc({ service: 'youtube', name: 'YouTube Premium', uses: null, left: 30, limit: 30,
@@ -293,11 +323,22 @@ describe('run panel (9B)', () => {
   });
   const acc = (o: object) => ({ service: 'qobuz', name: 'Qobuz', uses: 10, left: 10, limit: 60, about: false, ...o }) as never;
   it('gives each service a short "U of L" for its row', () => {
-    expect(serviceRows([acc({}), acc({ service: 'youtube', name: 'YouTube Premium', uses: null, left: 30, limit: 30,
-      about: true })], 12).map((r) => [r.name, r.short, r.value])).toEqual([
+    expect(serviceRows(withTables([acc({}), acc({ service: 'youtube', name: 'YouTube Premium', uses: null, left: 30, limit: 30,
+      about: true })]), 12).map((r) => [r.name, r.short, r.value])).toEqual([
       ['Qobuz', '10 of 10', 1], ['YouTube', '30 left', null]]);
-    expect(serviceRows([acc({ service: 'youtube', name: 'YouTube Premium', uses: 4, left: 30, limit: 30, about: true })], 4)
+    expect(serviceRows(withTables([acc({ service: 'youtube', name: 'YouTube Premium', uses: 4, left: 30, limit: 30, about: true })]), 4)
       .map((r) => [r.short, r.text])).toEqual([['~4 of 30', 'YouTube Premium: uses about 4 of 30 left']]);
+  });
+});
+
+describe('service rows look the count up in the engine tables', () => {
+  const sa = (o: object) => ({ service: 'qobuz', name: 'Qobuz', uses: 3, left: 3, limit: 60, about: false,
+    uses_by_downloads: [0, 1, 2, 3], ...o }) as SyncAccount;
+  it('reads the entry for the ticked count and takes the last one for a larger count', () => {
+    expect(serviceRows([sa({})], 2).map((r) => r.short)).toEqual(['2 of 3']);
+    expect(serviceRows([sa({})], 50).map((r) => r.short)).toEqual(['3 of 3']);
+    expect(serviceRows([sa({}), sa({ service: 'youtube', name: 'YouTube Premium', uses: null, uses_by_downloads: null,
+      about: true })], 2).map((r) => r.short)).toEqual(['2 of 3', '3 left']);
   });
 });
 
@@ -305,8 +346,8 @@ describe('service rows name the service, the tooltip names the plan (Task 9C M1)
   const acc = (service: EstimateAccount['service'], name: string, left: number): EstimateAccount =>
     ({ service, name, uses: null, left, limit: left, about: false });
   it('uses the short service name in the row and keeps the full one in the tooltip', () => {
-    const rows = serviceRows([acc('qobuz', 'Qobuz', 10), acc('youtube', 'YouTube Premium', 30),
-      acc('soundcloud', 'SoundCloud Go+', 48)], 20);
+    const rows = serviceRows(withTables([acc('qobuz', 'Qobuz', 10), acc('youtube', 'YouTube Premium', 30),
+      acc('soundcloud', 'SoundCloud Go+', 48)]), 20);
     expect(rows.map((r) => r.name)).toEqual(['Qobuz', 'YouTube', 'SoundCloud']);
     expect(rows[1].text).toContain('YouTube Premium');
     expect(rows[2].text).toContain('SoundCloud Go+');

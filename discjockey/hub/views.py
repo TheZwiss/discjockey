@@ -88,6 +88,12 @@ def run_minutes(downloads: int) -> int:
     return max(5, 5 * round(downloads * SECONDS_PER_DOWNLOAD / 300))
 
 
+def minutes_by_downloads(most: int) -> list[int]:
+    """run_minutes for 0 .. `most` downloads. The Sync page ticks and unticks actions, so it needs the time for any
+    smaller count at once; it looks it up here instead of repeating the formula (and without a bridge call per tick)."""
+    return [run_minutes(n) for n in range(max(most, 0) + 1)]
+
+
 def days_to_load(rest: int, remaining_today: int, limit: int) -> int:
     """The days the rest takes, today counted only when something is left today: 1 if the rest fits today's
     remaining allowance, else 1 + ceil((rest − today's remaining) ÷ daily limit); with nothing left today it starts
@@ -175,6 +181,21 @@ def estimate(actions: list, money: dict | None, accounts: list | tuple = ()) -> 
     return {"duration_min": run_minutes(fits), "qobuz_limit": limit, "qobuz_needed": needed,
             "qobuz_left": needed if left is None else left, "qobuz_uses": fits,
             "accounts": list(accounts), "left": left, "limit": limit}
+
+
+def sync_estimate(actions: list, money: dict[str, dict]) -> dict:
+    """The preview's estimate: `estimate()` plus what the page needs for any ticked subset of the plan. A subset has
+    fewer downloads, and at most `left` of them run, so `qobuz_uses` is the most it can run today. `minutes_by_downloads`
+    is the time for 0 .. that many downloads. Each account also gets `uses_by_downloads`: its `uses` (split()) for
+    each of those counts, null for an account behind Qobuz; a larger count runs no more, so the page takes the last
+    entry. The page looks these up and never repeats split() or the formula. `money`: moneys()."""
+    needed = downloads_in(actions)
+    e = estimate(actions, gate(money), split(needed, money))
+    most = e["qobuz_uses"]
+    by_count = [split(n, money) for n in range(most + 1)]
+    accounts = [{**acc, "uses_by_downloads": None if acc["uses"] is None else [rows[i]["uses"] for rows in by_count]}
+                for i, acc in enumerate(e["accounts"])]
+    return {**e, "accounts": accounts, "minutes_by_downloads": minutes_by_downloads(most)}
 
 
 def planned(prep, state: dict) -> tuple[list, list]:
@@ -753,7 +774,7 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
             "groups": [{"key": key, "label": label,
                         "actions": [{**action_row(a, plan_state, cover), "run": run_index[id(a)]} for a in groups[key]]}
                        for key, label in PLAN_LABELS if key in groups],
-            "estimate": estimate(todo, gate(m), split(downloads_in(todo), m)),
+            "estimate": sync_estimate(todo, m),
             "never": [action_row(a, plan_state, cover) for a in never],
             "folders": [line.folder for line in prep.lines],
             "in_playlists": len(in_playlists),

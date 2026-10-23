@@ -18,7 +18,7 @@ from typing import Callable
 from . import config, library, planner, quality, report as rep, spotify
 from .accounts import ACCOUNTS
 from .acquire import Acquirer, make_ready
-from .events import Cancelled, CancelToken, Emit, Message, ReadingPlaylist, Result, RunFinished, no_emit
+from .events import ActionStarted, Cancelled, CancelToken, Emit, Message, ReadingPlaylist, Result, RunFinished, no_emit
 from .execute import Executor
 from .fallback import FallbackSource, stream_url
 from .library import Paths, StateError
@@ -37,6 +37,15 @@ class SetupProblem(Exception):
     def __init__(self, message: str, kind: str = "config_invalid"):
         super().__init__(message)
         self.kind = kind
+
+
+class RunCrashed(Exception):
+    """execute() stopped on an unexpected error (`error`, chained as the cause). The run is filed anyway: state saved,
+    `report` holds the crash note, and RunFinished (exit code 1) was sent."""
+
+    def __init__(self, error: Exception, report: Path):
+        super().__init__(str(error))
+        self.error, self.report = error, report
 
 
 @dataclass
@@ -102,6 +111,17 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
     for track, folder, files in plan.ambiguous:
         log.add(Result("ambiguous", folder, track.first_artist, track.title, track.id, "; ".join(files)))
     return Prepared(paths, plan.state, settings, plan, log, lines, fetched)
+
+
+def replan(prep: Prepared) -> Prepared:
+    """The plan worked out again after a run, read-only: the run's own Spotify read (`prep.fetched`) against the
+    state.json and the files the run left behind. What the hub's Sync page shows once a sync ends, so a finished
+    run is not offered again and nothing needs another Spotify read (issue 20). Raises StateError or SettingsError
+    when those files can't be read."""
+    state = library.load_state(prep.paths.state_file)
+    plan = planner.plan(prep.fetched, state, library.list_files(prep.paths), date.today())
+    return Prepared(prep.paths, plan.state, load_settings(prep.paths.settings_file), plan, rep.RunLog(datetime.now()),
+                    prep.lines, prep.fetched)
 
 
 LEFT_OUT = "left out of this run by you"
@@ -190,12 +210,31 @@ def finish_quietly(prep: Prepared, emit: Emit = no_emit) -> tuple[int, Path]:
     return code, rep.write_run(prep.paths, prep.log, datetime.now(), code, prep.state)
 
 
+STEP_VERBS = {"acquire": "downloading", "upgrade": "looking for a better version of", "move": "moving",
+              "adopt": "picking up", "adopt_bought": "adding the bought file of"}
+
+
+def action_step(event: ActionStarted) -> str:
+    """The step a crash note names while an action runs: "downloading Artist - Title (track 2 of 9)"."""
+    a = event.action
+    return (f"{STEP_VERBS.get(a.kind, 'working on')} {a.track.first_artist} - {a.track.title} "
+            f"(track {event.index} of {event.total})")
+
+
 def execute(prep: Prepared, qobuz, *, emit: Emit = no_emit, token: CancelToken | None = None,
             limit: int | None = None, verbose: bool = False) -> tuple[int, Path]:
     """Runs the plan. Returns (exit code, report path); 130 when stopped through the token (or a KeyboardInterrupt).
-    State, not_lossless.md and the report are always written, whatever happens."""
+    State, not_lossless.md and the report are always written, whatever happens. An unexpected error files the run
+    with a crash note as its report (exit code 1, RunFinished sent) and raises RunCrashed."""
     token = token or CancelToken()
     paths, state = prep.paths, prep.state
+    step = "getting ready"
+
+    def tracking(event: object) -> None:
+        nonlocal step
+        if isinstance(event, ActionStarted):
+            step = action_step(event)
+        emit(event)
 
     def save() -> None:
         library.save_state(paths.state_file, state)
@@ -208,14 +247,18 @@ def execute(prep: Prepared, qobuz, *, emit: Emit = no_emit, token: CancelToken |
     fallback = FallbackSource(verbose=verbose, emit=emit, check=token.check,
                               logins={s: (a.browser, a.profile) for s, a in prep.settings.accounts.items()})
     acquirer = Acquirer(qobuz, fallback, budget, Pacer(emit, token), make_ready, emit=emit, accounts=accounts)
-    executor = Executor(paths, state, prep.log, acquirer, quality.inspect, emit=emit, token=token, limit=limit)
-    code = 0
+    executor = Executor(paths, state, prep.log, acquirer, quality.inspect, emit=tracking, token=token, limit=limit)
+    code, crash = 0, None
     try:
+        step = "looking up the bitrate of older downloads"
         if fill_kbps(state, fallback, emit):
             save()
         executor.run(prep.plan.actions)
+        step = "saving the results"
     except (Cancelled, KeyboardInterrupt):
         code = 130
+    except Exception as e:  # noqa: BLE001 - filed with a crash note below, then raised as RunCrashed
+        code, crash = 1, e
     finally:
         if qobuz:
             qobuz.close()
@@ -223,6 +266,11 @@ def execute(prep: Prepared, qobuz, *, emit: Emit = no_emit, token: CancelToken |
         rep.write_not_lossless(paths, state)
         if code == 0 and prep.log.section("errors"):
             code = 1
-        path = rep.write_run(paths, prep.log, datetime.now(), code, state)
+        if crash is None:
+            path = rep.write_run(paths, prep.log, datetime.now(), code, state)
+        else:
+            path = rep.write_crash(paths, prep.log, datetime.now(), step, crash, state)
         emit(RunFinished(code, str(path)))
+    if crash is not None:
+        raise RunCrashed(crash, path) from crash
     return code, path

@@ -6,7 +6,7 @@
   // ListRows. Every list keeps the action's slot, so the badges share one right edge. The foot holds Done, the one
   // filled button, or Sync the rest → with Done beside it.
   // A failed sync JobFinished shows its ProblemCard (a problem-tone card) in the same frame; Back to the plan in the
-  // foot is the way on (a crash writes no report yet: docs/issues.md).
+  // foot is the way on. A crash is filed with a crash note as the run's report, so its card opens it (Open report).
   import { onMount } from 'svelte';
   import { Badge, Button, Cover, ExternalLink, Hint, ListRow, PageHeader, ProblemCard, QualityBar, StatCard,
     Surface } from '$lib/components';

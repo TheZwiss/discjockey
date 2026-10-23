@@ -1,12 +1,12 @@
 // The Sync page's plan before the start (docs/archive/pre-public/hub-ui-pages/sync-REDESIGN.md): kinds and tags of the rows, the scope (playlists and kinds
 // in this run), the "how many" presets, the "next sync" tags and the "This run" summary. Pure, so it is tested.
 import type { SegOption } from '$lib/components/segmentedModel';
-import type { EstimateAccount, PreviewAction, SyncPreview } from '$lib/bridge/types';
+import type { PreviewAction, SyncAccount, SyncPreview } from '$lib/bridge/types';
 import { daysToLoad } from '$lib/days';
 import type { DayBarInput } from '$lib/components/dayBarModel';
 import type { ToggleItem } from '$lib/components/toggleModel';
 import { estimate, foldText, plural, serviceName } from '$lib/format';
-import { SECONDS_PER_DOWNLOAD, allActions, keyId } from './selection';
+import { allActions, keyId } from './selection';
 
 export const PREF_SCOPE = 'sync.scope';
 
@@ -56,15 +56,11 @@ export const isDownload = (a: { kind: string }) => a.kind === 'acquire' || a.kin
 /** Only downloads can be "never download" (an existing file is never touched by it). */
 export const canNever = (a: { kind: string }) => a.kind === 'acquire';
 
-/** Python's round(): halves go to the even neighbour (round(10.5) == 10). */
-export function roundHalfEven(x: number): number {
-  const f = Math.floor(x);
-  const d = x - f;
-  return d > 0.5 + 1e-9 ? f + 1 : d < 0.5 - 1e-9 ? f : f % 2 === 0 ? f : f + 1;
-}
-/** views.run_minutes: ≈ 70 s per download, rounded to 5 minutes (at least 5). */
-export const runMinutes = (downloads: number) =>
-  downloads <= 0 ? 0 : Math.max(5, 5 * roundHalfEven((downloads * SECONDS_PER_DOWNLOAD) / 300));
+/** The minutes for `downloads` downloads, looked up in the engine's table (`estimate.minutes_by_downloads`, the
+ * formula lives in views.run_minutes). The table ends at what fits today, so a larger count gets its last entry;
+ * no table yet (no preview): 0. */
+export const minutesFor = (table: number[], downloads: number): number =>
+  downloads <= 0 ? 0 : (table[Math.min(downloads, table.length - 1)] ?? 0);
 
 /** Every action in the order the sync works through them (the backend's `run` index). */
 export const inRunOrder = (p: SyncPreview | null): PreviewAction[] => allActions(p);
@@ -156,25 +152,23 @@ export type RunTotals = {
   uses: number;            // Qobuz downloads this run uses (min(downloads, left))
   minutes: number;         // only the downloads that fit today take time
   waiting: number;         // ticked downloads over today's limit: they wait for the next sync
-  after: number;           // downloads in the whole plan still to come after this run
+  after: number;           // downloads in scope still to come after this run (the DayBar's Later)
   days: number;            // more days for those at the daily limit (today counts while some is left: daysToLoad)
 };
 /** One row per service with a daily limit (spec §7, §8 several services), for the `downloads` the DJ ticked
- * (views.split on the client: the server's numbers are for the whole plan). Qobuz takes min(downloads, left),
- * exactly; behind Qobuz the accounts only catch the tracks Qobuz doesn't have; without Qobuz the accounts fill up in
- * order, as estimates. `short` is the number column ("10 of 10", "~4 of 30" for an estimate, "30 left" for a
+ * (looked up in each account's `uses_by_downloads`, the engine's views.split for every count; a count over the table
+ * takes its last entry). Qobuz takes min(downloads, left), exactly; behind Qobuz the accounts only catch the tracks
+ * Qobuz doesn't have; without Qobuz the accounts fill up in order, as estimates. `short` is the number column ("10 of 10", "~4 of 30" for an estimate, "30 left" for a
  * backup); `value` the mini bar's share, null for a backup behind Qobuz (no bar: an empty one reads as unused);
  * `text` the full sentence (the row's tooltip, Dashboard's quota line). `limitReached`: the "limit is reached"
  * warning shows, so a used-up service says nothing more. */
 export type ServiceRow = { service: string; name: string; text: string; value: number | null; short: string };
-export function serviceRows(accounts: EstimateAccount[], downloads: number, { limitReached = false } = {}): ServiceRow[] {
+export function serviceRows(accounts: SyncAccount[], downloads: number, { limitReached = false } = {}): ServiceRow[] {
   if (!downloads) return [];
-  const qobuz = accounts.some((a) => a.service === 'qobuz');
-  let rest = downloads;
   const out: ServiceRow[] = [];
   for (const a of accounts) {
-    const uses = qobuz && a.service !== 'qobuz' ? null : Math.min(rest, Math.max(a.left, 0));
-    rest -= uses ?? 0;
+    const table = a.uses_by_downloads;
+    const uses = table === null ? null : (table[Math.min(downloads, table.length - 1)] ?? 0);
     if (limitReached && a.left <= 0) continue;
     const about = a.about ? 'about ' : '';
     out.push(uses === null
@@ -186,16 +180,24 @@ export function serviceRows(accounts: EstimateAccount[], downloads: number, { li
   return out;
 }
 
-export function runTotals(chosen: PreviewAction[], allDownloads: number, left: number, limit: number): RunTotals {
+/** The downloads in the playlists and kinds the user left on: what "All N" counts, and what Later counts from. */
+export const downloadsInScope = (ordered: PreviewAction[], scope: Scope): number =>
+  ordered.filter((a) => isDownload(a) && inScope(a, scope)).length;
+
+/** `chosen` the ticked actions in scope; `scopedDownloads` the downloads in scope (`downloadsInScope`): Later counts
+ * only those (issue 7, the user's ruling), so Today + Later is "All N" when everything in scope is ticked, and the
+ * days follow the same number. What's switched off is the plan's "more tracks left out" note, never Later. */
+export function runTotals(chosen: PreviewAction[], scopedDownloads: number, left: number, limit: number,
+  minutesTable: number[]): RunTotals {
   const downloads = chosen.filter(isDownload).length;
   const uses = Math.min(downloads, Math.max(left, 0));
-  const after = Math.max(0, allDownloads - uses);
-  return { tracks: chosen.length, downloads, uses, minutes: runMinutes(uses), waiting: downloads - uses, after,
+  const after = Math.max(0, scopedDownloads - uses);
+  return { tracks: chosen.length, downloads, uses, minutes: minutesFor(minutesTable, uses), waiting: downloads - uses, after,
     days: limit > 0 ? daysToLoad(after, Math.max(left, 0) - uses, limit) : 0 };
 }
 
 // ---------- the run panel's blocks ----------
-/** The DayBar's numbers: today's downloads, the plan's downloads after this run and their days, the moves. `left`
+/** The DayBar's numbers: today's downloads, the downloads in scope after this run and their days, the moves. `left`
  * null means no daily limit (only free sources), so nothing waits for a later day. */
 export function dayBarInput(t: RunTotals, left: number | null, moves: number): DayBarInput {
   const limited = left !== null;

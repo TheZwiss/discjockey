@@ -371,18 +371,10 @@ def test_the_public_commit_is_not_signed_whatever_the_git_settings_say(repo):
     assert "gpgsig" not in repo.git("cat-file", "-p", "public-main")
 
 
-def test_issue_22_contributing_and_claude_md_say_what_the_script_prints(repo):
-    """The printed go-moment commands, the issue's steps, CONTRIBUTING and CLAUDE.md must agree."""
+def test_contributing_and_claude_md_say_how_to_push_a_tag():
+    """CONTRIBUTING and CLAUDE.md push a release tag by name, never with --tags/--all/--mirror. (Issue 22, the
+    go-moment these steps were checked against, is done and gone from docs/issues.md.)"""
     squash = lambda text: re.sub(r"\s+", " ", text)  # noqa: E731
-    commands = printed_commands(repo.run("--email", EMAIL).stdout)
-    issue = squash((REPO / "docs" / "issues.md").read_text())
-    issue = issue[issue.index("## 22. Go public"):]
-    for command in commands:
-        if command.startswith(("for ", "git config")):  # a loop and an identity the issue only describes
-            continue
-        assert command in issue, command
-    assert "`user.name`" in issue and "`user.email`" in issue
-    assert "git push origin v1.0.0" in issue and "never `--tags`, `--all` or `--mirror`" in issue
     for name in ("CONTRIBUTING.md", "CLAUDE.md"):
         text = squash((REPO / name).read_text())
         assert re.search(r"git push origin v<version>|git push origin v1\.0\.1", text), name

@@ -12,8 +12,11 @@ library (lists cut to 2 items, `data` cut).
 - Write methods return `{"ok": true, "job_id": <int>}` at once; the outcome arrives as a `JobFinished` event with the
   same `job_id` (see Jobs). At most one write job runs; others are refused with kind `busy` (hub) or `console`
   (a terminal run holds the lock).
-- After a write job finishes, re-fetch the screens you show (`track`, `todo`, `sidebar`, ...). After a sync or a
-  playlists save, `spotify.stale` is true: offer ↻ (`refresh()`).
+- After a write job finishes, re-fetch the screens you show (`track`, `todo`, `sidebar`, ...). After a playlists save,
+  `spotify.stale` is true: offer ↻ (`refresh()`). After a sync (finished, stopped or crashed) `sync_preview` is the
+  plan worked out again from the sync's own Spotify read and the library as the run left it (`read_at` = that read,
+  `stale` false), so what the run did is not offered again; only when state.json or settings.json can't be read then
+  does the old plan stay, with `stale` true.
 - Disable write buttons while `job_status().job.running` or `console_running`. ↻ is refused during the hub's own sync.
 
 ### Problem kinds (`kind` on ok:false, `problem` on JobFinished)
@@ -36,7 +39,7 @@ library (lists cut to 2 items, `data` cut).
 | `stopped` | ended by Stop (nothing half done) |
 | `protected` | the version is DRM-protected (yt-dlp refuses it; Discjockey never works around DRM) → the plain message; "Wrong song?" takes the version off its list, and later searches leave it out (`.cache/protected_sources.json`) |
 | `no_library` | no music folder is bound (not chosen yet, or the chosen one isn't there) → Setup's music step or the missing-folder screen; every method in `LIBRARY_METHODS` answers it while unbound |
-| `crashed` | unexpected error → "Something went wrong" + message; for a sync: "The sync stopped unexpectedly" + Open report (report path from the last `RunFinished`) |
+| `crashed` | unexpected error → "Something went wrong" + message; for a sync: + Open report. A crashed sync is filed like any run: its report (`reports/<run_id>.md`, exit code 1) starts with a plain crash note (when, the step it was on, the error, that what was done is saved; the traceback only at the very end), its .json has `crashed` (that note); `RunFinished` (exit code 1, that report) comes first, and the `JobFinished` carries the same `result` as a finished sync. A crash in another job files nothing (`result` null) |
 
 Use the kind for the card/headline; always show `message` as the detail.
 
@@ -263,7 +266,13 @@ next sync. `estimate.qobuz_limit` is the daily limit setting. `estimate.accounts
 are expected to use, one entry per set-up service in quality order: `{service, name, uses, left, limit, about}`
 (`uses` null for an account behind Qobuz, which only gets the tracks Qobuz lacks; `about` true for every service but
 Qobuz: an estimate). `estimate.left` is today's remaining allowance (null = no limit) and `estimate.limit` the daily
-limit; the `qobuz_*` fields are kept for one release.
+limit; the `qobuz_*` fields are kept for one release. `estimate.minutes_by_downloads[n]` (sync_preview only, not
+the dashboard's) is the time for `n` downloads, for `n = 0 … qobuz_uses` (the most any ticked subset can run today):
+the page looks up the count of the actions the user ticked, so the formula (70 s a download, rounded to 5 minutes) is
+in the engine only (`views.minutes_by_downloads`) and ticking needs no bridge call. In the same way, each entry of
+`estimate.accounts` in `sync_preview` also has `uses_by_downloads[n]`: that service's `uses` for `n` downloads
+(`n = 0 … qobuz_uses`, the engine's `views.split(n, …)`), or null for an account behind Qobuz. The page looks up the
+ticked count (a larger count takes the last entry) for the service rows and never repeats the split.
 ```json
 {
  "ok": true,
@@ -343,11 +352,13 @@ limit; the `qobuz_*` fields are kept for one release.
     "uses": 2,
     "left": 80,
     "limit": 60,
-    "about": false
+    "about": false,
+    "uses_by_downloads": [0, 1, 2]
    }
   ],
   "left": 80,
-  "limit": 60
+  "limit": 60,
+  "minutes_by_downloads": [0, 5, 5]
  },
  "never": [],
  "folders": [
@@ -923,7 +934,10 @@ playlist folders in playlists.txt order, for grouping the rows.
 
 `spectrum(track_id, which="current")` — which: `current|upgrade`. `data`: base64 of `cols*bands` bytes, row by row
 in time, each row low→high frequency (band width `max_hz/bands`); byte v → dB = `floor_db * (1 - v/255)` (0 dB =
-loudest cell). Draw the cutoff line at `cutoff_hz` (null = none).
+loudest cell). Draw the cutoff line at `cutoff_hz` (null = none). `waveform`: base64 of `cols` bytes, one per column
+(the same columns as the matrix): the largest sample anywhere in that column's stretch of the track (1/`cols` of its
+length), 0 = silence, 255 = the loudest column, linear. A kick's attack shows as its peak; the matrix's mean energy
+would not show it. Files cached before the field existed are made again.
 ```json
 {
  "ok": true,
@@ -934,6 +948,7 @@ loudest cell). Draw the cutoff line at `cutoff_hz` (null = none).
   "duration_s": 1.0,
   "floor_db": -100.0,
   "data": "////////////////////////////////////////...",
+  "waveform": "//////////////////////////////////...",
   "which": "current",
   "cutoff_hz": 16000
  }
@@ -1078,7 +1093,7 @@ such tracks change ("24 tracks will go to 03_06_2026 instead of Powertrance"), n
 
 | method (positional args) | job kind | JobFinished.result |
 |---|---|---|
-| `start_sync(selected)` — list of ticked `key`s from `sync_preview` | `sync` | `{exit_code, report, actions, new_since_preview}` (`report`: absolute .md path) |
+| `start_sync(selected)` — list of ticked `key`s from `sync_preview` | `sync` | `{exit_code, report, actions, new_since_preview}` (`report`: absolute .md path); also on a `crashed` sync (`exit_code` 1, `report` its crash note; `actions` 0 when it crashed before the plan) |
 | `stop()` → `{"stopped": bool}` (not a job) — Stop safely: current write job (sync, download, Spotify login) | | |
 | `save_playlists(lines, loaded_version)` | `save_playlists` | `{version}`; problem `changed` = "playlists.txt was changed elsewhere…" |
 | `save_limits(service, limit, extra_today)` — the service must be set up (else refused); 1–500, 0–200 (0 clears the extra) | `save_limits` | `{service, limit, extra_today}` |
@@ -1328,7 +1343,7 @@ the third action).
 | `Checked` | `track_id`, `file_duration_s`, `spotify_duration_s`, `codec`, `ok` ("Length matches (3:12 = Spotify 3:12)") |
 | `AccountUsage` | `service`, `used`, `allowance` ("Qobuz 42 of 80 today") |
 | `ActionFinished` | `action` (as above), `result` Result — Problems = sections missing/errors/conflicts/ambiguous; `error_kind: network` → "NO INTERNET" |
-| `RunFinished` | `exit_code` (0, 1, 130), `report_path` (.md) — then `run(run_id)` with the report's stem for the end screen |
+| `RunFinished` | `exit_code` (0, 1, 130), `report_path` (.md) — then `run(run_id)` with the report's stem for the end screen; also sent for a crashed sync (1, its crash note), before its `JobFinished` |
 | `Message` | `level` `info|warning|debug`, `text` (hide debug) |
 | `ReadingPlaylist` | `index`, `total`, `folder` — before each playlist is read (a refresh, or a sync's start) |
 
