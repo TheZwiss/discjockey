@@ -27,18 +27,13 @@ taken before the run and is not worked out again from the library once the run f
 
 ## 16. Live check: the installed app (phase 7, spec public-release §11)
 
-Mark the .dmg as downloaded first (`xattr -w com.apple.quarantine "0081;$(printf %x $(date +%s));Safari;"
-dist/Discjockey-<version>.dmg`; a file built on this Mac carries no quarantine mark and opens without "Open Anyway"),
-or install from the phase 6 draft release, so the README's Open Anyway steps are checked too. Needs a human:
-install from `dist/Discjockey-<version>.dmg` (drag to Applications, "Open Anyway"); the window opens
-with the music folder, every page reads; one sync; one Chrome login prompt answered "Always Allow"; then build again,
-install over it, and the keychain grant is still there. Phase 7 moves the user's own setup across first.
-A built app's window has not been seen with a screenshot yet (screen capture was blocked): look at it first.
-Also look at the sidebar update line in the real window (phase 5): it was never seen on screen, only its pieces. Start
-a scratch window with `DISCJOCKEY_SUPPORT=<scratch folder>` holding a `config.json` and a `cache/app_update.json`
-with `"version": "9.9.0"` and a fresh `checked_at`: under the brand it must say "Discjockey 9.9 is available" in two
-even lines, and the link opens the release page. (Checked live without a screen: the window keeps its page-server
-port across restarts, moves off a port another program holds, and a second window gets its own port.)
+Done 2026-10-23: v1.0.0 installed from the release, Open Anyway walked through (README screenshots), the window opens
+on the music folder (now `~/Music/Discjockey`). Left:
+
+- **One sync** in the installed app.
+- **The sidebar update line** has never been seen on screen: it shows once a version after 1.0.0 is released (or with a
+  scratch `DISCJOCKEY_SUPPORT` whose `cache/app_update.json` says `"version": "9.9.0"` with a fresh `checked_at`).
+- **Keychain "Always Allow"** only comes up when a YouTube or SoundCloud login is read from Chrome; check it then.
 
 ## 14. Folder field: a small gap before the last path part when a long path is cut (2026-10-23)
 
