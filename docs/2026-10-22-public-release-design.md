@@ -192,8 +192,9 @@ says macOS 12 Monterey or later.
 
 - **One version source:** `discjockey/__init__.py` `__version__` (semantic, starting at `1.0.0`). `pyproject.toml`
   repeats it, and a test fails when they differ. The build writes it into `Info.plist`; Settings → This Mac shows it.
-- **GitHub Actions on a tag `v*`** (`macos-15`, arm64, free for public repos; the older macOS 14 image is retired by GitHub on 2 Nov 2026): `uv sync`, `pytest`, `npm ci` +
-  `npm run verify` + `npm run build` (the app bundles the committed `hub/static`, and `build_app.sh` step 1 fails unless a fresh build equals it: stricter, same bytes), download and verify the
+- **GitHub Actions on a tag `v*`** (`macos-15`, arm64, free for public repos; the older macOS 14 image is retired by GitHub on 2 Nov 2026): `uv sync`, the public check, `npm ci` +
+  `npm run build` (the tests and `npm run verify` run locally before the tag instead, amended 2026-10-23: the
+  design-rules pass alone took 15+ minutes on a runner; the app bundles the committed `hub/static`, and `build_app.sh` step 1 fails unless a fresh build equals it: stricter, same bytes), download and verify the
   tools, PyInstaller, sign, **self-test**, make the .dmg, and attach it to a **draft** release. The user publishes
   the draft after a look, so nothing goes public by accident.
 - **Self-test:** `Discjockey.app/Contents/MacOS/Discjockey --self-test` imports every engine module, runs the bundled

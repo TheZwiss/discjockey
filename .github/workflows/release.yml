@@ -1,9 +1,10 @@
-# A signed draft release for a v* tag: the same checks as check.yml, then the signed .dmg attached to a draft release.
+# A signed draft release for a v* tag: the public check, then the signed .dmg attached to a draft release. The tests
+# run locally before the tag is made (CONTRIBUTING.md, "Making a release"), not again here.
 # Nothing here publishes: the maintainer reads the draft and publishes it by hand. A release always comes from a tag
 # (no manual trigger), and a published release is never touched.
 # Actions are pinned by commit SHA (version in the comment): this job holds the signing key, and a moved tag must not
 # run new code with it. Secrets only ever reach a step through `env:`.
-# The checking steps (public check, uv, tools, Python tests, node) repeat those of check.yml on purpose
+# The setup steps (public check, uv, tools, node) repeat those of check.yml on purpose
 # (tests/test_workflows.py pins both copies). Change one, change the other.
 name: release
 
@@ -79,23 +80,17 @@ jobs:
           uv run --frozen python packaging/fetch_tools.py --out dist/tools --cache dist/cache --fresh-build
           echo "$GITHUB_WORKSPACE/dist/tools/bin" >> "$GITHUB_PATH"
 
-      - name: Python tests
-        run: uv run --frozen pytest -q
-
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "25"
           cache: npm
           cache-dependency-path: hub-ui/package-lock.json
 
-      # Twin of the "hub-ui check" step in check.yml. `npm run build` is not a step of its own: build_app.sh builds hub-ui into dist/ui and fails unless that equals
+      # Twin of the "hub-ui packages" step in check.yml. `npm run build` is not a step of its own: build_app.sh builds hub-ui into dist/ui and fails unless that equals
       # the committed discjockey/hub/static (building into the tree would dirty the checkout REQUIRE_IDENTITY insists on).
-      - name: hub-ui check
+      - name: hub-ui packages
         working-directory: hub-ui
-        run: |
-          npm ci
-          npx playwright install webkit
-          npm run verify
+        run: npm ci
 
       - name: Import the signing identity
         env:

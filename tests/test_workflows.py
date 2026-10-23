@@ -84,13 +84,19 @@ def test_both_run_on_macos_15_in_the_public_repository_only(name):
 
 
 @pytest.mark.parametrize("name", BOTH)
-def test_both_run_the_public_check_the_tests_and_the_ui_check(name):
+def test_both_run_the_public_check_and_install_the_ui_packages_but_not_the_ui_checks(name):
     text = BOTH[name]
-    assert "scripts/check_public.sh" in text and "pytest -q" in text and "npm run verify" in text
+    assert "scripts/check_public.sh" in text and "npm ci" in text
     assert "uv sync --frozen" in text and "packaging/fetch_tools.py --out dist/tools --cache dist/cache" in text
-    assert "npx playwright install webkit" in text  # rules.mjs launches WebKit
+    # svelte-check, vitest and the design rules run locally before a release (CONTRIBUTING.md), not on a runner
+    assert "npm run verify" not in code(text) and "playwright" not in code(text)
     # the cached tools follow the pins, the ffmpeg build script and the code that names the cached build
     assert "hashFiles('packaging/tools.json', 'packaging/build_ffmpeg.sh', 'packaging/fetch_tools.py')" in text
+
+
+def test_only_check_runs_the_python_tests():
+    """The release job runs no tests: they run locally before the tag (CONTRIBUTING.md, Releasing)."""
+    assert "pytest -q" in code(CHECK) and "pytest" not in code(RELEASE)
 
 
 def test_only_the_release_builds_ffmpeg_fresh_and_says_why():
@@ -118,7 +124,6 @@ def test_check_compares_the_committed_ui_build_with_a_fresh_one():
     step = next(b for b in run_blocks(CHECK) if "diff -rq" in b)
     assert "npm run build" in step and '--outDir "$RUNNER_TEMP/ui"' in step  # into a temporary folder, never the tree
     assert 'diff -rq "$RUNNER_TEMP/ui" discjockey/hub/static' in step and "exit 1" in step
-    assert body.index("npm run verify") < body.index("diff -rq")  # after npm ci + the ui check
     assert "npm ci" in body.split("diff -rq")[0]
 
 
@@ -141,7 +146,7 @@ def test_release_always_requires_the_denylist_and_fails_without_the_secret():
 
 
 def test_the_version_gate_comes_first_and_before_the_build():
-    assert RELEASE.index("Version gate") < RELEASE.index("check_public.sh") < RELEASE.index("pytest")
+    assert RELEASE.index("Version gate") < RELEASE.index("check_public.sh") < RELEASE.index("REQUIRE_IDENTITY=1")
     assert RELEASE.index("Version gate") < RELEASE.index("REQUIRE_IDENTITY=1 scripts/build_app.sh")
     gate = next(b for b in run_blocks(RELEASE) if "does not match version" in b)
     assert '"v$version" != "$TAG"' in gate and "tag $TAG does not match version $version" in gate

@@ -1,7 +1,9 @@
 # The checks every push and pull request must pass: the public check, the Python tests (with the pinned ffmpeg,
-# ffprobe and deno the app ships, so nothing skips), and the hub-ui check. Runs only in the public repository.
+# ffprobe and deno the app ships, so nothing skips), and that the committed hub/static is what hub-ui builds. The
+# hub-ui checks (svelte-check, vitest, the design rules) run locally before a release (CONTRIBUTING.md), not here:
+# the design-rules pass alone takes 15+ minutes on a runner. Runs only in the public repository.
 # Actions are pinned by commit SHA (version in the comment): a moved tag must not run new code here.
-# The checking steps (public check, uv, tools, Python tests, node) are written twice on purpose: release.yml repeats them (and
+# The setup steps (public check, uv, tools, node) are written twice on purpose: release.yml repeats them (and
 # tests/test_workflows.py pins both copies). Change one, change the other.
 # `push` runs on every branch and `pull_request` on every PR: a same-repo PR is checked twice. That is kept so a
 # branch is checked before its PR exists; `concurrency` below cancels the older of two runs on the same ref.
@@ -76,13 +78,10 @@ jobs:
           cache: npm
           cache-dependency-path: hub-ui/package-lock.json
 
-      # Twin of the "hub-ui check" step in release.yml.
-      - name: hub-ui check
+      # Twin of the "hub-ui packages" step in release.yml.
+      - name: hub-ui packages
         working-directory: hub-ui
-        run: |
-          npm ci
-          npx playwright install webkit
-          npm run verify
+        run: npm ci
 
       # The check build_app.sh does in its step 1, here too, so a stale discjockey/hub/static fails the push and not
       # only the release: build hub-ui into a temporary folder and compare it with the committed output.

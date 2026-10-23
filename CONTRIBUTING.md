@@ -116,14 +116,16 @@ public lives in `docs/archive/pre-public/`, which is gitignored and only on the 
 
 1. Set the new version in `discjockey/__init__.py` (`__version__`) and in `pyproject.toml` (a test fails when they
    differ). Commit.
-2. Tag the commit `v<version>` (for example `git tag v1.0.1`) and push that tag by name:
+2. Run the checks locally (CI runs only the public check, the Python tests and the hub/static comparison; the release
+   job runs no tests): `uv run pytest -q` and `cd hub-ui && npm run verify` must pass.
+3. Tag the commit `v<version>` (for example `git tag v1.0.1`) and push that tag by name:
    `git push origin v1.0.1`. Never `--tags`, `--all` or `--mirror`, and never an `archive/*` branch or tag (the
    maintainer's local copy of the private history from before the repository went public; a local pre-push hook,
    `scripts/public_push_guard.sh`, refuses such a push, and `--no-verify` must not be used). The workflow refuses a tag that
    doesn't match `__version__`.
-3. The `release` workflow runs the same checks as every push, builds and signs the app, runs its self-test and
+4. The `release` workflow runs the public check, builds ffmpeg, builds and signs the app, runs its self-test and
    attaches `Discjockey-<version>.dmg` to a **draft** release.
-4. Look at the draft: download the `.dmg`, install it, open it. Then publish the draft by hand on GitHub. Nothing is
+5. Look at the draft: download the `.dmg`, install it, open it. Then publish the draft by hand on GitHub. Nothing is
    published by the workflow itself, and a published release is never replaced.
 
 The workflows read three repository secrets:
