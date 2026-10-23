@@ -15,7 +15,10 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "pytest>=8",
+    "pytest-xdist>=3",
+]
 build = ["pyinstaller==6.22.3", "dmgbuild>=1.6,<2"]
 
 [tool.uv]
@@ -24,3 +27,5 @@ package = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# Parallel by default (pytest-xdist): the full suite drops from many minutes to about 25 s.
+addopts = ["-n", "auto"]
