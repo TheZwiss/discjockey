@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createFakeBridge } from './bridge';
+import { minutesByDownloads } from './minutes';
 import { LIBRARY_METHODS } from '../contract';
 import type { HubEvent } from '../events';
 
@@ -12,6 +13,15 @@ const until = (evs: HubEvent[], pred: (e: HubEvent) => boolean, ms = 3000) => ne
     setTimeout(tick, 5);
   };
   tick();
+});
+
+describe('fake minutes table', () => {
+  // the same numbers as tests/test_hub_views.py: the fake mimics views.minutes_by_downloads
+  it('follows run_minutes: 70 s a download, rounded to 5 minutes, halves to even, at least 5', () => {
+    const t = minutesByDownloads(200);
+    expect(t).toHaveLength(201);
+    expect([0, 1, 10, 45, 195].map((n) => t[n])).toEqual([0, 5, 10, 50, 230]);
+  });
 });
 
 describe('fake backend', () => {

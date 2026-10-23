@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { ActionKey, EstimateAccount, PreviewAction, SyncPreview } from '$lib/bridge/types';
 import {
   FULL_SCOPE, dayBarInput, defaultHowMany, facets, folderItems, foldText, howManyOptions, inRunOrder, isKindKey, kindItems,
-  kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount, runMinutes,
-  runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
+  kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount,
+  minutesFor, runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
   startLabel, tagOf, toggleScope, waitsWhole, whyColumn,
 } from './planModel';
 import { keyId } from './selection';
@@ -105,20 +105,24 @@ describe('next sync and the summary', () => {
     const noA = new Set([...all].filter((k) => JSON.parse(k)[1] !== 'a'));
     expect(ids(nextSyncSet(ordered, noA, FULL_SCOPE, 2))).toEqual(['u']);
   });
+  // the engine's table (views.minutes_by_downloads): the page never repeats the formula, it looks the count up
+  const table = [0, 5, 5, 5, 5, 5, 5, 10, 10, 10, 10];
+  it('the minutes for a count of downloads are looked up in the engine\'s table', () => {
+    expect(minutesFor(table, 0)).toBe(0);
+    expect(minutesFor(table, 4)).toBe(5);
+    expect(minutesFor(table, 10)).toBe(10);
+    expect(minutesFor(table, 99)).toBe(10);   // never more than the table's last entry (what fits today)
+    expect(minutesFor([], 3)).toBe(0);        // no preview yet
+  });
   it('only the downloads that fit today take time; the rest follow over days', () => {
-    expect(runMinutes(0)).toBe(0);
-    expect(runMinutes(1)).toBe(5);
-    expect(runMinutes(10)).toBe(10);
-    expect(runMinutes(195)).toBe(230);   // round(45.5) == 46, as in Python
-    expect(runMinutes(45)).toBe(50);     // round(10.5) == 10, as in Python
-    expect(runTotals(ordered, 195, 10, 60)).toEqual({ tracks: 5, downloads: 4, uses: 4, minutes: 5, waiting: 0,
+    expect(runTotals(ordered, 195, 10, 60, table)).toEqual({ tracks: 5, downloads: 4, uses: 4, minutes: 5, waiting: 0,
       after: 191, days: 1 + 4 });  // 6 still fit today, so today counts
-    expect(runTotals(ordered, 4, 2, 60)).toMatchObject({ uses: 2, waiting: 2, after: 2, days: 1 });
-    expect(runTotals([], 0, 10, 60)).toMatchObject({ tracks: 0, minutes: 0, after: 0, days: 0 });
+    expect(runTotals(ordered, 4, 2, 60, table)).toMatchObject({ uses: 2, waiting: 2, after: 2, days: 1, minutes: 5 });
+    expect(runTotals([], 0, 10, 60, table)).toMatchObject({ tracks: 0, minutes: 0, after: 0, days: 0 });
     // the issue's numbers: 108 to go, today's limit used up, 66 a day → 2 more days, as the dashboard says
-    expect(runTotals(ordered, 108, 0, 66)).toMatchObject({ uses: 0, after: 108, days: 2 });
+    expect(runTotals(ordered, 108, 0, 66, [0])).toMatchObject({ uses: 0, minutes: 0, after: 108, days: 2 });
     // 4 ticked of 30 left today: the other 26 can still load today, so today counts (views.days_to_load)
-    expect(runTotals(ordered, 108, 30, 66)).toMatchObject({ uses: 4, after: 104, days: 1 + 2 });
+    expect(runTotals(ordered, 108, 30, 66, table)).toMatchObject({ uses: 4, after: 104, days: 1 + 2 });
   });
 });
 

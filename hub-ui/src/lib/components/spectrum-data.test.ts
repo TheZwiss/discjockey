@@ -13,12 +13,22 @@ describe('spectrum helpers', () => {
     expect(above / s.cols).toBeLessThan(10);
     expect(below / s.cols).toBeGreaterThan(60);
   });
-  it('envelope is one value per column, 0–1', () => {
+  it('envelope is the engine\'s waveform: one peak per column, 0–1', () => {
     const e = envelope(fakeSpectrum(null, 3));
     expect(e).toHaveLength(400);
     expect(Math.max(...e)).toBeCloseTo(1);
     expect(Math.min(...e)).toBeGreaterThanOrEqual(0);
     expect(envelope(null)).toEqual([]);
+  });
+  it('a loud transient shows as its peak, not as the column\'s mean energy', () => {
+    const s = fakeSpectrum(null, 3);
+    const wave = new Uint8Array(s.cols).fill(40);
+    wave[100] = 255;                                     // the kick's attack
+    const flat = new Uint8Array(s.cols * s.bands).fill(60); // every column equally loud as a spectrum
+    const bin = (b: Uint8Array) => btoa(String.fromCharCode(...b));
+    const e = envelope({ ...s, data: bin(flat), waveform: bin(wave) });
+    expect(e[100]).toBe(1);
+    expect(e[99]).toBeCloseTo(40 / 255);
   });
   it('colour map runs from the first to the last stop', () => {
     expect(hexRgb('#ff5a1f')).toEqual([255, 90, 31]);

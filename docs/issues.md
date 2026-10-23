@@ -3,6 +3,13 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 23. Sync page repeats views.split for a partial selection (minor, 2026-10-23)
+
+Left over from the old contract gap G5: the time for a ticked subset now comes from the engine's table
+(`estimate.minutes_by_downloads`), but `serviceRows` in `hub-ui/src/pages/sync/planModel.ts` still recomputes
+`views.split` (which service the ticked downloads use) on the client. Same fix shape: the engine sends what the client
+needs once (for example `uses` per account for every count), and the client looks it up.
+
 ## 20. Sync page offers the last run's tracks again after a finished sync (bug, 2026-10-23)
 
 When a sync has finished and nothing is left to sync, the Sync page still offers to sync the last run's tracks, even
@@ -31,11 +38,3 @@ taken before the run and is not worked out again from the library once the run f
   count only what's in scope?
 - **Loose sentence under the list.** `sync-many-all-off`'s "232 more tracks left out: playlists or kinds you turned
   off on the right." sits outside any container (§4); make it a `Hint` or `NoteCard`.
-
-## 4. Contract gaps G3 and G5 (minor, from the hub plan)
-
-- **G3 — no waveform data for the Library mini player.** Derived from the spectrum matrix (mean per column), which is
-  an approximation. A `waveform` field (peak per column) in `spectrum()` would be exact.
-- **G5 — no estimate for a partial selection.** `sync_preview().estimate` covers the whole plan; when the user
-  unticks actions the page recomputes with the hub spec §6.9 formula, so the formula exists twice. Better:
-  `sync_estimate(selected)`.
