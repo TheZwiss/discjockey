@@ -6,7 +6,7 @@
   // changes; otherwise only with "↻ Read Spotify".
   import { onMount, untrack } from 'svelte';
   import {
-    Button, EmptyState, Hint, PageHeader, ProblemCard, SearchField, Skeleton, WriteButton,
+    Button, EmptyState, Hint, NoteCard, PageHeader, ProblemCard, SearchField, Skeleton, WriteButton,
   } from '$lib/components';
   import { ListPanelFrame } from '$lib/frames';
   import { api, runJob } from '$lib/bridge/client';
@@ -21,7 +21,7 @@
   import { PREF_LAST_SELECTION, carryTicks, keyId, picked } from './selection';
   import {
     PREF_HOW_MANY, PREF_SCOPE, defaultHowMany, facets, inRunOrder, inScope, isDownload, matches, nextSyncSet,
-    mayWaitToday, kindOf, presetN, presetTicks, presets, readHowMany, readScope, runTotals, scopeSet, sections, shouldAutoRead, shownPreset,
+    mayWaitToday, kindOf, downloadsInScope, presetN, presetTicks, presets, readHowMany, readScope, runTotals, scopeSet, sections, shouldAutoRead, shownPreset,
     NOTHING_TODAY, runsNothingToday, sectionCounts, startLabel, toggleScope,
     type HowMany, type Scope, type Section,
   } from './planModel';
@@ -56,10 +56,11 @@
   const limit = $derived(preview?.estimate?.limit ?? 0);
   const ordered = $derived(inRunOrder(preview));
   const scoped = $derived(ordered.filter((a) => inScope(a, scope)));
-  const total = $derived(scoped.filter(isDownload).length);
+  const total = $derived(downloadsInScope(ordered, scope));
   const presetList = $derived(presets(total, left));
   const chosen = $derived(scoped.filter((a) => ticked.has(keyId(a.key))));
-  const totals = $derived(runTotals(chosen, ordered.filter(isDownload).length, left, limit,
+  // Later counts only what's in scope, so it agrees with "All N" and the days (issue 7)
+  const totals = $derived(runTotals(chosen, total, left, limit,
     preview?.estimate?.minutes_by_downloads ?? []));
   const movesTicked = $derived(chosen.filter((a) => kindOf(a) === 'move').length);
   // only downloads that wait for the next sync are ticked: a run would do nothing today, so Start is off (Task 9B ruling)
@@ -258,8 +259,10 @@
           <PlanRows sections={sectionList} {ticked} {nextSync} {mayWait} {neverBlocked} ontoggle={toggle} onfolder={tickFolder}
             onnever={never} />
           {#if hidden > 0 && !searching}
-            <Hint text="{plural(hidden, 'more track')} left out: playlists or kinds you turned off on the right."
-              data-test="sync-hidden" />
+            <!-- a NoteCard, not a Hint: the controls it explains sit in the other column, and a Hint goes directly
+                 under its own control (design language §2 "everything sits in a container", §5 Text; issue 7) -->
+            <NoteCard title="{plural(hidden, 'more track')} left out" data-test="sync-hidden">
+              Playlists or kinds you turned off on the right.</NoteCard>
           {/if}
         </div>
         <PlanFolds {preview} busy={neverBusy} blocked={neverBlocked} onagain={again} />

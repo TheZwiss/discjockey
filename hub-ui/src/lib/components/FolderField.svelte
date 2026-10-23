@@ -32,7 +32,7 @@
         <path d="M1.5 4.5v-1a1 1 0 0 1 1-1h3.6l1.5 1.5h5.9a1 1 0 0 1 1 1v7.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z" />
       </svg>
       {#if path}
-        <span class="path"><span class="head">{shown.slice(0, cut)}</span><span class="tail">{shown.slice(cut)}</span></span>
+        <span class="path" style="--tail: {shown.length - cut}"><span class="head">{shown.slice(0, cut)}</span><span class="tail">{shown.slice(cut)}</span></span>
       {:else}
         <span class="empty">No folder chosen</span>
       {/if}
@@ -64,9 +64,12 @@
   .path { flex: 1; display: flex; min-width: 0; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: var(--fs-small);
     color: var(--text); white-space: nowrap; user-select: text; -webkit-user-select: text; }
   /* the parents give way first; the folder's own name ("/DJ Sets") keeps its place and is cut only when it alone is
-     wider than the well, leaving "~…" in front of it */
-  .head { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .tail { flex: none; max-width: calc(100% - 2ch); overflow: hidden; text-overflow: ellipsis; }
+     wider than the well, leaving "~…" in front of it. The head's width is a whole number of characters (`--tail`: the
+     tail's length): an ellipsis drops whole characters, so a head of any other width kept the rest of a character as a
+     blank before the tail ("~/M… /Discjockey", issue 14, measured 1–7 px in WebKit). */
+  .head { flex: none; max-width: max(2ch, round(down, 100% - var(--tail) * 1ch, 1ch)); overflow: hidden;
+    text-overflow: ellipsis; }
+  .tail { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .empty { font-size: var(--fs-body); color: var(--text-label); }
   .line { display: flex; align-items: flex-start; gap: var(--s-2); min-width: 0; }
 </style>

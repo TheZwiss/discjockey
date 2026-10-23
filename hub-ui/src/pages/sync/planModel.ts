@@ -152,7 +152,7 @@ export type RunTotals = {
   uses: number;            // Qobuz downloads this run uses (min(downloads, left))
   minutes: number;         // only the downloads that fit today take time
   waiting: number;         // ticked downloads over today's limit: they wait for the next sync
-  after: number;           // downloads in the whole plan still to come after this run
+  after: number;           // downloads in scope still to come after this run (the DayBar's Later)
   days: number;            // more days for those at the daily limit (today counts while some is left: daysToLoad)
 };
 /** One row per service with a daily limit (spec §7, §8 several services), for the `downloads` the DJ ticked
@@ -182,17 +182,24 @@ export function serviceRows(accounts: EstimateAccount[], downloads: number, { li
   return out;
 }
 
-export function runTotals(chosen: PreviewAction[], allDownloads: number, left: number, limit: number,
+/** The downloads in the playlists and kinds the user left on: what "All N" counts, and what Later counts from. */
+export const downloadsInScope = (ordered: PreviewAction[], scope: Scope): number =>
+  ordered.filter((a) => isDownload(a) && inScope(a, scope)).length;
+
+/** `chosen` the ticked actions in scope; `scopedDownloads` the downloads in scope (`downloadsInScope`): Later counts
+ * only those (issue 7, the user's ruling), so Today + Later is "All N" when everything in scope is ticked, and the
+ * days follow the same number. What's switched off is the plan's "more tracks left out" note, never Later. */
+export function runTotals(chosen: PreviewAction[], scopedDownloads: number, left: number, limit: number,
   minutesTable: number[]): RunTotals {
   const downloads = chosen.filter(isDownload).length;
   const uses = Math.min(downloads, Math.max(left, 0));
-  const after = Math.max(0, allDownloads - uses);
+  const after = Math.max(0, scopedDownloads - uses);
   return { tracks: chosen.length, downloads, uses, minutes: minutesFor(minutesTable, uses), waiting: downloads - uses, after,
     days: limit > 0 ? daysToLoad(after, Math.max(left, 0) - uses, limit) : 0 };
 }
 
 // ---------- the run panel's blocks ----------
-/** The DayBar's numbers: today's downloads, the plan's downloads after this run and their days, the moves. `left`
+/** The DayBar's numbers: today's downloads, the downloads in scope after this run and their days, the moves. `left`
  * null means no daily limit (only free sources), so nothing waits for a later day. */
 export function dayBarInput(t: RunTotals, left: number | null, moves: number): DayBarInput {
   const limited = left !== null;
