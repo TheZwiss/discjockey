@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>good</title>
+<script src="../rules-page.js"></script>
+<style>
+  :root { --bg: #101114; --surface: #1b1d22; --text: #e8e8ea; --accent: #4f8cff; --on-accent: #ffffff; --border: #2a2d34; --type-scale: 13 22 30;
+    --panel-w: 360px; --panel-w-narrow: 320px; --panel-narrow-below: 1240px; --content-max: 900px; }
+  html, body { margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.4 -apple-system, sans-serif; }
+  h1, h2, p { margin: 0; }
+  h1 { font-size: 30px; }
+  h2 { font-size: 22px; }
+  button { font: inherit; color: var(--text); background: var(--surface); border: 0; padding: 6px 12px; }
+  button[data-primary] { background: var(--accent); color: var(--on-accent); }
+  [data-surface] { background: var(--surface); border: 1px solid var(--border); padding: 12px; }
+</style>
+</head>
+<body>
+<div data-frame style="display: flex; gap: 16px; height: 100vh; box-sizing: border-box; padding: 16px;">
+  <main data-frame-content data-max="--content-max" style="flex: 1; min-width: 0; max-width: 900px; display: flex; flex-direction: column; gap: 12px;">
+    <header data-page-header style="display: flex; align-items: center; gap: 16px;"><h1 style="flex: 1;">Frame</h1>
+      <span data-spotify-status style="display: inline-flex; gap: 8px; align-items: center;">Spotify read 2 min ago <button>Read Spotify</button></span></header>
+    <section data-surface="card"><p>This paragraph runs to exactly two hundred characters so that it counts as a long block of text. It sits inside a container that shelters it, which is the only place the design system lets such text .</p></section>
+    <div class="heading">Heading with its own text
+      <section data-surface="card"><p>This paragraph runs to exactly two hundred characters so that it counts as a long block of text. It sits inside a container that shelters it, which is the only place the design system lets such text .</p></section>
+    </div>
+    <div><button style="min-width: 28px; padding: 0; height: 28px;" aria-label="Close">x</button></div>
+    <section data-surface="list"><div style="display: flex; align-items: center; gap: 8px; padding: 0 12px;"><h2 style="flex: 1;">Folder</h2><button>Show in Finder</button></div>
+      <button data-row-hit style="display: block; width: 100%; text-align: left;">A row's own hit area fills its row</button>
+      <div style="display: flex;"><button role="switch" aria-checked="true" style="flex: 1; text-align: left;">A switch row fills its row</button></div></section>
+    <ol style="display: flex; list-style: none; padding: 0;"><li style="flex: 1 1 0; display: flex;"><button data-step-hit style="flex: 1; text-align: left;">1 A step of a step strip fills its share</button></li></ol>
+  </main>
+  <aside data-panel style="width: 320px; display: flex; flex-direction: column; justify-content: space-between; background: var(--surface);">
+    <h2>Panel</h2>
+    <div data-panel-foot style="padding: 12px;"><button data-primary data-stretch style="width: 100%;">Start sync</button></div>
+  </aside>
+</div>
+<dialog open style="position: fixed; top: 80px; left: 50%; transform: translateX(-50%); width: 400px; margin: 0; padding: 12px; background: var(--surface); color: var(--text); border: 1px solid var(--border);">
+  <p>This paragraph runs to exactly two hundred characters so that it counts as a long block of text. It sits inside a container that shelters it, which is the only place the design system lets such text .</p>
+  <div><button data-primary>Confirm</button></div>
+</dialog>
+</body>
+</html>

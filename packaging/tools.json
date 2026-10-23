@@ -1,0 +1,33 @@
+{
+  "ffmpeg": {
+    "version": "9.0.2",
+    "url": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz",
+    "sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e",
+    "programs": [
+      "ffmpeg",
+      "ffprobe"
+    ],
+    "configure": [
+      "--prefix=/opt/discjockey-ffmpeg",
+      "--cc=clang",
+      "--extra-version=Discjockey",
+      "--extra-cflags=-mmacosx-version-min=12.0",
+      "--extra-ldflags=-mmacosx-version-min=12.0",
+      "--enable-gpl",
+      "--enable-version3",
+      "--disable-autodetect",
+      "--enable-pthreads",
+      "--enable-zlib",
+      "--enable-bzlib",
+      "--enable-securetransport",
+      "--disable-ffplay",
+      "--disable-doc"
+    ]
+  },
+  "deno": {
+    "version": "2.9.8",
+    "url": "https://github.com/denoland/deno/releases/download/v2.9.8/deno-aarch64-apple-darwin.zip",
+    "sha256": "9f0bf660393da2eaff044cdc7444cb08c73f235849b61d224d825a194ce7c98e",
+    "member": "deno"
+  }
+}

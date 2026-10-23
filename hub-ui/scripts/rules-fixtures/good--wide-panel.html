@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en" data-viewport="1280x800">
+<head>
+<meta charset="utf-8">
+<title>good--wide-panel</title>
+<script src="../rules-page.js"></script>
+<style>
+  :root { --bg: #101114; --surface: #1b1d22; --text: #e8e8ea; --accent: #4f8cff; --on-accent: #ffffff; --border: #2a2d34; --type-scale: 13 22 30;
+    --panel-w: 360px; --panel-w-narrow: 320px; --panel-narrow-below: 1240px; --content-max: 900px; }
+  html, body { margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.4 -apple-system, sans-serif; }
+  h1, h2, p { margin: 0; }
+  h1 { font-size: 30px; }
+  h2 { font-size: 22px; }
+  button { font: inherit; color: var(--text); background: var(--surface); border: 0; padding: 6px 12px; }
+  button[data-primary] { background: var(--accent); color: var(--on-accent); }
+  [data-surface] { background: var(--surface); border: 1px solid var(--border); padding: 12px; }
+</style>
+</head>
+<body>
+<div data-frame style="display: flex; height: 100vh;">
+  <main data-frame-content data-max="--content-max" style="flex: 1; max-width: 900px;"><h1>Frame</h1></main>
+  <aside data-panel style="width: 360px; background: var(--surface);"><h2>360 at a 1280 px window</h2></aside>
+</div>
+</body>
+</html>

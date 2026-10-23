@@ -1,0 +1,22 @@
+FFmpeg 9.0.2: ffmpeg and ffprobe in Contents/Resources/bin
+
+Built for Discjockey from FFmpeg's own source release, as a static arm64 macOS build, by packaging/build_ffmpeg.sh
+in Discjockey's source code. It is configured with --enable-gpl --enable-version3, so this build is under the GNU
+General Public License, version 3 or later. The full text is GPL-3.0.txt in this folder.
+
+Source code:
+  FFmpeg 9.0.2:      https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
+                     SHA-256 8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
+                     (also attached to each Discjockey release, as ffmpeg-9.0.2.tar.xz)
+  How it is built:   packaging/build_ffmpeg.sh, with the configure arguments in packaging/tools.json, in the source
+                     of this Discjockey version (see INDEX.txt for where it is published)
+
+Libraries: no third-party library is compiled in. The configuration below turns autodetection off and enables no
+external library, so ffmpeg and ffprobe hold only FFmpeg's own code. They use these parts of macOS itself, which come
+with the system and are not in the app (the GPL's System Libraries exception):
+  libSystem, libz (zlib), libbz2 (bzip2), and the CoreFoundation, Security (HTTPS), CoreVideo and CoreMedia frameworks
+
+Not built: ffplay (Discjockey ships none) and the documentation.
+
+Configuration (ffmpeg -version):
+configuration: --prefix=/opt/discjockey-ffmpeg --cc=clang --extra-version=Discjockey --extra-cflags='-mmacosx-version-min=12.0' --extra-ldflags='-mmacosx-version-min=12.0' --enable-gpl --enable-version3 --disable-autodetect --enable-pthreads --enable-zlib --enable-bzlib --enable-securetransport --disable-ffplay --disable-doc

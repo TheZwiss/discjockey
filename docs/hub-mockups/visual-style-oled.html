@@ -1,0 +1,116 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Discjockey hub mockup: visual-style-oled</title>
+<style>body{background:#111;color:#ddd;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:24px}.subtitle{color:#999}.label{color:#999;font-size:11px;text-transform:uppercase;letter-spacing:.8px}.card-body h3{margin:10px 0 4px}.card-body p{color:#aaa;margin:0}.card{margin-bottom:24px}</style>
+<body>
+<style>
+  .vs-wrap { display:grid; grid-template-columns:1fr; gap:28px; }
+  @media (min-width: 1100px) { .vs-wrap { grid-template-columns:1fr 1fr; } }
+  .app { border-radius:12px; overflow:hidden; display:flex; height:400px; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif; font-size:12px; text-align:left; }
+  .app .side { width:132px; padding:14px 10px; display:flex; flex-direction:column; gap:4px; flex-shrink:0; }
+  .app .brand { font-weight:700; font-size:13px; margin:0 6px 14px; letter-spacing:.2px; }
+  .app .nav { padding:7px 8px; border-radius:7px; display:flex; gap:8px; align-items:center; }
+  .app .main { flex:1; padding:16px 18px; display:flex; flex-direction:column; gap:12px; overflow:hidden; }
+  .app .row { display:flex; gap:10px; }
+  .app .tile { flex:1; border-radius:10px; padding:10px 12px; }
+  .app .big { font-size:22px; font-weight:700; line-height:1.1; margin-top:2px; }
+  .app .small { font-size:10.5px; opacity:.7; }
+  .app .bar { height:6px; border-radius:3px; overflow:hidden; display:flex; margin-top:4px; }
+  .app .bar span { display:block; height:100%; }
+  .app .folder { display:grid; grid-template-columns:86px 1fr 34px; gap:8px; align-items:center; padding:3px 0; }
+  .app .syncbtn { border-radius:9px; padding:10px 14px; font-weight:700; font-size:12.5px; cursor:default; width:100%; text-align:left; display:flex; justify-content:space-between; align-items:center; }
+  .app .badge { font-size:9.5px; font-weight:700; padding:2px 6px; border-radius:5px; white-space:nowrap; }
+  .app .act { display:flex; gap:8px; align-items:center; padding:4px 0; }
+  .app .cover { width:22px; height:22px; border-radius:4px; flex-shrink:0; }
+
+  /* A: Booth (as before) */
+  .a { background:#0f1013; color:#e8e8ea; }
+  .a .side { background:#16171b; border-right:1px solid #24262c; }
+  .a .nav.on { background:#24262c; color:#fff; }
+  .a .nav { color:#9a9ca3; }
+  .a .tile { background:#1a1c21; border:1px solid #25272e; }
+  .a .syncbtn { background:#ff5a1f; color:#fff; border:none; }
+  .a .l { background:#2fd27a; } .a .y { background:#f5c242; } .a .r { background:#ff4d4d; } .a .bg { background:#2a2c33; }
+  .a .b-l { background:rgba(47,210,122,.15); color:#2fd27a; } .a .b-y { background:rgba(245,194,66,.15); color:#f5c242; } .a .b-r { background:rgba(255,77,77,.15); color:#ff6b6b; }
+
+  /* A-OLED: true black, hairline borders, dimmed static chrome, accent only where it matters */
+  .o { background:#000; color:#d9d9dc; }
+  .o .side { background:#000; border-right:1px solid #1a1a1d; }
+  .o .brand { color:#8c8c92; }
+  .o .nav { color:#6f6f76; }
+  .o .nav.on { background:transparent; color:#ececee; box-shadow:inset 2px 0 0 #ff5a1f; border-radius:0 7px 7px 0; }
+  .o .tile { background:#000; border:1px solid #1c1c20; }
+  .o .syncbtn { background:transparent; color:#ff7a45; border:1.5px solid #ff5a1f; }
+  .o .l { background:#27b868; } .o .y { background:#d9a92e; } .o .r { background:#e04343; } .o .bg { background:#17171a; }
+  .o .b-l { background:transparent; color:#2fd27a; border:1px solid rgba(47,210,122,.45); } .o .b-y { background:transparent; color:#e8b93a; border:1px solid rgba(232,185,58,.45); } .o .b-r { background:transparent; color:#ff6b6b; border:1px solid rgba(255,107,107,.45); }
+  .o .big { color:#f2f2f4; }
+</style>
+
+<h2>Booth, normal or OLED?</h2>
+<p class="subtitle">Left: Booth as before. Right: the OLED version: pure black background, hairline borders instead of grey panels, dimmed sidebar, accent colour only as an outline. Click your choice.</p>
+
+<div class="cards vs-wrap">
+
+  <div class="card" data-choice="booth" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="app a">
+        <div class="side">
+          <div class="brand">● Discjockey</div>
+          <div class="nav on">◉ Dashboard</div><div class="nav">⟳ Sync</div><div class="nav">♫ Library</div><div class="nav">✓ To-do <span class="badge b-r" style="margin-left:auto">14</span></div><div class="nav">≡ Playlists</div>
+        </div>
+        <div class="main">
+          <div class="row">
+            <div class="tile"><div class="small">Lossless</div><div class="big">74 %</div><div class="small">218 of 294 tracks</div></div>
+            <div class="tile"><div class="small">Qobuz today</div><div class="big">37<span style="font-size:13px;opacity:.5"> / 60</span></div><div class="bar bg"><span class="l" style="width:62%"></span></div></div>
+          </div>
+          <div class="syncbtn">Start sync<span style="font-weight:500;opacity:.9">12 new · 3 moves · 2 upgrades</span></div>
+          <div class="tile">
+            <div class="small" style="margin-bottom:4px">Folders</div>
+            <div class="folder"><span>Hard_Bounce</span><div class="bar"><span class="l" style="width:82%"></span><span class="y" style="width:12%"></span><span class="r" style="width:6%"></span></div><span class="small">45</span></div>
+            <div class="folder"><span>Powertrance</span><div class="bar"><span class="l" style="width:64%"></span><span class="y" style="width:26%"></span><span class="r" style="width:10%"></span></div><span class="small">38</span></div>
+            <div class="folder"><span>Bouncy</span><div class="bar"><span class="l" style="width:91%"></span><span class="y" style="width:9%"></span></div><span class="small">26</span></div>
+            <div class="folder"><span>03_06_2026</span><div class="bar"><span class="l" style="width:58%"></span><span class="y" style="width:30%"></span><span class="r" style="width:12%"></span></div><span class="small">62</span></div>
+          </div>
+          <div class="tile">
+            <div class="act"><div class="cover" style="background:linear-gradient(135deg,#ff5a1f,#7b2cff)"></div><span style="flex:1">Vatoz Locoz – Gimme Gimme</span><span class="badge b-l">LOSSLESS</span></div>
+            <div class="act"><div class="cover" style="background:linear-gradient(135deg,#2fd27a,#1d6fff)"></div><span style="flex:1">Armin Hermann – Get Naughty</span><span class="badge b-y">20.0 kHz</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body"><h3>A · Booth (dark grey)</h3><p>Panels stand out through grey tones. Slightly softer contrast.</p></div>
+  </div>
+
+  <div class="card" data-choice="booth-oled" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="app o">
+        <div class="side">
+          <div class="brand">● Discjockey</div>
+          <div class="nav on">◉ Dashboard</div><div class="nav">⟳ Sync</div><div class="nav">♫ Library</div><div class="nav">✓ To-do <span class="badge b-r" style="margin-left:auto">14</span></div><div class="nav">≡ Playlists</div>
+        </div>
+        <div class="main">
+          <div class="row">
+            <div class="tile"><div class="small">Lossless</div><div class="big">74 %</div><div class="small">218 of 294 tracks</div></div>
+            <div class="tile"><div class="small">Qobuz today</div><div class="big">37<span style="font-size:13px;opacity:.5"> / 60</span></div><div class="bar bg"><span class="l" style="width:62%"></span></div></div>
+          </div>
+          <div class="syncbtn">Start sync<span style="font-weight:500;opacity:.9">12 new · 3 moves · 2 upgrades</span></div>
+          <div class="tile">
+            <div class="small" style="margin-bottom:4px">Folders</div>
+            <div class="folder"><span>Hard_Bounce</span><div class="bar"><span class="l" style="width:82%"></span><span class="y" style="width:12%"></span><span class="r" style="width:6%"></span></div><span class="small">45</span></div>
+            <div class="folder"><span>Powertrance</span><div class="bar"><span class="l" style="width:64%"></span><span class="y" style="width:26%"></span><span class="r" style="width:10%"></span></div><span class="small">38</span></div>
+            <div class="folder"><span>Bouncy</span><div class="bar"><span class="l" style="width:91%"></span><span class="y" style="width:9%"></span></div><span class="small">26</span></div>
+            <div class="folder"><span>03_06_2026</span><div class="bar"><span class="l" style="width:58%"></span><span class="y" style="width:30%"></span><span class="r" style="width:12%"></span></div><span class="small">62</span></div>
+          </div>
+          <div class="tile">
+            <div class="act"><div class="cover" style="background:linear-gradient(135deg,#ff5a1f,#7b2cff)"></div><span style="flex:1">Vatoz Locoz – Gimme Gimme</span><span class="badge b-l">LOSSLESS</span></div>
+            <div class="act"><div class="cover" style="background:linear-gradient(135deg,#2fd27a,#1d6fff)"></div><span style="flex:1">Armin Hermann – Get Naughty</span><span class="badge b-y">20.0 kHz</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body"><h3>A · Booth OLED (true black)</h3><p>Black pixels are switched off. Off-white text instead of pure white, so nothing smears during scrolling, and dimmed static parts against burn-in.</p></div>
+  </div>
+
+</div>
+
+</body>

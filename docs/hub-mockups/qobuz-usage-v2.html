@@ -1,0 +1,144 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Discjockey hub mockup: qobuz-usage-v2</title>
+<style>body{background:#111;color:#ddd;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:24px}.subtitle{color:#999}.label{color:#999;font-size:11px;text-transform:uppercase;letter-spacing:.8px}.card-body h3{margin:10px 0 4px}.card-body p{color:#aaa;margin:0}.card{margin-bottom:24px}</style>
+<body>
+<style>
+  .o { background:#000; color:#d9d9dc; border-radius:12px; overflow:hidden; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif; font-size:11.5px; text-align:left; height:600px; display:flex; flex-direction:column; border:1px solid #1a1a1d; }
+  .o .body { flex:1; display:flex; min-height:0; }
+  .o .side { width:150px; border-right:1px solid #1a1a1d; padding:12px 8px; display:flex; flex-direction:column; gap:2px; flex-shrink:0; }
+  .o .brand { color:#8c8c92; font-weight:700; margin:0 6px 10px; }
+  .o .grp { color:#55555b; font-size:9.5px; text-transform:uppercase; letter-spacing:.8px; margin:10px 6px 4px; }
+  .o .nav { padding:5px 8px; color:#6f6f76; border-radius:0 6px 6px 0; display:flex; align-items:center; gap:6px; }
+  .o .nav.on { color:#ececee; box-shadow:inset 2px 0 0 #ff5a1f; }
+  .o .nav .n { margin-left:auto; color:#55555b; font-size:10px; }
+  .o .main { width:640px; flex-shrink:0; padding:14px 16px; display:flex; flex-direction:column; gap:12px; overflow:hidden; }
+  .o .h { font-size:15px; font-weight:700; color:#f2f2f4; display:flex; align-items:baseline; gap:10px; }
+  .o .sub { color:#6f6f76; font-weight:400; font-size:11px; }
+  .o .k { color:#55555b; font-size:9.5px; text-transform:uppercase; letter-spacing:.8px; }
+  .o .muted { color:#55555b; }
+  .o .row { display:flex; gap:10px; }
+  .o .tile { flex:1; border:1px solid #1c1c20; border-radius:10px; padding:10px 12px; }
+  .o .ring { width:70px; height:70px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
+  .o .ring div { width:58px; height:58px; border-radius:50%; background:#000; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#f2f2f4; font-weight:700; font-size:15px; line-height:1.1; }
+  .o .ring small { font-size:9px; color:#55555b; font-weight:400; }
+  .o .barw { height:6px; border-radius:3px; background:#17171a; overflow:hidden; margin:6px 0 4px; }
+  .o .barw span { display:block; height:100%; background:#ff5a1f; }
+  .o .chart { display:flex; align-items:flex-end; gap:5px; height:90px; position:relative; border-bottom:1px solid #1c1c20; padding-top:6px; }
+  .o .chart .b { flex:1; border-radius:3px 3px 0 0; position:relative; }
+  .o .chart .lim { position:absolute; left:0; right:0; border-top:1px dashed #ff5a1f; opacity:.6; }
+  .o .chart .lim span { position:absolute; right:0; top:-13px; font-size:9px; color:#ff8a5a; }
+  .o .days { display:flex; gap:5px; font-size:9px; color:#55555b; }
+  .o .days span { flex:1; text-align:center; }
+  .o .slider { position:relative; height:28px; margin-top:4px; }
+  .o .track { position:absolute; left:0; right:0; top:11px; height:6px; border-radius:3px; background:linear-gradient(90deg,#27b868 0%,#27b868 30%,#d9a92e 30%,#d9a92e 55%,#e07a2e 55%,#e07a2e 75%,#e04343 75%,#e04343 100%); opacity:.85; }
+  .o .knob { position:absolute; top:5px; width:18px; height:18px; border-radius:50%; background:#000; border:2px solid #f2f2f4; }
+  .o .zones { display:flex; font-size:9.5px; color:#8c8c92; }
+  .o .zones span { text-align:center; }
+  .o .btn { border:1.5px solid #2a2a2f; color:#9a9aa0; border-radius:8px; padding:6px 12px; font-weight:700; white-space:nowrap; text-align:center; }
+  .o .btn.acc { border-color:#ff5a1f; color:#ff8a5a; }
+  .o .impact { flex:1; border-left:1px solid #1a1a1d; padding:14px 18px; display:flex; flex-direction:column; gap:11px; min-width:280px; }
+  .o .big { font-size:16px; font-weight:700; color:#f2f2f4; }
+  .o .meter { display:flex; gap:3px; margin-top:4px; }
+  .o .meter span { flex:1; height:8px; border-radius:2px; background:#17171a; }
+  .o .cmp { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .o .cmp .tile b { display:block; font-size:16px; color:#f2f2f4; }
+  .o .sig { display:flex; gap:8px; align-items:flex-start; padding:4px 0; border-bottom:1px solid #0e0e11; }
+  .o .ok { color:#2fd27a; } .o .warn { color:#e8b93a; } .o .bad { color:#ff6b6b; }
+  .o .note { border:1px solid #1c1c20; border-radius:10px; padding:9px 11px; color:#9a9aa0; line-height:1.45; }
+</style>
+
+<h2>Own page: Qobuz usage</h2>
+<p class="subtitle">Left: today, the last 14 days, the setting. Right (same pattern as the playlists): what your setting means, honestly assessed. Shown here: you're moving the limit from 60 to 90.</p>
+
+<div class="o">
+  <div class="body">
+    <div class="side">
+      <div class="brand">● Discjockey</div>
+      <div class="nav">◉ Dashboard</div><div class="nav">⟳ Sync</div><div class="nav">✓ To-do<span class="n">16</span></div><div class="nav">≡ Playlists</div><div class="nav on">◔ Qobuz usage</div>
+      <div class="grp">Library</div>
+      <div class="nav">All tracks<span class="n">306</span></div><div class="nav">Hard_Bounce<span class="n">49</span></div><div class="nav">Powertrance<span class="n">40</span></div><div class="nav">Bouncy<span class="n">26</span></div>
+    </div>
+
+    <div class="main">
+      <div class="h">Qobuz usage <span class="sub">your own safety limit, not an official Qobuz quota</span></div>
+
+      <div class="row">
+        <div class="tile" style="display:flex;gap:12px;align-items:center">
+          <div class="ring" style="background:conic-gradient(#ff5a1f 0 62%, #17171a 62% 100%)"><div>37<small>of 60 today</small></div></div>
+          <div><div style="color:#f2f2f4;font-weight:700">23 left today</div><div class="muted">resets at midnight</div><div class="muted" style="margin-top:4px">last download 21:47</div></div>
+        </div>
+        <div class="tile">
+          <div class="k">Last 7 days</div>
+          <div style="color:#f2f2f4;font-weight:700;font-size:15px;margin-top:3px">214 <span class="muted" style="font-size:11px;font-weight:400">of 300</span></div>
+          <div class="barw"><span style="width:71%"></span></div>
+          <div class="muted">week budget · max. 80 on a single day</div>
+        </div>
+        <div class="tile">
+          <div class="k">Still to load</div>
+          <div style="color:#f2f2f4;font-weight:700;font-size:15px;margin-top:3px">250 tracks</div>
+          <div class="muted" style="margin-top:6px">at the current setting<br>about 5 more days</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="k" style="margin-bottom:4px">Last 14 days</div>
+        <div class="chart">
+          <div class="lim" style="bottom:60%"><span>limit 60</span></div>
+          <div class="b" style="height:100%;background:#d9a92e"></div>
+          <div class="b" style="height:98%;background:#27b868"></div>
+          <div class="b" style="height:95%;background:#27b868"></div>
+          <div class="b" style="height:0%"></div>
+          <div class="b" style="height:40%;background:#27b868"></div>
+          <div class="b" style="height:0%"></div>
+          <div class="b" style="height:0%"></div>
+          <div class="b" style="height:22%;background:#27b868"></div>
+          <div class="b" style="height:60%;background:#27b868"></div>
+          <div class="b" style="height:58%;background:#27b868"></div>
+          <div class="b" style="height:0%"></div>
+          <div class="b" style="height:12%;background:#27b868"></div>
+          <div class="b" style="height:0%"></div>
+          <div class="b" style="height:37%;background:#ff5a1f"></div>
+        </div>
+        <div class="days"><span>2.</span><span>3.</span><span>4.</span><span>5.</span><span>6.</span><span>7.</span><span>8.</span><span>9.</span><span>10.</span><span>11.</span><span>12.</span><span>13.</span><span>14.</span><span style="color:#ff8a5a">today</span></div>
+      </div>
+
+      <div>
+        <div style="display:flex;align-items:baseline;gap:8px"><div class="k">Daily limit</div><span style="color:#f2f2f4;font-weight:700;font-size:14px">90</span><span class="muted">(was 60)</span></div>
+        <div class="slider"><div class="track"></div><div class="knob" style="left:calc(45% - 9px)"></div></div>
+        <div class="zones"><span style="width:30%">careful ≤ 40</span><span style="width:25%">normal 60 ★</span><span style="width:20%">fast 80–100</span><span style="width:25%">risky &gt; 100</span></div>
+      </div>
+
+      <div class="row" style="align-items:center">
+        <span class="btn">+ 20 just for today</span>
+        <span class="muted" style="flex:1">One-time extra amount, counts toward the week budget, expires at midnight.</span>
+      </div>
+    </div>
+
+    <div class="impact">
+      <div class="k">What 90 per day means</div>
+      <div class="big">Faster, but noticeably more conspicuous</div>
+      <div>
+        <div class="muted">Assessment</div>
+        <div class="meter"><span style="background:#27b868"></span><span style="background:#d9a92e"></span><span style="background:#e07a2e"></span><span></span><span></span></div>
+        <div class="warn" style="margin-top:4px">fast · 3 of 5</div>
+      </div>
+      <div class="cmp">
+        <div class="tile"><span class="muted">Remaining 250 tracks</span><b>3 days</b><span class="muted">instead of 5 (60/day)</span></div>
+        <div class="tile"><span class="muted">One run lasts</span><b>~2 h</b><span class="muted">instead of ~1.3 h</span></div>
+      </div>
+      <div class="note">
+        <b style="color:#d9d9dc">Honest note:</b> Qobuz doesn't publish limits, so these levels are cautious estimates, not knowledge. What's clearly worse than a high daily value is <b style="color:#d9d9dc">many downloads on a single day after a long break</b>, so unused days are not carried over in full. The week budget lets you catch up a little, at most 80 per day.
+      </div>
+      <div>
+        <div class="k" style="margin-bottom:4px">Warning signs from Qobuz (14 days)</div>
+        <div class="sig"><span class="ok">●</span><span>Login always worked</span></div>
+        <div class="sig"><span class="ok">●</span><span>No rejected downloads</span></div>
+        <div class="sig"><span class="muted">●</span><span class="muted">Automatic stop if 3 downloads in a row are rejected: hasn't happened yet</span></div>
+      </div>
+      <div style="margin-top:auto;display:flex;gap:8px"><span class="btn" style="flex:1">Back to 60</span><span class="btn acc" style="flex:1">Save 90</span></div>
+    </div>
+  </div>
+</div>
+
+</body>

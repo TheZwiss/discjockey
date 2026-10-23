@@ -1,0 +1,88 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Discjockey hub mockup: setup-wizard</title>
+<style>body{background:#111;color:#ddd;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:24px}.subtitle{color:#999}.label{color:#999;font-size:11px;text-transform:uppercase;letter-spacing:.8px}</style>
+<body>
+<style>
+  .wiz { background:#000; color:#d9d9dc; border-radius:12px; overflow:hidden; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif; font-size:12px; text-align:left; border:1px solid #1a1a1d; display:flex; height:470px; }
+  .wiz .steps { width:190px; border-right:1px solid #1a1a1d; padding:18px 14px; display:flex; flex-direction:column; gap:4px; flex-shrink:0; }
+  .wiz .brand { color:#8c8c92; font-weight:700; margin-bottom:14px; }
+  .wiz .st { display:flex; gap:9px; align-items:center; padding:7px 8px; border-radius:7px; color:#55555b; }
+  .wiz .st .n { width:20px; height:20px; border-radius:50%; border:1.5px solid #2a2a2f; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; flex-shrink:0; }
+  .wiz .st.done { color:#8c8c92; } .wiz .st.done .n { border-color:#2fd27a; color:#2fd27a; }
+  .wiz .st.now { color:#f2f2f4; background:#0b0806; box-shadow:inset 2px 0 0 #ff5a1f; } .wiz .st.now .n { border-color:#ff5a1f; color:#ff8a5a; }
+  .wiz .main { flex:1; padding:22px 26px; display:flex; flex-direction:column; gap:12px; max-width:560px; }
+  .wiz h3 { margin:0; color:#f2f2f4; font-size:17px; }
+  .wiz .muted { color:#6f6f76; }
+  .wiz ol { margin:0; padding-left:18px; display:flex; flex-direction:column; gap:7px; color:#b9b9be; }
+  .wiz code { background:#111114; border:1px solid #222226; border-radius:5px; padding:1px 6px; color:#f2f2f4; font-size:11px; }
+  .wiz .copy { color:#ff8a5a; font-size:10.5px; margin-left:6px; }
+  .wiz .input { border:1px solid #26262b; border-radius:8px; padding:8px 10px; color:#55555b; }
+  .wiz .input.filled { color:#d9d9dc; border-color:#2fd27a; }
+  .wiz .btnrow { display:flex; gap:8px; margin-top:auto; }
+  .wiz .btn { border:1.5px solid #2a2a2f; color:#9a9aa0; border-radius:8px; padding:8px 16px; font-weight:700; text-align:center; }
+  .wiz .btn.acc { border-color:#ff5a1f; color:#ff8a5a; margin-left:auto; }
+  .wiz .ok { color:#2fd27a; } .wiz .note { border:1px solid #1c1c20; border-radius:9px; padding:9px 11px; color:#9a9aa0; line-height:1.45; }
+  .two { display:grid; grid-template-columns:1fr; gap:26px; }
+  @media (min-width: 1300px) { .two { grid-template-columns:1fr 1fr; } }
+</style>
+
+<h2>First start: setup wizard</h2>
+<p class="subtitle">Opens by itself when something isn't set up yet (or later from the settings). Left: the Spotify step (the most complicated one). Right: the Qobuz step. Tell me in the terminal what fits.</p>
+
+<div class="two">
+  <div>
+    <div class="label" style="margin-bottom:6px">Step 2 · Spotify</div>
+    <div class="wiz">
+      <div class="steps">
+        <div class="brand">● discjockey setup</div>
+        <div class="st done"><span class="n">✓</span>Programs</div>
+        <div class="st now"><span class="n">2</span>Spotify</div>
+        <div class="st"><span class="n">3</span>Qobuz</div>
+        <div class="st"><span class="n">4</span>Playlists</div>
+        <div class="st"><span class="n">5</span>Dock icon</div>
+      </div>
+      <div class="main">
+        <h3>Connect Spotify</h3>
+        <div class="muted">Discjockey only reads your playlists. It needs a free "app" in your Spotify account, one time only (about 2 minutes).</div>
+        <ol>
+          <li>Open the Spotify developer dashboard <span class="copy">Open ↗</span></li>
+          <li>Click <b>Create app</b>. Name: anything, e.g. <code>Discjockey</code></li>
+          <li>Redirect URI: <code>http://127.0.0.1:8888/callback</code><span class="copy">Copy</span></li>
+          <li>Tick <b>Web API</b>, accept, <b>Save</b></li>
+          <li>In the app's settings, copy the <b>Client ID</b> and paste it here:</li>
+        </ol>
+        <div class="input filled">4f1c…e9a2  <span class="ok" style="float:right">✓ looks right</span></div>
+        <div class="note">Next, your browser opens to log in to Spotify. Afterwards it comes back here by itself.</div>
+        <div class="btnrow"><span class="btn">Back</span><span class="btn acc">Log in with Spotify →</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="label" style="margin-bottom:6px">Step 3 · Qobuz</div>
+    <div class="wiz">
+      <div class="steps">
+        <div class="brand">● discjockey setup</div>
+        <div class="st done"><span class="n">✓</span>Programs</div>
+        <div class="st done"><span class="n">✓</span>Spotify <span class="ok" style="margin-left:auto;font-size:10px">connected</span></div>
+        <div class="st now"><span class="n">3</span>Qobuz</div>
+        <div class="st"><span class="n">4</span>Playlists</div>
+        <div class="st"><span class="n">5</span>Dock icon</div>
+      </div>
+      <div class="main">
+        <h3>Log in to Qobuz</h3>
+        <div class="muted">Your Qobuz Studio/Sublime account, for the lossless downloads.</div>
+        <div class="input">E-mail</div>
+        <div class="input">Password</div>
+        <div class="note">Stored only on this Mac, as streamrip does it (not as plain text). Discjockey then tests the login with one search.<br><br>
+        Note: downloading with streamrip is against Qobuz's terms. Discjockey keeps the risk low (pauses, daily limit, auto-stop), but can't remove it.</div>
+        <div class="btnrow"><span class="btn">Back</span><span class="btn acc">Log in and test →</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:16px"><b>Step 1</b> checks ffmpeg and deno (with a "how to install" hint if missing). <b>Step 4</b> is the playlist manager in short form (paste the first links). <b>Step 5</b> offers to put "Discjockey" in the Dock.</p>
+
+</body>

@@ -1,0 +1,22 @@
+.venv/
+.tmp/
+.lock
+state.json
+state.json.tmp
+reports/
+not_lossless.md
+.spotify_app.json
+.spotify_token.json
+.streamrip/
+__pycache__/
+.pytest_cache/
+.DS_Store
+settings.json
+settings.json.tmp
+.superpowers/
+.cache/
+
+dist/
+
+# The private archive (spec public-release §9): tracked in the private repo, kept out of the public one
+docs/archive/pre-public/

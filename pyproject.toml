@@ -1,0 +1,26 @@
+[project]
+name = "discjockey"
+version = "1.0.0"
+description = "Keep a lossless DJ library in sync with Spotify playlists"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+requires-python = "==3.12.*"
+dependencies = [
+    "streamrip>=2.1.0,<3",
+    "yt-dlp[default]>=2026.8.19",
+    "mutagen>=1.47",
+    "numpy>=2.0",
+    "requests>=2.31",
+    "pywebview>=6.2.1,<7",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+build = ["pyinstaller==6.22.3", "dmgbuild>=1.6,<2"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

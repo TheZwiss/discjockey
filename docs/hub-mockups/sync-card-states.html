@@ -1,0 +1,90 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Discjockey hub mockup: sync-card-states</title>
+<style>body{background:#111;color:#ddd;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:24px}.subtitle{color:#999}.label{color:#999;font-size:11px;text-transform:uppercase;letter-spacing:.8px}.card-body h3{margin:10px 0 4px}.card-body p{color:#aaa;margin:0}.card{margin-bottom:24px}</style>
+<body>
+<style>
+  .states { display:grid; grid-template-columns:1fr; gap:18px; max-width:760px; }
+  .lbl { color:#8c8c92; font-size:11px; text-transform:uppercase; letter-spacing:.8px; margin-bottom:6px; }
+  .hero { background:#000; color:#d9d9dc; border:1px solid #1c1c20; border-radius:12px; padding:14px; display:flex; gap:14px; align-items:center; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif; font-size:12px; text-align:left; }
+  .art { width:92px; height:92px; border-radius:9px; flex-shrink:0; }
+  .muted { color:#55555b; }
+  .kicker { color:#55555b; font-size:10px; text-transform:uppercase; letter-spacing:.7px; }
+  .title { font-size:16px; font-weight:700; color:#f2f2f4; margin-top:2px; }
+  .seg { display:flex; gap:4px; margin:9px 0 4px; }
+  .seg span { flex:1; height:5px; border-radius:3px; background:#17171a; position:relative; overflow:hidden; }
+  .seg .d { background:#2fd27a; }
+  .seg .n { background:#17171a; }
+  .seg .n i { position:absolute; left:0; top:0; bottom:0; background:#ff5a1f; }
+  .steps { display:flex; gap:4px; font-size:10px; color:#55555b; }
+  .steps span { flex:1; }
+  .steps .d { color:#2fd27a; } .steps .n { color:#ff8a5a; }
+  .detail { margin-top:6px; color:#9a9aa0; }
+  .ring { width:64px; height:64px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
+  .ring div { width:52px; height:52px; border-radius:50%; background:#000; display:flex; align-items:center; justify-content:center; color:#f2f2f4; font-weight:700; font-size:13px; }
+  .spec { height:44px; border-radius:6px; border:1px solid #1c1c20; margin-top:8px; position:relative; background:linear-gradient(to top, #000 0%, #1a0f3a 18%, #7b2cff 40%, #ff5a1f 66%, #ffd36b 76%, #ffd36b 77%, #000 79%); }
+  .spec em { position:absolute; right:6px; top:4px; font-style:normal; font-size:9.5px; color:#2fd27a; border:1px solid rgba(47,210,122,.45); padding:1px 5px; border-radius:4px; font-weight:700; background:#000; }
+</style>
+
+<h2>The top card: one card, four states</h2>
+<p class="subtitle">It automatically switches depending on what the sync is doing. Progress always runs across the five steps; the current step shows its live details.</p>
+
+<div class="states">
+
+  <div>
+    <div class="lbl">1 · Downloading</div>
+    <div class="hero">
+      <div class="art" style="background:linear-gradient(135deg,#e8b93a,#ff5a1f)"></div>
+      <div style="flex:1;min-width:0">
+        <div class="kicker">Now · Hard_Bounce · Qobuz</div>
+        <div class="title">Pegassi – AEIOU</div>
+        <div class="seg"><span class="d"></span><span class="n"><i style="width:64%"></i></span><span></span><span></span><span></span></div>
+        <div class="steps"><span class="d">Search ✓</span><span class="n">Download</span><span>Check</span><span>Convert</span><span>Analyse</span></div>
+        <div class="detail">Downloading FLAC · <b style="color:#f2f2f4">19.8 of 31.0 MB</b> · 64 % · 4 s left</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="lbl">2 · Converting</div>
+    <div class="hero">
+      <div class="art" style="background:linear-gradient(135deg,#e8b93a,#ff5a1f)"></div>
+      <div style="flex:1;min-width:0">
+        <div class="kicker">Now · Hard_Bounce · Qobuz</div>
+        <div class="title">Pegassi – AEIOU</div>
+        <div class="seg"><span class="d"></span><span class="d"></span><span class="d"></span><span class="n"><i style="width:40%"></i></span><span></span></div>
+        <div class="steps"><span class="d">Search ✓</span><span class="d">Download ✓</span><span class="d">Check ✓</span><span class="n">Convert</span><span>Analyse</span></div>
+        <div class="detail">Length matches (3:12 = Spotify 3:12) · converting to AIFF 16-bit/44.1 · 1:17 of 3:12</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="lbl">3 · Analysed (result, shown for a few seconds)</div>
+    <div class="hero">
+      <div class="art" style="background:linear-gradient(135deg,#e8b93a,#ff5a1f)"></div>
+      <div style="flex:1;min-width:0">
+        <div class="kicker">Done · Hard_Bounce</div>
+        <div class="title">Pegassi – AEIOU</div>
+        <div class="seg"><span class="d"></span><span class="d"></span><span class="d"></span><span class="d"></span><span class="d"></span></div>
+        <div class="spec"><em>LOSSLESS · full spectrum up to 22 kHz</em></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="lbl">4 · Protection pause (or longer break)</div>
+    <div class="hero">
+      <div class="ring" style="background:conic-gradient(#ff5a1f 0 62%, #17171a 62% 100%)"><div>0:34</div></div>
+      <div style="flex:1;min-width:0">
+        <div class="kicker">Protection pause · next up</div>
+        <div class="title">DJ TALLBOY – WHERE HAVE YOU BEEN</div>
+        <div class="muted">Hard_Bounce · after that 6 more · Qobuz 42 / 60 today</div>
+      </div>
+      <div class="art" style="background:linear-gradient(135deg,#7b2cff,#ff5a1f);opacity:.45;width:64px;height:64px"></div>
+    </div>
+  </div>
+
+</div>
+
+</body>

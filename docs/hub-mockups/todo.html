@@ -1,0 +1,119 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Discjockey hub mockup: todo</title>
+<style>body{background:#111;color:#ddd;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:24px}.subtitle{color:#999}.label{color:#999;font-size:11px;text-transform:uppercase;letter-spacing:.8px}.card-body h3{margin:10px 0 4px}.card-body p{color:#aaa;margin:0}.card{margin-bottom:24px}</style>
+<body>
+<style>
+  .o { background:#000; color:#d9d9dc; border-radius:12px; overflow:hidden; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif; font-size:11.5px; text-align:left; height:540px; display:flex; flex-direction:column; border:1px solid #1a1a1d; }
+  .o .body { flex:1; display:flex; min-height:0; }
+  .o .side { width:140px; border-right:1px solid #1a1a1d; padding:12px 8px; display:flex; flex-direction:column; gap:2px; flex-shrink:0; }
+  .o .brand { color:#8c8c92; font-weight:700; margin:0 6px 10px; }
+  .o .grp { color:#55555b; font-size:9.5px; text-transform:uppercase; letter-spacing:.8px; margin:10px 6px 4px; }
+  .o .nav { padding:5px 8px; color:#6f6f76; border-radius:0 6px 6px 0; display:flex; align-items:center; gap:6px; }
+  .o .nav.on { color:#ececee; box-shadow:inset 2px 0 0 #ff5a1f; }
+  .o .nav .n { margin-left:auto; color:#55555b; font-size:10px; }
+  .o .main { flex:1; padding:14px 16px; display:flex; flex-direction:column; gap:9px; min-width:0; overflow:hidden; }
+  .o .h { font-size:15px; font-weight:700; color:#f2f2f4; display:flex; align-items:center; gap:10px; }
+  .o .sub { color:#6f6f76; font-weight:400; font-size:11px; }
+  .o .strip { display:flex; gap:6px; flex-wrap:wrap; }
+  .o .chip { border:1px solid #26262b; border-radius:20px; padding:3px 9px; color:#9a9aa0; display:flex; gap:5px; align-items:center; }
+  .o .chip.on { border-color:#ff5a1f; color:#ff8a5a; }
+  .o .chip b { color:#f2f2f4; }
+  .o .sec { color:#55555b; font-size:9.5px; text-transform:uppercase; letter-spacing:.8px; margin:6px 0 2px; }
+  .o .item { display:flex; align-items:center; gap:8px; padding:5px 4px; border-bottom:1px solid #0e0e11; }
+  .o .item.sel { background:#0d0d10; box-shadow:inset 2px 0 0 #ff5a1f; }
+  .o .cv { width:20px; height:20px; border-radius:3px; flex-shrink:0; }
+  .o .r { margin-left:auto; display:flex; gap:6px; align-items:center; }
+  .o .badge { font-size:9px; font-weight:700; padding:1px 5px; border-radius:4px; white-space:nowrap; }
+  .o .b-l { color:#2fd27a; border:1px solid rgba(47,210,122,.45); } .o .b-y { color:#e8b93a; border:1px solid rgba(232,185,58,.45); } .o .b-r { color:#ff6b6b; border:1px solid rgba(255,107,107,.45); } .o .b-p { color:#c49bff; border:1px solid rgba(196,155,255,.45); } .o .b-g { color:#8c8c92; border:1px solid #2a2a2f; }
+  .o .muted { color:#55555b; }
+  .o .insp { width:250px; border-left:1px solid #1a1a1d; padding:14px; display:flex; flex-direction:column; gap:9px; flex-shrink:0; }
+  .o .k { color:#55555b; font-size:9.5px; text-transform:uppercase; letter-spacing:.6px; }
+  .o .drop { border:1.5px dashed #ff5a1f; border-radius:10px; padding:14px 10px; text-align:center; color:#ff8a5a; background:rgba(255,90,31,.04); }
+  .o .btnrow { display:flex; gap:6px; }
+  .o .btn { border:1.5px solid #2a2a2f; color:#9a9aa0; border-radius:8px; padding:5px 10px; font-weight:600; flex:1; text-align:center; }
+  .o .btn.acc { border-color:#ff5a1f; color:#ff8a5a; }
+  .o .spec { height:40px; border-radius:6px; border:1px solid #1c1c20; background:linear-gradient(to top, #000 0%, #1a0f3a 18%, #7b2cff 40%, #ff5a1f 62%, #000 63%); position:relative; }
+  .o .spec em { position:absolute; right:6px; top:4px; font-style:normal; font-size:9px; color:#ff6b6b; font-weight:700; }
+
+  .modal { background:#000; color:#d9d9dc; border:1px solid #26262b; border-radius:14px; padding:16px 18px; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif; font-size:11.5px; text-align:left; max-width:640px; box-shadow:0 20px 60px rgba(0,0,0,.6); }
+  .modal .t { font-size:15px; font-weight:700; color:#f2f2f4; }
+  .modal .row { display:grid; grid-template-columns:22px 1fr 82px 70px 60px 62px; gap:8px; align-items:center; padding:7px 4px; border-bottom:1px solid #111114; }
+  .modal .row.head { color:#55555b; font-size:9.5px; text-transform:uppercase; letter-spacing:.6px; }
+  .modal .row.cur { background:rgba(255,77,77,.05); }
+  .modal .play { width:20px; height:20px; border-radius:50%; border:1px solid #2a2a2f; display:flex; align-items:center; justify-content:center; font-size:8px; color:#9a9aa0; }
+  .modal .use { border:1.5px solid #ff5a1f; color:#ff8a5a; border-radius:7px; padding:3px 0; font-weight:700; text-align:center; font-size:10.5px; }
+  .modal .badge { font-size:9px; font-weight:700; padding:1px 5px; border-radius:4px; white-space:nowrap; }
+  .modal .b-l { color:#2fd27a; border:1px solid rgba(47,210,122,.45); } .modal .b-y { color:#e8b93a; border:1px solid rgba(232,185,58,.45); } .modal .b-r { color:#ff6b6b; border:1px solid rgba(255,107,107,.45); }
+  .modal .muted { color:#55555b; }
+  .modal .g { color:#2fd27a; } .modal .w { color:#e8b93a; }
+</style>
+
+<h2>To-do list</h2>
+<p class="subtitle">Top: the list with a details panel for the selected track (here: a lossy track). Bottom: the "Wrong song?" dialog with other candidates. Tell me in the terminal what fits.</p>
+
+<div class="o">
+  <div class="body">
+    <div class="side">
+      <div class="brand">● Discjockey</div>
+      <div class="nav">◉ Dashboard</div><div class="nav">⟳ Sync</div><div class="nav on">✓ To-do<span class="n">16</span></div><div class="nav">≡ Playlists</div>
+      <div class="grp">Library</div>
+      <div class="nav">All tracks<span class="n">306</span></div><div class="nav">Hard_Bounce<span class="n">49</span></div><div class="nav">Powertrance<span class="n">40</span></div><div class="nav">Bouncy<span class="n">26</span></div><div class="nav">03_06_2026<span class="n">62</span></div>
+    </div>
+    <div class="main">
+      <div class="h">To-do <span class="sub">16 tracks are not lossless yet</span></div>
+      <div class="strip">
+        <span class="chip on">All <b>16</b></span>
+        <span class="chip"><span style="color:#ff6b6b">●</span> Not found <b>3</b></span>
+        <span class="chip"><span style="color:#ff6b6b">●</span> Weak (≤17 kHz) <b>4</b></span>
+        <span class="chip"><span style="color:#e8b93a">●</span> Good lossy <b>7</b></span>
+        <span class="chip"><span style="color:#c49bff">●</span> Fake lossless <b>1</b></span>
+        <span class="chip"><span style="color:#8c8c92">●</span> Other <b>1</b></span>
+      </div>
+      <div class="sec">Not found · nothing usable anywhere</div>
+      <div class="item"><span class="cv" style="background:#222"></span>Some Artist – Gone Track<span class="muted">Bouncy</span><span class="r"><span class="badge b-r">NOT FOUND</span><span class="muted">next try in 4 days</span></span></div>
+      <div class="sec">Weak · audibly lossy (≤17 kHz)</div>
+      <div class="item sel"><span class="cv" style="background:linear-gradient(135deg,#2fd27a,#1d6fff)"></span>Armin Hermann – Get Naughty<span class="muted">Hard_Bounce</span><span class="r"><span class="badge b-r">16.0 kHz · YouTube</span></span></div>
+      <div class="item"><span class="cv" style="background:linear-gradient(135deg,#7b2cff,#ff5a1f)"></span>Felix Krull – Rave Tag<span class="muted">Powertrance</span><span class="r"><span class="badge b-r">16.1 kHz · SoundCloud</span></span></div>
+      <div class="sec">Good lossy · hard to hear (~20 kHz)</div>
+      <div class="item"><span class="cv" style="background:linear-gradient(135deg,#e8b93a,#ff5a1f)"></span>Balling – LÄUFF Remix<span class="muted">Hard_Bounce</span><span class="r"><span class="badge b-y">20.0 kHz · YT Music</span></span></div>
+      <div class="sec">Fake lossless · Qobuz file is really lossy</div>
+      <div class="item"><span class="cv" style="background:linear-gradient(135deg,#c49bff,#1d6fff)"></span>Bootleg Crew – Party Edit<span class="muted">03_06_2026</span><span class="r"><span class="badge b-p">FAKE · 16.0 kHz</span></span></div>
+      <div class="sec">Other</div>
+      <div class="item"><span class="cv" style="background:#222"></span>THE WEEKEND<span class="muted">Bouncy</span><span class="r"><span class="badge b-g">MOVE BLOCKED · a file is in the way</span></span></div>
+    </div>
+    <div class="insp">
+      <div style="display:flex;gap:10px;align-items:center">
+        <div class="cv" style="width:54px;height:54px;border-radius:7px;background:linear-gradient(135deg,#2fd27a,#1d6fff)"></div>
+        <div><div style="font-weight:700;color:#f2f2f4">Get Naughty</div><div>Armin Hermann · 4:28</div><div class="muted">Hard_Bounce</div></div>
+      </div>
+      <div class="k">Current version</div>
+      <div class="spec"><em>cut off at 16.0 kHz</em></div>
+      <div class="muted">YouTube Opus · Qobuz checked again in 3 days</div>
+      <div class="btnrow"><span class="btn">▶ Listen</span><span class="btn">Wrong song?</span></div>
+      <div class="k">Buy</div>
+      <div class="btnrow"><span class="btn acc">Beatport ↗</span><span class="btn acc">Bandcamp ↗</span></div>
+      <div class="drop">Drag the bought file here<br><span class="muted" style="font-size:10px">WAV, AIFF or FLAC · renamed and filed automatically</span></div>
+      <div class="btnrow"><span class="btn">Good enough, hide</span></div>
+    </div>
+  </div>
+</div>
+
+<div style="height:26px"></div>
+<div class="label" style="margin-bottom:6px">"Wrong song?" dialog</div>
+<div class="modal">
+  <div class="t">Pick another version: Armin Hermann – Get Naughty</div>
+  <div class="muted" style="margin:3px 0 10px">Spotify: 4:28 · sorted by how well they match · ▶ plays a 20-second preview</div>
+  <div class="row head"><span></span><span>Candidate</span><span>Source</span><span>Length</span><span>Match</span><span></span></div>
+  <div class="row cur"><span class="play">▶</span><span>Armin Hermann – Get Naughty (Official Video)<br><span class="muted">current · you marked it as wrong</span></span><span>YouTube</span><span class="w">4:31</span><span><span class="badge b-r">16 kHz</span></span><span></span></div>
+  <div class="row"><span class="play">▶</span><span>Get Naughty<br><span class="muted">Armin Hermann · Topic</span></span><span>YT Music</span><span class="g">4:28</span><span class="g">96 %</span><span class="use">Use this</span></div>
+  <div class="row"><span class="play">▶</span><span>Armin Hermann – Get Naughty (Extended)<br><span class="muted">uploader: hardbouncefm</span></span><span>SoundCloud</span><span class="w">5:52</span><span class="w">71 %</span><span class="use">Use this</span></div>
+  <div class="row"><span class="play">▶</span><span>Get Naughty (Live at Ruhr in Love)</span><span>YouTube</span><span class="w">6:10</span><span class="w">63 %</span><span class="use">Use this</span></div>
+  <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+    <span class="muted">Or paste a link (YouTube / SoundCloud / Qobuz):</span>
+    <span style="flex:1;border:1px solid #26262b;border-radius:7px;padding:5px 8px;color:#55555b">https://…</span>
+    <span style="border:1.5px solid #2a2a2f;color:#9a9aa0;border-radius:7px;padding:4px 10px;font-weight:600">None of these</span>
+  </div>
+</div>
+
+</body>

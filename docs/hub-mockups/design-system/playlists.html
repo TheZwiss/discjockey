@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Playlists – design system</title>
+<style>
+  body { margin: 0; padding: 24px; background: #111; color: #9a9aa0; font: 13px -apple-system, sans-serif; }
+  .bar { position: sticky; top: 0; z-index: 5; background: #111; padding: 0 0 14px; display: flex; flex-wrap: wrap; gap: 14px 18px; align-items: center; }
+  .bar h2 { margin: 0; color: #f2f2f4; font-size: 15px; }
+  .pick { display: inline-flex; border: 1px solid #333; border-radius: 8px; overflow: hidden; }
+  .pick button { background: none; border: 0; border-left: 1px solid #333; color: #9a9aa0; font: 12px -apple-system; padding: 6px 12px; cursor: pointer; }
+  .pick button:first-child { border-left: 0; }
+  .pick button.on { background: rgba(255,90,31,.16); color: #ff8a5a; }
+  .pick button:active { transform: scale(.96); }
+  .opt { margin: 26px 0 8px; color: #f2f2f4; font-size: 15px; font-weight: 700; }
+  .why { max-width: 1100px; margin: 0 0 12px; line-height: 1.55; }
+  .why b { color: #dcdce0; }
+  .stage { overflow: hidden; }
+
+  /* ---- look 2 tokens (docs/hub-design-language.md, tokens.css) ---- */
+  .win { --bg: #000; --sb-bg: linear-gradient(#0b0b0d, #070708); --sb-line: rgba(255,255,255,.06); --panel-bg: #040405; --text: #dcdce0; --text-strong: #f4f4f6; --muted: #9a9aa2; --label: #5c5c64; --nav: #7c7c84;
+    --accent: #ff5a1f; --accent-text: #ff8a5a; --ctl-line: rgba(255,255,255,.09); --ctl-bg: rgba(255,255,255,.03); --hover: rgba(255,255,255,.035);
+    --list-bg: linear-gradient(#0c0c0e, #08080a); --list-solid: #0b0b0d; --list-line: rgba(255,255,255,.06); --row-line: rgba(255,255,255,.045);
+    --card-bg: linear-gradient(#0f0f12, #0a0a0c); --card-line: rgba(255,255,255,.07); --card-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.6);
+    --good: #2fd27a; --ok: #e8b93a; --weak: #f0524a; --lossy: #a77bff; --missing: #c0504a; --wait: #e8b93a;
+    transform-origin: 0 0; display: flex; overflow: hidden; border-radius: 12px; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; background: var(--bg); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  .win * { box-sizing: border-box; }
+  .sb { width: 168px; flex: none; padding: 16px 10px; background: var(--sb-bg); border-right: 1px solid var(--sb-line); display: flex; flex-direction: column; gap: 2px; }
+  .brand { color: #9a9aa0; font-weight: 700; padding: 0 8px 14px; display: flex; gap: 6px; align-items: center; }
+  .brand i { width: 8px; height: 8px; border-radius: 50%; background: #9a9aa0; }
+  .nav { display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 8px; border-radius: 7px; color: var(--nav); }
+  .nav .g { width: 14px; text-align: center; opacity: .8; font-size: 12px; }
+  .nav .c { margin-left: auto; font-size: 11px; color: var(--label); }
+  .nav.on { color: var(--text-strong); background: rgba(255,255,255,.07); }
+  .sbcap { font-size: 10.5px; letter-spacing: .7px; text-transform: uppercase; color: var(--label); padding: 16px 8px 6px; }
+
+  .main { flex: 1; min-width: 0; overflow-y: auto; display: flex; justify-content: center; }
+  .col { width: 100%; max-width: 900px; padding: 20px 22px 28px; display: flex; flex-direction: column; gap: 14px; }
+  .col > * { flex: none; }
+  .main.anchored { overflow: hidden; }
+  .main.anchored .col { height: 100%; }
+  .scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-mask-image: linear-gradient(#000 calc(100% - 24px), transparent); }
+  .hd { display: flex; align-items: center; gap: 10px; }
+  .hd h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-strong); letter-spacing: -.02em; }
+  .hd .st { color: var(--muted); font-size: 12px; flex: 1; padding-top: 5px; }
+  .hd .sp { color: var(--muted); font-size: 12px; }
+  .btn2 { border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--text); border-radius: 8px; padding: 6px 11px; font: 600 12px -apple-system; cursor: pointer; transition: transform 100ms ease-out; white-space: nowrap; }
+  .btn2:active { transform: scale(.97); }
+  .btn2.pri { border-color: rgba(255,90,31,.55); color: var(--accent-text); }
+  .lnk { color: var(--accent-text); font-size: 12px; white-space: nowrap; cursor: pointer; }
+  .lnk.dim { color: var(--muted); }
+
+  /* Segmented */
+  .seg { display: flex; border: 1px solid var(--ctl-line); border-radius: 9px; background: var(--ctl-bg); overflow: hidden; height: 32px; }
+  .seg div { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--muted); border-left: 1px solid var(--ctl-line); white-space: nowrap; padding: 0 8px; cursor: pointer; }
+  .seg div:first-child { border-left: 0; }
+  .seg div span.t { overflow: hidden; text-overflow: ellipsis; }
+  .seg div b { font-weight: 500; color: var(--label); font-variant-numeric: tabular-nums; }
+  .seg div.on { background: rgba(255,90,31,.14); color: var(--accent-text); }
+  .seg div.on b { color: var(--accent-text); }
+  .seg .more { flex: 0 0 auto; padding: 0 12px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--c); }
+
+  .card { border-radius: 12px; background: var(--card-bg); border: 1px solid var(--card-line); box-shadow: var(--card-shadow); padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .card.good { border-color: rgba(47,210,122,.28); background: linear-gradient(rgba(47,210,122,.07), rgba(47,210,122,.02)); }
+  .card.warn { border-color: rgba(232,185,58,.28); background: linear-gradient(rgba(232,185,58,.07), rgba(232,185,58,.02)); }
+  .card.none { padding: 28px 14px; align-items: center; text-align: center; }
+  .ch { display: flex; align-items: baseline; gap: 8px; }
+  .ch b { color: var(--text-strong); font-size: 13px; font-weight: 600; flex: 1; }
+  .num { font-size: 30px; font-weight: 700; color: var(--text-strong); line-height: 1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .num small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .lbl { color: var(--label); font-size: 11px; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .hint { font-size: 12px; color: var(--muted); }
+
+  .surf { border-radius: 12px; background: var(--list-bg); border: 1px solid var(--list-line); min-width: 0; }
+  .surf.fill { flex: 0 1 auto; min-height: 150px; display: flex; flex-direction: column; overflow: hidden; }
+  .sh { display: flex; align-items: baseline; gap: 8px; padding: 11px 14px 9px; }
+  .sh b { color: var(--text-strong); font-size: 13px; font-weight: 600; }
+  .sh .cnt { color: var(--muted); font-size: 12px; }
+  .sh .h { color: var(--label); font-size: 12px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sh.sticky { position: sticky; top: 0; z-index: 1; background: var(--list-solid); border-radius: 12px 12px 0 0; }
+  .fill > .sh { border-bottom: 1px solid var(--row-line); }
+  /* B: a section head inside the one list (new: Surface list sections) */
+  .sec { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; gap: 8px; height: 32px; padding: 9px 14px 0; background: #0d0d10; border-top: 1px solid var(--row-line); border-bottom: 1px solid var(--row-line); }
+  .scroll > .sec:first-child { border-top: 0; }
+  .sec b { color: var(--text); font-size: 12px; font-weight: 600; }
+  .sec .cnt { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .sec .h { color: var(--label); font-size: 12px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .row { display: grid; grid-template-columns: 32px minmax(0, 1fr) 76px 52px; align-items: center; column-gap: 12px; height: 52px; padding: 0 14px; border-top: 1px solid var(--row-line); cursor: pointer; transition: background 120ms; position: relative; }
+  .sec + .row { border-top: 0; }
+  .row:hover { background: var(--hover); }
+  .row.sel { background: rgba(255,90,31,.08); }
+  .row.sel::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--accent); }
+  .cov { width: 32px; height: 32px; border-radius: 5px; background: var(--g); }
+  .two-line { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  .nm b { color: var(--text-strong); font-weight: 600; }
+  .s { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .s .dimname { color: var(--label); }
+  .badge { justify-self: end; font: 600 11px -apple-system; letter-spacing: .3px; padding: 2px 6px; border-radius: 5px; border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); color: var(--c); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .xtra { justify-self: end; font: 600 11px -apple-system; letter-spacing: .3px; white-space: nowrap; }
+  .xtra.up { color: var(--good); }
+  .xtra.free { color: var(--accent-text); }
+
+  .panel { flex: none; background: var(--panel-bg); border-left: 1px solid var(--sb-line); padding: 20px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+  .pbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; -webkit-mask-image: linear-gradient(#000 calc(100% - 20px), transparent); padding-bottom: 12px; }
+  .pbody > * { flex: none; }
+  .go { background: linear-gradient(#ff6a30, #f2521a); color: #000; font: 700 14px -apple-system; text-align: center; padding: 11px; border-radius: 10px; border: 0; box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 4px 14px rgba(255,90,31,.22); cursor: pointer; transition: transform 100ms ease-out, filter 150ms; flex: none; }
+  .go:active { transform: scale(.98); }
+  .go2 { flex: none; text-align: center; padding: 10px; border-radius: 10px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--text); font: 600 13px -apple-system; }
+
+  .th { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; align-items: center; }
+  .th .cov { width: 56px; height: 56px; border-radius: 8px; }
+  .th .t { color: var(--text-strong); font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .qline { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .qline .badge { justify-self: start; }
+  .spec { height: 54px; border-radius: 6px; background: linear-gradient(0deg, #ff7a1a 0%, #d0306a 35%, #5a1fa0 70%, #1a0b40 100%); position: relative; overflow: hidden; }
+  .spec::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: var(--cut, 28%); background: #07070a; border-bottom: 1px dashed rgba(255,255,255,.5); }
+  .spec.full::after { display: none; }
+  .spec span { position: absolute; right: 6px; top: 3px; z-index: 1; font-size: 10.5px; color: #dcdce0; }
+  .player { display: flex; align-items: center; gap: 10px; }
+  .play { width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--accent); color: var(--accent); display: grid; place-items: center; font-size: 10px; flex: none; }
+  .wave { flex: 1; height: 20px; background: repeating-linear-gradient(90deg, rgba(255,255,255,.28) 0 1px, transparent 1px 3px); -webkit-mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent); }
+  .tm { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .facts { display: grid; grid-template-columns: 62px minmax(0, 1fr); row-gap: 6px; font-size: 12px; }
+  .facts dt { color: var(--label); } .facts dd { margin: 0; color: var(--text); }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pair .lbl { margin-bottom: 4px; }
+  .getrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--row-line); font-size: 12px; }
+  .getrow:first-of-type { border-top: 0; padding-top: 0; }
+  .ftag { font: 700 10px -apple-system; letter-spacing: .4px; color: var(--accent-text); border: 1px solid rgba(255,90,31,.45); border-radius: 4px; padding: 1px 5px; margin-right: 6px; }
+  .drop { border: 1.5px dashed rgba(255,255,255,.14); border-radius: 10px; padding: 14px; text-align: center; display: flex; flex-direction: column; gap: 4px; }
+  .drop b { color: var(--text-strong); font-weight: 600; font-size: 13px; }
+  .note { display: grid; grid-template-columns: 16px minmax(0,1fr); gap: 10px; font-size: 12px; line-height: 1.45; color: var(--text); }
+  .note i { font-style: normal; color: var(--wait); }
+  .pempty { flex: 1; display: grid; place-items: center; color: var(--label); font-size: 12px; }
+</style>
+<style>
+  /* ---- Playlists extras ---- */
+  .row.pl { grid-template-columns: 14px 18px 32px minmax(0, 1fr) 46px 34px 26px; cursor: default; }
+  .wide .row.pl { grid-template-columns: 14px 18px 32px minmax(0, 1fr) 132px 46px 34px 26px; }
+  .row.pl .qcol { display: none; }
+  .wide .row.pl .qcol { display: flex; flex-direction: column; gap: 4px; }
+  .row.pl:hover { background: var(--hover); }
+  .handle { color: var(--label); letter-spacing: -2px; cursor: grab; font-size: 12px; user-select: none; }
+  .prio { color: var(--muted); font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
+  .cnt2 { justify-self: end; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .sw { width: 30px; height: 18px; border-radius: 9px; background: var(--accent); position: relative; justify-self: center; }
+  .sw::after { content: ''; position: absolute; top: 2px; left: 14px; width: 14px; height: 14px; border-radius: 50%; background: #fff; }
+  .sw.offsw { background: rgba(255,255,255,.12); }
+  .sw.offsw::after { left: 2px; background: #8a8a92; }
+  .more { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; color: var(--muted); border: 1px solid transparent; justify-self: end; }
+  .row.pl:hover .more, .more.open { border-color: var(--ctl-line); background: var(--ctl-bg); color: var(--text); }
+  .row.pl.off .cov, .row.pl.off .prio { opacity: .45; }
+  .row.pl.off .nm b { color: var(--muted); }
+  .row.pl.drag { background: #141418; box-shadow: 0 8px 24px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,90,31,.45); border-radius: 8px; z-index: 2; transform: translateY(-10px); }
+  .row.pl.drag .handle { color: var(--accent-text); }
+  .gap { height: 52px; border-top: 1px solid var(--row-line); background: repeating-linear-gradient(90deg, rgba(255,90,31,.06) 0 6px, transparent 6px 12px); }
+  .qb { display: flex; height: 4px; border-radius: 2px; overflow: hidden; background: rgba(255,255,255,.06); }
+  .qb i { display: block; height: 100%; }
+  .qcol .lbl { font-variant-numeric: tabular-nums; }
+  .s.bad { color: var(--weak); }
+  .tagnew { font: 600 10.5px -apple-system; color: var(--accent-text); border: 1px solid rgba(255,90,31,.45); border-radius: 4px; padding: 0 5px; margin-left: 6px; vertical-align: 1px; }
+  .badge.prob { --c: var(--weak); }
+  .menu { position: absolute; right: 14px; top: 44px; z-index: 4; background: #16161a; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; padding: 4px; box-shadow: 0 10px 30px rgba(0,0,0,.6); min-width: 170px; }
+  .menu div { padding: 6px 10px; border-radius: 6px; font-size: 13px; color: var(--text); }
+  .menu div:first-child { background: rgba(255,255,255,.06); }
+  .menu .red { color: var(--weak); }
+
+  .addbar { display: flex; gap: 8px; }
+  .field { flex: 1; min-width: 0; height: 34px; border-radius: 8px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); display: flex; align-items: center; padding: 0 12px; color: var(--label); white-space: nowrap; overflow: hidden; }
+  .field.val { color: var(--text); }
+  .btn3 { height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--text); font: 600 13px -apple-system; display: grid; place-items: center; white-space: nowrap; }
+  .found { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+  .found .cov { width: 48px; height: 48px; border-radius: 6px; }
+  .ok { color: var(--good); font-size: 12px; }
+  .frow { display: flex; gap: 8px; align-items: center; }
+  .frow .lbl { width: 84px; flex: none; font-size: 12px; color: var(--muted); }
+  .frow .field { height: 30px; color: var(--text); }
+  .sh .tip { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--label); color: var(--label); font-size: 9px; display: inline-grid; place-items: center; font-weight: 700; }
+  .h2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .sc { border-radius: 12px; background: var(--card-bg); border: 1px solid var(--card-line); box-shadow: var(--card-shadow); padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .sc .num { font-size: 30px; }
+  .arrow { color: var(--muted); font-size: 18px; font-weight: 500; margin: 0 2px; }
+  .gain { color: var(--good); } .lose { color: var(--accent-text); }
+  .checks { display: flex; flex-direction: column; gap: 7px; font-size: 12px; color: var(--text); }
+  .checks span::before { content: '✓'; color: var(--good); margin-right: 8px; font-weight: 700; }
+  .card.prob { border-color: rgba(240,82,74,.35); background: linear-gradient(rgba(240,82,74,.08), rgba(240,82,74,.02)); }
+  .note i.r { color: var(--weak); }
+  .foot { display: flex; gap: 8px; flex: none; }
+  .foot .go { flex: 1; }
+  .foot .go.dis, .go.dis { background: rgba(255,255,255,.06); color: var(--label); box-shadow: none; }
+  .foot .go2 { padding: 10px 16px; }
+  .foot .go2.dis { color: var(--label); }
+  .trow { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: center; height: 40px; padding: 0 14px; border-top: 1px solid var(--row-line); }
+  .sec + .trow { border-top: 0; }
+  .trow .cov { width: 28px; height: 28px; border-radius: 4px; }
+  .pcap { font-size: 10.5px; letter-spacing: .7px; text-transform: uppercase; color: var(--label); }
+  /* the move view: each changed folder's net change, then the tracks grouped by route */
+  .frow2 { display: grid; grid-template-columns: minmax(0, 1fr) 72px 64px; align-items: center; column-gap: 10px; height: 34px; padding: 0 14px; border-top: 1px solid var(--row-line); font-size: 12px; }
+  .sh + .frow2 { border-top: 0; }
+  .frow2 .fn { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .frow2 .fn.top { color: var(--text-strong); font-weight: 600; }
+  .div { position: relative; height: 8px; }
+  .div::before { content: ''; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: rgba(255,255,255,.18); }
+  .div i { position: absolute; top: 0; height: 8px; border-radius: 2px; }
+  .div i.g { left: calc(50% + 1px); background: var(--accent); }
+  .div i.l { right: calc(50% + 1px); background: rgba(255,255,255,.28); }
+  .fv .dl { display: inline-block; min-width: 24px; text-align: right; }
+  .sec b.route { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fv { justify-self: end; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
+  .fv b { color: var(--text-strong); font-weight: 600; }
+  .dl { font-size: 11px; font-variant-numeric: tabular-nums; }
+  .dl.g { color: var(--accent-text); } .dl.l { color: var(--muted); }
+  .route { color: var(--text); }
+  .route em { font-style: normal; color: var(--accent-text); }
+  .cnt2 .dl { display: block; text-align: right; line-height: 1.2; }
+  .panel > * { flex-shrink: 0; }
+  .panel > .pfill { flex-shrink: 1; }
+  .pfill { flex: 0 1 auto; min-height: 140px; display: flex; flex-direction: column; overflow: hidden; }
+  .spacer { flex: 1 1 0; }
+</style>
+</head><body>
+
+<div class="bar">
+  <h2>Playlists</h2>
+  <span>Window <span class="pick" id="size"><button data-v="1100">1100 × 700</button><button data-v="1280" class="on">1280 × 800</button><button data-v="2560">2560 × 1440</button></span></span>
+  <span>List <span class="pick" id="big"><button data-v="0" class="on">6 playlists</button><button data-v="1">Grown (30)</button></span></span>
+  <span>State <span class="pick" id="st"><button data-v="clean" class="on">Nothing changed</button><button data-v="drag">Dragging</button><button data-v="moves">Moved up</button><button data-v="bigmove">Big move</button><button data-v="off">Switched off</button><button data-v="found">Pasted a link</button><button data-v="added">Added</button><button data-v="menu">⋯ menu</button><button data-v="problem">Problem</button></span></span>
+</div>
+
+<div class="opt">Before: what's wrong</div>
+<p class="why">Every playlist is its own bordered box stacked in a column that scrolls the header and the paste field away (13 playlists already push the list off screen; the anchored-list rule forbids it). Each row carries six controls (⋮⋮, ✎, a switch, ✕, and a full-width quality bar under the name that reads as a progress bar), so the eye has no column to follow and the counts don't line up with anything. "↻ read Spotify" hides inside rows and in a loose "Saved" card, though Read Spotify lives in the page header. The prose under the list sits on the bare background. The panel shouts a 30 px sentence ("Files stay, no more updates") over a hairline checklist, and Save is an orange outline next to an equal-weight Undo: nothing says Save is the one thing to do.</p>
+
+<div class="opt">A: the paste field above one anchored list (recommended)</div>
+<p class="why"><b>Main:</b> the page header with the Spotify slot (the only Read Spotify), the paste field and Add on one line, then <b>one Surface list that fills the rest and scrolls inside</b>, like To-do. A row is <b>⋮⋮ · priority · cover · folder name over "Spotify name · owner" · quality · tracks · switch · ⋯</b>, on one grid so numbers line up down the list. The quality split becomes a short bar with its lossless count in its own column, shown only when the list is at least 680 px wide (at 1100 it gives way). Rename and Remove move into the row's <b>⋯ menu</b> (and right-click); renaming edits the name in place as today. A pasted link shows the playlist it found as a card between the field and the list, with its folder name and "Add to the list". <b>The priority rule</b> ("a track in several playlists lands in the highest one") goes behind the ⓘ beside the list's name, and the drag hint into the list's head.</p>
+<div class="stage" data-opt="A"></div>
+
+<div class="opt">B: Add a playlist in the list's head; pasting happens in the panel</div>
+<p class="why">The list starts right under the header (one row more on screen); "+ Add a playlist" sits in the list's head and the panel turns into the add step (field, the found playlist, folder name, Add to the list) until you add or cancel. Cleaner main column, but adding hides what the panel was saying, and the paste field is no longer where you'd look first on an empty page.</p>
+<div class="stage" data-opt="B"></div>
+
+<div class="opt">Panel when you move playlists (pick "Big move", and try it at 1100 × 700)</div>
+<p class="why">The move answers two questions in order. <b>Which folders change, and by how much?</b> One row per changed folder, in the new list's order: the folder, a bar that grows right in orange for a folder that gets tracks and left in grey for one that gives them away (all bars on one scale, so 27 vs 3 is obvious at a glance), then its file count after the change and the difference. <b>Which tracks go where?</b> One list of the moving tracks, grouped by route, "Hard_Bounce → <span style="color:#ff8a5a">Set_04</span> · 12", each group's head sticking to the top while its tracks pass; every track shows its quality badge, so you see what you're moving. The same change shows in the main list too: under each affected playlist, "gets 27 more" in orange or "gives 20 away" in grey. What stays safe shrinks to one line above Save. The small one-track move ("Moved up") uses the same layout.</p>
+<div class="opt">Panel (both): what your change does · Save as the one filled button</div>
+<p class="why"><b>Nothing changed:</b> a StatCard "tracks in several playlists" and below it the list of those tracks, grouped by the playlist that loses them ("Powertrance · 1 lands in Hard_Bounce"), so the overlap is something you see, not read. <b>Changed:</b> numbers first, as StatCards: new downloads and how long they take at your limit; tracks that stop updating; for a move, see <b>Big move</b> below. The tracks that move are the panel's list; what stays safe ("Nothing is deleted", "cue points are kept") is a quiet checklist card under them. A problem is a red NoteCard and Save stays off. <b>Foot:</b> Undo (secondary) and <b>Save</b> (filled), off until something changed. After saving, the header's Spotify slot says the new playlist isn't read yet; no extra card.</p>
+
+<script>
+(function () {
+  const grads = ['linear-gradient(135deg,#7a4cff,#1a7cff)', 'linear-gradient(135deg,#1a7cff,#ff6a3a)', 'linear-gradient(135deg,#5a3cff,#3a7cff)', 'linear-gradient(135deg,#2fd27a,#1a7cff)', 'linear-gradient(135deg,#1a3a7a,#a04a2a)', 'linear-gradient(135deg,#7a4cff,#2fd27a)', 'linear-gradient(135deg,#ff6a8a,#7a4cff)', 'linear-gradient(135deg,#e8b93a,#2fd27a)'];
+  const P = (folder, name, owner, tracks, q, extra = {}) => ({ folder, name, owner, tracks, q, on: true, ...extra });
+  const base = [
+    P('Hard_Bounce', 'Hard Bounce', 'yours', 11, [6, 1, 2, 1, 1]),
+    P('Powertrance', 'Powertrance', 'yours', 8, [3, 2, 2, 1, 0]),
+    P('Bouncy', 'Bouncy', 'yours', 7, [4, 1, 1, 1, 0]),
+    P('03_06_2026', '03.06.2026 set', 'yours', 6, [3, 1, 1, 0, 1]),
+    P('Tekke_Ecke', 'Tekke Ecke', 'yours', 6, [2, 2, 1, 1, 0], { on: false }),
+    P('Hard_Techno', 'Hard Techno', 'Spotify', 0, [0, 0, 0, 0, 0], { bad: true }),
+  ];
+  const DELTA = { moves: { Powertrance: 1, Hard_Bounce: -1 }, bigmove: { Set_04: 27, Hard_Bounce: -20, Powertrance: -4, Bouncy: -3 } };
+  const QC = ['--good', '--ok', '--weak', '--lossy', '--missing'];
+  function list(big, st) {
+    let ls = base.map((p) => ({ ...p }));
+    if (big) for (let i = 1; i <= 24; i++) ls.push(P('Set_' + String(i).padStart(2, '0'), 'Set ' + i, i % 4 ? 'yours' : 'collaborative', 20 + (i * 7) % 40, [10 + i % 9, 4, 3, 1, i % 3]));
+    if (st === 'off') ls[2].on = false;
+    if (st === 'moves') { const [p] = ls.splice(1, 1); ls.unshift(p); }
+    if (st === 'bigmove') { const i = ls.findIndex((p) => p.folder === 'Set_04'); const [p] = ls.splice(i, 1); ls.unshift(p); const h = ls.splice(1, 1)[0]; ls.splice(3, 0, h); }
+    const D = DELTA[st] || {};
+    ls.forEach((p) => { if (D[p.folder] != null) p.delta = D[p.folder]; });
+    if (st === 'added') ls.push(P('Peak_Time', 'Peak Time', 'yours', 24, [0, 0, 0, 0, 0], { isNew: true, unread: false }));
+    return ls;
+  }
+  const qbar = (q) => { const t = q.reduce((a, b) => a + b, 0); return t ? `<div class="qb">${q.map((n, i) => n ? `<i style="width:${n / t * 100}%;background:var(${QC[i]})"></i>` : '').join('')}</div><span class="lbl">${q[0]} of ${t} lossless</span>` : '<span class="lbl">nothing yet</span>'; };
+  function rowsHtml(ls, st) {
+    let n = 0;
+    return ls.map((p, k) => {
+      const prio = p.on ? ++n : '–';
+      const sub = p.bad ? `<span class="s bad">Follow ≠ own: make your own copy in Spotify</span>` : p.on ? `<span class="s">${p.delta ? `<span class="dl ${p.delta > 0 ? 'g' : 'l'}">${p.delta > 0 ? `gets ${p.delta} more` : `gives ${-p.delta} away`}</span> · ` : ''}"${p.name}" · ${p.owner}</span>` : `<span class="s">switched off · files stay</span>`;
+      const drag = st === 'drag' && k === 1;
+      const gap = st === 'drag' && k === 0 ? '' : '';
+      const r = `<div class="row pl${p.on ? '' : ' off'}${drag ? ' drag' : ''}"><span class="handle">⋮⋮</span><span class="prio">${prio}</span><span class="cov" style="--g:${grads[k % grads.length]}"></span>
+        <div class="two-line"><span class="nm"><b>${p.folder}</b>${p.isNew ? '<span class="tagnew">NEW</span>' : ''}</span>${sub}</div>
+        <div class="qcol">${p.bad ? `<span class="badge prob" style="justify-self:start;align-self:flex-start">CAN'T READ</span>` : p.on ? qbar(p.q) : ''}</div>
+        <span class="cnt2">${p.bad ? '—' : p.tracks}</span><span class="sw${p.on ? '' : ' offsw'}"></span><span class="more${st === 'menu' && k === 2 ? ' open' : ''}">⋯</span>
+        ${st === 'menu' && k === 2 ? '<div class="menu"><div>Rename the folder…</div><div class="red">Remove from the list…</div></div>' : ''}</div>`;
+      return (drag ? '' : '') + r;
+    }).join('');
+  }
+  function listSurface(ls, st, opt) {
+    const on = ls.filter((p) => p.on).length, off = ls.length - on;
+    const head = `<div class="sh"><b>Your playlists</b><span class="tip">i</span><span class="cnt">${on} on${off ? ` · ${off} off` : ''}</span><span class="h" style="text-align:right">${opt === 'B' ? '' : 'top = highest priority · drag ⋮⋮ or ⌥↑ ⌥↓'}</span>${opt === 'B' ? '<span class="lnk">+ Add a playlist</span>' : ''}</div>`;
+    let rows = rowsHtml(ls, st);
+    if (st === 'drag') rows = rows.replace('<div class="row pl drag', '<div class="gap"></div><div class="row pl drag');
+    return `<div class="surf fill">${head}<div class="scroll" style="position:relative">${rows}</div></div>`;
+  }
+  const found = `<div class="card"><div class="found"><span class="cov" style="--g:${grads[6]}"></span><div class="two-line"><span class="nm"><b>Peak Time</b></span><span class="s">yours · 24 tracks</span><span class="ok">✓ Discjockey can read it</span></div><span class="lnk dim">Cancel</span></div>
+    <div class="frow"><span class="lbl">Folder name</span><span class="field">Peak_Time</span><button class="btn2 pri">Add to the list</button></div></div>`;
+  const addbar = (st) => `<div class="addbar"><span class="field${st === 'found' ? ' val' : ''}">${st === 'found' ? 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M' : 'Paste a Spotify playlist link…'}</span><button class="btn3">Add</button></div>`;
+  const header = (big) => `<div class="hd"><h1>Playlists</h1><span class="st">${big ? '29' : '5'} on · ${big ? '1,442' : '38'} tracks</span><span class="sp">Spotify read 2 min ago</span><button class="btn2">↻ Read Spotify</button></div>`;
+  const sidebar = (big) => `<div class="sb"><div class="brand"><i></i>Discjockey</div>
+    <div class="nav"><span class="g">◉</span>Dashboard</div><div class="nav"><span class="g">⟳</span>Sync</div><div class="nav"><span class="g">✓</span>To-do<span class="c">18</span></div>
+    <div class="nav on"><span class="g">≡</span>Playlists</div><div class="nav"><span class="g">◔</span>Download limits</div><div class="sbcap">Library</div>
+    <div class="nav">All tracks<span class="c">${big ? 1442 : 36}</span></div>${['Hard_Bounce', 'Powertrance', 'Bouncy', '03_06_2026', 'Tekke_Ecke'].map((n, i) => `<div class="nav">${n}<span class="c">${[10, 7, 7, 5, 5][i]}</span></div>`).join('')}
+    <div class="nav" style="margin-top:auto"><span class="g">⚙</span>Settings</div></div>`;
+
+  // ---- panel ----
+  const trow = (a, t, q, b, k) => `<div class="trow"><span class="cov" style="--g:${grads[k % grads.length]}"></span><span class="nm">${a} – <b>${t}</b></span><span class="badge" style="--c:var(${q})">${b}</span></div>`;
+  const checks = (items) => `<div class="card"><div class="checks">${items.map((c) => `<span>${c}</span>`).join('')}</div></div>`;
+  const SAFE = ['Nothing is deleted', 'rekordbox follows the files, cue points stay', 'Happens at the next sync'];
+  const foot = (on) => `<div class="foot"><button class="go2${on ? '' : ' dis'}">Undo</button><button class="go${on ? '' : ' dis'}">Save</button></div>`;
+  // a move: [folder, before, after] for each changed folder, top of the new list first; routes [from, to, tracks]
+  const SMALL = { folders: [['Powertrance', 7, 8], ['Hard_Bounce', 11, 10]], routes: [['Hard_Bounce', 'Powertrance', 1]] };
+  const BIG = { folders: [['Set_04', 23, 50], ['Powertrance', 288, 284], ['Bouncy', 288, 285], ['Hard_Bounce', 291, 271]],
+    routes: [['Hard_Bounce', 'Set_04', 12], ['Powertrance', 'Set_04', 9], ['Bouncy', 'Set_04', 6], ['Hard_Bounce', 'Powertrance', 5], ['Hard_Bounce', 'Bouncy', 3]] };
+  const NAMES = [['Armin Hermann', 'Get Naughty'], ['Lena Strobe', 'Nebelmaschine'], ['Pulsar 9', 'Treppenhaus'], ['Sora Blitz', 'Gravity'], ['Kalte Nacht', 'Kick it Hard'], ['Echo Gruppe', 'Unterwasser'], ['Frau Funk', 'Zeitlupe'], ['Mira Volt', 'Strobe Light'], ['Pegassi', 'AEIOU']];
+  const BADGES = [['--good', 'LOSSLESS'], ['--good', 'LOSSLESS'], ['--ok', '20.0 kHz'], ['--weak', '16.0 kHz'], ['--good', 'LOSSLESS'], ['--lossy', 'FAKE']];
+  function movesPanel(m) {
+    const total = m.routes.reduce((n, r) => n + r[2], 0);
+    const maxD = Math.max(...m.folders.map((f) => Math.abs(f[2] - f[1])));
+    const half = 35;
+    const frows = m.folders.map(([f, b, a], i) => { const d = a - b, w = Math.max(3, Math.round(Math.abs(d) / maxD * half));
+      return `<div class="frow2"><span class="fn${d > 0 ? ' top' : ''}">${f}</span><span class="div"><i class="${d > 0 ? 'g' : 'l'}" style="width:${w}px"></i></span><span class="fv" title="${b} → ${a}"><b>${a}</b> <span class="dl ${d > 0 ? 'g' : 'l'}">${d > 0 ? '+' : '−'}${Math.abs(d)}</span></span></div>`; }).join('');
+    let k = 0;
+    const routes = m.routes.map(([f, t, n]) => `<div class="sec"><b class="route">${f} → <em>${t}</em></b><span class="cnt">${n}</span></div>`
+      + Array.from({ length: Math.min(n, 4) }, () => { const nm = NAMES[k % NAMES.length], bd = BADGES[k % BADGES.length]; return trow(nm[0], nm[1], bd[0], bd[1], k++); }).join('')).join('');
+    return `<div class="pcap">What your change does</div>
+      <div class="surf" style="flex:none"><div class="sh"><b>${m.folders.length} folders change</b><span class="h" style="text-align:right">files after</span></div>${frows}</div>
+      <div class="surf pfill"><div class="sh"><b>${total} ${total === 1 ? 'track moves' : 'tracks move'}</b><span class="h">grouped by where they go</span></div><div class="scroll">${routes}</div></div>
+      <div class="spacer"></div><div class="hint" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Nothing is deleted · cue points stay</div>${foot(true)}`;
+  }
+  function panel(st, big, opt) {
+    if (opt === 'B' && (st === 'found')) return `<div class="pcap">Add a playlist</div>${addbar('found').replace('class="addbar"', 'class="addbar" style="flex-direction:column"')}${found}<div class="spacer"></div>${foot(false)}`;
+    if (st === 'problem') return `<div class="pcap">What your change does</div><div class="card prob"><div class="note"><i class="r">!</i><span>Line 2: "Powertrance" and "Hard_Bounce" can't share a folder. Give each playlist its own folder name.</span></div></div><div class="spacer"></div><div class="hint" style="text-align:right">Fix the problem first</div>${foot(false).replace('<button class="go2 dis">', '<button class="go2">')}`;
+    if (st === 'moves' || st === 'bigmove') return movesPanel(st === 'bigmove' ? BIG : SMALL);
+    if (st === 'off') return `<div class="pcap">What your change does</div>
+      <div class="sc"><div class="num">7<small> tracks</small></div><span class="lbl">in Bouncy stop updating · their files stay</span></div>
+      ${checks(['No downloads, no Qobuz limit used', ...SAFE])}<div class="spacer"></div>${foot(true)}`;
+    if (st === 'added') return `<div class="pcap">What your change does</div>
+      <div class="h2"><div class="sc"><div class="num">24</div><span class="lbl">new downloads</span></div><div class="sc"><div class="num">~1<small> day</small></div><span class="lbl">at your limit of 60 a day</span></div></div>
+      ${checks(['Counts toward your Qobuz limit', ...SAFE])}<div class="spacer"></div>${foot(true)}`;
+    // nothing changed: the overlaps
+    const n = big ? 14 : 1;
+    let rows = `<div class="sec"><b>Powertrance</b><span class="cnt">1</span><span class="h">lands in Hard_Bounce</span></div>${trow('Armin Hermann', 'Get Naughty', '--weak', '16.0 kHz', 0)}`;
+    if (big) {
+      rows = `<div class="sec"><b>Powertrance</b><span class="cnt">6</span><span class="h">lands in Hard_Bounce</span></div>` + [0, 1, 2, 3, 4, 5].map((k) => trow(['Armin Hermann', 'Lena Strobe', 'Pulsar 9', 'Sora Blitz', 'Kalte Nacht', 'Echo Gruppe'][k], ['Get Naughty', 'Nebelmaschine', 'Treppenhaus', 'Gravity', 'Kick it Hard', 'Unterwasser'][k], ['--weak', '--good', '--good', '--ok', '--good', '--lossy'][k], ['16.0 kHz', 'LOSSLESS', 'LOSSLESS', '20.0 kHz', 'LOSSLESS', 'FAKE'][k], k)).join('')
+        + `<div class="sec"><b>Bouncy</b><span class="cnt">5</span><span class="h">4 in Hard_Bounce · 1 in Powertrance</span></div>` + [0, 1, 2, 3, 4].map((k) => trow(['Frau Funk', 'Mira Volt', 'Pegassi', 'Low Ceiling', 'Bass Bunker'][k], ['Zeitlupe', 'Strobe Light', 'AEIOU', 'Taktgefuehl', 'Treibsand'][k], '--good', 'LOSSLESS', k + 2)).join('')
+        + `<div class="sec"><b>Set_04</b><span class="cnt">3</span><span class="h">lands in Bouncy</span></div>` + [0, 1, 2].map((k) => trow('Tekk Tobi', ['Hyperdrive', 'Tunnelblick', 'Treppenhaus'][k], '--ok', '20.0 kHz', k + 4)).join('');
+    }
+    return `<div class="pcap">Tracks in several playlists</div>
+      <div class="sc"><div class="num">${n}<small> ${n === 1 ? 'track' : 'tracks'}</small></div><span class="lbl">in several playlists · downloaded once, into the highest</span></div>
+      <div class="surf pfill"><div class="sh"><b>Where they land</b><span class="h" style="text-align:right">drag a playlist higher to keep them</span></div><div class="scroll">${rows}</div></div>
+      <div class="spacer"></div>${foot(false)}`;
+  }
+
+  let size = 1280, big = false, st = 'clean';
+  function render() {
+    const h = { 1100: 700, 1280: 800, 2560: 1440 }[size];
+    const ls = list(big || st === 'bigmove', st);
+    document.querySelectorAll('.stage').forEach((stg) => {
+      const opt = stg.dataset.opt;
+      const scale = Math.min(1, (stg.clientWidth || document.body.clientWidth - 48) / size);
+      stg.style.height = h * scale + 'px';
+      const pw = size < 1240 ? 320 : 360;
+      const listW = Math.min(900, size - 168 - pw) - 44;
+      const top = opt === 'A' ? `${addbar(st)}${st === 'found' ? found : ''}` : '';
+      const main = `<div class="main anchored"><div class="col${listW >= 680 ? ' wide' : ''}">${header(big || st === 'bigmove')}${top}${listSurface(ls, st, opt)}</div></div>`;
+      stg.innerHTML = `<div class="win" style="width:${size}px;height:${h}px;transform:scale(${scale})">${sidebar(big || st === 'bigmove')}${main}<div class="panel" data-panel style="width:${pw}px">${panel(st, big || st === 'bigmove', opt)}</div></div>`;
+    });
+  }
+  const wire = (id, set) => document.querySelectorAll(`#${id} button`).forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll(`#${id} button`).forEach((x) => x.classList.toggle('on', x === b)); set(b.dataset.v); render(); }));
+  wire('size', (v) => { size = +v; });
+  wire('big', (v) => { big = v === '1'; });
+  wire('st', (v) => { st = v; });
+  addEventListener('resize', render);
+  render();
+})();
+</script>
+</body></html>

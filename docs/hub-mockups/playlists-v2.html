@@ -1,0 +1,127 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Discjockey hub mockup: playlists-v2</title>
+<style>body{background:#111;color:#ddd;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:24px}.subtitle{color:#999}.label{color:#999;font-size:11px;text-transform:uppercase;letter-spacing:.8px}.card-body h3{margin:10px 0 4px}.card-body p{color:#aaa;margin:0}.card{margin-bottom:24px}</style>
+<body>
+<style>
+  .o { background:#000; color:#d9d9dc; border-radius:12px; overflow:hidden; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif; font-size:11.5px; text-align:left; height:560px; display:flex; flex-direction:column; border:1px solid #1a1a1d; }
+  .o .body { flex:1; display:flex; min-height:0; }
+  .o .side { width:150px; border-right:1px solid #1a1a1d; padding:12px 8px; display:flex; flex-direction:column; gap:2px; flex-shrink:0; }
+  .o .brand { color:#8c8c92; font-weight:700; margin:0 6px 10px; }
+  .o .grp { color:#55555b; font-size:9.5px; text-transform:uppercase; letter-spacing:.8px; margin:10px 6px 4px; }
+  .o .nav { padding:5px 8px; color:#6f6f76; border-radius:0 6px 6px 0; display:flex; align-items:center; gap:6px; }
+  .o .nav.on { color:#ececee; box-shadow:inset 2px 0 0 #ff5a1f; }
+  .o .nav .n { margin-left:auto; color:#55555b; font-size:10px; }
+  .o .main { flex:1; padding:14px 16px; display:flex; flex-direction:column; gap:9px; min-width:0; max-width:640px; overflow:hidden; }
+  .o .h { font-size:15px; font-weight:700; color:#f2f2f4; display:flex; align-items:baseline; gap:10px; }
+  .o .sub { color:#6f6f76; font-weight:400; font-size:11px; }
+  .o .add { display:flex; gap:8px; align-items:center; }
+  .o .input { flex:1; border:1px solid #26262b; border-radius:8px; padding:7px 10px; color:#55555b; }
+  .o .btn { border:1.5px solid #2a2a2f; color:#9a9aa0; border-radius:8px; padding:6px 12px; font-weight:700; white-space:nowrap; text-align:center; }
+  .o .btn.acc { border-color:#ff5a1f; color:#ff8a5a; }
+  .o .pl { display:grid; grid-template-columns:14px 16px 36px 1fr 62px 28px; gap:10px; align-items:center; padding:7px 8px; border:1px solid #141417; border-radius:10px; }
+  .o .pl.drag { border-color:#ff5a1f; background:#0b0806; box-shadow:0 8px 24px rgba(255,90,31,.12); }
+  .o .pl.off { opacity:.45; }
+  .o .pl.err { border-color:rgba(255,107,107,.5); }
+  .o .handle { color:#3a3a40; text-align:center; }
+  .o .prio { color:#55555b; font-weight:700; text-align:center; }
+  .o .cover { width:36px; height:36px; border-radius:6px; }
+  .o .folder { color:#f2f2f4; font-weight:700; }
+  .o .folder .pen { color:#3a3a40; font-weight:400; margin-left:4px; }
+  .o .muted { color:#55555b; }
+  .o .bad { color:#ff6b6b; }
+  .o .tog { width:28px; height:16px; border-radius:9px; background:#ff5a1f; position:relative; }
+  .o .tog::after { content:""; position:absolute; right:2px; top:2px; width:12px; height:12px; border-radius:50%; background:#000; }
+  .o .tog.offt { background:#26262b; } .o .tog.offt::after { left:2px; right:auto; background:#55555b; }
+  .o .bar { height:4px; border-radius:2px; overflow:hidden; display:flex; margin-top:4px; background:#17171a; }
+  .o .bar span { display:block; height:100%; }
+  .o .l { background:#27b868; } .o .y { background:#d9a92e; } .o .r { background:#e04343; }
+
+  .o .impact { flex:1; border-left:1px solid #1a1a1d; padding:14px 18px; display:flex; flex-direction:column; gap:12px; min-width:300px; }
+  .o .k { color:#55555b; font-size:9.5px; text-transform:uppercase; letter-spacing:.8px; }
+  .o .big { font-size:17px; font-weight:700; color:#f2f2f4; }
+  .o .flow { display:grid; grid-template-columns:1fr 40px 1fr; align-items:center; gap:6px; }
+  .o .fbox { border:1px solid #1c1c20; border-radius:10px; padding:10px; }
+  .o .fbox .name { color:#f2f2f4; font-weight:700; }
+  .o .num { font-size:20px; font-weight:700; }
+  .o .arrow { text-align:center; color:#ff8a5a; font-size:18px; }
+  .o .delta-neg { color:#ff8a5a; } .o .delta-pos { color:#2fd27a; }
+  .o .tr { display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid #0e0e11; }
+  .o .cv { width:22px; height:22px; border-radius:4px; flex-shrink:0; }
+  .o .tag { margin-left:auto; font-size:9.5px; color:#8c8c92; border:1px solid #2a2a2f; border-radius:4px; padding:1px 5px; white-space:nowrap; }
+  .o .facts { display:flex; flex-direction:column; gap:5px; border:1px solid #1c1c20; border-radius:10px; padding:10px; }
+  .o .facts div::before { content:"✓ "; color:#2fd27a; }
+  .o .actions { margin-top:auto; display:flex; gap:8px; }
+  .o .actions .btn { flex:1; padding:8px 0; }
+</style>
+
+<h2>Playlist manager v2: list on the left, effect on the right</h2>
+<p class="subtitle">The list gets a fixed, comfortable width. The space on the right shows what your change actually does (here: dragging Powertrance above Hard_Bounce).</p>
+
+<div class="o">
+  <div class="body">
+    <div class="side">
+      <div class="brand">● Discjockey</div>
+      <div class="nav">◉ Dashboard</div><div class="nav">⟳ Sync</div><div class="nav">✓ To-do<span class="n">16</span></div><div class="nav on">≡ Playlists</div>
+      <div class="grp">Library</div>
+      <div class="nav">All tracks<span class="n">306</span></div><div class="nav">Hard_Bounce<span class="n">49</span></div><div class="nav">Powertrance<span class="n">40</span></div><div class="nav">Bouncy<span class="n">26</span></div><div class="nav">03_06_2026<span class="n">62</span></div>
+    </div>
+
+    <div class="main">
+      <div class="h">Playlists <span class="sub">top = highest priority</span></div>
+      <div class="add"><span class="input">Paste a Spotify playlist link…</span><span class="btn acc">+ Add</span></div>
+
+      <div class="pl drag"><span class="handle">⋮⋮</span><span class="prio">1</span><span class="cover" style="background:linear-gradient(135deg,#7b2cff,#ff5a1f)"></span>
+        <div><div class="folder">Powertrance <span class="pen">✎</span></div><div class="muted">"POWERTRANCE 🔥" · yours</div><div class="bar"><span class="l" style="width:64%"></span><span class="y" style="width:26%"></span><span class="r" style="width:10%"></span></div></div>
+        <span class="muted">40 tracks</span><span class="tog"></span></div>
+
+      <div class="pl"><span class="handle">⋮⋮</span><span class="prio">2</span><span class="cover" style="background:linear-gradient(135deg,#ff5a1f,#e8b93a)"></span>
+        <div><div class="folder">Hard_Bounce <span class="pen">✎</span></div><div class="muted">"Hard Bounce 2026" · yours</div><div class="bar"><span class="l" style="width:82%"></span><span class="y" style="width:12%"></span><span class="r" style="width:6%"></span></div></div>
+        <span class="muted">49 tracks</span><span class="tog"></span></div>
+
+      <div class="pl"><span class="handle">⋮⋮</span><span class="prio">3</span><span class="cover" style="background:linear-gradient(135deg,#2fd27a,#1d6fff)"></span>
+        <div><div class="folder">Bouncy <span class="pen">✎</span></div><div class="muted">"bouncy" · collaborative</div><div class="bar"><span class="l" style="width:91%"></span><span class="y" style="width:9%"></span></div></div>
+        <span class="muted">26 tracks</span><span class="tog"></span></div>
+
+      <div class="pl err"><span class="handle">⋮⋮</span><span class="prio">4</span><span class="cover" style="background:#1a1a1d"></span>
+        <div><div class="folder">Tekke_Ecke <span class="pen">✎</span></div><div class="bad">Not yours (only followed). Make your own copy in Spotify.</div></div>
+        <span class="bad">✕</span><span class="tog"></span></div>
+
+      <div class="pl off"><span class="handle">⋮⋮</span><span class="prio">–</span><span class="cover" style="background:linear-gradient(135deg,#c49bff,#1d6fff)"></span>
+        <div><div class="folder">03_06_2026 <span class="pen">✎</span></div><div class="muted">switched off · files stay</div></div>
+        <span class="muted">62 tracks</span><span class="tog offt"></span></div>
+    </div>
+
+    <div class="impact">
+      <div class="k">What this change does</div>
+      <div class="big">4 tracks change folder</div>
+
+      <div class="flow">
+        <div class="fbox"><div class="name">Hard_Bounce</div><div class="num">49 <span class="delta-neg" style="font-size:13px">→ 45</span></div><div class="muted">loses 4</div></div>
+        <div class="arrow">→</div>
+        <div class="fbox" style="border-color:rgba(255,90,31,.5)"><div class="name">Powertrance</div><div class="num">40 <span class="delta-pos" style="font-size:13px">→ 44</span></div><div class="muted">gains 4</div></div>
+      </div>
+
+      <div>
+        <div class="k" style="margin-bottom:4px">These tracks move (they're in both playlists)</div>
+        <div class="tr"><span class="cv" style="background:linear-gradient(135deg,#ff5a1f,#7b2cff)"></span>Vatoz Locoz – Gimme Gimme<span class="tag">LOSSLESS</span></div>
+        <div class="tr"><span class="cv" style="background:linear-gradient(135deg,#e8b93a,#ff5a1f)"></span>Pegassi – AEIOU<span class="tag">LOSSLESS</span></div>
+        <div class="tr"><span class="cv" style="background:linear-gradient(135deg,#2fd27a,#1d6fff)"></span>torbentorben – non stop<span class="tag">20 kHz · goes to not_lossless/</span></div>
+        <div class="tr"><span class="cv" style="background:linear-gradient(135deg,#7b2cff,#2fd27a)"></span>DJ TALLBOY – THE WEEKEND<span class="tag">LOSSLESS</span></div>
+      </div>
+
+      <div class="facts">
+        <div>No downloads, no Qobuz quota used</div>
+        <div>Nothing is deleted</div>
+        <div>rekordbox follows the files, cue points are kept</div>
+        <div>Happens at the next sync, not right away</div>
+      </div>
+
+      <div class="actions"><span class="btn">Undo</span><span class="btn acc">Save</span></div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:14px">Other actions get their own preview in the same place: <b>add playlist</b> → "38 new downloads, ~2 days at 60/day"; <b>switch off</b> → "files stay, no more updates"; <b>rename folder</b> → "26 files move to the new folder name". With no unsaved changes, the panel shows overlaps: "12 tracks are in several playlists, and this is where they land".</p>
+
+</body>

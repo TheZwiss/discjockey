@@ -1,0 +1,136 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Discjockey hub mockup: sync-screen-v2</title>
+<style>body{background:#111;color:#ddd;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:24px}.subtitle{color:#999}.label{color:#999;font-size:11px;text-transform:uppercase;letter-spacing:.8px}.card-body h3{margin:10px 0 4px}.card-body p{color:#aaa;margin:0}.card{margin-bottom:24px}</style>
+<body>
+<style>
+  .o { background:#000; color:#d9d9dc; border-radius:12px; overflow:hidden; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif; font-size:11.5px; text-align:left; height:500px; display:flex; flex-direction:column; border:1px solid #1a1a1d; }
+  .o .body { flex:1; display:flex; min-height:0; }
+  .o .side { width:140px; border-right:1px solid #1a1a1d; padding:12px 8px; display:flex; flex-direction:column; gap:2px; flex-shrink:0; }
+  .o .brand { color:#8c8c92; font-weight:700; margin:0 6px 10px; }
+  .o .grp { color:#55555b; font-size:9.5px; text-transform:uppercase; letter-spacing:.8px; margin:10px 6px 4px; }
+  .o .nav { padding:5px 8px; color:#6f6f76; border-radius:0 6px 6px 0; display:flex; align-items:center; gap:6px; }
+  .o .nav.on { color:#ececee; box-shadow:inset 2px 0 0 #ff5a1f; }
+  .o .nav .n { margin-left:auto; color:#55555b; font-size:10px; }
+  .o .main { flex:1; padding:14px 16px; display:flex; flex-direction:column; gap:10px; min-width:0; overflow:hidden; }
+  .o .h { font-size:15px; font-weight:700; color:#f2f2f4; display:flex; align-items:center; gap:10px; }
+  .o .sub { color:#6f6f76; font-weight:400; font-size:11px; }
+  .o .hero { border:1px solid #1c1c20; border-radius:12px; padding:12px; display:flex; gap:14px; align-items:center; }
+  .o .art { width:84px; height:84px; border-radius:9px; flex-shrink:0; }
+  .o .seg { display:flex; gap:4px; margin:7px 0 3px; }
+  .o .seg span { flex:1; height:5px; border-radius:3px; background:#17171a; }
+  .o .seg .d { background:#2fd27a; } .o .seg .n { background:#ff5a1f; }
+  .o .ring { width:54px; height:54px; border-radius:50%; flex-shrink:0; background:conic-gradient(#ff5a1f 0 62%, #17171a 62% 100%); display:flex; align-items:center; justify-content:center; }
+  .o .ring div { width:44px; height:44px; border-radius:50%; background:#000; display:flex; align-items:center; justify-content:center; color:#f2f2f4; font-weight:700; font-size:12px; }
+  .o .muted { color:#55555b; }
+  .o .strip { display:flex; gap:6px; align-items:center; }
+  .o .chip { border:1px solid #26262b; border-radius:20px; padding:3px 9px; color:#9a9aa0; display:flex; gap:5px; align-items:center; }
+  .o .chip.on { border-color:#ff5a1f; color:#ff8a5a; }
+  .o .chip b { color:#f2f2f4; font-weight:700; }
+  .o .list { flex:1; min-height:0; overflow:hidden; }
+  .o .sec { color:#55555b; font-size:9.5px; text-transform:uppercase; letter-spacing:.8px; margin:6px 0 2px; }
+  .o .item { display:flex; align-items:center; gap:8px; padding:4px 2px; border-bottom:1px solid #0e0e11; }
+  .o .item.prob { background:rgba(255,77,77,.05); }
+  .o .cv { width:18px; height:18px; border-radius:3px; flex-shrink:0; }
+  .o .r { margin-left:auto; display:flex; gap:6px; align-items:center; }
+  .o .badge { font-size:9px; font-weight:700; padding:1px 5px; border-radius:4px; white-space:nowrap; }
+  .o .b-l { color:#2fd27a; border:1px solid rgba(47,210,122,.45); } .o .b-y { color:#e8b93a; border:1px solid rgba(232,185,58,.45); } .o .b-r { color:#ff6b6b; border:1px solid rgba(255,107,107,.45); } .o .b-g { color:#8c8c92; border:1px solid #2a2a2f; }
+  .o .link { color:#ff8a5a; font-size:10px; }
+  .o .footer { display:flex; align-items:center; gap:12px; border-top:1px solid #1a1a1d; padding-top:9px; }
+  .o .btn { border:1.5px solid #ff5a1f; color:#ff8a5a; border-radius:8px; padding:6px 14px; font-weight:700; }
+  .o .btn.ghost { border-color:#2a2a2f; color:#9a9aa0; }
+  .two { display:grid; grid-template-columns:1fr; gap:26px; }
+  @media (min-width: 1200px) { .two { grid-template-columns:1fr 1fr; } }
+</style>
+
+<h2>Sync screen B, made practical</h2>
+<p class="subtitle">Left: during a run, in the <b>pause</b> state (that's what you'll see most often). Right: the <b>end screen</b>. Tell me in the terminal what fits and what doesn't.</p>
+
+<div class="two">
+
+  <div>
+    <div class="label" style="margin-bottom:6px">While it runs (pause between two downloads)</div>
+    <div class="o">
+      <div class="body">
+        <div class="side">
+          <div class="brand">● Discjockey</div>
+          <div class="nav">◉ Dashboard</div><div class="nav on">⟳ Sync</div><div class="nav">✓ To-do<span class="n">14</span></div><div class="nav">≡ Playlists</div>
+          <div class="grp">Library</div>
+          <div class="nav">All tracks<span class="n">294</span></div><div class="nav">Hard_Bounce<span class="n">45</span></div><div class="nav">Powertrance<span class="n">38</span></div><div class="nav">Bouncy<span class="n">26</span></div>
+        </div>
+        <div class="main">
+          <div class="h">Sync running <span class="sub">6 of 13 · approx. 17 min left · 42 / 60 Qobuz today</span></div>
+          <div class="hero">
+            <div class="ring"><div>0:34</div></div>
+            <div style="flex:1;min-width:0">
+              <div class="muted" style="font-size:10px;text-transform:uppercase;letter-spacing:.7px">Protection pause · next up</div>
+              <div style="font-size:15px;font-weight:700;color:#f2f2f4;margin-top:2px">DJ TALLBOY – WHERE HAVE YOU BEEN</div>
+              <div class="muted">Hard_Bounce · Qobuz by ISRC</div>
+            </div>
+            <div class="art" style="background:linear-gradient(135deg,#7b2cff,#ff5a1f);opacity:.55"></div>
+          </div>
+          <div class="strip">
+            <span class="chip on">All <b>6</b></span>
+            <span class="chip"><span style="color:#2fd27a">●</span> Lossless <b>3</b></span>
+            <span class="chip"><span style="color:#e8b93a">●</span> Lossy <b>1</b></span>
+            <span class="chip"><span style="color:#ff6b6b">●</span> Problems <b>2</b></span>
+          </div>
+          <div class="list">
+            <div class="sec">Problems first</div>
+            <div class="item prob"><span class="cv" style="background:#222"></span>Some Artist – Gone Track<span class="r"><span class="badge b-r">NOT FOUND</span><span class="link">Fix →</span></span></div>
+            <div class="item prob"><span class="cv" style="background:#222"></span>Pegassi – AEIOU<span class="r"><span class="badge b-r">NO INTERNET · retried next run</span></span></div>
+            <div class="sec">Done</div>
+            <div class="item"><span class="cv" style="background:linear-gradient(135deg,#ff5a1f,#7b2cff)"></span>Vatoz Locoz – Gimme Gimme<span class="r"><span class="badge b-l">LOSSLESS</span></span></div>
+            <div class="item"><span class="cv" style="background:linear-gradient(135deg,#2fd27a,#1d6fff)"></span>torbentorben – non stop<span class="r"><span class="badge b-y">20.0 kHz · YT Music</span></span></div>
+            <div class="item"><span class="cv" style="background:#333"></span>THE WEEKEND<span class="r"><span class="badge b-g">MOVED → Hard_Bounce</span></span></div>
+            <div class="sec">Up next · 7</div>
+            <div class="item muted"><span class="cv" style="background:#111"></span>My Love – Route 94 · Powertrance</div>
+          </div>
+          <div class="footer">
+            <span class="muted">Stopping is safe at any time; the current track is finished or cleanly discarded.</span>
+            <span class="btn ghost" style="margin-left:auto">Stop safely</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="label" style="margin-bottom:6px">When done (end screen)</div>
+    <div class="o">
+      <div class="body">
+        <div class="side">
+          <div class="brand">● Discjockey</div>
+          <div class="nav">◉ Dashboard</div><div class="nav on">⟳ Sync</div><div class="nav">✓ To-do<span class="n">16</span></div><div class="nav">≡ Playlists</div>
+          <div class="grp">Library</div>
+          <div class="nav">All tracks<span class="n">306</span></div><div class="nav">Hard_Bounce<span class="n">49</span></div><div class="nav">Powertrance<span class="n">40</span></div><div class="nav">Bouncy<span class="n">26</span></div>
+        </div>
+        <div class="main">
+          <div class="h">Sync finished <span class="sub">today 21:47 · took 24 min</span></div>
+          <div class="hero" style="gap:10px">
+            <div style="flex:1;text-align:center"><div style="font-size:24px;font-weight:700;color:#2fd27a">9</div><div class="muted">lossless</div></div>
+            <div style="flex:1;text-align:center"><div style="font-size:24px;font-weight:700;color:#e8b93a">2</div><div class="muted">lossy</div></div>
+            <div style="flex:1;text-align:center"><div style="font-size:24px;font-weight:700;color:#ff6b6b">2</div><div class="muted">problems</div></div>
+            <div style="flex:1;text-align:center"><div style="font-size:24px;font-weight:700;color:#f2f2f4">3</div><div class="muted">moved</div></div>
+          </div>
+          <div class="list">
+            <div class="sec">Needs you · 2</div>
+            <div class="item prob"><span class="cv" style="background:#222"></span>Some Artist – Gone Track<span class="r"><span class="badge b-r">NOT FOUND</span><span class="link">Buy / Fix →</span></span></div>
+            <div class="item prob"><span class="cv" style="background:#222"></span>Pegassi – AEIOU<span class="r"><span class="badge b-r">NO INTERNET</span><span class="muted">retried next run</span></span></div>
+            <div class="sec">For rekordbox</div>
+            <div class="item"><span class="cv" style="background:#333"></span>12 new files in 4 folders<span class="r"><span class="link">Show in Finder →</span></span></div>
+            <div class="item"><span class="cv" style="background:#333"></span>2 upgrades: cue points stay on the old entry<span class="r"><span class="link">Which ones? →</span></span></div>
+          </div>
+          <div class="footer">
+            <span class="muted">Full report saved</span>
+            <span class="btn ghost" style="margin-left:auto">Open report</span>
+            <span class="btn">Done</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>

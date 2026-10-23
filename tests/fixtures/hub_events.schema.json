@@ -1,0 +1,759 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Discjockey hub events",
+  "description": "What window.dj.onEvent(event) receives. Made by scripts/record_hub_events.py.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/RunStarted"
+    },
+    {
+      "$ref": "#/$defs/ActionStarted"
+    },
+    {
+      "$ref": "#/$defs/StepChanged"
+    },
+    {
+      "$ref": "#/$defs/Progress"
+    },
+    {
+      "$ref": "#/$defs/Waiting"
+    },
+    {
+      "$ref": "#/$defs/SourceChosen"
+    },
+    {
+      "$ref": "#/$defs/Checked"
+    },
+    {
+      "$ref": "#/$defs/AccountUsage"
+    },
+    {
+      "$ref": "#/$defs/ActionFinished"
+    },
+    {
+      "$ref": "#/$defs/RunFinished"
+    },
+    {
+      "$ref": "#/$defs/Message"
+    },
+    {
+      "$ref": "#/$defs/ReadingPlaylist"
+    },
+    {
+      "$ref": "#/$defs/JobStarted"
+    },
+    {
+      "$ref": "#/$defs/JobFinished"
+    },
+    {
+      "$ref": "#/$defs/ConsoleBusy"
+    },
+    {
+      "$ref": "#/$defs/FileDropped"
+    },
+    {
+      "$ref": "#/$defs/SignInPhase"
+    },
+    {
+      "$ref": "#/$defs/AppUpdate"
+    }
+  ],
+  "$defs": {
+    "RunStarted": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "RunStarted"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlannedAction"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "total",
+        "actions"
+      ],
+      "additionalProperties": false
+    },
+    "ActionStarted": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "ActionStarted"
+        },
+        "index": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "action": {
+          "$ref": "#/$defs/Action"
+        }
+      },
+      "required": [
+        "type",
+        "index",
+        "total",
+        "action"
+      ],
+      "additionalProperties": false
+    },
+    "StepChanged": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "StepChanged"
+        },
+        "track_id": {
+          "type": "string"
+        },
+        "step": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "track_id",
+        "step"
+      ],
+      "additionalProperties": false
+    },
+    "Progress": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "Progress"
+        },
+        "track_id": {
+          "type": "string"
+        },
+        "step": {
+          "type": "string"
+        },
+        "done": {
+          "type": "number"
+        },
+        "total": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "unit": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "track_id",
+        "step",
+        "done",
+        "total",
+        "unit"
+      ],
+      "additionalProperties": false
+    },
+    "Waiting": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "Waiting"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "remaining": {
+          "type": "number"
+        },
+        "total": {
+          "type": "number"
+        },
+        "service": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "kind",
+        "label",
+        "remaining",
+        "total",
+        "service"
+      ],
+      "additionalProperties": false
+    },
+    "SourceChosen": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "SourceChosen"
+        },
+        "track_id": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "query_kind": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "duration_s": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "track_id",
+        "source",
+        "query_kind",
+        "title",
+        "duration_s"
+      ],
+      "additionalProperties": false
+    },
+    "Checked": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "Checked"
+        },
+        "track_id": {
+          "type": "string"
+        },
+        "file_duration_s": {
+          "type": "number"
+        },
+        "spotify_duration_s": {
+          "type": "number"
+        },
+        "codec": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "track_id",
+        "file_duration_s",
+        "spotify_duration_s",
+        "codec",
+        "ok"
+      ],
+      "additionalProperties": false
+    },
+    "AccountUsage": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "AccountUsage"
+        },
+        "service": {
+          "type": "string"
+        },
+        "used": {
+          "type": "integer"
+        },
+        "allowance": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "service",
+        "used",
+        "allowance"
+      ],
+      "additionalProperties": false
+    },
+    "ActionFinished": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "ActionFinished"
+        },
+        "action": {
+          "$ref": "#/$defs/Action"
+        },
+        "result": {
+          "$ref": "#/$defs/Result"
+        }
+      },
+      "required": [
+        "type",
+        "action",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "RunFinished": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "RunFinished"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "report_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "exit_code",
+        "report_path"
+      ],
+      "additionalProperties": false
+    },
+    "Message": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "Message"
+        },
+        "level": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "level",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "ReadingPlaylist": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "ReadingPlaylist"
+        },
+        "index": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "folder": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "index",
+        "total",
+        "folder"
+      ],
+      "additionalProperties": false
+    },
+    "JobStarted": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "JobStarted"
+        },
+        "job_id": {
+          "type": "integer"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "track_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "job_id",
+        "kind",
+        "track_id"
+      ],
+      "additionalProperties": false
+    },
+    "JobFinished": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "JobFinished"
+        },
+        "job_id": {
+          "type": "integer"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "problem": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "result": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "job_id",
+        "kind",
+        "ok",
+        "problem",
+        "message",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "ConsoleBusy": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "ConsoleBusy"
+        },
+        "running": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "running"
+      ],
+      "additionalProperties": false
+    },
+    "FileDropped": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "FileDropped"
+        },
+        "track_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "readable": {
+          "type": "boolean"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "track_id",
+        "name",
+        "readable",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "SignInPhase": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "SignInPhase"
+        },
+        "service": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "browser": {
+          "type": "string"
+        },
+        "browser_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "service",
+        "phase",
+        "browser",
+        "browser_name"
+      ],
+      "additionalProperties": false
+    },
+    "AppUpdate": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "AppUpdate"
+        },
+        "state": {
+          "type": "string"
+        },
+        "current": {
+          "type": "string"
+        },
+        "latest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "state",
+        "current",
+        "latest",
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "PlannedAction": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "track_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "artist": {
+          "type": "string"
+        },
+        "image_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "track_id",
+        "title",
+        "artist",
+        "image_url"
+      ],
+      "additionalProperties": false
+    },
+    "Action": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "track_id": {
+          "type": "string"
+        },
+        "folder": {
+          "type": "string"
+        },
+        "track": {
+          "$ref": "#/$defs/SpotifyTrack"
+        },
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "src": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dest_dir": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "track_id",
+        "folder",
+        "track",
+        "order",
+        "src",
+        "dest_dir",
+        "aliases",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "SpotifyTrack": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "artists": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "album": {
+          "type": "string"
+        },
+        "image_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "isrc": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "artists",
+        "album",
+        "image_url",
+        "duration_ms",
+        "isrc"
+      ],
+      "additionalProperties": false
+    },
+    "Result": {
+      "type": "object",
+      "properties": {
+        "section": {
+          "type": "string"
+        },
+        "folder": {
+          "type": "string"
+        },
+        "artist": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "track_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "note": {
+          "type": "string"
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cutoff_hz": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "error_kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "found_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "section",
+        "folder",
+        "artist",
+        "title",
+        "track_id",
+        "note",
+        "status",
+        "source",
+        "cutoff_hz",
+        "path",
+        "error_kind",
+        "found_status"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

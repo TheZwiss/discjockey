@@ -1,0 +1,321 @@
+[
+ {
+  "name": "playlists-reorder",
+  "route": "#/playlists",
+  "scenario": "normal",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "eval": "(() => { const h = document.querySelector('[data-test=handle-Powertrance]'); const r = h.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; const top = document.querySelector('[data-test=row-Hard_Bounce]').getBoundingClientRect().top; const o = (yy) => ({ bubbles: true, cancelable: true, clientX: x, clientY: yy, button: 0, pointerId: 1, isPrimary: true }); h.dispatchEvent(new PointerEvent('pointerdown', o(y))); window.dispatchEvent(new PointerEvent('pointermove', o((y + top) / 2))); window.dispatchEvent(new PointerEvent('pointermove', o(top - 4))); window.dispatchEvent(new PointerEvent('pointerup', o(top - 4))); })()"
+   },
+   {
+    "wait": "[data-test=delta-Powertrance]"
+   },
+   {
+    "wait": "[data-test=save]:not([aria-disabled=true])"
+   },
+   {
+    "sleep": 600
+   }
+  ]
+ },
+ {
+  "name": "playlists-add-unreadable",
+  "route": "#/playlists",
+  "scenario": "normal",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "fill": [
+     "[data-test=add-row] input",
+     "https://open.spotify.com/playlist/follow7Xq2Lm9Pw"
+    ]
+   },
+   {
+    "click": "[data-test=add-button]"
+   },
+   {
+    "wait": "[data-test=add-hint]"
+   }
+  ]
+ },
+ {
+  "name": "playlists-rename",
+  "route": "#/playlists",
+  "scenario": "normal",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "click": "[data-test=more-Powertrance]"
+   },
+   {
+    "click": "[data-test=rename-Powertrance]"
+   },
+   {
+    "fill": [
+     "[data-test=row-Powertrance] input",
+     "Powertrance_2026"
+    ]
+   },
+   {
+    "press": "Enter"
+   },
+   {
+    "wait": "[data-test=row-Powertrance_2026]"
+   },
+   {
+    "sleep": 400
+   }
+  ]
+ },
+ {
+  "name": "playlists-changed-elsewhere",
+  "route": "#/playlists",
+  "scenario": "playlists:changed-elsewhere",
+  "steps": [
+   {
+    "wait": "[data-test=row-Bouncy]"
+   },
+   {
+    "click": "[data-test=toggle-Bouncy]"
+   },
+   {
+    "click": "[data-test=save]"
+   },
+   {
+    "wait": "[data-test=changed-elsewhere]"
+   }
+  ]
+ },
+ {
+  "name": "playlists-first-run",
+  "route": "#/playlists",
+  "scenario": "playlists:empty",
+  "steps": [
+   {
+    "wait": "[data-test=playlists-empty]"
+   }
+  ]
+ },
+ {
+  "name": "playlists-big",
+  "route": "#/playlists",
+  "scenario": "big",
+  "steps": [
+   {
+    "wait": "[data-test=row-Set_08]"
+   },
+   {
+    "eval": "document.querySelector('[data-test=row-Set_04]').scrollIntoView({ block: 'center' })"
+   },
+   {
+    "sleep": 300
+   }
+  ]
+ },
+ {
+  "name": "playlists-saved",
+  "route": "#/playlists",
+  "scenario": "normal",
+  "steps": [
+   {
+    "wait": "[data-test=row-Bouncy]"
+   },
+   {
+    "click": "[data-test=toggle-Bouncy]"
+   },
+   {
+    "click": "[data-test=save]"
+   },
+   {
+    "wait": "[data-test=undo][aria-disabled=true]"
+   },
+   {
+    "sleep": 900
+   }
+  ]
+ },
+ {
+  "name": "playlists-overlaps",
+  "route": "#/playlists",
+  "scenario": "normal",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "wait": "[data-test=overlaps]"
+   }
+  ]
+ },
+ {
+  "name": "playlists-add-preview",
+  "route": "#/playlists",
+  "scenario": "normal",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "fill": [
+     "[data-test=add-row] input",
+     "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"
+    ]
+   },
+   {
+    "click": "[data-test=add-button]"
+   },
+   {
+    "wait": "[data-test=add-keep]"
+   },
+   {
+    "click": "[data-test=add-keep]"
+   },
+   {
+    "wait": "[data-test=preview-add]:not([aria-busy])"
+   }
+  ]
+ },
+ {
+  "name": "playlists-switch-off",
+  "route": "#/playlists",
+  "scenario": "normal",
+  "steps": [
+   {
+    "wait": "[data-test=row-Bouncy]"
+   },
+   {
+    "click": "[data-test=toggle-Bouncy]"
+   },
+   {
+    "wait": "[data-test=preview-switch_off]:not([aria-busy])"
+   }
+  ]
+ },
+ {
+  "name": "playlists-problem",
+  "route": "#/playlists",
+  "scenario": "playlists:preview-problem",
+  "steps": [
+   {
+    "wait": "[data-test=row-Bouncy]"
+   },
+   {
+    "click": "[data-test=toggle-Bouncy]"
+   },
+   {
+    "wait": "[data-test=preview-problem]"
+   },
+   {
+    "wait": "[data-test=save][aria-disabled=true]"
+   }
+  ]
+ },
+ {
+  "name": "playlists-during-sync",
+  "route": "#/playlists",
+  "scenario": "syncing",
+  "steps": [
+   {
+    "wait": "[data-test=row-Bouncy]"
+   },
+   {
+    "click": "[data-test=toggle-Bouncy]"
+   },
+   {
+    "wait": "[data-test=preview-sync_running]"
+   }
+  ]
+ },
+ {
+  "name": "playlists-big-move",
+  "route": "#/playlists",
+  "scenario": "playlists:many-overlaps",
+  "steps": [
+   {
+    "wait": "[data-test=row-03_06_2026]"
+   },
+   {
+    "eval": "document.querySelector('[data-test=row-03_06_2026]').focus()"
+   },
+   {
+    "press": "Alt+ArrowUp"
+   },
+   {
+    "press": "Alt+ArrowUp"
+   },
+   {
+    "press": "Alt+ArrowUp"
+   },
+   {
+    "wait": "[data-test=moves]"
+   },
+   {
+    "wait": "[data-test=change-panel]:not([aria-busy])"
+   },
+   {
+    "sleep": 400
+   }
+  ]
+ },
+ {
+  "name": "playlists-many-overlaps",
+  "route": "#/playlists",
+  "scenario": "playlists:many-overlaps",
+  "steps": [
+   {
+    "wait": "[data-test=overlap-list]"
+   },
+   {
+    "sleep": 300
+   }
+  ]
+ },
+ {
+  "name": "playlists-menu",
+  "route": "#/playlists",
+  "scenario": "normal",
+  "steps": [
+   {
+    "wait": "[data-test=row-Bouncy]"
+   },
+   {
+    "click": "[data-test=more-Bouncy]"
+   },
+   {
+    "wait": "[data-test=menu-Bouncy]"
+   },
+   {
+    "sleep": 200
+   }
+  ]
+ },
+ {
+  "name": "playlists-add-found",
+  "route": "#/playlists",
+  "scenario": "normal",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "fill": [
+     "[data-test=add-row] input",
+     "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"
+    ]
+   },
+   {
+    "click": "[data-test=add-button]"
+   },
+   {
+    "wait": "[data-test=add-keep]"
+   }
+  ]
+ }
+]

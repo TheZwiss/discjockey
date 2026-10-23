@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sync – look 2</title>
+<style>body { margin: 0; padding: 24px; background: #111; color: #9a9aa0; font: 13px -apple-system, sans-serif; } .note { max-width: 1280px; margin: 0 0 16px; line-height: 1.5; }</style>
+</head><body><p class="note">Approved 2026-10-20: look 2 ("OLED with depth") and the Sync page at the default 1280 × 800 in the list + panel frame. Amount buttons and switches are clickable. Spec: docs/2026-10-20-hub-design-system-design.md.</p>
+<style>
+  .feel-wrap { display: flex; flex-direction: column; gap: 28px; }
+  .win { width: 1280px; height: 800px; display: flex; overflow: hidden; border-radius: 12px; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; background: var(--bg); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  .win * { box-sizing: border-box; }
+  /* sidebar */
+  .sb { width: 168px; flex: none; padding: 16px 10px; background: var(--sb-bg); border-right: 1px solid var(--sb-line); display: flex; flex-direction: column; gap: 2px; backdrop-filter: blur(20px); }
+  .brand { color: var(--text-dim); font-weight: 700; padding: 0 8px 14px; display: flex; gap: 6px; align-items: center; }
+  .brand i { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); }
+  .nav { display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 8px; border-radius: var(--nav-r); color: var(--nav); position: relative; cursor: default; }
+  .nav .g { width: 14px; text-align: center; opacity: .8; font-size: 12px; }
+  .nav .c { margin-left: auto; font-size: 11px; color: var(--label); font-variant-numeric: tabular-nums; }
+  .nav.on { color: var(--text-strong); background: var(--nav-on-bg); }
+  .nav.on::before { content: ''; display: var(--nav-bar); position: absolute; left: -10px; top: 6px; bottom: 6px; width: 2px; background: var(--accent); border-radius: 1px; }
+  .sbcap { font-size: 10.5px; letter-spacing: .7px; text-transform: uppercase; color: var(--label); padding: 16px 8px 6px; }
+  /* main list */
+  .main { flex: 1; display: flex; justify-content: center; min-width: 0; }
+  .list { width: 100%; max-width: 720px; padding: 20px 22px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+  .hd { display: flex; align-items: center; gap: 10px; }
+  .hd h1 { margin: 0; font-size: var(--h1); font-weight: 700; color: var(--text-strong); letter-spacing: var(--h1-ls); flex: 1; }
+  .hd .st { color: var(--muted); font-size: 12px; }
+  .ghost { border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--text); border-radius: 8px; padding: 6px 11px; font-size: 12px; font-weight: 600; transition: transform 100ms ease-out, background 150ms; cursor: pointer; }
+  .ghost:active { transform: scale(.97); }
+  .search { height: 32px; border-radius: 8px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); display: flex; align-items: center; padding: 0 10px; color: var(--label); font-size: 12px; gap: 8px; }
+  .search kbd { margin-left: auto; font: 11px -apple-system; border: 1px solid var(--ctl-line); border-radius: 4px; padding: 1px 5px; }
+  .sec { display: flex; align-items: baseline; gap: 8px; padding: 4px 2px 0; }
+  .sec b { font-size: 11px; letter-spacing: .7px; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .sec span { font-size: 12px; color: var(--label); flex: 1; }
+  .sec a { font-size: 12px; color: var(--muted); }
+  .rows { border-radius: var(--list-r); background: var(--list-bg); border: 1px solid var(--list-line); overflow: hidden; }
+  .row { display: grid; grid-template-columns: 18px 28px 1fr 20px; align-items: center; column-gap: 12px; height: 40px; padding: 0 12px; border-top: 1px solid var(--row-line); transition: background 120ms; }
+  .row:first-child { border-top: 0; }
+  .row:hover { background: var(--hover); }
+  .ck { width: 16px; height: 16px; border-radius: 4px; background: var(--accent); display: grid; place-items: center; color: #000; font-size: 11px; font-weight: 900; }
+  .cv { width: 28px; height: 28px; border-radius: 5px; }
+  .tt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  .tt em { font-style: normal; color: var(--muted); }
+  .nv { color: var(--label); font-size: 12px; text-align: center; }
+  /* panel */
+  .panel { width: 360px; flex: none; background: var(--panel-bg); border-left: 1px solid var(--sb-line); padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .panel > * { flex: none; }
+  .cap { font-size: 11px; letter-spacing: .7px; text-transform: uppercase; color: var(--label); }
+  .card { border-radius: var(--card-r); background: var(--card-bg); border: 1px solid var(--card-line); box-shadow: var(--card-shadow); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .num { font-size: var(--num); font-weight: 700; color: var(--text-strong); line-height: 1; letter-spacing: var(--num-ls); font-variant-numeric: tabular-nums; }
+  .num small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .lbl { color: var(--label); font-size: 11px; }
+  .days { display: flex; height: 26px; gap: 3px; }
+  .days div { display: flex; align-items: center; padding-left: 8px; font-size: 12px; white-space: nowrap; overflow: hidden; min-width: 0; transition: flex-grow 420ms cubic-bezier(.22, 1, .36, 1); }
+  .days .today { background: var(--accent); color: #000; font-weight: 700; border-radius: 6px 0 0 6px; }
+  .days .later { background: repeating-linear-gradient(135deg, rgba(255,90,31,.16) 0 5px, rgba(255,90,31,.06) 5px 10px); border: 1px solid rgba(255,90,31,.35); color: #ff8a5a; border-radius: 0 6px 6px 0; }
+  .seg { display: flex; border: 1px solid var(--ctl-line); border-radius: 8px; overflow: hidden; background: var(--ctl-bg); }
+  .seg button { flex: 1; padding: 6px 0; font: 12px -apple-system; color: var(--muted); background: none; border: 0; border-left: 1px solid var(--ctl-line); cursor: pointer; transition: background 150ms, color 150ms, transform 100ms ease-out; }
+  .seg button:first-child { border-left: 0; }
+  .seg button:active { transform: scale(.94); }
+  .seg button.on { background: rgba(255,90,31,.14); color: #ff8a5a; }
+  .grp { border-radius: var(--card-r); background: var(--card-bg); border: 1px solid var(--card-line); box-shadow: var(--card-shadow); overflow: hidden; }
+  .grp.fill { flex: 1 1 auto; min-height: 150px; display: flex; flex-direction: column; }
+  .grp-h { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px 8px; }
+  .grp-h .of { font-size: 11px; color: var(--label); }
+  .scroll { flex: 1; overflow-y: auto; min-height: 0; -webkit-mask-image: linear-gradient(#000 calc(100% - 20px), transparent); }
+  .r { display: grid; grid-template-columns: 30px 24px 1fr 32px; align-items: center; column-gap: 10px; height: 38px; padding: 0 14px; border-top: 1px solid var(--row-line); cursor: pointer; }
+  .sw { width: 30px; height: 18px; border-radius: 9px; background: var(--accent); position: relative; transition: background 200ms; }
+  .sw::after { content: ''; position: absolute; top: 2px; left: 14px; width: 14px; height: 14px; border-radius: 50%; background: #f2f2f4; box-shadow: 0 1px 2px rgba(0,0,0,.4); transition: left 260ms cubic-bezier(.22, 1, .36, 1); }
+  .r:active .sw::after { width: 17px; }
+  .r .ic { width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--ctl-line); display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+  .r .cvs { width: 24px; height: 24px; border-radius: 4px; }
+  .r .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 200ms; }
+  .r .ct { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; transition: color 200ms; }
+  .r.off .sw { background: var(--ctl-line); }
+  .r.off .sw::after { left: 2px; background: #6f6f76; }
+  .r.off .nm, .r.off .ct { color: var(--disabled); }
+  .r.off .cvs, .r.off .ic { opacity: .3; }
+  .r .cvs, .r .ic { transition: opacity 200ms; }
+  .go { background: var(--go-bg); color: #000; font-weight: 700; font-size: 14px; text-align: center; padding: 11px; border-radius: 10px; border: 0; box-shadow: var(--go-shadow); cursor: pointer; transition: transform 100ms ease-out, filter 150ms; }
+  .go:hover { filter: brightness(1.06); }
+  .go:active { transform: scale(.98); }
+
+  /* ---- 1: Booth OLED, structured ---- */
+  .t1 { --bg: #000; --sb-bg: #000; --sb-line: #1a1a1d; --panel-bg: #000; --text: #d9d9dc; --text-strong: #f2f2f4; --muted: #9a9aa0; --label: #55555b; --disabled: #45454b; --text-dim: #8c8c92; --nav: #6f6f76;
+    --nav-on-bg: transparent; --nav-bar: block; --nav-r: 0; --accent: #ff5a1f; --ctl-line: #26262b; --ctl-bg: transparent; --hover: #0b0b0e;
+    --list-r: 0; --list-bg: transparent; --list-line: transparent; --row-line: #111114;
+    --card-r: 10px; --card-bg: transparent; --card-line: #1c1c20; --card-shadow: none;
+    --h1: 20px; --h1-ls: 0; --num: 26px; --num-ls: -.01em; --go-bg: #ff5a1f; --go-shadow: none; }
+  /* ---- 2: OLED with depth ---- */
+  .t2 { --bg: #000; --sb-bg: linear-gradient(#0b0b0d, #070708); --sb-line: rgba(255,255,255,.06); --panel-bg: #040405; --text: #dcdce0; --text-strong: #f4f4f6; --muted: #9a9aa2; --label: #5c5c64; --disabled: #45454b; --text-dim: #9a9aa0; --nav: #7c7c84;
+    --nav-on-bg: rgba(255,255,255,.07); --nav-bar: none; --nav-r: 7px; --accent: #ff5a1f; --ctl-line: rgba(255,255,255,.09); --ctl-bg: rgba(255,255,255,.03); --hover: rgba(255,255,255,.035);
+    --list-r: 12px; --list-bg: linear-gradient(#0c0c0e, #08080a); --list-line: rgba(255,255,255,.06); --row-line: rgba(255,255,255,.045);
+    --card-r: 12px; --card-bg: linear-gradient(#0f0f12, #0a0a0c); --card-line: rgba(255,255,255,.07); --card-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.6);
+    --h1: 22px; --h1-ls: -.02em; --num: 30px; --num-ls: -.03em; --go-bg: linear-gradient(#ff6a30, #f2521a); --go-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 4px 14px rgba(255,90,31,.22); }
+  /* ---- 3: macOS dark ---- */
+  .t3 { --bg: #1e1e20; --sb-bg: rgba(40,40,43,.92); --sb-line: rgba(0,0,0,.5); --panel-bg: #1e1e20; --text: #e6e6e9; --text-strong: #fff; --muted: #a1a1a8; --label: #77777e; --disabled: #5a5a60; --text-dim: #b0b0b6; --nav: #c8c8cc;
+    --nav-on-bg: rgba(255,255,255,.1); --nav-bar: none; --nav-r: 6px; --accent: #ff5a1f; --ctl-line: rgba(255,255,255,.1); --ctl-bg: rgba(255,255,255,.05); --hover: rgba(255,255,255,.04);
+    --list-r: 10px; --list-bg: #262628; --list-line: transparent; --row-line: rgba(255,255,255,.06);
+    --card-r: 10px; --card-bg: #2a2a2d; --card-line: transparent; --card-shadow: none;
+    --h1: 22px; --h1-ls: -.01em; --num: 28px; --num-ls: -.02em; --go-bg: #ff5a1f; --go-shadow: none; }
+</style>
+
+<div class="feel-wrap" id="feel"></div>
+
+<script>
+(function () {
+  const looks = [['2', 't2', '', '']];
+  const tracks = [['Lena Strobe', 'In The City', '#3b4cc0,#1d1d6a'], ['Pulsar 9', 'Eject', '#1d6fff,#0a2a5a'], ['Kalte Nacht', 'Would You (stay up with me?)', '#c9a26b,#5a4020'], ['Bassgewitter', 'MHITR (Semi-Automatic) [feat. Neon Riot]', '#2f6d4f,#0d2a1d'],
+    ['Frau Funk', 'Flow', '#264a6b,#0d1d2a'], ['Low Ceiling', 'Don\'t Stop', '#333,#111'], ['Sora Blitz', 'Bass', '#555a66,#22252b'], ['Tekk Tobi', 'DJ Turn It Up', '#3a5fa0,#152540'], ['Jana Jump', 'Swerve It', '#a05aa8,#3a1d40'],
+    ['Nachtfalter', 'Rhyme Dust - Tekk Tobi Remix', '#666,#222'], ['Kai Kickdrum', 'Last Time', '#3b4c80,#151d33'], ['Jana Jump', 'Night Slapper', '#a05aa8,#3a1d40'], ['Mira Volt', 'Elemental', '#c03030,#3a0d0d'], ['Tekk Tobi', 'Offender', '#444,#111']];
+  const pls = [['Ohne_Quatsch', 41, '#7b2cff,#1d6fff', 1], ['Tekke_Ecke', 9, '#c03030,#222', 1], ['Powertrance', 3, '#ff5a1f,#7b2cff', 0], ['Hard_Bounce', 12, '#2fd27a,#1d6fff', 1], ['Bouncy', 2, '#e8b93a,#c03030', 1], ['03_06_2026', 8, '#555,#ff5a1f', 1], ['Voller_Quatsch', 14, '#c49bff,#222', 1]];
+  const total = 102;
+  const html = looks.map(([n, cls, title, text]) => `
+    <div>
+            <div class="win ${cls}">
+        <div class="sb">
+          <div class="brand"><i></i>Discjockey</div>
+          <div class="nav"><span class="g">◉</span>Dashboard</div><div class="nav on"><span class="g">⟳</span>Sync</div><div class="nav"><span class="g">✓</span>To-do<span class="c">34</span></div>
+          <div class="nav"><span class="g">≡</span>Playlists</div><div class="nav"><span class="g">◔</span>Download limits</div>
+          <div class="sbcap">Library</div>
+          ${[['All tracks', 245], ['Hard_Bounce', 39], ['Powertrance', 63], ['Bouncy', 2], ['03_06_2026', 39], ['Tekke_Ecke', 15], ['Voller_Quatsch', 85], ['Ohne_Quatsch', 2]].map(([a, b]) => `<div class="nav">${a}<span class="c">${b}</span></div>`).join('')}
+          <div class="nav" style="margin-top:auto"><span class="g">⚙</span>Settings</div>
+        </div>
+        <div class="main"><div class="list">
+          <div class="hd"><h1>Sync</h1><span class="st">Spotify read 12 h ago</span><button class="ghost">↻ Read Spotify</button></div>
+          <div class="search">⌕ Find an artist or title… <kbd>⌘F</kbd></div>
+          <div class="sec"><b>▾ Ohne_Quatsch</b><span>66 of 108 ticked</span><a>Tick all · None</a></div>
+          <div class="rows">${tracks.map(([a, t, g]) => `<div class="row"><span class="ck">✓</span><span class="cv" style="background:linear-gradient(135deg,${g})"></span><span class="tt">${a} <em>–</em> ${t}</span><span class="nv">⊘</span></div>`).join('')}</div>
+        </div></div>
+        <div class="panel">
+          <div class="cap">This run</div>
+          <div class="two"><div class="card"><div class="num" data-n>66</div><div class="lbl">tracks</div></div><div class="card"><div class="num" data-t>1 h 15<small> min</small></div><div class="lbl">about</div></div></div>
+          <div class="card">
+            <div class="days"><div class="today" style="flex-grow:66">Today 66</div><div class="later" style="flex-grow:36">Tomorrow 36</div></div>
+            <div class="seg">${[10, 25, 50, 66, total].map((v) => `<button data-v="${v}" class="${v === 66 ? 'on' : ''}">${v === 66 ? '66 ✦' : v === total ? 'All' : v}</button>`).join('')}</div>
+          </div>
+          <div class="grp fill"><div class="grp-h"><span class="cap">Playlists</span><span class="of" data-of>6 of 7 on</span></div>
+            <div class="scroll">${pls.map(([p, c, g, on]) => `<div class="r ${on ? '' : 'off'}"><span class="sw"></span><span class="cvs" style="background:linear-gradient(135deg,${g})"></span><span class="nm">${p}</span><span class="ct">${c}</span></div>`).join('')}</div></div>
+          <div class="grp"><div class="grp-h"><span class="cap">What to do</span><span class="of">3 of 3 on</span></div>
+            <div class="r"><span class="sw"></span><span class="ic">↓</span><span class="nm">New</span><span class="ct">95</span></div>
+            <div class="r"><span class="sw"></span><span class="ic">↻</span><span class="nm">Not found last time</span><span class="ct">4</span></div>
+            <div class="r"><span class="sw"></span><span class="ic">⇄</span><span class="nm">Moves</span><span class="ct">3</span></div></div>
+          <button class="go" data-go>Start sync · 66 tracks</button>
+        </div>
+      </div>
+    </div>`).join('');
+  const root = document.getElementById('feel');
+  root.innerHTML = html;
+  root.querySelectorAll('.win').forEach((w) => {
+    const set = (v) => {
+      const today = Math.min(v, 66), later = Math.max(0, total - today);
+      w.querySelector('.today').style.flexGrow = today; w.querySelector('.today').textContent = 'Today ' + today;
+      w.querySelector('.later').style.flexGrow = later; w.querySelector('.later').textContent = later ? 'Later ' + later : '';
+      w.querySelector('[data-n]').textContent = today;
+      const m = Math.round(today * 68 / 60); w.querySelector('[data-t]').innerHTML = (m >= 60 ? Math.floor(m / 60) + ' h ' + (m % 60) : m) + '<small> min</small>';
+      w.querySelector('[data-go]').textContent = 'Start sync · ' + today + ' tracks';
+      w.querySelectorAll('.seg button').forEach((b) => b.classList.toggle('on', +b.dataset.v === v));
+    };
+    w.querySelectorAll('.seg button').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); set(+b.dataset.v); }));
+    w.querySelectorAll('.r').forEach((r) => r.addEventListener('click', (e) => { e.stopPropagation(); r.classList.toggle('off');
+      const s = w.querySelectorAll('.grp.fill .r'); w.querySelector('[data-of]').textContent = [...s].filter((x) => !x.classList.contains('off')).length + ' of ' + s.length + ' on'; }));
+  });
+})();
+</script>
+
+</body></html>

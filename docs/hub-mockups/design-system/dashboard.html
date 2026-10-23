@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard – design system</title>
+<style>
+  body { margin: 0; padding: 24px; background: #111; color: #9a9aa0; font: 13px -apple-system, sans-serif; }
+  .bar { position: sticky; top: 0; z-index: 5; background: #111; padding: 0 0 14px; display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
+  .bar h2 { margin: 0; color: #f2f2f4; font-size: 15px; }
+  .pick { display: inline-flex; border: 1px solid #333; border-radius: 8px; overflow: hidden; }
+  .pick button { background: none; border: 0; border-left: 1px solid #333; color: #9a9aa0; font: 12px -apple-system; padding: 6px 12px; cursor: pointer; }
+  .pick button:first-child { border-left: 0; }
+  .pick button.on { background: rgba(255,90,31,.16); color: #ff8a5a; }
+  .pick button:active { transform: scale(.96); }
+  .opt { margin: 26px 0 8px; color: #f2f2f4; font-size: 15px; font-weight: 700; }
+  .why { max-width: 1100px; margin: 0 0 12px; line-height: 1.55; }
+  .why b { color: #dcdce0; }
+  .stage { overflow: hidden; }
+  .before img { width: 100%; max-width: 1280px; border-radius: 12px; display: block; }
+
+  /* ---- look 2 tokens (docs/hub-design-language.md, tokens.css) ---- */
+  .win { --bg: #000; --sb-bg: linear-gradient(#0b0b0d, #070708); --sb-line: rgba(255,255,255,.06); --panel-bg: #040405; --text: #dcdce0; --text-strong: #f4f4f6; --muted: #9a9aa2; --label: #5c5c64; --nav: #7c7c84;
+    --accent: #ff5a1f; --accent-text: #ff8a5a; --ctl-line: rgba(255,255,255,.09); --ctl-bg: rgba(255,255,255,.03); --hover: rgba(255,255,255,.035);
+    --list-bg: linear-gradient(#0c0c0e, #08080a); --list-line: rgba(255,255,255,.06); --row-line: rgba(255,255,255,.045);
+    --card-bg: linear-gradient(#0f0f12, #0a0a0c); --card-line: rgba(255,255,255,.07); --card-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.6);
+    --good: #2fd27a; --ok: #e8b93a; --weak: #f0524a; --lossy: #a77bff; --missing: #8a2e2e; --wait: #e8b93a;
+    transform-origin: 0 0; display: flex; overflow: hidden; border-radius: 12px; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; background: var(--bg); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  .win * { box-sizing: border-box; }
+  .sb { width: 168px; flex: none; padding: 16px 10px; background: var(--sb-bg); border-right: 1px solid var(--sb-line); display: flex; flex-direction: column; gap: 2px; }
+  .brand { color: #9a9aa0; font-weight: 700; padding: 0 8px 14px; display: flex; gap: 6px; align-items: center; }
+  .brand i { width: 8px; height: 8px; border-radius: 50%; background: #9a9aa0; }
+  .nav { display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 8px; border-radius: 7px; color: var(--nav); }
+  .nav .g { width: 14px; text-align: center; opacity: .8; font-size: 12px; }
+  .nav .c { margin-left: auto; font-size: 11px; color: var(--label); }
+  .nav.on { color: var(--text-strong); background: rgba(255,255,255,.07); }
+  .sbcap { font-size: 10.5px; letter-spacing: .7px; text-transform: uppercase; color: var(--label); padding: 16px 8px 6px; }
+
+  .main { flex: 1; min-width: 0; overflow-y: auto; display: flex; justify-content: center; }
+  .col { width: 100%; max-width: 900px; padding: 20px 22px 28px; display: flex; flex-direction: column; gap: 14px; }
+  .col > * { flex: none; }
+  .main.anchored { overflow: hidden; }
+  .main.anchored .col { height: 100%; }
+  .surf.fill { flex: 1 1 auto; min-height: 150px; display: flex; flex-direction: column; }
+  .surf.fill .sh { border-bottom: 1px solid var(--row-line); }
+  .scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-mask-image: linear-gradient(#000 calc(100% - 24px), transparent); }
+  .scroll .row:first-child { border-top: 0; }
+  .kgrid { display: grid; grid-template-columns: 1fr; }
+  .kc { display: grid; grid-template-columns: 20px minmax(0,1fr) auto; align-items: center; gap: 8px; height: 26px; font-size: 12px; }
+  .kc .ic { width: 20px; height: 20px; font-size: 11px; border-radius: 5px; }
+  .hd { display: flex; align-items: center; gap: 10px; }
+  .hd h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-strong); letter-spacing: -.02em; flex: 1; }
+  .hd .st { color: var(--muted); font-size: 12px; }
+  .btn2 { border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--text); border-radius: 8px; padding: 6px 11px; font: 600 12px -apple-system; cursor: pointer; transition: transform 100ms ease-out; white-space: nowrap; }
+  .btn2:active { transform: scale(.97); }
+  .lnk { color: var(--accent-text); font-size: 12px; white-space: nowrap; cursor: pointer; }
+
+  .card { border-radius: 12px; background: var(--card-bg); border: 1px solid var(--card-line); box-shadow: var(--card-shadow); padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .card.good { border-color: rgba(47,210,122,.28); background: linear-gradient(rgba(47,210,122,.07), rgba(47,210,122,.02)); }
+  .num { font-size: 30px; font-weight: 700; color: var(--text-strong); line-height: 1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .num small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .lbl { color: var(--label); font-size: 11px; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  .qbar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; gap: 2px; background: rgba(255,255,255,.06); }
+  .qbar i { display: block; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.5px; color: var(--muted); }
+  .legend span::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 2px; margin-right: 5px; background: var(--c); }
+
+  .days { display: flex; height: 26px; gap: 3px; }
+  .days div { display: flex; align-items: center; padding-left: 8px; font-size: 12px; white-space: nowrap; overflow: hidden; min-width: 0; }
+  .days .today { background: var(--accent); color: #000; font-weight: 700; border-radius: 6px; }
+  .days .used { background: rgba(255,255,255,.08); color: var(--muted); border-radius: 6px 0 0 6px; }
+  .days .used + .today { border-radius: 0; }
+  .days .free { border: 1px dashed rgba(255,255,255,.14); color: var(--label); border-radius: 0 6px 6px 0; }
+  .line { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+
+  .surf { border-radius: 12px; background: var(--list-bg); border: 1px solid var(--list-line); overflow: hidden; min-width: 0; }
+  .sh { display: flex; align-items: baseline; gap: 8px; padding: 11px 14px 9px; }
+  .sh b { color: var(--text-strong); font-size: 13px; font-weight: 600; }
+  .sh .cnt { color: var(--muted); font-size: 12px; flex: 1; }
+  .row { display: grid; align-items: center; column-gap: 12px; min-height: 40px; padding: 6px 14px; border-top: 1px solid var(--row-line); cursor: pointer; transition: background 120ms; }
+  .row:hover { background: var(--hover); }
+  .row:active { background: rgba(255,255,255,.06); }
+  .need { grid-template-columns: 24px minmax(0, 1fr) auto 14px; }
+  .fold { grid-template-columns: minmax(0, 1fr) 200px 92px 14px; }
+  .run { grid-template-columns: 24px minmax(0, 1fr) 14px; }
+  .kind { grid-template-columns: 24px minmax(0, 1fr) 40px; cursor: default; }
+  .kind:hover { background: none; }
+  .ic { width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--ctl-line); display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+  .ic.good { color: var(--good); border-color: rgba(47,210,122,.3); }
+  .ic.weak { color: var(--weak); border-color: rgba(240,82,74,.3); }
+  .ic.wait { color: var(--wait); border-color: rgba(232,185,58,.3); }
+  .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  .nm b { color: var(--text-strong); font-weight: 600; }
+  .two-line { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .two-line .s { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ct { text-align: right; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .chev { color: var(--label); font-size: 13px; text-align: right; }
+  .k-good { color: var(--good); } .k-ok { color: var(--ok); } .k-weak { color: var(--weak); }
+
+  .panel { flex: none; background: var(--panel-bg); border-left: 1px solid var(--sb-line); padding: 20px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+  .panel .grow { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  .cap { font-size: 11px; letter-spacing: .7px; text-transform: uppercase; color: var(--label); }
+  .go { background: linear-gradient(#ff6a30, #f2521a); color: #000; font: 700 14px -apple-system; text-align: center; padding: 11px; border-radius: 10px; border: 0; box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 4px 14px rgba(255,90,31,.22); cursor: pointer; transition: transform 100ms ease-out, filter 150ms; flex: none; }
+  .go:hover { filter: brightness(1.06); }
+  .go:active { transform: scale(.98); }
+  .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,90,31,.3); border-top-color: var(--accent); border-radius: 50%; animation: s .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+  @keyframes s { to { transform: rotate(360deg); } }
+  .pbar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.07); overflow: hidden; }
+  .pbar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .hint { font-size: 12px; color: var(--muted); }
+</style>
+</head><body>
+
+<div class="bar">
+  <h2>Dashboard</h2>
+  <span>Window <span class="pick" id="size"><button data-v="1100">1100 × 700</button><button data-v="1280" class="on">1280 × 800</button><button data-v="2560">2560 × 1440</button></span></span>
+  <span>Library <span class="pick" id="grown"><button data-v="0">Small</button><button data-v="1" class="on">Grown (20 playlists · 30 runs)</button></span></span>
+  <span>Next sync <span class="pick" id="state"><button data-v="ready" class="on">Ready</button><button data-v="running">Syncing</button><button data-v="done">Up to date</button></span></span>
+</div>
+
+<div class="opt">Before (approved 2026-10-21: option A, reworked; "What it does" dropped)</div>
+<p class="why">What's wrong: three tiles, the orange card and the panel each tell part of the same Qobuz story (37 of 80 · 15 of 43 left · 15 fit today). The ready card's counts are loose pills, and its button is outlined, so the screen has no clear main action. "Needs you", the folders and "Next weekly checks" are rows and sentences on the bare background. The folder bars stretch with the window.</p>
+
+<div class="opt">A, reworked: every list that grows is anchored and scrolls in place</div>
+<p class="why"><b>Fixed:</b> the health card and Needs you (at most 3 rows: upgrades, not found, weak). <b>Grows, so it fills and scrolls:</b> Folders takes the rest of the list's height, with its header staying put. At 2560 it simply shows more rows. <b>Panel:</b> the next sync on top (run size, Qobuz day bar, ), then <b>Last runs fills the space and scrolls</b> (the engine sends the last 30; All runs → has the rest), and the filled button stays at the bottom, where Start sits on Sync. Nothing pushes anything else off screen.</p>
+<div class="stage" data-opt="A"></div>
+
+<script>
+(function () {
+  const Q = [['Lossless', '--good'], ['Good lossy', '--ok'], ['Weak', '--weak'], ['Lossy', '--lossy'], ['Not found', '--missing']];
+  const qbar = (parts) => `<div class="qbar">${parts.map(([c, n]) => `<i style="flex:${n};background:var(${c})"></i>`).join('')}</div>`;
+  const small = [['Hard_Bounce', [6, 1, 2, 1, 1]], ['Powertrance', [3, 2, 1, 1, 0]], ['Bouncy', [4, 1, 1, 1, 0]], ['03_06_2026', [3, 1, 1, 0, 1]], ['Tekke_Ecke', [3, 1, 1, 0, 1]], ['Hard_Techno', [0, 0, 0, 0, 0]]];
+  const more = ['Ohne_Quatsch', 'Voller_Quatsch', 'Peak_Time_Warmup_Selection_2026_Final_v3', 'Schranz_Nacht', 'Rave_Classics', 'Afterhour', 'Gabber_Light', 'Melodic_Hard', 'Closing_Set', 'Opening_Set', 'Bunker_Tekk', 'Euro_Bounce', 'Frenchcore_Mix', 'Trance_Anthems'];
+  const grownFolders = small.concat(more.map((n, i) => [n, [8 + (i * 7) % 30, 2 + i % 6, 1 + i % 4, i % 3, i % 2]]));
+  const runOne = (i) => {
+    const days = ['Today 21:47 · 24 min', 'Yesterday 22:05 · 1 h 2 min', 'Sun 18 Oct · 11 min', 'Sat 17 Oct · 48 min', 'Fri 16 Oct · 6 min', 'Thu 15 Oct · 1 h 31 min'];
+    const t = i < days.length ? days[i] : `${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i % 7]} ${14 - Math.floor(i / 2)} Oct · ${8 + (i * 13) % 50} min`;
+    if (i === 0) return ['✓', 'good', t, '<span class="k-good">1 lossless</span> · <span class="k-ok">1 lossy</span> · <span class="k-weak">2 problems</span> · 1 moved'];
+    if (i === 1) return ['■', 'wait', t, '<span class="k-good">61 lossless</span> · stopped by you after 61 tracks'];
+    if (i % 9 === 4) return ['!', 'weak', t, '<span class="k-weak">stopped: Qobuz failed 3 times</span>'];
+    return ['✓', 'good', t, `<span class="k-good">${1 + (i * 5) % 40} lossless</span>${i % 3 ? ` · <span class="k-ok">${i % 4 + 1} lossy</span>` : ''}`];
+  };
+  const kindsSmall = [['↓', 'New', 12], ['⇄', 'Moves', 1], ['▦', 'Weekly checks', 3]];
+  const kindsAll = [['↓', 'New', 48], ['↻', 'Not found last time', 6], ['⤓', 'Redownloads', 2], ['⇄', 'Moves', 4], ['＋', 'Already have', 3], ['€', 'Bought', 1], ['▦', 'Weekly checks', 9]];
+
+  const sidebar = (g) => `<div class="sb"><div class="brand"><i></i>Discjockey</div>
+    <div class="nav on"><span class="g">◉</span>Dashboard</div><div class="nav"><span class="g">⟳</span>Sync</div><div class="nav"><span class="g">✓</span>To-do<span class="c">18</span></div>
+    <div class="nav"><span class="g">≡</span>Playlists</div><div class="nav"><span class="g">◔</span>Download limits</div><div class="sbcap">Library</div>
+    <div class="nav">All tracks<span class="c">${g ? 412 : 36}</span></div>${(g ? grownFolders : small).slice(0, 7).map(([a, q]) => `<div class="nav">${a.length > 15 ? a.slice(0, 14) + '…' : a}<span class="c">${q.reduce((x, y) => x + y, 0)}</span></div>`).join('')}
+    <div class="nav" style="margin-top:auto"><span class="g">⚙</span>Settings</div></div>`;
+  const header = `<div class="hd"><h1>Good morning</h1><span class="st">Spotify read 2 min ago</span><button class="btn2">↻ Read Spotify</button></div>`;
+  const health = (fs) => {
+    const tot = Q.map((_, i) => fs.reduce((x, [, q]) => x + q[i], 0)); const all = tot.reduce((x, y) => x + y, 0);
+    return `<div class="card"><div style="display:flex;align-items:baseline;gap:10px"><div class="num">${Math.round(tot[0] / all * 100)}<small> %</small></div><div class="sub">lossless · ${tot[0]} of ${all} tracks</div></div>
+    ${qbar(Q.map(([, c], i) => [c, tot[i]]))}<div class="legend">${Q.map(([l, c], i) => `<span style="--c:var(${c})">${l} ${tot[i]}</span>`).join('')}</div></div>`;
+  };
+  const needs = `<div class="surf"><div class="sh"><b>Needs you</b><span class="cnt">3</span></div>
+    <div class="row need"><span class="ic good">⇅</span><div class="two-line"><span class="nm"><b>2 upgrades ready</b></span><span class="s">1 can be swapped, cues stay</span></div><span class="lnk">Review</span><span class="chev">›</span></div>
+    <div class="row need"><span class="ic weak">?</span><div class="two-line"><span class="nm"><b>3 not found</b></span><span class="s">buy links ready</span></div><span class="lnk">Open</span><span class="chev">›</span></div>
+    <div class="row need"><span class="ic weak">≈</span><div class="two-line"><span class="nm"><b>5 weak versions</b></span><span class="s">audibly lossy (≤ 17 kHz)</span></div><span class="lnk">Open</span><span class="chev">›</span></div></div>`;
+  const folderList = (fs) => `<div class="surf fill"><div class="sh"><b>Folders</b><span class="cnt">${fs.length} playlists</span></div><div class="scroll">
+    ${fs.map(([n, q]) => { const c = q.reduce((x, y) => x + y, 0); return `<div class="row fold"><span class="nm" title="${n}">${n}</span>${c ? qbar(q.map((v, i) => [Q[i][1], v])) : '<div class="qbar"></div>'}<span class="ct">${c ? `${c} · ${Math.round(q[0] / c * 100)} %` : 'empty'}</span><span class="chev">›</span></div>`; }).join('')}</div></div>`;
+  const runList = (n) => `<div class="surf fill"><div class="sh"><b>Last runs</b><span class="cnt">${n}</span><span class="lnk">All runs →</span></div><div class="scroll">
+    ${Array.from({ length: n }, (_, i) => runOne(i)).map(([i, t, a, b]) => `<div class="row run"><span class="ic ${t}">${i}</span><div class="two-line"><span class="nm"><b>${a}</b></span><span class="s">${b}</span></div><span class="chev">›</span></div>`).join('')}</div></div>`;
+  const dayBar = (u, t) => `<div class="days"><div class="used" style="flex-grow:${u}">Used ${u}</div><div class="today" style="flex-grow:${t}">This sync ${t}</div>${80 - u - t > 0 ? `<div class="free" style="flex-grow:${80 - u - t}">${80 - u - t} left</div>` : ''}</div>
+    <div class="line"><span>Qobuz today · 80 a day</span><span class="lnk">Download limits →</span></div>`;
+  const kinds = (ks) => `<div class="card" style="gap:6px"><div class="line"><b style="color:var(--text-strong);font-size:13px;font-weight:600">What it does</b></div><div class="kgrid">
+    ${ks.map(([i, l, n]) => `<div class="kc"><span class="ic">${i}</span><span class="nm">${l}</span><span class="ct">${n}</span></div>`).join('')}</div></div>`;
+
+  function panel(state, g) {
+    const runs = runList(g ? 30 : 3);
+    if (state === 'running') return `<div class="cap">Syncing now</div>
+      <div class="two"><div class="card"><div class="num">7<small> of 16</small></div><div class="lbl">tracks done</div></div><div class="card"><div class="num">~12<small> min</small></div><div class="lbl">left</div></div></div>
+      <div class="card"><div class="sub"><span class="spin"></span>Downloading · Pegassi – AEIOU</div><div class="pbar"><i style="width:44%"></i></div></div>
+      ${runs}<button class="go">Open the sync →</button>`;
+    if (state === 'done') return `<div class="card good"><div style="display:flex;gap:10px;align-items:center"><span class="ic good">✓</span><div class="two-line"><span class="nm"><b>Up to date</b></span><span class="s">${g ? 20 : 6} playlists · ${g ? 412 : 37} tracks</span></div></div></div>
+      <div class="two"><div class="card"><div class="num">43</div><div class="lbl">Qobuz left today</div></div><div class="card"><div class="num">${g ? 9 : 3}</div><div class="lbl">weekly checks next sync</div></div></div>
+      ${runs}<div class="hint">Nothing to sync. Read Spotify after you add tracks.</div>`;
+    const ks = g ? kindsAll : kindsSmall, n = ks.reduce((x, k) => x + k[2], 0), today = Math.min(n, 43);
+    return `<div class="cap">Next sync</div>
+      <div class="two"><div class="card"><div class="num">${today}</div><div class="lbl">tracks today</div></div><div class="card"><div class="num">~${Math.round(today * 1.25)}<small> min</small></div><div class="lbl">run time</div></div></div>
+      <div class="card">${dayBar(37, today)}</div>${runs}<button class="go">Review &amp; start →</button>`;
+  }
+
+  let size = 1280, state = 'ready', grown = true;
+  function render() {
+    const h = { 1100: 700, 1280: 800, 2560: 1440 }[size];
+    const fs = grown ? grownFolders : small;
+    document.querySelectorAll('.stage').forEach((st) => {
+      const scale = Math.min(1, (st.clientWidth || document.body.clientWidth - 48) / size);
+      st.style.height = h * scale + 'px';
+      st.innerHTML = `<div class="win" style="width:${size}px;height:${h}px;transform:scale(${scale})">${sidebar(grown)}<div class="main anchored"><div class="col">${header}${health(fs)}${needs}${folderList(fs)}</div></div><div class="panel" data-panel>${panel(state, grown)}</div></div>`;
+      st.querySelector('[data-panel]').style.width = (size < 1240 ? 320 : 360) + 'px';
+    });
+  }
+  const wire = (id, set) => document.querySelectorAll(`#${id} button`).forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll(`#${id} button`).forEach((x) => x.classList.toggle('on', x === b)); set(b.dataset.v); render(); }));
+  wire('size', (v) => { size = +v; });
+  wire('state', (v) => { state = v; });
+  wire('grown', (v) => { grown = v === '1'; });
+  addEventListener('resize', render);
+  render();
+})();
+</script>
+</body></html>

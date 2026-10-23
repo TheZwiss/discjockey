@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Space rule</title>
+<style>body { margin: 0; padding: 24px; background: #111; color: #9a9aa0; font: 13px -apple-system, sans-serif; } .note { max-width: 1280px; margin: 0 0 16px; line-height: 1.5; }</style>
+</head><body><p class="note">Approved 2026-10-20: option B. In a big window the panel stays docked at a fixed width; the list grows to its maximum and then centres; extra width reveals columns, never stretched rows.</p>
+<style>
+  .win { width: 1920px; height: 1000px; background: #000; display: flex; font: 13px -apple-system, sans-serif; color: #d9d9dc; transform: scale(.44); transform-origin: 0 0; border-radius: 10px; overflow: hidden; }
+  .frame { width: 845px; height: 440px; overflow: hidden; border-radius: 6px; border: 1px solid #333; }
+  .sb { width: 150px; flex: none; border-right: 1px solid #1a1a1d; padding: 18px 14px; color: #6f6f76; font-size: 13px; line-height: 30px; }
+  .sb b { color: #ececee; font-weight: 500; }
+  .list { padding: 22px 20px; display: flex; flex-direction: column; gap: 10px; }
+  .h1 { font-size: 20px; font-weight: 700; color: #f2f2f4; display: flex; justify-content: space-between; align-items: center; }
+  .h1 span { font-size: 12px; font-weight: 400; color: #8c8c92; border: 1px solid #26262b; padding: 6px 10px; border-radius: 9px; }
+  .search { height: 32px; border: 1px solid #26262b; border-radius: 7px; }
+  .cap { font-size: 11px; letter-spacing: .7px; color: #55555b; text-transform: uppercase; }
+  .row { display: flex; align-items: center; gap: 12px; height: 38px; border-bottom: 1px solid #111114; }
+  .tick { width: 16px; height: 16px; border-radius: 4px; background: #ff5a1f; flex: none; }
+  .cov { width: 26px; height: 26px; border-radius: 4px; flex: none; }
+  .ttl { flex: 1; white-space: nowrap; overflow: hidden; }
+  .meta { color: #55555b; font-size: 12px; width: 120px; }
+  .never { color: #45454b; }
+  .panel { border-left: 1px solid #1a1a1d; padding: 22px 20px; display: flex; flex-direction: column; gap: 12px; }
+  .big { font-size: 17px; font-weight: 700; color: #f2f2f4; }
+  .bar { height: 4px; border-radius: 2px; background: #ff5a1f; }
+  .muted { color: #9a9aa0; font-size: 12px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { border: 1px solid #26262b; border-radius: 99px; padding: 5px 11px; font-size: 12px; }
+  .chip.on { border-color: #ff5a1f; color: #ff8a5a; }
+  .btn { margin-top: auto; background: #ff5a1f; color: #000; font-weight: 700; text-align: center; padding: 11px; border-radius: 9px; }
+  .area { flex: 1; display: flex; justify-content: center; min-width: 0; }
+  .tag { border: 1px solid #ff6b6b80; color: #ff6b6b; font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+  .guide { position: absolute; }
+  .note { font-size: 13px; margin: 6px 0 0; }
+</style>
+
+<div class="options" style="flex-direction: column">
+  <div class="option" style="cursor: default">
+    <div class="letter">·</div>
+    <div class="content">
+      <h3>Today, for reference: the panel swallows all the space</h3>
+      <div class="frame"><div class="win" id="today"></div></div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="a">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>A · The page stays its default size and sits centred</h3>
+      <p>List and panel keep exactly their default widths. The window's extra space becomes calm margin on both sides, like a document. Simple and predictable, but a big screen shows no more than a small one, apart from extra rows from the height.</p>
+      <div class="frame"><div class="win" id="a"></div></div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>B · Panel docked at the edge, list grows to a limit (my recommendation)</h3>
+      <p>Like Apple Music or Finder: the panel keeps a fixed width at the right edge, and the list gets the extra width up to a comfortable maximum (about 900 px), then centres. It doesn't stretch empty rows. The extra width is used for information that's squeezed or hidden at the default size, here the playlist and why a track is in the run. On To-do it would be source, bitrate and kHz as their own columns.</p>
+      <div class="frame"><div class="win" id="b"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const tracks = [
+    ['Lena Strobe – In The City', '#3b4cc0'], ['Pulsar 9 – Eject', '#1d6fff'], ['Kalte Nacht – Would You (stay up with me?)', '#c9a26b'],
+    ['Bassgewitter – MHITR (Semi-Automatic) [feat. Neon Riot]', '#2f6d4f'], ['Frau Funk – Flow', '#264a6b'], ['Low Ceiling – Don\'t Stop', '#222'],
+    ['Sora Blitz – Bass', '#555a66'], ['Tekk Tobi – DJ Turn It Up', '#3a5fa0'], ['Jana Jump – Swerve It', '#a05aa8'], ['Nachtfalter – Rhyme Dust - Tekk Tobi Remix', '#666'],
+    ['Kai Kickdrum – Last Time', '#3b4c80'], ['Jana Jump – Night Slapper', '#a05aa8'], ['Mira Volt – Elemental', '#c03030'], ['Tekk Tobi – Offender', '#444'],
+    ['Tekk Tobi – Don\'t Sleep', '#111'], ['Pegassi – One More Time', '#7b2cff'], ['Vatoz Locoz – Hooked', '#2a8a8a'], ['Remo Rush – Rave Out', '#4a7a3a'],
+    ['Pegassi – Personal', '#aa5530'], ['torbentorben – It\'s That Time', '#6a2cff'], ['DJ TALLBOY – Arms', '#887766'], ['Lena Strobe – Ghosting Your Love', '#3b4cc0']];
+  const why = ['new', 'new', 'new', 'not found last time', 'new', 'new', 'new', 'new', 'from Voller_Quatsch', 'new', 'new', 'new', 'new', 'new', 'new', 'new', 'new', 'new', 'new', 'new', 'new', 'new'];
+  const sb = '<div class="sb"><div style="color:#8c8c92;font-weight:700">● Discjockey</div><div>Dashboard</div><div><b>Sync</b></div><div>To-do</div><div>Playlists</div><div>Download limits</div><div class="cap" style="margin-top:14px">Library</div><div>All tracks</div><div>Hard_Bounce</div><div>Powertrance</div><div>Bouncy</div><div>03_06_2026</div><div>Tekke_Ecke</div></div>';
+  function list(width, extra) {
+    let r = tracks.map((t, i) => '<div class="row"><div class="tick"></div><div class="cov" style="background:' + t[1] + '"></div><div class="ttl">' + t[0] + '</div>' +
+      (extra ? '<div class="meta">Ohne_Quatsch</div><div class="meta" style="width:150px">' + (why[i] === 'new' ? '<span style="color:#55555b">new</span>' : '<span class="tag">' + why[i] + '</span>') + '</div>' : '') +
+      '<div class="never">⊘</div></div>').join('');
+    return '<div class="list" style="width:' + width + '"><div class="h1">Sync <span>↻ Read Spotify</span></div><div class="search"></div><div class="cap">Ohne_Quatsch · 66 of 108 ticked</div>' + r + '</div>';
+  }
+  function panel(width) {
+    return '<div class="panel" style="width:' + width + '"><div class="cap">This run</div><div class="big">66 tracks <span class="muted">· approx. 1 h 15 min</span></div><div class="bar"></div><div class="muted">Qobuz today: uses 66 of 66 left</div><div class="muted">42 more after this run · ~1 more day</div><div class="cap" style="margin-top:8px">How many downloads</div><div class="chips"><span class="chip">5</span><span class="chip">10</span><span class="chip">25</span><span class="chip">50</span><span class="chip on">66 · fits today</span><span class="chip">All 108</span></div><div class="btn">Start sync · 66 tracks</div></div>';
+  }
+  document.getElementById('today').innerHTML = sb + list('660px', false) + panel('auto;flex:1');
+  document.getElementById('a').innerHTML = sb + '<div class="area" style="justify-content:center"><div style="display:flex">' + list('660px', false) + panel('360px') + '</div></div>';
+  document.getElementById('b').innerHTML = sb + '<div class="area">' + list('900px', true) + '</div>' + panel('360px');
+})();
+</script>
+
+</body></html>

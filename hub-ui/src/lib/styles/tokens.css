@@ -1,0 +1,127 @@
+/* Discjockey hub — THE token file. Look 2 (spec design-system §5); colours only from here.
+   Sizes, radii, motion and frame widths too. Dark (OLED) only. */
+:root {
+  /* surfaces: true black, hairlines, no grey fills */
+  --bg: #000;
+  --bg-hover: #0b0b0e;
+  --bg-selected: #0d0d10;          /* selected row (mockup tr.sel) */
+  --bg-inset: #17171a;             /* empty bar/track, progress background */
+  --line: #1a1a1d;                 /* panel borders, sidebar, activity bar */
+  --line-row: #111114;             /* row separators */
+  --line-card: #1c1c20;            /* tiles, cards, spectrum frame */
+  --line-control: #26262b;         /* chips, inputs, secondary buttons */
+  --line-control-hover: #3a3a40;
+  /* text: no pure white (OLED smear), static chrome dimmed (burn-in) */
+  --text: #d9d9dc;
+  --text-strong: #f2f2f4;          /* headings, big numbers */
+  --text-active: #ececee;          /* active nav item */
+  --text-muted: #9a9aa0;           /* secondary lines, chips */
+  --text-dim: #8c8c92;             /* brand, activity bar */
+  --text-nav: #7c7c84;             /* sidebar (4.7:1, the mockup's look-2 value) */
+  --text-label: #7a7a80;           /* uppercase captions, column headers, counts beside a brighter value (4.5:1 on a surface) */
+  --text-disabled: #45454b;
+  /* look 2 ("OLED with depth", spec design-system §5) */
+  --surface: linear-gradient(#0f0f12, #0a0a0c);
+  --surface-list: linear-gradient(#0c0c0e, #08080a);
+  --surface-line: rgba(255, 255, 255, .07);
+  --surface-highlight: inset 0 1px 0 rgba(255, 255, 255, .04);
+  --sidebar-bg: linear-gradient(#0b0b0d, #070708);
+  --panel-bg: #040405;
+  --line-soft: rgba(255, 255, 255, .045);   /* row dividers */
+  --ctl-line: rgba(255, 255, 255, .09);
+  --ctl-bg: rgba(255, 255, 255, .03);
+  --ctl-hover: rgba(255, 255, 255, .035);
+  --ctl-press: rgba(255, 255, 255, .06);     /* a row, menu item, nav item or joined segment held down (they highlight, not shrink) */
+  --link-press: .7;   /* a text link held down dims instead of shrinking inside its sentence */
+  --nav-on-bg: rgba(255, 255, 255, .07);
+  --knob-shadow: 0 1px 2px rgba(0, 0, 0, .4);   /* a switch knob sits just above its track */
+  --go-bg: linear-gradient(#ff6a30, #f2521a);   /* the one filled (primary) button */
+  --go-highlight: inset 0 1px 0 rgba(255, 255, 255, .25);
+  --go-glow: 0 4px 14px rgba(255, 90, 31, .22);
+  /* popovers and menus: the lightest layer, same edge treatment as a surface (black → panel → surface → popover) */
+  --popover-bg: linear-gradient(#18181b, #131316);
+  --popover-line: rgba(255, 255, 255, .10);
+  /* the one accent: outlines and highlights, no large fills */
+  --accent: #ff5a1f;
+  --accent-text: #ff8a5a;          /* accent text on black */
+  --accent-line: rgba(255, 90, 31, .5);
+  --accent-wash: rgba(255, 90, 31, .07);   /* drop zone while dragging, selected chip background */
+  --accent-wash-strong: rgba(255, 90, 31, .14);   /* the chosen segment of a Segmented (mockup value) */
+  --accent-stripe: rgba(255, 90, 31, .16); /* the day bar's later stripes, over --accent-wash */
+  --text-on-accent: #000;          /* text on a filled accent button */
+  /* quality: text / bar fill / outline */
+  --q-lossless: #2fd27a;  --q-lossless-bar: #27b868;  --q-lossless-line: rgba(47, 210, 122, .45);
+  --q-good: #e8b93a;      --q-good-bar: #d9a92e;      --q-good-line: rgba(232, 185, 58, .45);
+  --q-weak: #ff6b6b;      --q-weak-bar: #e04343;      --q-weak-line: rgba(255, 107, 107, .45);
+  --q-fake: #c49bff;      --q-fake-bar: #a77ff0;      --q-fake-line: rgba(196, 155, 255, .45);
+  --q-other: #9a9aa0;     --q-other-bar: #45454b;     --q-other-line: rgba(154, 154, 160, .4);
+  /* "missing" uses the weak (red) set; "upgrade ready ↑" uses the accent set */
+  /* risk (Download limits only): the same three colours with a second, separate job: how safe a pace is.
+     Used only on the RiskScale, the verdict, the 14-day bars and a service's status (design language §2) */
+  --risk-safe: var(--q-lossless);   --risk-safe-line: var(--q-lossless-line);
+  --risk-notice: var(--q-good);     --risk-notice-line: var(--q-good-line);
+  --risk-high: var(--q-weak);       --risk-high-bar: var(--q-weak-bar);   --risk-high-line: var(--q-weak-line);
+  /* spectrum colour map, low → high energy (mockup gradient) */
+  --spec-0: #000; --spec-1: #2a0d4d; --spec-2: #7b2cff; --spec-3: #ff5a1f; --spec-4: #ffd36b; --spec-5: #ffe9b0;
+  /* placeholder cover gradients (picked by a hash of the track id) */
+  --cover-a: #ff5a1f; --cover-b: #7b2cff; --cover-c: #2fd27a; --cover-d: #1d6fff;
+  --cover-scrim: rgba(0, 0, 0, 0.5);   /* under the ▶ / ❚❚ on a playable cover (Library rows) */
+  /* type */
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  /* the only sizes (spec design-system §5): 11 labels · 12 small · 13 body · 17 title · 22 page title · 30 stat
+     numbers · 44 the countdown only. --type-scale is read by the rule checker. */
+  --fs-label: 11px;  --fs-small: 12px;  --fs-body: 13px;  --fs-title: 17px;  --fs-h1: 22px;
+  --fs-stat: 30px;   --fs-huge: 44px;
+  --fs-big: var(--fs-stat);   /* OUTDATED alias, kept until phase 2 ends */
+  --type-scale: 11 12 13 17 22 30 44;
+  --ls-h1: -.02em;   --ls-stat: -.03em;
+  --fw-bold: 700;    --fw-semi: 600;    --fw-medium: 500;   --ls-label: .7px;   /* medium: a stat's unit; uppercase labels */
+  /* shape: four steps (4 badge/cover · 6 icon box/bar · 8 controls · 12 surfaces and popovers), plus the named go 10
+     and nav 7. Nested corners are concentric: inner radius = outer − padding (a menu's 12 − 4 → items 8). */
+  --r-surface: 12px; --r-ctl: 8px; --r-go: 10px; --r-nav: 7px; --r-icon: 6px;   /* icon box in a toggle row's lead */
+  --r-badge: 4px; --r-cover: 4px; --r-art: 8px; --r-pill: 999px;
+  --r-input: 7px; --r-btn: 9px; --r-card: 10px;   /* OUTDATED (design audit A17): use --r-ctl / --r-surface; mapped in phase 2 */
+  --bw: 1px; --bw-accent: 1.5px;
+  /* space */
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px; --s-8: 32px;
+  /* layout (spec design-system §3; window min 1100 × 700, default 1280 × 800) */
+  --sidebar-w: 168px; --panel-w: 360px; --panel-w-narrow: 320px; --panel-narrow-below: 1240px;
+  /* the panel is narrow below that window width: ListPanelFrame's media query repeats it (a media query can't read a
+     var; guards.test.ts keeps the two equal) and the rule checker reads it */
+  --content-max: 900px; --content-max-wide: 1200px;
+  --main-w: 660px;   /* OUTDATED (design system §7): only for pages not yet redesigned; use the frames */
+  --activity-h: 44px; --banner-h: 36px;
+  /* control heights: controls that sit side by side share one of these */
+  --h-ctl-sm: 26px; --h-ctl: 30px; --h-btn: 34px; --h-row: 38px;
+  --w-row-action: 64px;   /* a row's trailing slot (an optional action such as Review →, a count): fixed, so a stacked column shares one right edge */
+  --gap-split: 3px;       /* between the parts of a split bar (DayBar's today · later) */
+  --h-list-row: 40px; --h-list-row-tall: 52px;   /* ListRow: a list's rows (the Sync plan), and rows with a second line */
+  --h-section: 32px;   /* ListSection: a group's head among a list's rows (To-do), lower than a row so it reads as a label */
+  /* scroll edge effect (edgeFade): how far an end with more beyond it fades, and to what (35 %, so a cut row still
+     reads on or off) */
+  --edge-fade: 16px; --edge-fade-to: rgb(0 0 0 / .35);
+  /* motion (spec design-system §6) */
+  --ease: cubic-bezier(.22, 1, .36, 1);
+  --t-press: 100ms; --t-state: 240ms; --t-value: 420ms;
+  --t-reply: 280ms;  /* a value change the user just caused (the day bar after an amount click): under 300 ms */
+  --t-hover: 120ms;  /* hover: quick and quiet. Selection after navigation or an arrow key doesn't animate at all */
+  --t-pop: 140ms;    /* a popover or menu fading and growing in from what opened it (exit is instant) */
+  --t-live: 300ms;   /* live progress, linear: a bit longer than the engine's 250 ms update pace, so the bar never stops between updates */
+  --t-fast: 120ms; --t-med: 220ms;   /* OUTDATED (design audit A15): map each use to a §6 token in phase 2 */
+  /* overlays (dialog backdrop, toast shadow): black only; a cover under the countdown is dimmed, its ring track light */
+  --backdrop: rgba(0, 0, 0, .72);
+  --dim-cover: .35;
+  --dim-locked: .5;   /* the one dim for "can't use right now": a row's lead, a disabled Switch, the plan while Spotify is read */
+  --ring-on-cover: rgba(255, 255, 255, .16);
+  --shadow: 0 8px 28px rgba(0, 0, 0, .9);
+}
+
+/* increased contrast (System Settings › Accessibility › Display): defined edges, no dim chrome text. Kept here, next
+   to the tokens it overrides, so a token edit sees its contrast value too */
+@media (prefers-contrast: more) {
+  :root {
+    --surface-line: rgba(255, 255, 255, .18); --ctl-line: rgba(255, 255, 255, .22); --line-soft: rgba(255, 255, 255, .10);
+    --popover-line: rgba(255, 255, 255, .24);
+    --text-label: var(--text-muted); --text-nav: var(--text-muted);
+  }
+}

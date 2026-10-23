@@ -1,0 +1,152 @@
+[
+ {
+  "name": "dashboard",
+  "route": "#/",
+  "scenario": "normal",
+  "steps": [
+   {
+    "wait": "[data-test=next-sync]"
+   },
+   {
+    "wait": "[data-test=last-runs]"
+   }
+  ]
+ },
+ {
+  "name": "dashboard-first-run",
+  "route": "#/",
+  "scenario": "first_run",
+  "steps": [
+   {
+    "sleep": 300
+   },
+   {
+    "eval": "location.hash = '#/'"
+   },
+   {
+    "wait": "[data-test=dashboard-empty]"
+   },
+   {
+    "wait": "[data-test=no-runs]"
+   },
+   {
+    "eval": "if (document.querySelector('[data-page-header] [data-spotify-status]').querySelector('[data-test=spotify-when]') || /set up/i.test(document.querySelector('[data-page-header] [data-spotify-status]').textContent) || document.querySelector('[data-test=next-unread] p.body')) throw new Error(\"not set up said more than once on the first-run Dashboard (\\u00a75a)\")"
+   }
+  ]
+ },
+ {
+  "name": "dashboard-unread",
+  "route": "#/",
+  "scenario": "dashboard:unread",
+  "steps": [
+   {
+    "wait": "[data-test=next-unread]"
+   },
+   {
+    "eval": "if (document.querySelector('[data-test=read-now]') || /Spotify hasn/.test(document.querySelector('[data-test=next-unread]').textContent)) throw new Error(\"the next-sync card repeats the header slot (\\u00a711)\")"
+   }
+  ]
+ },
+ {
+  "name": "dashboard-login-expired",
+  "route": "#/",
+  "scenario": "dashboard:login_expired",
+  "steps": [
+   {
+    "wait": "[data-test=next-unread], [data-test=next-sync]"
+   },
+   {
+    "eval": "if (document.querySelectorAll('[data-test=banner-spotify]').length !== 1 || /expired/i.test(document.querySelector('[data-page-header] [data-spotify-status]').textContent) || document.querySelector('[data-test=spotify-read]').getAttribute('aria-disabled') !== 'true') throw new Error(\"login expired must be said once, by the banner, with Read Spotify off (\\u00a75a)\")"
+   }
+  ]
+ },
+ {
+  "name": "dashboard-offline",
+  "route": "#/",
+  "scenario": "offline",
+  "steps": [
+   {
+    "wait": "[data-test=health]"
+   }
+  ]
+ },
+ {
+  "name": "dashboard-syncing",
+  "route": "#/",
+  "scenario": "syncing",
+  "steps": [
+   {
+    "wait": "[data-test=next-running]"
+   }
+  ]
+ },
+ {
+  "name": "dashboard-up-to-date",
+  "route": "#/",
+  "scenario": "dashboard:up_to_date",
+  "steps": [
+   {
+    "wait": "[data-test=next-up-to-date]"
+   }
+  ]
+ },
+ {
+  "name": "dashboard-big",
+  "route": "#/",
+  "scenario": "big",
+  "steps": [
+   {
+    "wait": "[data-test=folders]"
+   },
+   {
+    "wait": "[data-test=all-runs]"
+   }
+  ]
+ },
+ {
+  "name": "dashboard-grown",
+  "route": "#/",
+  "scenario": "dashboard:grown",
+  "steps": [
+   {
+    "wait": "[data-test=folders]"
+   },
+   {
+    "wait": "[data-test=all-runs]"
+   },
+   {
+    "eval": "for (const t of ['folders', 'last-runs']) { const r = document.querySelector(`[data-test=${t}] [id$=-body]`); if (r.scrollHeight > r.clientHeight + 1 && !r.hasAttribute('data-fade-below')) throw new Error(t + ': a cut list fades its end (Surface grow)') } const m = document.querySelector('[data-frame-main]'); if (m.scrollHeight > m.clientHeight + 1) throw new Error('the list area must not scroll: Folders scrolls in place')"
+   }
+  ]
+ },
+ {
+  "name": "dashboard-error",
+  "route": "#/",
+  "scenario": "dashboard:broken",
+  "steps": [
+   {
+    "wait": "main[data-page=dashboard] .problem, main[data-page=dashboard] [role=alert]"
+   }
+  ]
+ },
+ {
+  "name": "runs",
+  "route": "#/runs",
+  "scenario": "big",
+  "steps": [
+   {
+    "wait": "[data-test=runs-list]"
+   }
+  ]
+ },
+ {
+  "name": "runs-empty",
+  "route": "#/runs",
+  "scenario": "dashboard:no_runs",
+  "steps": [
+   {
+    "wait": "[data-test=runs-empty]"
+   }
+  ]
+ }
+]

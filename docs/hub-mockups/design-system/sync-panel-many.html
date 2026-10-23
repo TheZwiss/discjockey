@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sync panel – many playlists</title>
+<style>body { margin: 0; padding: 24px; background: #111; color: #9a9aa0; font: 13px -apple-system, sans-serif; } .note { max-width: 1280px; margin: 0 0 16px; line-height: 1.5; }</style>
+</head><body><p class="note">Approved 2026-10-20: the "This run" panel (look 1 colours; look 2 surfaces apply) with 12 playlists. Top cards and Start never move, "What to do" keeps its rows, Playlists fills the rest and scrolls, with search from 7 playlists. Left: default window, right: minimum window.</p>
+<style>
+  .duo { display: flex; gap: 24px; align-items: flex-start; }
+  .opt-wrap { width: 362px; display: flex; flex-direction: column; gap: 8px; }
+  .mk-p { width: 360px; height: var(--h); background: #000; border-radius: 10px; padding: 20px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; font: 13px -apple-system, sans-serif; color: #d9d9dc; border: 1px solid #222; }
+  .mk-p * { box-sizing: border-box; }
+  .mk-cap { font-size: 11px; letter-spacing: .7px; color: #55555b; text-transform: uppercase; }
+  .mk-card { border: 1px solid #1c1c20; border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .mk-num { font-size: 26px; font-weight: 700; color: #f2f2f4; line-height: 1; letter-spacing: -.02em; }
+  .mk-num small { font-size: 13px; font-weight: 400; color: #9a9aa0; letter-spacing: 0; }
+  .mk-lbl { color: #55555b; font-size: 11px; }
+  .mk-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .mk-seg { display: flex; border: 1px solid #26262b; border-radius: 8px; overflow: hidden; }
+  .mk-seg span { flex: 1; text-align: center; padding: 6px 0; font-size: 12px; color: #9a9aa0; border-right: 1px solid #26262b; }
+  .mk-seg span:last-child { border-right: 0; }
+  .mk-seg .on { background: rgba(255,90,31,.12); color: #ff8a5a; }
+  .mk-btn { margin-top: auto; background: #ff5a1f; color: #000; font-weight: 700; text-align: center; padding: 11px; border-radius: 9px; font-size: 14px; }
+  .mk-days { display: flex; height: 26px; border-radius: 6px; overflow: hidden; gap: 3px; }
+  .mk-days .today { background: #ff5a1f; display: flex; align-items: center; padding-left: 8px; color: #000; font-weight: 700; font-size: 12px; }
+  .mk-days .later { background: repeating-linear-gradient(135deg, #2a1a12 0 5px, #1a110c 5px 10px); border: 1px solid rgba(255,90,31,.35); border-radius: 0 6px 6px 0; display: flex; align-items: center; padding-left: 8px; color: #ff8a5a; font-size: 12px; }
+
+  /* the one row pattern for on/off choices */
+  .grp { border: 1px solid #1c1c20; border-radius: 10px; overflow: hidden; }
+  .grp-h { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px 8px; }
+  .grp-h .of { font-size: 11px; color: #55555b; font-variant-numeric: tabular-nums; }
+  .r { display: grid; grid-template-columns: 30px 24px 1fr 32px; align-items: center; column-gap: 10px; height: 38px; padding: 0 14px; border-top: 1px solid #111114; font-size: 13px; }
+  .r .sw { width: 30px; height: 18px; border-radius: 9px; background: #ff5a1f; position: relative; }
+  .r .sw::after { content: ''; position: absolute; top: 2px; right: 2px; width: 14px; height: 14px; border-radius: 50%; background: #f2f2f4; }
+  .r .cv { width: 24px; height: 24px; border-radius: 4px; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
+  .r .ic { width: 24px; height: 24px; border-radius: 6px; border: 1px solid #26262b; display: grid; place-items: center; color: #9a9aa0; font-size: 12px; }
+  .r .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .r .ct { text-align: right; color: #9a9aa0; font-variant-numeric: tabular-nums; font-size: 12px; }
+  .r.off .sw { background: #26262b; }
+  .r.off .sw::after { right: auto; left: 2px; background: #6f6f76; }
+  .r.off .nm, .r.off .ct { color: #45454b; }
+  .r.off .cv, .r.off .ic { opacity: .3; }
+  .tabs { display: flex; margin: 0 14px 10px; border: 1px solid #26262b; border-radius: 8px; overflow: hidden; }
+  .tabs span { flex: 1; text-align: center; padding: 6px 0; font-size: 12px; color: #9a9aa0; }
+  .tabs span + span { border-left: 1px solid #26262b; }
+  .tabs .on { background: rgba(255,90,31,.12); color: #ff8a5a; }
+  .tabs b { font-weight: 400; color: #55555b; margin-left: 4px; }
+</style><style>
+  .mk-p > * { flex: none; }
+  .mk-p > .grp.fill { flex: 1 1 auto; }
+  .grp.fill { flex: 1 1 auto; min-height: 154px; display: flex; flex-direction: column; }
+  .grp.fill .scroll { flex: 1; overflow-y: auto; min-height: 0; position: relative;
+    mask-image: linear-gradient(#000 calc(100% - 24px), transparent); }
+  .grp.fill .scroll::-webkit-scrollbar { width: 6px; } .grp.fill .scroll::-webkit-scrollbar-thumb { background: #26262b; border-radius: 3px; }
+  .find { margin: 0 14px 10px; height: 28px; border: 1px solid #26262b; border-radius: 7px; display: flex; align-items: center; gap: 6px; padding: 0 8px; color: #55555b; font-size: 12px; }
+  .grp-h .all { font-size: 11px; color: #9a9aa0; }
+  .grp-h .all b { color: #55555b; font-weight: 400; margin: 0 4px; }
+  .size { font-size: 12px; color: var(--text-secondary); margin: 0 0 4px; }
+</style><div class="duo"><div class="opt-wrap"><p class="size">Default window (1280 × 800)</p><div class="mk-p" style="--h:770px">
+      <div class="mk-cap">This run</div>
+      <div class="mk-two">
+        <div class="mk-card"><div class="mk-num">66</div><div class="mk-lbl">tracks</div></div>
+        <div class="mk-card"><div class="mk-num">1 h 15<small> min</small></div><div class="mk-lbl">about</div></div>
+      </div>
+      <div class="mk-card">
+        <div class="mk-days"><div class="today" style="flex: 66">Today 66</div><div class="later" style="flex: 36">Tomorrow 36</div></div>
+        <div class="mk-seg"><span>10</span><span>25</span><span>50</span><span class="on">66 ✦</span><span>All</span></div>
+      </div>
+      <div class="grp fill">
+        <div class="grp-h"><span class="mk-cap">Playlists <span style="letter-spacing:0;text-transform:none">· 10 of 12 on</span></span><span class="all">All<b>·</b>None</span></div>
+        <div class="find">⌕ Find a playlist</div>
+        <div class="scroll"><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#7b2cff,#1d6fff)"></span><span class="nm">Ohne_Quatsch</span><span class="ct">41</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#c03030,#222)"></span><span class="nm">Tekke_Ecke</span><span class="ct">9</span></div><div class="r off"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#ff5a1f,#7b2cff)"></span><span class="nm">Powertrance</span><span class="ct">3</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#2fd27a,#1d6fff)"></span><span class="nm">Hard_Bounce</span><span class="ct">12</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#e8b93a,#c03030)"></span><span class="nm">Bouncy</span><span class="ct">2</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#555,#ff5a1f)"></span><span class="nm">03_06_2026</span><span class="ct">8</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#c49bff,#222)"></span><span class="nm">Voller_Quatsch</span><span class="ct">14</span></div><div class="r off"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#1d6fff,#2fd27a)"></span><span class="nm">Rollers</span><span class="ct">6</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#ff5a1f,#e8b93a)"></span><span class="nm">Peak Time</span><span class="ct">5</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#2a8a8a,#222)"></span><span class="nm">Warmup</span><span class="ct">3</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#3b4cc0,#c49bff)"></span><span class="nm">Liquid Sunday</span><span class="ct">2</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#7b2cff,#000)"></span><span class="nm">Afterhours</span><span class="ct">3</span></div></div>
+      </div>
+      <div class="grp">
+        <div class="grp-h"><span class="mk-cap">What to do <span style="letter-spacing:0;text-transform:none">· 3 of 3 on</span></span><span class="all">All<b>·</b>None</span></div>
+        <div class="r"><span class="sw"></span><span class="ic">↓</span><span class="nm">New</span><span class="ct">98</span></div>
+        <div class="r"><span class="sw"></span><span class="ic">↻</span><span class="nm">Not found last time</span><span class="ct">4</span></div>
+        <div class="r"><span class="sw"></span><span class="ic">⇄</span><span class="nm">Moves</span><span class="ct">3</span></div>
+      </div>
+      <div class="mk-btn" style="margin-top:0">Start sync · 66 tracks</div>
+    </div></div><div class="opt-wrap"><p class="size">Smallest window (1100 × 700)</p><div class="mk-p" style="--h:670px">
+      <div class="mk-cap">This run</div>
+      <div class="mk-two">
+        <div class="mk-card"><div class="mk-num">66</div><div class="mk-lbl">tracks</div></div>
+        <div class="mk-card"><div class="mk-num">1 h 15<small> min</small></div><div class="mk-lbl">about</div></div>
+      </div>
+      <div class="mk-card">
+        <div class="mk-days"><div class="today" style="flex: 66">Today 66</div><div class="later" style="flex: 36">Tomorrow 36</div></div>
+        <div class="mk-seg"><span>10</span><span>25</span><span>50</span><span class="on">66 ✦</span><span>All</span></div>
+      </div>
+      <div class="grp fill">
+        <div class="grp-h"><span class="mk-cap">Playlists <span style="letter-spacing:0;text-transform:none">· 10 of 12 on</span></span><span class="all">All<b>·</b>None</span></div>
+        <div class="find">⌕ Find a playlist</div>
+        <div class="scroll"><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#7b2cff,#1d6fff)"></span><span class="nm">Ohne_Quatsch</span><span class="ct">41</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#c03030,#222)"></span><span class="nm">Tekke_Ecke</span><span class="ct">9</span></div><div class="r off"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#ff5a1f,#7b2cff)"></span><span class="nm">Powertrance</span><span class="ct">3</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#2fd27a,#1d6fff)"></span><span class="nm">Hard_Bounce</span><span class="ct">12</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#e8b93a,#c03030)"></span><span class="nm">Bouncy</span><span class="ct">2</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#555,#ff5a1f)"></span><span class="nm">03_06_2026</span><span class="ct">8</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#c49bff,#222)"></span><span class="nm">Voller_Quatsch</span><span class="ct">14</span></div><div class="r off"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#1d6fff,#2fd27a)"></span><span class="nm">Rollers</span><span class="ct">6</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#ff5a1f,#e8b93a)"></span><span class="nm">Peak Time</span><span class="ct">5</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#2a8a8a,#222)"></span><span class="nm">Warmup</span><span class="ct">3</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#3b4cc0,#c49bff)"></span><span class="nm">Liquid Sunday</span><span class="ct">2</span></div><div class="r"><span class="sw"></span><span class="cv" style="background: linear-gradient(135deg,#7b2cff,#000)"></span><span class="nm">Afterhours</span><span class="ct">3</span></div></div>
+      </div>
+      <div class="grp">
+        <div class="grp-h"><span class="mk-cap">What to do <span style="letter-spacing:0;text-transform:none">· 3 of 3 on</span></span><span class="all">All<b>·</b>None</span></div>
+        <div class="r"><span class="sw"></span><span class="ic">↓</span><span class="nm">New</span><span class="ct">98</span></div>
+        <div class="r"><span class="sw"></span><span class="ic">↻</span><span class="nm">Not found last time</span><span class="ct">4</span></div>
+        <div class="r"><span class="sw"></span><span class="ic">⇄</span><span class="nm">Moves</span><span class="ct">3</span></div>
+      </div>
+      <div class="mk-btn" style="margin-top:0">Start sync · 66 tracks</div>
+    </div></div></div>
+</body></html>

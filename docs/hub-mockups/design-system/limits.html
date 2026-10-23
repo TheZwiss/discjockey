@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Download limits – design system</title>
+<style>
+  body { margin: 0; padding: 24px; background: #111; color: #9a9aa0; font: 13px -apple-system, sans-serif; }
+  .bar { position: sticky; top: 0; z-index: 5; background: #111; padding: 0 0 14px; display: flex; flex-wrap: wrap; gap: 14px 18px; align-items: center; }
+  .bar h2 { margin: 0; color: #f2f2f4; font-size: 15px; }
+  .pick { display: inline-flex; border: 1px solid #333; border-radius: 8px; overflow: hidden; }
+  .pick button { background: none; border: 0; border-left: 1px solid #333; color: #9a9aa0; font: 12px -apple-system; padding: 6px 12px; cursor: pointer; }
+  .pick button:first-child { border-left: 0; }
+  .pick button.on { background: rgba(255,90,31,.16); color: #ff8a5a; }
+  .pick button:active { transform: scale(.96); }
+  .opt { margin: 26px 0 8px; color: #f2f2f4; font-size: 15px; font-weight: 700; }
+  .why { max-width: 1100px; margin: 0 0 12px; line-height: 1.55; }
+  .why b { color: #dcdce0; }
+  .stage { overflow: hidden; }
+
+  /* ---- look 2 tokens (docs/hub-design-language.md, tokens.css) ---- */
+  .win { --bg: #000; --sb-bg: linear-gradient(#0b0b0d, #070708); --sb-line: rgba(255,255,255,.06); --panel-bg: #040405; --text: #dcdce0; --text-strong: #f4f4f6; --muted: #9a9aa2; --label: #5c5c64; --nav: #7c7c84;
+    --accent: #ff5a1f; --accent-text: #ff8a5a; --ctl-line: rgba(255,255,255,.09); --ctl-bg: rgba(255,255,255,.03); --hover: rgba(255,255,255,.035);
+    --list-bg: linear-gradient(#0c0c0e, #08080a); --list-solid: #0b0b0d; --list-line: rgba(255,255,255,.06); --row-line: rgba(255,255,255,.045);
+    --card-bg: linear-gradient(#0f0f12, #0a0a0c); --card-line: rgba(255,255,255,.07); --card-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.6);
+    --good: #2fd27a; --ok: #e8b93a; --weak: #f0524a; --lossy: #a77bff; --missing: #c0504a; --wait: #e8b93a;
+    transform-origin: 0 0; display: flex; overflow: hidden; border-radius: 12px; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; background: var(--bg); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  .win * { box-sizing: border-box; }
+  .sb { width: 168px; flex: none; padding: 16px 10px; background: var(--sb-bg); border-right: 1px solid var(--sb-line); display: flex; flex-direction: column; gap: 2px; }
+  .brand { color: #9a9aa0; font-weight: 700; padding: 0 8px 14px; display: flex; gap: 6px; align-items: center; }
+  .brand i { width: 8px; height: 8px; border-radius: 50%; background: #9a9aa0; }
+  .nav { display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 8px; border-radius: 7px; color: var(--nav); }
+  .nav .g { width: 14px; text-align: center; opacity: .8; font-size: 12px; }
+  .nav { white-space: nowrap; }
+  .nav .c { margin-left: auto; font-size: 11px; color: var(--label); }
+  .nav.on { color: var(--text-strong); background: rgba(255,255,255,.07); }
+  .sbcap { font-size: 10.5px; letter-spacing: .7px; text-transform: uppercase; color: var(--label); padding: 16px 8px 6px; }
+
+  .main { flex: 1; min-width: 0; overflow-y: auto; display: flex; justify-content: center; }
+  .col { width: 100%; max-width: 900px; padding: 20px 22px 28px; display: flex; flex-direction: column; gap: 14px; }
+  .col > * { flex: none; }
+  .main.anchored { overflow: hidden; }
+  .main.anchored .col { height: 100%; }
+  .scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-mask-image: linear-gradient(#000 calc(100% - 24px), transparent); }
+  .hd { display: flex; align-items: center; gap: 10px; }
+  .hd h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-strong); letter-spacing: -.02em; }
+  .hd .st { color: var(--muted); font-size: 12px; flex: 1; padding-top: 5px; }
+  .hd .sp { color: var(--muted); font-size: 12px; }
+  .btn2 { border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--text); border-radius: 8px; padding: 6px 11px; font: 600 12px -apple-system; cursor: pointer; transition: transform 100ms ease-out; white-space: nowrap; }
+  .btn2:active { transform: scale(.97); }
+  .btn2.pri { border-color: rgba(255,90,31,.55); color: var(--accent-text); }
+  .lnk { color: var(--accent-text); font-size: 12px; white-space: nowrap; cursor: pointer; }
+  .lnk.dim { color: var(--muted); }
+
+  /* Segmented */
+  .seg { display: flex; border: 1px solid var(--ctl-line); border-radius: 9px; background: var(--ctl-bg); overflow: hidden; height: 32px; }
+  .seg div { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--muted); border-left: 1px solid var(--ctl-line); white-space: nowrap; padding: 0 8px; cursor: pointer; }
+  .seg div:first-child { border-left: 0; }
+  .seg div span.t { overflow: hidden; text-overflow: ellipsis; }
+  .seg div b { font-weight: 500; color: var(--label); font-variant-numeric: tabular-nums; }
+  .seg div.on { background: rgba(255,90,31,.14); color: var(--accent-text); }
+  .seg div.on b { color: var(--accent-text); }
+  .seg .more { flex: 0 0 auto; padding: 0 12px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--c); }
+
+  .card { border-radius: 12px; background: var(--card-bg); border: 1px solid var(--card-line); box-shadow: var(--card-shadow); padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .card.good { border-color: rgba(47,210,122,.28); background: linear-gradient(rgba(47,210,122,.07), rgba(47,210,122,.02)); }
+  .card.warn { border-color: rgba(232,185,58,.28); background: linear-gradient(rgba(232,185,58,.07), rgba(232,185,58,.02)); }
+  .card.none { padding: 28px 14px; align-items: center; text-align: center; }
+  .ch { display: flex; align-items: baseline; gap: 8px; }
+  .ch b { color: var(--text-strong); font-size: 13px; font-weight: 600; flex: 1; }
+  .num { font-size: 30px; font-weight: 700; color: var(--text-strong); line-height: 1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .num small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .lbl { color: var(--label); font-size: 11px; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .hint { font-size: 12px; color: var(--muted); }
+
+  .surf { border-radius: 12px; background: var(--list-bg); border: 1px solid var(--list-line); min-width: 0; }
+  .surf.fill { flex: 0 1 auto; min-height: 150px; display: flex; flex-direction: column; overflow: hidden; }
+  .sh { display: flex; align-items: baseline; gap: 8px; padding: 11px 14px 9px; }
+  .sh b { color: var(--text-strong); font-size: 13px; font-weight: 600; }
+  .sh .cnt { color: var(--muted); font-size: 12px; }
+  .sh .h { color: var(--label); font-size: 12px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sh.sticky { position: sticky; top: 0; z-index: 1; background: var(--list-solid); border-radius: 12px 12px 0 0; }
+  .fill > .sh { border-bottom: 1px solid var(--row-line); }
+  /* B: a section head inside the one list (new: Surface list sections) */
+  .sec { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; gap: 8px; height: 32px; padding: 9px 14px 0; background: #0d0d10; border-top: 1px solid var(--row-line); border-bottom: 1px solid var(--row-line); }
+  .scroll > .sec:first-child { border-top: 0; }
+  .sec b { color: var(--text); font-size: 12px; font-weight: 600; }
+  .sec .cnt { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .sec .h { color: var(--label); font-size: 12px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .row { display: grid; grid-template-columns: 32px minmax(0, 1fr) 76px 52px; align-items: center; column-gap: 12px; height: 52px; padding: 0 14px; border-top: 1px solid var(--row-line); cursor: pointer; transition: background 120ms; position: relative; }
+  .sec + .row { border-top: 0; }
+  .row:hover { background: var(--hover); }
+  .row.sel { background: rgba(255,90,31,.08); }
+  .row.sel::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--accent); }
+  .cov { width: 32px; height: 32px; border-radius: 5px; background: var(--g); }
+  .two-line { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  .nm b { color: var(--text-strong); font-weight: 600; }
+  .s { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .s .dimname { color: var(--label); }
+  .badge { justify-self: end; font: 600 11px -apple-system; letter-spacing: .3px; padding: 2px 6px; border-radius: 5px; border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); color: var(--c); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .xtra { justify-self: end; font: 600 11px -apple-system; letter-spacing: .3px; white-space: nowrap; }
+  .xtra.up { color: var(--good); }
+  .xtra.free { color: var(--accent-text); }
+
+  .panel { flex: none; background: var(--panel-bg); border-left: 1px solid var(--sb-line); padding: 20px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+  .pbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; -webkit-mask-image: linear-gradient(#000 calc(100% - 20px), transparent); padding-bottom: 12px; }
+  .pbody > * { flex: none; }
+  .go { background: linear-gradient(#ff6a30, #f2521a); color: #000; font: 700 14px -apple-system; text-align: center; padding: 11px; border-radius: 10px; border: 0; box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 4px 14px rgba(255,90,31,.22); cursor: pointer; transition: transform 100ms ease-out, filter 150ms; flex: none; }
+  .go:active { transform: scale(.98); }
+  .go2 { flex: none; text-align: center; padding: 10px; border-radius: 10px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--text); font: 600 13px -apple-system; }
+
+  .th { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; align-items: center; }
+  .th .cov { width: 56px; height: 56px; border-radius: 8px; }
+  .th .t { color: var(--text-strong); font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .qline { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .qline .badge { justify-self: start; }
+  .spec { height: 54px; border-radius: 6px; background: linear-gradient(0deg, #ff7a1a 0%, #d0306a 35%, #5a1fa0 70%, #1a0b40 100%); position: relative; overflow: hidden; }
+  .spec::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: var(--cut, 28%); background: #07070a; border-bottom: 1px dashed rgba(255,255,255,.5); }
+  .spec.full::after { display: none; }
+  .spec span { position: absolute; right: 6px; top: 3px; z-index: 1; font-size: 10.5px; color: #dcdce0; }
+  .player { display: flex; align-items: center; gap: 10px; }
+  .play { width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--accent); color: var(--accent); display: grid; place-items: center; font-size: 10px; flex: none; }
+  .wave { flex: 1; height: 20px; background: repeating-linear-gradient(90deg, rgba(255,255,255,.28) 0 1px, transparent 1px 3px); -webkit-mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent); }
+  .tm { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .facts { display: grid; grid-template-columns: 62px minmax(0, 1fr); row-gap: 6px; font-size: 12px; }
+  .facts dt { color: var(--label); } .facts dd { margin: 0; color: var(--text); }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pair .lbl { margin-bottom: 4px; }
+  .getrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--row-line); font-size: 12px; }
+  .getrow:first-of-type { border-top: 0; padding-top: 0; }
+  .ftag { font: 700 10px -apple-system; letter-spacing: .4px; color: var(--accent-text); border: 1px solid rgba(255,90,31,.45); border-radius: 4px; padding: 1px 5px; margin-right: 6px; }
+  .drop { border: 1.5px dashed rgba(255,255,255,.14); border-radius: 10px; padding: 14px; text-align: center; display: flex; flex-direction: column; gap: 4px; }
+  .drop b { color: var(--text-strong); font-weight: 600; font-size: 13px; }
+  .note { display: grid; grid-template-columns: 16px minmax(0,1fr); gap: 10px; font-size: 12px; line-height: 1.45; color: var(--text); }
+  .note i { font-style: normal; color: var(--wait); }
+  .pempty { flex: 1; display: grid; place-items: center; color: var(--label); font-size: 12px; }
+</style>
+<style>
+  .main { overflow: hidden; }
+  .main .col { height: 100%; }
+  .hd .st { flex: 1; }
+  .ibtn { display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--ctl-line); color: var(--muted); font: 600 9.5px -apple-system; font-style: normal; cursor: help; flex: none; vertical-align: 1px; }
+
+  /* selector cards */
+  .svc { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .sc { border-radius: 12px; background: var(--card-bg); border: 1px solid var(--card-line); box-shadow: var(--card-shadow); padding: 11px 12px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; cursor: pointer; transition: border-color 150ms, transform 100ms ease-out; }
+  .sc:active { transform: scale(.98); }
+  .sc.on { border-color: rgba(255,90,31,.6); background: linear-gradient(rgba(255,90,31,.11), rgba(255,90,31,.03)); }
+  .sc.off { border-style: dashed; background: none; box-shadow: none; }
+  .sc .top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .sc .top b { color: var(--text-strong); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  .sc .use { display: flex; align-items: baseline; gap: 4px; font-variant-numeric: tabular-nums; }
+  .sc .use b { color: var(--text-strong); font-size: 17px; font-weight: 700; letter-spacing: -.02em; }
+  .sc .use span { color: var(--muted); font-size: 12px; }
+  .st2 { display: inline-flex; align-items: center; gap: 5px; font: 600 11px -apple-system; white-space: nowrap; color: var(--c); }
+  .st2 i { font-style: normal; width: 14px; height: 14px; border-radius: 50%; display: grid; place-items: center; font-size: 9px; background: var(--c); color: #000; }
+
+  .db { display: flex; gap: 3px; height: 8px; }
+  .db span { border-radius: 3px; min-width: 0; }
+  .db .u { background: var(--c, #8a8a92); }
+  .db .l { border: 1px solid rgba(255,255,255,.18); }
+
+  /* today card */
+  .today { display: grid; grid-template-columns: minmax(0, 1.35fr) 1px minmax(0, 1fr); gap: 16px; }
+  .today .vr { background: var(--row-line); }
+  .today .col2 { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .big { font-size: 30px; font-weight: 700; color: var(--text-strong); letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .big small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .lg { display: flex; gap: 14px; font-size: 11.5px; color: var(--muted); flex-wrap: wrap; }
+  .lg i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+  .done { display: inline-flex; align-items: center; gap: 6px; color: var(--good); font-weight: 600; font-size: 12.5px; }
+
+  /* chart */
+  .chartw { flex: none; }
+  .chart { position: relative; display: flex; align-items: flex-end; gap: 6px; border-bottom: 1px solid var(--row-line); }
+  .chart .b { flex: 1; border-radius: 3px 3px 1px 1px; opacity: .85; }
+  .chart .b.today { opacity: 1; box-shadow: 0 0 0 1.5px #000, 0 0 0 2.5px rgba(255,255,255,.55); }
+  .chart .lim { position: absolute; left: 0; right: 0; border-top: 1px dashed rgba(255,255,255,.35); }
+  .chart .lim span { position: absolute; right: 0; top: -16px; font-size: 11px; color: var(--text); padding-left: 4px; }
+  .chart .lim.new { border-top: 1.5px solid var(--accent); }
+  .chart .lim.new span { color: var(--accent-text); font-weight: 600; right: auto; left: 0; padding: 0 4px 0 0; top: 3px; }
+  .days { display: flex; gap: 6px; font-size: 11px; color: var(--label); margin-top: 5px; }
+  .days span { flex: 1; text-align: center; font-variant-numeric: tabular-nums; }
+  .days span:last-child { color: var(--text-strong); }
+
+  /* warnings */
+  .wl { flex: 0 1 auto; min-height: 120px; display: flex; flex-direction: column; overflow: hidden; }
+  .wl.warn { border-color: rgba(232,185,58,.32); background: linear-gradient(rgba(232,185,58,.07), rgba(232,185,58,.015)); }
+  .wl.bad { border-color: rgba(240,82,74,.35); background: linear-gradient(rgba(240,82,74,.08), rgba(240,82,74,.02)); }
+  .wl .sh { align-items: center; border-bottom: 1px solid var(--row-line); }
+  .wl .sh .cnt { flex: 1; }
+  .sug { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--row-line); font-size: 12.5px; color: var(--text); }
+  .sug .ic { flex: none; }
+  .sug > span:not(.ic) { flex: 1; min-width: 0; line-height: 1.4; }
+  .sig { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto auto; align-items: center; column-gap: 10px; min-height: 42px; padding: 5px 14px; border-top: 1px solid var(--row-line); }
+  .scroll > .sig:first-child { border-top: 0; }
+  .ic { width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; font: 800 10px -apple-system; color: #000; background: var(--c); }
+  .ic.ring { background: none; color: var(--c); border: 1.5px solid var(--c); font-size: 9px; }
+  .sig .n { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sig .n b { color: var(--text-strong); font-weight: 600; }
+  .sig { transition: opacity 250ms ease; }
+  .sig.seen { opacity: .55; }
+  .new { transition: opacity 200ms ease; }
+  .navdot { transition: opacity 250ms ease; }
+  .wl { transition: border-color 250ms ease; }
+  .allgood { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+  .allgood b { color: var(--text-strong); font-weight: 600; }
+  .allgood .s { flex: 1; }
+  .rk { cursor: grab; touch-action: none; user-select: none; }
+  .rk.drag { cursor: grabbing; }
+  .rk .th2 { transition: transform 100ms ease-out; }
+  .rk.drag .th2 { transform: scale(1.12); }
+  .eff .big { transition: opacity 120ms ease; }
+  .eff.wait .big { opacity: .55; }
+  .sig .x { font-size: 11.5px; color: var(--label); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .sig .c2 { font: 600 12px -apple-system; color: var(--c); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right; }
+  .new { font: 700 9.5px -apple-system; letter-spacing: .4px; color: var(--wait); border: 1px solid rgba(232,185,58,.5); border-radius: 4px; padding: 1px 4px; margin-left: 6px; vertical-align: 1px; }
+
+  /* panel: the decision */
+  .plabel { font-size: 11px; letter-spacing: .7px; text-transform: uppercase; color: var(--label); }
+  .lv { display: flex; align-items: center; gap: 10px; }
+  .lv .v { font-size: 34px; font-weight: 700; color: var(--text-strong); letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .lv .pd { color: var(--muted); font-size: 12px; flex: 1; }
+  .field { width: 64px; height: 28px; border: 1px solid var(--ctl-line); background: rgba(255,255,255,.03); border-radius: 8px; color: var(--text); display: flex; align-items: center; padding: 0 9px; font-variant-numeric: tabular-nums; font-size: 12.5px; }
+  .field.ch { border-color: rgba(255,90,31,.6); }
+  .rk { position: relative; padding-top: 6px; }
+  .rk .tr { display: flex; gap: 3px; height: 8px; }
+  .rk .tr span { flex: 1; border-radius: 4px; background: var(--c); opacity: .35; }
+  .rk .tr span.here { opacity: 1; }
+  .rk .th2 { position: absolute; top: 1px; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%; background: #f4f4f6; box-shadow: 0 0 0 3px #040405, 0 2px 6px rgba(0,0,0,.7); }
+  .rk .was { position: absolute; top: 0; width: 2px; height: 20px; margin-left: -1px; border-radius: 1px; background: rgba(255,255,255,.6); }
+  .zl { display: flex; gap: 3px; margin-top: 8px; }
+  .zl span { flex: 1; text-align: center; font-size: 11px; color: var(--label); line-height: 1.35; min-width: 0; white-space: nowrap; }
+  .zl b { display: block; font-weight: 600; color: var(--muted); }
+  .zl span.here b { color: var(--c); }
+  .zl span.here { color: var(--text); }
+  .verdict { border-radius: 12px; padding: 11px 12px; display: flex; gap: 10px; align-items: flex-start; border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); background: linear-gradient(color-mix(in srgb, var(--c) 10%, transparent), color-mix(in srgb, var(--c) 3%, transparent)); }
+  .verdict .ic { margin-top: 1px; }
+  .verdict div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .verdict b { color: var(--text-strong); font-weight: 600; font-size: 13.5px; }
+  .verdict span { color: var(--muted); font-size: 12px; }
+  .eff { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .eff .card { padding: 11px 12px; gap: 5px; }
+  .eff .big { font-size: 24px; }
+  .eff .was { font-size: 11.5px; color: var(--muted); }
+  .eff .was.better { color: var(--good); }
+  .eff .was.worse { color: var(--muted); }
+  .xrow { display: flex; flex-direction: column; gap: 6px; }
+  .xrow .h { display: flex; align-items: baseline; gap: 6px; font-size: 12px; color: var(--text); }
+  .xrow .h span { color: var(--label); }
+  .pbody { gap: 12px; }
+  .foot { display: flex; gap: 8px; flex: none; }
+  .foot > * { flex: 1; }
+  .go.off, .go2.off { opacity: .5; }
+  .perr { flex: none; border: 1px solid rgba(240,82,74,.35); background: linear-gradient(rgba(240,82,74,.08), rgba(240,82,74,.02)); border-radius: 12px; padding: 10px 12px; font-size: 12px; color: var(--text); display: flex; flex-direction: column; gap: 3px; }
+  .perr b { color: var(--weak); }
+  .empty { padding: 30px 14px; align-items: center; text-align: center; gap: 8px; }
+  .empty b { color: var(--text-strong); font-size: 14px; }
+  .navdot { width: 6px; height: 6px; border-radius: 50%; background: var(--wait); margin-left: auto; }
+</style>
+</head><body>
+
+<div class="bar">
+  <h2>Download limits</h2>
+  <span>Window <span class="pick" id="size"><button data-v="1100">1100 × 700</button><button data-v="1280" class="on">1280 × 800</button><button data-v="2560">2560 × 1440</button></span></span>
+  <span>State <span class="pick" id="st"><button data-v="good" class="on">All good</button><button data-v="new">New warnings</button><button data-v="seen">Got it</button><button data-v="moving">Dragging to 90</button><button data-v="risky">YouTube at 70</button><button data-v="paused">Paused today</button><button data-v="refused">Save refused</button><button data-v="notsetup">Not set up</button><button data-v="nothing">Nothing set up</button></span></span>
+</div>
+
+<div class="opt">The page answers three questions, in this order</div>
+<p class="why"><b>1. Are my accounts okay?</b> The selector cards (your pick from B) carry each service's state, not just its name: today's usage as a bar and "37 of 80", and a status in colour plus shape: <span style="color:#2fd27a">✓ All good</span>, <span style="color:#e8b93a">! 2 new warnings</span>, <span style="color:#f0524a">■ Paused today</span>. You see all three at once and click the one you want.<br>
+<b>2. How far am I?</b> One "Today" card: what's left today (with the day bar: used · left, and the carry-over in words), and beside it the backlog with its answer: "120 tracks · about 3 days at 60 a day" (or "<span style="color:#2fd27a">✓ done today</span>"). Under it, the last 14 days, <b>each bar coloured by how fast that day was</b> (green normal, yellow faster, red risky), with your limit as a dashed line.<br>
+<b>3. Is something wrong, and what should I do?</b> The Warning signs list. New ones are marked NEW, say when they happened, and <b>when they clear</b> ("clears in 11 days"). <b>Got it</b> marks them as seen: the card and the sidebar dot go quiet until a new one arrives; seen ones stay, dimmed, until they clear. When the signs point at going too fast (rejected downloads, failed searches, preview-only files, bot checks), a line above them suggests a slower limit with a button that sets it in the panel (you still Save).</p>
+
+<div class="opt">The panel is the decision: change the limit, see what it does, Save</div>
+<p class="why">Cause and effect sit together now. The daily limit as a big number with its field, then a <b>risk scale in five equal steps</b> (careful · normal · faster · fast · risky, <span style="color:#2fd27a">green</span> → <span style="color:#e8b93a">yellow</span> → <span style="color:#f0524a">red</span>) with the handle on it and the saved value as a tick. Equal steps, because "faster: 61–79" would be a 20 px sliver on a 1–150 track. Under it, the verdict in the step's colour, then what it does: <b>days until the backlog is done</b> and <b>how long one run takes</b>, each with "instead of …" in green when it gets better. Extra just for today below, then Back · <b>Save</b> (the one filled button) in the foot. The honest note sits behind the ⓘ by the verdict.</p>
+
+<div class="opt">Design-rule change this needs</div>
+<p class="why">Today the rules say green, yellow and red mean quality only. This page adds a second, separate job: <b>risk</b> (green safe, yellow noticeable, red risky), used only on the risk scale, the verdict, the 14-day bars and a service's state. It goes into the decision log with the reason: grey can't show "how safe is this", and a traffic light is what everyone reads.</p>
+<div class="opt">Try it (this preview is live)</div>
+<p class="why"><b>Drag the risk scale</b> in the panel: the handle, the number, the colour, the verdict and the orange line on the 14-day chart follow your pointer 1:1; "Backlog done in" and "One run takes" are the engine's answer, so they follow every 150 ms and dim while they catch up. In <b>New warnings</b>, press <b>Got it</b>: the warnings dim, NEW goes, the card turns quiet and the sidebar dot fades, in one moment. <b>Try 40 a day</b> moves the limit for you; Save stays yours. <b>All good</b> is now one quiet line instead of six green ticks (the checks are behind its ⓘ). The verdicts are in plainer words.</p>
+<div class="stage" data-opt="A"></div>
+
+<script>
+(function () {
+  const G = 'var(--good)', Y = 'var(--wait)', R = 'var(--weak)';
+  const ZC = [G, G, Y, Y, R];
+  const S = {
+    qobuz: { name: 'Qobuz', used: 37, allow: 80, limit: 60, carry: 20, backlog: 120, max: 150, base: { days: 3, run: 11 },
+      zones: [['careful', 1, 40], ['normal', 41, 60], ['faster', 61, 79], ['fast', 80, 100], ['risky', 101, 150]],
+      days: [8, 0, 42, 59, 30, 0, 0, 57, 66, 19, 8, 0, 62, 37] },
+    youtube: { name: 'YouTube Premium', used: 4, allow: 40, limit: 30, carry: 10, backlog: null, max: 150, base: { days: null, run: 11 },
+      zones: [['careful', 1, 20], ['normal', 21, 30], ['faster', 31, 45], ['fast', 46, 60], ['risky', 61, 150]],
+      days: [3, 0, 12, 30, 7, 0, 0, 21, 25, 4, 0, 0, 18, 4] },
+    soundcloud: { name: 'SoundCloud Go+', used: 11, allow: 80, limit: 60 },
+  };
+  const VERD = [['Slow and very careful', 'The safest pace; the backlog takes longer.'], ['The recommended pace', 'Steady, like someone who listens a lot.'], ['A bit faster, a bit easier to notice', 'Fine now and then; keep an eye on warning signs.'], ['Faster, but easier to notice', 'More likely to trigger checks or refused downloads.'], ['Risky: this many a day stands out', 'Accounts get blocked for traffic like this.']];
+  // [kind, ok text, count, latest, days ago, new?]
+  const SIG = {
+    qobuz: [['Login', 'always worked'], ['Search', 'never failed'], ['Downloads', 'none refused'], ['Full files', 'no preview-only files'], ['Length', 'always matched Spotify'], ['Automatic stop', "hasn't happened"]],
+    youtube: [['Browser login', 'always readable'], ['“Not a bot” checks', 'none'], ['Slow down', 'never asked'], ['Requests', 'none refused'], ['Premium formats', 'always there'], ['Automatic stop', "hasn't happened"]],
+  };
+  const BAD = {
+    Search: ['Search failed', 1, '18 Oct 22:12 · Qobuz search did not answer twice', 3],
+    Downloads: ['Download refused', 3, '19 Oct 21:54 · Qobuz refused “The Weekend”', 2],
+    Length: ['Length didn’t match', 1, '15 Oct 21:58 · 3:12 here, 4:28 on Spotify', 6],
+    'Automatic stop': ['Paused for today', 1, '21 Oct 20:14 · 3 refusals in a row', 0],
+    'Slow down': ['Asked to slow down', 2, '21 Oct 20:12 · “too many requests”', 0],
+  };
+
+  function model(st) {
+    const svc = st === 'risky' || st === 'notsetup' || st === 'paused' ? 'youtube' : 'qobuz';
+    const set = st === 'nothing' ? [] : st === 'notsetup' ? ['qobuz', 'soundcloud'] : ['qobuz', 'youtube', 'soundcloud'];
+    const s = S[svc];
+    const draft = drag ?? (st === 'moving' ? 90 : st === 'risky' ? 70 : s.limit);
+    const extra = st === 'refused' ? 10 : 0;
+    const level = s.zones ? s.zones.findIndex(([, a, b]) => draft >= a && draft <= b) + 1 : 2;
+    const bad = st === 'new' || st === 'seen' || st === 'moving' || st === 'refused' ? ['Downloads', 'Search', 'Length'] : st === 'paused' ? ['Automatic stop', 'Slow down'] : [];
+    return { st, svc, set, s, draft, eff: effDraft ?? draft, extra, level, bad, seen: st === 'seen' || st === 'moving' || st === 'refused', changed: draft !== s.limit || extra > 0 };
+  }
+  const status = (m, k) => {
+    if (k === 'youtube' && m.st === 'paused') return [R, '■', 'Paused today'];
+    if (k === 'qobuz' && m.bad.length && !m.seen) return [Y, '!', `${m.bad.length} new warnings`];
+    if (k === 'qobuz' && m.bad.length) return [Y, '!', `${m.bad.length} warnings · seen`];
+    return [G, '✓', 'All good'];
+  };
+  const sidebar = (m) => `<div class="sb"><div class="brand"><i></i>Discjockey</div>
+    <div class="nav"><span class="g">◉</span>Dashboard</div><div class="nav"><span class="g">⟳</span>Sync</div><div class="nav"><span class="g">✓</span>To-do<span class="c">18</span></div>
+    <div class="nav"><span class="g">≡</span>Playlists</div><div class="nav on"><span class="g">◔</span>Download limits${(m.bad.length && !m.seen) || m.st === 'paused' ? '<span class="navdot"></span>' : ''}</div><div class="sbcap">Library</div>
+    <div class="nav">All tracks<span class="c">36</span></div>${['Hard_Bounce', 'Powertrance', 'Bouncy', '03_06_2026', 'Tekke_Ecke'].map((n, i) => `<div class="nav">${n}<span class="c">${[10, 7, 7, 5, 5][i]}</span></div>`).join('')}
+    <div class="nav" style="margin-top:auto"><span class="g">⚙</span>Settings</div></div>`;
+  const db = (used, allow, c, h) => `<div class="db" style="--c:${c};height:${h || 8}px"><span class="u" style="flex:${used}"></span><span class="l" style="flex:${Math.max(0, allow - used)}"></span></div>`;
+
+  function cards(m) {
+    return `<div class="svc">${['qobuz', 'youtube', 'soundcloud'].map((k) => {
+      const c = S[k], on = m.set.includes(k), sel = k === m.svc;
+      if (!on) return `<div class="sc off${sel ? ' on' : ''}"><div class="top"><b>${c.name}</b></div><div class="sub">not set up</div><span class="lnk">Set up →</span></div>`;
+      const [col, ic, txt] = status(m, k);
+      const paused = col === R;
+      return `<div class="sc${sel ? ' on' : ''}"><div class="top"><b>${c.name}</b></div>
+        <div class="use"><b>${c.used}</b><span>of ${c.allow} today</span></div>${db(c.used, c.allow, 'var(--accent)', 6)}
+        <span class="st2" style="--c:${col}"><i>${ic}</i>${txt}</span></div>`;
+    }).join('')}</div>`;
+  }
+  const zcOf = (s, v) => ZC[Math.max(0, s.zones.findIndex(([, a, b]) => v >= a && v <= b))];
+  const daysFor = (s, limit) => { if (s.backlog == null) return null; const left = s.allow - s.used; return s.backlog <= left ? 1 : 1 + Math.ceil((s.backlog - left) / limit); };
+  const runFor = (limit) => Math.round(limit * 11 / 60);
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  function today(m) {
+    const s = m.s, left = s.allow - s.used;
+    const paused = m.st === 'paused';
+    const right = s.backlog == null
+      ? `<div class="lbl">Backlog</div><div class="big">—</div><div class="sub">Only tracks Qobuz doesn't have come here, so Qobuz sets the pace.</div>`
+      : `<div class="lbl">Backlog</div><div class="big">${s.backlog}<small> tracks</small></div>${daysFor(s, s.limit) === 1 ? '<span class="done">✓ done today</span>' : `<div class="sub">about ${plural(daysFor(s, s.limit), 'day')} at ${s.limit} a day</div>`}`;
+    return `<div class="card"><div class="today"><div class="col2">
+        <div class="lbl">${s.name} today <span class="ibtn">i</span></div>
+        <div class="big">${paused ? '0' : left}<small> left of ${s.allow}</small></div>
+        ${db(s.used, s.allow, 'var(--accent)')}
+        <div class="lg"><span><i style="background:var(--accent)"></i>used ${s.used}</span><span><i style="border:1px solid rgba(255,255,255,.35)"></i>${paused ? 'paused until midnight' : `left ${left}`}</span><span>${s.limit} + ${s.carry} carried over · resets at midnight</span></div>
+      </div><div class="vr"></div><div class="col2">${right}</div></div></div>`;
+  }
+  function chart(m, h) {
+    const s = m.s, top = Math.max(s.limit * 1.25, m.draft * 1.1, ...s.days);
+    const y = (v) => (v / top) * 100;
+    const zc = (v) => ZC[Math.max(0, s.zones.findIndex(([, a, b]) => v >= a && v <= b))];
+    return `<div class="surf chartw" style="padding:0 14px 12px"><div class="sh" style="padding-left:0;padding-right:0"><b>Last 14 days</b><span class="cnt" style="flex:1">${s.days.reduce((a, b) => a + b, 0)} downloads</span>
+        <span class="st2" style="--c:${G};font-weight:500"><i style="width:8px;height:8px;border-radius:2px"></i>normal</span><span class="st2" style="--c:${Y};font-weight:500"><i style="width:8px;height:8px;border-radius:2px"></i>faster</span><span class="st2" style="--c:${R};font-weight:500"><i style="width:8px;height:8px;border-radius:2px"></i>risky</span></div>
+      <div class="chart" style="height:${h}px">${s.days.map((d, i) => `<div class="b${i === 13 ? ' today' : ''}" style="height:${y(d)}%;background:${d ? zc(d) : 'transparent'}"></div>`).join('')}
+        <div class="lim" style="bottom:${y(s.limit)}%"><span>limit ${s.limit}</span></div>
+        ${m.draft !== s.limit ? `<div class="lim new" style="bottom:${y(m.draft)}%"><span>new limit ${m.draft}</span></div>` : ''}</div>
+      <div class="days">${s.days.map((_, i) => `<span>${i === 13 ? 'today' : 8 + i}</span>`).join('')}</div></div>`;
+  }
+  function warnings(m) {
+    const base = SIG[m.svc];
+    const badRows = m.bad.map((k) => ({ k, b: BAD[k] }));
+    const okRows = base.filter(([k]) => !m.bad.includes(k));
+    const any = badRows.length;
+    const paused = m.st === 'paused';
+    if (!any) return `<div class="surf allgood"><span class="ic" style="--c:${G}">✓</span><b>No warning signs</b><span class="s">in the last 14 days</span><span class="ibtn" title="${base.map(([k, t]) => k + ': ' + t).join(' · ')}">i</span></div>`;
+    const tone = paused ? ' bad' : m.seen ? '' : ' warn';
+    const head = !any ? `<b>Warning signs</b><span class="cnt"><span class="st2" style="--c:${G}"><i>✓</i>None in 14 days</span></span>`
+      : `<b>Warning signs</b><span class="cnt">${any} in 14 days${m.seen ? ' · seen' : ''}</span>${m.seen ? '' : '<button class="btn2" data-got>Got it</button>'}`;
+    const sug = any && !paused && m.st !== 'moving' ? `<div class="sug"><span class="ic" style="--c:${Y}">!</span><span>Qobuz refused 3 downloads this week. A slower pace makes that less likely.</span><button class="btn2 pri" data-try="40">Try 40 a day</button></div>`
+      : paused ? `<div class="sug"><span class="ic" style="--c:${R}">■</span><span>YouTube asked twice to slow down, so Discjockey paused it until midnight. A slower pace makes that less likely.</span><button class="btn2 pri" data-try="20">Try 20 a day</button></div>` : '';
+    const rows = badRows.map(({ k, b }) => {
+      const c = paused ? R : Y;
+      const clears = 14 - b[3];
+      return `<div class="sig${m.seen ? ' seen' : ''}"><span class="ic" style="--c:${c}">${paused ? '■' : '!'}</span><div class="two-line"><span class="n"><b>${b[0]}</b>${m.seen ? '' : '<span class="new">NEW</span>'}</span><span class="s">${b[2]}</span></div><span class="x">clears in ${clears} days</span><span class="c2" style="--c:${c}">${b[1]}×</span></div>`;
+    }).join('') + okRows.map(([k, t]) => `<div class="sig"><span class="ic ring" style="--c:${G}">✓</span><span class="n">${k} <span style="color:var(--muted)">· ${t}</span></span><span class="x"></span><span class="c2"></span></div>`).join('');
+    return `<div class="surf wl${tone}"><div class="sh">${head}</div>${sug}<div class="scroll">${rows}</div></div>`;
+  }
+  function main(m, h) {
+    const hd = `<div class="hd"><h1>Download limits</h1><span class="st">your own safety limits, not official quotas</span></div>`;
+    if (m.st === 'nothing') return hd + cards(m) + `<div class="card empty"><b>No daily limits to set</b><span class="sub">Only the free sources are in use, so downloads have no daily limit.</span><button class="btn2 pri">Set up Qobuz</button></div>`;
+    if (m.st === 'notsetup') return hd + cards(m) + `<div class="card empty"><b>YouTube Premium is not set up</b><span class="sub">It finds better files for tracks Qobuz doesn't have, with its own daily limit.</span><button class="btn2 pri">Set up YouTube Premium</button></div>`;
+    const ch = h <= 700 ? 64 : h >= 1400 ? 150 : 84;
+    return hd + cards(m) + today(m) + chart(m, ch) + warnings(m);
+  }
+  function panel(m) {
+    if (m.st === 'nothing' || m.st === 'notsetup') return `<div class="pempty" style="text-align:center;padding:0 20px">${m.st === 'nothing' ? 'Set up Qobuz, YouTube Premium or SoundCloud Go+ to get better files; each gets its own daily limit.' : 'Set up YouTube Premium to give it a daily limit.'}</div>`;
+    const s = m.s, lv = m.level, c = ZC[lv - 1], ch = m.draft !== s.limit;
+    // thumb position on equal steps
+    const pos = (v) => { const i = s.zones.findIndex(([, a, b]) => v >= a && v <= b); const [, a, b] = s.zones[i]; return (i + (v - a + .5) / (b - a + 1)) * 20; };
+    const days = daysFor(s, m.eff), was = daysFor(s, s.limit), effCh = m.eff !== s.limit;
+    const runNew = runFor(m.eff), runWas = runFor(s.limit);
+    const cmp = (a, b, unit) => a === b ? 'same as now' : `<span style="color:${a < b ? G : 'var(--muted)'}">instead of ${unit(b)}</span>`;
+    const [vt, vs] = VERD[lv - 1];
+    return `<div class="plabel">${s.name} · daily limit</div>
+      <div class="lv"><span class="v">${m.draft}</span><span class="pd">a day${ch ? ` · saved ${s.limit}` : ''}</span><span class="field${ch ? ' ch' : ''}">${m.draft}</span></div>
+      <div class="rk" data-rk><div class="tr">${s.zones.map((z, i) => `<span class="${i === lv - 1 ? 'here' : ''}" style="--c:${ZC[i]}"></span>`).join('')}</div>
+        ${ch ? `<div class="was" style="left:${pos(s.limit)}%"></div>` : ''}<div class="th2" style="left:${pos(m.draft)}%"></div>
+        <div class="zl">${s.zones.map((z, i) => `<span class="${i === lv - 1 ? 'here' : ''}" style="--c:${ZC[i]}"><b>${z[0]}${i === 1 ? ' ★' : ''}</b>${i === 0 ? '≤ ' + z[2] : i === 4 ? '> ' + (z[1] - 1) : z[1] + '–' + z[2]}</span>`).join('')}</div></div>
+      <div class="verdict" style="--c:${c}"><span class="ic" style="--c:${c}">${lv >= 5 ? '!' : lv >= 3 ? '!' : '✓'}</span><div><b>${vt}</b><span>${vs}</span></div><span class="ibtn" style="margin-left:auto">i</span></div>
+      <div class="eff${m.eff !== m.draft ? ' wait' : ''}"><div class="card"><div class="lbl">Backlog done in</div><div class="big">${days == null ? '—' : days + `<small> ${days === 1 ? 'day' : 'days'}</small>`}</div><div class="was">${days == null ? 'Qobuz sets the pace' : effCh ? cmp(days, was, (n) => plural(n, 'day')) : `${s.backlog} tracks`}</div></div>
+        <div class="card"><div class="lbl">One run takes</div><div class="big">~${runNew}<small> min</small></div><div class="was">${effCh ? cmp(runNew, runWas, (n) => `~${n} min`) : 'at this limit'}</div></div></div>
+      <div class="xrow"><div class="h">Extra just for today <span>· ends at midnight</span></div>
+        <div class="seg">${['None', '+5', '+10', '+20', '+40'].map((t, i) => `<div class="${[0, 5, 10, 20, 40][i] === m.extra ? 'on' : ''}"><span class="t">${t}</span></div>`).join('')}</div></div>
+      <div style="flex:1"></div>
+      ${m.st === 'refused' ? `<div class="perr"><b>Not saved</b><span>A sync is running. Save works again after it.</span></div>` : ''}
+      <div class="foot"><div class="go2${m.changed ? '' : ' off'}">${ch ? `Back to ${s.limit}` : 'Undo'}</div><div class="go${m.changed ? '' : ' off'}">${ch ? `Save ${m.draft} a day` : m.extra ? `Save +${m.extra} for today` : 'Save'}</div></div>`;
+  }
+
+  let size = 1280, st = 'good', drag = null, effDraft = null, effTimer = null, dragging = false;
+  function render() {
+    const h = { 1100: 700, 1280: 800, 2560: 1440 }[size];
+    const m = model(st);
+    document.querySelectorAll('.stage').forEach((stg) => {
+      const scale = Math.min(1, (stg.clientWidth || document.body.clientWidth - 48) / size);
+      stg.style.height = h * scale + 'px';
+      const pw = size < 1240 ? 320 : 360;
+      stg.innerHTML = `<div class="win" style="width:${size}px;height:${h}px;transform:scale(${scale})">${sidebar(m)}<div class="main"><div class="col">${main(m, h)}</div></div><div class="panel" style="width:${pw}px">${panel(m)}</div></div>`;
+    });
+  }
+  const wire = (id, set) => document.querySelectorAll(`#${id} button`).forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll(`#${id} button`).forEach((x) => x.classList.toggle('on', x === b)); set(b.dataset.v); render(); }));
+  wire('size', (v) => { size = +v; });
+  wire('st', (v) => { st = v; drag = null; effDraft = null; });
+  // the risk scale: live 1:1 while dragging (handle, number, colour, verdict, chart line); the engine's numbers
+  // (days, run) follow at most every 150 ms, dimmed while they catch up
+  function valueAt(x) {
+    const tr = document.querySelector('[data-rk] .tr'); const r = tr.getBoundingClientRect();
+    const f = Math.min(.9999, Math.max(0, (x - r.left) / r.width)) * 5; const i = Math.floor(f);
+    const s = model(st).s; const [, a, b] = s.zones[i];
+    return Math.round(a + (f - i) * (b - a));
+  }
+  function setDraft(v) {
+    drag = v; render();
+    if (!effTimer) effTimer = setTimeout(() => { effTimer = null; effDraft = drag; render(); }, 150);
+  }
+  document.addEventListener('pointerdown', (e) => {
+    const rk = e.target.closest('[data-rk]'); if (!rk) return;
+    dragging = true; effDraft = effDraft ?? model(st).draft; setDraft(valueAt(e.clientX));
+    document.querySelector('[data-rk]').classList.add('drag');
+  });
+  addEventListener('pointermove', (e) => { if (!dragging) return; setDraft(valueAt(e.clientX)); document.querySelector('[data-rk]').classList.add('drag'); });
+  addEventListener('pointerup', () => { if (!dragging) return; dragging = false; document.querySelector('[data-rk]')?.classList.remove('drag'); });
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-try]');
+    if (t) { drag = +t.dataset.try; effDraft = null; render(); setTimeout(() => { effDraft = drag; render(); }, 150); return; }
+    const g = e.target.closest('[data-got]');
+    if (g) {
+      // Got it: the new warnings dim, NEW goes, the card quiets, the sidebar dot fades, all in the same moment
+      const stg = g.closest('.stage');
+      stg.querySelectorAll('.sig:not(:has(.ring))').forEach((x) => x.classList.add('seen'));
+      stg.querySelectorAll('.new, .navdot').forEach((x) => { x.style.opacity = 0; });
+      stg.querySelector('.wl').classList.remove('warn'); g.style.opacity = 0;
+      setTimeout(() => { st = 'seen'; document.querySelectorAll('#st button').forEach((x) => x.classList.toggle('on', x.dataset.v === 'seen')); render(); }, 260);
+    }
+  });
+  addEventListener('resize', render);
+  render();
+})();
+</script>
+</body></html>

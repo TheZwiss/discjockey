@@ -1,0 +1,338 @@
+[
+ {
+  "name": "base-shell-syncing",
+  "route": "#/library/folder/Hard_Bounce",
+  "scenario": "syncing",
+  "steps": [
+   {
+    "wait": "[data-test=activity-bar]"
+   },
+   {
+    "sleep": 400
+   }
+  ],
+  "mockup": "layout.html",
+  "mockupClip": "[data-choice=folders] .o"
+ },
+ {
+  "name": "base-shell-dashboard",
+  "route": "#/",
+  "scenario": "normal",
+  "mockup": "visual-style-oled.html",
+  "mockupClip": "[data-choice=booth-oled] .app"
+ },
+ {
+  "name": "base-shell-pause",
+  "route": "#/todo",
+  "scenario": "pause",
+  "steps": [
+   {
+    "wait": "[data-test=activity-bar]"
+   }
+  ]
+ },
+ {
+  "name": "base-shell-console",
+  "route": "#/playlists",
+  "scenario": "console",
+  "steps": [
+   {
+    "wait": "[data-test=banner-console]"
+   }
+  ]
+ },
+ {
+  "name": "base-shell-first-run",
+  "route": "#/",
+  "scenario": "first_run",
+  "steps": [
+   {
+    "wait": "[data-page=setup]"
+   },
+   {
+    "click": "[data-test=finish-later]"
+   },
+   {
+    "wait": "[data-test=banner-spotify]"
+   }
+  ]
+ },
+ {
+  "name": "base-shell-toasts",
+  "route": "#/limits/qobuz",
+  "scenario": "normal",
+  "steps": [
+   {
+    "click": "[data-test=fake-toolbar] .pill"
+   },
+   {
+    "click": "[data-test=fake-toolbar] button:text-is(\"Problem\")"
+   },
+   {
+    "click": "[data-test=fake-toolbar] button:text-is(\"Success\")"
+   },
+   {
+    "click": "[data-test=fake-toolbar] button:text-is(\"Drop a blocked file\")"
+   },
+   {
+    "sleep": 200
+   }
+  ]
+ },
+ {
+  "name": "base-gallery",
+  "route": "#/dev/gallery",
+  "scenario": "normal",
+  "settle": 900,
+  "height": 12000,
+  "each": ".gallery > section",
+  "steps": [
+   {
+    "wait": "[data-test=g-narrow] .on"
+   },
+   {
+    "eval": "(async () => { const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); const seg = document.querySelector('[data-test=g-narrow]'); const host = seg.parentElement; for (const w of [260, 200, 160]) { host.style.width = w + 'px'; await frame(); const r = seg.querySelector('.radios'); const on = r.querySelector('.on'); if (r.scrollWidth > r.clientWidth + 1) throw new Error('Segmented overflows its strip at ' + w + ' px (' + r.scrollWidth + ' > ' + r.clientWidth + ')'); if (on.getBoundingClientRect().right > r.getBoundingClientRect().right + 1) throw new Error('The chosen segment leaves the strip at ' + w + ' px (§4)'); } host.style.width = ''; await frame(); })()"
+   }
+  ]
+ },
+ {
+  "name": "base-gallery-toggles",
+  "route": "#/dev/gallery",
+  "scenario": "normal",
+  "settle": 600,
+  "steps": [
+   {
+    "eval": "document.querySelector('[data-test=gallery-toggles]').scrollIntoView()"
+   }
+  ],
+  "each": "[data-test=gallery-toggles], [data-test=gallery-segmented]"
+ },
+ {
+  "name": "base-gallery-sourceladder",
+  "route": "#/dev/gallery",
+  "scenario": "normal",
+  "settle": 600,
+  "height": 1900,
+  "steps": [
+   {
+    "eval": "document.querySelector('[data-test=gallery-sourceladder]').scrollIntoView()"
+   },
+   {
+    "eval": "const w = document.querySelector('[data-test=g-ladder-compact]').getBoundingClientRect().width; if (Math.round(w) !== 372) throw new Error('the compact ladder is ' + w + ' px wide, not 372'); for (const l of document.querySelectorAll('[data-test=gallery-sourceladder] .lad')) { const h = [...l.children].map((r) => r.getBoundingClientRect().height); if (h.some((x) => x < 40)) throw new Error('a rung is shorter than its fixed height: ' + h.join(', ')); }"
+   }
+  ],
+  "each": "[data-test=gallery-sourceladder]"
+ },
+ {
+  "name": "base-gallery-accountpanel",
+  "route": "#/dev/gallery",
+  "scenario": "normal",
+  "settle": 600,
+  "height": 1400,
+  "steps": [
+   {
+    "eval": "document.querySelector('[data-test=gallery-accountpanel]').scrollIntoView()"
+   },
+   {
+    "eval": "const c = document.querySelector('[data-test=g-acc-compact]').getBoundingClientRect().width; if (Math.round(c) !== 520) throw new Error('the compact column is ' + c + ' px wide, not 520'); for (const p of document.querySelectorAll('[data-test=gallery-accountpanel] [data-panel-root]')) { if (p.scrollWidth > p.clientWidth + 1) throw new Error('a panel scrolls sideways: ' + p.closest('[data-test]')?.dataset.test); } const filled = document.querySelectorAll('[data-test=g-acc-compact] [data-primary]').length; if (filled !== 1) throw new Error('the compact cards show ' + filled + ' filled buttons, not 1');"
+   }
+  ],
+  "each": "[data-test=gallery-accountpanel]"
+ },
+ {
+  "name": "base-gallery-accountpanel-menu",
+  "route": "#/dev/gallery",
+  "scenario": "normal",
+  "settle": 400,
+  "steps": [
+   {
+    "eval": "document.querySelector('[data-test=g-acc-found-other]').scrollIntoView({ block: 'center' })"
+   },
+   {
+    "click": "[data-test=g-acc-found-other]"
+   },
+   {
+    "wait": "[data-test=g-acc-found-menu]"
+   },
+   {
+    "eval": "const keys = [...document.querySelectorAll('[data-test=g-acc-found-menu] [role=menuitem]')].map((b) => b.dataset.test); if (keys.length !== 4 || new Set(keys).size !== 4) throw new Error('menu items: ' + keys.join(', '));"
+   }
+  ]
+ },
+ {
+  "name": "base-gallery-secrets",
+  "route": "#/dev/gallery",
+  "scenario": "normal",
+  "settle": 400,
+  "steps": [
+   {
+    "eval": "document.querySelector('[data-test=gallery-copycode]').scrollIntoView()"
+   }
+  ],
+  "each": "[data-test=gallery-copycode], [data-test=gallery-secretfield]"
+ },
+ {
+  "name": "base-gallery-guide",
+  "route": "#/dev/gallery",
+  "scenario": "normal",
+  "settle": 400,
+  "steps": [
+   {
+    "eval": "document.querySelector('[data-test=gallery-stepstrip]').scrollIntoView()"
+   }
+  ],
+  "each": "[data-test=gallery-stepstrip], [data-test=gallery-numberedsteps], [data-test=gallery-addrow]"
+ },
+ {
+  "name": "base-gallery-explain",
+  "route": "#/dev/gallery",
+  "scenario": "normal",
+  "settle": 600,
+  "steps": [
+   {
+    "eval": "document.querySelector('[data-test=gallery-explain]').scrollIntoView()"
+   },
+   {
+    "click": "[data-test=g-tip-button]"
+   },
+   {
+    "sleep": 300
+   }
+  ],
+  "each": "[data-test=gallery-statcard], [data-test=gallery-daybar], [data-test=gallery-explain]"
+ },
+ {
+  "name": "base-gallery-dialog-tip",
+  "route": "#/dev/gallery",
+  "scenario": "normal",
+  "settle": 600,
+  "steps": [
+   {
+    "click": "[data-test=g-tip-dialog-open]"
+   },
+   {
+    "click": "[data-test=g-dtip-3-button]"
+   },
+   {
+    "sleep": 300
+   },
+   {
+    "eval": "const b = document.querySelector('[data-test=g-dtip-3-button]').getBoundingClientRect(); const t = document.querySelector('[data-test=g-dtip-3-tip]').getBoundingClientRect(); if (t.width === 0) throw new Error('the tip in the dialog did not open'); if (Math.abs((t.top > b.top ? t.top - b.bottom : b.top - t.bottom)) > 16) throw new Error('the tip in the dialog opened away from its ⓘ'); if (t.left < 0 || t.right > innerWidth) throw new Error('the tip in the dialog leaves the window')"
+   }
+  ]
+ },
+ {
+  "name": "base-frame-todo",
+  "route": "#/todo",
+  "scenario": "normal"
+ },
+ {
+  "name": "base-frame-library",
+  "route": "#/library",
+  "scenario": "normal"
+ },
+ {
+  "name": "base-frame-playlists",
+  "route": "#/playlists",
+  "scenario": "normal"
+ },
+ {
+  "name": "base-frame-step",
+  "route": "#/todo",
+  "width": 1280,
+  "height": 700,
+  "steps": [
+   {
+    "wait": "[data-panel]"
+   },
+   {
+    "eval": "const l = document.querySelector('[data-panel-root] > .body'); l.scrollTop = 200; if (l.scrollTop < 150) throw new Error('panel too short to test the scroll')"
+   },
+   {
+    "resize": [
+     1239,
+     700
+    ]
+   },
+   {
+    "sleep": 300
+   },
+   {
+    "eval": "if (document.querySelector('[data-panel-root] > .body').scrollTop < 150) throw new Error('panel scroll jumped')"
+   },
+   {
+    "eval": "if (document.querySelector('[data-panel]').getBoundingClientRect().width !== 320) throw new Error('panel not 320 below 1240')"
+   }
+  ]
+ },
+ {
+  "name": "base-shell-music-missing",
+  "route": "#/library",
+  "scenario": "music_missing",
+  "steps": [
+   {
+    "wait": "[data-test=music-missing]"
+   },
+   {
+    "eval": "if (document.querySelector('[data-test=sidebar], nav[aria-label], [data-test^=banner-]') ) throw new Error('the missing screen shows chrome'); if (document.querySelectorAll('[data-primary]').length !== 1) throw new Error('one filled button'); if ((window.__fakeCalls || []).some((c) => c.method === 'library' || c.method === 'todo')) throw new Error('a page asked for library data');"
+   }
+  ]
+ },
+ {
+  "name": "base-shell-music-missing-still",
+  "route": "#/",
+  "scenario": "music_missing",
+  "steps": [
+   {
+    "wait": "[data-test=music-missing]"
+   },
+   {
+    "click": "[data-test=music-retry]"
+   },
+   {
+    "wait": "[data-test=music-reply]"
+   },
+   {
+    "eval": "if (!/Still not there/.test(document.querySelector('[data-test=music-reply]').textContent)) throw new Error('no still-not-there hint')"
+   }
+  ]
+ },
+ {
+  "name": "base-shell-no-music-redirect",
+  "route": "#/library",
+  "scenario": "no_music",
+  "steps": [
+   {
+    "wait": "[data-test=music-choose]"
+   },
+   {
+    "eval": "if (location.hash !== '#/setup/music') throw new Error('not sent to the music step: ' + location.hash); if ((window.__fakeCalls || []).some((c) => c.method === 'library' || c.method === 'todo')) throw new Error('a page asked for library data');"
+   }
+  ]
+ },
+ {
+  "name": "base-gallery-folderfield",
+  "route": "#/dev/gallery",
+  "scenario": "normal",
+  "settle": 400,
+  "steps": [
+   {
+    "eval": "document.querySelector('[data-test=gallery-folderfield]').scrollIntoView()"
+   }
+  ],
+  "each": "[data-test=gallery-folderfield]"
+ },
+ {
+  "name": "base-shell-update",
+  "route": "#/",
+  "scenario": "update_available",
+  "steps": [
+   {
+    "wait": "[data-test=update-line]"
+   },
+   {
+    "sleep": 400
+   }
+  ]
+ }
+]

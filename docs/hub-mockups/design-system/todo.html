@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>To-do – design system</title>
+<style>
+  body { margin: 0; padding: 24px; background: #111; color: #9a9aa0; font: 13px -apple-system, sans-serif; }
+  .bar { position: sticky; top: 0; z-index: 5; background: #111; padding: 0 0 14px; display: flex; flex-wrap: wrap; gap: 14px 18px; align-items: center; }
+  .bar h2 { margin: 0; color: #f2f2f4; font-size: 15px; }
+  .pick { display: inline-flex; border: 1px solid #333; border-radius: 8px; overflow: hidden; }
+  .pick button { background: none; border: 0; border-left: 1px solid #333; color: #9a9aa0; font: 12px -apple-system; padding: 6px 12px; cursor: pointer; }
+  .pick button:first-child { border-left: 0; }
+  .pick button.on { background: rgba(255,90,31,.16); color: #ff8a5a; }
+  .pick button:active { transform: scale(.96); }
+  .opt { margin: 26px 0 8px; color: #f2f2f4; font-size: 15px; font-weight: 700; }
+  .why { max-width: 1100px; margin: 0 0 12px; line-height: 1.55; }
+  .why b { color: #dcdce0; }
+  .stage { overflow: hidden; }
+
+  /* ---- look 2 tokens (docs/hub-design-language.md, tokens.css) ---- */
+  .win { --bg: #000; --sb-bg: linear-gradient(#0b0b0d, #070708); --sb-line: rgba(255,255,255,.06); --panel-bg: #040405; --text: #dcdce0; --text-strong: #f4f4f6; --muted: #9a9aa2; --label: #5c5c64; --nav: #7c7c84;
+    --accent: #ff5a1f; --accent-text: #ff8a5a; --ctl-line: rgba(255,255,255,.09); --ctl-bg: rgba(255,255,255,.03); --hover: rgba(255,255,255,.035);
+    --list-bg: linear-gradient(#0c0c0e, #08080a); --list-solid: #0b0b0d; --list-line: rgba(255,255,255,.06); --row-line: rgba(255,255,255,.045);
+    --card-bg: linear-gradient(#0f0f12, #0a0a0c); --card-line: rgba(255,255,255,.07); --card-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.6);
+    --good: #2fd27a; --ok: #e8b93a; --weak: #f0524a; --lossy: #a77bff; --missing: #c0504a; --wait: #e8b93a;
+    transform-origin: 0 0; display: flex; overflow: hidden; border-radius: 12px; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; background: var(--bg); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  .win * { box-sizing: border-box; }
+  .sb { width: 168px; flex: none; padding: 16px 10px; background: var(--sb-bg); border-right: 1px solid var(--sb-line); display: flex; flex-direction: column; gap: 2px; }
+  .brand { color: #9a9aa0; font-weight: 700; padding: 0 8px 14px; display: flex; gap: 6px; align-items: center; }
+  .brand i { width: 8px; height: 8px; border-radius: 50%; background: #9a9aa0; }
+  .nav { display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 8px; border-radius: 7px; color: var(--nav); }
+  .nav .g { width: 14px; text-align: center; opacity: .8; font-size: 12px; }
+  .nav .c { margin-left: auto; font-size: 11px; color: var(--label); }
+  .nav.on { color: var(--text-strong); background: rgba(255,255,255,.07); }
+  .sbcap { font-size: 10.5px; letter-spacing: .7px; text-transform: uppercase; color: var(--label); padding: 16px 8px 6px; }
+
+  .main { flex: 1; min-width: 0; overflow-y: auto; display: flex; justify-content: center; }
+  .col { width: 100%; max-width: 900px; padding: 20px 22px 28px; display: flex; flex-direction: column; gap: 14px; }
+  .col > * { flex: none; }
+  .main.anchored { overflow: hidden; }
+  .main.anchored .col { height: 100%; }
+  .scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-mask-image: linear-gradient(#000 calc(100% - 24px), transparent); }
+  .hd { display: flex; align-items: center; gap: 10px; }
+  .hd h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-strong); letter-spacing: -.02em; }
+  .hd .st { color: var(--muted); font-size: 12px; flex: 1; padding-top: 5px; }
+  .hd .sp { color: var(--muted); font-size: 12px; }
+  .btn2 { border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--text); border-radius: 8px; padding: 6px 11px; font: 600 12px -apple-system; cursor: pointer; transition: transform 100ms ease-out; white-space: nowrap; }
+  .btn2:active { transform: scale(.97); }
+  .btn2.pri { border-color: rgba(255,90,31,.55); color: var(--accent-text); }
+  .lnk { color: var(--accent-text); font-size: 12px; white-space: nowrap; cursor: pointer; }
+  .lnk.dim { color: var(--muted); }
+
+  /* Segmented */
+  .seg { display: flex; border: 1px solid var(--ctl-line); border-radius: 9px; background: var(--ctl-bg); overflow: hidden; height: 32px; }
+  .seg div { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--muted); border-left: 1px solid var(--ctl-line); white-space: nowrap; padding: 0 8px; cursor: pointer; }
+  .seg div:first-child { border-left: 0; }
+  .seg div span.t { overflow: hidden; text-overflow: ellipsis; }
+  .seg div b { font-weight: 500; color: var(--label); font-variant-numeric: tabular-nums; }
+  .seg div.on { background: rgba(255,90,31,.14); color: var(--accent-text); }
+  .seg div.on b { color: var(--accent-text); }
+  .seg .more { flex: 0 0 auto; padding: 0 12px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--c); }
+
+  .card { border-radius: 12px; background: var(--card-bg); border: 1px solid var(--card-line); box-shadow: var(--card-shadow); padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .card.good { border-color: rgba(47,210,122,.28); background: linear-gradient(rgba(47,210,122,.07), rgba(47,210,122,.02)); }
+  .card.warn { border-color: rgba(232,185,58,.28); background: linear-gradient(rgba(232,185,58,.07), rgba(232,185,58,.02)); }
+  .card.none { padding: 28px 14px; align-items: center; text-align: center; }
+  .ch { display: flex; align-items: baseline; gap: 8px; }
+  .ch b { color: var(--text-strong); font-size: 13px; font-weight: 600; flex: 1; }
+  .num { font-size: 30px; font-weight: 700; color: var(--text-strong); line-height: 1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .num small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .lbl { color: var(--label); font-size: 11px; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .hint { font-size: 12px; color: var(--muted); }
+
+  .surf { border-radius: 12px; background: var(--list-bg); border: 1px solid var(--list-line); min-width: 0; }
+  .surf.fill { flex: 0 1 auto; min-height: 150px; display: flex; flex-direction: column; overflow: hidden; }
+  .sh { display: flex; align-items: baseline; gap: 8px; padding: 11px 14px 9px; }
+  .sh b { color: var(--text-strong); font-size: 13px; font-weight: 600; }
+  .sh .cnt { color: var(--muted); font-size: 12px; }
+  .sh .h { color: var(--label); font-size: 12px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sh.sticky { position: sticky; top: 0; z-index: 1; background: var(--list-solid); border-radius: 12px 12px 0 0; }
+  .fill > .sh { border-bottom: 1px solid var(--row-line); }
+  /* B: a section head inside the one list (new: Surface list sections) */
+  .sec { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; gap: 8px; height: 32px; padding: 9px 14px 0; background: #0d0d10; border-top: 1px solid var(--row-line); border-bottom: 1px solid var(--row-line); }
+  .scroll > .sec:first-child { border-top: 0; }
+  .sec b { color: var(--text); font-size: 12px; font-weight: 600; }
+  .sec .cnt { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .sec .h { color: var(--label); font-size: 12px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .row { display: grid; grid-template-columns: 32px minmax(0, 1fr) 76px 52px; align-items: center; column-gap: 12px; height: 52px; padding: 0 14px; border-top: 1px solid var(--row-line); cursor: pointer; transition: background 120ms; position: relative; }
+  .sec + .row { border-top: 0; }
+  .row:hover { background: var(--hover); }
+  .row.sel { background: rgba(255,90,31,.08); }
+  .row.sel::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--accent); }
+  .cov { width: 32px; height: 32px; border-radius: 5px; background: var(--g); }
+  .two-line { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  .nm b { color: var(--text-strong); font-weight: 600; }
+  .s { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .s .dimname { color: var(--label); }
+  .badge { justify-self: end; font: 600 11px -apple-system; letter-spacing: .3px; padding: 2px 6px; border-radius: 5px; border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); color: var(--c); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .xtra { justify-self: end; font: 600 11px -apple-system; letter-spacing: .3px; white-space: nowrap; }
+  .xtra.up { color: var(--good); }
+  .xtra.free { color: var(--accent-text); }
+
+  .panel { flex: none; background: var(--panel-bg); border-left: 1px solid var(--sb-line); padding: 20px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+  .pbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; -webkit-mask-image: linear-gradient(#000 calc(100% - 20px), transparent); padding-bottom: 12px; }
+  .pbody > * { flex: none; }
+  .go { background: linear-gradient(#ff6a30, #f2521a); color: #000; font: 700 14px -apple-system; text-align: center; padding: 11px; border-radius: 10px; border: 0; box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 4px 14px rgba(255,90,31,.22); cursor: pointer; transition: transform 100ms ease-out, filter 150ms; flex: none; }
+  .go:active { transform: scale(.98); }
+  .go2 { flex: none; text-align: center; padding: 10px; border-radius: 10px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--text); font: 600 13px -apple-system; }
+
+  .th { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; align-items: center; }
+  .th .cov { width: 56px; height: 56px; border-radius: 8px; }
+  .th .t { color: var(--text-strong); font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .qline { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .qline .badge { justify-self: start; }
+  .spec { height: 54px; border-radius: 6px; background: linear-gradient(0deg, #ff7a1a 0%, #d0306a 35%, #5a1fa0 70%, #1a0b40 100%); position: relative; overflow: hidden; }
+  .spec::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: var(--cut, 28%); background: #07070a; border-bottom: 1px dashed rgba(255,255,255,.5); }
+  .spec.full::after { display: none; }
+  .spec span { position: absolute; right: 6px; top: 3px; z-index: 1; font-size: 10.5px; color: #dcdce0; }
+  .player { display: flex; align-items: center; gap: 10px; }
+  .play { width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--accent); color: var(--accent); display: grid; place-items: center; font-size: 10px; flex: none; }
+  .wave { flex: 1; height: 20px; background: repeating-linear-gradient(90deg, rgba(255,255,255,.28) 0 1px, transparent 1px 3px); -webkit-mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent); }
+  .tm { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .facts { display: grid; grid-template-columns: 62px minmax(0, 1fr); row-gap: 6px; font-size: 12px; }
+  .facts dt { color: var(--label); } .facts dd { margin: 0; color: var(--text); }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pair .lbl { margin-bottom: 4px; }
+  .getrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--row-line); font-size: 12px; }
+  .getrow:first-of-type { border-top: 0; padding-top: 0; }
+  .ftag { font: 700 10px -apple-system; letter-spacing: .4px; color: var(--accent-text); border: 1px solid rgba(255,90,31,.45); border-radius: 4px; padding: 1px 5px; margin-right: 6px; }
+  .drop { border: 1.5px dashed rgba(255,255,255,.14); border-radius: 10px; padding: 14px; text-align: center; display: flex; flex-direction: column; gap: 4px; }
+  .drop b { color: var(--text-strong); font-weight: 600; font-size: 13px; }
+  .note { display: grid; grid-template-columns: 16px minmax(0,1fr); gap: 10px; font-size: 12px; line-height: 1.45; color: var(--text); }
+  .note i { font-style: normal; color: var(--wait); }
+  .pempty { flex: 1; display: grid; place-items: center; color: var(--label); font-size: 12px; }
+</style>
+</head><body>
+
+<div class="bar">
+  <h2>To-do</h2>
+  <span>Window <span class="pick" id="size"><button data-v="1100">1100 × 700</button><button data-v="1280" class="on">1280 × 800</button><button data-v="2560">2560 × 1440</button></span></span>
+  <span>Library <span class="pick" id="big"><button data-v="0" class="on">18 to-dos</button><button data-v="1">Grown (299)</button></span></span>
+  <span>Selected <span class="pick" id="sel"><button data-v="weak" class="on">Weak</button><button data-v="free">Weak + free</button><button data-v="up">Upgrade</button><button data-v="upx">Upgrade, no match</button><button data-v="nf">Not found</button><button data-v="rb">Check in rekordbox</button><button data-v="other">Other</button></span></span>
+</div>
+
+<div class="opt">Before: what's wrong</div>
+<p class="why">The filter chips wrap onto two lines at 1100 and stop short of the rows' edge. The groups are uppercase captions with rows on the bare background, so 299 to-dos are one long scroll where "Not found" (56) pushes everything else off screen and the page header and filter scroll away. The panel uses a 190 px cover and hairline cards; each kind of to-do hides its main action somewhere else (Swap inside an orange box, "Done, checked" inside a card, "Good enough, hide" as a ghost button at the very end), and the facts are loose sentences.</p>
+
+<div class="opt">A: one anchored list, the groups are sections inside it (recommended)</div>
+<p class="why"><b>Anchored:</b> the header and the filter stay put; the one list fills the rest of the height and scrolls inside, like Dashboard's folders. Each group is a <b>section head</b> inside the list (name · count · one-line hint) that sticks to the list's top while its rows pass, the way Mail groups by date. The filter is a <b>Segmented</b> on one line: All · rekordbox · Upgrades · Not found · Weak, and the rest (Good lossy, Fake lossless, Other) in More ▾. Show hidden moves into the list's head. <b>New in the system:</b> sections inside a Surface list (block + gallery + doc).</p>
+<div class="stage" data-opt="A"></div>
+
+<div class="opt">B: one Surface per group in a scrolling column, as Sync's plan does</div>
+<p class="why">Every group is its own Surface with a sticky head; the whole column scrolls, so the header and the filter scroll away. No new block is needed, but it is exactly what the anchored-list rule forbids: at 299 to-dos, "Not found" (56) pushes Weak, Good lossy and Fake off screen until you scroll past it.</p>
+<div class="stage" data-opt="B"></div>
+
+<div class="opt">Panel (both options): head · details that scroll · the to-do's main action in the foot</div>
+<p class="why"><b>Head:</b> a compact track card (56 px cover, name, artist · length · folder, quality badge and its words) with <b>Hide</b> as a link, where every kind finds it. <b>Body:</b> what this to-do needs, then the current file with its cutoff as a number over the spectrum and player, then "Get a lossless file" (free download, buy links, drop zone). <b>Foot:</b> the one filled button is the to-do's own action: <b>Swap</b> (or Add as new file when it doesn't match), <b>Done, checked in rekordbox</b>, <b>Find a version</b> for not found, <b>Show in Finder</b> for other. A weak or lossy file has no action in the app (you buy it, then drop it), so its foot stays empty; the buy links and the drop zone are its actions.</p>
+
+<script>
+(function () {
+  const C = { lossless: '--good', good_lossy: '--ok', weak: '--weak', fake: '--lossy', missing: '--missing' };
+  const grads = ['linear-gradient(135deg,#2fd27a,#1a7cff)', 'linear-gradient(135deg,#1a7cff,#f0b93a)', 'linear-gradient(135deg,#ff6a8a,#7a4cff)', 'linear-gradient(135deg,#f0524a,#a77bff)', 'linear-gradient(135deg,#7a4cff,#2fd27a)', 'linear-gradient(135deg,#e8b93a,#c04aff)'];
+  const T = (id, a, t, folder, sub, q, badge, xtra) => ({ id, a, t, folder, sub, q, badge, xtra });
+  const base = [
+    ['rekordbox_check', 'rekordbox', 'Check in rekordbox', 'the file changed; rekordbox needs a hand', null, [T('rb', 'DJ Fluxkompensator', 'Gravity', 'Powertrance', 'plays the right song now · analyse it again', 'good_lossy', '20.0 kHz')]],
+    ['upgrade_ready', 'Upgrades', 'Upgrade ready', 'a better version is waiting for you', '--good', [T('up', 'Armin Hermann', 'Get Naughty', 'Hard_Bounce', 'matches exactly, cues stay', 'weak', '16.0 kHz', 'up'), T('upx', 'Mira Volt', 'Strobe Light', 'Powertrance', "doesn't match: would be a new rekordbox entry", 'good_lossy', '20.0 kHz', 'up')]],
+    ['not_found', 'Not found', 'Not found', 'nothing usable anywhere', '--missing', [T('nf', 'Some Artist', 'Gone Track', 'Hard_Bounce', 'next try in 5 days', 'missing', 'NOT FOUND'), T('nf2', 'Tekk Tobi', 'Hyperdrive', 'Tekke_Ecke', 'next try in 2 days', 'missing', 'NOT FOUND'), T('nf3', 'Kai Kickdrum', 'Tunnelblick', '03_06_2026', 'next try in 2 days', 'missing', 'NOT FOUND')]],
+    ['weak', 'Weak', 'Weak (≤ 17 kHz)', 'audibly lossy', '--weak', [T('weak', 'Nachtfalter', 'Sunrise Tekk', 'Hard_Bounce', 'YouTube · 135 kbps', 'weak', '16.0 kHz'), T('free', 'Frau Funk', 'Zeitlupe', 'Bouncy', 'SoundCloud · 160 kbps', 'weak', '17.0 kHz', 'free'), T('w3', 'Tekk Tobi', 'Lichtgeschwindigkeit', 'Tekke_Ecke', 'YouTube · 135 kbps', 'weak', '16.0 kHz'), T('w4', 'Low Ceiling', 'Taktgefuehl', 'Powertrance', 'SoundCloud · 160 kbps', 'weak', '17.0 kHz', 'free')]],
+    ['good_lossy', 'Good lossy', 'Good lossy (~20 kHz)', 'hard to hear', '--ok', [T('g1', 'Pegassi', 'AEIOU', 'Bouncy', 'YouTube Music · 256 kbps', 'good_lossy', '20.0 kHz'), T('g2', 'Lena Strobe', 'Nebelmaschine', 'Hard_Bounce', 'YouTube Music · 256 kbps', 'good_lossy', '19.5 kHz'), T('g3', 'Pulsar 9', 'Treppenhaus', 'Powertrance', 'YouTube Music · 256 kbps', 'good_lossy', '20.0 kHz'), T('g4', 'Sora Blitz', 'Gravity (Radio Edit)', 'Bouncy', 'YouTube Music · 256 kbps', 'good_lossy', '19.8 kHz'), T('g5', 'Echo Gruppe', 'Lichtgeschwindigkeit', 'Tekke_Ecke', 'YouTube Music · 256 kbps', 'good_lossy', '20.0 kHz')]],
+    ['fake', 'Fake lossless', 'Fake lossless', 'a lossy file inside the FLAC', '--lossy', [T('f1', 'Rave Kollektiv', 'Unterwasser', 'Hard_Bounce', 'bought FLAC · lossy inside', 'fake', '16.0 kHz'), T('f2', 'Kalte Nacht', 'Kick it Hard', 'Hard_Bounce', 'bought FLAC · lossy inside', 'fake', '19.0 kHz'), T('f3', 'Bass Bunker', 'Treibsand', 'Bouncy', 'bought FLAC · lossy inside', 'fake', '16.0 kHz')]],
+    ['other', 'Other', 'Other', 'files Discjockey left alone', null, [T('other', 'Unknown', 'set_recording_0412', 'Not in a playlist', 'in Library, not in any playlist', 'weak', '15.0 kHz')]],
+  ];
+  const growTo = { not_found: 56, weak: 90, good_lossy: 94, fake: 56 };
+  function groups(big) {
+    return base.map(([key, short, label, hint, dot, items]) => {
+      if (!big || !growTo[key]) return { key, short, label, hint, dot, items };
+      const out = items.slice();
+      for (let i = items.length; i < growTo[key]; i++) { const s = items[i % items.length]; out.push({ ...s, id: key + i, a: ['Kalte Nacht', 'Lena Strobe', 'Pulsar 9', 'Sora Blitz', 'Echo Gruppe', 'Rave Kollektiv'][i % 6], t: ['Kick it Hard', 'Nebelmaschine', 'Treppenhaus', 'Gravity', 'Lichtgeschwindigkeit', 'Unterwasser'][i % 6] + (i % 3 ? ' (Extended Mix)' : ' (Radio Edit)') }); }
+      return { key, short, label, hint, dot, items: out };
+    });
+  }
+
+  const sidebar = (big) => `<div class="sb"><div class="brand"><i></i>Discjockey</div>
+    <div class="nav"><span class="g">◉</span>Dashboard</div><div class="nav"><span class="g">⟳</span>Sync</div><div class="nav on"><span class="g">✓</span>To-do<span class="c">${big ? 299 : 18}</span></div>
+    <div class="nav"><span class="g">≡</span>Playlists</div><div class="nav"><span class="g">◔</span>Download limits</div><div class="sbcap">Library</div>
+    <div class="nav">All tracks<span class="c">${big ? 1442 : 36}</span></div>${['Hard_Bounce', 'Powertrance', 'Bouncy', '03_06_2026', 'Tekke_Ecke'].map((n, i) => `<div class="nav">${n}<span class="c">${big ? 291 - i : [10, 7, 7, 5, 5][i]}</span></div>`).join('')}
+    <div class="nav" style="margin-top:auto"><span class="g">⚙</span>Settings</div></div>`;
+  const header = (n) => `<div class="hd"><h1>To-do</h1><span class="st">${n} tracks are not lossless yet</span><span class="sp">Spotify read 2 min ago</span><button class="btn2">↻ Read Spotify</button></div>`;
+  const seg = (gs, total) => {
+    const shown = gs.filter((g) => ['rekordbox_check', 'upgrade_ready', 'not_found', 'weak'].includes(g.key));
+    return `<div class="seg"><div class="on"><span class="t">All</span><b>${total}</b></div>${shown.map((g) => `<div>${g.dot ? `<span class="dot" style="--c:var(${g.dot})"></span>` : ''}<span class="t">${g.short}</span><b>${g.items.length}</b></div>`).join('')}<div class="more">More ▾</div></div>`;
+  };
+  const row = (i, k, sel) => `<div class="row${i.id === sel ? ' sel' : ''}"><span class="cov" style="--g:${grads[k % grads.length]}"></span>
+    <div class="two-line"><span class="nm">${i.a} – <b>${i.t}</b></span><span class="s"><span class="dimname">${i.folder}</span> · ${i.sub}</span></div>
+    <span class="badge" style="--c:var(${C[i.q]})">${i.badge}</span><span class="xtra ${i.xtra || ''}">${i.xtra === 'up' ? '↑ ready' : i.xtra === 'free' ? 'FREE' : ''}</span></div>`;
+
+  function listA(gs, sel) {
+    let k = 0;
+    return `<div class="surf fill"><div class="sh"><b>All to-dos</b><span class="cnt">${gs.reduce((n, g) => n + g.items.length, 0) - 1}</span><span class="h"></span><span class="lnk dim">Show hidden · 2</span></div><div class="scroll">
+      ${gs.map((g) => `<div class="sec"><b>${g.label}</b><span class="cnt">${g.items.length}</span><span class="h">${g.hint}</span></div>${g.items.map((i) => row(i, k++, sel)).join('')}`).join('')}</div></div>`;
+  }
+  function listB(gs, sel) {
+    let k = 0;
+    return gs.map((g) => `<div class="surf"><div class="sh sticky"><b>${g.label}</b><span class="cnt">${g.items.length}</span><span class="h">${g.hint}</span></div>${g.items.map((i) => row(i, k++, sel)).join('')}</div>`).join('') + `<div style="text-align:center"><span class="lnk dim">Show hidden · 2</span></div>`;
+  }
+
+  // ---- panel ----
+  const all = base.flatMap((g) => g[5]);
+  const head = (i, words, src) => `<div class="card"><div class="th"><span class="cov" style="--g:${grads[all.indexOf(i) % grads.length]}"></span><div class="two-line" style="gap:3px">
+      <div class="ch" style="align-items:center"><span class="t" style="flex:1">${i.t}</span>${i.id === 'rb' || i.id.startsWith('up') ? '' : '<span class="lnk dim">Hide</span>'}</div>
+      <span class="s">${i.a} · ${i.id === 'nf' ? '—' : '5:20'} · ${i.folder}</span>
+      <div class="qline"><span class="badge" style="--c:var(${C[i.q]})">${i.badge}</span><span class="s">${words}${src ? ' · ' + src : ''}</span></div></div></div></div>`;
+  const current = (cut, fmt, qobuz, wrong = 'Wrong song?') => `<div class="card"><div class="ch"><b>Current file</b><span class="lnk">${wrong}</span></div>
+      <div><div class="num" style="white-space:nowrap">${cut}<small> kHz</small></div><div class="lbl" style="margin-top:4px">where the highs end · lossless reaches 22 kHz</div></div>
+      <div class="spec" style="--cut:${Math.round((22.05 - parseFloat(cut)) / 22.05 * 100)}%"><span>cut off at ${cut} kHz</span></div>
+      <div class="player"><span class="play">▶</span><span class="wave"></span><span class="tm">0:00 / 5:20</span></div>
+      <dl class="facts"><dt>Format</dt><dd>${fmt}</dd>${qobuz ? `<dt>Qobuz</dt><dd>${qobuz}</dd>` : ''}</dl></div>`;
+  const getIt = (i, free) => `<div class="card"><div class="ch"><b>Get a lossless file</b></div>
+      ${free ? `<div class="getrow"><span><span class="ftag">FREE</span>From the artist on SoundCloud</span><span class="lnk">Download ↗</span></div>` : ''}
+      <div class="getrow"><span class="sub">${free ? 'or buy it' : 'Buy it'}</span><span><span class="lnk">Beatport ↗</span>&nbsp;&nbsp;&nbsp;<span class="lnk">Bandcamp ↗</span></span></div>
+      <div class="drop"><b>Drop the file here</b><span class="hint">WAV, AIFF or FLAC · filed as ${i.folder}/${i.a} – ${i.t}</span></div></div>`;
+
+  function panel(sel, big) {
+    const i = all.find((x) => x.id === sel);
+    const btn = (t) => `<button class="go">${t}</button>`;
+    if (sel === 'up' || sel === 'upx') {
+      const match = sel === 'up';
+      return `${head(i, 'lossy, audible', 'from YouTube')}<div class="pbody">
+        <div class="card good"><div class="ch"><b>Upgrade ready</b><span class="sub">found 21 Oct</span></div>
+          <div class="sub" style="color:var(--text)">Qobuz FLAC · verified lossless</div>
+          <div class="pair"><div><div class="lbl">Now · ${i.badge}</div><div class="spec" style="--cut:28%;height:40px"></div></div><div><div class="lbl">New · lossless</div><div class="spec full" style="height:40px"></div></div></div>
+          <div class="player"><span class="play">▶</span><span class="wave"></span><span class="tm">Compare · A/B</span></div>
+          <div class="sub" style="color:var(--text);border-top:1px solid var(--row-line);padding-top:10px"><span class="dot" style="--c:var(${match ? '--good' : '--wait'});display:inline-block;margin-right:6px"></span>${match ? 'Matches exactly · cues and grid stay' : "Doesn't match · would be a new rekordbox entry"}</div>
+          <div style="display:flex;gap:16px">${match ? '<span class="lnk">Add as new file</span>' : ''}<span class="lnk dim">Discard</span></div></div>
+        </div>${btn(match ? 'Swap the files' : 'Add as new file')}`;
+    }
+    if (sel === 'rb') return `${head(i, 'lossy, hard to hear', 'from YouTube Music')}<div class="pbody">
+        <div class="card warn"><div class="note"><i>!</i><span>This track now plays the right song. In rekordbox, analyse it again and delete the old cues: they belong to the wrong song.</span></div></div>
+        ${current('20.0', 'AAC · 256 kbps', 'not there yet · looks again on 25 Oct')}</div>${btn('Done, checked in rekordbox')}`;
+    if (sel === 'nf') return `${head(i, 'not found', null)}<div class="pbody">
+        <div class="card"><div class="ch"><b>Still looking</b></div><dl class="facts"><dt>Qobuz</dt><dd>not there yet · looks again on 25 Oct</dd><dt>Others</dt><dd>YouTube Music, SoundCloud, YouTube · next try in 5 days</dd></dl></div>
+        ${getIt(i, false)}</div>${btn('Find a version')}`;
+    if (sel === 'other') return `${head(i, 'lossy, audible', null)}<div class="pbody">
+        <div class="card"><div class="note"><i style="color:var(--muted)">i</i><span>This file is in Library but in none of your playlists. Discjockey leaves it alone.</span></div></div>
+        ${current('15.0', 'MP3 · 192 kbps', null, '')}</div>${btn('Show in Finder')}`;
+    const free = sel === 'free';
+    return `${head(i, 'lossy, audible', free ? 'from SoundCloud' : 'from YouTube')}<div class="pbody">
+        ${current(free ? '17.0' : '16.0', free ? 'MP3 · 160 kbps' : 'Opus · 135 kbps', 'not there yet · looks again on 25 Oct')}${getIt(i, free)}</div>`;
+  }
+
+  let size = 1280, big = false, sel = 'weak';
+  function render() {
+    const h = { 1100: 700, 1280: 800, 2560: 1440 }[size];
+    const gs = groups(big), total = big ? 299 : 18;
+    document.querySelectorAll('.stage').forEach((st) => {
+      const opt = st.dataset.opt;
+      const scale = Math.min(1, (st.clientWidth || document.body.clientWidth - 48) / size);
+      st.style.height = h * scale + 'px';
+      const main = opt === 'A' ? `<div class="main anchored"><div class="col">${header(total)}${seg(gs, total)}${listA(gs, sel)}</div></div>`
+        : `<div class="main"><div class="col">${header(total)}${seg(gs, total)}${listB(gs, sel)}</div></div>`;
+      st.innerHTML = `<div class="win" style="width:${size}px;height:${h}px;transform:scale(${scale})">${sidebar(big)}${main}<div class="panel" data-panel>${panel(sel, big)}</div></div>`;
+      st.querySelector('[data-panel]').style.width = (size < 1240 ? 320 : 360) + 'px';
+    });
+  }
+  const wire = (id, set) => document.querySelectorAll(`#${id} button`).forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll(`#${id} button`).forEach((x) => x.classList.toggle('on', x === b)); set(b.dataset.v); render(); }));
+  wire('size', (v) => { size = +v; });
+  wire('big', (v) => { big = v === '1'; });
+  wire('sel', (v) => { sel = v; });
+  addEventListener('resize', render);
+  render();
+})();
+</script>
+</body></html>

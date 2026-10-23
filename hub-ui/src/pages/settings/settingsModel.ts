@@ -1,0 +1,156 @@
+// Settings (spec settings-setup §3): the rows, the one line each says about its state, and which row opens first.
+// Pure: the page passes in what the bridge answered and the time.
+// The download sources' lines live with the account panel (accountModel), so a row and its panel say the same thing.
+import { aboutLine } from '$lib/appUpdate';
+import type { AppUpdate, DownloadsView, DownloadTool, DownloadTools, JobSnap, SetupStatus, SetupTools } from '$lib/bridge/types';
+import { WHAT_IT_GIVES, checkedWhen, stateLine, type RowLine, type Tone } from '$lib/components/accountModel';
+import { shortPath } from '$lib/musicFolder';
+import { SETTINGS_ROWS } from '$lib/router';
+
+export type SettingsRow = (typeof SETTINGS_ROWS)[number];
+export { SETTINGS_ROWS };
+export const ROW_GROUPS: { label: string; rows: SettingsRow[] }[] = [
+  { label: 'Downloads', rows: ['qobuz', 'youtube', 'soundcloud'] },
+  { label: 'Spotify', rows: ['spotify'] },
+  { label: 'This Mac', rows: ['music', 'programs', 'about', 'reports'] },
+];
+export const ROW_NAMES: Record<SettingsRow, string> = {
+  qobuz: 'Qobuz', youtube: 'YouTube Premium', soundcloud: 'SoundCloud Go+', spotify: 'Spotify', music: 'Music folder', programs: 'Programs',
+  about: 'About Discjockey', reports: 'Reports',
+};
+/** Each row's lead glyph, in the sidebar's style (one 14 px box). */
+export const ROW_GLYPHS: Record<SettingsRow, string> = {
+  qobuz: '◆', youtube: '▶', soundcloud: '☁', spotify: '♫', music: '▤', programs: '⌘', about: '©', reports: '☰',
+};
+export function isSettingsRow(v: string | undefined): v is SettingsRow {
+  return !!v && (SETTINGS_ROWS as readonly string[]).includes(v);
+}
+export type AccountRow = 'qobuz' | 'youtube' | 'soundcloud';
+/** The download services' rows: their panel is an AccountPanel. */
+export function isAccountRow(r: SettingsRow): r is AccountRow {
+  return r === 'qobuz' || r === 'youtube' || r === 'soundcloud';
+}
+
+export type { RowLine, Tone };
+export { checkedWhen };
+export type RowContext = {
+  downloads: DownloadsView | null; status: SetupStatus | null; tools: SetupTools | null; reports: number | null;
+  now: Date;
+  /** reading the programs failed and there are no versions to show: the row says so instead of waiting */
+  toolsFailed?: boolean;
+  /** the update check's last answer; never a problem, so it never moves `firstAttention` */
+  update?: AppUpdate | null;
+};
+
+/** The state line and mark of one row; `null` text pieces are left out. */
+export function rowLine(row: SettingsRow, c: RowContext): RowLine {
+  switch (row) {
+    case 'qobuz':
+    case 'youtube':
+    case 'soundcloud': {
+      if (!c.downloads) return { tone: null, text: '' };
+      // a login not set up says what it would give, so the list shows the gain before the panel is open (spec §1)
+      const l = stateLine(row, c.downloads, c.now);
+      return l.tone === 'none' && l.text === 'not set up' ? { tone: 'none', text: `not set up · ${WHAT_IT_GIVES[row]}` } : l;
+    }
+    case 'spotify': {
+      const s = c.status;
+      if (!s) return { tone: null, text: '' };
+      if (s.spotify_login) return { tone: 'good', text: s.spotify_user ? `connected as ${s.spotify_user}` : 'connected' };
+      return { tone: 'problem', text: s.spotify_app ? 'not connected' : 'not set up' };
+    }
+    case 'music': {
+      const m = c.status?.music;
+      if (!m) return { tone: null, text: '' };
+      if (m.state === 'ok' && m.path) return { tone: 'good', text: shortPath(m.path) };
+      return m.state === 'missing' ? { tone: 'problem', text: 'not found' } : { tone: 'none', text: 'not chosen' };
+    }
+    case 'programs': {
+      if (!c.tools) return c.toolsFailed ? { tone: 'problem', text: "couldn't check" } : { tone: null, text: '' };
+      return c.tools.missing.length ? { tone: 'problem', text: `${c.tools.missing.join(', ')} missing` }
+        : { tone: 'good', text: 'all there' };
+    }
+    case 'about':
+      return { tone: null, text: c.status ? [c.status.version, aboutLine(c.update ?? null)].filter(Boolean).join(' · ') : '' };
+    case 'reports':
+      if (c.reports === null) return { tone: null, text: '' };
+      return { tone: null, text: c.reports === 0 ? 'no reports yet' : c.reports === 1 ? '1 sync report'
+        : `${c.reports} sync reports` };
+  }
+}
+
+/** `#/settings` opens the first row that needs the user, else Qobuz. */
+export function firstAttention(c: RowContext): SettingsRow {
+  return SETTINGS_ROWS.find((r) => { const t = rowLine(r, c).tone; return t === 'problem' || t === 'warn'; }) ?? 'qobuz';
+}
+
+function versions(v: unknown): Record<string, string> {
+  if (!v || typeof v !== 'object') return {};
+  return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, x == null ? '' : String(x)]));
+}
+
+/** update_tools' {before, after} as lines: "streamrip 2.1.0 → 2.1.1", or "yt-dlp 2026.10.10 (already the newest)". */
+export function updateLines(before: unknown, after: unknown): string[] {
+  const b = versions(before);
+  const a = versions(after);
+  const names = [...new Set([...Object.keys(b), ...Object.keys(a)])];
+  return names.map((n) => {
+    const was = b[n] || 'not installed';
+    const now = a[n] || 'not installed';
+    return was === now ? `${n} ${now} (already the newest)` : `${n} ${was} → ${now}`;
+  });
+}
+
+export type ToolsCard = { rows: { name: string; value: string }[]; waiting: string | null; back: string | null };
+
+function toolValue(t: DownloadTool): string {
+  return t.version ? `${t.version} (${t.source === 'updated' ? 'updated' : 'built in'})` : 'not installed';
+}
+
+/** Settings → This Mac, Download tools: "yt-dlp 2026.10.21 (updated)" / "(built in)" per tool (spec
+ *  public-release §6.4); `waiting`: the yt-dlp the next start uses (Quit becomes the step); `back`: what Go back
+ *  would use. */
+export function toolsCard(t: DownloadTools | null | undefined): ToolsCard {
+  if (!t) return { rows: [], waiting: null, back: null };
+  return { rows: [{ name: 'yt-dlp', value: toolValue(t['yt-dlp']) }, { name: 'streamrip', value: toolValue(t.streamrip) }],
+    waiting: t['yt-dlp'].waiting, back: t['yt-dlp'].previous };
+}
+
+/** Whether Discjockey has to be opened again for the download tools: a yt-dlp is waiting for the next start
+ *  (`card.waiting`, read with setup_check_tools), or the last change said so (`restart`, the engine's answer: it covers
+ *  the moment before the versions are read again, or a failed read). "Already the newest" needs no reopen. */
+export function needsReopen(card: Pick<ToolsCard, 'waiting'>, restart: boolean): boolean {
+  return card.waiting !== null || restart;
+}
+
+/** What the reopen note says (it is shown once `needsReopen`): the title is the step, the text names the version
+ *  that starts being used. `kind` is the change that asked for it; a waiting version names itself. */
+export function reopenNote(waiting: string | null, kind: 'update_tools' | 'rollback_tools' | null, quitting: boolean):
+  { title: string; text: string } {
+  const what = waiting ? `yt-dlp ${waiting}` : kind === 'rollback_tools' ? 'the earlier yt-dlp' : 'the new yt-dlp';
+  return { title: 'Open Discjockey again',
+    text: quitting ? `Open Discjockey again to start using ${what}.`
+      : `Quit Discjockey and open it again to start using ${what}.` };
+}
+
+/** The hub's write job when it is this card's own (Spotify's Connect: `setup_spotify_login`; Programs' update and
+ *  Go back: `update_tools`, `rollback_tools`), so a panel opened while it runs, or after it ended, picks it up: its
+ *  id to wait for while it runs, else how it ended. null: no job, or another kind. */
+export function cardJob(job: JobSnap | null, kind: 'setup_spotify_login' | 'update_tools' | 'rollback_tools'):
+  { id: number; running: true } | { id: number; running: false; finished: JobSnap['finished'] } | null {
+  if (!job || job.kind !== kind) return null;
+  return job.running ? { id: job.id, running: true } : { id: job.id, running: false, finished: job.finished };
+}
+
+/** How Update download tools or Go back ended, as the card says it: the before → after lines, whether Discjockey
+ *  has to be opened again to use them (`restart`, the engine's answer: "already the newest" needs no reopen), or
+ *  the problem's words; a stopped job says nothing. */
+export function updateOutcome(fin: { ok: boolean; problem?: string | null; message?: string; result?: unknown } | null):
+  { lines: string[] | null; error: string | null; restart: boolean } {
+  if (!fin) return { lines: null, error: null, restart: false };
+  if (fin.ok) {
+    const r = (fin.result ?? {}) as { before?: unknown; after?: unknown; restart?: unknown };
+    return { lines: updateLines(r.before, r.after), error: null, restart: r.restart === true };
+  }
+  return { lines: null, error: fin.problem === 'stopped' ? null : fin.message || null, restart: false };
+}

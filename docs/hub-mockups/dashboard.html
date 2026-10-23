@@ -1,0 +1,99 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Discjockey hub mockup: dashboard</title>
+<style>body{background:#111;color:#ddd;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:24px}.subtitle{color:#999}.label{color:#999;font-size:11px;text-transform:uppercase;letter-spacing:.8px}</style>
+<body>
+<style>
+  .o { background:#000; color:#d9d9dc; border-radius:12px; overflow:hidden; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif; font-size:11.5px; text-align:left; height:600px; display:flex; flex-direction:column; border:1px solid #1a1a1d; }
+  .o .body { flex:1; display:flex; min-height:0; }
+  .o .side { width:150px; border-right:1px solid #1a1a1d; padding:12px 8px; display:flex; flex-direction:column; gap:2px; flex-shrink:0; }
+  .o .brand { color:#8c8c92; font-weight:700; margin:0 6px 10px; }
+  .o .grp { color:#55555b; font-size:9.5px; text-transform:uppercase; letter-spacing:.8px; margin:10px 6px 4px; }
+  .o .nav { padding:5px 8px; color:#6f6f76; border-radius:0 6px 6px 0; display:flex; align-items:center; gap:6px; }
+  .o .nav.on { color:#ececee; box-shadow:inset 2px 0 0 #ff5a1f; }
+  .o .nav .n { margin-left:auto; color:#55555b; font-size:10px; }
+  .o .main { width:640px; flex-shrink:0; padding:16px 18px; display:flex; flex-direction:column; gap:12px; overflow:hidden; }
+  .o .h { font-size:15px; font-weight:700; color:#f2f2f4; display:flex; align-items:baseline; gap:10px; }
+  .o .sub { color:#6f6f76; font-weight:400; font-size:11px; }
+  .o .muted { color:#55555b; }
+  .o .k { color:#55555b; font-size:9.5px; text-transform:uppercase; letter-spacing:.8px; }
+  .o .row { display:flex; gap:10px; }
+  .o .tile { flex:1; border:1px solid #1c1c20; border-radius:10px; padding:10px 12px; }
+  .o .big { font-size:22px; font-weight:700; color:#f2f2f4; line-height:1.1; margin-top:3px; }
+  .o .bar { height:5px; border-radius:3px; overflow:hidden; display:flex; background:#17171a; margin-top:6px; }
+  .o .bar span { display:block; height:100%; }
+  .o .l { background:#27b868; } .o .y { background:#d9a92e; } .o .r { background:#e04343; } .o .p { background:#a07ce0; }
+  .o .sync { border:1.5px solid #ff5a1f; border-radius:12px; padding:14px 16px; display:flex; align-items:center; gap:16px; background:linear-gradient(90deg, rgba(255,90,31,.07), transparent 60%); }
+  .o .sync .btn { border:1.5px solid #ff5a1f; color:#ff8a5a; border-radius:9px; padding:9px 18px; font-weight:700; font-size:13px; white-space:nowrap; }
+  .o .chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+  .o .chip { border:1px solid #26262b; border-radius:20px; padding:2px 9px; color:#9a9aa0; }
+  .o .chip b { color:#f2f2f4; }
+  .o .folder { display:grid; grid-template-columns:100px 1fr 70px; gap:10px; align-items:center; padding:5px 0; border-bottom:1px solid #0e0e11; }
+  .o .folder .bar { margin-top:0; height:6px; }
+  .o .need { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid #0e0e11; }
+  .o .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .o .link { color:#ff8a5a; margin-left:auto; }
+  .o .right { flex:1; border-left:1px solid #1a1a1d; padding:16px 18px; display:flex; flex-direction:column; gap:10px; min-width:260px; }
+  .o .run { border:1px solid #1c1c20; border-radius:10px; padding:9px 11px; display:flex; flex-direction:column; gap:3px; }
+  .o .run .t { color:#f2f2f4; font-weight:700; }
+  .o .ok { color:#2fd27a; } .o .warn { color:#e8b93a; } .o .bad { color:#ff6b6b; } .o .pur { color:#c49bff; }
+</style>
+
+<h2>Dashboard</h2>
+<p class="subtitle">The home screen. Left the four questions "how is my library doing, what would a sync do, what needs me, what does each folder look like"; right the last runs. Tell me in the terminal what fits and what you'd change.</p>
+
+<div class="o">
+  <div class="body">
+    <div class="side">
+      <div class="brand">● Discjockey</div>
+      <div class="nav on">◉ Dashboard</div><div class="nav">⟳ Sync</div><div class="nav">✓ To-do<span class="n">17</span></div><div class="nav">≡ Playlists</div><div class="nav">◔ Qobuz usage</div>
+      <div class="grp">Library</div>
+      <div class="nav">All tracks<span class="n">306</span></div><div class="nav">Hard_Bounce<span class="n">49</span></div><div class="nav">Powertrance<span class="n">40</span></div><div class="nav">Bouncy<span class="n">26</span></div><div class="nav">03_06_2026<span class="n">62</span></div><div class="nav">Tekke_Ecke<span class="n">31</span></div>
+    </div>
+
+    <div class="main">
+      <div class="h">Good evening <span class="sub">Spotify read 2 min ago · ↻</span></div>
+
+      <div class="row">
+        <div class="tile"><div class="k">Lossless</div><div class="big">74 %</div><div class="muted">226 of 306 tracks</div><div class="bar"><span class="l" style="width:74%"></span><span class="y" style="width:16%"></span><span class="r" style="width:8%"></span><span class="p" style="width:2%"></span></div></div>
+        <div class="tile"><div class="k">Qobuz today</div><div class="big">37 <span class="muted" style="font-size:13px;font-weight:400">of 80</span></div><div class="muted">60 + 20 carried over</div><div class="bar"><span style="width:46%;background:#ff5a1f"></span></div></div>
+        <div class="tile"><div class="k">Still to load</div><div class="big">12</div><div class="muted">fits into today</div></div>
+      </div>
+
+      <div class="sync">
+        <div style="flex:1">
+          <div style="color:#f2f2f4;font-weight:700;font-size:14px">Ready to sync</div>
+          <div class="chips"><span class="chip"><b>12</b> new</span><span class="chip"><b>3</b> moves</span><span class="chip"><b>1</b> bought file</span><span class="chip"><b>5</b> weekly checks</span></div>
+          <div class="muted" style="margin-top:6px">approx. 25 min · uses ~17 of 43 Qobuz downloads left today</div>
+        </div>
+        <span class="btn">Review &amp; start →</span>
+      </div>
+
+      <div>
+        <div class="k" style="margin-bottom:4px">Needs you</div>
+        <div class="need"><span class="dot" style="background:#2fd27a"></span><b style="color:#f2f2f4">3 upgrades ready</b><span class="muted">2 can be swapped (cues stay)</span><span class="link">Review →</span></div>
+        <div class="need"><span class="dot" style="background:#ff6b6b"></span><b style="color:#f2f2f4">3 not found</b><span class="muted">buy links ready</span><span class="link">Open →</span></div>
+        <div class="need"><span class="dot" style="background:#ff6b6b"></span><b style="color:#f2f2f4">4 weak versions</b><span class="muted">audibly lossy (≤ 17 kHz)</span><span class="link">Open →</span></div>
+      </div>
+
+      <div>
+        <div class="k" style="margin-bottom:2px">Folders</div>
+        <div class="folder"><span>Hard_Bounce</span><div class="bar"><span class="l" style="width:82%"></span><span class="y" style="width:12%"></span><span class="r" style="width:6%"></span></div><span class="muted">49 · 82 %</span></div>
+        <div class="folder"><span>Powertrance</span><div class="bar"><span class="l" style="width:64%"></span><span class="y" style="width:26%"></span><span class="r" style="width:10%"></span></div><span class="muted">40 · 64 %</span></div>
+        <div class="folder"><span>Bouncy</span><div class="bar"><span class="l" style="width:91%"></span><span class="y" style="width:9%"></span></div><span class="muted">26 · 91 %</span></div>
+        <div class="folder"><span>03_06_2026</span><div class="bar"><span class="l" style="width:58%"></span><span class="y" style="width:30%"></span><span class="r" style="width:12%"></span></div><span class="muted">62 · 58 %</span></div>
+      </div>
+    </div>
+
+    <div class="right">
+      <div class="k">Last runs</div>
+      <div class="run"><span class="t">Yesterday 21:47 · 24 min</span><span><span class="ok">9 lossless</span> · <span class="warn">2 lossy</span> · <span class="bad">2 problems</span> · 3 moved</span><span class="link" style="margin-left:0">Open →</span></div>
+      <div class="run"><span class="t">Mon 13 Oct · 1 h 32 min</span><span><span class="ok">54 lossless</span> · <span class="warn">6 lossy</span> · <span class="bad">1 problem</span></span><span class="muted">stopped by you after 61 tracks</span></div>
+      <div class="run"><span class="t">Sun 12 Oct · 1 h 18 min</span><span><span class="ok">58 lossless</span> · <span class="warn">2 lossy</span></span></div>
+      <span class="muted">All runs →</span>
+      <div style="margin-top:auto" class="run"><span class="t">Next weekly checks</span><span class="muted">5 lossy tracks are checked for a lossless version in the next sync (Qobuz only, they wait for you)</span></div>
+    </div>
+  </div>
+</div>
+
+</body>

@@ -1,0 +1,95 @@
+# The checks every push and pull request must pass: the public check, the Python tests (with the pinned ffmpeg,
+# ffprobe and deno the app ships, so nothing skips), and the hub-ui check. Runs only in the public repository.
+# Actions are pinned by commit SHA (version in the comment): a moved tag must not run new code here.
+# The checking steps (public check, uv, tools, Python tests, node) are written twice on purpose: release.yml repeats them (and
+# tests/test_workflows.py pins both copies). Change one, change the other.
+# `push` runs on every branch and `pull_request` on every PR: a same-repo PR is checked twice. That is kept so a
+# branch is checked before its PR exists; `concurrency` below cancels the older of two runs on the same ref.
+name: check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    if: github.repository == 'TheZwiss/discjockey'
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false  # no token left in .git/config while third-party code runs
+
+      # Twin of the "Public check" step in release.yml (which always requires the denylist; this one falls back for forks).
+      # The denylist is a secret: pull requests from forks don't get it and still get the generic rules.
+      - name: Public check
+        env:
+          PUBLIC_CHECK_DENYLIST: ${{ secrets.PUBLIC_CHECK_DENYLIST }}
+        run: |
+          if [ -n "$PUBLIC_CHECK_DENYLIST" ]; then
+            umask 077
+            trap 'rm -f "$RUNNER_TEMP/denylist.txt"' EXIT  # the denylist is not kept for the later steps
+            printf '%s\n' "$PUBLIC_CHECK_DENYLIST" > "$RUNNER_TEMP/denylist.txt"
+            DISCJOCKEY_PUBLIC_DENYLIST="$RUNNER_TEMP/denylist.txt" scripts/check_public.sh --require-denylist
+          else
+            echo "No denylist secret here (a pull request from a fork?): only the generic rules run."
+            scripts/check_public.sh
+          fi
+
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.11.28"
+
+      - run: uv sync --frozen
+
+      # ffmpeg, ffprobe and deno as the app ships them (hash-pinned in packaging/tools.json; ffmpeg and ffprobe are
+      # built from FFmpeg's source on a cache miss, a few minutes); without them the audio, acquire, ops, quality
+      # and self-test tests skip.
+      - name: Cache the pinned tools
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: dist/cache
+          key: tools-${{ runner.os }}-${{ hashFiles('packaging/tools.json', 'packaging/build_ffmpeg.sh', 'packaging/fetch_tools.py') }}
+
+      - name: Fetch the pinned tools
+        run: |
+          uv run --frozen python packaging/fetch_tools.py --out dist/tools --cache dist/cache
+          echo "$GITHUB_WORKSPACE/dist/tools/bin" >> "$GITHUB_PATH"
+
+      - name: Python tests
+        run: uv run --frozen pytest -q
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "25"
+          cache: npm
+          cache-dependency-path: hub-ui/package-lock.json
+
+      # Twin of the "hub-ui check" step in release.yml.
+      - name: hub-ui check
+        working-directory: hub-ui
+        run: |
+          npm ci
+          npx playwright install webkit
+          npm run verify
+
+      # The check build_app.sh does in its step 1, here too, so a stale discjockey/hub/static fails the push and not
+      # only the release: build hub-ui into a temporary folder and compare it with the committed output.
+      - name: Committed hub/static is what hub-ui builds
+        run: |
+          (cd hub-ui && npm run build --silent -- --outDir "$RUNNER_TEMP/ui" --emptyOutDir --logLevel warn)
+          if ! diff -rq "$RUNNER_TEMP/ui" discjockey/hub/static; then
+            echo "::error::discjockey/hub/static is not what hub-ui builds now: run 'cd hub-ui && npm run build' and commit it (build(hub): static)"
+            exit 1
+          fi

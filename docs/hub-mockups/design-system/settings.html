@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings and Setup – design system</title>
+<style>
+  body { margin: 0; padding: 24px; background: #111; color: #9a9aa0; font: 13px -apple-system, sans-serif; }
+  .bar { position: sticky; top: 0; z-index: 5; background: #111; padding: 0 0 14px; display: flex; flex-wrap: wrap; gap: 14px 18px; align-items: center; }
+  .bar h2 { margin: 0; color: #f2f2f4; font-size: 15px; }
+  .pick { display: inline-flex; border: 1px solid #333; border-radius: 8px; overflow: hidden; }
+  .pick button { background: none; border: 0; border-left: 1px solid #333; color: #9a9aa0; font: 12px -apple-system; padding: 6px 12px; cursor: pointer; }
+  .pick button:first-child { border-left: 0; }
+  .pick button.on { background: rgba(255,90,31,.16); color: #ff8a5a; }
+  .opt { margin: 26px 0 8px; color: #f2f2f4; font-size: 15px; font-weight: 700; }
+  .why { max-width: 1100px; margin: 0 0 12px; line-height: 1.55; }
+  .why b { color: #dcdce0; }
+  .stage { overflow: hidden; }
+
+  /* ---- look 2 tokens (tokens.css) ---- */
+  .win { --bg: #000; --sb-bg: linear-gradient(#0b0b0d, #070708); --sb-line: rgba(255,255,255,.06); --panel-bg: #040405; --text: #dcdce0; --text-strong: #f4f4f6; --muted: #9a9aa2; --label: #5c5c64; --nav: #7c7c84;
+    --accent: #ff5a1f; --accent-text: #ff8a5a; --ctl-line: rgba(255,255,255,.09); --ctl-bg: rgba(255,255,255,.03); --hover: rgba(255,255,255,.035);
+    --list-bg: linear-gradient(#0c0c0e, #08080a); --list-solid: #0b0b0d; --list-line: rgba(255,255,255,.06); --row-line: rgba(255,255,255,.045);
+    --card-bg: linear-gradient(#0f0f12, #0a0a0c); --card-line: rgba(255,255,255,.07); --card-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.6);
+    --good: #2fd27a; --ok: #e8b93a; --weak: #f0524a; --wait: #e8b93a; --input: #070709;
+    transform-origin: 0 0; display: flex; overflow: hidden; border-radius: 12px; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; background: var(--bg); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  .win * { box-sizing: border-box; }
+  .sb { width: 168px; flex: none; padding: 16px 10px; background: var(--sb-bg); border-right: 1px solid var(--sb-line); display: flex; flex-direction: column; gap: 2px; }
+  .brand { color: #9a9aa0; font-weight: 700; padding: 0 8px 14px; display: flex; gap: 6px; align-items: center; }
+  .brand i { width: 8px; height: 8px; border-radius: 50%; background: #9a9aa0; }
+  .nav { display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 8px; border-radius: 7px; color: var(--nav); }
+  .nav .g { width: 14px; text-align: center; opacity: .8; font-size: 12px; }
+  .nav .c { margin-left: auto; font-size: 11px; color: var(--label); }
+  .nav.on { color: var(--text-strong); background: rgba(255,255,255,.07); }
+  .sbcap { font-size: 10.5px; letter-spacing: .7px; text-transform: uppercase; color: var(--label); padding: 16px 8px 6px; }
+
+  .main { flex: 1; min-width: 0; overflow-y: auto; display: flex; justify-content: center; }
+  .col { width: 100%; max-width: 900px; padding: 20px 22px 28px; display: flex; flex-direction: column; gap: 14px; }
+  .col > * { flex: none; }
+  .hd { display: flex; align-items: center; gap: 10px; min-height: 34px; }
+  .hd h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-strong); letter-spacing: -.02em; }
+  .hd .st { color: var(--muted); font-size: 12px; flex: 1; padding-top: 5px; }
+  .btn2 { border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--text); border-radius: 8px; height: 30px; padding: 0 11px; font: 600 12px -apple-system; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+  .btn2.pri { border-color: rgba(255,90,31,.55); color: var(--accent-text); }
+  .btn2.fill { background: linear-gradient(#ff6a30, #f2521a); border: 0; color: #000; box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 4px 14px rgba(255,90,31,.22); }
+  .btn2:disabled { opacity: .45; }
+  .lnk { color: var(--accent-text); font-size: 12px; white-space: nowrap; cursor: pointer; }
+  .lnk.dim { color: var(--muted); }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+  .card { border-radius: 12px; background: var(--card-bg); border: 1px solid var(--card-line); box-shadow: var(--card-shadow); padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .card.good { border-color: rgba(47,210,122,.28); background: linear-gradient(rgba(47,210,122,.07), rgba(47,210,122,.02)); }
+  .card.warn { border-color: rgba(232,185,58,.28); background: linear-gradient(rgba(232,185,58,.07), rgba(232,185,58,.02)); }
+  .card.bad { border-color: rgba(240,82,74,.3); background: linear-gradient(rgba(240,82,74,.07), rgba(240,82,74,.02)); }
+  .card.act { border-color: rgba(255,90,31,.22); }
+  .ch { display: flex; align-items: center; gap: 8px; }
+  .ch b { color: var(--text-strong); font-size: 13px; font-weight: 600; flex: 1; }
+  .lbl { color: var(--label); font-size: 11px; }
+  .clbl { color: var(--label); font-size: 10.5px; letter-spacing: .7px; text-transform: uppercase; }
+  .sub { color: var(--muted); font-size: 12px; line-height: 1.45; }
+  .txt { color: var(--text); font-size: 12.5px; line-height: 1.45; }
+  .hint { font-size: 12px; color: var(--muted); }
+  .bign { font-size: 30px; font-weight: 700; color: var(--text-strong); line-height: 1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .bign small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .info { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--ctl-line); color: var(--muted); font: 600 10px -apple-system; display: inline-grid; place-items: center; flex: none; }
+
+  /* StatusMark */
+  .mk { width: 16px; height: 16px; flex: none; display: inline-grid; place-items: center; font: 700 10px -apple-system; border-radius: 50%; }
+  .mk.good { background: var(--good); color: #000; }
+  .mk.warn { background: var(--ok); color: #000; border-radius: 3px; transform: rotate(45deg) scale(.82); }
+  .mk.warn span { transform: rotate(-45deg); display: block; }
+  .mk.problem { background: var(--weak); color: #000; border-radius: 3px; }
+  .mk.none { color: var(--label); border: 1px dashed rgba(255,255,255,.18); }
+  .mk.spin { border: 2px solid rgba(255,255,255,.12); border-top-color: var(--accent); animation: sp 900ms linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+
+  /* list */
+  .surf { border-radius: 12px; background: var(--list-bg); border: 1px solid var(--list-line); min-width: 0; overflow: hidden; }
+  .sec { display: flex; align-items: baseline; gap: 8px; height: 32px; padding: 9px 14px 0; background: #0d0d10; border-top: 1px solid var(--row-line); border-bottom: 1px solid var(--row-line); }
+  .surf > .sec:first-child { border-top: 0; }
+  .sec b { color: var(--text); font-size: 12px; font-weight: 600; }
+  .sec .h { color: var(--label); font-size: 12px; }
+  .row { display: grid; grid-template-columns: 18px minmax(0, 1fr) 16px; align-items: center; column-gap: 12px; height: 48px; padding: 0 14px; border-top: 1px solid var(--row-line); cursor: pointer; position: relative; }
+  .sec + .row { border-top: 0; }
+  .row:hover { background: var(--hover); }
+  .row.sel { background: rgba(255,90,31,.08); }
+  .row.sel::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--accent); }
+  .ic { color: var(--muted); font-size: 13px; text-align: center; }
+  .two { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .nm { color: var(--text-strong); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .s { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ---- SourceLadder ---- */
+  .lad { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .rung { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; column-gap: 12px; align-items: center; padding: 5px 0; min-height: 44px; position: relative; }
+  .lad.compact .rung { min-height: 40px; }
+  .rung .node { align-self: start; margin-top: 4px; width: 12px; height: 12px; border-radius: 50%; justify-self: center; background: var(--c); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 18%, transparent); z-index: 1; transition: background 200ms, box-shadow 200ms; }
+  .rung.off .node { background: #000; border: 1.5px solid #3a3a40; box-shadow: none; }
+  /* the connector to the next rung: solid in the rung's colour, dashed grey past an off rung */
+  .rung:not(:last-child)::after { content: ''; position: absolute; left: 9px; top: 23px; bottom: -7px; border-left: 2px solid var(--line, #2a2a30); }
+  .rung.lit:not(:last-child)::after { --line: color-mix(in srgb, var(--c) 55%, #2a2a30); }
+  .rung.off::after, .rung.before-off::after { border-left-style: dashed !important; --line: #34343a; }
+  .rung .rn { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .rung .rn b { color: var(--text-strong); font-weight: 600; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rung .rn span { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rung.off .rn b { color: var(--label); font-weight: 500; }
+  .rung.off .rn span { color: #45454c; }
+  .rung .q { align-self: start; font: 600 10.5px -apple-system; letter-spacing: .3px; padding: 2px 6px; border-radius: 5px; border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); color: var(--c); white-space: nowrap; }
+  .rung.off .q { border-color: #2a2a30; color: #45454c; }
+  .chips { display: flex; gap: 6px; margin: 4px 0 2px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--text); font: 500 11.5px -apple-system; white-space: nowrap; cursor: pointer; }
+  .chip.off { color: var(--label); border-style: dashed; }
+  .chip .mk { width: 12px; height: 12px; font-size: 8px; }
+  .ladline { display: flex; gap: 8px; align-items: baseline; border-top: 1px solid var(--row-line); padding-top: 10px; }
+  .ladline .hint { color: var(--text); }
+
+  /* panel */
+  .panel { flex: none; background: var(--panel-bg); border-left: 1px solid var(--sb-line); padding: 20px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+  .pbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-bottom: 12px; -webkit-mask-image: linear-gradient(#000 calc(100% - 20px), transparent); }
+  .pbody > * { flex: none; }
+  .go { background: linear-gradient(#ff6a30, #f2521a); color: #000; font: 700 14px -apple-system; text-align: center; padding: 11px; border-radius: 10px; border: 0; box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 4px 14px rgba(255,90,31,.22); cursor: pointer; flex: none; }
+  .go2 { flex: none; text-align: center; padding: 10px; border-radius: 10px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--text); font: 600 13px -apple-system; }
+  .ptitle { display: flex; align-items: center; gap: 8px; }
+  .ptitle h3 { margin: 0; color: var(--text-strong); font-size: 15px; font-weight: 600; }
+  .gainbar { display: grid; grid-template-columns: 44px minmax(0, 1fr) 54px; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); }
+  .gainbar i { display: block; height: 6px; border-radius: 3px; background: var(--c); }
+  .gainbar b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; text-align: right; }
+  .stateln { display: flex; gap: 10px; align-items: flex-start; }
+  .stateln .mk { margin-top: 1px; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { color: var(--label); font-size: 11px; }
+  .input { height: 32px; border-radius: 8px; border: 1px solid var(--ctl-line); background: var(--input); color: var(--muted); font-size: 12.5px; display: flex; align-items: center; padding: 0 10px; }
+  .input.has { color: var(--text-strong); }
+  .steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; counter-reset: s; }
+  .steps li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; align-items: start; font-size: 12.5px; color: var(--text); line-height: 1.45; counter-increment: s; }
+  .steps li::before { content: counter(s); width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--ctl-line); color: var(--muted); font: 600 11px -apple-system; display: grid; place-items: center; }
+  .steps li .btns { margin-top: 6px; }
+  .menu { border-radius: 10px; background: #141418; border: 1px solid var(--card-line); box-shadow: 0 10px 30px rgba(0,0,0,.6); padding: 4px; display: flex; flex-direction: column; }
+  .menu div { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 10px; padding: 7px 10px; border-radius: 6px; font-size: 12.5px; color: var(--text); }
+  .menu div:hover { background: var(--hover); }
+  .menu div span { color: var(--label); font-size: 11.5px; }
+  .menu div span.g { color: var(--good); }
+  .tool { display: grid; grid-template-columns: 16px 70px minmax(0, 1fr) auto; gap: 10px; align-items: center; height: 36px; border-top: 1px solid var(--row-line); font-size: 12.5px; }
+  .tool:first-of-type { border-top: 0; }
+  .tool b { color: var(--text-strong); font-weight: 600; }
+  .tool .v { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .fold { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+
+  /* ---- Setup ---- */
+  .setup { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .setup .main { flex: 1; }
+  .strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+  .strip div { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--label); font-size: 12px; white-space: nowrap; overflow: hidden; }
+  .strip div i { font-style: normal; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #3a3a40; display: grid; place-items: center; font: 700 10px -apple-system; flex: none; }
+  .strip div.done { color: var(--muted); }
+  .strip div.done i { border-color: var(--good); color: var(--good); }
+  .strip div.now { color: var(--text-strong); border-color: rgba(255,90,31,.5); background: rgba(255,90,31,.08); }
+  .strip div.now i { border-color: var(--accent); color: var(--accent-text); }
+  .two-col { display: grid; grid-template-columns: 372px minmax(0, 1fr); gap: 14px; align-items: start; }
+  .stack { display: flex; flex-direction: column; gap: 10px; }
+  .foot { flex: none; border-top: 1px solid var(--sb-line); display: flex; justify-content: center; }
+  .foot .in { width: 100%; max-width: 900px; padding: 12px 22px; display: flex; align-items: center; gap: 12px; }
+  .foot .hint { flex: 1; text-align: right; }
+  .compacthead { display: flex; align-items: center; gap: 8px; }
+  .compacthead b { color: var(--text-strong); font-size: 13px; font-weight: 600; }
+  .compacthead .s { flex: 1; }
+</style>
+</head><body>
+
+<div class="bar">
+  <h2>Settings and Setup</h2>
+  <span>Window <span class="pick" id="size"><button data-v="1100">1100 × 700</button><button data-v="1280" class="on">1280 × 800</button><button data-v="2560">2560 × 1440</button></span></span>
+  <span>Page <span class="pick" id="page"><button data-v="settings" class="on">Settings</button><button data-v="setup">Setup · Downloads step</button></span></span>
+  <span>Accounts <span class="pick" id="acc"><button data-v="none">Nothing</button><button data-v="qobuz" class="on">Qobuz only</button><button data-v="all">Qobuz + YouTube Premium</button></span></span>
+  <span>Row <span class="pick" id="row"><button data-v="qobuz">Qobuz</button><button data-v="youtube" class="on">YouTube Premium</button><button data-v="spotify">Spotify</button><button data-v="programs">Programs</button></span></span>
+  <span>YouTube panel <span class="pick" id="yt"><button data-v="found" class="on">Login found</button><button data-v="none">No login</button><button data-v="waiting">Waiting</button><button data-v="menu">Another browser ▾</button><button data-v="nopremium">No Premium</button><button data-v="safari">Safari, no access</button></span></span>
+  <span>Qobuz panel <span class="pick" id="qb"><button data-v="form" class="on">Sign in</button><button data-v="google">Google account</button></span></span>
+</div>
+
+<div class="opt">Before: what's wrong</div>
+<p class="why"><b>Settings</b> is three loose cards: "Run setup again" walks the whole wizard to change one login, nothing shows what's set up, and its title sits at x 188 while every other page's sits at 754. <b>Setup</b> builds its own step list and titles, and "More sources" asks the DJ to pick a browser blind and press "Check and use", with the risk text as a grey box under everything. Nothing says what a login gives: a DJ with only Qobuz never learns that songs Qobuz doesn't have come in at about 130 kbps. Qobuz with a Google account needs the browser's JavaScript console, and that way no longer works at all.</p>
+
+<div class="opt">After: one home for every login, and what each one gives</div>
+<p class="why"><b>Settings</b> (list + panel, like every page): the <b>source ladder</b> on top shows where music comes from, best first. A rung lights up in its quality colour when it works; a rung that doesn't is greyed, and the line past it is dashed: the download skips it. The one line under it says what the setup means. Below, every login and option is a row with its state and a status mark; the panel shows the picked row. <b>An account panel</b> says what it gives (a number with a bar: 256 against 130 kbps, and how many of your tracks came at 130), its state, then the sign-in: Discjockey looks through your browsers for a login (no macOS prompts) → <b>Use this login</b>; none → <b>Sign in</b> opens the sign-in page in your default browser and waits until you're in, then checks one song. Another browser or profile is a menu. The risk text moves behind the ⓘ. <b>Qobuz</b>: email and password; a Google, Apple or Facebook account sets a Qobuz password once (three steps, the first opens Qobuz's page). <b>Setup</b> uses the same ladder and the same panels (compact cards), with the ladder beside them so it lights up as you sign in; one filled button at a time.</p>
+<div class="stage"></div>
+
+<script>
+(function () {
+  let size = 1280, page = 'settings', acc = 'qobuz', row = 'youtube', yt = 'found', qb = 'form';
+  const ytOn = () => acc === 'all';
+  const qOn = () => acc !== 'none';
+
+  const mk = (tone, t = '') => `<span class="mk ${tone}">${tone === 'warn' ? '<span>!</span>' : tone === 'good' ? '✓' : tone === 'problem' ? '!' : tone === 'none' ? '' : t}</span>`;
+
+  function ladder(compact) {
+    const q = qOn(), y = ytOn();
+    const r = (cls, c, name, words, badge, extra = '') => `<li class="rung ${cls}" style="--c:var(${c})"><span class="node"></span><span class="rn"><b>${name}</b><span>${words}</span>${extra}</span><span class="q">${badge}</span></li>`;
+    const chip = (on, name) => `<span class="chip${on ? '' : ' off'}">${on ? mk('good') : mk('none')}${name}</span>`;
+    const line = q && y ? "Songs Qobuz doesn't have come in at about 256 kbps through YouTube Premium."
+      : q ? "Songs Qobuz doesn't have come from free YouTube at about 130 kbps."
+      : 'Without Qobuz or an account, most songs come in at about 130 kbps.';
+    return `<div class="card"><div class="ch"><b>Where your music comes from</b><span class="lbl">best first</span></div>
+      <ol class="lad${compact ? ' compact' : ''}">
+        ${r((q ? 'lit' : 'off'), '--good', 'Qobuz', q ? 'signed in' : 'not signed in', 'LOSSLESS')}
+        ${r('lit' + (y ? '' : ' before-off'), '--good', "The artist's own file", compact ? 'no login needed' : 'SoundCloud download button · no login needed', 'OFTEN LOSSLESS')}
+        ${r((y ? 'lit' : 'off'), '--ok', 'Premium streams', y ? 'through YouTube Premium' : compact ? 'needs Premium or Go+' : 'needs YouTube Premium or SoundCloud Go+', '~256 KBPS', `<span class="chips">${chip(y, 'YouTube')}${chip(false, 'SoundCloud')}</span>`)}
+        ${r('lit', '--weak', 'Free streams', compact ? 'the last resort' : 'YouTube Music, SoundCloud, YouTube · the last resort', '~130 KBPS')}
+      </ol>
+      <div class="ladline"><span class="hint">${line}</span></div></div>`;
+  }
+
+  // ---- Settings ----
+  const ROWS = () => [
+    ['Downloads', null, [
+      ['qobuz', '◆', 'Qobuz', qOn() ? 'signed in · checked today' : 'not set up', qOn() ? 'good' : 'none'],
+      ['youtube', '▶', 'YouTube Premium', ytOn() ? 'via Chrome · 256 kbps · checked today' : 'not set up', ytOn() ? 'good' : 'none'],
+      ['soundcloud', '☁', 'SoundCloud Go+', 'not set up', 'none']]],
+    ['Spotify', null, [['spotify', '♫', 'Spotify', 'connected as Sam Rivers · reads 8 playlists', 'good']]],
+    ['This Mac', null, [
+      ['programs', '⌘', 'Programs', 'all there · yt-dlp 2026.10.10', 'good'],
+      ['dock', '▣', 'Dock icon', 'in Applications', 'good'],
+      ['reports', '☰', 'Reports', '23 sync reports', null]]],
+  ];
+  function list() {
+    return `<div class="surf">${ROWS().map(([g, h, rows]) => `<div class="sec"><b>${g}</b>${h ? `<span class="h">${h}</span>` : ''}</div>` +
+      rows.map(([id, ic, nm, s, tone]) => `<div class="row${id === row ? ' sel' : ''}"><span class="ic">${ic}</span><span class="two"><span class="nm">${nm}</span><span class="s">${s}</span></span>${tone ? mk(tone) : '<span></span>'}</div>`).join('')).join('')}</div>`;
+  }
+  const sidebar = () => `<div class="sb"><div class="brand"><i></i>Discjockey</div>
+    <div class="nav"><span class="g">◉</span>Dashboard</div><div class="nav"><span class="g">⟳</span>Sync</div><div class="nav"><span class="g">✓</span>To-do<span class="c">18</span></div>
+    <div class="nav"><span class="g">≡</span>Playlists</div><div class="nav"><span class="g">◔</span>Download limits</div><div class="sbcap">Library</div>
+    <div class="nav">All tracks<span class="c">412</span></div><div class="nav">Hard_Bounce<span class="c">120</span></div><div class="nav">Powertrance<span class="c">96</span></div>
+    <div class="nav on" style="margin-top:auto"><span class="g">⚙</span>Settings</div></div>`;
+
+  const gain = (now, then) => `<div class="card"><div><div class="bign">${now}<small> kbps</small></div><div class="lbl" style="margin-top:4px">with Premium · about ${then} without</div></div>
+      <div class="gainbar"><span>Premium</span><i style="--c:var(--ok);width:100%"></i><b>${now}</b></div>
+      <div class="gainbar"><span>Free</span><i style="--c:var(--weak);width:${Math.round(then / now * 100)}%"></i><b>${then}</b></div>
+      <div class="sub">For songs Qobuz doesn't have. <span style="color:var(--text)">31 of your tracks</span> came from free streams at about 130 kbps.</div></div>`;
+
+  function ytPanel(compact) {
+    const t = `<div class="ptitle"><h3>YouTube Premium</h3><span class="info">i</span></div>`;
+    if (ytOn()) return { body: `${compact ? '' : t + gain(256, 130)}<div class="card good"><div class="stateln">${mk('good')}<div class="two"><span class="txt">Signed in via Chrome · 256 kbps</span><span class="sub">checked today 10:42</span></div></div>
+        <div class="btns"><button class="btn2">Check again</button><button class="btn2">Use another browser ▾</button><span style="flex:1"></span><span class="lnk dim">Sign out</span></div></div>`, foot: '' };
+    const state = '';
+    const nos = `<div class="stateln">${mk('none')}<span class="txt">Not set up yet</span></div>`;
+    let card, foot = '';
+    if (yt === 'found') {
+      card = `<div class="card act"><div class="stateln">${mk('good')}<div class="two"><span class="txt">Found your YouTube login in <b style="color:var(--text-strong)">Chrome</b></span><span class="sub">Use it, and Discjockey checks one song for the 256 kbps.</span></div></div>
+        <div class="sub">macOS will ask about “Chrome Safe Storage” once. Click <b style="color:var(--text)">Always Allow</b>.</div>
+        <div class="btns"><button class="btn2">Use another browser ▾</button></div></div>`;
+      foot = 'Use this login';
+    } else if (yt === 'none') {
+      card = `<div class="card">${nos}<div class="txt">No YouTube login found in Chrome or Safari.</div>
+        <div class="sub">Sign in opens YouTube in Chrome, your default browser. Discjockey notices the login by itself.</div>
+        <div class="btns"><button class="btn2">Use another browser ▾</button></div></div>`;
+      foot = 'Sign in';
+    } else if (yt === 'waiting') {
+      card = `<div class="card act"><div class="stateln">${mk('spin')}<div class="two"><span class="txt">Waiting for you to sign in in Chrome…</span><span class="sub">Sign in in the window that just opened. You can come back here; Discjockey keeps watching for 10 minutes.</span></div></div>
+        <div class="btns"><button class="btn2">Cancel</button></div></div>`;
+    } else if (yt === 'menu') {
+      card = `<div class="card">${nos}<div class="txt">No YouTube login found in Chrome or Safari.</div>
+        <div class="btns"><button class="btn2 pri">Use another browser ▾</button></div>
+        <div class="menu"><div>Chrome · Person 1<span>default browser</span></div><div>Chrome · Work<span>not signed in</span></div><div>Safari<span>needs Full Disk Access</span></div></div></div>`;
+      foot = 'Sign in';
+    } else if (yt === 'nopremium') {
+      return { body: `${compact ? '' : t + gain(256, 130)}<div class="card warn"><div class="stateln">${mk('warn')}<div class="two"><span class="txt">Signed in, but YouTube gives this account no Premium formats (160 kbps).</span><span class="sub">Discjockey keeps using YouTube Music without the login. Checked today 10:42.</span></div></div>
+        <div class="btns"><button class="btn2">Check again</button><button class="btn2">Use another browser ▾</button></div></div>`, foot: '' };
+    } else {
+      card = `<div class="card bad"><div class="stateln">${mk('problem')}<div class="two"><span class="txt">macOS didn't let Discjockey read Safari's logins.</span><span class="sub">Turn on Discjockey under Full Disk Access, then come back. Or use another browser.</span></div></div>
+        <div class="btns"><button class="btn2">Use another browser ▾</button></div></div>`;
+      foot = 'Open System Settings';
+    }
+    return { body: `${compact ? '' : t + gain(256, 130) + state}${card}`, foot };
+  }
+
+  function qobuzPanel(compact) {
+    const t = `<div class="ptitle"><h3>Qobuz</h3><span class="info">i</span></div>`;
+    const stat = `<div class="card"><div><div class="bign">412<small> lossless tracks</small></div><div class="lbl" style="margin-top:4px">came from Qobuz · 16-bit AIFF</div></div></div>`;
+    if (qOn()) return { body: `${compact ? '' : t + stat}<div class="card good"><div class="stateln">${mk('good')}<div class="two"><span class="txt">Signed in as dj@example.com</span><span class="sub">checked today 09:15</span></div></div>
+        <div class="btns"><button class="btn2">Check again</button><button class="btn2">Use another account</button></div></div>`, foot: '' };
+    const form = `<div class="card"><div class="field"><label>Email</label><div class="input">you@example.com</div></div>
+        <div class="field"><label>Password</label><div class="input">••••••••</div></div>
+        <div class="sub">Stored only on this Mac. Discjockey tests the login with one search.</div>
+        ${qb === 'form' ? `<span class="lnk">I sign in to Qobuz with Google, Apple or Facebook</span>` : ''}</div>`;
+    const google = qb === 'google' ? `<div class="card act"><div class="ch"><b>A Google, Apple or Facebook account</b></div>
+        <div class="sub">Discjockey signs in with email and password. Give your Qobuz account a password once; your Google sign-in keeps working.</div>
+        <ol class="steps"><li><span>Open Qobuz's page and enter your account's email.<div class="btns"><button class="btn2 pri">Set a Qobuz password ↗</button></div></span></li>
+        <li><span>Open the email from Qobuz and choose a password.</span></li><li><span>Sign in above with that email and password.</span></li></ol></div>` : '';
+    const skip = `<span class="lnk dim">I don't have Qobuz</span>`;
+    return { body: `${compact ? '' : t + stat}${form}${google}${compact ? '' : `<div>${skip}</div>`}`, foot: 'Sign in' };
+  }
+
+  function spotifyPanel() {
+    return { body: `<div class="ptitle"><h3>Spotify</h3></div>
+      <div class="card good"><div class="stateln">${mk('good')}<div class="two"><span class="txt">Connected as Sam Rivers</span><span class="sub">Discjockey reads your playlists from Spotify; it never changes them.</span></div></div>
+        <div class="btns"><button class="btn2">Connect again</button><span style="flex:1"></span><span class="lnk dim">Sign out</span></div></div>
+      <div class="card"><div class="fold">▸ <span>Spotify app (Client ID)</span></div></div>`, foot: '' };
+  }
+  function programsPanel() {
+    const tool = (n, w, v) => `<div class="tool">${mk('good')}<b>${n}</b><span class="sub">${w}</span><span class="v">${v}</span></div>`;
+    return { body: `<div class="ptitle"><h3>Programs</h3></div>
+      <div class="card"><div class="ch"><b>On this Mac</b><span class="lnk">Check again</span></div><div>${tool('ffmpeg', 'converts to AIFF', '')}${tool('ffprobe', 'checks length', '')}${tool('deno', 'helps YouTube', '')}</div></div>
+      <div class="card"><div class="ch"><b>Download tools</b></div><div>${tool('yt-dlp', 'YouTube, SoundCloud', '2026.10.10')}${tool('streamrip', 'Qobuz', '2.1.0')}</div>
+        <div class="sub">Update them when downloads stop working. Discjockey then asks you to open it again.</div></div>`, foot: 'Update download tools' };
+  }
+
+  function settingsPage(h, pw) {
+    const p = row === 'youtube' ? ytPanel(false) : row === 'qobuz' ? qobuzPanel(false) : row === 'spotify' ? spotifyPanel() : programsPanel();
+    const main = `<div class="main"><div class="col"><div class="hd"><h1>Settings</h1></div>${ladder(false)}${list()}</div></div>`;
+    return `${sidebar()}${main}<div class="panel" style="width:${pw}px"><div class="pbody">${p.body}</div>${p.foot ? `<button class="go">${p.foot}</button>` : ''}</div>`;
+  }
+
+  // ---- Setup: Downloads step ----
+  function compactCard(service) {
+    const q = service === 'qobuz';
+    const done = q ? qOn() : ytOn();
+    const need = q ? !qOn() : false;  // only Qobuz is required: the one filled button
+    const name = q ? 'Qobuz' : service === 'youtube' ? 'YouTube Premium' : 'SoundCloud Go+';
+    const what = q ? 'lossless for most songs' : 'about 256 kbps instead of 130';
+    const head = `<div class="compacthead">${done ? mk('good') : mk('none')}<b>${name}</b><span class="s">${done ? (q ? 'signed in' : 'via Chrome · 256 kbps') : what}</span>${q ? '' : '<span class="lbl">optional</span>'}<span class="info">i</span></div>`;
+    if (done) return `<div class="card good">${head}</div>`;
+    if (q) return `<div class="card">${head}<div class="field"><div class="input">you@example.com</div></div><div class="field"><div class="input">••••••••</div></div>
+        <div class="btns"><button class="btn2 ${need ? 'fill' : 'pri'}">Sign in</button><span style="flex:1"></span><span class="lnk">Google, Apple or Facebook account?</span><span class="lnk dim">I don't have Qobuz</span></div></div>`;
+    if (service === 'youtube') return `<div class="card">${head}<div class="sub">Found your YouTube login in <b style="color:var(--text)">Chrome</b>.</div><div class="btns"><button class="btn2 pri">Use this login</button><button class="btn2">Use another browser ▾</button></div></div>`;
+    return `<div class="card">${head}<div class="sub">No SoundCloud login found in Chrome or Safari.</div><div class="btns"><button class="btn2 pri">Sign in</button><button class="btn2">Use another browser ▾</button></div></div>`;
+  }
+  function setupPage() {
+    const st = [['Programs', 'done'], ['Spotify', 'done'], ['Downloads', 'now'], ['First playlist', ''], ['Dock icon', '']];
+    const strip = `<div class="strip">${st.map(([n, c], i) => `<div class="${c}"><i>${c === 'done' ? '✓' : i + 1}</i>${n}</div>`).join('')}</div>`;
+    const head = `<div class="hd"><h1>Set up Discjockey</h1><span class="st"></span><span class="lnk dim">Finish later</span></div>`;
+    const intro = `<div class="sub" style="margin-top:-6px">Sign in where you have an account. The ladder shows what each one gives.</div>`;
+    const body = `<div class="two-col"><div class="stack">${ladder(true)}</div><div class="stack">${compactCard('qobuz')}${compactCard('youtube')}${compactCard('soundcloud')}</div></div>`;
+    const cont = qOn() ? '<button class="btn2 fill">Continue</button>' : '<button class="btn2" disabled>Continue</button>';
+    const why = qOn() ? '' : 'Sign in to Qobuz, or choose I don’t have Qobuz.';
+    return `<div class="setup"><div class="main"><div class="col">${head}${strip}${body}</div></div>
+      <div class="foot"><div class="in"><button class="btn2">← Back</button><span class="hint">${why}</span>${cont}</div></div></div>`;
+  }
+
+  function render() {
+    const h = { 1100: 700, 1280: 800, 2560: 1440 }[size];
+    const pw = size < 1240 ? 320 : 360;
+    document.querySelectorAll('.stage').forEach((stg) => {
+      const scale = Math.min(1, (stg.clientWidth || document.body.clientWidth - 48) / size);
+      stg.style.height = h * scale + 'px';
+      stg.innerHTML = `<div class="win" style="width:${size}px;height:${h}px;transform:scale(${scale})">${page === 'settings' ? settingsPage(h, pw) : setupPage()}</div>`;
+    });
+  }
+  const wire = (id, set) => document.querySelectorAll(`#${id} button`).forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll(`#${id} button`).forEach((x) => x.classList.toggle('on', x === b)); set(b.dataset.v); render(); }));
+  wire('size', (v) => { size = +v; });
+  wire('page', (v) => { page = v; });
+  wire('acc', (v) => { acc = v; });
+  wire('row', (v) => { row = v; });
+  wire('yt', (v) => { yt = v; });
+  wire('qb', (v) => { qb = v; });
+  addEventListener('resize', render);
+  render();
+})();
+</script>
+</body></html>

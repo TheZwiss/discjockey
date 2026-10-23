@@ -1,0 +1,147 @@
+{"type": "JobStarted", "job_id": 1, "kind": "refresh", "track_id": null}
+{"type": "Message", "level": "info", "text": "Reading your Spotify playlists..."}
+{"type": "ReadingPlaylist", "index": 1, "total": 2, "folder": "Hard_Bounce"}
+{"type": "ReadingPlaylist", "index": 2, "total": 2, "folder": "Powertrance"}
+{"type": "JobFinished", "job_id": 1, "kind": "refresh", "ok": true, "problem": null, "message": "", "result": {"actions": 6}}
+{"type": "JobStarted", "job_id": 2, "kind": "sync", "track_id": null}
+{"type": "Message", "level": "info", "text": "Reading your Spotify playlists..."}
+{"type": "ReadingPlaylist", "index": 1, "total": 2, "folder": "Hard_Bounce"}
+{"type": "ReadingPlaylist", "index": 2, "total": 2, "folder": "Powertrance"}
+{"type": "Message", "level": "info", "text": "Looking up the bitrate of 1 older download..."}
+{"type": "RunStarted", "total": 6, "actions": [{"kind": "move", "track_id": "0VjIjW4GlUZAMYd2vXMi3b", "title": "THE WEEKEND", "artist": "DJ TALLBOY", "image_url": null}, {"kind": "acquire", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "title": "Gimme Gimme", "artist": "Vatoz Locoz", "image_url": null}, {"kind": "acquire", "track_id": "1301WleyT98MSxVHPZCA6M", "title": "Gone Track", "artist": "Some Artist", "image_url": null}, {"kind": "acquire", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "title": "non stop", "artist": "torbentorben", "image_url": null}, {"kind": "acquire", "track_id": "2takcwOaAZWiXQijPHIx7B", "title": "AEIOU", "artist": "Pegassi", "image_url": null}, {"kind": "upgrade", "track_id": "7ouMYWpwJ422jRcDASZB7P", "title": "Get Naughty", "artist": "Armin Hermann", "image_url": null}]}
+{"type": "ActionStarted", "index": 1, "total": 6, "action": {"kind": "move", "track_id": "0VjIjW4GlUZAMYd2vXMi3b", "folder": "Hard_Bounce", "track": {"id": "0VjIjW4GlUZAMYd2vXMi3b", "title": "THE WEEKEND", "artists": ["DJ TALLBOY"], "album": "Album", "image_url": null, "duration_ms": 12000, "isrc": null}, "order": [0, 1], "src": "Library/Bouncy/DJ TALLBOY - THE WEEKEND.aiff", "dest_dir": "Library/Hard_Bounce", "aliases": [], "reason": ""}}
+{"type": "ActionFinished", "action": {"kind": "move", "track_id": "0VjIjW4GlUZAMYd2vXMi3b", "folder": "Hard_Bounce", "track": {"id": "0VjIjW4GlUZAMYd2vXMi3b", "title": "THE WEEKEND", "artists": ["DJ TALLBOY"], "album": "Album", "image_url": null, "duration_ms": 12000, "isrc": null}, "order": [0, 1], "src": "Library/Bouncy/DJ TALLBOY - THE WEEKEND.aiff", "dest_dir": "Library/Hard_Bounce", "aliases": [], "reason": ""}, "result": {"section": "moved", "folder": "Hard_Bounce", "artist": "DJ TALLBOY", "title": "THE WEEKEND", "track_id": "0VjIjW4GlUZAMYd2vXMi3b", "note": "from Library/Bouncy/DJ TALLBOY - THE WEEKEND.aiff", "status": "lossless", "source": "qobuz", "cutoff_hz": null, "path": "Library/Hard_Bounce/DJ TALLBOY - THE WEEKEND.aiff", "error_kind": null, "found_status": null}}
+{"type": "ActionStarted", "index": 2, "total": 6, "action": {"kind": "acquire", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "folder": "Hard_Bounce", "track": {"id": "4uLU6hMCjMI75M1A2tKUQC", "title": "Gimme Gimme", "artists": ["Vatoz Locoz"], "album": "Album", "image_url": null, "duration_ms": 12000, "isrc": "DECE72605755"}, "order": [0, 0], "src": null, "dest_dir": null, "aliases": [], "reason": "new"}}
+{"type": "StepChanged", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "step": "search"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 4.84359608182719, "total": 4.84359608182719, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 3.84359608182719, "total": 4.84359608182719, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 2.84359608182719, "total": 4.84359608182719, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 1.8435960818271901, "total": 4.84359608182719, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 0.8435960818271901, "total": 4.84359608182719, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 0.0, "total": 4.84359608182719, "service": "qobuz"}
+{"type": "Message", "level": "debug", "text": "Qobuz search by ISRC: DECE72605755 -> 1 results"}
+{"type": "Message", "level": "debug", "text": "  qobuz:112233  Vatoz Locoz Various - Gimme Gimme  (12 s)"}
+{"type": "SourceChosen", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "source": "qobuz", "query_kind": "isrc", "title": "Gimme Gimme", "duration_s": 12}
+{"type": "StepChanged", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "step": "download"}
+{"type": "Progress", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "step": "download", "done": 329943, "total": 1319772, "unit": "bytes"}
+{"type": "Progress", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "step": "download", "done": 659886, "total": 1319772, "unit": "bytes"}
+{"type": "Progress", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "step": "download", "done": 989829, "total": 1319772, "unit": "bytes"}
+{"type": "Progress", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "step": "download", "done": 1319772, "total": 1319772, "unit": "bytes"}
+{"type": "AccountUsage", "service": "qobuz", "used": 1, "allowance": 80}
+{"type": "StepChanged", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "step": "check"}
+{"type": "Checked", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "file_duration_s": 12.0, "spotify_duration_s": 12.0, "codec": "flac", "ok": true}
+{"type": "StepChanged", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "step": "convert"}
+{"type": "Progress", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "step": "convert", "done": 12.0, "total": 12.0, "unit": "seconds"}
+{"type": "StepChanged", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "step": "analyse"}
+{"type": "ActionFinished", "action": {"kind": "acquire", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "folder": "Hard_Bounce", "track": {"id": "4uLU6hMCjMI75M1A2tKUQC", "title": "Gimme Gimme", "artists": ["Vatoz Locoz"], "album": "Album", "image_url": null, "duration_ms": 12000, "isrc": "DECE72605755"}, "order": [0, 0], "src": null, "dest_dir": null, "aliases": [], "reason": "new"}, "result": {"section": "new_lossless", "folder": "Hard_Bounce", "artist": "Vatoz Locoz", "title": "Gimme Gimme", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "note": "Qobuz FLAC \u00b7 verified lossless", "status": "lossless", "source": "qobuz", "cutoff_hz": null, "path": "Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff", "error_kind": null, "found_status": null}}
+{"type": "ActionStarted", "index": 3, "total": 6, "action": {"kind": "acquire", "track_id": "1301WleyT98MSxVHPZCA6M", "folder": "Hard_Bounce", "track": {"id": "1301WleyT98MSxVHPZCA6M", "title": "Gone Track", "artists": ["Some Artist"], "album": "Album", "image_url": null, "duration_ms": 12000, "isrc": null}, "order": [0, 3], "src": null, "dest_dir": null, "aliases": [], "reason": "new"}}
+{"type": "StepChanged", "track_id": "1301WleyT98MSxVHPZCA6M", "step": "search"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 3.1844704892695206, "total": 3.1844704892695206, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 2.1844704892695206, "total": 3.1844704892695206, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 1.1844704892695206, "total": 3.1844704892695206, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 0.1844704892695206, "total": 3.1844704892695206, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 0.0, "total": 3.1844704892695206, "service": "qobuz"}
+{"type": "Message", "level": "debug", "text": "Qobuz search by name: Some Artist Gone Track -> 0 results"}
+{"type": "StepChanged", "track_id": "1301WleyT98MSxVHPZCA6M", "step": "search"}
+{"type": "Message", "level": "debug", "text": "Fallback: 0 results, 0 match"}
+{"type": "ActionFinished", "action": {"kind": "acquire", "track_id": "1301WleyT98MSxVHPZCA6M", "folder": "Hard_Bounce", "track": {"id": "1301WleyT98MSxVHPZCA6M", "title": "Gone Track", "artists": ["Some Artist"], "album": "Album", "image_url": null, "duration_ms": 12000, "isrc": null}, "order": [0, 3], "src": null, "dest_dir": null, "aliases": [], "reason": "new"}, "result": {"section": "missing", "folder": "Hard_Bounce", "artist": "Some Artist", "title": "Gone Track", "track_id": "1301WleyT98MSxVHPZCA6M", "note": "[Beatport](https://www.beatport.com/search?q=Some+Artist+Gone+Track) \u00b7 [Bandcamp](https://bandcamp.com/search?q=Some+Artist+Gone+Track) \u00b7 a bought copy goes to Library/Hard_Bounce/Some Artist - Gone Track.wav", "status": "missing", "source": null, "cutoff_hz": null, "path": null, "error_kind": "not_found", "found_status": null}}
+{"type": "ActionStarted", "index": 4, "total": 6, "action": {"kind": "acquire", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "folder": "Powertrance", "track": {"id": "3n3Ppam7vgaVa1iaRUc9Lp", "title": "non stop", "artists": ["torbentorben"], "album": "Album", "image_url": null, "duration_ms": 12000, "isrc": null}, "order": [1, 0], "src": null, "dest_dir": null, "aliases": [], "reason": "new"}}
+{"type": "StepChanged", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "step": "search"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 2.144859270880437, "total": 2.144859270880437, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 1.144859270880437, "total": 2.144859270880437, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 0.14485927088043704, "total": 2.144859270880437, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 0.0, "total": 2.144859270880437, "service": "qobuz"}
+{"type": "Message", "level": "debug", "text": "Qobuz search by name: torbentorben non stop -> 0 results"}
+{"type": "StepChanged", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "step": "search"}
+{"type": "Message", "level": "debug", "text": "Fallback: 1 results, 1 match"}
+{"type": "Message", "level": "debug", "text": "  youtube_music:nZ3pT0rB3n1  torbentorben - Topic - non stop  (12 s)"}
+{"type": "SourceChosen", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "source": "youtube_music", "query_kind": "fallback", "title": "non stop", "duration_s": 12}
+{"type": "StepChanged", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "step": "download"}
+{"type": "Progress", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "step": "download", "done": 90173, "total": 360693, "unit": "bytes"}
+{"type": "Progress", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "step": "download", "done": 180346, "total": 360693, "unit": "bytes"}
+{"type": "Progress", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "step": "download", "done": 270519, "total": 360693, "unit": "bytes"}
+{"type": "Progress", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "step": "download", "done": 360693, "total": 360693, "unit": "bytes"}
+{"type": "StepChanged", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "step": "check"}
+{"type": "Checked", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "file_duration_s": 12.0, "spotify_duration_s": 12.0, "codec": "aac", "ok": true}
+{"type": "StepChanged", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "step": "convert"}
+{"type": "Progress", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "step": "convert", "done": 12.004717, "total": 12.0, "unit": "seconds"}
+{"type": "StepChanged", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "step": "analyse"}
+{"type": "ActionFinished", "action": {"kind": "acquire", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "folder": "Powertrance", "track": {"id": "3n3Ppam7vgaVa1iaRUc9Lp", "title": "non stop", "artists": ["torbentorben"], "album": "Album", "image_url": null, "duration_ms": 12000, "isrc": null}, "order": [1, 0], "src": null, "dest_dir": null, "aliases": [], "reason": "new"}, "result": {"section": "new_not_lossless", "folder": "Powertrance", "artist": "torbentorben", "title": "non stop", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "note": "YouTube Music AAC 240 kbps \u00b7 cutoff 21.5 kHz", "status": "not_lossless", "source": "youtube_music", "cutoff_hz": 21500, "path": "Library/Powertrance/not_lossless/torbentorben - non stop.aiff", "error_kind": null, "found_status": null}}
+{"type": "ActionStarted", "index": 5, "total": 6, "action": {"kind": "acquire", "track_id": "2takcwOaAZWiXQijPHIx7B", "folder": "Powertrance", "track": {"id": "2takcwOaAZWiXQijPHIx7B", "title": "AEIOU", "artists": ["Pegassi"], "album": "Album", "image_url": null, "duration_ms": 12000, "isrc": null}, "order": [1, 1], "src": null, "dest_dir": null, "aliases": [], "reason": "new"}}
+{"type": "StepChanged", "track_id": "2takcwOaAZWiXQijPHIx7B", "step": "search"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 4.463822875973925, "total": 4.463822875973925, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 3.463822875973925, "total": 4.463822875973925, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 2.463822875973925, "total": 4.463822875973925, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 1.463822875973925, "total": 4.463822875973925, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 0.4638228759739249, "total": 4.463822875973925, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 0.0, "total": 4.463822875973925, "service": "qobuz"}
+{"type": "ActionFinished", "action": {"kind": "acquire", "track_id": "2takcwOaAZWiXQijPHIx7B", "folder": "Powertrance", "track": {"id": "2takcwOaAZWiXQijPHIx7B", "title": "AEIOU", "artists": ["Pegassi"], "album": "Album", "image_url": null, "duration_ms": 12000, "isrc": null}, "order": [1, 1], "src": null, "dest_dir": null, "aliases": [], "reason": "new"}, "result": {"section": "errors", "folder": "Powertrance", "artist": "Pegassi", "title": "AEIOU", "track_id": "2takcwOaAZWiXQijPHIx7B", "note": "Qobuz search by name failed: Cannot connect to host www.qobuz.com:443 ssl:default [nodename nor servname provided, or not known]", "status": null, "source": null, "cutoff_hz": null, "path": null, "error_kind": "network", "found_status": null}}
+{"type": "ActionStarted", "index": 6, "total": 6, "action": {"kind": "upgrade", "track_id": "7ouMYWpwJ422jRcDASZB7P", "folder": "Hard_Bounce", "track": {"id": "7ouMYWpwJ422jRcDASZB7P", "title": "Get Naughty", "artists": ["Armin Hermann"], "album": "Album", "image_url": null, "duration_ms": 31000, "isrc": "DEXX12600001"}, "order": [0, 2], "src": null, "dest_dir": null, "aliases": [], "reason": ""}}
+{"type": "StepChanged", "track_id": "7ouMYWpwJ422jRcDASZB7P", "step": "search"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 2.2823901258190475, "total": 2.2823901258190475, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 1.2823901258190475, "total": 2.2823901258190475, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 0.28239012581904754, "total": 2.2823901258190475, "service": "qobuz"}
+{"type": "Waiting", "kind": "search", "label": "Short pause before searching Qobuz", "remaining": 0.0, "total": 2.2823901258190475, "service": "qobuz"}
+{"type": "Message", "level": "debug", "text": "Qobuz search by ISRC: DEXX12600001 -> 1 results"}
+{"type": "Message", "level": "debug", "text": "  qobuz:445566  Armin Hermann Various - Get Naughty  (31 s)"}
+{"type": "SourceChosen", "track_id": "7ouMYWpwJ422jRcDASZB7P", "source": "qobuz", "query_kind": "isrc", "title": "Get Naughty", "duration_s": 31}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 43.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 42.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 41.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 40.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 39.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 38.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 37.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 36.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 35.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 34.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 33.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 32.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 31.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 30.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 29.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 28.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 27.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 26.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 25.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 24.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 23.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 22.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 21.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 20.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 19.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 18.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 17.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 16.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 15.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 14.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 13.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 12.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 11.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 10.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 9.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 8.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 7.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 6.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 5.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 4.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 3.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 2.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 1.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 0.3115202361342, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "Waiting", "kind": "between", "label": "Protection pause between Qobuz downloads", "remaining": 0.0, "total": 43.3115202361342, "service": "qobuz"}
+{"type": "StepChanged", "track_id": "7ouMYWpwJ422jRcDASZB7P", "step": "download"}
+{"type": "Progress", "track_id": "7ouMYWpwJ422jRcDASZB7P", "step": "download", "done": 849105, "total": 3396423, "unit": "bytes"}
+{"type": "Progress", "track_id": "7ouMYWpwJ422jRcDASZB7P", "step": "download", "done": 1698211, "total": 3396423, "unit": "bytes"}
+{"type": "Progress", "track_id": "7ouMYWpwJ422jRcDASZB7P", "step": "download", "done": 2547317, "total": 3396423, "unit": "bytes"}
+{"type": "Progress", "track_id": "7ouMYWpwJ422jRcDASZB7P", "step": "download", "done": 3396423, "total": 3396423, "unit": "bytes"}
+{"type": "AccountUsage", "service": "qobuz", "used": 2, "allowance": 80}
+{"type": "StepChanged", "track_id": "7ouMYWpwJ422jRcDASZB7P", "step": "check"}
+{"type": "Checked", "track_id": "7ouMYWpwJ422jRcDASZB7P", "file_duration_s": 31.0, "spotify_duration_s": 31.0, "codec": "flac", "ok": true}
+{"type": "StepChanged", "track_id": "7ouMYWpwJ422jRcDASZB7P", "step": "convert"}
+{"type": "Progress", "track_id": "7ouMYWpwJ422jRcDASZB7P", "step": "convert", "done": 31.0, "total": 31.0, "unit": "seconds"}
+{"type": "StepChanged", "track_id": "7ouMYWpwJ422jRcDASZB7P", "step": "analyse"}
+{"type": "StepChanged", "track_id": "7ouMYWpwJ422jRcDASZB7P", "step": "compare"}
+{"type": "ActionFinished", "action": {"kind": "upgrade", "track_id": "7ouMYWpwJ422jRcDASZB7P", "folder": "Hard_Bounce", "track": {"id": "7ouMYWpwJ422jRcDASZB7P", "title": "Get Naughty", "artists": ["Armin Hermann"], "album": "Album", "image_url": null, "duration_ms": 31000, "isrc": "DEXX12600001"}, "order": [0, 2], "src": null, "dest_dir": null, "aliases": [], "reason": ""}, "result": {"section": "upgrade_ready", "folder": "Hard_Bounce", "artist": "Armin Hermann", "title": "Get Naughty", "track_id": "7ouMYWpwJ422jRcDASZB7P", "note": "matches exactly \u00b7 waiting in Upgrades ready/Hard_Bounce/Armin Hermann - Get Naughty.aiff", "status": "not_lossless", "source": "qobuz", "cutoff_hz": null, "path": "Upgrades ready/Hard_Bounce/Armin Hermann - Get Naughty.aiff", "error_kind": null, "found_status": "lossless"}}
+{"type": "RunFinished", "exit_code": 1, "report_path": "/Users/you/DJ Music/Lossless Pipeline/reports/2026-10-19_212627.md"}
+{"type": "JobFinished", "job_id": 2, "kind": "sync", "ok": true, "problem": null, "message": "", "result": {"exit_code": 1, "report": "/Users/you/DJ Music/Lossless Pipeline/reports/2026-10-19_212627.md", "actions": 6, "new_since_preview": 0}}

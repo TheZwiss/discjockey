@@ -1,0 +1,12 @@
+#!/bin/bash
+# Runs Discjockey with this checkout's own Python. caffeinate keeps the Mac awake during long runs.
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$DIR" || exit 2
+"$HOME/.local/bin/uv" sync --quiet || exit 2
+# Start Python directly (not through `uv run`): uv forwards a Ctrl-C a second time, which would turn
+# "stop safely" into "stop now". The CLI also ignores a repeat within one second for the same reason.
+if [ "$1" = "hub" ]; then
+    # the hub keeps the Mac awake itself while it changes the library, not the whole time its window is open
+    exec "$DIR/.venv/bin/python" -m discjockey "$@"
+fi
+exec caffeinate -i "$DIR/.venv/bin/python" -m discjockey "$@"

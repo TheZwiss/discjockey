@@ -1,0 +1,314 @@
+import { describe, expect, it } from 'vitest';
+import type { ActionKey, EstimateAccount, PreviewAction, SyncPreview } from '$lib/bridge/types';
+import {
+  FULL_SCOPE, dayBarInput, defaultHowMany, facets, folderItems, foldText, howManyOptions, inRunOrder, isKindKey, kindItems,
+  kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount, runMinutes,
+  runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
+  startLabel, tagOf, toggleScope, waitsWhole, whyColumn,
+} from './planModel';
+import { keyId } from './selection';
+
+const act = (kind: string, id: string, folder = 'Hard_Bounce', more: Partial<PreviewAction> = {}): PreviewAction => ({
+  key: [kind, id, `Library/${folder}`] as ActionKey, kind, reason: kind === 'acquire' ? 'new' : null, track_id: id,
+  artist: `Artist ${id}`, title: `Title ${id}`, folder, from_folder: null, to_dir: `Library/${folder}`,
+  to_not_lossless: false, src: null, cover_url: null, ...more });
+const ids = (s: Set<string>) => [...s].map((k) => JSON.parse(k)[1]).sort();
+
+describe('kinds and tags', () => {
+  it('names every kind', () => {
+    expect(kindOf(act('acquire', 'a'))).toBe('new');
+    expect(kindOf(act('acquire', 'a', 'X', { reason: 'retry' }))).toBe('retry');
+    expect(kindOf(act('acquire', 'a', 'X', { reason: 'redownload' }))).toBe('redownload');
+    expect(kindOf(act('adopt_bought', 'a'))).toBe('bought');
+    expect(kindOf(act('upgrade', 'a'))).toBe('weekly');
+    expect(kindOf(act('adopt', 'a'))).toBe('adopt');
+    expect(kindOf(act('move', 'a'))).toBe('move');
+  });
+  it('tags only what is not a plain new track', () => {
+    expect(tagOf(act('acquire', 'a'))).toBeNull();
+    expect(tagOf(act('acquire', 'a', 'X', { reason: 'retry' }))).toBe('not found last time');
+    expect(tagOf(act('move', 'a', 'Hard_Bounce', { from_folder: 'Powertrance' }))).toBe('from Powertrance');
+    expect(tagOf(act('move', 'a', 'Hard_Bounce', { from_folder: 'Powertrance', to_not_lossless: true })))
+      .toBe('from Powertrance → not_lossless');
+    expect(tagOf(act('upgrade', 'a'))).toBe('weekly check');
+  });
+});
+
+describe('scope and facets', () => {
+  const all = [act('acquire', 'a', 'Ohne'), act('acquire', 'b', 'Voller'), act('move', 'c', 'Voller'),
+    act('upgrade', 'd', 'Voller'), act('acquire', 'e', 'Elsewhere')];
+  it('counts per playlist in playlists.txt order, then the rest, and only kinds that are there', () => {
+    const f = facets(all, ['Voller', 'Ohne', 'Empty']);
+    expect(f.folders.map((x) => [x.key, x.count])).toEqual([['Voller', 3], ['Ohne', 1], ['Elsewhere', 1]]);
+    expect(f.kinds.map((x) => [x.key, x.count])).toEqual([['new', 3], ['move', 1], ['weekly', 1]]);
+  });
+  it('toggles a folder or kind in and out', () => {
+    const s = toggleScope(toggleScope(FULL_SCOPE, 'folders', 'Ohne'), 'kinds', 'weekly');
+    expect(s).toEqual({ folders: ['Ohne'], kinds: ['weekly'] });
+    expect(toggleScope(s, 'folders', 'Ohne').folders).toEqual([]);
+  });
+  it('reads a stored scope safely', () => {
+    expect(readScope(null)).toEqual(FULL_SCOPE);
+    expect(readScope({ folders: ['A', 3], kinds: ['new', 'bogus'] })).toEqual({ folders: ['A'], kinds: ['new'] });
+  });
+  it('sections follow playlists.txt and keep the given order inside', () => {
+    expect(sections(all, ['Voller', 'Ohne']).map((s) => [s.folder, s.rows.map((r) => r.track_id)]))
+      .toEqual([['Voller', ['b', 'c', 'd']], ['Ohne', ['a']], ['Elsewhere', ['e']]]);
+  });
+});
+
+describe('how many', () => {
+  it('offers the round numbers below the total, what fits today and all', () => {
+    expect(presets(195, 10).map((p) => p.label)).toEqual(['5', '10 · fits today', '25', '50', 'All 195']);
+    expect(presets(30, 0).map((p) => p.label)).toEqual(['5', '10', '25', 'All 30']);
+    expect(presets(8, 60).map((p) => p.label)).toEqual(['5', 'All 8']);
+    expect(presets(3, 2).map((p) => p.label)).toEqual(['2 · fits today', 'All 3']);
+    expect(presets(0, 10)).toEqual([]);
+  });
+  it('starts with what fits today, or all when everything fits', () => {
+    expect(defaultHowMany(195, 10)).toBe('fits');
+    expect(defaultHowMany(8, 60)).toBe('all');
+    expect(defaultHowMany(8, 0)).toBe('all');
+    expect(presetN('fits', 195, 10)).toBe(10);
+    expect(presetN(25, 8, 60)).toBe(8);
+  });
+  it('lights the chip that gives the same number', () => {
+    const list = presets(8, 60);
+    expect(shownPreset(25, list, 8, 60)).toBe('all');
+    expect(shownPreset('fits', list, 8, 60)).toBe('all');
+    expect(shownPreset(5, list, 8, 60)).toBe(5);
+    expect(shownPreset('custom', list, 8, 60)).toBe('custom');
+    expect(shownPreset(10, presets(195, 10), 195, 10)).toBe('fits');
+  });
+  it('reads a stored choice safely', () => {
+    expect(readHowMany('fits')).toBe('fits');
+    expect(readHowMany(25)).toBe(25);
+    expect(readHowMany(-1)).toBeNull();
+    expect(readHowMany('x')).toBeNull();
+  });
+  it('a preset ticks all moves in scope and the first n downloads in run order', () => {
+    const ordered = [act('move', 'm', 'Voller'), act('acquire', 'a', 'Voller'), act('acquire', 'b', 'Ohne'),
+      act('acquire', 'c', 'Voller'), act('upgrade', 'u', 'Voller')];
+    expect(ids(presetTicks(ordered, FULL_SCOPE, 2))).toEqual(['a', 'b', 'm']);
+    expect(ids(presetTicks(ordered, { folders: ['Ohne'], kinds: [] }, 2))).toEqual(['a', 'c', 'm']);
+    expect(ids(presetTicks(ordered, { folders: [], kinds: ['move'] }, 9))).toEqual(['a', 'b', 'c', 'u']);
+  });
+});
+
+describe('next sync and the summary', () => {
+  const ordered = [act('move', 'm'), act('acquire', 'a'), act('acquire', 'b'), act('acquire', 'c'), act('upgrade', 'u')];
+  const all = new Set(ordered.map((a) => keyId(a.key)));
+  it('ticked downloads after the first L in run order wait for the next sync', () => {
+    expect(ids(nextSyncSet(ordered, all, FULL_SCOPE, 2))).toEqual(['c', 'u']);
+    expect(ids(nextSyncSet(ordered, all, FULL_SCOPE, 0))).toEqual(['a', 'b', 'c', 'u']);
+    expect(ids(nextSyncSet(ordered, all, FULL_SCOPE, 10))).toEqual([]);
+    const noA = new Set([...all].filter((k) => JSON.parse(k)[1] !== 'a'));
+    expect(ids(nextSyncSet(ordered, noA, FULL_SCOPE, 2))).toEqual(['u']);
+  });
+  it('only the downloads that fit today take time; the rest follow over days', () => {
+    expect(runMinutes(0)).toBe(0);
+    expect(runMinutes(1)).toBe(5);
+    expect(runMinutes(10)).toBe(10);
+    expect(runMinutes(195)).toBe(230);   // round(45.5) == 46, as in Python
+    expect(runMinutes(45)).toBe(50);     // round(10.5) == 10, as in Python
+    expect(runTotals(ordered, 195, 10, 60)).toEqual({ tracks: 5, downloads: 4, uses: 4, minutes: 5, waiting: 0,
+      after: 191, days: 1 + 4 });  // 6 still fit today, so today counts
+    expect(runTotals(ordered, 4, 2, 60)).toMatchObject({ uses: 2, waiting: 2, after: 2, days: 1 });
+    expect(runTotals([], 0, 10, 60)).toMatchObject({ tracks: 0, minutes: 0, after: 0, days: 0 });
+    // the issue's numbers: 108 to go, today's limit used up, 66 a day → 2 more days, as the dashboard says
+    expect(runTotals(ordered, 108, 0, 66)).toMatchObject({ uses: 0, after: 108, days: 2 });
+    // 4 ticked of 30 left today: the other 26 can still load today, so today counts (views.days_to_load)
+    expect(runTotals(ordered, 108, 30, 66)).toMatchObject({ uses: 4, after: 104, days: 1 + 2 });
+  });
+});
+
+describe('search and run order', () => {
+  it('ignores case and accents and finds "Artist – Title"', () => {
+    const a = act('acquire', 'x', 'X', { artist: 'Kölsch', title: 'Grey' });
+    expect(matches(a, 'kolsch')).toBe(true);
+    expect(matches(a, 'KÖLSCH – gr')).toBe(true);
+    expect(matches(a, 'grey kol')).toBe(false);
+    expect(matches(a, '  ')).toBe(true);
+    expect(foldText('É')).toBe('e');
+  });
+  it('sorts by the backend run index', () => {
+    const p = { groups: [{ key: 'acquire:new', label: '', actions: [act('acquire', 'a', 'X', { run: 2 }),
+      act('acquire', 'b', 'X', { run: 1 })] }, { key: 'move', label: '', actions: [act('move', 'm', 'X', { run: 0 })] }],
+    } as unknown as SyncPreview;
+    expect(inRunOrder(p).map((a) => a.track_id)).toEqual(['m', 'b', 'a']);
+  });
+});
+
+const acc = (over: Partial<EstimateAccount>): EstimateAccount => ({ service: 'qobuz', name: 'Qobuz', uses: 10,
+  left: 10, limit: 60, about: false, ...over });
+
+// a service row's words and bar (`value` null: a backup behind Qobuz, drawn without a bar)
+const lines = (...args: Parameters<typeof serviceRows>) =>
+  serviceRows(...args).map(({ service, text, value }) => ({ service, text, value }));
+describe('service rows', () => {
+  it('Qobuz first, the accounts catch what Qobuz lacks', () => {
+    expect(lines([acc({}), acc({ service: 'youtube', name: 'YouTube Premium', uses: null, left: 30, limit: 30,
+      about: true })], 12)).toEqual([
+      { service: 'qobuz', text: 'Qobuz today: uses 10 of 10 left', value: 1 },
+      { service: 'youtube', text: "YouTube Premium: 30 left today · for tracks Qobuz doesn't have", value: null }]);
+  });
+  it('without Qobuz the accounts fill up, as an estimate', () => {
+    expect(lines([acc({ service: 'youtube', name: 'YouTube Premium', uses: 4, left: 30, limit: 30,
+      about: true })], 4)).toEqual([{ service: 'youtube', text: 'YouTube Premium: uses about 4 of 30 left',
+      value: 4 / 30 }]);
+  });
+  it("counts the DJ's ticked downloads, not the whole plan", () => {
+    // 80 left, 150 planned (the server's estimate says 80), the DJ ticks 20
+    expect(lines([acc({ uses: 80, left: 80 })], 20)).toEqual([
+      { service: 'qobuz', text: 'Qobuz today: uses 20 of 80 left', value: 0.25 }]);
+    expect(lines([acc({ service: 'youtube', name: 'YouTube Premium', uses: 30, left: 30, limit: 30, about: true }),
+      acc({ service: 'soundcloud', name: 'SoundCloud Go+', uses: 20, left: 20, limit: 20, about: true })], 35)).toEqual([
+      { service: 'youtube', text: 'YouTube Premium: uses about 30 of 30 left', value: 1 },
+      { service: 'soundcloud', text: 'SoundCloud Go+: uses about 5 of 20 left', value: 5 / 20 }]);
+  });
+  it('drops a used-up service while the limit-reached warning shows', () => {
+    expect(lines([acc({ uses: 0, left: 0 })], 5, { limitReached: true })).toEqual([]);
+    expect(lines([acc({ uses: 0, left: 0 }), acc({ service: 'youtube', name: 'YouTube Premium', uses: null,
+      left: 30, limit: 30, about: true })], 5, { limitReached: true })).toEqual([
+      { service: 'youtube', text: "YouTube Premium: 30 left today · for tracks Qobuz doesn't have", value: null }]);
+    expect(lines([acc({ uses: 0, left: 0 })], 5)).toHaveLength(1);  // the dashboard still says it
+  });
+  it('nothing to say without downloads or accounts', () => {
+    expect(lines([], 5)).toEqual([]);
+    expect(lines([acc({ uses: 0 })], 0)).toEqual([]);
+  });
+});
+describe('the automatic Spotify read', () => {
+  const sp = (more: Partial<SyncPreview['spotify']> = {}): SyncPreview['spotify'] => ({ read_at: null, minutes_ago: null,
+    problem: null, message: '', stale: false, reading: false, offline: false, auto_read: false, ...more });
+  const pv = (spotify = sp(), empty: SyncPreview['empty'] = null) => ({ spotify, empty });
+  const idle = { refreshRunning: false, syncRunning: false };
+  it('reads once per session: only while the hub has not read by itself yet', () => {
+    expect(shouldAutoRead(pv(), idle)).toBe(true);
+    // a second open of the Sync page, or the page after a window reload: the hub remembers its read
+    expect(shouldAutoRead(pv(sp({ auto_read: true })), idle)).toBe(false);
+  });
+  it('a stopped or failed first read is not redone by itself, however old the last read is', () => {
+    expect(shouldAutoRead(pv(sp({ auto_read: true, read_at: null })), idle)).toBe(false);
+    expect(shouldAutoRead(pv(sp({ auto_read: true, problem: 'offline', offline: true, minutes_ago: 600,
+      read_at: '2026-10-19T08:00:00' })), idle)).toBe(false);
+  });
+  it('never while reading, during a sync, or before setup', () => {
+    expect(shouldAutoRead(pv(sp({ reading: true })), idle)).toBe(false);
+    expect(shouldAutoRead(pv(), { refreshRunning: true, syncRunning: false })).toBe(false);
+    expect(shouldAutoRead(pv(), { refreshRunning: false, syncRunning: true })).toBe(false);
+    expect(shouldAutoRead(pv(sp({ problem: 'not_set_up' })), idle)).toBe(false);
+    expect(shouldAutoRead(pv(sp(), 'not_set_up'), idle)).toBe(false);
+  });
+});
+
+describe('panel models', () => {
+  const t = { tracks: 69, downloads: 66, uses: 66, minutes: 75, waiting: 0, after: 36, days: 1 };
+  it('feeds the day bar', () => expect(dayBarInput(t, 66, 3)).toEqual({ today: 66, later: 36, limited: true, laterDays: 1, moves: 3 }));
+  it('has no later without a limit', () => expect(dayBarInput({ ...t, after: 0 }, null, 0)).toMatchObject({ limited: false, later: 0 }));
+  it('marks unticked playlists off', () => {
+    expect(folderItems([{ key: 'A', label: 'A', count: 3 }, { key: 'B', label: 'B', count: 1 }], { folders: ['B'], kinds: [] }))
+      .toEqual([{ key: 'A', label: 'A', count: 3, on: true }, { key: 'B', label: 'B', count: 1, on: false }]);
+  });
+  it('marks unticked kinds off', () => {
+    expect(kindItems([{ key: 'move', label: 'Moves', count: 2 }], { folders: [], kinds: ['move'] })[0].on).toBe(false);
+  });
+  it('labels Start by tracks', () => expect(startLabel(69, 66, 66, 3)).toBe('Start sync · 69 tracks'));
+  it('labels Start by moves when no download fits today', () => expect(startLabel(80, 77, 0, 3)).toBe('Start sync · 3 moves'));
+  it('says just Start sync when nothing is ticked', () => expect(startLabel(0, 0, 0, 0)).toBe('Start sync'));
+  it('labels one track in the singular', () => expect(startLabel(1, 1, 1, 0)).toBe('Start sync · 1 track'));
+  it('counts only what runs today, not the ticked downloads that wait (9B I1)', () =>
+    expect(startLabel(196, 195, 10, 1)).toBe('Start sync · 11 tracks'));
+  it('gives no count when nothing runs today', () => expect(startLabel(5, 5, 0, 0)).toBe('Start sync'));
+  it("counts a run's tracks as what runs today", () => {
+    expect(runCount(196, 195, 10, 1)).toEqual({ n: 11, unit: 'track' });
+    expect(runCount(69, 66, 66, 3)).toEqual({ n: 69, unit: 'track' });
+    expect(runCount(80, 77, 0, 3)).toEqual({ n: 3, unit: 'move' });     // limit used up: only the moves run
+    expect(runCount(3, 0, 0, 3)).toEqual({ n: 3, unit: 'move' });       // only moves ticked
+    expect(runCount(5, 5, 0, 0)).toEqual({ n: 0, unit: 'track' });
+  });
+  it('runs nothing today when only waiting downloads are ticked', () => {
+    expect(runsNothingToday(5, 5, 0, 0)).toBe(true);       // limit used up, only downloads ticked
+    expect(runsNothingToday(0, 0, 0, 0)).toBe(false);      // nothing ticked is its own reason
+    expect(runsNothingToday(80, 77, 0, 3)).toBe(false);    // the moves still run
+    expect(runsNothingToday(196, 195, 10, 1)).toBe(false); // 10 downloads fit today
+    expect(runsNothingToday(5, 5, 5, 0)).toBe(false);      // no limit: every download runs
+  });
+});
+
+describe('section head and why column', () => {
+  it('counts the ticks', () => expect(sectionSummary(3, 5, 0)).toBe('3 of 5 ticked'));
+  it('says once how many ticked rows wait', () =>
+    expect(sectionSummary(118, 118, 118)).toBe('118 of 118 ticked · 118 next sync'));
+  it('gives the column to a section with a tag', () =>
+    expect(whyColumn([act('acquire', '1'), act('upgrade', '2')], false)).toBe(true));
+  it('leaves it out for plain new tracks when nothing can wait', () =>
+    expect(whyColumn([act('acquire', '1'), act('acquire', '2')], false)).toBe(false));
+  it('gives it to new tracks that may wait for the next sync', () =>
+    expect(whyColumn([act('acquire', '1')], true)).toBe(true));
+});
+
+describe('next sync in a section (N1)', () => {
+  it('says it once when every ticked download waits', () => expect(waitsWhole(3, 3)).toBe(true));
+  it('counts a ticked move as ticked, never as a download that waits', () => {
+    const rows = [act('acquire', '1'), act('acquire', '2'), act('move', '3')];
+    const ids = rows.map((a) => keyId(a.key));
+    const c = sectionCounts(rows, new Set(ids), new Set(ids.slice(0, 2)));
+    expect(c).toEqual({ total: 3, ticked: 3, waiting: 2, downloads: 2 });
+    expect(waitsWhole(c.waiting, c.downloads)).toBe(true);   // every ticked download waits: the head says it once
+  });
+  it('says it per row when only some ticked downloads wait', () => expect(waitsWhole(2, 3)).toBe(false));
+  it('says nothing without waiting rows', () => expect(waitsWhole(0, 0)).toBe(false));
+  it('may wait when the plan holds more downloads than are left', () => expect(mayWaitToday(195, 10)).toBe(true));
+  it('never waits row by row with nothing left today (all wait, the head says it)', () => expect(mayWaitToday(195, 0)).toBe(false));
+  it('never waits without a daily limit', () => expect(mayWaitToday(195, Number.POSITIVE_INFINITY)).toBe(false));
+});
+
+describe('run panel (9B)', () => {
+  it('gives the time card an estimate (~, as the service rows) and a unit', () => {
+    expect(runTime(75, 69)).toEqual({ value: '~75', unit: 'min' });   // "~1 h 15 min" was cut off in the card at 1280
+    expect(runTime(10, 17)).toEqual({ value: '~10', unit: 'min' });
+    expect(runTime(115, 99)).toEqual({ value: '~115', unit: 'min' });
+    expect(runTime(120, 99)).toEqual({ value: '~2', unit: 'h' });
+    expect(runTime(140, 99)).toEqual({ value: '~2.5', unit: 'h' });    // to the half hour
+  });
+  it('says a minute or two for moves only, and 0 min when nothing runs', () => {
+    expect(runTime(0, 3)).toEqual({ value: '1–2', unit: 'min' });
+    expect(runTime(0, 0)).toEqual({ value: '0', unit: 'min' });
+  });
+  it('knows the kinds it has an icon for', () => {
+    expect(isKindKey('move')).toBe(true);
+    expect(isKindKey('something-new')).toBe(false);
+  });
+  it('turns several playlists off and on at once (All · None)', () => {
+    const s = { folders: ['A'], kinds: [] };
+    expect(scopeSet(s, 'folders', ['A', 'B', 'C'], false)).toEqual({ folders: ['A', 'B', 'C'], kinds: [] });
+    expect(scopeSet({ folders: ['A', 'B', 'C'], kinds: [] }, 'folders', ['A', 'C'], true)).toEqual({ folders: ['B'], kinds: [] });
+    expect(scopeSet({ folders: [], kinds: [] }, 'kinds', ['move'], false)).toEqual({ folders: [], kinds: ['move'] });
+    expect(s).toEqual({ folders: ['A'], kinds: [] });   // the input is not changed
+  });
+  it('marks the amount that fits today with ✦', () => {
+    expect(howManyOptions(presets(195, 64)).map((o) => [o.key, o.label])).toEqual([
+      ['5', '5'], ['10', '10'], ['25', '25'], ['50', '50'], ['fits', '64 ✦'], ['all', 'All 195']]);
+  });
+  const acc = (o: object) => ({ service: 'qobuz', name: 'Qobuz', uses: 10, left: 10, limit: 60, about: false, ...o }) as never;
+  it('gives each service a short "U of L" for its row', () => {
+    expect(serviceRows([acc({}), acc({ service: 'youtube', name: 'YouTube Premium', uses: null, left: 30, limit: 30,
+      about: true })], 12).map((r) => [r.name, r.short, r.value])).toEqual([
+      ['Qobuz', '10 of 10', 1], ['YouTube', '30 left', null]]);
+    expect(serviceRows([acc({ service: 'youtube', name: 'YouTube Premium', uses: 4, left: 30, limit: 30, about: true })], 4)
+      .map((r) => [r.short, r.text])).toEqual([['~4 of 30', 'YouTube Premium: uses about 4 of 30 left']]);
+  });
+});
+
+describe('service rows name the service, the tooltip names the plan (Task 9C M1)', () => {
+  const acc = (service: EstimateAccount['service'], name: string, left: number): EstimateAccount =>
+    ({ service, name, uses: null, left, limit: left, about: false });
+  it('uses the short service name in the row and keeps the full one in the tooltip', () => {
+    const rows = serviceRows([acc('qobuz', 'Qobuz', 10), acc('youtube', 'YouTube Premium', 30),
+      acc('soundcloud', 'SoundCloud Go+', 48)], 20);
+    expect(rows.map((r) => r.name)).toEqual(['Qobuz', 'YouTube', 'SoundCloud']);
+    expect(rows[1].text).toContain('YouTube Premium');
+    expect(rows[2].text).toContain('SoundCloud Go+');
+  });
+});
