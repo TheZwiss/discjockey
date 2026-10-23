@@ -10,26 +10,10 @@ though they are fully synced. It shows "all complete" only after another Spotify
 finishes, the page shows that everything is synced. Check first: whether the page's plan comes from the Spotify read
 taken before the run and is not worked out again from the library once the run finishes.
 
-## 16. Live check: the installed app (phase 7, spec public-release §11)
-
-Done 2026-10-23: v1.0.0 installed from the release, Open Anyway walked through (README screenshots), the window opens
-on the music folder (now `~/Music/Discjockey`). Left:
-
-- **One sync** in the installed app.
-- **The sidebar update line** has never been seen on screen: it shows once a version after 1.0.0 is released (or with a
-  scratch `DISCJOCKEY_SUPPORT` whose `cache/app_update.json` says `"version": "9.9.0"` with a fresh `checked_at`).
-- **Keychain "Always Allow"** only comes up when a YouTube or SoundCloud login is read from Chrome; check it then.
-
 ## 14. Folder field: a small gap before the last path part when a long path is cut (2026-10-23)
 
 - **Cosmetic.** When a long path is shortened (`~/M… /Discjockey`) a small gap shows before the last part. One CSS
   change did not close it.
-
-## 11. Live check: signing in from Settings (Settings/Setup redesign, 2026-10-22)
-
-- **Not tried in the real window yet** (the user couldn't test before the merge). Restart the app, open Settings and
-  sign in to YouTube and SoundCloud both ways: a login found in Chrome → **Use this login**, and **Sign in** → the
-  browser opens → Discjockey notices the login by itself. Also one Qobuz **Check again**.
 
 ## 9. Engine: a crashed sync leaves no note in `reports/` (from the Task 10B review, 2026-10-21)
 
@@ -40,24 +24,13 @@ on the music folder (now `~/Music/Discjockey`). Left:
   plain words, that the state is saved) and files it as the run's report, so the card's own "Open report" has
   something to open. Contract: `JobFinished` for a crash then carries the report like a finished run.
 
-## 7. Live check: bought file by drag and drop (was hub plan Task 74; needs a bought WAV, AIFF or FLAC)
+## 7. Sync page: two leftovers from the 9B review (M8)
 
-- **Sync: "Later" ignores the panel's scope (from the 9B review, M8).** In `sync-scope` the DayBar's "Later 185"
-  counts downloads in playlists the user turned off, next to "All 77" (`runTotals.after` counts the whole plan).
-  Question for the user: should Later count only what's in scope?
-- **Sync: loose sentence under the list (Task 9C, from the 9B review M8).** `sync-many-all-off`'s "232 more tracks
-  left out: playlists or kinds you turned off on the right." sits outside any container (§4); make it a `Hint` or
-  `NoteCard` in 9C.
-
-When the user has bought a track: drag the file from Downloads, and once from the Desktop, onto the To-do drop zone
-(highlight while dragging, the file lands in Library as "Artist - Title.aiff", the to-do row goes away). Problems
-become their own fix.
-
-## 6. Live check: one upgrade swap in rekordbox (was hub plan Task 75; needs a ready upgrade)
-
-When a sync parks an upgrade (To-do chip "upgrade ready"): run the swap from the hub, then check in rekordbox that cue
-points and beatgrid are still in place. If no upgrade turns up for a long time, add a way to park a chosen candidate
-as an upgrade (hub spec §9).
+- **"Later" ignores the panel's scope.** In `sync-scope` the DayBar's "Later 185" counts downloads in playlists the
+  user turned off, next to "All 77" (`runTotals.after` counts the whole plan). Question for the user: should Later
+  count only what's in scope?
+- **Loose sentence under the list.** `sync-many-all-off`'s "232 more tracks left out: playlists or kinds you turned
+  off on the right." sits outside any container (§4); make it a `Hint` or `NoteCard`.
 
 ## 4. Contract gaps G3 and G5 (minor, from the hub plan)
 
