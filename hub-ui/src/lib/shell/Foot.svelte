@@ -30,8 +30,9 @@
   const f = $derived(footPlayer(p));
 
   // ---------- motion (plan now-playing, Motion) ----------
-  // Appear: up from the window's bottom edge (220 ms, strong ease-out); the page makes room at once (the foot takes
-  // its 44 px straight away, only its contents move). Stop: down again (180 ms). Hide: the bar's contents move left
+  // Appear: up from the window's bottom edge (220 ms, strong ease-out). The foot's own height moves with it (`frame`),
+  // so the sidebar's foot (Settings, the Now playing row) and the page's lower edge glide instead of jumping by 44 px
+  // when the foot comes or goes as a whole. Stop: down again (180 ms). Hide: the bar's contents move left
   // towards the sidebar's corner and fade (240 ms, ease-in-out), then the row fades in there; Show: the same path
   // back (280 ms). Only transform and opacity; reduced motion cross-fades. Track changes, play/pause, shuffle and the
   // keys don't animate.
@@ -55,6 +56,17 @@
         css: (t, u) => `opacity: ${t}; transform: translateX(${-FOLD_PX * u}px)` };
     }
     return { duration: out ? 180 : 220, easing: quintOut, css: (_t, u) => `transform: translateY(${u * 100}%)` };
+  }
+  /** The whole foot comes or goes: its height follows (clipped meanwhile), its contents ride on the top edge. */
+  function frame(node: Element, o: unknown, opts: { direction: 'in' | 'out' | 'both' }): TransitionConfig {
+    const out = opts.direction === 'out';
+    const fold = out ? get(player).hidden : unfolding;
+    const m = moves(node, o, opts);
+    if (!m.duration || reduced()) return m;
+    const h = (node as HTMLElement).offsetHeight;
+    const grow = (t: number) => `overflow: hidden; height: ${t * h}px;`;
+    if (fold) return { ...m, css: (t, u) => `${grow(t)} ${m.css!(t, u)}` };
+    return { ...m, css: (t) => grow(t) };
   }
   function fades(_node: Element): TransitionConfig {
     return motion ? { duration: 150, css: (t) => `opacity: ${t}` } : { duration: 0 };
@@ -85,7 +97,7 @@
 </script>
 
 {#if shape}
-  <footer class="foot chrome" data-test="foot" in:moves out:moves>
+  <footer class="foot chrome" data-test="foot" in:frame out:frame>
     {#if shape.player && f}
       <div class="part" in:moves out:moves data-test="foot-player">
         <div class="edge" class:live={seekable} class:held={dragged !== null} class:demo={edge !== null} role="slider"
@@ -148,7 +160,7 @@
   /* the page's lower edge: continues the sidebar's right border into an L */
   .foot::before { content: ''; position: absolute; left: calc(var(--sidebar-w) - var(--bw)); right: 0; top: 0;
     height: var(--bw); background: var(--surface-line); }
-  .part { position: absolute; inset: 0; }
+  .part { position: absolute; inset: 0 0 auto; height: var(--activity-h); }   /* on the top edge while `frame` runs */
   .only { padding: 0 var(--s-4) 0 18px; }
 
   /* the bar: three columns, the middle one centred on the window. The padding is the same on both sides (so the
