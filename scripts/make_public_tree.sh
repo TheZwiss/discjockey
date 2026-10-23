@@ -163,7 +163,9 @@ command lines are the commands to run, in order; <public-url> is the new reposit
        git branch -u origin/main
   6. Put the archive back on disk, untracked:
        git restore --source=archive/main --worktree -- docs/archive/pre-public
-  7. Use the no-reply address in this repository's own git settings:
+  7. Use the handle and the no-reply address in this repository's own git settings (the global name would otherwise
+     become the author of every commit; the push guard refuses a denylisted name):
+       git $c user.name "$name"
        git $c user.email $email
   8. Every other local branch and tag from before this moment carries the private history too: put each under
      archive/ (the loops do; delete one yourself with git branch -D or git tag -d if you prefer) without an upstream,

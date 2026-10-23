@@ -326,6 +326,7 @@ def test_the_printed_go_moment_steps_leave_no_private_history_to_send(repo, tmp_
     assert remote_refs - {"refs/remotes/origin/HEAD"} == {"refs/remotes/origin/main"}, remote_refs  # origin/feature pruned
     assert s.git("rev-parse", "origin/main") == s.git("rev-parse", "main")
     assert s.git("config", "user.email") == EMAIL
+    assert s.git("config", "user.name") == HANDLE  # step 7 sets both, so the global name never authors a commit
     # the archive is back on disk, untracked and ignored
     assert (s.path / "docs/archive/pre-public/old.md").read_text() == f"see {PERSON_PATH}\n"
     assert s.git("ls-files", "docs/archive/pre-public") == ""
@@ -377,12 +378,131 @@ def test_issue_22_contributing_and_claude_md_say_what_the_script_prints(repo):
     issue = squash((REPO / "docs" / "issues.md").read_text())
     issue = issue[issue.index("## 22. Go public"):]
     for command in commands:
-        if command.startswith(("for ", "git config")):  # a loop and an address the issue only describes
+        if command.startswith(("for ", "git config")):  # a loop and an identity the issue only describes
             continue
         assert command in issue, command
+    assert "`user.name`" in issue and "`user.email`" in issue
     assert "git push origin v1.0.0" in issue and "never `--tags`, `--all` or `--mirror`" in issue
     for name in ("CONTRIBUTING.md", "CLAUDE.md"):
         text = squash((REPO / name).read_text())
         assert re.search(r"git push origin v<version>|git push origin v1\.0\.1", text), name
         assert "`--tags`" in text and "`--all`" in text and "`--mirror`" in text, name
     assert "`archive/*` branches" in squash((REPO / "CLAUDE.md").read_text())
+
+
+# ---- the push guard's denylist check: commit identities and messages that the remote does not have yet
+ZERO = "0" * 40
+GUARD_EMAIL = "dev@example.com"
+
+
+@pytest.fixture
+def guard(repo):
+    """The guard installed as the repo's pre-push hook, with a root list that matches no commit (a made-up unrelated
+    root), and a helper that runs the hook the way git does."""
+    s = repo
+    hook = s.path / ".git" / "hooks" / "pre-push"
+    shutil.copy(SCRIPTS / "public_push_guard.sh", hook)
+    hook.chmod(0o755)
+    empty_tree = subprocess.run(
+        ["git", "mktree"], cwd=s.path, input="", capture_output=True, text=True, check=True, env={**os.environ, **ENV}
+    ).stdout.strip()
+    root = s.git("commit-tree", "-m", "unrelated", empty_tree)
+    (s.path / ".git" / "private-roots").write_text(root + "\n")
+
+    def commit(message="work", author=("Dev", GUARD_EMAIL), committer=("Dev", GUARD_EMAIL)):
+        s.write("f.txt", message + "\n")
+        s.git("add", "f.txt")
+        env = {**os.environ, **ENV, "GIT_AUTHOR_NAME": author[0], "GIT_AUTHOR_EMAIL": author[1],
+               "GIT_COMMITTER_NAME": committer[0], "GIT_COMMITTER_EMAIL": committer[1]}
+        subprocess.run(["git", "commit", "-q", "-m", message], cwd=s.path, env=env, check=True, capture_output=True)
+        return s.git("rev-parse", "HEAD")
+
+    def run_hook(sha=None, remote_sha=ZERO, denylist="default"):
+        sha = sha or s.git("rev-parse", "HEAD")
+        env = {**os.environ, **ENV}
+        env["DISCJOCKEY_PUBLIC_DENYLIST"] = str(s.denylist if denylist == "default" else denylist)
+        return subprocess.run([str(hook), "origin", str(s.bare)], input=f"refs/heads/main {sha} refs/heads/main {remote_sha}\n",
+                              cwd=s.path, env=env, capture_output=True, text=True)
+
+    s.commit, s.run_hook = commit, run_hook
+    return s
+
+
+def assert_refused_without_the_value(r, sha):
+    assert r.returncode == 1, (r.stdout, r.stderr)
+    assert "a denylisted value (author/committer/message)" in r.stderr and "refs/heads/main" in r.stderr
+    assert sha[:7] in r.stderr
+    assert "git commit --amend --reset-author" in r.stderr and "user.name" in r.stderr
+    assert SECRET_WORD.lower() not in (r.stdout + r.stderr).lower()
+
+
+def test_guard_refuses_a_denylisted_author_name_and_never_prints_it(guard):
+    sha = guard.commit(author=(SECRET_WORD.upper() + " Quux", GUARD_EMAIL))  # case-insensitive, like check_public
+    assert_refused_without_the_value(guard.run_hook(), sha)
+
+
+def test_guard_refuses_a_denylisted_author_email(guard):
+    sha = guard.commit(author=("Dev", SECRET_WORD + "@example.com"))
+    assert_refused_without_the_value(guard.run_hook(), sha)
+
+
+def test_guard_refuses_a_denylisted_committer_email_and_name(guard):
+    sha = guard.commit(committer=("Dev", f"{SECRET_WORD}@example.com"))
+    assert_refused_without_the_value(guard.run_hook(), sha)
+    sha = guard.commit("second", committer=(f"Dr {SECRET_WORD}", GUARD_EMAIL))
+    assert_refused_without_the_value(guard.run_hook(), sha)
+
+
+def test_guard_refuses_a_denylisted_value_in_the_message(guard):
+    sha = guard.commit(f"fix for {SECRET_WORD}\n\nand more text")
+    assert_refused_without_the_value(guard.run_hook(), sha)
+
+
+def test_guard_passes_a_clean_commit_and_a_word_inside_another_word(guard):
+    guard.commit("a clean change")
+    r = guard.run_hook()
+    assert r.returncode == 0, r.stderr
+    guard.commit(f"{SECRET_WORD}s are fine, the entry is a whole word")
+    assert guard.run_hook().returncode == 0
+
+
+def test_guard_ignores_comments_and_blank_lines_in_the_denylist(guard, tmp_path):
+    other = tmp_path / "other.txt"
+    other.write_text(f"# {SECRET_WORD}\n\n   \nsome-other-word\n")
+    guard.commit(author=(SECRET_WORD, GUARD_EMAIL))
+    assert guard.run_hook(denylist=other).returncode == 0
+    assert guard.run_hook().returncode == 1
+
+
+def test_guard_does_not_recheck_commits_the_remote_already_has(guard):
+    bad = guard.commit(author=(SECRET_WORD, GUARD_EMAIL))
+    guard.git("update-ref", "refs/remotes/origin/main", bad)
+    guard.commit("clean on top")
+    assert guard.run_hook(remote_sha=bad).returncode == 0  # the old bad commit is the remote's, not new
+    guard.git("update-ref", "-d", "refs/remotes/origin/main")
+    assert guard.run_hook(remote_sha=bad).returncode == 0  # known only through the remote's reported tip
+    assert guard.run_hook(remote_sha=ZERO).returncode == 1  # the remote has nothing: the bad commit is new
+
+
+def test_guard_without_a_denylist_file_warns_and_still_checks_the_roots(guard, tmp_path):
+    guard.commit(author=(SECRET_WORD, GUARD_EMAIL))
+    missing = tmp_path / "no-such-denylist"
+    r = guard.run_hook(denylist=missing)
+    assert r.returncode == 0 and "warning: denylist not found" in r.stderr, (r.stdout, r.stderr)
+    (guard.path / ".git" / "private-roots").unlink()
+    r = guard.run_hook(denylist=missing)
+    assert r.returncode == 1 and "no list of private root commits" in r.stderr
+
+
+def test_guard_refuses_when_the_denylist_cannot_be_read(guard, tmp_path):
+    guard.commit("clean")
+    r = guard.run_hook(denylist=tmp_path)  # a folder
+    assert r.returncode == 1 and "could not run" in r.stderr
+
+
+def test_guard_installed_as_the_real_hook_stops_a_real_push(guard):
+    guard.commit(author=(SECRET_WORD, GUARD_EMAIL))
+    r = subprocess.run(["git", "push", "origin", "main"], cwd=guard.path, capture_output=True, text=True,
+                       env={**os.environ, **ENV, "DISCJOCKEY_PUBLIC_DENYLIST": str(guard.denylist)})
+    assert r.returncode != 0 and "denylisted value" in r.stderr and SECRET_WORD.lower() not in r.stderr.lower()
+    assert guard.git("rev-parse", "main", cwd=guard.bare, check=False) != guard.git("rev-parse", "HEAD")

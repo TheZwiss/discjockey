@@ -51,7 +51,8 @@ commands `tests/test_make_public_tree.py` replays against a scratch repo):
    and `git branch -u origin/main`. The daily branch is `main`, tracking `origin/main`, so a plain `git push` works.
 9. Restore `docs/archive/pre-public/` from `archive/main` onto disk, untracked (it is gitignored):
    `git restore --source=archive/main --worktree -- docs/archive/pre-public`.
-10. Set `user.email` in this repo's git config to the no-reply address.
+10. Set `user.name` (the handle) and `user.email` (the no-reply address) in this repo's git config; the global name
+    would otherwise author every commit. The push guard also refuses a denylisted name, e-mail or message.
 11. Every other local branch and tag from before the cutover carries the private history: the printed loops put each
     under `archive/` (branches without an upstream; tags as `archive/<name>`); `git branch --list` and
     `git tag --list` show what is left, `git worktree list` the old worktrees (`git worktree remove <path>`). Delete
