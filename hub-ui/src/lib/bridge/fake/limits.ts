@@ -1,6 +1,6 @@
 // Fake mode only: the Download limits numbers per service, from the fake state (as discjockey/hub/views.py does it).
 import type {
-  AnySignalKind, Budget, EstimateAccount, LimitCard, Limits, Service, ServiceUsage, WhatIf,
+  AnySignalKind, Budget, EstimateAccount, SyncAccount, LimitCard, Limits, Service, ServiceUsage, WhatIf,
 } from '../types';
 import { daysToLoad } from '../../days';
 import type { FakeService, FakeState } from './data';
@@ -57,6 +57,12 @@ export function split(s: FakeState, needed: number): EstimateAccount[] {
     rest -= uses ?? 0;
     return { service, name: NAMES[service], uses, left: b.remaining, limit: b.limit, about: service !== 'qobuz' };
   });
+}
+/** views.sync_estimate's accounts: split() plus each account's `uses` for every count 0 … `most`. */
+export function syncSplit(s: FakeState, needed: number, most: number): SyncAccount[] {
+  const tables = Array.from({ length: most + 1 }, (_, n) => split(s, n));
+  return split(s, needed).map((a, i) => ({ ...a,
+    uses_by_downloads: a.uses === null ? null : tables.map((t) => t[i].uses as number) }));
 }
 /** The warning signs with `new` (after the last "Got it") and `clears_in` (days until they leave the 14 days). */
 export function signalsOf(s: FakeState, f: FakeService): ServiceUsage['signals'] {

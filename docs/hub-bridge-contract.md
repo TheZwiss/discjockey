@@ -269,7 +269,10 @@ Qobuz: an estimate). `estimate.left` is today's remaining allowance (null = no l
 limit; the `qobuz_*` fields are kept for one release. `estimate.minutes_by_downloads[n]` (sync_preview only, not
 the dashboard's) is the time for `n` downloads, for `n = 0 … qobuz_uses` (the most any ticked subset can run today):
 the page looks up the count of the actions the user ticked, so the formula (70 s a download, rounded to 5 minutes) is
-in the engine only (`views.minutes_by_downloads`) and ticking needs no bridge call.
+in the engine only (`views.minutes_by_downloads`) and ticking needs no bridge call. In the same way, each entry of
+`estimate.accounts` in `sync_preview` also has `uses_by_downloads[n]`: that service's `uses` for `n` downloads
+(`n = 0 … qobuz_uses`, the engine's `views.split(n, …)`), or null for an account behind Qobuz. The page looks up the
+ticked count (a larger count takes the last entry) for the service rows and never repeats the split.
 ```json
 {
  "ok": true,
@@ -349,7 +352,8 @@ in the engine only (`views.minutes_by_downloads`) and ticking needs no bridge ca
     "uses": 2,
     "left": 80,
     "limit": 60,
-    "about": false
+    "about": false,
+    "uses_by_downloads": [0, 1, 2]
    }
   ],
   "left": 80,

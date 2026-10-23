@@ -72,8 +72,11 @@ export type PlanCounts = { new: number; retries: number; redownloads: number; mo
 export type Estimate = { duration_min: number; qobuz_limit: number; qobuz_needed: number; qobuz_left: number;
   qobuz_uses: number; accounts: EstimateAccount[]; left: number | null; limit: number };
 /** The Sync page's estimate: also `minutes_by_downloads[n]`, the minutes for n downloads (n = 0 … `qobuz_uses`, the
- *  most any ticked subset can run today). The page looks its subset's count up here; the formula lives in the engine. */
-export type SyncEstimate = Estimate & { minutes_by_downloads: number[] };
+ *  most any ticked subset can run today), and per account `uses_by_downloads[n]`, its `uses` for n downloads (null for
+ *  a backup behind Qobuz). The page looks its subset's count up here (a larger count takes the last entry); the
+ *  formula and the split live in the engine. */
+export type SyncAccount = EstimateAccount & { uses_by_downloads: number[] | null };
+export type SyncEstimate = Omit<Estimate, 'accounts'> & { accounts: SyncAccount[]; minutes_by_downloads: number[] };
 export type Dashboard = {
   greeting: string; spotify: SpotifyStatus;
   tiles: {

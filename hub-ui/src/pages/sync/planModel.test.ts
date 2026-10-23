@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ActionKey, EstimateAccount, PreviewAction, SyncPreview } from '$lib/bridge/types';
+import type { ActionKey, EstimateAccount, PreviewAction, SyncAccount, SyncPreview } from '$lib/bridge/types';
 import {
   FULL_SCOPE, type Scope, dayBarInput, defaultHowMany, downloadsInScope, inScope, facets, folderItems, foldText, howManyOptions, inRunOrder, isKindKey, kindItems,
   kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount,
@@ -157,12 +157,24 @@ describe('search and run order', () => {
   });
 });
 
+type DropFirst<T extends unknown[]> = T extends [unknown, ...infer R] ? R : never;
+// The engine's tables (views.sync_estimate: `uses_by_downloads` for every count), built here from the accounts'
+// `left`: Qobuz first takes up to what is left, a backup behind Qobuz gets none, without Qobuz the accounts fill up in
+// order. tests/test_hub_views.py pins the engine's own numbers against views.split.
+const withTables = (accounts: EstimateAccount[], most = 200): SyncAccount[] => {
+  const qobuz = accounts.some((a) => a.service === 'qobuz');
+  const at = (n: number) => { let rest = n; return accounts.map((a) => {
+    const uses = qobuz && a.service !== 'qobuz' ? null : Math.min(rest, Math.max(a.left, 0));
+    rest -= uses ?? 0; return uses; }); };
+  const tables = Array.from({ length: most + 1 }, (_, n) => at(n));
+  return accounts.map((a, i) => ({ ...a, uses_by_downloads: tables[0][i] === null ? null : tables.map((t) => t[i] as number) }));
+};
 const acc = (over: Partial<EstimateAccount>): EstimateAccount => ({ service: 'qobuz', name: 'Qobuz', uses: 10,
   left: 10, limit: 60, about: false, ...over });
 
 // a service row's words and bar (`value` null: a backup behind Qobuz, drawn without a bar)
-const lines = (...args: Parameters<typeof serviceRows>) =>
-  serviceRows(...args).map(({ service, text, value }) => ({ service, text, value }));
+const lines = (accounts: EstimateAccount[], ...rest: DropFirst<Parameters<typeof serviceRows>>) =>
+  serviceRows(withTables(accounts), ...rest).map(({ service, text, value }) => ({ service, text, value }));
 describe('service rows', () => {
   it('Qobuz first, the accounts catch what Qobuz lacks', () => {
     expect(lines([acc({}), acc({ service: 'youtube', name: 'YouTube Premium', uses: null, left: 30, limit: 30,
@@ -311,11 +323,22 @@ describe('run panel (9B)', () => {
   });
   const acc = (o: object) => ({ service: 'qobuz', name: 'Qobuz', uses: 10, left: 10, limit: 60, about: false, ...o }) as never;
   it('gives each service a short "U of L" for its row', () => {
-    expect(serviceRows([acc({}), acc({ service: 'youtube', name: 'YouTube Premium', uses: null, left: 30, limit: 30,
-      about: true })], 12).map((r) => [r.name, r.short, r.value])).toEqual([
+    expect(serviceRows(withTables([acc({}), acc({ service: 'youtube', name: 'YouTube Premium', uses: null, left: 30, limit: 30,
+      about: true })]), 12).map((r) => [r.name, r.short, r.value])).toEqual([
       ['Qobuz', '10 of 10', 1], ['YouTube', '30 left', null]]);
-    expect(serviceRows([acc({ service: 'youtube', name: 'YouTube Premium', uses: 4, left: 30, limit: 30, about: true })], 4)
+    expect(serviceRows(withTables([acc({ service: 'youtube', name: 'YouTube Premium', uses: 4, left: 30, limit: 30, about: true })]), 4)
       .map((r) => [r.short, r.text])).toEqual([['~4 of 30', 'YouTube Premium: uses about 4 of 30 left']]);
+  });
+});
+
+describe('service rows look the count up in the engine tables', () => {
+  const sa = (o: object) => ({ service: 'qobuz', name: 'Qobuz', uses: 3, left: 3, limit: 60, about: false,
+    uses_by_downloads: [0, 1, 2, 3], ...o }) as SyncAccount;
+  it('reads the entry for the ticked count and takes the last one for a larger count', () => {
+    expect(serviceRows([sa({})], 2).map((r) => r.short)).toEqual(['2 of 3']);
+    expect(serviceRows([sa({})], 50).map((r) => r.short)).toEqual(['3 of 3']);
+    expect(serviceRows([sa({}), sa({ service: 'youtube', name: 'YouTube Premium', uses: null, uses_by_downloads: null,
+      about: true })], 2).map((r) => r.short)).toEqual(['2 of 3', '3 left']);
   });
 });
 
@@ -323,8 +346,8 @@ describe('service rows name the service, the tooltip names the plan (Task 9C M1)
   const acc = (service: EstimateAccount['service'], name: string, left: number): EstimateAccount =>
     ({ service, name, uses: null, left, limit: left, about: false });
   it('uses the short service name in the row and keeps the full one in the tooltip', () => {
-    const rows = serviceRows([acc('qobuz', 'Qobuz', 10), acc('youtube', 'YouTube Premium', 30),
-      acc('soundcloud', 'SoundCloud Go+', 48)], 20);
+    const rows = serviceRows(withTables([acc('qobuz', 'Qobuz', 10), acc('youtube', 'YouTube Premium', 30),
+      acc('soundcloud', 'SoundCloud Go+', 48)]), 20);
     expect(rows.map((r) => r.name)).toEqual(['Qobuz', 'YouTube', 'SoundCloud']);
     expect(rows[1].text).toContain('YouTube Premium');
     expect(rows[2].text).toContain('SoundCloud Go+');
