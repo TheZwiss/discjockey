@@ -59,9 +59,9 @@ def test_release_runs_only_for_v_tags():
     assert "workflow_dispatch" not in code(RELEASE)
 
 
-def test_check_runs_on_every_push_and_pull_request():
+def test_check_runs_on_every_branch_push_and_pull_request_but_not_on_tags():
     on = CHECK[CHECK.index("\non:"):CHECK.index("\npermissions:")]
-    assert re.sub(r"\s+", " ", on).strip() == "on: push: pull_request:"
+    assert re.sub(r"\s+", " ", on).strip() == "on: push: branches: ['**'] pull_request:"
     assert "cancel-in-progress: true" in CHECK and "group: check-${{ github.ref }}" in CHECK
 
 

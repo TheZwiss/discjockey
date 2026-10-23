@@ -5,12 +5,14 @@
 # Actions are pinned by commit SHA (version in the comment): a moved tag must not run new code here.
 # The setup steps (public check, uv, tools, node) are written twice on purpose: release.yml repeats them (and
 # tests/test_workflows.py pins both copies). Change one, change the other.
-# `push` runs on every branch and `pull_request` on every PR: a same-repo PR is checked twice. That is kept so a
+# `push` runs on every branch (not on tags: a v* tag runs release.yml, and the commit was checked when its branch was
+# pushed) and `pull_request` on every PR: a same-repo PR is checked twice. That is kept so a
 # branch is checked before its PR exists; `concurrency` below cancels the older of two runs on the same ref.
 name: check
 
 on:
   push:
+    branches: ['**']
   pull_request:
 
 permissions:
