@@ -7,6 +7,23 @@ YouTube Music, YouTube or SoundCloud, and never deletes any of your music files.
 You need a Mac with Apple Silicon, Spotify Premium and, for lossless files, a Qobuz subscription (see
 [Requirements](#requirements)).
 
+<img src="docs/readme/app-dashboard.png" alt="The Discjockey dashboard: 87 % of 366 tracks lossless, the folders and the last runs">
+
+<table>
+  <tr>
+    <td width="50%" valign="top"><img src="docs/readme/app-sync-finished.png" alt="The end of a sync: 14 tracks added, 12 lossless"><br><sub><b>Sync</b>: what came in, folder by folder</sub></td>
+    <td width="50%" valign="top"><img src="docs/readme/app-todo.png" alt="The To-do page with tracks that are not lossless yet"><br><sub><b>To-do</b>: everything not lossless yet, with buy links</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="docs/readme/app-library.png" alt="The Library with a track's spectrum and player"><br><sub><b>Library</b>: every track with its quality and spectrum</sub></td>
+    <td width="50%" valign="top"><img src="docs/readme/app-playlists.png" alt="The Playlists page with eight playlists"><br><sub><b>Playlists</b>: priority order and where shared tracks land</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="docs/readme/app-limits.png" alt="The Download limits page with the last 14 days"><br><sub><b>Download limits</b>: your own safety limits per service</sub></td>
+    <td width="50%" valign="top"><img src="docs/readme/app-settings.png" alt="Settings with the sources, best first"><br><sub><b>Settings</b>: where your music comes from, best first</sub></td>
+  </tr>
+</table>
+
 ## Download
 
 Download `Discjockey-<version>.dmg` (for example `Discjockey-1.0.0.dmg`) from the
