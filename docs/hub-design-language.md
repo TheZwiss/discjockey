@@ -42,6 +42,31 @@ A child that scrolls inside itself (Library's table) marks its root `data-scroll
 exactly the scroller's height instead of growing around it. Only that child gives way: everything above it keeps its
 natural height (a `Segmented` clips its overflow and would otherwise shrink to a sliver).
 
+### Rule: the frame is an L, the foot belongs to it
+The window's chrome is one **L-shaped frame**: the sidebar and, while something goes on, the **foot** (`lib/shell/Foot.svelte`,
+44 px, `--activity-h`, full window width under sidebar and page). Both are one material, `--sidebar-bg`, painted once
+by `App.svelte` behind them, so they never meet in a seam; the page sits inside on black. Only the page's edge has a
+line: the sidebar's right border, continued along the page's lower edge (1 px `--surface-line` from `--sidebar-w` to the
+right). Chrome joins this frame; it never floats over the page or reserves a strip of its own.
+- **The foot holds what goes on:** the player bar while a list plays (a queue, plan now-playing), the sync's status
+  while the hub's own sync runs (not on Sync itself), or both in one bar (the sync's short form at the bar's right end).
+  No foot when neither.
+- **The player bar:** grid `minmax(0,1fr) auto minmax(0,1fr)` with the same padding on both sides, so ⏯ sits exactly
+  on the window's centre; left the 28 px cover, the title and "Artist · list" (a link back to the list, the playing
+  track selected), starting at the sidebar items' inset (18 px); middle the times (fixed 44 px each, so nothing moves)
+  around ⏮ ⏯ ⏭; right [sync] · ⤮ · | · ⌄ Hide player · × Stop, the Stop glyph 18 px from the window's edge.
+- **The position is the page's lower edge:** the played part is 2 px of `--accent` on that line; under the pointer it
+  thickens to 4 px with a knob and the time under the pointer; click or drag seeks, 1:1 with the pointer (`scrub`).
+  The hit area is 10 px, centred on the line. While a track loads, no fill.
+- **Hide folds the bar into the sidebar:** a **Now playing** row above Settings (`NowPlayingRow.svelte`: the "Library"
+  label's style, a 32 px row with a 22 px `PlayButton`, the title, a 22 px ⌃ `Button icon xs`, the position as a 2 px
+  line under the title). Show (⌃ or the title) unfolds it again. The folders above give way.
+- Disabled controls are grey, never removed (a list of one: ⤮ ⏮ ⏭ grey; the end of the list: ⏭ grey).
+
+| Do | Don't |
+|---|---|
+| Gallery, Foot (`base-gallery-foot`): every state of the bar on its L, and the row. Library playing (`library-now-playing`), Dashboard with a sync (`base-shell-foot-sync`), hidden (`library-now-playing-hidden`). | The two forms the user rejected for now playing (mockup rounds 1–2): a floating pill over a reserved strip under the page (takes space and still looks detached), and a player crammed into the sidebar (too tight). |
+
 ### Rule: a panel is head, fill, foot
 **`Panel`** (`lib/frames/Panel.svelte`, snippets `head`, `fill`, `after`, `foot`):
 - `head` and `after` keep their natural height and never shrink. `fill` holds the one list of unknown length.
@@ -237,6 +262,7 @@ remove it on every page, not just yours.
 | Live progress during a sync | linear, `--t-live`; nothing bounces. |
 | Popovers and menus (InfoTip, More, context menu) | Fade and grow from `scale(.97)` at the trigger, `--t-pop` (140 ms); close at once. **Once one tip is open (or just closed), the next opens instantly** (`infoTipModel.ts`). Modals only fade. |
 | Entrances | At most a ≤ 150 ms fade. CSS transitions only; nothing waits for an animation. Reduced motion: fades only. |
+| The frame's foot (plan now-playing) | Appear: up from the window's bottom, 220 ms, strong ease-out (the page makes room at once, only the contents move); Stop: down, 180 ms. Hide: the bar's contents move 40 px left towards the sidebar's corner and fade, 240 ms ease-in-out, then the row fades in; Show: the same path back, 280 ms. Track change, play/pause, shuffle and the keys: instant. Reduced motion: cross-fades. |
 
 `ProgressBar` has `pace`: `value` (moves on its own), `reply` (answers the user), `live` (a running sync). Placeholders
 are **the real blocks waiting**, never measured px: `StatCard value={null}` ("—") and `QualityBar by_quality={null}`
@@ -277,7 +303,7 @@ used.
 | `Panel` | `lib/frames/Panel.svelte` | `gallery-panel` | `head` / `fill` / `after` / `foot`. |
 | `PageHeader` | `lib/components/PageHeader.svelte` | `gallery-page-header` | Title · status line, actions, the Spotify slot. |
 | `Surface` | `lib/components/Surface.svelte` | `gallery-surface` | `card` / `list` / `table`; `label`, `summary`, `tone`, `foldable`, `sticky`, `bulk` (All · None), `header` (a Hint there gives way with the label), `grow` (`{ rows, tall? }`: fills its column up to its rows, 3-row minimum plus a peek, rows scroll inside; shared measuring with ToggleGroup in `growFill.ts`); `columns` (a table's column head, ruled and fixed above the rows, a `list` container of the rows' width so optional columns match) and `scroller` (bindable: the rows' scroller of a `grow` surface, for a table that renders only its visible rows); sets `data-surface`, `data-scrolls-itself` with `grow`, the fold `data-row-hit`. |
-| `Button` | `lib/components/Button.svelte` | `gallery-button` | `filled` · `primary` · `secondary` · `danger` · `link` · `icon`. |
+| `Button` | `lib/components/Button.svelte` | `gallery-button` | `filled` · `primary` · `secondary` · `danger` · `link` · `icon`; an `icon` can be a toggle (`pressed`: accent text on `--accent-wash-strong` plus a dot, `aria-pressed`, the foot's Shuffle) and `size="xs"` (22 px, a row inside the sidebar). |
 | `ToggleGroup`, `ToggleRow` | `lib/components/` | `gallery-toggles` | On/off rows; `grow` inside a Panel `fill` (one per Panel); search from `SEARCH_FROM` rows (the query clears below it); `disabledReason`: each row's tooltip and a Hint in the head in place of All · None (gallery "Locked"). |
 | `Segmented` | `lib/components/Segmented.svelte` | `gallery-segmented` | One of up to 6; counts, dots, More, tight mode. |
 | `StatCard` | `lib/components/StatCard.svelte` | `gallery-statcard` | 30 px number + unit + label; a bar or ring as its child; `value={null}` is "—", also its loading state. |
@@ -297,6 +323,8 @@ used.
 | `SecretField` | `lib/components/SecretField.svelte` | `gallery-secretfield` | An input whose text stays in the element (a password, a Client ID): the page reads it out with `takeSecret` as the call goes out; `oninput` derives only a boolean or a check; `tone` ok / bad; `multiline` for a pasted line. Same box as `TextField`. |
 | `SortHeader` | `lib/components/SortHeader.svelte` | `gallery-surface` (`g-surface-columns`) | One column's head of a sortable table: the name as a button of its natural width, ↑ / ↓ on the sorted column, `aria-sort` on its `columnheader` cell; `align="end"` for numbers. Library. |
 | `ProgressBar` | `lib/components/ProgressBar.svelte` | `gallery-progress` | `pace` value / reply / live; `tone`. |
+| `PlayButton`, `PlayerIcon` | `lib/components/` | `gallery-player`, `gallery-foot` | The round play/pause of every player (MiniPlayer, the foot, the Now playing row): accent ring, ▶ / ❚❚ drawn as shapes, a spinner while loading, grey ring when off; `size` 30 or 22. `PlayerIcon`: the player's 16 px line glyphs (⏮ ⏭ ⤮ ⌄ ⌃ ×) for `Button icon`. |
+| `Foot`, `NowPlayingRow`, `SyncPart` | `lib/shell/` (+ `footModel.ts`) | `gallery-foot` | The frame's foot and the hidden player's sidebar row (rule "the frame is an L" above); `SyncPart` is the sync's long form (alone in the foot) or `short` ("Sync 4 of 6", at the player bar's right end), a link to Sync. Shell parts, placed by `App` and `Sidebar` only. |
 | `QualityBar` | `lib/components/QualityBar.svelte` | `gallery-qualitybar` | The quality split with legend; `by_quality={null}` waits (gallery "waiting"). |
 | `Hint`, `InfoTip`, `NoteCard` | `lib/components/` | `gallery-explain` | The only three ways to explain; Hint `tone="problem"` for an error beside its control. |
 | `KeyValue` | `lib/components/KeyValue.svelte` | `gallery-trackrow` | A key and its value on one line (To-do and Library details, Settings' Download tools). The key is an uppercase caption (`caps`) by default; `plain` keeps a name's own spelling (`yt-dlp`, `streamrip`: normal case, muted); `keyWidth` (px) sets the key column (default 96) so a list of short names needn't reach in with `:global`. |
@@ -312,8 +340,8 @@ needs one, it moves to `lib/components` first (centrally).
 The gallery's "Other components" (WriteButton, Badge, Cover, TrackRow, fields (CopyCode and SecretField have their own
 sections), Banner, Dialog, Ring, Spectrum, player,
 DropZone) are shared and in use, not reworked yet; phase 2 reworks each with its page. To-do no longer uses `TrackRow`
-(its rows are `ListRow`s) and Library's table has its own cells, so `TrackRow` is in no page any more. A round icon button that isn't a `Button` (MiniPlayer's
-play, the Wrong song dialog's preview, a playable `Cover`) states its size as `min-width`, so the checker reads it as
+(its rows are `ListRow`s) and Library's table has its own cells, so `TrackRow` is in no page any more. A round icon button that isn't a `Button` (`PlayButton`,
+the Wrong song dialog's preview, a playable `Cover`) states its size as `min-width`, so the checker reads it as
 natural. `Cover` with `onplay` is a track's play button (Library's rows): ▶ over it while hovered or while `hint` (its
 row is hovered), ❚❚ while `playing` (on `--cover-scrim`), a click plays or pauses; it stays out of the tab order,
 the row's Enter plays.
@@ -446,6 +474,16 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-23 · Now playing lives in the frame's foot; hide folds it into the sidebar.** The sidebar and a 44 px
+  foot are one L-shaped frame in one material (painted once by `App`), the line only along the page; the page's lower
+  edge is the position; the sync's status moves into the same bar; Hide folds the bar into a Now playing row above
+  Settings. New: `Foot`, `NowPlayingRow`, `SyncPart` (was `ActivityBar`), `PlayButton`, `PlayerIcon`, `Button icon`
+  `pressed` and `xs`. Why: it covers nothing, it costs only the 44 px the sync bar already cost, one bar instead of
+  two stacked, and hide/show move along one path (spatial consistency); a floating pill over a reserved strip and a
+  player card in the sidebar were rejected by the user. Changed from the mockup: the icon buttons are the system's
+  26 px `Button icon` (mockup 28), and while a track loads the bar shows its known length instead of "–:––" (it
+  comes from the list, so nothing changes when the file arrives). Seen: `base-gallery-foot`, `library-now-playing`,
+  `library-now-playing-hidden`, `base-shell-foot-sync`, `base-shell-foot-hidden-sync`.
 - **2026-10-23 · The update notice: one `ExternalLink` line under the brand, no new block.** When a newer version is out
   (`HubState.app_update`), the sidebar's head gets a second line at `--fs-label`, on the brand's left edge, in the
   link's own accent colour (links are the accent's job): no badge, no alarm colour, no animation; the nav moves down

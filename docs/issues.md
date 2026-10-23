@@ -3,21 +3,6 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
-## 21. Global audio controls for track previews (wish, 2026-10-23)
-
-A track preview started on any page keeps playing after you leave that page, which is right. But nothing outside that
-page lets you control it any more. Wanted: controls that follow you everywhere once a preview has started.
-
-- **Controls:** play/pause, previous and next track (within the list the preview was started from), and shuffle
-  (random order within that list).
-- **Form, an idea to design from:** a floating control pill that appears when a preview starts and stays while it is
-  paused. The user can hide it, and bring it back from anywhere (e.g. a small control in the sidebar or the window
-  chrome).
-- **Mandatory:** whoever designs or builds this loads the `apple-design` skill (and `emil-design-eng`) first and
-  follows its guidelines; no work on it starts without them. Also `docs/hub-design-language.md`.
-- **Bar:** the best UX and an extremely intuitive UI. A new pattern is added centrally (block + gallery + doc), and before/after visuals
-  are shown before it is applied.
-
 ## 20. Sync page offers the last run's tracks again after a finished sync (bug, 2026-10-23)
 
 When a sync has finished and nothing is left to sync, the Sync page still offers to sync the last run's tracks, even

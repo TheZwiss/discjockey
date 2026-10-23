@@ -13,9 +13,10 @@
   import type { Fail, Library, LibraryFilter, LibrarySort, ProblemKind, TrackDetail } from '$lib/bridge/types';
   import { dataVersion } from '$lib/stores/hub';
   import { player } from '$lib/stores/player';
+  import { listen } from '$lib/listen';
   import { toasts } from '$lib/stores/toasts';
   import { problemCopy } from '$lib/copy';
-  import { artistTitle, plural } from '$lib/format';
+  import { plural } from '$lib/format';
   import { getPref, setPref } from '$lib/prefs';
   import { go, libraryHref } from '$lib/router';
   import { markReady } from '$lib/ready';
@@ -154,15 +155,13 @@
     selected = id;
     void go(`${libraryHref(folder)}?track=${encodeURIComponent(id)}`, { replace: true });
   }
-  async function play(id: string) {
-    let t = detail?.track_id === id ? detail : null;
-    if (!t) {
-      const r = await api.track(id);
-      if (!r.ok) { toasts.show({ tone: 'problem', title: problemCopy(r.kind).title, body: r.message || undefined }); return; }
-      t = r.track;
+  // ▶ starts the folder as shown (filter, search and sort applied) as the queue, from this track. The rows come
+  // sorted from the engine (`api.library(…, sort)`), and the table shows them in that order.
+  function play(id: string) {
+    const label = (lib?.title ?? 'All tracks') + (q ? ` · “${q}”` : '');
+    if (!lib || !listen(lib.rows, id, { label, href: libraryHref(folder) })) {
+      toasts.show({ tone: 'problem', title: "Can't play this file." });
     }
-    if (!t.audio_url) { toasts.show({ tone: 'problem', title: "Can't play this file." }); return; }
-    player.play({ url: t.audio_url, title: artistTitle(t.artist, t.title), track_id: t.track_id });
   }
   async function finder(id: string) {
     const r = await api.show_in_finder(id, 'current');
@@ -192,7 +191,7 @@
   const playing = $derived($player.playing ? $player.track_id : null);
   function playOrPause(id: string) {
     if ($player.track_id === id && $player.url) player.toggle();
-    else void play(id);
+    else play(id);
   }
 </script>
 
@@ -233,7 +232,7 @@
     <TrackDetails {detail} loading={detailLoading} {gone} error={detailError} {spectrum} {spectrumLoading} {spectrumError}
       {upgradeSpectrum} {swapping} onretry={() => { trackRetry++; }}
       onfinder={() => detail && void finder(detail.track_id)} ontodo={() => detail && todo(detail.track_id)}
-      onswap={() => void swap()} />
+      onswap={() => void swap()} onlisten={() => detail && play(detail.track_id)} />
   {:else}
     <FolderOverview summary={lib && !emptyLibrary ? lib.summary : null} onupgrades={() => setFilter('upgrade_ready')}
       ontodo={() => void go('/todo')} />

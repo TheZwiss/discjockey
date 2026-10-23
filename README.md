@@ -190,6 +190,23 @@ yesterday's unused amount is added on top. The **Download limits** page changes 
 extra downloads for today only. After 3 failed Qobuz requests in a row, Qobuz pauses for the rest of the run, and
 those tracks are tried again next time.
 
+### Listening through a list
+
+Press ▶ on a track's cover in **Library** (or in its details, or a to-do's details) and Discjockey plays that track,
+then the rest of the list as you see it: the folder with its filter, search and sort, or the to-do list. Only tracks
+that have a file are played. Changing the filter later doesn't change what plays.
+
+- A bar along the bottom of the window shows what plays, wherever you go: ⏮ previous, ⏯ play/pause, ⏭ next. The thin
+  orange line above it is the position: point at it to see the time, click or drag to jump.
+- ⏮ starts the track again after its first 3 seconds; in the first 3 seconds it goes back one track.
+- ⤮ **Shuffle** plays the rest of the list in random order; off goes back to the list's order.
+- After the last track it stops at "End of …"; ▶ plays the list again from the top.
+- The track's name takes you back to its list with the playing track selected.
+- ⌄ **Hide player** folds the bar into a **Now playing** row in the sidebar (⏯ still works there); ⌃ or the title
+  brings it back. × **Stop** ends it.
+- Keys: **Space** plays or pauses, **⌘→** next, **⌘←** previous (not while you type in a field).
+- If a file can't be played, the bar says so and waits; ⏭ goes on.
+
 ## Folders
 
 - `Library/<Folder>/` holds lossless tracks (verified) and files you bought.

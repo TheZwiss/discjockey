@@ -1,4 +1,5 @@
-// The activity bar's words, from the run state (also used by the Sync screen's header if it wants).
+// The sync's words in the frame's foot, from the run state: the long form when the foot shows only the sync, the
+// short one at the right end of the player bar (plan now-playing).
 import type { RunState } from '../stores/run';
 import { STEP_LABEL } from '../copy';
 import { artistTitle, duration } from '../format';
@@ -24,6 +25,18 @@ export function activityText(s: RunState, now: number): ActivityText {
   }
   const verb = s.current?.kind === 'move' ? 'Moving' : s.step ? STEP_LABEL[s.step] : 'Searching';
   return { lead: `${head}${verb} `, track: name, tail: null, pause: null, qobuz };
+}
+
+/** The short form for the player bar's right end: "Sync 4 of 6"; the long form goes into its tooltip. */
+export function activityShort(s: RunState): string {
+  if (s.phase === 'stopping') return 'Stopping…';
+  if (s.phase === 'preparing' || !s.total) return 'Reading Spotify…';
+  return `Sync ${s.index} of ${s.total}`;
+}
+
+/** The long form as one line (the short form's tooltip and the sync part's label). */
+export function activityLine(a: ActivityText): string {
+  return [[a.lead, a.track, a.tail].filter(Boolean).join('').trim(), a.pause, a.qobuz].filter(Boolean).join(' · ');
 }
 
 /** (index − 1 + step fraction) / total */

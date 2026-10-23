@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { current, goTo, makeQueue, nextIndex, prevAction, setShuffle, single, type QueueItem } from './queueModel';
+import { current, goTo, makeQueue, nextIndex, prevAction, setShuffle, single, snapshot, type QueueItem } from './queueModel';
 
 const source = { label: 'All tracks', href: '#/library' };
 const item = (n: number): QueueItem => ({ track_id: `t${n}`, title: `Title ${n}`, artist: 'Artist', cover_url: null,
@@ -112,5 +112,19 @@ describe('goTo', () => {
     expect(goTo(q, 2).at).toBe(2);
     expect(goTo(q, 7).at).toBe(2);
     expect(goTo(q, -1).at).toBe(0);
+  });
+});
+
+describe('snapshot', () => {
+  const row = (n: number, path: string | null) => ({ ...item(n), path, folder: 'F', quality: 'lossless' });
+  it('keeps the rows with a file, in the order shown, and only the queue fields', () => {
+    const s = snapshot([row(3, '/a'), row(1, null), row(2, '/b')], 't2');
+    expect(s?.items.map((i) => i.track_id)).toEqual(['t3', 't2']);
+    expect(s?.start).toBe(1);
+    expect(Object.keys(s!.items[0]).sort()).toEqual(['artist', 'cover_url', 'duration_s', 'title', 'track_id']);
+  });
+  it('has nothing to start from when the row has no file or is not in the list', () => {
+    expect(snapshot([row(1, null), row(2, '/b')], 't1')).toBeNull();
+    expect(snapshot([row(2, '/b')], 't9')).toBeNull();
   });
 });

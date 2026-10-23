@@ -56,3 +56,16 @@ export function setShuffle(q: Queue, on: boolean, rand: () => number = Math.rand
   }
   return { ...q, order: [...q.order.slice(0, q.at + 1), ...rest], shuffle: true };
 }
+
+/**
+ * The queue's snapshot of a list as it is shown (plan now-playing, Decisions): the rows that have a file, in their
+ * order, cut down to what the queue needs. `start` is the place of `id` in it; null when that row has no file (or
+ * isn't in the list), so there is nothing to start from.
+ */
+export function snapshot(rows: readonly (QueueItem & { path: string | null })[], id: string):
+  { items: QueueItem[]; start: number } | null {
+  const items = rows.filter((r) => r.path !== null).map(({ track_id, title, artist, cover_url, duration_s }) =>
+    ({ track_id, title, artist, cover_url, duration_s }));
+  const start = items.findIndex((r) => r.track_id === id);
+  return start < 0 ? null : { items, start };
+}

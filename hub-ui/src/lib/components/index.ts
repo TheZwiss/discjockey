@@ -23,6 +23,8 @@ export { default as MiniPlayer } from './MiniPlayer.svelte';
 export { default as NoteCard } from './NoteCard.svelte';
 export { default as NumberedSteps } from './NumberedSteps.svelte';
 export { default as PageHeader } from './PageHeader.svelte';
+export { default as PlayButton } from './PlayButton.svelte';
+export { default as PlayerIcon, type PlayerGlyph } from './PlayerIcon.svelte';
 export { default as ProblemCard } from './ProblemCard.svelte';
 export { default as ProgressBar } from './ProgressBar.svelte';
 export { default as QualityBadge } from './QualityBadge.svelte';
