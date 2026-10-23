@@ -6,7 +6,7 @@ import { daysToLoad } from '$lib/days';
 import type { DayBarInput } from '$lib/components/dayBarModel';
 import type { ToggleItem } from '$lib/components/toggleModel';
 import { estimate, foldText, plural, serviceName } from '$lib/format';
-import { SECONDS_PER_DOWNLOAD, allActions, keyId } from './selection';
+import { allActions, keyId } from './selection';
 
 export const PREF_SCOPE = 'sync.scope';
 
@@ -56,15 +56,11 @@ export const isDownload = (a: { kind: string }) => a.kind === 'acquire' || a.kin
 /** Only downloads can be "never download" (an existing file is never touched by it). */
 export const canNever = (a: { kind: string }) => a.kind === 'acquire';
 
-/** Python's round(): halves go to the even neighbour (round(10.5) == 10). */
-export function roundHalfEven(x: number): number {
-  const f = Math.floor(x);
-  const d = x - f;
-  return d > 0.5 + 1e-9 ? f + 1 : d < 0.5 - 1e-9 ? f : f % 2 === 0 ? f : f + 1;
-}
-/** views.run_minutes: ≈ 70 s per download, rounded to 5 minutes (at least 5). */
-export const runMinutes = (downloads: number) =>
-  downloads <= 0 ? 0 : Math.max(5, 5 * roundHalfEven((downloads * SECONDS_PER_DOWNLOAD) / 300));
+/** The minutes for `downloads` downloads, looked up in the engine's table (`estimate.minutes_by_downloads`, the
+ * formula lives in views.run_minutes). The table ends at what fits today, so a larger count gets its last entry;
+ * no table yet (no preview): 0. */
+export const minutesFor = (table: number[], downloads: number): number =>
+  downloads <= 0 ? 0 : (table[Math.min(downloads, table.length - 1)] ?? 0);
 
 /** Every action in the order the sync works through them (the backend's `run` index). */
 export const inRunOrder = (p: SyncPreview | null): PreviewAction[] => allActions(p);
@@ -186,11 +182,12 @@ export function serviceRows(accounts: EstimateAccount[], downloads: number, { li
   return out;
 }
 
-export function runTotals(chosen: PreviewAction[], allDownloads: number, left: number, limit: number): RunTotals {
+export function runTotals(chosen: PreviewAction[], allDownloads: number, left: number, limit: number,
+  minutesTable: number[]): RunTotals {
   const downloads = chosen.filter(isDownload).length;
   const uses = Math.min(downloads, Math.max(left, 0));
   const after = Math.max(0, allDownloads - uses);
-  return { tracks: chosen.length, downloads, uses, minutes: runMinutes(uses), waiting: downloads - uses, after,
+  return { tracks: chosen.length, downloads, uses, minutes: minutesFor(minutesTable, uses), waiting: downloads - uses, after,
     days: limit > 0 ? daysToLoad(after, Math.max(left, 0) - uses, limit) : 0 };
 }
 

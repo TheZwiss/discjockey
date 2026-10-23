@@ -8,18 +8,11 @@ export function decodeSpectrum(spec: Spectrum): Uint8Array {
   return out;
 }
 
-/** Mean energy per column, 0–1 (scaled to the loudest column): the mini waveform. */
+/** The mini player's waveform: the engine's peak per column, 0–1 (1 = the loudest column). */
 export function envelope(spec: Spectrum | null): number[] {
   if (!spec) return [];
-  const d = decodeSpectrum(spec);
-  const cols: number[] = [];
-  for (let c = 0; c < spec.cols; c++) {
-    let sum = 0;
-    for (let b = 0; b < spec.bands; b++) sum += d[c * spec.bands + b] ?? 0;
-    cols.push(sum / spec.bands / 255);
-  }
-  const max = Math.max(...cols, 1e-6);
-  return cols.map((v) => v / max);
+  const bin = atob(spec.waveform);
+  return Array.from({ length: spec.cols }, (_, c) => (bin.charCodeAt(c) || 0) / 255);
 }
 
 /** "#rgb" / "#rrggbb" → [r, g, b]. */

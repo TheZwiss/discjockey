@@ -59,7 +59,8 @@
   const total = $derived(scoped.filter(isDownload).length);
   const presetList = $derived(presets(total, left));
   const chosen = $derived(scoped.filter((a) => ticked.has(keyId(a.key))));
-  const totals = $derived(runTotals(chosen, ordered.filter(isDownload).length, left, limit));
+  const totals = $derived(runTotals(chosen, ordered.filter(isDownload).length, left, limit,
+    preview?.estimate?.minutes_by_downloads ?? []));
   const movesTicked = $derived(chosen.filter((a) => kindOf(a) === 'move').length);
   // only downloads that wait for the next sync are ticked: a run would do nothing today, so Start is off (Task 9B ruling)
   const nothingToday = $derived(runsNothingToday(chosen.length, totals.downloads, totals.uses, movesTicked));

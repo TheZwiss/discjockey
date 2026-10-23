@@ -26,6 +26,18 @@ export function fakeSpectrumBytes(cutoff_hz: number | null, seed: number): Uint8
   return out;
 }
 
+/** One peak per column: loud and quiet parts, the kick's attack on the beat, a quiet breakdown, loudest = 255. */
+export function fakeWaveformBytes(seed: number): Uint8Array {
+  const r = rand(seed + 1);
+  const raw = Array.from({ length: COLS }, (_, c) => {
+    const section = Math.sin((c / COLS) * Math.PI * 3 + seed) * 0.5 + 0.5;
+    const breakdown = c > 210 && c < 250 ? 0.5 : 1;
+    return (0.45 + 0.4 * section) * breakdown * (c % 8 < 2 ? 1 : 0.8) * (0.9 + 0.1 * r());
+  });
+  const top = Math.max(...raw);
+  return Uint8Array.from(raw, (v) => Math.round((v / top) * 255));
+}
+
 function base64(bytes: Uint8Array): string {
   let s = '';
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -35,5 +47,5 @@ function base64(bytes: Uint8Array): string {
 export function fakeSpectrum(cutoff_hz: number | null, seed: number, duration_s = 180,
   which: Which = 'current'): Spectrum {
   return { cols: COLS, bands: BANDS, max_hz: MAX_HZ, duration_s, floor_db: -100,
-    data: base64(fakeSpectrumBytes(cutoff_hz, seed)), which, cutoff_hz };
+    data: base64(fakeSpectrumBytes(cutoff_hz, seed)), waveform: base64(fakeWaveformBytes(seed)), which, cutoff_hz };
 }

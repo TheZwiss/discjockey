@@ -3,7 +3,7 @@ import type { Bridge } from '../client';
 import type { HubEvent } from '../events';
 import type {
   Candidate, ChangePreview, Fail, JobStart, LibraryFilter, LibrarySort, PlaylistLine, ProblemKind, Res, Result,
-  AccountCheck, Browser, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, TodoFilter, TodoGroupKey, TodoItem, Which,
+  AccountCheck, Browser, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate,
 } from '../types';
 import { NOT_IN_PLAYLIST } from '../types';
 import { LIBRARY_METHODS } from '../contract';
@@ -15,7 +15,7 @@ import {
 } from './data';
 import { JobRecord, Replay, STREAMS, SYNC_START_LINE, rewrite } from './replay';
 import { daysToLoad } from '../../days';
-import { runMinutes } from '../../../pages/sync/planModel';
+import { minutesByDownloads } from './minutes';
 import { fakeSpectrum } from './spectrum';
 import { toneUrl } from './audio';
 import { BROWSER_NAMES, defaultBrowsers } from './browsers';
@@ -96,6 +96,9 @@ export function pageScenarios(): Record<string, (s: FakeState) => void> {
 }
 export const SCENARIOS = ['normal', 'update_available', 'first_run', 'offline', 'console', 'syncing', 'pause', 'break', 'stopped',
   'finished', 'big', 'errors', 'no_music', 'music_missing'] as const;
+
+/** The dashboard's estimate has no minutes table (only the Sync page ticks subsets). */
+const dashboardEstimate = ({ minutes_by_downloads: _table, ...rest }: SyncEstimate) => rest;
 
 export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Handlers & { _ctx: FakeContext } {
   const baseScenario = scenario.includes(':') ? 'normal' : scenario;
@@ -219,9 +222,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     const needed = counts.new + counts.retries + counts.redownloads + counts.weekly_checks;
     const g = gate(s);
     const left = g ? g.remaining : needed;
-    const estimate = { duration_min: runMinutes(Math.min(needed, left)), qobuz_limit: g?.limit ?? 0,
-      qobuz_needed: needed, qobuz_left: left, qobuz_uses: Math.min(needed, left), accounts: split(s, needed),
-      left: g ? g.remaining : null, limit: g?.limit ?? 0 };
+    const uses = Math.min(needed, left);
+    const minutes = minutesByDownloads(uses);
+    const estimate = { duration_min: minutes[uses], qobuz_limit: g?.limit ?? 0,
+      qobuz_needed: needed, qobuz_left: left, qobuz_uses: uses, accounts: split(s, needed),
+      left: g ? g.remaining : null, limit: g?.limit ?? 0, minutes_by_downloads: minutes };
     const folders = s.playlists.filter((p) => p.enabled).map((p) => p.folder);
     const in_playlists = s.tracks.filter((t) => t.in_playlists).length + s.newTracks.length;
     return { groups, counts, actions, estimate, never, folders, in_playlists };
@@ -333,7 +338,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         tiles: { lossless: { share: inPl.length ? lossless / inPl.length : null, lossless, total: inPl.length,
           by_quality: byQuality(inPl) }, qobuz_today: budget(s), still_to_load: stillToLoad(),
           account_today: cards(s).find((c) => c.set_up) ?? null },
-        ready: s.previewRead ? { counts: p.counts, actions: p.actions, ...p.estimate } : null,
+        ready: s.previewRead ? { counts: p.counts, actions: p.actions, ...dashboardEstimate(p.estimate) } : null,
         needs_you: { upgrades: inPl.filter((t) => t.upgrade).length,
           swappable: inPl.filter((t) => t.upgrade?.swap_safe).length,
           not_found: inPl.filter((t) => qualityOf(t) === 'missing' && !t.hidden).length,

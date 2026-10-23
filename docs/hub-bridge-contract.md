@@ -263,7 +263,10 @@ next sync. `estimate.qobuz_limit` is the daily limit setting. `estimate.accounts
 are expected to use, one entry per set-up service in quality order: `{service, name, uses, left, limit, about}`
 (`uses` null for an account behind Qobuz, which only gets the tracks Qobuz lacks; `about` true for every service but
 Qobuz: an estimate). `estimate.left` is today's remaining allowance (null = no limit) and `estimate.limit` the daily
-limit; the `qobuz_*` fields are kept for one release.
+limit; the `qobuz_*` fields are kept for one release. `estimate.minutes_by_downloads[n]` (sync_preview only, not
+the dashboard's) is the time for `n` downloads, for `n = 0 … qobuz_uses` (the most any ticked subset can run today):
+the page looks up the count of the actions the user ticked, so the formula (70 s a download, rounded to 5 minutes) is
+in the engine only (`views.minutes_by_downloads`) and ticking needs no bridge call.
 ```json
 {
  "ok": true,
@@ -347,7 +350,8 @@ limit; the `qobuz_*` fields are kept for one release.
    }
   ],
   "left": 80,
-  "limit": 60
+  "limit": 60,
+  "minutes_by_downloads": [0, 5, 5]
  },
  "never": [],
  "folders": [
@@ -923,7 +927,10 @@ playlist folders in playlists.txt order, for grouping the rows.
 
 `spectrum(track_id, which="current")` — which: `current|upgrade`. `data`: base64 of `cols*bands` bytes, row by row
 in time, each row low→high frequency (band width `max_hz/bands`); byte v → dB = `floor_db * (1 - v/255)` (0 dB =
-loudest cell). Draw the cutoff line at `cutoff_hz` (null = none).
+loudest cell). Draw the cutoff line at `cutoff_hz` (null = none). `waveform`: base64 of `cols` bytes, one per column
+(the same columns as the matrix): the largest sample anywhere in that column's stretch of the track (1/`cols` of its
+length), 0 = silence, 255 = the loudest column, linear. A kick's attack shows as its peak; the matrix's mean energy
+would not show it. Files cached before the field existed are made again.
 ```json
 {
  "ok": true,
@@ -934,6 +941,7 @@ loudest cell). Draw the cutoff line at `cutoff_hz` (null = none).
   "duration_s": 1.0,
   "floor_db": -100.0,
   "data": "////////////////////////////////////////...",
+  "waveform": "//////////////////////////////////...",
   "which": "current",
   "cutoff_hz": 16000
  }

@@ -71,6 +71,9 @@ export type PlanCounts = { new: number; retries: number; redownloads: number; mo
 /** left null: no daily limit (only free sources are set up). accounts: the expected split between the services. */
 export type Estimate = { duration_min: number; qobuz_limit: number; qobuz_needed: number; qobuz_left: number;
   qobuz_uses: number; accounts: EstimateAccount[]; left: number | null; limit: number };
+/** The Sync page's estimate: also `minutes_by_downloads[n]`, the minutes for n downloads (n = 0 … `qobuz_uses`, the
+ *  most any ticked subset can run today). The page looks its subset's count up here; the formula lives in the engine. */
+export type SyncEstimate = Estimate & { minutes_by_downloads: number[] };
 export type Dashboard = {
   greeting: string; spotify: SpotifyStatus;
   tiles: {
@@ -102,7 +105,7 @@ export type PreviewAction = {
 export type SyncPreview = {
   spotify: SpotifyStatus; counts: PlanCounts | null;
   groups: { key: PreviewGroupKey | string; label: string; actions: PreviewAction[] }[];
-  estimate: Estimate | null;
+  estimate: SyncEstimate | null;
   /** downloads left out because the user said "never download" */
   never: PreviewAction[];
   /** playlists.txt order */
@@ -210,8 +213,10 @@ export type Limits = { service: Service; cards: LimitCard[]; usage: ServiceUsage
 export type EstimateAccount = { service: Service; name: string; uses: number | null; left: number; limit: number;
   about: boolean };
 
+/** `waveform`: base64 of `cols` bytes, the peak of each column's stretch of the track (0 = silence, 255 = the
+ *  loudest column), for the mini player's bars. */
 export type Spectrum = { cols: number; bands: number; max_hz: number; duration_s: number; floor_db: number;
-  data: string; which: Which; cutoff_hz: number | null };
+  data: string; waveform: string; which: Which; cutoff_hz: number | null };
 
 /** The music folder (spec public-release §4): ok (bound) · not_chosen (Setup's first step) · missing (config.json
  *  names a folder that isn't there, e.g. an unplugged drive). `path`: the bound or missing folder. */

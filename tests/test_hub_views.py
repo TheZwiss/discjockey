@@ -119,6 +119,26 @@ def test_plan_counts_and_estimate():
     assert views.estimate(many, {"remaining": 0, "limit": 60})["duration_min"] == 0
 
 
+def test_minutes_table_is_the_formula_once():
+    table = views.minutes_by_downloads(200)
+    assert len(table) == 201 and table[0] == 0
+    assert [table[n] for n in (1, 10, 45, 195)] == [5, 10, 50, 230]  # round(10.5) == 10, round(45.5) == 46
+    assert table == [views.run_minutes(n) for n in range(201)]
+    assert views.minutes_by_downloads(0) == [0]
+
+
+def test_sync_preview_gives_the_minutes_for_every_count_the_page_can_tick():
+    actions = [a("acquire", f"n{i}", "new") for i in range(12)] + [a("move", "m1"), a("upgrade", "u1")]
+    st = state()
+    p = views.sync_preview(store_with(actions, st), st, Settings(), TODAY, NOW, False)
+    est = p["estimate"]
+    assert est["qobuz_needed"] == 13
+    # one entry for 0 .. the downloads that fit today: the page ticks any subset of them
+    assert est["minutes_by_downloads"] == views.minutes_by_downloads(est["qobuz_uses"])
+    assert est["duration_min"] == est["minutes_by_downloads"][-1]
+    assert "minutes_by_downloads" not in views.estimate(actions, None)  # the dashboard's estimate stays as it was
+
+
 def test_still_to_load():
     money = {"remaining": 10, "limit": 60}
     store = store_with([a("acquire", f"t{i}", "new") for i in range(12)] + [a("upgrade", "u")])
