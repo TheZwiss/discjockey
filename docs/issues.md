@@ -25,11 +25,3 @@ taken before the run and is not worked out again from the library once the run f
 - **Fix at the root:** the engine writes a short crash note into `reports/` (when, the step it was on, the error in
   plain words, that the state is saved) and files it as the run's report, so the card's own "Open report" has
   something to open. Contract: `JobFinished` for a crash then carries the report like a finished run.
-
-## 7. Sync page: two leftovers from the 9B review (M8)
-
-- **"Later" ignores the panel's scope.** In `sync-scope` the DayBar's "Later 185" counts downloads in playlists the
-  user turned off, next to "All 77" (`runTotals.after` counts the whole plan). Question for the user: should Later
-  count only what's in scope?
-- **Loose sentence under the list.** `sync-many-all-off`'s "232 more tracks left out: playlists or kinds you turned
-  off on the right." sits outside any container (§4); make it a `Hint` or `NoteCard`.

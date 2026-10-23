@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ActionKey, EstimateAccount, PreviewAction, SyncPreview } from '$lib/bridge/types';
 import {
-  FULL_SCOPE, dayBarInput, defaultHowMany, facets, folderItems, foldText, howManyOptions, inRunOrder, isKindKey, kindItems,
+  FULL_SCOPE, type Scope, dayBarInput, defaultHowMany, downloadsInScope, inScope, facets, folderItems, foldText, howManyOptions, inRunOrder, isKindKey, kindItems,
   kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount,
   minutesFor, runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
   startLabel, tagOf, toggleScope, waitsWhole, whyColumn,
@@ -123,6 +123,20 @@ describe('next sync and the summary', () => {
     expect(runTotals(ordered, 108, 0, 66, [0])).toMatchObject({ uses: 0, minutes: 0, after: 108, days: 2 });
     // 4 ticked of 30 left today: the other 26 can still load today, so today counts (views.days_to_load)
     expect(runTotals(ordered, 108, 30, 66, table)).toMatchObject({ uses: 4, after: 104, days: 1 + 2 });
+  });
+  it('Later counts only the downloads in scope, so Today + Later is "All N" (issue 7)', () => {
+    const plan = [act('acquire', 'a'), act('acquire', 'b'), act('acquire', 'c'), act('move', 'm'),
+      act('acquire', 'x', 'Off_List'), act('acquire', 'y', 'Off_List'), act('upgrade', 'w')];
+    const scope: Scope = { folders: ['Off_List'], kinds: ['weekly'] };
+    expect(downloadsInScope(plan, scope)).toBe(3);   // a, b, c: not Off_List's two, not the weekly check
+    expect(downloadsInScope(plan, FULL_SCOPE)).toBe(6);
+    const chosen = plan.filter((a) => inScope(a, scope));
+    const t = runTotals(chosen, downloadsInScope(plan, scope), 2, 60, table);
+    expect(t).toMatchObject({ uses: 2, after: 1, days: 1 });
+    expect(t.uses + t.after).toBe(presets(downloadsInScope(plan, scope), 2).at(-1)!.n);   // "All 3"
+    // nothing in scope: no Later, the switched-off tracks are only the plan's "left out" note
+    expect(runTotals([], downloadsInScope(plan, { folders: ['Hard_Bounce', 'Off_List'], kinds: [] }), 2, 60, table))
+      .toMatchObject({ after: 0, days: 0 });
   });
 });
 
