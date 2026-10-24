@@ -675,3 +675,33 @@ def test_a_song_without_a_file_gets_one_placed_by_the_app(opened):
     state["tracks"]["sp2"].update(path=new, status="lossless")
     opened.save(state)
     assert opened.rows("SELECT placed_by FROM files WHERE song = 2") == [("app",)]
+
+
+# --- stage 2, 1.4: file_id in the snapshot ---
+
+def test_an_entry_with_a_linked_file_carries_its_file_id(opened):
+    tracks = opened.snap()["tracks"]
+    ids = dict(opened.rows("SELECT s.key, f.id FROM files f JOIN songs s ON s.id = f.song"))
+    assert tracks["sp1"]["file_id"] == ids["sp1"] and tracks["sp3"]["file_id"] == ids["sp3"]
+    assert "file_id" not in tracks["sp2"]  # no file
+
+
+def test_a_moved_file_keeps_its_file_id_and_an_unlinked_one_loses_it(opened):
+    state = opened.snap()
+    file_id = state["tracks"]["sp1"]["file_id"]
+    new = "Library/Deep/A - One.mp3"
+    opened.present.add(new)
+    state["tracks"]["sp1"]["path"] = new
+    state["tracks"]["sp3"].update(path=None, status="missing")
+    opened.save(state)
+    tracks = opened.snap()["tracks"]
+    assert tracks["sp1"]["file_id"] == file_id
+    assert "file_id" not in tracks["sp3"]
+
+
+def test_save_ignores_a_changed_file_id(opened):
+    state = opened.snap()
+    state["tracks"]["sp1"]["file_id"] += 100
+    state["tracks"]["sp2"]["file_id"] = 7
+    assert opened.save(state) == 0
+    assert "file_id" not in opened.snap()["tracks"]["sp2"]

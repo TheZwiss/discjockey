@@ -124,7 +124,7 @@ def test_finish_move_moves_the_row_and_sets_placed_by(log):
     assert log.place(log.ids["sp1"]) == ("New/A - One.aiff", "app")
     assert db.batch_moves(log.conn, batch)[0].state == "done"
     snap = db.snapshot(log.conn, log.library)["tracks"]["sp1"]
-    assert (snap["path"], snap["placed_by"]) == ("Library/New/A - One.aiff", "app")
+    assert (snap["path"], snap["placed_by"], snap["file_id"]) == ("Library/New/A - One.aiff", "app", log.ids["sp1"])
 
 
 def test_finish_move_is_idempotent_when_the_save_already_wrote_the_path(log):

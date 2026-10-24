@@ -233,7 +233,9 @@ OPTIONAL_COLUMNS = frozenset({"artists", "album", "image_url", "declined_streams
 # the linked file's fields; QUALITY are the ones copied onto the files row
 FILE_FIELDS = ("path", "status", "source", "source_id", "source_format", "cutoff_hz", "source_kbps")
 QUALITY = FILE_FIELDS[1:]
-READ_ONLY = frozenset({"online", "placed_by", "held"})  # entry keys the snapshot adds and save ignores
+# entry keys the snapshot adds and save ignores; file_id only on an entry with a linked file (plan library
+# stage 2, I2)
+READ_ONLY = frozenset({"online", "placed_by", "held", "file_id"})
 SNAPSHOT_ONLY = frozenset({"version", "ambiguous", "files"})  # top-level keys the snapshot adds and save ignores
 NOT_EXTRA = frozenset(SONG_COLUMNS) | frozenset(FILE_FIELDS) | READ_ONLY | {"aliases"}
 # the keys every snapshot entry has unless the stored entry lacked them; `extra[ABSENT]` lists the ones it lacked
@@ -294,7 +296,7 @@ def _entry(values: tuple, aliases: list[str], file: dict | None, path: str | Non
                  source_kbps=None, online=False, placed_by=None, held=False)
     else:
         e.update({k: file[k] for k in QUALITY}, path=path, online=bool(file["online"]), placed_by=file["placed_by"],
-                 held=bool(file["held"]))
+                 held=bool(file["held"]), file_id=file["id"])
     for k in absent:  # keys the entry didn't have stay absent: the planner tells "absent" from None (rule 5)
         e.pop(k, None)
     return e
