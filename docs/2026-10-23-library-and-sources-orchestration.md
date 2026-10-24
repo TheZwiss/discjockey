@@ -127,7 +127,7 @@ Everything else is decided and done without asking, and reported in one short me
 | Stage | Plan | Branch | State |
 |-------|------|--------|-------|
 | 1 Foundation | `docs/2026-10-23-library-stage-1-plan.md` | `feat/library-1-foundation` | Done on branch (3e562f1): 5 groups + Opus stage review + fixes; waits for stage 2 (merge together). Before the release: one migration on a copy of a real-shaped scratch library |
-| 2 Tidy-up | `docs/2026-10-24-library-stage-2-plan.md` | `feat/library-2-tidy` | 7 groups merged (8a5bda0); verify 612 shots 0 problems, CI green; Opus stage review: 4 Important + Minors → fix round 1 engine/bridge/docs (worktree `s2-fix`), then fix round 2 page, re-review, rekordbox live check, merge stages 1+2 |
+| 2 Tidy-up | `docs/2026-10-24-library-stage-2-plan.md` | `feat/library-2-tidy` | 7 groups merged (8a5bda0); verify 612 shots 0 problems, CI green; Opus stage review: 4 Important + Minors → fix round 1 engine/bridge/docs merged (7535f2b, pytest 2080 green), fix round 2 page (worktree `s2-page`), re-review, rekordbox live check, merge stages 1+2 |
 | 3 Qobuz playlists | — | — | Not started |
 | 4 Import | — | — | Not started |
 | 5 Sidebar | — | — | Not started |
