@@ -8,13 +8,14 @@ from datetime import date, datetime
 from pathlib import PurePosixPath
 
 from .library import op_paths
+from .matching import normalize, normalize_artist
 from .models import Action, FetchedPlaylist, Outcome, Placed, Plan, SourceTrack
 from .names import expected_stem, fold
 
 LOSSY = ("not_lossless", "fake_lossless")
 BOUGHT_EXTS = (".aiff", ".aif", ".wav")
 WAIT_DAYS = 7
-ISRC_TOLERANCE_MS = 3000
+SAME_LENGTH_MS = 3000  # how far apart two lengths may be for one song: an ISRC link and a name link (spec §9.2)
 KIND_RANK = {"adopt_bought": 0, "acquire": 1, "upgrade": 2}
 
 
@@ -169,52 +170,82 @@ def searched_since_check(entry: dict, key: str, today: date) -> bool:
 
 @dataclass
 class _Wanted:
-    track: SourceTrack
+    track: SourceTrack  # the first fetched track (playlist order) that resolved to the song
     folder: str
     order: tuple[int, int]
     aliases: list[str] = field(default_factory=list)
+    # the first fetched Qobuz track that resolved to the song and that Qobuz delivers now: the exact id to try first.
+    # Only from this read, never from a stored alias: only the read says whether Qobuz delivers it today
+    qobuz: SourceTrack | None = None
 
 
-def _isrc_twin(t: SourceTrack, by_isrc: dict[str, list[tuple[str, int]]]) -> str | None:
-    if not t.isrc:
-        return None
-    for key, duration_ms in by_isrc.get(t.isrc.upper(), []):
-        if abs(duration_ms - t.duration_ms) <= ISRC_TOLERANCE_MS:
+Lengths = list[tuple[str, int]]  # (song key, its length in ms) of the songs under one ISRC or one name
+
+
+def _twin(candidates: Lengths, duration_ms: int) -> str | None:
+    """The first of `candidates` whose length is within SAME_LENGTH_MS of `duration_ms`."""
+    for key, ms in candidates:
+        if abs(ms - duration_ms) <= SAME_LENGTH_MS:
             return key
     return None
 
 
+def _song_name(artist: str, title: str) -> tuple[str, str]:
+    """A song's name for a name link: its first artist and its title, normalised as the Qobuz search compares them
+    (matching.qobuz_match), so "Artist feat. X" and "Title (Original Mix)" name the same song as the bare ones."""
+    return normalize_artist(artist), normalize(title)
+
+
 def _resolve(fetched: list[FetchedPlaylist], tracks: dict, notes: list[str]) -> dict[str, _Wanted]:
+    """Links every fetched track to a song (spec §9.2), in this order: its token is a song's key or alias; else a
+    song with the same ISRC and a length within SAME_LENGTH_MS; else, only for a track without an ISRC, a song with
+    the same artist, title and length; else it is a new song keyed by its token. A link by ISRC or name adds the
+    track's token to the song's aliases (with a note for a stored song). Candidates are the stored songs and the
+    songs this read already resolved. Returns the wanted songs by key, in the order they were first met."""
     index: dict[str, str] = {}
-    by_isrc: dict[str, list[tuple[str, int]]] = {}
+    by_isrc: dict[str, Lengths] = {}
+    by_name: dict[tuple[str, str], Lengths] = {}
     for key, e in tracks.items():
         index[key] = key
         for alias in e.get("aliases", []):
             index[alias] = key
+        if e.get("duration_ms") is None:
+            continue
         if e.get("isrc"):
             by_isrc.setdefault(e["isrc"].upper(), []).append((key, e["duration_ms"]))
+        if e.get("artist") and e.get("title"):
+            by_name.setdefault(_song_name(e["artist"], e["title"]), []).append((key, e["duration_ms"]))
 
     wanted: dict[str, _Wanted] = {}
     for li, fp in enumerate(fetched):
         for pos, t in enumerate(fp.tracks):
-            key = index.get(t.id)
+            key = index.get(t.key)
             if key is None:
-                key = _isrc_twin(t, by_isrc)
+                name = _song_name(t.first_artist, t.title)
+                if t.isrc:
+                    key = _twin(by_isrc.get(t.isrc.upper(), []), t.duration_ms)
+                    note = (f"{t.first_artist} - {t.title}: same recording as a track you already have "
+                            f"(ISRC {t.isrc}), not downloaded again.")
+                else:  # a name link only without an ISRC: two different ISRCs are two recordings
+                    key = _twin(by_name.get(name, []), t.duration_ms)
+                    note = (f"{t.first_artist} - {t.title}: same song as one you already have "
+                            f"(same artist, title and length), not downloaded again.")
                 if key is None:
-                    key = t.id
+                    key = t.key
                     if t.isrc:
                         by_isrc.setdefault(t.isrc.upper(), []).append((key, t.duration_ms))
+                    by_name.setdefault(name, []).append((key, t.duration_ms))
                 elif key in tracks:
-                    tracks[key].setdefault("aliases", []).append(t.id)
-                    notes.append(
-                        f"{t.first_artist} - {t.title}: same recording as a track you already have "
-                        f"(ISRC {t.isrc}), not downloaded again."
-                    )
+                    tracks[key].setdefault("aliases", []).append(t.key)
+                    notes.append(note)
                 else:
-                    wanted[key].aliases.append(t.id)
-                index[t.id] = key
-            if key not in wanted:
-                wanted[key] = _Wanted(t, fp.line.folder, (li, pos))
+                    wanted[key].aliases.append(t.key)
+                index[t.key] = key
+            w = wanted.get(key)
+            if w is None:
+                w = wanted[key] = _Wanted(t, fp.line.folder, (li, pos))
+            if w.qobuz is None and t.service == "qobuz" and t.streamable:
+                w.qobuz = t
     return wanted
 
 
@@ -264,6 +295,8 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
     for key, w in wanted.items():
         def act(kind: str, **kw) -> None:
             skip = kind == "acquire" and key in never_ids  # "never download": nothing is fetched, files stay
+            if kind in ("acquire", "upgrade") and w.qobuz:  # a Qobuz playlist named the exact track
+                kw["qobuz_id"] = w.qobuz.id
             (never if skip else actions).append(Action(kind, key, w.folder, w.track, w.order, **kw))
 
         e = tracks.get(key)
