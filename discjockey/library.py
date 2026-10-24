@@ -287,24 +287,40 @@ def open_state(paths: Paths, emit: Emit = no_emit) -> dict:
     return load_state(paths)
 
 
-def open_records(paths: Paths, emit: Emit = no_emit) -> None:
+def open_records(paths: Paths, emit: Emit = no_emit, *, recover: bool = True) -> bool:
     """A writer's open without the snapshot (the caller holds the lock). Moves state.json into library.db first when
     that hasn't happened yet (spec library-and-sources §5.3; its pending steps are finished on the way), gives a
-    library that has neither file an empty library.db, and does the version check of every open."""
+    library that has neither file an empty library.db, and does the version check of every open. Without `recover`
+    (a dry run: no music file is changed) a state.json that still has steps pending is left as it is, records and
+    files alike, and the result is False; else True."""
     from . import db
     if not paths.root.is_dir():
         raise NoLibrary(MUSIC_GONE)
+    if not recover and _pending_in_v1(paths):
+        return False
     paths.data.mkdir(exist_ok=True)  # .discjockey/ only, never the music folder above it
 
-    def recover(state: dict) -> None:
+    def finish(state: dict) -> None:
         for message, ok in recover_pending(paths, state):
             emit(Message("info" if ok else "warning", message))
 
     _MIGRATING.on = True
     try:
-        db.migrate(paths, facts=file_facts(paths), now=datetime.now(), emit=emit, recover=recover)
+        db.migrate(paths, facts=file_facts(paths), now=datetime.now(), emit=emit, recover=finish)
     finally:
         _MIGRATING.on = False
+    return True
+
+
+def _pending_in_v1(paths: Paths) -> bool:
+    """state.json still holds the records (version 1, not yet moved into library.db) and has steps pending: moving
+    it would finish them first, which renames music files. Unreadable is False: the migration says why."""
+    try:
+        if not paths.state_file.exists() or json.loads(paths.state_file.read_bytes()).get("version") != STATE_VERSION:
+            return False
+        return bool(_load_v1(paths.state_file)["pending"])
+    except (OSError, ValueError, StateError):
+        return False
 
 
 def _load_v1(path: Path) -> dict:
@@ -614,7 +630,7 @@ NOT_JUDGED = ("{path} was changed outside Discjockey, but Discjockey couldn't ch
 
 def scan_library(paths: Paths, emit: Emit = no_emit, *,
                  analyze: Callable[[Path], tuple[str, int | None]] | None = None,
-                 key_of: Callable[[Path], str] = content_key) -> ScanSummary:
+                 key_of: Callable[[Path], str] = content_key, recover: bool = True) -> ScanSummary:
     """Indexes the watched folders (Library/) against library.db and writes what changed (the caller holds the
     lock; the records are opened, and migrated if needed, first): files moved by hand keep their song, new files
     are indexed, a file gone marks its song's file gone, and a song's file whose audio was replaced outside
@@ -623,12 +639,14 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
     a file the check fails on keeps its row as it was, so the next scan judges it again. Superseded/, Upgrades
     ready/ and .discjockey/ are never looked at. Nothing is scanned while a step is pending (its files are between
     two places; the next scan after it is finished sees them). One message, only when something changed (copies
-    count as new files)."""
+    count as new files). `recover` as open_records: a dry run passes False, and a state.json with steps pending is
+    then neither moved into library.db nor scanned."""
     from . import db, scanner
     from .quality import is_lossless_codec, verdict
     if analyze is None:
         from .quality import inspect as analyze
-    open_records(paths, emit)
+    if not open_records(paths, emit, recover=recover):
+        return ScanSummary()
     try:
         with db.connect(paths.db_file) as conn:
             if db.has_pending(conn):
