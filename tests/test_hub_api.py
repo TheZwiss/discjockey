@@ -24,9 +24,10 @@ CONTRACT = {
     "setup_skip_qobuz", "setup_account", "setup_check_account", "setup_forget_account", "downloads_view",
     "find_logins", "account_sign_in", "stop_sign_in", "open_privacy_settings", "qobuz_check_login", "spotify_sign_out",
     "pick_folder", "check_music_folder", "set_music_folder", "retry_music_folder",
+    "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
 }
 READ_ONLY = ["dashboard", "sidebar", "sync_preview", "job_status", "library", "todo", "limits",
-             "runs", "setup_status", "playlists", "downloads_view"]
+             "runs", "setup_status", "playlists", "downloads_view", "tidy_preview", "move_batches"]
 
 
 @pytest.fixture
