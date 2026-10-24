@@ -596,6 +596,50 @@ def test_a_new_song_doesnt_take_an_alias_another_song_has(opened):
     assert opened.rows("SELECT s.key FROM song_ids i JOIN songs s ON s.id = i.song WHERE i.id = 'sp1b'") == [("sp1",)]
 
 
+# --- stage 3, I3: song_ids by token ---
+
+def ids_of(opened, key):
+    return opened.rows("SELECT i.service, i.id FROM song_ids i JOIN songs s ON s.id = i.song WHERE s.key = ? "
+                       "ORDER BY i.rowid", key)
+
+
+def test_a_qobuz_keyed_song_with_a_spotify_alias_round_trips(opened):
+    state = opened.snap()
+    state["tracks"]["qobuz:900000001"] = entry("Example Artist", "Example", aliases=["sp5"])
+    assert opened.save(state) == 3  # the song, its own id, one alias
+    assert ids_of(opened, "qobuz:900000001") == [("qobuz", "900000001"), ("spotify", "sp5")]
+    snap = opened.snap()
+    assert snap["tracks"]["qobuz:900000001"]["aliases"] == ["sp5"]
+    assert opened.save(snap) == 0
+    snap["tracks"]["qobuz:900000001"]["aliases"] = ["sp6"]  # rewriting the aliases keeps the song's own row
+    opened.save(snap)
+    assert ids_of(opened, "qobuz:900000001") == [("qobuz", "900000001"), ("spotify", "sp6")]
+
+
+def test_a_spotify_song_with_qobuz_aliases_round_trips(opened):
+    state = opened.snap()
+    state["tracks"]["sp1"]["aliases"] += ["qobuz:900000002", "qobuz:900000003"]
+    assert opened.save(state) > 0
+    assert ids_of(opened, "sp1") == [("spotify", "sp1"), ("spotify", "sp1b"), ("spotify", "sp1c"),
+                                     ("qobuz", "900000002"), ("qobuz", "900000003")]
+    snap = opened.snap()
+    assert snap["tracks"]["sp1"]["aliases"] == ["sp1b", "sp1c", "qobuz:900000002", "qobuz:900000003"]
+    assert opened.save(snap) == 0
+
+
+def test_create_splits_every_token(tmp_path, library):
+    state = {"tracks": {"qobuz:900000001": entry("Example Artist", "Example", aliases=["sp5", "qobuz:900000004"]),
+                        "sp6": entry("Example Artist", "Other", aliases=["qobuz:900000005"])}}
+    path = fresh(tmp_path, library, state)
+    with db.connect(path) as conn:
+        assert conn.execute("SELECT service, id, song FROM song_ids ORDER BY rowid").fetchall() == [
+            ("qobuz", "900000001", 1), ("spotify", "sp6", 2), ("spotify", "sp5", 1), ("qobuz", "900000004", 1),
+            ("qobuz", "900000005", 2)]
+        snap = db.snapshot(conn, library)
+    assert snap["tracks"]["qobuz:900000001"]["aliases"] == ["sp5", "qobuz:900000004"]
+    assert snap["tracks"]["sp6"]["aliases"] == ["qobuz:900000005"]
+
+
 def test_a_path_outside_the_watched_folders_is_a_value_error(opened):
     state = opened.snap()
     state["tracks"]["sp1"]["path"] = "Superseded/House/A - One.mp3"

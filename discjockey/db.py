@@ -19,7 +19,8 @@ from typing import NamedTuple
 
 from . import library as disk  # "library" is the Library/ path argument everywhere here
 from .events import Emit, Message
-from .models import BatchRow, KnownFile, MoveRow, PlannedMove, ScanResult, SeenFile, WatchedFolder
+from .models import (BatchRow, KnownFile, MoveRow, PlannedMove, ScanResult, SeenFile, WatchedFolder, split_token,
+                     token)
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
@@ -245,7 +246,6 @@ TRACKED = tuple(dict.fromkeys((*ENTRY_KEYS, *FILE_FIELDS)))
 ABSENT = "_absent"
 USAGE_SUFFIX = "_usage"  # `<service>_usage` -> the usage table
 STATE_EXTRA = "state."  # meta key prefix for any other top-level key, so none is lost
-SPOTIFY = "spotify"
 
 
 def _dumps(value) -> str:
@@ -364,8 +364,9 @@ def _insert_song(conn: sqlite3.Connection, key: str, entry: dict) -> int:
     song = conn.execute(f"INSERT INTO songs (key, {cols}, extra) VALUES ({marks})",
                         (key, *_song_values(entry))).lastrowid
     # an id another song already has (as its key or an alias) stays with that song; create inserts every song's own
-    # key before any alias, so there a song's key always points at it
-    conn.execute("INSERT OR IGNORE INTO song_ids (service, id, song) VALUES (?, ?, ?)", (SPOTIFY, key, song))
+    # key before any alias, so there a song's key always points at it. Keys and aliases are tokens (`models.token`);
+    # a song_ids row holds the token split into (service, id)
+    conn.execute("INSERT OR IGNORE INTO song_ids (service, id, song) VALUES (?, ?, ?)", (*split_token(key), song))
     return song
 
 
@@ -373,11 +374,11 @@ def _write_aliases(conn: sqlite3.Connection, song: int, key: str, aliases, *, ne
     """Replaces the song's alias rows (insertion order is the aliases' order); a `new` song has none yet. Returns
     rows written."""
     n = 0 if new else conn.execute("DELETE FROM song_ids WHERE song = ? AND NOT (service = ? AND id = ?)",
-                                   (song, SPOTIFY, key)).rowcount
+                                   (song, *split_token(key))).rowcount
     for a in aliases or []:
         if a != key:
             n += conn.execute("INSERT OR IGNORE INTO song_ids (service, id, song) VALUES (?, ?, ?)",
-                              (SPOTIFY, a, song)).rowcount
+                              (*split_token(a), song)).rowcount
     return n
 
 
@@ -460,10 +461,11 @@ def _linked(files: list[dict]) -> dict[int, dict]:
 
 
 def _aliases(conn: sqlite3.Connection) -> dict[int, list[str]]:
+    """song id -> its aliases as tokens, every service, in insertion order (the row of its own key left out)."""
     out: dict[int, list[str]] = {}
-    for song, key, alias in conn.execute(
-            "SELECT i.song, s.key, i.id FROM song_ids i JOIN songs s ON s.id = i.song "
-            "WHERE i.service = ? ORDER BY i.rowid", (SPOTIFY,)):
+    for song, key, service, id in conn.execute(
+            "SELECT i.song, s.key, i.service, i.id FROM song_ids i JOIN songs s ON s.id = i.song ORDER BY i.rowid"):
+        alias = token(service, id)
         if alias != key:
             out.setdefault(song, []).append(alias)
     return out
