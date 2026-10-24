@@ -240,3 +240,11 @@ class BatchResult:
     moved: int
     skipped: tuple[MoveRow, ...]  # with reason/detail
     stopped: bool
+
+
+@dataclass(frozen=True)
+class SaveChoice:
+    """What the Playlists page's save asks for the files it retargets (plan library stage 2, I4)."""
+    files: str  # "leave" (they become placed by the user, P1) | "move"
+    renames: tuple[tuple[str, str], ...] = ()  # (old folder, new folder) to rename on disk first
+    moves: tuple[tuple[int, str], ...] = ()  # (file_id, src as the page showed it)
