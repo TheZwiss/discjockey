@@ -533,3 +533,16 @@ def test_check_folder_names_refuses_what_is_not_one_plain_folder_name(name, said
 
 def test_check_folder_names_accepts_plain_names():
     tidy.check_folder_names("Hard_Bounce", "Two words", "Caf\u00e9-2", "a.b")
+
+
+def test_a_batch_found_open_after_a_crash_is_worded_by_the_kind_of_batch_it_is(paths):
+    library_with(paths, ("s1", "New", "Old"))
+    playlists(paths, f"New = {LINK1}")
+    with db.connect(paths.db_file) as conn:
+        for _ in range(25):  # more batches before it than a listing shows by default
+            db.close_batch(conn, db.start_batch(conn, started_by="tidy", about=None, undoes=None, moves=[],
+                                                now=datetime(2026, 1, 1)), datetime(2026, 1, 1))
+        move = PlannedMove("folder", None, "Old", "Library/Old", "Library/New", None, None, None)
+        db.start_batch(conn, started_by="rename", about={"from": "Old", "to": "New"}, undoes=None, moves=[move],
+                       now=datetime(2026, 1, 2))
+        assert tidy._started_by(conn, 26) == "rename" and tidy._started_by(conn, 99) == "tidy"
