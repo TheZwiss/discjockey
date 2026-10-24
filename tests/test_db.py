@@ -272,3 +272,211 @@ def test_an_empty_database_has_the_default_records(tmp_path, library):
         snap = db.snapshot(conn, library)
     assert snap == {"version": 2, "tracks": {}, "pending": [], "never": {},
                     "qobuz_usage": {"days": {}, "signals": []}, "ambiguous": {}, "files": []}
+
+
+# --- 1.3 the diffing save ---
+
+ONE = "Library/House/A - One.mp3"
+THREE = "Library/Techno/C - Thrée.aiff"
+
+
+@pytest.fixture
+def opened(tmp_path, library):
+    """A database built from v1_state, its snapshot, and a save that reports what it changed."""
+    present = {ONE, THREE}
+    facts = fake_facts(present)
+    path = fresh(tmp_path, library, v1_state(), facts)
+
+    class Opened:
+        def snap(self):
+            with db.connect(path) as conn:
+                return db.snapshot(conn, library)
+
+        def save(self, state):
+            with db.connect(path) as conn:
+                return db.save(conn, state, library=library, facts=facts, now=datetime(2026, 10, 24, 9, 0, 0))
+
+        def rows(self, sql, *args):
+            with db.connect(path) as conn:
+                return conn.execute(sql, args).fetchall()
+
+    o = Opened()
+    o.present = present
+    return o
+
+
+def test_an_unchanged_save_writes_nothing(opened):
+    assert opened.save(opened.snap()) == 0
+
+
+def test_one_changed_entry_writes_one_row(opened):
+    state = opened.snap()
+    state["tracks"]["sp2"]["last_attempt"] = "2026-10-24"
+    assert opened.save(state) == 1
+    assert opened.snap()["tracks"]["sp2"]["last_attempt"] == "2026-10-24"
+    assert opened.save(opened.snap()) == 0
+
+
+def test_read_only_keys_are_ignored(opened):
+    state = opened.snap()
+    state["tracks"]["sp1"].update(online=False, placed_by="user")
+    state["files"] = ["Library/elsewhere.aiff"]
+    state["ambiguous"] = {"sp1": ["Library/x.aiff"]}
+    assert opened.save(state) == 0
+    assert opened.snap()["tracks"]["sp1"]["placed_by"] == "app"
+
+
+def test_extra_keys_and_file_gone_are_written(opened):
+    state = opened.snap()
+    state["tracks"]["sp3"]["rekordbox_check"] = None
+    state["tracks"]["sp2"]["file_gone"] = "2026-10-24"
+    assert opened.save(state) == 2
+    snap = opened.snap()
+    assert snap["tracks"]["sp3"]["rekordbox_check"] is None and snap["tracks"]["sp3"]["hidden"] is True
+    assert snap["tracks"]["sp2"]["file_gone"] == "2026-10-24"
+
+
+def test_changed_aliases_rewrite_the_song_ids(opened):
+    state = opened.snap()
+    state["tracks"]["sp1"]["aliases"] = ["sp1c", "sp1d"]
+    assert opened.save(state) > 0
+    assert opened.snap()["tracks"]["sp1"]["aliases"] == ["sp1c", "sp1d"]
+    assert opened.rows("SELECT id FROM song_ids WHERE song = 1 ORDER BY rowid") == [("sp1",), ("sp1c",), ("sp1d",)]
+
+
+def test_a_new_path_moves_the_row_in_place_rekeys_it_and_marks_it_placed_by_the_app(opened):
+    (file_id,) = opened.rows("SELECT id FROM files WHERE song = 3")[0]
+    opened.rows("UPDATE files SET placed_by = 'user' WHERE id = ?", file_id)
+    state = opened.snap()
+    new = "Library/House/C - Thrée.aiff"
+    opened.present.add(new)
+    state["tracks"]["sp3"]["path"] = new
+    assert opened.save(state) == 1
+    assert opened.rows("SELECT id, path, placed_by, size, content_key, last_seen FROM files WHERE song = 3") == [
+        (file_id, "House/C - Thrée.aiff", "app", len(new), f"key-{new}", "2026-10-24T09:00:00")]
+
+
+def test_new_audio_under_the_same_path_rekeys_and_keeps_placed_by(opened, monkeypatch):
+    opened.rows("UPDATE files SET placed_by = 'user', content_key = 'old' WHERE song = 1")
+    state = opened.snap()
+    state["tracks"]["sp1"].update(status="lossless", source="qobuz", source_id="q1", source_format="flac",
+                                  cutoff_hz=22050, source_kbps=None)
+    assert opened.save(state) == 1
+    assert opened.rows("SELECT path, placed_by, content_key, status, source_id FROM files WHERE song = 1") == [
+        ("House/A - One.mp3", "user", f"key-{ONE}", "lossless", "q1")]
+
+
+def test_a_path_with_an_unlinked_row_links_that_row(opened):
+    bought = "Library/House/B - Two.aiff"
+    opened.rows("INSERT INTO files (folder, path, placed_by, first_seen, last_seen) "
+                "VALUES (1, 'House/B - Two.aiff', 'user', 'x', 'x')")
+    (bought_id,) = opened.rows("SELECT id FROM files WHERE path = 'House/B - Two.aiff'")[0]
+    opened.present.add(bought)
+    state = opened.snap()
+    state["tracks"]["sp2"].update(path=bought, status="lossless", source=None, source_id=None)
+    assert opened.save(state) == 1
+    assert opened.rows("SELECT id, song, placed_by, status FROM files WHERE path = 'House/B - Two.aiff'") == [
+        (bought_id, 2, "app", "lossless")]
+    assert opened.rows("SELECT count(*) FROM files") == [(3,)]
+
+
+def test_moving_onto_an_unlinked_row_releases_the_old_row(opened):
+    opened.rows("INSERT INTO files (folder, path, placed_by, first_seen, last_seen) "
+                "VALUES (1, 'House/A - One.aiff', 'user', 'x', 'x')")
+    state = opened.snap()
+    state["tracks"]["sp1"].update(path="Library/House/A - One.aiff", status="lossless")
+    assert opened.save(state) == 2  # the new row linked, the old one unlinked (its file is still there)
+    assert opened.rows("SELECT path, song FROM files WHERE path LIKE 'House/A - One%' ORDER BY path") == [
+        ("House/A - One.aiff", 1), ("House/A - One.mp3", None)]
+
+
+def test_missing_unlinks_a_file_that_is_still_there(opened):
+    state = opened.snap()
+    state["tracks"]["sp1"].update(path=None, status="missing", source=None)
+    assert opened.save(state) == 1
+    assert opened.rows("SELECT song FROM files WHERE path = 'House/A - One.mp3'") == [(None,)]
+    assert opened.snap()["tracks"]["sp1"]["path"] is None
+
+
+def test_missing_deletes_the_row_of_a_file_that_is_gone(opened):
+    opened.present.discard(ONE)
+    state = opened.snap()
+    state["tracks"]["sp1"].update(path=None, status="missing")
+    assert opened.save(state) == 1
+    assert opened.rows("SELECT count(*) FROM files WHERE path = 'House/A - One.mp3'") == [(0,)]
+
+
+def test_a_removed_key_deletes_the_song(opened):
+    opened.present.discard(THREE)
+    state = opened.snap()
+    del state["tracks"]["sp3"], state["tracks"]["sp1"]
+    assert opened.save(state) == 4  # two songs, one file row unlinked (still there), one deleted (gone)
+    assert opened.rows("SELECT key FROM songs") == [("sp2",)]
+    assert opened.rows("SELECT path, song FROM files") == [("House/A - One.mp3", None)]
+    assert opened.rows("SELECT id FROM song_ids") == [("sp2",)]
+
+
+def test_a_new_key_inserts_its_song_and_file(opened):
+    state = opened.snap()
+    new = "Library/House/D - Four.aiff"
+    opened.present.add(new)
+    state["tracks"]["sp4"] = entry("D", "Four", new, aliases=["sp4b"])
+    assert opened.save(state) == 4  # song, its own id, one alias, one file
+    snap = opened.snap()
+    assert without_read_only({"sp4": snap["tracks"]["sp4"]})["sp4"] == {**state["tracks"]["sp4"], "file_gone": None}
+    assert snap["tracks"]["sp4"]["placed_by"] == "app"
+
+
+def test_two_songs_trading_places(opened):
+    state = opened.snap()
+    state["tracks"]["sp1"]["path"], state["tracks"]["sp3"]["path"] = THREE, ONE
+    assert opened.save(state) == 2
+    snap = opened.snap()
+    assert (snap["tracks"]["sp1"]["path"], snap["tracks"]["sp3"]["path"]) == (THREE, ONE)
+    assert opened.rows("SELECT count(*) FROM files") == [(2,)]
+
+
+def test_two_songs_on_one_path_are_refused_and_nothing_is_written(opened):
+    state = opened.snap()
+    state["tracks"]["sp2"]["last_attempt"] = "2026-10-24"
+    state["tracks"]["sp1"]["path"] = THREE
+    with pytest.raises(ValueError):
+        opened.save(state)
+    assert opened.snap()["tracks"]["sp2"]["last_attempt"] == "2026-10-22"
+
+
+def test_a_path_outside_the_watched_folders_is_a_value_error(opened):
+    state = opened.snap()
+    state["tracks"]["sp1"]["path"] = "Superseded/House/A - One.mp3"
+    with pytest.raises(ValueError):
+        opened.save(state)
+
+
+def test_pending_is_replaced_when_it_differs(opened):
+    state = opened.snap()
+    op = {"track_id": "sp1", "renames": [["x", "y"]], "entry": None}
+    state["pending"].append(op)
+    assert opened.save(state) == 3  # one deleted, two inserted
+    assert opened.snap()["pending"][-1] == op
+    state["pending"] = []
+    assert opened.save(state) == 2
+    assert opened.snap()["pending"] == []
+
+
+def test_never_and_usage_write_only_what_differs(opened):
+    state = opened.snap()
+    state["never"]["sp8"] = {"artist": "Y", "title": "T", "folder": "House", "at": "2026-10-24"}
+    del state["never"]["sp9"]
+    state["qobuz_usage"]["days"]["2026-10-24"] = 1
+    state["soundcloud_usage"] = {"days": {}, "signals": []}
+    assert opened.save(state) == 4
+    snap = opened.snap()
+    assert set(snap["never"]) == {"sp8"}
+    assert snap["qobuz_usage"]["days"]["2026-10-24"] == 1
+    assert snap["soundcloud_usage"] == {"days": {}, "signals": []}
+
+
+def test_a_version_1_dict_is_never_saved(opened):
+    state = v1_state()
+    with pytest.raises(StateError):
+        opened.save(state)

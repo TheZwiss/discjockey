@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
-from . import library
+from . import library as disk  # "library" is the Library/ path argument everywhere here
 from .planner import ENTRY_KEYS
 
 SCHEMA_VERSION = 1
@@ -47,6 +47,8 @@ SCHEMA_V1 = (
     "CREATE INDEX songs_isrc ON songs (isrc)",
     """CREATE TABLE song_ids (service TEXT NOT NULL, id TEXT NOT NULL,
       song INTEGER NOT NULL REFERENCES songs (id) ON DELETE CASCADE, PRIMARY KEY (service, id))""",
+    # a song's ids by song: rewriting its aliases and the cascade of deleting it would otherwise scan the table
+    "CREATE INDEX song_ids_song ON song_ids (song)",
     """CREATE TABLE watched_folders (id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE,
       kind TEXT NOT NULL CHECK (kind IN ('library', 'import')), added TEXT NOT NULL, last_scan TEXT)""",
     """CREATE TABLE files (
@@ -94,7 +96,7 @@ def connect(path: Path) -> sqlite3.Connection:
         conn.execute("PRAGMA journal_mode = WAL").fetchone()
     except sqlite3.DatabaseError:
         conn.close()
-        raise library.StateError(UNREADABLE.format(reason=DAMAGED)) from None
+        raise disk.StateError(UNREADABLE.format(reason=DAMAGED)) from None
     return conn
 
 
@@ -115,9 +117,9 @@ def _stored_version(conn: sqlite3.Connection) -> int:
     try:
         row = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
     except sqlite3.DatabaseError:
-        raise library.StateError(UNREADABLE.format(reason=DAMAGED)) from None
+        raise disk.StateError(UNREADABLE.format(reason=DAMAGED)) from None
     if row is None or not str(row[0]).isdigit():
-        raise library.StateError(UNREADABLE.format(reason="it has no version number"))
+        raise disk.StateError(UNREADABLE.format(reason="it has no version number"))
     return int(row[0])
 
 
@@ -126,7 +128,7 @@ def _upgrade(conn: sqlite3.Connection, version: int) -> None:
     while version < SCHEMA_VERSION:
         step = UPGRADES.get(version)
         if step is None:
-            raise library.StateError(UNREADABLE.format(
+            raise disk.StateError(UNREADABLE.format(
                 reason=f"it has version {version}, which this Discjockey can't update"))
         step(conn)
         version += 1
@@ -139,7 +141,7 @@ def check(conn: sqlite3.Connection) -> None:
     leaves it at its old version)."""
     version = _stored_version(conn)
     if version > SCHEMA_VERSION:
-        raise library.StateError(NEWER)
+        raise disk.StateError(NEWER)
     if version < SCHEMA_VERSION:
         with transaction(conn):
             version = _stored_version(conn)  # another process may have upgraded it meanwhile
@@ -177,20 +179,24 @@ SPOTIFY = "spotify"
 
 
 def _dumps(value) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return _ENCODER.encode(value)
+
+
+# one encoder for every value: json.dumps with arguments builds a new one per call, which a save does per entry
+_ENCODER = json.JSONEncoder(ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def _song_values(entry: dict) -> tuple:
     """The songs columns (SONG_COLUMNS order) and `extra` for an entry, encoded as stored, so equal entries give
     equal tuples."""
     out = []
-    for col in SONG_COLUMNS:
+    for col in SONG_COLUMNS:  # a save compares every entry: the common values skip json.dumps
         v = entry.get(col)
         if col in JSON_COLUMNS:
-            v = None if v is None else _dumps(v)
+            v = None if v is None else "[]" if v == [] else _dumps(v)
         elif col == "in_playlists":
-            v = int(bool(v))
-        elif col in ("artist", "title") and v is None:
+            v = 1 if v else 0
+        elif v is None and (col == "artist" or col == "title"):
             v = ""
         out.append(v)
     extra = {k: v for k, v in entry.items() if k not in NOT_EXTRA}
@@ -270,10 +276,11 @@ def _insert_song(conn: sqlite3.Connection, key: str, entry: dict) -> int:
     return song
 
 
-def _write_aliases(conn: sqlite3.Connection, song: int, key: str, aliases) -> int:
-    """Replaces the song's alias rows (insertion order is the aliases' order). Returns rows written."""
-    n = conn.execute("DELETE FROM song_ids WHERE song = ? AND NOT (service = ? AND id = ?)",
-                     (song, SPOTIFY, key)).rowcount
+def _write_aliases(conn: sqlite3.Connection, song: int, key: str, aliases, *, new: bool = False) -> int:
+    """Replaces the song's alias rows (insertion order is the aliases' order); a `new` song has none yet. Returns
+    rows written."""
+    n = 0 if new else conn.execute("DELETE FROM song_ids WHERE song = ? AND NOT (service = ? AND id = ?)",
+                                   (song, SPOTIFY, key)).rowcount
     for a in aliases or []:
         if a != key:
             n += conn.execute("INSERT OR IGNORE INTO song_ids (service, id, song) VALUES (?, ?, ?)",
@@ -326,7 +333,7 @@ def create(path: Path, state: dict, *, library: Path, facts: Facts, now: datetim
         ids = {key: _insert_song(conn, key, entry) for key, entry in tracks.items()}
         taken: dict[tuple[int, str], str] = {}
         for key, entry in tracks.items():
-            _write_aliases(conn, ids[key], key, entry.get("aliases"))
+            _write_aliases(conn, ids[key], key, entry.get("aliases"), new=True)
             if entry.get("path"):
                 folder, rel = folders.locate(entry["path"])
                 if (folder, rel) in taken:
@@ -408,3 +415,131 @@ def snapshot(conn: sqlite3.Connection, library: Path) -> dict:
     out["ambiguous"] = ambiguous
     out["files"] = sorted(folders.path(f["folder"], f["path"]) for f in files if f["online"])
     return out
+
+
+# --- the diffing save (plan library stage 1, task 1.3) ---
+
+OLD_COPY = ("Discjockey tried to save an old copy of its records (version {version}) into library.db. "
+            "Nothing was changed.")
+
+
+def _sync_records(conn: sqlite3.Connection, table: str, key_col: str, value_col: str, old: dict[str, str],
+                  new: dict[str, str]) -> int:
+    """Makes a key -> JSON table hold `new`, writing only the rows that differ. Returns rows written."""
+    n = 0
+    for k in old.keys() - new.keys():
+        n += conn.execute(f"DELETE FROM {table} WHERE {key_col} = ?", (k,)).rowcount
+    for k, v in new.items():
+        if old.get(k) != v:
+            n += conn.execute(f"INSERT OR REPLACE INTO {table} ({key_col}, {value_col}) VALUES (?, ?)",
+                              (k, v)).rowcount
+    return n
+
+
+def _save_songs(conn: sqlite3.Connection, tracks: dict, songs: dict, aliases: dict) -> tuple[dict[str, int], int]:
+    """Updates changed songs (columns, extra, aliases) and inserts new ones. Returns key -> song id, rows written."""
+    ids, n = {}, 0
+    assignments = ", ".join(f"{c} = ?" for c in (*SONG_COLUMNS, "extra"))
+    for key, e in tracks.items():
+        values = _song_values(e)
+        if key not in songs:
+            ids[key] = _insert_song(conn, key, e)
+            n += 2 + _write_aliases(conn, ids[key], key, e.get("aliases"), new=True)  # the song and its own id
+            continue
+        song, stored = songs[key]
+        ids[key] = song
+        if values != stored:
+            n += conn.execute(f"UPDATE songs SET {assignments} WHERE id = ?", (*values, song)).rowcount
+        if [a for a in e.get("aliases") or [] if a != key] != aliases.get(song, []):
+            n += _write_aliases(conn, song, key, e.get("aliases"))
+    return ids, n
+
+
+def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], removed: list[int],
+                folders: _Folders, facts: Facts, stamp: str) -> int:
+    """Writes the linked file rows whose entry file fields changed (plan task 1.3). Rows are matched by place: the
+    row already at an entry's new path is linked to it (a bought file a scan found), else the song's own row moves
+    there (files.id stays with a renamed file), else a new row. A row no song keeps is unlinked when its file is
+    still there, deleted when it is gone. Two songs on one file is a ValueError."""
+    files = _files(conn)
+    linked = _linked(files)
+    by_place = {(f["folder"], f["path"]): f for f in files}
+    changed, owners = [], {}
+    for key, e in tracks.items():
+        song = ids[key]
+        old = linked.get(song)
+        new = folders.locate(e["path"]) if e.get("path") else None
+        if new is not None:
+            owners.setdefault(new, []).append(key)
+        if old is None and new is None:
+            continue
+        if old is not None and new == (old["folder"], old["path"]) and all(e.get(k) == old[k] for k in QUALITY):
+            continue
+        changed.append((song, e, old, new))
+    shared = {p: keys for p, keys in owners.items() if len(keys) > 1}
+    if shared:
+        (folder, rel), keys = next(iter(shared.items()))
+        raise ValueError(f"{folders.path(folder, rel)!r} belongs to both {keys[0]} and {keys[1]}")
+
+    released = {old["id"]: old for _, _, old, new in changed if old is not None and new != (old["folder"], old["path"])}
+    released.update({f["id"]: f for song in removed if (f := linked.get(song)) is not None})
+    n = 0
+    common = "size = ?, mtime_ns = ?, content_key = ?, " + ", ".join(f"{k} = ?" for k in QUALITY)
+    for song, e, old, new in changed:
+        if new is None:
+            continue
+        values = (*_fact_values(facts, e["path"]), *(e.get(k) for k in QUALITY))
+        row = by_place.get(new)
+        if row is not None:  # the song's own row (new audio, same path) or one found there (a bought file)
+            placed = row["placed_by"] if old is not None and row["id"] == old["id"] else "app"
+            n += conn.execute(f"UPDATE files SET song = ?, {common}, placed_by = ?, online = 1, last_seen = ?, "
+                              "ambiguous = NULL WHERE id = ?", (song, *values, placed, stamp, row["id"])).rowcount
+            released.pop(row["id"], None)
+            row["song"] = song
+        elif old is not None and old["id"] in released:  # renamed by the app: the same file, a new place
+            n += conn.execute(f"UPDATE files SET folder = ?, path = ?, {common}, placed_by = 'app', online = 1, "
+                              "last_seen = ?, ambiguous = NULL WHERE id = ?",
+                              (*new, *values, stamp, old["id"])).rowcount
+            released.pop(old["id"])
+            by_place.pop((old["folder"], old["path"]), None)
+            by_place[new] = old
+        else:
+            n += _insert_file(conn, song, *new, e, facts, e["path"], stamp)
+    for f in released.values():
+        if facts(folders.path(f["folder"], f["path"])) is not None:
+            n += conn.execute("UPDATE files SET song = NULL, ambiguous = NULL WHERE id = ?", (f["id"],)).rowcount
+        else:
+            n += conn.execute("DELETE FROM files WHERE id = ?", (f["id"],)).rowcount
+    return n
+
+
+def save(conn: sqlite3.Connection, state: dict, *, library: Path, facts: Facts, now: datetime) -> int:
+    """Writes an I2 snapshot back in one transaction, only what differs from the rows: changed, new and removed
+    songs; the file rows of entries whose file fields changed (re-keyed through `facts`, since a swap writes new
+    audio under the same path); pending (replaced whole when it differs, it is short); never; usage. ✱ keys are
+    ignored. Returns the number of rows written. A v1 dict is StateError; a path in no watched folder, or one two
+    entries share, is ValueError (and nothing is written)."""
+    if state.get("version") != 2:
+        raise disk.StateError(OLD_COPY.format(version=state.get("version")))
+    stamp = now.isoformat(timespec="seconds")
+    tracks = state.get("tracks") or {}
+    with transaction(conn):
+        n = _sync_library_path(conn, library)
+        folders = _Folders(conn)
+        songs = _songs(conn)
+        ids, written = _save_songs(conn, tracks, songs, _aliases(conn))
+        n += written
+        removed = [song for key, (song, _) in songs.items() if key not in tracks]
+        n += _save_files(conn, tracks, ids, removed, folders, facts, stamp)
+        for song in removed:
+            n += conn.execute("DELETE FROM songs WHERE id = ?", (song,)).rowcount
+        ops = [_dumps(op) for op in state.get("pending") or []]
+        if ops != _pending(conn):
+            n += conn.execute("DELETE FROM pending").rowcount
+            n += sum(conn.execute("INSERT INTO pending (op) VALUES (?)", (op,)).rowcount for op in ops)
+        records = _records(conn)
+        n += _sync_records(conn, "never", "song_key", "data", records["never"],
+                           {k: _dumps(v) for k, v in (state.get("never") or {}).items()})
+        n += _sync_records(conn, "usage", "service", "data", records["usage"], _usage_rows(state))
+        n += _sync_records(conn, "meta", "key", "value", records["meta"], _extra_rows(state))
+    return n
