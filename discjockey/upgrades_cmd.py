@@ -129,7 +129,7 @@ def run_upgrades(paths: Paths, *, ask: Callable[[str], str] | None = None,
     `ask` defaults to input(), looked up when called."""
     ask = ask or input
     try:
-        state = library.load_state(paths.state_file)
+        state = library.open_state(paths)
     except StateError as e:
         print(e)
         return 2

@@ -77,7 +77,7 @@ def precondition(paths: Paths, state: dict, track_id: str, upgrade: dict, *, nee
         raise UpgradeProblem(f"This {upgrade_name(upgrade)} has changed since it was shown, so nothing was done.")
     if not (paths.root / upgrade["file"]).is_file():
         state["tracks"][track_id] = drop_parked(paths, e)
-        save_state(paths.state_file, state)
+        save_state(paths, state)
         raise UpgradeProblem(f"The {upgrade_name(upgrade)} is no longer in {upgrade['file']} (deleted by hand?), so "
                              "Discjockey has forgotten it. A later check can find it again.", forgotten=True)
     if need_current and not current_on_disk(paths, e):
@@ -142,7 +142,7 @@ def discard(paths: Paths, state: dict, track_id: str, upgrade: dict) -> Result:
     else:
         state["tracks"][track_id] = {**e, "rejected_sources": sorted(set(e.get("rejected_sources") or []) | {key}),
                                      "upgrade": None}
-    save_state(paths.state_file, state)
+    save_state(paths, state)
     name = SOURCE_NAMES.get(upgrade["source"], upgrade["source"])
     return _result("discarded", track_id, e, f"this {name} file won't be offered again", status=e["status"])
 
@@ -222,10 +222,10 @@ def _back_up_again(paths: Paths, state: dict, op: dict) -> None:
         p = PurePosixPath(op["backup"])
         stem, ext = split_name(strip_id_suffix(p.name, op["track_id"]))
         op["backup"] = NameReserver(paths.root, state).choose(str(p.parent), stem, ext, op["track_id"])
-        save_state(paths.state_file, state)
+        save_state(paths, state)
     _back_up(paths, op)
     op["backed_up"] = True
-    save_state(paths.state_file, state)
+    save_state(paths, state)
 
 
 def _finish(paths: Paths, state: dict, op: dict) -> str:
@@ -244,7 +244,7 @@ def _finish(paths: Paths, state: dict, op: dict) -> str:
     delete_parked(paths, op["parked"])
     shutil.rmtree(paths.root / PurePosixPath(op["staged"]).parent, ignore_errors=True)
     state["pending"].remove(op)
-    save_state(paths.state_file, state)
+    save_state(paths, state, rekeyed=[path])  # the new audio is in it, whether or not the entry changed
     return path
 
 
@@ -252,7 +252,7 @@ def _drop(paths: Paths, state: dict, op: dict) -> None:
     """Ends an operation that changed nothing (or was undone); the parked version stays for another try."""
     shutil.rmtree(paths.root / PurePosixPath(op["staged"]).parent, ignore_errors=True)
     state["pending"].remove(op)
-    save_state(paths.state_file, state)
+    save_state(paths, state, rekeyed=[op["target"]])  # an undo may have written the old audio back into it
 
 
 def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compare = align.compare_files) -> Result:
@@ -285,7 +285,7 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
           "parked": upgrade["file"], "entry": _upgraded(e, upgrade, target)}
     with deferred_interrupt():  # a Ctrl-C waits until the file is complete again
         state["pending"].append(op)  # step 2
-        save_state(paths.state_file, state)
+        save_state(paths, state)
         try:
             _back_up(paths, op)  # step 3
         except Exception as err:  # e.g. the name was taken meanwhile: your file was not touched
@@ -293,7 +293,7 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
             raise UpgradeProblem(f"The swap did not work ({err}). Nothing was changed; the "
                                  f"{upgrade_name(upgrade)} is still waiting.") from err
         op["backed_up"] = True  # from here on, recovery knows that Discjockey may have written to the file
-        save_state(paths.state_file, state)
+        save_state(paths, state)
         try:
             _write_in_place(paths.root / target, staged, op["new_sha256"])  # step 4
             final = _finish(paths, state, op)  # steps 5 and 6

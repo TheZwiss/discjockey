@@ -385,8 +385,10 @@ def save_state(paths: Paths, state: dict, *, rekeyed: Collection[str] = ()) -> N
     dict is written to state.json only during the migration (its pending steps are finished there), otherwise it
     is StateError. A vanished music folder (an unplugged drive) is NoLibrary, never a new empty library."""
     from . import db
-    if not paths.data.is_dir():
-        raise NoLibrary(MUSIC_GONE)
+    try:
+        paths.data.mkdir(exist_ok=True)  # .discjockey/ itself, never the music folder above it
+    except FileNotFoundError:
+        raise NoLibrary(MUSIC_GONE) from None
     if state.get("version") == STATE_VERSION:
         if not getattr(_MIGRATING, "on", False):
             raise StateError(OLD_RECORDS)

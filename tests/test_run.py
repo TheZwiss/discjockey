@@ -1,9 +1,12 @@
 import json
 import threading
+from contextlib import contextmanager
+from datetime import date
 
 import pytest
+from audio_helpers import music, write_aiff
 
-from discjockey import run, spotify
+from discjockey import library, run, spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.events import ActionFinished, CancelToken, Message, ReadingPlaylist, RunFinished
 from discjockey.library import Paths, empty_state, save_state
@@ -50,7 +53,7 @@ def test_prepare_reports_recovered_steps(paths):
     state = empty_state()
     state["pending"].append({"track_id": "t9", "renames": [[".discjockey/.tmp/t9/x.aiff", "Library/A/x.aiff"]],
                              "entry": {"artist": "A", "title": "Lost", "path": "Library/A/x.aiff"}})
-    save_state(paths.state_file, state)
+    save_state(paths, state)
     events = []
     prep = run.prepare(paths, emit=events.append)
     warnings = [e.text for e in events if isinstance(e, Message) and e.level == "warning"]
@@ -141,7 +144,7 @@ def test_a_step_that_could_not_be_finished_keeps_its_downloaded_file(paths, monk
     state = empty_state()
     state["pending"].append({"track_id": "t9", "renames": [[src, "Library/A/x.aiff"]],
                              "entry": {"artist": "A", "title": "Stuck", "path": "Library/A/x.aiff"}})
-    save_state(paths.state_file, state)
+    save_state(paths, state)
 
     def refuse(root, s, d):
         raise PermissionError("Operation not permitted")
@@ -208,7 +211,7 @@ def test_qobuz_problem_kinds(paths, monkeypatch):
     with pytest.raises(run.SetupProblem) as excinfo:  # no .streamrip/config.toml yet
         run.open_qobuz(prep)
     assert excinfo.value.kind == "not_set_up"
-    assert not paths.state_file.exists()  # not a warning sign from Qobuz: nothing recorded
+    assert library.load_state(paths)["qobuz_usage"]["signals"] == []  # not a warning sign from Qobuz: nothing recorded
 
     from discjockey import qobuz
     cfg = qobuz.config_file(paths)
@@ -367,3 +370,64 @@ def test_execute_hands_the_logins_and_account_budgets_on(paths, monkeypatch):
     assert seen["fallback"]["logins"] == {"soundcloud": ("firefox", None), "youtube": ("chrome", None)}
     assert list(seen["accounts"]) == ["youtube", "soundcloud"]
     assert seen["accounts"]["youtube"].service == "youtube"
+
+
+# --- the scan before planning (plan library stage 1, task 3.3) ---
+
+def placed(paths, key="t1", rel="Library/Hard_Bounce/Artist - Song 1.aiff"):
+    """A song of the playlist Discjockey placed as lossless (records and a real small AIFF)."""
+    (paths.root / rel).parent.mkdir(parents=True, exist_ok=True)
+    write_aiff(paths.root / rel, music(1))
+    state = empty_state()
+    state["tracks"][key] = {"artist": "Artist", "title": "Song 1", "folder": "Hard_Bounce", "path": rel,
+                            "status": "lossless", "source": "qobuz", "source_id": "q1", "source_format": "flac",
+                            "duration_ms": 180000, "aliases": [], "in_playlists": True, "rejected_sources": [],
+                            "added": "2026-10-01T10:00:00", "last_attempt": "2026-10-01",
+                            "last_upgrade_check": date.today().isoformat()}
+    save_state(paths, state)
+    return rel
+
+
+def test_a_file_moved_by_hand_is_not_downloaded_again(paths):
+    rel = placed(paths)
+    mine = paths.library / "My crate" / "Artist - Song 1.aiff"
+    mine.parent.mkdir()
+    (paths.root / rel).rename(mine)
+    events = []
+    prep = run.prepare(paths, emit=events.append)
+    assert "t1" not in [a.track.id for a in prep.plan.actions if a.kind == "acquire"]
+    e = library.load_state(paths)["tracks"]["t1"]
+    assert (e["path"], e["placed_by"]) == ("Library/My crate/Artist - Song 1.aiff", "user")
+    assert "Checked your Library: 1 file you moved." in [m.text for m in events if isinstance(m, Message)]
+
+
+def test_a_dry_run_scans_too(paths):
+    rel = placed(paths)
+    (paths.root / rel).unlink()
+    prep = run.prepare(paths, dry_run=True)
+    assert library.load_state(paths)["tracks"]["t1"]["file_gone"] == date.today().isoformat()
+    assert prep.state["tracks"]["t1"]["path"] is None  # the plan works on the files as they are
+    assert "t1" in [a.track.id for a in prep.plan.actions if a.kind == "acquire"]
+
+
+def test_without_the_lock_the_plan_reads_the_last_scan_and_writes_nothing(paths):
+    rel = placed(paths)
+    (paths.root / rel).unlink()
+
+    @contextmanager
+    def taken():
+        yield False
+    prep = run.prepare(paths, dry_run=True, lock=taken)
+    assert library.load_state(paths)["tracks"]["t1"]["path"] == rel  # not scanned: nothing written
+    assert prep.state["tracks"]["t1"]["path"] == rel
+
+
+def test_the_scan_waits_while_a_step_is_pending(paths):
+    rel = placed(paths)
+    state = library.load_state(paths)
+    state["pending"].append({"track_id": "t9", "renames": [[".discjockey/.tmp/t9/x.aiff", "Library/A/x.aiff"]],
+                             "entry": None})
+    save_state(paths, state)
+    (paths.root / rel).unlink()
+    run.prepare(paths, dry_run=True)  # a dry run doesn't finish the step: its files are between two places
+    assert library.load_state(paths)["tracks"]["t1"]["path"] == rel

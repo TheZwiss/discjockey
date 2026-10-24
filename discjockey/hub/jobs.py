@@ -12,7 +12,7 @@ import os
 import threading
 import traceback
 from collections import deque
-from contextlib import ExitStack, contextmanager, nullcontext
+from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -330,6 +330,19 @@ class Jobs:
                 raise Busy(CONSOLE_TEXT, "console") from None
             yield
 
+    @contextmanager
+    def scan_lock(self):
+        """For a read-only job that writes library.db when it can (the preview's scan): yields True while it holds
+        the lock (lock_briefly), False when a write job or a terminal run has it."""
+        stack = ExitStack()
+        try:
+            stack.enter_context(self.lock_briefly())
+            held = True
+        except Busy:
+            held = False
+        with stack:
+            yield held
+
     def _new(self, kind: str, track_id: str | None) -> Job:
         return Job(next(self._ids), kind, track_id, CancelToken(), self.now().isoformat(timespec="seconds"))
 
@@ -518,12 +531,14 @@ class PreviewStore:
 
 
 def refresh_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] = datetime.now,
-                 infos: dict | None = None):
-    """Read-only: run.prepare(dry_run=True). Never writes state.json, reports or the library. With `infos`, also
-    reads each playlist's name, owner and cover for the playlist page (a failure there is not a problem)."""
+                 infos: dict | None = None, lock: Callable[[], AbstractContextManager[bool]] = run.lock_held):
+    """A dry run: run.prepare(dry_run=True). Changes no music file, report or download; it scans Library/ into
+    library.db first when `lock()` gets the library lock (Jobs.scan_lock), else it plans on the last scan. With
+    `infos`, also reads each playlist's name, owner and cover for the playlist page (a failure there is not a
+    problem)."""
     def work(ctx: JobContext) -> dict:
         try:
-            prep = run.prepare(paths, dry_run=True, emit=ctx.emit, token=ctx.token)
+            prep = run.prepare(paths, dry_run=True, emit=ctx.emit, token=ctx.token, lock=lock)
         except run.SetupProblem as e:
             store.failed(e.kind, str(e), ctx.token)
             raise

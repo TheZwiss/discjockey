@@ -297,7 +297,7 @@ class HubApi:
             self._events.emit(event)
 
     def _state(self) -> dict:
-        return library.load_state(self._paths.state_file)
+        return library.load_state(self._paths)
 
     def _settings(self) -> Settings:
         try:
@@ -411,7 +411,8 @@ class HubApi:
         with self._auto_lock:
             if auto and self._store.auto_read:
                 raise OpProblem(AUTO_READ_DONE, "refused")
-            job = self._jobs.start_refresh(refresh_work(self._paths, self._store, self._svc.now, infos=self._infos))
+            job = self._jobs.start_refresh(refresh_work(self._paths, self._store, self._svc.now, infos=self._infos,
+                                                         lock=self._jobs.scan_lock))
             if auto:
                 self._store.auto_read = True
         return {"job_id": job.id}
@@ -630,7 +631,7 @@ class HubApi:
 
     def _budget(self, state: dict) -> Budget:
         """Today's Qobuz budget, carrying this session's failure streak."""
-        budget = Budget(state, lambda: library.save_state(self._paths.state_file, state), self._settings())
+        budget = Budget(state, lambda: library.save_state(self._paths, state), self._settings())
         with self._lock:
             for name, value in self._qobuz_streak.items():
                 setattr(budget, name, value)
@@ -643,7 +644,7 @@ class HubApi:
     def _account_budgets(self, state: dict) -> dict[str, Budget]:
         """Today's budget of each account that is set up, carrying this session's failure streak (a paused account
         stays paused for "Use this" until the next sync)."""
-        accounts = run.account_budgets(state, lambda: library.save_state(self._paths.state_file, state),
+        accounts = run.account_budgets(state, lambda: library.save_state(self._paths, state),
                                        self._settings())
         with self._lock:
             for service, budget in accounts.items():
@@ -779,7 +780,7 @@ class HubApi:
         state = self._state()
         money = views.gate(views.moneys(state, self._settings(), self._today()))
         change = views.playlist_change(pf.load(self._paths.playlists_file).rows, rows, tracks, state,
-                                       library.list_files(self._paths), self._today(), money,
+                                       state["files"], self._today(), money,
                                        self._cover(self._images()))
         return {**change, "problem": problem}
 
@@ -908,12 +909,12 @@ class HubApi:
             info = {"artist": artist, "title": title, "folder": a.folder}
 
         def work(ctx) -> dict:
-            state = library.load_state(self._paths.state_file)
+            state = library.open_state(self._paths)
             if never:
                 state["never"][track_id] = {**info, "at": self._svc.now().date().isoformat()}
             else:
                 state["never"].pop(track_id, None)
-            library.save_state(self._paths.state_file, state)
+            library.save_state(self._paths, state)
             rep.write_not_lossless(self._paths, state)  # a "not found" track leaves (or rejoins) that list
             what = "never download" if never else "download again"
             ops.log_operation(self._paths, self._svc.now(), track_id, info, what, "done", what)
