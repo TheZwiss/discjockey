@@ -58,7 +58,7 @@ def test_the_full_sync_shows_every_kind_of_moment():
     assert types >= {"JobStarted", "JobFinished", "RunStarted", "ActionStarted", "StepChanged", "Progress", "Waiting",
                      "SourceChosen", "Checked", "AccountUsage", "ActionFinished", "RunFinished", "Message"}
     sections = [e["result"]["section"] for e in events if e["type"] == "ActionFinished"]
-    assert sections == ["moved", "new_lossless", "missing", "new_not_lossless", "errors", "upgrade_ready"]
+    assert sections == ["new_lossless", "missing", "new_not_lossless", "errors", "upgrade_ready"]
     errors = [e["result"] for e in events if e["type"] == "ActionFinished" and e["result"]["section"] == "errors"]
     assert errors[0]["error_kind"] == "network"
     assert {e["kind"] for e in events if e["type"] == "Waiting"} >= {"search", "between"}

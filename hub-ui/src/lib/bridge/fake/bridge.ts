@@ -2,8 +2,8 @@
 import type { Bridge } from '../client';
 import type { HubEvent } from '../events';
 import type {
-  Candidate, ChangePreview, Fail, JobStart, LibraryFilter, LibrarySort, PlaylistLine, ProblemKind, Res, Result,
-  AccountCheck, Browser, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate,
+  BatchResult, Candidate, ChangePreview, Fail, JobStart, LibraryFilter, LibrarySort, PlaylistLine, ProblemKind, Res, Result,
+  AccountCheck, Browser, SaveFiles, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate,
 } from '../types';
 import { NOT_IN_PLAYLIST } from '../types';
 import { LIBRARY_METHODS } from '../contract';
@@ -13,7 +13,7 @@ import {
   sampleCandidates, spotifyOk, todoDetail, todoFree, formatLine, SOURCE_FULL, todoGroup, trackRow, type FakeAccount, type FakeState,
   type FakeTrack,
 } from './data';
-import { JobRecord, Replay, STREAMS, SYNC_START_LINE, rewrite } from './replay';
+import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, rewrite } from './replay';
 import { daysToLoad } from '../../days';
 import { minutesByDownloads } from './minutes';
 import { fakeSpectrum } from './spectrum';
@@ -21,6 +21,11 @@ import { toneUrl } from './audio';
 import { BROWSER_NAMES, defaultBrowsers } from './browsers';
 import { CRASHED_MESSAGE } from '../../copy';
 import { downloads } from './downloads';
+import {
+  NO_BATCH, NOTHING_CHOSEN, hasFile, planRename, planTidy, planUndo, renameOffers, retargets, runBatch, seedTidy,
+  tidyPreview, tidyRow, tidyWaiting, trackOfId, undoPreview, validMoves, validSaveFiles, moveBatches, outOfPlace,
+  type MoveRun,
+} from './tidy';
 import { SERVICES, NAMES, RECOMMENDED, serviceOf, limits as limitsOf, whatIf as whatIfOf, gate, syncSplit, cards } from './limits';
 
 /** library.FOLDER_PROBLEMS verbatim: what a refused folder says */
@@ -104,6 +109,7 @@ const dashboardEstimate = ({ minutes_by_downloads: _table, accounts, ...rest }: 
 export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Handlers & { _ctx: FakeContext } {
   const baseScenario = scenario.includes(':') ? 'normal' : scenario;
   const s = makeState(baseScenario);
+  seedTidy(s);
   pageScenarios()[scenario]?.(s);
   const speed = opts.speed ?? 1;
   const emitRaw = opts.emit ?? (() => {});
@@ -114,6 +120,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   let pendingFinish: Finish | null = null;   // a job that only ends by itself or with stop() (Spotify login)
   let signIn: JobRecord | null = null;         // the sign-in slot (beside the write jobs, as Jobs.start_sign_in)
   let signInStop: (() => void) | null = null;
+  let savePending: MoveRun | null = null;    // a save in its short wait before the file is written (Stop ends it after the save)
+  let moveRun: MoveRun | null = null;         // the move batch that is running (Stop ends it between two moves)
 
   const emit = (e: HubEvent) => {
     if (job?.running && e.type !== 'ConsoleBusy' && e.type !== 'FileDropped') {
@@ -175,12 +183,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     const finish: Finish = (good, res = null, problem = null, message = '') => {
       if (finished) return;
       finished = true;
-      if (s.errors && good && !DOWNLOAD_KINDS.includes(kind) && !kind.startsWith('setup_')) {
+      if (s.errors && good && !DOWNLOAD_KINDS.includes(kind) && kind !== 'scan' && !kind.startsWith('setup_')) {
         const [k, m] = ERROR_TURNS[s.errorTurn++ % ERROR_TURNS.length];
         good = false; problem = k; message = m; res = null;
       }
       emit({ type: 'JobFinished', job_id: id, kind, ok: good, problem: good ? null : (problem ?? 'failed'), message,
-        result: good ? (res ?? {}) : null } as HubEvent);
+        result: good ? (res ?? {}) : (problem === 'stopped' ? (res ?? null) : null) } as HubEvent);
       me.running = false;
     };
     setTimeout(() => {
@@ -190,6 +198,19 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     return { ok: true, job_id: id };
   }
   const ctx: FakeContext = { s, speed, emit, startJob, networkBlock, fail, later, accountResult };
+
+  /** Runs move batches as the body of a write job: ends `stopped` (with the batches so far) when Stop came. */
+  function moveJob(finish: Finish, work: (run: MoveRun) => Promise<{ result: BatchResult; stopped: boolean }[]>,
+    wrap: (batches: BatchResult[]) => unknown): void {
+    const run: MoveRun = { stopped: false };
+    moveRun = run;
+    work(run).then((done) => {
+      moveRun = null;
+      const out = wrap(done.map((d) => d.result));
+      if (done.some((d) => d.stopped)) finish(false, out, 'stopped', 'Stopped. Nothing was left half-done.');
+      else finish(true, out);
+    }, () => { moveRun = null; finish(false, null, 'crashed', CRASHED_MESSAGE); });
+  }
 
   // ---------- computed views ----------
   function preview() {
@@ -201,24 +222,21 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       never.push(...actions.filter((a) => !keep.includes(a)));
       if (keep.length) groups.push({ key, label, actions: keep });
     };
-    add('acquire:new', 'Download (new)', s.newTracks.map((t, i) => previewAction('acquire', 'new', t, null, false,
+    add('acquire:new', 'Download (new)', s.newTracks.map((t, i) => previewAction('acquire', 'new', t, false,
       null, i % 3 ? i % 5 : null)));
     add('acquire:retry', 'Try again', s.tracks.filter((t) => t.status === 'missing' && t.next_try_days === 1
-      && t.in_playlists).map((t) => previewAction('acquire', 'retry', t, null, false, null, t.cover)));
-    const mover = s.tracks.find((t) => t.folder === '03_06_2026' && qualityOf(t) === 'lossless' && !t.other);
-    add('move', 'Move to another folder', mover ? [previewAction('move', null, { ...mover, folder: 'Hard_Bounce' },
-      '03_06_2026', false, pathOf(mover), mover.cover)] : []);
+      && t.in_playlists).map((t) => previewAction('acquire', 'retry', t, false, null, t.cover)));
     add('upgrade', 'Look for a better version (weekly check)', s.tracks.filter((t) => qualityOf(t) === 'weak'
       && !t.upgrade && !t.hidden && t.in_playlists).slice(0, 3).map((t) => previewAction('upgrade', 'weekly', t,
-      null, true, pathOf(t), t.cover)));
-    // the order the sync works through them: moves first, then downloads, then the weekly checks; playlist order
-    const rank = (k: string) => ({ move: 0, adopt: 0, adopt_bought: 0, acquire: 1, upgrade: 2 }[k] ?? 1);
+      true, pathOf(t), t.cover)));
+    // the order the sync works through them: bought files first, then downloads, then the weekly checks; playlist order
+    const rank = (k: string) => ({ adopt_bought: 0, acquire: 1, upgrade: 2 }[k] ?? 1);
     const folderAt = (f: string) => { const i = s.playlists.findIndex((p) => p.folder === f); return i < 0 ? 99 : i; };
     groups.flatMap((g) => g.actions).sort((a, b) => rank(a.kind) - rank(b.kind) || folderAt(a.folder) - folderAt(b.folder))
       .forEach((a, i) => { a.run = i; });
     const n = (k: string) => groups.find((g) => g.key === k)?.actions.length ?? 0;
     const counts = { new: n('acquire:new'), retries: n('acquire:retry'), redownloads: n('acquire:redownload'),
-      moves: n('move'), adopts: n('adopt'), bought: n('adopt_bought'), weekly_checks: n('upgrade') };
+      bought: n('adopt_bought'), weekly_checks: n('upgrade') };
     const actions = groups.reduce((a, g) => a + g.actions.length, 0);
     const needed = counts.new + counts.retries + counts.redownloads + counts.weekly_checks;
     const g = gate(s);
@@ -483,7 +501,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           downloaded: r.quality !== 'missing', quality: r.quality, quality_label: r.quality_label,
           never: s.never.includes(t.track_id), folders: [...t.playlists], lands_in: s.playlists.find((p) => t.playlists.includes(p.folder))?.folder ?? t.folder };
       });
-      return ok({ version: versionHash(), problem: null, rows: playlistRows(s), overlaps,
+      return ok({ version: versionHash(), problem: null, rows: playlistRows(s), overlaps, tidy: { waiting: tidyWaiting(s) },
         empty: s.playlists.length ? null : 'no_playlists' as const });
     },
     async limits(service: Service) {
@@ -632,6 +650,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         suggested_folder: name.replace(/\W+/g, '_'),
         hint: readable ? null : 'Follow ≠ own: Spotify only shares playlists you made. In Spotify, make your own copy (… → Add to other playlist → New playlist) and paste that link.' }));
     },
+    async tidy_preview() { return ok(tidyPreview(s)); },
+    async move_batches() { return ok(moveBatches(s)); },
+    async undo_preview(batch_id: number) {
+      const p = undoPreview(s, batch_id);
+      return p ? ok(p) : fail('refused', NO_BATCH);
+    },
     async preview_playlist_change(lines: PlaylistLine[]) {
       const block = networkBlock();
       if (block) return block;
@@ -646,7 +670,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           return startJob('sync', null, (finish) => setTimeout(() => finish(false, null, 'login_expired',
             'Your Spotify login has expired. Log in again in setup.'), 600 / speed));
         }
-        return startReplay(SYNC_START_LINE, { crashAfter: 45 });
+        return startReplay(SYNC_START_LINE, { crashAfter: SYNC_LINES.crash });
       }
       if (!selected.length) {
         return startJob('sync', null, (finish) => setTimeout(() => finish(true, { exit_code: 0, report: '',
@@ -655,6 +679,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return startReplay(SYNC_START_LINE);
     },
     async stop() {
+      if (moveRun && job?.running) { job.stopping = true; moveRun.stopped = true; return ok({ stopped: true }); }
+      if (savePending && job?.running) { job.stopping = true; savePending.stopped = true; return ok({ stopped: true }); }
       if (replay && job?.running) { job.stopping = true; replay.stop(); return ok({ stopped: true }); }
       if (pendingFinish && job?.running) {
         job.stopping = true;
@@ -664,22 +690,74 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       }
       return ok({ stopped: false });
     },
-    async save_playlists(lines: PlaylistLine[], loaded_version: string) {
+    async save_playlists(lines: PlaylistLine[], loaded_version: string, files?: SaveFiles | null) {
       const problem = linesProblem(lines);
       if (problem) return fail('refused', problem);
-      return startJob('save_playlists', null, (finish) => setTimeout(() => {
-        if (loaded_version !== versionHash()) {
-          return finish(false, null, 'changed', 'playlists.txt was changed elsewhere. Load it again before saving.');
-        }
-        const old = new Map(s.playlists.map((p) => [p.link, p]));
-        s.playlists = lines.map((l) => ({ folder: l.folder, link: l.link, enabled: l.enabled,
-          info: old.get(l.link)?.info ?? null }));
-        s.version++;
-        // as the real setup_status, which reads playlists.txt: a saved list counts as "playlists added"
-        s.setup = { ...s.setup, playlists: s.playlists.length > 0 };
-        s.spotify = { ...s.spotify, stale: true };
-        finish(true, { version: versionHash() });
-      }, 500 / speed));
+      const choice = validSaveFiles(files);
+      if (choice === 'bad') return fail('refused', 'Choose whether to move the files or leave them where they are.');
+      const wait: MoveRun = { stopped: false };
+      const started = startJob('save_playlists', null, (finish) => {
+        setTimeout(() => {
+          if (savePending === wait) savePending = null;
+          if (loaded_version !== versionHash()) {
+            return finish(false, null, 'changed', 'playlists.txt was changed elsewhere. Load it again before saving.');
+          }
+          const { renames, moved } = retargets(s, lines);
+          const before = new Map(s.tracks.map((t) => [t.track_id, pathOf(t) ?? '']));
+          const old = new Map(s.playlists.map((p) => [p.link, p]));
+          s.playlists = lines.map((l) => ({ folder: l.folder, link: l.link, enabled: l.enabled,
+            info: old.get(l.link)?.info ?? null }));
+          for (const t of s.tracks) t.playlists = t.playlists.map((f) => renames.find(([was]) => was === f)?.[1] ?? f);
+          s.version++;
+          // as the real setup_status, which reads playlists.txt: a saved list counts as "playlists added"
+          s.setup = { ...s.setup, playlists: s.playlists.length > 0 };
+          s.spotify = { ...s.spotify, stale: true };
+          if (!choice) return finish(true, { version: versionHash(), batches: [] });
+          // the songs get their new folder; their files stay until moved, and a file left in place is the user's own
+          for (const t of s.tracks) {
+            const m = moved.get(t.track_id);
+            if (!m) continue;
+            const sits = t.at ?? t.folder;
+            t.folder = m.to;
+            if (hasFile(t) && t.in_playlists) {
+              if (sits !== m.to) t.at = sits; else delete t.at;
+              if (choice.choice === 'leave' && !s.tidy.placed[t.track_id]) s.tidy.placed[t.track_id] = 'user';
+            }
+          }
+          if (choice.choice === 'leave') return finish(true, { version: versionHash(), batches: [] });
+          // as the real backend: a Stop before the moves start leaves the file saved and no batch run
+          if (wait.stopped) return finish(false, { version: versionHash(), batches: [] }, 'stopped', 'Stopped. Nothing was left half-done.');
+          moveJob(finish, async (run) => {
+            const out: { result: BatchResult; stopped: boolean }[] = [];
+            for (const [was, now] of choice.renames) {
+              const r = await runBatch(s, emit, run, 250 / speed, 'rename', [planRename(s, was, now)], { about: { from: was, to: now } });
+              out.push(r);
+              if (r.stopped) return out;
+            }
+            const accept = new Map([...before].filter(([id]) => moved.has(id)));
+            const sent = choice.moves.filter(([id]) => { const t = trackOfId(s, id); return !t || outOfPlace(t); });
+            const plan = planTidy(s, sent, accept);
+            if (plan.length) out.push(await runBatch(s, emit, run, 250 / speed, 'save', plan));
+            return out;
+          }, (batches) => ({ version: versionHash(), batches }));
+        }, 500 / speed);
+      });
+      if (started.ok) savePending = wait;  // from now on a Stop reaches it, also before the job's first tick
+      return started;
+    },
+    async tidy_up(moves: [number, string][]) {
+      const sent = validMoves(moves);
+      if (!sent) return fail('refused', 'Each file to move needs its number and where it is now.');
+      if (!sent.length) return fail('refused', NOTHING_CHOSEN);
+      return startJob('tidy', null, (finish) => moveJob(finish, async (run) =>
+        [await runBatch(s, emit, run, 250 / speed, 'tidy', planTidy(s, sent))], (batches) => batches[0]));
+    },
+    async undo_moves(batch_id: number) {
+      const b = Number.isInteger(batch_id) ? s.tidy.batches.find((x) => x.id === batch_id) : undefined;
+      if (!b) return fail('refused', NO_BATCH);
+      return startJob('undo_moves', null, (finish) => moveJob(finish, async (run) =>
+        [await runBatch(s, emit, run, 250 / speed, 'undo', planUndo(s, b), { undoes: b.id })],
+      (batches) => batches[0]));
     },
     async save_limits(service: Service, limit: number, extra_today: number) {
       const f = serviceOf(s, service);
@@ -718,6 +796,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         s.never = never ? [...new Set([...s.never, track_id])] : s.never.filter((x) => x !== track_id);
         finish(true, { track_id, never });
       }, 300 / speed));
+    },
+    async rescan_library() {
+      // a finished scan that found nothing new (the quiet, usual answer)
+      return startJob('scan', null, (finish) => setTimeout(() => {
+        finish(true, { moved: 0, new: 0, gone: 0, changed: 0, copies: 0 });
+      }, 50 / speed));
     },
     async add_bought_file(track_id: string) {
       const t = track(track_id);
@@ -957,65 +1041,74 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     const names = new Set<string>();
     for (const l of lines) {
       if (!l.folder?.trim()) return 'Every playlist needs a folder name.';
-      if (!/^[\w .-]+$/.test(l.folder)) return `"${l.folder}" can't be a folder name. Use letters, digits, _ and -.`;
-      if (names.has(l.folder)) return `Two playlists use the folder ${l.folder}.`;
-      names.add(l.folder);
+      // the real rules (config._check_folder, after the name is trimmed)
+      const name = l.folder.trim().normalize('NFC');
+      if (name.toLowerCase() === 'not_lossless') return `"${name}" is reserved, pick another folder name.`;
+      if (/[/\\:]/.test(name)) return 'Folder names cannot contain / \\ or :';
+      if (name.startsWith('.')) return 'Folder names cannot start with a dot.';
+      if (name.length > 100) return 'The folder name is longer than 100 characters.';
+      if (names.has(name.toLowerCase())) return `Two playlists use the folder ${name}.`;
+      names.add(name.toLowerCase());
     }
     return null;
   }
 
   function changePreview(lines: PlaylistLine[]): ChangePreview {
-    const checklist = (n: number) => [n ? `${n} download${n === 1 ? '' : 's'}, counted toward your Qobuz limit`
-      : 'No downloads, no Qobuz quota used', 'Nothing is deleted', 'rekordbox follows the files, cue points are kept',
-    'Happens at the next sync, not right away'];
-    const base = { folders: [], moves: [], reroutes: [], new_downloads: 0, days: 0, stopped: 0, unknown: [], problem: linesProblem(lines) };
+    const checklist = (n: number, moves: boolean) => [n ? `${n} download${n === 1 ? '' : 's'}, counted toward your Qobuz limit`
+      : 'No downloads, no Qobuz quota used', 'Nothing is deleted',
+    ...(moves ? ['Files move only if you choose to', 'Moves can be undone on this page'] : ['Happens at the next sync, not right away'])];
+    const base = { folders: [], tidy: null, renames: [], reroutes: [], new_downloads: 0, days: 0, stopped: 0, unknown: [],
+      problem: linesProblem(lines) };
     const old = s.playlists;
     const added = lines.filter((l) => !old.some((o) => o.link === l.link));
-    const renamed = lines.filter((l) => old.some((o) => o.link === l.link && o.folder !== l.folder));
     const off = lines.filter((l) => !l.enabled && old.some((o) => o.link === l.link && o.enabled));
-    const order = (ls: { folder: string; enabled: boolean }[]) => ls.filter((l) => l.enabled).map((l) => l.folder);
-    const changed = s.tracks.filter((t) => t.playlists.length > 1).flatMap((t) => {
-      const was = order(old).find((f) => t.playlists.includes(f));
-      const now = order(lines).find((f) => t.playlists.includes(f));
-      return was && now && was !== now ? [{ ...trackRow(t), from: was, to: now, to_not_lossless: t.status !== 'lossless' }] : [];
-    });
-    // as the backend: tracks with a file move, the others only land somewhere else later
-    const moves = changed.filter((m) => m.quality !== 'missing');
-    const reroutes = changed.filter((m) => m.quality === 'missing').map((m) => ({ track_id: m.track_id,
-      artist: m.artist, title: m.title, cover_url: m.cover_url, downloaded: false, quality: m.quality,
-      quality_label: m.quality_label, never: s.never.includes(m.track_id), from: m.from, to: m.to }));
+    const { renames, moved } = retargets(s, lines);
+    const changed = s.tracks.filter((t) => moved.has(t.track_id));
+    // as the backend: tracks with a file are on the tidy list, the others only land somewhere else later
+    // … except a file that already sits in its new folder
+    const rows = changed.filter((t) => hasFile(t) && (t.at ?? t.folder) !== moved.get(t.track_id)!.to).map((t) => tidyRow(s, t, moved.get(t.track_id)!.to, moved.get(t.track_id)!.by));
+    const reroutes = changed.filter((t) => !hasFile(t)).map((t) => ({ track_id: t.track_id, artist: t.artist,
+      title: t.title, cover_url: trackRow(t).cover_url, downloaded: false, quality: trackRow(t).quality,
+      quality_label: trackRow(t).quality_label, never: s.never.includes(t.track_id), from: t.folder,
+      to: moved.get(t.track_id)!.to }));
+    const offers = renameOffers(s, renames, lines);
+    const saveHeadline = rows.length === 1 ? '1 file would sit in a different folder'
+      : `${rows.length} files would sit in a different folder`;
+    const tidy = rows.length ? { headline: saveHeadline, rows } : null;
     if (changed.length) {
-      const fs = [...new Set(changed.flatMap((m) => [m.to, m.from]))];
+      const fs = [...new Set(changed.flatMap((t) => [moved.get(t.track_id)!.to, t.folder]))];
       const folders = s.playlists.map((p) => p.folder).filter((f) => !fs.includes(f)).map((f) => {
         const n = s.tracks.filter((t) => t.folder === f).length;
         return { folder: f, before: n, after: n };
       });
-      const pair = reroutes.length ? [reroutes[0].from, reroutes[0].to] : [];
+      const pairs = new Set(changed.map((t) => `${t.folder}\u0000${moved.get(t.track_id)!.to}`));
+      // a rename: every song follows its playlist's new name (wherever its file sits)
+      const asRename = renames.length > 0
+        && changed.every((t) => renames.some(([was, now]) => was === t.folder && now === moved.get(t.track_id)!.to));
       const n = reroutes.length;
-      const headline = moves.length ? (moves.length === 1 ? '1 track changes folder' : `${moves.length} tracks change folder`)
-        : `${n === 1 ? '1 track will' : `${n} tracks will`} go to ${pair[1]} instead of ${pair[0]}`;
-      return { ...base, kind: moves.length ? 'moves' : 'reroute', headline, moves, reroutes, checklist: checklist(0),
+      const tracksWill = n === 1 ? '1 track will' : `${n} tracks will`;
+      const first = reroutes[0];
+      const kind = asRename ? 'rename' : rows.length ? 'moves' : 'reroute';
+      const headline = rows.length ? saveHeadline : asRename ? `${tracksWill} go to the new folder name`
+        : pairs.size === 1 ? `${tracksWill} go to ${first.to} instead of ${first.from}` : `${tracksWill} go to another folder`;
+      return { ...base, kind, headline, tidy, renames: offers, reroutes, checklist: checklist(0, kind !== 'reroute'),
         folders: [...fs.map((f) => {
           const before = s.tracks.filter((t) => t.folder === f).length;
-          return { folder: f, before, after: before + changed.filter((m) => m.to === f).length - changed.filter((m) => m.from === f).length };
+          return { folder: f, before, after: before + changed.filter((t) => moved.get(t.track_id)!.to === f).length
+            - changed.filter((t) => t.folder === f).length };
         }), ...folders] };
-    }
-    if (renamed.length) {
-      const n = s.tracks.filter((t) => renamed.some((r) => old.find((o) => o.link === r.link)?.folder === t.folder)).length;
-      return { ...base, kind: 'rename', headline: n === 1 ? '1 file moves to the new folder name' : `${n} files move to the new folder name`,
-        checklist: checklist(0) };
     }
     if (added.length) {
       const n = added.length * 24;
       const days = Math.max(1, Math.ceil(n / s.qobuz.limit));
-      return { ...base, kind: 'add', new_downloads: n, days, checklist: checklist(n),
+      return { ...base, kind: 'add', new_downloads: n, days, checklist: checklist(n, false), renames: offers,
         headline: `${n} new downloads, about ${days} day${days === 1 ? '' : 's'} at the current limit` };
     }
     if (off.length) {
-      return { ...base, kind: 'switch_off', headline: 'Files stay, no more updates', checklist: checklist(0),
-        stopped: s.tracks.filter((t) => off.some((o) => o.folder === t.folder)).length };
+      return { ...base, kind: 'switch_off', headline: 'Files stay, no more updates', checklist: checklist(0, false),
+        renames: offers, stopped: s.tracks.filter((t) => off.some((o) => o.folder === t.folder)).length };
     }
-    return { ...base, kind: 'none', headline: 'Nothing changes in your library', checklist: checklist(0) };
+    return { ...base, kind: 'none', headline: 'Nothing changes in your library', checklist: checklist(0, false), renames: offers };
   }
 
   // page overrides (src/pages/*/fake.ts)
@@ -1048,11 +1141,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
 
   // scenarios that start with a job already running
   const at = (fn: () => void) => fn();   // at once, so the first job_status() already sees the job
-  if (baseScenario === 'syncing') at(() => startReplay(SYNC_START_LINE, { preRun: 62 }));
-  if (baseScenario === 'pause') at(() => startReplay(SYNC_START_LINE, { preRun: 97, freeze: 97 }));
+  if (baseScenario === 'syncing') at(() => startReplay(SYNC_START_LINE, { preRun: SYNC_LINES.downloading }));
+  if (baseScenario === 'pause') at(() => startReplay(SYNC_START_LINE, { preRun: SYNC_LINES.inPause, freeze: SYNC_LINES.inPause }));
   if (baseScenario === 'break') {
     at(() => {
-      startReplay(SYNC_START_LINE, { preRun: 87, freeze: 87 });
+      startReplay(SYNC_START_LINE, { preRun: SYNC_LINES.sourceBeforePause, freeze: SYNC_LINES.sourceBeforePause });
       job?.record({ type: 'Waiting', kind: 'break', label: 'Longer break to protect your Qobuz account',
         remaining: 690, total: 720, service: 'qobuz' });
     });

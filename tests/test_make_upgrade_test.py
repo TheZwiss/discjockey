@@ -39,18 +39,18 @@ def root(tmp_path):
              folder="Hard_Bounce", path=ORIGINAL, status="lossless", source="qobuz", source_id="123",
              source_format="flac", rejected_sources=[], in_playlists=True)
     state["tracks"]["11qwPqW58QcUS4BaAclu0j"] = e
-    save_state(paths.state_file, state)
+    save_state(paths, state)
     return paths
 
 
 def test_makes_a_separate_test_track_and_only_reads_the_original(root, capsys):
     before_bytes = (root.root / ORIGINAL).read_bytes()
-    before_entry = load_state(root.state_file)["tracks"]["11qwPqW58QcUS4BaAclu0j"]
+    before_entry = load_state(root)["tracks"]["11qwPqW58QcUS4BaAclu0j"]
     inode = os.stat(root.root / ORIGINAL).st_ino
     assert script.main(["--root", str(root.root), ORIGINAL]) == 0
 
     assert (root.root / ORIGINAL).read_bytes() == before_bytes and os.stat(root.root / ORIGINAL).st_ino == inode
-    state = load_state(root.state_file)
+    state = load_state(root)
     assert state["tracks"]["11qwPqW58QcUS4BaAclu0j"] == before_entry and state["pending"] == []
     e = state["tracks"]["upgrade-test-1"]
     assert (e["artist"], e["title"], e["folder"], e["path"]) == (
@@ -73,7 +73,7 @@ def test_makes_a_separate_test_track_and_only_reads_the_original(root, capsys):
 def test_test_track_has_its_own_name_after_the_swap(root):
     """rekordbox finds missing files by name only, so the swapped test file must not share the original's name."""
     script.main(["--root", str(root.root), ORIGINAL])
-    state = load_state(root.state_file)
+    state = load_state(root)
     r = upgrades.swap(root, state, "upgrade-test-1", dict(state["tracks"]["upgrade-test-1"]["upgrade"]))
     final = f"Library/_Upgrade test/{TEST_STEM}.aiff"
     assert r.path == final and Path(final).name != Path(ORIGINAL).name
@@ -83,10 +83,10 @@ def test_test_track_has_its_own_name_after_the_swap(root):
 
 def test_refuses_when_the_test_already_exists(root, capsys):
     assert script.main(["--root", str(root.root), ORIGINAL]) == 0
-    before = load_state(root.state_file)
+    before = load_state(root)
     assert script.main(["--root", str(root.root), ORIGINAL]) == 2
     assert "already exists" in capsys.readouterr().out
-    assert load_state(root.state_file) == before
+    assert load_state(root) == before
 
 
 @pytest.mark.parametrize("source", ["Library/Hard_Bounce/missing.aiff", "Superseded/x.aiff"])
@@ -97,4 +97,4 @@ def test_refuses_other_files(root, source):
 def test_waits_for_a_running_sync(root):
     with run_lock(root.lock):
         assert script.main(["--root", str(root.root), ORIGINAL]) == 3
-    assert "upgrade-test-1" not in load_state(root.state_file)["tracks"]
+    assert "upgrade-test-1" not in load_state(root)["tracks"]

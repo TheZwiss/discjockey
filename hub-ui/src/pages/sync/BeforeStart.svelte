@@ -62,9 +62,8 @@
   // Later counts only what's in scope, so it agrees with "All N" and the days (issue 7)
   const totals = $derived(runTotals(chosen, total, left, limit,
     preview?.estimate?.minutes_by_downloads ?? []));
-  const movesTicked = $derived(chosen.filter((a) => kindOf(a) === 'move').length);
   // only downloads that wait for the next sync are ticked: a run would do nothing today, so Start is off (Task 9B ruling)
-  const nothingToday = $derived(runsNothingToday(chosen.length, totals.downloads, totals.uses, movesTicked));
+  const nothingToday = $derived(runsNothingToday(chosen.length, totals.downloads, totals.uses));
   const nextSync = $derived(nextSyncSet(ordered, ticked, scope, left));
   // some ticked download may wait while others run today (fixed while the plan is)
   const mayWait = $derived(mayWaitToday(ordered.filter(isDownload).length, left));
@@ -274,7 +273,7 @@
 {#snippet startArea()}
   <WriteButton variant="filled" wide onclick={start} busy={starting} busyLabel="Starting…"
     disabled={chosen.length === 0 || nothingToday || $hub.console_running} title={startTitle} data-test="start-sync">
-    {startLabel(chosen.length, totals.downloads, totals.uses, movesTicked)}</WriteButton>
+    {startLabel(chosen.length, totals.downloads, totals.uses)}</WriteButton>
   {#if $hub.console_running}<Hint text="A sync is running in the terminal" data-test="sync-console" />
   {:else if nothingToday}<Hint text={NOTHING_TODAY} data-test="sync-nothing-today" />{/if}
   {#if startProblem}<ProblemCard kind={startProblem.kind} message={startProblem.message} sync compact alert />{/if}
@@ -285,7 +284,7 @@
     <RunPanel summary={totals} left={limitLeft === null ? null : left} {limit} presets={presetList}
       accounts={preview?.estimate?.accounts ?? []}
       howMany={shownPreset(howMany ?? 'custom', presetList, total, left)} folders={facetLists.folders}
-      kinds={facetLists.kinds} {scope} moves={movesTicked} onhowmany={pickHowMany} onscope={changeScope}
+      kinds={facetLists.kinds} {scope} onhowmany={pickHowMany} onscope={changeScope}
       onscopeall={changeScopeAll} start={startArea} />
   {:else if upToDatePanel}
     <UpToDatePanel last={lastRun ?? null} view={lastView} todo={$hub.sidebar?.todo ?? null} {upgrades} />

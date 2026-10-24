@@ -145,8 +145,15 @@ line to see it on the right.
 
 - **Your music folder** (`~/Music/Discjockey`, or the one you chose) holds your library:
   `Library/`, `Superseded/`, `Upgrades ready/` and `playlists.txt`. It also has a hidden
-  `.discjockey/` folder with Discjockey's notes about your library: `state.json`, the
+  `.discjockey/` folder with Discjockey's notes about your library: `library.db` (Discjockey's records of your
+  tracks and where their files are), `state.v1.json` (a copy of the old records, kept after the update below), the
   `reports/` and `not_lossless.md`. It can be on an external drive.
+- **Updating from an earlier version:** the first time a new Discjockey opens your library, it says
+  "Updating Discjockey's records…" and turns the old records into `library.db`. This happens once and can take a
+  minute. Your music files are not touched, and `state.v1.json` stays as a copy of the old records.
+- **Files you move by hand:** you can move or rename files inside `Library/` in Finder. Discjockey looks at
+  `Library/` when the window opens or comes back to the front, and before every sync, and finds the files where
+  they are now. It doesn't download them again.
 - **`~/Library/Application Support/Discjockey/`** holds what belongs to this Mac: your logins,
   the settings (`settings.json`), `config.json`, which remembers where your music folder is, and `tools/`, where
   **Update download tools** keeps a newer yt-dlp (the one that came with Discjockey stays inside it).
@@ -171,14 +178,49 @@ Powertrance = https://open.spotify.com/playlist/...
   folder of the first one.
 - **Switching a playlist off:** put `#` at the start of its line. Its tracks stay where they
   are; nothing is moved or deleted.
-- **Renaming a folder:** change the name on the left. On the next run the files move to the
-  new folder.
+- **Renaming a folder:** change the name on the left. Files already in `Library/` stay where they are, and new
+  downloads go into the new folder. To move the files you have, see [Tidying up files](#tidying-up-files).
+- **Changing the order:** a track that is in several playlists stays in the folder it is in now. Only new
+  downloads follow the new order. [Tidying up files](#tidying-up-files) moves the files you have to where the order puts them.
 - The playlists must be your own or collaborative ones (a Spotify rule).
+
+## Tidying up files
+
+A sync only adds files; it never moves one that is already in `Library/`. Files move only when you ask for it on the
+**Playlists** page. Nothing is deleted, and every move can be undone there.
+
+- **When you save a change that would put files in a different folder,** Discjockey asks first. It tells you how many
+  files would sit in a different folder. **Save and move the files** moves them right away.
+  **Save, leave files where they are** only saves the list: the files stay, and Discjockey treats them as placed by you.
+- **The Tidy up files button** shows what would move before anything does. Each file has a tick, and you can untick
+  what should stay. Click the **Move … files** button to go ahead. Files that can't be moved are listed with the reason: the drive is
+  offline, a file with that name is already in the folder, the file isn't where Discjockey last saw it, or the system
+  refused. The rest still move.
+- **"You put these here"** lists the files you chose to leave where they are (or put there yourself). They are not
+  ticked, so a tidy-up leaves them alone. Click **Put these in playlist order too** to tick them all. A file a
+  tidy-up moves follows the playlist order from then on.
+- **Renaming a folder on disk:** when you rename a playlist, **Rename the folder on disk too** moves the whole folder
+  in one step instead of file by file. It is not offered if a folder with the new name is already in your Library, or
+  if the old folder still belongs to another playlist.
+- **Undo:** **Undo** on the Playlists page puts a batch of moves back. Undoing a folder rename puts the folder and the
+  playlist name back. If the playlist has been renamed again since, nothing moves. A file that was moved or changed
+  since, or whose old place is taken by another file, is skipped and listed.
+- **If a tidy-up is stopped halfway,** Discjockey finishes the file it is moving and stops there. Files it hadn't
+  reached stay where they are. The **Tidy up files** button offers them again, and you can undo what did move. If
+  the Mac loses power instead, the file being moved is finished or put back the next time Discjockey starts, and it
+  tells you so.
+- **After a sync in the console,** Discjockey says how many files are not where the playlist order puts them. It
+  counts only files a tidy-up would tick by default, so files you chose to leave don't nag you. The console never
+  moves files.
+
+Discjockey never renames a file when it moves it. rekordbox may show moved tracks as missing; its Relocate finds
+them again by file name (see [rekordbox](#rekordbox)).
 
 ## Daily use
 
-Open Discjockey and click **Sync** in the sidebar. Before anything changes, it shows the plan: new downloads, moves
-to another folder, and tracks no longer in any playlist. Untick what should wait, then click **Start sync**.
+Open Discjockey and click **Sync** in the sidebar. Before anything changes, it shows the plan:
+new downloads, bought files to add, and tracks no longer in any playlist. Untick what should wait, then click
+**Start sync**.
 
 - A run of 60 downloads takes 1 to 2 hours, because Discjockey waits between Qobuz downloads.
   The Mac stays awake while it runs.
@@ -214,7 +256,8 @@ that have a file are played. Changing the filter later doesn't change what plays
   the track. These are lossy or "fake lossless" (a lossless file made from a lossy source).
 - `Superseded/<Folder>/` holds files that were replaced: the old lossy file when you add a
   bought copy or add a lossless version as a new file, and the backup of a swapped file
-  (its name ends in "(lossy)"). Nothing here is ever deleted by Discjockey. Once rekordbox no
+  (its name ends in "(lossy)"). A bought file or a better version goes into the folder the current file is in,
+  and the old file goes to the same folder under `Superseded/`. Nothing here is ever deleted by Discjockey. Once rekordbox no
   longer uses a file there, you can delete it by hand.
 - `Upgrades ready/<Folder>/` holds lossless versions Discjockey found for your lossy tracks,
   waiting for you to decide (see [Upgrades](#upgrades)). It sits next to `Library/`, so rekordbox doesn't
@@ -277,9 +320,11 @@ version is removed because it's no longer needed.
 
 - Import the folders in `Library/` (inside your music folder) into rekordbox.
 - The comment column shows where each file came from and how good it is.
-- If a track moves to another folder (because you changed the playlist order or a folder
-  name), rekordbox shows it as missing. Use rekordbox's Relocate to point it at the new
-  place.
+- Discjockey doesn't move your files when you change the playlist order or a folder name, so rekordbox keeps
+  finding them. If you move a file yourself (in Finder, or with **Tidy up**), rekordbox may show it as missing. Use
+  rekordbox's Relocate to point it at the new place. Discjockey never renames a file when it moves it, so Relocate
+  finds moved files by their file name. Auto Relocate searches only the folders set for it in rekordbox's
+  settings: add your music folder there once, and it finds every moved file on its own.
 - When you add a bought copy, the old lossy file moves to `Superseded/`, and rekordbox's entry
   (with your cue points) goes with it. The bought file is a new entry: set the cues again,
   then remove the old entry.

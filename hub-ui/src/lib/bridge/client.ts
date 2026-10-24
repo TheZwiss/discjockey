@@ -1,7 +1,7 @@
 // The only bridge to Python. Only this file touches window.pywebview (plan 64.4).
 import type {
   ActionKey, AddedPlaylist, AppUpdate, Candidate, Candidates, ChangePreview, Dashboard, Fail, JobStart, JobStatus, Library,
-  Limits, LibraryFilter, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res, RunDetail,
+  Limits, LibraryFilter, MoveBatches, SaveFiles, TidyPreview, UndoPreview, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res, RunDetail,
   RunSummary, SetupStatus, SetupTools, Sidebar, Spectrum, SyncPreview, Todo, TodoFilter, TrackDetail, WhatIf, Which,
   AccountCheck, Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus,
 } from './types';
@@ -19,6 +19,9 @@ export interface Bridge {
   track(track_id: string): Promise<Res<{ track: TrackDetail }>>;
   todo(filter: TodoFilter, show_hidden: boolean): Promise<Res<Todo>>;
   playlists(): Promise<Res<Playlists>>;
+  tidy_preview(): Promise<Res<TidyPreview>>;
+  move_batches(): Promise<Res<MoveBatches>>;
+  undo_preview(batch_id: number): Promise<Res<UndoPreview>>;
   limits(service: Service): Promise<Res<Limits>>;
   limits_what_if(service: Service, limit: number, extra_today: number): Promise<Res<WhatIf>>;
   runs(): Promise<Res<{ runs: RunSummary[] }>>;   run(run_id: string): Promise<Res<{ run: RunDetail }>>;
@@ -32,7 +35,8 @@ export interface Bridge {
   preview_playlist_change(lines: PlaylistLine[]): Promise<Res<ChangePreview>>;
   // write jobs (outcome = JobFinished with the same job_id)
   start_sync(selected: ActionKey[]): Promise<JobStart>;   stop(): Promise<Res<{ stopped: boolean }>>;
-  save_playlists(lines: PlaylistLine[], loaded_version: string): Promise<JobStart>;
+  save_playlists(lines: PlaylistLine[], loaded_version: string, files?: SaveFiles | null): Promise<JobStart>;
+  tidy_up(moves: [number, string][]): Promise<JobStart>;   undo_moves(batch_id: number): Promise<JobStart>;
   save_limits(service: Service, limit: number, extra_today: number): Promise<JobStart>;
   mark_warnings_seen(service: Service): Promise<JobStart>;
   hide(track_id: string, hidden: boolean): Promise<JobStart>;
@@ -43,6 +47,7 @@ export interface Bridge {
   reject_current(track_id: string): Promise<JobStart>;
   rekordbox_checked(track_id: string): Promise<JobStart>;
   upgrade(track_id: string, mode: 'swap' | 'add_new' | 'discard'): Promise<JobStart>;
+  rescan_library(): Promise<JobStart>;
   // other
   show_in_finder(track_id: string, which: Which): Promise<Res<{}>>;   reveal(rel_path: string): Promise<Res<{}>>;
   open_report(run_id: string): Promise<Res<{}>>;   open_external(url: string): Promise<Res<{}>>;
@@ -148,7 +153,8 @@ export function _resetBridge(): void {
 
 export type JobOutcome<R> =
   | { ok: true; job_id: number; result: R }
-  | { ok: false; job_id: number | null; kind: ProblemKind; message: string };
+  /** `result`: what a job that ended with a problem still carries (a stopped move batch: the moves it made), else null */
+  | { ok: false; job_id: number | null; kind: ProblemKind; message: string; result?: R | null };
 
 function problemToast(kind: ProblemKind, message: string): void {
   toasts.show({ tone: 'problem', title: problemCopy(kind).title, body: message || undefined });
@@ -181,7 +187,7 @@ export async function runJob<R = unknown>(start: Promise<JobStart>,
   if (!fin.ok) {
     const kind = (fin.problem ?? 'crashed') as ProblemKind;
     if (!opts.quiet) problemToast(kind, fin.message);
-    return { ok: false, job_id, kind, message: fin.message };
+    return { ok: false, job_id, kind, message: fin.message, result: (fin.result ?? null) as R | null };
   }
   if (opts.success !== false) {
     const text = typeof opts.success === 'string' ? opts.success : successCopy(fin.kind);

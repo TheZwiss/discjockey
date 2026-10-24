@@ -23,7 +23,7 @@ export function activityText(s: RunState, now: number): ActivityText {
   if (s.waiting && (s.waiting.kind === 'between' || s.waiting.kind === 'break')) {
     return { lead: `${head}Protection pause ${duration(Math.ceil(left ?? 0))} · next `, track: name, tail: null, pause: null, qobuz };
   }
-  const verb = s.current?.kind === 'move' ? 'Moving' : s.step ? STEP_LABEL[s.step] : 'Searching';
+  const verb = s.step ? STEP_LABEL[s.step] : 'Searching';
   return { lead: `${head}${verb} `, track: name, tail: null, pause: null, qobuz };
 }
 

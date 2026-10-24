@@ -17,7 +17,7 @@
   import { canNever, kindOf, sectionSummary, tagOf, waitsWhole, whyColumn, type Section } from '../planModel';
   import { keyId } from '../selection';
   import NeverButton from './NeverButton.svelte';
-  import Tick from './Tick.svelte';
+  import { Tick } from '$lib/components';
   import WhyMark from './WhyMark.svelte';
   import Why from './Why.svelte';
 

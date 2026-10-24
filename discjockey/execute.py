@@ -17,7 +17,8 @@ from .events import (
 from .library import NameReserver, Paths, delete_parked, run_op, save_state
 from .models import Action, Outcome, Placed
 from .names import expected_stem, fold, split_name, strip_id_suffix
-from .planner import apply_outcome, folder_dir, searched_since_check
+from .planner import (apply_outcome, folder_dir, replacement_dir, searched_since_check, superseded_dir,
+                      upgrades_ready_dir)
 from .quality import is_lossless_codec, quality_line, verdict
 from .report import RunLog, buy_links
 
@@ -78,9 +79,6 @@ class Executor:
         artist, title = (e["artist"], e["title"]) if e else (a.track.first_artist, a.track.title)
         return Result(section, a.folder, artist, title, a.track_id, note, **fields)
 
-    def _tracked(self, rel: str) -> bool:
-        return any(e.get("path") and fold(e["path"]) == fold(rel) for e in self.state["tracks"].values())
-
     def _rel(self, path: Path) -> str:
         return path.relative_to(self.paths.root).as_posix()
 
@@ -97,7 +95,7 @@ class Executor:
     def _set_entry(self, track_id: str, entry: dict | None) -> None:
         if entry is not None:
             self.state["tracks"][track_id] = entry
-            save_state(self.paths.state_file, self.state)
+            save_state(self.paths, self.state)
 
     def _drop_stale_upgrade(self, before: dict | None) -> None:
         """The entry got a new file (or none) another way, so its parked better version is not needed any more.
@@ -112,28 +110,6 @@ class Executor:
 
     # --- actions (each returns the Result for the report) ---
 
-    def _move(self, a: Action) -> Result:
-        e = self._entry(a)
-        src = e["path"]
-        name = strip_id_suffix(PurePosixPath(src).name, a.track_id)
-        plain = f"{a.dest_dir}/{name}"
-        if (self.paths.root / plain).exists() and not self._tracked(plain):
-            return self._result(a, "conflicts", f"{plain} already exists and is not managed by Discjockey")
-        dst = self._choose_for(a.dest_dir, name, a.track_id)
-        run_op(self.paths, self.state, a.track_id, [(src, dst)], {**e, "folder": a.folder, "path": dst})
-        return self._placed_result(a, "moved", f"from {src}")
-
-    def _adopt(self, a: Action) -> Result:
-        e = self._entry(a)
-        self.names.release(e["path"])  # the old file is gone, so its name may be reused
-        if fold(str(PurePosixPath(a.src).parent)) == fold(a.dest_dir):
-            dst, renames = a.src, []
-        else:
-            dst = self._choose_for(a.dest_dir, PurePosixPath(a.src).name, a.track_id)
-            renames = [(a.src, dst)]
-        run_op(self.paths, self.state, a.track_id, renames, {**e, "folder": a.folder, "path": dst})
-        return self._placed_result(a, "adopted", f"found at {a.src}")
-
     def _adopt_bought(self, a: Action) -> Result:
         e = self._entry(a)
         codec, cutoff = self.analyze_file(self.paths.root / a.src)
@@ -141,14 +117,15 @@ class Executor:
         renames = []
         old = e.get("path")
         if old and (self.paths.root / old).exists():
-            renames.append((old, self._choose_for(f"Superseded/{e['folder']}", PurePosixPath(old).name, a.track_id)))
+            renames.append((old, self._choose_for(superseded_dir(old), PurePosixPath(old).name, a.track_id)))
+        home = replacement_dir(e, status)  # next to the current file (option A), else the placement folder
         dst = a.src
-        if status != "lossless":
-            target = f"{folder_dir(a.folder, status)}/{PurePosixPath(a.src).name}"
+        if fold(str(PurePosixPath(a.src).parent)) != fold(home):
+            target = f"{home}/{PurePosixPath(a.src).name}"
             if renames and fold(old) == fold(target):  # the old file leaves this name in the same step: no suffix
                 dst = target
             else:
-                dst = self._choose_for(folder_dir(a.folder, status), PurePosixPath(a.src).name, a.track_id)
+                dst = self._choose_for(home, PurePosixPath(a.src).name, a.track_id)
             renames.append((a.src, dst))
         placed = Placed(dst, status, "manual", None, codec, cutoff)
         entry = apply_outcome(e, a, Outcome("placed", placed), self.now())
@@ -164,7 +141,8 @@ class Executor:
         rejected = set(e.get("rejected_sources") or []) if e else set()
         extra: list[str] = []
         if a.reason == "redownload" and e:
-            self.names.release(e["path"])  # the old file is gone, so its name may be reused
+            if e.get("path"):  # the old file is gone, so its name may be reused (a scan already dropped it otherwise)
+                self.names.release(e["path"])
             if e.get("source") in FALLBACK_SOURCES and e.get("source_id"):
                 extra.append(f"{e['source']}:{e['source_id']}")
         workdir = self.paths.tmp / a.track_id
@@ -210,7 +188,7 @@ class Executor:
         r = res.ready
         tracker.step("compare")
         alignment = self.align_files(self.paths.root / e["path"], r.path)
-        dst = self.names.choose(f"Upgrades ready/{e['folder']}", expected_stem(e["artist"], e["title"]), ".aiff",
+        dst = self.names.choose(upgrades_ready_dir(e["path"]), expected_stem(e["artist"], e["title"]), ".aiff",
                                 a.track_id)
         upgrade = {"file": dst, "source": r.source, "source_id": r.source_id, "source_format": r.source_format,
                    "found": self.now().date().isoformat(), "alignment": alignment.to_dict()}

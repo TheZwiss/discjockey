@@ -9,6 +9,7 @@ import { hubNow, markBooted, refreshHub } from '$lib/stores/hub';
 import { seedRun } from '$lib/stores/run';
 import { catchDrops } from '$lib/stores/drag';
 import { go, onRouteChange } from '$lib/router';
+import { watchRescan } from '$lib/stores/rescan';
 
 const WIZARD_SHOWN = 'discjockey.wizardShown';
 function onceThisSession(): boolean {
@@ -49,6 +50,8 @@ async function boot(): Promise<void> {
   // No music folder yet: its Setup step on every start (the shell keeps every other page closed until it is chosen).
   // A missing folder shows the shell's own screen; Setup waits until the folder is back.
   const music = setup?.music.state;
+  // Library/ is looked at when the window opens, and again when it returns after a minute away (spec library §6.4).
+  if (music === 'ok') watchRescan(document, window);
   if (music === 'not_chosen') {
     if (location.hash !== '#/setup/music') void go('/setup/music', { replace: true });
   } else if (music !== 'missing' && setup && setup.complete === false && !location.hash.startsWith('#/setup')

@@ -4,46 +4,67 @@ import unicodedata
 
 import pytest
 
-from discjockey import library
+from discjockey import db, library
 from discjockey.library import (
-    LockHeld, Paths, StateError, clear_tmp, empty_state, list_files, load_state, run_lock, save_state,
+    LockHeld, NoLibrary, Paths, StateError, clear_tmp, empty_state, load_state, open_state, run_lock, save_state,
 )
 
 
-def test_load_missing_gives_empty_state(tmp_path):
-    assert load_state(tmp_path / "state.json") == empty_state()
+def lib(tmp_path) -> Paths:
+    p = Paths(tmp_path, support=tmp_path / ".support")
+    p.data.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def v1(**tracks) -> dict:
+    return {"version": 1, "tracks": tracks, "pending": [], "qobuz_usage": {"days": {}, "signals": []}, "never": {}}
+
+
+def test_load_without_records_gives_empty_state(tmp_path):
+    assert load_state(lib(tmp_path)) == empty_state()
+    assert not lib(tmp_path).db_file.exists()  # a reader writes nothing
 
 
 def test_save_and_load_roundtrip(tmp_path):
-    path = tmp_path / "sub" / "state.json"
+    p = lib(tmp_path)
     s = empty_state()
-    s["tracks"]["t1"] = {"title": "Ü"}
-    save_state(path, s)
-    assert load_state(path) == s
-    assert not (tmp_path / "sub" / "state.json.tmp").exists()
+    s["tracks"]["t1"] = {"artist": "A", "title": "Ü", "folder": "F", "path": None, "status": "missing",
+                         "hidden": True}
+    save_state(p, s)  # a library with no records yet gets its library.db here
+    got = load_state(p)
+    assert got["version"] == 2
+    assert {k: got["tracks"]["t1"][k] for k in ("artist", "title", "folder", "path", "status", "hidden")} == \
+        s["tracks"]["t1"]
+    assert not p.state_file.exists()
 
 
 def test_unknown_version_refused(tmp_path):
-    path = tmp_path / "state.json"
-    path.write_text(json.dumps({"version": 99, "tracks": {}}))
-    with pytest.raises(StateError):
-        load_state(path)
+    p = lib(tmp_path)
+    p.state_file.write_text(json.dumps({"version": 99, "tracks": {}}))
+    with pytest.raises(StateError, match="version 99"):
+        load_state(p)
+    with pytest.raises(StateError, match="version 99"):
+        open_state(p)
+    assert not p.db_file.exists()
 
 
-def test_failed_save_keeps_old_file(tmp_path, monkeypatch):
-    path = tmp_path / "state.json"
-    save_state(path, empty_state())
-    before = path.read_text()
+def test_failed_save_keeps_the_old_records(tmp_path, monkeypatch):
+    p = lib(tmp_path)
+    save_state(p, empty_state())
+    s = load_state(p)
+    s["tracks"]["t1"] = {"artist": "A", "title": "B", "folder": "F", "path": "Library/F/A - B.aiff",
+                         "status": "lossless"}
+    (p.library / "F").mkdir(parents=True)
+    (p.library / "F" / "A - B.aiff").write_bytes(b"audio")
 
-    def boom(*a):
+    def boom(path):
         raise OSError("disk full")
 
-    monkeypatch.setattr(os, "replace", boom)
-    s = empty_state()
-    s["tracks"]["t1"] = {}
+    monkeypatch.setattr(library, "file_facts", lambda paths: boom)  # fails after the song row was written
     with pytest.raises(OSError):
-        save_state(path, s)
-    assert path.read_text() == before
+        save_state(p, s)
+    monkeypatch.undo()
+    assert load_state(p)["tracks"] == {}  # one transaction: the song wasn't written without its file
 
 
 def test_lock_blocks_second_holder(tmp_path):
@@ -56,24 +77,119 @@ def test_lock_blocks_second_holder(tmp_path):
         pass
 
 
-def test_list_files(tmp_path):
-    p = Paths(tmp_path, support=tmp_path / ".support")
+def test_a_state_json_not_yet_migrated_is_read_as_it_is(tmp_path):
+    p = lib(tmp_path)
     (p.library / "A" / "not_lossless").mkdir(parents=True)
     (p.library / "A" / "x.aiff").write_bytes(b"")
     (p.library / "A" / "not_lossless" / "y.aiff").write_bytes(b"")
     (p.library / ".DS_Store").write_bytes(b"")
     (p.library / "A" / ".hidden").write_bytes(b"")
-    nfd = unicodedata.normalize("NFD", "Mötley.aiff")
-    (p.library / "A" / nfd).write_bytes(b"")
-    assert list_files(p) == sorted([
+    (p.library / "A" / unicodedata.normalize("NFD", "Mötley.aiff")).write_bytes(b"")
+    library.write_json_atomic(p.state_file, v1(t1={"artist": "A", "title": "x", "path": "Library/A/x.aiff"},
+                                               t2={"artist": "B", "title": "y", "path": None}))
+    got = load_state(p)
+    assert got["version"] == 1
+    assert (got["tracks"]["t1"]["online"], got["tracks"]["t1"]["placed_by"]) == (True, "app")
+    assert (got["tracks"]["t2"]["online"], got["tracks"]["t2"]["placed_by"]) == (False, None)
+    assert got["ambiguous"] == {}
+    assert got["files"] == sorted([
         "Library/A/not_lossless/y.aiff",
         "Library/A/x.aiff",
         unicodedata.normalize("NFC", "Library/A/Mötley.aiff"),
     ])
+    assert not p.db_file.exists()
 
 
-def test_list_files_without_library(tmp_path):
-    assert list_files(Paths(tmp_path, support=tmp_path / ".support")) == []
+def test_the_writer_migrates_state_json(tmp_path):
+    p = lib(tmp_path)
+    library.write_json_atomic(p.state_file, v1(t1={"artist": "A", "title": "x", "path": None, "status": "missing"}))
+    got = open_state(p)
+    assert got["version"] == 2 and got["tracks"]["t1"]["title"] == "x"
+    assert json.loads(p.state_file.read_text()) == db.STUB
+    assert json.loads(p.state_backup.read_text())["tracks"]["t1"]["title"] == "x"
+    assert open_state(p) == got  # every later open: nothing to do
+
+
+def test_the_writer_gives_a_new_library_its_records(tmp_path):
+    p = Paths(tmp_path, support=tmp_path / ".support")
+    assert open_state(p) == empty_state()
+    assert p.db_file.exists() and json.loads(p.state_file.read_text()) == db.STUB
+
+
+def test_the_writer_finishes_pending_steps_before_migrating(tmp_path):
+    p = lib(tmp_path)
+    (p.root / "Library" / "F").mkdir(parents=True)
+    (p.root / "Library" / "F" / "A - x.aiff").write_bytes(b"audio")
+    entry = {"artist": "A", "title": "x", "folder": "F", "path": "Library/F/A - x.aiff", "status": "lossless"}
+    state = v1(t1={**entry, "path": None, "status": "missing"})
+    state["pending"] = [{"track_id": "t1", "renames": [[".discjockey/.tmp/t1/a.aiff", "Library/F/A - x.aiff"]],
+                         "entry": entry}]
+    library.write_json_atomic(p.state_file, state)
+    messages = []
+    got = open_state(p, messages.append)
+    assert got["pending"] == [] and got["tracks"]["t1"]["path"] == "Library/F/A - x.aiff"
+    assert any("Finished an interrupted step" in m.text for m in messages)
+    assert json.loads(p.state_backup.read_text())["pending"] == []  # recovered into state.json, then migrated
+
+
+def test_an_old_format_save_is_refused_outside_the_migration(tmp_path):
+    p = lib(tmp_path)
+    open_state(p)
+    with pytest.raises(StateError, match="old format"):
+        save_state(p, v1())
+    assert json.loads(p.state_file.read_text()) == db.STUB
+
+
+def test_missing_records_are_never_replaced_by_an_empty_library(tmp_path):
+    p = lib(tmp_path)
+    library.write_json_atomic(p.state_file, db.STUB)
+    with pytest.raises(StateError, match="are missing"):
+        load_state(p)
+    with pytest.raises(StateError, match="are missing"):
+        save_state(p, empty_state())
+    assert not p.db_file.exists()
+
+
+@pytest.mark.parametrize("backup", [True, False])
+def test_missing_records_are_refused_by_reader_and_writer_and_never_rebuilt(tmp_path, backup):
+    p = lib(tmp_path)
+    library.write_json_atomic(p.state_file, v1(t1={"artist": "A", "title": "x", "path": None}))
+    open_state(p)
+    p.db_file.unlink()
+    if not backup:
+        p.state_backup.unlink()
+    kept = p.state_backup.read_bytes() if backup else None
+    for opener in (load_state, open_state):
+        with pytest.raises(StateError) as excinfo:
+            opener(p)
+        assert str(excinfo.value) == ("Discjockey's records (library.db) are missing from the .discjockey folder. "
+                                      "Nothing was changed. Put the file back, for example from Time Machine, and "
+                                      "open Discjockey again.")
+        assert not p.db_file.exists()
+        assert (p.state_backup.read_bytes() == kept) if backup else not p.state_backup.exists()
+
+
+def test_only_the_writer_upgrades_older_records(tmp_path, monkeypatch):
+    p = lib(tmp_path)
+    open_state(p)
+    calls = []
+    current = db.SCHEMA_VERSION
+    monkeypatch.setattr(db, "SCHEMA_VERSION", current + 1)
+    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, current: lambda conn: calls.append(1)})
+    with pytest.raises(StateError, match="from an older version. Run a sync once"):
+        load_state(p)  # a reader takes no lock: it never upgrades
+    assert calls == []
+    library.open_records(p)  # the writer (holding the lock) does
+    assert calls == [1] and load_state(p)["tracks"] == {}
+
+
+def test_saving_into_a_music_folder_that_went_away_is_no_library(tmp_path):
+    p = Paths(tmp_path / "gone", support=tmp_path / ".support")
+    with pytest.raises(NoLibrary):
+        save_state(p, empty_state())
+    with pytest.raises(NoLibrary):
+        open_state(p)
+    assert not p.root.exists()
 
 
 def test_clear_tmp(tmp_path):
@@ -137,9 +253,9 @@ def test_fsync_dir_syncs_the_folder_itself(tmp_path, monkeypatch):
     assert synced == [os.stat(tmp_path).st_ino]
 
 
-def test_state_is_written_out_fully_before_it_replaces_the_old_file(tmp_path, monkeypatch):
+def test_json_is_written_out_fully_before_it_replaces_the_old_file(tmp_path, monkeypatch):
     events = []
     monkeypatch.setattr(library, "full_fsync", lambda fd: events.append("file"))
     monkeypatch.setattr(library, "fsync_dir", lambda path: events.append(("dir", path)))
-    save_state(tmp_path / "state.json", empty_state())
+    library.write_json_atomic(tmp_path / "state.json", {"version": 2})
     assert events == ["file", ("dir", tmp_path)]  # the replace itself is on the drive too (a pending swap record)

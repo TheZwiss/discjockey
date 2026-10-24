@@ -17,7 +17,7 @@ A user's data never sits in the repo and none of it is in git — never test aga
 
 - **The music folder** (whatever the user chose in Setup, suggested `~/Music/Discjockey`): `playlists.txt` (the only
   config), `Library/<Folder>/` (+ `not_lossless/`), `Superseded/`, `Upgrades ready/`, and the hidden `.discjockey/`
-  (`state.json`, `reports/`, `not_lossless.md`, the lock).
+  (`library.db`, `state.v1.json` (the old records, kept as a copy after the migration), `reports/`, `not_lossless.md`, the lock).
 - **The support folder** `~/Library/Application Support/Discjockey/`: logins, `settings.json`, `config.json` (names
   the music folder), caches, `tools/` (updated yt-dlp, spec public-release §6.4). For a developer run against a
   scratch library set `DISCJOCKEY_SUPPORT=<scratch folder>` (Setup then asks for a music folder). Tests point it at a
@@ -28,7 +28,11 @@ A user's data never sits in the repo and none of it is in git — never test aga
 | `bin/discjockey` | Launcher: `uv sync`, then `.venv/bin/python -m discjockey` (under `caffeinate` except for `hub`) |
 | `discjockey/` | Engine. Each module's docstring says what it owns; read that before opening the file |
 | `discjockey/planner.py`, `discjockey/hub/views.py` | Pure: no I/O, no clock. Keep them that way |
-| `discjockey/library.py` | Everything on disk: paths (music folder, `.discjockey/`, support folder), `config.json`, lock, `state.json`, names, crash-safe ops (`run_op`) |
+| `discjockey/library.py` | Everything on disk: paths (music folder, `.discjockey/`, support folder), `config.json`, lock, names, crash-safe ops (`run_op`, backed by `db.py`), `scan_library` |
+| `discjockey/db.py` | `library.db`: the schema, the migration from `state.json`, the move log (batches and moves), every query. Nothing else writes SQL |
+| `discjockey/tidy.py` | The tidy-up: move batches (tidy-up, save question, folder rename), undo, recovery of batches a crash left open; every move through `run_op` |
+| `discjockey/scanner.py` | Walks the watched folders (`Library/`) against the index's file rows and returns a `ScanResult`. Reads only, no SQL; `db.apply_scan` writes it, `library.scan_library` ties the two together |
+| `discjockey/content_key.py` | The content key of an audio file (`1:<payload length>:<sha256>` over windows of the audio, so it survives renames, moves and tag edits; how a moved file is found) and `AUDIO_EXTS` |
 | `discjockey/run.py` | One sync run, front-end independent; `console.py` and `hub/jobs.py` render its `events.py` events |
 | `discjockey/__main__.py`, `discjockey/cli.py`, `discjockey/tools.py`, `discjockey/tool_updates.py` | `python -m discjockey` runs `tools.activate()` (bundled ffmpeg/ffprobe/deno first on `PATH`, a newer downloaded yt-dlp first on `sys.path`) before `cli.py` imports anything that imports yt-dlp; `--check-tools <folder>` is the update check's child process (spec public-release §6.1, §6.4); `tool_updates.py` updates yt-dlp from PyPI into `<support>/tools/` (never `uv.lock`), keeps one previous, rolls back |
 | `discjockey/app_main.py`, `discjockey/selftest.py` | The app's program (spec public-release §5): `--check-tools` first, then `--self-test` (imports, bundled programs, tone → AIFF, UI file, the update check; scratch support folder, no network), else `tools.activate()` and the hub. `python -m discjockey.app_main --self-test` runs it in a checkout |
@@ -71,7 +75,7 @@ are leftovers of an old layout in the maintainer's checkout; nothing writes them
 | Screenshots | `cd hub-ui && node scripts/shots.mjs --port <dev port> --page <page> [--sizes min,default,large] [--compare]` or `--all` → `hub-ui/screenshots/<name>@<w>.png`; sizes default to all three (1100×700, 1280×800, 2560×1440) |
 | Design rule checker | `cd hub-ui && npm run rules [-- --page P --only a,b --force]` (also part of `npm run verify`) |
 | Hub window in the terminal | `DISCJOCKEY_HUB_DEBUG=1 bin/discjockey hub` |
-| Dry run (changes nothing) | `bin/discjockey --dry-run` |
+| Dry run (changes no music files, writes no report) | `bin/discjockey --dry-run` |
 | Signing identity (once per maintainer Mac) | `scripts/make_signing_identity.sh` → `~/.discjockey-signing/` (own keychain + password, `.p12` for the password manager and CI). Refuses to replace an existing one |
 | Sign an app by hand | `.venv/bin/python packaging/sign_app.py dist/app/Discjockey.app` (ad-hoc without the identity; `--require-identity` for releases) |
 | Build the app + .dmg | `scripts/build_app.sh` (background, ~5–10 min) → `dist/app/Discjockey.app`, `dist/Discjockey-<version>.dmg`; the app bundles the checkout's `hub/static` and the build fails when `hub-ui` builds something else (`SKIP_UI_BUILD=1` skips that check), `REQUIRE_IDENTITY=1` refuses ad-hoc signing and a checkout with uncommitted changes. Never copy the result into `/Applications` |
@@ -90,8 +94,12 @@ their Qobuz daily limit. Long commands run in the background with a status line.
 
 - **Never delete or overwrite a music file.** Replaced files move to `Superseded/`. Every file change goes through
   `library.run_op` (crash-safe, resumable). A new code path that writes into `Library/` without it is a bug.
-- **Names in `Library/` are always `Artist - Title.<ext>`** — no `(v2)`, `(new)` or similar suffixes; those exist
-  only in `Superseded/`. The one exception: a file that is in the way of the correct name gets an ID added.
+- **Names in `Library/` are always `Artist - Title.<ext>`** for files Discjockey downloads or adds — no `(v2)`,
+  `(new)` or similar suffixes; those exist only in `Superseded/`. The one exception: a file that is in the way of the
+  correct name gets an ID added. **Moving never renames:** a tidy-up and its undo keep each file's name as it is,
+  because rekordbox's Relocate finds files by name.
+- **Files move only in a move batch the user started** (tidy-up, the Playlists save question, a folder rename on
+  disk): logged in `library.db`, undoable; the sync never moves a file (option A).
 - **Qobuz protection stays on:** pacing, the daily limit with carry-over, and the pause after 3 failures in a row.
   Never add a path that skips them, not even for tests against the real service.
 - **Tests are offline and never touch the user's data.** Use `tmp_path` libraries and the fixtures; no real Spotify,

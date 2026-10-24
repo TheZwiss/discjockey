@@ -9,7 +9,8 @@
   // children of that Surface. All rows of one list give the same cells; a row without a trailing action leaves that
   // column empty, so nothing shifts.
   // `sub` is a second, muted line under the name (folder · detail); a row with it is 52 px tall unless `height` says
-  // otherwise. Both lines end in "…" on their own; `title` is the full text for the tooltip.
+  // otherwise. Both lines end in "…" on their own; `title` is the full text for the tooltip. `wrap` lets the sub-line
+  // wrap instead (a destination folder or a reason the user must read whole); the row grows by its lines.
   // With `onclick`, lead + name + optional are one `<button>` (the row's hit area; `trailing` stays outside it, so ⊘
   // or "Fix →" are their own buttons and own their own disabled state). `checked` makes that button a tick box
   // (`role="checkbox"`), `selected` marks the chosen row of a "one of many" list (wash + `aria-current`) and brings it into view
@@ -26,10 +27,10 @@
 
   type Props = Omit<HTMLAttributes<HTMLDivElement>, 'children' | 'onclick' | 'title'> & {
     lead?: Snippet; name: Snippet; sub?: Snippet; optional?: Snippet; trailing?: Snippet;
-    off?: boolean; selected?: boolean; disabled?: boolean; checked?: boolean; height?: 40 | 52;
+    off?: boolean; selected?: boolean; disabled?: boolean; checked?: boolean; height?: 40 | 52; wrap?: boolean;
     onclick?: (e: MouseEvent) => void; title?: string; test?: string;
   };
-  let { lead, name, sub, optional, trailing, off = false, selected = false, disabled = false, checked, height,
+  let { lead, name, sub, optional, trailing, off = false, selected = false, disabled = false, checked, height, wrap = false,
     onclick, title, test, class: className, ...rest }: Props = $props();
 
   const uid = $props.id();
@@ -41,7 +42,7 @@
 </script>
 
 <div {...rest} bind:this={rowEl} class="row {className ?? ''}" class:off class:selected class:locked={disabled} class:tall={isTall}
-  class:clickable={!!onclick} class:has-lead={!!lead} class:has-trailing={!!trailing} data-test={test}>
+  class:clickable={!!onclick} class:has-lead={!!lead} class:has-trailing={!!trailing} class:wrap data-test={test}>
   {#if onclick}
     <button type="button" class="main" data-row-hit role={checked === undefined ? undefined : 'checkbox'}
       aria-checked={checked} aria-current={selected || undefined} aria-disabled={disabled || undefined}
@@ -87,6 +88,9 @@
   .line, .sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .line { transition: color var(--t-state) var(--ease); }
   .sub { color: var(--text-muted); font-size: var(--fs-small); }
+  /* a wrapping sub-line keeps the row's padding rhythm: the lines sit 8 px in from the row's rules */
+  .wrap .sub { white-space: normal; overflow-wrap: break-word; line-height: 1.35; }
+  .wrap .name { padding: var(--s-2) 0; }
   .optional { grid-column: 3; display: none; align-items: center; gap: var(--s-2); min-width: 0; overflow: hidden;
     color: var(--text-muted); font-size: var(--fs-small); white-space: nowrap; }
   /* what doesn't fit ends in "…" instead of being cut mid-letter */

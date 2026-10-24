@@ -36,7 +36,48 @@ export type TrackRow = {
 export type TodoGroupKey = Exclude<TodoFilter, 'all'>;
 /** `free`: the artist gives it away (see TrackDetail.free_downloads). */
 export type TodoItem = TrackRow & { group: TodoGroupKey; detail: string; free: boolean };
-export type MoveRow = TrackRow & { from: string; to: string; to_not_lossless: boolean };
+
+// --- tidy-up and the move log (plan library stage 2, I5; contract "Tidy-up and the move log") ---
+/** Why a file can't be moved: the code and the plain words to show. */
+export type TidySkip = { reason: 'offline' | 'not_found' | 'name_taken'; text: string };
+/** One file a tidy-up could move. `from` / `to` are folders relative to `Library/` (`""` = Library itself, shown
+ *  "Library"); `from_path` is what the page sends back to `tidy_up` / `save_playlists`. */
+export type TidyRow = TrackRow & {
+  file_id: number; from: string; to: string; from_path: string; placed_by: 'app' | 'user' | 'import';
+  /** moves by default: no skip and placed by the app */
+  ticked: boolean;
+  /** placed by the user or an import: marked "You put this here", listed apart */
+  yours: boolean;
+  skip: TidySkip | null;
+  /** save preview only: the old folder name whose rename on disk would put this file at its target */
+  by_rename: string | null;
+};
+/** The "You put these here" group (null when no row is `yours`). */
+export type TidyYours = { count: number; movable: number; mark: string; header: string; control: string };
+export type TidyPreview = {
+  rows: TidyRow[]; ticked: number; rekordbox: string[]; undo_note: string;
+  /** null, or the text shown instead of the list (nothing out of place, or only `yours` rows left) */
+  empty: string | null; yours: TidyYours | null;
+};
+export type MoveBatch = { id: number; at: string; title: string; moved: number; skipped: number;
+  /** 0: the Undo button reads "Nothing left to undo" */
+  undoable: number; undone_by: number | null; summary: string };
+export type MoveBatches = { batches: MoveBatch[]; total: number };
+export type UndoSkip = { reason: string; text: string };
+/** `kind` "folder": a folder rename going back, `files` how many files are in it (null for a file row). */
+export type UndoRow = { label: string; kind: 'file' | 'folder'; files: number | null; from: string; to: string;
+  skip: UndoSkip | null };
+export type UndoPreview = {
+  batch_id: number; title: string; rows: UndoRow[];
+  moving: number; warning: string[]; nothing_left: boolean;
+};
+export type SkippedMove = { label: string; from: string; to: string; reason: string; text: string };
+/** What a move batch tells the page: `tidy_up`, `undo_moves` and each item of `save_playlists`' `batches` finish with it
+ *  (also with problem `stopped`, then `stopped` is true). `batch_id` is null when nothing was asked to move. */
+export type BatchResult = { batch_id: number | null; title: string; moved: number; headline: string;
+  skipped: SkippedMove[]; stopped: boolean };
+/** `save_playlists`' third argument: the answer to the save question. */
+export type SaveFiles = { choice: 'leave' | 'move'; renames: [string, string][]; moves: [number, string][] };
 
 export type SpotifyStatus = {
   read_at: string | null; minutes_ago: number | null; problem: ProblemKind | null; message: string;
@@ -65,8 +106,7 @@ export type RunDetail = RunSummary & {
   queued: number; folder_order: string[];   // tracks waiting for the next sync; playlist folders in their order
 };
 
-export type PlanCounts = { new: number; retries: number; redownloads: number; moves: number; adopts: number;
-  bought: number; weekly_checks: number };
+export type PlanCounts = { new: number; retries: number; redownloads: number; bought: number; weekly_checks: number };
 /** duration_min counts only the downloads that fit today (the rest wait for the next sync at once). */
 /** left null: no daily limit (only free sources are set up). accounts: the expected split between the services. */
 export type Estimate = { duration_min: number; qobuz_limit: number; qobuz_needed: number; qobuz_left: number;
@@ -96,11 +136,10 @@ export type Sidebar = {
   not_in_playlist: number;
   limits_warning: boolean;
 };
-export type PreviewGroupKey = 'acquire:new' | 'acquire:retry' | 'acquire:redownload' | 'move' | 'adopt'
-  | 'adopt_bought' | 'upgrade';
+export type PreviewGroupKey = 'acquire:new' | 'acquire:retry' | 'acquire:redownload' | 'adopt_bought' | 'upgrade';
 export type PreviewAction = {
   key: ActionKey; kind: string; reason: string | null; track_id: string; artist: string; title: string;
-  folder: string; from_folder: string | null; to_dir: string; to_not_lossless: boolean; src: string | null;
+  folder: string; to_dir: string; to_not_lossless: boolean; src: string | null;
   cover_url: string | null;
   /** the order the sync works through the actions (kind, then playlist order); not on `never` rows */
   run?: number;
@@ -178,6 +217,8 @@ export type Playlists = {
   version: string; problem: string | null; rows: PlaylistRow[];
   overlaps: (PlaylistTrack & { folders: string[]; lands_in: string })[];
   empty: EmptyKind | null;
+  /** `waiting`: files a tidy-up ticks by default (the "Tidy up files" badge) */
+  tidy: { waiting: number };
 };
 
 export type Assessment = { level: number; label: string };
@@ -304,9 +345,14 @@ export type Candidates = { track_id: string; spotify_duration_s: number; current
 export type AddedPlaylist = { playlist_id: string; link: string; info: PlaylistInfo | null; tracks: number | null;
   readable: boolean; suggested_folder: string; hint: string | null };
 export type ChangeKind = 'moves' | 'rename' | 'reroute' | 'add' | 'switch_off' | 'unknown' | 'none';
+/** A folder rename on disk this save could do; `offered` false: show `why_not` instead of the choice. */
+export type RenameOffer = { from: string; to: string; files: number; offered: boolean; why_not: string | null;
+  option: string; detail: string };
 export type ChangePreview = {
   kind: ChangeKind; headline: string; folders: { folder: string; before: number; after: number }[];
-  moves: MoveRow[]; reroutes: (PlaylistTrack & { from: string; to: string })[]; new_downloads: number; days: number; stopped: number; unknown: string[];
+  /** the files this change would put in another folder (null: none) */
+  tidy: { headline: string; rows: TidyRow[] } | null; renames: RenameOffer[];
+  reroutes: (PlaylistTrack & { from: string; to: string })[]; new_downloads: number; days: number; stopped: number; unknown: string[];
   checklist: string[]; problem: string | null;
 };
 export type OpResult = { track_id: string; result: Result; recovered: [string, boolean][] };
@@ -314,7 +360,8 @@ export type OpResult = { track_id: string; result: Result; recovered: [string, b
 // JobFinished.result per job kind (a crashed sync carries its SyncResult too: exit_code 1, report = the crash note)
 export type SyncResult = { exit_code: number; report: string; actions: number; new_since_preview: number };
 export type JobResults = {
-  refresh: { actions: number }; sync: SyncResult; save_playlists: { version: string };
+  refresh: { actions: number }; sync: SyncResult; save_playlists: { version: string; batches: BatchResult[] };
+  tidy: BatchResult; undo_moves: BatchResult;
   save_limits: { service: Service; limit: number; extra_today: number };
   mark_warnings_seen: { service: Service; seen_until: string };
   setup_skip_qobuz: Record<string, never>;
@@ -323,6 +370,7 @@ export type JobResults = {
   qobuz_check_login: Record<string, never>; spotify_sign_out: Record<string, never>;
   setup_forget_account: { service: Service };
   never_download: { track_id: string; never: boolean };
+  scan: { moved: number; new: number; gone: number; changed: number; copies: number };
   hide: OpResult; unhide: OpResult; add_bought_file: OpResult; use_candidate: OpResult; use_link: OpResult;
   reject_current: OpResult; rekordbox_checked: OpResult; upgrade_swap: OpResult; upgrade_add_new: OpResult;
   upgrade_discard: OpResult; setup_save_client_id: Record<string, never>; setup_spotify_login: { user: string };

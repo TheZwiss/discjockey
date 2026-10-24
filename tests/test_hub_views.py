@@ -5,9 +5,12 @@ import pytest
 
 from discjockey.hub import views
 from discjockey.hub.jobs import PreviewStore
-from discjockey.models import Action, FetchedPlaylist, Plan, PlaylistLine, SpotifyTrack
-from discjockey.planner import ENTRY_KEYS
+from discjockey.models import (Action, BatchResult, BatchRow, FetchedPlaylist, MoveRow, Plan, PlannedMove, PlaylistLine,
+                               SpotifyTrack)
+from discjockey.planner import ENTRY_KEYS, TidyRow, tidy_rows
+from discjockey import playlists_file as pf
 from discjockey.playlists_file import Loaded, Row
+from discjockey.tidy import rename_offer
 from discjockey.run import Prepared
 from discjockey.settings import Account, Settings
 
@@ -107,10 +110,9 @@ def test_budget_numbers_with_carry_over_and_extra():
 
 
 def test_plan_counts_and_estimate():
-    actions = [a("acquire", "t1", "new"), a("acquire", "t2", "retry"), a("move", "t3"), a("adopt_bought", "t4"),
-               a("upgrade", "t5")]
-    assert views.plan_counts(actions) == {"new": 1, "retries": 1, "redownloads": 0, "moves": 1, "adopts": 0,
-                                          "bought": 1, "weekly_checks": 1}
+    actions = [a("acquire", "t1", "new"), a("acquire", "t2", "retry"), a("adopt_bought", "t4"), a("upgrade", "t5")]
+    assert views.plan_counts(actions) == {"new": 1, "retries": 1, "redownloads": 0, "bought": 1,
+                                          "weekly_checks": 1}
     assert views.estimate(actions, {"remaining": 2, "limit": 60}) == {
         "duration_min": 5, "qobuz_limit": 60, "qobuz_needed": 3, "qobuz_left": 2, "qobuz_uses": 2,
         "accounts": [], "left": 2, "limit": 60}
@@ -128,7 +130,7 @@ def test_minutes_table_is_the_formula_once():
 
 
 def test_sync_preview_gives_the_minutes_for_every_count_the_page_can_tick():
-    actions = [a("acquire", f"n{i}", "new") for i in range(12)] + [a("move", "m1"), a("upgrade", "u1")]
+    actions = [a("acquire", f"n{i}", "new") for i in range(12)] + [a("adopt_bought", "m1"), a("upgrade", "u1")]
     st = state()
     p = views.sync_preview(store_with(actions, st), st, Settings(), TODAY, NOW, False)
     est = p["estimate"]
@@ -223,7 +225,7 @@ def test_dashboard():
     s = state(a=e(), b=e("not_lossless", cutoff=16000), c=e("missing"),
               u=e("not_lossless", cutoff=20000, upgrade={"file": "f", "alignment": {"result": "shifted"}}))
     s["qobuz_usage"]["days"] = {"2026-10-19": 60, "2026-10-20": 37}
-    store = store_with([a("acquire", "n1", "new"), a("move", "m1"), a("upgrade", "u1")], s)
+    store = store_with([a("acquire", "n1", "new"), a("adopt_bought", "m1"), a("upgrade", "u1")], s)
     d = views.dashboard(s, Settings(), store, [("2026-10-19_214700", REPORT)], ["A"], SETUP_OK, TODAY, NOW, False)
     assert d["greeting"] == "Good evening" and d["empty"] is None
     assert d["tiles"]["lossless"]["share"] == 0.25 and d["tiles"]["qobuz_today"]["used"] == 37
@@ -482,20 +484,20 @@ def test_todo_others_from_the_last_run_and_the_preview():
 
 def test_sync_preview_groups_with_keys():
     st = state(m1=e(folder="Bouncy", artist="DJ TALLBOY", title="THE WEEKEND"))
-    move = Action("move", "m1", "Hard_Bounce", t("m1"), (0, 0), src="Library/Bouncy/x.aiff",
-                  dest_dir="Library/Hard_Bounce")
+    bought = Action("adopt_bought", "m1", "Hard_Bounce", t("m1"), (0, 0),
+                    src="Library/Hard_Bounce/DJ TALLBOY - THE WEEKEND.wav")
     store = PreviewStore()
-    plan = Plan(st, [a("acquire", "n1", "new"), a("acquire", "n2", "new"), move], [], ["m9"], ["a note"])
+    plan = Plan(st, [a("acquire", "n1", "new"), a("acquire", "n2", "new"), bought], [], ["m9"], ["a note"])
     st["tracks"]["m9"] = e(artist="Gone", title="Dropped", in_playlists=False)
     store.ready(Prepared(None, st, Settings(), plan, None), datetime(2026, 10, 20, 21, 45))
     p = views.sync_preview(store, st, Settings(), TODAY, NOW, False, cover)
-    assert [g["key"] for g in p["groups"]] == ["acquire:new", "move"]
+    assert [g["key"] for g in p["groups"]] == ["acquire:new", "adopt_bought"]
     row = p["groups"][1]["actions"][0]
-    assert row["key"] == ["move", "m1", "Library/Hard_Bounce"] and row["from_folder"] == "Bouncy"
+    assert row["key"] == ["adopt_bought", "m1", "Library/Hard_Bounce"] and "from_folder" not in row
     assert (row["artist"], row["to_not_lossless"], row["cover_url"]) == ("DJ TALLBOY", False, "cover:m1")
     new_row = p["groups"][0]["actions"][0]
     assert new_row["key"] == ["acquire", "n1", "Library/A"] and new_row["artist"] == "Artist"
-    assert p["estimate"]["qobuz_needed"] == 2 and p["counts"]["moves"] == 1
+    assert p["estimate"]["qobuz_needed"] == 2 and p["counts"]["bought"] == 1
     assert p["dropped"] == [{"track_id": "m9", "artist": "Gone", "title": "Dropped", "folder": "A"}]
     assert p["notes"] == ["a note"] and p["empty"] is None and p["spotify"]["minutes_ago"] == 2
 
@@ -530,18 +532,31 @@ def test_sync_preview_without_a_read_yet_and_up_to_date():
 
 ID1, ID2 = "0DiscjockeyExampleList", "3DiscjockeyExampleList"
 OLD = [Row("Hard_Bounce", f"spotify:playlist:{ID1}"), Row("Powertrance", f"spotify:playlist:{ID2}")]
-PL_STATE = state(a=e(folder="Hard_Bounce", title="A", path="Library/Hard_Bounce/a.aiff"),
-                 b=e(folder="Hard_Bounce", title="B", path="Library/Hard_Bounce/b.aiff"),
+PL_STATE = state(a=e(folder="Hard_Bounce", title="A", path="Library/Hard_Bounce/a.aiff", file_id=1, placed_by="app"),
+                 b=e(folder="Hard_Bounce", title="B", path="Library/Hard_Bounce/b.aiff", file_id=2, placed_by="app"),
                  c=e("not_lossless", folder="Hard_Bounce", title="C", cutoff=20000,
-                     path="Library/Hard_Bounce/not_lossless/c.aiff"),
-                 d=e(folder="Powertrance", title="D", path="Library/Powertrance/d.aiff"))
+                     path="Library/Hard_Bounce/not_lossless/c.aiff", file_id=3, placed_by="app"),
+                 d=e(folder="Powertrance", title="D", path="Library/Powertrance/d.aiff", file_id=4, placed_by="app"))
 PL_FILES = [x["path"] for x in PL_STATE["tracks"].values()]
+PL_STATE["files"] = PL_FILES
 PL_TRACKS = {ID1: [t("a"), t("b"), t("c")], ID2: [t("b"), t("c"), t("d"), t("new1")]}
 MONEY = {"remaining": 10, "limit": 60}
 
 
-def change(new, tracks=PL_TRACKS):
-    return views.playlist_change(OLD, new, tracks, PL_STATE, PL_FILES, TODAY, MONEY)
+DIRS = {"Hard_Bounce", "Powertrance"}
+
+
+def call_change(old, new, tracks, st, files, today, money, cover=None, **kw):
+    """views.playlist_change as the api calls it: the maps from the rows, the real offer, the folders of the Library."""
+    kw.setdefault("library_dirs", DIRS)
+    kw.setdefault("rename_offer", rename_offer)
+    kw.setdefault("placement", pf.placement(new, tracks, st))
+    kw.setdefault("retargeted", pf.retargeted(old, new, tracks, st))
+    return views.playlist_change(old, new, tracks, st, files, today, money, cover, **kw)
+
+
+def change(new, tracks=PL_TRACKS, **kw):
+    return call_change(OLD, new, tracks, PL_STATE, PL_FILES, TODAY, MONEY, **kw)
 
 
 def test_playlists_page():
@@ -555,6 +570,10 @@ def test_playlists_page():
                                                             "missing": 1}
     assert [o["track_id"] for o in page["overlaps"]] == ["b", "c"] and page["overlaps"][0]["lands_in"] == "Hard_Bounce"
     assert views.playlists(Loaded([], "", None), {}, {}, state())["empty"] == "no_playlists"
+    assert page["tidy"] == {"waiting": 0}
+    moved = {**PL_STATE, "tracks": {**PL_STATE["tracks"], "a": {**PL_STATE["tracks"]["a"], "folder": "Powertrance"},
+                                    "b": {**PL_STATE["tracks"]["b"], "folder": "Powertrance", "placed_by": "user"}}}
+    assert views.playlists(Loaded(OLD, "v1", None), PL_TRACKS, {}, moved)["tidy"] == {"waiting": 1}  # yours: not counted
 
 
 def test_playlists_overlaps_have_covers_and_say_whether_a_track_has_a_file():
@@ -571,17 +590,72 @@ def test_playlists_overlaps_have_covers_and_say_whether_a_track_has_a_file():
 
 def test_change_reorder():
     c = change([OLD[1], OLD[0]])
-    assert c["kind"] == "moves" and c["headline"] == "2 tracks change folder"
+    assert c["kind"] == "moves" and c["headline"] == "2 files would sit in a different folder"
+    assert c["tidy"]["headline"] == c["headline"] and c["renames"] == []
     assert c["folders"] == [{"folder": "Powertrance", "before": 2, "after": 4},
                             {"folder": "Hard_Bounce", "before": 3, "after": 1}]
-    assert [(m["track_id"], m["from"], m["to"], m["to_not_lossless"]) for m in c["moves"]] == [
-        ("b", "Hard_Bounce", "Powertrance", False), ("c", "Hard_Bounce", "Powertrance", True)]
-    assert c["checklist"][0] == "No downloads, no Qobuz quota used"
+    assert "moves" not in c
+    assert [(m["track_id"], m["file_id"], m["from"], m["to"], m["from_path"], m["ticked"], m["by_rename"])
+            for m in c["tidy"]["rows"]] == [
+        ("b", 2, "Hard_Bounce", "Powertrance", "Library/Hard_Bounce/b.aiff", True, None),
+        ("c", 3, "Hard_Bounce/not_lossless", "Powertrance/not_lossless", "Library/Hard_Bounce/not_lossless/c.aiff",
+         True, None)]
+    assert c["checklist"] == ["No downloads, no Qobuz quota used", "Nothing is deleted",
+                              "Files move only if you choose to", "Moves can be undone on this page"]
 
 
 def test_change_rename():
     c = change([Row("Hard Bounce", OLD[0].link), OLD[1]])
-    assert (c["kind"], c["headline"]) == ("rename", "3 files move to the new folder name")
+    assert (c["kind"], c["headline"]) == ("rename", "3 files would sit in a different folder")
+    assert c["renames"] == [{"from": "Hard_Bounce", "to": "Hard Bounce", "files": 3, "offered": True,
+                             "why_not": None, "option": "Rename the folder on disk too",
+                             "detail": "One folder move instead of 3 file moves."}]
+    assert [(r["track_id"], r["by_rename"], r["to"]) for r in c["tidy"]["rows"]] == [
+        ("a", "Hard_Bounce", "Hard Bounce"), ("b", "Hard_Bounce", "Hard Bounce"),
+        ("c", "Hard_Bounce", "Hard Bounce/not_lossless")]
+
+
+def test_change_rename_is_not_offered_when_the_new_folder_exists_or_the_old_one_is_still_used():
+    taken = call_change(OLD, [Row("Powertrance", OLD[0].link), OLD[1]], PL_TRACKS, PL_STATE, PL_FILES, TODAY,
+                                  MONEY)
+    assert [(r["offered"], r["why_not"]) for r in taken["renames"]] == [
+        (False, "A folder called Powertrance is already in your Library.")]
+    assert [r["by_rename"] for r in taken["tidy"]["rows"]] == ["Hard_Bounce"] * len(taken["tidy"]["rows"])
+    other = Row("Hard_Bounce", "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M")  # another playlist takes the old name
+    used = call_change(OLD, [Row("Hard Bounce", OLD[0].link), OLD[1], other], PL_TRACKS,
+                                 PL_STATE, PL_FILES, TODAY, MONEY)
+    assert [(r["offered"], r["why_not"]) for r in used["renames"]] == [
+        (False, "Hard_Bounce is still the folder of another playlist.")]
+    assert call_change(OLD, [Row("Hard Bounce", OLD[0].link), OLD[1]], PL_TRACKS, PL_STATE, PL_FILES, TODAY,
+                                 MONEY, library_dirs={"Powertrance"})["renames"] == []  # no_folder
+
+
+def test_change_by_rename_only_when_the_rename_lands_the_file_on_its_target():
+    # b and c move to Powertrance for another reason: renaming Hard_Bounce does not put them there
+    c = change([OLD[1], Row("Hard Bounce", OLD[0].link)])
+    assert {r["track_id"]: r["by_rename"] for r in c["tidy"]["rows"]} == {"a": "Hard_Bounce", "b": None, "c": None}
+
+
+def test_by_rename_compares_folder_names_by_fold():
+    row = TidyRow("a", 1, "Library/hard_bounce/a.aiff", "Library/Hard_New/a.aiff", "app", None)
+    assert views._by_rename(row, [("Hard_Bounce", "Hard_New")]) == "Hard_Bounce"
+    assert views._by_rename(row, [("Hard_Bounce", "Other")]) is None
+
+
+def test_change_takes_the_api_maps_when_given():
+    c = change([OLD[1], OLD[0]], placement={"b": "Powertrance", "c": "Powertrance"}, retargeted={"c": "Powertrance"})
+    assert [r["track_id"] for r in c["tidy"]["rows"]] == ["c"]
+    assert c["tidy"]["headline"] == "1 file would sit in a different folder"
+
+
+def test_change_ticks_follow_placed_by_and_a_name_in_the_way_is_a_skip():
+    st = {**PL_STATE, "tracks": {**PL_STATE["tracks"], "b": {**PL_STATE["tracks"]["b"], "placed_by": "user"}},
+          "files": PL_FILES + ["Library/Powertrance/not_lossless/c.aiff"]}
+    c = call_change(OLD, [OLD[1], OLD[0]], PL_TRACKS, st, st["files"], TODAY, MONEY)
+    by = {r["track_id"]: r for r in c["tidy"]["rows"]}
+    assert (by["b"]["ticked"], by["b"]["yours"], by["b"]["skip"]) == (False, True, None)
+    assert (by["c"]["ticked"], by["c"]["skip"]) == (False, {
+        "reason": "name_taken", "text": "A file with this name is already in Powertrance/not_lossless"})
 
 
 def test_change_add():
@@ -589,13 +663,15 @@ def test_change_add():
     tracks = {**PL_TRACKS, ID3: [t("a"), t("x1"), t("x2")]}
     c = change(OLD + [Row("New", f"spotify:playlist:{ID3}")], tracks)
     assert c["kind"] == "add" and c["headline"] == "2 new downloads, about 1 day at the current limit"
-    assert c["checklist"][0] == "2 downloads, counted toward your Qobuz limit"
+    assert c["checklist"] == ["2 downloads, counted toward your Qobuz limit", "Nothing is deleted",
+                              "Happens at the next sync, not right away"]
     assert change(OLD + [Row("New", f"spotify:playlist:{ID3}")])["kind"] == "unknown"
 
 
 def test_change_switch_off_and_nothing():
     c = change([OLD[0], Row("Powertrance", OLD[1].link, False)])
     assert (c["kind"], c["headline"], c["stopped"]) == ("switch_off", "Files stay, no more updates", 1)
+    assert c["tidy"] is None and c["renames"] == [] and c["checklist"][-1] == "Happens at the next sync, not right away"
     assert change(list(OLD))["kind"] == "none"
 
 
@@ -619,20 +695,20 @@ def test_change_of_tracks_without_a_file_says_where_they_will_go():
     tracks = {ID1: [t("a"), t("n1"), t("n2")], ID2: [t("n1"), t("n2"), t("d")]}
     c = change([OLD[1], OLD[0]], tracks)
     assert (c["kind"], c["headline"]) == ("reroute", "2 tracks will go to Powertrance instead of Hard_Bounce")
-    assert c["moves"] == [] and [(r["track_id"], r["from"], r["to"], r["downloaded"]) for r in c["reroutes"]] == [
+    assert c["tidy"] is None and [(r["track_id"], r["from"], r["to"], r["downloaded"]) for r in c["reroutes"]] == [
         ("n1", "Hard_Bounce", "Powertrance", False), ("n2", "Hard_Bounce", "Powertrance", False)]
     assert c["folders"] == [{"folder": "Powertrance", "before": 1, "after": 3},
                             {"folder": "Hard_Bounce", "before": 3, "after": 1}]
     one = change([OLD[1], OLD[0]], {ID1: [t("a"), t("n1")], ID2: [t("n1"), t("d")]})
     assert one["headline"] == "1 track will go to Powertrance instead of Hard_Bounce"
-    renamed = views.playlist_change([Row("Fresh", OLD[1].link)], [Row("Fresh 2026", OLD[1].link)],
+    renamed = call_change([Row("Fresh", OLD[1].link)], [Row("Fresh 2026", OLD[1].link)],
                                     {ID2: [t("n1")]}, PL_STATE, PL_FILES, TODAY, MONEY)
     assert (renamed["kind"], renamed["headline"]) == ("rename", "1 track will go to the new folder name")
 
 
 def test_change_headline_for_one_track():
     c = change([OLD[1], OLD[0]], {ID1: [t("a"), t("b"), t("c")], ID2: [t("c"), t("d")]})
-    assert c["kind"] == "moves" and c["headline"] == "1 track changes folder"
+    assert c["kind"] == "moves" and c["headline"] == "1 file would sit in a different folder"
 
 
 def test_limits_tell_the_time_of_the_last_download():
@@ -644,7 +720,7 @@ def test_limits_tell_the_time_of_the_last_download():
 
 def test_rename_headline_for_one_file():
     c = change([Row("Hard Bounce", OLD[0].link), OLD[1]], {ID1: [t("a")], ID2: [t("c"), t("d")]})
-    assert (c["kind"], c["headline"]) == ("rename", "1 file moves to the new folder name")
+    assert (c["kind"], c["headline"]) == ("rename", "1 file would sit in a different folder")
 
 
 YT = Settings(accounts={"youtube": Account("chrome", 30)})
@@ -833,3 +909,228 @@ def test_downloads_paused_and_used_up():
     d = views.downloads(s, BOTH, True, {}, TODAY)
     assert d["youtube"]["state"] == "paused" and d["soundcloud"]["state"] == "used_up"
     assert d["qobuz"]["state"] == "on"
+
+
+# --- tidy-up words (plan library stage 2, I5, I6) ---
+
+def test_folder_of():
+    assert views.folder_of("Library/F/x.aiff") == "F"
+    assert views.folder_of("Library/x.aiff") == ""
+    assert views.folder_of("Library/F/not_lossless/x.aiff") == "F/not_lossless"
+
+
+@pytest.mark.parametrize("reason, detail, kw, text", [
+    ("offline", None, {}, "Offline, skipped"),
+    ("not_found", None, {}, "Not where Discjockey last saw it"),
+    ("name_taken", None, {"to": "Powertrance"}, "A file with this name is already in Powertrance"),
+    ("name_taken", None, {"to": ""}, "A file with this name is already in Library"),
+    ("changed", None, {}, "Changed since the list was shown"),
+    ("failed", "the drive is full", {}, "Couldn't move it: the drive is full"),
+    ("stopped", None, {}, "Not moved: the moves were stopped first"),
+    ("moved_on", None, {}, "Moved or changed since"),
+    ("moved_on", None, {"old": "Old", "new": "New"}, "The folder New isn't there any more"),
+    ("place_taken", None, {}, "Another file is in its old place now"),
+    ("place_taken", "folder_there", {"old": "Old", "new": "New"}, "A folder called Old is in your Library again."),
+    ("place_taken", "name_used", {"old": "Old", "new": "New"}, "Another playlist is called Old now."),
+    ("place_taken", None, {"old": "Old", "new": "New"}, "A folder or another playlist is called Old now."),
+    ("playlist_renamed", None, {"old": "Old", "new": "New"}, "The playlist isn't called New any more"),
+    ("name_taken", "folder_taken", {"to": "New", "frm": "Old"}, "A folder called New is already in your Library."),
+    ("changed", "folder_in_use", {"to": "New", "frm": "Old"}, "Old is still the folder of another playlist."),
+    ("not_found", "no_folder", {"to": "New", "frm": "Old"}, "Not where Discjockey last saw it"),
+])
+def test_skip_text(reason, detail, kw, text):
+    assert views.skip_text(reason, detail, **{"to": "X", **kw}) == text
+
+
+def tidy_state():
+    return state(
+        a=e(title="A", path="Library/Old/a.aiff", file_id=1, placed_by="app", folder="New"),
+        b=e(title="B", path="Library/Old/b.aiff", file_id=2, placed_by="user", folder="New"),
+        c=e(title="C", path="Library/Old/c.aiff", file_id=3, placed_by="import", folder="New"),
+        d=e(title="D", path="Library/Old/d.aiff", file_id=4, placed_by="app", folder="New", online=False))
+
+
+def tidy_of(st):
+    st["files"] = [x["path"] for x in st["tracks"].values()]
+    return views.tidy_preview(tidy_rows(st), st)
+
+
+def test_tidy_preview_ticks_follow_placed_by_and_yours_is_marked():
+    p = tidy_of(tidy_state())
+    by = {r["track_id"]: r for r in p["rows"]}
+    assert [(k, r["ticked"], r["yours"]) for k, r in by.items()] == [
+        ("a", True, False), ("b", False, True), ("c", False, True), ("d", False, False)]
+    assert (by["a"]["file_id"], by["a"]["from"], by["a"]["to"], by["a"]["from_path"], by["a"]["by_rename"]) == (
+        1, "Old", "New", "Library/Old/a.aiff", None)
+    assert by["a"]["skip"] is None and by["a"]["title"] == "A"
+    assert by["d"]["skip"] == {"reason": "offline", "text": "Offline, skipped"}
+    assert p["ticked"] == 1 and p["empty"] is None
+    assert p["rekordbox"] == ["rekordbox may show the moved tracks as missing.",
+                              "Its Relocate finds them again by file name: Discjockey never renames them."]
+    assert p["undo_note"] == "You can undo this on this page."
+    assert p["yours"] == {"count": 2, "movable": 2, "mark": "You put this here", "header": "You put these here",
+                          "control": "Put these in playlist order too"}
+
+
+def test_tidy_preview_empty_and_only_yours():
+    assert views.tidy_preview([], state())["empty"] == "Every file is where the playlist order puts it."
+    assert views.tidy_preview([], state())["yours"] is None
+    st = tidy_state()
+    del st["tracks"]["a"]
+    del st["tracks"]["d"]
+    p = tidy_of(st)
+    assert p["ticked"] == 0
+    assert p["empty"] == "2 files are where you put them, not where the playlist order puts them."
+    del st["tracks"]["c"]
+    assert tidy_of(st)["empty"] == "1 file is where you put it, not where the playlist order puts it."
+
+
+def test_tidy_preview_with_only_rows_that_cannot_move_has_no_empty_text():
+    st = tidy_state()
+    for k in "abc":
+        del st["tracks"][k]
+    p = tidy_of(st)
+    assert p["ticked"] == 0 and p["empty"] is None and p["rows"][0]["skip"]["reason"] == "offline"
+
+
+def batch(id=1, by="tidy", moved=3, skipped=0, about=None, undoes=None, **kw):
+    return BatchRow(id, "2026-10-24T10:00:00", "2026-10-24T10:00:05", by, about, undoes, moved, skipped,
+                    kw.get("undoable", moved), kw.get("undone_by"))
+
+
+def test_batch_titles_and_summaries():
+    rows = [batch(4, "undo", undoes=3), batch(3, "rename", about={"from": "Old", "to": "New"}, skipped=2),
+            batch(2, "save", moved=1), batch(1, "tidy", moved=0)]
+    out = views.move_batches(rows, 7)
+    assert out["total"] == 7
+    assert [b["title"] for b in out["batches"]] == ["Undo of: Renamed Old to New", "Renamed Old to New",
+                                                    "Saved playlists", "Tidy-up"]
+    assert [b["summary"] for b in out["batches"]] == ["3 files moved", "3 files moved \u00b7 2 not moved",
+                                                       "1 file moved", "0 files moved"]
+    assert out["batches"][0] == {"id": 4, "at": "2026-10-24T10:00:00", "title": "Undo of: Renamed Old to New",
+                                 "moved": 3, "skipped": 0, "undoable": 3, "undone_by": None,
+                                 "summary": "3 files moved"}
+    assert views.move_batches([batch(5, "undo", undoes=1)], 9)["batches"][0]["title"] == "Undo"  # older one not listed
+    assert views.batch_title(batch(5, "undo", undoes=1), "Tidy-up") == "Undo of: Tidy-up"
+    older = views.move_batches([batch(6, "undo", undoes=1), batch(5, "undo", undoes=4), batch(4, "save")], 9,
+                               {1: "Tidy-up"})
+    assert [b["title"] for b in older["batches"]] == ["Undo of: Tidy-up", "Undo of: Saved playlists",
+                                                      "Saved playlists"]
+    assert views.batch_title(batch(6, "rename")) == "Renamed a folder"
+
+
+def move_row(id, kind="file", reason=None, detail=None, src="Library/A/x.aiff", dst="Library/B/x.aiff"):
+    return MoveRow(id, 1, id, kind, None, "Artist - Song", src, dst, None, None, None, "skipped", reason, detail,
+                   None, None)
+
+
+def test_batch_result_headlines_and_skips():
+    ok = views.batch_result(BatchResult(1, "tidy", 3, (), False), "Tidy-up")
+    assert ok == {"batch_id": 1, "title": "Tidy-up", "moved": 3, "headline": "Moved 3 files.", "skipped": [],
+                  "stopped": False}
+    assert views.batch_result(BatchResult(1, "tidy", 1, (), False), "Tidy-up")["headline"] == "Moved 1 file."
+    back = views.batch_result(BatchResult(2, "undo", 2, (), False), "Undo of: Tidy-up")
+    assert back["headline"] == "Moved 2 files back."
+    assert views.batch_result(BatchResult(2, "undo", 1, (), False), "x")["headline"] == "Moved 1 file back."
+    r = views.batch_result(BatchResult(3, "tidy", 1, (
+        move_row(1, reason="failed", detail="the drive is full"),
+        move_row(2, reason="name_taken", dst="Library/x.aiff")), True), "Tidy-up")
+    assert r["headline"] == "Moved 1 file. 2 not moved:" and r["stopped"]
+    assert r["skipped"] == [
+        {"label": "Artist - Song", "from": "A", "to": "B", "reason": "failed",
+         "text": "Couldn't move it: the drive is full"},
+        {"label": "Artist - Song", "from": "A", "to": "", "reason": "name_taken",
+         "text": "A file with this name is already in Library"}]
+
+
+def pm(kind="file", skip=None, src="Library/B/x.aiff", dst="Library/A/x.aiff", label="Artist - Song"):
+    return PlannedMove(kind, None if kind == "folder" else 1, label, src, dst, None, None, None, skip)
+
+
+def test_undo_preview_of_files():
+    b = batch(1, "tidy")
+    p = views.undo_preview(b, [pm(), pm(), pm(skip=("moved_on", None)), pm(skip=("place_taken", None))])
+    assert (p["batch_id"], p["title"], p["moving"], p["nothing_left"]) == (1, "Tidy-up", 2, False)
+    assert p["warning"] == ["2 files go back to where they were. rekordbox may show them as missing again; "
+                            "Relocate finds them by file name."]
+    assert [(r["from"], r["to"], r["skip"] and r["skip"]["text"]) for r in p["rows"]] == [
+        ("B", "A", None), ("B", "A", None), ("B", "A", "Moved or changed since"),
+        ("B", "A", "Another file is in its old place now")]
+    one = views.undo_preview(b, [pm()])
+    assert one["warning"] == ["1 file goes back to where it was. rekordbox may show it as missing again; "
+                              "Relocate finds it by file name."]
+    nothing = views.undo_preview(b, [pm(skip=("moved_on", None))])
+    assert nothing["nothing_left"] and nothing["moving"] == 0 and nothing["warning"] == []
+    assert views.undo_preview(b, [])["nothing_left"]
+
+
+def test_undo_preview_rows_say_their_kind_and_a_folder_its_files():
+    b = batch(2, "rename", moved=7, about={"from": "Old", "to": "New"})
+    p = views.undo_preview(b, [pm(), PlannedMove("folder", None, "New", "Library/New", "Library/Old", None, None, None,
+                                                  None, 7)])
+    assert [(r["kind"], r["files"]) for r in p["rows"]] == [("file", None), ("folder", 7)]  # none on disk: the count it carried
+    assert p["moving"] == 8
+    inside = [f"Library/New/{i}.aiff" for i in range(9)]  # nine are in it now
+    assert views.undo_preview(b, [pm("folder", src="Library/New", dst="Library/Old")], inside)["rows"][0]["files"] == 9
+
+
+def test_undo_preview_of_a_folder_rename():
+    b = batch(2, "rename", moved=1, about={"from": "Old", "to": "New"})
+    inside = ["Library/New/a.aiff", "Library/New/not_lossless/b.aiff", "Library/Newer/c.aiff", "Library/Other/d.aiff"]
+    p = views.undo_preview(b, [pm("folder", src="Library/New", dst="Library/Old", label="New")], inside)
+    assert p["title"] == "Renamed Old to New" and p["moving"] == 2 and not p["nothing_left"]
+    assert p["warning"] == ["2 files go back to where they were. rekordbox may show them as missing again; Relocate "
+                            "finds them by file name.",
+                            "The folder goes back to its old name Old, with everything in it, and the playlist is "
+                            "called Old again."]
+    assert p["rows"] == [{"label": "New", "kind": "folder", "from": "New", "to": "Old", "files": 2, "skip": None}]
+    gone = views.undo_preview(b, [pm("folder", src="Library/New", dst="Library/Old", label="New",
+                                     skip=("playlist_renamed", None))], inside)
+    assert gone["nothing_left"] and gone["warning"] == []
+    assert gone["rows"][0]["skip"] == {"reason": "playlist_renamed", "text": "The playlist isn't called New any more"}
+    taken = views.undo_preview(b, [pm("folder", src="Library/New", dst="Library/Old", skip=("place_taken", "folder_there")),
+                                   pm("folder", src="Library/New", dst="Library/Old", skip=("place_taken", "name_used")),
+                                   pm("folder", src="Library/New", dst="Library/Old", skip=("moved_on", None))])
+    assert [r["skip"]["text"] for r in taken["rows"]] == [
+        "A folder called Old is in your Library again.", "Another playlist is called Old now.",
+        "The folder New isn't there any more"]
+
+
+def test_change_file_missing_from_disk_is_on_the_tidy_list_only():
+    st = {**PL_STATE, "files": [f for f in PL_FILES if not f.endswith("/b.aiff")]}
+    c = call_change(OLD, [OLD[1], OLD[0]], PL_TRACKS, st, st["files"], TODAY, MONEY)
+    assert c["kind"] == "moves" and c["headline"] == "2 files would sit in a different folder"
+    assert {r["track_id"]: r["skip"] and r["skip"]["reason"] for r in c["tidy"]["rows"]} == {
+        "b": "not_found", "c": None}
+    assert c["reroutes"] == []
+
+
+def test_change_of_a_file_outside_the_library_is_no_tidy_up():
+    outside = {**PL_STATE["tracks"]["b"], "path": "Elsewhere/Hard_Bounce/b.aiff"}
+    st = {**PL_STATE, "tracks": {**PL_STATE["tracks"], "b": outside},
+          "files": PL_FILES + ["Elsewhere/Hard_Bounce/b.aiff"]}
+    c = call_change(OLD, [OLD[1], OLD[0]], {ID1: [t("a"), t("b")], ID2: [t("b"), t("d")]}, st, st["files"],
+                              TODAY, MONEY)
+    assert c["tidy"] is None and c["kind"] == "none" and c["headline"] == "Nothing changes in your library"
+    assert c["checklist"][-1] == "Happens at the next sync, not right away"
+
+
+def test_a_refused_folder_rename_is_worded_by_its_offer_code():
+    rows = [move_row(1, "folder", "name_taken", "folder_taken", src="Library/Old", dst="Library/New"),
+            move_row(2, "folder", "changed", "folder_in_use", src="Library/Old", dst="Library/New"),
+            move_row(3, "folder", "not_found", "no_folder", src="Library/Old", dst="Library/New")]
+    r = views.batch_result(BatchResult(1, "rename", 0, tuple(rows), False), "Renamed Old to New")
+    assert [(x["from"], x["to"], x["text"]) for x in r["skipped"]] == [
+        ("Old", "New", "A folder called New is already in your Library."),
+        ("Old", "New", "Old is still the folder of another playlist."),
+        ("Old", "New", "Not where Discjockey last saw it")]
+    file_row = move_row(4, reason="changed")  # a file's `changed` keeps its own words
+    assert views.batch_result(BatchResult(1, "tidy", 0, (file_row,), False), "x")["skipped"][0]["text"] == \
+        "Changed since the list was shown"
+
+
+def test_a_rename_offer_counts_the_files_of_a_folder_spelled_another_way_on_disk():
+    files = ["Library/Hard_Bounce/a.aiff", "Library/Hard_Bounce/b.aiff", "Library/Other/c.aiff"]
+    items = views._rename_items([("hard_bounce", "Hard Bounce")], [], files, {"Hard_Bounce", "Other"},
+                                lambda *a, **k: None)
+    assert [(i["files"], i["detail"]) for i in items] == [(2, "One folder move instead of 2 file moves.")]

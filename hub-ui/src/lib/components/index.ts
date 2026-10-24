@@ -53,6 +53,7 @@ export { copyText } from './clipboard';
 export { default as StatCard } from './StatCard.svelte';
 export { default as Surface } from './Surface.svelte';
 export { default as Switch } from './Switch.svelte';
+export { default as Tick } from './Tick.svelte';
 export { default as TextField } from './TextField.svelte';
 export { default as Tile } from './Tile.svelte';
 export { default as ToggleGroup } from './ToggleGroup.svelte';

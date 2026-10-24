@@ -84,7 +84,7 @@ def make(paths: Paths, source: str, now: datetime) -> str:
         if (paths.root / taken).exists():
             raise ValueError(f"{taken} already exists. Remove the earlier test first.")
 
-    state = library.load_state(paths.state_file)
+    state = library.open_state(paths)
     original = _source_entry(state, rel)
     artist, _, title = src.stem.partition(" - ")
     artist, title = original.get("artist", artist), original.get("title", title or src.stem) + SUFFIX

@@ -6,6 +6,7 @@ import pytest
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.align import Alignment
 from discjockey.execute import Executor
+from hub_helpers import records
 from discjockey.library import Paths, empty_state, load_state
 from discjockey.models import Action, SpotifyTrack
 from discjockey.planner import ENTRY_KEYS
@@ -93,7 +94,7 @@ def test_new_lossless_track_is_placed(env):
     e = state["tracks"]["t1aaaaaaa"]
     assert e["path"] == "Library/A/Artist - Song.aiff" and e["status"] == "lossless"
     assert (paths.root / e["path"]).read_bytes() == b"new audio"
-    assert state["pending"] == [] and load_state(paths.state_file) == state
+    assert state["pending"] == [] and records(load_state(paths)) == records(state)
     assert len(ex.log.section("new_lossless")) == 1
     assert not (paths.tmp / "t1aaaaaaa").exists()
 
@@ -122,60 +123,6 @@ def test_untracked_file_with_other_case_is_not_overwritten(env):
     assert (paths.root / "Library/A/artist - song.aiff").read_bytes() == b"user file"
 
 
-def test_move(env):
-    paths, state, make = env
-    touch(paths, "Library/A/x.aiff")
-    state["tracks"]["t1aaaaaaa"] = entry("Library/A/x.aiff")
-    ex, _ = make()
-    ex.run([act("move", folder="B", src="Library/A/x.aiff", dest_dir="Library/B")])
-    assert (paths.root / "Library/B/x.aiff").exists() and not (paths.root / "Library/A/x.aiff").exists()
-    assert state["tracks"]["t1aaaaaaa"]["folder"] == "B"
-    assert state["tracks"]["t1aaaaaaa"]["path"] == "Library/B/x.aiff"
-
-
-def test_move_blocked_by_untracked_file_is_a_conflict(env):
-    paths, state, make = env
-    touch(paths, "Library/A/x.aiff")
-    touch(paths, "Library/B/x.aiff", b"user file")
-    state["tracks"]["t1aaaaaaa"] = entry("Library/A/x.aiff")
-    ex, _ = make()
-    ex.run([act("move", folder="B", src="Library/A/x.aiff", dest_dir="Library/B")])
-    assert state["tracks"]["t1aaaaaaa"]["path"] == "Library/A/x.aiff"
-    assert (paths.root / "Library/B/x.aiff").read_bytes() == b"user file"
-    assert len(ex.log.section("conflicts")) == 1
-
-
-def test_move_blocked_by_tracked_file_uses_suffix(env):
-    paths, state, make = env
-    touch(paths, "Library/A/x.aiff")
-    touch(paths, "Library/B/x.aiff")
-    state["tracks"]["t1aaaaaaa"] = entry("Library/A/x.aiff")
-    state["tracks"]["t2bbbbbbb"] = entry("Library/B/x.aiff", folder="B")
-    ex, _ = make()
-    ex.run([act("move", folder="B", src="Library/A/x.aiff", dest_dir="Library/B")])
-    assert state["tracks"]["t1aaaaaaa"]["path"] == "Library/B/x [t1aaaa].aiff"
-
-
-def test_adopt_hand_moved_file(env):
-    paths, state, make = env
-    touch(paths, "Library/Z/x.aiff")
-    state["tracks"]["t1aaaaaaa"] = entry("Library/A/x.aiff")
-    ex, _ = make()
-    ex.run([act("adopt", src="Library/Z/x.aiff", dest_dir="Library/A")])
-    assert (paths.root / "Library/A/x.aiff").exists()
-    assert state["tracks"]["t1aaaaaaa"]["path"] == "Library/A/x.aiff"
-    assert len(ex.log.section("adopted")) == 1
-
-
-def test_adopt_in_place(env):
-    paths, state, make = env
-    touch(paths, "Library/A/X.aiff")
-    state["tracks"]["t1aaaaaaa"] = entry("Library/A/x-old.aiff")
-    ex, _ = make()
-    ex.run([act("adopt", src="Library/A/X.aiff", dest_dir="Library/A")])
-    assert state["tracks"]["t1aaaaaaa"]["path"] == "Library/A/X.aiff"
-
-
 def test_bought_file_replaces_not_lossless(env):
     paths, state, make = env
     touch(paths, "Library/A/not_lossless/Artist - Song.aiff")
@@ -196,6 +143,52 @@ def test_fake_bought_file_goes_to_not_lossless(env):
     ex.run([act("adopt_bought", src="Library/A/Artist - Song.wav")])
     e = state["tracks"]["t1aaaaaaa"]
     assert (e["path"], e["status"]) == ("Library/A/not_lossless/Artist - Song.wav", "fake_lossless")
+
+
+def test_bought_file_next_to_a_file_the_user_keeps_elsewhere(env):
+    paths, state, make = env
+    touch(paths, "Library/Sets/2024/x.aiff")
+    touch(paths, "Library/Sets/2024/Artist - Song.wav", b"bought")
+    state["tracks"]["t1aaaaaaa"] = entry("Library/Sets/2024/x.aiff", status="not_lossless")
+    ex, _ = make()
+    ex.run([act("adopt_bought", src="Library/Sets/2024/Artist - Song.wav")])
+    assert state["tracks"]["t1aaaaaaa"]["path"] == "Library/Sets/2024/Artist - Song.wav"
+    assert (paths.root / "Superseded/Sets/2024/x.aiff").exists()
+
+
+def test_bought_file_in_the_placement_folder_joins_the_current_file(env):
+    paths, state, make = env
+    touch(paths, "Library/Sets/2024/x.aiff")
+    touch(paths, "Library/A/Artist - Song.wav", b"bought")
+    state["tracks"]["t1aaaaaaa"] = entry("Library/Sets/2024/x.aiff", status="not_lossless")
+    ex, _ = make()
+    ex.run([act("adopt_bought", src="Library/A/Artist - Song.wav")])
+    assert state["tracks"]["t1aaaaaaa"]["path"] == "Library/Sets/2024/Artist - Song.wav"
+    assert (paths.root / "Library/Sets/2024/Artist - Song.wav").read_bytes() == b"bought"
+    assert (paths.root / "Superseded/Sets/2024/x.aiff").exists()
+    assert not (paths.root / "Library/A/Artist - Song.wav").exists()
+
+
+def test_a_lossy_bought_file_stays_next_to_a_file_outside_a_playlist_folder(env):
+    paths, state, make = env
+    touch(paths, "Library/Sets/2024/Artist - Song.aiff")
+    touch(paths, "Library/A/Artist - Song.aiff", b"bought")
+    state["tracks"]["t1aaaaaaa"] = entry("Library/Sets/2024/Artist - Song.aiff", status="not_lossless")
+    ex, _ = make(analyze=("pcm_s16le", 16000))
+    ex.run([act("adopt_bought", src="Library/A/Artist - Song.aiff")])
+    assert state["tracks"]["t1aaaaaaa"]["path"] == "Library/Sets/2024/Artist - Song.aiff"  # the old one left the name
+    assert (paths.root / "Library/Sets/2024/Artist - Song.aiff").read_bytes() == b"bought"
+    assert (paths.root / "Superseded/Sets/2024/Artist - Song.aiff").exists()
+
+
+def test_a_file_gone_is_downloaded_again_into_the_placement_folder(env):
+    paths, state, make = env
+    state["tracks"]["t1aaaaaaa"] = entry(None, status="missing", source=None, source_id=None, file_gone="2026-10-19")
+    ex, _ = make(ready())
+    ex.run([act("acquire", reason="redownload")])
+    e = state["tracks"]["t1aaaaaaa"]
+    assert (e["path"], e["file_gone"]) == ("Library/A/Artist - Song.aiff", None)
+    assert len(ex.log.section("redownloaded")) == 1
 
 
 def files_under(paths, *dirs):
@@ -225,7 +218,7 @@ def test_upgrade_parks_the_lossless_version(env):
     r = ex.log.section("upgrade_ready")[0]
     assert "lines up after shifting by 23 ms" in r.note and r.path == "Upgrades ready/A/Artist - Song.aiff"
     assert "qobuz:q9" in acq.calls[0][1] and acq.calls[0][2] is True
-    assert load_state(paths.state_file) == state and state["pending"] == []
+    assert records(load_state(paths)) == records(state) and state["pending"] == []
 
 
 def test_an_upgrade_result_carries_the_found_files_status_a_lossless_soundcloud_original(env):
@@ -238,6 +231,16 @@ def test_an_upgrade_result_carries_the_found_files_status_a_lossless_soundcloud_
     r = ex.log.section("upgrade_ready")[0]
     assert r.source == "soundcloud" and r.found_status == "lossless"
     assert r.status == "not_lossless"  # still the current file's
+
+
+def test_an_upgrade_of_a_file_kept_elsewhere_waits_in_its_mirror_folder(env):
+    paths, state, make = env
+    touch(paths, "Library/Sets/2024/x.aiff")
+    state["tracks"]["t1aaaaaaa"] = entry("Library/Sets/2024/x.aiff", status="not_lossless", source_id="q9")
+    ex, _ = make(ready())
+    ex.run([act("upgrade")])
+    assert state["tracks"]["t1aaaaaaa"]["upgrade"]["file"] == "Upgrades ready/Sets/2024/Artist - Song.aiff"
+    assert (paths.root / "Upgrades ready/Sets/2024/Artist - Song.aiff").read_bytes() == b"new audio"
 
 
 def test_parked_name_already_taken_gets_the_id_suffix(env):
@@ -288,17 +291,6 @@ def test_bought_file_makes_a_parked_upgrade_stale(env):
     ex.run([act("adopt_bought", src="Library/A/Artist - Song.wav")])
     assert state["tracks"]["t1aaaaaaa"]["upgrade"] is None
     assert not (paths.root / "Upgrades ready/A/Artist - Song.aiff").exists()
-
-
-def test_a_move_keeps_the_parked_upgrade(env):
-    paths, state, make = env
-    touch(paths, "Library/A/not_lossless/x.aiff")
-    touch(paths, "Upgrades ready/A/Artist - Song.aiff", b"parked")
-    state["tracks"]["t1aaaaaaa"] = entry("Library/A/not_lossless/x.aiff", status="not_lossless", upgrade=dict(PARKED))
-    ex, _ = make()
-    ex.run([act("move", folder="B", src="Library/A/not_lossless/x.aiff", dest_dir="Library/B/not_lossless")])
-    assert state["tracks"]["t1aaaaaaa"]["upgrade"] == PARKED
-    assert (paths.root / "Upgrades ready/A/Artist - Song.aiff").exists()
 
 
 def test_upgrade_without_result_only_records_the_check(env):
@@ -470,7 +462,7 @@ def test_keyboard_interrupt_keeps_finished_work(env):
     ex, _ = make(ready(), KeyboardInterrupt())
     with pytest.raises(KeyboardInterrupt):
         ex.run([act("acquire", tid="t1aaaaaaa", reason="new"), act("acquire", tid="t2bbbbbbb", reason="new")])
-    on_disk = load_state(paths.state_file)
+    on_disk = load_state(paths)
     assert "t1aaaaaaa" in on_disk["tracks"] and on_disk["pending"] == []
 
 
@@ -516,7 +508,7 @@ def test_stop_flag_ends_the_run_between_actions(env):
     ex.acquirer, ex.token = StopAfterFirst(), token
     with pytest.raises(Cancelled):
         ex.run([act("acquire", tid="t1aaaaaaa", reason="new"), act("acquire", tid="t2bbbbbbb", reason="new")])
-    assert "t1aaaaaaa" in load_state(paths.state_file)["tracks"]
+    assert "t1aaaaaaa" in load_state(paths)["tracks"]
     assert "t2bbbbbbb" not in state["tracks"]
 
 
@@ -643,7 +635,7 @@ def test_a_stream_of_the_current_upload_that_came_out_no_better_is_declined_not_
     ex.run([act("upgrade")])
     e = state["tracks"]["t1aaaaaaa"]
     assert e["rejected_sources"] == ["youtube_music:m2"] and e["declined_streams"] == ["youtube_music:m0"]
-    assert load_state(paths.state_file)["tracks"]["t1aaaaaaa"]["declined_streams"] == ["youtube_music:m0"]
+    assert load_state(paths)["tracks"]["t1aaaaaaa"]["declined_streams"] == ["youtube_music:m0"]
     e["last_upgrade_check"] = "2026-10-01"
     ex.run([act("upgrade")])  # the next check: the account step skips it, the rest of the check doesn't
     assert acq.declined == [set(), {"youtube_music:m0"}]

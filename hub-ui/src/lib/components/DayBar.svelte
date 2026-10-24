@@ -6,8 +6,7 @@
   // so both numbers always read (spec §11): a hidden copy of each label is measured, and a present segment's
   // flex-basis is that width plus its padding, in px (never `auto` or min-content, which can't animate), with its
   // share growing on top; a missing one's basis is 0. So the label floor slides in and out with the share instead of
-  // snapping. The moves-only segment (`fit`) takes no share, so it is exactly as wide as its label. Transitions start
-  // once the first measurements are in, so nothing slides when the bar appears. While a segment shrinks to nothing
+  // snapping. Transitions start once the first measurements are in, so nothing slides when the bar appears. While a segment shrinks to nothing
   // (`gone`) its label wraps onto a hidden second line, so no half label shows mid-slide, and `title` keeps it.
   // Day mode (`input.day`, Dashboard) draws the whole daily limit: what earlier runs used today (filled, quiet) ahead
   // of this sync, and what is left after it (outline only); all four kinds slide the same way.
@@ -39,7 +38,7 @@
   <div class="bar" class:empty={!bar.segs.length} class:still={!armed} role="img" aria-label={said}>
     {#each KINDS as kind (kind)}
       {@const s = segOf[kind]}
-      <div class="seg {kind}" class:gone={!s} class:fit={s?.fit} class:first={kind === first} class:last={kind === last}
+      <div class="seg {kind}" class:gone={!s} class:first={kind === first} class:last={kind === last}
         style:flex-grow={s?.grow ?? 0} style:flex-basis={s ? `calc(${w[kind]}px + 2 * var(--s-2))` : '0px'} title={s?.label}
         data-seg={kind} aria-hidden="true">
         <span>{s?.label ?? ''}</span>
@@ -82,8 +81,6 @@
   /* day mode: what earlier runs used today is spent (filled, quiet); what is left is room (outline only) */
   .used { background: var(--bg-inset); color: var(--text-muted); }
   .free { color: var(--text-label); box-shadow: inset 0 0 0 var(--bw) var(--line-control); }
-  /* "Today: 3 moves": as wide as its label (no share), so it reads beside a long later segment */
-  .seg.fit { flex-shrink: 0; }
   .seg:not(.gone) { padding-right: var(--s-2); }
   /* the labels' twins, measured for the segments' flex-basis; same type as their segments */
   .measure { position: absolute; top: 0; left: 0; visibility: hidden; pointer-events: none; white-space: nowrap;

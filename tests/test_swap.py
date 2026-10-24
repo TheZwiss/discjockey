@@ -8,6 +8,7 @@ from mutagen.aiff import AIFF
 from discjockey import upgrades
 from discjockey.align import Alignment, compare_files
 from discjockey.audio import write_tags
+from hub_helpers import records
 from discjockey.library import Paths, empty_state, load_state, recover_pending
 from discjockey.planner import ENTRY_KEYS
 from discjockey.upgrades import UpgradeProblem
@@ -74,7 +75,7 @@ def test_swap_keeps_the_file_and_moves_it_out_of_not_lossless(tmp_path):
     assert (e["status"], e["path"], e["source"], e["source_id"], e["source_format"], e["cutoff_hz"], e["upgrade"]) == (
         "lossless", ROOT_NAME, "qobuz", "q1", "flac", None, None)
     assert e["last_upgrade_check"] == "2026-10-10"
-    assert state["pending"] == [] and load_state(paths.state_file) == state
+    assert state["pending"] == [] and records(load_state(paths)) == records(state)
     assert (r.section, r.path) == ("swapped", ROOT_NAME) and "23 ms" in r.note and BACKUP in r.note
 
 
@@ -234,7 +235,7 @@ def crash_and_reload(fake, monkeypatch, name, half=False):
     with pytest.raises(Crash):
         swap(paths, state)
     monkeypatch.setattr(upgrades, name, real)
-    on_disk = load_state(paths.state_file)
+    on_disk = load_state(paths)
     assert on_disk["pending"] and on_disk["pending"][0]["kind"] == "swap"
     return paths, on_disk
 
@@ -244,7 +245,7 @@ def assert_swapped(paths, state, inode):
     assert (paths.root / BACKUP).read_bytes() == OLD
     assert state["tracks"][TID]["status"] == "lossless" and state["tracks"][TID]["path"] == ROOT_NAME
     assert state["pending"] == [] and not (paths.root / PARKED).exists()
-    assert load_state(paths.state_file) == state
+    assert records(load_state(paths)) == records(state)
 
 
 def assert_unchanged(paths, state, inode):
@@ -354,7 +355,7 @@ def test_foreign_file_at_the_backup_name_changes_nothing(fake, monkeypatch):
         swap(paths, state)
     assert_unchanged(paths, state, inode)
     assert (paths.root / BACKUP).read_bytes() == FOREIGN
-    assert load_state(paths.state_file)["pending"] == [] and recover_pending(paths, state) == []
+    assert load_state(paths)["pending"] == [] and recover_pending(paths, state) == []
 
 
 def test_a_failed_backup_changes_nothing(fake, monkeypatch):
@@ -427,3 +428,22 @@ def test_a_256_kbps_swap_keeps_the_file_in_not_lossless(fake):
     assert (paths.root / CURRENT).read_bytes() == NEW and not (paths.root / ROOT_NAME).exists()
     assert (e["status"], e["path"], e["source_kbps"]) == ("not_lossless", CURRENT, 256)
     assert r.status == "not_lossless"
+
+
+@needs_ffmpeg
+def test_a_swap_in_any_playlist_folder_s_not_lossless_moves_up(tmp_path):
+    # any direct child of Library/ is a playlist folder, in playlists.txt or not (spec §7)
+    paths, state = setup_files(tmp_path, lowpass(X, 16000), X, path="Library/Z/not_lossless/Artist - Song.aiff")
+    upgrades.swap(paths, state, TID, up(state))
+    assert state["tracks"][TID]["path"] == "Library/Z/Artist - Song.aiff"
+    assert (paths.root / "Superseded/Z/Artist - Song (lossy).aiff").exists()
+
+
+@needs_ffmpeg
+def test_a_swap_deeper_down_stays_where_the_file_is(tmp_path):
+    deep = "Library/A/B/not_lossless/Artist - Song.aiff"
+    paths, state = setup_files(tmp_path, lowpass(X, 16000), X, path=deep)
+    inode = os.stat(paths.root / deep).st_ino
+    upgrades.swap(paths, state, TID, up(state))
+    assert state["tracks"][TID]["path"] == deep and os.stat(paths.root / deep).st_ino == inode
+    assert (paths.root / "Superseded/A/B/not_lossless/Artist - Song (lossy).aiff").exists()

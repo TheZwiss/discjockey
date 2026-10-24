@@ -332,6 +332,76 @@ def test_lock_briefly_answers_busy_or_console_instead_of_waiting(env):
         pass
 
 
+def at_once(call):
+    """`call()`'s result or exception, failing the test if it waits (instead of hanging it)."""
+    out = {}
+
+    def target():
+        try:
+            out["value"] = call()
+        except BaseException as e:  # noqa: BLE001 - handed to the test
+            out["error"] = e
+    t = threading.Thread(target=target, daemon=True)
+    t.start()
+    t.join(2)
+    assert not t.is_alive(), "waited instead of answering at once"
+    if "error" in out:
+        raise out["error"]
+    return out["value"]
+
+
+def test_a_scan_holds_the_file_lock_and_everything_else_answers_at_once(env):
+    paths, js, rec, _ = env
+    entered, release, seen = threading.Event(), threading.Event(), {}
+
+    def scan():
+        with js.scan_lock() as held:
+            seen["held"] = held
+            entered.set()
+            release.wait(5)
+    scanner = threading.Thread(target=scan)
+    scanner.start()
+    assert entered.wait(5) and seen["held"] is True
+    with pytest.raises(library.LockHeld):
+        with run_lock(paths.lock):  # a terminal run can't start meanwhile
+            pass
+    assert not js.console_running()  # our own scan is no terminal run
+    with pytest.raises(Busy) as excinfo:
+        at_once(lambda: js.start("sync", lambda ctx: None))
+    assert excinfo.value.kind == "busy"
+
+    def brief():
+        with js.lock_briefly():
+            pytest.fail("must not run")
+    with pytest.raises(Busy):
+        at_once(brief)
+
+    def second_scan():
+        with js.scan_lock() as held:
+            return held
+    assert at_once(second_scan) is False
+    assert at_once(lambda: js.start_sign_in("sign_in", lambda ctx: None)).done.wait(5)
+    assert at_once(lambda: js.start_refresh(lambda ctx: None)).done.wait(5)
+    release.set()
+    scanner.join(5)
+    assert js.start("sync", lambda ctx: None).done.wait(5)  # free again
+
+
+def test_a_scan_does_without_the_lock_while_someone_else_has_it(env):
+    paths, js, rec, _ = env
+    with run_lock(paths.lock):  # a terminal run
+        with js.scan_lock() as held:
+            assert held is False
+    release = threading.Event()
+    job = js.start("sync", lambda ctx: release.wait(5) and None)
+    with js.scan_lock() as held:
+        assert held is False
+    release.set()
+    assert job.done.wait(5)
+    with js.scan_lock() as held:
+        assert held is True
+
+
 def test_jobs_without_a_library_run_without_the_file_lock(tmp_path):
     js = Jobs(None, lambda e: None, keep_awake=lambda reason: contextmanager(lambda: (yield))())
     done = threading.Event()

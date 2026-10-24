@@ -29,7 +29,7 @@ from .library import NameReserver, Paths, delete_parked, full_fsync, run_op
 from .models import Action, Candidate, Protected, SpotifyTrack
 from .names import expected_stem, split_name, strip_id_suffix
 from .pacing import NoPacer
-from .planner import folder_dir
+from .planner import replacement_dir, superseded_dir
 
 CURRENT_VERSION = "This is the version you have now."
 NOT_THERE = ("Your current file is not where Discjockey expects it. Run a sync first, so it can find the file "
@@ -80,7 +80,7 @@ def log_operation(paths: Paths, now: datetime, track_id: str, entry: dict | None
 def run_single(paths: Paths, operation: str, track_id: str, expect: dict | None,
                do: Callable[[dict], Result], now: Callable[[], datetime] = datetime.now) -> Done:
     """Runs `do(state)` as described in the module docstring. The caller holds library.run_lock."""
-    state = library.load_state(paths.state_file)
+    state = library.open_state(paths)
     recovered = library.recover_pending(paths, state)
     library.clear_tmp(paths, state)
     entry = state["tracks"].get(track_id)
@@ -108,7 +108,7 @@ def set_hidden(paths: Paths, state: dict, track_id: str, hidden: bool) -> Result
     """"Good enough, hide": the to-do list leaves the track out. Weekly upgrade checks go on."""
     e = state["tracks"][track_id]
     state["tracks"][track_id] = {**e, "hidden": bool(hidden)}
-    library.save_state(paths.state_file, state)
+    library.save_state(paths, state)
     if hidden:
         return _result("hidden", track_id, e, "hidden from the to-do list")
     return _result("unhidden", track_id, e, "back on the to-do list")
@@ -161,8 +161,10 @@ def add_bought_file(paths: Paths, state: dict, track_id: str, src: Path, *,
                     analyze: Callable[[Path], tuple[str, int | None]] = quality.inspect,
                     now: Callable[[], datetime] = datetime.now) -> Result:
     """A file the user bought, dropped into the window. Copied (never moved or changed) into .tmp/<track_id>/, FLAC
-    and MP3 turned into AIFF there (an MP3 is judged before, so it stays lossy), then placed as Library/<Folder>/<expected name>.<ext> through run_op (refused if that
-    name is taken) and adopted like a bought file the user put there by hand."""
+    and MP3 turned into AIFF there (an MP3 is judged before, so it stays lossy), then placed under the expected name
+    where a lossless replacement of the current file goes (`replacement_dir`: next to it, out of a playlist folder's
+    not_lossless/; without a file Library/<Folder>/) through run_op (refused if that name is taken) and adopted like a
+    bought file the user put there by hand."""
     e = state["tracks"][track_id]
     if e["status"] not in NOT_LOSSLESS_YET:
         raise OpProblem("This track is lossless already, so it needs no bought file.")
@@ -171,7 +173,8 @@ def add_bought_file(paths: Paths, state: dict, track_id: str, src: Path, *,
         raise OpProblem("Only WAV, AIFF, FLAC or MP3 files can be added.")
     if not src.is_file():
         raise OpProblem("That file is not there any more.")
-    dest = f"Library/{e['folder']}/{expected_stem(e['artist'], e['title'])}{'.aiff' if ext in TO_AIFF else ext}"
+    name = f"{expected_stem(e['artist'], e['title'])}{'.aiff' if ext in TO_AIFF else ext}"
+    dest = f"{replacement_dir(e, 'lossless')}/{name}"  # the planner looks there too, should a crash come next
     taken = OpProblem(f"{dest} is already taken by another file. Move or rename that file first.")
     if NameReserver(paths.root, state).is_taken(dest):
         raise taken
@@ -213,12 +216,12 @@ def add_bought_file(paths: Paths, state: dict, track_id: str, src: Path, *,
 
 def _superseded_name(paths: Paths, state: dict, track_id: str, e: dict) -> str:
     stem, ext = split_name(strip_id_suffix(PurePosixPath(e["path"]).name, track_id))
-    return NameReserver(paths.root, state).choose(f"Superseded/{e['folder']}", stem, ext, track_id)
+    return NameReserver(paths.root, state).choose(superseded_dir(e["path"]), stem, ext, track_id)
 
 
 def _move_away(paths: Paths, state: dict, track_id: str, e: dict, today: str, dst: str | None = None) -> str:
-    """The current file goes to Superseded/<Folder>/ (never deleted); its source is never used again for this track
-    and the entry becomes "not found". The next file for this track is a different recording under the same name, so
+    """The current file goes to Superseded/, mirroring its folder (never deleted); its source is never used again for
+    this track and the entry becomes "not found". The next file for this track is a different recording under the same name, so
     the entry asks for a rekordbox check (the old cues belong to the wrong song). Returns where the file went."""
     dst = dst or _superseded_name(paths, state, track_id, e)
     wrong = current_key(e)
@@ -314,7 +317,7 @@ def use_candidate(paths: Paths, state: dict, track_id: str, cand: Candidate, *, 
                                                  "have the track's length")
             rejected = sorted(set(e.get("rejected_sources") or []) | {cand.key})
             state["tracks"][track_id] = {**e, "rejected_sources": rejected}
-            library.save_state(paths.state_file, state)
+            library.save_state(paths, state)
             raise OpProblem("This version is more than 3 seconds longer or shorter than the Spotify track, so "
                             "Discjockey did not use it.")
         old = None
@@ -323,7 +326,7 @@ def use_candidate(paths: Paths, state: dict, track_id: str, cand: Candidate, *, 
             # two steps, each crash-safe on its own: after the first, the track is simply "not found" again (with the
             # wrong version rejected), which is what the next sync would also work from
             old = _move_away(paths, state, track_id, e, today, old_dst)
-        dst = NameReserver(paths.root, state).choose(folder_dir(e["folder"], ready.status),
+        dst = NameReserver(paths.root, state).choose(replacement_dir(e, ready.status),  # next to the old file
                                                      expected_stem(e["artist"], e["title"]), ".aiff", track_id)
         rejected = set(state["tracks"][track_id].get("rejected_sources") or []) - {cand.key}
         run_op(paths, state, track_id, [(ready.path.relative_to(paths.root).as_posix(), dst)], {
@@ -358,5 +361,5 @@ def rekordbox_checked(paths: Paths, state: dict, track_id: str) -> Result:
     """The user did what the "Check in rekordbox" reminder asked; the reminder goes away."""
     e = state["tracks"][track_id]
     state["tracks"][track_id] = {**e, "rekordbox_check": None}
-    library.save_state(paths.state_file, state)
+    library.save_state(paths, state)
     return _result("rekordbox_checked", track_id, e, "checked in rekordbox")

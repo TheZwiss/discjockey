@@ -3,14 +3,17 @@
   // highest priority), edited as a draft and saved with save_playlists(lines, loaded_version). ListPanelFrame: the
   // header (Spotify slot: the only Read Spotify), the paste field, then one Surface list anchored to the window that
   // scrolls in place. The panel (ChangePanel) says what the unsaved change does; its foot is Undo · Save, the screen's
-  // one filled button.
+  // one filled button, or the save question's two saves when the change puts files in another folder. "Tidy up files"
+  // (header, beside Read Spotify; orange with the count while files are out of place) and an Undo of a recent move
+  // open MovesPanel in the panel's place: preview, progress, result. A save that moves files shows its progress there
+  // too.
   import { untrack } from 'svelte';
   import {
-    AddRow, Button, EmptyState, Hint, InfoTip, NoteCard, PageHeader, ProblemCard, Skeleton, Surface, WriteButton, confirm,
+    AddRow, Button, EmptyState, Hint, InfoTip, NoteCard, PageHeader, ProblemCard, Skeleton, Surface, confirm,
   } from '$lib/components';
   import { ListPanelFrame } from '$lib/frames';
   import { api, runJob } from '$lib/bridge/client';
-  import type { AddedPlaylist, Playlists, ProblemKind } from '$lib/bridge/types';
+  import type { AddedPlaylist, BatchResult, Playlists, ProblemKind, SaveFiles } from '$lib/bridge/types';
   import { dataVersion } from '$lib/stores/hub';
   import { toasts } from '$lib/stores/toasts';
   import { problemCopy, detailLine } from '$lib/copy';
@@ -18,9 +21,11 @@
   import { markReady } from '$lib/ready';
   import Row from './Row.svelte';
   import ChangePanel from './ChangePanel.svelte';
+  import MovesPanel, { type MovesEntry } from './MovesPanel.svelte';
+  import { problemToTell, type MoveItem } from './tidyModel';
   import {
     addRow, draftFrom, dropIndex, folderChanges, isDirty, lines, loadedFrom, moveBy, onOffText, priorities, remove,
-    rename, reorder, shiftFor, statusLine, toggle, undo, type DraftRow, type Loaded, type Panel,
+    rename, reorder, shiftFor, statusLine, toggle, undo, type DraftRow, type Loaded, type Panel, type PanelTab,
   } from './changeModel';
 
   let { params: _params, query: _query }: { params: Record<string, string>; query: URLSearchParams } = $props();
@@ -34,11 +39,15 @@
   let panel = $state<Panel | null>(null);
   let retry = $state(0);
   let ready = false;
+  let tab = $state<PanelTab>('overlaps');
+  let flow = $state<MovesEntry | null>(null);   // MovesPanel in the panel's place
+  let flowTurn = $state(0);                     // a new flow mounts a fresh MovesPanel
+  let movesBusy = $state(false);                // files are moving: the panel stays, Tidy up files waits
 
   const dirty = $derived(isDirty(draft, loaded));
   const prios = $derived(priorities(draft));
   const draftLines = $derived(lines(draft));
-  const saveAllowed = $derived(panel?.saveAllowed ?? true);
+  const waiting = $derived(pl?.tidy?.waiting ?? 0);
   // what the unsaved change does to each folder, said under its playlist ("gets 27 more")
   const changes = $derived(dirty ? folderChanges(panel?.preview ?? null) : new Map<string, number>());
 
@@ -77,15 +86,28 @@
     return () => setLeaveGuard(null);
   });
 
+  // ---------- the moves panel ----------
+  function openFlow(e: MovesEntry) { flow = e; flowTurn++; }
+  function closeFlow() { flow = null; }
+  // an edit to the list brings the change panel back (a flow that isn't moving files is dropped)
+  $effect(() => { if (dirty && flow && !movesBusy) untrack(closeFlow); });
+
   // ---------- saving ----------
-  async function save() {
+  /** `files`: the save question's answer (null: the change moves no files); `items`: what moves, for the progress. */
+  async function save(files: SaveFiles | null, items: MoveItem[]) {
     if (!loaded || !dirty) return;
     saving = true;
-    const out = await runJob<{ version: string }>(api.save_playlists(lines(draft), loaded.version), { quiet: true });
+    const job = runJob<{ version: string; batches: BatchResult[] }>(
+      api.save_playlists(lines(draft), loaded.version, files), { quiet: true });
+    if (files?.choice === 'move') { movesBusy = true; openFlow({ kind: 'save', items, outcome: job }); }
+    const out = await job;
     saving = false;
-    if (out.ok) { await load(true); return; }
-    if (out.kind === 'changed') { changedElsewhere = out.message; return; }
-    toasts.show({ tone: 'problem', title: problemCopy(out.kind).title, body: out.message || undefined });
+    if (!out.ok && out.kind === 'changed') { changedElsewhere = out.message; return; }
+    // the job ran quiet (the moves panel follows it): a failure is told here, also one that still moved something
+    const bad = problemToTell(out);
+    if (bad) toasts.show({ tone: 'problem', title: problemCopy(bad.kind).title, body: bad.message || undefined });
+    // saved even when it ended early (a Stop after the file was written): the panel shows what moved
+    if (out.ok || out.result) await load(true);
   }
   async function reload() {
     if (dirty && !(await confirm({ title: 'Throw away your changes and load the file again?',
@@ -148,7 +170,7 @@
 </script>
 
 {#snippet main()}
-  <PageHeader title="Playlists" sub={loaded ? statusLine(draft) : undefined} spotify />
+  <PageHeader title="Playlists" sub={loaded ? statusLine(draft) : undefined} {actions} spotify />
   <AddRow {draft} onadd={added} />
 
   {#if pl?.problem}
@@ -188,18 +210,24 @@
   {/if}
 {/snippet}
 
-{#snippet foot()}
-  <div class="foot">
-    <Button disabled={!dirty || saving} onclick={() => loaded && (draft = undo(loaded))} data-test="undo">Undo</Button>
-    <WriteButton wide variant="filled" busy={saving} disabled={!dirty || !saveAllowed}
-      title={!dirty ? 'Nothing to save yet.' : !saveAllowed ? 'Fix the problem first.' : undefined}
-      onclick={save} data-test="save">Save</WriteButton>
-  </div>
+{#snippet actions()}
+  <Button variant={waiting ? 'primary' : 'secondary'} disabled={!loaded || dirty || movesBusy}
+    title={dirty ? 'Save or undo your changes first.' : movesBusy ? 'Files are moving.' : undefined}
+    onclick={() => openFlow({ kind: 'tidy' })} data-test="tidy-button">Tidy up files{#if waiting}<span class="count"
+      class:off={!loaded || dirty || movesBusy} data-test="tidy-waiting">{waiting}</span>{/if}</Button>
 {/snippet}
 
 {#snippet side()}
-  <ChangePanel {dirty} lines={draftLines} overlaps={pl?.overlaps ?? []} rows={pl?.rows ?? []}
-    onpanel={(p) => (panel = p)} {foot} />
+  {#if flow && (!dirty || movesBusy)}
+    {#key flowTurn}
+      <MovesPanel entry={flow} onclose={closeFlow} onlist={() => { closeFlow(); tab = 'moves'; }}
+        onbusy={(b) => (movesBusy = b)} />
+    {/key}
+  {:else}
+    <ChangePanel {dirty} lines={draftLines} overlaps={pl?.overlaps ?? []} rows={pl?.rows ?? []} {saving} {tab}
+      onpanel={(p) => (panel = p)} ontab={(t) => (tab = t)} onundo={() => loaded && (draft = undo(loaded))}
+      onsave={save} onundobatch={(id) => openFlow({ kind: 'undo', batch_id: id })} />
+  {/if}
 {/snippet}
 
 <ListPanelFrame {main} panel={side} />
@@ -208,5 +236,7 @@
   /* while a row is dragged the others make room smoothly; the dragged one follows the pointer 1:1 */
   :global([data-test='list'].dragging .pl:not(.drag)) { transition: transform var(--t-state) var(--ease); }
   :global([data-test='list']) { user-select: none; }
-  .foot { display: flex; gap: var(--s-2); }
+  .count { margin-left: var(--s-2); color: var(--accent-text); font-variant-numeric: tabular-nums;
+    transition: color var(--t-state) var(--ease); }
+  .count.off { color: inherit; }
 </style>

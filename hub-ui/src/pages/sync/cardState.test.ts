@@ -4,6 +4,7 @@ import stoppedRaw from '$fixtures/hub_events_stopped.jsonl?raw';
 import type { HubEvent } from '$lib/bridge/events';
 import { EMPTY_RUN, reduceRun, type RunState } from '$lib/stores/run';
 import type { Budget, LimitCard, Result } from '$lib/bridge/types';
+import { SYNC_LINES, lineOf } from '$lib/bridge/fake/replay';
 import { cardState, liveUsage, qobuzFallback, stepIndex, verdict, type Card } from './cardState';
 
 const lines = (raw: string): HubEvent[] => raw.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
@@ -34,11 +35,26 @@ function inOrder(seq: string[], want: string[]) {
 describe('cardState with the recorded sync', () => {
   const w = walk(sync);   // the refresh job (lines 1–5) is not a download job: the run store ignores it
   const L = (line: number) => at(w, line);
+  // the moments, found by what happens (1-based lines; line n arrives at n seconds)
+  const first = (pred: (e: HubEvent) => boolean, nth = 0) => lineOf(sync, pred, nth);
+  const done1 = first((e) => e.type === 'ActionFinished');                                       // Gimme Gimme, lossless
+  const dl1 = first((e) => e.type === 'Progress' && e.step === 'download');
+  const conv1 = first((e) => e.type === 'Progress' && e.step === 'convert');
+  const pause = first((e) => e.type === 'Waiting' && e.kind === 'between' && e.remaining < 35);  // ~34 s left
+  const upId = (sync.find((e) => e.type === 'ActionStarted' && e.action.kind === 'upgrade') as
+    Extract<HubEvent, { type: 'ActionStarted' }>).action.track_id;
+  const upDl = first((e) => e.type === 'Progress' && e.track_id === upId && e.step === 'download');
+  const compare = first((e) => e.type === 'StepChanged' && e.step === 'compare');
+  const upDone = first((e) => e.type === 'ActionFinished' && e.result.section === 'upgrade_ready');
 
   it('goes through the whole sequence in order', () => {
     expect(inOrder(kinds(w), ['preparing', 'working', 'analysed', 'working', 'downloading', 'working', 'converting',
       'analysed', 'working', 'pause', 'downloading', 'working', 'converting', 'working', 'analysed', 'finished']))
       .toBe(true);
+  });
+  it('shows the converting card at the moment the sync:converting scenario freezes on', () => {
+    expect(L(SYNC_LINES.converting).card.kind).toBe('converting');
+    expect(L(SYNC_LINES.converting - 1).card.kind).not.toBe('converting');
   });
   it('prepares with the last info message before RunStarted', () => {
     expect(L(7).card).toEqual({ kind: 'preparing', text: 'Reading your Spotify playlists...' });
@@ -47,23 +63,20 @@ describe('cardState with the recorded sync', () => {
     expect(L(10).card).toEqual({ kind: 'preparing', text: 'Looking up the bitrate of 1 older download...' });
     expect(L(11).card.kind).toBe('preparing');
   });
-  it('shows the move without steps, then its result', () => {
-    const c = L(12).card;
-    expect(c.kind === 'working' && c.detail).toBe('Moving to Hard_Bounce…');
-    expect(c.kind === 'working' && c.steps).toEqual([]);
-    const r = L(13).card;
-    expect(r.kind === 'analysed' && r.result.section).toBe('moved');
-    expect(r.kind === 'analysed' && verdict(r.result)).toMatchObject({ label: 'MOVED → Hard_Bounce', hasFile: false });
+  it('starts the first track with the search, without a card of its own before it', () => {
+    const c = L(first((e) => e.type === 'StepChanged')).card;
+    expect(c.kind === 'working' && c.step).toBe('search');
   });
   it('holds the analysed card 4 s, then the search with its short pause shows', () => {
-    for (const line of [14, 15, 16]) expect(L(line).card.kind).toBe('analysed');
-    const c = L(17).card;
+    for (const line of [done1 + 1, done1 + 2, done1 + 3]) expect(L(line).card.kind).toBe('analysed');
+    expect(sync[done1 + 3].type).toBe('Waiting');
+    const c = L(done1 + 4).card;
     expect(c.kind).toBe('working');
     expect(c.kind === 'working' && c.step).toBe('search');
     expect(c.kind === 'working' && c.detail).toMatch(/^Short pause before searching Qobuz · \d s$/);
   });
   it('downloads with percent and MB strings', () => {
-    const d = [26, 27, 28, 29].map((l) => L(l).card);
+    const d = [dl1, dl1 + 1, dl1 + 2, dl1 + 3].map((l) => L(l).card);
     expect(d.map((c) => c.kind === 'downloading' && c.percent)).toEqual([25, 50, 75, 100]);
     expect(d.map((c) => c.kind === 'downloading' && c.doneMB)).toEqual(['0.3', '0.7', '1.0', '1.3']);
     expect(d.every((c) => c.kind === 'downloading' && c.totalMB === '1.3' && c.source === 'qobuz')).toBe(true);
@@ -72,18 +85,18 @@ describe('cardState with the recorded sync', () => {
     expect(stepIndex(d[0])).toBe(1);
   });
   it('converts with the length line', () => {
-    const c = L(34).card;
+    const c = L(conv1).card;
     expect(c).toMatchObject({ kind: 'converting', lengthLine: 'Length matches (0:12 = Spotify 0:12)', lengthOk: true,
       done_s: 12, total_s: 12 });
-    expect(L(33).card).toMatchObject({ kind: 'converting', done_s: 0 });
+    expect(L(conv1 - 1).card).toMatchObject({ kind: 'converting', done_s: 0 });
   });
   it('shows the lossless result', () => {
-    const c = L(36).card;
+    const c = L(done1).card;
     expect(c.kind === 'analysed' && verdict(c.result)).toMatchObject({ label: 'LOSSLESS', hasFile: true,
       line: 'full spectrum up to 22 kHz' });
   });
   it('pauses before Get Naughty with next up = the current action', () => {
-    const c = L(97).card;
+    const c = L(pause).card;
     expect(c.kind).toBe('pause');
     if (c.kind !== 'pause') return;
     expect(c.waiting).toBe('between');
@@ -95,16 +108,16 @@ describe('cardState with the recorded sync', () => {
     expect(c.remaining_s).toBeCloseTo(34.31, 1);
   });
   it('a pause between account downloads: the progress card counts that account', () => {
-    let s = L(97).s;
-    s = reduceRun(s, { type: 'AccountUsage', service: 'youtube', used: 2, allowance: 30 }, T(97));
+    let s = L(pause).s;
+    s = reduceRun(s, { type: 'AccountUsage', service: 'youtube', used: 2, allowance: 30 }, T(pause));
     s = reduceRun(s, { type: 'Waiting', kind: 'between', label: 'Protection pause between YouTube Premium downloads',
-      remaining: 30, total: 40, service: 'youtube' }, T(97));
-    expect(cardState(s, T(97)).kind).toBe('pause');
+      remaining: 30, total: 40, service: 'youtube' }, T(pause));
+    expect(cardState(s, T(pause)).kind).toBe('pause');
     expect(liveUsage(null, s.usage)).toContain('YouTube Premium 2 of 30 today');
   });
   it('counts the pause down with the clock, never below 0', () => {
-    const s = L(97).s;
-    const a = cardState(s, T(97) + 500), b = cardState(s, T(97) + 2500), z = cardState(s, T(97) + 99_000);
+    const s = L(pause).s;
+    const a = cardState(s, T(pause) + 500), b = cardState(s, T(pause) + 2500), z = cardState(s, T(pause) + 99_000);
     expect(a.kind === 'pause' && b.kind === 'pause').toBe(true);
     if (a.kind !== 'pause' || b.kind !== 'pause') return;
     expect(a.remaining_s - b.remaining_s).toBeCloseTo(2, 5);
@@ -114,40 +127,42 @@ describe('cardState with the recorded sync', () => {
     expect(liveUsage({ used: 37, allowance: 80 }, {})).toEqual(['Qobuz 37 of 80 today']);
   });
   it('downloads after the pause, compares with 6 steps, then the upgrade result and the end', () => {
-    expect(L(134).card.kind).toBe('downloading');
-    const c = L(144).card;
+    expect(L(upDl).card.kind).toBe('downloading');
+    const c = L(compare).card;
     expect(c.kind === 'working' && c.step).toBe('compare');
     expect(c.kind === 'working' && c.steps).toHaveLength(6);
     expect(stepIndex(c)).toBe(5);
-    const r = L(145).card;
+    const r = L(upDone).card;
     expect(r.kind === 'analysed' && r.result.section).toBe('upgrade_ready');
     if (r.kind === 'analysed') expect(verdict(r.result).line).toBe('a better version waits for you');
-    expect(L(147).card).toEqual({ kind: 'finished', exit_code: 1 });
+    expect(L(sync.length).card).toEqual({ kind: 'finished', exit_code: 1 });
   });
   it('lets new download work end the analysed card early', () => {
-    const s = L(36).s;   // Gimme Gimme finished at T(36)
-    const next = reduceRun(reduceRun(s, sync[36], T(36) + 100), { type: 'StepChanged',
-      track_id: (sync[36] as { action: { track_id: string } }).action.track_id, step: 'download' }, T(36) + 200);
-    expect(cardState(next, T(36) + 300).kind).not.toBe('analysed');
+    const s = L(done1).s;   // Gimme Gimme finished at T(done1); sync[done1] is the next ActionStarted
+    const next = reduceRun(reduceRun(s, sync[done1], T(done1) + 100), { type: 'StepChanged',
+      track_id: (sync[done1] as { action: { track_id: string } }).action.track_id, step: 'download' }, T(done1) + 200);
+    expect(cardState(next, T(done1) + 300).kind).not.toBe('analysed');
   });
   it('keeps the result up while no newer action started', () => {
-    expect(cardState(L(36).s, T(36) + 60_000).kind).toBe('analysed');
+    expect(cardState(L(done1).s, T(done1) + 60_000).kind).toBe('analysed');
   });
   it('ignores a Progress of another track', () => {
-    const s = L(27).s;
+    const s = L(dl1 + 1).s;
     const other = reduceRun(s, { type: 'Progress', track_id: 'someone-else', step: 'download', done: 9, total: 10,
-      unit: 'bytes' }, T(27) + 10);
-    expect(cardState(other, T(27))).toEqual(cardState(s, T(27)));
+      unit: 'bytes' }, T(dl1 + 1) + 10);
+    expect(cardState(other, T(dl1 + 1))).toEqual(cardState(s, T(dl1 + 1)));
   });
 });
 
 describe('cardState when stopping or failing', () => {
   it('stops after action 3 starts, then finishes with 130', () => {
-    const w = walk(stopped, (line, s) => (line === 37 ? { ...s, phase: 'stopping' } : s));   // markStopping()
-    expect(at(w, 36).card.kind).toBe('analysed');
-    expect(at(w, 37).card).toEqual({ kind: 'stopping' });
-    expect(at(w, 38).card).toEqual({ kind: 'stopping' });
-    expect(at(w, 39).card).toEqual({ kind: 'finished', exit_code: 130 });
+    const third = lineOf(stopped, (e) => e.type === 'ActionStarted' && e.index === 3);
+    const w = walk(stopped, (line, s) => (line === third ? { ...s, phase: 'stopping' } : s));   // markStopping()
+    expect(at(w, third - 1).card.kind).toBe('analysed');
+    expect(at(w, third).card).toEqual({ kind: 'stopping' });
+    expect(at(w, third + 1).card).toEqual({ kind: 'stopping' });   // RunFinished
+    expect(at(w, third + 2).card).toEqual({ kind: 'finished', exit_code: 130 });
+    expect(stopped).toHaveLength(third + 2);
   });
   it('fails on a JobFinished with a problem', () => {
     let s = reduceRun(EMPTY_RUN, { type: 'JobStarted', job_id: 7, kind: 'sync', track_id: null }, 0);
@@ -189,9 +204,10 @@ describe('verdict of an upgrade', () => {
 
 describe('the live card of an upgrade check that found a lossless SoundCloud original', () => {
   it('shows the lossless badge: the found file says lossless, whatever the source', () => {
-    const evs = sync.map((e, i) => (i === 144 && e.type === 'ActionFinished'
+    const line = lineOf(sync, (e) => e.type === 'ActionFinished' && e.result.section === 'upgrade_ready');
+    const evs = sync.map((e, i) => (i === line - 1 && e.type === 'ActionFinished'
       ? { ...e, result: { ...e.result, source: 'soundcloud', found_status: 'lossless' } } : e)) as HubEvent[];
-    const c = at(walk(evs), 145).card;
+    const c = at(walk(evs), line).card;
     expect(c.kind).toBe('analysed');
     if (c.kind === 'analysed') {
       expect(verdict(c.result)).toMatchObject({ tone: 'lossless', quality: 'lossless', label: 'UPGRADE READY' });

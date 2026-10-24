@@ -126,8 +126,8 @@ Everything else is decided and done without asking, and reported in one short me
 
 | Stage | Plan | Branch | State |
 |-------|------|--------|-------|
-| 1 Foundation | `docs/2026-10-23-library-stage-1-plan.md` | `feat/library-1-foundation` | Groups 1+2 building |
-| 2 Tidy-up | — | — | Not started |
+| 1 Foundation | `docs/2026-10-23-library-stage-1-plan.md` | `feat/library-1-foundation` | Done (3e562f1): 5 groups + Opus stage review + fixes; merged into main with stage 2. Before the release: one migration on a copy of a real-shaped scratch library |
+| 2 Tidy-up | `docs/2026-10-24-library-stage-2-plan.md` | `feat/library-2-tidy` | Done: 7 groups, Opus stage review, 2 fix rounds + Sonnet re-review (145f34c); verify 615 shots 0 problems, CI green; rekordbox live check passed 2026-10-24 (Relocate needs the music folder in Auto Relocate's search folders: README); merged into main with stage 1 |
 | 3 Qobuz playlists | — | — | Not started |
 | 4 Import | — | — | Not started |
 | 5 Sidebar | — | — | Not started |

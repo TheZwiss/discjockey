@@ -24,7 +24,7 @@ from .library import (
 )
 from .models import SOURCE_NAMES
 from .names import expected_stem, fold, split_name, strip_id_suffix
-from .planner import declined, folder_dir, own_key
+from .planner import declined, own_key, replacement_dir, superseded_dir
 
 Compare = Callable[..., Alignment]  # (current file, new file) -> Alignment
 SWAP_EXTS = (".aiff", ".aif")  # the new audio is AIFF; a WAV file cannot take it under its own name
@@ -77,7 +77,7 @@ def precondition(paths: Paths, state: dict, track_id: str, upgrade: dict, *, nee
         raise UpgradeProblem(f"This {upgrade_name(upgrade)} has changed since it was shown, so nothing was done.")
     if not (paths.root / upgrade["file"]).is_file():
         state["tracks"][track_id] = drop_parked(paths, e)
-        save_state(paths.state_file, state)
+        save_state(paths, state)
         raise UpgradeProblem(f"The {upgrade_name(upgrade)} is no longer in {upgrade['file']} (deleted by hand?), so "
                              "Discjockey has forgotten it. A later check can find it again.", forgotten=True)
     if need_current and not current_on_disk(paths, e):
@@ -109,16 +109,17 @@ def _result(section: str, track_id: str, e: dict, note: str, **fields) -> Result
 
 def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict,
             now: Callable[[], datetime] = datetime.now) -> Result:
-    """The parked file takes the correct name in the folder root (`Library/<Folder>/<Artist - Title>.aiff`, ID suffix
-    only if another file has it); the current file moves to Superseded/ first, so the new one can also take the name
+    """The parked file takes the correct name in the current file's folder (`<folder>/<Artist - Title>.aiff`, ID
+    suffix only if another file has it; a playlist folder's root unless it stays lossy, spec §7: `replacement_dir`);
+    the current file moves to Superseded/ (mirroring its folder) first, so the new one can also take the name
     the old one had. One pending operation with two renames. rekordbox's Auto Relocate then links the old entry to the
     new file by its name, but its cues fit the old edit: the entry asks for a rekordbox check (added_as_new)."""
     e = precondition(paths, state, track_id, upgrade, need_current=True)
     names = NameReserver(paths.root, state)
     stem, ext = split_name(strip_id_suffix(PurePosixPath(e["path"]).name, track_id))
-    old = names.choose(f"Superseded/{e['folder']}", stem, ext, track_id)
+    old = names.choose(superseded_dir(e["path"]), stem, ext, track_id)
     status = upgrade.get("status", "lossless")
-    folder = folder_dir(e["folder"], status)  # a 256 kbps version stays in not_lossless/
+    folder = replacement_dir(e, status)  # a 256 kbps version stays in a playlist folder's not_lossless/
     target = f"{folder}/{expected_stem(e['artist'], e['title'])}.aiff"
     if fold(e["path"]) == fold(target):  # the old file has the name: it moves away (first rename), then the new one
         new = target
@@ -142,7 +143,7 @@ def discard(paths: Paths, state: dict, track_id: str, upgrade: dict) -> Result:
     else:
         state["tracks"][track_id] = {**e, "rejected_sources": sorted(set(e.get("rejected_sources") or []) | {key}),
                                      "upgrade": None}
-    save_state(paths.state_file, state)
+    save_state(paths, state)
     name = SOURCE_NAMES.get(upgrade["source"], upgrade["source"])
     return _result("discarded", track_id, e, f"this {name} file won't be offered again", status=e["status"])
 
@@ -222,10 +223,10 @@ def _back_up_again(paths: Paths, state: dict, op: dict) -> None:
         p = PurePosixPath(op["backup"])
         stem, ext = split_name(strip_id_suffix(p.name, op["track_id"]))
         op["backup"] = NameReserver(paths.root, state).choose(str(p.parent), stem, ext, op["track_id"])
-        save_state(paths.state_file, state)
+        save_state(paths, state)
     _back_up(paths, op)
     op["backed_up"] = True
-    save_state(paths.state_file, state)
+    save_state(paths, state)
 
 
 def _finish(paths: Paths, state: dict, op: dict) -> str:
@@ -244,7 +245,7 @@ def _finish(paths: Paths, state: dict, op: dict) -> str:
     delete_parked(paths, op["parked"])
     shutil.rmtree(paths.root / PurePosixPath(op["staged"]).parent, ignore_errors=True)
     state["pending"].remove(op)
-    save_state(paths.state_file, state)
+    save_state(paths, state, rekeyed=[path])  # the new audio is in it, whether or not the entry changed
     return path
 
 
@@ -252,7 +253,7 @@ def _drop(paths: Paths, state: dict, op: dict) -> None:
     """Ends an operation that changed nothing (or was undone); the parked version stays for another try."""
     shutil.rmtree(paths.root / PurePosixPath(op["staged"]).parent, ignore_errors=True)
     state["pending"].remove(op)
-    save_state(paths.state_file, state)
+    save_state(paths, state, rekeyed=[op["target"]])  # an undo may have written the old audio back into it
 
 
 def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compare = align.compare_files) -> Result:
@@ -274,18 +275,20 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
     names = NameReserver(paths.root, state)
     p = PurePosixPath(target)
     stem, ext = split_name(strip_id_suffix(p.name, track_id))
-    backup = names.choose(f"Superseded/{e['folder']}", f"{stem} (lossy)", ext, track_id)
+    backup = names.choose(superseded_dir(target), f"{stem} (lossy)", ext, track_id)
     renames = []
-    if (upgrade.get("status", "lossless") == "lossless" and fold(p.parent.name) == "not_lossless"
-            and not names.is_taken(f"{p.parent.parent}/{p.name}")):
-        renames = [[target, f"{p.parent.parent}/{p.name}"]]
+    # out of not_lossless/ only for a file in a playlist folder's not_lossless/ (spec §7); anywhere else it stays
+    home = replacement_dir(e, "lossless")
+    if (upgrade.get("status", "lossless") == "lossless" and fold(home) != fold(str(p.parent))
+            and not names.is_taken(f"{home}/{p.name}")):
+        renames = [[target, f"{home}/{p.name}"]]
     op = {"kind": "swap", "track_id": track_id, "target": target,
           "staged": staged.relative_to(paths.root).as_posix(), "backup": backup,
           "old_sha256": _sha256(paths.root / target), "new_sha256": _sha256(staged), "renames": renames,
           "parked": upgrade["file"], "entry": _upgraded(e, upgrade, target)}
     with deferred_interrupt():  # a Ctrl-C waits until the file is complete again
         state["pending"].append(op)  # step 2
-        save_state(paths.state_file, state)
+        save_state(paths, state)
         try:
             _back_up(paths, op)  # step 3
         except Exception as err:  # e.g. the name was taken meanwhile: your file was not touched
@@ -293,7 +296,7 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
             raise UpgradeProblem(f"The swap did not work ({err}). Nothing was changed; the "
                                  f"{upgrade_name(upgrade)} is still waiting.") from err
         op["backed_up"] = True  # from here on, recovery knows that Discjockey may have written to the file
-        save_state(paths.state_file, state)
+        save_state(paths, state)
         try:
             _write_in_place(paths.root / target, staged, op["new_sha256"])  # step 4
             final = _finish(paths, state, op)  # steps 5 and 6

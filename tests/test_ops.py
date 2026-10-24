@@ -8,6 +8,7 @@ import pytest
 from discjockey import ops
 from discjockey.acquire import Ready
 from discjockey.events import AccountUsage, Cancelled, CancelToken, Result, SourceChosen
+from hub_helpers import records
 from discjockey.library import Paths, empty_state, load_state, save_state
 from discjockey.models import Candidate
 from discjockey.ops import OpProblem
@@ -44,14 +45,14 @@ def paths(tmp_path):
     p.data.mkdir()
     state = empty_state()
     state["tracks"]["t1aaaaaaa"] = make_entry()
-    save_state(p.state_file, state)
+    save_state(p, state)
     touch(p, LOSSY)
     return p
 
 
 def shown(paths, tid="t1aaaaaaa"):
     """What the window showed: taken from the state as it was when the page asked."""
-    return ops.snapshot(load_state(paths.state_file)["tracks"].get(tid))
+    return ops.snapshot(load_state(paths)["tracks"].get(tid))
 
 
 def oplog(paths):
@@ -69,11 +70,11 @@ def test_hide_and_unhide(paths):
     done = ops.run_single(paths, "hide", "t1aaaaaaa", shown(paths),
                           lambda state: ops.set_hidden(paths, state, "t1aaaaaaa", True), now=lambda: NOW)
     assert done.result.section == "hidden" and done.recovered == []
-    assert load_state(paths.state_file)["tracks"]["t1aaaaaaa"]["hidden"] is True
+    assert load_state(paths)["tracks"]["t1aaaaaaa"]["hidden"] is True
     assert "(hidden)" in paths.not_lossless_md.read_text()
     ops.run_single(paths, "unhide", "t1aaaaaaa", shown(paths),
                    lambda state: ops.set_hidden(paths, state, "t1aaaaaaa", False), now=lambda: NOW)
-    assert load_state(paths.state_file)["tracks"]["t1aaaaaaa"]["hidden"] is False
+    assert load_state(paths)["tracks"]["t1aaaaaaa"]["hidden"] is False
     assert "(hidden)" not in paths.not_lossless_md.read_text()
     assert [(r["operation"], r["result"]) for r in oplog(paths)] == [("hide", "done"), ("unhide", "done")]
     assert oplog(paths)[0] == {"time": "2026-10-20T12:00:00", "track_id": "t1aaaaaaa", "artist": "Artist",
@@ -83,15 +84,15 @@ def test_hide_and_unhide(paths):
 
 def test_refused_when_the_track_changed_in_the_meantime(paths):
     expect = shown(paths)
-    state = load_state(paths.state_file)  # meanwhile the console placed a lossless file
+    state = load_state(paths)  # meanwhile the console placed a lossless file
     state["tracks"]["t1aaaaaaa"] = make_entry(path="Library/A/Artist - Song.aiff", status="lossless")
-    save_state(paths.state_file, state)
-    before = paths.state_file.read_bytes()
+    save_state(paths, state)
+    before = load_state(paths)
     called = []
     with pytest.raises(OpProblem) as excinfo:
         ops.run_single(paths, "hide", "t1aaaaaaa", expect, lambda s: called.append(1), now=lambda: NOW)
     assert excinfo.value.kind == "changed" and "changed in the meantime" in str(excinfo.value)
-    assert called == [] and paths.state_file.read_bytes() == before
+    assert called == [] and load_state(paths) == before
     assert oplog(paths)[-1]["result"] == "changed"
 
 
@@ -105,10 +106,10 @@ def test_unknown_track_is_refused(paths):
 def test_pending_steps_are_recovered_first(paths):
     src, dst = ".discjockey/.tmp/t2/x.aiff", "Library/B/Other - Two.aiff"
     touch(paths, src, b"placed")
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     state["pending"].append({"track_id": "t2", "renames": [[src, dst]],
                              "entry": make_entry(path=dst, status="lossless", title="Two", artist="Other")})
-    save_state(paths.state_file, state)
+    save_state(paths, state)
     seen = {}
 
     def do(state):
@@ -118,7 +119,7 @@ def test_pending_steps_are_recovered_first(paths):
     done = ops.run_single(paths, "hide", "t1aaaaaaa", shown(paths), do, now=lambda: NOW)
     assert seen["pending"] == [] and (paths.root / dst).read_bytes() == b"placed"
     assert done.recovered and done.recovered[0][1] is True and "Two" in done.recovered[0][0]
-    assert load_state(paths.state_file)["tracks"]["t2"]["path"] == dst
+    assert load_state(paths)["tracks"]["t2"]["path"] == dst
 
 
 def test_an_unexpected_error_is_logged_and_passed_on(paths):
@@ -157,7 +158,7 @@ def bought(tmp_path, name="My Purchase.wav", data=b"RIFF bought audio"):
 
 
 def add(paths, src, analyze=lambda p: ("pcm_s16le", None), tid="t1aaaaaaa"):
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     return ops.add_bought_file(paths, state, tid, src, analyze=analyze, now=lambda: NOW), state
 
 
@@ -171,14 +172,14 @@ def test_bought_wav_is_filed_under_the_expected_name(paths, tmp_path):
     assert (paths.root / e["path"]).read_bytes() == b"RIFF bought audio"
     assert (paths.root / "Superseded/A/Artist - Song.aiff").read_bytes() == b"old audio"  # the lossy one, kept
     assert (src.read_bytes(), src.stat().st_mtime_ns) == before  # the user's own file is only read
-    assert load_state(paths.state_file) == state and state["pending"] == []
+    assert records(load_state(paths)) == records(state) and state["pending"] == []
     assert not (paths.tmp / "t1aaaaaaa").exists()
 
 
 def test_bought_file_for_a_missing_track(paths, tmp_path):
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     state["tracks"]["t1aaaaaaa"] = make_entry(status="missing")
-    save_state(paths.state_file, state)
+    save_state(paths, state)
     result, state = add(paths, bought(tmp_path, "x.aif"))
     assert state["tracks"]["t1aaaaaaa"]["path"] == "Library/A/Artist - Song.aif"
     assert not (paths.root / "Superseded").exists()
@@ -192,11 +193,11 @@ def test_bought_fake_lossless_goes_to_not_lossless(paths, tmp_path):
 
 def test_bought_file_never_overwrites(paths, tmp_path):
     touch(paths, "Library/A/artist - song.wav", b"someone else's file")
-    before = paths.state_file.read_bytes()
+    before = load_state(paths)
     with pytest.raises(OpProblem, match="already taken"):
         add(paths, bought(tmp_path))
     assert (paths.root / "Library/A/artist - song.wav").read_bytes() == b"someone else's file"
-    assert (paths.root / LOSSY).read_bytes() == b"old audio" and paths.state_file.read_bytes() == before
+    assert (paths.root / LOSSY).read_bytes() == b"old audio" and load_state(paths) == before
 
 
 def test_bought_file_never_overwrites_a_file_that_appears_meanwhile(paths, tmp_path):
@@ -207,7 +208,7 @@ def test_bought_file_never_overwrites_a_file_that_appears_meanwhile(paths, tmp_p
     with pytest.raises(OpProblem, match="already taken"):
         add(paths, bought(tmp_path), analyze=analyze)
     assert (paths.root / "Library/A/Artist - Song.wav").read_bytes() == b"appeared"
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     assert state["pending"] == [] and state["tracks"]["t1aaaaaaa"]["path"] == LOSSY
     assert not (paths.tmp / "t1aaaaaaa").exists()
 
@@ -239,20 +240,20 @@ def test_a_file_without_audio_is_refused_before_anything_is_placed(paths, tmp_pa
 
 
 def test_a_lossless_track_takes_no_bought_file(paths, tmp_path):
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     state["tracks"]["t1aaaaaaa"] = make_entry(path="Library/A/Artist - Song.aiff", status="lossless")
-    save_state(paths.state_file, state)
+    save_state(paths, state)
     with pytest.raises(OpProblem, match="lossless already"):
         add(paths, bought(tmp_path))
 
 
 def test_a_bought_file_makes_a_parked_upgrade_stale(paths, tmp_path):
     touch(paths, "Upgrades ready/A/Artist - Song.aiff", b"parked")
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     state["tracks"]["t1aaaaaaa"]["upgrade"] = {"file": "Upgrades ready/A/Artist - Song.aiff", "source": "qobuz",
                                                "source_id": "q1", "source_format": "flac", "found": "2026-10-10",
                                                "alignment": {"result": "exact"}}
-    save_state(paths.state_file, state)
+    save_state(paths, state)
     result, state = add(paths, bought(tmp_path))
     assert state["tracks"]["t1aaaaaaa"]["upgrade"] is None
     assert not (paths.root / "Upgrades ready/A/Artist - Song.aiff").exists()
@@ -357,7 +358,7 @@ def budget_for(state, used=0):
 
 
 def use(paths, cand, source=None, process=None, used=0, events=None, token=None):
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     source = source or FakeSource()
     result = ops.use_candidate(paths, state, "t1aaaaaaa", cand, qobuz=source, fallback=source,
                                budget=budget_for(state, used), emit=(events if events is not None else []).append,
@@ -383,7 +384,7 @@ def test_use_a_qobuz_version(paths):
     assert state["qobuz_usage"]["days"]["2026-10-20"] == 1  # counts toward today's limit
     assert SourceChosen("t1aaaaaaa", "qobuz", "chosen", "Song", 180.0) in events
     assert AccountUsage("qobuz", 1, 60) in events
-    assert load_state(paths.state_file) == state and not (paths.tmp / "t1aaaaaaa").exists()
+    assert records(load_state(paths)) == records(state) and not (paths.tmp / "t1aaaaaaa").exists()
 
 
 def test_use_a_lossy_version_with_the_same_name(paths):
@@ -397,9 +398,9 @@ def test_use_a_lossy_version_with_the_same_name(paths):
 @pytest.mark.parametrize("cand, status, kbps", [(YC, "not_lossless", 256), (QC, "lossless", None)])
 def test_use_this_records_the_new_files_bitrate(paths, cand, status, kbps):
     # else the weekly upgrade check keeps asking for "better than 129 kbps" and fetches the same 256 kbps stream
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     state["tracks"]["t1aaaaaaa"]["source_kbps"] = 129
-    save_state(paths.state_file, state)
+    save_state(paths, state)
     _, state, _ = use(paths, cand, process=fake_process(status, kbps=kbps))
     assert state["tracks"]["t1aaaaaaa"]["source_kbps"] == kbps
 
@@ -413,7 +414,7 @@ def test_a_version_with_the_wrong_length_is_rejected_and_nothing_moves(paths):
     with pytest.raises(OpProblem, match="3 seconds") as excinfo:
         use(paths, YC, process=fake_process(length_ok=False))
     assert excinfo.value.kind == "refused"
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     assert "youtube_music:abc" in state["tracks"]["t1aaaaaaa"]["rejected_sources"]
     assert state["tracks"]["t1aaaaaaa"]["path"] == LOSSY and (paths.root / LOSSY).read_bytes() == b"old audio"
 
@@ -425,7 +426,7 @@ def test_daily_limit_reached(paths):
 
 
 def test_failed_qobuz_download_counts_toward_the_auto_stop(paths):
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     budget = budget_for(state)
     with pytest.raises(OpProblem, match="did not work") as excinfo:
         ops.use_candidate(paths, state, "t1aaaaaaa", QC, qobuz=FakeSource(RuntimeError("timeout")), fallback=None,
@@ -439,31 +440,31 @@ def test_stop_during_the_download_changes_nothing(paths):
     token = CancelToken()
     with pytest.raises(Cancelled):
         use(paths, YC, source=FakeSource(stop_with=token), token=token)
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     assert state["tracks"]["t1aaaaaaa"]["path"] == LOSSY and not (paths.tmp / "t1aaaaaaa").exists()
 
 
 def test_using_a_version_makes_a_parked_upgrade_stale(paths):
     touch(paths, "Upgrades ready/A/Artist - Song.aiff", b"parked")
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     state["tracks"]["t1aaaaaaa"]["upgrade"] = {"file": "Upgrades ready/A/Artist - Song.aiff", "source": "qobuz",
                                                "source_id": "q1", "source_format": "flac", "found": "2026-10-10",
                                                "alignment": {"result": "exact"}}
-    save_state(paths.state_file, state)
+    save_state(paths, state)
     use(paths, YC, process=fake_process("not_lossless"))
     assert not (paths.root / "Upgrades ready/A/Artist - Song.aiff").exists()
 
 
 def test_a_version_chosen_after_it_was_rejected_is_no_longer_rejected(paths):
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     state["tracks"]["t1aaaaaaa"]["rejected_sources"] = ["youtube_music:abc"]
-    save_state(paths.state_file, state)
+    save_state(paths, state)
     result, state, _ = use(paths, YC, process=fake_process("not_lossless"))
     assert state["tracks"]["t1aaaaaaa"]["rejected_sources"] == ["youtube_music:y1"]
 
 
 def test_none_of_these(paths):
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     result = ops.reject_current(paths, state, "t1aaaaaaa")
     e = state["tracks"]["t1aaaaaaa"]
     assert result.section == "rejected"
@@ -471,11 +472,11 @@ def test_none_of_these(paths):
     assert not (paths.root / LOSSY).exists()
     assert e["status"] == "missing" and e["path"] is None and e["source"] is None and e["last_attempt"] is None
     assert e["rejected_sources"] == ["youtube_music:y1"]
-    assert load_state(paths.state_file) == state
+    assert records(load_state(paths)) == records(state)
 
 
 def test_none_of_these_forgets_the_old_files_bitrate(paths):
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     state["tracks"]["t1aaaaaaa"]["source_kbps"] = 129
     ops.reject_current(paths, state, "t1aaaaaaa")
     assert state["tracks"]["t1aaaaaaa"]["source_kbps"] is None
@@ -484,7 +485,7 @@ def test_none_of_these_forgets_the_old_files_bitrate(paths):
 def test_none_of_these_then_the_next_sync_searches_again_without_it(paths):
     from discjockey.models import FetchedPlaylist, PlaylistLine
     from discjockey.planner import plan
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     ops.reject_current(paths, state, "t1aaaaaaa")
     fetched = [FetchedPlaylist(PlaylistLine("A", "pl", 1), [ops.track_of("t1aaaaaaa", state["tracks"]["t1aaaaaaa"])],
                                [])]
@@ -495,7 +496,7 @@ def test_none_of_these_then_the_next_sync_searches_again_without_it(paths):
 def test_none_of_these_needs_the_file(paths):
     (paths.root / LOSSY).unlink()
     with pytest.raises(OpProblem, match="not where Discjockey expects it"):
-        ops.reject_current(paths, load_state(paths.state_file), "t1aaaaaaa")
+        ops.reject_current(paths, load_state(paths), "t1aaaaaaa")
 
 
 def test_a_crash_between_the_two_steps_leaves_a_track_the_next_sync_searches_again(paths, monkeypatch):
@@ -511,10 +512,10 @@ def test_a_crash_between_the_two_steps_leaves_a_track_the_next_sync_searches_aga
     monkeypatch.setattr(ops, "run_op", crash_on_second)
     with pytest.raises(KeyboardInterrupt):
         use(paths, YC, process=fake_process("not_lossless"))
-    e = load_state(paths.state_file)["tracks"]["t1aaaaaaa"]
+    e = load_state(paths)["tracks"]["t1aaaaaaa"]
     assert e["status"] == "missing" and e["path"] is None and e["rejected_sources"] == ["youtube_music:y1"]
     assert (paths.root / "Superseded/A/Artist - Song.aiff").read_bytes() == b"old audio"
-    assert load_state(paths.state_file)["pending"] == []
+    assert load_state(paths)["pending"] == []
 
 
 def test_a_different_recording_at_the_path_asks_for_a_rekordbox_check(paths):
@@ -523,28 +524,28 @@ def test_a_different_recording_at_the_path_asks_for_a_rekordbox_check(paths):
 
 
 def test_a_first_file_for_a_missing_track_needs_no_rekordbox_check(paths):
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     state["tracks"]["t1aaaaaaa"] = make_entry(status="missing")
-    save_state(paths.state_file, state)
+    save_state(paths, state)
     result, state, _ = use(paths, YC, process=fake_process("not_lossless"))
     assert state["tracks"]["t1aaaaaaa"].get("rekordbox_check") is None
 
 
 def test_none_of_these_asks_for_a_rekordbox_check(paths):
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     ops.reject_current(paths, state, "t1aaaaaaa", now=lambda: NOW)
     e = state["tracks"]["t1aaaaaaa"]
     assert e["rekordbox_check"] == {"reason": "wrong_song", "since": "2026-10-20"}
-    assert load_state(paths.state_file) == state
+    assert records(load_state(paths)) == records(state)
 
 
 def test_rekordbox_checked_clears_the_reminder(paths):
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     state["tracks"]["t1aaaaaaa"]["rekordbox_check"] = {"reason": "added_as_new", "since": "2026-10-19"}
-    save_state(paths.state_file, state)
+    save_state(paths, state)
     result = ops.rekordbox_checked(paths, state, "t1aaaaaaa")
     assert result.section == "rekordbox_checked" and state["tracks"]["t1aaaaaaa"]["rekordbox_check"] is None
-    assert load_state(paths.state_file) == state
+    assert records(load_state(paths)) == records(state)
 
 
 def test_a_fourth_replacement_still_finds_a_superseded_name(paths):
@@ -566,12 +567,12 @@ def test_the_superseded_name_is_chosen_before_anything_is_downloaded(paths, monk
     source = FakeSource()
     with pytest.raises(FileExistsError):
         use(paths, QC, source=source)
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     assert source.downloads == [] and state["qobuz_usage"]["days"].get("2026-10-20", 0) == 0
 
 
 def test_qobuz_versions_are_refused_while_qobuz_is_paused(paths):
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     budget = budget_for(state)
     budget.stopped = True
     source = FakeSource()
@@ -587,7 +588,7 @@ def test_use_this_needs_the_file_where_state_says(paths):
     with pytest.raises(OpProblem, match="not where Discjockey expects it"):
         use(paths, YC, source=source)
     assert source.downloads == []
-    assert load_state(paths.state_file)["tracks"]["t1aaaaaaa"]["path"] == LOSSY
+    assert load_state(paths)["tracks"]["t1aaaaaaa"]["path"] == LOSSY
 
 
 class AccountSource(FakeSource):
@@ -616,7 +617,7 @@ def youtube_budget(state, used=0):
 
 
 def use_with_account(paths, used, kbps=256, probe_error=None):
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     source, events = AccountSource(), []
     source.kbps, source.probe_error = kbps, probe_error
     yt = youtube_budget(state, used)
@@ -640,7 +641,7 @@ def test_use_this_without_a_premium_stream_downloads_free_and_spends_no_account_
     assert state["youtube_usage"]["days"]["2026-10-20"] == 0
     assert not any(isinstance(e, AccountUsage) for e in events)
     assert state["youtube_usage"]["signals"][-1]["kind"] == "premium_missing"  # as in a run (spec §4)
-    assert load_state(paths.state_file)["tracks"]["t1aaaaaaa"]["source"] == "youtube_music"
+    assert load_state(paths)["tracks"]["t1aaaaaaa"]["source"] == "youtube_music"
 
 
 def test_use_this_with_a_failed_listing_downloads_free_and_notes_the_warning_sign(paths):
@@ -656,7 +657,7 @@ def test_use_this_lists_nothing_when_the_account_is_used_up(paths):
 
 
 def test_use_this_keeps_only_the_first_200_characters_of_an_account_error(paths):
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     error = "ERROR: HTTP Error 403: Forbidden " + "x" * 400 + "\nTraceback (most recent call last): ..."
     source = AccountSource(fail=RuntimeError(error))
     yt = youtube_budget(state)
@@ -672,3 +673,26 @@ def test_use_this_downloads_free_when_the_account_is_used_up(paths):
     source, state, _ = use_with_account(paths, used=30)
     assert source.downloads == ["youtube_music:abc"]
     assert state["youtube_usage"]["days"]["2026-10-20"] == 30
+
+
+def test_a_bought_file_lands_next_to_a_file_kept_elsewhere(paths, tmp_path):
+    state = empty_state()  # option A (spec §7): the user keeps this one outside its playlist folder
+    state["tracks"]["t1aaaaaaa"] = make_entry(path="Library/Sets/2024/x.aiff")
+    touch(paths, "Library/Sets/2024/x.aiff")
+    result = ops.add_bought_file(paths, state, "t1aaaaaaa", bought(tmp_path), analyze=lambda p: ("pcm_s16le", None),
+                                 now=lambda: NOW)
+    assert result.section == "bought"
+    assert state["tracks"]["t1aaaaaaa"]["path"] == "Library/Sets/2024/Artist - Song.wav"
+    assert (paths.root / "Superseded/Sets/2024/x.aiff").read_bytes() == b"old audio"
+    assert not (paths.root / "Library/A/Artist - Song.wav").exists()
+
+
+def test_a_version_used_lands_next_to_a_file_kept_elsewhere(paths):
+    state = empty_state()
+    state["tracks"]["t1aaaaaaa"] = make_entry(path="Library/Sets/2024/x.aiff")
+    touch(paths, "Library/Sets/2024/x.aiff")
+    result = ops.use_candidate(paths, state, "t1aaaaaaa", QC, qobuz=FakeSource(), fallback=FakeSource(),
+                               budget=budget_for(state), process=fake_process(), now=lambda: NOW)
+    assert result.path == state["tracks"]["t1aaaaaaa"]["path"] == "Library/Sets/2024/Artist - Song.aiff"
+    assert (paths.root / "Library/Sets/2024/Artist - Song.aiff").read_bytes() == b"new audio"
+    assert (paths.root / "Superseded/Sets/2024/x.aiff").read_bytes() == b"old audio"

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createFakeBridge } from './bridge';
+import { STREAMS } from './replay';
 import { minutesByDownloads } from './minutes';
 import { LIBRARY_METHODS } from '../contract';
 import type { HubEvent } from '../events';
@@ -228,7 +229,9 @@ describe('fake backend', () => {
     const js = await f.job_status();
     if (!js.ok || !js.job) throw new Error();
     expect(js.job).toMatchObject({ kind: 'sync', running: true });
-    expect(js.job.actions).toHaveLength(6);
+    const planned = STREAMS.sync.find((e) => e.type === 'RunStarted') as Extract<HubEvent, { type: 'RunStarted' }>;
+    expect(js.job.actions).toHaveLength(planned.actions.length);
+    expect(js.job.last.Progress).toMatchObject({ step: 'download' });   // mid-download, as the scenario says
     expect(await f.search_candidates('t2')).toMatchObject({ ok: false, kind: 'sync_running' });
   });
   it('stop ends a replayed sync with exit 130', async () => {
@@ -333,5 +336,210 @@ describe('music folder', () => {
   });
   it('shows the music folder itself with reveal(".")', async () => {
     expect(await createFakeBridge('normal').reveal('.')).toMatchObject({ ok: true });
+  });
+});
+
+describe('fake tidy-up', () => {
+  const finished = (evs: HubEvent[], id: number) => until(evs, (e) => e.type === 'JobFinished' && e.job_id === id)
+    .then((e) => e as Extract<HubEvent, { type: 'JobFinished' }>);
+  const make = (hooks: (s: ReturnType<typeof createFakeBridge>['_ctx']['s']) => void = () => {}) => {
+    const evs: HubEvent[] = [];
+    const f = createFakeBridge('normal', { speed: 100, emit: (e) => evs.push(e) });
+    hooks(f._ctx.s);
+    return { f, evs };
+  };
+  const preview = async (f: ReturnType<typeof createFakeBridge>) => {
+    const p = await f.tidy_preview();
+    if (!p.ok) throw new Error();
+    return p;
+  };
+
+  it('the preview has rows to tick, your own placement, a taken name and an offline file', async () => {
+    const { f } = make();
+    const p = await preview(f);
+    expect(p.rows.filter((r) => r.ticked).length).toBe(p.ticked);
+    expect(p.rows.filter((r) => r.yours).length).toBeGreaterThan(0);
+    expect(p.rows.map((r) => r.skip?.reason).filter(Boolean).sort()).toEqual(['name_taken', 'offline']);
+    expect(p.rows.every((r) => !r.skip || !r.ticked)).toBe(true);
+    expect(p.yours).toMatchObject({ header: 'You put these here', control: 'Put these in playlist order too' });
+    expect(p.rows[0]).toMatchObject({ from_path: p.rows[0].path, by_rename: null });
+    expect(p.empty).toBeNull();
+    const pl = await f.playlists();
+    if (!pl.ok) throw new Error();
+    expect(pl.tidy.waiting).toBe(p.ticked);
+  });
+
+  it('a tidy-up moves the ticked files, logs a batch and the undo puts them back (one file moved on)', async () => {
+    const { f, evs } = make();
+    const seeded = await f.move_batches();
+    if (!seeded.ok) throw new Error();
+    expect(seeded.total).toBe(2);
+    const old = seeded.batches.find((b) => b.title === 'Tidy-up')!;
+    expect(old.undoable).toBe(old.moved - 1);  // one of its files was moved on by hand
+    const undo = await f.undo_preview(old.id);
+    if (!undo.ok) throw new Error();
+    expect(undo.rows.every((r) => r.kind === 'file' && r.files === null)).toBe(true);
+    expect(undo.rows.filter((r) => r.skip?.reason === 'moved_on')).toHaveLength(1);
+    expect(undo.rows.find((r) => r.skip)?.skip?.text).toBe('Moved or changed since');
+    expect(undo.moving).toBe(undo.rows.filter((r) => !r.skip).length);
+    expect(undo.nothing_left).toBe(false);
+    expect(await f.undo_preview(999)).toMatchObject({ ok: false, kind: 'refused' });
+    const rows = (await preview(f)).rows.filter((r) => r.ticked);
+    const start = await f.tidy_up(rows.map((r) => [r.file_id, r.from_path]));
+    if (!start.ok) throw new Error();
+    const done = await finished(evs, start.job_id);
+    expect(done.ok).toBe(true);
+    expect(done.result).toMatchObject({ title: 'Tidy-up', moved: rows.length, stopped: false, skipped: [],
+      headline: `Moved ${rows.length} files.` });
+    expect(evs.filter((e) => e.type === 'MovesProgress')).toHaveLength(rows.length);
+    expect((await preview(f)).rows.filter((r) => r.ticked)).toHaveLength(0);
+    const log = await f.move_batches();
+    if (!log.ok) throw new Error();
+    expect(log.batches[0]).toMatchObject({ title: 'Tidy-up', moved: rows.length, undone_by: null, undoable: rows.length });
+    const mine = log.batches[0].id;
+    const u = await f.undo_moves(mine);
+    if (!u.ok) throw new Error();
+    const back = await finished(evs, u.job_id);
+    expect(back.result).toMatchObject({ title: 'Undo of: Tidy-up', moved: rows.length, headline: `Moved ${rows.length} files back.` });
+    expect((await preview(f)).rows.filter((r) => r.ticked)).toHaveLength(rows.length);
+    const log2 = await f.move_batches();
+    if (!log2.ok) throw new Error();
+    expect(log2.batches.find((b) => b.id === mine)).toMatchObject({ undone_by: back.result.batch_id, undoable: 0 });
+  });
+
+  it('a file that changed since the list was shown is skipped, and malformed moves are refused', async () => {
+    const { f, evs } = make();
+    const row = (await preview(f)).rows.find((r) => r.ticked)!;
+    const start = await f.tidy_up([[row.file_id, 'Library/Somewhere/else.aiff']]);
+    if (!start.ok) throw new Error();
+    const done = await finished(evs, start.job_id);
+    expect(done.result).toMatchObject({ moved: 0, headline: 'Moved 0 files. 1 not moved:' });
+    expect(done.result.skipped[0].text).toBe('Changed since the list was shown');
+    for (const bad of [null, [], [[1]], [['1', 'a']], [[1, '']]]) {
+      expect(await f.tidy_up(bad as never)).toMatchObject({ ok: false, kind: 'refused' });
+    }
+  });
+
+  it('hooks: a failing move, a stopped batch and no rows', async () => {
+    const failing = make((s) => { s.tidy.failMove = 1; });
+    const rows = (await preview(failing.f)).rows.filter((r) => r.ticked);
+    const a = await failing.f.tidy_up(rows.map((r) => [r.file_id, r.from_path]));
+    if (!a.ok) throw new Error();
+    const failed = await finished(failing.evs, a.job_id);
+    expect(failed.ok).toBe(true);
+    expect(failed.result.skipped.map((x: { text: string }) => x.text)).toEqual(["Couldn't move it: the drive is full"]);
+    const stopped = make((s) => { s.tidy.stopAfter = 1; });
+    const b = await stopped.f.tidy_up((await preview(stopped.f)).rows.filter((r) => r.ticked).map((r) => [r.file_id, r.from_path]));
+    if (!b.ok) throw new Error();
+    const cut = await finished(stopped.evs, b.job_id);
+    expect(cut).toMatchObject({ ok: false, problem: 'stopped' });
+    expect(cut.result).toMatchObject({ stopped: true, moved: 1 });
+    expect(cut.result.skipped[0].text).toBe('Not moved: the moves were stopped first');
+    const none = make((s) => { s.tidy.noRows = true; });
+    expect(await preview(none.f)).toMatchObject({ rows: [], ticked: 0, empty: 'Every file is where the playlist order puts it.' });
+  });
+
+  it('only your own placements left: the preview says so and the button stays usable', async () => {
+    const { f } = make();
+    const rows = (await preview(f)).rows;
+    for (const r of rows) if (!r.yours) f._ctx.s.tidy.placed[r.track_id] = 'user';
+    const p = await preview(f);
+    expect(p.ticked).toBe(0);
+    expect(p.empty).toMatch(/files are where you put them, not where the playlist order puts them\.$/);
+  });
+
+  it('the save preview sends tidy rows and rename offers, and the save asks the question', async () => {
+    const { f, evs } = make();
+    const pl = await f.playlists();
+    if (!pl.ok) throw new Error();
+    const lines = pl.rows.map((r) => ({ folder: r.folder, link: r.link, enabled: r.enabled }));
+    const swapped = [lines[1], lines[0], ...lines.slice(2)];
+    const c = await f.preview_playlist_change(swapped);
+    if (!c.ok) throw new Error();
+    expect('moves' in c).toBe(false);
+    expect(c.kind).toBe('moves');
+    expect(c.tidy!.headline).toMatch(/^\d+ files? would sit in a different folder$/);
+    expect(c.headline).toBe(c.tidy!.headline);
+    expect(c.checklist).toEqual(['No downloads, no Qobuz quota used', 'Nothing is deleted', 'Files move only if you choose to',
+      'Moves can be undone on this page']);
+    const renamed = lines.map((l, i) => (i === 0 ? { ...l, folder: 'Hard_New' } : l));
+    const r = await f.preview_playlist_change(renamed);
+    if (!r.ok) throw new Error();
+    expect(r.kind).toBe('rename');
+    expect(r.renames[0]).toMatchObject({ from: 'Hard_Bounce', to: 'Hard_New', offered: true, why_not: null,
+      option: 'Rename the folder on disk too' });
+    // the rename on disk covers the files that sit in the folder; a file put elsewhere moves on its own
+    const inFolder = (x: { from: string }) => x.from.replace(/\/not_lossless$/, '') === 'Hard_Bounce';
+    expect(r.tidy!.rows.filter(inFolder).length).toBeGreaterThan(0);
+    expect(r.tidy!.rows.every((x) => x.by_rename === (inFolder(x) ? 'Hard_Bounce' : null))).toBe(true);
+    const v = pl.version;
+    const save = await f.save_playlists(renamed, v, { choice: 'move', renames: [['Hard_Bounce', 'Hard_New']], moves: [] });
+    if (!save.ok) throw new Error();
+    const done = await finished(evs, save.job_id);
+    expect(done.ok).toBe(true);
+    const folders = await f.library(null, '', 'all', 'artist');
+    if (!folders.ok) throw new Error();
+    const carried = folders.rows.filter((x) => x.path?.startsWith('Library/Hard_New/')).length;
+    expect(carried).toBeGreaterThan(1);
+    // a folder move counts the files it carried, in the result, the log and the undo preview
+    expect(done.result.batches[0]).toMatchObject({ title: 'Renamed Hard_Bounce to Hard_New', moved: carried });
+    expect(done.result.batches[0].headline).toBe(`Moved ${carried} files.`);
+    const log = await f.move_batches();
+    if (!log.ok) throw new Error();
+    expect(log.batches.find((b) => b.id === done.result.batches[0].batch_id)!.summary).toBe(`${carried} files moved`);
+    const undo = await f.undo_preview(done.result.batches[0].batch_id);
+    if (!undo.ok) throw new Error();
+    expect(undo.rows).toMatchObject([{ kind: 'folder', files: carried }]);
+    expect(undo.moving).toBe(carried);
+  });
+
+  it('a Stop during the save wait saves the file, runs no batch and ends stopped with the new version', async () => {
+    const { f, evs } = make();
+    const pl = await f.playlists();
+    if (!pl.ok) throw new Error();
+    const lines = pl.rows.map((r) => ({ folder: r.folder, link: r.link, enabled: r.enabled }));
+    const swapped = [lines[1], lines[0], ...lines.slice(2)];
+    const rows = (await preview(f)).rows;
+    const save = await f.save_playlists(swapped, pl.version, { choice: 'move', renames: [], moves: rows.map((r) => [r.file_id, r.from_path]) });
+    if (!save.ok) throw new Error();
+    expect(await f.stop()).toMatchObject({ ok: true, stopped: true });
+    const done = await finished(evs, save.job_id);
+    expect(done).toMatchObject({ ok: false, problem: 'stopped' });
+    const after = await f.playlists();
+    if (!after.ok) throw new Error();
+    expect(after.version).not.toBe(pl.version);
+    expect(done.result).toEqual({ version: after.version, batches: [] });
+  });
+
+  it('save checks folder names by the real rules and undo refuses a batch nobody recorded', async () => {
+    const { f } = make();
+    const pl = await f.playlists();
+    if (!pl.ok) throw new Error();
+    const lines = pl.rows.map((r) => ({ folder: r.folder, link: r.link, enabled: r.enabled }));
+    const named = (folder: string) => [{ ...lines[0], folder }, ...lines.slice(1)];
+    for (const bad of ['a/b', 'a\\b', 'a:b', '.hidden', '..', 'Not_Lossless', 'x'.repeat(101)]) {
+      expect(await f.save_playlists(named(bad), pl.version, null), bad).toMatchObject({ ok: false, kind: 'refused' });
+    }
+    expect(await f.save_playlists(named('Caf\u00e9, 2024 (live)'), pl.version, null)).toMatchObject({ ok: true });
+    expect(await f.undo_moves(9999)).toMatchObject({ ok: false, kind: 'refused', message: 'Discjockey has no record of these moves.' });
+  });
+
+  it('save with leave makes the retargeted files yours; malformed answers are refused', async () => {
+    const { f, evs } = make();
+    const pl = await f.playlists();
+    if (!pl.ok) throw new Error();
+    const lines = pl.rows.map((r) => ({ folder: r.folder, link: r.link, enabled: r.enabled }));
+    const swapped = [lines[1], lines[0], ...lines.slice(2)];
+    const before = (await preview(f)).rows.length;
+    for (const bad of ['move', { choice: 'x' }, { choice: 'move', moves: [[1]] }, { choice: 'move', renames: [['a']] }]) {
+      expect(await f.save_playlists(swapped, pl.version, bad as never)).toMatchObject({ ok: false, kind: 'refused' });
+    }
+    const save = await f.save_playlists(swapped, pl.version, { choice: 'leave', renames: [], moves: [] });
+    if (!save.ok) throw new Error();
+    const done = await finished(evs, save.job_id);
+    expect(done.result.batches).toEqual([]);
+    const after = await preview(f);
+    expect(after.rows.length).toBeGreaterThan(before);  // the retargeted files sit where they were, as yours
+    expect(after.rows.filter((r) => r.yours).length).toBeGreaterThan(0);
   });
 });

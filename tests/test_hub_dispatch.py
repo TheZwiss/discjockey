@@ -132,8 +132,13 @@ def test_a_blocking_window_does_not_stall_the_engine(tmp_path):
     window = BlockingWindow()
     hub = HubEvents(lambda: window)
     hub.start()
-    ex, seconds = run_engine(tmp_path, hub.emit)
-    assert [r.section for r in ex.log.results] == ["new_lossless"] * 30 and seconds < 2
+    (tmp_path / "window").mkdir()
+    (tmp_path / "baseline").mkdir()
+    ex, seconds = run_engine(tmp_path / "window", hub.emit)
+    _, baseline = run_engine(tmp_path / "baseline", lambda event: None)
+    # 600 events: a wait of even 10 ms per event would add 6 s. Measured against the same engine without a window,
+    # so the disk (every save is written out to the drive) and a loaded parallel test run don't count
+    assert [r.section for r in ex.log.results] == ["new_lossless"] * 30 and seconds <= baseline * 2 + 1
     window.release.set()
     assert wait_for(lambda: sum('"ActionFinished"' in s for s in window.scripts) == 30)
     hub.stop()

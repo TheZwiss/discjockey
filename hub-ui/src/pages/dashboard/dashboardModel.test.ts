@@ -14,7 +14,7 @@ const EX: Dashboard = {
     still_to_load: { count: 2, days: 1, fits_today: true },
     account_today: null,
   },
-  ready: { counts: { new: 2, retries: 0, redownloads: 0, moves: 0, adopts: 0, bought: 0, weekly_checks: 0 },
+  ready: { counts: { new: 2, retries: 0, redownloads: 0, bought: 0, weekly_checks: 0 },
     actions: 2, duration_min: 5, qobuz_limit: 60, qobuz_needed: 2, qobuz_left: 80, qobuz_uses: 2,
     accounts: [{ service: 'qobuz', name: 'Qobuz', uses: 2, left: 80, limit: 60, about: false }],
     left: 80, limit: 60 },
@@ -73,23 +73,23 @@ describe('next sync (the panel)', () => {
   });
   it('counts what runs today and its time, and draws the whole day: used, this sync, left', () => {
     const d = with_({ actions: 16, qobuz_needed: 12, qobuz_uses: 12, duration_min: 20, left: 43, limit: 60,
-      counts: { ...ready.counts, new: 12, moves: 1, weekly_checks: 3 } },
+      counts: { ...ready.counts, new: 12, bought: 1, weekly_checks: 3 } },
     { tiles: { ...EX.tiles, qobuz_today: { ...EX.tiles.qobuz_today, used: 37, remaining: 43 } } });
-    expect(nextSync(d, false, true)).toEqual({ state: 'ready', count: { n: 16, unit: 'track' },
+    expect(nextSync(d, false, true)).toEqual({ state: 'ready', count: 16,
       time: { value: '~20', unit: 'min' }, limitReached: false, limits: { text: 'Qobuz · 80 today', full: 'Qobuz: 60 a day + 20 carried over' },
-      day: { today: 12, later: 0, limited: true, laterDays: 0, moves: 1, day: { used: 37, allowance: 80 } } });
+      day: { today: 12, later: 0, limited: true, laterDays: 0, day: { used: 37, allowance: 80 } } });
   });
   it('leaves the downloads over today\'s limit for later and does not count them', () => {
     const d = with_({ actions: 70, qobuz_needed: 66, qobuz_uses: 43, left: 43, limit: 60,
-      counts: { ...ready.counts, new: 66, moves: 4 } });
+      counts: { ...ready.counts, new: 66, bought: 4 } });
     const r = nextSync(d, false, true);
-    expect(r).toMatchObject({ state: 'ready', count: { n: 47, unit: 'track' } });
+    expect(r).toMatchObject({ state: 'ready', count: 47 });
     expect(r.state === 'ready' && r.day).toMatchObject({ today: 43, later: 23, laterDays: 1 });
   });
-  it('says the limit is reached when only moves run today', () => {
+  it('says the limit is reached when only bought files run today', () => {
     const d = with_({ actions: 80, qobuz_needed: 77, qobuz_uses: 0, duration_min: 0, left: 0, limit: 60,
-      counts: { ...ready.counts, new: 77, moves: 3 } });
-    expect(nextSync(d, false, true)).toMatchObject({ state: 'ready', limitReached: true, count: { n: 3, unit: 'move' } });
+      counts: { ...ready.counts, new: 77, bought: 3 } });
+    expect(nextSync(d, false, true)).toMatchObject({ state: 'ready', limitReached: true, count: 3 });
   });
   it('draws the plain bar without a daily limit', () => {
     const r = nextSync(with_({ left: null, limit: 0 }), false, true);
@@ -104,7 +104,7 @@ describe('next sync (the panel)', () => {
     const d = with_({ actions: 0, qobuz_needed: 0, qobuz_uses: 0, left: 43 },
       { next_checks: 3, tiles: { ...EX.tiles, qobuz_today: { ...EX.tiles.qobuz_today, used: 37, remaining: 43 } } });
     expect(nextSync(d, false, true)).toEqual({ state: 'up_to_date', checks: 3, limits: { text: 'Qobuz · 80 today', full: 'Qobuz: 60 a day + 20 carried over' },
-      day: { today: 0, later: 0, limited: true, laterDays: 0, moves: 0, day: { used: 37, allowance: 80 } } });
+      day: { today: 0, later: 0, limited: true, laterDays: 0, day: { used: 37, allowance: 80 } } });
     expect(nextSync(with_({ actions: 0, left: null }), false, true)).toMatchObject({ day: null, limits: null });
   });
 });

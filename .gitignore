@@ -20,3 +20,6 @@ dist/
 
 # The private archive (spec public-release §9): tracked in the private repo, kept out of the public one
 docs/archive/pre-public/
+
+# agent worktrees
+.claude/worktrees/

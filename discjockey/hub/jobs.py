@@ -12,7 +12,7 @@ import os
 import threading
 import traceback
 from collections import deque
-from contextlib import ExitStack, contextmanager, nullcontext
+from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -76,8 +76,8 @@ class AppUpdate:
 
 
 EVENT_TYPES = (ev.RunStarted, ev.ActionStarted, ev.StepChanged, ev.Progress, ev.Waiting, ev.SourceChosen, ev.Checked,
-               ev.AccountUsage, ev.ActionFinished, ev.RunFinished, ev.Message, ev.ReadingPlaylist, JobStarted, JobFinished, ConsoleBusy,
-               FileDropped, SignInPhase, AppUpdate)
+               ev.AccountUsage, ev.ActionFinished, ev.RunFinished, ev.Message, ev.ReadingPlaylist, ev.MovesProgress, JobStarted, JobFinished,
+               ConsoleBusy, FileDropped, SignInPhase, AppUpdate)
 
 
 def event_dict(event: object) -> dict:
@@ -158,6 +158,7 @@ class HubEvents:
 
 CONSOLE_TEXT = "A sync is running in the terminal. Wait until it has finished."
 BUSY_TEXT = "Discjockey is still busy with the last change. Wait until it has finished."
+SCANNING_TEXT = "Discjockey is checking your Library. Try again in a moment."
 ACTIVITY_OPTIONS = 0x00FFFFFF | (1 << 20)  # NSActivityUserInitiated, idle system sleep disabled
 
 
@@ -290,7 +291,8 @@ class Jobs:
         self._watch: threading.Thread | None = None
         self._closed = threading.Event()
         self._holder = threading.local()  # .on: this thread is a write job's and holds the engine lock
-        self._brief = False  # lock_briefly holds (or is about to take) the engine lock: that is no terminal run
+        self._brief = False  # lock_briefly or a scan holds (or is about to take) the engine lock: no terminal run
+        self._scanning = False  # scan_lock holds the engine lock (without the mutex): writers answer busy
         self._briefs = 0  # how many times lock_briefly has taken it (a probe that overlapped one doesn't count)
 
     def bind(self, lock: Path) -> None:
@@ -301,6 +303,13 @@ class Jobs:
     def running(self) -> Job | None:
         job = self.current
         return job if job is not None and not job.done.is_set() else None
+
+    def _busy(self) -> Busy | None:
+        """Busy when a write job runs, or only the preview's scan holds the lock (its own words). The mutex is held."""
+        job = self.running()
+        if job is not None:
+            return Busy(SCANNING_TEXT if job.kind == "scan" else BUSY_TEXT, "busy")
+        return Busy(SCANNING_TEXT, "busy") if self._scanning else None
 
     def console_running(self) -> bool:
         """A terminal run holds the lock (our own job, or our own brief save, holding it does not count)."""
@@ -319,8 +328,8 @@ class Jobs:
             yield
             return
         with self._mutex, ExitStack() as stack:  # no write job can start meanwhile (start takes the mutex)
-            if self.running() is not None:
-                raise Busy(BUSY_TEXT, "busy")
+            if (busy := self._busy()) is not None:
+                raise busy
             self._brief, self._briefs = True, self._briefs + 1
             stack.callback(setattr, self, "_brief", False)
             try:
@@ -330,6 +339,34 @@ class Jobs:
                 raise Busy(CONSOLE_TEXT, "console") from None
             yield
 
+    @contextmanager
+    def scan_lock(self):
+        """For a read-only job that writes library.db when it can (the preview's scan, which reads files and can
+        take minutes): yields True while it holds the engine lock, False when a write job, another scan or a
+        terminal run has it. The mutex is held only to check and mark; meanwhile every write job and brief save
+        answers busy at once, and the other starts don't wait."""
+        if getattr(self._holder, "on", False):  # a write job's own thread holds the lock already
+            yield True
+            return
+        with ExitStack() as stack:
+            with self._mutex:
+                held = self.running() is None and not self._scanning
+                if held:
+                    self._scanning = self._brief = True
+                    self._briefs += 1
+                    stack.callback(self._end_scan)  # runs after the lock below is released
+                    try:
+                        if self.lock is not None:
+                            stack.enter_context(library.run_lock(self.lock))
+                    except LockHeld:  # a terminal run: unmarked again at once (the mutex is held here)
+                        stack.pop_all()
+                        held = self._scanning = self._brief = False
+            yield held
+
+    def _end_scan(self) -> None:
+        with self._mutex:
+            self._scanning = self._brief = False
+
     def _new(self, kind: str, track_id: str | None) -> Job:
         return Job(next(self._ids), kind, track_id, CancelToken(), self.now().isoformat(timespec="seconds"))
 
@@ -337,8 +374,8 @@ class Jobs:
         """A write job: `work(ctx)` runs in a worker thread while holding the engine lock and keeping the Mac awake.
         Raises Busy at once if another write job runs or the console holds the lock."""
         with self._mutex:
-            if self.running() is not None:
-                raise Busy(BUSY_TEXT, "busy")
+            if (busy := self._busy()) is not None:
+                raise busy
             if self.console_running():
                 raise Busy(CONSOLE_TEXT, "console")
             job = self.current = self._new(kind, track_id)
@@ -518,12 +555,14 @@ class PreviewStore:
 
 
 def refresh_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] = datetime.now,
-                 infos: dict | None = None):
-    """Read-only: run.prepare(dry_run=True). Never writes state.json, reports or the library. With `infos`, also
-    reads each playlist's name, owner and cover for the playlist page (a failure there is not a problem)."""
+                 infos: dict | None = None, lock: Callable[[], AbstractContextManager[bool]] = run.lock_held):
+    """A dry run: run.prepare(dry_run=True). Changes no music file, report or download; it scans Library/ into
+    library.db first when `lock()` gets the library lock (Jobs.scan_lock), else it plans on the last scan. With
+    `infos`, also reads each playlist's name, owner and cover for the playlist page (a failure there is not a
+    problem)."""
     def work(ctx: JobContext) -> dict:
         try:
-            prep = run.prepare(paths, dry_run=True, emit=ctx.emit, token=ctx.token)
+            prep = run.prepare(paths, dry_run=True, emit=ctx.emit, token=ctx.token, lock=lock)
         except run.SetupProblem as e:
             store.failed(e.kind, str(e), ctx.token)
             raise

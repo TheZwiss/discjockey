@@ -6,7 +6,7 @@ import type { JobSnap } from '../types';
 
 /** Fixture Spotify ids → the fake library's ids (same tracks, see data.ts). */
 export const ID_MAP: Record<string, string> = {
-  '0VjIjW4GlUZAMYd2vXMi3b': 't6', '4uLU6hMCjMI75M1A2tKUQC': 't1', '1301WleyT98MSxVHPZCA6M': 't3',
+  '4uLU6hMCjMI75M1A2tKUQC': 't1', '1301WleyT98MSxVHPZCA6M': 't3',
   '3n3Ppam7vgaVa1iaRUc9Lp': 't5', '2takcwOaAZWiXQijPHIx7B': 't4', '7ouMYWpwJ422jRcDASZB7P': 't2',
 };
 function mapIds(raw: string): string {
@@ -16,8 +16,30 @@ function mapIds(raw: string): string {
 }
 const parse = (raw: string): HubEvent[] => mapIds(raw).split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
 export const STREAMS = { sync: parse(syncRaw), stopped: parse(stoppedRaw) };
-/** 1-based fixture line of the sync job's JobStarted (lines 1–3 are the refresh). */
-export const SYNC_START_LINE = 6;
+
+/** The 1-based line of the `nth` (0-based) event that `pred` matches. Finds moments by what happens, not by a fixed
+ *  line number, so a re-recorded fixture keeps the moments; throws when there is no such event. */
+export function lineOf(evs: HubEvent[], pred: (e: HubEvent) => boolean, nth = 0): number {
+  let seen = 0;
+  for (let i = 0; i < evs.length; i++) if (pred(evs[i]) && seen++ === nth) return i + 1;
+  throw new Error(`no event #${nth} matches in the recorded stream`);
+}
+const sync = STREAMS.sync;
+/** 1-based fixture line of the sync job's JobStarted (the refresh job comes first). */
+export const SYNC_START_LINE = lineOf(sync, (e) => e.type === 'JobStarted' && e.kind === 'sync');
+/** Moments of the recorded sync the fake scenarios start or stop at (1-based lines). */
+export const SYNC_LINES = {
+  /** mid-download of "non stop" (t5): its second download Progress */
+  downloading: lineOf(sync, (e) => e.type === 'Progress' && e.track_id === 't5' && e.step === 'download', 1),
+  /** "non stop" (t5) is in its conversion: the sync:converting scenario freezes here */
+  converting: lineOf(sync, (e) => e.type === 'StepChanged' && e.track_id === 't5' && e.step === 'convert'),
+  /** Get Naughty's source is chosen, the protection pause comes next */
+  sourceBeforePause: lineOf(sync, (e) => e.type === 'SourceChosen' && e.track_id === 't2'),
+  /** well into the protection pause before Get Naughty (about 34 s left) */
+  inPause: lineOf(sync, (e) => e.type === 'Waiting' && e.kind === 'between' && e.remaining < 35),
+  /** Gone Track's (t3) fallback search started: the errors scenario crashes after it */
+  crash: lineOf(sync, (e) => e.type === 'StepChanged' && e.track_id === 't3' && e.step === 'search', 1),
+};
 
 /** What Python's job_status() keeps per job (jobs.py JobRecord). */
 export class JobRecord {

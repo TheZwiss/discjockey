@@ -26,7 +26,7 @@
     ToggleGroup, ToggleRow, TrackHead, TrackRow, UpgradeCard, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
     confirm, envelope,
   } from '../components';
-  import Tick from '../../pages/sync/plan/Tick.svelte';
+  import Tick from '../components/Tick.svelte';
   import NeverButton from '../../pages/sync/plan/NeverButton.svelte';
   import Why from '../../pages/sync/plan/Why.svelte';
   import WhyMark from '../../pages/sync/plan/WhyMark.svelte';
@@ -160,6 +160,7 @@
   ];
   let accSteps = $state<Record<string, boolean>>(Object.fromEntries(ACCOUNT_PANELS.map((p) => [p.key, !!p.steps])));
   let ladderPicked = $state<string>('');
+  let subOn = $state(true);
   // StepStrip: every state at once (two done, the one on screen, the next one, one that waits)
   const STRIP: StripStep[] = [
     { key: 'music', label: 'Music folder', state: 'done', done: true },
@@ -179,9 +180,9 @@
   const playlists = (names: string[], counts: number[], off: number[]): ToggleItem[] =>
     names.map((label, i) => ({ key: `p${i}`, label, count: counts[i % counts.length], on: !off.includes(i) }));
   let kinds = $state<ToggleItem[]>([{ key: 'new', label: 'New', count: 95, on: true },
-    { key: 'retry', label: 'Not found last time', count: 4, on: true }, { key: 'move', label: 'Moves', count: 3, on: false }]);
-  // the 7 kinds the app defines: a fixed set, so no search (spec §11, Task 9B)
-  let allKinds = $state<ToggleItem[]>(KINDS.map((k, i) => ({ key: k.key, label: k.label, count: [95, 4, 2, 3, 1, 2, 12][i], on: i !== 4 })));
+    { key: 'retry', label: 'Not found last time', count: 4, on: true }, { key: 'bought', label: 'Bought files', count: 3, on: false }]);
+  // the 5 kinds the app defines: a fixed set, so no search (spec §11, Task 9B)
+  let allKinds = $state<ToggleItem[]>(KINDS.map((k, i) => ({ key: k.key, label: k.label, count: [95, 4, 2, 1, 12][i], on: i !== 3 })));
   // 14 of the user's own playlists, one with a long name: search, scrolling rows and the end fade
   let pls = $state<ToggleItem[]>(playlists(['Ohne_Quatsch', 'Tekke_Ecke', 'Powertrance', 'Hard_Bounce', 'Bouncy', '03_06_2026',
     'Voller_Quatsch', 'Rollers', 'Peak Time', 'Kölsch Mix', 'Liquid Sunday', 'Afterhours with a very long playlist name that has to shorten',
@@ -210,24 +211,24 @@
     { key: 'b', label: 'Upgrade ready', count: 12 }, { key: 'c', label: 'Not found', count: 4 }];
   // DayBar: the five dayBar cases, and one that moves with the amount (66 a day, 102 ticked)
   const DAY_CASES: [string, DayBarInput][] = [
-    ['today and tomorrow', { today: 66, later: 36, limited: true, laterDays: 1, moves: 0 }],
-    ['takes longer: "Today 10" keeps its label beside "Later 185"', { today: 10, later: 185, limited: true, laterDays: 4, moves: 0 }],
-    ['no daily limit: one segment', { today: 120, later: 0, limited: false, laterDays: 0, moves: 0 }],
-    ['limit reached: moves only', { today: 0, later: 77, limited: true, laterDays: 2, moves: 3 }],
-    ['nothing ticked', { today: 0, later: 0, limited: true, laterDays: 0, moves: 0 }],
-    ['day mode: used, this sync, left (Dashboard)', { today: 15, later: 0, limited: true, laterDays: 0, moves: 0, day: { used: 37, allowance: 80 } }],
-    ['day mode over the limit: used, this sync, tomorrow', { today: 43, later: 20, limited: true, laterDays: 1, moves: 0, day: { used: 37, allowance: 80 } }],
-    ['day mode with nothing to sync', { today: 0, later: 0, limited: true, laterDays: 0, moves: 0, day: { used: 37, allowance: 80 } }],
+    ['today and tomorrow', { today: 66, later: 36, limited: true, laterDays: 1 }],
+    ['takes longer: "Today 10" keeps its label beside "Later 185"', { today: 10, later: 185, limited: true, laterDays: 4 }],
+    ['no daily limit: one segment', { today: 120, later: 0, limited: false, laterDays: 0 }],
+    ['limit reached: all later', { today: 0, later: 77, limited: true, laterDays: 2 }],
+    ['nothing ticked', { today: 0, later: 0, limited: true, laterDays: 0 }],
+    ['day mode: used, this sync, left (Dashboard)', { today: 15, later: 0, limited: true, laterDays: 0, day: { used: 37, allowance: 80 } }],
+    ['day mode over the limit: used, this sync, tomorrow', { today: 43, later: 20, limited: true, laterDays: 1, day: { used: 37, allowance: 80 } }],
+    ['day mode with nothing to sync', { today: 0, later: 0, limited: true, laterDays: 0, day: { used: 37, allowance: 80 } }],
   ];
   const dayTest = (name: string) => `g-day-${name.split(/[:"]/)[0].trim().replaceAll(' ', '-')}`;
   let amount = $state<string>('66');
   const AMOUNTS: SegOption<string>[] = [{ key: '0', label: 'Limit hit' }, { key: '10', label: '10' }, { key: '25', label: '25' },
     { key: '66', label: '66 ✦' }, { key: '102', label: 'All' }];
   // as the mockup: the amount picks how many download today, everything else ticked waits for later; "Limit hit"
-  // leaves only the 3 moves for today (the moves-only segment slides in like any other split)
+  // leaves nothing for today (the today segment slides out like any other split)
   const live = $derived.by((): DayBarInput => {
     const today = Math.min(Number(amount), 66), later = 102 - today;
-    return { today, later, limited: true, laterDays: Math.ceil(later / 66), moves: 3 };
+    return { today, later, limited: true, laterDays: Math.ceil(later / 66) };
   });
   // ProgressBar: one value, three paces, so the motions can be compared side by side
   let share = $state<string>('0.25');
@@ -260,7 +261,7 @@
     { id: 'b', artist: 'Amelie Lens', title: 'Feel It', tag: 'not found last time', kind: 'retry', next: false },
     { id: 'c', artist: 'Ben Klock, Fadi Mohem, DVS1, Etapp Kyle, Marcel Dettmann, Norman Nodge',
       title: 'Subzero (Extended Original Mix featuring a very long remix credit that has to shorten) [Ostgut Ton]',
-      tag: 'from Hard_Bounce', kind: 'move', next: true },
+      tag: 'bought file', kind: 'bought', next: true },
   ];
   let lrTicked = $state(new Set(['a', 'c']));
   const lrToggle = (id: string) => { const n = new Set(lrTicked); if (n.has(id)) n.delete(id); else n.add(id); lrTicked = n; };
@@ -490,6 +491,13 @@
         </ToggleGroup>
         <span class="cap">empty</span>
         <ToggleGroup label="Empty" items={[]} test="g-empty" onchange={() => {}} onall={() => {}} />
+        <span class="cap">a single setting with its detail (sub wraps) · locked with the reason</span>
+        <Surface kind="list" data-test="g-toggle-sub">
+          <ToggleRow item={{ key: 'r', label: 'Rename the folder on disk too', on: subOn }} sub="One folder move instead of 7 file moves."
+            onchange={(_k, on) => (subOn = on)} />
+          <ToggleRow item={{ key: 'x', label: 'Rename the folder on disk too', on: false }} disabled
+            sub="A folder called Powertrance_2026 is already in your Library." onchange={() => {}} />
+        </Surface>
         <span class="cap">one ToggleRow in a list</span>
         <Surface kind="list" label="A single setting">
           <ToggleRow item={auto} test="g-auto" onchange={(_k, on) => (auto = { ...auto, on })} />
@@ -598,7 +606,7 @@
     <div class="col w360">
       <RiskScale zones={GALLERY_ZONES} value={riskValue} saved={60} max={150} label="Daily limit" onchange={(v) => (riskValue = v)} />
       <span class="cap">{riskValue} a day</span>
-      <div class="g-marks"><StatusMark tone="good" /><StatusMark tone="warn" /><StatusMark tone="problem" /><StatusMark tone="good" quiet /><StatusMark tone="none" /></div>
+      <div class="g-marks"><StatusMark tone="good" /><StatusMark tone="warn" /><StatusMark tone="problem" /><StatusMark tone="good" quiet /><StatusMark tone="none" /><StatusMark tone="back" /></div>
     </div>
   </section>
 
@@ -653,7 +661,7 @@
         <div class="row tight-row"><span>Daily limit · 66</span>
           <InfoTip label="About the daily limit" data-test="g-tip">
             <p>Qobuz allows about 66 downloads a day. Tracks beyond that wait for the next sync.</p>
-            <p>Moves and files already on disk don't count.</p>
+            <p>Bought files and files already on disk don't count.</p>
           </InfoTip></div>
         <div class="row tight-row"><span>In a dialog</span>
           <Button size="sm" onclick={() => (tipDialogOpen = true)} data-test="g-tip-dialog-open">Open dialog</Button></div>
@@ -668,7 +676,7 @@
       </Surface>
       <div class="col">
         <NoteCard data-test="g-note-info">YouTube Music, SoundCloud and YouTube have no daily limit. Downloading from them breaks their terms, so Discjockey keeps their pace slow.</NoteCard>
-        <NoteCard tone="warn" title="Downloads start tomorrow">Today's Qobuz limit is reached. This run only moves files; the 77 ticked tracks wait for the next days.</NoteCard>
+        <NoteCard tone="warn" title="Downloads start tomorrow">Today's Qobuz limit is reached. This run only adds bought files; the 77 ticked tracks wait for the next days.</NoteCard>
         <NoteCard tone="problem" title="The sync stopped">Qobuz refused 3 downloads in a row, so Discjockey paused to protect your account. Nothing in your library was changed.</NoteCard>
         <NoteCard tone="warn" title="Title only: no text under it" />
       </div>
@@ -722,7 +730,12 @@
           <Surface kind="list" label="Could be better" style="--row-cols: minmax(0, 1fr) 56px">
             <ListRow>{#snippet name()}Lossy that could be lossless{/snippet}{#snippet sub()}Qobuz has 9 of them in 16-bit{/snippet}{#snippet trailing()}12{/snippet}</ListRow>
             <ListRow>{#snippet name()}Not found anywhere{/snippet}{#snippet sub()}Searched Qobuz, YouTube Music, SoundCloud and YouTube{/snippet}{#snippet trailing()}<Button variant="link" size="sm">Fix →</Button>{/snippet}</ListRow>
-            <ListRow off>{#snippet name()}Moved by hand (off){/snippet}{#snippet sub()}Nothing to do{/snippet}{#snippet trailing()}0{/snippet}</ListRow>
+            <ListRow off>{#snippet name()}Bought files (off){/snippet}{#snippet sub()}Nothing to do{/snippet}{#snippet trailing()}0{/snippet}</ListRow>
+          </Surface></div>
+        <div class="col tight"><span class="cap">wrap · the sub-line wraps (a destination or a reason read whole)</span>
+          <Surface kind="list" label="Can't move" style="--row-cols: 52px minmax(0, 1fr)" data-test="g-rows-wrap">
+            <ListRow wrap>{#snippet lead()}<StatusMark tone="warn" /><Cover url={null} seed="w1" size={28} />{/snippet}{#snippet name()}Bounce Brigade – Rush Hour{/snippet}{#snippet sub()}A file with this name is already in 03_06_2026/not_lossless{/snippet}</ListRow>
+            <ListRow wrap>{#snippet lead()}<Tick on /><Cover url={null} seed="w2" size={28} />{/snippet}{#snippet name()}Remo Rush – Kick it Hard{/snippet}{#snippet sub()}Elsewhere/not_lossless → Hard_Bounce/not_lossless{/snippet}</ListRow>
           </Surface></div>
       </div>
     </div>

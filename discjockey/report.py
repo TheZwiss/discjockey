@@ -50,8 +50,6 @@ PLAN_LABELS = [
     ("acquire:new", "Download (new)"),
     ("acquire:retry", "Try again (not found last time)"),
     ("acquire:redownload", "Download again (the file is gone)"),
-    ("move", "Move to another folder"),
-    ("adopt", "Pick up a file you moved by hand"),
     ("adopt_bought", "Add a bought file"),
     ("upgrade", "Look for a better version"),
 ]
@@ -245,8 +243,7 @@ def render_plan(plan: Plan, full: bool) -> str:
         out.append(f"{label}: {len(items)}")
         shown = items if full else items[:20]
         for a in shown:
-            extra = f"  ({a.src} -> {a.dest_dir})" if a.kind in ("move", "adopt") else ""
-            out.append(f"    [{a.folder}] {a.track.first_artist} - {a.track.title}{extra}")
+            out.append(f"    [{a.folder}] {a.track.first_artist} - {a.track.title}")
         if len(shown) < len(items):
             out.append(f"    ... and {len(items) - len(shown)} more")
     if plan.ambiguous:

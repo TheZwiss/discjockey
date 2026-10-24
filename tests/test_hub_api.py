@@ -17,16 +17,17 @@ CONTRACT = {
     "media_url", "setup_status", "select",
     "search_candidates", "preview", "add_playlist", "preview_playlist_change",
     "start_sync", "stop", "save_playlists", "hide", "never_download", "add_bought_file", "use_candidate",
-    "use_link", "reject_current", "upgrade", "rekordbox_checked",
+    "use_link", "reject_current", "upgrade", "rekordbox_checked", "rescan_library",
     "show_in_finder", "reveal", "open_report", "open_external", "app_update",
     "setup_check_tools", "setup_save_client_id", "setup_spotify_login", "setup_qobuz_login",
     "open_licenses", "update_tools", "rollback_tools", "quit",
     "setup_skip_qobuz", "setup_account", "setup_check_account", "setup_forget_account", "downloads_view",
     "find_logins", "account_sign_in", "stop_sign_in", "open_privacy_settings", "qobuz_check_login", "spotify_sign_out",
     "pick_folder", "check_music_folder", "set_music_folder", "retry_music_folder",
+    "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
 }
 READ_ONLY = ["dashboard", "sidebar", "sync_preview", "job_status", "library", "todo", "limits",
-             "runs", "setup_status", "playlists", "downloads_view"]
+             "runs", "setup_status", "playlists", "downloads_view", "tidy_preview", "move_batches"]
 
 
 @pytest.fixture
@@ -63,22 +64,22 @@ def test_read_methods_answer_json(root, name):
 def test_reads_never_write_anything(root):
     api, rec = make_api(root)
     refreshed(api, rec)
-    before = root.state_file.read_bytes()
+    before = load_state(root)
     for name in READ_ONLY:
         getattr(api, name)()
     api.track("t2")
     api.run("2026-10-20_120000")
     api.limits_what_if("qobuz", 90, 10)
-    assert root.state_file.read_bytes() == before
+    assert load_state(root) == before
     assert not (root.data / "reports").exists() and not root.not_lossless_md.exists()
 
 
 def test_errors_are_plain_json_never_a_traceback(root):
     api, _ = make_api(root)
-    root.state_file.write_text(json.dumps({"version": 99}))
+    root.db_file.write_bytes(b"not a database, just some bytes" * 100)
     answer = api.dashboard()
     assert answer == {"ok": False, "kind": "config_invalid", "message": answer["message"]}
-    assert "version 99" in answer["message"] and "Traceback" not in answer["message"]
+    assert "library.db" in answer["message"] and "Traceback" not in answer["message"]
 
 
 def test_wrong_arguments_from_the_page(root, capsys):
@@ -114,13 +115,13 @@ def test_never_download_and_back(root):
     assert api.never_download("t4", True)["kind"] == "changed"  # not read yet: nothing to mark
     refreshed(api, rec)
     assert wait_job(api, rec, api.never_download("t4", True)).ok
-    saved = json.loads(root.state_file.read_text())["never"]["t4"]
+    saved = load_state(root)["never"]["t4"]
     assert (saved["folder"], saved["at"]) == ("Hard_Bounce", "2026-10-20")
     p = api.sync_preview()
     assert [r["track_id"] for r in p["never"]] == ["t4"]
     assert [a["track_id"] for a in p["groups"][0]["actions"]] == ["t5"]
     assert wait_job(api, rec, api.never_download("t4", False)).ok
-    assert json.loads(root.state_file.read_text())["never"] == {}
+    assert load_state(root)["never"] == {}
     assert api.sync_preview()["never"] == []
 
 
