@@ -339,12 +339,14 @@ def _fact_values(facts: Facts, path: str) -> tuple:
     return (None, None, None) if f is None else (f.size, f.mtime_ns, f.content_key)
 
 
-def _insert_file(conn, song: int, folder: int, rel: str, entry: dict, facts: Facts, path: str, now: str) -> int:
+def _insert_file(conn, song: int, folder: int, rel: str, entry: dict, facts: Facts, path: str, now: str,
+                 placed_by: str = "app") -> int:
     return conn.execute(
         "INSERT INTO files (song, folder, path, size, mtime_ns, content_key, placed_by, online, first_seen, "
         "last_seen, status, source, source_id, source_format, cutoff_hz, source_kbps) "
-        "VALUES (?, ?, ?, ?, ?, ?, 'app', 1, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (song, folder, rel, *_fact_values(facts, path), now, now, *(entry.get(k) for k in QUALITY))).rowcount
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (song, folder, rel, *_fact_values(facts, path), placed_by, now, now,
+         *(entry.get(k) for k in QUALITY))).rowcount
 
 
 def _usage_rows(state: dict) -> dict[str, str]:
@@ -506,7 +508,8 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
                 folders: _Folders, facts: Facts, stamp: str, rekeyed: Collection[str]) -> int:
     """Writes the linked file rows whose entry file fields changed (plan task 1.3). Rows are matched by place: the
     row already at an entry's new path is linked to it (a bought file a scan found), else the song's own row moves
-    there (files.id stays with a renamed file), else a new row. A row no song keeps is unlinked when its file is
+    there (files.id stays with a renamed file), else a new row; each keeps the song's old file's placed_by ('app'
+    for a song that had none). A row no song keeps is unlinked when its file is
     still there, deleted when it is gone. Two songs on one file is a ValueError."""
     files = _files(conn)
     linked = _linked(files)
@@ -536,22 +539,24 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
         if new is None:
             continue
         values = (*_fact_values(facts, e["path"]), *(e.get(k) for k in QUALITY))
+        # a song's file stays the user's when the app replaces or renames it (stage 2's tidy-up leaves those alone);
+        # a song that had no file gets one the app placed
+        placed = "app" if old is None else old["placed_by"]
         row = by_place.get(new)
         if row is not None:  # the song's own row (new audio, same path) or one found there (a bought file)
-            placed = row["placed_by"] if old is not None and row["id"] == old["id"] else "app"
             n += conn.execute(f"UPDATE files SET song = ?, {common}, placed_by = ?, online = 1, last_seen = ?, "
                               "ambiguous = NULL WHERE id = ?", (song, *values, placed, stamp, row["id"])).rowcount
             released.pop(row["id"], None)
             row["song"] = song
         elif old is not None and old["id"] in released:  # renamed by the app: the same file, a new place
-            n += conn.execute(f"UPDATE files SET folder = ?, path = ?, {common}, placed_by = 'app', online = 1, "
+            n += conn.execute(f"UPDATE files SET folder = ?, path = ?, {common}, placed_by = ?, online = 1, "
                               "last_seen = ?, ambiguous = NULL WHERE id = ?",
-                              (*new, *values, stamp, old["id"])).rowcount
+                              (*new, *values, placed, stamp, old["id"])).rowcount
             released.pop(old["id"])
             by_place.pop((old["folder"], old["path"]), None)
             by_place[new] = old
         else:
-            n += _insert_file(conn, song, *new, e, facts, e["path"], stamp)
+            n += _insert_file(conn, song, *new, e, facts, e["path"], stamp, placed)
     written = {unicodedata.normalize("NFC", e["path"]) for _, e, _, new in changed if new is not None}
     for path in {unicodedata.normalize("NFC", p) for p in rekeyed} - written:  # new audio under an unchanged entry: only the facts change
         row = by_place.get(folders.locate(path))

@@ -394,7 +394,7 @@ def test_changed_aliases_rewrite_the_song_ids(opened):
     assert opened.rows("SELECT id FROM song_ids WHERE song = 1 ORDER BY rowid") == [("sp1",), ("sp1c",), ("sp1d",)]
 
 
-def test_a_new_path_moves_the_row_in_place_rekeys_it_and_marks_it_placed_by_the_app(opened):
+def test_a_new_path_moves_the_row_in_place_rekeys_it_and_keeps_placed_by(opened):
     (file_id,) = opened.rows("SELECT id FROM files WHERE song = 3")[0]
     opened.rows("UPDATE files SET placed_by = 'user' WHERE id = ?", file_id)
     state = opened.snap()
@@ -403,7 +403,7 @@ def test_a_new_path_moves_the_row_in_place_rekeys_it_and_marks_it_placed_by_the_
     state["tracks"]["sp3"]["path"] = new
     assert opened.save(state) == 1
     assert opened.rows("SELECT id, path, placed_by, size, content_key, last_seen FROM files WHERE song = 3") == [
-        (file_id, "House/C - Thrée.aiff", "app", len(new), f"key-{new}", "2026-10-24T09:00:00")]
+        (file_id, "House/C - Thrée.aiff", "user", len(new), f"key-{new}", "2026-10-24T09:00:00")]
 
 
 def test_new_audio_under_the_same_path_rekeys_and_keeps_placed_by(opened, monkeypatch):
@@ -553,3 +553,47 @@ def test_a_version_1_dict_is_never_saved(opened):
     state = v1_state()
     with pytest.raises(StateError):
         opened.save(state)
+
+
+def test_a_user_placed_song_s_replacement_found_next_to_it_stays_the_user_s(opened):
+    """A bought file next to the current one (or a candidate the scan indexed): the row found there is linked."""
+    opened.rows("UPDATE files SET placed_by = 'user' WHERE song = 1")
+    opened.rows("INSERT INTO files (folder, path, placed_by, first_seen, last_seen) "
+                "VALUES (1, 'House/A - One.aiff', 'import', 'x', 'x')")
+    opened.present.add("Library/House/A - One.aiff")
+    state = opened.snap()
+    state["tracks"]["sp1"].update(path="Library/House/A - One.aiff", status="lossless")
+    opened.save(state)
+    assert opened.rows("SELECT placed_by FROM files WHERE song = 1") == [("user",)]
+
+
+@pytest.mark.parametrize("placed_by", ["user", "app"])
+def test_a_replacement_at_a_new_path_keeps_the_old_file_s_placed_by(opened, placed_by):
+    """Add as new, use a candidate, out of the not-lossless folder: the new file takes a new path."""
+    opened.rows("UPDATE files SET placed_by = ? WHERE song = 1", placed_by)
+    new = "Library/House/A - One.flac"
+    opened.present.add(new)
+    state = opened.snap()
+    state["tracks"]["sp1"].update(path=new, status="lossless", source="qobuz", source_id="q9")
+    opened.save(state)
+    assert opened.rows("SELECT path, placed_by FROM files WHERE song = 1") == [("House/A - One.flac", placed_by)]
+
+
+def test_a_new_row_for_a_song_keeps_the_old_file_s_placed_by(opened):
+    """Two songs trading places: the second can't take the first's row, so it gets a new one."""
+    opened.rows("UPDATE files SET placed_by = 'user' WHERE song = 1")
+    state = opened.snap()
+    one, three = state["tracks"]["sp1"]["path"], state["tracks"]["sp3"]["path"]
+    state["tracks"]["sp1"]["path"], state["tracks"]["sp3"]["path"] = three, one
+    opened.save(state)
+    assert opened.rows("SELECT placed_by FROM files WHERE song = 1") == [("user",)]
+    assert opened.rows("SELECT placed_by FROM files WHERE song = 3") == [("app",)]
+
+
+def test_a_song_without_a_file_gets_one_placed_by_the_app(opened):
+    new = "Library/House/B - Two.aiff"
+    opened.present.add(new)
+    state = opened.snap()
+    state["tracks"]["sp2"].update(path=new, status="lossless")
+    opened.save(state)
+    assert opened.rows("SELECT placed_by FROM files WHERE song = 2") == [("app",)]
