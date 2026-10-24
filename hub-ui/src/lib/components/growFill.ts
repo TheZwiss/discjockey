@@ -17,6 +17,12 @@ export function growFill(node: HTMLElement, host: GrowSpareHost | undefined) {
     const measure = () => {
       const [a, b] = Array.from(node.children) as HTMLElement[];
       const height = box.getBoundingClientRect().height;
+      // rows of different heights (a wrapping sub-line, a section head) are cut by their measured tops
+      const start = node.getBoundingClientRect().top - node.scrollTop;
+      const kids = Array.from(node.children) as HTMLElement[];
+      const tops = kids.map((k) => k.getBoundingClientRect().top - start);
+      const heights = kids.map((k) => k.getBoundingClientRect().height);
+      const even = heights.every((x) => Math.abs(x - heights[0]) < 0.5);
       h.set(growSpare({
         given: height + h.height(), chrome: height - node.clientHeight, content: node.scrollHeight,
         pitch: a && b ? b.getBoundingClientRect().top - a.getBoundingClientRect().top : 0,
@@ -24,6 +30,7 @@ export function growFill(node: HTMLElement, host: GrowSpareHost | undefined) {
         // the min-height holds the peek (--peek), so the cut above it repeats the min-height's own
         floor: px(getComputedStyle(box).minHeight),
         minRows: px(getComputedStyle(box).getPropertyValue('--min-rows')),
+        tops: even ? undefined : tops,
       }));
     };
     // set on the next frame, not inside the observer's callback, so the resize it causes is a new observation

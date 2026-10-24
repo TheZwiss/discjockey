@@ -26,7 +26,7 @@
     ToggleGroup, ToggleRow, TrackHead, TrackRow, UpgradeCard, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
     confirm, envelope,
   } from '../components';
-  import Tick from '../../pages/sync/plan/Tick.svelte';
+  import Tick from '../components/Tick.svelte';
   import NeverButton from '../../pages/sync/plan/NeverButton.svelte';
   import Why from '../../pages/sync/plan/Why.svelte';
   import WhyMark from '../../pages/sync/plan/WhyMark.svelte';
@@ -160,6 +160,7 @@
   ];
   let accSteps = $state<Record<string, boolean>>(Object.fromEntries(ACCOUNT_PANELS.map((p) => [p.key, !!p.steps])));
   let ladderPicked = $state<string>('');
+  let subOn = $state(true);
   // StepStrip: every state at once (two done, the one on screen, the next one, one that waits)
   const STRIP: StripStep[] = [
     { key: 'music', label: 'Music folder', state: 'done', done: true },
@@ -490,6 +491,13 @@
         </ToggleGroup>
         <span class="cap">empty</span>
         <ToggleGroup label="Empty" items={[]} test="g-empty" onchange={() => {}} onall={() => {}} />
+        <span class="cap">a single setting with its detail (sub wraps) · locked with the reason</span>
+        <Surface kind="list" data-test="g-toggle-sub">
+          <ToggleRow item={{ key: 'r', label: 'Rename the folder on disk too', on: subOn }} sub="One folder move instead of 7 file moves."
+            onchange={(_k, on) => (subOn = on)} />
+          <ToggleRow item={{ key: 'x', label: 'Rename the folder on disk too', on: false }} disabled
+            sub="A folder called Powertrance_2026 is already in your Library." onchange={() => {}} />
+        </Surface>
         <span class="cap">one ToggleRow in a list</span>
         <Surface kind="list" label="A single setting">
           <ToggleRow item={auto} test="g-auto" onchange={(_k, on) => (auto = { ...auto, on })} />
@@ -598,7 +606,7 @@
     <div class="col w360">
       <RiskScale zones={GALLERY_ZONES} value={riskValue} saved={60} max={150} label="Daily limit" onchange={(v) => (riskValue = v)} />
       <span class="cap">{riskValue} a day</span>
-      <div class="g-marks"><StatusMark tone="good" /><StatusMark tone="warn" /><StatusMark tone="problem" /><StatusMark tone="good" quiet /><StatusMark tone="none" /></div>
+      <div class="g-marks"><StatusMark tone="good" /><StatusMark tone="warn" /><StatusMark tone="problem" /><StatusMark tone="good" quiet /><StatusMark tone="none" /><StatusMark tone="back" /></div>
     </div>
   </section>
 
@@ -723,6 +731,11 @@
             <ListRow>{#snippet name()}Lossy that could be lossless{/snippet}{#snippet sub()}Qobuz has 9 of them in 16-bit{/snippet}{#snippet trailing()}12{/snippet}</ListRow>
             <ListRow>{#snippet name()}Not found anywhere{/snippet}{#snippet sub()}Searched Qobuz, YouTube Music, SoundCloud and YouTube{/snippet}{#snippet trailing()}<Button variant="link" size="sm">Fix →</Button>{/snippet}</ListRow>
             <ListRow off>{#snippet name()}Bought files (off){/snippet}{#snippet sub()}Nothing to do{/snippet}{#snippet trailing()}0{/snippet}</ListRow>
+          </Surface></div>
+        <div class="col tight"><span class="cap">wrap · the sub-line wraps (a destination or a reason read whole)</span>
+          <Surface kind="list" label="Can't move" style="--row-cols: 52px minmax(0, 1fr)" data-test="g-rows-wrap">
+            <ListRow wrap>{#snippet lead()}<StatusMark tone="warn" /><Cover url={null} seed="w1" size={28} />{/snippet}{#snippet name()}Bounce Brigade – Rush Hour{/snippet}{#snippet sub()}A file with this name is already in 03_06_2026/not_lossless{/snippet}</ListRow>
+            <ListRow wrap>{#snippet lead()}<Tick on /><Cover url={null} seed="w2" size={28} />{/snippet}{#snippet name()}Remo Rush – Kick it Hard{/snippet}{#snippet sub()}Elsewhere/not_lossless → Hard_Bounce/not_lossless{/snippet}</ListRow>
           </Surface></div>
       </div>
     </div>

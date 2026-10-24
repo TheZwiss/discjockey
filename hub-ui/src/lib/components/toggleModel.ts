@@ -40,12 +40,17 @@ export type GrowSizes = {
    *  at the minimum is the min-height's own and a measured half row that rounds apart from it can't leave px over */
   floor: number;
   minRows: number;
+  /** each row's top in the rows' area (px from its start), when the rows differ in height (a wrapping sub-line, a
+   *  section head): the cut then lands the peek into the row it crosses, measured, not counted in pitches */
+  tops?: number[];
 };
 
 /**
  * The px a cut grow group hands to the space above the foot so that its cut lands a `peek` into a row, never on a
  * row's edge (spec §11, issue 10): the rows' area rounds down to whole rows plus the peek. 0 when the rows fit, at
  * or under the 3-row minimum (its min-height already ends on a peek) and without a row pitch. Less than one row.
+ * With `tops` (rows of different heights) the cut is measured: it lands inside the last row whose peek fits, at least
+ * a peek into it and half a peek short of its end.
  * The peek is what the min-height holds beyond its whole rows: measured as half a row it once rounded 2 px apart
  * from the CSS, and the group held those 2 px at its minimum (final review M3).
  */
@@ -54,6 +59,16 @@ export function growSpare(s: GrowSizes): number {
   if (s.pitch <= 0 || s.content <= area + 0.5) return 0;
   // k whole rows with the k − 1 rules between them, then the peek (which starts with the next row's rule)
   const peek = Math.max(0, s.floor - s.chrome - (s.minRows * s.pitch - s.rule));
+  if (s.tops && s.tops.length > s.minRows) {
+    // the last row whose peek still fits; the rows above it show whole
+    let cut = -1;
+    s.tops.forEach((top, i) => { if (top + peek <= area + 1e-6) cut = i; });
+    if (cut < s.minRows) return 0;
+    // anywhere inside that row: at least the peek shown and at least half a peek still hidden (never on its edge)
+    const bottom = cut + 1 < s.tops.length ? s.tops[cut + 1] : s.content;
+    const end = Math.max(s.tops[cut] + peek, Math.min(area, bottom - peek / 2));
+    return Math.max(0, Math.floor(area - end + 1e-6));
+  }
   const rows = Math.floor((area + s.rule - peek) / s.pitch + 1e-6);
   if (rows < s.minRows) return 0;
   return Math.max(0, Math.floor(area - (rows * s.pitch - s.rule + peek) + 1e-6));

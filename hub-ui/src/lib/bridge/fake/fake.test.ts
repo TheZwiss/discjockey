@@ -467,7 +467,10 @@ describe('fake tidy-up', () => {
     expect(r.kind).toBe('rename');
     expect(r.renames[0]).toMatchObject({ from: 'Hard_Bounce', to: 'Hard_New', offered: true, why_not: null,
       option: 'Rename the folder on disk too' });
-    expect(r.tidy!.rows.every((x) => x.by_rename === 'Hard_Bounce')).toBe(true);
+    // the rename on disk covers the files that sit in the folder; a file put elsewhere moves on its own
+    const inFolder = (x: { from: string }) => x.from.replace(/\/not_lossless$/, '') === 'Hard_Bounce';
+    expect(r.tidy!.rows.filter(inFolder).length).toBeGreaterThan(0);
+    expect(r.tidy!.rows.every((x) => x.by_rename === (inFolder(x) ? 'Hard_Bounce' : null))).toBe(true);
     const v = pl.version;
     const save = await f.save_playlists(renamed, v, { choice: 'move', renames: [['Hard_Bounce', 'Hard_New']], moves: [] });
     if (!save.ok) throw new Error();

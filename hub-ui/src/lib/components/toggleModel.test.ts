@@ -51,6 +51,16 @@ describe('grow group cut', () => {
   const base = { chrome: 43, content: 10 * 39 - 1, pitch: 39, rule: 1, floor: 43 + rowsArea(3), minRows: 3 };
   it('moves a cut just under a rule back into a peek (sync-before@1100: 5 px under the 4th row)', () =>
     expect(growSpare({ ...base, given: 43 + 4 * 39 + 5 })).toBe(4 * 39 + 5 - rowsArea(3)));
+  it('rows of different heights: the cut lands inside the last row its peek fits into, measured', () => {
+    // rows at 0, 52, 104, a wrapped row at 156, a section head at 230, rows at 262 and 314
+    const tops = [0, 52, 104, 156, 230, 262, 314];
+    const peek = base.floor - base.chrome - (base.minRows * base.pitch - base.rule);
+    const at = (area: number) => growSpare({ ...base, given: base.chrome + area, content: 366, tops });
+    expect(at(270)).toBe(Math.floor(270 - (262 - peek / 2)));  // 8 px into the row at 262: back into the head
+    expect(at(285)).toBe(0);                                  // 23 px into it: the peek (19) fits, the cut stays
+    expect(at(240)).toBe(Math.floor(240 - (230 - peek / 2)));  // 10 px into the head: back into the wrapped row
+    expect(at(120)).toBe(0);                                  // under the minimum rows
+  });
   it('leaves a cut that already is a peek alone', () => expect(growSpare({ ...base, given: 43 + rowsArea(4) })).toBe(0));
   it('gives nothing when the rows fit', () => expect(growSpare({ ...base, given: 43 + base.content })).toBe(0));
   it('gives nothing at or under the minimum (the min-height holds there)', () => {

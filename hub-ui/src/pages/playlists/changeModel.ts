@@ -149,6 +149,9 @@ export type Panel = {
   overlaps: Overlap[];
 };
 
+/** Nothing unsaved: the panel's Segmented, the tracks in several playlists or the move log. */
+export type PanelTab = 'overlaps' | 'moves';
+
 export const PREVIEW_AFTER_SYNC = 'The preview is available when the sync is finished.';
 export const NO_PREVIEW: PreviewState = { loading: false, answer: null };
 
@@ -219,18 +222,16 @@ export function changeText(delta: number): string {
 }
 
 export type Route = { from: string; to: string; rows: FoldRow[] };
-/** The tracks that change folder, grouped by route ("Hard_Bounce → Set_04"): the ones with a file (moves) and the
- *  ones that only land somewhere else later (reroutes), the biggest route first, equal ones in the backend's order. */
-export function moveRoutes(p: Pick<ChangePreview, 'moves' | 'reroutes'>): Route[] {
+/** The tracks without a file that land in another folder later (reroutes), grouped by route ("Hard_Bounce →
+ *  Set_04"), the biggest route first, equal ones in the backend's order. Files that change folder are the save
+ *  question's list (`ChangePreview.tidy`), not routes. */
+export function moveRoutes(p: Pick<ChangePreview, 'reroutes'>): Route[] {
   const routes = new Map<string, Route>();
-  const add = (from: string, to: string, row: FoldRow) => {
-    const k = `${from}\u0000${to}`;
-    if (!routes.has(k)) routes.set(k, { from, to, rows: [] });
-    routes.get(k)!.rows.push(row);
-  };
-  // the route head says where a track goes; its badge says what it is (a lossy file lands in that folder's not_lossless/)
-  for (const m of p.moves ?? []) add(m.from, m.to, foldTrack({ ...m, downloaded: true }));
-  for (const r of p.reroutes) add(r.from, r.to, foldTrack(r));
+  for (const r of p.reroutes) {
+    const k = `${r.from}\u0000${r.to}`;
+    if (!routes.has(k)) routes.set(k, { from: r.from, to: r.to, rows: [] });
+    routes.get(k)!.rows.push(foldTrack(r));
+  }
   return [...routes.values()].sort((a, b) => b.rows.length - a.rows.length);
 }
 
