@@ -126,7 +126,7 @@ Everything else is decided and done without asking, and reported in one short me
 
 | Stage | Plan | Branch | State |
 |-------|------|--------|-------|
-| 1 Foundation | `docs/2026-10-23-library-stage-1-plan.md` | `feat/library-1-foundation` | All 5 groups merged (f2ed177); stage review done, final fix round (engine + hub-ui) running |
+| 1 Foundation | `docs/2026-10-23-library-stage-1-plan.md` | `feat/library-1-foundation` | Done on branch (3e562f1): 5 groups + Opus stage review + fixes; waits for stage 2 (merge together). Before the release: one migration on a copy of a real-shaped scratch library |
 | 2 Tidy-up | — | — | Not started |
 | 3 Qobuz playlists | — | — | Not started |
 | 4 Import | — | — | Not started |
