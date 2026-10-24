@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { BatchResult, RenameOffer, TidyRow, UndoPreview } from '$lib/bridge/types';
 import {
-  carryOver, confirmLabel, countLine, folderName, folderRows, goBackText, groupState, groups, initialQuestion, initialTicks,
+  carryOver, confirmLabel, countLine, fileCountText, folderName, folderRows, goBackText, groupState, groups, initialQuestion, initialTicks,
   itemOfRow, movesOf, notMovedText, offerDetail, outcomeOf, pairsOf, problemToTell, progressDone, progressStart, progressStep,
   progressTotal, renameDetail, resultUndo, saveCount, saveFileCount, saveFiles, saveHeadline, saveItems, saveMoving, skipTone,
-  tickedRows, tickedText, toggleGroup, toggleRename, toggleTick, undoItems, undoLabel, visibleRows,
+  tickedRows, tickedText, toggleGroup, toggleRename, toggleTick, undoItems, undoLabel, undoRowName, visibleRows,
 } from './tidyModel';
 
 let n = 0;
@@ -185,12 +185,34 @@ describe('progress', () => {
     expect([progressDone(p), progressTotal(p)]).toEqual([3, 5]);
     expect(progressTotal(progressStep(progressStart(1), { batch_id: 1, done: 0, total: 3 }))).toBe(3);
   });
-  it('undo lists every row in the order it runs', () => {
-    const u: UndoPreview = { batch_id: 1, title: 'Undo of: Tidy-up', moving: 1, warning: [], nothing_left: false,
+  it('undo lists the moves that run, in order; a row that can\'t go back is recorded skipped before the run', () => {
+    const u: UndoPreview = { batch_id: 1, title: 'Undo of: Tidy-up', moving: 8, warning: [], nothing_left: false,
       rows: [{ label: 'A - B', kind: 'file', files: null, from: 'X', to: 'Y', skip: null },
         { label: 'C - D', kind: 'file', files: null, from: 'X', to: 'Z',
-        skip: { reason: 'moved_on', text: 'Moved or changed since' } }] };
-    expect(undoItems(u).map((i) => i.label)).toEqual(['A - B', 'C - D']);
+          skip: { reason: 'moved_on', text: 'Moved or changed since' } },
+        { label: 'Sets_2025', kind: 'folder', files: 7, from: 'Sets_2025', to: 'Old_Sets', skip: null }] };
+    const items = undoItems(u);
+    expect(items.map((i) => i.label)).toEqual(['A - B', 'Sets_2025']);
+    expect(items.map((i) => [i.folder, i.files])).toEqual([[false, null], [true, 7]]);
+  });
+  it('undo progress marks the planned moves done as the batch reports them', () => {
+    const u: UndoPreview = { batch_id: 1, title: 'Undo of: Tidy-up', moving: 3, warning: [], nothing_left: false,
+      rows: [{ label: 'skip', kind: 'file', files: null, from: 'X', to: 'Y',
+        skip: { reason: 'offline', text: 'Offline, skipped' } },
+      { label: 'A', kind: 'file', files: null, from: 'X', to: 'Y', skip: null },
+      { label: 'B', kind: 'file', files: null, from: 'X', to: 'Y', skip: null }] };
+    const items = undoItems(u);
+    let p = progressStart(items.length);
+    expect(progressTotal(p)).toBe(2);   // the skipped row isn't a planned move
+    p = progressStep(p, { batch_id: 9, done: 1, total: 2 });
+    expect(items.map((_, i) => i < progressDone(p))).toEqual([true, false]);   // A is done, B isn't
+  });
+  it('says file or folder, and how many files a folder carries', () => {
+    expect(undoRowName({ label: 'A - B', kind: 'file' })).toBe('A - B');
+    expect(undoRowName({ label: 'Sets_2025', kind: 'folder' })).toBe('Sets_2025, the whole folder');
+    expect(fileCountText(null)).toBeNull();
+    expect(fileCountText(1)).toBe('1 file');
+    expect(fileCountText(7)).toBe('7 files');
   });
 });
 

@@ -3,7 +3,7 @@
 // label and what goes to the bridge. Used by the Tidy up files preview and by the save question, where a folder renamed
 // on disk replaces its files' rows. The words are the plan's I6 (views.py says the same where it sends them).
 import type {
-  BatchResult, ProblemKind, RenameOffer, SaveFiles, SkippedMove, TidyRow, UndoPreview,
+  BatchResult, ProblemKind, RenameOffer, SaveFiles, SkippedMove, TidyRow, UndoPreview, UndoRow,
 } from '$lib/bridge/types';
 
 export type Ticks = ReadonlySet<number>;
@@ -224,20 +224,18 @@ export function saveFiles(q: SaveQuestion, choice: 'leave' | 'move'): SaveFiles 
 
 // ---- progress ----
 
-/** What moves, as the progress list shows it: a folder renamed on disk or a file. */
-export type MoveItem = { key: string; label: string; from: string; to: string; folder: boolean;
-  track_id: string | null; cover_url: string | null;
-  /** undo only: why this one can't go back (it is skipped in its turn) */
-  skip: string | null };
+/** What moves, as the progress list shows it: a folder renamed on disk (with the files it carries) or a file. */
+export type MoveItem = { key: string; label: string; from: string; to: string; folder: boolean; files: number | null;
+  track_id: string | null; cover_url: string | null };
 
 export function itemOfRow(r: TidyRow): MoveItem {
-  return { key: `f${r.file_id}`, label: `${r.artist} – ${r.title}`, from: r.from, to: r.to, folder: false,
-    track_id: r.track_id, cover_url: r.cover_url, skip: null };
+  return { key: `f${r.file_id}`, label: `${r.artist} – ${r.title}`, from: r.from, to: r.to, folder: false, files: null,
+    track_id: r.track_id, cover_url: r.cover_url };
 }
 
 export function itemOfFolder(f: FolderRow): MoveItem {
-  return { key: `d${f.from}`, label: f.from, from: f.from, to: f.to, folder: true, track_id: null, cover_url: null,
-    skip: null };
+  return { key: `d${f.from}`, label: f.from, from: f.from, to: f.to, folder: true, files: f.files, track_id: null,
+    cover_url: null };
 }
 
 /** The save's moves in the order they happen: the folder renames, then the files. */
@@ -245,10 +243,22 @@ export function saveItems(q: SaveQuestion): MoveItem[] {
   return [...folderRows(q).map(itemOfFolder), ...tickedRows(visibleRows(q), q.ticks).map(itemOfRow)];
 }
 
-/** Undo's moves in the order they happen (all rows: a row that can't go back is skipped in its turn). */
+/** What an undo run moves, in the order it runs. A row that can't go back isn't here: the batch records it skipped
+ *  before anything moves, so the run's progress (`MovesProgress`, moves handled of moves planned) counts only these;
+ *  the result lists the skipped ones with their reasons. */
 export function undoItems(p: UndoPreview): MoveItem[] {
-  return p.rows.map((r, i) => ({ key: `u${i}`, label: r.label, from: r.from, to: r.to, folder: false, track_id: null,
-    cover_url: null, skip: r.skip?.text ?? null }));
+  return p.rows.filter((r) => !r.skip).map((r, i) => ({ key: `u${i}`, label: r.label, from: r.from, to: r.to,
+    folder: r.kind === 'folder', files: r.kind === 'folder' ? r.files : null, track_id: null, cover_url: null }));
+}
+
+/** An undo row's name: a folder says so ("Old_Sets, the whole folder"), a file is its "Artist - Title". */
+export function undoRowName(r: Pick<UndoRow, 'label' | 'kind'>): string {
+  return r.kind === 'folder' ? `${r.label}, the whole folder` : r.label;
+}
+
+/** A folder's file count for the line under its name ("7 files"); null for a file, which has no count. */
+export function fileCountText(n: number | null): string | null {
+  return n === null ? null : files(n);
 }
 
 /** Progress over the batches of one job (a save runs a batch per folder rename, then one for the files): each
