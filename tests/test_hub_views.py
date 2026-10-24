@@ -1006,7 +1006,11 @@ def test_batch_titles_and_summaries():
                                  "moved": 3, "skipped": 0, "undoable": 3, "undone_by": None,
                                  "summary": "3 files moved"}
     assert views.move_batches([batch(5, "undo", undoes=1)], 9)["batches"][0]["title"] == "Undo"  # older one not listed
-    assert views.batch_title(batch(5, "undo", undoes=1), batch(1)) == "Undo of: Tidy-up"
+    assert views.batch_title(batch(5, "undo", undoes=1), "Tidy-up") == "Undo of: Tidy-up"
+    older = views.move_batches([batch(6, "undo", undoes=1), batch(5, "undo", undoes=4), batch(4, "save")], 9,
+                               {1: "Tidy-up"})
+    assert [b["title"] for b in older["batches"]] == ["Undo of: Tidy-up", "Undo of: Saved playlists",
+                                                      "Saved playlists"]
     assert views.batch_title(batch(6, "rename")) == "Renamed a folder"
 
 
@@ -1057,16 +1061,38 @@ def test_undo_preview_of_files():
 
 def test_undo_preview_of_a_folder_rename():
     b = batch(2, "rename", moved=1, about={"from": "Old", "to": "New"})
-    p = views.undo_preview(b, [pm("folder", src="Library/New", dst="Library/Old", label="New")])
-    assert p["title"] == "Renamed Old to New" and p["moving"] == 1
-    assert p["warning"] == ["The folder goes back to its old name Old, with everything in it, and the playlist is "
+    inside = ["Library/New/a.aiff", "Library/New/not_lossless/b.aiff", "Library/Newer/c.aiff", "Library/Other/d.aiff"]
+    p = views.undo_preview(b, [pm("folder", src="Library/New", dst="Library/Old", label="New")], inside)
+    assert p["title"] == "Renamed Old to New" and p["moving"] == 2 and not p["nothing_left"]
+    assert p["warning"] == ["2 files go back to where they were. rekordbox may show them as missing again; Relocate "
+                            "finds them by file name.",
+                            "The folder goes back to its old name Old, with everything in it, and the playlist is "
                             "called Old again."]
     assert p["rows"] == [{"label": "New", "from": "New", "to": "Old", "skip": None}]
     gone = views.undo_preview(b, [pm("folder", src="Library/New", dst="Library/Old", label="New",
-                                     skip=("playlist_renamed", None))])
+                                     skip=("playlist_renamed", None))], inside)
     assert gone["nothing_left"] and gone["warning"] == []
     assert gone["rows"][0]["skip"] == {"reason": "playlist_renamed", "text": "The playlist isn't called New any more"}
     taken = views.undo_preview(b, [pm("folder", src="Library/New", dst="Library/Old", skip=("place_taken", None)),
                                    pm("folder", src="Library/New", dst="Library/Old", skip=("moved_on", None))])
     assert [r["skip"]["text"] for r in taken["rows"]] == [
         "A folder called Old is in your Library again", "The folder New isn't there any more"]
+
+
+def test_change_file_missing_from_disk_is_on_the_tidy_list_only():
+    st = {**PL_STATE, "files": [f for f in PL_FILES if not f.endswith("/b.aiff")]}
+    c = views.playlist_change(OLD, [OLD[1], OLD[0]], PL_TRACKS, st, st["files"], TODAY, MONEY)
+    assert c["kind"] == "moves" and c["headline"] == "2 files would sit in a different folder"
+    assert {r["track_id"]: r["skip"] and r["skip"]["reason"] for r in c["tidy"]["rows"]} == {
+        "b": "not_found", "c": None}
+    assert c["reroutes"] == []
+
+
+def test_change_of_a_file_outside_the_library_is_no_tidy_up():
+    outside = {**PL_STATE["tracks"]["b"], "path": "Elsewhere/Hard_Bounce/b.aiff"}
+    st = {**PL_STATE, "tracks": {**PL_STATE["tracks"], "b": outside},
+          "files": PL_FILES + ["Elsewhere/Hard_Bounce/b.aiff"]}
+    c = views.playlist_change(OLD, [OLD[1], OLD[0]], {ID1: [t("a"), t("b")], ID2: [t("b"), t("d")]}, st, st["files"],
+                              TODAY, MONEY)
+    assert c["tidy"] is None and c["kind"] == "none" and c["headline"] == "Nothing changes in your library"
+    assert c["checklist"][-1] == "Happens at the next sync, not right away"

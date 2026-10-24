@@ -923,13 +923,14 @@ def tidy_preview(rows: list[TidyRow], state: dict, cover: Url | None = None) -> 
                       "header": TIDY_YOURS_HEADER, "control": TIDY_YOURS_CONTROL} if yours else None}
 
 
-def batch_title(b: BatchRow, undone: BatchRow | None = None, _depth: int = 0) -> str:
-    """"Tidy-up", "Saved playlists", "Renamed A to B", "Undo of: <the title of the batch it undid>" (`undone`)."""
+def batch_title(b: BatchRow, undone_title: str | None = None) -> str:
+    """"Tidy-up", "Saved playlists", "Renamed A to B", "Undo of: <the title of the batch it undid>" (`undone_title`;
+    "Undo" when it isn't known)."""
     if b.started_by == "rename":
         about = b.about
         return f"Renamed {about['from']} to {about['to']}" if about else "Renamed a folder"
     if b.started_by == "undo":
-        return f"Undo of: {batch_title(undone)}" if undone is not None and _depth < 5 else "Undo"
+        return f"Undo of: {undone_title}" if undone_title else "Undo"
     return BATCH_TITLES.get(b.started_by, "Moves")
 
 
@@ -938,9 +939,17 @@ def _summary(moved: int, skipped: int) -> str:
     return f"{text} \u00b7 {skipped} not moved" if skipped else text
 
 
-def move_batches(rows: list[BatchRow], total: int) -> dict:
+def move_batches(rows: list[BatchRow], total: int, titles: Mapping[int, str] | None = None) -> dict:
+    """`titles`: batch id -> title for undone batches that are not among `rows` (older than the 20 listed)."""
     by_id = {b.id: b for b in rows}
-    return {"batches": [{"id": b.id, "at": b.started, "title": batch_title(b, by_id.get(b.undoes)),
+
+    def title(b: BatchRow) -> str:
+        if b.started_by != "undo":
+            return batch_title(b)
+        target = by_id.get(b.undoes)
+        return batch_title(b, title(target) if target else (titles or {}).get(b.undoes))
+
+    return {"batches": [{"id": b.id, "at": b.started, "title": title(b),
                          "moved": b.moved, "skipped": b.skipped, "undoable": b.undoable,
                          "undone_by": b.undone_by, "summary": _summary(b.moved, b.skipped)} for b in rows],
             "total": total}
@@ -962,8 +971,10 @@ def batch_result(r: BatchResult, title: str) -> dict:
             "skipped": [_skipped_item(m) for m in r.skipped], "stopped": r.stopped}
 
 
-def undo_preview(batch: BatchRow, moves: list[PlannedMove], title: str | None = None) -> dict:
-    """What an undo would do (`moves` as `tidy.undo_preview` plans them, some already skipped with a reason)."""
+def undo_preview(batch: BatchRow, moves: list[PlannedMove], files: Iterable[str] = (),
+                 title: str | None = None) -> dict:
+    """What an undo would do (`moves` as `tidy.undo_preview` plans them, some already skipped with a reason).
+    `files` are the snapshot paths on disk: a folder move carries every file under the folder it moves back."""
     rows = []
     for m in moves:
         frm, to, old, new = _ends(m.kind, m.src, m.dst)
@@ -972,13 +983,17 @@ def undo_preview(batch: BatchRow, moves: list[PlannedMove], title: str | None = 
                      "skip": {"reason": reason, "text": skip_text(reason, detail, to=to, old=old, new=new)}
                      if reason else None})
     running = [m for m, r in zip(moves, rows) if r["skip"] is None]
-    files = sum(1 for m in running if m.kind == "file")
-    warning = [_plural(files, UNDO_WARN_ONE, UNDO_WARN)] if files else []
+    on_disk = list(files)
+    moving = sum(1 for m in running if m.kind == "file")
+    for m in running:
+        if m.kind == "folder":  # the files sit under the folder's current name, `src`
+            moving += sum(1 for f in on_disk if f.startswith(f"{m.src}/"))
+    warning = [_plural(moving, UNDO_WARN_ONE, UNDO_WARN)] if moving else []
     folder = next((m for m in running if m.kind == "folder"), None)
     if folder is not None:
         warning.append(UNDO_RENAME.format(old=_rel(folder.dst)))
     return {"batch_id": batch.id, "title": title if title is not None else batch_title(batch), "rows": rows,
-            "moving": len(running), "warning": warning, "nothing_left": not running}
+            "moving": moving, "warning": warning, "nothing_left": not running}
 
 
 def playlists(loaded: pf.Loaded, tracks_by_id: dict, infos: dict, state: dict, cover: Url | None = None) -> dict:
@@ -1056,21 +1071,23 @@ def playlist_change(old: list, new: list, tracks_by_id: dict, state: dict, files
     def spotify_track(k: str):
         return next((spotify[i] for i in [k, *((tracks.get(k) or {}).get("aliases") or [])] if i in spotify), None)
 
+    shown = {r.track_id for r in tidy_list}
+    # a file on the tidy list (even one that can't move) is not also a track "without a file"
+    kept = [(k, frm, to) for k, frm, to in c.reroutes if k not in shown]
     reroutes = [{**_spotify_row(k, spotify_track(k), tracks.get(k), cover, state.get("never")), "from": frm, "to": to}
-                for k, frm, to in c.reroutes]
+                for k, frm, to in kept]
     renamed = set(renames)
-    pairs = {(frm, to) for _, frm, to in c.moves + c.reroutes}
+    pairs = {(frm, to) for k, frm, to in [m for m in c.moves if m[0] in shown] + kept}
     days = (1 if c.new else 0) if money is None else days_to_load(len(c.new), money["remaining"], money["limit"])
-    n_tracks = len(c.reroutes)
+    n_tracks = len(reroutes)
     tracks_will = f"{n_tracks} tracks will" if n_tracks != 1 else "1 track will"
-    n_files = len(tidy_list) or len(c.moves)
-    save_headline = _plural(n_files, SAVE_HEADLINE_ONE, SAVE_HEADLINE)
+    save_headline = _plural(len(tidy_list), SAVE_HEADLINE_ONE, SAVE_HEADLINE)
     if pairs and renamed and pairs <= renamed:
         kind = "rename"
-        headline = save_headline if c.moves else f"{tracks_will} go to the new folder name"
-    elif c.moves:
+        headline = save_headline if tidy_list else f"{tracks_will} go to the new folder name"
+    elif tidy_list:
         kind, headline = "moves", save_headline
-    elif c.reroutes:
+    elif reroutes:
         kind = "reroute"
         headline = (f"{tracks_will} go to {next(iter(pairs))[1]} instead of {next(iter(pairs))[0]}"
                     if len(pairs) == 1 else f"{tracks_will} go to another folder")
