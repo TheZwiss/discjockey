@@ -5,6 +5,7 @@ import signal
 import pytest
 
 import discjockey.cli as cli
+from audio_helpers import music, write_aiff
 from hub_helpers import choose_music
 
 from discjockey import REPO, config, library, run, spotify
@@ -40,15 +41,21 @@ def test_lock_held_exits_3(root):
         assert cli.main([]) == 3
 
 
-def test_dry_run_changes_nothing(root, monkeypatch, capsys):
+def test_dry_run_changes_no_music_file_and_writes_no_report(root, monkeypatch, capsys):
     (root / "playlists.txt").write_text(PLAYLISTS)
+    mine = root / "Library" / "Mine" / "Someone - Else.aiff"
+    mine.parent.mkdir(parents=True)
+    write_aiff(mine, music(1))
+    before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file() and ".discjockey" not in p.parts}
     fake_spotify(monkeypatch, [SpotifyTrack("t1", "Song", ("Artist",), "Al", None, 180000, None)])
     assert cli.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "Download (new): 1" in out and "nothing was changed" in out
-    pipeline = root / ".discjockey"
-    assert library.load_state(Paths(root, support=root / ".support"))["tracks"] == {}  # the scan indexed, nothing more
-    assert not (pipeline / "reports").exists()
+    assert "Download (new): 1" in out and "Dry run: no music files were changed and no report was written." in out
+    after = {p: p.read_bytes() for p in root.rglob("*") if p.is_file() and ".discjockey" not in p.parts}
+    assert after == before  # no music file moved, written or added (no Superseded/, no Upgrades ready/ either)
+    assert not (root / ".discjockey" / "reports").exists()
+    state = library.load_state(Paths(root, support=root / ".support"))
+    assert state["tracks"] == {} and state["files"] == ["Library/Mine/Someone - Else.aiff"]  # only indexed
 
 
 def test_up_to_date(root, monkeypatch, capsys):

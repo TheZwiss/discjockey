@@ -71,7 +71,7 @@ are leftovers of an old layout in the maintainer's checkout; nothing writes them
 | Screenshots | `cd hub-ui && node scripts/shots.mjs --port <dev port> --page <page> [--sizes min,default,large] [--compare]` or `--all` → `hub-ui/screenshots/<name>@<w>.png`; sizes default to all three (1100×700, 1280×800, 2560×1440) |
 | Design rule checker | `cd hub-ui && npm run rules [-- --page P --only a,b --force]` (also part of `npm run verify`) |
 | Hub window in the terminal | `DISCJOCKEY_HUB_DEBUG=1 bin/discjockey hub` |
-| Dry run (changes nothing) | `bin/discjockey --dry-run` |
+| Dry run (changes no music files, writes no report) | `bin/discjockey --dry-run` |
 | Signing identity (once per maintainer Mac) | `scripts/make_signing_identity.sh` → `~/.discjockey-signing/` (own keychain + password, `.p12` for the password manager and CI). Refuses to replace an existing one |
 | Sign an app by hand | `.venv/bin/python packaging/sign_app.py dist/app/Discjockey.app` (ad-hoc without the identity; `--require-identity` for releases) |
 | Build the app + .dmg | `scripts/build_app.sh` (background, ~5–10 min) → `dist/app/Discjockey.app`, `dist/Discjockey-<version>.dmg`; the app bundles the checkout's `hub/static` and the build fails when `hub-ui` builds something else (`SKIP_UI_BUILD=1` skips that check), `REQUIRE_IDENTITY=1` refuses ad-hoc signing and a checkout with uncommitted changes. Never copy the result into `/Applications` |
