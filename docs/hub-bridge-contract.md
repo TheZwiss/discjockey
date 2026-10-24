@@ -15,7 +15,7 @@ library (lists cut to 2 items, `data` cut).
 - After a write job finishes, re-fetch the screens you show (`track`, `todo`, `sidebar`, ...). After a playlists save,
   `spotify.stale` is true: offer ↻ (`refresh()`). After a sync (finished, stopped or crashed) `sync_preview` is the
   plan worked out again from the sync's own Spotify read and the library as the run left it (`read_at` = that read,
-  `stale` false), so what the run did is not offered again; only when state.json or settings.json can't be read then
+  `stale` false), so what the run did is not offered again; only when the library records (`library.db`) or settings.json can't be read then
   does the old plan stay, with `stale` true.
 - Disable write buttons while `job_status().job.running` or `console_running`. ↻ is refused during the hub's own sync.
 
@@ -85,7 +85,9 @@ Use the kind for the card/headline; always show `message` as the detail.
   the current file's; null elsewhere. Missing in runs saved before it: then a Qobuz find counts as lossless, any other as lossy).
   Sections: see `discjockey/report.py SECTIONS` (new_lossless, new_not_lossless, fake, upgrade_ready, swapped, added_new,
   discarded, checked, bought, replaced, rejected, hidden, unhidden, moved, adopted, redownloaded, dropped, missing,
-  queued, ambiguous, conflicts, skipped, recovered, errors).
+  queued, ambiguous, conflicts, skipped, recovered, errors). `moved`, `adopted` and `conflicts` are no longer written by
+  new runs (a sync moves no files and picks none up by name); they stay in the list because the reports of past runs
+  have them and `run(run_id)` still shows them.
 - **rekordbox_check** (state.json entry field): null or `{reason: "wrong_song"|"added_as_new", since: "YYYY-MM-DD"}`.
   `wrong_song`: set by `use_candidate`/`use_link` when the old file was moved away to Superseded/, and by
   `reject_current` ("None of these"). `added_as_new`: set by `upgrade(id, "add_new")`. The next sync keeps it; only
@@ -155,8 +157,6 @@ Use the kind for the card/headline; always show `message` as the detail.
    "new": 2,
    "retries": 0,
    "redownloads": 0,
-   "moves": 0,
-   "adopts": 0,
    "bought": 0,
    "weekly_checks": 0
   },
@@ -254,10 +254,11 @@ then YouTube Premium, then SoundCloud Go+), null when no service is set up.
 
 `sync_preview()` — the check before Start. Each action's `key` is sent back ticked to `start_sync`.
 Group `key`s/labels in order: `acquire:new` Download (new), `acquire:retry` Try again, `acquire:redownload` Download
-again, `move` Move to another folder, `adopt` Pick up a file you moved by hand, `adopt_bought` Add a bought file,
-`upgrade` Look for a better version (weekly check). `key` is `[kind, track_id, to_dir]` (3 strings; example cut).
-Every action row also has `run`: its index in the order the sync works through them (moves and adopts first, then
-downloads, then weekly checks; inside each, playlists.txt order). Downloads of tracks in the "never download" list
+again, `adopt_bought` Add a bought file, `upgrade` Look for a better version (weekly check). There are no `move` or
+`adopt` groups, no `counts.moves` / `counts.adopts` (in `sync_preview` and in the dashboard's `ready.counts`) and no
+`from_folder` on a row any more (library stage 1): a sync moves no files, and files moved by hand are found by the
+scan (`rescan_library`). `key` is `[kind, track_id, to_dir]` (3 strings; example cut).
+Every action row also has `run`: its index in the order the sync works through them (bought files, then downloads, then weekly checks; inside each, playlists.txt order). Downloads of tracks in the "never download" list
 are not in `groups` but in `never` (same rows, without `run`); marking or unmarking a track moves it at once, without
 reading Spotify again. `folders` is the playlists.txt order, `in_playlists` the number of unique Spotify tracks read
 (null before the first read). `estimate.duration_min` counts only the downloads that fit into today's Qobuz
@@ -290,8 +291,6 @@ ticked count (a larger count takes the last entry) for the service rows and neve
   "new": 2,
   "retries": 0,
   "redownloads": 0,
-  "moves": 0,
-  "adopts": 0,
   "bought": 0,
   "weekly_checks": 0
  },
@@ -311,7 +310,6 @@ ticked count (a larger count takes the last entry) for the service rows and neve
      "artist": "Pegassi",
      "title": "AEIOU",
      "folder": "Hard_Bounce",
-     "from_folder": null,
      "to_dir": "Library/Hard_Bounce",
      "to_not_lossless": false,
      "src": null,
@@ -329,7 +327,6 @@ ticked count (a larger count takes the last entry) for the service rows and neve
      "artist": "torbentorben",
      "title": "non stop",
      "folder": "Powertrance",
-     "from_folder": null,
      "to_dir": "Library/Powertrance",
      "to_not_lossless": false,
      "src": null,
@@ -1105,7 +1102,14 @@ such tracks change ("24 tracks will go to 03_06_2026 instead of Powertrance"), n
 | `use_link(track_id, url)` — Qobuz track / YouTube / YT Music / SoundCloud link | `use_link` | OpResult |
 | `reject_current(track_id)` — "None of these"; sets `rekordbox_check` (`wrong_song`) | `reject_current` | OpResult |
 | `rekordbox_checked(track_id)` — "Done" on a "Check in rekordbox" item: clears `rekordbox_check` | `rekordbox_checked` | OpResult (`result.section` `rekordbox_checked`, note "checked in rekordbox") |
+| `rescan_library()` — the window opened or came back to the front: indexes `Library/` against `library.db`, so files moved, renamed or replaced by hand are found (a write method like the rest; the page ignores a `busy` or `console` answer, a running sync scans by itself). Every sync and dry run scans first too | `scan` | `{moved, new, gone, changed, copies}`, all ints: files found at a new place, new files, songs whose file is gone, files whose audio was replaced outside Discjockey (judged again like a bought file), and `copies` (new files with the audio of a file that is still there; the `Message` counts them as new files). All zero when nothing changed, and when a crash-safe step is still pending (nothing is scanned then). A scan that changed something sends one `Message` |
 | `upgrade(track_id, mode)` — `swap|add_new|discard` | `upgrade_swap` / `upgrade_add_new` / `upgrade_discard` | OpResult |
+
+`rescan_library` answers like every write method: `console` ("A sync is running in the terminal. Wait until it has
+finished.") while a terminal run holds the lock, `busy` ("Discjockey is still busy with the last change. Wait until it
+has finished.") while another write job runs. While a scan runs (the `scan` job, or the scan that `sync_preview` runs
+first) every write method answers `busy` with "Discjockey is checking your Library. Try again in a moment.". `scan` is the job kind for `JobStarted` / `JobFinished`; it has no
+`track_id`.
 
 `use_candidate` / `use_link` are refused (problem `refused`) before any request to Qobuz (no login, no link lookup,
 nothing counted) with the messages of `ops.refusal`: "This is the version you have now." (the candidate is the
@@ -1306,7 +1310,7 @@ a test compares them): `dashboard`, `sidebar`, `sync_preview`, `refresh`, `libra
 `limits`, `limits_what_if`, `save_limits`, `mark_warnings_seen`, `runs`, `run`, `spectrum`, `media_url`,
 `search_candidates`, `preview`, `add_playlist`, `preview_playlist_change`, `start_sync`, `save_playlists`, `hide`,
 `never_download`, `add_bought_file`, `use_candidate`, `use_link`, `reject_current`, `rekordbox_checked`, `upgrade`,
-`show_in_finder`, `reveal`, `open_report`. Everything else works without a music folder, `open_licenses` included (Setup and Settings before one
+`rescan_library`, `show_in_finder`, `reveal`, `open_report`. Everything else works without a music folder, `open_licenses` included (Setup and Settings before one
 is chosen); `downloads_view()` then counts zero tracks.
 
 **Bound but missing.** A folder that vanishes while the hub runs (an unplugged drive) behaves as an unbound one: every
