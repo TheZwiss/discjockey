@@ -54,8 +54,8 @@ def test_preview_of_a_reorder_and_of_an_added_playlist(root):
     api, rec = make_api(root)
     refreshed(api, rec)
     c = api.preview_playlist_change(lines(POWER, HARD))
-    assert c["ok"] and c["kind"] == "moves" and [m["track_id"] for m in c["moves"]] == ["t2"]
-    assert c["moves"][0]["to_not_lossless"] and c["problem"] is None
+    assert c["ok"] and c["kind"] == "moves" and [m["track_id"] for m in c["tidy"]["rows"]] == ["t2"]
+    assert c["tidy"]["rows"][0]["to"].endswith("/not_lossless") and c["problem"] is None
     added = api.preview_playlist_change(lines(HARD, POWER, ("New", LINK3, True)))  # read once, right here
     assert added["kind"] == "add" and added["new_downloads"] == 1
 
