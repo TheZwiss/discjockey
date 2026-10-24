@@ -5,12 +5,13 @@
   // count and lead. `disabled` keeps it focusable (`aria-disabled`, like Button) but ignores clicks, and the whole
   // row reads as unavailable (muted name and count, faded lead, faded switch).
   // Lead: a 24 px Cover, or a glyph in `<span class="toggle-icon">↓</span>` (the bordered icon box styled here).
+  // `sub`: a muted second line under the name that wraps (a single setting's detail, or why it is off).
   import type { Snippet } from 'svelte';
   import Switch from './Switch.svelte';
   import type { ToggleItem } from './toggleModel';
 
-  let { item, lead, onchange, disabled = false, title, test }:
-    { item: ToggleItem; lead?: Snippet; onchange: (key: string, on: boolean) => void; disabled?: boolean;
+  let { item, lead, sub, onchange, disabled = false, title, test }:
+    { item: ToggleItem; lead?: Snippet; sub?: string; onchange: (key: string, on: boolean) => void; disabled?: boolean;
       /** the tooltip, e.g. why a disabled row is off (ToggleGroup `disabledReason`) */
       title?: string; test?: string } = $props();
 
@@ -22,7 +23,11 @@
   onclick={click}>
   <Switch on={item.on} label={item.label} {disabled} />
   {#if lead}<span class="lead" aria-hidden="true">{@render lead()}</span>{/if}
-  <span class="name">{item.label}</span>
+  {#if sub}
+    <span class="text"><span class="name">{item.label}</span><span class="sub">{sub}</span></span>
+  {:else}
+    <span class="name">{item.label}</span>
+  {/if}
   <span class="count">{item.count ?? ''}</span>
 </button>
 
@@ -43,6 +48,8 @@
     white-space: nowrap; transition: color var(--t-state) var(--ease), opacity var(--t-state) var(--ease); }
   /* off stays readable: the user reads an off name to decide whether to turn it on (rule 8, as ListRow); the
      switch and the faded lead carry the state */
+  .text { min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: var(--s-2) 0; }
+  .sub { color: var(--text-muted); font-size: var(--fs-small); line-height: 1.35; overflow-wrap: break-word; }
   .off .name { color: var(--text-muted); }
   .off .count { color: var(--text-label); }
   .lead > :global(.toggle-icon) { display: grid; place-items: center; width: 24px; height: 24px;
