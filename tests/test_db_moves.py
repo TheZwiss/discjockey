@@ -110,6 +110,18 @@ def test_a_bad_move_is_refused_and_nothing_is_written(log, move):
     assert log.rows("SELECT COUNT(*) FROM moves") == [(0,)]
 
 
+def test_an_unknown_kind_of_batch_is_refused(log):
+    with pytest.raises(ValueError):
+        log.batch([log.file_move("sp1", ONE, "Library/New/A - One.aiff")], started_by="sync")
+    assert log.rows("SELECT COUNT(*) FROM move_batches") == [(0,)]
+
+
+def test_an_undo_can_skip_a_folder_rename_whose_playlist_was_renamed_again(log):
+    batch = log.batch([PlannedMove("folder", None, "New", "Library/New", "Library/Old", None, None, None,
+                                   skip=("playlist_renamed", None))], started_by="undo")
+    assert db.batch_moves(log.conn, batch)[0].reason == "playlist_renamed"
+
+
 def test_paths_are_stored_nfc(log):
     batch = log.batch([log.file_move("sp1", ONE, "Library/Ne\u0301w/A - One.aiff")])
     assert db.batch_moves(log.conn, batch)[0].dst == "Library/N\u00e9w/A - One.aiff"

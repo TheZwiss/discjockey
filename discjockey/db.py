@@ -752,7 +752,8 @@ def set_quality(conn: sqlite3.Connection, file_id: int, status: str, cutoff_hz: 
 
 # the skip reasons a move can carry (plan library stage 2, I6); views word them
 SKIP_REASONS = frozenset({"offline", "not_found", "name_taken", "changed", "failed", "stopped", "moved_on",
-                          "place_taken"})
+                          "place_taken", "playlist_renamed"})
+STARTED_BY = frozenset({"tidy", "save", "rename", "undo"})
 _MOVE_COLUMNS = ("id", "batch", "seq", "kind", "file", "label", "src", "dst", "content_key", "placed_before",
                  "placed_after", "state", "reason", "detail")
 
@@ -767,8 +768,10 @@ def start_batch(conn: sqlite3.Connection, *, started_by: str, about: dict | None
                 moves: Sequence[PlannedMove], now: datetime) -> int:
     """Records a batch and every move it plans, in one transaction, before anything moves: each move `planned`, or
     `skipped` with its reason when its `skip` is set; `seq` is its position in `moves`. Paths are stored as snapshot
-    paths (NFC); one in no watched folder, a file move that would rename its file, a folder move between two watched
-    folders or an unknown skip reason is a ValueError (nothing written). Returns the batch id."""
+    paths (NFC); an unknown `started_by`, a path in no watched folder, a file move that would rename its file, a
+    folder move between two watched folders or an unknown skip reason is a ValueError (nothing written). Returns the batch id."""
+    if started_by not in STARTED_BY:
+        raise ValueError(f"{started_by!r} is not a kind of batch")
     folders = _Folders(conn)
     rows = []
     for seq, m in enumerate(moves):
@@ -804,7 +807,8 @@ def finish_move(conn: sqlite3.Connection, move_id: int) -> None:
     unlinked row left at `dst`, whose file isn't there, gives way, as in apply_scan); a move whose file row is gone
     is only marked done. A `folder` move gives every row of its watched folder under `src` + "/" the `dst` prefix
     instead, placed_by untouched (the target folder didn't exist, so no place collides). Finishing a done move again
-    changes nothing; a skipped move is a ValueError."""
+    changes nothing; a skipped move is a ValueError. When a linked row of another song sits at `dst`, the call
+    raises sqlite3.IntegrityError and writes nothing; the caller then records the move with skip_move(..., "failed")."""
     with transaction(conn):
         m = _move(conn, move_id)
         if m["state"] == "done":
