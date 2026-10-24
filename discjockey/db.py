@@ -6,7 +6,9 @@ of the block (plan library stage 1, "Global constraints"). Transactions are expl
 one, every statement commits by itself."""
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import sqlite3
 import unicodedata
 from collections.abc import Callable, Iterator
@@ -16,6 +18,7 @@ from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
 from . import library as disk  # "library" is the Library/ path argument everywhere here
+from .events import Emit, Message
 from .planner import ENTRY_KEYS
 
 SCHEMA_VERSION = 1
@@ -543,3 +546,133 @@ def save(conn: sqlite3.Connection, state: dict, *, library: Path, facts: Facts, 
         n += _sync_records(conn, "usage", "service", "data", records["usage"], _usage_rows(state))
         n += _sync_records(conn, "meta", "key", "value", records["meta"], _extra_rows(state))
     return n
+
+
+# --- the migration from state.json (spec library-and-sources §5.3, plan task 1.4) ---
+
+DB_NAME = "library.db"
+BACKUP_NAME = "state.v1.json"
+STUB = {"version": 2, "moved_to": DB_NAME}  # an older Discjockey reads it and stops with its version message
+MIGRATING = "Updating Discjockey's records of your library (only this once; it can take a minute)..."
+MIGRATION_FAILED = ("Discjockey couldn't update its records of your library ({reason}). Nothing was changed; it tries "
+                    "again next time.")
+SIDE_FILES = ("-wal", "-shm", "-journal")  # SQLite's files beside a database
+
+
+def db_file(paths: disk.Paths) -> Path:
+    return paths.data / DB_NAME
+
+
+def _tmp(paths: disk.Paths) -> Path:
+    return paths.data / (DB_NAME + ".tmp")
+
+
+def _remove_with_side_files(path: Path) -> None:
+    for p in (path, *(path.with_name(path.name + s) for s in SIDE_FILES)):
+        p.unlink(missing_ok=True)
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+# the steps, one function each so a test can crash the migration after any of them
+def _read_v1(paths: disk.Paths) -> dict:  # step 1
+    return disk._load_v1(paths.state_file)
+
+
+def _build(paths: disk.Paths, state: dict, raw: bytes | None, facts: Facts, now: datetime) -> None:  # step 3
+    tmp = _tmp(paths)
+    _remove_with_side_files(tmp)  # left over from a migration that crashed
+    create(tmp, state, library=paths.library, facts=facts, now=now)
+    with connect(tmp) as conn:
+        if raw is not None:
+            conn.execute("INSERT INTO meta (key, value) VALUES ('migrated_from', ?)", (_sha256(raw),))
+        # folds the WAL into the file, so the rename below moves one complete file
+        conn.execute("PRAGMA journal_mode = DELETE").fetchone()
+
+
+def _place(paths: disk.Paths) -> None:  # step 4
+    tmp, target = _tmp(paths), db_file(paths)
+    fd = os.open(tmp, os.O_RDONLY)
+    try:
+        disk.full_fsync(fd)
+    finally:
+        os.close(fd)
+    for s in SIDE_FILES:  # with no library.db these belong to nothing, and SQLite would apply them to the new one
+        target.with_name(target.name + s).unlink(missing_ok=True)
+    os.replace(tmp, target)
+    disk.fsync_dir(paths.data)
+
+
+def _backup(paths: disk.Paths) -> None:  # step 5: overwrites an older backup, this is the newest copy
+    os.replace(paths.state_file, paths.data / BACKUP_NAME)
+    disk.fsync_dir(paths.data)
+
+
+def _write_stub(paths: disk.Paths) -> None:  # step 6
+    disk.write_json_atomic(paths.state_file, STUB, indent=2)
+
+
+def _migrated_from(paths: disk.Paths) -> str | None:
+    with connect(db_file(paths)) as conn:
+        check(conn)
+        row = conn.execute("SELECT value FROM meta WHERE key = 'migrated_from'").fetchone()
+    return None if row is None else row[0]
+
+
+def _resume(paths: disk.Paths) -> bool:
+    """Finishes a migration that got as far as placing library.db. True when nothing is left to do; False when
+    state.json changed since (an older Discjockey ran in between): library.db is set aside as library.db.discarded
+    and the migration starts again."""
+    if not paths.state_file.exists():
+        _write_stub(paths)  # crashed after the backup (or a library made new): an older Discjockey must see the stub
+        return True
+    raw = paths.state_file.read_bytes()
+    if json.loads(raw).get("version") == STUB["version"]:
+        return True
+    disk._load_v1(paths.state_file)  # any version but 1 and 2: its own message
+    if _migrated_from(paths) == _sha256(raw):
+        _backup(paths)
+        _write_stub(paths)
+        return True
+    target = db_file(paths)
+    discarded = target.with_name(DB_NAME + ".discarded")
+    for s in ("", *SIDE_FILES):
+        if target.with_name(target.name + s).exists():
+            os.replace(target.with_name(target.name + s), discarded.with_name(discarded.name + s))
+    return False
+
+
+def _reason(e: Exception) -> str:
+    if isinstance(e, OSError) and e.strerror:
+        return e.strerror[:1].lower() + e.strerror[1:]
+    return str(e) or type(e).__name__
+
+
+def migrate(paths: disk.Paths, *, facts: Facts, now: datetime, emit: Emit,
+            recover: Callable[[dict], None]) -> None:
+    """state.json -> library.db (spec §5.3), all or nothing; the caller holds the lock. Safe to call on every open:
+    with library.db in place and the stub written it does nothing, and it finishes a migration a crash interrupted.
+    Steps: read state.json (v1), `recover` its pending steps (it saves to state.json as today), build
+    library.db.tmp with content keys and the SHA-256 of state.json's bytes, write it out and rename it into place,
+    rename state.json to state.v1.json, write the stub. Until the rename into place state.json is untouched by the
+    migration itself; any failure is StateError (a state.json of another version keeps its own message)."""
+    try:
+        if db_file(paths).exists() and _resume(paths):
+            return
+        state = _read_v1(paths)
+        recover(state)
+        raw = paths.state_file.read_bytes() if paths.state_file.exists() else None
+        emit(Message("info", MIGRATING))
+        _build(paths, state, raw, facts, now)
+        _place(paths)
+        if raw is not None:  # a new library has no state.json to keep
+            _backup(paths)
+        _write_stub(paths)
+    except disk.StateError:
+        _remove_with_side_files(_tmp(paths))
+        raise
+    except Exception as e:
+        _remove_with_side_files(_tmp(paths))
+        raise disk.StateError(MIGRATION_FAILED.format(reason=_reason(e))) from e

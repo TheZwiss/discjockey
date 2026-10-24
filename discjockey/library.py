@@ -226,6 +226,12 @@ def empty_state() -> dict:
 
 
 def load_state(path: Path) -> dict:
+    return _load_v1(path)
+
+
+def _load_v1(path: Path) -> dict:
+    """A version-1 state.json (empty when there is none). Any other version, among them the stub the migration
+    to library.db leaves, is StateError with the words an older Discjockey prints for it."""
     if not path.exists():
         return empty_state()
     with open(path, encoding="utf-8") as f:
