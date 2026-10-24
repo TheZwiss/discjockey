@@ -169,6 +169,19 @@ def test_missing_records_are_refused_by_reader_and_writer_and_never_rebuilt(tmp_
         assert (p.state_backup.read_bytes() == kept) if backup else not p.state_backup.exists()
 
 
+def test_only_the_writer_upgrades_older_records(tmp_path, monkeypatch):
+    p = lib(tmp_path)
+    open_state(p)
+    calls = []
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 2)
+    monkeypatch.setattr(db, "UPGRADES", {1: lambda conn: calls.append(1)})
+    with pytest.raises(StateError, match="from an older version. Run a sync once"):
+        load_state(p)  # a reader takes no lock: it never upgrades
+    assert calls == []
+    library.open_records(p)  # the writer (holding the lock) does
+    assert calls == [1] and load_state(p)["tracks"] == {}
+
+
 def test_saving_into_a_music_folder_that_went_away_is_no_library(tmp_path):
     p = Paths(tmp_path / "gone", support=tmp_path / ".support")
     with pytest.raises(NoLibrary):

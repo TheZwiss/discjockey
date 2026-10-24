@@ -31,6 +31,8 @@ UPGRADES: dict[int, Callable[[sqlite3.Connection], None]] = {}
 
 NEWER = ("This music folder was last used by a newer Discjockey. Update Discjockey, then try again. "
          "Nothing was changed.")
+OLDER = ("Discjockey's records of this music folder are from an older version. Run a sync once to update them. "
+         "Nothing was changed.")
 UNREADABLE = "Discjockey can't read its records of this music folder (.discjockey/library.db): {reason}. Nothing was changed."
 DAMAGED = "the file is damaged or isn't one of Discjockey's"
 
@@ -159,13 +161,16 @@ def _upgrade(conn: sqlite3.Connection, version: int) -> None:
     conn.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (str(version),))
 
 
-def check(conn: sqlite3.Connection) -> None:
+def check(conn: sqlite3.Connection, *, upgrade: bool = False) -> None:
     """The version check every open does: a database from a newer Discjockey, or a file that isn't one, is
-    StateError (nothing changed); an older one is brought up to SCHEMA_VERSION in one transaction (a failing step
-    leaves it at its old version)."""
+    StateError (nothing changed). An older one is brought up to SCHEMA_VERSION in one transaction (a failing step
+    leaves it at its old version) only with `upgrade`, which only a writer holding the library lock passes
+    (migrate); a reader refuses it (OLDER), as it takes no lock."""
     version = _stored_version(conn)
     if version > SCHEMA_VERSION:
         raise disk.StateError(NEWER)
+    if version < SCHEMA_VERSION and not upgrade:
+        raise disk.StateError(OLDER)
     if version < SCHEMA_VERSION:
         with transaction(conn):
             version = _stored_version(conn)  # another process may have upgraded it meanwhile
@@ -881,7 +886,7 @@ def migrate(paths: disk.Paths, *, facts: Facts, now: datetime, emit: Emit,
     try:
         if db_file(paths).exists():
             with connect(db_file(paths)) as conn:  # every writer's open: the version check, Library/'s path
-                check(conn)
+                check(conn, upgrade=True)
                 sync_library_path(conn, paths.library)
             if _resume(paths):
                 return

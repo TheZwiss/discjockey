@@ -105,9 +105,14 @@ def test_an_upgrade_step_is_applied_once_and_bumps_the_version(tmp_path, library
 
     monkeypatch.setattr(db, "SCHEMA_VERSION", 2)
     monkeypatch.setattr(db, "UPGRADES", {1: step})
+    with db.connect(path) as conn, pytest.raises(StateError) as e:
+        db.check(conn)  # a reader (no lock) never upgrades
+    assert str(e.value) == ("Discjockey's records of this music folder are from an older version. Run a sync once "
+                            "to update them. Nothing was changed.")
+    assert calls == []
     for _ in range(2):
         with db.connect(path) as conn:
-            db.check(conn)
+            db.check(conn, upgrade=True)
     assert calls == [1]
     with db.connect(path) as conn:
         assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "2"
@@ -124,7 +129,7 @@ def test_a_failing_upgrade_step_leaves_the_old_version(tmp_path, library, monkey
     monkeypatch.setattr(db, "SCHEMA_VERSION", 2)
     monkeypatch.setattr(db, "UPGRADES", {1: step})
     with db.connect(path) as conn, pytest.raises(RuntimeError):
-        db.check(conn)
+        db.check(conn, upgrade=True)
     with db.connect(path) as conn:
         assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "1"
         assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'half_done'").fetchone() is None
