@@ -479,6 +479,37 @@ describe('fake tidy-up', () => {
     expect(folders.rows.some((x) => x.path?.startsWith('Library/Hard_New/'))).toBe(true);
   });
 
+  it('a Stop during the save wait saves the file, runs no batch and ends stopped with the new version', async () => {
+    const { f, evs } = make();
+    const pl = await f.playlists();
+    if (!pl.ok) throw new Error();
+    const lines = pl.rows.map((r) => ({ folder: r.folder, link: r.link, enabled: r.enabled }));
+    const swapped = [lines[1], lines[0], ...lines.slice(2)];
+    const rows = (await preview(f)).rows;
+    const save = await f.save_playlists(swapped, pl.version, { choice: 'move', renames: [], moves: rows.map((r) => [r.file_id, r.from_path]) });
+    if (!save.ok) throw new Error();
+    expect(await f.stop()).toMatchObject({ ok: true, stopped: true });
+    const done = await finished(evs, save.job_id);
+    expect(done).toMatchObject({ ok: false, problem: 'stopped' });
+    const after = await f.playlists();
+    if (!after.ok) throw new Error();
+    expect(after.version).not.toBe(pl.version);
+    expect(done.result).toEqual({ version: after.version, batches: [] });
+  });
+
+  it('save checks folder names by the real rules and undo refuses a batch nobody recorded', async () => {
+    const { f } = make();
+    const pl = await f.playlists();
+    if (!pl.ok) throw new Error();
+    const lines = pl.rows.map((r) => ({ folder: r.folder, link: r.link, enabled: r.enabled }));
+    const named = (folder: string) => [{ ...lines[0], folder }, ...lines.slice(1)];
+    for (const bad of ['a/b', 'a\\b', 'a:b', '.hidden', '..', 'Not_Lossless', 'x'.repeat(101)]) {
+      expect(await f.save_playlists(named(bad), pl.version, null), bad).toMatchObject({ ok: false, kind: 'refused' });
+    }
+    expect(await f.save_playlists(named('Caf\u00e9, 2024 (live)'), pl.version, null)).toMatchObject({ ok: true });
+    expect(await f.undo_moves(9999)).toMatchObject({ ok: false, kind: 'refused', message: 'Discjockey has no record of these moves.' });
+  });
+
   it('save with leave makes the retargeted files yours; malformed answers are refused', async () => {
     const { f, evs } = make();
     const pl = await f.playlists();

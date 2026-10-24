@@ -120,6 +120,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   let pendingFinish: Finish | null = null;   // a job that only ends by itself or with stop() (Spotify login)
   let signIn: JobRecord | null = null;         // the sign-in slot (beside the write jobs, as Jobs.start_sign_in)
   let signInStop: (() => void) | null = null;
+  let savePending: MoveRun | null = null;    // a save in its short wait before the file is written (Stop ends it after the save)
   let moveRun: MoveRun | null = null;         // the move batch that is running (Stop ends it between two moves)
 
   const emit = (e: HubEvent) => {
@@ -679,6 +680,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     },
     async stop() {
       if (moveRun && job?.running) { job.stopping = true; moveRun.stopped = true; return ok({ stopped: true }); }
+      if (savePending && job?.running) { job.stopping = true; savePending.stopped = true; return ok({ stopped: true }); }
       if (replay && job?.running) { job.stopping = true; replay.stop(); return ok({ stopped: true }); }
       if (pendingFinish && job?.running) {
         job.stopping = true;
@@ -693,47 +695,55 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (problem) return fail('refused', problem);
       const choice = validSaveFiles(files);
       if (choice === 'bad') return fail('refused', 'Choose whether to move the files or leave them where they are.');
-      return startJob('save_playlists', null, (finish) => setTimeout(() => {
-        if (loaded_version !== versionHash()) {
-          return finish(false, null, 'changed', 'playlists.txt was changed elsewhere. Load it again before saving.');
-        }
-        const { renames, moved } = retargets(s, lines);
-        const before = new Map(s.tracks.map((t) => [t.track_id, pathOf(t) ?? '']));
-        const old = new Map(s.playlists.map((p) => [p.link, p]));
-        s.playlists = lines.map((l) => ({ folder: l.folder, link: l.link, enabled: l.enabled,
-          info: old.get(l.link)?.info ?? null }));
-        for (const t of s.tracks) t.playlists = t.playlists.map((f) => renames.find(([was]) => was === f)?.[1] ?? f);
-        s.version++;
-        // as the real setup_status, which reads playlists.txt: a saved list counts as "playlists added"
-        s.setup = { ...s.setup, playlists: s.playlists.length > 0 };
-        s.spotify = { ...s.spotify, stale: true };
-        if (!choice) return finish(true, { version: versionHash(), batches: [] });
-        // the songs get their new folder; their files stay until moved, and a file left in place is the user's own
-        for (const t of s.tracks) {
-          const m = moved.get(t.track_id);
-          if (!m) continue;
-          const sits = t.at ?? t.folder;
-          t.folder = m.to;
-          if (hasFile(t) && t.in_playlists) {
-            if (sits !== m.to) t.at = sits; else delete t.at;
-            if (choice.choice === 'leave' && !s.tidy.placed[t.track_id]) s.tidy.placed[t.track_id] = 'user';
+      const wait: MoveRun = { stopped: false };
+      const started = startJob('save_playlists', null, (finish) => {
+        setTimeout(() => {
+          if (savePending === wait) savePending = null;
+          if (loaded_version !== versionHash()) {
+            return finish(false, null, 'changed', 'playlists.txt was changed elsewhere. Load it again before saving.');
           }
-        }
-        if (choice.choice === 'leave') return finish(true, { version: versionHash(), batches: [] });
-        moveJob(finish, async (run) => {
-          const out: { result: BatchResult; stopped: boolean }[] = [];
-          for (const [was, now] of choice.renames) {
-            const r = await runBatch(s, emit, run, 250 / speed, 'rename', [planRename(s, was, now)], { about: { from: was, to: now } });
-            out.push(r);
-            if (r.stopped) return out;
+          const { renames, moved } = retargets(s, lines);
+          const before = new Map(s.tracks.map((t) => [t.track_id, pathOf(t) ?? '']));
+          const old = new Map(s.playlists.map((p) => [p.link, p]));
+          s.playlists = lines.map((l) => ({ folder: l.folder, link: l.link, enabled: l.enabled,
+            info: old.get(l.link)?.info ?? null }));
+          for (const t of s.tracks) t.playlists = t.playlists.map((f) => renames.find(([was]) => was === f)?.[1] ?? f);
+          s.version++;
+          // as the real setup_status, which reads playlists.txt: a saved list counts as "playlists added"
+          s.setup = { ...s.setup, playlists: s.playlists.length > 0 };
+          s.spotify = { ...s.spotify, stale: true };
+          if (!choice) return finish(true, { version: versionHash(), batches: [] });
+          // the songs get their new folder; their files stay until moved, and a file left in place is the user's own
+          for (const t of s.tracks) {
+            const m = moved.get(t.track_id);
+            if (!m) continue;
+            const sits = t.at ?? t.folder;
+            t.folder = m.to;
+            if (hasFile(t) && t.in_playlists) {
+              if (sits !== m.to) t.at = sits; else delete t.at;
+              if (choice.choice === 'leave' && !s.tidy.placed[t.track_id]) s.tidy.placed[t.track_id] = 'user';
+            }
           }
-          const accept = new Map([...before].filter(([id]) => moved.has(id)));
-          const sent = choice.moves.filter(([id]) => { const t = trackOfId(s, id); return !t || outOfPlace(t); });
-          const plan = planTidy(s, sent, accept);
-          if (plan.length) out.push(await runBatch(s, emit, run, 250 / speed, 'save', plan));
-          return out;
-        }, (batches) => ({ version: versionHash(), batches }));
-      }, 500 / speed));
+          if (choice.choice === 'leave') return finish(true, { version: versionHash(), batches: [] });
+          // as the real backend: a Stop before the moves start leaves the file saved and no batch run
+          if (wait.stopped) return finish(false, { version: versionHash(), batches: [] }, 'stopped', 'Stopped. Nothing was left half-done.');
+          moveJob(finish, async (run) => {
+            const out: { result: BatchResult; stopped: boolean }[] = [];
+            for (const [was, now] of choice.renames) {
+              const r = await runBatch(s, emit, run, 250 / speed, 'rename', [planRename(s, was, now)], { about: { from: was, to: now } });
+              out.push(r);
+              if (r.stopped) return out;
+            }
+            const accept = new Map([...before].filter(([id]) => moved.has(id)));
+            const sent = choice.moves.filter(([id]) => { const t = trackOfId(s, id); return !t || outOfPlace(t); });
+            const plan = planTidy(s, sent, accept);
+            if (plan.length) out.push(await runBatch(s, emit, run, 250 / speed, 'save', plan));
+            return out;
+          }, (batches) => ({ version: versionHash(), batches }));
+        }, 500 / speed);
+      });
+      if (started.ok) savePending = wait;  // from now on a Stop reaches it, also before the job's first tick
+      return started;
     },
     async tidy_up(moves: [number, string][]) {
       const sent = validMoves(moves);
@@ -743,13 +753,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         [await runBatch(s, emit, run, 250 / speed, 'tidy', planTidy(s, sent))], (batches) => batches[0]));
     },
     async undo_moves(batch_id: number) {
-      if (!Number.isInteger(batch_id)) return fail('refused', NO_BATCH);
-      return startJob('undo_moves', null, (finish) => moveJob(finish, async (run) => {
-        const b = s.tidy.batches.find((x) => x.id === batch_id);
-        if (!b) return [];
-        return [await runBatch(s, emit, run, 250 / speed, 'undo', planUndo(s, b), { undoes: b.id })];
-      }, (batches) => batches[0] ?? { batch_id: null, title: 'Undo', moved: 0, headline: 'Moved 0 files back.',
-        skipped: [], stopped: false }));
+      const b = Number.isInteger(batch_id) ? s.tidy.batches.find((x) => x.id === batch_id) : undefined;
+      if (!b) return fail('refused', NO_BATCH);
+      return startJob('undo_moves', null, (finish) => moveJob(finish, async (run) =>
+        [await runBatch(s, emit, run, 250 / speed, 'undo', planUndo(s, b), { undoes: b.id })],
+      (batches) => batches[0]));
     },
     async save_limits(service: Service, limit: number, extra_today: number) {
       const f = serviceOf(s, service);
@@ -1033,9 +1041,14 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     const names = new Set<string>();
     for (const l of lines) {
       if (!l.folder?.trim()) return 'Every playlist needs a folder name.';
-      if (!/^[\w .-]+$/.test(l.folder)) return `"${l.folder}" can't be a folder name. Use letters, digits, _ and -.`;
-      if (names.has(l.folder)) return `Two playlists use the folder ${l.folder}.`;
-      names.add(l.folder);
+      // the real rules (config._check_folder, after the name is trimmed)
+      const name = l.folder.trim().normalize('NFC');
+      if (name.toLowerCase() === 'not_lossless') return `"${name}" is reserved, pick another folder name.`;
+      if (/[/\\:]/.test(name)) return 'Folder names cannot contain / \\ or :';
+      if (name.startsWith('.')) return 'Folder names cannot start with a dot.';
+      if (name.length > 100) return 'The folder name is longer than 100 characters.';
+      if (names.has(name.toLowerCase())) return `Two playlists use the folder ${name}.`;
+      names.add(name.toLowerCase());
     }
     return null;
   }

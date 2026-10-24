@@ -12,7 +12,7 @@ const SKIP_CHANGED = 'Changed since the list was shown';
 const SKIP_STOPPED = 'Not moved: the moves were stopped first';
 const SKIP_MOVED_ON = 'Moved or changed since';
 const FAILED_FULL = "Couldn't move it: the drive is full";
-export const NO_BATCH = 'Discjockey has no record of that tidy-up.';
+export const NO_BATCH = 'Discjockey has no record of these moves.';
 export const NOTHING_CHOSEN = 'No files were chosen to move.';
 const FOLDER_TAKEN = (name: string) => `A folder called ${name} is already in your Library.`;
 const EMPTY = 'Every file is where the playlist order puts it.';

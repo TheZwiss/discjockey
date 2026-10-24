@@ -19,7 +19,8 @@ export interface Bridge {
   track(track_id: string): Promise<Res<{ track: TrackDetail }>>;
   todo(filter: TodoFilter, show_hidden: boolean): Promise<Res<Todo>>;
   playlists(): Promise<Res<Playlists>>;
-  tidy_preview(): Promise<Res<TidyPreview>>;      move_batches(): Promise<Res<MoveBatches>>;
+  tidy_preview(): Promise<Res<TidyPreview>>;
+  move_batches(): Promise<Res<MoveBatches>>;
   undo_preview(batch_id: number): Promise<Res<UndoPreview>>;
   limits(service: Service): Promise<Res<Limits>>;
   limits_what_if(service: Service, limit: number, extra_today: number): Promise<Res<WhatIf>>;
