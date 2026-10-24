@@ -76,8 +76,8 @@ class AppUpdate:
 
 
 EVENT_TYPES = (ev.RunStarted, ev.ActionStarted, ev.StepChanged, ev.Progress, ev.Waiting, ev.SourceChosen, ev.Checked,
-               ev.AccountUsage, ev.ActionFinished, ev.RunFinished, ev.Message, ev.ReadingPlaylist, ev.MovesProgress, JobStarted, JobFinished, ConsoleBusy,
-               FileDropped, SignInPhase, AppUpdate)
+               ev.AccountUsage, ev.ActionFinished, ev.RunFinished, ev.Message, ev.ReadingPlaylist, ev.MovesProgress, JobStarted, JobFinished,
+               ConsoleBusy, FileDropped, SignInPhase, AppUpdate)
 
 
 def event_dict(event: object) -> dict:

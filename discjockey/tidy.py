@@ -286,6 +286,8 @@ def _tidy(paths: Paths, state: dict, moves: Sequence[tuple[int, str]], started_b
 def check_folder_names(*names: str) -> None:
     """ValueError unless every name could be a playlist's folder (one name, not a path, not hidden)."""
     for name in names:
+        if not name and isinstance(name, str):
+            raise ValueError("A folder name can't be empty.")
         if (not isinstance(name, str) or not name or "/" in name or "\\" in name or name.startswith(".")
                 or name != name.strip()):
             raise ValueError(f"\u201c{name}\u201d can't be used as a folder name.")

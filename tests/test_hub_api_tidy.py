@@ -110,12 +110,31 @@ def test_the_write_jobs_answer_busy_and_console_and_refuse_malformed_input(root)
     row = api.tidy_preview()["rows"][0]
     with run_lock(root.lock):
         assert api.tidy_up(moves(row))["kind"] == "console"
-        assert api.undo_moves(1)["kind"] == "console"
     for bad in (None, "x", [], [[1]], [[True, "a"]], [["1", "a"]], [[1, ""]], [[1, "a", "b"]], [{"file_id": 1}]):
         assert api.tidy_up(bad)["kind"] == "refused", bad
     assert api.undo_moves("1")["kind"] == "refused" and api.undo_moves(True)["kind"] == "refused"
     assert api._jobs.current is None  # none of them started a job
     assert load_state(root)["tracks"]["t2"]["path"].startswith("Library/Elsewhere/")
+
+
+def test_a_move_list_that_is_not_a_list_is_malformed_and_an_empty_one_is_nothing_chosen(root):
+    api, _ = make_api(root)
+    for bad in (None, "x", {"a": 1}, 7):
+        answer = api.tidy_up(bad)
+        assert answer["kind"] == "refused" and answer["message"].startswith("Each file to move needs"), bad
+    assert api.tidy_up([])["message"] == "No files were chosen to move."
+
+
+def test_undoing_a_batch_nobody_recorded_is_refused_before_a_job_starts(root):
+    api, rec = make_api(root)
+    answer = api.undo_moves(99)  # no library.db yet
+    assert answer["kind"] == "refused" and answer["message"] == "Discjockey has no record of these moves."
+    place_t2_elsewhere(root)
+    row = api.tidy_preview()["rows"][0]
+    assert wait_job(api, rec, api.tidy_up(moves(row))).ok  # now there is a batch 1, and no batch 99
+    assert api.undo_moves(99)["kind"] == "refused" and api._jobs.current.id == 1  # no second job started
+    with run_lock(root.lock):
+        assert api.undo_moves(1)["kind"] == "console"
 
 
 def stop_after_the_first_move(api, monkeypatch):
@@ -198,6 +217,20 @@ def test_a_stopped_save_still_delivers_the_batches_so_far(root, monkeypatch):
     assert f.result["version"] == api.playlists()["version"]
     [batch] = f.result["batches"]
     assert batch["stopped"] is True and batch["moved"] == 1 and batch["title"] == "Saved playlists"
+
+
+def test_a_save_that_fails_after_the_file_was_written_still_delivers_the_new_version(root, monkeypatch):
+    api, rec = make_api(root)
+    row = swapped_preview(api, rec)[0]
+    old = api.playlists()["version"]
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("the records broke")
+    monkeypatch.setattr(tidy, "after_save", boom)
+    f = save(api, rec, {"choice": "move", "renames": [], "moves": moves(row)})
+    assert not f.ok and f.problem != "stopped"
+    new = api.playlists()["version"]
+    assert new != old and f.result == {"version": new, "batches": []}  # the page can save again from here
 
 
 def test_save_refuses_a_malformed_choice_before_anything_starts(root):

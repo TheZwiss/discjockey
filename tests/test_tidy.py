@@ -514,3 +514,18 @@ def test_a_stopped_folder_rename_is_worded_as_one(paths, monkeypatch, moved):
     monkeypatch.undo()
     expected = (tidy.RECOVERED_RENAME.format(new="New") if moved else tidy.RECOVERED_RENAME_NONE.format(old="Old"))
     assert library.recover_pending(paths, load_state(paths)) == [(expected, True)]
+
+
+@pytest.mark.parametrize("name, said", [
+    ("/", "\u201c/\u201d can't be used"), (".", "\u201c.\u201d can't be used"), ("..", "\u201c..\u201d can't be used"),
+    ("  ", "\u201c  \u201d can't be used"), (" a", "can't be used"), ("a ", "can't be used"),
+    ("a/b", "can't be used"), ("a\\b", "can't be used"), (".hidden", "can't be used"),
+    ("", "A folder name can't be empty."), (None, "can't be used"), (7, "\u201c7\u201d can't be used"),
+])
+def test_check_folder_names_refuses_what_is_not_one_plain_folder_name(name, said):
+    with pytest.raises(ValueError, match=said.replace(".", r"\.")):
+        tidy.check_folder_names("Fine", name)
+
+
+def test_check_folder_names_accepts_plain_names():
+    tidy.check_folder_names("Hard_Bounce", "Two words", "Caf\u00e9-2", "a.b")

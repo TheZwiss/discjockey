@@ -815,6 +815,9 @@ class HubApi:
             except tidy.Stopped as stopped:
                 ctx.failed_result = {"version": version, "batches": self._batch_results(stopped.results)}
                 raise
+            except Exception:  # the file is saved: the page needs the new version, whatever else went wrong
+                ctx.failed_result = {"version": version, "batches": []}
+                raise
             return {"version": version, "batches": self._batch_results(done)}
 
         return {"job_id": self._jobs.start("save_playlists", work).id}
@@ -907,6 +910,9 @@ class HubApi:
         BatchResultJSON."""
         if isinstance(batch_id, bool) or not isinstance(batch_id, int):
             raise ValueError(NO_BATCH)
+        with self._move_log() as conn:
+            if conn is None or db.batch(conn, batch_id) is None:
+                raise ValueError(NO_BATCH)
 
         def work(ctx) -> dict:
             try:
@@ -1515,19 +1521,20 @@ def suggest_folder(name: str) -> str:
     return text if text and fold(text) != "not_lossless" else "New_playlist"
 
 
-NO_BATCH = "Discjockey has no record of that tidy-up."
+NO_BATCH = "Discjockey has no record of these moves."
 NOTHING_CHOSEN = "No files were chosen to move."
+MALFORMED_MOVES = "Each file to move needs its number and where it is now."
 
 
 def file_moves(moves) -> list[tuple[int, str]]:
     """The page's `[[file_id, from_path]]` as the engine takes it; ValueError (refused) for anything else."""
-    if not isinstance(moves, list):
-        raise ValueError(NOTHING_CHOSEN)
     out = []
+    if not isinstance(moves, list):
+        raise ValueError(MALFORMED_MOVES)
     for m in moves:
         if (not isinstance(m, (list, tuple)) or len(m) != 2 or isinstance(m[0], bool) or not isinstance(m[0], int)
                 or not isinstance(m[1], str) or not m[1]):
-            raise ValueError("Each file to move needs its number and where it is now.")
+            raise ValueError(MALFORMED_MOVES)
         out.append((m[0], m[1]))
     return out
 
