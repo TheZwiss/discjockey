@@ -368,3 +368,62 @@ def test_the_hub_probe_never_makes_its_own_job_fail(tmp_path):
     finally:
         done.set()
         t.join()
+
+
+# --- a step with several entries (plan library stage 2, task 3.1) ---
+
+def two_songs_in(paths, folder):
+    s = empty_state()
+    for key, title in (("t1", "S"), ("t2", "T")):
+        touch(paths, f"Library/{folder}/A - {title}.aiff", title.encode())
+        s["tracks"][key] = {"artist": "A", "title": title, "path": f"Library/{folder}/A - {title}.aiff",
+                            "status": "lossless", "folder": folder}
+    save_state(paths, s)
+    return s
+
+
+def moved_entries(s, old, new):
+    return {k: {**e, "path": e["path"].replace(f"Library/{old}/", f"Library/{new}/")} for k, e in s["tracks"].items()}
+
+
+def test_run_op_moves_a_folder_and_applies_every_entry(paths):
+    s = two_songs_in(paths, "Old")
+    run_op(paths, s, "", [("Library/Old", "Library/New")], None, entries=moved_entries(s, "Old", "New"),
+           label="the folder rename Old → New")
+    saved = load_state(paths)
+    assert {e["path"] for e in saved["tracks"].values()} == {"Library/New/A - S.aiff", "Library/New/A - T.aiff"}
+    assert saved["pending"] == [] and not (paths.library / "Old").exists()
+
+
+def test_a_folder_step_crashed_after_the_rename_is_finished_with_its_entries(paths, monkeypatch):
+    s = two_songs_in(paths, "Old")
+    real, saves = library.save_state, []
+
+    def save(paths_, state, **kw):
+        if saves:
+            raise SystemExit("power cut")  # the save that applies the entries never happens
+        saves.append(1)
+        real(paths_, state, **kw)
+    monkeypatch.setattr(library, "save_state", save)
+    with pytest.raises(SystemExit):
+        run_op(paths, s, "", [("Library/Old", "Library/New")], None, entries=moved_entries(s, "Old", "New"),
+               label="the folder rename Old → New")
+    monkeypatch.undo()
+    on_disk = load_state(paths)
+    assert on_disk["pending"][0]["label"] == "the folder rename Old → New"
+    msgs = recover_pending(paths, on_disk)
+    assert msgs == [("Finished an interrupted step for the folder rename Old → New", True)]
+    after_start = load_state(paths)
+    assert after_start["pending"] == []
+    assert after_start["tracks"]["t2"]["path"] == "Library/New/A - T.aiff"
+
+
+def test_a_stage_1_step_stores_neither_entries_nor_label(paths, monkeypatch):
+    touch(paths, "Library/A/x.aiff")
+    s = empty_state()
+    seen = []
+    real = library.save_state
+    monkeypatch.setattr(library, "save_state",
+                        lambda p, st, **kw: (seen.append([dict(op) for op in st.get("pending", [])]), real(p, st, **kw)))
+    run_op(paths, s, "t1", [("Library/A/x.aiff", "Library/B/x.aiff")], {"path": "Library/B/x.aiff"})
+    assert set(seen[0][0]) == {"track_id", "renames", "entry"}

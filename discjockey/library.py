@@ -550,10 +550,17 @@ def deferred_interrupt():
             raise KeyboardInterrupt
 
 
-def run_op(paths: Paths, state: dict, track_id: str, renames: list[tuple[str, str]], entry: dict | None) -> None:
-    """Record the step as pending, do the renames, then apply the entry. Crash-safe (see recover_pending)."""
+def run_op(paths: Paths, state: dict, track_id: str, renames: list[tuple[str, str]], entry: dict | None, *,
+           entries: Mapping[str, dict] | None = None, label: str | None = None) -> None:
+    """Record the step as pending, do the renames, then apply the entry. Crash-safe (see recover_pending).
+    `entries` (state key -> entry) are applied together with `entry`: a folder move changes many songs' paths in one
+    step. `label` names the step in recover_pending's messages. The pending step stores either only when given."""
     with deferred_interrupt():
         op = {"track_id": track_id, "renames": [list(r) for r in renames], "entry": entry}
+        if entries is not None:
+            op["entries"] = dict(entries)
+        if label is not None:
+            op["label"] = label
         state.setdefault("pending", []).append(op)
         save_state(paths, state)
         done = 0
@@ -566,14 +573,21 @@ def run_op(paths: Paths, state: dict, track_id: str, renames: list[tuple[str, st
                 state["pending"].remove(op)
                 save_state(paths, state)
             raise
-        if entry is not None:
-            state["tracks"][track_id] = entry
+        _apply_entries(state, op)
         state["pending"].remove(op)
         save_state(paths, state, rekeyed=[dst for _, dst in renames])
 
 
+def _apply_entries(state: dict, op: dict) -> None:
+    if op.get("entry") is not None:
+        state["tracks"][op["track_id"]] = op["entry"]
+    for key, e in (op.get("entries") or {}).items():
+        state["tracks"][key] = e
+
+
 def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
-    """Finish or drop steps an earlier run was interrupted in. Returns (message, ok) per step."""
+    """Finish or drop steps an earlier run was interrupted in, then close the move batches a crash left open
+    (tidy.recover). Returns (message, ok) per step and per batch."""
     messages = []
     for op in list(state.get("pending", [])):
         if op.get("kind") == "swap":
@@ -581,7 +595,7 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
             messages.append(recover_swap(paths, state, op))
             continue
         e = op.get("entry") or {}
-        name = f"{e.get('artist', '?')} - {e.get('title', op['track_id'])}"
+        name = op.get("label") or f"{e.get('artist', '?')} - {e.get('title', op['track_id'])}"
         problem, done_any = "", False
         for i, (src, dst) in enumerate(op["renames"]):
             s, d = (paths.root / src).exists(), (paths.root / dst).exists()
@@ -605,9 +619,9 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
         if problem.startswith("could not move") and not done_any:
             messages.append((f"Could not finish an interrupted step for {name} yet: {problem}", False))
             continue
-        if done_any and op.get("entry") is not None:
+        if done_any:
             # once a file was placed, the entry must point at it, or the next run would mis-adopt it
-            state["tracks"][op["track_id"]] = op["entry"]
+            _apply_entries(state, op)
         if not problem:
             messages.append((f"Finished an interrupted step for {name}", True))
         elif done_any:
@@ -616,6 +630,13 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
             messages.append((f"Could not finish an interrupted step for {name}: {problem}", False))
         state["pending"].remove(op)
         save_state(paths, state, rekeyed=[dst for _, dst in op["renames"]])
+    if state.get("version") == 2 and paths.db_file.exists():
+        from . import db
+        with db.connect(paths.db_file) as conn:
+            stopped = bool(db.open_batches(conn))
+        if stopped:
+            from .tidy import recover  # tidy builds on this module
+            messages += recover(paths, state)
     return messages
 
 

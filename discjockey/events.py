@@ -154,6 +154,14 @@ class ReadingPlaylist:
 
 
 @dataclass(frozen=True)
+class MovesProgress:
+    """After each move of a move batch (a tidy-up, a folder rename, an undo): `done` of `total` moves handled."""
+    batch_id: int
+    done: int
+    total: int
+
+
+@dataclass(frozen=True)
 class Message:
     level: str  # "info" | "warning" | "debug"
     text: str

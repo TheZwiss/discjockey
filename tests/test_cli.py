@@ -337,3 +337,32 @@ def test_setup_checks_the_music_folder_against_the_program_folder(tmp_path, monk
     paths = setup_cmd.ask_music_folder(tmp_path / "support", home=tmp_path / "home",
                                        ask=lambda prompt="": next(answers))
     assert paths.root == (tmp_path / "Music").resolve()  # the program folder itself was refused
+
+
+def lossless_song(key, title, rel):
+    return {"aliases": [], "isrc": None, "artist": "Artist", "title": title, "duration_ms": 180000,
+            "folder": "Hard_Bounce", "path": rel, "status": "lossless", "source": "qobuz", "source_id": key,
+            "source_format": "flac", "cutoff_hz": None, "rejected_sources": [], "in_playlists": True,
+            "added": "2026-10-01T10:00:00", "last_attempt": "2026-10-01", "last_upgrade_check": "2026-10-01"}
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+@pytest.mark.parametrize("elsewhere, line", [
+    (0, None),
+    (1, "1 file is not where the playlist order puts it; tidy up in the window."),
+    (2, "2 files are not where the playlist order puts them; tidy up in the window.")])
+def test_sync_says_how_many_files_a_tidy_up_would_move(root, monkeypatch, capsys, elsewhere, line, dry_run):
+    (root / "playlists.txt").write_text(PLAYLISTS)
+    fake_spotify(monkeypatch, TWO_TRACKS)
+    state = empty_state()
+    for i, t in enumerate(TWO_TRACKS):
+        rel = f"Library/{'Old' if i < elsewhere else 'Hard_Bounce'}/Artist - {t.title}.aiff"
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_bytes(f"audio {t.id}".encode())
+        state["tracks"][t.id] = lossless_song(t.id, t.title, rel)
+    save_state(Paths(root, support=root / ".support"), state)
+    assert cli.main(["--dry-run"] if dry_run else []) == 0
+    out = capsys.readouterr().out
+    assert ("No downloads needed." in out) is not dry_run
+    tidy_lines = [s for s in out.splitlines() if "tidy up in the window" in s]
+    assert tidy_lines == ([line] if line else [])
