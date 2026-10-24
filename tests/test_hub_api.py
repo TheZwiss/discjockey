@@ -9,6 +9,7 @@ from hub_helpers import ID1, LOSSLESS, LOSSY, fake_spotify, make_api, make_root,
 from discjockey.hub import jobs
 from discjockey.hub.api import HubApi
 from discjockey.library import load_state, save_state
+from discjockey.sources import spotify
 
 # The bridge contract (plan, Part B): every method the page may call, and nothing else.
 CONTRACT = {
@@ -158,9 +159,9 @@ def test_a_failed_first_automatic_read_is_not_repeated_by_itself(root, monkeypat
     api, rec = make_api(root)
 
     def offline(s, line):
-        raise jobs.spotify.SpotifyError("Cannot reach Spotify (no connection).", "offline")
+        raise spotify.SpotifyError("Cannot reach Spotify (no connection).", "offline")
 
-    monkeypatch.setattr(jobs.spotify, "fetch_playlist", offline)
+    monkeypatch.setattr(spotify, "fetch_playlist", offline)
     assert wait_job(api, rec, api.refresh(auto=True)).problem == "offline"
     assert api.refresh(auto=True)["ok"] is False and len(started_reads(rec)) == 1
 
@@ -168,7 +169,7 @@ def test_a_failed_first_automatic_read_is_not_repeated_by_itself(root, monkeypat
 def test_a_stopped_first_automatic_read_is_not_repeated_by_itself(root, monkeypatch):
     api, rec = make_api(root)
     release = threading.Event()
-    monkeypatch.setattr(jobs.spotify, "fetch_playlist", lambda s, line: release.wait(10) and None)
+    monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: release.wait(10) and None)
     answer = api.refresh(auto=True)
     assert api.stop_refresh()["stopped"] is True
     assert wait_job(api, rec, answer, timeout=2).problem == "stopped"

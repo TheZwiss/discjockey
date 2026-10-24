@@ -1020,9 +1020,9 @@ def undo_preview(batch: BatchRow, moves: list[PlannedMove], files: Iterable[str]
 def playlists(loaded: pf.Loaded, tracks_by_id: dict, infos: dict, state: dict, cover: Url | None = None) -> dict:
     rows = []
     for i, r in enumerate(loaded.rows):
-        tracks = tracks_by_id.get(r.playlist_id)
-        info = infos.get(r.playlist_id)
-        rows.append({"index": i, "folder": r.folder, "link": r.link, "playlist_id": r.playlist_id,
+        tracks = tracks_by_id.get(r.ref)
+        info = infos.get(r.ref)
+        rows.append({"index": i, "folder": r.folder, "link": r.link, "playlist_id": r.ref,
                      "enabled": r.enabled, "info": info_dict(info),
                      "tracks": len(tracks) if tracks is not None else (info.track_count if info else None),
                      "quality": _quality_of_tracks(tracks, state) if tracks is not None else None})

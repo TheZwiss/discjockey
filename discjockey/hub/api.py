@@ -30,21 +30,22 @@ from urllib.parse import quote
 from .. import __version__, align, browsers, candidates, config, db, library, ops, planner, playlists_file as pf, qobuz
 from .. import quality
 from .. import app_update as update_check, setup_cmd, tool_updates, tools
-from .. import spotify, tidy
+from .. import sources, tidy
+from ..sources import spotify
 from .. import report as rep, run, upgrades
 from ..accounts import ACCOUNTS, BROWSERS, SERVICE_NAMES, SERVICES, check_message
 from ..acquire import make_ready
 from ..candidates import current_key
 from ..fallback import FallbackSource
 from ..library import NoLibrary, Paths, Resolved, StateError, SupportPaths
-from ..models import SOURCE_NAMES, BatchResult, BatchRow, Candidate, PlaylistLine, SaveChoice, SpotifyTrack
+from ..models import SOURCE_NAMES, BatchResult, BatchRow, Candidate, PlaylistLine, SaveChoice, SourceTrack
 from ..names import fold
 from ..ops import OpProblem, snapshot
 from ..pacing import Budget
 from ..qobuz import QobuzError, QobuzLoginRejected, QobuzNotSetUp, QobuzSource, config_file, login_problem
 from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, load_settings, save_settings
 from ..setup_cmd import TOOL_HINTS
-from ..spotify import REDIRECT_URI
+from ..sources.spotify import REDIRECT_URI
 from . import media as media_mod, spectrum as spec, views
 from .jobs import (UNEXPECTED, AppUpdate, Busy, FileDropped, Jobs, PreviewStore, SignInPhase, preview_after_run,
                    problem_of, refresh_work, sync_work)
@@ -618,7 +619,7 @@ class HubApi:
         if (job is not None and job.kind == "sync") or self._jobs.console_running():
             raise Busy(SYNC_RUNNING, "sync_running")
 
-    def _spotify_track(self, track_id: str, e: dict) -> SpotifyTrack:
+    def _spotify_track(self, track_id: str, e: dict) -> SourceTrack:
         prep = self._store.prep
         ids = {track_id, *(e.get("aliases") or [])}
         for fp in prep.fetched if prep else []:
@@ -731,7 +732,7 @@ class HubApi:
 
     def _tracks_by_id(self) -> dict:
         prep = self._store.prep
-        return {**self._extra_tracks, **{fp.line.playlist_id: fp.tracks for fp in (prep.fetched if prep else [])}}
+        return {**self._extra_tracks, **{fp.line.ref: fp.tracks for fp in (prep.fetched if prep else [])}}
 
     @bridge
     def playlists(self) -> dict:
@@ -743,7 +744,7 @@ class HubApi:
         """A pasted link: the playlist's name, owner and cover, whether Discjockey can read it, and its tracks."""
         self._no_sync_running()
         link = pf.clean_link(url or "")
-        pid = config.playlist_id(link)
+        pid = sources.recognise(link)[1]  # clean_link raised for anything no source recognises
         session = spotify.load_session(self._support)
         me, _ = spotify.current_user(session)
         info = spotify.playlist_info(session, pid, me)
@@ -764,7 +765,7 @@ class HubApi:
         self._no_sync_running()
         rows = rows_from(lines)
         tracks = self._tracks_by_id()
-        unread = [r.playlist_id for r in rows if r.enabled and r.playlist_id not in tracks]
+        unread = [r.ref for r in rows if r.enabled and r.ref not in tracks]
         if unread:
             try:
                 session = spotify.load_session(self._support)
@@ -1565,7 +1566,7 @@ def rows_from(lines: list) -> list[pf.Row]:
     for line in lines:
         if not isinstance(line, dict) or not isinstance(line.get("folder"), str) or not line.get("link"):
             raise ValueError("Each playlist row needs a folder name and a link.")
-        if config.playlist_id(line["link"].strip()) is None:
+        if sources.recognise(line["link"].strip()) is None:
             raise ValueError(f"This is not a Spotify playlist link: {line['link']}")
         rows.append(pf.Row(unicodedata.normalize("NFC", line["folder"].strip()), line["link"].strip(),
                            bool(line.get("enabled", True))))
@@ -1575,7 +1576,7 @@ def rows_from(lines: list) -> list[pf.Row]:
 CANDIDATE_FIELDS = ("source", "id", "title", "artist", "duration_s", "url", "isrc", "album", "label", "image_url")
 
 
-def candidate_row(c: Candidate, track: SpotifyTrack, **scored) -> dict:
+def candidate_row(c: Candidate, track: SourceTrack, **scored) -> dict:
     """One row of the "Wrong song?" dialog. The page sends the row back as it is (use_candidate, preview)."""
     return {**{f: getattr(c, f) for f in CANDIDATE_FIELDS}, "key": c.key, "source_name": SOURCE_NAMES[c.source],
             "length_diff_s": round(c.duration_s - track.duration_ms / 1000, 1) if c.duration_s else None,

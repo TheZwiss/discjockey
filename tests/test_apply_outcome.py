@@ -2,11 +2,11 @@ from datetime import datetime
 
 import pytest
 
-from discjockey.models import Action, Outcome, Placed, SpotifyTrack
+from discjockey.models import Action, Outcome, Placed, SourceTrack
 from discjockey.planner import ENTRY_KEYS, apply_outcome
 
 NOW = datetime(2026, 10, 20, 12, 30, 0)
-T = SpotifyTrack("t1", "Song", ("Artist", "Other"), "Album", None, 180000, "DE1")
+T = SourceTrack("t1", "Song", ("Artist", "Other"), "Album", None, 180000, "DE1")
 
 
 def act(kind, aliases=()):

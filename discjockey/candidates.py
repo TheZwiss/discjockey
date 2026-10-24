@@ -16,7 +16,7 @@ from .library import Paths
 from .matching import (
     _contains, duration_ok, fallback_match, fallback_title, isrc_match, normalize, normalize_artist, qobuz_match,
 )
-from .models import Candidate, Protected, SpotifyTrack
+from .models import Candidate, Protected, SourceTrack
 
 LENGTH_SCALE_MS = 30_000  # a version this much longer or shorter than Spotify's gets no points for its length
 PREVIEW_S = 30
@@ -43,7 +43,7 @@ class Scored:
     rejected: bool  # marked as wrong before (rejected_sources)
 
 
-def score(track: SpotifyTrack, cand: Candidate) -> int:
+def score(track: SourceTrack, cand: Candidate) -> int:
     if cand.source == "qobuz" and isrc_match(track, cand, set()):
         return 100
     qobuz = cand.source == "qobuz"
@@ -79,7 +79,7 @@ def mark_protected(paths: Paths, key: str) -> None:
     os.replace(tmp, paths.cache / PROTECTED_FILE)
 
 
-def search(track: SpotifyTrack, entry: dict, qobuz, fallback,
+def search(track: SourceTrack, entry: dict, qobuz, fallback,
            skip: set[str] | frozenset = frozenset()) -> tuple[list[Scored], list[str]]:
     """Qobuz (by ISRC and by name) and the fallback sources, side by side. Returns the scored versions, the one in
     the library first and the others best first, and notes about searches that failed. `skip`: versions that can

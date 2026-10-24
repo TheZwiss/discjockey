@@ -6,11 +6,13 @@ import threading
 import time
 from pathlib import Path
 
-from discjockey import db, library, spotify
+from discjockey import db, library
+from discjockey.sources import spotify
+from discjockey.sources.base import LoginState
 from discjockey.hub import jobs
 from discjockey.hub.api import HubApi, Services
 from discjockey.library import Paths, empty_state, save_state
-from discjockey.models import FetchedPlaylist, SpotifyTrack
+from discjockey.models import FetchedPlaylist, PlaylistInfo, SourceTrack
 from discjockey.planner import ENTRY_KEYS
 
 ID1, ID2 = "0DiscjockeyExampleList", "3DiscjockeyExampleList"
@@ -22,7 +24,7 @@ PARKED = "Upgrades ready/Hard_Bounce/Armin Hermann - Get Naughty.aiff"
 
 
 def track(tid, title, artist, ms=180000):
-    return SpotifyTrack(tid, title, (artist,), "Album", f"https://i.scdn.co/image/{tid}", ms, None)
+    return SourceTrack(tid, title, (artist,), "Album", f"https://i.scdn.co/image/{tid}", ms, None)
 
 
 TRACKS = {ID1: [track("t1", "Gimme Gimme", "Vatoz Locoz", 156000), track("t2", "Get Naughty", "Armin Hermann", 268000),
@@ -112,11 +114,12 @@ class Recorder:
 def fake_spotify(monkeypatch, tracks=None):
     tracks = tracks if tracks is not None else TRACKS
     monkeypatch.setattr(spotify, "load_session", lambda p: spotify.Session("cid", p.spotify_token, {}))
+    monkeypatch.setattr(spotify, "login_state", lambda p: LoginState("ok"))
     monkeypatch.setattr(spotify, "fetch_playlist",
                         lambda s, line: FetchedPlaylist(line, list(tracks.get(line.playlist_id, [])), []))
     monkeypatch.setattr(spotify, "current_user", lambda s: ("dj1", "DJ One"))
-    monkeypatch.setattr(spotify, "playlist_info", lambda s, pid, me: spotify.PlaylistInfo(
-        pid, f"Name of {pid[:4]}", "dj1", "DJ One", False, None, len(tracks.get(pid, [])), True))
+    monkeypatch.setattr(spotify, "playlist_info", lambda s, pid, me: PlaylistInfo(
+        "spotify", pid, f"Name of {pid[:4]}", "dj1", "DJ One", False, None, len(tracks.get(pid, [])), True, True))
 
 
 def services(**kw):

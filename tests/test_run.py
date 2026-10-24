@@ -6,15 +6,16 @@ from datetime import date, datetime
 import pytest
 from audio_helpers import music, write_aiff
 
-from discjockey import db, library, run, spotify
+from discjockey import db, library, run
+from discjockey.sources import spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.events import ActionFinished, CancelToken, Message, ReadingPlaylist, RunFinished
 from discjockey.library import Paths, empty_state, save_state
-from discjockey.models import FetchedPlaylist, PlannedMove, SpotifyTrack
+from discjockey.models import FetchedPlaylist, PlannedMove, SourceTrack
 from discjockey.settings import Account, Settings, save_settings
 
 PLAYLISTS = "Hard_Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n"
-TRACKS = [SpotifyTrack(f"t{i}", f"Song {i}", ("Artist",), "Al", None, 180000, None) for i in range(1, 4)]
+TRACKS = [SourceTrack(f"t{i}", f"Song {i}", ("Artist",), "Al", None, 180000, None) for i in range(1, 4)]
 
 
 @pytest.fixture
@@ -23,6 +24,8 @@ def paths(tmp_path, monkeypatch):
     p.data.mkdir()
     p.support.mkdir(parents=True, exist_ok=True)
     p.playlists_file.write_text(PLAYLISTS)
+    p.spotify_app.write_text(json.dumps({"client_id": "cid"}))  # what Setup leaves: the login check looks for it
+    p.spotify_token.write_text(json.dumps({"access_token": "A", "refresh_token": "R", "expires_at": 0}))
     monkeypatch.setattr(spotify, "load_session", lambda paths: spotify.Session("cid", paths.spotify_token, {}))
     monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: FetchedPlaylist(line, list(TRACKS), []))
     return p
@@ -45,7 +48,7 @@ def test_prepare_plans_and_needs_qobuz(paths):
     events = []
     prep = run.prepare(paths, emit=events.append)
     assert [a.kind for a in prep.plan.actions] == ["acquire"] * 3 and prep.needs_qobuz
-    assert any(isinstance(e, Message) and "Spotify" in e.text for e in events)
+    assert any(isinstance(e, Message) and "Reading your playlists..." == e.text for e in events)
     assert run.budget_text(prep).startswith("Qobuz today: 0 of 80 used")
 
 
@@ -232,6 +235,33 @@ def test_setup_problem_kind_from_spotify(paths, monkeypatch, kind):
     with pytest.raises(run.SetupProblem) as excinfo:
         run.prepare(paths)
     assert excinfo.value.kind == kind and str(excinfo.value) == "Spotify says no"
+
+
+def test_a_missing_login_stops_before_any_network_call(paths, monkeypatch):
+    paths.spotify_token.unlink()
+
+    def never(*a, **k):
+        raise AssertionError("no playlist may be read without a login")
+
+    monkeypatch.setattr(spotify, "load_session", never)
+    monkeypatch.setattr(spotify, "fetch_playlist", never)
+    monkeypatch.setattr(spotify, "_http", never)
+    rec = []
+    with pytest.raises(run.SetupProblem) as excinfo:
+        run.prepare(paths, emit=rec.append)
+    assert excinfo.value.kind == "not_set_up" and excinfo.value.service == "spotify"
+    assert str(excinfo.value) == "Spotify is not set up yet. Run: discjockey setup"
+    assert not [e for e in rec if isinstance(e, ReadingPlaylist)]
+
+
+def test_a_service_problem_names_its_service(paths, monkeypatch):
+    def fail(s, line):
+        raise spotify.SpotifyError("Spotify says no", "login_expired")
+
+    monkeypatch.setattr(spotify, "fetch_playlist", fail)
+    with pytest.raises(run.SetupProblem) as excinfo:
+        run.prepare(paths)
+    assert excinfo.value.service == "spotify"
 
 
 def test_qobuz_problem_kinds(paths, monkeypatch):

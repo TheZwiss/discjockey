@@ -29,7 +29,7 @@ describe('event schema', () => {
     }
     const defs = (schema as any).$defs;
     expect([...ACTION_FIELDS].sort()).toEqual(Object.keys(defs.Action.properties).sort());
-    expect([...TRACK_FIELDS].sort()).toEqual(Object.keys(defs.SpotifyTrack.properties).sort());
+    expect([...TRACK_FIELDS].sort()).toEqual(Object.keys(defs.SourceTrack.properties).sort());
     expect([...RESULT_FIELDS].sort()).toEqual(Object.keys(defs.Result.properties).sort());
   });
   it('the keys in the fixtures are a subset of EVENT_FIELDS', () => {

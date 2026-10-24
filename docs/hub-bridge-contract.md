@@ -1497,7 +1497,7 @@ the third action).
 | `SignInPhase` | `service` (`youtube\|soundcloud`), `phase` `waiting\|checking`, `browser`, `browser_name` — a sign-in through the browser (Settings, Setup) |
 | `AppUpdate` | `state`, `current`, `latest`, `url` as `app_update()` — sent when the update check's answer changes (at start, then at most daily) |
 | `RunStarted` | `total` int, `actions` [{`kind`, `track_id`, `title`, `artist`, `image_url` str\|null}] — every action of the run in the order the run does them ("Up next", time left; `image_url`: Spotify's cover for the rows) |
-| `ActionStarted` | `index` (1-based), `total`, `action` {kind, track_id, folder, track {id, title, artists[], album, image_url, duration_ms, isrc}, order [int,int], src, dest_dir, aliases[], reason} |
+| `ActionStarted` | `index` (1-based), `total`, `action` {kind, track_id, folder, track {id, title, artists[], album, image_url, duration_ms, isrc, service, link\|null, streamable}, order [int,int], src, dest_dir, aliases[], reason, qobuz_id\|null} (`service` `spotify\|qobuz`: the service the track was read from; `id` is that service's own id, and `link` its page) |
 | `StepChanged` | `track_id`, `step`: `search|download|check|convert|analyse|compare` |
 | `Progress` | `track_id`, `step`, `done` number, `total` number\|null, `unit` `bytes` (download) \| `seconds` (conversion) |
 | `Waiting` | `kind` `search|between|break|fallback`, `label`, `remaining` s, `total` s, `service` (`qobuz`, `youtube`, `soundcloud`; empty for free sources) — pause card only for `between`/`break` |

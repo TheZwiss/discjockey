@@ -8,7 +8,7 @@ from discjockey.events import ActionFinished, CancelToken, Message, Progress, Wa
 from discjockey.execute import Executor
 from discjockey.hub.jobs import HubEvents
 from discjockey.library import Paths, empty_state
-from discjockey.models import Action, SpotifyTrack
+from discjockey.models import Action, SourceTrack
 from discjockey.report import RunLog
 
 
@@ -110,7 +110,7 @@ def run_engine(tmp_path, emit, n=30):
     paths.library.mkdir()
     ex = Executor(paths, empty_state(), RunLog(datetime(2026, 10, 20)), Acq(), lambda p: ("flac", None), emit=emit,
                   token=CancelToken())
-    actions = [Action("acquire", f"t{i:03d}", "A", SpotifyTrack(f"t{i:03d}", f"Song {i}", ("Artist",), "", None,
+    actions = [Action("acquire", f"t{i:03d}", "A", SourceTrack(f"t{i:03d}", f"Song {i}", ("Artist",), "", None,
                                                                 180000, None), (0, i), reason="new")
                for i in range(n)]
     started = time.monotonic()

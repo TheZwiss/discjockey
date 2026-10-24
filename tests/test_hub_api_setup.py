@@ -9,7 +9,8 @@ from hub_helpers import make_api, make_root, make_unbound_api, wait_job
 from tools_helpers import CheckRun, FakePyPI
 
 import discjockey
-from discjockey import qobuz, setup_cmd, spotify, tool_updates, tools
+from discjockey import qobuz, setup_cmd, tool_updates, tools
+from discjockey.sources import spotify
 from discjockey.library import run_lock
 from discjockey.settings import Account, Settings, load_settings, save_settings
 

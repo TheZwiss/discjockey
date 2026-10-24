@@ -3,11 +3,11 @@ import pytest
 from discjockey.matching import (
     fallback_match, isrc_match, normalize, normalize_artist, qobuz_match, rank,
 )
-from discjockey.models import Candidate, SpotifyTrack
+from discjockey.models import Candidate, SourceTrack
 
 
 def track(title="Gimme Gimme", artists=("Vatoz Locoz",), dur=156000, isrc="DECE72605755"):
-    return SpotifyTrack("t1", title, artists, "Album", None, dur, isrc)
+    return SourceTrack("t1", title, artists, "Album", None, dur, isrc)
 
 
 def qc(title="Gimme Gimme", artist="Vatoz Locoz Vatoz Locoz", dur=156.0, id="1", isrc=None):

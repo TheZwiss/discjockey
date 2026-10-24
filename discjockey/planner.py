@@ -8,7 +8,7 @@ from datetime import date, datetime
 from pathlib import PurePosixPath
 
 from .library import op_paths
-from .models import Action, FetchedPlaylist, Outcome, Placed, Plan, SpotifyTrack
+from .models import Action, FetchedPlaylist, Outcome, Placed, Plan, SourceTrack
 from .names import expected_stem, fold
 
 LOSSY = ("not_lossless", "fake_lossless")
@@ -169,13 +169,13 @@ def searched_since_check(entry: dict, key: str, today: date) -> bool:
 
 @dataclass
 class _Wanted:
-    track: SpotifyTrack
+    track: SourceTrack
     folder: str
     order: tuple[int, int]
     aliases: list[str] = field(default_factory=list)
 
 
-def _isrc_twin(t: SpotifyTrack, by_isrc: dict[str, list[tuple[str, int]]]) -> str | None:
+def _isrc_twin(t: SourceTrack, by_isrc: dict[str, list[tuple[str, int]]]) -> str | None:
     if not t.isrc:
         return None
     for key, duration_ms in by_isrc.get(t.isrc.upper(), []):
@@ -260,7 +260,7 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
     actions: list[Action] = []
     never: list[Action] = []
     never_ids = new_state.get("never") or {}
-    ambiguous: list[tuple[SpotifyTrack, str, list[str]]] = []
+    ambiguous: list[tuple[SourceTrack, str, list[str]]] = []
     for key, w in wanted.items():
         def act(kind: str, **kw) -> None:
             skip = kind == "acquire" and key in never_ids  # "never download": nothing is fetched, files stay

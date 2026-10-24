@@ -617,7 +617,7 @@
           "type": "string"
         },
         "track": {
-          "$ref": "#/$defs/SpotifyTrack"
+          "$ref": "#/$defs/SourceTrack"
         },
         "order": {
           "type": "array",
@@ -645,6 +645,12 @@
         },
         "reason": {
           "type": "string"
+        },
+        "qobuz_id": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -656,11 +662,12 @@
         "src",
         "dest_dir",
         "aliases",
-        "reason"
+        "reason",
+        "qobuz_id"
       ],
       "additionalProperties": false
     },
-    "SpotifyTrack": {
+    "SourceTrack": {
       "type": "object",
       "properties": {
         "id": {
@@ -692,6 +699,18 @@
             "string",
             "null"
           ]
+        },
+        "service": {
+          "type": "string"
+        },
+        "link": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "streamable": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -701,7 +720,10 @@
         "album",
         "image_url",
         "duration_ms",
-        "isrc"
+        "isrc",
+        "service",
+        "link",
+        "streamable"
       ],
       "additionalProperties": false
     },

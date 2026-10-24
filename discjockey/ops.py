@@ -26,7 +26,7 @@ from .events import AccountUsage, CancelToken, Emit, Result, SourceChosen, Track
 from .execute import Executor
 from .fallback import short_error
 from .library import NameReserver, Paths, delete_parked, full_fsync, run_op
-from .models import Action, Candidate, Protected, SpotifyTrack
+from .models import Action, Candidate, Protected, SourceTrack
 from .names import expected_stem, split_name, strip_id_suffix
 from .pacing import NoPacer
 from .planner import replacement_dir, superseded_dir
@@ -114,9 +114,9 @@ def set_hidden(paths: Paths, state: dict, track_id: str, hidden: bool) -> Result
     return _result("unhidden", track_id, e, "back on the to-do list")
 
 
-def track_of(track_id: str, e: dict) -> SpotifyTrack:
+def track_of(track_id: str, e: dict) -> SourceTrack:
     """The Spotify side of an entry, as far as state.json knows it (for actions run outside a sync)."""
-    return SpotifyTrack(track_id, e["title"], (e["artist"],), "", None, e["duration_ms"], e.get("isrc"))
+    return SourceTrack(track_id, e["title"], (e["artist"],), "", None, e["duration_ms"], e.get("isrc"))
 
 
 def _copy_synced(src: Path, dst: Path) -> None:
@@ -250,7 +250,7 @@ def refusal(paths: Paths, e: dict, cand: Candidate | None, budget, qobuz: bool) 
     return None
 
 
-def _premium(cand: Candidate, service: str, account, fallback, track: SpotifyTrack, emit: Emit) -> bool:
+def _premium(cand: Candidate, service: str, account, fallback, track: SourceTrack, emit: Emit) -> bool:
     """Before "Use this" downloads through an account: its formats, listed through the login exactly like in a run
     (Acquirer.premium: the same warning signs, and the same "premium_missing" when there's no ~256 kbps stream).
     It's the operation's first logged-in request, so no protection pause comes before it, as in a run."""
@@ -259,7 +259,7 @@ def _premium(cand: Candidate, service: str, account, fallback, track: SpotifyTra
 
 
 def use_candidate(paths: Paths, state: dict, track_id: str, cand: Candidate, *, qobuz, fallback, budget,
-                  track: SpotifyTrack | None = None, emit: Emit = no_emit, token: CancelToken | None = None,
+                  track: SourceTrack | None = None, emit: Emit = no_emit, token: CancelToken | None = None,
                   process: Callable = make_ready, accounts: dict | None = None,
                   now: Callable[[], datetime] = datetime.now) -> Result:
     """"Use this" (or a pasted link): download exactly this version, check its length, convert, analyse and place it

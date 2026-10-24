@@ -14,7 +14,7 @@ from yt_dlp.utils import download_range_func
 
 from .accounts import ACCOUNT_OF, LOGIN_COOKIES, PREMIUM_MIN_KBPS, signal_of, ytdlp_login
 from .events import Emit, Message, no_emit
-from .models import SOURCE_NAMES, Candidate, Protected, SpotifyTrack
+from .models import SOURCE_NAMES, Candidate, Protected, SourceTrack
 
 YTM_SEARCH = "https://music.youtube.com/search?q="
 # Download gates: the artist's free download after a follow, like or e-mail. SoundCloud shows them as the track's
@@ -130,7 +130,7 @@ class FallbackSource:
         with yt_dlp.YoutubeDL(opts) as ydl:
             return ydl.extract_info(url, download=False) or {}
 
-    def queries(self, track: SpotifyTrack) -> list[tuple[str, str, int]]:
+    def queries(self, track: SourceTrack) -> list[tuple[str, str, int]]:
         q = f"{track.first_artist} {track.title}"
         out = []
         if track.isrc:
@@ -142,7 +142,7 @@ class FallbackSource:
         ]
         return out
 
-    def search(self, track: SpotifyTrack, sources: tuple[str, ...] | None = None) -> tuple[list[Candidate], list[str]]:
+    def search(self, track: SourceTrack, sources: tuple[str, ...] | None = None) -> tuple[list[Candidate], list[str]]:
         """All searches at once (each takes seconds), then the missing lengths at once; results keep the order of
         queries(). A DRM-protected upload is left out: it can never be used. `sources`: only these."""
         queries = [q for q in self.queries(track) if sources is None or q[0] in sources]

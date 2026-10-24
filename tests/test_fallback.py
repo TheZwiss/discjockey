@@ -1,9 +1,9 @@
 import pytest
 
 from discjockey.fallback import FallbackSource, entry_to_candidate, free_download
-from discjockey.models import SpotifyTrack
+from discjockey.models import SourceTrack
 
-T = SpotifyTrack("t1", "Gimme Gimme", ("Vatoz Locoz",), "Album", None, 156000, "DECE72605755")
+T = SourceTrack("t1", "Gimme Gimme", ("Vatoz Locoz",), "Album", None, 156000, "DECE72605755")
 
 
 def test_entry_to_candidate():
@@ -27,7 +27,7 @@ def test_queries_order_with_isrc():
 
 
 def test_queries_without_isrc():
-    t = SpotifyTrack("t1", "Gimme Gimme", ("Vatoz Locoz",), "Album", None, 156000, None)
+    t = SourceTrack("t1", "Gimme Gimme", ("Vatoz Locoz",), "Album", None, 156000, None)
     assert [s for s, _, _ in FallbackSource().queries(t)] == ["youtube_music", "soundcloud", "youtube"]
 
 

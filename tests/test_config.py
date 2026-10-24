@@ -1,6 +1,7 @@
 import pytest
 
-from discjockey.config import ConfigError, load_playlists, parse_playlists, playlist_id
+from discjockey import sources
+from discjockey.config import ConfigError, load_playlists, parse_playlists
 
 ID1 = "0DiscjockeyExampleList"
 ID2 = "3DiscjockeyExampleList"
@@ -28,7 +29,7 @@ def test_valid_file_with_comments_and_blank_lines():
     f"spotify:playlist:{ID1}",
 ])
 def test_url_variants(ref):
-    assert playlist_id(ref) == ID1
+    assert sources.recognise(ref) == ("spotify", ID1)
 
 
 @pytest.mark.parametrize("ref", [
@@ -37,7 +38,7 @@ def test_url_variants(ref):
     "spotify:playlist:short",
 ])
 def test_bad_urls(ref):
-    assert playlist_id(ref) is None
+    assert sources.recognise(ref) is None
     with pytest.raises(ConfigError, match="line 1"):
         parse_playlists(f"Folder = {ref}")
 
@@ -88,3 +89,21 @@ def test_error_kinds(tmp_path):
     with pytest.raises(ConfigError) as excinfo:
         parse_playlists("Bouncy =\n")
     assert excinfo.value.kind == "config_invalid"
+
+
+def test_a_line_carries_its_service_and_ref():
+    line = parse_playlists(f"A = spotify:playlist:{ID1}")[0]
+    assert (line.service, line.playlist_id, line.ref) == ("spotify", ID1, ID1)
+
+
+def test_an_unknown_link_gives_the_words_for_both_services():
+    with pytest.raises(ConfigError) as excinfo:
+        parse_playlists("A = https://example.com/playlist/x")
+    assert str(excinfo.value) == ("playlists.txt line 1: this is not a Spotify or Qobuz playlist link: "
+                                  "https://example.com/playlist/x")
+
+
+def test_the_format_hint_is_service_neutral():
+    with pytest.raises(ConfigError) as excinfo:
+        parse_playlists("Hard_Bounce")
+    assert str(excinfo.value) == "playlists.txt line 1: expected 'Folder = playlist link', found: Hard_Bounce"

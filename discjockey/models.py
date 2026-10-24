@@ -13,36 +13,93 @@ SOURCE_NAMES = {
 }
 
 
+# Playlist services (where a playlist and its tracks are read from); SOURCE_NAMES above names the download sources.
+SERVICE_NAMES = {"spotify": "Spotify", "qobuz": "Qobuz"}
+# A track's page on its service, derived from its id. SoundCloud's links can't be derived from an id (stage 6).
+TRACK_LINKS = {
+    "spotify": "https://open.spotify.com/track/{id}",
+    "qobuz": "https://open.qobuz.com/track/{id}",
+}
+
+
+def token(service: str, id: str) -> str:
+    """The name of a song or playlist across services: a Spotify id stays bare (so nothing stored for Spotify
+    changes), every other service's id gets `service:` in front."""
+    return id if service == "spotify" else f"{service}:{id}"
+
+
+def split_token(tok: str) -> tuple[str, str]:
+    """(service, id) of a token; a string without `:` is a Spotify id."""
+    service, sep, id = tok.partition(":")
+    return (service, id) if sep else ("spotify", tok)
+
+
+def track_link(tok: str) -> str | None:
+    """The page of the track a token names, or None when its service has no link derivable from an id."""
+    service, id = split_token(tok)
+    pattern = TRACK_LINKS.get(service)
+    return pattern.format(id=id) if pattern else None
+
+
 @dataclass(frozen=True)
 class PlaylistLine:
     folder: str
-    playlist_id: str
+    playlist_id: str  # the service's own id
     line_no: int
+    service: str = "spotify"
+
+    @property
+    def ref(self) -> str:
+        return token(self.service, self.playlist_id)
 
 
 @dataclass(frozen=True)
-class SpotifyTrack:
-    id: str
+class SourceTrack:
+    id: str  # the service's own id (Spotify base62, Qobuz digits as text)
     title: str
     artists: tuple[str, ...]
     album: str
     image_url: str | None
     duration_ms: int
     isrc: str | None
+    service: str = "spotify"  # a key of SERVICE_NAMES
+    link: str | None = None  # the track's page; filled from TRACK_LINKS when None
+    streamable: bool = True  # False: the service lists it but won't deliver it now (Qobuz preview or region)
+
+    def __post_init__(self):
+        if self.link is None:
+            pattern = TRACK_LINKS.get(self.service)
+            if pattern:
+                object.__setattr__(self, "link", pattern.format(id=self.id))
 
     @property
     def first_artist(self) -> str:
         return self.artists[0] if self.artists else ""
 
     @property
-    def url(self) -> str:
-        return f"https://open.spotify.com/track/{self.id}"
+    def key(self) -> str:
+        return token(self.service, self.id)
+
+
+@dataclass(frozen=True)
+class PlaylistInfo:
+    """What the playlist page shows for a pasted link, whichever service it came from."""
+    service: str
+    id: str
+    name: str
+    owner_id: str
+    owner_name: str
+    collaborative: bool
+    image_url: str | None
+    track_count: int | None
+    yours: bool
+    readable: bool  # set by the source, by its own rule (Spotify: yours or collaborative)
 
 
 @dataclass
 class FetchedPlaylist:
     line: PlaylistLine
-    tracks: list[SpotifyTrack]
+    tracks: list[SourceTrack]
     skipped: list[str]
 
 
@@ -70,19 +127,20 @@ class Action:
     kind: str  # move | adopt | adopt_bought | acquire | upgrade
     track_id: str  # state key
     folder: str  # desired folder
-    track: SpotifyTrack
+    track: SourceTrack
     order: tuple[int, int]  # (playlists.txt line index, position in playlist)
     src: str | None = None  # root-relative file to move/adopt
     dest_dir: str | None = None  # root-relative target directory for move/adopt
     aliases: tuple[str, ...] = ()
     reason: str = ""  # acquire: new | retry | redownload
+    qobuz_id: str | None = None  # acquire/upgrade: the Qobuz track to try first (a Qobuz playlist named it)
 
 
 @dataclass
 class Plan:
     state: dict
     actions: list[Action]
-    ambiguous: list[tuple[SpotifyTrack, str, list[str]]]
+    ambiguous: list[tuple[SourceTrack, str, list[str]]]
     dropped: list[str]
     notes: list[str] = field(default_factory=list)
     never: list[Action] = field(default_factory=list)  # downloads left out because the user said "never download"

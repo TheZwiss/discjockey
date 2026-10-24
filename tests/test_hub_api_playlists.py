@@ -1,7 +1,8 @@
 import pytest
 from hub_helpers import ID1, ID2, PLAYLISTS, TRACKS, fake_spotify, make_api, make_root, refreshed, track, wait_job
 
-from discjockey import spotify
+from discjockey.models import PlaylistInfo
+from discjockey.sources import spotify
 from discjockey.hub.api import rows_from, suggest_folder
 from discjockey.library import run_lock
 
@@ -43,8 +44,8 @@ def test_add_a_playlist(root):
 
 
 def test_a_followed_playlist_is_not_readable(root, monkeypatch):
-    monkeypatch.setattr(spotify, "playlist_info", lambda s, pid, me: spotify.PlaylistInfo(
-        pid, "Their list", "someone", "Someone", False, None, 30, False))
+    monkeypatch.setattr(spotify, "playlist_info", lambda s, pid, me: PlaylistInfo(
+        "spotify", pid, "Their list", "someone", "Someone", False, None, 30, False, False))
     api, rec = make_api(root)
     added = api.add_playlist(LINK3)
     assert not added["readable"] and added["tracks"] is None and "Follow ≠ own" in added["hint"]

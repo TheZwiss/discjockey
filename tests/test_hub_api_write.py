@@ -5,7 +5,8 @@ import time
 import pytest
 from hub_helpers import LOSSY, PARKED, fake_spotify, make_api, make_root, refreshed, wait_job, write
 
-from discjockey import library, run, spotify
+from discjockey import library, run
+from discjockey.sources import spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.align import Alignment
 from discjockey.events import SourceChosen

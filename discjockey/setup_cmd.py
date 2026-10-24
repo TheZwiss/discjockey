@@ -6,7 +6,8 @@ import re
 import shutil
 from pathlib import Path
 
-from . import REPO, library, qobuz, spotify, tool_updates, tools
+from . import REPO, library, qobuz, tool_updates, tools
+from .sources import spotify
 from .library import Paths
 
 TEMPLATE = """\

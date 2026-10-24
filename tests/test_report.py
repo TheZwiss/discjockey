@@ -3,7 +3,7 @@ from datetime import datetime
 
 from discjockey.events import Result
 from discjockey.library import Paths
-from discjockey.models import Action, Plan, SpotifyTrack
+from discjockey.models import Action, Plan, SourceTrack
 from discjockey.report import (
     SECTIONS, RunLog, render_not_lossless, render_plan, render_report, summary, upgrades_waiting, write_not_lossless,
     write_run,
@@ -68,7 +68,7 @@ def test_not_lossless_md_when_everything_is_lossless(tmp_path):
 
 
 def act(kind, id, reason="", **kw):
-    return Action(kind, id, "A", SpotifyTrack(id, f"Song {id}", ("Artist",), "Al", None, 1, None), (0, 0),
+    return Action(kind, id, "A", SourceTrack(id, f"Song {id}", ("Artist",), "Al", None, 1, None), (0, 0),
                   reason=reason, **kw)
 
 

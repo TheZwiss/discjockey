@@ -8,7 +8,7 @@ from discjockey.align import Alignment
 from discjockey.execute import Executor
 from hub_helpers import records
 from discjockey.library import Paths, empty_state, load_state
-from discjockey.models import Action, SpotifyTrack
+from discjockey.models import Action, SourceTrack
 from discjockey.planner import ENTRY_KEYS
 from discjockey.events import ActionFinished, ActionStarted, Cancelled, CancelToken, RunStarted, StepChanged
 from discjockey.report import RunLog
@@ -48,7 +48,7 @@ def ready(status="lossless", source="qobuz", sid="q1"):
 
 
 def act(kind, tid="t1aaaaaaa", folder="A", title="Song", **kw):
-    t = SpotifyTrack(tid, title, ("Artist",), "Album", None, 180000, None)
+    t = SourceTrack(tid, title, ("Artist",), "Album", None, 180000, None)
     return Action(kind, tid, folder, t, (0, 0), **kw)
 
 
