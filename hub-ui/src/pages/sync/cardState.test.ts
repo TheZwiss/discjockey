@@ -4,7 +4,7 @@ import stoppedRaw from '$fixtures/hub_events_stopped.jsonl?raw';
 import type { HubEvent } from '$lib/bridge/events';
 import { EMPTY_RUN, reduceRun, type RunState } from '$lib/stores/run';
 import type { Budget, LimitCard, Result } from '$lib/bridge/types';
-import { lineOf } from '$lib/bridge/fake/replay';
+import { SYNC_LINES, lineOf } from '$lib/bridge/fake/replay';
 import { cardState, liveUsage, qobuzFallback, stepIndex, verdict, type Card } from './cardState';
 
 const lines = (raw: string): HubEvent[] => raw.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
@@ -51,6 +51,10 @@ describe('cardState with the recorded sync', () => {
     expect(inOrder(kinds(w), ['preparing', 'working', 'analysed', 'working', 'downloading', 'working', 'converting',
       'analysed', 'working', 'pause', 'downloading', 'working', 'converting', 'working', 'analysed', 'finished']))
       .toBe(true);
+  });
+  it('shows the converting card at the moment the sync:converting scenario freezes on', () => {
+    expect(L(SYNC_LINES.converting).card.kind).toBe('converting');
+    expect(L(SYNC_LINES.converting - 1).card.kind).not.toBe('converting');
   });
   it('prepares with the last info message before RunStarted', () => {
     expect(L(7).card).toEqual({ kind: 'preparing', text: 'Reading your Spotify playlists...' });

@@ -31,6 +31,8 @@ export const SYNC_START_LINE = lineOf(sync, (e) => e.type === 'JobStarted' && e.
 export const SYNC_LINES = {
   /** mid-download of "non stop" (t5): its second download Progress */
   downloading: lineOf(sync, (e) => e.type === 'Progress' && e.track_id === 't5' && e.step === 'download', 1),
+  /** "non stop" (t5) is in its conversion: the sync:converting scenario freezes here */
+  converting: lineOf(sync, (e) => e.type === 'StepChanged' && e.track_id === 't5' && e.step === 'convert'),
   /** Get Naughty's source is chosen, the protection pause comes next */
   sourceBeforePause: lineOf(sync, (e) => e.type === 'SourceChosen' && e.track_id === 't2'),
   /** well into the protection pause before Get Naughty (about 34 s left) */
