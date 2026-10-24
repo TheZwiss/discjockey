@@ -1,7 +1,7 @@
 import json
 import threading
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 from audio_helpers import music, write_aiff
@@ -10,7 +10,7 @@ from discjockey import db, library, run, spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.events import ActionFinished, CancelToken, Message, ReadingPlaylist, RunFinished
 from discjockey.library import Paths, empty_state, save_state
-from discjockey.models import FetchedPlaylist, SpotifyTrack
+from discjockey.models import FetchedPlaylist, PlannedMove, SpotifyTrack
 from discjockey.settings import Account, Settings, save_settings
 
 PLAYLISTS = "Hard_Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n"
@@ -59,6 +59,34 @@ def test_prepare_reports_recovered_steps(paths):
     warnings = [e.text for e in events if isinstance(e, Message) and e.level == "warning"]
     assert warnings and "Lost" in warnings[0]
     assert prep.log.section("errors")
+
+
+def test_prepare_closes_a_tidy_up_a_crash_left_open_and_says_so(paths):
+    state = empty_state()
+    for key in ("s1", "s2"):
+        rel = f"Library/Old/A - {key}.aiff"
+        (paths.root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (paths.root / rel).write_bytes(f"audio of {key}".encode())
+        state["tracks"][key] = {"artist": "A", "title": key, "path": rel, "status": "lossless", "folder": "New",
+                                "in_playlists": True}
+    save_state(paths, state)
+    ids = {k: e["file_id"] for k, e in library.load_state(paths)["tracks"].items()}
+    moves = [PlannedMove("file", ids[k], f"A - {k}", f"Library/Old/A - {k}.aiff", f"Library/New/A - {k}.aiff",
+                         None, "app", "app") for k in ("s1", "s2")]
+    with db.connect(paths.db_file) as conn:  # a batch that was started, and nothing moved before the crash
+        batch = db.start_batch(conn, started_by="tidy", about=None, undoes=None, moves=moves,
+                               now=datetime(2026, 1, 1))
+    events = []
+    prep = run.prepare(paths, emit=events.append)
+    said = [e.text for e in events if isinstance(e, Message) and "tidy-up was stopped" in e.text]
+    assert said and "stopped before it moved anything" in said[0]
+    assert prep.log.section("recovered")
+    for key in ("s1", "s2"):  # the files not reached stay where they are
+        assert (paths.root / f"Library/Old/A - {key}.aiff").exists()
+        assert not (paths.root / f"Library/New/A - {key}.aiff").exists()
+    with db.connect(paths.db_file) as conn:
+        assert db.open_batches(conn) == []
+        assert [(m.state, m.reason) for m in db.batch_moves(conn, batch)] == [("skipped", "stopped")] * 2
 
 
 def test_setup_problems_are_reported_not_raised_raw(paths):
