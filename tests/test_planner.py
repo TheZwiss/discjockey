@@ -504,6 +504,13 @@ def test_tidy_rows_a_taken_name_is_matched_in_any_case():
     assert [r.skip for r in tidy_rows(s)] == ["name_taken"]
 
 
+def test_tidy_rows_a_held_row_of_another_song_at_the_target_takes_the_name():
+    # b's file is missing at the last scan (held): not on disk, but its row still has the path
+    s = tidy_state(files=["Library/G/a.aiff"], a=tidy_entry("F", "Library/G/a.aiff", 1),
+                   b=tidy_entry("X", "Library/F/a.aiff", 2, held=True))
+    assert [(r.track_id, r.skip) for r in tidy_rows(s) if r.track_id == "a"] == [("a", "name_taken")]
+
+
 def test_tidy_rows_two_files_with_one_target_name_the_second_is_taken():
     s = tidy_state(a=tidy_entry("F", "Library/G/x.aiff", 1), b=tidy_entry("F", "Library/H/x.aiff", 2))
     assert [(r.src, r.skip) for r in tidy_rows(s)] == [("Library/G/x.aiff", None), ("Library/H/x.aiff", "name_taken")]

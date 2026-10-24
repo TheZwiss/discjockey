@@ -104,7 +104,7 @@ def tidy_rows(state: dict, folders: Mapping[str, str] | None = None, *,
               only: Collection[str] | None = None) -> list[TidyRow]:
     """Pure: a row per file whose target folder differs (fold: a case-only difference is no move) from its folder.
     `folders` overrides the entries' folders by key (the save preview's new placement); `only` limits the keys.
-    Rows go by source folder, then file name; a target name taken on disk or by another row is `name_taken`, also
+    Rows go by source folder, then file name; a target name taken on disk, by another song's row (also a held one) or by another row is `name_taken`, also
     when another row would free it (one more tidy-up moves it, so a batch never depends on its own order). Rows
     ticked by default claim names first, in row order; user/import rows get the names still free."""
     folders = folders or {}
@@ -122,6 +122,9 @@ def tidy_rows(state: dict, folders: Mapping[str, str] | None = None, *,
     candidates.sort(key=lambda c: c[0])
 
     on_disk = {fold(f) for f in state.get("files") or []}
+    # a row of another song at the target (a held one has no file on disk now) also takes the name: saving two
+    # songs on one file is refused
+    held_at = {fold(e["path"]) for e in state["tracks"].values() if e.get("path")}
     ambiguous = state.get("ambiguous") or {}
     skips: list[str | None] = []
     for _, key, e, dst in candidates:
@@ -130,7 +133,7 @@ def tidy_rows(state: dict, folders: Mapping[str, str] | None = None, *,
         elif e.get("held") or key in ambiguous or fold(e["path"]) not in on_disk:
             skips.append("not_found")
         else:
-            skips.append("name_taken" if fold(dst) in on_disk else None)
+            skips.append("name_taken" if fold(dst) in on_disk | held_at else None)
     # Names are claimed in two passes: rows ticked by default first, then user/import rows take what is still free,
     # so a row the user would leave unticked never keeps an app-placed file from moving.
     claimed: set[str] = set()
