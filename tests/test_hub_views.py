@@ -8,7 +8,9 @@ from discjockey.hub.jobs import PreviewStore
 from discjockey.models import (Action, BatchResult, BatchRow, FetchedPlaylist, MoveRow, Plan, PlannedMove, PlaylistLine,
                                SpotifyTrack)
 from discjockey.planner import ENTRY_KEYS, tidy_rows
+from discjockey import playlists_file as pf
 from discjockey.playlists_file import Loaded, Row
+from discjockey.tidy import rename_offer
 from discjockey.run import Prepared
 from discjockey.settings import Account, Settings
 
@@ -541,23 +543,20 @@ PL_TRACKS = {ID1: [t("a"), t("b"), t("c")], ID2: [t("b"), t("c"), t("d"), t("new
 MONEY = {"remaining": 10, "limit": 60}
 
 
-def offer(old, new, rows, library_dirs):
-    """A stand-in for tidy.rename_offer (group 3): same reason codes."""
-    if old not in library_dirs:
-        return "no_folder"
-    if new in library_dirs:
-        return "folder_taken"
-    if any(r.folder == old for r in rows):
-        return "folder_in_use"
-    return None
-
-
 DIRS = {"Hard_Bounce", "Powertrance"}
 
 
+def call_change(old, new, tracks, st, files, today, money, cover=None, **kw):
+    """views.playlist_change as the api calls it: the maps from the rows, the real offer, the folders of the Library."""
+    kw.setdefault("library_dirs", DIRS)
+    kw.setdefault("rename_offer", rename_offer)
+    kw.setdefault("placement", pf.placement(new, tracks, st))
+    kw.setdefault("retargeted", pf.retargeted(old, new, tracks, st))
+    return views.playlist_change(old, new, tracks, st, files, today, money, cover, **kw)
+
+
 def change(new, tracks=PL_TRACKS, **kw):
-    return views.playlist_change(OLD, new, tracks, PL_STATE, PL_FILES, TODAY, MONEY, library_dirs=DIRS,
-                                 rename_offer=offer, **kw)
+    return call_change(OLD, new, tracks, PL_STATE, PL_FILES, TODAY, MONEY, **kw)
 
 
 def test_playlists_page():
@@ -617,23 +616,18 @@ def test_change_rename():
 
 
 def test_change_rename_is_not_offered_when_the_new_folder_exists_or_the_old_one_is_still_used():
-    taken = views.playlist_change(OLD, [Row("Powertrance", OLD[0].link), OLD[1]], PL_TRACKS, PL_STATE, PL_FILES, TODAY,
-                                  MONEY, library_dirs=DIRS, rename_offer=offer)
+    taken = call_change(OLD, [Row("Powertrance", OLD[0].link), OLD[1]], PL_TRACKS, PL_STATE, PL_FILES, TODAY,
+                                  MONEY)
     assert [(r["offered"], r["why_not"]) for r in taken["renames"]] == [
         (False, "A folder called Powertrance is already in your Library.")]
     assert [r["by_rename"] for r in taken["tidy"]["rows"]] == ["Hard_Bounce"] * len(taken["tidy"]["rows"])
     other = Row("Hard_Bounce", "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M")  # another playlist takes the old name
-    used = views.playlist_change(OLD, [Row("Hard Bounce", OLD[0].link), OLD[1], other], PL_TRACKS,
-                                 PL_STATE, PL_FILES, TODAY, MONEY, library_dirs=DIRS, rename_offer=offer)
+    used = call_change(OLD, [Row("Hard Bounce", OLD[0].link), OLD[1], other], PL_TRACKS,
+                                 PL_STATE, PL_FILES, TODAY, MONEY)
     assert [(r["offered"], r["why_not"]) for r in used["renames"]] == [
         (False, "Hard_Bounce is still the folder of another playlist.")]
-    assert views.playlist_change(OLD, [Row("Hard Bounce", OLD[0].link), OLD[1]], PL_TRACKS, PL_STATE, PL_FILES, TODAY,
-                                 MONEY, library_dirs={"Powertrance"}, rename_offer=offer)["renames"] == []  # no_folder
-
-
-def test_change_rename_without_an_offer_function_offers_nothing():
-    c = views.playlist_change(OLD, [Row("Hard Bounce", OLD[0].link), OLD[1]], PL_TRACKS, PL_STATE, PL_FILES, TODAY, MONEY)
-    assert [(r["offered"], r["why_not"]) for r in c["renames"]] == [(False, None)]
+    assert call_change(OLD, [Row("Hard Bounce", OLD[0].link), OLD[1]], PL_TRACKS, PL_STATE, PL_FILES, TODAY,
+                                 MONEY, library_dirs={"Powertrance"})["renames"] == []  # no_folder
 
 
 def test_change_by_rename_only_when_the_rename_lands_the_file_on_its_target():
@@ -651,7 +645,7 @@ def test_change_takes_the_api_maps_when_given():
 def test_change_ticks_follow_placed_by_and_a_name_in_the_way_is_a_skip():
     st = {**PL_STATE, "tracks": {**PL_STATE["tracks"], "b": {**PL_STATE["tracks"]["b"], "placed_by": "user"}},
           "files": PL_FILES + ["Library/Powertrance/not_lossless/c.aiff"]}
-    c = views.playlist_change(OLD, [OLD[1], OLD[0]], PL_TRACKS, st, st["files"], TODAY, MONEY)
+    c = call_change(OLD, [OLD[1], OLD[0]], PL_TRACKS, st, st["files"], TODAY, MONEY)
     by = {r["track_id"]: r for r in c["tidy"]["rows"]}
     assert (by["b"]["ticked"], by["b"]["yours"], by["b"]["skip"]) == (False, True, None)
     assert (by["c"]["ticked"], by["c"]["skip"]) == (False, {
@@ -701,7 +695,7 @@ def test_change_of_tracks_without_a_file_says_where_they_will_go():
                             {"folder": "Hard_Bounce", "before": 3, "after": 1}]
     one = change([OLD[1], OLD[0]], {ID1: [t("a"), t("n1")], ID2: [t("n1"), t("d")]})
     assert one["headline"] == "1 track will go to Powertrance instead of Hard_Bounce"
-    renamed = views.playlist_change([Row("Fresh", OLD[1].link)], [Row("Fresh 2026", OLD[1].link)],
+    renamed = call_change([Row("Fresh", OLD[1].link)], [Row("Fresh 2026", OLD[1].link)],
                                     {ID2: [t("n1")]}, PL_STATE, PL_FILES, TODAY, MONEY)
     assert (renamed["kind"], renamed["headline"]) == ("rename", "1 track will go to the new folder name")
 
@@ -930,8 +924,11 @@ def test_folder_of():
     ("moved_on", None, {}, "Moved or changed since"),
     ("moved_on", None, {"old": "Old", "new": "New"}, "The folder New isn't there any more"),
     ("place_taken", None, {}, "Another file is in its old place now"),
-    ("place_taken", None, {"old": "Old", "new": "New"}, "A folder called Old is in your Library again"),
+    ("place_taken", None, {"old": "Old", "new": "New"}, "A folder or another playlist called Old is there again."),
     ("playlist_renamed", None, {"old": "Old", "new": "New"}, "The playlist isn't called New any more"),
+    ("name_taken", "folder_taken", {"to": "New", "frm": "Old"}, "A folder called New is already in your Library."),
+    ("changed", "folder_in_use", {"to": "New", "frm": "Old"}, "Old is still the folder of another playlist."),
+    ("not_found", "no_folder", {"to": "New", "frm": "Old"}, "Not where Discjockey last saw it"),
 ])
 def test_skip_text(reason, detail, kw, text):
     assert views.skip_text(reason, detail, **{"to": "X", **kw}) == text
@@ -1076,12 +1073,12 @@ def test_undo_preview_of_a_folder_rename():
     taken = views.undo_preview(b, [pm("folder", src="Library/New", dst="Library/Old", skip=("place_taken", None)),
                                    pm("folder", src="Library/New", dst="Library/Old", skip=("moved_on", None))])
     assert [r["skip"]["text"] for r in taken["rows"]] == [
-        "A folder called Old is in your Library again", "The folder New isn't there any more"]
+        "A folder or another playlist called Old is there again.", "The folder New isn't there any more"]
 
 
 def test_change_file_missing_from_disk_is_on_the_tidy_list_only():
     st = {**PL_STATE, "files": [f for f in PL_FILES if not f.endswith("/b.aiff")]}
-    c = views.playlist_change(OLD, [OLD[1], OLD[0]], PL_TRACKS, st, st["files"], TODAY, MONEY)
+    c = call_change(OLD, [OLD[1], OLD[0]], PL_TRACKS, st, st["files"], TODAY, MONEY)
     assert c["kind"] == "moves" and c["headline"] == "2 files would sit in a different folder"
     assert {r["track_id"]: r["skip"] and r["skip"]["reason"] for r in c["tidy"]["rows"]} == {
         "b": "not_found", "c": None}
@@ -1092,7 +1089,21 @@ def test_change_of_a_file_outside_the_library_is_no_tidy_up():
     outside = {**PL_STATE["tracks"]["b"], "path": "Elsewhere/Hard_Bounce/b.aiff"}
     st = {**PL_STATE, "tracks": {**PL_STATE["tracks"], "b": outside},
           "files": PL_FILES + ["Elsewhere/Hard_Bounce/b.aiff"]}
-    c = views.playlist_change(OLD, [OLD[1], OLD[0]], {ID1: [t("a"), t("b")], ID2: [t("b"), t("d")]}, st, st["files"],
+    c = call_change(OLD, [OLD[1], OLD[0]], {ID1: [t("a"), t("b")], ID2: [t("b"), t("d")]}, st, st["files"],
                               TODAY, MONEY)
     assert c["tidy"] is None and c["kind"] == "none" and c["headline"] == "Nothing changes in your library"
     assert c["checklist"][-1] == "Happens at the next sync, not right away"
+
+
+def test_a_refused_folder_rename_is_worded_by_its_offer_code():
+    rows = [move_row(1, "folder", "name_taken", "folder_taken", src="Library/Old", dst="Library/New"),
+            move_row(2, "folder", "changed", "folder_in_use", src="Library/Old", dst="Library/New"),
+            move_row(3, "folder", "not_found", "no_folder", src="Library/Old", dst="Library/New")]
+    r = views.batch_result(BatchResult(1, "rename", 0, tuple(rows), False), "Renamed Old to New")
+    assert [(x["from"], x["to"], x["text"]) for x in r["skipped"]] == [
+        ("Old", "New", "A folder called New is already in your Library."),
+        ("Old", "New", "Old is still the folder of another playlist."),
+        ("Old", "New", "Not where Discjockey last saw it")]
+    file_row = move_row(4, reason="changed")  # a file's `changed` keeps its own words
+    assert views.batch_result(BatchResult(1, "tidy", 0, (file_row,), False), "x")["skipped"][0]["text"] == \
+        "Changed since the list was shown"

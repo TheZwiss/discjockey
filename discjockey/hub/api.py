@@ -28,7 +28,7 @@ from urllib.parse import quote
 
 from .. import __version__, align, browsers, candidates, config, library, ops, playlists_file as pf, qobuz, quality
 from .. import app_update as update_check, setup_cmd, tool_updates, tools
-from .. import spotify
+from .. import spotify, tidy
 from .. import report as rep, run, upgrades
 from ..accounts import ACCOUNTS, BROWSERS, SERVICE_NAMES, SERVICES, check_message
 from ..acquire import make_ready
@@ -780,9 +780,11 @@ class HubApi:
             problem = str(e)
         state = self._state()
         money = views.gate(views.moneys(state, self._settings(), self._today()))
-        change = views.playlist_change(pf.load(self._paths.playlists_file).rows, rows, tracks, state,
-                                       state["files"], self._today(), money,
-                                       self._cover(self._images()))
+        old = pf.load(self._paths.playlists_file).rows
+        change = views.playlist_change(old, rows, tracks, state, state["files"], self._today(), money,
+                                       self._cover(self._images()), library_dirs=tidy.library_dirs(self._paths),
+                                       rename_offer=tidy.rename_offer, placement=pf.placement(rows, tracks, state),
+                                       retargeted=pf.retargeted(old, rows, tracks, state))
         return {**change, "problem": problem}
 
     @bridge

@@ -842,6 +842,8 @@ UNDO_WARN_ONE = ("1 file goes back to where it was. rekordbox may show it as mis
 UNDO_RENAME = "The folder goes back to its old name {old}, with everything in it, and the playlist is called {old} again."
 FOLDER_TAKEN = "A folder called {new} is already in your Library."
 FOLDER_IN_USE = "{old} is still the folder of another playlist."
+# an undone rename finds `Library/{old}` taken or a playlist called {old}: tidy.py marks both `place_taken`
+PLACE_TAKEN_FOLDER = "A folder or another playlist called {old} is there again."
 BATCH_TITLES = {"tidy": "Tidy-up", "save": "Saved playlists"}
 
 
@@ -859,9 +861,15 @@ def _where(folder: str) -> str:
 
 
 def skip_text(reason: str | None, detail: str | None, *, to: str, old: str | None = None,
-              new: str | None = None) -> str:
+              new: str | None = None, frm: str | None = None) -> str:
     """The words for a skip reason. `to` is the target folder (relative to `Library/`); a folder move passes the
-    folder's `old` and `new` names (an undo's `old` is where it goes back to, `new` the name it has now)."""
+    folder's `old` and `new` names (an undo's `old` is where it goes back to, `new` the name it has now) and `frm`,
+    the folder it leaves. A refused folder rename carries `rename_offer`'s code in `detail` (`tidy.OFFER_SKIP`),
+    worded here."""
+    if frm is not None and detail == "folder_taken":
+        return FOLDER_TAKEN.format(new=to)
+    if frm is not None and detail == "folder_in_use":
+        return FOLDER_IN_USE.format(old=frm)
     if reason == "offline":
         return "Offline, skipped"
     if reason == "not_found":
@@ -877,18 +885,23 @@ def skip_text(reason: str | None, detail: str | None, *, to: str, old: str | Non
     if reason == "moved_on":
         return f"The folder {new} isn't there any more" if new is not None else "Moved or changed since"
     if reason == "place_taken":
-        return f"A folder called {old} is in your Library again" if old is not None else \
-            "Another file is in its old place now"
+        return PLACE_TAKEN_FOLDER.format(old=old) if old is not None else "Another file is in its old place now"
     if reason == "playlist_renamed":
         return f"The playlist isn't called {new} any more"
     return "Not moved"
 
 
 def _ends(kind: str, src: str, dst: str) -> tuple[str, str, str | None, str | None]:
-    """(from, to, old, new) of a move for the words: folders for a file, the folder names for a folder move."""
+    """(from, to, old, new) of a move for the words: folders for a file, the folder names for a folder move (old and
+    new as an undo has them: where it goes back to, the name it has now)."""
     if kind == "folder":
         return _rel(src), _rel(dst), _rel(dst), _rel(src)
     return folder_of(src), folder_of(dst), None, None
+
+
+def _skip_words(kind: str, src: str, dst: str, reason: str | None, detail: str | None) -> str:
+    frm, to, old, new = _ends(kind, src, dst)
+    return skip_text(reason, detail, to=to, old=old, new=new, frm=frm if kind == "folder" else None)
 
 
 def tidy_row(row: TidyRow, e: dict, cover: Url | None = None, by_rename: str | None = None) -> dict:
@@ -956,9 +969,9 @@ def move_batches(rows: list[BatchRow], total: int, titles: Mapping[int, str] | N
 
 
 def _skipped_item(m: MoveRow) -> dict:
-    frm, to, old, new = _ends(m.kind, m.src, m.dst)
+    frm, to, _, _ = _ends(m.kind, m.src, m.dst)
     return {"label": m.label, "from": frm, "to": to, "reason": m.reason,
-            "text": skip_text(m.reason, m.detail, to=to, old=old, new=new)}
+            "text": _skip_words(m.kind, m.src, m.dst, m.reason, m.detail)}
 
 
 def batch_result(r: BatchResult, title: str) -> dict:
@@ -977,10 +990,10 @@ def undo_preview(batch: BatchRow, moves: list[PlannedMove], files: Iterable[str]
     `files` are the snapshot paths on disk: a folder move carries every file under the folder it moves back."""
     rows = []
     for m in moves:
-        frm, to, old, new = _ends(m.kind, m.src, m.dst)
+        frm, to, _, _ = _ends(m.kind, m.src, m.dst)
         reason, detail = m.skip or (None, None)
         rows.append({"label": m.label, "from": frm, "to": to,
-                     "skip": {"reason": reason, "text": skip_text(reason, detail, to=to, old=old, new=new)}
+                     "skip": {"reason": reason, "text": _skip_words(m.kind, m.src, m.dst, reason, detail)}
                      if reason else None})
     running = [m for m, r in zip(moves, rows) if r["skip"] is None]
     on_disk = list(files)
@@ -1019,16 +1032,18 @@ CHECK_CHOICE = "Files move only if you choose to"
 CHECK_UNDO = "Moves can be undone on this page"
 
 
-RenameOffer = Callable[[str, str, list, Collection[str]], "str | None"]  # tidy.rename_offer: None, or a reason code
+# tidy.rename_offer(old, new, rows, library_dirs, *, pairs): None, or a reason code
+RenameOffer = Callable[..., "str | None"]
 
 
 def _rename_items(pairs: list[tuple[str, str]], rows: list, files: list[str], library_dirs: Collection[str],
-                  rename_offer: RenameOffer | None) -> list[dict]:
-    """The on-disk folder renames this save could do, with the files each would carry along. A folder that isn't in
+                  rename_offer: RenameOffer) -> list[dict]:
+    """The on-disk folder renames this save could do, with the files each would carry along. `pairs` go to the offer
+    as well (all renames of the change), so what is offered is never refused when it runs. A folder that isn't in
     the Library (`no_folder`) has nothing to rename and is left out."""
     items = []
     for was, now in pairs:
-        why = rename_offer(was, now, rows, library_dirs) if rename_offer else "unavailable"
+        why = rename_offer(was, now, rows, library_dirs, pairs=pairs)
         if why == "no_folder":
             continue
         n = sum(1 for f in files if f.startswith(f"Library/{was}/"))
@@ -1049,17 +1064,13 @@ def _by_rename(row: TidyRow, pairs: list[tuple[str, str]]) -> str | None:
 
 
 def playlist_change(old: list, new: list, tracks_by_id: dict, state: dict, files: list[str], today: date,
-                    money: dict | None, cover: Url | None = None, *, library_dirs: Collection[str] = (),
-                    rename_offer: RenameOffer | None = None, placement: Mapping[str, str] | None = None,
-                    retargeted: Mapping[str, str] | None = None) -> dict:
-    """"What this change does", for unsaved edits of the playlist page. `placement` (key -> folder under `new`) and
-    `retargeted` (the keys whose folder changes) are the api's, worked out from the rows when left out;
-    `rename_offer` is `tidy.rename_offer` (no offer without it)."""
+                    money: dict | None, cover: Url | None = None, *, library_dirs: Collection[str],
+                    rename_offer: RenameOffer, placement: Mapping[str, str],
+                    retargeted: Mapping[str, str]) -> dict:
+    """"What this change does", for unsaved edits of the playlist page. The api passes `placement` (key -> folder
+    under `new`, `pf.placement`), `retargeted` (the keys whose folder changes, `pf.retargeted`), the folders of
+    `Library/` and `tidy.rename_offer`, so this stays pure."""
     c = pf.preview_change(old, new, tracks_by_id, state, files, today)
-    if placement is None:
-        placement = pf.placement(new, tracks_by_id, state)
-    if retargeted is None:
-        retargeted = pf.retargeted(old, new, tracks_by_id, state)
     tidy_list = tidy_rows(state, placement, only=retargeted) if retargeted else []
     renames = pf.renames(old, new)
     rename_items = _rename_items(renames, new, files, library_dirs, rename_offer)
