@@ -7,7 +7,7 @@ from discjockey.hub import views
 from discjockey.hub.jobs import PreviewStore
 from discjockey.models import (Action, BatchResult, BatchRow, FetchedPlaylist, MoveRow, Plan, PlannedMove, PlaylistLine,
                                SpotifyTrack)
-from discjockey.planner import ENTRY_KEYS, tidy_rows
+from discjockey.planner import ENTRY_KEYS, TidyRow, tidy_rows
 from discjockey import playlists_file as pf
 from discjockey.playlists_file import Loaded, Row
 from discjockey.tidy import rename_offer
@@ -636,6 +636,12 @@ def test_change_by_rename_only_when_the_rename_lands_the_file_on_its_target():
     assert {r["track_id"]: r["by_rename"] for r in c["tidy"]["rows"]} == {"a": "Hard_Bounce", "b": None, "c": None}
 
 
+def test_by_rename_compares_folder_names_by_fold():
+    row = TidyRow("a", 1, "Library/hard_bounce/a.aiff", "Library/Hard_New/a.aiff", "app", None)
+    assert views._by_rename(row, [("Hard_Bounce", "Hard_New")]) == "Hard_Bounce"
+    assert views._by_rename(row, [("Hard_Bounce", "Other")]) is None
+
+
 def test_change_takes_the_api_maps_when_given():
     c = change([OLD[1], OLD[0]], placement={"b": "Powertrance", "c": "Powertrance"}, retargeted={"c": "Powertrance"})
     assert [r["track_id"] for r in c["tidy"]["rows"]] == ["c"]
@@ -1058,6 +1064,16 @@ def test_undo_preview_of_files():
     assert views.undo_preview(b, [])["nothing_left"]
 
 
+def test_undo_preview_rows_say_their_kind_and_a_folder_its_files():
+    b = batch(2, "rename", moved=7, about={"from": "Old", "to": "New"})
+    p = views.undo_preview(b, [pm(), PlannedMove("folder", None, "New", "Library/New", "Library/Old", None, None, None,
+                                                  None, 7)])
+    assert [(r["kind"], r["files"]) for r in p["rows"]] == [("file", None), ("folder", 7)]  # none on disk: the count it carried
+    assert p["moving"] == 8
+    inside = [f"Library/New/{i}.aiff" for i in range(9)]  # nine are in it now
+    assert views.undo_preview(b, [pm("folder", src="Library/New", dst="Library/Old")], inside)["rows"][0]["files"] == 9
+
+
 def test_undo_preview_of_a_folder_rename():
     b = batch(2, "rename", moved=1, about={"from": "Old", "to": "New"})
     inside = ["Library/New/a.aiff", "Library/New/not_lossless/b.aiff", "Library/Newer/c.aiff", "Library/Other/d.aiff"]
@@ -1067,7 +1083,7 @@ def test_undo_preview_of_a_folder_rename():
                             "finds them by file name.",
                             "The folder goes back to its old name Old, with everything in it, and the playlist is "
                             "called Old again."]
-    assert p["rows"] == [{"label": "New", "from": "New", "to": "Old", "skip": None}]
+    assert p["rows"] == [{"label": "New", "kind": "folder", "from": "New", "to": "Old", "files": 2, "skip": None}]
     gone = views.undo_preview(b, [pm("folder", src="Library/New", dst="Library/Old", label="New",
                                      skip=("playlist_renamed", None))], inside)
     assert gone["nothing_left"] and gone["warning"] == []

@@ -801,17 +801,18 @@ class HubApi:
         choice = save_choice(files)
 
         def work(ctx) -> dict:
-            retargeted = {}
+            retargeted, all_renames = {}, []
             if choice is not None:  # the targets before the save are what the save changes
-                retargeted = pf.retargeted(pf.load(self._paths.playlists_file).rows, rows, self._tracks_by_id(),
-                                           self._state())
+                before = pf.load(self._paths.playlists_file).rows
+                retargeted = pf.retargeted(before, rows, self._tracks_by_id(), self._state())
+                all_renames = pf.renames(before, rows)
             version = pf.save(self._paths.playlists_file, rows, loaded_version or "")
             self._store.mark_stale()  # the plan was made for the old lines
             if choice is None:
                 return {"version": version, "batches": []}
             try:
                 done = tidy.after_save(self._paths, retargeted, choice, emit=ctx.emit, token=ctx.token,
-                                       now=self._svc.now)
+                                       now=self._svc.now, all_renames=all_renames)
             except tidy.Stopped as stopped:
                 ctx.failed_result = {"version": version, "batches": self._batch_results(stopped.results)}
                 raise

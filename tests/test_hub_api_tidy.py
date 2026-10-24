@@ -256,3 +256,23 @@ def test_save_can_rename_the_folder_on_disk_and_move_the_rest(root):
     assert f.ok and [b["title"] for b in f.result["batches"]][0] == "Renamed Hard_Bounce to Hard_New"
     assert (root.library / "Hard_New").is_dir() and not (root.library / "Hard_Bounce").exists()
     assert load_state(root)["tracks"]["t2"]["path"] == LOSSY.replace("Hard_Bounce", "Hard_New")
+
+
+def test_a_save_passes_every_rename_of_the_change_to_the_engine_not_only_the_chosen(root, monkeypatch):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    renamed = [{"folder": "Hard_New", "link": HARD[1], "enabled": True},
+               {"folder": "Power_New", "link": POWER[1], "enabled": True}]
+    seen = {}
+    real = tidy.after_save
+
+    def spy(*args, **kw):
+        seen["all"] = kw["all_renames"]
+        return real(*args, **kw)
+
+    monkeypatch.setattr(tidy, "after_save", spy)
+    f = wait_job(api, rec, api.save_playlists(renamed, api.playlists()["version"], {
+        "choice": "move", "renames": [["Hard_Bounce", "Hard_New"]], "moves": []}))
+    assert f.ok
+    assert seen["all"] == [("Hard_Bounce", "Hard_New"), ("Powertrance", "Power_New")]
+    assert (root.library / "Hard_New").is_dir()

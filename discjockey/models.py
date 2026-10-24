@@ -194,6 +194,7 @@ class PlannedMove:
     placed_before: str | None  # the file row's placed_by before / after the move (folder moves: None)
     placed_after: str | None
     skip: tuple[str, str | None] | None = None  # (reason, detail): recorded skipped at once (undo's checks)
+    files: int | None = None  # a folder move: the files it carried (an undo's plan knows it; a new rename doesn't)
 
 
 @dataclass(frozen=True)
@@ -215,6 +216,7 @@ class MoveRow:
     detail: str | None  # the failure's words for "failed"
     now_path: str | None  # the file row's snapshot path today (None: no row)
     now_key: str | None  # the file row's content key today
+    files: int | None = None  # a folder move: how many files it carried (set when it is done); None otherwise
 
 
 @dataclass(frozen=True)
@@ -226,7 +228,7 @@ class BatchRow:
     started_by: str  # "tidy" | "save" | "rename" | "undo"
     about: dict | None  # {"from": old, "to": new} for "rename"
     undoes: int | None  # the batch an undo batch undoes
-    moved: int
+    moved: int  # files moved (a folder move counts the files it carried)
     skipped: int
     undoable: int  # done moves whose undo could run today
     undone_by: int | None  # the latest undo batch of this one

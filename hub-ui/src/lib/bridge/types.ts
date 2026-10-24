@@ -64,8 +64,11 @@ export type MoveBatch = { id: number; at: string; title: string; moved: number; 
   undoable: number; undone_by: number | null; summary: string };
 export type MoveBatches = { batches: MoveBatch[]; total: number };
 export type UndoSkip = { reason: string; text: string };
+/** `kind` "folder": a folder rename going back, `files` how many files are in it (null for a file row). */
+export type UndoRow = { label: string; kind: 'file' | 'folder'; files: number | null; from: string; to: string;
+  skip: UndoSkip | null };
 export type UndoPreview = {
-  batch_id: number; title: string; rows: { label: string; from: string; to: string; skip: UndoSkip | null }[];
+  batch_id: number; title: string; rows: UndoRow[];
   moving: number; warning: string[]; nothing_left: boolean;
 };
 export type SkippedMove = { label: string; from: string; to: string; reason: string; text: string };

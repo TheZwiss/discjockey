@@ -99,6 +99,7 @@ SCHEMA_V2_STEP = (
       placed_before TEXT, placed_after TEXT,      -- placed_by before / after this move (folder moves: NULL)
       state TEXT NOT NULL CHECK (state IN ('planned', 'done', 'skipped')),
       reason TEXT, detail TEXT,                   -- skip reason code and its detail (the failure's words)
+      files INTEGER,                              -- a folder move: how many files it carried (set when it is done)
       UNIQUE (batch, seq))""",
     "CREATE INDEX moves_file ON moves (file)",
     "CREATE INDEX moves_batch ON moves (batch)",
@@ -755,7 +756,7 @@ SKIP_REASONS = frozenset({"offline", "not_found", "name_taken", "changed", "fail
                           "place_taken", "playlist_renamed"})
 STARTED_BY = frozenset({"tidy", "save", "rename", "undo"})
 _MOVE_COLUMNS = ("id", "batch", "seq", "kind", "file", "label", "src", "dst", "content_key", "placed_before",
-                 "placed_after", "state", "reason", "detail")
+                 "placed_after", "state", "reason", "detail", "files")
 
 
 def _reason_code(reason: str) -> str:
@@ -784,7 +785,7 @@ def start_batch(conn: sqlite3.Connection, *, started_by: str, about: dict | None
         state, reason, detail = ("planned", None, None) if m.skip is None else ("skipped", _reason_code(m.skip[0]),
                                                                                   m.skip[1])
         rows.append((seq, m.kind, m.file_id, m.label, src, dst, m.content_key, m.placed_before, m.placed_after, state,
-                     reason, detail))
+                     reason, detail, m.files))
     with transaction(conn):
         batch = conn.execute("INSERT INTO move_batches (started, started_by, about, undoes) VALUES (?, ?, ?, ?)",
                              (now.isoformat(timespec="seconds"), started_by,
@@ -827,6 +828,9 @@ def finish_move(conn: sqlite3.Connection, move_id: int) -> None:
             old, new = src_rel + "/", rel + "/"
             conn.execute("UPDATE files SET path = ? || substr(path, ?) WHERE folder = ? AND substr(path, 1, ?) = ?",
                          (new, len(old) + 1, src_folder, len(old), old))
+            carried = conn.execute("SELECT COUNT(*) FROM files WHERE folder = ? AND substr(path, 1, ?) = ?",
+                                   (src_folder, len(new), new)).fetchone()[0]
+            conn.execute("UPDATE moves SET files = ? WHERE id = ?", (carried, move_id))
         conn.execute("UPDATE moves SET state = 'done', reason = NULL, detail = NULL WHERE id = ?", (move_id,))
 
 
@@ -879,7 +883,7 @@ def batch_moves(conn: sqlite3.Connection, batch_id: int) -> list[MoveRow]:
         out.append(MoveRow(id=m["id"], batch=m["batch"], seq=m["seq"], kind=m["kind"], file_id=m["file"],
                            label=m["label"], src=m["src"], dst=m["dst"], content_key=m["content_key"],
                            placed_before=m["placed_before"], placed_after=m["placed_after"], state=m["state"],
-                           reason=m["reason"], detail=m["detail"],
+                           reason=m["reason"], detail=m["detail"], files=m["files"],
                            now_path=None if folder is None else folders.path(folder, rel), now_key=key))
     return out
 
@@ -903,7 +907,8 @@ def _undoable(conn: sqlite3.Connection, folders: _Folders, batch_id: int) -> int
 
 
 _BATCH_SELECT = ("SELECT b.id, b.started, b.finished, b.started_by, b.about, b.undoes, "
-                 "(SELECT COUNT(*) FROM moves m WHERE m.batch = b.id AND m.state = 'done'), "
+                 "(SELECT COALESCE(SUM(CASE WHEN m.kind = 'folder' THEN COALESCE(m.files, 1) ELSE 1 END), 0) "
+                 "FROM moves m WHERE m.batch = b.id AND m.state = 'done'), "
                  "(SELECT COUNT(*) FROM moves m WHERE m.batch = b.id AND m.state = 'skipped'), "
                  "(SELECT MAX(u.id) FROM move_batches u WHERE u.undoes = b.id) FROM move_batches b ")
 
