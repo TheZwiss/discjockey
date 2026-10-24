@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from .. import config, events as ev, library, playlists_file, qobuz, report as rep, run, settings, spotify, upgrades
+from .. import config, events as ev, library, playlists_file, qobuz, report as rep, run, settings, sources, upgrades
 from ..events import Cancelled, CancelToken, Emit
 from ..library import LockHeld, Paths
 from ..models import Protected
@@ -220,7 +220,7 @@ def problem_of(e: BaseException) -> tuple[str, str]:
         return "no_library", str(e)
     if isinstance(e, LockHeld):
         return "console", CONSOLE_TEXT
-    if isinstance(e, (run.SetupProblem, OpProblem, spotify.SpotifyError)):
+    if isinstance(e, (run.SetupProblem, OpProblem, sources.SourceError)):
         return e.kind, str(e)
     if isinstance(e, config.ConfigError):
         return ("not_set_up" if e.kind == "not_set_up" else "refused"), str(e)
@@ -569,24 +569,14 @@ def refresh_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] 
         store.ready(prep, now(), ctx.token)
         ctx.token.check()
         if infos is not None:
-            read_infos(paths, [line.playlist_id for line in prep.lines], infos, ctx.token)
+            read_infos(paths, [line.ref for line in prep.lines], infos, ctx.token)
         return {"actions": len(prep.plan.actions)}
     return work
 
 
-def read_infos(paths: Paths, playlist_ids: list[str], infos: dict, token: CancelToken) -> None:
-    try:
-        session = spotify.load_session(paths)
-        session.check, session.sleep = token.check, token.sleep
-        me, _ = spotify.current_user(session)
-        for pid in playlist_ids:
-            token.check()
-            try:
-                infos[pid] = spotify.playlist_info(session, pid, me)
-            except spotify.SpotifyError:
-                infos.pop(pid, None)
-    except spotify.SpotifyError:
-        pass
+def read_infos(paths: Paths, refs: list[str], infos: dict, token: CancelToken) -> None:
+    """Fills `infos` (playlist ref -> PlaylistInfo) through each service's reader (sources.read_infos)."""
+    sources.read_infos(paths, refs, infos, token)
 
 
 def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str]],

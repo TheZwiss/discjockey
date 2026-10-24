@@ -1,6 +1,6 @@
 """One sync run, independent of how it is shown. The console (now) and the hub (later) both use these steps:
 
-    prep = prepare(paths, ...)        load, recover, fetch Spotify, plan      (raises SetupProblem -> exit 2)
+    prep = prepare(paths, ...)        load, recover, read the playlists, plan      (raises SetupProblem -> exit 2)
     ... the front end shows prep.plan and asks for confirmation ...
     qobuz = open_qobuz(prep)          only if the plan downloads anything     (raises SetupProblem -> exit 2)
     code, report = execute(prep, qobuz, emit=..., token=...)
@@ -16,10 +16,10 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Callable
 
-from . import config, library, planner, quality, report as rep, spotify
+from . import config, library, planner, quality, report as rep, sources
 from .accounts import ACCOUNTS
 from .acquire import Acquirer, make_ready
-from .events import ActionStarted, Cancelled, CancelToken, Emit, Message, ReadingPlaylist, Result, RunFinished, no_emit
+from .events import ActionStarted, Cancelled, CancelToken, Emit, Message, Result, RunFinished, no_emit
 from .execute import Executor
 from .fallback import FallbackSource, stream_url
 from .library import Paths, StateError
@@ -33,11 +33,12 @@ class SetupProblem(Exception):
     """Something the user has to fix (exit code 2). Nothing in the library was changed.
 
     kind (the hub picks its card by it): not_set_up | login_expired | offline | playlist_unreadable |
-    config_invalid | qobuz_login_failed."""
+    config_invalid | qobuz_login_failed. `service` names the playlist service a SourceError came from (else None)."""
 
-    def __init__(self, message: str, kind: str = "config_invalid"):
+    def __init__(self, message: str, kind: str = "config_invalid", service: str | None = None):
         super().__init__(message)
         self.kind = kind
+        self.service = service
 
 
 class RunCrashed(Exception):
@@ -57,7 +58,7 @@ class Prepared:
     plan: Plan
     log: rep.RunLog
     lines: list[PlaylistLine] = field(default_factory=list)
-    fetched: list[FetchedPlaylist] = field(default_factory=list)  # as read from Spotify (the playlist page uses it)
+    fetched: list[FetchedPlaylist] = field(default_factory=list)  # as read from the playlist services (the playlist page uses it)
 
     @property
     def needs_qobuz(self) -> bool:
@@ -73,8 +74,8 @@ def lock_held():
 def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, emit: Emit = no_emit,
             token: CancelToken | None = None,
             lock: Callable[[], AbstractContextManager[bool]] = lock_held) -> Prepared:
-    """`token`: Stop while reading Spotify (also while waiting out a rate limit) raises events.Cancelled.
-    Before Spotify is read, the library's records are opened for writing (migrated if needed), interrupted steps
+    """`token`: Stop while reading the playlists (also while waiting out a rate limit) raises events.Cancelled.
+    Before the playlists are read, the library's records are opened for writing (migrated if needed), interrupted steps
     are finished (not in a dry run) and Library/ is scanned (also in a dry run, spec library-and-sources §6.4), so
     the plan works on the files as they are. `lock()` yields whether the library lock is held for that: a reader
     (the window's preview) that can't get it (a terminal run, a hub job) plans on the records as the last scan
@@ -97,17 +98,11 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
         save_settings(paths.settings_file, settings)
         emit(Message("info", f"Allowing {extra} extra Qobuz downloads today."))
 
-    emit(Message("info", "Reading your Spotify playlists..."))
+    emit(Message("info", "Reading your playlists..."))
     try:
-        session = spotify.load_session(paths)
-        session.check, session.sleep = token.check, token.sleep
-        fetched = []
-        for i, line in enumerate(lines, 1):
-            token.check()
-            emit(ReadingPlaylist(i, len(lines), line.folder))
-            fetched.append(spotify.fetch_playlist(session, line))
-    except spotify.SpotifyError as e:
-        raise SetupProblem(str(e), e.kind) from None
+        fetched = sources.read(paths, lines, emit=emit, token=token)
+    except sources.SourceError as e:
+        raise SetupProblem(str(e), e.kind, e.service) from None
     for fp in fetched:
         for item in fp.skipped:
             log.add_text("skipped", f"[{fp.line.folder}] {item}")

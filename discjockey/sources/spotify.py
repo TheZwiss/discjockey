@@ -1,4 +1,5 @@
-"""Spotify Web API: PKCE login, token refresh, reading playlist items. Metadata only, never audio."""
+"""Spotify Web API: PKCE login, token refresh, reading playlist items. Metadata only, never audio. Also the Spotify
+playlist source (sources/__init__.py): recognising its links, the local login check and the `Reader`."""
 from __future__ import annotations
 
 import base64
@@ -13,13 +14,18 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
+import re
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Callable
 
-from .library import SupportPaths
-from .models import FetchedPlaylist, PlaylistLine, SpotifyTrack
+from ..events import CancelToken
+from ..library import SupportPaths
+from ..models import FetchedPlaylist, PlaylistInfo, PlaylistLine, SourceTrack
+from .base import LoginState, SourceError
+
+SERVICE = "spotify"
 
 AUTH_URL = "https://accounts.spotify.com/authorize"
 TOKEN_URL = "https://accounts.spotify.com/api/token"
@@ -36,14 +42,13 @@ DONE_PAGE = (b'<!doctype html><meta charset="utf-8"><title>Discjockey</title>'
              b'<p style="font: 16px -apple-system, sans-serif">Spotify login done. You can close this tab.</p>')
 
 
-class SpotifyError(Exception):
-    """A problem the user has to fix; the run stops with exit code 2.
+class SpotifyError(SourceError):
+    """A problem with Spotify the user has to fix; the run stops with exit code 2.
 
     kind (for the hub's cards): not_set_up | login_expired | offline | playlist_unreadable | login_failed."""
 
     def __init__(self, message: str, kind: str = "offline"):
-        super().__init__(message)
-        self.kind = kind
+        super().__init__(message, kind, SERVICE)
 
 
 class PlaylistUnavailable(Exception):
@@ -305,7 +310,7 @@ def api_get(session: Session, url: str) -> dict:
         raise SpotifyError(f"Spotify is not responding ({problem}). Try again later.")
 
 
-def parse_item(raw: dict) -> SpotifyTrack | str:
+def parse_item(raw: dict) -> SourceTrack | str:
     t = raw.get("item") if "item" in raw else raw.get("track")
     name = (t or {}).get("name") or "Unknown track"
     if raw.get("is_local"):
@@ -319,7 +324,7 @@ def parse_item(raw: dict) -> SpotifyTrack | str:
     album = t.get("album") or {}
     images = album.get("images") or []
     image = max(images, key=lambda i: i.get("width") or 0, default=None)
-    return SpotifyTrack(
+    return SourceTrack(
         id=t["id"],
         title=t.get("name") or "",
         artists=tuple(a["name"] for a in t.get("artists") or [] if a.get("name")),
@@ -332,7 +337,7 @@ def parse_item(raw: dict) -> SpotifyTrack | str:
 
 def fetch_playlist(session: Session, line: PlaylistLine) -> FetchedPlaylist:
     url = f"{API}/playlists/{line.playlist_id}/items?limit=50&additional_types=track"
-    tracks: list[SpotifyTrack] = []
+    tracks: list[SourceTrack] = []
     skipped: list[str] = []
     while url:
         try:
@@ -345,27 +350,9 @@ def fetch_playlist(session: Session, line: PlaylistLine) -> FetchedPlaylist:
             ) from None
         for raw in page.get("items") or []:
             r = parse_item(raw)
-            (tracks if isinstance(r, SpotifyTrack) else skipped).append(r)
+            (tracks if isinstance(r, SourceTrack) else skipped).append(r)
         url = page.get("next")
     return FetchedPlaylist(line, tracks, skipped)
-
-
-@dataclass(frozen=True)
-class PlaylistInfo:
-    """What the playlist page shows for a pasted link. Development Mode only reads playlists that are yours or
-    collaborative ("Follow ≠ own"). [The fields are to be verified in the first live session.]"""
-    id: str
-    name: str
-    owner_id: str
-    owner_name: str
-    collaborative: bool
-    image_url: str | None
-    track_count: int | None
-    yours: bool
-
-    @property
-    def readable(self) -> bool:
-        return self.yours or self.collaborative
 
 
 def current_user(session: Session) -> tuple[str, str]:
@@ -384,6 +371,76 @@ def playlist_info(session: Session, playlist_id: str, my_id: str) -> PlaylistInf
     images = data.get("images") or []
     image = max(images, key=lambda i: i.get("width") or 0, default=None)
     total = (data.get("tracks") or data.get("items") or {}).get("total")
-    return PlaylistInfo(data.get("id") or playlist_id, data.get("name") or "", owner.get("id") or "",
-                        owner.get("display_name") or owner.get("id") or "", bool(data.get("collaborative")),
-                        image["url"] if image else None, total, bool(my_id) and owner.get("id") == my_id)
+    collaborative = bool(data.get("collaborative"))
+    yours = bool(my_id) and owner.get("id") == my_id
+    # Development Mode only reads playlists that are yours or collaborative ("Follow != own"). [The fields are to be
+    # verified in the first live session.]
+    return PlaylistInfo(SERVICE, data.get("id") or playlist_id, data.get("name") or "", owner.get("id") or "",
+                        owner.get("display_name") or owner.get("id") or "", collaborative,
+                        image["url"] if image else None, total, yours, yours or collaborative)
+
+
+# --- the playlist source (sources/__init__.py) ---------------------------------------------------------------------
+
+_ID = r"([A-Za-z0-9]{22})"
+_URL = re.compile(r"https?://open\.spotify\.com/(?:intl-[A-Za-z-]+/)?playlist/" + _ID + r"(?:[/?#].*)?")
+_URI = re.compile(r"spotify:playlist:" + _ID)
+NOT_SET_UP = "Spotify is not set up yet. Run: discjockey setup"
+
+
+def recognise(link: str) -> str | None:
+    """The playlist id when `link` is a Spotify playlist link or URI, else None."""
+    for rx in (_URL, _URI):
+        m = rx.fullmatch(link)
+        if m:
+            return m.group(1)
+    return None
+
+
+def canonical_link(playlist_id: str) -> str:
+    return f"https://open.spotify.com/playlist/{playlist_id}"
+
+
+def login_state(paths: SupportPaths) -> LoginState:
+    """Whether Setup left a Spotify login on this Mac (a local check; whether it still works shows on the first read)."""
+    if paths.spotify_app.is_file() and paths.spotify_token.is_file():
+        return LoginState("ok")
+    return LoginState("missing", NOT_SET_UP)
+
+
+class SpotifyReader:
+    """One Spotify session for a whole read. `current_user` is read the first time an info is asked for."""
+
+    def __init__(self, session: Session):
+        self.session = session
+        self._me: str | None = None
+        self._me_error: SourceError | None = None
+
+    def __enter__(self) -> "SpotifyReader":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+    def close(self) -> None:
+        """Nothing to release: the token is refreshed and saved as it goes."""
+
+    def fetch(self, line: PlaylistLine) -> FetchedPlaylist:
+        return fetch_playlist(self.session, line)
+
+    def info(self, playlist_id: str) -> PlaylistInfo:
+        if self._me_error is not None:
+            raise self._me_error  # the same answer again, without waiting out another round of retries
+        if self._me is None:
+            try:
+                self._me, _ = current_user(self.session)
+            except SourceError as e:
+                self._me_error = e
+                raise
+        return playlist_info(self.session, playlist_id, self._me)
+
+
+def open(paths: SupportPaths, token: CancelToken) -> SpotifyReader:  # noqa: A001 (the source interface's name)
+    session = load_session(paths)
+    session.check, session.sleep = token.check, token.sleep
+    return SpotifyReader(session)

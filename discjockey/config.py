@@ -1,11 +1,11 @@
 """Read and validate playlists.txt."""
 from __future__ import annotations
 
-import re
 import unicodedata
 from pathlib import Path
 
-from .models import PlaylistLine
+from . import sources
+from .models import PlaylistLine, token
 from .names import fold
 
 
@@ -15,19 +15,6 @@ class ConfigError(Exception):
     def __init__(self, message: str, kind: str = "config_invalid"):
         super().__init__(message)
         self.kind = kind
-
-
-_ID = r"([A-Za-z0-9]{22})"
-_URL = re.compile(r"https?://open\.spotify\.com/(?:intl-[A-Za-z-]+/)?playlist/" + _ID + r"(?:[/?#].*)?")
-_URI = re.compile(r"spotify:playlist:" + _ID)
-
-
-def playlist_id(ref: str) -> str | None:
-    for rx in (_URL, _URI):
-        m = rx.fullmatch(ref)
-        if m:
-            return m.group(1)
-    return None
 
 
 def _check_folder(folder: str, where: str) -> None:
@@ -53,7 +40,7 @@ def parse_playlists(text: str) -> list[PlaylistLine]:
             continue
         where = f"playlists.txt line {no}"
         if "=" not in line:
-            raise ConfigError(f"{where}: expected 'Folder = Spotify playlist link', found: {line}")
+            raise ConfigError(f"{where}: expected 'Folder = playlist link', found: {line}")
         folder, ref = (part.strip() for part in line.split("=", 1))
         folder = unicodedata.normalize("NFC", folder)
         _check_folder(folder, where)
@@ -62,16 +49,17 @@ def parse_playlists(text: str) -> list[PlaylistLine]:
                 f"{where}: the link after = is empty. Paste the playlist link, "
                 "or put # in front of the line to switch it off."
             )
-        pid = playlist_id(ref)
-        if pid is None:
-            raise ConfigError(f"{where}: this is not a Spotify playlist link: {ref}")
+        found = sources.recognise(ref)
+        if found is None:
+            raise ConfigError(f"{where}: this is not a Spotify or Qobuz playlist link: {ref}")
+        service, pid = found
         if fold(folder) in folders:
             raise ConfigError(f"{where}: the folder {folder} is already used on line {folders[fold(folder)]}.")
-        if pid in ids:
-            raise ConfigError(f"{where}: this playlist is already listed on line {ids[pid]}.")
+        if token(service, pid) in ids:
+            raise ConfigError(f"{where}: this playlist is already listed on line {ids[token(service, pid)]}.")
         folders[fold(folder)] = no
-        ids[pid] = no
-        result.append(PlaylistLine(folder, pid, no))
+        ids[token(service, pid)] = no
+        result.append(PlaylistLine(folder, pid, no, service))
     if not result:
         raise ConfigError(
             "playlists.txt has no active playlists. Add a line like: "

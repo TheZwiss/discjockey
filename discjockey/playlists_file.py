@@ -14,9 +14,9 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from . import config
+from . import config, sources
 from .library import fsync_dir, full_fsync
-from .models import FetchedPlaylist, PlaylistLine, SpotifyTrack
+from .models import FetchedPlaylist, PlaylistLine, SourceTrack, split_token, token
 from .names import fold
 from .planner import desired_folders
 
@@ -35,8 +35,16 @@ class Row:
     enabled: bool = True
 
     @property
-    def playlist_id(self) -> str | None:
-        return config.playlist_id(self.link)
+    def service(self) -> str | None:
+        """The playlist service the link belongs to (None for a link no source recognises)."""
+        found = sources.recognise(self.link)
+        return found[0] if found else None
+
+    @property
+    def ref(self) -> str | None:
+        """The playlist's token (models.token): its id for Spotify, `service:id` for another service."""
+        found = sources.recognise(self.link)
+        return token(*found) if found else None
 
 
 @dataclass
@@ -51,11 +59,12 @@ def version_of(data: bytes) -> str:
 
 
 def clean_link(url: str) -> str:
-    pid = config.playlist_id(url.strip())
-    if pid is None:
-        raise ValueError("That is not a Spotify playlist link. In Spotify: open the playlist → ⋯ → Share → Copy link "
-                         "to playlist.")
-    return f"https://open.spotify.com/playlist/{pid}"
+    found = sources.recognise(url.strip())
+    if found is None:
+        raise ValueError("That isn't a Spotify or Qobuz playlist link. Open the playlist in Spotify or Qobuz, choose "
+                         "Share, then Copy link, and paste it here.")
+    service, pid = found
+    return sources.SOURCES[service].canonical_link(pid)
 
 
 def _row(line: str) -> Row | None:
@@ -68,7 +77,7 @@ def _row(line: str) -> Row | None:
     if "=" not in text:
         return None
     folder, link = (part.strip() for part in text.split("=", 1))
-    if not folder or config.playlist_id(link) is None:
+    if not folder or sources.recognise(link) is None:
         return None
     return Row(unicodedata.normalize("NFC", folder), link, enabled)
 
@@ -146,16 +155,16 @@ class Change:
     reroutes: list[tuple[str, str, str]] = field(default_factory=list)  # ... for tracks without a file yet
     new: list[str] = field(default_factory=list)  # track ids that would be downloaded because of the change
     stopped: list[str] = field(default_factory=list)  # track ids in no active playlist any more (files stay)
-    unknown: list[str] = field(default_factory=list)  # playlist ids not read yet (their tracks are not counted)
+    unknown: list[str] = field(default_factory=list)  # playlist refs not read yet (their tracks are not counted)
 
 
-def _fetched(rows: list[Row], tracks_by_id: dict[str, list[SpotifyTrack]]) -> list[FetchedPlaylist]:
+def _fetched(rows: list[Row], tracks_by_id: dict[str, list[SourceTrack]]) -> list[FetchedPlaylist]:
     """The switched-on rows as the planner sees them, with the tracks last read; rows not read yet are left out."""
-    return [FetchedPlaylist(PlaylistLine(r.folder, r.playlist_id, i), list(tracks_by_id[r.playlist_id]), [])
-            for i, r in enumerate(rows, start=1) if r.enabled and r.playlist_id in tracks_by_id]
+    return [FetchedPlaylist(PlaylistLine(r.folder, split_token(r.ref)[1], i, r.service), list(tracks_by_id[r.ref]), [])
+            for i, r in enumerate(rows, start=1) if r.enabled and r.ref in tracks_by_id]
 
 
-def placement(rows: list[Row], tracks_by_id: dict[str, list[SpotifyTrack]], state: dict) -> dict[str, str]:
+def placement(rows: list[Row], tracks_by_id: dict[str, list[SourceTrack]], state: dict) -> dict[str, str]:
     """Pure: state key -> the folder the song belongs in under `rows`, for the songs of the playlists read so far
     (a playlist not read yet places none of its songs)."""
     return desired_folders(_fetched(rows, tracks_by_id), state)
@@ -167,7 +176,7 @@ def _changed(before: dict[str, str], after: dict[str, str]) -> list[tuple[str, s
     return [(k, before[k], folder) for k, folder in after.items() if k in before and fold(before[k]) != fold(folder)]
 
 
-def retargeted(old: list[Row], new: list[Row], tracks_by_id: dict[str, list[SpotifyTrack]],
+def retargeted(old: list[Row], new: list[Row], tracks_by_id: dict[str, list[SourceTrack]],
                state: dict) -> dict[str, str]:
     """Pure: the songs whose folder the edit from `old` to `new` changes -> their new folder (the tidy-up's
     `folders` for the save preview). Songs of playlists not read yet are not in it."""
@@ -176,24 +185,24 @@ def retargeted(old: list[Row], new: list[Row], tracks_by_id: dict[str, list[Spot
 
 
 def renames(old: list[Row], new: list[Row]) -> list[tuple[str, str]]:
-    """Pure: (old folder, new folder) for every playlist (the same playlist id in both) whose folder name the edit
+    """Pure: (old folder, new folder) for every playlist (the same playlist in both) whose folder name the edit
     changes other than in case, in `new`'s order, each pair once (the on-disk folder renames to offer)."""
     before: dict[str, str] = {}
     for r in old:
-        if r.playlist_id is not None:
-            before.setdefault(r.playlist_id, r.folder)
+        if r.ref is not None:
+            before.setdefault(r.ref, r.folder)
     out: list[tuple[str, str]] = []
     for r in new:
-        was = before.get(r.playlist_id) if r.playlist_id is not None else None
+        was = before.get(r.ref) if r.ref is not None else None
         if was is not None and fold(was) != fold(r.folder) and (was, r.folder) not in out:
             out.append((was, r.folder))
     return out
 
 
-def preview_change(old: list[Row], new: list[Row], tracks_by_id: dict[str, list[SpotifyTrack]], state: dict,
+def preview_change(old: list[Row], new: list[Row], tracks_by_id: dict[str, list[SourceTrack]], state: dict,
                    files: list[str], today: date) -> Change:
     """Pure: the planner's view of the edited lines against the last playlists read from Spotify."""
-    unknown = [r.playlist_id for r in new if r.enabled and r.playlist_id not in tracks_by_id]
+    unknown = [r.ref for r in new if r.enabled and r.ref not in tracks_by_id]
     before = placement(old, tracks_by_id, state)
     after = placement(new, tracks_by_id, state)
     tracks = state["tracks"]
@@ -209,14 +218,14 @@ def preview_change(old: list[Row], new: list[Row], tracks_by_id: dict[str, list[
     return change
 
 
-def overlaps(rows: list[Row], tracks_by_id: dict[str, list[SpotifyTrack]]) -> list[tuple[SpotifyTrack, list[str], str]]:
+def overlaps(rows: list[Row], tracks_by_id: dict[str, list[SourceTrack]]) -> list[tuple[SourceTrack, list[str], str]]:
     """Tracks in several active playlists: (track, the folders it is in, the folder it lands in = the first)."""
-    seen: dict[str, tuple[SpotifyTrack, list[str]]] = {}
+    seen: dict[str, tuple[SourceTrack, list[str]]] = {}
     for r in rows:
         if not r.enabled:
             continue
-        for t in tracks_by_id.get(r.playlist_id, []):
-            folders = seen.setdefault(t.id, (t, []))[1]
+        for t in tracks_by_id.get(r.ref, []):
+            folders = seen.setdefault(t.key, (t, []))[1]
             if r.folder not in folders:
                 folders.append(r.folder)
     return [(t, folders, folders[0]) for t, folders in seen.values() if len(folders) > 1]
