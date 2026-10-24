@@ -43,9 +43,15 @@ version bump, and a step with no SQL would be noise.
 
 ## Decided here (with reasons)
 
-- **D1. Setup is unchanged.** Its Spotify step stays; a user with only Qobuz playlists still connects Spotify in
-  Setup. At *read* time only the services `playlists.txt` uses must be logged in (I4 `login_state`). *Why:* making
-  Spotify optional in Setup is a product change the spec doesn't make (open question Q1 for the user).
+- **D1. Spotify is optional in Setup** (the user, 2026-10-24: "Why does Spotify need to be mandatory if there are
+  multiple playlist sources now?"). The Spotify step gets a skip exactly like Qobuz's: a `spotify_skipped` setting
+  (mirrors `settings.qobuz_skipped`), the step counts as done when connected *or* skipped (`api.py` setup state,
+  `setupModel.ts`), Spotify can be connected later in Settings, and a skipped Spotify is never shown as a problem
+  until `playlists.txt` has a Spotify line. At read time only the services `playlists.txt` uses must be logged in
+  (I4 `login_state`); a Spotify link pasted while Spotify isn't connected answers `Connect Spotify first.` with the
+  Settings route. Setup's playlists step and the `playlists.txt` template name both services. The CLI setup
+  (`setup_cmd.py`) lets Enter on the client-id prompt skip Spotify. Groups 1–4 don't touch Setup; group 5 builds the
+  setting and the bridge (task 5.5), group 6 the page (task 6.5).
 - **D2. The read-status wire names stay** (`spotify` field, `SpotifyStatus` type and component, `spotify_status` in
   views). Their *words* become service-neutral now (I8 W10). *Why:* the shell-wide status slot is rebuilt with the
   sidebar in stage 5; renaming its plumbing now would be done twice. Group 7 records the rename in
@@ -433,7 +439,8 @@ Tests as listed in I6, in `tests/test_acquire.py` and one in `tests/test_execute
 sections); `discjockey/hub/api.py` lines 117–151 (`bridge`), 728–790; `discjockey/hub/views.py` lines 220–231,
 574–603, 816–852, 1020–1046; `discjockey/hub/jobs.py` `grep -n "failed\|SetupProblem"`; `discjockey/report.py`
 around line 59; `hub-ui/src/lib/bridge/types.ts` (`grep -n` the same names), `contract.ts`, `fake/bridge.ts`,
-`fake/data.ts` (`grep -n "spotify_url\|playlist_id\|spotify"`).
+`fake/data.ts` (`grep -n "spotify_url\|playlist_id\|spotify"`). For 5.5: `grep -rn qobuz_skipped discjockey
+hub-ui/src docs/hub-bridge-contract.md` and those lines; `discjockey/setup_cmd.py` lines 1–90.
 
 Tasks:
 1. **5.1 Playlists bridge** (`api.add_playlist`, `preview_playlist_change`, `views.playlists`, `views.info_dict`):
@@ -449,6 +456,12 @@ Tasks:
    `types.ts`, `contract.ts`, the fake backend and its scenarios (I7's last paragraph). Run `npx vitest run
    src/lib/bridge` and `npm run check` in `hub-ui`; never `npm run verify`.
 
+5. **5.5 Spotify optional (D1)**: `settings.spotify_skipped` (load/save/validate as `qobuz_skipped`, tests in
+   `tests/test_settings.py`); `api.py`'s setup state (`("spotify", …)` around line 193) done when skipped, and the
+   envelope carries `spotify_skipped`; a bridge call to skip it (mirror Qobuz's skip call); `setup_cmd.py` skips on
+   an empty client id; `playlists.txt` template comments name Spotify and Qobuz links. Contract, `types.ts` and
+   fake in the same commit. Tests: `tests/test_hub_setup*.py` / `tests/test_setup_cmd.py` (whichever exist).
+
 Checks: the test files above while working; the full Python suite at the end.
 
 ## Group 6 — Hub words and Playlists page (Opus)
@@ -461,7 +474,8 @@ is added centrally with gallery + design-language doc).
 `SpotifyStatus.svelte`, `ProblemCard.svelte` (top comment + props), `hub-ui/src/lib/copy.ts`,
 `hub-ui/src/pages/playlists/` (outline, `changeModel.ts` around line 112), `hub-ui/src/pages/sync/cardState.ts`
 around line 42, `hub-ui/src/lib/stores/hub.ts` lines 40–60; `hub-ui/src/pages/settings/settingsModel.ts` (the
-Qobuz card's route, for W6).
+Qobuz card's route, for W6). For 6.5: `hub-ui/src/pages/setup/` (outline; the Qobuz step's skip and
+`StepSpotify.svelte`, `StepPlaylists.svelte`, `setupModel.ts`).
 
 Tasks:
 1. **6.1 Words**: W10 in `SpotifyStatus.svelte` and `copy.ts`; W13 in `cardState.ts`; W12 wherever `how` is shown;
@@ -477,6 +491,11 @@ Tasks:
 4. **6.4 Fake scenarios and shots**: `shots.json` entries for the Qobuz row, `qobuz_unreadable`,
    `qobuz_not_connected`; model logic changed in `*.ts` gets its `*.test.ts`.
 
+5. **6.5 Setup without Spotify (D1)**: `StepSpotify.svelte` gets the skip the Qobuz step has (same block, same
+   placement, words in the Qobuz skip's voice, e.g. `I don't use Spotify`), `setupModel.ts` counts a skipped
+   Spotify as done, `StepPlaylists.svelte`'s examples name both services, and Settings' Spotify card offers the
+   connect for a skipped Spotify. Shots: `--page setup` with Spotify skipped; `setupModel.test.ts` pins it.
+
 Checks: `npx vitest run` on the changed `*.test.ts`, `npm run check`, `npm run rules -- --page playlists --only …`
 and `--page sync` for the touched shots, `npm run build` (its `build(hub): static` commit last). Never `npm run
 verify` (the orchestrator runs it once).
@@ -486,12 +505,11 @@ verify` (the orchestrator runs it once).
 **Read list:** Global constraints, D1, D2, I4, I8 (W1–W6); `README.md` (`grep -n "playlists.txt\|Spotify playlist\|
 Qobuz"` and those sections); `CLAUDE.md` (the Layout table); `docs/issues.md` (top 40 lines).
 
-Tasks: **7.1** README: `playlists.txt` takes Spotify and Qobuz playlist links (the accepted Qobuz forms, from
+Tasks: **7.1** README: Spotify is optional (D1: Setup can skip it; connect later in Settings); `playlists.txt` takes Spotify and Qobuz playlist links (the accepted Qobuz forms, from
 group 3's `recognise`), a Qobuz playlist must be public or yours, its tracks download by their exact Qobuz id,
 reading a Qobuz playlist doesn't count against the daily limit, Qobuz must be logged in when `playlists.txt` has a
 Qobuz line. **7.2** CLAUDE.md Layout: a `discjockey/sources/` row (one module per playlist service, the registry,
-tokens) and the `discjockey/qobuz.py` row says it is the download client. **7.3** `docs/issues.md`: Q1 (Setup's
-Spotify step for Qobuz-only users, waiting for the user), D2's rename of the read-status wire names (with stage 5),
+tokens) and the `discjockey/qobuz.py` row says it is the download client. **7.3** `docs/issues.md`: D2's rename of the read-status wire names (with stage 5),
 stage 6's note that SoundCloud / YouTube Music track links aren't derivable from an id (`models.track_link` returns
 None; store the link if a view needs it). Check: `scripts/check_public.sh`.
 
@@ -507,7 +525,7 @@ None; store the link if a view needs it). Check: `scripts/check_public.sh`.
 - **UI:** `npm run verify` once, by the orchestrator, in the background, before the merge (this stage changes
   `hub-ui`). Screenshots in fake mode: `node scripts/shots.mjs --port <p> --page playlists` (Qobuz row,
   `qobuz_unreadable`, `qobuz_not_connected`), `--page sync` (W10 read status, W13 length line, a `how=exact` card),
-  `--page dashboard` (the header's read status words). The orchestrator looks at them itself.
+  `--page dashboard` (the header's read status words), `--page setup` (Spotify skipped). The orchestrator looks at them itself.
 - **Live check by the user — proposed, about 3 minutes, read-only:** Qobuz's `playlist/get` answer can't be checked
   offline (the fixtures are built from streamrip's parser, not from a real answer), and a wrong field name would
   make every Qobuz playlist look empty or unreadable. Nothing downloads and nothing counts against the limit. The
@@ -516,9 +534,3 @@ None; store the link if a view needs it). Check: `scripts/check_public.sh`.
   (3) saves one of them and presses "↻ Read playlists" on Sync, then checks that its tracks appear in the plan
   with their right artists and titles (no sync started). If the user prefers, the orchestrator can do (1)–(3)
   itself with the user's go, in a scratch support folder that holds only a copy of the Qobuz login.
-
-## Open question for the user
-
-- **Q1.** Should Setup let a user skip Spotify when they only use Qobuz playlists? Today the Spotify step is
-  required. Recommendation: not in stage 3 (D1); decide it with stage 5's sidebar work or when SoundCloud and
-  YouTube Music arrive (stage 6), when more users have no Spotify at all.
