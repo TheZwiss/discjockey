@@ -197,3 +197,37 @@ def test_overlaps():
     found = pf.overlaps(OLD, FETCHED)
     assert [(tr.id, folders, lands) for tr, folders, lands in found] == [
         ("b", ["Hard_Bounce", "Powertrance"], "Hard_Bounce"), ("c", ["Hard_Bounce", "Powertrance"], "Hard_Bounce")]
+
+
+# --- what a change retargets and renames (plan library stage 2, task 2.4) ---
+
+def test_placement_places_the_songs_of_read_playlists():
+    assert pf.placement(OLD, FETCHED, STATE) == {"a": "Hard_Bounce", "b": "Hard_Bounce", "c": "Hard_Bounce",
+                                                 "d": "Powertrance"}
+    assert pf.placement([Row("New", f"spotify:playlist:{ID3}")] + OLD, FETCHED, STATE) == pf.placement(
+        OLD, FETCHED, STATE)
+
+
+def test_an_order_change_retargets_the_shared_tracks_only():
+    assert pf.retargeted(OLD, [OLD[1], OLD[0]], FETCHED, STATE) == {"b": "Powertrance", "c": "Powertrance"}
+
+
+def test_an_unread_playlist_retargets_nothing():
+    unread = Row("New", f"spotify:playlist:{ID3}")
+    assert pf.retargeted(OLD, [unread] + OLD, FETCHED, STATE) == {}
+    fetched = {**FETCHED, ID3: [t("a"), t("d")]}  # once read, its songs follow it
+    assert pf.retargeted(OLD, [unread] + OLD, fetched, STATE) == {"a": "New", "d": "New"}
+
+
+def test_retargeted_ignores_case_only_renames_and_follows_real_ones():
+    assert pf.retargeted(OLD, [Row("hard_bounce", URL1), OLD[1]], FETCHED, STATE) == {}
+    assert pf.retargeted(OLD, [Row("Hard Bounce", URL1), OLD[1]], FETCHED, STATE) == {
+        "a": "Hard Bounce", "b": "Hard Bounce", "c": "Hard Bounce"}
+
+
+def test_renames_by_playlist_in_the_new_order_without_case_only_ones():
+    new = [Row("Trance", OLD[1].link), Row("hard_bounce", URL1), Row("New", f"spotify:playlist:{ID3}")]
+    assert pf.renames(OLD, new) == [("Powertrance", "Trance")]
+    new = [Row("Trance", OLD[1].link, False), Row("Hard Bounce", f"spotify:playlist:{ID1}")]
+    assert pf.renames(OLD, new) == [("Powertrance", "Trance"), ("Hard_Bounce", "Hard Bounce")]
+    assert pf.renames(OLD, OLD) == [] and pf.renames(OLD, []) == []

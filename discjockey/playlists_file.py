@@ -149,28 +149,56 @@ class Change:
     unknown: list[str] = field(default_factory=list)  # playlist ids not read yet (their tracks are not counted)
 
 
-def _fetched(rows: list[Row], tracks_by_id: dict[str, list[SpotifyTrack]], unknown: list[str]) -> list[FetchedPlaylist]:
-    out = []
-    for i, r in enumerate(rows, start=1):
-        if not r.enabled:
-            continue
-        if r.playlist_id not in tracks_by_id:
-            unknown.append(r.playlist_id)
-            continue
-        out.append(FetchedPlaylist(PlaylistLine(r.folder, r.playlist_id, i), list(tracks_by_id[r.playlist_id]), []))
+def _fetched(rows: list[Row], tracks_by_id: dict[str, list[SpotifyTrack]]) -> list[FetchedPlaylist]:
+    """The switched-on rows as the planner sees them, with the tracks last read; rows not read yet are left out."""
+    return [FetchedPlaylist(PlaylistLine(r.folder, r.playlist_id, i), list(tracks_by_id[r.playlist_id]), [])
+            for i, r in enumerate(rows, start=1) if r.enabled and r.playlist_id in tracks_by_id]
+
+
+def placement(rows: list[Row], tracks_by_id: dict[str, list[SpotifyTrack]], state: dict) -> dict[str, str]:
+    """Pure: state key -> the folder the song belongs in under `rows`, for the songs of the playlists read so far
+    (a playlist not read yet places none of its songs)."""
+    return desired_folders(_fetched(rows, tracks_by_id), state)
+
+
+def _changed(before: dict[str, str], after: dict[str, str]) -> list[tuple[str, str, str]]:
+    """(key, folder before, folder after) for songs placed by both whose folder differs other than in case (a
+    case-only rename is no move, as in the planner)."""
+    return [(k, before[k], folder) for k, folder in after.items() if k in before and fold(before[k]) != fold(folder)]
+
+
+def retargeted(old: list[Row], new: list[Row], tracks_by_id: dict[str, list[SpotifyTrack]],
+               state: dict) -> dict[str, str]:
+    """Pure: the songs whose folder the edit from `old` to `new` changes -> their new folder (the tidy-up's
+    `folders` for the save preview). Songs of playlists not read yet are not in it."""
+    before, after = placement(old, tracks_by_id, state), placement(new, tracks_by_id, state)
+    return {k: folder for k, _, folder in _changed(before, after)}
+
+
+def renames(old: list[Row], new: list[Row]) -> list[tuple[str, str]]:
+    """Pure: (old folder, new folder) for every playlist (the same playlist id in both) whose folder name the edit
+    changes other than in case, in `new`'s order, each pair once (the on-disk folder renames to offer)."""
+    before: dict[str, str] = {}
+    for r in old:
+        if r.playlist_id is not None:
+            before.setdefault(r.playlist_id, r.folder)
+    out: list[tuple[str, str]] = []
+    for r in new:
+        was = before.get(r.playlist_id) if r.playlist_id is not None else None
+        if was is not None and fold(was) != fold(r.folder) and (was, r.folder) not in out:
+            out.append((was, r.folder))
     return out
 
 
 def preview_change(old: list[Row], new: list[Row], tracks_by_id: dict[str, list[SpotifyTrack]], state: dict,
                    files: list[str], today: date) -> Change:
     """Pure: the planner's view of the edited lines against the last playlists read from Spotify."""
-    unknown: list[str] = []
-    before = desired_folders(_fetched(old, tracks_by_id, []), state)
-    after = desired_folders(_fetched(new, tracks_by_id, unknown), state)
+    unknown = [r.playlist_id for r in new if r.enabled and r.playlist_id not in tracks_by_id]
+    before = placement(old, tracks_by_id, state)
+    after = placement(new, tracks_by_id, state)
     tracks = state["tracks"]
     on_disk = {fold(f) for f in files}
-    changed = [(k, before[k], folder) for k, folder in after.items()  # case-only renames are not moves (planner)
-               if k in before and fold(before[k]) != fold(folder)]
+    changed = _changed(before, after)
     has_file = {k for k, _, _ in changed if k in tracks and tracks[k].get("path")
                 and fold(tracks[k]["path"]) in on_disk}
     change = Change(dict(Counter(before.values())), dict(Counter(after.values())),
