@@ -9,7 +9,7 @@ export const ANALYSED_MS = 4000;
 /** Steps that end the analysed card early: the next track's real work has begun. */
 const WORK_STEPS = new Set<Step>(['download', 'convert', 'check', 'analyse', 'compare']);
 const BASE_STEPS: Step[] = ['search', 'download', 'check', 'convert', 'analyse'];
-const NO_STEPS = new Set(['move', 'adopt', 'adopt_bought']);
+const NO_STEPS = new Set(['adopt_bought']);
 
 export const SOURCE_NAME: Record<string, string> = {
   qobuz: 'Qobuz', youtube_music: 'YT Music', soundcloud: 'SoundCloud', youtube: 'YouTube', manual: 'bought',
@@ -43,7 +43,6 @@ export function lengthLine(c: { file_duration_s: number; spotify_duration_s: num
 }
 
 function noStepDetail(a: Action): string {
-  if (a.kind === 'move') return `Moving to ${a.folder}…`;
   if (a.kind === 'adopt_bought') return 'Adding the bought file…';
   return `Picking up the file in ${a.folder}…`;
 }

@@ -21,11 +21,10 @@ export function shouldAutoRead(p: Pick<SyncPreview, 'spotify' | 'empty'>,
 }
 export const PREF_HOW_MANY = 'sync.howMany';
 
-export type KindKey = 'new' | 'retry' | 'redownload' | 'move' | 'adopt' | 'bought' | 'weekly';
+export type KindKey = 'new' | 'retry' | 'redownload' | 'bought' | 'weekly';
 export const KINDS: { key: KindKey; label: string }[] = [
   { key: 'new', label: 'New' }, { key: 'retry', label: 'Not found last time' }, { key: 'redownload', label: 'File gone' },
-  { key: 'move', label: 'Moves' }, { key: 'adopt', label: 'Moved by hand' }, { key: 'bought', label: 'Bought files' },
-  { key: 'weekly', label: 'Weekly checks' },
+  { key: 'bought', label: 'Bought files' }, { key: 'weekly', label: 'Weekly checks' },
 ];
 
 /** A kind the app knows (one of KINDS): it has a label and a drawn icon (KindIcon). */
@@ -33,8 +32,7 @@ export const isKindKey = (k: string): k is KindKey => KINDS.some((x) => x.key ==
 export function kindOf(a: Pick<PreviewAction, 'kind' | 'reason'>): KindKey {
   if (a.kind === 'acquire') return a.reason === 'retry' ? 'retry' : a.reason === 'redownload' ? 'redownload' : 'new';
   if (a.kind === 'adopt_bought') return 'bought';
-  if (a.kind === 'upgrade') return 'weekly';
-  return a.kind === 'adopt' ? 'adopt' : 'move';
+  return 'weekly';   // upgrade: the sync plans no other kinds (it never moves a file, only places new downloads)
 }
 
 /** The small tag after the name; a plain new track has none. */
@@ -42,16 +40,13 @@ export function tagOf(a: PreviewAction): string | null {
   switch (kindOf(a)) {
     case 'retry': return 'not found last time';
     case 'redownload': return 'file gone';
-    case 'move': return a.to_not_lossless && a.from_folder === a.folder ? 'to not_lossless'
-      : `from ${a.from_folder ?? '?'}${a.to_not_lossless ? ' → not_lossless' : ''}`;
-    case 'adopt': return 'file moved by hand';
     case 'bought': return 'bought file';
     case 'weekly': return 'weekly check';
     default: return null;
   }
 }
 
-/** Acquire and upgrade use Qobuz and take time; moves and adopts take none. */
+/** Acquire and upgrade use Qobuz and take time; a bought file takes none. */
 export const isDownload = (a: { kind: string }) => a.kind === 'acquire' || a.kind === 'upgrade';
 /** Only downloads can be "never download" (an existing file is never touched by it). */
 export const canNever = (a: { kind: string }) => a.kind === 'acquire';
@@ -197,11 +192,11 @@ export function runTotals(chosen: PreviewAction[], scopedDownloads: number, left
 }
 
 // ---------- the run panel's blocks ----------
-/** The DayBar's numbers: today's downloads, the downloads in scope after this run and their days, the moves. `left`
- * null means no daily limit (only free sources), so nothing waits for a later day. */
-export function dayBarInput(t: RunTotals, left: number | null, moves: number): DayBarInput {
+/** The DayBar's numbers: today's downloads, the downloads in scope after this run and their days. `left` null means
+ * no daily limit (only free sources), so nothing waits for a later day. */
+export function dayBarInput(t: RunTotals, left: number | null): DayBarInput {
   const limited = left !== null;
-  return { today: t.uses, later: limited ? t.after : 0, limited, laterDays: limited ? t.days : 0, moves };
+  return { today: t.uses, later: limited ? t.after : 0, limited, laterDays: limited ? t.days : 0 };
 }
 /** The Playlists group's rows: a playlist is on unless the user left it out of the scope. */
 export const folderItems = (folders: Facet[], scope: Scope): ToggleItem[] =>
@@ -210,30 +205,25 @@ export const folderItems = (folders: Facet[], scope: Scope): ToggleItem[] =>
 export const kindItems = (kinds: Facet[], scope: Scope): ToggleItem[] =>
   kinds.map((k) => ({ ...k, on: !(scope.kinds as string[]).includes(k.key) }));
 /** What a run does today (spec §8, §11 "a run's count is what runs today"): the ticked actions minus the ticked
- * downloads that wait for the next sync (`downloads - uses`). When that is only the moves (today's limit used up, or
- * only moves ticked), they are counted as moves. `chosen` ticked actions, `downloads` of them downloads, `uses` the
- * downloads that fit today, `moves` the ticked moves. The count card and Start both say it. */
-export function runCount(chosen: number, downloads: number, uses: number, moves: number): { n: number; unit: 'track' | 'move' } {
-  const n = chosen - (downloads - uses);
-  return { n, unit: moves > 0 && n === moves ? 'move' : 'track' };
+ * downloads that wait for the next sync (`downloads - uses`). `chosen` ticked actions, `downloads` of them downloads,
+ * `uses` the downloads that fit today. The count card and Start both say it. */
+export const runCount = (chosen: number, downloads: number, uses: number): number => chosen - (downloads - uses);
+/** "Start sync · 66 tracks"; nothing that runs today: "Start sync". Arguments as `runCount`. */
+export function startLabel(chosen: number, downloads: number, uses: number): string {
+  const n = runCount(chosen, downloads, uses);
+  return n > 0 ? `Start sync · ${plural(n, 'track')}` : 'Start sync';
 }
-/** "Start sync · 66 tracks"; with today's limit used up and only moves runnable: "Start sync · 3 moves"; nothing
- * that runs today: "Start sync". Arguments as `runCount`. */
-export function startLabel(chosen: number, downloads: number, uses: number, moves: number): string {
-  const { n, unit } = runCount(chosen, downloads, uses, moves);
-  return n > 0 ? `Start sync · ${plural(n, unit)}` : 'Start sync';
-}
-/** Ticked, but nothing of it runs today: only downloads that wait for the next sync (today's limit used up, no moves
- * or other actions). A run would only re-read Spotify, log in to Qobuz and queue nothing, so Start is off (Task 9B
+/** Ticked, but nothing of it runs today: only downloads that wait for the next sync (today's limit used up, no
+ * other actions). A run would only re-read Spotify, log in to Qobuz and queue nothing, so Start is off (Task 9B
  * ruling). Nothing ticked is its own reason. Arguments as `runCount`. */
-export function runsNothingToday(chosen: number, downloads: number, uses: number, moves: number): boolean {
-  return chosen > 0 && runCount(chosen, downloads, uses, moves).n === 0;
+export function runsNothingToday(chosen: number, downloads: number, uses: number): boolean {
+  return chosen > 0 && runCount(chosen, downloads, uses) === 0;
 }
 /** The reason beside the switched-off Start. */
 export const NOTHING_TODAY = 'Nothing to run today · downloads start tomorrow';
 
 /** The time card for `n` actions that run today, in the one estimate format (`estimate`: "~75" min, "~2.5" h);
- * moves only take a minute or two; nothing runs: "0" min, so the card keeps its place. */
+ * bought files only take a minute or two; nothing runs: "0" min, so the card keeps its place. */
 export function runTime(minutes: number, n: number): { value: string; unit: string } {
   if (!n) return { value: '0', unit: 'min' };
   if (Math.round(minutes) <= 0) return { value: '1–2', unit: 'min' };
@@ -259,11 +249,11 @@ export function matches(a: Pick<PreviewAction, 'artist' | 'title'>, query: strin
 /** A list section: the visible rows of one folder, and its ticks among all its rows in scope; `waiting` of the ticked
  *  ones wait for the next sync. */
 export type Section = { folder: string; rows: PreviewAction[]; total: number; ticked: number; waiting: number;
-  /** ticked downloads (moves and weekly checks never wait, so they don't count against `waiting`) */
+  /** ticked downloads (bought files and weekly checks never wait, so they don't count against `waiting`) */
   downloads: number };
 
 /** A section's counts among `rows`, all its rows in scope: total, ticked, the ticked downloads that wait for the next
- *  sync (`nextSync`), and the ticked downloads (moves and weekly checks are ticked but never wait). Sets hold keyIds. */
+ *  sync (`nextSync`), and the ticked downloads (bought files and weekly checks are ticked but never wait). Sets hold keyIds. */
 export function sectionCounts(rows: PreviewAction[], ticked: ReadonlySet<string>, nextSync: ReadonlySet<string>)
   : Pick<Section, 'total' | 'ticked' | 'waiting' | 'downloads'> {
   const on = rows.filter((a) => ticked.has(keyId(a.key)));
@@ -272,7 +262,7 @@ export function sectionCounts(rows: PreviewAction[], ticked: ReadonlySet<string>
 }
 
 /** Every ticked download of a section waits for the next sync: the head says it once and the rows drop it. Counts
- *  downloads only; a ticked move in the section must not turn the per-row label back on for every download. */
+ *  downloads only; a ticked bought file in the section must not turn the per-row label back on for every download. */
 export const waitsWhole = (waiting: number, tickedDownloads: number): boolean =>
   waiting > 0 && waiting === tickedDownloads;
 
