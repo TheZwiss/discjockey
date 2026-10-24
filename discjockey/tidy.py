@@ -311,6 +311,8 @@ def undo_preview(paths: Paths, state: dict, batch_id: int) -> list[PlannedMove]:
     with the key it had, or its song is gone; a folder: `Library/<new>` isn't there); `place_taken` (something is
     at `src`; a folder: `Library/<old>` exists, or another playlist is called {old}); a folder: `playlist_renamed`
     when no playlists.txt line says {new} (P2). Moves the batch skipped aren't listed."""
+    if not paths.db_file.exists():  # no records yet, so no batch either
+        return []
     with db.connect(paths.db_file) as conn:
         done = [m for m in db.batch_moves(conn, batch_id) if m.state == "done"]
     by_file = {e["file_id"]: e for e in state["tracks"].values() if e.get("file_id") is not None}

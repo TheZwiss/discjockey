@@ -252,6 +252,10 @@ def test_undo_skips_what_moved_on_or_lost_its_place(paths, monkeypatch):
     assert (paths.library / "A" / "A - s3.aiff").read_bytes() == b"audio of s3"
 
 
+def test_undo_preview_of_a_library_without_records_is_empty(paths):
+    assert tidy.undo_preview(paths, empty_state(), 1) == [] and not paths.db_file.exists()
+
+
 def test_undo_of_an_undo_moves_the_files_again(paths):
     _, done = tidied(paths, ("s1", "A", "B"))
     back = tidy.undo(paths, done.batch_id)
