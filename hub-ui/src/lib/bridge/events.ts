@@ -3,7 +3,7 @@ import type { AppUpdate, Browser, PlannedAction, ProblemKind, Result } from './t
 
 export type SpotifyTrack = { id: string; title: string; artists: string[]; album: string; image_url: string | null;
   duration_ms: number; isrc: string | null };
-export type Action = { kind: 'acquire' | 'move' | 'adopt' | 'adopt_bought' | 'upgrade' | string; track_id: string;
+export type Action = { kind: 'acquire' | 'adopt_bought' | 'upgrade' | string; track_id: string;
   folder: string; track: SpotifyTrack; order: [number, number]; src: string | null; dest_dir: string | null;
   aliases: string[]; reason: string };
 export type Step = 'search' | 'download' | 'check' | 'convert' | 'analyse' | 'compare';

@@ -18,14 +18,12 @@
   } from '../planModel';
   import KindIcon from './KindIcon.svelte';
 
-  let { summary, left, limit, accounts, presets, howMany, folders, kinds, scope, moves, onhowmany, onscope, onscopeall,
+  let { summary, left, limit, accounts, presets, howMany, folders, kinds, scope, onhowmany, onscope, onscopeall,
     start }: {
     /** left null: no daily limit (only free sources are set up) */
     summary: RunTotals; left: number | null; limit: number; accounts: SyncAccount[];
     presets: Preset[]; howMany: HowMany | 'custom';
     folders: Facet[]; kinds: Facet[]; scope: Scope;
-    /** ticked moves (they run even when today's downloads are used up) */
-    moves: number;
     onhowmany: (h: HowMany) => void; onscope: (what: 'folders' | 'kinds', key: string) => void;
     onscopeall: (what: 'folders' | 'kinds', keys: string[], on: boolean) => void;
     /** Start sync and what goes with it (console note, start problem) */
@@ -33,10 +31,9 @@
   } = $props();
 
   const limitReached = $derived(left === 0 && summary.downloads > 0);
-  // the count says what Start says: what runs today (spec §11), the ticked downloads that wait not counted; only
-  // moves when that is all that runs ("Start sync · 1 move")
-  const run = $derived(runCount(summary.tracks, summary.downloads, summary.uses, moves));
-  const time = $derived(runTime(summary.minutes, run.n));
+  // the count says what Start says: what runs today (spec §11), the ticked downloads that wait not counted
+  const run = $derived(runCount(summary.tracks, summary.downloads, summary.uses));
+  const time = $derived(runTime(summary.minutes, run));
   // the ticked downloads that wait, said only when the DayBar's Later doesn't already say it (Later counts the plan in
   // scope after today; it equals the ticked ones that wait when everything in scope is picked)
   const overflow = $derived(left !== null && left > 0 && summary.waiting > 0 && summary.waiting !== summary.after);
@@ -54,11 +51,11 @@
 
 {#snippet head()}
   <div class="stats" data-test="sync-summary">
-    <StatCard value={run.n} label="{run.unit}{run.n === 1 ? '' : 's'} this run" valueTest="sync-run-count" />
+    <StatCard value={run} label="track{run === 1 ? '' : 's'} this run" valueTest="sync-run-count" />
     <StatCard value={time.value} unit={time.unit} label="run time" data-test="sync-time" />
   </div>
   <Surface kind="card" data-test="sync-day">
-    <DayBar input={dayBarInput(summary, left, moves)} data-test="sync-daybar" />
+    <DayBar input={dayBarInput(summary, left)} data-test="sync-daybar" />
     {#if overflow}
       <Hint text="{summary.waiting} ticked wait for the next sync" data-test="sync-overflow" />
     {/if}

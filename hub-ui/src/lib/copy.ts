@@ -101,7 +101,7 @@ export const STEP_LABEL: Record<string, string> = {
 /** The same plan counts on the Dashboard and in Sync's before-start counters: [key, one, many]. */
 export const PLAN_COUNT_WORDS: [keyof PlanCounts, string, string][] = [
   ['new', 'new', 'new'], ['retries', 'retry', 'retries'], ['redownloads', 'download again', 'downloads again'],
-  ['moves', 'move', 'moves'], ['adopts', 'found file', 'found files'], ['bought', 'bought file', 'bought files'],
+  ['bought', 'bought file', 'bought files'],
   ['weekly_checks', 'weekly check', 'weekly checks'],
 ];
 

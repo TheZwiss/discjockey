@@ -201,24 +201,21 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       never.push(...actions.filter((a) => !keep.includes(a)));
       if (keep.length) groups.push({ key, label, actions: keep });
     };
-    add('acquire:new', 'Download (new)', s.newTracks.map((t, i) => previewAction('acquire', 'new', t, null, false,
+    add('acquire:new', 'Download (new)', s.newTracks.map((t, i) => previewAction('acquire', 'new', t, false,
       null, i % 3 ? i % 5 : null)));
     add('acquire:retry', 'Try again', s.tracks.filter((t) => t.status === 'missing' && t.next_try_days === 1
-      && t.in_playlists).map((t) => previewAction('acquire', 'retry', t, null, false, null, t.cover)));
-    const mover = s.tracks.find((t) => t.folder === '03_06_2026' && qualityOf(t) === 'lossless' && !t.other);
-    add('move', 'Move to another folder', mover ? [previewAction('move', null, { ...mover, folder: 'Hard_Bounce' },
-      '03_06_2026', false, pathOf(mover), mover.cover)] : []);
+      && t.in_playlists).map((t) => previewAction('acquire', 'retry', t, false, null, t.cover)));
     add('upgrade', 'Look for a better version (weekly check)', s.tracks.filter((t) => qualityOf(t) === 'weak'
       && !t.upgrade && !t.hidden && t.in_playlists).slice(0, 3).map((t) => previewAction('upgrade', 'weekly', t,
-      null, true, pathOf(t), t.cover)));
-    // the order the sync works through them: moves first, then downloads, then the weekly checks; playlist order
-    const rank = (k: string) => ({ move: 0, adopt: 0, adopt_bought: 0, acquire: 1, upgrade: 2 }[k] ?? 1);
+      true, pathOf(t), t.cover)));
+    // the order the sync works through them: bought files first, then downloads, then the weekly checks; playlist order
+    const rank = (k: string) => ({ adopt_bought: 0, acquire: 1, upgrade: 2 }[k] ?? 1);
     const folderAt = (f: string) => { const i = s.playlists.findIndex((p) => p.folder === f); return i < 0 ? 99 : i; };
     groups.flatMap((g) => g.actions).sort((a, b) => rank(a.kind) - rank(b.kind) || folderAt(a.folder) - folderAt(b.folder))
       .forEach((a, i) => { a.run = i; });
     const n = (k: string) => groups.find((g) => g.key === k)?.actions.length ?? 0;
     const counts = { new: n('acquire:new'), retries: n('acquire:retry'), redownloads: n('acquire:redownload'),
-      moves: n('move'), adopts: n('adopt'), bought: n('adopt_bought'), weekly_checks: n('upgrade') };
+      bought: n('adopt_bought'), weekly_checks: n('upgrade') };
     const actions = groups.reduce((a, g) => a + g.actions.length, 0);
     const needed = counts.new + counts.retries + counts.redownloads + counts.weekly_checks;
     const g = gate(s);

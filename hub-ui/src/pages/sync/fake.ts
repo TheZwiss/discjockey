@@ -13,10 +13,10 @@
 //   sync:qobuz-backup the long plan with Qobuz (10 left today) plus two limited backups behind it: YouTube Premium
 //                    30/day, SoundCloud Go+ 60/day (12 used); their service rows read "backup" with no bar
 //   sync:limit-reached  the long plan with today's 60 Qobuz downloads used up
-//   sync:downloads-wait the limit-reached plan with downloads only (no moves or other kinds): nothing runs today,
+//   sync:downloads-wait the limit-reached plan with downloads only (no other kinds): nothing runs today,
 //                       Start is off with its reason
 //   sync:many        the long plan plus 12 more playlists (one with a very long name, Peak_Time_Warmup_Selection_2026_Final_v3)
-//                    and actions of all 7 kinds (new, not found last time, file gone, move, moved by hand, bought, weekly)
+//                    and actions of all 5 kinds (new, not found last time, file gone, bought, weekly)
 //   sync:long-names  the long plan with three titles over 120 characters and one track by six artists
 import type { PageFake } from '$lib/bridge/fake/bridge';
 import type { FakeState } from '$lib/bridge/fake/data';
@@ -66,13 +66,11 @@ const many = (s: FakeState) => {
 function otherKinds(): SyncPreview['groups'] {
   const t = (id: string, i: number) => ({ track_id: id, artist: ARTISTS[(i * 5) % ARTISTS.length],
     title: `${WORDS[(i * 7 + 2) % WORDS.length]} (Extended Mix)`, folder: MORE_FOLDERS[i % MORE_FOLDERS.length] });
-  const two = (kind: string, reason: string | null, at: number, from: string | null = null, notLossless = false) =>
-    [0, 1].map((j) => previewAction(kind, reason, t(`k${at}_${j}`, at + j), from, notLossless, null, at + j));
+  const two = (kind: string, reason: string | null, at: number) =>
+    [0, 1].map((j) => previewAction(kind, reason, t(`k${at}_${j}`, at + j), false, null, at + j));
   return [
     { key: 'acquire:retry', label: 'Not found last time', actions: two('acquire', 'retry', 0) },
     { key: 'acquire:redownload', label: 'File gone', actions: two('acquire', 'redownload', 2) },
-    { key: 'move', label: 'Moves', actions: two('move', null, 4, 'Hard_Bounce') },
-    { key: 'adopt', label: 'Moved by hand', actions: two('adopt', null, 6) },
     { key: 'adopt_bought', label: 'Bought files', actions: two('adopt_bought', null, 8) },
     { key: 'upgrade', label: 'Weekly checks', actions: two('upgrade', null, 10) },
   ];
@@ -165,14 +163,13 @@ export const overrides: PageFake['overrides'] = {
     if (ctx.s.scenario === 'sync:downloads-wait') {
       const p = extendLongPlan(r);
       return { ...r, ...p, groups: p.groups.filter((g) => g.key.startsWith('acquire')),
-        counts: p.counts && { ...p.counts, moves: 0, adopts: 0, bought: 0, weekly_checks: 0 } };
+        counts: p.counts && { ...p.counts, bought: 0, weekly_checks: 0 } };
     }
     if (ctx.s.scenario === 'sync:many') return { ...r, ...extendLongPlan(r), groups: [...r.groups, ...otherKinds()] };
     if (ctx.s.scenario === 'sync:up-to-date' || ctx.s.scenario === 'sync:up-to-date-wait') {
       const never = [ctx.s.newTracks[2], ctx.s.newTracks[5]].filter(Boolean)
-        .map((t, i) => previewAction('acquire', 'new', t, null, false, null, i + 1));
-      return { ...r, groups: [], counts: { new: 0, retries: 0, redownloads: 0, moves: 0, adopts: 0, bought: 0,
-        weekly_checks: 0 }, never, empty: 'up_to_date' as const };
+        .map((t, i) => previewAction('acquire', 'new', t, false, null, i + 1));
+      return { ...r, groups: [], counts: { new: 0, retries: 0, redownloads: 0, bought: 0, weekly_checks: 0 }, never, empty: 'up_to_date' as const };
     }
     return r;
   },

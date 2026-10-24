@@ -4,7 +4,7 @@ import { sampleRuns, type FakeState } from '$lib/bridge/fake/data';
 
 const upToDate = new WeakSet<FakeState>();
 const broken = new WeakSet<FakeState>();
-const ZERO = { new: 0, retries: 0, redownloads: 0, moves: 0, adopts: 0, bought: 0, weekly_checks: 0 };
+const ZERO = { new: 0, retries: 0, redownloads: 0, bought: 0, weekly_checks: 0 };
 
 const fake: PageFake = {
   scenarios: {
