@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 
 from discjockey.models import FetchedPlaylist, PlaylistLine, SpotifyTrack
-from discjockey.planner import plan
+from discjockey.planner import mirror_dir, plan, replacement_dir, superseded_dir, upgrades_ready_dir
 
 TODAY = date(2026, 10, 20)
 
@@ -112,26 +112,20 @@ def test_empty_playlist_keeps_files():
     assert p.state["tracks"]["t1"]["path"] == "Library/A/x.aiff"
 
 
-# --- moves, adopts, re-downloads ---
+# --- option A: files stay where they are (spec §7) ---
 
-def test_move_when_priority_changes():
+def test_a_song_whose_folder_changed_is_not_moved():
     s = st(t1=entry(path="Library/A/x.aiff"))
     p = plan([pl("B", tr("t1"))], s, ["Library/A/x.aiff"], TODAY)
-    assert kinds(p) == [("move", "t1")]
-    assert (p.actions[0].src, p.actions[0].dest_dir) == ("Library/A/x.aiff", "Library/B")
+    assert kinds(p) == []
+    assert p.state["tracks"]["t1"]["folder"] == "B"  # the placement folder follows the order
+    assert p.state["tracks"]["t1"]["path"] == "Library/A/x.aiff"
 
 
-def test_move_keeps_not_lossless_subfolder():
-    s = st(t1=entry(status="not_lossless", path="Library/A/not_lossless/x.aiff", last_upgrade_check="2026-10-20"))
-    p = plan([pl("B", tr("t1"))], s, ["Library/A/not_lossless/x.aiff"], TODAY)
-    assert kinds(p) == [("move", "t1")]
-    assert p.actions[0].dest_dir == "Library/B/not_lossless"
-
-
-def test_renamed_folder_moves_tracks():
+def test_a_renamed_folder_moves_nothing():
     s = st(t1=entry(folder="Bounce", path="Library/Bounce/x.aiff"))
     p = plan([pl("Bouncy", tr("t1"))], s, ["Library/Bounce/x.aiff"], TODAY)
-    assert p.actions[0].dest_dir == "Library/Bouncy"
+    assert kinds(p) == [] and p.state["tracks"]["t1"]["folder"] == "Bouncy"
 
 
 def test_folder_case_change_does_not_move():
@@ -140,10 +134,22 @@ def test_folder_case_change_does_not_move():
     assert kinds(p) == []
 
 
-def test_move_and_upgrade_in_same_run():
+def test_a_folder_change_still_gets_the_weekly_upgrade_check():
     s = st(t1=entry(status="not_lossless", path="Library/A/not_lossless/x.aiff", last_upgrade_check="2026-10-01"))
     p = plan([pl("B", tr("t1"))], s, ["Library/A/not_lossless/x.aiff"], TODAY)
-    assert kinds(p) == [("move", "t1"), ("upgrade", "t1")]
+    assert kinds(p) == [("upgrade", "t1")] and p.actions[0].folder == "B"
+
+
+def test_a_file_moved_by_hand_gets_no_action_and_no_download():
+    s = st(t1=entry(path="Library/Sets/2024/x.aiff", placed_by="user", online=True))
+    p = plan([pl("A", tr("t1"))], s, ["Library/Sets/2024/x.aiff"], TODAY)
+    assert kinds(p) == [] and p.never == [] and p.ambiguous == []
+    assert p.state["tracks"]["t1"]["path"] == "Library/Sets/2024/x.aiff"
+
+
+def test_new_downloads_follow_the_playlist_order():
+    p = plan([pl("B", tr("t2")), pl("A", tr("t1"), tr("t2"))], st(), [], TODAY)
+    assert [(a.track_id, a.folder) for a in p.actions] == [("t2", "B"), ("t1", "A")]
 
 
 def test_deleted_file_is_downloaded_again():
@@ -152,30 +158,38 @@ def test_deleted_file_is_downloaded_again():
     assert kinds(p) == [("acquire", "t1")] and p.actions[0].reason == "redownload"
 
 
-def test_hand_moved_file_is_adopted():
+def test_a_file_of_the_same_name_elsewhere_is_not_picked_up_by_name():
+    # finding a moved file is the scanner's job (content key, spec §6.3); the planner never matches by name
     s = st(t1=entry(path="Library/A/x.aiff"))
     p = plan([pl("A", tr("t1"))], s, ["Library/Other/x.aiff"], TODAY)
-    assert kinds(p) == [("adopt", "t1")]
-    assert (p.actions[0].src, p.actions[0].dest_dir) == ("Library/Other/x.aiff", "Library/A")
+    assert kinds(p) == [("acquire", "t1")] and p.actions[0].reason == "redownload"
 
 
-def test_adopt_ignores_case():
-    s = st(t1=entry(path="Library/A/x.aiff"))
-    p = plan([pl("A", tr("t1"))], s, ["Library/Other/X.AIFF"], TODAY)
-    assert kinds(p) == [("adopt", "t1")]
+def test_a_file_gone_is_downloaded_again_at_once():
+    s = st(t1=entry(status="missing", last_attempt="2026-10-20", file_gone="2026-10-20"))
+    p = plan([pl("A", tr("t1"))], s, [], TODAY)
+    assert kinds(p) == [("acquire", "t1")] and p.actions[0].reason == "redownload"
 
 
-def test_two_candidate_files_are_ambiguous():
-    s = st(t1=entry(path="Library/A/x.aiff"))
-    p = plan([pl("A", tr("t1"))], s, ["Library/B/x.aiff", "Library/C/x.aiff"], TODAY)
+def test_a_file_gone_takes_a_bought_file_first():
+    s = st(t1=entry(status="missing", file_gone="2026-10-20"))
+    p = plan([pl("A", tr("t1"))], s, ["Library/A/Artist - Title t1.wav"], TODAY)
+    assert kinds(p) == [("adopt_bought", "t1")]
+
+
+def test_an_offline_file_gets_nothing_not_even_the_weekly_check():
+    s = st(t1=entry(status="not_lossless", path="/Volumes/Gig/A/x.aiff", online=False, last_upgrade_check=None))
+    p = plan([pl("A", tr("t1"))], s, [], TODAY)
+    assert kinds(p) == [] and p.never == [] and p.ambiguous == []
+
+
+def test_a_file_moved_to_one_of_several_places_is_listed_and_nothing_done():
+    s = st(t1=entry(status="not_lossless", path="Library/A/x.aiff", last_upgrade_check=None))
+    s["ambiguous"] = {"t1": ["Library/B/x.aiff", "Library/C/x.aiff"]}
+    p = plan([pl("A", tr("t1"))], s, ["Library/A/x.aiff", "Library/B/x.aiff", "Library/C/x.aiff"], TODAY)
     assert kinds(p) == []
-    assert p.ambiguous[0][2] == ["Library/B/x.aiff", "Library/C/x.aiff"]
-
-
-def test_file_owned_by_other_entry_is_not_adopted():
-    s = st(t1=entry(path="Library/A/x.aiff"), t2=entry(folder="B", path="Library/B/x.aiff", title="Title t2"))
-    p = plan([pl("A", tr("t1")), pl("B", tr("t2"))], s, ["Library/B/x.aiff"], TODAY)
-    assert kinds(p) == [("acquire", "t1")]
+    assert [(t.id, folder, files) for t, folder, files in p.ambiguous] == [
+        ("t1", "A", ["Library/B/x.aiff", "Library/C/x.aiff"])]
 
 
 # --- missing tracks and bought files ---
@@ -210,6 +224,27 @@ def test_bought_file_replaces_not_lossless():
     assert kinds(p) == [("adopt_bought", "t1")]
 
 
+def test_a_bought_file_next_to_the_current_file_is_adopted():
+    s = st(t1=entry(status="not_lossless", path="Library/Sets/2024/x.aiff"))
+    files = ["Library/Sets/2024/x.aiff", "Library/Sets/2024/Artist - Title t1.wav"]
+    p = plan([pl("A", tr("t1"))], s, files, TODAY)
+    assert kinds(p) == [("adopt_bought", "t1")] and p.actions[0].src == "Library/Sets/2024/Artist - Title t1.wav"
+
+
+def test_a_bought_file_in_the_current_playlist_folder_is_adopted():
+    # add_bought_file puts it there (replacement_dir); a crash before the adopt leaves exactly this
+    s = st(t1=entry(status="not_lossless", path="Library/B/not_lossless/x.aiff"))
+    files = ["Library/B/not_lossless/x.aiff", "Library/B/Artist - Title t1.aiff"]
+    p = plan([pl("A", tr("t1"))], s, files, TODAY)
+    assert kinds(p) == [("adopt_bought", "t1")] and p.actions[0].src == "Library/B/Artist - Title t1.aiff"
+
+
+def test_a_bought_file_in_the_placement_folder_still_counts():
+    s = st(t1=entry(status="not_lossless", path="Library/Sets/x.aiff"))
+    p = plan([pl("A", tr("t1"))], s, ["Library/Sets/x.aiff", "Library/A/Artist - Title t1.wav"], TODAY)
+    assert kinds(p) == [("adopt_bought", "t1")] and p.actions[0].src == "Library/A/Artist - Title t1.wav"
+
+
 # --- upgrade checks ---
 
 @pytest.mark.parametrize("last,expected", [
@@ -236,11 +271,11 @@ def test_lossless_never_upgrade_checked():
 
 @pytest.mark.parametrize("status,present,differs,expected", [
     ("lossless", True, False, ["-"]),
-    ("lossless", True, True, ["move"]),
+    ("lossless", True, True, ["-"]),
     ("lossless", False, False, ["acquire"]),
     ("lossless", False, True, ["acquire"]),
     ("not_lossless", True, False, ["upgrade"]),
-    ("not_lossless", True, True, ["move", "upgrade"]),
+    ("not_lossless", True, True, ["upgrade"]),
     ("not_lossless", False, True, ["acquire"]),
     ("fake_lossless", True, False, ["upgrade"]),
     ("missing", False, False, ["acquire"]),
@@ -268,7 +303,6 @@ def test_execution_order_and_playlist_priority():
     p = plan([pl("A", tr("t5"), tr("t1"), tr("t3")), pl("B", tr("t2"), tr("t4"))], s, files, TODAY)
     # t3 is first seen on line A (index 0, position 2), t2 on line B (index 1, position 0)
     assert kinds(p) == [
-        ("move", "t3"), ("move", "t2"),
         ("acquire", "t5"), ("acquire", "t1"), ("acquire", "t4"),
         ("upgrade", "t3"),
     ]
@@ -305,10 +339,10 @@ def test_bought_file_still_wins_over_a_parked_upgrade():
 
 
 def test_files_named_by_a_pending_swap_are_never_adopted():
-    s = st(t1=entry(path="Library/A/x.aiff"))  # gone from disk; a file with its name is a pending swap's target
-    s["pending"].append({"kind": "swap", "track_id": "t9", "target": "Library/C/x.aiff", "staged": "s",
-                         "backup": "b", "parked": "p", "renames": [], "entry": None})
-    p = plan([pl("A", tr("t1"))], s, ["Library/C/x.aiff"], TODAY)
+    s = st(t1=entry(status="missing", last_attempt="2026-10-01"))  # a file with its bought name is a swap's target
+    s["pending"].append({"kind": "swap", "track_id": "t9", "target": "Library/A/Artist - Title t1.wav",
+                         "staged": "s", "backup": "b", "parked": "p", "renames": [], "entry": None})
+    p = plan([pl("A", tr("t1"))], s, ["Library/A/Artist - Title t1.wav"], TODAY)
     assert kinds(p) == [("acquire", "t1")]
 
 
@@ -336,8 +370,48 @@ def test_never_download_keeps_new_retry_and_redownload_out_of_the_plan():
         ("acquire", "n", "new"), ("acquire", "m", "retry"), ("acquire", "g", "redownload")]
 
 
-def test_never_download_does_not_stop_moves_of_a_file_that_exists():
+def test_never_download_leaves_a_file_in_another_folder_alone():
     s = st(t1=entry(folder="B", path="Library/B/x.aiff"))
     s["never"] = {"t1": {"artist": "Artist", "title": "x", "folder": "B", "at": "2026-10-18"}}
     p = plan([pl("A", tr("t1"))], s, ["Library/B/x.aiff"], TODAY)
-    assert kinds(p) == [("move", "t1")] and p.never == []
+    assert kinds(p) == [] and p.never == []
+
+
+# --- placement helpers (option A, spec §7) ---
+
+@pytest.mark.parametrize("path,mirror", [
+    ("Library/A/x.aiff", "A"),
+    ("Library/A/not_lossless/x.aiff", "A"),
+    ("Library/A/Not_Lossless/x.aiff", "A"),
+    ("Library/Sets/2024/x.aiff", "Sets/2024"),
+    ("Library/A/B/not_lossless/x.aiff", "A/B/not_lossless"),
+    ("Library/x.aiff", ""),
+])
+def test_mirror_dir(path, mirror):
+    assert mirror_dir(path) == mirror
+
+
+@pytest.mark.parametrize("path,superseded,ready", [
+    ("Library/A/not_lossless/x.aiff", "Superseded/A", "Upgrades ready/A"),
+    ("Library/Sets/2024/x.aiff", "Superseded/Sets/2024", "Upgrades ready/Sets/2024"),
+    ("Library/x.aiff", "Superseded", "Upgrades ready"),
+])
+def test_superseded_and_upgrades_ready_mirror_the_file_folder(path, superseded, ready):
+    assert superseded_dir(path) == superseded
+    assert upgrades_ready_dir(path) == ready
+
+
+@pytest.mark.parametrize("path,status,where", [
+    (None, "lossless", "Library/A"),  # no file: the placement folder
+    (None, "not_lossless", "Library/A/not_lossless"),
+    ("Library/B/not_lossless/x.aiff", "lossless", "Library/B"),  # lossless leaves a playlist folder's not_lossless/
+    ("Library/B/not_lossless/x.aiff", "not_lossless", "Library/B/not_lossless"),
+    ("Library/B/x.aiff", "fake_lossless", "Library/B/not_lossless"),
+    ("Library/Sets/2024/x.aiff", "lossless", "Library/Sets/2024"),  # anywhere else: the file's own folder
+    ("Library/Sets/2024/x.aiff", "not_lossless", "Library/Sets/2024"),
+    ("Library/A/B/not_lossless/x.aiff", "lossless", "Library/A/B/not_lossless"),
+    ("Library/x.aiff", "lossless", "Library"),
+])
+def test_replacement_dir(path, status, where):
+    e = entry(folder="A", path=path) if path else entry(folder="A", status="missing")
+    assert replacement_dir(e, status) == where

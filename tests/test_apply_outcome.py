@@ -40,6 +40,16 @@ def test_new_track_placed_has_every_key():
     assert e["in_playlists"] is True
 
 
+@pytest.mark.parametrize("outcome", [placed(), Outcome("missing")])
+def test_an_acquisition_clears_file_gone(outcome):
+    before = existing(path=None, status="missing", file_gone="2026-10-19")
+    assert apply_outcome(before, act("acquire"), outcome, NOW)["file_gone"] is None
+
+
+def test_an_upgrade_check_keeps_file_gone_as_it_is():
+    assert "file_gone" not in apply_outcome(existing(), act("upgrade"), Outcome("checked"), NOW)
+
+
 def test_missing():
     e = apply_outcome(None, act("acquire"), Outcome("missing", rejected=("qobuz:5",)), NOW)
     assert e["status"] == "missing" and e["path"] is None and e["source"] is None
