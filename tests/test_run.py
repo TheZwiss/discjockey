@@ -268,8 +268,8 @@ def test_action_key():
     from discjockey.models import Action
     t = TRACKS[0]
     assert run.action_key(Action("acquire", "t1", "A", t, (0, 0))) == ("acquire", "t1", "Library/A")
-    assert run.action_key(Action("move", "t1", "B", t, (0, 0), src="Library/A/x.aiff", dest_dir="Library/B")) == \
-        ("move", "t1", "Library/B")
+    assert run.action_key(Action("adopt_bought", "t1", "B", t, (0, 0), src="Library/A/x.aiff",
+                                 dest_dir="Library/B")) == ("adopt_bought", "t1", "Library/B")
 
 
 def test_select_actions_runs_only_ticked_ones_and_lists_the_rest(paths):
@@ -285,19 +285,20 @@ def test_select_actions_runs_only_ticked_ones_and_lists_the_rest(paths):
 def test_select_actions_decides_whether_qobuz_is_needed(paths, monkeypatch):
     from discjockey.models import Action
     prep = run.prepare(paths, dry_run=True)
-    move = Action("move", "t9", "Hard_Bounce", TRACKS[0], (0, 0), src="Library/B/x.aiff", dest_dir="Library/Hard_Bounce")
-    prep.plan.actions.append(move)
-    run.select_actions(prep, {run.action_key(a) for a in prep.plan.actions}, {run.action_key(move)})
+    bought = Action("adopt_bought", "t9", "Hard_Bounce", TRACKS[0], (0, 0), src="Library/B/x.aiff",
+                    dest_dir="Library/Hard_Bounce")
+    prep.plan.actions.append(bought)
+    run.select_actions(prep, {run.action_key(a) for a in prep.plan.actions}, {run.action_key(bought)})
     assert not prep.needs_qobuz
     monkeypatch.setattr(run.QobuzSource, "open", classmethod(lambda cls, p: pytest.fail("no Qobuz login needed")))
     assert run.open_qobuz(prep) is None
 
 
-def test_a_move_whose_target_changed_is_not_run(paths):
+def test_a_bought_file_whose_target_changed_is_not_run(paths):
     from discjockey.models import Action
     prep = run.prepare(paths, dry_run=True)
-    seen = ("move", "t1", "Library/Old_Target")
-    prep.plan.actions = [Action("move", "t1", "Hard_Bounce", TRACKS[0], (0, 0), src="Library/B/x.aiff",
+    seen = ("adopt_bought", "t1", "Library/Old_Target")
+    prep.plan.actions = [Action("adopt_bought", "t1", "Hard_Bounce", TRACKS[0], (0, 0), src="Library/B/x.aiff",
                                 dest_dir="Library/Hard_Bounce")]
     run.select_actions(prep, {seen}, {seen})
     assert prep.plan.actions == [] and prep.log.section("queued")[0].note == "new since the preview, next run"

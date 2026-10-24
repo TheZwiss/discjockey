@@ -82,7 +82,7 @@ def lossless_share(state: dict) -> dict:
 
 
 def run_minutes(downloads: int) -> int:
-    """≈ 70 s per acquisition or upgrade check (moves and adopts count as 0), rounded to 5 minutes (at least 5)."""
+    """≈ 70 s per acquisition or upgrade check (a bought file counts as 0), rounded to 5 minutes (at least 5)."""
     if downloads <= 0:
         return 0
     return max(5, 5 * round(downloads * SECONDS_PER_DOWNLOAD / 300))
@@ -152,14 +152,10 @@ def split(needed: int, money: dict[str, dict]) -> list[dict]:
 
 
 def plan_counts(actions: list) -> dict:
-    c = {"new": 0, "retries": 0, "redownloads": 0, "moves": 0, "adopts": 0, "bought": 0, "weekly_checks": 0}
+    c = {"new": 0, "retries": 0, "redownloads": 0, "bought": 0, "weekly_checks": 0}
     for a in actions:
         if a.kind == "acquire":
             c[{"new": "new", "retry": "retries", "redownload": "redownloads"}.get(a.reason, "new")] += 1
-        elif a.kind == "move":
-            c["moves"] += 1
-        elif a.kind == "adopt":
-            c["adopts"] += 1
         elif a.kind == "adopt_bought":
             c["bought"] += 1
         elif a.kind == "upgrade":
@@ -746,11 +742,10 @@ def todo_others(prep, last_report: dict | None) -> dict[str, str]:
 def action_row(a, state: dict, cover: Url | None = None) -> dict:
     e = state["tracks"].get(a.track_id)
     artist, title = (e["artist"], e["title"]) if e else (a.track.first_artist, a.track.title)
-    from_folder = e["folder"] if e and a.kind in ("move", "adopt") else None
     to_dir = a.dest_dir or f"Library/{a.folder}"
     return {"key": [a.kind, a.track_id, to_dir], "kind": a.kind, "reason": a.reason or None,
             "track_id": a.track_id, "artist": artist, "title": title, "folder": a.folder,
-            "from_folder": from_folder, "to_dir": to_dir, "to_not_lossless": to_dir.endswith("/not_lossless"),
+            "to_dir": to_dir, "to_not_lossless": to_dir.endswith("/not_lossless"),
             "src": a.src, "cover_url": cover(a.track_id, e) if cover and e else a.track.image_url}
 
 

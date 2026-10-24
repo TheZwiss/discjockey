@@ -8,8 +8,8 @@ from discjockey.hub import jobs
 from discjockey.models import Action, SpotifyTrack
 
 TRACK = SpotifyTrack("t1", "Gimme Gimme", ("Vatoz Locoz", "Other"), "Album", "https://i/x.jpg", 156000, "DE1")
-ACTION = Action("move", "t1", "Hard_Bounce", TRACK, (0, 3), src="Library/A/x.aiff", dest_dir="Library/Hard_Bounce")
-RESULT = events.Result("moved", "Hard_Bounce", "Vatoz Locoz", "Gimme Gimme", "t1", "from Library/A/x.aiff",
+ACTION = Action("acquire", "t1", "Hard_Bounce", TRACK, (0, 3), dest_dir="Library/Hard_Bounce", reason="new")
+RESULT = events.Result("new_lossless", "Hard_Bounce", "Vatoz Locoz", "Gimme Gimme", "t1", "",
                        "lossless", "qobuz", None, "Library/Hard_Bounce/x.aiff", None)
 SAMPLES = [
     events.RunStarted(3),
@@ -49,7 +49,7 @@ def test_nested_records_become_plain_json():
     assert data["action"]["track"]["artists"] == ["Vatoz Locoz", "Other"]
     assert data["action"]["order"] == [0, 3] and data["action"]["dest_dir"] == "Library/Hard_Bounce"
     finished = json.loads(jobs.event_json(events.ActionFinished(ACTION, RESULT)))
-    assert finished["result"]["section"] == "moved" and finished["result"]["error_kind"] is None
+    assert finished["result"]["section"] == "new_lossless" and finished["result"]["error_kind"] is None
 
 
 def test_json_is_safe_inside_javascript():

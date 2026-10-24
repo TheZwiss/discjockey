@@ -220,8 +220,8 @@ def _superseded_name(paths: Paths, state: dict, track_id: str, e: dict) -> str:
 
 
 def _move_away(paths: Paths, state: dict, track_id: str, e: dict, today: str, dst: str | None = None) -> str:
-    """The current file goes to Superseded/, mirroring its folder (never deleted); its source is never used again for this track
-    and the entry becomes "not found". The next file for this track is a different recording under the same name, so
+    """The current file goes to Superseded/, mirroring its folder (never deleted); its source is never used again for
+    this track and the entry becomes "not found". The next file for this track is a different recording under the same name, so
     the entry asks for a rekordbox check (the old cues belong to the wrong song). Returns where the file went."""
     dst = dst or _superseded_name(paths, state, track_id, e)
     wrong = current_key(e)
