@@ -30,15 +30,21 @@ explicitly (`db.finish_move`), not through the entry view (issue 25's first bull
 - **Words** are binding as given in I6. **Tests offline, `tmp_path` libraries only** (`conftest.py` points
   `DISCJOCKEY_SUPPORT` at a temp folder). **Public repo:** `scripts/check_public.sh` before every commit.
 
-## Parked for the user (the plan uses the recommendation; the orchestrator confirms before dispatching group 3)
+## Decided by the user (2026-10-24)
 
 - **P1. "Save, leave files where they are":** the files this save would have moved become placed by `user`, so a
   later tidy-up lists them unticked ("You put this here") and the console line doesn't count them. *Why:* the user
   chose where they stay; otherwise every console sync would nag about files the user decided to keep. The console
-  line (I6) counts only rows a tidy-up would tick by default.
+  line (I6) counts only rows a tidy-up would tick by default. **The user added:** putting those files back in
+  playlist order must stay one obvious step away at any time, seamlessly part of the page (group 6 designs it): the
+  **Tidy up files** preview lists the "You put this here" rows as their own group with one control that ticks them
+  all (`TIDY_YOURS`), and when only such rows are left, the button stays usable and the preview says `TIDY_ONLY_YOURS`
+  instead of the empty text. A file a tidy-up moves becomes `app` (I1), so it follows the order from then on.
 - **P2. Undo of a folder rename on disk** renames the folder back as a whole when the new name is there and the old
-  one is free. `playlists.txt` keeps the new name (undo never edits it); files downloaded into the folder since go
-  back with it. The undo preview says so (I6 `U_RENAME`).
+  one is free, **and renames the playlist back** in `playlists.txt` (the user's choice), so folder and name match
+  again; files downloaded into the folder since go back with it. When the playlist's line no longer carries {new}
+  (renamed again or removed since), nothing moves: skip `playlist_renamed`. The undo preview says so (I6
+  `U_RENAME`).
 - **P3. A tidy-up stopped mid-batch** (crash, power cut, Stop): the file in flight is finished or rolled back by
   `run_op`'s recovery; files not started are *not* moved on the next start (the next start may be a console sync,
   and the console never moves files); they are recorded as skipped (`stopped`) and the Tidy up button offers them
@@ -242,7 +248,9 @@ Event: `MovesProgress {batch_id, done, total}` during `tidy`, `undo_moves` and a
 | Confirm | **Move {n} files** / **Move 1 file** |
 | Undo | **Undo** · "Nothing left to undo" · confirm **Move {n} files back** |
 | `U_WARN` | "{n} files go back to where they were. rekordbox may show them as missing again; Relocate finds them by file name." |
-| `U_RENAME` | "The folder goes back to its old name {old}, with everything in it. The playlist keeps the name {new}." |
+| `U_RENAME` | "The folder goes back to its old name {old}, with everything in it, and the playlist is called {old} again." |
+| `TIDY_YOURS` | group header "You put these here" · control **Put these in playlist order too** (ticks the group) |
+| `TIDY_ONLY_YOURS` | "{n} files are where you put them, not where the playlist order puts them." / "1 file is …" |
 | Batch titles | `tidy` "Tidy-up" · `save` "Saved playlists" · `rename` "Renamed {old} to {new}" · `undo` "Undo of: {title}" |
 | Batch summary | "{n} files moved" / "1 file moved", + " · {k} not moved" when k > 0 |
 | Result headline | "Moved {n} files." · undo: "Moved {n} files back." · plus "{k} not moved:" and the list |
@@ -264,6 +272,7 @@ Skip reasons (`reason` code → text; views own the text, `tidy.py` the `detail`
 | `stopped` | run, undo | "Not moved: the moves were stopped first" |
 | `moved_on` | undo | file: "Moved or changed since"; folder: "The folder {new} isn't there any more" |
 | `place_taken` | undo | file: "Another file is in its old place now"; folder: "A folder called {old} is in your Library again" |
+| `playlist_renamed` | undo (folder) | "The playlist isn't called {new} any more" (group 3 adds it to `db.SKIP_REASONS`) |
 
 `detail` for `failed` (`tidy.py`, from the `OSError`): EACCES/EPERM "Discjockey isn't allowed to change that folder";
 ENOSPC "the drive is full"; EROFS "the drive is read-only"; ENOENT "it isn't there any more"; else `strerror`,
@@ -361,7 +370,7 @@ test_"`, helper signatures). No other files.
 
 ## Group 3 — Engine (Opus)
 
-**Read list:** spec §8 (all), §12 "A move fails mid-tidy-up"; this plan's Parked P1–P3, Review focus, I1, I3–I4, I6;
+**Read list:** spec §8 (all), §12 "A move fails mid-tidy-up"; this plan's "Decided by the user" P1–P3, Review focus, I1, I3–I4, I6;
 `discjockey/library.py` lines 253–315 (`load_state`, `open_state`, `open_records`), 398–431 (`save_state`), 491–622
 (`NameReserver`, `safe_rename`, `run_op`, `recover_pending`), 631–690 (`scan_library`); `discjockey/ops.py` lines
 1–100 (`run_single`: the shape of a write op); `discjockey/events.py` (`grep -n "^class "`, `CancelToken`);
@@ -401,7 +410,12 @@ fixture names. No other files.
 - `undo_preview(paths, state, batch_id)`: from `batch_moves`, done moves in reverse `seq`, each a `PlannedMove`
   `dst → src` with `placed_after = placed_before`; `skip` = `moved_on` when `now_path != dst` or `now_key !=
   content_key` (folder: `Library/<new>` isn't a folder); `place_taken` when `src` exists on disk (folder: the old
-  folder exists); `offline` when the file row is offline. Moves that were skipped in the batch aren't listed.
+  folder exists); `offline` when the file row is offline; folder: `playlist_renamed` when no `playlists.txt` line
+  carries {new} (P2). Moves that were skipped in the batch aren't listed.
+- Undo of a folder rename also writes {old} back into that playlist's `playlists.txt` line (the existing atomic
+  writer). Crash safety: the name write must not be lost between the folder move and the write. *Check first:* how
+  `run_op` records and recovers a step; make recovery of an interrupted folder undo finish the name write
+  (idempotent: only when the line still says {new}).
 - `undo`: the same entry steps as 3.2 (recover, scan, fresh state), the preview again, `start_batch(started_by="undo",
   undoes=batch_id)`, then the runner of 3.2 (shared code). Spec §8.4: only when still where the batch put it and the
   old place is free; every skipped file listed.
@@ -506,7 +520,7 @@ Loads the `apple-design` and `emil-design-eng` skills first. CLAUDE.md §12 lets
 I6 words, the frames and blocks (`docs/hub-design-language.md`) and structured controls; it shows the orchestrator a
 before/after of the change panel before a change that alters the page's layout.
 
-**Read list:** spec §8.2–§8.4; this plan's Parked, I5, I6; `hub-ui/src/pages/playlists/` (all of `Page.svelte`,
+**Read list:** spec §8.2–§8.4; this plan's "Decided by the user", I5, I6; `hub-ui/src/pages/playlists/` (all of `Page.svelte`,
 `ChangePanel.svelte`, `changeModel.ts`, `fake.ts`; `grep -n "name" shots.json`); `docs/hub-design-language.md`
 headings and the sections of the blocks it uses; `hub-ui/src/lib/bridge/types.ts` (the I5 types). No other files.
 
@@ -521,7 +535,9 @@ headings and the sections of the blocks it uses; `hub-ui/src/lib/bridge/types.ts
   and "Rename the folder on disk too" where `offered` (or its `why_not`). The old `moves` view goes.
 
 ### 6.3 Tidy up files
-- The **Tidy up files** button (with `tidy.waiting` when > 0), the preview (same list and warning; empty text),
+- The **Tidy up files** button (with `tidy.waiting` when > 0), the preview (same list and warning; empty text, or
+  `TIDY_ONLY_YOURS` when `yours` > 0 and nothing is ticked), the "You put these here" group with **Put these in
+  playlist order too** (P1: always one obvious step, part of the page's structure, not a floating extra),
   **Move N files**, progress from `MovesProgress`, the result with its "not moved" list.
 
 ### 6.4 Recent moves and undo
@@ -539,7 +555,7 @@ headings and the sections of the blocks it uses; `hub-ui/src/lib/bridge/types.ts
 
 ## Group 7 — Docs (Sonnet)
 
-**Read list:** this plan's Parked, I6; `README.md` headings and the sections on how the sync places files and on the
+**Read list:** this plan's "Decided by the user", I6; `README.md` headings and the sections on how the sync places files and on the
 Playlists page; `CLAUDE.md` Layout and Invariants; `docs/issues.md` issue 25. No other files.
 
 - **README:** a "Tidying up files" section: the sync never moves files; the save question; the button; the preview
