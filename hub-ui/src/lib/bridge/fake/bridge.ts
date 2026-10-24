@@ -175,7 +175,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     const finish: Finish = (good, res = null, problem = null, message = '') => {
       if (finished) return;
       finished = true;
-      if (s.errors && good && !DOWNLOAD_KINDS.includes(kind) && !kind.startsWith('setup_')) {
+      if (s.errors && good && !DOWNLOAD_KINDS.includes(kind) && kind !== 'scan' && !kind.startsWith('setup_')) {
         const [k, m] = ERROR_TURNS[s.errorTurn++ % ERROR_TURNS.length];
         good = false; problem = k; message = m; res = null;
       }
@@ -718,6 +718,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         s.never = never ? [...new Set([...s.never, track_id])] : s.never.filter((x) => x !== track_id);
         finish(true, { track_id, never });
       }, 300 / speed));
+    },
+    async rescan_library() {
+      // a finished scan that found nothing new (the quiet, usual answer)
+      return startJob('scan', null, (finish) => setTimeout(() => {
+        finish(true, { moved: 0, new: 0, gone: 0, changed: 0, copies: 0 });
+      }, 50 / speed));
     },
     async add_bought_file(track_id: string) {
       const t = track(track_id);

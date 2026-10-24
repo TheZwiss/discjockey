@@ -11,7 +11,7 @@ from discjockey.align import Alignment
 from discjockey.events import SourceChosen
 from discjockey.hub import jobs
 from discjockey.library import load_state, run_lock, save_state
-from discjockey.models import Candidate
+from discjockey.models import Candidate, ScanSummary
 from discjockey.settings import Account, Settings, load_settings, save_settings
 
 
@@ -82,6 +82,65 @@ def test_only_one_change_at_a_time_and_none_during_a_console_run(root):
     assert api.hide("t2", True)["kind"] == "busy"
     release.set()
     api._jobs.wait(5)
+
+
+def test_rescan_library_runs_a_scan_job_and_counts_what_it_found(root, monkeypatch):
+    api, rec = make_api(root)
+    seen = {}
+
+    def fake_scan(paths, emit):
+        seen["paths"] = paths
+        return ScanSummary(moved=1, new=2, gone=3, replaced=4, copies=5, offline=1)
+    monkeypatch.setattr(library, "scan_library", fake_scan)
+    f = wait_job(api, rec, api.rescan_library())
+    assert f.ok and f.kind == "scan" and seen["paths"] == root
+    assert f.result == {"moved": 1, "new": 2, "gone": 3, "changed": 4, "copies": 5}
+
+
+def test_rescan_library_on_a_real_library_finishes_without_a_problem(root):
+    api, rec = make_api(root)
+    f = wait_job(api, rec, api.rescan_library())
+    assert f.ok and set(f.result) == {"moved", "new", "gone", "changed", "copies"}
+    assert all(isinstance(n, int) for n in f.result.values())
+
+
+def test_rescan_library_answers_busy_and_console_at_once(root):
+    api, rec = make_api(root)
+    with run_lock(root.lock):
+        assert api.rescan_library() == {"ok": False, "kind": "console", "message": jobs.CONSOLE_TEXT}
+    release = threading.Event()
+    api._jobs.start("sync", lambda ctx: release.wait(5) and None)
+    assert api.rescan_library() == {"ok": False, "kind": "busy", "message": jobs.BUSY_TEXT}
+    release.set()
+    api._jobs.wait(5)
+
+
+def test_a_change_while_a_scan_runs_hears_that_the_library_is_being_checked(root):
+    api, rec = make_api(root)
+    api.todo()
+    release, running = threading.Event(), threading.Event()
+
+    def slow(ctx):
+        running.set()
+        release.wait(5)
+    api._jobs.start("scan", slow)
+    assert running.wait(5)
+    assert api.hide("t2", True) == {"ok": False, "kind": "busy", "message": jobs.SCANNING_TEXT}
+    release.set()
+    api._jobs.wait(5)
+    entered, done = threading.Event(), threading.Event()
+
+    def preview_scan():  # the Sync preview's scan holds the lock without a job
+        with api._jobs.scan_lock() as held:
+            assert held
+            entered.set()
+            done.wait(5)
+    t = threading.Thread(target=preview_scan)
+    t.start()
+    assert entered.wait(5)
+    assert api.hide("t2", True) == {"ok": False, "kind": "busy", "message": jobs.SCANNING_TEXT}
+    done.set()
+    t.join(5)
 
 
 def test_swap_through_the_bridge(root):

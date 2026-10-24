@@ -323,6 +323,7 @@ export type JobResults = {
   qobuz_check_login: Record<string, never>; spotify_sign_out: Record<string, never>;
   setup_forget_account: { service: Service };
   never_download: { track_id: string; never: boolean };
+  scan: { moved: number; new: number; gone: number; changed: number; copies: number };
   hide: OpResult; unhide: OpResult; add_bought_file: OpResult; use_candidate: OpResult; use_link: OpResult;
   reject_current: OpResult; rekordbox_checked: OpResult; upgrade_swap: OpResult; upgrade_add_new: OpResult;
   upgrade_discard: OpResult; setup_save_client_id: Record<string, never>; setup_spotify_login: { user: string };
