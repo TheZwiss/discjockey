@@ -176,6 +176,9 @@ def test_a_folder_move_rewrites_the_prefix_of_linked_and_unlinked_rows(log):
     assert dict(log.rows("SELECT path, placed_by FROM files")) == {
         "New/A - One.aiff": "user", "New/B - Two.aiff": "app", "New/sub/Loose.aiff": "import",
         "Old2/C - Three.aiff": "app"}  # Old2/ isn't under Old/
+    # the move records the files it carried, rows the save had moved already included; the batch counts them
+    (m,) = db.batch_moves(log.conn, batch)
+    assert m.files == 3 and db.batch(log.conn, batch).moved == 3
 
 
 def test_a_folder_move_with_unicode_names_rewrites_by_characters(log):

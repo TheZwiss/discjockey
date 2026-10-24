@@ -201,11 +201,16 @@ def _move_one(paths: Paths, state: dict, keys: Mapping[int, str], m: MoveRow,
     return None
 
 
+def files_in(m: MoveRow) -> int:
+    """The files a done move put somewhere: 1, or for a folder move the files it carried (1 when not recorded)."""
+    return (m.files or 1) if m.kind == "folder" else 1
+
+
 def _close(paths: Paths, batch_id: int, started_by: str, now: Now, *, stopped: bool) -> BatchResult:
     with db.connect(paths.db_file) as conn:
         db.close_batch(conn, batch_id, now())
         moves = db.batch_moves(conn, batch_id)
-    return BatchResult(batch_id=batch_id, started_by=started_by, moved=sum(m.state == "done" for m in moves),
+    return BatchResult(batch_id=batch_id, started_by=started_by, moved=sum(files_in(m) for m in moves if m.state == "done"),
                        skipped=tuple(m for m in moves if m.state == "skipped"), stopped=stopped)
 
 
@@ -365,7 +370,7 @@ def undo_preview(paths: Paths, state: dict, batch_id: int) -> list[PlannedMove]:
             reason = _file_undo_skip(paths, m, e, taken)
             skip, placed = None if reason is None else (reason, None), (e or {}).get("placed_by", m.placed_after)
         out.append(PlannedMove(m.kind, m.file_id, m.label, m.dst, m.src, m.content_key,
-                               placed, m.placed_before, skip=skip))
+                               placed, m.placed_before, skip=skip, files=m.files))
     return out
 
 
@@ -386,11 +391,13 @@ def undo(paths: Paths, batch_id: int, *, emit: Emit = no_emit, token: CancelToke
 # --- the save's choice ---
 
 def after_save(paths: Paths, retargeted: Mapping[str, str], choice: SaveChoice, *, emit: Emit = no_emit,
-               token: CancelToken | None = None, now: Now = datetime.now) -> list[BatchResult]:
+               token: CancelToken | None = None, now: Now = datetime.now,
+               all_renames: Collection[tuple[str, str]] | None = None) -> list[BatchResult]:
     """After a Playlists save (playlists.txt already written): the retargeted songs get their new folder (one save),
     so targets are current without waiting for a sync. `leave`: their files that the app placed become placed by
     the user (P1), no batch. `move`: each rename on disk (a batch each), then the moves (a batch `save`); the
-    results in that order."""
+    results in that order. `all_renames` are every folder rename of the change (rename_offer needs them all, not
+    only the chosen ones); by default the chosen ones."""
     if choice.files not in ("leave", "move"):
         raise ValueError(f"{choice.files!r} is not a choice for the files")
     token = token or CancelToken()
@@ -408,9 +415,10 @@ def after_save(paths: Paths, retargeted: Mapping[str, str], choice: SaveChoice, 
             db.set_placed_by(conn, ids, "user")
         return []
     results: list[BatchResult] = []
+    pairs = choice.renames if all_renames is None else all_renames
     try:
         for old, new in choice.renames:
-            results.append(_rename(paths, state, old, new, choice.renames, emit=emit, token=token, now=now))
+            results.append(_rename(paths, state, old, new, pairs, emit=emit, token=token, now=now))
             state = library.load_state(paths)  # paths and the files on disk changed
         moves = _through_renames(state, choice.moves, choice.renames)
         results.append(_tidy(paths, state, moves, "save", emit=emit, token=token, now=now))
@@ -480,11 +488,9 @@ def recover(paths: Paths, state: dict) -> list[tuple[str, bool]]:
 
 
 def _started_by(conn, batch_id: int) -> str:
-    """The kind of a batch (db.batches lists them newest first; ids count up from 1 and batches are never
-    deleted, so the open ones are among the newest)."""
-    _, total = db.batches(conn, 0)
-    rows, _ = db.batches(conn, max(1, total - batch_id + 1))
-    return next((r.started_by for r in rows if r.id == batch_id), "tidy")
+    """The kind of a batch."""
+    row = db.batch(conn, batch_id)
+    return row.started_by if row else "tidy"
 
 
 def _recovered(started_by: str, moves: list[MoveRow]) -> str:

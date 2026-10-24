@@ -190,7 +190,8 @@ def test_a_folder_rename_moves_linked_and_unlinked_rows_and_keeps_placed_by(path
     touch(paths, "Library/Old/not_lossless/loose.mp3", b"no song's file")
     playlists(paths, f"New = {LINK1}")
     result = tidy.rename_folder(paths, "Old", "New")
-    assert result.moved == 1 and result.started_by == "rename" and not (paths.library / "Old").exists()
+    # the batch counts the files the folder carried: two songs and the loose file
+    assert result.moved == 3 and result.started_by == "rename" and not (paths.library / "Old").exists()
     after = load_state(paths)
     assert after["tracks"]["s1"]["path"] == "Library/New/A - s1.aiff"
     assert after["tracks"]["s2"]["placed_by"] == "user"
@@ -198,7 +199,8 @@ def test_a_folder_rename_moves_linked_and_unlinked_rows_and_keeps_placed_by(path
         assert {f.rel for f in db.known_files(conn)} == {"New/A - s1.aiff", "New/A - s2.aiff",
                                                           "New/not_lossless/loose.mp3"}
         rows, _ = db.batches(conn)
-    assert rows[0].about == {"from": "Old", "to": "New"}
+    assert rows[0].about == {"from": "Old", "to": "New"} and rows[0].moved == 3  # the batch summary counts files
+    assert [m.files for m in moves_of(paths, result.batch_id)] == [3]
     assert paths.playlists_file.read_text().startswith("New = ")  # the save had already written it
 
 
@@ -325,8 +327,10 @@ def renamed(paths):
 def test_undo_of_a_folder_rename_renames_the_folder_and_the_playlist_back(paths):
     done = renamed(paths)
     touch(paths, "Library/New/A - since.aiff", b"downloaded since")  # goes back with the folder
+    assert done.moved == 1  # renamed() has one song's file in the folder
     result = tidy.undo(paths, done.batch_id)
-    assert result.moved == 1 and not (paths.library / "New").exists()
+    assert result.moved == 2 and not (paths.library / "New").exists()  # and the file downloaded since goes along
+    assert [m.files for m in moves_of(paths, result.batch_id)] == [2]
     assert (paths.library / "Old" / "A - since.aiff").exists()
     assert load_state(paths)["tracks"]["s1"]["path"] == "Library/Old/A - s1.aiff"
     assert paths.playlists_file.read_text() == f"# my playlists\nOld = {LINK1}\nX = {LINK2}\n"
@@ -415,7 +419,7 @@ def test_move_with_a_rename_and_moves_gives_two_batches(paths, spelling):
     s2 = state["tracks"]["s2"]["file_id"]
     results = tidy.after_save(paths, {"s1": "New", "s2": "C"},
                               SaveChoice("move", renames=(("Old", "New"),), moves=((s2, spelling),)))
-    assert [(r.started_by, r.moved) for r in results] == [("rename", 1), ("save", 1)]
+    assert [(r.started_by, r.moved) for r in results] == [("rename", 2), ("save", 1)]
     after = load_state(paths)
     assert after["tracks"]["s1"]["path"] == "Library/New/A - s1.aiff"
     assert after["tracks"]["s2"]["path"] == "Library/C/A - s2.aiff"
