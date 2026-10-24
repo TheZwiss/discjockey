@@ -769,12 +769,10 @@ def _backup(paths: disk.Paths) -> None:
 SHARED_SETTLED = ("Two songs pointed at the same file, {path}: it stays with {keep}, and {other} will be "
                   "downloaded again.")
 ALIAS_SHARED = "{song} and {other} share a Spotify link; it stays with {other}."
-REBUILT = ("Discjockey's records of your library (.discjockey/library.db) were missing, so it rebuilt them from "
-           "its backup (.discjockey/state.v1.json). Anything it did since then is checked again on the next sync.")
-DB_MISSING = ("Discjockey's records of this music folder (.discjockey/library.db) are missing. Put the file back "
-              "(for example from a Time Machine backup), then try again. Nothing was changed.")
-DB_MISSING_BACKUP = ("Discjockey's records of this music folder (library.db) are missing. The next sync rebuilds "
-                     "them from their backup (state.v1.json).")  # a reader's words; the writer rebuilds (migrate)
+# no automatic restore from state.v1.json (plan stage 1, 3.1): it doesn't know what Discjockey did since, so
+# rebuilding from it could download or misplace files; reader and writer both refuse
+DB_MISSING = ("Discjockey's records (library.db) are missing from the .discjockey folder. Nothing was changed. Put "
+              "the file back, for example from Time Machine, and open Discjockey again.")
 
 
 def _settle(state: dict, emit: Emit) -> None:
@@ -872,23 +870,15 @@ def migrate(paths: disk.Paths, *, facts: Facts, now: datetime, emit: Emit,
                 sync_library_path(conn, paths.library)
             if _resume(paths):
                 return
-        rebuild = is_stub(paths.state_file)  # library.db is gone but was made: rebuild it from the backup
-        if rebuild:
-            backup = paths.data / BACKUP_NAME
-            if not backup.exists():
-                raise disk.StateError(DB_MISSING)
-            state, raw = disk._load_v1(backup), backup.read_bytes()
-            emit(Message("warning", REBUILT))
-        else:
-            state = _read_v1(paths)
-            recover(state)
-            raw = paths.state_file.read_bytes() if paths.state_file.exists() else None
-            emit(Message("info", MIGRATING))
+        if is_stub(paths.state_file):  # library.db was made and is gone: never rebuilt (DB_MISSING)
+            raise disk.StateError(DB_MISSING)
+        state = _read_v1(paths)
+        recover(state)
+        raw = paths.state_file.read_bytes() if paths.state_file.exists() else None
+        emit(Message("info", MIGRATING))
         _settle(state, emit)
         _build(paths, state, raw, facts, now)
         _place(paths)
-        if rebuild:
-            return  # the stub is already there
         if raw is not None:  # a new library has no state.json to keep
             _backup(paths)
         _write_stub(paths)

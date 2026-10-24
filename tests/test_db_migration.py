@@ -221,25 +221,26 @@ def test_an_alias_two_songs_share_stays_with_the_first_and_says_so(lib):
     assert Message("warning", "B - Two and A - One share a Spotify link; it stays with A - One.") in events
 
 
-def test_a_missing_database_is_rebuilt_from_the_backup(lib):
-    original = lib.state_file.read_bytes()
-    run(lib)
-    db.db_file(lib).unlink()
-    events = []
-    run(lib, recover=lambda state: pytest.fail("the backup was recovered before it was made"), events=events)
-    assert_migrated(lib, original)
-    assert [e.level for e in events] == ["warning"] and "rebuilt them from its backup" in events[0].text
+MISSING_WORDS = ("Discjockey's records (library.db) are missing from the .discjockey folder. Nothing was changed. "
+                 "Put the file back, for example from Time Machine, and open Discjockey again.")
 
 
-def test_a_missing_database_without_a_backup_is_refused_in_new_words(lib):
+@pytest.mark.parametrize("backup", [True, False])
+def test_a_missing_database_is_never_rebuilt(lib, backup):
+    """Plan stage 1, 3.1: no automatic restore (the backup doesn't know what Discjockey did since: rebuilding from it
+    could download or misplace files)."""
     run(lib)
     db.db_file(lib).unlink()
-    (lib.data / "state.v1.json").unlink()
+    old = lib.data / "state.v1.json"
+    if not backup:
+        old.unlink()
+    before = old.read_bytes() if backup else None
+    stub = lib.state_file.read_bytes()
     with pytest.raises(StateError) as e:
-        run(lib)
-    assert str(e.value) == ("Discjockey's records of this music folder (.discjockey/library.db) are missing. Put "
-                            "the file back (for example from a Time Machine backup), then try again. Nothing was "
-                            "changed.")
+        run(lib, recover=lambda state: pytest.fail("nothing is recovered"))
+    assert str(e.value) == MISSING_WORDS
+    assert not db.db_file(lib).exists() and lib.state_file.read_bytes() == stub
+    assert (old.read_bytes() if backup else old.exists()) == (before if backup else False)
 
 
 def test_opening_runs_the_version_check_and_follows_a_moved_music_folder(tmp_path, lib, monkeypatch):
