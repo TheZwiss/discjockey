@@ -11,7 +11,7 @@ import json
 import os
 import sqlite3
 import unicodedata
-from collections.abc import Callable, Collection, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -19,15 +19,11 @@ from typing import NamedTuple
 
 from . import library as disk  # "library" is the Library/ path argument everywhere here
 from .events import Emit, Message
-from .models import KnownFile, ScanResult, SeenFile, WatchedFolder
+from .models import BatchRow, KnownFile, MoveRow, PlannedMove, ScanResult, SeenFile, WatchedFolder
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
-SCHEMA_VERSION = 1
-
-# version n -> the step that turns a version-n database into version n+1, run inside the open transaction. Stage 2
-# adds move_batches/moves as step 1 -> 2.
-UPGRADES: dict[int, Callable[[sqlite3.Connection], None]] = {}
+SCHEMA_VERSION = 2
 
 NEWER = ("This music folder was last used by a newer Discjockey. Update Discjockey, then try again. "
          "Nothing was changed.")
@@ -81,6 +77,44 @@ SCHEMA_V1 = (
     "CREATE TABLE usage (service TEXT PRIMARY KEY, data TEXT NOT NULL)",
     "CREATE TABLE pending (id INTEGER PRIMARY KEY, op TEXT NOT NULL)",
 )
+
+# step 1 -> 2 (plan library stage 2, I1): the move log of the tidy-up. Batches are never deleted (spec §8.4); a
+# files row may go, and its moves keep their label
+SCHEMA_V2_STEP = (
+    """CREATE TABLE move_batches (
+      id INTEGER PRIMARY KEY,
+      started TEXT NOT NULL, finished TEXT,       -- ISO seconds; finished NULL = still running or stopped by a crash
+      started_by TEXT NOT NULL CHECK (started_by IN ('tidy', 'save', 'rename', 'undo')),
+      about TEXT,                                 -- JSON {"from": old, "to": new} for 'rename', else NULL
+      undoes INTEGER REFERENCES move_batches (id))""",
+    """CREATE TABLE moves (
+      id INTEGER PRIMARY KEY,
+      batch INTEGER NOT NULL REFERENCES move_batches (id),
+      seq INTEGER NOT NULL,                       -- order in the batch; an undo goes in reverse
+      kind TEXT NOT NULL CHECK (kind IN ('file', 'folder')),
+      file INTEGER REFERENCES files (id) ON DELETE SET NULL,   -- NULL for a folder move or a file row since gone
+      label TEXT NOT NULL,                        -- "Artist - Title" of a file, the folder name of a folder move
+      src TEXT NOT NULL, dst TEXT NOT NULL,       -- snapshot paths: Library/<...>
+      content_key TEXT,                           -- the file's key when planned; undo needs it unchanged
+      placed_before TEXT, placed_after TEXT,      -- placed_by before / after this move (folder moves: NULL)
+      state TEXT NOT NULL CHECK (state IN ('planned', 'done', 'skipped')),
+      reason TEXT, detail TEXT,                   -- skip reason code and its detail (the failure's words)
+      UNIQUE (batch, seq))""",
+    "CREATE INDEX moves_file ON moves (file)",
+    "CREATE INDEX moves_batch ON moves (batch)",
+)
+
+
+def _statements(statements: tuple[str, ...]) -> Callable[[sqlite3.Connection], None]:
+    def step(conn: sqlite3.Connection) -> None:
+        for statement in statements:  # one execute each: executescript would commit mid-transaction
+            conn.execute(statement)
+    return step
+
+
+# version n -> the step that turns a version-n database into version n+1, run inside the open transaction. `create`
+# builds SCHEMA_V1 and then runs every step, so a fresh database and an upgraded one are the same
+UPGRADES: dict[int, Callable[[sqlite3.Connection], None]] = {1: _statements(SCHEMA_V2_STEP)}
 
 
 class _Connection(sqlite3.Connection):
@@ -199,7 +233,9 @@ OPTIONAL_COLUMNS = frozenset({"artists", "album", "image_url", "declined_streams
 # the linked file's fields; QUALITY are the ones copied onto the files row
 FILE_FIELDS = ("path", "status", "source", "source_id", "source_format", "cutoff_hz", "source_kbps")
 QUALITY = FILE_FIELDS[1:]
-READ_ONLY = frozenset({"online", "placed_by", "held"})  # entry keys the snapshot adds and save ignores
+# entry keys the snapshot adds and save ignores; file_id only on an entry with a linked file (plan library
+# stage 2, I2)
+READ_ONLY = frozenset({"online", "placed_by", "held", "file_id"})
 SNAPSHOT_ONLY = frozenset({"version", "ambiguous", "files"})  # top-level keys the snapshot adds and save ignores
 NOT_EXTRA = frozenset(SONG_COLUMNS) | frozenset(FILE_FIELDS) | READ_ONLY | {"aliases"}
 # the keys every snapshot entry has unless the stored entry lacked them; `extra[ABSENT]` lists the ones it lacked
@@ -260,7 +296,7 @@ def _entry(values: tuple, aliases: list[str], file: dict | None, path: str | Non
                  source_kbps=None, online=False, placed_by=None, held=False)
     else:
         e.update({k: file[k] for k in QUALITY}, path=path, online=bool(file["online"]), placed_by=file["placed_by"],
-                 held=bool(file["held"]))
+                 held=bool(file["held"]), file_id=file["id"])
     for k in absent:  # keys the entry didn't have stay absent: the planner tells "absent" from None (rule 5)
         e.pop(k, None)
     return e
@@ -710,6 +746,176 @@ def set_quality(conn: sqlite3.Connection, file_id: int, status: str, cutoff_hz: 
     return conn.execute("UPDATE files SET status = ?, cutoff_hz = ?, source_format = ?, source = 'manual', "
                         "source_id = NULL, source_kbps = NULL WHERE id = ?",
                         (status, cutoff_hz, source_format, file_id)).rowcount
+
+
+# --- the move log (spec library-and-sources §5.2, §8.4; plan library stage 2, group 1) ---
+
+# the skip reasons a move can carry (plan library stage 2, I6); views word them
+SKIP_REASONS = frozenset({"offline", "not_found", "name_taken", "changed", "failed", "stopped", "moved_on",
+                          "place_taken", "playlist_renamed"})
+STARTED_BY = frozenset({"tidy", "save", "rename", "undo"})
+_MOVE_COLUMNS = ("id", "batch", "seq", "kind", "file", "label", "src", "dst", "content_key", "placed_before",
+                 "placed_after", "state", "reason", "detail")
+
+
+def _reason_code(reason: str) -> str:
+    if reason not in SKIP_REASONS:
+        raise ValueError(f"{reason!r} is not a skip reason")
+    return reason
+
+
+def start_batch(conn: sqlite3.Connection, *, started_by: str, about: dict | None, undoes: int | None,
+                moves: Sequence[PlannedMove], now: datetime) -> int:
+    """Records a batch and every move it plans, in one transaction, before anything moves: each move `planned`, or
+    `skipped` with its reason when its `skip` is set; `seq` is its position in `moves`. Paths are stored as snapshot
+    paths (NFC); an unknown `started_by`, a path in no watched folder, a file move that would rename its file, a
+    folder move between two watched folders or an unknown skip reason is a ValueError (nothing written). Returns the batch id."""
+    if started_by not in STARTED_BY:
+        raise ValueError(f"{started_by!r} is not a kind of batch")
+    folders = _Folders(conn)
+    rows = []
+    for seq, m in enumerate(moves):
+        src, dst = (unicodedata.normalize("NFC", p) for p in (m.src, m.dst))
+        (src_folder, _), (dst_folder, _) = folders.locate(src), folders.locate(dst)
+        if m.kind == "folder" and src_folder != dst_folder:
+            raise ValueError(f"a folder move stays in its watched folder: {src!r} -> {dst!r}")
+        if m.kind == "file" and PurePosixPath(src).name != PurePosixPath(dst).name:
+            raise ValueError(f"a move never renames a file: {src!r} -> {dst!r}")  # spec §8.3
+        state, reason, detail = ("planned", None, None) if m.skip is None else ("skipped", _reason_code(m.skip[0]),
+                                                                                  m.skip[1])
+        rows.append((seq, m.kind, m.file_id, m.label, src, dst, m.content_key, m.placed_before, m.placed_after, state,
+                     reason, detail))
+    with transaction(conn):
+        batch = conn.execute("INSERT INTO move_batches (started, started_by, about, undoes) VALUES (?, ?, ?, ?)",
+                             (now.isoformat(timespec="seconds"), started_by,
+                              None if about is None else _dumps(about), undoes)).lastrowid
+        conn.executemany(f"INSERT INTO moves (batch, {', '.join(_MOVE_COLUMNS[2:])}) "
+                         f"VALUES (?, {', '.join('?' * len(_MOVE_COLUMNS[2:]))})", [(batch, *r) for r in rows])
+    return batch
+
+
+def _move(conn: sqlite3.Connection, move_id: int) -> dict:
+    row = conn.execute(f"SELECT {', '.join(_MOVE_COLUMNS)} FROM moves WHERE id = ?", (move_id,)).fetchone()
+    if row is None:
+        raise ValueError(f"there is no move {move_id}")
+    return dict(zip(_MOVE_COLUMNS, row))
+
+
+def finish_move(conn: sqlite3.Connection, move_id: int) -> None:
+    """A move that happened on disk, written in one transaction: the move becomes `done`. A `file` move's file row
+    (by id) takes `dst`'s place and `placed_after` (a no-op on the place when run_op's save already wrote it; an
+    unlinked row left at `dst`, whose file isn't there, gives way, as in apply_scan); a move whose file row is gone
+    is only marked done. A `folder` move gives every row of its watched folder under `src` + "/" the `dst` prefix
+    instead, placed_by untouched (the target folder didn't exist, so no place collides). Finishing a done move again
+    changes nothing; a skipped move is a ValueError. When a linked row of another song sits at `dst`, the call
+    raises sqlite3.IntegrityError and writes nothing; the caller then records the move with skip_move(..., "failed")."""
+    with transaction(conn):
+        m = _move(conn, move_id)
+        if m["state"] == "done":
+            return
+        if m["state"] == "skipped":
+            raise ValueError(f"move {move_id} was skipped ({m['reason']}); it can't be finished")
+        folders = _Folders(conn)
+        folder, rel = folders.locate(m["dst"])
+        if m["kind"] == "file" and m["file"] is not None:
+            conn.execute("DELETE FROM files WHERE folder = ? AND path = ? AND id != ? AND song IS NULL",
+                         (folder, rel, m["file"]))
+            conn.execute("UPDATE files SET folder = ?, path = ?, placed_by = COALESCE(?, placed_by) WHERE id = ?",
+                         (folder, rel, m["placed_after"], m["file"]))
+        elif m["kind"] == "folder":
+            src_folder, src_rel = folders.locate(m["src"])
+            old, new = src_rel + "/", rel + "/"
+            conn.execute("UPDATE files SET path = ? || substr(path, ?) WHERE folder = ? AND substr(path, 1, ?) = ?",
+                         (new, len(old) + 1, src_folder, len(old), old))
+        conn.execute("UPDATE moves SET state = 'done', reason = NULL, detail = NULL WHERE id = ?", (move_id,))
+
+
+def skip_move(conn: sqlite3.Connection, move_id: int, reason: str, detail: str | None = None) -> None:
+    """A move that didn't happen: `skipped` with its reason code and detail. Skipping a done move is a ValueError."""
+    reason = _reason_code(reason)
+    with transaction(conn):
+        if _move(conn, move_id)["state"] == "done":
+            raise ValueError(f"move {move_id} is done; it can't be skipped")
+        conn.execute("UPDATE moves SET state = 'skipped', reason = ?, detail = ? WHERE id = ?",
+                     (reason, detail, move_id))
+
+
+def set_placed_by(conn: sqlite3.Connection, file_ids: Collection[int], value: str) -> int:
+    """Marks who put these files where they are (plan library stage 2, P1: the save that leaves files where they
+    are makes them the user's). Returns the rows that changed."""
+    if not file_ids:
+        return 0
+    with transaction(conn):
+        return conn.executemany("UPDATE files SET placed_by = ? WHERE id = ? AND placed_by != ?",
+                                [(value, i, value) for i in file_ids]).rowcount
+
+
+def close_batch(conn: sqlite3.Connection, batch_id: int, now: datetime) -> None:
+    """Ends a batch in one transaction: `finished` is now (kept when it is already closed), and every move still
+    `planned` becomes skipped as `stopped` (plan library stage 2, P3)."""
+    with transaction(conn):
+        if conn.execute("SELECT 1 FROM move_batches WHERE id = ?", (batch_id,)).fetchone() is None:
+            raise ValueError(f"there is no batch {batch_id}")
+        conn.execute("UPDATE moves SET state = 'skipped', reason = 'stopped', detail = NULL "
+                     "WHERE batch = ? AND state = 'planned'", (batch_id,))
+        conn.execute("UPDATE move_batches SET finished = ? WHERE id = ? AND finished IS NULL",
+                     (now.isoformat(timespec="seconds"), batch_id))
+
+
+def open_batches(conn: sqlite3.Connection) -> list[int]:
+    """The batches not closed yet: still running, or stopped by a crash (tidy.recover closes them)."""
+    return [i for (i,) in conn.execute("SELECT id FROM move_batches WHERE finished IS NULL ORDER BY id")]
+
+
+def batch_moves(conn: sqlite3.Connection, batch_id: int) -> list[MoveRow]:
+    """A batch's moves in `seq` order, each with its file row's snapshot path and key today."""
+    folders = _Folders(conn)
+    out = []
+    for row in conn.execute(
+            f"SELECT {', '.join('m.' + c for c in _MOVE_COLUMNS)}, f.folder, f.path, f.content_key "
+            "FROM moves m LEFT JOIN files f ON f.id = m.file WHERE m.batch = ? ORDER BY m.seq", (batch_id,)):
+        m = dict(zip(_MOVE_COLUMNS, row))
+        folder, rel, key = row[len(_MOVE_COLUMNS):]
+        out.append(MoveRow(id=m["id"], batch=m["batch"], seq=m["seq"], kind=m["kind"], file_id=m["file"],
+                           label=m["label"], src=m["src"], dst=m["dst"], content_key=m["content_key"],
+                           placed_before=m["placed_before"], placed_after=m["placed_after"], state=m["state"],
+                           reason=m["reason"], detail=m["detail"],
+                           now_path=None if folder is None else folders.path(folder, rel), now_key=key))
+    return out
+
+
+def _undoable(conn: sqlite3.Connection, folders: _Folders, batch_id: int) -> int:
+    """The done moves of a batch whose undo could run today, from the rows alone (no disk): a file move whose row
+    is at `dst` with its key unchanged and no row at `src`; a folder move while any row sits under `dst` + "/"."""
+    n = 0
+    for kind, src, dst, key, folder, rel, now_key in conn.execute(
+            "SELECT m.kind, m.src, m.dst, m.content_key, f.folder, f.path, f.content_key FROM moves m "
+            "LEFT JOIN files f ON f.id = m.file WHERE m.batch = ? AND m.state = 'done'", (batch_id,)):
+        if kind == "folder":
+            under, prefix = folders.locate(dst)
+            prefix += "/"
+            n += conn.execute("SELECT 1 FROM files WHERE folder = ? AND substr(path, 1, ?) = ? LIMIT 1",
+                              (under, len(prefix), prefix)).fetchone() is not None
+        elif folder is not None and (folder, rel) == folders.locate(dst) and now_key == key:
+            n += conn.execute("SELECT 1 FROM files WHERE folder = ? AND path = ?",
+                              folders.locate(src)).fetchone() is None
+    return n
+
+
+def batches(conn: sqlite3.Connection, limit: int = 20) -> tuple[list[BatchRow], int]:
+    """The newest `limit` batches, newest first, with their counts, plus how many batches there are in all."""
+    folders = _Folders(conn)
+    out = []
+    for i, started, finished, started_by, about, undoes, moved, skipped, undone_by in conn.execute(
+            "SELECT b.id, b.started, b.finished, b.started_by, b.about, b.undoes, "
+            "(SELECT COUNT(*) FROM moves m WHERE m.batch = b.id AND m.state = 'done'), "
+            "(SELECT COUNT(*) FROM moves m WHERE m.batch = b.id AND m.state = 'skipped'), "
+            "(SELECT MAX(u.id) FROM move_batches u WHERE u.undoes = b.id) "
+            "FROM move_batches b ORDER BY b.id DESC LIMIT ?", (limit,)).fetchall():
+        out.append(BatchRow(id=i, started=started, finished=finished, started_by=started_by,
+                            about=None if about is None else json.loads(about), undoes=undoes, moved=moved,
+                            skipped=skipped, undoable=_undoable(conn, folders, i), undone_by=undone_by))
+    return out, conn.execute("SELECT COUNT(*) FROM move_batches").fetchone()[0]
 
 
 # --- the migration from state.json (spec library-and-sources §5.3, plan task 1.4) ---

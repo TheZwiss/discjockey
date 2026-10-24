@@ -178,3 +178,65 @@ class ScanSummary:
     replaced: int = 0  # audio replaced outside Discjockey
     copies: int = 0  # new files with the audio of a file that is still there
     offline: int = 0  # watched folders that couldn't be seen
+
+
+# --- the move log (spec library-and-sources §5.2, §8.4; plan library stage 2, I3) ---
+
+@dataclass(frozen=True)
+class PlannedMove:
+    """One move tidy.py asks db.start_batch to record. Paths are snapshot paths (`Library/<...>`)."""
+    kind: str  # "file" | "folder"
+    file_id: int | None  # the file row; None for a folder move
+    label: str  # "Artist - Title" of a file, the folder name of a folder move
+    src: str
+    dst: str
+    content_key: str | None  # the file's key when planned (undo needs it unchanged); None for a folder move
+    placed_before: str | None  # the file row's placed_by before / after the move (folder moves: None)
+    placed_after: str | None
+    skip: tuple[str, str | None] | None = None  # (reason, detail): recorded skipped at once (undo's checks)
+
+
+@dataclass(frozen=True)
+class MoveRow:
+    """A moves row, joined with its file row as it is now."""
+    id: int
+    batch: int
+    seq: int  # order in the batch; an undo goes in reverse
+    kind: str
+    file_id: int | None  # None: a folder move, or a file row since gone
+    label: str
+    src: str
+    dst: str
+    content_key: str | None
+    placed_before: str | None
+    placed_after: str | None
+    state: str  # "planned" | "done" | "skipped"
+    reason: str | None  # skip reason code (plan library stage 2, I6)
+    detail: str | None  # the failure's words for "failed"
+    now_path: str | None  # the file row's snapshot path today (None: no row)
+    now_key: str | None  # the file row's content key today
+
+
+@dataclass(frozen=True)
+class BatchRow:
+    """A move_batches row with its counts (db.batches)."""
+    id: int
+    started: str
+    finished: str | None  # None: still running, or stopped by a crash
+    started_by: str  # "tidy" | "save" | "rename" | "undo"
+    about: dict | None  # {"from": old, "to": new} for "rename"
+    undoes: int | None  # the batch an undo batch undoes
+    moved: int
+    skipped: int
+    undoable: int  # done moves whose undo could run today
+    undone_by: int | None  # the latest undo batch of this one
+
+
+@dataclass(frozen=True)
+class BatchResult:
+    """What every tidy.py entry point returns; views word it."""
+    batch_id: int | None  # None: nothing was asked to move
+    started_by: str
+    moved: int
+    skipped: tuple[MoveRow, ...]  # with reason/detail
+    stopped: bool
