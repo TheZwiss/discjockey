@@ -66,6 +66,32 @@ def test_a_deleted_file_marks_its_song(paths):
     assert summary.gone == 1 and messages == ["Checked your Library: 1 file gone."]
 
 
+def test_a_copy_indexed_before_the_original_was_deleted_keeps_the_song(paths):
+    rel = song(paths)
+    shutil.copy(paths.root / rel, paths.library / "Copy.aiff")
+    scan(paths)  # the window came to the front: the copy is indexed
+    (paths.root / rel).unlink()
+    summary, messages = scan(paths)
+    e = load_state(paths)["tracks"]["t1"]
+    assert (e["path"], e["status"], e.get("file_gone"), e["placed_by"]) == (
+        "Library/Copy.aiff", "not_lossless", None, "user")
+    assert summary.moved == 1 and summary.gone == 0
+
+
+def test_a_file_put_back_from_the_trash_after_a_scan_changes_nothing(paths):
+    rel = song(paths)
+    shutil.copy(paths.root / rel, paths.library / "Copy.aiff")
+    scan(paths)
+    trash = paths.root.parent / "Trash.aiff"
+    shutil.move(paths.root / rel, trash)  # moved to the Trash: the song's file is the copy now
+    scan(paths)
+    shutil.move(trash, paths.root / rel)  # Put Back
+    summary, _ = scan(paths)
+    e = load_state(paths)["tracks"]["t1"]
+    assert (e["path"], e.get("file_gone")) == ("Library/Copy.aiff", None)
+    assert summary.gone == 0 and sorted(load_state(paths)["files"]) == ["Library/Copy.aiff", rel]
+
+
 def test_a_file_replaced_outside_discjockey_is_judged_again(paths):
     rel = song(paths)
     write_aiff(paths.root / rel, music(1, seed=7))  # other audio under the same name

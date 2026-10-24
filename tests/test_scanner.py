@@ -412,3 +412,50 @@ def test_default_key_is_the_content_key(lib):
     p = put(lib.path, "A - One.mp3", "frames")
     r = scan([lib], [], exclude=[], snapshot_path=snap)
     assert r.new == [SeenFile(1, "A - One.mp3", p.stat().st_size, p.stat().st_mtime_ns, content_key(p))]
+
+
+def test_a_song_s_missing_file_takes_its_one_indexed_copy(lib):
+    put(lib.path, "A - One.aiff", "one")
+    put(lib.path, "Copy/A - One.aiff", "one")  # copied, and indexed by a scan while the original was still there
+    row, copy = known(1, lib, "A - One.aiff"), known(2, lib, "Copy/A - One.aiff", linked=False)
+    (lib.path / "A - One.aiff").unlink()
+    r = run([lib], [row, copy])
+    assert r.moved == [(1, seen(lib, "Copy/A - One.aiff"))]
+    assert r.gone == [] and r.ambiguous == [] and r.copies == []
+
+
+def test_a_song_s_missing_file_with_two_indexed_copies_is_ambiguous(lib):
+    put(lib.path, "A - One.aiff", "one")
+    put(lib.path, "X/A - One.aiff", "one")
+    put(lib.path, "Y/A - One.aiff", "one")
+    rows = [known(1, lib, "A - One.aiff"), known(2, lib, "X/A - One.aiff", linked=False),
+            known(3, lib, "Y/A - One.aiff", linked=False)]
+    (lib.path / "A - One.aiff").unlink()
+    r = run([lib], rows)
+    assert r.ambiguous == [(1, ["1/X/A - One.aiff", "1/Y/A - One.aiff"])] and r.moved == [] and r.gone == []
+
+
+def test_an_indexed_copy_and_a_new_copy_are_ambiguous(lib):
+    put(lib.path, "A - One.aiff", "one")
+    put(lib.path, "X/A - One.aiff", "one")
+    rows = [known(1, lib, "A - One.aiff"), known(2, lib, "X/A - One.aiff", linked=False)]
+    (lib.path / "A - One.aiff").rename(lib.path / "Y.aiff")
+    r = run([lib], rows)
+    assert r.ambiguous == [(1, ["1/X/A - One.aiff", "1/Y.aiff"])] and r.moved == [] and r.gone == []
+
+
+def test_a_gone_unlinked_row_never_takes_an_indexed_copy(lib):
+    put(lib.path, "A - One.aiff", "one")
+    put(lib.path, "X/A - One.aiff", "one")
+    rows = [known(1, lib, "A - One.aiff", linked=False), known(2, lib, "X/A - One.aiff", linked=False)]
+    (lib.path / "A - One.aiff").unlink()
+    r = run([lib], rows)
+    assert r.gone == [1] and r.moved == []
+
+
+def test_a_migrated_row_without_key_never_takes_an_indexed_file_by_name(lib):
+    put(lib.path, "X/A - One.aiff", "other audio")
+    rows = [KnownFile(1, lib.id, "A - One.aiff", None, None, None, True, False),
+            known(2, lib, "X/A - One.aiff", linked=False)]
+    r = run([lib], rows)
+    assert r.gone == [1] and r.moved == []
