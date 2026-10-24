@@ -19,6 +19,7 @@ from typing import NamedTuple
 
 from . import library as disk  # "library" is the Library/ path argument everywhere here
 from .events import Emit, Message
+from .models import KnownFile, ScanResult, SeenFile, WatchedFolder
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
@@ -600,6 +601,87 @@ def save(conn: sqlite3.Connection, state: dict, *, library: Path, facts: Facts, 
     return n
 
 
+# --- the scan (spec library-and-sources §6, plan task 3.2) ---
+
+def watched_folders(conn: sqlite3.Connection) -> list[WatchedFolder]:
+    return [WatchedFolder(i, Path(p), k) for i, p, k in conn.execute(
+        "SELECT id, path, kind FROM watched_folders ORDER BY id")]
+
+
+def known_files(conn: sqlite3.Connection) -> list[KnownFile]:
+    """Every file row, as the scanner sees it."""
+    return [KnownFile(i, folder, rel, size, mtime, key, song is not None, ambiguous is not None)
+            for i, folder, rel, size, mtime, key, song, ambiguous in conn.execute(
+                "SELECT id, folder, path, size, mtime_ns, content_key, song, ambiguous FROM files ORDER BY id")]
+
+
+def _inner(folders: dict[int, PurePosixPath], folder: int) -> list[tuple[int, str]]:
+    """(outer folder id, rel prefix) of a watched folder that sits inside others: a scan records the files it finds
+    there under the outer folder's id."""
+    inner = folders[folder]
+    return [(i, inner.relative_to(root).as_posix() + "/") for i, root in folders.items()
+            if i != folder and inner != root and inner.is_relative_to(root)]
+
+
+def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime) -> int:
+    """Writes a ScanResult in one transaction (rules: the ScanResult docstring). Offline folders' rows are marked
+    offline and keep everything else; an online folder's rows are online again and seen now. Retagged and replaced
+    rows get the file's size, mtime and key; a moved row takes its new place (placed by the user), and an unlinked
+    row already there gives way to it; ambiguous rows keep their candidates; new files and copies become unlinked
+    rows (found there by a scan: placed by 'import'); a gone row is deleted and its song's file marked gone today.
+    Held and unreadable rows stay as they are. Returns the rows written."""
+    stamp, today = now.isoformat(timespec="seconds"), now.date().isoformat()
+    n = 0
+    with transaction(conn):
+        folders = {i: PurePosixPath(unicodedata.normalize("NFC", p))
+                   for i, p in conn.execute("SELECT id, path FROM watched_folders")}
+        offline = set(result.offline)
+        online = [i for i in folders if i not in offline]
+        held = set(result.held)
+        for i in online:  # back online, and seen by this scan (a held row wasn't)
+            n += conn.execute(
+                f"UPDATE files SET online = 1, last_seen = ? WHERE folder = ? AND id NOT IN "
+                f"({', '.join('?' * len(held))})", (stamp, i, *held)).rowcount
+            n += conn.execute("UPDATE watched_folders SET last_scan = ? WHERE id = ?", (stamp, i)).rowcount
+        for i in offline:
+            n += conn.execute("UPDATE files SET online = 0 WHERE folder = ? AND online = 1", (i,)).rowcount
+            for outer, prefix in _inner(folders, i):  # its files a scan recorded under the outer folder
+                n += conn.execute("UPDATE files SET online = 0 WHERE folder = ? AND online = 1 "
+                                  "AND substr(path, 1, ?) = ?", (outer, len(prefix), prefix)).rowcount
+        facts = "size = ?, mtime_ns = ?, content_key = ?, last_seen = ?, ambiguous = NULL"
+        for file_id, seen in (*result.retagged, *result.replaced):
+            n += conn.execute(f"UPDATE files SET {facts} WHERE id = ?",
+                              (seen.size, seen.mtime_ns, seen.content_key, stamp, file_id)).rowcount
+        for file_id, seen in result.moved:
+            # an earlier scan's candidate at the target (an unlinked row) gives way to the file that moved there
+            n += conn.execute("DELETE FROM files WHERE folder = ? AND path = ? AND id != ? AND song IS NULL",
+                              (seen.folder, seen.rel, file_id)).rowcount
+            n += conn.execute(f"UPDATE files SET folder = ?, path = ?, placed_by = 'user', online = 1, {facts} "
+                              "WHERE id = ?", (seen.folder, seen.rel, seen.size, seen.mtime_ns, seen.content_key,
+                                               stamp, file_id)).rowcount
+        for file_id, candidates in result.ambiguous:
+            n += conn.execute("UPDATE files SET ambiguous = ? WHERE id = ?", (_dumps(candidates), file_id)).rowcount
+        for seen in (*result.new, *result.copies):
+            n += conn.execute(
+                "INSERT INTO files (song, folder, path, size, mtime_ns, content_key, placed_by, online, first_seen, "
+                "last_seen) VALUES (NULL, ?, ?, ?, ?, ?, 'import', 1, ?, ?) ON CONFLICT (folder, path) DO NOTHING",
+                (seen.folder, seen.rel, seen.size, seen.mtime_ns, seen.content_key, stamp, stamp)).rowcount
+        for file_id in result.gone:
+            n += conn.execute("UPDATE songs SET file_gone = ? WHERE id = (SELECT song FROM files WHERE id = ?)",
+                              (today, file_id)).rowcount
+            n += conn.execute("DELETE FROM files WHERE id = ?", (file_id,)).rowcount
+    return n
+
+
+def set_quality(conn: sqlite3.Connection, file_id: int, status: str, cutoff_hz: int | None,
+                source_format: str) -> int:
+    """A file judged again after its audio was replaced outside Discjockey: it is no longer the download it was, so
+    it counts as the user's own file (source 'manual', as a bought file) with the quality it has now."""
+    return conn.execute("UPDATE files SET status = ?, cutoff_hz = ?, source_format = ?, source = 'manual', "
+                        "source_id = NULL, source_kbps = NULL WHERE id = ?",
+                        (status, cutoff_hz, source_format, file_id)).rowcount
+
+
 # --- the migration from state.json (spec library-and-sources §5.3, plan task 1.4) ---
 
 DB_NAME = "library.db"
@@ -716,7 +798,7 @@ def _settle(state: dict, emit: Emit) -> None:
                 emit(Message("warning", ALIAS_SHARED.format(song=_name(e), other=_name(tracks[other]))))
 
 
-def _is_stub(path: Path) -> bool:
+def is_stub(path: Path) -> bool:
     try:
         return json.loads(path.read_bytes()).get("version") == STUB["version"]
     except (OSError, ValueError, AttributeError):
@@ -778,7 +860,7 @@ def migrate(paths: disk.Paths, *, facts: Facts, now: datetime, emit: Emit,
                 sync_library_path(conn, paths.library)
             if _resume(paths):
                 return
-        rebuild = _is_stub(paths.state_file)  # library.db is gone but was made: rebuild it from the backup
+        rebuild = is_stub(paths.state_file)  # library.db is gone but was made: rebuild it from the backup
         if rebuild:
             backup = paths.data / BACKUP_NAME
             if not backup.exists():

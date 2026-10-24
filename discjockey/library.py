@@ -1,5 +1,6 @@
 """Everything about the library on disk: where things live (the music folder, its .discjockey/, the support
-folder), the lock, state.json, names, safe renames."""
+folder), the lock, its records (library.db through db.py; state.json before the migration), names, safe renames,
+the scan."""
 from __future__ import annotations
 
 import fcntl
@@ -8,14 +9,20 @@ import json
 import os
 import shutil
 import signal
+import sqlite3
+import stat
 import threading
 import time
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Callable, Collection, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 
+from .content_key import content_key
+from .events import Emit, Message, no_emit
+from .models import ScanSummary
 from .names import fold
 
 STATE_VERSION = 1
@@ -74,6 +81,16 @@ class Paths(SupportPaths):
     root: Path
 
     @property
+    def db_file(self) -> Path:
+        """The library's records (db.py owns what is in it)."""
+        return self.data / "library.db"
+
+    @property
+    def state_backup(self) -> Path:
+        """state.json as it was when it moved into library.db (the migration's backup)."""
+        return self.data / "state.v1.json"
+
+    @property
     def library(self) -> Path:
         return self.root / "Library"
 
@@ -95,6 +112,7 @@ class Paths(SupportPaths):
 
     @property
     def state_file(self) -> Path:
+        """Before the migration the records; after it a stub that stops an older Discjockey."""
         return self.data / "state.json"
 
     @property
@@ -221,19 +239,78 @@ class StateError(Exception):
 
 
 def empty_state() -> dict:
-    return {"version": STATE_VERSION, "tracks": {}, "pending": [], "qobuz_usage": {"days": {}, "signals": []},
-            "never": {}}
+    """The snapshot of a library with no records yet (plan library stage 1, I2)."""
+    return {"version": 2, "tracks": {}, "pending": [], "qobuz_usage": {"days": {}, "signals": []}, "never": {},
+            "ambiguous": {}, "files": []}
 
 
-def load_state(path: Path) -> dict:
-    return _load_v1(path)
+OLD_RECORDS = ("Discjockey tried to save its records in the old format (state.json) after they moved to "
+               "library.db. Nothing was changed.")
+
+_MIGRATING = threading.local()  # .on: this thread is migrating state.json, so an old-format save is allowed
+
+
+def load_state(paths: Paths) -> dict:
+    """The library's snapshot (I2), for reading: takes no lock and writes nothing. From library.db once there is
+    one; before the migration from state.json (version 1, the read-only keys filled in), so the window can show a
+    library before its first change migrates it; with neither, an empty library. library.db gone after the
+    migration: the migration's backup is shown as it was (the next change rebuilds library.db from it, db.migrate),
+    or, with no backup either, StateError."""
+    from . import db
+    if paths.db_file.exists():
+        try:
+            with db.connect(paths.db_file) as conn:
+                db.check(conn)
+                return db.snapshot(conn, paths.library)
+        except sqlite3.Error as e:
+            raise db.unreadable(e) from None
+    if not paths.state_file.exists():
+        return empty_state()
+    source = paths.state_file
+    if db.is_stub(source):
+        if not paths.state_backup.exists():
+            raise StateError(db.DB_MISSING)
+        source = paths.state_backup
+    return _v1_snapshot(paths, _load_v1(source))
+
+
+def _v1_snapshot(paths: Paths, state: dict) -> dict:
+    """A version-1 state.json with the read-only keys a snapshot has (nothing is indexed yet: every file the old
+    records name counts as placed by the app and online)."""
+    for e in state["tracks"].values():
+        e["online"], e["placed_by"] = bool(e.get("path")), "app" if e.get("path") else None
+    state["ambiguous"] = {}
+    state["files"] = _walk_files(paths)
+    return state
+
+
+def open_state(paths: Paths, emit: Emit = no_emit) -> dict:
+    """The snapshot for a writer (the caller holds the lock). Moves state.json into library.db first when that
+    hasn't happened yet (spec library-and-sources §5.3; its pending steps are finished on the way), gives a library
+    that has neither file an empty library.db, and does the version check of every open."""
+    from . import db
+    if not paths.root.is_dir():
+        raise NoLibrary(MUSIC_GONE)
+    paths.data.mkdir(exist_ok=True)  # .discjockey/ only, never the music folder above it
+
+    def recover(state: dict) -> None:
+        for message, ok in recover_pending(paths, state):
+            emit(Message("info" if ok else "warning", message))
+
+    _MIGRATING.on = True
+    try:
+        db.migrate(paths, facts=file_facts(paths), now=datetime.now(), emit=emit, recover=recover)
+    finally:
+        _MIGRATING.on = False
+    return load_state(paths)
 
 
 def _load_v1(path: Path) -> dict:
     """A version-1 state.json (empty when there is none). Any other version, among them the stub the migration
     to library.db leaves, is StateError with the words an older Discjockey prints for it."""
     if not path.exists():
-        return empty_state()
+        return {"version": STATE_VERSION, "tracks": {}, "pending": [], "qobuz_usage": {"days": {}, "signals": []},
+                "never": {}}
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
     if data.get("version") != STATE_VERSION:
@@ -246,6 +323,27 @@ def _load_v1(path: Path) -> dict:
     data.setdefault("qobuz_usage", {"days": {}, "signals": []})
     data.setdefault("never", {})  # Spotify id -> {artist, title, folder, at}: "never download" (the hub's Sync page)
     return data
+
+
+def file_facts(paths: Paths) -> Callable[[str], object]:
+    """db.py's `facts`: size, mtime and content key of the file at a snapshot path, None when no file is there. A
+    file that is there but can't be read gets no key (NULL); the next scan reads it again."""
+    from . import db
+
+    def facts(path: str):
+        p = paths.root / path  # an absolute path (a file of an import folder) stays itself
+        try:
+            st = os.stat(p)
+        except (FileNotFoundError, NotADirectoryError):
+            return None
+        if not stat.S_ISREG(st.st_mode):
+            return None
+        try:
+            key = content_key(p)
+        except OSError:
+            key = None
+        return db.FileFacts(st.st_size, st.st_mtime_ns, key)
+    return facts
 
 
 def full_fsync(fd: int) -> None:
@@ -279,14 +377,36 @@ def write_json_atomic(path: Path, data, *, parents: bool = False, **dump) -> Non
     fsync_dir(path.parent)
 
 
-def save_state(path: Path, state: dict) -> None:
-    """Makes .discjockey itself, never the music folder above it: a vanished folder (an unplugged drive) is
-    NoLibrary, not a new empty library."""
-    # the new state.json (e.g. a pending swap) survives a power cut before going on
+def save_state(paths: Paths, state: dict, *, rekeyed: Collection[str] = ()) -> None:
+    """Writes a snapshot back into library.db, only what changed, in one transaction (db.save). `rekeyed`: files
+    whose audio Discjockey rewrote in place (a swap, a rename onto a name) without an entry field changing; their
+    size and content key are read again so a later scan doesn't take them for files replaced outside Discjockey.
+    A library with neither library.db nor state.json gets its library.db here (as open_state would). A version-1
+    dict is written to state.json only during the migration (its pending steps are finished there), otherwise it
+    is StateError. A vanished music folder (an unplugged drive) is NoLibrary, never a new empty library."""
+    from . import db
+    if not paths.data.is_dir():
+        raise NoLibrary(MUSIC_GONE)
+    if state.get("version") == STATE_VERSION:
+        if not getattr(_MIGRATING, "on", False):
+            raise StateError(OLD_RECORDS)
+        try:  # the new state.json (e.g. a pending swap) survives a power cut before going on
+            write_json_atomic(paths.state_file, state, indent=2, ensure_ascii=False, sort_keys=True)
+        except FileNotFoundError:
+            raise NoLibrary(MUSIC_GONE) from None
+        return
+    facts, now = file_facts(paths), datetime.now()
     try:
-        write_json_atomic(path, state, indent=2, ensure_ascii=False, sort_keys=True)
-    except FileNotFoundError:
-        raise NoLibrary(MUSIC_GONE) from None
+        if not paths.db_file.exists():
+            if paths.state_file.exists():  # migrated before (or still to migrate): never a fresh database over it
+                raise StateError(db.DB_MISSING)
+            db.create(paths.db_file, state, library=paths.library, facts=facts, now=now)
+            return
+        indexed = [p for p in rekeyed if p.startswith("Library/")]  # Superseded/ and .tmp/ have no rows
+        with db.connect(paths.db_file) as conn:
+            db.save(conn, state, library=paths.library, facts=facts, now=now, rekeyed=indexed)
+    except sqlite3.Error as e:
+        raise db.unreadable(e) from None
 
 
 def write_music_folder(support: Path, folder: Path) -> None:
@@ -295,7 +415,8 @@ def write_music_folder(support: Path, folder: Path) -> None:
                       indent=2, ensure_ascii=False)
 
 
-def list_files(paths: Paths) -> list[str]:
+def _walk_files(paths: Paths) -> list[str]:
+    """Every file in Library/ (root-relative, NFC), for a snapshot read from a state.json nothing has indexed yet."""
     out = []
     if not paths.library.exists():
         return out
@@ -414,7 +535,7 @@ def run_op(paths: Paths, state: dict, track_id: str, renames: list[tuple[str, st
     with deferred_interrupt():
         op = {"track_id": track_id, "renames": [list(r) for r in renames], "entry": entry}
         state.setdefault("pending", []).append(op)
-        save_state(paths.state_file, state)
+        save_state(paths, state)
         done = 0
         try:
             for src, dst in renames:
@@ -423,12 +544,12 @@ def run_op(paths: Paths, state: dict, track_id: str, renames: list[tuple[str, st
         except BaseException:
             if done == 0:
                 state["pending"].remove(op)
-                save_state(paths.state_file, state)
+                save_state(paths, state)
             raise
         if entry is not None:
             state["tracks"][track_id] = entry
         state["pending"].remove(op)
-        save_state(paths.state_file, state)
+        save_state(paths, state, rekeyed=[dst for _, dst in renames])
 
 
 def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
@@ -474,8 +595,65 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
         else:
             messages.append((f"Could not finish an interrupted step for {name}: {problem}", False))
         state["pending"].remove(op)
-        save_state(paths.state_file, state)
+        save_state(paths, state, rekeyed=[dst for _, dst in op["renames"]])
     return messages
+
+
+# --- the scan (spec library-and-sources §6) ---
+
+SCANNED = "Checked your Library: {parts}."
+SCAN_PARTS = (("moved", "file you moved", "files you moved"), ("new", "new file", "new files"),
+              ("gone", "file gone", "files gone"), ("replaced", "file changed", "files changed"))
+NOT_JUDGED = ("{path} was changed outside Discjockey, but Discjockey couldn't check its sound ({reason}). It keeps "
+              "the quality it had.")
+
+
+def scan_library(paths: Paths, emit: Emit = no_emit, *,
+                 analyze: Callable[[Path], tuple[str, int | None]] | None = None,
+                 key_of: Callable[[Path], str] = content_key) -> ScanSummary:
+    """Indexes the watched folders (Library/) against library.db and writes what changed (the caller holds the
+    lock): files moved by hand keep their song, new files are indexed, a file gone marks its song's file gone, and
+    a song's file whose audio was replaced outside Discjockey is judged again the way a bought file is (`analyze`,
+    quality.inspect) and counts as the user's own file from now on. Superseded/, Upgrades ready/ and .discjockey/
+    are never looked at. One message, only when something changed (copies count as new files)."""
+    from . import db, scanner
+    from .quality import is_lossless_codec, verdict
+    if analyze is None:
+        from .quality import inspect as analyze
+    open_state(paths, emit)
+    try:
+        with db.connect(paths.db_file) as conn:
+            folders = {f.id: f for f in db.watched_folders(conn)}
+            known = db.known_files(conn)
+
+            def snapshot_path(folder: int, rel: str) -> str:
+                return db.snapshot_path(folders[folder].kind, folders[folder].path.as_posix(), rel)
+
+            result = scanner.scan(list(folders.values()), known,
+                                  exclude=[paths.superseded, paths.upgrades_ready, paths.data],
+                                  snapshot_path=snapshot_path, key_of=key_of)
+            db.apply_scan(conn, result, datetime.now())
+            linked = {f.id for f in known if f.linked}
+            for file_id, seen in result.replaced:
+                if file_id not in linked:
+                    continue  # nobody's file: nothing to judge it for
+                path = snapshot_path(seen.folder, seen.rel)
+                try:
+                    codec, cutoff = analyze(paths.root / path)
+                except Exception as e:  # noqa: BLE001 - a file the tools can't read keeps its old quality
+                    emit(Message("warning", NOT_JUDGED.format(path=path, reason=str(e)[:200] or type(e).__name__)))
+                    continue
+                db.set_quality(conn, file_id, verdict(is_lossless_codec(codec), cutoff), cutoff, codec)
+    except sqlite3.Error as e:
+        raise db.unreadable(e) from None
+    summary = ScanSummary(moved=len(result.moved), new=len(result.new), gone=len(result.gone),
+                          replaced=len(result.replaced), copies=len(result.copies), offline=len(result.offline))
+    counts = {"moved": summary.moved, "new": summary.new + summary.copies, "gone": summary.gone,
+              "replaced": summary.replaced}
+    parts = [f"{counts[k]} {one if counts[k] == 1 else many}" for k, one, many in SCAN_PARTS if counts[k]]
+    if parts:
+        emit(Message("info", SCANNED.format(parts=", ".join(parts))))
+    return summary
 
 
 # --- choosing the music folder (Setup, Settings, discjockey setup) ---
