@@ -256,6 +256,16 @@ def test_a_file_moved_into_a_folder_the_scan_cant_list_is_held(paths):
     assert state["tracks"]["t1"].get("file_gone") is None
 
 
+def test_an_unchanged_scan_writes_only_its_folders_last_scan(paths):
+    song(paths)
+    song(paths, key="t2", rel="Library/F/B - Y.aiff", seed=1)
+    with db.connect(paths.db_file) as conn:
+        before = conn.execute("SELECT * FROM files ORDER BY id").fetchall()
+        assert db.apply_scan(conn, ScanResult(unchanged=2), datetime(2030, 1, 1)) == 1
+        assert conn.execute("SELECT * FROM files ORDER BY id").fetchall() == before
+        assert conn.execute("SELECT last_scan FROM watched_folders").fetchall() == [("2030-01-01T00:00:00",)]
+
+
 def test_a_copy_of_a_known_file_counts_as_a_new_file(paths):
     rel = song(paths)
     shutil.copy(paths.root / rel, paths.library / "Copy.aiff")

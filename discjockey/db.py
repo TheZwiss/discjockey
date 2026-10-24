@@ -66,6 +66,8 @@ SCHEMA_V1 = (
       online INTEGER NOT NULL DEFAULT 1,
       -- 1: missing at the last scan, but it couldn't rule out a move (ScanResult.held); decided on a later scan
       held INTEGER NOT NULL DEFAULT 0,
+      -- last_seen: when a scan or a save last recorded the file's facts (an unchanged file's row is never
+      -- rewritten); when its folder was last looked at is watched_folders.last_scan
       first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
       status TEXT, source TEXT, source_id TEXT, source_format TEXT, cutoff_hz INTEGER, source_kbps INTEGER,
       ambiguous TEXT,
@@ -641,7 +643,8 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
     """Writes a ScanResult in one transaction (rules: the ScanResult docstring), together with the quality `judged`
     for replaced files (file id -> status, cutoff, source format; set_quality), so a replaced file's new key is never
     recorded without its new quality. Offline folders' rows are marked
-    offline and keep everything else; an online folder's rows are online again and seen now. Retagged and replaced
+    offline and keep everything else; an online folder's rows are online again and the folder's last_scan is now
+    (only rows that change are written: an unchanged scan writes one row per folder). Retagged and replaced
     rows get the file's size, mtime and key; a moved row takes its new place (placed by the user), and an unlinked
     row already there gives way to it; ambiguous rows keep their candidates; new files and copies become unlinked
     rows (found there by a scan: placed by 'import'); a gone row is deleted and its song's file marked gone today.
@@ -655,13 +658,14 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
         offline = set(result.offline)
         online = [i for i in folders if i not in offline]
         held = set(result.held)
-        for i in online:  # back online, and seen by this scan (a held row wasn't)
+        for i in online:  # back online, and seen by this scan (a held row wasn't); only the rows that change
+            n += conn.execute("UPDATE files SET online = 1 WHERE folder = ? AND online = 0", (i,)).rowcount
             n += conn.execute(
-                f"UPDATE files SET online = 1, held = 0, last_seen = ? WHERE folder = ? AND id NOT IN "
-                f"({', '.join('?' * len(held))})", (stamp, i, *held)).rowcount
+                f"UPDATE files SET held = 0 WHERE folder = ? AND held = 1 AND id NOT IN "
+                f"({', '.join('?' * len(held))})", (i, *held)).rowcount
+            n += conn.execute("UPDATE watched_folders SET last_scan = ? WHERE id = ?", (stamp, i)).rowcount
         for file_id in held:  # left as it is, but known not to be there: the planner leaves its song alone
             n += conn.execute("UPDATE files SET held = 1 WHERE id = ? AND held = 0", (file_id,)).rowcount
-            n += conn.execute("UPDATE watched_folders SET last_scan = ? WHERE id = ?", (stamp, i)).rowcount
         for i in offline:
             n += conn.execute("UPDATE files SET online = 0 WHERE folder = ? AND online = 1", (i,)).rowcount
             for outer, prefix in _inner(folders, i):  # its files a scan recorded under the outer folder
