@@ -435,6 +435,24 @@ def test_prepare_builds_only_the_snapshots_it_needs(paths, monkeypatch):
     assert len(built) == 1
 
 
+def test_a_dry_run_on_a_library_not_yet_migrated_finishes_no_pending_step(paths):
+    tmp = paths.data / ".tmp" / "t9" / "x.aiff"
+    tmp.parent.mkdir(parents=True)
+    write_aiff(tmp, music(1, 0))
+    v1 = {"version": 1, "tracks": {}, "never": {}, "qobuz_usage": {"days": {}, "signals": []},
+          "pending": [{"track_id": "t9", "renames": [[".discjockey/.tmp/t9/x.aiff", "Library/A/x.aiff"]],
+                       "entry": {"artist": "A", "title": "Lost", "folder": "A", "path": "Library/A/x.aiff",
+                                 "status": "lossless", "source": "qobuz", "source_id": "q1"}}]}
+    library.write_json_atomic(paths.state_file, v1, indent=2)
+    before = paths.state_file.read_bytes()
+    prep = run.prepare(paths, dry_run=True)
+    assert tmp.exists() and not (paths.library / "A" / "x.aiff").exists()  # no music file was changed
+    assert paths.state_file.read_bytes() == before and not paths.db_file.exists()
+    assert len(prep.state["pending"]) == 1
+    run.prepare(paths)  # the next sync finishes the step and moves the records
+    assert (paths.library / "A" / "x.aiff").exists() and paths.db_file.exists()
+
+
 def test_the_scan_waits_while_a_step_is_pending(paths):
     rel = placed(paths)
     state = library.load_state(paths)

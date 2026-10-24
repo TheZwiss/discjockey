@@ -150,28 +150,36 @@ def test_missing_records_are_never_replaced_by_an_empty_library(tmp_path):
     assert not p.db_file.exists()
 
 
-def test_missing_records_are_never_shown_from_the_backup_and_the_writer_rebuilds_them(tmp_path):
+@pytest.mark.parametrize("backup", [True, False])
+def test_missing_records_are_refused_by_reader_and_writer_and_never_rebuilt(tmp_path, backup):
     p = lib(tmp_path)
     library.write_json_atomic(p.state_file, v1(t1={"artist": "A", "title": "x", "path": None}))
     open_state(p)
     p.db_file.unlink()
-    with pytest.raises(StateError) as excinfo:
-        load_state(p)
-    assert str(excinfo.value) == ("Discjockey's records of this music folder (library.db) are missing. The next sync "
-                                  "rebuilds them from their backup (state.v1.json).")
-    assert not p.db_file.exists()  # a reader writes nothing
-    assert open_state(p)["tracks"]["t1"]["title"] == "x" and p.db_file.exists()
+    if not backup:
+        p.state_backup.unlink()
+    kept = p.state_backup.read_bytes() if backup else None
+    for opener in (load_state, open_state):
+        with pytest.raises(StateError) as excinfo:
+            opener(p)
+        assert str(excinfo.value) == ("Discjockey's records (library.db) are missing from the .discjockey folder. "
+                                      "Nothing was changed. Put the file back, for example from Time Machine, and "
+                                      "open Discjockey again.")
+        assert not p.db_file.exists()
+        assert (p.state_backup.read_bytes() == kept) if backup else not p.state_backup.exists()
 
 
-def test_missing_records_without_a_backup_say_so(tmp_path):
+def test_only_the_writer_upgrades_older_records(tmp_path, monkeypatch):
     p = lib(tmp_path)
-    library.write_json_atomic(p.state_file, v1())
     open_state(p)
-    p.db_file.unlink()
-    p.state_backup.unlink()
-    with pytest.raises(StateError) as excinfo:
-        load_state(p)
-    assert str(excinfo.value) == db.DB_MISSING
+    calls = []
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 2)
+    monkeypatch.setattr(db, "UPGRADES", {1: lambda conn: calls.append(1)})
+    with pytest.raises(StateError, match="from an older version. Run a sync once"):
+        load_state(p)  # a reader takes no lock: it never upgrades
+    assert calls == []
+    library.open_records(p)  # the writer (holding the lock) does
+    assert calls == [1] and load_state(p)["tracks"] == {}
 
 
 def test_saving_into_a_music_folder_that_went_away_is_no_library(tmp_path):

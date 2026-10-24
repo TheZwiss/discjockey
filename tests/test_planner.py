@@ -183,6 +183,14 @@ def test_an_offline_file_gets_nothing_not_even_the_weekly_check():
     assert kinds(p) == [] and p.never == [] and p.ambiguous == []
 
 
+@pytest.mark.parametrize("files", [["Library/A/x.aiff"], []])
+def test_a_held_file_gets_nothing_not_even_the_weekly_check(files):
+    """Missing at the last scan, which couldn't rule out a move: as offline, whether or not `files` names it."""
+    s = st(t1=entry(status="not_lossless", path="Library/A/x.aiff", held=True, last_upgrade_check=None))
+    p = plan([pl("A", tr("t1"))], s, files, TODAY)
+    assert kinds(p) == [] and p.never == [] and p.ambiguous == []
+
+
 def test_a_file_moved_to_one_of_several_places_is_listed_and_nothing_done():
     s = st(t1=entry(status="not_lossless", path="Library/A/x.aiff", last_upgrade_check=None))
     s["ambiguous"] = {"t1": ["Library/B/x.aiff", "Library/C/x.aiff"]}

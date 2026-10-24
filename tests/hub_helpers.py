@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 
-from discjockey import library, spotify
+from discjockey import db, library, spotify
 from discjockey.hub import jobs
 from discjockey.hub.api import HubApi, Services
 from discjockey.library import Paths, empty_state, save_state
@@ -85,7 +85,7 @@ def records(state):
     test can compare what was saved with the state in memory."""
     out = {k: v for k, v in state.items() if k not in ("files", "ambiguous")}
     out["tracks"] = {key: {k: v for k, v in e.items()
-                           if k not in ("online", "placed_by") and not (k == "file_gone" and v is None)}
+                           if k not in db.READ_ONLY and not (k == "file_gone" and v is None)}
                      for key, e in state["tracks"].items()}
     return out
 

@@ -66,6 +66,32 @@ def test_a_deleted_file_marks_its_song(paths):
     assert summary.gone == 1 and messages == ["Checked your Library: 1 file gone."]
 
 
+def test_a_copy_indexed_before_the_original_was_deleted_keeps_the_song(paths):
+    rel = song(paths)
+    shutil.copy(paths.root / rel, paths.library / "Copy.aiff")
+    scan(paths)  # the window came to the front: the copy is indexed
+    (paths.root / rel).unlink()
+    summary, messages = scan(paths)
+    e = load_state(paths)["tracks"]["t1"]
+    assert (e["path"], e["status"], e.get("file_gone"), e["placed_by"]) == (
+        "Library/Copy.aiff", "not_lossless", None, "user")
+    assert summary.moved == 1 and summary.gone == 0
+
+
+def test_a_file_put_back_from_the_trash_after_a_scan_changes_nothing(paths):
+    rel = song(paths)
+    shutil.copy(paths.root / rel, paths.library / "Copy.aiff")
+    scan(paths)
+    trash = paths.root.parent / "Trash.aiff"
+    shutil.move(paths.root / rel, trash)  # moved to the Trash: the song's file is the copy now
+    scan(paths)
+    shutil.move(trash, paths.root / rel)  # Put Back
+    summary, _ = scan(paths)
+    e = load_state(paths)["tracks"]["t1"]
+    assert (e["path"], e.get("file_gone")) == ("Library/Copy.aiff", None)
+    assert summary.gone == 0 and sorted(load_state(paths)["files"]) == ["Library/Copy.aiff", rel]
+
+
 def test_a_file_replaced_outside_discjockey_is_judged_again(paths):
     rel = song(paths)
     write_aiff(paths.root / rel, music(1, seed=7))  # other audio under the same name
@@ -198,7 +224,7 @@ def test_a_moved_file_takes_the_place_of_an_earlier_candidate(paths):
     assert load_state(paths)["ambiguous"] == {}
 
 
-def test_a_held_file_is_left_as_it_is(paths):
+def test_a_held_file_is_left_as_it_is_but_marked_held_until_it_is_seen(paths):
     song(paths)
     before = rows(paths)
     with db.connect(paths.db_file) as conn:
@@ -207,6 +233,37 @@ def test_a_held_file_is_left_as_it_is(paths):
         db.apply_scan(conn, ScanResult(held=[linked]), datetime(2030, 1, 1))
         (seen_after,) = conn.execute("SELECT last_seen FROM files").fetchone()
     assert rows(paths) == before and seen_after == seen_before
+    state = load_state(paths)
+    assert state["tracks"]["t1"]["held"] is True and state["files"] == []  # the planner leaves the song alone
+    with db.connect(paths.db_file) as conn:
+        db.apply_scan(conn, ScanResult(unchanged=1), datetime(2030, 1, 2))  # seen again
+    state = load_state(paths)
+    assert state["tracks"]["t1"]["held"] is False and state["files"] == ["Library/F/A - X.aiff"]
+
+
+def test_a_file_moved_into_a_folder_the_scan_cant_list_is_held(paths):
+    rel = song(paths)
+    locked = paths.library / "Locked"
+    locked.mkdir()
+    shutil.move(paths.root / rel, locked / "A - X.aiff")
+    locked.chmod(0)
+    try:
+        scan(paths)
+    finally:
+        locked.chmod(0o755)
+    state = load_state(paths)
+    assert state["tracks"]["t1"]["held"] is True and state["tracks"]["t1"]["path"] == rel
+    assert state["tracks"]["t1"].get("file_gone") is None
+
+
+def test_an_unchanged_scan_writes_only_its_folders_last_scan(paths):
+    song(paths)
+    song(paths, key="t2", rel="Library/F/B - Y.aiff", seed=1)
+    with db.connect(paths.db_file) as conn:
+        before = conn.execute("SELECT * FROM files ORDER BY id").fetchall()
+        assert db.apply_scan(conn, ScanResult(unchanged=2), datetime(2030, 1, 1)) == 1
+        assert conn.execute("SELECT * FROM files ORDER BY id").fetchall() == before
+        assert conn.execute("SELECT last_scan FROM watched_folders").fetchall() == [("2030-01-01T00:00:00",)]
 
 
 def test_a_copy_of_a_known_file_counts_as_a_new_file(paths):

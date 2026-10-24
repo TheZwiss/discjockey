@@ -124,14 +124,16 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
 def _open(paths: Paths, log: rep.RunLog, emit: Emit, *, dry_run: bool) -> dict:
     """The writer's part of prepare (the lock is held): open (and migrate), recover (not in a dry run), scan, then
     the snapshot the plan works on. A dry run needs no snapshot before the scan (scan_library opens the records
-    itself, and leaves a pending step's files alone)."""
+    itself, and leaves a pending step's files alone). A dry run changes no music file: a library not yet moved into
+    library.db whose state.json has steps pending is neither migrated (that finishes them) nor scanned; it plans
+    from state.json as it is."""
     if not dry_run:
         state = library.open_state(paths, emit)
         for message, ok in library.recover_pending(paths, state):
             log.add_text("recovered" if ok else "errors", message)
             emit(Message("info" if ok else "warning", message))
         library.clear_tmp(paths, state)  # keeps what a step that could not be finished yet still needs
-    library.scan_library(paths, emit)
+    library.scan_library(paths, emit, recover=not dry_run)
     return library.load_state(paths)
 
 

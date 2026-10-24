@@ -261,8 +261,9 @@ def _reconcile(result: ScanResult, s: _Sorting, snapshot_path: Callable[[int, st
     for f in s.new:
         new_by_key.setdefault(f.content_key, []).append(f)
         new_by_name.setdefault(_name(f.rel), []).append(f)
-    # An ambiguous row's candidates were indexed (as unlinked rows) by the scan that found them; they stay its
-    # candidates on every later scan.
+    # Files a scan already indexed (unlinked rows) are candidates too for a song's missing file: an ambiguous row's
+    # were indexed by the scan that found them, and a copy indexed while the original was still there is where the
+    # song's file is once the original goes (a copy made before deleting it, or a file put back from the Trash).
     indexed_by_key: dict[str, list[tuple[int, SeenFile]]] = {}
     indexed_by_name: dict[str, list[tuple[int, SeenFile]]] = {}
     for row, found in s.present:
@@ -274,7 +275,8 @@ def _reconcile(result: ScanResult, s: _Sorting, snapshot_path: Callable[[int, st
 
     def decide(row: KnownFile, new: list[SeenFile], indexed: list[tuple[int, SeenFile]]) -> None:
         candidates = list(new)
-        if row.ambiguous:
+        # by key only (a name is no proof it's the same audio); an unlinked row that is gone is nobody's file
+        if row.ambiguous or (row.linked and row.content_key is not None):
             candidates += [found for rid, found in indexed if rid != row.id]
         candidates = [c for c in candidates if (c.folder, c.rel) not in used]
         if len(candidates) == 1:

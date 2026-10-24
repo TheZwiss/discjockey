@@ -5,7 +5,7 @@ import time
 import pytest
 from hub_helpers import LOSSY, PARKED, fake_spotify, make_api, make_root, refreshed, wait_job, write
 
-from discjockey import library, run
+from discjockey import library, run, spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.align import Alignment
 from discjockey.events import SourceChosen
@@ -95,6 +95,29 @@ def test_rescan_library_runs_a_scan_job_and_counts_what_it_found(root, monkeypat
     f = wait_job(api, rec, api.rescan_library())
     assert f.ok and f.kind == "scan" and seen["paths"] == root
     assert f.result == {"moved": 1, "new": 2, "gone": 3, "changed": 4, "copies": 5}
+
+
+def test_a_scan_that_changed_something_plans_the_preview_again_without_reading_spotify(root, monkeypatch):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    before, read_at = api._store.prep, api._store.read_at
+    monkeypatch.setattr(spotify, "fetch_playlist", lambda *a, **k: pytest.fail("the scan read Spotify"))
+    replans, real = [], run.replan
+    monkeypatch.setattr(run, "replan", lambda prep: replans.append(prep) or real(prep))
+    monkeypatch.setattr(library, "scan_library", lambda paths, emit: ScanSummary())
+    assert wait_job(api, rec, api.rescan_library()).ok
+    assert replans == [] and api._store.prep is before  # nothing changed: the preview stays as it is
+    monkeypatch.setattr(library, "scan_library", lambda paths, emit: ScanSummary(gone=1))
+    assert wait_job(api, rec, api.rescan_library()).ok
+    assert replans == [before] and api._store.prep is not before
+    assert api._store.prep.fetched is before.fetched and api._store.read_at == read_at
+
+
+def test_a_scan_without_a_preview_plans_nothing(root, monkeypatch):
+    api, rec = make_api(root)
+    monkeypatch.setattr(run, "replan", lambda prep: pytest.fail("nothing to plan again"))
+    monkeypatch.setattr(library, "scan_library", lambda paths, emit: ScanSummary(gone=1))
+    assert wait_job(api, rec, api.rescan_library()).ok and api._store.prep is None
 
 
 def test_rescan_library_on_a_real_library_finishes_without_a_problem(root):

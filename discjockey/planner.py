@@ -200,6 +200,8 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
         e["folder"] = w.folder
         if not e.get("online", True):  # rule 3: on a drive that isn't there; satisfied, nothing to do or check
             continue
+        if e.get("held"):  # missing, but the scan couldn't rule out a move (a folder it couldn't read): as offline
+            continue
         if key in moved_ambiguous:  # the scan found it in several places (spec §6.3): the user picks one
             ambiguous.append((w.track, w.folder, sorted(moved_ambiguous[key])))
             continue
