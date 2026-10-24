@@ -24,11 +24,22 @@ from .planner import tidy_rows
 Now = Callable[[], datetime]
 
 FOLDER_LABEL = "the folder rename {old} → {new}"  # run_op's label of a folder move (I6)
+# The recovery message of a batch a crash left open, by its kind and whether it moved anything (I6's tidy-up text)
 RECOVERED = ("A tidy-up was stopped before it finished: {moved} moved, {left} not moved. You can undo it or tidy up "
              "the rest on the Playlists page.")
+RECOVERED_NONE = "A tidy-up was stopped before it moved anything. You can tidy up on the Playlists page."
+RECOVERED_RENAME = ("A folder rename was stopped before it finished, but the folder has its new name {new} now. You "
+                    "can undo it on the Playlists page.")
+RECOVERED_RENAME_NONE = "A folder rename was stopped before it started: the folder keeps its name {old}."
+RECOVERED_UNDO = ("An undo was stopped before it finished: {moved} moved back, {left} not moved. Undo the same moves "
+                  "again on the Playlists page to move the rest back.")
+RECOVERED_UNDO_NONE = ("An undo was stopped before it moved anything back. You can undo again on the Playlists "
+                       "page.")
 NOT_RENAMED_BACK = ("The folder {to} is back, but Discjockey couldn't call the playlist {to} again in playlists.txt "
                     "({reason}). Change its name on the Playlists page.")
-RECORDED_ELSEWHERE = "Discjockey's records show another song's file in that place"  # finish_move refused (I4)
+# finish_move refused (I4) after the file moved on disk: the move is recorded `failed`, in words that say so
+MOVED_NOT_RECORDED = ("it was moved, but Discjockey couldn't record its new place: its records show another song's "
+                      "file there")
 FAILED_DETAIL = {errno.EACCES: "Discjockey isn't allowed to change that folder",
                  errno.EPERM: "Discjockey isn't allowed to change that folder",
                  errno.ENOSPC: "the drive is full", errno.EROFS: "the drive is read-only",
@@ -40,11 +51,13 @@ OFFER_SKIP = {"folder_taken": "name_taken", "no_folder": "not_found", "folder_in
 
 class Stopped(Cancelled):
     """Stop between two moves: the batch is closed (the moves not made are `stopped`). Still a Cancelled, so a job
-    reports it as stopped; `result` is the batch as far as it went."""
+    reports it as stopped; `result` is the batch as far as it went, `results` every batch of the call so far
+    (after_save runs several), `result` last."""
 
-    def __init__(self, result: BatchResult):
+    def __init__(self, result: BatchResult, earlier: Sequence[BatchResult] = ()):
         super().__init__()
         self.result = result
+        self.results = (*earlier, result)
 
 
 def failed_detail(e: OSError) -> str:
@@ -57,6 +70,10 @@ def failed_detail(e: OSError) -> str:
 def _folder_of(path: str) -> str:
     """`F` of `Library/F` (a folder move's src or dst)."""
     return PurePosixPath(path).parts[1]
+
+
+def _same_folder(a: str | None, b: str) -> bool:
+    return a is not None and fold(a) == fold(b)
 
 
 def _in_folder(path: str, folder: str) -> bool:
@@ -155,9 +172,15 @@ def _move_one(paths: Paths, state: dict, keys: Mapping[int, str], m: MoveRow,
     file where it was (run_op drops a step that renamed nothing)."""
     try:
         if m.kind == "folder":
+            # the songs in the folder go with it; the playlist's songs take its new name (wherever their files
+            # are), so targets stay where the files are: an undo's playlist is called {old} again (P2)
             old, new = _folder_of(m.src), _folder_of(m.dst)
-            entries = {k: {**e, "path": _repath(e["path"], new)} for k, e in state["tracks"].items()
-                       if e.get("path") and _in_folder(e["path"], old)}
+            entries = {}
+            for k, e in state["tracks"].items():
+                moved = bool(e.get("path")) and _in_folder(e["path"], old)
+                if moved or _same_folder(e.get("folder"), old):
+                    entries[k] = {**e, **({"path": _repath(e["path"], new)} if moved else {}),
+                                  **({"folder": new} if _same_folder(e.get("folder"), old) else {})}
             library.run_op(paths, state, "", [(m.src, m.dst)], None, entries=entries,
                            label=FOLDER_LABEL.format(old=old, new=new))
         else:
@@ -198,8 +221,8 @@ def _run(paths: Paths, state: dict, batch_id: int, started_by: str, *, emit: Emi
                     try:
                         db.finish_move(conn, m.id)
                     except sqlite3.IntegrityError:
-                        db.skip_move(conn, m.id, "failed", RECORDED_ELSEWHERE)
-                        skip = ("failed", RECORDED_ELSEWHERE)
+                        db.skip_move(conn, m.id, "failed", MOVED_NOT_RECORDED)
+                        skip = ("failed", MOVED_NOT_RECORDED)
                 else:
                     db.skip_move(conn, m.id, *skip)
             if skip is None and m.kind == "folder" and (warning := _playlist_follows(paths, m)):
@@ -368,12 +391,34 @@ def after_save(paths: Paths, retargeted: Mapping[str, str], choice: SaveChoice, 
         with db.connect(paths.db_file) as conn:
             db.set_placed_by(conn, ids, "user")
         return []
-    results = []
-    for old, new in choice.renames:
-        results.append(_rename(paths, state, old, new, choice.renames, emit=emit, token=token, now=now))
-        state = library.load_state(paths)  # paths and the files on disk changed
-    results.append(_tidy(paths, state, choice.moves, "save", emit=emit, token=token, now=now))
+    results: list[BatchResult] = []
+    try:
+        for old, new in choice.renames:
+            results.append(_rename(paths, state, old, new, choice.renames, emit=emit, token=token, now=now))
+            state = library.load_state(paths)  # paths and the files on disk changed
+        moves = _through_renames(state, choice.moves, choice.renames)
+        results.append(_tidy(paths, state, moves, "save", emit=emit, token=token, now=now))
+    except Stopped as stopped:
+        raise Stopped(stopped.result, results) from None
     return results
+
+
+def _through_renames(state: dict, moves: Sequence[tuple[int, str]],
+                     renames: Sequence[tuple[str, str]]) -> list[tuple[int, str]]:
+    """The sent moves with each path under a renamed folder taken in either spelling, before or after the rename
+    (the page may send either, and the rename may have been refused): a sent path that is the file's path today
+    in the other spelling becomes it. Anything else stays as sent (and is `changed` when it doesn't match)."""
+    keys = _keys_by_file(state)
+    out = []
+    for file_id, path in moves:
+        now = state["tracks"][keys[file_id]].get("path") if file_id in keys else None
+        if now and fold(now) != fold(path):
+            for old, new in renames:
+                for a, b in ((old, new), (new, old)):
+                    if _in_folder(path, a) and fold(_repath(path, b)) == fold(now):
+                        path = now
+        out.append((file_id, path))
+    return out
 
 
 # --- recovery (P3) ---
@@ -408,13 +453,32 @@ def recover(paths: Paths, state: dict) -> list[tuple[str, bool]]:
                 try:
                     db.finish_move(conn, m.id)
                 except sqlite3.IntegrityError:
-                    db.skip_move(conn, m.id, "failed", RECORDED_ELSEWHERE)
+                    db.skip_move(conn, m.id, "failed", MOVED_NOT_RECORDED)
             moves = db.batch_moves(conn, batch_id)
             for m in moves:
                 if m.kind == "folder" and m.state == "done" and (warning := _playlist_follows(paths, m)):
                     messages.append((warning, False))
             db.close_batch(conn, batch_id, datetime.now())
-            moved = sum(m.state == "done" for m in moves)
-            messages.append((RECOVERED.format(moved=moved, left=len(moves) - moved), True))
+            messages.append((_recovered(_started_by(conn, batch_id), moves), True))
     return messages
+
+
+def _started_by(conn, batch_id: int) -> str:
+    """The kind of a batch (db.batches lists them newest first; ids count up from 1 and batches are never
+    deleted, so the open ones are among the newest)."""
+    _, total = db.batches(conn, 0)
+    rows, _ = db.batches(conn, max(1, total - batch_id + 1))
+    return next((r.started_by for r in rows if r.id == batch_id), "tidy")
+
+
+def _recovered(started_by: str, moves: list[MoveRow]) -> str:
+    moved = sum(m.state == "done" for m in moves)
+    left = len(moves) - moved
+    if started_by == "rename":
+        m = moves[0]
+        return (RECOVERED_RENAME.format(new=_folder_of(m.dst)) if moved
+                else RECOVERED_RENAME_NONE.format(old=_folder_of(m.src)))
+    if started_by == "undo":
+        return RECOVERED_UNDO.format(moved=moved, left=left) if moved else RECOVERED_UNDO_NONE
+    return RECOVERED.format(moved=moved, left=left) if moved else RECOVERED_NONE
 

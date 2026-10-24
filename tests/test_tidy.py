@@ -1,13 +1,15 @@
 """The tidy-up engine (plan library stage 2, group 3): batches, undo, the save's choice, recovery. tmp_path only."""
 import errno
 import os
+import sqlite3
+from datetime import datetime
 
 import pytest
 
-from discjockey import db, library, quality, tidy
-from discjockey.events import CancelToken, MovesProgress
+from discjockey import db, library, planner, quality, tidy
+from discjockey.events import CancelToken, MovesProgress, no_emit
 from discjockey.library import Paths, empty_state, load_state, save_state
-from discjockey.models import SaveChoice
+from discjockey.models import PlannedMove, SaveChoice
 from discjockey.playlists_file import Row
 
 LINK1 = "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"
@@ -141,6 +143,28 @@ def test_a_file_id_without_a_row_is_logged_as_not_found(paths):
     assert [(m.label, m.reason) for m in result.skipped] == [("A - gone", "not_found")]
 
 
+def test_a_song_gone_between_planning_and_its_move_is_not_found(paths):
+    state = library_with(paths, ("s1", "A", "B"))
+    e = state["tracks"]["s1"]
+    batch = tidy._start(paths, "tidy", [PlannedMove("file", e["file_id"], "A - s1", e["path"],
+                                                    "Library/A/A - s1.aiff", None, "app", "app")], datetime.now)
+    del state["tracks"]["s1"]
+    result = tidy._run(paths, state, batch, "tidy", emit=no_emit, token=CancelToken(), now=datetime.now)
+    assert [m.reason for m in result.skipped] == ["not_found"] and (paths.library / "B" / "A - s1.aiff").exists()
+
+
+def test_a_move_the_records_refuse_is_failed_in_words_that_say_it_moved(paths, monkeypatch):
+    state = library_with(paths, ("s1", "A", "B"))
+
+    def refused(conn, move_id):
+        raise sqlite3.IntegrityError("UNIQUE constraint failed: files.folder, files.path")
+    monkeypatch.setattr(db, "finish_move", refused)
+    result = tidy.tidy_up(paths, sent(state, "s1"))
+    assert [(m.reason, m.detail) for m in result.skipped] == [("failed", tidy.MOVED_NOT_RECORDED)]
+    assert tidy.MOVED_NOT_RECORDED.startswith("it was moved")
+    assert (paths.library / "A" / "A - s1.aiff").exists()  # the record says what happened on disk
+
+
 def test_failed_details_are_plain_words():
     assert tidy.failed_detail(OSError(errno.ENOSPC, "No space left on device")) == "the drive is full"
     assert tidy.failed_detail(OSError(errno.EROFS, "Read-only file system")) == "the drive is read-only"
@@ -252,6 +276,26 @@ def test_undo_skips_what_moved_on_or_lost_its_place(paths, monkeypatch):
     assert (paths.library / "A" / "A - s3.aiff").read_bytes() == b"audio of s3"
 
 
+@pytest.mark.parametrize("field, value, reason", [("online", False, "offline"), ("held", True, "moved_on")])
+def test_undo_skips_an_offline_or_held_file(paths, field, value, reason):
+    _, done = tidied(paths, ("s1", "A", "B"))
+    state = load_state(paths)
+    state["tracks"]["s1"][field] = value
+    assert [m.skip for m in tidy.undo_preview(paths, state, done.batch_id)] == [(reason, None)]
+
+
+def test_a_refused_move_back_is_failed_and_the_file_stays(paths, monkeypatch):
+    _, done = tidied(paths, ("s1", "A", "B"))
+
+    def rename(src, dst):
+        raise PermissionError(errno.EPERM, "Operation not permitted")
+    monkeypatch.setattr(os, "rename", rename)
+    result = tidy.undo(paths, done.batch_id)
+    assert [(m.reason, m.detail) for m in result.skipped] == [
+        ("failed", "Discjockey isn't allowed to change that folder")]
+    assert load_state(paths)["tracks"]["s1"]["path"] == "Library/A/A - s1.aiff"
+
+
 def test_undo_preview_of_a_library_without_records_is_empty(paths):
     assert tidy.undo_preview(paths, empty_state(), 1) == [] and not paths.db_file.exists()
 
@@ -288,6 +332,24 @@ def test_undo_of_a_folder_rename_renames_the_folder_and_the_playlist_back(paths)
     assert paths.playlists_file.read_text() == f"# my playlists\nOld = {LINK1}\nX = {LINK2}\n"
 
 
+def test_after_a_rename_and_its_undo_every_file_is_in_place(paths):
+    done = renamed(paths)
+    assert planner.out_of_place(load_state(paths)) == 0
+    tidy.undo(paths, done.batch_id)
+    after = load_state(paths)
+    assert after["tracks"]["s1"]["folder"] == "Old"  # the playlist is called Old again, so are its songs' folders
+    assert planner.out_of_place(after) == 0 and planner.tidy_rows(after) == []
+
+
+def test_a_rename_on_its_own_gives_the_songs_the_new_folder(paths):
+    library_with(paths, ("s1", "Old", "Old"), ("s2", "Old", "Elsewhere"))
+    playlists(paths, f"New = {LINK1}")
+    tidy.rename_folder(paths, "Old", "New")
+    after = load_state(paths)
+    assert [after["tracks"][k]["folder"] for k in ("s1", "s2")] == ["New", "New"]
+    assert after["tracks"]["s2"]["path"] == "Library/Elsewhere/A - s2.aiff"  # only the folder's files move
+
+
 def test_undo_of_a_folder_rename_skips_when_the_playlist_or_the_folder_changed(paths):
     done = renamed(paths)
     playlists(paths, f"Renamed again = {LINK1}", f"X = {LINK2}")
@@ -315,7 +377,7 @@ def test_a_crash_between_the_folder_undo_and_the_name_write_is_finished_next_sta
     state = load_state(paths)
     messages = library.recover_pending(paths, state)
     assert paths.playlists_file.read_text() == f"# my playlists\nOld = {LINK1}\nX = {LINK2}\n"
-    assert messages == [(tidy.RECOVERED.format(moved=1, left=0), True)] and open_batches(paths) == []
+    assert messages == [(tidy.RECOVERED_UNDO.format(moved=1, left=0), True)] and open_batches(paths) == []
 
 
 # --- 3.4 after_save ---
@@ -330,13 +392,13 @@ def test_leave_marks_only_the_retargeted_files_the_app_placed(paths):
     assert after["tracks"]["s1"]["path"] == "Library/A/A - s1.aiff"  # nothing moved
 
 
-def test_move_with_a_rename_and_moves_gives_two_batches(paths):
+@pytest.mark.parametrize("spelling", ["Library/Old/A - s2.aiff", "Library/New/A - s2.aiff"])
+def test_move_with_a_rename_and_moves_gives_two_batches(paths, spelling):
     state = library_with(paths, ("s1", "New", "Old"), ("s2", "C", "Old"))
     playlists(paths, f"New = {LINK1}", f"C = {LINK2}")
     s2 = state["tracks"]["s2"]["file_id"]
     results = tidy.after_save(paths, {"s1": "New", "s2": "C"},
-                              SaveChoice("move", renames=(("Old", "New"),),
-                                         moves=((s2, "Library/New/A - s2.aiff"),)))
+                              SaveChoice("move", renames=(("Old", "New"),), moves=((s2, spelling),)))
     assert [(r.started_by, r.moved) for r in results] == [("rename", 1), ("save", 1)]
     after = load_state(paths)
     assert after["tracks"]["s1"]["path"] == "Library/New/A - s1.aiff"
@@ -344,12 +406,28 @@ def test_move_with_a_rename_and_moves_gives_two_batches(paths):
 
 
 def test_a_rename_refused_at_run_time_is_one_skipped_move_and_the_moves_still_run(paths):
-    state = library_with(paths, ("s1", "New", "Old"), ("s2", "C", "B"), ("s3", "X", "New"))
+    state = library_with(paths, ("s1", "New", "Old"), ("s2", "C", "B"), ("s3", "X", "New"), ("s4", "C", "Old"),
+                         ("s5", "C", "Old"))
     playlists(paths, f"New = {LINK1}", f"C = {LINK2}")
-    results = tidy.after_save(paths, {"s1": "New", "s2": "C"},
-                              SaveChoice("move", renames=(("Old", "New"),), moves=tuple(sent(state, "s2"))))
+    s4, s5 = state["tracks"]["s4"]["file_id"], state["tracks"]["s5"]["file_id"]
+    moves = (*sent(state, "s2"), (s4, "Library/New/A - s4.aiff"), (s5, "Library/Old/A - s5.aiff"))
+    results = tidy.after_save(paths, {"s1": "New", "s2": "C", "s4": "C", "s5": "C"},
+                              SaveChoice("move", renames=(("Old", "New"),), moves=moves))
     assert [(r.started_by, r.moved, [m.reason for m in r.skipped]) for r in results] == [
-        ("rename", 0, ["name_taken"]), ("save", 1, [])]
+        ("rename", 0, ["name_taken"]), ("save", 3, [])]
+    assert load_state(paths)["tracks"]["s4"]["path"] == "Library/C/A - s4.aiff"  # found under its old spelling
+
+
+def test_a_stop_during_a_save_keeps_the_batches_before_it(paths):
+    state = library_with(paths, ("s1", "New", "Old"), ("s2", "C", "B"))
+    playlists(paths, f"New = {LINK1}", f"C = {LINK2}")
+    token = CancelToken()
+    with pytest.raises(tidy.Stopped) as stopped:
+        tidy.after_save(paths, {"s1": "New", "s2": "C"},
+                        SaveChoice("move", renames=(("Old", "New"),), moves=tuple(sent(state, "s2"))), token=token,
+                        emit=lambda e: token.cancel() if isinstance(e, MovesProgress) else None)
+    assert [(r.started_by, r.moved, r.stopped) for r in stopped.value.results] == [("rename", 1, False),
+                                                                                   ("save", 0, True)]
 
 
 # --- 3.5 recovery ---
@@ -383,7 +461,7 @@ def test_a_crash_before_the_move_leaves_the_file_where_it_was(paths, monkeypatch
     with pytest.raises(SystemExit):
         tidy.tidy_up(paths, sent(state, "s1"))
     monkeypatch.undo()
-    library.recover_pending(paths, load_state(paths))
+    assert library.recover_pending(paths, load_state(paths)) == [(tidy.RECOVERED_NONE, True)]
     assert [(m.state, m.reason) for m in moves_of(paths, 1)] == [("skipped", "stopped")]
     assert (paths.library / "B" / "A - s1.aiff").exists() and placed(paths, "s1") == "app"
 
@@ -405,3 +483,18 @@ def test_a_step_still_pending_is_finished_first_and_its_move_counts_as_done(path
     assert messages[-1] == (tidy.RECOVERED.format(moved=1, left=0), True)
     assert load_state(paths)["tracks"]["s1"]["path"] == "Library/A/A - s1.aiff"
     assert [m.state for m in moves_of(paths, 1)] == ["done"]
+
+
+@pytest.mark.parametrize("moved", [True, False])
+def test_a_stopped_folder_rename_is_worded_as_one(paths, monkeypatch, moved):
+    library_with(paths, ("s1", "New", "Old"))
+    playlists(paths, f"New = {LINK1}")
+
+    def power_cut(*a, **k):
+        raise SystemExit("power cut")
+    monkeypatch.setattr(db, "finish_move", power_cut) if moved else monkeypatch.setattr(library, "run_op", power_cut)
+    with pytest.raises(SystemExit):
+        tidy.rename_folder(paths, "Old", "New")
+    monkeypatch.undo()
+    expected = (tidy.RECOVERED_RENAME.format(new="New") if moved else tidy.RECOVERED_RENAME_NONE.format(old="Old"))
+    assert library.recover_pending(paths, load_state(paths)) == [(expected, True)]
