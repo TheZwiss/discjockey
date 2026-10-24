@@ -4,7 +4,8 @@
 Works on plain data: the watched folders and the index's file rows come in, a ScanResult goes out, no SQL here.
 A file whose path, size and mtime match its row is not read (one `lstat` per file). A folder that can't be seen is
 offline and its rows appear in no list; a subfolder that can't be listed or a file that can't be read leaves its
-rows as they are. So nothing is ever reported gone because something couldn't be read.
+rows as they are, and a row that would be gone is held instead when its file could be in a place the walk
+couldn't read (spec §12). So nothing is ever reported gone because something couldn't be read.
 """
 from __future__ import annotations
 
@@ -49,13 +50,14 @@ def scan(folders: list[WatchedFolder], known: list[KnownFile], *, exclude: list[
             _go_offline(result, sorting, members, rows.values())
             continue
         local = _sort_folder(top, rows, walked, key_of)
-        if not top.path.is_dir():  # it went away while it was read
+        if _offline(top.path, mounted):  # it went away while it was read
             _go_offline(result, sorting, members, rows.values())
             continue
         for member in members[1:]:
-            if not member.path.is_dir():  # an inner watched folder that isn't there is offline, not gone
+            if _offline(member.path, mounted):  # an inner watched folder that isn't there is offline, not gone
                 prefix = tops[member.id][1]
-                gone_inner = [row for rel, row in rows.items() if row.folder == member.id]
+                # its files: rows of the inner folder and rows a scan recorded under the outer one
+                gone_inner = [row for rel, row in rows.items() if rel.startswith(prefix)]
                 _go_offline(result, sorting, [member], gone_inner)
                 local.drop(prefix, {row.id for row in gone_inner})
         sorting.add(local)
@@ -157,10 +159,14 @@ class _Sorting:
     unreadable: list[tuple[int, str, str]] = field(default_factory=list)
     present: list[tuple[KnownFile, SeenFile]] = field(default_factory=list)  # rows whose file is at its path
     kept: list[KnownFile] = field(default_factory=list)  # rows left as they are (offline, unlisted, unreadable)
+    hold_if_gone: set[int] = field(default_factory=set)  # missing rows of a folder whose walk couldn't see it all
+    unreadable_sizes: set[int] = field(default_factory=set)  # sizes of files that couldn't be read (lstat worked)
     missing: list[KnownFile] = field(default_factory=list)  # rows whose path is gone
     new: list[SeenFile] = field(default_factory=list)  # files no row has at their path
 
     def add(self, other: _Sorting) -> None:
+        self.hold_if_gone |= other.hold_if_gone
+        self.unreadable_sizes |= other.unreadable_sizes
         for name in ("unchanged", "retagged", "replaced", "unreadable", "present", "kept", "missing", "new"):
             getattr(self, name).extend(getattr(other, name))
 
@@ -175,6 +181,7 @@ class _Sorting:
         self.unreadable = [u for u in self.unreadable if not under(u[1])]
         self.kept = [row for row in self.kept if row.id not in row_ids]
         self.missing = [row for row in self.missing if row.id not in row_ids]
+        self.hold_if_gone -= row_ids
         self.new = [s for s in self.new if not under(s.rel)]
 
 
@@ -203,6 +210,7 @@ def _sort_folder(top: WatchedFolder, rows: dict[str, KnownFile], walked: _Walked
             key = key_of(path)
         except OSError as e:
             out.unreadable.append((top.id, rel, _reason(e)))
+            out.unreadable_sizes.add(st.st_size)
             if row is not None:
                 out.kept.append(row)
             continue
@@ -223,6 +231,8 @@ def _sort_folder(top: WatchedFolder, rows: dict[str, KnownFile], walked: _Walked
             out.unchanged.append(row.id)
         else:
             out.missing.append(row)
+    if walked.unlisted or walked.unreadable:  # a moved file may be where the walk couldn't look
+        out.hold_if_gone.update(row.id for row in out.missing)
     return out
 
 
@@ -274,6 +284,8 @@ def _reconcile(result: ScanResult, s: _Sorting, snapshot_path: Callable[[int, st
             result.moved.append((row.id, target))
         elif candidates:
             result.ambiguous.append((row.id, sorted(snapshot_path(c.folder, c.rel) for c in candidates)))
+        elif row.id in s.hold_if_gone or (row.size is not None and row.size in s.unreadable_sizes):
+            result.held.append(row.id)  # could be the file that couldn't be read: decided on a later scan
         else:
             result.gone.append(row.id)
 

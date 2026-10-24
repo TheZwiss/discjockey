@@ -346,6 +346,67 @@ def test_missing_inner_folder_is_offline_not_gone(lib):
     assert r.gone == [] and r.unchanged == 1 and r.new == []
 
 
+def test_missing_inner_folder_holds_rows_recorded_under_the_outer_one(lib):
+    inner = WatchedFolder(2, lib.path / "Imports", "import")
+    rows = [KnownFile(1, lib.id, "Imports/B.aiff", 3, 4, "k:b", True, False),  # found by an earlier scan
+            KnownFile(2, lib.id, "C.aiff", 3, 4, "k:c", True, False)]
+    r = run([lib, inner], rows)
+    assert r.offline == [2]
+    assert r.gone == [2]  # only the outer folder's own file
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can list any folder")
+def test_a_file_moved_into_an_unlistable_subfolder_is_held(lib):
+    put(lib.path, "A - One.aiff", "one")
+    put(lib.path, "B - Two.aiff", "two")
+    rows = [known(1, lib, "A - One.aiff"), known(2, lib, "B - Two.aiff")]
+    (lib.path / "Locked").mkdir()
+    (lib.path / "A - One.aiff").rename(lib.path / "Locked" / "A - One.aiff")
+    (lib.path / "B - Two.aiff").rename(lib.path / "Seen.aiff")
+    os.chmod(lib.path / "Locked", 0)
+    try:
+        r = run([lib], rows)
+    finally:
+        os.chmod(lib.path / "Locked", 0o755)
+    assert r.held == [1] and r.gone == []
+    assert r.moved == [(2, seen(lib, "Seen.aiff"))]  # a visible match still moves
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can read any file's details")
+def test_a_file_whose_details_cant_be_read_holds_the_folder_s_missing_rows(lib, tmp_path):
+    other = WatchedFolder(2, tmp_path / "Other", "import")
+    put(lib.path, "A - One.aiff", "one")
+    put(other.path, "C.aiff", "c")
+    rows = [known(1, lib, "A - One.aiff"), known(2, other, "C.aiff")]
+    (lib.path / "A - One.aiff").unlink()
+    (other.path / "C.aiff").unlink()
+    put(lib.path, "Shut/X.aiff", "x")
+    os.chmod(lib.path / "Shut", 0o444)  # listable, but its files' details can't be read
+    try:
+        r = run([lib, other], rows)
+    finally:
+        os.chmod(lib.path / "Shut", 0o755)
+    assert [rel for _, rel, _ in r.unreadable] == ["Shut/X.aiff"]
+    assert r.held == [1]
+    assert r.gone == [2]  # another watched folder, seen in full
+
+
+def test_an_unreadable_file_holds_only_missing_rows_of_its_size(lib):
+    put(lib.path, "A - One.aiff", "same")
+    put(lib.path, "B - Two.aiff", "a longer one")
+    rows = [known(1, lib, "A - One.aiff"), known(2, lib, "B - Two.aiff")]
+    (lib.path / "A - One.aiff").rename(lib.path / "Bad.aiff")
+    (lib.path / "B - Two.aiff").unlink()
+
+    def deny(path: Path) -> None:
+        if path.name == "Bad.aiff":
+            raise PermissionError(13, "Permission denied", str(path))
+
+    r = run([lib], rows, Keys(on_call=deny))
+    assert r.held == [1]
+    assert r.gone == [2]
+
+
 def test_default_key_is_the_content_key(lib):
     from discjockey.content_key import content_key
     p = put(lib.path, "A - One.mp3", "frames")

@@ -164,4 +164,6 @@ class ScanResult:
     new: list[SeenFile] = field(default_factory=list)  # unknown keys, incl. every ambiguous candidate
     copies: list[SeenFile] = field(default_factory=list)  # the key of a file that is still there
     gone: list[int] = field(default_factory=list)  # file ids
+    held: list[int] = field(default_factory=list)  # file ids that would be gone, left as they are: the file may be
+    # in a subfolder that couldn't be listed or be a file that couldn't be read (spec §12); decided on a later scan
     unreadable: list[tuple[int, str, str]] = field(default_factory=list)  # folder id, rel, reason; tried next scan
