@@ -1,11 +1,11 @@
 // Engine and hub events, exactly as tests/fixtures/hub_events.schema.json (spec §6.4, contract "Events").
 import type { AppUpdate, Browser, PlannedAction, ProblemKind, Result } from './types';
 
-export type SpotifyTrack = { id: string; title: string; artists: string[]; album: string; image_url: string | null;
-  duration_ms: number; isrc: string | null };
+export type SourceTrack = { id: string; title: string; artists: string[]; album: string; image_url: string | null;
+  duration_ms: number; isrc: string | null; service: string; link: string | null; streamable: boolean };
 export type Action = { kind: 'acquire' | 'adopt_bought' | 'upgrade' | string; track_id: string;
-  folder: string; track: SpotifyTrack; order: [number, number]; src: string | null; dest_dir: string | null;
-  aliases: string[]; reason: string };
+  folder: string; track: SourceTrack; order: [number, number]; src: string | null; dest_dir: string | null;
+  aliases: string[]; reason: string; qobuz_id: string | null };
 export type Step = 'search' | 'download' | 'check' | 'convert' | 'analyse' | 'compare';
 export type HubEvent =
   | { type: 'RunStarted'; total: number; actions: PlannedAction[] }
@@ -62,9 +62,9 @@ export const EVENT_FIELDS: { [T in HubEvent['type']]: readonly (keyof EventOf<T>
   AppUpdate: ['type', 'state', 'current', 'latest', 'url'],
 };
 export const ACTION_FIELDS: readonly (keyof Action)[] = ['kind', 'track_id', 'folder', 'track', 'order', 'src',
-  'dest_dir', 'aliases', 'reason'];
-export const TRACK_FIELDS: readonly (keyof SpotifyTrack)[] = ['id', 'title', 'artists', 'album', 'image_url',
-  'duration_ms', 'isrc'];
+  'dest_dir', 'aliases', 'reason', 'qobuz_id'];
+export const TRACK_FIELDS: readonly (keyof SourceTrack)[] = ['id', 'title', 'artists', 'album', 'image_url',
+  'duration_ms', 'isrc', 'service', 'link', 'streamable'];
 export const RESULT_FIELDS: readonly (keyof Result)[] = ['section', 'folder', 'artist', 'title', 'track_id', 'note',
   'status', 'source', 'cutoff_hz', 'path', 'error_kind', 'found_status'];
 
