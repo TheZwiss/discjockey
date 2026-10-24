@@ -17,6 +17,7 @@ export const YOURS_CONTROL = 'Put these in playlist order too';
 export const CANT_MOVE = "Can't move";
 export const CANT_MOVE_BACK = "Can't move back";
 export const LEAVE_HINT = 'If you leave them, Tidy up files can move them later.';
+export const LEAVE_RENAME = 'Not renamed when you leave the files where they are.';
 export const NOTHING_LEFT = 'Nothing left to undo';
 export const NO_MOVES_YET = 'No files moved yet.';
 
@@ -191,9 +192,11 @@ export function folderRows(q: SaveQuestion): FolderRow[] {
     .map((r) => ({ from: r.from, to: r.to, files: r.files }));
 }
 
-/** The option's detail line, counted from the offer's files. */
-export function offerDetail(offer: RenameOffer): string {
-  return offer.offered ? renameDetail(offer.files) : offer.why_not ?? '';
+/** The option's detail line, counted from the offer's files. `leaving`: the user is on "Save, leave files where
+ *  they are", which renames nothing, so an offered rename says so instead. */
+export function offerDetail(offer: RenameOffer, leaving = false): string {
+  if (!offer.offered) return offer.why_not ?? '';
+  return leaving ? LEAVE_RENAME : renameDetail(offer.files);
 }
 
 /** The files the save question is about: the shown rows, and each folder renamed on disk with all it carries. */

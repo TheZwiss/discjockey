@@ -84,6 +84,8 @@
     untrack(() => { question = t && pv ? carryOver(question, t.rows, pv.renames) : null; });
   });
   const q = $derived(question);
+  // the pointer or the keyboard is on "Save, leave files where they are": it renames no folder, so the switch greys out
+  let leaving = $state(false);
   const qGroups = $derived(q ? groups(visibleRows(q)) : null);
   const qShown = $derived(q ? visibleRows(q) : []);
   const qCount = $derived(q ? saveCount(q) : null);
@@ -187,7 +189,7 @@
           <Surface kind="list" data-test="rename-offers">
             {#each offers as o (o.from)}
               <ToggleRow item={{ key: o.from, label: o.option, on: o.offered && q.renameOn.has(o.from) }}
-                sub={offerDetail(o)} disabled={!o.offered} title={o.offered ? undefined : o.why_not ?? undefined}
+                sub={offerDetail(o, leaving)} disabled={!o.offered || leaving} title={o.offered ? undefined : o.why_not ?? undefined}
                 onchange={(k) => { if (question) question = toggleRename(question, k); }} test="rename-{o.from}" />
             {/each}
           </Surface>
@@ -288,6 +290,8 @@
     <!-- the main action sits by Undo, as in every foot; the long "leave" save gets the full width above (1100 px) -->
     <div class="foot two">
       <WriteButton wide busy={saving} disabled={panel.dim} title={panel.dim ? 'Working out what changes…' : undefined}
+        onpointerenter={() => (leaving = true)} onpointerleave={() => (leaving = false)}
+        onfocus={() => (leaving = true)} onblur={() => (leaving = false)}
         onclick={() => question && onsave(saveFiles(question, 'leave'), [])} data-test="save-leave">Save, leave files where they are</WriteButton>
       <div class="line">
         <Button disabled={saving} onclick={onundo} data-test="undo">Undo</Button>

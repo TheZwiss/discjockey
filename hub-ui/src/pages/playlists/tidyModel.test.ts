@@ -129,6 +129,13 @@ describe('the save question', () => {
     expect(saveCount(q)).toBe('13 files move: 12 from Powertrance to Powertrance_2026, 1 from Elsewhere to Powertrance_2026.');
     expect(saveMoving(q)).toBe(13);
   });
+  it('on "leave" an offered rename says it doesn\'t apply; one that isn\'t offered keeps its own reason', () => {
+    const q = initialQuestion(rows, [offer('Powertrance', 'Powertrance_2026')]);
+    expect(offerDetail(q.renames[0], true)).toBe('Not renamed when you leave the files where they are.');
+    expect(offerDetail(q.renames[0], false)).toBe('One folder move instead of 12 file moves.');
+    const no = initialQuestion(rows, [offer('Powertrance', 'Powertrance_2026', false)]);
+    expect(offerDetail(no.renames[0], true)).toBe('A folder called Powertrance_2026 is already in your Library.');
+  });
   it('one file in the folder is "1 file"', () => {
     const q = initialQuestion(rows, [{ ...offer('Powertrance', 'Powertrance_2026'), files: 1 }]);
     expect(offerDetail(q.renames[0])).toBe('One folder move instead of 1 file move.');
