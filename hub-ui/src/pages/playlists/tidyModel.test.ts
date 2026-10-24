@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { BatchResult, RenameOffer, TidyRow, UndoPreview } from '$lib/bridge/types';
 import {
   carryOver, confirmLabel, countLine, folderName, folderRows, goBackText, groupState, groups, initialQuestion, initialTicks,
-  itemOfRow, movesOf, notMovedText, offerDetail, outcomeOf, pairsOf, progressDone, progressStart, progressStep,
+  itemOfRow, movesOf, notMovedText, offerDetail, outcomeOf, pairsOf, problemToTell, progressDone, progressStart, progressStep,
   progressTotal, renameDetail, resultUndo, saveCount, saveFiles, saveHeadline, saveItems, saveMoving, skipTone,
   tickedRows, tickedText, toggleGroup, toggleRename, toggleTick, undoItems, undoLabel, visibleRows,
 } from './tidyModel';
@@ -208,5 +208,17 @@ describe('results', () => {
     expect(skipTone('failed')).toBe('problem');
     expect(skipTone('stopped')).toBe('warn');
     expect(skipTone('offline')).toBe('warn');
+  });
+});
+
+describe('problemToTell', () => {
+  it('tells every failed job, also one that still carries a result', () => {
+    expect(problemToTell({ ok: false, kind: 'crashed', message: 'The disk is gone' }))
+      .toEqual({ kind: 'crashed', message: 'The disk is gone' });
+    expect(problemToTell({ ok: false, kind: 'busy', message: '' })).toEqual({ kind: 'busy', message: '' });
+  });
+  it('says nothing after a Stop the user pressed, or after a success', () => {
+    expect(problemToTell({ ok: false, kind: 'stopped', message: 'Stopped.' })).toBeNull();
+    expect(problemToTell({ ok: true })).toBeNull();
   });
 });

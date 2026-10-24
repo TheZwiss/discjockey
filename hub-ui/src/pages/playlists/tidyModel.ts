@@ -3,7 +3,7 @@
 // label and what goes to the bridge. Used by the Tidy up files preview and by the save question, where a folder renamed
 // on disk replaces its files' rows. The words are the plan's I6 (views.py says the same where it sends them).
 import type {
-  BatchResult, RenameOffer, SaveFiles, SkippedMove, TidyRow, UndoPreview,
+  BatchResult, ProblemKind, RenameOffer, SaveFiles, SkippedMove, TidyRow, UndoPreview,
 } from '$lib/bridge/types';
 
 export type Ticks = ReadonlySet<number>;
@@ -295,4 +295,12 @@ export function resultUndo(o: Outcome): { batch: number } | 'list' | null {
 /** The tone of a "not moved" row's mark: a failed move is a problem, the rest are warnings. */
 export function skipTone(reason: string): 'problem' | 'warn' {
   return reason === 'failed' ? 'problem' : 'warn';
+}
+
+/** The problem the page tells (a toast) after a move job that ran `quiet`: every failure except a Stop the user
+ *  pressed, which explains itself (the result lists what was not moved). Null: nothing to tell. */
+export function problemToTell(out: { ok: boolean; kind?: ProblemKind; message?: string }):
+  { kind: ProblemKind; message: string } | null {
+  if (out.ok || !out.kind || out.kind === 'stopped') return null;
+  return { kind: out.kind, message: out.message ?? '' };
 }

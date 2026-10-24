@@ -33,7 +33,7 @@
   import {
     CANT_MOVE_BACK, NOTHING_LEFT, R1, R2, U1, confirmLabel, countLine, folderName, goBackText, groups,
     initialTicks, itemOfRow, movesOf, notMovedText, outcomeOf, pairsOf, progressDone, progressStart, progressStep,
-    progressTotal, resultUndo, skipTone, tickable, tickedRows, tickedText, toggleGroup, toggleTick, undoItems,
+    problemToTell, progressTotal, resultUndo, skipTone, tickable, tickedRows, tickedText, toggleGroup, toggleTick, undoItems,
     undoLabel, type Outcome,
   } from './tidyModel';
 
@@ -88,23 +88,30 @@
   function problem(kind: ProblemKind, message: string) {
     toasts.show({ tone: 'problem', title: problemCopy(kind).title, body: message || undefined });
   }
+  /** A job that ran quiet: a failure is told in a toast, except a Stop the user pressed. */
+  function tell(out: { ok: boolean; kind?: ProblemKind; message?: string }) {
+    const bad = problemToTell(out);
+    if (bad) problem(bad.kind, bad.message);
+  }
 
   async function moveTicked(preview: TidyPreview, ticks: Set<number>) {
     const rows = tickedRows(preview.rows, ticks);
     startMoving(TIDY_TITLE, rows.map(itemOfRow), false);
     const out = await runJob<BatchResult>(api.tidy_up(movesOf(preview.rows, ticks)), { quiet: true, success: false });
     onbusy(false);
+    tell(out);
     if (out.ok) step = { s: 'result', outcome: outcomeOf([out.result]) };
     else if (out.result) step = { s: 'result', outcome: outcomeOf([out.result]) };
-    else { problem(out.kind, out.message); await loadTidy(); }
+    else await loadTidy();
   }
   async function moveBack(preview: UndoPreview) {
     startMoving(preview.title, undoItems(preview), true);
     const out = await runJob<BatchResult>(api.undo_moves(preview.batch_id), { quiet: true, success: false });
     onbusy(false);
+    tell(out);
     if (out.ok) step = { s: 'result', outcome: outcomeOf([out.result], true) };
     else if (out.result) step = { s: 'result', outcome: outcomeOf([out.result], true) };
-    else { problem(out.kind, out.message); await loadUndo(preview.batch_id); }
+    else await loadUndo(preview.batch_id);
   }
   async function followSave(e: Extract<MovesEntry, { kind: 'save' }>) {
     startMoving(SAVE_TITLE, e.items, false);
