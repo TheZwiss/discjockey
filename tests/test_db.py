@@ -503,6 +503,14 @@ def test_rekeyed_paths_get_their_facts_again(opened):
     assert opened.rows("SELECT content_key FROM files WHERE song = 1") == [(f"key-{ONE}",)]
 
 
+def test_a_rekeyed_path_whose_file_is_missing_keeps_its_row_for_the_scan(opened):
+    state = opened.snap()
+    before = opened.rows("SELECT size, mtime_ns, content_key FROM files WHERE song = 1")
+    opened.present.discard(ONE)  # the file went away between the step and the save
+    assert opened.save(state, rekeyed={ONE}) == 0
+    assert opened.rows("SELECT size, mtime_ns, content_key FROM files WHERE song = 1") == before
+
+
 def test_a_new_song_doesnt_take_an_alias_another_song_has(opened):
     state = opened.snap()
     state["tracks"]["sp1b"] = entry("E", "Five")

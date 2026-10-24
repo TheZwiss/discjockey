@@ -555,9 +555,9 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
     written = {unicodedata.normalize("NFC", e["path"]) for _, e, _, new in changed if new is not None}
     for path in {unicodedata.normalize("NFC", p) for p in rekeyed} - written:  # new audio under an unchanged entry: only the facts change
         row = by_place.get(folders.locate(path))
-        if row is not None:
+        if row is not None and (f := facts(path)) is not None:  # a file gone meanwhile: its row is the scan's
             n += conn.execute("UPDATE files SET size = ?, mtime_ns = ?, content_key = ?, last_seen = ? WHERE id = ?",
-                              (*_fact_values(facts, path), stamp, row["id"])).rowcount
+                              (f.size, f.mtime_ns, f.content_key, stamp, row["id"])).rowcount
     for f in released.values():
         if facts(folders.path(f["folder"], f["path"])) is not None:
             n += conn.execute("UPDATE files SET song = NULL, ambiguous = NULL WHERE id = ?", (f["id"],)).rowcount
