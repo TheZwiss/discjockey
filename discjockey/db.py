@@ -64,6 +64,8 @@ SCHEMA_V1 = (
       size INTEGER, mtime_ns INTEGER, content_key TEXT,
       placed_by TEXT NOT NULL CHECK (placed_by IN ('app', 'user', 'import')),
       online INTEGER NOT NULL DEFAULT 1,
+      -- 1: missing at the last scan, but it couldn't rule out a move (ScanResult.held); decided on a later scan
+      held INTEGER NOT NULL DEFAULT 0,
       first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
       status TEXT, source TEXT, source_id TEXT, source_format TEXT, cutoff_hz INTEGER, source_kbps INTEGER,
       ambiguous TEXT,
@@ -190,7 +192,7 @@ OPTIONAL_COLUMNS = frozenset({"artists", "album", "image_url", "declined_streams
 # the linked file's fields; QUALITY are the ones copied onto the files row
 FILE_FIELDS = ("path", "status", "source", "source_id", "source_format", "cutoff_hz", "source_kbps")
 QUALITY = FILE_FIELDS[1:]
-READ_ONLY = frozenset({"online", "placed_by"})  # entry keys the snapshot adds and save ignores
+READ_ONLY = frozenset({"online", "placed_by", "held"})  # entry keys the snapshot adds and save ignores
 SNAPSHOT_ONLY = frozenset({"version", "ambiguous", "files"})  # top-level keys the snapshot adds and save ignores
 NOT_EXTRA = frozenset(SONG_COLUMNS) | frozenset(FILE_FIELDS) | READ_ONLY | {"aliases"}
 # the keys every snapshot entry has unless the stored entry lacked them; `extra[ABSENT]` lists the ones it lacked
@@ -248,9 +250,10 @@ def _entry(values: tuple, aliases: list[str], file: dict | None, path: str | Non
     e["aliases"] = aliases
     if file is None:
         e.update(path=None, status="missing", source=None, source_id=None, source_format=None, cutoff_hz=None,
-                 source_kbps=None, online=False, placed_by=None)
+                 source_kbps=None, online=False, placed_by=None, held=False)
     else:
-        e.update({k: file[k] for k in QUALITY}, path=path, online=bool(file["online"]), placed_by=file["placed_by"])
+        e.update({k: file[k] for k in QUALITY}, path=path, online=bool(file["online"]), placed_by=file["placed_by"],
+                 held=bool(file["held"]))
     for k in absent:  # keys the entry didn't have stay absent: the planner tells "absent" from None (rule 5)
         e.pop(k, None)
     return e
@@ -395,7 +398,7 @@ def create(path: Path, state: dict, *, library: Path, facts: Facts, now: datetim
         conn.executemany("INSERT INTO meta (key, value) VALUES (?, ?)", list(_extra_rows(state).items()))
 
 
-_FILE_COLUMNS = ("id", "song", "folder", "path", "online", "placed_by", "ambiguous") + QUALITY
+_FILE_COLUMNS = ("id", "song", "folder", "path", "online", "held", "placed_by", "ambiguous") + QUALITY
 
 
 def _files(conn: sqlite3.Connection) -> list[dict]:
@@ -441,7 +444,7 @@ def _pending(conn: sqlite3.Connection) -> list[str]:
 
 def snapshot(conn: sqlite3.Connection, library: Path) -> dict:
     """The I2 snapshot the engine and the planner work on: one entry per song (joined with its linked file), the
-    top-level records, and the read-only `ambiguous` and `files` (sorted online indexed files). Only reads: hub
+    top-level records, and the read-only `ambiguous` and `files` (sorted online indexed files a scan didn't hold). Only reads: hub
     threads call it while a writer works, and it works on a read-only volume. `library` is the Library/ folder; the
     snapshot names its files `Library/<rel>` whatever path its row holds (writers keep that path current)."""
     folders = _Folders(conn)
@@ -462,7 +465,7 @@ def snapshot(conn: sqlite3.Connection, library: Path) -> dict:
     out.update({s + USAGE_SUFFIX: json.loads(v) for s, v in records["usage"].items()})
     out.update({k[len(STATE_EXTRA):]: json.loads(v) for k, v in records["meta"].items()})
     out["ambiguous"] = ambiguous
-    out["files"] = sorted(folders.path(f["folder"], f["path"]) for f in files if f["online"])
+    out["files"] = sorted(folders.path(f["folder"], f["path"]) for f in files if f["online"] and not f["held"])
     return out
 
 
@@ -544,13 +547,13 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
         placed = "app" if old is None else old["placed_by"]
         row = by_place.get(new)
         if row is not None:  # the song's own row (new audio, same path) or one found there (a bought file)
-            n += conn.execute(f"UPDATE files SET song = ?, {common}, placed_by = ?, online = 1, last_seen = ?, "
-                              "ambiguous = NULL WHERE id = ?", (song, *values, placed, stamp, row["id"])).rowcount
+            n += conn.execute(f"UPDATE files SET song = ?, {common}, placed_by = ?, online = 1, held = 0, "
+                              "last_seen = ?, ambiguous = NULL WHERE id = ?", (song, *values, placed, stamp, row["id"])).rowcount
             released.pop(row["id"], None)
             row["song"] = song
         elif old is not None and old["id"] in released:  # renamed by the app: the same file, a new place
             n += conn.execute(f"UPDATE files SET folder = ?, path = ?, {common}, placed_by = ?, online = 1, "
-                              "last_seen = ?, ambiguous = NULL WHERE id = ?",
+                              "held = 0, last_seen = ?, ambiguous = NULL WHERE id = ?",
                               (*new, *values, placed, stamp, old["id"])).rowcount
             released.pop(old["id"])
             by_place.pop((old["folder"], old["path"]), None)
@@ -642,7 +645,8 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
     rows get the file's size, mtime and key; a moved row takes its new place (placed by the user), and an unlinked
     row already there gives way to it; ambiguous rows keep their candidates; new files and copies become unlinked
     rows (found there by a scan: placed by 'import'); a gone row is deleted and its song's file marked gone today.
-    Held and unreadable rows stay as they are. Returns the rows written."""
+    Held rows keep everything but are marked held (the snapshot's `held`: the planner leaves their songs alone, as
+    offline ones); unreadable rows stay as they are. Returns the rows written."""
     stamp, today = now.isoformat(timespec="seconds"), now.date().isoformat()
     n = 0
     with transaction(conn):
@@ -653,8 +657,10 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
         held = set(result.held)
         for i in online:  # back online, and seen by this scan (a held row wasn't)
             n += conn.execute(
-                f"UPDATE files SET online = 1, last_seen = ? WHERE folder = ? AND id NOT IN "
+                f"UPDATE files SET online = 1, held = 0, last_seen = ? WHERE folder = ? AND id NOT IN "
                 f"({', '.join('?' * len(held))})", (stamp, i, *held)).rowcount
+        for file_id in held:  # left as it is, but known not to be there: the planner leaves its song alone
+            n += conn.execute("UPDATE files SET held = 1 WHERE id = ? AND held = 0", (file_id,)).rowcount
             n += conn.execute("UPDATE watched_folders SET last_scan = ? WHERE id = ?", (stamp, i)).rowcount
         for i in offline:
             n += conn.execute("UPDATE files SET online = 0 WHERE folder = ? AND online = 1", (i,)).rowcount

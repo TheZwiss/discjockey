@@ -275,7 +275,7 @@ def _v1_snapshot(paths: Paths, state: dict) -> dict:
     """A version-1 state.json with the read-only keys a snapshot has (nothing is indexed yet: every file the old
     records name counts as placed by the app and online)."""
     for e in state["tracks"].values():
-        e["online"], e["placed_by"] = bool(e.get("path")), "app" if e.get("path") else None
+        e["online"], e["placed_by"], e["held"] = bool(e.get("path")), "app" if e.get("path") else None, False
     state["ambiguous"] = {}
     state["files"] = _walk_files(paths)
     return state

@@ -224,7 +224,7 @@ def test_a_moved_file_takes_the_place_of_an_earlier_candidate(paths):
     assert load_state(paths)["ambiguous"] == {}
 
 
-def test_a_held_file_is_left_as_it_is(paths):
+def test_a_held_file_is_left_as_it_is_but_marked_held_until_it_is_seen(paths):
     song(paths)
     before = rows(paths)
     with db.connect(paths.db_file) as conn:
@@ -233,6 +233,27 @@ def test_a_held_file_is_left_as_it_is(paths):
         db.apply_scan(conn, ScanResult(held=[linked]), datetime(2030, 1, 1))
         (seen_after,) = conn.execute("SELECT last_seen FROM files").fetchone()
     assert rows(paths) == before and seen_after == seen_before
+    state = load_state(paths)
+    assert state["tracks"]["t1"]["held"] is True and state["files"] == []  # the planner leaves the song alone
+    with db.connect(paths.db_file) as conn:
+        db.apply_scan(conn, ScanResult(unchanged=1), datetime(2030, 1, 2))  # seen again
+    state = load_state(paths)
+    assert state["tracks"]["t1"]["held"] is False and state["files"] == ["Library/F/A - X.aiff"]
+
+
+def test_a_file_moved_into_a_folder_the_scan_cant_list_is_held(paths):
+    rel = song(paths)
+    locked = paths.library / "Locked"
+    locked.mkdir()
+    shutil.move(paths.root / rel, locked / "A - X.aiff")
+    locked.chmod(0)
+    try:
+        scan(paths)
+    finally:
+        locked.chmod(0o755)
+    state = load_state(paths)
+    assert state["tracks"]["t1"]["held"] is True and state["tracks"]["t1"]["path"] == rel
+    assert state["tracks"]["t1"].get("file_gone") is None
 
 
 def test_a_copy_of_a_known_file_counts_as_a_new_file(paths):

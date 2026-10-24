@@ -176,7 +176,7 @@ def v1_state():
 
 
 def without_read_only(tracks):
-    return {k: {f: v for f, v in e.items() if f not in ("online", "placed_by")} for k, e in tracks.items()}
+    return {k: {f: v for f, v in e.items() if f not in db.READ_ONLY} for k, e in tracks.items()}
 
 
 def fake_facts(present):
