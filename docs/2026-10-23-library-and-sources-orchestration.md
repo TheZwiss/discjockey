@@ -126,7 +126,7 @@ Everything else is decided and done without asking, and reported in one short me
 
 | Stage | Plan | Branch | State |
 |-------|------|--------|-------|
-| 1 Foundation | `docs/2026-10-23-library-stage-1-plan.md` | `feat/library-1-foundation` | Groups 1+2 building |
+| 1 Foundation | `docs/2026-10-23-library-stage-1-plan.md` | `feat/library-1-foundation` | Group 2 merged (c827a9f); group 1 in review |
 | 2 Tidy-up | — | — | Not started |
 | 3 Qobuz playlists | — | — | Not started |
 | 4 Import | — | — | Not started |
