@@ -26,7 +26,7 @@
   import TidyList from './TidyList.svelte';
   import {
     LEAVE_HINT, NOTHING_LEFT, NO_MOVES_YET, R1, R2, U1, carryOver, folderRows, groups, offerDetail, saveCount,
-    saveFiles, saveHeadline, saveItems, saveMoving, toggleGroup, toggleRename,
+    saveFileCount, saveFiles, saveHeadline, saveItems, saveMoving, toggleGroup, toggleRename,
     toggleTick, visibleRows, type MoveItem, type SaveQuestion,
   } from './tidyModel';
 
@@ -187,7 +187,7 @@
           <Surface kind="list" data-test="rename-offers">
             {#each offers as o (o.from)}
               <ToggleRow item={{ key: o.from, label: o.option, on: o.offered && q.renameOn.has(o.from) }}
-                sub={offerDetail(q, o)} disabled={!o.offered} title={o.offered ? undefined : o.why_not ?? undefined}
+                sub={offerDetail(o)} disabled={!o.offered} title={o.offered ? undefined : o.why_not ?? undefined}
                 onchange={(k) => { if (question) question = toggleRename(question, k); }} test="rename-{o.from}" />
             {/each}
           </Surface>
@@ -236,7 +236,7 @@
       </Surface>
     {/if}
   {:else if p && q}
-    <TidyList label={saveHeadline(q.rows.length)} rows={qShown} ticks={q.ticks} folders={folderRows(q)}
+    <TidyList label={saveHeadline(saveFileCount(q))} rows={qShown} ticks={q.ticks} folders={folderRows(q)}
       dim={panel.dim} test="save-files"
       ontick={(r) => { if (question) question = { ...question, ticks: toggleTick(question.ticks, r) }; }}
       ongroup={() => { if (question && qGroups) question = { ...question, ticks: toggleGroup(question.ticks, qGroups.yours) }; }} />

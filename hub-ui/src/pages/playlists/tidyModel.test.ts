@@ -3,7 +3,7 @@ import type { BatchResult, RenameOffer, TidyRow, UndoPreview } from '$lib/bridge
 import {
   carryOver, confirmLabel, countLine, folderName, folderRows, goBackText, groupState, groups, initialQuestion, initialTicks,
   itemOfRow, movesOf, notMovedText, offerDetail, outcomeOf, pairsOf, problemToTell, progressDone, progressStart, progressStep,
-  progressTotal, renameDetail, resultUndo, saveCount, saveFiles, saveHeadline, saveItems, saveMoving, skipTone,
+  progressTotal, renameDetail, resultUndo, saveCount, saveFileCount, saveFiles, saveHeadline, saveItems, saveMoving, skipTone,
   tickedRows, tickedText, toggleGroup, toggleRename, toggleTick, undoItems, undoLabel, visibleRows,
 } from './tidyModel';
 
@@ -102,9 +102,9 @@ describe('the count line C', () => {
 });
 
 describe('the save question', () => {
-  const offer = (from: string, to: string, offered = true): RenameOffer => ({ from, to, files: 99, offered,
+  const offer = (from: string, to: string, offered = true): RenameOffer => ({ from, to, files: 12, offered,
     why_not: offered ? null : `A folder called ${to} is already in your Library.`, option: 'Rename the folder on disk too',
-    detail: 'One folder move instead of 99 file moves.' });
+    detail: 'One folder move instead of 12 file moves.' });
   const p1 = row('Powertrance', 'Powertrance_2026', { by_rename: 'Powertrance' });
   const p2 = row('Powertrance/not_lossless', 'Powertrance_2026/not_lossless', { by_rename: 'Powertrance' });
   const p3 = row('Powertrance', 'Powertrance_2026', { by_rename: 'Powertrance', skip: { reason: 'offline', text: 'Offline, skipped' }, ticked: false });
@@ -117,21 +117,28 @@ describe('the save question', () => {
     const no = initialQuestion(rows, [offer('Powertrance', 'Powertrance_2026', false)]);
     expect(no.renameOn.size).toBe(0);
     expect(toggleRename(no, 'Powertrance').renameOn.size).toBe(0);
-    expect(offerDetail(no, no.renames[0])).toBe('A folder called Powertrance_2026 is already in your Library.');
+    expect(offerDetail(no.renames[0])).toBe('A folder called Powertrance_2026 is already in your Library.');
   });
-  it('the heading, the folder row, the detail and C all count from the same rows', () => {
+  it('the heading, the folder row, the detail and C count the folder\'s files from the offer, not the rows', () => {
+    // the folder holds 12 files; the preview lists 3 of them (no playlist places the others) and moves them all
     const q = initialQuestion(rows, [offer('Powertrance', 'Powertrance_2026')]);
-    expect(saveHeadline(q.rows.length)).toBe('4 files would sit in a different folder');
+    expect(saveHeadline(saveFileCount(q))).toBe('13 files would sit in a different folder');
     expect(visibleRows(q)).toEqual([away]);
-    expect(folderRows(q)).toEqual([{ from: 'Powertrance', to: 'Powertrance_2026', files: 3 }]);
-    expect(offerDetail(q, q.renames[0])).toBe('One folder move instead of 3 file moves.');
-    expect(saveCount(q)).toBe('4 files move: 3 from Powertrance to Powertrance_2026, 1 from Elsewhere to Powertrance_2026.');
-    expect(saveMoving(q)).toBe(4);
+    expect(folderRows(q)).toEqual([{ from: 'Powertrance', to: 'Powertrance_2026', files: 12 }]);
+    expect(offerDetail(q.renames[0])).toBe('One folder move instead of 12 file moves.');
+    expect(saveCount(q)).toBe('13 files move: 12 from Powertrance to Powertrance_2026, 1 from Elsewhere to Powertrance_2026.');
+    expect(saveMoving(q)).toBe(13);
+  });
+  it('one file in the folder is "1 file"', () => {
+    const q = initialQuestion(rows, [{ ...offer('Powertrance', 'Powertrance_2026'), files: 1 }]);
+    expect(offerDetail(q.renames[0])).toBe('One folder move instead of 1 file move.');
+    expect(saveCount(q)).toBe('2 files move: 1 from Powertrance to Powertrance_2026, 1 from Elsewhere to Powertrance_2026.');
   });
   it('with the rename off the files show again, ticked as the backend says', () => {
     const q = toggleRename(initialQuestion(rows, [offer('Powertrance', 'Powertrance_2026')]), 'Powertrance');
     expect(visibleRows(q)).toEqual(rows);
     expect(folderRows(q)).toEqual([]);
+    expect(saveFileCount(q)).toBe(4);
     expect(saveCount(q)).toBe('3 files move: 1 from Powertrance to Powertrance_2026, '
       + '1 from Powertrance/not_lossless to Powertrance_2026/not_lossless, 1 from Elsewhere to Powertrance_2026.');
   });

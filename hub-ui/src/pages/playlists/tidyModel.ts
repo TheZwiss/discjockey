@@ -145,8 +145,9 @@ export function countLine(pairs: Pair[]): string | null {
 
 // ---- the save question: folder renames on disk ----
 
-/** A folder renamed on disk, in place of its files' rows. `files` = the rows it covers (the one count the heading,
- *  this row, the option's detail and `C` all come from). */
+/** A folder renamed on disk, in place of its files' rows. `files` = the files in the folder (the offer's count, the
+ *  one count this row, the option's detail, the heading and `C` all come from: the folder moves as a whole, so it
+ *  carries more than the rows the preview lists when files sit in it that no playlist places). */
 export type FolderRow = { from: string; to: string; files: number };
 
 /** The save question's choices: ticks, and which offered renames are on (all on by default). */
@@ -179,11 +180,6 @@ export function toggleRename(q: SaveQuestion, from: string): SaveQuestion {
   return { ...q, renameOn: on };
 }
 
-/** The rows a rename covers (its old folder name in `by_rename`). */
-export function coveredBy(rows: TidyRow[], from: string): TidyRow[] {
-  return rows.filter((r) => r.by_rename === from);
-}
-
 /** The rows shown: a rename that is on hides the files it moves (its folder row stands for them). */
 export function visibleRows(q: SaveQuestion): TidyRow[] {
   return q.rows.filter((r) => !(r.by_rename && q.renameOn.has(r.by_rename)));
@@ -192,12 +188,17 @@ export function visibleRows(q: SaveQuestion): TidyRow[] {
 /** The folder rows of the renames that are on. */
 export function folderRows(q: SaveQuestion): FolderRow[] {
   return q.renames.filter((r) => r.offered && q.renameOn.has(r.from))
-    .map((r) => ({ from: r.from, to: r.to, files: coveredBy(q.rows, r.from).length }));
+    .map((r) => ({ from: r.from, to: r.to, files: r.files }));
 }
 
-/** The option's detail line, counted from the rows (the backend's `detail` counts the folder on disk). */
-export function offerDetail(q: SaveQuestion, offer: RenameOffer): string {
-  return offer.offered ? renameDetail(coveredBy(q.rows, offer.from).length) : offer.why_not ?? '';
+/** The option's detail line, counted from the offer's files. */
+export function offerDetail(offer: RenameOffer): string {
+  return offer.offered ? renameDetail(offer.files) : offer.why_not ?? '';
+}
+
+/** The files the save question is about: the shown rows, and each folder renamed on disk with all it carries. */
+export function saveFileCount(q: SaveQuestion): number {
+  return visibleRows(q).length + folderRows(q).reduce((a, f) => a + f.files, 0);
 }
 
 /** `C` for the save question: each folder row as one pair, then the ticked rows still shown. */
