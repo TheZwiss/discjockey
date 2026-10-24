@@ -763,6 +763,8 @@ REBUILT = ("Discjockey's records of your library (.discjockey/library.db) were m
            "its backup (.discjockey/state.v1.json). Anything it did since then is checked again on the next sync.")
 DB_MISSING = ("Discjockey's records of this music folder (.discjockey/library.db) are missing. Put the file back "
               "(for example from a Time Machine backup), then try again. Nothing was changed.")
+DB_MISSING_BACKUP = ("Discjockey's records of this music folder (library.db) are missing. The next sync rebuilds "
+                     "them from their backup (state.v1.json).")  # a reader's words; the writer rebuilds (migrate)
 
 
 def _settle(state: dict, emit: Emit) -> None:

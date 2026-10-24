@@ -150,13 +150,28 @@ def test_missing_records_are_never_replaced_by_an_empty_library(tmp_path):
     assert not p.db_file.exists()
 
 
-def test_missing_records_show_the_backup_until_the_writer_rebuilds(tmp_path):
+def test_missing_records_are_never_shown_from_the_backup_and_the_writer_rebuilds_them(tmp_path):
     p = lib(tmp_path)
     library.write_json_atomic(p.state_file, v1(t1={"artist": "A", "title": "x", "path": None}))
     open_state(p)
     p.db_file.unlink()
-    assert load_state(p)["tracks"]["t1"]["title"] == "x"
-    assert open_state(p)["version"] == 2 and p.db_file.exists()
+    with pytest.raises(StateError) as excinfo:
+        load_state(p)
+    assert str(excinfo.value) == ("Discjockey's records of this music folder (library.db) are missing. The next sync "
+                                  "rebuilds them from their backup (state.v1.json).")
+    assert not p.db_file.exists()  # a reader writes nothing
+    assert open_state(p)["tracks"]["t1"]["title"] == "x" and p.db_file.exists()
+
+
+def test_missing_records_without_a_backup_say_so(tmp_path):
+    p = lib(tmp_path)
+    library.write_json_atomic(p.state_file, v1())
+    open_state(p)
+    p.db_file.unlink()
+    p.state_backup.unlink()
+    with pytest.raises(StateError) as excinfo:
+        load_state(p)
+    assert str(excinfo.value) == db.DB_MISSING
 
 
 def test_saving_into_a_music_folder_that_went_away_is_no_library(tmp_path):

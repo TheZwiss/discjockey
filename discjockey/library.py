@@ -254,8 +254,8 @@ def load_state(paths: Paths) -> dict:
     """The library's snapshot (I2), for reading: takes no lock and writes nothing. From library.db once there is
     one; before the migration from state.json (version 1, the read-only keys filled in), so the window can show a
     library before its first change migrates it; with neither, an empty library. library.db gone after the
-    migration: the migration's backup is shown as it was (the next change rebuilds library.db from it, db.migrate),
-    or, with no backup either, StateError."""
+    migration is StateError (spec library-and-sources §12): the backup is never shown, it may not know what
+    Discjockey did since; the next writer rebuilds library.db from it (db.migrate), and the words say so."""
     from . import db
     if paths.db_file.exists():
         try:
@@ -266,12 +266,9 @@ def load_state(paths: Paths) -> dict:
             raise db.unreadable(e) from None
     if not paths.state_file.exists():
         return empty_state()
-    source = paths.state_file
-    if db.is_stub(source):
-        if not paths.state_backup.exists():
-            raise StateError(db.DB_MISSING)
-        source = paths.state_backup
-    return _v1_snapshot(paths, _load_v1(source))
+    if db.is_stub(paths.state_file):
+        raise StateError(db.DB_MISSING_BACKUP if paths.state_backup.exists() else db.DB_MISSING)
+    return _v1_snapshot(paths, _load_v1(paths.state_file))
 
 
 def _v1_snapshot(paths: Paths, state: dict) -> dict:
