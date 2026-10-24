@@ -1,3 +1,4 @@
+import unicodedata
 from datetime import date
 
 import pytest
@@ -541,3 +542,28 @@ def test_out_of_place_counts_only_the_default_ticks():
                    c=tidy_entry("F", "Library/G/c.aiff", 3), d=tidy_entry("F", "Library/G/d.aiff", 4, online=False),
                    e=tidy_entry("F", "Library/F/e.aiff", 5))
     assert len(tidy_rows(s)) == 4 and out_of_place(s) == 1
+
+
+def test_tidy_rows_app_placed_rows_claim_a_target_name_before_the_users_rows():
+    s = tidy_state(a=tidy_entry("F", "Library/A/x.aiff", 1, "user"), b=tidy_entry("F", "Library/B/x.aiff", 2),
+                   c=tidy_entry("F", "Library/C/x.aiff", 3, "import"))
+    rows = tidy_rows(s)
+    assert [(r.track_id, r.skip, r.ticked) for r in rows] == [
+        ("a", "name_taken", False), ("b", None, True), ("c", "name_taken", False)]
+    assert out_of_place(s) == 1
+    s = tidy_state(a=tidy_entry("F", "Library/A/x.aiff", 1, "user"), c=tidy_entry("F", "Library/C/x.aiff", 3, "import"))
+    assert [(r.track_id, r.skip) for r in tidy_rows(s)] == [("a", None), ("c", "name_taken")]
+
+
+def test_tidy_rows_and_target_fold_nfd_against_nfc():
+    nfc, nfd = "Caf\u00e9", unicodedata.normalize("NFD", "Caf\u00e9")
+    assert nfc != nfd
+    # the folder on disk in NFD, the playlist folder in NFC: no move
+    assert tidy_rows(tidy_state(a=tidy_entry(nfc, f"Library/{nfd}/a.aiff"))) == []
+    # the file name keeps its own form byte for byte
+    assert tidy_target(entry("F", path=f"Library/G/{nfd}.aiff")) == f"Library/F/{nfd}.aiff"
+    # a taken name and the file's own path are matched in either form
+    s = tidy_state(files=[f"Library/G/{nfd}.aiff", f"Library/F/{nfc}.aiff"], a=tidy_entry("F", f"Library/G/{nfc}.aiff"))
+    assert [r.skip for r in tidy_rows(s)] == ["name_taken"]
+    s = tidy_state(files=[f"Library/G/{nfd}.aiff"], a=tidy_entry("F", f"Library/G/{nfc}.aiff"))
+    assert [r.skip for r in tidy_rows(s)] == [None]

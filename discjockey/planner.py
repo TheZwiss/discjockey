@@ -104,8 +104,9 @@ def tidy_rows(state: dict, folders: Mapping[str, str] | None = None, *,
               only: Collection[str] | None = None) -> list[TidyRow]:
     """Pure: a row per file whose target folder differs (fold: a case-only difference is no move) from its folder.
     `folders` overrides the entries' folders by key (the save preview's new placement); `only` limits the keys.
-    Rows go by source folder, then file name; a target name taken on disk or by an earlier row is `name_taken`,
-    also when another row would free it (one more tidy-up moves it, so a batch never depends on its own order)."""
+    Rows go by source folder, then file name; a target name taken on disk or by another row is `name_taken`, also
+    when another row would free it (one more tidy-up moves it, so a batch never depends on its own order). Rows
+    ticked by default claim names first, in row order; user/import rows get the names still free."""
     folders = folders or {}
     candidates = []
     for key, e in state["tracks"].items():
@@ -122,19 +123,27 @@ def tidy_rows(state: dict, folders: Mapping[str, str] | None = None, *,
 
     on_disk = {fold(f) for f in state.get("files") or []}
     ambiguous = state.get("ambiguous") or {}
-    claimed: set[str] = set()
-    rows = []
+    skips: list[str | None] = []
     for _, key, e, dst in candidates:
         if not e.get("online", True):
-            skip = "offline"
+            skips.append("offline")
         elif e.get("held") or key in ambiguous or fold(e["path"]) not in on_disk:
-            skip = "not_found"
-        elif fold(dst) in on_disk or fold(dst) in claimed:
-            skip = "name_taken"
+            skips.append("not_found")
         else:
-            skip = None
-            claimed.add(fold(dst))
-        rows.append(TidyRow(key, e["file_id"], e["path"], dst, e["placed_by"], skip))
+            skips.append("name_taken" if fold(dst) in on_disk else None)
+    # Names are claimed in two passes: rows ticked by default first, then user/import rows take what is still free,
+    # so a row the user would leave unticked never keeps an app-placed file from moving.
+    claimed: set[str] = set()
+    for app_pass in (True, False):
+        for i, (_, _, e, dst) in enumerate(candidates):
+            if skips[i] is not None or (e["placed_by"] == "app") != app_pass:
+                continue
+            if fold(dst) in claimed:
+                skips[i] = "name_taken"
+            else:
+                claimed.add(fold(dst))
+    rows = [TidyRow(key, e["file_id"], e["path"], dst, e["placed_by"], skip)
+            for (_, key, e, dst), skip in zip(candidates, skips)]
     return rows
 
 
