@@ -427,3 +427,22 @@ def test_a_256_kbps_swap_keeps_the_file_in_not_lossless(fake):
     assert (paths.root / CURRENT).read_bytes() == NEW and not (paths.root / ROOT_NAME).exists()
     assert (e["status"], e["path"], e["source_kbps"]) == ("not_lossless", CURRENT, 256)
     assert r.status == "not_lossless"
+
+
+@needs_ffmpeg
+def test_a_swap_in_any_playlist_folder_s_not_lossless_moves_up(tmp_path):
+    # any direct child of Library/ is a playlist folder, in playlists.txt or not (spec §7)
+    paths, state = setup_files(tmp_path, lowpass(X, 16000), X, path="Library/Z/not_lossless/Artist - Song.aiff")
+    upgrades.swap(paths, state, TID, up(state))
+    assert state["tracks"][TID]["path"] == "Library/Z/Artist - Song.aiff"
+    assert (paths.root / "Superseded/Z/Artist - Song (lossy).aiff").exists()
+
+
+@needs_ffmpeg
+def test_a_swap_deeper_down_stays_where_the_file_is(tmp_path):
+    deep = "Library/A/B/not_lossless/Artist - Song.aiff"
+    paths, state = setup_files(tmp_path, lowpass(X, 16000), X, path=deep)
+    inode = os.stat(paths.root / deep).st_ino
+    upgrades.swap(paths, state, TID, up(state))
+    assert state["tracks"][TID]["path"] == deep and os.stat(paths.root / deep).st_ino == inode
+    assert (paths.root / "Superseded/A/B/not_lossless/Artist - Song (lossy).aiff").exists()
