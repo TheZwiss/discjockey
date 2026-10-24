@@ -993,20 +993,22 @@ def batch_result(r: BatchResult, title: str) -> dict:
 def undo_preview(batch: BatchRow, moves: list[PlannedMove], files: Iterable[str] = (),
                  title: str | None = None) -> dict:
     """What an undo would do (`moves` as `tidy.undo_preview` plans them, some already skipped with a reason).
-    `files` are the snapshot paths on disk: a folder move carries every file under the folder it moves back."""
+    `files` are the snapshot paths on disk: a folder move carries every file under the folder it moves back.
+    A row is `kind` "file" or "folder"; a folder row has `files`, how many files are in it now (else the count
+    the move carried), a file row has `files` null."""
+    on_disk = list(files)
     rows = []
     for m in moves:
         frm, to, _, _ = _ends(m.kind, m.src, m.dst)
         reason, detail = m.skip or (None, None)
-        rows.append({"label": m.label, "from": frm, "to": to,
+        inside = sum(1 for f in on_disk if f.startswith(f"{m.src}/")) if m.kind == "folder" else 0
+        rows.append({"label": m.label, "kind": m.kind, "from": frm, "to": to,
+                     "files": (inside or m.files) if m.kind == "folder" else None,
                      "skip": {"reason": reason, "text": _skip_words(m.kind, m.src, m.dst, reason, detail)}
                      if reason else None})
     running = [m for m, r in zip(moves, rows) if r["skip"] is None]
-    on_disk = list(files)
-    moving = sum(1 for m in running if m.kind == "file")
-    for m in running:
-        if m.kind == "folder":  # the files sit under the folder's current name, `src`
-            moving += sum(1 for f in on_disk if f.startswith(f"{m.src}/"))
+    # a folder's files sit under its current name, `src`
+    moving = sum(1 if m.kind == "file" else r["files"] or 0 for m, r in zip(moves, rows) if r["skip"] is None)
     warning = [_plural(moving, UNDO_WARN_ONE, UNDO_WARN)] if moving else []
     folder = next((m for m in running if m.kind == "folder"), None)
     if folder is not None:
@@ -1062,9 +1064,10 @@ def _rename_items(pairs: list[tuple[str, str]], rows: list, files: list[str], li
 
 def _by_rename(row: TidyRow, pairs: list[tuple[str, str]]) -> str | None:
     """The old folder name whose rename on disk would put this row's file at its target, else None."""
+    src, dst = fold(row.src), fold(row.dst)
     for was, now in pairs:
-        prefix = f"Library/{was}/"
-        if row.src.startswith(prefix) and row.dst == f"Library/{now}/{row.src[len(prefix):]}":
+        prefix = fold(f"Library/{was}/")
+        if src.startswith(prefix) and dst == fold(f"Library/{now}/") + src[len(prefix):]:
             return was
     return None
 
