@@ -3,7 +3,8 @@ from datetime import date
 import pytest
 
 from discjockey.models import FetchedPlaylist, PlaylistLine, SpotifyTrack
-from discjockey.planner import mirror_dir, plan, replacement_dir, superseded_dir, upgrades_ready_dir
+from discjockey.planner import (TidyRow, mirror_dir, out_of_place, plan, replacement_dir, superseded_dir, tidy_rows,
+                                tidy_target, upgrades_ready_dir)
 
 TODAY = date(2026, 10, 20)
 
@@ -423,3 +424,120 @@ def test_superseded_and_upgrades_ready_mirror_the_file_folder(path, superseded, 
 def test_replacement_dir(path, status, where):
     e = entry(folder="A", path=path) if path else entry(folder="A", status="missing")
     assert replacement_dir(e, status) == where
+
+
+# --- tidy-up targets (plan library stage 2, group 2) ---
+
+def test_tidy_target_keeps_the_file_name_and_folds_lossy_into_not_lossless():
+    assert tidy_target(entry("F", path="Library/G/Artist - Title t1.aiff")) == "Library/F/Artist - Title t1.aiff"
+    lossy = entry("F", status="not_lossless", path="Library/G/Artist - Title t1.m4a")
+    assert tidy_target(lossy) == "Library/F/not_lossless/Artist - Title t1.m4a"
+    assert tidy_target(entry("F", status="fake_lossless", path="Library/F/x.flac")) == "Library/F/not_lossless/x.flac"
+    assert tidy_target(entry("F", path="Library/G/my edit (final).aiff")) == "Library/F/my edit (final).aiff"
+
+
+def test_tidy_target_folder_overrides_the_entry_folder():
+    assert tidy_target(entry("F", path="Library/F/a.aiff"), "New") == "Library/New/a.aiff"
+
+
+@pytest.mark.parametrize("e", [
+    entry("F", status="missing"),
+    entry("F", path="Library/G/a.aiff", in_playlists=False),
+    entry("F", path="Superseded/G/a.aiff"),
+    entry("F", path="Imports/G/a.aiff"),
+])
+def test_tidy_target_none_without_a_file_a_playlist_or_outside_library(e):
+    assert tidy_target(e) is None
+
+
+def tidy_entry(folder, path, file_id=1, placed_by="app", **kw):
+    return entry(folder, path=path, file_id=file_id, placed_by=placed_by, **{"online": True, "held": False, **kw})
+
+
+def tidy_state(files=None, ambiguous=None, **tracks):
+    s = st(**tracks)
+    s["files"] = sorted(e["path"] for e in tracks.values() if e.get("path")) if files is None else files
+    s["ambiguous"] = ambiguous or {}
+    return s
+
+
+def test_tidy_rows_lists_files_outside_their_target_and_ticks_by_placed_by():
+    s = tidy_state(a=tidy_entry("F", "Library/G/a.aiff", 1), b=tidy_entry("F", "Library/G/b.aiff", 2, "user"),
+                   c=tidy_entry("F", "Library/H/c.aiff", 3, "import"), d=tidy_entry("F", "Library/F/d.aiff", 4))
+    rows = tidy_rows(s)
+    assert rows == [TidyRow("a", 1, "Library/G/a.aiff", "Library/F/a.aiff", "app", None),
+                    TidyRow("b", 2, "Library/G/b.aiff", "Library/F/b.aiff", "user", None),
+                    TidyRow("c", 3, "Library/H/c.aiff", "Library/F/c.aiff", "import", None)]
+    assert [r.ticked for r in rows] == [True, False, False]
+
+
+def test_tidy_rows_a_case_only_folder_difference_is_no_move():
+    assert tidy_rows(tidy_state(a=tidy_entry("Hard_Bounce", "Library/hard_bounce/a.aiff"))) == []
+
+
+def test_tidy_rows_a_file_in_a_subfolder_of_its_target_folder_is_a_row():
+    rows = tidy_rows(tidy_state(a=tidy_entry("F", "Library/F/sub/a.aiff")))
+    assert [(r.src, r.dst, r.skip) for r in rows] == [("Library/F/sub/a.aiff", "Library/F/a.aiff", None)]
+
+
+def test_tidy_rows_a_lossless_file_leaves_not_lossless():
+    rows = tidy_rows(tidy_state(a=tidy_entry("F", "Library/F/not_lossless/a.aiff")))
+    assert [r.dst for r in rows] == ["Library/F/a.aiff"]
+
+
+def test_tidy_rows_skip_reasons_in_order():
+    s = tidy_state(
+        files=["Library/G/c.aiff", "Library/G/e.aiff", "Library/F/e.aiff"],
+        ambiguous={"c": ["Library/X/c.aiff", "Library/Y/c.aiff"]},
+        a=tidy_entry("F", "Library/G/a.aiff", 1, online=False, held=True),  # offline wins over held
+        b=tidy_entry("F", "Library/G/b.aiff", 2, held=True),
+        c=tidy_entry("F", "Library/G/c.aiff", 3),  # ambiguous
+        d=tidy_entry("F", "Library/G/d.aiff", 4),  # not in state["files"]
+        e=tidy_entry("F", "Library/G/e.aiff", 5))  # Library/F/e.aiff is taken
+    assert [(r.track_id, r.skip) for r in tidy_rows(s)] == [
+        ("a", "offline"), ("b", "not_found"), ("c", "not_found"), ("d", "not_found"), ("e", "name_taken")]
+
+
+def test_tidy_rows_a_taken_name_is_matched_in_any_case():
+    s = tidy_state(files=["Library/G/A.aiff", "Library/f/a.AIFF"], a=tidy_entry("F", "Library/G/A.aiff"))
+    assert [r.skip for r in tidy_rows(s)] == ["name_taken"]
+
+
+def test_tidy_rows_two_files_with_one_target_name_the_second_is_taken():
+    s = tidy_state(a=tidy_entry("F", "Library/G/x.aiff", 1), b=tidy_entry("F", "Library/H/x.aiff", 2))
+    assert [(r.src, r.skip) for r in tidy_rows(s)] == [("Library/G/x.aiff", None), ("Library/H/x.aiff", "name_taken")]
+
+
+def test_tidy_rows_a_name_another_row_frees_still_counts_as_taken():
+    # b would leave Library/F/x.aiff for G; a wants that name: one more tidy-up moves a
+    s = tidy_state(a=tidy_entry("F", "Library/A/x.aiff", 1), b=tidy_entry("G", "Library/F/x.aiff", 2))
+    assert [(r.track_id, r.skip) for r in tidy_rows(s)] == [("a", "name_taken"), ("b", None)]
+
+
+def test_tidy_rows_go_by_source_folder_then_file_name_folded():
+    s = tidy_state(a=tidy_entry("F", "Library/b/Z.aiff", 1), b=tidy_entry("F", "Library/B/a.aiff", 2),
+                   c=tidy_entry("F", "Library/A/y.aiff", 3))
+    assert [r.track_id for r in tidy_rows(s)] == ["c", "b", "a"]
+
+
+def test_tidy_rows_only_and_folders():
+    s = tidy_state(a=tidy_entry("F", "Library/G/a.aiff", 1), b=tidy_entry("F", "Library/G/b.aiff", 2),
+                   c=tidy_entry("F", "Library/F/c.aiff", 3))
+    assert [r.track_id for r in tidy_rows(s, only={"b"})] == ["b"]
+    rows = tidy_rows(s, {"a": "G", "c": "New"})
+    assert [(r.track_id, r.dst) for r in rows] == [("c", "Library/New/c.aiff"), ("b", "Library/F/b.aiff")]
+    assert tidy_rows(s, {"a": "G", "c": "New"}, only=["c"]) == rows[:1]
+
+
+def test_tidy_rows_leave_files_without_a_target_alone():
+    s = tidy_state(a=tidy_entry("F", "Library/G/a.aiff", in_playlists=False),
+                   b=entry("F", status="missing"), c=tidy_entry("F", "Upgrades ready/G/c.aiff"))
+    assert tidy_rows(s) == []
+
+
+def test_out_of_place_counts_only_the_default_ticks():
+    s = tidy_state(files=["Library/G/a.aiff", "Library/G/b.aiff", "Library/G/d.aiff"],
+                   a=tidy_entry("F", "Library/G/a.aiff", 1), b=tidy_entry("F", "Library/G/b.aiff", 2, "user"),
+                   c=tidy_entry("F", "Library/G/c.aiff", 3), d=tidy_entry("F", "Library/G/d.aiff", 4, online=False),
+                   e=tidy_entry("F", "Library/F/e.aiff", 5))
+    assert len(tidy_rows(s)) == 4 and out_of_place(s) == 1

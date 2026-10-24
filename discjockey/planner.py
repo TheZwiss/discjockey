@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import PurePosixPath
@@ -67,6 +68,80 @@ def replacement_dir(entry: dict, status: str) -> str:
     if playlist is not None:
         return folder_dir(playlist, status)
     return str(PurePosixPath(path).parent)
+
+
+# --- tidy-up targets (spec §8.1, §8.3): where the playlist order puts a file, under its current name ---
+
+@dataclass(frozen=True)
+class TidyRow:
+    track_id: str
+    file_id: int
+    src: str  # snapshot paths; dst = target folder + src's file name
+    dst: str
+    placed_by: str  # "app" | "user" | "import"
+    skip: str | None  # None | "offline" | "not_found" | "name_taken"
+
+    @property
+    def ticked(self) -> bool:
+        """Ticked by default in the preview: it can move and Discjockey put it where it is."""
+        return self.skip is None and self.placed_by == "app"
+
+
+def tidy_target(entry: dict, folder: str | None = None) -> str | None:
+    """Where the entry's file belongs: its placement folder (`folder` overrides the entry's), `not_lossless/` below
+    it when lossy, under the file's current name (rekordbox's Relocate finds files by name: a tidy-up never renames).
+    None for an entry without a file, one in no playlist, or a file outside `Library/` (stage 2 moves only those)."""
+    path = entry.get("path")
+    if not path or not entry.get("in_playlists", True):
+        return None
+    p = PurePosixPath(path)
+    if len(p.parts) < 2 or p.parts[0] != "Library":
+        return None
+    return f"{folder_dir(folder or entry['folder'], entry['status'])}/{p.name}"
+
+
+def tidy_rows(state: dict, folders: Mapping[str, str] | None = None, *,
+              only: Collection[str] | None = None) -> list[TidyRow]:
+    """Pure: a row per file whose target folder differs (fold: a case-only difference is no move) from its folder.
+    `folders` overrides the entries' folders by key (the save preview's new placement); `only` limits the keys.
+    Rows go by source folder, then file name; a target name taken on disk or by an earlier row is `name_taken`,
+    also when another row would free it (one more tidy-up moves it, so a batch never depends on its own order)."""
+    folders = folders or {}
+    candidates = []
+    for key, e in state["tracks"].items():
+        if only is not None and key not in only:
+            continue
+        dst = tidy_target(e, folders.get(key))
+        if dst is None:
+            continue
+        src = PurePosixPath(e["path"])
+        if fold(str(src.parent)) == fold(str(PurePosixPath(dst).parent)):
+            continue
+        candidates.append(((fold(str(src.parent)), fold(src.name), key), key, e, dst))
+    candidates.sort(key=lambda c: c[0])
+
+    on_disk = {fold(f) for f in state.get("files") or []}
+    ambiguous = state.get("ambiguous") or {}
+    claimed: set[str] = set()
+    rows = []
+    for _, key, e, dst in candidates:
+        if not e.get("online", True):
+            skip = "offline"
+        elif e.get("held") or key in ambiguous or fold(e["path"]) not in on_disk:
+            skip = "not_found"
+        elif fold(dst) in on_disk or fold(dst) in claimed:
+            skip = "name_taken"
+        else:
+            skip = None
+            claimed.add(fold(dst))
+        rows.append(TidyRow(key, e["file_id"], e["path"], dst, e["placed_by"], skip))
+    return rows
+
+
+def out_of_place(state: dict) -> int:
+    """Files a tidy-up would move by default (the console line and the Playlists page count): user- or
+    import-placed files and rows that can't move don't count (plan stage 2, P1)."""
+    return sum(1 for r in tidy_rows(state) if r.ticked)
 
 
 def _due(day: str | None, today: date) -> bool:
