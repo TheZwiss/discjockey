@@ -5,8 +5,7 @@ import sys
 
 from .events import ActionFinished, ActionStarted, Message, Progress, StepChanged, Waiting
 
-VERBS = {"move": "Moving", "adopt": "Picking up", "adopt_bought": "Adding bought file",
-         "acquire": "Downloading", "upgrade": "Looking for a better version"}
+VERBS = {"adopt_bought": "Adding bought file", "acquire": "Downloading", "upgrade": "Looking for a better version"}
 STEP_TEXT = {"search": "searching", "download": "downloading", "check": "checking length",
              "convert": "converting", "analyse": "analysing", "compare": "comparing with your file"}
 SHORT = {"new_lossless": "lossless", "new_not_lossless": "not lossless", "fake": "fake lossless",
