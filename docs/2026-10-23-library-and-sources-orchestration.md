@@ -13,7 +13,7 @@ the spec when the last stage is merged.
 | **Implementer** | Opus or Sonnet by difficulty (§2), one per task group, in a worktree | Builds one task group with tests, commits on the group's branch | Read the whole plan or the spec; run `npm run verify`; touch a real library |
 | **Reviewer** | Sonnet per task group; Opus once per stage | Reviews against the plan's tasks and CLAUDE.md's invariants | Rewrite the code itself |
 
-At most two agents run at the same time.
+Only one agent runs at a time (the user, 2026-10-24; parallel rounds in a plan run one after the other).
 
 ## 2. Which model
 
