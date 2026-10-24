@@ -494,8 +494,8 @@ def _started_by(conn, batch_id: int) -> str:
 
 
 def _recovered(started_by: str, moves: list[MoveRow]) -> str:
-    moved = sum(m.state == "done" for m in moves)
-    left = len(moves) - moved
+    moved = sum((m.files or 1) if m.kind == "folder" else 1 for m in moves if m.state == "done")  # files, as the log
+    left = sum(m.state != "done" for m in moves)
     if started_by == "rename":
         m = moves[0]
         return (RECOVERED_RENAME.format(new=_folder_of(m.dst)) if moved

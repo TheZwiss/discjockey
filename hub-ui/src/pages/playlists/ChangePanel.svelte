@@ -113,6 +113,8 @@
 
   const cards = $derived(panel.view === 'overlaps' && !showMoves ? overlapCards(panel.overlaps, rows) : []);
   const p = $derived(panel.preview && !panel.preview.problem ? panel.preview : null);
+  // the button unmounts with the question, and WebKit fires no pointerleave or blur for that
+  $effect(() => { if (!(p && q)) leaving = false; });
   const bars = $derived(p && !q ? folderBars(p.folders) : { rows: [], max: 0 });
   const routes = $derived(p && !q ? moveRoutes(p) : []);
   const moving = $derived(routes.reduce((n, r) => n + r.rows.length, 0));

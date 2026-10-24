@@ -1054,7 +1054,7 @@ def _rename_items(pairs: list[tuple[str, str]], rows: list, files: list[str], li
         why = rename_offer(was, now, rows, library_dirs, pairs=pairs)
         if why == "no_folder":
             continue
-        n = sum(1 for f in files if f.startswith(f"Library/{was}/"))
+        n = sum(1 for f in files if fold(f).startswith(fold(f"Library/{was}/")))  # the rename finds it case-blind too
         text = {"folder_taken": FOLDER_TAKEN.format(new=now), "folder_in_use": FOLDER_IN_USE.format(old=was)}
         items.append({"from": was, "to": now, "files": n, "offered": why is None,
                       "why_not": None if why is None else text.get(why), "option": RENAME_OPTION,

@@ -546,3 +546,12 @@ def test_a_batch_found_open_after_a_crash_is_worded_by_the_kind_of_batch_it_is(p
         db.start_batch(conn, started_by="rename", about={"from": "Old", "to": "New"}, undoes=None, moves=[move],
                        now=datetime(2026, 1, 2))
         assert tidy._started_by(conn, 26) == "rename" and tidy._started_by(conn, 99) == "tidy"
+
+
+def test_a_stopped_undo_of_a_folder_rename_counts_the_files_it_moved_back():
+    def move(kind, state, files=None):
+        return MoveRow(id=1, batch=2, seq=0, kind=kind, file_id=None, label="x", src="Library/New",
+                       dst="Library/Old", content_key=None, placed_before=None, placed_after=None, state=state,
+                       reason=None, detail=None, now_path=None, now_key=None, files=files)
+    said = tidy._recovered("undo", [move("folder", "done", 7), move("file", "planned")])
+    assert said == tidy.RECOVERED_UNDO.format(moved=7, left=1)

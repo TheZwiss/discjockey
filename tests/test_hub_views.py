@@ -1127,3 +1127,10 @@ def test_a_refused_folder_rename_is_worded_by_its_offer_code():
     file_row = move_row(4, reason="changed")  # a file's `changed` keeps its own words
     assert views.batch_result(BatchResult(1, "tidy", 0, (file_row,), False), "x")["skipped"][0]["text"] == \
         "Changed since the list was shown"
+
+
+def test_a_rename_offer_counts_the_files_of_a_folder_spelled_another_way_on_disk():
+    files = ["Library/Hard_Bounce/a.aiff", "Library/Hard_Bounce/b.aiff", "Library/Other/c.aiff"]
+    items = views._rename_items([("hard_bounce", "Hard Bounce")], [], files, {"Hard_Bounce", "Other"},
+                                lambda *a, **k: None)
+    assert [(i["files"], i["detail"]) for i in items] == [(2, "One folder move instead of 2 file moves.")]
