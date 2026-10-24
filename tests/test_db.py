@@ -240,8 +240,53 @@ def test_a_path_outside_every_watched_folder_is_refused(tmp_path, library):
 
 def test_two_entries_on_one_file_are_refused(tmp_path, library):
     state = {"tracks": {"a": entry("A", "One", "Library/x.aiff"), "b": entry("B", "Two", "Library/x.aiff")}}
-    with pytest.raises(ValueError, match="belongs to both"):
+    with pytest.raises(StateError) as e:
         db.create(tmp_path / "library.db", state, library=library, facts=no_facts, now=NOW)
+    assert str(e.value) == ("Two songs in Discjockey's records point at the same file, Library/x.aiff (A - One and "
+                            "B - Two). Nothing was changed.")
+
+
+def test_absent_keys_stay_absent_and_the_planner_sees_the_same_state(tmp_path, library):
+    import copy
+    from datetime import date
+
+    from discjockey import planner
+    legacy = entry("A", "One", "Library/House/A - One.aiff")
+    for key in ("free_downloads", "in_playlists", "upgrade", "source_kbps"):  # written before these existed
+        del legacy[key]
+    nulled = entry("B", "Two", free_downloads=None, in_playlists=None)
+    state = {"version": 1, "tracks": {"sp1": legacy, "sp2": nulled}, "pending": [], "never": {},
+             "qobuz_usage": {"days": {}, "signals": []}}
+    path = fresh(tmp_path, library, state)
+    with db.connect(path) as conn:
+        snap = db.snapshot(conn, library)
+    assert set(without_read_only(snap["tracks"])["sp1"]) == set(legacy) | {"file_gone"}
+    assert "free_downloads" in snap["tracks"]["sp2"] and snap["tracks"]["sp2"]["in_playlists"] is False
+    files = ["Library/House/A - One.aiff"]
+    today = date(2026, 10, 23)
+    import dataclasses
+    from_rows = planner.plan([], copy.deepcopy(snap), files, today)
+    from_json = planner.plan([], copy.deepcopy(state), files, today)
+    assert dataclasses.replace(from_rows, state=None) == dataclasses.replace(from_json, state=None)
+    assert from_rows.state["tracks"]["sp1"]["in_playlists"] == from_json.state["tracks"]["sp1"]["in_playlists"]
+
+
+def test_unreadable_names_what_went_wrong():
+    assert "using it right now" in str(db.unreadable(sqlite3.OperationalError("database is locked")))
+    assert "read-only" in str(db.unreadable(sqlite3.OperationalError("attempt to write a readonly database")))
+    assert "damaged" in str(db.unreadable(sqlite3.DatabaseError("file is not a database")))
+
+
+def test_a_failing_commit_is_rolled_back(tmp_path, library):
+    path = fresh(tmp_path, library)
+    with db.connect(path) as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            with db.transaction(conn):
+                conn.execute("PRAGMA defer_foreign_keys = ON")  # the broken reference fails at COMMIT
+                conn.execute("INSERT INTO files (song, folder, path, placed_by, first_seen, last_seen) "
+                             "VALUES (999, 1, 'x', 'app', 'x', 'x')")
+        assert not conn.in_transaction
+        assert conn.execute("SELECT count(*) FROM files").fetchone() == (0,)
 
 
 def test_snapshot_builds_ambiguous_and_files_from_rows(tmp_path, library):
@@ -258,13 +303,18 @@ def test_snapshot_builds_ambiguous_and_files_from_rows(tmp_path, library):
     assert snap["files"] == ["/Volumes/Mine/A - One.aiff", "Library/House/A - One.aiff", "Library/a/A - One.aiff"]
 
 
-def test_snapshot_follows_a_moved_music_folder(tmp_path, library):
+def test_snapshot_only_reads_and_save_follows_a_moved_music_folder(tmp_path, library):
     path = fresh(tmp_path, library, {"tracks": {"sp1": entry("A", "One", "Library/House/A - One.aiff")}})
     moved = tmp_path / "Volumes" / "New" / "Library"
-    with db.connect(path) as conn:
-        snap = db.snapshot(conn, moved)
-        assert conn.execute("SELECT path FROM watched_folders").fetchone()[0] == moved.as_posix()
+    with db.connect(path) as writer, db.transaction(writer):  # another process is writing meanwhile
+        with db.connect(path) as conn:
+            snap = db.snapshot(conn, moved)
+            assert conn.execute("SELECT path FROM watched_folders").fetchone()[0] == library.as_posix()
     assert snap["tracks"]["sp1"]["path"] == "Library/House/A - One.aiff"
+    with db.connect(path) as conn:
+        assert db.save(conn, snap, library=moved, facts=no_facts, now=NOW) == 2  # the path and qobuz_usage
+        assert conn.execute("SELECT path FROM watched_folders").fetchone()[0] == moved.as_posix()
+        assert db.save(conn, snap, library=moved, facts=no_facts, now=NOW) == 0
 
 
 def test_an_empty_database_has_the_default_records(tmp_path, library):
@@ -292,9 +342,9 @@ def opened(tmp_path, library):
             with db.connect(path) as conn:
                 return db.snapshot(conn, library)
 
-        def save(self, state):
+        def save(self, state, **kw):
             with db.connect(path) as conn:
-                return db.save(conn, state, library=library, facts=facts, now=datetime(2026, 10, 24, 9, 0, 0))
+                return db.save(conn, state, library=library, facts=facts, now=datetime(2026, 10, 24, 9, 0, 0), **kw)
 
         def rows(self, sql, *args):
             with db.connect(path) as conn:
@@ -440,9 +490,24 @@ def test_two_songs_on_one_path_are_refused_and_nothing_is_written(opened):
     state = opened.snap()
     state["tracks"]["sp2"]["last_attempt"] = "2026-10-24"
     state["tracks"]["sp1"]["path"] = THREE
-    with pytest.raises(ValueError):
+    with pytest.raises(StateError, match="point at the same file"):
         opened.save(state)
     assert opened.snap()["tracks"]["sp2"]["last_attempt"] == "2026-10-22"
+
+
+def test_rekeyed_paths_get_their_facts_again(opened):
+    state = opened.snap()
+    assert opened.save(state) == 0
+    opened.rows("UPDATE files SET content_key = 'before the swap' WHERE song = 1")
+    assert opened.save(state, rekeyed={ONE}) == 1
+    assert opened.rows("SELECT content_key FROM files WHERE song = 1") == [(f"key-{ONE}",)]
+
+
+def test_a_new_song_doesnt_take_an_alias_another_song_has(opened):
+    state = opened.snap()
+    state["tracks"]["sp1b"] = entry("E", "Five")
+    opened.save(state)
+    assert opened.rows("SELECT s.key FROM song_ids i JOIN songs s ON s.id = i.song WHERE i.id = 'sp1b'") == [("sp1",)]
 
 
 def test_a_path_outside_the_watched_folders_is_a_value_error(opened):

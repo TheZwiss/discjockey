@@ -103,11 +103,11 @@ def test_the_stub_is_refused_by_the_v1_reader_with_the_old_words(lib):
 
 def test_a_finished_migration_does_nothing_the_next_time(lib):
     run(lib)
-    before = db.db_file(lib).stat().st_mtime_ns, lib.state_file.read_bytes()
+    before = snapshot(lib), lib.state_file.read_bytes(), (lib.data / "state.v1.json").read_bytes()
     events = []
     run(lib, recover=lambda state: pytest.fail("recovered again"), events=events)
     assert events == []
-    assert (db.db_file(lib).stat().st_mtime_ns, lib.state_file.read_bytes()) == before
+    assert (snapshot(lib), lib.state_file.read_bytes(), (lib.data / "state.v1.json").read_bytes()) == before
 
 
 STEPS = ["_read_v1", "recover", "_build", "_place", "_backup", "_write_stub"]
@@ -130,6 +130,7 @@ def test_a_crash_after_any_step_leaves_a_library_the_next_migration_finishes(lib
         monkeypatch.setattr(db, step, crash_after(getattr(db, step)))
     with pytest.raises(Crash):
         run(lib, recover=recover)
+    assert lib.state_file.exists()  # never missing, also between the backup and the stub
     if STEPS.index(step) < STEPS.index("_place"):
         assert lib.state_file.read_bytes() == original
         assert not db.db_file(lib).exists()
@@ -178,6 +179,79 @@ def test_a_new_library_gets_an_empty_database_and_the_stub(lib):
     assert snapshot(lib)["tracks"] == {}
     assert json.loads(lib.state_file.read_text()) == {"version": 2, "moved_to": "library.db"}
     assert not (lib.data / "state.v1.json").exists()
+
+
+def write_state(paths, tracks):
+    state = {"version": 1, "tracks": tracks, "pending": [], "never": {}, "qobuz_usage": {"days": {}, "signals": []}}
+    write_json_atomic(paths.state_file, state, indent=2, ensure_ascii=False, sort_keys=True)
+
+
+@pytest.mark.parametrize("named_first", [True, False])
+def test_a_file_two_entries_share_stays_with_the_one_it_is_named_after(lib, named_first):
+    shared = "Library/House/B - Two.aiff"
+    named = entry("B", "Two", shared, added="2026-10-05T10:00:00")
+    other = entry("X", "Other", shared, added="2026-10-01T10:00:00", source_kbps=320)
+    write_state(lib, {"a": named, "b": other} if named_first else {"a": other, "b": named})
+    events = []
+    run(lib, events=events)
+    tracks = snapshot(lib)["tracks"]
+    keep, lose = ("a", "b") if named_first else ("b", "a")
+    assert tracks[keep]["path"] == shared
+    assert {k: tracks[lose][k] for k in ("path", "status", "source", "source_id", "source_kbps")} == {
+        "path": None, "status": "missing", "source": None, "source_id": None, "source_kbps": None}
+    assert Message("warning", "Two songs pointed at the same file, Library/House/B - Two.aiff: it stays with B - Two, "
+                              "and X - Other will be downloaded again.") in events
+
+
+def test_without_a_name_match_the_earlier_added_entry_keeps_the_file(lib):
+    shared = "Library/House/Neither.aiff"
+    write_state(lib, {"a": entry("A", "One", shared, added="2026-10-09T10:00:00"),
+                      "b": entry("B", "Two", shared, added="2026-10-01T10:00:00")})
+    run(lib)
+    tracks = snapshot(lib)["tracks"]
+    assert (tracks["a"]["path"], tracks["b"]["path"]) == (None, shared)
+
+
+def test_an_alias_two_songs_share_stays_with_the_first_and_says_so(lib):
+    write_state(lib, {"a": entry("A", "One", aliases=["x"]), "b": entry("B", "Two", aliases=["x"])})
+    events = []
+    run(lib, events=events)
+    tracks = snapshot(lib)["tracks"]
+    assert (tracks["a"]["aliases"], tracks["b"]["aliases"]) == (["x"], [])
+    assert Message("warning", "B - Two and A - One share a Spotify link; it stays with A - One.") in events
+
+
+def test_a_missing_database_is_rebuilt_from_the_backup(lib):
+    original = lib.state_file.read_bytes()
+    run(lib)
+    db.db_file(lib).unlink()
+    events = []
+    run(lib, recover=lambda state: pytest.fail("the backup was recovered before it was made"), events=events)
+    assert_migrated(lib, original)
+    assert [e.level for e in events] == ["warning"] and "rebuilt them from its backup" in events[0].text
+
+
+def test_a_missing_database_without_a_backup_is_refused_in_new_words(lib):
+    run(lib)
+    db.db_file(lib).unlink()
+    (lib.data / "state.v1.json").unlink()
+    with pytest.raises(StateError) as e:
+        run(lib)
+    assert str(e.value) == ("Discjockey's records of this music folder (.discjockey/library.db) are missing. Put "
+                            "the file back (for example from a Time Machine backup), then try again. Nothing was "
+                            "changed.")
+
+
+def test_opening_runs_the_version_check_and_follows_a_moved_music_folder(tmp_path, lib, monkeypatch):
+    run(lib)
+    moved = Paths(tmp_path / "moved", support=lib.support)
+    lib.root.rename(moved.root)
+    run(moved)
+    with db.connect(db.db_file(moved)) as conn:
+        assert conn.execute("SELECT path FROM watched_folders").fetchone()[0] == moved.library.as_posix()
+        conn.execute("UPDATE meta SET value = '9' WHERE key = 'schema_version'")
+    with pytest.raises(StateError, match="newer Discjockey"):
+        run(moved)
 
 
 def test_a_state_json_of_another_version_keeps_its_message(lib):

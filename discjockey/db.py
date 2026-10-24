@@ -11,7 +11,7 @@ import json
 import os
 import sqlite3
 import unicodedata
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -19,6 +19,7 @@ from typing import NamedTuple
 
 from . import library as disk  # "library" is the Library/ path argument everywhere here
 from .events import Emit, Message
+from .names import expected_stem
 from .planner import ENTRY_KEYS
 
 SCHEMA_VERSION = 1
@@ -89,38 +90,53 @@ def connect(path: Path) -> sqlite3.Connection:
     """Opens library.db with the binding settings: WAL (if the volume can't do WAL, the default journal: correctness
     doesn't depend on it), synchronous=FULL, foreign keys, F_FULLFSYNC for commits and checkpoints (the SQLite form
     of library.full_fsync), a 5 s wait for another writer. A file that isn't a database is StateError."""
-    conn = sqlite3.connect(str(path), isolation_level=None, factory=_Connection)
+    conn = None
     try:
+        conn = sqlite3.connect(str(path), isolation_level=None, factory=_Connection)
         conn.execute("PRAGMA busy_timeout = 5000")
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA synchronous = FULL")
         conn.execute("PRAGMA fullfsync = ON")
         conn.execute("PRAGMA checkpoint_fullfsync = ON")
         conn.execute("PRAGMA journal_mode = WAL").fetchone()
-    except sqlite3.DatabaseError:
-        conn.close()
-        raise disk.StateError(UNREADABLE.format(reason=DAMAGED)) from None
+    except sqlite3.Error as e:
+        if conn is not None:
+            conn.close()
+        raise unreadable(e) from None
     return conn
+
+
+def unreadable(e: sqlite3.Error) -> disk.StateError:
+    """The StateError for a database SQLite refused, in words for what went wrong."""
+    text = str(e).lower()
+    if "locked" in text or "busy" in text:
+        reason = "another program is using it right now; try again in a moment"
+    elif "readonly" in text or "read-only" in text or "unable to open" in text:
+        reason = "it can't be opened for writing (the drive may be read-only or disconnected)"
+    else:
+        reason = DAMAGED
+    return disk.StateError(UNREADABLE.format(reason=reason))
 
 
 @contextmanager
 def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
-    """One write transaction: all of it or nothing. IMMEDIATE takes the write lock at the start, so a second writer
-    waits (busy_timeout) instead of failing halfway."""
+    """One write transaction: all of it or nothing (also when COMMIT itself fails). IMMEDIATE takes the write lock
+    at the start, so a second writer waits (busy_timeout) instead of failing halfway."""
     conn.execute("BEGIN IMMEDIATE")
     try:
         yield conn
+        conn.execute("COMMIT")
     except BaseException:
-        conn.execute("ROLLBACK")
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
         raise
-    conn.execute("COMMIT")
 
 
 def _stored_version(conn: sqlite3.Connection) -> int:
     try:
         row = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
-    except sqlite3.DatabaseError:
-        raise disk.StateError(UNREADABLE.format(reason=DAMAGED)) from None
+    except sqlite3.Error as e:
+        raise unreadable(e) from None
     if row is None or not str(row[0]).isdigit():
         raise disk.StateError(UNREADABLE.format(reason="it has no version number"))
     return int(row[0])
@@ -176,6 +192,10 @@ QUALITY = FILE_FIELDS[1:]
 READ_ONLY = frozenset({"online", "placed_by"})  # entry keys the snapshot adds and save ignores
 SNAPSHOT_ONLY = frozenset({"version", "ambiguous", "files"})  # top-level keys the snapshot adds and save ignores
 NOT_EXTRA = frozenset(SONG_COLUMNS) | frozenset(FILE_FIELDS) | READ_ONLY | {"aliases"}
+# the keys every snapshot entry has unless the stored entry lacked them; `extra[ABSENT]` lists the ones it lacked
+# (an entry written before free_downloads existed is a different case for rule 5 than free_downloads: None)
+TRACKED = tuple(dict.fromkeys((*ENTRY_KEYS, *FILE_FIELDS)))
+ABSENT = "_absent"
 USAGE_SUFFIX = "_usage"  # `<service>_usage` -> the usage table
 STATE_EXTRA = "state."  # meta key prefix for any other top-level key, so none is lost
 SPOTIFY = "spotify"
@@ -198,11 +218,14 @@ def _song_values(entry: dict) -> tuple:
         if col in JSON_COLUMNS:
             v = None if v is None else "[]" if v == [] else _dumps(v)
         elif col == "in_playlists":
-            v = 1 if v else 0
+            v = 1 if entry.get(col, True) else 0  # rule 1 reads an absent in_playlists as True
         elif v is None and (col == "artist" or col == "title"):
             v = ""
         out.append(v)
     extra = {k: v for k, v in entry.items() if k not in NOT_EXTRA}
+    absent = [k for k in TRACKED if k not in entry]
+    if absent:
+        extra[ABSENT] = absent
     out.append(_dumps(extra) if extra else None)
     return tuple(out)
 
@@ -218,14 +241,17 @@ def _entry(values: tuple, aliases: list[str], file: dict | None, path: str | Non
         elif col == "in_playlists":
             v = bool(v)
         e[col] = v
-    if values[-1] is not None:
-        e.update(json.loads(values[-1]))
+    extra = {} if values[-1] is None else json.loads(values[-1])
+    absent = extra.pop(ABSENT, [])
+    e.update(extra)
     e["aliases"] = aliases
     if file is None:
         e.update(path=None, status="missing", source=None, source_id=None, source_format=None, cutoff_hz=None,
                  source_kbps=None, online=False, placed_by=None)
     else:
         e.update({k: file[k] for k in QUALITY}, path=path, online=bool(file["online"]), placed_by=file["placed_by"])
+    for k in absent:  # keys the entry didn't have stay absent: the planner tells "absent" from None (rule 5)
+        e.pop(k, None)
     return e
 
 
@@ -262,11 +288,26 @@ class _Folders:
         raise ValueError(f"{path!r} is not a file in a watched folder (Library/... or an absolute path)")
 
 
-def _sync_library_path(conn: sqlite3.Connection, library: Path) -> int:
+def sync_library_path(conn: sqlite3.Connection, library: Path) -> int:
     """Library/ always belongs to the music folder the user chose now: a moved music folder or a renamed drive would
-    otherwise leave the row pointing at a stale path (and offline). Returns rows changed."""
-    return conn.execute("UPDATE watched_folders SET path = ? WHERE kind = 'library' AND path <> ?",
-                        (library.as_posix(), library.as_posix())).rowcount
+    otherwise leave the row pointing at a stale path (and offline). Writers only (save, migrate on open): it reads
+    first and writes only when the path really differs, so it takes no write lock otherwise. Returns rows changed."""
+    row = conn.execute("SELECT id, path FROM watched_folders WHERE kind = 'library'").fetchone()
+    if row is None or row[1] == library.as_posix():
+        return 0
+    return conn.execute("UPDATE watched_folders SET path = ? WHERE id = ?", (library.as_posix(), row[0])).rowcount
+
+
+SHARED = ("Two songs in Discjockey's records point at the same file, {path} ({a} and {b}). "
+          "Nothing was changed.")
+
+
+def _name(e: dict) -> str:
+    return f"{e.get('artist') or '?'} - {e.get('title') or '?'}"
+
+
+def _shared(path: str, a: dict, b: dict) -> disk.StateError:
+    return disk.StateError(SHARED.format(path=path, a=_name(a), b=_name(b)))
 
 
 def _insert_song(conn: sqlite3.Connection, key: str, entry: dict) -> int:
@@ -274,8 +315,9 @@ def _insert_song(conn: sqlite3.Connection, key: str, entry: dict) -> int:
     marks = ", ".join("?" * (len(SONG_COLUMNS) + 2))
     song = conn.execute(f"INSERT INTO songs (key, {cols}, extra) VALUES ({marks})",
                         (key, *_song_values(entry))).lastrowid
-    # the song's own key always points at it; an alias another song already has stays with that song
-    conn.execute("INSERT OR REPLACE INTO song_ids (service, id, song) VALUES (?, ?, ?)", (SPOTIFY, key, song))
+    # an id another song already has (as its key or an alias) stays with that song; create inserts every song's own
+    # key before any alias, so there a song's key always points at it
+    conn.execute("INSERT OR IGNORE INTO song_ids (service, id, song) VALUES (?, ?, ?)", (SPOTIFY, key, song))
     return song
 
 
@@ -340,7 +382,7 @@ def create(path: Path, state: dict, *, library: Path, facts: Facts, now: datetim
             if entry.get("path"):
                 folder, rel = folders.locate(entry["path"])
                 if (folder, rel) in taken:
-                    raise ValueError(f"{entry['path']!r} belongs to both {taken[folder, rel]} and {key}")
+                    raise _shared(entry["path"], tracks[taken[folder, rel]], entry)
                 taken[folder, rel] = key
                 _insert_file(conn, ids[key], folder, rel, entry, facts, entry["path"], stamp)
         conn.executemany("INSERT INTO pending (op) VALUES (?)", [(_dumps(op),) for op in state.get("pending") or []])
@@ -396,8 +438,9 @@ def _pending(conn: sqlite3.Connection) -> list[str]:
 
 def snapshot(conn: sqlite3.Connection, library: Path) -> dict:
     """The I2 snapshot the engine and the planner work on: one entry per song (joined with its linked file), the
-    top-level records, and the read-only `ambiguous` and `files` (sorted online indexed files)."""
-    _sync_library_path(conn, library)
+    top-level records, and the read-only `ambiguous` and `files` (sorted online indexed files). Only reads: hub
+    threads call it while a writer works, and it works on a read-only volume. `library` is the Library/ folder; the
+    snapshot names its files `Library/<rel>` whatever path its row holds (writers keep that path current)."""
     folders = _Folders(conn)
     files = _files(conn)
     linked = _linked(files)
@@ -459,7 +502,7 @@ def _save_songs(conn: sqlite3.Connection, tracks: dict, songs: dict, aliases: di
 
 
 def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], removed: list[int],
-                folders: _Folders, facts: Facts, stamp: str) -> int:
+                folders: _Folders, facts: Facts, stamp: str, rekeyed: Collection[str]) -> int:
     """Writes the linked file rows whose entry file fields changed (plan task 1.3). Rows are matched by place: the
     row already at an entry's new path is linked to it (a bought file a scan found), else the song's own row moves
     there (files.id stays with a renamed file), else a new row. A row no song keeps is unlinked when its file is
@@ -482,7 +525,7 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
     shared = {p: keys for p, keys in owners.items() if len(keys) > 1}
     if shared:
         (folder, rel), keys = next(iter(shared.items()))
-        raise ValueError(f"{folders.path(folder, rel)!r} belongs to both {keys[0]} and {keys[1]}")
+        raise _shared(folders.path(folder, rel), tracks[keys[0]], tracks[keys[1]])
 
     released = {old["id"]: old for _, _, old, new in changed if old is not None and new != (old["folder"], old["path"])}
     released.update({f["id"]: f for song in removed if (f := linked.get(song)) is not None})
@@ -508,6 +551,12 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
             by_place[new] = old
         else:
             n += _insert_file(conn, song, *new, e, facts, e["path"], stamp)
+    written = {unicodedata.normalize("NFC", e["path"]) for _, e, _, new in changed if new is not None}
+    for path in {unicodedata.normalize("NFC", p) for p in rekeyed} - written:  # new audio under an unchanged entry: only the facts change
+        row = by_place.get(folders.locate(path))
+        if row is not None:
+            n += conn.execute("UPDATE files SET size = ?, mtime_ns = ?, content_key = ?, last_seen = ? WHERE id = ?",
+                              (*_fact_values(facts, path), stamp, row["id"])).rowcount
     for f in released.values():
         if facts(folders.path(f["folder"], f["path"])) is not None:
             n += conn.execute("UPDATE files SET song = NULL, ambiguous = NULL WHERE id = ?", (f["id"],)).rowcount
@@ -516,24 +565,27 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
     return n
 
 
-def save(conn: sqlite3.Connection, state: dict, *, library: Path, facts: Facts, now: datetime) -> int:
+def save(conn: sqlite3.Connection, state: dict, *, library: Path, facts: Facts, now: datetime,
+         rekeyed: Collection[str] = ()) -> int:
     """Writes an I2 snapshot back in one transaction, only what differs from the rows: changed, new and removed
     songs; the file rows of entries whose file fields changed (re-keyed through `facts`, since a swap writes new
     audio under the same path); pending (replaced whole when it differs, it is short); never; usage. ✱ keys are
-    ignored. Returns the number of rows written. A v1 dict is StateError; a path in no watched folder, or one two
-    entries share, is ValueError (and nothing is written)."""
+    ignored. `rekeyed`: snapshot paths whose audio Discjockey rewrote in place with no entry field changing; their
+    rows get size/mtime/key from `facts` again, so a later scan doesn't take them for a file replaced outside
+    Discjockey. Returns the number of rows written. A v1 dict, or a file two entries share, is StateError; a path in
+    no watched folder is ValueError (nothing is written either way)."""
     if state.get("version") != 2:
         raise disk.StateError(OLD_COPY.format(version=state.get("version")))
     stamp = now.isoformat(timespec="seconds")
     tracks = state.get("tracks") or {}
     with transaction(conn):
-        n = _sync_library_path(conn, library)
+        n = sync_library_path(conn, library)
         folders = _Folders(conn)
         songs = _songs(conn)
         ids, written = _save_songs(conn, tracks, songs, _aliases(conn))
         n += written
         removed = [song for key, (song, _) in songs.items() if key not in tracks]
-        n += _save_files(conn, tracks, ids, removed, folders, facts, stamp)
+        n += _save_files(conn, tracks, ids, removed, folders, facts, stamp, rekeyed)
         for song in removed:
             n += conn.execute("DELETE FROM songs WHERE id = ?", (song,)).rowcount
         ops = [_dumps(op) for op in state.get("pending") or []]
@@ -605,9 +657,70 @@ def _place(paths: disk.Paths) -> None:  # step 4
     disk.fsync_dir(paths.data)
 
 
-def _backup(paths: disk.Paths) -> None:  # step 5: overwrites an older backup, this is the newest copy
-    os.replace(paths.state_file, paths.data / BACKUP_NAME)
+def _backup(paths: disk.Paths) -> None:
+    """Step 5: state.v1.json becomes a second name for state.json (overwriting an older backup: this is the newest
+    copy), so state.json is never missing before the stub replaces it."""
+    backup = paths.data / BACKUP_NAME
+    tmp = backup.with_name(BACKUP_NAME + ".tmp")
+    tmp.unlink(missing_ok=True)
+    try:
+        os.link(paths.state_file, tmp)
+    except OSError:  # a volume without hard links: a copy, written out to the drive
+        with open(tmp, "wb") as f:
+            f.write(paths.state_file.read_bytes())
+            f.flush()
+            disk.full_fsync(f.fileno())
+    os.replace(tmp, backup)
     disk.fsync_dir(paths.data)
+
+
+SHARED_SETTLED = ("Two songs pointed at the same file, {path}: it stays with {keep}, and {other} will be "
+                  "downloaded again.")
+ALIAS_SHARED = "{song} and {other} share a Spotify link; it stays with {other}."
+REBUILT = ("Discjockey's records of your library (.discjockey/library.db) were missing, so it rebuilt them from "
+           "its backup (.discjockey/state.v1.json). Anything it did since then is checked again on the next sync.")
+DB_MISSING = ("Discjockey's records of this music folder (.discjockey/library.db) are missing. Put the file back "
+              "(for example from a Time Machine backup), then try again. Nothing was changed.")
+
+
+def _settle(state: dict, emit: Emit) -> None:
+    """Makes a state.json the database can hold, in memory only: a file two entries point at stays with the one
+    whose name it has (expected_stem), else the one added first; the other becomes missing (its quality fields
+    cleared) so the planner gets it again. An alias another song already has stays with that song (as create
+    does). Each case is a warning."""
+    tracks = state.get("tracks") or {}
+    by_path: dict[str, list[str]] = {}
+    for key, e in tracks.items():
+        if e.get("path"):
+            by_path.setdefault(unicodedata.normalize("NFC", e["path"]), []).append(key)
+    for path, keys in by_path.items():
+        if len(keys) < 2:
+            continue
+        stem = unicodedata.normalize("NFC", PurePosixPath(path).stem)
+
+        def rank(k: str) -> tuple:
+            e = tracks[k]
+            named = unicodedata.normalize("NFC", expected_stem(e.get("artist") or "", e.get("title") or "")) == stem
+            return not named, e.get("added") or "￿"
+
+        keep = min(keys, key=rank)  # min keeps the first of equals: the earlier entry
+        for k in keys:
+            if k != keep:
+                tracks[k] = {**tracks[k], "path": None, "status": "missing", **dict.fromkeys(QUALITY[1:])}
+                emit(Message("warning", SHARED_SETTLED.format(path=path, keep=_name(tracks[keep]),
+                                                              other=_name(tracks[k]))))
+    holders = {k: k for k in tracks}
+    for key, e in tracks.items():
+        for a in e.get("aliases") or []:
+            if a != key and (other := holders.setdefault(a, key)) != key:
+                emit(Message("warning", ALIAS_SHARED.format(song=_name(e), other=_name(tracks[other]))))
+
+
+def _is_stub(path: Path) -> bool:
+    try:
+        return json.loads(path.read_bytes()).get("version") == STUB["version"]
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def _write_stub(paths: disk.Paths) -> None:  # step 6
@@ -659,14 +772,29 @@ def migrate(paths: disk.Paths, *, facts: Facts, now: datetime, emit: Emit,
     rename state.json to state.v1.json, write the stub. Until the rename into place state.json is untouched by the
     migration itself; any failure is StateError (a state.json of another version keeps its own message)."""
     try:
-        if db_file(paths).exists() and _resume(paths):
-            return
-        state = _read_v1(paths)
-        recover(state)
-        raw = paths.state_file.read_bytes() if paths.state_file.exists() else None
-        emit(Message("info", MIGRATING))
+        if db_file(paths).exists():
+            with connect(db_file(paths)) as conn:  # every writer's open: the version check, Library/'s path
+                check(conn)
+                sync_library_path(conn, paths.library)
+            if _resume(paths):
+                return
+        rebuild = _is_stub(paths.state_file)  # library.db is gone but was made: rebuild it from the backup
+        if rebuild:
+            backup = paths.data / BACKUP_NAME
+            if not backup.exists():
+                raise disk.StateError(DB_MISSING)
+            state, raw = disk._load_v1(backup), backup.read_bytes()
+            emit(Message("warning", REBUILT))
+        else:
+            state = _read_v1(paths)
+            recover(state)
+            raw = paths.state_file.read_bytes() if paths.state_file.exists() else None
+            emit(Message("info", MIGRATING))
+        _settle(state, emit)
         _build(paths, state, raw, facts, now)
         _place(paths)
+        if rebuild:
+            return  # the stub is already there
         if raw is not None:  # a new library has no state.json to keep
             _backup(paths)
         _write_stub(paths)
