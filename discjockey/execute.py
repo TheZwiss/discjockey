@@ -97,7 +97,7 @@ class Executor:
     def _set_entry(self, track_id: str, entry: dict | None) -> None:
         if entry is not None:
             self.state["tracks"][track_id] = entry
-            save_state(self.paths.state_file, self.state)
+            save_state(self.paths, self.state)
 
     def _drop_stale_upgrade(self, before: dict | None) -> None:
         """The entry got a new file (or none) another way, so its parked better version is not needed any more.

@@ -51,7 +51,7 @@ def sync(paths: library.Paths, args: argparse.Namespace) -> int:
     if prep.needs_qobuz:
         print(run.budget_text(prep))
     if args.dry_run:
-        print("\nDry run: nothing was changed.")
+        print("\nDry run: no music files were changed and no report was written.")
         return 0
     if not prep.plan.actions:
         code, path = run.finish_quietly(prep)

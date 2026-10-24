@@ -10,6 +10,7 @@ execute() is safe to run in a worker thread; it never touches signals or the ter
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from pathlib import Path
@@ -63,15 +64,28 @@ class Prepared:
         return not self.settings.qobuz_skipped and any(a.kind in ("acquire", "upgrade") for a in self.plan.actions)
 
 
+@contextmanager
+def lock_held():
+    """The default for `prepare(lock=...)`: the caller holds the library lock already."""
+    yield True
+
+
 def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, emit: Emit = no_emit,
-            token: CancelToken | None = None) -> Prepared:
-    """`token`: Stop while reading Spotify (also while waiting out a rate limit) raises events.Cancelled."""
+            token: CancelToken | None = None,
+            lock: Callable[[], AbstractContextManager[bool]] = lock_held) -> Prepared:
+    """`token`: Stop while reading Spotify (also while waiting out a rate limit) raises events.Cancelled.
+    Before Spotify is read, the library's records are opened for writing (migrated if needed), interrupted steps
+    are finished (not in a dry run) and Library/ is scanned (also in a dry run, spec library-and-sources §6.4), so
+    the plan works on the files as they are. `lock()` yields whether the library lock is held for that: a reader
+    (the window's preview) that can't get it (a terminal run, a hub job) plans on the records as the last scan
+    left them and writes nothing."""
     token = token or CancelToken()
     log = rep.RunLog(datetime.now())
     try:
         lines = config.load_playlists(paths.playlists_file)
-        state = library.load_state(paths.state_file)
         settings = load_settings(paths.settings_file)
+        with lock() as held:
+            state = _open(paths, log, emit, dry_run=dry_run) if held else library.load_state(paths)
     except config.ConfigError as e:
         raise SetupProblem(str(e), e.kind) from None
     except (StateError, SettingsError) as e:
@@ -82,12 +96,6 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
         settings = replace(settings, extra_date=date.today().isoformat(), extra_amount=extra)
         save_settings(paths.settings_file, settings)
         emit(Message("info", f"Allowing {extra} extra Qobuz downloads today."))
-
-    if not dry_run:
-        for message, ok in library.recover_pending(paths, state):
-            log.add_text("recovered" if ok else "errors", message)
-            emit(Message("info" if ok else "warning", message))
-        library.clear_tmp(paths, state)  # keeps what a step that could not be finished yet still needs
 
     emit(Message("info", "Reading your Spotify playlists..."))
     try:
@@ -104,7 +112,7 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
         for item in fp.skipped:
             log.add_text("skipped", f"[{fp.line.folder}] {item}")
 
-    plan = planner.plan(fetched, state, library.list_files(paths), date.today())
+    plan = planner.plan(fetched, state, state["files"], date.today())
     for key in plan.dropped:
         e = plan.state["tracks"][key]
         log.add(Result("dropped", e["folder"], e["artist"], e["title"], key))
@@ -113,13 +121,27 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
     return Prepared(paths, plan.state, settings, plan, log, lines, fetched)
 
 
+def _open(paths: Paths, log: rep.RunLog, emit: Emit, *, dry_run: bool) -> dict:
+    """The writer's part of prepare (the lock is held): open (and migrate), recover (not in a dry run), scan, then
+    the snapshot the plan works on. A dry run needs no snapshot before the scan (scan_library opens the records
+    itself, and leaves a pending step's files alone)."""
+    if not dry_run:
+        state = library.open_state(paths, emit)
+        for message, ok in library.recover_pending(paths, state):
+            log.add_text("recovered" if ok else "errors", message)
+            emit(Message("info" if ok else "warning", message))
+        library.clear_tmp(paths, state)  # keeps what a step that could not be finished yet still needs
+    library.scan_library(paths, emit)
+    return library.load_state(paths)
+
+
 def replan(prep: Prepared) -> Prepared:
     """The plan worked out again after a run, read-only: the run's own Spotify read (`prep.fetched`) against the
     state.json and the files the run left behind. What the hub's Sync page shows once a sync ends, so a finished
     run is not offered again and nothing needs another Spotify read (issue 20). Raises StateError or SettingsError
     when those files can't be read."""
-    state = library.load_state(prep.paths.state_file)
-    plan = planner.plan(prep.fetched, state, library.list_files(prep.paths), date.today())
+    state = library.load_state(prep.paths)
+    plan = planner.plan(prep.fetched, state, state["files"], date.today())
     return Prepared(prep.paths, plan.state, load_settings(prep.paths.settings_file), plan, rep.RunLog(datetime.now()),
                     prep.lines, prep.fetched)
 
@@ -169,9 +191,9 @@ def open_qobuz(prep: Prepared) -> QobuzSource | None:
     except QobuzNotSetUp as e:  # not a warning sign from Qobuz, so nothing is recorded
         raise SetupProblem(str(e), "not_set_up") from None
     except QobuzError as e:
-        on_disk = library.load_state(prep.paths.state_file)  # record the warning sign, nothing else
+        on_disk = library.open_state(prep.paths)  # record the warning sign, nothing else
         record_signal(on_disk, "login_failed", str(e), datetime.now())
-        library.save_state(prep.paths.state_file, on_disk)
+        library.save_state(prep.paths, on_disk)
         raise SetupProblem(str(e), "qobuz_login_failed") from None
 
 
@@ -204,7 +226,7 @@ def fill_kbps(state: dict, fallback: FallbackSource, emit: Emit = no_emit) -> in
 def finish_quietly(prep: Prepared, emit: Emit = no_emit) -> tuple[int, Path]:
     """For a plan without actions: save flags and aliases, refresh not_lossless.md, write the report."""
     fill_kbps(prep.state, FallbackSource(emit=emit), emit)
-    library.save_state(prep.paths.state_file, prep.state)
+    library.save_state(prep.paths, prep.state)
     rep.write_not_lossless(prep.paths, prep.state)
     code = 1 if prep.log.section("errors") else 0
     return code, rep.write_run(prep.paths, prep.log, datetime.now(), code, prep.state)
@@ -237,7 +259,7 @@ def execute(prep: Prepared, qobuz, *, emit: Emit = no_emit, token: CancelToken |
         emit(event)
 
     def save() -> None:
-        library.save_state(paths.state_file, state)
+        library.save_state(paths, state)
 
     save()
     if qobuz:

@@ -80,7 +80,7 @@ def log_operation(paths: Paths, now: datetime, track_id: str, entry: dict | None
 def run_single(paths: Paths, operation: str, track_id: str, expect: dict | None,
                do: Callable[[dict], Result], now: Callable[[], datetime] = datetime.now) -> Done:
     """Runs `do(state)` as described in the module docstring. The caller holds library.run_lock."""
-    state = library.load_state(paths.state_file)
+    state = library.open_state(paths)
     recovered = library.recover_pending(paths, state)
     library.clear_tmp(paths, state)
     entry = state["tracks"].get(track_id)
@@ -108,7 +108,7 @@ def set_hidden(paths: Paths, state: dict, track_id: str, hidden: bool) -> Result
     """"Good enough, hide": the to-do list leaves the track out. Weekly upgrade checks go on."""
     e = state["tracks"][track_id]
     state["tracks"][track_id] = {**e, "hidden": bool(hidden)}
-    library.save_state(paths.state_file, state)
+    library.save_state(paths, state)
     if hidden:
         return _result("hidden", track_id, e, "hidden from the to-do list")
     return _result("unhidden", track_id, e, "back on the to-do list")
@@ -314,7 +314,7 @@ def use_candidate(paths: Paths, state: dict, track_id: str, cand: Candidate, *, 
                                                  "have the track's length")
             rejected = sorted(set(e.get("rejected_sources") or []) | {cand.key})
             state["tracks"][track_id] = {**e, "rejected_sources": rejected}
-            library.save_state(paths.state_file, state)
+            library.save_state(paths, state)
             raise OpProblem("This version is more than 3 seconds longer or shorter than the Spotify track, so "
                             "Discjockey did not use it.")
         old = None
@@ -358,5 +358,5 @@ def rekordbox_checked(paths: Paths, state: dict, track_id: str) -> Result:
     """The user did what the "Check in rekordbox" reminder asked; the reminder goes away."""
     e = state["tracks"][track_id]
     state["tracks"][track_id] = {**e, "rekordbox_check": None}
-    library.save_state(paths.state_file, state)
+    library.save_state(paths, state)
     return _result("rekordbox_checked", track_id, e, "checked in rekordbox")

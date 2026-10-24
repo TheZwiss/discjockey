@@ -67,10 +67,27 @@ def make_root(tmp_path, upgrade=False):
             "alignment": {"result": "exact", "offset_samples": 0, "offset_ms": 0.0, "drift_ms": 0.0,
                           "text": "matches exactly"}}
         write(paths, PARKED, b"parked lossless")
-    save_state(paths.state_file, state)
     write(paths, LOSSLESS, b"lossless audio")
     write(paths, LOSSY, b"lossy audio")
+    write_state(paths, state)
     return paths
+
+
+def write_state(paths, state):
+    """The records of a test library as a writer leaves them: library.db holding `state` (shaped like state.json or
+    a snapshot), made with the real file facts when there is none yet (library.save_state), else saved over it."""
+    paths.data.mkdir(parents=True, exist_ok=True)
+    save_state(paths, {**state, "version": 2})
+
+
+def records(state):
+    """A state as library.db keeps it: without the read-only keys a snapshot adds (plan library stage 1, I2), so a
+    test can compare what was saved with the state in memory."""
+    out = {k: v for k, v in state.items() if k not in ("files", "ambiguous")}
+    out["tracks"] = {key: {k: v for k, v in e.items()
+                           if k not in ("online", "placed_by") and not (k == "file_gone" and v is None)}
+                     for key, e in state["tracks"].items()}
+    return out
 
 
 def write(paths, rel, data):

@@ -5,6 +5,7 @@ import pytest
 from discjockey import upgrades
 from discjockey.align import Alignment
 from discjockey import library
+from hub_helpers import records
 from discjockey.library import Paths, empty_state, load_state, save_state
 from discjockey.planner import ENTRY_KEYS
 from discjockey.upgrades import UpgradeProblem
@@ -65,7 +66,7 @@ def test_discard_rejects_the_file_and_deletes_the_parked_copy(env):
     assert e["upgrade"] is None and e["rejected_sources"] == ["qobuz:q0", "qobuz:q1"]
     assert e["status"] == "not_lossless" and e["path"] == CURRENT
     assert not (paths.root / PARKED).exists() and (paths.root / CURRENT).read_bytes() == b"old audio"
-    assert load_state(paths.state_file) == state
+    assert records(load_state(paths)) == records(state)
     assert (r.section, r.track_id) == ("discarded", "t1aaaaaaa") and "Qobuz" in r.note
 
 
@@ -78,7 +79,7 @@ def test_discarding_a_better_stream_of_the_current_upload_does_not_mark_it_wrong
     e = state["tracks"]["t1aaaaaaa"]
     assert e["upgrade"] is None and e["rejected_sources"] == ["qobuz:q0"]
     assert e["declined_streams"] == ["youtube_music:y1"]
-    assert load_state(paths.state_file) == state
+    assert records(load_state(paths)) == records(state)
 
 
 def test_discard_works_without_the_current_file(env):
@@ -100,7 +101,7 @@ def test_add_as_new_file(env):
         "lossless", new, "qobuz", "q1", "flac", None, None)
     assert e["last_upgrade_check"] == "2026-10-10" and e["rejected_sources"] == ["qobuz:q0"]
     assert e["rekordbox_check"] == {"reason": "added_as_new", "since": "2026-10-16"}
-    assert state["pending"] == [] and load_state(paths.state_file) == state
+    assert state["pending"] == [] and records(load_state(paths)) == records(state)
     assert (r.section, r.path, r.status) == ("added_new", new, "lossless")
 
 
@@ -142,7 +143,7 @@ def test_parked_file_gone_clears_the_record(env, action):
     assert err.value.forgotten and "no longer in" in str(err.value)
     e = state["tracks"]["t1aaaaaaa"]
     assert e["upgrade"] is None and e["rejected_sources"] == ["qobuz:q0"]  # not rejected: it may come back
-    assert load_state(paths.state_file)["tracks"]["t1aaaaaaa"]["upgrade"] is None
+    assert load_state(paths)["tracks"]["t1aaaaaaa"]["upgrade"] is None
 
 
 def test_check_measures_afresh(env):
@@ -205,7 +206,7 @@ def test_add_as_new_at_the_old_name_is_crash_safe(at_root, monkeypatch, renames_
     def power_off(paths_, state_, track_id, renames, entry):  # run_op, cut off after `renames_done` renames
         state_.setdefault("pending", []).append({"track_id": track_id, "renames": [list(r) for r in renames],
                                                  "entry": entry})
-        save_state(paths_.state_file, state_)
+        save_state(paths_, state_)
         for src, dst in renames[:renames_done]:
             library.safe_rename(paths_.root, src, dst)
         raise KeyboardInterrupt
@@ -213,7 +214,7 @@ def test_add_as_new_at_the_old_name_is_crash_safe(at_root, monkeypatch, renames_
     monkeypatch.setattr(upgrades, "run_op", power_off)
     with pytest.raises(KeyboardInterrupt):
         upgrades.add_new(paths, state, "t1aaaaaaa", up(state))
-    state = load_state(paths.state_file)
+    state = load_state(paths)
     messages = library.recover_pending(paths, state)
     e = state["tracks"]["t1aaaaaaa"]
     assert messages[0][1] is True and state["pending"] == []

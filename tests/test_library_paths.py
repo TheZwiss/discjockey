@@ -176,5 +176,5 @@ def test_saving_state_never_recreates_a_vanished_music_folder(tmp_path):
     paths = Paths(root, support=tmp_path / "support")
     root.rmdir()
     with pytest.raises(NoLibrary):
-        library.save_state(paths.state_file, library.empty_state())
+        library.save_state(paths, library.empty_state())
     assert not root.exists()

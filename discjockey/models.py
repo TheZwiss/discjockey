@@ -167,3 +167,14 @@ class ScanResult:
     held: list[int] = field(default_factory=list)  # file ids that would be gone, left as they are: the file may be
     # in a subfolder that couldn't be listed or be a file that couldn't be read (spec §12); decided on a later scan
     unreadable: list[tuple[int, str, str]] = field(default_factory=list)  # folder id, rel, reason; tried next scan
+
+
+@dataclass(frozen=True)
+class ScanSummary:
+    """What one scan of the watched folders changed, counted (library.scan_library)."""
+    moved: int = 0
+    new: int = 0
+    gone: int = 0
+    replaced: int = 0  # audio replaced outside Discjockey
+    copies: int = 0  # new files with the audio of a file that is still there
+    offline: int = 0  # watched folders that couldn't be seen
