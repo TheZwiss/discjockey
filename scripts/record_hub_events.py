@@ -140,7 +140,7 @@ def build(root: Path, audio: Path) -> Paths:
     state["tracks"][NAUGHTY.id] = entry(NAUGHTY, "Hard_Bounce", naughty, "not_lossless", source="youtube",
                                         source_id="aBcDeFgHiJk", source_format="aac", cutoff_hz=16000)
     state["qobuz_usage"]["days"] = {"2026-10-15": 60}
-    save_state(paths.state_file, state)
+    save_state(paths, state)
     return paths
 
 

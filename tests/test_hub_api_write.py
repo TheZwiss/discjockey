@@ -30,7 +30,7 @@ def test_hide_through_the_bridge(root):
     api.todo()  # what the page shows
     f = wait_job(api, rec, api.hide("t2", True))
     assert f.ok and f.kind == "hide" and f.result["result"]["section"] == "hidden"
-    assert load_state(root.state_file)["tracks"]["t2"]["hidden"] is True
+    assert load_state(root)["tracks"]["t2"]["hidden"] is True
     assert oplog(root)[-1]["operation"] == "hide" and "(hidden)" in root.not_lossless_md.read_text()
     assert [g["key"] for g in api.todo()["groups"]] == ["not_found"]
     assert api.todo("all", True)["hidden_count"] == 1
@@ -39,14 +39,14 @@ def test_hide_through_the_bridge(root):
 def test_precondition_refusal_when_the_console_changed_the_track(root):
     api, rec = make_api(root)
     api.track("t2")
-    state = load_state(root.state_file)  # the console placed a lossless file a minute ago
+    state = load_state(root)  # the console placed a lossless file a minute ago
     state["tracks"]["t2"].update(status="lossless", path="Library/Hard_Bounce/Armin Hermann - Get Naughty.aiff",
                                  upgrade=None)
-    save_state(root.state_file, state)
-    before = root.state_file.read_bytes()
+    save_state(root, state)
+    before = library.load_state(root)
     f = wait_job(api, rec, api.hide("t2", True))
     assert (f.ok, f.problem) == (False, "changed") and "changed in the meantime" in f.message
-    assert root.state_file.read_bytes() == before
+    assert library.load_state(root) == before
     assert oplog(root)[-1]["result"] == "changed"
 
 
@@ -61,11 +61,11 @@ def test_interrupted_steps_are_recovered_first_and_reported(root):
     api.todo()
     src, dst = ".discjockey/.tmp/t9/x.aiff", "Library/Powertrance/Other - Nine.aiff"
     write(root, src, b"placed")
-    state = load_state(root.state_file)
+    state = load_state(root)
     state["pending"].append({"track_id": "t9", "renames": [[src, dst]],
                              "entry": {"artist": "Other", "title": "Nine", "folder": "Powertrance", "path": dst,
                                        "status": "lossless"}})
-    save_state(root.state_file, state)
+    save_state(root, state)
     f = wait_job(api, rec, api.hide("t2", True))
     assert f.ok and f.result["recovered"] == [["Finished an interrupted step for Other - Nine", True]]
     assert (root.root / dst).read_bytes() == b"placed"
@@ -89,7 +89,7 @@ def test_swap_through_the_bridge(root):
     api.track("t2")
     f = wait_job(api, rec, api.upgrade("t2", "swap"))
     assert f.ok and f.result["result"]["section"] == "swapped"
-    e = load_state(root.state_file)["tracks"]["t2"]
+    e = load_state(root)["tracks"]["t2"]
     assert e["status"] == "lossless" and e["path"] == "Library/Hard_Bounce/Armin Hermann - Get Naughty.aiff"
     assert (root.root / e["path"]).read_bytes() == b"parked lossless"
     assert (root.root / "Superseded/Hard_Bounce/Armin Hermann - Get Naughty (lossy).aiff").read_bytes() == \
@@ -120,7 +120,7 @@ def test_add_new_and_discard(root):
     api, rec = make_api(root)
     api.track("t2")
     assert wait_job(api, rec, api.upgrade("t2", "discard")).ok
-    e = load_state(root.state_file)["tracks"]["t2"]
+    e = load_state(root)["tracks"]["t2"]
     assert e["upgrade"] is None and "qobuz:q2" in e["rejected_sources"]
     assert api.upgrade("t2", "explode")["kind"] == "refused"
 
@@ -155,7 +155,7 @@ def test_drop_then_add_bought_file(root, tmp_path):
     assert rec.events[-1] == jobs.FileDropped("t2", src.name, True, "")
     f = wait_job(api, rec, api.add_bought_file("t2"))
     assert f.ok and f.result["result"]["section"] == "bought"
-    e = load_state(root.state_file)["tracks"]["t2"]
+    e = load_state(root)["tracks"]["t2"]
     assert e["path"] == "Library/Hard_Bounce/Armin Hermann - Get Naughty.wav" and e["upgrade"] is None
     assert src.read_bytes() == b"RIFF bought"
     assert api.add_bought_file("t2")["kind"] == "refused"  # the drop is used up
@@ -234,7 +234,7 @@ def test_use_a_candidate_from_the_list(root):
     row = api.search_candidates("t2")["candidates"][1]
     f = wait_job(api, rec, api.use_candidate("t2", row))
     assert f.ok and f.kind == "use_candidate" and f.result["result"]["section"] == "replaced"
-    e = load_state(root.state_file)["tracks"]["t2"]
+    e = load_state(root)["tracks"]["t2"]
     assert (e["source"], e["source_id"]) == ("youtube_music", "abc") and "youtube:abcdefghijk" in e["rejected_sources"]
     assert (root.root / e["path"]).read_bytes() == b"replacement"
     assert SourceChosen("t2", "youtube_music", "chosen", "Get Naughty", 268.0) in rec.events
@@ -244,7 +244,7 @@ def test_use_a_pasted_link(root):
     api, rec = make_api(root, fallback=FakeFallback, process=fake_process)
     api.track("t2")
     f = wait_job(api, rec, api.use_link("t2", "https://youtu.be/zzzzzzzzzzz"))
-    assert f.ok and load_state(root.state_file)["tracks"]["t2"]["source_id"] == "zzzzzzzzzzz"
+    assert f.ok and load_state(root)["tracks"]["t2"]["source_id"] == "zzzzzzzzzzz"
     assert api.use_link("t2", "https://example.com/song")["kind"] == "refused"
 
 
@@ -252,7 +252,7 @@ def test_none_of_these(root):
     api, rec = make_api(root)
     api.track("t2")
     f = wait_job(api, rec, api.reject_current("t2"))
-    assert f.ok and load_state(root.state_file)["tracks"]["t2"]["status"] == "missing"
+    assert f.ok and load_state(root)["tracks"]["t2"]["status"] == "missing"
     assert (root.root / "Superseded/Hard_Bounce/Armin Hermann - Get Naughty.aiff").exists()
 
 
@@ -318,22 +318,22 @@ def test_reads_during_a_sync_never_write_state(root, monkeypatch):
     writers = []
     real_save = library.save_state
 
-    def spy(path, state):
+    def spy(paths, state, **kw):
         writers.append(threading.current_thread().name)
-        real_save(path, state)
+        real_save(paths, state, **kw)
 
     monkeypatch.setattr(library, "save_state", spy)
     keys = [a["key"] for g in api.sync_preview()["groups"] for a in g["actions"]]
     answer = api.start_sync(keys)
     assert second.wait(5)
-    before = root.state_file.read_bytes()
+    before = library.load_state(root)
     for call in (api.dashboard, api.sidebar, api.sync_preview, api.job_status, api.todo, api.library,
                  api.limits, api.runs, api.setup_status, api.playlists):
         assert call()["ok"]
     api.track("t2")
     assert api.search_candidates("t2")["kind"] == "sync_running"
     assert api.refresh()["kind"] == "busy"  # ↻ is off while the hub's own sync runs
-    assert root.state_file.read_bytes() == before
+    assert library.load_state(root) == before
     release.set()
     f = wait_job(api, rec, answer)
     assert f.ok and f.result["exit_code"] == 0
@@ -377,14 +377,14 @@ def test_start_sync_checks_the_keys(root):
 
 
 def test_rekordbox_checked_through_the_bridge(root):
-    state = load_state(root.state_file)
+    state = load_state(root)
     state["tracks"]["t1"]["rekordbox_check"] = {"reason": "wrong_song", "since": "2026-10-16"}
-    save_state(root.state_file, state)
+    save_state(root, state)
     api, rec = make_api(root)
     assert "rekordbox_check" in [g["key"] for g in api.todo()["groups"]]
     f = wait_job(api, rec, api.rekordbox_checked("t1"))
     assert f.ok and f.kind == "rekordbox_checked"
-    assert load_state(root.state_file)["tracks"]["t1"]["rekordbox_check"] is None
+    assert load_state(root)["tracks"]["t1"]["rekordbox_check"] is None
     assert "rekordbox_check" not in [g["key"] for g in api.todo()["groups"]]
 
 
@@ -413,7 +413,7 @@ def test_failed_qobuz_downloads_in_a_row_pause_qobuz_for_the_hub_session(root):
     f = wait_job(api, rec, api.use_candidate("t2", QOBUZ_ROW))
     assert not f.ok and f.problem == "refused" and "Qobuz is paused" in f.message
     assert RefusingQobuz.tries == 3  # the 4th click sent nothing to Qobuz
-    assert [s["kind"] for s in load_state(root.state_file)["qobuz_usage"]["signals"]][-1] == "auto_stop"
+    assert [s["kind"] for s in load_state(root)["qobuz_usage"]["signals"]][-1] == "auto_stop"
     f = wait_job(api, rec, api.use_link("t2", "https://open.qobuz.com/track/123"))
     assert not f.ok and "Qobuz is paused" in f.message
     wait_job(api, rec, api.start_sync([]))  # a new sync starts a new streak
@@ -431,9 +431,9 @@ def test_daily_limit_and_current_version_are_checked_before_qobuz_is_asked(root)
     from datetime import date
     calls = []
     api, rec = make_api(root, fallback=FakeFallback, process=fake_process, open_qobuz=counting_qobuz(calls))
-    state = load_state(root.state_file)
+    state = load_state(root)
     state["qobuz_usage"]["days"][date.today().isoformat()] = 1000
-    save_state(root.state_file, state)
+    save_state(root, state)
     api.track("t2")
     for start in (lambda: api.use_candidate("t2", QOBUZ_ROW),
                   lambda: api.use_link("t2", "https://open.qobuz.com/track/123")):
@@ -441,7 +441,7 @@ def test_daily_limit_and_current_version_are_checked_before_qobuz_is_asked(root)
         assert not f.ok and f.problem == "refused" and "limit" in f.message
     state["qobuz_usage"]["days"] = {}
     state["tracks"]["t2"].update(source="qobuz", source_id="q9")
-    save_state(root.state_file, state)
+    save_state(root, state)
     api.track("t2")
     f = wait_job(api, rec, api.use_candidate("t2", QOBUZ_ROW))
     assert not f.ok and "the version you have now" in f.message
@@ -464,11 +464,11 @@ def test_a_dropped_file_is_kept_when_its_job_is_refused(root, tmp_path):
 def test_use_this_is_refused_when_the_file_is_not_where_state_says(root):
     api, rec = make_api(root, fallback=FakeFallback, process=fake_process)
     api.track("t2")
-    (root.root / load_state(root.state_file)["tracks"]["t2"]["path"]).unlink()  # moved in Finder
+    (root.root / load_state(root)["tracks"]["t2"]["path"]).unlink()  # moved in Finder
     row = api.search_candidates("t2")["candidates"][1]
     f = wait_job(api, rec, api.use_candidate("t2", row))
     assert not f.ok and f.problem == "refused" and "not where Discjockey expects it. Run a sync first" in f.message
-    e = load_state(root.state_file)["tracks"]["t2"]
+    e = load_state(root)["tracks"]["t2"]
     assert e["source"] == "youtube" and e["path"]
 
 
@@ -523,9 +523,9 @@ def test_use_this_keeps_the_account_streak_and_pauses_it(root):
 
 
 def test_got_it_marks_the_warning_signs_seen(root):
-    st = load_state(root.state_file)
+    st = load_state(root)
     st["qobuz_usage"]["signals"] = [{"time": "2026-10-20T20:00:00", "kind": "search_failed", "message": "x"}]
-    save_state(root.state_file, st)
+    save_state(root, st)
     api, rec = make_api(root)
     assert api.sidebar()["limits_warning"] is True and api.limits("qobuz")["cards"][0]["new_warnings"] == 1
     f = wait_job(api, rec, api.mark_warnings_seen("qobuz"))

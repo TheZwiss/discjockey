@@ -77,12 +77,12 @@ def refresh(js, paths, store):
 
 def test_refresh_reads_spotify_and_keeps_the_preview(env):
     paths, js, store, rec, acq, logins, tracks = env
-    save_state(paths.state_file, empty_state())
-    before = paths.state_file.read_bytes()
+    save_state(paths, empty_state())
+    before = load_state(paths)
     refresh(js, paths, store)
     assert rec.finished().ok and rec.finished().result == {"actions": 3}
     assert [a.track_id for a in store.prep.plan.actions] == ["t1", "t2", "t3"] and store.read_at is not None
-    assert paths.state_file.read_bytes() == before  # read-only
+    assert load_state(paths) == before  # read-only
     assert not (paths.data / "reports").exists()
 
 
@@ -129,7 +129,7 @@ def test_after_a_full_sync_the_preview_is_up_to_date_without_another_read(env, m
     sync(js, paths, store, store.keys())
     assert reads == [1]  # only the sync's own read
     assert store.prep.plan.actions == [] and not store.stale and store.read_at is not None
-    preview = views.sync_preview(store, load_state(paths.state_file), load_settings(paths.settings_file),
+    preview = views.sync_preview(store, load_state(paths), load_settings(paths.settings_file),
                                  date.today(), datetime.now(), False)
     assert preview["empty"] == "up_to_date" and preview["counts"] is not None
 

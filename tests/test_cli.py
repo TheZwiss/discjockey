@@ -7,7 +7,7 @@ import pytest
 import discjockey.cli as cli
 from hub_helpers import choose_music
 
-from discjockey import REPO, config, run, spotify
+from discjockey import REPO, config, library, run, spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.library import Paths, empty_state, run_lock, save_state
 from discjockey.models import FetchedPlaylist, SpotifyTrack
@@ -31,7 +31,7 @@ def test_bad_playlists_file_exits_2(root, capsys):
     (root / "playlists.txt").write_text("Bouncy =\n")
     assert cli.main([]) == 2
     assert "line 1" in capsys.readouterr().out
-    assert not (root / ".discjockey" / "state.json").exists()
+    assert library.load_state(Paths(root, support=root / ".support"))["tracks"] == {}
 
 
 def test_lock_held_exits_3(root):
@@ -47,7 +47,8 @@ def test_dry_run_changes_nothing(root, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Download (new): 1" in out and "nothing was changed" in out
     pipeline = root / ".discjockey"
-    assert not (pipeline / "state.json").exists() and not (pipeline / "reports").exists()
+    assert library.load_state(Paths(root, support=root / ".support"))["tracks"] == {}  # the scan indexed, nothing more
+    assert not (pipeline / "reports").exists()
 
 
 def test_up_to_date(root, monkeypatch, capsys):
@@ -80,7 +81,7 @@ def test_answering_no_changes_nothing(root, monkeypatch, capsys):
     monkeypatch.setattr("builtins.input", lambda prompt="": "n")
     assert cli.main([]) == 0
     assert "Nothing changed" in capsys.readouterr().out
-    assert not (root / ".discjockey" / "state.json").exists()
+    assert library.load_state(Paths(root, support=root / ".support"))["tracks"] == {}
 
 
 class FakeQobuzSource:
@@ -134,7 +135,7 @@ def test_ctrl_c_finishes_the_current_track_then_stops(root, monkeypatch, capsys)
     assert acq.calls == 1  # the second track was never started
     assert (root / "Library" / "Hard_Bounce" / "Artist - Song.aiff").exists()  # the first one was finished
     pipeline = root / ".discjockey"
-    assert (pipeline / "state.json").exists()
+    assert (pipeline / "library.db").exists()
     assert len(list((pipeline / "reports").glob("*.md"))) == 1
     assert "Stopping safely" in capsys.readouterr().out
     assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
@@ -175,7 +176,7 @@ def test_qobuz_login_failure_is_recorded(root, monkeypatch):
 
     monkeypatch.setattr(run.QobuzSource, "open", classmethod(refuse))
     assert cli.main(["--yes"]) == 2
-    state = json.loads((root / ".discjockey" / "state.json").read_text())
+    state = library.load_state(Paths(root, support=root / ".support"))
     assert state["qobuz_usage"]["signals"][0]["kind"] == "login_failed"
 
 
@@ -272,7 +273,7 @@ def test_sync_says_when_lossless_versions_wait(root, monkeypatch, capsys):
                     "source_format": "flac", "found": "2026-10-01",
                     "alignment": {"result": "exact", "offset_samples": 0, "offset_ms": 0.0, "drift_ms": 0.0,
                                   "text": "matches exactly"}}}
-    save_state(Paths(root, support=root / ".support").state_file, state)
+    save_state(Paths(root, support=root / ".support"), state)
     assert cli.main([]) == 0  # nothing to do: the parked upgrade stops further checks
     out = capsys.readouterr().out
     assert "1 better version is ready: run `discjockey upgrades`." in out

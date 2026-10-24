@@ -6,6 +6,7 @@ import pytest
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.align import Alignment
 from discjockey.execute import Executor
+from hub_helpers import records
 from discjockey.library import Paths, empty_state, load_state
 from discjockey.models import Action, SpotifyTrack
 from discjockey.planner import ENTRY_KEYS
@@ -93,7 +94,7 @@ def test_new_lossless_track_is_placed(env):
     e = state["tracks"]["t1aaaaaaa"]
     assert e["path"] == "Library/A/Artist - Song.aiff" and e["status"] == "lossless"
     assert (paths.root / e["path"]).read_bytes() == b"new audio"
-    assert state["pending"] == [] and load_state(paths.state_file) == state
+    assert state["pending"] == [] and records(load_state(paths)) == records(state)
     assert len(ex.log.section("new_lossless")) == 1
     assert not (paths.tmp / "t1aaaaaaa").exists()
 
@@ -225,7 +226,7 @@ def test_upgrade_parks_the_lossless_version(env):
     r = ex.log.section("upgrade_ready")[0]
     assert "lines up after shifting by 23 ms" in r.note and r.path == "Upgrades ready/A/Artist - Song.aiff"
     assert "qobuz:q9" in acq.calls[0][1] and acq.calls[0][2] is True
-    assert load_state(paths.state_file) == state and state["pending"] == []
+    assert records(load_state(paths)) == records(state) and state["pending"] == []
 
 
 def test_an_upgrade_result_carries_the_found_files_status_a_lossless_soundcloud_original(env):
@@ -470,7 +471,7 @@ def test_keyboard_interrupt_keeps_finished_work(env):
     ex, _ = make(ready(), KeyboardInterrupt())
     with pytest.raises(KeyboardInterrupt):
         ex.run([act("acquire", tid="t1aaaaaaa", reason="new"), act("acquire", tid="t2bbbbbbb", reason="new")])
-    on_disk = load_state(paths.state_file)
+    on_disk = load_state(paths)
     assert "t1aaaaaaa" in on_disk["tracks"] and on_disk["pending"] == []
 
 
@@ -516,7 +517,7 @@ def test_stop_flag_ends_the_run_between_actions(env):
     ex.acquirer, ex.token = StopAfterFirst(), token
     with pytest.raises(Cancelled):
         ex.run([act("acquire", tid="t1aaaaaaa", reason="new"), act("acquire", tid="t2bbbbbbb", reason="new")])
-    assert "t1aaaaaaa" in load_state(paths.state_file)["tracks"]
+    assert "t1aaaaaaa" in load_state(paths)["tracks"]
     assert "t2bbbbbbb" not in state["tracks"]
 
 
@@ -643,7 +644,7 @@ def test_a_stream_of_the_current_upload_that_came_out_no_better_is_declined_not_
     ex.run([act("upgrade")])
     e = state["tracks"]["t1aaaaaaa"]
     assert e["rejected_sources"] == ["youtube_music:m2"] and e["declined_streams"] == ["youtube_music:m0"]
-    assert load_state(paths.state_file)["tracks"]["t1aaaaaaa"]["declined_streams"] == ["youtube_music:m0"]
+    assert load_state(paths)["tracks"]["t1aaaaaaa"]["declined_streams"] == ["youtube_music:m0"]
     e["last_upgrade_check"] = "2026-10-01"
     ex.run([act("upgrade")])  # the next check: the account step skips it, the rest of the check doesn't
     assert acq.declined == [set(), {"youtube_music:m0"}]
