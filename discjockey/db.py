@@ -11,7 +11,7 @@ import json
 import os
 import sqlite3
 import unicodedata
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -623,8 +623,16 @@ def _inner(folders: dict[int, PurePosixPath], folder: int) -> list[tuple[int, st
             if i != folder and inner != root and inner.is_relative_to(root)]
 
 
-def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime) -> int:
-    """Writes a ScanResult in one transaction (rules: the ScanResult docstring). Offline folders' rows are marked
+def has_pending(conn: sqlite3.Connection) -> bool:
+    """A step (library.run_op) is still pending: its files are between two places."""
+    return conn.execute("SELECT 1 FROM pending LIMIT 1").fetchone() is not None
+
+
+def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
+               judged: Mapping[int, tuple[str, int | None, str]] | None = None) -> int:
+    """Writes a ScanResult in one transaction (rules: the ScanResult docstring), together with the quality `judged`
+    for replaced files (file id -> status, cutoff, source format; set_quality), so a replaced file's new key is never
+    recorded without its new quality. Offline folders' rows are marked
     offline and keep everything else; an online folder's rows are online again and seen now. Retagged and replaced
     rows get the file's size, mtime and key; a moved row takes its new place (placed by the user), and an unlinked
     row already there gives way to it; ambiguous rows keep their candidates; new files and copies become unlinked
@@ -670,6 +678,8 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime) -> i
             n += conn.execute("UPDATE songs SET file_gone = ? WHERE id = (SELECT song FROM files WHERE id = ?)",
                               (today, file_id)).rowcount
             n += conn.execute("DELETE FROM files WHERE id = ?", (file_id,)).rowcount
+        for file_id, (status, cutoff_hz, source_format) in (judged or {}).items():
+            n += set_quality(conn, file_id, status, cutoff_hz, source_format)
     return n
 
 

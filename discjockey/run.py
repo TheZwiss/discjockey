@@ -122,18 +122,17 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
 
 
 def _open(paths: Paths, log: rep.RunLog, emit: Emit, *, dry_run: bool) -> dict:
-    """The writer's part of prepare (the lock is held): open (and migrate), recover, scan, then the snapshot the
-    plan works on. The scan waits while a step is still pending: its files are between two places."""
-    state = library.open_state(paths, emit)
+    """The writer's part of prepare (the lock is held): open (and migrate), recover (not in a dry run), scan, then
+    the snapshot the plan works on. A dry run needs no snapshot before the scan (scan_library opens the records
+    itself, and leaves a pending step's files alone)."""
     if not dry_run:
+        state = library.open_state(paths, emit)
         for message, ok in library.recover_pending(paths, state):
             log.add_text("recovered" if ok else "errors", message)
             emit(Message("info" if ok else "warning", message))
         library.clear_tmp(paths, state)  # keeps what a step that could not be finished yet still needs
-    if not state.get("pending"):
-        library.scan_library(paths, emit)
-        state = library.load_state(paths)
-    return state
+    library.scan_library(paths, emit)
+    return library.load_state(paths)
 
 
 def replan(prep: Prepared) -> Prepared:

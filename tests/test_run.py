@@ -6,7 +6,7 @@ from datetime import date
 import pytest
 from audio_helpers import music, write_aiff
 
-from discjockey import library, run, spotify
+from discjockey import db, library, run, spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.events import ActionFinished, CancelToken, Message, ReadingPlaylist, RunFinished
 from discjockey.library import Paths, empty_state, save_state
@@ -420,6 +420,18 @@ def test_without_the_lock_the_plan_reads_the_last_scan_and_writes_nothing(paths)
     prep = run.prepare(paths, dry_run=True, lock=taken)
     assert library.load_state(paths)["tracks"]["t1"]["path"] == rel  # not scanned: nothing written
     assert prep.state["tracks"]["t1"]["path"] == rel
+
+
+def test_prepare_builds_only_the_snapshots_it_needs(paths, monkeypatch):
+    placed(paths)
+    built = []
+    snapshot = db.snapshot
+    monkeypatch.setattr(db, "snapshot", lambda *a, **kw: built.append(1) or snapshot(*a, **kw))
+    run.prepare(paths)
+    assert len(built) == 2  # one for finishing interrupted steps, one after the scan for the plan
+    built.clear()
+    run.prepare(paths, dry_run=True)
+    assert len(built) == 1
 
 
 def test_the_scan_waits_while_a_step_is_pending(paths):

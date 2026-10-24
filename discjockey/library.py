@@ -282,9 +282,15 @@ def _v1_snapshot(paths: Paths, state: dict) -> dict:
 
 
 def open_state(paths: Paths, emit: Emit = no_emit) -> dict:
-    """The snapshot for a writer (the caller holds the lock). Moves state.json into library.db first when that
-    hasn't happened yet (spec library-and-sources §5.3; its pending steps are finished on the way), gives a library
-    that has neither file an empty library.db, and does the version check of every open."""
+    """The snapshot for a writer (the caller holds the lock): open_records, then load_state."""
+    open_records(paths, emit)
+    return load_state(paths)
+
+
+def open_records(paths: Paths, emit: Emit = no_emit) -> None:
+    """A writer's open without the snapshot (the caller holds the lock). Moves state.json into library.db first when
+    that hasn't happened yet (spec library-and-sources §5.3; its pending steps are finished on the way), gives a
+    library that has neither file an empty library.db, and does the version check of every open."""
     from . import db
     if not paths.root.is_dir():
         raise NoLibrary(MUSIC_GONE)
@@ -299,7 +305,6 @@ def open_state(paths: Paths, emit: Emit = no_emit) -> dict:
         db.migrate(paths, facts=file_facts(paths), now=datetime.now(), emit=emit, recover=recover)
     finally:
         _MIGRATING.on = False
-    return load_state(paths)
 
 
 def _load_v1(path: Path) -> dict:
@@ -611,17 +616,23 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
                  analyze: Callable[[Path], tuple[str, int | None]] | None = None,
                  key_of: Callable[[Path], str] = content_key) -> ScanSummary:
     """Indexes the watched folders (Library/) against library.db and writes what changed (the caller holds the
-    lock): files moved by hand keep their song, new files are indexed, a file gone marks its song's file gone, and
-    a song's file whose audio was replaced outside Discjockey is judged again the way a bought file is (`analyze`,
-    quality.inspect) and counts as the user's own file from now on. Superseded/, Upgrades ready/ and .discjockey/
-    are never looked at. One message, only when something changed (copies count as new files)."""
+    lock; the records are opened, and migrated if needed, first): files moved by hand keep their song, new files
+    are indexed, a file gone marks its song's file gone, and a song's file whose audio was replaced outside
+    Discjockey is judged again the way a bought file is (`analyze`, quality.inspect) and counts as the user's own
+    file from now on. The new audio is judged before anything is written and recorded together with its quality;
+    a file the check fails on keeps its row as it was, so the next scan judges it again. Superseded/, Upgrades
+    ready/ and .discjockey/ are never looked at. Nothing is scanned while a step is pending (its files are between
+    two places; the next scan after it is finished sees them). One message, only when something changed (copies
+    count as new files)."""
     from . import db, scanner
     from .quality import is_lossless_codec, verdict
     if analyze is None:
         from .quality import inspect as analyze
-    open_state(paths, emit)
+    open_records(paths, emit)
     try:
         with db.connect(paths.db_file) as conn:
+            if db.has_pending(conn):
+                return ScanSummary()
             folders = {f.id: f for f in db.watched_folders(conn)}
             known = db.known_files(conn)
 
@@ -631,8 +642,8 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
             result = scanner.scan(list(folders.values()), known,
                                   exclude=[paths.superseded, paths.upgrades_ready, paths.data],
                                   snapshot_path=snapshot_path, key_of=key_of)
-            db.apply_scan(conn, result, datetime.now())
             linked = {f.id for f in known if f.linked}
+            judged, failed = {}, set()
             for file_id, seen in result.replaced:
                 if file_id not in linked:
                     continue  # nobody's file: nothing to judge it for
@@ -641,8 +652,13 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
                     codec, cutoff = analyze(paths.root / path)
                 except Exception as e:  # noqa: BLE001 - a file the tools can't read keeps its old quality
                     emit(Message("warning", NOT_JUDGED.format(path=path, reason=str(e)[:200] or type(e).__name__)))
+                    failed.add(file_id)
                     continue
-                db.set_quality(conn, file_id, verdict(is_lossless_codec(codec), cutoff), cutoff, codec)
+                judged[file_id] = (verdict(is_lossless_codec(codec), cutoff), cutoff, codec)
+            if failed:  # their rows stay as they are (held), old key included
+                result.replaced = [r for r in result.replaced if r[0] not in failed]
+                result.held = [*result.held, *failed]
+            db.apply_scan(conn, result, datetime.now(), judged)
     except sqlite3.Error as e:
         raise db.unreadable(e) from None
     summary = ScanSummary(moved=len(result.moved), new=len(result.new), gone=len(result.gone),

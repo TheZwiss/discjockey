@@ -215,3 +215,50 @@ def test_a_copy_of_a_known_file_counts_as_a_new_file(paths):
     summary, messages = scan(paths)
     assert (summary.new, summary.copies) == (0, 1) and messages == ["Checked your Library: 1 new file."]
     assert load_state(paths)["tracks"]["t1"]["path"] == rel  # the song keeps its own file
+
+
+def test_a_replaced_file_whose_check_failed_is_judged_again_next_time(paths):
+    rel = song(paths)
+    write_aiff(paths.root / rel, music(1, seed=7))
+
+    def broken(path):
+        raise RuntimeError("no audio stream")
+    summary, _ = scan(paths, analyze=broken)
+    assert summary.replaced == 0  # not recorded: its new key waits for a check that works
+    judged = []
+
+    def analyze(path):
+        judged.append(path)
+        return "pcm_s16be", None
+    summary, messages = scan(paths, analyze=analyze)
+    assert judged == [paths.root / rel] and summary.replaced == 1
+    assert load_state(paths)["tracks"]["t1"]["source"] == "manual"
+
+
+def test_a_crash_while_judging_a_replaced_file_writes_nothing(paths):
+    rel = song(paths)
+    (paths.library / "F" / "B - New.aiff").parent.mkdir(exist_ok=True)
+    write_aiff(paths.library / "F" / "B - New.aiff", music(1, seed=3))
+    write_aiff(paths.root / rel, music(1, seed=7))
+
+    def crash(path):
+        raise KeyboardInterrupt
+    with pytest.raises(KeyboardInterrupt):
+        scan(paths, analyze=crash)
+    assert load_state(paths)["files"] == [rel]  # the scan's changes all wait for the next scan
+    judged = []
+    summary, _ = scan(paths, analyze=lambda p: judged.append(p) or ("pcm_s16be", None))
+    assert judged == [paths.root / rel] and (summary.replaced, summary.new) == (1, 1)
+
+
+def test_the_scan_waits_while_a_step_is_pending(paths):
+    rel = song(paths)
+    state = load_state(paths)
+    state["pending"].append({"track_id": "t9", "renames": [[".discjockey/.tmp/t9/x.aiff", "Library/F/x.aiff"]],
+                             "entry": None})
+    save_state(paths, state)
+    (paths.root / rel).unlink()
+    key_of, calls = counting_keys()
+    summary, messages = scan(paths, key_of=key_of)  # its files are between two places
+    assert summary == library.ScanSummary() and messages == [] and calls == []
+    assert load_state(paths)["tracks"]["t1"]["path"] == rel
