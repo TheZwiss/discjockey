@@ -10,7 +10,7 @@ export const CONTRACT_METHODS = [
   'search_candidates', 'preview', 'add_playlist', 'preview_playlist_change',
   // write jobs
   'start_sync', 'stop', 'save_playlists', 'save_limits', 'mark_warnings_seen', 'hide', 'never_download', 'add_bought_file',
-  'use_candidate', 'use_link', 'reject_current', 'rekordbox_checked', 'upgrade',
+  'use_candidate', 'use_link', 'reject_current', 'rekordbox_checked', 'upgrade', 'rescan_library',
   // other
   'show_in_finder', 'reveal', 'open_report', 'open_external', 'app_update', 'quit',
   // setup
@@ -31,5 +31,5 @@ export const LIBRARY_METHODS = [
   'limits_what_if', 'save_limits', 'mark_warnings_seen', 'runs', 'run', 'spectrum', 'media_url',
   'search_candidates', 'preview', 'add_playlist', 'preview_playlist_change', 'start_sync', 'save_playlists',
   'hide', 'never_download', 'add_bought_file', 'use_candidate', 'use_link', 'reject_current',
-  'rekordbox_checked', 'upgrade', 'show_in_finder', 'reveal', 'open_report',
+  'rekordbox_checked', 'upgrade', 'rescan_library', 'show_in_finder', 'reveal', 'open_report',
 ] as const satisfies readonly ContractMethod[];

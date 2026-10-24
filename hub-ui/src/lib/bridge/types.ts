@@ -65,8 +65,7 @@ export type RunDetail = RunSummary & {
   queued: number; folder_order: string[];   // tracks waiting for the next sync; playlist folders in their order
 };
 
-export type PlanCounts = { new: number; retries: number; redownloads: number; moves: number; adopts: number;
-  bought: number; weekly_checks: number };
+export type PlanCounts = { new: number; retries: number; redownloads: number; bought: number; weekly_checks: number };
 /** duration_min counts only the downloads that fit today (the rest wait for the next sync at once). */
 /** left null: no daily limit (only free sources are set up). accounts: the expected split between the services. */
 export type Estimate = { duration_min: number; qobuz_limit: number; qobuz_needed: number; qobuz_left: number;
@@ -96,11 +95,10 @@ export type Sidebar = {
   not_in_playlist: number;
   limits_warning: boolean;
 };
-export type PreviewGroupKey = 'acquire:new' | 'acquire:retry' | 'acquire:redownload' | 'move' | 'adopt'
-  | 'adopt_bought' | 'upgrade';
+export type PreviewGroupKey = 'acquire:new' | 'acquire:retry' | 'acquire:redownload' | 'adopt_bought' | 'upgrade';
 export type PreviewAction = {
   key: ActionKey; kind: string; reason: string | null; track_id: string; artist: string; title: string;
-  folder: string; from_folder: string | null; to_dir: string; to_not_lossless: boolean; src: string | null;
+  folder: string; to_dir: string; to_not_lossless: boolean; src: string | null;
   cover_url: string | null;
   /** the order the sync works through the actions (kind, then playlist order); not on `never` rows */
   run?: number;
@@ -323,6 +321,7 @@ export type JobResults = {
   qobuz_check_login: Record<string, never>; spotify_sign_out: Record<string, never>;
   setup_forget_account: { service: Service };
   never_download: { track_id: string; never: boolean };
+  scan: { moved: number; new: number; gone: number; changed: number; copies: number };
   hide: OpResult; unhide: OpResult; add_bought_file: OpResult; use_candidate: OpResult; use_link: OpResult;
   reject_current: OpResult; rekordbox_checked: OpResult; upgrade_swap: OpResult; upgrade_add_new: OpResult;
   upgrade_discard: OpResult; setup_save_client_id: Record<string, never>; setup_spotify_login: { user: string };

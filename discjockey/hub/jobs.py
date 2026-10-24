@@ -158,6 +158,7 @@ class HubEvents:
 
 CONSOLE_TEXT = "A sync is running in the terminal. Wait until it has finished."
 BUSY_TEXT = "Discjockey is still busy with the last change. Wait until it has finished."
+SCANNING_TEXT = "Discjockey is checking your Library. Try again in a moment."
 ACTIVITY_OPTIONS = 0x00FFFFFF | (1 << 20)  # NSActivityUserInitiated, idle system sleep disabled
 
 
@@ -303,6 +304,13 @@ class Jobs:
         job = self.current
         return job if job is not None and not job.done.is_set() else None
 
+    def _busy(self) -> Busy | None:
+        """Busy when a write job runs, or only the preview's scan holds the lock (its own words). The mutex is held."""
+        job = self.running()
+        if job is not None:
+            return Busy(SCANNING_TEXT if job.kind == "scan" else BUSY_TEXT, "busy")
+        return Busy(SCANNING_TEXT, "busy") if self._scanning else None
+
     def console_running(self) -> bool:
         """A terminal run holds the lock (our own job, or our own brief save, holding it does not count)."""
         if self.running() is not None or self._brief:
@@ -320,8 +328,8 @@ class Jobs:
             yield
             return
         with self._mutex, ExitStack() as stack:  # no write job can start meanwhile (start takes the mutex)
-            if self.running() is not None or self._scanning:
-                raise Busy(BUSY_TEXT, "busy")
+            if (busy := self._busy()) is not None:
+                raise busy
             self._brief, self._briefs = True, self._briefs + 1
             stack.callback(setattr, self, "_brief", False)
             try:
@@ -366,8 +374,8 @@ class Jobs:
         """A write job: `work(ctx)` runs in a worker thread while holding the engine lock and keeping the Mac awake.
         Raises Busy at once if another write job runs or the console holds the lock."""
         with self._mutex:
-            if self.running() is not None or self._scanning:
-                raise Busy(BUSY_TEXT, "busy")
+            if (busy := self._busy()) is not None:
+                raise busy
             if self.console_running():
                 raise Busy(CONSOLE_TEXT, "console")
             job = self.current = self._new(kind, track_id)

@@ -324,11 +324,11 @@ export function newTracks(n = 10) {
 }
 
 export function previewAction(kind: string, reason: string | null, t: { track_id: string; artist: string;
-  title: string; folder: string }, from_folder: string | null = null, to_not_lossless = false, src: string | null = null,
+  title: string; folder: string }, to_not_lossless = false, src: string | null = null,
   cover: number | null = null): PreviewAction {
   const to_dir = `Library/${t.folder}${to_not_lossless ? '/not_lossless' : ''}`;
   return { key: [kind, t.track_id, to_dir], kind, reason, track_id: t.track_id, artist: t.artist, title: t.title,
-    folder: t.folder, from_folder, to_dir, to_not_lossless, src, cover_url: coverUri(cover) };
+    folder: t.folder, to_dir, to_not_lossless, src, cover_url: coverUri(cover) };
 }
 
 // ---------- runs ----------

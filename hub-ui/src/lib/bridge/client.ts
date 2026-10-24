@@ -43,6 +43,7 @@ export interface Bridge {
   reject_current(track_id: string): Promise<JobStart>;
   rekordbox_checked(track_id: string): Promise<JobStart>;
   upgrade(track_id: string, mode: 'swap' | 'add_new' | 'discard'): Promise<JobStart>;
+  rescan_library(): Promise<JobStart>;
   // other
   show_in_finder(track_id: string, which: Which): Promise<Res<{}>>;   reveal(rel_path: string): Promise<Res<{}>>;
   open_report(run_id: string): Promise<Res<{}>>;   open_external(url: string): Promise<Res<{}>>;

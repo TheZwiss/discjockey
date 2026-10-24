@@ -16,7 +16,7 @@ describe('detailLine', () => {
 
 describe('PLAN_COUNT_WORDS', () => {
   it('names each plan count once, for the Dashboard and Sync', () => {
-    expect(PLAN_COUNT_WORDS.map(([k]) => k)).toEqual(['new', 'retries', 'redownloads', 'moves', 'adopts', 'bought',
+    expect(PLAN_COUNT_WORDS.map(([k]) => k)).toEqual(['new', 'retries', 'redownloads', 'bought',
       'weekly_checks']);
   });
 });

@@ -107,10 +107,9 @@ def test_budget_numbers_with_carry_over_and_extra():
 
 
 def test_plan_counts_and_estimate():
-    actions = [a("acquire", "t1", "new"), a("acquire", "t2", "retry"), a("move", "t3"), a("adopt_bought", "t4"),
-               a("upgrade", "t5")]
-    assert views.plan_counts(actions) == {"new": 1, "retries": 1, "redownloads": 0, "moves": 1, "adopts": 0,
-                                          "bought": 1, "weekly_checks": 1}
+    actions = [a("acquire", "t1", "new"), a("acquire", "t2", "retry"), a("adopt_bought", "t4"), a("upgrade", "t5")]
+    assert views.plan_counts(actions) == {"new": 1, "retries": 1, "redownloads": 0, "bought": 1,
+                                          "weekly_checks": 1}
     assert views.estimate(actions, {"remaining": 2, "limit": 60}) == {
         "duration_min": 5, "qobuz_limit": 60, "qobuz_needed": 3, "qobuz_left": 2, "qobuz_uses": 2,
         "accounts": [], "left": 2, "limit": 60}
@@ -491,7 +490,7 @@ def test_sync_preview_groups_with_keys():
     p = views.sync_preview(store, st, Settings(), TODAY, NOW, False, cover)
     assert [g["key"] for g in p["groups"]] == ["acquire:new", "adopt_bought"]
     row = p["groups"][1]["actions"][0]
-    assert row["key"] == ["adopt_bought", "m1", "Library/Hard_Bounce"] and row["from_folder"] is None
+    assert row["key"] == ["adopt_bought", "m1", "Library/Hard_Bounce"] and "from_folder" not in row
     assert (row["artist"], row["to_not_lossless"], row["cover_url"]) == ("DJ TALLBOY", False, "cover:m1")
     new_row = p["groups"][0]["actions"][0]
     assert new_row["key"] == ["acquire", "n1", "Library/A"] and new_row["artist"] == "Artist"

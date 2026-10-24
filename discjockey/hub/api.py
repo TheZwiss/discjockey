@@ -66,7 +66,7 @@ LIBRARY_METHODS = frozenset((
     "limits_what_if", "save_limits", "mark_warnings_seen", "runs", "run", "spectrum", "media_url",
     "search_candidates", "preview", "add_playlist", "preview_playlist_change", "start_sync", "save_playlists",
     "hide", "never_download", "add_bought_file", "use_candidate", "use_link", "reject_current",
-    "rekordbox_checked", "upgrade", "show_in_finder", "reveal", "open_report",
+    "rekordbox_checked", "upgrade", "rescan_library", "show_in_finder", "reveal", "open_report",
 ))
 
 
@@ -921,6 +921,18 @@ class HubApi:
             return {"track_id": track_id, "never": bool(never)}
 
         return {"job_id": self._jobs.start("never_download", work, track_id=track_id).id}
+
+    @bridge
+    def rescan_library(self) -> dict:
+        """The window opened, or came back to the front after a while (spec library §6.4): index Library/ against
+        library.db, so files moved or replaced by hand are found. A write job (kind "scan"): busy/console as every
+        write method; the page ignores those answers, a running sync scans by itself."""
+        def work(ctx) -> dict:
+            summary = library.scan_library(self._paths, ctx.emit)
+            return {"moved": summary.moved, "new": summary.new, "gone": summary.gone, "changed": summary.replaced,
+                    "copies": summary.copies}
+
+        return {"job_id": self._jobs.start("scan", work).id}
 
     @bridge
     def add_bought_file(self, track_id: str) -> dict:

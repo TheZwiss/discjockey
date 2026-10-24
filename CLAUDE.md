@@ -17,7 +17,7 @@ A user's data never sits in the repo and none of it is in git — never test aga
 
 - **The music folder** (whatever the user chose in Setup, suggested `~/Music/Discjockey`): `playlists.txt` (the only
   config), `Library/<Folder>/` (+ `not_lossless/`), `Superseded/`, `Upgrades ready/`, and the hidden `.discjockey/`
-  (`state.json`, `reports/`, `not_lossless.md`, the lock).
+  (`library.db`, `state.v1.json` (the old records, kept as a copy after the migration), `reports/`, `not_lossless.md`, the lock).
 - **The support folder** `~/Library/Application Support/Discjockey/`: logins, `settings.json`, `config.json` (names
   the music folder), caches, `tools/` (updated yt-dlp, spec public-release §6.4). For a developer run against a
   scratch library set `DISCJOCKEY_SUPPORT=<scratch folder>` (Setup then asks for a music folder). Tests point it at a
@@ -28,7 +28,10 @@ A user's data never sits in the repo and none of it is in git — never test aga
 | `bin/discjockey` | Launcher: `uv sync`, then `.venv/bin/python -m discjockey` (under `caffeinate` except for `hub`) |
 | `discjockey/` | Engine. Each module's docstring says what it owns; read that before opening the file |
 | `discjockey/planner.py`, `discjockey/hub/views.py` | Pure: no I/O, no clock. Keep them that way |
-| `discjockey/library.py` | Everything on disk: paths (music folder, `.discjockey/`, support folder), `config.json`, lock, `state.json`, names, crash-safe ops (`run_op`) |
+| `discjockey/library.py` | Everything on disk: paths (music folder, `.discjockey/`, support folder), `config.json`, lock, names, crash-safe ops (`run_op`, backed by `db.py`), `scan_library` |
+| `discjockey/db.py` | `library.db`: the schema, the migration from `state.json`, every query. Nothing else writes SQL |
+| `discjockey/scanner.py` | Walks the watched folders (`Library/`) against the index's file rows and returns a `ScanResult`. Reads only, no SQL; `db.apply_scan` writes it, `library.scan_library` ties the two together |
+| `discjockey/content_key.py` | The content key of an audio file (`1:<payload length>:<sha256>` over windows of the audio, so it survives renames, moves and tag edits; how a moved file is found) and `AUDIO_EXTS` |
 | `discjockey/run.py` | One sync run, front-end independent; `console.py` and `hub/jobs.py` render its `events.py` events |
 | `discjockey/__main__.py`, `discjockey/cli.py`, `discjockey/tools.py`, `discjockey/tool_updates.py` | `python -m discjockey` runs `tools.activate()` (bundled ffmpeg/ffprobe/deno first on `PATH`, a newer downloaded yt-dlp first on `sys.path`) before `cli.py` imports anything that imports yt-dlp; `--check-tools <folder>` is the update check's child process (spec public-release §6.1, §6.4); `tool_updates.py` updates yt-dlp from PyPI into `<support>/tools/` (never `uv.lock`), keeps one previous, rolls back |
 | `discjockey/app_main.py`, `discjockey/selftest.py` | The app's program (spec public-release §5): `--check-tools` first, then `--self-test` (imports, bundled programs, tone → AIFF, UI file, the update check; scratch support folder, no network), else `tools.activate()` and the hub. `python -m discjockey.app_main --self-test` runs it in a checkout |

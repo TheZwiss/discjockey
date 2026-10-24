@@ -29,7 +29,7 @@ export type NextSync =
   | { state: 'running' }
   | { state: 'unread'; line: string | null }
   | { state: 'up_to_date'; day: DayBarInput | null; limits: Limits; checks: number }
-  | { state: 'ready'; count: { n: number; unit: 'track' | 'move' }; time: { value: string; unit: string };
+  | { state: 'ready'; count: number; time: { value: string; unit: string };
       day: DayBarInput; limits: Limits; limitReached: boolean };
 type Limits = { text: string; full: string } | null;
 
@@ -59,7 +59,7 @@ function dayInput(t: Tiles, r: Ready): DayBarInput {
   const left = Math.max(r.left ?? 0, 0);
   const used = gate(t).used;
   return { today: r.qobuz_uses, later: limited ? after : 0, limited,
-    laterDays: limited && after > 0 ? daysToLoad(after, left - r.qobuz_uses, r.limit) : 0, moves: r.counts.moves,
+    laterDays: limited && after > 0 ? daysToLoad(after, left - r.qobuz_uses, r.limit) : 0,
     day: limited ? { used, allowance: used + left } : undefined };
 }
 
@@ -68,9 +68,9 @@ export function nextSync(d: Pick<Dashboard, 'ready' | 'tiles' | 'next_checks'>, 
   const r = d.ready;
   if (!r) return { state: 'unread', line: canRead ? EMPTY.no_preview.body ?? null : null };
   if (!r.actions) return { state: 'up_to_date', checks: d.next_checks, limits: limitsLine(d.tiles, r),
-    day: r.left === null ? null : { ...dayInput(d.tiles, r), moves: 0 } };
-  const count = runCount(r.actions, r.qobuz_needed, r.qobuz_uses, r.counts.moves);
-  return { state: 'ready', count, time: runTime(r.duration_min, count.n), day: dayInput(d.tiles, r),
+    day: r.left === null ? null : dayInput(d.tiles, r) };
+  const count = runCount(r.actions, r.qobuz_needed, r.qobuz_uses);
+  return { state: 'ready', count, time: runTime(r.duration_min, count), day: dayInput(d.tiles, r),
     limits: limitsLine(d.tiles, r), limitReached: r.left === 0 && r.qobuz_needed > 0 };
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createFakeBridge } from './bridge';
+import { STREAMS } from './replay';
 import { minutesByDownloads } from './minutes';
 import { LIBRARY_METHODS } from '../contract';
 import type { HubEvent } from '../events';
@@ -228,7 +229,9 @@ describe('fake backend', () => {
     const js = await f.job_status();
     if (!js.ok || !js.job) throw new Error();
     expect(js.job).toMatchObject({ kind: 'sync', running: true });
-    expect(js.job.actions).toHaveLength(6);
+    const planned = STREAMS.sync.find((e) => e.type === 'RunStarted') as Extract<HubEvent, { type: 'RunStarted' }>;
+    expect(js.job.actions).toHaveLength(planned.actions.length);
+    expect(js.job.last.Progress).toMatchObject({ step: 'download' });   // mid-download, as the scenario says
     expect(await f.search_candidates('t2')).toMatchObject({ ok: false, kind: 'sync_running' });
   });
   it('stop ends a replayed sync with exit 130', async () => {

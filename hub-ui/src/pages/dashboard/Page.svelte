@@ -148,12 +148,12 @@
     {/if}
   {:else}
     <div class="stats" data-test="next-sync">
-      <StatCard value={next.count.n} label="{next.count.unit}{next.count.n === 1 ? '' : 's'} today" valueTest="next-count" />
+      <StatCard value={next.count} label="track{next.count === 1 ? '' : 's'} today" valueTest="next-count" />
       <StatCard value={next.time.value} unit={next.time.unit} label="run time" data-test="next-time" />
     </div>
     {@render dayCard(next.day, next.limits)}
     {#if next.limitReached}
-      <NoteCard tone="warn" title="Downloads start tomorrow · moves still run" data-test="next-limit-reached" />
+      <NoteCard tone="warn" title="Downloads start tomorrow" data-test="next-limit-reached" />
     {/if}
   {/if}
 {/snippet}
