@@ -5,7 +5,7 @@ import pytest
 
 from discjockey import playlists_file as pf
 from discjockey.config import ConfigError, parse_playlists
-from discjockey.models import SpotifyTrack
+from discjockey.models import SourceTrack
 from discjockey.planner import ENTRY_KEYS
 from discjockey.playlists_file import PlaylistsChanged, Row
 
@@ -32,7 +32,7 @@ def test_load_rows_and_version(path):
     loaded = pf.load(path)
     assert loaded.rows == [Row("Hard_Bounce", URL1), Row("Old", f"spotify:playlist:{ID3}", False),
                            Row("Powertrance", f"https://open.spotify.com/playlist/{ID2}")]
-    assert [r.playlist_id for r in loaded.rows] == [ID1, ID3, ID2]
+    assert [r.ref for r in loaded.rows] == [ID1, ID3, ID2]
     assert loaded.version == pf.version_of(TEXT.encode()) and loaded.problem is None
 
 
@@ -124,14 +124,33 @@ def test_save_returns_the_new_version_and_creates_the_file(tmp_path):
 
 
 def test_clean_link_refuses_other_links():
-    with pytest.raises(ValueError, match="playlist link"):
+    with pytest.raises(ValueError) as excinfo:
         pf.clean_link("https://open.spotify.com/album/0DiscjockeyExampleList")
+    assert str(excinfo.value) == ("That isn't a Spotify or Qobuz playlist link. Open the playlist in Spotify or Qobuz, "
+                                  "choose Share, then Copy link, and paste it here.")
+
+
+def test_clean_link_gives_the_canonical_link_of_the_recognising_source():
+    assert pf.clean_link(f"  spotify:playlist:{ID1}  ") == f"https://open.spotify.com/playlist/{ID1}"
+    assert pf.clean_link(URL1) == f"https://open.spotify.com/playlist/{ID1}"
+
+
+def test_a_row_knows_its_service_and_ref():
+    row = Row("A", URL1)
+    assert (row.service, row.ref) == ("spotify", ID1)
+    assert (Row("B", "https://example.com/x").service, Row("B", "https://example.com/x").ref) == (None, None)
+
+
+def test_placement_keys_by_ref_and_hands_the_planner_the_service_ids():
+    rows = [Row("A", URL1), Row("B", f"spotify:playlist:{ID2}")]
+    fetched = pf._fetched(rows, {ID1: [SourceTrack("x", "X", ("Artist",), "", None, 1000, None)]})
+    assert [(f.line.folder, f.line.playlist_id, f.line.service) for f in fetched] == [("A", ID1, "spotify")]
 
 
 # --- what a change would do (pure; no downloads, no file changes) ---
 
 def t(tid, title=None):
-    return SpotifyTrack(tid, title or f"Song {tid}", ("Artist",), "Album", None, 180000, None)
+    return SourceTrack(tid, title or f"Song {tid}", ("Artist",), "Album", None, 180000, None)
 
 
 def entry(folder, status="lossless", title=None, tid="x"):

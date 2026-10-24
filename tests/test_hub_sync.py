@@ -6,7 +6,9 @@ from contextlib import contextmanager
 
 import pytest
 
-from discjockey import run, spotify
+from discjockey import run
+from discjockey.sources import spotify
+from discjockey.sources.base import LoginState
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.events import RunFinished
 from discjockey.hub import jobs
@@ -14,10 +16,10 @@ from discjockey.hub import views
 from discjockey.hub.jobs import Jobs, PreviewStore
 from discjockey.library import Paths, empty_state, load_state, save_state
 from discjockey.settings import load_settings
-from discjockey.models import FetchedPlaylist, SpotifyTrack
+from discjockey.models import FetchedPlaylist, SourceTrack
 
 PLAYLISTS = "Hard_Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n"
-TRACKS = [SpotifyTrack(f"t{i}", f"Song {i}", ("Artist",), "Al", None, 180000, None) for i in range(1, 4)]
+TRACKS = [SourceTrack(f"t{i}", f"Song {i}", ("Artist",), "Al", None, 180000, None) for i in range(1, 4)]
 
 
 class FakeAcquirer:
@@ -54,6 +56,7 @@ def env(tmp_path, monkeypatch):
     paths.playlists_file.write_text(PLAYLISTS)
     tracks = list(TRACKS)
     monkeypatch.setattr(spotify, "load_session", lambda p: spotify.Session("cid", p.spotify_token, {}))
+    monkeypatch.setattr(spotify, "login_state", lambda p: LoginState("ok"))
     monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: FetchedPlaylist(line, list(tracks), []))
     acq = FakeAcquirer()
     monkeypatch.setattr(run, "Acquirer", lambda *a, **k: acq)
@@ -200,7 +203,7 @@ def test_actions_new_since_the_preview_wait_for_the_next_run(env):
     paths, js, store, rec, acq, logins, tracks = env
     refresh(js, paths, store)
     ticked = store.keys()
-    tracks.append(SpotifyTrack("t4", "Song 4", ("Artist",), "Al", None, 180000, None))  # added in Spotify meanwhile
+    tracks.append(SourceTrack("t4", "Song 4", ("Artist",), "Al", None, 180000, None))  # added in Spotify meanwhile
     sync(js, paths, store, ticked)
     assert acq.tracks == ["t1", "t2", "t3"]
     assert rec.finished().result["new_since_preview"] == 1
@@ -270,6 +273,7 @@ def test_stop_ends_a_read_stuck_in_one_slow_request_and_its_late_result_is_dropp
 
     token = {"access_token": "a", "refresh_token": "r", "expires_at": time.time() + 3600}
     monkeypatch.setattr(spotify, "load_session", lambda p: spotify.Session("cid", p.spotify_token, dict(token)))
+    monkeypatch.setattr(spotify, "login_state", lambda p: LoginState("ok"))
     monkeypatch.setattr(spotify, "fetch_playlist", REAL_FETCH)
     monkeypatch.setattr(spotify, "_http", slow_http)
     job = js.start_refresh(jobs.refresh_work(paths, store))

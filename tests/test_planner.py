@@ -3,7 +3,7 @@ from datetime import date
 
 import pytest
 
-from discjockey.models import FetchedPlaylist, PlaylistLine, SpotifyTrack
+from discjockey.models import FetchedPlaylist, PlaylistLine, SourceTrack
 from discjockey.planner import (TidyRow, mirror_dir, out_of_place, plan, replacement_dir, superseded_dir, tidy_rows,
                                 tidy_target, upgrades_ready_dir)
 
@@ -11,7 +11,7 @@ TODAY = date(2026, 10, 20)
 
 
 def tr(id, title=None, artist="Artist", dur=180000, isrc=None):
-    return SpotifyTrack(id, title or f"Title {id}", (artist,), "Album", None, dur, isrc)
+    return SourceTrack(id, title or f"Title {id}", (artist,), "Album", None, dur, isrc)
 
 
 def pl(folder, *tracks, skipped=()):

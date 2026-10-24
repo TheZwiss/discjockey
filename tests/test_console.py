@@ -2,9 +2,9 @@ import io
 
 from discjockey.console import ConsolePrinter
 from discjockey.events import ActionFinished, ActionStarted, Message, Progress, Result, StepChanged, Waiting
-from discjockey.models import Action, SpotifyTrack
+from discjockey.models import Action, SourceTrack
 
-A = Action("acquire", "t1", "Hard_Bounce", SpotifyTrack("t1", "Song", ("Artist",), "Al", None, 1, None), (0, 0))
+A = Action("acquire", "t1", "Hard_Bounce", SourceTrack("t1", "Song", ("Artist",), "Al", None, 1, None), (0, 0))
 
 
 def printer(verbose=False):
@@ -22,7 +22,7 @@ def test_action_lines():
 
 
 def test_upgrade_lines_say_better_version_since_it_can_be_a_256_kbps_stream():
-    u = Action("upgrade", "t1", "Hard_Bounce", SpotifyTrack("t1", "Song", ("Artist",), "Al", None, 1, None), (0, 0))
+    u = Action("upgrade", "t1", "Hard_Bounce", SourceTrack("t1", "Song", ("Artist",), "Al", None, 1, None), (0, 0))
     p, out = printer()
     p(ActionStarted(1, 2, u))
     p(ActionFinished(u, Result("upgrade_ready", "Hard_Bounce", "Artist", "Song", "t1", "lines up")))

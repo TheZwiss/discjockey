@@ -23,11 +23,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from discjockey import events as ev, run, spotify  # noqa: E402
+from discjockey import events as ev, run  # noqa: E402
+from discjockey.sources import spotify  # noqa: E402
+from discjockey.sources.base import LoginState  # noqa: E402
 from discjockey.hub import jobs  # noqa: E402
 from discjockey.hub.api import HubApi, Services  # noqa: E402
 from discjockey.library import Paths, empty_state, save_state  # noqa: E402
-from discjockey.models import Candidate, FetchedPlaylist, SpotifyTrack  # noqa: E402
+from discjockey.models import Candidate, FetchedPlaylist, PlaylistInfo, SourceTrack  # noqa: E402
 from discjockey.pacing import Pacer  # noqa: E402
 from discjockey.planner import ENTRY_KEYS  # noqa: E402
 
@@ -38,7 +40,7 @@ SECONDS = 12  # every track is this long (31 for the one with a weekly check: al
 
 
 def t(tid, artist, title, seconds=SECONDS, isrc=None):
-    return SpotifyTrack(tid, title, (artist,), "Album", None, seconds * 1000, isrc)
+    return SourceTrack(tid, title, (artist,), "Album", None, seconds * 1000, isrc)
 
 
 GIMME = t("4uLU6hMCjMI75M1A2tKUQC", "Vatoz Locoz", "Gimme Gimme", isrc="DECE72605755")
@@ -182,10 +184,11 @@ def record(work: Path, stop_at: int | None = None) -> list[str]:
         return FetchedPlaylist(line, list(PLAYLISTS[line.playlist_id]), [])
 
     patch(spotify, "load_session", lambda p: spotify.Session("cid", p.spotify_token, {}))
+    patch(spotify, "login_state", lambda p: LoginState("ok"))
     patch(spotify, "fetch_playlist", fetch)
     patch(spotify, "current_user", lambda s: ("you", "You"))
-    patch(spotify, "playlist_info", lambda s, pid, me: spotify.PlaylistInfo(pid, "Playlist", "you", "You", False,
-                                                                           None, len(PLAYLISTS[pid]), True))
+    patch(spotify, "playlist_info", lambda s, pid, me: PlaylistInfo(
+        "spotify", pid, "Playlist", "you", "You", False, None, len(PLAYLISTS[pid]), True, True))
     patch(run.QobuzSource, "open", classmethod(lambda cls, p: FakeQobuz(audio)))
     patch(run, "FallbackSource", lambda **kw: FakeFallback(audio, **kw))
     patch(run, "Pacer", lambda emit, token: Pacer(emit, token, sleep=lambda s: time.sleep(0.001),

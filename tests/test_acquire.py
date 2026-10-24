@@ -7,12 +7,12 @@ from mutagen.aiff import AIFF
 
 from discjockey.acquire import Acquirer, AcquireResult, Ready, make_ready
 from discjockey.events import AccountUsage, CancelToken, Checked, SourceChosen, StepChanged, Tracker
-from discjockey.models import Candidate, SpotifyTrack
+from discjockey.models import Candidate, SourceTrack
 from discjockey.pacing import Budget, NoPacer
 from discjockey.qobuz import QobuzPreviewOnly
 from discjockey.settings import Settings
 
-T = SpotifyTrack("t1", "Gimme Gimme", ("Vatoz Locoz",), "Album", None, 156000, "DECE72605755")
+T = SourceTrack("t1", "Gimme Gimme", ("Vatoz Locoz",), "Album", None, 156000, "DECE72605755")
 ISRC_Q = "DECE72605755"
 NAME_Q = "Vatoz Locoz Gimme Gimme"
 
@@ -267,7 +267,7 @@ def noise_flac(path, seconds):
 def test_make_ready_converts_tags_and_judges(tmp_path):
     src = tmp_path / "qobuz_1.flac"
     noise_flac(src, 10)
-    track = SpotifyTrack("t1", "Song", ("Artist",), "Album", None, 10000, "DE1")
+    track = SourceTrack("t1", "Song", ("Artist",), "Album", None, 10000, "DE1")
     r = make_ready(src, track, Candidate("qobuz", "1", "Song", "Artist", 10.0), tmp_path)
     assert r.status == "lossless" and r.path.suffix == ".aiff" and r.path.exists()
     assert AIFF(str(r.path)).tags.getall("COMM")[0].text == ["Qobuz FLAC · verified lossless"]
@@ -277,7 +277,7 @@ def test_make_ready_converts_tags_and_judges(tmp_path):
 def test_make_ready_rejects_preview_length_file(tmp_path):
     src = tmp_path / "qobuz_1.flac"
     noise_flac(src, 30)
-    track = SpotifyTrack("t1", "Song", ("Artist",), "Album", None, 180000, None)
+    track = SourceTrack("t1", "Song", ("Artist",), "Album", None, 180000, None)
     events = []
     tracker = Tracker(events.append, CancelToken(), "t1", min_interval=0)
     assert make_ready(src, track, Candidate("qobuz", "1", "Song", "Artist", 180.0), tmp_path, tracker) is None
@@ -291,7 +291,7 @@ def test_make_ready_rejects_preview_length_file(tmp_path):
 def test_make_ready_reports_the_length_check(tmp_path):
     src = tmp_path / "qobuz_1.flac"
     noise_flac(src, 10)
-    track = SpotifyTrack("t1", "Song", ("Artist",), "Album", None, 10000, None)
+    track = SourceTrack("t1", "Song", ("Artist",), "Album", None, 10000, None)
     events = []
     tracker = Tracker(events.append, CancelToken(), "t1", min_interval=0)
     make_ready(src, track, Candidate("qobuz", "1", "Song", "Artist", 10.0), tmp_path, tracker)

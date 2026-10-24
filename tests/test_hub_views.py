@@ -6,7 +6,7 @@ import pytest
 from discjockey.hub import views
 from discjockey.hub.jobs import PreviewStore
 from discjockey.models import (Action, BatchResult, BatchRow, FetchedPlaylist, MoveRow, Plan, PlannedMove, PlaylistLine,
-                               SpotifyTrack)
+                               SourceTrack)
 from discjockey.planner import ENTRY_KEYS, TidyRow, tidy_rows
 from discjockey import playlists_file as pf
 from discjockey.playlists_file import Loaded, Row
@@ -33,7 +33,7 @@ def state(**tracks):
 
 
 def t(tid):
-    return SpotifyTrack(tid, f"Song {tid}", ("Artist",), "Al", None, 180000, None)
+    return SourceTrack(tid, f"Song {tid}", ("Artist",), "Al", None, 180000, None)
 
 
 def a(kind, tid, reason="", **kw):
@@ -560,8 +560,8 @@ def change(new, tracks=PL_TRACKS, **kw):
 
 
 def test_playlists_page():
-    from discjockey.spotify import PlaylistInfo
-    info = PlaylistInfo(ID1, "Hard Bounce 2026", "dj1", "DJ One", False, "big", 3, True)
+    from discjockey.models import PlaylistInfo
+    info = PlaylistInfo("spotify", ID1, "Hard Bounce 2026", "dj1", "DJ One", False, "big", 3, True, True)
     page = views.playlists(Loaded(OLD, "v1", None), PL_TRACKS, {ID1: info}, PL_STATE)
     assert page["version"] == "v1" and page["empty"] is None
     first, second = page["rows"]
@@ -577,7 +577,7 @@ def test_playlists_page():
 
 
 def test_playlists_overlaps_have_covers_and_say_whether_a_track_has_a_file():
-    spotify_only = SpotifyTrack("n1", "Fresh", ("Newcomer",), "Al", "https://i.scdn.co/image/n1", 180000, None)
+    spotify_only = SourceTrack("n1", "Fresh", ("Newcomer",), "Al", "https://i.scdn.co/image/n1", 180000, None)
     tracks = {ID1: [t("a"), t("b"), spotify_only], ID2: [t("b"), spotify_only]}
     page = views.playlists(Loaded(OLD, "v1", None), tracks, {}, PL_STATE, lambda k, e: f"cover:{k}" if e else None)
     b, n1 = page["overlaps"]

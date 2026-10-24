@@ -8,10 +8,12 @@ import discjockey.cli as cli
 from audio_helpers import music, write_aiff
 from hub_helpers import choose_music
 
-from discjockey import REPO, config, library, run, spotify
+from discjockey import REPO, config, library, run
+from discjockey.sources import spotify
+from discjockey.sources.base import LoginState
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.library import Paths, empty_state, run_lock, save_state
-from discjockey.models import FetchedPlaylist, SpotifyTrack
+from discjockey.models import FetchedPlaylist, SourceTrack
 from discjockey.setup_cmd import TEMPLATE
 
 PLAYLISTS = "Hard_Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n"
@@ -25,6 +27,7 @@ def root(tmp_path, monkeypatch):
 
 def fake_spotify(monkeypatch, tracks):
     monkeypatch.setattr(spotify, "load_session", lambda paths: spotify.Session("cid", paths.spotify_token, {}))
+    monkeypatch.setattr(spotify, "login_state", lambda p: LoginState("ok"))
     monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: FetchedPlaylist(line, list(tracks), []))
 
 
@@ -47,7 +50,7 @@ def test_dry_run_changes_no_music_file_and_writes_no_report(root, monkeypatch, c
     mine.parent.mkdir(parents=True)
     write_aiff(mine, music(1))
     before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file() and ".discjockey" not in p.parts}
-    fake_spotify(monkeypatch, [SpotifyTrack("t1", "Song", ("Artist",), "Al", None, 180000, None)])
+    fake_spotify(monkeypatch, [SourceTrack("t1", "Song", ("Artist",), "Al", None, 180000, None)])
     assert cli.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "Download (new): 1" in out and "Dry run: no music files were changed and no report was written." in out
@@ -78,7 +81,7 @@ def test_spotify_problem_exits_2(root, monkeypatch, capsys):
 
 def test_answering_no_changes_nothing(root, monkeypatch, capsys):
     (root / "playlists.txt").write_text(PLAYLISTS)
-    fake_spotify(monkeypatch, [SpotifyTrack("t1", "Song", ("Artist",), "Al", None, 180000, None)])
+    fake_spotify(monkeypatch, [SourceTrack("t1", "Song", ("Artist",), "Al", None, 180000, None)])
 
     class FakeQobuz:
         def close(self):
@@ -112,8 +115,8 @@ class FakeAcquirer:
         return AcquireResult("ready", Ready(p, "lossless", "qobuz", "q1", "flac", None, "Qobuz FLAC · verified lossless"))
 
 
-TWO_TRACKS = [SpotifyTrack("t1", "Song", ("Artist",), "Al", None, 180000, None),
-              SpotifyTrack("t2", "Other", ("Artist",), "Al", None, 180000, None)]
+TWO_TRACKS = [SourceTrack("t1", "Song", ("Artist",), "Al", None, 180000, None),
+              SourceTrack("t2", "Other", ("Artist",), "Al", None, 180000, None)]
 
 
 def full_run(root, monkeypatch, acquirer, args=("--yes",), tracks=TWO_TRACKS[:1]):

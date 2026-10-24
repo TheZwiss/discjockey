@@ -4,9 +4,9 @@ import yt_dlp
 
 from discjockey import fallback as fb
 from discjockey.fallback import FallbackSource
-from discjockey.models import Candidate, SpotifyTrack
+from discjockey.models import Candidate, SourceTrack
 
-T = SpotifyTrack("t1", "Gimme Gimme", ("Vatoz Locoz",), "Album", None, 156000, "DECE72605755")
+T = SourceTrack("t1", "Gimme Gimme", ("Vatoz Locoz",), "Album", None, 156000, "DECE72605755")
 
 
 class Recorder:
