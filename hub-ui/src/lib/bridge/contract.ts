@@ -1,16 +1,18 @@
 // Every @bridge method of discjockey/hub/api.py, in contract order. A test compares this list to api.py and to the fake.
 // (The plan said 43; the contract since added rekordbox_checked, setup_qobuz_token_help and quit: 46,
 // then never_download: 47; limits, limits_what_if and save_limits: 50; the four account setup methods: 54; the three Qobuz-only methods gone: 51;
-// mark_warnings_seen: 52; downloads_view: 53; the two Qobuz web-player methods gone: 51; Settings' sign-ins: 57; rollback_tools: +1; app_update: +1.)
+// mark_warnings_seen: 52; downloads_view: 53; the two Qobuz web-player methods gone: 51; Settings' sign-ins: 57; rollback_tools: +1; app_update: +1; tidy_preview, move_batches, undo_preview, tidy_up, undo_moves: +5.)
 export const CONTRACT_METHODS = [
   // read, any time
   'dashboard', 'sidebar', 'sync_preview', 'refresh', 'stop_refresh', 'job_status', 'library', 'track', 'todo',
   'playlists', 'limits', 'limits_what_if', 'runs', 'run', 'spectrum', 'media_url', 'setup_status', 'select',
+  'tidy_preview', 'move_batches', 'undo_preview',
   // read with network
   'search_candidates', 'preview', 'add_playlist', 'preview_playlist_change',
   // write jobs
   'start_sync', 'stop', 'save_playlists', 'save_limits', 'mark_warnings_seen', 'hide', 'never_download', 'add_bought_file',
   'use_candidate', 'use_link', 'reject_current', 'rekordbox_checked', 'upgrade', 'rescan_library',
+  'tidy_up', 'undo_moves',
   // other
   'show_in_finder', 'reveal', 'open_report', 'open_external', 'app_update', 'quit',
   // setup
@@ -32,4 +34,5 @@ export const LIBRARY_METHODS = [
   'search_candidates', 'preview', 'add_playlist', 'preview_playlist_change', 'start_sync', 'save_playlists',
   'hide', 'never_download', 'add_bought_file', 'use_candidate', 'use_link', 'reject_current',
   'rekordbox_checked', 'upgrade', 'rescan_library', 'show_in_finder', 'reveal', 'open_report',
+  'tidy_preview', 'move_batches', 'undo_preview', 'tidy_up', 'undo_moves',
 ] as const satisfies readonly ContractMethod[];

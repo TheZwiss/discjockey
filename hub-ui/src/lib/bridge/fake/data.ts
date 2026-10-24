@@ -33,7 +33,40 @@ export type FakeTrack = {
   file_name?: string;            // superseded duplicates may carry a suffix; Library names never do
   kbps?: number;                 // lossy sources: the bitrate
   free_downloads?: FreeDownload[];
+  /** the folder the file sits in when that is not `folder` (the playlist order's target): a tidy-up moves it there */
+  at?: string;
 };
+/** One move of a move batch as the fake keeps it (the engine's `moves` row). */
+export type FakeMove = {
+  kind: 'file' | 'folder'; track_id: string | null; label: string;
+  /** snapshot paths (`Library/...`); a folder move holds the folder paths */
+  src: string; dst: string;
+  state: 'done' | 'skipped'; reason: string | null; text: string | null;
+  /** placed_by before the move (an undo restores it) */
+  placedBefore: 'app' | 'user' | 'import';
+};
+export type FakeBatch = {
+  id: number; at: string; startedBy: 'tidy' | 'save' | 'rename' | 'undo'; about: { from: string; to: string } | null;
+  undoes: number | null; moves: FakeMove[];
+};
+/** The fake's move log and what a tidy-up knows about the files (src/lib/bridge/fake/tidy.ts). A page scenario
+ *  switches the hooks: `s.tidy.noRows`, `s.tidy.failMove`, `s.tidy.stopAfter`, or `s.tidy.placed` / `s.tidy.skips`. */
+export type FakeTidy = {
+  batches: FakeBatch[];
+  nextBatch: number;
+  /** placed_by of a file; files not listed are placed by the app */
+  placed: Record<string, 'user' | 'import'>;
+  /** why the preview can't move a file */
+  skips: Record<string, 'offline' | 'not_found' | 'name_taken'>;
+  /** hook: nothing is out of place (tidy_preview answers "Every file is where the playlist order puts it.") */
+  noRows: boolean;
+  /** hook: the move at this index (0-based) of a batch fails ("Couldn't move it: the drive is full") */
+  failMove: number | null;
+  /** hook: a batch is stopped after this many moves (the job ends `stopped` and still carries its result) */
+  stopAfter: number | null;
+};
+export const emptyTidy = (): FakeTidy => ({ batches: [], nextBatch: 1, placed: {}, skips: {}, noRows: false,
+  failMove: null, stopAfter: null });
 export type FakeRun = RunDetail;
 export type FakePlaylist = { folder: string; link: string; enabled: boolean; info: PlaylistInfo | null };
 export type FakeState = {
@@ -79,6 +112,7 @@ export type FakeState = {
   errorTurn: number;
   syncStarts: number;
   never: string[];               // "never download": Spotify ids the plan leaves out
+  tidy: FakeTidy;
 };
 
 // ---------- helpers ----------
@@ -111,7 +145,7 @@ export function qualityLabel(t: FakeTrack): string {
 export function pathOf(t: FakeTrack): string | null {
   if (t.status === 'missing') return null;
   const sub = t.status === 'lossless' ? '' : '/not_lossless';
-  return `Library/${t.folder}${sub}/${t.artist} - ${t.title}.aiff`;
+  return `Library/${t.at ?? t.folder}${sub}/${t.artist} - ${t.title}.aiff`;
 }
 export function trackRow(t: FakeTrack): TrackRow {
   return {
@@ -463,7 +497,7 @@ export function makeState(scenario: string, now = new Date()): FakeState {
       last_download: iso(daysAgo(now, 0, 21, 47)) },
     setup: setupComplete(), downloadTools: builtInTools(), spotify: spotifyOk(2, now), console_running: false, offline: false, previewRead: true,
     appUpdate: { state: 'up_to_date', current: '1.0.0', latest: null, url: null },
-    selected: null, dropped: null, errors: scenario === 'errors', errorTurn: 0, syncStarts: 0, never: [],
+    selected: null, dropped: null, errors: scenario === 'errors', errorTurn: 0, syncStarts: 0, never: [], tidy: emptyTidy(),
     accounts: { youtube: null, soundcloud: null }, qobuzSkipped: false,  // the user's own setup: Qobuz only
   };
   if (scenario === 'first_run' || scenario === 'no_music') {

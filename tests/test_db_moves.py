@@ -309,3 +309,4 @@ def test_batches_are_newest_first_with_counts_and_the_total(log):
     assert rows[0].undoes == first and rows[0].undone_by is None
     limited, total = db.batches(log.conn, limit=2)
     assert [b.id for b in limited] == [undo2, undo1] and total == 4
+    assert db.batch(log.conn, first) == rows[-1] and db.batch(log.conn, 999) is None

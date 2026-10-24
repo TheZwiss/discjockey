@@ -283,6 +283,14 @@ def _tidy(paths: Paths, state: dict, moves: Sequence[tuple[int, str]], started_b
     return _run(paths, state, batch, started_by, emit=emit, token=token, now=now)
 
 
+def check_folder_names(*names: str) -> None:
+    """ValueError unless every name could be a playlist's folder (one name, not a path, not hidden)."""
+    for name in names:
+        if (not isinstance(name, str) or not name or "/" in name or "\\" in name or name.startswith(".")
+                or name != name.strip()):
+            raise ValueError(f"\u201c{name}\u201d can't be used as a folder name.")
+
+
 def rename_folder(paths: Paths, old: str, new: str, *, pairs: Collection[tuple[str, str]] = (),
                   emit: Emit = no_emit, token: CancelToken | None = None, now: Now = datetime.now) -> BatchResult:
     """Renames `Library/<old>` to `Library/<new>` as one folder move (a batch `rename`): every linked song under it
@@ -295,9 +303,7 @@ def rename_folder(paths: Paths, old: str, new: str, *, pairs: Collection[tuple[s
 
 def _rename(paths: Paths, state: dict, old: str, new: str, pairs: Collection[tuple[str, str]], *, emit: Emit,
             token: CancelToken, now: Now) -> BatchResult:
-    for name in (old, new):
-        if not name or "/" in name or "\\" in name or name.startswith(".") or name != name.strip():
-            raise ValueError(f"{name!r} is not a playlist folder name")
+    check_folder_names(old, new)
     dirs = library_dirs(paths)
     why = rename_offer(old, new, pf.load(paths.playlists_file).rows, dirs, pairs=pairs)
     on_disk = next((d for d in dirs if fold(d) == fold(old)), old)  # the folder's own spelling

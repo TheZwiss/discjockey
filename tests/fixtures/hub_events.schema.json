@@ -40,6 +40,9 @@
       "$ref": "#/$defs/ReadingPlaylist"
     },
     {
+      "$ref": "#/$defs/MovesProgress"
+    },
+    {
       "$ref": "#/$defs/JobStarted"
     },
     {
@@ -365,6 +368,30 @@
         "index",
         "total",
         "folder"
+      ],
+      "additionalProperties": false
+    },
+    "MovesProgress": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "MovesProgress"
+        },
+        "batch_id": {
+          "type": "integer"
+        },
+        "done": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "batch_id",
+        "done",
+        "total"
       ],
       "additionalProperties": false
     },

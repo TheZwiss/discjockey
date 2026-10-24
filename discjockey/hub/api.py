@@ -13,6 +13,7 @@ import json
 import logging
 import re
 import shutil
+import sqlite3
 import subprocess
 import threading
 import tomllib
@@ -26,7 +27,8 @@ import time
 from typing import Callable
 from urllib.parse import quote
 
-from .. import __version__, align, browsers, candidates, config, library, ops, playlists_file as pf, qobuz, quality
+from .. import __version__, align, browsers, candidates, config, db, library, ops, planner, playlists_file as pf, qobuz
+from .. import quality
 from .. import app_update as update_check, setup_cmd, tool_updates, tools
 from .. import spotify, tidy
 from .. import report as rep, run, upgrades
@@ -35,7 +37,7 @@ from ..acquire import make_ready
 from ..candidates import current_key
 from ..fallback import FallbackSource
 from ..library import NoLibrary, Paths, Resolved, StateError, SupportPaths
-from ..models import SOURCE_NAMES, Candidate, PlaylistLine, SpotifyTrack
+from ..models import SOURCE_NAMES, BatchResult, BatchRow, Candidate, PlaylistLine, SaveChoice, SpotifyTrack
 from ..names import fold
 from ..ops import OpProblem, snapshot
 from ..pacing import Budget
@@ -68,6 +70,7 @@ LIBRARY_METHODS = frozenset((
     "search_candidates", "preview", "add_playlist", "preview_playlist_change", "start_sync", "save_playlists",
     "hide", "never_download", "add_bought_file", "use_candidate", "use_link", "reject_current",
     "rekordbox_checked", "upgrade", "rescan_library", "show_in_finder", "reveal", "open_report",
+    "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
 ))
 
 
@@ -788,15 +791,137 @@ class HubApi:
         return {**change, "problem": problem}
 
     @bridge
-    def save_playlists(self, lines: list, loaded_version: str) -> dict:
+    def save_playlists(self, lines: list, loaded_version: str, files: dict | None = None) -> dict:
+        """Writes playlists.txt. `files` is the answer to the save question when the change retargets files: `{choice:
+        "leave"|"move", renames: [[old, new]], moves: [[file_id, from_path]]}`. "move" renames the chosen folders on
+        disk and moves the chosen files (move batches, undoable); "leave" makes the files this save would have moved
+        the user's own placement (P1). The result is `{version, batches: [BatchResultJSON]}`; a Stop after the save
+        still delivers the batches so far."""
         rows = rows_from(lines)
+        choice = save_choice(files)
 
         def work(ctx) -> dict:
+            retargeted = {}
+            if choice is not None:  # the targets before the save are what the save changes
+                retargeted = pf.retargeted(pf.load(self._paths.playlists_file).rows, rows, self._tracks_by_id(),
+                                           self._state())
             version = pf.save(self._paths.playlists_file, rows, loaded_version or "")
             self._store.mark_stale()  # the plan was made for the old lines
-            return {"version": version}
+            if choice is None:
+                return {"version": version, "batches": []}
+            try:
+                done = tidy.after_save(self._paths, retargeted, choice, emit=ctx.emit, token=ctx.token,
+                                       now=self._svc.now)
+            except tidy.Stopped as stopped:
+                ctx.failed_result = {"version": version, "batches": self._batch_results(stopped.results)}
+                raise
+            return {"version": version, "batches": self._batch_results(done)}
 
         return {"job_id": self._jobs.start("save_playlists", work).id}
+
+    # --- tidy-up and the move log (plan library stage 2, I5) ---
+
+    @contextlib.contextmanager
+    def _move_log(self):
+        """The library's records for reading; None while there is no library.db yet (nothing was ever moved)."""
+        if not self._paths.db_file.exists():
+            yield None
+            return
+        try:
+            with db.connect(self._paths.db_file) as conn:
+                db.check(conn)
+                yield conn
+        except sqlite3.Error as e:
+            raise db.unreadable(e) from None
+
+    def _batch_title(self, conn, b: BatchRow) -> str:
+        """"Tidy-up", "Saved playlists", "Renamed A to B", "Undo of: <title of the batch it undid>"."""
+        if b.started_by != "undo":
+            return views.batch_title(b)
+        target = db.batch(conn, b.undoes) if b.undoes is not None else None
+        return views.batch_title(b, self._batch_title(conn, target) if target else None)
+
+    def _batch_results(self, results) -> list[dict]:
+        """BatchResultJSON of each result that ran a batch (a call that had nothing to move leaves no batch)."""
+        done = [r for r in results if r.batch_id is not None]
+        with self._move_log() as conn:
+            return [views.batch_result(r, self._result_title(conn, r)) for r in done]
+
+    def _result_title(self, conn, r: BatchResult) -> str:
+        row = db.batch(conn, r.batch_id) if conn is not None and r.batch_id is not None else None
+        return self._batch_title(conn, row) if row else views.BATCH_TITLES.get(r.started_by, "Undo")
+
+    @bridge
+    def tidy_preview(self) -> dict:
+        """The "Tidy up files" preview: every file the playlist order would put elsewhere (plan I5)."""
+        state = self._state()
+        return views.tidy_preview(planner.tidy_rows(state), state, self._cover(self._images()))
+
+    @bridge
+    def move_batches(self) -> dict:
+        """The 20 newest move batches (tidy-ups, saves, folder renames, undos), newest first."""
+        with self._move_log() as conn:
+            if conn is None:
+                return views.move_batches([], 0)
+            rows, total = db.batches(conn)
+            known = {b.id for b in rows}
+            older = {b.undoes for b in rows if b.undoes is not None and b.undoes not in known}
+            titles = {i: self._batch_title(conn, b) for i in older if (b := db.batch(conn, i)) is not None}
+            return views.move_batches(rows, total, titles)
+
+    @bridge
+    def undo_preview(self, batch_id: int) -> dict:
+        """What undoing a batch would do, move by move, before the page asks for it."""
+        if isinstance(batch_id, bool) or not isinstance(batch_id, int):
+            raise ValueError(NO_BATCH)
+        state = self._state()
+        with self._move_log() as conn:
+            row = db.batch(conn, batch_id) if conn is not None else None
+            if row is None:
+                raise ValueError(NO_BATCH)
+            title = self._batch_title(conn, row)
+        moves = tidy.undo_preview(self._paths, state, batch_id)
+        return views.undo_preview(row, moves, state["files"], title)
+
+    @bridge
+    def tidy_up(self, moves: list) -> dict:
+        """Moves the files the page chose (`[[file_id, from_path]]`, the path as the preview showed it) to where the
+        playlist order puts them: a write job (kind "tidy"); the result is a BatchResultJSON."""
+        sent = file_moves(moves)
+        if not sent:
+            raise ValueError(NOTHING_CHOSEN)
+
+        def work(ctx) -> dict:
+            try:
+                done = tidy.tidy_up(self._paths, sent, emit=ctx.emit, token=ctx.token, now=self._svc.now)
+            except tidy.Stopped as stopped:
+                ctx.failed_result = self._batch_result(stopped.result)
+                raise
+            return self._batch_result(done)
+
+        return {"job_id": self._jobs.start("tidy", work).id}
+
+    @bridge
+    def undo_moves(self, batch_id: int) -> dict:
+        """Undoes a batch (a batch of its own, in reverse order): a write job (kind "undo_moves"); the result is a
+        BatchResultJSON."""
+        if isinstance(batch_id, bool) or not isinstance(batch_id, int):
+            raise ValueError(NO_BATCH)
+
+        def work(ctx) -> dict:
+            try:
+                done = tidy.undo(self._paths, batch_id, emit=ctx.emit, token=ctx.token, now=self._svc.now)
+            except tidy.Stopped as stopped:
+                ctx.failed_result = self._batch_result(stopped.result)
+                raise
+            return self._batch_result(done)
+
+        return {"job_id": self._jobs.start("undo_moves", work).id}
+
+    def _batch_result(self, r: BatchResult) -> dict:
+        """BatchResultJSON of one result, also when nothing was asked to move (no batch)."""
+        with self._move_log() as conn:
+            return views.batch_result(r, self._result_title(conn, r))
 
     # --- read with network, not while a sync runs ---
 
@@ -1388,6 +1513,40 @@ def suggest_folder(name: str) -> str:
     text = re.sub(r"\s+", "_", text.strip())
     text = re.sub(r"[^\w\-]", "", text).strip("_-.")[:100]
     return text if text and fold(text) != "not_lossless" else "New_playlist"
+
+
+NO_BATCH = "Discjockey has no record of that tidy-up."
+NOTHING_CHOSEN = "No files were chosen to move."
+
+
+def file_moves(moves) -> list[tuple[int, str]]:
+    """The page's `[[file_id, from_path]]` as the engine takes it; ValueError (refused) for anything else."""
+    if not isinstance(moves, list):
+        raise ValueError(NOTHING_CHOSEN)
+    out = []
+    for m in moves:
+        if (not isinstance(m, (list, tuple)) or len(m) != 2 or isinstance(m[0], bool) or not isinstance(m[0], int)
+                or not isinstance(m[1], str) or not m[1]):
+            raise ValueError("Each file to move needs its number and where it is now.")
+        out.append((m[0], m[1]))
+    return out
+
+
+def save_choice(files) -> SaveChoice | None:
+    """The save question's answer from the page (`{choice, renames, moves}`; None: nothing was retargeted) as
+    tidy.after_save takes it; ValueError (refused) for anything else."""
+    if files is None:
+        return None
+    if not isinstance(files, dict) or files.get("choice") not in ("leave", "move"):
+        raise ValueError("Choose whether to move the files or leave them where they are.")
+    renames = files.get("renames") or []
+    if not isinstance(renames, list) or any(not isinstance(r, (list, tuple)) or len(r) != 2 for r in renames):
+        raise ValueError("Each folder rename needs the old and the new name.")
+    pairs = tuple((r[0], r[1]) for r in renames)
+    for old, new in pairs:
+        tidy.check_folder_names(old, new)
+    moves = tuple(file_moves(files.get("moves") or []))
+    return SaveChoice(files["choice"], pairs, moves)
 
 
 def rows_from(lines: list) -> list[pf.Row]:

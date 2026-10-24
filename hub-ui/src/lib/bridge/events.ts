@@ -23,6 +23,7 @@ export type HubEvent =
   | { type: 'RunFinished'; exit_code: number; report_path: string }
   | { type: 'Message'; level: 'info' | 'warning' | 'debug'; text: string }
   | { type: 'ReadingPlaylist'; index: number; total: number; folder: string }
+  | { type: 'MovesProgress'; batch_id: number; done: number; total: number }
   | { type: 'JobStarted'; job_id: number; kind: string; track_id: string | null }
   | { type: 'JobFinished'; job_id: number; kind: string; ok: boolean; problem: ProblemKind | null; message: string;
       result: any | null }
@@ -33,9 +34,9 @@ export type HubEvent =
   | { type: 'AppUpdate'; state: AppUpdate['state']; current: string; latest: string | null; url: string | null };
 export type EventOf<T extends HubEvent['type']> = Extract<HubEvent, { type: T }>;
 
-/** The 18 names, same order as the schema's oneOf. */
+/** The 19 names, same order as the schema's oneOf. */
 export const EVENT_TYPES = ['RunStarted', 'ActionStarted', 'StepChanged', 'Progress', 'Waiting', 'SourceChosen',
-  'Checked', 'AccountUsage', 'ActionFinished', 'RunFinished', 'Message', 'ReadingPlaylist', 'JobStarted', 'JobFinished', 'ConsoleBusy',
+  'Checked', 'AccountUsage', 'ActionFinished', 'RunFinished', 'Message', 'ReadingPlaylist', 'MovesProgress', 'JobStarted', 'JobFinished', 'ConsoleBusy',
   'FileDropped', 'SignInPhase', 'AppUpdate'] as const satisfies readonly HubEvent['type'][];
 
 /** Runtime copy of the field names above, so a renamed field breaks a test (spec §9). */
@@ -52,6 +53,7 @@ export const EVENT_FIELDS: { [T in HubEvent['type']]: readonly (keyof EventOf<T>
   RunFinished: ['type', 'exit_code', 'report_path'],
   Message: ['type', 'level', 'text'],
   ReadingPlaylist: ['type', 'index', 'total', 'folder'],
+  MovesProgress: ['type', 'batch_id', 'done', 'total'],
   JobStarted: ['type', 'job_id', 'kind', 'track_id'],
   JobFinished: ['type', 'job_id', 'kind', 'ok', 'problem', 'message', 'result'],
   ConsoleBusy: ['type', 'running'],

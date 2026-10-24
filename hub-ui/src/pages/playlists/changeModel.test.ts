@@ -11,7 +11,7 @@ const info = (name: string, n: number) => ({ name, owner_name: 'DJ One', yours: 
   readable: true, image_url: null, track_count: n });
 // the contract example (playlists())
 const EXAMPLE: Playlists = {
-  version: '481d45b7d451c816dd949d1a86b559bf9083ef5d02f69831f870dafbccffc36b', problem: null, empty: null,
+  version: '481d45b7d451c816dd949d1a86b559bf9083ef5d02f69831f870dafbccffc36b', problem: null, empty: null, tidy: { waiting: 0 },
   rows: [
     { index: 0, folder: 'Hard_Bounce', link: 'https://open.spotify.com/playlist/0DiscjockeyExampleList',
       playlist_id: '0DiscjockeyExampleList', enabled: true, info: info('Name of 0Dis', 4), tracks: 4,
@@ -145,7 +145,7 @@ const MOVES: PreviewAnswer = {
     source_name: 'YouTube', in_playlists: true, hidden: false, upgrade_ready: true,
     path: 'Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff', added: '2026-10-13T22:15:00',
     cover_url: 'https://i.scdn.co/image/t2', from: 'Hard_Bounce', to: 'Powertrance', to_not_lossless: true }],
-  reroutes: [], new_downloads: 0, days: 0, stopped: 0, unknown: [],
+  tidy: null, renames: [], reroutes: [], new_downloads: 0, days: 0, stopped: 0, unknown: [],
   checklist: ['No downloads, no Qobuz quota used', 'Nothing is deleted'], problem: null,
 };
 const ready = (a: PreviewAnswer): PreviewState => ({ loading: false, answer: a });
@@ -172,7 +172,7 @@ describe('panelFor', () => {
     const r = panelFor(true, ready(MOVES), ov);
     expect(r).toMatchObject({ view: 'moves', dim: false, saveAllowed: true });
     expect(r.preview?.headline).toBe('1 track change folder');
-    expect(r.preview?.moves[0].to_not_lossless).toBe(true);
+    expect(r.preview?.moves?.[0].to_not_lossless).toBe(true);
     expect(r.preview).not.toHaveProperty('ok');
   });
   it.each(['add', 'rename', 'switch_off', 'unknown', 'none'] as const)('%s → its own view', (kind) => {
@@ -247,7 +247,7 @@ describe('panel texts', () => {
     expect(changeText(-20)).toBe('gives 20 away');
   });
   it('groups the tracks that move by route, biggest first, files and not-yet-downloaded alike', () => {
-    const m = (MOVES as Extract<PreviewAnswer, { ok: true }>).moves[0];
+    const m = (MOVES as Extract<PreviewAnswer, { ok: true }>).moves![0];
     const mv = (id: string, from: string, to: string, nl = false) => ({ ...m, track_id: id, from, to, to_not_lossless: nl });
     const rr = (id: string, from: string, to: string) => ({ track_id: id, artist: 'A', title: id, cover_url: null,
       downloaded: false, quality: 'missing' as const, quality_label: null, from, to });

@@ -229,7 +229,7 @@ export function moveRoutes(p: Pick<ChangePreview, 'moves' | 'reroutes'>): Route[
     routes.get(k)!.rows.push(row);
   };
   // the route head says where a track goes; its badge says what it is (a lossy file lands in that folder's not_lossless/)
-  for (const m of p.moves) add(m.from, m.to, foldTrack({ ...m, downloaded: true }));
+  for (const m of p.moves ?? []) add(m.from, m.to, foldTrack({ ...m, downloaded: true }));
   for (const r of p.reroutes) add(r.from, r.to, foldTrack(r));
   return [...routes.values()].sort((a, b) => b.rows.length - a.rows.length);
 }

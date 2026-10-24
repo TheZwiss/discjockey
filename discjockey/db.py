@@ -902,20 +902,31 @@ def _undoable(conn: sqlite3.Connection, folders: _Folders, batch_id: int) -> int
     return n
 
 
+_BATCH_SELECT = ("SELECT b.id, b.started, b.finished, b.started_by, b.about, b.undoes, "
+                 "(SELECT COUNT(*) FROM moves m WHERE m.batch = b.id AND m.state = 'done'), "
+                 "(SELECT COUNT(*) FROM moves m WHERE m.batch = b.id AND m.state = 'skipped'), "
+                 "(SELECT MAX(u.id) FROM move_batches u WHERE u.undoes = b.id) FROM move_batches b ")
+
+
+def _batch_rows(conn: sqlite3.Connection, tail: str, args: tuple) -> list[BatchRow]:
+    folders = _Folders(conn)
+    return [BatchRow(id=i, started=started, finished=finished, started_by=started_by,
+                     about=None if about is None else json.loads(about), undoes=undoes, moved=moved,
+                     skipped=skipped, undoable=_undoable(conn, folders, i), undone_by=undone_by)
+            for i, started, finished, started_by, about, undoes, moved, skipped, undone_by
+            in conn.execute(_BATCH_SELECT + tail, args).fetchall()]
+
+
 def batches(conn: sqlite3.Connection, limit: int = 20) -> tuple[list[BatchRow], int]:
     """The newest `limit` batches, newest first, with their counts, plus how many batches there are in all."""
-    folders = _Folders(conn)
-    out = []
-    for i, started, finished, started_by, about, undoes, moved, skipped, undone_by in conn.execute(
-            "SELECT b.id, b.started, b.finished, b.started_by, b.about, b.undoes, "
-            "(SELECT COUNT(*) FROM moves m WHERE m.batch = b.id AND m.state = 'done'), "
-            "(SELECT COUNT(*) FROM moves m WHERE m.batch = b.id AND m.state = 'skipped'), "
-            "(SELECT MAX(u.id) FROM move_batches u WHERE u.undoes = b.id) "
-            "FROM move_batches b ORDER BY b.id DESC LIMIT ?", (limit,)).fetchall():
-        out.append(BatchRow(id=i, started=started, finished=finished, started_by=started_by,
-                            about=None if about is None else json.loads(about), undoes=undoes, moved=moved,
-                            skipped=skipped, undoable=_undoable(conn, folders, i), undone_by=undone_by))
+    out = _batch_rows(conn, "ORDER BY b.id DESC LIMIT ?", (limit,))
     return out, conn.execute("SELECT COUNT(*) FROM move_batches").fetchone()[0]
+
+
+def batch(conn: sqlite3.Connection, batch_id: int) -> BatchRow | None:
+    """One batch as `batches` lists it; None when there is no such batch."""
+    found = _batch_rows(conn, "WHERE b.id = ?", (batch_id,))
+    return found[0] if found else None
 
 
 # --- the migration from state.json (spec library-and-sources §5.3, plan task 1.4) ---

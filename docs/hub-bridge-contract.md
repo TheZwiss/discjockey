@@ -724,9 +724,14 @@ playlists, with `folders` (in list order) and `lands_in` (the first), its `cover
    "lands_in": "Hard_Bounce"
   }
  ],
- "empty": null
+ "empty": null,
+ "tidy": {
+  "waiting": 0
+ }
 }
 ```
+`tidy.waiting`: how many files a tidy-up would tick by default (`planner.out_of_place`: files the playlist order puts
+elsewhere, not placed by the user); the page's "Tidy up files" badge.
 
 `limits(service="qobuz")` — the Download limits page. `service`: `qobuz|youtube|soundcloud` (else refused). `cards`: always
 all three services in quality order `{service, name, set_up, used, allowance, warnings, new_warnings, paused}`
@@ -991,6 +996,116 @@ default or Safari's only one; `last_check` LastCheck|null, see Settings).
 
 `select(track_id|null)` → `{}` — call whenever the to-do selection changes (drops go to this track).
 
+### Tidy-up and the move log (read, any time; in `LIBRARY_METHODS`)
+
+`tidy_preview()` — every file the playlist order puts somewhere else ("Tidy up files"). `rows`: a track row (as
+`library()` rows) plus `file_id`, `from` / `to` (folders relative to `Library/`; `""` is `Library` itself, shown as
+"Library"), `from_path` (the snapshot path the page sends back to `tidy_up`), `placed_by` (`app|user|import`),
+`ticked` (moves by default: no `skip` and placed by the app), `yours` (placed by the user or an import: the page marks
+it "You put this here"), `skip` (`null`, or `{reason, text}`: `offline` "Offline, skipped", `not_found` "Not where
+Discjockey last saw it", `name_taken` "A file with this name is already in {to}"; such a row cannot be ticked) and
+`by_rename` (always null here). `ticked`: how many rows are ticked by default. `rekordbox`: two lines for the
+confirmation, `undo_note` "You can undo this on this page.". `empty`: null, or the text to show instead of the list
+("Every file is where the playlist order puts it." with no rows; "{n} files are where you put them, not where the
+playlist order puts them." when only `yours` rows are left: the button then stays usable). `yours`: null, or
+`{count, movable, mark, header, control}`: the "You put these here" group of the list with its one control "Put these
+in playlist order too" (ticks every movable row of the group). Example (one row):
+```json
+{
+ "ok": true,
+ "rows": [
+  {
+   "track_id": "t2",
+   "artist": "Armin Hermann",
+   "title": "Get Naughty",
+   "folder": "Hard_Bounce",
+   "duration_s": 268.0,
+   "status": "not_lossless",
+   "quality": "weak",
+   "quality_label": "16.0 kHz",
+   "cutoff_hz": 16000,
+   "source": "youtube",
+   "source_name": "YouTube",
+   "in_playlists": true,
+   "hidden": false,
+   "upgrade_ready": false,
+   "path": "Library/Elsewhere/Armin Hermann - Get Naughty.aiff",
+   "added": "2026-10-13T22:15:00",
+   "cover_url": "https://i.scdn.co/image/t2",
+   "file_id": 2,
+   "from": "Elsewhere",
+   "to": "Hard_Bounce/not_lossless",
+   "from_path": "Library/Elsewhere/Armin Hermann - Get Naughty.aiff",
+   "placed_by": "app",
+   "ticked": true,
+   "yours": false,
+   "skip": null,
+   "by_rename": null
+  }
+ ],
+ "ticked": 1,
+ "rekordbox": [
+  "rekordbox may show the moved tracks as missing.",
+  "Its Relocate finds them again by file name: Discjockey never renames them."
+ ],
+ "undo_note": "You can undo this on this page.",
+ "empty": null,
+ "yours": null
+}
+```
+
+`move_batches()` — the 20 newest move batches, newest first, and how many there are in all (`total`); empty while
+nothing was ever moved. `title`: "Tidy-up", "Saved playlists", "Renamed {old} to {new}", "Undo of: {title}"; `at` the
+ISO start time; `moved` / `skipped` counts; `undoable` how many moves an undo could still make today (0: the Undo
+button reads "Nothing left to undo"); `undone_by` the id of the latest undo of it, else null; `summary` "{n} files
+moved" / "1 file moved", plus " · {k} not moved".
+```json
+{
+ "ok": true,
+ "batches": [
+  {
+   "id": 1,
+   "at": "2026-10-20T21:47:00",
+   "title": "Tidy-up",
+   "moved": 1,
+   "skipped": 0,
+   "undoable": 1,
+   "undone_by": null,
+   "summary": "1 file moved"
+  }
+ ],
+ "total": 1
+}
+```
+
+`undo_preview(batch_id)` — what undoing a batch would do, move by move (a batch the log does not know: `refused`,
+"Discjockey has no record of that tidy-up."). `rows`: `{label, from, to, skip}` (`skip` as above, plus `moved_on`
+"Moved or changed since" / "The folder {new} isn't there any more", `place_taken` "Another file is in its old place
+now" / "A folder called {old} is in your Library again." / "Another playlist is called {old} now.", `playlist_renamed`
+"The playlist isn't called {new} any more"); `moving` how many files go back; `warning` lines for the confirmation
+(rekordbox; for a folder rename also that the folder and the playlist get their old name back); `nothing_left` true
+when no row can go back (the page then offers no Undo).
+```json
+{
+ "ok": true,
+ "batch_id": 1,
+ "title": "Tidy-up",
+ "rows": [
+  {
+   "label": "Armin Hermann - Get Naughty",
+   "from": "Hard_Bounce/not_lossless",
+   "to": "Elsewhere",
+   "skip": null
+  }
+ ],
+ "moving": 1,
+ "warning": [
+  "1 file goes back to where it was. rekordbox may show it as missing again; Relocate finds it by file name."
+ ],
+ "nothing_left": false
+}
+```
+
 ### Read with network (refused with `sync_running` while any sync runs)
 
 `search_candidates(track_id)` → `{track_id, spotify_duration_s, current_quality_label, candidates: [Candidate],
@@ -1027,50 +1142,67 @@ qobuz → refused "Qobuz versions have no preview." Plays 20 s of it in the UI.
 and `suggested_folder` (editable).
 
 `preview_playlist_change(lines)` — `lines`: `[{"folder", "link", "enabled"}]` in the new order (top first).
-`kind`: `moves|rename|reroute|add|switch_off|unknown|none`; `headline` ready to show; `checklist` 4 lines (cut here);
-`moves`: tracks with a file that move; `reroutes`: tracks without a file yet that will land in another folder
-(`track_id`, `artist`, `title`, `cover_url`, `downloaded`, `quality`, `quality_label`, `never`, `from`, `to`). `reroute`: only
-such tracks change ("24 tracks will go to 03_06_2026 instead of Powertrance"), no file moves;
-`problem`: what is wrong with the lines (Save would be refused), else null.
+`kind`: `moves|rename|reroute|add|switch_off|unknown|none`; `headline` ready to show (for `moves` and `rename` it is
+"{n} files would sit in a different folder" / "1 file would sit in a different folder"); `checklist` 3-4 lines (cut
+here; for `moves` and `rename`: the downloads line, "Nothing is deleted", "Files move only if you choose to", "Moves
+can be undone on this page"; for the other kinds "Happens at the next sync, not right away").
+`tidy`: `null`, or `{headline, rows: [TidyRow]}`: the files with a place this change would put elsewhere (a `TidyRow`
+is a row of `tidy_preview()` below; `by_rename` names the old folder whose rename on disk would put the file at its
+target, else null). `renames`: `[{from, to, files, offered, why_not, option, detail}]`, one per playlist whose folder
+name changes other than in case and whose old folder is in `Library/`: `offered` false means the page shows `why_not`
+("A folder called {new} is already in your Library." / "{old} is still the folder of another playlist.") instead of the
+choice; `option` "Rename the folder on disk too", `detail` "One folder move instead of {n} file moves.". `reroutes`:
+tracks without a file yet that will land in another folder (`track_id`, `artist`, `title`, `cover_url`, `downloaded`,
+`quality`, `quality_label`, `never`, `from`, `to`). `reroute`: only such tracks change ("24 tracks will go to
+03_06_2026 instead of Powertrance"), no file moves; `problem`: what is wrong with the lines (Save would be refused),
+else null. The old `moves` list is gone. One example (rows cut to one, `folders` and `reroutes` cut):
 ```json
 {
  "ok": true,
- "kind": "moves",
- "headline": "1 track change folder",
- "folders": [
+ "kind": "rename",
+ "headline": "2 files would sit in a different folder",
+ "tidy": {
+  "headline": "2 files would sit in a different folder",
+  "rows": [
+   {
+    "track_id": "t1",
+    "artist": "Vatoz Locoz",
+    "title": "Gimme Gimme",
+    "folder": "Hard_Bounce",
+    "duration_s": 156.0,
+    "status": "lossless",
+    "quality": "lossless",
+    "quality_label": "LOSSLESS",
+    "cutoff_hz": null,
+    "source": "qobuz",
+    "source_name": "Qobuz",
+    "in_playlists": true,
+    "hidden": false,
+    "upgrade_ready": false,
+    "path": "Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff",
+    "added": "2026-10-13T22:15:00",
+    "cover_url": "https://i.scdn.co/image/t1",
+    "file_id": 1,
+    "from": "Hard_Bounce",
+    "to": "Hard_New",
+    "from_path": "Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff",
+    "placed_by": "app",
+    "ticked": true,
+    "yours": false,
+    "skip": null,
+    "by_rename": "Hard_Bounce"
+   }
+  ]
+ },
+ "renames": [
   {
-   "folder": "Powertrance",
-   "before": 1,
-   "after": 2
-  },
-  {
-   "folder": "Hard_Bounce",
-   "before": 4,
-   "after": 3
-  }
- ],
- "moves": [
-  {
-   "track_id": "t2",
-   "artist": "Armin Hermann",
-   "title": "Get Naughty",
-   "folder": "Hard_Bounce",
-   "duration_s": 268.0,
-   "status": "not_lossless",
-   "quality": "weak",
-   "quality_label": "16.0 kHz",
-   "cutoff_hz": 16000,
-   "source": "youtube",
-   "source_name": "YouTube",
-   "in_playlists": true,
-   "hidden": false,
-   "upgrade_ready": true,
-   "path": "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff",
-   "added": "2026-10-13T22:15:00",
-   "cover_url": "https://i.scdn.co/image/t2",
    "from": "Hard_Bounce",
-   "to": "Powertrance",
-   "to_not_lossless": true
+   "to": "Hard_New",
+   "files": 2,
+   "offered": true,
+   "why_not": null,
+   "option": "Rename the folder on disk too",
+   "detail": "One folder move instead of 2 file moves."
   }
  ],
  "reroutes": [],
@@ -1080,7 +1212,9 @@ such tracks change ("24 tracks will go to 03_06_2026 instead of Powertrance"), n
  "unknown": [],
  "checklist": [
   "No downloads, no Qobuz quota used",
-  "Nothing is deleted"
+  "Nothing is deleted",
+  "Files move only if you choose to",
+  "Moves can be undone on this page"
  ],
  "problem": null
 }
@@ -1092,7 +1226,9 @@ such tracks change ("24 tracks will go to 03_06_2026 instead of Powertrance"), n
 |---|---|---|
 | `start_sync(selected)` — list of ticked `key`s from `sync_preview` | `sync` | `{exit_code, report, actions, new_since_preview}` (`report`: absolute .md path); also on a `crashed` sync (`exit_code` 1, `report` its crash note; `actions` 0 when it crashed before the plan) |
 | `stop()` → `{"stopped": bool}` (not a job) — Stop safely: current write job (sync, download, Spotify login) | | |
-| `save_playlists(lines, loaded_version)` | `save_playlists` | `{version}`; problem `changed` = "playlists.txt was changed elsewhere…" |
+| `save_playlists(lines, loaded_version, files = null)` — `files` answers the save question when the change retargets files: `null` (nothing to ask) or `{choice: "leave"\|"move", renames: [[old, new]], moves: [[file_id, from_path]]}` (`from_path` as `preview_playlist_change`'s rows send it). `leave` makes the files this save would have moved the user's own placement (a later tidy-up lists them apart); `move` renames the chosen folders on disk (one batch each), then moves the chosen files (one batch). A malformed `files` is `refused` before a job starts | `save_playlists` | `{version, batches}`: `batches` are BatchResults, empty when nothing moved; problem `changed` = "playlists.txt was changed elsewhere…". A Stop after the save ends with problem `stopped` and the same `{version, batches}` as `result` |
+| `tidy_up(moves)` — `moves`: `[[file_id, from_path]]` from `tidy_preview` rows (not empty, else `refused`); each file moves only if it still looks as shown | `tidy` | BatchResult; a Stop ends with problem `stopped` and the batch so far as `result` |
+| `undo_moves(batch_id)` — undoes a batch as a batch of its own | `undo_moves` | BatchResult (an undo with nothing left to move: `batch_id` null); a Stop as for `tidy` |
 | `save_limits(service, limit, extra_today)` — the service must be set up (else refused); 1–500, 0–200 (0 clears the extra) | `save_limits` | `{service, limit, extra_today}` |
 | `mark_warnings_seen(service)` — "Got it" on Download limits; the service must be set up (else refused). Saves settings.json `warnings_seen[service]` = now: its signals up to now are no longer `new` | `mark_warnings_seen` | `{service, seen_until}` |
 | `hide(track_id, hidden)` | `hide` / `unhide` | OpResult |
@@ -1104,6 +1240,24 @@ such tracks change ("24 tracks will go to 03_06_2026 instead of Powertrance"), n
 | `rekordbox_checked(track_id)` — "Done" on a "Check in rekordbox" item: clears `rekordbox_check` | `rekordbox_checked` | OpResult (`result.section` `rekordbox_checked`, note "checked in rekordbox") |
 | `rescan_library()` — the window opened or came back to the front: indexes `Library/` against `library.db`, so files moved, renamed or replaced by hand are found (a write method like the rest; the page ignores a `busy` or `console` answer, a running sync scans by itself). Every sync and dry run scans first too | `scan` | `{moved, new, gone, changed, copies}`, all ints: files found at a new place, new files, songs whose file is gone, files whose audio was replaced outside Discjockey (judged again like a bought file), and `copies` (new files with the audio of a file that is still there; the `Message` counts them as new files). All zero when nothing changed, and when a crash-safe step is still pending (nothing is scanned then). A scan that changed something sends one `Message` |
 | `upgrade(track_id, mode)` — `swap|add_new|discard` | `upgrade_swap` / `upgrade_add_new` / `upgrade_discard` | OpResult |
+
+**BatchResult** (`tidy_up`, `undo_moves`, the items of `save_playlists`' `batches`): `{batch_id, title, moved, headline,
+skipped: [{label, from, to, reason, text}], stopped}`. `headline` "Moved {n} files." / "Moved 1 file." (undo: "... back."),
+plus " {k} not moved:" when some were skipped; `skipped` lists them with the plain reason in `text` (the words of
+`tidy_preview`'s and `undo_preview`'s `skip`, plus `changed` "Changed since the list was shown", `failed` "Couldn't
+move it: {why}", `stopped` "Not moved: the moves were stopped first"). `stopped` is true when Stop ended the batch;
+the job then finishes with problem `stopped` and still carries the result. Files never change their names: only
+their folder changes. `MovesProgress` events run during all three jobs. Example:
+```json
+{
+ "batch_id": 1,
+ "title": "Tidy-up",
+ "moved": 1,
+ "headline": "Moved 1 file.",
+ "skipped": [],
+ "stopped": false
+}
+```
 
 `rescan_library` answers like every write method: `console` ("A sync is running in the terminal. Wait until it has
 finished.") while a terminal run holds the lock, `busy` ("Discjockey is still busy with the last change. Wait until it
@@ -1310,7 +1464,8 @@ a test compares them): `dashboard`, `sidebar`, `sync_preview`, `refresh`, `libra
 `limits`, `limits_what_if`, `save_limits`, `mark_warnings_seen`, `runs`, `run`, `spectrum`, `media_url`,
 `search_candidates`, `preview`, `add_playlist`, `preview_playlist_change`, `start_sync`, `save_playlists`, `hide`,
 `never_download`, `add_bought_file`, `use_candidate`, `use_link`, `reject_current`, `rekordbox_checked`, `upgrade`,
-`rescan_library`, `show_in_finder`, `reveal`, `open_report`. Everything else works without a music folder, `open_licenses` included (Setup and Settings before one
+`rescan_library`, `show_in_finder`, `reveal`, `open_report`, `tidy_preview`, `move_batches`, `undo_preview`, `tidy_up`,
+`undo_moves`. Everything else works without a music folder, `open_licenses` included (Setup and Settings before one
 is chosen); `downloads_view()` then counts zero tracks.
 
 **Bound but missing.** A folder that vanishes while the hub runs (an unplugged drive) behaves as an unbound one: every
@@ -1350,6 +1505,7 @@ the third action).
 | `RunFinished` | `exit_code` (0, 1, 130), `report_path` (.md) — then `run(run_id)` with the report's stem for the end screen; also sent for a crashed sync (1, its crash note), before its `JobFinished` |
 | `Message` | `level` `info|warning|debug`, `text` (hide debug) |
 | `ReadingPlaylist` | `index`, `total`, `folder` — before each playlist is read (a refresh, or a sync's start) |
+| `MovesProgress` | `batch_id`, `done`, `total` — after each move of a move batch, during `tidy`, `undo_moves` and a moving `save_playlists` (a folder rename counts as one move) |
 
 Pause card: the pause runs inside the next action after its `ActionStarted` and search, so "next up" is the current
 action and "after that N more" = `total - index`. Progress and Waiting may be coalesced when the page lags (only the
