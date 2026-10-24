@@ -180,7 +180,8 @@ describe('progress', () => {
   });
   it('undo lists every row in the order it runs', () => {
     const u: UndoPreview = { batch_id: 1, title: 'Undo of: Tidy-up', moving: 1, warning: [], nothing_left: false,
-      rows: [{ label: 'A - B', from: 'X', to: 'Y', skip: null }, { label: 'C - D', from: 'X', to: 'Z',
+      rows: [{ label: 'A - B', kind: 'file', files: null, from: 'X', to: 'Y', skip: null },
+        { label: 'C - D', kind: 'file', files: null, from: 'X', to: 'Z',
         skip: { reason: 'moved_on', text: 'Moved or changed since' } }] };
     expect(undoItems(u).map((i) => i.label)).toEqual(['A - B', 'C - D']);
   });
