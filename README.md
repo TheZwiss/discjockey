@@ -323,7 +323,8 @@ version is removed because it's no longer needed.
 - Discjockey doesn't move your files when you change the playlist order or a folder name, so rekordbox keeps
   finding them. If you move a file yourself (in Finder, or with **Tidy up**), rekordbox may show it as missing. Use
   rekordbox's Relocate to point it at the new place. Discjockey never renames a file when it moves it, so Relocate
-  finds moved files by their file name.
+  finds moved files by their file name. Auto Relocate searches only the folders set for it in rekordbox's
+  settings: add your music folder there once, and it finds every moved file on its own.
 - When you add a bought copy, the old lossy file moves to `Superseded/`, and rekordbox's entry
   (with your cue points) goes with it. The bought file is a new entry: set the cues again,
   then remove the old entry.
