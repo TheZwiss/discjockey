@@ -153,7 +153,7 @@
     </div>
     {@render dayCard(next.day, next.limits)}
     {#if next.limitReached}
-      <NoteCard tone="warn" title="Downloads start tomorrow · moves still run" data-test="next-limit-reached" />
+      <NoteCard tone="warn" title="Downloads start tomorrow" data-test="next-limit-reached" />
     {/if}
   {/if}
 {/snippet}
