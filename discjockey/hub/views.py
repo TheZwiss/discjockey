@@ -842,8 +842,11 @@ UNDO_WARN_ONE = ("1 file goes back to where it was. rekordbox may show it as mis
 UNDO_RENAME = "The folder goes back to its old name {old}, with everything in it, and the playlist is called {old} again."
 FOLDER_TAKEN = "A folder called {new} is already in your Library."
 FOLDER_IN_USE = "{old} is still the folder of another playlist."
-# an undone rename finds `Library/{old}` taken or a playlist called {old}: tidy.py marks both `place_taken`
-PLACE_TAKEN_FOLDER = "A folder or another playlist called {old} is there again."
+# an undone rename finds `Library/{old}` taken or a playlist called {old}: tidy.py marks both `place_taken` and
+# tells them apart in the detail (tidy.FOLDER_THERE, tidy.NAME_USED)
+PLACE_TAKEN_FOLDER = "A folder called {old} is in your Library again."
+PLACE_TAKEN_NAME = "Another playlist is called {old} now."
+PLACE_TAKEN_EITHER = "A folder or another playlist is called {old} now."
 BATCH_TITLES = {"tidy": "Tidy-up", "save": "Saved playlists"}
 
 
@@ -885,7 +888,10 @@ def skip_text(reason: str | None, detail: str | None, *, to: str, old: str | Non
     if reason == "moved_on":
         return f"The folder {new} isn't there any more" if new is not None else "Moved or changed since"
     if reason == "place_taken":
-        return PLACE_TAKEN_FOLDER.format(old=old) if old is not None else "Another file is in its old place now"
+        if old is None:
+            return "Another file is in its old place now"
+        return {"folder_there": PLACE_TAKEN_FOLDER, "name_used": PLACE_TAKEN_NAME}.get(
+            detail or "", PLACE_TAKEN_EITHER).format(old=old)
     if reason == "playlist_renamed":
         return f"The playlist isn't called {new} any more"
     return "Not moved"
