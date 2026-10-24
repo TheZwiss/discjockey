@@ -42,6 +42,8 @@ export type FakeMove = {
   /** snapshot paths (`Library/...`); a folder move holds the folder paths */
   src: string; dst: string;
   state: 'done' | 'skipped'; reason: string | null; text: string | null;
+  /** a folder move: how many files it carried (recorded when it is done) */
+  files?: number;
   /** placed_by before the move (an undo restores it) */
   placedBefore: 'app' | 'user' | 'import';
 };

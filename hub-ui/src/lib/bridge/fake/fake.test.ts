@@ -378,6 +378,7 @@ describe('fake tidy-up', () => {
     expect(old.undoable).toBe(old.moved - 1);  // one of its files was moved on by hand
     const undo = await f.undo_preview(old.id);
     if (!undo.ok) throw new Error();
+    expect(undo.rows.every((r) => r.kind === 'file' && r.files === null)).toBe(true);
     expect(undo.rows.filter((r) => r.skip?.reason === 'moved_on')).toHaveLength(1);
     expect(undo.rows.find((r) => r.skip)?.skip?.text).toBe('Moved or changed since');
     expect(undo.moving).toBe(undo.rows.filter((r) => !r.skip).length);
@@ -476,10 +477,20 @@ describe('fake tidy-up', () => {
     if (!save.ok) throw new Error();
     const done = await finished(evs, save.job_id);
     expect(done.ok).toBe(true);
-    expect(done.result.batches[0]).toMatchObject({ title: 'Renamed Hard_Bounce to Hard_New', moved: 1 });
     const folders = await f.library(null, '', 'all', 'artist');
     if (!folders.ok) throw new Error();
-    expect(folders.rows.some((x) => x.path?.startsWith('Library/Hard_New/'))).toBe(true);
+    const carried = folders.rows.filter((x) => x.path?.startsWith('Library/Hard_New/')).length;
+    expect(carried).toBeGreaterThan(1);
+    // a folder move counts the files it carried, in the result, the log and the undo preview
+    expect(done.result.batches[0]).toMatchObject({ title: 'Renamed Hard_Bounce to Hard_New', moved: carried });
+    expect(done.result.batches[0].headline).toBe(`Moved ${carried} files.`);
+    const log = await f.move_batches();
+    if (!log.ok) throw new Error();
+    expect(log.batches.find((b) => b.id === done.result.batches[0].batch_id)!.summary).toBe(`${carried} files moved`);
+    const undo = await f.undo_preview(done.result.batches[0].batch_id);
+    if (!undo.ok) throw new Error();
+    expect(undo.rows).toMatchObject([{ kind: 'folder', files: carried }]);
+    expect(undo.moving).toBe(carried);
   });
 
   it('a Stop during the save wait saves the file, runs no batch and ends stopped with the new version', async () => {

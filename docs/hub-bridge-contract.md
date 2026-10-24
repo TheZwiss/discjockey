@@ -1056,7 +1056,7 @@ in playlist order too" (ticks every movable row of the group). Example (one row)
 
 `move_batches()` — the 20 newest move batches, newest first, and how many there are in all (`total`); empty while
 nothing was ever moved. `title`: "Tidy-up", "Saved playlists", "Renamed {old} to {new}", "Undo of: {title}"; `at` the
-ISO start time; `moved` / `skipped` counts; `undoable` how many moves an undo could still make today (0: the Undo
+ISO start time; `moved` the files moved (a folder rename counts the files it carried) and `skipped` the moves not made; `undoable` how many moves an undo could still make today (0: the Undo
 button reads "Nothing left to undo"); `undone_by` the id of the latest undo of it, else null; `summary` "{n} files
 moved" / "1 file moved", plus " · {k} not moved".
 ```json
@@ -1079,7 +1079,8 @@ moved" / "1 file moved", plus " · {k} not moved".
 ```
 
 `undo_preview(batch_id)` — what undoing a batch would do, move by move (a batch the log does not know: `refused`,
-"Discjockey has no record of that tidy-up."). `rows`: `{label, from, to, skip}` (`skip` as above, plus `moved_on`
+"Discjockey has no record of that tidy-up."). `rows`: `{label, kind, files, from, to, skip}` (`kind` "file" or "folder"; for a folder row `files` is how many files
+are in the folder now, else the count the rename carried; for a file row it is null; `skip` as above, plus `moved_on`
 "Moved or changed since" / "The folder {new} isn't there any more", `place_taken` "Another file is in its old place
 now" / "A folder called {old} is in your Library again." / "Another playlist is called {old} now.", `playlist_renamed`
 "The playlist isn't called {new} any more"); `moving` how many files go back; `warning` lines for the confirmation
@@ -1093,6 +1094,8 @@ when no row can go back (the page then offers no Undo).
  "rows": [
   {
    "label": "Armin Hermann - Get Naughty",
+   "kind": "file",
+   "files": null,
    "from": "Hard_Bounce/not_lossless",
    "to": "Elsewhere",
    "skip": null
@@ -1241,7 +1244,7 @@ else null. The old `moves` list is gone. One example (rows cut to one, `folders`
 | `rescan_library()` — the window opened or came back to the front: indexes `Library/` against `library.db`, so files moved, renamed or replaced by hand are found (a write method like the rest; the page ignores a `busy` or `console` answer, a running sync scans by itself). Every sync and dry run scans first too | `scan` | `{moved, new, gone, changed, copies}`, all ints: files found at a new place, new files, songs whose file is gone, files whose audio was replaced outside Discjockey (judged again like a bought file), and `copies` (new files with the audio of a file that is still there; the `Message` counts them as new files). All zero when nothing changed, and when a crash-safe step is still pending (nothing is scanned then). A scan that changed something sends one `Message` |
 | `upgrade(track_id, mode)` — `swap|add_new|discard` | `upgrade_swap` / `upgrade_add_new` / `upgrade_discard` | OpResult |
 
-**BatchResult** (`tidy_up`, `undo_moves`, the items of `save_playlists`' `batches`): `{batch_id, title, moved, headline,
+**BatchResult** (`tidy_up`, `undo_moves`, the items of `save_playlists`' `batches`): `{batch_id, title, moved (files; a folder rename counts the files it carried), headline,
 skipped: [{label, from, to, reason, text}], stopped}`. `headline` "Moved {n} files." / "Moved 1 file." (undo: "... back."),
 plus " {k} not moved:" when some were skipped; `skipped` lists them with the plain reason in `text` (the words of
 `tidy_preview`'s and `undo_preview`'s `skip`, plus `changed` "Changed since the list was shown", `failed` "Couldn't

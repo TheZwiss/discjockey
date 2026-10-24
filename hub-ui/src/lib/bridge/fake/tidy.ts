@@ -116,14 +116,19 @@ function canGoBack(s: FakeState, m: FakeMove): boolean {
   const t = m.track_id ? s.tracks.find((x) => x.track_id === m.track_id) : undefined;
   return !!t && pathOf(t) === m.dst;
 }
+/** the files a done move put somewhere: one, or for a folder move the files it carried */
+const filesOf = (m: FakeMove) => (m.kind === 'folder' ? (m.files || 1) : 1);
+const movedFiles = (b: FakeBatch) => b.moves.filter((m) => m.state === 'done').reduce((n, m) => n + filesOf(m), 0);
+const filesUnder = (s: FakeState, folder: string) =>
+  s.tracks.filter((t) => hasFile(t) && pathOf(t)?.startsWith(`${folder}/`)).length;
 const summary = (moved: number, skipped: number) =>
   plural(moved, '1 file moved', '{n} files moved') + (skipped ? ` · ${skipped} not moved` : '');
 
 export function moveBatches(s: FakeState): MoveBatches {
   const newest = [...s.tidy.batches].reverse();
   const batches: MoveBatch[] = newest.slice(0, 20).map((b) => {
-    const moved = b.moves.filter((m) => m.state === 'done').length;
-    const skipped = b.moves.length - moved;
+    const moved = movedFiles(b);
+    const skipped = b.moves.filter((m) => m.state === 'skipped').length;
     const by = newest.find((u) => u.undoes === b.id);
     return { id: b.id, at: b.at, title: titleOf(s, b), moved, skipped, undoable: undoable(s, b),
       undone_by: by ? by.id : null, summary: summary(moved, skipped) };
@@ -135,14 +140,14 @@ export function undoPreview(s: FakeState, id: unknown): UndoPreview | null {
   const b = s.tidy.batches.find((x) => x.id === id);
   if (!b) return null;
   const rows = b.moves.filter((m) => m.state === 'done').reverse().map((m) => ({
-    label: m.label,
+    label: m.label, kind: m.kind,
+    files: m.kind === 'folder' ? filesUnder(s, m.dst) || filesOf(m) : null,
     from: m.kind === 'folder' ? m.dst.replace(/^Library\//, '') : folderOfPath(m.dst),
     to: m.kind === 'folder' ? m.src.replace(/^Library\//, '') : folderOfPath(m.src),
     skip: canGoBack(s, m) ? null : { reason: 'moved_on', text: m.kind === 'folder'
       ? `The folder ${m.dst.replace(/^Library\//, '')} isn't there any more` : SKIP_MOVED_ON } }));
   const going = [...b.moves].reverse().filter((m) => m.state === 'done' && canGoBack(s, m));
-  const moving = going.reduce((n, m) => n + (m.kind === 'file' ? 1
-    : s.tracks.filter((t) => hasFile(t) && pathOf(t)?.startsWith(`${m.dst}/`)).length), 0);
+  const moving = going.reduce((n, m) => n + (m.kind === 'file' ? 1 : filesUnder(s, m.dst)), 0);
   const warning = moving ? [plural(moving, '1 file goes back to where it was. rekordbox may show it as missing again; '
     + 'Relocate finds it by file name.', '{n} files go back to where they were. rekordbox may show them as missing '
     + 'again; Relocate finds them by file name.')] : [];
@@ -173,7 +178,7 @@ function toSkipped(m: FakeMove): SkippedMove {
 }
 
 export function batchResult(s: FakeState, b: FakeBatch, stopped: boolean): BatchResult {
-  const moved = b.moves.filter((m) => m.state === 'done').length;
+  const moved = movedFiles(b);
   const skipped = b.moves.filter((m) => m.state === 'skipped').map(toSkipped);
   const back = b.startedBy === 'undo' ? ' back' : '';
   let headline = plural(moved, `Moved 1 file${back}.`, `Moved {n} files${back}.`);
@@ -194,12 +199,16 @@ export async function runBatch(s: FakeState, emit: (e: HubEvent) => void, run: M
     if (run.stopped || (s.tidy.stopAfter !== null && i >= s.tidy.stopAfter)) { stopped = true; break; }
     await sleep(pause);
     const before = p.track ? placedBy(s, p.track) : 'app';
+    const carried = p.kind === 'folder' ? filesUnder(s, p.src) : 0;  // counted before the folder moves
     const move = (state: FakeMove['state'], reason: string | null, text: string | null): FakeMove => ({ kind: p.kind,
       track_id: p.track ? p.track.track_id : null, label: p.label, src: p.src, dst: p.dst, state, reason, text,
       placedBefore: before });
     if (p.skip) batch.moves.push(move('skipped', p.skip[0], p.skip[1]));
     else if (s.tidy.failMove === i) batch.moves.push(move('skipped', 'failed', FAILED_FULL));
-    else { p.apply(); batch.moves.push(move('done', null, null)); }
+    else {
+      p.apply();
+      batch.moves.push({ ...move('done', null, null), ...(p.kind === 'folder' ? { files: carried } : {}) });
+    }
     emit({ type: 'MovesProgress', batch_id: batch.id, done: i + 1, total: plan.length });
   }
   if (stopped) {
