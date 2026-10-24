@@ -205,9 +205,10 @@ A sync only adds files; it never moves one that is already in `Library/`. Files 
 - **Undo:** **Undo** on the Playlists page puts a batch of moves back. Undoing a folder rename puts the folder and the
   playlist name back. If the playlist has been renamed again since, nothing moves. A file that was moved or changed
   since, or whose old place is taken by another file, is skipped and listed.
-- **If a tidy-up is stopped halfway** (you click Stop, or the Mac loses power), the file being moved is finished or put
-  back the next time Discjockey starts, and it tells you so. Files it hadn't reached stay where they are. The
-  **Tidy up files** button offers them again, and you can undo what did move.
+- **If a tidy-up is stopped halfway,** Discjockey finishes the file it is moving and stops there. Files it hadn't
+  reached stay where they are. The **Tidy up files** button offers them again, and you can undo what did move. If
+  the Mac loses power instead, the file being moved is finished or put back the next time Discjockey starts, and it
+  tells you so.
 - **After a sync in the console,** Discjockey says how many files are not where the playlist order puts them. It
   counts only files a tidy-up would tick by default, so files you chose to leave don't nag you. The console never
   moves files.
