@@ -13,7 +13,7 @@ import {
   sampleCandidates, spotifyOk, todoDetail, todoFree, formatLine, SOURCE_FULL, todoGroup, trackRow, type FakeAccount, type FakeState,
   type FakeTrack,
 } from './data';
-import { JobRecord, Replay, STREAMS, SYNC_START_LINE, rewrite } from './replay';
+import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, rewrite } from './replay';
 import { daysToLoad } from '../../days';
 import { minutesByDownloads } from './minutes';
 import { fakeSpectrum } from './spectrum';
@@ -646,7 +646,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           return startJob('sync', null, (finish) => setTimeout(() => finish(false, null, 'login_expired',
             'Your Spotify login has expired. Log in again in setup.'), 600 / speed));
         }
-        return startReplay(SYNC_START_LINE, { crashAfter: 45 });
+        return startReplay(SYNC_START_LINE, { crashAfter: SYNC_LINES.crash });
       }
       if (!selected.length) {
         return startJob('sync', null, (finish) => setTimeout(() => finish(true, { exit_code: 0, report: '',
@@ -1054,11 +1054,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
 
   // scenarios that start with a job already running
   const at = (fn: () => void) => fn();   // at once, so the first job_status() already sees the job
-  if (baseScenario === 'syncing') at(() => startReplay(SYNC_START_LINE, { preRun: 62 }));
-  if (baseScenario === 'pause') at(() => startReplay(SYNC_START_LINE, { preRun: 97, freeze: 97 }));
+  if (baseScenario === 'syncing') at(() => startReplay(SYNC_START_LINE, { preRun: SYNC_LINES.downloading }));
+  if (baseScenario === 'pause') at(() => startReplay(SYNC_START_LINE, { preRun: SYNC_LINES.inPause, freeze: SYNC_LINES.inPause }));
   if (baseScenario === 'break') {
     at(() => {
-      startReplay(SYNC_START_LINE, { preRun: 87, freeze: 87 });
+      startReplay(SYNC_START_LINE, { preRun: SYNC_LINES.sourceBeforePause, freeze: SYNC_LINES.sourceBeforePause });
       job?.record({ type: 'Waiting', kind: 'break', label: 'Longer break to protect your Qobuz account',
         remaining: 690, total: 720, service: 'qobuz' });
     });
