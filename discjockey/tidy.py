@@ -122,7 +122,8 @@ def _begin(paths: Paths, emit: Emit) -> dict:
     return library.open_state(paths, emit)
 
 
-def _library_dirs(paths: Paths) -> list[str]:
+def library_dirs(paths: Paths) -> list[str]:
+    """The folders directly under `Library/` (the names rename_offer checks)."""
     if not paths.library.is_dir():
         return []
     return [c.name for c in paths.library.iterdir() if c.is_dir() and not c.name.startswith(".")]
@@ -294,7 +295,7 @@ def _rename(paths: Paths, state: dict, old: str, new: str, pairs: Collection[tup
     for name in (old, new):
         if not name or "/" in name or "\\" in name or name.startswith(".") or name != name.strip():
             raise ValueError(f"{name!r} is not a playlist folder name")
-    dirs = _library_dirs(paths)
+    dirs = library_dirs(paths)
     why = rename_offer(old, new, pf.load(paths.playlists_file).rows, dirs, pairs=pairs)
     on_disk = next((d for d in dirs if fold(d) == fold(old)), old)  # the folder's own spelling
     move = PlannedMove("folder", None, on_disk, f"Library/{on_disk}", f"Library/{new}", None, None, None,

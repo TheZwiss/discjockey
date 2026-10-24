@@ -22,8 +22,6 @@ Noted while moving the engine onto `library.db` (`docs/2026-10-23-library-stage-
   views grouping by watched folder will see them under the outer one.
 - **Interrupted steps finished during the migration** are shown as messages but don't reach that run's report
   (`library.open_state` recovers them before the run log exists).
-- **Stage 1 interim:** Playlists' save preview still says files move; stage 2 replaces it with the tidy-up question
-  (ships together).
 - **Report and console still label the never-used moved/adopted/conflicts sections;** drop them once old run reports
   no longer need to render.
 - **A replaced file the quality check can never read** is judged again, with a warning, on every sync.

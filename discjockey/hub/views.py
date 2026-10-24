@@ -6,6 +6,7 @@ cover or audio URL). Every number on the screens comes from these functions.
 from __future__ import annotations
 
 import math
+from collections.abc import Collection, Iterable, Mapping
 from datetime import date, datetime, timedelta
 from typing import Callable
 from urllib.parse import quote_plus
@@ -15,9 +16,9 @@ from ..accounts import (ACCOUNTS, BROWSERS, DEFAULT_LIMITS, MAX_LIMIT, PREMIUM_M
                         SERVICE_SIGNALS)
 from ..accounts import assessment as service_assessment, zones as service_zones
 from ..names import expected_stem, fold
-from ..models import SOURCE_NAMES
+from ..models import SOURCE_NAMES, BatchResult, BatchRow, MoveRow, PlannedMove
 from ..pacing import KEEP_SIGNALS, Budget
-from ..planner import KIND_RANK, WAIT_DAYS
+from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
 from ..report import PLAN_LABELS, check_text
 from ..settings import Settings
@@ -820,6 +821,194 @@ def info_dict(info) -> dict | None:
             "track_count": info.track_count}
 
 
+# --- tidy-up: the words of the preview, the move log and the results (plan library stage 2, I5, I6) ---
+
+SAVE_HEADLINE = "{n} files would sit in a different folder"
+SAVE_HEADLINE_ONE = "1 file would sit in a different folder"
+RENAME_OPTION = "Rename the folder on disk too"
+TIDY_EMPTY = "Every file is where the playlist order puts it."
+TIDY_ONLY_YOURS = "{n} files are where you put them, not where the playlist order puts them."
+TIDY_ONLY_YOURS_ONE = "1 file is where you put it, not where the playlist order puts it."
+TIDY_YOURS_MARK = "You put this here"
+TIDY_YOURS_HEADER = "You put these here"
+TIDY_YOURS_CONTROL = "Put these in playlist order too"
+REKORDBOX_NOTES = ["rekordbox may show the moved tracks as missing.",
+                   "Its Relocate finds them again by file name: Discjockey never renames them."]
+UNDO_NOTE = "You can undo this on this page."
+UNDO_WARN = ("{n} files go back to where they were. rekordbox may show them as missing again; Relocate finds them "
+             "by file name.")
+UNDO_WARN_ONE = ("1 file goes back to where it was. rekordbox may show it as missing again; Relocate finds it "
+                 "by file name.")
+UNDO_RENAME = "The folder goes back to its old name {old}, with everything in it, and the playlist is called {old} again."
+FOLDER_TAKEN = "A folder called {new} is already in your Library."
+FOLDER_IN_USE = "{old} is still the folder of another playlist."
+# an undone rename finds `Library/{old}` taken or a playlist called {old}: tidy.py marks both `place_taken`
+PLACE_TAKEN_FOLDER = "A folder or another playlist called {old} is there again."
+BATCH_TITLES = {"tidy": "Tidy-up", "save": "Saved playlists"}
+
+
+def folder_of(path: str) -> str:
+    """The folder of a snapshot path relative to `Library/`: `Library/F/x` -> `F`, `Library/x` -> `` (the Library)."""
+    return path.removeprefix("Library/").rpartition("/")[0]
+
+
+def _rel(path: str) -> str:
+    return path.removeprefix("Library/")
+
+
+def _where(folder: str) -> str:
+    return folder or "Library"
+
+
+def skip_text(reason: str | None, detail: str | None, *, to: str, old: str | None = None,
+              new: str | None = None, frm: str | None = None) -> str:
+    """The words for a skip reason. `to` is the target folder (relative to `Library/`); a folder move passes the
+    folder's `old` and `new` names (an undo's `old` is where it goes back to, `new` the name it has now) and `frm`,
+    the folder it leaves. A refused folder rename carries `rename_offer`'s code in `detail` (`tidy.OFFER_SKIP`),
+    worded here."""
+    if frm is not None and detail == "folder_taken":
+        return FOLDER_TAKEN.format(new=to)
+    if frm is not None and detail == "folder_in_use":
+        return FOLDER_IN_USE.format(old=frm)
+    if reason == "offline":
+        return "Offline, skipped"
+    if reason == "not_found":
+        return "Not where Discjockey last saw it"
+    if reason == "name_taken":
+        return f"A file with this name is already in {_where(to)}"
+    if reason == "changed":
+        return "Changed since the list was shown"
+    if reason == "failed":
+        return f"Couldn't move it: {detail}" if detail else "Couldn't move it"
+    if reason == "stopped":
+        return "Not moved: the moves were stopped first"
+    if reason == "moved_on":
+        return f"The folder {new} isn't there any more" if new is not None else "Moved or changed since"
+    if reason == "place_taken":
+        return PLACE_TAKEN_FOLDER.format(old=old) if old is not None else "Another file is in its old place now"
+    if reason == "playlist_renamed":
+        return f"The playlist isn't called {new} any more"
+    return "Not moved"
+
+
+def _ends(kind: str, src: str, dst: str) -> tuple[str, str, str | None, str | None]:
+    """(from, to, old, new) of a move for the words: folders for a file, the folder names for a folder move (old and
+    new as an undo has them: where it goes back to, the name it has now)."""
+    if kind == "folder":
+        return _rel(src), _rel(dst), _rel(dst), _rel(src)
+    return folder_of(src), folder_of(dst), None, None
+
+
+def _skip_words(kind: str, src: str, dst: str, reason: str | None, detail: str | None) -> str:
+    frm, to, old, new = _ends(kind, src, dst)
+    return skip_text(reason, detail, to=to, old=old, new=new, frm=frm if kind == "folder" else None)
+
+
+def tidy_row(row: TidyRow, e: dict, cover: Url | None = None, by_rename: str | None = None) -> dict:
+    """One row of the tidy preview (I5 `TidyRowJSON`). `yours`: placed by the user or by an import."""
+    frm, to = folder_of(row.src), folder_of(row.dst)
+    return {**track_row(row.track_id, e, cover), "file_id": row.file_id, "from": frm, "to": to,
+            "from_path": row.src, "placed_by": row.placed_by, "ticked": row.ticked,
+            "yours": row.placed_by in ("user", "import"),
+            "skip": {"reason": row.skip, "text": skip_text(row.skip, None, to=to)} if row.skip else None,
+            "by_rename": by_rename}
+
+
+def _plural(n: int, one: str, many: str) -> str:
+    return one if n == 1 else many.format(n=n)
+
+
+def tidy_preview(rows: list[TidyRow], state: dict, cover: Url | None = None) -> dict:
+    """The "Tidy up files" preview. Rows ticked by default are those a tidy-up moves for sure; `yours` rows
+    (the user's own placement) are listed apart, with one control that ticks them all (plan P1)."""
+    out = [tidy_row(r, state["tracks"][r.track_id], cover) for r in rows]
+    ticked = sum(1 for r in out if r["ticked"])
+    movable_yours = sum(1 for r in out if r["yours"] and not r["skip"])
+    if not out:
+        empty = TIDY_EMPTY
+    elif not ticked and movable_yours:
+        empty = _plural(movable_yours, TIDY_ONLY_YOURS_ONE, TIDY_ONLY_YOURS)
+    else:
+        empty = None
+    yours = sum(1 for r in out if r["yours"])
+    return {"rows": out, "ticked": ticked, "rekordbox": list(REKORDBOX_NOTES), "undo_note": UNDO_NOTE, "empty": empty,
+            "yours": {"count": yours, "movable": movable_yours, "mark": TIDY_YOURS_MARK,
+                      "header": TIDY_YOURS_HEADER, "control": TIDY_YOURS_CONTROL} if yours else None}
+
+
+def batch_title(b: BatchRow, undone_title: str | None = None) -> str:
+    """"Tidy-up", "Saved playlists", "Renamed A to B", "Undo of: <the title of the batch it undid>" (`undone_title`;
+    "Undo" when it isn't known)."""
+    if b.started_by == "rename":
+        about = b.about
+        return f"Renamed {about['from']} to {about['to']}" if about else "Renamed a folder"
+    if b.started_by == "undo":
+        return f"Undo of: {undone_title}" if undone_title else "Undo"
+    return BATCH_TITLES.get(b.started_by, "Moves")
+
+
+def _summary(moved: int, skipped: int) -> str:
+    text = _plural(moved, "1 file moved", "{n} files moved")
+    return f"{text} \u00b7 {skipped} not moved" if skipped else text
+
+
+def move_batches(rows: list[BatchRow], total: int, titles: Mapping[int, str] | None = None) -> dict:
+    """`titles`: batch id -> title for undone batches that are not among `rows` (older than the 20 listed)."""
+    by_id = {b.id: b for b in rows}
+
+    def title(b: BatchRow) -> str:
+        if b.started_by != "undo":
+            return batch_title(b)
+        target = by_id.get(b.undoes)
+        return batch_title(b, title(target) if target else (titles or {}).get(b.undoes))
+
+    return {"batches": [{"id": b.id, "at": b.started, "title": title(b),
+                         "moved": b.moved, "skipped": b.skipped, "undoable": b.undoable,
+                         "undone_by": b.undone_by, "summary": _summary(b.moved, b.skipped)} for b in rows],
+            "total": total}
+
+
+def _skipped_item(m: MoveRow) -> dict:
+    frm, to, _, _ = _ends(m.kind, m.src, m.dst)
+    return {"label": m.label, "from": frm, "to": to, "reason": m.reason,
+            "text": _skip_words(m.kind, m.src, m.dst, m.reason, m.detail)}
+
+
+def batch_result(r: BatchResult, title: str) -> dict:
+    """What a finished batch tells the page: "Moved 3 files." (undo: "... back."), then "2 not moved:" and the list."""
+    back = " back" if r.started_by == "undo" else ""
+    headline = _plural(r.moved, f"Moved 1 file{back}.", "Moved {n} files" + back + ".")
+    if r.skipped:
+        headline += f" {len(r.skipped)} not moved:"
+    return {"batch_id": r.batch_id, "title": title, "moved": r.moved, "headline": headline,
+            "skipped": [_skipped_item(m) for m in r.skipped], "stopped": r.stopped}
+
+
+def undo_preview(batch: BatchRow, moves: list[PlannedMove], files: Iterable[str] = (),
+                 title: str | None = None) -> dict:
+    """What an undo would do (`moves` as `tidy.undo_preview` plans them, some already skipped with a reason).
+    `files` are the snapshot paths on disk: a folder move carries every file under the folder it moves back."""
+    rows = []
+    for m in moves:
+        frm, to, _, _ = _ends(m.kind, m.src, m.dst)
+        reason, detail = m.skip or (None, None)
+        rows.append({"label": m.label, "from": frm, "to": to,
+                     "skip": {"reason": reason, "text": _skip_words(m.kind, m.src, m.dst, reason, detail)}
+                     if reason else None})
+    running = [m for m, r in zip(moves, rows) if r["skip"] is None]
+    on_disk = list(files)
+    moving = sum(1 for m in running if m.kind == "file")
+    for m in running:
+        if m.kind == "folder":  # the files sit under the folder's current name, `src`
+            moving += sum(1 for f in on_disk if f.startswith(f"{m.src}/"))
+    warning = [_plural(moving, UNDO_WARN_ONE, UNDO_WARN)] if moving else []
+    folder = next((m for m in running if m.kind == "folder"), None)
+    if folder is not None:
+        warning.append(UNDO_RENAME.format(old=_rel(folder.dst)))
+    return {"batch_id": batch.id, "title": title if title is not None else batch_title(batch), "rows": rows,
+            "moving": moving, "warning": warning, "nothing_left": not running}
+
+
 def playlists(loaded: pf.Loaded, tracks_by_id: dict, infos: dict, state: dict, cover: Url | None = None) -> dict:
     rows = []
     for i, r in enumerate(loaded.rows):
@@ -833,51 +1022,83 @@ def playlists(loaded: pf.Loaded, tracks_by_id: dict, infos: dict, state: dict, c
     overlap = [{**_spotify_row(t.id, t, by_id.get(t.id), cover, state.get("never")), "folders": folders, "lands_in": lands}
                for t, folders, lands in pf.overlaps(loaded.rows, tracks_by_id)]
     return {"version": loaded.version, "problem": loaded.problem, "rows": rows, "overlaps": overlap,
-            "empty": None if loaded.rows else "no_playlists"}
+            "empty": None if loaded.rows else "no_playlists", "tidy": {"waiting": out_of_place(state)}}
 
 
 CHECK_NO_DOWNLOADS = "No downloads, no Qobuz quota used"
 CHECK_NOTHING_DELETED = "Nothing is deleted"
-CHECK_CUES = "rekordbox follows the files, cue points are kept"
 CHECK_NEXT_SYNC = "Happens at the next sync, not right away"
+CHECK_CHOICE = "Files move only if you choose to"
+CHECK_UNDO = "Moves can be undone on this page"
+
+
+# tidy.rename_offer(old, new, rows, library_dirs, *, pairs): None, or a reason code
+RenameOffer = Callable[..., "str | None"]
+
+
+def _rename_items(pairs: list[tuple[str, str]], rows: list, files: list[str], library_dirs: Collection[str],
+                  rename_offer: RenameOffer) -> list[dict]:
+    """The on-disk folder renames this save could do, with the files each would carry along. `pairs` go to the offer
+    as well (all renames of the change), so what is offered is never refused when it runs. A folder that isn't in
+    the Library (`no_folder`) has nothing to rename and is left out."""
+    items = []
+    for was, now in pairs:
+        why = rename_offer(was, now, rows, library_dirs, pairs=pairs)
+        if why == "no_folder":
+            continue
+        n = sum(1 for f in files if f.startswith(f"Library/{was}/"))
+        text = {"folder_taken": FOLDER_TAKEN.format(new=now), "folder_in_use": FOLDER_IN_USE.format(old=was)}
+        items.append({"from": was, "to": now, "files": n, "offered": why is None,
+                      "why_not": None if why is None else text.get(why), "option": RENAME_OPTION,
+                      "detail": f"One folder move instead of {n} file move{'s' if n != 1 else ''}."})
+    return items
+
+
+def _by_rename(row: TidyRow, pairs: list[tuple[str, str]]) -> str | None:
+    """The old folder name whose rename on disk would put this row's file at its target, else None."""
+    for was, now in pairs:
+        prefix = f"Library/{was}/"
+        if row.src.startswith(prefix) and row.dst == f"Library/{now}/{row.src[len(prefix):]}":
+            return was
+    return None
 
 
 def playlist_change(old: list, new: list, tracks_by_id: dict, state: dict, files: list[str], today: date,
-                    money: dict | None, cover: Url | None = None) -> dict:
-    """"What this change does", for unsaved edits of the playlist page."""
+                    money: dict | None, cover: Url | None = None, *, library_dirs: Collection[str],
+                    rename_offer: RenameOffer, placement: Mapping[str, str],
+                    retargeted: Mapping[str, str]) -> dict:
+    """"What this change does", for unsaved edits of the playlist page. The api passes `placement` (key -> folder
+    under `new`, `pf.placement`), `retargeted` (the keys whose folder changes, `pf.retargeted`), the folders of
+    `Library/` and `tidy.rename_offer`, so this stays pure."""
     c = pf.preview_change(old, new, tracks_by_id, state, files, today)
+    tidy_list = tidy_rows(state, placement, only=retargeted) if retargeted else []
+    renames = pf.renames(old, new)
+    rename_items = _rename_items(renames, new, files, library_dirs, rename_offer)
     folders = list(dict.fromkeys([r.folder for r in new + old if r.folder in c.before or r.folder in c.after] +
                                  sorted(set(c.before) | set(c.after), key=fold)))
     tracks = state["tracks"]
-    moves = []
-    for k, frm, to in c.moves:
-        e = tracks[k]
-        moves.append({**track_row(k, e, cover), "from": frm, "to": to,
-                      "to_not_lossless": e["status"] in ("not_lossless", "fake_lossless")})
     spotify = {t.id: t for ts in tracks_by_id.values() for t in ts}
 
     def spotify_track(k: str):
         return next((spotify[i] for i in [k, *((tracks.get(k) or {}).get("aliases") or [])] if i in spotify), None)
 
+    shown = {r.track_id for r in tidy_list}
+    # a file on the tidy list (even one that can't move) is not also a track "without a file"
+    kept = [(k, frm, to) for k, frm, to in c.reroutes if k not in shown]
     reroutes = [{**_spotify_row(k, spotify_track(k), tracks.get(k), cover, state.get("never")), "from": frm, "to": to}
-                for k, frm, to in c.reroutes]
-    renamed = {(o.folder, n.folder) for o in old for n in new
-               if o.playlist_id == n.playlist_id and fold(o.folder) != fold(n.folder)}
-    pairs = {(frm, to) for _, frm, to in c.moves + c.reroutes}
+                for k, frm, to in kept]
+    renamed = set(renames)
+    pairs = {(frm, to) for k, frm, to in [m for m in c.moves if m[0] in shown] + kept}
     days = (1 if c.new else 0) if money is None else days_to_load(len(c.new), money["remaining"], money["limit"])
-    n_tracks = len(c.reroutes)
+    n_tracks = len(reroutes)
     tracks_will = f"{n_tracks} tracks will" if n_tracks != 1 else "1 track will"
+    save_headline = _plural(len(tidy_list), SAVE_HEADLINE_ONE, SAVE_HEADLINE)
     if pairs and renamed and pairs <= renamed:
         kind = "rename"
-        if c.moves:
-            headline = (f"{len(c.moves)} files move to the new folder name" if len(c.moves) != 1
-                        else "1 file moves to the new folder name")
-        else:
-            headline = f"{tracks_will} go to the new folder name"
-    elif c.moves:
-        kind, headline = "moves", (f"{len(c.moves)} tracks change folder" if len(c.moves) != 1
-                                   else "1 track changes folder")
-    elif c.reroutes:
+        headline = save_headline if tidy_list else f"{tracks_will} go to the new folder name"
+    elif tidy_list:
+        kind, headline = "moves", save_headline
+    elif reroutes:
         kind = "reroute"
         headline = (f"{tracks_will} go to {next(iter(pairs))[1]} instead of {next(iter(pairs))[0]}"
                     if len(pairs) == 1 else f"{tracks_will} go to another folder")
@@ -893,8 +1114,11 @@ def playlist_change(old: list, new: list, tracks_by_id: dict, state: dict, files
         kind, headline = "none", "Nothing changes in your library"
     checklist = [CHECK_NO_DOWNLOADS] if not c.new else [
         f"{len(c.new)} download{'s' if len(c.new) != 1 else ''}, counted toward your Qobuz limit"]
-    checklist += [CHECK_NOTHING_DELETED, CHECK_CUES, CHECK_NEXT_SYNC]
+    checklist.append(CHECK_NOTHING_DELETED)
+    checklist += [CHECK_CHOICE, CHECK_UNDO] if kind in ("moves", "rename") else [CHECK_NEXT_SYNC]
+    tidy = {"headline": save_headline, "rows": [tidy_row(r, tracks[r.track_id], cover, _by_rename(r, renames))
+                                                for r in tidy_list]} if tidy_list else None
     return {"kind": kind, "headline": headline,
             "folders": [{"folder": f, "before": c.before.get(f, 0), "after": c.after.get(f, 0)} for f in folders],
-            "moves": moves, "reroutes": reroutes, "new_downloads": len(c.new), "days": days, "stopped": len(c.stopped),
-            "unknown": c.unknown, "checklist": checklist}
+            "tidy": tidy, "renames": rename_items, "reroutes": reroutes, "new_downloads": len(c.new), "days": days,
+            "stopped": len(c.stopped), "unknown": c.unknown, "checklist": checklist}

@@ -257,7 +257,11 @@ Event: `MovesProgress {batch_id, done, total}` during `tidy`, `undo_moves` and a
 | Checklist (`moves`, `rename`) | downloads line as today · "Nothing is deleted" · "Files move only if you choose to" · "Moves can be undone on this page" |
 | Checklist (other kinds) | downloads line as today · "Nothing is deleted" · "Happens at the next sync, not right away" (`CHECK_CUES` goes) |
 | Console (spec §8.2) | "{n} files are not where the playlist order puts them; tidy up in the window." / "1 file is not where the playlist order puts it; tidy up in the window." |
-| Recovery message | "A tidy-up was stopped before it finished: {moved} moved, {left} not moved. You can undo it or tidy up the rest on the Playlists page." |
+| Recovery message, tidy-up (save) | "A tidy-up was stopped before it finished: {moved} moved, {left} not moved. You can undo it or tidy up the rest on the Playlists page." · nothing moved: "A tidy-up was stopped before it moved anything. You can tidy up on the Playlists page." |
+| Recovery message, folder rename | "A folder rename was stopped before it finished, but the folder has its new name {new} now. You can undo it on the Playlists page." · not started: "A folder rename was stopped before it started: the folder keeps its name {old}." |
+| Recovery message, undo | "An undo was stopped before it finished: {moved} moved back, {left} not moved. Undo the same moves again on the Playlists page to move the rest back." · nothing moved: "An undo was stopped before it moved anything back. You can undo again on the Playlists page." |
+| Playlist not renamed back | "The folder {to} is back, but Discjockey couldn't call the playlist {to} again in playlists.txt ({reason}). Change its name on the Playlists page." |
+| Move not recorded (`failed` detail) | "it was moved, but Discjockey couldn't record its new place: its records show another song's file there" |
 | Folder step label | "the folder rename {old} → {new}" (the `label` of `run_op`) |
 
 Skip reasons (`reason` code → text; views own the text, `tidy.py` the `detail`):
@@ -271,7 +275,8 @@ Skip reasons (`reason` code → text; views own the text, `tidy.py` the `detail`
 | `failed` | run, undo | "Couldn't move it: {detail}" |
 | `stopped` | run, undo | "Not moved: the moves were stopped first" |
 | `moved_on` | undo | file: "Moved or changed since"; folder: "The folder {new} isn't there any more" |
-| `place_taken` | undo | file: "Another file is in its old place now"; folder: "A folder called {old} is in your Library again" |
+| `place_taken` | undo | file: "Another file is in its old place now"; folder: "A folder or another playlist called {old} is there again." (`tidy.py` marks both cases `place_taken`) |
+| `name_taken` / `changed` (folder rename) | run | a refused folder rename is stored with the nearest reason and `rename_offer`'s code in `detail`; views word the code: `folder_taken` "A folder called {new} is already in your Library.", `folder_in_use` "{old} is still the folder of another playlist.", `no_folder` as `not_found` |
 | `playlist_renamed` | undo (folder) | "The playlist isn't called {new} any more" (group 3 adds it to `db.SKIP_REASONS`) |
 
 `detail` for `failed` (`tidy.py`, from the `OSError`): EACCES/EPERM "Discjockey isn't allowed to change that folder";
