@@ -1,0 +1,51 @@
+{
+  "id": 900000001,
+  "name": "Example Playlist",
+  "tracks_count": 5,
+  "tracks": {
+    "offset": 0,
+    "limit": 4,
+    "total": 5,
+    "items": [
+      {
+        "id": 900000101,
+        "title": "Example Title",
+        "version": "Extended Mix",
+        "duration": 372,
+        "isrc": "XXEXA2600001",
+        "streamable": true,
+        "performer": {"id": 800000001, "name": "Example Artist"},
+        "album": {
+          "title": "Example Album",
+          "artist": {"id": 800000002, "name": "Example Album Artist"},
+          "image": {
+            "large": "https://static.example.com/covers/900000101_600.jpg",
+            "small": "https://static.example.com/covers/900000101_230.jpg",
+            "thumbnail": "https://static.example.com/covers/900000101_50.jpg"
+          }
+        }
+      },
+      {
+        "id": 900000102,
+        "title": "Preview Only",
+        "duration": 201,
+        "isrc": "XXEXA2600002",
+        "streamable": false,
+        "performer": {"name": "Example Artist"},
+        "album": {"title": "Example Album", "image": {"large": "https://static.example.com/covers/900000102_600.jpg"}}
+      },
+      {
+        "id": 900000103,
+        "title": "No Performer",
+        "duration": 180,
+        "streamable": true,
+        "album": {"title": "Example Compilation", "artist": {"name": "Various Example Artists"}}
+      },
+      {
+        "title": "Gone Track",
+        "duration": 99,
+        "streamable": false
+      }
+    ]
+  }
+}

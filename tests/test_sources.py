@@ -9,6 +9,7 @@ from discjockey.events import Cancelled, CancelToken, ReadingPlaylist
 from discjockey.library import SupportPaths
 from discjockey.models import FetchedPlaylist, PlaylistInfo, PlaylistLine
 from discjockey.sources import LoginState, SourceError, spotify
+from discjockey.sources import qobuz as qobuz_source
 
 ID1, ID2 = "0DiscjockeyExampleList", "3DiscjockeyExampleList"
 
@@ -53,8 +54,9 @@ def support(tmp_path):
     return SupportPaths(support=tmp_path / ".support")
 
 
-def test_the_registry_holds_spotify():
-    assert list(sources.SOURCES) == ["spotify"] and sources.SOURCES["spotify"] is spotify
+def test_the_registry_holds_spotify_and_qobuz():
+    assert list(sources.SOURCES) == ["spotify", "qobuz"]
+    assert sources.SOURCES["spotify"] is spotify and sources.SOURCES["qobuz"] is qobuz_source
 
 
 def test_recognise_gives_service_and_id():
@@ -143,6 +145,37 @@ def test_read_infos_a_failing_login_leaves_the_other_services(support, monkeypat
     infos = {}
     sources.read_infos(support, [ID1, "fake:7"], infos, CancelToken())
     assert set(infos) == {"fake:7"}
+
+
+def test_read_infos_a_failing_reader_keeps_the_entries_already_there(support, monkeypatch):
+    """The Spotify reader fails every info() when its current_user call fails: that is the service's trouble, not
+    each playlist's, so the entries stay (and a failure of one service never touches another's)."""
+    log = []
+    broken = SourceError("Spotify is not responding (x). Try again later.", "offline", "spotify")
+
+    class BrokenReader(FakeReader):
+        def info(self, playlist_id):
+            raise broken
+
+    spotify_source = fake_source(log, "spotify")
+    spotify_source.open = lambda paths, token: BrokenReader(log, "spotify")
+    monkeypatch.setitem(sources.SOURCES, "spotify", spotify_source)
+    monkeypatch.setitem(sources.SOURCES, "fake", fake_source(log, "fake", fail=["8"]))
+    old = {ID1: "old spotify", ID2: "old spotify 2", "fake:7": "old fake", "fake:8": "old fake 8"}
+    infos = dict(old)
+    sources.read_infos(support, [ID1, ID2, "fake:7", "fake:8"], infos, CancelToken())
+    assert infos[ID1] == "old spotify" and infos[ID2] == "old spotify 2"  # Spotify failed: nothing dropped
+    assert infos["fake:7"].service == "fake" and "fake:8" not in infos  # the other service read as usual
+
+
+def test_read_infos_a_failing_login_keeps_that_services_entries(support, monkeypatch):
+    log = []
+    monkeypatch.setitem(sources.SOURCES, "spotify",
+                        fake_source(log, "spotify", open_error=SourceError("x", "login_expired", "spotify")))
+    monkeypatch.setitem(sources.SOURCES, "fake", fake_source(log, "fake"))
+    infos = {ID1: "old"}
+    sources.read_infos(support, [ID1, "fake:7"], infos, CancelToken())
+    assert infos[ID1] == "old" and infos["fake:7"].service == "fake"
 
 
 def test_read_infos_ignores_a_service_it_does_not_know(support):
