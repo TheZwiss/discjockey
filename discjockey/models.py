@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 SOURCE_NAMES = {
     "qobuz": "Qobuz",
@@ -112,3 +113,57 @@ class Outcome:
 class Protected(RuntimeError):
     """The upload is DRM-protected. Discjockey never works around DRM, so this version can't be played or used."""
     permanent = True  # the sync never tries it again for this track
+
+
+# --- the scanner's records (spec library-and-sources §6) -----------------------------------------------------------
+
+@dataclass(frozen=True)
+class WatchedFolder:
+    id: int
+    path: Path
+    kind: str  # library | import
+
+
+@dataclass(frozen=True)
+class KnownFile:
+    """A file row of the index, as the scanner sees it."""
+    id: int
+    folder: int  # watched folder id
+    rel: str  # POSIX, NFC, relative to the watched folder
+    size: int | None
+    mtime_ns: int | None
+    content_key: str | None  # None: a migrated file that wasn't on disk
+    linked: bool  # linked to a song
+    ambiguous: bool  # moved to one of several places; each scan decides again
+
+
+@dataclass(frozen=True)
+class SeenFile:
+    """An audio file a scan found on disk."""
+    folder: int
+    rel: str
+    size: int
+    mtime_ns: int
+    content_key: str
+
+
+@dataclass
+class ScanResult:
+    """How one scan sorted the files (spec library-and-sources §6.3); db.apply_scan writes it.
+
+    A row whose file is in `retagged`, `replaced` or `moved` is no longer ambiguous. A `moved` target can be a file
+    the index already has as an unlinked row (an earlier scan's ambiguous candidate): that row gives way to the moved
+    one. `retagged` also carries an ambiguous row whose file is back at its own path.
+    """
+    offline: list[int] = field(default_factory=list)  # watched folder ids
+    unchanged: int = 0
+    retagged: list[tuple[int, SeenFile]] = field(default_factory=list)  # file id -> same key, new size/mtime
+    replaced: list[tuple[int, SeenFile]] = field(default_factory=list)  # file id -> other key (audio replaced)
+    moved: list[tuple[int, SeenFile]] = field(default_factory=list)  # file id -> its one new place
+    ambiguous: list[tuple[int, list[str]]] = field(default_factory=list)  # file id -> snapshot paths of candidates
+    new: list[SeenFile] = field(default_factory=list)  # unknown keys, incl. every ambiguous candidate
+    copies: list[SeenFile] = field(default_factory=list)  # the key of a file that is still there
+    gone: list[int] = field(default_factory=list)  # file ids
+    held: list[int] = field(default_factory=list)  # file ids that would be gone, left as they are: the file may be
+    # in a subfolder that couldn't be listed or be a file that couldn't be read (spec §12); decided on a later scan
+    unreadable: list[tuple[int, str, str]] = field(default_factory=list)  # folder id, rel, reason; tried next scan
