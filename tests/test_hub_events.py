@@ -24,6 +24,7 @@ SAMPLES = [
     events.RunFinished(0, "/x/reports/2026-10-20_120000.md"),
     events.Message("info", "Reading your Spotify playlists..."),
     events.ReadingPlaylist(2, 7, "Powertrance"),
+    events.MovesProgress(4, 2, 9),
     jobs.JobStarted(7, "sync", None),
     jobs.JobFinished(7, "sync", True, None, "", {"exit_code": 0}),
     jobs.ConsoleBusy(True),

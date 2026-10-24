@@ -9,7 +9,7 @@ import pytest
 from discjockey import db, library, planner, quality, tidy
 from discjockey.events import CancelToken, MovesProgress, no_emit
 from discjockey.library import Paths, empty_state, load_state, save_state
-from discjockey.models import PlannedMove, SaveChoice
+from discjockey.models import MoveRow, PlannedMove, SaveChoice
 from discjockey.playlists_file import Row
 
 LINK1 = "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"
@@ -161,7 +161,7 @@ def test_a_move_the_records_refuse_is_failed_in_words_that_say_it_moved(paths, m
     monkeypatch.setattr(db, "finish_move", refused)
     result = tidy.tidy_up(paths, sent(state, "s1"))
     assert [(m.reason, m.detail) for m in result.skipped] == [("failed", tidy.MOVED_NOT_RECORDED)]
-    assert tidy.MOVED_NOT_RECORDED.startswith("it was moved")
+    assert "playlists.txt" not in tidy.MOVED_NOT_RECORDED and "records" not in tidy.MOVED_NOT_RECORDED
     assert (paths.library / "A" / "A - s1.aiff").exists()  # the record says what happened on disk
 
 
@@ -341,6 +341,17 @@ def test_after_a_rename_and_its_undo_every_file_is_in_place(paths):
     assert planner.out_of_place(after) == 0 and planner.tidy_rows(after) == []
 
 
+def test_a_playlist_that_cannot_be_named_back_says_so_in_plain_words(paths, monkeypatch):
+    def refused(paths, frm, to):
+        raise PermissionError(1, "Operation not permitted: /x/playlists.txt")
+    monkeypatch.setattr(tidy, "_rename_playlist", refused)
+    move = MoveRow(1, 1, 0, "folder", None, "New", "Library/New", "Library/Old", None, None, None, "done", None,
+                   None, None, None)
+    text = tidy._playlist_follows(paths, move)
+    assert text == tidy.NOT_RENAMED_BACK.format(to="Old")
+    assert "playlists.txt" not in text and "Operation" not in text
+
+
 def test_a_rename_on_its_own_gives_the_songs_the_new_folder(paths):
     library_with(paths, ("s1", "Old", "Old"), ("s2", "Old", "Elsewhere"))
     playlists(paths, f"New = {LINK1}")
@@ -356,8 +367,13 @@ def test_undo_of_a_folder_rename_skips_when_the_playlist_or_the_folder_changed(p
     assert [m.skip for m in tidy.undo_preview(paths, load_state(paths), done.batch_id)] == [
         ("playlist_renamed", None)]
     playlists(paths, f"New = {LINK1}", f"Old = {LINK2}")
-    assert [m.skip for m in tidy.undo_preview(paths, load_state(paths), done.batch_id)] == [("place_taken", None)]
+    assert [m.skip for m in tidy.undo_preview(paths, load_state(paths), done.batch_id)] == [
+        ("place_taken", tidy.NAME_USED)]
     playlists(paths, f"New = {LINK1}")
+    (paths.library / "Old").mkdir()  # a folder called Old is back
+    assert [m.skip for m in tidy.undo_preview(paths, load_state(paths), done.batch_id)] == [
+        ("place_taken", tidy.FOLDER_THERE)]
+    (paths.library / "Old").rmdir()
     os.rename(paths.library / "New", paths.library / "Moved")  # the folder renamed again by hand
     result = tidy.undo(paths, done.batch_id)
     assert result.moved == 0 and [m.reason for m in result.skipped] == ["moved_on"]
@@ -498,3 +514,18 @@ def test_a_stopped_folder_rename_is_worded_as_one(paths, monkeypatch, moved):
     monkeypatch.undo()
     expected = (tidy.RECOVERED_RENAME.format(new="New") if moved else tidy.RECOVERED_RENAME_NONE.format(old="Old"))
     assert library.recover_pending(paths, load_state(paths)) == [(expected, True)]
+
+
+@pytest.mark.parametrize("name, said", [
+    ("/", "\u201c/\u201d can't be used"), (".", "\u201c.\u201d can't be used"), ("..", "\u201c..\u201d can't be used"),
+    ("  ", "\u201c  \u201d can't be used"), (" a", "can't be used"), ("a ", "can't be used"),
+    ("a/b", "can't be used"), ("a\\b", "can't be used"), (".hidden", "can't be used"),
+    ("", "A folder name can't be empty."), (None, "can't be used"), (7, "\u201c7\u201d can't be used"),
+])
+def test_check_folder_names_refuses_what_is_not_one_plain_folder_name(name, said):
+    with pytest.raises(ValueError, match=said.replace(".", r"\.")):
+        tidy.check_folder_names("Fine", name)
+
+
+def test_check_folder_names_accepts_plain_names():
+    tidy.check_folder_names("Hard_Bounce", "Two words", "Caf\u00e9-2", "a.b")

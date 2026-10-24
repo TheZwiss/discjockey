@@ -38,9 +38,9 @@ const fake: PageFake = {
       const out = r.ok && previewProblem.has(ctx.s) ? { ...r, problem: PROBLEM } : r;
       return slowPreview.has(ctx.s) ? ctx.later(2200, () => out) : out;
     },
-    save_playlists: (ctx, base) => async (lines, loaded_version) => {
+    save_playlists: (ctx, base) => async (lines, loaded_version, files) => {
       if (changedElsewhere.has(ctx.s)) { changedElsewhere.delete(ctx.s); ctx.s.version++; }
-      return base(lines, loaded_version);
+      return base(lines, loaded_version, files);
     },
   },
 };

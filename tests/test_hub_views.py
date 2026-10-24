@@ -924,7 +924,9 @@ def test_folder_of():
     ("moved_on", None, {}, "Moved or changed since"),
     ("moved_on", None, {"old": "Old", "new": "New"}, "The folder New isn't there any more"),
     ("place_taken", None, {}, "Another file is in its old place now"),
-    ("place_taken", None, {"old": "Old", "new": "New"}, "A folder or another playlist called Old is there again."),
+    ("place_taken", "folder_there", {"old": "Old", "new": "New"}, "A folder called Old is in your Library again."),
+    ("place_taken", "name_used", {"old": "Old", "new": "New"}, "Another playlist is called Old now."),
+    ("place_taken", None, {"old": "Old", "new": "New"}, "A folder or another playlist is called Old now."),
     ("playlist_renamed", None, {"old": "Old", "new": "New"}, "The playlist isn't called New any more"),
     ("name_taken", "folder_taken", {"to": "New", "frm": "Old"}, "A folder called New is already in your Library."),
     ("changed", "folder_in_use", {"to": "New", "frm": "Old"}, "Old is still the folder of another playlist."),
@@ -1070,10 +1072,12 @@ def test_undo_preview_of_a_folder_rename():
                                      skip=("playlist_renamed", None))], inside)
     assert gone["nothing_left"] and gone["warning"] == []
     assert gone["rows"][0]["skip"] == {"reason": "playlist_renamed", "text": "The playlist isn't called New any more"}
-    taken = views.undo_preview(b, [pm("folder", src="Library/New", dst="Library/Old", skip=("place_taken", None)),
+    taken = views.undo_preview(b, [pm("folder", src="Library/New", dst="Library/Old", skip=("place_taken", "folder_there")),
+                                   pm("folder", src="Library/New", dst="Library/Old", skip=("place_taken", "name_used")),
                                    pm("folder", src="Library/New", dst="Library/Old", skip=("moved_on", None))])
     assert [r["skip"]["text"] for r in taken["rows"]] == [
-        "A folder or another playlist called Old is there again.", "The folder New isn't there any more"]
+        "A folder called Old is in your Library again.", "Another playlist is called Old now.",
+        "The folder New isn't there any more"]
 
 
 def test_change_file_missing_from_disk_is_on_the_tidy_list_only():

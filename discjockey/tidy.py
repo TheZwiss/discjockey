@@ -35,11 +35,14 @@ RECOVERED_UNDO = ("An undo was stopped before it finished: {moved} moved back, {
                   "again on the Playlists page to move the rest back.")
 RECOVERED_UNDO_NONE = ("An undo was stopped before it moved anything back. You can undo again on the Playlists "
                        "page.")
-NOT_RENAMED_BACK = ("The folder {to} is back, but Discjockey couldn't call the playlist {to} again in playlists.txt "
-                    "({reason}). Change its name on the Playlists page.")
+NOT_RENAMED_BACK = ("The folder is called {to} again, but Discjockey couldn't change the playlist's name back. "
+                    "Change it on the Playlists page.")
 # finish_move refused (I4) after the file moved on disk: the move is recorded `failed`, in words that say so
-MOVED_NOT_RECORDED = ("it was moved, but Discjockey couldn't record its new place: its records show another song's "
-                      "file there")
+MOVED_NOT_RECORDED = ("it did move, but another song is listed in its new place, so Discjockey couldn't note where "
+                      "it went")
+# `place_taken` of an undone folder rename, told apart in the detail (the views word the codes, I6)
+FOLDER_THERE = "folder_there"  # a folder called {old} is in the Library again
+NAME_USED = "name_used"  # another playlist is called {old} now
 FAILED_DETAIL = {errno.EACCES: "Discjockey isn't allowed to change that folder",
                  errno.EPERM: "Discjockey isn't allowed to change that folder",
                  errno.ENOSPC: "the drive is full", errno.EROFS: "the drive is read-only",
@@ -162,8 +165,8 @@ def _playlist_follows(paths: Paths, m: MoveRow) -> str | None:
     frm, to = _folder_of(m.src), _folder_of(m.dst)
     try:
         _rename_playlist(paths, frm, to)
-    except (OSError, UnicodeError, config.ConfigError, pf.PlaylistsChanged) as e:
-        return NOT_RENAMED_BACK.format(to=to, reason=str(e) or type(e).__name__)
+    except (OSError, UnicodeError, config.ConfigError, pf.PlaylistsChanged):
+        return NOT_RENAMED_BACK.format(to=to)
     return None
 
 
@@ -190,7 +193,7 @@ def _move_one(paths: Paths, state: dict, keys: Mapping[int, str], m: MoveRow,
                 return ("moved_on" if undo else "not_found", None)
             library.run_op(paths, state, key, [(m.src, m.dst)], {**state["tracks"][key], "path": m.dst})
     except FileExistsError:
-        return ("place_taken" if undo else "name_taken", None)
+        return ("place_taken", FOLDER_THERE if m.kind == "folder" else None) if undo else ("name_taken", None)
     except FileNotFoundError:
         return ("moved_on" if undo else "not_found", None)
     except OSError as e:
@@ -280,6 +283,16 @@ def _tidy(paths: Paths, state: dict, moves: Sequence[tuple[int, str]], started_b
     return _run(paths, state, batch, started_by, emit=emit, token=token, now=now)
 
 
+def check_folder_names(*names: str) -> None:
+    """ValueError unless every name could be a playlist's folder (one name, not a path, not hidden)."""
+    for name in names:
+        if not name and isinstance(name, str):
+            raise ValueError("A folder name can't be empty.")
+        if (not isinstance(name, str) or not name or "/" in name or "\\" in name or name.startswith(".")
+                or name != name.strip()):
+            raise ValueError(f"\u201c{name}\u201d can't be used as a folder name.")
+
+
 def rename_folder(paths: Paths, old: str, new: str, *, pairs: Collection[tuple[str, str]] = (),
                   emit: Emit = no_emit, token: CancelToken | None = None, now: Now = datetime.now) -> BatchResult:
     """Renames `Library/<old>` to `Library/<new>` as one folder move (a batch `rename`): every linked song under it
@@ -292,9 +305,7 @@ def rename_folder(paths: Paths, old: str, new: str, *, pairs: Collection[tuple[s
 
 def _rename(paths: Paths, state: dict, old: str, new: str, pairs: Collection[tuple[str, str]], *, emit: Emit,
             token: CancelToken, now: Now) -> BatchResult:
-    for name in (old, new):
-        if not name or "/" in name or "\\" in name or name.startswith(".") or name != name.strip():
-            raise ValueError(f"{name!r} is not a playlist folder name")
+    check_folder_names(old, new)
     dirs = library_dirs(paths)
     why = rename_offer(old, new, pf.load(paths.playlists_file).rows, dirs, pairs=pairs)
     on_disk = next((d for d in dirs if fold(d) == fold(old)), old)  # the folder's own spelling
@@ -318,14 +329,16 @@ def _file_undo_skip(paths: Paths, m: MoveRow, e: dict | None, taken: set[str]) -
     return None
 
 
-def _folder_undo_skip(paths: Paths, m: MoveRow, rows: list[pf.Row]) -> str | None:
+def _folder_undo_skip(paths: Paths, m: MoveRow, rows: list[pf.Row]) -> tuple[str, str | None] | None:
     old, new = _folder_of(m.src), _folder_of(m.dst)
     if not (paths.root / m.dst).is_dir():
-        return "moved_on"
-    if (paths.root / m.src).exists() or any(fold(r.folder) == fold(old) for r in rows):
-        return "place_taken"  # a folder, or another playlist, has the old name again
+        return "moved_on", None
+    if (paths.root / m.src).exists():
+        return "place_taken", FOLDER_THERE
+    if any(fold(r.folder) == fold(old) for r in rows):
+        return "place_taken", NAME_USED
     if not any(fold(r.folder) == fold(new) for r in rows):
-        return "playlist_renamed"  # P2: folder and playlist name go back together, or not at all
+        return "playlist_renamed", None  # P2: folder and playlist name go back together, or not at all
     return None
 
 
@@ -333,7 +346,8 @@ def undo_preview(paths: Paths, state: dict, batch_id: int) -> list[PlannedMove]:
     """Read only: the batch's done moves in reverse order, each back from `dst` to `src`, the file's placed_by
     back to what it was. A move that can't go back carries its skip: `offline`; `moved_on` (the file isn't at `dst`
     with the key it had, or its song is gone; a folder: `Library/<new>` isn't there); `place_taken` (something is
-    at `src`; a folder: `Library/<old>` exists, or another playlist is called {old}); a folder: `playlist_renamed`
+    at `src`; a folder: `Library/<old>` exists, detail `folder_there`, or another playlist is called {old}, detail
+    `name_used`); a folder: `playlist_renamed`
     when no playlists.txt line says {new} (P2). Moves the batch skipped aren't listed."""
     if not paths.db_file.exists():  # no records yet, so no batch either
         return []
@@ -348,9 +362,10 @@ def undo_preview(paths: Paths, state: dict, batch_id: int) -> list[PlannedMove]:
             skip, placed = _folder_undo_skip(paths, m, rows), None
         else:
             e = by_file.get(m.file_id) if m.file_id is not None else None
-            skip, placed = _file_undo_skip(paths, m, e, taken), (e or {}).get("placed_by", m.placed_after)
+            reason = _file_undo_skip(paths, m, e, taken)
+            skip, placed = None if reason is None else (reason, None), (e or {}).get("placed_by", m.placed_after)
         out.append(PlannedMove(m.kind, m.file_id, m.label, m.dst, m.src, m.content_key,
-                               placed, m.placed_before, skip=None if skip is None else (skip, None)))
+                               placed, m.placed_before, skip=skip))
     return out
 
 

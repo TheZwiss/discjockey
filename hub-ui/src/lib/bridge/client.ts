@@ -1,7 +1,7 @@
 // The only bridge to Python. Only this file touches window.pywebview (plan 64.4).
 import type {
   ActionKey, AddedPlaylist, AppUpdate, Candidate, Candidates, ChangePreview, Dashboard, Fail, JobStart, JobStatus, Library,
-  Limits, LibraryFilter, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res, RunDetail,
+  Limits, LibraryFilter, MoveBatches, SaveFiles, TidyPreview, UndoPreview, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res, RunDetail,
   RunSummary, SetupStatus, SetupTools, Sidebar, Spectrum, SyncPreview, Todo, TodoFilter, TrackDetail, WhatIf, Which,
   AccountCheck, Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus,
 } from './types';
@@ -19,6 +19,9 @@ export interface Bridge {
   track(track_id: string): Promise<Res<{ track: TrackDetail }>>;
   todo(filter: TodoFilter, show_hidden: boolean): Promise<Res<Todo>>;
   playlists(): Promise<Res<Playlists>>;
+  tidy_preview(): Promise<Res<TidyPreview>>;
+  move_batches(): Promise<Res<MoveBatches>>;
+  undo_preview(batch_id: number): Promise<Res<UndoPreview>>;
   limits(service: Service): Promise<Res<Limits>>;
   limits_what_if(service: Service, limit: number, extra_today: number): Promise<Res<WhatIf>>;
   runs(): Promise<Res<{ runs: RunSummary[] }>>;   run(run_id: string): Promise<Res<{ run: RunDetail }>>;
@@ -32,7 +35,8 @@ export interface Bridge {
   preview_playlist_change(lines: PlaylistLine[]): Promise<Res<ChangePreview>>;
   // write jobs (outcome = JobFinished with the same job_id)
   start_sync(selected: ActionKey[]): Promise<JobStart>;   stop(): Promise<Res<{ stopped: boolean }>>;
-  save_playlists(lines: PlaylistLine[], loaded_version: string): Promise<JobStart>;
+  save_playlists(lines: PlaylistLine[], loaded_version: string, files?: SaveFiles | null): Promise<JobStart>;
+  tidy_up(moves: [number, string][]): Promise<JobStart>;   undo_moves(batch_id: number): Promise<JobStart>;
   save_limits(service: Service, limit: number, extra_today: number): Promise<JobStart>;
   mark_warnings_seen(service: Service): Promise<JobStart>;
   hide(track_id: string, hidden: boolean): Promise<JobStart>;
