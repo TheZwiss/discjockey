@@ -179,10 +179,41 @@ Powertrance = https://open.spotify.com/playlist/...
 - **Switching a playlist off:** put `#` at the start of its line. Its tracks stay where they
   are; nothing is moved or deleted.
 - **Renaming a folder:** change the name on the left. Files already in `Library/` stay where they are, and new
-  downloads go into the new folder. To move the files you have, use **Tidy up**.
+  downloads go into the new folder. To move the files you have, see [Tidying up files](#tidying-up-files).
 - **Changing the order:** a track that is in several playlists stays in the folder it is in now. Only new
-  downloads follow the new order. **Tidy up** moves the files you have to where the order puts them.
+  downloads follow the new order. [Tidying up files](#tidying-up-files) moves the files you have to where the order puts them.
 - The playlists must be your own or collaborative ones (a Spotify rule).
+
+## Tidying up files
+
+A sync only adds files; it never moves one that is already in `Library/`. Files move only when you ask for it on the
+**Playlists** page. Nothing is deleted, and every move can be undone there.
+
+- **When you save a change that would put files in a different folder,** Discjockey asks first. It tells you how many
+  files would sit in a different folder. **Save and move the files** moves them right away.
+  **Save, leave files where they are** only saves the list: the files stay, and Discjockey treats them as placed by you.
+- **The Tidy up files button** shows what would move before anything does. Each file has a tick, and you can untick
+  what should stay. Click the **Move … files** button to go ahead. Files that can't be moved are listed with the reason: the drive is
+  offline, a file with that name is already in the folder, the file isn't where Discjockey last saw it, or the system
+  refused. The rest still move.
+- **"You put these here"** lists the files you chose to leave where they are (or put there yourself). They are not
+  ticked, so a tidy-up leaves them alone. Click **Put these in playlist order too** to tick them all. A file a
+  tidy-up moves follows the playlist order from then on.
+- **Renaming a folder on disk:** when you rename a playlist, **Rename the folder on disk too** moves the whole folder
+  in one step instead of file by file. It is not offered if a folder with the new name is already in your Library, or
+  if the old folder still belongs to another playlist.
+- **Undo:** **Undo** on the Playlists page puts a batch of moves back. Undoing a folder rename puts the folder and the
+  playlist name back. If the playlist has been renamed again since, nothing moves. A file that was moved or changed
+  since, or whose old place is taken by another file, is skipped and listed.
+- **If a tidy-up is stopped halfway** (you click Stop, or the Mac loses power), the file being moved is finished or put
+  back the next time Discjockey starts, and it tells you so. Files it hadn't reached stay where they are. The
+  **Tidy up files** button offers them again, and you can undo what did move.
+- **After a sync in the console,** Discjockey says how many files are not where the playlist order puts them. It
+  counts only files a tidy-up would tick by default, so files you chose to leave don't nag you. The console never
+  moves files.
+
+Discjockey never renames a file when it moves it. rekordbox may show moved tracks as missing; its Relocate finds
+them again by file name (see [rekordbox](#rekordbox)).
 
 ## Daily use
 
@@ -289,8 +320,9 @@ version is removed because it's no longer needed.
 - Import the folders in `Library/` (inside your music folder) into rekordbox.
 - The comment column shows where each file came from and how good it is.
 - Discjockey doesn't move your files when you change the playlist order or a folder name, so rekordbox keeps
-  finding them. If you move a file yourself (in Finder, or with **Tidy up**), rekordbox shows it as missing. Use
-  rekordbox's Relocate to point it at the new place.
+  finding them. If you move a file yourself (in Finder, or with **Tidy up**), rekordbox may show it as missing. Use
+  rekordbox's Relocate to point it at the new place. Discjockey never renames a file when it moves it, so Relocate
+  finds moved files by their file name.
 - When you add a bought copy, the old lossy file moves to `Superseded/`, and rekordbox's entry
   (with your cue points) goes with it. The bought file is a new entry: set the cues again,
   then remove the old entry.

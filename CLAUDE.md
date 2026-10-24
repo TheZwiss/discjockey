@@ -29,7 +29,8 @@ A user's data never sits in the repo and none of it is in git — never test aga
 | `discjockey/` | Engine. Each module's docstring says what it owns; read that before opening the file |
 | `discjockey/planner.py`, `discjockey/hub/views.py` | Pure: no I/O, no clock. Keep them that way |
 | `discjockey/library.py` | Everything on disk: paths (music folder, `.discjockey/`, support folder), `config.json`, lock, names, crash-safe ops (`run_op`, backed by `db.py`), `scan_library` |
-| `discjockey/db.py` | `library.db`: the schema, the migration from `state.json`, every query. Nothing else writes SQL |
+| `discjockey/db.py` | `library.db`: the schema, the migration from `state.json`, the move log (batches and moves), every query. Nothing else writes SQL |
+| `discjockey/tidy.py` | The tidy-up: move batches (tidy-up, save question, folder rename), undo, recovery of batches a crash left open; every move through `run_op` |
 | `discjockey/scanner.py` | Walks the watched folders (`Library/`) against the index's file rows and returns a `ScanResult`. Reads only, no SQL; `db.apply_scan` writes it, `library.scan_library` ties the two together |
 | `discjockey/content_key.py` | The content key of an audio file (`1:<payload length>:<sha256>` over windows of the audio, so it survives renames, moves and tag edits; how a moved file is found) and `AUDIO_EXTS` |
 | `discjockey/run.py` | One sync run, front-end independent; `console.py` and `hub/jobs.py` render its `events.py` events |
@@ -93,8 +94,12 @@ their Qobuz daily limit. Long commands run in the background with a status line.
 
 - **Never delete or overwrite a music file.** Replaced files move to `Superseded/`. Every file change goes through
   `library.run_op` (crash-safe, resumable). A new code path that writes into `Library/` without it is a bug.
-- **Names in `Library/` are always `Artist - Title.<ext>`** — no `(v2)`, `(new)` or similar suffixes; those exist
-  only in `Superseded/`. The one exception: a file that is in the way of the correct name gets an ID added.
+- **Names in `Library/` are always `Artist - Title.<ext>`** for files Discjockey downloads or adds — no `(v2)`,
+  `(new)` or similar suffixes; those exist only in `Superseded/`. The one exception: a file that is in the way of the
+  correct name gets an ID added. **Moving never renames:** a tidy-up and its undo keep each file's name as it is,
+  because rekordbox's Relocate finds files by name.
+- **Files move only in a move batch the user started** (tidy-up, the Playlists save question, a folder rename on
+  disk): logged in `library.db`, undoable; the sync never moves a file (option A).
 - **Qobuz protection stays on:** pacing, the daily limit with carry-over, and the pause after 3 failures in a row.
   Never add a path that skips them, not even for tests against the real service.
 - **Tests are offline and never touch the user's data.** Use `tmp_path` libraries and the fixtures; no real Spotify,

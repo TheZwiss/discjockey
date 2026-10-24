@@ -27,6 +27,8 @@ Noted while moving the engine onto `library.db` (`docs/2026-10-23-library-stage-
 - **Report and console still label the never-used moved/adopted/conflicts sections;** drop them once old run reports
   no longer need to render.
 - **A replaced file the quality check can never read** is judged again, with a warning, on every sync.
+- **Tidy-up covers only files in `Library/`;** stage 4 extends `tidy_rows` and the runner to import folders, staging
+  across drives.
 
 ## 24. Identify imported files by their sound (AcoustID) — wish, after stage 4
 
