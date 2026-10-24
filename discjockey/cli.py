@@ -7,7 +7,7 @@ import signal
 import sys
 import time
 
-from . import library, report as rep, run
+from . import library, planner, report as rep, run
 from .console import ConsolePrinter
 from .events import CancelToken
 from .library import LockHeld, NoLibrary
@@ -40,6 +40,31 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+TIDY_WAITING = ("{n} files are not where the playlist order puts them; tidy up in the window.",
+                "1 file is not where the playlist order puts it; tidy up in the window.")
+
+
+def tidy_line(paths: library.Paths) -> str | None:
+    """The console's tidy-up line (spec library-and-sources §8.2; the console never moves files): how many files a
+    tidy-up would move by default, on the records as the run left them. None at 0, and for records still in
+    state.json (a dry run before the migration) or that can't be read."""
+    try:
+        state = library.load_state(paths)
+    except (library.StateError, OSError):
+        return None
+    if state.get("version") != 2:
+        return None
+    n = planner.out_of_place(state)
+    if n == 0:
+        return None
+    return TIDY_WAITING[1] if n == 1 else TIDY_WAITING[0].format(n=n)
+
+
+def _print_tidy_line(paths: library.Paths) -> None:
+    if line := tidy_line(paths):
+        print(line)
+
+
 def sync(paths: library.Paths, args: argparse.Namespace) -> int:
     printer = ConsolePrinter(verbose=args.verbose)
     try:
@@ -52,12 +77,14 @@ def sync(paths: library.Paths, args: argparse.Namespace) -> int:
         print(run.budget_text(prep))
     if args.dry_run:
         print("\nDry run: no music files were changed and no report was written.")
+        _print_tidy_line(paths)
         return 0
     if not prep.plan.actions:
         code, path = run.finish_quietly(prep)
-        print(f"No downloads or moves needed. Report: {path}")
+        print(f"No downloads needed. Report: {path}")
         if rep.upgrades_waiting(prep.state):
             print(rep.ready_hint(rep.upgrades_waiting(prep.state)))
+        _print_tidy_line(paths)
         return code
 
     if prep.needs_qobuz:
@@ -71,6 +98,7 @@ def sync(paths: library.Paths, args: argparse.Namespace) -> int:
         if qobuz:
             qobuz.close()
         print("Nothing changed.")
+        _print_tidy_line(paths)
         return 0
 
     token = CancelToken()
@@ -93,6 +121,7 @@ def sync(paths: library.Paths, args: argparse.Namespace) -> int:
     if code == 130:
         print("\nStopped. Everything finished so far is saved.")
     print(rep.summary(prep.log, path, rep.upgrades_waiting(prep.state)))
+    _print_tidy_line(paths)
     return code
 
 
