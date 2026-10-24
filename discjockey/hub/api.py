@@ -44,7 +44,8 @@ from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, load
 from ..setup_cmd import TOOL_HINTS
 from ..spotify import REDIRECT_URI
 from . import media as media_mod, spectrum as spec, views
-from .jobs import UNEXPECTED, AppUpdate, Busy, FileDropped, Jobs, PreviewStore, SignInPhase, problem_of, refresh_work, sync_work
+from .jobs import (UNEXPECTED, AppUpdate, Busy, FileDropped, Jobs, PreviewStore, SignInPhase, preview_after_run,
+                   problem_of, refresh_work, sync_work)
 
 RUN_ID = re.compile(r"\d{4}-\d{2}-\d{2}_\d{6}")
 WHICH = ("current", "upgrade")
@@ -926,9 +927,14 @@ class HubApi:
     def rescan_library(self) -> dict:
         """The window opened, or came back to the front after a while (spec library §6.4): index Library/ against
         library.db, so files moved or replaced by hand are found. A write job (kind "scan"): busy/console as every
-        write method; the page ignores those answers, a running sync scans by itself."""
+        write method; the page ignores those answers, a running sync scans by itself. A scan that changed something
+        plans the stored preview again from its own Spotify read (run.replan, no new read), so Sync and To-do never
+        show the plan from before the scan."""
         def work(ctx) -> dict:
             summary = library.scan_library(self._paths, ctx.emit)
+            prep = self._store.prep
+            if prep is not None and summary != library.ScanSummary():
+                preview_after_run(self._store, prep, self._store.read_at)
             return {"moved": summary.moved, "new": summary.new, "gone": summary.gone, "changed": summary.replaced,
                     "copies": summary.copies}
 
