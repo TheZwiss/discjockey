@@ -324,7 +324,9 @@ export function retargets(s: FakeState, lines: { folder: string; link: string; e
   for (const t of s.tracks) {
     const target = lines.find((l) => l.enabled && memberOf(t, l))?.folder;
     if (target === undefined || target === t.folder) continue;
-    moved.set(t.track_id, { to: target, by: byRename.get(t.folder) === target ? t.folder : null });
+    // the folder rename on disk moves a file only when it sits in that folder (a file the user put elsewhere stays)
+    const sits = t.at ?? t.folder;
+    moved.set(t.track_id, { to: target, by: byRename.get(t.folder) === target && sits === t.folder ? t.folder : null });
   }
   return { renames, moved };
 }

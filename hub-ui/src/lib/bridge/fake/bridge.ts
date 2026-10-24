@@ -1065,7 +1065,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     const { renames, moved } = retargets(s, lines);
     const changed = s.tracks.filter((t) => moved.has(t.track_id));
     // as the backend: tracks with a file are on the tidy list, the others only land somewhere else later
-    const rows = changed.filter((t) => hasFile(t)).map((t) => tidyRow(s, t, moved.get(t.track_id)!.to, moved.get(t.track_id)!.by));
+    // … except a file that already sits in its new folder
+    const rows = changed.filter((t) => hasFile(t) && (t.at ?? t.folder) !== moved.get(t.track_id)!.to).map((t) => tidyRow(s, t, moved.get(t.track_id)!.to, moved.get(t.track_id)!.by));
     const reroutes = changed.filter((t) => !hasFile(t)).map((t) => ({ track_id: t.track_id, artist: t.artist,
       title: t.title, cover_url: trackRow(t).cover_url, downloaded: false, quality: trackRow(t).quality,
       quality_label: trackRow(t).quality_label, never: s.never.includes(t.track_id), from: t.folder,
@@ -1081,7 +1082,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         return { folder: f, before: n, after: n };
       });
       const pairs = new Set(changed.map((t) => `${t.folder}\u0000${moved.get(t.track_id)!.to}`));
-      const asRename = renames.length > 0 && changed.every((t) => moved.get(t.track_id)!.by !== null);
+      // a rename: every song follows its playlist's new name (wherever its file sits)
+      const asRename = renames.length > 0
+        && changed.every((t) => renames.some(([was, now]) => was === t.folder && now === moved.get(t.track_id)!.to));
       const n = reroutes.length;
       const tracksWill = n === 1 ? '1 track will' : `${n} tracks will`;
       const first = reroutes[0];
