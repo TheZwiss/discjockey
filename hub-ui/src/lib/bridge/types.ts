@@ -36,8 +36,6 @@ export type TrackRow = {
 export type TodoGroupKey = Exclude<TodoFilter, 'all'>;
 /** `free`: the artist gives it away (see TrackDetail.free_downloads). */
 export type TodoItem = TrackRow & { group: TodoGroupKey; detail: string; free: boolean };
-/** @deprecated the old `ChangePreview.moves` row; the backend no longer sends it. Group 6 deletes it with the page's `moves` view. */
-export type MoveRow = TrackRow & { from: string; to: string; to_not_lossless: boolean };
 
 // --- tidy-up and the move log (plan library stage 2, I5; contract "Tidy-up and the move log") ---
 /** Why a file can't be moved: the code and the plain words to show. */
@@ -351,8 +349,7 @@ export type ChangePreview = {
   kind: ChangeKind; headline: string; folders: { folder: string; before: number; after: number }[];
   /** the files this change would put in another folder (null: none) */
   tidy: { headline: string; rows: TidyRow[] } | null; renames: RenameOffer[];
-  /** @deprecated no longer sent (use `tidy`); group 6 deletes it with the page's `moves` view */
-  moves?: MoveRow[]; reroutes: (PlaylistTrack & { from: string; to: string })[]; new_downloads: number; days: number; stopped: number; unknown: string[];
+  reroutes: (PlaylistTrack & { from: string; to: string })[]; new_downloads: number; days: number; stopped: number; unknown: string[];
   checklist: string[]; problem: string | null;
 };
 export type OpResult = { track_id: string; result: Result; recovered: [string, boolean][] };

@@ -140,17 +140,12 @@ describe('row texts', () => {
 const MOVES: PreviewAnswer = {
   ok: true, kind: 'moves', headline: '1 track change folder',
   folders: [{ folder: 'Powertrance', before: 1, after: 2 }, { folder: 'Hard_Bounce', before: 4, after: 3 }],
-  moves: [{ track_id: 't2', artist: 'Armin Hermann', title: 'Get Naughty', folder: 'Hard_Bounce', duration_s: 268.0,
-    status: 'not_lossless', quality: 'weak', quality_label: '16.0 kHz', cutoff_hz: 16000, source: 'youtube',
-    source_name: 'YouTube', in_playlists: true, hidden: false, upgrade_ready: true,
-    path: 'Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff', added: '2026-10-13T22:15:00',
-    cover_url: 'https://i.scdn.co/image/t2', from: 'Hard_Bounce', to: 'Powertrance', to_not_lossless: true }],
   tidy: null, renames: [], reroutes: [], new_downloads: 0, days: 0, stopped: 0, unknown: [],
   checklist: ['No downloads, no Qobuz quota used', 'Nothing is deleted'], problem: null,
 };
 const ready = (a: PreviewAnswer): PreviewState => ({ loading: false, answer: a });
 const as = (kind: 'add' | 'rename' | 'switch_off' | 'unknown' | 'none', extra = {}): PreviewAnswer =>
-  ({ ...MOVES, kind, moves: [], folders: [], headline: `${kind} headline`, ...extra } as PreviewAnswer);
+  ({ ...MOVES, kind, folders: [], headline: `${kind} headline`, ...extra } as PreviewAnswer);
 
 describe('panelFor', () => {
   const ov = EXAMPLE.overlaps;
@@ -172,7 +167,6 @@ describe('panelFor', () => {
     const r = panelFor(true, ready(MOVES), ov);
     expect(r).toMatchObject({ view: 'moves', dim: false, saveAllowed: true });
     expect(r.preview?.headline).toBe('1 track change folder');
-    expect(r.preview?.moves?.[0].to_not_lossless).toBe(true);
     expect(r.preview).not.toHaveProperty('ok');
   });
   it.each(['add', 'rename', 'switch_off', 'unknown', 'none'] as const)('%s → its own view', (kind) => {
@@ -246,18 +240,14 @@ describe('panel texts', () => {
     expect(changeText(27)).toBe('gets 27 more');
     expect(changeText(-20)).toBe('gives 20 away');
   });
-  it('groups the tracks that move by route, biggest first, files and not-yet-downloaded alike', () => {
-    const m = (MOVES as Extract<PreviewAnswer, { ok: true }>).moves![0];
-    const mv = (id: string, from: string, to: string, nl = false) => ({ ...m, track_id: id, from, to, to_not_lossless: nl });
+  it('groups the tracks that land elsewhere later by route, biggest first', () => {
     const rr = (id: string, from: string, to: string) => ({ track_id: id, artist: 'A', title: id, cover_url: null,
       downloaded: false, quality: 'missing' as const, quality_label: null, from, to });
-    const r = moveRoutes({ moves: [mv('a', 'H', 'P', true), mv('b', 'H', 'S'), mv('c', 'B', 'S')],
-      reroutes: [rr('d', 'H', 'S'), rr('e', 'B', 'S')] });
+    const r = moveRoutes({ reroutes: [rr('a', 'H', 'P'), rr('b', 'H', 'S'), rr('c', 'B', 'S'), rr('d', 'H', 'S')] });
     expect(r.map((x) => [x.from, x.to, x.rows.map((t) => t.track_id)])).toEqual([
-      ['H', 'S', ['b', 'd']], ['B', 'S', ['c', 'e']], ['H', 'P', ['a']]]);
-    expect(r[2].rows[0].note).toBeNull();
-    expect(r[0].rows[1].badge).toBeNull();
-    expect(moveRoutes({ moves: [], reroutes: [] })).toEqual([]);
+      ['H', 'S', ['b', 'd']], ['H', 'P', ['a']], ['B', 'S', ['c']]]);
+    expect(r[0].rows[0].badge).toBeNull();
+    expect(moveRoutes({ reroutes: [] })).toEqual([]);
   });
   it('a track row of a fold: the quality badge once downloaded, else "not downloaded yet"', () => {
     const t = { track_id: 't', artist: 'A', title: 'B', cover_url: null, downloaded: true, quality: 'weak' as const,
