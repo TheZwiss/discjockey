@@ -24,7 +24,7 @@ from .library import (
 )
 from .models import SOURCE_NAMES
 from .names import expected_stem, fold, split_name, strip_id_suffix
-from .planner import declined, folder_dir, own_key
+from .planner import declined, own_key, replacement_dir, superseded_dir
 
 Compare = Callable[..., Alignment]  # (current file, new file) -> Alignment
 SWAP_EXTS = (".aiff", ".aif")  # the new audio is AIFF; a WAV file cannot take it under its own name
@@ -109,16 +109,17 @@ def _result(section: str, track_id: str, e: dict, note: str, **fields) -> Result
 
 def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict,
             now: Callable[[], datetime] = datetime.now) -> Result:
-    """The parked file takes the correct name in the folder root (`Library/<Folder>/<Artist - Title>.aiff`, ID suffix
-    only if another file has it); the current file moves to Superseded/ first, so the new one can also take the name
+    """The parked file takes the correct name in the current file's folder (`<folder>/<Artist - Title>.aiff`, ID
+    suffix only if another file has it; a playlist folder's root unless it stays lossy, spec §7: `replacement_dir`);
+    the current file moves to Superseded/ (mirroring its folder) first, so the new one can also take the name
     the old one had. One pending operation with two renames. rekordbox's Auto Relocate then links the old entry to the
     new file by its name, but its cues fit the old edit: the entry asks for a rekordbox check (added_as_new)."""
     e = precondition(paths, state, track_id, upgrade, need_current=True)
     names = NameReserver(paths.root, state)
     stem, ext = split_name(strip_id_suffix(PurePosixPath(e["path"]).name, track_id))
-    old = names.choose(f"Superseded/{e['folder']}", stem, ext, track_id)
+    old = names.choose(superseded_dir(e["path"]), stem, ext, track_id)
     status = upgrade.get("status", "lossless")
-    folder = folder_dir(e["folder"], status)  # a 256 kbps version stays in not_lossless/
+    folder = replacement_dir(e, status)  # a 256 kbps version stays in a playlist folder's not_lossless/
     target = f"{folder}/{expected_stem(e['artist'], e['title'])}.aiff"
     if fold(e["path"]) == fold(target):  # the old file has the name: it moves away (first rename), then the new one
         new = target
@@ -274,11 +275,13 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
     names = NameReserver(paths.root, state)
     p = PurePosixPath(target)
     stem, ext = split_name(strip_id_suffix(p.name, track_id))
-    backup = names.choose(f"Superseded/{e['folder']}", f"{stem} (lossy)", ext, track_id)
+    backup = names.choose(superseded_dir(target), f"{stem} (lossy)", ext, track_id)
     renames = []
-    if (upgrade.get("status", "lossless") == "lossless" and fold(p.parent.name) == "not_lossless"
-            and not names.is_taken(f"{p.parent.parent}/{p.name}")):
-        renames = [[target, f"{p.parent.parent}/{p.name}"]]
+    # out of not_lossless/ only for a file in a playlist folder's not_lossless/ (spec §7); anywhere else it stays
+    home = replacement_dir(e, "lossless")
+    if (upgrade.get("status", "lossless") == "lossless" and fold(home) != fold(str(p.parent))
+            and not names.is_taken(f"{home}/{p.name}")):
+        renames = [[target, f"{home}/{p.name}"]]
     op = {"kind": "swap", "track_id": track_id, "target": target,
           "staged": staged.relative_to(paths.root).as_posix(), "backup": backup,
           "old_sha256": _sha256(paths.root / target), "new_sha256": _sha256(staged), "renames": renames,

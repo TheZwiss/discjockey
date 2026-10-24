@@ -251,3 +251,14 @@ def test_messages_name_the_256_kbps_version(env):
     (paths.root / PARKED).unlink()
     with pytest.raises(UpgradeProblem, match="256 kbps version"):
         upgrades.add_new(paths, state, "t1aaaaaaa", record)
+
+
+def test_add_as_new_for_a_file_kept_elsewhere_lands_next_to_it(env):
+    paths, state = env  # option A (spec §7): the user owns where the file lives
+    touch(paths, "Library/Sets/2024/x.aiff", b"old audio")
+    (paths.root / CURRENT).unlink()
+    state["tracks"]["t1aaaaaaa"]["path"] = "Library/Sets/2024/x.aiff"
+    r = upgrades.add_new(paths, state, "t1aaaaaaa", up(state))
+    assert r.path == state["tracks"]["t1aaaaaaa"]["path"] == "Library/Sets/2024/Artist - Song.aiff"
+    assert (paths.root / "Library/Sets/2024/Artist - Song.aiff").read_bytes() == b"new audio"
+    assert (paths.root / "Superseded/Sets/2024/x.aiff").read_bytes() == b"old audio"

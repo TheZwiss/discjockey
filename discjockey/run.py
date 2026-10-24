@@ -232,8 +232,8 @@ def finish_quietly(prep: Prepared, emit: Emit = no_emit) -> tuple[int, Path]:
     return code, rep.write_run(prep.paths, prep.log, datetime.now(), code, prep.state)
 
 
-STEP_VERBS = {"acquire": "downloading", "upgrade": "looking for a better version of", "move": "moving",
-              "adopt": "picking up", "adopt_bought": "adding the bought file of"}
+STEP_VERBS = {"acquire": "downloading", "upgrade": "looking for a better version of",
+              "adopt_bought": "adding the bought file of"}
 
 
 def action_step(event: ActionStarted) -> str:

@@ -673,3 +673,26 @@ def test_use_this_downloads_free_when_the_account_is_used_up(paths):
     source, state, _ = use_with_account(paths, used=30)
     assert source.downloads == ["youtube_music:abc"]
     assert state["youtube_usage"]["days"]["2026-10-20"] == 30
+
+
+def test_a_bought_file_lands_next_to_a_file_kept_elsewhere(paths, tmp_path):
+    state = empty_state()  # option A (spec §7): the user keeps this one outside its playlist folder
+    state["tracks"]["t1aaaaaaa"] = make_entry(path="Library/Sets/2024/x.aiff")
+    touch(paths, "Library/Sets/2024/x.aiff")
+    result = ops.add_bought_file(paths, state, "t1aaaaaaa", bought(tmp_path), analyze=lambda p: ("pcm_s16le", None),
+                                 now=lambda: NOW)
+    assert result.section == "bought"
+    assert state["tracks"]["t1aaaaaaa"]["path"] == "Library/Sets/2024/Artist - Song.wav"
+    assert (paths.root / "Superseded/Sets/2024/x.aiff").read_bytes() == b"old audio"
+    assert not (paths.root / "Library/A/Artist - Song.wav").exists()
+
+
+def test_a_version_used_lands_next_to_a_file_kept_elsewhere(paths):
+    state = empty_state()
+    state["tracks"]["t1aaaaaaa"] = make_entry(path="Library/Sets/2024/x.aiff")
+    touch(paths, "Library/Sets/2024/x.aiff")
+    result = ops.use_candidate(paths, state, "t1aaaaaaa", QC, qobuz=FakeSource(), fallback=FakeSource(),
+                               budget=budget_for(state), process=fake_process(), now=lambda: NOW)
+    assert result.path == state["tracks"]["t1aaaaaaa"]["path"] == "Library/Sets/2024/Artist - Song.aiff"
+    assert (paths.root / "Library/Sets/2024/Artist - Song.aiff").read_bytes() == b"new audio"
+    assert (paths.root / "Superseded/Sets/2024/x.aiff").read_bytes() == b"old audio"

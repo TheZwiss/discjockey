@@ -74,10 +74,10 @@ def act(kind, id, reason="", **kw):
 
 def test_render_plan_counts_and_truncates():
     actions = [act("acquire", f"t{i}", reason="new") for i in range(25)] + [
-        act("move", "m1", src="Library/B/x.aiff", dest_dir="Library/A")]
+        act("adopt_bought", "m1", src="Library/A/Artist - Song m1.wav")]
     text = render_plan(Plan({"tracks": {}}, actions, [], [], []), full=False)
     assert "Download (new): 25" in text and "... and 5 more" in text
-    assert "Move to another folder: 1" in text and "Library/B/x.aiff -> Library/A" in text
+    assert "Add a bought file: 1" in text and "[A] Artist - Song m1" in text
     assert "... and" not in render_plan(Plan({"tracks": {}}, actions, [], [], []), full=True)
 
 

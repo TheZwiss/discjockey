@@ -14,12 +14,59 @@ LOSSY = ("not_lossless", "fake_lossless")
 BOUGHT_EXTS = (".aiff", ".aif", ".wav")
 WAIT_DAYS = 7
 ISRC_TOLERANCE_MS = 3000
-KIND_RANK = {"move": 0, "adopt": 0, "adopt_bought": 0, "acquire": 1, "upgrade": 2}
+KIND_RANK = {"adopt_bought": 0, "acquire": 1, "upgrade": 2}
 
 
 def folder_dir(folder: str, status: str) -> str:
     base = f"Library/{folder}"
     return f"{base}/not_lossless" if status in LOSSY else base
+
+
+# --- placement under option A (spec §7): a file stays where it is; what replaces it lands next to it ---
+
+def _playlist_folder(path: str) -> str | None:
+    """`<F>` for a file in a playlist-style folder (`Library/<F>/<name>` or `Library/<F>/not_lossless/<name>`, any
+    direct child of `Library/`, in playlists.txt or not), else None."""
+    parts = PurePosixPath(path).parts
+    if len(parts) == 3 or (len(parts) == 4 and fold(parts[2]) == "not_lossless"):
+        return parts[1]
+    return None
+
+
+def mirror_dir(path: str) -> str:
+    """The folder a `Library/` file's Superseded/ and Upgrades ready/ copies mirror: `<F>/<subfolders>` for
+    `Library/<F>/…/<name>`, without a `not_lossless` directly below `<F>`; "" for a file directly in `Library/`.
+    Stage 1 only has `Library/` files; stage 4 adds spec §7's `<watched folder name>/<subfolders>` for import
+    folders (it then needs the file's watched folder, which the snapshot will carry)."""
+    parts = list(PurePosixPath(path).parent.parts[1:])  # without "Library"
+    if len(parts) > 1 and fold(parts[1]) == "not_lossless":
+        del parts[1]
+    return "/".join(parts)
+
+
+def superseded_dir(path: str) -> str:
+    """Where the file at `path` goes when something replaces it."""
+    mirror = mirror_dir(path)
+    return f"Superseded/{mirror}" if mirror else "Superseded"
+
+
+def upgrades_ready_dir(path: str) -> str:
+    """Where a better version of the file at `path` waits for the user."""
+    mirror = mirror_dir(path)
+    return f"Upgrades ready/{mirror}" if mirror else "Upgrades ready"
+
+
+def replacement_dir(entry: dict, status: str) -> str:
+    """Where a file of `status` that replaces the song's current file goes. Without a current file: the placement
+    folder (as for a new download). In a playlist-style folder: that folder, so a lossless file leaves its
+    `not_lossless/` and a lossy one stays in it. Anywhere else: the current file's folder, unchanged."""
+    path = entry.get("path")
+    if not path:
+        return folder_dir(entry["folder"], status)
+    playlist = _playlist_folder(path)
+    if playlist is not None:
+        return folder_dir(playlist, status)
+    return str(PurePosixPath(path).parent)
 
 
 def _due(day: str | None, today: date) -> bool:
@@ -103,20 +150,24 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
         e["in_playlists"] = now_in
 
     on_disk = {fold(f): f for f in files}
-    by_name: dict[str, list[str]] = {}
-    for f in files:
-        by_name.setdefault(fold(PurePosixPath(f).name), []).append(f)
     claimed = {fold(e["path"]) for e in tracks.values() if e.get("path")}
     for op in new_state.get("pending", []):
         claimed.update(fold(p) for p in op_paths(op))
+    moved_ambiguous = new_state.get("ambiguous") or {}
 
-    def bought_file(folder: str, e: dict) -> str | None:
+    def bought_file(dirs: list[str], e: dict) -> str | None:
+        """A bought file under the expected name in one of `dirs` (in that order), not claimed by anything else."""
         stem = expected_stem(e["artist"], e["title"])
-        for ext in BOUGHT_EXTS:
-            f = on_disk.get(fold(f"Library/{folder}/{stem}{ext}"))
-            if f and fold(f) not in claimed:
-                claimed.add(fold(f))
-                return f
+        looked: set[str] = set()
+        for d in dirs:
+            if fold(d) in looked:
+                continue
+            looked.add(fold(d))
+            for ext in BOUGHT_EXTS:
+                f = on_disk.get(fold(f"{d}/{stem}{ext}"))
+                if f and fold(f) not in claimed:
+                    claimed.add(fold(f))
+                    return f
         return None
 
     actions: list[Action] = []
@@ -135,27 +186,29 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
         if e["status"] == "missing":  # rule 2
             if fold(e["folder"]) != fold(w.folder):
                 notes.append(f"{e['artist']} - {e['title']}: now belongs to {w.folder} (still not found).")
-                e["folder"] = w.folder
-            bought = bought_file(w.folder, e)
+            e["folder"] = w.folder
+            bought = bought_file([f"Library/{w.folder}"], e)
             if bought:
                 act("adopt_bought", src=bought)
+            elif e.get("file_gone"):  # a scan found its file gone: downloaded again at once, as before the database
+                act("acquire", reason="redownload")
             elif _due(e.get("last_attempt"), today):
                 act("acquire", reason="retry")
             continue
-        if fold(e["path"]) not in on_disk:  # rule 3
-            found = [f for f in by_name.get(fold(PurePosixPath(e["path"]).name), []) if fold(f) not in claimed]
-            if len(found) == 1:
-                claimed.add(fold(found[0]))
-                act("adopt", src=found[0], dest_dir=folder_dir(w.folder, e["status"]))
-            elif found:
-                ambiguous.append((w.track, w.folder, sorted(found)))
-            else:
-                act("acquire", reason="redownload")
+        # option A (spec §7): the file stays where it is, whatever folder the song belongs to now; only new downloads
+        # follow the placement folder, and the tidy-up (stage 2) is where files move
+        e["folder"] = w.folder
+        if not e.get("online", True):  # rule 3: on a drive that isn't there; satisfied, nothing to do or check
             continue
-        if fold(e["folder"]) != fold(w.folder):  # rule 4 (case-only renames are not moves)
-            act("move", src=e["path"], dest_dir=folder_dir(w.folder, e["status"]))
+        if key in moved_ambiguous:  # the scan found it in several places (spec §6.3): the user picks one
+            ambiguous.append((w.track, w.folder, sorted(moved_ambiguous[key])))
+            continue
+        if fold(e["path"]) not in on_disk:  # vanished since the scan
+            act("acquire", reason="redownload")
+            continue
         if e["status"] in LOSSY:  # rule 5
-            bought = bought_file(w.folder, e)
+            bought = bought_file([f"Library/{w.folder}", str(PurePosixPath(e["path"]).parent),
+                                  replacement_dir(e, "lossless")], e)
             if bought:
                 act("adopt_bought", src=bought)
             elif not e.get("upgrade") and (_due(e.get("last_upgrade_check"), today)  # none parked yet
@@ -234,6 +287,8 @@ def apply_outcome(entry: dict | None, action: Action, outcome: Outcome, now: dat
         new = dict.fromkeys(ENTRY_KEYS) | entry
     # a new file (or none) another way makes a parked upgrade stale; the executor deletes its file
     new.update(folder=action.folder, in_playlists=True, rejected_sources=rejected, upgrade=None, **found)
+    if "file_gone" in new:  # dealt with: a new file, or "not found" waiting for its retry like any other
+        new["file_gone"] = None
     if outcome.kind == "missing":
         new.update(path=None, status="missing", source=None, source_id=None, source_format=None,
                    cutoff_hz=None, last_attempt=today)

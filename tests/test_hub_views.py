@@ -128,7 +128,7 @@ def test_minutes_table_is_the_formula_once():
 
 
 def test_sync_preview_gives_the_minutes_for_every_count_the_page_can_tick():
-    actions = [a("acquire", f"n{i}", "new") for i in range(12)] + [a("move", "m1"), a("upgrade", "u1")]
+    actions = [a("acquire", f"n{i}", "new") for i in range(12)] + [a("adopt_bought", "m1"), a("upgrade", "u1")]
     st = state()
     p = views.sync_preview(store_with(actions, st), st, Settings(), TODAY, NOW, False)
     est = p["estimate"]
@@ -223,7 +223,7 @@ def test_dashboard():
     s = state(a=e(), b=e("not_lossless", cutoff=16000), c=e("missing"),
               u=e("not_lossless", cutoff=20000, upgrade={"file": "f", "alignment": {"result": "shifted"}}))
     s["qobuz_usage"]["days"] = {"2026-10-19": 60, "2026-10-20": 37}
-    store = store_with([a("acquire", "n1", "new"), a("move", "m1"), a("upgrade", "u1")], s)
+    store = store_with([a("acquire", "n1", "new"), a("adopt_bought", "m1"), a("upgrade", "u1")], s)
     d = views.dashboard(s, Settings(), store, [("2026-10-19_214700", REPORT)], ["A"], SETUP_OK, TODAY, NOW, False)
     assert d["greeting"] == "Good evening" and d["empty"] is None
     assert d["tiles"]["lossless"]["share"] == 0.25 and d["tiles"]["qobuz_today"]["used"] == 37
@@ -482,20 +482,20 @@ def test_todo_others_from_the_last_run_and_the_preview():
 
 def test_sync_preview_groups_with_keys():
     st = state(m1=e(folder="Bouncy", artist="DJ TALLBOY", title="THE WEEKEND"))
-    move = Action("move", "m1", "Hard_Bounce", t("m1"), (0, 0), src="Library/Bouncy/x.aiff",
-                  dest_dir="Library/Hard_Bounce")
+    bought = Action("adopt_bought", "m1", "Hard_Bounce", t("m1"), (0, 0),
+                    src="Library/Hard_Bounce/DJ TALLBOY - THE WEEKEND.wav")
     store = PreviewStore()
-    plan = Plan(st, [a("acquire", "n1", "new"), a("acquire", "n2", "new"), move], [], ["m9"], ["a note"])
+    plan = Plan(st, [a("acquire", "n1", "new"), a("acquire", "n2", "new"), bought], [], ["m9"], ["a note"])
     st["tracks"]["m9"] = e(artist="Gone", title="Dropped", in_playlists=False)
     store.ready(Prepared(None, st, Settings(), plan, None), datetime(2026, 10, 20, 21, 45))
     p = views.sync_preview(store, st, Settings(), TODAY, NOW, False, cover)
-    assert [g["key"] for g in p["groups"]] == ["acquire:new", "move"]
+    assert [g["key"] for g in p["groups"]] == ["acquire:new", "adopt_bought"]
     row = p["groups"][1]["actions"][0]
-    assert row["key"] == ["move", "m1", "Library/Hard_Bounce"] and row["from_folder"] == "Bouncy"
+    assert row["key"] == ["adopt_bought", "m1", "Library/Hard_Bounce"] and row["from_folder"] is None
     assert (row["artist"], row["to_not_lossless"], row["cover_url"]) == ("DJ TALLBOY", False, "cover:m1")
     new_row = p["groups"][0]["actions"][0]
     assert new_row["key"] == ["acquire", "n1", "Library/A"] and new_row["artist"] == "Artist"
-    assert p["estimate"]["qobuz_needed"] == 2 and p["counts"]["moves"] == 1
+    assert p["estimate"]["qobuz_needed"] == 2 and p["counts"]["bought"] == 1
     assert p["dropped"] == [{"track_id": "m9", "artist": "Gone", "title": "Dropped", "folder": "A"}]
     assert p["notes"] == ["a note"] and p["empty"] is None and p["spotify"]["minutes_ago"] == 2
 
