@@ -290,7 +290,8 @@ class Jobs:
         self._watch: threading.Thread | None = None
         self._closed = threading.Event()
         self._holder = threading.local()  # .on: this thread is a write job's and holds the engine lock
-        self._brief = False  # lock_briefly holds (or is about to take) the engine lock: that is no terminal run
+        self._brief = False  # lock_briefly or a scan holds (or is about to take) the engine lock: no terminal run
+        self._scanning = False  # scan_lock holds the engine lock (without the mutex): writers answer busy
         self._briefs = 0  # how many times lock_briefly has taken it (a probe that overlapped one doesn't count)
 
     def bind(self, lock: Path) -> None:
@@ -319,7 +320,7 @@ class Jobs:
             yield
             return
         with self._mutex, ExitStack() as stack:  # no write job can start meanwhile (start takes the mutex)
-            if self.running() is not None:
+            if self.running() is not None or self._scanning:
                 raise Busy(BUSY_TEXT, "busy")
             self._brief, self._briefs = True, self._briefs + 1
             stack.callback(setattr, self, "_brief", False)
@@ -332,16 +333,31 @@ class Jobs:
 
     @contextmanager
     def scan_lock(self):
-        """For a read-only job that writes library.db when it can (the preview's scan): yields True while it holds
-        the lock (lock_briefly), False when a write job or a terminal run has it."""
-        stack = ExitStack()
-        try:
-            stack.enter_context(self.lock_briefly())
-            held = True
-        except Busy:
-            held = False
-        with stack:
+        """For a read-only job that writes library.db when it can (the preview's scan, which reads files and can
+        take minutes): yields True while it holds the engine lock, False when a write job, another scan or a
+        terminal run has it. The mutex is held only to check and mark; meanwhile every write job and brief save
+        answers busy at once, and the other starts don't wait."""
+        if getattr(self._holder, "on", False):  # a write job's own thread holds the lock already
+            yield True
+            return
+        with ExitStack() as stack:
+            with self._mutex:
+                held = self.running() is None and not self._scanning
+                if held:
+                    self._scanning = self._brief = True
+                    self._briefs += 1
+                    stack.callback(self._end_scan)  # runs after the lock below is released
+                    try:
+                        if self.lock is not None:
+                            stack.enter_context(library.run_lock(self.lock))
+                    except LockHeld:  # a terminal run: unmarked again at once (the mutex is held here)
+                        stack.pop_all()
+                        held = self._scanning = self._brief = False
             yield held
+
+    def _end_scan(self) -> None:
+        with self._mutex:
+            self._scanning = self._brief = False
 
     def _new(self, kind: str, track_id: str | None) -> Job:
         return Job(next(self._ids), kind, track_id, CancelToken(), self.now().isoformat(timespec="seconds"))
@@ -350,7 +366,7 @@ class Jobs:
         """A write job: `work(ctx)` runs in a worker thread while holding the engine lock and keeping the Mac awake.
         Raises Busy at once if another write job runs or the console holds the lock."""
         with self._mutex:
-            if self.running() is not None:
+            if self.running() is not None or self._scanning:
                 raise Busy(BUSY_TEXT, "busy")
             if self.console_running():
                 raise Busy(CONSOLE_TEXT, "console")
