@@ -173,8 +173,9 @@ def test_only_the_writer_upgrades_older_records(tmp_path, monkeypatch):
     p = lib(tmp_path)
     open_state(p)
     calls = []
-    monkeypatch.setattr(db, "SCHEMA_VERSION", 2)
-    monkeypatch.setattr(db, "UPGRADES", {1: lambda conn: calls.append(1)})
+    current = db.SCHEMA_VERSION
+    monkeypatch.setattr(db, "SCHEMA_VERSION", current + 1)
+    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, current: lambda conn: calls.append(1)})
     with pytest.raises(StateError, match="from an older version. Run a sync once"):
         load_state(p)  # a reader takes no lock: it never upgrades
     assert calls == []

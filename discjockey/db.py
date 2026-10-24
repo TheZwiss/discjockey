@@ -23,11 +23,7 @@ from .models import KnownFile, ScanResult, SeenFile, WatchedFolder
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
-SCHEMA_VERSION = 1
-
-# version n -> the step that turns a version-n database into version n+1, run inside the open transaction. Stage 2
-# adds move_batches/moves as step 1 -> 2.
-UPGRADES: dict[int, Callable[[sqlite3.Connection], None]] = {}
+SCHEMA_VERSION = 2
 
 NEWER = ("This music folder was last used by a newer Discjockey. Update Discjockey, then try again. "
          "Nothing was changed.")
@@ -81,6 +77,44 @@ SCHEMA_V1 = (
     "CREATE TABLE usage (service TEXT PRIMARY KEY, data TEXT NOT NULL)",
     "CREATE TABLE pending (id INTEGER PRIMARY KEY, op TEXT NOT NULL)",
 )
+
+# step 1 -> 2 (plan library stage 2, I1): the move log of the tidy-up. Batches are never deleted (spec §8.4); a
+# files row may go, and its moves keep their label
+SCHEMA_V2_STEP = (
+    """CREATE TABLE move_batches (
+      id INTEGER PRIMARY KEY,
+      started TEXT NOT NULL, finished TEXT,       -- ISO seconds; finished NULL = still running or stopped by a crash
+      started_by TEXT NOT NULL CHECK (started_by IN ('tidy', 'save', 'rename', 'undo')),
+      about TEXT,                                 -- JSON {"from": old, "to": new} for 'rename', else NULL
+      undoes INTEGER REFERENCES move_batches (id))""",
+    """CREATE TABLE moves (
+      id INTEGER PRIMARY KEY,
+      batch INTEGER NOT NULL REFERENCES move_batches (id),
+      seq INTEGER NOT NULL,                       -- order in the batch; an undo goes in reverse
+      kind TEXT NOT NULL CHECK (kind IN ('file', 'folder')),
+      file INTEGER REFERENCES files (id) ON DELETE SET NULL,   -- NULL for a folder move or a file row since gone
+      label TEXT NOT NULL,                        -- "Artist - Title" of a file, the folder name of a folder move
+      src TEXT NOT NULL, dst TEXT NOT NULL,       -- snapshot paths: Library/<...>
+      content_key TEXT,                           -- the file's key when planned; undo needs it unchanged
+      placed_before TEXT, placed_after TEXT,      -- placed_by before / after this move (folder moves: NULL)
+      state TEXT NOT NULL CHECK (state IN ('planned', 'done', 'skipped')),
+      reason TEXT, detail TEXT,                   -- skip reason code and its detail (the failure's words)
+      UNIQUE (batch, seq))""",
+    "CREATE INDEX moves_file ON moves (file)",
+    "CREATE INDEX moves_batch ON moves (batch)",
+)
+
+
+def _statements(statements: tuple[str, ...]) -> Callable[[sqlite3.Connection], None]:
+    def step(conn: sqlite3.Connection) -> None:
+        for statement in statements:  # one execute each: executescript would commit mid-transaction
+            conn.execute(statement)
+    return step
+
+
+# version n -> the step that turns a version-n database into version n+1, run inside the open transaction. `create`
+# builds SCHEMA_V1 and then runs every step, so a fresh database and an upgraded one are the same
+UPGRADES: dict[int, Callable[[sqlite3.Connection], None]] = {1: _statements(SCHEMA_V2_STEP)}
 
 
 class _Connection(sqlite3.Connection):
