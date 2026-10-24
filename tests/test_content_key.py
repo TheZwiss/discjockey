@@ -257,6 +257,23 @@ def test_mp3_tag_edits_with_mutagen_keep_the_key(tmp_path):
     assert content_key(f) == windows_key(FRAMES)
 
 
+def test_mp3_strips_the_extended_id3v1_block(tmp_path):
+    f = tmp_path / "a.mp3"
+    f.write_bytes(FRAMES + b"TAG+" + b"\x20" * 223 + b"TAG" + b"\x20" * 125)
+    assert content_key(f) == windows_key(FRAMES)
+
+
+def test_flac_strips_trailing_id3v1_and_ape_tags(tmp_path):
+    frames = b"\xff\xf8" + bytes(range(256)) * 20  # stands in for FLAC frames
+    f = tmp_path / "a.flac"
+    f.write_bytes(b"fLaC" + b"\x80\x00\x00\x22" + b"\x00" * 34 + frames)  # STREAMINFO, the last block
+    assert content_key(f) == windows_key(frames)
+    ape(f, Title="x")
+    with open(f, "ab") as out:
+        out.write(b"TAG" + b"\x20" * 125)
+    assert content_key(f) == windows_key(frames)
+
+
 def test_m4a_uses_every_mdat_in_order_and_64_bit_sizes(tmp_path):
     def atom(kind: bytes, data: bytes) -> bytes:
         return struct.pack(">I", 8 + len(data)) + kind + data

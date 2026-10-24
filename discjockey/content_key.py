@@ -150,15 +150,22 @@ def _flac(f: BinaryIO, size: int) -> Ranges:
         if pos > size:
             raise _Unparsable
         if head[0] & 0x80:  # the last metadata block
-            return [(pos, size - pos)]
+            return [(pos, _trailer_start(f, pos, size) - pos)]
 
 
 def _mp3(f: BinaryIO, size: int) -> Ranges:
     start = _id3v2_end(f, size)
-    end = size
-    while True:  # ID3v1 and APEv2 at the end, in either order
+    return [(start, _trailer_start(f, start, size) - start)]
+
+
+def _trailer_start(f: BinaryIO, start: int, end: int) -> int:
+    """Where the tags at the end of the frames begin: ID3v1 (with its 227-byte "TAG+" extension) and APEv2, in
+    either order."""
+    while True:
         if end - start >= 128 and _read(f, end - 128, 3) == b"TAG":
             end -= 128
+            if end - start >= 227 and _read(f, end - 227, 4) == b"TAG+":
+                end -= 227
             continue
         if end - start >= 32:
             footer = _read(f, end - 32, 32)
@@ -169,8 +176,7 @@ def _mp3(f: BinaryIO, size: int) -> Ranges:
                     raise _Unparsable
                 end -= n
                 continue
-        break
-    return [(start, end - start)]
+        return end
 
 
 # --- M4A: every top-level mdat atom ---------------------------------------------------------------------------------
