@@ -22,7 +22,7 @@ SAMPLES = [
     events.AccountUsage("qobuz", 42, 80),
     events.ActionFinished(ACTION, RESULT),
     events.RunFinished(0, "/x/reports/2026-10-20_120000.md"),
-    events.Message("info", "Reading your Spotify playlists..."),
+    events.Message("info", "Reading your playlists..."),
     events.ReadingPlaylist(2, 7, "Powertrance"),
     events.MovesProgress(4, 2, 9),
     jobs.JobStarted(7, "sync", None),

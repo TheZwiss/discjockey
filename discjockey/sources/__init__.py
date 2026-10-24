@@ -1,4 +1,4 @@
-"""Playlist sources: one module per service that playlists can be read from (`spotify`; Qobuz joins in group 3),
+"""Playlist sources: one module per service that playlists can be read from (`spotify`, `qobuz`),
 behind one interface, and the functions that read a list of `playlists.txt` lines with the right source.
 
 A source module has:
@@ -21,13 +21,14 @@ from types import ModuleType
 from ..events import CancelToken, Emit, ReadingPlaylist, no_emit
 from ..library import SupportPaths
 from ..models import FetchedPlaylist, PlaylistLine, split_token
-from . import spotify
+from . import qobuz, spotify
 from .base import LoginState, Reader, SourceError
 
 __all__ = ["SOURCES", "LoginState", "Reader", "SourceError", "read", "read_infos", "recognise"]
 
 SOURCES: dict[str, ModuleType] = {
     "spotify": spotify,
+    "qobuz": qobuz,
 }
 
 
@@ -63,8 +64,10 @@ def read(paths: SupportPaths, lines: list[PlaylistLine], *, emit: Emit = no_emit
 
 
 def read_infos(paths: SupportPaths, refs: list[str], infos: dict, token: CancelToken) -> None:
-    """Fills `infos[ref]` (a PlaylistInfo) for each playlist ref, one reader per service. A playlist that can't be
-    read loses its entry; a service that can't log in leaves the others alone. Only Stop (events.Cancelled) raises."""
+    """Fills `infos[ref]` (a PlaylistInfo) for each playlist ref, one reader per service. A playlist the service says
+    it can't show (kind playlist_unreadable) loses its entry. Any other failure is the service's, not the playlist's
+    (a login that fails, the service not answering): the entries already in `infos` stay, and the other services are
+    read as usual. Only Stop (events.Cancelled) raises."""
     by_service: dict[str, list[tuple[str, str]]] = {}
     for ref in refs:
         service, playlist_id = split_token(ref)
@@ -79,7 +82,8 @@ def read_infos(paths: SupportPaths, refs: list[str], infos: dict, token: CancelT
                     token.check()
                     try:
                         infos[ref] = reader.info(playlist_id)
-                    except SourceError:
-                        infos.pop(ref, None)
+                    except SourceError as e:
+                        if e.kind == "playlist_unreadable":
+                            infos.pop(ref, None)
         except SourceError:
             continue

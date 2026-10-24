@@ -7,6 +7,7 @@ import hashlib
 import http.client
 import json
 import os
+import re
 import secrets
 import threading
 import time
@@ -14,7 +15,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
-import re
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
