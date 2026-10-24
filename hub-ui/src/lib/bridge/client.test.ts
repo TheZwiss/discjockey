@@ -66,9 +66,16 @@ describe('runJob', () => {
   it('quiet suppresses the problem toast', async () => {
     fakeWindow({ hide: async () => ({ ok: true, job_id: 9 }) });
     const p = runJob(api.hide('t2', true), { quiet: true });
-    dispatch(finished(9, { ok: false, problem: 'changed', message: 'It changed.' }));
-    expect(await p).toEqual({ ok: false, job_id: 9, kind: 'changed', message: 'It changed.' });
+    dispatch(finished(9, { ok: false, problem: 'changed', message: 'It changed.', result: null }));
+    expect(await p).toEqual({ ok: false, job_id: 9, kind: 'changed', message: 'It changed.', result: null });
     expect(get(toasts)).toEqual([]);
+  });
+  it('a job that ends with a problem still hands over its result (a stopped move batch)', async () => {
+    fakeWindow({ tidy_up: async () => ({ ok: true, job_id: 11 }) });
+    const p = runJob(api.tidy_up([[1, 'Library/A/x.aiff']]), { quiet: true });
+    const result = { batch_id: 3, title: 'Tidy-up', moved: 1, headline: 'Moved 1 file.', skipped: [], stopped: true };
+    dispatch(finished(11, { ok: false, problem: 'stopped', message: 'Stopped.', result }));
+    expect(await p).toMatchObject({ ok: false, kind: 'stopped', result });
   });
   it('success:false suppresses the success toast; recovered lines become an info toast', async () => {
     fakeWindow({ hide: async () => ({ ok: true, job_id: 10 }) });

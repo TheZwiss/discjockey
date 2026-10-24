@@ -153,7 +153,8 @@ export function _resetBridge(): void {
 
 export type JobOutcome<R> =
   | { ok: true; job_id: number; result: R }
-  | { ok: false; job_id: number | null; kind: ProblemKind; message: string };
+  /** `result`: what a job that ended with a problem still carries (a stopped move batch: the moves it made), else null */
+  | { ok: false; job_id: number | null; kind: ProblemKind; message: string; result?: R | null };
 
 function problemToast(kind: ProblemKind, message: string): void {
   toasts.show({ tone: 'problem', title: problemCopy(kind).title, body: message || undefined });
@@ -186,7 +187,7 @@ export async function runJob<R = unknown>(start: Promise<JobStart>,
   if (!fin.ok) {
     const kind = (fin.problem ?? 'crashed') as ProblemKind;
     if (!opts.quiet) problemToast(kind, fin.message);
-    return { ok: false, job_id, kind, message: fin.message };
+    return { ok: false, job_id, kind, message: fin.message, result: (fin.result ?? null) as R | null };
   }
   if (opts.success !== false) {
     const text = typeof opts.success === 'string' ? opts.success : successCopy(fin.kind);
