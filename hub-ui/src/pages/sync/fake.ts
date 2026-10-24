@@ -3,7 +3,7 @@
 //                    3 "never download" tracks, ambiguous + dropped + notes
 //   sync:reading     Spotify is read for the first time (no plan yet), at playlist 3 of 7
 //   sync:rereading   Spotify is read again, the old plan dims below the reading card
-//   sync:converting  a sync already running, frozen at fixture line 66 (StepChanged convert of "non stop")
+//   sync:converting  a sync already running, frozen at the StepChanged convert of "non stop" (SYNC_LINES.converting)
 //   sync:up-to-date  Spotify read, nothing to do (2 "never download" tracks)
 //   sync:crashed           a sync already running crashes; its crash note is filed as the run's report
 //   sync:stop-refused  a sync already running (as sync:converting) whose Stop safely fails
@@ -21,7 +21,7 @@
 import type { PageFake } from '$lib/bridge/fake/bridge';
 import type { FakeState } from '$lib/bridge/fake/data';
 import { FAKE_MUSIC, previewAction, runId, samplePlaylists } from '$lib/bridge/fake/data';
-import { STREAMS, SYNC_START_LINE } from '$lib/bridge/fake/replay';
+import { STREAMS, SYNC_LINES, SYNC_START_LINE } from '$lib/bridge/fake/replay';
 import type { SyncPreview } from '$lib/bridge/types';
 
 const ARTISTS = ['Pegassi', 'Vatoz Locoz', 'torbentorben', 'Armin Hermann', 'DJ TALLBOY', 'Nina Kraviz', 'Kölsch',
@@ -29,8 +29,6 @@ const ARTISTS = ['Pegassi', 'Vatoz Locoz', 'torbentorben', 'Armin Hermann', 'DJ 
 const WORDS = ['Night Drive', 'Pressure', 'Low Tide', 'Overdrive', 'Mirror', 'Signal', 'Afterglow', 'Static',
   'Heatwave', 'Undertow', 'Drop It Low', 'The Logical Song', 'Never Adds Up', 'Elevate'];
 const NEW_FOLDERS = ['Voller_Quatsch', 'Ohne_Quatsch'];
-const CONVERT_FREEZE_LINE = 66;
-const CRASH_LINE = 45;
 let crashStarted = false;
 let readStarted = false;
 
@@ -177,13 +175,13 @@ export const overrides: PageFake['overrides'] = {
     // a sync that already runs when the window opens, frozen in the conversion of "non stop"
     if (ctx.s.scenario === 'sync:converting' || ctx.s.scenario === 'sync:stop-refused') {
       ctx.startJob('sync', null, () => {
-        for (const e of STREAMS.sync.slice(SYNC_START_LINE, CONVERT_FREEZE_LINE)) ctx.emit(e);
+        for (const e of STREAMS.sync.slice(SYNC_START_LINE, SYNC_LINES.converting)) ctx.emit(e);
       });
     }
     if (ctx.s.scenario === 'sync:crashed' && !crashStarted) {
       crashStarted = true;
       ctx.startJob('sync', null, (finish) => {
-        for (const e of STREAMS.sync.slice(SYNC_START_LINE, CRASH_LINE)) ctx.emit(e);
+        for (const e of STREAMS.sync.slice(SYNC_START_LINE, SYNC_LINES.crash)) ctx.emit(e);
         // as jobs.sync_work: the run is filed with its crash note (RunFinished exit 1), then the crashed JobFinished
         // carries that report like a finished sync
         const report = `${FAKE_MUSIC}/.discjockey/reports/${runId(new Date())}.md`;

@@ -57,6 +57,31 @@ describe('reduceHub', () => {
     expect(s.read_progress?.index).toBe(1);
     expect(reduceHub(s, { type: 'RunStarted', total: 0, actions: [] }).read_progress).toBeNull();
   });
+  it('a background scan is no activity: it keeps the job slot, the reading progress and the reading line', () => {
+    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 2, kind: 'sync', track_id: null });
+    s = reduceHub(s, { type: 'ReadingPlaylist', index: 1, total: 2, folder: 'Hard_Bounce' });
+    s = reduceHub(s, { type: 'JobStarted', job_id: 3, kind: 'scan', track_id: null });
+    expect(s.job).toMatchObject({ id: 2, kind: 'sync', running: true });
+    s = reduceHub(s, { type: 'JobFinished', job_id: 3, kind: 'scan', ok: true, problem: null, message: '', result: null });
+    expect(s.job).toMatchObject({ id: 2, running: true });
+    expect(s.read_progress).toEqual({ index: 1, total: 2, folder: 'Hard_Bounce' });
+  });
+  it('a scan alone leaves the job slot empty', () => {
+    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 3, kind: 'scan', track_id: null });
+    s = reduceHub(s, { type: 'JobFinished', job_id: 3, kind: 'scan', ok: true, problem: null, message: '', result: null });
+    expect(s.job).toBeNull();
+  });
+  it("a sync's finish ends the reading line; another write job's finish does not", () => {
+    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 2, kind: 'sync', track_id: null });
+    s = reduceHub(s, { type: 'ReadingPlaylist', index: 1, total: 2, folder: 'Hard_Bounce' });
+    expect(reduceHub(s, { type: 'JobFinished', job_id: 2, kind: 'sync', ok: false, problem: 'crashed', message: '',
+      result: null }).read_progress).toBeNull();
+    let t = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 4, kind: 'refresh', track_id: null });
+    t = reduceHub(t, { type: 'ReadingPlaylist', index: 1, total: 2, folder: 'Hard_Bounce' });
+    t = reduceHub(t, { type: 'JobStarted', job_id: 5, kind: 'download_track', track_id: 't1' });
+    expect(reduceHub(t, { type: 'JobFinished', job_id: 5, kind: 'download_track', ok: true, problem: null, message: '',
+      result: null }).read_progress).not.toBeNull();
+  });
   it('follows the console', () => {
     expect(reduceHub(EMPTY_HUB, { type: 'ConsoleBusy', running: true }).console_running).toBe(true);
   });
@@ -160,5 +185,31 @@ describe('an AppUpdate event that arrives while a refresh runs', () => {
     expect(get(hub).app_update?.state).toBe('available');
     await refreshHub();  // nothing newer arrived during this one: its answer is taken again
     expect(get(hub).app_update?.state).toBe('unknown');
+  });
+});
+
+describe('a scan job in job_status', () => {
+  afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
+  const snap = (kind: string) => ({ id: 9, kind, track_id: null, started: '2026-10-24T10:00:00', running: true,
+    stopping: false, last: {}, results: [], finished: null, actions: [] });
+  function bridge(job: unknown) {
+    (globalThis as any).window = new EventTarget();
+    installBridge({
+      job_status: async () => ({ ok: true, job, refresh_running: false, console_running: false, spotify: null,
+        sign_in: null }),
+      setup_status: async () => ({ ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }),
+      sidebar: async () => ({ ok: false, kind: 'no_library', message: 'Gone.' }),
+      app_update: async () => ({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null }),
+    });
+  }
+  it('stays out of the job slot, like its events', async () => {
+    bridge(snap('scan'));
+    await refreshHub();
+    expect(get(hub).job).toBeNull();
+  });
+  it('does not replace a sync that is running', async () => {
+    bridge(snap('sync'));
+    await refreshHub();
+    expect(get(hub).job).toMatchObject({ kind: 'sync', running: true });
   });
 });

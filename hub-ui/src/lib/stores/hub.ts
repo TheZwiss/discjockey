@@ -56,6 +56,8 @@ export const dataVersion: Readable<number> = { subscribe: version.subscribe };
 
 /** The job kind of a sign-in (engine `Jobs.start_sign_in`). */
 const SIGN_IN_KIND = 'account_sign_in';
+/** The job kind of the music-folder check (`rescan_library`): only its finish matters, as a data bump (see below). */
+const SCAN_KIND = 'scan';
 
 /** Applies an event to the shared state (exported for tests). */
 export function reduceHub(s: HubState, e: Parameters<Parameters<typeof onEvent>[0]>[0]): HubState {
@@ -71,6 +73,7 @@ export function reduceHub(s: HubState, e: Parameters<Parameters<typeof onEvent>[
         const snap: JobSnap = { id: e.job_id, kind: e.kind, track_id: e.track_id, started: new Date().toISOString(),
           running: true, stopping: false, last: {}, results: [], finished: null, actions: [] };
         if (e.kind === SIGN_IN_KIND) return { ...s, sign_in: snap };
+        if (e.kind === SCAN_KIND) return s;   // the quiet background check is no activity: it never takes the job slot
         return { ...s, read_progress: e.kind === 'sync' ? null : s.read_progress, job: snap };
       }
     case 'JobFinished':
@@ -82,7 +85,8 @@ export function reduceHub(s: HubState, e: Parameters<Parameters<typeof onEvent>[
         return s.sign_in?.id === e.job_id ? { ...s, sign_in: { ...s.sign_in, running: false, finished: e } } : s;
       }
       if (s.job && s.job.id === e.job_id) {
-        return { ...s, read_progress: null, job: { ...s.job, running: false, stopping: false, finished: e } };
+        return { ...s, read_progress: e.kind === 'sync' ? null : s.read_progress,
+          job: { ...s.job, running: false, stopping: false, finished: e } };
       }
       return s;
     case 'RunStarted':
@@ -128,7 +132,7 @@ export function refreshHub(): Promise<void> {
       const [js, setup, side, upd] = await Promise.all([api.job_status(), api.setup_status(), api.sidebar(), api.app_update()]);
       state.update((s) => ({
         ...s,
-        ...(js.ok ? { job: js.job ?? (s.job && !s.job.running ? s.job : null), refresh_running: js.refresh_running,
+        ...(js.ok ? { job: (js.job && js.job.kind !== SCAN_KIND ? js.job : null) ?? (s.job && !s.job.running ? s.job : null), refresh_running: js.refresh_running,
           console_running: js.console_running, spotify: js.spotify,
           sign_in: js.sign_in ?? (s.sign_in && !s.sign_in.running ? s.sign_in : null) } : {}),
         setup: setup.ok ? stripOk(setup) : s.setup,
