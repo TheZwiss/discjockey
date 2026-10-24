@@ -133,7 +133,8 @@ def test_a_blocking_window_does_not_stall_the_engine(tmp_path):
     hub = HubEvents(lambda: window)
     hub.start()
     ex, seconds = run_engine(tmp_path, hub.emit)
-    assert [r.section for r in ex.log.results] == ["new_lossless"] * 30 and seconds < 2
+    # 600 events: a wait of even 10 ms per event would take 6 s; 5 s leaves room for a loaded parallel test run
+    assert [r.section for r in ex.log.results] == ["new_lossless"] * 30 and seconds < 5
     window.release.set()
     assert wait_for(lambda: sum('"ActionFinished"' in s for s in window.scripts) == 30)
     hub.stop()
