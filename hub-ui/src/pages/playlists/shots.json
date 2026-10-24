@@ -14,7 +14,7 @@
     "wait": "[data-test=delta-Powertrance]"
    },
    {
-    "wait": "[data-test=save]:not([aria-disabled=true])"
+    "wait": "[data-test=save-move]:not([aria-disabled=true])"
    },
    {
     "sleep": 600
@@ -254,10 +254,10 @@
     "press": "Alt+ArrowUp"
    },
    {
-    "wait": "[data-test=moves]"
+    "wait": "[data-test=save-files]"
    },
    {
-    "wait": "[data-test=change-panel]:not([aria-busy])"
+    "wait": "[data-test=save-move]:not([aria-disabled=true])"
    },
    {
     "sleep": 400
@@ -315,6 +315,253 @@
    },
    {
     "wait": "[data-test=add-keep]"
+   }
+  ]
+ },
+ {
+  "name": "playlists-tidy-mixed",
+  "route": "#/playlists",
+  "scenario": "playlists:tidy-mixed",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "click": "[data-test=tidy-button]"
+   },
+   {
+    "wait": "[data-test=tidy-list]"
+   },
+   {
+    "sleep": 400
+   }
+  ]
+ },
+ {
+  "name": "playlists-tidy-many",
+  "route": "#/playlists",
+  "scenario": "playlists:tidy-many",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "click": "[data-test=tidy-button]"
+   },
+   {
+    "wait": "[data-test=tidy-list]"
+   },
+   {
+    "sleep": 400
+   }
+  ]
+ },
+ {
+  "name": "playlists-tidy-empty",
+  "route": "#/playlists",
+  "scenario": "playlists:tidy-empty",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "click": "[data-test=tidy-button]"
+   },
+   {
+    "wait": "[data-test=tidy-empty]"
+   },
+   {
+    "sleep": 400
+   }
+  ]
+ },
+ {
+  "name": "playlists-tidy-only-yours",
+  "route": "#/playlists",
+  "scenario": "playlists:tidy-only-yours",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "click": "[data-test=tidy-button]"
+   },
+   {
+    "wait": "[data-test=tidy-list]"
+   },
+   {
+    "click": "[data-test=tidy-yours-control]"
+   },
+   {
+    "wait": "[data-test=tidy-warning]"
+   },
+   {
+    "sleep": 400
+   }
+  ]
+ },
+ {
+  "name": "playlists-tidy-moving",
+  "route": "#/playlists",
+  "scenario": "playlists:tidy-many",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "click": "[data-test=tidy-button]"
+   },
+   {
+    "wait": "[data-test=tidy-list]"
+   },
+   {
+    "click": "[data-test=tidy-move]"
+   },
+   {
+    "wait": "[data-test=moving-row][data-done]"
+   },
+   {
+    "sleep": 1200
+   },
+   {
+    "sleep": 400
+   }
+  ]
+ },
+ {
+  "name": "playlists-move-fails",
+  "route": "#/playlists",
+  "scenario": "playlists:move-fails",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "click": "[data-test=tidy-button]"
+   },
+   {
+    "wait": "[data-test=tidy-list]"
+   },
+   {
+    "click": "[data-test=tidy-move]"
+   },
+   {
+    "wait": "[data-test=moves-result]"
+   },
+   {
+    "sleep": 400
+   }
+  ]
+ },
+ {
+  "name": "playlists-rename-offered",
+  "route": "#/playlists",
+  "scenario": "playlists:rename-offered",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "click": "[data-test=more-Powertrance]"
+   },
+   {
+    "click": "[data-test=rename-Powertrance]"
+   },
+   {
+    "fill": [
+     "[data-test=row-Powertrance] input",
+     "Powertrance_2026"
+    ]
+   },
+   {
+    "press": "Enter"
+   },
+   {
+    "wait": "[data-test=save-files]"
+   },
+   {
+    "wait": "[data-test=save-move]:not([aria-disabled=true])"
+   },
+   {
+    "sleep": 400
+   }
+  ]
+ },
+ {
+  "name": "playlists-rename-taken",
+  "route": "#/playlists",
+  "scenario": "playlists:rename-taken",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "click": "[data-test=more-Powertrance]"
+   },
+   {
+    "click": "[data-test=rename-Powertrance]"
+   },
+   {
+    "fill": [
+     "[data-test=row-Powertrance] input",
+     "Powertrance_2026"
+    ]
+   },
+   {
+    "press": "Enter"
+   },
+   {
+    "wait": "[data-test=save-files]"
+   },
+   {
+    "wait": "[data-test=save-files]:not(.dim)"
+   },
+   {
+    "sleep": 400
+   }
+  ]
+ },
+ {
+  "name": "playlists-batches",
+  "route": "#/playlists",
+  "scenario": "playlists:batches",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "click": "[data-test=panel-tab-moves]"
+   },
+   {
+    "wait": "[data-test=recent-moves]"
+   },
+   {
+    "sleep": 400
+   }
+  ]
+ },
+ {
+  "name": "playlists-undo-skips",
+  "route": "#/playlists",
+  "scenario": "playlists:undo-skips",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "click": "[data-test=panel-tab-moves]"
+   },
+   {
+    "wait": "[data-test=batch-undo-1]"
+   },
+   {
+    "click": "[data-test=batch-undo-1]"
+   },
+   {
+    "wait": "[data-test=undo-list]"
+   },
+   {
+    "sleep": 400
    }
   ]
  }
