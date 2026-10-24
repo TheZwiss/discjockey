@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { BatchResult, RenameOffer, TidyRow, UndoPreview } from '$lib/bridge/types';
 import {
-  carryOver, confirmLabel, countLine, folderName, folderRows, goBackText, groupState, groups, initialQuestion, initialTicks,
-  itemOfRow, movesOf, notMovedText, offerDetail, outcomeOf, pairsOf, progressDone, progressStart, progressStep,
-  progressTotal, renameDetail, resultUndo, saveCount, saveFiles, saveHeadline, saveItems, saveMoving, skipTone,
-  tickedRows, tickedText, toggleGroup, toggleRename, toggleTick, undoItems, undoLabel, visibleRows,
+  carryOver, confirmLabel, countLine, fileCountText, folderName, folderRows, goBackText, groupState, groups, initialQuestion, initialTicks,
+  itemOfRow, movesOf, notMovedText, offerDetail, outcomeOf, pairsOf, problemToTell, progressDone, progressStart, progressStep,
+  progressTotal, renameDetail, resultUndo, saveCount, saveFileCount, saveFiles, saveHeadline, saveItems, saveMoving, skipTone,
+  tickedRows, tickedText, toggleGroup, toggleRename, toggleTick, undoItems, undoLabel, undoRowName, visibleRows,
 } from './tidyModel';
 
 let n = 0;
@@ -102,9 +102,9 @@ describe('the count line C', () => {
 });
 
 describe('the save question', () => {
-  const offer = (from: string, to: string, offered = true): RenameOffer => ({ from, to, files: 99, offered,
+  const offer = (from: string, to: string, offered = true): RenameOffer => ({ from, to, files: 12, offered,
     why_not: offered ? null : `A folder called ${to} is already in your Library.`, option: 'Rename the folder on disk too',
-    detail: 'One folder move instead of 99 file moves.' });
+    detail: 'One folder move instead of 12 file moves.' });
   const p1 = row('Powertrance', 'Powertrance_2026', { by_rename: 'Powertrance' });
   const p2 = row('Powertrance/not_lossless', 'Powertrance_2026/not_lossless', { by_rename: 'Powertrance' });
   const p3 = row('Powertrance', 'Powertrance_2026', { by_rename: 'Powertrance', skip: { reason: 'offline', text: 'Offline, skipped' }, ticked: false });
@@ -117,21 +117,35 @@ describe('the save question', () => {
     const no = initialQuestion(rows, [offer('Powertrance', 'Powertrance_2026', false)]);
     expect(no.renameOn.size).toBe(0);
     expect(toggleRename(no, 'Powertrance').renameOn.size).toBe(0);
-    expect(offerDetail(no, no.renames[0])).toBe('A folder called Powertrance_2026 is already in your Library.');
+    expect(offerDetail(no.renames[0])).toBe('A folder called Powertrance_2026 is already in your Library.');
   });
-  it('the heading, the folder row, the detail and C all count from the same rows', () => {
+  it('the heading, the folder row, the detail and C count the folder\'s files from the offer, not the rows', () => {
+    // the folder holds 12 files; the preview lists 3 of them (no playlist places the others) and moves them all
     const q = initialQuestion(rows, [offer('Powertrance', 'Powertrance_2026')]);
-    expect(saveHeadline(q.rows.length)).toBe('4 files would sit in a different folder');
+    expect(saveHeadline(saveFileCount(q))).toBe('13 files would sit in a different folder');
     expect(visibleRows(q)).toEqual([away]);
-    expect(folderRows(q)).toEqual([{ from: 'Powertrance', to: 'Powertrance_2026', files: 3 }]);
-    expect(offerDetail(q, q.renames[0])).toBe('One folder move instead of 3 file moves.');
-    expect(saveCount(q)).toBe('4 files move: 3 from Powertrance to Powertrance_2026, 1 from Elsewhere to Powertrance_2026.');
-    expect(saveMoving(q)).toBe(4);
+    expect(folderRows(q)).toEqual([{ from: 'Powertrance', to: 'Powertrance_2026', files: 12 }]);
+    expect(offerDetail(q.renames[0])).toBe('One folder move instead of 12 file moves.');
+    expect(saveCount(q)).toBe('13 files move: 12 from Powertrance to Powertrance_2026, 1 from Elsewhere to Powertrance_2026.');
+    expect(saveMoving(q)).toBe(13);
+  });
+  it('on "leave" an offered rename says it doesn\'t apply; one that isn\'t offered keeps its own reason', () => {
+    const q = initialQuestion(rows, [offer('Powertrance', 'Powertrance_2026')]);
+    expect(offerDetail(q.renames[0], true)).toBe('Not renamed when you leave the files where they are.');
+    expect(offerDetail(q.renames[0], false)).toBe('One folder move instead of 12 file moves.');
+    const no = initialQuestion(rows, [offer('Powertrance', 'Powertrance_2026', false)]);
+    expect(offerDetail(no.renames[0], true)).toBe('A folder called Powertrance_2026 is already in your Library.');
+  });
+  it('one file in the folder is "1 file"', () => {
+    const q = initialQuestion(rows, [{ ...offer('Powertrance', 'Powertrance_2026'), files: 1 }]);
+    expect(offerDetail(q.renames[0])).toBe('One folder move instead of 1 file move.');
+    expect(saveCount(q)).toBe('2 files move: 1 from Powertrance to Powertrance_2026, 1 from Elsewhere to Powertrance_2026.');
   });
   it('with the rename off the files show again, ticked as the backend says', () => {
     const q = toggleRename(initialQuestion(rows, [offer('Powertrance', 'Powertrance_2026')]), 'Powertrance');
     expect(visibleRows(q)).toEqual(rows);
     expect(folderRows(q)).toEqual([]);
+    expect(saveFileCount(q)).toBe(4);
     expect(saveCount(q)).toBe('3 files move: 1 from Powertrance to Powertrance_2026, '
       + '1 from Powertrance/not_lossless to Powertrance_2026/not_lossless, 1 from Elsewhere to Powertrance_2026.');
   });
@@ -178,11 +192,34 @@ describe('progress', () => {
     expect([progressDone(p), progressTotal(p)]).toEqual([3, 5]);
     expect(progressTotal(progressStep(progressStart(1), { batch_id: 1, done: 0, total: 3 }))).toBe(3);
   });
-  it('undo lists every row in the order it runs', () => {
-    const u: UndoPreview = { batch_id: 1, title: 'Undo of: Tidy-up', moving: 1, warning: [], nothing_left: false,
-      rows: [{ label: 'A - B', from: 'X', to: 'Y', skip: null }, { label: 'C - D', from: 'X', to: 'Z',
-        skip: { reason: 'moved_on', text: 'Moved or changed since' } }] };
-    expect(undoItems(u).map((i) => i.label)).toEqual(['A - B', 'C - D']);
+  it('undo lists the moves that run, in order; a row that can\'t go back is recorded skipped before the run', () => {
+    const u: UndoPreview = { batch_id: 1, title: 'Undo of: Tidy-up', moving: 8, warning: [], nothing_left: false,
+      rows: [{ label: 'A - B', kind: 'file', files: null, from: 'X', to: 'Y', skip: null },
+        { label: 'C - D', kind: 'file', files: null, from: 'X', to: 'Z',
+          skip: { reason: 'moved_on', text: 'Moved or changed since' } },
+        { label: 'Sets_2025', kind: 'folder', files: 7, from: 'Sets_2025', to: 'Old_Sets', skip: null }] };
+    const items = undoItems(u);
+    expect(items.map((i) => i.label)).toEqual(['A - B', 'Sets_2025']);
+    expect(items.map((i) => [i.folder, i.files])).toEqual([[false, null], [true, 7]]);
+  });
+  it('undo progress marks the planned moves done as the batch reports them', () => {
+    const u: UndoPreview = { batch_id: 1, title: 'Undo of: Tidy-up', moving: 3, warning: [], nothing_left: false,
+      rows: [{ label: 'skip', kind: 'file', files: null, from: 'X', to: 'Y',
+        skip: { reason: 'offline', text: 'Offline, skipped' } },
+      { label: 'A', kind: 'file', files: null, from: 'X', to: 'Y', skip: null },
+      { label: 'B', kind: 'file', files: null, from: 'X', to: 'Y', skip: null }] };
+    const items = undoItems(u);
+    let p = progressStart(items.length);
+    expect(progressTotal(p)).toBe(2);   // the skipped row isn't a planned move
+    p = progressStep(p, { batch_id: 9, done: 1, total: 2 });
+    expect(items.map((_, i) => i < progressDone(p))).toEqual([true, false]);   // A is done, B isn't
+  });
+  it('says file or folder, and how many files a folder carries', () => {
+    expect(undoRowName({ label: 'A - B', kind: 'file' })).toBe('A - B');
+    expect(undoRowName({ label: 'Sets_2025', kind: 'folder' })).toBe('Sets_2025, the whole folder');
+    expect(fileCountText(null)).toBeNull();
+    expect(fileCountText(1)).toBe('1 file');
+    expect(fileCountText(7)).toBe('7 files');
   });
 });
 
@@ -207,5 +244,17 @@ describe('results', () => {
     expect(skipTone('failed')).toBe('problem');
     expect(skipTone('stopped')).toBe('warn');
     expect(skipTone('offline')).toBe('warn');
+  });
+});
+
+describe('problemToTell', () => {
+  it('tells every failed job, also one that still carries a result', () => {
+    expect(problemToTell({ ok: false, kind: 'crashed', message: 'The disk is gone' }))
+      .toEqual({ kind: 'crashed', message: 'The disk is gone' });
+    expect(problemToTell({ ok: false, kind: 'busy', message: '' })).toEqual({ kind: 'busy', message: '' });
+  });
+  it('says nothing after a Stop the user pressed, or after a success', () => {
+    expect(problemToTell({ ok: false, kind: 'stopped', message: 'Stopped.' })).toBeNull();
+    expect(problemToTell({ ok: true })).toBeNull();
   });
 });

@@ -98,17 +98,17 @@ const fake: PageFake = {
       if (!r.ok || !undoSkips.has(ctx.s) || batch_id !== 1) return r;
       const name = (i: number) => { const t = ctx.s.tracks[i]; return `${t.artist} - ${t.title}`; };
       const skips: UndoPreview['rows'] = [
-        { label: name(3), from: 'Hard_Bounce', to: 'Bouncy', skip: { reason: 'moved_on', text: 'Moved or changed since' } },
-        { label: name(5), from: 'Bouncy', to: 'Powertrance',
+        { kind: 'file', files: null, label: name(3), from: 'Hard_Bounce', to: 'Bouncy', skip: { reason: 'moved_on', text: 'Moved or changed since' } },
+        { kind: 'file', files: null, label: name(5), from: 'Bouncy', to: 'Powertrance',
           skip: { reason: 'place_taken', text: 'Another file is in its old place now' } },
-        { label: name(7), from: 'Powertrance', to: '03_06_2026/not_lossless', skip: { reason: 'offline', text: 'Offline, skipped' } },
-        { label: 'Sets_2025', from: 'Sets_2025', to: 'Old_Sets',
+        { kind: 'file', files: null, label: name(7), from: 'Powertrance', to: '03_06_2026/not_lossless', skip: { reason: 'offline', text: 'Offline, skipped' } },
+        { kind: 'folder', files: 7, label: 'Sets_2025', from: 'Sets_2025', to: 'Old_Sets',
           skip: { reason: 'moved_on', text: "The folder Sets_2025 isn't there any more" } },
-        { label: 'Old_Sets', from: 'Sets_2025', to: 'Old_Sets',
+        { kind: 'folder', files: 7, label: 'Old_Sets', from: 'Sets_2025', to: 'Old_Sets',
           skip: { reason: 'place_taken', text: 'A folder called Old_Sets is in your Library again.' } },
-        { label: 'Old_Sets', from: 'Sets_2025', to: 'Old_Sets',
+        { kind: 'folder', files: 7, label: 'Old_Sets', from: 'Sets_2025', to: 'Old_Sets',
           skip: { reason: 'place_taken', text: 'Another playlist is called Old_Sets now.' } },
-        { label: 'Sets_2025', from: 'Sets_2025', to: 'Old_Sets',
+        { kind: 'folder', files: 7, label: 'Sets_2025', from: 'Sets_2025', to: 'Old_Sets',
           skip: { reason: 'playlist_renamed', text: "The playlist isn't called Sets_2025 any more" } },
       ];
       return { ...r, rows: [...r.rows.filter((x) => !x.skip), ...skips] };

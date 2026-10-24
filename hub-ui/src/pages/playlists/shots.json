@@ -488,6 +488,43 @@
   ]
  },
  {
+  "name": "playlists-rename-leave",
+  "route": "#/playlists",
+  "scenario": "playlists:rename-offered",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "click": "[data-test=more-Powertrance]"
+   },
+   {
+    "click": "[data-test=rename-Powertrance]"
+   },
+   {
+    "fill": [
+     "[data-test=row-Powertrance] input",
+     "Powertrance_2026"
+    ]
+   },
+   {
+    "press": "Enter"
+   },
+   {
+    "wait": "[data-test=save-files]"
+   },
+   {
+    "wait": "[data-test=save-move]:not([aria-disabled=true])"
+   },
+   {
+    "eval": "document.querySelector('[data-test=save-leave] button, button[data-test=save-leave]').focus()"
+   },
+   {
+    "sleep": 400
+   }
+  ]
+ },
+ {
   "name": "playlists-rename-taken",
   "route": "#/playlists",
   "scenario": "playlists:rename-taken",

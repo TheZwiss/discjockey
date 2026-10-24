@@ -26,7 +26,7 @@
   import TidyList from './TidyList.svelte';
   import {
     LEAVE_HINT, NOTHING_LEFT, NO_MOVES_YET, R1, R2, U1, carryOver, folderRows, groups, offerDetail, saveCount,
-    saveFiles, saveHeadline, saveItems, saveMoving, toggleGroup, toggleRename,
+    saveFileCount, saveFiles, saveHeadline, saveItems, saveMoving, toggleGroup, toggleRename,
     toggleTick, visibleRows, type MoveItem, type SaveQuestion,
   } from './tidyModel';
 
@@ -84,6 +84,8 @@
     untrack(() => { question = t && pv ? carryOver(question, t.rows, pv.renames) : null; });
   });
   const q = $derived(question);
+  // the pointer or the keyboard is on "Save, leave files where they are": it renames no folder, so the switch greys out
+  let leaving = $state(false);
   const qGroups = $derived(q ? groups(visibleRows(q)) : null);
   const qShown = $derived(q ? visibleRows(q) : []);
   const qCount = $derived(q ? saveCount(q) : null);
@@ -187,7 +189,7 @@
           <Surface kind="list" data-test="rename-offers">
             {#each offers as o (o.from)}
               <ToggleRow item={{ key: o.from, label: o.option, on: o.offered && q.renameOn.has(o.from) }}
-                sub={offerDetail(q, o)} disabled={!o.offered} title={o.offered ? undefined : o.why_not ?? undefined}
+                sub={offerDetail(o, leaving)} disabled={!o.offered || leaving} title={o.offered ? undefined : o.why_not ?? undefined}
                 onchange={(k) => { if (question) question = toggleRename(question, k); }} test="rename-{o.from}" />
             {/each}
           </Surface>
@@ -236,7 +238,7 @@
       </Surface>
     {/if}
   {:else if p && q}
-    <TidyList label={saveHeadline(q.rows.length)} rows={qShown} ticks={q.ticks} folders={folderRows(q)}
+    <TidyList label={saveHeadline(saveFileCount(q))} rows={qShown} ticks={q.ticks} folders={folderRows(q)}
       dim={panel.dim} test="save-files"
       ontick={(r) => { if (question) question = { ...question, ticks: toggleTick(question.ticks, r) }; }}
       ongroup={() => { if (question && qGroups) question = { ...question, ticks: toggleGroup(question.ticks, qGroups.yours) }; }} />
@@ -288,6 +290,8 @@
     <!-- the main action sits by Undo, as in every foot; the long "leave" save gets the full width above (1100 px) -->
     <div class="foot two">
       <WriteButton wide busy={saving} disabled={panel.dim} title={panel.dim ? 'Working out what changes…' : undefined}
+        onpointerenter={() => (leaving = true)} onpointerleave={() => (leaving = false)}
+        onfocus={() => (leaving = true)} onblur={() => (leaving = false)}
         onclick={() => question && onsave(saveFiles(question, 'leave'), [])} data-test="save-leave">Save, leave files where they are</WriteButton>
       <div class="line">
         <Button disabled={saving} onclick={onundo} data-test="undo">Undo</Button>

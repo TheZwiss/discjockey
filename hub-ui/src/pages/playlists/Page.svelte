@@ -22,7 +22,7 @@
   import Row from './Row.svelte';
   import ChangePanel from './ChangePanel.svelte';
   import MovesPanel, { type MovesEntry } from './MovesPanel.svelte';
-  import type { MoveItem } from './tidyModel';
+  import { problemToTell, type MoveItem } from './tidyModel';
   import {
     addRow, draftFrom, dropIndex, folderChanges, isDirty, lines, loadedFrom, moveBy, onOffText, priorities, remove,
     rename, reorder, shiftFor, statusLine, toggle, undo, type DraftRow, type Loaded, type Panel, type PanelTab,
@@ -102,10 +102,12 @@
     if (files?.choice === 'move') { movesBusy = true; openFlow({ kind: 'save', items, outcome: job }); }
     const out = await job;
     saving = false;
-    // stopped after the file was written: it is saved, the panel shows what moved
-    if (out.ok || out.result) { await load(true); return; }
-    if (out.kind === 'changed') { changedElsewhere = out.message; return; }
-    toasts.show({ tone: 'problem', title: problemCopy(out.kind).title, body: out.message || undefined });
+    if (!out.ok && out.kind === 'changed') { changedElsewhere = out.message; return; }
+    // the job ran quiet (the moves panel follows it): a failure is told here, also one that still moved something
+    const bad = problemToTell(out);
+    if (bad) toasts.show({ tone: 'problem', title: problemCopy(bad.kind).title, body: bad.message || undefined });
+    // saved even when it ended early (a Stop after the file was written): the panel shows what moved
+    if (out.ok || out.result) await load(true);
   }
   async function reload() {
     if (dirty && !(await confirm({ title: 'Throw away your changes and load the file again?',

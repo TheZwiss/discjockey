@@ -31,10 +31,10 @@
   import { toasts } from '$lib/stores/toasts';
   import TidyList from './TidyList.svelte';
   import {
-    CANT_MOVE_BACK, NOTHING_LEFT, R1, R2, U1, confirmLabel, countLine, folderName, goBackText, groups,
+    CANT_MOVE_BACK, NOTHING_LEFT, R1, R2, U1, confirmLabel, countLine, fileCountText, folderName, goBackText, groups,
     initialTicks, itemOfRow, movesOf, notMovedText, outcomeOf, pairsOf, progressDone, progressStart, progressStep,
-    progressTotal, resultUndo, skipTone, tickable, tickedRows, tickedText, toggleGroup, toggleTick, undoItems,
-    undoLabel, type Outcome,
+    problemToTell, progressTotal, resultUndo, skipTone, tickable, tickedRows, tickedText, toggleGroup, toggleTick, undoItems,
+    undoLabel, undoRowName, type Outcome,
   } from './tidyModel';
 
   let { entry, onclose, onlist, onbusy }: {
@@ -88,23 +88,30 @@
   function problem(kind: ProblemKind, message: string) {
     toasts.show({ tone: 'problem', title: problemCopy(kind).title, body: message || undefined });
   }
+  /** A job that ran quiet: a failure is told in a toast, except a Stop the user pressed. */
+  function tell(out: { ok: boolean; kind?: ProblemKind; message?: string }) {
+    const bad = problemToTell(out);
+    if (bad) problem(bad.kind, bad.message);
+  }
 
   async function moveTicked(preview: TidyPreview, ticks: Set<number>) {
     const rows = tickedRows(preview.rows, ticks);
     startMoving(TIDY_TITLE, rows.map(itemOfRow), false);
     const out = await runJob<BatchResult>(api.tidy_up(movesOf(preview.rows, ticks)), { quiet: true, success: false });
     onbusy(false);
+    tell(out);
     if (out.ok) step = { s: 'result', outcome: outcomeOf([out.result]) };
     else if (out.result) step = { s: 'result', outcome: outcomeOf([out.result]) };
-    else { problem(out.kind, out.message); await loadTidy(); }
+    else await loadTidy();
   }
   async function moveBack(preview: UndoPreview) {
     startMoving(preview.title, undoItems(preview), true);
     const out = await runJob<BatchResult>(api.undo_moves(preview.batch_id), { quiet: true, success: false });
     onbusy(false);
+    tell(out);
     if (out.ok) step = { s: 'result', outcome: outcomeOf([out.result], true) };
     else if (out.result) step = { s: 'result', outcome: outcomeOf([out.result], true) };
-    else { problem(out.kind, out.message); await loadUndo(preview.batch_id); }
+    else await loadUndo(preview.batch_id);
   }
   async function followSave(e: Extract<MovesEntry, { kind: 'save' }>) {
     startMoving(SAVE_TITLE, e.items, false);
@@ -160,6 +167,9 @@
   {@render place(from)} <span class="arrow" aria-label="to">→</span> {@render place(to)}
 {/snippet}
 
+<!-- a folder's file count, after its route: "→ Old_Sets · 7 files" (a file has none) -->
+{#snippet count(n: number | null)}{#if n !== null} · {fileCountText(n)}{/if}{/snippet}
+
 {#snippet head()}
   {#if step.s === 'loading'}
     <div data-test="moves-loading"><Skeleton lines={4} height={52} gap={2} /></div>
@@ -199,18 +209,18 @@
       style="--row-cols: 16px minmax(0, 1fr)" grow={{ rows: undo.rows.length + (undoSkipped.length ? 1 : 0), tall: true }}
       data-test="undo-list">
       {#each undoGoing as r, i (i)}
-        <ListRow wrap title={r.label} test="undo-row">
+        <ListRow wrap title={undoRowName(r)} test="undo-row">
           {#snippet lead()}<StatusMark tone="back" />{/snippet}
-          {#snippet name()}{r.label}{/snippet}
-          {#snippet sub()}{@render route(r.from, r.to)}{/snippet}
+          {#snippet name()}{undoRowName(r)}{/snippet}
+          {#snippet sub()}{@render route(r.from, r.to)}{@render count(r.files)}{/snippet}
         </ListRow>
       {/each}
       {#if undoSkipped.length}
         <ListSection label={CANT_MOVE_BACK} summary={String(undoSkipped.length)} test="undo-skipped" />
         {#each undoSkipped as r, i (i)}
-          <ListRow wrap title={r.label} test="undo-skip">
+          <ListRow wrap title={undoRowName(r)} test="undo-skip">
             {#snippet lead()}<StatusMark tone="warn" />{/snippet}
-            {#snippet name()}{r.label}{/snippet}
+            {#snippet name()}{undoRowName(r)}{/snippet}
             {#snippet sub()}<span class="warn">{r.skip?.text}</span>{/snippet}
           </ListRow>
         {/each}
@@ -223,8 +233,7 @@
         {@const isDone = i < done}
         <ListRow wrap title={it.label} data-done={isDone || undefined} test="moving-row">
           {#snippet lead()}
-            {#if it.skip}<StatusMark tone="warn" />
-            {:else if isDone}<StatusMark tone="good" quiet />
+            {#if isDone}<StatusMark tone="good" quiet />
             {:else if moving.back}<StatusMark tone="back" />
             {:else}<Tick on />{/if}
             {#if it.folder}<span class="folder" aria-hidden="true">
@@ -233,7 +242,7 @@
             {:else}<Cover url={it.cover_url} seed={it.track_id ?? it.key} size={28} />{/if}
           {/snippet}
           {#snippet name()}{it.folder ? `${it.label}, the whole folder` : it.label}{/snippet}
-          {#snippet sub()}{#if it.skip}<span class="warn">{it.skip}</span>{:else}{@render route(it.from, it.to)}{/if}{/snippet}
+          {#snippet sub()}{@render route(it.from, it.to)}{@render count(it.files)}{/snippet}
         </ListRow>
       {/each}
     </Surface>

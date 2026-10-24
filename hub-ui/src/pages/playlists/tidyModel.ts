@@ -3,7 +3,7 @@
 // label and what goes to the bridge. Used by the Tidy up files preview and by the save question, where a folder renamed
 // on disk replaces its files' rows. The words are the plan's I6 (views.py says the same where it sends them).
 import type {
-  BatchResult, RenameOffer, SaveFiles, SkippedMove, TidyRow, UndoPreview,
+  BatchResult, ProblemKind, RenameOffer, SaveFiles, SkippedMove, TidyRow, UndoPreview, UndoRow,
 } from '$lib/bridge/types';
 
 export type Ticks = ReadonlySet<number>;
@@ -17,6 +17,7 @@ export const YOURS_CONTROL = 'Put these in playlist order too';
 export const CANT_MOVE = "Can't move";
 export const CANT_MOVE_BACK = "Can't move back";
 export const LEAVE_HINT = 'If you leave them, Tidy up files can move them later.';
+export const LEAVE_RENAME = 'Not renamed when you leave the files where they are.';
 export const NOTHING_LEFT = 'Nothing left to undo';
 export const NO_MOVES_YET = 'No files moved yet.';
 
@@ -145,8 +146,9 @@ export function countLine(pairs: Pair[]): string | null {
 
 // ---- the save question: folder renames on disk ----
 
-/** A folder renamed on disk, in place of its files' rows. `files` = the rows it covers (the one count the heading,
- *  this row, the option's detail and `C` all come from). */
+/** A folder renamed on disk, in place of its files' rows. `files` = the files in the folder (the offer's count, the
+ *  one count this row, the option's detail, the heading and `C` all come from: the folder moves as a whole, so it
+ *  carries more than the rows the preview lists when files sit in it that no playlist places). */
 export type FolderRow = { from: string; to: string; files: number };
 
 /** The save question's choices: ticks, and which offered renames are on (all on by default). */
@@ -179,11 +181,6 @@ export function toggleRename(q: SaveQuestion, from: string): SaveQuestion {
   return { ...q, renameOn: on };
 }
 
-/** The rows a rename covers (its old folder name in `by_rename`). */
-export function coveredBy(rows: TidyRow[], from: string): TidyRow[] {
-  return rows.filter((r) => r.by_rename === from);
-}
-
 /** The rows shown: a rename that is on hides the files it moves (its folder row stands for them). */
 export function visibleRows(q: SaveQuestion): TidyRow[] {
   return q.rows.filter((r) => !(r.by_rename && q.renameOn.has(r.by_rename)));
@@ -192,12 +189,19 @@ export function visibleRows(q: SaveQuestion): TidyRow[] {
 /** The folder rows of the renames that are on. */
 export function folderRows(q: SaveQuestion): FolderRow[] {
   return q.renames.filter((r) => r.offered && q.renameOn.has(r.from))
-    .map((r) => ({ from: r.from, to: r.to, files: coveredBy(q.rows, r.from).length }));
+    .map((r) => ({ from: r.from, to: r.to, files: r.files }));
 }
 
-/** The option's detail line, counted from the rows (the backend's `detail` counts the folder on disk). */
-export function offerDetail(q: SaveQuestion, offer: RenameOffer): string {
-  return offer.offered ? renameDetail(coveredBy(q.rows, offer.from).length) : offer.why_not ?? '';
+/** The option's detail line, counted from the offer's files. `leaving`: the user is on "Save, leave files where
+ *  they are", which renames nothing, so an offered rename says so instead. */
+export function offerDetail(offer: RenameOffer, leaving = false): string {
+  if (!offer.offered) return offer.why_not ?? '';
+  return leaving ? LEAVE_RENAME : renameDetail(offer.files);
+}
+
+/** The files the save question is about: the shown rows, and each folder renamed on disk with all it carries. */
+export function saveFileCount(q: SaveQuestion): number {
+  return visibleRows(q).length + folderRows(q).reduce((a, f) => a + f.files, 0);
 }
 
 /** `C` for the save question: each folder row as one pair, then the ticked rows still shown. */
@@ -223,20 +227,18 @@ export function saveFiles(q: SaveQuestion, choice: 'leave' | 'move'): SaveFiles 
 
 // ---- progress ----
 
-/** What moves, as the progress list shows it: a folder renamed on disk or a file. */
-export type MoveItem = { key: string; label: string; from: string; to: string; folder: boolean;
-  track_id: string | null; cover_url: string | null;
-  /** undo only: why this one can't go back (it is skipped in its turn) */
-  skip: string | null };
+/** What moves, as the progress list shows it: a folder renamed on disk (with the files it carries) or a file. */
+export type MoveItem = { key: string; label: string; from: string; to: string; folder: boolean; files: number | null;
+  track_id: string | null; cover_url: string | null };
 
 export function itemOfRow(r: TidyRow): MoveItem {
-  return { key: `f${r.file_id}`, label: `${r.artist} – ${r.title}`, from: r.from, to: r.to, folder: false,
-    track_id: r.track_id, cover_url: r.cover_url, skip: null };
+  return { key: `f${r.file_id}`, label: `${r.artist} – ${r.title}`, from: r.from, to: r.to, folder: false, files: null,
+    track_id: r.track_id, cover_url: r.cover_url };
 }
 
 export function itemOfFolder(f: FolderRow): MoveItem {
-  return { key: `d${f.from}`, label: f.from, from: f.from, to: f.to, folder: true, track_id: null, cover_url: null,
-    skip: null };
+  return { key: `d${f.from}`, label: f.from, from: f.from, to: f.to, folder: true, files: f.files, track_id: null,
+    cover_url: null };
 }
 
 /** The save's moves in the order they happen: the folder renames, then the files. */
@@ -244,10 +246,22 @@ export function saveItems(q: SaveQuestion): MoveItem[] {
   return [...folderRows(q).map(itemOfFolder), ...tickedRows(visibleRows(q), q.ticks).map(itemOfRow)];
 }
 
-/** Undo's moves in the order they happen (all rows: a row that can't go back is skipped in its turn). */
+/** What an undo run moves, in the order it runs. A row that can't go back isn't here: the batch records it skipped
+ *  before anything moves, so the run's progress (`MovesProgress`, moves handled of moves planned) counts only these;
+ *  the result lists the skipped ones with their reasons. */
 export function undoItems(p: UndoPreview): MoveItem[] {
-  return p.rows.map((r, i) => ({ key: `u${i}`, label: r.label, from: r.from, to: r.to, folder: false, track_id: null,
-    cover_url: null, skip: r.skip?.text ?? null }));
+  return p.rows.filter((r) => !r.skip).map((r, i) => ({ key: `u${i}`, label: r.label, from: r.from, to: r.to,
+    folder: r.kind === 'folder', files: r.kind === 'folder' ? r.files : null, track_id: null, cover_url: null }));
+}
+
+/** An undo row's name: a folder says so ("Old_Sets, the whole folder"), a file is its "Artist - Title". */
+export function undoRowName(r: Pick<UndoRow, 'label' | 'kind'>): string {
+  return r.kind === 'folder' ? `${r.label}, the whole folder` : r.label;
+}
+
+/** A folder's file count for the line under its name ("7 files"); null for a file, which has no count. */
+export function fileCountText(n: number | null): string | null {
+  return n === null ? null : files(n);
 }
 
 /** Progress over the batches of one job (a save runs a batch per folder rename, then one for the files): each
@@ -295,4 +309,12 @@ export function resultUndo(o: Outcome): { batch: number } | 'list' | null {
 /** The tone of a "not moved" row's mark: a failed move is a problem, the rest are warnings. */
 export function skipTone(reason: string): 'problem' | 'warn' {
   return reason === 'failed' ? 'problem' : 'warn';
+}
+
+/** The problem the page tells (a toast) after a move job that ran `quiet`: every failure except a Stop the user
+ *  pressed, which explains itself (the result lists what was not moved). Null: nothing to tell. */
+export function problemToTell(out: { ok: boolean; kind?: ProblemKind; message?: string }):
+  { kind: ProblemKind; message: string } | null {
+  if (out.ok || !out.kind || out.kind === 'stopped') return null;
+  return { kind: out.kind, message: out.message ?? '' };
 }
