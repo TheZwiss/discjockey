@@ -3,7 +3,8 @@ import type {
   ActionKey, AddedPlaylist, AppUpdate, Candidate, Candidates, ChangePreview, Dashboard, Fail, JobStart, JobStatus, Library,
   Limits, LibraryFilter, MoveBatches, SaveFiles, TidyPreview, UndoPreview, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res, RunDetail,
   RunSummary, SetupStatus, SetupTools, Sidebar, Spectrum, SyncPreview, Todo, TodoFilter, TrackDetail, WhatIf, Which,
-  AccountCheck, Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus,
+  AccountCheck, Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus, ImportFolderCheck,
+  RemovalPreview, WatchedFolders,
 } from './types';
 import { CONTRACT_METHODS } from './contract';
 import { waitForJob } from '../stores/jobs';
@@ -22,6 +23,10 @@ export interface Bridge {
   tidy_preview(): Promise<Res<TidyPreview>>;
   move_batches(): Promise<Res<MoveBatches>>;
   undo_preview(batch_id: number): Promise<Res<UndoPreview>>;
+  // watched folders and the import (library stage 4)
+  watched_folders(): Promise<Res<WatchedFolders>>;
+  check_import_folder(path: string): Promise<Res<ImportFolderCheck>>;
+  removal_preview(folder_id: number): Promise<Res<RemovalPreview>>;
   limits(service: Service): Promise<Res<Limits>>;
   limits_what_if(service: Service, limit: number, extra_today: number): Promise<Res<WhatIf>>;
   runs(): Promise<Res<{ runs: RunSummary[] }>>;   run(run_id: string): Promise<Res<{ run: RunDetail }>>;
@@ -37,6 +42,11 @@ export interface Bridge {
   start_sync(selected: ActionKey[]): Promise<JobStart>;   stop(): Promise<Res<{ stopped: boolean }>>;
   save_playlists(lines: PlaylistLine[], loaded_version: string, files?: SaveFiles | null): Promise<JobStart>;
   tidy_up(moves: [number, string][]): Promise<JobStart>;   undo_moves(batch_id: number): Promise<JobStart>;
+  add_watched_folder(path: string): Promise<JobStart>;   remove_watched_folder(folder_id: number): Promise<JobStart>;
+  start_import(): Promise<JobStart>;
+  answer_same_song(song_key: string, own_key: string, same: boolean): Promise<JobStart>;
+  keep_duplicates(group_id: string): Promise<JobStart>;
+  supersede_duplicate(group_id: string, file_id: number): Promise<JobStart>;
   save_limits(service: Service, limit: number, extra_today: number): Promise<JobStart>;
   mark_warnings_seen(service: Service): Promise<JobStart>;
   hide(track_id: string, hidden: boolean): Promise<JobStart>;
@@ -61,6 +71,7 @@ export interface Bridge {
   rollback_tools(): Promise<JobStart>;
   setup_skip_qobuz(): Promise<JobStart>;
   setup_skip_spotify(): Promise<JobStart>;
+  setup_skip_import(): Promise<Res<{}>>;
   setup_account(service: 'youtube' | 'soundcloud', browser: Browser, profile?: string | null): Promise<JobStart>;
   setup_check_account(service: 'youtube' | 'soundcloud'): Promise<Res<{ service: Service; check: AccountCheck }>>;
   downloads_view(): Promise<Res<{ downloads: DownloadsView }>>;

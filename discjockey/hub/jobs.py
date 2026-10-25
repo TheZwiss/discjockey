@@ -18,7 +18,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from .. import config, events as ev, library, playlists_file, qobuz, report as rep, run, settings, sources, upgrades
+from .. import (config, events as ev, folders, importer, library, playlists_file, qobuz, report as rep, run, settings,
+                sources, upgrades)
 from ..events import Cancelled, CancelToken, Emit
 from ..library import LockHeld, Paths
 from ..models import SERVICE_NAMES, Protected
@@ -160,6 +161,10 @@ class HubEvents:
 CONSOLE_TEXT = "A sync is running in the terminal. Wait until it has finished."
 BUSY_TEXT = "Discjockey is still busy with the last change. Wait until it has finished."
 SCANNING_TEXT = "Discjockey is checking your Library. Try again in a moment."
+# W7 (plan library stage 4 I12): every other write answers busy with these words while the import runs
+IMPORTING_TEXT = ("Discjockey is importing your music. Stop the import in Settings → Watched folders to do this now; "
+                  "it carries on later where it stopped.")
+BUSY_WORDS = {"scan": SCANNING_TEXT, "import": IMPORTING_TEXT}  # what a write answers while a job of this kind runs
 ACTIVITY_OPTIONS = 0x00FFFFFF | (1 << 20)  # NSActivityUserInitiated, idle system sleep disabled
 
 
@@ -224,6 +229,8 @@ def problem_of(e: BaseException) -> tuple[str, str]:
     arrives as RunCrashed (sync_work files it first), so only a sync says "The sync stopped unexpectedly"."""
     if isinstance(e, run.RunCrashed):  # whatever it was, it stopped a running sync
         return "crashed", rep.CRASH_MESSAGE
+    if isinstance(e, importer.ImportStopped):  # W6: how many files are left (a file is never half-done: it is written)
+        return "stopped", importer.result_words(e.result)
     if isinstance(e, (Cancelled, KeyboardInterrupt)):
         return "stopped", "Stopped. Nothing was left half-done."
     if isinstance(e, library.NoLibrary):
@@ -265,6 +272,7 @@ class JobContext:
     token: CancelToken
     emit: Emit  # records into the snapshot and sends to the window
     failed_result: dict | None = None  # JobFinished.result if the work raises (a crashed sync: its report)
+    message: str = ""  # JobFinished.message if the work returns (the import's "Imported 3 files."); else empty
 
 
 @dataclass
@@ -327,7 +335,7 @@ class Jobs:
         """Busy when a write job runs, or only the preview's scan holds the lock (its own words). The mutex is held."""
         job = self.running()
         if job is not None:
-            return Busy(SCANNING_TEXT if job.kind == "scan" else BUSY_TEXT, "busy")
+            return Busy(BUSY_WORDS.get(job.kind, BUSY_TEXT), "busy")
         return Busy(SCANNING_TEXT, "busy") if self._scanning else None
 
     def console_running(self) -> bool:
@@ -488,6 +496,7 @@ class Jobs:
                         self._holder.on = False
             else:
                 result = work(ctx)
+            message = ctx.message
         except BaseException as e:  # noqa: BLE001 - every outcome becomes a JobFinished for the window
             ok = False
             problem, message = problem_of(e)
@@ -674,3 +683,56 @@ def preview_after_run(store: PreviewStore, prep: run.Prepared, read_at: datetime
         store.ready(run.replan(prep), read_at)
     except (library.StateError, settings.SettingsError):
         store.mark_stale()
+
+
+# --- the import of the user's own music, and the answers to its questions (plan library stage 4, D4, D6, D14) ---
+
+def import_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] = datetime.now, *,
+                folder: Path | str | None = None, on_stopped: Callable[[], None] | None = None):
+    """The import as a write job (kind "import"): `folder` is watched first (Add folder: folders.add; it was checked
+    by the caller and db refuses it again if it changed), then importer.run_import works through every file waiting.
+    Its last phase links the playlists (D6) from the preview's last read, or from a read of its own when there is
+    none yet; the preview is then planned again on the linked library (the To-do questions and the Sync counts are
+    right at once). A Stop ends it ImportStopped: JobFinished.result is the import as far as it went, `stopped` true,
+    and `on_stopped` tells the hub that the import must not start by itself again this session (D14). The result of
+    a finished one is ImportResult as a dict; JobFinished.message is W6's line ("Imported 3 files.")."""
+    def work(ctx: JobContext) -> dict:
+        if folder is not None:
+            folders.add(paths, folder, now())
+
+        def link() -> str | None:
+            prep, read_at = store.prep, store.read_at or now()
+            if prep is None:
+                try:
+                    prep, read_at = run.prepare(paths, emit=ctx.emit, token=ctx.token), now()
+                except (run.SetupProblem, library.StateError, settings.SettingsError):
+                    prep = None  # link_playlists tries once more and words why it couldn't (W11)
+            note = importer.link_playlists(paths, prep, emit=ctx.emit, token=ctx.token)
+            if prep is not None:
+                preview_after_run(store, prep, read_at)
+            return note
+
+        try:
+            result = importer.run_import(paths, emit=ctx.emit, token=ctx.token, link=link)
+        except importer.ImportStopped as stopped:
+            ctx.failed_result = asdict(stopped.result)
+            if on_stopped is not None:
+                on_stopped()
+            raise
+        ctx.message = importer.result_words(result)
+        return asdict(result)
+    return work
+
+
+def replanned_work(store: PreviewStore, change: Callable[[JobContext], dict | None],
+                   now: Callable[[], datetime] = datetime.now):
+    """A write job that changes the records the plan is made from (an answer on To-do, a folder removed, a duplicate
+    moved to Superseded/), then plans the preview again from its last read (run.replan, no new read) so Sync and
+    To-do show what is true now. `change(ctx)` returns the job's result."""
+    def work(ctx: JobContext) -> dict:
+        result = change(ctx) or {}
+        prep = store.prep
+        if prep is not None:
+            preview_after_run(store, prep, store.read_at or now())
+        return result
+    return work

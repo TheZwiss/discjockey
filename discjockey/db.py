@@ -1094,6 +1094,12 @@ def import_counts(conn: sqlite3.Connection) -> dict[int, ImportCounts]:
     return out
 
 
+def library_files(conn: sqlite3.Connection) -> int:
+    """The file rows of the Library folder (the watched folders list shows them beside the import folders' counts)."""
+    return conn.execute("SELECT COUNT(*) FROM files f JOIN watched_folders w ON w.id = f.folder "
+                        "WHERE w.kind = 'library'").fetchone()[0]
+
+
 def import_left(conn: sqlite3.Connection) -> int:
     """The files the next import works through (the console's W10 line, plan library stage 4): online, not held,
     not read yet (`new`) or read but not judged (`identified`). Unreadable ones are left out: the import tries them

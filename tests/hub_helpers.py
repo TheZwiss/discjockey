@@ -241,3 +241,55 @@ def refreshed(api, rec):
 
 def thread_names():
     return threading.current_thread().name
+
+
+# --- the import of the user's own music (plan library stage 4): files and readers that need no ffmpeg ---
+
+class ImportFakes:
+    """Stand-ins for the import's slow readers: every file is a lossless AIFF of 200 s with full sound, tagged
+    "Example Artist" and the title of its file name ("Example Artist - Song 1.aiff" -> "Song 1"), unless `tags`
+    (file name -> tag dict) says otherwise. `on_probe(n)` runs before the n-th file is read (a test's gate or Stop)."""
+
+    def __init__(self):
+        self.tags: dict[str, dict] = {}
+        self.seconds: dict[str, float] = {}  # file name -> its length (default 200 s)
+        self.probed: list[str] = []
+        self.on_probe = None
+
+    def read_tags(self, path):
+        base = {"artist": "Example Artist", "title": path.stem.split(" - ", 1)[-1], "album": None, "isrc": None}
+        return {**base, **self.tags.get(path.name, {})}
+
+    def probe(self, path):
+        from discjockey.quality import AudioInfo
+        self.probed.append(path.name)
+        if self.on_probe:
+            self.on_probe(len(self.probed))
+        return AudioInfo("pcm_s16be", 44100, self.seconds.get(path.name, 200.0))
+
+    def inspect(self, path):
+        return "pcm_s16be", None
+
+
+def fake_import(monkeypatch) -> ImportFakes:
+    """importer.run_import with ImportFakes' readers, wherever the hub calls it."""
+    from discjockey import importer
+    fakes, real = ImportFakes(), importer.run_import
+    monkeypatch.setattr(importer, "run_import", lambda paths, **kw: real(
+        paths, read_tags=fakes.read_tags, probe=fakes.probe, inspect=fakes.inspect, **kw))
+    return fakes
+
+
+def import_folder(tmp_path, n=3, name="Example Drive/Music") -> Path:
+    """A folder outside the music folder with n audio files ("Example Artist - Song <i>.aiff")."""
+    folder = tmp_path / "outside" / name
+    folder.mkdir(parents=True, exist_ok=True)
+    for i in range(1, n + 1):
+        (folder / f"Example Artist - Song {i}.aiff").write_bytes(f"audio {i}".encode() * 50)
+    return folder
+
+
+def music_root(tmp_path, **kw) -> Paths:
+    """make_root in a `music` folder of tmp_path, so folders beside it can be watched."""
+    (tmp_path / "music").mkdir(exist_ok=True)
+    return make_root(tmp_path / "music", **kw)

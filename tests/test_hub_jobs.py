@@ -424,3 +424,65 @@ def test_a_job_after_the_music_folder_went_away_is_no_library(tmp_path):
     js.wait(5)
     fin = rec.of(jobs.JobFinished)[-1]
     assert (fin.ok, fin.problem) == (False, "no_library") and not (tmp_path / "gone").exists()
+
+
+# --- the import as a job (plan library stage 4, D4, W6, W7) ---
+
+def test_every_other_write_answers_busy_with_the_import_words_while_it_runs(env):
+    from discjockey.hub.jobs import BUSY_TEXT, IMPORTING_TEXT, SCANNING_TEXT
+    paths, js, rec, _ = env
+    release = threading.Event()
+    job = js.start("import", lambda ctx: release.wait(5) and None)
+    try:
+        with pytest.raises(Busy) as excinfo:
+            js.start("hide", lambda ctx: None)
+        assert (excinfo.value.kind, str(excinfo.value)) == ("busy", IMPORTING_TEXT)
+        with pytest.raises(Busy) as excinfo, js.lock_briefly():
+            pass
+        assert str(excinfo.value) == IMPORTING_TEXT
+    finally:
+        release.set()
+    assert job.done.wait(5)
+    release.clear()
+    other = js.start("sync", lambda ctx: release.wait(5) and None)
+    with pytest.raises(Busy) as excinfo:
+        js.start("import", lambda ctx: None)
+    assert str(excinfo.value) == BUSY_TEXT  # the words belong to the import running, not to starting one
+    release.set()
+    other.done.wait(5)
+    assert "importing" in IMPORTING_TEXT and "Settings → Watched folders" in IMPORTING_TEXT
+    assert SCANNING_TEXT != IMPORTING_TEXT
+
+
+@pytest.mark.parametrize("left,words", [
+    (7, "Import stopped with 7 files to go. It carries on where it stopped."),
+    (1, "Import stopped with 1 file to go. It carries on where it stopped."),
+])
+def test_a_stopped_import_finishes_stopped_with_its_result_and_its_words(env, left, words):
+    from dataclasses import asdict
+    from discjockey import importer
+    paths, js, rec, _ = env
+    result = importer.ImportResult(3, 3, 1, 0, left, True, None)
+
+    def work(ctx):
+        ctx.failed_result = asdict(result)
+        raise importer.ImportStopped(result)
+
+    js.start("import", work).done.wait(5)
+    finished = rec.of(jobs.JobFinished)[-1]
+    assert (finished.ok, finished.problem, finished.message) == (False, "stopped", words)
+    assert finished.result["stopped"] is True and finished.result["left"] == left
+
+
+def test_a_job_can_word_its_own_success(env):
+    paths, js, rec, _ = env
+
+    def work(ctx):
+        ctx.message = "Imported 1 file."
+        return {"files": 1}
+
+    js.start("import", work).done.wait(5)
+    finished = rec.of(jobs.JobFinished)[-1]
+    assert (finished.ok, finished.message, finished.result) == (True, "Imported 1 file.", {"files": 1})
+    js.start("hide", lambda ctx: None).done.wait(5)
+    assert rec.of(jobs.JobFinished)[-1].message == ""  # no words unless the work sets them

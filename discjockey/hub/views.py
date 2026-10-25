@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from datetime import date, datetime, timedelta
+from pathlib import PurePosixPath
 from typing import Callable
 from urllib.parse import quote_plus
 
@@ -16,8 +17,9 @@ from ..accounts import (ACCOUNTS, BROWSERS, DEFAULT_LIMITS, MAX_LIMIT, PREMIUM_M
                         SERVICE_SIGNALS)
 from ..accounts import assessment as service_assessment, zones as service_zones
 from ..names import expected_stem, fold
-from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, MoveRow, PlannedMove,
-                      split_token, track_link as key_link)
+from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, DupFile, DuplicateGroup,
+                      ImportCounts, MoveRow, PlannedMove, Question, WatchedFolder, is_own, split_token,
+                      track_link as key_link)
 from ..pacing import KEEP_SIGNALS, Budget
 from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
@@ -489,7 +491,7 @@ CUE_TEXT = {"exact": "matches exactly, cues stay", "different": "doesn't match: 
 
 def track_row(track_id: str, e: dict, cover: Url | None = None) -> dict:
     source = e.get("source")
-    return {"track_id": track_id, "artist": e["artist"], "title": e["title"], "folder": e["folder"],
+    return {"track_id": track_id, "artist": e["artist"], "title": e["title"], "folder": e["folder"] or "",
             "duration_s": round((e.get("duration_ms") or 0) / 1000, 1), "status": e["status"],
             "quality": quality_class(e), "quality_label": quality_label(e), "cutoff_hz": e.get("cutoff_hz"),
             "source": source, "source_name": SHORT_SOURCE.get(source) if source else None,
@@ -613,6 +615,7 @@ SORTS = {"title": lambda r: fold(r["title"]), "artist": lambda r: (fold(r["artis
          "length": lambda r: r["duration_s"], "source": lambda r: r["source_name"] or "",
          "quality": lambda r: QUALITIES.index(r["quality"]), "added": lambda r: r["added"] or "",
          # tracks in no playlist sit in their folder on disk, but read as "Not in a playlist": they sort last
+         # (the user's own songs, from the import, have no folder: "")
          "folder": lambda r: (not r["in_playlists"], fold(r["folder"]), fold(r["artist"]), fold(r["title"]))}
 LIBRARY_FILTERS = ("all", "lossless", "good_lossy", "weak", "fake", "upgrade_ready")
 
@@ -630,8 +633,11 @@ def library(state: dict, folder: str | None, query: str, filt: str, sort: str, c
     elif folder == NOT_IN_PLAYLIST:
         chosen, title = {k: e for k, e in with_file.items() if not e.get("in_playlists")}, "Not in a playlist"
     else:
-        chosen, title = {k: e for k, e in with_file.items() if fold(e["folder"]) == fold(folder)}, folder
-    rows = [track_row(k, e, cover) for k, e in chosen.items()]
+        chosen, title = {k: e for k, e in with_file.items() if fold(e["folder"] or "") == fold(folder)}, folder
+    # sound_checked: false while an imported file has only the codec's provisional quality (import_state "identified",
+    # plan library stage 4 D1): the page says "sound not checked yet"
+    rows = [{**track_row(k, e, cover), "sound_checked": e.get("import_state") != "identified"}
+            for k, e in chosen.items()]
     in_folder = len(rows)
     by = {q: 0 for q in QUALITIES}
     for r in rows:
@@ -656,7 +662,8 @@ def sidebar(state: dict, folder_order: list[str], todo_count: int, warnings: boo
     with_file = [e for e in state["tracks"].values() if e["status"] != "missing" and e.get("path")]
     counts: dict[str, int] = {}
     for e in with_file:
-        counts[e["folder"]] = counts.get(e["folder"], 0) + 1
+        if e["folder"]:  # the user's own songs (the import) belong to no playlist folder
+            counts[e["folder"]] = counts.get(e["folder"], 0) + 1
     order = list(folder_order) + sorted((f for f in counts if fold(f) not in {fold(x) for x in folder_order}),
                                         key=fold)
     return {"todo": todo_count, "all_tracks": len(with_file),
@@ -668,6 +675,8 @@ def sidebar(state: dict, folder_order: list[str], todo_count: int, warnings: boo
 # --- to-do ---
 
 TODO_GROUPS = [("rekordbox_check", "Check in rekordbox", "the file changed; rekordbox needs a hand"),
+               ("same_song", "Is this the same song?", "a file of yours might be a playlist song"),
+               ("duplicate", "Duplicates", "the same song more than once"),
                ("upgrade_ready", "Upgrade ready", "a better version is waiting for you"),
                ("not_found", "Not found", "nothing usable anywhere"),
                ("weak", "Weak (≤ 17 kHz)", "audibly lossy"),
@@ -702,22 +711,122 @@ def _detail(group: str, e: dict, today: date, other: str | None) -> str:
     return " · ".join(x for x in (source, kbps) if x)
 
 
+# W8 (plan library stage 4 I12): why a file of the user's own might be a playlist song, and what the duplicates are
+QUESTION_ARTIST = "Same title, different artist"
+QUESTION_NO_ARTIST = "Same title, no artist in your file"
+QUESTION_LONGER = "Same artist and title, {s} s longer"
+QUESTION_SHORTER = "Same artist and title, {s} s shorter"
+QUESTION_NO_LENGTH = "Same artist and title, the length couldn't be read"
+DUPLICATE_AUDIO = "The same audio in {n} files"
+DUPLICATE_SONG = "{n} files of the same song"
+
+
+def question_why(q: Question) -> str:
+    """The words for a question's `why` (the file side's length is `delta_s` seconds longer or shorter)."""
+    if q.why == "artist":
+        return QUESTION_ARTIST
+    if q.why == "no_artist":
+        return QUESTION_NO_ARTIST
+    if q.why == "no_length" or q.delta_s is None:
+        return QUESTION_NO_LENGTH
+    return (QUESTION_LONGER if q.delta_s > 0 else QUESTION_SHORTER).format(s=abs(q.delta_s))
+
+
+def file_side(file_id: int, song_key: str | None, path: str, e: dict | None, quality_of: dict, online: bool,
+              in_playlist: bool, audio: Url | None = None) -> dict:
+    """FileSide: one file of a question or a duplicate group. `e`: the entry of its song (names and length; None when
+    the file is linked to no song: the file's name stands in); `quality_of`: the file's own status and cutoff (a
+    song's entry can describe another file)."""
+    name = e if e is not None else {"artist": "", "title": PurePosixPath(path).stem, "duration_ms": None}
+    q = {"status": quality_of.get("status"), "cutoff_hz": quality_of.get("cutoff_hz")}
+    return {"file_id": file_id, "song_key": song_key, "path": path, "artist": name["artist"] or "",
+            "title": name["title"] or "", "duration_s": round((name.get("duration_ms") or 0) / 1000, 1),
+            "quality": quality_class(q), "quality_label": quality_label(q), "online": online,
+            "audio_url": audio(song_key or "", {"path": path}) if audio else None, "in_playlist": in_playlist}
+
+
+def _question_item(q: Question, state: dict, cover: Url | None, audio: Url | None) -> dict | None:
+    """The To-do item of a question; None when its own song is gone from the records (answered or removed since)."""
+    own = state["tracks"].get(q.own_key)
+    if own is None or not own.get("path"):
+        return None
+    stored = state["tracks"].get(q.song_key)
+    track = q.track
+    e = stored if stored is not None else {
+        "artist": track.first_artist, "title": track.title, "folder": q.folder, "duration_ms": track.duration_ms,
+        "status": "missing", "cutoff_hz": None, "source": None, "in_playlists": True, "hidden": False, "upgrade": None,
+        "path": None, "added": None}
+    side = file_side(q.file_id, q.own_key, own["path"], own, own, bool(own.get("online")), False, audio)
+    pair = {"song_key": q.song_key, "own_key": q.own_key, "why": q.why, "delta_s": q.delta_s,
+            "track": {"artist": track.first_artist, "title": track.title,
+                      "duration_s": round((track.duration_ms or 0) / 1000, 1), "folder": q.folder, "link": track.link},
+            "file": side}
+    return {**track_row(q.song_key, e, cover), "group": "same_song", "detail": question_why(q), "free": False,
+            "pair": pair}
+
+
+def _duplicate_item(g: DuplicateGroup, files: Sequence[DupFile], state: dict, cover: Url | None,
+                    audio: Url | None) -> dict | None:
+    """The To-do item of a duplicate group; None unless every file of it is there to act on (online, not held)."""
+    if len(files) != len(g.file_ids) or len(files) < 2 or not all(f.online and f.usable for f in files):
+        return None
+    sides = []
+    for f in sorted(files, key=lambda f: f.file_id):
+        e = state["tracks"].get(f.song_key) if f.song_key else None
+        sides.append(file_side(f.file_id, f.song_key, f.path, e, {"status": f.status, "cutoff_hz": f.cutoff_hz},
+                               f.online, f.in_playlists, audio))
+    first = next((s for s in sides if s["in_playlist"]), sides[0])  # the playlist song's file names the group
+    e = state["tracks"].get(first["song_key"]) if first["song_key"] else None
+    row = {"track_id": g.id, "artist": first["artist"], "title": first["title"], "folder": (e or {}).get("folder") or "",
+           "duration_s": first["duration_s"], "status": (e or {}).get("status") or "lossless",
+           "quality": first["quality"], "quality_label": first["quality_label"],
+           "cutoff_hz": (e or {}).get("cutoff_hz"), "source": None, "source_name": None,
+           "in_playlists": first["in_playlist"], "hidden": False, "upgrade_ready": False, "path": first["path"],
+           "added": None, "cover_url": cover(first["song_key"], {"path": first["path"]}) if cover and first["song_key"]
+           else None}
+    n = len(sides)
+    return {**row, "group": "duplicate", "detail": (DUPLICATE_AUDIO if g.why == "same_audio" else DUPLICATE_SONG).format(n=n),
+            "free": False, "pair": {"group_id": g.id, "why": g.why, "files": sides}}
+
+
 def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], today: date,
-         cover: Url | None = None) -> dict:
-    """Groups in this order: Upgrade ready, Not found, Weak, Good lossy, Fake lossless, Other. `others`: track id ->
-    what blocks it (a move blocked by another file, several files that could be it). Hidden tracks are left out
-    unless show_hidden. "Check in rekordbox" lists every track with a `rekordbox_check`, hidden or not, so a track
-    can be in two groups; chips["all"] counts each track once."""
+         cover: Url | None = None, questions: Sequence[Question] = (), duplicates: Sequence[DuplicateGroup] = (),
+         dup_files: Mapping[str, Sequence[DupFile]] | None = None, audio: Url | None = None) -> dict:
+    """Groups in this order: Check in rekordbox, Is this the same song?, Duplicates, Upgrade ready, Not found, Weak,
+    Good lossy, Fake lossless, Other. `others`: track id -> what blocks it (a move blocked by another file, several
+    files that could be it). Hidden tracks are left out unless show_hidden. "Check in rekordbox" lists every track
+    with a `rekordbox_check`, hidden or not, so a track can be in two groups; chips["all"] counts each track once.
+
+    The import's (plan library stage 4): `questions` are the plan's "Is this the same song?" (a playlist song a file
+    of the user's own might be; the song waits for the answer, so it is not listed as Not found meanwhile).
+    `duplicates` are the plan's same-song groups and db.duplicate_groups' same-audio ones together, `dup_files` their
+    files (db.group_files); a group in both shows once, as the same audio. D8: the user's own songs are only on
+    To-do under Upgrade ready, in a question and in a duplicate group; their quality (Weak, Good lossy, Fake) is
+    for the Library to show."""
     items: dict[str, list] = {g: [] for g, _, _ in TODO_GROUPS}
     never = state.get("never") or {}  # "never download": not a to-do
     hidden = 0
     listed: set[str] = set()
+    held = {q.song_key for q in questions}
+    for q in questions:
+        if (item := _question_item(q, state, cover, audio)) is not None:
+            items["same_song"].append(item)
+            listed.add(q.song_key)
+    groups_by_id: dict[str, DuplicateGroup] = {}
+    for g in duplicates:
+        if g.id not in groups_by_id or g.why == "same_audio":
+            groups_by_id[g.id] = g
+    for g in groups_by_id.values():
+        if (item := _duplicate_item(g, (dup_files or {}).get(g.id, ()), state, cover, audio)) is not None:
+            items["duplicate"].append(item)
+            listed.add(g.id)
     for k, e in state["tracks"].items():
         if e.get("rekordbox_check"):
             items["rekordbox_check"].append({**track_row(k, e, cover), "group": "rekordbox_check",
                                              "detail": check_text(e["rekordbox_check"])})
             listed.add(k)
-        if not e.get("in_playlists") or (e["status"] == "missing" and k in never):
+        if k in held or (not e.get("in_playlists") and not (is_own(k) and e.get("upgrade"))) \
+                or (e["status"] == "missing" and k in never):
             continue
         group = _group(e) or ("other" if k in others else None)
         if group is None:
@@ -773,7 +882,8 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
     status = spotify_status(store, now, reading, logins)
     if prep is None:
         return {"spotify": status, "counts": None, "groups": [], "estimate": None, "never": [], "folders": [],
-                "in_playlists": None, "ambiguous": [], "dropped": [], "notes": [], "empty": "no_preview"}
+                "in_playlists": None, "ambiguous": [], "dropped": [], "notes": [], "empty": "no_preview",
+                "waiting_answers": 0, "deferred_checks": 0}
     plan_state = prep.state
     m = moneys(state, settings, today)
     todo, never = planned(prep, state)
@@ -795,7 +905,49 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
             "dropped": [{"track_id": k, "artist": plan_state["tracks"][k]["artist"],
                          "title": plan_state["tracks"][k]["title"], "folder": plan_state["tracks"][k]["folder"]}
                         for k in prep.plan.dropped],
-            "notes": list(prep.plan.notes), "empty": None if todo else "up_to_date"}
+            "notes": list(prep.plan.notes), "empty": None if todo else "up_to_date",
+            # W9: songs held for "Is this the same song?", first upgrade checks of imported music the cap left for later
+            "waiting_answers": len({q.song_key for q in prep.plan.questions}),
+            "deferred_checks": prep.plan.deferred_checks}
+
+
+# --- watched folders (Settings, Setup; plan library stage 4 I11) ---
+
+def watched_folders(folders: Sequence[WatchedFolder], counts: Mapping[int, ImportCounts], offline: Collection[int],
+                    library_files: int, unreadable: Sequence[tuple[PurePosixPath, str]], waiting: int, stopped: bool,
+                    phase: str | None) -> dict:
+    """The watched folders and how far their import is. `folders`: db.watched_folders (the Library first); `counts`:
+    db.import_counts; `offline`: ids of the folders whose path isn't there now; `library_files`: the Library's file
+    count; `unreadable`: db.import_unreadable (path, reason); `waiting`: db.import_left, the files an import would work
+    through now (offline drives' left out); `stopped`: the user stopped an import this session (Continue import);
+    `phase`: the running import's phase (ImportProgress.phase), None when none runs.
+
+    Row state: offline (the path isn't there, whatever else), scanning (an import is looking for files), importing
+    (one runs and this folder has files it hasn't finished), else online. Row `waiting`: files of the folder the
+    import still works through (not read yet, or read and not yet sound-checked); `unreadable`: files it couldn't read."""
+    roots = {f.id: PurePosixPath(str(f.path)) for f in folders if f.kind == "import"}
+    rows = []
+    for f in folders:
+        if f.kind == "library":
+            rows.append({"id": f.id, "path": str(f.path), "name": "Library", "kind": "library",
+                         "state": "scanning" if phase == "scan" else "online", "files": library_files,
+                         "waiting": 0, "unreadable": 0})
+            continue
+        c = counts.get(f.id) or ImportCounts(0, 0, 0, 0)
+        left = c.waiting + c.identified
+        state = ("offline" if f.id in offline else "scanning" if phase == "scan"
+                 else "importing" if phase is not None and left else "online")
+        rows.append({"id": f.id, "path": str(f.path), "name": roots[f.id].name or str(f.path), "kind": "import",
+                     "state": state, "files": c.files, "waiting": left, "unreadable": c.unreadable})
+
+    def owner(path: PurePosixPath) -> int | None:
+        inside = [i for i, root in roots.items() if path.is_relative_to(root)]
+        return max(inside, key=lambda i: len(roots[i].parts), default=None)
+
+    return {"folders": rows,
+            "unreadable": [{"folder_id": owner(PurePosixPath(str(p))), "path": str(p), "reason": reason}
+                           for p, reason in unreadable],
+            "waiting": waiting, "stopped": stopped}
 
 
 # --- playlists ---

@@ -9,7 +9,8 @@ const complete: SetupStatus = {
   music: { state: 'ok', path: '/Users/you/Music/Discjockey', suggested: '/Users/you/Music/Discjockey' },
   tools: { ffmpeg: true, ffprobe: true, deno: true }, spotify_app: true,
   spotify_login: true, qobuz: true, playlists: true, complete: true, next_step: null, version: '1.0.0',
-  qobuz_skipped: false, spotify_skipped: false, accounts: { youtube: null, soundcloud: null } };
+  qobuz_skipped: false, spotify_skipped: false, existing: false, import_folders: 0, import_skipped: false,
+  accounts: { youtube: null, soundcloud: null } };
 const fresh: SetupStatus = { ...complete, spotify_app: false, spotify_login: false, qobuz: false, playlists: false,
   complete: false, next_step: 'spotify' };
 const status = (over: Partial<SetupStatus>): SetupStatus => ({ ...complete, ...over });

@@ -260,3 +260,102 @@ def test_a_folder_inside_the_installed_app_is_refused(tmp_path, monkeypatch):
     api, _ = make_unbound_api(tmp_path / "support")
     r = api.check_music_folder(str(app / "Contents" / "Resources" / "Music"))
     assert (r["ok"], r["usable"], r["problem"]) == (True, False, "inside_app")
+
+
+# --- watched folders: what the window reads (plan library stage 4, I11) ---
+
+def watched(tmp_path, monkeypatch, n=2):
+    """A hub over a small library with one import folder of n files, imported."""
+    from datetime import datetime
+    from hub_helpers import fake_import, fake_spotify, import_folder, music_root
+    from discjockey import db
+    fake_spotify(monkeypatch)
+    fake_import(monkeypatch)
+    paths = music_root(tmp_path)
+    folder = import_folder(tmp_path, n)
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    return paths, folder, api, rec
+
+
+def test_the_watched_folders_list_the_library_first_with_counts_and_states(tmp_path, monkeypatch):
+    paths, folder, api, rec = watched(tmp_path, monkeypatch)
+    out = api.watched_folders()
+    assert out["ok"] and (out["waiting"], out["stopped"], out["unreadable"]) == (0, False, [])
+    assert [(r["kind"], r["name"], r["path"], r["state"], r["files"], r["waiting"], r["unreadable"])
+            for r in out["folders"]] == [
+        ("library", "Library", str(paths.library), "online", 2, 0, 0),
+        ("import", "Music", str(folder), "online", 2, 0, 0)]
+
+
+def test_a_folder_whose_drive_is_gone_is_offline_and_keeps_its_files(tmp_path, monkeypatch):
+    import shutil
+    paths, folder, api, rec = watched(tmp_path, monkeypatch)
+    shutil.move(str(folder), str(tmp_path / "unplugged"))
+    row = api.watched_folders()["folders"][1]
+    assert (row["state"], row["files"]) == ("offline", 2)
+
+
+def test_files_the_import_could_not_read_are_listed_with_their_folder_and_reason(tmp_path, monkeypatch):
+    from discjockey import db, importer
+    paths, folder, api, rec = watched(tmp_path, monkeypatch)
+    with db.connect(paths.db_file) as conn:
+        fid = conn.execute("SELECT id FROM files WHERE import_state = 'done' ORDER BY id").fetchone()[0]
+        db.set_unreadable(conn, fid, importer.NO_ACCESS)
+    out = api.watched_folders()
+    assert [(u["folder_id"], u["reason"]) for u in out["unreadable"]] == [
+        (out["folders"][1]["id"], "macOS doesn't let Discjockey read it")]
+    assert out["unreadable"][0]["path"].startswith(str(folder)) and out["folders"][1]["unreadable"] == 1
+
+
+def test_the_watched_folders_of_a_library_without_records_are_just_the_library(tmp_path):
+    from hub_helpers import music_root
+    paths = music_root(tmp_path)
+    paths.db_file.unlink()
+    api, _ = make_api(paths)
+    out = api.watched_folders()
+    assert out["ok"] and [(r["kind"], r["files"]) for r in out["folders"]] == [("library", 0)]
+
+
+def test_checking_a_folder_says_what_it_would_be_in_the_refusals_words(tmp_path, monkeypatch):
+    paths, folder, api, rec = watched(tmp_path, monkeypatch, n=1)
+    ok = api.check_import_folder(str(tmp_path))  # holds the music folder
+    assert (ok["ok"], ok["usable"], ok["problem"]) == (True, False, "holds_music")
+    assert ok["message"] == "This folder holds your music folder. Choose a folder inside it instead."
+    inside = api.check_import_folder(str(paths.library))
+    assert (inside["problem"], inside["message"]) == (
+        "music", "This is inside your music folder, which Discjockey watches already.")
+    deeper = folder / "Sub"
+    deeper.mkdir()
+    in_watched = api.check_import_folder(str(deeper))
+    assert in_watched["problem"] == "watched"
+    assert in_watched["message"] == "This is inside Music, which Discjockey watches already."
+    again = api.check_import_folder(str(folder))
+    assert (again["problem"], again["message"]) == ("already", "Discjockey watches this folder already.")
+    gone = api.check_import_folder(str(tmp_path / "nope"))
+    assert (gone["problem"], gone["exists"], gone["message"]) == (
+        "not_found", False, "That folder isn't there. If it is on a drive, connect the drive first.")
+    relative = api.check_import_folder("Music")
+    assert relative["problem"] == "not_absolute" and relative["message"]
+    fresh = tmp_path / "outside" / "Another"
+    fresh.mkdir()
+    free = api.check_import_folder(str(fresh))
+    assert (free["usable"], free["problem"], free["kind"], free["message"], free["merges"], free["merge_hints"]) == (
+        True, None, "import", None, [], [])
+
+
+def test_a_folder_holding_watched_ones_says_it_takes_them_over(tmp_path, monkeypatch):
+    paths, folder, api, rec = watched(tmp_path, monkeypatch, n=1)
+    parent = folder.parent
+    out = api.check_import_folder(str(parent))
+    assert (out["usable"], out["merges"]) == (True, [str(folder)])
+    assert out["merge_hints"] == ["Music is inside it and becomes part of it."]
+
+
+def test_the_removal_preview_names_the_folder_and_counts_what_goes(tmp_path, monkeypatch):
+    paths, folder, api, rec = watched(tmp_path, monkeypatch, n=3)
+    fid = api.watched_folders()["folders"][1]["id"]
+    assert api.removal_preview(fid) == {"ok": True, "name": "Music", "files": 3, "redownload": 0}
+    for bad in (api.watched_folders()["folders"][0]["id"], 999, "1", None, True):
+        r = api.removal_preview(bad)
+        assert (r["ok"], r["kind"], r["message"]) == (False, "refused", "That folder isn't one of the watched folders.")

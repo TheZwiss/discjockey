@@ -46,6 +46,7 @@ class Settings:
     warnings_seen: Mapping[str, str] = field(default_factory=dict, hash=False)
     qobuz_last_check: Mapping | None = field(default=None, hash=False)  # {ok, problem, kbps, at} of the last login
     spotify_skipped: bool = False  # Spotify left out in setup (connect it later in Settings)
+    import_skipped: bool = False  # "Your existing music" left out in setup (add folders later in Settings)
 
     def extra_for(self, day: date) -> int:
         return self.extra_amount if self.extra_date == day.isoformat() else 0
@@ -127,11 +128,14 @@ def load_settings(path: Path) -> Settings:
         spotify_skipped = data.get("spotify_skipped", False)
         if not isinstance(spotify_skipped, bool):
             raise SettingsError(f"{path.name}: spotify_skipped must be true or false.")
+        import_skipped = data.get("import_skipped", False)
+        if not isinstance(import_skipped, bool):
+            raise SettingsError(f"{path.name}: import_skipped must be true or false.")
         seen = data.get("warnings_seen") or {}
         if not isinstance(seen, dict) or not all(isinstance(v, str) for v in seen.values()):
             raise SettingsError(f"{path.name}: warnings_seen must map services to times.")
         s = Settings(limit, day, amount, accounts, skipped, {str(k): v for k, v in seen.items()},
-                     _last_check(path, data.get("qobuz_last_check")), spotify_skipped)
+                     _last_check(path, data.get("qobuz_last_check")), spotify_skipped, import_skipped)
     except SettingsError:
         raise
     except (ValueError, TypeError, AttributeError, KeyError) as e:
@@ -154,7 +158,7 @@ def _extra_json(day: str | None, amount: int) -> dict | None:
 def save_settings(path: Path, s: Settings) -> None:
     data = {"daily_qobuz_limit": s.daily_qobuz_limit, "extra_today": _extra_json(s.extra_date, s.extra_amount),
             "qobuz_skipped": s.qobuz_skipped, "spotify_skipped": s.spotify_skipped,
-            "warnings_seen": dict(s.warnings_seen),
+            "import_skipped": s.import_skipped, "warnings_seen": dict(s.warnings_seen),
             "qobuz_last_check": dict(s.qobuz_last_check) if s.qobuz_last_check else None,
             "accounts": {k: {"browser": a.browser, "profile": a.profile, "daily_limit": a.daily_limit,
                              "extra_today": _extra_json(a.extra_date, a.extra_amount),

@@ -14,7 +14,7 @@ function item(id: string, group: TodoGroupKey, extra: Partial<TodoItem> = {}): T
     cover_url: null, group, detail: '', free: false, ...extra };
 }
 function todo(groups: [TodoGroupKey, string[]][]): Todo {
-  const chips = { all: 0, rekordbox_check: 0, upgrade_ready: 0, not_found: 0, weak: 0, good_lossy: 0, fake: 0, other: 0 };
+  const chips = { all: 0, rekordbox_check: 0, same_song: 0, duplicate: 0, upgrade_ready: 0, not_found: 0, weak: 0, good_lossy: 0, fake: 0, other: 0 };
   return { chips, hidden_count: 0, show_hidden: false, empty: null,
     groups: groups.map(([key, ids]) => ({ key, label: key, hint: '', items: ids.map((id) => item(id, key)) })) };
 }
@@ -95,7 +95,7 @@ describe('selection helpers', () => {
 });
 
 describe('filter strip', () => {
-  const chips = { all: 9, rekordbox_check: 0, upgrade_ready: 2, not_found: 3, weak: 0, good_lossy: 4, fake: 0, other: 0 };
+  const chips = { all: 9, rekordbox_check: 0, same_song: 0, duplicate: 0, upgrade_ready: 2, not_found: 3, weak: 0, good_lossy: 4, fake: 0, other: 0 };
   it('come in spec order with zero ones hidden (All always shown)', () => {
     expect(segOptions(chips, 'all').map((o) => o.key)).toEqual(['all', 'upgrade_ready', 'not_found', 'good_lossy']);
     expect(segOptions({ ...chips, all: 0, upgrade_ready: 0, not_found: 0, good_lossy: 0 }, 'all').map((o) => o.key))

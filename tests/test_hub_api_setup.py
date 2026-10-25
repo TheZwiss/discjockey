@@ -749,3 +749,46 @@ def test_skip_spotify_and_connect_it_later(root, monkeypatch):
     monkeypatch.setattr(spotify, "current_user", lambda session: ("id", "DJ One"))
     assert wait_job(api, rec, api.setup_spotify_login()).ok
     assert not load_settings(root.settings_file).spotify_skipped
+
+
+def test_the_existing_music_step_is_done_by_a_folder_or_a_skip_and_never_blocks(tmp_path, monkeypatch):
+    from datetime import datetime
+    from hub_helpers import import_folder, music_root
+    from discjockey import db
+    paths = music_root(tmp_path)
+    api, rec = make_api(paths)
+    st = api.setup_status()
+    assert (st["existing"], st["import_folders"], st["import_skipped"]) == (False, 0, False)
+    required = (st["complete"], st["next_step"])
+    assert api.setup_skip_import() == {"ok": True}  # a brief save, not a job
+    assert rec.events == [] and load_settings(paths.settings_file).import_skipped
+    st = api.setup_status()
+    assert (st["existing"], st["import_folders"], st["import_skipped"]) == (True, 0, True)
+    assert (st["complete"], st["next_step"]) == required  # the required steps are the same either way
+    save_settings(paths.settings_file, Settings())
+    with db.connect(paths.db_file) as conn:
+        db.add_watched_folder(conn, import_folder(tmp_path, 1), datetime(2026, 10, 20))
+    st = api.setup_status()
+    assert (st["existing"], st["import_folders"], st["import_skipped"]) == (True, 1, False)
+    assert (st["complete"], st["next_step"]) == required
+
+
+def test_the_existing_music_step_without_a_music_folder_and_while_a_job_writes(tmp_path):
+    api, rec = make_unbound_api(tmp_path / "support")
+    st = api.setup_status()
+    assert (st["existing"], st["import_folders"]) == (False, 0) and st["next_step"] == "music"
+    assert api.setup_skip_import() == {"ok": True}  # Setup's skip works before the library is bound too
+    assert api.setup_status()["existing"] is True
+
+
+def test_skipping_the_existing_music_step_waits_for_a_running_job(root):
+    api, rec = make_api(root)
+    gate = threading.Event()
+    api._jobs.start("x", lambda ctx: gate.wait(5))
+    try:
+        r = api.setup_skip_import()
+        assert (r["ok"], r["kind"]) == (False, "busy") and not load_settings(root.settings_file).import_skipped
+    finally:
+        gate.set()
+        api._jobs.wait(5)
+    assert api.setup_skip_import() == {"ok": True}
