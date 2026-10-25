@@ -10,7 +10,7 @@ import { LIBRARY_METHODS } from '../contract';
 import {
   FAKE_MUSIC, FAKE_NEWEST_YT_DLP, QOBUZ_UNREADABLE, SERVICE_NAME, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkText, coverUri, dateOnly, folderList, hash, inFolder, isoLocal, makeState, nextStep,
   pathOf, playlistRows, previewAction, qualityLabel, qualityLine, qualityOf, result, runDetail, runId,
-  sampleCandidates, spotifyOk, todoDetail, todoFree, formatLine, SOURCE_FULL, todoGroup, trackRow, type FakeAccount, type FakeState,
+  readStatus, sampleCandidates, spotifyOk, todoDetail, todoFree, formatLine, SOURCE_FULL, todoGroup, trackRow, type FakeAccount, type FakeState,
   type FakeTrack,
 } from './data';
 import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, rewrite } from './replay';
@@ -358,7 +358,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const hour = new Date().getHours();
       return ok({
         greeting: hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening',
-        spotify: { ...s.spotify },
+        spotify: readStatus(s),
         tiles: { lossless: { share: inPl.length ? lossless / inPl.length : null, lossless, total: inPl.length,
           by_quality: byQuality(inPl) }, qobuz_today: budget(s), still_to_load: stillToLoad(),
           account_today: cards(s).find((c) => c.set_up) ?? null },
@@ -386,10 +386,10 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     },
     async sync_preview() {
       const p = preview();
-      if (!s.previewRead) return ok({ spotify: { ...s.spotify }, counts: null, groups: [], estimate: null, never: [],
+      if (!s.previewRead) return ok({ spotify: readStatus(s), counts: null, groups: [], estimate: null, never: [],
         folders: [], in_playlists: null, ambiguous: [], dropped: [], notes: [],
         empty: 'no_preview' as const });  // like views.sync_preview: never not_set_up
-      return ok({ spotify: { ...s.spotify }, counts: p.counts, groups: p.groups, estimate: p.estimate, never: p.never,
+      return ok({ spotify: readStatus(s), counts: p.counts, groups: p.groups, estimate: p.estimate, never: p.never,
         folders: p.folders, in_playlists: p.in_playlists, ambiguous: [], dropped: [], notes: [],
         empty: p.actions ? null : 'up_to_date' as const });
     },
@@ -399,7 +399,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       }
       if (job?.running && job.kind === 'sync') return fail('busy', 'Not while a sync runs.');
       if (refreshJob) return fail('busy', 'Spotify is being read already.');
-      if (!s.setup.spotify_login) return fail('not_set_up', 'Spotify is not set up yet.');
+      // only a service playlists.txt uses must be logged in (plan stage 3, D1)
+      const off = readStatus(s).services.find((x) => !x.connected);
+      if (off) return fail('not_set_up', `Connect ${off.name} first.`, off.service);
       const id = nextId++;
       s.spotify = { ...s.spotify, reading: true, auto_read: s.spotify.auto_read || auto };
       const [, msg] = STREAMS.sync;
@@ -438,7 +440,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     },
     async job_status() {
       return ok({ job: job ? job.snapshot() : null, refresh_running: !!refreshJob, console_running: s.console_running,
-        spotify: { ...s.spotify }, sign_in: signIn ? signIn.snapshot() : null });
+        spotify: readStatus(s), sign_in: signIn ? signIn.snapshot() : null });
     },
     async library(folder: string | null, query: string, filter: LibraryFilter, sort: LibrarySort) {
       const known = folder === null || folder === NOT_IN_PLAYLIST || folderList(s).some((f) => f.folder === folder);
@@ -642,7 +644,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (block) return block;
       const q = /open\.qobuz\.com\/playlist\/(\d+)/.exec(url ?? '');
       if (q) {
-        if (s.spotify.services.some((x) => x.service === 'qobuz' && !x.connected)) {
+        if (s.qobuzNotConnected) {
           return fail('not_set_up', 'Connect Qobuz first.', 'qobuz');
         }
         if (s.qobuzUnreadable) return later(700, () => fail('playlist_unreadable', QOBUZ_UNREADABLE, 'qobuz'));

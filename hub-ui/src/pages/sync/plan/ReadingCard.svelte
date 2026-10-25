@@ -1,5 +1,5 @@
 <script lang="ts">
-  // While Spotify is read (spec §8): a Surface card, the way every status sits in a container (§4). The spinner and
+  // While the playlists are read (spec §8): a Surface card, the way every status sits in a container (§4). The spinner and
   // the title read first; which playlist, out of how many, sits at the card's right edge as a count, and the bar under
   // them shows the same share (§4: a quantity is a number plus a visual). The card is neutral, not orange: orange is
   // action and selection (§4), and this is status; the bar keeps the accent because it is the read the user (or the
@@ -13,12 +13,12 @@
 
 <Surface kind="card" class="reading-card" role="status" data-test="sync-reading">
   <div class="line">
-    <Spinner size={12} label="Reading Spotify" />
-    <span class="title">Reading your Spotify playlists</span>
+    <Spinner size={12} label="Reading playlists" />
+    <span class="title">Reading your playlists</span>
     {#if progress}<span class="where" data-test="sync-reading-where" title="{progress.index} of {progress.total} · {progress.folder}"><span
       class="n">{progress.index} of {progress.total}</span> · {progress.folder}</span>{/if}
   </div>
-  <ProgressBar {value} pace="live" label="Reading Spotify" />
+  <ProgressBar {value} pace="live" label="Reading playlists" />
   {#if stale}<Hint text="What's below is from the last read · it updates when this is done" />{/if}
 </Surface>
 

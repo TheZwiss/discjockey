@@ -1,10 +1,10 @@
 <script lang="ts">
   // Playlists (spec §5.5, design system mockup design-system/playlists.html): the rows of playlists.txt (top =
   // highest priority), edited as a draft and saved with save_playlists(lines, loaded_version). ListPanelFrame: the
-  // header (Spotify slot: the only Read Spotify), the paste field, then one Surface list anchored to the window that
+  // header (read slot: the only Read playlists), the paste field, then one Surface list anchored to the window that
   // scrolls in place. The panel (ChangePanel) says what the unsaved change does; its foot is Undo · Save, the screen's
   // one filled button, or the save question's two saves when the change puts files in another folder. "Tidy up files"
-  // (header, beside Read Spotify; orange with the count while files are out of place) and an Undo of a recent move
+  // (header, beside Read playlists; orange with the count while files are out of place) and an Undo of a recent move
   // open MovesPanel in the panel's place: preview, progress, result. A save that moves files shows its progress there
   // too.
   import { untrack } from 'svelte';
@@ -189,7 +189,7 @@
     <div data-test="playlists-loading"><Skeleton lines={5} height={52} gap={2} /></div>
   {:else if !draft.length}
     <Surface kind="card" data-test="playlists-empty">
-      <EmptyState title="No playlists yet." body="Paste a Spotify playlist link above." action={null} />
+      <EmptyState title="No playlists yet." body="Paste a Spotify or Qobuz playlist link above." action={null} />
     </Surface>
   {:else}
     <Surface kind="list" label="Your playlists" summary={onOffText(draft)} grow={{ rows: draft.length, tall: true }}

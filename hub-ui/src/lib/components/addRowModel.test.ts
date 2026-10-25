@@ -35,6 +35,14 @@ describe('links', () => {
     expect(hasLink(ROWS, 'spotify:playlist:3DiscjockeyExampleList')).toBe(true);
     expect(hasLink(ROWS, 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M')).toBe(false);
   });
+  it("keys a Qobuz playlist by service and id, in the player's and the store's forms (sources/qobuz.py)", () => {
+    expect(playlistKey('https://open.qobuz.com/playlist/900000001')).toBe('qobuz:900000001');
+    expect(playlistKey('https://play.qobuz.com/playlist/900000001?x=1')).toBe('qobuz:900000001');
+    expect(playlistKey('https://www.qobuz.com/gb-en/playlists/example-picks/900000001')).toBe('qobuz:900000001');
+    const rows = [...ROWS, { key: 'q', folder: 'Qobuz_Picks', link: 'https://open.qobuz.com/playlist/900000001' }];
+    expect(hasLink(rows, 'https://www.qobuz.com/gb-en/playlists/example-picks/900000001')).toBe(true);
+    expect(hasLink(rows, 'https://open.qobuz.com/playlist/900000002')).toBe(false);
+  });
 });
 
 describe('owner', () => {

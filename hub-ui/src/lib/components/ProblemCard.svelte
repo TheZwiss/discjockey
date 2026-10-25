@@ -9,21 +9,22 @@
   // beside the card's own action inside the card, so it sits with the problem it answers instead of loose on the
   // background below it (§4, grouping by proximity; spec §11, Task 10B).
   import type { Snippet } from 'svelte';
-  import type { ProblemKind } from '../bridge/types';
+  import type { PlaylistService, ProblemKind } from '../bridge/types';
   import { detailLine, problemCopy } from '../copy';
   import { api } from '../bridge/client';
   import Button from './Button.svelte';
   import Surface from './Surface.svelte';
 
-  // `spotify`: the problem is Spotify's login (its "not set up" reads "Spotify isn't connected.", like the banner)
-  let { kind, message, onretry, report, compact = false, sync = false, spotify = false, actions,
+  // `service`: the playlist service whose login the problem is about (the bridge's `Fail.service`, the read status's
+  // `problem_service`): its "not set up" reads "Qobuz isn't connected." with Connect Qobuz →, like the banner
+  let { kind, message, onretry, report, compact = false, sync = false, service = null, actions,
     alert = false }:
     { kind: ProblemKind; message: string; onretry?: () => void; report?: { run_id: string } | null; compact?: boolean;
     /** a problem the user's own action just caused (a start, a search): announced at once (`role=alert`); a card
      *  drawn with its page has no role, so VoiceOver doesn't interrupt on load (final review M11) */
     alert?: boolean;
-      sync?: boolean; spotify?: boolean; actions?: Snippet } = $props();
-  const c = $derived(problemCopy(kind, { sync, spotify }));
+      sync?: boolean; service?: PlaylistService | null; actions?: Snippet } = $props();
+  const c = $derived(problemCopy(kind, { sync, service }));
   // the headline's own button only when this card can carry it out (no report → fall back to Try again)
   const action = $derived(
     c.action && (c.action.href || (c.action.retry && onretry) || (c.action.report && report)) ? c.action : undefined,
@@ -31,6 +32,9 @@
   // the detail line minus a repeat of the headline, and minus a lone "Try again." next to a Try again button
   const button = $derived(action?.label ?? (onretry && !compact ? 'Try again' : ''));
   const detail = $derived.by(() => {
+    // a service's missing login: the bridge's message is "Connect Qobuz first.", which the Connect Qobuz → button
+    // beside the title already is
+    if (service && kind === 'not_set_up') return '';
     const d = detailLine(message, c.title);
     const norm = (x: string) => x.trim().replace(/[.…]+$/, '').toLowerCase();
     return button && norm(d) === norm(button) ? '' : d;

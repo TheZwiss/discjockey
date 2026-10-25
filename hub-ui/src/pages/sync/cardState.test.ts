@@ -5,7 +5,7 @@ import type { HubEvent } from '$lib/bridge/events';
 import { EMPTY_RUN, reduceRun, type RunState } from '$lib/stores/run';
 import type { Budget, LimitCard, Result } from '$lib/bridge/types';
 import { SYNC_LINES, lineOf } from '$lib/bridge/fake/replay';
-import { cardState, liveUsage, qobuzFallback, stepIndex, verdict, type Card } from './cardState';
+import { cardState, lengthLine, liveUsage, qobuzFallback, stepIndex, verdict, type Card } from './cardState';
 
 const lines = (raw: string): HubEvent[] => raw.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
 const sync = lines(syncRaw);
@@ -57,9 +57,9 @@ describe('cardState with the recorded sync', () => {
     expect(L(SYNC_LINES.converting - 1).card.kind).not.toBe('converting');
   });
   it('prepares with the last info message before RunStarted', () => {
-    expect(L(7).card).toEqual({ kind: 'preparing', text: 'Reading your Spotify playlists...' });
-    expect(L(8).card).toEqual({ kind: 'preparing', text: 'Reading your Spotify playlists · 1 of 2 · Hard_Bounce' });
-    expect(L(9).card).toEqual({ kind: 'preparing', text: 'Reading your Spotify playlists · 2 of 2 · Powertrance' });
+    expect(L(7).card).toEqual({ kind: 'preparing', text: 'Reading your playlists...' });
+    expect(L(8).card).toEqual({ kind: 'preparing', text: 'Reading your playlists · 1 of 2 · Hard_Bounce' });
+    expect(L(9).card).toEqual({ kind: 'preparing', text: 'Reading your playlists · 2 of 2 · Powertrance' });
     expect(L(10).card).toEqual({ kind: 'preparing', text: 'Looking up the bitrate of 1 older download...' });
     expect(L(11).card.kind).toBe('preparing');
   });
@@ -86,9 +86,14 @@ describe('cardState with the recorded sync', () => {
   });
   it('converts with the length line', () => {
     const c = L(conv1).card;
-    expect(c).toMatchObject({ kind: 'converting', lengthLine: 'Length matches (0:12 = Spotify 0:12)', lengthOk: true,
+    expect(c).toMatchObject({ kind: 'converting', lengthLine: 'Length matches (0:12 = playlist 0:12)', lengthOk: true,
       done_s: 12, total_s: 12 });
     expect(L(conv1 - 1).card).toMatchObject({ kind: 'converting', done_s: 0 });
+  });
+  it("compares the file with the playlist's length, whichever service it is on (plan stage 3, W13)", () => {
+    expect(lengthLine({ file_duration_s: 192, track_duration_s: 268, ok: false }))
+      .toBe('Length differs (3:12, playlist 4:28)');
+    expect(lengthLine(null)).toBeNull();
   });
   it('shows the lossless result', () => {
     const c = L(done1).card;

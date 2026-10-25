@@ -115,12 +115,21 @@ describe('row texts', () => {
   it('numbers switched-on rows, "–" for switched-off ones', () => {
     expect(priorities(toggle(addRow(d, ADDED, 'N'), d[0].key))).toEqual(['–', '1', '2']);
   });
-  it('info line: name and owner, not read yet, unreadable, switched off', () => {
-    expect(infoLine(d[0])).toEqual({ text: '"Name of 0Dis" · yours', tone: 'muted' });
-    expect(infoLine({ ...d[0], info: null })).toEqual({ text: 'not read yet', tone: 'muted' });
-    expect(infoLine({ ...d[0], info: { ...info('x', 0), yours: false, readable: false } }).tone).toBe('bad');
+  it('info line: the service, then name and owner, not read yet, unreadable, switched off', () => {
+    expect(infoLine(d[0])).toEqual({ service: 'Spotify', text: '"Name of 0Dis" · yours', tone: 'muted' });
+    expect(infoLine({ ...d[0], info: null })).toEqual({ service: 'Spotify', text: 'not read yet', tone: 'muted' });
     expect(infoLine({ ...d[0], info: { ...info('x', 0), yours: false, collaborative: true } }).text).toBe('"x" · collaborative');
     expect(infoLine({ ...d[0], enabled: false }).text).toBe('switched off · files stay');
+  });
+  it("says an unreadable playlist in its own service's words, the engine's hint (plan stage 3, W5)", () => {
+    const hint = 'Make it public in Qobuz, or use one of your own playlists.';
+    const q = addRow(d, { ...ADDED, playlist_id: 'qobuz:900000001', service: 'qobuz', service_name: 'Qobuz',
+      link: 'https://open.qobuz.com/playlist/900000001',
+      info: { ...info('Qobuz Picks', 0), yours: false, readable: false, hint } }, 'Qobuz_Picks')[2];
+    expect(q).toMatchObject({ service: 'qobuz', serviceName: 'Qobuz' });
+    expect(infoLine(q)).toEqual({ service: 'Qobuz', text: hint, tone: 'bad' });
+    expect(infoLine({ ...d[0], info: { ...info('x', 0), readable: false } }))
+      .toEqual({ service: 'Spotify', text: 'Make your own copy.', tone: 'bad' });
   });
   it('header status line and list summary count only what is switched on', () => {
     const off = toggle(d, d[1].key);

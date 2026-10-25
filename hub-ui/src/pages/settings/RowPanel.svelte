@@ -18,7 +18,9 @@
   import { updateLink } from '$lib/appUpdate';
   import { waitForJob } from '$lib/stores/jobs';
   import { CLIENT_ID_BAD, TOOL_NAMES, TOOL_PURPOSE, checkClientId, takeSecret, toolFixes } from '../setup/setupModel';
-  import { cardJob, needsReopen, reopenNote, toolsCard, updateOutcome, type SettingsRow } from './settingsModel';
+  import {
+    cardJob, needsReopen, reopenNote, spotifyState, spotifyUsed, toolsCard, updateOutcome, type SettingsRow,
+  } from './settingsModel';
 
   // `toolsError`: reading the programs failed and there are no versions to show (the cards give way to a retry)
   let { row, status, tools, toolsError = null, reports, disabledWhy = null, onchanged, onrecheck }: {
@@ -180,14 +182,18 @@
     {#if !status}
       <Skeleton lines={3} />
     {:else}
-      <Surface kind="card" label="Spotify" tone={status.spotify_login ? 'good' : 'problem'}>
+      {@const sp = spotifyState(status, spotifyUsed($hub.spotify))}
+      {@const tone = sp === 'connected' ? 'good' : sp === 'left_out' ? 'default' : 'problem'}
+      <Surface kind="card" label="Spotify" {tone}>
         <div class="state">
-          <StatusMark tone={status.spotify_login ? 'good' : 'problem'} />
-          <span class="strong" data-test="spotify-state">{status.spotify_login
+          <StatusMark tone={sp === 'connected' ? 'good' : sp === 'left_out' ? 'none' : 'problem'} />
+          <span class="strong" data-test="spotify-state">{sp === 'connected'
             ? (status.spotify_user ? `Connected as ${status.spotify_user}` : 'Connected')
-            : status.spotify_app ? 'Not connected' : 'Not set up'}</span>
+            : sp === 'left_out' ? 'Left out' : sp === 'not_connected' ? 'Not connected' : 'Not set up'}</span>
         </div>
-        <p class="note">Discjockey reads your playlists from Spotify; it never changes them.</p>
+        <p class="note">{sp === 'left_out'
+          ? "You chose I don't use Spotify in Setup. Connect it when a playlist of yours is on Spotify."
+          : 'Discjockey reads your playlists from Spotify; it never changes them.'}</p>
         {#if connecting}
           <div class="state"><Spinner size={12} label="Waiting" /><span class="muted">Waiting for the Spotify login in
             your browser…</span></div>

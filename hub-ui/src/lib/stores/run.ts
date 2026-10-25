@@ -7,8 +7,8 @@ import type { JobSnap, PlannedAction } from '../bridge/types';
 export const DOWNLOAD_KINDS = ['sync', 'use_candidate', 'use_link'];
 export const MAX_MESSAGES = 20;
 const SMOOTH = 0.3;   // weight of the newest rate sample
-const READING = 'Reading your Spotify playlists';
-/** "Reading your Spotify playlists · 2 of 7 · Powertrance" */
+const READING = 'Reading your playlists';
+/** "Reading your playlists · 2 of 7 · Powertrance" (the engine's line is "Reading your playlists...", run.py) */
 export const readingLine = (r: { index: number; total: number; folder: string }) =>
   `${READING} · ${r.index} of ${r.total} · ${r.folder}`;
 
@@ -100,7 +100,7 @@ export function reduceRun(s: RunState, e: HubEvent, now: number): RunState {
       if (e.level === 'debug') return s;
       return { ...s, messages: [...s.messages, { level: e.level, text: e.text, at: now }].slice(-MAX_MESSAGES) };
     case 'ReadingPlaylist': {
-      // "Reading your Spotify playlists · 2 of 7 · Powertrance" replaces the plain reading line (and the last count)
+      // "Reading your playlists · 2 of 7 · Powertrance" replaces the plain reading line (and the last count)
       const text = readingLine(e);
       const keep = s.messages.at(-1)?.text.startsWith(READING) ? s.messages.slice(0, -1) : s.messages;
       return { ...s, messages: [...keep, { level: 'info' as const, text, at: now }].slice(-MAX_MESSAGES) };

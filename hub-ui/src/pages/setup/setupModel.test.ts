@@ -126,6 +126,8 @@ describe('Continue', () => {
   it('Spotify and First playlist: only when that part is set up', () => {
     expect(nextRule('spotify', fresh, toolsOk).allowed).toBe(false);
     expect(nextRule('spotify', status({}), toolsOk).allowed).toBe(true);
+    expect(nextRule('spotify', fresh, toolsOk).why).toBe("Connect Spotify, or choose I don't use Spotify.");
+    expect(nextRule('spotify', { ...fresh, spotify_skipped: true }, toolsOk).allowed).toBe(true);
     expect(nextRule('playlists', fresh, toolsOk)).toEqual({ allowed: false, why: 'Add a playlist first.' });
     expect(nextRule('playlists', complete, toolsOk).allowed).toBe(true);
   });
@@ -162,6 +164,12 @@ describe('a done setup opens Settings', () => {
   it('keeps an open setup in the guide', () => {
     expect(doneRedirect(fresh, 'spotify')).toBeNull();
     expect(doneRedirect(fresh, null)).toBeNull();
+  });
+  it("keeps a Spotify left out in the guide's Spotify step, where Settings sends it to make the app (plan stage 3, D1)", () => {
+    const skipped = status({ spotify_app: false, spotify_login: false, spotify_skipped: true });
+    expect(doneRedirect(skipped, 'spotify')).toBeNull();
+    expect(doneRedirect(skipped, 'downloads')).toBe('/settings/qobuz');
+    expect(doneRedirect(skipped, null)).toBe('/settings');
   });
 });
 

@@ -7,7 +7,7 @@
   import { untrack } from 'svelte';
   import { api } from '$lib/bridge/client';
   import type { Dashboard, Fail } from '$lib/bridge/types';
-  import { dataVersion, hubSyncRunning, spotifyMissing } from '$lib/stores/hub';
+  import { dataVersion, hubSyncRunning, readBlocked } from '$lib/stores/hub';
   import { run } from '$lib/stores/run';
   import { markReady } from '$lib/ready';
   import { go, libraryHref, link } from '$lib/router';
@@ -47,7 +47,7 @@
   const empty = $derived(data?.empty ?? null);
   const health = $derived(data ? healthCard(data.tiles.lossless, empty) : null);
   const needs = $derived(data ? needsRows(data.needs_you) : []);
-  const next = $derived(data ? nextSync(data, $hubSyncRunning, !$spotifyMissing && empty !== 'not_set_up') : null);
+  const next = $derived(data ? nextSync(data, $hubSyncRunning, !$readBlocked && empty !== 'not_set_up') : null);
   const runShare = $derived($run.total ? Math.max(0, $run.index - 0.5) / $run.total : null);
   const now = Date.now();
 

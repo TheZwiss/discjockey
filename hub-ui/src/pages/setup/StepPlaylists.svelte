@@ -42,7 +42,7 @@
   }
 </script>
 
-<Surface kind="card" label="Add a Spotify playlist"
+<Surface kind="card" label="Add a Spotify or Qobuz playlist"
   summary="Discjockey keeps each playlist's tracks in a folder of its own." data-test="playlist-add">
   <AddRow {draft} filled={!draft.length} onadd={added} />
   {#if saveError}
@@ -62,7 +62,7 @@
     {#each loaded.rows as r (r.index)}
       <ListRow test="playlist-row">
         {#snippet name()}{r.folder}{/snippet}
-        {#snippet sub()}{r.info ? `“${r.info.name}”` : r.link}{/snippet}
+        {#snippet sub()}{r.service_name} · {r.info ? `“${r.info.name}”` : r.link}{/snippet}
         {#snippet trailing()}<span class="count">{r.tracks == null ? '' : plural(r.tracks, 'track')}</span>{/snippet}
       </ListRow>
     {/each}
