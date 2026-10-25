@@ -95,7 +95,8 @@ class Acquirer:
 
     def acquire(self, track: SourceTrack, rejected: set[str], workdir: Path, lossless_only: bool,
                 tracker: Tracker | None = None, better_than: int | None = None, originals: bool = True,
-                declined: set[str] | frozenset[str] = frozenset(), qobuz: bool = True) -> AcquireResult:
+                declined: set[str] | frozenset[str] = frozenset(), qobuz: bool = True,
+                exact: str | None = None) -> AcquireResult:
         """`better_than`: an upgrade check of a lossy file with that bitrate; below ~256 kbps the accounts are asked
         too (spec §4), and only a clearly better stream counts. `originals` False: an upgrade check that leaves out
         the artists' originals on SoundCloud, already searched since the last real check (free_downloads stays None).
@@ -110,6 +111,15 @@ class Acquirer:
         if self.qobuz is not None and qobuz:
             if self.budget.exhausted():
                 return AcquireResult("queued", note=self.budget.why_exhausted())
+            if exact:  # the playlist read has the facts already: no metadata request, the download is paced and counted
+                c = Candidate("qobuz", exact, track.title, " ".join(track.artists), track.duration_ms / 1000,
+                              isrc=track.isrc, album=track.album, image_url=track.image_url)
+                if c.key not in skip:
+                    ready = self._try(c, track, workdir, res, skip, lossless_only, tracker, qobuz=True, how="exact")
+                    if ready:
+                        res.kind, res.ready = "ready", ready
+                        return res
+                    skip.add(c.key)  # the ISRC search that follows doesn't download the same id again
             steps = []
             if track.isrc:
                 steps.append(("ISRC", track.isrc, lambda c: isrc_match(track, c, skip)))

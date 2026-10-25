@@ -106,7 +106,7 @@ class FakeAcquirer:
         self.ctrl_c = ctrl_c  # how many SIGINTs one press delivers (uv/caffeinate forward it a second time)
         self.calls = 0
 
-    def acquire(self, track, rejected, workdir, lossless_only, tracker):
+    def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None):
         self.calls += 1
         for _ in range(self.ctrl_c):
             os.kill(os.getpid(), signal.SIGINT)
