@@ -723,19 +723,68 @@ def test_a_stop_with_one_file_to_go_says_so_in_the_singular(lib):
     assert f.result["left"] == 1 and f.message == "Import stopped with 1 file to go. It carries on where it stopped."
 
 
+def import_jobs(rec):
+    return [e for e in rec.events if isinstance(e, jobs.JobStarted) and e.kind == "import"]
+
+
+def wait_idle(api):
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and (api._jobs.current is None or not api._jobs.current.done.is_set()):
+        time.sleep(0.01)
+
+
 def test_the_import_starts_by_itself_after_the_opening_scan_when_files_wait(lib):
     paths, folder, fakes = lib
     with db.connect(paths.db_file) as conn:
         db.add_watched_folder(conn, folder, datetime(2026, 10, 20))
     api, rec = make_api(paths)
-    assert api.refresh(auto=True)["ok"]  # the window's own first read: it scans, then the import starts
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline and (api._jobs.current is None or not api._jobs.current.done.is_set()):
-        time.sleep(0.01)
-    started = [e for e in rec.events if isinstance(e, jobs.JobStarted) and e.kind == "import"]
+    api._first_read()  # what the app does when it opens: no page is involved
+    wait_idle(api)
+    started = import_jobs(rec)
     assert len(started) == 1
     done = rec.finished(started[0].job_id)
     assert done is not None and done.ok and done.result["files"] == 3
+    assert len(own_songs(paths)) == 3
+    assert api.refresh(auto=True)["kind"] == "refused"  # the Sync page's own try finds the read done
+    assert len(import_jobs(rec)) == 1
+
+
+def test_the_automatic_import_does_not_wait_for_the_playlists_to_be_read(lib, monkeypatch):
+    paths, folder, fakes = lib
+    with db.connect(paths.db_file) as conn:
+        db.add_watched_folder(conn, folder, datetime(2026, 10, 20))
+    gate, real = threading.Event(), spotify.fetch_playlist
+
+    def slow(session, line):
+        gate.wait(10)
+        return real(session, line)
+
+    monkeypatch.setattr(spotify, "fetch_playlist", slow)
+    api, rec = make_api(paths)
+    try:
+        api._first_read()
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not import_jobs(rec):
+            time.sleep(0.01)
+        assert len(import_jobs(rec)) == 1  # started while the read still waits on the network
+    finally:
+        gate.set()
+    wait_idle(api)
+    assert len(own_songs(paths)) == 3
+
+
+def test_the_automatic_import_starts_without_spotify_set_up(lib, monkeypatch):
+    paths, folder, fakes = lib
+    with db.connect(paths.db_file) as conn:
+        db.add_watched_folder(conn, folder, datetime(2026, 10, 20))
+    monkeypatch.setattr(spotify, "load_session", lambda p: (_ for _ in ()).throw(
+        spotify.SourceError("Spotify isn't connected.", "not_set_up", "spotify")))
+    monkeypatch.setattr(spotify, "login_state", lambda p: spotify.LoginState("missing", "Spotify isn't connected."))
+    api, rec = make_api(paths)
+    api._first_read()
+    wait_idle(api)
+    started = import_jobs(rec)
+    assert len(started) == 1 and rec.finished(started[0].job_id).ok
     assert len(own_songs(paths)) == 3
 
 
@@ -900,3 +949,21 @@ def test_removing_the_folder_of_a_playlist_songs_only_file_makes_it_download_aga
     assert load_state(paths)["tracks"]["t3"]["path"] is None
     wanted = [(a["kind"], a["track_id"]) for g in api.sync_preview()["groups"] for a in g["actions"]]
     assert ("acquire", "t3") in wanted  # the preview was planned again at once
+
+
+def test_continue_import_clears_the_stop_before_the_job_can_be_stopped_again(lib, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    api._import_stopped = True
+    seen = []
+    real = api._jobs.start
+
+    def start(kind, work, *a, **kw):
+        seen.append(api._import_stopped)
+        raise jobs.Busy("busy", "busy")
+
+    monkeypatch.setattr(api._jobs, "start", start)
+    assert api.start_import()["kind"] == "busy"
+    assert seen == [False]  # cleared before the job could stop itself again
+    assert api._import_stopped is True  # a refused start leaves the stop as it was
+    monkeypatch.setattr(api._jobs, "start", real)

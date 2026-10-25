@@ -259,6 +259,7 @@ class HubApi:
         self._account_streaks: dict[str, dict] = {}  # service -> the same, for "Use this" through an account
         # the user stopped an import this session: it starts by itself no more until Continue import (D14)
         self._import_stopped = False
+        self._import_auto_done = False  # the window's automatic start has run (or had nothing to do) this session
 
     # --- helpers (not reachable from the page) ---
 
@@ -478,12 +479,13 @@ class HubApi:
         with self._auto_lock:
             if auto and self._store.auto_read:
                 raise OpProblem(AUTO_READ_DONE, "refused")
-            read = refresh_work(self._paths, self._store, self._svc.now, infos=self._infos, lock=self._jobs.scan_lock)
+            read = refresh_work(self._paths, self._store, self._svc.now, infos=self._infos,
+                                lock=self._opening_scan if auto else self._jobs.scan_lock)
 
             def work(ctx) -> dict:
                 try:
                     return read(ctx)
-                finally:  # the opening scan is done (or failed): files it found wait for an import (D14)
+                finally:  # the read ended before it scanned (no playlists.txt, no login): the files that wait still start
                     if auto and not ctx.token.cancelled:
                         self._auto_import()
 
@@ -492,14 +494,26 @@ class HubApi:
                 self._store.auto_read = True
         return {"job_id": job.id}
 
+    @contextlib.contextmanager
+    def _opening_scan(self):
+        """The window's own first read scans Library/ and the import folders under Jobs.scan_lock; the moment that
+        scan lets go of the library, the files it found start importing (D14), without waiting for the playlists to be
+        read (a slow or missing login must not hold the import back, and no page is involved)."""
+        with self._jobs.scan_lock() as held:
+            yield held
+        if held:
+            self._auto_import()
+
     def _auto_import(self) -> None:
-        """D14: the window opened and files wait for an import: it starts by itself, unless the user stopped one this
-        session or something else is writing (the import then waits for Continue import or the next window)."""
-        if self._import_stopped:
+        """D14: the window opened and files wait for an import: it starts by itself, once per session, unless the
+        user stopped one this session or something else is writing (the import then waits for Continue import or the
+        next window). Only the window's own first read gets here, never a Sync page's ↻ Read playlists."""
+        if self._import_stopped or self._import_auto_done:
             return
         try:
             if importer.files_waiting(self._paths) > 0:
                 self._start_import()
+            self._import_auto_done = True
         except (Busy, NoLibrary, StateError):
             return
         except Exception:  # noqa: BLE001 - a failed start is never worth ending the read that called it
@@ -507,10 +521,13 @@ class HubApi:
 
     def _start_import(self, folder: Path | str | None = None):
         """The import as a write job (Busy when another job or a terminal run holds the library)."""
-        job = self._jobs.start("import", import_work(self._paths, self._store, self._svc.now, folder=folder,
-                                                     on_stopped=self._note_stopped))
-        self._import_stopped = False
-        return job
+        stopped, self._import_stopped = self._import_stopped, False  # before it starts: it may be stopped at once
+        try:
+            return self._jobs.start("import", import_work(self._paths, self._store, self._svc.now, folder=folder,
+                                                          on_stopped=self._note_stopped))
+        except BaseException:
+            self._import_stopped = stopped
+            raise
 
     def _note_stopped(self) -> None:
         self._import_stopped = True
