@@ -136,8 +136,8 @@ def qobuz_track(tid, title, artist, ms=180000):
 class FakeQobuzReader:
     """What sources.qobuz.open hands out in tests: no login, no network."""
 
-    def __init__(self, tracks, unreadable):
-        self.tracks, self.unreadable = tracks, unreadable
+    def __init__(self, tracks, unreadable, close_fails=False):
+        self.tracks, self.unreadable, self.close_fails = tracks, unreadable, close_fails
 
     def __enter__(self):
         return self
@@ -146,7 +146,8 @@ class FakeQobuzReader:
         self.close()
 
     def close(self):
-        pass
+        if self.close_fails:
+            raise RuntimeError("the session was already gone")
 
     def info(self, playlist_id):
         if self.unreadable:
@@ -161,13 +162,20 @@ class FakeQobuzReader:
         return FetchedPlaylist(line, list(self.tracks), [])
 
 
-def fake_qobuz(monkeypatch, tracks=None, *, connected=True, unreadable=False):
+def fake_qobuz(monkeypatch, tracks=None, *, connected=True, unreadable=False, open_error=None, close_fails=False):
     """Qobuz as a playlist source: a login that is there (or not) and a reader over `tracks` (or one that says
-    the playlist isn't shown)."""
+    the playlist isn't shown). `open_error`: the SourceError opening the reader raises (a login Qobuz refuses, Qobuz
+    not answering); `close_fails`: closing the reader raises."""
     tracks = tracks if tracks is not None else [qobuz_track("900100001", "Example Song", "Example Artist")]
     monkeypatch.setattr(qobuz_source, "login_state", lambda p: LoginState("ok") if connected else
                         LoginState("missing", qobuz_source.NOT_SET_UP))
-    monkeypatch.setattr(qobuz_source, "open", lambda paths, token: FakeQobuzReader(tracks, unreadable))
+
+    def open_reader(paths, token):
+        if open_error is not None:
+            raise open_error
+        return FakeQobuzReader(tracks, unreadable, close_fails)
+
+    monkeypatch.setattr(qobuz_source, "open", open_reader)
 
 
 def services(**kw):

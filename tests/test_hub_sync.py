@@ -213,7 +213,7 @@ def test_a_crash_before_the_run_starts_still_files_a_note(env, monkeypatch):
     finished = rec.finished()
     assert (finished.ok, finished.problem) == (False, "crashed") and finished.message == run.rep.CRASH_MESSAGE
     note = main_text(open(finished.result["report"], encoding="utf-8").read())
-    assert "reading your Spotify playlists" in note and "RuntimeError" not in note
+    assert "reading your playlists" in note and "RuntimeError" not in note
     assert "RuntimeError: bad plan" in open(finished.result["report"], encoding="utf-8").read()
     assert finished.result["actions"] == 0 and finished.result["exit_code"] == 1
 
@@ -251,7 +251,7 @@ def test_sync_without_a_preview_is_refused(env):
     paths, js, store, rec, acq, logins, tracks = env
     sync(js, paths, store, set())
     assert (rec.finished().ok, rec.finished().problem) == (False, "refused")
-    assert "Read your Spotify playlists first" in rec.finished().message
+    assert "Read your playlists first" in rec.finished().message
 
 
 def test_a_setup_problem_ends_the_sync_with_its_kind(env, monkeypatch):

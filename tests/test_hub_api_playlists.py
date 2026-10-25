@@ -3,6 +3,7 @@ from hub_helpers import (ID1, ID2, PLAYLISTS, QOBUZ_ID, QOBUZ_LINK, QOBUZ_UNREAD
                          make_api, make_root, refreshed, track, wait_job)
 
 from discjockey.models import PlaylistInfo
+from discjockey.sources.base import SourceError
 from discjockey.sources import spotify
 from discjockey.hub.api import rows_from, suggest_folder
 from discjockey.library import run_lock
@@ -42,6 +43,7 @@ def test_add_a_playlist(root):
     assert added["ok"] and added["link"] == f"https://open.spotify.com/playlist/{ID3}" and added["tracks"] == 2
     assert added["readable"] and added["hint"] is None
     assert (added["playlist_id"], added["service"], added["service_name"]) == (ID3, "spotify", "Spotify")
+    assert list(api._infos) == [ID3] and list(api._extra_tracks) == [ID3]  # a Spotify playlist keeps its bare id
     assert added["info"]["hint"].startswith("Follow ≠ own")
     refused = api.add_playlist("https://open.spotify.com/album/x")
     assert refused["kind"] == "refused" and "service" not in refused
@@ -73,6 +75,25 @@ def test_a_qobuz_playlist_qobuz_wont_show_answers_with_its_service(root, monkeyp
     assert api.add_playlist(QOBUZ_LINK) == {"ok": False, "kind": "playlist_unreadable", "service": "qobuz",
                                             "message": QOBUZ_UNREADABLE}
     assert api._infos == {} and api._extra_tracks == {}
+
+
+@pytest.mark.parametrize("kind,message", [
+    ("offline", "Qobuz is not responding (HTTP 503). Try again later."),
+    ("qobuz_login_failed", "Could not log in to Qobuz: the password was refused.")])
+def test_a_qobuz_that_will_not_open_answers_with_its_service(root, monkeypatch, kind, message):
+    fake_qobuz(monkeypatch, open_error=SourceError(message, kind, "qobuz"))
+    api, rec = make_api(root)
+    assert api.add_playlist(QOBUZ_LINK) == {"ok": False, "kind": kind, "service": "qobuz", "message": message}
+    assert api._infos == {} and api._extra_tracks == {}
+
+
+def test_a_reader_that_fails_to_close_does_not_replace_the_answer(root, monkeypatch):
+    fake_qobuz(monkeypatch, close_fails=True)
+    api, rec = make_api(root)
+    added = api.add_playlist(QOBUZ_LINK)
+    assert added["ok"] and added["tracks"] == 1
+    fake_qobuz(monkeypatch, unreadable=True, close_fails=True)
+    assert api.add_playlist(QOBUZ_LINK)["kind"] == "playlist_unreadable"
 
 
 @pytest.mark.parametrize("service,link", [("qobuz", QOBUZ_LINK), ("spotify", LINK3)])
@@ -109,6 +130,16 @@ def test_preview_reads_an_unread_qobuz_playlist_and_skips_one_that_fails(root, m
     fake_qobuz(monkeypatch, connected=False)  # not connected: no read either, and no failure
     none = api.preview_playlist_change(lines(HARD, ("Q3", "https://open.qobuz.com/playlist/900000003", True)))
     assert none["ok"] and none["kind"] == "unknown"
+
+
+def test_preview_skips_a_service_that_will_not_open_and_reads_the_others(root, monkeypatch):
+    fake_qobuz(monkeypatch, open_error=SourceError("Qobuz is not responding (HTTP 503). Try again later.", "offline",
+                                                   "qobuz"))
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    c = api.preview_playlist_change(lines(HARD, ("New", LINK3, True), ("Q", QOBUZ_LINK, True)))
+    assert c["ok"] and c["kind"] == "add" and c["new_downloads"] == 1  # Spotify's new playlist was read
+    assert QOBUZ_LINK not in str(api._extra_tracks) and f"qobuz:{QOBUZ_ID}" not in api._extra_tracks
 
 
 def test_preview_of_a_reorder_and_of_an_added_playlist(root):

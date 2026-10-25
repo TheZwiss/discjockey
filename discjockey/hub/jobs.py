@@ -393,9 +393,9 @@ class Jobs:
         """Read-only work (the Spotify read for the preview): no lock, its own Stop. Not while the hub's sync runs."""
         with self._mutex:
             if self.refresh is not None and not self.refresh.done.is_set():
-                raise Busy("Spotify is being read already.", "busy")
+                raise Busy("Your playlists are being read already.", "busy")
             if (job := self.running()) is not None and job.kind == "sync":
-                raise Busy("A sync is running; it reads Spotify itself.", "busy")
+                raise Busy("A sync is running; it reads your playlists itself.", "busy")
             job = self.refresh = self._new("refresh", None)
             threading.Thread(target=self._run, args=(job, work, False), name=f"hub-refresh-{job.id}",
                              daemon=True).start()
@@ -599,10 +599,10 @@ def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str
     def work(ctx: JobContext) -> dict:
         previewed = store.keys()
         if not previewed and store.prep is None:
-            raise ValueError("Read your Spotify playlists first (↻), so you can check the plan before it starts.")
+            raise ValueError("Read your playlists first (↻), so you can check the plan before it starts.")
         started = now()
         prep, read_at, new_since = None, started, 0
-        step = "reading your Spotify playlists and working out the plan"
+        step = "reading your playlists and working out the plan"
 
         def outcome(code: int, report: Path) -> dict:
             return {"exit_code": code, "report": str(report), "actions": len(prep.plan.actions) if prep else 0,

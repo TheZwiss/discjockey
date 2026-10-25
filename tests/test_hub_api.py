@@ -10,7 +10,7 @@ from hub_helpers import (ID1, LOSSLESS, LOSSY, PLAYLISTS, QOBUZ_LINK, fake_qobuz
 from discjockey.hub import jobs
 from discjockey.hub.api import HubApi
 from discjockey.library import load_state, save_state
-from discjockey.sources import spotify
+from discjockey.sources import qobuz as qobuz_source, spotify
 
 # The bridge contract (plan, Part B): every method the page may call, and nothing else.
 CONTRACT = {
@@ -176,6 +176,28 @@ def test_only_the_services_the_switched_on_lines_use_are_listed(root, monkeypatc
     assert [s["service"] for s in api.job_status()["spotify"]["services"]] == ["spotify"]
     root.playlists_file.write_text("# nothing yet\n")
     assert api.job_status()["spotify"]["services"] == []
+
+
+def test_a_playlists_file_that_cannot_be_read_never_fails_the_poll(root):
+    root.playlists_file.write_bytes(b"\xff\xfe")
+    api, rec = make_api(root)
+    status = api.job_status()
+    assert status["ok"] and status["spotify"]["services"] == []
+
+
+def test_a_login_file_that_makes_no_sense_never_fails_the_poll(root, monkeypatch):
+    fake_qobuz(monkeypatch)
+
+    def broken(paths):
+        raise AttributeError("'str' object has no attribute 'get'")  # a [qobuz] entry that isn't a table
+
+    monkeypatch.setattr(qobuz_source, "login_state", broken)
+    root.playlists_file.write_text(PLAYLISTS + f"Example_Playlist = {QOBUZ_LINK}\n")
+    api, rec = make_api(root)
+    status = api.job_status()
+    assert status["ok"]
+    assert [(s["service"], s["connected"]) for s in status["spotify"]["services"]] == [
+        ("spotify", True), ("qobuz", False)]
 
 
 def test_a_failed_first_automatic_read_is_not_repeated_by_itself(root, monkeypatch):

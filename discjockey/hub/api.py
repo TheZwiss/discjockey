@@ -56,7 +56,7 @@ RUN_ID = re.compile(r"\d{4}-\d{2}-\d{2}_\d{6}")
 WHICH = ("current", "upgrade")
 UPGRADE_MODES = ("swap", "add_new", "discard")
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
-AUTO_READ_DONE = "Spotify was read by itself once this session already. Use ↻ Read Spotify to read it again."
+AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
 NO_DROP = "Drag the bought file onto the window while this track is selected in the to-do list."
 NOT_SELECTED = "Select the track in the to-do list first, then drop the file on the window."
 CLIENT_ID = re.compile(r"[0-9a-fA-F]{32}")
@@ -339,11 +339,24 @@ class HubApi:
         """(service, logged in) for each playlist service the switched-on playlists.txt lines use, in line order.
         A local check of each service's login files, never a network call."""
         try:
-            rows = pf.load(self._paths.playlists_file).rows
-        except (NoLibrary, OSError):
+            used = list(dict.fromkeys(r.service for r in pf.load(self._paths.playlists_file).rows if r.enabled))
+        except Exception:  # noqa: BLE001 - a file that can't be read or a library that is gone: no list, never a failed poll
             return []
-        used = dict.fromkeys(r.service for r in rows if r.enabled)
-        return [(s, sources.SOURCES[s].login_state(self._support).state == "ok") for s in used]
+        logins = []
+        for service in used:
+            try:
+                logins.append((service, sources.SOURCES[service].login_state(self._support).state == "ok"))
+            except Exception:  # noqa: BLE001 - a login file this check can't make sense of counts as not connected
+                logins.append((service, False))
+        return logins
+
+    @staticmethod
+    def _close(reader) -> None:
+        """Ends a playlist read's session. A close that fails must not replace the read's own answer."""
+        try:
+            reader.close()
+        except Exception:  # noqa: BLE001
+            log.warning("closing a playlist reader failed", exc_info=True)
 
     def _images(self) -> dict[str, str]:
         prep = self._store.prep
@@ -604,7 +617,7 @@ class HubApi:
 
     def _watch_playlists_file(self, interval: float = 2.0) -> threading.Thread:
         """Reads Spotify again by itself when playlists.txt changes (edited by hand or saved on the playlists page),
-        as soon as no hub sync runs (that one reads Spotify itself)."""
+        as soon as no hub sync runs (that one reads the playlists itself)."""
         def stamp():
             try:
                 st = self._paths.playlists_file.stat()
@@ -762,7 +775,8 @@ class HubApi:
         source, ref = sources.SOURCES[service], token(service, pid)
         if source.login_state(self._support).state != "ok":
             raise sources.SourceError(NOT_CONNECTED.format(name=PLAYLIST_SERVICES[service]), "not_set_up", service)
-        with source.open(self._support, CancelToken()) as reader:
+        reader = source.open(self._support, CancelToken())
+        try:
             info = reader.info(pid)
             self._infos[ref] = info
             tracks = None
@@ -770,6 +784,8 @@ class HubApi:
                 fetched = reader.fetch(PlaylistLine(suggest_folder(info.name), pid, 0, service))
                 self._extra_tracks[ref] = fetched.tracks
                 tracks = len(fetched.tracks)
+        finally:
+            self._close(reader)
         return {"playlist_id": ref, "service": service, "service_name": PLAYLIST_SERVICES[service], "link": link,
                 "info": views.info_dict(info), "tracks": tracks, "readable": info.readable,
                 "suggested_folder": suggest_folder(info.name),
@@ -788,15 +804,18 @@ class HubApi:
             if source.login_state(self._support).state != "ok":
                 continue
             try:
-                with source.open(self._support, CancelToken()) as reader:
-                    for r in (r for r in unread if r.service == service):
-                        try:
-                            line = PlaylistLine("x", sources.recognise(r.link)[1], 0, service)
-                            self._extra_tracks[r.ref] = reader.fetch(line).tracks
-                        except sources.SourceError:
-                            continue
+                reader = source.open(self._support, CancelToken())
             except sources.SourceError:
                 continue
+            try:
+                for r in (r for r in unread if r.service == service):
+                    try:
+                        line = PlaylistLine("x", sources.recognise(r.link)[1], 0, service)
+                        self._extra_tracks[r.ref] = reader.fetch(line).tracks
+                    except sources.SourceError:
+                        continue
+            finally:
+                self._close(reader)
         if unread:
             tracks = self._tracks_by_id()
         problem = None

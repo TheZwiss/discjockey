@@ -28,12 +28,12 @@ library (lists cut to 2 items, `data` cut).
 | `busy` | another hub job runs (or a refresh already runs) |
 | `console` | a Discjockey run in the terminal holds the lock → read-only banner |
 | `sync_running` | network read refused while any sync runs (searches, previews, playlist reads) |
-| `not_set_up` | Spotify/Qobuz/playlists.txt not set up → wizard (`service` names the playlist service that isn't, when it is one) |
+| `not_set_up` | Spotify/Qobuz/playlists.txt not set up → wizard (`service` names the playlist service that isn't, when it is one). `message` is the inline wording ("Connect Qobuz first." for a pasted link, the service's own "isn't set up" text for a read); a card's title and route ("Qobuz isn't connected.", "Connect Qobuz →") are the UI's, built from `kind` + `service` |
 | `login_expired` | Spotify login expired → wizard Spotify step |
-| `offline` | no connection / Spotify not answering → "No internet connection. Try again when you're online." + Retry |
+| `offline` | no connection / Spotify or Qobuz not answering (`service` says which, for Qobuz: "Qobuz is not responding (…). Try again later.") → "No internet connection. Try again when you're online." + Retry |
 | `playlist_unreadable` | a playlist can't be read → the hint of its service (`service` on the answer; `info.hint`) |
 | `config_invalid` | playlists.txt / settings.json / state.json needs fixing → show message |
-| `qobuz_login_failed` | Qobuz login failed at sync start → wizard Qobuz step |
+| `qobuz_login_failed` | Qobuz login failed at sync start, or when reading a Qobuz playlist (`add_playlist`, a read; `service` `qobuz`) → wizard Qobuz step |
 | `login_failed` | Spotify login in the wizard failed (port busy, timeout, refused) |
 | `changed` | the track changed since it was shown → re-fetch, show message |
 | `refused` | not possible (bad input, rule) → show message |
@@ -385,7 +385,7 @@ ticked count (a larger count takes the last entry) for the service rows and neve
 }
 ```
 
-`refresh(auto=false)` → `{"job_id"}` — read-only Spotify read: "↻ Read Spotify", and by itself whenever
+`refresh(auto=false)` → `{"job_id"}` — read-only playlists read: "↻ Read playlists", and by itself whenever
 playlists.txt changes on disk (mtime or size, checked every 2 s; retried until no hub sync blocks it). `auto=true`: the
 session's one automatic read (the hub when it opens; the Sync page when it opens and `spotify.auto_read` is still
 false, e.g. the hub's own read could not start). It sets `spotify.auto_read` when it starts; later `auto=true` calls are
