@@ -1,6 +1,8 @@
 """The tidy-up (spec library-and-sources §8; plan library stage 2, group 3): files move to where the playlist order
-puts them only when the user asks, one move batch at a time, every move through library.run_op; a folder renamed on
-disk as one move; undo; what a Playlists save does with the files it retargets; closing batches a crash left open.
+puts them only when the user asks, one move batch at a time; a folder renamed on disk as one move; undo; what a
+Playlists save does with the files it retargets; closing batches a crash left open. A file move goes through
+library.move_files (the file journal, also across drives: an import folder on another drive; stage 4, I10), which
+finishes the move in the records itself; a folder move through library.run_op on a snapshot taken right before it.
 
 The entry points (tidy_up, rename_folder, undo, after_save) are writers: the caller holds the library lock. Each
 first finishes interrupted steps (recover_pending, which closes open batches), empties .tmp/ and scans, so a file
@@ -170,14 +172,17 @@ def _playlist_follows(paths: Paths, m: MoveRow) -> str | None:
     return None
 
 
-def _move_one(paths: Paths, state: dict, keys: Mapping[int, str], m: MoveRow,
-              undo: bool) -> tuple[str, str | None] | None:
-    """One move through run_op; None when it happened, else (reason, detail). A refused or failed rename leaves the
-    file where it was (run_op drops a step that renamed nothing)."""
+def _move_one(paths: Paths, keys: Mapping[int, str], m: MoveRow, undo: bool) -> tuple[str, str | None] | None:
+    """One move; None when it happened, else (reason, detail). A file goes through library.move_files, which also
+    finishes the move (its row takes the new place, the move is done); a folder through run_op, on a snapshot taken
+    now (the batch's file moves went past the entry view, so the batch's first one is stale), finished by _run. A
+    refused or failed rename leaves the file where it was (a step that renamed nothing is dropped). `keys` (file id
+    -> song key, from the batch's start) tells whether a file's song is still there."""
     try:
         if m.kind == "folder":
             # the songs in the folder go with it; the playlist's songs take its new name (wherever their files
             # are), so targets stay where the files are: an undo's playlist is called {old} again (P2)
+            state = library.open_state(paths)
             old, new = _folder_of(m.src), _folder_of(m.dst)
             entries = {}
             for k, e in state["tracks"].items():
@@ -191,7 +196,10 @@ def _move_one(paths: Paths, state: dict, keys: Mapping[int, str], m: MoveRow,
             key = keys.get(m.file_id) if m.file_id is not None else None
             if key is None:  # its song is gone since it was planned
                 return ("moved_on" if undo else "not_found", None)
-            library.run_op(paths, state, key, [(m.src, m.dst)], {**state["tracks"][key], "path": m.dst})
+            try:
+                library.move_files(paths, "tidy_move", [(m.src, m.dst)], ref=m.id, label=m.label)
+            except sqlite3.IntegrityError:  # moved, but another song's row holds the new place
+                return ("failed", MOVED_NOT_RECORDED)
     except FileExistsError:
         return ("place_taken", FOLDER_THERE if m.kind == "folder" else None) if undo else ("name_taken", None)
     except FileNotFoundError:
@@ -216,23 +224,25 @@ def _close(paths: Paths, batch_id: int, started_by: str, now: Now, *, stopped: b
 
 def _run(paths: Paths, state: dict, batch_id: int, started_by: str, *, emit: Emit, token: CancelToken,
          now: Now) -> BatchResult:
-    """Every planned move of the batch, in order: Stop is checked before each; each one is done (finish_move) or
-    skipped with its reason, and the batch goes on (spec §12); then the batch is closed."""
+    """Every planned move of the batch, in order: Stop is checked before each; each one is done (a file's by
+    move_files, a folder's by finish_move) or skipped with its reason, and the batch goes on (spec §12); then the
+    batch is closed. `state` (the batch's planning snapshot) only names the songs; it is stale after the first move
+    and never saved."""
     with db.connect(paths.db_file) as conn:
         planned = [m for m in db.batch_moves(conn, batch_id) if m.state == "planned"]
     keys = _keys_by_file(state)
     try:
         for n, m in enumerate(planned, 1):
             token.check()
-            skip = _move_one(paths, state, keys, m, started_by == "undo")
+            skip = _move_one(paths, keys, m, started_by == "undo")
             with db.connect(paths.db_file) as conn:
-                if skip is None:
+                if skip is None and m.kind == "folder":
                     try:
-                        db.finish_move(conn, m.id, state=state)  # run_op saved the new place in `state`
+                        db.finish_move(conn, m.id)
                     except sqlite3.IntegrityError:
                         db.skip_move(conn, m.id, "failed", MOVED_NOT_RECORDED)
                         skip = ("failed", MOVED_NOT_RECORDED)
-                else:
+                elif skip is not None:
                     db.skip_move(conn, m.id, *skip)
             if skip is None and m.kind == "folder" and (warning := _playlist_follows(paths, m)):
                 emit(Message("warning", warning))
@@ -448,8 +458,9 @@ def _through_renames(state: dict, moves: Sequence[tuple[int, str]],
 # --- recovery (P3) ---
 
 def _happened(paths: Paths, m: MoveRow) -> bool:
-    """A planned move of a batch a crash left open was made: a file move when its row is at `dst` (only run_op's
-    finished step, or recover_pending finishing it, puts it there; a step run_op rolled back never does), a folder
+    """A planned move of a batch a crash left open was made: a file move when its row is at `dst` (only move_files'
+    finished step, or recover_pending finishing it, puts it there, and that marks the move done; a step that was
+    dropped never does), a folder
     move when `Library/<new>` is there and `Library/<old>` isn't."""
     if m.kind == "folder":
         return (paths.root / m.dst).is_dir() and not (paths.root / m.src).exists()
