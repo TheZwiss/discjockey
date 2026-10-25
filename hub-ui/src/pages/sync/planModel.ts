@@ -1,11 +1,12 @@
 // The Sync page's plan before the start (docs/archive/pre-public/hub-ui-pages/sync-REDESIGN.md): kinds and tags of the rows, the scope (playlists and kinds
 // in this run), the "how many" presets, the "next sync" tags and the "This run" summary. Pure, so it is tested.
 import type { SegOption } from '$lib/components/segmentedModel';
-import type { PreviewAction, SyncAccount, SyncPreview } from '$lib/bridge/types';
+import type { PlaylistRow, PlaylistService, PreviewAction, SyncAccount, SyncPreview } from '$lib/bridge/types';
 import { daysToLoad } from '$lib/days';
 import type { DayBarInput } from '$lib/components/dayBarModel';
 import type { ToggleItem } from '$lib/components/toggleModel';
 import { estimate, foldText, plural, serviceName } from '$lib/format';
+import { PLAYLIST_SERVICE_NAMES } from '$lib/copy';
 import { allActions, keyId } from './selection';
 
 export const PREF_SCOPE = 'sync.scope';
@@ -18,6 +19,25 @@ export function shouldAutoRead(p: Pick<SyncPreview, 'spotify' | 'empty'>,
   const sp = p.spotify;
   return !sp.auto_read && p.empty !== 'not_set_up' && sp.problem !== 'not_set_up' && !sp.reading
     && !busy.refreshRunning && !busy.syncRunning;
+}
+
+/** The body line of Sync's card for a service whose login is missing or expired: what it affects and that the rest
+ *  still syncs. `rows`: playlists.txt as the Playlists view lists it (null while it isn't known: then the line says
+ *  "Your Qobuz playlists" and promises nothing about the others). Names the folders of the switched-on lines of that
+ *  service (three, then "and N more"); the second sentence only when other switched-on lines exist. */
+export function readBlockLine(kind: 'not_set_up' | 'login_expired', service: PlaylistService,
+  rows: Pick<PlaylistRow, 'folder' | 'service' | 'enabled'>[] | null): string {
+  const name = PLAYLIST_SERVICE_NAMES[service];
+  const until = kind === 'login_expired' ? `you connect ${name} again` : `${name} is connected`;
+  const mine = (rows ?? []).filter((r) => r.enabled && r.service === service).map((r) => r.folder);
+  const others = (rows ?? []).some((r) => r.enabled && r.service !== service);
+  const shown = mine.slice(0, 3);
+  const more = mine.length - shown.length;
+  const list = more > 0 ? `${shown.join(', ')} and ${more} more`
+    : shown.length > 1 ? `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}` : shown[0];
+  const subject = mine.length ? list : `Your ${name} playlists`;
+  const verb = mine.length === 1 ? "isn't" : "aren't";
+  return `${subject} ${verb} read until ${until}.${others ? ' Your other playlists sync as usual.' : ''}`;
 }
 export const PREF_HOW_MANY = 'sync.howMany';
 

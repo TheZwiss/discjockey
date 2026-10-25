@@ -34,6 +34,13 @@ describe('a playlist service missing: one wording and one link per service on ev
     expect(problemCopy('not_set_up', { service: 'qobuz' })).toEqual({ title: "Qobuz isn't connected.",
       action: { label: 'Connect Qobuz →', href: '#/settings/qobuz' } });
   });
+  it("names the service when it is the one not answering, and keeps Retry", () => {
+    expect(problemCopy('offline', { service: 'qobuz' })).toEqual({ title: "Qobuz isn't answering.",
+      action: { label: 'Retry', retry: true } });
+    expect(problemCopy('offline', { service: 'spotify' }).title).toBe("Spotify isn't answering.");
+    expect(problemCopy('offline').title).toBe("No internet connection. Try again when you're online.");
+    expect(problemCopy('offline', { service: null }).title).toBe("No internet connection. Try again when you're online.");
+  });
   it("keeps the engine's not_set_up (no playlists.txt) when no service caused it", () => {
     expect(problemCopy('not_set_up').title).toBe("Discjockey isn't set up yet.");
     expect(problemCopy('not_set_up', { service: null }).action?.href).toBe('#/setup');

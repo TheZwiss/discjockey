@@ -52,6 +52,10 @@ export function serviceProblem(kind: 'not_set_up' | 'login_expired', service: Pl
 export function problemCopy(kind: ProblemKind | string,
   opts: { sync?: boolean; service?: PlaylistService | null } = {}): ProblemCopy {
   if ((kind === 'not_set_up' || kind === 'login_expired') && opts.service) return serviceProblem(kind, opts.service);
+  // the service's own server is the one not answering: name it; the engine's message stays the detail
+  if (kind === 'offline' && opts.service) {
+    return { ...PROBLEMS.offline, title: `${PLAYLIST_SERVICE_NAMES[opts.service]} isn't answering.` };
+  }
   const c = PROBLEMS[kind as ProblemKind] ?? PROBLEMS.crashed;
   if (kind === 'crashed' && opts.sync) return { ...c, title: SYNC_CRASHED };
   return c;

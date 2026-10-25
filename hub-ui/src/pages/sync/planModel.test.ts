@@ -4,7 +4,7 @@ import {
   FULL_SCOPE, type Scope, dayBarInput, defaultHowMany, downloadsInScope, inScope, facets, folderItems, foldText, howManyOptions, inRunOrder, isKindKey, kindItems,
   kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount,
   minutesFor, runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
-  startLabel, tagOf, toggleScope, waitsWhole, whyColumn,
+  readBlockLine, startLabel, tagOf, toggleScope, waitsWhole, whyColumn,
 } from './planModel';
 import { keyId } from './selection';
 
@@ -347,5 +347,28 @@ describe('service rows name the service, the tooltip names the plan (Task 9C M1)
     expect(rows.map((r) => r.name)).toEqual(['Qobuz', 'YouTube', 'SoundCloud']);
     expect(rows[1].text).toContain('YouTube Premium');
     expect(rows[2].text).toContain('SoundCloud Go+');
+  });
+});
+
+describe('readBlockLine: what a missing login affects on Sync\'s card', () => {
+  const row = (folder: string, service: 'spotify' | 'qobuz', enabled = true) => ({ folder, service, enabled });
+  it('names the folder of the one switched-on Qobuz line and says the rest still syncs', () => {
+    expect(readBlockLine('not_set_up', 'qobuz', [row('Peak', 'spotify'), row('Qobuz_Picks', 'qobuz')]))
+      .toBe("Qobuz_Picks isn't read until Qobuz is connected. Your other playlists sync as usual.");
+  });
+  it('lists two or three folders, then counts the rest; ignores switched-off lines', () => {
+    const rows = ['A', 'B', 'C', 'D', 'E'].map((f) => row(f, 'qobuz'));
+    expect(readBlockLine('not_set_up', 'qobuz', rows.slice(0, 2)))
+      .toBe("A and B aren't read until Qobuz is connected.");
+    expect(readBlockLine('not_set_up', 'qobuz', rows)).toBe("A, B, C and 2 more aren't read until Qobuz is connected.");
+    expect(readBlockLine('not_set_up', 'qobuz', [row('A', 'qobuz'), row('B', 'qobuz', false), row('X', 'spotify', false)]))
+      .toBe("A isn't read until Qobuz is connected.");
+  });
+  it('speaks of the service\'s playlists while the lines are not known, and promises nothing about the others', () => {
+    expect(readBlockLine('not_set_up', 'qobuz', null)).toBe("Your Qobuz playlists aren't read until Qobuz is connected.");
+  });
+  it('words an expired login as connecting again, for either service', () => {
+    expect(readBlockLine('login_expired', 'spotify', [row('Peak', 'spotify'), row('Q', 'qobuz')]))
+      .toBe("Peak isn't read until you connect Spotify again. Your other playlists sync as usual.");
   });
 });

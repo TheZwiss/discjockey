@@ -10,7 +10,7 @@
   } from '$lib/components';
   import { ListPanelFrame } from '$lib/frames';
   import { api, runJob } from '$lib/bridge/client';
-  import type { Fail, PreviewAction, RunSummary, SyncPreview } from '$lib/bridge/types';
+  import type { Fail, PlaylistRow, PreviewAction, RunSummary, SyncPreview } from '$lib/bridge/types';
   import { dataVersion, hub, readBlock, readBlocked, syncRunning, writeBlockedReason } from '$lib/stores/hub';
   import { toasts } from '$lib/stores/toasts';
   import { getPref, setPref } from '$lib/prefs';
@@ -22,7 +22,7 @@
   import {
     PREF_HOW_MANY, PREF_SCOPE, defaultHowMany, facets, inRunOrder, inScope, isDownload, matches, nextSyncSet,
     mayWaitToday, kindOf, downloadsInScope, presetN, presetTicks, presets, readHowMany, readScope, runTotals, scopeSet, sections, shouldAutoRead, shownPreset,
-    NOTHING_TODAY, runsNothingToday, sectionCounts, startLabel, toggleScope,
+    NOTHING_TODAY, readBlockLine, runsNothingToday, sectionCounts, startLabel, toggleScope,
     type HowMany, type Scope, type Section,
   } from './planModel';
   import { keepDetail, lastSyncStats, lastSyncView, needsDetail, type LastSyncDetail } from './endModel';
@@ -79,6 +79,17 @@
   // other pages and the header slot say the same state with the same words (spec §11)
   const spotifyProblem = $derived($readBlock?.kind ?? preview?.spotify.problem ?? null);
   const problemService = $derived($readBlock?.service ?? preview?.spotify.problem_service ?? null);
+  // what a missing or expired login affects: the switched-on lines of that service (playlists.txt is local, so this
+  // is cheap); until it answers the line speaks of "your Qobuz playlists" without promising anything
+  let lines = $state<PlaylistRow[] | null>(null);
+  $effect(() => {
+    const svc = problemService;
+    void $dataVersion;
+    if (!svc || (spotifyProblem !== 'not_set_up' && spotifyProblem !== 'login_expired')) return;
+    void api.playlists().then((r) => { lines = r.ok ? r.rows : null; });
+  });
+  const problemLine = $derived(problemService && (spotifyProblem === 'not_set_up' || spotifyProblem === 'login_expired')
+    ? readBlockLine(spotifyProblem, problemService, lines) : undefined);
   const lastView = $derived(lastSyncView(lastRun, lastDetail));
   // up to date with no sync ever and nothing that could be better: the frame's empty panel, not a blank Panel
   const upToDatePanel = $derived(preview?.empty === 'up_to_date'
@@ -228,7 +239,7 @@
            sits in the header slot right above, its one place (spec §11) -->
       {#if spotifyProblem}
         <div data-test="spotify-problem">
-          <ProblemCard kind={spotifyProblem} message={preview.spotify.message} service={problemService} />
+          <ProblemCard kind={spotifyProblem} message={preview.spotify.message} service={problemService} hint={problemLine} />
         </div>
       {/if}
       {#if reading}<ReadingCard progress={$hub.read_progress} stale={hasPlan || preview.empty === 'up_to_date'} />{/if}

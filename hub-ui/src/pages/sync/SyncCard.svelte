@@ -39,7 +39,7 @@
 </script>
 
 {#if card.kind === 'failed'}
-  <div data-test="sync-card" data-state={card.kind}><ProblemCard kind={card.problem} message={card.message} sync /></div>
+  <div data-test="sync-card" data-state={card.kind}><ProblemCard kind={card.problem} message={card.message} service={card.service} sync /></div>
 {:else}
 <Surface kind="card" data-test="sync-card" data-state={card.kind}>
   {#if card.kind === 'preparing'}

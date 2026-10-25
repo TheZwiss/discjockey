@@ -118,9 +118,23 @@ describe('readBlockIn: the read is blocked only by a service playlists.txt uses 
     expect(readBlockIn({ ...ok, problem: 'login_expired' })).toEqual({ kind: 'login_expired', service: 'spotify' });
   });
   it("takes a read's missing login only with its service (without one it is a missing playlists.txt)", () => {
-    expect(readBlockIn({ ...ok, problem: 'not_set_up', problem_service: 'qobuz' }))
+    expect(readBlockIn({ ...ok, services: both(true, false), problem: 'not_set_up', problem_service: 'qobuz' }))
       .toEqual({ kind: 'not_set_up', service: 'qobuz' });
     expect(readBlockIn({ ...ok, problem: 'not_set_up' })).toBeNull();
+  });
+  it("drops a read's stored missing login once that service is connected (the user logged in since)", () => {
+    expect(readBlockIn({ ...ok, problem: 'not_set_up', problem_service: 'qobuz' })).toBeNull();
+    // the other service being down still blocks, and names itself
+    expect(readBlockIn({ ...ok, services: both(false, true), problem: 'not_set_up', problem_service: 'qobuz' }))
+      .toEqual({ kind: 'not_set_up', service: 'spotify' });
+  });
+  it('keeps a stored missing login when the poll does not list the service at all', () => {
+    expect(readBlockIn({ ...ok, services: [], problem: 'not_set_up', problem_service: 'qobuz' }))
+      .toEqual({ kind: 'not_set_up', service: 'qobuz' });
+  });
+  it('keeps a stored expired login even when the service is connected', () => {
+    expect(readBlockIn({ ...ok, problem: 'login_expired', problem_service: 'qobuz' }))
+      .toEqual({ kind: 'login_expired', service: 'qobuz' });
   });
   it('is null for problems a read can fix (offline)', () => {
     expect(readBlockIn({ ...ok, problem: 'offline', offline: true })).toBeNull();

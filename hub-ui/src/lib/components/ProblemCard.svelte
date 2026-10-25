@@ -18,13 +18,18 @@
   // `service`: the playlist service whose login the problem is about (the bridge's `Fail.service`, the read status's
   // `problem_service`): its "not set up" reads "Qobuz isn't connected." with Connect Qobuz →, like the banner
   let { kind, message, onretry, report, compact = false, sync = false, service = null, actions,
-    alert = false }:
+    alert = false, hint }:
     { kind: ProblemKind; message: string; onretry?: () => void; report?: { run_id: string } | null; compact?: boolean;
     /** a problem the user's own action just caused (a start, a search): announced at once (`role=alert`); a card
      *  drawn with its page has no role, so VoiceOver doesn't interrupt on load (final review M11) */
     alert?: boolean;
-      sync?: boolean; service?: PlaylistService | null; actions?: Snippet } = $props();
-  const c = $derived(problemCopy(kind, { sync, service }));
+      sync?: boolean; service?: PlaylistService | null; actions?: Snippet;
+    /** the page's own line under the headline: what the problem affects (replaces the kind's stock hint) */
+    hint?: string } = $props();
+  const c = $derived.by(() => {
+    const base = problemCopy(kind, { sync, service });
+    return hint ? { ...base, hint } : base;
+  });
   // the headline's own button only when this card can carry it out (no report → fall back to Try again)
   const action = $derived(
     c.action && (c.action.href || (c.action.retry && onretry) || (c.action.report && report)) ? c.action : undefined,
