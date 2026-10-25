@@ -1344,11 +1344,13 @@ def group_files(conn: sqlite3.Connection, gid: str) -> list[DupFile]:
     ids = sorted(_group_ids(gid))
     folders = _Folders(conn)
     rows = conn.execute(
-        "SELECT f.id, s.key, f.folder, f.path, f.status, f.cutoff_hz, f.source_format, f.online, s.in_playlists "
+        "SELECT f.id, s.key, f.folder, f.path, f.status, f.cutoff_hz, f.source_format, f.online, s.in_playlists, "
+        "f.held = 0 AND f.ambiguous IS NULL "
         f"FROM files f LEFT JOIN songs s ON s.id = f.song WHERE f.id IN ({', '.join('?' * len(ids))}) ORDER BY f.id",
         ids)
-    return [DupFile(i, key, folders.path(folder, rel), status, cutoff, fmt, bool(online), bool(in_playlists))
-            for i, key, folder, rel, status, cutoff, fmt, online, in_playlists in rows]
+    return [DupFile(i, key, folders.path(folder, rel), status, cutoff, fmt, bool(online), bool(in_playlists),
+                    bool(usable))
+            for i, key, folder, rel, status, cutoff, fmt, online, in_playlists, usable in rows]
 
 
 # --- the file journal (plan library stage 4, I6, I7): moves of single files outside run_op's entry view ---

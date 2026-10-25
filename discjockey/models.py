@@ -418,3 +418,4 @@ class DupFile:
     source_format: str | None
     online: bool
     in_playlists: bool
+    usable: bool = True  # not held, not ambiguous: a file a move may take (duplicate_groups leaves the others out)

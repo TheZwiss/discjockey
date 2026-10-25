@@ -1,8 +1,10 @@
 """folders.py: checking, adding and removing watched folders, the same-song answer, and the Duplicates question's
 "Keep both" and "Move to Superseded" on one drive and across two (plan library stage 4, tasks 4.5 and 4.6)."""
+import dataclasses
 import json
 import os
 import shutil
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
@@ -107,7 +109,7 @@ def test_a_folder_inside_a_watched_folder_names_it(paths, tmp_path):
     folders.add(paths, outer, NOW)
     c = check(paths, outer / "House", tmp_path)
     assert (c.usable, c.problem, c.other) == (False, "watched", str(outer.resolve()))
-    assert folders.problem_words(c) == f"This is inside {outer.resolve()}, which Discjockey watches already."
+    assert folders.problem_words(c) == "This is inside Music, which Discjockey watches already."
     again = check(paths, outer, tmp_path)
     assert (again.usable, again.problem) == (False, "already")
 
@@ -132,7 +134,8 @@ def test_a_folder_holding_watched_folders_merges_them(paths, tmp_path):
     sets = folders.add(paths, drive / "Sets", NOW)
     c = check(paths, drive, tmp_path)
     assert c.usable and set(c.merges) == {str((drive / "Music" / "House").resolve()), str((drive / "Sets").resolve())}
-    assert sorted(folders.merge_hints(c)) == sorted(f"{m} is inside it and becomes part of it." for m in c.merges)
+    assert sorted(folders.merge_hints(c)) == ["House is inside it and becomes part of it.",
+                                              "Sets is inside it and becomes part of it."]
     added = folders.add(paths, drive, NOW)
     assert set(added.merged) == set(c.merges)
     with db.connect(paths.db_file) as conn:
@@ -178,6 +181,20 @@ def test_the_same_song_answer_is_recorded(paths):
         assert db.decisions(conn)["same_song"] == [["sp1", "local:4", "same"], ["sp2", "local:5", "not_same"]]
     with pytest.raises(ValueError):
         folders.answer_same_song(paths, "sp1", "sp2", True, NOW)
+
+
+@needs_ffmpeg
+def test_a_same_song_answer_needs_a_playlist_song(paths):
+    playlist_song(paths)
+    with pytest.raises(OpProblem):
+        folders.answer_same_song(paths, "local:2", "local:4", True, NOW)  # an own song is no playlist song
+    s = load_state(paths)
+    s["tracks"]["sp1"]["in_playlists"] = False
+    save_state(paths, s)
+    with pytest.raises(OpProblem):
+        folders.answer_same_song(paths, "sp1", "local:4", True, NOW)  # in no playlist any more
+    with db.connect(paths.db_file) as conn:
+        assert db.decisions(conn)["same_song"] == []
 
 
 @needs_ffmpeg
@@ -321,3 +338,74 @@ def test_a_name_taken_in_superseded_gets_a_counter_never_an_id_for_an_own_song(p
     dst = folders.supersede(paths, gid, moved.file_id, now=lambda: NOW)
     assert dst == "Superseded/Music/House/Example Artist - Twice (2).aiff"
     assert taken.read_bytes() == b"an earlier replaced file"
+
+
+def same_song_setup(paths, tmp_path):
+    """sp1's file in Library/House/ and an own file of the same song with other audio (a same-song group, which
+    only the plan finds): the group id the window showed."""
+    playlist_song(paths, seed=6)
+    s = load_state(paths)
+    s["tracks"]["sp1"].update(duration_ms=1000, in_playlists=True)
+    save_state(paths, s)
+    drive = tmp_path / "Example Drive" / "Music"
+    drive.mkdir(parents=True)
+    write_aiff(drive / "Example Artist - Kept.aiff", music(1, seed=7))
+    folders.add(paths, drive, NOW)
+    do_import(paths)
+    tracks = load_state(paths)["tracks"]
+    return drive, tracks["sp1"]["file_id"], tracks["local:1"]["file_id"]
+
+
+@needs_ffmpeg
+def test_a_same_song_group_moves_while_it_still_is_one(paths, tmp_path):
+    drive, sp1, own = same_song_setup(paths, tmp_path)
+    gid = f"dup:{min(sp1, own)}-{max(sp1, own)}"
+    dst = folders.supersede(paths, gid, sp1, now=lambda: NOW)
+    assert dst == "Superseded/House/Example Artist - Kept.aiff"
+    assert load_state(paths)["tracks"]["sp1"]["path"] == str((drive / "Example Artist - Kept.aiff").resolve())
+
+
+@needs_ffmpeg
+def test_a_same_song_group_whose_file_id_was_given_out_again_is_refused(paths, tmp_path):
+    drive, sp1, own = same_song_setup(paths, tmp_path)
+    (drive / "Example Artist - Kept.aiff").unlink()  # the own file shown goes...
+    do_import(paths)
+    write_aiff(drive / "Example Artist - Other.aiff", music(1, seed=8))  # ...and a new file may get its id
+    do_import(paths)
+    tracks = load_state(paths)["tracks"]
+    other = next(e for k, e in tracks.items() if k.startswith("local:"))
+    assert other["title"] == "Other"
+    gid = f"dup:{min(sp1, other['file_id'])}-{max(sp1, other['file_id'])}"  # what a stale window sends then
+    with pytest.raises(OpProblem) as refused:
+        folders.supersede(paths, gid, sp1, now=lambda: NOW)
+    assert refused.value.kind == "changed"
+    assert (paths.root / KEPT).is_file() and not (paths.root / "Superseded").exists()
+
+
+@needs_ffmpeg
+def test_a_group_with_a_held_or_ambiguous_file_is_refused(paths, tmp_path, monkeypatch):
+    copies(paths, tmp_path)
+    gid, files = group(paths)
+    real = db.group_files
+    monkeypatch.setattr(db, "group_files", lambda conn, g: [
+        dataclasses.replace(f, usable=False) if f.file_id == files[1].file_id else f for f in real(conn, g)])
+    monkeypatch.setattr(db, "duplicate_groups", lambda conn: [])  # as the database leaves such a group out
+    with pytest.raises(OpProblem) as refused:
+        folders.supersede(paths, gid, files[0].file_id, now=lambda: NOW)
+    assert refused.value.kind == "changed" and not (paths.root / "Superseded").exists()
+
+
+@needs_ffmpeg
+def test_a_move_whose_result_the_records_refuse_says_so(paths, tmp_path, monkeypatch):
+    copies(paths, tmp_path)
+    gid, files = group(paths)
+
+    def refused(conn, op):
+        raise sqlite3.IntegrityError("UNIQUE constraint failed")
+    monkeypatch.setattr(db, "finish_file_op", refused)
+    with pytest.raises(OpProblem) as failed:
+        folders.supersede(paths, gid, files[0].file_id, now=lambda: NOW)
+    assert failed.value.kind == "failed" and "records couldn't follow" in str(failed.value)
+    assert log_lines(paths)[-1]["result"] == "failed"
+    with db.connect(paths.db_file) as conn:
+        assert db.pending_ops(conn) == []

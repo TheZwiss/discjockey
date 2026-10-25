@@ -8,11 +8,12 @@ Writers (add, remove, the answers, supersede) run while the caller holds the lib
 from __future__ import annotations
 
 import os
+import sqlite3
 from datetime import date, datetime
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
-from . import db, library, ops, report as rep
+from . import db, identify, library, ops, report as rep
 from .events import Emit, Message, no_emit
 from .library import FolderCheck, NameReserver, Paths
 from .models import AddedFolder, DupFile, RemovalCounts, is_own
@@ -25,18 +26,19 @@ from .tidy import failed_detail
 # library.FOLDER_PROBLEMS'
 IN_MUSIC = "This is inside your music folder, which Discjockey watches already."
 HOLDS_MUSIC = "This folder holds your music folder. Choose a folder inside it instead."
-IN_WATCHED = "This is inside {other}, which Discjockey watches already."
+IN_WATCHED = "This is inside {other}, which Discjockey watches already."  # {other}: the folder's name
 MERGES = "{other} is inside it and becomes part of it."
 ALREADY = "Discjockey watches this folder already."
 NOT_FOUND = "That folder isn't there. If it is on a drive, connect the drive first."
-NOT_READABLE = ("macOS didn't let Discjockey read that folder. Allow access in System Settings → Privacy & Security → "
-                "Files and Folders.")
+NOT_READABLE = "macOS doesn't let Discjockey read that folder."
 IMPORT_PROBLEMS = {**library.FOLDER_PROBLEMS, "music": IN_MUSIC, "holds_music": HOLDS_MUSIC, "watched": IN_WATCHED,
                    "already": ALREADY, "not_found": NOT_FOUND, "not_readable": NOT_READABLE}
 
 SUPERSEDE = "move_to_superseded"  # the operation's name in reports/operations.jsonl
 MOVED = "Moved to {dst}."
 NOT_MOVED = "Nothing was moved: {detail}."
+NOT_RECORDED = "Moved to {dst}, but Discjockey's records couldn't follow. The next sync catches up."
+NOT_A_PLAYLIST_SONG = "That song isn't in your playlists any more, so there is nothing to answer."
 STATUS_RANK = {"lossless": 0, "fake_lossless": 1, "not_lossless": 2}  # which own file takes over a playlist song
 
 
@@ -78,12 +80,12 @@ def problem_words(check: FolderCheck) -> str | None:
     """The words for a refused check (None when it is usable)."""
     if check.problem is None:
         return None
-    return IMPORT_PROBLEMS[check.problem].format(other=check.other or "")
+    return IMPORT_PROBLEMS[check.problem].format(other=PurePosixPath(check.other).name if check.other else "")
 
 
 def merge_hints(check: FolderCheck) -> list[str]:
-    """W5's merge Hint, one per watched folder the new one takes over."""
-    return [MERGES.format(other=m) for m in check.merges]
+    """W5's merge Hint, one per watched folder the new one takes over (named by its folder name)."""
+    return [MERGES.format(other=PurePosixPath(m).name) for m in check.merges]
 
 
 def add(paths: Paths, path: Path | str, now: datetime | None = None) -> AddedFolder:
@@ -110,9 +112,15 @@ def remove(paths: Paths, folder_id: int, today: date | None = None) -> RemovalCo
 
 def answer_same_song(paths: Paths, song_key: str, own_key: str, same: bool, now: datetime | None = None) -> None:
     """"Is this the same song?" answered: the next plan links the own song's file to the playlist song (same), or
-    keeps them apart and lets the playlist song download (not same). ValueError when `own_key` isn't an own song's."""
+    keeps them apart and lets the playlist song download (not same). ValueError when `own_key` isn't an own song's
+    key; OpProblem(changed) when `song_key` isn't a playlist song's: an own song's, or a song the records know that
+    no playlist has any more. A token the records don't know yet is a playlist song still to be downloaded (the
+    question comes from the plan, which knows the playlists)."""
     if not is_own(own_key):
         raise ValueError(f"{own_key!r} is not a song of the user's own")
+    entry = library.load_state(paths)["tracks"].get(song_key)
+    if is_own(song_key) or (entry is not None and not entry.get("in_playlists", True)):
+        raise OpProblem(NOT_A_PLAYLIST_SONG, "changed")
     with db.connect(paths.db_file) as conn:
         db.set_decision(conn, "same_song", song_key, own_key, "same" if same else "not_same", now or datetime.now())
 
@@ -123,25 +131,43 @@ def keep_both(paths: Paths, group_id: str, now: datetime | None = None) -> None:
         db.set_decision(conn, "keep_both", group_id, "", "keep", now or datetime.now())
 
 
-def _current(conn, group_id: str, file_id: int) -> list[DupFile]:
-    """The group's files as they are now, or OpProblem(CHANGED): a file of it gone, offline or held, the group
-    answered "Keep both", `file_id` not in it, or (a same-audio group) its files no longer share one audio. A group
-    that isn't a same-audio one counts as a same-song group (I4, from the plan) while it still has its shape: one
-    playlist song's file and the rest own songs' files."""
+def _current(conn, state: dict, group_id: str, file_id: int) -> list[DupFile]:
+    """The group's files as they are now, or OpProblem(CHANGED): a file of it gone, offline, held or ambiguous (as
+    duplicate_groups leaves them out), the group answered "Keep both", `file_id` not in it, or (a same-audio group)
+    its files no longer share one audio. A group that isn't a same-audio one is a same-song group (I4, from the
+    plan) only while it still is one: one playlist song's file, and the rest own songs' files that identify.compare
+    finds certainly that song. File ids can be given out again after a row is deleted, so the shape alone could
+    name a file the window never showed."""
     try:
         ids = db.group_ids(group_id)
         files = db.group_files(conn, group_id)
     except ValueError:
         raise OpProblem(ops.CHANGED, "changed") from None
-    if (file_id not in ids or len(files) != len(ids) or not all(f.online for f in files)
+    if (file_id not in ids or len(files) != len(ids) or not all(f.online and f.usable for f in files)
             or group_id in db.decisions(conn)["keep_both"]):
         raise OpProblem(ops.CHANGED, "changed")
-    if group_id not in {g.id for g in db.duplicate_groups(conn)}:
-        playlist = [f for f in files if f.song_key is not None and not is_own(f.song_key)]
-        own = [f for f in files if f.song_key is not None and is_own(f.song_key)]
-        if len(playlist) != 1 or len(own) != len(files) - 1:
-            raise OpProblem(ops.CHANGED, "changed")
+    if group_id not in {g.id for g in db.duplicate_groups(conn)} and not _same_song(state, files):
+        raise OpProblem(ops.CHANGED, "changed")
     return files
+
+
+def _same_song(state: dict, files: list[DupFile]) -> bool:
+    playlist = [f for f in files if f.song_key is not None and not is_own(f.song_key)]
+    own = [f for f in files if f.song_key is not None and is_own(f.song_key)]
+    if len(playlist) != 1 or len(own) != len(files) - 1:
+        return False
+    tracks = state["tracks"]
+    e = tracks.get(playlist[0].song_key)
+    if e is None or e.get("file_id") != playlist[0].file_id:
+        return False
+    for f in own:
+        o = tracks.get(f.song_key)
+        if o is None or o.get("file_id") != f.file_id:
+            return False
+        match = identify.compare(e.get("artist") or "", e.get("title") or "", e.get("duration_ms"), e.get("isrc"), o)
+        if match is None or match[0] != "certain":
+            return False
+    return True
 
 
 def _heir(moved: DupFile, others: list[DupFile]) -> int | None:
@@ -188,7 +214,7 @@ def supersede(paths: Paths, group_id: str, file_id: int, *, emit: Emit = no_emit
     library.recover_pending(paths, state)
     with db.connect(paths.db_file) as conn:
         try:
-            files = _current(conn, group_id, file_id)
+            files = _current(conn, state, group_id, file_id)
         except OpProblem as p:
             ops.log_operation(paths, now(), "", None, SUPERSEDE, p.kind, str(p))
             raise
@@ -206,6 +232,10 @@ def supersede(paths: Paths, group_id: str, file_id: int, *, emit: Emit = no_emit
                            label=PurePosixPath(moved.path).name)
     except OSError as e:
         message = NOT_MOVED.format(detail=failed_detail(e))
+        ops.log_operation(paths, now(), key, entry, SUPERSEDE, "failed", message)
+        raise OpProblem(message, "failed") from None
+    except (sqlite3.IntegrityError, ValueError):  # moved, but the records refused the result (move_files)
+        message = NOT_RECORDED.format(dst=dst)
         ops.log_operation(paths, now(), key, entry, SUPERSEDE, "failed", message)
         raise OpProblem(message, "failed") from None
     message = MOVED.format(dst=dst)
