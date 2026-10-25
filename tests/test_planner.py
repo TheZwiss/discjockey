@@ -657,6 +657,32 @@ def test_tidy_rows_lists_files_outside_their_target_and_ticks_by_placed_by():
     assert [r.ticked for r in rows] == [True, False, False]
 
 
+IMPORT = "/Volumes/Example/Music"  # an import folder: its files have absolute snapshot paths
+
+
+def test_tidy_target_of_a_file_in_an_import_folder_is_its_playlist_folder_in_library():
+    assert tidy_target(entry("F", path=f"{IMPORT}/House/a.flac")) == "Library/F/a.flac"
+    assert tidy_target(entry("F", status="not_lossless", path=f"{IMPORT}/b.mp3")) == "Library/F/not_lossless/b.mp3"
+
+
+def test_tidy_rows_an_import_file_in_a_playlist_is_an_unticked_row():
+    rows = tidy_rows(tidy_state(a=tidy_entry("F", f"{IMPORT}/House/a.flac", 1, "import")))
+    assert rows == [TidyRow("a", 1, f"{IMPORT}/House/a.flac", "Library/F/a.flac", "import", None)]
+    assert not rows[0].ticked
+
+
+def test_tidy_rows_an_offline_import_file_is_offline_and_a_taken_name_is_name_taken():
+    s = tidy_state(files=[f"{IMPORT}/b.flac", "Library/F/b.flac"],
+                   a=tidy_entry("F", f"{IMPORT}/a.flac", 1, "import", online=False),
+                   b=tidy_entry("F", f"{IMPORT}/b.flac", 2, "import"))
+    assert [(r.track_id, r.skip) for r in tidy_rows(s)] == [("a", "offline"), ("b", "name_taken")]
+
+
+def test_a_song_of_the_users_own_has_no_tidy_target():
+    own = tidy_entry(None, f"{IMPORT}/c.flac", 3, "import", in_playlists=False)
+    assert tidy_target(own) is None and tidy_rows(tidy_state(**{"local:1": own})) == []
+
+
 def test_tidy_rows_a_case_only_folder_difference_is_no_move():
     assert tidy_rows(tidy_state(a=tidy_entry("Hard_Bounce", "Library/hard_bounce/a.aiff"))) == []
 
