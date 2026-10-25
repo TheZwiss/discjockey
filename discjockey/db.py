@@ -802,7 +802,7 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
                  "new" if seen.folder in imports else None)).rowcount
         for file_id in result.gone:  # an own song goes with its file (below); a playlist song downloads it again
             n += conn.execute(f"UPDATE songs AS s SET file_gone = ? WHERE s.id = (SELECT song FROM files WHERE id = ?) "
-                              f"AND NOT {_IS_OWN}", (today, file_id)).rowcount
+                              f"AND NOT ({_IS_OWN_ONLY})", (today, file_id)).rowcount
             n += conn.execute("DELETE FROM files WHERE id = ?", (file_id,)).rowcount
         if result.gone:
             n += _drop_fileless_own(conn) + _drop_dead_decisions(conn)
@@ -1034,6 +1034,9 @@ def batch(conn: sqlite3.Connection, batch_id: int) -> BatchRow | None:
 # Each writer here is one transaction and bumps the generation (I2), so no snapshot taken before it is saved over it.
 
 _IS_OWN = f"substr(s.key, 1, {len(OWN_PREFIX)}) = '{OWN_PREFIX}'"  # SQL: songs row `s` is an own song (models.is_own)
+# SQL: an own song nobody linked to a playlist song. A song linked by a "Yes, same song" answer keeps its `local:<n>`
+# key but is in a playlist (in_playlists = 1): it is a playlist song for losing its file (file_gone, no deletion).
+_IS_OWN_ONLY = f"{_IS_OWN} AND s.in_playlists = 0"
 OWN_COUNTER = "last_own_song"  # meta: the highest n of a `local:<n>` key ever given out (keys are never reused)
 
 
@@ -1173,7 +1176,7 @@ def set_unreadable(conn: sqlite3.Connection, file_id: int, reason: str) -> None:
 def _drop_fileless_own(conn: sqlite3.Connection) -> int:
     """Deletes the own songs left with no file (their aliases go with them). Returns the songs deleted; the caller
     then drops the answers naming them (_drop_dead_decisions)."""
-    return conn.execute(f"DELETE FROM songs AS s WHERE {_IS_OWN} "
+    return conn.execute(f"DELETE FROM songs AS s WHERE {_IS_OWN_ONLY} "
                         "AND NOT EXISTS (SELECT 1 FROM files f WHERE f.song = s.id)").rowcount
 
 
@@ -1272,7 +1275,7 @@ def add_watched_folder(conn: sqlite3.Connection, path: Path, now: datetime) -> A
 
 
 # songs of a playlist (not own) with a file in folder ?1 and none elsewhere: removing the folder leaves them none
-_LOSING = (f"NOT {_IS_OWN} AND EXISTS (SELECT 1 FROM files f WHERE f.song = s.id AND f.folder = ?1) "
+_LOSING = (f"NOT ({_IS_OWN_ONLY}) AND EXISTS (SELECT 1 FROM files f WHERE f.song = s.id AND f.folder = ?1) "
            "AND NOT EXISTS (SELECT 1 FROM files f WHERE f.song = s.id AND f.folder != ?1)")
 
 

@@ -14,6 +14,7 @@ from audio_helpers import music, needs_ffmpeg, write_aiff
 from discjockey import db, folders, importer, library
 from discjockey.events import CancelToken
 from discjockey.library import Paths, empty_state, load_state, save_state
+from discjockey.models import DupFile
 from discjockey.ops import CHANGED, OpProblem
 from discjockey.quality import AudioInfo
 
@@ -409,3 +410,15 @@ def test_a_move_whose_result_the_records_refuse_says_so(paths, tmp_path, monkeyp
     assert log_lines(paths)[-1]["result"] == "failed"
     with db.connect(paths.db_file) as conn:
         assert db.pending_ops(conn) == []
+
+
+def dup(file_id, key, in_playlists, status="lossless"):
+    return DupFile(file_id, key, f"/x/{file_id}.aiff", status, None, None, True, in_playlists)
+
+
+def test_a_linked_own_song_counts_as_a_playlist_song_for_the_heir():
+    pure, linked = dup(2, "local:1", False), dup(3, "local:2", True)
+    assert folders._heir(dup(1, "sp1", True), [pure, dup(4, "local:3", False, "not_lossless")]) == 2
+    assert folders._heir(dup(1, "sp1", True), [pure, linked]) is None  # a playlist song's file stays
+    assert folders._heir(linked, [pure]) == 2  # a linked song's file that moves is taken over like a playlist song's
+    assert folders._heir(pure, [dup(5, "local:4", False)]) is None
