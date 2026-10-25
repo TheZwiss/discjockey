@@ -123,6 +123,9 @@ SCHEMA_V3_STEP = (
     """CREATE TABLE decisions (kind TEXT NOT NULL CHECK (kind IN ('same_song', 'keep_both')),
       a TEXT NOT NULL, b TEXT NOT NULL, answer TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (kind, a, b))""",
     "INSERT INTO meta (key, value) VALUES ('generation', '0')",
+    # an import folder a stage 2/3 scan already filled: its unlinked rows wait for the import like new ones
+    """UPDATE files SET import_state = 'new'
+      WHERE song IS NULL AND folder IN (SELECT id FROM watched_folders WHERE kind = 'import')""",
 )
 
 
@@ -695,6 +698,7 @@ def save(conn: sqlite3.Connection, state: dict, *, library: Path, facts: Facts, 
         n += _save_files(conn, tracks, ids, removed, folders, facts, stamp, rekeyed)
         for song in removed:
             n += conn.execute("DELETE FROM songs WHERE id = ?", (song,)).rowcount
+        n += _drop_dead_decisions(conn)  # a merge (I4 rule 2) removes the own song an answer named
         ops = [_dumps(op) for op in state.get("pending") or []]
         if ops != _pending(conn):
             n += conn.execute("DELETE FROM pending").rowcount
@@ -750,7 +754,7 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
     Held rows keep everything but are marked held (the snapshot's `held`: the planner leaves their songs alone, as
     offline ones); unreadable rows stay as they are. Returns the rows written."""
     stamp, today = now.isoformat(timespec="seconds"), now.date().isoformat()
-    n = 0
+    n = scanned = 0  # scanned: last_scan stamps, which no snapshot shows (they don't bump the generation)
     with transaction(conn):
         folders = {i: PurePosixPath(unicodedata.normalize("NFC", p))
                    for i, p in conn.execute("SELECT id, path FROM watched_folders")}
@@ -762,7 +766,7 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
             n += conn.execute(
                 f"UPDATE files SET held = 0 WHERE folder = ? AND held = 1 AND id NOT IN "
                 f"({', '.join('?' * len(held))})", (i, *held)).rowcount
-            n += conn.execute("UPDATE watched_folders SET last_scan = ? WHERE id = ?", (stamp, i)).rowcount
+            scanned += conn.execute("UPDATE watched_folders SET last_scan = ? WHERE id = ?", (stamp, i)).rowcount
         for file_id in held:  # left as it is, but known not to be there: the planner leaves its song alone
             n += conn.execute("UPDATE files SET held = 1 WHERE id = ? AND held = 0", (file_id,)).rowcount
         for i in offline:
@@ -796,12 +800,12 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
                               f"AND NOT {_IS_OWN}", (today, file_id)).rowcount
             n += conn.execute("DELETE FROM files WHERE id = ?", (file_id,)).rowcount
         if result.gone:
-            n += _drop_fileless_own(conn)
+            n += _drop_fileless_own(conn) + _drop_dead_decisions(conn)
         for file_id, (status, cutoff_hz, source_format) in (judged or {}).items():
             n += set_quality(conn, file_id, status, cutoff_hz, source_format)
         if n:
             _bump(conn)
-    return n
+    return n + scanned
 
 
 def set_quality(conn: sqlite3.Connection, file_id: int, status: str, cutoff_hz: int | None,
@@ -1090,8 +1094,12 @@ def add_own_song(conn: sqlite3.Connection, file_id: int, facts: OwnFacts) -> str
 def set_sound(conn: sqlite3.Connection, file_id: int, status: str, cutoff_hz: int | None,
               source_kbps: int | None) -> None:
     """The import's second pass for one file: the quality the sound check judged; import_state `done`. A row gone
-    meanwhile is left alone."""
+    meanwhile is left alone; a row with no song (the first pass hasn't made its own song) is ValueError, nothing
+    written: a `done` row with no song would never be imported."""
     with transaction(conn):
+        row = conn.execute("SELECT song FROM files WHERE id = ?", (file_id,)).fetchone()
+        if row is not None and row[0] is None:
+            raise ValueError(f"file {file_id} has no song yet; its sound is judged after its tags are read")
         if conn.execute("UPDATE files SET status = ?, cutoff_hz = ?, source_kbps = ?, import_state = 'done', "
                         "import_error = NULL WHERE id = ?", (status, cutoff_hz, source_kbps, file_id)).rowcount:
             _bump(conn)
@@ -1107,13 +1115,24 @@ def set_unreadable(conn: sqlite3.Connection, file_id: int, reason: str) -> None:
 
 
 def _drop_fileless_own(conn: sqlite3.Connection) -> int:
-    """Deletes the own songs left with no file (their aliases go with them) and the same_song answers naming them.
-    Returns the songs deleted."""
-    gone = [(i, k) for i, k in conn.execute(
-        f"SELECT s.id, s.key FROM songs s WHERE {_IS_OWN} AND NOT EXISTS (SELECT 1 FROM files f WHERE f.song = s.id)")]
-    conn.executemany("DELETE FROM songs WHERE id = ?", [(i,) for i, _ in gone])
-    conn.executemany("DELETE FROM decisions WHERE kind = 'same_song' AND b = ?", [(k,) for _, k in gone])
-    return len(gone)
+    """Deletes the own songs left with no file (their aliases go with them). Returns the songs deleted; the caller
+    then drops the answers naming them (_drop_dead_decisions)."""
+    return conn.execute(f"DELETE FROM songs AS s WHERE {_IS_OWN} "
+                        "AND NOT EXISTS (SELECT 1 FROM files f WHERE f.song = s.id)").rowcount
+
+
+def _drop_dead_decisions(conn: sqlite3.Connection) -> int:
+    """Deletes the answers naming what is gone, in the caller's transaction: a same_song answer whose own song (b)
+    no longer exists (keys are never reused, so it could never be asked again), a keep_both answer whose group has
+    a file row that no longer exists (the rest are another group). Returns the rows deleted."""
+    n = conn.execute("DELETE FROM decisions WHERE kind = 'same_song' AND substr(b, 1, ?) = ? "
+                     "AND b NOT IN (SELECT key FROM songs)", (len(OWN_PREFIX), OWN_PREFIX)).rowcount
+    for (gid,) in conn.execute("SELECT a FROM decisions WHERE kind = 'keep_both'").fetchall():
+        ids = _group_ids(gid, strict=False)
+        if not ids or conn.execute(f"SELECT COUNT(*) FROM files WHERE id IN ({', '.join('?' * len(ids))})",
+                                   tuple(ids)).fetchone()[0] < len(ids):
+            n += conn.execute("DELETE FROM decisions WHERE kind = 'keep_both' AND a = ?", (gid,)).rowcount
+    return n
 
 
 class FolderRefused(ValueError):
@@ -1126,35 +1145,45 @@ class FolderRefused(ValueError):
         self.path = path
 
 
-def _nfc_path(path: str | Path) -> PurePosixPath:
-    return PurePosixPath(unicodedata.normalize("NFC", Path(path).as_posix()))
+def _resolved(path: str | Path) -> PurePosixPath:
+    """A folder as it really is: symlinks and `..` resolved (as far as it exists; an unplugged drive's path is only
+    normalised), NFC."""
+    return PurePosixPath(unicodedata.normalize("NFC", os.path.realpath(path)))
+
+
+def _folded(path: PurePosixPath) -> PurePosixPath:
+    """For comparing folders: macOS volumes ignore case by default, so `Music` and `music` are one folder."""
+    return PurePosixPath(path.as_posix().casefold())
 
 
 def add_watched_folder(conn: sqlite3.Connection, path: Path, now: datetime) -> AddedFolder:
-    """Adds an import folder (absolute path, stored NFC). Watched folders never nest (D11): a folder in the music
-    folder (Library/ is in it) or in a watched folder, one holding the music folder, or one already watched is
-    FolderRefused, nothing written. One that holds import folders takes them over: their rows move to it with their
-    path below it in front (song links, import_state and every other column kept) and their watched_folders rows
-    go; snapshot paths are absolute, so no entry changes. Returns the new id and the merged folders' paths."""
-    p = _nfc_path(path)
-    if not p.is_absolute():
+    """Adds an import folder (an absolute path, stored resolved: _resolved). Watched folders never nest (D11),
+    compared resolved and ignoring case: a folder in the music folder (Library/ is in it) or in a watched folder,
+    one holding the music folder, or one already watched is FolderRefused, nothing written. One that holds import
+    folders takes them over: their rows move to it with their path below it in front (song links, import_state and
+    every other column kept) and their watched_folders rows go; snapshot paths are absolute, so no entry changes.
+    Returns the new id and the merged folders' paths (as they were stored)."""
+    if not Path(path).is_absolute():
         raise ValueError(f"{str(path)!r} is not an absolute path")
+    p = _resolved(path)
+    fp = _folded(p)
     with transaction(conn):
-        rows = [(i, root, kind, _nfc_path(root)) for i, root, kind in
+        rows = [(i, root, kind, _resolved(root)) for i, root, kind in
                 conn.execute("SELECT id, path, kind FROM watched_folders ORDER BY id")]
-        music = next(r for _, _, kind, r in rows if kind == "library").parent
-        if p.is_relative_to(music):
+        music = _folded(next(r for _, _, kind, r in rows if kind == "library").parent)
+        if fp.is_relative_to(music):
             raise FolderRefused("music", str(p))
-        if music.is_relative_to(p):
+        if music.is_relative_to(fp):
             raise FolderRefused("holds_music", str(p))
         inner = []
         for i, root, kind, r in rows:
-            if p == r:
+            fr = _folded(r)
+            if fp == fr:
                 raise FolderRefused("already", str(p))
-            if p.is_relative_to(r):
+            if fp.is_relative_to(fr):
                 raise FolderRefused("watched", str(p))
-            if r.is_relative_to(p):
-                inner.append((i, root, r.relative_to(p).as_posix()))
+            if fr.is_relative_to(fp):  # the rows' paths below it, spelled as the inner folder is
+                inner.append((i, root, "/".join(r.parts[len(p.parts):])))
         new = conn.execute("INSERT INTO watched_folders (path, kind, added) VALUES (?, 'import', ?)",
                            (str(p), now.isoformat(timespec="seconds"))).lastrowid
         for i, _, prefix in inner:  # the new folder has no rows yet: no (folder, path) collides
@@ -1195,19 +1224,16 @@ def remove_watched_folder(conn: sqlite3.Connection, folder_id: int, today: date)
     """Stops watching an import folder (D12), in one transaction; its files stay where they are. Its file rows go;
     every playlist song left with no file gets file_gone today (rule 2 downloads it again if it is still wanted);
     own songs left with no file go (a parked upgrade's file stays in Upgrades ready/), with the answers naming
-    them and the keep_both answers of groups with one of its files. The Library folder or an unknown id is
+    them and the keep_both answers of groups with one of its files (_drop_dead_decisions). The Library folder or an unknown id is
     ValueError. Returns removal_counts as they were."""
     with transaction(conn):
         _import_folder(conn, folder_id)
         counts = _removal_counts(conn, folder_id)
-        ids = {i for (i,) in conn.execute("SELECT id FROM files WHERE folder = ?", (folder_id,))}
         conn.execute(f"UPDATE songs AS s SET file_gone = ?2 WHERE {_LOSING}", (folder_id, str(today)))
         conn.execute("DELETE FROM files WHERE folder = ?", (folder_id,))
         conn.execute("DELETE FROM watched_folders WHERE id = ?", (folder_id,))
         _drop_fileless_own(conn)
-        conn.executemany("DELETE FROM decisions WHERE kind = 'keep_both' AND a = ?",
-                         [(g,) for (g,) in conn.execute("SELECT a FROM decisions WHERE kind = 'keep_both'")
-                          if _group_ids(g, strict=False) & ids])
+        _drop_dead_decisions(conn)
         _bump(conn)
     return counts
 
@@ -1323,6 +1349,7 @@ def finish_file_op(conn: sqlite3.Connection, op: dict) -> None:
         else:
             _supersede(conn, op["ref"], op.get("heir"))
         _drop_fileless_own(conn)
+        _drop_dead_decisions(conn)
         conn.execute(_BY_OP_ID, (op["op_id"],))
         _bump(conn)
 

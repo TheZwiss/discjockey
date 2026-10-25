@@ -248,6 +248,24 @@ def test_a_writer_upgrades_a_version_2_database_and_leaves_its_rows(tmp_path, li
     assert after == before
 
 
+def test_an_import_folder_a_stage_3_scan_filled_waits_for_the_import(tmp_path, library, monkeypatch):
+    path = version_2(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
+    with db.connect(path) as conn:  # as a stage 2/3 build left it: an import folder with scanned rows
+        conn.execute("INSERT INTO watched_folders (id, path, kind, added) VALUES (9, '/Volumes/Example/Music', "
+                     "'import', '2026-10-20T10:00:00')")
+        sp1 = conn.execute("SELECT id FROM songs WHERE key = 'sp1'").fetchone()[0]
+        for rel, song in (("A.mp3", None), ("B.mp3", sp1)):
+            conn.execute("INSERT INTO files (song, folder, path, placed_by, first_seen, last_seen) VALUES "
+                         "(?, 9, ?, 'import', '2026-10-20T10:00:00', '2026-10-20T10:00:00')", (song, rel))
+        conn.execute("INSERT INTO files (folder, path, placed_by, first_seen, last_seen) VALUES "
+                     "(1, 'House/Unlinked.aiff', 'import', '2026-10-20T10:00:00', '2026-10-20T10:00:00')")
+    with db.connect(path) as conn:
+        db.check(conn, upgrade=True)
+        rows = conn.execute("SELECT folder, path, import_state FROM files ORDER BY id").fetchall()
+    assert rows == [(1, "House/A - One.mp3", None), (1, "Techno/C - Thrée.aiff", None), (9, "A.mp3", "new"),
+                    (9, "B.mp3", None), (1, "House/Unlinked.aiff", None)]
+
+
 def test_fresh_and_v2_upgraded_databases_have_the_same_schema(tmp_path, library, monkeypatch):
     (tmp_path / "a").mkdir()
     (tmp_path / "b").mkdir()
@@ -860,11 +878,15 @@ def test_the_explicit_writers_bump_the_generation(opened):
         db.set_placed_by(conn, [file_id], "user")
         db.set_placed_by(conn, [file_id], "user")  # changes nothing: no bump
         assert opened.snap()["generation"] == 1
-        db.apply_scan(conn, ScanResult(), NOW)  # the folder's last_scan
+        db.apply_scan(conn, ScanResult(offline=[1]), NOW)  # the rows go offline
         assert opened.snap()["generation"] == 2
+        db.apply_scan(conn, ScanResult(), NOW)  # back online
+        assert opened.snap()["generation"] == 3
+        assert db.apply_scan(conn, ScanResult(), NOW) == 1  # only last_scan: no snapshot shows it, no bump
+        assert opened.snap()["generation"] == 3
         with db.transaction(conn):
             db.set_quality(conn, file_id, "lossless", 22000, "aiff")
-        assert opened.snap()["generation"] == 3
+        assert opened.snap()["generation"] == 4
 
 
 def test_create_gives_its_state_the_new_generation(tmp_path, library):

@@ -166,6 +166,14 @@ def test_sound_and_unreadable_and_the_counts(lib):
     assert [(r.file_id, r.state) for r in waiting] == [(c, "unreadable"), (d, "new")]
 
 
+def test_the_sound_of_a_file_with_no_song_yet_is_refused(lib):
+    folder = lib.folder().id
+    (a,) = lib.add_files(folder, "A.mp3")
+    with lib.conn() as conn, pytest.raises(ValueError):
+        db.set_sound(conn, a, "lossless", 22000, None)
+    assert lib.rows("SELECT status, import_state FROM files WHERE id = ?", a) == [(None, "new")]
+
+
 def test_offline_and_held_rows_arent_waiting(lib):
     folder = lib.folder().id
     other = lib.folder("/Volumes/Other/Music").id
@@ -206,6 +214,32 @@ def test_nested_folders_are_refused(lib, where, reason):
     assert lib.rows("SELECT * FROM watched_folders") == before
 
 
+@pytest.mark.parametrize("where, reason", [
+    (f"{DRIVE}/Sub/..", "already"), (f"{DRIVE}/Sub/../Sub/Deeper", "watched"), ("/VOLUMES/example/MUSIC", "already"),
+    ("/Volumes/Example/MUSIC/Sub", "watched"), ("{library}/House/../..", "music"), ("{music_upper}/Other", "music"),
+    ("{parent_upper}", "holds_music")])
+def test_nesting_is_judged_on_the_resolved_path_ignoring_case(lib, where, reason):
+    lib.folder()
+    music = str(lib.library.parent)
+    path = where.format(library=lib.library, music_upper=music.upper(), parent_upper=str(lib.library.parent.parent).upper())
+    with lib.conn() as conn, pytest.raises(db.FolderRefused) as e:
+        db.add_watched_folder(conn, Path(path), NOW)
+    assert e.value.reason == reason
+
+
+def test_a_folder_is_stored_resolved(lib, tmp_path):
+    real = tmp_path / "Real Music"
+    real.mkdir()
+    (tmp_path / "Link").symlink_to(real)
+    lib.folder(f"{DRIVE}/Sub/../Other")
+    lib.folder(str(tmp_path / "Link"))
+    assert lib.rows("SELECT path FROM watched_folders WHERE kind = 'import' ORDER BY id") == [
+        (f"{DRIVE}/Other",), (str(real.resolve()),)]
+    with lib.conn() as conn, pytest.raises(db.FolderRefused) as e:
+        db.add_watched_folder(conn, real / "Inside", NOW)  # inside the folder the link names
+    assert e.value.reason == "watched"
+
+
 def test_a_relative_folder_is_refused(lib):
     with lib.conn() as conn, pytest.raises(ValueError):
         db.add_watched_folder(conn, Path("Music"), NOW)
@@ -235,17 +269,22 @@ def test_removal_counts_the_playlist_songs_that_lose_their_only_file(lib):
 
 def test_removing_a_folder_drops_its_rows_and_own_songs_and_keeps_playlist_songs(lib):
     folder, (a, b, c), key = removal_setup(lib)
+    other = lib.folder("/Volumes/Other/Music").id
+    (d,) = lib.add_files(other, "Elsewhere.mp3")
+    elsewhere = lib.own_song(d)
+    sp1 = lib.snap()["tracks"]["sp1"]["file_id"]
     with lib.conn() as conn:
-        db.set_decision(conn, "same_song", "sp9", key, "not_same", NOW)
-        db.set_decision(conn, "same_song", "sp8", "local:77", "not_same", NOW)
-        db.set_decision(conn, "keep_both", db.group_id([1, a]), "", "keep", NOW)
-        db.set_decision(conn, "keep_both", "dup:500-501", "", "keep", NOW)
+        db.set_decision(conn, "same_song", "sp9", key, "not_same", NOW)  # its own song goes
+        db.set_decision(conn, "same_song", "sp8", elsewhere, "not_same", NOW)
+        db.set_decision(conn, "keep_both", db.group_id([sp1, a]), "", "keep", NOW)  # one of its files goes
+        db.set_decision(conn, "keep_both", db.group_id([sp1, d]), "", "keep", NOW)
         before = lib.generation()
         assert db.remove_watched_folder(conn, folder, date(2026, 10, 26)) == db.RemovalCounts(3, 1)
-        assert db.decisions(conn) == {"same_song": [["sp8", "local:77", "not_same"]], "keep_both": ["dup:500-501"]}
+        assert db.decisions(conn) == {"same_song": [["sp8", elsewhere, "not_same"]],
+                                      "keep_both": [db.group_id([sp1, d])]}
     assert lib.generation() == before + 1
     assert lib.rows("SELECT key, file_gone FROM songs ORDER BY id") == [
-        ("sp1", None), ("sp2", "2026-10-26"), ("sp3", "2026-10-26")]
+        ("sp1", None), ("sp2", "2026-10-26"), ("sp3", "2026-10-26"), (elsewhere, None)]
     assert lib.rows("SELECT COUNT(*) FROM files WHERE folder = ?", folder) == [(0,)]
     assert lib.rows("SELECT id FROM watched_folders WHERE id = ?", folder) == []
     tracks = lib.snap()["tracks"]
@@ -351,6 +390,28 @@ def test_a_merge_through_save_keeps_placed_by_import(lib):
     assert lib.rows("SELECT s.key, f.placed_by, f.import_state, f.status FROM files f JOIN songs s ON s.id = f.song "
                     "WHERE f.id = ?", a) == [("sp2", "import", "done", "lossless")]
     assert lib.rows("SELECT key FROM songs WHERE key = ?", key) == []
+
+
+def test_a_save_drops_the_answers_naming_what_it_removed(lib):
+    folder = lib.folder().id
+    a, b = lib.add_files(folder, "Track.aiff", "Copy.aiff")
+    path = f"{DRIVE}/Track.aiff"
+    lib.present.add(path)
+    key, other = lib.own_song(a), lib.own_song(b)
+    state = lib.snap()
+    state["tracks"]["sp2"] = entry("Example Artist", "Track")
+    lib.save(state)
+    with lib.conn() as conn:
+        db.set_decision(conn, "same_song", "sp2", key, "same", NOW)
+        db.set_decision(conn, "same_song", "sp3", other, "not_same", NOW)
+        db.set_decision(conn, "keep_both", db.group_id([a, b]), "", "keep", NOW)
+    state = lib.snap()
+    o = state["tracks"].pop(key)  # the merge: the own song goes
+    state["tracks"]["sp2"].update({k: o[k] for k in db.FILE_FIELDS})
+    state["tracks"].pop(other)  # an own song whose file is gone from disk: its row goes too
+    lib.save(state)
+    assert lib.rows("SELECT id FROM files WHERE id = ?", b) == []
+    assert lib.snap()["decisions"] == {"same_song": [], "keep_both": []}
 
 
 # --- 1.8 the file journal ---
