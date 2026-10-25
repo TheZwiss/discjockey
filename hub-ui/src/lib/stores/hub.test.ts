@@ -3,7 +3,7 @@ import { get } from 'svelte/store';
 import { installBridge, _resetBridge } from '../bridge/client';
 import { dispatch } from '../bridge/events';
 import { EMPTY_HUB, hub, refreshHub, refreshOnNoLibrary, readBlockIn, readNeedsSetupIn, reduceHub } from './hub';
-import type { SpotifyStatus } from '../bridge/types';
+import type { SetupStatus, SpotifyStatus } from '../bridge/types';
 
 describe('reduceHub', () => {
   it('tracks the write job from JobStarted to JobFinished', () => {
@@ -236,14 +236,19 @@ describe('a scan job in job_status', () => {
 describe('readNeedsSetupIn: a not_set_up without a service is a missing playlists.txt (first-run Dashboard, §5a)', () => {
   const ok: SpotifyStatus = { read_at: null, minutes_ago: null, problem: 'not_set_up', problem_service: null,
     message: '', services: [], stale: false, reading: false, offline: false, auto_read: false };
+  const setup = (playlists: boolean) => ({ playlists }) as unknown as SetupStatus;
   it('is true for the missing playlists.txt, which is no login block', () => {
-    expect(readNeedsSetupIn(ok)).toBe(true);
+    expect(readNeedsSetupIn(ok, null)).toBe(true);
+    expect(readNeedsSetupIn(ok, setup(false))).toBe(true);
     expect(readBlockIn(ok)).toBeNull();
   });
+  it('is false once setup says playlists.txt exists (the stored problem is stale; a read must be able to clear it)', () => {
+    expect(readNeedsSetupIn(ok, setup(true))).toBe(false);
+  });
   it('is false while nothing is known, with no problem, and for a login problem (that has its own block)', () => {
-    expect(readNeedsSetupIn(null)).toBe(false);
-    expect(readNeedsSetupIn({ ...ok, problem: null })).toBe(false);
-    expect(readNeedsSetupIn({ ...ok, problem_service: 'qobuz' })).toBe(false);
-    expect(readNeedsSetupIn({ ...ok, services: [{ service: 'qobuz', name: 'Qobuz', connected: false }] })).toBe(false);
+    expect(readNeedsSetupIn(null, null)).toBe(false);
+    expect(readNeedsSetupIn({ ...ok, problem: null }, null)).toBe(false);
+    expect(readNeedsSetupIn({ ...ok, problem_service: 'qobuz' }, null)).toBe(false);
+    expect(readNeedsSetupIn({ ...ok, services: [{ service: 'qobuz', name: 'Qobuz', connected: false }] }, null)).toBe(false);
   });
 });

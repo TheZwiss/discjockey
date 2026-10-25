@@ -12,7 +12,8 @@
   // "Connect Qobuz first." as its reason (§5a: a state said once).
   // The same for a not_set_up without a service (playlists.txt is missing, setup isn't finished): the first-run page
   // and the setup flow say it, so the slot shows no problem card and no "haven't been read yet" line (a never-read
-  // slot holds only the disabled button) and gives "Finish setup first." as the reason.
+  // slot holds only the disabled button) and gives "Finish setup first." as the reason. Only while setup says
+  // playlists.txt is missing (`hub.setup.playlists` not true): the stored problem outlives setup until a read clears it.
   import { api, runJob } from '../bridge/client';
   import { hub, hubSyncRunning, bumpData, readBlock, readBlockIn, readNeedsSetupIn } from '../stores/hub';
   import { PLAYLIST_SERVICE_NAMES, READ_NEEDS_SETUP } from '../copy';
@@ -35,7 +36,7 @@
   const minutes = $derived(sp?.read_at ? (now - Date.parse(sp.read_at)) / 60000 : sp?.minutes_ago ?? null);
   const when = $derived(sp?.read_at ? `Playlists read ${ago(minutes)}` : "Playlists haven't been read yet");
   const block = $derived(status !== undefined ? readBlockIn(status) : $readBlock);
-  const needsSetup = $derived(readNeedsSetupIn(sp));
+  const needsSetup = $derived(readNeedsSetupIn(sp, $hub.setup));
   const problem = $derived(sp?.problem && !sp.offline && sp.problem !== 'offline' && !block && !needsSetup
     ? sp.problem : null);
   const blocked = $derived(block ? `Connect ${PLAYLIST_SERVICE_NAMES[block.service]} first.`
