@@ -3,6 +3,22 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 26. Library stage 3 leftovers (Qobuz playlists) — for stages 5 and 6
+
+Noted while building and reviewing `docs/2026-10-24-library-stage-3-plan.md`.
+
+- **The read-status wire names still say Spotify** (`spotify` field, `SpotifyStatus` type and component,
+  `spotify_status` in `hub/views.py`), though the words are service-neutral since stage 3 (plan D2). Rename them when
+  stage 5 rebuilds the shell-wide status slot with the sidebar, not before.
+- **SoundCloud and YouTube Music track links can't be derived from an id:** `models.track_link` returns None for
+  them. When stage 6 adds those sources and a view needs the link, store it with the track.
+- **A file downloaded by its exact Qobuz id gets no record-label tag.** `make_ready` writes `cand.label`, and the
+  exact candidate is built from the playlist track, which has no label (`SourceTrack` has none). Fix: carry the label
+  from the Qobuz playlist read into the track, or fetch it.
+- **An upgrade check with Qobuz recently searched doesn't try a new Qobuz id.** With `searched_since_check` set it
+  passes `qobuz=False`, so a Qobuz id that newly appeared in a playlist waits for the next weekly check. Deliberate
+  for now (it keeps the weekly wait); revisit if users expect an immediate upgrade.
+
 ## 25. Library stage 1 leftovers (engine on library.db) — for stages 2–4
 
 Noted while moving the engine onto `library.db` (`docs/2026-10-23-library-stage-1-plan.md`, group 3).
