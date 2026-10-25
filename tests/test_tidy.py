@@ -156,7 +156,7 @@ def test_a_song_gone_between_planning_and_its_move_is_not_found(paths):
 def test_a_move_the_records_refuse_is_failed_in_words_that_say_it_moved(paths, monkeypatch):
     state = library_with(paths, ("s1", "A", "B"))
 
-    def refused(conn, move_id):
+    def refused(conn, move_id, **kw):
         raise sqlite3.IntegrityError("UNIQUE constraint failed: files.folder, files.path")
     monkeypatch.setattr(db, "finish_move", refused)
     result = tidy.tidy_up(paths, sent(state, "s1"))
@@ -456,7 +456,7 @@ def test_a_crash_after_the_move_and_before_it_is_marked_done_is_finished_next_st
     state = library_with(paths, ("s1", "A", "B"), ("s2", "A", "B"))
     mark_user(paths, state, "s1")
 
-    def power_cut(conn, move_id):
+    def power_cut(conn, move_id, **kw):
         raise SystemExit("power cut")
     monkeypatch.setattr(db, "finish_move", power_cut)
     with pytest.raises(SystemExit):

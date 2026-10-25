@@ -8,6 +8,7 @@ from datetime import datetime
 import pytest
 
 from discjockey import db
+from discjockey import library as library_module
 from discjockey.library import StateError
 
 NOW = datetime(2026, 10, 23, 12, 0, 0)
@@ -57,7 +58,7 @@ def test_a_fresh_database_has_the_current_version(tmp_path, library):
         db.check(conn)
         version = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
         created = conn.execute("SELECT value FROM meta WHERE key = 'created'").fetchone()[0]
-    assert int(version) == db.SCHEMA_VERSION == 2
+    assert int(version) == db.SCHEMA_VERSION == 3
     assert created == "2026-10-23T12:00:00"
 
 
@@ -70,7 +71,7 @@ def test_create_refuses_an_existing_file(tmp_path, library):
 def test_a_newer_database_is_refused_with_the_words(tmp_path, library):
     path = fresh(tmp_path, library)
     with db.connect(path) as conn:
-        conn.execute("UPDATE meta SET value = '3' WHERE key = 'schema_version'")
+        conn.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (str(db.SCHEMA_VERSION + 1),))
     with db.connect(path) as conn, pytest.raises(StateError) as e:
         db.check(conn)
     assert str(e.value) == ("This music folder was last used by a newer Discjockey. Update Discjockey, then try "
@@ -101,10 +102,10 @@ def test_an_upgrade_step_is_applied_once_and_bumps_the_version(tmp_path, library
 
     def step(conn):
         calls.append(1)
-        conn.execute("CREATE TABLE extra_v3 (id INTEGER PRIMARY KEY)")
+        conn.execute("CREATE TABLE extra_v4 (id INTEGER PRIMARY KEY)")
 
-    monkeypatch.setattr(db, "SCHEMA_VERSION", 3)
-    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, 2: step})
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, 3: step})
     with db.connect(path) as conn, pytest.raises(StateError) as e:
         db.check(conn)  # a reader (no lock) never upgrades
     assert str(e.value) == ("Discjockey's records of this music folder are from an older version. Run a sync once "
@@ -115,8 +116,8 @@ def test_an_upgrade_step_is_applied_once_and_bumps_the_version(tmp_path, library
             db.check(conn, upgrade=True)
     assert calls == [1]
     with db.connect(path) as conn:
-        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "3"
-        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'extra_v3'").fetchone()
+        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "4"
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'extra_v4'").fetchone()
 
 
 def test_a_failing_upgrade_step_leaves_the_old_version(tmp_path, library, monkeypatch):
@@ -126,23 +127,24 @@ def test_a_failing_upgrade_step_leaves_the_old_version(tmp_path, library, monkey
         conn.execute("CREATE TABLE half_done (id INTEGER PRIMARY KEY)")
         raise RuntimeError("disk full")
 
-    monkeypatch.setattr(db, "SCHEMA_VERSION", 3)
-    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, 2: step})
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, 3: step})
     with db.connect(path) as conn, pytest.raises(RuntimeError):
         db.check(conn, upgrade=True)
     with db.connect(path) as conn:
-        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "2"
+        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "3"
         assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'half_done'").fetchone() is None
 
 
 def test_create_builds_the_current_version_through_the_upgrade_steps(tmp_path, library, monkeypatch):
-    monkeypatch.setattr(db, "SCHEMA_VERSION", 3)
-    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, 2: lambda conn: conn.execute("CREATE TABLE extra_v3 (id INTEGER)")})
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, 3: lambda conn: conn.execute("CREATE TABLE extra_v4 (id INTEGER)")})
     path = fresh(tmp_path, library)
     with db.connect(path) as conn:
         db.check(conn)
-        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "3"
-        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'extra_v3'").fetchone()
+        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "4"
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'extra_v4'").fetchone()
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'decisions'").fetchone()
         assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'moves'").fetchone()
 
 
@@ -171,6 +173,7 @@ def test_a_writer_upgrades_a_version_1_database_and_leaves_its_rows(tmp_path, li
     path = version_1(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
     before = everything(path)
     assert "moves" not in before and "move_batches" not in before
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 2)  # this step alone; 2 -> 3 has its own test
     with db.connect(path) as conn:
         db.check(conn, upgrade=True)
     after = everything(path)
@@ -216,6 +219,75 @@ def test_a_reader_refuses_a_version_1_database(tmp_path, library, monkeypatch):
     with db.connect(path) as conn:
         assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "1"
         assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'moves'").fetchone() is None
+
+
+# --- stage 4, 1.1: the schema step 2 -> 3 (import_state, decisions, generation) ---
+
+def version_2(tmp_path, library, monkeypatch, state=None, facts=no_facts):
+    """A database as stages 2 and 3 built it: version 2, no import columns, no decisions."""
+    with monkeypatch.context() as m:
+        m.setattr(db, "SCHEMA_VERSION", 2)
+        m.setattr(db, "UPGRADES", {1: db.UPGRADES[1]})
+        return fresh(tmp_path, library, state, facts)
+
+
+def test_a_writer_upgrades_a_version_2_database_and_leaves_its_rows(tmp_path, library, monkeypatch):
+    path = version_2(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
+    before = everything(path)
+    assert "decisions" not in before
+    with db.connect(path) as conn:
+        db.check(conn, upgrade=True)
+        columns = [r[1] for r in conn.execute("PRAGMA table_info(files)")]
+    after = everything(path)
+    assert after.pop("decisions") == []
+    assert columns[-2:] == ["import_state", "import_error"]
+    assert after.pop("files") == [(*row, None, None) for row in before.pop("files")]
+    meta = dict(after.pop("meta"))
+    assert meta.pop("schema_version") == "3" and meta.pop("generation") == "0"
+    assert meta == {k: v for k, v in before.pop("meta") if k != "schema_version"}
+    assert after == before
+
+
+def test_an_import_folder_a_stage_3_scan_filled_waits_for_the_import(tmp_path, library, monkeypatch):
+    path = version_2(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
+    with db.connect(path) as conn:  # as a stage 2/3 build left it: an import folder with scanned rows
+        conn.execute("INSERT INTO watched_folders (id, path, kind, added) VALUES (9, '/Volumes/Example/Music', "
+                     "'import', '2026-10-20T10:00:00')")
+        sp1 = conn.execute("SELECT id FROM songs WHERE key = 'sp1'").fetchone()[0]
+        for rel, song in (("A.mp3", None), ("B.mp3", sp1)):
+            conn.execute("INSERT INTO files (song, folder, path, placed_by, first_seen, last_seen) VALUES "
+                         "(?, 9, ?, 'import', '2026-10-20T10:00:00', '2026-10-20T10:00:00')", (song, rel))
+        conn.execute("INSERT INTO files (folder, path, placed_by, first_seen, last_seen) VALUES "
+                     "(1, 'House/Unlinked.aiff', 'import', '2026-10-20T10:00:00', '2026-10-20T10:00:00')")
+    with db.connect(path) as conn:
+        db.check(conn, upgrade=True)
+        rows = conn.execute("SELECT folder, path, import_state FROM files ORDER BY id").fetchall()
+    assert rows == [(1, "House/A - One.mp3", None), (1, "Techno/C - Thrée.aiff", None), (9, "A.mp3", "new"),
+                    (9, "B.mp3", None), (1, "House/Unlinked.aiff", None)]
+
+
+def test_fresh_and_v2_upgraded_databases_have_the_same_schema(tmp_path, library, monkeypatch):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    upgraded = version_2(tmp_path / "a", library, monkeypatch)
+    with db.connect(upgraded) as conn:
+        db.check(conn, upgrade=True)
+    created = fresh(tmp_path / "b", library)
+    assert schema(upgraded) == schema(created)
+    assert {name for _, name, _, _ in schema(created)} >= {"decisions", "files_import"}
+
+
+def test_a_fresh_database_starts_at_generation_0(tmp_path, library):
+    path = fresh(tmp_path, library)
+    with db.connect(path) as conn:
+        assert conn.execute("SELECT value FROM meta WHERE key = 'generation'").fetchone()[0] == "0"
+
+
+def test_a_reader_refuses_a_version_2_database(tmp_path, library, monkeypatch):
+    path = version_2(tmp_path, library, monkeypatch)
+    with db.connect(path) as conn, pytest.raises(StateError) as e:
+        db.check(conn)
+    assert str(e.value) == db.OLDER
 
 
 # --- 1.2 entry <-> rows, create, snapshot ---
@@ -399,7 +471,9 @@ def test_an_empty_database_has_the_default_records(tmp_path, library):
     with db.connect(fresh(tmp_path, library)) as conn:
         snap = db.snapshot(conn, library)
     assert snap == {"version": 2, "tracks": {}, "pending": [], "never": {},
-                    "qobuz_usage": {"days": {}, "signals": []}, "ambiguous": {}, "files": []}
+                    "qobuz_usage": {"days": {}, "signals": []}, "ambiguous": {}, "files": [], "generation": 0,
+                    "decisions": {"same_song": [], "keep_both": []}}
+    assert snap == library_module.empty_state()
 
 
 # --- 1.3 the diffing save ---
@@ -430,6 +504,7 @@ def opened(tmp_path, library):
 
     o = Opened()
     o.present = present
+    o.path = path
     return o
 
 
@@ -749,3 +824,97 @@ def test_save_ignores_a_changed_file_id(opened):
     state["tracks"]["sp2"]["file_id"] = 7
     assert opened.save(state) == 0
     assert "file_id" not in opened.snap()["tracks"]["sp2"]
+
+
+# --- stage 4, 1.2: the generation (a stale snapshot is never saved) ---
+
+def test_a_fresh_snapshot_saves_and_its_writer_keeps_saving(opened):
+    state = opened.snap()
+    assert state["generation"] == 0
+    state["tracks"]["sp2"]["last_attempt"] = "2026-10-24"
+    assert opened.save(state) == 1
+    assert state["generation"] == 1 == opened.snap()["generation"]
+    state["tracks"]["sp2"]["last_attempt"] = "2026-10-25"
+    assert opened.save(state) == 1
+    assert state["generation"] == 2
+    assert opened.snap()["tracks"]["sp2"]["last_attempt"] == "2026-10-25"
+
+
+def test_an_unchanged_save_keeps_the_generation(opened):
+    state = opened.snap()
+    assert opened.save(state) == 0
+    assert state["generation"] == 0 == opened.snap()["generation"]
+
+
+def test_a_save_after_an_explicit_write_is_refused_and_writes_nothing(opened):
+    state = opened.snap()
+    file_id = state["tracks"]["sp1"]["file_id"]
+    with db.connect(opened.path) as conn:
+        assert db.set_placed_by(conn, [file_id], "user") == 1
+    before = opened.rows("SELECT * FROM songs ORDER BY id")
+    state["tracks"]["sp2"]["last_attempt"] = "2026-10-24"
+    state["tracks"]["sp1"].update(path=None, status="missing")
+    with pytest.raises(StateError) as e:
+        opened.save(state)
+    assert str(e.value) == ("Discjockey's records changed while this step was being prepared, so nothing was saved. "
+                            "Try again.")
+    assert opened.rows("SELECT * FROM songs ORDER BY id") == before
+    assert opened.rows("SELECT song, placed_by FROM files WHERE id = ?", file_id) == [
+        (opened.rows("SELECT id FROM songs WHERE key = 'sp1'")[0][0], "user")]
+    assert state["generation"] == 0
+
+
+def test_a_state_that_isnt_a_snapshot_is_refused(opened):
+    state = opened.snap()
+    del state["generation"]
+    with pytest.raises(StateError):
+        opened.save(state)
+
+
+def test_the_explicit_writers_bump_the_generation(opened):
+    from discjockey.models import ScanResult
+    file_id = opened.snap()["tracks"]["sp1"]["file_id"]
+    with db.connect(opened.path) as conn:
+        db.set_placed_by(conn, [file_id], "user")
+        db.set_placed_by(conn, [file_id], "user")  # changes nothing: no bump
+        assert opened.snap()["generation"] == 1
+        db.apply_scan(conn, ScanResult(offline=[1]), NOW)  # the rows go offline
+        assert opened.snap()["generation"] == 2
+        db.apply_scan(conn, ScanResult(), NOW)  # back online
+        assert opened.snap()["generation"] == 3
+        assert db.apply_scan(conn, ScanResult(), NOW) == 1  # only last_scan: no snapshot shows it, no bump
+        assert opened.snap()["generation"] == 3
+        with db.transaction(conn):
+            db.set_quality(conn, file_id, "lossless", 22000, "aiff")
+        assert opened.snap()["generation"] == 4
+
+
+def test_create_gives_its_state_the_new_generation(tmp_path, library):
+    state = library_module.empty_state()
+    state["generation"] = 7  # another library's snapshot
+    path = fresh(tmp_path, library, state)
+    assert state["generation"] == 0
+    state["never"] = {"sp9": {"artist": "Z"}}
+    with db.connect(path) as conn:
+        assert db.save(conn, state, library=library, facts=no_facts, now=NOW) == 1
+
+
+# --- stage 4, 1.3: the snapshot's new keys ---
+
+def test_a_stage_3_snapshot_round_trips_unchanged_apart_from_the_new_keys(tmp_path, library, monkeypatch):
+    present = {"Library/House/A - One.mp3", "Library/Techno/C - Thrée.aiff"}
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    upgraded = version_2(tmp_path / "a", library, monkeypatch, v1_state(), fake_facts(present))
+    created = fresh(tmp_path / "b", library, v1_state(), fake_facts(present))
+    with db.connect(upgraded) as conn:
+        db.check(conn, upgrade=True)
+        snap = db.snapshot(conn, library)
+        assert db.save(conn, snap, library=library, facts=fake_facts(present), now=NOW) == 0
+    with db.connect(created) as conn:
+        assert db.snapshot(conn, library) == snap
+    assert snap["generation"] == 0 and snap["decisions"] == {"same_song": [], "keep_both": []}
+    tracks = snap["tracks"]
+    assert tracks["sp1"]["import_state"] is None and tracks["sp1"]["first_seen"] == "2026-10-23T12:00:00"
+    assert tracks["sp2"]["import_state"] is None and tracks["sp2"]["first_seen"] is None
+    assert without_read_only(tracks) == {k: {**e, "file_gone": None} for k, e in v1_state()["tracks"].items()}

@@ -34,6 +34,14 @@ def split_token(tok: str) -> tuple[str, str]:
     return (service, id) if sep else ("spotify", tok)
 
 
+OWN_PREFIX = "local:"  # the key of a song of the user's own: a file imported from a watched folder (stage 4)
+
+
+def is_own(key: str) -> bool:
+    """A song of the user's own (`local:<n>`): made by the import from one of their files, in no playlist."""
+    return key.startswith(OWN_PREFIX)
+
+
 def track_link(tok: str) -> str | None:
     """The page of the track a token names, or None when its service has no link derivable from an id."""
     service, id = split_token(tok)
@@ -311,3 +319,73 @@ class SaveChoice:
     files: str  # "leave" (they become placed by the user, P1) | "move"
     renames: tuple[tuple[str, str], ...] = ()  # (old folder, new folder) to rename on disk first
     moves: tuple[tuple[int, str], ...] = ()  # (file_id, src as the page showed it)
+
+
+# --- the import (plan library stage 4, I5, I6) ---
+
+@dataclass(frozen=True)
+class ImportRow:
+    """A file of an import folder still waiting for the import's first pass (db.import_waiting)."""
+    file_id: int
+    path: Path  # absolute
+    folder: int  # watched folder id
+    state: str  # "new" | "unreadable" (tried again)
+
+
+@dataclass(frozen=True)
+class ImportCounts:
+    """The import's progress in one import folder (db.import_counts); done = files - waiting - identified -
+    unreadable."""
+    files: int  # every file row of the folder
+    waiting: int  # import_state "new": not read yet
+    identified: int  # tags read, an own song made; the sound check still to come
+    unreadable: int
+
+
+@dataclass(frozen=True)
+class OwnFacts:
+    """What the import's first pass read from a file, for its own song (db.add_own_song)."""
+    artist: str
+    title: str
+    album: str | None
+    isrc: str | None
+    duration_ms: int | None
+    codec: str  # the file's source_format
+    status: str  # provisional from the codec until the sound check (D1)
+
+
+@dataclass(frozen=True)
+class AddedFolder:
+    """A watched folder just added (db.add_watched_folder): its id and the paths of the import folders inside it
+    that it took over."""
+    id: int
+    merged: list[str]
+
+
+@dataclass(frozen=True)
+class RemovalCounts:
+    """What removing a watched folder takes away (db.removal_counts): its file rows, and the playlist songs that
+    lose their only file there and so download again at the next sync."""
+    files: int
+    redownload: int
+
+
+@dataclass(frozen=True)
+class DuplicateGroup:
+    """Files that are the same audio or the same song (plan library stage 4, I4/I5)."""
+    id: str  # "dup:" + "-".join(sorted file ids)
+    why: str  # "same_audio" | "same_song"
+    file_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class DupFile:
+    """One file of a duplicate group, as the Duplicates question shows it (db.group_files)."""
+    file_id: int
+    song_key: str | None  # None: a file linked to no song
+    path: str  # snapshot path
+    status: str | None
+    cutoff_hz: int | None
+    source_format: str | None
+    online: bool
+    in_playlists: bool
