@@ -38,8 +38,8 @@ export function stepsFor(action: Action): Step[] {
 export function lengthLine(c: { file_duration_s: number; track_duration_s: number; ok: boolean } | null):
   string | null {
   if (!c) return null;
-  const f = duration(c.file_duration_s), sp = duration(c.track_duration_s);
-  return c.ok ? `Length matches (${f} = Spotify ${sp})` : `Length differs (${f}, Spotify ${sp})`;
+  const f = duration(c.file_duration_s), t = duration(c.track_duration_s);
+  return c.ok ? `Length matches (${f} = playlist ${t})` : `Length differs (${f}, playlist ${t})`;
 }
 
 function noStepDetail(a: Action): string {

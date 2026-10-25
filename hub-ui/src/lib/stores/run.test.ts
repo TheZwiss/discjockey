@@ -28,7 +28,7 @@ describe('reduceRun with the recorded sync', () => {
   });
   it('ignores the refresh job and drops debug messages', () => {
     expect(s.job_kind).toBe('sync');
-    expect(s.messages.map((m) => m.text)).toEqual(['Reading your Spotify playlists · 2 of 2 · Powertrance',
+    expect(s.messages.map((m) => m.text)).toEqual(['Reading your playlists · 2 of 2 · Powertrance',
       'Looking up the bitrate of 1 older download...']);
   });
   it('is in the protection pause before Get Naughty (its SourceChosen comes just before the pause)', () => {

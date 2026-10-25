@@ -92,6 +92,8 @@ export type FakeState = {
   qobuzSkipped: boolean;  // "I don't have Qobuz" in setup
   /** scenario qobuz_unreadable: add_playlist answers that Qobuz doesn't show a pasted Qobuz playlist */
   qobuzUnreadable?: boolean;
+  /** scenario qobuz_not_connected: playlists.txt has a Qobuz line, but Qobuz has no login to read it with */
+  qobuzNotConnected?: boolean;
   qobuzLastCheck?: LastCheck | null;
   /** find_logins per service on the fake Mac (default: Chrome without a login, Safari without Full Disk Access) */
   browsers?: Partial<Record<'youtube' | 'soundcloud', LoginBrowser[]>>;
@@ -493,6 +495,14 @@ export function nextStep(s: SetupStatus): SetupStatus {
 /** The read status's services: the playlist services the fake's playlists.txt uses, in line order. */
 export const readServices = (qobuzConnected = true): SpotifyStatus['services'] => [
   { service: 'spotify', name: 'Spotify', connected: true }, { service: 'qobuz', name: 'Qobuz', connected: qobuzConnected }];
+/** The read status as the bridge answers it: `services` worked out now, like `api._logins` — the services the
+ *  switched-on lines use, in line order, Spotify connected when its login is there, Qobuz unless the scenario took
+ *  its login away. So a Spotify left out in Setup is no problem while no line uses it (plan stage 3, D1). */
+export function readStatus(s: FakeState): SpotifyStatus {
+  const used = [...new Set(s.playlists.filter((p) => p.enabled).map((p) => serviceOfLink(p.link)))];
+  const connected = (x: PlaylistService) => (x === 'spotify' ? s.setup.spotify_login : !s.qobuzNotConnected);
+  return { ...s.spotify, services: used.map((x) => ({ service: x, name: SERVICE_NAME[x], connected: connected(x) })) };
+}
 export function spotifyOk(minutes = 2, now = new Date()): SpotifyStatus {
   return { read_at: iso(new Date(now.getTime() - minutes * 60000)), minutes_ago: minutes, problem: null,
     problem_service: null, services: readServices(), message: '', stale: false, reading: false, offline: false, auto_read: true };  // as after the hub's read when it opens
@@ -555,8 +565,9 @@ export function makeState(scenario: string, now = new Date()): FakeState {
   if (scenario === 'qobuz_unreadable') s.qobuzUnreadable = true;
   if (scenario === 'qobuz_not_connected') {
     // playlists.txt has a Qobuz line, but Qobuz has no login: the read is blocked and says which service
+    s.qobuzNotConnected = true;
     s.spotify = { ...spotifyOk(2, now), problem: 'not_set_up', problem_service: 'qobuz',
-      services: readServices(false), message: "Qobuz isn't set up yet." };
+      services: readServices(false), message: 'Connect Qobuz first.' };
   }
   if (scenario === 'console') s.console_running = true;
   if (scenario === 'update_available') {

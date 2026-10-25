@@ -1,10 +1,10 @@
 {"type": "JobStarted", "job_id": 1, "kind": "refresh", "track_id": null}
-{"type": "Message", "level": "info", "text": "Reading your Spotify playlists..."}
+{"type": "Message", "level": "info", "text": "Reading your playlists..."}
 {"type": "ReadingPlaylist", "index": 1, "total": 2, "folder": "Hard_Bounce"}
 {"type": "ReadingPlaylist", "index": 2, "total": 2, "folder": "Powertrance"}
 {"type": "JobFinished", "job_id": 1, "kind": "refresh", "ok": true, "problem": null, "message": "", "result": {"actions": 5}}
 {"type": "JobStarted", "job_id": 2, "kind": "sync", "track_id": null}
-{"type": "Message", "level": "info", "text": "Reading your Spotify playlists..."}
+{"type": "Message", "level": "info", "text": "Reading your playlists..."}
 {"type": "ReadingPlaylist", "index": 1, "total": 2, "folder": "Hard_Bounce"}
 {"type": "ReadingPlaylist", "index": 2, "total": 2, "folder": "Powertrance"}
 {"type": "Message", "level": "info", "text": "Looking up the bitrate of 1 older download..."}

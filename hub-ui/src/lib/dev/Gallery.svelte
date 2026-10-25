@@ -362,7 +362,7 @@
   </section>
 
   <section data-test="gallery-page-header">
-    {@render head('PageHeader · the Spotify slot', 'One per page: title · status line, the page\'s actions, the Spotify slot always last at the right edge (§5a)')}
+    {@render head('PageHeader · the read slot', 'One per page: title · status line, the page\'s actions, the playlists\' read slot always last at the right edge (§5a)')}
     <div class="col headers">
       <PageHeader title="Good morning" spotify spotifyState={sp({})} />
       <PageHeader title="To-do" sub="18 tracks are not lossless yet" spotify spotifyState={sp({ reading: true })} />
@@ -371,6 +371,9 @@
         spotifyState={sp({ offline: true, problem: 'offline', minutes_ago: 184, read_at: new Date(now.getTime() - 184 * 60000).toISOString() })} />
       <PageHeader title="Good morning" spotify spotifyState={sp({ problem: 'login_expired', message: 'Your Spotify login has expired.' })} />
       <PageHeader title="Good morning" spotify spotifyState={sp({ read_at: null, minutes_ago: null })} />
+      <!-- a used service without its login: Read playlists off, its reason names the service (the banner says it) -->
+      <PageHeader title="Playlists" sub="33 tracks in your playlists" spotify spotifyState={sp({
+        services: [{ service: 'spotify', name: 'Spotify', connected: true }, { service: 'qobuz', name: 'Qobuz', connected: false }] })} />
       <PageHeader title="Good morning" spotify spotifyState={null} />
       <PageHeader title="Sync" spotify spotifyInBody spotifyState={sp({ reading: true })} />
       <PageHeader title="Sync" spotify spotifyInBody
@@ -754,6 +757,9 @@
         {#snippet actions()}<Button size="sm" onclick={() => toasts.show({ tone: 'info', title: 'Show reports folder' })}>Show reports folder</Button>{/snippet}
       </ProblemCard>
       <Surface label="compact, inside a card"><ProblemCard kind="login_expired" message="" compact /></Surface>
+      <ProblemCard kind="not_set_up" service="qobuz" message="Connect Qobuz first." />
+      <Surface label="service, compact (the add row)"><ProblemCard kind="not_set_up" service="spotify"
+        message="Connect Spotify first." compact /></Surface>
     </div>
   </section>
 
@@ -907,7 +913,7 @@
   </section>
 
   <section data-test="gallery-addrow">
-    {@render head('AddRow', 'Paste a Spotify playlist link, check it, name its folder (Playlists\' list head, Setup\'s first playlist)')}
+    {@render head('AddRow', 'Paste a Spotify or Qobuz playlist link, check it, name its folder (Playlists\' list head, Setup\'s first playlist)')}
     <div class="col w800"><AddRow draft={[]} onadd={(a, f) => { toasts.show({ tone: 'success', title: `Would add ${a.info?.name ?? a.link} as ${f}` }); return true; }} /></div>
   </section>
 

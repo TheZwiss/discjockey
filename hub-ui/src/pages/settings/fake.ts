@@ -63,6 +63,12 @@ const fake: PageFake = {
       signedQobuz(s);
       s.setup = { ...s.setup, spotify_login: false };
     },
+    // "I don't use Spotify" in Setup, every playlist on Qobuz: Spotify is left out, no problem (plan stage 3, D1)
+    'spotify-skipped'(s) {
+      signedQobuz(s);
+      s.setup = { ...s.setup, spotify_app: false, spotify_login: false, spotify_skipped: true };
+      s.playlists = s.playlists.filter((p) => /qobuz\.com/.test(p.link));
+    },
     // the licences folder is missing from this copy: Show licences is refused
     'licences-missing'(s) { signedQobuz(s); s.licensesMissing = true; },
     // the update check had no answer (offline): About shows the version only

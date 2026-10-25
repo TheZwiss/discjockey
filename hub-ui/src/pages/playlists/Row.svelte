@@ -1,7 +1,8 @@
 <script lang="ts">
   // One playlist on the list's grid (design system mockup design-system/playlists.html): ⋮⋮ (pointer drag, never
   // HTML5 drag-and-drop: the window's file-drop handler covers the document) · priority · cover · the folder over
-  // "Spotify name · owner" (led by what the unsaved change does to it: "gets 27 more") · quality (only while the list
+  // "Qobuz · "name" · owner" (led by what the unsaved change does to it: "gets 27 more"; an unreadable playlist's
+  // service words in red, whole in the tooltip, since the row's one line cuts them) · quality (only while the list
   // is at least 680 px wide) · tracks · switch · ⋯ (Rename, Remove; right-click opens the same menu). ⌥↑ / ⌥↓ move a
   // focused row; renaming edits the name in place (Enter keeps it, Esc cancels).
   import { Badge, Button, ContextMenu, Cover, ListRow, QualityBar, Switch, TextField } from '$lib/components';
@@ -65,7 +66,7 @@
 
 <ListRow off={!row.enabled} class="pl{dragging ? ' drag' : ''}" role="option" aria-selected="false" tabindex={0}
   data-key={row.key} test="row-{row.folder}" style={offset ? `transform: translateY(${offset}px)` : undefined}
-  onkeydown={key} oncontextmenu={openMenu} height={52}>
+  onkeydown={key} oncontextmenu={openMenu} height={52} title={unreadable ? line.text : undefined}>
   {#snippet lead()}
     <span class="handle" role="presentation" onpointerdown={onhandledown} data-test="handle-{row.folder}">⋮⋮</span>
     <span class="prio">{prio}</span>
@@ -82,7 +83,7 @@
   {#snippet sub()}
     {#if !editing}
       {#if delta}<span class="delta" class:gain={delta > 0} data-test="delta-{row.folder}">{changeText(delta)}</span>{' · '}{/if}<span
-        class:bad={line.tone === 'bad'}>{line.text}</span>
+        data-test="service-{row.folder}">{line.service}</span>{' · '}<span class:bad={line.tone === 'bad'}>{line.text}</span>
     {/if}
   {/snippet}
   {#snippet optional()}

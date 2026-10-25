@@ -112,6 +112,13 @@ describe('settings rows', () => {
     expect(rowLine('reports', ctx())).toEqual({ tone: null, text: '23 sync reports' });
     expect(rowLine('reports', ctx({ reports: 0 })).text).toBe('no reports yet');
   });
+  it('a Spotify left out in Setup is no problem until playlists.txt uses it (plan stage 3, D1)', () => {
+    const skipped = status({ spotify_app: false, spotify_login: false, spotify_skipped: true });
+    expect(rowLine('spotify', ctx({ status: skipped }))).toEqual({ tone: 'none', text: 'left out' });
+    expect(firstAttention(ctx({ status: skipped }))).toBe('qobuz');
+    expect(rowLine('spotify', ctx({ status: skipped, spotifyUsed: true }))).toEqual({ tone: 'problem', text: 'not set up' });
+    expect(firstAttention(ctx({ status: skipped, spotifyUsed: true }))).toBe('spotify');
+  });
   it('a failed programs check says so instead of waiting, and is where Settings opens', () => {
     const failed = ctx({ tools: null, toolsFailed: true });
     expect(rowLine('programs', failed)).toEqual({ tone: 'problem', text: "couldn't check" });

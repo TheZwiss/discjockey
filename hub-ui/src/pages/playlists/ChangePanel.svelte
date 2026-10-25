@@ -198,7 +198,7 @@
         {/if}
         {#if headlineOnly}
           <Surface kind="card" label={p.headline} data-test="preview-headline">
-            <Hint text="Read Spotify after saving to see its tracks." />
+            <Hint text="Read your playlists after saving to see its tracks." />
           </Surface>
         {/if}
         {#if bars.rows.length}

@@ -34,7 +34,7 @@ export function segOptions(results: Result[]): SegOption<ListChip>[] {
   ];
 }
 
-/** The message line: the last message until a track starts or finishes after it ("Reading your Spotify playlists…"
+/** The message line: the last message until a track starts or finishes after it ("Reading your playlists…"
  * goes once the first track starts). */
 export function liveMessage(r: { messages: { text: string; at: number }[]; last_started_at: number | null;
   last_finished_at: number | null }): string | null {

@@ -72,5 +72,10 @@
    "steps": [{ "wait": "[data-test=add-row]" },
      { "fill": ["input[name=playlist-link]", "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"] },
      { "click": "[data-test=add-button]" }, { "wait": "[data-test=add-keep]" }, { "click": "[data-test=add-keep]" },
-     { "wait": "[data-test=next]:not([disabled])" }, { "sleep": 400 }] }
+     { "wait": "[data-test=next]:not([disabled])" }, { "sleep": 400 }] },
+ { "name": "setup-spotify-skipped", "route": "#/setup/spotify", "scenario": "setup:no-spotify",
+   "steps": [{ "wait": "[data-test=spotify-skipped]" }, { "wait": "[data-test=next]:not([disabled])" }, { "sleep": 400 }] },
+ { "name": "setup-spotify-skip", "route": "#/setup/spotify", "scenario": "setup:new",
+   "steps": [{ "wait": "[data-test=spotify-skip]" }, { "click": "[data-test=spotify-skip]" },
+     { "wait": "[data-test=spotify-skipped]" }, { "wait": "[data-test=next]:not([disabled])" }, { "sleep": 400 }] }
 ]

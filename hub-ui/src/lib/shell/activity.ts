@@ -15,7 +15,7 @@ export function pauseLeft(s: RunState, now: number): number | null {
 export function activityText(s: RunState, now: number): ActivityText {
   const qobuz = s.qobuz ? `Qobuz ${s.qobuz.used} of ${s.qobuz.allowance} today` : null;
   if (s.phase === 'stopping') return { lead: 'Stopping…', track: null, tail: null, pause: null, qobuz };
-  if (s.phase === 'preparing' || !s.total) return { lead: 'Reading Spotify…', track: null, tail: null, pause: null, qobuz };
+  if (s.phase === 'preparing' || !s.total) return { lead: 'Reading playlists…', track: null, tail: null, pause: null, qobuz };
   const head = `Sync running · ${s.index} of ${s.total} · `;
   const t = s.current?.track;
   const name = t ? artistTitle(t.artists[0] ?? '', t.title) : null;
@@ -30,7 +30,7 @@ export function activityText(s: RunState, now: number): ActivityText {
 /** The short form for the player bar's right end: "Sync 4 of 6"; the long form goes into its tooltip. */
 export function activityShort(s: RunState): string {
   if (s.phase === 'stopping') return 'Stopping…';
-  if (s.phase === 'preparing' || !s.total) return 'Reading Spotify…';
+  if (s.phase === 'preparing' || !s.total) return 'Reading playlists…';
   return `Sync ${s.index} of ${s.total}`;
 }
 

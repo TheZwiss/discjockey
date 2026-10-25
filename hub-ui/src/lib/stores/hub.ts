@@ -2,7 +2,7 @@
 import { derived, get, writable, type Readable } from 'svelte/store';
 import { onEvent } from '../bridge/events';
 import { api, onNoLibrary } from '../bridge/client';
-import type { AppUpdate, JobSnap, SetupStatus, Sidebar, SpotifyStatus } from '../bridge/types';
+import type { AppUpdate, JobSnap, PlaylistService, SetupStatus, Sidebar, SpotifyStatus } from '../bridge/types';
 import { WRITE_BLOCKED } from '../copy';
 
 export type HubState = {
@@ -36,21 +36,25 @@ export const hubSyncRunning = derived(state, (s) => s.job?.kind === 'sync' && !!
 export const networkReadsAllowed = derived(syncRunning, (r) => !r);
 export const writeBlockedReason = derived(state, (s): string | null =>
   s.job?.running ? WRITE_BLOCKED.busy : s.console_running ? WRITE_BLOCKED.console : null);
-/** Spotify can't be read until the user logs in (again): no login, not set up, or the login expired. The shell's
- *  banner says it (with its Set up link) and the header slot disables Read Spotify, so the state is said once
- *  (design system §5a/§11). Offline is not "missing": a read fixes it. */
-export function spotifyMissingIn(setup: SetupStatus | null, spotify: SpotifyStatus | null): boolean {
-  return spotifyMissingKindIn(setup, spotify) !== null;
+/** Why the playlists can't be read until the user logs in (again), and to which service: a service playlists.txt
+ *  uses isn't connected, or a read found its login missing or expired. Only the services playlists.txt uses count
+ *  (`services`): a Spotify left out in Setup is no problem until a Spotify line is there (plan stage 3, D1). The
+ *  shell's banner says it (with its Connect link) and the header slot turns Read playlists off, so the state is said
+ *  once (design system §5a/§11). Offline is not a block: a read fixes it. */
+export type ReadBlock = { kind: 'login_expired' | 'not_set_up'; service: PlaylistService };
+export function readBlockIn(sp: SpotifyStatus | null): ReadBlock | null {
+  if (!sp) return null;
+  if (sp.problem === 'login_expired') return { kind: 'login_expired', service: sp.problem_service ?? 'spotify' };
+  const off = sp.services?.find((x) => !x.connected);
+  if (off) return { kind: 'not_set_up', service: off.service };
+  // a read that found a login missing (the poll's `services` may not show it yet); without a service the engine's
+  // not_set_up is a missing playlists.txt, which no login fixes
+  if (sp.problem === 'not_set_up' && sp.problem_service) return { kind: 'not_set_up', service: sp.problem_service };
+  return null;
 }
-/** Which one, for the words: the expired login, else "not set up" (no login, or a read that found none). */
-export function spotifyMissingKindIn(setup: SetupStatus | null, spotify: SpotifyStatus | null):
-  'login_expired' | 'not_set_up' | null {
-  if (spotify?.problem === 'login_expired') return 'login_expired';
-  return setup?.spotify_login === false || spotify?.problem === 'not_set_up' ? 'not_set_up' : null;
-}
-export const spotifyMissing = derived(state, (s) => spotifyMissingIn(s.setup, s.spotify));
 /** The one source for the banner, the header slot and Sync's card (spec §5a/§11). */
-export const spotifyMissingKind = derived(state, (s) => spotifyMissingKindIn(s.setup, s.spotify));
+export const readBlock = derived(state, (s) => readBlockIn(s.spotify));
+export const readBlocked = derived(readBlock, (b) => b !== null);
 /** +1 on every JobFinished (any kind), ConsoleBusy {running:false} and a finished refresh. Pages re-fetch on change. */
 export const dataVersion: Readable<number> = { subscribe: version.subscribe };
 

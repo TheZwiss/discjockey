@@ -1,8 +1,8 @@
 // Editing model of the Playlists page (plan Task 69, pure). The page keeps `loaded` (what playlists() returned)
 // and `draft` (the rows as the user edits them). Nothing here talks to the backend.
 import type {
-  AddedPlaylist, ByQuality, ChangePreview, Fail, PlaylistInfo, PlaylistLine, PlaylistRow, PlaylistTrack, Playlists,
-  Quality,
+  AddedPlaylist, ByQuality, ChangePreview, Fail, PlaylistInfo, PlaylistLine, PlaylistRow, PlaylistService,
+  PlaylistTrack, Playlists, Quality,
 } from '$lib/bridge/types';
 import { artistTitle, plural } from '$lib/format';
 import { ownerText } from '$lib/components/addRowModel';
@@ -11,6 +11,8 @@ export type Loaded = { version: string; rows: PlaylistRow[] };
 export type DraftRow = {
   key: string; folder: string; link: string; enabled: boolean; info: PlaylistInfo | null; tracks: number | null;
   quality: ByQuality; isNew: boolean;
+  /** the playlist's service and its name ("Qobuz"), from the row or the add_playlist answer */
+  service: PlaylistService; serviceName: string;
 };
 
 const NO_QUALITY: ByQuality = { lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 };
@@ -22,7 +24,8 @@ export function loadedFrom(p: Pick<Playlists, 'version' | 'rows'>): Loaded {
 /** Draft rows from the loaded rows. Keys stay stable for the same row of the same file. */
 export function draftFrom(loaded: Loaded): DraftRow[] {
   return loaded.rows.map((r) => ({ key: `r${r.index}:${r.link}`, folder: r.folder, link: r.link, enabled: r.enabled,
-    info: r.info, tracks: r.tracks, quality: r.quality, isNew: false }));
+    info: r.info, tracks: r.tracks, quality: r.quality, isNew: false, service: r.service,
+    serviceName: r.service_name }));
 }
 
 /** The lines for preview_playlist_change / save_playlists, top (highest priority) first. */
@@ -96,7 +99,7 @@ let added = 0;
 export function addRow(draft: DraftRow[], a: AddedPlaylist, folder: string): DraftRow[] {
   added++;
   return [...draft, { key: `new${added}:${a.link}`, folder: folder.trim(), link: a.link, enabled: true, info: a.info,
-    tracks: a.tracks, quality: { ...NO_QUALITY }, isNew: true }];
+    tracks: a.tracks, quality: { ...NO_QUALITY }, isNew: true, service: a.service, serviceName: a.service_name }];
 }
 
 /** Priority numbers: switched-on rows 1…n from the top, switched-off rows "–". */
@@ -105,12 +108,15 @@ export function priorities(draft: DraftRow[]): string[] {
   return draft.map((r) => (r.enabled ? String(++n) : '–'));
 }
 
-/** The line under the folder name. tone 'bad' = red. */
-export function infoLine(r: DraftRow): { text: string; tone: 'muted' | 'bad' } {
-  if (!r.enabled) return { text: 'switched off · files stay', tone: 'muted' };
-  if (!r.info) return { text: 'not read yet', tone: 'muted' };
-  if (!r.info.readable) return { text: 'Follow ≠ own: make your own copy in Spotify.', tone: 'bad' };
-  return { text: `"${r.info.name}" · ${ownerText(r.info)}`, tone: 'muted' };
+/** The line under the folder name: the playlist's service, then its name and owner (or its state). The service leads
+ *  every row, so a DJ scanning a mixed list sees where each playlist lives (and where to fix it) in one place (plan
+ *  stage 3, 6.3). An unreadable playlist says its service's own words (the engine's hint, W5), tone 'bad' = red. */
+export function infoLine(r: DraftRow): { service: string; text: string; tone: 'muted' | 'bad' } {
+  const service = r.serviceName;
+  if (!r.enabled) return { service, text: 'switched off · files stay', tone: 'muted' };
+  if (!r.info) return { service, text: 'not read yet', tone: 'muted' };
+  if (!r.info.readable) return { service, text: r.info.hint, tone: 'bad' };
+  return { service, text: `"${r.info.name}" · ${ownerText(r.info)}`, tone: 'muted' };
 }
 
 /** The page header's status line: the tracks of the switched-on playlists ("38 tracks in your playlists"). */
@@ -179,7 +185,7 @@ export function previewRequests() {
 
 export type OverlapCard = {
   folder: string;
-  total: number | null;                     // the playlist's tracks in Spotify (null: not read)
+  total: number | null;                     // the playlist's tracks on its service (null: not read)
   keeps: number | null;                     // ... of them landing in its own folder
   goTo: { to: string; count: number }[];    // where the others land, in list order
   lost: Overlap[];                          // the tracks that land elsewhere

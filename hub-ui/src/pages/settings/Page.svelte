@@ -19,7 +19,7 @@
   import { sayInBody } from '$lib/stores/shell';
   import RowPanel from './RowPanel.svelte';
   import {
-    ROW_GLYPHS, ROW_GROUPS, ROW_NAMES, firstAttention, isAccountRow, isSettingsRow, rowLine, type RowContext,
+    ROW_GLYPHS, ROW_GROUPS, ROW_NAMES, firstAttention, isAccountRow, isSettingsRow, rowLine, spotifyUsed, type RowContext,
     type SettingsRow,
   } from './settingsModel';
 
@@ -68,6 +68,7 @@
   });
 
   const ctx = $derived<RowContext>({ downloads, status: $hub.setup, tools, reports, now: new Date(), toolsFailed: !tools && !!toolsError,
+    spotifyUsed: spotifyUsed($hub.spotify),
     update: $hub.app_update });
   // #/settings: the first row that needs the user, once everything it depends on has answered
   $effect(() => {
