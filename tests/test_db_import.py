@@ -185,6 +185,23 @@ def test_offline_and_held_rows_arent_waiting(lib):
         assert db.import_counts(conn)[folder].waiting == 1  # counted, not offered
 
 
+def test_import_left_counts_the_files_the_next_import_works_through(lib):
+    folder = lib.folder().id
+    other = lib.folder("/Volumes/Other/Music").id
+    a, b, c = lib.add_files(folder, "A.mp3", "B.mp3", "C.mp3")
+    lib.add_files(other, "D.mp3", "E.mp3")
+    lib.own_song(a)  # identified: its sound check is still to come
+    with lib.conn() as conn:
+        db.set_unreadable(conn, b, "the file is damaged")
+        assert db.import_left(conn) == 4  # a, c, d, e
+    lib.own_song(c)
+    with lib.conn() as conn:
+        db.set_sound(conn, c, "lossless", 22000, None)
+    lib.scan(ScanResult(offline=[other]))
+    with lib.conn() as conn:
+        assert db.import_left(conn) == 1  # a
+
+
 # --- 1.5 watched folders ---
 
 def test_a_folder_holding_import_folders_takes_them_over(lib):

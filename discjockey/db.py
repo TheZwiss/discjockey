@@ -1058,6 +1058,15 @@ def import_counts(conn: sqlite3.Connection) -> dict[int, ImportCounts]:
     return out
 
 
+def import_left(conn: sqlite3.Connection) -> int:
+    """The files the next import works through (the console's W10 line, plan library stage 4): online, not held,
+    not read yet (`new`) or read but not judged (`identified`). Unreadable ones are left out: the import tries them
+    again, but they wait for no one (the console would ask for them every run)."""
+    return conn.execute(
+        "SELECT COUNT(*) FROM files f JOIN watched_folders w ON w.id = f.folder WHERE w.kind = 'import' "
+        "AND f.online = 1 AND f.held = 0 AND f.import_state IN ('new', 'identified')").fetchone()[0]
+
+
 def _next_own(conn: sqlite3.Connection) -> int:
     """The n of the next own song's key: one above every n given out so far, also deleted ones (OWN_COUNTER), so a
     key never names two songs over time (a decision or a report may still name the old one)."""
