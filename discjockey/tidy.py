@@ -228,7 +228,7 @@ def _run(paths: Paths, state: dict, batch_id: int, started_by: str, *, emit: Emi
             with db.connect(paths.db_file) as conn:
                 if skip is None:
                     try:
-                        db.finish_move(conn, m.id)
+                        db.finish_move(conn, m.id, state=state)  # run_op saved the new place in `state`
                     except sqlite3.IntegrityError:
                         db.skip_move(conn, m.id, "failed", MOVED_NOT_RECORDED)
                         skip = ("failed", MOVED_NOT_RECORDED)

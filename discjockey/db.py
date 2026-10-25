@@ -11,16 +11,18 @@ import json
 import os
 import sqlite3
 import unicodedata
+import uuid
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
 from . import library as disk  # "library" is the Library/ path argument everywhere here
 from .events import Emit, Message
-from .models import (BatchRow, KnownFile, MoveRow, PlannedMove, ScanResult, SeenFile, WatchedFolder, split_token,
-                     token)
+from .models import (OWN_PREFIX, AddedFolder, BatchRow, DupFile, DuplicateGroup, ImportCounts, ImportRow, KnownFile,
+                     MoveRow, OwnFacts, PlannedMove, RemovalCounts, ScanResult, SeenFile, WatchedFolder, is_own,
+                     split_token, token)
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
@@ -599,7 +601,7 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
     """Writes the linked file rows whose entry file fields changed (plan task 1.3). Rows are matched by place: the
     row already at an entry's new path is linked to it (a bought file a scan found), else the song's own row moves
     there (files.id stays with a renamed file), else a new row; each keeps the song's old file's placed_by ('app'
-    for a song that had none). A row no song keeps is unlinked when its file is
+    for a song that had none), except a row found in an import folder, which keeps its own (a merge, stage 4). A row no song keeps is unlinked when its file is
     still there, deleted when it is gone. Two songs on one file is a ValueError."""
     files = _files(conn)
     linked = _linked(files)
@@ -633,6 +635,8 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
         # a song that had no file gets one the app placed
         placed = "app" if old is None else old["placed_by"]
         row = by_place.get(new)
+        if row is not None and folders.rows[row["folder"]][1] == "import":
+            placed = row["placed_by"]  # an imported file a playlist song takes over (stage 4, I4 rule 2) stays as placed
         if row is not None:  # the song's own row (new audio, same path) or one found there (a bought file)
             n += conn.execute(f"UPDATE files SET song = ?, {common}, placed_by = ?, online = 1, held = 0, "
                               "last_seen = ?, ambiguous = NULL WHERE id = ?", (song, *values, placed, stamp, row["id"])).rowcount
@@ -741,7 +745,8 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
     (only rows that change are written: an unchanged scan writes one row per folder). Retagged and replaced
     rows get the file's size, mtime and key; a moved row takes its new place (placed by the user), and an unlinked
     row already there gives way to it; ambiguous rows keep their candidates; new files and copies become unlinked
-    rows (found there by a scan: placed by 'import'); a gone row is deleted and its song's file marked gone today.
+    rows (found there by a scan: placed by 'import'; in an import folder with import_state `new`, stage 4); a gone
+    row is deleted and its song's file marked gone today (an own song is deleted with it).
     Held rows keep everything but are marked held (the snapshot's `held`: the planner leaves their songs alone, as
     offline ones); unreadable rows stay as they are. Returns the rows written."""
     stamp, today = now.isoformat(timespec="seconds"), now.date().isoformat()
@@ -778,15 +783,20 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
                                                stamp, file_id)).rowcount
         for file_id, candidates in result.ambiguous:
             n += conn.execute("UPDATE files SET ambiguous = ? WHERE id = ?", (_dumps(candidates), file_id)).rowcount
-        for seen in (*result.new, *result.copies):
+        imports = {i for (i,) in conn.execute("SELECT id FROM watched_folders WHERE kind = 'import'")}
+        for seen in (*result.new, *result.copies):  # a copy too is its own song to the import (D7)
             n += conn.execute(
                 "INSERT INTO files (song, folder, path, size, mtime_ns, content_key, placed_by, online, first_seen, "
-                "last_seen) VALUES (NULL, ?, ?, ?, ?, ?, 'import', 1, ?, ?) ON CONFLICT (folder, path) DO NOTHING",
-                (seen.folder, seen.rel, seen.size, seen.mtime_ns, seen.content_key, stamp, stamp)).rowcount
-        for file_id in result.gone:
-            n += conn.execute("UPDATE songs SET file_gone = ? WHERE id = (SELECT song FROM files WHERE id = ?)",
-                              (today, file_id)).rowcount
+                "last_seen, import_state) VALUES (NULL, ?, ?, ?, ?, ?, 'import', 1, ?, ?, ?) "
+                "ON CONFLICT (folder, path) DO NOTHING",
+                (seen.folder, seen.rel, seen.size, seen.mtime_ns, seen.content_key, stamp, stamp,
+                 "new" if seen.folder in imports else None)).rowcount
+        for file_id in result.gone:  # an own song goes with its file (below); a playlist song downloads it again
+            n += conn.execute(f"UPDATE songs AS s SET file_gone = ? WHERE s.id = (SELECT song FROM files WHERE id = ?) "
+                              f"AND NOT {_IS_OWN}", (today, file_id)).rowcount
             n += conn.execute("DELETE FROM files WHERE id = ?", (file_id,)).rowcount
+        if result.gone:
+            n += _drop_fileless_own(conn)
         for file_id, (status, cutoff_hz, source_format) in (judged or {}).items():
             n += set_quality(conn, file_id, status, cutoff_hz, source_format)
         if n:
@@ -859,17 +869,24 @@ def _move(conn: sqlite3.Connection, move_id: int) -> dict:
     return dict(zip(_MOVE_COLUMNS, row))
 
 
-def finish_move(conn: sqlite3.Connection, move_id: int) -> None:
+def finish_move(conn: sqlite3.Connection, move_id: int, *, state: dict | None = None) -> None:
     """A move that happened on disk, written in one transaction: the move becomes `done`. A `file` move's file row
     (by id) takes `dst`'s place and `placed_after` (a no-op on the place when run_op's save already wrote it; an
     unlinked row left at `dst`, whose file isn't there, gives way, as in apply_scan); a move whose file row is gone
     is only marked done. A `folder` move gives every row of its watched folder under `src` + "/" the `dst` prefix
     instead, placed_by untouched (the target folder didn't exist, so no place collides). Finishing a done move again
     changes nothing; a skipped move is a ValueError. When a linked row of another song sits at `dst`, the call
-    raises sqlite3.IntegrityError and writes nothing; the caller then records the move with skip_move(..., "failed")."""
+    raises sqlite3.IntegrityError and writes nothing; the caller then records the move with skip_move(..., "failed").
+
+    It bumps the generation (stage 4, I2). `state`: the snapshot of the writer whose run_op step just moved this
+    file (tidy), which already holds the new place; when it was current before this write it gets the new
+    generation, so that writer keeps saving it (as save does); a stale one stays stale."""
     with transaction(conn):
+        current = state is not None and state.get("generation") == _generation(conn)
         if _finish_move(conn, move_id):
-            _bump(conn)
+            generation = _bump(conn)
+            if current:
+                state["generation"] = generation
 
 
 def _finish_move(conn: sqlite3.Connection, move_id: int) -> bool:
@@ -1005,6 +1022,310 @@ def batch(conn: sqlite3.Connection, batch_id: int) -> BatchRow | None:
 # --- the migration from state.json (spec library-and-sources §5.3, plan task 1.4) ---
 
 # --- the import's records (plan library stage 4, I5, I6) ---
+# Each writer here is one transaction and bumps the generation (I2), so no snapshot taken before it is saved over it.
+
+_IS_OWN = f"substr(s.key, 1, {len(OWN_PREFIX)}) = '{OWN_PREFIX}'"  # SQL: songs row `s` is an own song (models.is_own)
+OWN_COUNTER = "last_own_song"  # meta: the highest n of a `local:<n>` key ever given out (keys are never reused)
+
+
+def import_waiting(conn: sqlite3.Connection) -> list[ImportRow]:
+    """The files the import's first pass still has to read: import_state `new` or `unreadable` (tried again), in
+    import folders, online and not held (an offline drive's files wait until it is back), by id."""
+    return [ImportRow(i, Path(root) / rel, folder, state) for i, root, rel, folder, state in conn.execute(
+        "SELECT f.id, w.path, f.path, f.folder, f.import_state FROM files f JOIN watched_folders w ON w.id = f.folder "
+        "WHERE w.kind = 'import' AND f.online = 1 AND f.held = 0 AND f.import_state IN ('new', 'unreadable') "
+        "ORDER BY f.id")]
+
+
+def import_counts(conn: sqlite3.Connection) -> dict[int, ImportCounts]:
+    """Every import folder's progress (offline ones too), by folder id: its file rows, the ones not read yet
+    (`new`), read but not judged (`identified`) and unreadable."""
+    out = {i: ImportCounts(0, 0, 0, 0) for (i,) in conn.execute("SELECT id FROM watched_folders WHERE kind = 'import'")}
+    for folder, files, waiting, identified, unreadable in conn.execute(
+            "SELECT f.folder, COUNT(*), COALESCE(SUM(f.import_state = 'new'), 0), "
+            "COALESCE(SUM(f.import_state = 'identified'), 0), COALESCE(SUM(f.import_state = 'unreadable'), 0) "
+            "FROM files f JOIN watched_folders w ON w.id = f.folder WHERE w.kind = 'import' GROUP BY f.folder"):
+        out[folder] = ImportCounts(files, waiting, identified, unreadable)
+    return out
+
+
+def _next_own(conn: sqlite3.Connection) -> int:
+    """The n of the next own song's key: one above every n given out so far, also deleted ones (OWN_COUNTER), so a
+    key never names two songs over time (a decision or a report may still name the old one)."""
+    row = conn.execute("SELECT value FROM meta WHERE key = ?", (OWN_COUNTER,)).fetchone()
+    if row is not None:
+        n = int(row[0]) + 1
+    else:  # the first own song (the counter is written with it)
+        n = 1 + max((int(k[len(OWN_PREFIX):]) for (k,) in conn.execute(f"SELECT key FROM songs s WHERE {_IS_OWN}")
+                     if k[len(OWN_PREFIX):].isdigit()), default=0)
+    conn.execute("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                 (OWN_COUNTER, str(n)))
+    return n
+
+
+def add_own_song(conn: sqlite3.Connection, file_id: int, facts: OwnFacts) -> str:
+    """The import's first pass for one file: a song of its own (key `local:<n>`, in no playlist) from what its tags
+    say, linked to the file, whose row gets the provisional quality (status from the codec, source 'manual' as a
+    bought file, D15) and import_state `identified`. A row that has a song already is left alone. Returns the key
+    of the file's song. An unknown file id is ValueError."""
+    with transaction(conn):
+        row = conn.execute("SELECT f.song, s.key FROM files f LEFT JOIN songs s ON s.id = f.song WHERE f.id = ?",
+                           (file_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"there is no file {file_id}")
+        if row[0] is not None:
+            return row[1]
+        key = f"{OWN_PREFIX}{_next_own(conn)}"
+        entry = dict.fromkeys(ENTRY_KEYS)
+        entry.update(artist=facts.artist, title=facts.title, album=facts.album, isrc=facts.isrc,
+                     duration_ms=facts.duration_ms, in_playlists=False, rejected_sources=[], aliases=[])
+        song = _insert_song(conn, key, entry)
+        conn.execute("UPDATE files SET song = ?, status = ?, source = 'manual', source_id = NULL, source_format = ?, "
+                     "cutoff_hz = NULL, source_kbps = NULL, import_state = 'identified', import_error = NULL "
+                     "WHERE id = ?", (song, facts.status, facts.codec, file_id))
+        _bump(conn)
+        return key
+
+
+def set_sound(conn: sqlite3.Connection, file_id: int, status: str, cutoff_hz: int | None,
+              source_kbps: int | None) -> None:
+    """The import's second pass for one file: the quality the sound check judged; import_state `done`. A row gone
+    meanwhile is left alone."""
+    with transaction(conn):
+        if conn.execute("UPDATE files SET status = ?, cutoff_hz = ?, source_kbps = ?, import_state = 'done', "
+                        "import_error = NULL WHERE id = ?", (status, cutoff_hz, source_kbps, file_id)).rowcount:
+            _bump(conn)
+
+
+def set_unreadable(conn: sqlite3.Connection, file_id: int, reason: str) -> None:
+    """A file the import couldn't read: import_state `unreadable` with the reason's words; the next import tries it
+    again (import_waiting). A row gone meanwhile is left alone."""
+    with transaction(conn):
+        if conn.execute("UPDATE files SET import_state = 'unreadable', import_error = ? WHERE id = ?",
+                        (reason, file_id)).rowcount:
+            _bump(conn)
+
+
+def _drop_fileless_own(conn: sqlite3.Connection) -> int:
+    """Deletes the own songs left with no file (their aliases go with them) and the same_song answers naming them.
+    Returns the songs deleted."""
+    gone = [(i, k) for i, k in conn.execute(
+        f"SELECT s.id, s.key FROM songs s WHERE {_IS_OWN} AND NOT EXISTS (SELECT 1 FROM files f WHERE f.song = s.id)")]
+    conn.executemany("DELETE FROM songs WHERE id = ?", [(i,) for i, _ in gone])
+    conn.executemany("DELETE FROM decisions WHERE kind = 'same_song' AND b = ?", [(k,) for _, k in gone])
+    return len(gone)
+
+
+class FolderRefused(ValueError):
+    """add_watched_folder refused a folder (D11, W5): `reason` is "music" (it is in the music folder), "holds_music"
+    (the music folder is in it), "watched" (it is in a watched folder) or "already" (it is watched)."""
+
+    def __init__(self, reason: str, path: str):
+        super().__init__(f"{path!r} can't be watched: {reason}")
+        self.reason = reason
+        self.path = path
+
+
+def _nfc_path(path: str | Path) -> PurePosixPath:
+    return PurePosixPath(unicodedata.normalize("NFC", Path(path).as_posix()))
+
+
+def add_watched_folder(conn: sqlite3.Connection, path: Path, now: datetime) -> AddedFolder:
+    """Adds an import folder (absolute path, stored NFC). Watched folders never nest (D11): a folder in the music
+    folder (Library/ is in it) or in a watched folder, one holding the music folder, or one already watched is
+    FolderRefused, nothing written. One that holds import folders takes them over: their rows move to it with their
+    path below it in front (song links, import_state and every other column kept) and their watched_folders rows
+    go; snapshot paths are absolute, so no entry changes. Returns the new id and the merged folders' paths."""
+    p = _nfc_path(path)
+    if not p.is_absolute():
+        raise ValueError(f"{str(path)!r} is not an absolute path")
+    with transaction(conn):
+        rows = [(i, root, kind, _nfc_path(root)) for i, root, kind in
+                conn.execute("SELECT id, path, kind FROM watched_folders ORDER BY id")]
+        music = next(r for _, _, kind, r in rows if kind == "library").parent
+        if p.is_relative_to(music):
+            raise FolderRefused("music", str(p))
+        if music.is_relative_to(p):
+            raise FolderRefused("holds_music", str(p))
+        inner = []
+        for i, root, kind, r in rows:
+            if p == r:
+                raise FolderRefused("already", str(p))
+            if p.is_relative_to(r):
+                raise FolderRefused("watched", str(p))
+            if r.is_relative_to(p):
+                inner.append((i, root, r.relative_to(p).as_posix()))
+        new = conn.execute("INSERT INTO watched_folders (path, kind, added) VALUES (?, 'import', ?)",
+                           (str(p), now.isoformat(timespec="seconds"))).lastrowid
+        for i, _, prefix in inner:  # the new folder has no rows yet: no (folder, path) collides
+            conn.execute("UPDATE files SET folder = ?, path = ? || '/' || path WHERE folder = ?", (new, prefix, i))
+            conn.execute("DELETE FROM watched_folders WHERE id = ?", (i,))
+        _bump(conn)
+    return AddedFolder(new, [root for _, root, _ in inner])
+
+
+# songs of a playlist (not own) with a file in folder ?1 and none elsewhere: removing the folder leaves them none
+_LOSING = (f"NOT {_IS_OWN} AND EXISTS (SELECT 1 FROM files f WHERE f.song = s.id AND f.folder = ?1) "
+           "AND NOT EXISTS (SELECT 1 FROM files f WHERE f.song = s.id AND f.folder != ?1)")
+
+
+def _import_folder(conn: sqlite3.Connection, folder_id: int) -> None:
+    row = conn.execute("SELECT kind FROM watched_folders WHERE id = ?", (folder_id,)).fetchone()
+    if row is None:
+        raise ValueError(f"there is no watched folder {folder_id}")
+    if row[0] == "library":
+        raise ValueError("the Library folder is always watched")
+
+
+def _removal_counts(conn: sqlite3.Connection, folder_id: int) -> RemovalCounts:
+    files = conn.execute("SELECT COUNT(*) FROM files WHERE folder = ?", (folder_id,)).fetchone()[0]
+    redownload = conn.execute(f"SELECT COUNT(*) FROM songs s WHERE s.in_playlists = 1 AND {_LOSING}",
+                              (folder_id,)).fetchone()[0]
+    return RemovalCounts(files, redownload)
+
+
+def removal_counts(conn: sqlite3.Connection, folder_id: int) -> RemovalCounts:
+    """What removing an import folder would take away (W4): its file rows, and the songs still in a playlist whose
+    only file is there (they download again at the next sync). The Library folder or an unknown id is ValueError."""
+    _import_folder(conn, folder_id)
+    return _removal_counts(conn, folder_id)
+
+
+def remove_watched_folder(conn: sqlite3.Connection, folder_id: int, today: date) -> RemovalCounts:
+    """Stops watching an import folder (D12), in one transaction; its files stay where they are. Its file rows go;
+    every playlist song left with no file gets file_gone today (rule 2 downloads it again if it is still wanted);
+    own songs left with no file go (a parked upgrade's file stays in Upgrades ready/), with the answers naming
+    them and the keep_both answers of groups with one of its files. The Library folder or an unknown id is
+    ValueError. Returns removal_counts as they were."""
+    with transaction(conn):
+        _import_folder(conn, folder_id)
+        counts = _removal_counts(conn, folder_id)
+        ids = {i for (i,) in conn.execute("SELECT id FROM files WHERE folder = ?", (folder_id,))}
+        conn.execute(f"UPDATE songs AS s SET file_gone = ?2 WHERE {_LOSING}", (folder_id, str(today)))
+        conn.execute("DELETE FROM files WHERE folder = ?", (folder_id,))
+        conn.execute("DELETE FROM watched_folders WHERE id = ?", (folder_id,))
+        _drop_fileless_own(conn)
+        conn.executemany("DELETE FROM decisions WHERE kind = 'keep_both' AND a = ?",
+                         [(g,) for (g,) in conn.execute("SELECT a FROM decisions WHERE kind = 'keep_both'")
+                          if _group_ids(g, strict=False) & ids])
+        _bump(conn)
+    return counts
+
+
+DECISIONS = {"same_song": frozenset({"same", "not_same"}), "keep_both": frozenset({"keep"})}
+
+
+def set_decision(conn: sqlite3.Connection, kind: str, a: str, b: str, answer: str, now: datetime) -> None:
+    """Records (or replaces) the answer to a To-do question: `same_song` (a = the playlist song's key or track
+    token, b = the own song's key; same | not_same) or `keep_both` (a = the duplicate group id, b = ''; keep). Any
+    other kind, answer or a keep_both with a `b` is ValueError."""
+    if answer not in DECISIONS.get(kind, ()):
+        raise ValueError(f"{answer!r} is not an answer to a {kind!r} question")
+    if kind == "keep_both" and (b != "" or not _group_ids(a)):
+        raise ValueError(f"a keep_both answer names one duplicate group: {a!r}, {b!r}")
+    with transaction(conn):
+        conn.execute("INSERT OR REPLACE INTO decisions (kind, a, b, answer, at) VALUES (?, ?, ?, ?, ?)",
+                     (kind, a, b, answer, now.isoformat(timespec="seconds")))
+        _bump(conn)
+
+
+def group_id(file_ids: Collection[int]) -> str:
+    """A duplicate group's id: its file ids, sorted (a new copy makes it another group, so asked again)."""
+    return "dup:" + "-".join(str(i) for i in sorted(file_ids))
+
+
+def _group_ids(gid: str, *, strict: bool = True) -> set[int]:
+    """The file ids of a group id; a malformed id is ValueError (`strict`) or no ids."""
+    parts = gid[len("dup:"):].split("-") if gid.startswith("dup:") else []
+    if not parts or not all(p.isdigit() for p in parts):
+        if strict:
+            raise ValueError(f"{gid!r} is not a duplicate group")
+        return set()
+    return {int(p) for p in parts}
+
+
+def duplicate_groups(conn: sqlite3.Connection) -> list[DuplicateGroup]:
+    """Files with the same audio (I5): rows sharing a content key, online, not held and not ambiguous (a moved
+    file's old row, whose file isn't at its path), two or more per group, minus the groups answered keep_both.
+    Covers copies (§6.3) and new files with one key. Sorted by their first file id."""
+    by_key: dict[str, list[int]] = {}
+    for key, i in conn.execute(
+            "SELECT content_key, id FROM files WHERE online = 1 AND held = 0 AND ambiguous IS NULL "
+            "AND content_key IS NOT NULL ORDER BY id"):
+        by_key.setdefault(key, []).append(i)
+    kept = set(decisions(conn)["keep_both"])
+    groups = [DuplicateGroup(group_id(ids), "same_audio", tuple(ids)) for ids in by_key.values() if len(ids) > 1]
+    return sorted((g for g in groups if g.id not in kept), key=lambda g: g.file_ids[0])
+
+
+def group_files(conn: sqlite3.Connection, gid: str) -> list[DupFile]:
+    """The files of a duplicate group as the question shows them, by id; ids whose row is gone are left out. A
+    malformed id is ValueError."""
+    ids = sorted(_group_ids(gid))
+    folders = _Folders(conn)
+    rows = conn.execute(
+        "SELECT f.id, s.key, f.folder, f.path, f.status, f.cutoff_hz, f.source_format, f.online, s.in_playlists "
+        f"FROM files f LEFT JOIN songs s ON s.id = f.song WHERE f.id IN ({', '.join('?' * len(ids))}) ORDER BY f.id",
+        ids)
+    return [DupFile(i, key, folders.path(folder, rel), status, cutoff, fmt, bool(online), bool(in_playlists))
+            for i, key, folder, rel, status, cutoff, fmt, online, in_playlists in rows]
+
+
+# --- the file journal (plan library stage 4, I6, I7): moves of single files outside run_op's entry view ---
+
+_BY_OP_ID = "DELETE FROM pending WHERE json_extract(op, '$.op_id') = ?"
+FILE_OPS = frozenset({"tidy_move", "supersede"})
+
+
+def add_pending(conn: sqlite3.Connection, op: dict) -> str:
+    """Journals a file step before it starts (library.move_files): the op gets an `op_id` (uuid4 hex) unless it has
+    one, and is stored as a pending row. Returns the op id."""
+    op_id = op.setdefault("op_id", uuid.uuid4().hex)
+    with transaction(conn):
+        conn.execute("INSERT INTO pending (op) VALUES (?)", (_dumps(op),))
+        _bump(conn)
+    return op_id
+
+
+def drop_pending(conn: sqlite3.Connection, op_id: str) -> None:
+    """Drops a journaled step that did nothing (undone, or never started)."""
+    with transaction(conn):
+        if conn.execute(_BY_OP_ID, (op_id,)).rowcount:
+            _bump(conn)
+
+
+def _supersede(conn: sqlite3.Connection, file_id: int, heir: int | None) -> None:
+    """A file moved to Superseded/ (D10): its row goes. With an `heir` (a file row of an own song), the moved row's
+    song takes the heir's file and the heir's own song goes (with the other own songs left with no file, after).
+    A row gone already is left alone; an heir that isn't a file of an own song is ValueError."""
+    row = conn.execute("SELECT song FROM files WHERE id = ?", (file_id,)).fetchone()
+    if row is None:
+        return
+    conn.execute("DELETE FROM files WHERE id = ?", (file_id,))
+    if heir is None or row[0] is None:
+        return
+    h = conn.execute("SELECT s.key FROM files f LEFT JOIN songs s ON s.id = f.song WHERE f.id = ?", (heir,)).fetchone()
+    if h is None or (h[0] is not None and not is_own(h[0])):
+        raise ValueError(f"file {heir} can't take over: it isn't a file of a song of the user's own")
+    conn.execute("UPDATE files SET song = ? WHERE id = ?", (row[0], heir))
+
+
+def finish_file_op(conn: sqlite3.Connection, op: dict) -> None:
+    """A journaled file step that happened on disk, written in one transaction with the end of its journal entry:
+    `tidy_move` finishes the move `op["ref"]` (as finish_move), `supersede` drops the file row `op["ref"]` (heir
+    rule: `op["heir"]`, _supersede); own songs left with no file go; the pending row `op["op_id"]` goes. Any
+    failure leaves the rows and the pending row as they were; an unknown `do` is ValueError."""
+    if op.get("do") not in FILE_OPS:
+        raise ValueError(f"{op.get('do')!r} is not a file step")
+    with transaction(conn):
+        if op["do"] == "tidy_move":
+            _finish_move(conn, op["ref"])
+        else:
+            _supersede(conn, op["ref"], op.get("heir"))
+        _drop_fileless_own(conn)
+        conn.execute(_BY_OP_ID, (op["op_id"],))
+        _bump(conn)
+
 
 def decisions(conn: sqlite3.Connection) -> dict:
     """The answers To-do's questions got, for the snapshot: {"same_song": [[a, b, answer], ...], "keep_both":
