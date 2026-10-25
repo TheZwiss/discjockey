@@ -149,3 +149,14 @@ def test_a_profile_must_be_a_name(tmp_path):
     f.write_text('{"accounts": {"youtube": {"browser": "chrome", "daily_limit": 30, "profile": 2}}}')
     with pytest.raises(SettingsError, match="profile"):
         load_settings(f)
+
+
+def test_spotify_skipped_roundtrips_and_must_be_true_or_false(tmp_path):
+    path = tmp_path / "settings.json"
+    save_settings(path, Settings(spotify_skipped=True))
+    assert load_settings(path).spotify_skipped is True
+    path.write_text('{"daily_qobuz_limit": 70}')  # an older file: not skipped
+    assert load_settings(path).spotify_skipped is False
+    path.write_text('{"spotify_skipped": "yes"}')
+    with pytest.raises(SettingsError, match="spotify_skipped"):
+        load_settings(path)

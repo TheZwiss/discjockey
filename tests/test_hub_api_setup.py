@@ -712,3 +712,18 @@ def test_open_in_opens_a_chosen_chromium_profile_in_its_own_window(monkeypatch):
         ["open", "-a", "Brave Browser", "https://soundcloud.com"],
         ["open", "-a", "Firefox", "https://soundcloud.com"],
     ]
+
+
+def test_skip_spotify_and_connect_it_later(root, monkeypatch):
+    api, rec = make_api(root)
+    assert api.setup_status()["next_step"] == "spotify" and not api.setup_status()["spotify_skipped"]
+    assert wait_job(api, rec, api.setup_skip_spotify()).ok
+    st = api.setup_status()
+    assert st["spotify_skipped"] and not st["spotify_login"] and st["next_step"] != "spotify"
+    assert load_settings(root.settings_file).spotify_skipped
+    root.spotify_app.write_text(json.dumps({"client_id": "0" * 32}))
+    monkeypatch.setattr(spotify, "login", lambda *a, **k: None)
+    monkeypatch.setattr(spotify, "load_session", lambda paths: None)
+    monkeypatch.setattr(spotify, "current_user", lambda session: ("id", "DJ One"))
+    assert wait_job(api, rec, api.setup_spotify_login()).ok
+    assert not load_settings(root.settings_file).spotify_skipped

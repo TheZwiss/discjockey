@@ -16,7 +16,8 @@ from ..accounts import (ACCOUNTS, BROWSERS, DEFAULT_LIMITS, MAX_LIMIT, PREMIUM_M
                         SERVICE_SIGNALS)
 from ..accounts import assessment as service_assessment, zones as service_zones
 from ..names import expected_stem, fold
-from ..models import SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, MoveRow, PlannedMove
+from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, MoveRow, PlannedMove,
+                      split_token, track_link as key_link)
 from ..pacing import KEEP_SIGNALS, Budget
 from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
@@ -559,7 +560,16 @@ def in_playlists(track_id: str, e: dict, fetched: list) -> list[str] | None:
     if not fetched:
         return None
     ids = {track_id, *(e.get("aliases") or [])}
-    return [fp.line.folder for fp in fetched if any(t.id in ids for t in fp.tracks)]
+    return [fp.line.folder for fp in fetched if any(t.key in ids for t in fp.tracks)]
+
+
+def track_link(track_id: str, e: dict, fetched: list) -> dict | None:
+    """{url, label} of the track's page on its service: the link of the first fetched track (playlist order) that is
+    this song, else the link its key gives; None when neither has one."""
+    ids = {track_id, *(e.get("aliases") or [])}
+    link, service = next(((t.link, t.service) for fp in fetched for t in fp.tracks if t.key in ids and t.link),
+                         (key_link(track_id), split_token(track_id)[0]))
+    return {"url": link, "label": f"Open in {PLAYLIST_SERVICES[service]}"} if link else None
 
 
 def upgrade_block(up: dict | None, media: Url | None, track_id: str, e: dict) -> dict | None:
@@ -589,7 +599,7 @@ def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url 
             "source_full": (("bought" if e["source"] == "manual" else SOURCE_NAMES.get(e["source"]))
                             if has_file else None),
             "source_url": source_url(e.get("source"), e.get("source_id")),
-            "spotify_url": f"https://open.spotify.com/track/{track_id}",
+            "track_link": track_link(track_id, e, fetched),
             "next_qobuz_check": next_check(e, today), "rejected_sources": list(e.get("rejected_sources") or []),
             "buy_links": buy_links(e["artist"], e["title"]), "free_downloads": free_downloads(e),
             "bought_name": f"Library/{e['folder']}/{expected_stem(e['artist'], e['title'])}.wav",

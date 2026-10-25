@@ -194,13 +194,14 @@ def setup_status(support: SupportPaths, paths: Paths | None, music: dict, which:
     except SettingsError:
         settings = Settings()
     steps = [("music", music["state"] == "ok"), ("tools", all(tools.values())),
-             ("spotify", spotify_app and spotify_login), ("downloads", qobuz_ok or settings.qobuz_skipped),
+             ("spotify", (spotify_app and spotify_login) or settings.spotify_skipped), ("downloads", qobuz_ok or settings.qobuz_skipped),
              ("playlists", playlists_ok)]
     return {"music": music, "tools": tools, "spotify_app": spotify_app, "spotify_login": spotify_login,
             "qobuz": qobuz_ok,
             "playlists": playlists_ok, "complete": all(ok for _, ok in steps),
             "next_step": next((name for name, ok in steps if not ok), None),
             "version": __version__, "qobuz_skipped": settings.qobuz_skipped,
+            "spotify_skipped": settings.spotify_skipped,
             "qobuz_last_check": dict(settings.qobuz_last_check) if settings.qobuz_last_check else None,
             "spotify_user": spotify_user if spotify_login else None,
             "accounts": {s: ({"browser": a.browser, "browser_name": BROWSERS[a.browser], "daily_limit": a.daily_limit,
@@ -1003,7 +1004,7 @@ class HubApi:
             rows.insert(0, candidate_row(Candidate(source, sid, e["title"], e["artist"], None), track, score=None,
                                          matches=False, length_ok=True, current=True,
                                          rejected=key in (e.get("rejected_sources") or [])))
-        return {"track_id": track_id, "spotify_duration_s": round(track.duration_ms / 1000, 1),
+        return {"track_id": track_id, "track_duration_s": round(track.duration_ms / 1000, 1),
                 "current_quality_label": views.quality_label(e), "candidates": rows, "notes": notes + more}
 
     @bridge
@@ -1241,9 +1242,20 @@ class HubApi:
             spotify.login(client_id, self._support.spotify_token, open_browser=self._svc.open_url, token=ctx.token)
             _, name = spotify.current_user(spotify.load_session(self._support))
             self._save_spotify_app(client_id, name)
+            self._update_settings(lambda s: replace(s, spotify_skipped=False))
             return {"user": name}
 
         return {"job_id": self._jobs.start("setup_spotify_login", work).id}
+
+    @bridge
+    def setup_skip_spotify(self) -> dict:
+        """"I don't use Spotify": the Spotify step counts as done and playlists come from Qobuz links. Connecting
+        Spotify later (setup or Settings) un-skips it."""
+        def work(ctx) -> dict:
+            self._update_settings(lambda s: replace(s, spotify_skipped=True))
+            return {}
+
+        return {"job_id": self._jobs.start("setup_skip_spotify", work).id}
 
     @bridge
     def setup_qobuz_login(self, email: str, password: str) -> dict:

@@ -112,7 +112,7 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
         e = plan.state["tracks"][key]
         log.add(Result("dropped", e["folder"], e["artist"], e["title"], key))
     for track, folder, files in plan.ambiguous:
-        log.add(Result("ambiguous", folder, track.first_artist, track.title, track.id, "; ".join(files)))
+        log.add(Result("ambiguous", folder, track.first_artist, track.title, track.key, "; ".join(files)))
     return Prepared(paths, plan.state, settings, plan, log, lines, fetched)
 
 

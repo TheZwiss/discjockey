@@ -4,27 +4,32 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from dataclasses import replace
 from pathlib import Path
 
 from . import REPO, library, qobuz, tool_updates, tools
 from .sources import spotify
 from .library import Paths
+from .settings import load_settings, save_settings
 
 TEMPLATE = """\
-# Your Spotify playlists for Discjockey.
+# Your playlists for Discjockey (Spotify or Qobuz).
 #
-# One playlist per line:   Folder name = Spotify playlist link
+# One playlist per line:   Folder name = playlist link
 # Highest priority first: a track that is in several playlists goes into the
 # folder of the playlist that comes first here.
 #
-# Get a link in Spotify: open the playlist -> ... -> Share -> Copy link to playlist
+# Get a Spotify link: open the playlist -> ... -> Share -> Copy link to playlist
+# Get a Qobuz link: open the playlist -> Share -> Copy link
 # Lines starting with # are ignored.
 
 # Hard_Bounce = https://open.spotify.com/playlist/...
+# Deep_Cuts = https://open.qobuz.com/playlist/...
 """
 
 SPOTIFY_STEPS = """\
-Spotify: you need a free "app" in Spotify's developer dashboard (one time only).
+Spotify (optional if you only use Qobuz playlists): you need a free "app" in Spotify's developer
+dashboard (one time only).
   1. Open https://developer.spotify.com/dashboard and log in with your Spotify account.
   2. Click "Create app". Name and description: anything, e.g. "Discjockey".
   3. Redirect URI: http://127.0.0.1:8888/callback  (click Add)
@@ -50,13 +55,16 @@ def check_tools() -> list[str]:
 
 
 def _ask_client_id(paths: Paths) -> str:
+    """The Client ID to log in with, or "" when Enter was pressed with none saved (Spotify is skipped)."""
     saved = None
     if paths.spotify_app.exists():
         saved = json.loads(paths.spotify_app.read_text(encoding="utf-8")).get("client_id")
     print(SPOTIFY_STEPS)
     while True:
-        prompt = "Paste the Client ID" + (" (or press Enter to keep the saved one)" if saved else "") + ": "
+        prompt = "Paste the Client ID (or press Enter to " + ("keep the saved one" if saved else "skip Spotify") + "): "
         value = input(prompt).strip() or saved or ""
+        if not value:
+            return ""
         if re.fullmatch(r"[0-9a-fA-F]{32}", value):
             paths.spotify_app.write_text(json.dumps({"client_id": value}), encoding="utf-8")
             return value
@@ -75,13 +83,18 @@ def run_setup(paths: Paths) -> int:
         print(f"Missing program: {tool}. Install it with: {TOOL_HINTS[tool]}")
 
     client_id = _ask_client_id(paths)
-    try:
-        spotify.login(client_id, paths.spotify_token, on_url=_show_login_link)
-        me = spotify.api_get(spotify.load_session(paths), f"{spotify.API}/me")
-    except spotify.SpotifyError as e:
-        print(e)
-        return 2
-    print(f"Spotify login works ({me.get('display_name') or me.get('id')}).\n")
+    if client_id:
+        try:
+            spotify.login(client_id, paths.spotify_token, on_url=_show_login_link)
+            me = spotify.api_get(spotify.load_session(paths), f"{spotify.API}/me")
+        except spotify.SpotifyError as e:
+            print(e)
+            return 2
+        print(f"Spotify login works ({me.get('display_name') or me.get('id')}).\n")
+    else:
+        print("Spotify skipped. Use Qobuz playlist links, or connect Spotify later (run setup again, or Settings in "
+              "the app).\n")
+    save_settings(paths.settings_file, replace(load_settings(paths.settings_file), spotify_skipped=not client_id))
 
     try:
         _qobuz_login(paths)

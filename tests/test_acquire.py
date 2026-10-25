@@ -283,7 +283,7 @@ def test_make_ready_rejects_preview_length_file(tmp_path):
     assert make_ready(src, track, Candidate("qobuz", "1", "Song", "Artist", 180.0), tmp_path, tracker) is None
     checked = [e for e in events if isinstance(e, Checked)]
     assert len(checked) == 1 and checked[0].ok is False
-    assert round(checked[0].file_duration_s) == 30 and checked[0].spotify_duration_s == 180.0
+    assert round(checked[0].file_duration_s) == 30 and checked[0].track_duration_s == 180.0
     assert checked[0].codec == "flac"
 
 

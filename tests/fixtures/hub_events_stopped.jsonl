@@ -27,7 +27,7 @@
 {"type": "Progress", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "step": "download", "done": 1319772, "total": 1319772, "unit": "bytes"}
 {"type": "AccountUsage", "service": "qobuz", "used": 1, "allowance": 80}
 {"type": "StepChanged", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "step": "check"}
-{"type": "Checked", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "file_duration_s": 12.0, "spotify_duration_s": 12.0, "codec": "flac", "ok": true}
+{"type": "Checked", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "file_duration_s": 12.0, "track_duration_s": 12.0, "codec": "flac", "ok": true}
 {"type": "StepChanged", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "step": "convert"}
 {"type": "Progress", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "step": "convert", "done": 12.0, "total": 12.0, "unit": "seconds"}
 {"type": "StepChanged", "track_id": "4uLU6hMCjMI75M1A2tKUQC", "step": "analyse"}

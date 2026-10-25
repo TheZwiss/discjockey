@@ -10,7 +10,8 @@ from urllib.parse import quote_plus
 
 from .events import Result
 from .library import Paths
-from .models import SOURCE_NAMES, Plan
+from . import models
+from .models import SERVICE_NAMES, SOURCE_NAMES, Plan
 from .names import expected_stem
 
 SECTIONS = [
@@ -55,8 +56,15 @@ PLAN_LABELS = [
 ]
 
 
-def track_link(track_id: str) -> str:
-    return f"https://open.spotify.com/track/{track_id}"
+def track_link(track_id: str) -> str | None:
+    """The track's page on its own service (Spotify, Qobuz), or None when its key gives no link."""
+    return models.track_link(track_id)
+
+
+def service_link(track_id: str) -> str:
+    """A Markdown link labelled with the track's service, plus the separator; empty when there is no link."""
+    url = track_link(track_id)
+    return f"[{SERVICE_NAMES[models.split_token(track_id)[0]]}]({url}) · " if url else ""
 
 
 def buy_links(artist: str, title: str) -> str:
@@ -91,7 +99,7 @@ def render_line(r: Result) -> str:
     text = f"- [{r.folder}] {r.artist} - {r.title}"
     if r.note:
         text += f" — {r.note}"
-    if r.track_id:
+    if r.track_id and track_link(r.track_id):
         text += f" — {track_link(r.track_id)}"
     return text
 
@@ -211,7 +219,7 @@ def render_not_lossless(state: dict) -> str:
             if e.get("cutoff_hz"):
                 detail += f", cutoff {e['cutoff_hz'] / 1000:.1f} kHz"
             hidden = " (hidden)" if e.get("hidden") else ""
-            out.append(f"- **{e['artist']} - {e['title']}**{hidden} ({detail}) · [Spotify]({track_link(track_id)}) · "
+            out.append(f"- **{e['artist']} - {e['title']}**{hidden} ({detail}) · {service_link(track_id)}"
                        f"{buy_links(e['artist'], e['title'])}")
             for f in e.get("free_downloads") or []:
                 what = "on SoundCloud" if f.get("direct") else f"on {f.get('host')}"

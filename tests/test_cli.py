@@ -369,3 +369,37 @@ def test_sync_says_how_many_files_a_tidy_up_would_move(root, monkeypatch, capsys
     assert ("No downloads needed." in out) is not dry_run
     tidy_lines = [s for s in out.splitlines() if "tidy up in the window" in s]
     assert tidy_lines == ([line] if line else [])
+
+
+def test_setup_skips_spotify_on_an_empty_client_id(root, monkeypatch, capsys):
+    from discjockey import qobuz, setup_cmd
+    from discjockey.settings import load_settings
+
+    paths = Paths(root, support=root / ".support")
+    monkeypatch.setattr(setup_cmd, "check_tools", lambda: [])
+    monkeypatch.setattr(spotify, "login", lambda *a, **k: pytest.fail("Spotify was skipped"))
+    monkeypatch.setattr(qobuz, "interactive_login", lambda p: None)
+    answers = iter(["", "1"])  # Enter on the Client ID, then "1" for the Qobuz login
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    assert setup_cmd.run_setup(paths) == 0
+    assert "Spotify skipped" in capsys.readouterr().out
+    assert load_settings(paths.settings_file).spotify_skipped
+    text = paths.playlists_file.read_text()
+    assert "Spotify or Qobuz" in text and "open.qobuz.com/playlist" in text
+
+
+def test_a_client_id_connects_spotify_and_clears_the_skip(root, monkeypatch):
+    from discjockey import qobuz, setup_cmd
+    from discjockey.settings import Settings, load_settings, save_settings
+
+    paths = Paths(root, support=root / ".support")
+    save_settings(paths.settings_file, Settings(spotify_skipped=True))
+    monkeypatch.setattr(setup_cmd, "check_tools", lambda: [])
+    monkeypatch.setattr(setup_cmd, "_ask_client_id", lambda p: "0" * 32)
+    monkeypatch.setattr(spotify, "login", lambda client_id, token_path, **kw: None)
+    monkeypatch.setattr(spotify, "load_session", lambda p: object())
+    monkeypatch.setattr(spotify, "api_get", lambda session, url: {"id": "me"})
+    monkeypatch.setattr(qobuz, "interactive_login", lambda p: None)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "1")
+    assert setup_cmd.run_setup(paths) == 0
+    assert not load_settings(paths.settings_file).spotify_skipped

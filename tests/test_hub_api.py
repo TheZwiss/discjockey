@@ -10,6 +10,7 @@ from hub_helpers import (ID1, LOSSLESS, LOSSY, PLAYLISTS, QOBUZ_LINK, fake_qobuz
 from discjockey.hub import jobs
 from discjockey.hub.api import HubApi
 from discjockey.library import load_state, save_state
+from discjockey.settings import Settings, save_settings
 from discjockey.sources import qobuz as qobuz_source, spotify
 
 # The bridge contract (plan, Part B): every method the page may call, and nothing else.
@@ -23,7 +24,7 @@ CONTRACT = {
     "show_in_finder", "reveal", "open_report", "open_external", "app_update",
     "setup_check_tools", "setup_save_client_id", "setup_spotify_login", "setup_qobuz_login",
     "open_licenses", "update_tools", "rollback_tools", "quit",
-    "setup_skip_qobuz", "setup_account", "setup_check_account", "setup_forget_account", "downloads_view",
+    "setup_skip_qobuz", "setup_skip_spotify", "setup_account", "setup_check_account", "setup_forget_account", "downloads_view",
     "find_logins", "account_sign_in", "stop_sign_in", "open_privacy_settings", "qobuz_check_login", "spotify_sign_out",
     "pick_folder", "check_music_folder", "set_music_folder", "retry_music_folder",
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
@@ -321,3 +322,16 @@ def test_setup_status_names_the_downloads_step(root):
 def test_select_remembers_the_shown_track(root):
     api, _ = make_api(root)
     assert api.select("t2") == {"ok": True} and api._selected == "t2"
+
+
+def test_a_skipped_spotify_is_no_problem_until_playlists_txt_has_a_spotify_line(root, monkeypatch):
+    fake_qobuz(monkeypatch, connected=True)
+    save_settings(root.settings_file, Settings(spotify_skipped=True))
+    root.playlists_file.write_text(f"Example_Playlist = {QOBUZ_LINK}\n")
+    api, rec = make_api(root)
+    assert api.setup_status()["next_step"] != "spotify"
+    status = api.job_status()["spotify"]
+    assert status["services"] == [{"service": "qobuz", "name": "Qobuz", "connected": True}]
+    assert status["problem"] is None
+    root.playlists_file.write_text(PLAYLISTS + f"Example_Playlist = {QOBUZ_LINK}\n")
+    assert [s["service"] for s in api.job_status()["spotify"]["services"]] == ["spotify", "qobuz"]
