@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { installBridge, _resetBridge } from '../bridge/client';
 import { dispatch } from '../bridge/events';
-import { EMPTY_HUB, hub, refreshHub, refreshOnNoLibrary, readBlockIn, reduceHub } from './hub';
+import { EMPTY_HUB, hub, refreshHub, refreshOnNoLibrary, readBlockIn, readNeedsSetupIn, reduceHub } from './hub';
 import type { SpotifyStatus } from '../bridge/types';
 
 describe('reduceHub', () => {
@@ -230,5 +230,20 @@ describe('a scan job in job_status', () => {
     bridge(snap('sync'));
     await refreshHub();
     expect(get(hub).job).toMatchObject({ kind: 'sync', running: true });
+  });
+});
+
+describe('readNeedsSetupIn: a not_set_up without a service is a missing playlists.txt (first-run Dashboard, §5a)', () => {
+  const ok: SpotifyStatus = { read_at: null, minutes_ago: null, problem: 'not_set_up', problem_service: null,
+    message: '', services: [], stale: false, reading: false, offline: false, auto_read: false };
+  it('is true for the missing playlists.txt, which is no login block', () => {
+    expect(readNeedsSetupIn(ok)).toBe(true);
+    expect(readBlockIn(ok)).toBeNull();
+  });
+  it('is false while nothing is known, with no problem, and for a login problem (that has its own block)', () => {
+    expect(readNeedsSetupIn(null)).toBe(false);
+    expect(readNeedsSetupIn({ ...ok, problem: null })).toBe(false);
+    expect(readNeedsSetupIn({ ...ok, problem_service: 'qobuz' })).toBe(false);
+    expect(readNeedsSetupIn({ ...ok, services: [{ service: 'qobuz', name: 'Qobuz', connected: false }] })).toBe(false);
   });
 });

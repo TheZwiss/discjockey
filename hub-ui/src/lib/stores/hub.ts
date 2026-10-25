@@ -57,6 +57,12 @@ export function readBlockIn(sp: SpotifyStatus | null): ReadBlock | null {
   }
   return null;
 }
+/** The engine's not_set_up without a service: playlists.txt is missing, so setup isn't finished. No login fixes it and
+ *  the first-run page and the setup flow say it, so the header slot neither repeats it as a problem card nor lets
+ *  Read playlists run (it would find nothing). A login block takes precedence (`readBlockIn` names it). */
+export function readNeedsSetupIn(sp: SpotifyStatus | null): boolean {
+  return !!sp && sp.problem === 'not_set_up' && !sp.problem_service && readBlockIn(sp) === null;
+}
 /** The one source for the banner, the header slot and Sync's card (spec §5a/§11). */
 export const readBlock = derived(state, (s) => readBlockIn(s.spotify));
 export const readBlocked = derived(readBlock, (b) => b !== null);

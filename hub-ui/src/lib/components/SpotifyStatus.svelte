@@ -10,9 +10,12 @@
   // While a service playlists.txt uses can't be read (not connected, login expired) the shell's banner says so with its
   // Connect link, so the slot doesn't repeat it: only the last read, if any, and Read playlists disabled with
   // "Connect Qobuz first." as its reason (§5a: a state said once).
+  // The same for a not_set_up without a service (playlists.txt is missing, setup isn't finished): the first-run page
+  // and the setup flow say it, so the slot shows no problem card and no "haven't been read yet" line (a never-read
+  // slot holds only the disabled button) and gives "Finish setup first." as the reason.
   import { api, runJob } from '../bridge/client';
-  import { hub, hubSyncRunning, bumpData, readBlock, readBlockIn } from '../stores/hub';
-  import { PLAYLIST_SERVICE_NAMES } from '../copy';
+  import { hub, hubSyncRunning, bumpData, readBlock, readBlockIn, readNeedsSetupIn } from '../stores/hub';
+  import { PLAYLIST_SERVICE_NAMES, READ_NEEDS_SETUP } from '../copy';
   import { ago } from '../format';
   import Badge from './Badge.svelte';
   import Button from './Button.svelte';
@@ -32,9 +35,11 @@
   const minutes = $derived(sp?.read_at ? (now - Date.parse(sp.read_at)) / 60000 : sp?.minutes_ago ?? null);
   const when = $derived(sp?.read_at ? `Playlists read ${ago(minutes)}` : "Playlists haven't been read yet");
   const block = $derived(status !== undefined ? readBlockIn(status) : $readBlock);
-  const problem = $derived(sp?.problem && !sp.offline && sp.problem !== 'offline' && !block ? sp.problem : null);
+  const needsSetup = $derived(readNeedsSetupIn(sp));
+  const problem = $derived(sp?.problem && !sp.offline && sp.problem !== 'offline' && !block && !needsSetup
+    ? sp.problem : null);
   const blocked = $derived(block ? `Connect ${PLAYLIST_SERVICE_NAMES[block.service]} first.`
-    : $hubSyncRunning ? 'Not while a sync runs.' : undefined);
+    : needsSetup ? READ_NEEDS_SETUP : $hubSyncRunning ? 'Not while a sync runs.' : undefined);
   const stopped = $derived(status === undefined && $hub.read_stopped);
 
   function read() { void runJob(api.refresh(), { success: false, quiet: true }); }
@@ -55,7 +60,7 @@
   {:else}
     {#if sp.offline && !inBody}<Badge tone="muted" text="OFFLINE" />{/if}
     {#if stopped}<span class="txt" data-test="spotify-stopped">Stopped reading.</span>{/if}
-    {#if !block || sp.read_at}
+    {#if !(block || needsSetup) || sp.read_at}
       <span class="txt" data-test="spotify-when">{sp.stale && !sp.offline ? 'Your playlists changed since.' : when}</span>
     {/if}
     <Button size="sm" disabled={!!blocked} title={blocked}

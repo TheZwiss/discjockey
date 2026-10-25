@@ -99,6 +99,9 @@ export const EMPTY: Record<EmptyKind, { title: string; body?: string; action?: C
   nothing_here: { title: 'Nothing here.' },
 };
 
+/** Why Read playlists is off while setup isn't finished (the header slot; the first-run page says the rest). */
+export const READ_NEEDS_SETUP = 'Finish setup first.';
+
 export const WRITE_BLOCKED = {
   busy: 'Wait until the current change is finished.',
   console: 'A sync is running in the terminal.',
