@@ -405,7 +405,13 @@
           "const": "ImportProgress"
         },
         "phase": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "scan",
+            "tags",
+            "sound",
+            "link"
+          ]
         },
         "done": {
           "type": "integer"
