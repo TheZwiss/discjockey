@@ -1,6 +1,6 @@
 import io
 
-from discjockey.console import ConsolePrinter
+from discjockey.console import ConsolePrinter, waiting_lines
 from discjockey.events import ActionFinished, ActionStarted, Message, Progress, Result, StepChanged, Waiting
 from discjockey.models import Action, SourceTrack
 
@@ -78,3 +78,11 @@ def test_a_track_that_waits_after_work_was_shown_keeps_its_own_line():
     text = out.getvalue()
     assert "[1/3] Downloading [Hard_Bounce] Artist - Song\n" in text
     assert "-> waiting for the next run (Qobuz limit for today reached)\n" in text
+
+
+def test_waiting_lines_only_for_counts_above_zero():
+    assert waiting_lines(0, 0) == []
+    assert waiting_lines(12, 0) == [
+        "12 files in your watched folders wait to be imported. Open the window to import them."]
+    assert waiting_lines(0, 3) == ["3 songs wait for your answer in the window (Is this the same song?)."]
+    assert len(waiting_lines(1, 1)) == 2

@@ -15,6 +15,22 @@ SHORT = {"new_lossless": "lossless", "new_not_lossless": "not lossless", "fake":
          "queued": "waiting for the next run", "conflicts": "not moved, a file is in the way", "errors": "error"}
 
 
+# what only the window does (plan library stage 4, D13, W10): the console never imports nor asks
+IMPORT_WAITING = "{n} files in your watched folders wait to be imported. Open the window to import them."
+QUESTIONS_WAITING = "{n} songs wait for your answer in the window (Is this the same song?)."
+
+
+def waiting_lines(import_waiting: int, questions: int) -> list[str]:
+    """The console's lines for files waiting to be imported and songs held for "Is this the same song?" (run.Prepared
+    has both counts); none at 0."""
+    lines = []
+    if import_waiting > 0:
+        lines.append(IMPORT_WAITING.format(n=import_waiting))
+    if questions > 0:
+        lines.append(QUESTIONS_WAITING.format(n=questions))
+    return lines
+
+
 def _size(n: float) -> str:
     return f"{n / 1_000_000:.1f} MB"
 
