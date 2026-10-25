@@ -27,7 +27,10 @@ def test_an_isrc_on_one_side_only_leaves_it_to_the_names():
 
 
 def test_the_same_isrc_with_an_unknown_length_is_left_to_the_names():
-    assert compare("Example Artist", "Night Drive", 200000, "DEX1", own(isrc="DEX1", ms=None)) == ("plausible", "length")
+    assert compare("Example Artist", "Night Drive", 200000, "DEX1", own(isrc="DEX1", ms=None)) == (
+        "plausible", "no_length")
+    # the words for "no_length" say the artist and title are the same: the ISRC alone is not asked about
+    assert compare("Someone Else", "Other Title", 200000, "DEX1", own(isrc="DEX1", ms=None)) is None
 
 
 # --- names (D3) ---
@@ -63,12 +66,18 @@ def test_an_empty_title_is_no_match():
 
 
 def test_an_own_song_without_a_length_is_at_most_plausible():
-    assert compare("Example Artist", "Night Drive", 200000, None, own(ms=None)) == ("plausible", "length")
+    assert compare("Example Artist", "Night Drive", 200000, None, own(ms=None)) == ("plausible", "no_length")
     assert compare("Example Artist", "Night Drive", 200000, None, own(artist="", ms=None)) is None
 
 
-def test_a_track_of_unknown_length_is_at_most_plausible():
-    assert compare("Example Artist", "Night Drive", 0, None, own()) == ("plausible", "length")
+@pytest.mark.parametrize("track_ms", [0, None])
+def test_a_track_of_unknown_length_is_at_most_plausible(track_ms):
+    assert compare("Example Artist", "Night Drive", track_ms, None, own()) == ("plausible", "no_length")
+
+
+def test_both_lengths_unknown_is_at_most_plausible():
+    assert compare("Example Artist", "Night Drive", None, None, own(ms=None)) == ("plausible", "no_length")
+    assert compare("Example Artist", "Night Drive", 0, None, own(ms=0)) == ("plausible", "no_length")
 
 
 def test_feat_and_original_mix_normalise_away():

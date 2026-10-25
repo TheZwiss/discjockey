@@ -21,15 +21,17 @@ PLAUSIBLE_MS = 10000  # same artist and title, lengths off by more than CERTAIN_
 def compare(artist: str, title: str, duration_ms: int | None, isrc: str | None,
             own: Mapping) -> tuple[Match, str] | None:
     """(match, why) for a playlist song (`artist` its first artist) against an own song's entry (`artist`, `title`,
-    `duration_ms`, `isrc`), else None. `why`: "isrc" | "name" (certain), "artist" | "length" (plausible).
+    `duration_ms`, `isrc`), else None. `why`: "isrc" | "name" (certain), "artist" | "length" | "no_length"
+    (plausible).
 
     - Both ISRCs known: two different ones are two recordings (None, D5). The same one is certain when the lengths
-      are within SAME_LENGTH_MS, None when they are further apart; with a length unknown the names decide (below).
+      are within SAME_LENGTH_MS, None when they are further apart; with a length unknown the names decide (below:
+      To-do's words for "no_length" say the artist and title are the same, so the same ISRC alone isn't asked).
     - Names (normalised as planner._song_name does: the artist and the title without "(Original Mix)", "feat. X"
       and the like): the same artist and title within CERTAIN_MS is certain ("name"); off by up to PLAUSIBLE_MS is
       plausible ("length"). The same title with a different or missing artist within CERTAIN_MS is plausible
       ("artist", D3 a).
-    - A length unknown on either side (None or 0) is at most plausible: the same artist and title ("length"); a
+    - A length unknown on either side (None or 0) is at most plausible: the same artist and title ("no_length"); a
       title alone never, it would match every "Intro"."""
     track_ms, own_ms = duration_ms or None, own.get("duration_ms") or None
     delta = None if track_ms is None or own_ms is None else abs(own_ms - track_ms)
@@ -45,7 +47,7 @@ def compare(artist: str, title: str, duration_ms: int | None, isrc: str | None,
     ours, theirs = normalize_artist(artist or ""), normalize_artist(own.get("artist") or "")
     if ours and ours == theirs:
         if delta is None:
-            return "plausible", "length"
+            return "plausible", "no_length"
         if delta <= CERTAIN_MS:
             return "certain", "name"
         return ("plausible", "length") if delta <= PLAUSIBLE_MS else None

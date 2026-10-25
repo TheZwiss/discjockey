@@ -289,7 +289,7 @@ class _Own:
         if why == "artist" and not normalize_artist(e.get("artist") or ""):
             why = "no_artist"
         own_ms = e.get("duration_ms")
-        delta = round((own_ms - duration_ms) / 1000) if own_ms and duration_ms else 0
+        delta = round((own_ms - duration_ms) / 1000) if own_ms and duration_ms else None
         self.asked.add(own_key)
         return Question(song_key, track, folder, own_key, e["file_id"], why, delta)
 

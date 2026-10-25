@@ -163,8 +163,8 @@ class Question:
     folder: str  # the playlist song's folder
     own_key: str
     file_id: int  # the own song's file
-    why: str  # "artist" | "no_artist" | "length"
-    delta_s: int  # own length - track length, whole seconds (signed); 0 when a length isn't known
+    why: str  # "artist" | "no_artist" | "length" | "no_length" (the same artist and title, a length unknown)
+    delta_s: int | None  # own length - track length, whole seconds (signed); None when a length isn't known
 
 
 @dataclass

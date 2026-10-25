@@ -861,6 +861,15 @@ def test_a_question_says_when_the_own_file_has_no_artist_or_the_length_differs()
     assert (q.why, q.delta_s) == ("length", -7)
 
 
+@pytest.mark.parametrize("own_ms, track_ms", [(None, 200000), (200000, 0), (None, 0)])
+def test_a_question_without_a_length_says_so_and_has_no_difference(own_ms, track_ms):
+    s = own_state(n1=own_entry(1, dur=own_ms))
+    p = plan([pl("A", night(dur=track_ms))], s, files_of(s), TODAY)
+    [q] = p.questions
+    assert (q.why, q.delta_s) == ("no_length", None)
+    assert kinds(p) == [] and p.state["tracks"]["local:1"]["aliases"] == []  # never linked without asking
+
+
 def test_an_answer_not_same_lets_the_track_download():
     s = own_state(n1=own_entry(1, artist="Another Artist"),
                   decisions={"same_song": [["t1", "local:1", "not_same"]], "keep_both": []})
