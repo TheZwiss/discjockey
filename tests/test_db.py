@@ -8,6 +8,7 @@ from datetime import datetime
 import pytest
 
 from discjockey import db
+from discjockey import library as library_module
 from discjockey.library import StateError
 
 NOW = datetime(2026, 10, 23, 12, 0, 0)
@@ -452,7 +453,9 @@ def test_an_empty_database_has_the_default_records(tmp_path, library):
     with db.connect(fresh(tmp_path, library)) as conn:
         snap = db.snapshot(conn, library)
     assert snap == {"version": 2, "tracks": {}, "pending": [], "never": {},
-                    "qobuz_usage": {"days": {}, "signals": []}, "ambiguous": {}, "files": []}
+                    "qobuz_usage": {"days": {}, "signals": []}, "ambiguous": {}, "files": [], "generation": 0,
+                    "decisions": {"same_song": [], "keep_both": []}}
+    assert snap == library_module.empty_state()
 
 
 # --- 1.3 the diffing save ---
@@ -483,6 +486,7 @@ def opened(tmp_path, library):
 
     o = Opened()
     o.present = present
+    o.path = path
     return o
 
 
@@ -802,3 +806,93 @@ def test_save_ignores_a_changed_file_id(opened):
     state["tracks"]["sp2"]["file_id"] = 7
     assert opened.save(state) == 0
     assert "file_id" not in opened.snap()["tracks"]["sp2"]
+
+
+# --- stage 4, 1.2: the generation (a stale snapshot is never saved) ---
+
+def test_a_fresh_snapshot_saves_and_its_writer_keeps_saving(opened):
+    state = opened.snap()
+    assert state["generation"] == 0
+    state["tracks"]["sp2"]["last_attempt"] = "2026-10-24"
+    assert opened.save(state) == 1
+    assert state["generation"] == 1 == opened.snap()["generation"]
+    state["tracks"]["sp2"]["last_attempt"] = "2026-10-25"
+    assert opened.save(state) == 1
+    assert state["generation"] == 2
+    assert opened.snap()["tracks"]["sp2"]["last_attempt"] == "2026-10-25"
+
+
+def test_an_unchanged_save_keeps_the_generation(opened):
+    state = opened.snap()
+    assert opened.save(state) == 0
+    assert state["generation"] == 0 == opened.snap()["generation"]
+
+
+def test_a_save_after_an_explicit_write_is_refused_and_writes_nothing(opened):
+    state = opened.snap()
+    file_id = state["tracks"]["sp1"]["file_id"]
+    with db.connect(opened.path) as conn:
+        assert db.set_placed_by(conn, [file_id], "user") == 1
+    before = opened.rows("SELECT * FROM songs ORDER BY id")
+    state["tracks"]["sp2"]["last_attempt"] = "2026-10-24"
+    state["tracks"]["sp1"].update(path=None, status="missing")
+    with pytest.raises(StateError) as e:
+        opened.save(state)
+    assert str(e.value) == ("Discjockey's records changed while this step was being prepared, so nothing was saved. "
+                            "Try again.")
+    assert opened.rows("SELECT * FROM songs ORDER BY id") == before
+    assert opened.rows("SELECT song, placed_by FROM files WHERE id = ?", file_id) == [
+        (opened.rows("SELECT id FROM songs WHERE key = 'sp1'")[0][0], "user")]
+    assert state["generation"] == 0
+
+
+def test_a_state_that_isnt_a_snapshot_is_refused(opened):
+    state = opened.snap()
+    del state["generation"]
+    with pytest.raises(StateError):
+        opened.save(state)
+
+
+def test_the_explicit_writers_bump_the_generation(opened):
+    from discjockey.models import ScanResult
+    file_id = opened.snap()["tracks"]["sp1"]["file_id"]
+    with db.connect(opened.path) as conn:
+        db.set_placed_by(conn, [file_id], "user")
+        db.set_placed_by(conn, [file_id], "user")  # changes nothing: no bump
+        assert opened.snap()["generation"] == 1
+        db.apply_scan(conn, ScanResult(), NOW)  # the folder's last_scan
+        assert opened.snap()["generation"] == 2
+        with db.transaction(conn):
+            db.set_quality(conn, file_id, "lossless", 22000, "aiff")
+        assert opened.snap()["generation"] == 3
+
+
+def test_create_gives_its_state_the_new_generation(tmp_path, library):
+    state = library_module.empty_state()
+    state["generation"] = 7  # another library's snapshot
+    path = fresh(tmp_path, library, state)
+    assert state["generation"] == 0
+    state["never"] = {"sp9": {"artist": "Z"}}
+    with db.connect(path) as conn:
+        assert db.save(conn, state, library=library, facts=no_facts, now=NOW) == 1
+
+
+# --- stage 4, 1.3: the snapshot's new keys ---
+
+def test_a_stage_3_snapshot_round_trips_unchanged_apart_from_the_new_keys(tmp_path, library, monkeypatch):
+    present = {"Library/House/A - One.mp3", "Library/Techno/C - Thrée.aiff"}
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    upgraded = version_2(tmp_path / "a", library, monkeypatch, v1_state(), fake_facts(present))
+    created = fresh(tmp_path / "b", library, v1_state(), fake_facts(present))
+    with db.connect(upgraded) as conn:
+        db.check(conn, upgrade=True)
+        snap = db.snapshot(conn, library)
+        assert db.save(conn, snap, library=library, facts=fake_facts(present), now=NOW) == 0
+    with db.connect(created) as conn:
+        assert db.snapshot(conn, library) == snap
+    assert snap["generation"] == 0 and snap["decisions"] == {"same_song": [], "keep_both": []}
+    tracks = snap["tracks"]
+    assert tracks["sp1"]["import_state"] is None and tracks["sp1"]["first_seen"] == "2026-10-23T12:00:00"
+    assert tracks["sp2"]["import_state"] is None and tracks["sp2"]["first_seen"] is None
+    assert without_read_only(tracks) == {k: {**e, "file_gone": None} for k, e in v1_state()["tracks"].items()}

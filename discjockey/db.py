@@ -32,6 +32,7 @@ OLDER = ("Discjockey's records of this music folder are from an older version. R
          "Nothing was changed.")
 UNREADABLE = "Discjockey can't read its records of this music folder (.discjockey/library.db): {reason}. Nothing was changed."
 DAMAGED = "the file is damaged or isn't one of Discjockey's"
+STALE = ("Discjockey's records changed while this step was being prepared, so nothing was saved. Try again.")
 
 # schema version 1 (plan library stage 1, I1), one statement per item: executescript would commit mid-transaction
 SCHEMA_V1 = (
@@ -254,8 +255,10 @@ FILE_FIELDS = ("path", "status", "source", "source_id", "source_format", "cutoff
 QUALITY = FILE_FIELDS[1:]
 # entry keys the snapshot adds and save ignores; file_id only on an entry with a linked file (plan library
 # stage 2, I2)
-READ_ONLY = frozenset({"online", "placed_by", "held", "file_id"})
-SNAPSHOT_ONLY = frozenset({"version", "ambiguous", "files"})  # top-level keys the snapshot adds and save ignores
+# stage 4, I2: import_state and first_seen are the linked file's (None without one)
+READ_ONLY = frozenset({"online", "placed_by", "held", "file_id", "import_state", "first_seen"})
+# top-level keys the snapshot adds and save ignores; `generation` save checks (I2), `decisions` has its own writer
+SNAPSHOT_ONLY = frozenset({"version", "ambiguous", "files", "generation", "decisions"})
 NOT_EXTRA = frozenset(SONG_COLUMNS) | frozenset(FILE_FIELDS) | READ_ONLY | {"aliases"}
 # the keys every snapshot entry has unless the stored entry lacked them; `extra[ABSENT]` lists the ones it lacked
 # (an entry written before free_downloads existed is a different case for rule 5 than free_downloads: None)
@@ -311,10 +314,11 @@ def _entry(values: tuple, aliases: list[str], file: dict | None, path: str | Non
     e["aliases"] = aliases
     if file is None:
         e.update(path=None, status="missing", source=None, source_id=None, source_format=None, cutoff_hz=None,
-                 source_kbps=None, online=False, placed_by=None, held=False)
+                 source_kbps=None, online=False, placed_by=None, held=False, import_state=None, first_seen=None)
     else:
         e.update({k: file[k] for k in QUALITY}, path=path, online=bool(file["online"]), placed_by=file["placed_by"],
-                 held=bool(file["held"]), file_id=file["id"])
+                 held=bool(file["held"]), file_id=file["id"], import_state=file["import_state"],
+                 first_seen=file["first_seen"])
     for k in absent:  # keys the entry didn't have stay absent: the planner tells "absent" from None (rule 5)
         e.pop(k, None)
     return e
@@ -458,9 +462,24 @@ def create(path: Path, state: dict, *, library: Path, facts: Facts, now: datetim
                          [(k, _dumps(v)) for k, v in (state.get("never") or {}).items()])
         conn.executemany("INSERT INTO usage (service, data) VALUES (?, ?)", list(_usage_rows(state).items()))
         conn.executemany("INSERT INTO meta (key, value) VALUES (?, ?)", list(_extra_rows(state).items()))
+    if state.get("version") == 2:  # an I2 snapshot: its writer goes on saving it (save checks the generation)
+        state["generation"] = 0  # a new database's (SCHEMA_V3_STEP)
 
 
-_FILE_COLUMNS = ("id", "song", "folder", "path", "online", "held", "placed_by", "ambiguous") + QUALITY
+_FILE_COLUMNS = ("id", "song", "folder", "path", "online", "held", "placed_by", "ambiguous", "import_state",
+                 "first_seen") + QUALITY
+
+
+def _generation(conn: sqlite3.Connection) -> int:
+    """The stored generation (plan library stage 4, I2): every write of songs, files or decisions bumps it."""
+    return int(conn.execute("SELECT value FROM meta WHERE key = 'generation'").fetchone()[0])
+
+
+def _bump(conn: sqlite3.Connection) -> int:
+    """Bumps the generation inside the caller's transaction and returns the new value, so a snapshot taken before
+    this write can't be saved over it (save: STALE)."""
+    conn.execute("UPDATE meta SET value = CAST(value AS INTEGER) + 1 WHERE key = 'generation'")
+    return _generation(conn)
 
 
 def _files(conn: sqlite3.Connection) -> list[dict]:
@@ -509,7 +528,10 @@ def snapshot(conn: sqlite3.Connection, library: Path) -> dict:
     """The I2 snapshot the engine and the planner work on: one entry per song (joined with its linked file), the
     top-level records, and the read-only `ambiguous` and `files` (sorted online indexed files a scan didn't hold). Only reads: hub
     threads call it while a writer works, and it works on a read-only volume. `library` is the Library/ folder; the
-    snapshot names its files `Library/<rel>` whatever path its row holds (writers keep that path current)."""
+    snapshot names its files `Library/<rel>` whatever path its row holds (writers keep that path current).
+    `generation` is read first: a write that lands while the snapshot is read leaves it older than the stored one,
+    so save refuses it rather than saving a mix (plan library stage 4, I2)."""
+    generation = _generation(conn)
     folders = _Folders(conn)
     files = _files(conn)
     linked = _linked(files)
@@ -529,6 +551,8 @@ def snapshot(conn: sqlite3.Connection, library: Path) -> dict:
     out.update({k[len(STATE_EXTRA):]: json.loads(v) for k, v in records["meta"].items()})
     out["ambiguous"] = ambiguous
     out["files"] = sorted(folders.path(f["folder"], f["path"]) for f in files if f["online"] and not f["held"])
+    out["generation"] = generation
+    out["decisions"] = decisions(conn)
     return out
 
 
@@ -645,12 +669,19 @@ def save(conn: sqlite3.Connection, state: dict, *, library: Path, facts: Facts, 
     ignored. `rekeyed`: snapshot paths whose audio Discjockey rewrote in place with no entry field changing; their
     rows get size/mtime/key from `facts` again, so a later scan doesn't take them for a file replaced outside
     Discjockey. Returns the number of rows written. A v1 dict, or a file two entries share, is StateError; a path in
-    no watched folder is ValueError (nothing is written either way)."""
+    no watched folder is ValueError (nothing is written either way).
+
+    Generation (plan library stage 4, I2): a state whose `generation` isn't the stored one (taken before another
+    write, or not from a snapshot at all) is StateError(STALE), nothing written: the save diffs paths against the
+    rows, so a stale entry would move a row back to where its file used to be. A save that writes bumps the stored
+    generation and sets `state["generation"]` to it, so one writer keeps saving its own state."""
     if state.get("version") != 2:
         raise disk.StateError(OLD_COPY.format(version=state.get("version")))
     stamp = now.isoformat(timespec="seconds")
     tracks = state.get("tracks") or {}
     with transaction(conn):
+        if state.get("generation") != _generation(conn):
+            raise disk.StateError(STALE)
         n = sync_library_path(conn, library)
         folders = _Folders(conn)
         songs = _songs(conn)
@@ -669,6 +700,8 @@ def save(conn: sqlite3.Connection, state: dict, *, library: Path, facts: Facts, 
                            {k: _dumps(v) for k, v in (state.get("never") or {}).items()})
         n += _sync_records(conn, "usage", "service", "data", records["usage"], _usage_rows(state))
         n += _sync_records(conn, "meta", "key", "value", records["meta"], _extra_rows(state))
+        if n:
+            state["generation"] = _bump(conn)
     return n
 
 
@@ -756,6 +789,8 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
             n += conn.execute("DELETE FROM files WHERE id = ?", (file_id,)).rowcount
         for file_id, (status, cutoff_hz, source_format) in (judged or {}).items():
             n += set_quality(conn, file_id, status, cutoff_hz, source_format)
+        if n:
+            _bump(conn)
     return n
 
 
@@ -763,9 +798,12 @@ def set_quality(conn: sqlite3.Connection, file_id: int, status: str, cutoff_hz: 
                 source_format: str) -> int:
     """A file judged again after its audio was replaced outside Discjockey: it is no longer the download it was, so
     it counts as the user's own file (source 'manual', as a bought file) with the quality it has now."""
-    return conn.execute("UPDATE files SET status = ?, cutoff_hz = ?, source_format = ?, source = 'manual', "
-                        "source_id = NULL, source_kbps = NULL WHERE id = ?",
-                        (status, cutoff_hz, source_format, file_id)).rowcount
+    n = conn.execute("UPDATE files SET status = ?, cutoff_hz = ?, source_format = ?, source = 'manual', "
+                     "source_id = NULL, source_kbps = NULL WHERE id = ?",
+                     (status, cutoff_hz, source_format, file_id)).rowcount
+    if n:
+        _bump(conn)
+    return n
 
 
 # --- the move log (spec library-and-sources §5.2, §8.4; plan library stage 2, group 1) ---
@@ -830,27 +868,35 @@ def finish_move(conn: sqlite3.Connection, move_id: int) -> None:
     changes nothing; a skipped move is a ValueError. When a linked row of another song sits at `dst`, the call
     raises sqlite3.IntegrityError and writes nothing; the caller then records the move with skip_move(..., "failed")."""
     with transaction(conn):
-        m = _move(conn, move_id)
-        if m["state"] == "done":
-            return
-        if m["state"] == "skipped":
-            raise ValueError(f"move {move_id} was skipped ({m['reason']}); it can't be finished")
-        folders = _Folders(conn)
-        folder, rel = folders.locate(m["dst"])
-        if m["kind"] == "file" and m["file"] is not None:
-            conn.execute("DELETE FROM files WHERE folder = ? AND path = ? AND id != ? AND song IS NULL",
-                         (folder, rel, m["file"]))
-            conn.execute("UPDATE files SET folder = ?, path = ?, placed_by = COALESCE(?, placed_by) WHERE id = ?",
-                         (folder, rel, m["placed_after"], m["file"]))
-        elif m["kind"] == "folder":
-            src_folder, src_rel = folders.locate(m["src"])
-            old, new = src_rel + "/", rel + "/"
-            conn.execute("UPDATE files SET path = ? || substr(path, ?) WHERE folder = ? AND substr(path, 1, ?) = ?",
-                         (new, len(old) + 1, src_folder, len(old), old))
-            carried = conn.execute("SELECT COUNT(*) FROM files WHERE folder = ? AND substr(path, 1, ?) = ?",
-                                   (src_folder, len(new), new)).fetchone()[0]
-            conn.execute("UPDATE moves SET files = ? WHERE id = ?", (carried, move_id))
-        conn.execute("UPDATE moves SET state = 'done', reason = NULL, detail = NULL WHERE id = ?", (move_id,))
+        if _finish_move(conn, move_id):
+            _bump(conn)
+
+
+def _finish_move(conn: sqlite3.Connection, move_id: int) -> bool:
+    """finish_move's body, inside the caller's transaction (finish_move, finish_file_op). Returns whether it wrote
+    (False: the move was done already)."""
+    m = _move(conn, move_id)
+    if m["state"] == "done":
+        return False
+    if m["state"] == "skipped":
+        raise ValueError(f"move {move_id} was skipped ({m['reason']}); it can't be finished")
+    folders = _Folders(conn)
+    folder, rel = folders.locate(m["dst"])
+    if m["kind"] == "file" and m["file"] is not None:
+        conn.execute("DELETE FROM files WHERE folder = ? AND path = ? AND id != ? AND song IS NULL",
+                     (folder, rel, m["file"]))
+        conn.execute("UPDATE files SET folder = ?, path = ?, placed_by = COALESCE(?, placed_by) WHERE id = ?",
+                     (folder, rel, m["placed_after"], m["file"]))
+    elif m["kind"] == "folder":
+        src_folder, src_rel = folders.locate(m["src"])
+        old, new = src_rel + "/", rel + "/"
+        conn.execute("UPDATE files SET path = ? || substr(path, ?) WHERE folder = ? AND substr(path, 1, ?) = ?",
+                     (new, len(old) + 1, src_folder, len(old), old))
+        carried = conn.execute("SELECT COUNT(*) FROM files WHERE folder = ? AND substr(path, 1, ?) = ?",
+                               (src_folder, len(new), new)).fetchone()[0]
+        conn.execute("UPDATE moves SET files = ? WHERE id = ?", (carried, move_id))
+    conn.execute("UPDATE moves SET state = 'done', reason = NULL, detail = NULL WHERE id = ?", (move_id,))
+    return True
 
 
 def skip_move(conn: sqlite3.Connection, move_id: int, reason: str, detail: str | None = None) -> None:
@@ -869,8 +915,11 @@ def set_placed_by(conn: sqlite3.Connection, file_ids: Collection[int], value: st
     if not file_ids:
         return 0
     with transaction(conn):
-        return conn.executemany("UPDATE files SET placed_by = ? WHERE id = ? AND placed_by != ?",
-                                [(value, i, value) for i in file_ids]).rowcount
+        n = conn.executemany("UPDATE files SET placed_by = ? WHERE id = ? AND placed_by != ?",
+                             [(value, i, value) for i in file_ids]).rowcount
+        if n:
+            _bump(conn)
+        return n
 
 
 def close_batch(conn: sqlite3.Connection, batch_id: int, now: datetime) -> None:
@@ -954,6 +1003,20 @@ def batch(conn: sqlite3.Connection, batch_id: int) -> BatchRow | None:
 
 
 # --- the migration from state.json (spec library-and-sources §5.3, plan task 1.4) ---
+
+# --- the import's records (plan library stage 4, I5, I6) ---
+
+def decisions(conn: sqlite3.Connection) -> dict:
+    """The answers To-do's questions got, for the snapshot: {"same_song": [[a, b, answer], ...], "keep_both":
+    [group id, ...]}, each sorted."""
+    out: dict = {"same_song": [], "keep_both": []}
+    for kind, a, b, answer in conn.execute("SELECT kind, a, b, answer FROM decisions ORDER BY kind, a, b"):
+        if kind == "same_song":
+            out["same_song"].append([a, b, answer])
+        else:
+            out["keep_both"].append(a)
+    return out
+
 
 DB_NAME = "library.db"
 BACKUP_NAME = "state.v1.json"

@@ -241,7 +241,7 @@ class StateError(Exception):
 def empty_state() -> dict:
     """The snapshot of a library with no records yet (plan library stage 1, I2)."""
     return {"version": 2, "tracks": {}, "pending": [], "qobuz_usage": {"days": {}, "signals": []}, "never": {},
-            "ambiguous": {}, "files": []}
+            "ambiguous": {}, "files": [], "generation": 0, "decisions": {"same_song": [], "keep_both": []}}
 
 
 OLD_RECORDS = ("Discjockey tried to save its records in the old format (state.json) after they moved to "
