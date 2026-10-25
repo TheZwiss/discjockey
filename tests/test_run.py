@@ -603,3 +603,27 @@ def test_files_waiting_to_be_imported_reach_prepared(paths, tmp_path_factory):
     prep = run.prepare(paths)  # its scan finds the file
     assert prep.import_waiting == 1
     assert run.replan(prep).import_waiting == 1
+
+
+def test_an_import_links_its_files_with_the_real_link_only_from_a_stale_read(paths, tmp_path_factory, monkeypatch):
+    from discjockey import importer
+    from discjockey.quality import AudioInfo
+    monkeypatch.setattr(run, "Acquirer", lambda *a, **k: pytest.fail("nothing is downloaded"))
+    monkeypatch.setattr(run.QobuzSource, "open", classmethod(lambda cls, p: pytest.fail("no Qobuz login")))
+    prep = run.prepare(paths)  # the window's read, before the import writes anything
+    mine = tmp_path_factory.mktemp("mine")
+    write_aiff(mine / "Artist - Song 1.aiff", music(1))
+    with db.connect(paths.db_file) as conn:
+        db.add_watched_folder(conn, mine, datetime.now())
+    events = []
+    result = importer.run_import(paths, emit=events.append, token=CancelToken(),
+                                 link=lambda: importer.link_playlists(paths, prep, emit=events.append),
+                                 probe=lambda p: AudioInfo("pcm_s16be", 44100, 180.5),
+                                 inspect=lambda p: ("pcm_s16be", None))
+    assert (result.own_songs, result.link_note) == (1, None)
+    tracks = library.load_state(paths)["tracks"]
+    assert tracks["local:1"]["aliases"] == ["t1"] and tracks["local:1"]["in_playlists"] is True
+    assert tracks["local:1"]["import_state"] == "done"  # the link kept what the import wrote
+    assert "t2" not in tracks  # nothing downloaded or planned into the records
+    assert "Artist - Song 1: the same song as a file of yours, not downloaded." in [
+        e.text for e in events if isinstance(e, Message)]

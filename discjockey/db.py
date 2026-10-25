@@ -1064,6 +1064,24 @@ def import_unreadable(conn: sqlite3.Connection) -> list[tuple[Path, str]]:
         "WHERE w.kind = 'import' AND f.import_state = 'unreadable'"))
 
 
+LINK_PENDING = "import_link_pending"  # meta: own songs were made since the import last linked the playlists (D6)
+
+
+def import_link_pending(conn: sqlite3.Connection) -> bool:
+    """Whether an import made own songs and hasn't linked the playlists to them since (it stopped first)."""
+    return conn.execute("SELECT 1 FROM meta WHERE key = ?", (LINK_PENDING,)).fetchone() is not None
+
+
+def set_import_link_pending(conn: sqlite3.Connection, pending: bool) -> None:
+    """Notes (or clears) that the import's link phase is still to come. Only this flag changes: no song or file, so
+    the generation stays (a snapshot taken before is still current)."""
+    with transaction(conn):
+        if pending:
+            conn.execute("INSERT OR IGNORE INTO meta (key, value) VALUES (?, '1')", (LINK_PENDING,))
+        else:
+            conn.execute("DELETE FROM meta WHERE key = ?", (LINK_PENDING,))
+
+
 def import_counts(conn: sqlite3.Connection) -> dict[int, ImportCounts]:
     """Every import folder's progress (offline ones too), by folder id: its file rows, the ones not read yet
     (`new`), read but not judged (`identified`) and unreadable."""

@@ -14,6 +14,7 @@ from discjockey import db, importer, library, run
 from discjockey.events import CancelToken, ImportProgress
 from discjockey.library import Paths, empty_state, load_state, save_state
 from discjockey.quality import AudioInfo
+from discjockey.settings import SettingsError
 
 pytestmark = needs_ffmpeg
 NOW = datetime(2026, 10, 25, 12, 0, 0)
@@ -235,7 +236,7 @@ def test_an_unreadable_file_is_listed_then_tried_again_and_done(paths, tmp_path)
     fakes = Fakes()
     fakes.probe_fails.add("Example Artist - Song 2.aiff")
     first = go(paths, fakes)
-    assert (first.files, first.own_songs, first.unreadable, first.left) == (3, 2, 1, 0)
+    assert (first.files, first.own_songs, first.unreadable, first.left) == (2, 2, 1, 0)
     with db.connect(paths.db_file) as conn:
         assert db.import_unreadable(conn) == [(folder / "Example Artist - Song 2.aiff", importer.NO_SOUND)]
     fakes.probe_fails.clear()
@@ -252,7 +253,7 @@ def test_a_file_the_sound_check_cant_read_is_only_checked_again(paths, tmp_path)
     fakes = Fakes()
     fakes.inspect_fails.add("Example Artist - Song 1.aiff")
     first = go(paths, fakes)
-    assert (first.own_songs, first.sound_checked, first.unreadable) == (2, 1, 1)
+    assert (first.files, first.own_songs, first.sound_checked, first.unreadable) == (1, 2, 1, 1)
     fakes.inspect_fails.clear()
     probed = len(fakes.probed)
     second = go(paths, fakes)
@@ -355,3 +356,47 @@ def test_the_link_note_reaches_the_result(paths, tmp_path):
     fakes = Fakes()
     fakes.link = lambda: importer.LINK_LATER
     assert go(paths, fakes).link_note == importer.LINK_LATER
+
+
+def test_the_words_at_the_end_take_a_singular_form():
+    def words(files, left, stopped):
+        return importer.result_words(importer.ImportResult(files, 0, 0, 0, left, stopped, None))
+    assert words(1, 0, False) == "Imported 1 file."
+    assert words(12, 0, False) == "Imported 12 files."
+    assert words(3, 1, True) == "Import stopped with 1 file to go. It carries on where it stopped."
+    assert words(3, 7, True) == "Import stopped with 7 files to go. It carries on where it stopped."
+
+
+def test_a_stop_while_linking_links_at_the_next_import(paths, tmp_path):
+    songs_folder(paths, tmp_path, n=1)
+    fakes, token = Fakes(), CancelToken()
+
+    def stop():
+        token.cancel()
+        token.check()
+    fakes.link = stop
+    with pytest.raises(importer.ImportStopped):
+        go(paths, fakes, token)
+    del fakes.link  # the class's counting link again
+    result = go(paths, fakes)  # nothing to read, but the links are still to come
+    assert (result.files, fakes.linked) == (0, 1)
+    go(paths, fakes)
+    assert fakes.linked == 1  # linked once: the next import has nothing to link
+
+
+@pytest.mark.parametrize("problem", [library.StateError("playlists.txt is missing."),
+                                     SettingsError("settings.json can't be read.")])
+def test_playlists_that_cant_be_linked_say_why_and_keep_the_import(paths, monkeypatch, problem):
+    def fails(p, prep, emit):
+        raise problem
+    monkeypatch.setattr(run, "link_only", fails)
+    assert importer.link_playlists(paths, "window's read") == (
+        f"Your playlists couldn't be linked yet: {str(problem).rstrip('.')}.")
+
+
+def test_an_invalid_playlists_file_is_not_a_read_problem(paths, monkeypatch):
+    def invalid(p, **kw):
+        raise run.SetupProblem("Line 3 of playlists.txt isn't a playlist link.", "config_invalid")
+    monkeypatch.setattr(run, "prepare", invalid)
+    assert importer.link_playlists(paths) == (
+        "Your playlists couldn't be linked yet: Line 3 of playlists.txt isn't a playlist link.")

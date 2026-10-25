@@ -30,7 +30,7 @@ from mutagen.id3 import ID3
 
 from . import db, identify, library, quality
 from .events import Cancelled, CancelToken, Emit, ImportProgress, no_emit
-from .library import Paths
+from .library import Paths, StateError
 from .models import ImportRow, OwnFacts
 
 if TYPE_CHECKING:
@@ -47,8 +47,11 @@ READING_TAGS = "Reading tags · {done} of {total}"
 CHECKING_SOUND = "Checking the sound · {done} of {total}"
 LINKING = "Linking to your playlists"
 STOPPED = "Import stopped with {left} files to go. It carries on where it stopped."
+STOPPED_ONE = "Import stopped with 1 file to go. It carries on where it stopped."
 DONE = "Imported {files} files."
+DONE_ONE = "Imported 1 file."
 LINK_LATER = "Your playlists couldn't be read, so the imported files are linked to them at the next sync."
+LINK_FAILED = "Your playlists couldn't be linked yet: {reason}."  # playlists.txt or the settings need fixing
 # why a file couldn't be read: "{path}: {reason}"
 NO_ACCESS = "macOS doesn't let Discjockey read it"
 NO_SOUND = "Discjockey can't find sound it can read in it"
@@ -56,10 +59,11 @@ NO_SOUND = "Discjockey can't find sound it can read in it"
 
 @dataclass(frozen=True)
 class ImportResult:
-    """What one import did. `files`: the files it read (in either pass, unreadable ones too); `own_songs`: songs of
-    the user's own it made; `sound_checked`: files whose sound it judged; `unreadable`: files it couldn't read;
-    `left`: the files the next import still works through (db.import_left: waiting or not judged yet, on drives
-    that are there); `link_note`: LINK_LATER when the playlists couldn't be read, else None."""
+    """What one import did. `files`: the files it imported (read in either pass, and not unreadable now);
+    `own_songs`: songs of the user's own it made; `sound_checked`: files whose sound it judged; `unreadable`: files
+    it couldn't read; `left`: the files the next import still works through (db.import_left: waiting or not judged
+    yet, on drives that are there); `link_note`: LINK_LATER or LINK_FAILED's words when the playlists weren't
+    linked, else None."""
     files: int
     own_songs: int
     sound_checked: int
@@ -67,6 +71,13 @@ class ImportResult:
     left: int
     stopped: bool
     link_note: str | None
+
+
+def result_words(result: ImportResult) -> str:
+    """W6's line for the end of an import: stopped with the files to go, or the files imported (1 is singular)."""
+    if result.stopped:
+        return STOPPED_ONE if result.left == 1 else STOPPED.format(left=result.left)
+    return DONE_ONE if result.files == 1 else DONE.format(files=result.files)
 
 
 class ImportStopped(Cancelled):
@@ -117,16 +128,24 @@ def files_waiting(paths: Paths) -> int:
 
 def link_playlists(paths: Paths, prep: Prepared | None = None, *, emit: Emit = no_emit, token: CancelToken | None = None) -> str | None:
     """The import's last phase (D6), as `run_import`'s `link`: plans from `prep` (the window's last read of the
-    playlists, run.Prepared) or else reads them, then run.link_only. LINK_LATER when they couldn't be read (W11):
-    the next sync links the files. The caller holds the library lock."""
+    playlists, run.Prepared) or else reads them, then run.link_only. LINK_LATER when they couldn't be read (W11),
+    LINK_FAILED with the reason when playlists.txt or the settings stand in the way: either way the files are
+    imported, and the next sync links them. The caller holds the library lock."""
     from . import run
-    if prep is None:
-        try:
+    from .settings import SettingsError
+    try:
+        if prep is None:
             prep = run.prepare(paths, emit=emit, token=token)
-        except run.SetupProblem:
-            return LINK_LATER
-    run.link_only(paths, prep, emit)
+        run.link_only(paths, prep, emit)
+    except run.SetupProblem as e:
+        return _link_failed(e) if e.kind == "config_invalid" else LINK_LATER
+    except (StateError, SettingsError) as e:
+        return _link_failed(e)
     return None
+
+
+def _link_failed(e: Exception) -> str:
+    return LINK_FAILED.format(reason=(str(e).strip().rstrip(".") or type(e).__name__))
 
 
 class _Pacer:
@@ -171,7 +190,7 @@ class _Run:
     def result(self, stopped: bool) -> ImportResult:
         with db.connect(self.paths.db_file) as conn:
             left = db.import_left(conn)
-        return ImportResult(len(self.read), self.own_songs, self.sound_checked, len(self.failed), left, stopped,
+        return ImportResult(len(self.read - self.failed), self.own_songs, self.sound_checked, len(self.failed), left, stopped,
                             self.link_note)
 
     def unreadable(self, conn, row: ImportRow, e: BaseException) -> None:
@@ -200,6 +219,8 @@ class _Run:
                     except Exception as e:  # an unreadable file is listed, never the end of the import
                         self.unreadable(conn, row, e)
                     else:  # import_waiting's rows have no song yet (judged_later's have): a new own song
+                        if not self.own_songs:  # linked at the end, or by the next import after a stop
+                            db.set_import_link_pending(conn, True)
                         db.add_own_song(conn, row.file_id, facts)
                         self.own_songs += 1
                         self.read.add(row.file_id)
@@ -229,8 +250,9 @@ def run_import(paths: Paths, *, emit: Emit = no_emit, token: CancelToken, link: 
                probe: Callable[[Path], quality.AudioInfo] = quality.probe,
                inspect: Callable[[Path], tuple[str, int | None]] = quality.inspect) -> ImportResult:
     """The import, as the module docstring says. The caller holds the library lock. `link`: the last phase
-    (link_playlists bound to the window's last read), returning W11's words or None; it runs only when this import
-    read a file. Stop (`token`) is checked before each file and before linking: ImportStopped, carrying the result,
+    (link_playlists bound to the window's last read), returning words for a link that didn't happen, or None; it
+    runs while own songs wait for it (db.import_link_pending: made by this import, or by one stopped before its
+    link phase ended). Stop (`token`) is checked before each file and before linking: ImportStopped, carrying the result,
     after the current file is written. Files that couldn't be read before are tried again (this import's scan is
     spec §12's "next scan"); files on a drive that isn't there wait for it."""
     run = _Run(paths, emit, token, read_tags, probe, inspect)
@@ -244,9 +266,13 @@ def run_import(paths: Paths, *, emit: Emit = no_emit, token: CancelToken, link: 
         run.tags()
         run.sound()
         token.check()
-        if run.read:
+        with db.connect(paths.db_file) as conn:
+            pending = db.import_link_pending(conn)
+        if pending:
             emit(ImportProgress("link", 0, 0, len(run.failed)))
             run.link_note = link()
+            with db.connect(paths.db_file) as conn:  # linked, or left to the next sync (its plan links them too)
+                db.set_import_link_pending(conn, False)
     except Cancelled:
         raise ImportStopped(run.result(stopped=True)) from None
     return run.result(stopped=False)
