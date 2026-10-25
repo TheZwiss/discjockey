@@ -359,3 +359,17 @@ def test_the_removal_preview_names_the_folder_and_counts_what_goes(tmp_path, mon
     for bad in (api.watched_folders()["folders"][0]["id"], 999, "1", None, True):
         r = api.removal_preview(bad)
         assert (r["ok"], r["kind"], r["message"]) == (False, "refused", "That folder isn't one of the watched folders.")
+
+
+
+def test_the_library_row_counts_what_all_tracks_counts_before_there_is_a_library_db(tmp_path):
+    from hub_helpers import music_root
+    from discjockey.library import load_state, write_json_atomic
+    paths = music_root(tmp_path)
+    snapshot = load_state(paths)  # an old library: state.json (version 1), not yet migrated to library.db
+    paths.db_file.unlink()
+    write_json_atomic(paths.state_file, {**snapshot, "version": 1}, indent=2, ensure_ascii=False, sort_keys=True)
+    api, _ = make_api(paths)
+    row = api.watched_folders()["folders"][0]
+    assert not paths.db_file.exists() and row["kind"] == "library"
+    assert row["files"] == api.sidebar()["all_tracks"] and row["files"] > 0

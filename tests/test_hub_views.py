@@ -1384,3 +1384,23 @@ def test_a_file_side_hands_its_file_id_to_the_player():
     out = views.todo(st, "all", False, {}, TODAY, None, [question()], audio=lambda key, e: seen.append((key, e)) or "u")
     assert seen == [("local:1", {"path": "/Volumes/Example/Music/Example Artist - Song.aiff", "file_id": 7})]
     assert out["groups"][0]["items"][0]["pair"]["file"]["audio_url"] == "u"
+
+
+
+def test_a_stale_question_does_not_hide_its_playlist_song_from_not_found():
+    st = state(t1=e("missing", folder="A"))  # the question's own song is gone from the records
+    out = views.todo(st, "all", False, {}, TODAY, None, [question()])
+    assert [g["key"] for g in out["groups"]] == ["not_found"] and out["chips"]["all"] == 1
+    st = state(t1=e("missing", folder="A"), **{"local:1": own()})  # a live one still holds it
+    out = views.todo(st, "all", False, {}, TODAY, None, [question()])
+    assert [g["key"] for g in out["groups"]] == ["same_song"] and out["chips"]["all"] == 1
+
+
+def test_counted_duplicate_groups_count_without_files_and_are_not_listed():
+    from discjockey.models import DuplicateGroup
+    g = DuplicateGroup("dup:3-4", "same_audio", (3, 4))
+    st = state(t1=e("lossless", folder="A"))
+    plain = views.todo(st, "all", False, {}, TODAY, None, [], [g])
+    assert plain["chips"]["duplicate"] == 0 and plain["chips"]["all"] == 0  # no files loaded: nothing to act on
+    counted = views.todo(st, "all", False, {}, TODAY, None, [], [g], counted={"dup:3-4"})
+    assert counted["chips"]["all"] == 1 and counted["chips"]["duplicate"] == 0 and counted["groups"] == []

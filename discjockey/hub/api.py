@@ -451,19 +451,24 @@ class HubApi:
         reports = self._reports()
         return views.todo_others(self._store.prep, reports[-1][1] if reports else None)
 
-    def _todo(self, state: dict, filt: str, show_hidden: bool) -> dict:
+    def _todo(self, state: dict, filt: str, show_hidden: bool, count_only: bool = False) -> dict:
         """views.todo with the import's questions (the last plan's) and duplicates (the plan's same-song groups and the
-        records' same-audio ones, each with its files)."""
+        records' same-audio ones, each with its files). `count_only` (the sidebar's number): the records' groups are
+        counted without loading their files (they are online and not held by how they are found), so only the plan's
+        few same-song groups read theirs; the groups of the answer are then not listed."""
         prep = self._store.prep
         questions = list(prep.plan.questions) if prep else []
         groups = list(prep.plan.duplicates) if prep else []
         files: dict[str, list] = {}
+        counted: set[str] = set()
         with self._move_log() as conn:
             if conn is not None:
-                groups += db.duplicate_groups(conn)
-                files = {g.id: db.group_files(conn, g.id) for g in groups}
+                found = db.duplicate_groups(conn)
+                counted = {g.id for g in found} if count_only else set()
+                groups += found
+                files = {g.id: db.group_files(conn, g.id) for g in groups if g.id not in counted}
         return views.todo(state, filt, show_hidden, self._others(state), self._today(), self._cover(self._images()),
-                          questions, groups, files, self._audio)
+                          questions, groups, files, self._audio, counted)
 
     # --- read, any time ---
 
@@ -477,7 +482,7 @@ class HubApi:
     @bridge
     def sidebar(self) -> dict:
         state = self._state()
-        count = self._todo(state, "all", False)["chips"]["all"]
+        count = self._todo(state, "all", False, count_only=True)["chips"]["all"]
         # the dot on "Download limits": a warning sign the user hasn't marked as seen, or a service paused today
         warnings = any(c["new_warnings"] or c["paused"] for c in views.limit_cards(state, self._settings(), self._today()))
         return views.sidebar(state, self._folders(), count, warnings)
@@ -598,8 +603,9 @@ class HubApi:
         if job is not None and job.kind == "import":
             phase = (job.last.get("ImportProgress") or {}).get("phase", "scan")
         with self._move_log() as conn:
-            if conn is None:  # no library.db yet: only the Library, nothing imported
-                rows, counts, library_files, unreadable, waiting = [WatchedFolder(0, paths.library, "library")], {}, 0, [], 0
+            if conn is None:  # no library.db yet: only the Library, nothing imported; its files as "All tracks" counts
+                rows, counts, unreadable, waiting = [WatchedFolder(0, paths.library, "library")], {}, [], 0
+                library_files = len(views.tracks_with_file(self._state()))
             else:
                 rows, counts = db.watched_folders(conn), db.import_counts(conn)
                 library_files, unreadable, waiting = db.library_files(conn), db.import_unreadable(conn), db.import_left(conn)

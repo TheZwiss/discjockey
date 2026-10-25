@@ -1041,3 +1041,20 @@ def test_a_folder_refused_inside_the_job_shows_the_w5_words():
     assert jobs.problem_of(refused) == ("refused", "This is inside Music, which Discjockey watches already.")
     assert jobs.problem_of(db.FolderRefused("holds_music", "/Volumes/Example"))[1].startswith("This folder holds your")
     assert jobs.problem_of(ValueError("plain"))[1] == "plain"
+
+
+
+def test_the_sidebar_counts_duplicate_groups_without_loading_their_files(lib, monkeypatch):
+    import shutil
+    paths, folder, fakes = lib
+    shutil.copy(folder / "Example Artist - Song 1.aiff", folder / "Example Artist - Song 1 copy.aiff")
+    api, rec = make_api(paths)
+    assert wait_job(api, rec, api.add_watched_folder(str(folder))).ok
+    with db.connect(paths.db_file) as conn:
+        assert len(db.duplicate_groups(conn)) == 1
+    real, loaded = db.group_files, []
+    monkeypatch.setattr(db, "group_files", lambda conn, gid: loaded.append(gid) or real(conn, gid))
+    total = api.todo()["chips"]
+    assert total["duplicate"] == 1 and len(loaded) == 1  # the page lists the group, so it loads its files
+    loaded.clear()
+    assert api.sidebar()["todo"] == total["all"] and loaded == []

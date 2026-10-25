@@ -658,8 +658,13 @@ def library(state: dict, folder: str | None, query: str, filt: str, sort: str, c
     return {"title": title, "folder": folder, "summary": summary, "chips": chips, "rows": rows, "empty": empty}
 
 
+def tracks_with_file(state: dict) -> list[dict]:
+    """The entries that have a file: what "All tracks" counts."""
+    return [e for e in state["tracks"].values() if e["status"] != "missing" and e.get("path")]
+
+
 def sidebar(state: dict, folder_order: list[str], todo_count: int, warnings: bool = False) -> dict:
-    with_file = [e for e in state["tracks"].values() if e["status"] != "missing" and e.get("path")]
+    with_file = tracks_with_file(state)
     counts: dict[str, int] = {}
     for e in with_file:
         if e["folder"]:  # the user's own songs (the import) belong to no playlist folder
@@ -792,7 +797,8 @@ def _duplicate_item(g: DuplicateGroup, files: Sequence[DupFile], state: dict, co
 
 def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], today: date,
          cover: Url | None = None, questions: Sequence[Question] = (), duplicates: Sequence[DuplicateGroup] = (),
-         dup_files: Mapping[str, Sequence[DupFile]] | None = None, audio: Url | None = None) -> dict:
+         dup_files: Mapping[str, Sequence[DupFile]] | None = None, audio: Url | None = None,
+         counted: Collection[str] = ()) -> dict:
     """Groups in this order: Check in rekordbox, Is this the same song?, Duplicates, Upgrade ready, Not found, Weak,
     Good lossy, Fake lossless, Other. `others`: track id -> what blocks it (a move blocked by another file, several
     files that could be it). Hidden tracks are left out unless show_hidden. "Check in rekordbox" lists every track
@@ -803,22 +809,27 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     `duplicates` are the plan's same-song groups and db.duplicate_groups' same-audio ones together, `dup_files` their
     files (db.group_files); a group in both shows once, as the same audio. D8: the user's own songs are only on
     To-do under Upgrade ready, in a question and in a duplicate group; their quality (Weak, Good lossy, Fake) is
-    for the Library to show."""
+    for the Library to show. `counted`: ids of duplicate groups that are known to be there to act on (every file
+    online and not held, as db.duplicate_groups finds them): they count in chips["all"] but are not listed, so the
+    sidebar's count needs no `dup_files` for them."""
     items: dict[str, list] = {g: [] for g, _, _ in TODO_GROUPS}
     never = state.get("never") or {}  # "never download": not a to-do
     hidden = 0
     listed: set[str] = set()
-    held = {q.song_key for q in questions}
+    held: set[str] = set()  # playlist songs waiting for an answer: not Not found meanwhile
     for q in questions:
-        if (item := _question_item(q, state, cover, audio)) is not None:
+        if (item := _question_item(q, state, cover, audio)) is not None:  # none: the question went stale, no wait
             items["same_song"].append(item)
             listed.add(q.song_key)
+            held.add(q.song_key)
     groups_by_id: dict[str, DuplicateGroup] = {}
     for g in duplicates:
         if g.id not in groups_by_id or g.why == "same_audio":
             groups_by_id[g.id] = g
     for g in groups_by_id.values():
-        if (item := _duplicate_item(g, (dup_files or {}).get(g.id, ()), state, cover, audio)) is not None:
+        if g.id in counted:
+            listed.add(g.id)
+        elif (item := _duplicate_item(g, (dup_files or {}).get(g.id, ()), state, cover, audio)) is not None:
             items["duplicate"].append(item)
             listed.add(g.id)
     for k, e in state["tracks"].items():
