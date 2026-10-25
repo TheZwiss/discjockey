@@ -653,6 +653,34 @@ def test_an_undo_across_drives_still_leaves_a_file_whose_audio_changed(xpaths, o
     assert not Path(src).exists() and (xpaths.library / "A" / "A - s1.aiff").read_bytes() == b"edited audio"
 
 
+def test_an_undo_to_an_import_folder_on_a_drive_that_is_not_connected_is_offline(xpaths, other_drive):
+    state = imported(xpaths, other_drive)
+    result = tidy.tidy_up(xpaths, sent(state, "s1"))
+    drive = other_drive.parent
+    drive.rename(drive.with_name("Other (away)"))
+    preview = tidy.undo_preview(xpaths, load_state(xpaths), result.batch_id)
+    assert [m.skip for m in preview] == [("offline", None)]
+    back = tidy.undo(xpaths, result.batch_id)
+    assert back.moved == 0 and [m.reason for m in back.skipped] == ["offline"]
+    assert not drive.exists() and (xpaths.library / "A" / "A - s1.aiff").exists()  # nothing made where it was
+
+
+def test_a_move_the_records_cannot_finish_is_failed_and_the_batch_goes_on(paths, monkeypatch):
+    state = library_with(paths, ("s1", "A", "B"), ("s2", "A", "B"))
+    real, calls = db.finish_file_op, []
+
+    def refused_once(conn, op):
+        calls.append(op["ref"])
+        if len(calls) == 1:
+            raise ValueError("move 1 was skipped (stopped); it can't be finished")
+        real(conn, op)
+    monkeypatch.setattr(db, "finish_file_op", refused_once)
+    result = tidy.tidy_up(paths, sent(state, "s1", "s2"))
+    assert [(m.label, m.reason, m.detail) for m in result.skipped] == [("A - s1", "failed", tidy.MOVED_NOT_NOTED)]
+    assert result.moved == 1 and load_state(paths)["pending"] == []
+    assert load_state(paths)["tracks"]["s2"]["path"] == "Library/A/A - s2.aiff"
+
+
 def test_a_crash_in_a_tidy_across_drives_is_finished_next_start(xpaths, other_drive, monkeypatch):
     state = imported(xpaths, other_drive)
     src = Path(state["tracks"]["s1"]["path"])
