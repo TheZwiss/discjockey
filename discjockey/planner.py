@@ -296,7 +296,7 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
     actions: list[Action] = []
     never: list[Action] = []
     never_ids = new_state.get("never") or {}
-    ambiguous: list[tuple[SourceTrack, str, list[str]]] = []
+    ambiguous: list[tuple[str, SourceTrack, str, list[str]]] = []
     for key, w in wanted.items():
         def act(kind: str, **kw) -> None:
             skip = kind == "acquire" and key in never_ids  # "never download": nothing is fetched, files stay
@@ -328,7 +328,7 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
         if e.get("held"):  # missing, but the scan couldn't rule out a move (a folder it couldn't read): as offline
             continue
         if key in moved_ambiguous:  # the scan found it in several places (spec §6.3): the user picks one
-            ambiguous.append((w.track, w.folder, sorted(moved_ambiguous[key])))
+            ambiguous.append((key, w.track, w.folder, sorted(moved_ambiguous[key])))
             continue
         if fold(e["path"]) not in on_disk:  # vanished since the scan
             act("acquire", reason="redownload")

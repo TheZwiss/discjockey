@@ -140,3 +140,14 @@ def test_not_lossless_md_lists_bitrate_and_free_downloads():
     assert "not lossless, from SoundCloud, 160 kbps, cutoff 17.9 kHz" in text
     assert "  - Free download from the artist on hypeddit.com: [Song (Free DL)](https://hypeddit.com/a/b) " \
            "(uploaded by DJ X)" in text
+
+
+def test_links_follow_the_tracks_service():
+    log = RunLog(STARTED)
+    log.add(Result("new_lossless", "A", "Artist", "Song", "qobuz:900000001", "Qobuz FLAC"))
+    log.add(Result("missing", "A", "Artist", "Other", "soundcloud:1"))
+    text = render_report(log, FINISHED)
+    assert "Qobuz FLAC — https://open.qobuz.com/track/900000001" in text
+    assert "- [A] Artist - Other\n" in text and "spotify.com" not in text
+    state = {"tracks": {"qobuz:900000001": entry("missing", title="Gone")}}
+    assert "· [Qobuz](https://open.qobuz.com/track/900000001) · [Beatport]" in render_not_lossless(state)

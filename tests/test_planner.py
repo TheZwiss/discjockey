@@ -369,8 +369,22 @@ def test_a_file_moved_to_one_of_several_places_is_listed_and_nothing_done():
     s["ambiguous"] = {"t1": ["Library/B/x.aiff", "Library/C/x.aiff"]}
     p = plan([pl("A", tr("t1"))], s, ["Library/A/x.aiff", "Library/B/x.aiff", "Library/C/x.aiff"], TODAY)
     assert kinds(p) == []
-    assert [(t.id, folder, files) for t, folder, files in p.ambiguous] == [
-        ("t1", "A", ["Library/B/x.aiff", "Library/C/x.aiff"])]
+    assert [(key, t.id, folder, files) for key, t, folder, files in p.ambiguous] == [
+        ("t1", "t1", "A", ["Library/B/x.aiff", "Library/C/x.aiff"])]
+
+
+def test_an_ambiguous_song_is_listed_under_its_song_key():
+    several = ["Library/B/x.aiff", "Library/C/x.aiff"]
+    files = ["Library/A/x.aiff", *several]
+    s = st(**{"qobuz:900000001": entry(status="not_lossless", path="Library/A/x.aiff", last_upgrade_check=None)})
+    s["ambiguous"] = {"qobuz:900000001": several}
+    p = plan([qpl("A", qb("900000001"))], s, files, TODAY)
+    assert [(key, t.key) for key, t, _folder, _files in p.ambiguous] == [("qobuz:900000001", "qobuz:900000001")]
+    # a song known from Spotify and linked by ISRC to the Qobuz track the playlist holds: the song's key, not the track's
+    s = st(t1=entry(status="not_lossless", path="Library/A/x.aiff", isrc="DE1", last_upgrade_check=None))
+    s["ambiguous"] = {"t1": several}
+    p = plan([qpl("A", qb("900000001", isrc="DE1"))], s, files, TODAY)
+    assert [(key, t.key) for key, t, _folder, _files in p.ambiguous] == [("t1", "qobuz:900000001")]
 
 
 # --- missing tracks and bought files ---

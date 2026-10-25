@@ -531,7 +531,7 @@ tracks with a file. `summary` is the folder at a glance and ignores the search a
   "in_playlist_count": 2,
   "quality_line": "YouTube OPUS · cutoff 16.0 kHz",
   "source_url": "https://www.youtube.com/watch?v=abcdefghijk",
-  "spotify_url": "https://open.spotify.com/track/t2",
+  "track_link": {"url": "https://open.spotify.com/track/t2", "label": "Open in Spotify"},
   "next_qobuz_check": null,
   "rejected_sources": [],
   "buy_links": {
@@ -564,7 +564,11 @@ tracks with a file. `summary` is the folder at a glance and ignores the search a
  }
 }
 ```
-`next_qobuz_check`: ISO date, `"next_sync"`, or null. `playlists`: null until Spotify was read.
+`next_qobuz_check`: ISO date, `"next_sync"`, or null. `playlists`: null until the playlists were read.
+`track_link` (stage 3, replaces `spotify_url`): `{url, label}` or null. `url` is the track's page on the service it
+was read from: the link of the first fetched track (playlist order) that is this song, else the link its key gives
+(Spotify and Qobuz; null for a key with none). `label` is `Open in {service name}` ("Open in Spotify", "Open in Qobuz").
+`playlists` matches a song by its key and aliases (tokens), so a Qobuz song lists its folders too.
 `upgrade`: null or the parked version; `what` names it ("lossless version" or e.g. "256 kbps version"); Swap only
 when `swap_safe && swap_possible`; `cue_text` is the line to show.
 
@@ -992,6 +996,9 @@ changes when the file changes (`?v=size-mtime`).
 `setup_status()` — `next_step`: `music|tools|spotify|downloads|playlists|null`; open the wizard when `complete` is false. `music` = MusicStatus `{state: ok|not_chosen|missing, path, suggested}`: `ok` the music folder is bound, `not_chosen` Setup's first step, `missing` config.json names a folder that isn't there (an unplugged drive); `path` the bound or missing folder, `suggested` the default to offer (`~/Music/Discjockey`). Unbound, `playlists` is false and `complete` false. `downloads` is Setup's Downloads step (Qobuz and the other download logins): done when Qobuz is signed in or left out.
 `version`: `discjockey.__version__` (Settings → About shows it).
 `qobuz_skipped`: "I don't have Qobuz" was chosen, the `downloads` step then counts as done (`qobuz` itself stays false).
+`spotify_skipped` (stage 3): "I don't use Spotify" was chosen; the `spotify` step then counts as done (`spotify_app` /
+`spotify_login` stay false). Connecting Spotify (`setup_spotify_login`) clears it. A skipped Spotify is no problem in
+the read status unless `playlists.txt` has a Spotify line (`services` lists only the services the lines use).
 `accounts`: `youtube` and `soundcloud`, each null or `{browser, browser_name, daily_limit, profile, profile_name,
 last_check}` (`browser`: `safari|chrome|firefox|brave|edge`; `profile` the browser profile's folder, null = the
 default or Safari's only one; `last_check` LastCheck|null, see Settings).
@@ -1012,6 +1019,7 @@ default or Safari's only one; `last_check` LastCheck|null, see Settings).
  "next_step": "spotify",
  "version": "1.0.0",
  "qobuz_skipped": false,
+ "spotify_skipped": false,
  "accounts": {
   "youtube": null,
   "soundcloud": {
@@ -1140,7 +1148,7 @@ when no row can go back (the page then offers no Undo).
 
 ### Read with network (refused with `sync_running` while any sync runs)
 
-`search_candidates(track_id)` → `{track_id, spotify_duration_s, current_quality_label, candidates: [Candidate],
+`search_candidates(track_id)` → `{track_id, track_duration_s, current_quality_label, candidates: [Candidate],
 notes: [str]}`. Candidate: `source, id, title, artist, duration_s|null, url|null, isrc, album, label, image_url, key,
 source_name, length_diff_s|null, can_preview, score (0–100|null), matches, length_ok, current, rejected`. The current
 version is first (`current: true`, "you marked it as wrong"); colour `length_diff_s` green within ±3 s. Send a
@@ -1412,6 +1420,7 @@ still answers. Otherwise `download_tools_problem` is null.
 | `setup_spotify_login()` — opens the system browser; ends by itself, after 5 min (`login_failed`), or with `stop()` (`stopped`) → show Retry | `setup_spotify_login` | `{user}` |
 | `setup_qobuz_login(email, password)` — also stores `qobuz_last_check` (ok, or `login_failed` when Qobuz refuses the login; being offline or a Qobuz hiccup records nothing); a failed login puts the previous streamrip config back. An account made with Google, Apple or Facebook first sets a Qobuz password at `https://www.qobuz.com/signin/forget-password` (the page opens it with `open_external`) | `setup_qobuz_login` | `{}` (`failed` + message) |
 | `setup_skip_qobuz()` — "I don't have Qobuz": the Qobuz step counts as done | `setup_skip_qobuz` | `{}` |
+| `setup_skip_spotify()` — "I don't use Spotify": the Spotify step counts as done and sets `spotify_skipped` (playlists then come from Qobuz links); a later `setup_spotify_login` clears it | `setup_skip_spotify` | `{}` |
 | `setup_account(service, browser, profile?)` — `service` `youtube|soundcloud`, `browser` `safari|chrome|firefox|brave|edge`, `profile` that browser's profile folder (null: the default); checks the login in that profile (only cookie names are read), then saves the browser, the profile and the check (`last_check`). A YouTube login without Premium is not saved; a SoundCloud one is. A failed check of the saved login itself (same browser and profile) is recorded on it | `setup_account` | `{service, browser, profile, saved, check}` (`check` = AccountCheck) |
 | `setup_forget_account(service)` — removes the saved browser of that account | `setup_forget_account` | `{service}` |
 | `update_tools()` — the newest yt-dlp (+ the yt-dlp-ejs it pins) from PyPI into the support folder, tested in its own process before use; streamrip only changes with Discjockey releases. `failed` + a plain sentence (never a traceback or an OS error text) when: offline ("Couldn't reach the download server..."), the server answers with an error status ("The download server has a problem right now..."), its answer is not understood, there is no wheel for this Mac, the download was damaged, the disk refuses (the sentence names the reason in plain words: full, not allowed, refused), or the new version failed its test. The tools in use always stay. `stopped` when Stop is pressed (the test process ends too) | `update_tools` | `{before: {"yt-dlp": v}, after: {"yt-dlp": v}, restart}` — `before`/`after` the version the next start uses before/after; `restart` true when that isn't the version this window runs → ask to reopen, then `quit()`; already the newest: `before == after` (`restart` still true when an earlier update waits for a reopen) |
@@ -1540,8 +1549,8 @@ the third action).
 | `StepChanged` | `track_id`, `step`: `search|download|check|convert|analyse|compare` |
 | `Progress` | `track_id`, `step`, `done` number, `total` number\|null, `unit` `bytes` (download) \| `seconds` (conversion) |
 | `Waiting` | `kind` `search|between|break|fallback`, `label`, `remaining` s, `total` s, `service` (`qobuz`, `youtube`, `soundcloud`; empty for free sources) — pause card only for `between`/`break` |
-| `SourceChosen` | `track_id`, `source`, `query_kind` `isrc|name|fallback|chosen`, `title`, `duration_s`\|null ("Qobuz by ISRC") — sent before the protection pause (`Waiting` `between`/`break`) that precedes a Qobuz download, so the pause card can name the next source |
-| `Checked` | `track_id`, `file_duration_s`, `spotify_duration_s`, `codec`, `ok` ("Length matches (3:12 = Spotify 3:12)") |
+| `SourceChosen` | `track_id`, `source`, `query_kind` `exact|isrc|name|fallback|chosen` (`exact`: the Qobuz id the playlist track carries, "exact Qobuz track"), `title`, `duration_s`\|null ("Qobuz by ISRC") — sent before the protection pause (`Waiting` `between`/`break`) that precedes a Qobuz download, so the pause card can name the next source |
+| `Checked` | `track_id`, `file_duration_s`, `track_duration_s` (the playlist track's length, whichever service; was `spotify_duration_s`), `codec`, `ok` ("Length matches (3:12 = playlist 3:12)", "Length differs (3:12, playlist 3:20)") |
 | `AccountUsage` | `service`, `used`, `allowance` ("Qobuz 42 of 80 today") |
 | `ActionFinished` | `action` (as above), `result` Result — Problems = sections missing/errors/conflicts/ambiguous; `error_kind: network` → "NO INTERNET" |
 | `RunFinished` | `exit_code` (0, 1, 130), `report_path` (.md) — then `run(run_id)` with the report's stem for the end screen; also sent for a crashed sync (1, its crash note), before its `JobFinished` |

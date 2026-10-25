@@ -16,7 +16,8 @@ from ..accounts import (ACCOUNTS, BROWSERS, DEFAULT_LIMITS, MAX_LIMIT, PREMIUM_M
                         SERVICE_SIGNALS)
 from ..accounts import assessment as service_assessment, zones as service_zones
 from ..names import expected_stem, fold
-from ..models import SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, MoveRow, PlannedMove
+from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, MoveRow, PlannedMove,
+                      split_token, track_link as key_link)
 from ..pacing import KEEP_SIGNALS, Budget
 from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
@@ -555,11 +556,20 @@ def free_downloads(e: dict) -> list[dict]:
 
 
 def in_playlists(track_id: str, e: dict, fetched: list) -> list[str] | None:
-    """Folders of the active playlists that contain the track (from the last Spotify read), or None if unknown."""
+    """Folders of the active playlists that contain the track (from the last playlist read), or None if unknown."""
     if not fetched:
         return None
     ids = {track_id, *(e.get("aliases") or [])}
-    return [fp.line.folder for fp in fetched if any(t.id in ids for t in fp.tracks)]
+    return [fp.line.folder for fp in fetched if any(t.key in ids for t in fp.tracks)]
+
+
+def track_link(track_id: str, e: dict, fetched: list) -> dict | None:
+    """{url, label} of the track's page on its service: the link of the first fetched track (playlist order) that is
+    this song, else the link its key gives; None when neither has one."""
+    ids = {track_id, *(e.get("aliases") or [])}
+    link, service = next(((t.link, t.service) for fp in fetched for t in fp.tracks if t.key in ids and t.link),
+                         (key_link(track_id), split_token(track_id)[0]))
+    return {"url": link, "label": f"Open in {PLAYLIST_SERVICES[service]}"} if link else None
 
 
 def upgrade_block(up: dict | None, media: Url | None, track_id: str, e: dict) -> dict | None:
@@ -589,7 +599,7 @@ def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url 
             "source_full": (("bought" if e["source"] == "manual" else SOURCE_NAMES.get(e["source"]))
                             if has_file else None),
             "source_url": source_url(e.get("source"), e.get("source_id")),
-            "spotify_url": f"https://open.spotify.com/track/{track_id}",
+            "track_link": track_link(track_id, e, fetched),
             "next_qobuz_check": next_check(e, today), "rejected_sources": list(e.get("rejected_sources") or []),
             "buy_links": buy_links(e["artist"], e["title"]), "free_downloads": free_downloads(e),
             "bought_name": f"Library/{e['folder']}/{expected_stem(e['artist'], e['title'])}.wav",
@@ -739,8 +749,8 @@ def todo_others(prep, last_report: dict | None) -> dict[str, str]:
     for r in (last_report or {}).get("results") or []:
         if r.get("section") == "conflicts" and r.get("track_id"):
             out[r["track_id"]] = "MOVE BLOCKED · a file is in the way"
-    for track, _folder, _files in (prep.plan.ambiguous if prep else []):
-        out[track.id] = "SEVERAL FILES · could be this track, nothing done"
+    for key, _track, _folder, _files in (prep.plan.ambiguous if prep else []):
+        out[key] = "SEVERAL FILES · could be this track, nothing done"
     return out
 
 
@@ -770,7 +780,7 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
     groups: dict[str, list] = {}
     for a in todo:
         groups.setdefault(f"acquire:{a.reason}" if a.kind == "acquire" else a.kind, []).append(a)
-    in_playlists = {t.id for fp in prep.fetched for t in fp.tracks}
+    in_playlists = {t.key for fp in prep.fetched for t in fp.tracks}
     run_index = {id(a): i for i, a in enumerate(todo)}  # the order the sync works through them
     return {"spotify": status, "counts": plan_counts(todo),
             "groups": [{"key": key, "label": label,
@@ -780,8 +790,8 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
             "never": [action_row(a, plan_state, cover) for a in never],
             "folders": [line.folder for line in prep.lines],
             "in_playlists": len(in_playlists),
-            "ambiguous": [{"track_id": t.id, "artist": t.first_artist, "title": t.title, "folder": folder,
-                           "files": files} for t, folder, files in prep.plan.ambiguous],
+            "ambiguous": [{"track_id": key, "artist": t.first_artist, "title": t.title, "folder": folder,
+                           "files": files} for key, t, folder, files in prep.plan.ambiguous],
             "dropped": [{"track_id": k, "artist": plan_state["tracks"][k]["artist"],
                          "title": plan_state["tracks"][k]["title"], "folder": plan_state["tracks"][k]["folder"]}
                         for k in prep.plan.dropped],
@@ -814,7 +824,7 @@ def _quality_of_tracks(tracks: list, state: dict) -> dict:
     by_id = _entries_by_id(state)
     by = {q: 0 for q in QUALITIES}
     for t in tracks:
-        e = by_id.get(t.id)
+        e = by_id.get(t.key)
         by[quality_class(e) if e else "missing"] += 1
     return by
 
@@ -1036,7 +1046,8 @@ def playlists(loaded: pf.Loaded, tracks_by_id: dict, infos: dict, state: dict, c
                      "tracks": len(tracks) if tracks is not None else (info.track_count if info else None),
                      "quality": _quality_of_tracks(tracks, state) if tracks is not None else None})
     by_id = _entries_by_id(state)
-    overlap = [{**_spotify_row(t.id, t, by_id.get(t.id), cover, state.get("never")), "folders": folders, "lands_in": lands}
+    overlap = [{**_spotify_row(t.key, t, by_id.get(t.key), cover, state.get("never")), "folders": folders,
+                "lands_in": lands}
                for t, folders, lands in pf.overlaps(loaded.rows, tracks_by_id)]
     return {"version": loaded.version, "problem": loaded.problem, "rows": rows, "overlaps": overlap,
             "empty": None if loaded.rows else "no_playlists", "tidy": {"waiting": out_of_place(state)}}
@@ -1095,7 +1106,7 @@ def playlist_change(old: list, new: list, tracks_by_id: dict, state: dict, files
     folders = list(dict.fromkeys([r.folder for r in new + old if r.folder in c.before or r.folder in c.after] +
                                  sorted(set(c.before) | set(c.after), key=fold)))
     tracks = state["tracks"]
-    spotify = {t.id: t for ts in tracks_by_id.values() for t in ts}
+    spotify = {t.key: t for ts in tracks_by_id.values() for t in ts}
 
     def spotify_track(k: str):
         return next((spotify[i] for i in [k, *((tracks.get(k) or {}).get("aliases") or [])] if i in spotify), None)

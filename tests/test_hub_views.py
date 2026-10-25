@@ -355,7 +355,8 @@ def test_track_detail():
     assert d["next_qobuz_check"] == "2026-10-24" and d["audio_url"] == "media:Library/A/not_lossless/x.aiff"
     assert d["bought_name"] == "Library/A/Artist - Song.wav"
     assert d["buy_links"]["beatport"] == "https://www.beatport.com/search?q=Artist+Song"
-    assert d["upgrade"] is None and d["spotify_url"] == "https://open.spotify.com/track/t1"
+    assert d["upgrade"] is None and "spotify_url" not in d
+    assert d["track_link"] == {"url": "https://open.spotify.com/track/t1", "label": "Open in Spotify"}
 
 
 GATE = {"url": "https://hypeddit.com/a/b", "host": "hypeddit.com", "direct": False, "page": "https://sc/1",
@@ -506,7 +507,7 @@ def test_todo_others_from_the_last_run_and_the_preview():
     report = {"results": [{"section": "conflicts", "track_id": "m"}, {"section": "moved", "track_id": "x"}]}
     st = state()
     store = PreviewStore()
-    store.ready(Prepared(None, st, Settings(), Plan(st, [], [(t("amb"), "A", ["Library/A/x.aiff"])], []), None),
+    store.ready(Prepared(None, st, Settings(), Plan(st, [], [("amb", t("amb"), "A", ["Library/A/x.aiff"])], []), None),
                 NOW)
     assert views.todo_others(store.prep, report) == {
         "m": "MOVE BLOCKED · a file is in the way", "amb": "SEVERAL FILES · could be this track, nothing done"}
@@ -1165,3 +1166,32 @@ def test_a_rename_offer_counts_the_files_of_a_folder_spelled_another_way_on_disk
     items = views._rename_items([("hard_bounce", "Hard Bounce")], [], files, {"Hard_Bounce", "Other"},
                                 lambda *a, **k: None)
     assert [(i["files"], i["detail"]) for i in items] == [(2, "One folder move instead of 2 file moves.")]
+
+
+def test_track_detail_link_is_the_first_fetched_tracks_else_the_keys():
+    qobuz = SourceTrack("900000001", "Song", ("Artist",), "Al", None, 180000, None, service="qobuz")
+    entry = e("lossless", aliases=["qobuz:900000001"])
+    fetched = [FetchedPlaylist(PlaylistLine("A", "p1", 1, "qobuz"), [qobuz], []),
+               FetchedPlaylist(PlaylistLine("B", "p2", 2), [t("t1")], [])]
+    d = views.track_detail("t1", entry, fetched, TODAY)
+    assert d["track_link"] == {"url": "https://open.qobuz.com/track/900000001", "label": "Open in Qobuz"}
+    assert d["playlists"] == ["A", "B"]  # a Qobuz track is found by its token, not its bare id
+    d = views.track_detail("t1", entry, [], TODAY)  # nothing read yet: the link its key gives
+    assert d["track_link"] == {"url": "https://open.spotify.com/track/t1", "label": "Open in Spotify"}
+    d = views.track_detail("qobuz:900000001", e("lossless"), [], TODAY)
+    assert d["track_link"] == {"url": "https://open.qobuz.com/track/900000001", "label": "Open in Qobuz"}
+    assert views.track_detail("soundcloud:1", e("lossless"), [], TODAY)["track_link"] is None
+
+
+def test_a_qobuz_keyed_ambiguous_song_shows_on_the_todo_and_in_the_preview_under_its_song_key():
+    q = SourceTrack("900000001", "Song", ("Artist",), "Al", None, 180000, None, service="qobuz")
+    st = state(**{"qobuz:900000001": e("lossless"), "t1": e("lossless")})
+    plan = Plan(st, [], [("qobuz:900000001", q, "A", ["Library/A/x.aiff", "Library/B/x.aiff"]),
+                         ("t1", q, "A", ["Library/A/y.aiff", "Library/B/y.aiff"])], [])  # t1: linked to the Qobuz track
+    store = PreviewStore()
+    store.ready(Prepared(None, st, Settings(), plan, None, [], [FetchedPlaylist(PlaylistLine("A", "p", 1, "qobuz"), [q], [])]),
+                NOW)
+    assert set(views.todo_others(store.prep, None)) == {"qobuz:900000001", "t1"}
+    p = views.sync_preview(store, st, Settings(), TODAY, NOW, False)
+    assert [r["track_id"] for r in p["ambiguous"]] == ["qobuz:900000001", "t1"]
+    assert p["in_playlists"] == 1  # counted by song key

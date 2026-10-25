@@ -243,7 +243,7 @@
         "file_duration_s": {
           "type": "number"
         },
-        "spotify_duration_s": {
+        "track_duration_s": {
           "type": "number"
         },
         "codec": {
@@ -257,7 +257,7 @@
         "type",
         "track_id",
         "file_duration_s",
-        "spotify_duration_s",
+        "track_duration_s",
         "codec",
         "ok"
       ],

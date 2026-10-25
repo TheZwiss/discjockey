@@ -140,7 +140,7 @@ class Action:
 class Plan:
     state: dict
     actions: list[Action]
-    ambiguous: list[tuple[SourceTrack, str, list[str]]]
+    ambiguous: list[tuple[str, SourceTrack, str, list[str]]]  # (song key, its first fetched track, folder, files)
     dropped: list[str]
     notes: list[str] = field(default_factory=list)
     never: list[Action] = field(default_factory=list)  # downloads left out because the user said "never download"
