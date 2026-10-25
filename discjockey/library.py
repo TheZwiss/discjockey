@@ -570,12 +570,13 @@ def device(path: Path) -> int:
 
 
 def watched_roots(paths: Paths) -> list[Path]:
-    """The music folder and the root of every watched folder (library.db's), for `online`."""
+    """The music folder and the root of every import folder (library.db's), for `online`. Library/ is the music
+    folder's (made by the first download when it isn't there), so its drive is the music folder's."""
     from . import db
     roots = [paths.root]
     if paths.db_file.exists():
         with db.connect(paths.db_file) as conn:
-            roots += [f.path for f in db.watched_folders(conn)]
+            roots += [f.path for f in db.watched_folders(conn) if f.kind != "library"]
     return roots
 
 
@@ -1000,7 +1001,7 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
     try:
         with db.connect(paths.db_file) as conn:
             folders = {f.id: f for f in db.watched_folders(conn)}
-            roots = [paths.root, *(f.path for f in folders.values())]
+            roots = [paths.root, *(f.path for f in folders.values() if f.kind != "library")]  # as watched_roots
             if any(not waits_offline(op, paths.root, roots) for op in db.pending_ops(conn)):
                 return ScanSummary()
             known = db.known_files(conn)

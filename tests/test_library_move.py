@@ -419,6 +419,15 @@ def test_a_move_onto_a_drive_that_is_not_connected_creates_nothing(paths, drive)
     assert not drive.parent.exists() and (paths.library / "A/x.aiff").exists()  # no folder where the drive was
 
 
+def test_a_first_download_still_makes_library_when_it_is_not_there_yet(paths):
+    save_state(paths, empty_state())
+    paths.library.joinpath("A").rmdir()
+    paths.library.rmdir()
+    touch(paths.data / ".tmp/t1/new.aiff")
+    run_op(paths, load_state(paths), "t1", [(".discjockey/.tmp/t1/new.aiff", "Library/A/S.aiff")], None)
+    assert (paths.library / "A/S.aiff").exists()  # Library/ is the music folder's, never a drive of its own
+
+
 def test_without_watched_roots_a_move_never_makes_a_folder_outside_the_music_folder(paths, tmp_path):
     touch(paths.library / "A/x.aiff")
     with pytest.raises(OSError):
