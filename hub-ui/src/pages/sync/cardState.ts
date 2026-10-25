@@ -1,6 +1,6 @@
 // The live sync card as a pure function of the run state and the clock (plan Task 65, "The card state machine").
 import type { Action, Step } from '$lib/bridge/events';
-import type { Dashboard, ProblemKind, Quality, Result } from '$lib/bridge/types';
+import type { Dashboard, PlaylistService, ProblemKind, Quality, Result } from '$lib/bridge/types';
 import type { RunState } from '$lib/stores/run';
 import { STEP_LABEL } from '$lib/copy';
 import { duration, khz, megabytes } from '$lib/format';
@@ -28,18 +28,18 @@ export type Card =
       nextUp: Action; afterThat: number; source: string | null }
   | { kind: 'stopping' }
   | { kind: 'finished'; exit_code: number }
-  | { kind: 'failed'; problem: ProblemKind; message: string };
+  | { kind: 'failed'; problem: ProblemKind; message: string; service: PlaylistService | null };
 
 export function stepsFor(action: Action): Step[] {
   if (NO_STEPS.has(action.kind)) return [];
   return action.kind === 'upgrade' ? [...BASE_STEPS, 'compare'] : BASE_STEPS;
 }
 
-export function lengthLine(c: { file_duration_s: number; spotify_duration_s: number; ok: boolean } | null):
+export function lengthLine(c: { file_duration_s: number; track_duration_s: number; ok: boolean } | null):
   string | null {
   if (!c) return null;
-  const f = duration(c.file_duration_s), sp = duration(c.spotify_duration_s);
-  return c.ok ? `Length matches (${f} = Spotify ${sp})` : `Length differs (${f}, Spotify ${sp})`;
+  const f = duration(c.file_duration_s), t = duration(c.track_duration_s);
+  return c.ok ? `Length matches (${f} = playlist ${t})` : `Length differs (${f}, playlist ${t})`;
 }
 
 function noStepDetail(a: Action): string {
@@ -68,7 +68,7 @@ export function cardState(r: RunState, now: number,
   if (r.phase === 'stopping') return { kind: 'stopping' };
   if (r.phase === 'failed') {
     return { kind: 'failed', problem: (r.job_finished?.problem ?? 'crashed') as ProblemKind,
-      message: r.job_finished?.message ?? '' };
+      message: r.job_finished?.message ?? '', service: r.job_finished?.service ?? null };
   }
   if (r.phase === 'finished') {
     const res = r.job_finished?.result as { exit_code?: number } | null | undefined;

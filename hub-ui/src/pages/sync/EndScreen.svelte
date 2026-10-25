@@ -95,7 +95,7 @@
       <!-- a crash under "Sync didn't finish" is "Something went wrong": the sync wording ("The sync stopped
            unexpectedly") would say the title again -->
       <ProblemCard kind={problem} message={$run.job_finished.message} sync={problem !== 'crashed'}
-        report={run_id ? { run_id } : null} />
+        service={$run.job_finished.service ?? null} report={run_id ? { run_id } : null} />
     </div>
   {:else if loadError}
     <ProblemCard kind="refused" message={loadError} />

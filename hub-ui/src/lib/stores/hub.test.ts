@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { installBridge, _resetBridge } from '../bridge/client';
 import { dispatch } from '../bridge/events';
-import { EMPTY_HUB, hub, refreshHub, refreshOnNoLibrary, reduceHub, spotifyMissingIn, spotifyMissingKindIn } from './hub';
+import { EMPTY_HUB, hub, refreshHub, refreshOnNoLibrary, readBlockIn, readNeedsSetupIn, reduceHub } from './hub';
+import type { SetupStatus, SpotifyStatus } from '../bridge/types';
 
 describe('reduceHub', () => {
   it('tracks the write job from JobStarted to JobFinished', () => {
@@ -94,31 +95,49 @@ describe('reduceHub', () => {
   });
 });
 
-describe('spotifyMissingIn', () => {
-  const ok = { read_at: '2026-10-21T10:00:00Z', minutes_ago: 2, problem: null, message: '', stale: false, reading: false,
-    offline: false, auto_read: false };
-  it('is false while nothing is known yet and while Spotify is connected', () => {
-    expect(spotifyMissingIn(null, null)).toBe(false);
-    expect(spotifyMissingIn({ spotify_login: true } as never, ok as never)).toBe(false);
+describe('readBlockIn: the read is blocked only by a service playlists.txt uses (plan stage 3, D1)', () => {
+  const both = (spotify: boolean, qobuz: boolean): SpotifyStatus['services'] => [
+    { service: 'spotify', name: 'Spotify', connected: spotify }, { service: 'qobuz', name: 'Qobuz', connected: qobuz }];
+  const ok: SpotifyStatus = { read_at: '2026-10-21T10:00:00Z', minutes_ago: 2, problem: null, problem_service: null,
+    message: '', services: both(true, true), stale: false, reading: false, offline: false, auto_read: false };
+  it('is null while nothing is known yet and while every used service is connected', () => {
+    expect(readBlockIn(null)).toBeNull();
+    expect(readBlockIn(ok)).toBeNull();
   });
-  it('is true when the login is missing, not set up or expired', () => {
-    expect(spotifyMissingIn({ spotify_login: false } as never, ok as never)).toBe(true);
-    expect(spotifyMissingIn(null, { ...ok, problem: 'not_set_up' } as never)).toBe(true);
-    expect(spotifyMissingIn(null, { ...ok, problem: 'login_expired' } as never)).toBe(true);
+  it('names the first used service that is not connected', () => {
+    expect(readBlockIn({ ...ok, services: both(true, false) })).toEqual({ kind: 'not_set_up', service: 'qobuz' });
+    expect(readBlockIn({ ...ok, services: both(false, false) })).toEqual({ kind: 'not_set_up', service: 'spotify' });
   });
-  it('is false for problems a read can fix (offline)', () => {
-    expect(spotifyMissingIn(null, { ...ok, problem: 'offline', offline: true } as never)).toBe(false);
+  it('ignores a service playlists.txt does not use (a Spotify left out with only Qobuz lines)', () => {
+    expect(readBlockIn({ ...ok, services: [{ service: 'qobuz', name: 'Qobuz', connected: true }] })).toBeNull();
+    expect(readBlockIn({ ...ok, services: [] })).toBeNull();
   });
-});
-
-describe('spotifyMissingKindIn', () => {
-  const ok = { read_at: null, minutes_ago: null, problem: null, message: '', stale: false, reading: false,
-    offline: false, auto_read: false };
-  it('names the expired login, else "not set up" for a missing login, else nothing', () => {
-    expect(spotifyMissingKindIn(null, { ...ok, problem: 'login_expired' } as never)).toBe('login_expired');
-    expect(spotifyMissingKindIn({ spotify_login: false } as never, ok as never)).toBe('not_set_up');
-    expect(spotifyMissingKindIn(null, { ...ok, problem: 'not_set_up' } as never)).toBe('not_set_up');
-    expect(spotifyMissingKindIn({ spotify_login: true } as never, { ...ok, problem: 'offline' } as never)).toBeNull();
+  it("takes the read's expired login, with its service (Spotify when the bridge doesn't say)", () => {
+    expect(readBlockIn({ ...ok, problem: 'login_expired', problem_service: 'spotify' }))
+      .toEqual({ kind: 'login_expired', service: 'spotify' });
+    expect(readBlockIn({ ...ok, problem: 'login_expired' })).toEqual({ kind: 'login_expired', service: 'spotify' });
+  });
+  it("takes a read's missing login only with its service (without one it is a missing playlists.txt)", () => {
+    expect(readBlockIn({ ...ok, services: both(true, false), problem: 'not_set_up', problem_service: 'qobuz' }))
+      .toEqual({ kind: 'not_set_up', service: 'qobuz' });
+    expect(readBlockIn({ ...ok, problem: 'not_set_up' })).toBeNull();
+  });
+  it("drops a read's stored missing login once that service is connected (the user logged in since)", () => {
+    expect(readBlockIn({ ...ok, problem: 'not_set_up', problem_service: 'qobuz' })).toBeNull();
+    // the other service being down still blocks, and names itself
+    expect(readBlockIn({ ...ok, services: both(false, true), problem: 'not_set_up', problem_service: 'qobuz' }))
+      .toEqual({ kind: 'not_set_up', service: 'spotify' });
+  });
+  it('keeps a stored missing login when the poll does not list the service at all', () => {
+    expect(readBlockIn({ ...ok, services: [], problem: 'not_set_up', problem_service: 'qobuz' }))
+      .toEqual({ kind: 'not_set_up', service: 'qobuz' });
+  });
+  it('keeps a stored expired login even when the service is connected', () => {
+    expect(readBlockIn({ ...ok, problem: 'login_expired', problem_service: 'qobuz' }))
+      .toEqual({ kind: 'login_expired', service: 'qobuz' });
+  });
+  it('is null for problems a read can fix (offline)', () => {
+    expect(readBlockIn({ ...ok, problem: 'offline', offline: true })).toBeNull();
   });
 });
 
@@ -211,5 +230,25 @@ describe('a scan job in job_status', () => {
     bridge(snap('sync'));
     await refreshHub();
     expect(get(hub).job).toMatchObject({ kind: 'sync', running: true });
+  });
+});
+
+describe('readNeedsSetupIn: a not_set_up without a service is a missing playlists.txt (first-run Dashboard, §5a)', () => {
+  const ok: SpotifyStatus = { read_at: null, minutes_ago: null, problem: 'not_set_up', problem_service: null,
+    message: '', services: [], stale: false, reading: false, offline: false, auto_read: false };
+  const setup = (playlists: boolean) => ({ playlists }) as unknown as SetupStatus;
+  it('is true for the missing playlists.txt, which is no login block', () => {
+    expect(readNeedsSetupIn(ok, null)).toBe(true);
+    expect(readNeedsSetupIn(ok, setup(false))).toBe(true);
+    expect(readBlockIn(ok)).toBeNull();
+  });
+  it('is false once setup says playlists.txt exists (the stored problem is stale; a read must be able to clear it)', () => {
+    expect(readNeedsSetupIn(ok, setup(true))).toBe(false);
+  });
+  it('is false while nothing is known, with no problem, and for a login problem (that has its own block)', () => {
+    expect(readNeedsSetupIn(null, null)).toBe(false);
+    expect(readNeedsSetupIn({ ...ok, problem: null }, null)).toBe(false);
+    expect(readNeedsSetupIn({ ...ok, problem_service: 'qobuz' }, null)).toBe(false);
+    expect(readNeedsSetupIn({ ...ok, services: [{ service: 'qobuz', name: 'Qobuz', connected: false }] }, null)).toBe(false);
   });
 });

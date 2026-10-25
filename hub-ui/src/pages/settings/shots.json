@@ -85,5 +85,9 @@
    "steps": [{ "wait": "[data-test=open-licenses]" }, { "click": "[data-test=open-licenses]" },
      { "wait": "[data-test=settings-about] [data-note=problem]" }, { "sleep": 400 }] },
  { "name": "settings-reports", "route": "#/settings/reports", "scenario": "settings:all",
-   "steps": [{ "wait": "[data-test=open-reports]" }, { "sleep": 400 }] }
+   "steps": [{ "wait": "[data-test=open-reports]" }, { "sleep": 400 }] },
+ { "name": "settings-spotify-skipped", "route": "#/settings/spotify", "scenario": "settings:spotify-skipped",
+   "steps": [{ "wait": "[data-test=spotify-state]" },
+     { "eval": "if (document.querySelector('[data-test=banner-spotify]')) throw new Error('a Spotify left out is no problem while no playlist is on Spotify (plan stage 3, D1)')" },
+     { "wait": "[data-test=spotify-open-setup]" }, { "sleep": 400 }] }
 ]

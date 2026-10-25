@@ -62,6 +62,8 @@ const fake: PageFake = {
       setup(s, { qobuz: false, qobuz_skipped: true, playlists: false });
       s.qobuzSkipped = true; s.playlists = [];
     },
+    // a DJ whose playlists are all on Qobuz: "I don't use Spotify" was chosen (no app, no login)
+    'no-spotify'(s) { setup(s, { ...FRESH, qobuz: true, spotify_skipped: true }); s.playlists = []; },
     // the Spotify app is set up; the browser login never comes back
     'spotify-waits'(s) { setup(s, SPOTIFY_APP_SET); s.playlists = []; mode.set(s, 'spotify-waits'); },
     // the Spotify app is set up; the browser login fails

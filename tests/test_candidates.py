@@ -3,9 +3,9 @@ import pytest
 from discjockey import candidates, fallback
 from discjockey.candidates import parse_link, score
 from discjockey.library import Paths
-from discjockey.models import Candidate, SpotifyTrack
+from discjockey.models import Candidate, SourceTrack
 
-T = SpotifyTrack("t1", "Get Naughty", ("Armin Hermann",), "Album", None, 268000, "DEXX1")
+T = SourceTrack("t1", "Get Naughty", ("Armin Hermann",), "Album", None, 268000, "DEXX1")
 
 
 def qc(id, title="Get Naughty", dur=268.0, isrc=None, artist="Armin Hermann Various"):

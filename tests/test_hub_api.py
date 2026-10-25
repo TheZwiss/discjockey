@@ -4,11 +4,14 @@ import threading
 import time
 
 import pytest
-from hub_helpers import ID1, LOSSLESS, LOSSY, fake_spotify, make_api, make_root, refreshed, wait_job, write
+from hub_helpers import (ID1, LOSSLESS, LOSSY, PLAYLISTS, QOBUZ_LINK, fake_qobuz, fake_spotify, make_api, make_root,
+                         refreshed, wait_job, write)
 
 from discjockey.hub import jobs
 from discjockey.hub.api import HubApi
 from discjockey.library import load_state, save_state
+from discjockey.settings import Settings, save_settings
+from discjockey.sources import qobuz as qobuz_source, spotify
 
 # The bridge contract (plan, Part B): every method the page may call, and nothing else.
 CONTRACT = {
@@ -21,7 +24,7 @@ CONTRACT = {
     "show_in_finder", "reveal", "open_report", "open_external", "app_update",
     "setup_check_tools", "setup_save_client_id", "setup_spotify_login", "setup_qobuz_login",
     "open_licenses", "update_tools", "rollback_tools", "quit",
-    "setup_skip_qobuz", "setup_account", "setup_check_account", "setup_forget_account", "downloads_view",
+    "setup_skip_qobuz", "setup_skip_spotify", "setup_account", "setup_check_account", "setup_forget_account", "downloads_view",
     "find_logins", "account_sign_in", "stop_sign_in", "open_privacy_settings", "qobuz_check_login", "spotify_sign_out",
     "pick_folder", "check_music_folder", "set_music_folder", "retry_music_folder",
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
@@ -154,13 +157,57 @@ def test_spotify_is_read_by_itself_once_per_session(root):
     assert len(started_reads(rec)) == 2 and api.dashboard()["spotify"]["auto_read"] is True
 
 
+def test_a_qobuz_playlist_without_a_qobuz_login_blocks_the_read_under_qobuz(root, monkeypatch):
+    fake_qobuz(monkeypatch, connected=False)
+    root.playlists_file.write_text(PLAYLISTS + f"Example_Playlist = {QOBUZ_LINK}\n")
+    api, rec = make_api(root)
+    done = wait_job(api, rec, api.refresh())
+    assert (done.ok, done.problem) == (False, "not_set_up")
+    expected = [{"service": "spotify", "name": "Spotify", "connected": True},
+                {"service": "qobuz", "name": "Qobuz", "connected": False}]
+    for status in (api.job_status()["spotify"], api.sync_preview()["spotify"], api.dashboard()["spotify"]):
+        assert (status["problem"], status["problem_service"]) == ("not_set_up", "qobuz")
+        assert status["services"] == expected
+
+
+def test_only_the_services_the_switched_on_lines_use_are_listed(root, monkeypatch):
+    fake_qobuz(monkeypatch, connected=False)
+    root.playlists_file.write_text(PLAYLISTS + f"#off# Example_Playlist = {QOBUZ_LINK}\n")
+    api, rec = make_api(root)
+    assert [s["service"] for s in api.job_status()["spotify"]["services"]] == ["spotify"]
+    root.playlists_file.write_text("# nothing yet\n")
+    assert api.job_status()["spotify"]["services"] == []
+
+
+def test_a_playlists_file_that_cannot_be_read_never_fails_the_poll(root):
+    root.playlists_file.write_bytes(b"\xff\xfe")
+    api, rec = make_api(root)
+    status = api.job_status()
+    assert status["ok"] and status["spotify"]["services"] == []
+
+
+def test_a_login_file_that_makes_no_sense_never_fails_the_poll(root, monkeypatch):
+    fake_qobuz(monkeypatch)
+
+    def broken(paths):
+        raise AttributeError("'str' object has no attribute 'get'")  # a [qobuz] entry that isn't a table
+
+    monkeypatch.setattr(qobuz_source, "login_state", broken)
+    root.playlists_file.write_text(PLAYLISTS + f"Example_Playlist = {QOBUZ_LINK}\n")
+    api, rec = make_api(root)
+    status = api.job_status()
+    assert status["ok"]
+    assert [(s["service"], s["connected"]) for s in status["spotify"]["services"]] == [
+        ("spotify", True), ("qobuz", False)]
+
+
 def test_a_failed_first_automatic_read_is_not_repeated_by_itself(root, monkeypatch):
     api, rec = make_api(root)
 
     def offline(s, line):
-        raise jobs.spotify.SpotifyError("Cannot reach Spotify (no connection).", "offline")
+        raise spotify.SpotifyError("Cannot reach Spotify (no connection).", "offline")
 
-    monkeypatch.setattr(jobs.spotify, "fetch_playlist", offline)
+    monkeypatch.setattr(spotify, "fetch_playlist", offline)
     assert wait_job(api, rec, api.refresh(auto=True)).problem == "offline"
     assert api.refresh(auto=True)["ok"] is False and len(started_reads(rec)) == 1
 
@@ -168,7 +215,7 @@ def test_a_failed_first_automatic_read_is_not_repeated_by_itself(root, monkeypat
 def test_a_stopped_first_automatic_read_is_not_repeated_by_itself(root, monkeypatch):
     api, rec = make_api(root)
     release = threading.Event()
-    monkeypatch.setattr(jobs.spotify, "fetch_playlist", lambda s, line: release.wait(10) and None)
+    monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: release.wait(10) and None)
     answer = api.refresh(auto=True)
     assert api.stop_refresh()["stopped"] is True
     assert wait_job(api, rec, answer, timeout=2).problem == "stopped"
@@ -275,3 +322,16 @@ def test_setup_status_names_the_downloads_step(root):
 def test_select_remembers_the_shown_track(root):
     api, _ = make_api(root)
     assert api.select("t2") == {"ok": True} and api._selected == "t2"
+
+
+def test_a_skipped_spotify_is_no_problem_until_playlists_txt_has_a_spotify_line(root, monkeypatch):
+    fake_qobuz(monkeypatch, connected=True)
+    save_settings(root.settings_file, Settings(spotify_skipped=True))
+    root.playlists_file.write_text(f"Example_Playlist = {QOBUZ_LINK}\n")
+    api, rec = make_api(root)
+    assert api.setup_status()["next_step"] != "spotify"
+    status = api.job_status()["spotify"]
+    assert status["services"] == [{"service": "qobuz", "name": "Qobuz", "connected": True}]
+    assert status["problem"] is None
+    root.playlists_file.write_text(PLAYLISTS + f"Example_Playlist = {QOBUZ_LINK}\n")
+    assert [s["service"] for s in api.job_status()["spotify"]["services"]] == ["spotify", "qobuz"]

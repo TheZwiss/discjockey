@@ -7,12 +7,12 @@ from mutagen.aiff import AIFF
 
 from discjockey.acquire import Acquirer, AcquireResult, Ready, make_ready
 from discjockey.events import AccountUsage, CancelToken, Checked, SourceChosen, StepChanged, Tracker
-from discjockey.models import Candidate, SpotifyTrack
+from discjockey.models import Candidate, SourceTrack
 from discjockey.pacing import Budget, NoPacer
 from discjockey.qobuz import QobuzPreviewOnly
 from discjockey.settings import Settings
 
-T = SpotifyTrack("t1", "Gimme Gimme", ("Vatoz Locoz",), "Album", None, 156000, "DECE72605755")
+T = SourceTrack("t1", "Gimme Gimme", ("Vatoz Locoz",), "Album", None, 156000, "DECE72605755")
 ISRC_Q = "DECE72605755"
 NAME_Q = "Vatoz Locoz Gimme Gimme"
 
@@ -267,7 +267,7 @@ def noise_flac(path, seconds):
 def test_make_ready_converts_tags_and_judges(tmp_path):
     src = tmp_path / "qobuz_1.flac"
     noise_flac(src, 10)
-    track = SpotifyTrack("t1", "Song", ("Artist",), "Album", None, 10000, "DE1")
+    track = SourceTrack("t1", "Song", ("Artist",), "Album", None, 10000, "DE1")
     r = make_ready(src, track, Candidate("qobuz", "1", "Song", "Artist", 10.0), tmp_path)
     assert r.status == "lossless" and r.path.suffix == ".aiff" and r.path.exists()
     assert AIFF(str(r.path)).tags.getall("COMM")[0].text == ["Qobuz FLAC · verified lossless"]
@@ -277,13 +277,13 @@ def test_make_ready_converts_tags_and_judges(tmp_path):
 def test_make_ready_rejects_preview_length_file(tmp_path):
     src = tmp_path / "qobuz_1.flac"
     noise_flac(src, 30)
-    track = SpotifyTrack("t1", "Song", ("Artist",), "Album", None, 180000, None)
+    track = SourceTrack("t1", "Song", ("Artist",), "Album", None, 180000, None)
     events = []
     tracker = Tracker(events.append, CancelToken(), "t1", min_interval=0)
     assert make_ready(src, track, Candidate("qobuz", "1", "Song", "Artist", 180.0), tmp_path, tracker) is None
     checked = [e for e in events if isinstance(e, Checked)]
     assert len(checked) == 1 and checked[0].ok is False
-    assert round(checked[0].file_duration_s) == 30 and checked[0].spotify_duration_s == 180.0
+    assert round(checked[0].file_duration_s) == 30 and checked[0].track_duration_s == 180.0
     assert checked[0].codec == "flac"
 
 
@@ -291,7 +291,7 @@ def test_make_ready_rejects_preview_length_file(tmp_path):
 def test_make_ready_reports_the_length_check(tmp_path):
     src = tmp_path / "qobuz_1.flac"
     noise_flac(src, 10)
-    track = SpotifyTrack("t1", "Song", ("Artist",), "Album", None, 10000, None)
+    track = SourceTrack("t1", "Song", ("Artist",), "Album", None, 10000, None)
     events = []
     tracker = Tracker(events.append, CancelToken(), "t1", min_interval=0)
     make_ready(src, track, Candidate("qobuz", "1", "Song", "Artist", 10.0), tmp_path, tracker)
@@ -436,6 +436,97 @@ def test_source_chosen_before_each_download_and_usage_after_each_counted_one(tmp
     assert names == ["search", "SourceChosen", "download", "AccountUsage"]
     assert events[1] == SourceChosen("t1", "qobuz", "isrc", "Gimme Gimme", 156.0)
     assert events[3] == AccountUsage("qobuz", 42, 60)
+
+
+def test_the_exact_id_is_downloaded_first_without_any_search(tmp_path):
+    events = []
+    tracker = Tracker(events.append, CancelToken(), "t1", min_interval=0)
+    q = FakeQobuz({ISRC_Q: [qc("1")]})
+    a, state = acquirer(q, count=41)
+    r = a.acquire(T, set(), tmp_path, False, tracker, exact="900000001")
+    assert r.kind == "ready" and r.ready.source_id == "900000001"
+    assert q.searches == [] and q.downloads == ["900000001"] and used(state) == 42
+    assert [e for e in events if isinstance(e, SourceChosen)] == [
+        SourceChosen("t1", "qobuz", "exact", "Gimme Gimme", 156.0)]
+    assert r.qobuz_searched is False
+
+
+def test_a_preview_only_exact_id_is_not_downloaded_again_by_the_search(tmp_path):
+    q = FakeQobuz({ISRC_Q: [qc("900000001"), qc("2")]}, preview={"900000001"})
+    attempts = []
+    q.download = lambda cand, workdir, progress=None: attempts.append(cand.id) or FakeQobuz.download(q, cand, workdir)
+    a, state = acquirer(q)
+    r = a.acquire(T, set(), tmp_path, False, exact="900000001")
+    assert attempts == ["900000001", "2"] and q.searches == [ISRC_Q]
+    assert r.kind == "ready" and r.ready.source_id == "2" and r.qobuz_searched is False  # the name step never ran
+    assert used(state) == 1 and a.budget.failures_in_a_row == 0  # the search worked: the streak is broken
+
+
+def test_a_failed_exact_id_counts_once_toward_the_auto_stop(tmp_path):
+    q = FakeQobuz({ISRC_Q: [qc("900000001")]}, preview={"900000001"})
+    a, state = acquirer(q)
+    r = a.acquire(T, set(), tmp_path, False, exact="900000001")
+    assert r.kind == "errored" and r.rejected == []
+    assert a.budget.failures_in_a_row == 1 and q.downloads == []  # one failed request; the search skips that id
+    assert [s["kind"] for s in state["qobuz_usage"]["signals"]] == ["preview_only"]
+
+
+def test_a_permanently_unavailable_exact_id_is_rejected_and_the_search_goes_on(tmp_path):
+    q = FakeQobuz({ISRC_Q: [qc("2")]}, unavailable={"900000001"})
+    a, _ = acquirer(q)
+    r = a.acquire(T, set(), tmp_path, False, exact="900000001")
+    assert r.kind == "ready" and r.ready.source_id == "2" and r.rejected == ["qobuz:900000001"]
+
+
+def test_an_exact_file_that_fails_the_length_check_is_not_downloaded_again_by_the_search(tmp_path):
+    q = FakeQobuz({ISRC_Q: [qc("900000001"), qc("2")]})
+    a, _ = acquirer(q, statuses={"qobuz:900000001": None})
+    r = a.acquire(T, set(), tmp_path, False, exact="900000001")
+    assert q.downloads == ["900000001", "2"] and q.searches == [ISRC_Q]
+    assert r.kind == "ready" and r.ready.source_id == "2" and r.rejected == ["qobuz:900000001"]
+
+
+def test_an_exact_file_that_is_not_lossless_is_rejected_in_an_upgrade_check_and_the_chain_goes_on(tmp_path):
+    q = FakeQobuz({ISRC_Q: [qc("900000001"), qc("2")]})
+    a, _ = acquirer(q, statuses={"qobuz:900000001": "not_lossless"})
+    r = a.acquire(T, set(), tmp_path, True, exact="900000001")
+    assert q.downloads == ["900000001", "2"] and r.rejected == ["qobuz:900000001"]
+    assert r.kind == "ready" and r.ready.source_id == "2"
+
+
+def test_the_exact_id_that_would_be_the_third_failure_pauses_qobuz_before_any_search(tmp_path):
+    q = FakeQobuz({ISRC_Q: [qc("2")]}, fail_download={"900000001"})
+    a, _ = acquirer(q)
+    a.budget.failures_in_a_row, a.budget.download_failed_in_row = 2, True
+    r = a.acquire(T, set(), tmp_path, False, exact="900000001")
+    assert a.budget.stopped and q.searches == [] and q.downloads == [] and r.kind == "errored"
+
+
+def test_the_exact_id_waits_when_the_budget_is_used_up_or_paused(tmp_path):
+    q = FakeQobuz()
+    a, _ = acquirer(q, count=60)
+    assert a.acquire(T, set(), tmp_path, False, exact="900000001").kind == "queued"
+    a, _ = acquirer(q)
+    a.budget.stopped = True
+    assert a.acquire(T, set(), tmp_path, False, exact="900000001").kind == "queued"
+    assert q.searches == [] and q.downloads == []
+
+
+def test_an_exact_id_that_was_rejected_before_is_not_tried(tmp_path):
+    q = FakeQobuz({ISRC_Q: [qc("2")]})
+    a, _ = acquirer(q)
+    r = a.acquire(T, {"qobuz:900000001"}, tmp_path, False, exact="900000001")
+    assert q.downloads == ["2"] and q.searches == [ISRC_Q] and r.ready.source_id == "2"
+
+
+def test_without_an_exact_id_or_without_qobuz_nothing_changes(tmp_path):
+    q = FakeQobuz({ISRC_Q: [qc("1")]})
+    a, _ = acquirer(q)
+    assert a.acquire(T, set(), tmp_path, False, exact=None).ready.source_id == "1"
+    q2 = FakeQobuz()
+    a, _ = acquirer(q2, FakeFallback([fc("y1")]))
+    assert a.acquire(T, set(), tmp_path, False, qobuz=False, exact="900000001").ready.source_id == "y1"
+    assert q2.downloads == [] and q2.searches == []
 
 
 def test_source_chosen_names_how_the_candidate_was_found(tmp_path):

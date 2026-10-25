@@ -5,7 +5,7 @@ import re
 import unicodedata
 from difflib import SequenceMatcher
 
-from .models import Candidate, SpotifyTrack
+from .models import Candidate, SourceTrack
 
 DURATION_TOLERANCE_MS = 3000
 QOBUZ_MIN_RATIO = 0.85
@@ -59,11 +59,11 @@ def fallback_title(title: str, first_artist: str) -> str:
     return normalize(title, FALLBACK_JUNK)
 
 
-def duration_ok(track: SpotifyTrack, seconds: float | None) -> bool:
+def duration_ok(track: SourceTrack, seconds: float | None) -> bool:
     return seconds is not None and abs(seconds * 1000 - track.duration_ms) <= DURATION_TOLERANCE_MS
 
 
-def isrc_match(track: SpotifyTrack, cand: Candidate, rejected: set[str]) -> bool:
+def isrc_match(track: SourceTrack, cand: Candidate, rejected: set[str]) -> bool:
     return (
         bool(track.isrc and cand.isrc)
         and cand.isrc.upper() == track.isrc.upper()
@@ -72,7 +72,7 @@ def isrc_match(track: SpotifyTrack, cand: Candidate, rejected: set[str]) -> bool
     )
 
 
-def qobuz_match(track: SpotifyTrack, cand: Candidate, rejected: set[str]) -> bool:
+def qobuz_match(track: SourceTrack, cand: Candidate, rejected: set[str]) -> bool:
     if cand.key in rejected or not duration_ok(track, cand.duration_s):
         return False
     if SequenceMatcher(None, normalize(track.title), normalize(cand.title)).ratio() < QOBUZ_MIN_RATIO:
@@ -81,7 +81,7 @@ def qobuz_match(track: SpotifyTrack, cand: Candidate, rejected: set[str]) -> boo
     return _contains(artist, normalize_artist(cand.artist))
 
 
-def fallback_match(track: SpotifyTrack, cand: Candidate, rejected: set[str]) -> bool:
+def fallback_match(track: SourceTrack, cand: Candidate, rejected: set[str]) -> bool:
     if cand.key in rejected or not duration_ok(track, cand.duration_s):
         return False
     want = normalize(track.title)
@@ -94,5 +94,5 @@ def fallback_match(track: SpotifyTrack, cand: Candidate, rejected: set[str]) -> 
     return _contains(artist, normalize_artist(f"{cand.artist} {cand.title}"))
 
 
-def rank(track: SpotifyTrack, cands: list[Candidate]) -> list[Candidate]:
+def rank(track: SourceTrack, cands: list[Candidate]) -> list[Candidate]:
     return sorted(cands, key=lambda c: abs((c.duration_s or 0) * 1000 - track.duration_ms))

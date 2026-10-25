@@ -2,7 +2,9 @@
 // Pure: the page passes in what the bridge answered and the time.
 // The download sources' lines live with the account panel (accountModel), so a row and its panel say the same thing.
 import { aboutLine } from '$lib/appUpdate';
-import type { AppUpdate, DownloadsView, DownloadTool, DownloadTools, JobSnap, SetupStatus, SetupTools } from '$lib/bridge/types';
+import type {
+  AppUpdate, DownloadsView, DownloadTool, DownloadTools, JobSnap, SetupStatus, SetupTools, SpotifyStatus,
+} from '$lib/bridge/types';
 import { WHAT_IT_GIVES, checkedWhen, stateLine, type RowLine, type Tone } from '$lib/components/accountModel';
 import { shortPath } from '$lib/musicFolder';
 import { SETTINGS_ROWS } from '$lib/router';
@@ -38,9 +40,25 @@ export type RowContext = {
   now: Date;
   /** reading the programs failed and there are no versions to show: the row says so instead of waiting */
   toolsFailed?: boolean;
+  /** playlists.txt has a switched-on Spotify line (the read status's `services`) */
+  spotifyUsed?: boolean;
   /** the update check's last answer; never a problem, so it never moves `firstAttention` */
   update?: AppUpdate | null;
 };
+
+/** Spotify's state in Settings. "I don't use Spotify" (Setup, plan stage 3 D1) is no problem — `left_out`, Connect
+ *  still offered — until playlists.txt has a Spotify line (`used`: the read status's `services` name Spotify); then
+ *  it is the missing login it is. */
+export type SpotifyState = 'connected' | 'left_out' | 'not_connected' | 'not_set_up';
+/** playlists.txt has a switched-on Spotify line: the read status names Spotify among its services. */
+export function spotifyUsed(sp: SpotifyStatus | null): boolean {
+  return !!sp?.services?.some((x) => x.service === 'spotify');
+}
+export function spotifyState(s: SetupStatus, used: boolean): SpotifyState {
+  if (s.spotify_login) return 'connected';
+  if (s.spotify_skipped && !used) return 'left_out';
+  return s.spotify_app ? 'not_connected' : 'not_set_up';
+}
 
 /** The state line and mark of one row; `null` text pieces are left out. */
 export function rowLine(row: SettingsRow, c: RowContext): RowLine {
@@ -56,8 +74,12 @@ export function rowLine(row: SettingsRow, c: RowContext): RowLine {
     case 'spotify': {
       const s = c.status;
       if (!s) return { tone: null, text: '' };
-      if (s.spotify_login) return { tone: 'good', text: s.spotify_user ? `connected as ${s.spotify_user}` : 'connected' };
-      return { tone: 'problem', text: s.spotify_app ? 'not connected' : 'not set up' };
+      switch (spotifyState(s, !!c.spotifyUsed)) {
+        case 'connected': return { tone: 'good', text: s.spotify_user ? `connected as ${s.spotify_user}` : 'connected' };
+        case 'left_out': return { tone: 'none', text: 'left out' };
+        case 'not_connected': return { tone: 'problem', text: 'not connected' };
+        case 'not_set_up': return { tone: 'problem', text: 'not set up' };
+      }
     }
     case 'music': {
       const m = c.status?.music;

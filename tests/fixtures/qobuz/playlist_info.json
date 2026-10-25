@@ -1,0 +1,12 @@
+{
+  "id": 900000001,
+  "name": "Example Playlist",
+  "description": "Made up for the tests",
+  "tracks_count": 5,
+  "is_public": true,
+  "is_collaborative": false,
+  "owner": {"id": 700000001, "name": "Example Owner"},
+  "images150": ["https://static.example.com/playlists/900000001_150.jpg"],
+  "images300": ["https://static.example.com/playlists/900000001_300.jpg", "https://static.example.com/playlists/900000001_300b.jpg"],
+  "image_rectangle": ["https://static.example.com/playlists/900000001_rect.jpg"]
+}

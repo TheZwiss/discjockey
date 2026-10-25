@@ -110,7 +110,7 @@
 
 <Dialog bind:open title={dialogTitle(track)} width={760} busy={job !== null} onclose={close}>
   <div class="body" data-test="wrong-song-dialog" data-track={track.track_id}>
-    <p class="sub">{subLine(res?.spotify_duration_s ?? track.duration_s)}</p>
+    <p class="sub">{subLine(res?.track_duration_s ?? track.duration_s)}</p>
 
     {#if blocked && !res}
       <p class="note" data-test="search-blocked">{SEARCH_BLOCKED}</p>

@@ -6,7 +6,8 @@ const act = (kind: string, id: string, folder = 'Hard_Bounce'): PreviewAction =>
   ActionKey, kind, reason: kind === 'acquire' ? 'new' : null, track_id: id, artist: `Artist ${id}`, title: `Title ${id}`,
   folder, to_dir: `Library/${folder}`, to_not_lossless: false, src: null, cover_url: null });
 const preview = (...actions: PreviewAction[]): SyncPreview => ({
-  spotify: { read_at: null, minutes_ago: 0, problem: null, message: '', stale: false, reading: false, offline: false, auto_read: true },
+  spotify: { read_at: null, minutes_ago: 0, problem: null, message: '', stale: false, reading: false, offline: false, auto_read: true,
+    problem_service: null, services: [] },
   counts: null, groups: [{ key: 'acquire:new', label: 'Download (new)', actions }], estimate: null, never: [], folders: [],
   in_playlists: null, ambiguous: [],
   dropped: [], notes: [], empty: null });

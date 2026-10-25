@@ -601,5 +601,65 @@
     "sleep": 400
    }
   ]
+ },
+ {
+  "name": "playlists-qobuz-row",
+  "route": "#/playlists",
+  "scenario": "normal",
+  "steps": [
+   {
+    "wait": "[data-test=row-Qobuz_Picks]"
+   },
+   {
+    "eval": "document.querySelector('[data-test=row-Qobuz_Picks]').scrollIntoView({ block: 'nearest' })"
+   },
+   {
+    "sleep": 300
+   }
+  ]
+ },
+ {
+  "name": "playlists-qobuz-unreadable",
+  "route": "#/playlists",
+  "scenario": "qobuz_unreadable",
+  "steps": [
+   {
+    "wait": "[data-test=row-Qobuz_Picks]"
+   },
+   {
+    "fill": [
+     "[data-test=add-row] input",
+     "https://open.qobuz.com/playlist/900000077"
+    ]
+   },
+   {
+    "click": "[data-test=add-button]"
+   },
+   {
+    "wait": "[data-test=add-problem]"
+   }
+  ]
+ },
+ {
+  "name": "playlists-qobuz-not-connected",
+  "route": "#/playlists",
+  "scenario": "qobuz_not_connected",
+  "steps": [
+   {
+    "wait": "[data-test=row-Qobuz_Picks]"
+   },
+   {
+    "fill": [
+     "[data-test=add-row] input",
+     "https://open.qobuz.com/playlist/900000077"
+    ]
+   },
+   {
+    "click": "[data-test=add-button]"
+   },
+   {
+    "wait": "[data-test=add-problem]"
+   }
+  ]
  }
 ]

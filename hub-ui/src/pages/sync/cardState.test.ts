@@ -5,7 +5,8 @@ import type { HubEvent } from '$lib/bridge/events';
 import { EMPTY_RUN, reduceRun, type RunState } from '$lib/stores/run';
 import type { Budget, LimitCard, Result } from '$lib/bridge/types';
 import { SYNC_LINES, lineOf } from '$lib/bridge/fake/replay';
-import { cardState, liveUsage, qobuzFallback, stepIndex, verdict, type Card } from './cardState';
+import { problemCopy } from '$lib/copy';
+import { cardState, lengthLine, liveUsage, qobuzFallback, stepIndex, verdict, type Card } from './cardState';
 
 const lines = (raw: string): HubEvent[] => raw.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
 const sync = lines(syncRaw);
@@ -57,9 +58,9 @@ describe('cardState with the recorded sync', () => {
     expect(L(SYNC_LINES.converting - 1).card.kind).not.toBe('converting');
   });
   it('prepares with the last info message before RunStarted', () => {
-    expect(L(7).card).toEqual({ kind: 'preparing', text: 'Reading your Spotify playlists...' });
-    expect(L(8).card).toEqual({ kind: 'preparing', text: 'Reading your Spotify playlists · 1 of 2 · Hard_Bounce' });
-    expect(L(9).card).toEqual({ kind: 'preparing', text: 'Reading your Spotify playlists · 2 of 2 · Powertrance' });
+    expect(L(7).card).toEqual({ kind: 'preparing', text: 'Reading your playlists...' });
+    expect(L(8).card).toEqual({ kind: 'preparing', text: 'Reading your playlists · 1 of 2 · Hard_Bounce' });
+    expect(L(9).card).toEqual({ kind: 'preparing', text: 'Reading your playlists · 2 of 2 · Powertrance' });
     expect(L(10).card).toEqual({ kind: 'preparing', text: 'Looking up the bitrate of 1 older download...' });
     expect(L(11).card.kind).toBe('preparing');
   });
@@ -86,9 +87,14 @@ describe('cardState with the recorded sync', () => {
   });
   it('converts with the length line', () => {
     const c = L(conv1).card;
-    expect(c).toMatchObject({ kind: 'converting', lengthLine: 'Length matches (0:12 = Spotify 0:12)', lengthOk: true,
+    expect(c).toMatchObject({ kind: 'converting', lengthLine: 'Length matches (0:12 = playlist 0:12)', lengthOk: true,
       done_s: 12, total_s: 12 });
     expect(L(conv1 - 1).card).toMatchObject({ kind: 'converting', done_s: 0 });
+  });
+  it("compares the file with the playlist's length, whichever service it is on (plan stage 3, W13)", () => {
+    expect(lengthLine({ file_duration_s: 192, track_duration_s: 268, ok: false }))
+      .toBe('Length differs (3:12, playlist 4:28)');
+    expect(lengthLine(null)).toBeNull();
   });
   it('shows the lossless result', () => {
     const c = L(done1).card;
@@ -169,7 +175,15 @@ describe('cardState when stopping or failing', () => {
     s = reduceRun(s, { type: 'JobFinished', job_id: 7, kind: 'sync', ok: false, problem: 'login_expired',
       message: 'Your Spotify login has expired.', result: null }, 10);
     expect(cardState(s, 20)).toEqual({ kind: 'failed', problem: 'login_expired',
-      message: 'Your Spotify login has expired.' });
+      message: 'Your Spotify login has expired.', service: null });
+  });
+  it("carries the finished job's service, so the card names it", () => {
+    let s = reduceRun(EMPTY_RUN, { type: 'JobStarted', job_id: 8, kind: 'sync', track_id: null }, 0);
+    s = reduceRun(s, { type: 'JobFinished', job_id: 8, kind: 'sync', ok: false, problem: 'not_set_up',
+      message: 'Connect Qobuz first.', result: null, service: 'qobuz' }, 10);
+    expect(cardState(s, 20)).toEqual({ kind: 'failed', problem: 'not_set_up', message: 'Connect Qobuz first.',
+      service: 'qobuz' });
+    expect(problemCopy('not_set_up', { sync: true, service: 'qobuz' }).title).toBe("Qobuz isn't connected.");
   });
 });
 

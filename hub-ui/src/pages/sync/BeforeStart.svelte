@@ -1,17 +1,17 @@
 <script lang="ts">
   // Before the start (docs/archive/pre-public/hub-ui-pages/sync-REDESIGN.md): the plan per playlist with ticks and search on the left, "This run" on the
-  // right (how many downloads, which playlists and kinds, Start sync). While Spotify is read, a card says which
-  // playlist; nothing to do → "Up to date" with the last sync. Spotify is read by itself once per app session (the
+  // right (how many downloads, which playlists and kinds, Start sync). While the playlists are read, a card says which
+  // playlist; nothing to do → "Up to date" with the last sync. They are read by themselves once per app session (the
   // hub when it opens, else this page when it opens first; shouldAutoRead) and by the backend whenever playlists.txt
-  // changes; otherwise only with "↻ Read Spotify".
+  // changes; otherwise only with "↻ Read playlists".
   import { onMount, untrack } from 'svelte';
   import {
     Button, EmptyState, Hint, NoteCard, PageHeader, ProblemCard, SearchField, Skeleton, WriteButton,
   } from '$lib/components';
   import { ListPanelFrame } from '$lib/frames';
   import { api, runJob } from '$lib/bridge/client';
-  import type { Fail, PreviewAction, RunSummary, SyncPreview } from '$lib/bridge/types';
-  import { dataVersion, hub, spotifyMissing, spotifyMissingKind, syncRunning, writeBlockedReason } from '$lib/stores/hub';
+  import type { Fail, PlaylistRow, PreviewAction, RunSummary, SyncPreview } from '$lib/bridge/types';
+  import { dataVersion, hub, readBlock, readBlocked, syncRunning, writeBlockedReason } from '$lib/stores/hub';
   import { toasts } from '$lib/stores/toasts';
   import { getPref, setPref } from '$lib/prefs';
   import { markReady } from '$lib/ready';
@@ -22,7 +22,7 @@
   import {
     PREF_HOW_MANY, PREF_SCOPE, defaultHowMany, facets, inRunOrder, inScope, isDownload, matches, nextSyncSet,
     mayWaitToday, kindOf, downloadsInScope, presetN, presetTicks, presets, readHowMany, readScope, runTotals, scopeSet, sections, shouldAutoRead, shownPreset,
-    NOTHING_TODAY, runsNothingToday, sectionCounts, startLabel, toggleScope,
+    NOTHING_TODAY, readBlockLine, runsNothingToday, sectionCounts, startLabel, toggleScope,
     type HowMany, type Scope, type Section,
   } from './planModel';
   import { keepDetail, lastSyncStats, lastSyncView, needsDetail, type LastSyncDetail } from './endModel';
@@ -77,7 +77,19 @@
   const reading = $derived($hub.refresh_running || !!preview?.spotify.reading);
   // the shared store first (it also knows a missing login before any read failed), so this card, the banner on
   // other pages and the header slot say the same state with the same words (spec §11)
-  const spotifyProblem = $derived($spotifyMissingKind ?? preview?.spotify.problem ?? null);
+  const spotifyProblem = $derived($readBlock?.kind ?? preview?.spotify.problem ?? null);
+  const problemService = $derived($readBlock?.service ?? preview?.spotify.problem_service ?? null);
+  // what a missing or expired login affects: the switched-on lines of that service (playlists.txt is local, so this
+  // is cheap); until it answers the line speaks of "your Qobuz playlists" without promising anything
+  let lines = $state<PlaylistRow[] | null>(null);
+  $effect(() => {
+    const svc = problemService;
+    void $dataVersion;
+    if (!svc || (spotifyProblem !== 'not_set_up' && spotifyProblem !== 'login_expired')) return;
+    void api.playlists().then((r) => { lines = r.ok ? r.rows : null; });
+  });
+  const problemLine = $derived(problemService && (spotifyProblem === 'not_set_up' || spotifyProblem === 'login_expired')
+    ? readBlockLine(spotifyProblem, problemService, lines) : undefined);
   const lastView = $derived(lastSyncView(lastRun, lastDetail));
   // up to date with no sync ever and nothing that could be better: the frame's empty panel, not a blank Panel
   const upToDatePanel = $derived(preview?.empty === 'up_to_date'
@@ -223,11 +235,11 @@
     {:else if problem}
       <ProblemCard kind={problem.kind} message={problem.message} onretry={load} />
     {:else if preview}
-      <!-- Spotify's problem is said here once (the banner stays off on this view): no Retry, since Read Spotify sits
-           in the header slot right above, its one place (spec §11) -->
+      <!-- The read's problem is said here once (the banner stays off on this view): no Retry, since Read playlists
+           sits in the header slot right above, its one place (spec §11) -->
       {#if spotifyProblem}
         <div data-test="spotify-problem">
-          <ProblemCard kind={spotifyProblem} message={preview.spotify.message} spotify />
+          <ProblemCard kind={spotifyProblem} message={preview.spotify.message} service={problemService} hint={problemLine} />
         </div>
       {/if}
       {#if reading}<ReadingCard progress={$hub.read_progress} stale={hasPlan || preview.empty === 'up_to_date'} />{/if}
@@ -236,9 +248,9 @@
         <UpToDate tracks={preview.in_playlists} playlists={preview.folders.length} />
         <PlanFolds {preview} busy={neverBusy} blocked={neverBlocked} onagain={again} />
       {:else if preview.empty || !hasPlan}
-        <!-- "Read Spotify above" only while that button works; else the Spotify card above says why -->
+        <!-- "Read your playlists above" only while that button works; else the card above says why -->
         {#if !reading}<EmptyState kind={preview.empty ?? 'up_to_date'}
-          body={preview.empty === 'no_preview' && $spotifyMissing ? '' : undefined} />{/if}
+          body={preview.empty === 'no_preview' && $readBlocked ? '' : undefined} />{/if}
       {:else}
         <div class="search">
           <SearchField bind:value={query} placeholder="Find an artist or title…" shortcut="cmd+f" />
@@ -292,7 +304,7 @@
 {/snippet}
 
 <ListPanelFrame {main} panel={hasPlan || upToDatePanel ? panel : null}
-  emptyPanel={reading ? 'The plan shows here when Spotify is read.' : preview?.empty === 'up_to_date'
+  emptyPanel={reading ? 'The plan shows here when your playlists are read.' : preview?.empty === 'up_to_date'
     ? 'Your last sync shows here.' : 'The plan for the next sync shows here.'} />
 
 <style>

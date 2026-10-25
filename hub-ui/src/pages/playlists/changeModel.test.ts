@@ -8,16 +8,16 @@ import {
 } from './changeModel';
 
 const info = (name: string, n: number) => ({ name, owner_name: 'DJ One', yours: true, collaborative: false,
-  readable: true, image_url: null, track_count: n });
+  readable: true, image_url: null, track_count: n, hint: 'Make your own copy.' });
 // the contract example (playlists())
 const EXAMPLE: Playlists = {
   version: '481d45b7d451c816dd949d1a86b559bf9083ef5d02f69831f870dafbccffc36b', problem: null, empty: null, tidy: { waiting: 0 },
   rows: [
     { index: 0, folder: 'Hard_Bounce', link: 'https://open.spotify.com/playlist/0DiscjockeyExampleList',
-      playlist_id: '0DiscjockeyExampleList', enabled: true, info: info('Name of 0Dis', 4), tracks: 4,
+      playlist_id: '0DiscjockeyExampleList', service: 'spotify', service_name: 'Spotify', enabled: true, info: info('Name of 0Dis', 4), tracks: 4,
       quality: { lossless: 1, good_lossy: 0, weak: 1, fake: 0, missing: 2 } },
     { index: 1, folder: 'Powertrance', link: 'https://open.spotify.com/playlist/3DiscjockeyExampleList',
-      playlist_id: '3DiscjockeyExampleList', enabled: true, info: info('Name of 3Dis', 2), tracks: 2,
+      playlist_id: '3DiscjockeyExampleList', service: 'spotify', service_name: 'Spotify', enabled: true, info: info('Name of 3Dis', 2), tracks: 2,
       quality: { lossless: 0, good_lossy: 0, weak: 1, fake: 0, missing: 1 } },
   ],
   overlaps: [{ track_id: 't2', artist: 'Armin Hermann', title: 'Get Naughty', cover_url: 'https://i.scdn.co/image/t2',
@@ -26,6 +26,7 @@ const EXAMPLE: Playlists = {
 };
 const loaded = loadedFrom(EXAMPLE);
 const ADDED: AddedPlaylist = { playlist_id: '37i9dQZF1DXcBWIGoYBM5M',
+  service: 'spotify', service_name: 'Spotify',
   link: 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M', info: info('Name of 37i9', 0), tracks: 0,
   readable: true, suggested_folder: 'Name_of_37i9', hint: null };
 
@@ -114,12 +115,21 @@ describe('row texts', () => {
   it('numbers switched-on rows, "–" for switched-off ones', () => {
     expect(priorities(toggle(addRow(d, ADDED, 'N'), d[0].key))).toEqual(['–', '1', '2']);
   });
-  it('info line: name and owner, not read yet, unreadable, switched off', () => {
-    expect(infoLine(d[0])).toEqual({ text: '"Name of 0Dis" · yours', tone: 'muted' });
-    expect(infoLine({ ...d[0], info: null })).toEqual({ text: 'not read yet', tone: 'muted' });
-    expect(infoLine({ ...d[0], info: { ...info('x', 0), yours: false, readable: false } }).tone).toBe('bad');
+  it('info line: the service, then name and owner, not read yet, unreadable, switched off', () => {
+    expect(infoLine(d[0])).toEqual({ service: 'Spotify', text: '"Name of 0Dis" · yours', tone: 'muted' });
+    expect(infoLine({ ...d[0], info: null })).toEqual({ service: 'Spotify', text: 'not read yet', tone: 'muted' });
     expect(infoLine({ ...d[0], info: { ...info('x', 0), yours: false, collaborative: true } }).text).toBe('"x" · collaborative');
     expect(infoLine({ ...d[0], enabled: false }).text).toBe('switched off · files stay');
+  });
+  it("says an unreadable playlist in its own service's words, the engine's hint (plan stage 3, W5)", () => {
+    const hint = 'Make it public in Qobuz, or use one of your own playlists.';
+    const q = addRow(d, { ...ADDED, playlist_id: 'qobuz:900000001', service: 'qobuz', service_name: 'Qobuz',
+      link: 'https://open.qobuz.com/playlist/900000001',
+      info: { ...info('Qobuz Picks', 0), yours: false, readable: false, hint } }, 'Qobuz_Picks')[2];
+    expect(q).toMatchObject({ service: 'qobuz', serviceName: 'Qobuz' });
+    expect(infoLine(q)).toEqual({ service: 'Qobuz', text: hint, tone: 'bad' });
+    expect(infoLine({ ...d[0], info: { ...info('x', 0), readable: false } }))
+      .toEqual({ service: 'Spotify', text: 'Make your own copy.', tone: 'bad' });
   });
   it('header status line and list summary count only what is switched on', () => {
     const off = toggle(d, d[1].key);

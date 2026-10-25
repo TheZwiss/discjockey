@@ -5,9 +5,9 @@ import pytest
 
 from discjockey import events
 from discjockey.hub import jobs
-from discjockey.models import Action, SpotifyTrack
+from discjockey.models import Action, SourceTrack
 
-TRACK = SpotifyTrack("t1", "Gimme Gimme", ("Vatoz Locoz", "Other"), "Album", "https://i/x.jpg", 156000, "DE1")
+TRACK = SourceTrack("t1", "Gimme Gimme", ("Vatoz Locoz", "Other"), "Album", "https://i/x.jpg", 156000, "DE1")
 ACTION = Action("acquire", "t1", "Hard_Bounce", TRACK, (0, 3), dest_dir="Library/Hard_Bounce", reason="new")
 RESULT = events.Result("new_lossless", "Hard_Bounce", "Vatoz Locoz", "Gimme Gimme", "t1", "",
                        "lossless", "qobuz", None, "Library/Hard_Bounce/x.aiff", None)
@@ -22,7 +22,7 @@ SAMPLES = [
     events.AccountUsage("qobuz", 42, 80),
     events.ActionFinished(ACTION, RESULT),
     events.RunFinished(0, "/x/reports/2026-10-20_120000.md"),
-    events.Message("info", "Reading your Spotify playlists..."),
+    events.Message("info", "Reading your playlists..."),
     events.ReadingPlaylist(2, 7, "Powertrance"),
     events.MovesProgress(4, 2, 9),
     jobs.JobStarted(7, "sync", None),

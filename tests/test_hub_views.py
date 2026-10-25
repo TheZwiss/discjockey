@@ -5,8 +5,8 @@ import pytest
 
 from discjockey.hub import views
 from discjockey.hub.jobs import PreviewStore
-from discjockey.models import (Action, BatchResult, BatchRow, FetchedPlaylist, MoveRow, Plan, PlannedMove, PlaylistLine,
-                               SpotifyTrack)
+from discjockey.models import (Action, BatchResult, BatchRow, FetchedPlaylist, MoveRow, Plan, PlannedMove, PlaylistInfo,
+                               PlaylistLine, SourceTrack)
 from discjockey.planner import ENTRY_KEYS, TidyRow, tidy_rows
 from discjockey import playlists_file as pf
 from discjockey.playlists_file import Loaded, Row
@@ -33,7 +33,7 @@ def state(**tracks):
 
 
 def t(tid):
-    return SpotifyTrack(tid, f"Song {tid}", ("Artist",), "Al", None, 180000, None)
+    return SourceTrack(tid, f"Song {tid}", ("Artist",), "Al", None, 180000, None)
 
 
 def a(kind, tid, reason="", **kw):
@@ -153,11 +153,42 @@ def test_still_to_load():
 
 def test_spotify_status():
     store = store_with([])
-    st = views.spotify_status(store, NOW, reading=False)
+    st = views.spotify_status(store, NOW, False, [])
     assert st["read_at"] == "2026-10-20T21:45:00" and st["minutes_ago"] == 2 and not st["offline"]
+    assert st["problem_service"] is None and st["services"] == []
     store.failed("offline", "Cannot reach Spotify.")
-    st = views.spotify_status(store, NOW, reading=True)
+    st = views.spotify_status(store, NOW, True, [])
     assert st["offline"] and st["problem"] == "offline" and st["reading"] and st["read_at"] == "2026-10-20T21:45:00"
+    assert st["problem_service"] is None
+
+
+def test_spotify_status_names_the_service_of_a_problem_and_each_login():
+    store = store_with([])
+    store.failed("not_set_up", "Qobuz isn't set up yet.", "qobuz")
+    st = views.spotify_status(store, NOW, False, [("spotify", True), ("qobuz", False)])
+    assert (st["problem"], st["problem_service"]) == ("not_set_up", "qobuz")
+    assert st["services"] == [{"service": "spotify", "name": "Spotify", "connected": True},
+                              {"service": "qobuz", "name": "Qobuz", "connected": False}]
+    store.ready(store.prep, NOW)  # a good read clears the problem, service included
+    assert views.spotify_status(store, NOW, False, [])["problem_service"] is None
+    assert views.dashboard(state(), Settings(), store, [], [], SETUP_OK, TODAY, NOW, False,
+                           [("qobuz", True)])["spotify"]["services"][0]["connected"] is True
+    assert views.sync_preview(store, state(), Settings(), TODAY, NOW, False,
+                              logins=[("qobuz", True)])["spotify"]["services"][0]["service"] == "qobuz"
+
+
+def test_playlist_rows_name_their_service_and_info_carries_the_hint():
+    loaded = Loaded([Row("A", "https://open.spotify.com/playlist/0DiscjockeyExampleList"),
+                     Row("B", "https://open.qobuz.com/playlist/900000001")], "v", None)
+    infos = {"qobuz:900000001": PlaylistInfo("qobuz", "900000001", "Example", "7", "Example Curator", False, None, 3,
+                                             False, True)}
+    rows = views.playlists(loaded, {}, infos, state())["rows"]
+    assert [(r["playlist_id"], r["service"], r["service_name"]) for r in rows] == [
+        ("0DiscjockeyExampleList", "spotify", "Spotify"), ("qobuz:900000001", "qobuz", "Qobuz")]
+    assert rows[0]["info"] is None
+    assert rows[1]["info"]["hint"] == "Make it public in Qobuz, or use one of your own playlists." and rows[1]["tracks"] == 3
+    spotify_info = PlaylistInfo("spotify", "x", "N", "o", "O", False, None, 1, False, False)
+    assert views.info_dict(spotify_info)["hint"].startswith("Follow ≠ own")
 
 
 REPORT = {"started": "2026-10-19T21:47:00", "finished": "2026-10-19T22:11:00", "exit_code": 1, "results": [
@@ -324,7 +355,8 @@ def test_track_detail():
     assert d["next_qobuz_check"] == "2026-10-24" and d["audio_url"] == "media:Library/A/not_lossless/x.aiff"
     assert d["bought_name"] == "Library/A/Artist - Song.wav"
     assert d["buy_links"]["beatport"] == "https://www.beatport.com/search?q=Artist+Song"
-    assert d["upgrade"] is None and d["spotify_url"] == "https://open.spotify.com/track/t1"
+    assert d["upgrade"] is None and "spotify_url" not in d
+    assert d["track_link"] == {"url": "https://open.spotify.com/track/t1", "label": "Open in Spotify"}
 
 
 GATE = {"url": "https://hypeddit.com/a/b", "host": "hypeddit.com", "direct": False, "page": "https://sc/1",
@@ -475,7 +507,7 @@ def test_todo_others_from_the_last_run_and_the_preview():
     report = {"results": [{"section": "conflicts", "track_id": "m"}, {"section": "moved", "track_id": "x"}]}
     st = state()
     store = PreviewStore()
-    store.ready(Prepared(None, st, Settings(), Plan(st, [], [(t("amb"), "A", ["Library/A/x.aiff"])], []), None),
+    store.ready(Prepared(None, st, Settings(), Plan(st, [], [("amb", t("amb"), "A", ["Library/A/x.aiff"])], []), None),
                 NOW)
     assert views.todo_others(store.prep, report) == {
         "m": "MOVE BLOCKED · a file is in the way", "amb": "SEVERAL FILES · could be this track, nothing done"}
@@ -560,8 +592,8 @@ def change(new, tracks=PL_TRACKS, **kw):
 
 
 def test_playlists_page():
-    from discjockey.spotify import PlaylistInfo
-    info = PlaylistInfo(ID1, "Hard Bounce 2026", "dj1", "DJ One", False, "big", 3, True)
+    from discjockey.models import PlaylistInfo
+    info = PlaylistInfo("spotify", ID1, "Hard Bounce 2026", "dj1", "DJ One", False, "big", 3, True, True)
     page = views.playlists(Loaded(OLD, "v1", None), PL_TRACKS, {ID1: info}, PL_STATE)
     assert page["version"] == "v1" and page["empty"] is None
     first, second = page["rows"]
@@ -577,7 +609,7 @@ def test_playlists_page():
 
 
 def test_playlists_overlaps_have_covers_and_say_whether_a_track_has_a_file():
-    spotify_only = SpotifyTrack("n1", "Fresh", ("Newcomer",), "Al", "https://i.scdn.co/image/n1", 180000, None)
+    spotify_only = SourceTrack("n1", "Fresh", ("Newcomer",), "Al", "https://i.scdn.co/image/n1", 180000, None)
     tracks = {ID1: [t("a"), t("b"), spotify_only], ID2: [t("b"), spotify_only]}
     page = views.playlists(Loaded(OLD, "v1", None), tracks, {}, PL_STATE, lambda k, e: f"cover:{k}" if e else None)
     b, n1 = page["overlaps"]
@@ -1134,3 +1166,32 @@ def test_a_rename_offer_counts_the_files_of_a_folder_spelled_another_way_on_disk
     items = views._rename_items([("hard_bounce", "Hard Bounce")], [], files, {"Hard_Bounce", "Other"},
                                 lambda *a, **k: None)
     assert [(i["files"], i["detail"]) for i in items] == [(2, "One folder move instead of 2 file moves.")]
+
+
+def test_track_detail_link_is_the_first_fetched_tracks_else_the_keys():
+    qobuz = SourceTrack("900000001", "Song", ("Artist",), "Al", None, 180000, None, service="qobuz")
+    entry = e("lossless", aliases=["qobuz:900000001"])
+    fetched = [FetchedPlaylist(PlaylistLine("A", "p1", 1, "qobuz"), [qobuz], []),
+               FetchedPlaylist(PlaylistLine("B", "p2", 2), [t("t1")], [])]
+    d = views.track_detail("t1", entry, fetched, TODAY)
+    assert d["track_link"] == {"url": "https://open.qobuz.com/track/900000001", "label": "Open in Qobuz"}
+    assert d["playlists"] == ["A", "B"]  # a Qobuz track is found by its token, not its bare id
+    d = views.track_detail("t1", entry, [], TODAY)  # nothing read yet: the link its key gives
+    assert d["track_link"] == {"url": "https://open.spotify.com/track/t1", "label": "Open in Spotify"}
+    d = views.track_detail("qobuz:900000001", e("lossless"), [], TODAY)
+    assert d["track_link"] == {"url": "https://open.qobuz.com/track/900000001", "label": "Open in Qobuz"}
+    assert views.track_detail("soundcloud:1", e("lossless"), [], TODAY)["track_link"] is None
+
+
+def test_a_qobuz_keyed_ambiguous_song_shows_on_the_todo_and_in_the_preview_under_its_song_key():
+    q = SourceTrack("900000001", "Song", ("Artist",), "Al", None, 180000, None, service="qobuz")
+    st = state(**{"qobuz:900000001": e("lossless"), "t1": e("lossless")})
+    plan = Plan(st, [], [("qobuz:900000001", q, "A", ["Library/A/x.aiff", "Library/B/x.aiff"]),
+                         ("t1", q, "A", ["Library/A/y.aiff", "Library/B/y.aiff"])], [])  # t1: linked to the Qobuz track
+    store = PreviewStore()
+    store.ready(Prepared(None, st, Settings(), plan, None, [], [FetchedPlaylist(PlaylistLine("A", "p", 1, "qobuz"), [q], [])]),
+                NOW)
+    assert set(views.todo_others(store.prep, None)) == {"qobuz:900000001", "t1"}
+    p = views.sync_preview(store, st, Settings(), TODAY, NOW, False)
+    assert [r["track_id"] for r in p["ambiguous"]] == ["qobuz:900000001", "t1"]
+    assert p["in_playlists"] == 1  # counted by song key

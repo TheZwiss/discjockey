@@ -9,7 +9,7 @@ const complete: SetupStatus = {
   music: { state: 'ok', path: '/Users/you/Music/Discjockey', suggested: '/Users/you/Music/Discjockey' },
   tools: { ffmpeg: true, ffprobe: true, deno: true }, spotify_app: true,
   spotify_login: true, qobuz: true, playlists: true, complete: true, next_step: null, version: '1.0.0',
-  qobuz_skipped: false, accounts: { youtube: null, soundcloud: null } };
+  qobuz_skipped: false, spotify_skipped: false, accounts: { youtube: null, soundcloud: null } };
 const fresh: SetupStatus = { ...complete, spotify_app: false, spotify_login: false, qobuz: false, playlists: false,
   complete: false, next_step: 'spotify' };
 const status = (over: Partial<SetupStatus>): SetupStatus => ({ ...complete, ...over });
@@ -85,6 +85,7 @@ describe('steps done', () => {
   });
   it('needs the app and the login for Spotify, and every program for Programs', () => {
     expect(stepsDone(status({ spotify_login: false })).spotify).toBe(false);
+    expect(stepsDone(status({ spotify_login: false, spotify_skipped: true })).spotify).toBe(true);   // "I don't use Spotify"
     expect(stepsDone(status({ tools: { ffmpeg: true, ffprobe: false, deno: true } })).tools).toBe(false);
   });
   it('counts Downloads as done with Qobuz signed in or left out ("I don\'t have Qobuz")', () => {
@@ -125,6 +126,8 @@ describe('Continue', () => {
   it('Spotify and First playlist: only when that part is set up', () => {
     expect(nextRule('spotify', fresh, toolsOk).allowed).toBe(false);
     expect(nextRule('spotify', status({}), toolsOk).allowed).toBe(true);
+    expect(nextRule('spotify', fresh, toolsOk).why).toBe("Connect Spotify, or choose I don't use Spotify.");
+    expect(nextRule('spotify', { ...fresh, spotify_skipped: true }, toolsOk).allowed).toBe(true);
     expect(nextRule('playlists', fresh, toolsOk)).toEqual({ allowed: false, why: 'Add a playlist first.' });
     expect(nextRule('playlists', complete, toolsOk).allowed).toBe(true);
   });
@@ -161,6 +164,12 @@ describe('a done setup opens Settings', () => {
   it('keeps an open setup in the guide', () => {
     expect(doneRedirect(fresh, 'spotify')).toBeNull();
     expect(doneRedirect(fresh, null)).toBeNull();
+  });
+  it("keeps a Spotify left out in the guide's Spotify step, where Settings sends it to make the app (plan stage 3, D1)", () => {
+    const skipped = status({ spotify_app: false, spotify_login: false, spotify_skipped: true });
+    expect(doneRedirect(skipped, 'spotify')).toBeNull();
+    expect(doneRedirect(skipped, 'downloads')).toBe('/settings/qobuz');
+    expect(doneRedirect(skipped, null)).toBe('/settings');
   });
 });
 

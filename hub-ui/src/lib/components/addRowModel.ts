@@ -1,6 +1,6 @@
 // The checks of AddRow (paste a playlist link, check it, name its folder), shared by Playlists and Setup's first
 // playlist. Pure. Playlists' rows use folderProblem for their rename too.
-import type { PlaylistInfo } from '../bridge/types';
+import type { PlaylistInfo, PlaylistService, ProblemKind } from '../bridge/types';
 
 /** What the checks need of a playlist already in the list (Playlists' draft rows are one). */
 export type PlaylistRef = { key: string; folder: string; link: string };
@@ -16,10 +16,14 @@ export function folderProblem(name: string, rows: PlaylistRef[], ownKey: string 
   return null;
 }
 
-/** The Spotify playlist id of a link (or the trimmed link when it has none). */
+/** The playlist a link names, for the duplicate check: a Qobuz playlist as `qobuz:<id>` (the player's and the store's
+ *  link forms, like `sources/qobuz.py`), a Spotify one by its bare id, else the trimmed link. */
 export function playlistKey(link: string): string {
-  const m = /playlist[/:]([A-Za-z0-9]+)/.exec(link ?? '');
-  return m ? m[1] : (link ?? '').trim();
+  const l = (link ?? '').trim();
+  const q = /qobuz\.com\/(?:[a-z]{2}-[a-z]{2}\/)?playlists?\/(?:[^/?#]+\/)?(\d+)/i.exec(l);
+  if (q) return `qobuz:${q[1]}`;
+  const m = /playlist[/:]([A-Za-z0-9]+)/.exec(l);
+  return m ? m[1] : l;
 }
 
 export function hasLink(rows: PlaylistRef[], link: string): boolean {
@@ -31,4 +35,13 @@ export function ownerText(info: PlaylistInfo): string {
   if (info.yours) return 'yours';
   if (info.collaborative) return 'collaborative';
   return info.owner_name;
+}
+
+/** Whether the shell's banner already says the login problem this answer is about (the same service, shown now): then
+ *  the answer is only the bridge's sentence ("Connect Qobuz first."), without a second headline and Connect button
+ *  (a state is said once, spec §11). The banner is on unless the page's body took it over (`saidInBody`). */
+export function bannerSaysIt(error: { kind: ProblemKind; service: PlaylistService | null },
+  block: { service: PlaylistService } | null, saidInBody: { spotify?: boolean }): boolean {
+  return (error.kind === 'not_set_up' || error.kind === 'login_expired') && !!error.service && !!block
+    && block.service === error.service && !saidInBody.spotify;
 }

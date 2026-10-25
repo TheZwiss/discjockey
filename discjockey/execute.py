@@ -149,7 +149,8 @@ class Executor:
         workdir.mkdir(parents=True, exist_ok=True)
         tracker = Tracker(self.emit, self.token, a.track_id)
         try:
-            res = self.acquirer.acquire(a.track, rejected | set(extra), workdir, False, tracker)
+            res = self.acquirer.acquire(a.track, rejected | set(extra), workdir, False, tracker,
+                                        exact=a.qobuz_id)
             rejected_now = tuple(extra) + tuple(res.rejected)
             found = None if res.free_downloads is None else tuple(res.free_downloads)
             if res.kind == "queued":
@@ -222,7 +223,7 @@ class Executor:
         try:
             res = self.acquirer.acquire(a.track, rejected, workdir, True, tracker, better_than=better,
                                         originals=originals, declined=set(e.get("declined_streams") or []),
-                                        qobuz=qobuz)
+                                        qobuz=qobuz, exact=a.qobuz_id)
             found = None if res.free_downloads is None else tuple(res.free_downloads)
             if res.kind == "queued":
                 if res.rejected or found is not None or res.qobuz_searched:

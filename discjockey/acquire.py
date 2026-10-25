@@ -10,7 +10,7 @@ from .accounts import ACCOUNT_KBPS, ACCOUNT_OF, PREMIUM_MIN_KBPS, signal_of, str
 from .events import AccountUsage, Checked, Emit, Message, SourceChosen, Tracker, no_emit, null_tracker
 from .fallback import drm_protected, short_error
 from .matching import duration_ok, fallback_match, isrc_match, qobuz_match, rank
-from .models import Candidate, SpotifyTrack
+from .models import Candidate, SourceTrack
 
 QOBUZ_TRIES_PER_STEP = 2
 MAX_FALLBACK_DOWNLOADS = 3
@@ -41,7 +41,7 @@ class AcquireResult:
     qobuz_searched: bool = False  # every Qobuz search of this track ran without an error
 
 
-def make_ready(downloaded: Path, track: SpotifyTrack, cand: Candidate, workdir: Path,
+def make_ready(downloaded: Path, track: SourceTrack, cand: Candidate, workdir: Path,
                tracker: Tracker | None = None) -> Ready | None:
     """Duration check, convert, analyse, tag. None if the file is not the track (e.g. a 30 s preview)."""
     tracker = tracker or null_tracker()
@@ -93,9 +93,10 @@ class Acquirer:
             self.emit(Message("warning", "Qobuz failed several times in a row, so it is paused for the rest of "
                                          "this run. The remaining tracks wait for the next run."))
 
-    def acquire(self, track: SpotifyTrack, rejected: set[str], workdir: Path, lossless_only: bool,
+    def acquire(self, track: SourceTrack, rejected: set[str], workdir: Path, lossless_only: bool,
                 tracker: Tracker | None = None, better_than: int | None = None, originals: bool = True,
-                declined: set[str] | frozenset[str] = frozenset(), qobuz: bool = True) -> AcquireResult:
+                declined: set[str] | frozenset[str] = frozenset(), qobuz: bool = True,
+                exact: str | None = None) -> AcquireResult:
         """`better_than`: an upgrade check of a lossy file with that bitrate; below ~256 kbps the accounts are asked
         too (spec §4), and only a clearly better stream counts. `originals` False: an upgrade check that leaves out
         the artists' originals on SoundCloud, already searched since the last real check (free_downloads stays None).
@@ -110,6 +111,15 @@ class Acquirer:
         if self.qobuz is not None and qobuz:
             if self.budget.exhausted():
                 return AcquireResult("queued", note=self.budget.why_exhausted())
+            if exact:  # the playlist read has the facts already: no metadata request, the download is paced and counted
+                c = Candidate("qobuz", exact, track.title, " ".join(track.artists), track.duration_ms / 1000,
+                              isrc=track.isrc, album=track.album, image_url=track.image_url)
+                if c.key not in skip:
+                    ready = self._try(c, track, workdir, res, skip, lossless_only, tracker, qobuz=True, how="exact")
+                    if ready:
+                        res.kind, res.ready = "ready", ready
+                        return res
+                    skip.add(c.key)  # the ISRC search that follows doesn't download the same id again
             steps = []
             if track.isrc:
                 steps.append(("ISRC", track.isrc, lambda c: isrc_match(track, c, skip)))
@@ -218,7 +228,7 @@ class Acquirer:
             self.emit(Message("warning", f"{budget.name} failed several times in a row, so it is paused for the rest "
                                          "of this run. Tracks that need it wait for the next run."))
 
-    def premium(self, c: Candidate, service: str, track: SpotifyTrack, first: bool = True) -> bool:
+    def premium(self, c: Candidate, service: str, track: SourceTrack, first: bool = True) -> bool:
         """§4: the stream's bitrate through the login, read before the download. False means no ~256 kbps stream
         for this version; it is then tried as a free one. A warning sign counts toward the account's auto-stop; a
         missing premium stream only once per track (`first`), since one song's other uploads say nothing new."""
@@ -255,7 +265,7 @@ class Acquirer:
                                       "the free sources."))
         return False
 
-    def _fallback(self, track: SpotifyTrack, workdir: Path, res: AcquireResult, skip: set[str], lossless_only: bool,
+    def _fallback(self, track: SourceTrack, workdir: Path, res: AcquireResult, skip: set[str], lossless_only: bool,
                   tracker: Tracker, sources: tuple[str, ...] | None = None, found: dict | None = None
                   ) -> Ready | None:
         """Search, note the artists' free downloads, then download:
@@ -355,7 +365,7 @@ class Acquirer:
                 return ready
         return spare
 
-    def _better_stream(self, track: SpotifyTrack, workdir: Path, res: AcquireResult, skip: set[str],
+    def _better_stream(self, track: SourceTrack, workdir: Path, res: AcquireResult, skip: set[str],
                        tracker: Tracker, than: int, found: dict | None = None) -> Ready | None:
         """An upgrade check of a lossy file below ~256 kbps (spec §4): the same track through an account, kept only
         when it is clearly better. Never a free stream. Search errors only go to the debug log (the check simply
@@ -406,7 +416,7 @@ class Acquirer:
                 skip.add(c.key)
         return None
 
-    def _try(self, c: Candidate, track: SpotifyTrack, workdir: Path, res: AcquireResult, skip: set[str],
+    def _try(self, c: Candidate, track: SourceTrack, workdir: Path, res: AcquireResult, skip: set[str],
              lossless_only: bool, tracker: Tracker, qobuz: bool, how: str,
              account: str | None = None) -> Ready | None:
         # first, so that the protection pause can already show where the next download comes from

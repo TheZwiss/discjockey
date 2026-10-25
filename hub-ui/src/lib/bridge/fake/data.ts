@@ -2,6 +2,7 @@
 import type {
   AnySignalKind, AppUpdate, Alignment, Browser, Budget, LastCheck, LoginBrowser, ByQuality, Candidate, PlaylistInfo, PlaylistRow, PreviewAction, Quality, Result, RunDetail,
   DownloadTools, FolderCheck, SetupStatus, SignalKind, Source, SpotifyStatus, Status, TodoGroupKey, TrackRow, Upgrade, FreeDownload,
+  PlaylistService, TrackLink,
 } from '../types';
 import { NOT_IN_PLAYLIST, QUALITIES } from '../types';
 
@@ -35,6 +36,8 @@ export type FakeTrack = {
   free_downloads?: FreeDownload[];
   /** the folder the file sits in when that is not `folder` (the playlist order's target): a tidy-up moves it there */
   at?: string;
+  /** the track's page when it isn't the Spotify one every other fake track gets (a Qobuz track) */
+  link?: TrackLink;
 };
 /** One move of a move batch as the fake keeps it (the engine's `moves` row). */
 export type FakeMove = {
@@ -87,6 +90,12 @@ export type FakeState = {
   qobuz: FakeService;
   accounts: { youtube: FakeAccount | null; soundcloud: FakeAccount | null };
   qobuzSkipped: boolean;  // "I don't have Qobuz" in setup
+  /** scenario qobuz_unreadable: add_playlist answers that Qobuz doesn't show a pasted Qobuz playlist */
+  qobuzUnreadable?: boolean;
+  /** scenario qobuz_not_connected: playlists.txt has a Qobuz line, but Qobuz has no login to read it with */
+  qobuzNotConnected?: boolean;
+  /** scenario sync:qobuz-start-fails: Start ends at once with `not_set_up` for Qobuz (the end screen's service card) */
+  syncNeedsQobuz?: boolean;
   qobuzLastCheck?: LastCheck | null;
   /** find_logins per service on the fake Mac (default: Chrome without a login, Safari without Full Disk Access) */
   browsers?: Partial<Record<'youtube' | 'soundcloud', LoginBrowser[]>>;
@@ -290,6 +299,9 @@ export function sampleTracks(now: Date, extra = 35): FakeTrack[] {
   ts.push({ ...base('t3', 'Some Artist', 'Gone Track', 'Hard_Bounce', 180, now, 3), status: 'missing', source: null,
     codec: null, next_try_days: 5 });
   ts.push({ ...base('t6', 'DJ TALLBOY', 'THE WEEKEND', 'Hard_Bounce', 192, now, 9) });
+  // the one track of the Qobuz playlist: its page is Qobuz's
+  ts.push({ ...base(QOBUZ_TRACK_ID, 'Mira Volt', 'Qobuz Pick', 'Qobuz_Picks', 201, now, 2),
+    link: { url: 'https://open.qobuz.com/track/112358', label: 'Open in Qobuz' } });
   for (let i = 0; i < extra; i++) {
     const n = i + 7;
     const id = `t${n}`;
@@ -331,10 +343,24 @@ export function sampleTracks(now: Date, extra = 35): FakeTrack[] {
 
 export const PLAYLIST_IDS = ['0DiscjockeyExampleList', '3DiscjockeyExampleList', '5bQx1Bounce0yW2rZtQ9aP',
   '2Juni2026mX8kLq0Pw3vNe', '7TekkeEckeQe2xYb9LmPzR', '1HardTechnoNoAccessKv4'];
+export const QOBUZ_PLAYLIST_LINK = 'https://open.qobuz.com/playlist/900000001';
+export const QOBUZ_TRACK_ID = 'qobuz:112358';
+/** The words of each service for a playlist it won't show (InfoDict.hint; Python: sources.py). */
+export const SPOTIFY_HINT = 'Follow ≠ own: make your own copy in Spotify.';
+export const QOBUZ_HINT = 'Make it public in Qobuz, or use one of your own playlists.';
+export const QOBUZ_UNREADABLE = "Qobuz doesn't show this playlist. It must be public or one of yours. Check the link.";
+export const serviceOfLink = (link: string): PlaylistService => (/qobuz\.com/.test(link) ? 'qobuz' : 'spotify');
+export const SERVICE_NAME: Record<PlaylistService, string> = { spotify: 'Spotify', qobuz: 'Qobuz' };
+export const hintOf = (service: PlaylistService) => (service === 'qobuz' ? QOBUZ_HINT : SPOTIFY_HINT);
+/** A playlist's ref: a Spotify id stays bare, a Qobuz one is `qobuz:<id>`. */
+export function playlistRef(link: string): string | null {
+  const id = link.split('/').pop() || null;
+  return id && serviceOfLink(link) === 'qobuz' ? `qobuz:${id}` : id;
+}
 export function samplePlaylists(): FakePlaylist[] {
   const info = (name: string, n: number, yours = true, readable = true): PlaylistInfo => ({ name,
     owner_name: yours ? 'DJ One' : 'Hard Techno Radio', yours, collaborative: false, readable, image_url: null,
-    track_count: n });
+    track_count: n, hint: SPOTIFY_HINT });
   const link = (id: string) => `https://open.spotify.com/playlist/${id}`;
   return [
     { folder: 'Hard_Bounce', link: link(PLAYLIST_IDS[0]), enabled: true, info: info('Hard Bounce', 12) },
@@ -344,6 +370,9 @@ export function samplePlaylists(): FakePlaylist[] {
     { folder: 'Tekke_Ecke', link: link(PLAYLIST_IDS[4]), enabled: false, info: info('Tekke Ecke', 7) },
     { folder: 'Hard_Techno', link: link(PLAYLIST_IDS[5]), enabled: true,
       info: info('Hard Techno Radio', 0, false, false) },
+    { folder: 'Qobuz_Picks', link: QOBUZ_PLAYLIST_LINK, enabled: true,
+      info: { name: 'Qobuz Picks', owner_name: 'Example Curator', yours: false, collaborative: false, readable: true,
+        image_url: null, track_count: 1, hint: QOBUZ_HINT } },
   ];
 }
 
@@ -456,17 +485,28 @@ export const FAKE_MUSIC = '/Users/you/Music/Discjockey';
 export function setupComplete(): SetupStatus {
   return { music: { state: 'ok', path: FAKE_MUSIC, suggested: FAKE_MUSIC }, tools: { ffmpeg: true, ffprobe: true, deno: true }, spotify_app: true, spotify_login: true, qobuz: true,
     playlists: true, complete: true, next_step: null, version: '1.0.0', qobuz_skipped: false,
-    accounts: { youtube: null, soundcloud: null } };
+    spotify_skipped: false, accounts: { youtube: null, soundcloud: null } };
 }
 export function nextStep(s: SetupStatus): SetupStatus {
   const missingTools = !s.tools.ffmpeg || !s.tools.ffprobe || !s.tools.deno;
-  const next = s.music.state !== 'ok' ? 'music' : missingTools ? 'tools' : !(s.spotify_app && s.spotify_login) ? 'spotify' : !(s.qobuz || s.qobuz_skipped) ? 'downloads'
+  const next = s.music.state !== 'ok' ? 'music' : missingTools ? 'tools' : !(s.spotify_app && s.spotify_login || s.spotify_skipped) ? 'spotify' : !(s.qobuz || s.qobuz_skipped) ? 'downloads'
     : !s.playlists ? 'playlists' : null;
   return { ...s, next_step: next, complete: next === null };
 }
+/** The read status's services: the playlist services the fake's playlists.txt uses, in line order. */
+export const readServices = (qobuzConnected = true): SpotifyStatus['services'] => [
+  { service: 'spotify', name: 'Spotify', connected: true }, { service: 'qobuz', name: 'Qobuz', connected: qobuzConnected }];
+/** The read status as the bridge answers it: `services` worked out now, like `api._logins` — the services the
+ *  switched-on lines use, in line order, Spotify connected when its login is there, Qobuz unless the scenario took
+ *  its login away. So a Spotify left out in Setup is no problem while no line uses it (plan stage 3, D1). */
+export function readStatus(s: FakeState): SpotifyStatus {
+  const used = [...new Set(s.playlists.filter((p) => p.enabled).map((p) => serviceOfLink(p.link)))];
+  const connected = (x: PlaylistService) => (x === 'spotify' ? s.setup.spotify_login : !s.qobuzNotConnected);
+  return { ...s.spotify, services: used.map((x) => ({ service: x, name: SERVICE_NAME[x], connected: connected(x) })) };
+}
 export function spotifyOk(minutes = 2, now = new Date()): SpotifyStatus {
-  return { read_at: iso(new Date(now.getTime() - minutes * 60000)), minutes_ago: minutes, problem: null, message: '',
-    stale: false, reading: false, offline: false, auto_read: true };  // as after the hub's read when it opens
+  return { read_at: iso(new Date(now.getTime() - minutes * 60000)), minutes_ago: minutes, problem: null,
+    problem_service: null, services: readServices(), message: '', stale: false, reading: false, offline: false, auto_read: true };  // as after the hub's read when it opens
 }
 
 export function makeState(scenario: string, now = new Date()): FakeState {
@@ -485,7 +525,7 @@ export function makeState(scenario: string, now = new Date()): FakeState {
     for (let i = 0; i < 8; i++) {
       playlists.push({ folder: `Set_${String(i + 1).padStart(2, '0')}`, link: `https://open.spotify.com/playlist/Set${i}xxxxxxxxxxxxxxxxx`,
         enabled: true, info: { name: `Set ${i + 1}`, owner_name: 'DJ One', yours: true, collaborative: false,
-          readable: true, image_url: null, track_count: 30 + i } });
+          readable: true, image_url: null, track_count: 30 + i, hint: SPOTIFY_HINT } });
     }
   }
   const days = Array.from({ length: 14 }, (_, i) => (i === 13 ? 37 : [12, 0, 44, 60, 31, 0, 0, 58, 75, 20, 9, 0, 66][i]));
@@ -506,7 +546,8 @@ export function makeState(scenario: string, now = new Date()): FakeState {
     s.tracks = []; s.newTracks = []; s.playlists = []; s.runs = []; s.extraFolders = []; s.previewRead = false;
     s.qobuz = { ...s.qobuz, used_today: 0, carry_over: 0, days: Array(14).fill(0), signals: [], last_download: null };
     s.setup = nextStep({ ...setupComplete(), spotify_login: false, qobuz: false, playlists: false });
-    s.spotify = { read_at: null, minutes_ago: null, problem: 'not_set_up', message: 'Spotify is not set up yet.',
+    s.spotify = { read_at: null, minutes_ago: null, problem: 'not_set_up', problem_service: null,
+      services: [], message: 'Spotify is not set up yet.',
       stale: false, reading: false, offline: false, auto_read: false };
   }
   if (scenario === 'no_music') {
@@ -521,6 +562,13 @@ export function makeState(scenario: string, now = new Date()): FakeState {
     s.spotify = { ...spotifyOk(184, now), problem: 'offline', offline: true,
       message: 'Spotify did not answer. Check your internet connection.' };
     s.appUpdate = { state: 'unknown', current: '1.0.0', latest: null, url: null };  // no answer: the page shows nothing
+  }
+  if (scenario === 'qobuz_unreadable') s.qobuzUnreadable = true;
+  if (scenario === 'qobuz_not_connected') {
+    // playlists.txt has a Qobuz line, but Qobuz has no login: the read is blocked and says which service
+    s.qobuzNotConnected = true;
+    s.spotify = { ...spotifyOk(2, now), problem: 'not_set_up', problem_service: 'qobuz',
+      services: readServices(false), message: 'Connect Qobuz first.' };
   }
   if (scenario === 'console') s.console_running = true;
   if (scenario === 'update_available') {
@@ -539,8 +587,9 @@ export function folderList(s: FakeState): { folder: string; in_playlists_txt: bo
 export function playlistRows(s: FakeState): PlaylistRow[] {
   return s.playlists.map((p, index) => {
     const ts = s.tracks.filter((t) => t.playlists.includes(p.folder));
-    return { index, folder: p.folder, link: p.link, playlist_id: p.link.split('/').pop() ?? null, enabled: p.enabled,
-      info: p.info, tracks: ts.length, quality: byQuality(ts) };
+    const service = serviceOfLink(p.link);
+    return { index, folder: p.folder, link: p.link, playlist_id: playlistRef(p.link), service,
+      service_name: SERVICE_NAME[service], enabled: p.enabled, info: p.info, tracks: ts.length, quality: byQuality(ts) };
   });
 }
 export function inFolder(s: FakeState, folder: string | null): FakeTrack[] {

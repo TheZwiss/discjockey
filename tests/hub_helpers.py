@@ -4,13 +4,16 @@ from __future__ import annotations
 import json
 import threading
 import time
+from datetime import date, timedelta
 from pathlib import Path
 
-from discjockey import db, library, spotify
+from discjockey import db, library
+from discjockey.sources import qobuz as qobuz_source, spotify
+from discjockey.sources.base import LoginState, SourceError
 from discjockey.hub import jobs
 from discjockey.hub.api import HubApi, Services
 from discjockey.library import Paths, empty_state, save_state
-from discjockey.models import FetchedPlaylist, SpotifyTrack
+from discjockey.models import FetchedPlaylist, PlaylistInfo, SourceTrack
 from discjockey.planner import ENTRY_KEYS
 
 ID1, ID2 = "0DiscjockeyExampleList", "3DiscjockeyExampleList"
@@ -22,7 +25,7 @@ PARKED = "Upgrades ready/Hard_Bounce/Armin Hermann - Get Naughty.aiff"
 
 
 def track(tid, title, artist, ms=180000):
-    return SpotifyTrack(tid, title, (artist,), "Album", f"https://i.scdn.co/image/{tid}", ms, None)
+    return SourceTrack(tid, title, (artist,), "Album", f"https://i.scdn.co/image/{tid}", ms, None)
 
 
 TRACKS = {ID1: [track("t1", "Gimme Gimme", "Vatoz Locoz", 156000), track("t2", "Get Naughty", "Armin Hermann", 268000),
@@ -60,7 +63,8 @@ def make_root(tmp_path, upgrade=False):
                                   folder="Hard_Bounce", path=LOSSY, status="not_lossless", source="youtube",
                                   source_id="abcdefghijk", source_format="opus", cutoff_hz=16000)
     state["tracks"]["t3"] = entry(artist="Some Artist", title="Gone Track", duration_ms=180000, folder="Hard_Bounce",
-                                  status="missing", last_attempt="2026-10-18")
+                                  status="missing",
+                                  last_attempt=(date.today() - timedelta(days=1)).isoformat())  # not due for a retry
     if upgrade:
         state["tracks"]["t2"]["upgrade"] = {
             "file": PARKED, "source": "qobuz", "source_id": "q2", "source_format": "flac", "found": "2026-10-18",
@@ -112,11 +116,66 @@ class Recorder:
 def fake_spotify(monkeypatch, tracks=None):
     tracks = tracks if tracks is not None else TRACKS
     monkeypatch.setattr(spotify, "load_session", lambda p: spotify.Session("cid", p.spotify_token, {}))
+    monkeypatch.setattr(spotify, "login_state", lambda p: LoginState("ok"))
     monkeypatch.setattr(spotify, "fetch_playlist",
                         lambda s, line: FetchedPlaylist(line, list(tracks.get(line.playlist_id, [])), []))
     monkeypatch.setattr(spotify, "current_user", lambda s: ("dj1", "DJ One"))
-    monkeypatch.setattr(spotify, "playlist_info", lambda s, pid, me: spotify.PlaylistInfo(
-        pid, f"Name of {pid[:4]}", "dj1", "DJ One", False, None, len(tracks.get(pid, [])), True))
+    monkeypatch.setattr(spotify, "playlist_info", lambda s, pid, me: PlaylistInfo(
+        "spotify", pid, f"Name of {pid[:4]}", "dj1", "DJ One", False, None, len(tracks.get(pid, [])), True, True))
+
+
+QOBUZ_ID = "900000001"
+QOBUZ_LINK = f"https://open.qobuz.com/playlist/{QOBUZ_ID}"
+QOBUZ_UNREADABLE = "Qobuz doesn't show this playlist. It must be public or one of yours. Check the link."
+
+
+def qobuz_track(tid, title, artist, ms=180000):
+    return SourceTrack(tid, title, (artist,), "Example Album", None, ms, None, service="qobuz")
+
+
+class FakeQobuzReader:
+    """What sources.qobuz.open hands out in tests: no login, no network."""
+
+    def __init__(self, tracks, unreadable, close_fails=False):
+        self.tracks, self.unreadable, self.close_fails = tracks, unreadable, close_fails
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    def close(self):
+        if self.close_fails:
+            raise RuntimeError("the session was already gone")
+
+    def info(self, playlist_id):
+        if self.unreadable:
+            raise SourceError(QOBUZ_UNREADABLE, "playlist_unreadable", "qobuz")
+        return PlaylistInfo("qobuz", playlist_id, "Example Playlist", "7", "Example Curator", False, None,
+                            len(self.tracks), False, True)
+
+    def fetch(self, line):
+        if self.unreadable:
+            raise SourceError(f"playlists.txt line {line.line_no} ({line.folder}): Qobuz doesn't show this playlist.",
+                              "playlist_unreadable", "qobuz")
+        return FetchedPlaylist(line, list(self.tracks), [])
+
+
+def fake_qobuz(monkeypatch, tracks=None, *, connected=True, unreadable=False, open_error=None, close_fails=False):
+    """Qobuz as a playlist source: a login that is there (or not) and a reader over `tracks` (or one that says
+    the playlist isn't shown). `open_error`: the SourceError opening the reader raises (a login Qobuz refuses, Qobuz
+    not answering); `close_fails`: closing the reader raises."""
+    tracks = tracks if tracks is not None else [qobuz_track("900100001", "Example Song", "Example Artist")]
+    monkeypatch.setattr(qobuz_source, "login_state", lambda p: LoginState("ok") if connected else
+                        LoginState("missing", qobuz_source.NOT_SET_UP))
+
+    def open_reader(paths, token):
+        if open_error is not None:
+            raise open_error
+        return FakeQobuzReader(tracks, unreadable, close_fails)
+
+    monkeypatch.setattr(qobuz_source, "open", open_reader)
 
 
 def services(**kw):

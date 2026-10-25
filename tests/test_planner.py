@@ -3,19 +3,28 @@ from datetime import date
 
 import pytest
 
-from discjockey.models import FetchedPlaylist, PlaylistLine, SpotifyTrack
-from discjockey.planner import (TidyRow, mirror_dir, out_of_place, plan, replacement_dir, superseded_dir, tidy_rows,
-                                tidy_target, upgrades_ready_dir)
+from discjockey.models import FetchedPlaylist, PlaylistLine, SourceTrack
+from discjockey.planner import (TidyRow, desired_folders, mirror_dir, out_of_place, plan, replacement_dir,
+                                superseded_dir, tidy_rows, tidy_target, upgrades_ready_dir)
 
 TODAY = date(2026, 10, 20)
 
 
 def tr(id, title=None, artist="Artist", dur=180000, isrc=None):
-    return SpotifyTrack(id, title or f"Title {id}", (artist,), "Album", None, dur, isrc)
+    return SourceTrack(id, title or f"Title {id}", (artist,), "Album", None, dur, isrc)
 
 
 def pl(folder, *tracks, skipped=()):
     return FetchedPlaylist(PlaylistLine(folder, f"pl{folder}", 1), list(tracks), list(skipped))
+
+
+def qb(id, title="Title t1", artist="Artist", dur=180000, isrc=None, streamable=True):
+    """A Qobuz playlist's track (its key is `qobuz:<id>`)."""
+    return SourceTrack(id, title, (artist,), "Album", None, dur, isrc, service="qobuz", streamable=streamable)
+
+
+def qpl(folder, *tracks):
+    return FetchedPlaylist(PlaylistLine(folder, "900000100", 1, "qobuz"), list(tracks), [])
 
 
 def entry(folder="A", status="lossless", path=None, title="Title t1", **kw):
@@ -78,6 +87,168 @@ def test_alias_lookup_recognises_known_alias():
     s = st(t1=entry(path="Library/A/x.aiff", aliases=["t9"]))
     p = plan([pl("A", tr("t9"))], s, ["Library/A/x.aiff"], TODAY)
     assert kinds(p) == []
+
+
+# --- linking across services (spec §9.2): token, ISRC, name and length, new song ---
+
+NAME_NOTE = ("Artist - Title t1: same song as one you already have (same artist, title and length), "
+             "not downloaded again.")
+
+
+def test_a_token_links_first_even_when_another_song_has_its_isrc():
+    s = st(t1=entry(path="Library/A/x.aiff", isrc="DE1"), **{"qobuz:900000001": entry(path="Library/A/y.aiff")})
+    p = plan([qpl("A", qb("900000001", isrc="DE1"))], s, ["Library/A/x.aiff", "Library/A/y.aiff"], TODAY)
+    assert kinds(p) == [] and p.notes == []
+    assert p.state["tracks"]["t1"]["aliases"] == [] and p.state["tracks"]["qobuz:900000001"]["aliases"] == []
+    assert p.state["tracks"]["t1"]["in_playlists"] is False
+
+
+def test_a_spotify_and_a_qobuz_playlist_holding_one_song_plan_one_action():
+    p = plan([pl("A", tr("t1", isrc="DE1")), qpl("B", qb("900000001", isrc="DE1", dur=181000))], st(), [], TODAY)
+    assert kinds(p) == [("acquire", "t1")]
+    assert p.actions[0].folder == "A" and p.actions[0].aliases == ("qobuz:900000001",)
+    assert p.actions[0].qobuz_id == "900000001"
+
+
+def test_the_first_line_s_token_keys_the_song():
+    p = plan([qpl("B", qb("900000001", isrc="DE1")), pl("A", tr("t1", isrc="DE1"))], st(), [], TODAY)
+    assert kinds(p) == [("acquire", "qobuz:900000001")]
+    assert p.actions[0].folder == "B" and p.actions[0].aliases == ("t1",)
+
+
+def test_a_qobuz_track_links_to_a_stored_spotify_song_by_isrc():
+    s = st(t1=entry(path="Library/A/x.aiff", isrc="DE1"))
+    p = plan([qpl("A", qb("900000001", isrc="de1", dur=182000))], s, ["Library/A/x.aiff"], TODAY)
+    assert kinds(p) == []
+    assert p.state["tracks"]["t1"]["aliases"] == ["qobuz:900000001"]
+    assert "ISRC de1" in p.notes[0]
+
+
+def test_a_second_playlist_with_a_linked_track_resolves_by_its_token():
+    s = st(t1=entry(path="Library/A/x.aiff"))
+    p = plan([qpl("A", qb("900000001")), qpl("B", qb("900000001"))], s, ["Library/A/x.aiff"], TODAY)
+    assert p.state["tracks"]["t1"]["aliases"] == ["qobuz:900000001"]
+    assert p.notes == [NAME_NOTE]
+
+
+@pytest.mark.parametrize("dur,linked", [(183000, True), (177000, True), (183100, False), (176900, False)])
+def test_a_track_without_isrc_links_by_name_and_length(dur, linked):
+    s = st(t1=entry(path="Library/A/x.aiff", isrc="DE1"))
+    p = plan([qpl("A", qb("900000001", dur=dur))], s, ["Library/A/x.aiff"], TODAY)
+    if linked:
+        assert kinds(p) == [] and p.notes == [NAME_NOTE]
+        assert p.state["tracks"]["t1"]["aliases"] == ["qobuz:900000001"]
+    else:
+        assert kinds(p) == [("acquire", "qobuz:900000001")] and p.notes == []
+        assert p.state["tracks"]["t1"]["aliases"] == []
+
+
+def test_a_name_link_compares_names_normalised_as_the_qobuz_search_does():
+    s = st(t1=entry(path="Library/A/x.aiff"))
+    p = plan([qpl("A", qb("900000001", title="TITLE T1 (Original Mix)", artist="artist"))], s,
+             ["Library/A/x.aiff"], TODAY)
+    assert kinds(p) == [] and p.state["tracks"]["t1"]["aliases"] == ["qobuz:900000001"]
+
+
+def test_a_track_with_an_isrc_never_links_by_name():
+    s = st(t1=entry(path="Library/A/x.aiff"))  # stored without an ISRC
+    p = plan([qpl("A", qb("900000001", isrc="DE9"))], s, ["Library/A/x.aiff"], TODAY)
+    assert kinds(p) == [("acquire", "qobuz:900000001")]
+    assert p.state["tracks"]["t1"]["aliases"] == [] and p.notes == []
+
+
+def test_a_different_name_doesnt_link():
+    s = st(t1=entry(path="Library/A/x.aiff"))
+    p = plan([qpl("A", qb("900000001", title="Title t2"), qb("900000002", artist="Other"))], s,
+             ["Library/A/x.aiff"], TODAY)
+    assert kinds(p) == [("acquire", "qobuz:900000001"), ("acquire", "qobuz:900000002")]
+
+
+def test_two_new_tracks_without_isrc_link_by_name_in_one_run():
+    p = plan([pl("A", tr("t1", title="Title t1")), qpl("B", qb("900000001", dur=181000))], st(), [], TODAY)
+    assert kinds(p) == [("acquire", "t1")]
+    assert p.actions[0].aliases == ("qobuz:900000001",) and p.notes == []
+
+
+def test_desired_folders_links_the_same_way():
+    s = st(t1=entry(folder="A", path="Library/A/x.aiff"))
+    assert desired_folders([qpl("B", qb("900000001"))], s) == {"t1": "B"}
+    assert s["tracks"]["t1"]["aliases"] == []  # input state untouched
+
+
+def test_a_song_without_artist_or_title_never_links_by_name():
+    # two artist-less tracks with one title stay two songs (nothing says they are the same song)
+    p = plan([pl("A", SourceTrack("t1", "Same", (), "Album", None, 180000, None),
+                 SourceTrack("t2", "Same", (), "Album", None, 180000, None))], st(), [], TODAY)
+    assert kinds(p) == [("acquire", "t1"), ("acquire", "t2")] and p.notes == []
+    # nor does a stored song without an artist take a new one
+    s = st(t1=entry(path="Library/A/x.aiff", artist=""))
+    p = plan([pl("A", SourceTrack("t2", "Title t1", (), "Album", None, 180000, None))], s, ["Library/A/x.aiff"], TODAY)
+    assert kinds(p) == [("acquire", "t2")] and p.state["tracks"]["t1"]["aliases"] == []
+
+
+def test_a_track_of_unknown_length_never_links_by_name():
+    # a Qobuz item without `duration` has length 0: that is not a real length, on either side
+    p = plan([pl("A", tr("t1", dur=0)), qpl("B", qb("900000001", dur=0))], st(), [], TODAY)
+    assert kinds(p) == [("acquire", "t1"), ("acquire", "qobuz:900000001")] and p.notes == []
+    s = st(t1=entry(path="Library/A/x.aiff", duration_ms=0))
+    p = plan([qpl("A", qb("900000001", dur=1000))], s, ["Library/A/x.aiff"], TODAY)
+    assert kinds(p) == [("acquire", "qobuz:900000001")] and p.state["tracks"]["t1"]["aliases"] == []
+    s = st(t1=entry(path="Library/A/x.aiff"))
+    p = plan([qpl("A", qb("900000001", dur=0))], s, ["Library/A/x.aiff"], TODAY)
+    assert kinds(p) == [("acquire", "qobuz:900000001")] and p.notes == []
+
+
+# --- the exact Qobuz id on actions (I5) ---
+
+def test_a_track_qobuz_won_t_deliver_gives_no_qobuz_id():
+    p = plan([qpl("A", qb("900000001", isrc="DE1", streamable=False))], st(), [], TODAY)
+    assert [(a.track_id, a.qobuz_id) for a in p.actions] == [("qobuz:900000001", None)]
+
+
+def test_the_first_streamable_qobuz_track_of_the_song_gives_its_id():
+    p = plan([qpl("A", qb("900000001", isrc="DE1", streamable=False)), pl("B", tr("t1", isrc="DE1")),
+              qpl("C", qb("900000002", isrc="DE1")), qpl("D", qb("900000003", isrc="DE1"))], st(), [], TODAY)
+    assert [(a.track_id, a.qobuz_id) for a in p.actions] == [("qobuz:900000001", "900000002")]
+    assert p.actions[0].aliases == ("t1", "qobuz:900000002", "qobuz:900000003")
+
+
+def test_an_upgrade_check_gets_the_qobuz_id_a_bought_file_doesnt():
+    s = st(t1=entry(path="Library/A/x.mp3", status="not_lossless", isrc="DE1"),
+           t2=entry(path="Library/A/y.mp3", status="not_lossless", title="Title t2", isrc="DE2"))
+    p = plan([qpl("A", qb("900000001", isrc="DE1"), qb("900000002", title="Title t2", isrc="DE2"))], s,
+             ["Library/A/x.mp3", "Library/A/y.mp3", "Library/A/Artist - Title t2.aiff"], TODAY)
+    assert [(a.kind, a.track_id, a.qobuz_id) for a in p.actions] == [
+        ("adopt_bought", "t2", None), ("upgrade", "t1", "900000001")]
+
+
+def test_a_retry_gets_the_qobuz_id():
+    s = st(t1=entry(status="missing", last_attempt="2026-10-01", aliases=["qobuz:900000001"]))
+    p = plan([qpl("A", qb("900000001"))], s, [], TODAY)
+    assert [(a.kind, a.reason, a.qobuz_id) for a in p.actions] == [("acquire", "retry", "900000001")]
+
+
+def test_a_stored_qobuz_alias_alone_gives_no_qobuz_id():
+    s = st(t1=entry(status="missing", last_attempt="2026-10-01", aliases=["qobuz:900000001"]))
+    p = plan([pl("A", tr("t1"))], s, [], TODAY)
+    assert [(a.kind, a.qobuz_id) for a in p.actions] == [("acquire", None)]
+
+
+def test_spotify_only_input_plans_as_before():
+    s = st(t1=entry(path="Library/A/x.mp3", status="not_lossless", isrc="DE1"))
+    p = plan([pl("A", tr("t9", isrc="DE1"), tr("t2", isrc="DE2"), tr("t3"))], s, ["Library/A/x.mp3"], TODAY)
+    assert [(a.kind, a.track_id, a.aliases, a.qobuz_id) for a in p.actions] == [
+        ("acquire", "t2", (), None), ("acquire", "t3", (), None), ("upgrade", "t1", (), None)]
+    assert p.state["tracks"]["t1"]["aliases"] == ["t9"]
+
+
+def test_a_spotify_track_without_isrc_and_a_new_id_joins_a_stored_song_by_name():
+    # the one intended change for Spotify-only input (spec 9.2): same artist, title and length (+-3 s)
+    s = st(t1=entry(path="Library/A/x.mp3", status="not_lossless"))
+    p = plan([pl("A", tr("t9", title="Title t1", dur=182000))], s, ["Library/A/x.mp3"], TODAY)
+    assert [(a.kind, a.track_id, a.aliases) for a in p.actions] == [("upgrade", "t1", ())]
+    assert p.state["tracks"]["t1"]["aliases"] == ["t9"] and p.notes == [NAME_NOTE]
+    assert "t9" not in p.state["tracks"]
 
 
 def test_dropped_track_flagged_not_touched():
@@ -198,8 +369,22 @@ def test_a_file_moved_to_one_of_several_places_is_listed_and_nothing_done():
     s["ambiguous"] = {"t1": ["Library/B/x.aiff", "Library/C/x.aiff"]}
     p = plan([pl("A", tr("t1"))], s, ["Library/A/x.aiff", "Library/B/x.aiff", "Library/C/x.aiff"], TODAY)
     assert kinds(p) == []
-    assert [(t.id, folder, files) for t, folder, files in p.ambiguous] == [
-        ("t1", "A", ["Library/B/x.aiff", "Library/C/x.aiff"])]
+    assert [(key, t.id, folder, files) for key, t, folder, files in p.ambiguous] == [
+        ("t1", "t1", "A", ["Library/B/x.aiff", "Library/C/x.aiff"])]
+
+
+def test_an_ambiguous_song_is_listed_under_its_song_key():
+    several = ["Library/B/x.aiff", "Library/C/x.aiff"]
+    files = ["Library/A/x.aiff", *several]
+    s = st(**{"qobuz:900000001": entry(status="not_lossless", path="Library/A/x.aiff", last_upgrade_check=None)})
+    s["ambiguous"] = {"qobuz:900000001": several}
+    p = plan([qpl("A", qb("900000001"))], s, files, TODAY)
+    assert [(key, t.key) for key, t, _folder, _files in p.ambiguous] == [("qobuz:900000001", "qobuz:900000001")]
+    # a song known from Spotify and linked by ISRC to the Qobuz track the playlist holds: the song's key, not the track's
+    s = st(t1=entry(status="not_lossless", path="Library/A/x.aiff", isrc="DE1", last_upgrade_check=None))
+    s["ambiguous"] = {"t1": several}
+    p = plan([qpl("A", qb("900000001", isrc="DE1"))], s, files, TODAY)
+    assert [(key, t.key) for key, t, _folder, _files in p.ambiguous] == [("t1", "qobuz:900000001")]
 
 
 # --- missing tracks and bought files ---

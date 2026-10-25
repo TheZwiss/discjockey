@@ -69,7 +69,7 @@ describe('fake backend', () => {
     expect(side.folders.find((x) => x.folder === 'Old_Sets')?.in_playlists_txt).toBe(false);
     const pl = await f.playlists();
     if (!pl.ok) throw new Error();
-    expect(pl.rows).toHaveLength(6);
+    expect(pl.rows).toHaveLength(7);   // six Spotify lines (one without access) and one from Qobuz
     expect(pl.rows.filter((r) => !r.enabled)).toHaveLength(1);
     expect(pl.rows.filter((r) => r.info && !r.info.readable)).toHaveLength(1);
     const runs = await f.runs();
@@ -541,5 +541,65 @@ describe('fake tidy-up', () => {
     const after = await preview(f);
     expect(after.rows.length).toBeGreaterThan(before);  // the retargeted files sit where they were, as yours
     expect(after.rows.filter((r) => r.yours).length).toBeGreaterThan(0);
+  });
+});
+
+describe('fake backend: Qobuz playlists (stage 3)', () => {
+  it('lists a Qobuz playlist row with its ref, service and hint', async () => {
+    const f = createFakeBridge('normal');
+    const pl = await f.playlists();
+    if (!pl.ok) throw new Error();
+    const row = pl.rows.find((r) => r.service === 'qobuz')!;
+    expect(row).toMatchObject({ link: 'https://open.qobuz.com/playlist/900000001', playlist_id: 'qobuz:900000001',
+      service_name: 'Qobuz' });
+    expect(row.info).toMatchObject({ owner_name: 'Example Curator', readable: true });
+    expect(row.info!.hint).toMatch(/public/);
+    expect(pl.rows.find((r) => r.service === 'spotify')).toMatchObject({ service_name: 'Spotify',
+      playlist_id: '0DiscjockeyExampleList' });
+  });
+  it('a track of the Qobuz playlist links to Qobuz, the others to Spotify', async () => {
+    const f = createFakeBridge('normal');
+    const q = await f.track('qobuz:112358');
+    const sp = await f.track('t1');
+    if (!q.ok || !sp.ok) throw new Error();
+    expect(q.track.track_link).toEqual({ url: 'https://open.qobuz.com/track/112358', label: 'Open in Qobuz' });
+    expect(sp.track.track_link).toEqual({ url: 'https://open.spotify.com/track/t1', label: 'Open in Spotify' });
+  });
+  it('add_playlist reads a Qobuz link; qobuz_unreadable answers the Qobuz words; qobuz_not_connected asks to connect', async () => {
+    const link = 'https://open.qobuz.com/playlist/777000123';
+    const read = await createFakeBridge('normal', { speed: 50 }).add_playlist(link);
+    expect(read).toMatchObject({ ok: true, playlist_id: 'qobuz:777000123', service: 'qobuz', service_name: 'Qobuz',
+      readable: true });
+    expect(await createFakeBridge('qobuz_unreadable', { speed: 50 }).add_playlist(link)).toEqual({ ok: false,
+      kind: 'playlist_unreadable', service: 'qobuz',
+      message: "Qobuz doesn't show this playlist. It must be public or one of yours. Check the link." });
+    expect(await createFakeBridge('qobuz_not_connected', { speed: 50 }).add_playlist(link)).toMatchObject({ ok: false,
+      kind: 'not_set_up', service: 'qobuz' });
+    const sp = await createFakeBridge('normal', { speed: 50 }).add_playlist('https://open.spotify.com/playlist/37i9dQZF1DX');
+    expect(sp).toMatchObject({ ok: true, playlist_id: '37i9dQZF1DX', service: 'spotify' });
+  });
+  it('the read status names the services; qobuz_not_connected has Qobuz unconnected and the problem about it', async () => {
+    const ok = await createFakeBridge('normal').dashboard();
+    const bad = await createFakeBridge('qobuz_not_connected').dashboard();
+    if (!ok.ok || !bad.ok) throw new Error();
+    expect(ok.spotify).toMatchObject({ problem: null, problem_service: null });
+    expect(ok.spotify.services.map((x) => [x.service, x.connected])).toEqual([['spotify', true], ['qobuz', true]]);
+    expect(bad.spotify.services.find((x) => x.service === 'qobuz')).toMatchObject({ name: 'Qobuz', connected: false });
+    expect(bad.spotify).toMatchObject({ problem: 'not_set_up', problem_service: 'qobuz' });
+  });
+  it('setup_skip_spotify counts the Spotify step as done', async () => {
+    const evs: HubEvent[] = [];
+    const f = createFakeBridge('first_run', { speed: 50, emit: (e) => evs.push(e) });
+    const before = await f.setup_status();
+    if (!before.ok) throw new Error();
+    expect(before).toMatchObject({ spotify_skipped: false, next_step: 'spotify' });
+    const start = await f.setup_skip_spotify();
+    if (!start.ok) throw new Error();
+    const done = await until(evs, (e) => e.type === 'JobFinished' && e.job_id === start.job_id);
+    expect(done).toMatchObject({ kind: 'setup_skip_spotify', ok: true });
+    const after = await f.setup_status();
+    if (!after.ok) throw new Error();
+    expect(after.spotify_skipped).toBe(true);
+    expect(after.next_step).not.toBe('spotify');
   });
 });

@@ -43,7 +43,7 @@
     "wait": "[data-test=next-unread]"
    },
    {
-    "eval": "if (document.querySelector('[data-test=read-now]') || /Spotify hasn/.test(document.querySelector('[data-test=next-unread]').textContent)) throw new Error(\"the next-sync card repeats the header slot (\\u00a711)\")"
+    "eval": "if (document.querySelector('[data-test=read-now]') || /(Spotify|Playlists) haven?.t been read/.test(document.querySelector('[data-test=next-unread]').textContent)) throw new Error(\"the next-sync card repeats the header slot (\\u00a711)\")"
    }
   ]
  },
@@ -146,6 +146,19 @@
   "steps": [
    {
     "wait": "[data-test=runs-empty]"
+   }
+  ]
+ },
+ {
+  "name": "dashboard-qobuz-not-connected",
+  "route": "#/",
+  "scenario": "qobuz_not_connected",
+  "steps": [
+   {
+    "wait": "[data-test=next-unread], [data-test=next-sync]"
+   },
+   {
+    "sleep": 300
    }
   ]
  }

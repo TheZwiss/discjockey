@@ -5,8 +5,9 @@ import time
 
 import pytest
 
-from discjockey import spotify
-from discjockey.models import PlaylistLine, SpotifyTrack
+from discjockey.models import PlaylistInfo
+from discjockey.sources import spotify
+from discjockey.models import PlaylistLine, SourceTrack
 
 
 def item(id="t1", name="Song", isrc="DE1", local=False, type_="track", key="item"):
@@ -19,12 +20,12 @@ def item(id="t1", name="Song", isrc="DE1", local=False, type_="track", key="item
 
 def test_parse_item_track():
     t = spotify.parse_item(item())
-    assert t == SpotifyTrack("t1", "Song", ("Artist", "Other"), "Album", "big", 180000, "DE1")
+    assert t == SourceTrack("t1", "Song", ("Artist", "Other"), "Album", "big", 180000, "DE1")
 
 
 def test_parse_item_old_track_key_and_missing_isrc():
     t = spotify.parse_item(item(key="track", isrc=None))
-    assert isinstance(t, SpotifyTrack) and t.isrc is None
+    assert isinstance(t, SourceTrack) and t.isrc is None
 
 
 @pytest.mark.parametrize("raw,reason", [
@@ -412,8 +413,8 @@ def test_playlist_info(tmp_path, monkeypatch):
     monkeypatch.setattr(spotify, "_http", fake)
     s, _ = session(tmp_path)
     info = spotify.playlist_info(s, "0DiscjockeyExampleList", "dj1")
-    assert info == spotify.PlaylistInfo("0DiscjockeyExampleList", "Hard Bounce 2026", "dj1", "DJ One", False, "big",
-                                        49, True)
+    assert info == PlaylistInfo("spotify", "0DiscjockeyExampleList", "Hard Bounce 2026", "dj1", "DJ One", False,
+                                "big", 49, True, True)
     assert info.readable and fake.calls[0][1] == f"{spotify.API}/playlists/0DiscjockeyExampleList"
 
 

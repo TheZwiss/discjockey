@@ -215,14 +215,16 @@ Every page starts with one **`PageHeader`**; a page never builds its own title r
 Finish later in its `actions`).
 
 ```
-[Title · status line] .............................. [page actions] [Spotify read 2 min ago  ↻ Read Spotify]
+[Title · status line] .......................... [page actions] [Playlists read 2 min ago  ↻ Read playlists]
 ```
 
 - Props: `title`, `sub` (the status line, 12 px, on the title's baseline), `actions` (snippet: search, Full report),
-  `spotify` (show the Spotify slot), `spotifyInBody`, `spotifyState`.
-- The **Spotify slot** is always last, so its right edge is the content's right edge. It is on Dashboard, Sync (before
-  the start) and To-do. `SpotifyStatus` is placed only by this slot; the checker fails it anywhere else
-  (`spotify-status`).
+  `spotify` (show the read slot), `spotifyInBody`, `spotifyState`. The title never shrinks while the status line can
+  give way: the line ends in "…" (down to nothing) first; only a title longer than the whole lead is cut.
+- The **read slot** (the playlists' read status, every service at once; its wire and block names still say Spotify
+  until stage 5 rebuilds it) is always last, so its right edge is the content's right edge. It is on Dashboard, Sync
+  (before the start), To-do and Playlists. `SpotifyStatus` is placed only by this slot; the checker fails it anywhere
+  else (`spotify-status`).
 - The header spans its frame's content box (the list area, never the panel). Height at least 34 px; content starts
   `--s-3` under it, so it starts at the same y on every page.
 
@@ -233,11 +235,12 @@ its greeting while Sync and To-do put it right, and Settings' title sat 12 px of
 ### Rule: a state is said once, one action per intent (§11)
 A state is said in one place, where the user looks for it, and each intent has one control. When you find a duplicate,
 remove it on every page, not just yours.
-- "Spotify can't be read" is two derived stores in `lib/stores/hub.ts`: `spotifyMissing` (yes or no; the header slot
-  reads it and only turns Read Spotify off) and `spotifyMissingKind` (which problem; the shell's banner and Sync's
-  Spotify card read it). The banner says it with Set up. One wording everywhere:
-  `problemCopy(kind, { spotify: true })` in `lib/copy.ts`.
-- Read Spotify lives only in the header slot. Cards don't repeat it.
+- "The playlists can't be read" is two derived stores in `lib/stores/hub.ts`: `readBlocked` (yes or no; the header
+  slot reads it and only turns Read playlists off, its reason "Connect Qobuz first.") and `readBlock` (which problem and
+  which service; the shell's banner and Sync's card read it). Only a service `playlists.txt` uses blocks the read (a
+  Spotify left out in Setup is no problem while no line is on Spotify). The banner says it with Connect {Name} →.
+  One wording everywhere: `problemCopy(kind, { service })` in `lib/copy.ts`.
+- Read playlists lives only in the header slot. Cards don't repeat it.
 - **A page takes a banner over only through `bannersSaidInBody`** (`lib/stores/shell.ts`): the view that says the
   state in its body calls `$effect(() => sayInBody({ console, spotify }))`, which clears itself when the view goes.
   The shell imports no page. A view never loses the warning: it claims a banner only while it really shows its own.
@@ -317,7 +320,7 @@ used.
 | `AccountPanel` | `lib/components/AccountPanel.svelte` (+ `accountModel.ts`, controller `accountFlow.svelte.ts`) | `gallery-accountpanel` | One download login (Qobuz, YouTube Premium, SoundCloud Go+), shared by Settings and Setup (spec settings-setup §5). Presentational: renders `phase` (`PanelPhase`: looking · error · found · none · unreadable · waiting · checking · result · working · no_premium · form) and calls `actions` (an `AccountFlow`, the only part that talks to the bridge). Full form: a `Panel` whose head is the gain `StatCard` (256 kbps against about 130 on two bars in the quality colours; Qobuz: its tracks over their share) and the state card, labelled with the service, the risk note behind the ⓘ at the head's end; every line of the card keeps a 16 px gutter (the state's mark, a spinner, nothing) so its sentences share one edge; the foot holds the phase's one filled action (`mainAction`), nothing while it works or waits; `disabledWhy` (`accountBlocked`) is the one Hint, under the button it turns off. `compact`: one Surface card per service (mark · name · state or what it gives · "optional" until it works · ⓘ), its action `filled` only when the page passes `filled`, else `primary`. Qobuz: e-mail + `SecretField` (the password leaves the element only through `takeSecret`), "Google, Apple or Facebook account?" opens a `NoteCard` with the three numbered steps and Set a Qobuz password ↗. "Another browser ▾" is a `ContextMenu` of every browser × profile, marked. Sign out sits beside any saved login (also one that stopped working); a paused or used-up account adds "Download limits →"; a result with nothing to try again (`dismissable`: a failed sign-out, System Settings that didn't open) gets a muted "OK" link back to the account's own state, and Qobuz's failed Check again brings the fields back under its words — no phase is a dead end. |
 | `StepStrip` | `lib/components/StepStrip.svelte` | `gallery-stepstrip` | Where you are in a short guide (Setup): one row of equal steps, a number in a ring (✓ when done) and the label. `steps` of `StripStep` (`key`, `label`, `state`: `done` · `current` · `open` · `locked`, `done` also marks the current one ✓); `onpick(key)`. Done and open steps are buttons (`data-step-hit`: they fill their equal share, which the `button` rule allows); the current one carries the accent wash and `aria-current="step"`; a locked step (waits for an earlier one) is no button, unfilled, its ring dashed. 34 px (`--h-btn`); in a narrow strip the others end in "…" and the current keeps its label. Unlike `Segmented`, a step can be not reachable. |
 | `NumberedSteps` | `lib/components/NumberedSteps.svelte` | `gallery-numberedsteps` | Steps to follow in order: children are `<li>` rows, the text in one element, a control under it in the text column (CopyCode, SecretField, a button), the number in a 20 px ring. Setup's Spotify app, Qobuz's password steps in `AccountPanel`. |
-| `AddRow` | `lib/components/AddRow.svelte` (+ `addRowModel.ts`) | `gallery-addrow` | Paste a Spotify playlist link → `add_playlist` → the found playlist as a card with its folder name → "Add to the list" calls `onadd(playlist, folder)`, which answers whether it went in (a boolean or a promise of one; the button stays busy meanwhile): only then the field and the card clear, so a refused save keeps the playlist for another try; `draft` is the list it adds to (`PlaylistRef`: duplicate and folder checks). `filled`: that button is the screen's one filled button (Setup's first playlist). Playlists' list head, Setup. |
+| `AddRow` | `lib/components/AddRow.svelte` (+ `addRowModel.ts`) | `gallery-addrow` | Paste a Spotify or Qobuz playlist link → `add_playlist` → the found playlist as a card ("Qobuz · owner · 18 tracks"; an unreadable one with its service's own words as a wrapping problem Hint) with its folder name; a refusal or a playlist the service won't show is the engine's sentence as a wrapping problem Hint, a missing login a compact `ProblemCard` with its service's Connect → (only the bridge's sentence, no second button, while the shell banner already asks for that service's login) "Add to the list" calls `onadd(playlist, folder)`, which answers whether it went in (a boolean or a promise of one; the button stays busy meanwhile): only then the field and the card clear, so a refused save keeps the playlist for another try; `draft` is the list it adds to (`PlaylistRef`: duplicate and folder checks). `filled`: that button is the screen's one filled button (Setup's first playlist). Playlists' list head, Setup. |
 | `ContextMenu` | `lib/components/ContextMenu.svelte` | `gallery-accountpanel` (shot `base-gallery-accountpanel-menu`) | A menu at the pointer or under its button (Segmented's More, a row's ⋯, Another browser ▾). Items may carry a unique `key` (two profiles with the same name) and a `note` in its own right column (`good` colours it as a working state). |
 | `FolderField` | `lib/components/FolderField.svelte` (+ `lib/musicFolder.ts`, flow `lib/musicFolderFlow.ts`) | `gallery-folderfield` | A folder chosen with the Mac's dialog, never typed (Setup, Settings, the missing screen): the path in a recessed well (mono, `~` for home, "…" in the middle when narrow so the folder's own name stays, the cut part a whole number of characters so no blank sits before the name, full path in `title`), `Choose…` (`secondary`, `filled` by prop; `label` changes its words: `Choose where…`, `Change…`), one line under it from `checkLine`: `StatusMark` + `Hint` (a refusal or warning may wrap to three lines, `Hint wrap`); `disabledWhy` turns the button off and is that line instead (it wraps); `disabled` turns it off with no line (the page already says why, e.g. Setup's banner); no `onchoose` = shown only. Under 300 px of its own width (container query) the button sits under the path so the path keeps the full width and the folder's own name stays whole. Never calls the bridge. |
 | `CopyCode` | `lib/components/CopyCode.svelte` | `gallery-copycode` | A line to paste into the Terminal with its Copy link (`Button` link); the code wraps in its own column, so Copy stays at the first line's end. Without clipboard access it selects the line and says "Press ⌘C". |
@@ -333,7 +336,7 @@ used.
 | `Tick` | `lib/components/Tick.svelte` | `gallery-listrow` | The checkbox look inside a `ListRow` lead (the row's button is the control, `checked`): orange filled ✓, empty box, `mixed` – for a group control with only some ticked. Marks itself `data-mark`, so an `off` row never dims it. Sync's plan, Playlists' tidy-up. |
 | `ListSection` | `lib/components/ListSection.svelte` | `gallery-listsection` | A group's head among one list's rows (name · count · hint, `--h-section` 32 px): a sibling of the rows, sticky at the scroller's top while its rows pass (heading level 3). A `Surface grow` with sections doesn't fade its top end (the stuck head is the edge) and gives its rows `scroll-margin-top`, so a row scrolled into view stops below the head. One anchored list with sections replaces stacked lists of groups (To-do). |
 | `TrackHead`, `UpgradeCard` | `lib/components/` | `gallery-trackhead` | A details panel's head (To-do, Library): 64 px cover, title · "Artist · length · place" · `children`, one line each, `action` at the title's end (To-do's Hide). The upgrade box: a good-tone Surface card (label, found date as summary), Now/New spectra, ComparePlayer, the cue verdict ruled off, the page's `actions`. |
-| `ProblemCard` | `lib/components/ProblemCard.svelte` | `gallery-problemcard` | A problem as a problem-tone Surface card; `compact` one-line form; `actions`; `alert` only for a problem the user's own action caused. |
+| `ProblemCard` | `lib/components/ProblemCard.svelte` | `gallery-problemcard` | A problem as a problem-tone Surface card; `compact` one-line form; `actions`; `alert` only for a problem the user's own action caused; `service` (a playlist service's login: "Qobuz isn't connected." with Connect Qobuz →, no detail line repeating it); `hint` (the page's own line under the headline, e.g. Sync's "what is affected" for a missing login; replaces the stock hint); `offline` with a `service` reads "Qobuz isn't answering.". |
 | `EmptyState`, `Skeleton` | `lib/components/` | `gallery-emptystate`, `gallery-skeleton` | Empty content; a placeholder of the content's shape. |
 
 Sync's `Why`, `WhyMark` and `KindIcon` (`hub-ui/src/pages/sync/plan/`) are shared with the gallery. If another page
@@ -476,6 +479,19 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-25 · Playlists from more than one service (library stage 3): the service as a word, no mark; read words
+  service-neutral; `PageHeader`'s title keeps its width.** A Playlists row's second line starts with its service
+  ("Qobuz · "Qobuz Picks" · Example Curator"; AddRow's found card and Setup's list the same), on every row, not only in
+  a mixed list, so a row always looks the same. No graphic service mark: a word needs no learning and no brand art,
+  brand colours would break colour's fixed jobs, and a new look is the user's call — stage 5's sidebar icons are that
+  decision, and the row's word can become its block then. An unreadable playlist says its service's own words (the
+  engine's hint), in red, whole in the tooltip. The read slot says "Playlists read …" / "↻ Read playlists"; its
+  reason, the banner and Sync's card name the service that blocks the read (`readBlock`, `ProblemCard service`). The
+  W10 words made the slot longer and Playlists' title read "Playl…" at 1100: flex cut a short title by its share of
+  the shortfall (any shrink factor draws "…" from a fraction of a pixel), so the title no longer shrinks and the status
+  line gives way first, as this doc already said it did. Seen: `playlists-qobuz-row`, `playlists-qobuz-unreadable`,
+  `playlists-qobuz-not-connected`, `sync-before-qobuz-not-connected`, `dashboard-qobuz-not-connected`,
+  `setup-spotify-skipped`, `settings-spotify-skipped`.
 - **2026-10-23 · Now playing lives in the frame's foot; hide folds it into the sidebar.** The sidebar and a 44 px
   foot are one L-shaped frame in one material (painted once by `App`), the line only along the page; the page's lower
   edge is the position; the sync's status moves into the same bar; Hide folds the bar into a Now playing row above

@@ -1,5 +1,5 @@
 // All shared copy in one place: plain English, short, sentence case, "you" voice (plan Part C "Copy").
-import type { EmptyKind, PlanCounts, ProblemKind } from './bridge/types';
+import type { EmptyKind, PlanCounts, PlaylistService, ProblemKind } from './bridge/types';
 
 export type CopyAction = { label: string; href?: string; retry?: boolean; report?: boolean };
 export type ProblemCopy = { title: string; hint?: string; action?: CopyAction };
@@ -13,8 +13,8 @@ export const PROBLEMS: Record<ProblemKind, ProblemCopy> = {
   login_expired: { title: 'Your Spotify login has expired.',
     action: { label: 'Connect Spotify →', href: '#/settings/spotify' } },
   offline: { title: "No internet connection. Try again when you're online.", action: { label: 'Retry', retry: true } },
-  playlist_unreadable: { title: "A playlist can't be read.", hint: 'Follow ≠ own: make your own copy in Spotify.',
-    action: { label: 'Open Playlists', href: '#/playlists' } },
+  // the engine's message says which playlist and what to do in its own service (W3), so no hint of its own here
+  playlist_unreadable: { title: "A playlist can't be read.", action: { label: 'Open Playlists', href: '#/playlists' } },
   config_invalid: { title: 'Something in your settings needs fixing.' },
   qobuz_login_failed: { title: "Qobuz didn't accept the login.",
     action: { label: 'Open Qobuz in Settings →', href: '#/settings/qobuz' } },
@@ -31,14 +31,31 @@ export const SYNC_CRASHED = 'The sync stopped unexpectedly';
 export const CRASHED_MESSAGE = 'Something went wrong. Try again.';
 export const NOT_WHILE_SYNC = "Not while a sync runs. Try again when it's finished.";
 
-/** Spotify can't be read because its login is missing (`not_set_up` with `spotify`; the engine's not_set_up also
- *  covers a missing playlists.txt, hence the flag). Same link as the expired login: one state, one wording, one link
- *  on every page (spec §11). */
-export const SPOTIFY_NOT_CONNECTED: ProblemCopy = { title: "Spotify isn't connected.",
-  action: { label: 'Connect Spotify →', href: '#/settings/spotify' } };
+/** The playlist services by name (the engine's `PLAYLIST_SERVICES`; a row's `service_name` says the same). */
+export const PLAYLIST_SERVICE_NAMES: Record<PlaylistService, string> = { spotify: 'Spotify', qobuz: 'Qobuz' };
+/** Where each playlist service's login lives in Settings (Qobuz's login card is also its download account). */
+export const SERVICE_SETTINGS: Record<PlaylistService, string> = {
+  spotify: '#/settings/spotify', qobuz: '#/settings/qobuz',
+};
 
-export function problemCopy(kind: ProblemKind | string, opts: { sync?: boolean; spotify?: boolean } = {}): ProblemCopy {
-  if (kind === 'not_set_up' && opts.spotify) return SPOTIFY_NOT_CONNECTED;
+/** A playlist service can't be read because its login is missing (`not_set_up` with a service; the engine's
+ *  not_set_up without one also covers a missing playlists.txt) or has expired. One wording and one link per service
+ *  on every page (spec §11): the banner, Sync's card, the add row (plan stage 3, I8 W6). */
+export function serviceProblem(kind: 'not_set_up' | 'login_expired', service: PlaylistService): ProblemCopy {
+  const name = PLAYLIST_SERVICE_NAMES[service];
+  return { title: kind === 'login_expired' ? `Your ${name} login has expired.` : `${name} isn't connected.`,
+    action: { label: `Connect ${name} →`, href: SERVICE_SETTINGS[service] } };
+}
+
+/** The headline for a problem. `service`: the playlist service that caused it (the bridge's `Fail.service`, the read
+ *  status's `problem_service`); it picks the login words and link of not_set_up and login_expired. */
+export function problemCopy(kind: ProblemKind | string,
+  opts: { sync?: boolean; service?: PlaylistService | null } = {}): ProblemCopy {
+  if ((kind === 'not_set_up' || kind === 'login_expired') && opts.service) return serviceProblem(kind, opts.service);
+  // the service's own server is the one not answering: name it; the engine's message stays the detail
+  if (kind === 'offline' && opts.service) {
+    return { ...PROBLEMS.offline, title: `${PLAYLIST_SERVICE_NAMES[opts.service]} isn't answering.` };
+  }
   const c = PROBLEMS[kind as ProblemKind] ?? PROBLEMS.crashed;
   if (kind === 'crashed' && opts.sync) return { ...c, title: SYNC_CRASHED };
   return c;
@@ -59,6 +76,7 @@ export const SUCCESS: Record<string, string> = {
   save_playlists: 'Playlists saved. Changes happen at the next sync.',
   save_limits: 'Daily limit saved.',
   setup_skip_qobuz: 'Qobuz left out.',
+  setup_skip_spotify: 'Spotify left out.',
   setup_forget_account: 'Login forgotten.',
   setup_account: '',  // the setup step shows the check's own message
 };
@@ -72,14 +90,17 @@ export const EMPTY: Record<EmptyKind, { title: string; body?: string; action?: C
   no_playlists: { title: 'No playlists yet.', action: { label: 'Add a playlist →', href: '#/playlists' } },
   not_set_up: { title: "Discjockey isn't set up yet.", action: { label: 'Finish setup →', href: '#/setup' } },
   empty_library: { title: 'No tracks yet. Run a sync to fill your library.' },
-  // Spotify's state and Read Spotify live in the header slot right above (spec §5a/§11): say what's missing here, point up
-  no_preview: { title: 'Nothing to review yet.', body: 'Read Spotify above to see what changed in your playlists.' },
+  // the read status and Read playlists live in the header slot right above (spec §5a/§11): say what's missing, point up
+  no_preview: { title: 'Nothing to review yet.', body: 'Read your playlists above to see what changed.' },
   up_to_date: { title: 'Everything is up to date.' },
   no_match: { title: 'Nothing matches.' },
   all_lossless: { title: 'Everything is lossless.' },
   all_hidden: { title: 'Only hidden tracks are left.' },
   nothing_here: { title: 'Nothing here.' },
 };
+
+/** Why Read playlists is off while setup isn't finished (the header slot; the first-run page says the rest). */
+export const READ_NEEDS_SETUP = 'Finish setup first.';
 
 export const WRITE_BLOCKED = {
   busy: 'Wait until the current change is finished.',

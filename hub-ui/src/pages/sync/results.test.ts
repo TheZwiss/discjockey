@@ -65,8 +65,8 @@ describe('result list', () => {
 describe('below the live card', () => {
   const msg = (text: string, at: number) => ({ level: 'info' as const, text, at });
   it('shows the last message until a track starts or finishes after it', () => {
-    const messages = [msg('Reading your Spotify playlists…', 100)];
-    expect(liveMessage({ messages, last_started_at: null, last_finished_at: null })).toBe('Reading your Spotify playlists…');
+    const messages = [msg('Reading your playlists…', 100)];
+    expect(liveMessage({ messages, last_started_at: null, last_finished_at: null })).toBe('Reading your playlists…');
     expect(liveMessage({ messages, last_started_at: 150, last_finished_at: null })).toBeNull();
     expect(liveMessage({ messages, last_started_at: null, last_finished_at: 150 })).toBeNull();
     expect(liveMessage({ messages: [...messages, msg('Qobuz paused for this run', 200)], last_started_at: 150,

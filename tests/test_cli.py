@@ -8,10 +8,12 @@ import discjockey.cli as cli
 from audio_helpers import music, write_aiff
 from hub_helpers import choose_music
 
-from discjockey import REPO, config, library, run, spotify
+from discjockey import REPO, config, library, run
+from discjockey.sources import spotify
+from discjockey.sources.base import LoginState
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.library import Paths, empty_state, run_lock, save_state
-from discjockey.models import FetchedPlaylist, SpotifyTrack
+from discjockey.models import FetchedPlaylist, SourceTrack
 from discjockey.setup_cmd import TEMPLATE
 
 PLAYLISTS = "Hard_Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n"
@@ -25,6 +27,7 @@ def root(tmp_path, monkeypatch):
 
 def fake_spotify(monkeypatch, tracks):
     monkeypatch.setattr(spotify, "load_session", lambda paths: spotify.Session("cid", paths.spotify_token, {}))
+    monkeypatch.setattr(spotify, "login_state", lambda p: LoginState("ok"))
     monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: FetchedPlaylist(line, list(tracks), []))
 
 
@@ -47,7 +50,7 @@ def test_dry_run_changes_no_music_file_and_writes_no_report(root, monkeypatch, c
     mine.parent.mkdir(parents=True)
     write_aiff(mine, music(1))
     before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file() and ".discjockey" not in p.parts}
-    fake_spotify(monkeypatch, [SpotifyTrack("t1", "Song", ("Artist",), "Al", None, 180000, None)])
+    fake_spotify(monkeypatch, [SourceTrack("t1", "Song", ("Artist",), "Al", None, 180000, None)])
     assert cli.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "Download (new): 1" in out and "Dry run: no music files were changed and no report was written." in out
@@ -78,7 +81,7 @@ def test_spotify_problem_exits_2(root, monkeypatch, capsys):
 
 def test_answering_no_changes_nothing(root, monkeypatch, capsys):
     (root / "playlists.txt").write_text(PLAYLISTS)
-    fake_spotify(monkeypatch, [SpotifyTrack("t1", "Song", ("Artist",), "Al", None, 180000, None)])
+    fake_spotify(monkeypatch, [SourceTrack("t1", "Song", ("Artist",), "Al", None, 180000, None)])
 
     class FakeQobuz:
         def close(self):
@@ -103,7 +106,7 @@ class FakeAcquirer:
         self.ctrl_c = ctrl_c  # how many SIGINTs one press delivers (uv/caffeinate forward it a second time)
         self.calls = 0
 
-    def acquire(self, track, rejected, workdir, lossless_only, tracker):
+    def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None):
         self.calls += 1
         for _ in range(self.ctrl_c):
             os.kill(os.getpid(), signal.SIGINT)
@@ -112,8 +115,8 @@ class FakeAcquirer:
         return AcquireResult("ready", Ready(p, "lossless", "qobuz", "q1", "flac", None, "Qobuz FLAC · verified lossless"))
 
 
-TWO_TRACKS = [SpotifyTrack("t1", "Song", ("Artist",), "Al", None, 180000, None),
-              SpotifyTrack("t2", "Other", ("Artist",), "Al", None, 180000, None)]
+TWO_TRACKS = [SourceTrack("t1", "Song", ("Artist",), "Al", None, 180000, None),
+              SourceTrack("t2", "Other", ("Artist",), "Al", None, 180000, None)]
 
 
 def full_run(root, monkeypatch, acquirer, args=("--yes",), tracks=TWO_TRACKS[:1]):
@@ -366,3 +369,68 @@ def test_sync_says_how_many_files_a_tidy_up_would_move(root, monkeypatch, capsys
     assert ("No downloads needed." in out) is not dry_run
     tidy_lines = [s for s in out.splitlines() if "tidy up in the window" in s]
     assert tidy_lines == ([line] if line else [])
+
+
+def test_setup_skips_spotify_on_an_empty_client_id(root, monkeypatch, capsys):
+    from discjockey import qobuz, setup_cmd
+    from discjockey.settings import load_settings
+
+    paths = Paths(root, support=root / ".support")
+    monkeypatch.setattr(setup_cmd, "check_tools", lambda: [])
+    monkeypatch.setattr(spotify, "login", lambda *a, **k: pytest.fail("Spotify was skipped"))
+    monkeypatch.setattr(qobuz, "interactive_login", lambda p: None)
+    answers = iter(["", "1"])  # Enter on the Client ID, then "1" for the Qobuz login
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    assert setup_cmd.run_setup(paths) == 0
+    assert "Spotify skipped" in capsys.readouterr().out
+    assert load_settings(paths.settings_file).spotify_skipped
+    text = paths.playlists_file.read_text()
+    assert "Spotify or Qobuz" in text and "open.qobuz.com/playlist" in text
+
+
+def test_a_client_id_connects_spotify_and_clears_the_skip(root, monkeypatch):
+    from discjockey import qobuz, setup_cmd
+    from discjockey.settings import Settings, load_settings, save_settings
+
+    paths = Paths(root, support=root / ".support")
+    save_settings(paths.settings_file, Settings(spotify_skipped=True))
+    monkeypatch.setattr(setup_cmd, "check_tools", lambda: [])
+    monkeypatch.setattr(setup_cmd, "_ask_client_id", lambda p: "0" * 32)
+    monkeypatch.setattr(spotify, "login", lambda client_id, token_path, **kw: None)
+    monkeypatch.setattr(spotify, "load_session", lambda p: object())
+    monkeypatch.setattr(spotify, "api_get", lambda session, url: {"id": "me"})
+    monkeypatch.setattr(qobuz, "interactive_login", lambda p: None)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "1")
+    assert setup_cmd.run_setup(paths) == 0
+    assert not load_settings(paths.settings_file).spotify_skipped
+
+
+def test_a_qobuz_only_playlists_file_never_asks_for_spotify(root, monkeypatch, capsys):
+    from hub_helpers import QOBUZ_LINK, fake_qobuz, qobuz_track
+
+    (root / "playlists.txt").write_text(f"Example_Playlist = {QOBUZ_LINK}\n")
+    fake_qobuz(monkeypatch, [qobuz_track("900100001", "Example Song", "Example Artist")])  # no Spotify files at all
+    monkeypatch.setattr(spotify, "load_session", lambda paths: pytest.fail("Spotify was not asked for"))
+    assert cli.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "Download (new): 1" in out and "Spotify" not in out
+
+
+def test_a_spotify_line_with_spotify_skipped_asks_to_set_it_up(root, monkeypatch, capsys):
+    from discjockey.settings import Settings, save_settings
+
+    (root / "playlists.txt").write_text(PLAYLISTS)
+    save_settings(Paths(root, support=root / ".support").settings_file, Settings(spotify_skipped=True))
+    assert cli.main(["--dry-run"]) == 2
+    assert "Spotify is not set up yet. Run: discjockey setup" in capsys.readouterr().out
+
+
+def test_setup_with_a_broken_settings_file_says_so(root, monkeypatch, capsys):
+    from discjockey import setup_cmd
+
+    paths = Paths(root, support=root / ".support")
+    paths.settings_file.write_text("{ not json")
+    monkeypatch.setattr(setup_cmd, "check_tools", lambda: [])
+    monkeypatch.setattr(setup_cmd, "_ask_client_id", lambda p: "")
+    assert setup_cmd.run_setup(paths) == 2
+    assert "settings.json" in capsys.readouterr().out

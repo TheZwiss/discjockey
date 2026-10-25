@@ -8,7 +8,7 @@ from discjockey.align import Alignment
 from discjockey.execute import Executor
 from hub_helpers import records
 from discjockey.library import Paths, empty_state, load_state
-from discjockey.models import Action, SpotifyTrack
+from discjockey.models import Action, SourceTrack
 from discjockey.planner import ENTRY_KEYS
 from discjockey.events import ActionFinished, ActionStarted, Cancelled, CancelToken, RunStarted, StepChanged
 from discjockey.report import RunLog
@@ -24,14 +24,16 @@ class FakeAcquirer:
         self.originals = []
         self.qobuz = []
         self.declined = []
+        self.exact = []
 
     def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None, originals=True,
-                declined=frozenset(), qobuz=True):
+                declined=frozenset(), qobuz=True, exact=None):
         self.calls.append((track.id, set(rejected), lossless_only))
         self.better.append(better_than)
         self.originals.append(originals)
         self.qobuz.append(qobuz)
         self.declined.append(set(declined))
+        self.exact.append(exact)
         r = self.results.pop(0)
         if isinstance(r, BaseException):
             raise r
@@ -48,7 +50,7 @@ def ready(status="lossless", source="qobuz", sid="q1"):
 
 
 def act(kind, tid="t1aaaaaaa", folder="A", title="Song", **kw):
-    t = SpotifyTrack(tid, title, ("Artist",), "Album", None, 180000, None)
+    t = SourceTrack(tid, title, ("Artist",), "Album", None, 180000, None)
     return Action(kind, tid, folder, t, (0, 0), **kw)
 
 
@@ -97,6 +99,16 @@ def test_new_lossless_track_is_placed(env):
     assert state["pending"] == [] and records(load_state(paths)) == records(state)
     assert len(ex.log.section("new_lossless")) == 1
     assert not (paths.tmp / "t1aaaaaaa").exists()
+
+
+def test_the_qobuz_id_a_playlist_named_reaches_the_acquirer_as_exact(env):
+    paths, state, make = env
+    touch(paths, "Library/A/Artist - Song.aiff")
+    state["tracks"]["t2bbbbbbb"] = entry("Library/A/Artist - Song.aiff", status="not_lossless", source="soundcloud")
+    ex, acq = make(ready(sid="900000001"), AcquireResult("missing"), AcquireResult("missing"))
+    ex.run([act("acquire", reason="new", qobuz_id="900000001"),
+            act("upgrade", tid="t2bbbbbbb", qobuz_id="900000002"), act("acquire", tid="t3ccccccc", reason="new")])
+    assert acq.exact == ["900000001", "900000002", None]
 
 
 def test_not_lossless_goes_to_subfolder(env):
@@ -484,7 +496,7 @@ def test_acquirer_gets_a_tracker_that_reports_steps(env):
     events = []
 
     class StepAcquirer:
-        def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None):
+        def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None, exact=None):
             tracker.step("download")
             return ready()(workdir)
 
@@ -500,7 +512,7 @@ def test_stop_flag_ends_the_run_between_actions(env):
     token = CancelToken()
 
     class StopAfterFirst:
-        def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None):
+        def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None, exact=None):
             token.cancel()  # e.g. the user pressed Stop while this track was downloading
             return ready()(workdir)
 
@@ -517,7 +529,7 @@ def test_stop_inside_a_download_discards_the_track_cleanly(env):
     token = CancelToken()
 
     class StoppedMidway:
-        def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None):
+        def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None, exact=None):
             (workdir / "partial.flac").write_bytes(b"half")
             token.cancel()
             tracker.progress(10, 100, "bytes")  # raises Cancelled, as the real download callbacks do
@@ -554,7 +566,7 @@ def test_stop_while_comparing_leaves_the_check_for_next_time(env):
 
     class StopAfterDownload:
         def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None, originals=True,
-                    declined=frozenset(), qobuz=True):
+                    declined=frozenset(), qobuz=True, exact=None):
             token.cancel()  # the user pressed Stop while the lossless version was downloading
             return ready()(workdir)
 

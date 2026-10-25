@@ -1,11 +1,11 @@
 // Engine and hub events, exactly as tests/fixtures/hub_events.schema.json (spec §6.4, contract "Events").
-import type { AppUpdate, Browser, PlannedAction, ProblemKind, Result } from './types';
+import type { AppUpdate, Browser, PlannedAction, PlaylistService, ProblemKind, Result } from './types';
 
-export type SpotifyTrack = { id: string; title: string; artists: string[]; album: string; image_url: string | null;
-  duration_ms: number; isrc: string | null };
+export type SourceTrack = { id: string; title: string; artists: string[]; album: string; image_url: string | null;
+  duration_ms: number; isrc: string | null; service: string; link: string | null; streamable: boolean };
 export type Action = { kind: 'acquire' | 'adopt_bought' | 'upgrade' | string; track_id: string;
-  folder: string; track: SpotifyTrack; order: [number, number]; src: string | null; dest_dir: string | null;
-  aliases: string[]; reason: string };
+  folder: string; track: SourceTrack; order: [number, number]; src: string | null; dest_dir: string | null;
+  aliases: string[]; reason: string; qobuz_id: string | null };
 export type Step = 'search' | 'download' | 'check' | 'convert' | 'analyse' | 'compare';
 export type HubEvent =
   | { type: 'RunStarted'; total: number; actions: PlannedAction[] }
@@ -14,9 +14,9 @@ export type HubEvent =
   | { type: 'Progress'; track_id: string; step: Step; done: number; total: number | null; unit: 'bytes' | 'seconds' }
   | { type: 'Waiting'; kind: 'search' | 'between' | 'break' | 'fallback'; label: string; remaining: number;
       total: number; service: string }
-  | { type: 'SourceChosen'; track_id: string; source: string; query_kind: 'isrc' | 'name' | 'fallback' | 'chosen';
+  | { type: 'SourceChosen'; track_id: string; source: string; query_kind: 'exact' | 'isrc' | 'name' | 'fallback' | 'chosen';
       title: string; duration_s: number | null }
-  | { type: 'Checked'; track_id: string; file_duration_s: number; spotify_duration_s: number; codec: string;
+  | { type: 'Checked'; track_id: string; file_duration_s: number; track_duration_s: number; codec: string;
       ok: boolean }
   | { type: 'AccountUsage'; service: string; used: number; allowance: number }
   | { type: 'ActionFinished'; action: Action; result: Result }
@@ -26,7 +26,7 @@ export type HubEvent =
   | { type: 'MovesProgress'; batch_id: number; done: number; total: number }
   | { type: 'JobStarted'; job_id: number; kind: string; track_id: string | null }
   | { type: 'JobFinished'; job_id: number; kind: string; ok: boolean; problem: ProblemKind | null; message: string;
-      result: any | null }
+      result: any | null; service?: PlaylistService | null }
   | { type: 'ConsoleBusy'; running: boolean }
   | { type: 'FileDropped'; track_id: string | null; name: string; readable: boolean; message: string }
   | { type: 'SignInPhase'; service: 'youtube' | 'soundcloud'; phase: 'waiting' | 'checking'; browser: Browser;
@@ -47,7 +47,7 @@ export const EVENT_FIELDS: { [T in HubEvent['type']]: readonly (keyof EventOf<T>
   Progress: ['type', 'track_id', 'step', 'done', 'total', 'unit'],
   Waiting: ['type', 'kind', 'label', 'remaining', 'total', 'service'],
   SourceChosen: ['type', 'track_id', 'source', 'query_kind', 'title', 'duration_s'],
-  Checked: ['type', 'track_id', 'file_duration_s', 'spotify_duration_s', 'codec', 'ok'],
+  Checked: ['type', 'track_id', 'file_duration_s', 'track_duration_s', 'codec', 'ok'],
   AccountUsage: ['type', 'service', 'used', 'allowance'],
   ActionFinished: ['type', 'action', 'result'],
   RunFinished: ['type', 'exit_code', 'report_path'],
@@ -55,16 +55,16 @@ export const EVENT_FIELDS: { [T in HubEvent['type']]: readonly (keyof EventOf<T>
   ReadingPlaylist: ['type', 'index', 'total', 'folder'],
   MovesProgress: ['type', 'batch_id', 'done', 'total'],
   JobStarted: ['type', 'job_id', 'kind', 'track_id'],
-  JobFinished: ['type', 'job_id', 'kind', 'ok', 'problem', 'message', 'result'],
+  JobFinished: ['type', 'job_id', 'kind', 'ok', 'problem', 'message', 'result', 'service'],
   ConsoleBusy: ['type', 'running'],
   FileDropped: ['type', 'track_id', 'name', 'readable', 'message'],
   SignInPhase: ['type', 'service', 'phase', 'browser', 'browser_name'],
   AppUpdate: ['type', 'state', 'current', 'latest', 'url'],
 };
 export const ACTION_FIELDS: readonly (keyof Action)[] = ['kind', 'track_id', 'folder', 'track', 'order', 'src',
-  'dest_dir', 'aliases', 'reason'];
-export const TRACK_FIELDS: readonly (keyof SpotifyTrack)[] = ['id', 'title', 'artists', 'album', 'image_url',
-  'duration_ms', 'isrc'];
+  'dest_dir', 'aliases', 'reason', 'qobuz_id'];
+export const TRACK_FIELDS: readonly (keyof SourceTrack)[] = ['id', 'title', 'artists', 'album', 'image_url',
+  'duration_ms', 'isrc', 'service', 'link', 'streamable'];
 export const RESULT_FIELDS: readonly (keyof Result)[] = ['section', 'folder', 'artist', 'title', 'track_id', 'note',
   'status', 'source', 'cutoff_hz', 'path', 'error_kind', 'found_status'];
 

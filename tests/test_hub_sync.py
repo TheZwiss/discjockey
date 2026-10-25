@@ -6,7 +6,9 @@ from contextlib import contextmanager
 
 import pytest
 
-from discjockey import run, spotify
+from discjockey import run
+from discjockey.sources import qobuz as qobuz_source, spotify
+from discjockey.sources.base import LoginState
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.events import RunFinished
 from discjockey.hub import jobs
@@ -14,17 +16,17 @@ from discjockey.hub import views
 from discjockey.hub.jobs import Jobs, PreviewStore
 from discjockey.library import Paths, empty_state, load_state, save_state
 from discjockey.settings import load_settings
-from discjockey.models import FetchedPlaylist, SpotifyTrack
+from discjockey.models import FetchedPlaylist, PlaylistInfo, SourceTrack
 
 PLAYLISTS = "Hard_Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n"
-TRACKS = [SpotifyTrack(f"t{i}", f"Song {i}", ("Artist",), "Al", None, 180000, None) for i in range(1, 4)]
+TRACKS = [SourceTrack(f"t{i}", f"Song {i}", ("Artist",), "Al", None, 180000, None) for i in range(1, 4)]
 
 
 class FakeAcquirer:
     def __init__(self):
         self.tracks = []
 
-    def acquire(self, track, rejected, workdir, lossless_only, tracker):
+    def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None):
         self.tracks.append(track.id)
         f = workdir / "q.aiff"
         f.write_bytes(b"audio")
@@ -54,6 +56,7 @@ def env(tmp_path, monkeypatch):
     paths.playlists_file.write_text(PLAYLISTS)
     tracks = list(TRACKS)
     monkeypatch.setattr(spotify, "load_session", lambda p: spotify.Session("cid", p.spotify_token, {}))
+    monkeypatch.setattr(spotify, "login_state", lambda p: LoginState("ok"))
     monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: FetchedPlaylist(line, list(tracks), []))
     acq = FakeAcquirer()
     monkeypatch.setattr(run, "Acquirer", lambda *a, **k: acq)
@@ -98,6 +101,34 @@ def test_a_failed_refresh_keeps_the_last_known_preview(env, monkeypatch):
     refresh(js, paths, store)
     assert (rec.finished().ok, rec.finished().problem) == (False, "offline")
     assert store.prep is first and store.problem == "offline" and "Cannot reach" in store.message
+
+
+def test_a_missing_qobuz_login_files_the_problem_under_qobuz(env, monkeypatch):
+    paths, js, store, rec, acq, logins, tracks = env
+    paths.playlists_file.write_text(PLAYLISTS + "Example_Playlist = https://open.qobuz.com/playlist/900000001\n")
+    monkeypatch.setattr(qobuz_source, "login_state", lambda p: LoginState("missing", qobuz_source.NOT_SET_UP))
+    refresh(js, paths, store)
+    assert (rec.finished().ok, rec.finished().problem) == (False, "not_set_up")
+    assert (store.problem, store.problem_service) == ("not_set_up", "qobuz") and "Qobuz" in store.message
+    status = views.spotify_status(store, datetime(2026, 10, 20, 21, 47), False,
+                                  [("spotify", True), ("qobuz", False)])
+    assert status["problem_service"] == "qobuz"
+    assert status["services"] == [{"service": "spotify", "name": "Spotify", "connected": True},
+                                  {"service": "qobuz", "name": "Qobuz", "connected": False}]
+
+
+def test_a_spotify_problem_names_spotify_and_a_good_read_clears_it(env, monkeypatch):
+    paths, js, store, rec, acq, logins, tracks = env
+
+    def expired(s, line):
+        raise spotify.SpotifyError("Your Spotify login has expired.", "login_expired")
+
+    monkeypatch.setattr(spotify, "fetch_playlist", expired)
+    refresh(js, paths, store)
+    assert (store.problem, store.problem_service) == ("login_expired", "spotify")
+    monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: FetchedPlaylist(line, list(tracks), []))
+    refresh(js, paths, store)
+    assert (store.problem, store.problem_service) == (None, None)
 
 
 def sync(js, paths, store, ticked):
@@ -182,7 +213,7 @@ def test_a_crash_before_the_run_starts_still_files_a_note(env, monkeypatch):
     finished = rec.finished()
     assert (finished.ok, finished.problem) == (False, "crashed") and finished.message == run.rep.CRASH_MESSAGE
     note = main_text(open(finished.result["report"], encoding="utf-8").read())
-    assert "reading your Spotify playlists" in note and "RuntimeError" not in note
+    assert "reading your playlists" in note and "RuntimeError" not in note
     assert "RuntimeError: bad plan" in open(finished.result["report"], encoding="utf-8").read()
     assert finished.result["actions"] == 0 and finished.result["exit_code"] == 1
 
@@ -200,7 +231,7 @@ def test_actions_new_since_the_preview_wait_for_the_next_run(env):
     paths, js, store, rec, acq, logins, tracks = env
     refresh(js, paths, store)
     ticked = store.keys()
-    tracks.append(SpotifyTrack("t4", "Song 4", ("Artist",), "Al", None, 180000, None))  # added in Spotify meanwhile
+    tracks.append(SourceTrack("t4", "Song 4", ("Artist",), "Al", None, 180000, None))  # added in Spotify meanwhile
     sync(js, paths, store, ticked)
     assert acq.tracks == ["t1", "t2", "t3"]
     assert rec.finished().result["new_since_preview"] == 1
@@ -220,7 +251,7 @@ def test_sync_without_a_preview_is_refused(env):
     paths, js, store, rec, acq, logins, tracks = env
     sync(js, paths, store, set())
     assert (rec.finished().ok, rec.finished().problem) == (False, "refused")
-    assert "Read your Spotify playlists first" in rec.finished().message
+    assert "Read your playlists first" in rec.finished().message
 
 
 def test_a_setup_problem_ends_the_sync_with_its_kind(env, monkeypatch):
@@ -239,7 +270,7 @@ def test_stop_during_the_sync(env, monkeypatch):
     paths, js, store, rec, acq, logins, tracks = env
     refresh(js, paths, store)
 
-    def stop_on_second(track, rejected, workdir, lossless_only, tracker):
+    def stop_on_second(track, rejected, workdir, lossless_only, tracker, exact=None):
         if track.id == "t2":
             js.stop()
             tracker.progress(1, 10, "bytes")
@@ -270,6 +301,7 @@ def test_stop_ends_a_read_stuck_in_one_slow_request_and_its_late_result_is_dropp
 
     token = {"access_token": "a", "refresh_token": "r", "expires_at": time.time() + 3600}
     monkeypatch.setattr(spotify, "load_session", lambda p: spotify.Session("cid", p.spotify_token, dict(token)))
+    monkeypatch.setattr(spotify, "login_state", lambda p: LoginState("ok"))
     monkeypatch.setattr(spotify, "fetch_playlist", REAL_FETCH)
     monkeypatch.setattr(spotify, "_http", slow_http)
     job = js.start_refresh(jobs.refresh_work(paths, store))
@@ -285,3 +317,85 @@ def test_stop_ends_a_read_stuck_in_one_slow_request_and_its_late_result_is_dropp
     assert not worker.is_alive()
     assert store.prep is None and store.read_at is None and store.problem is None  # the late plan was dropped
     assert len([e for e in rec.events if isinstance(e, jobs.JobFinished)]) == 1
+
+
+QOBUZ_PLAYLISTS = "Hard_Bounce = https://open.qobuz.com/playlist/900000001\n"
+CONSOLE_TEXT = "Your playlists include a Qobuz playlist, but Qobuz isn't set up yet. Run: discjockey setup"
+
+
+def test_a_missing_login_reads_as_connect_first_and_names_its_service(env, monkeypatch):
+    paths, js, store, rec, acq, logins, tracks = env
+    paths.playlists_file.write_text(QOBUZ_PLAYLISTS)
+    monkeypatch.setattr(qobuz_source, "login_state", lambda p: LoginState("missing", CONSOLE_TEXT))
+    refresh(js, paths, store)
+    done = rec.finished()
+    assert (done.ok, done.problem, done.service, done.message) == (False, "not_set_up", "qobuz", "Connect Qobuz first.")
+    assert (store.problem, store.problem_service, store.message) == ("not_set_up", "qobuz", "Connect Qobuz first.")
+    assert "discjockey setup" not in done.message
+
+
+def test_a_sync_that_fails_while_reading_keeps_the_service_and_the_hub_words(env, monkeypatch):
+    paths, js, store, rec, acq, logins, tracks = env
+    refresh(js, paths, store)
+    paths.playlists_file.write_text(PLAYLISTS + QOBUZ_PLAYLISTS.replace("Hard_Bounce", "Deep_Cuts"))
+    monkeypatch.setattr(qobuz_source, "login_state", lambda p: LoginState("missing", CONSOLE_TEXT))
+    sync(js, paths, store, store.keys())
+    done = rec.finished()
+    assert (done.ok, done.problem, done.service) == (False, "not_set_up", "qobuz")
+    assert done.message == "Connect Qobuz first." and not logins  # nothing was downloaded or logged in to
+
+
+def test_a_job_that_is_not_about_a_service_finishes_without_one(env):
+    paths, js, store, rec, acq, logins, tracks = env
+    refresh(js, paths, store)
+    assert rec.finished().service is None
+    sync(js, paths, store, set())
+    assert rec.finished().service is None
+
+
+def test_clear_service_drops_only_that_services_stored_problem(env):
+    paths, js, store, rec, acq, logins, tracks = env
+    refresh(js, paths, store)
+    prep = store.prep
+    store.failed("not_set_up", "Connect Qobuz first.", "qobuz")
+    store.clear_service("spotify")  # another service's login changes nothing
+    assert (store.problem, store.problem_service) == ("not_set_up", "qobuz")
+    store.clear_service("qobuz")
+    assert (store.problem, store.problem_service, store.message) == (None, None, "")
+    assert store.prep is prep  # the plan stays
+    store.failed("offline", "No connection.")  # a problem that is no service's stays
+    store.clear_service("qobuz")
+    assert store.problem == "offline"
+
+
+def test_a_hub_read_logs_in_to_qobuz_once_and_takes_the_playlist_page_from_the_tracks(env, monkeypatch):
+    paths, js, store, rec, acq, logins, tracks = env
+    paths.playlists_file.write_text(QOBUZ_PLAYLISTS)
+    monkeypatch.setattr(qobuz_source, "login_state", lambda p: LoginState("ok"))
+    page = PlaylistInfo("qobuz", "900000001", "Example Playlist", "7", "Example Curator", False, None, 1, False, True)
+    opened = []
+
+    class OneLoginReader:
+        want_info = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            pass
+
+        def fetch(self, line):
+            return FetchedPlaylist(line, [], [], page if self.want_info else None)
+
+        def info(self, playlist_id):
+            raise AssertionError("the page was in the tracks' answer: no second request, no second login")
+
+    monkeypatch.setattr(qobuz_source, "open", lambda p, t: opened.append(1) or OneLoginReader())
+    infos = {}
+    job = js.start_refresh(jobs.refresh_work(paths, store, infos=infos))
+    assert job.done.wait(5) and rec.finished().ok
+    assert opened == [1] and infos == {"qobuz:900000001": page}
+    # a read without the page (the console's sync, a plan after a run) doesn't ask for it
+    opened.clear()
+    job = js.start_refresh(jobs.refresh_work(paths, store))
+    assert job.done.wait(5) and opened == [1]

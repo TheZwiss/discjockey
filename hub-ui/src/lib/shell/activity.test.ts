@@ -9,8 +9,8 @@ describe('activityShort (the player bar\'s right end)', () => {
     expect(activityShort(run({ phase: 'running', total: 6, index: 4 }))).toBe('Sync 4 of 6');
   });
   it('says reading and stopping like the long form', () => {
-    expect(activityShort(run({ phase: 'preparing' }))).toBe('Reading Spotify…');
-    expect(activityShort(run({ phase: 'running', total: null }))).toBe('Reading Spotify…');
+    expect(activityShort(run({ phase: 'preparing' }))).toBe('Reading playlists…');
+    expect(activityShort(run({ phase: 'running', total: null }))).toBe('Reading playlists…');
     expect(activityShort(run({ phase: 'stopping', total: 6, index: 2 }))).toBe('Stopping…');
   });
 });

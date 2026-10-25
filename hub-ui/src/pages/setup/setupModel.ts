@@ -21,12 +21,13 @@ export function checkClientId(raw: string): ClientIdCheck {
 }
 export const CLIENT_ID_BAD = 'A Client ID has 32 letters and digits.';
 
-/** Which steps are done, as setup_status() says. Downloads: Qobuz signed in, or "I don't have Qobuz". */
+/** Which steps are done, as setup_status() says. Spotify: connected, or "I don't use Spotify". Downloads: Qobuz
+ *  signed in, or "I don't have Qobuz". */
 export function stepsDone(s: SetupStatus): Record<WizardStep, boolean> {
   return {
     music: s.music?.state === 'ok',
     tools: s.tools.ffmpeg && s.tools.ffprobe && s.tools.deno,
-    spotify: s.spotify_app && s.spotify_login,
+    spotify: (s.spotify_app && s.spotify_login) || s.spotify_skipped,
     downloads: s.qobuz || s.qobuz_skipped,
     playlists: s.playlists,
   };
@@ -81,7 +82,7 @@ export function nextRule(step: WizardStep, s: SetupStatus, tools: SetupTools | n
     case 'tools':
       if (!tools) return no('Checking the programs…');
       return tools.missing.length ? no('Install the missing programs, then Check again.') : yes;
-    case 'spotify': return stepsDone(s).spotify ? yes : no('Connect Spotify first.');
+    case 'spotify': return stepsDone(s).spotify ? yes : no("Connect Spotify, or choose I don't use Spotify.");
     case 'downloads': return stepsDone(s).downloads ? yes : no("Sign in to Qobuz, or choose I don't have Qobuz.");
     case 'playlists': return s.playlists ? yes : no('Add a playlist first.');
   }
@@ -98,9 +99,11 @@ const DONE_HOME: Record<WizardStep, string> = {
   music: '/settings/music', tools: '/settings/programs', spotify: '/settings/spotify', downloads: '/settings/qobuz', playlists: '/playlists',
 };
 /** Where Setup sends you when you arrive with setup done: a step's own place in Settings, `#/setup` itself goes to
- *  Settings. null: stay in the guide. Only on arrival: a user finishing the guide keeps going to its end. */
+ *  Settings. null: stay in the guide. Only on arrival: a user finishing the guide keeps going to its end. A Spotify
+ *  left out stays in the guide's Spotify step: Settings sends a Spotify without an app there to make one. */
 export function doneRedirect(s: SetupStatus, step: WizardStep | null): string | null {
   if (!s.complete) return null;
+  if (step === 'spotify' && !(s.spotify_app && s.spotify_login)) return null;
   return step ? DONE_HOME[step] : '/settings';
 }
 

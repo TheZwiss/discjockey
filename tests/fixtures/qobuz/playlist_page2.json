@@ -1,0 +1,21 @@
+{
+  "id": 900000001,
+  "name": "Example Playlist",
+  "tracks_count": 5,
+  "tracks": {
+    "offset": 4,
+    "limit": 4,
+    "total": 5,
+    "items": [
+      {
+        "id": 900000104,
+        "title": "Last Example",
+        "duration": 245,
+        "isrc": "XXEXA2600004",
+        "streamable": true,
+        "performer": {"name": "Example Artist"},
+        "album": {"title": "Example Album", "image": {"large": "https://static.example.com/covers/900000104_600.jpg"}}
+      }
+    ]
+  }
+}

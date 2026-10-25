@@ -9,7 +9,8 @@ from hub_helpers import make_api, make_root, make_unbound_api, wait_job
 from tools_helpers import CheckRun, FakePyPI
 
 import discjockey
-from discjockey import qobuz, setup_cmd, spotify, tool_updates, tools
+from discjockey import qobuz, setup_cmd, tool_updates, tools
+from discjockey.sources import spotify
 from discjockey.library import run_lock
 from discjockey.settings import Account, Settings, load_settings, save_settings
 
@@ -56,6 +57,24 @@ def test_spotify_login_opens_the_system_browser(root, monkeypatch):
     assert f.ok and f.result == {"user": "DJ One"} and seen["token_path"] == root.spotify_token
     assert json.loads(root.spotify_app.read_text()) == {"client_id": "0" * 32, "user": "DJ One"}  # Settings shows it
     assert api._svc.calls["open_url"] == ["https://accounts.spotify.com/authorize?x"]
+
+
+def test_connecting_a_service_clears_its_stored_read_problem(root, monkeypatch):
+    root.spotify_app.write_text(json.dumps({"client_id": "0" * 32}))
+    monkeypatch.setattr(spotify, "login", lambda client_id, token_path, open_browser, token: None)
+    monkeypatch.setattr(spotify, "load_session", lambda p: object())
+    monkeypatch.setattr(spotify, "current_user", lambda s: ("dj1", "DJ One"))
+    monkeypatch.setattr(qobuz, "password_login", lambda p, e, pw: None)
+    api, rec = make_api(root)
+    api._store.failed("not_set_up", "Connect Spotify first.", "spotify")
+    assert wait_job(api, rec, api.setup_qobuz_login("dj@example.com", "pw")).ok
+    assert api._store.problem_service == "spotify"  # Qobuz's login says nothing about Spotify's problem
+    assert wait_job(api, rec, api.setup_spotify_login()).ok
+    assert (api._store.problem, api._store.problem_service) == (None, None)
+    api._store.failed("not_set_up", "Connect Qobuz first.", "qobuz")
+    assert wait_job(api, rec, api.setup_qobuz_login("dj@example.com", "pw")).ok
+    assert api._store.problem is None
+    assert api.dashboard()["spotify"]["problem"] is None  # the page unblocks without a restart
 
 
 def test_spotify_login_can_be_cancelled(root, monkeypatch):
@@ -523,14 +542,18 @@ def test_qobuz_check_login_records_the_outcome(root):
     api, rec = make_api(root, open_qobuz=lambda p: QobuzCheckSource(["hit"]))
     assert wait_job(api, rec, api.qobuz_check_login()).ok
     assert load_settings(root.settings_file).qobuz_last_check["ok"] is True
+    api._store.failed("not_set_up", "Connect Qobuz first.", "qobuz")  # a good check clears the stored read problem...
+    assert wait_job(api, rec, api.qobuz_check_login()).ok and api._store.problem is None
 
     def refuse(p):
         raise qobuz.QobuzLoginRejected("Qobuz did not accept your login. Run: discjockey setup")
 
     api, rec = make_api(root, open_qobuz=refuse)
+    api._store.failed("not_set_up", "Connect Qobuz first.", "qobuz")
     done = wait_job(api, rec, api.qobuz_check_login())
     assert not done.ok and done.message == "Qobuz did not accept your login. Run: discjockey setup"
     assert load_settings(root.settings_file).qobuz_last_check["problem"] == "login_failed"
+    assert api._store.problem == "not_set_up"  # ...a refused one doesn't
 
 
 def test_qobuz_check_login_logged_in_but_the_search_finds_nothing(root):
@@ -711,3 +734,18 @@ def test_open_in_opens_a_chosen_chromium_profile_in_its_own_window(monkeypatch):
         ["open", "-a", "Brave Browser", "https://soundcloud.com"],
         ["open", "-a", "Firefox", "https://soundcloud.com"],
     ]
+
+
+def test_skip_spotify_and_connect_it_later(root, monkeypatch):
+    api, rec = make_api(root)
+    assert api.setup_status()["next_step"] == "spotify" and not api.setup_status()["spotify_skipped"]
+    assert wait_job(api, rec, api.setup_skip_spotify()).ok
+    st = api.setup_status()
+    assert st["spotify_skipped"] and not st["spotify_login"] and st["next_step"] != "spotify"
+    assert load_settings(root.settings_file).spotify_skipped
+    root.spotify_app.write_text(json.dumps({"client_id": "0" * 32}))
+    monkeypatch.setattr(spotify, "login", lambda *a, **k: None)
+    monkeypatch.setattr(spotify, "load_session", lambda paths: None)
+    monkeypatch.setattr(spotify, "current_user", lambda session: ("id", "DJ One"))
+    assert wait_job(api, rec, api.setup_spotify_login()).ok
+    assert not load_settings(root.settings_file).spotify_skipped

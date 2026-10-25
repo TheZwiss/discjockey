@@ -107,7 +107,7 @@ class Waiting:
 
 @dataclass(frozen=True)
 class SourceChosen:
-    """A download starts: from where, found how (isrc | name | fallback | chosen), and the candidate's title."""
+    """A download starts: from where, found how (exact | isrc | name | fallback | chosen), and the candidate's title."""
     track_id: str
     source: str
     query_kind: str
@@ -117,10 +117,10 @@ class SourceChosen:
 
 @dataclass(frozen=True)
 class Checked:
-    """The length check after a download: the file's length against Spotify's (ok: within 3 s)."""
+    """The length check after a download: the file's length against the playlist track's (ok: within 3 s)."""
     track_id: str
     file_duration_s: float
-    spotify_duration_s: float
+    track_duration_s: float
     codec: str
     ok: bool
 

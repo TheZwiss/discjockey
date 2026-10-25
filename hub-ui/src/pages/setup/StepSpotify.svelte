@@ -1,7 +1,9 @@
 <script lang="ts">
   // Step 2, Spotify (spec settings-setup §7.2): the free Spotify app as numbered rows (the dashboard, Create app, the
   // redirect address to copy, Web API, the Client ID), then Connect: the login in the system browser, which comes back
-  // by itself. Connect is the screen's filled button until Spotify is connected; then Continue is.
+  // by itself. Connect is the screen's filled button until Spotify is connected or left out; then Continue is.
+  // "I don't use Spotify" (plan stage 3, D1, like the Qobuz card's skip) counts the step as done; the steps and
+  // Connect stay, so Spotify can still be connected here or in Settings.
   // The Client ID stays in its SecretField until Connect sends it (takeSecret); the page keeps only the live check.
   import { onDestroy } from 'svelte';
   import { api, runJob } from '$lib/bridge/client';
@@ -29,9 +31,13 @@
   onDestroy(() => { alive = false; });
 
   const done = $derived(stepsDone(status).spotify);
+  const connected = $derived(status.spotify_app && status.spotify_login);
+  // "I don't use Spotify" (plan stage 3, D1): the step counts as done; Connect stays here and in Settings for later
+  const skipped = $derived(status.spotify_skipped && !connected);
+  let skipping = $state(false);
   const askId = $derived(!status.spotify_app || otherId);
   const redirect = $derived(tools?.redirect_uri ?? 'http://127.0.0.1:8888/callback');
-  $effect(() => { busy = phase === 'saving' || phase === 'waiting'; });
+  $effect(() => { busy = phase === 'saving' || phase === 'waiting' || skipping; });
   // the one filled button: Connect while Spotify isn't connected; once it is, Continue (Connect again stays quiet)
   const connectFilled = $derived(!done);
 
@@ -58,16 +64,31 @@
     failMessage = r.message;
     phase = 'failed';
   }
+  async function skip() {
+    if (skipping) return;
+    skipping = true;
+    const r = await runJob(api.setup_skip_spotify(), { quiet: true, success: false });
+    skipping = false;
+    onchanged();
+    if (!alive || r.ok) return;
+    failTitle = problemCopy(r.kind).title;
+    failMessage = r.message;
+    phase = 'failed';
+  }
   const failDetail = $derived(detailLine(failMessage, failTitle));
 </script>
 
 <Surface kind="card" label="Spotify" summary="Discjockey only reads your playlists; it never changes them."
-  tone={done ? 'good' : 'default'} data-test="spotify-card">
+  tone={connected ? 'good' : 'default'} data-test="spotify-card">
   <div class="state" data-test="spotify-state">
     {#if phase === 'waiting'}
       <Spinner size={12} label="Waiting for Spotify" />
       <span data-test="spotify-waiting">Your browser opened. Log in to Spotify there; Discjockey goes on by itself.</span>
-    {:else if done}
+    {:else if skipped}
+      <StatusMark tone="none" />
+      <span data-test="spotify-skipped"><span class="strong">Left out.</span> Connect it here or in Settings when a
+        playlist of yours is on Spotify.</span>
+    {:else if connected}
       <StatusMark tone="good" />
       <span class="strong" data-test="spotify-connected">{status.spotify_user ? `Connected as ${status.spotify_user}` : 'Connected'}</span>
     {:else if status.spotify_app}
@@ -107,14 +128,20 @@
       <Button onclick={() => void api.stop()} data-test="spotify-cancel">Cancel</Button>
       <Hint text="Stops waiting after 5 minutes." />
     {:else}
-      <WriteButton variant={connectFilled ? 'filled' : 'secondary'} busy={phase === 'saving'} onclick={connect}
-        data-test="spotify-login">{phase === 'failed' ? 'Try again' : done ? 'Connect again' : 'Connect'}</WriteButton>
+      <WriteButton variant={connectFilled ? 'filled' : 'secondary'} busy={phase === 'saving'} disabled={skipping}
+        onclick={connect} data-test="spotify-login">{phase === 'failed' ? 'Try again' : connected ? 'Connect again'
+          : 'Connect'}</WriteButton>
       {#if phase === 'cancelled'}<Hint text="Cancelled." data-test="spotify-cancelled" />
       {:else if !done}<Hint text="Your browser opens to log in to Spotify, then Discjockey comes back here." />{/if}
+      <span class="push"></span>
       {#if status.spotify_app && !askId}
-        <span class="push"></span>
         <Button variant="link" muted size="sm" onclick={() => (otherId = true)} data-test="other-client-id">Use another
           Client ID</Button>
+      {/if}
+      <!-- the Qobuz card's "I don't have Qobuz", in the same voice and place: a muted link at the actions' end -->
+      {#if !connected && !status.spotify_skipped}
+        <WriteButton variant="link" muted size="sm" disabled={skipping || phase === 'saving'} onclick={skip}
+          data-test="spotify-skip">I don't use Spotify</WriteButton>
       {/if}
     {/if}
   </div>

@@ -493,6 +493,15 @@ def test_none_of_these_then_the_next_sync_searches_again_without_it(paths):
     assert [(a.kind, a.reason) for a in p.actions] == [("acquire", "retry")]
 
 
+def test_track_of_names_the_service_of_the_songs_key(paths):
+    e = {"title": "Song", "artist": "Artist", "duration_ms": 180000, "isrc": None}
+    spotify = ops.track_of("t1aaaaaaa", e)
+    assert (spotify.id, spotify.service, spotify.key) == ("t1aaaaaaa", "spotify", "t1aaaaaaa")
+    qobuz = ops.track_of("qobuz:900000101", e)
+    assert (qobuz.id, qobuz.service, qobuz.key) == ("900000101", "qobuz", "qobuz:900000101")
+    assert qobuz.link == "https://open.qobuz.com/track/900000101"
+
+
 def test_none_of_these_needs_the_file(paths):
     (paths.root / LOSSY).unlink()
     with pytest.raises(OpProblem, match="not where Discjockey expects it"):

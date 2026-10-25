@@ -5,7 +5,8 @@ import time
 import pytest
 from hub_helpers import LOSSY, PARKED, fake_spotify, make_api, make_root, refreshed, wait_job, write
 
-from discjockey import library, run, spotify
+from discjockey import library, run
+from discjockey.sources import spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.align import Alignment
 from discjockey.events import SourceChosen
@@ -212,8 +213,9 @@ def test_save_the_qobuz_limit(root):
     assert wait_job(api, rec, api.save_limits("qobuz", 90, 20)).ok
     assert json.loads(root.settings_file.read_text()) == {"daily_qobuz_limit": 90,
                                                          "extra_today": {"date": "2026-10-20", "amount": 20},
-                                                         "qobuz_skipped": False, "warnings_seen": {}, "qobuz_last_check": None,
-                                                             "accounts": {}}
+                                                         "qobuz_skipped": False, "spotify_skipped": False, "warnings_seen": {},
+                                                         "qobuz_last_check": None,
+                                                         "accounts": {}}
     assert api.limits("qobuz")["usage"]["today"]["allowance"] == 90 + 30 + 20
     assert wait_job(api, rec, api.save_limits("qobuz", 60, 0)).ok
     assert json.loads(root.settings_file.read_text())["extra_today"] is None
@@ -303,7 +305,7 @@ def fake_process(downloaded, track, cand, workdir, tracker):
 def test_search_candidates_lists_the_current_version_first(root):
     api, rec = make_api(root, fallback=FakeFallback)
     answer = api.search_candidates("t2")
-    assert answer["ok"] and answer["spotify_duration_s"] == 268.0
+    assert answer["ok"] and answer["track_duration_s"] == 268.0
     rows = answer["candidates"]
     assert [(r["key"], r["current"]) for r in rows] == [("youtube:abcdefghijk", True), ("youtube_music:abc", False)]
     assert rows[1]["score"] == 100 and rows[1]["can_preview"] and rows[1]["length_diff_s"] == 0.0
@@ -380,7 +382,7 @@ def test_reads_during_a_sync_never_write_state(root, monkeypatch):
     class SlowAcquirer:
         n = 0
 
-        def acquire(self, track, rejected, workdir, lossless_only, tracker):
+        def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None):
             SlowAcquirer.n += 1
             if SlowAcquirer.n == 2:
                 second.set()
@@ -430,7 +432,7 @@ def test_stop_safely_from_the_page(root, monkeypatch):
     started = threading.Event()
 
     class StopAware:
-        def acquire(self, track, rejected, workdir, lossless_only, tracker):
+        def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None):
             started.set()
             while True:
                 tracker.progress(1, 10, "bytes")
