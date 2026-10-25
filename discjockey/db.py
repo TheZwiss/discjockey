@@ -21,7 +21,7 @@ from typing import NamedTuple
 from . import library as disk  # "library" is the Library/ path argument everywhere here
 from .events import Emit, Message
 from .models import (OWN_PREFIX, AddedFolder, BatchRow, DupFile, DuplicateGroup, ImportCounts, ImportRow, KnownFile,
-                     MoveRow, OwnFacts, PlannedMove, RemovalCounts, ScanResult, SeenFile, WatchedFolder, group_id,
+                     MoveRow, OwnFacts, PlannedMove, RemovalCounts, ScanResult, WatchedFolder, group_id,
                      is_own, split_token, token)
 from .names import expected_stem
 from .planner import ENTRY_KEYS
@@ -1046,6 +1046,42 @@ def import_waiting(conn: sqlite3.Connection) -> list[ImportRow]:
         "ORDER BY f.id")]
 
 
+def import_unjudged(conn: sqlite3.Connection) -> list[ImportRow]:
+    """The files the import's second pass (the sound check) still has to judge: a song already (the first pass is
+    done for them), import_state `identified`, or `unreadable` (the sound check failed on them before; tried
+    again), in import folders, online and not held, by id."""
+    return [ImportRow(i, Path(root) / rel, folder, state) for i, root, rel, folder, state in conn.execute(
+        "SELECT f.id, w.path, f.path, f.folder, f.import_state FROM files f JOIN watched_folders w ON w.id = f.folder "
+        "WHERE w.kind = 'import' AND f.online = 1 AND f.held = 0 AND f.song IS NOT NULL "
+        "AND f.import_state IN ('identified', 'unreadable') ORDER BY f.id")]
+
+
+def import_unreadable(conn: sqlite3.Connection) -> list[tuple[Path, str]]:
+    """The files the import couldn't read, with the reason's words (W6 "Couldn't read": "{path}: {reason}"), in
+    every import folder (offline ones too: the list says what waits), by path."""
+    return sorted((Path(root) / rel, error or "") for root, rel, error in conn.execute(
+        "SELECT w.path, f.path, f.import_error FROM files f JOIN watched_folders w ON w.id = f.folder "
+        "WHERE w.kind = 'import' AND f.import_state = 'unreadable'"))
+
+
+LINK_PENDING = "import_link_pending"  # meta: own songs were made since the import last linked the playlists (D6)
+
+
+def import_link_pending(conn: sqlite3.Connection) -> bool:
+    """Whether an import made own songs and hasn't linked the playlists to them since (it stopped first)."""
+    return conn.execute("SELECT 1 FROM meta WHERE key = ?", (LINK_PENDING,)).fetchone() is not None
+
+
+def set_import_link_pending(conn: sqlite3.Connection, pending: bool) -> None:
+    """Notes (or clears) that the import's link phase is still to come. Only this flag changes: no song or file, so
+    the generation stays (a snapshot taken before is still current)."""
+    with transaction(conn):
+        if pending:
+            conn.execute("INSERT OR IGNORE INTO meta (key, value) VALUES (?, '1')", (LINK_PENDING,))
+        else:
+            conn.execute("DELETE FROM meta WHERE key = ?", (LINK_PENDING,))
+
+
 def import_counts(conn: sqlite3.Connection) -> dict[int, ImportCounts]:
     """Every import folder's progress (offline ones too), by folder id: its file rows, the ones not read yet
     (`new`), read but not judged (`identified`) and unreadable."""
@@ -1151,12 +1187,13 @@ def _drop_dead_decisions(conn: sqlite3.Connection) -> int:
 
 class FolderRefused(ValueError):
     """add_watched_folder refused a folder (D11, W5): `reason` is "music" (it is in the music folder), "holds_music"
-    (the music folder is in it), "watched" (it is in a watched folder) or "already" (it is watched)."""
+    (the music folder is in it), "watched" (it is in the watched folder `other`) or "already" (it is watched)."""
 
-    def __init__(self, reason: str, path: str):
+    def __init__(self, reason: str, path: str, other: str | None = None):
         super().__init__(f"{path!r} can't be watched: {reason}")
         self.reason = reason
         self.path = path
+        self.other = other
 
 
 def _resolved(path: str | Path) -> PurePosixPath:
@@ -1170,6 +1207,43 @@ def _folded(path: PurePosixPath) -> PurePosixPath:
     return PurePosixPath(path.as_posix().casefold())
 
 
+def _nesting(watched: Sequence[tuple[int, str, str]], p: PurePosixPath) -> list[tuple[int, str, str]]:
+    """D11's rules for the resolved folder `p` against the watched folders (`watched`: id, stored path, kind;
+    compared resolved, ignoring case): FolderRefused when it can't be watched, else the import folders it would
+    take over as (id, stored path, their path below `p`, spelled as the inner folder is)."""
+    fp = _folded(p)
+    rows = [(i, root, kind, _resolved(root)) for i, root, kind in watched]
+    music = _folded(next(r for _, _, kind, r in rows if kind == "library").parent)
+    if fp.is_relative_to(music):
+        raise FolderRefused("music", str(p))
+    if music.is_relative_to(fp):
+        raise FolderRefused("holds_music", str(p))
+    inner = []
+    for i, root, _kind, r in rows:
+        fr = _folded(r)
+        if fp == fr:
+            raise FolderRefused("already", str(p), root)
+        if fp.is_relative_to(fr):
+            raise FolderRefused("watched", str(p), root)
+        if fr.is_relative_to(fp):
+            inner.append((i, root, "/".join(r.parts[len(p.parts):])))
+    return inner
+
+
+def _watched_rows(conn: sqlite3.Connection) -> list[tuple[int, str, str]]:
+    return conn.execute("SELECT id, path, kind FROM watched_folders ORDER BY id").fetchall()
+
+
+def check_watched_folder(conn: sqlite3.Connection | None, path: Path, library: Path) -> list[str]:
+    """What add_watched_folder would do with `path` (an absolute path), writing nothing: FolderRefused when it
+    refuses, else the paths (as stored) of the import folders it would take over (D11). `conn` None: a library
+    with no library.db yet, whose only watched folder is `library` (Library/)."""
+    if not Path(path).is_absolute():
+        raise ValueError(f"{str(path)!r} is not an absolute path")
+    watched = _watched_rows(conn) if conn is not None else [(0, str(library), "library")]
+    return [root for _, root, _ in _nesting(watched, _resolved(path))]
+
+
 def add_watched_folder(conn: sqlite3.Connection, path: Path, now: datetime) -> AddedFolder:
     """Adds an import folder (an absolute path, stored resolved: _resolved). Watched folders never nest (D11),
     compared resolved and ignoring case: a folder in the music folder (Library/ is in it) or in a watched folder,
@@ -1180,24 +1254,8 @@ def add_watched_folder(conn: sqlite3.Connection, path: Path, now: datetime) -> A
     if not Path(path).is_absolute():
         raise ValueError(f"{str(path)!r} is not an absolute path")
     p = _resolved(path)
-    fp = _folded(p)
     with transaction(conn):
-        rows = [(i, root, kind, _resolved(root)) for i, root, kind in
-                conn.execute("SELECT id, path, kind FROM watched_folders ORDER BY id")]
-        music = _folded(next(r for _, _, kind, r in rows if kind == "library").parent)
-        if fp.is_relative_to(music):
-            raise FolderRefused("music", str(p))
-        if music.is_relative_to(fp):
-            raise FolderRefused("holds_music", str(p))
-        inner = []
-        for i, root, kind, r in rows:
-            fr = _folded(r)
-            if fp == fr:
-                raise FolderRefused("already", str(p))
-            if fp.is_relative_to(fr):
-                raise FolderRefused("watched", str(p))
-            if fr.is_relative_to(fp):  # the rows' paths below it, spelled as the inner folder is
-                inner.append((i, root, "/".join(r.parts[len(p.parts):])))
+        inner = _nesting(_watched_rows(conn), p)
         new = conn.execute("INSERT INTO watched_folders (path, kind, added) VALUES (?, 'import', ?)",
                            (str(p), now.isoformat(timespec="seconds"))).lastrowid
         for i, _, prefix in inner:  # the new folder has no rows yet: no (folder, path) collides
@@ -1269,6 +1327,11 @@ def set_decision(conn: sqlite3.Connection, kind: str, a: str, b: str, answer: st
         _bump(conn)
 
 
+def group_ids(gid: str) -> set[int]:
+    """The file ids a duplicate group's id names (models.group_id); a malformed id is ValueError."""
+    return _group_ids(gid)
+
+
 def _group_ids(gid: str, *, strict: bool = True) -> set[int]:
     """The file ids of a group id; a malformed id is ValueError (`strict`) or no ids."""
     parts = gid[len("dup:"):].split("-") if gid.startswith("dup:") else []
@@ -1299,11 +1362,13 @@ def group_files(conn: sqlite3.Connection, gid: str) -> list[DupFile]:
     ids = sorted(_group_ids(gid))
     folders = _Folders(conn)
     rows = conn.execute(
-        "SELECT f.id, s.key, f.folder, f.path, f.status, f.cutoff_hz, f.source_format, f.online, s.in_playlists "
+        "SELECT f.id, s.key, f.folder, f.path, f.status, f.cutoff_hz, f.source_format, f.online, s.in_playlists, "
+        "f.held = 0 AND f.ambiguous IS NULL "
         f"FROM files f LEFT JOIN songs s ON s.id = f.song WHERE f.id IN ({', '.join('?' * len(ids))}) ORDER BY f.id",
         ids)
-    return [DupFile(i, key, folders.path(folder, rel), status, cutoff, fmt, bool(online), bool(in_playlists))
-            for i, key, folder, rel, status, cutoff, fmt, online, in_playlists in rows]
+    return [DupFile(i, key, folders.path(folder, rel), status, cutoff, fmt, bool(online), bool(in_playlists),
+                    bool(usable))
+            for i, key, folder, rel, status, cutoff, fmt, online, in_playlists, usable in rows]
 
 
 # --- the file journal (plan library stage 4, I6, I7): moves of single files outside run_op's entry view ---

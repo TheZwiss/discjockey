@@ -25,6 +25,7 @@ SAMPLES = [
     events.Message("info", "Reading your playlists..."),
     events.ReadingPlaylist(2, 7, "Powertrance"),
     events.MovesProgress(4, 2, 9),
+    events.ImportProgress("tags", 120, 4000, 2),
     jobs.JobStarted(7, "sync", None),
     jobs.JobFinished(7, "sync", True, None, "", {"exit_code": 0}),
     jobs.ConsoleBusy(True),
