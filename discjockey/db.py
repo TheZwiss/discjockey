@@ -740,6 +740,11 @@ def has_pending(conn: sqlite3.Connection) -> bool:
     return conn.execute("SELECT 1 FROM pending LIMIT 1").fetchone() is not None
 
 
+def pending_ops(conn: sqlite3.Connection) -> list[dict]:
+    """The pending steps, in the order they were journaled (the scan asks which of them wait for a drive)."""
+    return [json.loads(op) for op in _pending(conn)]
+
+
 def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
                judged: Mapping[int, tuple[str, int | None, str]] | None = None) -> int:
     """Writes a ScanResult in one transaction (rules: the ScanResult docstring), together with the quality `judged`

@@ -2,6 +2,7 @@
 and the file journal (library.move_files). A second drive is simulated by replacing library.device."""
 import errno
 import os
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -52,7 +53,7 @@ def test_to_another_drive_it_copies_verifies_renames_then_removes_the_source(pat
     src = touch(paths.library / "A/x.aiff", b"the audio")
     os.utime(src, ns=(1_000_000_000, 2_000_000_000))
     dst = other / "Music/x.aiff"
-    move_path(paths.root, "Library/A/x.aiff", str(dst), library.staging_path(str(dst)))
+    move_path(paths.root, "Library/A/x.aiff", str(dst), library.staging_path(str(dst)), [paths.root, other])
     assert not src.exists() and dst.read_bytes() == b"the audio"
     assert dst.stat().st_mtime_ns == 2_000_000_000  # the next scan sees the same file
     assert not staged_of(dst).exists()
@@ -103,8 +104,9 @@ def test_a_source_that_cannot_be_removed_stays_the_only_file(paths, other, monke
             raise PermissionError(errno.EROFS, "Read-only file system")
         real(p, *a, **kw)
     monkeypatch.setattr(os, "unlink", unlink)
-    with pytest.raises(PermissionError):
+    with pytest.raises(library.SourceKept) as e:
         move_path(paths.root, "Library/A/x.aiff", str(dst), library.staging_path(str(dst)))
+    assert e.value.errno == errno.EROFS
     assert src.exists() and not dst.exists() and not staged_of(dst).exists()
 
 
@@ -201,11 +203,11 @@ def test_recovery_with_only_a_whole_staged_copy_gives_it_the_target_name(paths, 
     assert dst.read_bytes() == b"audio" and not staged_of(dst).exists()
 
 
-def test_recovery_with_only_a_partial_staged_copy_keeps_it_and_says_neither_exists(paths, other):
+def test_recovery_with_only_a_partial_staged_copy_removes_it_and_says_neither_exists(paths, other):
     state, src, dst = crossing_step(paths, other, src=False, staged=True, dst=False, staged_data=b"aud")
     (message, ok), = recover_pending(paths, state)
     assert not ok and "neither" in message
-    assert staged_of(dst).read_bytes() == b"aud" and not dst.exists()  # kept: it may be all there is
+    assert not staged_of(dst).exists() and not dst.exists()  # the source's drive is there: it is truly gone
     assert load_state(paths)["pending"] == []
 
 
@@ -380,3 +382,178 @@ def test_a_file_step_and_an_entry_step_pending_together_both_finish(paths):
     assert [ok for _, ok in recover_pending(paths, state)] == [True, True]
     assert state == load_state(paths) and state["pending"] == []
     assert state["tracks"]["t2"]["path"] == "Library/A/T.aiff" and state["tracks"]["t1"]["path"] is None
+
+
+# --- drives that aren't connected, sources that can't be removed (group 2 review) ---
+
+@pytest.fixture
+def drive(paths, tmp_path, monkeypatch):
+    """An import folder `Volumes/Example/Music` on another drive (`Volumes/Example`, library.device says 2),
+    watched in library.db."""
+    root = tmp_path / "Volumes" / "Example"
+    folder = root / "Music"
+    folder.mkdir(parents=True)
+    monkeypatch.setattr(library, "device", lambda p: 2 if Path(p).is_relative_to(root) else 1)
+    if not paths.db_file.exists():
+        save_state(paths, empty_state())
+    with db.connect(paths.db_file) as conn:
+        db.add_watched_folder(conn, folder, datetime.now())
+    return folder
+
+
+def unplug(folder: Path) -> None:
+    folder.parent.rename(folder.parent.with_name("Example (away)"))
+
+
+def plug(folder: Path) -> None:
+    folder.parent.with_name("Example (away)").rename(folder.parent)
+
+
+def test_a_move_onto_a_drive_that_is_not_connected_creates_nothing(paths, drive):
+    touch(paths.library / "A/x.aiff")
+    unplug(drive)
+    dst = str(drive / "House/x.aiff")
+    with pytest.raises(OSError) as e:
+        move_path(paths.root, "Library/A/x.aiff", dst, library.staging_path(dst), library.watched_roots(paths))
+    assert e.value.errno == errno.ENXIO
+    assert not drive.parent.exists() and (paths.library / "A/x.aiff").exists()  # no folder where the drive was
+
+
+def test_without_watched_roots_a_move_never_makes_a_folder_outside_the_music_folder(paths, tmp_path):
+    touch(paths.library / "A/x.aiff")
+    with pytest.raises(OSError):
+        move_path(paths.root, "Library/A/x.aiff", str(tmp_path / "Gone/Music/x.aiff"), None)
+    assert not (tmp_path / "Gone").exists()
+
+
+def from_the_drive(paths, drive, *, staged_data=None, dst=False):
+    """A step moving `<drive>/x.aiff` into Library/ across drives, cut off: the source there, a staged copy and
+    the target as asked."""
+    src, target = drive / "x.aiff", paths.library / "A/x.aiff"
+    touch(src)
+    s = load_state(paths)
+    s["pending"].append({"track_id": "t1", "renames": [[str(src), "Library/A/x.aiff"]], "entry": None,
+                         "label": "A - S", "staged": {"0": "Library/A/.x.aiff.discjockey-move"},
+                         "size": {"0": len(b"audio")}})
+    save_state(paths, s)
+    if staged_data is not None:
+        touch(staged_of(target), staged_data)
+    if dst:
+        touch(target)
+    return src, target
+
+
+@pytest.mark.parametrize("dst", [False, True])
+def test_while_the_source_drive_is_away_nothing_is_decided_and_once_back_the_move_is_checked(paths, drive, dst):
+    src, target = from_the_drive(paths, drive, staged_data=b"audio", dst=dst)
+    unplug(drive)
+    (message, ok), = recover_pending(paths, load_state(paths))
+    assert not ok and "yet" in message and "isn't connected" in message
+    assert staged_of(target).read_bytes() == b"audio" and target.exists() == dst  # a whole copy, not renamed in
+    assert len(load_state(paths)["pending"]) == 1
+    plug(drive)
+    assert recover_pending(paths, load_state(paths)) == [("Finished an interrupted step for A - S", True)]
+    assert not src.exists() and target.read_bytes() == b"audio" and not staged_of(target).exists()
+    assert load_state(paths)["pending"] == []
+
+
+def test_a_step_waiting_for_an_unplugged_drive_blocks_the_scan_only_when_it_has_a_file_elsewhere(paths, drive):
+    s = load_state(paths)
+    s["pending"].append({"track_id": "t1", "renames": [[str(drive / "a.aiff"), str(drive / "B/a.aiff")]],
+                         "entry": None})
+    save_state(paths, s)
+    unplug(drive)
+    touch(paths.library / "A/new.aiff")
+    library.scan_library(paths)
+    assert "Library/A/new.aiff" in load_state(paths)["files"]  # every file of the step is on the drive that's away
+    s = load_state(paths)
+    s["pending"].append({"track_id": "t2", "renames": [[str(drive / "c.aiff"), "Library/A/c.aiff"]], "entry": None})
+    save_state(paths, s)
+    touch(paths.library / "A/newer.aiff")
+    library.scan_library(paths)
+    assert "Library/A/newer.aiff" not in load_state(paths)["files"]  # Library/A/c.aiff is visible to a scan
+
+
+def refuse_removing(monkeypatch, path: Path):
+    real = os.unlink
+
+    def unlink(p, *a, **kw):
+        if Path(p) == path:
+            raise PermissionError(errno.EROFS, "Read-only file system")
+        real(p, *a, **kw)
+    monkeypatch.setattr(os, "unlink", unlink)
+
+
+def test_a_verified_copy_whose_source_cannot_be_removed_ends_the_step_in_two_places(paths, other, monkeypatch):
+    state, src, dst = crossing_step(paths, other, src=True, staged=True, dst=True)
+    refuse_removing(monkeypatch, src)
+    (message, ok), = recover_pending(paths, state)
+    assert (message, ok) == ("Could not finish an interrupted step for A - S: " + library.TWO_PLACES.format(
+        src="Library/A/x.aiff", dst=str(dst), reason="Read-only file system"), False)
+    assert src.exists() and dst.exists() and not staged_of(dst).exists()
+    assert load_state(paths)["pending"] == []  # never retried forever
+
+
+def test_a_redo_whose_source_cannot_be_removed_ends_the_step_with_the_file_where_it_was(paths, other, monkeypatch):
+    state, src, dst = crossing_step(paths, other, src=True, staged=False, dst=False)
+    refuse_removing(monkeypatch, src)
+    (message, ok), = recover_pending(paths, state)
+    assert not ok and "stays where it was" in message
+    assert src.exists() and not dst.exists() and load_state(paths)["pending"] == []
+
+
+def test_a_failing_folder_sync_after_the_rename_still_counts_the_move(paths, other, monkeypatch):
+    src = touch(paths.library / "A/x.aiff")
+    dst = other / "x.aiff"
+
+    def fails(path):
+        raise OSError(errno.EIO, "Input/output error")
+    monkeypatch.setattr(library, "fsync_dir", fails)
+    run_op(paths, empty_state(), "t1", [("Library/A/x.aiff", str(dst))], None)
+    assert not src.exists() and dst.read_bytes() == b"audio" and load_state(paths)["pending"] == []
+
+
+def test_a_source_cut_short_while_it_is_copied_fails_the_copy(paths, other, monkeypatch):
+    src = touch(paths.library / "A/x.aiff", b"the whole audio")
+    dst = other / "x.aiff"
+    real = library.full_fsync
+
+    def cut_short(fd):
+        real(fd)
+        os.truncate(src, 3)
+    monkeypatch.setattr(library, "full_fsync", cut_short)
+    with pytest.raises(OSError, match="didn't match"):
+        move_path(paths.root, "Library/A/x.aiff", str(dst), library.staging_path(str(dst)))
+    assert src.exists() and not dst.exists() and not staged_of(dst).exists()
+
+
+def test_recovery_with_a_different_file_at_the_target_removes_the_staged_copy(paths, other):
+    state, src, dst = crossing_step(paths, other, src=True, staged=True, dst=b"another song")
+    (message, ok), = recover_pending(paths, state)
+    assert not ok and "both" in message and not staged_of(dst).exists()
+    assert src.read_bytes() == b"audio" and dst.read_bytes() == b"another song"
+
+
+def test_a_redo_that_no_longer_crosses_removes_the_staged_copy(paths, other, monkeypatch):
+    state, src, dst = crossing_step(paths, other, src=True, staged=True, dst=False, staged_data=b"au")
+    monkeypatch.setattr(library, "device", lambda p: 1)  # e.g. the folder is on the music folder's drive now
+    assert recover_pending(paths, state)[0][1] is True
+    assert dst.read_bytes() == b"audio" and not staged_of(dst).exists()
+
+
+def test_only_a_file_with_the_staging_name_is_removed_as_a_staged_copy(paths):
+    music = touch(paths.library / "A/x.aiff")
+    hidden_music = touch(paths.library / "A/.x.aiff")
+    library._remove_staged(music)
+    library._remove_staged(hidden_music)
+    assert music.exists() and hidden_music.exists()
+
+
+def test_a_ctrl_c_during_a_long_copy_stops_it_and_keeps_the_source(paths, other, monkeypatch):
+    src = touch(paths.library / "A/x.aiff", b"x" * (3 << 20))
+    dst = other / "x.aiff"
+    monkeypatch.setattr(library, "interrupt_held", lambda: True)
+    with pytest.raises(KeyboardInterrupt):
+        run_op(paths, empty_state(), "t1", [("Library/A/x.aiff", str(dst))], None)
+    assert src.stat().st_size == 3 << 20 and not dst.exists() and not staged_of(dst).exists()
+    assert load_state(paths)["pending"] == []
