@@ -383,7 +383,7 @@ def test_sync_says_which_songs_wait_for_an_answer_in_the_window(root, monkeypatc
     save_state(Paths(root, support=root / ".support"), state)
     assert cli.main(["--dry-run"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert "1 songs wait for your answer in the window (Is this the same song?)." in out
+    assert "1 song waits for your answer in the window (Is this the same song?)." in out
     assert not [s for s in out if "wait to be imported" in s]
 
 

@@ -80,9 +80,20 @@ def test_a_track_that_waits_after_work_was_shown_keeps_its_own_line():
     assert "-> waiting for the next run (Qobuz limit for today reached)\n" in text
 
 
+def test_a_song_of_the_users_own_is_labelled_your_music():
+    own = Action("upgrade", "local:1", "", SourceTrack("1", "Night Drive", ("Example Artist",), "", None, 1, None,
+                                                       service="local"), (1, 0))
+    p, out = printer()
+    p(ActionStarted(1, 1, own))
+    p(ActionFinished(own, Result("checked", "", "Example Artist", "Night Drive", "local:1", "")))
+    assert "[1/1] Looking for a better version [your music] Example Artist - Night Drive\n" in out.getvalue()
+
+
 def test_waiting_lines_only_for_counts_above_zero():
     assert waiting_lines(0, 0) == []
     assert waiting_lines(12, 0) == [
         "12 files in your watched folders wait to be imported. Open the window to import them."]
     assert waiting_lines(0, 3) == ["3 songs wait for your answer in the window (Is this the same song?)."]
-    assert len(waiting_lines(1, 1)) == 2
+    assert waiting_lines(1, 1) == [
+        "1 file in your watched folders waits to be imported. Open the window to import it.",
+        "1 song waits for your answer in the window (Is this the same song?)."]
