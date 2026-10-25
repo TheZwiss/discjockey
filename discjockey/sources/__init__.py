@@ -42,11 +42,12 @@ def recognise(link: str) -> tuple[str, str] | None:
 
 
 def read(paths: SupportPaths, lines: list[PlaylistLine], *, emit: Emit = no_emit,
-         token: CancelToken | None = None) -> list[FetchedPlaylist]:
+         token: CancelToken | None = None, want_info: bool = False) -> list[FetchedPlaylist]:
     """Reads every line's playlist with its own service's reader, in `playlists.txt` order.
 
     Every service the lines use is checked for a login first (a missing one raises SourceError(not_set_up) with that
-    service's words, before any network call); then one reader per service is opened for the whole read."""
+    service's words, before any network call); then one reader per service is opened for the whole read.
+    `want_info`: the readers also fill `FetchedPlaylist.info` where reading the tracks tells it for free."""
     token = token or CancelToken()
     services = list(dict.fromkeys(line.service for line in lines))
     for service in services:
@@ -55,6 +56,8 @@ def read(paths: SupportPaths, lines: list[PlaylistLine], *, emit: Emit = no_emit
             raise SourceError(login.message, "not_set_up", service)
     with ExitStack() as stack:
         readers = {service: stack.enter_context(SOURCES[service].open(paths, token)) for service in services}
+        for reader in readers.values():
+            reader.want_info = want_info
         fetched = []
         for i, line in enumerate(lines, 1):
             token.check()

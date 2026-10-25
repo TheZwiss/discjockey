@@ -203,6 +203,21 @@ def test_fetch_pages_through_a_playlist_and_keeps_order(make_reader, small_pages
     ]
 
 
+def test_fetch_fills_the_playlist_page_from_the_first_page_only_when_asked(make_reader):
+    reader, client = make_reader((200, fixture("playlist_info.json")))
+    assert reader.fetch(LINE).info is None and len(client.calls) == 1  # a sync asks for nothing extra
+    reader, client = make_reader((200, fixture("playlist_info.json")), (200, fixture("user_playlists.json")))
+    reader.want_info = True
+    got = reader.fetch(LINE)
+    assert got.info == PlaylistInfo(
+        service="qobuz", id="900000001", name="Example Playlist", owner_id="700000001", owner_name="Example Owner",
+        collaborative=False, image_url="https://static.example.com/playlists/900000001_300.jpg", track_count=5,
+        yours=True, readable=True)
+    # the page came with the tracks: one playlist request, one for who is logged in, no second login
+    assert [c[0] for c in client.calls] == ["playlist/get", "playlist/getUserPlaylists"]
+    assert got == FetchedPlaylist(LINE, got.tracks, got.skipped)  # the page is no part of what a read compares by
+
+
 def item(i):
     return {"id": 900100000 + i, "title": f"Track {i}", "duration": 200, "streamable": True,
             "performer": {"name": "Example Artist"}, "album": {"title": "Example Album"}}

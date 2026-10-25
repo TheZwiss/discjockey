@@ -21,6 +21,7 @@ def test_report_sections_only_when_not_empty():
     assert "## New lossless tracks (1)" in text
     assert "- [Hard_Bounce] Artist - Song — Qobuz FLAC · verified lossless — https://open.spotify.com/track/t1" in text
     assert "- [Hard_Bounce] Local song (local file, not on Spotify)" in text
+    assert "## Skipped playlist items (1)" in text  # Spotify's local files and Qobuz's "no Qobuz ID" entries alike
     assert "Moved" not in text
 
 

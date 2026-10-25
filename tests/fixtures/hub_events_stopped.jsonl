@@ -2,7 +2,7 @@
 {"type": "Message", "level": "info", "text": "Reading your playlists..."}
 {"type": "ReadingPlaylist", "index": 1, "total": 2, "folder": "Hard_Bounce"}
 {"type": "ReadingPlaylist", "index": 2, "total": 2, "folder": "Powertrance"}
-{"type": "JobFinished", "job_id": 1, "kind": "refresh", "ok": true, "problem": null, "message": "", "result": {"actions": 5}}
+{"type": "JobFinished", "job_id": 1, "kind": "refresh", "ok": true, "problem": null, "message": "", "result": {"actions": 5}, "service": null}
 {"type": "JobStarted", "job_id": 2, "kind": "sync", "track_id": null}
 {"type": "Message", "level": "info", "text": "Reading your playlists..."}
 {"type": "ReadingPlaylist", "index": 1, "total": 2, "folder": "Hard_Bounce"}
@@ -44,5 +44,5 @@
 {"type": "Message", "level": "debug", "text": "Fallback: 0 results, 0 match"}
 {"type": "ActionFinished", "action": {"kind": "acquire", "track_id": "1301WleyT98MSxVHPZCA6M", "folder": "Hard_Bounce", "track": {"id": "1301WleyT98MSxVHPZCA6M", "title": "Gone Track", "artists": ["Some Artist"], "album": "Album", "image_url": null, "duration_ms": 12000, "isrc": null, "service": "spotify", "link": "https://open.spotify.com/track/1301WleyT98MSxVHPZCA6M", "streamable": true}, "order": [0, 3], "src": null, "dest_dir": null, "aliases": [], "reason": "new", "qobuz_id": null}, "result": {"section": "missing", "folder": "Hard_Bounce", "artist": "Some Artist", "title": "Gone Track", "track_id": "1301WleyT98MSxVHPZCA6M", "note": "[Beatport](https://www.beatport.com/search?q=Some+Artist+Gone+Track) \u00b7 [Bandcamp](https://bandcamp.com/search?q=Some+Artist+Gone+Track) \u00b7 a bought copy goes to Library/Hard_Bounce/Some Artist - Gone Track.wav", "status": "missing", "source": null, "cutoff_hz": null, "path": null, "error_kind": "not_found", "found_status": null}}
 {"type": "ActionStarted", "index": 3, "total": 5, "action": {"kind": "acquire", "track_id": "3n3Ppam7vgaVa1iaRUc9Lp", "folder": "Powertrance", "track": {"id": "3n3Ppam7vgaVa1iaRUc9Lp", "title": "non stop", "artists": ["torbentorben"], "album": "Album", "image_url": null, "duration_ms": 12000, "isrc": null, "service": "spotify", "link": "https://open.spotify.com/track/3n3Ppam7vgaVa1iaRUc9Lp", "streamable": true}, "order": [1, 0], "src": null, "dest_dir": null, "aliases": [], "reason": "new", "qobuz_id": null}}
-{"type": "RunFinished", "exit_code": 130, "report_path": "/Users/you/Music/Discjockey/.discjockey/reports/2026-10-24_025027.md"}
-{"type": "JobFinished", "job_id": 2, "kind": "sync", "ok": true, "problem": null, "message": "", "result": {"exit_code": 130, "report": "/Users/you/Music/Discjockey/.discjockey/reports/2026-10-24_025027.md", "actions": 5, "new_since_preview": 0}}
+{"type": "RunFinished", "exit_code": 130, "report_path": "/Users/you/Music/Discjockey/.discjockey/reports/2026-10-25_173649.md"}
+{"type": "JobFinished", "job_id": 2, "kind": "sync", "ok": true, "problem": null, "message": "", "result": {"exit_code": 130, "report": "/Users/you/Music/Discjockey/.discjockey/reports/2026-10-25_173649.md", "actions": 5, "new_since_preview": 0}, "service": null}

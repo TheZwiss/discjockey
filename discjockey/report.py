@@ -36,7 +36,7 @@ SECTIONS = [
     ("queued", "Waiting for the next run"),
     ("ambiguous", "Several files could be this track, nothing done"),
     ("conflicts", "Could not move because another file is in the way"),
-    ("skipped", "Skipped Spotify items"),
+    ("skipped", "Skipped playlist items"),
     ("rekordbox_check", "Check in rekordbox"),
     ("recovered", "Finished from an interrupted run"),
     ("errors", "Errors (tried again next run)"),

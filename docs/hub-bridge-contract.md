@@ -28,7 +28,7 @@ library (lists cut to 2 items, `data` cut).
 | `busy` | another hub job runs (or a refresh already runs) |
 | `console` | a Discjockey run in the terminal holds the lock → read-only banner |
 | `sync_running` | network read refused while any sync runs (searches, previews, playlist reads) |
-| `not_set_up` | Spotify/Qobuz/playlists.txt not set up → wizard (`service` names the playlist service that isn't, when it is one). `message` is the inline wording ("Connect Qobuz first." for a pasted link, the service's own "isn't set up" text for a read); a card's title and route ("Qobuz isn't connected.", "Connect Qobuz →") are the UI's, built from `kind` + `service` |
+| `not_set_up` | Spotify/Qobuz/playlists.txt not set up → wizard (`service` names the playlist service that isn't, when it is one). `message` is the inline wording ("Connect Qobuz first." for a pasted link, a read or a sync alike; `JobFinished.service` names the service for a read or sync too); a card's title and route ("Qobuz isn't connected.", "Connect Qobuz →") are the UI's, built from `kind` + `service` |
 | `login_expired` | Spotify login expired → wizard Spotify step |
 | `offline` | no connection / Spotify or Qobuz not answering (`service` says which, for Qobuz: "Qobuz is not responding (…). Try again later.") → "No internet connection. Try again when you're online." + Retry |
 | `playlist_unreadable` | a playlist can't be read → the hint of its service (`service` on the answer; `info.hint`) |
@@ -77,7 +77,7 @@ Use the kind for the card/headline; always show `message` as the detail.
 - **SpotifyStatus** (`spotify` field; it is the status of reading *all* playlists, whichever service): `read_at`
   ISO|null, `minutes_ago` int|null, `problem` kind|null, `problem_service` `"spotify"|"qobuz"|null` (the playlist
   service `problem` is about: a missing Qobuz login on a read is `not_set_up` + `qobuz`; null for a problem that is no
-  service's; a good read clears it), `message`, `services` [{`service` `spotify|qobuz`, `name` "Spotify"|"Qobuz",
+  service's; a good read clears it, and so does a login made for that service: a good Setup or Settings login, or a good "Check again", so the page never waits for a restart), `message` (a missing login reads "Connect Qobuz first." in the hub, never the console's "Run: discjockey setup"), `services` [{`service` `spotify|qobuz`, `name` "Spotify"|"Qobuz",
   `connected` bool}] (the services the switched-on lines of playlists.txt use, in line order; `connected` is a local
   check of that service's login files, so `[]` when no line uses a service; the page blocks reading only while one of
   them isn't connected), `stale` bool, `reading` bool, `offline` bool (show last data with an "offline" badge), `auto_read` bool (the hub's
@@ -673,7 +673,7 @@ counts each track once, `chips.rekordbox_check` every check (hidden ones too).
 `playlists()` — rows top = highest priority. `playlist_id` is the playlist's **ref** (a Spotify id stays bare, a
 Qobuz one is `qobuz:<id>`); the page keys rows by it. `service` (`spotify|qobuz`) and `service_name` ("Spotify",
 "Qobuz") name the row's service. `info.hint`: the words of the row's service for a playlist it won't show (Spotify:
-"Follow ≠ own: …"; Qobuz: "Make it public in Qobuz, or use one of your own playlists."), always set once `info` is.
+"Follow ≠ own: make your own copy in Spotify."; Qobuz: "Make it public in Qobuz, or use one of your own playlists."), always set once `info` is.
 `info` null until read (refresh or add_playlist); `tracks` null when
 neither the tracks nor the playlist's count were read (the row then shows no count). `version` must be sent to
 `save_playlists`. `overlaps` for the panel when nothing is unsaved: each track that is in several switched-on
@@ -702,7 +702,7 @@ playlists, with `folders` (in list order) and `lands_in` (the first), its `cover
     "readable": true,
     "image_url": null,
     "track_count": 4,
-    "hint": "Follow ≠ own: Discjockey can only read playlists that are yours or collaborative. Make your own copy in Spotify (open it → ⋯ → Add to other playlist → New playlist) and paste that link."
+    "hint": "Follow ≠ own: make your own copy in Spotify."
    },
    "tracks": 4,
    "quality": {
@@ -729,7 +729,7 @@ playlists, with `folders` (in list order) and `lands_in` (the first), its `cover
     "readable": true,
     "image_url": null,
     "track_count": 2,
-    "hint": "Follow ≠ own: Discjockey can only read playlists that are yours or collaborative. Make your own copy in Spotify (open it → ⋯ → Add to other playlist → New playlist) and paste that link."
+    "hint": "Follow ≠ own: make your own copy in Spotify."
    },
    "tracks": 2,
    "quality": {
@@ -1174,7 +1174,7 @@ through that service's reader. `playlist_id` is the ref (see `playlists()`); `se
   "readable": true,
   "image_url": null,
   "track_count": 0,
-  "hint": "Follow ≠ own: Discjockey can only read playlists that are yours or collaborative. Make your own copy in Spotify (open it → ⋯ → Add to other playlist → New playlist) and paste that link."
+  "hint": "Follow ≠ own: make your own copy in Spotify."
  },
  "tracks": 0,
  "readable": true,
@@ -1539,7 +1539,7 @@ the third action).
 | type | fields |
 |---|---|
 | `JobStarted` | `job_id` int, `kind` str, `track_id` str\|null |
-| `JobFinished` | `job_id`, `kind`, `ok` bool, `problem` kind\|null, `message` str, `result` object\|null |
+| `JobFinished` | `job_id`, `kind`, `ok` bool, `problem` kind\|null, `message` str, `result` object\|null, `service` `spotify\|qobuz`\|null (the playlist service a failed job's problem is about — a sync or read that stops at a missing login, a rejected login, an unreadable playlist, a service not answering; null for everything else and for success) |
 | `ConsoleBusy` | `running` bool (terminal run started/ended → banner, read-only) |
 | `FileDropped` | `track_id` str\|null, `name` str, `readable` bool, `message` str ("macOS didn't let Discjockey read this file…" / "Select the track…") |
 | `SignInPhase` | `service` (`youtube\|soundcloud`), `phase` `waiting\|checking`, `browser`, `browser_name` — a sign-in through the browser (Settings, Setup) |

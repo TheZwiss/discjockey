@@ -144,7 +144,7 @@ export class Replay {
     this.o.emit({ type: 'RunFinished', exit_code: 1, report_path: report });
     this.o.emit({ type: 'JobFinished', job_id: this.o.jobId, kind: 'sync', ok: false, problem: 'crashed',
       message: "The sync stopped unexpectedly. Everything done up to then is saved, and the next sync carries on from there.",
-      result: { exit_code: 1, report, actions: this.actions(), new_since_preview: 0 } });
+      result: { exit_code: 1, report, actions: this.actions(), new_since_preview: 0 }, service: null });
     this.finish();
   }
 

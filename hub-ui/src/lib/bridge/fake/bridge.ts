@@ -189,7 +189,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         good = false; problem = k; message = m; res = null;
       }
       emit({ type: 'JobFinished', job_id: id, kind, ok: good, problem: good ? null : (problem ?? 'failed'), message,
-        result: good ? (res ?? {}) : (problem === 'stopped' ? (res ?? null) : null) } as HubEvent);
+        result: good ? (res ?? {}) : (problem === 'stopped' ? (res ?? null) : null), service: null } as HubEvent);
       me.running = false;
     };
     setTimeout(() => {
@@ -419,12 +419,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         if (s.offline) {
           s.spotify = { ...s.spotify, reading: false };
           emit({ type: 'JobFinished', job_id: id, kind: 'refresh', ok: false, problem: 'offline', message: MSG.offline,
-            result: null });
+            result: null, service: null });
           return;
         }
         s.spotify = { ...spotifyOk(0), auto_read: s.spotify.auto_read }; s.previewRead = true;
         emit({ type: 'JobFinished', job_id: id, kind: 'refresh', ok: true, problem: null, message: '',
-          result: { actions: preview().actions } });
+          result: { actions: preview().actions }, service: null });
       }, 2500 / speed) };
       return ok({ job_id: id });
     },
@@ -435,7 +435,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       refreshJob = null;
       s.spotify = { ...s.spotify, reading: false };
       emit({ type: 'JobFinished', job_id: id, kind: 'refresh', ok: false, problem: 'stopped',
-        message: 'Stopped. The last read stays.', result: null });
+        message: 'Stopped. The last read stays.', result: null, service: null });
       return ok({ stopped: true });
     },
     async job_status() {
@@ -575,7 +575,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         if (!me.running) return;
         timers.forEach(clearTimeout);
         send({ type: 'JobFinished', job_id: id, kind: 'account_sign_in', ok: good, problem, message,
-          result: good ? result : null } as HubEvent);
+          result: good ? result : null, service: null } as HubEvent);
         signInStop = null;
       };
       signInStop = () => end(false, null, 'stopped', 'Stopped. Nothing was changed.');

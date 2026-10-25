@@ -72,14 +72,15 @@ def lock_held():
 
 
 def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, emit: Emit = no_emit,
-            token: CancelToken | None = None,
+            token: CancelToken | None = None, want_info: bool = False,
             lock: Callable[[], AbstractContextManager[bool]] = lock_held) -> Prepared:
     """`token`: Stop while reading the playlists (also while waiting out a rate limit) raises events.Cancelled.
     Before the playlists are read, the library's records are opened for writing (migrated if needed), interrupted steps
     are finished (not in a dry run) and Library/ is scanned (also in a dry run, spec library-and-sources §6.4), so
     the plan works on the files as they are. `lock()` yields whether the library lock is held for that: a reader
     (the window's preview) that can't get it (a terminal run, a hub job) plans on the records as the last scan
-    left them and writes nothing."""
+    left them and writes nothing. `want_info`: the hub's read also takes the playlists' names, owners and covers from
+    what reading the tracks told (FetchedPlaylist.info), so it needs no second login to ask."""
     token = token or CancelToken()
     log = rep.RunLog(datetime.now())
     try:
@@ -100,7 +101,7 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
 
     emit(Message("info", "Reading your playlists..."))
     try:
-        fetched = sources.read(paths, lines, emit=emit, token=token)
+        fetched = sources.read(paths, lines, emit=emit, token=token, want_info=want_info)
     except sources.SourceError as e:
         raise SetupProblem(str(e), e.kind, e.service) from None
     for fp in fetched:

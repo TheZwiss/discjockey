@@ -1,5 +1,5 @@
 // Engine and hub events, exactly as tests/fixtures/hub_events.schema.json (spec §6.4, contract "Events").
-import type { AppUpdate, Browser, PlannedAction, ProblemKind, Result } from './types';
+import type { AppUpdate, Browser, PlannedAction, PlaylistService, ProblemKind, Result } from './types';
 
 export type SourceTrack = { id: string; title: string; artists: string[]; album: string; image_url: string | null;
   duration_ms: number; isrc: string | null; service: string; link: string | null; streamable: boolean };
@@ -26,7 +26,7 @@ export type HubEvent =
   | { type: 'MovesProgress'; batch_id: number; done: number; total: number }
   | { type: 'JobStarted'; job_id: number; kind: string; track_id: string | null }
   | { type: 'JobFinished'; job_id: number; kind: string; ok: boolean; problem: ProblemKind | null; message: string;
-      result: any | null }
+      result: any | null; service?: PlaylistService | null }
   | { type: 'ConsoleBusy'; running: boolean }
   | { type: 'FileDropped'; track_id: string | null; name: string; readable: boolean; message: string }
   | { type: 'SignInPhase'; service: 'youtube' | 'soundcloud'; phase: 'waiting' | 'checking'; browser: Browser;
@@ -55,7 +55,7 @@ export const EVENT_FIELDS: { [T in HubEvent['type']]: readonly (keyof EventOf<T>
   ReadingPlaylist: ['type', 'index', 'total', 'folder'],
   MovesProgress: ['type', 'batch_id', 'done', 'total'],
   JobStarted: ['type', 'job_id', 'kind', 'track_id'],
-  JobFinished: ['type', 'job_id', 'kind', 'ok', 'problem', 'message', 'result'],
+  JobFinished: ['type', 'job_id', 'kind', 'ok', 'problem', 'message', 'result', 'service'],
   ConsoleBusy: ['type', 'running'],
   FileDropped: ['type', 'track_id', 'name', 'readable', 'message'],
   SignInPhase: ['type', 'service', 'phase', 'browser', 'browser_name'],
