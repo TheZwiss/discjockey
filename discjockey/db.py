@@ -24,7 +24,7 @@ from .models import (BatchRow, KnownFile, MoveRow, PlannedMove, ScanResult, Seen
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 NEWER = ("This music folder was last used by a newer Discjockey. Update Discjockey, then try again. "
          "Nothing was changed.")
@@ -107,6 +107,22 @@ SCHEMA_V2_STEP = (
 )
 
 
+# step 2 -> 3 (plan library stage 4, I1): the import's progress per file, the answers to To-do's questions, and
+# the generation every write bumps (a stale snapshot is never saved)
+SCHEMA_V3_STEP = (
+    # NULL: not a file of an import folder; new -> identified (tags read, own song) -> done (sound judged)
+    """ALTER TABLE files ADD COLUMN import_state TEXT
+      CHECK (import_state IN ('new', 'identified', 'done', 'unreadable'))""",
+    "ALTER TABLE files ADD COLUMN import_error TEXT",  # the reason words of an unreadable file
+    "CREATE INDEX files_import ON files (folder, import_state)",
+    # same_song: a = the playlist song's key (its track token while it has none), b = the own song's key, answer
+    # same | not_same; keep_both: a = the duplicate group id, b = '', answer keep
+    """CREATE TABLE decisions (kind TEXT NOT NULL CHECK (kind IN ('same_song', 'keep_both')),
+      a TEXT NOT NULL, b TEXT NOT NULL, answer TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (kind, a, b))""",
+    "INSERT INTO meta (key, value) VALUES ('generation', '0')",
+)
+
+
 def _statements(statements: tuple[str, ...]) -> Callable[[sqlite3.Connection], None]:
     def step(conn: sqlite3.Connection) -> None:
         for statement in statements:  # one execute each: executescript would commit mid-transaction
@@ -116,7 +132,8 @@ def _statements(statements: tuple[str, ...]) -> Callable[[sqlite3.Connection], N
 
 # version n -> the step that turns a version-n database into version n+1, run inside the open transaction. `create`
 # builds SCHEMA_V1 and then runs every step, so a fresh database and an upgraded one are the same
-UPGRADES: dict[int, Callable[[sqlite3.Connection], None]] = {1: _statements(SCHEMA_V2_STEP)}
+UPGRADES: dict[int, Callable[[sqlite3.Connection], None]] = {1: _statements(SCHEMA_V2_STEP),
+                                                           2: _statements(SCHEMA_V3_STEP)}
 
 
 class _Connection(sqlite3.Connection):

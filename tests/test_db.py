@@ -57,7 +57,7 @@ def test_a_fresh_database_has_the_current_version(tmp_path, library):
         db.check(conn)
         version = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
         created = conn.execute("SELECT value FROM meta WHERE key = 'created'").fetchone()[0]
-    assert int(version) == db.SCHEMA_VERSION == 2
+    assert int(version) == db.SCHEMA_VERSION == 3
     assert created == "2026-10-23T12:00:00"
 
 
@@ -70,7 +70,7 @@ def test_create_refuses_an_existing_file(tmp_path, library):
 def test_a_newer_database_is_refused_with_the_words(tmp_path, library):
     path = fresh(tmp_path, library)
     with db.connect(path) as conn:
-        conn.execute("UPDATE meta SET value = '3' WHERE key = 'schema_version'")
+        conn.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (str(db.SCHEMA_VERSION + 1),))
     with db.connect(path) as conn, pytest.raises(StateError) as e:
         db.check(conn)
     assert str(e.value) == ("This music folder was last used by a newer Discjockey. Update Discjockey, then try "
@@ -101,10 +101,10 @@ def test_an_upgrade_step_is_applied_once_and_bumps_the_version(tmp_path, library
 
     def step(conn):
         calls.append(1)
-        conn.execute("CREATE TABLE extra_v3 (id INTEGER PRIMARY KEY)")
+        conn.execute("CREATE TABLE extra_v4 (id INTEGER PRIMARY KEY)")
 
-    monkeypatch.setattr(db, "SCHEMA_VERSION", 3)
-    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, 2: step})
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, 3: step})
     with db.connect(path) as conn, pytest.raises(StateError) as e:
         db.check(conn)  # a reader (no lock) never upgrades
     assert str(e.value) == ("Discjockey's records of this music folder are from an older version. Run a sync once "
@@ -115,8 +115,8 @@ def test_an_upgrade_step_is_applied_once_and_bumps_the_version(tmp_path, library
             db.check(conn, upgrade=True)
     assert calls == [1]
     with db.connect(path) as conn:
-        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "3"
-        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'extra_v3'").fetchone()
+        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "4"
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'extra_v4'").fetchone()
 
 
 def test_a_failing_upgrade_step_leaves_the_old_version(tmp_path, library, monkeypatch):
@@ -126,23 +126,24 @@ def test_a_failing_upgrade_step_leaves_the_old_version(tmp_path, library, monkey
         conn.execute("CREATE TABLE half_done (id INTEGER PRIMARY KEY)")
         raise RuntimeError("disk full")
 
-    monkeypatch.setattr(db, "SCHEMA_VERSION", 3)
-    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, 2: step})
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, 3: step})
     with db.connect(path) as conn, pytest.raises(RuntimeError):
         db.check(conn, upgrade=True)
     with db.connect(path) as conn:
-        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "2"
+        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "3"
         assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'half_done'").fetchone() is None
 
 
 def test_create_builds_the_current_version_through_the_upgrade_steps(tmp_path, library, monkeypatch):
-    monkeypatch.setattr(db, "SCHEMA_VERSION", 3)
-    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, 2: lambda conn: conn.execute("CREATE TABLE extra_v3 (id INTEGER)")})
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, 3: lambda conn: conn.execute("CREATE TABLE extra_v4 (id INTEGER)")})
     path = fresh(tmp_path, library)
     with db.connect(path) as conn:
         db.check(conn)
-        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "3"
-        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'extra_v3'").fetchone()
+        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "4"
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'extra_v4'").fetchone()
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'decisions'").fetchone()
         assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'moves'").fetchone()
 
 
@@ -171,6 +172,7 @@ def test_a_writer_upgrades_a_version_1_database_and_leaves_its_rows(tmp_path, li
     path = version_1(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
     before = everything(path)
     assert "moves" not in before and "move_batches" not in before
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 2)  # this step alone; 2 -> 3 has its own test
     with db.connect(path) as conn:
         db.check(conn, upgrade=True)
     after = everything(path)
@@ -216,6 +218,57 @@ def test_a_reader_refuses_a_version_1_database(tmp_path, library, monkeypatch):
     with db.connect(path) as conn:
         assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "1"
         assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'moves'").fetchone() is None
+
+
+# --- stage 4, 1.1: the schema step 2 -> 3 (import_state, decisions, generation) ---
+
+def version_2(tmp_path, library, monkeypatch, state=None, facts=no_facts):
+    """A database as stages 2 and 3 built it: version 2, no import columns, no decisions."""
+    with monkeypatch.context() as m:
+        m.setattr(db, "SCHEMA_VERSION", 2)
+        m.setattr(db, "UPGRADES", {1: db.UPGRADES[1]})
+        return fresh(tmp_path, library, state, facts)
+
+
+def test_a_writer_upgrades_a_version_2_database_and_leaves_its_rows(tmp_path, library, monkeypatch):
+    path = version_2(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
+    before = everything(path)
+    assert "decisions" not in before
+    with db.connect(path) as conn:
+        db.check(conn, upgrade=True)
+        columns = [r[1] for r in conn.execute("PRAGMA table_info(files)")]
+    after = everything(path)
+    assert after.pop("decisions") == []
+    assert columns[-2:] == ["import_state", "import_error"]
+    assert after.pop("files") == [(*row, None, None) for row in before.pop("files")]
+    meta = dict(after.pop("meta"))
+    assert meta.pop("schema_version") == "3" and meta.pop("generation") == "0"
+    assert meta == {k: v for k, v in before.pop("meta") if k != "schema_version"}
+    assert after == before
+
+
+def test_fresh_and_v2_upgraded_databases_have_the_same_schema(tmp_path, library, monkeypatch):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    upgraded = version_2(tmp_path / "a", library, monkeypatch)
+    with db.connect(upgraded) as conn:
+        db.check(conn, upgrade=True)
+    created = fresh(tmp_path / "b", library)
+    assert schema(upgraded) == schema(created)
+    assert {name for _, name, _, _ in schema(created)} >= {"decisions", "files_import"}
+
+
+def test_a_fresh_database_starts_at_generation_0(tmp_path, library):
+    path = fresh(tmp_path, library)
+    with db.connect(path) as conn:
+        assert conn.execute("SELECT value FROM meta WHERE key = 'generation'").fetchone()[0] == "0"
+
+
+def test_a_reader_refuses_a_version_2_database(tmp_path, library, monkeypatch):
+    path = version_2(tmp_path, library, monkeypatch)
+    with db.connect(path) as conn, pytest.raises(StateError) as e:
+        db.check(conn)
+    assert str(e.value) == db.OLDER
 
 
 # --- 1.2 entry <-> rows, create, snapshot ---
