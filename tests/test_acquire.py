@@ -478,6 +478,22 @@ def test_a_permanently_unavailable_exact_id_is_rejected_and_the_search_goes_on(t
     assert r.kind == "ready" and r.ready.source_id == "2" and r.rejected == ["qobuz:900000001"]
 
 
+def test_an_exact_file_that_fails_the_length_check_is_not_downloaded_again_by_the_search(tmp_path):
+    q = FakeQobuz({ISRC_Q: [qc("900000001"), qc("2")]})
+    a, _ = acquirer(q, statuses={"qobuz:900000001": None})
+    r = a.acquire(T, set(), tmp_path, False, exact="900000001")
+    assert q.downloads == ["900000001", "2"] and q.searches == [ISRC_Q]
+    assert r.kind == "ready" and r.ready.source_id == "2" and r.rejected == ["qobuz:900000001"]
+
+
+def test_an_exact_file_that_is_not_lossless_is_rejected_in_an_upgrade_check_and_the_chain_goes_on(tmp_path):
+    q = FakeQobuz({ISRC_Q: [qc("900000001"), qc("2")]})
+    a, _ = acquirer(q, statuses={"qobuz:900000001": "not_lossless"})
+    r = a.acquire(T, set(), tmp_path, True, exact="900000001")
+    assert q.downloads == ["900000001", "2"] and r.rejected == ["qobuz:900000001"]
+    assert r.kind == "ready" and r.ready.source_id == "2"
+
+
 def test_the_exact_id_that_would_be_the_third_failure_pauses_qobuz_before_any_search(tmp_path):
     q = FakeQobuz({ISRC_Q: [qc("2")]}, fail_download={"900000001"})
     a, _ = acquirer(q)
