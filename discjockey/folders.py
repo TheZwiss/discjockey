@@ -83,6 +83,12 @@ def problem_words(check: FolderCheck) -> str | None:
     return IMPORT_PROBLEMS[check.problem].format(other=PurePosixPath(check.other).name if check.other else "")
 
 
+def refused_words(refused: db.FolderRefused) -> str:
+    """The words (W5) for a folder the records refused when it was added (it changed since the check)."""
+    other = PurePosixPath(refused.other).name if refused.other else ""
+    return IMPORT_PROBLEMS[refused.reason].format(other=other)
+
+
 def merge_hints(check: FolderCheck) -> list[str]:
     """W5's merge Hint, one per watched folder the new one takes over (named by its folder name)."""
     return [MERGES.format(other=PurePosixPath(m).name) for m in check.merges]
@@ -170,14 +176,20 @@ def _same_song(state: dict, files: list[DupFile]) -> bool:
     return True
 
 
+def _pure_own(f: DupFile) -> bool:
+    """A file of a song of the user's own that no playlist song was linked to (a "Yes, same song" answer keeps the
+    `local:<n>` key but puts the song in a playlist: it is a playlist song's file for what moves)."""
+    return f.song_key is not None and is_own(f.song_key) and not f.in_playlists
+
+
 def _heir(moved: DupFile, others: list[DupFile]) -> int | None:
     """D10: a playlist song's file moved away while only own songs' files stay: the best of them (by quality, then
     the oldest row) takes over the playlist song, so nothing downloads again."""
-    if moved.song_key is None or is_own(moved.song_key):
+    if moved.song_key is None or _pure_own(moved):
         return None
-    if any(o.song_key is not None and not is_own(o.song_key) for o in others):
+    if any(o.song_key is not None and not _pure_own(o) for o in others):
         return None  # another playlist song's file stays: it keeps its own song, the moved one's downloads again
-    own = [o for o in others if o.song_key is not None and is_own(o.song_key)]
+    own = [o for o in others if _pure_own(o)]
     if not own:
         return None
     return min(own, key=lambda o: (STATUS_RANK.get(o.status or "", 3), o.file_id)).file_id

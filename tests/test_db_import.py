@@ -308,6 +308,48 @@ def test_removing_a_folder_drops_its_rows_and_own_songs_and_keeps_playlist_songs
     assert tracks["sp2"]["path"] is None and tracks["sp1"]["path"] == IN_LIBRARY
 
 
+def link(lib, key, alias="sp9"):
+    """What a "Yes, same song" answer leaves: the own song keeps its key, takes the playlist token as an alias and is in
+    a playlist."""
+    with lib.conn() as conn:
+        conn.execute("UPDATE songs SET in_playlists = 1 WHERE key = ?", (key,))
+        conn.execute("INSERT INTO song_ids (service, id, song) SELECT ?, ?, id FROM songs WHERE key = ?",
+                     (*db.split_token(alias), key))
+
+
+def test_removing_a_folder_keeps_a_linked_own_song_and_counts_it_as_a_redownload(lib):
+    folder, _, key = removal_setup(lib)
+    link(lib, key)
+    with lib.conn() as conn:
+        db.set_decision(conn, "same_song", "sp9", key, "same", NOW)
+        assert db.removal_counts(conn, folder) == db.RemovalCounts(files=3, redownload=2)
+        assert db.remove_watched_folder(conn, folder, date(2026, 10, 26)) == db.RemovalCounts(3, 2)
+        assert db.decisions(conn)["same_song"] == [["sp9", key, "same"]]
+    assert lib.rows("SELECT key, file_gone, in_playlists FROM songs WHERE key = ?", key) == [(key, "2026-10-26", 1)]
+
+
+def test_superseding_the_only_file_of_a_linked_own_song_keeps_the_song(lib):
+    folder = lib.folder().id
+    (a,) = lib.add_files(folder, "A.mp3")
+    key = lib.own_song(a)
+    link(lib, key)
+    op = {"do": "supersede", "ref": a, "heir": None}
+    with lib.conn() as conn:
+        db.add_pending(conn, op)
+        db.finish_file_op(conn, op)
+    assert lib.rows("SELECT id FROM files WHERE id = ?", a) == []
+    assert lib.rows("SELECT key FROM songs WHERE key = ?", key) == [(key,)]
+
+
+def test_a_scan_that_loses_the_file_of_a_linked_own_song_marks_it_gone(lib):
+    folder = lib.folder().id
+    (a,) = lib.add_files(folder, "A.mp3")
+    key = lib.own_song(a)
+    link(lib, key)
+    lib.scan(ScanResult(gone=[a]))
+    assert lib.rows("SELECT key, file_gone FROM songs WHERE key = ?", key) == [(key, "2026-10-25")]
+
+
 def test_the_library_folder_is_never_removed(lib):
     with lib.conn() as conn:
         for folder in (1, 42):

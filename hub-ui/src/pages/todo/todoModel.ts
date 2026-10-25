@@ -8,8 +8,8 @@ export const FILTER_ORDER: TodoFilter[] = ['all', 'rekordbox_check', 'upgrade_re
   'fake', 'other'];
 /** Short, so the strip holds five and More on one line at 1100 (the section heads carry the full names). */
 const FILTER_LABEL: Record<TodoFilter, string> = {
-  all: 'All', rekordbox_check: 'rekordbox', upgrade_ready: 'Upgrades', not_found: 'Not found', weak: 'Weak',
-  good_lossy: 'Good lossy', fake: 'Fake lossless', other: 'Other',
+  all: 'All', rekordbox_check: 'rekordbox', same_song: 'Same song?', duplicate: 'Duplicates', upgrade_ready: 'Upgrades',
+  not_found: 'Not found', weak: 'Weak', good_lossy: 'Good lossy', fake: 'Fake lossless', other: 'Other',
 };
 const FILTER_DOT: Partial<Record<TodoFilter, Quality>> = {
   upgrade_ready: 'lossless', not_found: 'missing', weak: 'weak', good_lossy: 'good_lossy', fake: 'fake',

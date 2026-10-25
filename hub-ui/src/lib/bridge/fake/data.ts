@@ -2,7 +2,7 @@
 import type {
   AnySignalKind, AppUpdate, Alignment, Browser, Budget, LastCheck, LoginBrowser, ByQuality, Candidate, PlaylistInfo, PlaylistRow, PreviewAction, Quality, Result, RunDetail,
   DownloadTools, FolderCheck, SetupStatus, SignalKind, Source, SpotifyStatus, Status, TodoGroupKey, TrackRow, Upgrade, FreeDownload,
-  PlaylistService, TrackLink,
+  PlaylistService, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
 } from '../types';
 import { NOT_IN_PLAYLIST, QUALITIES } from '../types';
 
@@ -72,6 +72,34 @@ export type FakeTidy = {
 };
 export const emptyTidy = (): FakeTidy => ({ batches: [], nextBatch: 1, placed: {}, skips: {}, noRows: false,
   failMove: null, stopAfter: null });
+/** A watched folder as the fake keeps it (folders.ts answers watched_folders from these). */
+export type FakeFolder = {
+  id: number; path: string; kind: 'library' | 'import'; offline: boolean; files: number;
+  /** files the import still works through (not read yet, or read and not sound-checked) */
+  waiting: number;
+  /** playlist songs whose only file is here: they download again when the folder is removed */
+  redownload: number;
+};
+export type FakeQuestion = { song_key: string; own_key: string; why: QuestionWhy; delta_s: number | null;
+  track: QuestionPair['track']; file: FileSide };
+export type FakeDuplicate = { group_id: string; why: DuplicateWhy; files: FileSide[] };
+/** The fake's watched folders, the import and its To-do questions (src/lib/bridge/fake/folders.ts). */
+export type FakeImport = {
+  folders: FakeFolder[]; nextId: number;
+  /** the files the import couldn't read, with their reason's words */
+  unreadable: UnreadableFile[];
+  /** the user stopped an import this session */
+  stopped: boolean;
+  /** Setup's "Your existing music" was skipped */
+  skipped: boolean;
+  questions: FakeQuestion[]; duplicates: FakeDuplicate[];
+  /** first upgrade checks the per-run cap left for later runs */
+  deferred: number;
+  /** the phase the running import is in (null: none runs) */
+  phase: ImportPhase | null;
+};
+export const emptyImport = (): FakeImport => ({ folders: [], nextId: 2, unreadable: [], stopped: false, skipped: false,
+  questions: [], duplicates: [], deferred: 0, phase: null });
 export type FakeRun = RunDetail;
 export type FakePlaylist = { folder: string; link: string; enabled: boolean; info: PlaylistInfo | null };
 export type FakeState = {
@@ -124,6 +152,7 @@ export type FakeState = {
   syncStarts: number;
   never: string[];               // "never download": Spotify ids the plan leaves out
   tidy: FakeTidy;
+  imp: FakeImport;
 };
 
 // ---------- helpers ----------
@@ -485,7 +514,8 @@ export const FAKE_MUSIC = '/Users/you/Music/Discjockey';
 export function setupComplete(): SetupStatus {
   return { music: { state: 'ok', path: FAKE_MUSIC, suggested: FAKE_MUSIC }, tools: { ffmpeg: true, ffprobe: true, deno: true }, spotify_app: true, spotify_login: true, qobuz: true,
     playlists: true, complete: true, next_step: null, version: '1.0.0', qobuz_skipped: false,
-    spotify_skipped: false, accounts: { youtube: null, soundcloud: null } };
+    spotify_skipped: false, existing: false, import_folders: 0, import_skipped: false,
+    accounts: { youtube: null, soundcloud: null } };
 }
 export function nextStep(s: SetupStatus): SetupStatus {
   const missingTools = !s.tools.ffmpeg || !s.tools.ffprobe || !s.tools.deno;
@@ -539,10 +569,10 @@ export function makeState(scenario: string, now = new Date()): FakeState {
       last_download: iso(daysAgo(now, 0, 21, 47)) },
     setup: setupComplete(), downloadTools: builtInTools(), spotify: spotifyOk(2, now), console_running: false, offline: false, previewRead: true,
     appUpdate: { state: 'up_to_date', current: '1.0.0', latest: null, url: null },
-    selected: null, dropped: null, errors: scenario === 'errors', errorTurn: 0, syncStarts: 0, never: [], tidy: emptyTidy(),
+    selected: null, dropped: null, errors: scenario === 'errors', errorTurn: 0, syncStarts: 0, never: [], tidy: emptyTidy(), imp: emptyImport(),
     accounts: { youtube: null, soundcloud: null }, qobuzSkipped: false,  // the user's own setup: Qobuz only
   };
-  if (scenario === 'first_run' || scenario === 'no_music') {
+  if (scenario === 'first_run' || scenario === 'no_music' || scenario.startsWith('setup_existing')) {
     s.tracks = []; s.newTracks = []; s.playlists = []; s.runs = []; s.extraFolders = []; s.previewRead = false;
     s.qobuz = { ...s.qobuz, used_today: 0, carry_over: 0, days: Array(14).fill(0), signals: [], last_download: null };
     s.setup = nextStep({ ...setupComplete(), spotify_login: false, qobuz: false, playlists: false });

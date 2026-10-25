@@ -160,3 +160,15 @@ def test_spotify_skipped_roundtrips_and_must_be_true_or_false(tmp_path):
     path.write_text('{"spotify_skipped": "yes"}')
     with pytest.raises(SettingsError, match="spotify_skipped"):
         load_settings(path)
+
+
+def test_import_skipped_round_trips_defaults_to_false_and_must_be_true_or_false(tmp_path):
+    path = tmp_path / "settings.json"
+    assert load_settings(path).import_skipped is False
+    path.write_text('{"daily_qobuz_limit": 60}')  # a settings file from before the import
+    assert load_settings(path).import_skipped is False
+    save_settings(path, Settings(import_skipped=True))
+    assert load_settings(path).import_skipped is True
+    path.write_text('{"import_skipped": "true"}')
+    with pytest.raises(SettingsError, match="import_skipped"):
+        load_settings(path)

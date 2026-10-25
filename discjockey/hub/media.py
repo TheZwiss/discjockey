@@ -1,8 +1,10 @@
 """Makes local audio playable in the window (spec "hub" 6.5): a token-protected server on 127.0.0.1, random port.
 
 The one server of our own, limited to audio and covers: it serves only files in Library/, Superseded/,
-Upgrades ready/ (addressed by their path in the music folder) and the cached previews and covers in the support
-folder (addressed as `cache/previews/...`, `cache/covers/...`), and only with the random token in the URL. bottle's
+Upgrades ready/ (addressed by their path in the music folder), the cached previews and covers in the support
+folder (addressed as `cache/previews/...`, `cache/covers/...`) and the files the hub's records know in a watched
+folder (addressed as `file/<file id>`: the hub's resolver says which file that is and keeps it inside its folder),
+and only with the random token in the URL. bottle's
 static_file answers range requests (WebKit needs them to play and seek). Every URL carries the file's size and
 mtime, so the window never plays a cached old version after a swap.
 """
@@ -14,6 +16,7 @@ import os
 import secrets
 import threading
 import urllib.parse
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from socketserver import ThreadingMixIn
 from wsgiref.simple_server import WSGIRequestHandler, WSGIServer, make_server
@@ -27,6 +30,22 @@ from ..names import fold
 MUSIC_ROOTS = ("Library", "Superseded", "Upgrades ready")
 CACHE_ROOTS = ("previews", "covers")  # under <support>/cache/
 CACHE_PREFIX = "cache/"
+FILE_PREFIX = "file/"
+
+
+def file_address(file_id: int) -> str:
+    """The media address of a file row of the records (an import folder's file, which is outside the music folder)."""
+    return f"{FILE_PREFIX}{int(file_id)}"
+
+
+def file_inside(root: Path, rel: str) -> Path | None:
+    """The real path of `rel` in the watched folder `root`, if it is a file whose links resolve to somewhere inside
+    `root`; None otherwise (missing, not a file, or a link leading out of the folder)."""
+    try:
+        real = (root / rel).resolve(strict=True)
+        return real if real.is_relative_to(root.resolve()) and real.is_file() else None
+    except (OSError, RuntimeError, ValueError):
+        return None
 
 
 def cache_address(paths: SupportPaths, file: Path) -> str:
@@ -46,8 +65,10 @@ class _QuietHandler(WSGIRequestHandler):
 class MediaServer:
     host = "127.0.0.1"
 
-    def __init__(self, paths: Paths | None = None, token: str | None = None):
+    def __init__(self, paths: Paths | None = None, token: str | None = None,
+                 files: Callable[[int], Path | None] | None = None):
         self.paths = paths  # None: nothing is served until the hub binds a library
+        self.files = files  # file id -> the real path the hub's records allow, else None (the `file/<id>` addresses)
         self.token = token or secrets.token_urlsafe(24)
         app = bottle.Bottle()
         app.route("/<token>/<rel:path>", "GET", self._serve)
@@ -63,9 +84,24 @@ class MediaServer:
         self._server.shutdown()
         self._server.server_close()
 
-    def bind(self, paths: Paths) -> None:
-        """The library whose files it serves (the hub binds it at start, or when the music folder is chosen)."""
+    def bind(self, paths: Paths, files: Callable[[int], Path | None] | None = None) -> None:
+        """The library whose files it serves (the hub binds it at start, or when the music folder is chosen), and the
+        resolver of its `file/<id>` addresses."""
         self.paths = paths
+        if files is not None:
+            self.files = files
+
+    def _file(self, rel: str) -> Path | None:
+        """The file a `file/<id>` address names, if the hub's resolver serves it (it checks the records, that the
+        drive is online and that the file stays inside its folder; this checks the answer is a file again)."""
+        number = rel[len(FILE_PREFIX):]
+        if self.files is None or not (number.isascii() and number.isdigit()):
+            return None
+        try:
+            real = self.files(int(number))
+        except Exception:  # noqa: BLE001 - a records problem is a refused address, never an error page
+            return None
+        return real if real is not None and real.is_file() else None
 
     def _locate(self, rel: str) -> tuple[Path, Path] | None:
         """(the served folder, the file) for a media address, or None outside the served folders."""
@@ -86,6 +122,8 @@ class MediaServer:
         parts = PurePosixPath(rel).parts
         if not parts or rel.startswith("/") or ".." in parts or "\\" in rel:
             return None
+        if rel.startswith(FILE_PREFIX):
+            return self._file(rel)
         found = self._locate(rel)
         if found is None:
             return None

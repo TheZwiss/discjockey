@@ -1,15 +1,18 @@
 import json
 import threading
 import time
+from datetime import datetime
+from pathlib import Path
 
 import pytest
-from hub_helpers import LOSSY, PARKED, fake_spotify, make_api, make_root, refreshed, wait_job, write
+from hub_helpers import (LOSSY, PARKED, fake_import, fake_spotify, import_folder, make_api, make_root, music_root,
+                         refreshed, wait_job, write)
 
-from discjockey import library, run
+from discjockey import db, importer, library, run
 from discjockey.sources import spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.align import Alignment
-from discjockey.events import SourceChosen
+from discjockey.events import ImportProgress, SourceChosen
 from discjockey.hub import jobs
 from discjockey.library import load_state, run_lock, save_state
 from discjockey.models import Candidate, ScanSummary
@@ -213,7 +216,8 @@ def test_save_the_qobuz_limit(root):
     assert wait_job(api, rec, api.save_limits("qobuz", 90, 20)).ok
     assert json.loads(root.settings_file.read_text()) == {"daily_qobuz_limit": 90,
                                                          "extra_today": {"date": "2026-10-20", "amount": 20},
-                                                         "qobuz_skipped": False, "spotify_skipped": False, "warnings_seen": {},
+                                                         "qobuz_skipped": False, "spotify_skipped": False, "import_skipped": False,
+                                                             "warnings_seen": {},
                                                          "qobuz_last_check": None,
                                                          "accounts": {}}
     assert api.limits("qobuz")["usage"]["today"]["allowance"] == 90 + 30 + 20
@@ -619,3 +623,438 @@ def test_got_it_marks_the_warning_signs_seen(root):
     assert page["cards"][0]["new_warnings"] == 0 and page["usage"]["signals"][0]["new"] is False
     assert api.sidebar()["limits_warning"] is False
     assert api.mark_warnings_seen("youtube")["kind"] == "refused"
+
+
+# --- the import of the user's own music (plan library stage 4, group 5) ---
+
+from discjockey.hub.jobs import IMPORTING_TEXT
+
+
+@pytest.fixture
+def lib(tmp_path, monkeypatch):
+    """A hub over a small library (`make_root`) in tmp_path/music, with an import folder of 3 files beside it."""
+    fake_spotify(monkeypatch)
+    paths = music_root(tmp_path, upgrade=True)
+    return paths, import_folder(tmp_path, 3), fake_import(monkeypatch)
+
+
+def own_songs(paths):
+    return {k: e for k, e in load_state(paths)["tracks"].items() if k.startswith("local:")}
+
+
+def test_adding_a_folder_watches_and_imports_it_in_one_job(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    f = wait_job(api, rec, api.add_watched_folder(str(folder)))
+    assert (f.ok, f.kind, f.problem) == (True, "import", None)
+    assert f.message == "Imported 3 files."
+    assert f.result == {"files": 3, "own_songs": 3, "sound_checked": 3, "unreadable": 0, "left": 0, "stopped": False,
+                        "link_note": None}
+    assert sorted(e["title"] for e in own_songs(paths).values()) == ["Song 1", "Song 2", "Song 3"]
+    rows = api.watched_folders()
+    assert [(r["kind"], r["name"], r["state"], r["files"], r["waiting"]) for r in rows["folders"]] == [
+        ("library", "Library", "online", 2, 0), ("import", "Music", "online", 3, 0)]
+    progress = [e for e in rec.events if isinstance(e, ImportProgress)]
+    assert {p.phase for p in progress} >= {"scan", "tags", "sound", "link"}
+
+
+def test_one_file_is_imported_in_the_singular(lib):
+    paths, folder, fakes = lib
+    for extra in sorted(folder.iterdir())[1:]:
+        extra.unlink()
+    api, rec = make_api(paths)
+    assert wait_job(api, rec, api.add_watched_folder(str(folder))).message == "Imported 1 file."
+
+
+def test_a_refused_folder_says_why_and_starts_nothing(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    inside = paths.library / "Hard_Bounce"
+    a = api.add_watched_folder(str(inside))
+    assert (a["ok"], a["kind"]) == (False, "refused")
+    assert a["message"] == "This is inside your music folder, which Discjockey watches already."
+    gone = api.add_watched_folder(str(folder / "nope"))
+    assert gone["message"] == "That folder isn't there. If it is on a drive, connect the drive first."
+    assert rec.events == [] and api.job_status()["job"] is None
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    again = api.add_watched_folder(str(folder))
+    assert again["message"] == "Discjockey watches this folder already."
+
+
+def test_every_other_write_answers_busy_with_the_import_words_while_it_runs(lib):
+    paths, folder, fakes = lib
+    gate = threading.Event()
+    fakes.on_probe = lambda n: gate.wait(10)
+    api, rec = make_api(paths)
+    job = api.add_watched_folder(str(folder))
+    try:
+        assert job["ok"]
+        for answer in (api.hide("t2", True), api.start_import(), api.add_watched_folder(str(folder)),
+                       api.setup_skip_import(), api.rescan_library()):
+            assert (answer["ok"], answer["kind"], answer["message"]) == (False, "busy", IMPORTING_TEXT), answer
+    finally:
+        gate.set()
+    assert wait_job(api, rec, job).ok
+
+
+def test_stop_ends_the_import_between_two_files_and_continue_import_finishes_it(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    fakes.on_probe = lambda n: api.stop() if n == 2 else None
+    f = wait_job(api, rec, api.add_watched_folder(str(folder)))
+    assert (f.ok, f.problem, f.kind) == (False, "stopped", "import")
+    assert f.result["stopped"] is True and f.result["files"] == 2 and f.result["left"] == 3  # 1 not read + 2 to judge
+    assert f.message == "Import stopped with 3 files to go. It carries on where it stopped."
+    assert api.watched_folders()["stopped"] is True
+    fakes.on_probe = None
+    done = wait_job(api, rec, api.start_import())
+    assert (done.ok, done.result["stopped"]) == (True, False)
+    assert api.watched_folders()["stopped"] is False
+    assert len(own_songs(paths)) == 3 and done.result["left"] == 0
+
+
+def test_a_stop_with_one_file_to_go_says_so_in_the_singular(lib):
+    paths, folder, fakes = lib
+    for extra in sorted(folder.iterdir())[1:]:
+        extra.unlink()
+    api, rec = make_api(paths)
+    fakes.on_probe = lambda n: api.stop()
+    f = wait_job(api, rec, api.add_watched_folder(str(folder)))
+    assert f.result["left"] == 1 and f.message == "Import stopped with 1 file to go. It carries on where it stopped."
+
+
+def import_jobs(rec):
+    return [e for e in rec.events if isinstance(e, jobs.JobStarted) and e.kind == "import"]
+
+
+def wait_idle(api):
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and (api._jobs.current is None or not api._jobs.current.done.is_set()):
+        time.sleep(0.01)
+
+
+def test_the_import_starts_by_itself_after_the_opening_scan_when_files_wait(lib):
+    paths, folder, fakes = lib
+    with db.connect(paths.db_file) as conn:
+        db.add_watched_folder(conn, folder, datetime(2026, 10, 20))
+    api, rec = make_api(paths)
+    api._first_read()  # what the app does when it opens: no page is involved
+    wait_idle(api)
+    started = import_jobs(rec)
+    assert len(started) == 1
+    done = rec.finished(started[0].job_id)
+    assert done is not None and done.ok and done.result["files"] == 3
+    assert len(own_songs(paths)) == 3
+    assert api.refresh(auto=True)["kind"] == "refused"  # the Sync page's own try finds the read done
+    assert len(import_jobs(rec)) == 1
+
+
+def test_the_automatic_import_does_not_wait_for_the_playlists_to_be_read(lib, monkeypatch):
+    paths, folder, fakes = lib
+    with db.connect(paths.db_file) as conn:
+        db.add_watched_folder(conn, folder, datetime(2026, 10, 20))
+    gate, real = threading.Event(), spotify.fetch_playlist
+
+    def slow(session, line):
+        gate.wait(10)
+        return real(session, line)
+
+    monkeypatch.setattr(spotify, "fetch_playlist", slow)
+    api, rec = make_api(paths)
+    try:
+        api._first_read()
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not import_jobs(rec):
+            time.sleep(0.01)
+        assert len(import_jobs(rec)) == 1  # started while the read still waits on the network
+    finally:
+        gate.set()
+    wait_idle(api)
+    assert len(own_songs(paths)) == 3
+
+
+def test_the_automatic_import_starts_without_spotify_set_up(lib, monkeypatch):
+    paths, folder, fakes = lib
+    with db.connect(paths.db_file) as conn:
+        db.add_watched_folder(conn, folder, datetime(2026, 10, 20))
+    monkeypatch.setattr(spotify, "load_session", lambda p: (_ for _ in ()).throw(
+        spotify.SourceError("Spotify isn't connected.", "not_set_up", "spotify")))
+    monkeypatch.setattr(spotify, "login_state", lambda p: spotify.LoginState("missing", "Spotify isn't connected."))
+    api, rec = make_api(paths)
+    api._first_read()
+    wait_idle(api)
+    started = import_jobs(rec)
+    assert len(started) == 1 and rec.finished(started[0].job_id).ok
+    assert len(own_songs(paths)) == 3
+
+
+def test_it_does_not_start_when_nothing_waits_or_for_a_read_the_user_asked_for(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    refreshed(api, rec)
+    api._auto_import()  # no watched folder
+    with db.connect(paths.db_file) as conn:
+        db.add_watched_folder(conn, folder, datetime(2026, 10, 20))
+    wait_job(api, rec, api.refresh())  # "Read playlists" is not the window opening
+    assert not [e for e in rec.events if isinstance(e, jobs.JobStarted) and e.kind == "import"]
+    assert importer.files_waiting(paths) == 3  # the read's scan found them: they wait for Continue import
+
+
+def test_a_stop_holds_the_automatic_start_for_the_session(lib):
+    paths, folder, fakes = lib
+    with db.connect(paths.db_file) as conn:
+        db.add_watched_folder(conn, folder, datetime(2026, 10, 20))
+    api, rec = make_api(paths)
+    refreshed(api, rec)
+    fakes.on_probe = lambda n: api.stop() if n == 1 else None
+    api._auto_import()
+    first = api._jobs.current
+    assert first.done.wait(10) and rec.finished(first.id).problem == "stopped"
+    fakes.on_probe = None
+    api._auto_import()
+    api._auto_import()
+    assert len([e for e in rec.events if isinstance(e, jobs.JobStarted) and e.kind == "import"]) == 1
+    assert wait_job(api, rec, api.start_import()).ok  # Continue import still works, and lets it start by itself again
+    assert api._import_stopped is False
+
+
+def test_the_import_links_the_playlists_and_asks_what_is_plausible(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    refreshed(api, rec)  # the window's read: t4 "AEIOU" by Pegassi is new
+    fakes.tags["Example Artist - Song 1.aiff"] = {"artist": "Other Artist", "title": "AEIOU"}
+    fakes.seconds["Example Artist - Song 1.aiff"] = 180.0  # the playlist song's length
+    f = wait_job(api, rec, api.add_watched_folder(str(folder)))
+    assert f.ok and f.result["link_note"] is None
+    todo = api.todo()
+    assert todo["chips"]["same_song"] == 1
+    item = next(g for g in todo["groups"] if g["key"] == "same_song")["items"][0]
+    assert item["track_id"] == "t4" and item["pair"]["own_key"] == "local:1" and item["pair"]["why"] == "artist"
+    assert item["detail"] == "Same title, different artist"
+    preview = api.sync_preview()
+    assert preview["waiting_answers"] == 1
+    assert "t4" not in [a["track_id"] for g in preview["groups"] for a in g["actions"]]  # held until the answer (D4)
+
+
+def test_answering_yes_links_the_file_and_no_releases_the_download(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    refreshed(api, rec)
+    fakes.tags["Example Artist - Song 1.aiff"] = {"artist": "Other Artist", "title": "AEIOU"}
+    fakes.tags["Example Artist - Song 2.aiff"] = {"artist": "Other Artist", "title": "non stop"}
+    fakes.seconds.update({"Example Artist - Song 1.aiff": 180.0, "Example Artist - Song 2.aiff": 180.0})
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    pairs = {i["track_id"]: i["pair"] for g in api.todo()["groups"] if g["key"] == "same_song" for i in g["items"]}
+    assert set(pairs) == {"t4", "t5"}
+    yes = wait_job(api, rec, api.answer_same_song("t4", pairs["t4"]["own_key"], True))
+    assert (yes.ok, yes.kind, yes.result) == (True, "answer", {})
+    no = wait_job(api, rec, api.answer_same_song("t5", pairs["t5"]["own_key"], False))
+    assert no.ok
+    planned = api._store.prep.plan.state["tracks"]  # the next plan: saved by the next sync or import
+    linked = planned[pairs["t4"]["own_key"]]  # "Yes": the file's own song is the playlist song now
+    assert (linked["aliases"], linked["in_playlists"]) == (["t4"], True)
+    assert linked["path"].endswith("Example Artist - Song 1.aiff")
+    assert planned[pairs["t5"]["own_key"]]["in_playlists"] is False  # "No": still only a file of the user's
+    assert api.todo()["chips"]["same_song"] == 0 and api.sync_preview()["waiting_answers"] == 0
+    wanted = [a["track_id"] for g in api.sync_preview()["groups"] for a in g["actions"]]
+    assert "t5" in wanted and "t4" not in wanted  # "No, keep them apart" releases the download
+
+
+def test_an_answer_the_records_cannot_take_fails_in_plain_words(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    bad = wait_job(api, rec, api.answer_same_song("local:1", "local:2", True))  # an own song is no playlist song
+    assert (bad.ok, bad.problem) == (False, "changed") and "nothing to answer" in bad.message
+    for args in ((1, "local:1", True), ("t4", "local:1", "yes"), ("t4", None, True)):
+        a = api.answer_same_song(*args)
+        assert (a["ok"], a["kind"]) == (False, "refused")
+    for call in (lambda: api.keep_duplicates("not a group"), lambda: api.keep_duplicates(5),
+                 lambda: api.supersede_duplicate("dup:1-2", "x"), lambda: api.supersede_duplicate("nope", 1)):
+        assert call()["kind"] == "refused"
+
+
+def copies(paths, tmp_path, fakes, n=3):
+    """n copies of one file in a watched folder (the same audio), imported."""
+    folder = tmp_path / "outside" / "Copies"
+    folder.mkdir(parents=True)
+    for i in range(1, n + 1):
+        (folder / f"Example Artist - Copy {i}.aiff").write_bytes(b"the very same audio" * 50)
+    return folder
+
+
+def test_a_group_of_copies_is_one_duplicate_item_and_keep_all_answers_the_whole_group(lib, tmp_path):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(copies(paths, tmp_path, fakes, 3))))
+    group = next(g for g in api.todo()["groups"] if g["key"] == "duplicate")
+    item = group["items"][0]
+    assert item["detail"] == "The same audio in 3 files" and item["pair"]["why"] == "same_audio"
+    assert [f["quality"] for f in item["pair"]["files"]] == ["lossless"] * 3
+    gid = item["pair"]["group_id"]
+    before = api.sidebar()["todo"]
+    done = wait_job(api, rec, api.keep_duplicates(gid))
+    assert (done.ok, done.kind) == (True, "answer")
+    assert api.todo()["chips"]["duplicate"] == 0 and api.sidebar()["todo"] == before - 1  # one answer, all three
+
+
+def test_moving_a_duplicate_to_superseded_keeps_the_file_and_the_others(lib, tmp_path):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    copy_dir = copies(paths, tmp_path, fakes, 2)
+    wait_job(api, rec, api.add_watched_folder(str(copy_dir)))
+    pair = next(i for g in api.todo()["groups"] if g["key"] == "duplicate" for i in g["items"])["pair"]
+    moving = pair["files"][1]
+    done = wait_job(api, rec, api.supersede_duplicate(pair["group_id"], moving["file_id"]))
+    assert (done.ok, done.kind) == (True, "supersede")
+    assert done.result["recovered"] == [] and done.result["result"]["section"] == "replaced"
+    moved_to = paths.root / done.result["result"]["path"]
+    assert moved_to.is_file() and not Path(moving["path"]).exists()  # moved, never deleted
+    assert Path(pair["files"][0]["path"]).is_file()
+    assert api.todo()["chips"]["duplicate"] == 0
+    stale = api.supersede_duplicate(pair["group_id"], moving["file_id"])
+    assert wait_job(api, rec, stale).problem == "changed"
+
+
+def test_removing_a_folder_forgets_its_files_and_reports_what_downloads_again(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    fid = next(r["id"] for r in api.watched_folders()["folders"] if r["kind"] == "import")
+    preview = api.removal_preview(fid)
+    assert (preview["name"], preview["files"], preview["redownload"]) == ("Music", 3, 0)
+    done = wait_job(api, rec, api.remove_watched_folder(fid))
+    assert (done.ok, done.kind, done.result) == (True, "folders", {"files": 3, "redownload": 0})
+    assert [r["kind"] for r in api.watched_folders()["folders"]] == ["library"]
+    assert not own_songs(paths) and all(p.is_file() for p in folder.iterdir())  # the files stay where they are
+    for bad in (fid, 0, "x", True, None):
+        assert api.remove_watched_folder(bad)["kind"] == "refused"
+        assert api.removal_preview(bad)["kind"] == "refused"
+
+
+def test_removing_the_folder_of_a_playlist_songs_only_file_makes_it_download_again(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    refreshed(api, rec)
+    # t3 "Gone Track" by Some Artist has no file: this one is certainly it (same names, same length), so the import links it
+    fakes.tags["Example Artist - Song 1.aiff"] = {"artist": "Some Artist", "title": "Gone Track"}
+    fakes.seconds["Example Artist - Song 1.aiff"] = 180.0
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    assert load_state(paths)["tracks"]["t3"]["path"].endswith("Example Artist - Song 1.aiff")
+    assert api.todo()["chips"]["same_song"] == 0 and "local:1" not in load_state(paths)["tracks"]
+    fid = next(r["id"] for r in api.watched_folders()["folders"] if r["kind"] == "import")
+    assert api.removal_preview(fid) == {"ok": True, "name": "Music", "files": 3, "redownload": 1}
+    done = wait_job(api, rec, api.remove_watched_folder(fid))
+    assert done.result == {"files": 3, "redownload": 1}
+    assert load_state(paths)["tracks"]["t3"]["path"] is None
+    wanted = [(a["kind"], a["track_id"]) for g in api.sync_preview()["groups"] for a in g["actions"]]
+    assert ("acquire", "t3") in wanted  # the preview was planned again at once
+
+
+def test_continue_import_clears_the_stop_before_the_job_can_be_stopped_again(lib, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    api._import_stopped = True
+    seen = []
+    real = api._jobs.start
+
+    def start(kind, work, *a, **kw):
+        seen.append(api._import_stopped)
+        raise jobs.Busy("busy", "busy")
+
+    monkeypatch.setattr(api._jobs, "start", start)
+    assert api.start_import()["kind"] == "busy"
+    assert seen == [False]  # cleared before the job could stop itself again
+    assert api._import_stopped is True  # a refused start leaves the stop as it was
+    monkeypatch.setattr(api._jobs, "start", real)
+
+
+
+def test_an_import_folders_file_plays_through_its_file_id(lib):
+    from discjockey.hub.media import MediaServer
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    assert wait_job(api, rec, api.add_watched_folder(str(folder))).ok
+    api._media = MediaServer(paths)
+    api._media.bind(paths, api._file_path)  # what _attach does for the app's server
+    with db.connect(paths.db_file) as conn:
+        ids = {rel: i for i, rel in conn.execute("SELECT id, path FROM files WHERE folder = 2")}
+    one = ids["Example Artist - Song 1.aiff"]
+    entry = {"path": str(folder / "Example Artist - Song 1.aiff"), "file_id": one}
+    url = api._audio("local:1", entry)
+    assert url is not None and f"/file/{one}?v=" in url
+    assert api._audio("local:1", {**entry, "file_id": 999}) is None  # not a row of the records
+    assert api._audio("local:1", {"path": entry["path"]}) is None
+    outside = folder.parent / "secret.aiff"
+    outside.write_bytes(b"secret")
+    (folder / "escape.aiff").symlink_to(outside)
+    with db.connect(paths.db_file) as conn:
+        conn.execute("UPDATE files SET path = 'escape.aiff' WHERE id = ?", (ids["Example Artist - Song 2.aiff"],))
+    assert api._file_path(ids["Example Artist - Song 2.aiff"]) is None  # a link leading out of the folder
+    with db.connect(paths.db_file) as conn:
+        conn.execute("UPDATE files SET online = 0 WHERE id = ?", (one,))
+    assert api._file_path(one) is None and api._audio("local:1", entry) is None  # its drive is offline
+    assert api._file_path(ids["Example Artist - Song 3.aiff"]) == (folder / "Example Artist - Song 3.aiff").resolve()
+
+
+
+def test_a_stop_while_the_import_reads_the_playlists_to_link_ends_it_stopped(lib, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)  # no read yet: the link phase reads the playlists itself
+    real = spotify.fetch_playlist
+
+    def stopping(session, line):
+        api.stop()
+        return real(session, line)
+
+    monkeypatch.setattr(spotify, "fetch_playlist", stopping)
+    f = wait_job(api, rec, api.add_watched_folder(str(folder)))
+    assert (f.ok, f.problem, f.kind) == (False, "stopped", "import")
+    assert f.result["stopped"] is True and f.message.startswith("Import stopped with")
+    assert api._import_stopped is True  # no automatic start again this session; Continue import is offered
+    assert api.watched_folders()["stopped"] is True
+
+
+
+def test_a_stopped_or_failed_import_plans_the_preview_again(lib, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    refreshed(api, rec)  # the window's read: the preview exists
+    planned = []
+    real = jobs.preview_after_run
+    monkeypatch.setattr(jobs, "preview_after_run", lambda store, prep, at: planned.append(prep) or real(store, prep, at))
+    fakes.on_probe = lambda n: api.stop() if n == 2 else None
+    f = wait_job(api, rec, api.add_watched_folder(str(folder)))
+    assert f.problem == "stopped" and len(planned) == 1  # the files imported before the stop show in To-do and Sync
+    fakes.on_probe = None
+
+    def broken(*a, **kw):
+        raise RuntimeError("the disk went away")
+
+    monkeypatch.setattr(importer, "run_import", broken)
+    f = wait_job(api, rec, api.start_import())
+    assert (f.ok, f.problem) == (False, "crashed") and len(planned) == 2
+
+
+def test_a_folder_refused_inside_the_job_shows_the_w5_words():
+    refused = db.FolderRefused("watched", "/Volumes/Example/Music/Inside", "/Volumes/Example/Music")
+    assert jobs.problem_of(refused) == ("refused", "This is inside Music, which Discjockey watches already.")
+    assert jobs.problem_of(db.FolderRefused("holds_music", "/Volumes/Example"))[1].startswith("This folder holds your")
+    assert jobs.problem_of(ValueError("plain"))[1] == "plain"
+
+
+
+def test_the_sidebar_counts_duplicate_groups_without_loading_their_files(lib, monkeypatch):
+    import shutil
+    paths, folder, fakes = lib
+    shutil.copy(folder / "Example Artist - Song 1.aiff", folder / "Example Artist - Song 1 copy.aiff")
+    api, rec = make_api(paths)
+    assert wait_job(api, rec, api.add_watched_folder(str(folder))).ok
+    with db.connect(paths.db_file) as conn:
+        assert len(db.duplicate_groups(conn)) == 1
+    real, loaded = db.group_files, []
+    monkeypatch.setattr(db, "group_files", lambda conn, gid: loaded.append(gid) or real(conn, gid))
+    total = api.todo()["chips"]
+    assert total["duplicate"] == 1 and len(loaded) == 1  # the page lists the group, so it loads its files
+    loaded.clear()
+    assert api.sidebar()["todo"] == total["all"] and loaded == []

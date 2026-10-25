@@ -490,8 +490,8 @@ def test_todo_groups_in_order_with_details():
     assert by["c"]["detail"] == "YT Music" and by["k"]["detail"] == "Qobuz"
     assert by["m"]["detail"] == "MOVE BLOCKED · a file is in the way"
     assert "h" not in by and "f" not in by and out["hidden_count"] == 1
-    assert out["chips"] == {"all": 6, "rekordbox_check": 0, "upgrade_ready": 1, "not_found": 2, "weak": 0, "good_lossy": 1, "fake": 1,
-                            "other": 1}
+    assert out["chips"] == {"all": 6, "rekordbox_check": 0, "same_song": 0, "duplicate": 0, "upgrade_ready": 1,
+                            "not_found": 2, "weak": 0, "good_lossy": 1, "fake": 1, "other": 1}
     shown = views.todo(s, "weak", True, {}, TODAY)
     assert [g["key"] for g in shown["groups"]] == ["weak"] and shown["groups"][0]["items"][0]["track_id"] == "h"
     assert shown["groups"][0]["items"][0]["hidden"] is True
@@ -1195,3 +1195,212 @@ def test_a_qobuz_keyed_ambiguous_song_shows_on_the_todo_and_in_the_preview_under
     p = views.sync_preview(store, st, Settings(), TODAY, NOW, False)
     assert [r["track_id"] for r in p["ambiguous"]] == ["qobuz:900000001", "t1"]
     assert p["in_playlists"] == 1  # counted by song key
+
+
+# --- the import: questions, duplicates, own songs, watched folders (plan library stage 4, group 5) ---
+
+from pathlib import Path
+
+from discjockey.models import DupFile, DuplicateGroup, ImportCounts, Question, WatchedFolder
+
+
+def own(status="lossless", cutoff=None, **kw):
+    """A song of the user's own: from an import folder, in no playlist, no folder of its own."""
+    return e(status, folder=None, cutoff=cutoff, in_playlists=False, source="manual", file_id=kw.pop("file_id", 7),
+             online=True, import_state=kw.pop("import_state", "done"),
+             path=kw.pop("path", "/Volumes/Example/Music/Example Artist - Song.aiff"),
+             artist="Example Artist", title="Song", **kw)
+
+
+def question(why="artist", delta=None, song_key="t1", own_key="local:1", file_id=7):
+    track = SourceTrack("t1", "Song", ("Example Artist",), "Al", "https://example.com/c.jpg", 200000, None)
+    return Question(song_key, track, "A", own_key, file_id, why, delta)
+
+
+def dup_file(file_id, song_key=None, status="lossless", cutoff=None, online=True, in_playlists=False, usable=True,
+             path=None):
+    return DupFile(file_id, song_key, path or f"/Volumes/Example/Music/Copy {file_id}.aiff", status, cutoff, "aiff",
+                   online, in_playlists, usable)
+
+
+@pytest.mark.parametrize("why,delta,words", [
+    ("artist", None, "Same title, different artist"),
+    ("no_artist", None, "Same title, no artist in your file"),
+    ("length", 4, "Same artist and title, 4 s longer"),
+    ("length", -7, "Same artist and title, 7 s shorter"),
+    ("no_length", None, "Same artist and title, the length couldn't be read"),
+])
+def test_a_question_is_a_todo_item_with_its_pair_and_its_why_in_words(why, delta, words):
+    st = state(t1=e("missing", folder="A"), **{"local:1": own()})
+    out = views.todo(st, "all", False, {}, TODAY, None, [question(why, delta)])
+    assert [g["key"] for g in out["groups"]] == ["same_song"]
+    assert (out["groups"][0]["label"], out["groups"][0]["hint"]) == (
+        "Is this the same song?", "a file of yours might be a playlist song")
+    item = out["groups"][0]["items"][0]
+    assert (item["group"], item["detail"], item["track_id"]) == ("same_song", words, "t1")
+    pair = item["pair"]
+    assert (pair["song_key"], pair["own_key"], pair["why"], pair["delta_s"]) == ("t1", "local:1", why, delta)
+    assert pair["track"] == {"artist": "Example Artist", "title": "Song", "duration_s": 200.0, "folder": "A",
+                             "link": "https://open.spotify.com/track/t1"}
+    assert pair["file"] == {"file_id": 7, "song_key": "local:1",
+                            "path": "/Volumes/Example/Music/Example Artist - Song.aiff",
+                            "artist": "Example Artist", "title": "Song", "duration_s": 180.0, "quality": "lossless",
+                            "quality_label": "LOSSLESS", "online": True, "audio_url": None, "in_playlist": False}
+    assert out["chips"]["same_song"] == 1 and out["chips"]["all"] == 1
+
+
+def test_a_question_holds_its_song_back_from_not_found_and_a_song_without_an_entry_still_shows():
+    st = state(t1=e("missing", folder="A"), **{"local:1": own()})
+    out = views.todo(st, "all", False, {}, TODAY, None, [question()])
+    assert [g["key"] for g in out["groups"]] == ["same_song"]  # not also "Not found"
+    fresh = views.todo(state(**{"local:1": own()}), "all", False, {}, TODAY, None, [question()])  # not stored yet
+    item = fresh["groups"][0]["items"][0]
+    assert (item["track_id"], item["folder"], item["quality"]) == ("t1", "A", "missing")
+
+
+def test_a_question_whose_own_song_is_gone_is_left_out():
+    out = views.todo(state(), "all", False, {}, TODAY, None, [question()])
+    assert out["groups"] == [] and out["chips"]["same_song"] == 0 and out["empty"] == "all_lossless"
+
+
+def test_own_songs_are_on_the_todo_only_as_upgrade_ready():
+    up = {"file": "Upgrades ready/x.aiff", "alignment": {"result": "exact"}}
+    st = state(**{"local:1": own("not_lossless", cutoff=15000), "local:2": own("fake_lossless", cutoff=16000),
+                  "local:3": own("not_lossless", cutoff=20000), "local:4": own("missing"),
+                  "local:5": own("not_lossless", cutoff=16000, upgrade=up)})
+    out = views.todo(st, "all", False, {"local:3": "SEVERAL FILES"}, TODAY)
+    assert [(g["key"], [i["track_id"] for i in g["items"]]) for g in out["groups"]] == [
+        ("upgrade_ready", ["local:5"])]
+    assert out["chips"]["all"] == 1 and out["chips"]["weak"] == 0 and out["chips"]["fake"] == 0
+    assert out["groups"][0]["items"][0]["folder"] == ""  # no folder: the page shows none
+
+
+def test_a_duplicate_group_of_three_files_and_its_words():
+    st = state(t1=e(path="/Volumes/Example/Music/Copy 3.aiff", folder="A"),
+               **{"local:1": own(file_id=4, path="/Volumes/Example/Music/Copy 4.aiff"),
+                  "local:2": own("not_lossless", cutoff=16000, file_id=5, path="/Volumes/Example/Music/Copy 5.aiff")})
+    g = DuplicateGroup("dup:3-4-5", "same_song", (3, 4, 5))
+    files = {g.id: [dup_file(4, "local:1"), dup_file(3, "t1", in_playlists=True),
+                    dup_file(5, "local:2", "not_lossless", 16000)]}
+    out = views.todo(st, "all", False, {}, TODAY, None, [], [g], files)
+    item = out["groups"][0]["items"][0]
+    assert (out["groups"][0]["key"], item["group"], item["detail"]) == ("duplicate", "duplicate",
+                                                                       "3 files of the same song")
+    assert (item["track_id"], item["pair"]["group_id"], item["pair"]["why"]) == ("dup:3-4-5", "dup:3-4-5", "same_song")
+    assert [f["file_id"] for f in item["pair"]["files"]] == [3, 4, 5]  # by file id
+    assert [(f["quality"], f["in_playlist"], f["song_key"]) for f in item["pair"]["files"]] == [
+        ("lossless", True, "t1"), ("lossless", False, "local:1"), ("weak", False, "local:2")]
+    assert item["artist"] == "Artist" and item["in_playlists"] is True  # the playlist song's file names the group
+    assert out["chips"]["duplicate"] == 1
+
+
+def test_the_same_audio_pair_in_both_sources_shows_once_as_the_same_audio():
+    st = state(**{"local:1": own(file_id=4), "local:2": own(file_id=5)})
+    from_plan = DuplicateGroup("dup:4-5", "same_song", (4, 5))
+    from_records = DuplicateGroup("dup:4-5", "same_audio", (4, 5))
+    files = {"dup:4-5": [dup_file(4, "local:1"), dup_file(5, "local:2")]}
+    for order in ([from_plan, from_records], [from_records, from_plan]):
+        out = views.todo(st, "all", False, {}, TODAY, None, [], order, files)
+        items = [i for g in out["groups"] for i in g["items"]]
+        assert [(i["pair"]["group_id"], i["pair"]["why"], i["detail"]) for i in items] == [
+            ("dup:4-5", "same_audio", "The same audio in 2 files")]
+        assert out["chips"]["duplicate"] == 1
+
+
+def test_a_duplicate_group_with_a_file_offline_held_or_gone_is_not_shown():
+    st = state(**{"local:1": own(file_id=4), "local:2": own(file_id=5)})
+    g = DuplicateGroup("dup:4-5", "same_audio", (4, 5))
+    for files in ([dup_file(4, "local:1"), dup_file(5, "local:2", online=False)],
+                  [dup_file(4, "local:1"), dup_file(5, "local:2", usable=False)],
+                  [dup_file(4, "local:1")], []):
+        out = views.todo(st, "all", False, {}, TODAY, None, [], [g], {g.id: files})
+        assert out["groups"] == [] and out["chips"]["duplicate"] == 0 and out["empty"] == "all_lossless"
+
+
+def test_a_filter_keeps_only_its_group():
+    st = state(t1=e("missing"), **{"local:1": own()})
+    q = [question()]
+    assert [g["key"] for g in views.todo(st, "same_song", False, {}, TODAY, None, q)["groups"]] == ["same_song"]
+    out = views.todo(st, "duplicate", False, {}, TODAY, None, q)
+    assert out["groups"] == [] and out["empty"] == "nothing_here"
+
+
+def test_the_library_marks_files_whose_sound_is_not_checked_yet_and_copes_with_own_songs():
+    st = state(a=e(), **{"local:1": own(import_state="identified"), "local:2": own(file_id=8)})
+    out = views.library(st, None, "", "all", "folder")
+    assert {r["track_id"]: r["sound_checked"] for r in out["rows"]} == {"a": True, "local:1": False, "local:2": True}
+    assert [r["folder"] for r in out["rows"] if r["track_id"].startswith("local")] == ["", ""]
+    assert views.library(st, "A", "", "all", "artist")["summary"]["tracks"] == 1  # own songs are in no folder
+    assert views.library(st, views.NOT_IN_PLAYLIST, "", "all", "artist")["summary"]["tracks"] == 2
+    sb = views.sidebar(st, ["A"], 0)
+    assert (sb["all_tracks"], sb["not_in_playlist"], sb["folders"]) == (
+        3, 2, [{"folder": "A", "tracks": 1, "in_playlists_txt": True}])
+
+
+def test_sync_preview_counts_the_songs_waiting_for_an_answer_and_the_checks_left_for_later():
+    st = state(t1=e("missing"), **{"local:1": own()})
+    plan = Plan(st, [], [], [], questions=[question(), question(song_key="t2", own_key="local:2")], deferred_checks=40)
+    store = PreviewStore()
+    store.ready(Prepared(None, st, Settings(), plan, None, [], []), NOW)
+    p = views.sync_preview(store, st, Settings(), TODAY, NOW, False)
+    assert (p["waiting_answers"], p["deferred_checks"]) == (2, 40)
+    none = views.sync_preview(PreviewStore(), st, Settings(), TODAY, NOW, False)
+    assert (none["waiting_answers"], none["deferred_checks"]) == (0, 0)
+
+
+def test_the_watched_folders_with_their_states_counts_and_unreadable_files():
+    lib = WatchedFolder(1, Path("/m/Library"), "library")
+    one = WatchedFolder(2, Path("/Volumes/Example/Music"), "import")
+    two = WatchedFolder(3, Path("/Volumes/Gone"), "import")
+    counts = {2: ImportCounts(120, 20, 5, 2), 3: ImportCounts(7, 7, 0, 0)}
+    unreadable = [(Path("/Volumes/Example/Music/Sub/bad.aiff"), "macOS doesn't let Discjockey read it")]
+
+    def view(phase, stopped=False, offline=(3,)):
+        return views.watched_folders([lib, one, two], counts, offline, 500, unreadable, 25, stopped, phase)
+
+    out = view(None)
+    assert out["folders"] == [
+        {"id": 1, "path": "/m/Library", "name": "Library", "kind": "library", "state": "online", "files": 500,
+         "waiting": 0, "unreadable": 0},
+        {"id": 2, "path": "/Volumes/Example/Music", "name": "Music", "kind": "import", "state": "online",
+         "files": 120, "waiting": 25, "unreadable": 2},
+        {"id": 3, "path": "/Volumes/Gone", "name": "Gone", "kind": "import", "state": "offline", "files": 7,
+         "waiting": 7, "unreadable": 0}]
+    assert out["unreadable"] == [{"folder_id": 2, "path": "/Volumes/Example/Music/Sub/bad.aiff",
+                                  "reason": "macOS doesn't let Discjockey read it"}]
+    assert (out["waiting"], out["stopped"]) == (25, False)
+    assert [r["state"] for r in view("scan")["folders"]] == ["scanning", "scanning", "offline"]
+    assert [r["state"] for r in view("tags")["folders"]] == ["online", "importing", "offline"]
+    assert [r["state"] for r in view("tags", offline=())["folders"]] == ["online", "importing", "importing"]
+    assert view(None, stopped=True)["stopped"] is True
+    done = views.watched_folders([lib, one], {2: ImportCounts(120, 0, 0, 0)}, (), 500, [], 0, False, "link")
+    assert [r["state"] for r in done["folders"]] == ["online", "online"]  # nothing of it left to import
+
+
+
+def test_a_file_side_hands_its_file_id_to_the_player():
+    seen = []
+    st = state(t1=e("missing", folder="A"), **{"local:1": own()})
+    out = views.todo(st, "all", False, {}, TODAY, None, [question()], audio=lambda key, e: seen.append((key, e)) or "u")
+    assert seen == [("local:1", {"path": "/Volumes/Example/Music/Example Artist - Song.aiff", "file_id": 7})]
+    assert out["groups"][0]["items"][0]["pair"]["file"]["audio_url"] == "u"
+
+
+
+def test_a_stale_question_does_not_hide_its_playlist_song_from_not_found():
+    st = state(t1=e("missing", folder="A"))  # the question's own song is gone from the records
+    out = views.todo(st, "all", False, {}, TODAY, None, [question()])
+    assert [g["key"] for g in out["groups"]] == ["not_found"] and out["chips"]["all"] == 1
+    st = state(t1=e("missing", folder="A"), **{"local:1": own()})  # a live one still holds it
+    out = views.todo(st, "all", False, {}, TODAY, None, [question()])
+    assert [g["key"] for g in out["groups"]] == ["same_song"] and out["chips"]["all"] == 1
+
+
+def test_counted_duplicate_groups_count_without_files_and_are_not_listed():
+    from discjockey.models import DuplicateGroup
+    g = DuplicateGroup("dup:3-4", "same_audio", (3, 4))
+    st = state(t1=e("lossless", folder="A"))
+    plain = views.todo(st, "all", False, {}, TODAY, None, [], [g])
+    assert plain["chips"]["duplicate"] == 0 and plain["chips"]["all"] == 0  # no files loaded: nothing to act on
+    counted = views.todo(st, "all", False, {}, TODAY, None, [], [g], counted={"dup:3-4"})
+    assert counted["chips"]["all"] == 1 and counted["chips"]["duplicate"] == 0 and counted["groups"] == []

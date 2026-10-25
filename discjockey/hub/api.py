@@ -30,7 +30,7 @@ from urllib.parse import quote
 from .. import __version__, align, browsers, candidates, config, db, library, ops, planner, playlists_file as pf, qobuz
 from .. import quality
 from .. import app_update as update_check, setup_cmd, tool_updates, tools
-from .. import sources, tidy
+from .. import folders as folders_mod, importer, sources, tidy
 from ..sources import spotify
 from .. import report as rep, run, upgrades
 from ..accounts import ACCOUNTS, BROWSERS, SERVICE_NAMES, SERVICES, check_message
@@ -38,9 +38,9 @@ from ..acquire import make_ready
 from ..candidates import current_key
 from ..fallback import FallbackSource
 from ..library import NoLibrary, Paths, Resolved, StateError, SupportPaths
-from ..events import CancelToken
+from ..events import CancelToken, Result
 from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, Candidate, PlaylistLine,
-                      SaveChoice, SourceTrack, token)
+                      SaveChoice, SourceTrack, WatchedFolder, token)
 from ..names import fold
 from ..ops import OpProblem, snapshot
 from ..pacing import Budget
@@ -50,7 +50,7 @@ from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
 from . import media as media_mod, spectrum as spec, views
 from .jobs import (NOT_CONNECTED, UNEXPECTED, AppUpdate, Busy, FileDropped, Jobs, PreviewStore, SignInPhase,
-                   preview_after_run, problem_of, refresh_work, service_of, sync_work)
+                   import_work, preview_after_run, problem_of, refresh_work, replanned_work, service_of, sync_work)
 
 RUN_ID = re.compile(r"\d{4}-\d{2}-\d{2}_\d{6}")
 WHICH = ("current", "upgrade")
@@ -60,6 +60,8 @@ AUTO_READ_DONE = "Your playlists were read by themselves once this session alrea
 NO_DROP = "Drag the bought file onto the window while this track is selected in the to-do list."
 NOT_SELECTED = "Select the track in the to-do list first, then drop the file on the window."
 CLIENT_ID = re.compile(r"[0-9a-fA-F]{32}")
+NO_FOLDER = "That folder isn't one of the watched folders."
+NOT_ANSWERABLE = "Each answer needs the song or group it is about."
 NOT_CHOSEN = "Choose your music folder first: it is the first step of Setup."
 MISSING = "Your music folder isn't there: {path}. Connect the drive it is on, or choose another folder."
 # Bridge methods that need a bound music folder: unbound, they answer no_library before anything runs. Every other
@@ -72,6 +74,8 @@ LIBRARY_METHODS = frozenset((
     "hide", "never_download", "add_bought_file", "use_candidate", "use_link", "reject_current",
     "rekordbox_checked", "upgrade", "rescan_library", "show_in_finder", "reveal", "open_report",
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
+    "watched_folders", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
+    "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate",
 ))
 
 
@@ -160,6 +164,17 @@ def profile_name(browser: str, profile: str | None, home: Path | None) -> str | 
     return {p["id"]: p["name"] for p in browsers.profiles(browser, home)}.get(profile, profile)
 
 
+def _import_folders(paths: Paths | None) -> int:
+    """How many import folders the library watches (0 without a library or library.db: nothing to read)."""
+    if paths is None or not paths.db_file.exists():
+        return 0
+    try:
+        with db.connect(paths.db_file) as conn:
+            return sum(1 for f in db.watched_folders(conn) if f.kind == "import")
+    except (sqlite3.Error, StateError, OSError):
+        return 0
+
+
 def setup_status(support: SupportPaths, paths: Paths | None, music: dict, which: Callable[[str], str | None],
                  home: Path | None = None) -> dict:
     """What is set up (spec 6.9; the music folder first, spec public-release §4). Never returns any secret, only
@@ -192,6 +207,7 @@ def setup_status(support: SupportPaths, paths: Paths | None, music: dict, which:
         settings = load_settings(support.settings_file)
     except SettingsError:
         settings = Settings()
+    import_folders = _import_folders(paths)
     steps = [("music", music["state"] == "ok"), ("tools", all(tools.values())),
              ("spotify", (spotify_app and spotify_login) or settings.spotify_skipped), ("downloads", qobuz_ok or settings.qobuz_skipped),
              ("playlists", playlists_ok)]
@@ -201,6 +217,10 @@ def setup_status(support: SupportPaths, paths: Paths | None, music: dict, which:
             "next_step": next((name for name, ok in steps if not ok), None),
             "version": __version__, "qobuz_skipped": settings.qobuz_skipped,
             "spotify_skipped": settings.spotify_skipped,
+            # "Your existing music" (plan library stage 4 I11): done once a folder is watched or the step was skipped;
+            # not among `steps`, so it never blocks Continue
+            "existing": import_folders > 0 or settings.import_skipped, "import_folders": import_folders,
+            "import_skipped": settings.import_skipped,
             "qobuz_last_check": dict(settings.qobuz_last_check) if settings.qobuz_last_check else None,
             "spotify_user": spotify_user if spotify_login else None,
             "accounts": {s: ({"browser": a.browser, "browser_name": BROWSERS[a.browser], "daily_limit": a.daily_limit,
@@ -237,6 +257,9 @@ class HubApi:
         # sync starts), not one per job, so that failed downloads in a row do pause Qobuz
         self._qobuz_streak = {"failures_in_a_row": 0, "download_failed_in_row": False, "stopped": False}
         self._account_streaks: dict[str, dict] = {}  # service -> the same, for "Use this" through an account
+        # the user stopped an import this session: it starts by itself no more until Continue import (D14)
+        self._import_stopped = False
+        self._import_auto_done = False  # the window's automatic start has run (or had nothing to do) this session
 
     # --- helpers (not reachable from the page) ---
 
@@ -268,7 +291,7 @@ class HubApi:
         with self._music_lock:
             self._jobs.bind(paths.lock)
             if self._media is not None:
-                self._media.bind(paths)
+                self._media.bind(paths, self._file_path)
             self._bound, self._missing = paths, None  # last: the library gate opens once lock and media are ready
 
     def _bind(self, paths: Paths) -> None:
@@ -373,7 +396,23 @@ class HubApi:
         return cover
 
     def _audio(self, track_id: str, e: dict) -> str | None:
-        return self._media.url(e["path"]) if self._media is not None and e.get("path") else None
+        """The player address of a track's or file's audio: by its path in the music folder, else (a file of an import
+        folder, outside it) by its file id, which `_file_path` vets."""
+        if self._media is None:
+            return None
+        url = self._media.url(e["path"]) if e.get("path") else None
+        if url is None and e.get("file_id") is not None:
+            url = self._media.url(media_mod.file_address(e["file_id"]))
+        return url
+
+    def _file_path(self, file_id: int) -> Path | None:
+        """The real path of the file row `file_id` for the media server: only a known row that is online in a watched
+        folder, and only if the path, links resolved, stays inside that folder (a link leading out is refused)."""
+        if not self._paths.db_file.exists():
+            return None
+        with db.connect(self._paths.db_file) as conn:
+            where = db.online_file(conn, file_id)
+        return media_mod.file_inside(*where) if where is not None else None
 
     def _remember(self, state: dict, track_ids) -> None:
         with self._lock:
@@ -412,6 +451,25 @@ class HubApi:
         reports = self._reports()
         return views.todo_others(self._store.prep, reports[-1][1] if reports else None)
 
+    def _todo(self, state: dict, filt: str, show_hidden: bool, count_only: bool = False) -> dict:
+        """views.todo with the import's questions (the last plan's) and duplicates (the plan's same-song groups and the
+        records' same-audio ones, each with its files). `count_only` (the sidebar's number): the records' groups are
+        counted without loading their files (they are online and not held by how they are found), so only the plan's
+        few same-song groups read theirs; the groups of the answer are then not listed."""
+        prep = self._store.prep
+        questions = list(prep.plan.questions) if prep else []
+        groups = list(prep.plan.duplicates) if prep else []
+        files: dict[str, list] = {}
+        counted: set[str] = set()
+        with self._move_log() as conn:
+            if conn is not None:
+                found = db.duplicate_groups(conn)
+                counted = {g.id for g in found} if count_only else set()
+                groups += found
+                files = {g.id: db.group_files(conn, g.id) for g in groups if g.id not in counted}
+        return views.todo(state, filt, show_hidden, self._others(state), self._today(), self._cover(self._images()),
+                          questions, groups, files, self._audio, counted)
+
     # --- read, any time ---
 
     @bridge
@@ -424,7 +482,7 @@ class HubApi:
     @bridge
     def sidebar(self) -> dict:
         state = self._state()
-        count = views.todo(state, "all", False, self._others(state), self._today())["chips"]["all"]
+        count = self._todo(state, "all", False, count_only=True)["chips"]["all"]
         # the dot on "Download limits": a warning sign the user hasn't marked as seen, or a service paused today
         warnings = any(c["new_warnings"] or c["paused"] for c in views.limit_cards(state, self._settings(), self._today()))
         return views.sidebar(state, self._folders(), count, warnings)
@@ -442,11 +500,58 @@ class HubApi:
         with self._auto_lock:
             if auto and self._store.auto_read:
                 raise OpProblem(AUTO_READ_DONE, "refused")
-            job = self._jobs.start_refresh(refresh_work(self._paths, self._store, self._svc.now, infos=self._infos,
-                                                         lock=self._jobs.scan_lock))
+            read = refresh_work(self._paths, self._store, self._svc.now, infos=self._infos,
+                                lock=self._opening_scan if auto else self._jobs.scan_lock)
+
+            def work(ctx) -> dict:
+                try:
+                    return read(ctx)
+                finally:  # the read ended before it scanned (no playlists.txt, no login): the files that wait still start
+                    if auto and not ctx.token.cancelled:
+                        self._auto_import()
+
+            job = self._jobs.start_refresh(work)
             if auto:
                 self._store.auto_read = True
         return {"job_id": job.id}
+
+    @contextlib.contextmanager
+    def _opening_scan(self):
+        """The window's own first read scans Library/ and the import folders under Jobs.scan_lock; the moment that
+        scan lets go of the library, the files it found start importing (D14), without waiting for the playlists to be
+        read (a slow or missing login must not hold the import back, and no page is involved)."""
+        with self._jobs.scan_lock() as held:
+            yield held
+        if held:
+            self._auto_import()
+
+    def _auto_import(self) -> None:
+        """D14: the window opened and files wait for an import: it starts by itself, once per session, unless the
+        user stopped one this session or something else is writing (the import then waits for Continue import or the
+        next window). Only the window's own first read gets here, never a Sync page's ↻ Read playlists."""
+        if self._import_stopped or self._import_auto_done:
+            return
+        try:
+            if importer.files_waiting(self._paths) > 0:
+                self._start_import()
+            self._import_auto_done = True
+        except (Busy, NoLibrary, StateError):
+            return
+        except Exception:  # noqa: BLE001 - a failed start is never worth ending the read that called it
+            log.warning("starting the import by itself failed", exc_info=True)
+
+    def _start_import(self, folder: Path | str | None = None):
+        """The import as a write job (Busy when another job or a terminal run holds the library)."""
+        stopped, self._import_stopped = self._import_stopped, False  # before it starts: it may be stopped at once
+        try:
+            return self._jobs.start("import", import_work(self._paths, self._store, self._svc.now, folder=folder,
+                                                          on_stopped=self._note_stopped))
+        except BaseException:
+            self._import_stopped = stopped
+            raise
+
+    def _note_stopped(self) -> None:
+        self._import_stopped = True
 
     @bridge
     def stop_refresh(self) -> dict:
@@ -482,10 +587,58 @@ class HubApi:
     @bridge
     def todo(self, filter: str = "all", show_hidden: bool = False) -> dict:
         state = self._state()
-        out = views.todo(state, filter, bool(show_hidden), self._others(state), self._today(),
-                         self._cover(self._images()))
-        self._remember(state, [i["track_id"] for g in out["groups"] for i in g["items"]])
+        out = self._todo(state, filter, bool(show_hidden))
+        # a question or a duplicate group is not a track the page can act on (hide, upgrade, …): nothing to remember
+        self._remember(state, [i["track_id"] for g in out["groups"] for i in g["items"] if "pair" not in i])
         return out
+
+    @bridge
+    def watched_folders(self) -> dict:
+        """The watched folders (the Library first, then the import folders) with how far their import is, the files
+        it couldn't read, how many wait, and whether the user stopped the import this session (plan library stage 4
+        I11)."""
+        paths = self._paths
+        job = self._jobs.running()
+        phase = None
+        if job is not None and job.kind == "import":
+            phase = (job.last.get("ImportProgress") or {}).get("phase", "scan")
+        with self._move_log() as conn:
+            if conn is None:  # no library.db yet: only the Library, nothing imported; its files as "All tracks" counts
+                rows, counts, unreadable, waiting = [WatchedFolder(0, paths.library, "library")], {}, [], 0
+                library_files = len(views.tracks_with_file(self._state()))
+            else:
+                rows, counts = db.watched_folders(conn), db.import_counts(conn)
+                library_files, unreadable, waiting = db.library_files(conn), db.import_unreadable(conn), db.import_left(conn)
+        offline = {f.id for f in rows if f.kind == "import" and not f.path.is_dir()}
+        return views.watched_folders(rows, counts, offline, library_files, unreadable, waiting, self._import_stopped,
+                                     phase)
+
+    @bridge
+    def check_import_folder(self, path: str) -> dict:
+        """Whether the folder can be watched, changing nothing (W5): the words of a refusal, and the watched folders
+        inside it that it would take over (`merges`, with `merge_hints` in W5's words)."""
+        c = folders_mod.check_import_folder(path or "", paths=self._paths, support=self._support.support,
+                                            program=tools.program_dir(), home=self._svc.home)
+        return {"path": str(c.path), "exists": c.exists, "usable": c.usable, "problem": c.problem, "kind": c.kind,
+                "message": folders_mod.problem_words(c), "merges": [str(m) for m in c.merges],
+                "merge_hints": folders_mod.merge_hints(c)}
+
+    def _import_folder(self, folder_id: int) -> WatchedFolder:
+        """The import folder `folder_id` names; ValueError for anything else (the Library, an unknown number)."""
+        if isinstance(folder_id, bool) or not isinstance(folder_id, int):
+            raise ValueError(NO_FOLDER)
+        with self._move_log() as conn:
+            found = next((f for f in db.watched_folders(conn) if f.id == folder_id), None) if conn is not None else None
+        if found is None or found.kind != "import":
+            raise ValueError(NO_FOLDER)
+        return found
+
+    @bridge
+    def removal_preview(self, folder_id: int) -> dict:
+        """What removing the folder takes away (W4): its files, and the playlist songs that download again."""
+        folder = self._import_folder(folder_id)
+        counts = folders_mod.removal(self._paths, folder.id)
+        return {"name": folder.path.name or str(folder.path), "files": counts.files, "redownload": counts.redownload}
 
     def _service(self, service: str, set_up: bool = False) -> str:
         if service not in SERVICES:
@@ -1120,6 +1273,79 @@ class HubApi:
         return {"job_id": self._jobs.start("scan", work).id}
 
     @bridge
+    def add_watched_folder(self, path: str) -> dict:
+        """Watches a folder of the user's own music and imports it in the same job (kind "import"; D14). Checked
+        first (W5 words when refused); busy with W7 while an import runs."""
+        c = folders_mod.check_import_folder(path or "", paths=self._paths, support=self._support.support,
+                                            program=tools.program_dir(), home=self._svc.home)
+        if not c.usable:
+            raise OpProblem(folders_mod.problem_words(c), "refused")
+        return {"job_id": self._start_import(c.path).id}
+
+    @bridge
+    def start_import(self) -> dict:
+        """"Continue import": the import again, where it stopped (also after a Stop, which held the automatic start
+        for the session)."""
+        return {"job_id": self._start_import().id}
+
+    @bridge
+    def remove_watched_folder(self, folder_id: int) -> dict:
+        """Stops watching an import folder (D12; its files stay where they are): a write job (kind "folders"), its
+        result `{files, redownload}`."""
+        folder = self._import_folder(folder_id)
+
+        def change(ctx) -> dict:
+            counts = folders_mod.remove(self._paths, folder.id, self._today())
+            return {"files": counts.files, "redownload": counts.redownload}
+
+        return {"job_id": self._jobs.start("folders", replanned_work(self._store, change, self._svc.now)).id}
+
+    @bridge
+    def answer_same_song(self, song_key: str, own_key: str, same: bool) -> dict:
+        """"Is this the same song?" answered (a write job, kind "answer"): the plan is made again, so the file is
+        linked to the playlist song (yes) or the song downloads at the next sync (no)."""
+        if not (isinstance(song_key, str) and isinstance(own_key, str) and isinstance(same, bool)):
+            raise ValueError(NOT_ANSWERABLE)
+
+        def change(ctx) -> dict:
+            folders_mod.answer_same_song(self._paths, song_key, own_key, same, self._svc.now())
+            return {}
+
+        return {"job_id": self._jobs.start("answer", replanned_work(self._store, change, self._svc.now)).id}
+
+    @bridge
+    def keep_duplicates(self, group_id: str) -> dict:
+        """Duplicates' "Keep both" / "Keep all" (a write job, kind "answer"): the group isn't asked again."""
+        if not isinstance(group_id, str):
+            raise ValueError(NOT_ANSWERABLE)
+        db.group_ids(group_id)  # ValueError for something that is no group
+
+        def change(ctx) -> dict:
+            folders_mod.keep_both(self._paths, group_id, self._svc.now())
+            return {}
+
+        return {"job_id": self._jobs.start("answer", replanned_work(self._store, change, self._svc.now)).id}
+
+    @bridge
+    def supersede_duplicate(self, group_id: str, file_id: int) -> dict:
+        """Duplicates' "Move to Superseded" for one file of the group (a write job, kind "supersede"; nothing is
+        deleted). The result is `{result, recovered}` as an operation's, without a track."""
+        if not isinstance(group_id, str) or isinstance(file_id, bool) or not isinstance(file_id, int):
+            raise ValueError(NOT_ANSWERABLE)
+        db.group_ids(group_id)
+
+        def change(ctx) -> dict:
+            key, e = next(((k, t) for k, t in self._state()["tracks"].items() if t.get("file_id") == file_id),
+                          (None, None))
+            dst = folders_mod.supersede(self._paths, group_id, file_id, emit=ctx.emit, now=self._svc.now)
+            result = Result("replaced", (e or {}).get("folder") or "", (e or {}).get("artist") or "",
+                            (e or {}).get("title") or "", key, folders_mod.MOVED.format(dst=dst),
+                            (e or {}).get("status"), (e or {}).get("source"), (e or {}).get("cutoff_hz"), dst)
+            return {"result": asdict(result), "recovered": []}
+
+        return {"job_id": self._jobs.start("supersede", replanned_work(self._store, change, self._svc.now)).id}
+
+    @bridge
     def add_bought_file(self, track_id: str) -> dict:
         with self._lock:
             dropped = self._dropped
@@ -1303,6 +1529,13 @@ class HubApi:
             return {}
 
         return {"job_id": self._jobs.start("setup_skip_qobuz", work).id}
+
+    @bridge
+    def setup_skip_import(self) -> dict:
+        """"Skip" on Setup's "Your existing music": the step counts as done. A brief save, not a job (one writer at a
+        time: busy while a job writes, console while a terminal run does)."""
+        self._update_settings(lambda s: replace(s, import_skipped=True))
+        return {}
 
     @bridge
     def setup_account(self, service: str, browser: str, profile: str | None = None) -> dict:
