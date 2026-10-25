@@ -348,11 +348,12 @@ class SaveChoice:
 
 @dataclass(frozen=True)
 class ImportRow:
-    """A file of an import folder still waiting for the import's first pass (db.import_waiting)."""
+    """A file of an import folder still waiting for one of the import's passes (db.import_waiting: the first,
+    db.import_unjudged: the second)."""
     file_id: int
     path: Path  # absolute
     folder: int  # watched folder id
-    state: str  # "new" | "unreadable" (tried again)
+    state: str  # first pass: "new" | "unreadable" (tried again); second: "identified" | "unreadable"
 
 
 @dataclass(frozen=True)

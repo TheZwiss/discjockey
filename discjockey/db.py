@@ -1046,6 +1046,24 @@ def import_waiting(conn: sqlite3.Connection) -> list[ImportRow]:
         "ORDER BY f.id")]
 
 
+def import_unjudged(conn: sqlite3.Connection) -> list[ImportRow]:
+    """The files the import's second pass (the sound check) still has to judge: a song already (the first pass is
+    done for them), import_state `identified`, or `unreadable` (the sound check failed on them before; tried
+    again), in import folders, online and not held, by id."""
+    return [ImportRow(i, Path(root) / rel, folder, state) for i, root, rel, folder, state in conn.execute(
+        "SELECT f.id, w.path, f.path, f.folder, f.import_state FROM files f JOIN watched_folders w ON w.id = f.folder "
+        "WHERE w.kind = 'import' AND f.online = 1 AND f.held = 0 AND f.song IS NOT NULL "
+        "AND f.import_state IN ('identified', 'unreadable') ORDER BY f.id")]
+
+
+def import_unreadable(conn: sqlite3.Connection) -> list[tuple[Path, str]]:
+    """The files the import couldn't read, with the reason's words (W6 "Couldn't read": "{path}: {reason}"), in
+    every import folder (offline ones too: the list says what waits), by path."""
+    return sorted((Path(root) / rel, error or "") for root, rel, error in conn.execute(
+        "SELECT w.path, f.path, f.import_error FROM files f JOIN watched_folders w ON w.id = f.folder "
+        "WHERE w.kind = 'import' AND f.import_state = 'unreadable'"))
+
+
 def import_counts(conn: sqlite3.Connection) -> dict[int, ImportCounts]:
     """Every import folder's progress (offline ones too), by folder id: its file rows, the ones not read yet
     (`new`), read but not judged (`identified`) and unreadable."""
