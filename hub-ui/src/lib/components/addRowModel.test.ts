@@ -7,7 +7,7 @@ const ROWS: PlaylistRef[] = [
   { key: 'b', folder: 'Powertrance', link: 'https://open.spotify.com/playlist/5DiscjockeyExampleList' },
 ];
 const info = (over: Partial<PlaylistInfo> = {}): PlaylistInfo => ({ name: 'Peak Time', owner_name: 'DJ One', yours: false,
-  collaborative: false, readable: true, image_url: null, track_count: 12, ...over });
+  collaborative: false, readable: true, image_url: null, track_count: 12, hint: 'Make it public.', ...over });
 
 describe('folder name', () => {
   it('accepts a new name and the row\'s own name', () => {

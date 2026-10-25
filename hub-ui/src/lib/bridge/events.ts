@@ -14,9 +14,9 @@ export type HubEvent =
   | { type: 'Progress'; track_id: string; step: Step; done: number; total: number | null; unit: 'bytes' | 'seconds' }
   | { type: 'Waiting'; kind: 'search' | 'between' | 'break' | 'fallback'; label: string; remaining: number;
       total: number; service: string }
-  | { type: 'SourceChosen'; track_id: string; source: string; query_kind: 'isrc' | 'name' | 'fallback' | 'chosen';
+  | { type: 'SourceChosen'; track_id: string; source: string; query_kind: 'exact' | 'isrc' | 'name' | 'fallback' | 'chosen';
       title: string; duration_s: number | null }
-  | { type: 'Checked'; track_id: string; file_duration_s: number; spotify_duration_s: number; codec: string;
+  | { type: 'Checked'; track_id: string; file_duration_s: number; track_duration_s: number; codec: string;
       ok: boolean }
   | { type: 'AccountUsage'; service: string; used: number; allowance: number }
   | { type: 'ActionFinished'; action: Action; result: Result }
@@ -47,7 +47,7 @@ export const EVENT_FIELDS: { [T in HubEvent['type']]: readonly (keyof EventOf<T>
   Progress: ['type', 'track_id', 'step', 'done', 'total', 'unit'],
   Waiting: ['type', 'kind', 'label', 'remaining', 'total', 'service'],
   SourceChosen: ['type', 'track_id', 'source', 'query_kind', 'title', 'duration_s'],
-  Checked: ['type', 'track_id', 'file_duration_s', 'spotify_duration_s', 'codec', 'ok'],
+  Checked: ['type', 'track_id', 'file_duration_s', 'track_duration_s', 'codec', 'ok'],
   AccountUsage: ['type', 'service', 'used', 'allowance'],
   ActionFinished: ['type', 'action', 'result'],
   RunFinished: ['type', 'exit_code', 'report_path'],

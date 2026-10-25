@@ -20,7 +20,7 @@
 //   sync:long-names  the long plan with three titles over 120 characters and one track by six artists
 import type { PageFake } from '$lib/bridge/fake/bridge';
 import type { FakeState } from '$lib/bridge/fake/data';
-import { FAKE_MUSIC, previewAction, runId, samplePlaylists } from '$lib/bridge/fake/data';
+import { FAKE_MUSIC, SPOTIFY_HINT, previewAction, runId, samplePlaylists } from '$lib/bridge/fake/data';
 import { STREAMS, SYNC_LINES, SYNC_START_LINE } from '$lib/bridge/fake/replay';
 import type { SyncPreview } from '$lib/bridge/types';
 
@@ -38,7 +38,7 @@ const longPlan = (s: FakeState) => {
   s.playlists = [
     ...NEW_FOLDERS.map((folder, i) => ({ folder, link: `https://open.spotify.com/playlist/Quatsch${i}xxxxxxxxxxxxxx`,
       enabled: true, info: { name: folder.replace('_', ' '), owner_name: 'DJ One', yours: true, collaborative: false,
-        readable: true, image_url: null, track_count: i ? 75 : 120 } })),
+        readable: true, image_url: null, track_count: i ? 75 : 120, hint: SPOTIFY_HINT } })),
     ...samplePlaylists(),
   ];
   s.newTracks = Array.from({ length: 195 }, (_, i) => ({ track_id: `q${i + 1}`, artist: ARTISTS[i % ARTISTS.length],
@@ -55,7 +55,7 @@ const many = (s: FakeState) => {
   s.scenario = 'sync:many';
   s.playlists = [...s.playlists, ...MORE_FOLDERS.map((folder, i) => ({ folder,
     link: `https://open.spotify.com/playlist/More${i}xxxxxxxxxxxxxxxx`, enabled: true, info: { name: folder.replaceAll('_', ' '),
-      owner_name: 'DJ One', yours: true, collaborative: false, readable: true, image_url: null, track_count: 3 + (i % 4) } }))];
+      owner_name: 'DJ One', yours: true, collaborative: false, readable: true, image_url: null, track_count: 3 + (i % 4), hint: SPOTIFY_HINT } }))];
   s.newTracks = [...s.newTracks, ...MORE_FOLDERS.flatMap((folder, i) => Array.from({ length: 1 + (i % 3) }, (_, j) => ({
     track_id: `m${i}_${j}`, artist: ARTISTS[(i + j * 7) % ARTISTS.length], title: WORDS[(i * 3 + j) % WORDS.length],
     folder, duration_s: 200 + i }))) ];

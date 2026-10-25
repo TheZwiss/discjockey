@@ -3,12 +3,12 @@ import type { Bridge } from '../client';
 import type { HubEvent } from '../events';
 import type {
   BatchResult, Candidate, ChangePreview, Fail, JobStart, LibraryFilter, LibrarySort, PlaylistLine, ProblemKind, Res, Result,
-  AccountCheck, Browser, SaveFiles, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate,
+  AccountCheck, Browser, PlaylistService, SaveFiles, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate,
 } from '../types';
 import { NOT_IN_PLAYLIST } from '../types';
 import { LIBRARY_METHODS } from '../contract';
 import {
-  FAKE_MUSIC, FAKE_NEWEST_YT_DLP, budget, byQuality, checkText, coverUri, dateOnly, folderList, hash, inFolder, isoLocal, makeState, nextStep,
+  FAKE_MUSIC, FAKE_NEWEST_YT_DLP, QOBUZ_UNREADABLE, SERVICE_NAME, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkText, coverUri, dateOnly, folderList, hash, inFolder, isoLocal, makeState, nextStep,
   pathOf, playlistRows, previewAction, qualityLabel, qualityLine, qualityOf, result, runDetail, runId,
   sampleCandidates, spotifyOk, todoDetail, todoFree, formatLine, SOURCE_FULL, todoGroup, trackRow, type FakeAccount, type FakeState,
   type FakeTrack,
@@ -61,7 +61,7 @@ export type FakeContext = {
   startJob(kind: string, track_id: string | null, body: (finish: Finish) => void): JobStart;
   /** refusal for network reads (sync running, offline), else null */
   networkBlock(): Fail | null;
-  fail(kind: ProblemKind, message: string): Fail;
+  fail(kind: ProblemKind, message: string, service?: PlaylistService): Fail;
   later<T>(ms: number, value: () => T): Promise<T>;
   /** a login check's outcome saved / recorded as the engine does it (HubApi._account_result) */
   accountResult(service: 'youtube' | 'soundcloud', browser: Browser, profile: string | null, check: AccountCheck):
@@ -100,7 +100,7 @@ export function pageScenarios(): Record<string, (s: FakeState) => void> {
   return out;
 }
 export const SCENARIOS = ['normal', 'update_available', 'first_run', 'offline', 'console', 'syncing', 'pause', 'break', 'stopped',
-  'finished', 'big', 'errors', 'no_music', 'music_missing'] as const;
+  'finished', 'big', 'errors', 'no_music', 'music_missing', 'qobuz_unreadable', 'qobuz_not_connected'] as const;
 
 /** The dashboard's estimate has no minutes or uses tables (only the Sync page ticks subsets). */
 const dashboardEstimate = ({ minutes_by_downloads: _table, accounts, ...rest }: SyncEstimate) =>
@@ -130,7 +130,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     }
     emitRaw(e);
   };
-  const fail = (kind: ProblemKind, message: string): Fail => ({ ok: false, kind, message });
+  const fail = (kind: ProblemKind, message: string, service?: PlaylistService): Fail =>
+    ({ ok: false, kind, message, ...(service ? { service } : {}) });
   const later = <T>(ms: number, value: () => T) => new Promise<T>((r) => setTimeout(() => r(value()), ms / speed));
   const ok = <T extends object>(v: T) => ({ ok: true as const, ...v });
   const syncRunning = () => (job?.running && job.kind === 'sync') || s.console_running;
@@ -289,7 +290,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       ...[1, 2, 3, 4].map((k) => ({ type: 'Progress', track_id: t.track_id, step: 'download', done: (total * k) / 4,
         total, unit: 'bytes' }) as HubEvent),
       { type: 'StepChanged', track_id: t.track_id, step: 'check' },
-      { type: 'Checked', track_id: t.track_id, file_duration_s: t.duration_s, spotify_duration_s: t.duration_s,
+      { type: 'Checked', track_id: t.track_id, file_duration_s: t.duration_s, track_duration_s: t.duration_s,
         codec: source === 'qobuz' ? 'flac' : 'aac', ok: true },
       { type: 'StepChanged', track_id: t.track_id, step: 'convert' },
       { type: 'Progress', track_id: t.track_id, step: 'convert', done: t.duration_s, total: t.duration_s,
@@ -482,7 +483,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           : t.source === 'youtube_music' ? 'https://music.youtube.com/watch?v=abcdefghijk'
             : t.source === 'soundcloud' ? 'https://soundcloud.com/artist/track'
               : t.source === 'qobuz' ? 'https://open.qobuz.com/track/112233' : null,
-        spotify_url: `https://open.spotify.com/track/${t.track_id}`,
+        track_link: t.link ?? { url: `https://open.spotify.com/track/${t.track_id}`, label: 'Open in Spotify' },
         next_qobuz_check: q === 'lossless' ? null : q === 'missing' ? (t.next_try_days === 1 ? 'next_sync'
           : plus(t.next_try_days ?? 5)) : plus(4),
         rejected_sources: [...t.rejected_sources],
@@ -625,7 +626,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (block) return block;
       const t = track(track_id);
       if (!t) return fail('refused', 'This track is not in your library any more.');
-      return later(900, () => ok({ track_id, spotify_duration_s: t.duration_s, current_quality_label: qualityLabel(t),
+      return later(900, () => ok({ track_id, track_duration_s: t.duration_s, current_quality_label: qualityLabel(t),
         candidates: sampleCandidates(t), notes: ['YouTube: 1 more result is a live version, left out.'] }));
     },
     async preview(_track_id: string, candidate: Candidate) {
@@ -639,16 +640,30 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     async add_playlist(url: string) {
       const block = networkBlock();
       if (block) return block;
+      const q = /open\.qobuz\.com\/playlist\/(\d+)/.exec(url ?? '');
+      if (q) {
+        if (s.spotify.services.some((x) => x.service === 'qobuz' && !x.connected)) {
+          return fail('not_set_up', 'Connect Qobuz first.', 'qobuz');
+        }
+        if (s.qobuzUnreadable) return later(700, () => fail('playlist_unreadable', QOBUZ_UNREADABLE, 'qobuz'));
+        const name = `Qobuz playlist ${q[1].slice(-4)}`;
+        return later(700, () => ok({ playlist_id: `qobuz:${q[1]}`, service: 'qobuz' as const, service_name: 'Qobuz',
+          link: `https://open.qobuz.com/playlist/${q[1]}`,
+          info: { name, owner_name: 'Example Curator', yours: false, collaborative: false, readable: true,
+            image_url: null, track_count: 18, hint: hintOf('qobuz') }, tracks: 18, readable: true,
+          suggested_folder: name.replace(/\W+/g, '_'), hint: null }));
+      }
       const m = /open\.spotify\.com\/playlist\/([A-Za-z0-9]+)/.exec(url ?? '');
-      if (!m) return fail('refused', "That isn't a Spotify playlist link. Copy it in Spotify: Share → Copy link to playlist.");
+      if (!m) return fail('refused', "That isn't a Spotify or Qobuz playlist link. Copy it in Spotify: Share → Copy link to playlist.");
       const id = m[1];
       const readable = !/private|follow/i.test(id);
       const name = `Name of ${id.slice(0, 4)}`;
-      return later(700, () => ok({ playlist_id: id, link: `https://open.spotify.com/playlist/${id}`,
+      const link = `https://open.spotify.com/playlist/${id}`;
+      return later(700, () => ok({ playlist_id: playlistRef(link) ?? id, service: serviceOfLink(link),
+        service_name: SERVICE_NAME[serviceOfLink(link)], link,
         info: { name, owner_name: readable ? 'DJ One' : 'Someone else', yours: readable, collaborative: false, readable,
-          image_url: null, track_count: readable ? 24 : 0 }, tracks: readable ? 24 : 0, readable,
-        suggested_folder: name.replace(/\W+/g, '_'),
-        hint: readable ? null : 'Follow ≠ own: Spotify only shares playlists you made. In Spotify, make your own copy (… → Add to other playlist → New playlist) and paste that link.' }));
+          image_url: null, track_count: readable ? 24 : 0, hint: hintOf('spotify') }, tracks: readable ? 24 : 0, readable,
+        suggested_folder: name.replace(/\W+/g, '_'), hint: readable ? null : hintOf('spotify') }));
     },
     async tidy_preview() { return ok(tidyPreview(s)); },
     async move_batches() { return ok(moveBatches(s)); },
@@ -925,7 +940,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         setTimeout(() => {
           if (pendingFinish !== finish) return;
           pendingFinish = null;
-          s.setup = nextStep({ ...s.setup, spotify_login: true });
+          s.setup = nextStep({ ...s.setup, spotify_login: true, spotify_skipped: false });
           s.spotify = { ...spotifyOk(0), auto_read: s.spotify.auto_read };
           finish(true, { user: 'DJ One' });
         }, 4000 / speed);
@@ -942,6 +957,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     async setup_skip_qobuz() {
       return startJob('setup_skip_qobuz', null, (finish) => setTimeout(() => {
         s.qobuzSkipped = true; s.setup = nextStep({ ...s.setup, qobuz_skipped: true });
+        finish(true, {});
+      }, 300 / speed));
+    },
+    async setup_skip_spotify() {
+      return startJob('setup_skip_spotify', null, (finish) => setTimeout(() => {
+        s.setup = nextStep({ ...s.setup, spotify_skipped: true });
         finish(true, {});
       }, 300 / speed));
     },

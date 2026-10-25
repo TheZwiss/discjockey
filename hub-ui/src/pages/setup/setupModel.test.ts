@@ -9,7 +9,7 @@ const complete: SetupStatus = {
   music: { state: 'ok', path: '/Users/you/Music/Discjockey', suggested: '/Users/you/Music/Discjockey' },
   tools: { ffmpeg: true, ffprobe: true, deno: true }, spotify_app: true,
   spotify_login: true, qobuz: true, playlists: true, complete: true, next_step: null, version: '1.0.0',
-  qobuz_skipped: false, accounts: { youtube: null, soundcloud: null } };
+  qobuz_skipped: false, spotify_skipped: false, accounts: { youtube: null, soundcloud: null } };
 const fresh: SetupStatus = { ...complete, spotify_app: false, spotify_login: false, qobuz: false, playlists: false,
   complete: false, next_step: 'spotify' };
 const status = (over: Partial<SetupStatus>): SetupStatus => ({ ...complete, ...over });
@@ -85,6 +85,7 @@ describe('steps done', () => {
   });
   it('needs the app and the login for Spotify, and every program for Programs', () => {
     expect(stepsDone(status({ spotify_login: false })).spotify).toBe(false);
+    expect(stepsDone(status({ spotify_login: false, spotify_skipped: true })).spotify).toBe(true);   // "I don't use Spotify"
     expect(stepsDone(status({ tools: { ffmpeg: true, ffprobe: false, deno: true } })).tools).toBe(false);
   });
   it('counts Downloads as done with Qobuz signed in or left out ("I don\'t have Qobuz")', () => {

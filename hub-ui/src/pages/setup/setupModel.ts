@@ -21,12 +21,13 @@ export function checkClientId(raw: string): ClientIdCheck {
 }
 export const CLIENT_ID_BAD = 'A Client ID has 32 letters and digits.';
 
-/** Which steps are done, as setup_status() says. Downloads: Qobuz signed in, or "I don't have Qobuz". */
+/** Which steps are done, as setup_status() says. Spotify: connected, or "I don't use Spotify". Downloads: Qobuz
+ *  signed in, or "I don't have Qobuz". */
 export function stepsDone(s: SetupStatus): Record<WizardStep, boolean> {
   return {
     music: s.music?.state === 'ok',
     tools: s.tools.ffmpeg && s.tools.ffprobe && s.tools.deno,
-    spotify: s.spotify_app && s.spotify_login,
+    spotify: (s.spotify_app && s.spotify_login) || s.spotify_skipped,
     downloads: s.qobuz || s.qobuz_skipped,
     playlists: s.playlists,
   };
