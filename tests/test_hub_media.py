@@ -150,3 +150,47 @@ def test_nothing_is_served_before_a_library_is_bound(tmp_path):
     (tmp_path / NAME).parent.mkdir(parents=True)
     (tmp_path / NAME).write_bytes(AUDIO)
     assert s.allowed(NAME) == (tmp_path / NAME).resolve()
+
+
+
+def test_a_file_address_is_served_through_the_hubs_resolver(tmp_path):
+    outside = tmp_path / "Example Drive" / "Music"
+    outside.mkdir(parents=True)
+    (outside / "Mine.aiff").write_bytes(AUDIO)
+    known = {7: outside / "Mine.aiff"}
+    s = MediaServer(Paths(tmp_path / "music", support=tmp_path / ".support"), files=known.get)
+    s.start()
+    try:
+        url = s.url(media.file_address(7))
+        assert url is not None and urllib.parse.urlsplit(url).path == f"/{s.token}/file/7"
+        status, headers, body = get(s, urllib.parse.urlsplit(url).path)
+        assert status == 200 and body == AUDIO and headers["Content-Type"].startswith("audio/")
+        for refused in ("file/8", "file/x", "file/", "file/7/extra", "file/-7", "file/7.0", "File/7"):
+            assert s.url(refused) is None, refused
+        assert get(s, f"/{s.token}/file/8")[0] == 403
+        assert get(s, "/wrong/file/7")[0] == 403
+        s.files = None  # nothing resolves without a resolver
+        assert s.url("file/7") is None
+
+        def broken(n):
+            raise OSError("records unreadable")
+
+        s.files = broken
+        assert s.url("file/7") is None
+    finally:
+        s.stop()
+
+
+def test_file_inside_keeps_a_file_within_its_folder(tmp_path):
+    root = tmp_path / "Music"
+    root.mkdir()
+    (root / "a.aiff").write_bytes(b"a")
+    (tmp_path / "secret.aiff").write_bytes(b"s")
+    (root / "escape.aiff").symlink_to(tmp_path / "secret.aiff")
+    (root / "inside.aiff").symlink_to(root / "a.aiff")
+    (root / "sub").mkdir()
+    assert media.file_inside(root, "a.aiff") == (root / "a.aiff").resolve()
+    assert media.file_inside(root, "inside.aiff") == (root / "a.aiff").resolve()
+    assert media.file_inside(root, "escape.aiff") is None
+    assert media.file_inside(root, "../secret.aiff") is None
+    assert media.file_inside(root, "sub") is None and media.file_inside(root, "missing.aiff") is None

@@ -720,6 +720,14 @@ def watched_folders(conn: sqlite3.Connection) -> list[WatchedFolder]:
         "SELECT id, path, kind FROM watched_folders ORDER BY id")]
 
 
+def online_file(conn: sqlite3.Connection, file_id: int) -> tuple[Path, str] | None:
+    """(the watched folder's root, the file's path inside it) of an online file row, else None (no such row, or its
+    drive is offline). What the window plays: the caller checks that the path stays inside the root."""
+    row = conn.execute("SELECT w.path, f.path FROM files f JOIN watched_folders w ON w.id = f.folder "
+                       "WHERE f.id = ? AND f.online = 1", (file_id,)).fetchone()
+    return None if row is None else (Path(row[0]), row[1])
+
+
 def known_files(conn: sqlite3.Connection) -> list[KnownFile]:
     """Every file row, as the scanner sees it."""
     return [KnownFile(i, folder, rel, size, mtime, key, song is not None, ambiguous is not None)

@@ -967,3 +967,31 @@ def test_continue_import_clears_the_stop_before_the_job_can_be_stopped_again(lib
     assert seen == [False]  # cleared before the job could stop itself again
     assert api._import_stopped is True  # a refused start leaves the stop as it was
     monkeypatch.setattr(api._jobs, "start", real)
+
+
+
+def test_an_import_folders_file_plays_through_its_file_id(lib):
+    from discjockey.hub.media import MediaServer
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    assert wait_job(api, rec, api.add_watched_folder(str(folder))).ok
+    api._media = MediaServer(paths)
+    api._media.bind(paths, api._file_path)  # what _attach does for the app's server
+    with db.connect(paths.db_file) as conn:
+        ids = {rel: i for i, rel in conn.execute("SELECT id, path FROM files WHERE folder = 2")}
+    one = ids["Example Artist - Song 1.aiff"]
+    entry = {"path": str(folder / "Example Artist - Song 1.aiff"), "file_id": one}
+    url = api._audio("local:1", entry)
+    assert url is not None and f"/file/{one}?v=" in url
+    assert api._audio("local:1", {**entry, "file_id": 999}) is None  # not a row of the records
+    assert api._audio("local:1", {"path": entry["path"]}) is None
+    outside = folder.parent / "secret.aiff"
+    outside.write_bytes(b"secret")
+    (folder / "escape.aiff").symlink_to(outside)
+    with db.connect(paths.db_file) as conn:
+        conn.execute("UPDATE files SET path = 'escape.aiff' WHERE id = ?", (ids["Example Artist - Song 2.aiff"],))
+    assert api._file_path(ids["Example Artist - Song 2.aiff"]) is None  # a link leading out of the folder
+    with db.connect(paths.db_file) as conn:
+        conn.execute("UPDATE files SET online = 0 WHERE id = ?", (one,))
+    assert api._file_path(one) is None and api._audio("local:1", entry) is None  # its drive is offline
+    assert api._file_path(ids["Example Artist - Song 3.aiff"]) == (folder / "Example Artist - Song 3.aiff").resolve()

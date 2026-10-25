@@ -1375,3 +1375,12 @@ def test_the_watched_folders_with_their_states_counts_and_unreadable_files():
     assert view(None, stopped=True)["stopped"] is True
     done = views.watched_folders([lib, one], {2: ImportCounts(120, 0, 0, 0)}, (), 500, [], 0, False, "link")
     assert [r["state"] for r in done["folders"]] == ["online", "online"]  # nothing of it left to import
+
+
+
+def test_a_file_side_hands_its_file_id_to_the_player():
+    seen = []
+    st = state(t1=e("missing", folder="A"), **{"local:1": own()})
+    out = views.todo(st, "all", False, {}, TODAY, None, [question()], audio=lambda key, e: seen.append((key, e)) or "u")
+    assert seen == [("local:1", {"path": "/Volumes/Example/Music/Example Artist - Song.aiff", "file_id": 7})]
+    assert out["groups"][0]["items"][0]["pair"]["file"]["audio_url"] == "u"

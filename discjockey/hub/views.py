@@ -742,7 +742,8 @@ def file_side(file_id: int, song_key: str | None, path: str, e: dict | None, qua
     return {"file_id": file_id, "song_key": song_key, "path": path, "artist": name["artist"] or "",
             "title": name["title"] or "", "duration_s": round((name.get("duration_ms") or 0) / 1000, 1),
             "quality": quality_class(q), "quality_label": quality_label(q), "online": online,
-            "audio_url": audio(song_key or "", {"path": path}) if audio else None, "in_playlist": in_playlist}
+            "audio_url": audio(song_key or "", {"path": path, "file_id": file_id}) if audio else None,
+            "in_playlist": in_playlist}
 
 
 def _question_item(q: Question, state: dict, cover: Url | None, audio: Url | None) -> dict | None:

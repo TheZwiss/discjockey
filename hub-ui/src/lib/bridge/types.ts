@@ -44,7 +44,7 @@ export type TodoItem = TrackRow & { group: TodoGroupKey; detail: string; free: b
 
 // --- the import of the user's own music (plan library stage 4, I11; contract "Watched folders and the import") ---
 /** One file of a question or a duplicate group. `path` is absolute for an import folder's file; `audio_url` is null
- *  for a file outside the music folder (the media server serves only inside it). */
+ *  only for a file that is offline or can't be played (an import folder's file plays through `file/<file_id>`). */
 export type FileSide = { file_id: number; song_key: string | null; path: string; artist: string; title: string;
   duration_s: number; quality: Quality; quality_label: string; online: boolean; audio_url: string | null;
   in_playlist: boolean };

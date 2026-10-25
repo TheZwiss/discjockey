@@ -291,7 +291,7 @@ class HubApi:
         with self._music_lock:
             self._jobs.bind(paths.lock)
             if self._media is not None:
-                self._media.bind(paths)
+                self._media.bind(paths, self._file_path)
             self._bound, self._missing = paths, None  # last: the library gate opens once lock and media are ready
 
     def _bind(self, paths: Paths) -> None:
@@ -396,7 +396,23 @@ class HubApi:
         return cover
 
     def _audio(self, track_id: str, e: dict) -> str | None:
-        return self._media.url(e["path"]) if self._media is not None and e.get("path") else None
+        """The player address of a track's or file's audio: by its path in the music folder, else (a file of an import
+        folder, outside it) by its file id, which `_file_path` vets."""
+        if self._media is None:
+            return None
+        url = self._media.url(e["path"]) if e.get("path") else None
+        if url is None and e.get("file_id") is not None:
+            url = self._media.url(media_mod.file_address(e["file_id"]))
+        return url
+
+    def _file_path(self, file_id: int) -> Path | None:
+        """The real path of the file row `file_id` for the media server: only a known row that is online in a watched
+        folder, and only if the path, links resolved, stays inside that folder (a link leading out is refused)."""
+        if not self._paths.db_file.exists():
+            return None
+        with db.connect(self._paths.db_file) as conn:
+            where = db.online_file(conn, file_id)
+        return media_mod.file_inside(*where) if where is not None else None
 
     def _remember(self, state: dict, track_ids) -> None:
         with self._lock:

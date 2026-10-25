@@ -1590,8 +1590,10 @@ might be a playlist song") and `duplicate` ("Duplicates", "the same song more th
   "The same audio in {n} files" · "{n} files of the same song". A group found both by the plan and by the records
   shows once, as `same_audio`. Groups with a file offline, held or gone are left out.
 - `FileSide = {file_id, song_key, path, artist, title, duration_s, quality, quality_label, online, audio_url,
-  in_playlist}`: `path` is absolute for an import folder's file; `audio_url` is null for a file outside the music
-  folder (the media server serves only inside it).
+  in_playlist}`: `path` is absolute for an import folder's file; `audio_url` is a media address
+  like any other; a file outside the music folder (an import folder's) plays through `file/<file_id>`, which the
+  media server serves only for a known file row that is online in a watched folder and whose real path, links
+  resolved, stays inside that folder's root. It is null for a file that is offline, gone, or leads out of its folder.
 
 ## Events
 
