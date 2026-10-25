@@ -129,6 +129,6 @@ Everything else is decided and done without asking, and reported in one short me
 | 1 Foundation | `docs/2026-10-23-library-stage-1-plan.md` | `feat/library-1-foundation` | Done (3e562f1): 5 groups + Opus stage review + fixes; merged into main with stage 2. Before the release: one migration on a copy of a real-shaped scratch library |
 | 2 Tidy-up | `docs/2026-10-24-library-stage-2-plan.md` | `feat/library-2-tidy` | Done: 7 groups, Opus stage review, 2 fix rounds + Sonnet re-review (145f34c); verify 615 shots 0 problems, CI green; rekordbox live check passed 2026-10-24 (Relocate needs the music folder in Auto Relocate's search folders: README); merged into main with stage 1 |
 | 3 Qobuz playlists | `docs/2026-10-24-library-stage-3-plan.md` | `feat/library-3-qobuz` | Done, merged into main 43e786f (2026-10-25): 7 groups + stage review fix rounds; Qobuz live read checked; Spotify optional in Setup; leftovers in docs/issues.md #26 |
-| 4 Import | — | — | Not started |
+| 4 Import | `docs/2026-10-25-library-stage-4-plan.md` (f5624fd) | `feat/library-4-import` | In progress: 8 groups; group 1 (database) building |
 | 5 Sidebar | — | — | Not started |
 | 6 SoundCloud, YouTube Music | — | — | Not started |

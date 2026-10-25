@@ -338,10 +338,11 @@ false`. Busy for job kind `import`: W7.
 - W8 To-do: groups `("same_song", "Is this the same song?", "a file of yours might be a playlist song")`,
   `("duplicate", "Duplicates", "the same song more than once")`, first in `TODO_GROUPS` after `rekordbox_check`.
   Question why: "Same title, different artist" · "Same title, no artist in your file" · "Same artist and title,
-  {s} s longer" / "… {s} s shorter"; note "Until you answer, Discjockey doesn't download this song."; buttons **Yes,
+  {s} s longer" / "… {s} s shorter" · "Same artist and title, the length couldn't be read" (why `no_length`); note "Until you answer, Discjockey doesn't download this song."; buttons **Yes,
   it's the same song**, **No, keep them apart**. Duplicate why: "The same audio in {n} files" · "{n} files of the
   same song"; buttons **Keep both** (**Keep all** for n > 2), per file **Move to Superseded**; note "Nothing is
   deleted: the file goes to Superseded/."
+- W9/W10 counts take a singular form for 1 ("1 song waits…", "1 file … waits…").
 - W9 Sync preview Hints: "{n} songs wait for your answer on the To-do page." · "{n} first upgrade checks of your
   imported music wait for later runs, so today's Qobuz allowance isn't used up."
 - W10 Console: "{n} files in your watched folders wait to be imported. Open the window to import them." · "{n}
