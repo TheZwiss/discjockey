@@ -1557,6 +1557,7 @@ the third action).
 | `Message` | `level` `info|warning|debug`, `text` (hide debug) |
 | `ReadingPlaylist` | `index`, `total`, `folder` — before each playlist is read (a refresh, or a sync's start) |
 | `MovesProgress` | `batch_id`, `done`, `total` — after each move of a move batch, during `tidy`, `undo_moves` and a moving `save_playlists` (a folder rename counts as one move) |
+| `ImportProgress` | `phase` `scan|tags|sound|link`, `done`, `total` (0 of 0 for scan and link), `unreadable` (files this import couldn't read so far) — during an import (importer.run_import), at each phase's start and end and at most every 25 files or 0.5 s between |
 
 Pause card: the pause runs inside the next action after its `ActionStarted` and search, so "next up" is the current
 action and "after that N more" = `total - index`. Progress and Waiting may be coalesced when the page lags (only the

@@ -77,7 +77,7 @@ class AppUpdate:
 
 
 EVENT_TYPES = (ev.RunStarted, ev.ActionStarted, ev.StepChanged, ev.Progress, ev.Waiting, ev.SourceChosen, ev.Checked,
-               ev.AccountUsage, ev.ActionFinished, ev.RunFinished, ev.Message, ev.ReadingPlaylist, ev.MovesProgress, JobStarted, JobFinished,
+               ev.AccountUsage, ev.ActionFinished, ev.RunFinished, ev.Message, ev.ReadingPlaylist, ev.MovesProgress, ev.ImportProgress, JobStarted, JobFinished,
                ConsoleBusy, FileDropped, SignInPhase, AppUpdate)
 
 

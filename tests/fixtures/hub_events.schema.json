@@ -43,6 +43,9 @@
       "$ref": "#/$defs/MovesProgress"
     },
     {
+      "$ref": "#/$defs/ImportProgress"
+    },
+    {
       "$ref": "#/$defs/JobStarted"
     },
     {
@@ -392,6 +395,34 @@
         "batch_id",
         "done",
         "total"
+      ],
+      "additionalProperties": false
+    },
+    "ImportProgress": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "ImportProgress"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "done": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "unreadable": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "phase",
+        "done",
+        "total",
+        "unreadable"
       ],
       "additionalProperties": false
     },

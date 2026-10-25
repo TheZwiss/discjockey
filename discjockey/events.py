@@ -161,6 +161,20 @@ class MovesProgress:
     total: int
 
 
+IMPORT_PHASES = ("scan", "tags", "sound", "link")
+
+
+@dataclass(frozen=True)
+class ImportProgress:
+    """How far the import is (importer.run_import, plan library stage 4 I8): `phase` one of IMPORT_PHASES (looking
+    for music files, reading tags, checking the sound, linking to the playlists); `done` of `total` files of that
+    phase (0 of 0 for scan and link); `unreadable`: the files this import couldn't read so far."""
+    phase: str
+    done: int
+    total: int
+    unreadable: int
+
+
 @dataclass(frozen=True)
 class Message:
     level: str  # "info" | "warning" | "debug"
