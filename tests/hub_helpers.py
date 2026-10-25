@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from datetime import date, timedelta
 from pathlib import Path
 
 from discjockey import db, library
@@ -62,7 +63,8 @@ def make_root(tmp_path, upgrade=False):
                                   folder="Hard_Bounce", path=LOSSY, status="not_lossless", source="youtube",
                                   source_id="abcdefghijk", source_format="opus", cutoff_hz=16000)
     state["tracks"]["t3"] = entry(artist="Some Artist", title="Gone Track", duration_ms=180000, folder="Hard_Bounce",
-                                  status="missing", last_attempt="2026-10-18")
+                                  status="missing",
+                                  last_attempt=(date.today() - timedelta(days=1)).isoformat())  # not due for a retry
     if upgrade:
         state["tracks"]["t2"]["upgrade"] = {
             "file": PARKED, "source": "qobuz", "source_id": "q2", "source_format": "flac", "found": "2026-10-18",
