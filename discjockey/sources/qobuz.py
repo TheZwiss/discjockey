@@ -105,6 +105,7 @@ class QobuzReader:
 
     def __init__(self, source: qobuz.QobuzSource):
         self.source = source
+        self.want_info = False  # set by sources.read: fill FetchedPlaylist.info from the first page (see fetch)
         self._user_asked = False  # the logged-in user's id is asked for once per reader
         self._user_id: str | None = None
 
@@ -138,9 +139,12 @@ class QobuzReader:
                       "It must be public or one of yours. Check the link, or put # in front of the line.")
         tracks: list[SourceTrack] = []
         skipped: list[str] = []
+        info: PlaylistInfo | None = None
         offset = 0
         while True:
             page = self._playlist(line.playlist_id, unreadable, extra="tracks", limit=PAGE_SIZE, offset=offset)
+            if offset == 0 and self.want_info:  # the first page names the playlist too: no second playlist request,
+                info = self._info_of(page, line.playlist_id)  # and the hub's page needs no second login
             listing = page.get("tracks")
             listing = listing if isinstance(listing, dict) else {}
             items = listing.get("items")
@@ -153,7 +157,7 @@ class QobuzReader:
             # without a usable total, a full page means there may be more
             more = offset < total if total else len(items) == PAGE_SIZE
             if not items or not more:
-                return FetchedPlaylist(line, tracks, skipped)
+                return FetchedPlaylist(line, tracks, skipped, info)
 
     def _logged_in_user(self) -> str | None:
         """The id of the logged-in Qobuz user, from `playlist/getUserPlaylists` (its answer names the user next to
@@ -175,6 +179,10 @@ class QobuzReader:
     def info(self, playlist_id: str) -> PlaylistInfo:
         data = self._playlist(playlist_id, "Qobuz doesn't show this playlist. It must be public or one of yours. "
                                            "Check the link.")
+        return self._info_of(data, playlist_id)
+
+    def _info_of(self, data: dict, playlist_id: str) -> PlaylistInfo:
+        """The page's facts from a `playlist/get` answer (the user's own id is asked for once per reader)."""
         owner = data.get("owner") or {}
         count = data.get("tracks_count")
         owner_id = str(owner.get("id") or "")

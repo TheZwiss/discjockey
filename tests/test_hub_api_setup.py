@@ -59,6 +59,24 @@ def test_spotify_login_opens_the_system_browser(root, monkeypatch):
     assert api._svc.calls["open_url"] == ["https://accounts.spotify.com/authorize?x"]
 
 
+def test_connecting_a_service_clears_its_stored_read_problem(root, monkeypatch):
+    root.spotify_app.write_text(json.dumps({"client_id": "0" * 32}))
+    monkeypatch.setattr(spotify, "login", lambda client_id, token_path, open_browser, token: None)
+    monkeypatch.setattr(spotify, "load_session", lambda p: object())
+    monkeypatch.setattr(spotify, "current_user", lambda s: ("dj1", "DJ One"))
+    monkeypatch.setattr(qobuz, "password_login", lambda p, e, pw: None)
+    api, rec = make_api(root)
+    api._store.failed("not_set_up", "Connect Spotify first.", "spotify")
+    assert wait_job(api, rec, api.setup_qobuz_login("dj@example.com", "pw")).ok
+    assert api._store.problem_service == "spotify"  # Qobuz's login says nothing about Spotify's problem
+    assert wait_job(api, rec, api.setup_spotify_login()).ok
+    assert (api._store.problem, api._store.problem_service) == (None, None)
+    api._store.failed("not_set_up", "Connect Qobuz first.", "qobuz")
+    assert wait_job(api, rec, api.setup_qobuz_login("dj@example.com", "pw")).ok
+    assert api._store.problem is None
+    assert api.dashboard()["spotify"]["problem"] is None  # the page unblocks without a restart
+
+
 def test_spotify_login_can_be_cancelled(root, monkeypatch):
     root.spotify_app.write_text(json.dumps({"client_id": "0" * 32}))
 
@@ -524,14 +542,18 @@ def test_qobuz_check_login_records_the_outcome(root):
     api, rec = make_api(root, open_qobuz=lambda p: QobuzCheckSource(["hit"]))
     assert wait_job(api, rec, api.qobuz_check_login()).ok
     assert load_settings(root.settings_file).qobuz_last_check["ok"] is True
+    api._store.failed("not_set_up", "Connect Qobuz first.", "qobuz")  # a good check clears the stored read problem...
+    assert wait_job(api, rec, api.qobuz_check_login()).ok and api._store.problem is None
 
     def refuse(p):
         raise qobuz.QobuzLoginRejected("Qobuz did not accept your login. Run: discjockey setup")
 
     api, rec = make_api(root, open_qobuz=refuse)
+    api._store.failed("not_set_up", "Connect Qobuz first.", "qobuz")
     done = wait_job(api, rec, api.qobuz_check_login())
     assert not done.ok and done.message == "Qobuz did not accept your login. Run: discjockey setup"
     assert load_settings(root.settings_file).qobuz_last_check["problem"] == "login_failed"
+    assert api._store.problem == "not_set_up"  # ...a refused one doesn't
 
 
 def test_qobuz_check_login_logged_in_but_the_search_finds_nothing(root):

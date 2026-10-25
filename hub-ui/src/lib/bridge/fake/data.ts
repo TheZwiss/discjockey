@@ -344,8 +344,7 @@ export const PLAYLIST_IDS = ['0DiscjockeyExampleList', '3DiscjockeyExampleList',
 export const QOBUZ_PLAYLIST_LINK = 'https://open.qobuz.com/playlist/900000001';
 export const QOBUZ_TRACK_ID = 'qobuz:112358';
 /** The words of each service for a playlist it won't show (InfoDict.hint; Python: sources.py). */
-export const SPOTIFY_HINT = 'Follow ≠ own: Discjockey can only read playlists that are yours or collaborative. Make your own '
-  + 'copy in Spotify (open it → ⋯ → Add to other playlist → New playlist) and paste that link.';
+export const SPOTIFY_HINT = 'Follow ≠ own: make your own copy in Spotify.';
 export const QOBUZ_HINT = 'Make it public in Qobuz, or use one of your own playlists.';
 export const QOBUZ_UNREADABLE = "Qobuz doesn't show this playlist. It must be public or one of yours. Check the link.";
 export const serviceOfLink = (link: string): PlaylistService => (/qobuz\.com/.test(link) ? 'qobuz' : 'spotify');

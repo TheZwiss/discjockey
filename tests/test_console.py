@@ -57,9 +57,9 @@ def test_debug_messages_only_when_verbose():
 
 def test_info_and_warning_messages():
     p, out = printer()
-    p(Message("info", "Reading your Spotify playlists..."))
+    p(Message("info", "Reading your playlists..."))
     p(Message("warning", "Qobuz is paused for the rest of this run."))
-    assert out.getvalue() == "Reading your Spotify playlists...\n  ! Qobuz is paused for the rest of this run.\n"
+    assert out.getvalue() == "Reading your playlists...\n  ! Qobuz is paused for the rest of this run.\n"
 
 
 def test_tracks_that_only_wait_for_the_next_run_share_one_line():

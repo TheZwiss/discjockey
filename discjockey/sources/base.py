@@ -36,6 +36,10 @@ class Reader(Protocol):
 
     def close(self) -> None: ...
 
+    # Set before `fetch` by a reader of the hub: fill `FetchedPlaylist.info` too when the tracks' own answer holds the
+    # playlist's name, owner and cover (Qobuz), so the page needs no second login. A source that can't may ignore it.
+    want_info: bool
+
     def fetch(self, line: PlaylistLine) -> FetchedPlaylist: ...
 
     def info(self, playlist_id: str) -> PlaylistInfo: ...

@@ -101,6 +101,9 @@ class FetchedPlaylist:
     line: PlaylistLine
     tracks: list[SourceTrack]
     skipped: list[str]
+    # What the page shows for the playlist, when reading its tracks already told the source (Qobuz's first page does):
+    # the hub then needs no second login to ask. Not part of what two reads of the same tracks compare by.
+    info: PlaylistInfo | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)

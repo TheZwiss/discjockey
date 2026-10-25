@@ -44,7 +44,7 @@ def test_add_a_playlist(root):
     assert added["readable"] and added["hint"] is None
     assert (added["playlist_id"], added["service"], added["service_name"]) == (ID3, "spotify", "Spotify")
     assert list(api._infos) == [ID3] and list(api._extra_tracks) == [ID3]  # a Spotify playlist keeps its bare id
-    assert added["info"]["hint"].startswith("Follow ≠ own")
+    assert added["info"]["hint"] == "Follow ≠ own: make your own copy in Spotify."  # short enough for a row
     refused = api.add_playlist("https://open.spotify.com/album/x")
     assert refused["kind"] == "refused" and "service" not in refused
 

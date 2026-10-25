@@ -451,6 +451,12 @@
             "object",
             "null"
           ]
+        },
+        "service": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -460,7 +466,8 @@
         "ok",
         "problem",
         "message",
-        "result"
+        "result",
+        "service"
       ],
       "additionalProperties": false
     },

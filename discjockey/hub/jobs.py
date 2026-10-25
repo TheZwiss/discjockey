@@ -21,7 +21,7 @@ from typing import Callable
 from .. import config, events as ev, library, playlists_file, qobuz, report as rep, run, settings, sources, upgrades
 from ..events import Cancelled, CancelToken, Emit
 from ..library import LockHeld, Paths
-from ..models import Protected
+from ..models import SERVICE_NAMES, Protected
 from ..ops import OpProblem
 
 
@@ -40,6 +40,7 @@ class JobFinished:
     problem: str | None  # None when ok; else a problem kind (bridge contract)
     message: str  # plain English, never a traceback
     result: dict | None  # what the job returned (per kind, see the bridge contract)
+    service: str | None = None  # the playlist service a failed read was about (a key of models.SERVICE_NAMES), else None
 
 
 @dataclass(frozen=True)
@@ -206,7 +207,16 @@ def lock_free(path) -> bool:
     return True
 
 
+NOT_CONNECTED = "Connect {name} first."  # the hub's words for a playlist service that isn't logged in
 UNEXPECTED = "Something unexpected went wrong. Try again, and if it keeps happening, restart Discjockey."
+
+
+def hub_message(kind: str, message: str, service: str | None) -> str:
+    """The words the window shows for a playlist service's problem. A missing login is worded for the console
+    ("... Run: discjockey setup") by the sources; the hub says "Connect Qobuz first." and its card routes to Settings."""
+    if kind == "not_set_up" and service in SERVICE_NAMES:
+        return NOT_CONNECTED.format(name=SERVICE_NAMES[service])
+    return message
 
 
 def problem_of(e: BaseException) -> tuple[str, str]:
@@ -220,7 +230,9 @@ def problem_of(e: BaseException) -> tuple[str, str]:
         return "no_library", str(e)
     if isinstance(e, LockHeld):
         return "console", CONSOLE_TEXT
-    if isinstance(e, (run.SetupProblem, OpProblem, sources.SourceError)):
+    if isinstance(e, (run.SetupProblem, sources.SourceError)):
+        return e.kind, hub_message(e.kind, str(e), e.service)
+    if isinstance(e, OpProblem):
         return e.kind, str(e)
     if isinstance(e, config.ConfigError):
         return ("not_set_up" if e.kind == "not_set_up" else "refused"), str(e)
@@ -463,7 +475,7 @@ class Jobs:
     def _run(self, job: Job, work, write: bool) -> None:
         emit = self._job_emit(job)
         emit(JobStarted(job.id, job.kind, job.track_id))
-        ok, problem, message, result = True, None, "", None
+        ok, problem, message, result, service = True, None, "", None, None
         ctx = JobContext(job.id, job.kind, job.token, emit)
         try:
             if write:
@@ -479,21 +491,23 @@ class Jobs:
         except BaseException as e:  # noqa: BLE001 - every outcome becomes a JobFinished for the window
             ok = False
             problem, message = problem_of(e)
+            service = service_of(e)
             result = ctx.failed_result
             if problem == "crashed":
                 traceback.print_exc()  # for whoever looks at the terminal; the window gets the plain message
-        self._finish(job, ok, problem, message, result)
+        self._finish(job, ok, problem, message, result, service)
 
-    def _finish(self, job: Job, ok: bool, problem: str | None, message: str, result: dict | None) -> bool:
+    def _finish(self, job: Job, ok: bool, problem: str | None, message: str, result: dict | None,
+                service: str | None = None) -> bool:
         """The job's one JobFinished. False if it had finished already (a refresh that Stop let go)."""
         with job.finishing:
             if job.done.is_set():
                 return False
-            finished = JobFinished(job.id, job.kind, ok, problem, message, result)
+            finished = JobFinished(job.id, job.kind, ok, problem, message, result, service)
             try:
                 job.finished = event_dict(finished)
             except Exception:
-                finished = JobFinished(job.id, job.kind, ok, problem, message, None)
+                finished = JobFinished(job.id, job.kind, ok, problem, message, None, service)
                 job.finished = event_dict(finished)
             job.done.set()
         self.emit(finished)
@@ -556,6 +570,13 @@ class PreviewStore:
                 return
             self.problem, self.message, self.problem_service = problem, message, service
 
+    def clear_service(self, service: str) -> None:
+        """A login for `service` was just made: a stored read problem that is about it (not set up, login failed...)
+        is out of date, so the page stops waiting for a restart. Other problems, and the plan, stay."""
+        with self._lock:
+            if self.problem is not None and self.problem_service == service:
+                self.problem, self.problem_service, self.message = None, None, ""
+
     def mark_stale(self) -> None:
         with self._lock:
             self.stale = True
@@ -573,14 +594,19 @@ def refresh_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] 
     problem)."""
     def work(ctx: JobContext) -> dict:
         try:
-            prep = run.prepare(paths, dry_run=True, emit=ctx.emit, token=ctx.token, lock=lock)
+            prep = run.prepare(paths, dry_run=True, emit=ctx.emit, token=ctx.token, lock=lock,
+                               want_info=infos is not None)
         except run.SetupProblem as e:
-            store.failed(e.kind, str(e), e.service, ctx.token)
+            store.failed(e.kind, hub_message(e.kind, str(e), e.service), e.service, ctx.token)
             raise
         store.ready(prep, now(), ctx.token)
         ctx.token.check()
         if infos is not None:
-            read_infos(paths, [line.ref for line in prep.lines], infos, ctx.token)
+            # a source that learned the playlist's page while reading its tracks (Qobuz) has told us already: asking
+            # it again would mean a second login (spec D3: one login per read)
+            known = {fp.line.ref: fp.info for fp in prep.fetched if fp.info is not None}
+            infos.update(known)
+            read_infos(paths, [line.ref for line in prep.lines if line.ref not in known], infos, ctx.token)
         return {"actions": len(prep.plan.actions)}
     return work
 

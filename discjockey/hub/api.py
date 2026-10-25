@@ -49,8 +49,8 @@ from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, load
 from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
 from . import media as media_mod, spectrum as spec, views
-from .jobs import (UNEXPECTED, AppUpdate, Busy, FileDropped, Jobs, PreviewStore, SignInPhase, preview_after_run,
-                   problem_of, refresh_work, service_of, sync_work)
+from .jobs import (NOT_CONNECTED, UNEXPECTED, AppUpdate, Busy, FileDropped, Jobs, PreviewStore, SignInPhase,
+                   preview_after_run, problem_of, refresh_work, service_of, sync_work)
 
 RUN_ID = re.compile(r"\d{4}-\d{2}-\d{2}_\d{6}")
 WHICH = ("current", "upgrade")
@@ -60,7 +60,6 @@ AUTO_READ_DONE = "Your playlists were read by themselves once this session alrea
 NO_DROP = "Drag the bought file onto the window while this track is selected in the to-do list."
 NOT_SELECTED = "Select the track in the to-do list first, then drop the file on the window."
 CLIENT_ID = re.compile(r"[0-9a-fA-F]{32}")
-NOT_CONNECTED = "Connect {name} first."
 NOT_CHOSEN = "Choose your music folder first: it is the first step of Setup."
 MISSING = "Your music folder isn't there: {path}. Connect the drive it is on, or choose another folder."
 # Bridge methods that need a bound music folder: unbound, they answer no_library before anything runs. Every other
@@ -1246,6 +1245,7 @@ class HubApi:
             _, name = spotify.current_user(spotify.load_session(self._support))
             self._save_spotify_app(client_id, name)
             self._update_settings(lambda s: replace(s, spotify_skipped=False))
+            self._store.clear_service("spotify")  # a read problem about Spotify's login is out of date now
             return {"user": name}
 
         return {"job_id": self._jobs.start("setup_spotify_login", work).id}
@@ -1271,6 +1271,7 @@ class HubApi:
                 raise
             self._update_settings(lambda s: replace(s, qobuz_skipped=False).with_check(
                 "qobuz", self._check_record({"ok": True, "problem": None, "kbps": None})))
+            self._store.clear_service("qobuz")  # a read problem about Qobuz's login is out of date now
             return {}
 
         return {"job_id": self._jobs.start("setup_qobuz_login", work).id}
@@ -1437,6 +1438,8 @@ class HubApi:
                     source.close()
             self._update_settings(lambda s: s.with_check("qobuz", self._check_record(
                 {"ok": found, "problem": None if found else "search_failed", "kbps": None})))
+            if found:
+                self._store.clear_service("qobuz")  # the saved login works: a stored Qobuz read problem is out of date
             if not found:
                 raise OpProblem("Logged in to Qobuz, but a test search found nothing.", "failed")
             return {}

@@ -25,7 +25,7 @@ def _positive_int(text: str) -> int:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="discjockey",
-        description="Keep your lossless DJ library in sync with your Spotify playlists.",
+        description="Keep your lossless DJ library in sync with your Spotify and Qobuz playlists.",
     )
     p.add_argument("command", nargs="?", choices=["setup", "update", "upgrades", "hub"],
                    help="setup: one-time logins; update: get the newest yt-dlp; "
