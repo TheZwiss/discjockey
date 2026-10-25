@@ -239,6 +239,13 @@ def problem_of(e: BaseException) -> tuple[str, str]:
     return "crashed", UNEXPECTED
 
 
+def service_of(e: BaseException) -> str | None:
+    """The playlist service (a key of models.SERVICE_NAMES) a SourceError or SetupProblem is about, else None."""
+    if isinstance(e, (run.SetupProblem, sources.SourceError)):
+        return e.service
+    return None
+
+
 @dataclass
 class JobContext:
     job_id: int
@@ -528,6 +535,7 @@ class PreviewStore:
         self.prep: run.Prepared | None = None
         self.read_at: datetime | None = None
         self.problem: str | None = None
+        self.problem_service: str | None = None  # the playlist service `problem` is about (None: not a service's)
         self.message = ""
         self.stale = False  # a sync ran since: the plan is out of date
         self.auto_read = False  # the hub has started its one automatic read of this session (claim_auto_read)
@@ -537,13 +545,16 @@ class PreviewStore:
         with self._lock:
             if token is not None and token.cancelled:
                 return
-            self.prep, self.read_at, self.problem, self.message, self.stale = prep, at, None, "", False
+            self.prep, self.read_at, self.problem, self.problem_service, self.message, self.stale = (
+                prep, at, None, None, "", False)
 
-    def failed(self, problem: str, message: str, token: CancelToken | None = None) -> None:
+    def failed(self, problem: str, message: str, service: str | None = None,
+               token: CancelToken | None = None) -> None:
+        """`service`: the playlist service the problem is about (SetupProblem.service), if it is one's."""
         with self._lock:
             if token is not None and token.cancelled:
                 return
-            self.problem, self.message = problem, message
+            self.problem, self.message, self.problem_service = problem, message, service
 
     def mark_stale(self) -> None:
         with self._lock:
@@ -564,7 +575,7 @@ def refresh_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] 
         try:
             prep = run.prepare(paths, dry_run=True, emit=ctx.emit, token=ctx.token, lock=lock)
         except run.SetupProblem as e:
-            store.failed(e.kind, str(e), ctx.token)
+            store.failed(e.kind, str(e), e.service, ctx.token)
             raise
         store.ready(prep, now(), ctx.token)
         ctx.token.check()

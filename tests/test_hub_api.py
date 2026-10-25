@@ -4,7 +4,8 @@ import threading
 import time
 
 import pytest
-from hub_helpers import ID1, LOSSLESS, LOSSY, fake_spotify, make_api, make_root, refreshed, wait_job, write
+from hub_helpers import (ID1, LOSSLESS, LOSSY, PLAYLISTS, QOBUZ_LINK, fake_qobuz, fake_spotify, make_api, make_root,
+                         refreshed, wait_job, write)
 
 from discjockey.hub import jobs
 from discjockey.hub.api import HubApi
@@ -153,6 +154,28 @@ def test_spotify_is_read_by_itself_once_per_session(root):
     assert len(started_reads(rec)) == 1
     assert refreshed(api, rec).ok  # "↻ Read Spotify" still reads
     assert len(started_reads(rec)) == 2 and api.dashboard()["spotify"]["auto_read"] is True
+
+
+def test_a_qobuz_playlist_without_a_qobuz_login_blocks_the_read_under_qobuz(root, monkeypatch):
+    fake_qobuz(monkeypatch, connected=False)
+    root.playlists_file.write_text(PLAYLISTS + f"Example_Playlist = {QOBUZ_LINK}\n")
+    api, rec = make_api(root)
+    done = wait_job(api, rec, api.refresh())
+    assert (done.ok, done.problem) == (False, "not_set_up")
+    expected = [{"service": "spotify", "name": "Spotify", "connected": True},
+                {"service": "qobuz", "name": "Qobuz", "connected": False}]
+    for status in (api.job_status()["spotify"], api.sync_preview()["spotify"], api.dashboard()["spotify"]):
+        assert (status["problem"], status["problem_service"]) == ("not_set_up", "qobuz")
+        assert status["services"] == expected
+
+
+def test_only_the_services_the_switched_on_lines_use_are_listed(root, monkeypatch):
+    fake_qobuz(monkeypatch, connected=False)
+    root.playlists_file.write_text(PLAYLISTS + f"#off# Example_Playlist = {QOBUZ_LINK}\n")
+    api, rec = make_api(root)
+    assert [s["service"] for s in api.job_status()["spotify"]["services"]] == ["spotify"]
+    root.playlists_file.write_text("# nothing yet\n")
+    assert api.job_status()["spotify"]["services"] == []
 
 
 def test_a_failed_first_automatic_read_is_not_repeated_by_itself(root, monkeypatch):

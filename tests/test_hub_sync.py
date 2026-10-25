@@ -7,7 +7,7 @@ from contextlib import contextmanager
 import pytest
 
 from discjockey import run
-from discjockey.sources import spotify
+from discjockey.sources import qobuz as qobuz_source, spotify
 from discjockey.sources.base import LoginState
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.events import RunFinished
@@ -101,6 +101,34 @@ def test_a_failed_refresh_keeps_the_last_known_preview(env, monkeypatch):
     refresh(js, paths, store)
     assert (rec.finished().ok, rec.finished().problem) == (False, "offline")
     assert store.prep is first and store.problem == "offline" and "Cannot reach" in store.message
+
+
+def test_a_missing_qobuz_login_files_the_problem_under_qobuz(env, monkeypatch):
+    paths, js, store, rec, acq, logins, tracks = env
+    paths.playlists_file.write_text(PLAYLISTS + "Example_Playlist = https://open.qobuz.com/playlist/900000001\n")
+    monkeypatch.setattr(qobuz_source, "login_state", lambda p: LoginState("missing", qobuz_source.NOT_SET_UP))
+    refresh(js, paths, store)
+    assert (rec.finished().ok, rec.finished().problem) == (False, "not_set_up")
+    assert (store.problem, store.problem_service) == ("not_set_up", "qobuz") and "Qobuz" in store.message
+    status = views.spotify_status(store, datetime(2026, 10, 20, 21, 47), False,
+                                  [("spotify", True), ("qobuz", False)])
+    assert status["problem_service"] == "qobuz"
+    assert status["services"] == [{"service": "spotify", "name": "Spotify", "connected": True},
+                                  {"service": "qobuz", "name": "Qobuz", "connected": False}]
+
+
+def test_a_spotify_problem_names_spotify_and_a_good_read_clears_it(env, monkeypatch):
+    paths, js, store, rec, acq, logins, tracks = env
+
+    def expired(s, line):
+        raise spotify.SpotifyError("Your Spotify login has expired.", "login_expired")
+
+    monkeypatch.setattr(spotify, "fetch_playlist", expired)
+    refresh(js, paths, store)
+    assert (store.problem, store.problem_service) == ("login_expired", "spotify")
+    monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: FetchedPlaylist(line, list(tracks), []))
+    refresh(js, paths, store)
+    assert (store.problem, store.problem_service) == (None, None)
 
 
 def sync(js, paths, store, ticked):
