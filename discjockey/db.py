@@ -21,8 +21,8 @@ from typing import NamedTuple
 from . import library as disk  # "library" is the Library/ path argument everywhere here
 from .events import Emit, Message
 from .models import (OWN_PREFIX, AddedFolder, BatchRow, DupFile, DuplicateGroup, ImportCounts, ImportRow, KnownFile,
-                     MoveRow, OwnFacts, PlannedMove, RemovalCounts, ScanResult, SeenFile, WatchedFolder, is_own,
-                     split_token, token)
+                     MoveRow, OwnFacts, PlannedMove, RemovalCounts, ScanResult, SeenFile, WatchedFolder, group_id,
+                     is_own, split_token, token)
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
@@ -1258,11 +1258,6 @@ def set_decision(conn: sqlite3.Connection, kind: str, a: str, b: str, answer: st
         conn.execute("INSERT OR REPLACE INTO decisions (kind, a, b, answer, at) VALUES (?, ?, ?, ?, ?)",
                      (kind, a, b, answer, now.isoformat(timespec="seconds")))
         _bump(conn)
-
-
-def group_id(file_ids: Collection[int]) -> str:
-    """A duplicate group's id: its file ids, sorted (a new copy makes it another group, so asked again)."""
-    return "dup:" + "-".join(str(i) for i in sorted(file_ids))
 
 
 def _group_ids(gid: str, *, strict: bool = True) -> set[int]:

@@ -42,6 +42,13 @@ def is_own(key: str) -> bool:
     return key.startswith(OWN_PREFIX)
 
 
+def track_of(track_id: str, e: dict) -> SourceTrack:
+    """The playlist side of an entry (its song key names the service), as far as the records know it (for actions run
+    outside a sync, and the upgrade checks of the user's own songs)."""
+    service, bare_id = split_token(track_id)
+    return SourceTrack(bare_id, e["title"], (e["artist"],), "", None, e["duration_ms"], e.get("isrc"), service)
+
+
 def track_link(tok: str) -> str | None:
     """The page of the track a token names, or None when its service has no link derivable from an id."""
     service, id = split_token(tok)
@@ -147,6 +154,19 @@ class Action:
     qobuz_id: str | None = None  # acquire/upgrade: the Qobuz track to try first (a Qobuz playlist named it)
 
 
+@dataclass(frozen=True)
+class Question:
+    """"Is this the same song?" (plan library stage 4, I4): a playlist song that a file of the user's own might be.
+    Until the answer the song isn't downloaded (D4)."""
+    song_key: str  # the playlist song's key, or its track token while it has none
+    track: SourceTrack
+    folder: str  # the playlist song's folder
+    own_key: str
+    file_id: int  # the own song's file
+    why: str  # "artist" | "no_artist" | "length"
+    delta_s: int  # own length - track length, whole seconds (signed); 0 when a length isn't known
+
+
 @dataclass
 class Plan:
     state: dict
@@ -155,6 +175,9 @@ class Plan:
     dropped: list[str]
     notes: list[str] = field(default_factory=list)
     never: list[Action] = field(default_factory=list)  # downloads left out because the user said "never download"
+    questions: list[Question] = field(default_factory=list)  # held songs waiting for "Is this the same song?"
+    duplicates: list[DuplicateGroup] = field(default_factory=list)  # same-song groups (same-audio: db.duplicate_groups)
+    deferred_checks: int = 0  # first upgrade checks left for later runs by the cap (D9)
 
 
 @dataclass(frozen=True)
@@ -376,6 +399,11 @@ class DuplicateGroup:
     id: str  # "dup:" + "-".join(sorted file ids)
     why: str  # "same_audio" | "same_song"
     file_ids: tuple[int, ...]
+
+
+def group_id(file_ids) -> str:
+    """A duplicate group's id: its file ids, sorted (a new copy makes it another group, so asked again)."""
+    return "dup:" + "-".join(str(i) for i in sorted(file_ids))
 
 
 @dataclass(frozen=True)
