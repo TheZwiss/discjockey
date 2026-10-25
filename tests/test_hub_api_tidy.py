@@ -138,12 +138,12 @@ def test_undoing_a_batch_nobody_recorded_is_refused_before_a_job_starts(root):
 
 
 def stop_after_the_first_move(api, monkeypatch):
-    real = library.run_op
-
-    def run_op(*args, **kwargs):
-        real(*args, **kwargs)
-        api.stop()
-    monkeypatch.setattr(library, "run_op", run_op)
+    """Stop pressed after the first move: a folder's (run_op) or a file's (move_files)."""
+    for name in ("run_op", "move_files"):
+        def move(*args, _real=getattr(library, name), **kwargs):
+            _real(*args, **kwargs)
+            api.stop()
+        monkeypatch.setattr(library, name, move)
 
 
 def test_a_stopped_tidy_up_still_delivers_its_result_and_stays_stopped(root, monkeypatch):

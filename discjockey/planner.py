@@ -91,19 +91,22 @@ class TidyRow:
 def tidy_target(entry: dict, folder: str | None = None) -> str | None:
     """Where the entry's file belongs: its placement folder (`folder` overrides the entry's), `not_lossless/` below
     it when lossy, under the file's current name (rekordbox's Relocate finds files by name: a tidy-up never renames).
-    None for an entry without a file, one in no playlist, or a file outside `Library/` (stage 2 moves only those)."""
+    A file in `Library/` or in an import folder (an absolute snapshot path, stage 4 I10: it moves into `Library/`,
+    across drives when it is on another one). None for an entry without a file, one in no playlist (a song of the
+    user's own among them), or any other path."""
     path = entry.get("path")
     if not path or not entry.get("in_playlists", True):
         return None
     p = PurePosixPath(path)
-    if len(p.parts) < 2 or p.parts[0] != "Library":
+    if len(p.parts) < 2 or (p.parts[0] != "Library" and not p.is_absolute()):
         return None
     return f"{folder_dir(folder or entry['folder'], entry['status'])}/{p.name}"
 
 
 def tidy_rows(state: dict, folders: Mapping[str, str] | None = None, *,
               only: Collection[str] | None = None) -> list[TidyRow]:
-    """Pure: a row per file whose target folder differs (fold: a case-only difference is no move) from its folder.
+    """Pure: a row per file whose target folder differs (fold: a case-only difference is no move) from its folder,
+    files in import folders among them (placed by `import`, so unticked like a `user` row).
     `folders` overrides the entries' folders by key (the save preview's new placement); `only` limits the keys.
     Rows go by source folder, then file name; a target name taken on disk, by another song's row (also a held one) or by another row is `name_taken`, also
     when another row would free it (one more tidy-up moves it, so a batch never depends on its own order). Rows

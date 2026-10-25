@@ -3,6 +3,7 @@ import errno
 import os
 import sqlite3
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -156,13 +157,14 @@ def test_a_song_gone_between_planning_and_its_move_is_not_found(paths):
 def test_a_move_the_records_refuse_is_failed_in_words_that_say_it_moved(paths, monkeypatch):
     state = library_with(paths, ("s1", "A", "B"))
 
-    def refused(conn, move_id, **kw):
+    def refused(conn, op):
         raise sqlite3.IntegrityError("UNIQUE constraint failed: files.folder, files.path")
-    monkeypatch.setattr(db, "finish_move", refused)
+    monkeypatch.setattr(db, "finish_file_op", refused)
     result = tidy.tidy_up(paths, sent(state, "s1"))
     assert [(m.reason, m.detail) for m in result.skipped] == [("failed", tidy.MOVED_NOT_RECORDED)]
     assert "playlists.txt" not in tidy.MOVED_NOT_RECORDED and "records" not in tidy.MOVED_NOT_RECORDED
     assert (paths.library / "A" / "A - s1.aiff").exists()  # the record says what happened on disk
+    assert load_state(paths)["pending"] == []  # trying again can't help: the step is not left blocking scans
 
 
 def test_failed_details_are_plain_words():
@@ -456,15 +458,16 @@ def test_a_crash_after_the_move_and_before_it_is_marked_done_is_finished_next_st
     state = library_with(paths, ("s1", "A", "B"), ("s2", "A", "B"))
     mark_user(paths, state, "s1")
 
-    def power_cut(conn, move_id, **kw):
+    def power_cut(conn, op):  # the file moved; its row and the move are written in one transaction, not yet
         raise SystemExit("power cut")
-    monkeypatch.setattr(db, "finish_move", power_cut)
+    monkeypatch.setattr(db, "finish_file_op", power_cut)
     with pytest.raises(SystemExit):
         tidy.tidy_up(paths, sent(state, "s1", "s2"))
     monkeypatch.undo()
     assert open_batches(paths) != []
     messages = library.recover_pending(paths, load_state(paths))
-    assert messages == [(tidy.RECOVERED.format(moved=1, left=1), True)]
+    assert messages == [("Finished an interrupted step for A - s1", True),
+                        (tidy.RECOVERED.format(moved=1, left=1), True)]
     log = moves_of(paths, 1)
     assert [(m.state, m.reason) for m in log] == [("done", None), ("skipped", "stopped")]
     after = load_state(paths)
@@ -477,7 +480,7 @@ def test_a_crash_before_the_move_leaves_the_file_where_it_was(paths, monkeypatch
 
     def power_cut(*a, **k):
         raise SystemExit("power cut")
-    monkeypatch.setattr(library, "run_op", power_cut)
+    monkeypatch.setattr(library, "move_files", power_cut)
     with pytest.raises(SystemExit):
         tidy.tidy_up(paths, sent(state, "s1"))
     monkeypatch.undo()
@@ -488,17 +491,15 @@ def test_a_crash_before_the_move_leaves_the_file_where_it_was(paths, monkeypatch
 
 def test_a_step_still_pending_is_finished_first_and_its_move_counts_as_done(paths, monkeypatch):
     state = library_with(paths, ("s1", "A", "B"))
-    real, saves = library.save_state, []
 
-    def save(paths_, st, **kw):
-        if saves:
-            raise SystemExit("power cut")  # after the rename, before the entry is written
-        saves.append(1)
-        real(paths_, st, **kw)
-    monkeypatch.setattr(library, "save_state", save)
+    def power_cut(*a, **k):
+        raise SystemExit("power cut")  # journaled, then cut before the rename (and before any rollback)
+    monkeypatch.setattr(library, "move_path", power_cut)
+    monkeypatch.setattr(db, "drop_pending", power_cut)
     with pytest.raises(SystemExit):
         tidy.tidy_up(paths, sent(state, "s1"))
     monkeypatch.undo()
+    assert (paths.library / "B" / "A - s1.aiff").exists() and len(load_state(paths)["pending"]) == 1
     messages = library.recover_pending(paths, load_state(paths))
     assert messages[-1] == (tidy.RECOVERED.format(moved=1, left=0), True)
     assert load_state(paths)["tracks"]["s1"]["path"] == "Library/A/A - s1.aiff"
@@ -555,3 +556,150 @@ def test_a_stopped_undo_of_a_folder_rename_counts_the_files_it_moved_back():
                        reason=None, detail=None, now_path=None, now_key=None, files=files)
     said = tidy._recovered("undo", [move("folder", "done", 7), move("file", "planned")])
     assert said == tidy.RECOVERED_UNDO.format(moved=7, left=1)
+
+
+# --- stage 4, group 2: file moves past the entry view, and across drives (plan library stage 4, I7, I10) ---
+
+def test_a_batch_mixing_file_moves_and_a_folder_move_saves_no_stale_state(paths):
+    state = library_with(paths, ("s1", "A", "B"), ("s2", "Old", "Old"), ("s3", "A", "B"))
+    e = state["tracks"]
+
+    def file_move(key):
+        return PlannedMove("file", e[key]["file_id"], f"A - {key}", e[key]["path"], f"Library/A/A - {key}.aiff",
+                           None, "app", "app")
+    moves = [file_move("s1"), PlannedMove("folder", None, "Old", "Library/Old", "Library/New", None, None, None),
+             file_move("s3")]
+    batch = tidy._start(paths, "tidy", moves, datetime.now)
+    result = tidy._run(paths, state, batch, "tidy", emit=no_emit, token=CancelToken(), now=datetime.now)
+    assert result.moved == 3 and result.skipped == ()  # the folder's run_op saved a fresh snapshot, not `state`
+    after = load_state(paths)
+    assert [after["tracks"][k]["path"] for k in ("s1", "s2", "s3")] == [
+        "Library/A/A - s1.aiff", "Library/New/A - s2.aiff", "Library/A/A - s3.aiff"]
+    assert after["tracks"]["s2"]["folder"] == "New" and after["pending"] == []
+
+
+@pytest.fixture
+def xpaths(tmp_path):
+    p = Paths(tmp_path / "Music", support=tmp_path / ".support")
+    p.library.mkdir(parents=True)
+    p.data.mkdir()
+    save_state(p, empty_state())
+    return p
+
+
+@pytest.fixture
+def other_drive(tmp_path, monkeypatch):
+    """An import folder on "another drive": library.device says 2 for anything on it."""
+    drive = tmp_path / "Other"
+    folder = drive / "Music"
+    folder.mkdir(parents=True)
+    monkeypatch.setattr(library, "device", lambda p: 2 if Path(p).is_relative_to(drive) else 1)
+    return folder
+
+
+def imported(paths, folder, key="s1", playlist="A"):
+    """A playlist song whose file is in the import folder `folder`, found there by a scan (placed by the import)."""
+    f = folder / "House" / f"A - {key}.aiff"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_bytes(f"audio of {key}".encode())
+    with db.connect(paths.db_file) as conn:
+        db.add_watched_folder(conn, folder, datetime.now())
+    library.scan_library(paths)
+    s = load_state(paths)
+    s["tracks"][key] = {"artist": "A", "title": key, "path": str(f), "status": "lossless", "folder": playlist,
+                        "in_playlists": True}
+    save_state(paths, s)
+    return load_state(paths)
+
+
+def staged_copies(monkeypatch):
+    copies, real = [], library._copy_verified
+    monkeypatch.setattr(library, "_copy_verified", lambda src, staged: (copies.append(staged), real(src, staged)))
+    return copies
+
+
+def test_a_tidy_from_an_import_folder_on_another_drive_and_its_undo_both_go_through_staging(
+        xpaths, other_drive, monkeypatch):
+    state = imported(xpaths, other_drive)
+    src = state["tracks"]["s1"]["path"]
+    assert state["tracks"]["s1"]["placed_by"] == "import"
+    rows = planner.tidy_rows(state)
+    assert [(r.src, r.dst, r.ticked) for r in rows] == [(src, "Library/A/A - s1.aiff", False)]
+    copies = staged_copies(monkeypatch)
+    result = tidy.tidy_up(xpaths, sent(state, "s1"))
+    assert result.moved == 1 and result.skipped == ()
+    assert not Path(src).exists() and (xpaths.library / "A" / "A - s1.aiff").read_bytes() == b"audio of s1"
+    after = load_state(xpaths)
+    assert after["tracks"]["s1"]["path"] == "Library/A/A - s1.aiff" and after["tracks"]["s1"]["placed_by"] == "app"
+    assert after["pending"] == []
+    back = tidy.undo(xpaths, result.batch_id)
+    assert back.moved == 1 and back.skipped == ()
+    assert Path(src).read_bytes() == b"audio of s1" and not (xpaths.library / "A" / "A - s1.aiff").exists()
+    after = load_state(xpaths)
+    assert after["tracks"]["s1"]["path"] == src and after["tracks"]["s1"]["placed_by"] == "import"
+    assert copies == [xpaths.library / "A" / ".A - s1.aiff.discjockey-move",
+                      Path(src).parent / ".A - s1.aiff.discjockey-move"]
+    assert not any(c.exists() for c in copies)
+
+
+def test_an_undo_across_drives_still_leaves_a_file_whose_audio_changed(xpaths, other_drive, monkeypatch):
+    monkeypatch.setattr(quality, "inspect", lambda path: ("pcm_s16be", None))
+    state = imported(xpaths, other_drive)
+    src = state["tracks"]["s1"]["path"]
+    result = tidy.tidy_up(xpaths, sent(state, "s1"))
+    touch(xpaths, "Library/A/A - s1.aiff", b"edited audio")  # its key changes
+    back = tidy.undo(xpaths, result.batch_id)
+    assert back.moved == 0 and [m.reason for m in back.skipped] == ["moved_on"]
+    assert not Path(src).exists() and (xpaths.library / "A" / "A - s1.aiff").read_bytes() == b"edited audio"
+
+
+def test_an_undo_to_an_import_folder_on_a_drive_that_is_not_connected_is_offline(xpaths, other_drive):
+    state = imported(xpaths, other_drive)
+    result = tidy.tidy_up(xpaths, sent(state, "s1"))
+    drive = other_drive.parent
+    drive.rename(drive.with_name("Other (away)"))
+    preview = tidy.undo_preview(xpaths, load_state(xpaths), result.batch_id)
+    assert [m.skip for m in preview] == [("offline", None)]
+    back = tidy.undo(xpaths, result.batch_id)
+    assert back.moved == 0 and [m.reason for m in back.skipped] == ["offline"]
+    assert not drive.exists() and (xpaths.library / "A" / "A - s1.aiff").exists()  # nothing made where it was
+
+
+def test_a_move_the_records_cannot_finish_is_failed_and_the_batch_goes_on(paths, monkeypatch):
+    state = library_with(paths, ("s1", "A", "B"), ("s2", "A", "B"))
+    real, calls = db.finish_file_op, []
+
+    def refused_once(conn, op):
+        calls.append(op["ref"])
+        if len(calls) == 1:
+            raise ValueError("move 1 was skipped (stopped); it can't be finished")
+        real(conn, op)
+    monkeypatch.setattr(db, "finish_file_op", refused_once)
+    result = tidy.tidy_up(paths, sent(state, "s1", "s2"))
+    assert [(m.label, m.reason, m.detail) for m in result.skipped] == [("A - s1", "failed", tidy.MOVED_NOT_NOTED)]
+    assert result.moved == 1 and load_state(paths)["pending"] == []
+    assert load_state(paths)["tracks"]["s2"]["path"] == "Library/A/A - s2.aiff"
+
+
+def test_a_crash_in_a_tidy_across_drives_is_finished_next_start(xpaths, other_drive, monkeypatch):
+    state = imported(xpaths, other_drive)
+    src = Path(state["tracks"]["s1"]["path"])
+    real_unlink = os.unlink
+
+    def unlink(p, *a, **kw):
+        if Path(p) == src:
+            raise SystemExit("power cut")  # the copy has its new name; the original isn't removed yet
+        real_unlink(p, *a, **kw)
+
+    def cut(*a, **kw):
+        raise SystemExit("power cut")
+    monkeypatch.setattr(os, "unlink", unlink)
+    monkeypatch.setattr(db, "drop_pending", cut)  # nothing after the cut runs
+    with pytest.raises(SystemExit):
+        tidy.tidy_up(xpaths, sent(state, "s1"))
+    monkeypatch.undo()
+    assert src.exists() and (xpaths.library / "A" / "A - s1.aiff").exists()
+    messages = library.recover_pending(xpaths, load_state(xpaths))
+    assert messages == [("Finished an interrupted step for A - s1", True),
+                        (tidy.RECOVERED.format(moved=1, left=0), True)]
+    assert not src.exists() and load_state(xpaths)["tracks"]["s1"]["path"] == "Library/A/A - s1.aiff"

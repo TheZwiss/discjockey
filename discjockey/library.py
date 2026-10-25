@@ -3,9 +3,12 @@ folder), the lock, its records (library.db through db.py; state.json before the 
 the scan."""
 from __future__ import annotations
 
+import errno
 import fcntl
+import hashlib
 import itertools
 import json
+import logging
 import os
 import shutil
 import signal
@@ -19,11 +22,14 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
+from typing import Literal
 
 from .content_key import content_key
 from .events import Emit, Message, no_emit
 from .models import ScanSummary
 from .names import fold
+
+log = logging.getLogger(__name__)
 
 STATE_VERSION = 1
 
@@ -454,8 +460,16 @@ SWAP_PATH_KEYS = ("target", "staged", "backup", "parked")
 
 
 def op_paths(op: dict) -> list[str]:
-    """Every file a pending step names (its renames, and for a swap also target, staged, backup and parked)."""
-    return [p for pair in op.get("renames", []) for p in pair] + [op[k] for k in SWAP_PATH_KEYS if op.get(k)]
+    """Every file a pending step names: its renames, for a swap also target, staged, backup and parked, and for a
+    step that crosses drives (run_op, move_files: `staged` maps a rename's index to its copy) the staged copies."""
+    out = [p for pair in op.get("renames", []) for p in pair]
+    for k in SWAP_PATH_KEYS:
+        v = op.get(k)
+        if isinstance(v, dict):
+            out += v.values()
+        elif v:
+            out.append(v)
+    return out
 
 
 def clear_tmp(paths: Paths, state: dict | None = None) -> None:
@@ -531,17 +545,203 @@ def safe_rename(root: Path, src: str, dst: str) -> None:
     os.rename(s, d)
 
 
+# --- one rename, also across drives (plan library stage 4, I7) ---
+
+STAGED_SUFFIX = ".discjockey-move"  # not an audio extension, so the scanner never sees a staged copy
+COPY_MISMATCH = "the copy on the other drive didn't match the original"
+DRIVE_GONE = "the drive of {path} isn't connected"
+TWO_PLACES = ("{src} couldn't be removed from its drive ({reason}), so the file is in two places now: {src} and "
+              "{dst}")
+SOURCE_STAYS = "{src} couldn't be removed from its drive ({reason}), so it stays where it was"
+
+
+class SourceKept(OSError):
+    """A move to another drive whose source can't be removed (a read-only drive): the new copy was removed again,
+    the file is only where it was."""
+
+
+def device(path: Path) -> int:
+    """The drive `path` is on (st_dev), or the drive of its nearest folder that exists. The one device test of a
+    move: tests simulate a second drive by replacing it, never with a real volume."""
+    while True:
+        try:
+            return os.stat(path).st_dev
+        except FileNotFoundError:
+            if path.parent == path:
+                raise
+            path = path.parent
+
+
+def watched_roots(paths: Paths) -> list[Path]:
+    """The music folder and the root of every import folder (library.db's), for `online`. Library/ is the music
+    folder's (made by the first download when it isn't there), so its drive is the music folder's."""
+    from . import db
+    roots = [paths.root]
+    if paths.db_file.exists():
+        with db.connect(paths.db_file) as conn:
+            roots += [f.path for f in db.watched_folders(conn) if f.kind != "library"]
+    return roots
+
+
+def online(path: Path, roots: Collection[Path]) -> bool:
+    """Whether the drive `path` is on is there: the innermost of `roots` holding it is online (the scanner's rule:
+    its folder exists, and a /Volumes drive is mounted); a path in none of them: its folder exists. A drive that
+    isn't connected must never be mistaken for the folder above it (device() falls back that way): nothing is
+    created or renamed into a mount point that is missing."""
+    from .scanner import is_offline
+    best = None
+    for r in roots:
+        if path.is_relative_to(r) and (best is None or len(r.parts) > len(best.parts)):
+            best = r
+    if best is None:
+        return path.parent.is_dir()
+    return not is_offline(best, os.path.ismount)
+
+
+def crosses(root: Path, src: str, dst: str) -> bool:
+    """Whether moving `src` to `dst` goes to another drive (so it is a copy, then the source's removal). False when
+    `src` is not there: the rename then fails or recovery decides, as for any other move."""
+    try:
+        return (root / src).exists() and device(root / src) != device((root / dst).parent)
+    except FileNotFoundError:
+        return False
+
+
+def staging_path(dst: str) -> str:
+    """Where a move across drives copies the file before it takes `dst`'s name: hidden, beside `dst`."""
+    d = PurePosixPath(dst)
+    return str(d.with_name(f".{d.name}{STAGED_SUFFIX}"))
+
+
+def _remove_staged(path: Path) -> None:
+    """Removes a staged copy, and only a file with the staging name (hidden, STAGED_SUFFIX)."""
+    if path.name.startswith(".") and path.name.endswith(STAGED_SUFFIX):
+        path.unlink(missing_ok=True)
+
+
+def _fsync_dir_quietly(path: Path) -> None:
+    """fsync_dir after a rename that happened: best effort, the rename counts either way."""
+    try:
+        fsync_dir(path)
+    except OSError:
+        pass
+
+
+def journal_crossings(root: Path, renames: list[tuple[str, str]]) -> tuple[dict[str, str], dict[str, int]]:
+    """What a journaled step records before its first rename, for each rename that crosses drives (by its index,
+    as a string: the op is JSON): the staged copy's path and the source's size (recovery's check of a staged copy
+    whose source is gone)."""
+    staged, size = {}, {}
+    for i, (src, dst) in enumerate(renames):
+        if crosses(root, src, dst):
+            staged[str(i)] = staging_path(dst)
+            size[str(i)] = os.stat(root / src).st_size
+    return staged, size
+
+
+def file_sha256(path: Path) -> str:
+    with open(path, "rb") as f:
+        return hashlib.file_digest(f, "sha256").hexdigest()
+
+
+def _copy_verified(src: Path, staged: Path) -> None:
+    """src -> staged (a new file, never over one), written out to the drive, then read back and compared: the same
+    SHA-256 as what was read, and the size the source had when the copy began and has now (a source cut short
+    while it was read fails). A Ctrl-C held by deferred_interrupt stops it between chunks (KeyboardInterrupt)."""
+    h = hashlib.sha256()
+    with open(src, "rb") as fi, open(staged, "xb") as fo:
+        size = os.fstat(fi.fileno()).st_size
+        while chunk := fi.read(1 << 20):
+            if interrupt_held():
+                raise KeyboardInterrupt
+            h.update(chunk)
+            fo.write(chunk)
+        fo.flush()
+        full_fsync(fo.fileno())
+    try:  # the modification time too, so the next scan sees the file unchanged; a drive that can't keep it is fine
+        shutil.copystat(src, staged)
+    except OSError:
+        pass
+    if not (os.stat(staged).st_size == size == os.stat(src).st_size) or file_sha256(staged) != h.hexdigest():
+        raise OSError(errno.EIO, COPY_MISMATCH)
+
+
+def move_path(root: Path, src: str, dst: str, staged: str | None, roots: Collection[Path] | None = None) -> None:
+    """One rename of a journaled step (run_op, move_files and both recoveries). Refused (ENXIO, DRIVE_GONE) when
+    `dst`'s drive isn't there (`online` against `roots`, default the music folder): no folder is ever made where a
+    drive should be. On one drive, or without a recorded `staged` path: safe_rename (a leftover staged copy goes).
+    To another drive: copy to `staged` (recorded in the step before this call), write it out, compare, take `dst`'s
+    name (refused when it exists), and only then remove the source: the second half of a move, never the only copy.
+    Any failure before that removes the staged copy and re-raises, the source untouched; when the source can't be
+    removed (a read-only drive), the new copy goes again and SourceKept is raised: the file is in one place, its
+    old one. A source that is already gone when the removal fails counts as removed: the copy is kept."""
+    s, d = root / src, root / dst
+    if not online(d, [root] if roots is None else roots):
+        raise OSError(errno.ENXIO, DRIVE_GONE.format(path=dst))
+    if staged is None or not crosses(root, src, dst):
+        safe_rename(root, src, dst)
+        if staged is not None:
+            _remove_staged(root / staged)
+        return
+    t = root / staged
+    if d.exists():
+        raise FileExistsError(f"{dst} already exists")
+    _remove_staged(t)  # a copy an earlier try left; the source is still there
+    try:
+        d.parent.mkdir(parents=True, exist_ok=True)
+        _copy_verified(s, t)
+        safe_rename(root, staged, dst)
+    except BaseException:
+        _remove_staged(t)
+        raise
+    _fsync_dir_quietly(d.parent)
+    try:
+        os.unlink(s)
+    except OSError as e:
+        try:
+            os.lstat(s)
+            source_there = True
+        except FileNotFoundError:
+            source_there = False  # gone since (the user removed it): the copy at `dst` is the only one, it stays
+        except OSError:
+            source_there = True  # can't tell: assume it is there, and never keep the doubtful side
+        if source_there:
+            d.unlink(missing_ok=True)  # the verified copy; the original stays where it was
+            raise SourceKept(e.errno, e.strerror or str(e)) from e
+
+
+_HELD: list[list[int]] = []  # the Ctrl-Cs each open deferred_interrupt holds back, innermost last
+
+
+def interrupt_held() -> bool:
+    """A Ctrl-C arrived during the innermost deferred_interrupt block: a long copy stops for it. Only the main
+    thread, the one that gets signals and opens the blocks, reads _HELD; any other thread gets False."""
+    if threading.current_thread() is not threading.main_thread():
+        return False
+    return bool(_HELD and _HELD[-1])
+
+
 @contextmanager
 def deferred_interrupt():
-    """Ctrl-C during the block is held back and raised when the block ends."""
+    """Ctrl-C during the block is held back and raised when the block ends. A copy to another drive checks for it
+    between chunks (interrupt_held) and stops with KeyboardInterrupt; the previous handler then hears of it too."""
     if threading.current_thread() is not threading.main_thread():
         yield
         return
     received: list[int] = []
     old = signal.signal(signal.SIGINT, lambda signum, frame: received.append(signum))
+    _HELD.append(received)
     try:
         yield
+    except KeyboardInterrupt:
+        if received and callable(old) and old is not signal.default_int_handler:
+            old(signal.SIGINT, None)
+        raise
     finally:
+        for i in range(len(_HELD) - 1, -1, -1):  # by identity: equal (empty) lists of nested blocks are not the same
+            if _HELD[i] is received:
+                del _HELD[i]
+                break
         signal.signal(signal.SIGINT, old)
     if received:  # hand the Ctrl-C to whoever was listening before (default: KeyboardInterrupt)
         if callable(old):
@@ -554,19 +754,24 @@ def run_op(paths: Paths, state: dict, track_id: str, renames: list[tuple[str, st
            entries: Mapping[str, dict] | None = None, label: str | None = None) -> None:
     """Record the step as pending, do the renames, then apply the entry. Crash-safe (see recover_pending).
     `entries` (state key -> entry) are applied together with `entry`: a folder move changes many songs' paths in one
-    step. `label` names the step in recover_pending's messages. The pending step stores either only when given."""
+    step. `label` names the step in recover_pending's messages. The pending step stores either only when given, and
+    `staged` and `size` (journal_crossings) only when a rename crosses drives."""
     with deferred_interrupt():
         op = {"track_id": track_id, "renames": [list(r) for r in renames], "entry": entry}
         if entries is not None:
             op["entries"] = dict(entries)
         if label is not None:
             op["label"] = label
+        staged, size = journal_crossings(paths.root, renames)
+        if staged:
+            op.update(staged=staged, size=size)
+        roots = watched_roots(paths)
         state.setdefault("pending", []).append(op)
         save_state(paths, state)
         done = 0
         try:
-            for src, dst in renames:
-                safe_rename(paths.root, src, dst)
+            for i, (src, dst) in enumerate(renames):
+                move_path(paths.root, src, dst, staged.get(str(i)), roots)
                 done += 1
         except BaseException:
             if done == 0:
@@ -585,49 +790,191 @@ def _apply_entries(state: dict, op: dict) -> None:
         state["tracks"][key] = e
 
 
+# --- the file journal (plan library stage 4, I7): single files moved outside the entry view ---
+
+FileStep = Literal["tidy_move", "supersede"]
+NOT_RECORDED = ("Finished an interrupted step for {name}, but Discjockey couldn't record the file's new place "
+                "in its records.")
+
+
+def move_files(paths: Paths, do: FileStep, renames: list[tuple[str, str]], *, ref: int, heir: int | None = None,
+               label: str) -> None:
+    """Moves single files past the entry view: the step is journaled in library.db first (db.add_pending, with
+    `staged` and `size` for each rename that crosses drives), then each rename (move_path), then db.finish_file_op
+    writes what it means for the rows and ends the journal entry in one transaction (`do`: `tidy_move` finishes the
+    move `ref`; `supersede` drops the file row `ref`, `heir` taking over its song). Crash-safe: recover_pending
+    finishes it. A step that moved nothing is dropped and the error re-raised. Each of these writes bumps the
+    generation, so the caller holds no snapshot across this call. When the records refuse the result
+    (sqlite3.IntegrityError: another song's row at the new place; ValueError) the step is dropped as well, since
+    trying again can't help, and the error raised: the file is where the renames put it."""
+    from . import db
+    staged, size = journal_crossings(paths.root, renames)
+    roots = watched_roots(paths)
+    op = {"kind": "files", "do": do, "ref": ref, "heir": heir, "label": label,
+          "renames": [list(r) for r in renames], "staged": staged, "size": size}
+    with deferred_interrupt():
+        with db.connect(paths.db_file) as conn:
+            db.add_pending(conn, op)
+        done = 0
+        try:
+            for i, (src, dst) in enumerate(renames):
+                move_path(paths.root, src, dst, staged.get(str(i)), roots)
+                done += 1
+        except BaseException:
+            if done == 0:
+                with db.connect(paths.db_file) as conn:
+                    db.drop_pending(conn, op["op_id"])
+            raise
+        with db.connect(paths.db_file) as conn:
+            _finish_files(conn, op)
+
+
+def _finish_files(conn: sqlite3.Connection, op: dict) -> None:
+    from . import db
+    try:
+        db.finish_file_op(conn, op)
+    except (sqlite3.IntegrityError, ValueError):
+        db.drop_pending(conn, op["op_id"])
+        raise
+
+
+@dataclass(frozen=True)
+class _Recovered:
+    problem: str  # "" when every rename is done
+    done_any: bool  # a file is in its new place: the step's result must be written
+    wait: bool  # nothing decided: the step stays pending for the next start
+
+
+def _recover_renames(root: Path, op: dict, roots: Collection[Path]) -> _Recovered:
+    """A pending step's renames finished as far as the disk allows. A rename with an end on a drive that isn't
+    connected waits (nothing is decided from a missing drive: its file may well be there). A rename found done
+    counts; one not started is done now. One that crosses drives (op["staged"] has its index) is decided by its
+    staged copy too (I7): source and target there with the same size and SHA-256 means only the source's removal
+    was left; with the source gone and no target, a staged copy of the recorded size takes the target's name. A
+    source that can't be removed ends the step with the file where it is, or in two places when the copy was
+    already in place: never retried forever. Other staged copies go, except one of the wrong size with neither end there (kept, logged). A rename the system refuses otherwise waits."""
+    staged = op["staged"] if isinstance(op.get("staged"), dict) else {}  # a swap's `staged` is one path of its own
+    sizes = op.get("size") or {}
+    renames = op["renames"]
+    done_any = False
+    for i, (src, dst) in enumerate(renames):
+        copy = root / staged[str(i)] if str(i) in staged else None
+        s_path, d_path = root / src, root / dst
+        if not (online(s_path, roots) and online(d_path, roots)):
+            return _Recovered(f"could not move {src} ({DRIVE_GONE.format(path=dst if online(s_path, roots) else src)})",
+                              done_any, True)
+        s, d = s_path.exists(), d_path.exists()
+        try:
+            if d and not s:
+                if copy:
+                    _remove_staged(copy)  # a spare copy beside the moved file
+                done_any = True
+                continue
+            if s and d and any(fold(src) == fold(later_dst) and not (root / later_src).exists()
+                               for later_src, later_dst in renames[i + 1:]):
+                done_any = True  # moved away, then a later rename of this step took its name (add as new)
+                continue
+            if s and d and copy and s_path.stat().st_size == d_path.stat().st_size \
+                    and file_sha256(s_path) == file_sha256(d_path):
+                _remove_staged(copy)
+                try:
+                    os.unlink(s_path)  # the verified copy has the target's name: the second half of the move
+                except OSError as e:
+                    return _Recovered(TWO_PLACES.format(src=src, dst=dst, reason=e.strerror or e), done_any, False)
+                done_any = True
+                continue
+            if s and not d:
+                try:
+                    move_path(root, src, dst, staged.get(str(i)), roots)  # it removes a leftover staged copy first
+                except SourceKept as e:
+                    return _Recovered(SOURCE_STAYS.format(src=src, reason=e.strerror), done_any, False)
+                done_any = True
+                continue
+            if not s and not d and copy and copy.is_file() and copy.stat().st_size == sizes.get(str(i)):
+                safe_rename(root, staged[str(i)], dst)
+                _fsync_dir_quietly(d_path.parent)
+                done_any = True
+                continue
+        except OSError as e:  # e.g. permissions: keep the step pending and try again next start
+            return _Recovered(f"could not move {src} ({e})", done_any, True)
+        if copy and s:
+            _remove_staged(copy)
+        elif copy and copy.exists():  # neither end there: it may be the last remnant of a file the user removed
+            log.warning("kept the staged copy %s: neither %s nor %s exists", copy, src, dst)
+        return _Recovered(f"both {src} and {dst} exist" if s else f"neither {src} nor {dst} exists", done_any, False)
+    return _Recovered("", done_any, False)
+
+
+def _recovered(name: str, problem: str, done_any: bool) -> tuple[str, bool]:
+    if not problem:
+        return f"Finished an interrupted step for {name}", True
+    if done_any:
+        return f"Finished most of an interrupted step for {name}, but {problem}", False
+    return f"Could not finish an interrupted step for {name}: {problem}", False
+
+
+def _recover_files(paths: Paths, op: dict, roots: Collection[Path]) -> tuple[tuple[str, bool], bool]:
+    """A move_files step: its renames finished (_recover_renames), then db.finish_file_op, or the journal entry
+    dropped when no file moved. Returns the message and whether library.db was written."""
+    from . import db
+    name = op.get("label") or "a file"
+    r = _recover_renames(paths.root, op, roots)
+    if r.wait and not r.done_any:
+        return (f"Could not finish an interrupted step for {name} yet: {r.problem}", False), False
+    with db.connect(paths.db_file) as conn:
+        if not r.done_any:
+            db.drop_pending(conn, op["op_id"])
+        else:
+            try:
+                _finish_files(conn, op)
+            except (sqlite3.IntegrityError, ValueError):
+                return (NOT_RECORDED.format(name=name), False), True
+    return _recovered(name, r.problem, r.done_any), True
+
+
+def _refresh(paths: Paths, state: dict) -> None:
+    """`state`'s contents replaced in place with a fresh snapshot, for a caller that goes on with it after a write
+    past the entry view."""
+    fresh = load_state(paths)
+    state.clear()
+    state.update(fresh)
+
+
+def waits_offline(op: dict, root: Path, roots: Collection[Path]) -> bool:
+    """A pending step every file of which is on a drive that isn't connected: it waits for that drive, and the scan
+    of the other folders goes on meanwhile (none of its files is in them)."""
+    names = op_paths(op)
+    return bool(names) and not any(online(root / p, roots) for p in names)
+
+
 def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
     """Finish or drop steps an earlier run was interrupted in, then close the move batches a crash left open
-    (tidy.recover). Returns (message, ok) per step and per batch."""
+    (tidy.recover). Returns (message, ok) per step and per batch. A step with a file on a drive that isn't
+    connected waits for it. A `files` step (move_files) and tidy.recover write library.db past `state`, so after
+    either `state`'s contents are replaced in place with a fresh snapshot: the caller goes on saving a current one."""
     messages = []
+    roots = watched_roots(paths) if state.get("version") == 2 else [paths.root]
     for op in list(state.get("pending", [])):
         if op.get("kind") == "swap":
             from .upgrades import recover_swap  # upgrades builds on this module
             messages.append(recover_swap(paths, state, op))
             continue
+        if op.get("kind") == "files":
+            message, wrote = _recover_files(paths, op, roots)
+            messages.append(message)
+            if wrote:
+                _refresh(paths, state)
+            continue
         e = op.get("entry") or {}
         name = op.get("label") or f"{e.get('artist', '?')} - {e.get('title', op['track_id'])}"
-        problem, done_any = "", False
-        for i, (src, dst) in enumerate(op["renames"]):
-            s, d = (paths.root / src).exists(), (paths.root / dst).exists()
-            if d and not s:
-                done_any = True
-                continue
-            if s and d and any(fold(src) == fold(later_dst) and not (paths.root / later_src).exists()
-                               for later_src, later_dst in op["renames"][i + 1:]):
-                done_any = True  # moved away, then a later rename of this step took its name (add as new)
-                continue
-            if s and not d:
-                try:
-                    safe_rename(paths.root, src, dst)
-                except OSError as e:  # e.g. permissions: keep the step pending and try again next start
-                    problem = f"could not move {src} ({e})"
-                    break
-                done_any = True
-                continue
-            problem = f"both {src} and {dst} exist" if s else f"neither {src} nor {dst} exists"
-            break
-        if problem.startswith("could not move") and not done_any:
-            messages.append((f"Could not finish an interrupted step for {name} yet: {problem}", False))
+        r = _recover_renames(paths.root, op, roots)
+        if r.wait and not r.done_any:
+            messages.append((f"Could not finish an interrupted step for {name} yet: {r.problem}", False))
             continue
-        if done_any:
+        if r.done_any:
             # once a file was placed, the entry must point at it, or the next run would mis-adopt it
             _apply_entries(state, op)
-        if not problem:
-            messages.append((f"Finished an interrupted step for {name}", True))
-        elif done_any:
-            messages.append((f"Finished most of an interrupted step for {name}, but {problem}", False))
-        else:
-            messages.append((f"Could not finish an interrupted step for {name}: {problem}", False))
+        messages.append(_recovered(name, r.problem, r.done_any))
         state["pending"].remove(op)
         save_state(paths, state, rekeyed=[dst for _, dst in op["renames"]])
     if state.get("version") == 2 and paths.db_file.exists():
@@ -637,6 +984,7 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
         if stopped:
             from .tidy import recover  # tidy builds on this module
             messages += recover(paths, state)
+            _refresh(paths, state)
     return messages
 
 
@@ -659,7 +1007,8 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
     file from now on. The new audio is judged before anything is written and recorded together with its quality;
     a file the check fails on keeps its row as it was, so the next scan judges it again. Superseded/, Upgrades
     ready/ and .discjockey/ are never looked at. Nothing is scanned while a step is pending (its files are between
-    two places; the next scan after it is finished sees them). One message, only when something changed (copies
+    two places; the next scan after it is finished sees them), unless every file of the step is on a drive that
+    isn't connected (waits_offline: the scan can't see any of them). One message, only when something changed (copies
     count as new files). `recover` as open_records: a dry run passes False, and a state.json with steps pending is
     then neither moved into library.db nor scanned."""
     from . import db, scanner
@@ -670,9 +1019,10 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
         return ScanSummary()
     try:
         with db.connect(paths.db_file) as conn:
-            if db.has_pending(conn):
-                return ScanSummary()
             folders = {f.id: f for f in db.watched_folders(conn)}
+            roots = [paths.root, *(f.path for f in folders.values() if f.kind != "library")]  # as watched_roots
+            if any(not waits_offline(op, paths.root, roots) for op in db.pending_ops(conn)):
+                return ScanSummary()
             known = db.known_files(conn)
 
             def snapshot_path(folder: int, rel: str) -> str:

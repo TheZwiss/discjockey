@@ -42,7 +42,7 @@ def scan(folders: list[WatchedFolder], known: list[KnownFile], *, exclude: list[
             continue  # scanned as part of the folder it sits in
         members = [top] + [f for f in folders if f is not top and tops[f.id][0] is top]
         rows = {rel: row for (tid, rel), row in rows_at.items() if tid == top.id}
-        if _offline(top.path, mounted):
+        if is_offline(top.path, mounted):
             _go_offline(result, sorting, members, rows.values())
             continue
         walked = _walk(top.path, excluded)
@@ -50,11 +50,11 @@ def scan(folders: list[WatchedFolder], known: list[KnownFile], *, exclude: list[
             _go_offline(result, sorting, members, rows.values())
             continue
         local = _sort_folder(top, rows, walked, key_of)
-        if _offline(top.path, mounted):  # it went away while it was read
+        if is_offline(top.path, mounted):  # it went away while it was read
             _go_offline(result, sorting, members, rows.values())
             continue
         for member in members[1:]:
-            if _offline(member.path, mounted):  # an inner watched folder that isn't there is offline, not gone
+            if is_offline(member.path, mounted):  # an inner watched folder that isn't there is offline, not gone
                 prefix = tops[member.id][1]
                 # its files: rows of the inner folder and rows a scan recorded under the outer one
                 gone_inner = [row for rel, row in rows.items() if rel.startswith(prefix)]
@@ -97,7 +97,7 @@ def _tops(folders: list[WatchedFolder], excluded: set[str]) -> dict[int, tuple[W
     return out
 
 
-def _offline(path: Path, mounted: Callable[[Path], bool]) -> bool:
+def is_offline(path: Path, mounted: Callable[[Path], bool]) -> bool:
     parts = path.parts
     if len(parts) >= 3 and parts[0] == "/" and parts[1] == "Volumes" and not mounted(Path("/Volumes", parts[2])):
         return True
