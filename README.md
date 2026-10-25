@@ -1,11 +1,11 @@
 # Discjockey
 
-Discjockey keeps a lossless DJ library in step with your Spotify playlists. It downloads each
+Discjockey keeps a lossless DJ library in step with your Spotify and Qobuz playlists. It downloads each
 track from Qobuz as lossless 16-bit AIFF, falls back to the best version it can find on
 YouTube Music, YouTube or SoundCloud, and never deletes any of your music files.
 
-You need a Mac with Apple Silicon, Spotify Premium and, for lossless files, a Qobuz subscription (see
-[Requirements](#requirements)).
+You need a Mac with Apple Silicon and, for lossless files, a Qobuz subscription. Spotify Premium is only needed
+if you sync Spotify playlists (see [Requirements](#requirements)).
 
 <img src="docs/readme/app-dashboard.png" alt="The Discjockey dashboard: 87 % of 366 tracks lossless, the folders and the last runs">
 
@@ -32,8 +32,9 @@ Download `Discjockey-<version>.dmg` (for example `Discjockey-1.0.0.dmg`) from th
 ## Requirements
 
 - **A Mac with Apple Silicon** (M1 or later) and **macOS 12 Monterey** or later.
-- **Spotify Premium.** Setup asks you to create a small Spotify "app" of your own, and Spotify only allows that
-  with a Premium account. Discjockey syncs your own playlists and collaborative ones (a Spotify rule).
+- **Spotify Premium, if you sync Spotify playlists.** Setup asks you to create a small Spotify "app" of your own,
+  and Spotify only allows that with a Premium account. Discjockey syncs your own playlists and collaborative ones
+  (a Spotify rule). If you only use Qobuz playlists, skip Spotify in Setup.
 - **A Qobuz subscription** for lossless files: a paid plan that plays full tracks. Without Qobuz, choose
   **I don't have Qobuz** in Setup. Discjockey then gets every track from YouTube Music, YouTube or SoundCloud,
   and nothing comes in lossless, except an artist's own file when there is one.
@@ -41,9 +42,9 @@ Download `Discjockey-<version>.dmg` (for example `Discjockey-1.0.0.dmg`) from th
 
 ## Legal note
 
-Discjockey is a tool that runs on your Mac. It reads your Spotify playlists and downloads their tracks with your own
+Discjockey is a tool that runs on your Mac. It reads your Spotify and Qobuz playlists and downloads their tracks with your own
 accounts: Qobuz first, then YouTube Music, YouTube or SoundCloud. It comes with no music and no accounts. You need
-your own Spotify and Qobuz accounts, and you are responsible for following the terms of use of Spotify, Qobuz and
+your own accounts for the services you use, and you are responsible for following the terms of use of Spotify, Qobuz and
 every other service you use with it. Read [Account risk](#account-risk) before your first sync.
 
 ## Install and "Open Anyway"
@@ -97,10 +98,11 @@ back by itself the next time while a needed step is still open.
 3. **Spotify:** create a free "app" in Spotify's developer dashboard (the step lists what to
    click, with a **Copy** button for the Redirect URI), paste its Client ID and click
    **Connect**. Your browser opens to log in to Spotify. Discjockey only reads your playlists.
+   If you don't use Spotify playlists, choose **I don't use Spotify**; you can connect it later in Settings.
 4. **Downloads:** sign in to Qobuz, or choose **I don't have Qobuz**. YouTube Premium and
    SoundCloud Go+ are optional; see [Settings](#settings) for how their logins work. Beside
    the logins, "Where your music comes from" lights up as each one works.
-5. **First playlist:** paste the link of a Spotify playlist and click **Add to the list**.
+5. **First playlist:** paste the link of a Spotify or Qobuz playlist and click **Add to the list**.
    Add more and change their order later on the Playlists page. **Finish** opens the Sync page.
 
 Everything in Setup can be changed later in **Settings**. Once setup is done, a link to a
@@ -133,7 +135,8 @@ line to see it on the right.
   that opens that page.
 - **Check again** tests a saved login again; **Sign out** forgets it.
 - **Spotify:** shows which account is connected, with **Connect again** and **Sign out**.
-  The Spotify app's Client ID can be changed under "Spotify app (Client ID)".
+  The Spotify app's Client ID can be changed under "Spotify app (Client ID)". If you skipped Spotify in Setup,
+  connect it here when you want to use Spotify playlists.
 - **This Mac:** the **Music folder** (**Change…** picks another one and closes Discjockey so it
   starts again with it; **Show in Finder** opens it), the programs Discjockey uses and its download
   tools: yt-dlp shows its version and "built in" (it came with Discjockey) or "updated". **Update
@@ -170,10 +173,13 @@ changes it for you; you can also edit it in any text editor:
 
 ```
 Hard_Bounce = https://open.spotify.com/playlist/...
-Powertrance = https://open.spotify.com/playlist/...
+Powertrance = https://open.qobuz.com/playlist/...
 ```
 
 - The name on the left is the folder in `Library/`.
+- **Links:** each line takes a Spotify or a Qobuz playlist link. For Qobuz, use the link from the Qobuz player
+  (`open.qobuz.com/playlist/...`, `play.qobuz.com/playlist/...` or `listen.qobuz.com/playlist/...`) or from the Qobuz store
+  (`www.qobuz.com/gb-en/playlists/.../...`). In the app, **Share**, then **Copy link** gives you one.
 - **Priority:** the line further up wins. A track that is in several playlists goes into the
   folder of the first one.
 - **Switching a playlist off:** put `#` at the start of its line. Its tracks stay where they
@@ -182,7 +188,11 @@ Powertrance = https://open.spotify.com/playlist/...
   downloads go into the new folder. To move the files you have, see [Tidying up files](#tidying-up-files).
 - **Changing the order:** a track that is in several playlists stays in the folder it is in now. Only new
   downloads follow the new order. [Tidying up files](#tidying-up-files) moves the files you have to where the order puts them.
-- The playlists must be your own or collaborative ones (a Spotify rule).
+- **Spotify playlists** must be your own or collaborative ones (a Spotify rule). Spotify only has to be connected
+  when a line uses it.
+- **Qobuz playlists** must be public or your own. Qobuz has to be set up (signed in) when a line uses it. A track
+  in a Qobuz playlist is downloaded as that exact Qobuz track, with no search. Reading a Qobuz playlist does not
+  count against the daily [Qobuz limit](#daily-use); only downloads do.
 
 ## Tidying up files
 
@@ -339,6 +349,8 @@ version is removed because it's no longer needed.
   something that a newer Discjockey fixes: Qobuz's part is updated with Discjockey itself.
 - **Spotify says a playlist is not accessible:** it has to be your own playlist or a
   collaborative one.
+- **Qobuz doesn't show a playlist:** it has to be public or one of yours. Check the link, or put `#` in front of
+  the line.
 - **"Another Discjockey run is still going":** wait until the other run has finished.
 
 ## Account risk
