@@ -19,6 +19,7 @@ SERVICE = "qobuz"
 
 PAGE_SIZE = 500  # tracks per playlist/get request (streamrip's own get_metadata stops after one page of this size)
 NOT_SET_UP = "Your playlists include a Qobuz playlist, but Qobuz isn't set up yet. Run: discjockey setup"
+UNREADABLE_HINT = "Make it public in Qobuz, or use one of your own playlists."
 UNREADABLE_STATUSES = (400, 401, 403, 404)  # Qobuz's answers for a playlist that doesn't exist or isn't visible
 
 _PLAYLIST_PAGE = re.compile(r"https?://(?:open|play|listen)\.qobuz\.com/playlist/(\d+)(?:[/?#].*)?", re.I)

@@ -38,7 +38,9 @@ from ..acquire import make_ready
 from ..candidates import current_key
 from ..fallback import FallbackSource
 from ..library import NoLibrary, Paths, Resolved, StateError, SupportPaths
-from ..models import SOURCE_NAMES, BatchResult, BatchRow, Candidate, PlaylistLine, SaveChoice, SourceTrack
+from ..events import CancelToken
+from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, Candidate, PlaylistLine,
+                      SaveChoice, SourceTrack, token)
 from ..names import fold
 from ..ops import OpProblem, snapshot
 from ..pacing import Budget
@@ -48,18 +50,17 @@ from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
 from . import media as media_mod, spectrum as spec, views
 from .jobs import (UNEXPECTED, AppUpdate, Busy, FileDropped, Jobs, PreviewStore, SignInPhase, preview_after_run,
-                   problem_of, refresh_work, sync_work)
+                   problem_of, refresh_work, service_of, sync_work)
 
 RUN_ID = re.compile(r"\d{4}-\d{2}-\d{2}_\d{6}")
 WHICH = ("current", "upgrade")
 UPGRADE_MODES = ("swap", "add_new", "discard")
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
-AUTO_READ_DONE = "Spotify was read by itself once this session already. Use ↻ Read Spotify to read it again."
+AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
 NO_DROP = "Drag the bought file onto the window while this track is selected in the to-do list."
 NOT_SELECTED = "Select the track in the to-do list first, then drop the file on the window."
 CLIENT_ID = re.compile(r"[0-9a-fA-F]{32}")
-NOT_YOURS = ("Follow ≠ own: Discjockey can only read playlists that are yours or collaborative. Make your own copy in "
-             "Spotify (open it → ⋯ → Add to other playlist → New playlist) and paste that link.")
+NOT_CONNECTED = "Connect {name} first."
 NOT_CHOSEN = "Choose your music folder first: it is the first step of Setup."
 MISSING = "Your music folder isn't there: {path}. Connect the drive it is on, or choose another folder."
 # Bridge methods that need a bound music folder: unbound, they answer no_library before anything runs. Every other
@@ -126,7 +127,8 @@ def _open_in(browser: str, url: str, profile: str | None = None) -> None:
 
 
 def bridge(fn):
-    """{"ok": true, **result} or {"ok": false, "kind", "message"}; never raises into pywebview."""
+    """{"ok": true, **result} or {"ok": false, "kind", "message"}; never raises into pywebview. A problem with a
+    playlist service (a SourceError) also carries "service"."""
     @functools.wraps(fn)
     def call(self, *args, **kwargs):
         try:
@@ -144,7 +146,8 @@ def bridge(fn):
             kind, message = problem_of(e)
             if kind == "crashed":  # for whoever looks at the terminal; the page gets the plain message
                 traceback.print_exc()
-            return {"ok": False, "kind": kind, "message": message}
+            service = service_of(e)
+            return {"ok": False, "kind": kind, "message": message, **({"service": service} if service else {})}
 
     call.__signature__ = inspect.signature(fn)  # pywebview reads the parameter names from it
     return call
@@ -222,8 +225,8 @@ class HubApi:
         self._jobs = Jobs(None, self._emit, now=self._svc.now)
         self._settings_mutex = threading.Lock()  # settings.json: read, change, save — one at a time
         self._store = PreviewStore()
-        self._infos: dict = {}  # playlist id -> spotify.PlaylistInfo
-        self._extra_tracks: dict = {}  # playlist id -> tracks of playlists read outside a refresh
+        self._infos: dict = {}  # playlist ref -> models.PlaylistInfo
+        self._extra_tracks: dict = {}  # playlist ref -> tracks of playlists read outside a refresh
         self._shown: dict[str, dict] = {}  # track id -> how the page last showed it (ops.snapshot)
         self._selected: str | None = None
         self._dropped: dict | None = None
@@ -332,6 +335,29 @@ class HubApi:
     def _reading(self) -> bool:
         return self._jobs.status()["refresh_running"]
 
+    def _logins(self) -> list[tuple[str, bool]]:
+        """(service, logged in) for each playlist service the switched-on playlists.txt lines use, in line order.
+        A local check of each service's login files, never a network call."""
+        try:
+            used = list(dict.fromkeys(r.service for r in pf.load(self._paths.playlists_file).rows if r.enabled))
+        except Exception:  # noqa: BLE001 - a file that can't be read or a library that is gone: no list, never a failed poll
+            return []
+        logins = []
+        for service in used:
+            try:
+                logins.append((service, sources.SOURCES[service].login_state(self._support).state == "ok"))
+            except Exception:  # noqa: BLE001 - a login file this check can't make sense of counts as not connected
+                logins.append((service, False))
+        return logins
+
+    @staticmethod
+    def _close(reader) -> None:
+        """Ends a playlist read's session. A close that fails must not replace the read's own answer."""
+        try:
+            reader.close()
+        except Exception:  # noqa: BLE001
+            log.warning("closing a playlist reader failed", exc_info=True)
+
     def _images(self) -> dict[str, str]:
         prep = self._store.prep
         return {t.id: t.image_url for fp in (prep.fetched if prep else []) for t in fp.tracks if t.image_url}
@@ -393,7 +419,7 @@ class HubApi:
         return views.dashboard(self._state(), self._settings(), self._store, self._reports(), self._folders(),
                                setup_status(self._support, self._paths, self._music_status(), self._svc.which),
                                self._today(), self._svc.now(),
-                               self._reading())
+                               self._reading(), self._logins())
 
     @bridge
     def sidebar(self) -> dict:
@@ -407,7 +433,7 @@ class HubApi:
     def sync_preview(self) -> dict:
         state = self._state()
         return views.sync_preview(self._store, state, self._settings(), self._today(), self._svc.now(),
-                                  self._reading(), self._cover(self._images()))
+                                  self._reading(), self._cover(self._images()), self._logins())
 
     @bridge
     def refresh(self, auto: bool = False) -> dict:
@@ -428,7 +454,8 @@ class HubApi:
 
     @bridge
     def job_status(self) -> dict:
-        return {**self._jobs.status(), "spotify": views.spotify_status(self._store, self._svc.now(), self._reading())}
+        return {**self._jobs.status(), "spotify": views.spotify_status(self._store, self._svc.now(), self._reading(),
+                                                                         self._logins())}
 
     @bridge
     def library(self, folder: str | None = None, query: str = "", filter: str = "all", sort: str = "artist") -> dict:
@@ -590,7 +617,7 @@ class HubApi:
 
     def _watch_playlists_file(self, interval: float = 2.0) -> threading.Thread:
         """Reads Spotify again by itself when playlists.txt changes (edited by hand or saved on the playlists page),
-        as soon as no hub sync runs (that one reads Spotify itself)."""
+        as soon as no hub sync runs (that one reads the playlists itself)."""
         def stamp():
             try:
                 st = self._paths.playlists_file.stat()
@@ -744,19 +771,25 @@ class HubApi:
         """A pasted link: the playlist's name, owner and cover, whether Discjockey can read it, and its tracks."""
         self._no_sync_running()
         link = pf.clean_link(url or "")
-        pid = sources.recognise(link)[1]  # clean_link raised for anything no source recognises
-        session = spotify.load_session(self._support)
-        me, _ = spotify.current_user(session)
-        info = spotify.playlist_info(session, pid, me)
-        self._infos[pid] = info
-        tracks = None
-        if info.readable:
-            fetched = spotify.fetch_playlist(session, PlaylistLine(suggest_folder(info.name), pid, 0))
-            self._extra_tracks[pid] = fetched.tracks
-            tracks = len(fetched.tracks)
-        return {"playlist_id": pid, "link": link, "info": views.info_dict(info), "tracks": tracks,
-                "readable": info.readable, "suggested_folder": suggest_folder(info.name),
-                "hint": None if info.readable else NOT_YOURS}
+        service, pid = sources.recognise(link)  # clean_link raised for anything no source recognises
+        source, ref = sources.SOURCES[service], token(service, pid)
+        if source.login_state(self._support).state != "ok":
+            raise sources.SourceError(NOT_CONNECTED.format(name=PLAYLIST_SERVICES[service]), "not_set_up", service)
+        reader = source.open(self._support, CancelToken())
+        try:
+            info = reader.info(pid)
+            self._infos[ref] = info
+            tracks = None
+            if info.readable:
+                fetched = reader.fetch(PlaylistLine(suggest_folder(info.name), pid, 0, service))
+                self._extra_tracks[ref] = fetched.tracks
+                tracks = len(fetched.tracks)
+        finally:
+            self._close(reader)
+        return {"playlist_id": ref, "service": service, "service_name": PLAYLIST_SERVICES[service], "link": link,
+                "info": views.info_dict(info), "tracks": tracks, "readable": info.readable,
+                "suggested_folder": suggest_folder(info.name),
+                "hint": None if info.readable else source.UNREADABLE_HINT}
 
     @bridge
     def preview_playlist_change(self, lines: list) -> dict:
@@ -765,17 +798,25 @@ class HubApi:
         self._no_sync_running()
         rows = rows_from(lines)
         tracks = self._tracks_by_id()
-        unread = [r.ref for r in rows if r.enabled and r.ref not in tracks]
-        if unread:
+        unread = [r for r in rows if r.enabled and r.ref not in tracks]
+        for service in dict.fromkeys(r.service for r in unread):  # one reader per service; a failing one is skipped
+            source = sources.SOURCES[service]
+            if source.login_state(self._support).state != "ok":
+                continue
             try:
-                session = spotify.load_session(self._support)
-                for pid in unread:
+                reader = source.open(self._support, CancelToken())
+            except sources.SourceError:
+                continue
+            try:
+                for r in (r for r in unread if r.service == service):
                     try:
-                        self._extra_tracks[pid] = spotify.fetch_playlist(session, PlaylistLine("x", pid, 0)).tracks
-                    except spotify.SpotifyError:
+                        line = PlaylistLine("x", sources.recognise(r.link)[1], 0, service)
+                        self._extra_tracks[r.ref] = reader.fetch(line).tracks
+                    except sources.SourceError:
                         continue
-            except spotify.SpotifyError:
-                pass
+            finally:
+                self._close(reader)
+        if unread:
             tracks = self._tracks_by_id()
         problem = None
         try:
@@ -1567,7 +1608,7 @@ def rows_from(lines: list) -> list[pf.Row]:
         if not isinstance(line, dict) or not isinstance(line.get("folder"), str) or not line.get("link"):
             raise ValueError("Each playlist row needs a folder name and a link.")
         if sources.recognise(line["link"].strip()) is None:
-            raise ValueError(f"This is not a Spotify playlist link: {line['link']}")
+            raise ValueError(f"This is not a Spotify or Qobuz playlist link: {line['link']}")
         rows.append(pf.Row(unicodedata.normalize("NFC", line["folder"].strip()), line["link"].strip(),
                            bool(line.get("enabled", True))))
     return rows

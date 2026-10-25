@@ -26,6 +26,9 @@ from ..models import FetchedPlaylist, PlaylistInfo, PlaylistLine, SourceTrack
 from .base import LoginState, SourceError
 
 SERVICE = "spotify"
+# What the Playlists page says next to a playlist Spotify won't let Discjockey read.
+UNREADABLE_HINT = ("Follow ≠ own: Discjockey can only read playlists that are yours or collaborative. Make your own copy in "
+                   "Spotify (open it → ⋯ → Add to other playlist → New playlist) and paste that link.")
 
 AUTH_URL = "https://accounts.spotify.com/authorize"
 TOKEN_URL = "https://accounts.spotify.com/api/token"

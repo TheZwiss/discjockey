@@ -9,6 +9,8 @@ library (lists cut to 2 items, `data` cut).
 
 - `await window.pywebview.api.<method>(arg1, arg2, ...)` — **positional** arguments in the order listed. Every method
   resolves (never rejects) to `{"ok": true, ...fields}` or `{"ok": false, "kind": <problem>, "message": <plain English>}`.
+  A problem with a playlist service (a `SourceError`: Spotify or Qobuz) also carries `"service": "spotify" | "qobuz"`;
+  for every other problem the key is absent. The page names that service in its card.
 - Write methods return `{"ok": true, "job_id": <int>}` at once; the outcome arrives as a `JobFinished` event with the
   same `job_id` (see Jobs). At most one write job runs; others are refused with kind `busy` (hub) or `console`
   (a terminal run holds the lock).
@@ -26,12 +28,12 @@ library (lists cut to 2 items, `data` cut).
 | `busy` | another hub job runs (or a refresh already runs) |
 | `console` | a Discjockey run in the terminal holds the lock → read-only banner |
 | `sync_running` | network read refused while any sync runs (searches, previews, playlist reads) |
-| `not_set_up` | Spotify/Qobuz/playlists.txt not set up → wizard |
+| `not_set_up` | Spotify/Qobuz/playlists.txt not set up → wizard (`service` names the playlist service that isn't, when it is one). `message` is the inline wording ("Connect Qobuz first." for a pasted link, the service's own "isn't set up" text for a read); a card's title and route ("Qobuz isn't connected.", "Connect Qobuz →") are the UI's, built from `kind` + `service` |
 | `login_expired` | Spotify login expired → wizard Spotify step |
-| `offline` | no connection / Spotify not answering → "No internet connection. Try again when you're online." + Retry |
-| `playlist_unreadable` | a playlist can't be read → "make your own copy" hint |
+| `offline` | no connection / Spotify or Qobuz not answering (`service` says which, for Qobuz: "Qobuz is not responding (…). Try again later.") → "No internet connection. Try again when you're online." + Retry |
+| `playlist_unreadable` | a playlist can't be read → the hint of its service (`service` on the answer; `info.hint`) |
 | `config_invalid` | playlists.txt / settings.json / state.json needs fixing → show message |
-| `qobuz_login_failed` | Qobuz login failed at sync start → wizard Qobuz step |
+| `qobuz_login_failed` | Qobuz login failed at sync start, or when reading a Qobuz playlist (`add_playlist`, a read; `service` `qobuz`) → wizard Qobuz step |
 | `login_failed` | Spotify login in the wizard failed (port busy, timeout, refused) |
 | `changed` | the track changed since it was shown → re-fetch, show message |
 | `refused` | not possible (bad input, rule) → show message |
@@ -72,8 +74,13 @@ Use the kind for the card/headline; always show `message` as the detail.
   `FAKE · 16.0 kHz`, `NOT FOUND`. `source`: `qobuz|youtube_music|soundcloud|youtube|manual|null`; `source_name` short
   (`Qobuz`, `YT Music`, `SoundCloud`, `YouTube`, `bought`). `cover_url`: media URL of the embedded cover, else the
   Spotify image URL (https), else null (show placeholder). `duration_s` float.
-- **SpotifyStatus** (`spotify` field): `read_at` ISO|null, `minutes_ago` int|null, `problem` kind|null, `message`,
-  `stale` bool, `reading` bool, `offline` bool (show last data with an "offline" badge), `auto_read` bool (the hub's
+- **SpotifyStatus** (`spotify` field; it is the status of reading *all* playlists, whichever service): `read_at`
+  ISO|null, `minutes_ago` int|null, `problem` kind|null, `problem_service` `"spotify"|"qobuz"|null` (the playlist
+  service `problem` is about: a missing Qobuz login on a read is `not_set_up` + `qobuz`; null for a problem that is no
+  service's; a good read clears it), `message`, `services` [{`service` `spotify|qobuz`, `name` "Spotify"|"Qobuz",
+  `connected` bool}] (the services the switched-on lines of playlists.txt use, in line order; `connected` is a local
+  check of that service's login files, so `[]` when no line uses a service; the page blocks reading only while one of
+  them isn't connected), `stale` bool, `reading` bool, `offline` bool (show last data with an "offline" badge), `auto_read` bool (the hub's
   one automatic read of this session has started, whatever its outcome; kept in Python, so also true after a window
   reload: the Sync page then never reads by itself).
 - **Budget** (`qobuz_today`, `today`): `used, allowance, limit, carry_over, extra, remaining` (ints). "37 of 80 · 60 + 20 carried over".
@@ -113,7 +120,11 @@ Use the kind for the card/headline; always show `message` as the detail.
   "stale": false,
   "reading": false,
   "offline": false,
-  "auto_read": true
+  "auto_read": true,
+  "problem_service": null,
+  "services": [
+   {"service": "spotify", "name": "Spotify", "connected": true}
+  ]
  },
  "tiles": {
   "lossless": {
@@ -285,7 +296,11 @@ ticked count (a larger count takes the last entry) for the service rows and neve
   "stale": false,
   "reading": false,
   "offline": false,
-  "auto_read": true
+  "auto_read": true,
+  "problem_service": null,
+  "services": [
+   {"service": "spotify", "name": "Spotify", "connected": true}
+  ]
  },
  "counts": {
   "new": 2,
@@ -370,7 +385,7 @@ ticked count (a larger count takes the last entry) for the service rows and neve
 }
 ```
 
-`refresh(auto=false)` → `{"job_id"}` — read-only Spotify read: "↻ Read Spotify", and by itself whenever
+`refresh(auto=false)` → `{"job_id"}` — read-only playlists read: "↻ Read playlists", and by itself whenever
 playlists.txt changes on disk (mtime or size, checked every 2 s; retried until no hub sync blocks it). `auto=true`: the
 session's one automatic read (the hub when it opens; the Sync page when it opens and `spotify.auto_read` is still
 false, e.g. the hub's own read could not start). It sets `spotify.auto_read` when it starts; later `auto=true` calls are
@@ -402,7 +417,11 @@ reload.
   "stale": false,
   "reading": false,
   "offline": false,
-  "auto_read": true
+  "auto_read": true,
+  "problem_service": null,
+  "services": [
+   {"service": "spotify", "name": "Spotify", "connected": true}
+  ]
  }
 }
 ```
@@ -647,7 +666,11 @@ counts each track once, `chips.rekordbox_check` every check (hidden ones too).
 }
 ```
 
-`playlists()` — rows top = highest priority. `info` null until read (refresh or add_playlist); `tracks` null when
+`playlists()` — rows top = highest priority. `playlist_id` is the playlist's **ref** (a Spotify id stays bare, a
+Qobuz one is `qobuz:<id>`); the page keys rows by it. `service` (`spotify|qobuz`) and `service_name` ("Spotify",
+"Qobuz") name the row's service. `info.hint`: the words of the row's service for a playlist it won't show (Spotify:
+"Follow ≠ own: …"; Qobuz: "Make it public in Qobuz, or use one of your own playlists."), always set once `info` is.
+`info` null until read (refresh or add_playlist); `tracks` null when
 neither the tracks nor the playlist's count were read (the row then shows no count). `version` must be sent to
 `save_playlists`. `overlaps` for the panel when nothing is unsaved: each track that is in several switched-on
 playlists, with `folders` (in list order) and `lands_in` (the first), its `cover_url`, `downloaded` (has a file yet),
@@ -664,6 +687,8 @@ playlists, with `folders` (in list order) and `lands_in` (the first), its `cover
    "folder": "Hard_Bounce",
    "link": "https://open.spotify.com/playlist/0DiscjockeyExampleList",
    "playlist_id": "0DiscjockeyExampleList",
+   "service": "spotify",
+   "service_name": "Spotify",
    "enabled": true,
    "info": {
     "name": "Name of 0Dis",
@@ -672,7 +697,8 @@ playlists, with `folders` (in list order) and `lands_in` (the first), its `cover
     "collaborative": false,
     "readable": true,
     "image_url": null,
-    "track_count": 4
+    "track_count": 4,
+    "hint": "Follow ≠ own: Discjockey can only read playlists that are yours or collaborative. Make your own copy in Spotify (open it → ⋯ → Add to other playlist → New playlist) and paste that link."
    },
    "tracks": 4,
    "quality": {
@@ -688,6 +714,8 @@ playlists, with `folders` (in list order) and `lands_in` (the first), its `cover
    "folder": "Powertrance",
    "link": "https://open.spotify.com/playlist/3DiscjockeyExampleList",
    "playlist_id": "3DiscjockeyExampleList",
+   "service": "spotify",
+   "service_name": "Spotify",
    "enabled": true,
    "info": {
     "name": "Name of 3Dis",
@@ -696,7 +724,8 @@ playlists, with `folders` (in list order) and `lands_in` (the first), its `cover
     "collaborative": false,
     "readable": true,
     "image_url": null,
-    "track_count": 2
+    "track_count": 2,
+    "hint": "Follow ≠ own: Discjockey can only read playlists that are yours or collaborative. Make your own copy in Spotify (open it → ⋯ → Add to other playlist → New playlist) and paste that link."
    },
    "tracks": 2,
    "quality": {
@@ -1120,11 +1149,14 @@ Candidate back unchanged to `preview` / `use_candidate`.
 `preview(track_id, candidate)` → `{"url"}` — 30 s AIFF for youtube_music/soundcloud/youtube only (`can_preview`);
 qobuz → refused "Qobuz versions have no preview." Plays 20 s of it in the UI.
 
-`add_playlist(url)` — pasted link.
+`add_playlist(url)` — pasted link, a Spotify or a Qobuz playlist (`sources.recognise`); its info and tracks are read
+through that service's reader. `playlist_id` is the ref (see `playlists()`); `service` and `service_name` as there.
 ```json
 {
  "ok": true,
  "playlist_id": "37i9dQZF1DXcBWIGoYBM5M",
+ "service": "spotify",
+ "service_name": "Spotify",
  "link": "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M",
  "info": {
   "name": "Name of 37i9",
@@ -1133,7 +1165,8 @@ qobuz → refused "Qobuz versions have no preview." Plays 20 s of it in the UI.
   "collaborative": false,
   "readable": true,
   "image_url": null,
-  "track_count": 0
+  "track_count": 0,
+  "hint": "Follow ≠ own: Discjockey can only read playlists that are yours or collaborative. Make your own copy in Spotify (open it → ⋯ → Add to other playlist → New playlist) and paste that link."
  },
  "tracks": 0,
  "readable": true,
@@ -1141,10 +1174,16 @@ qobuz → refused "Qobuz versions have no preview." Plays 20 s of it in the UI.
  "hint": null
 }
 ```
-`hint` (when not readable): "Follow ≠ own: … make your own copy …". Add the row with `link`
-and `suggested_folder` (editable).
+`hint` (when not readable): the service's words, the same as `info.hint`. Add the row with `link` and
+`suggested_folder` (editable). The answers that are not ok carry the service:
+`{"ok": false, "kind": "playlist_unreadable", "service": "qobuz", "message": "Qobuz doesn't show this playlist. It
+must be public or one of yours. Check the link."}` (a Qobuz playlist Qobuz won't show), and
+`{"ok": false, "kind": "not_set_up", "service": "qobuz"|"spotify", "message": "Connect Qobuz first."}` (that service
+isn't connected: nothing is read). A link that is neither service's is `refused` without `service`.
 
 `preview_playlist_change(lines)` — `lines`: `[{"folder", "link", "enabled"}]` in the new order (top first).
+A switched-on line whose playlist was not read yet is read once, through its own service's reader; a service that
+isn't connected, or a playlist its service won't show, is skipped without an error (that line then counts as unread).
 `kind`: `moves|rename|reroute|add|switch_off|unknown|none`; `headline` ready to show (for `moves` and `rename` it is
 "{n} files would sit in a different folder" / "1 file would sit in a different folder"); `checklist` 3-4 lines (cut
 here; for `moves` and `rename`: the downloads line, "Nothing is deleted", "Files move only if you choose to", "Moves

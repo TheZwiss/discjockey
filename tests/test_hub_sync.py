@@ -7,7 +7,7 @@ from contextlib import contextmanager
 import pytest
 
 from discjockey import run
-from discjockey.sources import spotify
+from discjockey.sources import qobuz as qobuz_source, spotify
 from discjockey.sources.base import LoginState
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.events import RunFinished
@@ -103,6 +103,34 @@ def test_a_failed_refresh_keeps_the_last_known_preview(env, monkeypatch):
     assert store.prep is first and store.problem == "offline" and "Cannot reach" in store.message
 
 
+def test_a_missing_qobuz_login_files_the_problem_under_qobuz(env, monkeypatch):
+    paths, js, store, rec, acq, logins, tracks = env
+    paths.playlists_file.write_text(PLAYLISTS + "Example_Playlist = https://open.qobuz.com/playlist/900000001\n")
+    monkeypatch.setattr(qobuz_source, "login_state", lambda p: LoginState("missing", qobuz_source.NOT_SET_UP))
+    refresh(js, paths, store)
+    assert (rec.finished().ok, rec.finished().problem) == (False, "not_set_up")
+    assert (store.problem, store.problem_service) == ("not_set_up", "qobuz") and "Qobuz" in store.message
+    status = views.spotify_status(store, datetime(2026, 10, 20, 21, 47), False,
+                                  [("spotify", True), ("qobuz", False)])
+    assert status["problem_service"] == "qobuz"
+    assert status["services"] == [{"service": "spotify", "name": "Spotify", "connected": True},
+                                  {"service": "qobuz", "name": "Qobuz", "connected": False}]
+
+
+def test_a_spotify_problem_names_spotify_and_a_good_read_clears_it(env, monkeypatch):
+    paths, js, store, rec, acq, logins, tracks = env
+
+    def expired(s, line):
+        raise spotify.SpotifyError("Your Spotify login has expired.", "login_expired")
+
+    monkeypatch.setattr(spotify, "fetch_playlist", expired)
+    refresh(js, paths, store)
+    assert (store.problem, store.problem_service) == ("login_expired", "spotify")
+    monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: FetchedPlaylist(line, list(tracks), []))
+    refresh(js, paths, store)
+    assert (store.problem, store.problem_service) == (None, None)
+
+
 def sync(js, paths, store, ticked):
     job = js.start("sync", jobs.sync_work(paths, store, ticked))
     assert job.done.wait(10)
@@ -185,7 +213,7 @@ def test_a_crash_before_the_run_starts_still_files_a_note(env, monkeypatch):
     finished = rec.finished()
     assert (finished.ok, finished.problem) == (False, "crashed") and finished.message == run.rep.CRASH_MESSAGE
     note = main_text(open(finished.result["report"], encoding="utf-8").read())
-    assert "reading your Spotify playlists" in note and "RuntimeError" not in note
+    assert "reading your playlists" in note and "RuntimeError" not in note
     assert "RuntimeError: bad plan" in open(finished.result["report"], encoding="utf-8").read()
     assert finished.result["actions"] == 0 and finished.result["exit_code"] == 1
 
@@ -223,7 +251,7 @@ def test_sync_without_a_preview_is_refused(env):
     paths, js, store, rec, acq, logins, tracks = env
     sync(js, paths, store, set())
     assert (rec.finished().ok, rec.finished().problem) == (False, "refused")
-    assert "Read your Spotify playlists first" in rec.finished().message
+    assert "Read your playlists first" in rec.finished().message
 
 
 def test_a_setup_problem_ends_the_sync_with_its_kind(env, monkeypatch):

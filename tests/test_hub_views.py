@@ -5,8 +5,8 @@ import pytest
 
 from discjockey.hub import views
 from discjockey.hub.jobs import PreviewStore
-from discjockey.models import (Action, BatchResult, BatchRow, FetchedPlaylist, MoveRow, Plan, PlannedMove, PlaylistLine,
-                               SourceTrack)
+from discjockey.models import (Action, BatchResult, BatchRow, FetchedPlaylist, MoveRow, Plan, PlannedMove, PlaylistInfo,
+                               PlaylistLine, SourceTrack)
 from discjockey.planner import ENTRY_KEYS, TidyRow, tidy_rows
 from discjockey import playlists_file as pf
 from discjockey.playlists_file import Loaded, Row
@@ -153,11 +153,42 @@ def test_still_to_load():
 
 def test_spotify_status():
     store = store_with([])
-    st = views.spotify_status(store, NOW, reading=False)
+    st = views.spotify_status(store, NOW, False, [])
     assert st["read_at"] == "2026-10-20T21:45:00" and st["minutes_ago"] == 2 and not st["offline"]
+    assert st["problem_service"] is None and st["services"] == []
     store.failed("offline", "Cannot reach Spotify.")
-    st = views.spotify_status(store, NOW, reading=True)
+    st = views.spotify_status(store, NOW, True, [])
     assert st["offline"] and st["problem"] == "offline" and st["reading"] and st["read_at"] == "2026-10-20T21:45:00"
+    assert st["problem_service"] is None
+
+
+def test_spotify_status_names_the_service_of_a_problem_and_each_login():
+    store = store_with([])
+    store.failed("not_set_up", "Qobuz isn't set up yet.", "qobuz")
+    st = views.spotify_status(store, NOW, False, [("spotify", True), ("qobuz", False)])
+    assert (st["problem"], st["problem_service"]) == ("not_set_up", "qobuz")
+    assert st["services"] == [{"service": "spotify", "name": "Spotify", "connected": True},
+                              {"service": "qobuz", "name": "Qobuz", "connected": False}]
+    store.ready(store.prep, NOW)  # a good read clears the problem, service included
+    assert views.spotify_status(store, NOW, False, [])["problem_service"] is None
+    assert views.dashboard(state(), Settings(), store, [], [], SETUP_OK, TODAY, NOW, False,
+                           [("qobuz", True)])["spotify"]["services"][0]["connected"] is True
+    assert views.sync_preview(store, state(), Settings(), TODAY, NOW, False,
+                              logins=[("qobuz", True)])["spotify"]["services"][0]["service"] == "qobuz"
+
+
+def test_playlist_rows_name_their_service_and_info_carries_the_hint():
+    loaded = Loaded([Row("A", "https://open.spotify.com/playlist/0DiscjockeyExampleList"),
+                     Row("B", "https://open.qobuz.com/playlist/900000001")], "v", None)
+    infos = {"qobuz:900000001": PlaylistInfo("qobuz", "900000001", "Example", "7", "Example Curator", False, None, 3,
+                                             False, True)}
+    rows = views.playlists(loaded, {}, infos, state())["rows"]
+    assert [(r["playlist_id"], r["service"], r["service_name"]) for r in rows] == [
+        ("0DiscjockeyExampleList", "spotify", "Spotify"), ("qobuz:900000001", "qobuz", "Qobuz")]
+    assert rows[0]["info"] is None
+    assert rows[1]["info"]["hint"] == "Make it public in Qobuz, or use one of your own playlists." and rows[1]["tracks"] == 3
+    spotify_info = PlaylistInfo("spotify", "x", "N", "o", "O", False, None, 1, False, False)
+    assert views.info_dict(spotify_info)["hint"].startswith("Follow ≠ own")
 
 
 REPORT = {"started": "2026-10-19T21:47:00", "finished": "2026-10-19T22:11:00", "exit_code": 1, "results": [

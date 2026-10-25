@@ -8,8 +8,8 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from discjockey import db, library
-from discjockey.sources import spotify
-from discjockey.sources.base import LoginState
+from discjockey.sources import qobuz as qobuz_source, spotify
+from discjockey.sources.base import LoginState, SourceError
 from discjockey.hub import jobs
 from discjockey.hub.api import HubApi, Services
 from discjockey.library import Paths, empty_state, save_state
@@ -122,6 +122,60 @@ def fake_spotify(monkeypatch, tracks=None):
     monkeypatch.setattr(spotify, "current_user", lambda s: ("dj1", "DJ One"))
     monkeypatch.setattr(spotify, "playlist_info", lambda s, pid, me: PlaylistInfo(
         "spotify", pid, f"Name of {pid[:4]}", "dj1", "DJ One", False, None, len(tracks.get(pid, [])), True, True))
+
+
+QOBUZ_ID = "900000001"
+QOBUZ_LINK = f"https://open.qobuz.com/playlist/{QOBUZ_ID}"
+QOBUZ_UNREADABLE = "Qobuz doesn't show this playlist. It must be public or one of yours. Check the link."
+
+
+def qobuz_track(tid, title, artist, ms=180000):
+    return SourceTrack(tid, title, (artist,), "Example Album", None, ms, None, service="qobuz")
+
+
+class FakeQobuzReader:
+    """What sources.qobuz.open hands out in tests: no login, no network."""
+
+    def __init__(self, tracks, unreadable, close_fails=False):
+        self.tracks, self.unreadable, self.close_fails = tracks, unreadable, close_fails
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    def close(self):
+        if self.close_fails:
+            raise RuntimeError("the session was already gone")
+
+    def info(self, playlist_id):
+        if self.unreadable:
+            raise SourceError(QOBUZ_UNREADABLE, "playlist_unreadable", "qobuz")
+        return PlaylistInfo("qobuz", playlist_id, "Example Playlist", "7", "Example Curator", False, None,
+                            len(self.tracks), False, True)
+
+    def fetch(self, line):
+        if self.unreadable:
+            raise SourceError(f"playlists.txt line {line.line_no} ({line.folder}): Qobuz doesn't show this playlist.",
+                              "playlist_unreadable", "qobuz")
+        return FetchedPlaylist(line, list(self.tracks), [])
+
+
+def fake_qobuz(monkeypatch, tracks=None, *, connected=True, unreadable=False, open_error=None, close_fails=False):
+    """Qobuz as a playlist source: a login that is there (or not) and a reader over `tracks` (or one that says
+    the playlist isn't shown). `open_error`: the SourceError opening the reader raises (a login Qobuz refuses, Qobuz
+    not answering); `close_fails`: closing the reader raises."""
+    tracks = tracks if tracks is not None else [qobuz_track("900100001", "Example Song", "Example Artist")]
+    monkeypatch.setattr(qobuz_source, "login_state", lambda p: LoginState("ok") if connected else
+                        LoginState("missing", qobuz_source.NOT_SET_UP))
+
+    def open_reader(paths, token):
+        if open_error is not None:
+            raise open_error
+        return FakeQobuzReader(tracks, unreadable, close_fails)
+
+    monkeypatch.setattr(qobuz_source, "open", open_reader)
 
 
 def services(**kw):
