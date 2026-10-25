@@ -256,7 +256,7 @@ def render_plan(plan: Plan, full: bool) -> str:
             out.append(f"    ... and {len(items) - len(shown)} more")
     if plan.ambiguous:
         out.append(f"Several matching files, skipped: {len(plan.ambiguous)}")
-        for t, folder, files in plan.ambiguous:
+        for _key, t, folder, files in plan.ambiguous:
             out.append(f"    [{folder}] {t.first_artist} - {t.title}: {', '.join(files)}")
     if plan.dropped:
         out.append(f"No longer in any playlist (files stay): {len(plan.dropped)}")

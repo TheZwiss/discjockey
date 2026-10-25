@@ -11,7 +11,7 @@ from discjockey.sources import spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.events import ActionFinished, CancelToken, Message, ReadingPlaylist, RunFinished
 from discjockey.library import Paths, empty_state, save_state
-from discjockey.models import FetchedPlaylist, PlannedMove, SourceTrack
+from discjockey.models import FetchedPlaylist, Plan, PlannedMove, SourceTrack
 from discjockey.settings import Account, Settings, save_settings
 
 PLAYLISTS = "Hard_Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n"
@@ -520,3 +520,11 @@ def test_the_scan_waits_while_a_step_is_pending(paths):
     (paths.root / rel).unlink()
     run.prepare(paths, dry_run=True)  # a dry run doesn't finish the step: its files are between two places
     assert library.load_state(paths)["tracks"]["t1"]["path"] == rel
+
+
+def test_an_ambiguous_result_carries_the_song_key_not_the_tracks_own_id(paths, monkeypatch):
+    qobuz_track = SourceTrack("900000001", "Song", ("Artist",), "Al", None, 180000, None, service="qobuz")
+    monkeypatch.setattr(run.planner, "plan", lambda *a, **k: Plan(
+        {"tracks": {}}, [], [("t1", qobuz_track, "Hard_Bounce", ["Library/A/x.aiff"])], []))
+    prep = run.prepare(paths, dry_run=True)
+    assert [(r.track_id, r.title) for r in prep.log.section("ambiguous")] == [("t1", "Song")]

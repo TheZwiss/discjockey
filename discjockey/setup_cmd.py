@@ -10,7 +10,7 @@ from pathlib import Path
 from . import REPO, library, qobuz, tool_updates, tools
 from .sources import spotify
 from .library import Paths
-from .settings import load_settings, save_settings
+from .settings import SettingsError, load_settings, save_settings
 
 TEMPLATE = """\
 # Your playlists for Discjockey (Spotify or Qobuz).
@@ -94,7 +94,11 @@ def run_setup(paths: Paths) -> int:
     else:
         print("Spotify skipped. Use Qobuz playlist links, or connect Spotify later (run setup again, or Settings in "
               "the app).\n")
-    save_settings(paths.settings_file, replace(load_settings(paths.settings_file), spotify_skipped=not client_id))
+    try:
+        save_settings(paths.settings_file, replace(load_settings(paths.settings_file), spotify_skipped=not client_id))
+    except SettingsError as e:  # a settings.json that isn't valid: say so, as the sync does
+        print(e)
+        return 2
 
     try:
         _qobuz_login(paths)

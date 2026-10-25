@@ -507,7 +507,7 @@ def test_todo_others_from_the_last_run_and_the_preview():
     report = {"results": [{"section": "conflicts", "track_id": "m"}, {"section": "moved", "track_id": "x"}]}
     st = state()
     store = PreviewStore()
-    store.ready(Prepared(None, st, Settings(), Plan(st, [], [(t("amb"), "A", ["Library/A/x.aiff"])], []), None),
+    store.ready(Prepared(None, st, Settings(), Plan(st, [], [("amb", t("amb"), "A", ["Library/A/x.aiff"])], []), None),
                 NOW)
     assert views.todo_others(store.prep, report) == {
         "m": "MOVE BLOCKED · a file is in the way", "amb": "SEVERAL FILES · could be this track, nothing done"}
@@ -1181,3 +1181,17 @@ def test_track_detail_link_is_the_first_fetched_tracks_else_the_keys():
     d = views.track_detail("qobuz:900000001", e("lossless"), [], TODAY)
     assert d["track_link"] == {"url": "https://open.qobuz.com/track/900000001", "label": "Open in Qobuz"}
     assert views.track_detail("soundcloud:1", e("lossless"), [], TODAY)["track_link"] is None
+
+
+def test_a_qobuz_keyed_ambiguous_song_shows_on_the_todo_and_in_the_preview_under_its_song_key():
+    q = SourceTrack("900000001", "Song", ("Artist",), "Al", None, 180000, None, service="qobuz")
+    st = state(**{"qobuz:900000001": e("lossless"), "t1": e("lossless")})
+    plan = Plan(st, [], [("qobuz:900000001", q, "A", ["Library/A/x.aiff", "Library/B/x.aiff"]),
+                         ("t1", q, "A", ["Library/A/y.aiff", "Library/B/y.aiff"])], [])  # t1: linked to the Qobuz track
+    store = PreviewStore()
+    store.ready(Prepared(None, st, Settings(), plan, None, [], [FetchedPlaylist(PlaylistLine("A", "p", 1, "qobuz"), [q], [])]),
+                NOW)
+    assert set(views.todo_others(store.prep, None)) == {"qobuz:900000001", "t1"}
+    p = views.sync_preview(store, st, Settings(), TODAY, NOW, False)
+    assert [r["track_id"] for r in p["ambiguous"]] == ["qobuz:900000001", "t1"]
+    assert p["in_playlists"] == 1  # counted by song key

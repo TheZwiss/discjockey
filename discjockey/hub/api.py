@@ -361,7 +361,7 @@ class HubApi:
 
     def _images(self) -> dict[str, str]:
         prep = self._store.prep
-        return {t.id: t.image_url for fp in (prep.fetched if prep else []) for t in fp.tracks if t.image_url}
+        return {t.key: t.image_url for fp in (prep.fetched if prep else []) for t in fp.tracks if t.image_url}
 
     def _cover(self, images: dict[str, str]) -> Callable[[str, dict], str | None]:
         def cover(track_id: str, e: dict) -> str | None:
@@ -472,6 +472,9 @@ class HubApi:
         state = self._state()
         e = self._entry(state, track_id)
         prep = self._store.prep
+        if prep is not None:  # the aliases the last read's linking added (a Qobuz track linked to this song) count too
+            planned = (prep.state["tracks"].get(track_id) or {}).get("aliases") or []
+            e = {**e, "aliases": list(dict.fromkeys([*(e.get("aliases") or []), *planned]))}
         detail = views.track_detail(track_id, e, prep.fetched if prep else [], self._today(),
                                     self._cover(self._images()), self._audio)
         self._remember(state, [track_id])
@@ -652,7 +655,7 @@ class HubApi:
         ids = {track_id, *(e.get("aliases") or [])}
         for fp in prep.fetched if prep else []:
             for t in fp.tracks:
-                if t.id in ids:
+                if t.key in ids:
                     return t
         return ops.track_of(track_id, e)
 
