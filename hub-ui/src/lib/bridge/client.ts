@@ -60,6 +60,7 @@ export interface Bridge {
   update_tools(): Promise<JobStart>;
   rollback_tools(): Promise<JobStart>;
   setup_skip_qobuz(): Promise<JobStart>;
+  setup_skip_spotify(): Promise<JobStart>;
   setup_account(service: 'youtube' | 'soundcloud', browser: Browser, profile?: string | null): Promise<JobStart>;
   setup_check_account(service: 'youtube' | 'soundcloud'): Promise<Res<{ service: Service; check: AccountCheck }>>;
   downloads_view(): Promise<Res<{ downloads: DownloadsView }>>;

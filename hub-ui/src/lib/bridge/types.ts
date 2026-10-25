@@ -10,7 +10,10 @@ export type Quality = 'lossless' | 'good_lossy' | 'weak' | 'fake' | 'missing';
 export const QUALITIES: readonly Quality[] = ['lossless', 'good_lossy', 'weak', 'fake', 'missing'];
 export type EmptyKind = 'no_playlists' | 'not_set_up' | 'empty_library' | 'no_preview' | 'up_to_date' | 'no_match'
   | 'all_lossless' | 'all_hidden' | 'nothing_here';
-export type Fail = { ok: false; kind: ProblemKind; message: string };
+/** A playlist service (`sources.py`): the one a playlist row, a link or a problem belongs to. */
+export type PlaylistService = 'spotify' | 'qobuz';
+/** `service`: set when a playlist service caused the problem (a `SourceError`), absent for every other. */
+export type Fail = { ok: false; kind: ProblemKind; message: string; service?: PlaylistService };
 export type Res<T> = ({ ok: true } & T) | Fail;
 export type JobStart = Res<{ job_id: number }>;
 export type ActionKey = [string, string, string];          // sent back unchanged to start_sync
@@ -81,6 +84,10 @@ export type SaveFiles = { choice: 'leave' | 'move'; renames: [string, string][];
 
 export type SpotifyStatus = {
   read_at: string | null; minutes_ago: number | null; problem: ProblemKind | null; message: string;
+  /** the playlist service `problem` is about (null: no service's problem; a good read clears it) */
+  problem_service: PlaylistService | null;
+  /** the services the switched-on lines of playlists.txt use, in line order; `connected`: its login files exist */
+  services: { service: PlaylistService; name: string; connected: boolean }[];
   stale: boolean; reading: boolean; offline: boolean;
   /** the hub's one automatic read of this session has started (kept in Python, so also after a window reload) */
   auto_read: boolean;
@@ -191,11 +198,13 @@ export type Upgrade = {
 /** The artist's free download of a SoundCloud version: a gate page (follow, like or e-mail; `host` e.g.
  *  hypeddit.com) or SoundCloud's own download button (`direct`). */
 export type FreeDownload = { url: string; host: string; direct: boolean; title: string; uploader: string };
+/** The track's page on the service it was read from; `label` "Open in Spotify" / "Open in Qobuz". */
+export type TrackLink = { url: string; label: string };
 export type TrackDetail = TrackRow & {
   isrc: string | null; playlists: string[] | null; in_playlist_count: number; quality_line: string;
   /** "Opus · 135 kbps", "FLAC"; source_full: "YouTube Music", "bought" (both null without a file) */
   format_line: string | null; source_full: string | null;
-  source_url: string | null; spotify_url: string | null; next_qobuz_check: string | null;
+  source_url: string | null; track_link: TrackLink | null; next_qobuz_check: string | null;
   rejected_sources: string[]; buy_links: { beatport: string; bandcamp: string }; free_downloads: FreeDownload[];
   bought_name: string; audio_url: string | null; upgrade: Upgrade | null;
 };
@@ -205,9 +214,13 @@ export type Todo = {
 };
 
 export type PlaylistInfo = { name: string; owner_name: string; yours: boolean; collaborative: boolean;
-  readable: boolean; image_url: string | null; track_count: number };
+  readable: boolean; image_url: string | null; track_count: number;
+  /** the words of the row's service for a playlist it won't show (always set once info is) */
+  hint: string };
+/** `playlist_id` is the playlist's ref: a Spotify id stays bare, a Qobuz one is `qobuz:<id>`. */
 export type PlaylistRow = { index: number; folder: string; link: string; playlist_id: string | null;
-  enabled: boolean; info: PlaylistInfo | null; tracks: number | null; quality: ByQuality };
+  service: PlaylistService; service_name: string; enabled: boolean; info: PlaylistInfo | null;
+  tracks: number | null; quality: ByQuality };
 /** A track of a Spotify playlist on the playlists page; `downloaded`: it has a file yet. */
 export type PlaylistTrack = { track_id: string; artist: string; title: string; cover_url: string | null;
   downloaded: boolean; quality: Quality; quality_label: string | null;
@@ -286,6 +299,8 @@ export type SetupStatus = {
   version: string;
   /** "I don't have Qobuz": the Downloads step counts as done */
   qobuz_skipped: boolean;
+  /** "I don't use Spotify": the Spotify step counts as done (connecting Spotify clears it) */
+  spotify_skipped: boolean;
   qobuz_last_check?: LastCheck | null;
   /** the Spotify account's display name, saved at login (null: not connected or not known) */
   spotify_user?: string | null;
@@ -340,9 +355,10 @@ export type Candidate = {
   key: string; source_name: string; length_diff_s: number | null; can_preview: boolean; score: number | null;
   matches: boolean; length_ok: boolean; current: boolean; rejected: boolean;
 };
-export type Candidates = { track_id: string; spotify_duration_s: number; current_quality_label: string;
+export type Candidates = { track_id: string; track_duration_s: number; current_quality_label: string;
   candidates: Candidate[]; notes: string[] };
-export type AddedPlaylist = { playlist_id: string; link: string; info: PlaylistInfo | null; tracks: number | null;
+export type AddedPlaylist = { playlist_id: string; service: PlaylistService; service_name: string; link: string;
+  info: PlaylistInfo | null; tracks: number | null;
   readable: boolean; suggested_folder: string; hint: string | null };
 export type ChangeKind = 'moves' | 'rename' | 'reroute' | 'add' | 'switch_off' | 'unknown' | 'none';
 /** A folder rename on disk this save could do; `offered` false: show `why_not` instead of the choice. */
@@ -364,7 +380,7 @@ export type JobResults = {
   tidy: BatchResult; undo_moves: BatchResult;
   save_limits: { service: Service; limit: number; extra_today: number };
   mark_warnings_seen: { service: Service; seen_until: string };
-  setup_skip_qobuz: Record<string, never>;
+  setup_skip_qobuz: Record<string, never>; setup_skip_spotify: Record<string, never>;
   setup_account: { service: Service; browser: Browser; profile: string | null; saved: boolean; check: AccountCheck };
   account_sign_in: { service: Service; browser: Browser; profile: string | null; saved: boolean; check: AccountCheck };
   qobuz_check_login: Record<string, never>; spotify_sign_out: Record<string, never>;

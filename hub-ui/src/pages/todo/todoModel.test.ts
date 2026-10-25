@@ -26,7 +26,7 @@ function upgrade(extra: Partial<Upgrade> = {}): Upgrade {
 }
 function detail(extra: Partial<TrackDetail> = {}): TrackDetail {
   return { ...item('t2', 'weak'), isrc: null, playlists: ['Hard_Bounce'], in_playlist_count: 1,
-    quality_line: 'YouTube OPUS · cutoff 16.0 kHz', source_url: null, spotify_url: null, next_qobuz_check: null,
+    quality_line: 'YouTube OPUS · cutoff 16.0 kHz', source_url: null, track_link: null, next_qobuz_check: null,
     rejected_sources: [], buy_links: { beatport: 'https://b', bandcamp: 'https://c' }, free_downloads: [],
     bought_name: 'Library/Hard_Bounce/A - t2.wav', audio_url: 'u1', upgrade: null, ...extra } as TrackDetail;
 }

@@ -206,7 +206,7 @@ describe('service rows', () => {
 });
 describe('the automatic Spotify read', () => {
   const sp = (more: Partial<SyncPreview['spotify']> = {}): SyncPreview['spotify'] => ({ read_at: null, minutes_ago: null,
-    problem: null, message: '', stale: false, reading: false, offline: false, auto_read: false, ...more });
+    problem: null, message: '', stale: false, reading: false, offline: false, auto_read: false, problem_service: null, services: [], ...more });
   const pv = (spotify = sp(), empty: SyncPreview['empty'] = null) => ({ spotify, empty });
   const idle = { refreshRunning: false, syncRunning: false };
   it('reads once per session: only while the hub has not read by itself yet', () => {

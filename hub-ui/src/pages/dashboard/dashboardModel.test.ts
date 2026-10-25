@@ -6,7 +6,7 @@ import { folderLine, groupByMonth, healthCard, needsRows, nextSync, runLine, run
 const EX: Dashboard = {
   greeting: 'Good evening',
   spotify: { read_at: '2026-10-20T21:47:00', minutes_ago: 0, problem: null, message: '', stale: false, reading: false,
-    offline: false, auto_read: true },
+    offline: false, auto_read: true, problem_service: null, services: [] },
   tiles: {
     lossless: { share: 0.3333, lossless: 1, total: 3,
       by_quality: { lossless: 1, good_lossy: 0, weak: 1, fake: 0, missing: 1 } },

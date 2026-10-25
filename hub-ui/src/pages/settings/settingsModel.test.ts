@@ -59,7 +59,7 @@ const view = (over: Partial<DownloadsView> = {}): DownloadsView => ({
 const status = (over: Partial<SetupStatus> = {}): SetupStatus => ({
   music: { state: 'ok', path: '/Users/you/Music/Discjockey', suggested: '/Users/you/Music/Discjockey' },
   tools: { ffmpeg: true, ffprobe: true, deno: true }, spotify_app: true, spotify_login: true, qobuz: true,
-  playlists: true, complete: true, next_step: null, version: '1.0.0', qobuz_skipped: false, spotify_user: 'dj',
+  playlists: true, complete: true, next_step: null, version: '1.0.0', qobuz_skipped: false, spotify_skipped: false, spotify_user: 'dj',
   accounts: { youtube: null, soundcloud: null }, ...over });
 const tools = (missing: string[] = []): SetupTools => ({ tools: { ffmpeg: true, ffprobe: true, deno: true }, missing,
   hints: {}, redirect_uri: 'http://127.0.0.1:8888/callback',

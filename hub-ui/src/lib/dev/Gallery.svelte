@@ -75,7 +75,8 @@
     ['Playing while a sync runs', 'the sync\'s short form at the right end, a link to Sync', np(), { sync: true }],
   ];
   const sp = (o: Partial<SpotifyStatusT>): SpotifyStatusT => ({ read_at: new Date(now.getTime() - 120000).toISOString(),
-    minutes_ago: 2, problem: null, message: '', stale: false, reading: false, offline: false, auto_read: true, ...o });
+    minutes_ago: 2, problem: null, message: '', stale: false, reading: false, offline: false, auto_read: true,
+    problem_service: null, services: [{ service: 'spotify', name: 'Spotify', connected: true }], ...o });
   const EMPTY_KINDS: EmptyKind[] = ['no_playlists', 'not_set_up', 'empty_library', 'no_preview', 'up_to_date', 'no_match',
     'all_lossless', 'all_hidden', 'nothing_here'];
   const BY_Q = { lossless: 226, good_lossy: 49, weak: 24, fake: 3, missing: 4 };

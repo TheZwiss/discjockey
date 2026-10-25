@@ -18,7 +18,7 @@ export const CONTRACT_METHODS = [
   // setup
   'setup_check_tools', 'setup_save_client_id', 'setup_spotify_login', 'setup_qobuz_login',
   'open_licenses', 'update_tools', 'rollback_tools',
-  'setup_skip_qobuz', 'setup_account', 'setup_check_account', 'setup_forget_account',
+  'setup_skip_qobuz', 'setup_skip_spotify', 'setup_account', 'setup_check_account', 'setup_forget_account',
   // settings
   'downloads_view', 'find_logins', 'account_sign_in', 'stop_sign_in', 'open_privacy_settings', 'qobuz_check_login',
   'spotify_sign_out',

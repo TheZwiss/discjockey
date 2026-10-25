@@ -35,10 +35,10 @@ export function stepsFor(action: Action): Step[] {
   return action.kind === 'upgrade' ? [...BASE_STEPS, 'compare'] : BASE_STEPS;
 }
 
-export function lengthLine(c: { file_duration_s: number; spotify_duration_s: number; ok: boolean } | null):
+export function lengthLine(c: { file_duration_s: number; track_duration_s: number; ok: boolean } | null):
   string | null {
   if (!c) return null;
-  const f = duration(c.file_duration_s), sp = duration(c.spotify_duration_s);
+  const f = duration(c.file_duration_s), sp = duration(c.track_duration_s);
   return c.ok ? `Length matches (${f} = Spotify ${sp})` : `Length differs (${f}, Spotify ${sp})`;
 }
 
