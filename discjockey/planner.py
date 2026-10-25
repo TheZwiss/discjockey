@@ -37,20 +37,23 @@ def _playlist_folder(path: str) -> str | None:
     return None
 
 
-def mirror_dir(path: str) -> str:
-    """The folder a `Library/` file's Superseded/ and Upgrades ready/ copies mirror: `<F>/<subfolders>` for
+def mirror_dir(path: str, watched: str | None = None) -> str:
+    """The folder a file's Superseded/ and Upgrades ready/ copies mirror: `<F>/<subfolders>` for
     `Library/<F>/…/<name>`, without a `not_lossless` directly below `<F>`; "" for a file directly in `Library/`.
-    Stage 1 only has `Library/` files; stage 4 adds spec §7's `<watched folder name>/<subfolders>` for import
-    folders (it then needs the file's watched folder, which the snapshot will carry)."""
+    A file of an import folder (`watched`: that folder's absolute path, which holds the absolute `path`) mirrors
+    spec §7's `<watched folder name>/<subfolders>`."""
+    if watched is not None:
+        below = PurePosixPath(path).parent.relative_to(watched).parts
+        return "/".join((PurePosixPath(watched).name, *below))
     parts = list(PurePosixPath(path).parent.parts[1:])  # without "Library"
     if len(parts) > 1 and fold(parts[1]) == "not_lossless":
         del parts[1]
     return "/".join(parts)
 
 
-def superseded_dir(path: str) -> str:
-    """Where the file at `path` goes when something replaces it."""
-    mirror = mirror_dir(path)
+def superseded_dir(path: str, watched: str | None = None) -> str:
+    """Where the file at `path` goes when something replaces it (`watched` as mirror_dir)."""
+    mirror = mirror_dir(path, watched)
     return f"Superseded/{mirror}" if mirror else "Superseded"
 
 

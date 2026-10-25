@@ -21,7 +21,7 @@ from typing import NamedTuple
 from . import library as disk  # "library" is the Library/ path argument everywhere here
 from .events import Emit, Message
 from .models import (OWN_PREFIX, AddedFolder, BatchRow, DupFile, DuplicateGroup, ImportCounts, ImportRow, KnownFile,
-                     MoveRow, OwnFacts, PlannedMove, RemovalCounts, ScanResult, SeenFile, WatchedFolder, group_id,
+                     MoveRow, OwnFacts, PlannedMove, RemovalCounts, ScanResult, WatchedFolder, group_id,
                      is_own, split_token, token)
 from .names import expected_stem
 from .planner import ENTRY_KEYS
@@ -1169,12 +1169,13 @@ def _drop_dead_decisions(conn: sqlite3.Connection) -> int:
 
 class FolderRefused(ValueError):
     """add_watched_folder refused a folder (D11, W5): `reason` is "music" (it is in the music folder), "holds_music"
-    (the music folder is in it), "watched" (it is in a watched folder) or "already" (it is watched)."""
+    (the music folder is in it), "watched" (it is in the watched folder `other`) or "already" (it is watched)."""
 
-    def __init__(self, reason: str, path: str):
+    def __init__(self, reason: str, path: str, other: str | None = None):
         super().__init__(f"{path!r} can't be watched: {reason}")
         self.reason = reason
         self.path = path
+        self.other = other
 
 
 def _resolved(path: str | Path) -> PurePosixPath:
@@ -1188,6 +1189,43 @@ def _folded(path: PurePosixPath) -> PurePosixPath:
     return PurePosixPath(path.as_posix().casefold())
 
 
+def _nesting(watched: Sequence[tuple[int, str, str]], p: PurePosixPath) -> list[tuple[int, str, str]]:
+    """D11's rules for the resolved folder `p` against the watched folders (`watched`: id, stored path, kind;
+    compared resolved, ignoring case): FolderRefused when it can't be watched, else the import folders it would
+    take over as (id, stored path, their path below `p`, spelled as the inner folder is)."""
+    fp = _folded(p)
+    rows = [(i, root, kind, _resolved(root)) for i, root, kind in watched]
+    music = _folded(next(r for _, _, kind, r in rows if kind == "library").parent)
+    if fp.is_relative_to(music):
+        raise FolderRefused("music", str(p))
+    if music.is_relative_to(fp):
+        raise FolderRefused("holds_music", str(p))
+    inner = []
+    for i, root, _kind, r in rows:
+        fr = _folded(r)
+        if fp == fr:
+            raise FolderRefused("already", str(p), root)
+        if fp.is_relative_to(fr):
+            raise FolderRefused("watched", str(p), root)
+        if fr.is_relative_to(fp):
+            inner.append((i, root, "/".join(r.parts[len(p.parts):])))
+    return inner
+
+
+def _watched_rows(conn: sqlite3.Connection) -> list[tuple[int, str, str]]:
+    return conn.execute("SELECT id, path, kind FROM watched_folders ORDER BY id").fetchall()
+
+
+def check_watched_folder(conn: sqlite3.Connection | None, path: Path, library: Path) -> list[str]:
+    """What add_watched_folder would do with `path` (an absolute path), writing nothing: FolderRefused when it
+    refuses, else the paths (as stored) of the import folders it would take over (D11). `conn` None: a library
+    with no library.db yet, whose only watched folder is `library` (Library/)."""
+    if not Path(path).is_absolute():
+        raise ValueError(f"{str(path)!r} is not an absolute path")
+    watched = _watched_rows(conn) if conn is not None else [(0, str(library), "library")]
+    return [root for _, root, _ in _nesting(watched, _resolved(path))]
+
+
 def add_watched_folder(conn: sqlite3.Connection, path: Path, now: datetime) -> AddedFolder:
     """Adds an import folder (an absolute path, stored resolved: _resolved). Watched folders never nest (D11),
     compared resolved and ignoring case: a folder in the music folder (Library/ is in it) or in a watched folder,
@@ -1198,24 +1236,8 @@ def add_watched_folder(conn: sqlite3.Connection, path: Path, now: datetime) -> A
     if not Path(path).is_absolute():
         raise ValueError(f"{str(path)!r} is not an absolute path")
     p = _resolved(path)
-    fp = _folded(p)
     with transaction(conn):
-        rows = [(i, root, kind, _resolved(root)) for i, root, kind in
-                conn.execute("SELECT id, path, kind FROM watched_folders ORDER BY id")]
-        music = _folded(next(r for _, _, kind, r in rows if kind == "library").parent)
-        if fp.is_relative_to(music):
-            raise FolderRefused("music", str(p))
-        if music.is_relative_to(fp):
-            raise FolderRefused("holds_music", str(p))
-        inner = []
-        for i, root, kind, r in rows:
-            fr = _folded(r)
-            if fp == fr:
-                raise FolderRefused("already", str(p))
-            if fp.is_relative_to(fr):
-                raise FolderRefused("watched", str(p))
-            if fr.is_relative_to(fp):  # the rows' paths below it, spelled as the inner folder is
-                inner.append((i, root, "/".join(r.parts[len(p.parts):])))
+        inner = _nesting(_watched_rows(conn), p)
         new = conn.execute("INSERT INTO watched_folders (path, kind, added) VALUES (?, 'import', ?)",
                            (str(p), now.isoformat(timespec="seconds"))).lastrowid
         for i, _, prefix in inner:  # the new folder has no rows yet: no (folder, path) collides
@@ -1285,6 +1307,11 @@ def set_decision(conn: sqlite3.Connection, kind: str, a: str, b: str, answer: st
         conn.execute("INSERT OR REPLACE INTO decisions (kind, a, b, answer, at) VALUES (?, ?, ?, ?, ?)",
                      (kind, a, b, answer, now.isoformat(timespec="seconds")))
         _bump(conn)
+
+
+def group_ids(gid: str) -> set[int]:
+    """The file ids a duplicate group's id names (models.group_id); a malformed id is ValueError."""
+    return _group_ids(gid)
 
 
 def _group_ids(gid: str, *, strict: bool = True) -> set[int]:

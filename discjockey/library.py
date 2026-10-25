@@ -537,9 +537,9 @@ class NameReserver:
         self.taken.discard(fold(rel))
 
     def choose(self, dest_dir: str, stem: str, ext: str, track_id: str) -> str:
-        """The stem, else with the track ID. In Superseded/ a counter follows ("<stem> (2)", ...), so a replaced file
-        always finds a place there."""
-        names = [stem, f"{stem} [{track_id[:6]}]", f"{stem} [{track_id}]"]
+        """The stem, else with the track ID (none when `track_id` is "": a file of no playlist song). In
+        Superseded/ a counter follows ("<stem> (2)", ...), so a replaced file always finds a place there."""
+        names = [stem, f"{stem} [{track_id[:6]}]", f"{stem} [{track_id}]"] if track_id else [stem]
         if fold(dest_dir).split("/")[0] == "superseded":
             names = itertools.chain(names, (f"{stem} ({n})" for n in itertools.count(2)))
         for candidate in names:
@@ -1092,20 +1092,36 @@ LIBRARY_MARKS = (DATA_DIR, "Library")  # folders that make a folder a Discjockey
 
 @dataclass(frozen=True)
 class FolderCheck:
-    """What a folder would be as the music folder. `kind` (only when usable): new (Discjockey makes it) · empty ·
-    discjockey_library (has .discjockey/, Library/ or playlists.txt: used as it is) · other_files (the page asks
-    first: Discjockey adds its folders next to what's there)."""
+    """What a folder would be as the music folder, or as a watched folder (folders.check_import_folder). `kind`
+    (only when usable): new (Discjockey makes it) · empty · discjockey_library (has .discjockey/, Library/ or
+    playlists.txt: used as it is) · other_files (the page asks first: Discjockey adds its folders next to what's
+    there) · import (a watched folder). A watched folder's `other`: the watched folder a refused one is inside;
+    `merges`: the watched folders a usable one holds and takes over (D11)."""
     path: Path
     exists: bool
     usable: bool
     problem: str | None
     kind: str | None
+    other: str | None = None
+    merges: tuple[str, ...] = ()
 
 
 def _system_folder(folder: Path, home: Path) -> bool:
     if folder in (Path("/"), Path("/Users"), Path("/Volumes")) or home.is_relative_to(folder):
         return True  # the disk, every user's folders, the drives' list, the home folder or above it
     return folder.is_relative_to(home / "Library") or any(folder.is_relative_to(p) for p in SYSTEM_FOLDERS)
+
+
+def place_problem(path: Path, *, support: Path, program: Path, home: Path) -> str | None:
+    """Why the resolved folder `path` can hold no music Discjockey keeps or watches (a system folder, inside the
+    app, the support folder), or None."""
+    if _system_folder(path, home.resolve()):
+        return "system_folder"
+    if path.is_relative_to(program.resolve()):
+        return "inside_app"
+    if path.is_relative_to(support.resolve()):
+        return "is_support_dir"
+    return None
 
 
 def check_music_folder(folder: Path | str, *, support: Path, program: Path, home: Path) -> FolderCheck:
@@ -1122,12 +1138,8 @@ def check_music_folder(folder: Path | str, *, support: Path, program: Path, home
 
     if exists and not path.is_dir():
         return refuse("not_a_folder")
-    if _system_folder(path, home.resolve()):
-        return refuse("system_folder")
-    if path.is_relative_to(program.resolve()):
-        return refuse("inside_app")
-    if path.is_relative_to(support.resolve()):
-        return refuse("is_support_dir")
+    if problem := place_problem(path, support=support, program=program, home=home):
+        return refuse(problem)
     probe = path if exists else next(p for p in path.parents if p.exists())
     if not os.access(probe, os.W_OK | os.X_OK) or (exists and not os.access(path, os.R_OK)):
         return refuse("not_writable")
