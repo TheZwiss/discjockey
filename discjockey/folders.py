@@ -83,6 +83,12 @@ def problem_words(check: FolderCheck) -> str | None:
     return IMPORT_PROBLEMS[check.problem].format(other=PurePosixPath(check.other).name if check.other else "")
 
 
+def refused_words(refused: db.FolderRefused) -> str:
+    """The words (W5) for a folder the records refused when it was added (it changed since the check)."""
+    other = PurePosixPath(refused.other).name if refused.other else ""
+    return IMPORT_PROBLEMS[refused.reason].format(other=other)
+
+
 def merge_hints(check: FolderCheck) -> list[str]:
     """W5's merge Hint, one per watched folder the new one takes over (named by its folder name)."""
     return [MERGES.format(other=PurePosixPath(m).name) for m in check.merges]

@@ -995,3 +995,49 @@ def test_an_import_folders_file_plays_through_its_file_id(lib):
         conn.execute("UPDATE files SET online = 0 WHERE id = ?", (one,))
     assert api._file_path(one) is None and api._audio("local:1", entry) is None  # its drive is offline
     assert api._file_path(ids["Example Artist - Song 3.aiff"]) == (folder / "Example Artist - Song 3.aiff").resolve()
+
+
+
+def test_a_stop_while_the_import_reads_the_playlists_to_link_ends_it_stopped(lib, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)  # no read yet: the link phase reads the playlists itself
+    real = spotify.fetch_playlist
+
+    def stopping(session, line):
+        api.stop()
+        return real(session, line)
+
+    monkeypatch.setattr(spotify, "fetch_playlist", stopping)
+    f = wait_job(api, rec, api.add_watched_folder(str(folder)))
+    assert (f.ok, f.problem, f.kind) == (False, "stopped", "import")
+    assert f.result["stopped"] is True and f.message.startswith("Import stopped with")
+    assert api._import_stopped is True  # no automatic start again this session; Continue import is offered
+    assert api.watched_folders()["stopped"] is True
+
+
+
+def test_a_stopped_or_failed_import_plans_the_preview_again(lib, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    refreshed(api, rec)  # the window's read: the preview exists
+    planned = []
+    real = jobs.preview_after_run
+    monkeypatch.setattr(jobs, "preview_after_run", lambda store, prep, at: planned.append(prep) or real(store, prep, at))
+    fakes.on_probe = lambda n: api.stop() if n == 2 else None
+    f = wait_job(api, rec, api.add_watched_folder(str(folder)))
+    assert f.problem == "stopped" and len(planned) == 1  # the files imported before the stop show in To-do and Sync
+    fakes.on_probe = None
+
+    def broken(*a, **kw):
+        raise RuntimeError("the disk went away")
+
+    monkeypatch.setattr(importer, "run_import", broken)
+    f = wait_job(api, rec, api.start_import())
+    assert (f.ok, f.problem) == (False, "crashed") and len(planned) == 2
+
+
+def test_a_folder_refused_inside_the_job_shows_the_w5_words():
+    refused = db.FolderRefused("watched", "/Volumes/Example/Music/Inside", "/Volumes/Example/Music")
+    assert jobs.problem_of(refused) == ("refused", "This is inside Music, which Discjockey watches already.")
+    assert jobs.problem_of(db.FolderRefused("holds_music", "/Volumes/Example"))[1].startswith("This folder holds your")
+    assert jobs.problem_of(ValueError("plain"))[1] == "plain"

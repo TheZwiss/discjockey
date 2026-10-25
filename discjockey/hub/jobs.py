@@ -8,6 +8,7 @@ from __future__ import annotations
 import fcntl
 import itertools
 import json
+import logging
 import os
 import threading
 import traceback
@@ -18,12 +19,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from .. import (config, events as ev, folders, importer, library, playlists_file, qobuz, report as rep, run, settings,
+from .. import (config, db, events as ev, folders, importer, library, playlists_file, qobuz, report as rep, run, settings,
                 sources, upgrades)
 from ..events import Cancelled, CancelToken, Emit
 from ..library import LockHeld, Paths
 from ..models import SERVICE_NAMES, Protected
 from ..ops import OpProblem
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -253,6 +256,8 @@ def problem_of(e: BaseException) -> tuple[str, str]:
         return "failed", qobuz.login_problem(e)
     if isinstance(e, Protected):
         return "protected", str(e)
+    if isinstance(e, db.FolderRefused):  # W5: a folder that stopped being watchable between the check and the add
+        return "refused", folders.refused_words(e)
     if isinstance(e, ValueError):
         return "refused", str(e)
     return "crashed", UNEXPECTED
@@ -712,12 +717,25 @@ def import_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] =
                 preview_after_run(store, prep, read_at)
             return note
 
+        def replan() -> None:
+            """The preview from its last read on the library as the import left it (also after a stop or a failure:
+            files it linked or imported before must show in To-do and Sync). Never hides what ended the import."""
+            if store.prep is not None:
+                try:
+                    preview_after_run(store, store.prep, store.read_at or now())
+                except Exception:  # noqa: BLE001
+                    log.warning("planning the preview again after the import failed", exc_info=True)
+
         try:
             result = importer.run_import(paths, emit=ctx.emit, token=ctx.token, link=link)
         except importer.ImportStopped as stopped:
             ctx.failed_result = asdict(stopped.result)
             if on_stopped is not None:
                 on_stopped()
+            replan()
+            raise
+        except BaseException:
+            replan()
             raise
         ctx.message = importer.result_words(result)
         return asdict(result)
