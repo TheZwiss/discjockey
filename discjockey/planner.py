@@ -190,10 +190,13 @@ def _twin(candidates: Lengths, duration_ms: int) -> str | None:
     return None
 
 
-def _song_name(artist: str, title: str) -> tuple[str, str]:
+def _song_name(artist: str, title: str, duration_ms: int | None) -> tuple[str, str] | None:
     """A song's name for a name link: its first artist and its title, normalised as the Qobuz search compares them
-    (matching.qobuz_match), so "Artist feat. X" and "Title (Original Mix)" name the same song as the bare ones."""
-    return normalize_artist(artist), normalize(title)
+    (matching.qobuz_match), so "Artist feat. X" and "Title (Original Mix)" name the same song as the bare ones.
+    None when the song can't be named by it: no artist or no title once normalised, or no known length (0 is
+    Qobuz's answer for an item without one). Such a song neither offers nor takes a name link."""
+    name = normalize_artist(artist or ""), normalize(title or "")
+    return name if name[0] and name[1] and duration_ms else None
 
 
 def _resolve(fetched: list[FetchedPlaylist], tracks: dict, notes: list[str]) -> dict[str, _Wanted]:
@@ -213,28 +216,30 @@ def _resolve(fetched: list[FetchedPlaylist], tracks: dict, notes: list[str]) -> 
             continue
         if e.get("isrc"):
             by_isrc.setdefault(e["isrc"].upper(), []).append((key, e["duration_ms"]))
-        if e.get("artist") and e.get("title"):
-            by_name.setdefault(_song_name(e["artist"], e["title"]), []).append((key, e["duration_ms"]))
+        name = _song_name(e.get("artist"), e.get("title"), e["duration_ms"])
+        if name:
+            by_name.setdefault(name, []).append((key, e["duration_ms"]))
 
     wanted: dict[str, _Wanted] = {}
     for li, fp in enumerate(fetched):
         for pos, t in enumerate(fp.tracks):
             key = index.get(t.key)
             if key is None:
-                name = _song_name(t.first_artist, t.title)
+                name = _song_name(t.first_artist, t.title, t.duration_ms)
                 if t.isrc:
                     key = _twin(by_isrc.get(t.isrc.upper(), []), t.duration_ms)
                     note = (f"{t.first_artist} - {t.title}: same recording as a track you already have "
                             f"(ISRC {t.isrc}), not downloaded again.")
                 else:  # a name link only without an ISRC: two different ISRCs are two recordings
-                    key = _twin(by_name.get(name, []), t.duration_ms)
+                    key = _twin(by_name.get(name, []), t.duration_ms) if name else None
                     note = (f"{t.first_artist} - {t.title}: same song as one you already have "
                             f"(same artist, title and length), not downloaded again.")
                 if key is None:
                     key = t.key
                     if t.isrc:
                         by_isrc.setdefault(t.isrc.upper(), []).append((key, t.duration_ms))
-                    by_name.setdefault(name, []).append((key, t.duration_ms))
+                    if name:
+                        by_name.setdefault(name, []).append((key, t.duration_ms))
                 elif key in tracks:
                     tracks[key].setdefault("aliases", []).append(t.key)
                     notes.append(note)

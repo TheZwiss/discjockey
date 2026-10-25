@@ -180,6 +180,11 @@ def test_an_item_without_an_id_is_skipped_with_words():
     assert source.parse_item({"duration": 5}) == "Unknown track (no Qobuz ID)"
 
 
+def test_an_entry_that_is_not_an_object_is_skipped_with_words():
+    for bad in (None, "900000101", 7, ["x"]):
+        assert source.parse_item(bad) == "Unknown track (unreadable entry)"
+
+
 # --- 3.3 the reader: fetch ---------------------------------------------------------------------------------------
 
 def test_fetch_pages_through_a_playlist_and_keeps_order(make_reader, small_pages):
@@ -214,6 +219,40 @@ def test_a_501_track_playlist_takes_two_requests_of_500():
         assert [(c[1]["limit"], c[1]["offset"]) for c in src.client.calls] == [(500, 0), (500, 500)]
     finally:
         src.runner.close()
+
+
+def test_a_full_page_without_a_total_leads_to_the_next_page(make_reader, small_pages):
+    page1 = fixture("playlist_page1.json")
+    del page1["tracks"]["total"]
+    page2 = fixture("playlist_page2.json")
+    del page2["tracks"]["total"]
+    reader, client = make_reader((200, page1), (200, page2))
+    got = reader.fetch(LINE)
+    assert [t.id for t in got.tracks] == ["900000101", "900000102", "900000103", "900000104"]
+    assert [c[1]["offset"] for c in client.calls] == [0, 4]  # the short second page ends the read
+
+
+@pytest.mark.parametrize("total", [None, 0, "many", "", [], {"n": 1}, True, -5])
+def test_a_missing_or_unusable_total_counts_as_missing(make_reader, small_pages, total):
+    items = [item(i) for i in range(4)]
+    last = [item(4)]
+    reader, client = make_reader((200, {"tracks": {"total": total, "items": items}}),
+                                 (200, {"tracks": {"total": total, "items": last}}))
+    assert len(reader.fetch(LINE).tracks) == 5 and len(client.calls) == 2
+    reader, client = make_reader((200, {"tracks": {"total": total, "items": last}}))  # a short page ends it
+    assert len(reader.fetch(LINE).tracks) == 1 and len(client.calls) == 1
+
+
+def test_a_total_written_as_text_is_still_a_total(make_reader, small_pages):
+    reader, client = make_reader((200, {"tracks": {"total": "4", "items": [item(i) for i in range(4)]}}))
+    assert len(reader.fetch(LINE).tracks) == 4 and len(client.calls) == 1
+
+
+def test_fetch_skips_entries_that_are_not_objects(make_reader):
+    reader, _ = make_reader((200, {"tracks": {"total": 3, "items": [item(1), None, "x"]}}))
+    got = reader.fetch(LINE)
+    assert [t.id for t in got.tracks] == ["900100001"]
+    assert got.skipped == ["Unknown track (unreadable entry)"] * 2
 
 
 def test_a_playlist_that_fits_one_page_takes_one_request(make_reader):
@@ -310,18 +349,57 @@ def test_a_read_touches_no_download_protection(make_reader, monkeypatch):
 # --- 3.3 / 3.4 the reader: info ----------------------------------------------------------------------------------
 
 def test_info_reads_the_playlist_page(make_reader):
-    reader, client = make_reader((200, fixture("playlist_info.json")))
+    reader, client = make_reader((200, fixture("playlist_info.json")), (200, fixture("user_playlists.json")))
     assert reader.info("900000001") == PlaylistInfo(
         service="qobuz", id="900000001", name="Example Playlist", owner_id="700000001", owner_name="Example Owner",
         collaborative=False, image_url="https://static.example.com/playlists/900000001_300.jpg", track_count=5,
-        yours=False, readable=True)
-    assert client.calls == [("playlist/get", {"app_id": "123456789", "playlist_id": "900000001"})]
+        yours=True, readable=True)
+    assert client.calls == [("playlist/get", {"app_id": "123456789", "playlist_id": "900000001"}),
+                            ("playlist/getUserPlaylists", {"app_id": "123456789", "limit": 1})]
+
+
+def test_info_marks_only_the_logged_in_users_playlists_as_yours(make_reader):
+    other = dict(fixture("playlist_info.json"), owner={"id": 700000002, "name": "Someone Else"})
+    reader, client = make_reader((200, fixture("playlist_info.json")), (200, fixture("user_playlists.json")),
+                                 (200, other), (200, fixture("playlist_info.json")))
+    assert reader.info("900000001").yours is True
+    assert reader.info("900000001").yours is False  # another owner
+    assert reader.info("900000001").yours is True
+    assert [c[0] for c in client.calls].count("playlist/getUserPlaylists") == 1  # asked once per reader
+
+
+@pytest.mark.parametrize("answer", [
+    (500, {}), (401, {"message": "no"}), (200, {"playlists": {"items": []}}), (200, {"user": {"login": "x"}}),
+    (200, {"user": "x"}), (200, ["not", "an", "object"]), (0, aiohttp.ClientConnectionError("x")),
+])
+def test_info_when_the_user_cannot_be_read_is_not_yours_and_asks_once(make_reader, answer):
+    reader, client = make_reader((200, fixture("playlist_info.json")), answer, (200, fixture("playlist_info.json")))
+    assert reader.info("900000001").yours is False
+    assert reader.info("900000001").yours is False
+    assert [c[0] for c in client.calls].count("playlist/getUserPlaylists") == 1
+
+
+def test_stop_while_asking_for_the_user_passes_through(make_reader):
+    stopped = []
+
+    def check():
+        if stopped:
+            raise Cancelled()
+
+    async def stop_now():
+        stopped.append(1)
+        await hang()
+
+    reader, _ = make_reader((200, fixture("playlist_info.json")), (200, stop_now), check=check)
+    with pytest.raises(Cancelled):
+        reader.info("900000001")
 
 
 def test_info_tolerates_a_bare_answer_and_picks_the_largest_cover_present(make_reader):
     reader, _ = make_reader((200, {"name": "Bare", "is_collaborative": True,
                                    "image_rectangle": ["https://static.example.com/r.jpg"],
                                    "images150": ["https://static.example.com/s.jpg"]}),
+                            (200, fixture("user_playlists.json")),
                             (200, {"images150": ["https://static.example.com/s.jpg"]}), (200, {}))
     bare = reader.info("900000009")
     assert (bare.id, bare.name, bare.owner_id, bare.owner_name, bare.track_count, bare.collaborative) == (

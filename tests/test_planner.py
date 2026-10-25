@@ -176,6 +176,29 @@ def test_desired_folders_links_the_same_way():
     assert s["tracks"]["t1"]["aliases"] == []  # input state untouched
 
 
+def test_a_song_without_artist_or_title_never_links_by_name():
+    # two artist-less tracks with one title stay two songs (nothing says they are the same song)
+    p = plan([pl("A", SourceTrack("t1", "Same", (), "Album", None, 180000, None),
+                 SourceTrack("t2", "Same", (), "Album", None, 180000, None))], st(), [], TODAY)
+    assert kinds(p) == [("acquire", "t1"), ("acquire", "t2")] and p.notes == []
+    # nor does a stored song without an artist take a new one
+    s = st(t1=entry(path="Library/A/x.aiff", artist=""))
+    p = plan([pl("A", SourceTrack("t2", "Title t1", (), "Album", None, 180000, None))], s, ["Library/A/x.aiff"], TODAY)
+    assert kinds(p) == [("acquire", "t2")] and p.state["tracks"]["t1"]["aliases"] == []
+
+
+def test_a_track_of_unknown_length_never_links_by_name():
+    # a Qobuz item without `duration` has length 0: that is not a real length, on either side
+    p = plan([pl("A", tr("t1", dur=0)), qpl("B", qb("900000001", dur=0))], st(), [], TODAY)
+    assert kinds(p) == [("acquire", "t1"), ("acquire", "qobuz:900000001")] and p.notes == []
+    s = st(t1=entry(path="Library/A/x.aiff", duration_ms=0))
+    p = plan([qpl("A", qb("900000001", dur=1000))], s, ["Library/A/x.aiff"], TODAY)
+    assert kinds(p) == [("acquire", "qobuz:900000001")] and p.state["tracks"]["t1"]["aliases"] == []
+    s = st(t1=entry(path="Library/A/x.aiff"))
+    p = plan([qpl("A", qb("900000001", dur=0))], s, ["Library/A/x.aiff"], TODAY)
+    assert kinds(p) == [("acquire", "qobuz:900000001")] and p.notes == []
+
+
 # --- the exact Qobuz id on actions (I5) ---
 
 def test_a_track_qobuz_won_t_deliver_gives_no_qobuz_id():
@@ -217,6 +240,15 @@ def test_spotify_only_input_plans_as_before():
     assert [(a.kind, a.track_id, a.aliases, a.qobuz_id) for a in p.actions] == [
         ("acquire", "t2", (), None), ("acquire", "t3", (), None), ("upgrade", "t1", (), None)]
     assert p.state["tracks"]["t1"]["aliases"] == ["t9"]
+
+
+def test_a_spotify_track_without_isrc_and_a_new_id_joins_a_stored_song_by_name():
+    # the one intended change for Spotify-only input (spec 9.2): same artist, title and length (+-3 s)
+    s = st(t1=entry(path="Library/A/x.mp3", status="not_lossless"))
+    p = plan([pl("A", tr("t9", title="Title t1", dur=182000))], s, ["Library/A/x.mp3"], TODAY)
+    assert [(a.kind, a.track_id, a.aliases) for a in p.actions] == [("upgrade", "t1", ())]
+    assert p.state["tracks"]["t1"]["aliases"] == ["t9"] and p.notes == [NAME_NOTE]
+    assert "t9" not in p.state["tracks"]
 
 
 def test_dropped_track_flagged_not_touched():

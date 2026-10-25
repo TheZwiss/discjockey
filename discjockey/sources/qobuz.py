@@ -50,9 +50,11 @@ def login_state(paths: SupportPaths) -> LoginState:
     return LoginState("missing", NOT_SET_UP)
 
 
-def parse_item(item: dict) -> SourceTrack | str:
+def parse_item(item: object) -> SourceTrack | str:
     """One entry of a playlist's `tracks.items` as a SourceTrack, or the words for why it is skipped. A track Qobuz
     lists but won't stream (`streamable` false: a preview or a region lock) stays in the list, marked."""
+    if not isinstance(item, dict):
+        return "Unknown track (unreadable entry)"
     title = item.get("title") or ""
     if item.get("version"):
         title = f"{title} ({item['version']})"
@@ -82,6 +84,14 @@ def _cover(data: dict) -> str | None:
     return None
 
 
+def _total(listing: dict) -> int | None:
+    """The `total` of a track listing when it is a positive whole number, else None (missing, zero or not a number)."""
+    total = listing.get("total")
+    if isinstance(total, str) and total.strip().isdigit():
+        total = int(total)
+    return total if isinstance(total, int) and not isinstance(total, bool) and total > 0 else None
+
+
 def _problem(e: Exception) -> str:
     """What to say Qobuz did when a request failed: our own words for QobuzError, else only the kind of error
     (the text of a library's exception may hold a link)."""
@@ -94,6 +104,8 @@ class QobuzReader:
 
     def __init__(self, source: qobuz.QobuzSource):
         self.source = source
+        self._user_asked = False  # the logged-in user's id is asked for once per reader
+        self._user_id: str | None = None
 
     def __enter__(self) -> "QobuzReader":
         return self
@@ -128,25 +140,49 @@ class QobuzReader:
         offset = 0
         while True:
             page = self._playlist(line.playlist_id, unreadable, extra="tracks", limit=PAGE_SIZE, offset=offset)
-            listing = page.get("tracks") or {}
-            items = listing.get("items") or []
+            listing = page.get("tracks")
+            listing = listing if isinstance(listing, dict) else {}
+            items = listing.get("items")
+            items = items if isinstance(items, list) else []
             for item in items:
                 r = parse_item(item)
                 (tracks if isinstance(r, SourceTrack) else skipped).append(r)
             offset += PAGE_SIZE
-            if not items or offset >= int(listing.get("total") or 0):
+            total = _total(listing)
+            # without a usable total, a full page means there may be more
+            more = offset < total if total else len(items) == PAGE_SIZE
+            if not items or not more:
                 return FetchedPlaylist(line, tracks, skipped)
+
+    def _logged_in_user(self) -> str | None:
+        """The id of the logged-in Qobuz user, from `playlist/getUserPlaylists` (its answer names the user next to
+        the playlists). Asked for on the first call only; None when the request fails or the answer has no user id.
+        Stop (events.Cancelled) passes through."""
+        if not self._user_asked:
+            self._user_asked = True
+            self.source.check()
+            params = {"app_id": str(self.source.client.config.session.qobuz.app_id), "limit": 1}
+            try:
+                status, body = self.source._call(self.source.client._api_request("playlist/getUserPlaylists", params))
+                user = body.get("user") if status == 200 and isinstance(body, dict) else None
+                uid = user.get("id") if isinstance(user, dict) else None
+                self._user_id = str(uid) if uid not in (None, "") else None
+            except Exception:
+                self._user_id = None
+        return self._user_id
 
     def info(self, playlist_id: str) -> PlaylistInfo:
         data = self._playlist(playlist_id, "Qobuz doesn't show this playlist. It must be public or one of yours. "
                                            "Check the link.")
         owner = data.get("owner") or {}
         count = data.get("tracks_count")
-        # streamrip doesn't keep the logged-in user's id, so a Qobuz playlist is never marked as "yours" here
+        owner_id = str(owner.get("id") or "")
+        user_id = self._logged_in_user()
         return PlaylistInfo(SERVICE, str(data.get("id") or playlist_id), data.get("name") or "",
-                            str(owner.get("id") or ""), owner.get("name") or "",
+                            owner_id, owner.get("name") or "",
                             bool(data.get("is_collaborative")), _cover(data),
-                            count if isinstance(count, int) else None, False, True)
+                            count if isinstance(count, int) else None,
+                            bool(owner_id) and owner_id == user_id, True)
 
 
 def open(paths: SupportPaths, token: CancelToken) -> QobuzReader:  # noqa: A001 (the source interface's name)

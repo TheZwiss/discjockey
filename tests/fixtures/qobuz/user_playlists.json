@@ -1,0 +1,4 @@
+{
+  "user": {"id": 700000001, "login": "example_user"},
+  "playlists": {"offset": 0, "limit": 1, "total": 0, "items": []}
+}
