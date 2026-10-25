@@ -5,6 +5,7 @@ import type { HubEvent } from '$lib/bridge/events';
 import { EMPTY_RUN, reduceRun, type RunState } from '$lib/stores/run';
 import type { Budget, LimitCard, Result } from '$lib/bridge/types';
 import { SYNC_LINES, lineOf } from '$lib/bridge/fake/replay';
+import { problemCopy } from '$lib/copy';
 import { cardState, lengthLine, liveUsage, qobuzFallback, stepIndex, verdict, type Card } from './cardState';
 
 const lines = (raw: string): HubEvent[] => raw.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
@@ -174,7 +175,15 @@ describe('cardState when stopping or failing', () => {
     s = reduceRun(s, { type: 'JobFinished', job_id: 7, kind: 'sync', ok: false, problem: 'login_expired',
       message: 'Your Spotify login has expired.', result: null }, 10);
     expect(cardState(s, 20)).toEqual({ kind: 'failed', problem: 'login_expired',
-      message: 'Your Spotify login has expired.' });
+      message: 'Your Spotify login has expired.', service: null });
+  });
+  it("carries the finished job's service, so the card names it", () => {
+    let s = reduceRun(EMPTY_RUN, { type: 'JobStarted', job_id: 8, kind: 'sync', track_id: null }, 0);
+    s = reduceRun(s, { type: 'JobFinished', job_id: 8, kind: 'sync', ok: false, problem: 'not_set_up',
+      message: 'Connect Qobuz first.', result: null, service: 'qobuz' }, 10);
+    expect(cardState(s, 20)).toEqual({ kind: 'failed', problem: 'not_set_up', message: 'Connect Qobuz first.',
+      service: 'qobuz' });
+    expect(problemCopy('not_set_up', { sync: true, service: 'qobuz' }).title).toBe("Qobuz isn't connected.");
   });
 });
 

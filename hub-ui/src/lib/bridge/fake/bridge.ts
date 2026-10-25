@@ -67,7 +67,8 @@ export type FakeContext = {
   accountResult(service: 'youtube' | 'soundcloud', browser: Browser, profile: string | null, check: AccountCheck):
     { service: 'youtube' | 'soundcloud'; browser: Browser; profile: string | null; saved: boolean; check: AccountCheck };
 };
-export type Finish = (ok: boolean, result?: unknown, problem?: ProblemKind | null, message?: string) => void;
+export type Finish = (ok: boolean, result?: unknown, problem?: ProblemKind | null, message?: string,
+  service?: PlaylistService | null) => void;
 type Handlers = { [K in keyof Bridge]: Bridge[K] };
 export type PageFake = {
   scenarios?: Record<string, (s: FakeState) => void>;
@@ -181,7 +182,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     job = new JobRecord(id, kind, track_id, isoLocal(new Date()));
     const me = job;
     let finished = false;
-    const finish: Finish = (good, res = null, problem = null, message = '') => {
+    const finish: Finish = (good, res = null, problem = null, message = '', service = null) => {
       if (finished) return;
       finished = true;
       if (s.errors && good && !DOWNLOAD_KINDS.includes(kind) && kind !== 'scan' && !kind.startsWith('setup_')) {
@@ -189,7 +190,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         good = false; problem = k; message = m; res = null;
       }
       emit({ type: 'JobFinished', job_id: id, kind, ok: good, problem: good ? null : (problem ?? 'failed'), message,
-        result: good ? (res ?? {}) : (problem === 'stopped' ? (res ?? null) : null), service: null } as HubEvent);
+        result: good ? (res ?? {}) : (problem === 'stopped' ? (res ?? null) : null), service } as HubEvent);
       me.running = false;
     };
     setTimeout(() => {
@@ -688,6 +689,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
             'Your Spotify login has expired. Log in again in setup.'), 600 / speed));
         }
         return startReplay(SYNC_START_LINE, { crashAfter: SYNC_LINES.crash });
+      }
+      if (s.syncNeedsQobuz) {
+        // a Qobuz line, no Qobuz login: the sync is refused at its start and says which service (JobFinished.service)
+        return startJob('sync', null, (finish) => setTimeout(() => finish(false, null, 'not_set_up',
+          'Connect Qobuz first.', 'qobuz'), 600 / speed));
       }
       if (!selected.length) {
         return startJob('sync', null, (finish) => setTimeout(() => finish(true, { exit_code: 0, report: '',

@@ -94,6 +94,8 @@ export type FakeState = {
   qobuzUnreadable?: boolean;
   /** scenario qobuz_not_connected: playlists.txt has a Qobuz line, but Qobuz has no login to read it with */
   qobuzNotConnected?: boolean;
+  /** scenario sync:qobuz-start-fails: Start ends at once with `not_set_up` for Qobuz (the end screen's service card) */
+  syncNeedsQobuz?: boolean;
   qobuzLastCheck?: LastCheck | null;
   /** find_logins per service on the fake Mac (default: Chrome without a login, Safari without Full Disk Access) */
   browsers?: Partial<Record<'youtube' | 'soundcloud', LoginBrowser[]>>;

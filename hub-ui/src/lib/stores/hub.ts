@@ -48,8 +48,13 @@ export function readBlockIn(sp: SpotifyStatus | null): ReadBlock | null {
   const off = sp.services?.find((x) => !x.connected);
   if (off) return { kind: 'not_set_up', service: off.service };
   // a read that found a login missing (the poll's `services` may not show it yet); without a service the engine's
-  // not_set_up is a missing playlists.txt, which no login fixes
-  if (sp.problem === 'not_set_up' && sp.problem_service) return { kind: 'not_set_up', service: sp.problem_service };
+  // not_set_up is a missing playlists.txt, which no login fixes. Once `services` lists that service as connected the
+  // user has logged in since: the stored problem is stale and must not block the next read (a login_expired can't be
+  // judged here, a connected account may still hold an expired login, so that branch stays above)
+  if (sp.problem === 'not_set_up' && sp.problem_service
+      && !sp.services?.some((x) => x.service === sp.problem_service && x.connected)) {
+    return { kind: 'not_set_up', service: sp.problem_service };
+  }
   return null;
 }
 /** The one source for the banner, the header slot and Sync's card (spec §5a/§11). */

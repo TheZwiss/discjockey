@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PlaylistInfo } from '../bridge/types';
-import { folderProblem, hasLink, ownerText, playlistKey, type PlaylistRef } from './addRowModel';
+import { bannerSaysIt, folderProblem, hasLink, ownerText, playlistKey, type PlaylistRef } from './addRowModel';
 
 const ROWS: PlaylistRef[] = [
   { key: 'a', folder: 'Hard_Bounce', link: 'https://open.spotify.com/playlist/3DiscjockeyExampleList' },
@@ -50,5 +50,22 @@ describe('owner', () => {
     expect(ownerText(info({ yours: true }))).toBe('yours');
     expect(ownerText(info({ collaborative: true }))).toBe('collaborative');
     expect(ownerText(info())).toBe('DJ One');
+  });
+});
+
+describe('bannerSaysIt: the banner already asks for this login', () => {
+  const qobuz = { kind: 'not_set_up' as const, service: 'qobuz' as const };
+  it('is true for the same service while the banner shows', () => {
+    expect(bannerSaysIt(qobuz, { service: 'qobuz' }, {})).toBe(true);
+    expect(bannerSaysIt({ kind: 'login_expired', service: 'qobuz' }, { service: 'qobuz' }, {})).toBe(true);
+  });
+  it('is false for the first link a user pastes (no banner), another service, or a banner the page took over', () => {
+    expect(bannerSaysIt(qobuz, null, {})).toBe(false);
+    expect(bannerSaysIt(qobuz, { service: 'spotify' }, {})).toBe(false);
+    expect(bannerSaysIt(qobuz, { service: 'qobuz' }, { spotify: true })).toBe(false);
+  });
+  it('is false for other problems and answers without a service', () => {
+    expect(bannerSaysIt({ kind: 'offline', service: 'qobuz' }, { service: 'qobuz' }, {})).toBe(false);
+    expect(bannerSaysIt({ kind: 'not_set_up', service: null }, { service: 'qobuz' }, {})).toBe(false);
   });
 });

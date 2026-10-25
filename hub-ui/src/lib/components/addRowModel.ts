@@ -1,6 +1,6 @@
 // The checks of AddRow (paste a playlist link, check it, name its folder), shared by Playlists and Setup's first
 // playlist. Pure. Playlists' rows use folderProblem for their rename too.
-import type { PlaylistInfo } from '../bridge/types';
+import type { PlaylistInfo, PlaylistService, ProblemKind } from '../bridge/types';
 
 /** What the checks need of a playlist already in the list (Playlists' draft rows are one). */
 export type PlaylistRef = { key: string; folder: string; link: string };
@@ -35,4 +35,13 @@ export function ownerText(info: PlaylistInfo): string {
   if (info.yours) return 'yours';
   if (info.collaborative) return 'collaborative';
   return info.owner_name;
+}
+
+/** Whether the shell's banner already says the login problem this answer is about (the same service, shown now): then
+ *  the answer is only the bridge's sentence ("Connect Qobuz first."), without a second headline and Connect button
+ *  (a state is said once, spec §11). The banner is on unless the page's body took it over (`saidInBody`). */
+export function bannerSaysIt(error: { kind: ProblemKind; service: PlaylistService | null },
+  block: { service: PlaylistService } | null, saidInBody: { spotify?: boolean }): boolean {
+  return (error.kind === 'not_set_up' || error.kind === 'login_expired') && !!error.service && !!block
+    && block.service === error.service && !saidInBody.spotify;
 }

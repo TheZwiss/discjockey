@@ -111,6 +111,8 @@ const account = (limit: number, used: number, browser: 'chrome' | 'firefox') => 
 export const scenarios: PageFake['scenarios'] = {
   /** Spotify's login is missing but no read has failed yet (problem null): Sync's card says it from the shared store */
   'no-login': (s) => { s.setup = { ...s.setup, spotify_login: false }; },
+  /** a start that finds Qobuz's login missing: the end screen's card names the service */
+  'qobuz-start-fails': (s) => { s.syncNeedsQobuz = true; },
   'long-plan': longPlan,
   'no-qobuz'(s) {
     longPlan(s);

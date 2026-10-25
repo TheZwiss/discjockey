@@ -2,7 +2,7 @@
   // Paste a Spotify or Qobuz playlist link → add_playlist (a network read) → the playlist it found as a card between
   // the field and the list (design system mockup design-system/playlists.html) → "Add to the list" appends the row.
   // The field and Add share one line (--h-btn); a note or a problem sits under it as a Hint or a compact ProblemCard
-  // (a login the service needs: "Qobuz isn't connected." with Connect Qobuz →).
+  // (a login the service needs: "Qobuz isn't connected." with Connect Qobuz →, unless the shell's banner says it already).
   // A block (Playlists' list head, Setup's first playlist): `draft` is the list it adds to (for the duplicate and
   // folder checks), `onadd` takes the found playlist and its folder name; the page decides what adding means
   // (Playlists: a row in the draft; Setup: saved at once). It answers whether the playlist went in: only then the
@@ -15,10 +15,11 @@
   import TextField from './TextField.svelte';
   import { api } from '../bridge/client';
   import type { AddedPlaylist, PlaylistService, ProblemKind } from '../bridge/types';
-  import { networkReadsAllowed } from '../stores/hub';
+  import { networkReadsAllowed, readBlock } from '../stores/hub';
+  import { bannersSaidInBody } from '../stores/shell';
   import { NOT_WHILE_SYNC } from '../copy';
   import { plural } from '../format';
-  import { folderProblem, hasLink, ownerText, type PlaylistRef } from './addRowModel';
+  import { bannerSaysIt, folderProblem, hasLink, ownerText, type PlaylistRef } from './addRowModel';
 
   let { draft, onadd, filled = false }: {
     draft: PlaylistRef[]; onadd: (a: AddedPlaylist, folder: string) => boolean | Promise<boolean>;
@@ -88,9 +89,10 @@
 {#if note}<Hint text={note} data-test="add-note" />{/if}
 {#if error}
   <div data-test="add-problem">
-    {#if SAID_BY_MESSAGE.has(error.kind)}
+    {#if SAID_BY_MESSAGE.has(error.kind) || bannerSaysIt(error, $readBlock, $bannersSaidInBody)}
       <!-- the engine's words are the answer (not a playlist link, a playlist the service won't show), so they are
-           the line itself, whole: a compact card shows only its headline -->
+           the line itself, whole: a compact card shows only its headline. Likewise a login the shell's banner is
+           already asking for ("Qobuz isn't connected." + Connect Qobuz →): the sentence alone, no second button -->
       <Hint tone="problem" wrap text={error.message} />
     {:else}
       <ProblemCard alert compact kind={error.kind} message={error.message} service={error.service} onretry={add} />
