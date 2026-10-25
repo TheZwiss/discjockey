@@ -93,10 +93,18 @@ class RunLog:
         return not self.results
 
 
+OWN_FOLDER_LABEL = "your music"  # a song of the user's own is in no playlist folder (plan library stage 4)
+
+
+def folder_label(folder: str | None) -> str:
+    """The `[…]` in front of a song in reports and console lines: its playlist folder, else "your music"."""
+    return folder or OWN_FOLDER_LABEL
+
+
 def render_line(r: Result) -> str:
     if not (r.artist or r.title):
         return f"- {r.note}"
-    text = f"- [{r.folder}] {r.artist} - {r.title}"
+    text = f"- [{folder_label(r.folder)}] {r.artist} - {r.title}"
     if r.note:
         text += f" — {r.note}"
     if r.track_id and track_link(r.track_id):
@@ -251,7 +259,7 @@ def render_plan(plan: Plan, full: bool) -> str:
         out.append(f"{label}: {len(items)}")
         shown = items if full else items[:20]
         for a in shown:
-            out.append(f"    [{a.folder}] {a.track.first_artist} - {a.track.title}")
+            out.append(f"    [{folder_label(a.folder)}] {a.track.first_artist} - {a.track.title}")
         if len(shown) < len(items):
             out.append(f"    ... and {len(items) - len(shown)} more")
     if plan.ambiguous:

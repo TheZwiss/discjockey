@@ -277,6 +277,20 @@ def load_state(paths: Paths) -> dict:
     return _v1_snapshot(paths, _load_v1(paths.state_file))
 
 
+def import_left(paths: Paths) -> int:
+    """How many files the next import works through (db.import_left), for reading like load_state: 0 before
+    library.db exists (nothing is watched yet)."""
+    from . import db
+    if not paths.db_file.exists():
+        return 0
+    try:
+        with db.connect(paths.db_file) as conn:
+            db.check(conn)
+            return db.import_left(conn)
+    except sqlite3.Error as e:
+        raise db.unreadable(e) from None
+
+
 def _v1_snapshot(paths: Paths, state: dict) -> dict:
     """A version-1 state.json with the read-only keys a snapshot has (nothing is indexed yet: every file the old
     records name counts as placed by the app and online)."""

@@ -59,6 +59,7 @@ class Prepared:
     log: rep.RunLog
     lines: list[PlaylistLine] = field(default_factory=list)
     fetched: list[FetchedPlaylist] = field(default_factory=list)  # as read from the playlist services (the playlist page uses it)
+    import_waiting: int = 0  # files the next import works through (library.import_left; the console's W10 line)
 
     @property
     def needs_qobuz(self) -> bool:
@@ -88,6 +89,7 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
         settings = load_settings(paths.settings_file)
         with lock() as held:
             state = _open(paths, log, emit, dry_run=dry_run) if held else library.load_state(paths)
+        import_waiting = library.import_left(paths)
     except config.ConfigError as e:
         raise SetupProblem(str(e), e.kind) from None
     except (StateError, SettingsError) as e:
@@ -108,13 +110,26 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
         for item in fp.skipped:
             log.add_text("skipped", f"[{fp.line.folder}] {item}")
 
-    plan = planner.plan(fetched, state, state["files"], date.today())
+    plan = planner.plan(fetched, state, state["files"], date.today(), first_checks=first_check_room(state, settings))
     for key in plan.dropped:
         e = plan.state["tracks"][key]
         log.add(Result("dropped", e["folder"], e["artist"], e["title"], key))
     for key, track, folder, files in plan.ambiguous:
         log.add(Result("ambiguous", folder, track.first_artist, track.title, key, "; ".join(files)))
-    return Prepared(paths, plan.state, settings, plan, log, lines, fetched)
+    return Prepared(paths, plan.state, settings, plan, log, lines, fetched, import_waiting)
+
+
+FIRST_CHECKS_PER_RUN = 25  # plan library stage 4, D9: at about 70 s a check, 25 add half an hour to a run
+
+
+def first_check_room(state: dict, settings: Settings) -> int:
+    """How many first upgrade checks (of songs never checked, mostly imported lossy files) a run plans (D9):
+    FIRST_CHECKS_PER_RUN, and at most half of what is left of today's Qobuz allowance, so the other half stays for
+    the playlists' downloads; FIRST_CHECKS_PER_RUN when Qobuz is skipped. The rest wait for later runs. It only plans
+    fewer checks: every check still goes through the Qobuz guards (pacing, the daily limit, the auto-stop)."""
+    if settings.qobuz_skipped:
+        return FIRST_CHECKS_PER_RUN
+    return min(FIRST_CHECKS_PER_RUN, Budget(state, lambda: None, settings).remaining() // 2)
 
 
 def _open(paths: Paths, log: rep.RunLog, emit: Emit, *, dry_run: bool) -> dict:
@@ -139,9 +154,24 @@ def replan(prep: Prepared) -> Prepared:
     run is not offered again and nothing needs another Spotify read (issue 20). Raises StateError or SettingsError
     when those files can't be read."""
     state = library.load_state(prep.paths)
-    plan = planner.plan(prep.fetched, state, state["files"], date.today())
-    return Prepared(prep.paths, plan.state, load_settings(prep.paths.settings_file), plan, rep.RunLog(datetime.now()),
-                    prep.lines, prep.fetched)
+    settings = load_settings(prep.paths.settings_file)
+    plan = planner.plan(prep.fetched, state, state["files"], date.today(), first_checks=first_check_room(state, settings))
+    return Prepared(prep.paths, plan.state, settings, plan, rep.RunLog(datetime.now()), prep.lines, prep.fetched,
+                    library.import_left(prep.paths))
+
+
+def link_only(paths: Paths, prep: Prepared, emit: Emit = no_emit) -> Prepared:
+    """The import's last phase (plan library stage 4, D6): `prep`'s playlist read planned again on the records as
+    they are now, then only the plan's song changes saved, with the save execute makes before its first action
+    (links to the user's own songs, merges, aliases, playlist flags); nothing is downloaded or checked. Always
+    replanned, never `prep.state` saved: the import wrote the records since `prep` was planned, so that snapshot is
+    stale and its save would be refused (db STALE). The caller holds the library lock. Returns the new plan; its
+    notes go out as debug messages."""
+    fresh = replan(replace(prep, paths=paths))
+    library.save_state(paths, fresh.state)
+    for note in fresh.plan.notes:
+        emit(Message("debug", note))
+    return fresh
 
 
 LEFT_OUT = "left out of this run by you"

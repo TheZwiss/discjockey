@@ -2,20 +2,22 @@
 from __future__ import annotations
 
 import copy
-from collections.abc import Collection, Mapping
+import math
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import PurePosixPath
 
+from .identify import SAME_LENGTH_MS, compare
 from .library import op_paths
 from .matching import normalize, normalize_artist
-from .models import Action, FetchedPlaylist, Outcome, Placed, Plan, SourceTrack
+from .models import (Action, DuplicateGroup, FetchedPlaylist, Outcome, Placed, Plan, Question, SourceTrack, group_id,
+                     is_own, track_of)
 from .names import expected_stem, fold
 
 LOSSY = ("not_lossless", "fake_lossless")
 BOUGHT_EXTS = (".aiff", ".aif", ".wav")
 WAIT_DAYS = 7
-SAME_LENGTH_MS = 3000  # how far apart two lengths may be for one song: an ISRC link and a name link (spec §9.2)
 KIND_RANK = {"adopt_bought": 0, "acquire": 1, "upgrade": 2}
 
 
@@ -180,6 +182,7 @@ class _Wanted:
     # the first fetched Qobuz track that resolved to the song and that Qobuz delivers now: the exact id to try first.
     # Only from this read, never from a stored alias: only the read says whether Qobuz delivers it today
     qobuz: SourceTrack | None = None
+    question: Question | None = None  # a new song a file of the user's own might be: held until the answer (D4)
 
 
 Lengths = list[tuple[str, int]]  # (song key, its length in ms) of the songs under one ISRC or one name
@@ -202,12 +205,114 @@ def _song_name(artist: str, title: str, duration_ms: int | None) -> tuple[str, s
     return name if name[0] and name[1] and duration_ms else None
 
 
-def _resolve(fetched: list[FetchedPlaylist], tracks: dict, notes: list[str]) -> dict[str, _Wanted]:
+# --- the user's own songs (plan library stage 4, I4): linked, asked about, merged, or a duplicate ---
+
+# what a playlist song without a file takes over from the own song merged into it (rule 2): the file and what the
+# upgrade checks learned about it (a parked upgrade belongs to the file)
+MERGED_FIELDS = ("path", "status", "source", "source_id", "source_format", "cutoff_hz", "source_kbps", "online",
+                 "placed_by", "held", "file_id", "import_state", "first_seen", "last_upgrade_check", "upgrade",
+                 "free_downloads", "originals_searched", "qobuz_searched", "declined_streams")
+
+Found = tuple[str, str, str]  # (match "certain" | "plausible", own song key, why)
+
+
+class _Own:
+    """The user's own songs (`models.is_own` keys) of a plan's tracks, indexed by normalised title and by ISRC (the
+    only ways `identify.compare` can match), with To-do's stored answers. Own songs reach `_resolve` and `plan`
+    only through it: they never offer the ISRC or name link of two playlist songs, `compare` decides for them."""
+
+    def __init__(self, tracks: dict, decisions: Mapping | None, ambiguous: Collection[str] = ()):
+        self.tracks, self.ambiguous = tracks, set(ambiguous)
+        decisions = decisions or {}
+        self.same: dict[str, list[str]] = {}  # playlist song key (or track token) -> own keys answered "same"
+        self.not_same: set[tuple[str, str]] = set()
+        for a, b, answer in decisions.get("same_song") or []:
+            if answer == "same":
+                self.same.setdefault(a, []).append(b)
+            else:
+                self.not_same.add((a, b))
+        self.keep_both = set(decisions.get("keep_both") or [])
+        self.by_title: dict[str, list[str]] = {}
+        self.by_isrc: dict[str, list[str]] = {}
+        for key, e in tracks.items():
+            if not is_own(key):
+                continue
+            title = normalize(e.get("title") or "")
+            if title:
+                self.by_title.setdefault(title, []).append(key)
+            if e.get("isrc"):
+                self.by_isrc.setdefault(e["isrc"].upper(), []).append(key)
+        self.asked: set[str] = set()  # own keys in a question (at most one each, D3)
+        self.grouped: set[str] = set()  # own keys in a same-song duplicate group
+
+    def candidates(self, a: str, artist: str, title: str, duration_ms: int | None, isrc: str | None) -> list[Found]:
+        """Every own song that is or may be the playlist song `a` (its key, or its track token while it has none):
+        those answered "same" first, then `compare`'s matches by nearest length (unknown lengths last), then key.
+        Pairs answered "not same" are never offered again."""
+        out: list[Found] = [("certain", b, "answer") for b in self.same.get(a, []) if b in self.tracks and b != a]
+        answered = {b for _, b, _ in out}
+        keys = self.by_title.get(normalize(title or ""), []) + (self.by_isrc.get(isrc.upper(), []) if isrc else [])
+        found = []
+        for b in dict.fromkeys(keys):
+            e = self.tracks.get(b)
+            if e is None or b == a or b in answered or (a, b) in self.not_same:
+                continue
+            match = compare(artist, title, duration_ms, isrc, e)
+            if match is not None:
+                own_ms = e.get("duration_ms")
+                gap = abs(own_ms - duration_ms) if own_ms and duration_ms else math.inf
+                found.append((gap, b, match))
+        return out + [(m, b, why) for _, b, (m, why) in sorted(found)]
+
+    def pick(self, found: list[Found], take: Callable[[str], bool]) -> tuple[Found | None, Found | None]:
+        """(the first certain match `take` accepts, the first plausible one that may still be asked about)."""
+        certain = next((f for f in found if f[0] == "certain" and take(f[1])), None)
+        plausible = next((f for f in found if f[0] == "plausible" and self.askable(f[1])), None)
+        return certain, plausible
+
+    def free(self, key: str) -> bool:
+        """An own song still on its own: linked to no playlist song (no aliases), in no question or duplicate group,
+        and with its file where the records say (not held, not found in several places)."""
+        e = self.tracks.get(key)
+        return (e is not None and not e.get("aliases") and key not in self.asked and key not in self.grouped
+                and bool(e.get("path")) and not e.get("held") and key not in self.ambiguous)
+
+    def askable(self, key: str) -> bool:
+        """It can be shown in a question or a duplicate group: free, its file indexed and online (§6.4)."""
+        e = self.tracks.get(key)
+        return self.free(key) and e.get("file_id") is not None and e.get("online", True)
+
+    def question(self, song_key: str, track: SourceTrack, folder: str, found: Found,
+                 duration_ms: int | None) -> Question:
+        _, own_key, why = found
+        e = self.tracks[own_key]
+        if why == "artist" and not normalize_artist(e.get("artist") or ""):
+            why = "no_artist"
+        own_ms = e.get("duration_ms")
+        delta = round((own_ms - duration_ms) / 1000) if own_ms and duration_ms else None
+        self.asked.add(own_key)
+        return Question(song_key, track, folder, own_key, e["file_id"], why, delta)
+
+
+def _take_file(e: dict, own: dict) -> None:
+    """Rule 2's merge: the playlist song `e` takes the own song's file (db.save moves the file row to it)."""
+    for k in MERGED_FIELDS:
+        if k in own:
+            e[k] = own[k]
+    e["rejected_sources"] = sorted(set(e.get("rejected_sources") or []) | set(own.get("rejected_sources") or []))
+    if "file_gone" in e:
+        e["file_gone"] = None
+
+
+def _resolve(fetched: list[FetchedPlaylist], tracks: dict, notes: list[str], own: _Own) -> dict[str, _Wanted]:
     """Links every fetched track to a song (spec §9.2), in this order: its token is a song's key or alias; else a
     song with the same ISRC and a length within SAME_LENGTH_MS; else, only for a track without an ISRC, a song with
-    the same artist, title and length; else it is a new song keyed by its token. A link by ISRC or name adds the
-    track's token to the song's aliases (with a note for a stored song). Candidates are the stored songs and the
-    songs this read already resolved. Returns the wanted songs by key, in the order they were first met."""
+    the same artist, title and length; else a song of the user's own that `identify.compare` finds certain, or
+    that the user answered is the same (stage 4, I4 rule 1); else it is a new song keyed by its token. A link by
+    ISRC, name or to an own song adds the track's token to the song's aliases (with a note for a stored song).
+    Candidates are the stored songs and the songs this read already resolved; own songs only through `own`. A new
+    song an own song plausibly is gets a question and is held (D4). Returns the wanted songs by key, in the order
+    they were first met."""
     index: dict[str, str] = {}
     by_isrc: dict[str, Lengths] = {}
     by_name: dict[tuple[str, str], Lengths] = {}
@@ -215,7 +320,7 @@ def _resolve(fetched: list[FetchedPlaylist], tracks: dict, notes: list[str]) -> 
         index[key] = key
         for alias in e.get("aliases", []):
             index[alias] = key
-        if e.get("duration_ms") is None:
+        if e.get("duration_ms") is None or is_own(key):
             continue
         if e.get("isrc"):
             by_isrc.setdefault(e["isrc"].upper(), []).append((key, e["duration_ms"]))
@@ -227,6 +332,7 @@ def _resolve(fetched: list[FetchedPlaylist], tracks: dict, notes: list[str]) -> 
     for li, fp in enumerate(fetched):
         for pos, t in enumerate(fp.tracks):
             key = index.get(t.key)
+            ask: Found | None = None
             if key is None:
                 name = _song_name(t.first_artist, t.title, t.duration_ms)
                 if t.isrc:
@@ -237,6 +343,12 @@ def _resolve(fetched: list[FetchedPlaylist], tracks: dict, notes: list[str]) -> 
                     key = _twin(by_name.get(name, []), t.duration_ms) if name else None
                     note = (f"{t.first_artist} - {t.title}: same song as one you already have "
                             f"(same artist, title and length), not downloaded again.")
+                if key is None:
+                    found = own.candidates(t.key, t.first_artist, t.title, t.duration_ms, t.isrc)
+                    certain, ask = own.pick(found, lambda b: True)
+                    if certain is not None:
+                        key, ask = certain[1], None
+                        note = f"{t.first_artist} - {t.title}: the same song as a file of yours, not downloaded."
                 if key is None:
                     key = t.key
                     if t.isrc:
@@ -252,21 +364,34 @@ def _resolve(fetched: list[FetchedPlaylist], tracks: dict, notes: list[str]) -> 
             w = wanted.get(key)
             if w is None:
                 w = wanted[key] = _Wanted(t, fp.line.folder, (li, pos))
+                if ask is not None:
+                    w.question = own.question(key, t, fp.line.folder, ask, t.duration_ms)
             if w.qobuz is None and t.service == "qobuz" and t.streamable:
                 w.qobuz = t
+    for w in wanted.values():  # an own song a later track linked is no question any more: that song downloads
+        if w.question is not None and w.question.own_key in wanted:
+            own.asked.discard(w.question.own_key)
+            w.question = None
     return wanted
 
 
 def desired_folders(fetched: list[FetchedPlaylist], state: dict) -> dict[str, str]:
     """Pure: the folder every wanted track belongs in (state key -> folder), after identity resolution."""
-    return {key: w.folder for key, w in _resolve(fetched, copy.deepcopy(state["tracks"]), []).items()}
+    tracks = copy.deepcopy(state["tracks"])
+    own = _Own(tracks, state.get("decisions"), state.get("ambiguous") or {})
+    return {key: w.folder for key, w in _resolve(fetched, tracks, [], own).items()}
 
 
-def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: date) -> Plan:
+def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: date, *,
+         first_checks: int | None = None) -> Plan:
+    """What a sync does (spec §9; the user's own songs: library-and-sources §10, plan library stage 4 I4).
+    `first_checks`: how many first upgrade checks (an `upgrade` of an entry never checked) this run may make; the
+    rest wait for later runs and are counted in `deferred_checks` (D9). None: no cap."""
     new_state = copy.deepcopy(state)
     tracks: dict = new_state["tracks"]
     notes: list[str] = []
-    wanted = _resolve(fetched, tracks, notes)
+    own = _Own(tracks, new_state.get("decisions"), new_state.get("ambiguous") or {})
+    wanted = _resolve(fetched, tracks, notes, own)
 
     dropped: list[str] = []
     for key, e in tracks.items():
@@ -300,6 +425,8 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
     never: list[Action] = []
     never_ids = new_state.get("never") or {}
     ambiguous: list[tuple[str, SourceTrack, str, list[str]]] = []
+    questions: list[Question] = []
+    duplicates: list[DuplicateGroup] = []
     for key, w in wanted.items():
         def act(kind: str, **kw) -> None:
             skip = kind == "acquire" and key in never_ids  # "never download": nothing is fetched, files stay
@@ -309,7 +436,10 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
 
         e = tracks.get(key)
         if e is None:  # rule 1
-            act("acquire", aliases=tuple(w.aliases), reason="new")
+            if w.question is not None:  # a file of the user's own might be it: held until the answer (D4)
+                questions.append(w.question)
+            else:
+                act("acquire", aliases=tuple(w.aliases), reason="new")
             continue
         if e["status"] == "missing":  # rule 2
             if fold(e["folder"]) != fold(w.folder):
@@ -318,11 +448,23 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
             bought = bought_file([f"Library/{w.folder}"], e)
             if bought:
                 act("adopt_bought", src=bought)
-            elif e.get("file_gone"):  # a scan found its file gone: downloaded again at once, as before the database
-                act("acquire", reason="redownload")
-            elif _due(e.get("last_attempt"), today):
-                act("acquire", reason="retry")
-            continue
+                continue
+            found = own.candidates(key, e["artist"], e["title"], e.get("duration_ms"), e.get("isrc"))
+            certain, ask = own.pick(found, own.free)
+            if certain is None:
+                if ask is not None:  # held until the answer (D4)
+                    questions.append(own.question(key, w.track, w.folder, ask, e.get("duration_ms")))
+                elif e.get("file_gone"):  # a scan found its file gone: downloaded again at once, as before the database
+                    act("acquire", reason="redownload")
+                elif _due(e.get("last_attempt"), today):
+                    act("acquire", reason="retry")
+                continue
+            # one file per song (D7): the own song's file becomes this song's and the own song goes; then the file
+            # is planned for like any other below
+            _take_file(e, tracks.pop(certain[1]))
+            if certain[1] in dropped:
+                dropped.remove(certain[1])
+            notes.append(f"{e['artist']} - {e['title']}: the same song as a file of yours, not downloaded again.")
         # option A (spec §7): the file stays where it is, whatever folder the song belongs to now; only new downloads
         # follow the placement folder, and the tidy-up (stage 2) is where files move
         e["folder"] = w.folder
@@ -336,6 +478,15 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
         if fold(e["path"]) not in on_disk:  # vanished since the scan
             act("acquire", reason="redownload")
             continue
+        if e.get("file_id") is not None:  # own songs that certainly are this song: a same-song duplicate (D7)
+            found = own.candidates(key, e["artist"], e["title"], e.get("duration_ms"), e.get("isrc"))
+            same = [b for m, b, _ in found if m == "certain" and own.askable(b)]
+            if same:
+                ids = (e["file_id"], *(tracks[b]["file_id"] for b in same))
+                gid = group_id(ids)
+                if gid not in own.keep_both:
+                    duplicates.append(DuplicateGroup(gid, "same_song", tuple(sorted(ids))))
+                    own.grouped.update(same)
         if e["status"] in LOSSY:  # rule 5
             bought = bought_file([f"Library/{w.folder}", str(PurePosixPath(e["path"]).parent),
                                   replacement_dir(e, "lossless")], e)
@@ -345,8 +496,42 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
                                            or "free_downloads" not in e):  # written before free downloads existed
                 act("upgrade")
 
+    # own songs in no playlist (rule 4): a lossy file the sound check judged gets the weekly upgrade check too,
+    # after the playlist songs' and by when the import found it; never without a length to match a version by
+    own_checks = sorted((e.get("first_seen") or "", key) for key, e in tracks.items()
+                        if is_own(key) and key not in wanted and key not in moved_ambiguous
+                        and _own_check_due(e, on_disk, today))
+    for n, (_, key) in enumerate(own_checks):
+        actions.append(Action("upgrade", key, "", track_of(key, tracks[key]), (len(fetched), n)))
+    # rule 5: an imported file waits for its sound check before any upgrade check (D1)
+    actions = [a for a in actions if a.kind != "upgrade" or tracks[a.track_id].get("import_state") in (None, "done")]
     actions.sort(key=lambda a: (KIND_RANK[a.kind], a.order))
-    return Plan(new_state, actions, ambiguous, dropped, notes, never)
+    actions, deferred = _cap_first_checks(actions, tracks, first_checks)
+    return Plan(new_state, actions, ambiguous, dropped, notes, never, questions, duplicates, deferred)
+
+
+def _own_check_due(e: dict, on_disk: Mapping[str, str], today: date) -> bool:
+    """An own song's upgrade check is due: its lossy file is there and judged, nothing is parked, the week is up."""
+    return (e.get("online", True) and not e.get("held") and bool(e.get("path")) and fold(e["path"]) in on_disk
+            and e.get("status") in LOSSY and e.get("import_state") == "done" and bool(e.get("duration_ms"))
+            and not e.get("upgrade") and (_due(e.get("last_upgrade_check"), today) or "free_downloads" not in e))
+
+
+def _cap_first_checks(actions: list[Action], tracks: dict, first_checks: int | None) -> tuple[list[Action], int]:
+    """D9: of the first upgrade checks (entries never checked), the first `first_checks` in plan order stay
+    (playlist songs' by playlist order, then own songs' by first_seen); the rest wait for later runs. Returns (the
+    actions kept, how many wait)."""
+    if first_checks is None:
+        return actions, 0
+    kept, first, deferred = [], 0, 0
+    for a in actions:
+        if a.kind == "upgrade" and not tracks[a.track_id].get("last_upgrade_check"):
+            first += 1
+            if first > first_checks:
+                deferred += 1
+                continue
+        kept.append(a)
+    return kept, deferred
 
 
 ENTRY_KEYS = (

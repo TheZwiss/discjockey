@@ -21,8 +21,8 @@ from typing import NamedTuple
 from . import library as disk  # "library" is the Library/ path argument everywhere here
 from .events import Emit, Message
 from .models import (OWN_PREFIX, AddedFolder, BatchRow, DupFile, DuplicateGroup, ImportCounts, ImportRow, KnownFile,
-                     MoveRow, OwnFacts, PlannedMove, RemovalCounts, ScanResult, SeenFile, WatchedFolder, is_own,
-                     split_token, token)
+                     MoveRow, OwnFacts, PlannedMove, RemovalCounts, ScanResult, SeenFile, WatchedFolder, group_id,
+                     is_own, split_token, token)
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
@@ -1058,6 +1058,15 @@ def import_counts(conn: sqlite3.Connection) -> dict[int, ImportCounts]:
     return out
 
 
+def import_left(conn: sqlite3.Connection) -> int:
+    """The files the next import works through (the console's W10 line, plan library stage 4): online, not held,
+    not read yet (`new`) or read but not judged (`identified`). Unreadable ones are left out: the import tries them
+    again, but they wait for no one (the console would ask for them every run)."""
+    return conn.execute(
+        "SELECT COUNT(*) FROM files f JOIN watched_folders w ON w.id = f.folder WHERE w.kind = 'import' "
+        "AND f.online = 1 AND f.held = 0 AND f.import_state IN ('new', 'identified')").fetchone()[0]
+
+
 def _next_own(conn: sqlite3.Connection) -> int:
     """The n of the next own song's key: one above every n given out so far, also deleted ones (OWN_COUNTER), so a
     key never names two songs over time (a decision or a report may still name the old one)."""
@@ -1258,11 +1267,6 @@ def set_decision(conn: sqlite3.Connection, kind: str, a: str, b: str, answer: st
         conn.execute("INSERT OR REPLACE INTO decisions (kind, a, b, answer, at) VALUES (?, ?, ?, ?, ?)",
                      (kind, a, b, answer, now.isoformat(timespec="seconds")))
         _bump(conn)
-
-
-def group_id(file_ids: Collection[int]) -> str:
-    """A duplicate group's id: its file ids, sorted (a new copy makes it another group, so asked again)."""
-    return "dup:" + "-".join(str(i) for i in sorted(file_ids))
 
 
 def _group_ids(gid: str, *, strict: bool = True) -> set[int]:
