@@ -107,7 +107,7 @@ class Waiting:
 
 @dataclass(frozen=True)
 class SourceChosen:
-    """A download starts: from where, found how (isrc | name | fallback | chosen), and the candidate's title."""
+    """A download starts: from where, found how (exact | isrc | name | fallback | chosen), and the candidate's title."""
     track_id: str
     source: str
     query_kind: str

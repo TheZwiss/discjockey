@@ -35,7 +35,7 @@ class FakeAcquirer:
     def __init__(self, on_call=None):
         self.on_call, self.calls = on_call, 0
 
-    def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None):
+    def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None, exact=None):
         self.calls += 1
         if self.on_call:
             self.on_call(self.calls, tracker)
