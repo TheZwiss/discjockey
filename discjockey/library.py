@@ -8,6 +8,7 @@ import fcntl
 import hashlib
 import itertools
 import json
+import logging
 import os
 import shutil
 import signal
@@ -27,6 +28,8 @@ from .content_key import content_key
 from .events import Emit, Message, no_emit
 from .models import ScanSummary
 from .names import fold
+
+log = logging.getLogger(__name__)
 
 STATE_VERSION = 1
 
@@ -671,7 +674,7 @@ def move_path(root: Path, src: str, dst: str, staged: str | None, roots: Collect
     name (refused when it exists), and only then remove the source: the second half of a move, never the only copy.
     Any failure before that removes the staged copy and re-raises, the source untouched; when the source can't be
     removed (a read-only drive), the new copy goes again and SourceKept is raised: the file is in one place, its
-    old one."""
+    old one. A source that is already gone when the removal fails counts as removed: the copy is kept."""
     s, d = root / src, root / dst
     if not online(d, [root] if roots is None else roots):
         raise OSError(errno.ENXIO, DRIVE_GONE.format(path=dst))
@@ -695,15 +698,26 @@ def move_path(root: Path, src: str, dst: str, staged: str | None, roots: Collect
     try:
         os.unlink(s)
     except OSError as e:
-        d.unlink(missing_ok=True)  # the verified copy; the original stays where it was
-        raise SourceKept(e.errno, e.strerror or str(e)) from e
+        try:
+            os.lstat(s)
+            source_there = True
+        except FileNotFoundError:
+            source_there = False  # gone since (the user removed it): the copy at `dst` is the only one, it stays
+        except OSError:
+            source_there = True  # can't tell: assume it is there, and never keep the doubtful side
+        if source_there:
+            d.unlink(missing_ok=True)  # the verified copy; the original stays where it was
+            raise SourceKept(e.errno, e.strerror or str(e)) from e
 
 
 _HELD: list[list[int]] = []  # the Ctrl-Cs each open deferred_interrupt holds back, innermost last
 
 
 def interrupt_held() -> bool:
-    """A Ctrl-C arrived during the innermost deferred_interrupt block: a long copy stops for it."""
+    """A Ctrl-C arrived during the innermost deferred_interrupt block: a long copy stops for it. Only the main
+    thread, the one that gets signals and opens the blocks, reads _HELD; any other thread gets False."""
+    if threading.current_thread() is not threading.main_thread():
+        return False
     return bool(_HELD and _HELD[-1])
 
 
@@ -724,7 +738,10 @@ def deferred_interrupt():
             old(signal.SIGINT, None)
         raise
     finally:
-        _HELD.remove(received)
+        for i in range(len(_HELD) - 1, -1, -1):  # by identity: equal (empty) lists of nested blocks are not the same
+            if _HELD[i] is received:
+                del _HELD[i]
+                break
         signal.signal(signal.SIGINT, old)
     if received:  # hand the Ctrl-C to whoever was listening before (default: KeyboardInterrupt)
         if callable(old):
@@ -835,7 +852,7 @@ def _recover_renames(root: Path, op: dict, roots: Collection[Path]) -> _Recovere
     staged copy too (I7): source and target there with the same size and SHA-256 means only the source's removal
     was left; with the source gone and no target, a staged copy of the recorded size takes the target's name. A
     source that can't be removed ends the step with the file where it is, or in two places when the copy was
-    already in place: never retried forever. Other staged copies go. A rename the system refuses otherwise waits."""
+    already in place: never retried forever. Other staged copies go, except one of the wrong size with neither end there (kept, logged). A rename the system refuses otherwise waits."""
     staged = op["staged"] if isinstance(op.get("staged"), dict) else {}  # a swap's `staged` is one path of its own
     sizes = op.get("size") or {}
     renames = op["renames"]
@@ -880,8 +897,10 @@ def _recover_renames(root: Path, op: dict, roots: Collection[Path]) -> _Recovere
                 continue
         except OSError as e:  # e.g. permissions: keep the step pending and try again next start
             return _Recovered(f"could not move {src} ({e})", done_any, True)
-        if copy:
+        if copy and s:
             _remove_staged(copy)
+        elif copy and copy.exists():  # neither end there: it may be the last remnant of a file the user removed
+            log.warning("kept the staged copy %s: neither %s nor %s exists", copy, src, dst)
         return _Recovered(f"both {src} and {dst} exist" if s else f"neither {src} nor {dst} exists", done_any, False)
     return _Recovered("", done_any, False)
 

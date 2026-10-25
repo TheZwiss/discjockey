@@ -149,6 +149,36 @@ def test_a_step_on_one_drive_records_no_staging(paths, monkeypatch):
     assert "staged" not in seen[0] and "size" not in seen[0]
 
 
+def test_a_source_gone_when_its_removal_fails_leaves_the_copy_as_the_only_file(paths, other, monkeypatch):
+    src = touch(paths.library / "A/x.aiff")
+    dst = other / "x.aiff"
+    real = os.unlink
+
+    def unlink(p, *a, **kw):
+        if Path(p) == src:
+            real(p)  # the user removed it meanwhile
+            raise FileNotFoundError(errno.ENOENT, "No such file or directory")
+        real(p, *a, **kw)
+    monkeypatch.setattr(os, "unlink", unlink)
+    move_path(paths.root, "Library/A/x.aiff", str(dst), library.staging_path(str(dst)))  # no SourceKept
+    assert not src.exists() and dst.read_bytes() == b"audio" and not staged_of(dst).exists()
+
+
+def test_a_redo_whose_source_is_gone_when_its_removal_fails_keeps_the_copy(paths, other, monkeypatch):
+    state, src, dst = crossing_step(paths, other, src=True, staged=False, dst=False)
+    real = os.unlink
+
+    def unlink(p, *a, **kw):
+        if Path(p) == src:
+            real(p)
+            raise FileNotFoundError(errno.ENOENT, "No such file or directory")
+        real(p, *a, **kw)
+    monkeypatch.setattr(os, "unlink", unlink)
+    (message, ok), = recover_pending(paths, state)
+    assert ok and dst.read_bytes() == b"audio" and not src.exists()
+    assert load_state(paths)["pending"] == []
+
+
 def crossing_step(paths, other, *, src, staged, dst, staged_data=b"audio"):
     """A run_op step whose rename to the other drive was cut off, with the disk as a crash left it: the source,
     the staged copy and the target there or not."""
@@ -203,11 +233,13 @@ def test_recovery_with_only_a_whole_staged_copy_gives_it_the_target_name(paths, 
     assert dst.read_bytes() == b"audio" and not staged_of(dst).exists()
 
 
-def test_recovery_with_only_a_partial_staged_copy_removes_it_and_says_neither_exists(paths, other):
+def test_recovery_with_only_a_partial_staged_copy_keeps_it_says_neither_exists_and_names_it(paths, other, caplog):
     state, src, dst = crossing_step(paths, other, src=False, staged=True, dst=False, staged_data=b"aud")
-    (message, ok), = recover_pending(paths, state)
+    with caplog.at_level("WARNING", logger="discjockey.library"):
+        (message, ok), = recover_pending(paths, state)
     assert not ok and "neither" in message
-    assert not staged_of(dst).exists() and not dst.exists()  # the source's drive is there: it is truly gone
+    assert staged_of(dst).read_bytes() == b"aud" and not dst.exists()  # maybe the last remnant of a removed file
+    assert any(r.levelname == "WARNING" and str(staged_of(dst)) in r.getMessage() for r in caplog.records)
     assert load_state(paths)["pending"] == []
 
 
@@ -566,3 +598,27 @@ def test_a_ctrl_c_during_a_long_copy_stops_it_and_keeps_the_source(paths, other,
         run_op(paths, empty_state(), "t1", [("Library/A/x.aiff", str(dst))], None)
     assert src.stat().st_size == 3 << 20 and not dst.exists() and not staged_of(dst).exists()
     assert load_state(paths)["pending"] == []
+
+
+def test_nested_deferred_interrupts_each_remove_their_own_entry():
+    with library.deferred_interrupt():
+        outer, = library._HELD
+        outer.append(2)  # the outer block holds a Ctrl-C; the inner one holds none (equal-looking lists differ)
+        with library.deferred_interrupt():
+            assert len(library._HELD) == 2 and not library.interrupt_held()
+            outer.pop()  # make both lists equal (empty): list.remove would now match the outer entry
+        assert len(library._HELD) == 1 and library._HELD[0] is outer
+    assert library._HELD == []
+
+
+def test_interrupt_held_is_false_off_the_main_thread():
+    import threading
+    seen = []
+    with library.deferred_interrupt():
+        library._HELD[-1].append(2)
+        assert library.interrupt_held()
+        t = threading.Thread(target=lambda: seen.append(library.interrupt_held()))
+        t.start()
+        t.join()
+        library._HELD[-1].clear()
+    assert seen == [False]
