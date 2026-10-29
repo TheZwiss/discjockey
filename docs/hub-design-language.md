@@ -309,7 +309,7 @@ used.
 | `Surface` | `lib/components/Surface.svelte` | `gallery-surface` | `card` / `list` / `table`; `label`, `summary`, `tone`, `foldable`, `sticky`, `bulk` (All · None), `hint` (a group's one-line hint after the count, printed like `ListSection`'s: no dot between name, count and hint), `fitLabel` (the label is a folder's path, fitted into the head's free width like a watched folder's: `~` for home, parents giving way in whole folders, the folder's own name last; the full path is the tooltip), `header` (a Hint there gives way with the label), `grow` (`{ rows, tall? }`: fills its column up to its rows, 3-row minimum plus a peek, rows scroll inside; shared measuring with ToggleGroup in `growFill.ts`); `columns` (a table's column head, ruled and fixed above the rows, a `list` container of the rows' width so optional columns match) and `scroller` (bindable: the rows' scroller of a `grow` surface, for a table that renders only its visible rows); sets `data-surface`, `data-scrolls-itself` with `grow`, the fold `data-row-hit`. |
 | `Button` | `lib/components/Button.svelte` | `gallery-button` | `filled` · `primary` · `secondary` · `danger` · `link` · `icon`; an `icon` can be a toggle (`pressed`: accent text on `--accent-wash-strong` plus a dot, `aria-pressed`, the foot's Shuffle) and `size="xs"` (22 px, a row inside the sidebar). |
 | `ToggleGroup`, `ToggleRow` | `lib/components/` | `gallery-toggles` | On/off rows; `grow` inside a Panel `fill` (one per Panel); search from `SEARCH_FROM` rows (the query clears below it); `disabledReason`: each row's tooltip and a Hint in the head in place of All · None (gallery "Locked"). A `ToggleRow` alone in a `Surface kind="list"` is a single setting; its `sub` is a wrapping second line (the setting's detail, or why it is locked; Playlists' "Rename the folder on disk too"). |
-| `Segmented` | `lib/components/Segmented.svelte` | `gallery-segmented` | One of up to 6; counts, dots, More, tight mode. |
+| `Segmented` | `lib/components/Segmented.svelte` | `gallery-segmented` | One of up to 6; counts, dots (none at a count of 0), More, tight mode. |
 | `StatCard` | `lib/components/StatCard.svelte` | `gallery-statcard` | 30 px number + unit + label; a bar or ring as its child; `value={null}` is "—", also its loading state. |
 | `DayBar` | `lib/components/DayBar.svelte` | `gallery-daybar` | Today vs later; no limit; limit reached. Day mode (`input.day`, Dashboard): used today (filled, quiet) · this sync · left (outline) or later. Input from `dayBar` (`dayBarModel.ts`). |
 | `DeltaBar` | `lib/components/DeltaBar.svelte` | `gallery-deltabar` | A signed change either side of a centre line, `--w-row-action` wide: a gain grows right in the accent, a loss left in grey; every row of a list passes the same `max`, so lengths compare. The number sits beside it (the caller's). Playlists' move view. |
@@ -481,6 +481,11 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-29 · `Segmented`: a segment with a count of 0 has no dot (library stage 4 fix I).** The quality dot says
+  "there is something of this quality here"; at 0 nothing is, so a green dot on "Upgrade ready 0" promised an upgrade
+  that does not exist. The dot is left out in the block (`o.dot && o.count !== 0`), so every strip does the same; the
+  label and the 0 stay, and a segment without a count keeps its dot. Seen: gallery `gallery-segmented` ("a count of 0"),
+  `library-folder-no-upgrades`, `todo-filter-none` (the chosen "Weak 0").
 - **2026-10-29 · Why a file or folder isn't there (library stage 4 fix F3).** `Spectrum`'s `offline` flag becomes `away`
   (the words to show instead of "No file yet"); `WatchedFolderList` rows gain the state `missing` (mark `warn`, line
   "Folder not found: moved, renamed or deleted? Put it back or remove it here."), Settings' and Setup's summary says

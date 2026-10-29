@@ -1,6 +1,8 @@
 [
  { "name": "library-folder-selected", "route": "#/library/folder/Hard_Bounce?track=t2", "scenario": "normal",
    "steps": [{ "wait": "[data-test=track-details]" }, { "sleep": 1200 }] },
+ { "name": "library-folder-no-upgrades", "route": "#/library/folder/Qobuz_Picks", "scenario": "normal",
+   "steps": [{ "wait": "[data-test=library-table] [data-test^=row-]" }, { "sleep": 300 }] },
  { "name": "library-folder", "route": "#/library/folder/Hard_Bounce", "scenario": "normal",
    "steps": [{ "wait": "[data-test=library-overview] [data-test=overview-upgrades]" }] },
  { "name": "library-all", "route": "#/library", "scenario": "normal",

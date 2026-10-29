@@ -19,6 +19,8 @@
      { "wait": "[data-test=details][data-track=t10]" }, { "sleep": 600 }] },
  { "name": "todo-all-hidden", "route": "#/todo", "scenario": "todo:all-hidden",
    "steps": [{ "wait": "[data-test=todo-empty] [data-test=show-hidden]" }, { "sleep": 300 }] },
+ { "name": "todo-filter-none", "route": "#/todo?filter=weak", "scenario": "todo:no-weak",
+   "steps": [{ "wait": "[data-test=todo-filter]" }, { "sleep": 400 }] },
  { "name": "todo-all-lossless", "route": "#/todo", "scenario": "todo:all-lossless",
    "steps": [{ "wait": "[data-test=todo-empty]" }, { "sleep": 300 }] },
  { "name": "todo-console", "route": "#/todo?track=t17", "scenario": "console",

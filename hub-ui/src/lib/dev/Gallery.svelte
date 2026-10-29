@@ -203,6 +203,11 @@
     { key: 'lossless', label: 'Lossless', count: 226, dot: 'lossless' }, { key: 'good', label: 'Good', count: 49, dot: 'good_lossy' },
     { key: 'weak', label: 'Weak', count: 24, dot: 'weak' }, { key: 'fake', label: 'Fake', count: 3, dot: 'fake' },
     { key: 'missing', label: 'Not found', count: 4, dot: 'missing' }];
+  // a count of 0: nothing is there, so the dot stays away (the label and the 0 stay)
+  const QUALITY_NONE: SegOption<string>[] = [{ key: 'all', label: 'All', count: 12 },
+    { key: 'lossless', label: 'Lossless', count: 12, dot: 'lossless' }, { key: 'good', label: 'Good', count: 0, dot: 'good_lossy' },
+    { key: 'weak', label: 'Weak', count: 0, dot: 'weak' }, { key: 'fake', label: 'Fake', count: 0, dot: 'fake' },
+    { key: 'upgrade', label: 'Upgrade ready', count: 0, dot: 'lossless' }];
   // 8 options: 6 on the strip, the rest in More; the chosen one (Afterhours) is in More and stays visible
   let folder = $state<string>('f7');
   const FOLDERS: SegOption<string>[] = ['All', 'Ohne_Quatsch', 'Tekke_Ecke', 'Hard_Bounce', 'Bouncy', 'Rollers', 'Peak Time', 'Afterhours']
@@ -531,6 +536,8 @@
       <Segmented label="How many (hand-picked: none chosen)" options={HOW_MANY} value="custom" onchange={(k) => (howMany = k)} test="g-custom" />
       <span class="cap">counts and dots</span>
       <Segmented label="Quality" options={QUALITY_FILTER} value={qf} onchange={(k) => (qf = k)} test="g-quality" />
+      <span class="cap">a count of 0 · no dot</span>
+      <Segmented label="Quality (nothing weak, fake or to upgrade)" options={QUALITY_NONE} value="all" onchange={() => {}} test="g-quality-zero" />
       <span class="cap">8 options · chosen in More</span>
       <Segmented label="Folder" options={FOLDERS} value={folder} onchange={(k) => (folder = k)} test="g-folder" />
       <span class="cap">tight · 260 px strip</span>
