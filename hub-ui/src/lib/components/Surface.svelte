@@ -61,7 +61,7 @@
 </script>
 
 {#snippet head()}
-  <div class="head" class:inset={pad} class:sticky class:ruled={!pad && shown}>
+  <div class="head" class:inset={pad} class:sticky class:ruled={!pad && shown} class:wraps={!!fitLabel}>
     {#if label && foldable}
       <button type="button" class="fold" data-row-hit aria-expanded={open} aria-controls={open ? `${uid}-body` : undefined} onclick={() => (open = !open)}>
         <svg class="chev" class:open viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" /></svg><span class="title" id="{uid}-label">{label}</span>
@@ -126,6 +126,8 @@
   .head { display: flex; align-items: center; gap: var(--s-2); min-height: var(--h-list-row); padding: 0 var(--s-4);
     min-width: 0; }
   .head.inset { min-height: 0; padding: 0; }
+  /* a head with a fitted path: when the path is not whole beside the head's links, they wrap below it, so the path takes the head's width (fitHeadLabel) */
+  .head.wraps { flex-wrap: wrap; row-gap: var(--s-1); }
   /* the hairline under the head sits on the head, so it stays with it while the head is stuck */
   .head.ruled { border-bottom: var(--bw) solid var(--line-soft); }
   .head.sticky { position: sticky; top: var(--sticky-top, 0); z-index: 1; background: var(--surface-list); }
