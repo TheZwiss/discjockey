@@ -613,3 +613,19 @@ def test_the_librarys_own_waiting_and_unreadable_files_are_counted_like_an_impor
         assert db.import_unreadable(conn) == []  # the import folders' list is its own
         assert 1 not in db.import_counts(conn)
     assert counts == db.ImportCounts(files=3, waiting=1, identified=0, unreadable=1)
+
+
+def test_removal_counts_a_playlist_song_that_waits_for_a_link_to_a_file_in_the_folder(lib):
+    folder, _, key = removal_setup(lib)
+    (f,) = lib.add_files(folder, "Other.mp3")
+    other = lib.own_song(f, own(title="Other"))
+    state = lib.snap()
+    state["tracks"]["sp4"] = entry("Example Artist", "Other", duration_ms=200000)  # a certain match, not linked yet
+    state["tracks"]["sp5"] = entry("Somebody Else", "Other", duration_ms=200000)  # only plausible: not counted
+    lib.save(state)
+    with lib.conn() as conn:
+        db.set_decision(conn, "same_song", "sp9", key, "same", NOW)  # answered Yes; sp9 is not stored yet
+        assert db.removal_counts(conn, folder) == db.RemovalCounts(files=4, redownload=3)  # sp2, sp9, sp4
+        db.set_decision(conn, "same_song", "sp4", other, "not_same", NOW)
+        assert db.removal_counts(conn, folder) == db.RemovalCounts(files=4, redownload=2)
+        assert db.remove_watched_folder(conn, folder, date(2026, 10, 26)) == db.RemovalCounts(4, 2)
