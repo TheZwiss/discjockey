@@ -253,6 +253,8 @@ export type TrackLink = { url: string; label: string };
 export type TrackDetail = TrackRow & {
   /** false: an imported file whose sound isn't judged yet (see LibraryRow); `quality_line` then ends "sound not checked yet" */
   sound_checked: boolean;
+  /** false: the file's drive is away (an import folder on an unplugged drive); `audio_url` is then null too */
+  online: boolean;
   isrc: string | null; playlists: string[] | null; in_playlist_count: number; quality_line: string;
   /** "Opus · 135 kbps", "FLAC"; source_full: "YouTube Music", "bought", "your own file" for a file the import
    *  found (both null without a file) */

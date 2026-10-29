@@ -359,6 +359,15 @@ def test_track_detail():
     assert d["track_link"] == {"url": "https://open.spotify.com/track/t1", "label": "Open in Spotify"}
 
 
+def test_track_detail_says_when_the_files_drive_is_away():
+    there = e("lossless", path="/Volumes/Example Drive/x.wav", online=True)
+    away = e("lossless", path="/Volumes/Example Drive/x.wav", online=False)
+    assert views.track_detail("t1", there, [], TODAY)["online"] is True
+    assert views.track_detail("t1", away, [], TODAY)["online"] is False
+    assert views.track_detail("t1", e("lossless", path="Library/A/x.wav"), [], TODAY)["online"] is True  # no key: there
+    assert views.track_detail("t1", e("missing", online=False), [], TODAY)["online"] is True  # no file, nothing away
+
+
 GATE = {"url": "https://hypeddit.com/a/b", "host": "hypeddit.com", "direct": False, "page": "https://sc/1",
         "title": "Song (Free DL)", "uploader": "Artist"}
 

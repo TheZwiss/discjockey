@@ -28,7 +28,7 @@ function upgrade(extra: Partial<Upgrade> = {}): Upgrade {
     cue_text: 'matches exactly, cues stay', swap_safe: true, swap_possible: true, audio_url: 'u2', ...extra };
 }
 function detail(extra: Partial<TrackDetail> = {}): TrackDetail {
-  return { ...item('t2', 'weak'), isrc: null, playlists: ['Hard_Bounce'], in_playlist_count: 1,
+  return { ...item('t2', 'weak'), online: true, isrc: null, playlists: ['Hard_Bounce'], in_playlist_count: 1,
     quality_line: 'YouTube OPUS · cutoff 16.0 kHz', source_url: null, track_link: null, next_qobuz_check: null,
     rejected_sources: [], buy_links: { beatport: 'https://b', bandcamp: 'https://c' }, free_downloads: [],
     bought_name: 'Library/Hard_Bounce/A - t2.wav', audio_url: 'u1', upgrade: null, ...extra } as TrackDetail;
@@ -163,6 +163,10 @@ describe('actionsFor', () => {
     expect(actionsFor(detail({ status: 'missing', quality: 'missing', audio_url: null, path: null }), 'not_found').main)
       .toBe('find');
     expect(actionsFor(detail({ status: 'lossless', quality: 'lossless' }), 'other').main).toBe('finder');
+    expect(actionsFor(detail({ status: 'lossless', quality: 'lossless', online: false }), 'other').listen).toBe(true);   // switched off, no address
+    expect(actionsFor(detail({ audio_url: null, online: false }), 'weak').listen).toBe(true);
+    expect(actionsFor(detail({ audio_url: null }), 'weak').listen).toBe(false);
+    expect(actionsFor(detail({ status: 'lossless', quality: 'lossless', online: false }), 'other').main).toBeNull();   // its drive is away: nothing to show
     expect(actionsFor(detail(), 'weak').main).toBeNull();
     expect(actionsFor(detail({ status: 'fake_lossless' }), 'fake').main).toBeNull();
   });
@@ -183,7 +187,7 @@ describe('texts', () => {
     expect(cutoffStat({ status: 'not_lossless', cutoff_hz: 20100 }))
       .toEqual({ value: '20.1', label: 'where the highs end · lossless reaches about 22 kHz' });
     expect(cutoffStat({ status: 'not_lossless', cutoff_hz: null })).toEqual({ value: null, label: 'no clear edge in the highs' });
-    expect(cutoffStat({ status: 'fake_lossless', cutoff_hz: 16000 }))
+    expect(cutoffStat({ status: 'fake_lossless', cutoff_hz: 16000, path: 'Library/A/x.flac' }))
       .toEqual({ value: '16.0', label: 'where the highs end · a lossy file inside the FLAC' });
     expect(cutoffStat({ status: 'lossless', cutoff_hz: null })).toBeNull();
     expect(cutoffStat({ status: 'missing', cutoff_hz: null })).toBeNull();

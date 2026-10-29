@@ -165,12 +165,50 @@ export function serviceName(service: Service, full: string): string {
   return SERVICE_SHORT[service] ?? full;
 }
 
+/**
+ * `text` in the width it has (`fits` says whether a text fits): whole while it fits; else its middle gives way to "…"
+ * and both ends stay, the end a little longer, since the end is what tells two long names apart
+ * ("Artist - Title (… EDIT).wav" against "Artist - Title (… EDIT)(1).wav"). At least a character of each end stays, even
+ * when nothing fits (the element clips the rest).
+ */
+export function fitMiddle(text: string, fits: (text: string) => boolean): string {
+  if (fits(text) || text.length <= 2) return text;
+  const cut = (n: number) => {
+    const tail = Math.ceil(n / 2);
+    return `${text.slice(0, n - tail).trimEnd()}…${text.slice(text.length - tail).trimStart()}`;
+  };
+  let lo = 2, hi = text.length - 1;   // n characters of the text stay; lo is the least there is, hi the most
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (fits(cut(mid))) lo = mid; else hi = mid - 1;
+  }
+  return cut(lo);
+}
+
+/** What a watched folder's state line and a file's picture say when its drive is away (library stage 4, W3). */
+export const OFFLINE_WORDS = 'Offline: connect the drive';
+/** The track has a file, but its drive is away (the Library and To-do panels: offline words, no Show in Finder). */
+export const fileOffline = (t: Pick<TrackDetail, 'status' | 'online'>): boolean => t.status !== 'missing' && !t.online;
+
+/** The name of a file's container as people say it ("FLAC", "WAV", "AIFF"), from its path's extension; null for none
+ *  we know (a path without an extension, a lossy format). */
+const FILE_FORMATS: Record<string, string> = { flac: 'FLAC', wav: 'WAV', wave: 'WAV', aif: 'AIFF', aiff: 'AIFF', aifc: 'AIFF',
+  alac: 'ALAC', caf: 'CAF', wv: 'WavPack', ape: 'APE' };
+export function fileFormat(path: string | null | undefined): string | null {
+  const m = /\.([A-Za-z0-9]+)$/.exec(path ?? '');
+  return (m && FILE_FORMATS[m[1].toLowerCase()]) || null;
+}
+
 /** The current file's cutoff as a number for its StatCard (where the highs end, over the spectrum; To-do and
- *  Library): null for a lossless file or none (nothing to show), "—" (value null) when the analysis found no edge. */
-export function cutoffStat(t: Pick<TrackDetail, 'status' | 'cutoff_hz'> & { sound_checked?: boolean }): { value: string | null; label: string } | null {
+ *  Library): null for a lossless file or none (nothing to show), "—" (value null) when the analysis found no edge.
+ *  A fake lossless file names the format it really is ("a lossy file inside the WAV"), else says "a lossless file". */
+export function cutoffStat(t: Pick<TrackDetail, 'status' | 'cutoff_hz'> & { sound_checked?: boolean; path?: string | null }): { value: string | null; label: string } | null {
   // a file whose sound isn't checked yet has no cutoff to show: "no clear edge" would be a verdict
   if (t.status === 'lossless' || t.status === 'missing' || t.sound_checked === false) return null;
   const value = t.cutoff_hz ? (t.cutoff_hz / 1000).toFixed(1) : null;
-  if (t.status === 'fake_lossless') return { value, label: 'where the highs end · a lossy file inside the FLAC' };
+  if (t.status === 'fake_lossless') {
+    const format = fileFormat(t.path);
+    return { value, label: `where the highs end · a lossy file inside ${format ? `the ${format}` : 'a lossless file'}` };
+  }
   return { value, label: value ? 'where the highs end · lossless reaches about 22 kHz' : 'no clear edge in the highs' };
 }

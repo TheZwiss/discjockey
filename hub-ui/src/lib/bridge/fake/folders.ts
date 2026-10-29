@@ -35,6 +35,7 @@ const PROBLEM_WORDS = (other: string): Record<ImportFolderProblem, string> => ({
 const MERGE_HINT = (name: string) => `${name} is inside it and becomes part of it.`;
 const NO_ACCESS = "macOS doesn't let Discjockey read it";
 const NO_SOUND = "Discjockey can't find sound it can read in it";
+const EMPTY = 'The file is empty';
 const DONE = (files: number) => (files === 1 ? 'Imported 1 file.' : `Imported ${files} files.`);
 const STOPPED = (left: number) => `Import stopped with ${left === 1 ? '1 file' : `${left} files`} to go. `
   + 'It carries on where it stopped.';
@@ -295,6 +296,16 @@ export function seedImport(s: FakeState, scenario: string): void {
       { folder_id: music.id, path: `${music.path}/Crates/Neon Riot - Strobe Light.aiff`, reason: NO_ACCESS },
       { folder_id: music.id, path: `${music.path}/Old/Rave Kollektiv - Hyperdrive.wav`, reason: NO_SOUND },
       { folder_id: music.id, path: `${music.path}/Old/Untitled 3.mp3`, reason: NO_SOUND }];
+  }
+  if (scenario === 'folders_long_names') {
+    // names that differ only at their end, and folders on other drives with names of every length
+    const crates = add({ path: '/Volumes/New Volume/Crates Mix', files: 96, redownload: 0 });
+    add({ path: '/Volumes/Backup Drive/DJ Sets/2019/Peak Hour Rarities and Other Long Folder Names', files: 3010, redownload: 0 });
+    const long = 'Example Artist - A Very Long Title (GUEST ONE x GUEST TWO EDIT)';
+    s.imp.unreadable = [
+      { folder_id: music.id, path: `${music.path}/Crates/${long}.wav`, reason: EMPTY },
+      { folder_id: music.id, path: `${music.path}/Crates/${long}(1).wav`, reason: EMPTY },
+      { folder_id: crates.id, path: `${crates.path}/Untitled 3.mp3`, reason: NO_SOUND }];
   }
   if (scenario === 'todo_same_song') s.imp.questions = sampleQuestions();
   if (scenario === 'sync_waiting_answers') { s.imp.questions = sampleQuestions().slice(0, 2); s.imp.deferred = 40; }

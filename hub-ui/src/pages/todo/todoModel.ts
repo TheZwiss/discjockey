@@ -7,7 +7,7 @@ import type {
 import { isDuplicate, isQuestion } from '$lib/bridge/types';
 import type { QueueItem } from '$lib/stores/queueModel';
 import type { PlayerState } from '$lib/stores/player';
-import { duration } from '$lib/format';
+import { duration, fileOffline } from '$lib/format';
 
 /** Filter order = the contract's group order (= the list's section order), All first. The import's two groups come
  *  right after rekordbox: they hold downloads back until they are answered (plan library stage 4 D4), and the strip
@@ -238,9 +238,9 @@ export function actionsFor(track: TrackDetail, group: TodoGroupKey | null = null
   const swap = !!up && up.swap_safe && up.swap_possible;
   const check = group === 'rekordbox_check';
   const upgrade = up ? { swap, primary: swap ? 'swap' as const : 'add_new' as const } : null;
-  const finder = group === 'other' && !!track.path;
+  const finder = group === 'other' && !!track.path && !fileOffline(track);   // nothing to show when its drive is away
   return {
-    listen: !!track.audio_url,
+    listen: !!track.audio_url || fileOffline(track),   // offline: the player stays, switched off, as in the Library
     versions: missing ? 'find' : 'wrong_song',
     noneOfThese: !missing,
     buy: improvable,

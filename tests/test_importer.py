@@ -248,6 +248,26 @@ def test_an_unreadable_file_is_listed_then_tried_again_and_done(paths, tmp_path)
     assert len(own_entries(paths)) == 3
 
 
+def test_an_empty_file_says_it_is_empty(paths, tmp_path):
+    folder = songs_folder(paths, tmp_path, n=2)
+    (folder / "Example Artist - Song 2.aiff").write_bytes(b"")
+    fakes = Fakes()
+    fakes.probe_fails.add("Example Artist - Song 2.aiff")  # what ffprobe does with it
+    assert go(paths, fakes).unreadable == 1
+    with db.connect(paths.db_file) as conn:
+        assert db.import_unreadable(conn) == [(folder / "Example Artist - Song 2.aiff", importer.EMPTY)]
+    assert importer.EMPTY == "The file is empty"
+
+
+def test_a_file_with_content_that_cant_be_read_is_not_called_empty(paths, tmp_path):
+    folder = songs_folder(paths, tmp_path, n=1)
+    fakes = Fakes()
+    fakes.probe_fails.add("Example Artist - Song 1.aiff")
+    go(paths, fakes)
+    with db.connect(paths.db_file) as conn:
+        assert db.import_unreadable(conn) == [(folder / "Example Artist - Song 1.aiff", importer.NO_SOUND)]
+
+
 def test_a_file_the_sound_check_cant_read_is_only_checked_again(paths, tmp_path):
     songs_folder(paths, tmp_path, n=2)
     fakes = Fakes()

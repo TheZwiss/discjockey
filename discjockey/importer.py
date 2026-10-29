@@ -55,6 +55,7 @@ LINK_FAILED = "Your playlists couldn't be linked yet: {reason}."  # playlists.tx
 # why a file couldn't be read: "{path}: {reason}"
 NO_ACCESS = "macOS doesn't let Discjockey read it"
 NO_SOUND = "Discjockey can't find sound it can read in it"
+EMPTY = "The file is empty"
 
 
 @dataclass(frozen=True)
@@ -163,10 +164,16 @@ class _Pacer:
             self.emit(ImportProgress(self.phase, done, self.total, unreadable))
 
 
-def _reason(e: BaseException) -> str:
-    """Plain words for why a file couldn't be read, never a traceback."""
+def _reason(e: BaseException, path: Path) -> str:
+    """Plain words for why a file `path` couldn't be read, never a traceback. A file of 0 bytes says so (the readers
+    only know there is no sound in it)."""
     if isinstance(e, PermissionError) or (isinstance(e, OSError) and e.errno in (errno.EACCES, errno.EPERM)):
         return NO_ACCESS
+    try:
+        if path.stat().st_size == 0:
+            return EMPTY
+    except OSError:  # gone or unreadable meanwhile: the reason of the first failure stands
+        pass
     if isinstance(e, OSError) and not isinstance(e, FileNotFoundError) and e.strerror:
         return e.strerror.lower()
     return NO_SOUND
@@ -196,7 +203,7 @@ class _Run:
     def unreadable(self, conn, row: ImportRow, e: BaseException) -> None:
         if _gone(row):
             return
-        db.set_unreadable(conn, row.file_id, _reason(e))
+        db.set_unreadable(conn, row.file_id, _reason(e, row.path))
         self.read.add(row.file_id)
         self.failed.add(row.file_id)
 

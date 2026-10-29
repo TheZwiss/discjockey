@@ -3,6 +3,7 @@
 // WatchedFolderList's rows and by a Surface head's `fitLabel`; the spans start empty in the markup, so only this action
 // writes them. `Options.room`: the width the path may take when it is not the element's own (a label in a head
 // shares the line with its summary and buttons; the label itself only takes what its text needs).
+import { fitMiddle } from '$lib/format';
 import { fitPath } from './watchedFoldersModel';
 
 export type FitOptions = { room?: (el: HTMLElement) => number; observe?: (el: HTMLElement) => HTMLElement };
@@ -39,6 +40,29 @@ export function fitPathAction(el: HTMLElement, path: string, opts: FitOptions = 
   void document.fonts?.ready.then(run);
   return {
     update(p: string) { current = p; run(); },
+    destroy() { ro?.disconnect(); },
+  };
+}
+
+/** A name's text in the form that fits the element's width (fitMiddle: the middle gives way, both ends stay), measured
+ *  with the element's own font, again when its width changes or the fonts finish loading. MiddleText uses it. */
+export function fitMiddleAction(el: HTMLElement, text: string) {
+  let current = text;
+  const ctx = document.createElement('canvas').getContext('2d');
+  function run() {
+    const width = el.getBoundingClientRect().width;
+    // no canvas (tests) or not laid out yet: the whole text, and the element's ellipsis does the rest
+    if (!ctx || width === 0) { el.textContent = current; return; }
+    const s = getComputedStyle(el);
+    ctx.font = `${s.fontStyle} ${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
+    el.textContent = fitMiddle(current, (t) => ctx.measureText(t).width <= width);
+  }
+  const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(run);
+  ro?.observe(el);
+  run();
+  void document.fonts?.ready.then(run);
+  return {
+    update(t: string) { current = t; run(); },
     destroy() { ro?.disconnect(); },
   };
 }
