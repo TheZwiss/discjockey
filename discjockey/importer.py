@@ -29,7 +29,7 @@ import mutagen
 from mutagen.id3 import ID3
 
 from . import db, identify, library, quality
-from .events import Cancelled, CancelToken, Emit, ImportProgress, no_emit
+from .events import Cancelled, CancelToken, Emit, ImportProgress, Message, no_emit
 from .library import Paths, StateError
 from .models import ImportRow, OwnFacts
 
@@ -258,7 +258,8 @@ def run_import(paths: Paths, *, emit: Emit = no_emit, token: CancelToken, link: 
     run = _Run(paths, emit, token, read_tags, probe, inspect)
     emit(ImportProgress("scan", 0, 0, 0))
     state = library.open_state(paths, emit)
-    library.recover_pending(paths, state)
+    for message, ok in library.recover_pending(paths, state):  # as every writer's start (tidy._begin)
+        emit(Message("info" if ok else "warning", message))
     library.clear_tmp(paths, state)
     library.scan_library(paths, emit, analyze=inspect)
     try:

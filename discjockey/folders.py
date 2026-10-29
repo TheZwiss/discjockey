@@ -213,8 +213,9 @@ def supersede(paths: Paths, group_id: str, file_id: int, *, emit: Emit = no_emit
     over (_heir). No move batch, no undo; a line in reports/operations.jsonl. Interrupted steps are finished first.
     OpProblem(CHANGED) when the group isn't as the window showed it, OpProblem(failed) when the move was refused
     (nothing moved). Returns where the file went."""
-    state = library.open_state(paths)
-    library.recover_pending(paths, state)
+    state = library.open_state(paths, emit)
+    for message, ok in library.recover_pending(paths, state):  # as every writer's start (tidy._begin)
+        emit(Message("info" if ok else "warning", message))
     with db.connect(paths.db_file) as conn:
         try:
             files = _current(conn, state, group_id, file_id)
