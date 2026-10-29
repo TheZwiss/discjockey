@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Library browser – design system</title>
+<style>
+  body { margin: 0; padding: 24px; background: #111; color: #9a9aa0; font: 13px -apple-system, sans-serif; }
+  .bar { padding: 0 0 14px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  .bar h2 { margin: 0; color: #f2f2f4; font-size: 15px; }
+  .pick { display: inline-flex; flex-wrap: wrap; border: 1px solid #333; border-radius: 8px; overflow: hidden; }
+  .pick button { background: none; border: 0; border-left: 1px solid #333; color: #9a9aa0; font: 12px -apple-system; padding: 6px 10px; cursor: pointer; }
+  .pick button:first-child { border-left: 0; }
+  .pick button.on { background: rgba(255,90,31,.16); color: #ff8a5a; }
+  .pick button:active { transform: scale(.96); }
+  .pick .sep { width: 1px; background: #555; }
+  .note { max-width: 1180px; line-height: 1.55; margin: 0 0 18px; }
+  .note h3 { color: #f2f2f4; font-size: 14px; margin: 18px 0 6px; }
+  .note p { margin: 0 0 8px; }
+  .note b { color: #dcdce0; }
+  .note ol { margin: 0 0 8px; padding-left: 20px; } .note li { margin: 0 0 5px; }
+  table.sig { border-collapse: collapse; margin: 0 0 10px; line-height: 1.45; width: 100%; }
+  table.sig td, table.sig th { border-top: 1px solid #262629; padding: 6px 14px 6px 0; vertical-align: top; text-align: left; }
+  table.sig th { color: #dcdce0; font-weight: 600; }
+  table.sig td:first-child { color: #dcdce0; width: 230px; }
+  .opt { margin: 22px 0 8px; color: #f2f2f4; font-size: 15px; font-weight: 700; }
+  .stage { overflow: hidden; }
+  .extra { margin-top: 18px; display: flex; gap: 28px; align-items: flex-start; }
+  .extra .cap { color: #6a6a70; font-size: 12px; margin-bottom: 6px; }
+
+  /* ---- look 2 tokens (docs/hub-design-language.md, tokens.css), as library-sidebar.html ---- */
+  .win { --bg: #000; --sb-bg: linear-gradient(#0b0b0d, #070708); --sb-line: rgba(255,255,255,.06); --panel-bg: #040405; --text: #dcdce0; --text-strong: #f4f4f6; --muted: #9a9aa2; --label: #5c5c64; --nav: #7c7c84;
+    --accent: #ff5a1f; --accent-text: #ff8a5a; --accent-wash: rgba(255,90,31,.14); --ctl-line: rgba(255,255,255,.09); --ctl-bg: rgba(255,255,255,.03); --hover: rgba(255,255,255,.035); --ctl-hover: rgba(255,255,255,.05);
+    --list-bg: linear-gradient(#0c0c0e, #08080a); --list-solid: #0b0b0d; --list-line: rgba(255,255,255,.06); --row-line: rgba(255,255,255,.045);
+    --card-bg: linear-gradient(#0f0f12, #0a0a0c); --card-line: rgba(255,255,255,.07); --card-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.6);
+    --good: #2fd27a; --ok: #e8b93a; --weak: #f0524a; --lossy: #a77bff; --missing: #c0504a; --wait: #e8b93a; --nav-on: rgba(255,255,255,.07); --pop-bg: #1b1b1f;
+    transform-origin: 0 0; display: flex; overflow: hidden; border-radius: 12px; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; background: var(--bg); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.35); position: relative; }
+  .win * { box-sizing: border-box; }
+
+  /* ---- the sidebar: the L frame's left arm (168 px, as today) ---- */
+  .sb { width: var(--sb-w, 168px); flex: none; padding: 16px 10px; background: var(--sb-bg); border-right: 1px solid var(--sb-line); display: flex; flex-direction: column; gap: 2px; min-height: 0; position: relative; }
+  .brand { color: #9a9aa0; font-weight: 700; padding: 0 6px 12px; display: flex; gap: 6px; align-items: center; }
+  .brand i { width: 8px; height: 8px; border-radius: 50%; background: #9a9aa0; }
+  .nav { display: flex; align-items: center; height: 30px; flex: none; padding: 0 8px; border-radius: 7px; color: var(--nav); white-space: nowrap; min-width: 0; cursor: default; position: relative; }
+  .nav:hover { background: var(--ctl-bg); color: var(--text); }
+  .nav.on { color: var(--text-strong); background: var(--nav-on); }
+  .nav.kb { background: var(--accent-wash); color: var(--text-strong); }              /* the search's first match: Enter opens it */
+  .nav.menu-on { box-shadow: inset 0 0 0 1px rgba(255,138,90,.55); color: var(--text); }   /* the row a context menu acts on */
+  .g { width: 14px; height: 14px; flex: none; display: grid; place-items: center; font-size: 12px; margin-right: 9px; }
+  .g .gl, .g svg { opacity: .8; }
+  .nav.on .g svg { opacity: 1; }
+  .t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .t .h, .t .gt { color: var(--label); }                                    /* parent hint "· Old Sets" and the "›" of a crate in a crate */
+  .nav.on .t .h, .nav.on .t .gt { color: var(--muted); }
+  .t .hl { color: var(--text-strong); font-weight: 600; }                    /* the letters a search matched */
+  .c { flex: none; min-width: var(--count-w, 14px); margin-left: 4px; text-align: right; font-size: 11px; color: var(--label); font-variant-numeric: tabular-nums; }
+  .nav.on .c, .nav.kb .c { color: var(--muted); }
+  .chev { flex: none; width: 10px; height: 22px; margin-left: 2px; display: grid; place-items: center; border-radius: 5px; color: var(--label); }
+  .chev svg { transition: transform 160ms cubic-bezier(.23,1,.32,1); }
+  .chev.open svg { transform: rotate(90deg); }
+  .nav.on .chev { color: var(--muted); }
+  .crate { padding-left: 31px; }                                             /* a crate: no glyph, its name under its watched folder's name */
+  .mark { width: 13px; height: 13px; border-radius: 50%; border: 1px solid rgba(232,185,58,.7); background: rgba(232,185,58,.14); color: var(--wait); font: 700 9px/11px -apple-system; text-align: center; }
+  .off { opacity: .5; }                                                      /* switched off: the sidebar's one dim */
+
+  /* the LIBRARY caption row: the caption and the search magnifier (its icon on the counts' right edge) */
+  .cap-row { display: flex; align-items: center; height: 30px; flex: none; padding: 8px 2px 0 7px; }
+  .sbcap { flex: 1; font-size: 11px; letter-spacing: .7px; text-transform: uppercase; color: var(--label); }
+  .ibtn { flex: none; width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; color: var(--label); }
+  .ibtn:hover { background: var(--ctl-hover); color: var(--text); }
+  .ibtn:active { transform: scale(.97); }
+  .find { flex: none; height: 28px; margin: 6px 0 2px; border-radius: 7px; border: 1px solid rgba(255,138,90,.45); background: var(--ctl-bg); box-shadow: 0 0 0 3px rgba(255,90,31,.12);
+    display: flex; align-items: center; gap: 7px; padding: 0 4px 0 8px; color: var(--text-strong); font-size: 12px; }
+  .find .ico { color: var(--muted); display: grid; }
+  .find .q { flex: 1; min-width: 0; white-space: nowrap; }
+  .find .q::after { content: ''; display: inline-block; width: 1px; height: 13px; background: var(--accent-text); vertical-align: -2px; margin-left: 1px; }
+  .find .x { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); background: rgba(255,255,255,.07); font-size: 10px; }
+  /* a section header: sentence case, quieter than the rows, the whole row folds; its chevron on the counts' right edge */
+  .sh { display: flex; align-items: center; height: 26px; flex: none; padding: 0 3px 0 8px; margin-top: 6px; border-radius: 7px; color: var(--label); font-size: 12px; font-weight: 600; cursor: default; }
+  .sh:hover { background: var(--ctl-bg); color: var(--muted); }
+  .sh .n { font-weight: 400; margin-left: 6px; font-variant-numeric: tabular-nums; flex: 1; }
+  .sh .sp { flex: 1; }
+  .sh .ibtn { width: 20px; height: 20px; }
+  .sh .chev { width: 20px; height: 20px; margin: 0; }
+  .lib { display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; position: relative; }
+  .lib::-webkit-scrollbar { display: none; }
+  .gap { height: 6px; flex: none; }
+  .settings { margin-top: 8px; }
+  .lib.fade { -webkit-mask-image: linear-gradient(transparent, #000 14px, #000 calc(100% - 18px), transparent); }
+  .lib.fade-b { -webkit-mask-image: linear-gradient(#000 calc(100% - 18px), transparent); }
+  .empty { color: var(--label); font-size: 12px; padding: 8px 8px; line-height: 1.4; }
+
+  /* drag: the lifted row follows the pointer; the rows below part to show where it lands */
+  .slot { height: 30px; flex: none; border-radius: 7px; border: 1px dashed rgba(255,255,255,.16); background: rgba(255,255,255,.02); }
+  .lift { position: absolute; left: 0; right: 0; z-index: 3; background: #1d1d22; color: var(--text-strong); box-shadow: 0 10px 24px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,.08); transform: scale(1.03) rotate(-.6deg); }
+  .cursor { position: absolute; z-index: 9; pointer-events: none; }
+
+  /* the context menu (ContextMenu block): at the pointer, a note column on the right */
+  .cmenu { position: absolute; z-index: 8; min-width: 236px; padding: 5px; border-radius: 9px; background: var(--pop-bg); border: 1px solid rgba(255,255,255,.1); box-shadow: 0 14px 40px rgba(0,0,0,.7); font-size: 13px; }
+  .cmenu div { display: flex; align-items: center; gap: 12px; height: 26px; padding: 0 9px; border-radius: 5px; color: var(--text); white-space: nowrap; }
+  .cmenu div.hov { background: var(--accent); color: #fff; }
+  .cmenu div span { margin-left: auto; color: var(--label); font-size: 12px; }
+  .cmenu div.hov span { color: rgba(255,255,255,.75); }
+  .cmenu hr { border: 0; border-top: 1px solid rgba(255,255,255,.08); margin: 4px 6px; }
+  .tip { position: absolute; z-index: 8; padding: 5px 8px; border-radius: 6px; background: #26262b; border: 1px solid rgba(255,255,255,.1); color: var(--text); font-size: 11px; line-height: 1.45; box-shadow: 0 6px 18px rgba(0,0,0,.6); white-space: nowrap; }
+  .tip .lb { color: var(--muted); }
+
+  /* ---- the page ---- */
+  .main { flex: 1; min-width: 0; overflow: hidden; display: flex; justify-content: center; }
+  .col { width: 100%; max-width: 1244px; height: 100%; padding: 20px 22px 0; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .col > * { flex: none; }
+  .hd { display: flex; align-items: center; gap: 10px; min-height: 34px; min-width: 0; }
+  .hd h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-strong); letter-spacing: -.02em; white-space: nowrap; }
+  .hd .st { color: var(--muted); font-size: 12px; padding-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .hd .st a { color: var(--accent-text); text-decoration: none; }
+  .search { margin-left: auto; flex: none; width: 240px; height: 34px; border-radius: 8px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--label); font-size: 12px; display: flex; align-items: center; gap: 8px; padding: 0 10px; }
+  .search kbd { margin-left: auto; font: 11px -apple-system; border: 1px solid var(--ctl-line); border-radius: 4px; padding: 1px 4px; color: var(--muted); }
+  .seg { display: flex; border: 1px solid var(--ctl-line); border-radius: 9px; background: var(--ctl-bg); overflow: hidden; height: 32px; min-width: 0; }
+  .seg div { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--muted); border-left: 1px solid var(--ctl-line); white-space: nowrap; padding: 0 8px; }
+  .seg div > span:not(.dot) { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .seg div:first-child { border-left: 0; }
+  .seg div b { font-weight: 500; color: var(--label); font-variant-numeric: tabular-nums; }
+  .seg div.on { background: var(--accent-wash); color: var(--accent-text); flex-shrink: 0; flex-basis: auto; }
+  .seg div.on b { color: var(--accent-text); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--c); display: inline-block; }
+  .tbl { border-radius: 12px; background: var(--list-bg); border: 1px solid var(--list-line); min-width: 0; flex: 1 1 auto !important; min-height: 0; margin-bottom: 20px; display: flex; flex-direction: column; overflow: hidden; }
+  .scroll { flex: 1; min-height: 0; overflow: hidden; -webkit-mask-image: linear-gradient(#000 calc(100% - 18px), transparent); }
+  .th-row, .tr { display: grid; grid-template-columns: var(--cols); align-items: center; column-gap: 12px; padding: 0 14px; }
+  .th-row { height: 34px; border-bottom: 1px solid var(--row-line); background: var(--list-solid); flex: none; }
+  .tr { height: 36px; border-top: 1px solid var(--row-line); font-size: 12px; }
+  .scroll > .tr:first-child { border-top: 0; }
+  .hc { color: var(--label); font: 500 11px -apple-system; letter-spacing: .7px; text-transform: uppercase; white-space: nowrap; justify-self: start; }
+  .hc.on { color: var(--muted); }
+  .info { justify-self: end; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--ctl-line); color: var(--muted); font: 600 10px -apple-system; display: grid; place-items: center; }
+  .t1 { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .cov { width: 22px; height: 22px; border-radius: 4px; flex: none; }
+  .nm { color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .cut { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .mu { color: var(--muted); } .lbc { color: var(--label); }
+  .badge { justify-self: start; font: 600 11px -apple-system; letter-spacing: .3px; padding: 2px 6px; border-radius: 5px; border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); color: var(--c); white-space: nowrap; }
+  .pl { justify-self: start; max-width: 100%; display: inline-flex; gap: 4px; font: 500 11px -apple-system; padding: 2px 6px; border-radius: 5px; border: 1px solid rgba(255,255,255,.13); color: var(--muted); white-space: nowrap; overflow: hidden; }
+  .pl span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .pl b { font-weight: 500; color: var(--label); flex: none; }
+  .panel { flex: none; width: 360px; background: var(--panel-bg); border-left: 1px solid var(--sb-line); padding: 20px; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .card { border-radius: 12px; background: var(--card-bg); border: 1px solid var(--card-line); box-shadow: var(--card-shadow); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .bign { font-size: 30px; font-weight: 700; color: var(--text-strong); line-height: 1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .bign small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .lbl { color: var(--label); font-size: 11px; margin-top: 4px; }
+  .qbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; }
+  .qbar i { display: block; background: var(--c); }
+  .q-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); }
+  .q-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .q-legend b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .surf { border-radius: 12px; background: var(--list-bg); border: 1px solid var(--list-line); min-width: 0; }
+  .lrow { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto 12px; align-items: center; gap: 10px; height: 40px; padding: 0 14px; border-top: 1px solid var(--row-line); font-size: 12px; }
+  .lrow:first-child { border-top: 0; }
+  .lrow .n { color: var(--text); font-variant-numeric: tabular-nums; }
+  .lrow .chv, .lrow .q { color: var(--label); }
+  .pfoot-hint { margin-top: auto; text-align: center; color: var(--label); font-size: 12px; padding: 4px 0 2px; }
+
+  /* ---- variant B: the browser column, a list surface on the page (like the table beside it) ---- */
+  .bwrap { flex: 1 1 auto !important; min-height: 0; display: flex; gap: 14px; margin-bottom: 20px; min-width: 0; }
+  .browser { width: 216px; flex: none; border-radius: 12px; background: var(--list-bg); border: 1px solid var(--list-line); display: flex; flex-direction: column; padding: 8px 6px 0; min-height: 0; }
+  .browser .find { margin: 0 0 4px; border-color: var(--ctl-line); box-shadow: none; color: var(--label); }
+  .browser .find.typed { border-color: rgba(255,138,90,.45); box-shadow: 0 0 0 3px rgba(255,90,31,.12); color: var(--text-strong); }
+  .browser .find kbd { font: 11px -apple-system; border: 1px solid var(--ctl-line); border-radius: 4px; padding: 0 4px; color: var(--muted); margin-right: 4px; }
+  .browser .find:not(.typed) .q::after { display: none; }
+  .bright { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+  .bright > * { flex: none; }
+  .bright .tbl { margin-bottom: 0; }
+
+  /* ---- Settings ---- */
+  .slist .srow { display: grid; grid-template-columns: 16px minmax(0,1fr) auto 12px; gap: 10px; align-items: center; height: 44px; padding: 0 14px; border-top: 1px solid var(--row-line); }
+  .slist .srow:first-child { border-top: 0; }
+  .slist .srow.on { background: var(--nav-on); }
+  .slist .srow b { font-weight: 500; color: var(--text-strong); }
+  .slist .srow .s { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .scap { font-size: 13px; font-weight: 600; color: var(--text); margin: 4px 0 -6px 2px; }
+  .ok-mark { width: 13px; height: 13px; border-radius: 50%; border: 1px solid rgba(47,210,122,.6); color: var(--good); font: 700 8px/11px -apple-system; text-align: center; }
+  .ptitle { display: flex; align-items: baseline; gap: 8px; } .ptitle h3 { margin: 0; font-size: 17px; color: var(--text-strong); }
+  .wf { display: grid; grid-template-columns: 16px minmax(0,1fr) auto; gap: 10px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--row-line); min-height: 52px; }
+  .wf:first-child { border-top: 0; }
+  .wf.on { background: var(--nav-on); }
+  .wf .nm2 { color: var(--text-strong); font-weight: 500; }
+  .wf .ln { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wf .ln.many { color: var(--text); }
+  .wf .pa { color: var(--label); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wf .fc { color: var(--label); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+  .tg-head { white-space: nowrap; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; border-bottom: 1px solid var(--row-line); font-size: 12px; color: var(--muted); }
+  .tg-head b { color: var(--text); font-weight: 600; }
+  .tg-head .lk { color: var(--accent-text); } .tg-head .lk.dis { color: var(--label); }
+  .tg-find { margin: 8px 12px 4px; height: 28px; border-radius: 7px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); display: flex; align-items: center; gap: 7px; padding: 0 8px; color: var(--label); font-size: 12px; }
+  .trow { display: grid; grid-template-columns: 26px minmax(0,1fr) auto; gap: 10px; align-items: center; height: 32px; padding: 0 12px; font-size: 12px; }
+  .trow .nm3 { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .trow.off .nm3 { color: var(--muted); }
+  .trow .nm3 .h { color: var(--label); }
+  .trow .fc { color: var(--label); font-variant-numeric: tabular-nums; }
+  .sw { width: 26px; height: 16px; border-radius: 8px; background: rgba(255,255,255,.12); position: relative; }
+  .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #c9c9cf; }
+  .sw.on { background: var(--accent); } .sw.on::after { left: 12px; background: #fff; }
+  .ncard { border-radius: 10px; border: 1px solid var(--card-line); background: var(--card-bg); padding: 10px 12px; font-size: 12px; line-height: 1.45; color: var(--text); display: flex; gap: 9px; }
+  .ncard .i { flex: none; width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--ctl-line); color: var(--muted); font: 600 10px/13px -apple-system; text-align: center; margin-top: 1px; }
+  .go { height: 34px; border-radius: 10px; border: 0; background: linear-gradient(#ff6a32, #f24f14); color: #fff; font: 600 13px -apple-system; box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 0 18px rgba(255,90,31,.25); }
+  .tgbox { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .tgbox .rows { flex: 1; min-height: 0; overflow: hidden; -webkit-mask-image: linear-gradient(#000 calc(100% - 16px), transparent); }
+</style>
+</head><body>
+
+<div class="bar">
+  <h2>Library browser (sidebar rethink)</h2>
+  <span class="pick" id="state"></span>
+  <span style="color:#6a6a70">1280 × 800 · each state has a hash, e.g. <code>#a-default</code></span>
+</div>
+
+<div class="note">
+  <h3>Why a rethink</h3>
+  <p>The stage 5 mockup (<code>library-sidebar.html</code>, kept as the old design) showed a watched folder and its direct subfolders. A watched folder is often a <b>wrapper</b>: Rekordbox Library › Music › DJ › Hardtechno / Bounce / Rock. Its one level shows just "Music", and clicking it shows the whole library on one page, with no hint why or how to fix it. And with 35 playlists and 30 folders, one flat list needs search, favourites, folding and an order.</p>
+
+  <h3>Decisions (both variants)</h3>
+  <ol>
+    <li><b>Folders show their crates, not their tree.</b> A crate is a folder that holds music files itself. Under its watched folder, each crate is one row, one indent deep, whatever its depth on disk. Wrapper folders (no music files of their own: Music, DJ, Old Sets) never get a row; the tooltip gives the full path. <i>Why:</i> the folders a DJ thinks in are the ones with tracks in them, and they're exactly the ones rekordbox users drag into crates; the wrapper levels are just how the disk happens to be arranged.</li>
+    <li><b>A crate is called by its own folder name.</b> When two crates share a name, both get their parent folder as a quiet hint: <b>Bounce · DJ</b>, <b>Bounce · Old Sets</b>. A crate inside another crate reads <b>Hardtechno › 2019</b> and sorts right after its parent. Crates are A–Z under their watched folder. <i>Why:</i> an A–Z list is what you scan for a name; the "›" form keeps a nested crate beside its parent without making the list a tree. A crate's count is its files plus those of crates inside it (Hardtechno 180 = 142 + 2019's 38), the same rule as before (files at or below).</li>
+    <li><b>Hiding is per crate, and only hides the row.</b> Right-click → Hide from sidebar, or switch it off in Settings → Watched folders. The crate's files stay everywhere else: the watched folder's page, All tracks, search. <i>Why:</i> the sidebar is a shortcut list. Hiding never changes what's in the library.</li>
+    <li><b>Too many crates: limit 25.</b> A watched folder with more than 25 crates (an Artist › Album library: 312 albums) shows as one row with no chevron. Settings says "312 folders with music, too many for the sidebar: switch on the ones you want to see", and the ones you switch on show under it. <i>Why 25:</i> 25 rows of 30 px are 750 px, a whole sidebar at 800. A curated crate set is usually well under that, while an album library is in the hundreds, so the limit only ever catches the second kind. Search still finds every album.</li>
+    <li><b>A watched folder's page shows everything in it.</b> Its Subfolder column uses the crate names from the sidebar, without the wrapper levels ("Hardtechno › 2019", not "Music › DJ › Hardtechno › 2019"), and it's the page's default sort. Hidden crates are listed too.</li>
+    <li><b>Search filters names, not tracks.</b> The magnifier in the LIBRARY heading (or ⌘K) turns the heading into a filter field. Everything that doesn't match goes away. Folded sections open for the search. Matches keep their section and, for a crate, its watched folder row as context. The matched letters are drawn in strong text. The first match has the keyboard highlight: Enter opens it, ↑ ↓ move, Esc closes. It also finds hidden crates and the 312 albums that aren't in the sidebar. ⌘F stays the page's own track search. <i>Why ⌘K:</i> ⌘F already searches tracks; two meanings for one key would be a trap.</li>
+    <li><b>Favourites are the user's own order.</b> The section shows up only once something is pinned (right-click → Add to favourites, or drag a row in; while you drag a row, an empty Favourites slot appears so it has somewhere to land). You order it by dragging: the lifted row follows the pointer and the rows below make room. A pinned crate gets the folder outline, because it now stands outside its watched folder. A pinned row stays in its own section too. When the page is open, the pill goes on the topmost row for it.</li>
+    <li><b>Playlists come in download priority</b> (<code>playlists.txt</code>, set on the Playlists page, so no dragging here), or A–Z. The sort button in the header opens a two-item menu (Download priority ✓ · A–Z). The header counts the playlists (35, switched-off ones included).</li>
+    <li><b>Folding.</b> Every section header folds (the whole header row toggles it, and its chevron sits on the counts' right edge). Each watched folder folds on its own (D8's chevron, right before the count). Folding is remembered. Folding also hides the current row; the page title still says where you are, and opening a page from search or a link unfolds its section.</li>
+    <li><b>Section headers are quieter than the LIBRARY caption.</b> They use 12 px semibold in sentence case, against the caption's 11 px capitals, so they read as parts of the Library group, not as new groups. <i>Changed from D4:</i> D4 had no captions, only 6 px pauses. With 35 playlists the pause scrolled away, and a fold needs something to click.</li>
+    <li><b>A widens the sidebar from 168 to 200 px</b> (one token, every page). <i>Why:</i> the first shot of this mockup at 168 px showed "Hardtech…" for both Hardtechno and Hardtechno › 2019, and "Bounce · …" twice. A crate row starts 31 px in, so at 168 px it has about 75 px for its name, and crate names then can't be told apart. At 200 px a crate has about 115 px and a playlist about 110 px. <i>Cost:</i> every page is 32 px narrower (Library's table at 1280: ≈ 676 px instead of 708; it keeps every column). B doesn't need this, because its column has its own width.</li>
+  </ol>
+
+  <h3>What each signal means</h3>
+  <table class="sig">
+    <tr><th>Signal</th><th>Means exactly this, nowhere else</th></tr>
+    <tr><td>Row at half strength</td><td>A switched-off playlist (Playlists page): its files stay, nothing new downloads. The sidebar's only dim. Hidden crates aren't dimmed: they have no row.</td></tr>
+    <tr><td>Yellow ! in the icon slot</td><td>The watched folder's drive isn't connected, or the folder isn't found. The same mark as Settings → Watched folders and AwayTag. Name and count stay at full strength (the files are still in the library).</td></tr>
+    <tr><td>Service logo, own colours</td><td>Which service the playlist is read from (Spotify, Qobuz, SoundCloud, YouTube Music). Unchanged.</td></tr>
+    <tr><td>Folder outline</td><td>A folder on disk that stands on its own: a watched folder, a pinned crate in Favourites, or a Library folder no playlist uses. A crate under its watched folder has no icon; it indents.</td></tr>
+    <tr><td>"· DJ" after a name, label grey</td><td>Another crate in the sidebar has the same name. This is the folder above it.</td></tr>
+    <tr><td>"›" inside a name</td><td>A crate inside another crate (Hardtechno › 2019).</td></tr>
+    <tr><td>Number at the right</td><td>Playlist: its songs (also those with no file yet). Watched folder, crate: files in it and in the crates inside it. All tracks, Not in a playlist: files.</td></tr>
+    <tr><td>Number after a header's name</td><td>How many playlists there are. Only Playlists has one; Favourites is short, and Folders has its counts on the rows.</td></tr>
+    <tr><td>Chevron</td><td>Folds what's below: pointing down = open. On a header: the section. On a watched folder: its crates. A watched folder with no crates shown has none.</td></tr>
+    <tr><td>Strong letters in a name</td><td>Only while searching: what matched.</td></tr>
+    <tr><td>Orange wash on one row while searching</td><td>The keyboard highlight: Enter opens it, ↑ ↓ move it. The grey pill stays the page you are on.</td></tr>
+    <tr><td>Orange ring round a row</td><td>The row the open context menu acts on (orange = action).</td></tr>
+  </table>
+
+  <h3>A or B</h3>
+  <table class="sig">
+    <tr><th></th><th>A · sections in the sidebar (recommended)</th><th>B · a browser column in the Library page</th></tr>
+    <tr><td>Reach</td><td>Every playlist and crate is one click away from any page (from To-do or Sync straight to a crate), and it's where the stage 5 user already looks.</td><td>Library first, then the column: two clicks from other pages. The app sidebar stays short and calm: only the pages.</td></tr>
+    <tr><td>Width</td><td>The sidebar grows to 200 px (decision 11), so every page loses 32 px. Library's table is still ≈ 676 px at 1280 and keeps Track, Artist, Subfolder, Playlist and Quality. Names get ≈ 110–115 px; the longest playlist names still end in "…" (tooltip).</td><td>The column is 216 px: names get ≈ 130 px. At 1280 the table falls to ≈ 480 px, so <b>Artist and Playlist columns go</b>, and the right panel takes 360 px of what's left. At 1100 it's ≈ 400 px: Track, Quality and little else. To fix that, the panel would have to fold away until a track is chosen.</td></tr>
+    <tr><td>Search</td><td>Behind the magnifier (one click or ⌘K).</td><td>Always visible. But it's a second search field on the same page as the track search, and they're easy to mix up.</td></tr>
+    <tr><td>Scale</td><td>Both scroll the same list. A's list scrolls in the app's chrome, so the pages (Dashboard … Settings) stay fixed above and below it.</td><td>Same list, with more width per name and the full page height.</td></tr>
+  </table>
+  <p><b>Recommendation: A.</b> The width B costs at the window sizes the hub actually runs at is worse than the cut names in A, and reaching a crate from anywhere is the point of the sidebar. B is the right choice only if the right panel goes away (or turns into a sheet).</p>
+</div>
+
+<div class="opt" id="optTitle"></div>
+<div class="stage" id="stage"></div>
+<div class="extra" id="extra"></div>
+
+<script>
+(function () {
+  // the services' own logos, in their own colours, unchanged (Simple Icons shapes; Qobuz's from its site)
+  const SVC = {
+    spotify: '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#000"/><path fill="#1ED760" d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>',
+    youtube: '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M9 7.5v9l7-4.5z"/><path fill="#FF0000" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>',
+    youtubemusic: '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11.5" fill="#fff"/><path fill="#FF0000" d="M12 0C5.376 0 0 5.376 0 12s5.376 12 12 12 12-5.376 12-12S18.624 0 12 0zm0 19.104c-3.924 0-7.104-3.18-7.104-7.104S8.076 4.896 12 4.896s7.104 3.18 7.104 7.104-3.18 7.104-7.104 7.104zm0-13.332c-3.432 0-6.228 2.796-6.228 6.228S8.568 18.228 12 18.228s6.228-2.796 6.228-6.228S15.432 5.772 12 5.772zM9.684 15.54V8.46L15.816 12l-6.132 3.54z"/></svg>',
+    soundcloud: '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="5" fill="#FF5500"/><g transform="translate(3.6 3.6) scale(.7)"><path fill="#fff" d="M23.999 14.165c-.052 1.796-1.612 3.169-3.4 3.169h-8.18a.68.68 0 0 1-.675-.683V7.862a.747.747 0 0 1 .452-.724s.75-.513 2.333-.513a5.364 5.364 0 0 1 2.763.755 5.433 5.433 0 0 1 2.57 3.54c.282-.08.574-.121.868-.12.884 0 1.73.358 2.347.992s.948 1.49.922 2.373ZM10.721 8.421c.247 2.98.427 5.697 0 8.672a.264.264 0 0 1-.53 0c-.395-2.946-.22-5.718 0-8.672a.264.264 0 0 1 .53 0ZM9.072 9.448c.285 2.659.37 4.986-.006 7.655a.277.277 0 0 1-.55 0c-.331-2.63-.256-5.02 0-7.655a.277.277 0 0 1 .556 0Zm-1.663-.257c.27 2.726.39 5.171 0 7.904a.266.266 0 0 1-.532 0c-.38-2.69-.257-5.21 0-7.904a.266.266 0 0 1 .532 0Zm-1.647.77a26.108 26.108 0 0 1-.008 7.147.272.272 0 0 1-.542 0 27.955 27.955 0 0 1 0-7.147.275.275 0 0 1 .55 0Zm-1.67 1.769c.421 1.865.228 3.5-.029 5.388a.257.257 0 0 1-.514 0c-.21-1.858-.398-3.549 0-5.389a.272.272 0 0 1 .543 0Zm-1.655-.273c.388 1.897.26 3.508-.01 5.412-.026.28-.514.283-.54 0-.244-1.878-.347-3.54-.01-5.412a.283.283 0 0 1 .56 0Zm-1.668.911c.4 1.268.257 2.292-.026 3.572a.257.257 0 0 1-.514 0c-.241-1.262-.354-2.312-.023-3.572a.283.283 0 0 1 .563 0Z"/></g></svg>',
+    qobuz: '<svg width="14" height="14" viewBox="0 0 180 180" aria-hidden="true"><rect width="180" height="180" rx="24.26" ry="24.26"/><path fill="#fff" d="M154.98,107.69s-.06,0-.09,0h-20.06c6.73-8.99,22.89-30.61,22.9-30.62.73-1.01,1.17-2.25,1.17-3.59,0-3.32-2.65-6.01-5.95-6.08h0s-24.55,0-24.55,0h-.15s.14,0,.13,0c-2.34,0-4.38,1.9-4.38,4.24s1.9,4.23,4.23,4.23c.03,0,.06,0,.1,0h19.74s-22.82,30.51-22.84,30.53c-.77,1.02-1.23,2.29-1.23,3.67,0,3.37,2.73,6.09,6.09,6.09h24.88s0,0,.01,0c2.15,0,3.89-1.9,3.89-4.23s-1.74-4.23-3.89-4.23Z"/><path fill="#fff" d="M45.53,115.85c4.68,0,9.06-1.32,12.77-3.61v-11.25c-2.91,3.88-7.55,6.39-12.77,6.39-8.81,0-15.96-7.15-15.96-15.96s7.14-15.96,15.96-15.96,15.96,7.15,15.96,15.96h0v43.76s0,.03,0,.05c0,2.34,1.9,4.24,4.23,4.24s4.23-1.9,4.23-4.24c0-.02,0-.03,0-.05v-43.76c0-13.49-10.93-24.43-24.42-24.43s-24.42,10.94-24.42,24.43,10.93,24.43,24.42,24.43Z"/><path fill="#fff" d="M99.42,66.97c-4.68,0-9.06,1.32-12.77,3.61v11.25c2.91-3.88,7.55-6.39,12.77-6.39,8.81,0,15.96,7.15,15.96,15.96s-7.14,15.96-15.96,15.96-15.96-7.15-15.96-15.96h0v-43.76s0-.03,0-.05c0-2.34-1.9-4.24-4.23-4.24s-4.23,1.9-4.23,4.24c0,.02,0,.03,0,.05v43.76c0,13.49,10.93,24.43,24.42,24.43s24.42-10.94,24.42-24.43-10.93-24.43-24.42-24.43Z"/></svg>',
+  };
+  const SVC_NAME = { spotify: 'Spotify', qobuz: 'Qobuz', soundcloud: 'SoundCloud', youtubemusic: 'YouTube Music', youtube: 'YouTube' };
+  const FOLDER = '<svg width="14" height="12" viewBox="0 0 14 12" aria-hidden="true"><path d="M1.2 2.2c0-.6.4-1 1-1h3.1l1.4 1.5h5.1c.6 0 1 .4 1 1v6.9c0 .6-.4 1-1 1H2.2c-.6 0-1-.4-1-1z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+  const CHEV = '<svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M2.6 1.2 5.6 4l-3 2.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const MAG = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="5.2" cy="5.2" r="3.9" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8.1 8.1 11 11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+  const SORT = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 3h9M1.5 6h6.5M1.5 9h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
+  const MARK = '<span class="mark" aria-hidden="true">!</span>';
+  const ARROW = '<svg class="cursor" width="16" height="22" viewBox="0 0 16 22" style="left:LEFTpx;top:TOPpx"><path d="M1 1v16.5l4.2-4 2.8 6.5 2.6-1.1-2.8-6.4H14z" fill="#fff" stroke="#000" stroke-width="1.1" stroke-linejoin="round"/></svg>';
+  const HAND = '<svg class="cursor" width="20" height="20" viewBox="0 0 20 20" style="left:LEFTpx;top:TOPpx"><path d="M6 9V4.2a1.2 1.2 0 0 1 2.4 0V8V3.2a1.2 1.2 0 0 1 2.4 0V8V4a1.2 1.2 0 0 1 2.4 0v4.5V6.2a1.2 1.2 0 0 1 2.4 0v6.3c0 3-2 5.5-5.2 5.5-2.4 0-3.6-1.1-4.8-3L3.4 12a1.3 1.3 0 0 1 2-1.6z" fill="#fff" stroke="#000" stroke-width="1" stroke-linejoin="round"/></svg>';
+  const cur = (svg, l, t) => svg.replace('LEFT', l).replace('TOP', t);
+  const fmt = (n) => n.toLocaleString('en-US');
+
+  // ---------- the data (made up): 35 playlists in playlists.txt order ----------
+  const P = (name, svc, songs, off) => ({ kind: 'pl', key: 'pl:' + name, name, svc, n: songs, off: !!off });
+  const playlists = [
+    P('Hard_Bounce', 'spotify', 14), P('Powertrance', 'spotify', 31), P('Peak Time', 'qobuz', 46), P('Bouncy', 'spotify', 27),
+    P('Afterhour_Sonntag_Warmup_Classics', 'qobuz', 64), P('Schranz Bunker', 'spotify', 38), P('Hardgroove Openers', 'spotify', 22),
+    P('Bounce Reposts', 'soundcloud', 9), P('Industrial Pressure', 'spotify', 41), P('Acid Wednesdays', 'qobuz', 19),
+    P('Rave Classics 90s', 'spotify', 73), P('Hard_Uploads', 'youtubemusic', 12), P('160 Club', 'spotify', 28),
+    P('Frenchcore Edits', 'soundcloud', 17), P('Tekk Night', 'spotify', 33), P('Neo Rave', 'qobuz', 24), P('Closing Tracks', 'spotify', 15),
+    P('Trance Reworks', 'youtubemusic', 21), P('Hardtechno 2026', 'spotify', 57), P('Melodic Hard', 'qobuz', 30), P('Vocals & Hooks', 'spotify', 18),
+    P('Gabber Heritage', 'spotify', 26), P('Free_DLs', 'soundcloud', 44), P('Warmup Grooves', 'spotify', 35), P('Euro Edits', 'youtubemusic', 16),
+    P('Rawstyle IDs', 'soundcloud', 11), P('Sunrise Set', 'qobuz', 20), P('Basement 145', 'spotify', 29), P('Request Box', 'spotify', 23),
+    P('Live Set Rips', 'youtubemusic', 8), P('Hard Trance Gold', 'qobuz', 39), P('Techno Tools', 'spotify', 52), P('03_06_2026', 'spotify', 22, true),
+    P('Pride Party 2025', 'spotify', 31, true), P('Old Faves', 'spotify', 48),
+  ];
+
+  // watched folders; a crate = a folder with music files of its own (path from the watched folder), own = its own files
+  const RB_CRATES = [
+    ['Music/DJ/Bounce', 96], ['Music/DJ/Edits', 23, 'hidden'], ['Music/DJ/Hardtechno', 142], ['Music/DJ/Hardtechno/2019', 38],
+    ['Music/DJ/Rock', 51], ['Music/DJ/Warmup', 44], ['Music/Old Sets/2016 Closing', 17], ['Music/Old Sets/Bounce', 61],
+  ];
+  const ALBUM_ARTISTS = ['Aurora Drift', 'Bassline Unit', 'Bounce Generation', 'Cold Signal', 'Dr. Kickbass', 'Echo Vault', 'Ferro', 'Glasshaus'];
+  const ALBUM_SAMPLE = [['Aurora Drift', 'Afterglow', 11], ['Aurora Drift', 'Night Bus', 9], ['Bassline Unit', 'Bounce Generation', 12], ['Bassline Unit', 'Pressure', 10],
+    ['Bounce Generation', 'Greatest Hits', 14], ['Cold Signal', 'Greatest Hits', 16], ['Cold Signal', 'Static', 8], ['Dr. Kickbass', 'Kick Theory', 13],
+    ['Echo Vault', 'Archive One', 12], ['Ferro', 'Iron Age', 10], ['Glasshaus', 'Prism', 11]];
+  const watched = [
+    { key: 'wf:rb', name: 'Rekordbox Library', path: '~/Music/Rekordbox Library', crates: RB_CRATES.map(([p, own, h]) => ({ path: p, own, hidden: h === 'hidden' })) },
+    { key: 'wf:vinyl', name: 'Vinyl Rips', path: 'Example Drive › Vinyl Rips', own: 64, crates: [], away: 'Offline: connect the drive' },
+    { key: 'wf:albums', name: 'Albums', path: '~/Music/Albums', files: 3604, many: 312, crates: [] },
+  ];
+  const libFolders = [{ key: 'lf:oldhard', name: 'Old_Hardstyle', path: 'Library/Old_Hardstyle · no playlist uses it', n: 12 }];
+  const VIEWS = [{ key: 'all', name: 'All tracks', n: 5318 }, { key: 'unlisted', name: 'Not in a playlist', n: 4021 }];
+  const LIMIT = 25;
+
+  // derive the crates: name = own folder name; a crate inside a crate reads "Parent › name"; same names get the parent hint
+  for (const w of watched) {
+    const paths = new Set(w.crates.map((c) => c.path));
+    for (const c of w.crates) {
+      const parts = c.path.split('/');
+      c.base = parts[parts.length - 1];
+      const anc = parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('/')).filter((p) => paths.has(p));
+      c.chain = anc.length ? [anc[anc.length - 1].split('/').pop(), c.base] : [c.base];
+      c.parent = parts[parts.length - 2] || w.name;
+      c.n = w.crates.filter((d) => d.path === c.path || d.path.startsWith(c.path + '/')).reduce((s, d) => s + d.own, 0);
+      c.key = 'cr:' + w.key + ':' + c.path; c.kind = 'crate'; c.wf = w;
+      c.tip = `${w.name} › ${c.path.split('/').join(' › ')}`;
+    }
+    if (w.files == null) w.files = w.crates.length ? w.crates.reduce((s, d) => s + d.own, 0) : w.own;
+    w.kind = 'wf'; w.n = w.files;
+  }
+  const shownCrates = (w) => (w.many > LIMIT ? [] : w.crates.filter((c) => !c.hidden));
+  const allShown = watched.flatMap(shownCrates);
+  for (const c of allShown) c.hint = allShown.some((d) => d !== c && d.chain.length === 1 && c.chain.length === 1 && d.base === c.base) ? c.parent : null;
+  const crateSort = (a, b) => (a.chain.join(' › ') + (a.hint || '')).localeCompare(b.chain.join(' › ') + (b.hint || ''), 'en', { numeric: true });
+  for (const w of watched) w.crates.sort(crateSort);
+  const byKey = {};
+  [...VIEWS, ...playlists, ...watched, ...libFolders, ...watched.flatMap((w) => w.crates)].forEach((x) => { byKey[x.key] = x; });
+  // the albums a search can find although they aren't in the sidebar (Artist › Album: the album is the crate)
+  const albumCrates = ALBUM_SAMPLE.map(([a, al, n]) => ({ kind: 'crate', key: 'al:' + a + '/' + al, base: al, chain: [al], parent: a, n, wf: watched[2], tip: `Albums › ${a} › ${al}\nNot shown in the sidebar (Albums has 312 folders with music)` }));
+  for (const c of albumCrates) c.hint = albumCrates.some((d) => d !== c && d.base === c.base) ? c.parent : null;
+
+  // ---------- rows ----------
+  const hl = (s, q) => { if (!q) return esc(s); const i = s.toLowerCase().indexOf(q); return i < 0 ? esc(s) : esc(s.slice(0, i)) + `<b class="hl">${esc(s.slice(i, i + q.length))}</b>` + esc(s.slice(i + q.length)); };
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const crateName = (c, q) => c.chain.map((p) => hl(p, q)).join('<span class="gt"> › </span>') + (c.hint ? `<span class="h"> · ${esc(c.hint)}</span>` : '');
+  const cls = (x, o, extra = '') => `nav${x.off ? ' off' : ''}${o.sel === x.key ? ' on' : ''}${o.kb === x.key ? ' kb' : ''}${o.menu === x.key ? ' menu-on' : ''}${extra}`;
+  const glyph = (x) => x.kind === 'pl' ? SVC[x.svc] : x.away ? MARK : FOLDER;
+  const title = (x) => x.kind === 'pl' ? `${x.name}\n${SVC_NAME[x.svc]} playlist · ${x.n} songs${x.off ? '\nSwitched off: its files stay, nothing new downloads' : ''}`
+    : x.kind === 'crate' ? `${x.tip}\n${fmt(x.n)} files` : x.kind === 'wf' ? `${x.path} · ${fmt(x.n)} files${x.away ? '\n' + x.away : ''}${x.many ? `\n${x.many} folders with music: choose which to show in Settings → Watched folders` : x.crates.some((c) => c.hidden) ? `\n${shownCrates(x).length} of ${x.crates.length} folders shown` : ''}` : `${x.path}`;
+  function row(x, o, place) {
+    const q = o.q;
+    if (x.kind === 'view') return `<div class="${cls(x, o)}" data-k="${x.key}"><span class="t">${esc(x.name)}</span><span class="c">${fmt(x.n)}</span></div>`;
+    if (x.kind === 'crate' && place !== 'fav')
+      return `<div class="${cls(x, o, ' crate')}" data-k="${x.key}" title="${esc(title(x))}"><span class="t">${crateName(x, q)}</span><span class="c">${fmt(x.n)}</span></div>`;
+    const name = x.kind === 'crate' ? crateName(x, q) : hl(x.name, q);
+    const crates = x.kind === 'wf' ? shownCrates(x) : [];
+    const chev = crates.length ? `<span class="chev${o.closed.has(x.key) && !q ? '' : ' open'}">${CHEV}</span>` : '';
+    const cw = x.kind === 'wf' ? ` style="--count-w:${o.cw}ch"` : '';
+    return `<div class="${cls(x, o)}"${cw} data-k="${x.key}" title="${esc(title(x))}"><span class="g">${glyph(x)}</span><span class="t">${name}</span>${chev}<span class="c">${fmt(x.n)}</span></div>`;
+  }
+  const header = (label, key, o, extra = '', n = '') => `<div class="sh" data-sec="${key}" title="${o.closed.has(key) ? 'Show' : 'Hide'} ${label.toLowerCase()}"><span>${label}</span>${n !== '' ? `<span class="n">${n}</span>` : '<span class="sp"></span>'}${extra}<span class="chev${o.closed.has(key) && !o.q ? '' : ' open'}">${CHEV}</span></div>`;
+
+  // the Library group's rows (both variants)
+  function libraryRows(o) {
+    const q = o.q;
+    const m = (s) => !q || s.toLowerCase().includes(q);
+    const out = [];
+    if (!q) out.push(...VIEWS.map((v) => row({ ...v, kind: 'view' }, o)));
+    // favourites
+    const favs = (o.favs || []).map((k) => byKey[k]).filter((x) => !q || m(x.name || x.base));
+    if (favs.length || o.drag) {
+      out.push('<div class="gap"></div>' + header('Favourites', 'fav', o));
+      if (!o.closed.has('fav') || q) {
+        if (o.drag) {
+          const list = favs.filter((x) => x.key !== o.drag.key);
+          list.forEach((x, i) => { if (i === o.drag.at) out.push('<div class="slot" data-slot></div>'); out.push(row(x, o, 'fav')); });
+          if (o.drag.at >= list.length) out.push('<div class="slot" data-slot></div>');
+        } else out.push(...favs.map((x) => row(x, o, 'fav')));
+      }
+    }
+    // playlists
+    const pls = (o.az ? [...playlists].sort((a, b) => a.name.localeCompare(b.name)) : playlists).filter((p) => m(p.name));
+    if (pls.length) {
+      out.push('<div class="gap"></div>' + header('Playlists', 'pl', o, `<span class="ibtn" title="Order: download priority (change it on the Playlists page) · A–Z">${SORT}</span>`, q ? '' : playlists.length));
+      if (!o.closed.has('pl') || q) out.push(...pls.map((p) => row(p, o)));
+    }
+    // folders: watched folders by name, each followed by its crates; then Library folders no playlist uses
+    const fo = [];
+    for (const w of [...watched].sort((a, b) => a.name.localeCompare(b.name))) {
+      const crates = q ? [...shownCrates(w), ...w.crates.filter((c) => c.hidden), ...(w.many ? albumCrates : [])].filter((c) => m(c.base)) : shownCrates(w);
+      if (q && !m(w.name) && !crates.length) continue;
+      fo.push(row(w, o, 'folders'));
+      if (!o.closed.has(w.key) || q) fo.push(...crates.sort(crateSort).map((c) => row(c, o, 'folders')));
+    }
+    fo.push(...libFolders.filter((f) => m(f.name)).map((f) => row({ ...f, kind: 'lf' }, o, 'folders')));
+    if (fo.length) {
+      out.push('<div class="gap"></div>' + header('Folders', 'fo', o));
+      if (!o.closed.has('fo') || q) out.push(...fo);
+    }
+    if (q && !pls.length && !fo.length && !favs.length) out.push(`<div class="empty">No playlist or folder has “${esc(q)}” in its name.</div>`);
+    return out.join('');
+  }
+  // the folders' count column: as wide as their widest count, so the watched folders' chevrons stand in one column
+  const folderCw = Math.max(...watched.map((x) => fmt(x.n).length));
+
+  const APP = [['◉', 'Dashboard'], ['⟳', 'Sync'], ['✓', 'To-do', 18], ['≡', 'Playlists'], ['◔', 'Download limits']];
+  const appNav = (sel) => APP.map(([g, l, n]) => `<div class="nav${sel === l ? ' on' : ''}"><span class="g"><span class="gl">${g}</span></span><span class="t">${l}</span>${n ? `<span class="c">${n}</span>` : ''}</div>`).join('');
+  const settingsRow = (on) => `<div class="nav settings${on ? ' on' : ''}"><span class="g"><span class="gl">⚙</span></span><span class="t">Settings</span></div>`;
+
+  function sidebarA(o) {
+    const capRow = o.q != null
+      ? `<div class="find"><span class="ico">${MAG}</span><span class="q">${esc(o.q)}</span><span class="x" title="Clear (Esc)">✕</span></div>`
+      : `<div class="cap-row"><span class="sbcap">Library</span><span class="ibtn" title="Find a playlist or folder (⌘K)">${MAG}</span></div>`;
+    return `<div class="sb" data-sb style="--sb-w:200px"><div class="brand"><i></i>Discjockey</div>${appNav(o.page)}${capRow}
+      <div class="lib${o.scrolled ? ' fade' : ' fade-b'}" data-lib>${libraryRows({ ...o, cw: folderCw })}</div>${settingsRow(o.page === 'Settings')}</div>`;
+  }
+  function sidebarB(page) {
+    return `<div class="sb"><div class="brand"><i></i>Discjockey</div>${appNav(page)}
+      <div class="nav${page === 'Library' ? ' on' : ''}"><span class="g"><span class="gl">♫</span></span><span class="t">Library</span></div>
+      <div style="flex:1"></div>${settingsRow(false)}</div>`;
+  }
+  function browserB(o) {
+    const field = `<div class="find${o.q ? ' typed' : ''}"><span class="ico">${MAG}</span><span class="q">${o.q ? esc(o.q) : 'Find a playlist or folder'}</span>${o.q ? '<span class="x">✕</span>' : '<kbd>⌘K</kbd>'}</div>`;
+    return `<div class="browser">${field}<div class="lib fade-b" data-lib>${libraryRows({ ...o, cw: folderCw })}</div></div>`;
+  }
+
+  // ---------- the pages ----------
+  const C = { lossless: '--good', good_lossy: '--ok', weak: '--weak', fake: '--lossy' };
+  const grads = ['linear-gradient(135deg,#2fd27a,#1a7cff)', 'linear-gradient(135deg,#ff6a8a,#7a4cff)', 'linear-gradient(135deg,#1a7cff,#f0b93a)', 'linear-gradient(135deg,#f0b93a,#c04aff)', 'linear-gradient(135deg,#7a4cff,#2fd27a)', 'linear-gradient(135deg,#f0524a,#a77bff)'];
+  const L = 'LOSSLESS';
+  const Q = { L: ['lossless', L], G: ['good_lossy', '20.0 kHz'], W: ['weak', '16.0 kHz'], F: ['fake', 'FAKE · 16.0 kHz'] };
+  // Rekordbox Library, sorted by subfolder (the sidebar's crate names; wrapper levels dropped)
+  const RB_ROWS = [
+    ['Kaltstart', 'Mira Volt', '2016 Closing', 'L'], ['Letzte Runde', 'Tom Brandt', '2016 Closing', 'W', null, true],
+    ['Sprungfeder', 'Bounce Brigade', 'Bounce · DJ', 'L', ['Hard_Bounce', 'Bouncy']], ['Gummiboot', 'Jana Jump', 'Bounce · DJ', 'G', ['Bouncy']],
+    ['Trampolin', 'Kalte Nacht', 'Bounce · DJ', 'L'], ['Hoch hinaus', 'Remo Rush', 'Bounce · Old Sets', 'F'],
+    ['Flummi', 'Echo Gruppe', 'Bounce · Old Sets', 'L'], ['Bootleg 04', 'Kai Kickdrum', 'Edits', 'W'],
+    ['Maschinenraum', 'Low Ceiling', 'Hardtechno', 'L', ['Hardtechno 2026']], ['Stahlwerk', 'Pulsar 9', 'Hardtechno', 'L', ['Schranz Bunker', 'Industrial Pressure', 'Techno Tools']],
+    ['Druckkammer', 'Ferro', 'Hardtechno', 'G'], ['Taktgefuehl', 'Low Ceiling', 'Hardtechno', 'L'],
+    ['Kaltfront', 'Pulsar 9', 'Hardtechno › 2019', 'L', ['Peak Time']], ['Sonnenfinsternis', 'Pulsar 9', 'Hardtechno › 2019', 'W', null, true],
+    ['Gitarrenwand', 'Neon Riot', 'Rock', 'L'], ['Verstaerker', 'Neon Riot', 'Rock', 'G'],
+    ['Morgengrauen', 'Jana Jump', 'Warmup', 'L', ['Warmup Grooves']], ['Leise Runde', 'Echo Gruppe', 'Warmup', 'L'], ['Ruhepol', 'Echo Gruppe', 'Warmup', 'G'],
+  ];
+  const HT_ROWS = RB_ROWS.filter((r) => r[2].startsWith('Hardtechno')).map((r) => [r[0], r[1], r[2] === 'Hardtechno' ? '' : '2019', r[3], r[4], r[5]])
+    .concat([['Bunkerluft', 'Cold Signal', '', 'L'], ['Rostfrei', 'Ferro', '', 'L', ['Schranz Bunker']], ['Nachtschicht', 'Glasshaus', '', 'G'], ['Eisenbahn', 'Ferro', '2019', 'L'], ['Kesselhaus', 'Pulsar 9', '2019', 'L'], ['Funkstille', 'Cold Signal', '2019', 'F']])
+    .sort((a, b) => a[2].localeCompare(b[2]));
+  const AL_ROWS = [['Afterglow', 'Aurora Drift', 'Afterglow', 'L'], ['Low Sun', 'Aurora Drift', 'Afterglow', 'L'], ['Night Bus', 'Aurora Drift', 'Night Bus', 'L'],
+    ['Bounce Generation', 'Bassline Unit', 'Bounce Generation', 'G'], ['Pressure', 'Bassline Unit', 'Pressure', 'L'], ['Greatest Hit', 'Bounce Generation', 'Greatest Hits · Bounce Generation', 'L'],
+    ['Signal Lost', 'Cold Signal', 'Greatest Hits · Cold Signal', 'L'], ['Static', 'Cold Signal', 'Static', 'W'], ['Kick Theory', 'Dr. Kickbass', 'Kick Theory', 'L'],
+    ['Archive One', 'Echo Vault', 'Archive One', 'L'], ['Iron Age', 'Ferro', 'Iron Age', 'L'], ['Prism', 'Glasshaus', 'Prism', 'G'], ['Refraction', 'Glasshaus', 'Prism', 'L'],
+    ['Hollow', 'Halo Pulse', 'Hollow', 'L'], ['Ion', 'Ion Storm', 'Ion', 'L'], ['Jetlag', 'Juno Hex', 'Jetlag', 'L'], ['Kiln', 'Kilnworks', 'Kiln', 'G']];
+
+  const PAGES = {
+    rb: { title: 'Rekordbox Library', sub: `472 tracks · 8 folders with music · ~/Music/Rekordbox Library`, rows: RB_ROWS, seg: [472, 290, 92, 58, 20, 6],
+      ov: [63, '290 of 460 checked tracks', 'in Rekordbox Library', [290, 92, 58, 20], 6, { n: 170, todo: 41 }] },
+    ht: { title: 'Hardtechno', sub: '180 tracks · Rekordbox Library › Music › DJ › Hardtechno', rows: HT_ROWS, seg: [180, 120, 30, 22, 8, 3],
+      ov: [67, '120 of 180 checked tracks', 'in Hardtechno', [120, 30, 22, 8], 3, { n: 60, todo: 18 }] },
+    al: { title: 'Albums', sub: '3,604 tracks · 312 folders · <a>Show some in the sidebar…</a>', rows: AL_ROWS, seg: [3604, 3100, 380, 98, 0, 0],
+      ov: [87, '3,100 of 3,578 checked tracks', 'in Albums', [3100, 380, 98, 0], 0, { n: 478, todo: 0 }] },
+  };
+  const seg = (c) => `<div class="seg">${[['All', c[0], null, true], ['Lossless', c[1], '--good'], ['Good lossy', c[2], '--ok'], ['Weak', c[3], '--weak'], ['Fake', c[4], '--lossy'], ['Upgrade ready', c[5], '--good']]
+    .map(([l, n, d, on]) => `<div${on ? ' class="on"' : ''}>${d ? `<span class="dot" style="--c:var(${d})"></span>` : ''}<span>${l}</span><b>${fmt(n)}</b></div>`).join('')}</div>`;
+  const head = (p) => `<div class="hd"><h1>${p.title}</h1><span class="st">${p.sub}</span><div class="search">${MAG} Search title, artist…<kbd>⌘F</kbd></div></div>`;
+  const toDoPart = (nl) => nl.todo === 0 ? 'none in To-do' : nl.todo === nl.n ? 'all in To-do' : `${nl.todo} in To-do`;
+  function overview([share, of, label, q, up, nl]) {
+    const qs = [['--good', q[0], 'Lossless'], ['--ok', q[1], 'Good lossy'], ['--weak', q[2], 'Weak'], ['--lossy', q[3], 'Fake']];
+    return `<div class="panel"><div class="card"><div><div class="bign">${share}<small> % lossless</small></div><div class="lbl">${of} ${label}</div></div>
+      <div class="qbar">${qs.filter(([, n]) => n).map(([v, n]) => `<i style="--c:var(${v});flex:${n}"></i>`).join('')}</div>
+      <div class="q-legend">${qs.map(([v, n, l]) => `<span><span class="dot" style="--c:var(${v})"></span>${l} <b>${fmt(n)}</b></span>`).join('')}</div></div>
+      <div class="surf"><div class="lrow"><span class="dot" style="--c:var(--good)"></span><span>Upgrade ready</span><span class="n">${up}</span><span class="chv">${up ? '›' : ''}</span></div>
+      <div class="lrow"><span class="dot" style="--c:var(--weak)"></span><span>Not lossless yet<span class="q"> · ${toDoPart(nl)}</span></span><span class="n">${nl.n}</span><span class="chv">${nl.todo ? '›' : ''}</span></div></div>
+      <div class="pfoot-hint">Pick a track to see its file, spectrum and upgrade</div></div>`;
+  }
+  const qcell = (k) => `<span class="badge" style="--c:var(${C[Q[k][0]]})">${Q[k][1]}</span>`;
+  const slot = (up) => `<span>${up ? '<span class="badge" style="--c:var(--good)">UPGRADE</span>' : ''}</span>`;
+  const plb = (p) => !p ? '<span></span>' : `<span class="pl" title="In ${p.join(', ')}"><span>${esc(p[0])}</span>${p.length > 1 ? `<b>+${p.length - 1}</b>` : ''}</span>`;
+  const subc = (s) => s ? `<span class="cut mu" title="${s}">${esc(s).replace(/ › /g, '<span class="lbc"> › </span>').replace(/ · (.*)$/, '<span class="lbc"> · $1</span>')}</span>` : '<span class="lbc">–</span>';
+  const t1 = (t, k) => `<span class="t1"><span class="cov" style="background:${grads[k % grads.length]}"></span><span class="nm">${esc(t)}</span></span>`;
+  function tableWide(p) {
+    const cols = 'minmax(0,1.35fr) minmax(0,1fr) minmax(0,1.15fr) minmax(0,1fr) 106px 64px';
+    const rows = p.rows.map(([t, a, s, q, pls, up], k) => `<div class="tr">${t1(t, k)}<span class="cut mu">${esc(a)}</span>${subc(s)}${plb(pls)}${qcell(q)}${slot(up)}</div>`).join('');
+    return `<div class="tbl" style="--cols:${cols}"><div class="th-row"><span class="hc">Track</span><span class="hc">Artist</span><span class="hc on">Subfolder ↑</span><span class="hc">Playlist</span><span class="hc">Quality</span><span class="info">i</span></div><div class="scroll">${rows}</div></div>`;
+  }
+  function tableNarrow(p) {   // B at 1280: ≈ 480 px; Artist and Playlist are the columns that go
+    const cols = 'minmax(0,1.4fr) minmax(0,1fr) 106px 64px';
+    const rows = p.rows.map(([t, , s, q, , up], k) => `<div class="tr">${t1(t, k)}${subc(s)}${qcell(q)}${slot(up)}</div>`).join('');
+    return `<div class="tbl" style="--cols:${cols}"><div class="th-row"><span class="hc">Track</span><span class="hc on">Subfolder ↑</span><span class="hc">Quality</span><span class="info">i</span></div><div class="scroll">${rows}</div></div>`;
+  }
+  const pageA = (p) => `<div class="main"><div class="col">${head(p)}${seg(p.seg)}${tableWide(p)}</div></div>${overview(p.ov)}`;
+  const pageB = (p, o) => `<div class="main"><div class="col"><div class="bwrap">${browserB(o)}<div class="bright">${head(p)}${seg(p.seg)}${tableNarrow(p)}</div></div></div></div>${overview(p.ov)}`;
+
+  // ---------- Settings → Watched folders ----------
+  function settingsPage(selKey) {
+    const w = byKey[selKey];
+    const acc = [['Spotify', 'signed in'], ['Qobuz', 'signed in · 16-bit AIFF'], ['YouTube Premium', 'via Chrome · 256 kbps'], ['SoundCloud Go+', 'optional']];
+    const sr = (n, s, on, mark) => `<div class="srow${on ? ' on' : ''}">${mark}<b>${n}</b><span class="s">${s}</span><span class="lbc">›</span></div>`;
+    const ok = '<span class="ok-mark">✓</span>';
+    const main = `<div class="main"><div class="col"><div class="hd"><h1>Settings</h1></div>
+      <div class="scap">Accounts</div><div class="surf slist">${acc.map(([n, s], i) => sr(n, s, false, i < 3 ? ok : '<span class="ok-mark" style="border:1px dashed rgba(255,255,255,.2);color:transparent">·</span>')).join('')}</div>
+      <div class="scap">This Mac</div><div class="surf slist">${sr('Watched folders', '4 folders · 1 offline', true, ok)}${sr('Programs', 'all found', false, ok)}</div></div></div>`;
+    const wfRow = (x) => {
+      const line = x.kind === 'lib' ? 'Discjockey’s own folder: your playlists'
+        : x.away ? 'Offline: connect the drive'
+        : x.many ? `${x.many} folders with music · none shown`
+        : `${x.crates.length} folders with music · ${shownCrates(x).length} in the sidebar`;
+      const mk = x.away ? MARK : '<span class="ok-mark" style="border-color:rgba(47,210,122,.35)">✓</span>';
+      return `<div class="wf${x.key === selKey ? ' on' : ''}">${mk}<div style="min-width:0"><div class="nm2">${x.name}</div><div class="ln">${line}</div>${x.path ? `<div class="pa">${x.path}</div>` : ''}</div><span class="fc">${fmt(x.n)}</span></div>`;
+    };
+    const lib = { kind: 'lib', key: 'lib', name: 'Library', n: 1214 };
+    let crateBox;
+    if (w.many) {
+      const rows = albumCrates.map((c) => `<div class="trow off"><span class="sw"></span><span class="nm3">${esc(c.base)}<span class="h"> · ${esc(c.parent)}</span></span><span class="fc">${c.n}</span></div>`).join('');
+      crateBox = `<div class="ncard"><span class="i">i</span><span>${w.many} folders with music, too many for the sidebar: switch on the ones you want to see.</span></div>
+        <div class="surf tgbox"><div class="tg-head"><b>In the sidebar</b><span style="margin-left:auto">0 of ${w.many} shown</span><span class="lk dis">None</span></div>
+        <div class="tg-find">${MAG} Find an album or artist</div><div class="rows">${rows}</div></div>`;
+    } else {
+      const rows = w.crates.map((c) => `<div class="trow${c.hidden ? ' off' : ''}"><span class="sw${c.hidden ? '' : ' on'}"></span><span class="nm3" title="${esc(c.tip)}">${c.chain.map(esc).join('<span class="h"> › </span>')}<span class="h"> · ${esc(c.path.split('/').slice(0, c.chain.length > 1 ? -2 : -1).join(' › '))}</span></span><span class="fc">${c.n}</span></div>`).join('');
+      const on = shownCrates(w).length;
+      crateBox = `<div class="surf tgbox"><div class="tg-head"><b>In the sidebar</b><span style="margin-left:auto">${on} of ${w.crates.length} shown</span><span class="lk">All</span><span class="lk">None</span></div>
+        <div class="tg-find">${MAG} Find a folder</div><div class="rows">${rows}</div></div>`;
+    }
+    const panel = `<div class="panel"><div class="ptitle"><h3>Watched folders</h3></div>
+      <div class="surf">${[lib, ...watched].map(wfRow).join('')}</div>${crateBox}<button class="go">Add folder…</button></div>`;
+    return main + panel;
+  }
+
+  // ---------- the states ----------
+  const S = (o) => ({ closed: new Set(), favs: [], ...o });
+  const FAVS = ['pl:Hard_Bounce', 'cr:wf:rb:Music/DJ/Hardtechno', 'pl:Peak Time', 'cr:wf:rb:Music/Old Sets/Bounce'];
+  const STATES = {
+    'a-default': { label: 'A · default', title: 'A · default: a large library, nothing pinned yet, the Rekordbox Library page open', a: S({ sel: 'wf:rb', page: 'Library' }), p: 'rb', full: true },
+    'a-search': { label: 'A · searching', title: 'A · searching “bou”: matches across sections, their watched folder as context, Enter opens the highlighted one', a: S({ sel: 'wf:rb', q: 'bou', kb: 'pl:Hard_Bounce' }), p: 'rb', tip: true },
+    'a-favourites': { label: 'A · favourites', title: 'A · favourites in use: Peak Time is being dragged to the top; the rows below make room', a: S({ sel: 'cr:wf:rb:Music/DJ/Hardtechno', favs: FAVS, drag: { key: 'pl:Peak Time', at: 0 } }), p: 'ht', drag: true },
+    'a-folded': { label: 'A · folded', title: 'A · sections folded: Playlists and Rekordbox Library folded, the Albums page open (too many crates: one row)', a: S({ sel: 'wf:albums', favs: FAVS.slice(0, 2), closed: new Set(['pl', 'wf:rb']) }), p: 'al' },
+    'a-menu': { label: 'A · right-click', title: 'A · right-click on a crate (scrolled down to the folders)', a: S({ sel: 'wf:rb', menu: 'cr:wf:rb:Music/DJ/Rock', scroll: 'end' }), p: 'rb', menu: true },
+    'settings': { label: 'Settings', title: 'Settings → Watched folders: Rekordbox Library’s crates, Edits switched off (hidden from the sidebar)', set: 'wf:rb' },
+    'settings-many': { label: 'Settings · too many', title: 'Settings → Watched folders: Albums, 312 crates, too many for the sidebar', set: 'wf:albums' },
+    'b-default': { label: 'B · default', title: 'B · default: the browser column inside the Library page; the app sidebar keeps only the pages', b: S({ sel: 'wf:rb' }), p: 'rb' },
+    'b-search': { label: 'B · searching', title: 'B · searching “bou”', b: S({ sel: 'wf:rb', q: 'bou', kb: 'pl:Hard_Bounce' }), p: 'rb' },
+    'b-favourites': { label: 'B · favourites', title: 'B · favourites in use, Hardtechno open', b: S({ sel: 'cr:wf:rb:Music/DJ/Hardtechno', favs: FAVS }), p: 'ht' },
+  };
+
+  const pick = document.getElementById('state');
+  pick.innerHTML = Object.entries(STATES).map(([k, s], i) => `${k === 'settings' || k === 'b-default' ? '<span class="sep"></span>' : ''}<button data-v="${k}">${s.label}</button>`).join('');
+  let state = location.hash.slice(1);
+  if (!STATES[state]) state = 'a-default';
+
+  function render() {
+    const s = STATES[state];
+    pick.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === state));
+    document.getElementById('optTitle').textContent = s.title;
+    const st = document.getElementById('stage');
+    const scale = Math.min(1, (st.clientWidth || document.body.clientWidth - 48) / 1280);
+    st.style.height = 800 * scale + 'px';
+    let inner;
+    if (s.set) inner = sidebarA(S({ page: 'Settings' })) + settingsPage(s.set);
+    else if (s.a) inner = sidebarA({ ...s.a, page: s.a.page || '' }) + pageA(PAGES[s.p]);
+    else inner = sidebarB('Library') + pageB(PAGES[s.p], s.b);
+    st.innerHTML = `<div class="win" data-win style="width:1280px;height:800px;transform:scale(${scale})">${inner}</div>`;
+    const win = st.querySelector('[data-win]');
+    const lib = win.querySelector('[data-lib]');
+    const at = (el) => { const r = el.getBoundingClientRect(), w = win.getBoundingClientRect(); return { x: (r.left - w.left) / scale, y: (r.top - w.top) / scale, w: r.width / scale, h: r.height / scale }; };
+    if (s.a && s.a.scroll === 'end') { lib.scrollTop = lib.scrollHeight; lib.classList.replace('fade-b', 'fade'); }
+    if (s.menu) {
+      const r = at(win.querySelector('.menu-on'));
+      const px = r.x + 70, py = r.y + 18;
+      win.insertAdjacentHTML('beforeend', `<div class="cmenu" style="left:${px + 4}px;top:${Math.min(py, 800 - 160)}px"><div>Open</div><div>Play</div><hr><div class="hov">Add to favourites</div><div>Hide from sidebar<span>Settings brings it back</span></div><hr><div>Show in Finder</div></div>` + cur(ARROW, px, py - 4));
+    }
+    if (s.tip) {
+      const el = win.querySelector('[data-k="cr:wf:rb:Music/Old Sets/Bounce"]');
+      if (el) { const r = at(el); win.insertAdjacentHTML('beforeend', `<div class="tip" style="left:${r.x + 60}px;top:${r.y + 30}px">Rekordbox Library › Music › Old Sets › Bounce<br><span class="lb">61 files</span></div>` + cur(ARROW, r.x + 52, r.y + 12)); }
+    }
+    if (s.drag) {
+      const sl = win.querySelector('[data-slot]'), r = at(sl), x = byKey[s.a.drag.key];
+      const libr = at(lib);
+      lib.insertAdjacentHTML('beforeend', `<div class="nav lift" style="top:${r.y - libr.y + lib.scrollTop + 5}px"><span class="g">${SVC[x.svc]}</span><span class="t">${x.name}</span><span class="c">${x.n}</span></div>`);
+      win.insertAdjacentHTML('beforeend', cur(HAND, r.x + 112, r.y + 14));
+    }
+    // A: the whole Library list, unclipped (what the sidebar scrolls through), at 1x and the 2x alignment check
+    const ex = document.getElementById('extra');
+    ex.innerHTML = s.full ? `<div><div class="cap">The whole sidebar, unscrolled (what the Library list scrolls through at 800 px)</div><div class="win" data-full style="width:200px">${sidebarA({ ...s.a, page: s.a.page || '' }).replace('class="lib fade-b"', 'class="lib"')}</div></div>` : '';
+  }
+  pick.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { state = b.dataset.v; history.replaceState(null, '', '#' + state); render(); }));
+  addEventListener('hashchange', () => { const h = location.hash.slice(1); if (STATES[h]) { state = h; render(); } });
+  addEventListener('resize', render);
+  render();
+})();
+</script>
+</body></html>
