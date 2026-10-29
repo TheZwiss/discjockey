@@ -337,7 +337,7 @@ used.
 | `ListRow` | `lib/components/ListRow.svelte` | `gallery-listrow` | The row grid of every list; `off` dims the lead, not a `data-mark` tick; the hit area is `data-row-hit`; a row that becomes `selected` scrolls into view (`block: 'nearest'`: a row already visible does not move); `wrap` lets the sub-line wrap instead of ending in "…", for what must be read whole (a destination folder, a reason a file can't move); the row grows by its lines. |
 | `Tick` | `lib/components/Tick.svelte` | `gallery-listrow` | The checkbox look inside a `ListRow` lead (the row's button is the control, `checked`): orange filled ✓, empty box, `mixed` – for a group control with only some ticked. Marks itself `data-mark`, so an `off` row never dims it. Sync's plan, Playlists' tidy-up. |
 | `ListSection` | `lib/components/ListSection.svelte` | `gallery-listsection` | A group's head among one list's rows (name, count, hint, `--h-section` 32 px; no dots between them, and a single group's `Surface` head prints the same through `summary` + `hint`): a sibling of the rows, sticky at the scroller's top while its rows pass (heading level 3). A `Surface grow` with sections doesn't fade its top end (the stuck head is the edge) and gives its rows `scroll-margin-top`, so a row scrolled into view stops below the head. One anchored list with sections replaces stacked lists of groups (To-do). |
-| `TrackHead`, `UpgradeCard` | `lib/components/` | `gallery-trackhead` | A details panel's head (To-do, Library): 64 px cover, title · "Artist · length · place" · `children`, one line each, `action` at the title's end (To-do's Hide). The upgrade box: a good-tone Surface card (label, found date as summary), Now/New spectra, ComparePlayer, the cue verdict ruled off, the page's `actions`. |
+| `TrackHead`, `UpgradeCard` | `lib/components/` | `gallery-trackhead` | A details panel's head (To-do, Library): 64 px cover, title · "Artist · length · place" · `children`; nothing in it is cut: a long title and the "Artist · length · place" line wrap whole, the quality badge's words go under it, `action` at the title's end on its first line (To-do's Hide). The upgrade box: a good-tone Surface card (label, found date as summary), Now/New spectra, ComparePlayer, the cue verdict ruled off, the page's `actions`. |
 | `ProblemCard` | `lib/components/ProblemCard.svelte` | `gallery-problemcard` | A problem as a problem-tone Surface card; `compact` one-line form; `actions`; `alert` only for a problem the user's own action caused; `service` (a playlist service's login: "Qobuz isn't connected." with Connect Qobuz →, no detail line repeating it); `hint` (the page's own line under the headline, e.g. Sync's "what is affected" for a missing login; replaces the stock hint); `offline` with a `service` reads "Qobuz isn't answering.". |
 | `EmptyState`, `Skeleton` | `lib/components/` | `gallery-emptystate`, `gallery-skeleton` | Empty content; a placeholder of the content's shape. |
 
@@ -481,6 +481,14 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-29 · The panel head cuts nothing (library stage 4 fix I).** `TrackHead`'s title and its "Artist · length ·
+  place" line wrap whole instead of ending in "…" (the badge's words already did, fix H); no tooltip is needed any more.
+  Library's head says only where the file sits (the folder, or "Not in a playlist"): "in 3 playlists" was cut at 1100
+  and never named a playlist, so the playlists are a **Playlists** row in Current file, by name and wrapping, and
+  To-do's panel gets the Source row Library already had instead of "· from X" in the head. Key columns of both Current
+  file cards are 76 px (PLAYLISTS is the longest key). Why: the head is what tells which song and which file this is;
+  a cut there is information the user can't get back, and the panel's body already scrolls when the head grows. Seen:
+  `library-long-panel-selected`, `todo-fake-selected`, gallery `gallery-trackhead` (a long title).
 - **2026-10-29 · `Segmented`: a segment with a count of 0 has no dot (library stage 4 fix I).** The quality dot says
   "there is something of this quality here"; at 0 nothing is, so a green dot on "Upgrade ready 0" promised an upgrade
   that does not exist. The dot is left out in the block (`o.dot && o.count !== 0`), so every strip does the same; the

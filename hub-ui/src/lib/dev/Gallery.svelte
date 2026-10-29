@@ -1084,6 +1084,13 @@
           <QualityBadge quality={weak.quality} label={weak.quality_label} />
         </TrackHead>
       </Surface>
+      <Surface kind="card">
+        <TrackHead track={{ ...weak, cover_url: null, title: 'THE WEEKEND (Extended Festival Mix 2026 Remaster)',
+          artist: 'DJ TALLBOY & The Extended Friends' }} place="Hard_Bounce">
+          {#snippet action()}<Button variant="link" muted size="sm">Hide</Button>{/snippet}
+          <QualityBadge quality={weak.quality} label={weak.quality_label} />
+        </TrackHead>
+      </Surface>
       <UpgradeCard upgrade={upExact} currentUrl={toneA} current={specCut} next={specFull} swap>
         {#snippet actions()}<Button variant="link" size="sm">Add as new file</Button><Button variant="link" muted size="sm">Discard</Button>{/snippet}
       </UpgradeCard>

@@ -139,8 +139,8 @@
     {#if !hasFile}
       <Surface kind="card" label="Still looking" data-test="still-looking">
         <div class="facts">
-          {#if qobuz}<KeyValue keyWidth={64} k="Qobuz" v={qobuz} />{/if}
-          {#if item?.detail}<KeyValue keyWidth={64} k="Others" v={item.detail} />{/if}
+          {#if qobuz}<KeyValue keyWidth={76} k="Qobuz" v={qobuz} />{/if}
+          {#if item?.detail}<KeyValue keyWidth={76} k="Others" v={item.detail} />{/if}
         </div>
       </Surface>
     {/if}
@@ -167,14 +167,14 @@
         {/if}
         {#if track.format_line || track.source_full || track.source_url || qobuz}
           <div class="facts">
-            {#if track.format_line}<KeyValue keyWidth={64} k="Format" v={track.format_line} />{/if}
+            {#if track.format_line}<KeyValue keyWidth={76} k="Format" v={track.format_line} />{/if}
             {#if track.source_full || track.source_url}
-              <KeyValue keyWidth={64} k="Source">
+              <KeyValue keyWidth={76} k="Source">
                 {#if track.source_url}<ExternalLink href={track.source_url} label={track.source_full ?? track.source_url} />
                 {:else}{track.source_full}{/if}
               </KeyValue>
             {/if}
-            {#if qobuz}<KeyValue keyWidth={64} k="Qobuz" v={qobuz} />{/if}
+            {#if qobuz}<KeyValue keyWidth={76} k="Qobuz" v={qobuz} />{/if}
           </div>
         {/if}
       </Surface>

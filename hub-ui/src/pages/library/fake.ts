@@ -59,6 +59,15 @@ const fake: PageFake = {
       const t = s.tracks.find((x) => x.track_id === 't6');
       if (t) Object.assign(t, { status: 'fake_lossless', cutoff_hz: 16000, source: 'qobuz', codec: 'flac' });
     },
+    // the longest words every line of the panel carries (open t6): a song in four playlists, a long title and artist
+    // (so a long file name, whose end tells it apart), a fake lossless file (the longest badge and the cutoff's whole
+    // sentence)
+    long_panel: (s) => {
+      const t = s.tracks.find((x) => x.track_id === 't6');
+      if (t) Object.assign(t, { artist: 'DJ TALLBOY & The Extended Friends', title: 'THE WEEKEND (Extended Festival Mix 2026 Remaster)',
+        status: 'fake_lossless', cutoff_hz: 16000, source: 'qobuz', codec: 'flac',
+        playlists: ['Hard_Bounce', 'Powertrance', 'Bouncy', '03_06_2026'] });
+    },
     // now playing: ▶ on Get Naughty, then ⏭ reaches a file that can't be played (the bar says so and waits)
     cant_play: (s) => { cantPlay.add(s); },
   },
