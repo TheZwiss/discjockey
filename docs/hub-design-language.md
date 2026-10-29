@@ -484,6 +484,11 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-29 · A dimmed leftover row says why at every width (library stage 4 fix L).** The Library's dimmed row (a
+  downloaded song that left every playlist) was explained only by the Folder column's "Not in a playlist", which is
+  hidden at 1100. Its title cell now has a native tooltip: the full name, and under it "Not in any playlist any more"
+  (`rowTitleTip`, `libraryModel.ts`). An away row keeps the name alone; its `AwayTag` has its own tooltip. A tooltip, not
+  a visible mark: the dimming is the signal, the words are for the one who asks. Seen: `library-ejected-back`.
 - **2026-10-29 · The spectrum's top label only shows with room above the cutoff line (library stage 4 fix L).** In the
   64 px strip a 16 kHz file's cutoff line is about 17 px from the top, and "22.1 kHz" sat on it, reading as "cut off at
   22.1 kHz". `showTopLabel(height, cut)` (`spectrum-data.ts`) now decides in pixels: a strip of 64 px or more, and the

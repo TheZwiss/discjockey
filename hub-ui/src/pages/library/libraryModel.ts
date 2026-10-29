@@ -112,6 +112,14 @@ export function optionalColumns(view: LibraryView): ('folder' | 'source' | 'adde
 export function rowOff(r: Pick<TrackRow, 'in_playlists' | 'own'>): boolean {
   return !r.in_playlists && !r.own;
 }
+/** Why a dimmed leftover row is dimmed. The Folder column says it too ("Not in a playlist"), but only at the widths
+ *  that show that column; this is the same word on the title cell at every width. */
+export const ROW_OFF_REASON = 'Not in any playlist any more';
+/** The title cell's tooltip: the full name (the cell cuts a long one), and under it, for a dimmed leftover row, why it
+ *  is dimmed. An away row (drive or folder not there) keeps the name alone: its `AwayTag` says why it can't play. */
+export function rowTitleTip(r: Pick<LibraryRow, 'in_playlists' | 'own' | 'file_state'>, name: string): string {
+  return rowOff(r) && rowAway(r) === null ? `${name}\n${ROW_OFF_REASON}` : name;
+}
 /** Whether a row's file is there to play: not when its drive is offline or its watched folder isn't found
  *  (`file_state`, decided per folder by the engine). Enter, double-click and the cover play only such a row, and the
  *  player's queue holds only these. */
