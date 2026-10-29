@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ago, artistTitle, clock, dateShort, dayMonth, duration, estimate, estimateText, foldText, khz, megabytes, minutesLong, noteParts, percent, plural,
+import { ago, artistTitle, clock, cutoffStat, dateShort, dayMonth, duration, estimate, estimateText, foldText, khz, megabytes, minutesLong, noteParts, percent, plural,
   qualityWords, runIdFromReport, runWhen, upgradeLabel } from './format';
 
 describe('format', () => {
@@ -78,6 +78,14 @@ describe('qualityWords', () => {
     expect(qualityWords('good_lossy', '20.1 kHz')).toBe('lossy, hard to hear');
     expect(qualityWords('good_lossy', 'LOSSY')).toBe('hard to hear');
     expect(qualityWords('lossless', 'LOSSLESS')).toBe('verified lossless');
+  });
+  it('says the sound is not checked yet, whatever the codec guessed', () => {
+    expect(qualityWords('lossless', 'LOSSLESS', false)).toBe('sound not checked yet');
+    expect(qualityWords('good_lossy', 'LOSSY', false)).toBe('sound not checked yet');
+  });
+  it('cutoffStat shows nothing for a file whose sound is not checked yet', () => {
+    expect(cutoffStat({ status: 'not_lossless', cutoff_hz: null, sound_checked: false })).toBeNull();
+    expect(cutoffStat({ status: 'not_lossless', cutoff_hz: null, sound_checked: true })).not.toBeNull();
   });
   it('upgradeLabel: "Upgrade ready", plus what it is when it is not lossless', () => {
     expect(upgradeLabel('lossless version')).toBe('Upgrade ready');

@@ -162,9 +162,10 @@ def verdict(source_lossless: bool, cutoff: int | None) -> str:
 
 
 def quality_line(source: str, codec: str, status: str, cutoff: int | None, kbps: int | None = None,
-                 own: bool = False) -> str:
+                 own: bool = False, checked: bool = True) -> str:
     """The words under a track: where it came from, its format and the verdict. `own`: a file of the user's own that
-    the import found, which the "manual" source would call a bought file."""
+    the import found, which the "manual" source would call a bought file. `checked` False: the import has read the
+    file's tags but not judged its sound yet, so the codec's guess ("lossless" for a WAV) is no verdict."""
     fmt = "PCM" if codec.startswith("pcm_") else codec.upper()
     if kbps and status == "not_lossless":
         fmt += f" {kbps} kbps"
@@ -173,6 +174,8 @@ def quality_line(source: str, codec: str, status: str, cutoff: int | None, kbps:
     else:
         name = SOURCE_NAMES[source]
     khz = f"{cutoff / 1000:.1f} kHz" if cutoff else None
+    if not checked:
+        return f"{name} {fmt} · {'sound not checked yet' if status == 'lossless' else 'lossy, sound not checked yet'}"
     if status == "lossless":
         return f"{name} {fmt} · verified lossless"
     if status == "fake_lossless":

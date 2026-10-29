@@ -74,15 +74,28 @@ def quality_label(e: dict) -> str:
     return khz(e.get("cutoff_hz")) or "LOSSY"
 
 
+def sound_checked(e: dict) -> bool:
+    """False while an imported file has only the codec's provisional quality (import_state "identified": tags read,
+    sound not judged yet, plan library stage 4 D1). Every count of qualities leaves such a file out."""
+    return e.get("import_state") != "identified"
+
+
+def quality_counts(entries: list[dict]) -> dict:
+    """How many entries are of each quality; files whose sound isn't checked yet are not counted."""
+    by = {q: 0 for q in QUALITIES}
+    for e in entries:
+        if sound_checked(e):
+            by[quality_class(e)] += 1
+    return by
+
+
 # --- formulas (spec 6.9) ---
 
 def lossless_share(state: dict) -> dict:
-    """Lossless tracks ÷ tracks in playlists (hidden ones count). share is None when there are none ("—")."""
-    entries = [e for e in state["tracks"].values() if e.get("in_playlists")]
-    by = {q: 0 for q in QUALITIES}
-    for e in entries:
-        by[quality_class(e)] += 1
-    total = len(entries)
+    """Lossless tracks ÷ tracks in playlists (hidden ones count; a file whose sound isn't checked yet doesn't).
+    share is None when there are none ("—")."""
+    by = quality_counts([e for e in state["tracks"].values() if e.get("in_playlists")])
+    total = sum(by.values())
     return {"share": round(by["lossless"] / total, 4) if total else None, "lossless": by["lossless"], "total": total,
             "by_quality": by}
 
@@ -303,11 +316,10 @@ def folder_bars(state: dict, folder_order: list[str]) -> list[dict]:
     out = []
     for folder in folder_order:
         entries = [e for e in state["tracks"].values() if e.get("in_playlists") and e.get("folder") == folder]
-        by = {q: 0 for q in QUALITIES}
-        for e in entries:
-            by[quality_class(e)] += 1
+        by = quality_counts(entries)
+        counted = sum(by.values())
         out.append({"folder": folder, "tracks": len(entries),
-                    "lossless_share": round(by["lossless"] / len(entries), 4) if entries else None,
+                    "lossless_share": round(by["lossless"] / counted, 4) if counted else None,
                     "by_quality": by})
     return out
 
@@ -603,10 +615,11 @@ def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url 
                  media: Url | None = None) -> dict:
     folders = in_playlists(track_id, e, fetched)
     has_file = e["status"] != "missing" and e.get("source")
-    return {**track_row(track_id, e, cover), "isrc": e.get("isrc"),
+    return {**track_row(track_id, e, cover), "sound_checked": sound_checked(e), "isrc": e.get("isrc"),
             "playlists": folders, "in_playlist_count": len(folders) if folders is not None else None,
             "quality_line": quality_line(e["source"], e.get("source_format") or "?", e["status"], e.get("cutoff_hz"),
-                                         e.get("source_kbps"), own=is_own_file(e)) if has_file else None,
+                                         e.get("source_kbps"), own=is_own_file(e),
+                                         checked=sound_checked(e)) if has_file else None,
             "format_line": format_line(e) if has_file else None,
             "source_full": ((OWN_FILE if is_own_file(e) else "bought" if e["source"] == "manual"
                              else SOURCE_NAMES.get(e["source"])) if has_file else None),
@@ -623,7 +636,9 @@ def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url 
 
 SORTS = {"title": lambda r: fold(r["title"]), "artist": lambda r: (fold(r["artist"]), fold(r["title"])),
          "length": lambda r: r["duration_s"], "source": lambda r: r["source_name"] or "",
-         "quality": lambda r: QUALITIES.index(r["quality"]), "added": lambda r: r["added"] or "",
+         # files whose sound isn't checked yet have no real quality: they sort after every checked one
+         "quality": lambda r: QUALITIES.index(r["quality"]) if r["sound_checked"] else len(QUALITIES),
+         "added": lambda r: r["added"] or "",
          # tracks in no playlist sit in their folder on disk, but read as "Not in a playlist": they sort last
          # (the user's own songs, from the import, have no folder: "")
          "folder": lambda r: (not r["in_playlists"], fold(r["folder"]), fold(r["artist"]), fold(r["title"]))}
@@ -631,7 +646,10 @@ LIBRARY_FILTERS = ("all", "lossless", "good_lossy", "weak", "fake", "upgrade_rea
 
 
 def _matches(row: dict, filt: str) -> bool:
-    return filt == "all" or (row["upgrade_ready"] if filt == "upgrade_ready" else row["quality"] == filt)
+    """A quality filter (and its chip) never holds a file whose sound isn't checked yet: only All does."""
+    if filt == "all":
+        return True
+    return row["upgrade_ready"] if filt == "upgrade_ready" else row["sound_checked"] and row["quality"] == filt
 
 
 def library(state: dict, folder: str | None, query: str, filt: str, sort: str, cover: Url | None = None) -> dict:
@@ -644,16 +662,14 @@ def library(state: dict, folder: str | None, query: str, filt: str, sort: str, c
         chosen, title = {k: e for k, e in with_file.items() if not e.get("in_playlists")}, "Not in a playlist"
     else:
         chosen, title = {k: e for k, e in with_file.items() if fold(e["folder"] or "") == fold(folder)}, folder
-    # sound_checked: false while an imported file has only the codec's provisional quality (import_state "identified",
-    # plan library stage 4 D1): the page says "sound not checked yet"
-    rows = [{**track_row(k, e, cover), "sound_checked": e.get("import_state") != "identified"}
-            for k, e in chosen.items()]
+    # sound_checked: false while an imported file has only the codec's provisional quality: the page says "sound not
+    # checked yet", and no count below holds the file (it still counts under All and in "tracks")
+    rows = [{**track_row(k, e, cover), "sound_checked": sound_checked(e)} for k, e in chosen.items()]
     in_folder = len(rows)
-    by = {q: 0 for q in QUALITIES}
-    for r in rows:
-        by[r["quality"]] += 1
+    by = quality_counts(list(chosen.values()))
+    counted = sum(by.values())
     # the folder at a glance (the panel's overview): unaffected by the search and the filter
-    summary = {"tracks": in_folder, "lossless_share": round(by["lossless"] / in_folder, 4) if in_folder else None,
+    summary = {"tracks": in_folder, "lossless_share": round(by["lossless"] / counted, 4) if counted else None,
                "by_quality": by, "upgrades_ready": sum(1 for r in rows if r["upgrade_ready"]),
                "to_do": sum(1 for e in chosen.values()
                             if e.get("in_playlists") and not e.get("hidden") and _group(e) is not None)}
@@ -704,6 +720,8 @@ FREE_GROUPS = ("not_found", "weak", "good_lossy", "fake")  # where an artist's f
 
 
 def _group(e: dict) -> str | None:
+    if not sound_checked(e):  # its quality is only the codec's guess: nothing to do about it yet
+        return None
     if e.get("upgrade"):
         return "upgrade_ready"
     return {"missing": "not_found", "weak": "weak", "good_lossy": "good_lossy", "fake": "fake"}.get(quality_class(e))

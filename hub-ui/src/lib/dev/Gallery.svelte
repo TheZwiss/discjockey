@@ -811,7 +811,7 @@
     <div class="row">
       <QualityBadge quality="lossless" label="LOSSLESS" /><QualityBadge quality="good_lossy" label="20.0 kHz" />
       <QualityBadge quality="weak" label="16.0 kHz" upgrade /><QualityBadge quality="fake" label="FAKE · 16.0 kHz" />
-      <QualityBadge quality="missing" label="NOT FOUND" />
+      <QualityBadge quality="missing" label="NOT FOUND" /><QualityBadge quality="lossless" label="LOSSLESS" checked={false} />
     </div>
     <div class="row"><ExternalLink href="https://www.beatport.com/search?q=Armin+Hermann+Get+Naughty" label="Beatport" />
       <ExternalLink href="https://bandcamp.com">Bandcamp</ExternalLink></div>

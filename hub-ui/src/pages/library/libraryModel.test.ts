@@ -100,6 +100,12 @@ describe('the panel', () => {
     expect(overview(s(10, 6))).toEqual({ value: '60', unit: '%', label: 'lossless · 6 of 10 tracks' });
     expect(overview(s(1, 1)).label).toBe('lossless · 1 of 1 track');
     expect(overview(s(0, 0))).toEqual({ value: null, label: 'lossless · no tracks yet' });
+    // two files not sound-checked yet: left out of by_quality and of the share, still in `tracks`
+    const part: Library['summary'] = { tracks: 10, lossless_share: 0.5, upgrades_ready: 0, to_do: 0,
+      by_quality: { lossless: 4, good_lossy: 0, weak: 4, fake: 0, missing: 0 } };
+    expect(overview(part)).toEqual({ value: '50', unit: '%', label: 'lossless · 4 of 8 checked tracks' });
+    expect(overview({ ...part, lossless_share: null, by_quality: { lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 } }))
+      .toEqual({ value: null, label: 'lossless · none checked yet' });
   });
   it('file name without the folders', () => {
     expect(fileName('Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff')).toBe('Armin Hermann - Get Naughty.aiff');

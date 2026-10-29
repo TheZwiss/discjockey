@@ -205,6 +205,22 @@ describe('fake To-do of the import', () => {
     const lib = must(await fake('normal').f.library(null, '', 'all', 'artist'));
     expect(lib.rows.every((r) => r.sound_checked === true)).toBe(true);
   });
+
+  it('library:unchecked has own files whose sound is not checked: out of the counts, in All, with their own words', async () => {
+    const f = fake('library:unchecked').f;
+    const all = must(await f.library(null, '', 'all', 'artist'));
+    const open = all.rows.filter((r) => !r.sound_checked).map((r) => r.track_id);
+    expect(open).toEqual(['local:1', 'local:2']);
+    expect(all.chips.all).toBe(all.rows.length);
+    expect(all.summary.by_quality.lossless).toBe(all.rows.filter((r) => r.quality === 'lossless').length - 2);
+    expect(must(await f.library(null, '', 'lossless', 'artist')).rows.some((r) => r.track_id === 'local:1')).toBe(false);
+    expect(must(await f.library(null, '', 'all', '-quality')).rows[0].sound_checked).toBe(false);
+    const d = must(await f.track('local:1')).track;
+    expect(d).toMatchObject({ sound_checked: false, source_full: 'your own file', source_name: 'own file',
+      quality_line: 'Your own file (PCM) · sound not checked yet', format_line: 'uncompressed PCM' });
+    expect(must(await f.track('local:3')).track.quality_line).toBe('Your own file (PCM) · verified lossless');
+    expect(must(await f.todo('all', false)).groups.flatMap((g) => g.items).some((i) => i.track_id.startsWith('local:'))).toBe(false);
+  });
 });
 
 describe('fake Setup step "Your existing music"', () => {

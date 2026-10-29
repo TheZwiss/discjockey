@@ -1439,3 +1439,34 @@ def test_a_bought_file_the_sync_adopted_stays_bought_with_its_own_added_day():
     assert d["quality_line"].startswith("bought file ")
     without = e("lossless", source="manual", placed_by="app", first_seen="2026-10-25T12:00:00", added=None)
     assert views.track_row("t1", without)["added"] is None  # first_seen stands in for an own file only
+
+
+def test_files_whose_sound_is_not_checked_yet_are_left_out_of_every_quality_count():
+    st = state(a=e(), b=e("not_lossless", cutoff=16000), **{"local:1": own(import_state="identified"),
+                                                           "local:2": own(import_state="identified", file_id=8, path="/x/b.mp3"),
+                                                           "local:3": own(file_id=9)})
+    out = views.library(st, None, "", "all", "artist")
+    assert out["summary"]["tracks"] == 5 and out["chips"]["all"] == 5
+    assert out["summary"]["by_quality"] == {"lossless": 2, "good_lossy": 0, "weak": 1, "fake": 0, "missing": 0}
+    assert out["summary"]["lossless_share"] == round(2 / 3, 4)
+    assert (out["chips"]["lossless"], out["chips"]["good_lossy"], out["chips"]["weak"]) == (2, 0, 1)
+    assert {r["track_id"] for r in views.library(st, None, "", "lossless", "artist")["rows"]} == {"a", "local:3"}
+    # sorted by quality they come after every checked file, whatever the direction of the codec's guess
+    assert [r["track_id"] for r in views.library(st, None, "", "all", "quality")["rows"]][-2:] == ["local:1", "local:2"]
+
+
+def test_a_playlist_file_whose_sound_is_not_checked_yet_is_not_counted_nor_a_to_do():
+    st = state(a=e(), b=e(import_state="identified", source="manual", placed_by="import"))
+    assert views.lossless_share(st)["by_quality"]["lossless"] == 1 and views.lossless_share(st)["total"] == 1
+    assert views.folder_bars(st, ["A"])[0]["tracks"] == 2
+    assert views.folder_bars(st, ["A"])[0]["lossless_share"] == 1.0
+    lossy = e("not_lossless", import_state="identified")
+    assert views._group(lossy) is None and views._group(e("not_lossless")) == "good_lossy"
+
+
+def test_the_detail_of_a_file_whose_sound_is_not_checked_yet_says_so():
+    d = views.track_detail("local:1", own(import_state="identified", source_format="pcm_s16le", placed_by="import"), [], TODAY)
+    assert d["sound_checked"] is False and d["quality_line"] == "Your own file (PCM) · sound not checked yet"
+    d = views.track_detail("local:2", own(source_format="pcm_s16le", placed_by="import"), [], TODAY)
+    assert d["sound_checked"] is True and d["quality_line"] == "Your own file (PCM) · verified lossless"
+    assert views.track_detail("t1", e(), [], TODAY)["sound_checked"] is True

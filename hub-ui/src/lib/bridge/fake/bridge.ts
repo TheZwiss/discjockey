@@ -10,7 +10,7 @@ import { LIBRARY_METHODS } from '../contract';
 import {
   FAKE_MUSIC, FAKE_NEWEST_YT_DLP, QOBUZ_UNREADABLE, SERVICE_NAME, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkText, coverUri, dateOnly, folderList, hash, inFolder, isoLocal, makeState, nextStep,
   pathOf, playlistRows, previewAction, qualityLabel, qualityLine, qualityOf, result, runDetail, runId,
-  readStatus, sampleCandidates, spotifyOk, todoDetail, todoFree, formatLine, SOURCE_FULL, todoGroup, trackRow, type FakeAccount, type FakeFolder, type FakeState,
+  readStatus, sampleCandidates, spotifyOk, todoDetail, todoFree, formatLine, sourceFull, todoGroup, trackRow, type FakeAccount, type FakeFolder, type FakeState,
   type FakeTrack,
 } from './data';
 import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, rewrite } from './replay';
@@ -473,25 +473,27 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const chips = { all: found.length, lossless: 0, good_lossy: 0, weak: 0, fake: 0, upgrade_ready: 0 };
       for (const t of found) {
         const k = qualityOf(t);
-        if (k !== 'missing') chips[k]++;
+        if (k !== 'missing' && !t.unchecked) chips[k]++;
         if (t.upgrade) chips.upgrade_ready++;
       }
-      const rows = found.filter((t) => filter === 'all' || (filter === 'upgrade_ready' ? !!t.upgrade : qualityOf(t) === filter));
+      const rows = found.filter((t) => filter === 'all' || (filter === 'upgrade_ready' ? !!t.upgrade
+        : !t.unchecked && qualityOf(t) === filter));
       const desc = sort.startsWith('-');
       const key = sort.replace('-', '');
       const qorder = ['lossless', 'good_lossy', 'weak', 'fake', 'missing'];
       const val = (t: FakeTrack): string | number => key === 'title' ? t.title.toLowerCase()
         : key === 'length' ? t.duration_s : key === 'source' ? (t.source ?? '') : key === 'quality'
-          ? qorder.indexOf(qualityOf(t)) : key === 'added' ? (t.added ?? '')
+          ? (t.unchecked ? qorder.length : qorder.indexOf(qualityOf(t))) : key === 'added' ? (t.added ?? '')
             : key === 'folder' ? `${t.in_playlists ? 0 : 1} ${t.folder} ${t.artist} ${t.title}`.toLowerCase()
               : `${t.artist} ${t.title}`.toLowerCase();
       rows.sort((a, b) => (val(a) < val(b) ? -1 : val(a) > val(b) ? 1 : 0) * (desc ? -1 : 1));
-      const lossless = all.filter((t) => qualityOf(t) === 'lossless').length;
+      const counted = byQuality(all);
+      const checked = Object.values(counted).reduce((n, c) => n + c, 0);
       return ok({ title: folder === null ? 'All tracks' : folder === NOT_IN_PLAYLIST ? 'Not in a playlist' : folder,
-        folder, summary: { tracks: all.length, lossless_share: all.length ? lossless / all.length : null,
-          by_quality: byQuality(all), upgrades_ready: all.filter((t) => !!t.upgrade).length,
+        folder, summary: { tracks: all.length, lossless_share: checked ? counted.lossless / checked : null,
+          by_quality: counted, upgrades_ready: all.filter((t) => !!t.upgrade).length,
           to_do: all.filter((t) => t.in_playlists && !t.hidden && todoGroup(t)).length }, chips,
-        rows: rows.map((t) => ({ ...trackRow(t), sound_checked: true })), empty: !s.tracks.length ? 'empty_library' as const : rows.length ? null : 'no_match' as const });
+        rows: rows.map((t) => ({ ...trackRow(t), sound_checked: !t.unchecked })), empty: !s.tracks.length ? 'empty_library' as const : rows.length ? null : 'no_match' as const });
     },
     async track(track_id: string) {
       const t = track(track_id);
@@ -500,9 +502,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const plus = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return dateOnly(d); };
       const query = `${t.artist} ${t.title}`.replace(/ /g, '+');
       return ok({ track: {
-        ...trackRow(t), isrc: t.isrc, playlists: s.previewRead ? [...t.playlists] : null,
+        ...trackRow(t), sound_checked: !t.unchecked, isrc: t.isrc, playlists: s.previewRead ? [...t.playlists] : null,
         in_playlist_count: t.playlists.length, quality_line: qualityLine(t), format_line: formatLine(t),
-        source_full: !t.source || q === 'missing' ? null : SOURCE_FULL[t.source],
+        source_full: q === 'missing' ? null : sourceFull(t),
         source_url: t.source === 'youtube' ? 'https://www.youtube.com/watch?v=abcdefghijk'
           : t.source === 'youtube_music' ? 'https://music.youtube.com/watch?v=abcdefghijk'
             : t.source === 'soundcloud' ? 'https://soundcloud.com/artist/track'

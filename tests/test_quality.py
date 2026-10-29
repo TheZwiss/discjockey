@@ -161,3 +161,11 @@ def test_the_quality_line_of_an_own_file_puts_the_format_in_brackets():
         "Your own file (MP3 320 kbps) · cutoff 16.0 kHz")
     assert quality_line("qobuz", "flac", "lossless", None, own=True) == "Qobuz FLAC · verified lossless"
     assert quality_line("manual", "pcm_s16le", "lossless", None) == "bought file PCM · verified lossless"
+
+
+def test_the_quality_line_of_a_file_whose_sound_is_not_checked_yet_gives_no_verdict():
+    assert quality_line("manual", "pcm_s16le", "lossless", None, own=True, checked=False) == (
+        "Your own file (PCM) · sound not checked yet")
+    assert quality_line("manual", "mp3", "not_lossless", None, own=True, checked=False) == (
+        "Your own file (MP3) · lossy, sound not checked yet")
+    assert quality_line("manual", "pcm_s16le", "lossless", None, own=True) == "Your own file (PCM) · verified lossless"

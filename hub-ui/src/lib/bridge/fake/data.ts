@@ -38,6 +38,10 @@ export type FakeTrack = {
   at?: string;
   /** the track's page when it isn't the Spotify one every other fake track gets (a Qobuz track) */
   link?: TrackLink;
+  /** a song of the user's own that the import found (source `manual`, no folder, in no playlist) */
+  own?: boolean;
+  /** an own file the import has read but whose sound it hasn't judged yet: its quality is the codec's guess */
+  unchecked?: boolean;
 };
 /** One move of a move batch as the fake keeps it (the engine's `moves` row). */
 export type FakeMove = {
@@ -168,6 +172,9 @@ export function coverUri(i: number | null): string | null {
 }
 export const SOURCE_NAMES: Record<Source, string> = { qobuz: 'Qobuz', youtube_music: 'YT Music',
   soundcloud: 'SoundCloud', youtube: 'YouTube', manual: 'bought' };
+/** As views.SHORT_OWN / models.OWN_FILE. */
+const OWN_SHORT = 'own file';
+const OWN_FULL = 'your own file';
 const khz = (hz: number) => `${(hz / 1000).toFixed(1)} kHz`;
 export function qualityOf(t: FakeTrack): Quality {
   if (t.status === 'missing') return 'missing';
@@ -184,6 +191,7 @@ export function qualityLabel(t: FakeTrack): string {
 }
 export function pathOf(t: FakeTrack): string | null {
   if (t.status === 'missing') return null;
+  if (t.own) return `/Volumes/Example/Music/${t.artist} - ${t.title}.wav`;
   const sub = t.status === 'lossless' ? '' : '/not_lossless';
   return `Library/${t.at ?? t.folder}${sub}/${t.artist} - ${t.title}.aiff`;
 }
@@ -191,7 +199,7 @@ export function trackRow(t: FakeTrack): TrackRow {
   return {
     track_id: t.track_id, artist: t.artist, title: t.title, folder: t.folder, duration_s: t.duration_s,
     status: t.status, quality: qualityOf(t), quality_label: qualityLabel(t), cutoff_hz: t.cutoff_hz,
-    source: t.source, source_name: t.source ? SOURCE_NAMES[t.source] : null, in_playlists: t.in_playlists,
+    source: t.source, source_name: t.own ? OWN_SHORT : t.source ? SOURCE_NAMES[t.source] : null, in_playlists: t.in_playlists,
     hidden: t.hidden, upgrade_ready: !!t.upgrade, path: pathOf(t), added: t.added, cover_url: coverUri(t.cover),
   };
 }
@@ -199,12 +207,14 @@ export function qualityLine(t: FakeTrack): string {
   const q = qualityOf(t);
   const src = t.source ? SOURCE_NAMES[t.source] : '';
   if (q === 'missing') return 'No file yet';
+  if (t.own) return `Your own file (PCM) · ${t.unchecked ? 'sound not checked yet' : 'verified lossless'}`;
   if (q === 'lossless') return t.source === 'manual' ? 'bought file · lossless' : `${src} FLAC · verified lossless`;
   if (q === 'fake') return `${src} FLAC · fake lossless, cutoff ${khz(t.cutoff_hz ?? 16000)}`;
   const kbps = t.kbps ? ` ${t.kbps} kbps` : '';
   return `${src} ${(t.codec ?? 'aac').toUpperCase()}${kbps} · cutoff ${khz(t.cutoff_hz ?? 20000)}`;
 }
 export function todoGroup(t: FakeTrack): TodoGroupKey | null {
+  if (t.unchecked) return null;  // as views._group: its quality is only the codec's guess
   if (t.other) return 'other';
   if (t.upgrade) return 'upgrade_ready';
   const q = qualityOf(t);
@@ -225,11 +235,14 @@ export function todoDetail(t: FakeTrack, g: TodoGroupKey): string {
 /** As SOURCE_NAMES in models.py: the details panel's "from YouTube Music". */
 export const SOURCE_FULL: Record<Source, string> = { qobuz: 'Qobuz', youtube_music: 'YouTube Music',
   soundcloud: 'SoundCloud', youtube: 'YouTube', manual: 'bought' };
+/** The details panel's "from …": an own file reads "your own file" instead of "bought". */
+export const sourceFull = (t: FakeTrack): string | null => !t.source ? null : t.own ? OWN_FULL : SOURCE_FULL[t.source];
 /** As views.FREE_GROUPS: the row's FREE tag. */
 export function todoFree(t: FakeTrack, g: TodoGroupKey): boolean {
   return ['not_found', 'weak', 'good_lossy', 'fake'].includes(g) && !!t.free_downloads?.length;
 }
-const FORMAT_NAMES: Record<string, string> = { opus: 'Opus', aac: 'AAC', mp3: 'MP3', flac: 'FLAC' };
+const FORMAT_NAMES: Record<string, string> = { opus: 'Opus', aac: 'AAC', mp3: 'MP3', flac: 'FLAC',
+  pcm: 'uncompressed PCM' };
 /** As views.format_line. */
 export function formatLine(t: FakeTrack): string | null {
   if (t.status === 'missing' || !t.codec) return null;
@@ -241,9 +254,10 @@ export function checkText(reason: 'wrong_song' | 'added_as_new'): string {
     ? 'This track now plays the right song. In rekordbox: analyse it again and delete the old cues (they belong to the wrong song).'
     : 'This is a different edit. In rekordbox: analyse it again and set the cues again.';
 }
+/** As views.quality_counts: a file whose sound isn't checked yet is not counted. */
 export function byQuality(ts: FakeTrack[]): ByQuality {
   const b = Object.fromEntries(QUALITIES.map((q) => [q, 0])) as ByQuality;
-  for (const t of ts) b[qualityOf(t)]++;
+  for (const t of ts) if (!t.unchecked) b[qualityOf(t)]++;
   return b;
 }
 export function budget(s: FakeState): Budget {
