@@ -5,7 +5,24 @@ import {
   kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount,
   minutesFor, runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
   readBlockLine, startLabel, tagOf, toggleScope, waitsWhole, whyColumn,
+  WAITING_ANSWERS_HREF, deferredChecksLine, waitingAnswersLine,
 } from './planModel';
+
+describe('the import hints (W9)', () => {
+  it('say the songs that wait for an answer, singular for 1, nothing at 0', () => {
+    expect(waitingAnswersLine(0)).toBeNull();
+    expect(waitingAnswersLine(1)).toBe('1 song waits for your answer on the To-do page.');
+    expect(waitingAnswersLine(3)).toBe('3 songs wait for your answer on the To-do page.');
+    expect(WAITING_ANSWERS_HREF).toBe('#/todo?filter=same_song');
+  });
+  it('say the first upgrade checks left for later runs, singular for 1, nothing at 0', () => {
+    expect(deferredChecksLine(0)).toBeNull();
+    expect(deferredChecksLine(1)).toBe("1 first upgrade check of your imported music waits for later runs, so today's "
+      + "Qobuz allowance isn't used up.");
+    expect(deferredChecksLine(40)).toBe("40 first upgrade checks of your imported music wait for later runs, so "
+      + "today's Qobuz allowance isn't used up.");
+  });
+});
 import { keyId } from './selection';
 
 const act = (kind: string, id: string, folder = 'Hard_Bounce', more: Partial<PreviewAction> = {}): PreviewAction => ({

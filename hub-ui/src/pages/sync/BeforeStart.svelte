@@ -297,7 +297,8 @@
       accounts={preview?.estimate?.accounts ?? []}
       howMany={shownPreset(howMany ?? 'custom', presetList, total, left)} folders={facetLists.folders}
       kinds={facetLists.kinds} {scope} onhowmany={pickHowMany} onscope={changeScope}
-      onscopeall={changeScopeAll} start={startArea} />
+      onscopeall={changeScopeAll} start={startArea} waitingAnswers={preview?.waiting_answers ?? 0}
+      deferredChecks={preview?.deferred_checks ?? 0} />
   {:else if upToDatePanel}
     <UpToDatePanel last={lastRun ?? null} view={lastView} todo={$hub.sidebar?.todo ?? null} {upgrades} />
   {/if}

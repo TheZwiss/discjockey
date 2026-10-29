@@ -307,3 +307,22 @@ export function sections(rows: PreviewAction[], folderOrder: string[]): { folder
   const order = [...folderOrder, ...[...by.keys()].filter((f) => !folderOrder.includes(f))];
   return order.filter((f) => by.has(f)).map((folder) => ({ folder, rows: by.get(folder)! }));
 }
+
+// ---------- the import's hints (plan library stage 4, W9) ----------
+/** Songs held back until "Is this the same song?" is answered (D4): said under the run's counts (they are why the
+ *  count is smaller), with the way to To-do. Null at 0. */
+export function waitingAnswersLine(n: number): string | null {
+  if (n <= 0) return null;
+  return n === 1 ? '1 song waits for your answer on the To-do page.'
+    : `${n} songs wait for your answer on the To-do page.`;
+}
+/** First upgrade checks of imported music the per-run cap left for later runs (D9): said in the day card, where
+ *  today's allowance is. Null at 0. */
+export function deferredChecksLine(n: number): string | null {
+  if (n <= 0) return null;
+  const allowance = "so today's Qobuz allowance isn't used up.";
+  return n === 1 ? `1 first upgrade check of your imported music waits for later runs, ${allowance}`
+    : `${n} first upgrade checks of your imported music wait for later runs, ${allowance}`;
+}
+/** The waiting answers: To-do, showing the questions only. */
+export const WAITING_ANSWERS_HREF = '#/todo?filter=same_song';
