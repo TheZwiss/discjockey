@@ -115,8 +115,24 @@ def test_own_name_falls_back_to_the_file_name_as_the_title():
 
 @pytest.mark.parametrize("tag", ["Example Artist & Guest", "Example Artist, Guest", "Example Artist x Guest",
                                  "Example Artist; Guest", "Example Artist X Guest"])
-def test_the_first_artist_of_a_collaboration_tag_is_the_artist(tag):
-    assert compare("Example Artist", "Night Drive", 200000, None, own(artist=tag)) == ("certain", "name")
+def test_a_match_on_the_first_artist_of_a_collaboration_tag_is_only_plausible(tag):
+    assert compare("Example Artist", "Night Drive", 200000, None, own(artist=tag)) == ("plausible", "artist")
+
+
+def test_earth_wind_and_fire_against_earth_asks():
+    assert compare("Earth", "September", 215000, None,
+                   own(artist="Earth, Wind & Fire", title="September", ms=215000)) == ("plausible", "artist")
+
+
+def test_a_first_artist_match_with_an_unknown_length_asks_and_with_a_far_length_is_none():
+    assert compare("Example Artist", "Night Drive", 200000, None,
+                   own(artist="Example Artist & Guest", ms=None)) == ("plausible", "artist")
+    assert compare("Example Artist", "Night Drive", 200000, None,
+                   own(artist="Example Artist & Guest", ms=206000)) is None
+
+
+def test_the_same_full_artist_stays_certain():
+    assert compare("Example Artist", "Night Drive", 200000, None, own()) == ("certain", "name")
 
 
 def test_the_full_collaboration_still_matches_itself():

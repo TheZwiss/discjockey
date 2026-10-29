@@ -31,10 +31,11 @@ def compare(artist: str, title: str, duration_ms: int | None, isrc: str | None,
       are within SAME_LENGTH_MS, None when they are further apart; with a length unknown the names decide (below:
       To-do's words for "no_length" say the artist and title are the same, so the same ISRC alone isn't asked).
     - Names (normalised as planner._song_name does: the artist and the title without "(Original Mix)", "feat. X"
-      and the like; the own song's tag may name several artists, "A & B", and its first one counts as its artist
-      too): the same artist and title within CERTAIN_MS is certain ("name"); off by up to PLAUSIBLE_MS is
+      and the like; the own song's tag may name several artists, "A & B", and its first one alone only
+      makes a plausible match, see below): the same artist and title within CERTAIN_MS is certain ("name"); off by up to PLAUSIBLE_MS is
       plausible ("length"). The same title with a different or missing artist within CERTAIN_MS is plausible
-      ("artist", D3 a).
+      ("artist", D3 a); so is a match on the tag's first artist only (the full artists differ: "Earth" against
+      "Earth, Wind & Fire"), whatever the length, if it is unknown or within CERTAIN_MS.
     - A length unknown on either side (None or 0) is at most plausible: the same artist and title ("no_length"); a
       title alone never, it would match every "Intro"."""
     track_ms, own_ms = duration_ms or None, own.get("duration_ms") or None
@@ -49,12 +50,15 @@ def compare(artist: str, title: str, duration_ms: int | None, isrc: str | None,
     if not name or name != normalize(own.get("title") or ""):
         return None
     ours, theirs = normalize_artist(artist or ""), normalize_artist(own.get("artist") or "")
-    if ours and (ours == theirs or ours == normalize_artist(_first_artist(own.get("artist") or ""))):
+    if ours and ours == theirs:
         if delta is None:
             return "plausible", "no_length"
         if delta <= CERTAIN_MS:
             return "certain", "name"
         return ("plausible", "length") if delta <= PLAUSIBLE_MS else None
+    if ours and ours == normalize_artist(_first_artist(own.get("artist") or "")):
+        # Only the tag's first artist matches ("Earth, Wind & Fire" vs "Earth"): never certain, the user is asked
+        return ("plausible", "artist") if delta is None or delta <= CERTAIN_MS else None
     if delta is not None and delta <= CERTAIN_MS:
         return "plausible", "artist"
     return None

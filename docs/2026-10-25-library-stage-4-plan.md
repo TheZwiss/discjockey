@@ -147,7 +147,8 @@ def own_name(tags: Mapping[str, str | None], file_name: str) -> tuple[str, str] 
 `compare` applies D3/D5: both ISRCs present → certain when equal and within `SAME_LENGTH_MS`, else None. Then names,
 normalised as `planner._song_name` does (`matching.normalize_artist` of the first artist, `matching.normalize` of
 the title). Certain: equal and ≤ 2000 ms. Plausible: D3 (a) or (b). An own song without a length is at most
-plausible. `own_name`: tags first; else a file name `Artist - Title` (split on the first spaced dash,
+plausible. A match on the tag's first artist only (the full artists differ, "Earth" against "Earth, Wind & Fire") is
+never certain: it is plausible with `why` "artist". `own_name`: tags first; else a file name `Artist - Title` (split on the first spaced dash,
 `matching._DASH`); else the stem is the title and the artist is `""`. Constants `CERTAIN_MS = 2000`,
 `PLAUSIBLE_MS = 10000`.
 
