@@ -69,15 +69,22 @@ def _first_artist(tag: str) -> str:
     return _COLLAB.split(tag, maxsplit=1)[0].strip()
 
 
+# a dash with whitespace on exactly one side and a letter, digit or the like (not another dash) on the other
+_ONE_SIDED_DASH = re.compile(r"(?<=[^\s\-–—])[-–—]\s|\s[-–—](?=[^\s\-–—])")
+
+
 def own_name(tags: Mapping[str, str | None], file_name: str) -> tuple[str, str]:
     """(artist, title) of an own song: the tags when they give a title (the artist tag, or "" without one); else a
-    file name "Artist - Title" (split on the first spaced dash); else the file name without its extension is the
+    file name "Artist - Title" (split on the first spaced dash, else on the first dash with a space on one side only:
+    "Artist- Title", "Artist -Title"; never a bare hyphen as in "Jay-Z"); else the file name without its extension is the
     title and the artist is ""."""
     title = (tags.get("title") or "").strip()
     if title:
         return (tags.get("artist") or "").strip(), title
     stem = PurePosixPath(file_name).stem.strip()
     parts = _DASH.split(stem, maxsplit=1)
+    if len(parts) < 2:
+        parts = _ONE_SIDED_DASH.split(stem, maxsplit=1)
     if len(parts) == 2 and parts[0].strip() and parts[1].strip():
         return parts[0].strip(), parts[1].strip()
     return "", stem
