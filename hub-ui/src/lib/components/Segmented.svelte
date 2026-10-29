@@ -1,6 +1,6 @@
 <script lang="ts" generics="K extends string">
   // One choice of a few (design system §4): one bordered strip of segments on a single line that never wraps
-  // (labels shorten with "…"), optional quality dot and count per segment. More than `max` options: the rest sit in
+  // (labels shorten with "…"), optional quality dot and count per segment (no dot at a count of 0: nothing of that quality is there). More than `max` options: the rest sit in
   // a "More ▾" menu, and the chosen one always stays on the strip (splitOptions). Replaces filter Chips.
   // Keyboard as a radio group: Tab reaches the chosen segment, arrows/Home/End choose along the strip.
   import { tick } from 'svelte';
@@ -86,7 +86,7 @@
         {@const on = o.key === value}
         <button type="button" role="radio" aria-checked={on} tabindex={o.key === stop ? 0 : -1} class:on data-key={o.key}
           data-test={sub(o.key)} onpointerenter={(e) => tip(e, o.label)} onclick={() => choose(o.key)} onkeydown={(e) => key(e, i)}>
-          {#if o.dot}<span class="dot {o.dot}" aria-hidden="true"></span>{/if}
+          {#if o.dot && o.count !== 0}<span class="dot {o.dot}" aria-hidden="true"></span>{/if}
           <span class="label">{o.label}</span>
           {#if o.count !== undefined && o.count !== null}<span class="count">{o.count}</span>{/if}
         </button>

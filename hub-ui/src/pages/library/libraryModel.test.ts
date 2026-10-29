@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { TrackRow } from '$lib/bridge/types';
+import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import {
-  fileName, folderCell, footAction, inTodo, isSort, moveSelection, nextSort, optionalColumns, overview, placeLine,
-  scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
+  fileName, folderCell, footAction, inTodo, isSort, libraryView, moveSelection, nextSort, optionalColumns, overview, placeLine,
+  playable, rowAway, rowOff, rowTitleTip, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
 } from './libraryModel';
-import type { Library, TrackDetail } from '$lib/bridge/types';
+import type { Library, LibraryRow, TrackDetail } from '$lib/bridge/types';
 
 const row = (id: string, extra: Partial<TrackRow> = {}): TrackRow => ({
   track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'lossless', quality: 'lossless',
-  quality_label: 'LOSSLESS', cutoff_hz: null, source: 'qobuz', source_name: 'Qobuz', in_playlists: true, hidden: false,
+  quality_label: 'LOSSLESS', cutoff_hz: null, source: 'qobuz', source_name: 'Qobuz', in_playlists: true, own: false, hidden: false,
   upgrade_ready: false, path: `Library/Hard_Bounce/A - ${id}.aiff`, added: null, cover_url: null, ...extra,
 } as TrackRow);
 
@@ -100,6 +101,12 @@ describe('the panel', () => {
     expect(overview(s(10, 6))).toEqual({ value: '60', unit: '%', label: 'lossless · 6 of 10 tracks' });
     expect(overview(s(1, 1)).label).toBe('lossless · 1 of 1 track');
     expect(overview(s(0, 0))).toEqual({ value: null, label: 'lossless · no tracks yet' });
+    // two files not sound-checked yet: left out of by_quality and of the share, still in `tracks`
+    const part: Library['summary'] = { tracks: 10, lossless_share: 0.5, upgrades_ready: 0, to_do: 0,
+      by_quality: { lossless: 4, good_lossy: 0, weak: 4, fake: 0, missing: 0 } };
+    expect(overview(part)).toEqual({ value: '50', unit: '%', label: 'lossless · 4 of 8 checked tracks' });
+    expect(overview({ ...part, lossless_share: null, by_quality: { lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 } }))
+      .toEqual({ value: null, label: 'lossless · none checked yet' });
   });
   it('file name without the folders', () => {
     expect(fileName('Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff')).toBe('Armin Hermann - Get Naughty.aiff');
@@ -117,9 +124,15 @@ describe('table and strip', () => {
     expect(segOptions(c, 'all')[1]).toEqual({ key: 'lossless', label: 'Lossless', count: 1, dot: 'lossless' });
     expect(segOptions(null, 'all')[0].count).toBe(0);
   });
-  it('optional columns: All tracks shows the folder first', () => {
-    expect(optionalColumns(true)).toEqual(['folder', 'source', 'added']);
-    expect(optionalColumns(false)).toEqual(['source', 'added']);
+  it('optional columns: All tracks shows the folder first, Not in a playlist starts with the source', () => {
+    expect(optionalColumns('all')).toEqual(['folder', 'source', 'added']);
+    expect(optionalColumns('folder')).toEqual(['source', 'added']);
+    expect(optionalColumns('unlisted')).toEqual(['source', 'added']);
+  });
+  it('tells the three lists apart', () => {
+    expect(libraryView(null)).toBe('all');
+    expect(libraryView(NOT_IN_PLAYLIST)).toBe('unlisted');
+    expect(libraryView('Hard_Bounce')).toBe('folder');
   });
   it('folder cell and sorts', () => {
     expect(folderCell(row('a'))).toBe('Hard_Bounce');
@@ -130,13 +143,46 @@ describe('table and strip', () => {
   });
 });
 
+const here = (r: TrackRow, file_state: LibraryRow['file_state'] = 'here'): LibraryRow => ({ ...r, sound_checked: true, file_state });
+
+describe('a dimmed row', () => {
+  it('is a downloaded song that left every playlist', () => {
+    expect(rowOff(row('a'))).toBe(false);
+    expect(rowOff(row('a', { in_playlists: false }))).toBe(true);
+  });
+  it('is never one of the users own files, which no playlist holds', () => {
+    expect(rowOff(row('a', { in_playlists: false, own: true, source_name: 'own file' }))).toBe(false);
+    expect(rowOff(row('a', { in_playlists: true, own: true }))).toBe(false);
+  });
+  it('says why in its title tooltip, under the name, at every width', () => {
+    expect(rowTitleTip(here(row('a', { in_playlists: false })), 'Artist - Title')).toBe('Artist - Title\nNot in any playlist any more');
+  });
+  it('has the name alone in the tooltip when it is in a playlist or the users own file', () => {
+    expect(rowTitleTip(here(row('a')), 'Artist - Title')).toBe('Artist - Title');
+    expect(rowTitleTip(here(row('a', { in_playlists: false, own: true, source_name: 'own file' })), 'Artist - Title')).toBe('Artist - Title');
+  });
+  it('leaves an away row to its own tag: the name alone', () => {
+    expect(rowTitleTip(here(row('a', { in_playlists: false }), 'offline'), 'Artist - Title')).toBe('Artist - Title');
+    expect(rowTitleTip(here(row('a', { in_playlists: false }), 'folder_missing'), 'Artist - Title')).toBe('Artist - Title');
+  });
+});
+
 describe('copy helpers', () => {
   it('short source link and place line', () => {
     expect(shortUrl('https://www.youtube.com/watch?v=abcdefghijk')).toBe('youtube.com/watch?v=…');
     expect(shortUrl('https://soundcloud.com/a')).toBe('soundcloud.com/a');
-    expect(placeLine('Hard_Bounce', 2)).toBe('Hard_Bounce · in 2 playlists');
-    expect(placeLine('Hard_Bounce', 1)).toBe('Hard_Bounce · in 1 playlist');
-    expect(placeLine('Hard_Bounce', null)).toBe('Hard_Bounce');
-    expect(placeLine('Old_Sets', 0, false)).toBe('Not in a playlist');
+    expect(placeLine('Hard_Bounce')).toBe('Hard_Bounce');
+    expect(placeLine('Old_Sets', false)).toBe('Not in a playlist');
+  });
+});
+
+describe('an away row (library stage 4 fix K)', () => {
+  it('plays only when its file is there, and names why it is not', () => {
+    expect(playable({ file_state: 'here' })).toBe(true);
+    expect(playable({ file_state: 'offline' })).toBe(false);
+    expect(playable({ file_state: 'folder_missing' })).toBe(false);
+    expect(rowAway({ file_state: 'here' })).toBeNull();
+    expect(rowAway({ file_state: 'offline' })).toBe('offline');
+    expect(rowAway({ file_state: 'folder_missing' })).toBe('folder_missing');
   });
 });

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .models import SOURCE_NAMES
+from .models import OWN_FILE, SOURCE_NAMES
 
 FRAME = 8192
 HOP = 4096
@@ -19,6 +19,13 @@ LOSSY_CLIFF_DB = 12.0  # lossy sources: the cutoff is only shown, never decides 
                        # (YouTube Opus ~20 kHz) can fall over ~600 Hz instead of at once
 SEARCH_LOW_HZ = 10_000
 SEARCH_HIGH_HZ = 21_500
+# A lossy encoder's top end can also fall gradually or in steps, each too small for a cliff, into a flat floor:
+FLOOR_TOL_DB = 3.0     # the floor: every band from its start up to 21.5 kHz within this of the top kHz's level
+FLOOR_MIN_HZ = 1_500   # and at least this wide (a mastering low-pass near 20 kHz leaves a narrower one)
+FALL_SPAN_HZ = 3_000   # the music this far below the floor's start (its level over MUSIC_HZ) ...
+FALL_DB = 30.0         # ... sits at least this far above the floor (a natural roll-off falls slower)
+MUSIC_HZ = 500
+EDGE_DB = 10.0         # the cutoff is where the fall first drops this far below that music level
 FAKE_BELOW_HZ = 19_500
 CHUNK_FRAMES = 256
 LOSSLESS_CODECS = {"flac", "alac", "wavpack", "ape", "tta"}
@@ -84,10 +91,16 @@ def _bands(x: np.ndarray, sr: int) -> np.ndarray | None:
 
 
 def cutoff_hz(samples: np.ndarray, sample_rate: int, cliff_db: float = CLIFF_DB) -> int | None:
-    """Lowest spectral cliff (>= cliff_db within 400 Hz) between 10 and 21.5 kHz, or None for full band."""
+    """Where the top end ends, or None for full band: the lowest spectral cliff (>= cliff_db within 400 Hz)
+    between 10 and 21.5 kHz, failing that the edge of a steeper fall into a flat floor (`_floor_edge`)."""
     bands = _bands(samples, sample_rate)
     if bands is None:
         return None
+    cliff = _cliff(bands, cliff_db)
+    return cliff if cliff is not None else _floor_edge(bands)
+
+
+def _cliff(bands: np.ndarray, cliff_db: float) -> int | None:
     w = WINDOW_BANDS
     drops = {}
     for b in range(w, len(bands) - w + 1):
@@ -102,6 +115,29 @@ def cutoff_hz(samples: np.ndarray, sample_rate: int, cliff_db: float = CLIFF_DB)
     if not region:
         return None
     return max(region, key=lambda b: drops[b]) * BAND_HZ
+
+
+def _floor_edge(bands: np.ndarray) -> int | None:
+    """The start of a fall of FALL_DB or more within FALL_SPAN_HZ into a flat floor that runs to 21.5 kHz.
+
+    A lossy encoder leaves nothing above its low-pass, so the top bands sit flat at a floor; its edge can fall
+    in steps or along a slope (each step too small for a cliff). Genuine roll-offs keep falling up to the top,
+    reach a floor only near 20 kHz, or fall more slowly than FALL_DB per FALL_SPAN_HZ."""
+    top, low = SEARCH_HIGH_HZ // BAND_HZ, SEARCH_LOW_HZ // BAND_HZ
+    if len(bands) <= top:  # sampled too low to reach the floor's reference
+        return None
+    level = float(np.median(bands[top - 1000 // BAND_HZ:top + 1]))
+    start = top
+    while start > low and abs(bands[start - 1] - level) <= FLOOR_TOL_DB:
+        start -= 1
+    if (top - start) * BAND_HZ < FLOOR_MIN_HZ:
+        return None
+    fall_from = start - FALL_SPAN_HZ // BAND_HZ
+    music = float(bands[fall_from - MUSIC_HZ // BAND_HZ:fall_from].mean())
+    if music - level < FALL_DB:
+        return None
+    edge = next((b for b in range(max(fall_from, low), start) if bands[b] <= music - EDGE_DB), start)
+    return edge * BAND_HZ
 
 
 def analyze(path: Path, lossy: bool = False) -> int | None:
@@ -125,12 +161,21 @@ def verdict(source_lossless: bool, cutoff: int | None) -> str:
     return "lossless"
 
 
-def quality_line(source: str, codec: str, status: str, cutoff: int | None, kbps: int | None = None) -> str:
-    name = SOURCE_NAMES[source]
+def quality_line(source: str, codec: str, status: str, cutoff: int | None, kbps: int | None = None,
+                 own: bool = False, checked: bool = True) -> str:
+    """The words under a track: where it came from, its format and the verdict. `own`: a file of the user's own that
+    the import found, which the "manual" source would call a bought file. `checked` False: the import has read the
+    file's tags but not judged its sound yet, so the codec's guess ("lossless" for a WAV) is no verdict."""
     fmt = "PCM" if codec.startswith("pcm_") else codec.upper()
     if kbps and status == "not_lossless":
         fmt += f" {kbps} kbps"
+    if own and source == "manual":  # "Your own file (PCM) · …": the format in brackets reads as a sentence
+        name, fmt = OWN_FILE[0].upper() + OWN_FILE[1:], f"({fmt})"
+    else:
+        name = SOURCE_NAMES[source]
     khz = f"{cutoff / 1000:.1f} kHz" if cutoff else None
+    if not checked:
+        return f"{name} {fmt} · {'sound not checked yet' if status == 'lossless' else 'lossy, sound not checked yet'}"
     if status == "lossless":
         return f"{name} {fmt} · verified lossless"
     if status == "fake_lossless":

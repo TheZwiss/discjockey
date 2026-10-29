@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { SetupStatus, SetupTools } from '$lib/bridge/types';
+import type { SetupStatus, SetupTools, WatchedFolderRow, WatchedFolders } from '$lib/bridge/types';
 import {
-  STEPS, STEP_LABELS, checkClientId, doneRedirect, mustChooseMusic, stripSteps, filledCard, firstStep, neighbour, nextRule, reachable, stepsDone,
+  STEPS, STEP_LABELS, checkClientId, continueFilled, doneRedirect, mustChooseMusic, stripSteps, filledCard, firstStep, neighbour, nextRule, reachable, skipsExisting, stepsDone,
   takeSecret, toolFixes,
 } from './setupModel';
 
@@ -9,7 +9,8 @@ const complete: SetupStatus = {
   music: { state: 'ok', path: '/Users/you/Music/Discjockey', suggested: '/Users/you/Music/Discjockey' },
   tools: { ffmpeg: true, ffprobe: true, deno: true }, spotify_app: true,
   spotify_login: true, qobuz: true, playlists: true, complete: true, next_step: null, version: '1.0.0',
-  qobuz_skipped: false, spotify_skipped: false, accounts: { youtube: null, soundcloud: null } };
+  qobuz_skipped: false, spotify_skipped: false, existing: false, import_folders: 0, import_skipped: false,
+  accounts: { youtube: null, soundcloud: null } };
 const fresh: SetupStatus = { ...complete, spotify_app: false, spotify_login: false, qobuz: false, playlists: false,
   complete: false, next_step: 'spotify' };
 const status = (over: Partial<SetupStatus>): SetupStatus => ({ ...complete, ...over });
@@ -22,15 +23,17 @@ const toolsMissing: SetupTools = { ...toolsOk, tools: { ffmpeg: true, ffprobe: t
   hints: { deno: 'brew install deno' } };
 
 describe('the steps', () => {
-  it('are Music folder, Programs, Spotify, Downloads and First playlist, in that order', () => {
-    expect(STEPS).toEqual(['music', 'tools', 'spotify', 'downloads', 'playlists']);
-    expect(STEPS.map((s) => STEP_LABELS[s])).toEqual(['Music folder', 'Programs', 'Spotify', 'Downloads',
-      'First playlist']);
+  it('are Music folder, Your existing music, Programs, Spotify, Downloads and First playlist, in that order', () => {
+    expect(STEPS).toEqual(['music', 'existing', 'tools', 'spotify', 'downloads', 'playlists']);
+    expect(STEPS.map((s) => STEP_LABELS[s])).toEqual(['Music folder', 'Your existing music', 'Programs', 'Spotify',
+      'Downloads', 'First playlist']);
   });
   it('go back and forward along that order', () => {
     expect(neighbour('downloads', -1)).toBe('spotify');
     expect(neighbour('downloads', 1)).toBe('playlists');
-    expect(neighbour('tools', -1)).toBe('music');
+    expect(neighbour('music', 1)).toBe('existing');
+    expect(neighbour('tools', -1)).toBe('existing');
+    expect(neighbour('existing', -1)).toBe('music');
     expect(neighbour('music', -1)).toBeNull();
     expect(neighbour('playlists', 1)).toBeNull();
   });
@@ -80,8 +83,26 @@ describe('Client ID check', () => {
 
 describe('steps done', () => {
   it('follows setup_status', () => {
-    expect(stepsDone(complete)).toEqual({ music: true, tools: true, spotify: true, downloads: true, playlists: true });
-    expect(stepsDone(fresh)).toEqual({ music: true, tools: true, spotify: false, downloads: false, playlists: false });
+    expect(stepsDone(complete)).toEqual({ music: true, existing: false, tools: true, spotify: true, downloads: true,
+      playlists: true });
+    expect(stepsDone(fresh)).toEqual({ music: true, existing: false, tools: true, spotify: false, downloads: false,
+      playlists: false });
+  });
+  it('counts Your existing music as done once setup_status says so (a folder watched, or skipped)', () => {
+    expect(stepsDone(status({ existing: true, import_folders: 1 })).existing).toBe(true);
+    expect(stepsDone(status({ existing: true, import_skipped: true })).existing).toBe(true);
+    expect(stepsDone(status({ existing: false })).existing).toBe(false);
+  });
+  it('skips Your existing music on Continue only when no folder is watched, by the status or by the folders read', () => {
+    const lib: WatchedFolderRow = { id: 1, path: '/Users/you/Library', name: 'Library', kind: 'library', state: 'online',
+      files: 3, waiting: 0, unreadable: 0 };
+    const crates: WatchedFolderRow = { ...lib, id: 2, name: 'Crates', kind: 'import' };
+    const folders = (...f: WatchedFolderRow[]): WatchedFolders => ({ folders: f, unreadable: [], waiting: 0, stopped: false });
+    expect(skipsExisting(status({ existing: false }), null)).toBe(true);
+    expect(skipsExisting(status({ existing: false }), folders(lib))).toBe(true);
+    // a folder was just added: the status may not know yet, the folders do
+    expect(skipsExisting(status({ existing: false }), folders(lib, crates))).toBe(false);
+    expect(skipsExisting(status({ existing: true }), null)).toBe(false);
   });
   it('needs the app and the login for Spotify, and every program for Programs', () => {
     expect(stepsDone(status({ spotify_login: false })).spotify).toBe(false);
@@ -113,6 +134,13 @@ describe('reachable steps', () => {
     expect(reachable('tools', fresh)).toBe(true);
     expect(reachable('downloads', fresh)).toBe(false);
     expect(reachable('playlists', fresh)).toBe(false);
+  });
+  it('never wait for Your existing music, which opens as soon as the music folder is bound', () => {
+    expect(reachable('existing', fresh)).toBe(true);
+    expect(reachable('existing', noMusic)).toBe(false);
+    // left undone, it locks nothing after it
+    expect(reachable('tools', status({ existing: false }))).toBe(true);
+    expect(reachable('spotify', status({ existing: false, complete: false }))).toBe(true);
   });
 });
 
@@ -148,11 +176,22 @@ describe('the one filled card on the Downloads step', () => {
     expect(filledCard(status({ qobuz: false, qobuz_skipped: true }))).toBeNull();
     expect(nextRule('downloads', status({ qobuz: false, qobuz_skipped: true }), null).allowed).toBe(true);
   });
+  it('Your existing music: always, filled only once the step is done (Add folder… is the filled one before)', () => {
+    const open = status({ existing: false });
+    expect(nextRule('existing', open, null)).toEqual({ allowed: true, why: null });
+    expect(continueFilled('existing', open, nextRule('existing', open, null))).toBe(false);
+    const done = status({ existing: true, import_folders: 1 });
+    expect(continueFilled('existing', done, nextRule('existing', done, null))).toBe(true);
+    // a required step: filled whenever Continue is allowed
+    expect(continueFilled('tools', fresh, nextRule('tools', fresh, toolsOk))).toBe(true);
+    expect(continueFilled('tools', fresh, nextRule('tools', fresh, toolsMissing))).toBe(false);
+  });
 });
 
 describe('a done setup opens Settings', () => {
   it('sends each step to its Settings row (the first playlist to Playlists)', () => {
     expect(doneRedirect(complete, 'tools')).toBe('/settings/programs');
+    expect(doneRedirect(complete, 'existing')).toBe('/settings/folders');
     expect(doneRedirect(complete, 'spotify')).toBe('/settings/spotify');
     expect(doneRedirect(complete, 'downloads')).toBe('/settings/qobuz');
     expect(doneRedirect(complete, 'playlists')).toBe('/playlists');
@@ -177,12 +216,14 @@ describe('the step strip', () => {
   it('marks done steps, the current one, the next open one and the ones not reachable yet', () => {
     const s = status({ qobuz: false, playlists: false, complete: false });
     expect(stripSteps('downloads', s).map((x) => [x.key, x.state])).toEqual([
-      ['music', 'done'], ['tools', 'done'], ['spotify', 'done'], ['downloads', 'current'], ['playlists', 'locked'],
+      ['music', 'done'], ['existing', 'open'], ['tools', 'done'], ['spotify', 'done'], ['downloads', 'current'],
+      ['playlists', 'locked'],
     ]);
-    expect(stripSteps('spotify', s).map((x) => x.state)).toEqual(['done', 'done', 'current', 'open', 'locked']);
+    expect(stripSteps('spotify', s).map((x) => x.state)).toEqual(['done', 'open', 'done', 'current', 'open', 'locked']);
+    expect(stripSteps('existing', status({ existing: true })).map((x) => x.state).slice(0, 2)).toEqual(['done', 'current']);
   });
   it('shows a done step that is open on screen as current', () => {
-    expect(stripSteps('spotify', complete)[2]).toEqual({ key: 'spotify', label: 'Spotify', state: 'current', done: true });
+    expect(stripSteps('spotify', complete)[3]).toEqual({ key: 'spotify', label: 'Spotify', state: 'current', done: true });
   });
 });
 

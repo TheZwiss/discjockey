@@ -6,7 +6,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 import numpy as np
 
@@ -61,12 +61,25 @@ def encode(db: np.ndarray) -> str:
 
 
 def spectrum(paths: Paths, rel: str, decode=quality.decode_mono) -> dict:
+    """The picture of a file in the music folder, addressed by its path there."""
     if ".." in PurePosixPath(rel).parts or fold(rel).split("/")[0] not in SERVED:
         raise ValueError(f"{rel} is not a music file Discjockey manages")
-    f = paths.root / rel
+    return _picture(paths, paths.root / rel, fold(rel), decode)
+
+
+def spectrum_of_file(paths: Paths, file_id: int, real: Path, decode=quality.decode_mono) -> dict:
+    """The picture of a file of an import folder (outside the music folder), addressed by its file row. `real` is the
+    path the hub's records vetted (`HubApi._file_path`: online row, links resolved inside its folder); this refuses
+    anything that isn't an absolute path to a file. The cache is keyed by the row, so two files never share one."""
+    if not real.is_absolute() or not real.is_file():
+        raise ValueError(f"file {file_id} is not a music file Discjockey manages")
+    return _picture(paths, real, f"file/{int(file_id)}", decode)
+
+
+def _picture(paths: Paths, f: Path, key_text: str, decode) -> dict:
     st = f.stat()
     folder = paths.cache / "spectrum"
-    key = hashlib.sha1(fold(rel).encode()).hexdigest()
+    key = hashlib.sha1(key_text.encode()).hexdigest()
     cached = folder / f"{key}-{st.st_size}-{st.st_mtime_ns}.json"
     if cached.exists():
         try:

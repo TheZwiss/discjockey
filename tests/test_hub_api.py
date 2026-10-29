@@ -28,9 +28,11 @@ CONTRACT = {
     "find_logins", "account_sign_in", "stop_sign_in", "open_privacy_settings", "qobuz_check_login", "spotify_sign_out",
     "pick_folder", "check_music_folder", "set_music_folder", "retry_music_folder",
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
+    "watched_folders", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
+    "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate", "setup_skip_import",
 }
 READ_ONLY = ["dashboard", "sidebar", "sync_preview", "job_status", "library", "todo", "limits",
-             "runs", "setup_status", "playlists", "downloads_view", "tidy_preview", "move_batches"]
+             "runs", "setup_status", "playlists", "downloads_view", "tidy_preview", "move_batches", "watched_folders"]
 
 
 @pytest.fixture

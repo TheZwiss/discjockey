@@ -26,7 +26,7 @@ from .events import AccountUsage, CancelToken, Emit, Result, SourceChosen, Track
 from .execute import Executor
 from .fallback import short_error
 from .library import NameReserver, Paths, delete_parked, full_fsync, run_op
-from .models import Action, Candidate, Protected, SourceTrack, split_token
+from .models import Action, Candidate, Protected, SourceTrack, track_of
 from .names import expected_stem, split_name, strip_id_suffix
 from .pacing import NoPacer
 from .planner import replacement_dir, superseded_dir
@@ -112,13 +112,6 @@ def set_hidden(paths: Paths, state: dict, track_id: str, hidden: bool) -> Result
     if hidden:
         return _result("hidden", track_id, e, "hidden from the to-do list")
     return _result("unhidden", track_id, e, "back on the to-do list")
-
-
-def track_of(track_id: str, e: dict) -> SourceTrack:
-    """The playlist side of an entry (its song key names the service), as far as the records know it (for actions run
-    outside a sync)."""
-    service, bare_id = split_token(track_id)
-    return SourceTrack(bare_id, e["title"], (e["artist"],), "", None, e["duration_ms"], e.get("isrc"), service)
 
 
 def _copy_synced(src: Path, dst: Path) -> None:
@@ -218,7 +211,8 @@ def add_bought_file(paths: Paths, state: dict, track_id: str, src: Path, *,
 
 def _superseded_name(paths: Paths, state: dict, track_id: str, e: dict) -> str:
     stem, ext = split_name(strip_id_suffix(PurePosixPath(e["path"]).name, track_id))
-    return NameReserver(paths.root, state).choose(superseded_dir(e["path"]), stem, ext, track_id)
+    return NameReserver(paths.root, state).choose(superseded_dir(e["path"], library.watched_root(paths, e["path"])),
+                                                  stem, ext, track_id)
 
 
 def _move_away(paths: Paths, state: dict, track_id: str, e: dict, today: str, dst: str | None = None) -> str:

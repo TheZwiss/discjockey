@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 
 from .events import ActionFinished, ActionStarted, Message, Progress, StepChanged, Waiting
+from .report import folder_label
 
 VERBS = {"adopt_bought": "Adding bought file", "acquire": "Downloading", "upgrade": "Looking for a better version"}
 STEP_TEXT = {"search": "searching", "download": "downloading", "check": "checking length",
@@ -13,6 +14,23 @@ SHORT = {"new_lossless": "lossless", "new_not_lossless": "not lossless", "fake":
          "bought": "bought file added",
          "moved": "moved", "adopted": "picked up", "redownloaded": "downloaded again", "missing": "not found",
          "queued": "waiting for the next run", "conflicts": "not moved, a file is in the way", "errors": "error"}
+
+
+# what only the window does (plan library stage 4, D13, W10): the console never imports nor asks
+IMPORT_WAITING = ("{n} files in your watched folders wait to be imported. Open the window to import them.",
+                  "1 file in your watched folders waits to be imported. Open the window to import it.")
+QUESTIONS_WAITING = ("{n} songs wait for your answer in the window (Is this the same song?).",
+                     "1 song waits for your answer in the window (Is this the same song?).")
+
+
+def waiting_lines(import_waiting: int, questions: int) -> list[str]:
+    """The console's lines for files waiting to be imported and songs held for "Is this the same song?" (run.Prepared
+    has both counts); none at 0."""
+    lines = []
+    for n, (many, one) in ((import_waiting, IMPORT_WAITING), (questions, QUESTIONS_WAITING)):
+        if n > 0:
+            lines.append(one if n == 1 else many.format(n=n))
+    return lines
 
 
 def _size(n: float) -> str:
@@ -56,7 +74,7 @@ class ConsolePrinter:
     def __call__(self, event: object) -> None:
         if isinstance(event, ActionStarted):
             a = event.action
-            self.header = (f"[{event.index}/{event.total}] {VERBS[a.kind]} [{a.folder}] "
+            self.header = (f"[{event.index}/{event.total}] {VERBS[a.kind]} [{folder_label(a.folder)}] "
                            f"{a.track.first_artist} - {a.track.title}")
         elif isinstance(event, ActionFinished) and event.result.section == "queued" and self.header:
             # nothing was tried for this track (e.g. --limit reached): one line for all of them, not one each

@@ -1,3 +1,4 @@
+import copy
 import json
 import threading
 from contextlib import contextmanager
@@ -528,3 +529,101 @@ def test_an_ambiguous_result_carries_the_song_key_not_the_tracks_own_id(paths, m
         {"tracks": {}}, [], [("t1", qobuz_track, "Hard_Bounce", ["Library/A/x.aiff"])], []))
     prep = run.prepare(paths, dry_run=True)
     assert [(r.track_id, r.title) for r in prep.log.section("ambiguous")] == [("t1", "Song")]
+
+
+# --- the user's own songs (plan library stage 4, task 3.6) ---
+
+def _used_today(n):
+    state = empty_state()
+    state["qobuz_usage"] = {"days": {date.today().isoformat(): n}, "signals": []}
+    return state
+
+
+@pytest.mark.parametrize("used, room", [(0, 25), (30, 25), (60, 10), (79, 0), (80, 0)])
+def test_first_check_room_is_at_most_half_of_what_qobuz_has_left_today(used, room):
+    # 60 a day and 20 carried over from a quiet yesterday: 80 today
+    assert run.first_check_room(_used_today(used), Settings()) == room
+
+
+def test_first_check_room_without_qobuz_is_the_cap():
+    assert run.first_check_room(_used_today(80), Settings(qobuz_skipped=True)) == run.FIRST_CHECKS_PER_RUN == 25
+
+
+def test_prepare_and_replan_plan_with_the_first_check_room(paths, monkeypatch):
+    seen = []
+    real = run.planner.plan
+    monkeypatch.setattr(run.planner, "plan", lambda *a, **k: seen.append(k.get("first_checks")) or real(*a, **k))
+    prep = run.prepare(paths, dry_run=True)  # the preview shows what the run does (W9)
+    run.replan(prep)
+    assert seen == [25, 25]
+
+
+def own_song(paths):
+    """A song of the user's own (`local:1`) with a file: Song 1 of the playlist, 0.5 s longer."""
+    rel = "Library/Mine/Artist - Song 1.aiff"
+    (paths.root / rel).parent.mkdir(parents=True, exist_ok=True)
+    write_aiff(paths.root / rel, music(1))
+    state = empty_state()
+    state["tracks"]["local:1"] = {"artist": "Artist", "title": "Song 1", "folder": "", "path": rel,
+                                  "status": "lossless", "source": "manual", "source_id": None, "source_format": "flac",
+                                  "duration_ms": 180500, "aliases": [], "in_playlists": False, "rejected_sources": [],
+                                  "added": "2026-10-01T10:00:00", "last_attempt": None,
+                                  "last_upgrade_check": None}
+    save_state(paths, state)
+
+
+def test_link_only_saves_the_links_and_downloads_nothing(paths, monkeypatch):
+    own_song(paths)
+    monkeypatch.setattr(run, "Acquirer", lambda *a, **k: pytest.fail("nothing is downloaded"))
+    monkeypatch.setattr(run.QobuzSource, "open", classmethod(lambda cls, p: pytest.fail("no Qobuz login")))
+    prep = run.prepare(paths)
+    assert library.load_state(paths)["tracks"]["local:1"]["aliases"] == []  # planned, not saved yet
+    meanwhile = library.load_state(paths)  # another write since (the import's): prep's snapshot is stale
+    meanwhile["tracks"]["local:1"]["last_attempt"] = "2026-10-02"
+    save_state(paths, meanwhile)
+    with pytest.raises(library.StateError):
+        save_state(paths, copy.deepcopy(prep.state))
+    events = []
+    fresh = run.link_only(paths, prep, events.append)
+    tracks = library.load_state(paths)["tracks"]
+    assert tracks["local:1"]["aliases"] == ["t1"] and tracks["local:1"]["in_playlists"] is True
+    assert "t2" not in tracks and "t3" not in tracks
+    assert [(a.kind, a.track_id) for a in fresh.plan.actions] == [("acquire", "t2"), ("acquire", "t3")]
+    assert [e.text for e in events] == ["Artist - Song 1: the same song as a file of yours, not downloaded."]
+    assert library.load_state(paths)["tracks"]["local:1"]["last_attempt"] == "2026-10-02"  # the other write stays
+
+
+def test_files_waiting_to_be_imported_reach_prepared(paths, tmp_path_factory):
+    run.prepare(paths)  # makes library.db
+    assert run.prepare(paths).import_waiting == 0
+    mine = tmp_path_factory.mktemp("mine")
+    write_aiff(mine / "Example Artist - Night Drive.aiff", music(2))
+    with db.connect(paths.db_file) as conn:
+        db.add_watched_folder(conn, mine, datetime.now())
+    prep = run.prepare(paths)  # its scan finds the file
+    assert prep.import_waiting == 1
+    assert run.replan(prep).import_waiting == 1
+
+
+def test_an_import_links_its_files_with_the_real_link_only_from_a_stale_read(paths, tmp_path_factory, monkeypatch):
+    from discjockey import importer
+    from discjockey.quality import AudioInfo
+    monkeypatch.setattr(run, "Acquirer", lambda *a, **k: pytest.fail("nothing is downloaded"))
+    monkeypatch.setattr(run.QobuzSource, "open", classmethod(lambda cls, p: pytest.fail("no Qobuz login")))
+    prep = run.prepare(paths)  # the window's read, before the import writes anything
+    mine = tmp_path_factory.mktemp("mine")
+    write_aiff(mine / "Artist - Song 1.aiff", music(1))
+    with db.connect(paths.db_file) as conn:
+        db.add_watched_folder(conn, mine, datetime.now())
+    events = []
+    result = importer.run_import(paths, emit=events.append, token=CancelToken(),
+                                 link=lambda: importer.link_playlists(paths, prep, emit=events.append),
+                                 probe=lambda p: AudioInfo("pcm_s16be", 44100, 180.5),
+                                 inspect=lambda p: ("pcm_s16be", None))
+    assert (result.own_songs, result.link_note) == (1, None)
+    tracks = library.load_state(paths)["tracks"]
+    assert tracks["local:1"]["aliases"] == ["t1"] and tracks["local:1"]["in_playlists"] is True
+    assert tracks["local:1"]["import_state"] == "done"  # the link kept what the import wrote
+    assert "t2" not in tracks  # nothing downloaded or planned into the records
+    assert "Artist - Song 1: the same song as a file of yours, not downloaded." in [
+        e.text for e in events if isinstance(e, Message)]

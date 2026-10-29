@@ -14,7 +14,7 @@ from .align import Alignment, compare_files
 from .events import (
     ActionFinished, ActionStarted, Cancelled, CancelToken, Emit, PlannedAction, Result, RunStarted, Tracker, error_kind, no_emit,
 )
-from .library import NameReserver, Paths, delete_parked, run_op, save_state
+from .library import NameReserver, Paths, delete_parked, run_op, save_state, watched_root
 from .models import Action, Outcome, Placed
 from .names import expected_stem, fold, split_name, strip_id_suffix
 from .planner import (apply_outcome, folder_dir, replacement_dir, searched_since_check, superseded_dir,
@@ -117,7 +117,8 @@ class Executor:
         renames = []
         old = e.get("path")
         if old and (self.paths.root / old).exists():
-            renames.append((old, self._choose_for(superseded_dir(old), PurePosixPath(old).name, a.track_id)))
+            renames.append((old, self._choose_for(superseded_dir(old, watched_root(self.paths, old)),
+                                                  PurePosixPath(old).name, a.track_id)))
         home = replacement_dir(e, status)  # next to the current file (option A), else the placement folder
         dst = a.src
         if fold(str(PurePosixPath(a.src).parent)) != fold(home):
@@ -189,8 +190,8 @@ class Executor:
         r = res.ready
         tracker.step("compare")
         alignment = self.align_files(self.paths.root / e["path"], r.path)
-        dst = self.names.choose(upgrades_ready_dir(e["path"]), expected_stem(e["artist"], e["title"]), ".aiff",
-                                a.track_id)
+        dst = self.names.choose(upgrades_ready_dir(e["path"], watched_root(self.paths, e["path"])),
+                                expected_stem(e["artist"], e["title"]), ".aiff", a.track_id)
         upgrade = {"file": dst, "source": r.source, "source_id": r.source_id, "source_format": r.source_format,
                    "found": self.now().date().isoformat(), "alignment": alignment.to_dict()}
         if r.status != "lossless":  # a better lossy stream from an account (spec §4); lossless parks stay as before

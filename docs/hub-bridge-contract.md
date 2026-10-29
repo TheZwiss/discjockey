@@ -47,7 +47,8 @@ Use the kind for the card/headline; always show `message` as the detail.
 
 ## Shared shapes
 
-**TrackRow** (library rows, to-do items, change moves; to-do items add `group`, `detail`; moves add `from`, `to`, `to_not_lossless`):
+**TrackRow** (library rows, to-do items, change moves; to-do items add `group`, `detail`; moves add `from`, `to`, `to_not_lossless`;
+`folder` is `""` for the user's own songs from the import, which belong to no playlist folder, and their `path` is absolute):
 ```json
 {
  "track_id": "t2",
@@ -62,6 +63,7 @@ Use the kind for the card/headline; always show `message` as the detail.
  "source": "youtube",
  "source_name": "YouTube",
  "in_playlists": true,
+ "own": false,
  "hidden": false,
  "upgrade_ready": true,
  "path": "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff",
@@ -69,10 +71,14 @@ Use the kind for the card/headline; always show `message` as the detail.
  "cover_url": "https://i.scdn.co/image/t2"
 }
 ```
+- `own`: true for a file of the user's own that the import found (source `manual`, placed by the import), false for a
+  downloaded or bought one. An own file is in no playlist by nature, so the Library table dims a row only when
+  `!in_playlists && !own` (a song that left every playlist), never an own file.
 - `status`: `lossless|not_lossless|fake_lossless|missing`. `quality` (colour): `lossless` green · `good_lossy` yellow ·
   `weak` red (cutoff ≤ 17 kHz) · `fake` purple · `missing` red. `quality_label`: `LOSSLESS`, `20.0 kHz`, `LOSSY`,
   `FAKE · 16.0 kHz`, `NOT FOUND`. `source`: `qobuz|youtube_music|soundcloud|youtube|manual|null`; `source_name` short
-  (`Qobuz`, `YT Music`, `SoundCloud`, `YouTube`, `bought`). `cover_url`: media URL of the embedded cover, else the
+  (`Qobuz`, `YT Music`, `SoundCloud`, `YouTube`, `bought`; `own file` for a file the import found). `added`: the playlist
+  day, else for an own file the day Discjockey first saw it. `cover_url`: media URL of the embedded cover, else the
   Spotify image URL (https), else null (show placeholder). `duration_s` float.
 - **SpotifyStatus** (`spotify` field; it is the status of reading *all* playlists, whichever service): `read_at`
   ISO|null, `minutes_ago` int|null, `problem` kind|null, `problem_service` `"spotify"|"qobuz"|null` (the playlist
@@ -264,6 +270,9 @@ then YouTube Premium, then SoundCloud Go+), null when no service is set up.
 `mark_warnings_seen`), or is paused today (the dot on "Download limits").
 
 `sync_preview()` — the check before Start. Each action's `key` is sent back ticked to `start_sync`.
+It also carries `waiting_answers: int` (songs held back until the user answers "Is this the same song?", the plan's
+`questions`; they are not downloaded meanwhile) and `deferred_checks: int` (first upgrade checks of imported music
+that the per-run cap left for later runs); both 0 before the first read.
 Group `key`s/labels in order: `acquire:new` Download (new), `acquire:retry` Try again, `acquire:redownload` Download
 again, `adopt_bought` Add a bought file, `upgrade` Look for a better version (weekly check). There are no `move` or
 `adopt` groups, no `counts.moves` / `counts.adopts` (in `sync_preview` and in the dashboard's `ready.counts`) and no
@@ -429,7 +438,19 @@ reload.
 `library(folder=null, query="", filter="all", sort="artist")` — folder: null (All tracks), `"__not_in_playlist__"`, or
 a folder name. filter: `all|lossless|good_lossy|weak|fake|upgrade_ready`. sort:
 `title|artist|length|source|quality|added|folder` (folder: tracks in no playlist last), prefix `-` for descending. Only
-tracks with a file. `summary` is the folder at a glance and ignores the search and the filter: `by_quality` (as in
+tracks with a file. Every row also has `sound_checked: bool`: false for an imported file whose sound isn't judged yet
+(`import_state` `identified`: the quality is the codec's guess for now; the page says "sound not checked yet", with a
+neutral "Not checked" badge instead of the quality). A row with `sound_checked: false` is left out of the quality
+chips (Lossless, Good lossy, Weak, Fake), of `summary.by_quality` and `summary.lossless_share` (a share of the checked
+files), and it sorts after every checked file by quality; it still counts under All and in `summary.tracks`. Every
+row also has `file_state` (2026-10-29, fix K): `here`, `offline` or `folder_missing`, read now exactly as `track()`'s
+(below: the live away set of the import folders, a stored `online = 0` stays `offline`), but per watched folder only:
+the list never checks a row's own file, so `file_missing` is `track()`'s alone. A row that isn't `here` doesn't play
+(Enter, double-click and its cover do nothing). The same
+holds for `dashboard`'s `lossless_share` tile and folder bars (`by_quality`, `lossless_share`; `tracks` stays the whole
+count), and the to-do list holds no such file. The user's
+own songs (the import) are in no folder: their rows have `folder: ""` and `in_playlists: false`, they show in All
+tracks and Not in a playlist, never under a playlist folder. `summary` is the folder at a glance and ignores the search and the filter: `by_quality` (as in
 `dashboard`), `upgrades_ready`, and `to_do`, the tracks of the folder the to-do list shows (in a playlist, not hidden).
 ```json
 {
@@ -580,13 +601,31 @@ lossy download carries the bitrate when known ("YouTube Music OPUS 135 kbps · c
 file may be WAV, AIFF, FLAC or MP3.
 
 Also in `track()` (2026-10-18, details redone as facts): `format_line` ("Opus · 135 kbps", "FLAC", "uncompressed PCM";
-the bitrate only for a lossy download) and `source_full` ("YouTube Music", "bought"), both null without a file.
+the bitrate only for a lossy download) and `source_full` ("YouTube Music", "bought", "your own file" for a file the import found), both null without a file.
+`track()` also carries `sound_checked: bool` as the library rows do; for a file with `sound_checked: false`,
+`quality_line` ends "sound not checked yet" instead of "verified lossless" ("Your own file (PCM) · sound not checked
+yet"; a lossy codec: "Your own file (MP3) · lossy, sound not checked yet").
+`track()` also carries `file_state` (2026-10-29, replaces the boolean `online`): `here`, `offline` (the file's drive is
+not connected), `folder_missing` (its watched folder is not found: moved, renamed or deleted while the drive is there)
+or `file_missing` (the folder is there, the file's path is not: it went since the last scan). Away is read now, not
+from the last scan: an import folder is away when the scanner's rule says so (`scanner.away_reason`: `unmounted` when
+its `/Volumes/<drive>` is not mounted, else `missing` when the path is not a folder; checked live once per request, like
+`watched_folders()`'s states), so an unplugged drive counts before any scan has seen it; the innermost watched folder
+holding the file decides. A file row that says `online = 0` and lies in no away folder stays `offline`. `file_missing`
+is checked for this one track (`Path.exists()`), in the api. A track without a file is `here`. For every state but
+`here` `audio_url` is null too: the panel says the words where the picture would be ("Offline: connect the drive" ·
+"Folder not found" · "This file isn't there any more."), keeps the player off, requests no spectrum and offers no Show in
+Finder. `todo()` question and duplicate sides (`FileSide.online`) mean `here` by the folder rule only (and carry no
+`audio_url` when false).
 `todo()` items carry `free: bool` (a not found, weak, good lossy or fake track with a free download: the row's FREE
 tag); the `detail` of lossy and fake rows is the source and bitrate ("YT Music · 131 kbps", "Qobuz"), as the badge
 already says the kHz.
 
-`todo(filter="all", show_hidden=false)` — filter: `all|rekordbox_check|upgrade_ready|not_found|weak|good_lossy|fake|other`.
-Groups always in that order; `chips` counts exclude hidden; `hidden_count` for "Show hidden (N)". First group
+`todo(filter="all", show_hidden=false)` — filter: `all|rekordbox_check|same_song|duplicate|upgrade_ready|not_found|weak|good_lossy|fake|other`.
+Groups always in that order; `chips` counts exclude hidden; `hidden_count` for "Show hidden (N)". The import adds two
+groups after the first (see "Watched folders and the import" below): `same_song` and `duplicate`, whose items also carry
+a `pair`; the user's own songs (`local:<n>`, in no playlist) are on To-do only under `upgrade_ready`, in a question and
+in a duplicate group (their quality is for the Library to show). First group
 `rekordbox_check` (label "Check in rekordbox", hint "the file changed; rekordbox needs a hand"): every track with a
 `rekordbox_check`, also hidden tracks and tracks no longer in a playlist; `detail` is what to do in rekordbox ("This
 track now plays the right song. In rekordbox: analyse it again and delete the old cues (they belong to the wrong
@@ -599,6 +638,8 @@ counts each track once, `chips.rekordbox_check` every check (hidden ones too).
  "chips": {
   "all": 2,
   "rekordbox_check": 0,
+  "same_song": 0,
+  "duplicate": 0,
   "upgrade_ready": 1,
   "not_found": 1,
   "weak": 0,
@@ -993,7 +1034,7 @@ would not show it. Files cached before the field existed are made again.
 `media_url(track_id, which="current")` → `{"url"}` playable by `<audio>` / `fetch` (range requests work). The URL
 changes when the file changes (`?v=size-mtime`).
 
-`setup_status()` — `next_step`: `music|tools|spotify|downloads|playlists|null`; open the wizard when `complete` is false. `music` = MusicStatus `{state: ok|not_chosen|missing, path, suggested}`: `ok` the music folder is bound, `not_chosen` Setup's first step, `missing` config.json names a folder that isn't there (an unplugged drive); `path` the bound or missing folder, `suggested` the default to offer (`~/Music/Discjockey`). Unbound, `playlists` is false and `complete` false. `downloads` is Setup's Downloads step (Qobuz and the other download logins): done when Qobuz is signed in or left out.
+`setup_status()` — `next_step`: `music|tools|spotify|downloads|playlists|null`; open the wizard when `complete` is false. `music` = MusicStatus `{state: ok|not_chosen|missing, path, suggested}`: `ok` the music folder is bound, `not_chosen` Setup's first step, `missing` config.json names a folder that isn't there (an unplugged drive); `path` the bound or missing folder, `suggested` the default to offer (`~/Music/Discjockey`). Unbound, `playlists` is false and `complete` false. `downloads` is Setup's Downloads step (Qobuz and the other download logins): done when Qobuz is signed in or left out. Setup's "Your existing music" step (after `music`) is in the status as `existing: bool` (done: an import folder is watched, or `import_skipped`), `import_folders: int` (the import folders watched) and `import_skipped: bool` (Skip was pressed, `setup_skip_import`); it is not among the required steps: it never changes `next_step` or `complete`, and never blocks Continue.
 `version`: `discjockey.__version__` (Settings → About shows it).
 `qobuz_skipped`: "I don't have Qobuz" was chosen, the `downloads` step then counts as done (`qobuz` itself stays false).
 `spotify_skipped` (stage 3): "I don't use Spotify" was chosen; the `spotify` step then counts as done (`spotify_app` /
@@ -1272,6 +1313,10 @@ else null. The old `moves` list is gone. One example (rows cut to one, `folders`
 
 ### Write jobs (→ `{"job_id"}`; outcome in `JobFinished.result`)
 
+(The import's jobs — `add_watched_folder`, `start_import`, `remove_watched_folder`, `answer_same_song`,
+`keep_duplicates`, `supersede_duplicate` — are in "Watched folders and the import"; `setup_skip_import` is a brief save.
+A job's success can carry words in `JobFinished.message`, empty otherwise: the import's "Imported 3 files.".)
+
 | method (positional args) | job kind | JobFinished.result |
 |---|---|---|
 | `start_sync(selected)` — list of ticked `key`s from `sync_preview` | `sync` | `{exit_code, report, actions, new_since_preview}` (`report`: absolute .md path); also on a `crashed` sync (`exit_code` 1, `report` its crash note; `actions` 0 when it crashed before the plan) |
@@ -1516,7 +1561,8 @@ a test compares them): `dashboard`, `sidebar`, `sync_preview`, `refresh`, `libra
 `search_candidates`, `preview`, `add_playlist`, `preview_playlist_change`, `start_sync`, `save_playlists`, `hide`,
 `never_download`, `add_bought_file`, `use_candidate`, `use_link`, `reject_current`, `rekordbox_checked`, `upgrade`,
 `rescan_library`, `show_in_finder`, `reveal`, `open_report`, `tidy_preview`, `move_batches`, `undo_preview`, `tidy_up`,
-`undo_moves`. Everything else works without a music folder, `open_licenses` included (Setup and Settings before one
+`undo_moves`, `watched_folders`, `check_import_folder`, `removal_preview`, `add_watched_folder`,
+`remove_watched_folder`, `start_import`, `answer_same_song`, `keep_duplicates`, `supersede_duplicate`. Everything else works without a music folder, `open_licenses` included (Setup and Settings before one
 is chosen); `downloads_view()` then counts zero tracks.
 
 **Bound but missing.** A folder that vanishes while the hub runs (an unplugged drive) behaves as an unbound one: every
@@ -1526,6 +1572,57 @@ with the bound folder's path. It is never shown as an empty library. The bridge 
 `refreshOnNoLibrary` on any `no_library` answer, so the shell reads `setup_status` again and shows the missing screen
 whichever page asked. Nothing is rebound while the window lives: `retry_music_folder` answers `ok` when the folder is
 back, and "Choose another…" saves the other folder and returns `restart: true` (the page calls `quit()`).
+
+### Watched folders and the import (read: `LIBRARY_METHODS`; writes are jobs)
+
+The user's own music (spec library-and-sources §10; plan library stage 4): folders Discjockey indexes where they are.
+Every word below is the engine's (`folders.py`, `importer.py`, `jobs.py`, `views.py`) and is shown as given.
+
+| method | kind | result / notes |
+|---|---|---|
+| `watched_folders()` | read | `{folders: WatchedFolderRow[], unreadable: {folder_id, path, reason}[], waiting, stopped}`. `WatchedFolderRow = {id, path, name, kind: library\|import, state: online\|offline\|missing\|scanning\|importing, files, waiting, unreadable}`: the Library first (always `online`, or `scanning` while an import looks for files; `name` "Library"; its `waiting` and `unreadable` count like an import folder's: files that came into Library/ before an import finished them), then the import folders by id. `offline`: the folder's drive is not connected (path under `/Volumes/<drive>`, that mount absent). `missing`: any other folder that is not a folder now (moved, renamed or deleted; the page says "Folder not found: moved, renamed or deleted? Put it back or remove it here." and the row keeps its ×). Both: checked live, rows kept, nothing downloads. `scanning`: an import is looking for files. `importing`: one runs and this folder has files it hasn't finished. `files`: file rows; `waiting`: files the import still works through (not read yet, or read and not sound-checked yet); `unreadable`: files it couldn't read. Top level: `unreadable` the files it couldn't read (in the Library and every import folder), each with the id of its folder and the reason in words ("macOS doesn't let Discjockey read it", "Discjockey can't find sound it can read in it"; "The file is empty" for a file of 0 bytes); `waiting` the files an import would work through now (offline drives' files left out); `stopped` true after the user stopped an import this session (the page offers Continue import). The live phase and counts come from the `ImportProgress` event, not from here |
+| `check_import_folder(path)` | read | FolderCheck `{path, exists, usable, problem, kind, message, merges, merge_hints}`; changes nothing. `usable` false: `problem` is one of `not_absolute` · `not_a_folder` · `system_folder` · `inside_app` · `is_support_dir` · `not_readable` · `not_found` · `music` · `holds_music` · `watched` · `already`, and `message` says it: "This is inside your music folder, which Discjockey watches already." · "This folder holds your music folder. Choose a folder inside it instead." · "This is inside {name}, which Discjockey watches already." · "Discjockey watches this folder already." · "That folder isn't there. If it is on a drive, connect the drive first." · "macOS doesn't let Discjockey read that folder." (and the music folder check's words for the first four). Usable: `kind` `import`; `merges` the paths of the watched folders inside it that it would take over (their files and links are kept), `merge_hints` one line each: "{name} is inside it and becomes part of it." |
+| `removal_preview(folder_id)` | read | `{name, files, redownload}`: the folder's file count, and the playlist songs whose only file is there (they download again at the next sync). `refused` for the Library or a number that is no watched folder ("That folder isn't one of the watched folders.") |
+| `add_watched_folder(path)` | write → job `import` | Checks the folder as above (`refused` with its message when it can't be watched), watches it, then imports in the same job. `JobFinished.result`: ImportResult (below) |
+| `start_import()` | write → job `import` | "Continue import": the import again where it stopped. Also lets the import start by itself again this session (a Stop holds that) |
+| `remove_watched_folder(folder_id)` | write → job `folders` | `{files, redownload}` as `removal_preview` said. The files stay where they are; own songs left with no file go; playlist songs left with no file download again. The preview is planned again at once. `refused` for the Library or an unknown number |
+| `answer_same_song(song_key, own_key, same)` | write → job `answer` | "Is this the same song?" answered (`same`: bool): the preview is planned again (Yes: the next plan links the file to the playlist song; No: the song downloads at the next sync, and is never asked again). `result` `{}`. `changed` when `song_key` isn't a playlist song any more |
+| `keep_duplicates(group_id, paths)` | write → job `answer` | "Keep both" / "Keep all": the group isn't asked again; it applies to every file of the group (a group can hold more than two). `paths`: the group's files' `path`s as the card showed them (list of strings, any order); `changed` when they are not the group's files now (a file id can be given out again to another file). `result` `{}` |
+| `supersede_duplicate(group_id, file_id, paths)` | write → job `supersede` | "Move to Superseded" for one file of the group; nothing is deleted. `paths`: as for `keep_duplicates`. `result` `{result: Result, recovered: []}` (`result.section` `replaced`, `result.path` where the file went, relative to the music folder). `changed` when the group isn't as the page showed it (a file gone, offline or a different group), `failed` when the move was refused (nothing moved) |
+| `setup_skip_import()` | brief save | `{}`: sets `import_skipped` in settings.json (Setup's "Your existing music" step counts as done). Not a job; `busy` while a job writes, `console` while a terminal run does |
+
+**Jobs.** `import` runs the import: `ImportProgress` events (phase `scan` · `tags` · `sound` · `link`, `done` of `total`
+files of that phase, `unreadable` so far), then ends. `JobFinished.result` is ImportResult `{files, own_songs,
+sound_checked, unreadable, left, stopped, link_note}`: `files` the files imported (read in either pass, not unreadable
+now), `left` the files the next import still works through, `link_note` null or the words of a link that didn't happen
+("Your playlists couldn't be read, so the imported files are linked to them at the next sync."). `JobFinished.message`
+is the end line: "Imported {files} files." (singular: "Imported 1 file."). `stop()` ends an import between two files:
+`JobFinished` with problem `stopped`, `result` the import as far as it went (`stopped` true) and `message` "Import
+stopped with {left} files to go. It carries on where it stopped." ("1 file" when 1). What was done is written; the
+rest waits. The import starts by itself after Add folder (the same job) and when the window opens with files waiting
+(after the first read's scan, once, when nothing else writes); after a Stop only with `start_import`. While it runs
+every other write answers `busy` (and `lock_briefly` saves such as `setup_skip_import`) with: "Discjockey is importing
+your music. Stop the import in Settings → Watched folders to do this now; it carries on later where it stopped."
+`folders`, `answer` and `supersede` are ordinary short write jobs (`busy` / `console` as every write); each ends with
+the preview planned again from the last read.
+
+**To-do items of the import.** `todo()` items of the groups `same_song` ("Is this the same song?", "a file of yours
+might be a playlist song") and `duplicate` ("Duplicates", "the same song more than once") are TodoItems plus `pair`:
+- `same_song`: `track_id` is the playlist song's key (its track token while it isn't stored yet); the item is that
+  song, which waits for the answer (not listed as Not found meanwhile). `pair = {song_key, own_key, why, delta_s,
+  track: {artist, title, duration_s, folder, link}, file: FileSide}`; `why` `artist` · `no_artist` · `length` ·
+  `no_length`, `delta_s` the file's length minus the song's in whole seconds (null with `no_length`). `detail` is the
+  why in words: "Same title, different artist" · "Same title, no artist in your file" · "Same artist and title, {s} s
+  longer" / "{s} s shorter" · "Same artist and title, the length couldn't be read".
+- `duplicate`: `track_id` is the `group_id`. `pair = {group_id, why: same_audio\|same_song, files: FileSide[]}`, files by
+  file id; a group can hold more than two files, and "Keep both" (`keep_duplicates`) applies to all of them. `detail`:
+  "The same audio in {n} files" · "{n} files of the same song". A group found both by the plan and by the records
+  shows once, as `same_audio`. Groups with a file offline now, held or gone are left out: "offline now" is the same live away set as the panels' (a group on a just-ejected drive or a renamed folder is neither listed nor counted in `chips`, the filter or the sidebar, even before a scan).
+- `FileSide = {file_id, song_key, path, artist, title, duration_s, quality, quality_label, online, audio_url,
+  in_playlist}`: `path` is absolute for an import folder's file; `audio_url` is a media address
+  like any other; a file outside the music folder (an import folder's) plays through `file/<file_id>`, which the
+  media server serves only for a known file row that is online in a watched folder and whose real path, links
+  resolved, stays inside that folder's root. It is null for a file that is offline, gone, or leads out of its folder.
 
 ## Events
 
@@ -1544,6 +1641,7 @@ the third action).
 | `FileDropped` | `track_id` str\|null, `name` str, `readable` bool, `message` str ("macOS didn't let Discjockey read this file…" / "Select the track…") |
 | `SignInPhase` | `service` (`youtube\|soundcloud`), `phase` `waiting\|checking`, `browser`, `browser_name` — a sign-in through the browser (Settings, Setup) |
 | `AppUpdate` | `state`, `current`, `latest`, `url` as `app_update()` — sent when the update check's answer changes (at start, then at most daily) |
+| `DrivesChanged` | `away` int (how many watched folders are away now) — sent once when the set of import folders that are away (and why: `unmounted` or `missing`, `scanner.away_reason`) differs from the last look: a drive plugged in or ejected, a watched folder renamed or put back while the window is open. The hub's drives watch looks every 2 s, read only (no scan, no write); its first look is the baseline and sends nothing, and a look that can't read `library.db` sends nothing and keeps the last answer. The page re-reads what shows a file's or a watched folder's state (`library()` and the open `track()`, `todo()` and its panel, `watched_folders()`, `sidebar()`), not every page. A new event rather than `JobFinished` (no job ran) or `ConsoleBusy` (it means the window goes read-only) |
 | `RunStarted` | `total` int, `actions` [{`kind`, `track_id`, `title`, `artist`, `image_url` str\|null}] — every action of the run in the order the run does them ("Up next", time left; `image_url`: Spotify's cover for the rows) |
 | `ActionStarted` | `index` (1-based), `total`, `action` {kind, track_id, folder, track {id, title, artists[], album, image_url, duration_ms, isrc, service, link\|null, streamable}, order [int,int], src, dest_dir, aliases[], reason, qobuz_id\|null} (`service` `spotify\|qobuz`: the service the track was read from; `id` is that service's own id, and `link` its page) |
 | `StepChanged` | `track_id`, `step`: `search|download|check|convert|analyse|compare` |
@@ -1557,6 +1655,7 @@ the third action).
 | `Message` | `level` `info|warning|debug`, `text` (hide debug) |
 | `ReadingPlaylist` | `index`, `total`, `folder` — before each playlist is read (a refresh, or a sync's start) |
 | `MovesProgress` | `batch_id`, `done`, `total` — after each move of a move batch, during `tidy`, `undo_moves` and a moving `save_playlists` (a folder rename counts as one move) |
+| `ImportProgress` | `phase` `scan|tags|sound|link`, `done`, `total` (0 of 0 for scan and link), `unreadable` (files this import couldn't read so far) — during an import (importer.run_import), at each phase's start and end and at most every 25 files or 0.5 s between |
 
 Pause card: the pause runs inside the next action after its `ActionStarted` and search, so "next up" is the current
 action and "after that N more" = `total - index`. Progress and Waiting may be coalesced when the page lags (only the

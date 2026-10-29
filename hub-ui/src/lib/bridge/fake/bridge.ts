@@ -10,7 +10,7 @@ import { LIBRARY_METHODS } from '../contract';
 import {
   FAKE_MUSIC, FAKE_NEWEST_YT_DLP, QOBUZ_UNREADABLE, SERVICE_NAME, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkText, coverUri, dateOnly, folderList, hash, inFolder, isoLocal, makeState, nextStep,
   pathOf, playlistRows, previewAction, qualityLabel, qualityLine, qualityOf, result, runDetail, runId,
-  readStatus, sampleCandidates, spotifyOk, todoDetail, todoFree, formatLine, SOURCE_FULL, todoGroup, trackRow, type FakeAccount, type FakeState,
+  readStatus, sampleCandidates, spotifyOk, todoDetail, todoFree, formatLine, sourceFull, todoGroup, trackRow, rowState, type FakeAccount, type FakeFolder, type FakeState,
   type FakeTrack,
 } from './data';
 import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, rewrite } from './replay';
@@ -27,6 +27,10 @@ import {
   type MoveRun,
 } from './tidy';
 import { SERVICES, NAMES, RECOMMENDED, serviceOf, limits as limitsOf, whatIf as whatIfOf, gate, syncSplit, cards } from './limits';
+import {
+  IMPORTING_BUSY, NO_FOLDER, answerSameSong, checkImportFolder, duplicateItems, folderOf, keepDuplicates, questionItems,
+  removalPreview, removeFolder, runImport, seedImport, supersedeDuplicate, watchedFolders, type ImportRun,
+} from './folders';
 
 /** library.FOLDER_PROBLEMS verbatim: what a refused folder says */
 const FOLDER_PROBLEMS: Record<FolderProblem, string> = {
@@ -101,7 +105,10 @@ export function pageScenarios(): Record<string, (s: FakeState) => void> {
   return out;
 }
 export const SCENARIOS = ['normal', 'update_available', 'first_run', 'offline', 'console', 'syncing', 'pause', 'break', 'stopped',
-  'finished', 'big', 'errors', 'no_music', 'music_missing', 'qobuz_unreadable', 'qobuz_not_connected'] as const;
+  'finished', 'big', 'errors', 'no_music', 'music_missing', 'qobuz_unreadable', 'qobuz_not_connected',
+  // the import of the user's own music (library stage 4)
+  'folders_importing', 'folders_offline', 'folders_missing', 'folders_couldnt_read', 'folders_long_names', 'folders_library_only', 'setup_existing_empty',
+  'setup_existing_added', 'todo_same_song', 'todo_duplicates', 'todo_duplicates_three', 'sync_waiting_answers'] as const;
 
 /** The dashboard's estimate has no minutes or uses tables (only the Sync page ticks subsets). */
 const dashboardEstimate = ({ minutes_by_downloads: _table, accounts, ...rest }: SyncEstimate) =>
@@ -111,6 +118,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   const baseScenario = scenario.includes(':') ? 'normal' : scenario;
   const s = makeState(baseScenario);
   seedTidy(s);
+  seedImport(s, baseScenario);
   pageScenarios()[scenario]?.(s);
   const speed = opts.speed ?? 1;
   const emitRaw = opts.emit ?? (() => {});
@@ -123,6 +131,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   let signInStop: (() => void) | null = null;
   let savePending: MoveRun | null = null;    // a save in its short wait before the file is written (Stop ends it after the save)
   let moveRun: MoveRun | null = null;         // the move batch that is running (Stop ends it between two moves)
+  let importRun: ImportRun | null = null;     // the import that is running (Stop ends it between two files)
 
   const emit = (e: HubEvent) => {
     if (job?.running && e.type !== 'ConsoleBusy' && e.type !== 'FileDropped') {
@@ -177,7 +186,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
 
   function startJob(kind: string, track_id: string | null, body: (finish: Finish) => void): JobStart {
     if (s.console_running) return fail('console', MSG.console);
-    if (job?.running) return fail('busy', MSG.busy);
+    if (job?.running) return fail('busy', job.kind === 'import' ? IMPORTING_BUSY : MSG.busy);
     const id = nextId++;
     job = new JobRecord(id, kind, track_id, isoLocal(new Date()));
     const me = job;
@@ -200,6 +209,17 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     return { ok: true, job_id: id };
   }
   const ctx: FakeContext = { s, speed, emit, startJob, networkBlock, fail, later, accountResult };
+
+  /** The import as a write job (kind "import"): `adding` is a folder just watched, `resume`/`hold` start it mid-way and
+   *  keep it there until Stop (scenario folders_importing). */
+  function beginImport(opts: { adding?: ReturnType<typeof folderOf>; resume?: { phase: 'tags' | 'sound'; done: number };
+    hold?: boolean } = {}): JobStart {
+    const run: ImportRun = { stopped: false, hold: !!opts.hold };
+    return startJob('import', null, (finish) => {
+      importRun = run;
+      void runImport(ctx, run, (...args) => { importRun = null; finish(...args); }, opts);
+    });
+  }
 
   /** Runs move batches as the body of a write job: ends `stopped` (with the batches so far) when Stop came. */
   function moveJob(finish: Finish, work: (run: MoveRun) => Promise<{ result: BatchResult; stopped: boolean }[]>,
@@ -388,10 +408,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     async sync_preview() {
       const p = preview();
       if (!s.previewRead) return ok({ spotify: readStatus(s), counts: null, groups: [], estimate: null, never: [],
-        folders: [], in_playlists: null, ambiguous: [], dropped: [], notes: [],
+        folders: [], in_playlists: null, ambiguous: [], dropped: [], notes: [], waiting_answers: 0, deferred_checks: 0,
         empty: 'no_preview' as const });  // like views.sync_preview: never not_set_up
       return ok({ spotify: readStatus(s), counts: p.counts, groups: p.groups, estimate: p.estimate, never: p.never,
         folders: p.folders, in_playlists: p.in_playlists, ambiguous: [], dropped: [], notes: [],
+        waiting_answers: s.imp.questions.length, deferred_checks: s.imp.deferred,
         empty: p.actions ? null : 'up_to_date' as const });
     },
     async refresh(auto = false) {
@@ -452,25 +473,27 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const chips = { all: found.length, lossless: 0, good_lossy: 0, weak: 0, fake: 0, upgrade_ready: 0 };
       for (const t of found) {
         const k = qualityOf(t);
-        if (k !== 'missing') chips[k]++;
+        if (k !== 'missing' && !t.unchecked) chips[k]++;
         if (t.upgrade) chips.upgrade_ready++;
       }
-      const rows = found.filter((t) => filter === 'all' || (filter === 'upgrade_ready' ? !!t.upgrade : qualityOf(t) === filter));
+      const rows = found.filter((t) => filter === 'all' || (filter === 'upgrade_ready' ? !!t.upgrade
+        : !t.unchecked && qualityOf(t) === filter));
       const desc = sort.startsWith('-');
       const key = sort.replace('-', '');
       const qorder = ['lossless', 'good_lossy', 'weak', 'fake', 'missing'];
       const val = (t: FakeTrack): string | number => key === 'title' ? t.title.toLowerCase()
         : key === 'length' ? t.duration_s : key === 'source' ? (t.source ?? '') : key === 'quality'
-          ? qorder.indexOf(qualityOf(t)) : key === 'added' ? (t.added ?? '')
+          ? (t.unchecked ? qorder.length : qorder.indexOf(qualityOf(t))) : key === 'added' ? (t.added ?? '')
             : key === 'folder' ? `${t.in_playlists ? 0 : 1} ${t.folder} ${t.artist} ${t.title}`.toLowerCase()
               : `${t.artist} ${t.title}`.toLowerCase();
       rows.sort((a, b) => (val(a) < val(b) ? -1 : val(a) > val(b) ? 1 : 0) * (desc ? -1 : 1));
-      const lossless = all.filter((t) => qualityOf(t) === 'lossless').length;
+      const counted = byQuality(all);
+      const checked = Object.values(counted).reduce((n, c) => n + c, 0);
       return ok({ title: folder === null ? 'All tracks' : folder === NOT_IN_PLAYLIST ? 'Not in a playlist' : folder,
-        folder, summary: { tracks: all.length, lossless_share: all.length ? lossless / all.length : null,
-          by_quality: byQuality(all), upgrades_ready: all.filter((t) => !!t.upgrade).length,
+        folder, summary: { tracks: all.length, lossless_share: checked ? counted.lossless / checked : null,
+          by_quality: counted, upgrades_ready: all.filter((t) => !!t.upgrade).length,
           to_do: all.filter((t) => t.in_playlists && !t.hidden && todoGroup(t)).length }, chips,
-        rows: rows.map(trackRow), empty: !s.tracks.length ? 'empty_library' as const : rows.length ? null : 'no_match' as const });
+        rows: rows.map((t) => ({ ...trackRow(t), sound_checked: !t.unchecked, file_state: rowState(t) })), empty: !s.tracks.length ? 'empty_library' as const : rows.length ? null : 'no_match' as const });
     },
     async track(track_id: string) {
       const t = track(track_id);
@@ -479,9 +502,10 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const plus = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return dateOnly(d); };
       const query = `${t.artist} ${t.title}`.replace(/ /g, '+');
       return ok({ track: {
-        ...trackRow(t), isrc: t.isrc, playlists: s.previewRead ? [...t.playlists] : null,
+        ...trackRow(t), sound_checked: !t.unchecked, file_state: t.away ?? 'here', isrc: t.isrc,
+        playlists: s.previewRead ? [...t.playlists] : null,
         in_playlist_count: t.playlists.length, quality_line: qualityLine(t), format_line: formatLine(t),
-        source_full: !t.source || q === 'missing' ? null : SOURCE_FULL[t.source],
+        source_full: q === 'missing' ? null : sourceFull(t),
         source_url: t.source === 'youtube' ? 'https://www.youtube.com/watch?v=abcdefghijk'
           : t.source === 'youtube_music' ? 'https://music.youtube.com/watch?v=abcdefghijk'
             : t.source === 'soundcloud' ? 'https://soundcloud.com/artist/track'
@@ -493,7 +517,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         buy_links: { beatport: `https://www.beatport.com/search?q=${query}`, bandcamp: `https://bandcamp.com/search?q=${query}` },
         free_downloads: q === 'lossless' ? [] : [...(t.free_downloads ?? [])],
         bought_name: `Library/${t.folder}/${t.artist} - ${t.title}.wav`,
-        audio_url: q === 'missing' ? null : media(t, 'current'),
+        audio_url: q === 'missing' || t.away ? null : media(t, 'current'),
         upgrade: t.upgrade ? { ...t.upgrade, audio_url: media(t, 'upgrade') } : null,
       } });
     },
@@ -531,6 +555,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     async spectrum(track_id: string, which: Which) {
       const t = track(track_id);
       if (!t || t.status === 'missing') return fail('refused', 'This track has no file yet.');
+      if (t.away) return fail('refused', "This file isn't there.");
       if (which === 'upgrade' && !t.upgrade) return fail('refused', 'There is no upgrade for this track.');
       return later(350, () => ok({ spectrum: fakeSpectrum(which === 'upgrade' ? null : t.cutoff_hz,
         Math.abs(hash(t.track_id)), t.duration_s, which) }));
@@ -544,7 +569,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const status = (a: FakeAccount | null) => a && { browser: a.browser, browser_name: BROWSER_NAMES[a.browser],
         daily_limit: a.limit, profile: a.profile ?? null, profile_name: a.profileName ?? null,
         last_check: a.lastCheck ?? null };
+      const imports = s.imp.folders.filter((f) => f.kind === 'import').length;
       return ok({ ...s.setup, music: { ...s.setup.music }, tools: { ...s.setup.tools }, qobuz_skipped: s.qobuzSkipped,
+        existing: imports > 0 || s.imp.skipped, import_folders: imports, import_skipped: s.imp.skipped,
         qobuz_last_check: s.qobuzLastCheck ?? null,
         spotify_user: s.setup.spotify_login ? s.spotifyUser ?? 'DJ One' : null,
         accounts: { youtube: status(s.accounts.youtube), soundcloud: status(s.accounts.soundcloud) } });
@@ -702,6 +729,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return startReplay(SYNC_START_LINE);
     },
     async stop() {
+      if (importRun && job?.running) { job.stopping = true; importRun.stopped = true; return ok({ stopped: true }); }
       if (moveRun && job?.running) { job.stopping = true; moveRun.stopped = true; return ok({ stopped: true }); }
       if (savePending && job?.running) { job.stopping = true; savePending.stopped = true; return ok({ stopped: true }); }
       if (replay && job?.running) { job.stopping = true; replay.stop(); return ok({ stopped: true }); }
@@ -781,6 +809,55 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return startJob('undo_moves', null, (finish) => moveJob(finish, async (run) =>
         [await runBatch(s, emit, run, 250 / speed, 'undo', planUndo(s, b), { undoes: b.id })],
       (batches) => batches[0]));
+    },
+    async watched_folders() { return ok(watchedFolders(s)); },
+    async check_import_folder(path: string) { return ok(checkImportFolder(s, path)); },
+    async removal_preview(folder_id: number) {
+      const r = removalPreview(s, folder_id);
+      return 'ok' in r ? r : ok(r);
+    },
+    async add_watched_folder(path: string) {
+      const c = checkImportFolder(s, path);
+      if (!c.usable) return fail('refused', c.message ?? '');
+      const folder: FakeFolder = { id: s.imp.nextId++, path: c.path, kind: 'import', offline: false, files: 0, waiting: 0,
+        redownload: 0 };
+      s.imp.folders.push(folder);
+      const started = beginImport({ adding: folder });
+      if (!started.ok) {
+        s.imp.folders = s.imp.folders.filter((f) => f !== folder);
+        return started;
+      }
+      s.imp.stopped = false;
+      // the watched folders inside it become part of it, with their files
+      for (const inner of s.imp.folders.filter((f) => f.kind === 'import' && c.merges.includes(f.path))) {
+        folder.files += inner.files; folder.waiting += inner.waiting; folder.redownload += inner.redownload;
+        s.imp.unreadable = s.imp.unreadable.map((u) => (u.folder_id === inner.id ? { ...u, folder_id: folder.id } : u));
+        s.imp.folders = s.imp.folders.filter((f) => f !== inner);
+      }
+      return started;
+    },
+    async start_import() {
+      const started = beginImport();
+      if (started.ok) s.imp.stopped = false;
+      return started;
+    },
+    async remove_watched_folder(folder_id: number) {
+      const f = folderOf(s, folder_id);
+      if (!f) return fail('refused', NO_FOLDER);
+      return startJob('folders', null, (finish) => setTimeout(() => finish(true, removeFolder(s, f)), 400 / speed));
+    },
+    async answer_same_song(song_key: string, own_key: string, same: boolean) {
+      return answerSameSong(ctx, song_key, own_key, same);
+    },
+    async keep_duplicates(group_id: string, paths: string[]) { return keepDuplicates(ctx, group_id, paths); },
+    async supersede_duplicate(group_id: string, file_id: number, paths: string[]) {
+      return supersedeDuplicate(ctx, group_id, file_id, paths);
+    },
+    async setup_skip_import() {
+      if (s.console_running) return fail('console', MSG.console);
+      if (job?.running) return fail('busy', job.kind === 'import' ? IMPORTING_BUSY : MSG.busy);
+      s.imp.skipped = true;
+      return ok({});
     },
     async save_limits(service: Service, limit: number, extra_today: number) {
       const f = serviceOf(s, service);
@@ -1033,9 +1110,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   }
 
   function todoView(filter: TodoFilter, show_hidden: boolean) {
-    const order: TodoGroupKey[] = ['rekordbox_check', 'upgrade_ready', 'not_found', 'weak', 'good_lossy', 'fake', 'other'];
+    const order: TodoGroupKey[] = ['rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready', 'not_found', 'weak',
+      'good_lossy', 'fake', 'other'];
     const LABELS: Record<TodoGroupKey, [string, string]> = {
       rekordbox_check: ['Check in rekordbox', 'the file changed; rekordbox needs a hand'],
+      same_song: ['Is this the same song?', 'a file of yours might be a playlist song'],
+      duplicate: ['Duplicates', 'the same song more than once'],
       upgrade_ready: ['Upgrade ready', 'a better version is waiting for you'],
       not_found: ['Not found', 'nothing usable anywhere'], weak: ['Weak (≤ 17 kHz)', 'audibly lossy'],
       good_lossy: ['Good lossy (~20 kHz)', 'hard to hear'], fake: ['Fake lossless', 'the Qobuz file is really lossy'],
@@ -1057,6 +1137,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       else { chips[g]++; counted.add(t.track_id); }
       if (!t.hidden || show_hidden) items[g].push({ ...trackRow(t), group: g, detail: todoDetail(t, g), free: todoFree(t, g) });
     }
+    for (const q of questionItems(s)) { items.same_song.push(q); chips.same_song++; counted.add(q.track_id); }
+    for (const d of duplicateItems(s)) { items.duplicate.push(d); chips.duplicate++; counted.add(d.track_id); }
     chips.all = counted.size;
     const groups = order.filter((k) => items[k].length && (filter === 'all' || filter === k))
       .map((k) => ({ key: k, label: LABELS[k][0], hint: LABELS[k][1], items: items[k] }));
@@ -1183,6 +1265,15 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     at(() => {
       startReplay(SYNC_START_LINE, { events: STREAMS.stopped, preRun: 36 });
       if (job) job.stopping = true;
+    });
+  }
+  if (baseScenario === 'folders_importing') {
+    // an import already running, held half way through reading the tags until Stop
+    at(() => {
+      const total = s.imp.folders.reduce((n, f) => n + (f.kind === 'import' ? f.waiting : 0), 0);
+      beginImport({ resume: { phase: 'tags', done: 340 }, hold: true });
+      s.imp.phase = 'tags';
+      job?.record({ type: 'ImportProgress', phase: 'tags', done: 340, total, unreadable: 0 });
     });
   }
   if (baseScenario === 'finished') {

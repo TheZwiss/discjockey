@@ -5,7 +5,7 @@ import wave
 import numpy as np
 import pytest
 
-from discjockey.quality import LOSSY_CLIFF_DB, analyze, cutoff_hz, is_lossless_codec, probe, quality_line, verdict
+from discjockey.quality import FAKE_BELOW_HZ, LOSSY_CLIFF_DB, analyze, cutoff_hz, is_lossless_codec, probe, quality_line, verdict
 
 SR = 44100
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
@@ -113,3 +113,59 @@ def test_soft_edge_of_a_lossy_file_is_still_shown():
     assert cutoff_hz(x, SR) is None  # too gentle to call a lossless file fake
     c = cutoff_hz(x, SR, cliff_db=LOSSY_CLIFF_DB)  # but a lossy file shows where it ends
     assert c is not None and 19800 <= c <= 20600
+
+
+def shaped(x, points):
+    """The level in dB follows a line through the (Hz, dB) points (flat beyond the last)."""
+    spec = np.fft.rfft(x)
+    f = np.fft.rfftfreq(len(x), 1 / SR)
+    hz, db = zip(*points)
+    return np.fft.irfft(spec * 10 ** (np.interp(f, hz, db) / 20), n=len(x)).astype(np.float32)
+
+
+def test_steps_into_a_floor_are_a_cutoff():
+    # a lossy edge in steps, each too small for a cliff, down to a flat floor with nothing above
+    steps = [(0, 0), (17550, 0), (17650, -12), (18950, -12), (19050, -24), (19550, -24), (19650, -40)]
+    x = shaped(noise(), steps)
+    assert cutoff_hz(x, SR) is not None and 17400 <= cutoff_hz(x, SR) <= 17900
+
+
+def test_slope_into_a_floor_is_a_cutoff():
+    # 36 dB along a slope over 2.5 kHz, then the flat floor
+    x = shaped(noise(), [(0, 0), (15800, 0), (18300, -36)])
+    c = cutoff_hz(x, SR)
+    assert c is not None and 16000 <= c <= 17000
+
+
+def test_natural_roll_off_is_full_band():
+    # keeps falling up to the top: no floor
+    assert cutoff_hz(shaped(noise(), [(0, 0), (12000, 0), (21500, -40), (22050, -42)]), SR) is None
+
+
+def test_slow_roll_off_into_a_floor_is_full_band():
+    # a quiet top end that sinks into the noise floor, but over 6 kHz, not 3
+    assert cutoff_hz(shaped(noise(), [(0, 0), (12000, 0), (18000, -30)]), SR) is None
+
+
+def test_mastering_low_pass_near_20_khz_is_not_fake():
+    x = shaped(noise(), [(0, 0), (20000, 0), (20500, -40)])
+    c = cutoff_hz(x, SR)
+    assert c is None or c >= FAKE_BELOW_HZ
+
+
+def test_the_quality_line_of_an_own_file_puts_the_format_in_brackets():
+    assert quality_line("manual", "pcm_s16le", "lossless", None, own=True) == "Your own file (PCM) · verified lossless"
+    assert quality_line("manual", "pcm_s16le", "fake_lossless", 16100, own=True) == (
+        "Your own file (PCM) · fake lossless, cutoff 16.1 kHz")
+    assert quality_line("manual", "mp3", "not_lossless", 16000, 320, own=True) == (
+        "Your own file (MP3 320 kbps) · cutoff 16.0 kHz")
+    assert quality_line("qobuz", "flac", "lossless", None, own=True) == "Qobuz FLAC · verified lossless"
+    assert quality_line("manual", "pcm_s16le", "lossless", None) == "bought file PCM · verified lossless"
+
+
+def test_the_quality_line_of_a_file_whose_sound_is_not_checked_yet_gives_no_verdict():
+    assert quality_line("manual", "pcm_s16le", "lossless", None, own=True, checked=False) == (
+        "Your own file (PCM) · sound not checked yet")
+    assert quality_line("manual", "mp3", "not_lossless", None, own=True, checked=False) == (
+        "Your own file (MP3) · lossy, sound not checked yet")
+    assert quality_line("manual", "pcm_s16le", "lossless", None, own=True) == "Your own file (PCM) · verified lossless"

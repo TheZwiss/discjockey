@@ -82,7 +82,7 @@ logins and settings stay where they are. Then confirm it once with "Open Anyway"
 
 ## One-time setup
 
-The first time you open Discjockey, it shows **Setup**, a short guide in up to five steps.
+The first time you open Discjockey, it shows **Setup**, a short guide in up to six steps.
 A row of steps at the top shows where you are; **Continue** lights up once a step is done,
 and a line next to it says what is still missing. **Finish later** closes the guide; it comes
 back by itself the next time while a needed step is still open.
@@ -93,16 +93,19 @@ back by itself the next time while a needed step is still open.
    already holds a Discjockey library is used as it is. If other files are in it, they stay
    where they are and Discjockey adds its folders next to them (it asks first). Later, point
    rekordbox at its `Library` folder.
-2. **Programs:** Setup skips this step unless a program Discjockey needs is missing. Then it
+2. **Your existing music** (optional): click **Add folder…** for each folder that already holds music you
+   have, and Discjockey starts reading it. **Continue** works with or without a folder.
+   See [Your existing music](#your-existing-music).
+3. **Programs:** Setup skips this step unless a program Discjockey needs is missing. Then it
    shows the line to paste into Terminal; click **Check again**.
-3. **Spotify:** create a free "app" in Spotify's developer dashboard (the step lists what to
+4. **Spotify:** create a free "app" in Spotify's developer dashboard (the step lists what to
    click, with a **Copy** button for the Redirect URI), paste its Client ID and click
    **Connect**. Your browser opens to log in to Spotify. Discjockey only reads your playlists.
    If you don't use Spotify playlists, choose **I don't use Spotify**; you can connect it later in Settings.
-4. **Downloads:** sign in to Qobuz, or choose **I don't have Qobuz**. YouTube Premium and
+5. **Downloads:** sign in to Qobuz, or choose **I don't have Qobuz**. YouTube Premium and
    SoundCloud Go+ are optional; see [Settings](#settings) for how their logins work. Beside
    the logins, "Where your music comes from" lights up as each one works.
-5. **First playlist:** paste the link of a Spotify or Qobuz playlist and click **Add to the list**.
+6. **First playlist:** paste the link of a Spotify or Qobuz playlist and click **Add to the list**.
    Add more and change their order later on the Playlists page. **Finish** opens the Sync page.
 
 Everything in Setup can be changed later in **Settings**. Once setup is done, a link to a
@@ -137,6 +140,8 @@ line to see it on the right.
 - **Spotify:** shows which account is connected, with **Connect again** and **Sign out**.
   The Spotify app's Client ID can be changed under "Spotify app (Client ID)". If you skipped Spotify in Setup,
   connect it here when you want to use Spotify playlists.
+- **Watched folders:** the folders Discjockey reads for music you already have, and the import's progress
+  (see [Your existing music](#your-existing-music)).
 - **This Mac:** the **Music folder** (**Change…** picks another one and closes Discjockey so it
   starts again with it; **Show in Finder** opens it), the programs Discjockey uses and its download
   tools: yt-dlp shows its version and "built in" (it came with Discjockey) or "updated". **Update
@@ -193,6 +198,62 @@ Powertrance = https://open.qobuz.com/playlist/...
 - **Qobuz playlists** must be public or your own. Qobuz has to be set up (signed in) when a line uses it. A track
   in a Qobuz playlist is downloaded as that exact Qobuz track, with no search. Reading a Qobuz playlist does not
   count against the daily [Qobuz limit](#daily-use); only downloads do.
+
+## Your existing music
+
+Music you already have, outside `Library/`, can be part of Discjockey too: it shows in **Library**, a playlist song
+you already own isn't downloaded again, and duplicates are pointed out. Discjockey reads these files where they are.
+**Nothing is copied, moved, renamed or re-tagged** by the import.
+
+**Watched folders** (Settings, or Setup's "Your existing music"): click **Add folder…** and choose a folder, on this
+Mac or on a drive. Your `Library/` is always watched and is listed first.
+
+- **Adding:** a folder inside your music folder or inside another watched folder is refused (it is watched already),
+  and so is one that holds your music folder. A folder that holds other watched folders takes them over, and what
+  Discjockey already knows about their files stays.
+- **Offline:** a folder on a drive that isn't connected shows "Offline: connect the drive". Its songs stay in
+  Library; they just can't be played or moved until the drive is back, and nothing is forgotten.
+- **Folder not found:** a folder that was moved, renamed or deleted (its drive is there) shows "Folder not found:
+  moved, renamed or deleted? Put it back or remove it here." It waits the same way. A single song whose file was
+  deleted inside a folder that is there says "This file isn't there any more." until the next scan.
+- **Removing:** **Remove** asks first. Discjockey forgets the folder's files; the files stay where they are. If a
+  song from your playlists had its only copy there, the dialog says so, and the next sync downloads it again.
+
+**The import** starts by itself after **Add folder…** and when the window opens with files waiting. Each folder shows
+"Importing · {n} waiting" and Settings shows the live phase:
+
+1. *Looking for music files.*
+2. *Reading tags*, for every file: its artist, title, length and format. A file with no tags is named from its file
+   name. Each file becomes a track in Library with the quality its format gives for now ("sound not checked yet").
+3. *Checking the sound*, for every file: the same quality check as for downloads. This takes the longest, which is why
+   the tags come first: a sync after a stopped import already knows which songs you have.
+4. *Linking to your playlists:* a playlist song you already own is linked to your file instead of being downloaded.
+   If your playlists can't be read just then, this waits for the next sync.
+
+- **Stop** (on the import's card) stops the import. "Import stopped with {n} files to go. It carries on
+  where it stopped." The import doesn't restart by itself during the session; **Continue import**, or opening the
+  window again, carries on exactly where it stopped. After a crash or a power cut it picks up the same way.
+- **Couldn't read:** files that can't be read are listed with the reason and tried again at the next import.
+- While it runs, actions that change your files (a sync, a tidy-up) say "Discjockey is importing your music…" and
+  don't start. Stop the import in Settings → Watched folders, then go ahead; it carries on later.
+- The console never imports: it only says how many files wait and how many songs need your answer, and asks you to
+  open the window.
+
+**Two new groups on the To-do page** (only for what your own music raises):
+
+- **Is this the same song?** A file of yours might be a playlist song: same title with another artist, or the same
+  artist and title with a different length. Until you answer, Discjockey doesn't download that song. **Yes, it's the
+  same song** links your file to it; **No, keep them apart** lets the next sync download it.
+- **Duplicates:** the same song more than once among your files. **Keep both** (**Keep all**) leaves them; **Move to
+  Superseded** on a file moves it to `Superseded/`. Nothing is deleted. The cards are labelled by the folder each file
+  is in.
+
+Your own music appears on the To-do page only here and under **Upgrade ready**, never as "weak" or "fake" lossless:
+the Library shows each file's quality.
+
+**Upgrade checks are spread over runs.** The first look on Qobuz for a better version of each imported lossy file
+runs at most 25 per sync, and never more than half of what is left of today's Qobuz allowance, so a big import doesn't
+use up the downloads of your playlists. The Sync page says how many wait for a later run.
 
 ## Tidying up files
 
@@ -291,7 +352,9 @@ waiting for a track, the list says so.
 Once a week, Discjockey looks on Qobuz for a lossless version of each track in `not_lossless/`.
 When it finds one, it doesn't replace anything. It **parks** the new file in
 `Upgrades ready/<Folder>/` and checks whether the two versions line up exactly (same edit,
-same start). The track then shows on the **To-do** page as "Upgrade ready".
+same start). The track then shows on the **To-do** page as "Upgrade ready". For music
+you imported from your own folders, the first check of each file is spread over several runs (see
+[Your existing music](#your-existing-music)).
 
 **Tip: quit rekordbox first.** For each waiting track you see the file you have now (**Now**) and the new
 one (**New**), side by side, and whether they line up. A small player lets you listen to

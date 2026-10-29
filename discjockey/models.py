@@ -11,6 +11,7 @@ SOURCE_NAMES = {
     "youtube": "YouTube",
     "manual": "bought file",
 }
+OWN_FILE = "your own file"  # what SOURCE_NAMES["manual"] reads as for a file the import found (placed_by "import")
 
 
 # Playlist services (where a playlist and its tracks are read from); SOURCE_NAMES above names the download sources.
@@ -32,6 +33,21 @@ def split_token(tok: str) -> tuple[str, str]:
     """(service, id) of a token; a string without `:` is a Spotify id."""
     service, sep, id = tok.partition(":")
     return (service, id) if sep else ("spotify", tok)
+
+
+OWN_PREFIX = "local:"  # the key of a song of the user's own: a file imported from a watched folder (stage 4)
+
+
+def is_own(key: str) -> bool:
+    """A song of the user's own (`local:<n>`): made by the import from one of their files, in no playlist."""
+    return key.startswith(OWN_PREFIX)
+
+
+def track_of(track_id: str, e: dict) -> SourceTrack:
+    """The playlist side of an entry (its song key names the service), as far as the records know it (for actions run
+    outside a sync, and the upgrade checks of the user's own songs)."""
+    service, bare_id = split_token(track_id)
+    return SourceTrack(bare_id, e["title"], (e["artist"],), "", None, e["duration_ms"], e.get("isrc"), service)
 
 
 def track_link(tok: str) -> str | None:
@@ -139,6 +155,19 @@ class Action:
     qobuz_id: str | None = None  # acquire/upgrade: the Qobuz track to try first (a Qobuz playlist named it)
 
 
+@dataclass(frozen=True)
+class Question:
+    """"Is this the same song?" (plan library stage 4, I4): a playlist song that a file of the user's own might be.
+    Until the answer the song isn't downloaded (D4)."""
+    song_key: str  # the playlist song's key, or its track token while it has none
+    track: SourceTrack
+    folder: str  # the playlist song's folder
+    own_key: str
+    file_id: int  # the own song's file
+    why: str  # "artist" | "no_artist" | "length" | "no_length" (the same artist and title, a length unknown)
+    delta_s: int | None  # own length - track length, whole seconds (signed); None when a length isn't known
+
+
 @dataclass
 class Plan:
     state: dict
@@ -147,6 +176,9 @@ class Plan:
     dropped: list[str]
     notes: list[str] = field(default_factory=list)
     never: list[Action] = field(default_factory=list)  # downloads left out because the user said "never download"
+    questions: list[Question] = field(default_factory=list)  # held songs waiting for "Is this the same song?"
+    duplicates: list[DuplicateGroup] = field(default_factory=list)  # same-song groups (same-audio: db.duplicate_groups)
+    deferred_checks: int = 0  # first upgrade checks left for later runs by the cap (D9)
 
 
 @dataclass(frozen=True)
@@ -208,6 +240,9 @@ class SeenFile:
     content_key: str
 
 
+NOT_OPENABLE = "The drive lists this file, but it can't be opened."  # W6's reason for a broken directory entry
+
+
 @dataclass
 class ScanResult:
     """How one scan sorted the files (spec library-and-sources §6.3); db.apply_scan writes it.
@@ -228,6 +263,8 @@ class ScanResult:
     held: list[int] = field(default_factory=list)  # file ids that would be gone, left as they are: the file may be
     # in a subfolder that couldn't be listed or be a file that couldn't be read (spec §12); decided on a later scan
     unreadable: list[tuple[int, str, str]] = field(default_factory=list)  # folder id, rel, reason; tried next scan
+    unopenable: list[tuple[int, str]] = field(default_factory=list)  # folder id, rel: listed, but its entry can't be
+    # looked at (a broken entry on the drive); db.apply_scan lists a new one in an import folder as unreadable
 
 
 @dataclass(frozen=True)
@@ -311,3 +348,80 @@ class SaveChoice:
     files: str  # "leave" (they become placed by the user, P1) | "move"
     renames: tuple[tuple[str, str], ...] = ()  # (old folder, new folder) to rename on disk first
     moves: tuple[tuple[int, str], ...] = ()  # (file_id, src as the page showed it)
+
+
+# --- the import (plan library stage 4, I5, I6) ---
+
+@dataclass(frozen=True)
+class ImportRow:
+    """A file of an import folder still waiting for one of the import's passes (db.import_waiting: the first,
+    db.import_unjudged: the second)."""
+    file_id: int
+    path: Path  # absolute
+    folder: int  # watched folder id
+    state: str  # first pass: "new" | "unreadable" (tried again); second: "identified" | "unreadable"
+
+
+@dataclass(frozen=True)
+class ImportCounts:
+    """The import's progress in one import folder (db.import_counts); done = files - waiting - identified -
+    unreadable."""
+    files: int  # every file row of the folder
+    waiting: int  # import_state "new": not read yet
+    identified: int  # tags read, an own song made; the sound check still to come
+    unreadable: int
+
+
+@dataclass(frozen=True)
+class OwnFacts:
+    """What the import's first pass read from a file, for its own song (db.add_own_song)."""
+    artist: str
+    title: str
+    album: str | None
+    isrc: str | None
+    duration_ms: int | None
+    codec: str  # the file's source_format
+    status: str  # provisional from the codec until the sound check (D1)
+
+
+@dataclass(frozen=True)
+class AddedFolder:
+    """A watched folder just added (db.add_watched_folder): its id and the paths of the import folders inside it
+    that it took over."""
+    id: int
+    merged: list[str]
+
+
+@dataclass(frozen=True)
+class RemovalCounts:
+    """What removing a watched folder takes away (db.removal_counts): its file rows, and the playlist songs that
+    lose their only file there and so download again at the next sync."""
+    files: int
+    redownload: int
+
+
+@dataclass(frozen=True)
+class DuplicateGroup:
+    """Files that are the same audio or the same song (plan library stage 4, I4/I5)."""
+    id: str  # "dup:" + "-".join(sorted file ids)
+    why: str  # "same_audio" | "same_song"
+    file_ids: tuple[int, ...]
+
+
+def group_id(file_ids) -> str:
+    """A duplicate group's id: its file ids, sorted (a new copy makes it another group, so asked again)."""
+    return "dup:" + "-".join(str(i) for i in sorted(file_ids))
+
+
+@dataclass(frozen=True)
+class DupFile:
+    """One file of a duplicate group, as the Duplicates question shows it (db.group_files)."""
+    file_id: int
+    song_key: str | None  # None: a file linked to no song
+    path: str  # snapshot path
+    status: str | None
+    cutoff_hz: int | None
+    source_format: str | None
+    online: bool
+    in_playlists: bool
+    usable: bool = True  # not held, not ambiguous: a file a move may take (duplicate_groups leaves the others out)

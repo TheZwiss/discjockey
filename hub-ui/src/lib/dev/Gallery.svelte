@@ -7,7 +7,7 @@
   import { onMount } from 'svelte';
   import { markReady } from '../ready';
   import { OUTDATED, OUTDATED_TOKENS } from '../outdated';
-  import { PROBLEM_KINDS, type DownloadsAccount, type DownloadsView, type EmptyKind, type FindLogins, type FolderCheck, type Service, type SpotifyStatus as SpotifyStatusT, type TrackRow as Row } from '../bridge/types';
+  import { PROBLEM_KINDS, type WatchedFolderRow, type DownloadsAccount, type DownloadsView, type EmptyKind, type FindLogins, type FolderCheck, type Service, type SpotifyStatus as SpotifyStatusT, type TrackRow as Row } from '../bridge/types';
   import { sampleTracks, trackRow, coverUri, makeUpgrade, dateOnly } from '../bridge/fake/data';
   import { fakeSpectrum } from '../bridge/fake/spectrum';
   import { toneUrl } from '../bridge/fake/audio';
@@ -20,11 +20,11 @@
   import { ColumnFrame, ListPanelFrame, Panel } from '../frames';
   import {
     AccountPanel, AddRow, CopyCode, NumberedSteps, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
-    Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
-    Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NoteCard, PageHeader, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
+    AwayTag, Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
+    Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NoteCard, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
     Segmented, SectionLabel, SelectCard, Skeleton, SortHeader, SourceLadder, Spectrum, Spinner, SplitView, StatCard, StatusMark, Surface, Switch, TextField, Tile, Toast,
     ToggleGroup, ToggleRow, TrackHead, TrackRow, UpgradeCard, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
-    confirm, envelope,
+    confirm, envelope, ImportCard, UnreadableList, WatchedFolderList,
   } from '../components';
   import Tick from '../components/Tick.svelte';
   import NeverButton from '../../pages/sync/plan/NeverButton.svelte';
@@ -203,6 +203,11 @@
     { key: 'lossless', label: 'Lossless', count: 226, dot: 'lossless' }, { key: 'good', label: 'Good', count: 49, dot: 'good_lossy' },
     { key: 'weak', label: 'Weak', count: 24, dot: 'weak' }, { key: 'fake', label: 'Fake', count: 3, dot: 'fake' },
     { key: 'missing', label: 'Not found', count: 4, dot: 'missing' }];
+  // a count of 0: nothing is there, so the dot stays away (the label and the 0 stay)
+  const QUALITY_NONE: SegOption<string>[] = [{ key: 'all', label: 'All', count: 12 },
+    { key: 'lossless', label: 'Lossless', count: 12, dot: 'lossless' }, { key: 'good', label: 'Good', count: 0, dot: 'good_lossy' },
+    { key: 'weak', label: 'Weak', count: 0, dot: 'weak' }, { key: 'fake', label: 'Fake', count: 0, dot: 'fake' },
+    { key: 'upgrade', label: 'Upgrade ready', count: 0, dot: 'lossless' }];
   // 8 options: 6 on the strip, the rest in More; the chosen one (Afterhours) is in More and stays visible
   let folder = $state<string>('f7');
   const FOLDERS: SegOption<string>[] = ['All', 'Ohne_Quatsch', 'Tekke_Ecke', 'Hard_Bounce', 'Bouncy', 'Rollers', 'Peak Time', 'Afterhours']
@@ -278,6 +283,12 @@
     markReady('gallery');
     focusMe?.querySelector('button')?.focus();
   });
+  const gFolders: WatchedFolderRow[] = [
+    { id: 1, path: '/Users/you/Music/Discjockey/Library', name: 'Library', kind: 'library', state: 'online', files: 412, waiting: 0, unreadable: 0 },
+    { id: 2, path: '/Volumes/Example Drive/Music', name: 'Music', kind: 'import', state: 'importing', files: 1840, waiting: 1500, unreadable: 0 },
+    { id: 3, path: '/Volumes/Old Drive/Music', name: 'Music', kind: 'import', state: 'offline', files: 612, waiting: 0, unreadable: 0 },
+    { id: 4, path: '/Users/you/Music/Crates', name: 'Crates', kind: 'import', state: 'online', files: 1, waiting: 0, unreadable: 0 },
+  ];
 </script>
 
 {#snippet head(name: string, rule: string)}
@@ -369,6 +380,8 @@
       <PageHeader title="To-do" sub="18 tracks are not lossless yet" spotify spotifyState={sp({ stale: true })} />
       <PageHeader title="To-do" sub="18 tracks are not lossless yet" spotify
         spotifyState={sp({ offline: true, problem: 'offline', minutes_ago: 184, read_at: new Date(now.getTime() - 184 * 60000).toISOString() })} />
+      <!-- a status line too long for the space beside the title wraps under it, whole, after a "·" -->
+      <PageHeader title="To-do" sub="18 tracks are not lossless yet · 5 questions about your files · 3 songs need a look in rekordbox · 2 upgrades are ready" spotify spotifyState={sp({})} />
       <PageHeader title="Good morning" spotify spotifyState={sp({ problem: 'login_expired', message: 'Your Spotify login has expired.' })} />
       <PageHeader title="Good morning" spotify spotifyState={sp({ read_at: null, minutes_ago: null })} />
       <!-- a used service without its login: Read playlists off, its reason names the service (the banner says it) -->
@@ -393,6 +406,9 @@
         {@render srows(5, 'Playlist')}
       </Surface>
       <Surface kind="list">{@render srows(2, 'A list without a head · row')}</Surface>
+      <!-- hint: a group's one-line hint after its count, the way ListSection prints it; fitLabel: a folder as the label, given in whole folders -->
+      <Surface kind="list" label="Duplicates" summary="2" hint="the same song more than once">{@render srows(2, 'Group')}</Surface>
+      <Surface label="/Volumes/Example Drive/Crates/Old" fitLabel="/Volumes/Example Drive/Crates/Old" summary="In your playlists"><p>A folder as the label</p></Surface>
       <Surface label="Up to date" tone="good"><p>5 playlists · 49 tracks</p></Surface>
       <Surface tone="warn" label="Could be better"><p>Warn tone</p></Surface>
       <Surface tone="problem" label="Needs you" summary="3"><p>Problem tone</p></Surface>
@@ -522,6 +538,8 @@
       <Segmented label="How many (hand-picked: none chosen)" options={HOW_MANY} value="custom" onchange={(k) => (howMany = k)} test="g-custom" />
       <span class="cap">counts and dots</span>
       <Segmented label="Quality" options={QUALITY_FILTER} value={qf} onchange={(k) => (qf = k)} test="g-quality" />
+      <span class="cap">a count of 0 · no dot</span>
+      <Segmented label="Quality (nothing weak, fake or to upgrade)" options={QUALITY_NONE} value="all" onchange={() => {}} test="g-quality-zero" />
       <span class="cap">8 options · chosen in More</span>
       <Segmented label="Folder" options={FOLDERS} value={folder} onchange={(k) => (folder = k)} test="g-folder" />
       <span class="cap">tight · 260 px strip</span>
@@ -538,6 +556,7 @@
       <StatCard value={37} unit="of 80" label="Qobuz today"><ProgressBar value={37 / 80} label="Qobuz today" /></StatCard>
       <StatCard value={226} label="lossless"><ProgressBar value={226 / 306} tone="lossless" label="Lossless share" /></StatCard>
       <StatCard value="12 345 678" unit="tracks" label="a number too long for its card shortens" />
+      <StatCard value="16.0" unit="kHz" wrap label="where the highs end · a lossy file inside the AIFF, shown whole on a second line" />
       <div class="span3"><StatCard value={2} label="tracks added"><QualityBar by_quality={{ lossless: 1, good_lossy: 1, weak: 0, fake: 0, missing: 0 }} legend /></StatCard></div>
     </div>
   </section>
@@ -795,15 +814,16 @@
   </section>
 
   <section data-test="gallery-badge">
-    {@render head('Badge · QualityBadge · ExternalLink', 'A short state or value in the quality colours; a link that leaves the app')}
+    {@render head('Badge · QualityBadge · AwayTag · ExternalLink', 'A short state or value in the quality colours; why a file isn\'t there to play, in a row\'s quality column (the panel\'s line as its tooltip); a link that leaves the app')}
     <div class="row"><Badge tone="lossless" text="LOSSLESS" /><Badge tone="good_lossy" text="20.0 kHz" /><Badge tone="weak" text="16.0 kHz" />
       <Badge tone="fake" text="FAKE · 16.0 kHz" /><Badge tone="missing" text="NOT FOUND" /><Badge tone="accent" text="↑" />
       <Badge tone="muted" text="OFFLINE" /><Badge tone="other" text="OTHER" /></div>
     <div class="row">
       <QualityBadge quality="lossless" label="LOSSLESS" /><QualityBadge quality="good_lossy" label="20.0 kHz" />
       <QualityBadge quality="weak" label="16.0 kHz" upgrade /><QualityBadge quality="fake" label="FAKE · 16.0 kHz" />
-      <QualityBadge quality="missing" label="NOT FOUND" />
+      <QualityBadge quality="missing" label="NOT FOUND" /><QualityBadge quality="lossless" label="LOSSLESS" checked={false} />
     </div>
+    <div class="row" data-test="g-away-tag"><AwayTag state="offline" /><AwayTag state="folder_missing" /><AwayTag state="file_missing" /></div>
     <div class="row"><ExternalLink href="https://www.beatport.com/search?q=Armin+Hermann+Get+Naughty" label="Beatport" />
       <ExternalLink href="https://bandcamp.com">Bandcamp</ExternalLink></div>
   </section>
@@ -856,7 +876,7 @@
       </Surface>
       <Surface label="KeyValue">
         <KeyValue k="Source" v="Qobuz FLAC · verified lossless" />
-        <KeyValue k="File"><span class="path">Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff</span></KeyValue>
+        <KeyValue k="File"><PathText path="Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff" /></KeyValue>
         <KeyValue k="ISRC" />
       </Surface>
       <Surface label="KeyValue plain · keyWidth">
@@ -944,6 +964,21 @@
     </div>
     <div class="w372">
       <FolderField path="/Users/you/Music/Sets and edits for the summer season 2026/Discjockey Library" check={gFolder({ kind: 'discjockey_library' })} onchoose={() => {}} test="g-folder-long" />
+    </div>
+  </section>
+
+  <section data-test="gallery-watchedfolders">
+    {@render head('WatchedFolderList · ImportCard · UnreadableList', "The folders Discjockey indexes where they are, the import that reads them, and the files it couldn't read (Settings → Watched folders, Setup)")}
+    <div class="grid3">
+      <div class="w372"><WatchedFolderList folders={gFolders} onremove={() => {}} test="g-wf-list" /></div>
+      <div class="w372"><WatchedFolderList folders={null} test="g-wf-loading" /></div>
+      <div class="w372"><ImportCard view={{ kind: 'running', line: 'Reading tags · 340 of 1,500', share: 340 / 1500, stopping: false }} onstop={() => {}} test="g-wf-running" /></div>
+      <div class="w372"><ImportCard view={{ kind: 'running', line: 'Looking for music files', share: null, stopping: true }} onstop={() => {}} test="g-wf-stopping" /></div>
+      <div class="w372"><ImportCard view={{ kind: 'stopped', line: 'Import stopped with 1,160 files to go. It carries on where it stopped.' }} oncontinue={() => {}} test="g-wf-stopped" /></div>
+      <div class="w372"><ImportCard view={{ kind: 'done', line: 'Imported 1,240 files.' }} test="g-wf-done" /></div>
+      <div class="w372"><UnreadableList folders={gFolders} files={[{ folder_id: 2, path: '/Volumes/Example Drive/Music/Old/Untitled 3.mp3', reason: "Discjockey can't find sound it can read in it" },
+        { folder_id: 2, path: '/Volumes/Example Drive/Music/Old/Example Artist - A Very Long Title (GUEST ONE x GUEST TWO EDIT).wav', reason: 'The file is empty' },
+        { folder_id: 2, path: '/Volumes/Example Drive/Music/Old/Example Artist - A Very Long Title (GUEST ONE x GUEST TWO EDIT)(1).wav', reason: 'The file is empty' }]} test="g-wf-unreadable" /></div>
     </div>
   </section>
 
@@ -1049,6 +1084,13 @@
     <div class="col w360">
       <Surface kind="card">
         <TrackHead track={{ ...weak, cover_url: null }} place={weak.folder}>
+          {#snippet action()}<Button variant="link" muted size="sm">Hide</Button>{/snippet}
+          <QualityBadge quality={weak.quality} label={weak.quality_label} />
+        </TrackHead>
+      </Surface>
+      <Surface kind="card">
+        <TrackHead track={{ ...weak, cover_url: null, title: 'THE WEEKEND (Extended Festival Mix 2026 Remaster)',
+          artist: 'DJ TALLBOY & The Extended Friends' }} place="Hard_Bounce">
           {#snippet action()}<Button variant="link" muted size="sm">Hide</Button>{/snippet}
           <QualityBadge quality={weak.quality} label={weak.quality_label} />
         </TrackHead>
@@ -1163,7 +1205,6 @@
     padding: 0 var(--s-4); font-size: var(--fs-body); color: var(--text); }
   .gtr.row-line + .gtr.row-line { border-top: var(--bw) solid var(--line-soft); }
   .gtr .num { justify-self: end; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-  .path { word-break: break-all; }
   .w260 { width: 260px; }
   .w320 { width: 320px; }
   .w360 { width: 360px; max-width: 100%; }

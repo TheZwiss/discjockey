@@ -2,7 +2,9 @@ import threading
 
 import pytest
 
-from discjockey.events import Cancelled, CancelToken, Progress, StepChanged, Tracker, error_kind, null_tracker
+from discjockey.events import (IMPORT_PHASES, Cancelled, CancelToken, ImportProgress, Progress, StepChanged, Tracker,
+                               error_kind, null_tracker)
+from discjockey.hub import jobs
 
 
 def test_cancelled_is_not_swallowed_by_except_exception():
@@ -86,3 +88,10 @@ def test_token_sleep_waits_without_stop():
     started = time.monotonic()
     token.sleep(0.05)
     assert time.monotonic() - started >= 0.04
+
+
+def test_import_progress_is_a_hub_event_with_its_phases():
+    assert ImportProgress in jobs.EVENT_TYPES
+    assert IMPORT_PHASES == ("scan", "tags", "sound", "link")
+    assert jobs.event_dict(ImportProgress("sound", 3, 10, 1)) == {
+        "type": "ImportProgress", "phase": "sound", "done": 3, "total": 10, "unreadable": 1}

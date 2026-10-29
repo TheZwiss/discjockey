@@ -19,9 +19,9 @@ export type JobStart = Res<{ job_id: number }>;
 export type ActionKey = [string, string, string];          // sent back unchanged to start_sync
 export type LibraryFilter = 'all' | 'lossless' | 'good_lossy' | 'weak' | 'fake' | 'upgrade_ready';
 export type LibrarySort = `${'' | '-'}${'title' | 'artist' | 'length' | 'source' | 'quality' | 'added' | 'folder'}`;
-// The contract adds `rekordbox_check` (the plan's list predates it).
-export type TodoFilter = 'all' | 'rekordbox_check' | 'upgrade_ready' | 'not_found' | 'weak' | 'good_lossy' | 'fake'
-  | 'other';
+// The contract adds `rekordbox_check` (the plan's list predates it) and the import's `same_song` and `duplicate`.
+export type TodoFilter = 'all' | 'rekordbox_check' | 'same_song' | 'duplicate' | 'upgrade_ready' | 'not_found' | 'weak'
+  | 'good_lossy' | 'fake' | 'other';
 export type Which = 'current' | 'upgrade';
 export type PlaylistLine = { folder: string; link: string; enabled: boolean };
 export const NOT_IN_PLAYLIST = '__not_in_playlist__';
@@ -33,12 +33,59 @@ export type ByQuality = Record<Quality, number>;
 export type TrackRow = {
   track_id: string; artist: string; title: string; folder: string; duration_s: number;
   status: Status; quality: Quality; quality_label: string; cutoff_hz: number | null;
-  source: Source | null; source_name: string | null; in_playlists: boolean; hidden: boolean;
+  source: Source | null; source_name: string | null; in_playlists: boolean;
+  /** a file of the user's own that the import found (no playlist holds it): the table never dims it */
+  own: boolean; hidden: boolean;
   upgrade_ready: boolean; path: string | null; added: string | null; cover_url: string | null;
 };
 export type TodoGroupKey = Exclude<TodoFilter, 'all'>;
-/** `free`: the artist gives it away (see TrackDetail.free_downloads). */
-export type TodoItem = TrackRow & { group: TodoGroupKey; detail: string; free: boolean };
+/** `free`: the artist gives it away (see TrackDetail.free_downloads). `pair`: only the import's two groups
+ *  (`same_song`, `duplicate`) have one; narrow with `isQuestion` / `isDuplicate`. */
+export type TodoItem = TrackRow & { group: TodoGroupKey; detail: string; free: boolean;
+  pair?: QuestionPair | DuplicatePair };
+
+// --- the import of the user's own music (plan library stage 4, I11; contract "Watched folders and the import") ---
+/** One file of a question or a duplicate group. `path` is absolute for an import folder's file; `audio_url` is null
+ *  only for a file that is offline or can't be played (an import folder's file plays through `file/<file_id>`). */
+export type FileSide = { file_id: number; song_key: string | null; path: string; artist: string; title: string;
+  duration_s: number; quality: Quality; quality_label: string; online: boolean; audio_url: string | null;
+  in_playlist: boolean };
+export type QuestionWhy = 'artist' | 'no_artist' | 'length' | 'no_length';
+/** "Is this the same song?": a playlist song a file of the user's own might be. `delta_s`: the file's length minus the
+ *  song's in whole seconds (null with `no_length`). */
+export type QuestionPair = { song_key: string; own_key: string; why: QuestionWhy; delta_s: number | null;
+  track: { artist: string; title: string; duration_s: number; folder: string; link: string | null };
+  file: FileSide };
+export type DuplicateWhy = 'same_audio' | 'same_song';
+/** A group of files that are the same audio or the same song: two or more, by file id. */
+export type DuplicatePair = { group_id: string; why: DuplicateWhy; files: FileSide[] };
+export type QuestionItem = TodoItem & { group: 'same_song'; pair: QuestionPair };
+export type DuplicateItem = TodoItem & { group: 'duplicate'; pair: DuplicatePair };
+export const isQuestion = (i: TodoItem): i is QuestionItem => i.group === 'same_song' && !!i.pair;
+export const isDuplicate = (i: TodoItem): i is DuplicateItem => i.group === 'duplicate' && !!i.pair;
+
+export type ImportPhase = 'scan' | 'tags' | 'sound' | 'link';
+/** A watched folder (watched_folders()): the Library (always `online`, `scanning` while an import looks for files)
+ *  or an import folder; `offline`: its drive isn't connected, `missing`: the folder isn't found (moved, renamed,
+ *  deleted). `waiting`: files the import still works through (not read yet, or not sound-checked). */
+export type WatchedFolderRow = { id: number; path: string; name: string; kind: 'library' | 'import';
+  state: 'online' | 'offline' | 'missing' | 'scanning' | 'importing'; files: number; waiting: number; unreadable: number };
+export type UnreadableFile = { folder_id: number | null; path: string; reason: string };
+export type WatchedFolders = { folders: WatchedFolderRow[]; unreadable: UnreadableFile[];
+  /** the files an import would work through now (offline drives' left out) */
+  waiting: number;
+  /** the user stopped an import this session: offer Continue import */
+  stopped: boolean };
+export type ImportFolderProblem = FolderProblem | 'not_readable' | 'not_found' | 'music' | 'holds_music' | 'watched'
+  | 'already';
+/** check_import_folder(path): `message` is the refusal's words; `merges` the watched folders (paths) a usable folder
+ *  takes over, `merge_hints` their lines ("{name} is inside it and becomes part of it."). */
+export type ImportFolderCheck = Omit<FolderCheck, 'problem' | 'kind'> & { problem: ImportFolderProblem | null;
+  kind: 'import' | null; merges: string[]; merge_hints: string[] };
+export type RemovalPreview = { name: string; files: number; redownload: number };
+/** `import` job result (also the `result` of a stopped one, with `stopped` true). */
+export type ImportResult = { files: number; own_songs: number; sound_checked: number; unreadable: number; left: number;
+  stopped: boolean; link_note: string | null };
 
 // --- tidy-up and the move log (plan library stage 2, I5; contract "Tidy-up and the move log") ---
 /** Why a file can't be moved: the code and the plain words to show. */
@@ -153,6 +200,10 @@ export type PreviewAction = {
 };
 export type SyncPreview = {
   spotify: SpotifyStatus; counts: PlanCounts | null;
+  /** songs held back until the user answers "Is this the same song?" (not downloaded meanwhile) */
+  waiting_answers: number;
+  /** first upgrade checks of imported music that the per-run cap left for later runs */
+  deferred_checks: number;
   groups: { key: PreviewGroupKey | string; label: string; actions: PreviewAction[] }[];
   estimate: SyncEstimate | null;
   /** downloads left out because the user said "never download" */
@@ -182,11 +233,15 @@ export type JobStatus = { job: JobSnap | null; refresh_running: boolean; console
   /** a sign-in waiting for the browser (its own slot beside the write jobs; Settings restores its phase from it) */
   sign_in?: JobSnap | null };
 
+/** `sound_checked` false: an imported file whose sound isn't judged yet, its quality is the codec's guess for now.
+ *  `file_state`: whether the row's file is there now, decided per watched folder (never `file_missing`, which only
+ *  `track()` checks); a row that isn't `here` doesn't play. */
+export type LibraryRow = TrackRow & { sound_checked: boolean; file_state: Exclude<FileState, 'file_missing'> };
 export type Library = {
   /** the folder at a glance, unaffected by the search and the filter; to_do: what the to-do list shows of it */
   title: string; folder: string | null; summary: { tracks: number; lossless_share: number | null;
     by_quality: ByQuality; upgrades_ready: number; to_do: number };
-  chips: Record<LibraryFilter, number>; rows: TrackRow[]; empty: EmptyKind | null;
+  chips: Record<LibraryFilter, number>; rows: LibraryRow[]; empty: EmptyKind | null;
 };
 export type Alignment = { drift_ms: number | null; offset_ms: number | null; offset_samples: number | null;
   result: string; text: string };
@@ -200,9 +255,17 @@ export type Upgrade = {
 export type FreeDownload = { url: string; host: string; direct: boolean; title: string; uploader: string };
 /** The track's page on the service it was read from; `label` "Open in Spotify" / "Open in Qobuz". */
 export type TrackLink = { url: string; label: string };
+export type FileState = 'here' | 'offline' | 'folder_missing' | 'file_missing';
 export type TrackDetail = TrackRow & {
+  /** false: an imported file whose sound isn't judged yet (see LibraryRow); `quality_line` then ends "sound not checked yet" */
+  sound_checked: boolean;
+  /** why the file is or isn't there: `offline` (its drive isn't connected), `folder_missing` (its watched folder isn't
+   *  found), `file_missing` (the folder is there, the file's path isn't: it went since the last scan); `audio_url` is
+   *  null for all but `here` */
+  file_state: FileState;
   isrc: string | null; playlists: string[] | null; in_playlist_count: number; quality_line: string;
-  /** "Opus · 135 kbps", "FLAC"; source_full: "YouTube Music", "bought" (both null without a file) */
+  /** "Opus · 135 kbps", "FLAC"; source_full: "YouTube Music", "bought", "your own file" for a file the import
+   *  found (both null without a file) */
   format_line: string | null; source_full: string | null;
   source_url: string | null; track_link: TrackLink | null; next_qobuz_check: string | null;
   rejected_sources: string[]; buy_links: { beatport: string; bandcamp: string }; free_downloads: FreeDownload[];
@@ -304,6 +367,13 @@ export type SetupStatus = {
   qobuz_last_check?: LastCheck | null;
   /** the Spotify account's display name, saved at login (null: not connected or not known) */
   spotify_user?: string | null;
+  /** Setup's "Your existing music" step: done once an import folder is watched or it was skipped. Not a required
+   *  step: it never changes `next_step` or `complete`, and never blocks Continue */
+  existing: boolean;
+  /** the import folders watched */
+  import_folders: number;
+  /** Skip was pressed (`setup_skip_import`) */
+  import_skipped: boolean;
   accounts: { youtube: AccountStatus | null; soundcloud: AccountStatus | null };
 };
 export type AccountStatus = { browser: Browser; browser_name: string; daily_limit: number; profile?: string | null;
@@ -376,6 +446,8 @@ export type OpResult = { track_id: string; result: Result; recovered: [string, b
 // JobFinished.result per job kind (a crashed sync carries its SyncResult too: exit_code 1, report = the crash note)
 export type SyncResult = { exit_code: number; report: string; actions: number; new_since_preview: number };
 export type JobResults = {
+  import: ImportResult; folders: { files: number; redownload: number };
+  answer: Record<string, never>; supersede: { result: Result; recovered: [string, boolean][] };
   refresh: { actions: number }; sync: SyncResult; save_playlists: { version: string; batches: BatchResult[] };
   tidy: BatchResult; undo_moves: BatchResult;
   save_limits: { service: Service; limit: number; extra_today: number };

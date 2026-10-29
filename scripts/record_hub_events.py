@@ -224,6 +224,9 @@ def _schema_of(tp, defs: dict) -> dict:
         if len(options) == 1 and "type" in options[0] and null:
             return {**options[0], "type": [options[0]["type"], "null"]}
         return {"anyOf": options + ([{"type": "null"}] if null else [])}
+    if origin is typing.Literal:
+        values = list(typing.get_args(tp))
+        return {"type": {str: "string", int: "integer"}[type(values[0])], "enum": values}
     if origin is tuple:
         args = typing.get_args(tp)
         item = args[0] if args else str

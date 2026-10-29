@@ -1,9 +1,12 @@
 // Number and date formats used everywhere (plan 64.10). "3:12", "74 %", "16.0 kHz", "Today 21:47".
-import type { Quality, Service, TrackDetail } from './bridge/types';
+import type { FileState, Quality, Service, TrackDetail } from './bridge/types';
 const NONE = '—';
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const two = (n: number) => String(n).padStart(2, '0');
+/** A day and its month ("2 Nov"), joined by a no-break space: a line never splits a date between day and month. Every
+ *  date the hub writes comes from here (`runWhen`, `dateShort`, `dayMonth`). */
+const dayAndMonth = (day: number, month: number) => `${day} ${MONTHS[month]}`;
 
 /** 192 → "3:12"; 3725 → "1:02:05"; null → "—". */
 export function duration(s: number | null | undefined): string {
@@ -47,7 +50,8 @@ export function percent(share: number | null | undefined): string {
 }
 /** 16000 → "16.0 kHz". */
 /** What a quality class means, next to its badge (whose label may already say "LOSSY"). */
-export function qualityWords(q: Quality, label = ''): string {
+export function qualityWords(q: Quality, label = '', checked = true): string {
+  if (!checked) return 'sound not checked yet';
   if (label === 'LOSSY' && q === 'good_lossy') return 'hard to hear';
   return { lossless: 'verified lossless', good_lossy: 'lossy, hard to hear', weak: 'lossy, audible',
     fake: 'fake lossless', missing: 'no file yet' }[q];
@@ -82,12 +86,12 @@ export function runWhen(iso: string | null | undefined, now: Date | number = new
   if (sameDay(d, n)) return `Today ${time}`;
   const y = new Date(n); y.setDate(y.getDate() - 1);
   if (sameDay(d, y)) return `Yesterday ${time}`;
-  return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  return `${DAYS[d.getDay()]} ${dayAndMonth(d.getDate(), d.getMonth())}`;
 }
 /** "13 Oct 2026". */
 export function dateShort(iso: string | null | undefined): string {
   const d = iso ? parse(iso.length === 10 ? `${iso}T12:00:00` : iso) : null;
-  return d ? `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}` : NONE;
+  return d ? `${dayAndMonth(d.getDate(), d.getMonth())} ${d.getFullYear()}` : NONE;
 }
 /** "21:47". */
 export function clock(iso: string | null | undefined): string {
@@ -138,7 +142,7 @@ export function foundText(iso: string | null | undefined): string {
 /** "18 Oct" from an ISO date (its calendar date, whatever the time zone); '' when there is none. Library's Added. */
 export function dayMonth(iso: string | null | undefined): string {
   const m = iso ? /^(\d{4})-(\d{2})-(\d{2})/.exec(iso) : null;
-  return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}` : '';
+  return m ? dayAndMonth(Number(m[3]), Number(m[2]) - 1) : '';
 }
 
 /** The upgrade box's heading: "Upgrade ready", and for a better lossy stream what it is ("· 256 kbps version"). */
@@ -164,11 +168,68 @@ export function serviceName(service: Service, full: string): string {
   return SERVICE_SHORT[service] ?? full;
 }
 
+/**
+ * `text` in the width it has (`fits` says whether a text fits): whole while it fits; else its middle gives way to "…"
+ * and both ends stay, the end a little longer, since the end is what tells two long names apart
+ * ("Artist - Title (… EDIT).wav" against "Artist - Title (… EDIT)(1).wav"). At least a character of each end stays, even
+ * when nothing fits (the element clips the rest).
+ */
+export function fitMiddle(text: string, fits: (text: string) => boolean): string {
+  if (fits(text) || text.length <= 2) return text;
+  const cut = (n: number) => {
+    const tail = Math.ceil(n / 2);
+    return `${text.slice(0, n - tail).trimEnd()}…${text.slice(text.length - tail).trimStart()}`;
+  };
+  let lo = 2, hi = text.length - 1;   // n characters of the text stay; lo is the least there is, hi the most
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (fits(cut(mid))) lo = mid; else hi = mid - 1;
+  }
+  return cut(lo);
+}
+
+/** What a watched folder's state line and a file's picture say when its drive is away (library stage 4, W3). */
+export const OFFLINE_WORDS = 'Offline: connect the drive';
+/** A watched folder's row when the folder isn't found (moved, renamed or deleted; the row keeps its ×). */
+export const FOLDER_NOT_FOUND_LINE = 'Folder not found: moved, renamed or deleted? Put it back or remove it here.';
+/** What a file's picture says in the Library and To-do panels when the file isn't there, by why. */
+export const FILE_STATE_WORDS: Record<Exclude<FileState, 'here'>, string> = {
+  offline: OFFLINE_WORDS,
+  folder_missing: 'Folder not found',
+  file_missing: "This file isn't there any more.",
+};
+/** The same, short, for a list row's `AwayTag` (the panel's line is its tooltip). */
+export const FILE_STATE_TAG: Record<Exclude<FileState, 'here'>, string> = {
+  offline: 'Offline',
+  folder_missing: 'Folder not found',
+  file_missing: 'File not found',
+};
+/** The track has a file, but it isn't there to play (the panels: no Show in Finder, the player off). */
+export const fileAway = (t: Pick<TrackDetail, 'status' | 'file_state'>): boolean =>
+  t.status !== 'missing' && t.file_state !== 'here';
+/** The words for a track whose file isn't there; null when it is (or there is no file to be away). */
+export const fileAwayWords = (t: Pick<TrackDetail, 'status' | 'file_state'>): string | null =>
+  fileAway(t) && t.file_state !== 'here' ? FILE_STATE_WORDS[t.file_state] : null;
+
+/** The name of a file's container as people say it ("FLAC", "WAV", "AIFF"), from its path's extension; null for none
+ *  we know (a path without an extension, a lossy format). */
+const FILE_FORMATS: Record<string, string> = { flac: 'FLAC', wav: 'WAV', wave: 'WAV', aif: 'AIFF', aiff: 'AIFF', aifc: 'AIFF',
+  alac: 'ALAC', caf: 'CAF', wv: 'WavPack', ape: 'APE' };
+export function fileFormat(path: string | null | undefined): string | null {
+  const m = /\.([A-Za-z0-9]+)$/.exec(path ?? '');
+  return (m && FILE_FORMATS[m[1].toLowerCase()]) || null;
+}
+
 /** The current file's cutoff as a number for its StatCard (where the highs end, over the spectrum; To-do and
- *  Library): null for a lossless file or none (nothing to show), "—" (value null) when the analysis found no edge. */
-export function cutoffStat(t: Pick<TrackDetail, 'status' | 'cutoff_hz'>): { value: string | null; label: string } | null {
-  if (t.status === 'lossless' || t.status === 'missing') return null;
+ *  Library): null for a lossless file or none (nothing to show), "—" (value null) when the analysis found no edge.
+ *  A fake lossless file names the format it really is ("a lossy file inside the WAV"), else says "a lossless file". */
+export function cutoffStat(t: Pick<TrackDetail, 'status' | 'cutoff_hz'> & { sound_checked?: boolean; path?: string | null }): { value: string | null; label: string } | null {
+  // a file whose sound isn't checked yet has no cutoff to show: "no clear edge" would be a verdict
+  if (t.status === 'lossless' || t.status === 'missing' || t.sound_checked === false) return null;
   const value = t.cutoff_hz ? (t.cutoff_hz / 1000).toFixed(1) : null;
-  if (t.status === 'fake_lossless') return { value, label: 'where the highs end · a lossy file inside the FLAC' };
+  if (t.status === 'fake_lossless') {
+    const format = fileFormat(t.path);
+    return { value, label: `where the highs end · a lossy file inside ${format ? `the ${format}` : 'a lossless file'}` };
+  }
   return { value, label: value ? 'where the highs end · lossless reaches about 22 kHz' : 'no clear edge in the highs' };
 }

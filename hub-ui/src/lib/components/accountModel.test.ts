@@ -141,7 +141,7 @@ describe('state line (shared with Settings rows)', () => {
     const np = view({ youtube: acc({ state: 'no_premium', browser: 'chrome', browser_name: 'Chrome',
       last_check: { ok: false, problem: 'no_premium', kbps: 160, at: '2026-10-21T10:00:00' } }) });
     expect(panelLine('youtube', np, NOW)).toEqual({ tone: 'warn', title: 'Signed in, but no Premium',
-      sub: 'YouTube gives this account 160 kbps · checked 21 Oct' });
+      sub: 'YouTube gives this account 160 kbps · checked 21\u00A0Oct' });
     expect(stateLine('soundcloud', view({ soundcloud: acc({ state: 'no_premium' }) }), NOW)).toEqual(
       { tone: 'warn', text: 'signed in · Go+ not confirmed' });
     expect(panelLine('youtube', view({ youtube: acc({ state: 'unreadable', browser: 'safari', browser_name: 'Safari' }) }), NOW))
@@ -170,7 +170,7 @@ describe('state line (shared with Settings rows)', () => {
   });
   it('checked when', () => {
     expect(checkedWhen(null, NOW)).toBe('');
-    expect(checkedWhen({ ok: true, problem: null, kbps: null, at: '2026-10-20T23:59:00' }, NOW)).toBe('checked 20 Oct');
+    expect(checkedWhen({ ok: true, problem: null, kbps: null, at: '2026-10-20T23:59:00' }, NOW)).toBe('checked 20\u00A0Oct');
   });
 });
 

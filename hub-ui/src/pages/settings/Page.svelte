@@ -10,13 +10,14 @@
   import type { DownloadsView, ProblemKind, SetupTools } from '$lib/bridge/types';
   import {
     AccountFlow, AccountPanel, ListRow, ListSection, PageHeader, ProblemCard, Skeleton, SourceLadder, StatusMark,
-    Surface, accountBlocked,
+    Surface, WatchedFoldersFlow, accountBlocked,
   } from '$lib/components';
   import { ListPanelFrame } from '$lib/frames';
   import { go } from '$lib/router';
   import { bumpData, dataVersion, hub, writeBlockedReason } from '$lib/stores/hub';
   import { markReady } from '$lib/ready';
   import { sayInBody } from '$lib/stores/shell';
+  import FoldersPanel from './FoldersPanel.svelte';
   import RowPanel from './RowPanel.svelte';
   import {
     ROW_GLYPHS, ROW_GROUPS, ROW_NAMES, firstAttention, isAccountRow, isSettingsRow, rowLine, spotifyUsed, type RowContext,
@@ -67,9 +68,13 @@
     return untrack(() => flows[r].mount());
   });
 
+  // the watched folders: read here, so the row's line follows the import while another row is open
+  const folders = new WatchedFoldersFlow();
+  $effect(() => untrack(() => folders.mount()));
+
   const ctx = $derived<RowContext>({ downloads, status: $hub.setup, tools, reports, now: new Date(), toolsFailed: !tools && !!toolsError,
     spotifyUsed: spotifyUsed($hub.spotify),
-    update: $hub.app_update });
+    update: $hub.app_update, folders: folders.data, job: $hub.job });
   // #/settings: the first row that needs the user, once everything it depends on has answered
   $effect(() => {
     if (row) return;
@@ -115,6 +120,8 @@
       <AccountPanel service={row} {downloads} phase={flow.phase(downloads)} actions={flow} logins={flow.logins}
         busy={flow.busy} disabledWhy={blockedAccount} test="settings-panel-{row}" />
     {/key}
+  {:else if row === 'folders'}
+    <FoldersPanel flow={folders} />
   {:else if row}
     <RowPanel {row} status={$hub.setup} {tools} {toolsError} {reports} disabledWhy={$writeBlockedReason} onchanged={changed}
       onrecheck={load} />

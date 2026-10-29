@@ -3,15 +3,18 @@
 </script>
 
 <script lang="ts">
-  // Canvas cols × bands (y = band, low at the bottom), colour map --spec-0…5 by v/255, dashed cutoff line.
+  // Canvas cols × bands (y = band, low at the bottom), colour map --spec-0…5 by v/255, dashed cutoff line. Nothing to
+  // draw: "No file yet", or, for a file that isn't there (`away`: the words for why), those.
   import type { Spectrum } from '../bridge/types';
   import { khz } from '../format';
-  import { colourMap, decodeSpectrum, hexRgb } from './spectrum-data';
+  import { colourMap, decodeSpectrum, hexRgb, showTopLabel } from './spectrum-data';
   import Skeleton from './Skeleton.svelte';
 
-  let { spectrum, height = 96, loading = false, cutoffLabel = true, error = null, noFile = false }:
+  let { spectrum, height = 96, loading = false, cutoffLabel = true, error = null, noFile = false, away = null }:
     { spectrum: Spectrum | null; height?: number; loading?: boolean; cutoffLabel?: boolean; error?: string | null;
-      noFile?: boolean } = $props();
+      noFile?: boolean;
+      /** the file isn't there (drive away, folder or file not found): these words instead of "No file yet" */
+      away?: string | null } = $props();
   let canvas: HTMLCanvasElement | undefined = $state();
 
   $effect(() => {
@@ -44,7 +47,7 @@
   {:else if error}
     <div class="msg bad">{error}</div>
   {:else if !spectrum || noFile}
-    <div class="msg">No file yet</div>
+    <div class="msg" data-test="spectrum-empty">{away ?? 'No file yet'}</div>
   {:else}
     <canvas bind:this={canvas} aria-label="Spectrum{cut ? `, cut off at ${khz(spectrum.cutoff_hz)}` : ''}"></canvas>
     {#if cut !== null}
@@ -53,8 +56,8 @@
       {#if cutoffLabel}<span class="cutlabel" style:bottom={cut > 0.75 ? `calc(${cut * 100}% - 1.4em - 2px)` : `calc(${cut * 100}% + 2px)`}>cut off at {khz(spectrum.cutoff_hz)}</span>{/if}
     {/if}
     <!-- small strips (upgrade compare) have no room for the top label, and near the top it would sit on the
-         cutoff line -->
-    {#if height >= 64 && (cut === null || cut < 0.8)}<span class="axis top">{khz(spectrum.max_hz)}</span>{/if}
+         cutoff line (showTopLabel decides, in pixels) -->
+    {#if showTopLabel(height, cut)}<span class="axis top">{khz(spectrum.max_hz)}</span>{/if}
   {/if}
 </div>
 

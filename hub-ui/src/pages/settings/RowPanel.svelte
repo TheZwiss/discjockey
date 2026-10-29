@@ -24,7 +24,7 @@
 
   // `toolsError`: reading the programs failed and there are no versions to show (the cards give way to a retry)
   let { row, status, tools, toolsError = null, reports, disabledWhy = null, onchanged, onrecheck }: {
-    row: Exclude<SettingsRow, 'qobuz' | 'youtube' | 'soundcloud'>; status: SetupStatus | null;
+    row: Exclude<SettingsRow, 'qobuz' | 'youtube' | 'soundcloud' | 'folders'>; status: SetupStatus | null;
     tools: SetupTools | null; toolsError?: { kind: ProblemKind; message: string } | null; reports: number | null;
     disabledWhy?: string | null; onchanged: () => void; onrecheck: () => void;
   } = $props();

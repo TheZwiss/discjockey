@@ -147,7 +147,8 @@ def own_name(tags: Mapping[str, str | None], file_name: str) -> tuple[str, str] 
 `compare` applies D3/D5: both ISRCs present → certain when equal and within `SAME_LENGTH_MS`, else None. Then names,
 normalised as `planner._song_name` does (`matching.normalize_artist` of the first artist, `matching.normalize` of
 the title). Certain: equal and ≤ 2000 ms. Plausible: D3 (a) or (b). An own song without a length is at most
-plausible. `own_name`: tags first; else a file name `Artist - Title` (split on the first spaced dash,
+plausible. A match on the tag's first artist only (the full artists differ, "Earth" against "Earth, Wind & Fire") is
+never certain: it is plausible with `why` "artist". `own_name`: tags first; else a file name `Artist - Title` (split on the first spaced dash,
 `matching._DASH`); else the stem is the title and the artist is `""`. Constants `CERTAIN_MS = 2000`,
 `PLAUSIBLE_MS = 10000`.
 
@@ -300,8 +301,8 @@ a fresh `library.open_state` right before `run_op`. Undo goes back across drives
 | `remove_watched_folder(folder_id)` | write → job `folders` | result `{files, redownload}` |
 | `start_import()` | write → job `import` | "Continue import" |
 | `answer_same_song(song_key, own_key, same)` | write → job `answer` | then replan |
-| `keep_duplicates(group_id)` | write → job `answer` | then replan |
-| `supersede_duplicate(group_id, file_id)` | write → job `supersede` | `OpResult`-like `{result, recovered}` |
+| `keep_duplicates(group_id, paths)` | write → job `answer` | `paths`: the files as the card showed them (`changed` on any difference); then replan |
+| `supersede_duplicate(group_id, file_id, paths)` | write → job `supersede` | `paths` as above; | `OpResult`-like `{result, recovered}` |
 | `setup_skip_import()` | brief lock | `{ok}` (setting `import_skipped`) |
 
 `WatchedFolderRow = {id, path, name, kind: 'library'|'import', state: 'online'|'offline'|'scanning'|'importing',
@@ -332,21 +333,34 @@ false`. Busy for job kind `import`: W7.
 - W6 Import phases: "Looking for music files" · "Reading tags · {done} of {total}" · "Checking the sound · {done}
   of {total}" · "Linking to your playlists"; stopped: "Import stopped with {left} files to go. It carries on where
   it stopped." · button **Continue import**; done: "Imported {files} files." Couldn't read: header "Couldn't read
-  ({n})", rows "{path}: {reason}", Hint "Tried again at the next import." `NOT_CHECKED` = "sound not checked yet".
+  ({n})", rows "{path}: {reason}", Hint "Tried again at the next import." `NOT_CHECKED` = "sound not checked yet". A file the drive lists but can't open (a broken directory entry on an exFAT drive) is listed there too, with the reason "The drive lists this file, but it can't be opened."
 - W7 Busy: "Discjockey is importing your music. Stop the import in Settings → Watched folders to do this now; it
   carries on later where it stopped."
 - W8 To-do: groups `("same_song", "Is this the same song?", "a file of yours might be a playlist song")`,
   `("duplicate", "Duplicates", "the same song more than once")`, first in `TODO_GROUPS` after `rekordbox_check`.
   Question why: "Same title, different artist" · "Same title, no artist in your file" · "Same artist and title,
-  {s} s longer" / "… {s} s shorter"; note "Until you answer, Discjockey doesn't download this song."; buttons **Yes,
+  {s} s longer" / "… {s} s shorter" · "Same artist and title, the length couldn't be read" (why `no_length`); note "Until you answer, Discjockey doesn't download this song."; buttons **Yes,
   it's the same song**, **No, keep them apart**. Duplicate why: "The same audio in {n} files" · "{n} files of the
   same song"; buttons **Keep both** (**Keep all** for n > 2), per file **Move to Superseded**; note "Nothing is
   deleted: the file goes to Superseded/."
+- W9/W10 counts take a singular form for 1 ("1 song waits…", "1 file … waits…").
 - W9 Sync preview Hints: "{n} songs wait for your answer on the To-do page." · "{n} first upgrade checks of your
   imported music wait for later runs, so today's Qobuz allowance isn't used up."
 - W10 Console: "{n} files in your watched folders wait to be imported. Open the window to import them." · "{n}
   songs wait for your answer in the window (Is this the same song?)."
 - W11 "Your playlists couldn't be read, so the imported files are linked to them at the next sync."
+- Added by the groups (the UI shows them as given): W12 a folder row while the import runs: "Importing · {n} waiting"
+  ("1 file waiting"), and Settings' Watched folders row shows the running phase line of W6 ("Reading tags · {done} of
+  {total}"); W13 the remove dialog's body starts "This is the folder at {path}. " when another watched folder has the
+  same name; W14 the Duplicates cards are labelled by the folder of each file (summary "In your playlists" on a
+  playlist song's file); W15 Sync shows W9's hints as NoteCards, words unchanged.
+- Added by the stage review's fixes: W16 Remove first finishes interrupted steps (recovery, as every writer), then is refused while a pending step still names a file in the folder: "Discjockey
+  still has an unfinished change for this folder. Connect its drive and open Discjockey again, then remove it."; W17 a
+  stopped change waits for a drive (recovery, and a scan it holds up), in two forms, one for all steps at once: the held form for every W17 line when any pending step holds the scan, the other only when none does. The scan after a recovery leaves out only words already shown: it still says the held line unless a shown line said it. The scan is really held (a file of
+  the step is in a folder that is there): "Couldn't finish a stopped change: the drive with {short path} isn't
+  connected. Connect it; until then Discjockey doesn't look for new files." The scan of the other folders goes on
+  (every file of the step is on the drive that is away): "Couldn't finish a stopped change: the drive with {short
+  path} isn't connected. Connect it, and Discjockey finishes the change." (the path once, `~` for the home folder)
 
 ---
 

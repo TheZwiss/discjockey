@@ -1,4 +1,5 @@
 // Every shared component (plan 64.9). Pages import from '$lib/components'.
+export { default as AwayTag } from './AwayTag.svelte';
 export { default as Badge } from './Badge.svelte';
 export { default as Banner } from './Banner.svelte';
 export { default as Button } from './Button.svelte';
@@ -14,13 +15,18 @@ export { default as DropZone } from './DropZone.svelte';
 export { default as EmptyState } from './EmptyState.svelte';
 export { default as ExternalLink } from './ExternalLink.svelte';
 export { default as FolderField } from './FolderField.svelte';
+export { default as WatchedFolderList } from './WatchedFolderList.svelte';
+export { default as ImportCard } from './ImportCard.svelte';
+export { default as UnreadableList } from './UnreadableList.svelte';
 export { default as Hint } from './Hint.svelte';
 export { default as InfoTip } from './InfoTip.svelte';
 export { default as KeyValue } from './KeyValue.svelte';
 export { default as ListRow } from './ListRow.svelte';
 export { default as ListSection } from './ListSection.svelte';
+export { default as MiddleText } from './MiddleText.svelte';
 export { default as MiniPlayer } from './MiniPlayer.svelte';
 export { default as NoteCard } from './NoteCard.svelte';
+export { default as PathText } from './PathText.svelte';
 export { default as NumberedSteps } from './NumberedSteps.svelte';
 export { default as PageHeader } from './PageHeader.svelte';
 export { default as PlayButton } from './PlayButton.svelte';
@@ -74,3 +80,5 @@ export { AccountFlow, type AccountActions } from './accountFlow.svelte';
 export {
   accountBlocked, accountPhase, browserMenu, mainAction, qobuzPhase, type MenuChoice, type Offer, type PanelPhase,
 } from './accountModel';
+export { WatchedFoldersFlow, type AddNote } from './watchedFoldersFlow.svelte';
+export { canContinue, importView, settingsLine, type ImportView } from './watchedFoldersModel';

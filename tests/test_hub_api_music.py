@@ -214,6 +214,25 @@ def test_attach_refuses_a_library_of_another_support_folder(tmp_path):
         api._attach(Paths(tmp_path, support=tmp_path / "b"))
 
 
+def test_binding_a_library_lets_its_first_plan_in_whatever_the_stored_ones_generation(tmp_path):
+    from datetime import datetime
+    from discjockey.models import Plan
+    from discjockey.run import Prepared
+    from discjockey.settings import Settings
+
+    def prep(generation):
+        st = {"version": 2, "tracks": {}, "generation": generation}
+        return Prepared(None, st, Settings(), Plan(st, [], [], []), None)
+
+    paths = make_root(tmp_path)
+    api, _ = make_api(paths)
+    api._store.ready(prep(5), datetime(2026, 10, 25, 12, 0))
+    api._attach(paths)  # the records are opened again: they count their generation from 0
+    fresh = prep(0)
+    api._store.ready(fresh, datetime(2026, 10, 25, 12, 1))
+    assert api._store.prep is fresh
+
+
 def test_a_music_folder_that_vanishes_while_open_is_missing_not_empty(tmp_path):
     music = tmp_path / "music"
     music.mkdir()
@@ -260,3 +279,179 @@ def test_a_folder_inside_the_installed_app_is_refused(tmp_path, monkeypatch):
     api, _ = make_unbound_api(tmp_path / "support")
     r = api.check_music_folder(str(app / "Contents" / "Resources" / "Music"))
     assert (r["ok"], r["usable"], r["problem"]) == (True, False, "inside_app")
+
+
+# --- watched folders: what the window reads (plan library stage 4, I11) ---
+
+def watched(tmp_path, monkeypatch, n=2):
+    """A hub over a small library with one import folder of n files, imported."""
+    from datetime import datetime
+    from hub_helpers import fake_import, fake_spotify, import_folder, music_root
+    from discjockey import db
+    fake_spotify(monkeypatch)
+    fake_import(monkeypatch)
+    paths = music_root(tmp_path)
+    folder = import_folder(tmp_path, n)
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    return paths, folder, api, rec
+
+
+def test_the_watched_folders_list_the_library_first_with_counts_and_states(tmp_path, monkeypatch):
+    paths, folder, api, rec = watched(tmp_path, monkeypatch)
+    out = api.watched_folders()
+    assert out["ok"] and (out["waiting"], out["stopped"], out["unreadable"]) == (0, False, [])
+    assert [(r["kind"], r["name"], r["path"], r["state"], r["files"], r["waiting"], r["unreadable"])
+            for r in out["folders"]] == [
+        ("library", "Library", str(paths.library), "online", 2, 0, 0),
+        ("import", "Music", str(folder), "online", 2, 0, 0)]
+
+
+def test_a_folder_that_is_gone_is_missing_and_keeps_its_files(tmp_path, monkeypatch):
+    import shutil
+    paths, folder, api, rec = watched(tmp_path, monkeypatch)
+    shutil.move(str(folder), str(tmp_path / "moved"))  # not under /Volumes: no drive to blame, the folder is not found
+    row = api.watched_folders()["folders"][1]
+    assert (row["state"], row["files"]) == ("missing", 2)
+
+
+def test_files_the_import_could_not_read_are_listed_with_their_folder_and_reason(tmp_path, monkeypatch):
+    from discjockey import db, importer
+    paths, folder, api, rec = watched(tmp_path, monkeypatch)
+    with db.connect(paths.db_file) as conn:
+        fid = conn.execute("SELECT id FROM files WHERE import_state = 'done' ORDER BY id").fetchone()[0]
+        db.set_unreadable(conn, fid, importer.NO_ACCESS)
+    out = api.watched_folders()
+    assert [(u["folder_id"], u["reason"]) for u in out["unreadable"]] == [
+        (out["folders"][1]["id"], "macOS doesn't let Discjockey read it")]
+    assert out["unreadable"][0]["path"].startswith(str(folder)) and out["folders"][1]["unreadable"] == 1
+
+
+def test_the_library_row_shows_its_own_waiting_and_unreadable_files(tmp_path, monkeypatch):
+    from discjockey import db, importer
+    paths, folder, api, rec = watched(tmp_path, monkeypatch)
+    with db.connect(paths.db_file) as conn:  # two files that came into Library/ before the import finished them
+        ids = [i for (i,) in conn.execute("SELECT f.id FROM files f JOIN watched_folders w ON w.id = f.folder "
+                                          "WHERE w.kind = 'library' ORDER BY f.id")]
+        conn.execute("UPDATE files SET import_state = 'new' WHERE id = ?", (ids[0],))
+        db.set_unreadable(conn, ids[1], importer.NO_ACCESS)
+    out = api.watched_folders()
+    library, imported = out["folders"]
+    assert (library["waiting"], library["unreadable"]) == (1, 1) and (imported["waiting"], imported["unreadable"]) == (0, 0)
+    assert [(u["folder_id"], u["reason"]) for u in out["unreadable"]] == [
+        (library["id"], "macOS doesn't let Discjockey read it")]
+    assert out["unreadable"][0]["path"].startswith(str(paths.library)) and out["waiting"] == 1
+
+
+def test_the_watched_folders_of_a_library_without_records_are_just_the_library(tmp_path):
+    from hub_helpers import music_root
+    paths = music_root(tmp_path)
+    paths.db_file.unlink()
+    api, _ = make_api(paths)
+    out = api.watched_folders()
+    assert out["ok"] and [(r["kind"], r["files"]) for r in out["folders"]] == [("library", 0)]
+
+
+def test_checking_a_folder_says_what_it_would_be_in_the_refusals_words(tmp_path, monkeypatch):
+    paths, folder, api, rec = watched(tmp_path, monkeypatch, n=1)
+    ok = api.check_import_folder(str(tmp_path))  # holds the music folder
+    assert (ok["ok"], ok["usable"], ok["problem"]) == (True, False, "holds_music")
+    assert ok["message"] == "This folder holds your music folder. Choose a folder inside it instead."
+    inside = api.check_import_folder(str(paths.library))
+    assert (inside["problem"], inside["message"]) == (
+        "music", "This is inside your music folder, which Discjockey watches already.")
+    deeper = folder / "Sub"
+    deeper.mkdir()
+    in_watched = api.check_import_folder(str(deeper))
+    assert in_watched["problem"] == "watched"
+    assert in_watched["message"] == "This is inside Music, which Discjockey watches already."
+    again = api.check_import_folder(str(folder))
+    assert (again["problem"], again["message"]) == ("already", "Discjockey watches this folder already.")
+    gone = api.check_import_folder(str(tmp_path / "nope"))
+    assert (gone["problem"], gone["exists"], gone["message"]) == (
+        "not_found", False, "That folder isn't there. If it is on a drive, connect the drive first.")
+    relative = api.check_import_folder("Music")
+    assert relative["problem"] == "not_absolute" and relative["message"]
+    fresh = tmp_path / "outside" / "Another"
+    fresh.mkdir()
+    free = api.check_import_folder(str(fresh))
+    assert (free["usable"], free["problem"], free["kind"], free["message"], free["merges"], free["merge_hints"]) == (
+        True, None, "import", None, [], [])
+
+
+def test_a_folder_holding_watched_ones_says_it_takes_them_over(tmp_path, monkeypatch):
+    paths, folder, api, rec = watched(tmp_path, monkeypatch, n=1)
+    parent = folder.parent
+    out = api.check_import_folder(str(parent))
+    assert (out["usable"], out["merges"]) == (True, [str(folder)])
+    assert out["merge_hints"] == ["Music is inside it and becomes part of it."]
+
+
+def test_the_removal_preview_names_the_folder_and_counts_what_goes(tmp_path, monkeypatch):
+    paths, folder, api, rec = watched(tmp_path, monkeypatch, n=3)
+    fid = api.watched_folders()["folders"][1]["id"]
+    assert api.removal_preview(fid) == {"ok": True, "name": "Music", "files": 3, "redownload": 0}
+    for bad in (api.watched_folders()["folders"][0]["id"], 999, "1", None, True):
+        r = api.removal_preview(bad)
+        assert (r["ok"], r["kind"], r["message"]) == (False, "refused", "That folder isn't one of the watched folders.")
+
+
+
+def test_the_library_row_counts_what_all_tracks_counts_before_there_is_a_library_db(tmp_path):
+    from hub_helpers import music_root
+    from discjockey.library import load_state, write_json_atomic
+    paths = music_root(tmp_path)
+    snapshot = load_state(paths)  # an old library: state.json (version 1), not yet migrated to library.db
+    paths.db_file.unlink()
+    write_json_atomic(paths.state_file, {**snapshot, "version": 1}, indent=2, ensure_ascii=False, sort_keys=True)
+    api, _ = make_api(paths)
+    row = api.watched_folders()["folders"][0]
+    assert not paths.db_file.exists() and row["kind"] == "library"
+    assert row["files"] == api.sidebar()["all_tracks"] and row["files"] > 0
+
+
+# --- the sound picture and the player of an own file in an import folder ---
+
+def own_track(api):
+    """(track id, entry) of the first own song whose file sits in an import folder."""
+    return next((k, e) for k, e in api._state()["tracks"].items() if e.get("path") and e["path"].startswith("/"))
+
+
+def test_the_sound_picture_and_the_player_open_a_file_of_an_import_folder(tmp_path, monkeypatch):
+    import numpy as np
+    from discjockey.hub.media import MediaServer
+    from hub_helpers import fake_import, fake_spotify, import_folder, music_root
+    fake_spotify(monkeypatch)
+    fake_import(monkeypatch)
+    paths = music_root(tmp_path)
+    folder = import_folder(tmp_path, 2)
+    api, rec = make_api(paths, decode=lambda p: (np.zeros(44100, dtype=np.float32), 44100))
+    api._media = MediaServer(paths)
+    api._media.bind(paths, api._file_path)
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    track_id, e = own_track(api)
+    pic = api.spectrum(track_id)
+    assert pic["ok"] and pic["spectrum"]["cols"] == 400 and pic["spectrum"]["which"] == "current"
+    url = api.media_url(track_id)["url"]
+    assert url.startswith(f"http://127.0.0.1:{api._media.port}/{api._media.token}/file/{e['file_id']}?v=")
+    other = next(k for k, v in api._state()["tracks"].items() if (v.get("path") or "").startswith("/") and k != track_id)
+    assert len(list((paths.cache / "spectrum").iterdir())) == 1  # one picture so far
+    api.spectrum(other)
+    assert len(list((paths.cache / "spectrum").iterdir())) == 2  # a cache entry per file
+
+
+def test_an_import_file_that_is_offline_is_refused_though_its_path_still_exists(tmp_path, monkeypatch):
+    import numpy as np
+    from discjockey.hub.media import MediaServer
+    paths, folder, api, rec = watched(tmp_path, monkeypatch, n=1)
+    api._svc.decode = lambda p: (np.zeros(44100, dtype=np.float32), 44100)
+    api._media = MediaServer(paths)
+    api._media.bind(paths, api._file_path)
+    track_id, e = own_track(api)
+    from discjockey import db
+    with db.connect(paths.db_file) as conn:  # its drive is marked offline, the file is still on disk
+        conn.execute("UPDATE files SET online = 0 WHERE id = ?", (e["file_id"],))
+    assert open(e["path"], "rb").read()
+    for call in (api.spectrum, api.media_url):
+        r = call(track_id)
+        assert (r["ok"], r["kind"]) == (False, "refused")

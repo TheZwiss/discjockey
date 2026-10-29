@@ -371,6 +371,22 @@ def test_sync_says_how_many_files_a_tidy_up_would_move(root, monkeypatch, capsys
     assert tidy_lines == ([line] if line else [])
 
 
+def test_sync_says_which_songs_wait_for_an_answer_in_the_window(root, monkeypatch, capsys):
+    (root / "playlists.txt").write_text(PLAYLISTS)
+    fake_spotify(monkeypatch, TWO_TRACKS[:1])
+    rel = "Library/Mine/Another Artist - Song.aiff"  # a file of the user's own: maybe the playlist's "Song"
+    (root / rel).parent.mkdir(parents=True)
+    (root / rel).write_bytes(b"audio mine")
+    state = empty_state()
+    state["tracks"]["local:1"] = lossless_song("local:1", "Song", rel) | {
+        "artist": "Another Artist", "folder": "", "in_playlists": False, "source": "manual", "source_id": None}
+    save_state(Paths(root, support=root / ".support"), state)
+    assert cli.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert "1 song waits for your answer in the window (Is this the same song?)." in out
+    assert not [s for s in out if "wait to be imported" in s]
+
+
 def test_setup_skips_spotify_on_an_empty_client_id(root, monkeypatch, capsys):
     from discjockey import qobuz, setup_cmd
     from discjockey.settings import load_settings

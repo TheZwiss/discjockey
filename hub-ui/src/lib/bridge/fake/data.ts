@@ -1,8 +1,9 @@
 // Fake mode only: an in-memory Discjockey state shaped like the contract. Reads are computed from it, writes change it.
 import type {
+  FileState, LibraryRow,
   AnySignalKind, AppUpdate, Alignment, Browser, Budget, LastCheck, LoginBrowser, ByQuality, Candidate, PlaylistInfo, PlaylistRow, PreviewAction, Quality, Result, RunDetail,
   DownloadTools, FolderCheck, SetupStatus, SignalKind, Source, SpotifyStatus, Status, TodoGroupKey, TrackRow, Upgrade, FreeDownload,
-  PlaylistService, TrackLink,
+  PlaylistService, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
 } from '../types';
 import { NOT_IN_PLAYLIST, QUALITIES } from '../types';
 
@@ -38,6 +39,13 @@ export type FakeTrack = {
   at?: string;
   /** the track's page when it isn't the Spotify one every other fake track gets (a Qobuz track) */
   link?: TrackLink;
+  /** a song of the user's own that the import found (source `manual`, no folder, in no playlist) */
+  own?: boolean;
+  /** an own file the import has read but whose sound it hasn't judged yet: its quality is the codec's guess */
+  unchecked?: boolean;
+  /** an own file that isn't there to play (the contract's file_state): its drive is away, its folder isn't found, or
+   *  the file went since the last scan; it has a path, but the player and the spectrum can't reach it */
+  away?: Exclude<FileState, 'here'>;
 };
 /** One move of a move batch as the fake keeps it (the engine's `moves` row). */
 export type FakeMove = {
@@ -72,6 +80,36 @@ export type FakeTidy = {
 };
 export const emptyTidy = (): FakeTidy => ({ batches: [], nextBatch: 1, placed: {}, skips: {}, noRows: false,
   failMove: null, stopAfter: null });
+/** A watched folder as the fake keeps it (folders.ts answers watched_folders from these). */
+export type FakeFolder = {
+  id: number; path: string; kind: 'library' | 'import'; offline: boolean; files: number;
+  /** the folder isn't found (moved, renamed, deleted) while its drive is there; `offline`: the drive is away */
+  missing?: boolean;
+  /** files the import still works through (not read yet, or read and not sound-checked) */
+  waiting: number;
+  /** playlist songs whose only file is here: they download again when the folder is removed */
+  redownload: number;
+};
+export type FakeQuestion = { song_key: string; own_key: string; why: QuestionWhy; delta_s: number | null;
+  track: QuestionPair['track']; file: FileSide };
+export type FakeDuplicate = { group_id: string; why: DuplicateWhy; files: FileSide[] };
+/** The fake's watched folders, the import and its To-do questions (src/lib/bridge/fake/folders.ts). */
+export type FakeImport = {
+  folders: FakeFolder[]; nextId: number;
+  /** the files the import couldn't read, with their reason's words */
+  unreadable: UnreadableFile[];
+  /** the user stopped an import this session */
+  stopped: boolean;
+  /** Setup's "Your existing music" was skipped */
+  skipped: boolean;
+  questions: FakeQuestion[]; duplicates: FakeDuplicate[];
+  /** first upgrade checks the per-run cap left for later runs */
+  deferred: number;
+  /** the phase the running import is in (null: none runs) */
+  phase: ImportPhase | null;
+};
+export const emptyImport = (): FakeImport => ({ folders: [], nextId: 2, unreadable: [], stopped: false, skipped: false,
+  questions: [], duplicates: [], deferred: 0, phase: null });
 export type FakeRun = RunDetail;
 export type FakePlaylist = { folder: string; link: string; enabled: boolean; info: PlaylistInfo | null };
 export type FakeState = {
@@ -124,6 +162,7 @@ export type FakeState = {
   syncStarts: number;
   never: string[];               // "never download": Spotify ids the plan leaves out
   tidy: FakeTidy;
+  imp: FakeImport;
 };
 
 // ---------- helpers ----------
@@ -139,6 +178,9 @@ export function coverUri(i: number | null): string | null {
 }
 export const SOURCE_NAMES: Record<Source, string> = { qobuz: 'Qobuz', youtube_music: 'YT Music',
   soundcloud: 'SoundCloud', youtube: 'YouTube', manual: 'bought' };
+/** As views.SHORT_OWN / models.OWN_FILE. */
+const OWN_SHORT = 'own file';
+const OWN_FULL = 'your own file';
 const khz = (hz: number) => `${(hz / 1000).toFixed(1)} kHz`;
 export function qualityOf(t: FakeTrack): Quality {
   if (t.status === 'missing') return 'missing';
@@ -155,6 +197,7 @@ export function qualityLabel(t: FakeTrack): string {
 }
 export function pathOf(t: FakeTrack): string | null {
   if (t.status === 'missing') return null;
+  if (t.own) return `/Volumes/Example/Music/${t.artist} - ${t.title}.wav`;
   const sub = t.status === 'lossless' ? '' : '/not_lossless';
   return `Library/${t.at ?? t.folder}${sub}/${t.artist} - ${t.title}.aiff`;
 }
@@ -162,20 +205,27 @@ export function trackRow(t: FakeTrack): TrackRow {
   return {
     track_id: t.track_id, artist: t.artist, title: t.title, folder: t.folder, duration_s: t.duration_s,
     status: t.status, quality: qualityOf(t), quality_label: qualityLabel(t), cutoff_hz: t.cutoff_hz,
-    source: t.source, source_name: t.source ? SOURCE_NAMES[t.source] : null, in_playlists: t.in_playlists,
-    hidden: t.hidden, upgrade_ready: !!t.upgrade, path: pathOf(t), added: t.added, cover_url: coverUri(t.cover),
+    source: t.source, source_name: t.own ? OWN_SHORT : t.source ? SOURCE_NAMES[t.source] : null, in_playlists: t.in_playlists,
+    own: !!t.own, hidden: t.hidden, upgrade_ready: !!t.upgrade, path: pathOf(t), added: t.added, cover_url: coverUri(t.cover),
   };
+}
+/** A Library row's `file_state`: as the panel's, but per folder only (the engine never checks a row's own file, so a
+ *  file that went since the last scan still reads `here` in the list). */
+export function rowState(t: FakeTrack): LibraryRow['file_state'] {
+  return t.away === 'offline' || t.away === 'folder_missing' ? t.away : 'here';
 }
 export function qualityLine(t: FakeTrack): string {
   const q = qualityOf(t);
   const src = t.source ? SOURCE_NAMES[t.source] : '';
   if (q === 'missing') return 'No file yet';
+  if (t.own) return `Your own file (PCM) · ${t.unchecked ? 'sound not checked yet' : 'verified lossless'}`;
   if (q === 'lossless') return t.source === 'manual' ? 'bought file · lossless' : `${src} FLAC · verified lossless`;
   if (q === 'fake') return `${src} FLAC · fake lossless, cutoff ${khz(t.cutoff_hz ?? 16000)}`;
   const kbps = t.kbps ? ` ${t.kbps} kbps` : '';
   return `${src} ${(t.codec ?? 'aac').toUpperCase()}${kbps} · cutoff ${khz(t.cutoff_hz ?? 20000)}`;
 }
 export function todoGroup(t: FakeTrack): TodoGroupKey | null {
+  if (t.unchecked) return null;  // as views._group: its quality is only the codec's guess
   if (t.other) return 'other';
   if (t.upgrade) return 'upgrade_ready';
   const q = qualityOf(t);
@@ -196,11 +246,14 @@ export function todoDetail(t: FakeTrack, g: TodoGroupKey): string {
 /** As SOURCE_NAMES in models.py: the details panel's "from YouTube Music". */
 export const SOURCE_FULL: Record<Source, string> = { qobuz: 'Qobuz', youtube_music: 'YouTube Music',
   soundcloud: 'SoundCloud', youtube: 'YouTube', manual: 'bought' };
+/** The details panel's "from …": an own file reads "your own file" instead of "bought". */
+export const sourceFull = (t: FakeTrack): string | null => !t.source ? null : t.own ? OWN_FULL : SOURCE_FULL[t.source];
 /** As views.FREE_GROUPS: the row's FREE tag. */
 export function todoFree(t: FakeTrack, g: TodoGroupKey): boolean {
   return ['not_found', 'weak', 'good_lossy', 'fake'].includes(g) && !!t.free_downloads?.length;
 }
-const FORMAT_NAMES: Record<string, string> = { opus: 'Opus', aac: 'AAC', mp3: 'MP3', flac: 'FLAC' };
+const FORMAT_NAMES: Record<string, string> = { opus: 'Opus', aac: 'AAC', mp3: 'MP3', flac: 'FLAC',
+  pcm: 'uncompressed PCM' };
 /** As views.format_line. */
 export function formatLine(t: FakeTrack): string | null {
   if (t.status === 'missing' || !t.codec) return null;
@@ -212,9 +265,10 @@ export function checkText(reason: 'wrong_song' | 'added_as_new'): string {
     ? 'This track now plays the right song. In rekordbox: analyse it again and delete the old cues (they belong to the wrong song).'
     : 'This is a different edit. In rekordbox: analyse it again and set the cues again.';
 }
+/** As views.quality_counts: a file whose sound isn't checked yet is not counted. */
 export function byQuality(ts: FakeTrack[]): ByQuality {
   const b = Object.fromEntries(QUALITIES.map((q) => [q, 0])) as ByQuality;
-  for (const t of ts) b[qualityOf(t)]++;
+  for (const t of ts) if (!t.unchecked) b[qualityOf(t)]++;
   return b;
 }
 export function budget(s: FakeState): Budget {
@@ -485,7 +539,8 @@ export const FAKE_MUSIC = '/Users/you/Music/Discjockey';
 export function setupComplete(): SetupStatus {
   return { music: { state: 'ok', path: FAKE_MUSIC, suggested: FAKE_MUSIC }, tools: { ffmpeg: true, ffprobe: true, deno: true }, spotify_app: true, spotify_login: true, qobuz: true,
     playlists: true, complete: true, next_step: null, version: '1.0.0', qobuz_skipped: false,
-    spotify_skipped: false, accounts: { youtube: null, soundcloud: null } };
+    spotify_skipped: false, existing: false, import_folders: 0, import_skipped: false,
+    accounts: { youtube: null, soundcloud: null } };
 }
 export function nextStep(s: SetupStatus): SetupStatus {
   const missingTools = !s.tools.ffmpeg || !s.tools.ffprobe || !s.tools.deno;
@@ -539,10 +594,10 @@ export function makeState(scenario: string, now = new Date()): FakeState {
       last_download: iso(daysAgo(now, 0, 21, 47)) },
     setup: setupComplete(), downloadTools: builtInTools(), spotify: spotifyOk(2, now), console_running: false, offline: false, previewRead: true,
     appUpdate: { state: 'up_to_date', current: '1.0.0', latest: null, url: null },
-    selected: null, dropped: null, errors: scenario === 'errors', errorTurn: 0, syncStarts: 0, never: [], tidy: emptyTidy(),
+    selected: null, dropped: null, errors: scenario === 'errors', errorTurn: 0, syncStarts: 0, never: [], tidy: emptyTidy(), imp: emptyImport(),
     accounts: { youtube: null, soundcloud: null }, qobuzSkipped: false,  // the user's own setup: Qobuz only
   };
-  if (scenario === 'first_run' || scenario === 'no_music') {
+  if (scenario === 'first_run' || scenario === 'no_music' || scenario.startsWith('setup_existing')) {
     s.tracks = []; s.newTracks = []; s.playlists = []; s.runs = []; s.extraFolders = []; s.previewRead = false;
     s.qobuz = { ...s.qobuz, used_today: 0, carry_over: 0, days: Array(14).fill(0), signals: [], last_download: null };
     s.setup = nextStep({ ...setupComplete(), spotify_login: false, qobuz: false, playlists: false });

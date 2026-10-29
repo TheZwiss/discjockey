@@ -21,6 +21,7 @@ from .audio import copy_tags
 from .events import Result
 from .library import (
     NameReserver, Paths, deferred_interrupt, delete_parked, fsync_dir, full_fsync, run_op, safe_rename, save_state,
+    watched_root,
 )
 from .models import SOURCE_NAMES
 from .names import expected_stem, fold, split_name, strip_id_suffix
@@ -117,7 +118,7 @@ def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict,
     e = precondition(paths, state, track_id, upgrade, need_current=True)
     names = NameReserver(paths.root, state)
     stem, ext = split_name(strip_id_suffix(PurePosixPath(e["path"]).name, track_id))
-    old = names.choose(superseded_dir(e["path"]), stem, ext, track_id)
+    old = names.choose(superseded_dir(e["path"], watched_root(paths, e["path"])), stem, ext, track_id)
     status = upgrade.get("status", "lossless")
     folder = replacement_dir(e, status)  # a 256 kbps version stays in a playlist folder's not_lossless/
     target = f"{folder}/{expected_stem(e['artist'], e['title'])}.aiff"
@@ -275,7 +276,7 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
     names = NameReserver(paths.root, state)
     p = PurePosixPath(target)
     stem, ext = split_name(strip_id_suffix(p.name, track_id))
-    backup = names.choose(superseded_dir(target), f"{stem} (lossy)", ext, track_id)
+    backup = names.choose(superseded_dir(target, watched_root(paths, target)), f"{stem} (lossy)", ext, track_id)
     renames = []
     # out of not_lossless/ only for a file in a playlist folder's not_lossless/ (spec §7); anywhere else it stays
     home = replacement_dir(e, "lossless")

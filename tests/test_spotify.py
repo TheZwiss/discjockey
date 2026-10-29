@@ -366,7 +366,7 @@ def test_login_without_a_terminal(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(spotify, "LOGIN_PORT", port)
     monkeypatch.setattr(spotify, "_http", FakeHttp([(200, {"access_token": "A", "expires_in": 3600,
                                                           "refresh_token": "R"}, None)]))
-    shown, pages = [], []
+    shown, pages, threads = [], [], []
 
     def browser(url):  # the user logs in; Spotify sends the browser back to Discjockey
         state = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["state"][0]
@@ -375,9 +375,13 @@ def test_login_without_a_terminal(tmp_path, monkeypatch, capsys):
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/callback?code=c1&state={state}") as r:
                 pages.append(r.read().decode())
 
-        threading.Thread(target=come_back).start()
+        threads.append(threading.Thread(target=come_back))
+        threads[-1].start()
 
     spotify.login("cid", tmp_path / "token.json", open_browser=browser, on_url=shown.append)
+    for t in threads:  # login returns once it has served the callback; the browser's thread may still be reading
+        t.join(5)
+    assert len(pages) == 1 and not any(t.is_alive() for t in threads)
     assert shown and shown[0].startswith(spotify.AUTH_URL)
     assert "You can close this tab" in pages[0] and "terminal" not in pages[0]
     assert json.loads((tmp_path / "token.json").read_text())["refresh_token"] == "R"
@@ -392,11 +396,18 @@ def test_login_can_be_cancelled_and_frees_the_port(tmp_path, monkeypatch):
     port = free_port()
     monkeypatch.setattr(spotify, "LOGIN_PORT", port)
     token = CancelToken()
+    timers = []
+
+    def browser(url):  # the user gives up a moment later
+        timers.append(threading.Timer(0.2, token.cancel))
+        timers[-1].start()
+
     started = time.monotonic()
     with pytest.raises(Cancelled):
-        spotify.login("cid", tmp_path / "token.json", open_browser=lambda url: threading.Timer(0.2, token.cancel).start(),
-                      token=token)
-    assert time.monotonic() - started < 2
+        spotify.login("cid", tmp_path / "token.json", open_browser=browser, token=token)
+    for t in timers:
+        t.join(5)
+    assert time.monotonic() - started < 2 and not any(t.is_alive() for t in timers)
     assert port_is_free(port) and not (tmp_path / "token.json").exists()
 
 

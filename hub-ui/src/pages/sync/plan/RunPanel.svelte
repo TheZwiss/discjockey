@@ -8,18 +8,23 @@
   // after = What to do (natural height); foot = Start sync and its console note (`start`, built by the page).
   // Labels and numbers, no sentences (spec §6): the old prose lines ("215 more after this run · ~4 more days…") are
   // now the DayBar's segments.
+  // The import's two notes (plan library stage 4, W9) are NoteCards (up to three lines: a Hint is one line, and these
+  // sentences wrap), each where its subject is: the songs that wait for an answer (yellow: they wait for the user)
+  // under the counts, which they are why smaller, with To-do → as the card's action; the first upgrade checks left
+  // for later runs (info) right under the day card, which speaks of today's allowance (a card inside the day card
+  // would be a container in a container, spec §11).
   import type { Snippet } from 'svelte';
   import { Button, DayBar, Hint, ListRow, NoteCard, ProgressBar, Segmented, StatCard, Surface, ToggleGroup } from '$lib/components';
   import { Panel } from '$lib/frames';
   import type { SyncAccount } from '$lib/bridge/types';
   import {
     dayBarInput, folderItems, howManyOptions, isKindKey, kindItems, runCount, runTime, serviceRows, type Facet, type HowMany, type Preset,
-    type RunTotals, type Scope,
+    type RunTotals, type Scope, WAITING_ANSWERS_HREF, deferredChecksLine, waitingAnswersLine,
   } from '../planModel';
   import KindIcon from './KindIcon.svelte';
 
   let { summary, left, limit, accounts, presets, howMany, folders, kinds, scope, onhowmany, onscope, onscopeall,
-    start }: {
+    start, waitingAnswers = 0, deferredChecks = 0 }: {
     /** left null: no daily limit (only free sources are set up) */
     summary: RunTotals; left: number | null; limit: number; accounts: SyncAccount[];
     presets: Preset[]; howMany: HowMany | 'custom';
@@ -28,7 +33,13 @@
     onscopeall: (what: 'folders' | 'kinds', keys: string[], on: boolean) => void;
     /** Start sync and what goes with it (console note, start problem) */
     start: Snippet;
+    /** songs held back until the user answers "Is this the same song?" (SyncPreview.waiting_answers) */
+    waitingAnswers?: number;
+    /** first upgrade checks of imported music left for later runs (SyncPreview.deferred_checks) */
+    deferredChecks?: number;
   } = $props();
+  const waitingLine = $derived(waitingAnswersLine(waitingAnswers));
+  const deferredLine = $derived(deferredChecksLine(deferredChecks));
 
   const limitReached = $derived(left === 0 && summary.downloads > 0);
   // the count says what Start says: what runs today (spec §11), the ticked downloads that wait not counted
@@ -54,6 +65,11 @@
     <StatCard value={run} label="track{run === 1 ? '' : 's'} this run" valueTest="sync-run-count" />
     <StatCard value={time.value} unit={time.unit} label="run time" data-test="sync-time" />
   </div>
+  {#if waitingLine}
+    <NoteCard tone="warn" data-test="sync-waiting-answers">{waitingLine}
+      <div class="act"><Button variant="link" size="sm" href={WAITING_ANSWERS_HREF} data-test="sync-waiting-link">To-do →</Button></div>
+    </NoteCard>
+  {/if}
   <Surface kind="card" data-test="sync-day">
     <DayBar input={dayBarInput(summary, left)} data-test="sync-daybar" />
     {#if overflow}
@@ -66,6 +82,7 @@
       <span class="what">{limitsLine}</span><Button variant="link" size="sm" href="#/limits" data-test="sync-limits-link">Download limits →</Button>
     </div>
   </Surface>
+  {#if deferredLine}<NoteCard data-test="sync-deferred-checks">{deferredLine}</NoteCard>{/if}
   {#if services.length}
     <Surface kind="list" style="--row-cols: minmax(0, 1fr) 132px" data-test="sync-estimate">
       {#each services as s (s.service)}
@@ -104,6 +121,8 @@
   /* the limit (what the later segment is measured in) at the left, the way to change it at the card's right edge */
   .limits { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-3); min-width: 0;
     font-size: var(--fs-small); color: var(--text-muted); white-space: nowrap; }
+  /* the card's action, on its own line under the sentence */
+  .act { margin-top: var(--s-1); }
   .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .bar { flex: 1 1 auto; min-width: 0; }
   .backup { color: var(--text-label); font-size: var(--fs-small); }

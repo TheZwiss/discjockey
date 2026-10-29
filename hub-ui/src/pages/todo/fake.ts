@@ -36,6 +36,17 @@ const fake: PageFake = {
     'all-hidden'(s) { for (const t of s.tracks) { t.rekordbox_check = null; t.hidden = true; } },
     // Nothing to do at all ("Everything is lossless."): no track lands in a group.
     'all-lossless'(s) { for (const t of s.tracks) { t.rekordbox_check = null; t.in_playlists = false; } },
+    // The weak files left every playlist, so Weak has nothing: opened with #/todo?filter=weak, the strip keeps the
+    // chosen "Weak 0" (no dot: a 0 signals nothing) beside the groups that still have to-dos.
+    'no-weak'(s) {
+      for (const t of s.tracks) if (t.status === 'not_lossless' && (t.cutoff_hz ?? 22000) <= 17000) t.in_playlists = false;
+    },
+    // t17 (a weak file) sits on a drive that is away: the panel says "Offline: connect the drive" where its spectrum would
+    // be and keeps the player off. Open with #/todo?track=t17.
+    offline(s) {
+      const t = s.tracks.find((x) => x.track_id === 't17');
+      if (t) t.away = 'offline';
+    },
     // Wrong song?: 12 candidates with long titles.
     'long-candidates'(s) { searchMode.set(s, 'long'); },
     // Wrong song?: the search takes 6 s.

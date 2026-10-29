@@ -8,6 +8,7 @@ from __future__ import annotations
 import fcntl
 import itertools
 import json
+import logging
 import os
 import threading
 import traceback
@@ -18,11 +19,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from .. import config, events as ev, library, playlists_file, qobuz, report as rep, run, settings, sources, upgrades
+from .. import (config, db, events as ev, folders, importer, library, playlists_file, qobuz, report as rep, run, settings,
+                sources, upgrades)
 from ..events import Cancelled, CancelToken, Emit
 from ..library import LockHeld, Paths
 from ..models import SERVICE_NAMES, Protected
 from ..ops import OpProblem
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -76,9 +80,16 @@ class AppUpdate:
     url: str | None  # its release page when available
 
 
+@dataclass(frozen=True)
+class DrivesChanged:
+    """A watched folder came or went while the window is open (a drive plugged in or ejected, a folder renamed or put
+    back): the pages showing a file's or a folder's state read them again. Read only; nothing is scanned."""
+    away: int  # how many watched folders are away now
+
+
 EVENT_TYPES = (ev.RunStarted, ev.ActionStarted, ev.StepChanged, ev.Progress, ev.Waiting, ev.SourceChosen, ev.Checked,
-               ev.AccountUsage, ev.ActionFinished, ev.RunFinished, ev.Message, ev.ReadingPlaylist, ev.MovesProgress, JobStarted, JobFinished,
-               ConsoleBusy, FileDropped, SignInPhase, AppUpdate)
+               ev.AccountUsage, ev.ActionFinished, ev.RunFinished, ev.Message, ev.ReadingPlaylist, ev.MovesProgress, ev.ImportProgress, JobStarted, JobFinished,
+               ConsoleBusy, FileDropped, SignInPhase, AppUpdate, DrivesChanged)
 
 
 def event_dict(event: object) -> dict:
@@ -160,6 +171,10 @@ class HubEvents:
 CONSOLE_TEXT = "A sync is running in the terminal. Wait until it has finished."
 BUSY_TEXT = "Discjockey is still busy with the last change. Wait until it has finished."
 SCANNING_TEXT = "Discjockey is checking your Library. Try again in a moment."
+# W7 (plan library stage 4 I12): every other write answers busy with these words while the import runs
+IMPORTING_TEXT = ("Discjockey is importing your music. Stop the import in Settings → Watched folders to do this now; "
+                  "it carries on later where it stopped.")
+BUSY_WORDS = {"scan": SCANNING_TEXT, "import": IMPORTING_TEXT}  # what a write answers while a job of this kind runs
 ACTIVITY_OPTIONS = 0x00FFFFFF | (1 << 20)  # NSActivityUserInitiated, idle system sleep disabled
 
 
@@ -224,6 +239,8 @@ def problem_of(e: BaseException) -> tuple[str, str]:
     arrives as RunCrashed (sync_work files it first), so only a sync says "The sync stopped unexpectedly"."""
     if isinstance(e, run.RunCrashed):  # whatever it was, it stopped a running sync
         return "crashed", rep.CRASH_MESSAGE
+    if isinstance(e, importer.ImportStopped):  # W6: how many files are left (a file is never half-done: it is written)
+        return "stopped", importer.result_words(e.result)
     if isinstance(e, (Cancelled, KeyboardInterrupt)):
         return "stopped", "Stopped. Nothing was left half-done."
     if isinstance(e, library.NoLibrary):
@@ -246,6 +263,8 @@ def problem_of(e: BaseException) -> tuple[str, str]:
         return "failed", qobuz.login_problem(e)
     if isinstance(e, Protected):
         return "protected", str(e)
+    if isinstance(e, db.FolderRefused):  # W5: a folder that stopped being watchable between the check and the add
+        return "refused", folders.refused_words(e)
     if isinstance(e, ValueError):
         return "refused", str(e)
     return "crashed", UNEXPECTED
@@ -265,6 +284,7 @@ class JobContext:
     token: CancelToken
     emit: Emit  # records into the snapshot and sends to the window
     failed_result: dict | None = None  # JobFinished.result if the work raises (a crashed sync: its report)
+    message: str = ""  # JobFinished.message if the work returns (the import's "Imported 3 files."); else empty
 
 
 @dataclass
@@ -327,7 +347,7 @@ class Jobs:
         """Busy when a write job runs, or only the preview's scan holds the lock (its own words). The mutex is held."""
         job = self.running()
         if job is not None:
-            return Busy(SCANNING_TEXT if job.kind == "scan" else BUSY_TEXT, "busy")
+            return Busy(BUSY_WORDS.get(job.kind, BUSY_TEXT), "busy")
         return Busy(SCANNING_TEXT, "busy") if self._scanning else None
 
     def console_running(self) -> bool:
@@ -488,6 +508,7 @@ class Jobs:
                         self._holder.on = False
             else:
                 result = work(ctx)
+            message = ctx.message
         except BaseException as e:  # noqa: BLE001 - every outcome becomes a JobFinished for the window
             ok = False
             problem, message = problem_of(e)
@@ -540,6 +561,13 @@ class Jobs:
 
 # --- the preview and the sync (spec 6.3) ---
 
+def _generation_of(prep: run.Prepared | None) -> int | None:
+    """The generation of the records `prep` was planned on (None: no plan, or a state that carries none)."""
+    state = getattr(prep, "state", None)
+    gen = state.get("generation") if isinstance(state, dict) else None
+    return gen if isinstance(gen, int) else None
+
+
 class PreviewStore:
     """The last read-only plan (what the Sync screen shows and the user ticks). Keeps the last good one when a later
     read fails (e.g. offline), with the problem next to it."""
@@ -553,14 +581,29 @@ class PreviewStore:
         self.message = ""
         self.stale = False  # a sync ran since: the plan is out of date
         self.auto_read = False  # the hub has started its one automatic read of this session (claim_auto_read)
+        self._reopened = False  # the records were rebuilt or reopened: the stored plan's generation no longer counts
+
+    def records_reopened(self) -> None:
+        """The hub learned that its records are another database (a library was bound: _attach): a new one counts
+        its generation from 0 again, so the stored plan's generation says nothing about the next read; the next
+        plan is stored whatever its generation, and the stored one's counts again from then on."""
+        with self._lock:
+            self._reopened = True
 
     def ready(self, prep: run.Prepared, at: datetime, token: CancelToken | None = None) -> None:
-        """`token`: a read that was stopped meanwhile (its request answered late) stores nothing."""
+        """`token`: a read that was stopped meanwhile (its request answered late) stores nothing. A plan carries the
+        records' generation it was planned on (`prep.state["generation"]`): one older than the stored plan's was
+        slow to finish (the window's opening read, while an import linked and planned again) and is dropped, so it
+        never overwrites the fresher preview (unless the records were reopened since: records_reopened)."""
         with self._lock:
             if token is not None and token.cancelled:
                 return
+            new, old = _generation_of(prep), None if self._reopened else _generation_of(self.prep)
+            if new is not None and old is not None and new < old:
+                return
             self.prep, self.read_at, self.problem, self.problem_service, self.message, self.stale = (
                 prep, at, None, None, "", False)
+            self._reopened = False
 
     def failed(self, problem: str, message: str, service: str | None = None,
                token: CancelToken | None = None) -> None:
@@ -674,3 +717,69 @@ def preview_after_run(store: PreviewStore, prep: run.Prepared, read_at: datetime
         store.ready(run.replan(prep), read_at)
     except (library.StateError, settings.SettingsError):
         store.mark_stale()
+
+
+# --- the import of the user's own music, and the answers to its questions (plan library stage 4, D4, D6, D14) ---
+
+def import_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] = datetime.now, *,
+                folder: Path | str | None = None, on_stopped: Callable[[], None] | None = None):
+    """The import as a write job (kind "import"): `folder` is watched first (Add folder: folders.add; it was checked
+    by the caller and db refuses it again if it changed), then importer.run_import works through every file waiting.
+    Its last phase links the playlists (D6) from the preview's last read, or from a read of its own when there is
+    none yet; the preview is then planned again on the linked library (the To-do questions and the Sync counts are
+    right at once). A Stop ends it ImportStopped: JobFinished.result is the import as far as it went, `stopped` true,
+    and `on_stopped` tells the hub that the import must not start by itself again this session (D14). The result of
+    a finished one is ImportResult as a dict; JobFinished.message is W6's line ("Imported 3 files.")."""
+    def work(ctx: JobContext) -> dict:
+        if folder is not None:
+            folders.add(paths, folder, now())
+
+        def link() -> str | None:
+            prep, read_at = store.prep, store.read_at or now()
+            if prep is None:
+                try:
+                    prep, read_at = run.prepare(paths, emit=ctx.emit, token=ctx.token), now()
+                except (run.SetupProblem, library.StateError, settings.SettingsError):
+                    prep = None  # link_playlists tries once more and words why it couldn't (W11)
+            note = importer.link_playlists(paths, prep, emit=ctx.emit, token=ctx.token)
+            if prep is not None:
+                preview_after_run(store, prep, read_at)
+            return note
+
+        def replan() -> None:
+            """The preview from its last read on the library as the import left it (also after a stop or a failure:
+            files it linked or imported before must show in To-do and Sync). Never hides what ended the import."""
+            if store.prep is not None:
+                try:
+                    preview_after_run(store, store.prep, store.read_at or now())
+                except Exception:  # noqa: BLE001
+                    log.warning("planning the preview again after the import failed", exc_info=True)
+
+        try:
+            result = importer.run_import(paths, emit=ctx.emit, token=ctx.token, link=link)
+        except importer.ImportStopped as stopped:
+            ctx.failed_result = asdict(stopped.result)
+            if on_stopped is not None:
+                on_stopped()
+            replan()
+            raise
+        except BaseException:
+            replan()
+            raise
+        ctx.message = importer.result_words(result)
+        return asdict(result)
+    return work
+
+
+def replanned_work(store: PreviewStore, change: Callable[[JobContext], dict | None],
+                   now: Callable[[], datetime] = datetime.now):
+    """A write job that changes the records the plan is made from (an answer on To-do, a folder removed, a duplicate
+    moved to Superseded/), then plans the preview again from its last read (run.replan, no new read) so Sync and
+    To-do show what is true now. `change(ctx)` returns the job's result."""
+    def work(ctx: JobContext) -> dict:
+        result = change(ctx) or {}
+        prep = store.prep
+        if prep is not None:
+            preview_after_run(store, prep, store.read_at or now())
+        return result
+    return work

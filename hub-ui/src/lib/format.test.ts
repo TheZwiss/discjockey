@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ago, artistTitle, clock, dateShort, dayMonth, duration, estimate, estimateText, foldText, khz, megabytes, minutesLong, noteParts, percent, plural,
+import type { FileState } from './bridge/types';
+import { OFFLINE_WORDS, fileAway, fileAwayWords, ago, artistTitle, clock, cutoffStat, dateShort, dayMonth, duration, estimate, estimateText, fileFormat, fitMiddle, foldText, khz, megabytes, minutesLong, noteParts, percent, plural,
   qualityWords, runIdFromReport, runWhen, upgradeLabel } from './format';
 
 describe('format', () => {
@@ -47,12 +48,20 @@ describe('format', () => {
     const now = new Date('2026-10-16T22:00:00');
     expect(runWhen('2026-10-16T21:47:00', now)).toBe('Today 21:47');
     expect(runWhen('2026-10-15T21:47:00', now)).toBe('Yesterday 21:47');
-    expect(runWhen('2026-10-13T21:47:00', now)).toBe('Tue 13 Oct');
-    expect(dateShort('2026-10-13T21:47:00')).toBe('13 Oct 2026');
-    expect(dateShort('2026-10-13')).toBe('13 Oct 2026');
-    expect(dayMonth('2026-10-03T21:47:00')).toBe('3 Oct');
+    expect(runWhen('2026-10-13T21:47:00', now)).toBe('Tue 13\u00A0Oct');
+    expect(dateShort('2026-10-13T21:47:00')).toBe('13\u00A0Oct\u00A02026');
+    expect(dateShort('2026-10-13')).toBe('13\u00A0Oct\u00A02026');
+    expect(dayMonth('2026-10-03T21:47:00')).toBe('3\u00A0Oct');
     expect(dayMonth(null)).toBe('');
     expect(clock('2026-10-13T09:05:00')).toBe('09:05');
+  });
+  it('a date never splits across lines: day and month (and year) are joined by no-break spaces', () => {
+    const now = new Date('2026-10-16T22:00:00');
+    for (const d of [runWhen('2026-11-02T21:47:00', now), dateShort('2026-11-02'), dayMonth('2026-11-02')]) {
+      expect(d).not.toMatch(/\d [A-Z][a-z]{2}/);   // no plain blank between a day and its month
+      expect(d).toMatch(/2 Nov/);
+    }
+    expect(dateShort('2026-11-02')).not.toMatch(/Nov 2026/);   // nor between the month and the year
   });
   it('plural, artistTitle, runIdFromReport', () => {
     expect(plural(1, 'track')).toBe('1 track');
@@ -79,6 +88,35 @@ describe('qualityWords', () => {
     expect(qualityWords('good_lossy', 'LOSSY')).toBe('hard to hear');
     expect(qualityWords('lossless', 'LOSSLESS')).toBe('verified lossless');
   });
+  it('says the sound is not checked yet, whatever the codec guessed', () => {
+    expect(qualityWords('lossless', 'LOSSLESS', false)).toBe('sound not checked yet');
+    expect(qualityWords('good_lossy', 'LOSSY', false)).toBe('sound not checked yet');
+  });
+  it('cutoffStat shows nothing for a file whose sound is not checked yet', () => {
+    expect(cutoffStat({ status: 'not_lossless', cutoff_hz: null, sound_checked: false })).toBeNull();
+    expect(cutoffStat({ status: 'not_lossless', cutoff_hz: null, sound_checked: true })).not.toBeNull();
+  });
+  it('cutoffStat names the format a fake lossless file really is, from its path', () => {
+    const fake = (path: string | null) => cutoffStat({ status: 'fake_lossless', cutoff_hz: 16000, path })!.label;
+    expect(fake('/Volumes/Example/x.wav')).toBe('where the highs end · a lossy file inside the WAV');
+    expect(fake('Library/A/x.FLAC')).toBe('where the highs end · a lossy file inside the FLAC');
+    expect(fake('/m/x.aiff')).toBe('where the highs end · a lossy file inside the AIFF');
+    expect(fake('/m/x.aif')).toContain('the AIFF');
+    expect(fake('/m/no-extension')).toBe('where the highs end · a lossy file inside a lossless file');
+    expect(fake(null)).toBe('where the highs end · a lossy file inside a lossless file');
+    expect(fileFormat('/m/x.mp3')).toBeNull();
+  });
+  it('OFFLINE_WORDS are the folder state line\'s words', () => expect(OFFLINE_WORDS).toBe('Offline: connect the drive'));
+  it('says why a file isn\'t there, by the file state', () => {
+    const t = (status: 'lossless' | 'missing', file_state: FileState) => ({ status, file_state });
+    expect(fileAwayWords(t('lossless', 'here'))).toBeNull();
+    expect(fileAwayWords(t('lossless', 'offline'))).toBe('Offline: connect the drive');
+    expect(fileAwayWords(t('lossless', 'folder_missing'))).toBe('Folder not found');
+    expect(fileAwayWords(t('lossless', 'file_missing'))).toBe("This file isn't there any more.");
+    expect(fileAway(t('lossless', 'file_missing'))).toBe(true);
+    expect(fileAwayWords(t('missing', 'offline'))).toBeNull();   // no file, nothing to be away
+    expect(fileAway(t('missing', 'offline'))).toBe(false);
+  });
   it('upgradeLabel: "Upgrade ready", plus what it is when it is not lossless', () => {
     expect(upgradeLabel('lossless version')).toBe('Upgrade ready');
     expect(upgradeLabel(undefined)).toBe('Upgrade ready');
@@ -88,4 +126,31 @@ describe('qualityWords', () => {
 
 describe('foldText', () => {
   it('drops case and accents', () => expect(foldText('Kölsch MIX É')).toBe('kolsch mix e'));
+});
+
+describe('fitMiddle', () => {
+  const upTo = (n: number) => (s: string) => s.length <= n;   // a width measured in characters
+  const a = 'Example Artist - Some Long Title (REMIX x GUEST EDIT).wav';
+  const b = 'Example Artist - Some Long Title (REMIX x GUEST EDIT)(1).wav';
+  it('leaves a text that fits whole', () => {
+    expect(fitMiddle(a, upTo(a.length))).toBe(a);
+    expect(fitMiddle('ab', upTo(1))).toBe('ab');
+  });
+  it('gives up the middle, both ends stay, so two names with the same start differ at the end', () => {
+    const x = fitMiddle(a, upTo(30)), y = fitMiddle(b, upTo(30));
+    expect(x.length).toBeLessThanOrEqual(30);
+    expect(x).toMatch(/^Example.*….*EDIT\)\.wav$/);
+    expect(y).toMatch(/^Example.*….*EDIT\)\(1\)\.wav$/);
+    expect(x).not.toBe(y);
+  });
+  it('uses the room it has: one more character shows at least as much', () => {
+    expect(fitMiddle(a, upTo(31)).length).toBeGreaterThanOrEqual(fitMiddle(a, upTo(30)).length);
+    expect(fitMiddle(a, upTo(a.length - 1)).length).toBeGreaterThanOrEqual(a.length - 3);   // a blank beside the … is dropped
+  });
+  it('keeps a character of each end when nothing fits', () => {
+    expect(fitMiddle(a, upTo(0))).toBe('E…v');
+  });
+  it('leaves no blank beside the ellipsis', () => {
+    expect(fitMiddle('Artist - Title', upTo(9))).not.toMatch(/ …|… /);
+  });
 });

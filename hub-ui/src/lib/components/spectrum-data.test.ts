@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { colourMap, decodeSpectrum, envelope, hexRgb } from './spectrum-data';
+import { colourMap, decodeSpectrum, envelope, hexRgb, showTopLabel } from './spectrum-data';
 import { fakeSpectrum } from '../bridge/fake/spectrum';
 
 describe('spectrum helpers', () => {
@@ -36,5 +36,31 @@ describe('spectrum helpers', () => {
     const lut = colourMap([[0, 0, 0], [255, 255, 255]]);
     expect([...lut.slice(0, 3)]).toEqual([0, 0, 0]);
     expect([...lut.slice(255 * 3)]).toEqual([255, 255, 255]);
+  });
+});
+
+describe('showTopLabel', () => {
+  it('hides the label on strips too low for any axis label, with or without a cutoff', () => {
+    expect(showTopLabel(40, null)).toBe(false);
+    expect(showTopLabel(56, 0.3)).toBe(false);
+  });
+  it('shows it when there is no cutoff line', () => {
+    expect(showTopLabel(64, null)).toBe(true);
+  });
+  it('hides it when the line is closer to the top than a label and a gap (a 16 kHz file in the 64 px strip)', () => {
+    expect(showTopLabel(64, 0.725)).toBe(false);
+    expect(showTopLabel(64, 0.8)).toBe(false);
+  });
+  it('shows it when the line is far enough down in the 64 px strip', () => {
+    expect(showTopLabel(64, 0.5)).toBe(true);
+    expect(showTopLabel(64, 0.65)).toBe(true);
+  });
+  it('measures in pixels: the same cutoff fits a taller strip', () => {
+    expect(showTopLabel(110, 0.75)).toBe(true);
+    expect(showTopLabel(110, 0.9)).toBe(false);
+  });
+  it('22 px between the top and the line is enough, less is not', () => {
+    expect(showTopLabel(88, 0.75)).toBe(true);
+    expect(showTopLabel(88, 0.76)).toBe(false);
   });
 });

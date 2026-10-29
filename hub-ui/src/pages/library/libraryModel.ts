@@ -1,6 +1,6 @@
 // Pure helpers for the Library page (sorting, windowing, selection, the filter strip, the panel). Tested in
 // libraryModel.test.ts.
-import type { Library, LibraryFilter, LibrarySort, Quality, TrackDetail, TrackRow } from '$lib/bridge/types';
+import type { Library, LibraryFilter, LibraryRow, LibrarySort, Quality, TrackDetail, TrackRow } from '$lib/bridge/types';
 import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import type { SegOption } from '$lib/components/segmentedModel';
 
@@ -93,10 +93,42 @@ export function segOptions(chips: Library['chips'] | null | undefined, value: Li
     .map((f) => ({ key: f.key, label: f.label, count: c[f.key], dot: f.dot }));
 }
 
+/** Which list the table shows: one playlist's folder, All tracks (rows of every folder), or Not in a playlist (rows
+ *  that no folder holds, so a Folder column would say the same on every row). */
+export type LibraryView = 'folder' | 'all' | 'unlisted';
+export function libraryView(folder: string | null): LibraryView {
+  return folder === null ? 'all' : folder === NOT_IN_PLAYLIST ? 'unlisted' : 'folder';
+}
 /** The table's optional columns, in the order they appear as the table gets wider (spec §3: more space shows more).
- *  All tracks spans every folder, so its first one is Folder. */
-export function optionalColumns(allTracks: boolean): ('folder' | 'source' | 'added')[] {
-  return allTracks ? ['folder', 'source', 'added'] : ['source', 'added'];
+ *  All tracks spans every folder, so its first one is Folder. Not in a playlist has no folder to tell apart, so it
+ *  shows Source first, like a folder does: it says why a leftover download is dimmed and a file of the user's own
+ *  isn't ("your own file" against "Qobuz"). */
+export function optionalColumns(view: LibraryView): ('folder' | 'source' | 'added')[] {
+  return view === 'all' ? ['folder', 'source', 'added'] : ['source', 'added'];
+}
+/** A row reads dimmed when its song left every playlist (a downloaded file nothing holds any more). A file of the
+ *  user's own is in no playlist by nature, so it is never dimmed: dimming it would say "gone" about a file that is
+ *  exactly where its owner put it. */
+export function rowOff(r: Pick<TrackRow, 'in_playlists' | 'own'>): boolean {
+  return !r.in_playlists && !r.own;
+}
+/** Why a dimmed leftover row is dimmed. The Folder column says it too ("Not in a playlist"), but only at the widths
+ *  that show that column; this is the same word on the title cell at every width. */
+export const ROW_OFF_REASON = 'Not in any playlist any more';
+/** The title cell's tooltip: the full name (the cell cuts a long one), and under it, for a dimmed leftover row, why it
+ *  is dimmed. An away row (drive or folder not there) keeps the name alone: its `AwayTag` says why it can't play. */
+export function rowTitleTip(r: Pick<LibraryRow, 'in_playlists' | 'own' | 'file_state'>, name: string): string {
+  return rowOff(r) && rowAway(r) === null ? `${name}\n${ROW_OFF_REASON}` : name;
+}
+/** Whether a row's file is there to play: not when its drive is offline or its watched folder isn't found
+ *  (`file_state`, decided per folder by the engine). Enter, double-click and the cover play only such a row, and the
+ *  player's queue holds only these. */
+export function playable(r: Pick<LibraryRow, 'file_state'>): boolean {
+  return r.file_state === 'here';
+}
+/** An away row: dimmed like a leftover one (it can't play), and its `AwayTag` says why. */
+export function rowAway(r: Pick<LibraryRow, 'file_state'>): Exclude<LibraryRow['file_state'], 'here'> | null {
+  return r.file_state === 'here' ? null : r.file_state;
 }
 /** A row's folder cell: a track in no playlist reads so instead of the folder it sits in on disk. */
 export function folderCell(r: Pick<TrackRow, 'folder' | 'in_playlists'>): string {
@@ -111,11 +143,16 @@ export function footAction(t: Pick<TrackDetail, 'upgrade' | 'status' | 'upgrade_
   return inTodo(t) ? 'todo' : null;
 }
 
-/** The panel with nothing picked: the folder's lossless share (a StatCard over the quality bar). */
+/** The panel with nothing picked: the folder's lossless share (a StatCard over the quality bar). The share is over the
+ *  files whose sound is checked (views.library leaves the others out of `by_quality`), so the label says "checked"
+ *  as soon as some file isn't. */
 export function overview(s: Library['summary']): { value: string | null; unit?: string; label: string } {
-  if (!s.tracks || s.lossless_share === null) return { value: null, label: 'lossless · no tracks yet' };
+  if (!s.tracks) return { value: null, label: 'lossless · no tracks yet' };
+  if (s.lossless_share === null) return { value: null, label: 'lossless · none checked yet' };
+  const counted = Object.values(s.by_quality).reduce((n, c) => n + c, 0);
+  const noun = counted === s.tracks ? (s.tracks === 1 ? 'track' : 'tracks') : 'checked tracks';
   return { value: String(Math.round(s.lossless_share * 100)), unit: '%',
-    label: `lossless · ${s.by_quality.lossless} of ${s.tracks} ${s.tracks === 1 ? 'track' : 'tracks'}` };
+    label: `lossless · ${s.by_quality.lossless} of ${counted} ${noun}` };
 }
 
 /** The file's name from its path; the folder is in the track card already. */
@@ -138,9 +175,8 @@ export function shortUrl(url: string | null | undefined, max = 9): string {
   }
 }
 
-/** "Hard_Bounce · in 2 playlists" (null count → just the folder); a track in no playlist says so. */
-export function placeLine(folder: string, count: number | null | undefined, inPlaylists = true): string {
-  if (!inPlaylists) return 'Not in a playlist';
-  if (count === null || count === undefined) return folder;
-  return `${folder} · in ${count} ${count === 1 ? 'playlist' : 'playlists'}`;
+/** The panel head's place: the folder the file sits in; a track in no playlist says so. (Which playlists it is in is
+ *  the Playlists row, by name: a count here was cut at 1100 and named none of them.) */
+export function placeLine(folder: string, inPlaylists = true): string {
+  return inPlaylists ? folder : 'Not in a playlist';
 }

@@ -8,7 +8,7 @@ import sys
 import time
 
 from . import library, planner, report as rep, run
-from .console import ConsolePrinter
+from .console import ConsolePrinter, waiting_lines
 from .events import CancelToken
 from .library import LockHeld, NoLibrary
 
@@ -73,6 +73,8 @@ def sync(paths: library.Paths, args: argparse.Namespace) -> int:
         print(e)
         return 2
     print(rep.render_plan(prep.plan, full=args.dry_run))
+    for line in waiting_lines(prep.import_waiting, len(prep.plan.questions)):
+        print(line)
     if prep.needs_qobuz:
         print(run.budget_text(prep))
     if args.dry_run:

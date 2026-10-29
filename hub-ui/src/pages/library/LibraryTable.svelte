@@ -5,20 +5,24 @@
   // (To-do's), so every badge ends at one x. The optional columns appear as the table itself gets wider
   // (`@container list`, spec §3): Source, then Added; in All tracks Folder first. Above 300 rows only the visible
   // ones are rendered (windowSlice). ↑ / ↓ select, Enter plays, right-click opens the shared menu; the cover is the
-  // row's play button (▶ while the row is hovered, ❚❚ while it plays).
-  import { Badge, ContextMenu, Cover, InfoTip, QualityBadge, Skeleton, SortHeader, Surface } from '$lib/components';
+  // row's play button (▶ while the row is hovered, ❚❚ while it plays). A row whose file is away (its drive offline, its
+  // watched folder not found: `file_state`) is dimmed, says why with an `AwayTag` in the quality column (the one fixed
+  // column wide enough for "Folder not found" at every width; the quality stays in the panel and the filters), and
+  // doesn't play: no ▶ on its cover, double-click and Enter do nothing, the menu has no Show in Finder.
+  import { AwayTag, Badge, ContextMenu, Cover, InfoTip, QualityBadge, Skeleton, SortHeader, Surface } from '$lib/components';
   import { artistTitle, dayMonth, duration } from '$lib/format';
-  import type { LibrarySort, TrackRow } from '$lib/bridge/types';
+  import type { LibraryRow, LibrarySort } from '$lib/bridge/types';
   import {
-    folderCell, inTodo, moveSelection, optionalColumns, scrollToCenter, scrollToKeep, selectedIndex, sortState,
-    windowSlice, type SortColumn,
+    folderCell, inTodo, moveSelection, optionalColumns, playable, rowAway, rowOff, rowTitleTip, scrollToCenter, scrollToKeep, selectedIndex,
+    sortState, windowSlice, type LibraryView, type SortColumn,
   } from './libraryModel';
 
-  let { rows, loading = false, allTracks = false, sort, selected, playing = null, onsort, onselect, onplay, onfinder,
+  let { rows, loading = false, view = 'folder', sort, selected, playing = null, onsort, onselect, onplay, onfinder,
     ontodo }: {
-    rows: TrackRow[]; loading?: boolean;
-    /** All tracks (or Not in a playlist): the rows come from several folders, so Folder is a column */
-    allTracks?: boolean; sort: LibrarySort; selected: string | null;
+    rows: LibraryRow[]; loading?: boolean;
+    /** All tracks: the rows come from several folders, so Folder is a column. A folder and Not in a playlist (whose
+     *  rows would all say the same) show Source first. */
+    view?: LibraryView; sort: LibrarySort; selected: string | null;
     /** the track playing now */
     playing?: string | null;
     onsort: (c: SortColumn) => void; onselect: (id: string) => void; onplay: (id: string) => void;
@@ -35,10 +39,11 @@
   let rowH = $state(38);
   let hovered = $state<string | null>(null);
   let centred = false;
-  let menu: { id: string; x: number; y: number; todo: boolean } | null = $state(null);
+  let menu: { id: string; x: number; y: number; todo: boolean; finder: boolean } | null = $state(null);
 
   const st = $derived(sortState(sort));
-  const extra = $derived(optionalColumns(allTracks));
+  const extra = $derived(optionalColumns(view));
+  const allTracks = $derived(view === 'all');
   const slice = $derived(windowSlice(scrollTop, viewport, rowH, rows.length));
   const visible = $derived(rows.slice(slice.start, slice.end));
   const sorted = (c: SortColumn) => (st.column === c ? (st.desc ? 'desc' : 'asc') : null);
@@ -74,15 +79,18 @@
       if (id) onselect(id);
     } else if (e.key === 'Enter' && selected) {
       e.preventDefault();
-      onplay(selected);
+      const r = rows.find((x) => x.track_id === selected);
+      if (r && playable(r)) onplay(selected);   // an away row's file isn't there: nothing to try
     } else if (e.key === 'Escape' && menu) {
       menu = null;
     }
   }
-  function context(e: MouseEvent, r: TrackRow) {
+  function context(e: MouseEvent, r: LibraryRow) {
     e.preventDefault();
     onselect(r.track_id);
-    menu = { id: r.track_id, x: e.clientX, y: e.clientY, todo: inTodo(r) };
+    // an away file can't be shown in Finder (the panel offers it only for a file that is there)
+    const finder = playable(r), todo = inTodo(r);
+    menu = finder || todo ? { id: r.track_id, x: e.clientX, y: e.clientY, todo, finder } : null;
   }
   function pick(fn: (id: string) => void) {
     const id = menu?.id;
@@ -113,23 +121,27 @@
   {:else}
     <div class="spacer" aria-hidden="true" data-test="spacer-above" style:height="{slice.start * rowH}px"></div>
     {#each visible as r (r.track_id)}
+      {@const away = rowAway(r)}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <div class="tr" class:all={allTracks} class:sel={r.track_id === selected} class:off={!r.in_playlists} role="row"
-        tabindex="-1" aria-selected={r.track_id === selected} data-test="row-{r.track_id}"
-        onclick={() => onselect(r.track_id)} ondblclick={() => onplay(r.track_id)} oncontextmenu={(e) => context(e, r)}
+      <div class="tr" class:all={allTracks} class:sel={r.track_id === selected} class:off={rowOff(r) || !!away} role="row"
+        tabindex="-1" aria-selected={r.track_id === selected} data-test="row-{r.track_id}" data-away={away}
+        onclick={() => onselect(r.track_id)} ondblclick={() => { if (!away) onplay(r.track_id); }}
+        oncontextmenu={(e) => context(e, r)}
         onpointerenter={() => (hovered = r.track_id)} onpointerleave={() => { if (hovered === r.track_id) hovered = null; }}>
-        <span class="td title" title={artistTitle(r.artist, r.title)}>
+        <span class="td title" title={rowTitleTip(r, artistTitle(r.artist, r.title))}>
           <span class="cov"><Cover url={r.cover_url} seed={r.track_id} size={22} playing={playing === r.track_id}
-            hint={hovered === r.track_id} name={artistTitle(r.artist, r.title)} onplay={() => onplay(r.track_id)} /></span>
+            hint={hovered === r.track_id} name={artistTitle(r.artist, r.title)}
+            onplay={away ? undefined : () => onplay(r.track_id)} /></span>
           <span class="cut">{r.title}</span>
         </span>
         <span class="td cut sub">{r.artist}</span>
         {#each extra as c, i (c)}
-          <span class="td cut sub o o{i + 1}" class:quiet={c === 'folder' && !r.in_playlists}>
+          <span class="td cut sub o o{i + 1}" class:quiet={c === 'folder' && rowOff(r)}>
             {c === 'folder' ? folderCell(r) : c === 'source' ? (r.source_name ?? '–') : (dayMonth(r.added) || '–')}</span>
         {/each}
         <span class="td num">{duration(r.duration_s)}</span>
-        <span class="td"><QualityBadge quality={r.quality} label={r.quality_label} /></span>
+        <span class="td">{#if away}<AwayTag state={away} test="away-{r.track_id}" />{:else}<QualityBadge
+          quality={r.quality} label={r.quality_label} checked={r.sound_checked} />{/if}</span>
         <span class="td slot">{#if r.upgrade_ready}<Badge tone="lossless" text="UPGRADE" />{/if}</span>
       </div>
     {/each}
@@ -139,7 +151,7 @@
 
 {#if menu}
   <ContextMenu x={menu.x} y={menu.y} test="library-context-menu" onclose={() => (menu = null)}
-    items={[{ label: 'Show in Finder', onpick: () => pick(onfinder) },
+    items={[...(menu.finder ? [{ label: 'Show in Finder', onpick: () => pick(onfinder) }] : []),
       ...(menu.todo ? [{ label: 'Open in to-do', test: 'menu-todo', onpick: () => pick(ontodo) }] : [])]} />
 {/if}
 

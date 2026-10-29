@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { installBridge, _resetBridge } from '../bridge/client';
 import { dispatch } from '../bridge/events';
-import { EMPTY_HUB, hub, refreshHub, refreshOnNoLibrary, readBlockIn, readNeedsSetupIn, reduceHub } from './hub';
+import { EMPTY_HUB, dataVersion, filesVersion, hub, refreshHub, refreshOnNoLibrary, readBlockIn, readNeedsSetupIn, reduceHub } from './hub';
 import type { SetupStatus, SpotifyStatus } from '../bridge/types';
 
 describe('reduceHub', () => {
@@ -24,6 +24,18 @@ describe('reduceHub', () => {
       result: null });
     expect(s.sign_in).toMatchObject({ id: 5, running: false });
     expect(s.job).toMatchObject({ id: 6, running: true });
+  });
+  it("keeps the running import's last ImportProgress on its job, and only there", () => {
+    const p = { type: 'ImportProgress' as const, phase: 'tags' as const, done: 40, total: 300, unreadable: 1 };
+    expect(reduceHub(EMPTY_HUB, p)).toBe(EMPTY_HUB);
+    const sync = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 2, kind: 'sync', track_id: null });
+    expect(reduceHub(sync, p).job?.last.ImportProgress).toBeUndefined();
+    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 3, kind: 'import', track_id: null });
+    s = reduceHub(s, p);
+    expect(s.job?.last.ImportProgress).toEqual(p);
+    s = reduceHub(s, { type: 'JobFinished', job_id: 3, kind: 'import', ok: true, problem: null, message: 'Imported 300 files.',
+      result: null });
+    expect(reduceHub(s, { ...p, done: 41 }).job?.last.ImportProgress).toEqual(p);
   });
   it('a refresh is not a write job', () => {
     const s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 1, kind: 'refresh', track_id: null });
@@ -250,5 +262,31 @@ describe('readNeedsSetupIn: a not_set_up without a service is a missing playlist
     expect(readNeedsSetupIn({ ...ok, problem: null }, null)).toBe(false);
     expect(readNeedsSetupIn({ ...ok, problem_service: 'qobuz' }, null)).toBe(false);
     expect(readNeedsSetupIn({ ...ok, services: [{ service: 'qobuz', name: 'Qobuz', connected: false }] }, null)).toBe(false);
+  });
+});
+
+describe('a DrivesChanged event', () => {
+  afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
+  it("re-reads what shows a file's state and the sidebar, but not every page", async () => {
+    (globalThis as any).window = new EventTarget();
+    let sidebars = 0;
+    installBridge({
+      job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: false, spotify: null,
+        sign_in: null }),
+      setup_status: async () => ({ ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }),
+      sidebar: async () => { sidebars++; return { ok: true, todo: 2, all_tracks: 5, folders: [], not_in_playlist: 3,
+        limits_warning: false }; },
+      app_update: async () => ({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null }),
+    });
+    const files = get(filesVersion), data = get(dataVersion);
+    dispatch({ type: 'DrivesChanged', away: 1 });
+    expect(get(filesVersion)).toBe(files + 1);
+    expect(get(dataVersion)).toBe(data);  // Sync, Playlists and the rest don't re-read for a drive
+    await refreshHub();
+    expect(sidebars).toBeGreaterThanOrEqual(1);
+    expect(get(hub).sidebar?.todo).toBe(2);
+    dispatch({ type: 'JobFinished', job_id: 1, kind: 'scan', ok: true, problem: null, message: '', result: null });
+    expect(get(filesVersion)).toBe(files + 2);  // a finished job counts for both
+    await refreshHub();
   });
 });

@@ -43,6 +43,9 @@
       "$ref": "#/$defs/MovesProgress"
     },
     {
+      "$ref": "#/$defs/ImportProgress"
+    },
+    {
       "$ref": "#/$defs/JobStarted"
     },
     {
@@ -59,6 +62,9 @@
     },
     {
       "$ref": "#/$defs/AppUpdate"
+    },
+    {
+      "$ref": "#/$defs/DrivesChanged"
     }
   ],
   "$defs": {
@@ -395,6 +401,40 @@
       ],
       "additionalProperties": false
     },
+    "ImportProgress": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "ImportProgress"
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "scan",
+            "tags",
+            "sound",
+            "link"
+          ]
+        },
+        "done": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "unreadable": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "phase",
+        "done",
+        "total",
+        "unreadable"
+      ],
+      "additionalProperties": false
+    },
     "JobStarted": {
       "type": "object",
       "properties": {
@@ -577,6 +617,22 @@
         "current",
         "latest",
         "url"
+      ],
+      "additionalProperties": false
+    },
+    "DrivesChanged": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "DrivesChanged"
+        },
+        "away": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "away"
       ],
       "additionalProperties": false
     },

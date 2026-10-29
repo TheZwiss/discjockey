@@ -657,6 +657,32 @@ def test_tidy_rows_lists_files_outside_their_target_and_ticks_by_placed_by():
     assert [r.ticked for r in rows] == [True, False, False]
 
 
+IMPORT = "/Volumes/Example/Music"  # an import folder: its files have absolute snapshot paths
+
+
+def test_tidy_target_of_a_file_in_an_import_folder_is_its_playlist_folder_in_library():
+    assert tidy_target(entry("F", path=f"{IMPORT}/House/a.flac")) == "Library/F/a.flac"
+    assert tidy_target(entry("F", status="not_lossless", path=f"{IMPORT}/b.mp3")) == "Library/F/not_lossless/b.mp3"
+
+
+def test_tidy_rows_an_import_file_in_a_playlist_is_an_unticked_row():
+    rows = tidy_rows(tidy_state(a=tidy_entry("F", f"{IMPORT}/House/a.flac", 1, "import")))
+    assert rows == [TidyRow("a", 1, f"{IMPORT}/House/a.flac", "Library/F/a.flac", "import", None)]
+    assert not rows[0].ticked
+
+
+def test_tidy_rows_an_offline_import_file_is_offline_and_a_taken_name_is_name_taken():
+    s = tidy_state(files=[f"{IMPORT}/b.flac", "Library/F/b.flac"],
+                   a=tidy_entry("F", f"{IMPORT}/a.flac", 1, "import", online=False),
+                   b=tidy_entry("F", f"{IMPORT}/b.flac", 2, "import"))
+    assert [(r.track_id, r.skip) for r in tidy_rows(s)] == [("a", "offline"), ("b", "name_taken")]
+
+
+def test_a_song_of_the_users_own_has_no_tidy_target():
+    own = tidy_entry(None, f"{IMPORT}/c.flac", 3, "import", in_playlists=False)
+    assert tidy_target(own) is None and tidy_rows(tidy_state(**{"local:1": own})) == []
+
+
 def test_tidy_rows_a_case_only_folder_difference_is_no_move():
     assert tidy_rows(tidy_state(a=tidy_entry("Hard_Bounce", "Library/hard_bounce/a.aiff"))) == []
 
@@ -759,3 +785,252 @@ def test_tidy_rows_and_target_fold_nfd_against_nfc():
     assert [r.skip for r in tidy_rows(s)] == ["name_taken"]
     s = tidy_state(files=[f"Library/G/{nfd}.aiff"], a=tidy_entry("F", f"Library/G/{nfc}.aiff"))
     assert [r.skip for r in tidy_rows(s)] == [None]
+
+
+# --- the user's own songs (plan library stage 4, I4) ---
+
+IMPORTED = "/Volumes/Example/Music"
+
+
+def own_entry(n, title="Night Drive", artist="Example Artist", dur=200000, status="lossless", import_state="done",
+              first_seen="2026-10-01T10:00:00", **kw):
+    """A song of the user's own: an imported file in no playlist."""
+    e = entry(None, status=status, title=title, artist=artist, duration_ms=dur, in_playlists=False, source="manual",
+              source_id=None, source_format="mp3" if status in ("not_lossless", "fake_lossless") else "flac",
+              path=f"{IMPORTED}/{artist} - {title} {n}.mp3", file_id=100 + n, placed_by="import", online=True,
+              held=False, import_state=import_state, first_seen=first_seen, last_attempt=None)
+    e.update(kw)
+    return e
+
+
+def own_state(*playlist, decisions=None, **own):
+    """A state with own songs (`local:<n>` keys, given as n1=…, n2=…) and playlist songs ((key, entry) pairs)."""
+    s = st()
+    s["tracks"] = {f"local:{k[1:]}": e for k, e in own.items()} | dict(playlist)
+    s["decisions"] = decisions or {"same_song": [], "keep_both": []}
+    return s
+
+
+def files_of(s):
+    return [e["path"] for e in s["tracks"].values() if e.get("path")]
+
+
+def night(id="t1", dur=200000, artist="Example Artist", isrc=None, title="Night Drive"):
+    return tr(id, title, artist, dur, isrc)
+
+
+def test_a_new_track_certainly_an_own_song_links_to_it_with_a_note():
+    s = own_state(n1=own_entry(1))
+    p = plan([pl("A", night(dur=201000))], s, files_of(s), TODAY)
+    assert kinds(p) == [] and p.questions == []
+    assert p.state["tracks"]["local:1"]["aliases"] == ["t1"]
+    assert p.state["tracks"]["local:1"]["in_playlists"] is True
+    assert p.notes == ["Example Artist - Night Drive: the same song as a file of yours, not downloaded."]
+
+
+def test_an_isrc_link_to_an_own_song_keeps_the_three_second_check():
+    s = own_state(n1=own_entry(1, title="Something Else", isrc="DEX1"))
+    p = plan([pl("A", night(dur=202500, isrc="dex1"))], s, files_of(s), TODAY)
+    assert p.state["tracks"]["local:1"]["aliases"] == ["t1"]
+    p = plan([pl("A", night(dur=203500, isrc="DEX1"))], s, files_of(s), TODAY)
+    assert kinds(p) == [("acquire", "t1")]
+
+
+def test_two_different_isrcs_never_link_to_an_own_song_by_name():
+    s = own_state(n1=own_entry(1, isrc="DEX2"))
+    p = plan([pl("A", night(isrc="DEX1"))], s, files_of(s), TODAY)
+    assert kinds(p) == [("acquire", "t1")] and p.questions == []
+
+
+def test_a_plausible_own_song_holds_the_new_track_with_a_question():
+    s = own_state(n1=own_entry(1, artist="Another Artist", dur=201000))
+    p = plan([pl("A", night())], s, files_of(s), TODAY)
+    assert kinds(p) == []
+    [q] = p.questions
+    assert (q.song_key, q.folder, q.own_key, q.file_id, q.why, q.delta_s) == ("t1", "A", "local:1", 101, "artist", 1)
+    assert q.track.id == "t1"
+    assert p.state["tracks"]["local:1"]["aliases"] == []
+
+
+def test_a_question_says_when_the_own_file_has_no_artist_or_the_length_differs():
+    s = own_state(n1=own_entry(1, artist=""))
+    [q] = plan([pl("A", night())], s, files_of(s), TODAY).questions
+    assert q.why == "no_artist"
+    s = own_state(n1=own_entry(1, dur=193000))
+    [q] = plan([pl("A", night())], s, files_of(s), TODAY).questions
+    assert (q.why, q.delta_s) == ("length", -7)
+
+
+@pytest.mark.parametrize("own_ms, track_ms", [(None, 200000), (200000, 0), (None, 0)])
+def test_a_question_without_a_length_says_so_and_has_no_difference(own_ms, track_ms):
+    s = own_state(n1=own_entry(1, dur=own_ms))
+    p = plan([pl("A", night(dur=track_ms))], s, files_of(s), TODAY)
+    [q] = p.questions
+    assert (q.why, q.delta_s) == ("no_length", None)
+    assert kinds(p) == [] and p.state["tracks"]["local:1"]["aliases"] == []  # never linked without asking
+
+
+def test_an_answer_not_same_lets_the_track_download():
+    s = own_state(n1=own_entry(1, artist="Another Artist"),
+                  decisions={"same_song": [["t1", "local:1", "not_same"]], "keep_both": []})
+    p = plan([pl("A", night())], s, files_of(s), TODAY)
+    assert kinds(p) == [("acquire", "t1")] and p.questions == []
+
+
+def test_an_answer_same_links_the_track():
+    s = own_state(n1=own_entry(1, title="Totally Different", artist="Another Artist", dur=150000),
+                  decisions={"same_song": [["t1", "local:1", "same"]], "keep_both": []})
+    p = plan([pl("A", night())], s, files_of(s), TODAY)
+    assert kinds(p) == [] and p.questions == []
+    assert p.state["tracks"]["local:1"]["aliases"] == ["t1"]
+    assert p.notes
+
+
+def test_one_question_per_playlist_song_the_nearest_length():
+    s = own_state(n1=own_entry(1, dur=208000), n2=own_entry(2, dur=196000))
+    [q] = plan([pl("A", night())], s, files_of(s), TODAY).questions
+    assert q.own_key == "local:2"
+
+
+def test_one_question_per_own_song():
+    s = own_state(n1=own_entry(1, artist="Another Artist"))
+    p = plan([pl("A", night("t1"), night("t2", artist="Third Artist"))], s, files_of(s), TODAY)
+    assert [q.song_key for q in p.questions] == ["t1"]
+    assert kinds(p) == [("acquire", "t2")]
+
+
+def test_an_offline_own_song_is_not_asked_about():
+    s = own_state(n1=own_entry(1, artist="Another Artist", online=False))
+    p = plan([pl("A", night())], s, files_of(s), TODAY)
+    assert kinds(p) == [("acquire", "t1")] and p.questions == []
+
+
+def test_desired_folders_follow_an_own_song_link():
+    s = own_state(n1=own_entry(1))
+    assert desired_folders([pl("A", night())], s) == {"local:1": "A"}
+
+
+# --- rules 2 and 3: missing songs and duplicates ---
+
+def missing_song(**kw):
+    return entry("A", status="missing", title="Night Drive", duration_ms=200000, artist="Example Artist", **kw)
+
+
+def test_a_missing_playlist_song_takes_over_an_own_songs_file():
+    s = own_state(("t1", missing_song(file_gone="2026-10-19")), n1=own_entry(1))
+    p = plan([pl("A", night())], s, files_of(s), TODAY)
+    assert "local:1" not in p.state["tracks"]
+    e = p.state["tracks"]["t1"]
+    assert (e["path"], e["status"], e["file_id"], e["placed_by"], e["import_state"]) == (
+        f"{IMPORTED}/Example Artist - Night Drive 1.mp3", "lossless", 101, "import", "done")
+    assert e["file_gone"] is None and e["in_playlists"] is True
+    assert kinds(p) == [] and p.questions == [] and p.duplicates == []
+    assert p.notes == ["Example Artist - Night Drive: the same song as a file of yours, not downloaded again."]
+    assert "local:1" in s["tracks"]  # input state untouched
+
+
+def test_a_merged_song_is_planned_for_like_any_other():
+    s = own_state(("t1", missing_song()), n1=own_entry(1, status="not_lossless"))
+    p = plan([pl("A", night())], s, files_of(s), TODAY)
+    assert kinds(p) == [("upgrade", "t1")]
+
+
+def test_a_missing_song_plausibly_an_own_song_is_held_with_a_question():
+    s = own_state(("t1", missing_song(last_attempt="2026-10-01")), n1=own_entry(1, dur=205000))
+    p = plan([pl("A", night())], s, files_of(s), TODAY)
+    assert kinds(p) == []
+    [q] = p.questions
+    assert (q.song_key, q.own_key, q.why, q.delta_s) == ("t1", "local:1", "length", 5)
+    assert p.state["tracks"]["local:1"]["path"]
+
+
+def test_a_missing_song_answered_not_same_is_downloaded():
+    s = own_state(("t1", missing_song(last_attempt="2026-10-01")), n1=own_entry(1, dur=205000),
+                  decisions={"same_song": [["t1", "local:1", "not_same"]], "keep_both": []})
+    p = plan([pl("A", night())], s, files_of(s), TODAY)
+    assert kinds(p) == [("acquire", "t1")] and p.questions == []
+
+
+def test_a_missing_song_answered_same_takes_the_file():
+    s = own_state(("t1", missing_song()), n1=own_entry(1, dur=205000),
+                  decisions={"same_song": [["t1", "local:1", "same"]], "keep_both": []})
+    p = plan([pl("A", night())], s, files_of(s), TODAY)
+    assert "local:1" not in p.state["tracks"] and p.state["tracks"]["t1"]["file_id"] == 101
+
+
+def placed_song(**kw):
+    return entry("A", path="Library/A/Example Artist - Night Drive.aiff", title="Night Drive",
+                 artist="Example Artist", duration_ms=200000, file_id=7, online=True, held=False, **kw)
+
+
+def test_a_song_with_a_file_and_an_own_song_that_certainly_is_it_are_a_same_song_group():
+    s = own_state(("t1", placed_song()), n1=own_entry(1, dur=201000), n2=own_entry(2, dur=150000))
+    p = plan([pl("A", night())], s, files_of(s), TODAY)
+    assert [(g.id, g.why, g.file_ids) for g in p.duplicates] == [("dup:7-101", "same_song", (7, 101))]
+    assert kinds(p) == [] and "local:1" in p.state["tracks"]
+
+
+def test_every_own_song_that_certainly_is_it_joins_one_group():
+    s = own_state(("t1", placed_song()), n1=own_entry(1), n2=own_entry(2, dur=199000))
+    [g] = plan([pl("A", night())], s, files_of(s), TODAY).duplicates
+    assert g.file_ids == (7, 101, 102)
+
+
+def test_keep_both_hides_a_same_song_group():
+    s = own_state(("t1", placed_song()), n1=own_entry(1), decisions={"same_song": [], "keep_both": ["dup:7-101"]})
+    assert plan([pl("A", night())], s, files_of(s), TODAY).duplicates == []
+
+
+def test_an_offline_own_song_is_no_duplicate():
+    s = own_state(("t1", placed_song()), n1=own_entry(1, online=False))
+    assert plan([pl("A", night())], s, files_of(s), TODAY).duplicates == []
+
+
+# --- rules 4 and 5: upgrade checks of imported files, the first-check cap (D9) ---
+
+def test_an_own_lossy_file_whose_sound_was_checked_gets_one_upgrade_check():
+    s = own_state(n1=own_entry(1, status="not_lossless"))
+    p = plan([pl("A", tr("t9"))], s, files_of(s), TODAY)
+    [a] = [a for a in p.actions if a.kind == "upgrade"]
+    assert (a.track_id, a.folder, a.order) == ("local:1", "", (1, 0))
+    assert (a.track.title, a.track.first_artist, a.track.duration_ms, a.track.key) == (
+        "Night Drive", "Example Artist", 200000, "local:1")
+
+
+@pytest.mark.parametrize("change", [
+    {"import_state": "identified"}, {"status": "lossless"}, {"online": False}, {"held": True},
+    {"duration_ms": None}, {"last_upgrade_check": "2026-10-18"},
+    {"upgrade": {"path": "Upgrades ready/x.aiff"}},
+])
+def test_no_upgrade_check_for_an_own_song_when(change):
+    s = own_state(n1=own_entry(1, **{"status": "not_lossless", **change}))
+    assert plan([], s, files_of(s), TODAY).actions == []
+
+
+def test_a_linked_imported_file_waits_for_its_sound_check():
+    s = own_state(n1=own_entry(1, status="not_lossless", import_state="identified", aliases=["t1"],
+                               in_playlists=True))
+    assert plan([pl("A", night())], s, files_of(s), TODAY).actions == []
+    s["tracks"]["local:1"]["import_state"] = "done"
+    assert kinds(plan([pl("A", night())], s, files_of(s), TODAY)) == [("upgrade", "local:1")]
+
+
+def lossy_song(id, **kw):
+    return entry("A", status="not_lossless", path=f"Library/A/not_lossless/{id}.mp3", title=f"Title {id}", **kw)
+
+
+def test_the_cap_keeps_playlist_first_checks_first_and_counts_the_rest():
+    s = own_state(("p1", lossy_song("p1")), ("p2", lossy_song("p2")),
+                  ("p3", lossy_song("p3", last_upgrade_check="2026-10-01")),  # a weekly check, not a first one
+                  n1=own_entry(1, status="not_lossless", first_seen="2026-10-02T00:00:00"),
+                  n2=own_entry(2, title="Early", status="not_lossless", first_seen="2026-10-01T00:00:00"))
+    fetched = [pl("A", tr("p1"), tr("p2"), tr("p3"))]
+    p = plan(fetched, s, files_of(s), TODAY)
+    assert kinds(p) == [("upgrade", "p1"), ("upgrade", "p2"), ("upgrade", "p3"), ("upgrade", "local:2"),
+                        ("upgrade", "local:1")]
+    assert p.deferred_checks == 0  # None: no cap
+    p = plan(fetched, s, files_of(s), TODAY, first_checks=3)
+    assert kinds(p) == [("upgrade", "p1"), ("upgrade", "p2"), ("upgrade", "p3"), ("upgrade", "local:2")]
+    assert p.deferred_checks == 1
+    p = plan(fetched, s, files_of(s), TODAY, first_checks=0)
+    assert kinds(p) == [("upgrade", "p3")] and p.deferred_checks == 4

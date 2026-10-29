@@ -5,6 +5,8 @@ import re
 import unicodedata
 from pathlib import PurePosixPath
 
+from .models import OWN_PREFIX
+
 MAX_STEM_BYTES = 200
 _FORBIDDEN = set('/:\\?*"<>|')
 
@@ -37,9 +39,20 @@ def split_name(name: str) -> tuple[str, str]:
     return p.stem, p.suffix
 
 
+def id_tags(track_id: str) -> list[str]:
+    """The tags a file name takes, in order, when the name without one is taken: a song's ID, short then whole
+    (`[abc123]`, `[abc123XYZ]`); an own song's key `local:<n>` as `[local <n>]`, without the colon, which Finder
+    shows as "/". None for "" (a file of no song)."""
+    if not track_id:
+        return []
+    if track_id.startswith(OWN_PREFIX):
+        return [f"[local {track_id[len(OWN_PREFIX):]}]"]
+    return [f"[{track_id[:6]}]", f"[{track_id}]"]
+
+
 def strip_id_suffix(name: str, track_id: str) -> str:
     stem, ext = split_name(name)
-    for suffix in (f" [{track_id}]", f" [{track_id[:6]}]"):
+    for suffix in (f" {tag}" for tag in reversed(id_tags(track_id))):  # the whole ID first
         if stem.endswith(suffix):
             return stem[: -len(suffix)] + ext
     return name

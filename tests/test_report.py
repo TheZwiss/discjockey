@@ -5,7 +5,8 @@ from discjockey.events import Result
 from discjockey.library import Paths
 from discjockey.models import Action, Plan, SourceTrack
 from discjockey.report import (
-    SECTIONS, RunLog, render_not_lossless, render_plan, render_report, summary, upgrades_waiting, write_not_lossless,
+    SECTIONS, RunLog, render_line, render_not_lossless, render_plan, render_report, summary, upgrades_waiting,
+    write_not_lossless,
     write_run,
 )
 
@@ -80,6 +81,16 @@ def test_render_plan_counts_and_truncates():
     assert "Download (new): 25" in text and "... and 5 more" in text
     assert "Add a bought file: 1" in text and "[A] Artist - Song m1" in text
     assert "... and" not in render_plan(Plan({"tracks": {}}, actions, [], [], []), full=True)
+
+
+def test_a_song_of_the_users_own_is_labelled_your_music():
+    own = SourceTrack("1", "Night Drive", ("Example Artist",), "", None, 200000, None, service="local")
+    plan = Plan({"tracks": {}}, [Action("upgrade", "local:1", "", own, (1, 0))], [], [], [])
+    text = render_plan(plan, full=True)
+    assert "    [your music] Example Artist - Night Drive" in text and "[]" not in text
+    line = render_line(Result("checked", "", "Example Artist", "Night Drive", "local:1", "no better version yet"))
+    assert line == "- [your music] Example Artist - Night Drive — no better version yet"
+    assert render_line(Result("checked", "A", "Artist", "Song", "t1")).startswith("- [A] Artist - Song")
 
 
 def test_render_plan_up_to_date():

@@ -12,7 +12,7 @@ function row(from: string, to: string, extra: Partial<TidyRow> = {}): TidyRow {
   n += 1;
   return {
     track_id: `t${n}`, artist: 'A', title: `T${n}`, folder: to, duration_s: 200, status: 'lossless', quality: 'lossless',
-    quality_label: 'Lossless', cutoff_hz: null, source: null, source_name: null, in_playlists: true, hidden: false,
+    quality_label: 'Lossless', cutoff_hz: null, source: null, source_name: null, in_playlists: true, own: false, hidden: false,
     upgrade_ready: false, path: `Library/${from}/A - T${n}.aiff`, added: null, cover_url: null,
     file_id: n, from, to, from_path: `Library/${from}/A - T${n}.aiff`, placed_by: 'app', ticked: true, yours: false,
     skip: null, by_rename: null, ...extra,
