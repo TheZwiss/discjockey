@@ -1379,15 +1379,31 @@ def removal_counts(conn: sqlite3.Connection, folder_id: int) -> RemovalCounts:
     return _removal_counts(conn, folder_id)
 
 
+def _unlink_own_keys(conn: sqlite3.Connection, folder_id: int) -> None:
+    """A playlist song that got its file by a link to an own song keeps that song's `local:<n>` key (its track token
+    is an alias). Losing the file here, it goes back to its first alias as its key, as if it had never been linked:
+    no `local:` key reaches a view, the next plan finds the song by its token. The own key's answers go with it
+    (_drop_dead_decisions, after). A song with no alias keeps its key."""
+    for song, key in conn.execute(f"SELECT s.id, s.key FROM songs s WHERE s.in_playlists = 1 AND {_IS_OWN} "
+                                  f"AND {_LOSING}", (folder_id,)).fetchall():
+        alias = conn.execute("SELECT service, id FROM song_ids WHERE song = ? AND NOT (service = ? AND id = ?) "
+                             "ORDER BY rowid LIMIT 1", (song, *split_token(key))).fetchone()
+        if alias is not None:
+            conn.execute("DELETE FROM song_ids WHERE song = ? AND service = ? AND id = ?", (song, *split_token(key)))
+            conn.execute("UPDATE songs SET key = ? WHERE id = ?", (token(*alias), song))
+
+
 def remove_watched_folder(conn: sqlite3.Connection, folder_id: int, today: date) -> RemovalCounts:
     """Stops watching an import folder (D12), in one transaction; its files stay where they are. Its file rows go;
-    every playlist song left with no file gets file_gone today (rule 2 downloads it again if it is still wanted);
+    every playlist song left with no file gets file_gone today (rule 2 downloads it again if it is still wanted; one
+    linked to an own song gets its playlist key back, _unlink_own_keys);
     own songs left with no file go (a parked upgrade's file stays in Upgrades ready/), with the answers naming
     them and the keep_both answers of groups with one of its files (_drop_dead_decisions). The Library folder or an unknown id is
     ValueError. Returns removal_counts as they were."""
     with transaction(conn):
         _import_folder(conn, folder_id)
         counts = _removal_counts(conn, folder_id)
+        _unlink_own_keys(conn, folder_id)
         conn.execute(f"UPDATE songs AS s SET file_gone = ?2 WHERE {_LOSING}", (folder_id, str(today)))
         conn.execute("DELETE FROM files WHERE folder = ?", (folder_id,))
         conn.execute("DELETE FROM watched_folders WHERE id = ?", (folder_id,))

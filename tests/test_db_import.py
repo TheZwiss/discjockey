@@ -317,15 +317,21 @@ def link(lib, key, alias="sp9"):
                      (*db.split_token(alias), key))
 
 
-def test_removing_a_folder_keeps_a_linked_own_song_and_counts_it_as_a_redownload(lib):
+def test_removing_a_folder_counts_a_linked_own_song_as_a_redownload_and_gives_it_back_its_playlist_key(lib):
     folder, _, key = removal_setup(lib)
     link(lib, key)
     with lib.conn() as conn:
         db.set_decision(conn, "same_song", "sp9", key, "same", NOW)
         assert db.removal_counts(conn, folder) == db.RemovalCounts(files=3, redownload=2)
         assert db.remove_watched_folder(conn, folder, date(2026, 10, 26)) == db.RemovalCounts(3, 2)
-        assert db.decisions(conn)["same_song"] == [["sp9", key, "same"]]
-    assert lib.rows("SELECT key, file_gone, in_playlists FROM songs WHERE key = ?", key) == [(key, "2026-10-26", 1)]
+        assert db.decisions(conn)["same_song"] == []  # it names an own song that has no key any more
+    # as if it had never been linked: the playlist song's key, no trace of the own key
+    assert lib.rows("SELECT key, file_gone, in_playlists FROM songs WHERE key IN (?, 'sp9')", key) == [
+        ("sp9", "2026-10-26", 1)]
+    assert lib.rows("SELECT service, id FROM song_ids WHERE service = 'local' OR id = ?", key) == []
+    tracks = lib.snap()["tracks"]
+    assert not any(k.startswith("local:") for k in tracks) and tracks["sp9"]["aliases"] == []
+    assert (tracks["sp9"]["artist"], tracks["sp9"]["title"]) == ("Example Artist", "Own Track")
 
 
 def test_superseding_the_only_file_of_a_linked_own_song_keeps_the_song(lib):
