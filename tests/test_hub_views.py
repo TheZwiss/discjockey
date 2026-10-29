@@ -1479,3 +1479,15 @@ def test_the_detail_of_a_file_whose_sound_is_not_checked_yet_says_so():
     d = views.track_detail("local:2", own(source_format="pcm_s16le", placed_by="import"), [], TODAY)
     assert d["sound_checked"] is True and d["quality_line"] == "Your own file (PCM) · verified lossless"
     assert views.track_detail("t1", e(), [], TODAY)["sound_checked"] is True
+
+
+def test_a_file_in_an_import_folder_that_is_away_now_counts_as_offline():
+    mine = e("lossless", path="/Volumes/Example Drive/Music/x.wav", online=True)
+    other = e("lossless", path="/Volumes/Example Drive 2/x.wav", online=True)
+    away = ["/Volumes/Example Drive"]
+    assert views.track_detail("t1", mine, [], TODAY, away=away)["online"] is False
+    assert views.track_detail("t1", other, [], TODAY, away=away)["online"] is True  # another folder, same name start
+    assert views.track_detail("t1", mine, [], TODAY, away=[])["online"] is True
+    stored = e("lossless", path="/Volumes/Elsewhere/x.wav", online=False)
+    assert views.track_detail("t1", stored, [], TODAY, away=away)["online"] is False  # a stored 0 stays offline
+    assert views.track_detail("t1", e("missing"), [], TODAY, away=away)["online"] is True  # no file, nothing away

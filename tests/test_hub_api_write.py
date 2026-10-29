@@ -1066,3 +1066,36 @@ def test_the_sidebar_counts_duplicate_groups_without_loading_their_files(lib, mo
     assert total["duplicate"] == 1 and len(loaded) == 1  # the page lists the group, so it loads its files
     loaded.clear()
     assert api.sidebar()["todo"] == total["all"] and loaded == []
+
+
+def test_an_unplugged_import_folder_makes_its_files_offline_before_any_scan(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    key = sorted(own_songs(paths))[0]
+    file_id = own_songs(paths)[key]["file_id"]
+    with db.connect(paths.db_file) as conn:
+        assert conn.execute("SELECT online FROM files WHERE id = ?", (file_id,)).fetchone()[0] == 1
+    assert api.track(key)["track"]["online"] is True
+    assert api._file_path(file_id) is not None
+    gone = folder.with_name("Music (ejected)")
+    folder.rename(gone)  # the drive goes: no scan has run, the row still says online
+    with db.connect(paths.db_file) as conn:
+        assert conn.execute("SELECT online FROM files WHERE id = ?", (file_id,)).fetchone()[0] == 1
+    assert api.track(key)["track"]["online"] is False
+    assert api.watched_folders()["folders"][1]["state"] == "offline"  # the same answer as Settings
+    assert api._file_path(file_id) is None  # the media vetting refuses too: the file can't be resolved
+    gone.rename(folder)  # plugged back in
+    assert api.track(key)["track"]["online"] is True
+    assert api.watched_folders()["folders"][1]["state"] == "online"
+    assert api._file_path(file_id) is not None
+
+
+def test_a_stored_offline_file_stays_offline_even_when_its_folder_is_there(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    key = sorted(own_songs(paths))[0]
+    with db.connect(paths.db_file) as conn:
+        conn.execute("UPDATE files SET online = 0 WHERE id = ?", (own_songs(paths)[key]["file_id"],))
+    assert api.track(key)["track"]["online"] is False

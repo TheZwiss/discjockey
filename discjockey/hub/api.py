@@ -20,6 +20,7 @@ import tomllib
 import traceback
 import unicodedata
 import webbrowser
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime
 from pathlib import Path, PurePosixPath
@@ -486,7 +487,7 @@ class HubApi:
                 groups += found
                 files = {g.id: db.group_files(conn, g.id) for g in groups if g.id not in counted}
         return views.todo(state, filt, show_hidden, self._others(state), self._today(), self._cover(self._images()),
-                          questions, groups, files, self._audio, counted)
+                          questions, groups, files, self._audio, counted, self._away_roots())
 
     # --- read, any time ---
 
@@ -598,7 +599,7 @@ class HubApi:
             planned = (prep.state["tracks"].get(track_id) or {}).get("aliases") or []
             e = {**e, "aliases": list(dict.fromkeys([*(e.get("aliases") or []), *planned]))}
         detail = views.track_detail(track_id, e, prep.fetched if prep else [], self._today(),
-                                    self._cover(self._images()), self._audio)
+                                    self._cover(self._images()), self._audio, self._away_roots())
         self._remember(state, [track_id])
         return {"track": detail}
 
@@ -609,6 +610,19 @@ class HubApi:
         # a question or a duplicate group is not a track the page can act on (hide, upgrade, …): nothing to remember
         self._remember(state, [i["track_id"] for g in out["groups"] for i in g["items"] if "pair" not in i])
         return out
+
+    @staticmethod
+    def _offline_folders(rows: Sequence[WatchedFolder]) -> list[WatchedFolder]:
+        """The import folders among `rows` whose path is not a folder right now (an unplugged drive). Checked live:
+        the files' stored `online` only changes with a scan. The one definition of "offline now"."""
+        return [f for f in rows if f.kind == "import" and not f.path.is_dir()]
+
+    def _away_roots(self) -> list[str]:
+        """The roots (as the files' snapshot paths start) of the import folders that are not there now, for the
+        views that send a file's `online`; looked up once per request."""
+        with self._move_log() as conn:
+            rows = db.watched_folders(conn) if conn is not None else []
+        return [str(f.path) for f in self._offline_folders(rows)]
 
     @bridge
     def watched_folders(self) -> dict:
@@ -631,7 +645,7 @@ class HubApi:
                 for f in rows:
                     if f.kind == "library":  # Library/ is listed like an import folder: its own waiting and unreadable
                         counts[f.id] = db.library_counts(conn)
-        offline = {f.id for f in rows if f.kind == "import" and not f.path.is_dir()}
+        offline = {f.id for f in self._offline_folders(rows)}
         return views.watched_folders(rows, counts, offline, library_files, unreadable, waiting, self._import_stopped,
                                      phase)
 
