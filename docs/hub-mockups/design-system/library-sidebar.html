@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Library sidebar – design system</title>
+<style>
+  body { margin: 0; padding: 24px; background: #111; color: #9a9aa0; font: 13px -apple-system, sans-serif; }
+  .bar { background: #111; padding: 0 0 14px; display: flex; flex-wrap: wrap; gap: 14px 18px; align-items: center; }
+  .bar h2 { margin: 0; color: #f2f2f4; font-size: 15px; }
+  .pick { display: inline-flex; border: 1px solid #333; border-radius: 8px; overflow: hidden; }
+  .pick button { background: none; border: 0; border-left: 1px solid #333; color: #9a9aa0; font: 12px -apple-system; padding: 6px 12px; cursor: pointer; }
+  .pick button:first-child { border-left: 0; }
+  .pick button.on { background: rgba(255,90,31,.16); color: #ff8a5a; }
+  .pick button:active { transform: scale(.96); }
+  .opt { margin: 26px 0 8px; color: #f2f2f4; font-size: 15px; font-weight: 700; }
+  .why { max-width: 1100px; margin: 0 0 12px; line-height: 1.55; }
+  .why b { color: #dcdce0; }
+  .stage { overflow: hidden; }
+  table.sig { border-collapse: collapse; max-width: 1100px; margin: 0 0 14px; line-height: 1.45; }
+  table.sig td, table.sig th { border-top: 1px solid #262629; padding: 6px 12px 6px 0; vertical-align: top; text-align: left; }
+  table.sig th { color: #dcdce0; font-weight: 600; }
+  table.sig td:first-child { white-space: nowrap; color: #dcdce0; }
+  section[hidden] { display: none; }
+  .zoom { margin-top: 18px; display: flex; gap: 28px; align-items: flex-start; }
+  .zoom .win { transform-origin: 0 0; }
+
+  /* ---- look 2 tokens (docs/hub-design-language.md, tokens.css), as library.html ---- */
+  .win { --bg: #000; --sb-bg: linear-gradient(#0b0b0d, #070708); --sb-line: rgba(255,255,255,.06); --panel-bg: #040405; --text: #dcdce0; --text-strong: #f4f4f6; --muted: #9a9aa2; --label: #5c5c64; --nav: #7c7c84;
+    --accent: #ff5a1f; --accent-text: #ff8a5a; --ctl-line: rgba(255,255,255,.09); --ctl-bg: rgba(255,255,255,.03); --hover: rgba(255,255,255,.035);
+    --list-bg: linear-gradient(#0c0c0e, #08080a); --list-solid: #0b0b0d; --list-line: rgba(255,255,255,.06); --row-line: rgba(255,255,255,.045);
+    --card-bg: linear-gradient(#0f0f12, #0a0a0c); --card-line: rgba(255,255,255,.07); --card-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.6);
+    --good: #2fd27a; --ok: #e8b93a; --weak: #f0524a; --lossy: #a77bff; --missing: #c0504a; --wait: #e8b93a; --nav-on: rgba(255,255,255,.07);
+    transform-origin: 0 0; display: flex; overflow: hidden; border-radius: 12px; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; background: var(--bg); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  .win * { box-sizing: border-box; }
+
+  /* ---- the sidebar: the L frame's left arm ---- */
+  .sb { width: 168px; flex: none; padding: 16px 10px; background: var(--sb-bg); border-right: 1px solid var(--sb-line); display: flex; flex-direction: column; gap: 2px; min-height: 0; }
+  .brand { color: #9a9aa0; font-weight: 700; padding: 0 6px 12px; display: flex; gap: 6px; align-items: center; }
+  .brand i { width: 8px; height: 8px; border-radius: 50%; background: #9a9aa0; }
+  .nav { display: flex; align-items: center; height: 30px; flex: none; padding: 0 8px; border-radius: 7px; color: var(--nav); white-space: nowrap; min-width: 0; cursor: default; position: relative; }
+  .nav:hover { background: var(--ctl-bg); color: var(--text); }
+  .nav.on { color: var(--text-strong); background: var(--nav-on); }
+  /* a row: the 14 px glyph slot, 9 px, the name. The two views (All tracks, Not in a playlist) have no glyph and start at
+     the row's inset, as today; a subfolder has no glyph either: its name starts under its parent's name, 12 px a level deeper */
+  .g { width: 14px; height: 14px; flex: none; display: grid; place-items: center; font-size: 12px; margin-right: 9px; }
+  .g .gl, .g svg { opacity: .8; }
+  .nav.on .g svg { opacity: 1; }
+  .t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* the count column: one right edge for the whole Library group; in the folders its width is the widest folder count
+     (tabular digits), so the chevrons stand in one column */
+  .c { flex: none; min-width: var(--count-w, 14px); margin-left: 4px; text-align: right; font-size: 11px; color: var(--label); font-variant-numeric: tabular-nums; }
+  .nav.on .c { color: var(--muted); }
+  /* the disclosure: its own 10 px column, right before the count, only on rows that have subfolders */
+  .chev { flex: none; width: 10px; height: 22px; margin-left: 2px; display: grid; place-items: center; border-radius: 5px; color: var(--label); }
+  .chev svg { transition: transform 160ms cubic-bezier(.23,1,.32,1); }
+  .chev.open svg { transform: rotate(90deg); }
+  .chev:hover { color: var(--text); background: rgba(255,255,255,.06); }
+  .nav.on .chev { color: var(--muted); }
+  .warn-dot { position: absolute; top: 7px; left: 19px; width: 6px; height: 6px; border-radius: 50%; background: var(--wait); }
+  .sbcap { font-size: 11px; letter-spacing: .7px; text-transform: uppercase; color: var(--label); padding: 12px 7px 4px; flex: none; }
+  .lib { display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 0; overflow-y: auto; }
+  .gap { height: 6px; flex: none; }  /* 6 + the 2 px row gaps = 10 px between All tracks, playlists, folders, Not in a playlist */
+  .off { opacity: .5; }               /* switched off: the one dim the sidebar has */
+  /* StatusMark warn: the "!" of Settings → Watched folders and of AwayTag, for the same state */
+  .mark { width: 13px; height: 13px; border-radius: 50%; border: 1px solid rgba(232,185,58,.7); background: rgba(232,185,58,.14); color: var(--wait); font: 700 9px/11px -apple-system; text-align: center; }
+  .settings { margin-top: 8px; }
+
+  /* ---- the page ---- */
+  .main { flex: 1; min-width: 0; overflow: hidden; display: flex; justify-content: center; }
+  .col { width: 100%; max-width: 1244px; height: 100%; padding: 20px 22px 0; display: flex; flex-direction: column; gap: 14px; }
+  .col > * { flex: none; }
+  .hd { display: flex; align-items: center; gap: 10px; min-height: 34px; }
+  .hd h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-strong); letter-spacing: -.02em; white-space: nowrap; }
+  .hd .st { color: var(--muted); font-size: 12px; padding-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .search { margin-left: auto; flex: none; width: 240px; height: 34px; border-radius: 8px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--label); font-size: 12px; display: flex; align-items: center; gap: 8px; padding: 0 10px; }
+  .search kbd { margin-left: auto; font: 11px -apple-system; border: 1px solid var(--ctl-line); border-radius: 4px; padding: 1px 4px; color: var(--muted); }
+  .seg { display: flex; border: 1px solid var(--ctl-line); border-radius: 9px; background: var(--ctl-bg); overflow: hidden; height: 32px; }
+  .seg div { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--muted); border-left: 1px solid var(--ctl-line); white-space: nowrap; padding: 0 8px; }
+  .seg div:first-child { border-left: 0; }
+  .seg div b { font-weight: 500; color: var(--label); font-variant-numeric: tabular-nums; }
+  .seg div.on { background: rgba(255,90,31,.14); color: var(--accent-text); }
+  .seg div.on b { color: var(--accent-text); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--c); display: inline-block; }
+
+  .tbl { border-radius: 12px; background: var(--list-bg); border: 1px solid var(--list-line); min-width: 0; flex: 1 1 auto !important; min-height: 0; margin-bottom: 20px; display: flex; flex-direction: column; overflow: hidden; }
+  .scroll { flex: 1; min-height: 0; overflow: hidden; -webkit-mask-image: linear-gradient(#000 calc(100% - 18px), transparent); }
+  .th-row, .tr { display: grid; grid-template-columns: var(--cols); align-items: center; column-gap: 12px; padding: 0 14px; }
+  .th-row { height: 34px; border-bottom: 1px solid var(--row-line); background: var(--list-solid); flex: none; }
+  .tr { height: 36px; border-top: 1px solid var(--row-line); font-size: 12px; position: relative; }
+  .scroll > .tr:first-child { border-top: 0; }
+  .tr:hover { background: var(--hover); }
+  .hc { color: var(--label); font: 500 11px -apple-system; letter-spacing: .7px; text-transform: uppercase; white-space: nowrap; justify-self: start; }
+  .hc.on { color: var(--muted); }
+  .hc.r { justify-self: end; }
+  .info { justify-self: end; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--ctl-line); color: var(--muted); font: 600 10px -apple-system; display: grid; place-items: center; }
+  .pos { color: var(--label); font-variant-numeric: tabular-nums; justify-self: end; }
+  .t1 { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .cov { width: 22px; height: 22px; border-radius: 4px; flex: none; }
+  .cov.none { background: var(--ctl-bg); border: 1px dashed rgba(255,255,255,.14); }
+  .nm { color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+  /* the location note: after the title, quieter, and it gives way first (a long title cuts it to nothing, never the other way) */
+  .loc { color: var(--label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1000 auto; }
+  .cut { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .mu { color: var(--muted); } .lb { color: var(--label); }
+  .num2 { font-variant-numeric: tabular-nums; color: var(--muted); justify-self: end; }
+  .badge { justify-self: start; font: 600 11px -apple-system; letter-spacing: .3px; padding: 2px 6px; border-radius: 5px; border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); color: var(--c); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .badge.muted { --c: #8a8a92; }
+  /* a playlist's name as a badge: neutral outline, the name as the user wrote it (no capitals, no tracking) */
+  .pl { justify-self: start; max-width: 100%; display: inline-flex; gap: 4px; font: 500 11px -apple-system; padding: 2px 6px; border-radius: 5px; border: 1px solid rgba(255,255,255,.13); color: var(--muted); white-space: nowrap; overflow: hidden; }
+  .pl span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .pl b { font-weight: 500; color: var(--label); flex: none; }
+  .away { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; justify-self: start; }
+  .words { color: var(--muted); justify-self: start; white-space: nowrap; }
+  .tr.dim .t1 { opacity: .55; }
+  .sec { display: flex; align-items: baseline; gap: 8px; height: 32px; padding: 9px 14px 0; background: #0d0d10; border-top: 1px solid var(--row-line); border-bottom: 1px solid var(--row-line); }
+  .sec b { color: var(--text); font-size: 12px; font-weight: 600; }
+  .sec .cnt { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .sec .h { color: var(--label); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sec + .tr { border-top: 0; }
+
+  .panel { flex: none; width: 360px; background: var(--panel-bg); border-left: 1px solid var(--sb-line); padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .card { border-radius: 12px; background: var(--card-bg); border: 1px solid var(--card-line); box-shadow: var(--card-shadow); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .bign { font-size: 30px; font-weight: 700; color: var(--text-strong); line-height: 1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .bign small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .lbl { color: var(--label); font-size: 11px; margin-top: 4px; }
+  .qbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; }
+  .qbar i { display: block; background: var(--c); }
+  .q-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); }
+  .q-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .q-legend b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .surf { border-radius: 12px; background: var(--list-bg); border: 1px solid var(--list-line); }
+  .lrow { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto 12px; align-items: center; gap: 10px; height: 40px; padding: 0 14px; border-top: 1px solid var(--row-line); font-size: 12px; }
+  .lrow:first-child { border-top: 0; }
+  .lrow .n { color: var(--text); font-variant-numeric: tabular-nums; }
+  .lrow .chv { color: var(--label); }
+  .pfoot-hint { margin-top: auto; text-align: center; color: var(--label); font-size: 12px; padding: 4px 0 2px; }
+</style>
+</head><body>
+
+<div class="bar">
+  <h2>Library sidebar (stage 5)</h2>
+  <span>State <span class="pick" id="state"><button data-v="sidebar" class="on">a · The Library group</button><button data-v="playlist">b · A playlist</button><button data-v="folder">c · A folder</button></span></span>
+  <span class="lb" style="color:#6a6a70">1280 × 800 · shoot one state with <code>#sidebar</code>, <code>#playlist</code> or <code>#folder</code></span>
+</div>
+
+<section data-state="sidebar">
+  <div class="opt">a · The Library group: All tracks, the playlists, the folders, Not in a playlist</div>
+  <p class="why">The group stays rows of the sidebar, like Dashboard or Sync above it: the same 30 px rows, the same 14 px glyph slot, the same pill when selected, one right edge for every count. Nothing new floats, nothing reserves space. The four parts are told apart by a 10 px pause between them and by their icon, not by more captions: <b>playlists</b> carry a small mark naming their service (a letter in a ring: S Spotify, Q Qobuz), <b>folders</b> a folder outline, the two <b>views</b> (All tracks, Not in a playlist) no icon and start at the row's inset as today, because they come from nowhere (and "Not in a playlist" needs the width). <b>Subfolders:</b> a folder with subfolders that hold music has a chevron in its own column right before the count; it turns down when open, and choosing the folder opens it too, so clicking a folder is enough to find what is inside. A subfolder has no icon of its own: its name starts under its parent's name, 12 px further a level deeper, so a name like "Techno 2019" still fits the 168 px.</p>
+  <table class="sig">
+    <tr><th>Signal</th><th>Means exactly this, nowhere else</th></tr>
+    <tr><td>Row at half strength</td><td>A switched-off playlist (Playlists page): its files stay, nothing new downloads. Its count is its last read. The sidebar's only dim.</td></tr>
+    <tr><td>Yellow ! in the icon slot</td><td>The folder's drive isn't connected, or the folder isn't found: the same mark Settings → Watched folders and the Library's AwayTag use. Name and count stay at full strength, because the files are still in the library. Tooltip: "Offline: connect the drive" / "Folder not found".</td></tr>
+    <tr><td>S or Q in a ring</td><td>Which service the playlist is read from. Monochrome, the glyphs' grey; not a logo, not a colour.</td></tr>
+    <tr><td>Folder outline</td><td>A folder on disk: a watched folder of your own music, or a folder in Library/ that no playlist uses. Its subfolders have no icon; they indent under its name.</td></tr>
+    <tr><td>Number</td><td>Playlist: its songs (also those without a file yet). Folder: the files in it and below. All tracks, Not in a playlist: files.</td></tr>
+  </table>
+  <div class="stage" data-view="sidebar"></div>
+  <div class="opt">The sidebar at 2× (to check alignment)</div>
+  <div class="zoom" data-zoom></div>
+</section>
+
+<section data-state="playlist" hidden>
+  <div class="opt">b · A playlist: its songs wherever their files are, then what else is in its folder</div>
+  <p class="why">The playlist's songs in the playlist's order (the # column, the view's own default sort). A file outside the playlist's folder says where it is after the title, quieter than the title and giving way before it: <b>in Techno 2019</b> (a file of your own), <b>in Powertrance</b> (another playlist's folder). An offline file keeps the Library's AwayTag in the quality column and is dimmed (it can't play). A song with no file is dimmed with its words in the same column: <b>Waiting</b> (downloads at the next sync; no colour, nothing is wrong) or the red <b>NOT FOUND</b> To-do already shows. Under them, <b>Also in this folder</b>: files in Hard_Bounce that aren't in this playlist, as a section of the same table; a song that left every playlist is dimmed as everywhere, one in another playlist is not.</p>
+  <div class="stage" data-view="playlist"></div>
+</section>
+
+<section data-state="folder" hidden>
+  <div class="opt">c · A folder: the files physically in it and its subfolders</div>
+  <p class="why">A folder's view lists what is on disk there. <b>Subfolder</b> is a column (the first that appears as the table gets wider; "–" is the folder itself), and the default sort, so the files read in the order of the tree. <b>Playlist</b> is the name of the first playlist that holds the song, in your playlist order, as a neutral badge; "+1" when more hold it (the tooltip names them all). A file of your own in no playlist has no badge and is never dimmed. A file whose sound isn't checked yet keeps the neutral "Not checked" badge.</p>
+  <div class="stage" data-view="folder"></div>
+</section>
+
+<script>
+(function () {
+  // ---------- icons (14 px, monochrome, the glyphs' grey) ----------
+  const ring = (letter) => `<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="6.1" fill="none" stroke="currentColor" stroke-width="1.2"/><text x="7" y="9.9" text-anchor="middle" font-family="-apple-system, sans-serif" font-size="8" font-weight="700" fill="currentColor">${letter}</text></svg>`;
+  const SVC = { spotify: ring('S'), qobuz: ring('Q') };
+  const SVC_NAME = { spotify: 'Spotify', qobuz: 'Qobuz' };
+  const FOLDER = '<svg width="14" height="12" viewBox="0 0 14 12" aria-hidden="true"><path d="M1.2 2.2c0-.6.4-1 1-1h3.1l1.4 1.5h5.1c.6 0 1 .4 1 1v6.9c0 .6-.4 1-1 1H2.2c-.6 0-1-.4-1-1z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+  const CHEV = '<svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M2.6 1.2 5.6 4l-3 2.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const MARK = '<span class="mark" aria-hidden="true">!</span>';
+
+  // ---------- the sidebar's data (made up) ----------
+  const playlists = [
+    { name: 'Hard_Bounce', svc: 'spotify', songs: 14 },
+    { name: 'Powertrance', svc: 'spotify', songs: 31 },
+    { name: 'Qobuz_Picks', svc: 'qobuz', songs: 18 },
+    { name: 'Bouncy', svc: 'spotify', songs: 27 },
+    { name: 'Afterhour_Sonntag_Warmup_Classics', svc: 'qobuz', songs: 64 },
+    { name: '03_06_2026', svc: 'spotify', songs: 22, off: true },
+  ];
+  const folders = [
+    { key: 'old', name: 'Old Sets', path: '~/Music/Old Sets', depth: 0, files: 15, kids: true, open: true },
+    { key: 'techno', name: 'Techno 2019', path: '~/Music/Old Sets/Techno 2019', depth: 1, files: 6, kids: true, open: false },
+    { key: 'warm', name: 'Warmups', path: '~/Music/Old Sets/Warmups', depth: 1, files: 4 },
+    { key: 'drive', name: 'DJ Sets', path: 'Example Drive › DJ Sets', depth: 0, files: 86, away: 'Offline: connect the drive' },
+    { key: 'hard', name: 'Old_Hardstyle', path: 'Library/Old_Hardstyle · in no playlist', depth: 0, files: 12 },
+  ];
+
+  function sidebar(sel) {
+    const nav = (g, label, extra = '') => `<div class="nav"><span class="g"><span class="gl">${g}</span></span><span class="t">${label}</span>${extra}</div>`;
+    const view = (key, label, n) => `<div class="nav${sel === key ? ' on' : ''}" title="${label}"><span class="t">${label}</span><span class="c">${n}</span></div>`;
+    const pl = playlists.map((p) => `<div class="nav${p.off ? ' off' : ''}${sel === p.name ? ' on' : ''}" title="${p.name}\n${SVC_NAME[p.svc]} playlist · ${p.songs} songs${p.off ? '\nSwitched off: its files stay, nothing new downloads' : ''}">
+        <span class="g">${SVC[p.svc]}</span><span class="t">${p.name}</span><span class="c">${p.songs}</span></div>`).join('');
+    const fo = folders.map((f) => `<div class="nav${sel === f.key ? ' on' : ''}" style="padding-left:${f.depth ? 31 + 12 * (f.depth - 1) : 8}px" title="${f.path}${f.away ? '\n' + f.away : ''}">
+        ${f.depth ? '' : `<span class="g">${f.away ? MARK : FOLDER}</span>`}<span class="t">${f.name}</span>${f.kids ? `<span class="chev${f.open ? ' open' : ''}" title="${f.open ? 'Hide' : 'Show'} the subfolders of ${f.name}">${CHEV}</span>` : ''}<span class="c">${f.files}</span></div>`).join('');
+    return `<div class="sb"><div class="brand"><i></i>Discjockey</div>
+      ${nav('◉', 'Dashboard')}${nav('⟳', 'Sync')}${nav('✓', 'To-do', '<span class="c">18</span>')}${nav('≡', 'Playlists')}${nav('◔', 'Download limits')}
+      <div class="sbcap">Library</div>
+      <div class="lib">${view('all', 'All tracks', 412)}<div class="gap"></div>${pl}<div class="gap"></div>${fo}<div class="gap"></div>${view('unlisted', 'Not in a playlist', 41)}</div>
+      <div class="nav settings"><span class="g"><span class="gl">⚙</span></span><span class="t">Settings</span></div></div>`;
+  }
+
+  // ---------- tracks ----------
+  const C = { lossless: '--good', good_lossy: '--ok', weak: '--weak', fake: '--lossy', missing: '--missing' };
+  const grads = ['linear-gradient(135deg,#2fd27a,#1a7cff)', 'linear-gradient(135deg,#ff6a8a,#7a4cff)', 'linear-gradient(135deg,#1a7cff,#f0b93a)', 'linear-gradient(135deg,#f0b93a,#c04aff)', 'linear-gradient(135deg,#7a4cff,#2fd27a)', 'linear-gradient(135deg,#f0524a,#a77bff)'];
+  const qcell = (r) => {
+    if (r.away) return `<span class="away" title="Offline: connect the drive">${MARK}Offline</span>`;
+    if (r.wait === 'waiting') return '<span class="words" title="Downloads at the next sync">Waiting</span>';
+    if (r.wait === 'not_found') return '<span class="badge" style="--c:var(--missing)" title="Not found yet: next try in 5 days">NOT FOUND</span>';
+    if (r.unchecked) return '<span class="badge muted">NOT CHECKED</span>';
+    return `<span class="badge" style="--c:var(${C[r.q]})">${r.badge}</span>`;
+  };
+  const slot = (r) => `<span>${r.up ? '<span class="badge" style="--c:var(--good)">UPGRADE</span>' : ''}</span>`;
+  const t1 = (r, k, note) => `<span class="t1"><span class="cov${r.wait ? ' none' : ''}" style="${r.wait ? '' : `background:${grads[k % grads.length]}`}"></span><span class="nm">${r.t}</span>${note ? `<span class="loc">${note}</span>` : ''}</span>`;
+  const L = 'LOSSLESS';
+
+  // b · Hard_Bounce, in playlist order
+  const hb = [
+    { t: 'Get Naughty', a: 'Armin Hermann', len: '4:28', q: 'weak', badge: '16.0 kHz', up: true },
+    { t: 'Sternenstaub', a: 'Bassgewitter', len: '5:05', q: 'good_lossy', badge: '20.0 kHz', loc: 'in Techno 2019' },
+    { t: 'THE WEEKEND', a: 'DJ TALLBOY', len: '3:12', q: 'lossless', badge: L },
+    { t: 'Neonfieber', a: 'Kalte Nacht', len: '2:30', q: 'lossless', badge: L, loc: 'in Powertrance' },
+    { t: 'Wellenreiter', a: 'Kalte Nacht', len: '4:50', q: 'lossless', badge: L, loc: 'in DJ Sets', away: true },
+    { t: 'Funkenflug', a: 'Nachtfalter', len: '4:20', q: 'lossless', badge: L },
+    { t: 'Druckwelle', a: 'Remo Rush', len: '4:35', wait: 'waiting' },
+    { t: 'Kick it Hard', a: 'Remo Rush', len: '5:35', q: 'fake', badge: 'FAKE · 16.0 kHz' },
+    { t: 'Gimme Gimme', a: 'Vatoz Locoz', len: '2:36', wait: 'not_found' },
+    { t: 'Sunrise Tekk', a: 'Nachtfalter', len: '5:20', q: 'lossless', badge: L },
+    { t: 'Afterhour', a: 'Hardline Theory', len: '3:14', q: 'lossless', badge: L },
+    { t: 'Polarlicht', a: 'Mira Volt', len: '5:27', q: 'lossless', badge: L },
+    { t: 'Endlos', a: 'Neon Riot', len: '3:43', q: 'good_lossy', badge: '20.0 kHz' },
+    { t: 'Unterwasser', a: 'Kai Kickdrum', len: '2:51', q: 'lossless', badge: L },
+  ];
+  const hbAlso = [
+    { t: 'Vollgas', a: 'Echo Gruppe', len: '3:28', q: 'lossless', badge: L, left: true },
+    { t: 'Blitzlicht', a: 'Bounce Brigade', len: '3:06', q: 'lossless', badge: L },
+  ];
+  // c · Old Sets, sorted by subfolder
+  const old = [
+    { t: 'Funkenregen', a: 'Mira Nacht', len: '4:01', q: 'lossless', badge: L, sub: '', pls: ['Powertrance', 'Bouncy'] },
+    { t: 'Letzter Zug', a: 'Tom Brandt', len: '5:05', q: 'weak', badge: '16.0 kHz', sub: '', up: true },
+    { t: 'Stille Post', a: 'Mira Nacht', len: '3:18', q: 'lossless', badge: L, sub: '' },
+    { t: 'Nordlicht', a: 'Frau Funk', len: '4:44', q: 'good_lossy', badge: '20.0 kHz', sub: '', pls: ['Qobuz_Picks'] },
+    { t: 'Zeitlupe', a: 'Frau Funk', len: '2:59', q: 'weak', badge: '17.0 kHz', sub: '' },
+    { t: 'Sternenstaub', a: 'Bassgewitter', len: '5:05', q: 'good_lossy', badge: '20.0 kHz', sub: 'Techno 2019', pls: ['Hard_Bounce'] },
+    { t: 'Maschinenraum', a: 'Low Ceiling', len: '6:12', q: 'lossless', badge: L, sub: 'Techno 2019' },
+    { t: 'Taktgefuehl', a: 'Low Ceiling', len: '4:57', q: 'lossless', badge: L, sub: 'Techno 2019', unchecked: true },
+    { t: 'Rush Hour', a: 'Bounce Brigade', len: '4:06', q: 'fake', badge: 'FAKE · 16.0 kHz', sub: 'Techno 2019', pls: ['Afterhour_Sonntag_Warmup_Classics'] },
+    { t: 'Kaltfront', a: 'Pulsar 9', len: '5:49', q: 'lossless', badge: L, sub: 'Techno 2019/Peak' },
+    { t: 'Sonnenfinsternis', a: 'Pulsar 9', len: '5:31', q: 'lossless', badge: L, sub: 'Techno 2019/Peak', pls: ['Powertrance'] },
+    { t: 'Morgengrauen', a: 'Jana Jump', len: '3:52', q: 'good_lossy', badge: '20.0 kHz', sub: 'Warmups' },
+    { t: 'Herzschlag', a: 'Jana Jump', len: '2:44', q: 'lossless', badge: L, sub: 'Warmups', pls: ['Bouncy'] },
+    { t: 'Leise Runde', a: 'Echo Gruppe', len: '4:15', q: 'lossless', badge: L, sub: 'Warmups' },
+    { t: 'Ruhepol', a: 'Echo Gruppe', len: '3:40', q: 'weak', badge: '16.0 kHz', sub: 'Warmups' },
+  ];
+  // a · All tracks (as today's Library page)
+  const all = [
+    ['Get Naughty', 'Armin Hermann', 'Hard_Bounce', '4:28', 'weak', '16.0 kHz', true], ['Polarlicht', 'Mira Volt', 'Powertrance', '5:27', 'lossless', L],
+    ['Rush Hour', 'Bounce Brigade', 'Bouncy', '4:06', 'good_lossy', '20.0 kHz'], ['Blitzlicht', 'Bounce Brigade', 'Bouncy', '3:06', 'lossless', L],
+    ['THE WEEKEND', 'DJ TALLBOY', 'Hard_Bounce', '3:12', 'lossless', L], ['Vollgas', 'Echo Gruppe', null, '3:28', 'lossless', L],
+    ['Zeitlupe', 'Frau Funk', null, '2:59', 'weak', '17.0 kHz'], ['Afterhour', 'Hardline Theory', 'Qobuz_Picks', '3:14', 'lossless', L],
+    ['Herzschlag', 'Jana Jump', 'Bouncy', '2:44', 'lossless', L], ['Unterwasser', 'Kai Kickdrum', 'Hard_Bounce', '2:51', 'lossless', L],
+    ['Neonfieber', 'Kalte Nacht', 'Hard_Bounce', '2:30', 'lossless', L], ['Taktgefuehl', 'Low Ceiling', null, '4:57', 'lossless', L],
+    ['Funkenregen', 'Mira Nacht', 'Powertrance', '4:01', 'lossless', L], ['Funkenflug', 'Nachtfalter', 'Hard_Bounce', '4:20', 'lossless', L],
+    ['Sonnenfinsternis', 'Pulsar 9', 'Powertrance', '5:31', 'fake', 'FAKE · 16.0 kHz'], ['Kick it Hard', 'Remo Rush', 'Hard_Bounce', '5:35', 'fake', 'FAKE · 16.0 kHz'],
+    ['Letzter Zug', 'Tom Brandt', null, '5:05', 'weak', '16.0 kHz', true],
+  ];
+
+  const seg = (c) => `<div class="seg">${[['All', c[0], null, true], ['Lossless', c[1], '--good'], ['Good lossy', c[2], '--ok'], ['Weak', c[3], '--weak'], ['Fake', c[4], '--lossy'], ['Upgrade ready', c[5], '--good']]
+    .map(([l, n, d, on]) => `<div${on ? ' class="on"' : ''}>${d ? `<span class="dot" style="--c:var(${d})"></span>` : ''}<span>${l}</span><b>${n}</b></div>`).join('')}</div>`;
+  const header = (title, sub) => `<div class="hd"><h1>${title}</h1><span class="st">${sub}</span><div class="search">⌕ Search title, artist…<kbd>⌘F</kbd></div></div>`;
+  const overview = (share, of, label, q, up, todo) => `<div class="panel"><div class="card"><div><div class="bign">${share}<small> % lossless</small></div><div class="lbl">${of} ${label}</div></div>
+      <div class="qbar">${q.map(([v, n]) => `<i style="--c:var(${v});flex:${n}"></i>`).join('')}</div>
+      <div class="q-legend">${q.map(([v, n, l]) => `<span><span class="dot" style="--c:var(${v})"></span>${l} <b>${n}</b></span>`).join('')}</div></div>
+      <div class="surf"><div class="lrow"><span class="dot" style="--c:var(--good)"></span><span>Upgrade ready</span><span class="n">${up}</span><span class="chv">›</span></div>
+      <div class="lrow"><span class="dot" style="--c:var(--weak)"></span><span>Not lossless yet · in To-do</span><span class="n">${todo}</span><span class="chv">›</span></div></div>
+      <div class="pfoot-hint">Pick a track to see its file, spectrum and upgrade</div></div>`;
+
+  function pageAll() {
+    const cols = 'minmax(0,1.6fr) minmax(0,1.2fr) 120px 40px 106px 64px';
+    const rows = all.map(([t, a, f, len, q, b, up], k) => `<div class="tr${f ? '' : (k === 6 || k === 11 || k === 16 ? '' : ' dim')}">${t1({ t }, k)}<span class="cut mu">${a}</span>${f ? `<span class="cut mu">${f}</span>` : '<span class="cut lb">Not in a playlist</span>'}<span class="num2">${len}</span>${qcell({ q, badge: b })}${slot({ up })}</div>`).join('');
+    return `<div class="main"><div class="col">${header('All tracks', '412 tracks')}${seg([412, 251, 64, 61, 22, 9])}
+      <div class="tbl" style="--cols:${cols}"><div class="th-row"><span class="hc">Track</span><span class="hc on">Artist ↑</span><span class="hc">Folder</span><span class="hc r">Length</span><span class="hc">Quality</span><span class="info">i</span></div><div class="scroll">${rows}</div></div></div></div>
+      ${overview(63, '251 of 398 checked tracks', 'in your library', [['--good', 251, 'Lossless'], ['--ok', 64, 'Good lossy'], ['--weak', 61, 'Weak'], ['--lossy', 22, 'Fake']], 9, 141)}`;
+  }
+  function pagePlaylist() {
+    const cols = '22px minmax(0,1.6fr) minmax(0,1.1fr) 40px 106px 64px';
+    const row = (r, k, n) => `<div class="tr${r.away || r.wait || r.left ? ' dim' : ''}" title="${r.left ? 'Not in any playlist any more' : ''}"><span class="pos">${n ?? ''}</span>${t1(r, k, r.loc)}<span class="cut mu">${r.a}</span><span class="num2">${r.len}</span>${qcell(r)}${slot(r)}</div>`;
+    return `<div class="main"><div class="col">${header('Hard_Bounce', 'Spotify playlist · 14 songs')}${seg([14, 8, 2, 1, 1, 1])}
+      <div class="tbl" style="--cols:${cols}"><div class="th-row"><span class="hc on r">#</span><span class="hc">Track</span><span class="hc">Artist</span><span class="hc r">Length</span><span class="hc">Quality</span><span class="info">i</span></div>
+      <div class="scroll">${hb.map((r, k) => row(r, k, k + 1)).join('')}
+      <div class="sec"><b>Also in this folder</b><span class="cnt">2</span><span class="h">files in Hard_Bounce that aren't in this playlist</span></div>
+      ${hbAlso.map((r, k) => row(r, k + 3)).join('')}</div></div></div></div>
+      ${overview(67, '8 of 12 songs', 'with a file', [['--good', 8, 'Lossless'], ['--ok', 2, 'Good lossy'], ['--weak', 1, 'Weak'], ['--lossy', 1, 'Fake']], 1, 4)}`;
+  }
+  function pageFolder() {
+    const cols = 'minmax(0,1.5fr) minmax(0,1fr) 100px 104px 40px 106px 64px';
+    const pl = (p) => !p ? '<span></span>' : `<span class="pl" title="In ${p.join(', ')}"><span>${p[0]}</span>${p.length > 1 ? `<b>+${p.length - 1}</b>` : ''}</span>`;
+    const rows = old.map((r, k) => `<div class="tr">${t1(r, k)}<span class="cut mu">${r.a}</span>${r.sub ? `<span class="cut mu" title="${r.sub}">${r.sub.replace('Techno 2019/Peak', 'Techno…/Peak')}</span>` : '<span class="lb">–</span>'}${pl(r.pls)}<span class="num2">${r.len}</span>${qcell(r)}${slot(r)}</div>`).join('');
+    return `<div class="main"><div class="col">${header('Old Sets', '15 tracks · ~/Music/Old Sets')}${seg([15, 7, 3, 3, 1, 1])}
+      <div class="tbl" style="--cols:${cols}"><div class="th-row"><span class="hc">Track</span><span class="hc">Artist</span><span class="hc on">Subfolder ↑</span><span class="hc">Playlist</span><span class="hc r">Length</span><span class="hc">Quality</span><span class="info">i</span></div><div class="scroll">${rows}</div></div></div></div>
+      ${overview(50, '7 of 14 checked tracks', 'in Old Sets', [['--good', 7, 'Lossless'], ['--ok', 3, 'Good lossy'], ['--weak', 3, 'Weak'], ['--lossy', 1, 'Fake']], 1, 3)}`;
+  }
+
+  const PAGES = { sidebar: ['all', pageAll], playlist: ['Hard_Bounce', pagePlaylist], folder: ['old', pageFolder] };
+  let state = (location.hash || '#sidebar').slice(1);
+  if (!PAGES[state]) state = 'sidebar';
+  function render() {
+    document.querySelectorAll('#state button').forEach((b) => b.classList.toggle('on', b.dataset.v === state));
+    document.querySelectorAll('section[data-state]').forEach((s) => { s.hidden = s.dataset.state !== state; });
+    const st = document.querySelector(`.stage[data-view="${state}"]`);
+    const [sel, page] = PAGES[state];
+    const scale = Math.min(1, (st.clientWidth || document.body.clientWidth - 48) / 1280);
+    st.style.height = 800 * scale + 'px';
+    st.innerHTML = `<div class="win" style="width:1280px;height:800px;transform:scale(${scale})">${sidebar(sel)}${page()}</div>`;
+    const z = document.querySelector('[data-zoom]');
+    if (state === 'sidebar' && z) {
+      z.style.height = 800 * 2 * Math.min(1, (z.clientWidth / 2) / 168) + 'px';
+      z.innerHTML = `<div class="win" style="width:168px;height:800px;transform:scale(2)">${sidebar('all')}</div><div class="win" style="width:168px;height:800px;transform:scale(2);margin-left:180px">${sidebar('old')}</div>`;
+    }
+  }
+  document.querySelectorAll('#state button').forEach((b) => b.addEventListener('click', () => { state = b.dataset.v; history.replaceState(null, '', '#' + state); render(); }));
+  addEventListener('resize', render);
+  render();
+})();
+</script>
+</body></html>
