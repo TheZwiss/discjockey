@@ -1081,12 +1081,13 @@ def import_unjudged(conn: sqlite3.Connection) -> list[ImportRow]:
         "AND f.import_state IN ('identified', 'unreadable') ORDER BY f.id")]
 
 
-def import_unreadable(conn: sqlite3.Connection) -> list[tuple[Path, str]]:
+def import_unreadable(conn: sqlite3.Connection, kind: str = "import") -> list[tuple[Path, str]]:
     """The files the import couldn't read, with the reason's words (W6 "Couldn't read": "{path}: {reason}"), in
-    every import folder (offline ones too: the list says what waits), by path."""
+    every import folder (offline ones too: the list says what waits), by path. `kind` "library": those of Library/
+    (an import works through its files too, import_left)."""
     return sorted((Path(root) / rel, error or "") for root, rel, error in conn.execute(
         "SELECT w.path, f.path, f.import_error FROM files f JOIN watched_folders w ON w.id = f.folder "
-        "WHERE w.kind = 'import' AND f.import_state = 'unreadable'"))
+        "WHERE w.kind = ? AND f.import_state = 'unreadable'", (kind,)))
 
 
 LINK_PENDING = "import_link_pending"  # meta: own songs were made since the import last linked the playlists (D6)
@@ -1117,6 +1118,16 @@ def import_counts(conn: sqlite3.Connection) -> dict[int, ImportCounts]:
             "FROM files f JOIN watched_folders w ON w.id = f.folder WHERE w.kind = 'import' GROUP BY f.folder"):
         out[folder] = ImportCounts(files, waiting, identified, unreadable)
     return out
+
+
+def library_counts(conn: sqlite3.Connection) -> ImportCounts:
+    """The import's progress in Library/, like one import folder's (import_counts): a file moved there before the
+    import finished it still waits."""
+    files, waiting, identified, unreadable = conn.execute(
+        "SELECT COUNT(*), COALESCE(SUM(f.import_state = 'new'), 0), COALESCE(SUM(f.import_state = 'identified'), 0), "
+        "COALESCE(SUM(f.import_state = 'unreadable'), 0) FROM files f JOIN watched_folders w ON w.id = f.folder "
+        "WHERE w.kind = 'library'").fetchone()
+    return ImportCounts(files, waiting, identified, unreadable)
 
 
 def library_files(conn: sqlite3.Connection) -> int:

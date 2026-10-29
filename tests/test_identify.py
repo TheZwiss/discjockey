@@ -109,3 +109,21 @@ def test_own_name_splits_the_file_name_on_the_first_spaced_dash():
 def test_own_name_falls_back_to_the_file_name_as_the_title():
     assert own_name({}, "night-drive_final.wav") == ("", "night-drive_final")
     assert own_name({}, " - Night Drive.mp3") == ("", "- Night Drive")
+
+
+# --- collaborations: the tag may name several artists, the first one counts too ---
+
+@pytest.mark.parametrize("tag", ["Example Artist & Guest", "Example Artist, Guest", "Example Artist x Guest",
+                                 "Example Artist; Guest", "Example Artist X Guest"])
+def test_the_first_artist_of_a_collaboration_tag_is_the_artist(tag):
+    assert compare("Example Artist", "Night Drive", 200000, None, own(artist=tag)) == ("certain", "name")
+
+
+def test_the_full_collaboration_still_matches_itself():
+    assert compare("Example Artist & Guest", "Night Drive", 200000, None,
+                   own(artist="Example Artist & Guest")) == ("certain", "name")
+
+
+@pytest.mark.parametrize("tag", ["Guest & Example Artist", "Another Artist & Guest", "Exampleartist x Guest"])
+def test_a_collaboration_without_the_artist_first_is_a_non_match(tag):
+    assert compare("Example Artist", "Night Drive", 200000, None, own(artist=tag, ms=203000)) is None

@@ -45,8 +45,8 @@ export interface Bridge {
   add_watched_folder(path: string): Promise<JobStart>;   remove_watched_folder(folder_id: number): Promise<JobStart>;
   start_import(): Promise<JobStart>;
   answer_same_song(song_key: string, own_key: string, same: boolean): Promise<JobStart>;
-  keep_duplicates(group_id: string): Promise<JobStart>;
-  supersede_duplicate(group_id: string, file_id: number): Promise<JobStart>;
+  keep_duplicates(group_id: string, paths: string[]): Promise<JobStart>;
+  supersede_duplicate(group_id: string, file_id: number, paths: string[]): Promise<JobStart>;
   save_limits(service: Service, limit: number, extra_today: number): Promise<JobStart>;
   mark_warnings_seen(service: Service): Promise<JobStart>;
   hide(track_id: string, hidden: boolean): Promise<JobStart>;

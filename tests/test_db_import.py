@@ -597,3 +597,19 @@ def test_finish_move_keeps_a_current_writer_saving_and_a_stale_one_stale(lib):
     assert stale["generation"] == lib.generation() - 2
     with pytest.raises(StateError):
         lib.save(stale)
+
+
+def test_the_librarys_own_waiting_and_unreadable_files_are_counted_like_an_import_folders(lib):
+    folder = lib.folder().id
+    lib.add_files(folder, "A.mp3")
+    lib.scan(ScanResult(new=[SeenFile(1, "House/New.aiff", 1, 1, "key-new"), SeenFile(1, "House/Bad.aiff", 1, 1, "key-bad")]))
+    with lib.conn() as conn:  # files that came into Library/ before the import finished them
+        conn.execute("UPDATE files SET import_state = 'new' WHERE path = 'House/New.aiff'")
+        conn.execute("UPDATE files SET import_state = 'unreadable', import_error = 'the file is damaged' "
+                     "WHERE path = 'House/Bad.aiff'")
+        counts = db.library_counts(conn)
+        library_root = Path(conn.execute("SELECT path FROM watched_folders WHERE kind = 'library'").fetchone()[0])
+        assert db.import_unreadable(conn, "library") == [(library_root / "House/Bad.aiff", "the file is damaged")]
+        assert db.import_unreadable(conn) == []  # the import folders' list is its own
+        assert 1 not in db.import_counts(conn)
+    assert counts == db.ImportCounts(files=3, waiting=1, identified=0, unreadable=1)

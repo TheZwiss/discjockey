@@ -869,8 +869,10 @@ def test_an_answer_the_records_cannot_take_fails_in_plain_words(lib):
     for args in ((1, "local:1", True), ("t4", "local:1", "yes"), ("t4", None, True)):
         a = api.answer_same_song(*args)
         assert (a["ok"], a["kind"]) == (False, "refused")
-    for call in (lambda: api.keep_duplicates("not a group"), lambda: api.keep_duplicates(5),
-                 lambda: api.supersede_duplicate("dup:1-2", "x"), lambda: api.supersede_duplicate("nope", 1)):
+    for call in (lambda: api.keep_duplicates("not a group", []), lambda: api.keep_duplicates(5, []),
+                 lambda: api.keep_duplicates("dup:1-2", "x"), lambda: api.keep_duplicates("dup:1-2", [1]),
+                 lambda: api.supersede_duplicate("dup:1-2", "x", []), lambda: api.supersede_duplicate("nope", 1, []),
+                 lambda: api.supersede_duplicate("dup:1-2", 1, None)):
         assert call()["kind"] == "refused"
 
 
@@ -893,7 +895,10 @@ def test_a_group_of_copies_is_one_duplicate_item_and_keep_all_answers_the_whole_
     assert [f["quality"] for f in item["pair"]["files"]] == ["lossless"] * 3
     gid = item["pair"]["group_id"]
     before = api.sidebar()["todo"]
-    done = wait_job(api, rec, api.keep_duplicates(gid))
+    shown = [f["path"] for f in item["pair"]["files"]]
+    wrong = wait_job(api, rec, api.keep_duplicates(gid, shown[:2]))  # not the files the card showed
+    assert (wrong.ok, wrong.problem) == (False, "changed") and api.todo()["chips"]["duplicate"] == 1
+    done = wait_job(api, rec, api.keep_duplicates(gid, shown))
     assert (done.ok, done.kind) == (True, "answer")
     assert api.todo()["chips"]["duplicate"] == 0 and api.sidebar()["todo"] == before - 1  # one answer, all three
 
@@ -905,14 +910,17 @@ def test_moving_a_duplicate_to_superseded_keeps_the_file_and_the_others(lib, tmp
     wait_job(api, rec, api.add_watched_folder(str(copy_dir)))
     pair = next(i for g in api.todo()["groups"] if g["key"] == "duplicate" for i in g["items"])["pair"]
     moving = pair["files"][1]
-    done = wait_job(api, rec, api.supersede_duplicate(pair["group_id"], moving["file_id"]))
+    shown = [f["path"] for f in pair["files"]]
+    other = wait_job(api, rec, api.supersede_duplicate(pair["group_id"], moving["file_id"], [shown[0], "/x/else.aiff"]))
+    assert (other.ok, other.problem) == (False, "changed") and Path(moving["path"]).is_file()
+    done = wait_job(api, rec, api.supersede_duplicate(pair["group_id"], moving["file_id"], shown))
     assert (done.ok, done.kind) == (True, "supersede")
     assert done.result["recovered"] == [] and done.result["result"]["section"] == "replaced"
     moved_to = paths.root / done.result["result"]["path"]
     assert moved_to.is_file() and not Path(moving["path"]).exists()  # moved, never deleted
     assert Path(pair["files"][0]["path"]).is_file()
     assert api.todo()["chips"]["duplicate"] == 0
-    stale = api.supersede_duplicate(pair["group_id"], moving["file_id"])
+    stale = api.supersede_duplicate(pair["group_id"], moving["file_id"], shown)
     assert wait_job(api, rec, stale).problem == "changed"
 
 

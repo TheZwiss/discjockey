@@ -19,17 +19,19 @@
 
   const g = $derived(item.pair);
   let busy = $state<number | 'keep' | null>(null);
+  /** The paths of the files this card shows: sent with an answer, so one given to another group is refused. */
+  const shown = () => g.files.map((f) => f.path);
 
   async function keep() {
     busy = 'keep';
-    await runJob(api.keep_duplicates(g.group_id));
+    await runJob(api.keep_duplicates(g.group_id, shown()));
     busy = null;
   }
   async function supersede(f: FileSide) {
     if (!(await confirm({ title: `Move ${fileName(f.path)} to Superseded?`,
       body: 'Nothing is deleted: the file goes to Superseded/.', confirmLabel: 'Move to Superseded' }))) return;
     busy = f.file_id;
-    const r = await runJob<{ result: Result }>(api.supersede_duplicate(g.group_id, f.file_id), { success: false });
+    const r = await runJob<{ result: Result }>(api.supersede_duplicate(g.group_id, f.file_id, shown()), { success: false });
     busy = null;
     if (r.ok && r.result?.result?.note) toasts.show({ tone: 'success', title: r.result.result.note });
   }

@@ -173,7 +173,9 @@ describe('fake To-do of the import', () => {
     expect(ds.map((d) => [d.pair.why, d.pair.files.length, d.detail])).toEqual([
       ['same_audio', 3, 'The same audio in 3 files'], ['same_song', 2, '2 files of the same song']]);
     expect(ds[1].pair.files.find((x) => x.in_playlist)!.audio_url).toMatch(/^data:|^blob:/);
-    const start = must(await f.keep_duplicates(ds[0].pair.group_id));
+    const wrong = must(await f.keep_duplicates(ds[0].pair.group_id, ['/x/else.aiff']));
+    expect(await finished(evs, wrong.job_id)).toMatchObject({ ok: false, problem: 'changed' });
+    const start = must(await f.keep_duplicates(ds[0].pair.group_id, ds[0].pair.files.map((x) => x.path)));
     await finished(evs, start.job_id);
     const after = must(await f.todo('all', false));
     expect((items(after, 'duplicate') as DuplicateItem[]).map((d) => d.pair.files.length)).toEqual([2]);
@@ -185,15 +187,18 @@ describe('fake To-do of the import', () => {
     const pair = (items(must(await f.todo('all', false)), 'duplicate') as DuplicateItem[])
       .find((d) => d.pair.why === 'same_song')!.pair;
     const own = pair.files.find((x) => !x.in_playlist)!;
-    const start = must(await f.supersede_duplicate(pair.group_id, own.file_id));
+    const shown = pair.files.map((x) => x.path);
+    const other = must(await f.supersede_duplicate(pair.group_id, own.file_id, [shown[0], '/x/else.aiff']));
+    expect(await finished(evs, other.job_id)).toMatchObject({ ok: false, problem: 'changed' });
+    const start = must(await f.supersede_duplicate(pair.group_id, own.file_id, shown));
     const done = await finished(evs, start.job_id);
     expect(done).toMatchObject({ kind: 'supersede', ok: true });
     expect((done.result as { result: { section: string; path: string } }).result)
       .toMatchObject({ section: 'replaced', path: 'Superseded/Music/Rave Kollektiv - Bis zum Morgen.aiff' });
     expect(must(await f.todo('all', false)).chips.duplicate).toBe(1);
-    const again = must(await f.supersede_duplicate(pair.group_id, own.file_id));
+    const again = must(await f.supersede_duplicate(pair.group_id, own.file_id, shown));
     expect(await finished(evs, again.job_id)).toMatchObject({ ok: false, problem: 'changed' });
-    expect(await f.keep_duplicates('nope')).toMatchObject({ ok: false, kind: 'refused' });
+    expect(await f.keep_duplicates('nope', [])).toMatchObject({ ok: false, kind: 'refused' });
   });
 
   it('marks files whose sound is not checked as checked in the Library rows', async () => {

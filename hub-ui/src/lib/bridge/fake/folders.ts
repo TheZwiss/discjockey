@@ -80,8 +80,8 @@ export function watchedFolders(s: FakeState): WatchedFolders {
     id: f.id, path: f.path, name: f.kind === 'library' ? 'Library' : name(f.path), kind: f.kind,
     state: f.kind === 'library' ? (phase === 'scan' ? 'scanning' : 'online')
       : f.offline ? 'offline' : phase === 'scan' ? 'scanning' : phase !== null && f.waiting > 0 ? 'importing' : 'online',
-    files: f.files, waiting: f.kind === 'library' ? 0 : f.waiting,
-    unreadable: f.kind === 'library' ? 0 : s.imp.unreadable.filter((u) => u.folder_id === f.id).length,
+    files: f.files, waiting: f.waiting,
+    unreadable: s.imp.unreadable.filter((u) => u.folder_id === f.id).length,
   }));
   return { folders: rows, unreadable: s.imp.unreadable.map((u) => ({ ...u })),
     waiting: importFolders(s).filter((f) => !f.offline).reduce((n, f) => n + f.waiting, 0), stopped: s.imp.stopped };
@@ -140,21 +140,27 @@ export function answerSameSong(ctx: FakeContext, song_key: unknown, own_key: unk
   });
 }
 const isGroup = (id: unknown): id is string => typeof id === 'string' && /^dup:\d+(-\d+)*$/.test(id);
-export function keepDuplicates(ctx: FakeContext, group_id: unknown): JobStart | Fail {
-  if (!isGroup(group_id)) return ctx.fail('refused', NOT_ANSWERABLE);
+const isPaths = (v: unknown): v is string[] => Array.isArray(v) && v.every((p) => typeof p === 'string');
+/** The paths the card showed against the group's files now (any order): the engine's `changed` check. */
+const sameFiles = (g: { files: { path: string }[] }, shown: string[]) =>
+  g.files.length === shown.length && [...g.files.map((f) => f.path)].sort().join('\n') === [...shown].sort().join('\n');
+export function keepDuplicates(ctx: FakeContext, group_id: unknown, paths: unknown): JobStart | Fail {
+  if (!isGroup(group_id) || !isPaths(paths)) return ctx.fail('refused', NOT_ANSWERABLE);
   return asJob(ctx, 'answer', 350, (finish) => {
-    ctx.s.imp.duplicates = ctx.s.imp.duplicates.filter((g) => g.group_id !== group_id);
+    const g = ctx.s.imp.duplicates.find((x) => x.group_id === group_id);
+    if (g && !sameFiles(g, paths)) return finish(false, null, 'changed', CHANGED);
+    ctx.s.imp.duplicates = ctx.s.imp.duplicates.filter((x) => x.group_id !== group_id);
     finish(true, {});
   });
 }
-export function supersedeDuplicate(ctx: FakeContext, group_id: unknown, file_id: unknown): JobStart | Fail {
-  if (!isGroup(group_id) || typeof file_id !== 'number' || !Number.isInteger(file_id)) {
+export function supersedeDuplicate(ctx: FakeContext, group_id: unknown, file_id: unknown, paths: unknown): JobStart | Fail {
+  if (!isGroup(group_id) || typeof file_id !== 'number' || !Number.isInteger(file_id) || !isPaths(paths)) {
     return ctx.fail('refused', NOT_ANSWERABLE);
   }
   return asJob(ctx, 'supersede', 450, (finish) => {
     const g = ctx.s.imp.duplicates.find((x) => x.group_id === group_id);
     const file = g?.files.find((f) => f.file_id === file_id);
-    if (!g || !file) return finish(false, null, 'changed', CHANGED);
+    if (!g || !file || !sameFiles(g, paths)) return finish(false, null, 'changed', CHANGED);
     const home = importFolders(ctx.s).find((f) => file.path.startsWith(f.path + '/'));
     const dst = `Superseded/${home ? name(home.path) + '/' : ''}${name(file.path)}`;
     g.files = g.files.filter((f) => f !== file);

@@ -5,11 +5,14 @@ The planner calls `compare` on every plan (D2), so a playlist added months after
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from pathlib import PurePosixPath
 from typing import Literal
 
 from .matching import _DASH, normalize, normalize_artist
+
+_COLLAB = re.compile(r"[,&;]|\s+x\s+", re.IGNORECASE)  # how a tag joins several artists: "A, B", "A & B", "A; B", "A x B"
 
 Match = Literal["certain", "plausible"]
 
@@ -28,7 +31,8 @@ def compare(artist: str, title: str, duration_ms: int | None, isrc: str | None,
       are within SAME_LENGTH_MS, None when they are further apart; with a length unknown the names decide (below:
       To-do's words for "no_length" say the artist and title are the same, so the same ISRC alone isn't asked).
     - Names (normalised as planner._song_name does: the artist and the title without "(Original Mix)", "feat. X"
-      and the like): the same artist and title within CERTAIN_MS is certain ("name"); off by up to PLAUSIBLE_MS is
+      and the like; the own song's tag may name several artists, "A & B", and its first one counts as its artist
+      too): the same artist and title within CERTAIN_MS is certain ("name"); off by up to PLAUSIBLE_MS is
       plausible ("length"). The same title with a different or missing artist within CERTAIN_MS is plausible
       ("artist", D3 a).
     - A length unknown on either side (None or 0) is at most plausible: the same artist and title ("no_length"); a
@@ -45,7 +49,7 @@ def compare(artist: str, title: str, duration_ms: int | None, isrc: str | None,
     if not name or name != normalize(own.get("title") or ""):
         return None
     ours, theirs = normalize_artist(artist or ""), normalize_artist(own.get("artist") or "")
-    if ours and ours == theirs:
+    if ours and (ours == theirs or ours == normalize_artist(_first_artist(own.get("artist") or ""))):
         if delta is None:
             return "plausible", "no_length"
         if delta <= CERTAIN_MS:
@@ -54,6 +58,11 @@ def compare(artist: str, title: str, duration_ms: int | None, isrc: str | None,
     if delta is not None and delta <= CERTAIN_MS:
         return "plausible", "artist"
     return None
+
+
+def _first_artist(tag: str) -> str:
+    """The first artist of a tag that names several ("A & B", "A, B", "A x B", "A; B" -> "A")."""
+    return _COLLAB.split(tag, maxsplit=1)[0].strip()
 
 
 def own_name(tags: Mapping[str, str | None], file_name: str) -> tuple[str, str]:

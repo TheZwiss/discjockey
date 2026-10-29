@@ -13,6 +13,8 @@ Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
   not be reproduced (a `free_port` race is plausible). Look at it if it fails again.
 - **The library view's `in_playlists` for a duplicate group comes from its first file** (`hub/views.py`). The UI no
   longer depends on it, but it is misleading; derive it from the group or drop it.
+- **Removing an import folder forgets an own song whose link isn't saved yet:** it gets no count in W4 and is
+  downloaded again at the next sync (the files themselves stay untouched).
 
 ## 26. Library stage 3 leftovers (Qobuz playlists) — for stages 5 and 6
 

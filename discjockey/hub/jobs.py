@@ -554,6 +554,13 @@ class Jobs:
 
 # --- the preview and the sync (spec 6.3) ---
 
+def _generation_of(prep: run.Prepared | None) -> int | None:
+    """The generation of the records `prep` was planned on (None: no plan, or a state that carries none)."""
+    state = getattr(prep, "state", None)
+    gen = state.get("generation") if isinstance(state, dict) else None
+    return gen if isinstance(gen, int) else None
+
+
 class PreviewStore:
     """The last read-only plan (what the Sync screen shows and the user ticks). Keeps the last good one when a later
     read fails (e.g. offline), with the problem next to it."""
@@ -569,9 +576,15 @@ class PreviewStore:
         self.auto_read = False  # the hub has started its one automatic read of this session (claim_auto_read)
 
     def ready(self, prep: run.Prepared, at: datetime, token: CancelToken | None = None) -> None:
-        """`token`: a read that was stopped meanwhile (its request answered late) stores nothing."""
+        """`token`: a read that was stopped meanwhile (its request answered late) stores nothing. A plan carries the
+        records' generation it was planned on (`prep.state["generation"]`): one older than the stored plan's was
+        slow to finish (the window's opening read, while an import linked and planned again) and is dropped, so it
+        never overwrites the fresher preview."""
         with self._lock:
             if token is not None and token.cancelled:
+                return
+            new, old = _generation_of(prep), _generation_of(self.prep)
+            if new is not None and old is not None and new < old:
                 return
             self.prep, self.read_at, self.problem, self.problem_service, self.message, self.stale = (
                 prep, at, None, None, "", False)

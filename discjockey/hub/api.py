@@ -164,6 +164,11 @@ def profile_name(browser: str, profile: str | None, home: Path | None) -> str | 
     return {p["id"]: p["name"] for p in browsers.profiles(browser, home)}.get(profile, profile)
 
 
+def _paths_list(value: object) -> bool:
+    """Whether `value` is a list of path strings (the group's files as the card showed them)."""
+    return isinstance(value, list) and all(isinstance(p, str) for p in value)
+
+
 def _import_folders(paths: Paths | None) -> int:
     """How many import folders the library watches (0 without a library or library.db: nothing to read)."""
     if paths is None or not paths.db_file.exists():
@@ -608,7 +613,11 @@ class HubApi:
                 library_files = len(views.tracks_with_file(self._state()))
             else:
                 rows, counts = db.watched_folders(conn), db.import_counts(conn)
-                library_files, unreadable, waiting = db.library_files(conn), db.import_unreadable(conn), db.import_left(conn)
+                library_files, waiting = db.library_files(conn), db.import_left(conn)
+                unreadable = sorted(db.import_unreadable(conn) + db.import_unreadable(conn, "library"))
+                for f in rows:
+                    if f.kind == "library":  # Library/ is listed like an import folder: its own waiting and unreadable
+                        counts[f.id] = db.library_counts(conn)
         offline = {f.id for f in rows if f.kind == "import" and not f.path.is_dir()}
         return views.watched_folders(rows, counts, offline, library_files, unreadable, waiting, self._import_stopped,
                                      phase)
@@ -1314,30 +1323,34 @@ class HubApi:
         return {"job_id": self._jobs.start("answer", replanned_work(self._store, change, self._svc.now)).id}
 
     @bridge
-    def keep_duplicates(self, group_id: str) -> dict:
-        """Duplicates' "Keep both" / "Keep all" (a write job, kind "answer"): the group isn't asked again."""
-        if not isinstance(group_id, str):
+    def keep_duplicates(self, group_id: str, paths: list[str]) -> dict:
+        """Duplicates' "Keep both" / "Keep all" (a write job, kind "answer"): the group isn't asked again. `paths`:
+        the group's files' paths as the card showed them; `changed` when the group's files are not those any more."""
+        if not isinstance(group_id, str) or not _paths_list(paths):
             raise ValueError(NOT_ANSWERABLE)
         db.group_ids(group_id)  # ValueError for something that is no group
 
         def change(ctx) -> dict:
-            folders_mod.keep_both(self._paths, group_id, self._svc.now())
+            folders_mod.keep_both(self._paths, group_id, paths, self._svc.now())
             return {}
 
         return {"job_id": self._jobs.start("answer", replanned_work(self._store, change, self._svc.now)).id}
 
     @bridge
-    def supersede_duplicate(self, group_id: str, file_id: int) -> dict:
+    def supersede_duplicate(self, group_id: str, file_id: int, paths: list[str]) -> dict:
         """Duplicates' "Move to Superseded" for one file of the group (a write job, kind "supersede"; nothing is
-        deleted). The result is `{result, recovered}` as an operation's, without a track."""
-        if not isinstance(group_id, str) or isinstance(file_id, bool) or not isinstance(file_id, int):
+        deleted). `paths`: the group's files' paths as the card showed them (`changed` when they are not the group's
+        any more, whatever its file ids say). The result is `{result, recovered}` as an operation's, without a
+        track."""
+        if (not isinstance(group_id, str) or isinstance(file_id, bool) or not isinstance(file_id, int)
+                or not _paths_list(paths)):
             raise ValueError(NOT_ANSWERABLE)
         db.group_ids(group_id)
 
         def change(ctx) -> dict:
             key, e = next(((k, t) for k, t in self._state()["tracks"].items() if t.get("file_id") == file_id),
                           (None, None))
-            dst = folders_mod.supersede(self._paths, group_id, file_id, emit=ctx.emit, now=self._svc.now)
+            dst = folders_mod.supersede(self._paths, group_id, file_id, paths, emit=ctx.emit, now=self._svc.now)
             result = Result("replaced", (e or {}).get("folder") or "", (e or {}).get("artist") or "",
                             (e or {}).get("title") or "", key, folders_mod.MOVED.format(dst=dst),
                             (e or {}).get("status"), (e or {}).get("source"), (e or {}).get("cutoff_hz"), dst)

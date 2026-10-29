@@ -140,16 +140,20 @@ def answer_same_song(paths: Paths, song_key: str, own_key: str, same: bool, now:
         db.set_decision(conn, "same_song", song_key, own_key, "same" if same else "not_same", now or datetime.now())
 
 
-def keep_both(paths: Paths, group_id: str, now: datetime | None = None) -> None:
-    """Duplicates' "Keep both": the group is not asked again (a new copy makes it another group)."""
+def keep_both(paths: Paths, group_id: str, shown: list[str], now: datetime | None = None) -> None:
+    """Duplicates' "Keep both": the group is not asked again (a new copy makes it another group). `shown`: the files'
+    paths as the card showed them; OpProblem(CHANGED) when the group isn't that group any more (see _current)."""
+    state = library.load_state(paths)
     with db.connect(paths.db_file) as conn:
+        _current(conn, state, group_id, None, shown)
         db.set_decision(conn, "keep_both", group_id, "", "keep", now or datetime.now())
 
 
-def _current(conn, state: dict, group_id: str, file_id: int) -> list[DupFile]:
+def _current(conn, state: dict, group_id: str, file_id: int | None, shown: list[str]) -> list[DupFile]:
     """The group's files as they are now, or OpProblem(CHANGED): a file of it gone, offline, held or ambiguous (as
-    duplicate_groups leaves them out), the group answered "Keep both", `file_id` not in it, or (a same-audio group)
-    its files no longer share one audio. A group that isn't a same-audio one is a same-song group (I4, from the
+    duplicate_groups leaves them out), the group answered "Keep both", `file_id` (None: any) not in it, their paths
+    not the `shown` ones (the card's: a file id given out again to another file still fails here), or (a same-audio
+    group) its files no longer share one audio. A group that isn't a same-audio one is a same-song group (I4, from the
     plan) only while it still is one: one playlist song's file, and the rest own songs' files that identify.compare
     finds certainly that song. File ids can be given out again after a row is deleted, so the shape alone could
     name a file the window never showed."""
@@ -158,8 +162,9 @@ def _current(conn, state: dict, group_id: str, file_id: int) -> list[DupFile]:
         files = db.group_files(conn, group_id)
     except ValueError:
         raise OpProblem(ops.CHANGED, "changed") from None
-    if (file_id not in ids or len(files) != len(ids) or not all(f.online and f.usable for f in files)
-            or group_id in db.decisions(conn)["keep_both"]):
+    if ((file_id is not None and file_id not in ids) or len(files) != len(ids)
+            or not all(f.online and f.usable for f in files) or group_id in db.decisions(conn)["keep_both"]
+            or sorted(f.path for f in files) != sorted(shown)):
         raise OpProblem(ops.CHANGED, "changed")
     if group_id not in {g.id for g in db.duplicate_groups(conn)} and not _same_song(state, files):
         raise OpProblem(ops.CHANGED, "changed")
@@ -192,13 +197,13 @@ def _pure_own(f: DupFile) -> bool:
 
 
 def _heir(moved: DupFile, others: list[DupFile]) -> int | None:
-    """D10: a playlist song's file moved away while only own songs' files stay: the best of them (by quality, then
-    the oldest row) takes over the playlist song, so nothing downloads again."""
+    """D10: a playlist song's file moved away while only own songs' files (or files linked to no song yet) stay: the
+    best of them (by quality, then the oldest row) takes over the playlist song, so nothing downloads again."""
     if moved.song_key is None or _pure_own(moved):
         return None
     if any(o.song_key is not None and not _pure_own(o) for o in others):
         return None  # another playlist song's file stays: it keeps its own song, the moved one's downloads again
-    own = [o for o in others if _pure_own(o)]
+    own = [o for o in others if o.song_key is None or _pure_own(o)]
     if not own:
         return None
     return min(own, key=lambda o: (STATUS_RANK.get(o.status or "", 3), o.file_id)).file_id
@@ -214,12 +219,12 @@ def _target(paths: Paths, state: dict, moved: DupFile, watched: str | None) -> s
     return NameReserver(paths.root, state).choose(superseded_dir(moved.path, watched), stem, ext, playlist_key)
 
 
-def supersede(paths: Paths, group_id: str, file_id: int, *, emit: Emit = no_emit,
+def supersede(paths: Paths, group_id: str, file_id: int, shown: list[str], *, emit: Emit = no_emit,
               now: Callable[[], datetime] = datetime.now) -> str:
     """Duplicates' "Move to Superseded" (D10): like replacing a file, the file `file_id` of the group goes to
     Superseded/ (never deleted), through library.move_files (journaled; across drives a verified copy first), its
     row goes, and when it was a playlist song's while own songs' files stay, one of them takes the playlist song
-    over (_heir). No move batch, no undo; a line in reports/operations.jsonl. Interrupted steps are finished first.
+    over (_heir). `shown`: the group's files' paths as the card showed them. No move batch, no undo; a line in reports/operations.jsonl. Interrupted steps are finished first.
     OpProblem(CHANGED) when the group isn't as the window showed it, OpProblem(failed) when the move was refused
     (nothing moved). Returns where the file went."""
     state = library.open_state(paths, emit)
@@ -227,7 +232,7 @@ def supersede(paths: Paths, group_id: str, file_id: int, *, emit: Emit = no_emit
         emit(Message("info" if ok else "warning", message))
     with db.connect(paths.db_file) as conn:
         try:
-            files = _current(conn, state, group_id, file_id)
+            files = _current(conn, state, group_id, file_id, shown)
         except OpProblem as p:
             ops.log_operation(paths, now(), "", None, SUPERSEDE, p.kind, str(p))
             raise

@@ -1404,3 +1404,17 @@ def test_counted_duplicate_groups_count_without_files_and_are_not_listed():
     assert plain["chips"]["duplicate"] == 0 and plain["chips"]["all"] == 0  # no files loaded: nothing to act on
     counted = views.todo(st, "all", False, {}, TODAY, None, [], [g], counted={"dup:3-4"})
     assert counted["chips"]["all"] == 1 and counted["chips"]["duplicate"] == 0 and counted["groups"] == []
+
+
+def test_the_library_row_counts_its_own_waiting_and_unreadable_files():
+    lib = WatchedFolder(1, Path("/m/Library"), "library")
+    one = WatchedFolder(2, Path("/Volumes/Example/Music"), "import")
+    counts = {1: ImportCounts(500, 3, 1, 2), 2: ImportCounts(120, 20, 5, 0)}
+    unreadable = [(Path("/m/Library/House/bad.aiff"), "macOS doesn't let Discjockey read it"),
+                  (Path("/m/Library/worse.wav"), "Discjockey can't find sound it can read in it")]
+    out = views.watched_folders([lib, one], counts, (), 500, unreadable, 29, False, None)
+    assert out["folders"][0] == {"id": 1, "path": "/m/Library", "name": "Library", "kind": "library",
+                                 "state": "online", "files": 500, "waiting": 4, "unreadable": 2}
+    assert out["folders"][1]["waiting"] == 25 and out["folders"][1]["unreadable"] == 0
+    assert [(u["folder_id"], u["path"]) for u in out["unreadable"]] == [(1, "/m/Library/House/bad.aiff"),
+                                                                        (1, "/m/Library/worse.wav")]

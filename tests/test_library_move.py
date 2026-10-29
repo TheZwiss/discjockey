@@ -635,3 +635,18 @@ def test_interrupt_held_is_false_off_the_main_thread():
         t.join()
         library._HELD[-1].clear()
     assert seen == [False]
+
+
+def test_a_step_wholly_on_an_unplugged_drive_says_the_scan_goes_on(paths, drive):
+    s = load_state(paths)
+    s["pending"].append({"track_id": "t1", "renames": [[str(drive / "a.aiff"), str(drive / "B/a.aiff")]],
+                         "entry": None, "label": "A - S"})
+    save_state(paths, s)
+    unplug(drive)
+    (message, ok), = recover_pending(paths, load_state(paths))
+    assert not ok and message == (f"Couldn't finish a stopped change: the drive with {drive / 'a.aiff'} isn't "
+                                  "connected. Connect it, and Discjockey finishes the change.")
+    assert "look for new files" not in message  # the scan of the other folders really does go on
+    touch(paths.library / "A/new.aiff")
+    library.scan_library(paths, after_recovery=True)
+    assert "Library/A/new.aiff" in load_state(paths)["files"]

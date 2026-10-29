@@ -486,3 +486,25 @@ def test_a_job_can_word_its_own_success(env):
     assert (finished.ok, finished.message, finished.result) == (True, "Imported 1 file.", {"files": 1})
     js.start("hide", lambda ctx: None).done.wait(5)
     assert rec.of(jobs.JobFinished)[-1].message == ""  # no words unless the work sets them
+
+
+def test_an_older_plan_arriving_late_leaves_the_newer_preview():
+    from datetime import datetime
+    from discjockey.hub.jobs import PreviewStore
+    from discjockey.models import Plan
+    from discjockey.run import Prepared
+    from discjockey.settings import Settings
+
+    def prep(generation):
+        st = {"version": 2, "tracks": {}, "generation": generation}
+        return Prepared(None, st, Settings(), Plan(st, [], [], []), None)
+
+    store = PreviewStore()
+    newer, older = prep(5), prep(3)
+    store.ready(newer, datetime(2026, 10, 25, 12, 0))
+    store.ready(older, datetime(2026, 10, 25, 12, 5))  # the opening scan's slow read finishes last
+    assert store.prep is newer and store.read_at == datetime(2026, 10, 25, 12, 0)
+    store.ready(prep(5), datetime(2026, 10, 25, 12, 6))  # the same records planned again is taken
+    assert store.read_at == datetime(2026, 10, 25, 12, 6)
+    store.ready(prep(7), datetime(2026, 10, 25, 12, 7))
+    assert store.prep.state["generation"] == 7

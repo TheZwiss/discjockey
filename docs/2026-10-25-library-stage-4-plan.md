@@ -300,8 +300,8 @@ a fresh `library.open_state` right before `run_op`. Undo goes back across drives
 | `remove_watched_folder(folder_id)` | write → job `folders` | result `{files, redownload}` |
 | `start_import()` | write → job `import` | "Continue import" |
 | `answer_same_song(song_key, own_key, same)` | write → job `answer` | then replan |
-| `keep_duplicates(group_id)` | write → job `answer` | then replan |
-| `supersede_duplicate(group_id, file_id)` | write → job `supersede` | `OpResult`-like `{result, recovered}` |
+| `keep_duplicates(group_id, paths)` | write → job `answer` | `paths`: the files as the card showed them (`changed` on any difference); then replan |
+| `supersede_duplicate(group_id, file_id, paths)` | write → job `supersede` | `paths` as above; | `OpResult`-like `{result, recovered}` |
 | `setup_skip_import()` | brief lock | `{ok}` (setting `import_skipped`) |
 
 `WatchedFolderRow = {id, path, name, kind: 'library'|'import', state: 'online'|'offline'|'scanning'|'importing',
@@ -355,9 +355,11 @@ false`. Busy for job kind `import`: W7.
   playlist song's file); W15 Sync shows W9's hints as NoteCards, words unchanged.
 - Added by the stage review's fixes: W16 Remove refused while a pending step names a file in the folder: "Discjockey
   still has an unfinished change for this folder. Connect its drive and open Discjockey again, then remove it."; W17 a
-  stopped change waits for a drive (recovery, and a scan it holds up): "Couldn't finish a stopped change: the drive
-  with {short path} isn't connected. Connect it; until then Discjockey doesn't look for new files." (the path once,
-  `~` for the home folder)
+  stopped change waits for a drive (recovery, and a scan it holds up), in two forms. The scan is really held (a file of
+  the step is in a folder that is there): "Couldn't finish a stopped change: the drive with {short path} isn't
+  connected. Connect it; until then Discjockey doesn't look for new files." The scan of the other folders goes on
+  (every file of the step is on the drive that is away): "Couldn't finish a stopped change: the drive with {short
+  path} isn't connected. Connect it, and Discjockey finishes the change." (the path once, `~` for the home folder)
 
 ---
 
