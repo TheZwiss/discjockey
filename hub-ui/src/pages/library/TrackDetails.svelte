@@ -11,7 +11,7 @@
     Surface, TrackHead, UpgradeCard, WriteButton, envelope,
   } from '$lib/components';
   import { Panel } from '$lib/frames';
-  import { artistTitle, cutoffStat, dateShort, qualityWords } from '$lib/format';
+  import { artistTitle, cutoffStat, dateShort, fileOffline, qualityWords } from '$lib/format';
   import type { Fail, TrackDetail } from '$lib/bridge/types';
   import { fileName, footAction, placeLine, shortUrl } from './libraryModel';
 
@@ -30,7 +30,7 @@
   const action = $derived(t ? footAction(t) : null);
   const hasFile = $derived(!!t && t.status !== 'missing');
   // the file exists but its drive is away: the picture says so, the player stays off, there is nothing to show in Finder
-  const offline = $derived(hasFile && !!t && !t.online);
+  const offline = $derived(!!t && fileOffline(t));
 </script>
 
 {#snippet waiting()}<Skeleton lines={6} height={18} gap={10} />{/snippet}

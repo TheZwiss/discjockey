@@ -13,7 +13,7 @@
   import { onEvent } from '$lib/bridge/events';
   import { toasts } from '$lib/stores/toasts';
   import { NOT_WHILE_SYNC } from '$lib/copy';
-  import { artistTitle, qualityWords } from '$lib/format';
+  import { artistTitle, fileOffline, qualityWords } from '$lib/format';
   import {
     Badge, Button, ExternalLink, Hint, KeyValue, MiniPlayer, NoteCard, QualityBadge, Spectrum, StatCard, Surface,
     TrackHead, WriteButton, confirm, envelope,
@@ -37,6 +37,8 @@
   const qobuz = $derived(qobuzText(track.next_qobuz_check));
   const cutoff = $derived(track.upgrade ? null : cutoffStat(track));
   const hasFile = $derived(track.status !== 'missing');
+  // the file's drive is away: no spectrum to ask for, the pictures say "Offline: connect the drive", the player stays off
+  const driveAway = $derived(fileOffline(track));
 
   // spectra: current (when there is a file) and upgrade; re-fetched when the file changes (audio_url carries ?v=)
   let current = $state<Spec | null>(null);
@@ -59,7 +61,7 @@
     specLoading = true;
     const id = track.track_id;
     const [c, u] = await Promise.all([
-      hasFile ? api.spectrum(id, 'current') : Promise.resolve(null),
+      hasFile && !driveAway ? api.spectrum(id, 'current') : Promise.resolve(null),
       track.upgrade ? api.spectrum(id, 'upgrade') : Promise.resolve(null),
     ]);
     if (my !== seq) return;
@@ -143,7 +145,8 @@
 
     {#if cutoff}
       <StatCard value={cutoff.value} unit={cutoff.value ? 'kHz' : undefined} label={cutoff.label} data-test="cutoff">
-        <Spectrum spectrum={current} height={64} loading={specLoading && !current} error={specError} cutoffLabel={false} />
+        <Spectrum spectrum={current} height={64} loading={specLoading && !current} error={specError} cutoffLabel={false}
+          offline={driveAway} />
       </StatCard>
     {/if}
 
@@ -154,7 +157,7 @@
             data-test="wrong-song">Wrong song?</Button>
         {/snippet}
         {#if !cutoff && !track.upgrade}
-          <Spectrum spectrum={current} height={64} loading={specLoading && !current} error={specError} />
+          <Spectrum spectrum={current} height={64} loading={specLoading && !current} error={specError} offline={driveAway} />
         {/if}
         {#if act.listen && !track.upgrade}
           <MiniPlayer url={track.audio_url} title={artistTitle(track.artist, track.title)} track_id={track.track_id}

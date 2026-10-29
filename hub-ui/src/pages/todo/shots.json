@@ -1,6 +1,8 @@
 [
  { "name": "todo-weak-selected", "route": "#/todo?track=t17", "scenario": "normal",
    "steps": [{ "wait": "[data-test=details][data-track=t17]" }, { "sleep": 600 }] },
+ { "name": "todo-offline-selected", "route": "#/todo?track=t17", "scenario": "todo:offline",
+   "steps": [{ "wait": "[data-test=details][data-track=t17]" }, { "wait": "[data-test=cutoff] [data-test=spectrum-empty]" }, { "sleep": 600 }] },
  { "name": "todo-upgrade-swap", "route": "#/todo?track=t2", "scenario": "normal",
    "steps": [{ "wait": "[data-test=upgrade-box][data-swap=true]" }, { "sleep": 600 }] },
  { "name": "todo-upgrade-mismatch", "route": "#/todo?track=t2", "scenario": "todo:upgrade-mismatch",

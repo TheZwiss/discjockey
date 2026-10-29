@@ -187,6 +187,8 @@ export function fitMiddle(text: string, fits: (text: string) => boolean): string
 
 /** What a watched folder's state line and a file's picture say when its drive is away (library stage 4, W3). */
 export const OFFLINE_WORDS = 'Offline: connect the drive';
+/** The track has a file, but its drive is away (the Library and To-do panels: offline words, no Show in Finder). */
+export const fileOffline = (t: Pick<TrackDetail, 'status' | 'online'>): boolean => t.status !== 'missing' && !t.online;
 
 /** The name of a file's container as people say it ("FLAC", "WAV", "AIFF"), from its path's extension; null for none
  *  we know (a path without an extension, a lossy format). */
