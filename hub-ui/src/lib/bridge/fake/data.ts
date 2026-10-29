@@ -1,6 +1,6 @@
 // Fake mode only: an in-memory Discjockey state shaped like the contract. Reads are computed from it, writes change it.
 import type {
-  FileState,
+  FileState, LibraryRow,
   AnySignalKind, AppUpdate, Alignment, Browser, Budget, LastCheck, LoginBrowser, ByQuality, Candidate, PlaylistInfo, PlaylistRow, PreviewAction, Quality, Result, RunDetail,
   DownloadTools, FolderCheck, SetupStatus, SignalKind, Source, SpotifyStatus, Status, TodoGroupKey, TrackRow, Upgrade, FreeDownload,
   PlaylistService, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
@@ -208,6 +208,11 @@ export function trackRow(t: FakeTrack): TrackRow {
     source: t.source, source_name: t.own ? OWN_SHORT : t.source ? SOURCE_NAMES[t.source] : null, in_playlists: t.in_playlists,
     own: !!t.own, hidden: t.hidden, upgrade_ready: !!t.upgrade, path: pathOf(t), added: t.added, cover_url: coverUri(t.cover),
   };
+}
+/** A Library row's `file_state`: as the panel's, but per folder only (the engine never checks a row's own file, so a
+ *  file that went since the last scan still reads `here` in the list). */
+export function rowState(t: FakeTrack): LibraryRow['file_state'] {
+  return t.away === 'offline' || t.away === 'folder_missing' ? t.away : 'here';
 }
 export function qualityLine(t: FakeTrack): string {
   const q = qualityOf(t);

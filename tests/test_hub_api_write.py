@@ -1104,10 +1104,13 @@ def test_an_unplugged_import_folder_makes_its_files_offline_before_any_scan(lib)
         assert conn.execute("SELECT online FROM files WHERE id = ?", (file_id,)).fetchone()[0] == 1
     detail = api.track(key)["track"]
     assert (detail["file_state"], detail["audio_url"]) == ("folder_missing", None)  # not under /Volumes: not found
+    rows = {r["track_id"]: r["file_state"] for r in api.library()["rows"]}
+    assert rows[key] == "folder_missing" and set(rows.values()) == {"here", "folder_missing"}  # the list agrees
     assert api.watched_folders()["folders"][1]["state"] == "missing"  # the same answer as Settings
     assert api._file_path(file_id) is None  # the media vetting refuses too: the file can't be resolved
     gone.rename(folder)  # plugged back in
     assert api.track(key)["track"]["file_state"] == "here"
+    assert {r["file_state"] for r in api.library()["rows"]} == {"here"}
     assert api.watched_folders()["folders"][1]["state"] == "online"
     assert api._file_path(file_id) is not None
 

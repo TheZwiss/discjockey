@@ -591,7 +591,7 @@ class HubApi:
         if filter not in views.LIBRARY_FILTERS:
             raise ValueError(f"filter must be one of {', '.join(views.LIBRARY_FILTERS)}")
         state = self._state()
-        out = views.library(state, folder, query, filter, sort, self._cover(self._images()))
+        out = views.library(state, folder, query, filter, sort, self._cover(self._images()), self._away_roots())
         self._remember(state, [r["track_id"] for r in out["rows"]])
         return out
 

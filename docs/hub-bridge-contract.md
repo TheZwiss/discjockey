@@ -442,7 +442,11 @@ tracks with a file. Every row also has `sound_checked: bool`: false for an impor
 (`import_state` `identified`: the quality is the codec's guess for now; the page says "sound not checked yet", with a
 neutral "Not checked" badge instead of the quality). A row with `sound_checked: false` is left out of the quality
 chips (Lossless, Good lossy, Weak, Fake), of `summary.by_quality` and `summary.lossless_share` (a share of the checked
-files), and it sorts after every checked file by quality; it still counts under All and in `summary.tracks`. The same
+files), and it sorts after every checked file by quality; it still counts under All and in `summary.tracks`. Every
+row also has `file_state` (2026-10-29, fix K): `here`, `offline` or `folder_missing`, read now exactly as `track()`'s
+(below: the live away set of the import folders, a stored `online = 0` stays `offline`), but per watched folder only:
+the list never checks a row's own file, so `file_missing` is `track()`'s alone. A row that isn't `here` doesn't play
+(Enter, double-click and its cover do nothing). The same
 holds for `dashboard`'s `lossless_share` tile and folder bars (`by_quality`, `lossless_share`; `tracks` stays the whole
 count), and the to-do list holds no such file. The user's
 own songs (the import) are in no folder: their rows have `folder: ""` and `in_playlists: false`, they show in All

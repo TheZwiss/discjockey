@@ -10,7 +10,7 @@ import { LIBRARY_METHODS } from '../contract';
 import {
   FAKE_MUSIC, FAKE_NEWEST_YT_DLP, QOBUZ_UNREADABLE, SERVICE_NAME, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkText, coverUri, dateOnly, folderList, hash, inFolder, isoLocal, makeState, nextStep,
   pathOf, playlistRows, previewAction, qualityLabel, qualityLine, qualityOf, result, runDetail, runId,
-  readStatus, sampleCandidates, spotifyOk, todoDetail, todoFree, formatLine, sourceFull, todoGroup, trackRow, type FakeAccount, type FakeFolder, type FakeState,
+  readStatus, sampleCandidates, spotifyOk, todoDetail, todoFree, formatLine, sourceFull, todoGroup, trackRow, rowState, type FakeAccount, type FakeFolder, type FakeState,
   type FakeTrack,
 } from './data';
 import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, rewrite } from './replay';
@@ -493,7 +493,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         folder, summary: { tracks: all.length, lossless_share: checked ? counted.lossless / checked : null,
           by_quality: counted, upgrades_ready: all.filter((t) => !!t.upgrade).length,
           to_do: all.filter((t) => t.in_playlists && !t.hidden && todoGroup(t)).length }, chips,
-        rows: rows.map((t) => ({ ...trackRow(t), sound_checked: !t.unchecked })), empty: !s.tracks.length ? 'empty_library' as const : rows.length ? null : 'no_match' as const });
+        rows: rows.map((t) => ({ ...trackRow(t), sound_checked: !t.unchecked, file_state: rowState(t) })), empty: !s.tracks.length ? 'empty_library' as const : rows.length ? null : 'no_match' as const });
     },
     async track(track_id: string) {
       const t = track(track_id);

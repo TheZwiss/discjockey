@@ -233,8 +233,10 @@ export type JobStatus = { job: JobSnap | null; refresh_running: boolean; console
   /** a sign-in waiting for the browser (its own slot beside the write jobs; Settings restores its phase from it) */
   sign_in?: JobSnap | null };
 
-/** `sound_checked` false: an imported file whose sound isn't judged yet, its quality is the codec's guess for now. */
-export type LibraryRow = TrackRow & { sound_checked: boolean };
+/** `sound_checked` false: an imported file whose sound isn't judged yet, its quality is the codec's guess for now.
+ *  `file_state`: whether the row's file is there now, decided per watched folder (never `file_missing`, which only
+ *  `track()` checks); a row that isn't `here` doesn't play. */
+export type LibraryRow = TrackRow & { sound_checked: boolean; file_state: Exclude<FileState, 'file_missing'> };
 export type Library = {
   /** the folder at a glance, unaffected by the search and the filter; to_do: what the to-do list shows of it */
   title: string; folder: string | null; summary: { tracks: number; lossless_share: number | null;
