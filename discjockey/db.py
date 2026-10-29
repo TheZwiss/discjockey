@@ -865,7 +865,7 @@ def start_batch(conn: sqlite3.Connection, *, started_by: str, about: dict | None
                 moves: Sequence[PlannedMove], now: datetime) -> int:
     """Records a batch and every move it plans, in one transaction, before anything moves: each move `planned`, or
     `skipped` with its reason when its `skip` is set; `seq` is its position in `moves`. Paths are stored as snapshot
-    paths (NFC); an unknown `started_by`, a path in no watched folder, a file move that would rename its file, a
+    paths (NFC); an unknown `started_by`, a planned move's path in no watched folder, a file move that would rename its file, a
     folder move between two watched folders or an unknown skip reason is a ValueError (nothing written). Returns the batch id."""
     if started_by not in STARTED_BY:
         raise ValueError(f"{started_by!r} is not a kind of batch")
@@ -873,8 +873,9 @@ def start_batch(conn: sqlite3.Connection, *, started_by: str, about: dict | None
     rows = []
     for seq, m in enumerate(moves):
         src, dst = (unicodedata.normalize("NFC", p) for p in (m.src, m.dst))
-        (src_folder, _), (dst_folder, _) = folders.locate(src), folders.locate(dst)
-        if m.kind == "folder" and src_folder != dst_folder:
+        if m.skip is None:  # a skipped move may name a folder no longer watched (an undo back into it, tidy.py)
+            (src_folder, _), (dst_folder, _) = folders.locate(src), folders.locate(dst)
+        if m.skip is None and m.kind == "folder" and src_folder != dst_folder:
             raise ValueError(f"a folder move stays in its watched folder: {src!r} -> {dst!r}")
         if m.kind == "file" and PurePosixPath(src).name != PurePosixPath(dst).name:
             raise ValueError(f"a move never renames a file: {src!r} -> {dst!r}")  # spec §8.3

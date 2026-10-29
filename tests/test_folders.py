@@ -364,6 +364,22 @@ def test_a_writer_that_finishes_a_stopped_step_says_so(paths, tmp_path, monkeypa
         assert db.pending_ops(conn) == []
 
 
+@needs_ffmpeg
+def test_a_folder_a_pending_step_still_names_is_not_removed(paths, tmp_path, monkeypatch):
+    stopped_supersede(paths, tmp_path, monkeypatch)
+    with db.connect(paths.db_file) as conn:
+        folder_id = next(f.id for f in db.watched_folders(conn) if f.kind == "import")
+    with pytest.raises(OpProblem) as refused:
+        folders.remove(paths, folder_id, NOW.date())
+    assert (refused.value.kind, str(refused.value)) == ("refused", "Discjockey still has an unfinished change for "
+                                                        "this folder. Connect its drive and open Discjockey again, "
+                                                        "then remove it.")
+    with db.connect(paths.db_file) as conn:
+        assert folder_id in [f.id for f in db.watched_folders(conn)] and len(db.pending_ops(conn)) == 1
+    library.recover_pending(paths, load_state(paths))  # the drive is back: the step finishes, then it can go
+    assert folders.remove(paths, folder_id, NOW.date()).files == 1
+
+
 def test_a_name_taken_in_superseded_gets_a_counter_never_an_id_for_an_own_song(paths, tmp_path):
     copies(paths, tmp_path)
     gid, files = group(paths)

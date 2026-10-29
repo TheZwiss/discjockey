@@ -17,7 +17,7 @@ from . import db, identify, library, ops, report as rep
 from .events import Emit, Message, no_emit
 from .library import FolderCheck, NameReserver, Paths
 from .models import AddedFolder, DupFile, RemovalCounts, is_own
-from .names import split_name, strip_id_suffix
+from .names import fold, split_name, strip_id_suffix
 from .ops import OpProblem
 from .planner import superseded_dir
 from .tidy import failed_detail
@@ -38,6 +38,8 @@ SUPERSEDE = "move_to_superseded"  # the operation's name in reports/operations.j
 MOVED = "Moved to {dst}."
 NOT_MOVED = "Nothing was moved: {detail}."
 NOT_RECORDED = "Moved to {dst}, but Discjockey's records couldn't follow. The next sync catches up."
+PENDING_HERE = ("Discjockey still has an unfinished change for this folder. Connect its drive and open Discjockey "
+                "again, then remove it.")  # W16
 NOT_A_PLAYLIST_SONG = "That song isn't in your playlists any more, so there is nothing to answer."
 STATUS_RANK = {"lossless": 0, "fake_lossless": 1, "not_lossless": 2}  # which own file takes over a playlist song
 
@@ -110,9 +112,16 @@ def removal(paths: Paths, folder_id: int) -> RemovalCounts:
 
 
 def remove(paths: Paths, folder_id: int, today: date | None = None) -> RemovalCounts:
-    """Stops watching an import folder (D12); its files stay where they are. ValueError for the Library folder or an
-    unknown id."""
+    """Stops watching an import folder (D12); its files stay where they are. OpProblem(PENDING_HERE, refused) while
+    a pending step names a file in it (its drive is away, so recovery waits for it): finished later, that step would
+    move a file of a folder nobody watches. ValueError for the Library folder or an unknown id. The caller holds the
+    lock, so no step starts in between."""
     with db.connect(paths.db_file) as conn:
+        root = next((fold(str(f.path)) for f in db.watched_folders(conn) if f.id == folder_id and f.kind == "import"),
+                    None)
+        if root is not None and any(fold(p).startswith(root.rstrip("/") + "/")
+                                    for op in db.pending_ops(conn) for p in library.op_paths(op)):
+            raise OpProblem(PENDING_HERE, "refused")
         return db.remove_watched_folder(conn, folder_id, today or date.today())
 
 

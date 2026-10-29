@@ -665,6 +665,21 @@ def test_an_undo_to_an_import_folder_on_a_drive_that_is_not_connected_is_offline
     assert not drive.exists() and (xpaths.library / "A" / "A - s1.aiff").exists()  # nothing made where it was
 
 
+def test_an_undo_never_moves_a_file_into_a_folder_that_is_no_longer_watched(xpaths, other_drive):
+    from discjockey import folders
+    state = imported(xpaths, other_drive)
+    src = state["tracks"]["s1"]["path"]
+    result = tidy.tidy_up(xpaths, sent(state, "s1"))
+    with db.connect(xpaths.db_file) as conn:
+        folder_id = next(f.id for f in db.watched_folders(conn) if f.kind == "import")
+    folders.remove(xpaths, folder_id)  # the user stops watching the folder the file came from
+    assert [m.skip for m in tidy.undo_preview(xpaths, load_state(xpaths), result.batch_id)] == [("failed", None)]
+    back = tidy.undo(xpaths, result.batch_id)
+    assert back.moved == 0 and [m.reason for m in back.skipped] == ["failed"]  # "Couldn't move it"
+    assert not Path(src).exists() and (xpaths.library / "A" / "A - s1.aiff").read_bytes() == b"audio of s1"
+    assert load_state(xpaths)["tracks"]["s1"]["path"] == "Library/A/A - s1.aiff"
+
+
 def test_a_move_the_records_cannot_finish_is_failed_and_the_batch_goes_on(paths, monkeypatch):
     state = library_with(paths, ("s1", "A", "B"), ("s2", "A", "B"))
     real, calls = db.finish_file_op, []

@@ -353,6 +353,8 @@ false`. Busy for job kind `import`: W7.
   {total}"); W13 the remove dialog's body starts "This is the folder at {path}. " when another watched folder has the
   same name; W14 the Duplicates cards are labelled by the folder of each file (summary "In your playlists" on a
   playlist song's file); W15 Sync shows W9's hints as NoteCards, words unchanged.
+- Added by the stage review's fixes: W16 Remove refused while a pending step names a file in the folder: "Discjockey
+  still has an unfinished change for this folder. Connect its drive and open Discjockey again, then remove it."
 
 ---
 
