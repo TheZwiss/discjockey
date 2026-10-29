@@ -1050,20 +1050,21 @@ OWN_COUNTER = "last_own_song"  # meta: the highest n of a `local:<n>` key ever g
 
 def import_waiting(conn: sqlite3.Connection) -> list[ImportRow]:
     """The files the import's first pass still has to read: import_state `new` or `unreadable` (tried again), in
-    import folders, online and not held (an offline drive's files wait until it is back), by id."""
+    every watched folder (a file found in an import folder keeps its progress when a tidy-up or Finder moves it into
+    Library/: it is still the import's to finish), online and not held (an offline drive's files wait until it is
+    back), by id."""
     return [ImportRow(i, Path(root) / rel, folder, state) for i, root, rel, folder, state in conn.execute(
         "SELECT f.id, w.path, f.path, f.folder, f.import_state FROM files f JOIN watched_folders w ON w.id = f.folder "
-        "WHERE w.kind = 'import' AND f.online = 1 AND f.held = 0 AND f.import_state IN ('new', 'unreadable') "
-        "ORDER BY f.id")]
+        "WHERE f.online = 1 AND f.held = 0 AND f.import_state IN ('new', 'unreadable') ORDER BY f.id")]
 
 
 def import_unjudged(conn: sqlite3.Connection) -> list[ImportRow]:
     """The files the import's second pass (the sound check) still has to judge: a song already (the first pass is
     done for them), import_state `identified`, or `unreadable` (the sound check failed on them before; tried
-    again), in import folders, online and not held, by id."""
+    again), in every watched folder (Library/ too, as import_waiting), online and not held, by id."""
     return [ImportRow(i, Path(root) / rel, folder, state) for i, root, rel, folder, state in conn.execute(
         "SELECT f.id, w.path, f.path, f.folder, f.import_state FROM files f JOIN watched_folders w ON w.id = f.folder "
-        "WHERE w.kind = 'import' AND f.online = 1 AND f.held = 0 AND f.song IS NOT NULL "
+        "WHERE f.online = 1 AND f.held = 0 AND f.song IS NOT NULL "
         "AND f.import_state IN ('identified', 'unreadable') ORDER BY f.id")]
 
 
@@ -1112,12 +1113,13 @@ def library_files(conn: sqlite3.Connection) -> int:
 
 
 def import_left(conn: sqlite3.Connection) -> int:
-    """The files the next import works through (the console's W10 line, plan library stage 4): online, not held,
-    not read yet (`new`) or read but not judged (`identified`). Unreadable ones are left out: the import tries them
-    again, but they wait for no one (the console would ask for them every run)."""
+    """The files the next import works through (the console's W10 line, plan library stage 4): in any watched folder
+    (Library/ too: a file moved there before the import finished it, import_waiting), online, not held, not read yet
+    (`new`) or read but not judged (`identified`). Unreadable ones are left out: the import tries them again, but
+    they wait for no one (the console would ask for them every run)."""
     return conn.execute(
-        "SELECT COUNT(*) FROM files f JOIN watched_folders w ON w.id = f.folder WHERE w.kind = 'import' "
-        "AND f.online = 1 AND f.held = 0 AND f.import_state IN ('new', 'identified')").fetchone()[0]
+        "SELECT COUNT(*) FROM files f "
+        "WHERE f.online = 1 AND f.held = 0 AND f.import_state IN ('new', 'identified')").fetchone()[0]
 
 
 def _next_own(conn: sqlite3.Connection) -> int:
