@@ -63,13 +63,37 @@ Noted while moving the engine onto `library.db` (`docs/2026-10-23-library-stage-
   no longer need to render.
 - **A replaced file the quality check can never read** is judged again, with a warning, on every sync.
 
-## 24. Identify imported files by their sound (AcoustID) — wish, after stage 4
+## 24. Identify files by their sound (AcoustID) — agreed design, a stage after stage 6
 
-Follow-up of `docs/2026-10-23-library-and-sources-design.md` (§1 out of scope, §10.3). Files with missing or wrong tags
-are identified today only from tags and file names. An opt-in setting would send Chromaprint fingerprints to AcoustID
-(free service; needs an application key and the `fpcalc` program bundled, with its licence in `packaging/licenses/`)
-and use the returned recording's ISRC and names.
+Follow-up of `docs/2026-10-23-library-and-sources-design.md` (§1 out of scope, §10.3). Today files are identified
+only from tags and file names. Design agreed with the user on 2026-10-29 (limits checked on acoustid.org/webservice,
+acoustid.biz and the MusicBrainz rate-limiting page that day):
 
-**User decision (2026-10-29): yes, build it, as a last resort only.** A file is fingerprinted only when its tags and
-file name can't identify it. Files that are already identified send nothing. The setting stays off until the user turns
-it on, because it sends data about their files to an outside service. Plan it as a stage after stage 6.
+- **Off by default.** One switch in Settings, with one plain sentence saying what it sends.
+- **Layer 1, local, nothing sent.** Tags and file name as today. New: compare the file's length with the matched
+  playlist track's length (Spotify and Qobuz give it). A large difference means wrong tags or another version (radio
+  edit vs extended mix). Check first whether `identify.py` already uses the length.
+- **Layer 2: a fingerprint is sent only for** (a) files nothing identifies, (b) unsure matches that would become a
+  question, (c) confident matches whose length doesn't fit. A file whose tags match and whose length agrees sends
+  nothing.
+- **Layer 3: the answer is evidence, never a re-tag.** If the sound agrees with a playlist track, link it without
+  asking. If it disagrees with the tags, the question shows both ("Tags say X · the sound says Y"). If AcoustID doesn't
+  know the track, behave as today. **An answer the user already gave always wins.** Never rename or re-tag a file.
+- **What is sent:** the Chromaprint fingerprint, the duration and the app key. No names, paths, tags or email.
+  The MusicBrainz User-Agent gives the GitHub repo URL as its contact, never an email.
+- **Limits.** AcoustID is free for non-commercial and open-source apps, at most 3 requests per second, one request
+  per file (no batch lookup), and needs a registered app key. It asks to be told in advance of significant traffic.
+  MusicBrainz allows 1 request per second per IP and answers 503 above it. Its User-Agent must name the app and a
+  contact. Pace AcoustID at 1 per second at most. Call MusicBrainz (for the ISRC) only when a file needs it for an
+  upgrade search. Store every answer keyed by the file's content key, so a file is never sent twice. Expected volume:
+  about 10 % of a library, once, then only new files.
+- **Service unavailable** (offline, down, slow, 503 or 429): nothing waits for it. Import and sync finish as today.
+  Local checks still run. Files wait in a queue that is tried again on the next sync, with a growing pause between
+  tries and no fast retries. Late answers settle their questions automatically. No banners: one quiet line under the
+  switch ("AcoustID unreachable (last tried 14:02) · 12 files waiting"). A missing or failing `fpcalc` is handled the
+  same way.
+- **Needs:** a registered AcoustID app key; `fpcalc` bundled, with its licence in `packaging/licenses/`.
+- **Before the release:** write to AcoustID. Ask whether the 3 per second is counted per app key (shared by every
+  user) or per IP, and give the expected traffic. This is outward-facing: only with the user's go and wording.
+- **Later wish, nothing sent:** compare fingerprints locally to find the same song in different formats (MP3 vs FLAC).
+  Today only same-file duplicates are found.
