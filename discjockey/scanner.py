@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from .content_key import AUDIO_EXTS, content_key
-from .models import KnownFile, ScanResult, SeenFile, WatchedFolder
+from .models import NOT_OPENABLE, KnownFile, ScanResult, SeenFile, WatchedFolder
 from .names import fold
 
 
@@ -110,6 +110,15 @@ def _nfc(s: str) -> str:
     return unicodedata.normalize("NFC", s)
 
 
+def _listed(dirpath: str, name: str) -> bool:
+    """Whether the folder still lists `name`: a file that can't be looked at but is still listed is a broken entry
+    (an exFAT drive can list a name whose directory entry can't be opened), not a file removed since the walk."""
+    try:
+        return name in os.listdir(dirpath)
+    except OSError:
+        return False
+
+
 def _reason(e: OSError) -> str:
     return e.strerror or type(e).__name__
 
@@ -119,6 +128,7 @@ class _Walked:
     files: list[tuple[str, Path, os.stat_result]] = field(default_factory=list)  # rel, path on disk, lstat
     unlisted: list[str] = field(default_factory=list)  # rels of subfolders that couldn't be listed
     unreadable: list[tuple[str, str]] = field(default_factory=list)  # rel, reason
+    unopenable: list[str] = field(default_factory=list)  # rels the folder lists but whose entry can't be looked at
     failed: bool = False  # the folder itself couldn't be listed
 
 
@@ -136,7 +146,10 @@ def _walk(top: Path, excluded: set[str]) -> _Walked:
             try:
                 st = os.lstat(path)
             except FileNotFoundError:
-                continue  # removed since the folder was listed
+                if _listed(dirpath, name):  # still listed: a broken entry, told to the user (ScanResult.unopenable)
+                    out.unreadable.append((rel, NOT_OPENABLE))
+                    out.unopenable.append(rel)
+                continue  # else removed since the folder was listed
             except OSError as e:
                 out.unreadable.append((rel, _reason(e)))
                 continue
@@ -157,6 +170,7 @@ class _Sorting:
     retagged: list[tuple[int, SeenFile]] = field(default_factory=list)
     replaced: list[tuple[int, SeenFile]] = field(default_factory=list)
     unreadable: list[tuple[int, str, str]] = field(default_factory=list)
+    unopenable: list[tuple[int, str]] = field(default_factory=list)
     present: list[tuple[KnownFile, SeenFile]] = field(default_factory=list)  # rows whose file is at its path
     kept: list[KnownFile] = field(default_factory=list)  # rows left as they are (offline, unlisted, unreadable)
     hold_if_gone: set[int] = field(default_factory=set)  # missing rows of a folder whose walk couldn't see it all
@@ -167,7 +181,7 @@ class _Sorting:
     def add(self, other: _Sorting) -> None:
         self.hold_if_gone |= other.hold_if_gone
         self.unreadable_sizes |= other.unreadable_sizes
-        for name in ("unchanged", "retagged", "replaced", "unreadable", "present", "kept", "missing", "new"):
+        for name in ("unchanged", "retagged", "replaced", "unreadable", "unopenable", "present", "kept", "missing", "new"):
             getattr(self, name).extend(getattr(other, name))
 
     def drop(self, prefix: str, row_ids: set[int]) -> None:
@@ -179,6 +193,7 @@ class _Sorting:
         self.replaced = [(i, s) for i, s in self.replaced if i not in row_ids]
         self.present = [(row, s) for row, s in self.present if row.id not in row_ids]
         self.unreadable = [u for u in self.unreadable if not under(u[1])]
+        self.unopenable = [u for u in self.unopenable if not under(u[1])]
         self.kept = [row for row in self.kept if row.id not in row_ids]
         self.missing = [row for row in self.missing if row.id not in row_ids]
         self.hold_if_gone -= row_ids
@@ -194,6 +209,7 @@ def _sort_folder(top: WatchedFolder, rows: dict[str, KnownFile], walked: _Walked
         out.unreadable.append((top.id, rel, reason))
         if rel in rows:
             out.kept.append(rows[rel])
+    out.unopenable.extend((top.id, rel) for rel in walked.unopenable)
     for rel, path, st in walked.files:
         seen.add(rel)
         row = rows.get(rel)
@@ -252,6 +268,7 @@ def _reconcile(result: ScanResult, s: _Sorting, snapshot_path: Callable[[int, st
     result.retagged = s.retagged
     result.replaced = s.replaced
     result.unreadable = s.unreadable
+    result.unopenable = s.unopenable
 
     still_there = {found.content_key for _, found in s.present}
     still_there.update(row.content_key for row in s.kept if row.content_key is not None)

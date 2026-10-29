@@ -239,6 +239,9 @@ class SeenFile:
     content_key: str
 
 
+NOT_OPENABLE = "The drive lists this file, but it can't be opened."  # W6's reason for a broken directory entry
+
+
 @dataclass
 class ScanResult:
     """How one scan sorted the files (spec library-and-sources §6.3); db.apply_scan writes it.
@@ -259,6 +262,8 @@ class ScanResult:
     held: list[int] = field(default_factory=list)  # file ids that would be gone, left as they are: the file may be
     # in a subfolder that couldn't be listed or be a file that couldn't be read (spec §12); decided on a later scan
     unreadable: list[tuple[int, str, str]] = field(default_factory=list)  # folder id, rel, reason; tried next scan
+    unopenable: list[tuple[int, str]] = field(default_factory=list)  # folder id, rel: listed, but its entry can't be
+    # looked at (a broken entry on the drive); db.apply_scan lists a new one in an import folder as unreadable
 
 
 @dataclass(frozen=True)
