@@ -936,17 +936,19 @@ def watched_folders(folders: Sequence[WatchedFolder], counts: Mapping[int, Impor
 
     Row state: offline (the path isn't there, whatever else), scanning (an import is looking for files), importing
     (one runs and this folder has files it hasn't finished), else online. Row `waiting`: files of the folder the
-    import still works through (not read yet, or read and not yet sound-checked); `unreadable`: files it couldn't read."""
-    roots = {f.id: PurePosixPath(str(f.path)) for f in folders if f.kind == "import"}
+    import still works through (not read yet, or read and not yet sound-checked); `unreadable`: files it couldn't read.
+    The Library row counts both the same way (`counts` holds its entry), its unreadable files are in the list with
+    its id."""
+    roots = {f.id: PurePosixPath(str(f.path)) for f in folders}
     rows = []
     for f in folders:
+        c = counts.get(f.id) or ImportCounts(0, 0, 0, 0)
+        left = c.waiting + c.identified
         if f.kind == "library":
             rows.append({"id": f.id, "path": str(f.path), "name": "Library", "kind": "library",
                          "state": "scanning" if phase == "scan" else "online", "files": library_files,
-                         "waiting": 0, "unreadable": 0})
+                         "waiting": left, "unreadable": c.unreadable})
             continue
-        c = counts.get(f.id) or ImportCounts(0, 0, 0, 0)
-        left = c.waiting + c.identified
         state = ("offline" if f.id in offline else "scanning" if phase == "scan"
                  else "importing" if phase is not None and left else "online")
         rows.append({"id": f.id, "path": str(f.path), "name": roots[f.id].name or str(f.path), "kind": "import",

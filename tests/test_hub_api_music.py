@@ -308,6 +308,22 @@ def test_files_the_import_could_not_read_are_listed_with_their_folder_and_reason
     assert out["unreadable"][0]["path"].startswith(str(folder)) and out["folders"][1]["unreadable"] == 1
 
 
+def test_the_library_row_shows_its_own_waiting_and_unreadable_files(tmp_path, monkeypatch):
+    from discjockey import db, importer
+    paths, folder, api, rec = watched(tmp_path, monkeypatch)
+    with db.connect(paths.db_file) as conn:  # two files that came into Library/ before the import finished them
+        ids = [i for (i,) in conn.execute("SELECT f.id FROM files f JOIN watched_folders w ON w.id = f.folder "
+                                          "WHERE w.kind = 'library' ORDER BY f.id")]
+        conn.execute("UPDATE files SET import_state = 'new' WHERE id = ?", (ids[0],))
+        db.set_unreadable(conn, ids[1], importer.NO_ACCESS)
+    out = api.watched_folders()
+    library, imported = out["folders"]
+    assert (library["waiting"], library["unreadable"]) == (1, 1) and (imported["waiting"], imported["unreadable"]) == (0, 0)
+    assert [(u["folder_id"], u["reason"]) for u in out["unreadable"]] == [
+        (library["id"], "macOS doesn't let Discjockey read it")]
+    assert out["unreadable"][0]["path"].startswith(str(paths.library)) and out["waiting"] == 1
+
+
 def test_the_watched_folders_of_a_library_without_records_are_just_the_library(tmp_path):
     from hub_helpers import music_root
     paths = music_root(tmp_path)

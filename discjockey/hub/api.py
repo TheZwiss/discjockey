@@ -613,7 +613,11 @@ class HubApi:
                 library_files = len(views.tracks_with_file(self._state()))
             else:
                 rows, counts = db.watched_folders(conn), db.import_counts(conn)
-                library_files, unreadable, waiting = db.library_files(conn), db.import_unreadable(conn), db.import_left(conn)
+                library_files, waiting = db.library_files(conn), db.import_left(conn)
+                unreadable = sorted(db.import_unreadable(conn) + db.import_unreadable(conn, "library"))
+                for f in rows:
+                    if f.kind == "library":  # Library/ is listed like an import folder: its own waiting and unreadable
+                        counts[f.id] = db.library_counts(conn)
         offline = {f.id for f in rows if f.kind == "import" and not f.path.is_dir()}
         return views.watched_folders(rows, counts, offline, library_files, unreadable, waiting, self._import_stopped,
                                      phase)

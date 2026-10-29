@@ -80,8 +80,8 @@ export function watchedFolders(s: FakeState): WatchedFolders {
     id: f.id, path: f.path, name: f.kind === 'library' ? 'Library' : name(f.path), kind: f.kind,
     state: f.kind === 'library' ? (phase === 'scan' ? 'scanning' : 'online')
       : f.offline ? 'offline' : phase === 'scan' ? 'scanning' : phase !== null && f.waiting > 0 ? 'importing' : 'online',
-    files: f.files, waiting: f.kind === 'library' ? 0 : f.waiting,
-    unreadable: f.kind === 'library' ? 0 : s.imp.unreadable.filter((u) => u.folder_id === f.id).length,
+    files: f.files, waiting: f.waiting,
+    unreadable: s.imp.unreadable.filter((u) => u.folder_id === f.id).length,
   }));
   return { folders: rows, unreadable: s.imp.unreadable.map((u) => ({ ...u })),
     waiting: importFolders(s).filter((f) => !f.offline).reduce((n, f) => n + f.waiting, 0), stopped: s.imp.stopped };
