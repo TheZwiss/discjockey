@@ -1,8 +1,9 @@
 <script lang="ts">
   // The watched folders as one list (plan library stage 4, W3), shared by Settings → Watched folders and Setup's
   // "Your existing music". Each row: its state as colour plus shape (✓ readable, ! offline, a spinner while it is
-  // worked on) · the folder's name over its state line and, for an import folder, where it is (one line, the middle of a
-  // long path gives way to "…" and the folder's own name stays; the full path is the tooltip; the × and the dialog
+  // worked on) · the folder's name over its state line and, for an import folder, where it is (one line, whole while it
+  // fits; else its parents give way in whole folders from the front, the drive's name last (fitPath), and the folder's
+  // own name stays; the full path is the tooltip; the × and the dialog
   // add the short path when two folders share a name) · its files, right-aligned · × Remove (the Library is always watched, so its slot stays
   // empty and the counts line up). Presentational: the page's WatchedFoldersFlow reads and changes the folders.
   // `grow`: the list fills a Panel's `fill` and scrolls inside (the folders grow over time).
@@ -13,7 +14,8 @@
   import Spinner from './Spinner.svelte';
   import StatusMark from './StatusMark.svelte';
   import Surface from './Surface.svelte';
-  import { count, folderLabel, folderLine, folderMark, pathParts } from './watchedFoldersModel';
+  import { count, folderLabel, folderLine, folderMark } from './watchedFoldersModel';
+  import { fitPathAction } from './fitPathAction';
 
   let { folders, label = 'Watched folders', onremove, removeOff = null, removing = null, grow = false,
     test = 'watched-folders' }: {
@@ -42,7 +44,7 @@
         {#snippet lead()}{#if mark === 'working'}<span class="spin"><Spinner size={12} label={folderLine(f)} /></span>
           {:else}<StatusMark tone={mark} quiet={mark === 'good'} />{/if}{/snippet}
         {#snippet name()}{f.name}{/snippet}
-        {#snippet sub()}<span class="line">{folderLine(f)}</span>{#if f.kind === 'import'}{@const p = pathParts(f.path)}<span class="path"><span class="head">{p.head}</span><span class="tail">{p.tail}</span></span>{/if}{/snippet}
+        {#snippet sub()}<span class="line">{folderLine(f)}</span>{#if f.kind === 'import'}<span class="path" use:fitPathAction={f.path}><span class="head"></span><span class="tail"></span></span>{/if}{/snippet}
         {#snippet trailing()}
           <span class="files" title="{count(f.files)} {f.files === 1 ? 'file' : 'files'}">{count(f.files)}</span>
           <span class="act">{#if f.kind === 'import' && onremove}
@@ -65,8 +67,9 @@
      line is words and wraps between them; the path never wraps */
   .line, .path { display: block; }
   .line { white-space: normal; overflow-wrap: normal; }
-  /* the path on one line: the head gives way first ("/Volumes/…/Music"), the folder's own name stays whole unless
-     it alone is wider than the column */
+  /* the path on one line, in the form that fits (fitPathAction: whole folders give way, so no blank sits before the
+     tail); only when even the shortest form is too wide does the head end in "…", the folder's own name staying whole
+     unless it alone is wider than the column */
   .path { display: flex; min-width: 0; color: var(--text-label); white-space: nowrap; }
   .head { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .tail { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }

@@ -41,6 +41,36 @@ export function pathParts(path: string): { head: string; tail: string } {
   const i = p.lastIndexOf('/');
   return i < 0 ? { head: p, tail: '' } : { head: p.slice(0, i), tail: p.slice(i) };
 }
+/**
+ * The path as a row shows it in the width it has (`fits` says whether a text fits): whole while it fits; else the
+ * parents give way in whole folders from the front, a drive's name last ("/Volumes/Example Drive/Music/Sets" →
+ * "…/Example Drive/Music/Sets" → "…/Example Drive/…/Sets"; "~/Music/Old/Crates" → "…/Old/Crates"). Whole
+ * folders, so no name is cut; only when even the shortest form doesn't fit is its end cut, measured, so no blank sits
+ * before the tail ("…/Example…/Music").
+ */
+export function fitPath(path: string, fits: (text: string) => boolean): { head: string; tail: string } {
+  const { head, tail } = pathParts(path);
+  const segs = head.split('/');
+  const heads = [head];
+  if (segs[0] === '' && segs[1] === 'Volumes' && segs.length > 2) {
+    const [drive, ...middle] = segs.slice(2);
+    heads.push(`…/${[drive, ...middle].join('/')}`);
+    if (middle.length) heads.push(`…/${drive}/…`);
+  } else {
+    // "…" for "~" or a single first folder would save nothing: the first form drops two
+    for (let i = 2; i < segs.length; i++) heads.push(`…/${segs.slice(i).join('/')}`);
+  }
+  const whole = heads.find((h) => fits(h + tail));
+  if (whole !== undefined) return { head: whole, tail };
+  // even the shortest form is too wide: its end gives way character by character, ending in "…" right before the
+  // tail, so no blank sits there (the cut is measured, not left to the row's ellipsis)
+  const last = heads[heads.length - 1];
+  for (let n = last.length - 1; n > 0; n--) {
+    const cut = `${last.slice(0, n).trimEnd()}…`;
+    if (fits(cut + tail)) return { head: cut, tail };
+  }
+  return { head: last ? '…' : '', tail };
+}
 /** The row's mark: ✓ readable, ! offline (it keeps its files, it only waits), a spinner while it is worked on. */
 export type FolderMark = 'good' | 'warn' | 'working';
 export function folderMark(f: WatchedFolderRow): FolderMark {
