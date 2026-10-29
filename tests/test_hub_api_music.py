@@ -214,6 +214,25 @@ def test_attach_refuses_a_library_of_another_support_folder(tmp_path):
         api._attach(Paths(tmp_path, support=tmp_path / "b"))
 
 
+def test_binding_a_library_lets_its_first_plan_in_whatever_the_stored_ones_generation(tmp_path):
+    from datetime import datetime
+    from discjockey.models import Plan
+    from discjockey.run import Prepared
+    from discjockey.settings import Settings
+
+    def prep(generation):
+        st = {"version": 2, "tracks": {}, "generation": generation}
+        return Prepared(None, st, Settings(), Plan(st, [], [], []), None)
+
+    paths = make_root(tmp_path)
+    api, _ = make_api(paths)
+    api._store.ready(prep(5), datetime(2026, 10, 25, 12, 0))
+    api._attach(paths)  # the records are opened again: they count their generation from 0
+    fresh = prep(0)
+    api._store.ready(fresh, datetime(2026, 10, 25, 12, 1))
+    assert api._store.prep is fresh
+
+
 def test_a_music_folder_that_vanishes_while_open_is_missing_not_empty(tmp_path):
     music = tmp_path / "music"
     music.mkdir()

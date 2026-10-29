@@ -371,19 +371,38 @@ def test_a_writer_that_finishes_a_stopped_step_says_so(paths, tmp_path, monkeypa
 
 
 @needs_ffmpeg
-def test_a_folder_a_pending_step_still_names_is_not_removed(paths, tmp_path, monkeypatch):
+def test_a_folder_whose_drive_a_pending_step_waits_for_is_not_removed(paths, tmp_path, monkeypatch):
     stopped_supersede(paths, tmp_path, monkeypatch)
     with db.connect(paths.db_file) as conn:
         folder_id = next(f.id for f in db.watched_folders(conn) if f.kind == "import")
+    drive = tmp_path / "Example Drive"
+    drive.rename(tmp_path / "Example Drive (away)")  # unplugged
+    events = []
     with pytest.raises(OpProblem) as refused:
-        folders.remove(paths, folder_id, NOW.date())
+        folders.remove(paths, folder_id, NOW.date(), emit=events.append)
     assert (refused.value.kind, str(refused.value)) == ("refused", "Discjockey still has an unfinished change for "
                                                         "this folder. Connect its drive and open Discjockey again, "
                                                         "then remove it.")
+    assert [e.text for e in events if isinstance(e, Message)]  # the recovery's W17 words came first
     with db.connect(paths.db_file) as conn:
         assert folder_id in [f.id for f in db.watched_folders(conn)] and len(db.pending_ops(conn)) == 1
-    library.recover_pending(paths, load_state(paths))  # the drive is back: the step finishes, then it can go
+    (tmp_path / "Example Drive (away)").rename(drive)  # the drive is back: the step finishes, then it can go
     assert folders.remove(paths, folder_id, NOW.date()).files == 1
+
+
+@needs_ffmpeg
+def test_a_step_a_crash_left_on_a_connected_drive_is_finished_before_the_folder_is_removed(paths, tmp_path,
+                                                                                         monkeypatch):
+    stopped_supersede(paths, tmp_path, monkeypatch)
+    with db.connect(paths.db_file) as conn:
+        folder_id = next(f.id for f in db.watched_folders(conn) if f.kind == "import")
+    events = []
+    counts = folders.remove(paths, folder_id, NOW.date(), emit=events.append)  # no "Connect its drive…" refusal
+    assert counts.files == 1
+    texts = [e.text for e in events if isinstance(e, Message)]
+    assert texts and "Twice" in texts[0]
+    with db.connect(paths.db_file) as conn:
+        assert db.pending_ops(conn) == [] and folder_id not in [f.id for f in db.watched_folders(conn)]
 
 
 def test_a_name_taken_in_superseded_gets_a_counter_never_an_id_for_an_own_song(paths, tmp_path):

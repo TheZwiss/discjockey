@@ -297,6 +297,7 @@ class HubApi:
             self._jobs.bind(paths.lock)
             if self._media is not None:
                 self._media.bind(paths, self._file_path)
+            self._store.records_reopened()  # its records may count their generation from 0 again
             self._bound, self._missing = paths, None  # last: the library gate opens once lock and media are ready
 
     def _bind(self, paths: Paths) -> None:
@@ -1304,7 +1305,7 @@ class HubApi:
         folder = self._import_folder(folder_id)
 
         def change(ctx) -> dict:
-            counts = folders_mod.remove(self._paths, folder.id, self._today())
+            counts = folders_mod.remove(self._paths, folder.id, self._today(), emit=ctx.emit)
             return {"files": counts.files, "redownload": counts.redownload}
 
         return {"job_id": self._jobs.start("folders", replanned_work(self._store, change, self._svc.now)).id}

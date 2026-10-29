@@ -518,7 +518,7 @@ def test_a_step_waiting_for_an_unplugged_drive_blocks_the_scan_only_when_it_has_
     # held up by a drive: the scan says so in W17's words, unless the caller's recovery just did
     assert [(m.level, m.text) for m in told] == [("warning", library.DRIVE_WAITS.format(path=drive / "c.aiff"))]
     told.clear()
-    library.scan_library(paths, told.append, after_recovery=True)
+    library.scan_library(paths, told.append, shown=[library.DRIVE_WAITS.format(path=drive / "c.aiff")])
     assert told == []
 
 
@@ -648,5 +648,66 @@ def test_a_step_wholly_on_an_unplugged_drive_says_the_scan_goes_on(paths, drive)
                                   "connected. Connect it, and Discjockey finishes the change.")
     assert "look for new files" not in message  # the scan of the other folders really does go on
     touch(paths.library / "A/new.aiff")
-    library.scan_library(paths, after_recovery=True)
+    library.scan_library(paths)
     assert "Library/A/new.aiff" in load_state(paths)["files"]
+
+
+def test_every_w17_line_uses_the_held_form_when_any_pending_step_holds_the_scan(paths, drive):
+    s = load_state(paths)
+    s["pending"].append({"track_id": "t1", "renames": [[str(drive / "a.aiff"), str(drive / "B/a.aiff")]],
+                         "entry": None, "label": "A - S"})  # wholly on the drive: alone, the scan would go on
+    s["pending"].append({"track_id": "t2", "renames": [[str(drive / "c.aiff"), "Library/A/c.aiff"]],
+                         "entry": None, "label": "C - S"})  # a file in Library/: holds the scan
+    save_state(paths, s)
+    unplug(drive)
+    messages = recover_pending(paths, load_state(paths))
+    assert messages == [(library.DRIVE_WAITS.format(path=drive / "a.aiff"), False),
+                        (library.DRIVE_WAITS.format(path=drive / "c.aiff"), False)]
+    assert all("until then Discjockey doesn't look for new files" in m for m, _ in messages)
+
+
+def test_a_step_that_finishes_in_the_same_recovery_does_not_hold_the_form_for_the_others(paths, drive):
+    touch(paths.library / "A/x.aiff")
+    s = load_state(paths)
+    s["pending"].append({"track_id": "t1", "renames": [["Library/A/x.aiff", "Library/A/y.aiff"]], "entry": None,
+                         "label": "A - S"})  # connected: finishes now
+    s["pending"].append({"track_id": "t2", "renames": [[str(drive / "a.aiff"), str(drive / "B/a.aiff")]],
+                         "entry": None, "label": "B - S"})
+    save_state(paths, s)
+    unplug(drive)
+    messages = recover_pending(paths, load_state(paths))
+    assert messages[0] == ("Finished an interrupted step for A - S", True)
+    assert messages[1] == (library.DRIVE_WAITS_SCAN_GOES_ON.format(path=drive / "a.aiff"), False)
+
+
+def test_the_scan_says_it_is_held_unless_a_shown_line_already_said_so(paths, drive):
+    s = load_state(paths)
+    s["pending"].append({"track_id": "t1", "renames": [[str(drive / "c.aiff"), "Library/A/c.aiff"]], "entry": None})
+    save_state(paths, s)
+    unplug(drive)
+    held = library.DRIVE_WAITS.format(path=drive / "c.aiff")
+    told = []
+    library.scan_library(paths, told.append, shown=["Finished most of an interrupted step for A - S, but the drive "
+                                                    "isn't connected"])  # other words don't count as saying it
+    assert [m.text for m in told] == [held]
+    told.clear()
+    library.scan_library(paths, told.append, shown=[held])
+    assert told == []
+
+
+def test_a_step_stuck_for_another_reason_that_also_holds_the_scan_still_gets_the_held_line(paths, drive, monkeypatch):
+    touch(paths.library / "A/x.aiff")
+
+    def refused(*a, **kw):
+        raise PermissionError(errno.EACCES, "Permission denied")
+    monkeypatch.setattr(library, "move_path", refused)
+    s = load_state(paths)
+    s["pending"].append({"track_id": "t1", "label": "A - S", "entry": None,
+                         "renames": [["Library/A/x.aiff", "Library/A/y.aiff"], [str(drive / "c.aiff"), "Library/A/c.aiff"]]})
+    save_state(paths, s)
+    unplug(drive)
+    recovered = recover_pending(paths, load_state(paths))
+    assert len(recovered) == 1 and "yet" in recovered[0][0] and "look for new files" not in recovered[0][0]
+    told = []
+    library.scan_library(paths, told.append, recover=False, shown=[m for m, _ in recovered])
+    assert [m.text for m in told] == [library.DRIVE_WAITS.format(path=drive / "c.aiff")]

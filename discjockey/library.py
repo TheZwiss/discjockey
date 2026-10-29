@@ -580,8 +580,9 @@ COPY_MISMATCH = "the copy on the other drive didn't match the original"
 DRIVE_GONE = "the drive of {path} isn't connected"
 # W17 (plan library stage 4 I12): a pending step waits for a drive (recover_pending). Two forms: the scan is held
 # with it (a file of the step is in a folder that is there) or it goes on with the other folders
-DRIVE_WAITS = ("Couldn't finish a stopped change: the drive with {path} isn't connected. Connect it; until then "
-               "Discjockey doesn't look for new files.")
+SCAN_HELD_WORDS = "until then Discjockey doesn't look for new files"  # what only the held form says
+DRIVE_WAITS = ("Couldn't finish a stopped change: the drive with {path} isn't connected. Connect it; " + SCAN_HELD_WORDS
+               + ".")
 DRIVE_WAITS_SCAN_GOES_ON = ("Couldn't finish a stopped change: the drive with {path} isn't connected. Connect it, "
                             "and Discjockey finishes the change.")
 TWO_PLACES = ("{src} couldn't be removed from its drive ({reason}), so the file is in two places now: {src} and "
@@ -886,12 +887,20 @@ def short_path(path: Path | str) -> str:
     return "~/" + p.relative_to(home).as_posix() if p != home and p.is_relative_to(home) else p.as_posix()
 
 
-def _waiting(name: str, r: _Recovered, scan_held: bool) -> tuple[str, bool]:
+@dataclass(frozen=True)
+class _Waits:
+    """A step that stays pending, its message still to be worded: `holds` is whether it holds up the scan."""
+    name: str
+    r: _Recovered
+    holds: bool
+
+
+def _waiting(w: _Waits, scan_held: bool) -> tuple[str, bool]:
     """The message of a step that stays pending: W17 when it waits for a drive (`scan_held`: scan_library holds up
-    the scan of the other folders for it, else it goes on), else what stands in its way."""
-    if r.drive is not None:
-        return (DRIVE_WAITS if scan_held else DRIVE_WAITS_SCAN_GOES_ON).format(path=r.drive), False
-    return f"Could not finish an interrupted step for {name} yet: {r.problem}", False
+    the scan of the other folders, because any pending step does, else it goes on), else what stands in its way."""
+    if w.r.drive is not None:
+        return (DRIVE_WAITS if scan_held else DRIVE_WAITS_SCAN_GOES_ON).format(path=w.r.drive), False
+    return f"Could not finish an interrupted step for {w.name} yet: {w.r.problem}", False
 
 
 def _recover_renames(root: Path, op: dict, roots: Collection[Path]) -> _Recovered:
@@ -962,14 +971,15 @@ def _recovered(name: str, problem: str, done_any: bool) -> tuple[str, bool]:
     return f"Could not finish an interrupted step for {name}: {problem}", False
 
 
-def _recover_files(paths: Paths, op: dict, roots: Collection[Path]) -> tuple[tuple[str, bool], bool]:
+def _recover_files(paths: Paths, op: dict, roots: Collection[Path]) -> tuple[tuple[str, bool] | _Waits, bool]:
     """A move_files step: its renames finished (_recover_renames), then db.finish_file_op, or the journal entry
-    dropped when no file moved. Returns the message and whether library.db was written."""
+    dropped when no file moved. Returns the message (a _Waits for a step that stays pending) and whether library.db was
+    written."""
     from . import db
     name = op.get("label") or "a file"
     r = _recover_renames(paths.root, op, roots)
     if r.wait and not r.done_any:
-        return _waiting(name, r, not waits_offline(op, paths.root, roots)), False
+        return _Waits(name, r, not waits_offline(op, paths.root, roots)), False
     with db.connect(paths.db_file) as conn:
         if not r.done_any:
             db.drop_pending(conn, op["op_id"])
@@ -1006,7 +1016,7 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
     (tidy.recover). Returns (message, ok) per step and per batch. A step with a file on a drive that isn't
     connected waits for it. A `files` step (move_files) and tidy.recover write library.db past `state`, so after
     either `state`'s contents are replaced in place with a fresh snapshot: the caller goes on saving a current one."""
-    messages = []
+    messages: list[tuple[str, bool] | _Waits] = []
     roots = watched_roots(paths) if state.get("version") == 2 else [paths.root]
     for op in list(state.get("pending", [])):
         if op.get("kind") == "swap":
@@ -1023,7 +1033,7 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
         name = op.get("label") or f"{e.get('artist', '?')} - {e.get('title', op['track_id'])}"
         r = _recover_renames(paths.root, op, roots)
         if r.wait and not r.done_any:
-            messages.append(_waiting(name, r, not waits_offline(op, paths.root, roots)))
+            messages.append(_Waits(name, r, not waits_offline(op, paths.root, roots)))
             continue
         if r.done_any:
             # once a file was placed, the entry must point at it, or the next run would mis-adopt it
@@ -1039,7 +1049,9 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
             from .tidy import recover  # tidy builds on this module
             messages += recover(paths, state)
             _refresh(paths, state)
-    return messages
+    # W17's form is one for all steps: the scan is held when any step still pending holds it up
+    scan_held = any(m.holds for m in messages if isinstance(m, _Waits))
+    return [_waiting(m, scan_held) if isinstance(m, _Waits) else m for m in messages]
 
 
 # --- the scan (spec library-and-sources §6) ---
@@ -1054,7 +1066,7 @@ NOT_JUDGED = ("{path} was changed outside Discjockey, but Discjockey couldn't ch
 def scan_library(paths: Paths, emit: Emit = no_emit, *,
                  analyze: Callable[[Path], tuple[str, int | None]] | None = None,
                  key_of: Callable[[Path], str] = content_key, recover: bool = True,
-                 after_recovery: bool = False) -> ScanSummary:
+                 shown: Collection[str] = ()) -> ScanSummary:
     """Indexes the watched folders (Library/) against library.db and writes what changed (the caller holds the
     lock; the records are opened, and migrated if needed, first): files moved by hand keep their song, new files
     are indexed, a file gone marks its song's file gone, and a song's file whose audio was replaced outside
@@ -1064,8 +1076,8 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
     ready/ and .discjockey/ are never looked at. Nothing is scanned while a step is pending (its files are between
     two places; the next scan after it is finished sees them), unless every file of the step is on a drive that
     isn't connected (waits_offline: the scan can't see any of them); a step that holds the scan up because one of
-    its files is on a drive that isn't connected says so in W17's words (DRIVE_WAITS), unless `after_recovery`: the
-    caller has just emitted recover_pending's messages, which say it already. One message, only when something
+    its files is on a drive that isn't connected says so in W17's words (DRIVE_WAITS), unless one of `shown` (the
+    messages the caller has just emitted from recover_pending) said it already: only words already shown are left out. One message, only when something
     changed (copies count as new files). `recover` as open_records: a dry run passes False, and a state.json with
     steps pending is then neither moved into library.db nor scanned."""
     from . import db, scanner
@@ -1081,7 +1093,7 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
             blocking = [op for op in db.pending_ops(conn) if not waits_offline(op, paths.root, roots)]
             if blocking:
                 away = next((p for op in blocking if (p := drive_away(op, paths.root, roots)) is not None), None)
-                if away is not None and not after_recovery:  # W17, as recover_pending says it
+                if away is not None and not any(SCAN_HELD_WORDS in m for m in shown):  # W17, as recover_pending says it
                     emit(Message("warning", DRIVE_WAITS.format(path=short_path(away))))
                 return ScanSummary()
             known = db.known_files(conn)

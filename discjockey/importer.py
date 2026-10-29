@@ -258,10 +258,11 @@ def run_import(paths: Paths, *, emit: Emit = no_emit, token: CancelToken, link: 
     run = _Run(paths, emit, token, read_tags, probe, inspect)
     emit(ImportProgress("scan", 0, 0, 0))
     state = library.open_state(paths, emit)
-    for message, ok in library.recover_pending(paths, state):  # as every writer's start (tidy._begin)
+    recovered = library.recover_pending(paths, state)  # as every writer's start (tidy._begin)
+    for message, ok in recovered:
         emit(Message("info" if ok else "warning", message))
     library.clear_tmp(paths, state)
-    library.scan_library(paths, emit, analyze=inspect, after_recovery=True)
+    library.scan_library(paths, emit, analyze=inspect, shown=[m for m, _ in recovered])
     try:
         token.check()
         run.tags()
