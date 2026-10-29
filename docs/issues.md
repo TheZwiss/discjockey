@@ -14,6 +14,9 @@ Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
 - **The removal count (W4) misses rare cases:** a playlist track matched only at plan time (no stored song) isn't
   counted, and a Yes answer for a track that left every playlist still is. A song re-keyed after the removal keeps
   its file's tag name until the planner updates stored names.
+- **Files judged before the floor rule (fix round E1) keep their old verdict.** Nothing judges a library file again
+  when the detector improves; in the user's library three House_Banger files would now be fake. Two more just miss
+  the rule (a 28–29.7 dB fall into a flat floor, the rule needs 30); lowering it would take in looser shapes.
 
 ## 26. Library stage 3 leftovers (Qobuz playlists) — for stages 5 and 6
 
