@@ -143,3 +143,20 @@ def test_the_full_collaboration_still_matches_itself():
 @pytest.mark.parametrize("tag", ["Guest & Example Artist", "Another Artist & Guest", "Exampleartist x Guest"])
 def test_a_collaboration_without_the_artist_first_is_a_non_match(tag):
     assert compare("Example Artist", "Night Drive", 200000, None, own(artist=tag, ms=203000)) is None
+
+
+def test_own_name_splits_on_a_dash_with_a_space_on_one_side_only():
+    assert own_name({}, "EXAMPLE ARTIST- SO SHY.wav") == ("EXAMPLE ARTIST", "SO SHY")
+    assert own_name({}, "Example Artist -Night Drive.mp3") == ("Example Artist", "Night Drive")
+    assert own_name({}, "Example Artist- Night-Drive.mp3") == ("Example Artist", "Night-Drive")
+    assert own_name({}, "A- B -C.mp3") == ("A", "B -C")  # the first such dash decides
+    assert own_name({}, "A – B- C.mp3") == ("A", "B- C")  # a spaced dash always wins over a one-sided one
+
+
+def test_own_name_never_splits_on_a_bare_hyphen_or_a_dash_without_a_name_on_a_side():
+    assert own_name({}, "Jay-Z.mp3") == ("", "Jay-Z")
+    assert own_name({}, "Hi-Fi Night.mp3") == ("", "Hi-Fi Night")
+    assert own_name({}, "Jay-Z Night-Drive.mp3") == ("", "Jay-Z Night-Drive")
+    assert own_name({}, "Example Artist -- Night Drive.mp3") == ("", "Example Artist -- Night Drive")
+    assert own_name({}, "-Night Drive.mp3") == ("", "-Night Drive")
+    assert own_name({}, "Night Drive -.mp3") == ("", "Night Drive -")

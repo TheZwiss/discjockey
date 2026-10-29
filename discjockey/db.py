@@ -22,7 +22,7 @@ from . import library as disk  # "library" is the Library/ path argument everywh
 from .events import Emit, Message
 from .identify import compare
 from .models import (OWN_PREFIX, AddedFolder, BatchRow, DupFile, DuplicateGroup, ImportCounts, ImportRow, KnownFile,
-                     MoveRow, OwnFacts, PlannedMove, RemovalCounts, ScanResult, WatchedFolder, group_id,
+                     MoveRow, NOT_OPENABLE, OwnFacts, PlannedMove, RemovalCounts, ScanResult, WatchedFolder, group_id,
                      is_own, split_token, token)
 from .names import expected_stem
 from .planner import ENTRY_KEYS
@@ -778,7 +778,8 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
     rows (found there by a scan: placed by 'import'; in an import folder with import_state `new`, stage 4); a gone
     row is deleted and its song's file marked gone today (an own song is deleted with it).
     Held rows keep everything but are marked held (the snapshot's `held`: the planner leaves their songs alone, as
-    offline ones); unreadable rows stay as they are. Returns the rows written."""
+    offline ones); unreadable rows stay as they are (a file the drive lists but can't open, new in an import folder,
+    gets an unreadable row with NOT_OPENABLE as its reason). Returns the rows written."""
     stamp, today = now.isoformat(timespec="seconds"), now.date().isoformat()
     n = scanned = 0  # scanned: last_scan stamps, which no snapshot shows (they don't bump the generation)
     with transaction(conn):
@@ -821,6 +822,12 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
                 "ON CONFLICT (folder, path) DO NOTHING",
                 (seen.folder, seen.rel, seen.size, seen.mtime_ns, seen.content_key, stamp, stamp,
                  "new" if seen.folder in imports else None)).rowcount
+        for folder, rel in result.unopenable:  # listed by the drive but not openable: shown under "Couldn't read"
+            if folder in imports:  # (a row it already has is left as it is)
+                n += conn.execute(
+                    "INSERT INTO files (song, folder, path, placed_by, online, first_seen, last_seen, import_state, "
+                    "import_error) VALUES (NULL, ?, ?, 'import', 1, ?, ?, 'unreadable', ?) "
+                    "ON CONFLICT (folder, path) DO NOTHING", (folder, rel, stamp, stamp, NOT_OPENABLE)).rowcount
         for file_id in result.gone:  # an own song goes with its file (below); a playlist song downloads it again
             n += conn.execute(f"UPDATE songs AS s SET file_gone = ? WHERE s.id = (SELECT song FROM files WHERE id = ?) "
                               f"AND NOT ({_IS_OWN_ONLY})", (today, file_id)).rowcount

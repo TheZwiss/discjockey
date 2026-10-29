@@ -635,3 +635,27 @@ def test_removal_counts_a_playlist_song_that_waits_for_a_link_to_a_file_in_the_f
         db.set_decision(conn, "same_song", "sp4", other, "not_same", NOW)
         assert db.removal_counts(conn, folder) == db.RemovalCounts(files=4, redownload=2)
         assert db.remove_watched_folder(conn, folder, date(2026, 10, 26)) == db.RemovalCounts(4, 2)
+
+
+def test_a_file_the_drive_lists_but_cannot_open_is_listed_as_unreadable_in_an_import_folder(lib):
+    folder = lib.folder().id
+    scan = ScanResult(unopenable=[(folder, "Example Artist - Broken.wav"), (1, "House/Broken.aiff")])
+    lib.scan(scan)
+    with lib.conn() as conn:
+        assert db.import_unreadable(conn) == [
+            (Path(DRIVE) / "Example Artist - Broken.wav", "The drive lists this file, but it can't be opened.")]
+        assert db.import_unreadable(conn, "library") == []  # Library/ is not an import folder: nothing is written
+        assert db.import_left(conn) == 0 and db.import_counts(conn)[folder].unreadable == 1
+        assert [r.file_id for r in db.import_waiting(conn)] == [lib.file_id(folder, "Example Artist - Broken.wav")]
+    assert lib.rows("SELECT song, size, content_key, placed_by FROM files WHERE folder = ?", folder) == [
+        (None, None, None, "import")]
+    lib.scan(scan, LATER)  # the next scan lists it again: still one row
+    assert len(lib.rows("SELECT id FROM files WHERE folder = ?", folder)) == 1
+
+
+def test_a_row_the_import_already_knows_keeps_its_own_state_when_its_entry_cannot_be_opened(lib):
+    folder = lib.folder().id
+    (a,) = lib.add_files(folder, "A.mp3")
+    lib.own_song(a)
+    lib.scan(ScanResult(unopenable=[(folder, "A.mp3")]), LATER)
+    assert lib.rows("SELECT import_state, import_error FROM files WHERE id = ?", a) == [("identified", None)]

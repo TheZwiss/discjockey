@@ -1418,3 +1418,24 @@ def test_the_library_row_counts_its_own_waiting_and_unreadable_files():
     assert out["folders"][1]["waiting"] == 25 and out["folders"][1]["unreadable"] == 0
     assert [(u["folder_id"], u["path"]) for u in out["unreadable"]] == [(1, "/m/Library/House/bad.aiff"),
                                                                         (1, "/m/Library/worse.wav")]
+
+
+# --- a file of the user's own is not a bought file ---
+
+def test_the_detail_of_an_own_file_says_so_and_shows_the_day_it_was_first_seen():
+    entry = own(placed_by="import", first_seen="2026-10-25T12:00:00", source_format="pcm_s16le", added=None)
+    d = views.track_detail("local:1", entry, [], TODAY)
+    assert d["source_full"] == "your own file" and d["source_name"] == "own file"
+    assert d["quality_line"] == "Your own file (PCM) · verified lossless"
+    assert d["added"] == "2026-10-25T12:00:00"
+    assert views.track_row("local:1", entry)["added"] == "2026-10-25T12:00:00"
+
+
+def test_a_bought_file_the_sync_adopted_stays_bought_with_its_own_added_day():
+    entry = e("lossless", source="manual", source_format="pcm_s16be", placed_by="app", first_seen="2026-10-25T12:00:00",
+              added="2026-10-01T10:00:00")
+    d = views.track_detail("t1", entry, [], TODAY)
+    assert d["source_full"] == "bought" and d["source_name"] == "bought" and d["added"] == "2026-10-01T10:00:00"
+    assert d["quality_line"].startswith("bought file ")
+    without = e("lossless", source="manual", placed_by="app", first_seen="2026-10-25T12:00:00", added=None)
+    assert views.track_row("t1", without)["added"] is None  # first_seen stands in for an own file only

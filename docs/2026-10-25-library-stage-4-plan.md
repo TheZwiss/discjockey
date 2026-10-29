@@ -333,7 +333,7 @@ false`. Busy for job kind `import`: W7.
 - W6 Import phases: "Looking for music files" · "Reading tags · {done} of {total}" · "Checking the sound · {done}
   of {total}" · "Linking to your playlists"; stopped: "Import stopped with {left} files to go. It carries on where
   it stopped." · button **Continue import**; done: "Imported {files} files." Couldn't read: header "Couldn't read
-  ({n})", rows "{path}: {reason}", Hint "Tried again at the next import." `NOT_CHECKED` = "sound not checked yet".
+  ({n})", rows "{path}: {reason}", Hint "Tried again at the next import." `NOT_CHECKED` = "sound not checked yet". A file the drive lists but can't open (a broken directory entry on an exFAT drive) is listed there too, with the reason "The drive lists this file, but it can't be opened."
 - W7 Busy: "Discjockey is importing your music. Stop the import in Settings → Watched folders to do this now; it
   carries on later where it stopped."
 - W8 To-do: groups `("same_song", "Is this the same song?", "a file of yours might be a playlist song")`,

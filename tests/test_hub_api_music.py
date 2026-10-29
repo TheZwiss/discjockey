@@ -408,3 +408,50 @@ def test_the_library_row_counts_what_all_tracks_counts_before_there_is_a_library
     row = api.watched_folders()["folders"][0]
     assert not paths.db_file.exists() and row["kind"] == "library"
     assert row["files"] == api.sidebar()["all_tracks"] and row["files"] > 0
+
+
+# --- the sound picture and the player of an own file in an import folder ---
+
+def own_track(api):
+    """(track id, entry) of the first own song whose file sits in an import folder."""
+    return next((k, e) for k, e in api._state()["tracks"].items() if e.get("path") and e["path"].startswith("/"))
+
+
+def test_the_sound_picture_and_the_player_open_a_file_of_an_import_folder(tmp_path, monkeypatch):
+    import numpy as np
+    from discjockey.hub.media import MediaServer
+    from hub_helpers import fake_import, fake_spotify, import_folder, music_root
+    fake_spotify(monkeypatch)
+    fake_import(monkeypatch)
+    paths = music_root(tmp_path)
+    folder = import_folder(tmp_path, 2)
+    api, rec = make_api(paths, decode=lambda p: (np.zeros(44100, dtype=np.float32), 44100))
+    api._media = MediaServer(paths)
+    api._media.bind(paths, api._file_path)
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    track_id, e = own_track(api)
+    pic = api.spectrum(track_id)
+    assert pic["ok"] and pic["spectrum"]["cols"] == 400 and pic["spectrum"]["which"] == "current"
+    url = api.media_url(track_id)["url"]
+    assert url.startswith(f"http://127.0.0.1:{api._media.port}/{api._media.token}/file/{e['file_id']}?v=")
+    other = next(k for k, v in api._state()["tracks"].items() if (v.get("path") or "").startswith("/") and k != track_id)
+    assert len(list((paths.cache / "spectrum").iterdir())) == 1  # one picture so far
+    api.spectrum(other)
+    assert len(list((paths.cache / "spectrum").iterdir())) == 2  # a cache entry per file
+
+
+def test_an_import_file_that_is_offline_is_refused_though_its_path_still_exists(tmp_path, monkeypatch):
+    import numpy as np
+    from discjockey.hub.media import MediaServer
+    paths, folder, api, rec = watched(tmp_path, monkeypatch, n=1)
+    api._svc.decode = lambda p: (np.zeros(44100, dtype=np.float32), 44100)
+    api._media = MediaServer(paths)
+    api._media.bind(paths, api._file_path)
+    track_id, e = own_track(api)
+    from discjockey import db
+    with db.connect(paths.db_file) as conn:  # its drive is marked offline, the file is still on disk
+        conn.execute("UPDATE files SET online = 0 WHERE id = ?", (e["file_id"],))
+    assert open(e["path"], "rb").read()
+    for call in (api.spectrum, api.media_url):
+        r = call(track_id)
+        assert (r["ok"], r["kind"]) == (False, "refused")

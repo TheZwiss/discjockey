@@ -459,3 +459,50 @@ def test_a_migrated_row_without_key_never_takes_an_indexed_file_by_name(lib):
             known(2, lib, "X/A - One.aiff", linked=False)]
     r = run([lib], rows)
     assert r.gone == [1] and r.moved == []
+
+
+def test_a_file_the_drive_lists_but_cannot_open_is_unreadable_not_skipped(lib, monkeypatch):
+    put(lib.path, "Fine.aiff", "fine")
+    put(lib.path, "Broken.aiff", "broken")
+    real = os.lstat
+
+    def lstat(path, *a, **kw):  # the directory lists "Broken.aiff", but looking at it fails
+        if os.path.basename(path) == "Broken.aiff":
+            raise FileNotFoundError(2, "No such file or directory", str(path))
+        return real(path, *a, **kw)
+
+    monkeypatch.setattr(os, "lstat", lstat)
+    r = run([lib], [])
+    assert [s.rel for s in r.new] == ["Fine.aiff"]
+    assert r.unopenable == [(1, "Broken.aiff")]
+    assert r.unreadable == [(1, "Broken.aiff", "The drive lists this file, but it can't be opened.")]
+
+
+def test_a_file_removed_since_the_folder_was_listed_is_just_gone(lib, monkeypatch):
+    put(lib.path, "Fine.aiff", "fine")
+    put(lib.path, "Vanishing.aiff", "v")
+    real = os.lstat
+
+    def lstat(path, *a, **kw):  # removed between the listing and the look
+        if os.path.basename(path) == "Vanishing.aiff":
+            (lib.path / "Vanishing.aiff").unlink()
+        return real(path, *a, **kw)
+
+    monkeypatch.setattr(os, "lstat", lstat)
+    r = run([lib], [])
+    assert [s.rel for s in r.new] == ["Fine.aiff"] and r.unreadable == [] and r.unopenable == []
+
+
+def test_a_known_row_whose_entry_cannot_be_opened_is_kept_not_gone(lib, monkeypatch):
+    put(lib.path, "A - One.aiff", "one")
+    row = known(1, lib, "A - One.aiff")
+    real = os.lstat
+
+    def lstat(path, *a, **kw):
+        if os.path.basename(path) == "A - One.aiff":
+            raise FileNotFoundError(2, "No such file or directory", str(path))
+        return real(path, *a, **kw)
+
+    monkeypatch.setattr(os, "lstat", lstat)
+    r = run([lib], [row])
+    assert r.gone == [] and r.moved == [] and [rel for _, rel, _ in r.unreadable] == ["A - One.aiff"]

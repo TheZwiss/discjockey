@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .models import SOURCE_NAMES
+from .models import OWN_FILE, SOURCE_NAMES
 
 FRAME = 8192
 HOP = 4096
@@ -161,11 +161,17 @@ def verdict(source_lossless: bool, cutoff: int | None) -> str:
     return "lossless"
 
 
-def quality_line(source: str, codec: str, status: str, cutoff: int | None, kbps: int | None = None) -> str:
-    name = SOURCE_NAMES[source]
+def quality_line(source: str, codec: str, status: str, cutoff: int | None, kbps: int | None = None,
+                 own: bool = False) -> str:
+    """The words under a track: where it came from, its format and the verdict. `own`: a file of the user's own that
+    the import found, which the "manual" source would call a bought file."""
     fmt = "PCM" if codec.startswith("pcm_") else codec.upper()
     if kbps and status == "not_lossless":
         fmt += f" {kbps} kbps"
+    if own and source == "manual":  # "Your own file (PCM) · …": the format in brackets reads as a sentence
+        name, fmt = OWN_FILE[0].upper() + OWN_FILE[1:], f"({fmt})"
+    else:
+        name = SOURCE_NAMES[source]
     khz = f"{cutoff / 1000:.1f} kHz" if cutoff else None
     if status == "lossless":
         return f"{name} {fmt} · verified lossless"

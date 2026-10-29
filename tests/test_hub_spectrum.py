@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -124,3 +125,23 @@ def test_real_aiff(paths, tmp_path):
     db = decoded(spectrum.spectrum(paths, REL))
     band_hz = 22050 / 128
     assert db[:, int(10000 / band_hz):int(15000 / band_hz)].mean() - db[:, int(18500 / band_hz):].mean() > 30
+
+
+def test_a_file_of_an_import_folder_is_keyed_by_its_row_and_only_a_real_file_is_taken(paths, tmp_path):
+    outside = tmp_path / "outside" / "Own - Song.wav"
+    outside.parent.mkdir()
+    outside.write_bytes(b"audio")
+    calls = []
+
+    def decode(path):
+        calls.append(path)
+        return noise(seconds=2), SR
+
+    first = spectrum.spectrum_of_file(paths, 7, outside, decode=decode)
+    assert spectrum.spectrum_of_file(paths, 7, outside, decode=decode) == first and calls == [outside]
+    spectrum.spectrum_of_file(paths, 8, outside, decode=decode)
+    assert len(list((paths.cache / "spectrum").iterdir())) == 2  # a cache entry per row, not per name
+    with pytest.raises(ValueError):
+        spectrum.spectrum_of_file(paths, 7, tmp_path / "outside" / "gone.wav", decode=decode)
+    with pytest.raises(ValueError):
+        spectrum.spectrum_of_file(paths, 7, Path("outside/Own - Song.wav"), decode=decode)
