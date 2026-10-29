@@ -27,7 +27,7 @@ from typing import Literal
 from .content_key import content_key
 from .events import Emit, Message, no_emit
 from .models import ScanSummary
-from .names import fold
+from .names import fold, id_tags
 
 log = logging.getLogger(__name__)
 
@@ -551,9 +551,9 @@ class NameReserver:
         self.taken.discard(fold(rel))
 
     def choose(self, dest_dir: str, stem: str, ext: str, track_id: str) -> str:
-        """The stem, else with the track ID (none when `track_id` is "": a file of no playlist song). In
+        """The stem, else with the song's ID tag (names.id_tags; none when `track_id` is "": a file of no song). In
         Superseded/ a counter follows ("<stem> (2)", ...), so a replaced file always finds a place there."""
-        names = [stem, f"{stem} [{track_id[:6]}]", f"{stem} [{track_id}]"] if track_id else [stem]
+        names = [stem, *(f"{stem} {tag}" for tag in id_tags(track_id))]
         if fold(dest_dir).split("/")[0] == "superseded":
             names = itertools.chain(names, (f"{stem} ({n})" for n in itertools.count(2)))
         for candidate in names:
