@@ -1,11 +1,19 @@
 // To-do page logic (Task 67, spec §5.3; design system mockup design-system/todo.html): navigation order, selection
 // across re-fetches, the filter strip, the list's sections, actions per track and the panel's main action.
 import type { SegOption } from '$lib/components/segmentedModel';
-import type { FreeDownload, Quality, Todo, TodoFilter, TodoGroupKey, TodoItem, TrackDetail } from '$lib/bridge/types';
+import type {
+  FileSide, FreeDownload, Quality, QuestionPair, QuestionWhy, Todo, TodoFilter, TodoGroupKey, TodoItem, TrackDetail,
+} from '$lib/bridge/types';
+import { isDuplicate, isQuestion } from '$lib/bridge/types';
+import type { QueueItem } from '$lib/stores/queueModel';
+import type { PlayerState } from '$lib/stores/player';
+import { duration } from '$lib/format';
 
-/** Filter order = the contract's group order, All first. */
-export const FILTER_ORDER: TodoFilter[] = ['all', 'rekordbox_check', 'upgrade_ready', 'not_found', 'weak', 'good_lossy',
-  'fake', 'other'];
+/** Filter order = the contract's group order (= the list's section order), All first. The import's two groups come
+ *  right after rekordbox: they hold downloads back until they are answered (plan library stage 4 D4), and the strip
+ *  reads in the order the sections do. With every group present, the later ones go under More (FILTER_MAX). */
+export const FILTER_ORDER: TodoFilter[] = ['all', 'rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready',
+  'not_found', 'weak', 'good_lossy', 'fake', 'other'];
 /** Short, so the strip holds five and More on one line at 1100 (the section heads carry the full names). */
 const FILTER_LABEL: Record<TodoFilter, string> = {
   all: 'All', rekordbox_check: 'rekordbox', same_song: 'Same song?', duplicate: 'Duplicates', upgrade_ready: 'Upgrades',
@@ -37,11 +45,18 @@ export function headerSub(n: number): string {
 }
 
 // ---------- navigation ----------
-/** A track can be in two groups, so an item is "group/track_id". */
-export function itemKey(i: Pick<TodoItem, 'group' | 'track_id'>): string {
+/** A track can be in two groups, so an item is "group/track_id". The import's items are named by what they are
+ *  about: a question by its playlist song and the file of the user's own (one song can be asked about more than one
+ *  file), a duplicate group by its id. */
+export function itemKey(i: Pick<TodoItem, 'group' | 'track_id' | 'pair'>): string {
+  const p = i.pair;
+  if (i.group === 'same_song' && p && 'own_key' in p) return `same_song/${p.song_key}/${p.own_key}`;
+  if (i.group === 'duplicate' && p && 'group_id' in p) return `duplicate/${p.group_id}`;
   return `${i.group}/${i.track_id}`;
 }
-const trackOf = (key: string) => key.slice(key.indexOf('/') + 1);
+const find = (items: TodoItem[], key: string) => items.find((i) => itemKey(i) === key);
+/** The file ids of a duplicate group's item (none for every other item). */
+const fileIds = (i: TodoItem | undefined): number[] => (i && isDuplicate(i) ? i.pair.files.map((f) => f.file_id) : []);
 
 /** Every item in navigation order (the groups come in the contract's order). */
 export function flatten(t: Todo | null): TodoItem[] {
@@ -51,12 +66,19 @@ export function flatten(t: Todo | null): TodoItem[] {
 /**
  * The selection after a re-fetch: the same item, else the same track (now in another group), else the item now at
  * the old position, else the previous one. Without a selection: the first item.
+ * The import's items: an answered question or duplicate group is done, so the selection goes on to the item now in
+ * its place (the next question) rather than following the song into another group; a duplicate group that lost a
+ * file to Superseded/ (its id names its files, so the id changes) stays selected as the group of the files left.
  */
 export function keepSelection(key: string | null, before: TodoItem[], after: TodoItem[]): string | null {
   if (!after.length) return null;
   if (key === null) return itemKey(after[0]);
   if (after.some((i) => itemKey(i) === key)) return key;
-  const same = after.find((i) => i.track_id === trackOf(key));
+  const old = find(before, key);
+  const ids = fileIds(old);
+  const rest = ids.length ? after.find((i) => fileIds(i).some((id) => ids.includes(id))) : undefined;
+  if (rest) return itemKey(rest);
+  const same = old && !old.pair ? after.find((i) => !i.pair && i.track_id === old.track_id) : undefined;
   if (same) return itemKey(same);
   const pos = before.findIndex((i) => itemKey(i) === key);
   if (pos < 0) return itemKey(after[0]);
@@ -71,19 +93,110 @@ export function moveSelection(items: TodoItem[], key: string | null, delta: numb
   return itemKey(items[Math.max(0, Math.min(items.length - 1, pos + delta))]);
 }
 
-/** `?track=`: the first item of that track. */
+/** `?track=`: the first item of that track; `file:<id>` (a file of the import's items, playing in the foot: its
+ *  link back) selects the question or duplicate group that file is in. */
 export function selectFromTrack(items: TodoItem[], track_id: string | null): string | null {
-  const i = track_id ? items.find((x) => x.track_id === track_id) : undefined;
+  const m = track_id ? /^file:(\d+)$/.exec(track_id) : null;
+  const i = m ? items.find((x) => filesOf(x).some((f) => f.file_id === Number(m[1])))
+    : track_id ? items.find((x) => x.track_id === track_id) : undefined;
   return i ? itemKey(i) : null;
 }
 
 /** After "Good enough, hide": the next item that is not this track (the previous one at the end). */
 export function selectAfterHide(items: TodoItem[], key: string): string | null {
   const pos = items.findIndex((i) => itemKey(i) === key);
-  const id = trackOf(key);
+  const id = items[pos]?.track_id;
   const next = items.slice(pos + 1).find((i) => i.track_id !== id)
     ?? items.slice(0, Math.max(0, pos)).reverse().find((i) => i.track_id !== id);
   return next ? itemKey(next) : null;
+}
+
+/** The rows ▶ in a track's details plays through as the to-do queue. The import's items are left out: a question's
+ *  song has no file yet and a duplicate group is several files, so neither is a track the queue could ask for. */
+export function queueRows(items: TodoItem[]): TodoItem[] {
+  return items.filter((i) => !i.pair);
+}
+
+/** The badge a row shows: a question shows the quality of the user's file it asks about (the playlist song waits
+ *  for the answer and has no file); every other row its track's. */
+export function rowBadge(i: TodoItem): { quality: Quality; label: string } {
+  return isQuestion(i) ? { quality: i.pair.file.quality, label: i.pair.file.quality_label }
+    : { quality: i.quality, label: i.quality_label };
+}
+
+// ---------- the import's details (plan library stage 4, W8) ----------
+/** The files of an import item: a question's one file, a duplicate group's files; none for any other item. */
+export function filesOf(i: TodoItem): FileSide[] {
+  return isQuestion(i) ? [i.pair.file] : isDuplicate(i) ? i.pair.files : [];
+}
+
+/** A file's id in the player's queue (the foot's link back selects its item through selectFromTrack). */
+export const fileQueueId = (f: Pick<FileSide, 'file_id'>): string => `file:${f.file_id}`;
+
+/** ▶ on a file: the files of the item that can play, as a queue starting at that file, so ⏭ goes on to the next copy
+ *  and copies are compared one after the other. Null when that file can't play (offline, or no address). */
+export function fileQueue(files: FileSide[], file_id: number, cover_url: string | null = null):
+  { items: QueueItem[]; start: number; urls: Map<string, string> } | null {
+  const playable = files.filter((f) => f.online && f.audio_url);
+  const start = playable.findIndex((f) => f.file_id === file_id);
+  if (start < 0) return null;
+  return {
+    items: playable.map((f) => ({ track_id: fileQueueId(f), artist: f.artist, title: f.title || fileName(f.path),
+      cover_url, duration_s: f.duration_s || null })),
+    start,
+    urls: new Map(playable.map((f) => [fileQueueId(f), f.audio_url as string])),
+  };
+}
+
+/** A file's ▶ as the player has it: its own sound loading or playing, else paused. */
+export function fileState(p: Pick<PlayerState, 'track_id' | 'playing' | 'loading'>, f: Pick<FileSide, 'file_id'>):
+  'playing' | 'paused' | 'loading' {
+  if (p.track_id !== fileQueueId(f)) return 'paused';
+  return p.loading ? 'loading' : p.playing ? 'playing' : 'paused';
+}
+
+/** The last part of a path ("Neon Riot - Neonfieber.aiff"). */
+export function fileName(path: string): string {
+  return path.split('/').filter(Boolean).at(-1) ?? path;
+}
+/** The folder a file is in, home as "~" ("/Volumes/Example Drive/Music/Old", "Library/Hard_Bounce"). */
+export function fileFolder(path: string): string {
+  const dir = path.replace(/\/+$/, '').split('/').slice(0, -1).join('/');
+  return dir.replace(/^\/Users\/[^/]+(?=\/|$)/, '~') || '/';
+}
+
+/** One line of "Is this the same song?": the playlist song's value beside the file's; `differs` marks the line the
+ *  why is about (the artist for `artist` / `no_artist`, the length for `length` / `no_length`). */
+export type CompareLine = { key: 'title' | 'artist' | 'length' | 'where'; song: string; file: string;
+  differs: boolean; fileTitle?: string };
+/** Stands for a value that isn't there (no artist in the file, a length that couldn't be read). */
+export const NO_VALUE = '—';
+const DIFFERS: Record<QuestionWhy, CompareLine['key']> = {
+  artist: 'artist', no_artist: 'artist', length: 'length', no_length: 'length' };
+
+export function compareLines(p: QuestionPair): CompareLine[] {
+  const d = DIFFERS[p.why];
+  const len = (s: number) => (s > 0 ? duration(s) : NO_VALUE);
+  return [
+    { key: 'title', song: p.track.title, file: p.file.title || fileName(p.file.path), differs: false },
+    { key: 'artist', song: p.track.artist || NO_VALUE, file: p.file.artist || NO_VALUE, differs: d === 'artist' },
+    { key: 'length', song: len(p.track.duration_s), file: p.why === 'no_length' ? NO_VALUE : len(p.file.duration_s),
+      differs: d === 'length' },
+    { key: 'where', song: p.track.folder, file: fileFolder(p.file.path), differs: false, fileTitle: p.file.path },
+  ];
+}
+
+/** "Keep both" for two files, "Keep all" for more (W8). */
+export function keepLabel(n: number): string {
+  return n > 2 ? 'Keep all' : 'Keep both';
+}
+
+/** The playlist service a song's link opens ("Open in Spotify"); null for a link of no known service. */
+export function linkService(link: string | null): string | null {
+  if (!link) return null;
+  if (/^https:\/\/open\.spotify\.com\//.test(link)) return 'Spotify';
+  if (/^https:\/\/([a-z]+\.)?qobuz\.com\//.test(link)) return 'Qobuz';
+  return null;
 }
 
 // ---------- details panel ----------

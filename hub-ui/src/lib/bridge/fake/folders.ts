@@ -237,8 +237,8 @@ const DRIVE = '/Volumes/Example Drive';
 const side = (file_id: number, song_key: string | null, path: string, artist: string, title: string, duration_s: number,
   quality: FileSide['quality'], label: string, inPlaylist = false): FileSide => ({ file_id, song_key, path, artist, title,
   duration_s, quality, quality_label: label, online: true, in_playlist: inPlaylist,
-  // a file in the Library plays; one in an import folder is outside what the media server serves
-  audio_url: inPlaylist ? toneUrl(Math.min(duration_s, 90), 196 + (file_id % 6) * 22) : null });
+  // every online file plays, an import folder's too (the media server's `file/<id>` address, contract FileSide)
+  audio_url: toneUrl(Math.min(duration_s || 90, 90), 196 + (file_id % 6) * 22) });
 const own = (id: number, artist: string, title: string, duration_s: number, quality: FileSide['quality'] = 'lossless',
   label = 'LOSSLESS', dir = 'Music'): FileSide => side(id, `local:${id}`,
   `${DRIVE}/${dir}/${artist ? artist + ' - ' : ''}${title}.aiff`, artist, title, duration_s, quality, label);

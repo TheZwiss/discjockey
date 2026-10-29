@@ -4,9 +4,12 @@
   // that fills the height and scrolls in place (`grow`), whatever the library's size: the groups are ListSection
   // heads among its rows, sticking while their rows pass, so a long group never pushes the others off screen. Show
   // hidden sits in the list's head. The panel is the selected to-do (Details: its own Panel, the main action in the
-  // foot).
+  // foot). The import's two groups (plan library stage 4) bring their own panels: QuestionDetails and
+  // DuplicateDetails, built from the item's `pair` alone (their songs need no track() call: a question's song may not
+  // be downloaded, a duplicate group is no track).
   import { untrack } from 'svelte';
   import { api } from '$lib/bridge/client';
+  import { isDuplicate, isQuestion } from '$lib/bridge/types';
   import type { Fail, Todo, TodoFilter, TodoItem, TrackDetail } from '$lib/bridge/types';
   import { dataVersion } from '$lib/stores/hub';
   import { getPref, setPref } from '$lib/prefs';
@@ -17,10 +20,12 @@
   import { ListPanelFrame, Panel } from '$lib/frames';
   import { artistTitle } from '$lib/format';
   import {
-    FILTER_MAX, segOptions, filterFrom, flatten, headerSub, itemKey, keepSelection, moveSelection, selectAfterHide,
-    selectFromTrack,
+    FILTER_MAX, segOptions, filterFrom, flatten, headerSub, itemKey, keepSelection, moveSelection, queueRows, rowBadge,
+    selectAfterHide, selectFromTrack,
   } from './todoModel';
   import Details from './Details.svelte';
+  import QuestionDetails from './QuestionDetails.svelte';
+  import DuplicateDetails from './DuplicateDetails.svelte';
   import { listen } from '$lib/listen';
   import { player } from '$lib/stores/player';
   import WrongSongDialog from './WrongSongDialog.svelte';
@@ -41,7 +46,7 @@
   // ▶ in the details starts the to-do list as the queue: its rows with a file, in the order shown. A track that
   // isn't among them (the list changed meanwhile) plays on its own.
   function listenFrom(t: TrackDetail) {
-    if (listen(items, t.track_id, { label: 'To-do', href: '#/todo' })) return;
+    if (listen(queueRows(items), t.track_id, { label: 'To-do', href: '#/todo' })) return;
     if (t.audio_url) player.play({ url: t.audio_url, title: artistTitle(t.artist, t.title), track_id: t.track_id });
   }
 
@@ -90,7 +95,8 @@
   let track = $state<TrackDetail | null>(null);
   let trackError = $state<Fail | null>(null);
   let tseq = 0;
-  const selId = $derived(selected?.track_id ?? null);
+  // the import's items have their panel from the item itself: no track() for them, and no track to select
+  const selId = $derived(selected && !selected.pair ? selected.track_id : null);
   let lastSelected: string | null | undefined = undefined;
   $effect(() => {
     const id = selId;
@@ -157,7 +163,8 @@
   {#snippet name()}{artistTitle(i.artist, i.title)}{/snippet}
   {#snippet sub()}{[i.folder, i.detail].filter(Boolean).join(' · ')}{/snippet}
   {#snippet trailing()}
-    <Badge tone={i.quality} text={i.quality_label} />
+    {@const b = rowBadge(i)}
+    <Badge tone={b.quality} text={b.label} />
     <span class="act">{#if i.hidden}<Badge tone="muted" text="HIDDEN" />{:else if i.upgrade_ready}<Badge tone="lossless"
       text="UPGRADE" />{:else if i.free}<span title="The artist gives it away for free"><Badge tone="accent"
       text="FREE" /></span>{/if}</span>
@@ -203,7 +210,11 @@
 {/snippet}
 
 {#snippet panel()}
-  {#if track}
+  {#if selected && isQuestion(selected)}
+    {#key itemKey(selected)}<QuestionDetails item={selected} />{/key}
+  {:else if selected && isDuplicate(selected)}
+    {#key selected.pair.group_id}<DuplicateDetails item={selected} />{/key}
+  {:else if track}
     <Details {track} item={selected?.track_id === track.track_id ? selected : null} onhidden={hidden}
       onversions={openVersions} onlisten={() => track && listenFrom(track)} />
   {:else}

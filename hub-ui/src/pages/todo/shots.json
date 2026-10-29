@@ -56,5 +56,17 @@
      { "wait": "[data-test=use-progress]" }, { "wait": "[data-key='rekordbox_check/t17']" }, { "sleep": 300 }] },
  { "name": "todo-drop-add", "route": "#/todo?track=t17", "scenario": "normal",
    "steps": [{ "wait": "[data-test=bought-file]" }, { "sleep": 300 }, { "eval": "window.__fake.dropFile(true)" },
-     { "wait": "[data-test=bought-file][data-state=busy]" }, { "sleep": 200 }] }
+     { "wait": "[data-test=bought-file][data-state=busy]" }, { "sleep": 200 }] },
+ { "name": "todo-same-song", "route": "#/todo?track=q1", "scenario": "todo_same_song",
+   "steps": [{ "wait": "[data-test=question][data-why=artist]" }, { "wait": "[data-test=todo-filter]" },
+     { "eval": "if (!document.querySelector('[data-test=question-compare] [data-line=artist].differs')) throw new Error('the why line is not marked')" },
+     { "sleep": 400 }] },
+ { "name": "todo-same-song-length", "route": "#/todo?track=q5", "scenario": "todo_same_song",
+   "steps": [{ "wait": "[data-test=question][data-why=no_length]" }, { "sleep": 400 }] },
+ { "name": "todo-duplicates", "route": "#/todo?filter=duplicate", "scenario": "todo_duplicates",
+   "steps": [{ "wait": "[data-test=duplicates][data-files='2']" }, { "sleep": 400 }] },
+ { "name": "todo-duplicates-three", "route": "#/todo?filter=duplicate", "scenario": "todo_duplicates_three",
+   "steps": [{ "wait": "[data-test=duplicates][data-files='3']" },
+     { "eval": "if (document.querySelector('[data-test=duplicates-keep]').textContent.trim() !== 'Keep all') throw new Error('three files keep all')" },
+     { "sleep": 400 }] }
 ]
