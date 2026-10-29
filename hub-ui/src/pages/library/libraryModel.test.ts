@@ -3,9 +3,9 @@ import type { TrackRow } from '$lib/bridge/types';
 import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import {
   fileName, folderCell, footAction, inTodo, isSort, libraryView, moveSelection, nextSort, optionalColumns, overview, placeLine,
-  playable, rowAway, rowOff, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
+  playable, rowAway, rowOff, rowTitleTip, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
 } from './libraryModel';
-import type { Library, TrackDetail } from '$lib/bridge/types';
+import type { Library, LibraryRow, TrackDetail } from '$lib/bridge/types';
 
 const row = (id: string, extra: Partial<TrackRow> = {}): TrackRow => ({
   track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'lossless', quality: 'lossless',
@@ -143,6 +143,8 @@ describe('table and strip', () => {
   });
 });
 
+const here = (r: TrackRow, file_state: LibraryRow['file_state'] = 'here'): LibraryRow => ({ ...r, sound_checked: true, file_state });
+
 describe('a dimmed row', () => {
   it('is a downloaded song that left every playlist', () => {
     expect(rowOff(row('a'))).toBe(false);
@@ -151,6 +153,17 @@ describe('a dimmed row', () => {
   it('is never one of the users own files, which no playlist holds', () => {
     expect(rowOff(row('a', { in_playlists: false, own: true, source_name: 'own file' }))).toBe(false);
     expect(rowOff(row('a', { in_playlists: true, own: true }))).toBe(false);
+  });
+  it('says why in its title tooltip, under the name, at every width', () => {
+    expect(rowTitleTip(here(row('a', { in_playlists: false })), 'Artist - Title')).toBe('Artist - Title\nNot in any playlist any more');
+  });
+  it('has the name alone in the tooltip when it is in a playlist or the users own file', () => {
+    expect(rowTitleTip(here(row('a')), 'Artist - Title')).toBe('Artist - Title');
+    expect(rowTitleTip(here(row('a', { in_playlists: false, own: true, source_name: 'own file' })), 'Artist - Title')).toBe('Artist - Title');
+  });
+  it('leaves an away row to its own tag: the name alone', () => {
+    expect(rowTitleTip(here(row('a', { in_playlists: false }), 'offline'), 'Artist - Title')).toBe('Artist - Title');
+    expect(rowTitleTip(here(row('a', { in_playlists: false }), 'folder_missing'), 'Artist - Title')).toBe('Artist - Title');
   });
 });
 

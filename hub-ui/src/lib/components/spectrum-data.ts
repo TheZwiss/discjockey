@@ -15,6 +15,23 @@ export function envelope(spec: Spectrum | null): number[] {
   return Array.from({ length: spec.cols }, (_, c) => (bin.charCodeAt(c) || 0) / 255);
 }
 
+/** The axis label at the top-left sits 3px from the top and is about 13px tall (11px type). */
+const TOP_LABEL_PX = 3 + 13;
+/** Air between that label and the dashed cutoff line, so the two never read as one ("cut off at 22.1 kHz"). */
+const TOP_LABEL_GAP_PX = 6;
+/** Strips lower than this (the upgrade compare's) have no room for any axis label. */
+const TOP_LABEL_MIN_HEIGHT = 64;
+
+/** Whether the top axis label (the highest frequency, e.g. "22.1 kHz") shows. It needs a strip of at least 64 px and,
+ *  when there is a cutoff line (`cut` = its height as a fraction of the strip, 0–1; null = none), real room between
+ *  the top and that line, measured in pixels: the line has to be a label and a gap below the top. A fraction rule
+ *  failed on a small strip: 64 px with a cut at 0.725 leaves 17 px, and the label sat right on the line. */
+export function showTopLabel(height: number, cut: number | null): boolean {
+  if (height < TOP_LABEL_MIN_HEIGHT) return false;
+  if (cut === null) return true;
+  return (1 - cut) * height >= TOP_LABEL_PX + TOP_LABEL_GAP_PX;
+}
+
 /** "#rgb" / "#rrggbb" → [r, g, b]. */
 export function hexRgb(hex: string): [number, number, number] {
   const h = hex.trim().replace('#', '');

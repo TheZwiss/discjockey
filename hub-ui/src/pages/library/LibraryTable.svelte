@@ -13,7 +13,7 @@
   import { artistTitle, dayMonth, duration } from '$lib/format';
   import type { LibraryRow, LibrarySort } from '$lib/bridge/types';
   import {
-    folderCell, inTodo, moveSelection, optionalColumns, playable, rowAway, rowOff, scrollToCenter, scrollToKeep, selectedIndex,
+    folderCell, inTodo, moveSelection, optionalColumns, playable, rowAway, rowOff, rowTitleTip, scrollToCenter, scrollToKeep, selectedIndex,
     sortState, windowSlice, type LibraryView, type SortColumn,
   } from './libraryModel';
 
@@ -128,7 +128,7 @@
         onclick={() => onselect(r.track_id)} ondblclick={() => { if (!away) onplay(r.track_id); }}
         oncontextmenu={(e) => context(e, r)}
         onpointerenter={() => (hovered = r.track_id)} onpointerleave={() => { if (hovered === r.track_id) hovered = null; }}>
-        <span class="td title" title={artistTitle(r.artist, r.title)}>
+        <span class="td title" title={rowTitleTip(r, artistTitle(r.artist, r.title))}>
           <span class="cov"><Cover url={r.cover_url} seed={r.track_id} size={22} playing={playing === r.track_id}
             hint={hovered === r.track_id} name={artistTitle(r.artist, r.title)}
             onplay={away ? undefined : () => onplay(r.track_id)} /></span>
