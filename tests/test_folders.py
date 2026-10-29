@@ -61,6 +61,12 @@ def group(paths):
         return groups[0].id, db.group_files(conn, groups[0].id)
 
 
+def seen(paths, gid):
+    """The group's file paths as its card shows them (what the window sends back with an answer)."""
+    with db.connect(paths.db_file) as conn:
+        return [f.path for f in db.group_files(conn, gid)]
+
+
 def log_lines(paths):
     return [json.loads(line) for line in paths.operations_log.read_text().splitlines()]
 
@@ -207,7 +213,7 @@ def test_keep_both_ends_the_question(paths, tmp_path):
     folders.add(paths, folder, NOW)
     do_import(paths)
     gid, _ = group(paths)
-    folders.keep_both(paths, gid, NOW)
+    folders.keep_both(paths, gid, seen(paths, gid), NOW)
     with db.connect(paths.db_file) as conn:
         assert db.duplicate_groups(conn) == []
 
@@ -230,7 +236,7 @@ def test_a_copy_moves_to_superseded_mirroring_its_folder(paths, tmp_path):
     gid, files = group(paths)
     moved = next(f for f in files if f.path.endswith("House/Example Artist - Twice.aiff"))
     messages = []
-    dst = folders.supersede(paths, gid, moved.file_id, emit=messages.append, now=lambda: NOW)
+    dst = folders.supersede(paths, gid, moved.file_id, seen(paths, gid), emit=messages.append, now=lambda: NOW)
     assert dst == "Superseded/Music/House/Example Artist - Twice.aiff"
     assert (paths.root / dst).is_file() and not (folder / "House" / "Example Artist - Twice.aiff").exists()
     assert (folder / "Example Artist - Twice copy.aiff").is_file()
@@ -259,7 +265,7 @@ def heir_setup(paths, tmp_path):
 @needs_ffmpeg
 def test_the_own_copy_takes_over_the_playlist_song_whose_file_moves(paths, tmp_path):
     drive, gid, library_file = heir_setup(paths, tmp_path)
-    dst = folders.supersede(paths, gid, library_file.file_id, now=lambda: NOW)
+    dst = folders.supersede(paths, gid, library_file.file_id, seen(paths, gid), now=lambda: NOW)
     assert dst == "Superseded/House/Example Artist - Kept.aiff" and (paths.root / dst).is_file()
     tracks = load_state(paths)["tracks"]
     assert tracks["sp1"]["path"] == str((drive / "Example Artist - Kept.aiff").resolve())
@@ -276,7 +282,7 @@ def test_a_move_to_superseded_across_drives(paths, tmp_path, monkeypatch):
     monkeypatch.setattr(library, "device", lambda p: 2 if Path(p).is_relative_to(drive.resolve()) else real(p))
     before = (drive / "Example Artist - Kept.aiff").read_bytes()
     assert library.crosses(paths.root, own_file.path, "Superseded/Music/x.aiff")
-    dst = folders.supersede(paths, gid, own_file.file_id, now=lambda: NOW)
+    dst = folders.supersede(paths, gid, own_file.file_id, seen(paths, gid), now=lambda: NOW)
     assert dst == "Superseded/Music/Example Artist - Kept.aiff"
     assert (paths.root / dst).read_bytes() == before
     assert not (drive / "Example Artist - Kept.aiff").exists()
@@ -292,7 +298,7 @@ def test_a_group_that_changed_is_refused_and_nothing_moves(paths, tmp_path):
     shutil.copy(folder / "Example Artist - Twice copy.aiff", folder / "Example Artist - Twice again.aiff")
     library.scan_library(paths, analyze=lambda p: ("pcm_s16be", None))  # a third copy: another group
     with pytest.raises(OpProblem) as refused:
-        folders.supersede(paths, gid, files[0].file_id, now=lambda: NOW)
+        folders.supersede(paths, gid, files[0].file_id, seen(paths, gid), now=lambda: NOW)
     assert (refused.value.kind, str(refused.value)) == ("changed", CHANGED)
     assert not (paths.root / "Superseded").exists()
     assert log_lines(paths)[-1]["result"] == "changed"
@@ -303,12 +309,12 @@ def test_a_group_answered_keep_both_or_a_file_not_in_it_is_refused(paths, tmp_pa
     copies(paths, tmp_path)
     gid, files = group(paths)
     with pytest.raises(OpProblem):
-        folders.supersede(paths, gid, 999, now=lambda: NOW)
+        folders.supersede(paths, gid, 999, seen(paths, gid), now=lambda: NOW)
     with pytest.raises(OpProblem):
-        folders.supersede(paths, "not a group", files[0].file_id, now=lambda: NOW)
-    folders.keep_both(paths, gid, NOW)
+        folders.supersede(paths, "not a group", files[0].file_id, [], now=lambda: NOW)
+    folders.keep_both(paths, gid, seen(paths, gid), NOW)
     with pytest.raises(OpProblem):
-        folders.supersede(paths, gid, files[0].file_id, now=lambda: NOW)
+        folders.supersede(paths, gid, files[0].file_id, seen(paths, gid), now=lambda: NOW)
     assert not (paths.root / "Superseded").exists()
 
 
@@ -321,7 +327,7 @@ def test_a_refused_move_moves_nothing_and_says_why(paths, tmp_path, monkeypatch)
         raise PermissionError(13, "Permission denied")
     monkeypatch.setattr(library, "move_path", refused)
     with pytest.raises(OpProblem) as failed:
-        folders.supersede(paths, gid, files[0].file_id, now=lambda: NOW)
+        folders.supersede(paths, gid, files[0].file_id, seen(paths, gid), now=lambda: NOW)
     assert failed.value.kind == "failed" and str(failed.value).startswith("Nothing was moved: ")
     assert len(list(folder.rglob("*.aiff"))) == 2
     with db.connect(paths.db_file) as conn:
@@ -340,7 +346,7 @@ def stopped_supersede(paths, tmp_path, monkeypatch):
     monkeypatch.setattr(library, "move_path", power_cut)
     monkeypatch.setattr(db, "drop_pending", power_cut)
     with pytest.raises(SystemExit):
-        folders.supersede(paths, gid, moved.file_id, now=lambda: NOW)
+        folders.supersede(paths, gid, moved.file_id, seen(paths, gid), now=lambda: NOW)
     monkeypatch.undo()
     with db.connect(paths.db_file) as conn:
         assert len(db.pending_ops(conn)) == 1
@@ -357,7 +363,7 @@ def test_a_writer_that_finishes_a_stopped_step_says_so(paths, tmp_path, monkeypa
                             probe=lambda p: AudioInfo("pcm_s16be", 44100, 1.0), inspect=lambda p: ("pcm_s16be", None))
     else:
         with pytest.raises(OpProblem):  # the step moved the file: the group isn't as the window showed it now
-            folders.supersede(paths, gid, moved.file_id, emit=events.append, now=lambda: NOW)
+            folders.supersede(paths, gid, moved.file_id, seen(paths, gid), emit=events.append, now=lambda: NOW)
     texts = [e.text for e in events if isinstance(e, Message)]
     assert texts and "Twice" in texts[0]  # the recovery's words reach the window, as tidy-up's and a sync's do
     with db.connect(paths.db_file) as conn:
@@ -387,7 +393,7 @@ def test_a_name_taken_in_superseded_gets_a_counter_never_an_id_for_an_own_song(p
     taken = paths.root / "Superseded/Music/House/Example Artist - Twice.aiff"
     taken.parent.mkdir(parents=True)
     taken.write_bytes(b"an earlier replaced file")
-    dst = folders.supersede(paths, gid, moved.file_id, now=lambda: NOW)
+    dst = folders.supersede(paths, gid, moved.file_id, seen(paths, gid), now=lambda: NOW)
     assert dst == "Superseded/Music/House/Example Artist - Twice (2).aiff"
     assert taken.read_bytes() == b"an earlier replaced file"
 
@@ -412,7 +418,7 @@ def same_song_setup(paths, tmp_path):
 def test_a_same_song_group_moves_while_it_still_is_one(paths, tmp_path):
     drive, sp1, own = same_song_setup(paths, tmp_path)
     gid = f"dup:{min(sp1, own)}-{max(sp1, own)}"
-    dst = folders.supersede(paths, gid, sp1, now=lambda: NOW)
+    dst = folders.supersede(paths, gid, sp1, seen(paths, gid), now=lambda: NOW)
     assert dst == "Superseded/House/Example Artist - Kept.aiff"
     assert load_state(paths)["tracks"]["sp1"]["path"] == str((drive / "Example Artist - Kept.aiff").resolve())
 
@@ -429,7 +435,7 @@ def test_a_same_song_group_whose_file_id_was_given_out_again_is_refused(paths, t
     assert other["title"] == "Other"
     gid = f"dup:{min(sp1, other['file_id'])}-{max(sp1, other['file_id'])}"  # what a stale window sends then
     with pytest.raises(OpProblem) as refused:
-        folders.supersede(paths, gid, sp1, now=lambda: NOW)
+        folders.supersede(paths, gid, sp1, seen(paths, gid), now=lambda: NOW)
     assert refused.value.kind == "changed"
     assert (paths.root / KEPT).is_file() and not (paths.root / "Superseded").exists()
 
@@ -443,7 +449,7 @@ def test_a_group_with_a_held_or_ambiguous_file_is_refused(paths, tmp_path, monke
         dataclasses.replace(f, usable=False) if f.file_id == files[1].file_id else f for f in real(conn, g)])
     monkeypatch.setattr(db, "duplicate_groups", lambda conn: [])  # as the database leaves such a group out
     with pytest.raises(OpProblem) as refused:
-        folders.supersede(paths, gid, files[0].file_id, now=lambda: NOW)
+        folders.supersede(paths, gid, files[0].file_id, seen(paths, gid), now=lambda: NOW)
     assert refused.value.kind == "changed" and not (paths.root / "Superseded").exists()
 
 
@@ -456,7 +462,7 @@ def test_a_move_whose_result_the_records_refuse_says_so(paths, tmp_path, monkeyp
         raise sqlite3.IntegrityError("UNIQUE constraint failed")
     monkeypatch.setattr(db, "finish_file_op", refused)
     with pytest.raises(OpProblem) as failed:
-        folders.supersede(paths, gid, files[0].file_id, now=lambda: NOW)
+        folders.supersede(paths, gid, files[0].file_id, seen(paths, gid), now=lambda: NOW)
     assert failed.value.kind == "failed" and "records couldn't follow" in str(failed.value)
     assert log_lines(paths)[-1]["result"] == "failed"
     with db.connect(paths.db_file) as conn:
@@ -482,3 +488,23 @@ def test_a_file_linked_to_no_song_can_be_the_heir():
     assert folders._heir(dup(1, "sp1", True), [dup(2, None, False, "not_lossless"), better]) == 3  # same rank rules
     assert folders._heir(dup(1, "sp1", True), [unlinked, dup(4, "sp2", True)]) is None  # a playlist song's file stays
     assert folders._heir(dup(2, None, False), [dup(3, "local:1", False)]) is None  # nothing to hand over
+
+
+@needs_ffmpeg
+def test_paths_that_differ_from_the_ones_shown_refuse_both_answers(paths, tmp_path):
+    copies(paths, tmp_path)
+    gid, files = group(paths)
+    shown = seen(paths, gid)
+    for wrong in (shown[:1], shown + ["/x/another.aiff"], [shown[0], "/x/another.aiff"], []):
+        with pytest.raises(OpProblem) as refused:
+            folders.supersede(paths, gid, files[0].file_id, wrong, now=lambda: NOW)
+        assert (refused.value.kind, str(refused.value)) == ("changed", CHANGED)
+        with pytest.raises(OpProblem) as refused:
+            folders.keep_both(paths, gid, wrong, NOW)
+        assert refused.value.kind == "changed"
+    assert not (paths.root / "Superseded").exists()
+    with db.connect(paths.db_file) as conn:
+        assert db.decisions(conn)["keep_both"] == []
+    folders.keep_both(paths, gid, list(reversed(shown)), NOW)  # the order the card showed them in doesn't matter
+    with db.connect(paths.db_file) as conn:
+        assert db.decisions(conn)["keep_both"] == [gid]

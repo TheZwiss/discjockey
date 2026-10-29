@@ -300,8 +300,8 @@ a fresh `library.open_state` right before `run_op`. Undo goes back across drives
 | `remove_watched_folder(folder_id)` | write → job `folders` | result `{files, redownload}` |
 | `start_import()` | write → job `import` | "Continue import" |
 | `answer_same_song(song_key, own_key, same)` | write → job `answer` | then replan |
-| `keep_duplicates(group_id)` | write → job `answer` | then replan |
-| `supersede_duplicate(group_id, file_id)` | write → job `supersede` | `OpResult`-like `{result, recovered}` |
+| `keep_duplicates(group_id, paths)` | write → job `answer` | `paths`: the files as the card showed them (`changed` on any difference); then replan |
+| `supersede_duplicate(group_id, file_id, paths)` | write → job `supersede` | `paths` as above; | `OpResult`-like `{result, recovered}` |
 | `setup_skip_import()` | brief lock | `{ok}` (setting `import_skipped`) |
 
 `WatchedFolderRow = {id, path, name, kind: 'library'|'import', state: 'online'|'offline'|'scanning'|'importing',

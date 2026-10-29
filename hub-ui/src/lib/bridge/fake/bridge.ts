@@ -845,8 +845,10 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     async answer_same_song(song_key: string, own_key: string, same: boolean) {
       return answerSameSong(ctx, song_key, own_key, same);
     },
-    async keep_duplicates(group_id: string) { return keepDuplicates(ctx, group_id); },
-    async supersede_duplicate(group_id: string, file_id: number) { return supersedeDuplicate(ctx, group_id, file_id); },
+    async keep_duplicates(group_id: string, paths: string[]) { return keepDuplicates(ctx, group_id, paths); },
+    async supersede_duplicate(group_id: string, file_id: number, paths: string[]) {
+      return supersedeDuplicate(ctx, group_id, file_id, paths);
+    },
     async setup_skip_import() {
       if (s.console_running) return fail('console', MSG.console);
       if (job?.running) return fail('busy', job.kind === 'import' ? IMPORTING_BUSY : MSG.busy);
