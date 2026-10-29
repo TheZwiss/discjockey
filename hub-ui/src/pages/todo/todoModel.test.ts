@@ -317,7 +317,7 @@ describe('the import details', () => {
     const lines = compareLines(question('q1', 101).pair);
     expect(lines.map((l) => [l.key, l.song, l.file, l.differs])).toEqual([
       ['title', 'Hands Up', 'Hands Up', false], ['artist', 'Neon Riot', 'Neonriot', true],
-      ['length', '3:14', '3:14', false], ['where', 'Hard_Bounce', 'Example Drive › Music', false]]);
+      ['length', '3:14', '3:14', false], ['where', 'Hard_Bounce', 'Example Drive\u00A0› Music', false]]);
     expect(lines[3].fileTitle).toBe('/Volumes/Example Drive/Music/A - x101.aiff');
   });
   it('mark the length for a length why and say "—" for what isn\'t there', () => {
@@ -336,7 +336,7 @@ describe('the import details', () => {
     expect(fileFolder('/x.aiff')).toBe('/');
   });
   it('names a file\'s place as the watched folders do', () => {
-    expect(filePlace('/Volumes/Example Drive/Music/Old/A - x.aiff')).toBe('Example Drive › Music/Old');
+    expect(filePlace('/Volumes/Example Drive/Music/Old/A - x.aiff')).toBe('Example Drive\u00A0› Music/Old');
     expect(filePlace('/Volumes/Example Drive/A - x.aiff')).toBe('Example Drive');
     expect(filePlace('/Users/you/Music/Crates/A - x.aiff')).toBe('~/Music/Crates');
     expect(filePlace('Library/Hard_Bounce/A - x.aiff')).toBe('Library/Hard_Bounce');

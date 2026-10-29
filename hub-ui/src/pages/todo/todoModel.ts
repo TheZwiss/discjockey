@@ -191,7 +191,8 @@ export function fileFolder(path: string): string {
  *  a place that wraps (nothing is cut). */
 export function filePlace(path: string): string {
   const { head, tail } = fitPath(fileFolder(path), () => true);
-  return head + tail;
+  // the blank after "›" is a plain one: a line may break after the "›", never before it (fitPath keeps that one tight)
+  return head.replace(/\u00A0$/, ' ') + tail;
 }
 
 /** One line of "Is this the same song?": the playlist song's value beside the file's; `differs` marks the line the
