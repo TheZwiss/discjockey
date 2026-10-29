@@ -9,6 +9,13 @@ Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
 
 - **Sync's Up-to-date view shows no hint when every remaining song waits for an answer;** only the To-do count points
   at them. Show the "{n} songs wait for your answer" note there too.
+- **A downloaded file's Format row names the download, not the file.** `views.format_line` prints `source_format`, the
+  codec of what was downloaded (`acquire.make_ready` probes the file before it converts to AIFF), so every Qobuz file
+  reads "Format FLAC" and a YouTube one "Opus · 135 kbps" while the file on disk is a 16-bit `.aiff`, and the cutoff
+  sentence beside it says "a lossy file inside the AIFF". The fake data matches the real wording (it sends "FLAC" for
+  a Qobuz file), so it is not wrong; the engine is. Decide: print the file's own format ("AIFF", `source_format`
+  stays for the quality line), or label the row "Downloaded as"; then change `format_line`, its tests, the contract
+  text and the fake in one commit.
 - **The library view's `in_playlists` for a duplicate group comes from its first file** (`hub/views.py`). The UI no
   longer depends on it, but it is misleading; derive it from the group or drop it.
 - **The removal count (W4) misses rare cases:** a playlist track matched only at plan time (no stored song) isn't

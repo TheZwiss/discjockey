@@ -3,21 +3,24 @@
   // tight tracking, tabular), its `unit` small beside it and the `label` under it. Nothing known yet (`null`) reads
   // "—". `children` go under the label: a ProgressBar, a Ring or a quality bar, so the number has its visual.
   // `valueTest` puts a `data-test` on the number alone (without the unit); other attributes go onto the card.
+  // `wrap`: the label is a sentence that must be read whole (the cutoff's "a lossy file inside the AIFF"), so it takes
+  // a second line instead of ending in "…"; a number's short label stays on one line.
   import type { Snippet } from 'svelte';
   import type { HTMLAttributes } from 'svelte/elements';
   import Surface from './Surface.svelte';
 
   type Props = Omit<HTMLAttributes<HTMLElement>, 'children'> & {
     value: string | number | null; unit?: string; label: string; children?: Snippet; valueTest?: string;
+    wrap?: boolean;
   };
-  let { value, unit, label, children, valueTest, class: className, ...rest }: Props = $props();
+  let { value, unit, label, children, valueTest, wrap = false, class: className, ...rest }: Props = $props();
   const shown = $derived(value === null || value === undefined || value === '' ? '—' : String(value));
 </script>
 
 <Surface {...rest} class="stat-card {className ?? ''}">
   <div class="top">
     <div class="num"><span data-test={valueTest}>{shown}</span>{#if unit}<span class="unit">{unit}</span>{/if}</div>
-    <div class="label">{label}</div>
+    <div class="label" class:wrap>{label}</div>
   </div>
   {#if children}<div>{@render children()}</div>{/if}
 </Surface>
@@ -32,4 +35,5 @@
   }
   .unit { font-size: var(--fs-body); font-weight: var(--fw-medium); color: var(--text-muted); letter-spacing: 0; margin-left: var(--s-1); }
   .label { font-size: var(--fs-label); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .label.wrap { white-space: normal; overflow: visible; overflow-wrap: anywhere; text-wrap: pretty; }
 </style>

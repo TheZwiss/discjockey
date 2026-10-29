@@ -4,10 +4,11 @@
   // words), then the upgrade box when one is ready (its Now spectrum and compare player stand in for the file's
   // own), else the cutoff as a number over the spectrum, then Current file (the player, Format, Source, Added, File)
   // with Show in Finder as its link (not for a file that isn't there: the pictures say why). The foot holds the one filled button: Swap the files when the upgrade matches;
-  // Open in to-do (outline) for any other track on the to-do list; nothing for a lossless one.
+  // Open in to-do (outline) for any other track on the to-do list; nothing for a lossless one. The head's place line is
+  // the file's folder (or "Not in a playlist"); the playlists it is in are the Playlists row, by name.
   import type { ComponentProps } from 'svelte';
   import {
-    Button, EmptyState, ExternalLink, KeyValue, MiniPlayer, ProblemCard, QualityBadge, Skeleton, Spectrum, StatCard,
+    Button, EmptyState, ExternalLink, KeyValue, MiddleText, MiniPlayer, ProblemCard, QualityBadge, Skeleton, Spectrum, StatCard,
     Surface, TrackHead, UpgradeCard, WriteButton, envelope,
   } from '$lib/components';
   import { Panel } from '$lib/frames';
@@ -28,6 +29,9 @@
   const t = $derived(detail);
   const cutoff = $derived(t && !t.upgrade ? cutoffStat(t) : null);
   const action = $derived(t ? footAction(t) : null);
+  // every playlist the song is in, by name, whole (the head only says where the file sits); nothing when it is in none
+  // or the playlists weren't read yet
+  const playlists = $derived(t?.in_playlists && t.playlists?.length ? t.playlists.join(', ') : null);
   const hasFile = $derived(!!t && t.status !== 'missing');
   // the file isn't there (drive away, folder or file not found): the picture says why, the player stays off, there is
   // nothing to show in Finder
@@ -42,7 +46,7 @@
   {#if t}
     <div class="details" class:fading={loading} data-test="track-details" data-track={t.track_id}>
       <Surface kind="card">
-        <TrackHead track={t} place={placeLine(t.folder, t.in_playlist_count, t.in_playlists)}>
+        <TrackHead track={t} place={placeLine(t.folder, t.in_playlists)}>
           <span class="state" class:stack={!t.sound_checked}>
             <QualityBadge quality={t.quality} label={t.quality_label} upgrade={t.upgrade_ready}
               checked={t.sound_checked} />
@@ -55,7 +59,7 @@
         <UpgradeCard upgrade={t.upgrade} currentUrl={t.audio_url} current={spectrum} next={upgradeSpectrum}
           loading={spectrumLoading} swap={action === 'swap'} />
       {:else if cutoff}
-        <StatCard value={cutoff.value} unit={cutoff.value ? 'kHz' : undefined} label={cutoff.label} data-test="cutoff">
+        <StatCard value={cutoff.value} unit={cutoff.value ? 'kHz' : undefined} label={cutoff.label} wrap data-test="cutoff">
           <Spectrum {spectrum} height={64} loading={spectrumLoading && !spectrum} error={spectrumError}
             noFile={!t.audio_url} {away} cutoffLabel={false} />
         </StatCard>
@@ -75,13 +79,14 @@
               envelope={envelope(spectrum)} length_s={t.duration_s} start={onlisten} />
           {/if}
           <div class="facts">
-            {#if t.format_line}<KeyValue keyWidth={64} k="Format" v={t.format_line} />{/if}
-            <KeyValue keyWidth={64} k="Source">
+            {#if t.format_line}<KeyValue keyWidth={76} k="Format" v={t.format_line} />{/if}
+            <KeyValue keyWidth={76} k="Source">
               {#if t.source_url}<ExternalLink href={t.source_url} label={t.source_full ?? shortUrl(t.source_url)} />
               {:else}{t.source_full ?? t.source_name ?? '–'}{/if}
             </KeyValue>
-            <KeyValue keyWidth={64} k="Added" v={dateShort(t.added) || '–'} />
-            <KeyValue keyWidth={64} k="File"><span class="file" title={t.path ?? undefined}>{fileName(t.path) || '–'}</span></KeyValue>
+            {#if playlists}<KeyValue keyWidth={76} k="Playlists" v={playlists} />{/if}
+            <KeyValue keyWidth={76} k="Added" v={dateShort(t.added) || '–'} />
+            <KeyValue keyWidth={76} k="File">{#if fileName(t.path)}<MiddleText text={fileName(t.path)} />{:else}–{/if}</KeyValue>
           </div>
         </Surface>
       {/if}
@@ -117,6 +122,4 @@
   .words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted);
     font-size: var(--fs-small); }
   .facts { display: flex; flex-direction: column; }
-  .file { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    user-select: text; -webkit-user-select: text; }
 </style>

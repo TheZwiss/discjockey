@@ -158,9 +158,7 @@ describe('copy helpers', () => {
   it('short source link and place line', () => {
     expect(shortUrl('https://www.youtube.com/watch?v=abcdefghijk')).toBe('youtube.com/watch?v=…');
     expect(shortUrl('https://soundcloud.com/a')).toBe('soundcloud.com/a');
-    expect(placeLine('Hard_Bounce', 2)).toBe('Hard_Bounce · in 2 playlists');
-    expect(placeLine('Hard_Bounce', 1)).toBe('Hard_Bounce · in 1 playlist');
-    expect(placeLine('Hard_Bounce', null)).toBe('Hard_Bounce');
-    expect(placeLine('Old_Sets', 0, false)).toBe('Not in a playlist');
+    expect(placeLine('Hard_Bounce')).toBe('Hard_Bounce');
+    expect(placeLine('Old_Sets', false)).toBe('Not in a playlist');
   });
 });

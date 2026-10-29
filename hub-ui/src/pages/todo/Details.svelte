@@ -120,7 +120,7 @@
       <TrackHead {track} place={track.folder} action={act.hide ? hideLink : undefined}>
         <span class="state" data-test="details-state">
           <QualityBadge quality={track.quality} label={track.quality_label} upgrade={track.upgrade_ready} />
-          <span class="words">{qualityWords(track.quality, track.quality_label)}{track.source_full ? ` · from ${track.source_full}` : ''}</span>
+          <span class="words">{qualityWords(track.quality, track.quality_label)}</span>
         </span>
       </TrackHead>
     </Surface>
@@ -139,14 +139,14 @@
     {#if !hasFile}
       <Surface kind="card" label="Still looking" data-test="still-looking">
         <div class="facts">
-          {#if qobuz}<KeyValue keyWidth={64} k="Qobuz" v={qobuz} />{/if}
-          {#if item?.detail}<KeyValue keyWidth={64} k="Others" v={item.detail} />{/if}
+          {#if qobuz}<KeyValue keyWidth={76} k="Qobuz" v={qobuz} />{/if}
+          {#if item?.detail}<KeyValue keyWidth={76} k="Others" v={item.detail} />{/if}
         </div>
       </Surface>
     {/if}
 
     {#if cutoff}
-      <StatCard value={cutoff.value} unit={cutoff.value ? 'kHz' : undefined} label={cutoff.label} data-test="cutoff">
+      <StatCard value={cutoff.value} unit={cutoff.value ? 'kHz' : undefined} label={cutoff.label} wrap data-test="cutoff">
         <Spectrum spectrum={current} height={64} loading={specLoading && !current} error={specError} cutoffLabel={false}
           away={awayWords} />
       </StatCard>
@@ -165,10 +165,16 @@
           <MiniPlayer url={track.audio_url} title={artistTitle(track.artist, track.title)} track_id={track.track_id}
             envelope={envelope(current)} length_s={track.duration_s} start={onlisten} />
         {/if}
-        {#if track.format_line || qobuz}
+        {#if track.format_line || track.source_full || track.source_url || qobuz}
           <div class="facts">
-            {#if track.format_line}<KeyValue keyWidth={64} k="Format" v={track.format_line} />{/if}
-            {#if qobuz}<KeyValue keyWidth={64} k="Qobuz" v={qobuz} />{/if}
+            {#if track.format_line}<KeyValue keyWidth={76} k="Format" v={track.format_line} />{/if}
+            {#if track.source_full || track.source_url}
+              <KeyValue keyWidth={76} k="Source">
+                {#if track.source_url}<ExternalLink href={track.source_url} label={track.source_full ?? track.source_url} />
+                {:else}{track.source_full}{/if}
+              </KeyValue>
+            {/if}
+            {#if qobuz}<KeyValue keyWidth={76} k="Qobuz" v={qobuz} />{/if}
           </div>
         {/if}
       </Surface>
@@ -221,7 +227,9 @@
 
 <style>
   .details { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; }
-  .state { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+  /* the badge and its words (no "from …": the Source row in Current file says it, with its link). When both don't fit
+     in the column, the words go under the badge whole, never cut: the badge is up to 130 px wide */
+  .state { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2); min-width: 0; }
   .words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted);
     font-size: var(--fs-small); }
   .facts { display: flex; flex-direction: column; }

@@ -6,7 +6,19 @@
 import { fitMiddle } from '$lib/format';
 import { fitPath } from './watchedFoldersModel';
 
-export type FitOptions = { room?: (el: HTMLElement) => number; observe?: (el: HTMLElement) => HTMLElement };
+/** `wrapRoom`: the width the path may take on a line of its own. Given, a path that doesn't fit whole in `room` is
+ *  tried against it, because its element's neighbours wrap below it when it takes that much (a head's link). */
+export type FitOptions = {
+  room?: (el: HTMLElement) => number; wrapRoom?: (el: HTMLElement) => number; observe?: (el: HTMLElement) => HTMLElement;
+};
+
+/** The width inside a head: what its label may take when its other children wrap onto the next line. */
+export function headInner(el: HTMLElement): number {
+  const parent = el.parentElement;
+  if (!parent) return 0;
+  const cs = getComputedStyle(parent);
+  return parent.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+}
 
 /** The width a head's label may take: the head's inner width less what its other children and the gaps take. */
 export function headRoom(el: HTMLElement): number {
@@ -15,7 +27,7 @@ export function headRoom(el: HTMLElement): number {
   const cs = getComputedStyle(parent);
   const others = Array.from(parent.children).filter((c) => c !== el);
   const gap = parseFloat(cs.columnGap) || 0;
-  const inner = parent.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+  const inner = headInner(el);
   return inner - others.reduce((n, c) => n + c.getBoundingClientRect().width, 0) - gap * others.length;
 }
 
@@ -28,9 +40,14 @@ export function fitPathAction(el: HTMLElement, path: string, opts: FitOptions = 
     const s = getComputedStyle(el);
     const width = opts.room ? opts.room(el) : el.getBoundingClientRect().width;
     // no canvas (tests) or not laid out yet: the whole path, and the row's ellipsis does the rest
-    const fits = (text: string) => !ctx || width === 0 || ctx.measureText(text).width <= width;
+    const fitsIn = (w: number) => (text: string) => !ctx || w === 0 || ctx.measureText(text).width <= w;
     if (ctx) ctx.font = `${s.fontStyle} ${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
-    const r = fitPath(current, fits);
+    let r = fitPath(current, fitsIn(width));
+    if (opts.wrapRoom) {
+      // not whole beside its neighbours: on a line of its own it may take the whole inner width (they wrap below)
+      const whole = fitPath(current, () => true);
+      if (r.head + r.tail !== whole.head + whole.tail) r = fitPath(current, fitsIn(opts.wrapRoom(el)));
+    }
     head.textContent = r.head;
     tail.textContent = r.tail;
   }
@@ -67,7 +84,8 @@ export function fitMiddleAction(el: HTMLElement, text: string) {
   };
 }
 
-/** A Surface head's label: the path in the head's free width, re-fitted when the head resizes. */
+/** A Surface head's label: the path whole in the head's free width, else on a line of its own with the head's links below it
+ *  (`Surface .head.wraps`), and cut only when even that is too narrow; re-fitted when the head resizes. */
 export function fitHeadLabel(el: HTMLElement, path: string) {
-  return fitPathAction(el, path, { room: headRoom, observe: (e) => e.parentElement ?? e });
+  return fitPathAction(el, path, { room: headRoom, wrapRoom: headInner, observe: (e) => e.parentElement ?? e });
 }

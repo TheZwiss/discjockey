@@ -157,9 +157,8 @@ export function shortUrl(url: string | null | undefined, max = 9): string {
   }
 }
 
-/** "Hard_Bounce · in 2 playlists" (null count → just the folder); a track in no playlist says so. */
-export function placeLine(folder: string, count: number | null | undefined, inPlaylists = true): string {
-  if (!inPlaylists) return 'Not in a playlist';
-  if (count === null || count === undefined) return folder;
-  return `${folder} · in ${count} ${count === 1 ? 'playlist' : 'playlists'}`;
+/** The panel head's place: the folder the file sits in; a track in no playlist says so. (Which playlists it is in is
+ *  the Playlists row, by name: a count here was cut at 1100 and named none of them.) */
+export function placeLine(folder: string, inPlaylists = true): string {
+  return inPlaylists ? folder : 'Not in a playlist';
 }
