@@ -9,7 +9,7 @@
   // song isn't in a playlist any more) shows the backend's words in runJob's toast, and the re-fetch drops it.
   import type { QuestionItem } from '$lib/bridge/types';
   import { api, runJob } from '$lib/bridge/client';
-  import { ExternalLink, NoteCard, QualityBadge, Surface, WriteButton } from '$lib/components';
+  import { ExternalLink, NoteCard, PathText, QualityBadge, Surface, WriteButton } from '$lib/components';
   import { Panel } from '$lib/frames';
   import { compareLines, linkService } from './todoModel';
   import FilePlay from './FilePlay.svelte';
@@ -40,8 +40,8 @@
         {#each lines as l (l.key)}
           <div class="line {l.key}" class:differs={l.differs} role="row" data-line={l.key}>
             <span class="v" role="cell" title={l.song}>{l.song}</span>
-            <!-- a place breaks after a "/" -->
-            <span class="v" role="cell" title={l.fileTitle ?? l.file}>{#each l.file.split(/(?<=\/)/) as part, i (i)}{part}<wbr />{/each}</span>
+            <!-- a place breaks after a "/" only -->
+            <span class="v" role="cell" title={l.fileTitle ?? l.file}><PathText path={l.file} /></span>
           </div>
         {/each}
         <div class="line ends" role="row">

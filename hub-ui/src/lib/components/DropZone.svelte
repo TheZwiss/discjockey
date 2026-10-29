@@ -2,6 +2,7 @@
   // Only a picture of where to drop: pywebview catches the drop on the whole window (FileDropped event).
   import { dragging } from '../stores/drag';
   import MiddleText from './MiddleText.svelte';
+  import PathText from './PathText.svelte';
   import Spinner from './Spinner.svelte';
   let { trackName, expectedName, busy = false, error = null, fileName = null, over }:
     { trackName: string; expectedName?: string; busy?: boolean; error?: string | null; fileName?: string | null;
@@ -21,7 +22,8 @@
   {:else}
     <p class="big">Drag the file here</p>
     <p class="small">WAV, AIFF, FLAC or MP3 · renamed and filed automatically</p>
-    {#if expectedName}<p class="small path">→ {expectedName}</p>{/if}
+    <!-- the target breaks only after a "/"; a name stays whole unless it alone is wider than the zone -->
+    {#if expectedName}<p class="small path"><PathText path={expectedName} lead="→ " /></p>{/if}
     {#if error}<p class="err">{error}</p>{/if}
   {/if}
 </div>
@@ -36,6 +38,6 @@
   .big { font-weight: var(--fw-semi); }
   .file { align-self: stretch; min-width: 0; font-weight: var(--fw-semi); }
   .small { font-size: var(--fs-small); color: var(--text-label); }
-  .path { user-select: text; -webkit-user-select: text; overflow-wrap: anywhere; }
+  .path { max-width: 100%; }
   .err { color: var(--q-weak); font-size: var(--fs-small); max-width: 420px; user-select: text; -webkit-user-select: text; }
 </style>

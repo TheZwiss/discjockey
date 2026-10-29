@@ -46,7 +46,7 @@ button:active:not([aria-disabled]) { transform: scale(.97); }
 /* chrome is not selectable; file paths and messages are */
 nav, button, .chrome, .caps { user-select: none; -webkit-user-select: none; }
 .selectable, .path, .message { user-select: text; -webkit-user-select: text; }
-.path { font-variant-numeric: tabular-nums; word-break: break-all; }
+.path { font-variant-numeric: tabular-nums; }  /* a path never breaks mid-word: wrapping ones use PathText, one-line ones fit themselves */
 
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;

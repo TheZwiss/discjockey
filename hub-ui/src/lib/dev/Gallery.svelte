@@ -21,7 +21,7 @@
   import {
     AccountPanel, AddRow, CopyCode, NumberedSteps, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
     AwayTag, Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
-    Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NoteCard, PageHeader, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
+    Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NoteCard, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
     Segmented, SectionLabel, SelectCard, Skeleton, SortHeader, SourceLadder, Spectrum, Spinner, SplitView, StatCard, StatusMark, Surface, Switch, TextField, Tile, Toast,
     ToggleGroup, ToggleRow, TrackHead, TrackRow, UpgradeCard, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
     confirm, envelope, ImportCard, UnreadableList, WatchedFolderList,
@@ -876,7 +876,7 @@
       </Surface>
       <Surface label="KeyValue">
         <KeyValue k="Source" v="Qobuz FLAC · verified lossless" />
-        <KeyValue k="File"><span class="path">Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff</span></KeyValue>
+        <KeyValue k="File"><PathText path="Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff" /></KeyValue>
         <KeyValue k="ISRC" />
       </Surface>
       <Surface label="KeyValue plain · keyWidth">
@@ -1205,7 +1205,6 @@
     padding: 0 var(--s-4); font-size: var(--fs-body); color: var(--text); }
   .gtr.row-line + .gtr.row-line { border-top: var(--bw) solid var(--line-soft); }
   .gtr .num { justify-self: end; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-  .path { word-break: break-all; }
   .w260 { width: 260px; }
   .w320 { width: 320px; }
   .w360 { width: 360px; max-width: 100%; }
