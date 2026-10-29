@@ -3,10 +3,11 @@
 // The download sources' lines live with the account panel (accountModel), so a row and its panel say the same thing.
 import { aboutLine } from '$lib/appUpdate';
 import type {
-  AppUpdate, DownloadsView, DownloadTool, DownloadTools, JobSnap, SetupStatus, SetupTools, SpotifyStatus,
+  AppUpdate, DownloadsView, DownloadTool, DownloadTools, JobSnap, SetupStatus, SetupTools, SpotifyStatus, WatchedFolders,
 } from '$lib/bridge/types';
 import { WHAT_IT_GIVES, checkedWhen, stateLine, type RowLine, type Tone } from '$lib/components/accountModel';
 import { shortPath } from '$lib/musicFolder';
+import { settingsLine } from '$lib/components/watchedFoldersModel';
 import { SETTINGS_ROWS } from '$lib/router';
 
 export type SettingsRow = (typeof SETTINGS_ROWS)[number];
@@ -14,15 +15,17 @@ export { SETTINGS_ROWS };
 export const ROW_GROUPS: { label: string; rows: SettingsRow[] }[] = [
   { label: 'Downloads', rows: ['qobuz', 'youtube', 'soundcloud'] },
   { label: 'Spotify', rows: ['spotify'] },
-  { label: 'This Mac', rows: ['music', 'programs', 'about', 'reports'] },
+  // the watched folders sit with the music folder: both say where Discjockey looks for music on this Mac
+  { label: 'This Mac', rows: ['music', 'folders', 'programs', 'about', 'reports'] },
 ];
 export const ROW_NAMES: Record<SettingsRow, string> = {
-  qobuz: 'Qobuz', youtube: 'YouTube Premium', soundcloud: 'SoundCloud Go+', spotify: 'Spotify', music: 'Music folder', programs: 'Programs',
+  qobuz: 'Qobuz', youtube: 'YouTube Premium', soundcloud: 'SoundCloud Go+', spotify: 'Spotify', music: 'Music folder',
+  folders: 'Watched folders', programs: 'Programs',
   about: 'About Discjockey', reports: 'Reports',
 };
 /** Each row's lead glyph, in the sidebar's style (one 14 px box). */
 export const ROW_GLYPHS: Record<SettingsRow, string> = {
-  qobuz: '◆', youtube: '▶', soundcloud: '☁', spotify: '♫', music: '▤', programs: '⌘', about: '©', reports: '☰',
+  qobuz: '◆', youtube: '▶', soundcloud: '☁', spotify: '♫', music: '▤', folders: '◫', programs: '⌘', about: '©', reports: '☰',
 };
 export function isSettingsRow(v: string | undefined): v is SettingsRow {
   return !!v && (SETTINGS_ROWS as readonly string[]).includes(v);
@@ -44,6 +47,10 @@ export type RowContext = {
   spotifyUsed?: boolean;
   /** the update check's last answer; never a problem, so it never moves `firstAttention` */
   update?: AppUpdate | null;
+  /** watched_folders(); null while it is read */
+  folders?: WatchedFolders | null;
+  /** the hub's write job: a running import says its live count in the Watched folders row */
+  job?: JobSnap | null;
 };
 
 /** Spotify's state in Settings. "I don't use Spotify" (Setup, plan stage 3 D1) is no problem — `left_out`, Connect
@@ -87,6 +94,8 @@ export function rowLine(row: SettingsRow, c: RowContext): RowLine {
       if (m.state === 'ok' && m.path) return { tone: 'good', text: shortPath(m.path) };
       return m.state === 'missing' ? { tone: 'problem', text: 'not found' } : { tone: 'none', text: 'not chosen' };
     }
+    case 'folders':
+      return settingsLine(c.folders ?? null, c.job ?? null);
     case 'programs': {
       if (!c.tools) return c.toolsFailed ? { tone: 'problem', text: "couldn't check" } : { tone: null, text: '' };
       return c.tools.missing.length ? { tone: 'problem', text: `${c.tools.missing.join(', ')} missing` }
@@ -101,9 +110,15 @@ export function rowLine(row: SettingsRow, c: RowContext): RowLine {
   }
 }
 
-/** `#/settings` opens the first row that needs the user, else Qobuz. */
+/** `#/settings` opens the first row that needs the user, else Qobuz. A drive that is offline is no such row: its
+ *  folder keeps its files and waits (plan library stage 4, §6.4), and a DJ whose drive is mostly unplugged would
+ *  land on it every time. */
 export function firstAttention(c: RowContext): SettingsRow {
-  return SETTINGS_ROWS.find((r) => { const t = rowLine(r, c).tone; return t === 'problem' || t === 'warn'; }) ?? 'qobuz';
+  return SETTINGS_ROWS.find((r) => {
+    if (r === 'folders') return false;
+    const t = rowLine(r, c).tone;
+    return t === 'problem' || t === 'warn';
+  }) ?? 'qobuz';
 }
 
 function versions(v: unknown): Record<string, string> {

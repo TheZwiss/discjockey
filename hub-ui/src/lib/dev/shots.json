@@ -394,6 +394,18 @@
   "each": "[data-test=gallery-folderfield]"
  },
  {
+  "name": "base-gallery-watchedfolders",
+  "route": "#/dev/gallery",
+  "scenario": "normal",
+  "settle": 400,
+  "steps": [
+   {
+    "eval": "document.querySelector('[data-test=gallery-watchedfolders]').scrollIntoView()"
+   }
+  ],
+  "each": "[data-test=gallery-watchedfolders]"
+ },
+ {
   "name": "base-shell-update",
   "route": "#/",
   "scenario": "update_available",

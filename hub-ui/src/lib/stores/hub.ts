@@ -108,6 +108,11 @@ export function reduceHub(s: HubState, e: Parameters<Parameters<typeof onEvent>[
           job: { ...s.job, running: false, stopping: false, finished: e } };
       }
       return s;
+    case 'ImportProgress':
+      // the running import's live counts (Settings' row and the import card read `job.last.ImportProgress`, as
+      // job_status' snapshot carries it after a reload)
+      return s.job?.running && s.job.kind === 'import'
+        ? { ...s, job: { ...s.job, last: { ...s.job.last, ImportProgress: e } } } : s;
     case 'RunStarted':
       return s.job?.running ? { ...s, read_progress: null, job: { ...s.job, actions: e.actions ?? [] } } : s;
     case 'ConsoleBusy':

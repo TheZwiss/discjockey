@@ -7,7 +7,7 @@
   import { onMount } from 'svelte';
   import { markReady } from '../ready';
   import { OUTDATED, OUTDATED_TOKENS } from '../outdated';
-  import { PROBLEM_KINDS, type DownloadsAccount, type DownloadsView, type EmptyKind, type FindLogins, type FolderCheck, type Service, type SpotifyStatus as SpotifyStatusT, type TrackRow as Row } from '../bridge/types';
+  import { PROBLEM_KINDS, type WatchedFolderRow, type DownloadsAccount, type DownloadsView, type EmptyKind, type FindLogins, type FolderCheck, type Service, type SpotifyStatus as SpotifyStatusT, type TrackRow as Row } from '../bridge/types';
   import { sampleTracks, trackRow, coverUri, makeUpgrade, dateOnly } from '../bridge/fake/data';
   import { fakeSpectrum } from '../bridge/fake/spectrum';
   import { toneUrl } from '../bridge/fake/audio';
@@ -24,7 +24,7 @@
     Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NoteCard, PageHeader, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
     Segmented, SectionLabel, SelectCard, Skeleton, SortHeader, SourceLadder, Spectrum, Spinner, SplitView, StatCard, StatusMark, Surface, Switch, TextField, Tile, Toast,
     ToggleGroup, ToggleRow, TrackHead, TrackRow, UpgradeCard, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
-    confirm, envelope,
+    confirm, envelope, ImportCard, UnreadableList, WatchedFolderList,
   } from '../components';
   import Tick from '../components/Tick.svelte';
   import NeverButton from '../../pages/sync/plan/NeverButton.svelte';
@@ -278,6 +278,12 @@
     markReady('gallery');
     focusMe?.querySelector('button')?.focus();
   });
+  const gFolders: WatchedFolderRow[] = [
+    { id: 1, path: '/Users/you/Music/Discjockey/Library', name: 'Library', kind: 'library', state: 'online', files: 412, waiting: 0, unreadable: 0 },
+    { id: 2, path: '/Volumes/Example Drive/Music', name: 'Music', kind: 'import', state: 'importing', files: 1840, waiting: 1500, unreadable: 0 },
+    { id: 3, path: '/Volumes/Old Drive/Music', name: 'Music', kind: 'import', state: 'offline', files: 612, waiting: 0, unreadable: 0 },
+    { id: 4, path: '/Users/you/Music/Crates', name: 'Crates', kind: 'import', state: 'online', files: 1, waiting: 0, unreadable: 0 },
+  ];
 </script>
 
 {#snippet head(name: string, rule: string)}
@@ -944,6 +950,19 @@
     </div>
     <div class="w372">
       <FolderField path="/Users/you/Music/Sets and edits for the summer season 2026/Discjockey Library" check={gFolder({ kind: 'discjockey_library' })} onchoose={() => {}} test="g-folder-long" />
+    </div>
+  </section>
+
+  <section data-test="gallery-watchedfolders">
+    {@render head('WatchedFolderList · ImportCard · UnreadableList', "The folders Discjockey indexes where they are, the import that reads them, and the files it couldn't read (Settings → Watched folders, Setup)")}
+    <div class="grid3">
+      <div class="w372"><WatchedFolderList folders={gFolders} onremove={() => {}} test="g-wf-list" /></div>
+      <div class="w372"><WatchedFolderList folders={null} test="g-wf-loading" /></div>
+      <div class="w372"><ImportCard view={{ kind: 'running', line: 'Reading tags · 340 of 1,500', share: 340 / 1500, stopping: false }} onstop={() => {}} test="g-wf-running" /></div>
+      <div class="w372"><ImportCard view={{ kind: 'running', line: 'Looking for music files', share: null, stopping: true }} onstop={() => {}} test="g-wf-stopping" /></div>
+      <div class="w372"><ImportCard view={{ kind: 'stopped', line: 'Import stopped with 1,160 files to go. It carries on where it stopped.' }} oncontinue={() => {}} test="g-wf-stopped" /></div>
+      <div class="w372"><ImportCard view={{ kind: 'done', line: 'Imported 1,240 files.' }} test="g-wf-done" /></div>
+      <div class="w372"><UnreadableList files={[{ folder_id: 2, path: '/Volumes/Example Drive/Music/Old/Untitled 3.mp3', reason: "Discjockey can't find sound it can read in it" }]} test="g-wf-unreadable" /></div>
     </div>
   </section>
 

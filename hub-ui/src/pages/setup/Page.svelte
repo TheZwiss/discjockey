@@ -14,13 +14,15 @@
   import { go } from '$lib/router';
   import { markReady } from '$lib/ready';
   import StepDownloads from './StepDownloads.svelte';
+  import StepExisting from './StepExisting.svelte';
   import StepFooter from './StepFooter.svelte';
   import StepMusic from './StepMusic.svelte';
   import StepPlaylists from './StepPlaylists.svelte';
   import StepSpotify from './StepSpotify.svelte';
   import StepTools from './StepTools.svelte';
   import {
-    doneRedirect, firstStep, isStep, mustChooseMusic, neighbour, nextRule, stripSteps, type WizardStep,
+    continueFilled, doneRedirect, firstStep, isStep, mustChooseMusic, neighbour, nextRule, stepsDone, stripSteps,
+    type WizardStep,
   } from './setupModel';
 
   let { params }: { params: Record<string, string>; query: URLSearchParams } = $props();
@@ -67,8 +69,11 @@
       if (r.ok) { const { ok: _ok, ...rest } = r; tools = rest; toolsError = null; } else toolsError = r.message;
     });
   }
+  // a finished job reads the status again, and so does a job's start: an added folder counts for "Your existing
+  // music" at once, not only when its import is through
   $effect(() => {
     void $dataVersion;
+    void $hub.job?.id;
     void retry;
     untrack(loadStatus);
   });
@@ -82,6 +87,15 @@
   /** a step in the strip: not while the step on screen waits (Back is held for the same reason) */
   function pickStep(s: WizardStep) { if (!stepBusy) goto(s); }
   const finish = () => void go('/');
+  /** Continue: on an optional step left undone it is the skip (Your existing music: setup_skip_import); a refused
+   *  skip (another change runs) doesn't hold the user, the step stays open in the strip */
+  async function onContinue() {
+    if (step === 'existing' && status && !stepsDone(status).existing) {
+      const r = await api.setup_skip_import();
+      if (r.ok) loadStatus();
+    }
+    if (onward) goto(onward); else finish();
+  }
 </script>
 
 {#snippet content()}
@@ -106,6 +120,8 @@
       <div data-test="setup-loading"><Skeleton shape="card" height={160} /></div>
     {:else if step === 'music'}
       <StepMusic {status} />
+    {:else if step === 'existing'}
+      <StepExisting {status} />
     {:else if step === 'tools'}
       <StepTools {tools} error={toolsError} {checking} onrecheck={() => { checkTools(); loadStatus(); }} />
     {:else if step === 'spotify'}
@@ -121,8 +137,8 @@
 {#snippet foot()}
   {#if status && step}
     <StepFooter onback={back ? () => goto(back) : null} backOff={stepBusy} why={stepBusy ? null : rule.why}
-      allowed={rule.allowed && !stepBusy} label={onward ? 'Continue' : 'Finish'}
-      oncontinue={() => (onward ? goto(onward) : finish())} />
+      allowed={rule.allowed && !stepBusy} filled={continueFilled(step, status, rule)} label={onward ? 'Continue' : 'Finish'}
+      oncontinue={() => void onContinue()} />
   {/if}
 {/snippet}
 

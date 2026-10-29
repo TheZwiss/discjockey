@@ -1,0 +1,108 @@
+import { describe, expect, it } from 'vitest';
+import type { JobSnap, WatchedFolderRow, WatchedFolders } from '$lib/bridge/types';
+import {
+  UNREADABLE_HINT, canContinue, doneLine, filesText, folderLine, folderMark, importView, phaseLine, phaseShare,
+  removeWords, stoppedLine, unreadableLabel, unreadableRow,
+} from './watchedFoldersModel';
+
+const row = (over: Partial<WatchedFolderRow> = {}): WatchedFolderRow => ({ id: 2, path: '/Volumes/Example Drive/Music',
+  name: 'Music', kind: 'import', state: 'online', files: 1240, waiting: 0, unreadable: 0, ...over });
+const lib = row({ id: 1, kind: 'library', name: 'Library', path: '/Users/you/Music/Discjockey/Library', files: 412 });
+const data = (over: Partial<WatchedFolders> = {}): WatchedFolders => ({ folders: [lib, row()], unreadable: [], waiting: 0,
+  stopped: false, ...over });
+const job = (over: Partial<JobSnap> = {}): JobSnap => ({ id: 7, kind: 'import', track_id: null, started: '', running: true,
+  stopping: false, last: {}, results: [], finished: null, actions: [], ...over });
+const progress = (phase: 'scan' | 'tags' | 'sound' | 'link', done = 0, total = 0) =>
+  ({ type: 'ImportProgress' as const, phase, done, total, unreadable: 0 });
+
+describe('a folder row (W3)', () => {
+  it('says its state in the engine words, the Library always watched', () => {
+    expect(folderLine(lib)).toBe('Your Library · always watched');
+    expect(folderLine(row())).toBe('Online');
+    expect(folderLine(row({ state: 'offline' }))).toBe('Offline: connect the drive');
+    expect(folderLine(row({ state: 'scanning' }))).toBe('Checking for new files');
+    expect(folderLine(row({ state: 'importing', files: 1840, waiting: 1500 }))).toBe('Importing · 340 of 1,840');
+  });
+  it('marks it as colour plus shape: readable, offline, worked on', () => {
+    expect(folderMark(lib)).toBe('good');
+    expect(folderMark(row({ state: 'offline' }))).toBe('warn');
+    expect(folderMark(row({ state: 'importing' }))).toBe('working');
+    expect(folderMark({ ...lib, state: 'scanning' })).toBe('working');
+  });
+  it('counts in the singular for 1', () => {
+    expect(filesText(1)).toBe('1 file');
+    expect(filesText(0)).toBe('0 files');
+    expect(filesText(12400)).toBe('12,400 files');
+  });
+});
+
+describe('the import (W6)', () => {
+  it('says each phase, with counts where it counts', () => {
+    expect(phaseLine(progress('scan'))).toBe('Looking for music files');
+    expect(phaseLine(progress('tags', 340, 1500))).toBe('Reading tags · 340 of 1,500');
+    expect(phaseLine(progress('sound', 1, 2))).toBe('Checking the sound · 1 of 2');
+    expect(phaseLine(progress('link'))).toBe('Linking to your playlists');
+    expect(phaseShare(progress('tags', 375, 1500))).toBe(0.25);
+    expect(phaseShare(progress('scan'))).toBeNull();
+    expect(phaseShare(progress('link'))).toBeNull();
+  });
+  it('stopped and done, singular for 1', () => {
+    expect(stoppedLine(1160)).toBe('Import stopped with 1,160 files to go. It carries on where it stopped.');
+    expect(stoppedLine(1)).toBe('Import stopped with 1 file to go. It carries on where it stopped.');
+    expect(doneLine(1)).toBe('Imported 1 file.');
+  });
+  it("follows the hub's import job: running from its last ImportProgress, looking for files until the first", () => {
+    expect(importView(job(), data())).toEqual({ kind: 'running', line: 'Looking for music files', share: null, stopping: false });
+    expect(importView(job({ stopping: true, last: { ImportProgress: progress('tags', 340, 1500) } }), data()))
+      .toMatchObject({ line: 'Reading tags · 340 of 1,500', stopping: true });
+    // another job is no import
+    expect(importView(job({ kind: 'sync' }), data())).toBeNull();
+    expect(importView(null, data())).toBeNull();
+  });
+  it('stopped this session with files left: the stopped line, and Continue import while nothing imports', () => {
+    const stopped = data({ stopped: true, waiting: 1160 });
+    expect(importView(job({ running: false, finished: { ok: false, problem: 'stopped', message: '' } }), stopped))
+      .toEqual({ kind: 'stopped', line: stoppedLine(1160) });
+    expect(canContinue(null, stopped)).toBe(true);
+    expect(canContinue(job(), stopped)).toBe(false);
+    expect(canContinue(null, data())).toBe(false);
+    // files waiting without a stop (a drive came back): Continue import is offered, no stopped line
+    expect(canContinue(null, data({ waiting: 4 }))).toBe(true);
+    expect(importView(null, data({ waiting: 4 }))).toBeNull();
+  });
+  it("ends with the engine's words, else counts the result; a failure says its message", () => {
+    const fin = (ok: boolean, message: string, problem: string | null = null) =>
+      job({ running: false, finished: { ok, problem, message, result: { files: 180 } } });
+    expect(importView(fin(true, 'Imported 180 files.'), data())).toEqual({ kind: 'done', line: 'Imported 180 files.' });
+    expect(importView(fin(true, ''), data())).toEqual({ kind: 'done', line: 'Imported 180 files.' });
+    expect(importView(fin(false, 'Something went wrong. Try again.', 'crashed'), data()))
+      .toEqual({ kind: 'failed', line: 'Something went wrong. Try again.' });
+    expect(importView(fin(false, '', 'stopped'), data())).toBeNull();
+  });
+});
+
+describe("couldn't read (W6)", () => {
+  it('heads the list with the count and shows each file with its reason', () => {
+    expect(unreadableLabel(3)).toBe("Couldn't read (3)");
+    expect(unreadableRow({ folder_id: 2, path: '/Volumes/Example Drive/Music/a.wav', reason: "macOS doesn't let Discjockey read it" }))
+      .toBe("/Volumes/Example Drive/Music/a.wav: macOS doesn't let Discjockey read it");
+    expect(UNREADABLE_HINT).toBe('Tried again at the next import.');
+  });
+});
+
+describe('remove (W4)', () => {
+  it('names the folder and its files; the files stay', () => {
+    expect(removeWords({ name: 'Music', files: 1240, redownload: 0 })).toEqual({ title: 'Remove Music?',
+      body: 'Discjockey forgets its 1,240 files. The files stay where they are.' });
+    expect(removeWords({ name: 'Crates', files: 1, redownload: 0 }).body)
+      .toBe('Discjockey forgets its 1 file. The files stay where they are.');
+  });
+  it('says the playlist songs that had their only copy there, singular for 1', () => {
+    expect(removeWords({ name: 'Music', files: 1240, redownload: 4 }).body).toBe('Discjockey forgets its 1,240 files. '
+      + 'The files stay where they are. 4 songs from your playlists had their only copy there. They will be downloaded '
+      + 'again at the next sync.');
+    expect(removeWords({ name: 'Music', files: 10, redownload: 1 }).body).toBe('Discjockey forgets its 10 files. '
+      + 'The files stay where they are. 1 song from your playlists had its only copy there. It will be downloaded '
+      + 'again at the next sync.');
+  });
+});

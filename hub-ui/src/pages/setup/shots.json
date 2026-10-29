@@ -77,5 +77,12 @@
    "steps": [{ "wait": "[data-test=spotify-skipped]" }, { "wait": "[data-test=next]:not([disabled])" }, { "sleep": 400 }] },
  { "name": "setup-spotify-skip", "route": "#/setup/spotify", "scenario": "setup:new",
    "steps": [{ "wait": "[data-test=spotify-skip]" }, { "click": "[data-test=spotify-skip]" },
-     { "wait": "[data-test=spotify-skipped]" }, { "wait": "[data-test=next]:not([disabled])" }, { "sleep": 400 }] }
+     { "wait": "[data-test=spotify-skipped]" }, { "wait": "[data-test=next]:not([disabled])" }, { "sleep": 400 }] },
+ { "name": "setup-existing-empty", "route": "#/setup/existing", "scenario": "setup_existing_empty",
+   "steps": [{ "wait": "[data-test=existing-list-row-library]" }, { "sleep": 400 }] },
+ { "name": "setup-existing-added", "route": "#/setup/existing", "scenario": "setup_existing_added",
+   "steps": [{ "wait": "[data-test=existing-list-row-2]" }, { "sleep": 400 }] },
+ { "name": "setup-existing-importing", "route": "#/setup/existing", "scenario": "setup_existing_empty",
+   "steps": [{ "wait": "[data-test=existing-add]" }, { "click": "[data-test=existing-add]" },
+     { "wait": "[data-test=existing-import-line]" }, { "sleep": 400 }] }
 ]
