@@ -45,7 +45,9 @@ describe('update lines', () => {
   });
 });
 
-import type { DownloadsAccount, DownloadsView, SetupStatus, SetupTools } from '$lib/bridge/types';
+import type {
+  DownloadsAccount, DownloadsView, SetupStatus, SetupTools, WatchedFolderRow, WatchedFolders,
+} from '$lib/bridge/types';
 import {
   ROW_GLYPHS, ROW_GROUPS, SETTINGS_ROWS, checkedWhen, firstAttention, isAccountRow, rowLine, type RowContext,
 } from './settingsModel';
@@ -146,12 +148,43 @@ describe('settings list', () => {
     expect([...grouped].sort()).toEqual([...SETTINGS_ROWS].sort());
     for (const r of SETTINGS_ROWS) expect(ROW_GLYPHS[r]).toBeTruthy();
   });
-  it('This Mac holds the music folder, programs, About and reports', () => {
-    expect(ROW_GROUPS.find((g) => g.label === 'This Mac')?.rows).toEqual(['music', 'programs', 'about', 'reports']);
+  it('This Mac holds the music folder, the watched folders, programs, About and reports', () => {
+    expect(ROW_GROUPS.find((g) => g.label === 'This Mac')?.rows).toEqual(['music', 'folders', 'programs', 'about',
+      'reports']);
   });
   it('the music folder row shows the folder, short, as good; it never opens first while it is fine', () => {
     expect(rowLine('music', ctx())).toEqual({ tone: 'good', text: '~/Music/Discjockey' });
     expect(firstAttention(ctx())).not.toBe('music');
+  });
+  it('the watched folders row: Library only, what is watched, an offline drive, the running import live', () => {
+    const lib: WatchedFolderRow = { id: 1, path: '/Users/you/Music/Discjockey/Library', name: 'Library', kind: 'library',
+      state: 'online', files: 412, waiting: 0, unreadable: 0 };
+    const drive: WatchedFolderRow = { id: 2, path: '/Volumes/Example Drive/Music', name: 'Music', kind: 'import',
+      state: 'online', files: 1240, waiting: 0, unreadable: 0 };
+    const wf = (folders: WatchedFolderRow[], over: Partial<WatchedFolders> = {}): WatchedFolders =>
+      ({ folders, unreadable: [], waiting: 0, stopped: false, ...over });
+    expect(rowLine('folders', ctx())).toEqual({ tone: null, text: '' });   // still reading: the skeleton
+    expect(rowLine('folders', ctx({ folders: wf([lib]) }))).toEqual({ tone: 'none', text: 'Library only' });
+    expect(rowLine('folders', ctx({ folders: wf([lib, drive]) }))).toEqual({ tone: 'good', text: '1 folder · 1,240 files' });
+    const crates = { ...drive, id: 3, name: 'Crates', path: '/Volumes/Example Drive/Crates', files: 1 };
+    expect(rowLine('folders', ctx({ folders: wf([lib, drive, crates]) })).text).toBe('2 folders · 1,241 files');
+    const old = { ...drive, id: 4, name: 'Old Drive', state: 'offline' as const };
+    expect(rowLine('folders', ctx({ folders: wf([lib, drive, old]) }))).toEqual({ tone: 'warn', text: 'Old Drive is offline' });
+    // an offline drive waits; it is no reason to open Settings at the watched folders
+    expect(firstAttention(ctx({ folders: wf([lib, old]) }))).toBe('qobuz');
+    const job = { id: 9, kind: 'import', track_id: null, started: '', running: true, stopping: false, results: [],
+      finished: null, actions: [], last: { ImportProgress: { type: 'ImportProgress', phase: 'tags', done: 340, total: 1500,
+        unreadable: 0 } } };
+    expect(rowLine('folders', ctx({ folders: wf([lib, old]), job }))).toEqual({ tone: null, text: 'Reading tags · 340 of 1,500' });
+    // the next phase restarts its count, and the row says which phase it is in
+    const sound = { ...job, last: { ImportProgress: { type: 'ImportProgress', phase: 'sound', done: 0, total: 1500, unreadable: 0 } } };
+    expect(rowLine('folders', ctx({ folders: wf([lib, old]), job: sound })).text).toBe('Checking the sound · 0 of 1,500');
+    // two folders with one name: the offline line says which by its short path
+    const same = { ...old, id: 5, name: 'Music', path: '/Users/you/Music' };
+    expect(rowLine('folders', ctx({ folders: wf([lib, drive, same, { ...same, id: 6, state: 'online' as const, path: '/Volumes/X/Music' }]) })).text)
+      .toBe('Music (~/Music) is offline');
+    expect(rowLine('folders', ctx({ folders: null, job: { ...job, last: {} } }))).toEqual({ tone: null,
+      text: 'Looking for music files' });
   });
   it('only the download services open an account panel', () => {
     expect(SETTINGS_ROWS.filter(isAccountRow)).toEqual(['qobuz', 'youtube', 'soundcloud']);

@@ -25,6 +25,18 @@ describe('reduceHub', () => {
     expect(s.sign_in).toMatchObject({ id: 5, running: false });
     expect(s.job).toMatchObject({ id: 6, running: true });
   });
+  it("keeps the running import's last ImportProgress on its job, and only there", () => {
+    const p = { type: 'ImportProgress' as const, phase: 'tags' as const, done: 40, total: 300, unreadable: 1 };
+    expect(reduceHub(EMPTY_HUB, p)).toBe(EMPTY_HUB);
+    const sync = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 2, kind: 'sync', track_id: null });
+    expect(reduceHub(sync, p).job?.last.ImportProgress).toBeUndefined();
+    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 3, kind: 'import', track_id: null });
+    s = reduceHub(s, p);
+    expect(s.job?.last.ImportProgress).toEqual(p);
+    s = reduceHub(s, { type: 'JobFinished', job_id: 3, kind: 'import', ok: true, problem: null, message: 'Imported 300 files.',
+      result: null });
+    expect(reduceHub(s, { ...p, done: 41 }).job?.last.ImportProgress).toEqual(p);
+  });
   it('a refresh is not a write job', () => {
     const s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 1, kind: 'refresh', track_id: null });
     expect(s.job).toBeNull();

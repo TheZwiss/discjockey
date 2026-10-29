@@ -14,6 +14,9 @@ export { default as DropZone } from './DropZone.svelte';
 export { default as EmptyState } from './EmptyState.svelte';
 export { default as ExternalLink } from './ExternalLink.svelte';
 export { default as FolderField } from './FolderField.svelte';
+export { default as WatchedFolderList } from './WatchedFolderList.svelte';
+export { default as ImportCard } from './ImportCard.svelte';
+export { default as UnreadableList } from './UnreadableList.svelte';
 export { default as Hint } from './Hint.svelte';
 export { default as InfoTip } from './InfoTip.svelte';
 export { default as KeyValue } from './KeyValue.svelte';
@@ -74,3 +77,5 @@ export { AccountFlow, type AccountActions } from './accountFlow.svelte';
 export {
   accountBlocked, accountPhase, browserMenu, mainAction, qobuzPhase, type MenuChoice, type Offer, type PanelPhase,
 } from './accountModel';
+export { WatchedFoldersFlow, type AddNote } from './watchedFoldersFlow.svelte';
+export { canContinue, importView, settingsLine, type ImportView } from './watchedFoldersModel';

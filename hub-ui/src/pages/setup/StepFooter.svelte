@@ -3,8 +3,12 @@
   // filled button once its step is done; before that it is off, and the step's own main action (Connect, Qobuz's
   // Sign in, Check again) is the filled one. On the last step the same button reads Finish.
   import { Button, Hint } from '$lib/components';
-  let { onback = null, backOff = false, why = null, allowed, oncontinue, label = 'Continue' }: {
-    onback?: (() => void) | null; backOff?: boolean; why?: string | null; allowed: boolean; oncontinue: () => void;
+  let { onback = null, backOff = false, why = null, allowed, filled = allowed, oncontinue, label = 'Continue' }: {
+    onback?: (() => void) | null; backOff?: boolean; why?: string | null; allowed: boolean;
+    /** Continue is the filled button (default: whenever it is allowed); an optional step not done yet lets you go on
+     *  while its own main action stays the filled one */
+    filled?: boolean;
+    oncontinue: () => void;
     /** Continue, or Finish on the last step */
     label?: string;
   } = $props();
@@ -12,7 +16,7 @@
 
 {#if onback}<Button onclick={onback} disabled={backOff} data-test="back">Back</Button>{/if}
 <span class="why">{#if why}<Hint text={why} data-test="next-why" />{/if}</span>
-<Button variant={allowed ? 'filled' : 'secondary'} disabled={!allowed} title={why ?? undefined} onclick={oncontinue}
+<Button variant={allowed && filled ? 'filled' : 'secondary'} disabled={!allowed} title={why ?? undefined} onclick={oncontinue}
   data-test="next">{label}</Button>
 
 <style>

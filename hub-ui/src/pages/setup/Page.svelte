@@ -8,19 +8,21 @@
   import { untrack } from 'svelte';
   import { api } from '$lib/bridge/client';
   import type { ProblemKind, SetupStatus, SetupTools } from '$lib/bridge/types';
-  import { Banner, Button, PageHeader, ProblemCard, Skeleton, StepStrip } from '$lib/components';
+  import { Banner, Button, PageHeader, ProblemCard, Skeleton, StepStrip, WatchedFoldersFlow } from '$lib/components';
   import { ColumnFrame } from '$lib/frames';
   import { dataVersion, hub } from '$lib/stores/hub';
   import { go } from '$lib/router';
   import { markReady } from '$lib/ready';
   import StepDownloads from './StepDownloads.svelte';
+  import StepExisting from './StepExisting.svelte';
   import StepFooter from './StepFooter.svelte';
   import StepMusic from './StepMusic.svelte';
   import StepPlaylists from './StepPlaylists.svelte';
   import StepSpotify from './StepSpotify.svelte';
   import StepTools from './StepTools.svelte';
   import {
-    doneRedirect, firstStep, isStep, mustChooseMusic, neighbour, nextRule, stripSteps, type WizardStep,
+    continueFilled, doneRedirect, firstStep, isStep, mustChooseMusic, neighbour, nextRule, skipsExisting, stripSteps,
+    type WizardStep,
   } from './setupModel';
 
   let { params }: { params: Record<string, string>; query: URLSearchParams } = $props();
@@ -35,6 +37,8 @@
    *  Continue and the step strip wait too */
   let stepBusy = $state(false);
   let arrived = false;
+  /** Your existing music's folders: the step reads them, Continue asks them (a folder just added is not skipped) */
+  const existing = new WatchedFoldersFlow();
 
   const asked = $derived<WizardStep | null>(isStep(params.step) ? params.step : null);
   // no music folder yet: the music step only, whatever the address says (the later steps read the library)
@@ -67,8 +71,11 @@
       if (r.ok) { const { ok: _ok, ...rest } = r; tools = rest; toolsError = null; } else toolsError = r.message;
     });
   }
+  // a finished job reads the status again, and so does a job's start: an added folder counts for "Your existing
+  // music" at once, not only when its import is through
   $effect(() => {
     void $dataVersion;
+    void $hub.job?.id;
     void retry;
     untrack(loadStatus);
   });
@@ -82,6 +89,15 @@
   /** a step in the strip: not while the step on screen waits (Back is held for the same reason) */
   function pickStep(s: WizardStep) { if (!stepBusy) goto(s); }
   const finish = () => void go('/');
+  /** Continue: on Your existing music with no folder watched it is the skip (setup_skip_import); a refused
+   *  skip (another change runs) doesn't hold the user, the step stays open in the strip */
+  async function onContinue() {
+    if (step === 'existing' && status && skipsExisting(status, existing.data)) {
+      const r = await api.setup_skip_import();
+      if (r.ok) loadStatus();
+    }
+    if (onward) goto(onward); else finish();
+  }
 </script>
 
 {#snippet content()}
@@ -106,6 +122,8 @@
       <div data-test="setup-loading"><Skeleton shape="card" height={160} /></div>
     {:else if step === 'music'}
       <StepMusic {status} />
+    {:else if step === 'existing'}
+      <StepExisting {status} flow={existing} />
     {:else if step === 'tools'}
       <StepTools {tools} error={toolsError} {checking} onrecheck={() => { checkTools(); loadStatus(); }} />
     {:else if step === 'spotify'}
@@ -121,8 +139,8 @@
 {#snippet foot()}
   {#if status && step}
     <StepFooter onback={back ? () => goto(back) : null} backOff={stepBusy} why={stepBusy ? null : rule.why}
-      allowed={rule.allowed && !stepBusy} label={onward ? 'Continue' : 'Finish'}
-      oncontinue={() => (onward ? goto(onward) : finish())} />
+      allowed={rule.allowed && !stepBusy} filled={continueFilled(step, status, rule)} label={onward ? 'Continue' : 'Finish'}
+      oncontinue={() => void onContinue()} />
   {/if}
 {/snippet}
 
