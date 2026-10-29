@@ -192,13 +192,13 @@ def _pure_own(f: DupFile) -> bool:
 
 
 def _heir(moved: DupFile, others: list[DupFile]) -> int | None:
-    """D10: a playlist song's file moved away while only own songs' files stay: the best of them (by quality, then
-    the oldest row) takes over the playlist song, so nothing downloads again."""
+    """D10: a playlist song's file moved away while only own songs' files (or files linked to no song yet) stay: the
+    best of them (by quality, then the oldest row) takes over the playlist song, so nothing downloads again."""
     if moved.song_key is None or _pure_own(moved):
         return None
     if any(o.song_key is not None and not _pure_own(o) for o in others):
         return None  # another playlist song's file stays: it keeps its own song, the moved one's downloads again
-    own = [o for o in others if _pure_own(o)]
+    own = [o for o in others if o.song_key is None or _pure_own(o)]
     if not own:
         return None
     return min(own, key=lambda o: (STATUS_RANK.get(o.status or "", 3), o.file_id)).file_id

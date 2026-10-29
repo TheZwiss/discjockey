@@ -473,3 +473,12 @@ def test_a_linked_own_song_counts_as_a_playlist_song_for_the_heir():
     assert folders._heir(dup(1, "sp1", True), [pure, linked]) is None  # a playlist song's file stays
     assert folders._heir(linked, [pure]) == 2  # a linked song's file that moves is taken over like a playlist song's
     assert folders._heir(pure, [dup(5, "local:4", False)]) is None
+
+
+def test_a_file_linked_to_no_song_can_be_the_heir():
+    unlinked = dup(2, None, False)
+    assert folders._heir(dup(1, "sp1", True), [unlinked]) == 2
+    better = dup(3, "local:1", False, "lossless")
+    assert folders._heir(dup(1, "sp1", True), [dup(2, None, False, "not_lossless"), better]) == 3  # same rank rules
+    assert folders._heir(dup(1, "sp1", True), [unlinked, dup(4, "sp2", True)]) is None  # a playlist song's file stays
+    assert folders._heir(dup(2, None, False), [dup(3, "local:1", False)]) is None  # nothing to hand over
