@@ -611,14 +611,24 @@ def upgrade_block(up: dict | None, media: Url | None, track_id: str, e: dict) ->
             "audio_url": media(track_id, {**e, "path": up["file"]}) if media else None}
 
 
+def file_online(e: dict, away: Collection[str] = ()) -> bool:
+    """Whether the file of entry `e` is there to play and act on right now. False when its row says its watched
+    folder was away at the last scan (`online`), or its path lies in one of the import folders in `away` (the roots
+    that are not a folder now, as the api checks them live: an unplugged drive before any scan noticed). Entries
+    without the key (the old records) are there, and a track without a file has nothing to be away."""
+    path = e.get("path")
+    if not path:
+        return True
+    return bool(e.get("online", True)) and not any(path == r or path.startswith(r.rstrip("/") + "/") for r in away)
+
+
 def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url | None = None,
-                 media: Url | None = None) -> dict:
+                 media: Url | None = None, away: Collection[str] = ()) -> dict:
+    """`away`: roots of the import folders that are not there now (HubApi._away_roots); see file_online."""
     folders = in_playlists(track_id, e, fetched)
     has_file = e["status"] != "missing" and e.get("source")
-    # online: false for a file whose watched folder's drive is away (a file row's `online`); entries without the key
-    # (the old records) are there, and a track without a file has nothing to be away
     return {**track_row(track_id, e, cover), "sound_checked": sound_checked(e), "isrc": e.get("isrc"),
-            "online": bool(e.get("online", True)) or not e.get("path"),
+            "online": file_online(e, away),
             "playlists": folders, "in_playlist_count": len(folders) if folders is not None else None,
             "quality_line": quality_line(e["source"], e.get("source_format") or "?", e["status"], e.get("cutoff_hz"),
                                          e.get("source_kbps"), own=is_own_file(e),
@@ -782,7 +792,8 @@ def file_side(file_id: int, song_key: str | None, path: str, e: dict | None, qua
             "in_playlist": in_playlist}
 
 
-def _question_item(q: Question, state: dict, cover: Url | None, audio: Url | None) -> dict | None:
+def _question_item(q: Question, state: dict, cover: Url | None, audio: Url | None,
+                   away: Collection[str] = ()) -> dict | None:
     """The To-do item of a question; None when its own song is gone from the records (answered or removed since)."""
     own = state["tracks"].get(q.own_key)
     if own is None or not own.get("path"):
@@ -793,7 +804,7 @@ def _question_item(q: Question, state: dict, cover: Url | None, audio: Url | Non
         "artist": track.first_artist, "title": track.title, "folder": q.folder, "duration_ms": track.duration_ms,
         "status": "missing", "cutoff_hz": None, "source": None, "in_playlists": True, "hidden": False, "upgrade": None,
         "path": None, "added": None}
-    side = file_side(q.file_id, q.own_key, own["path"], own, own, bool(own.get("online")), False, audio)
+    side = file_side(q.file_id, q.own_key, own["path"], own, own, file_online(own, away), False, audio)
     pair = {"song_key": q.song_key, "own_key": q.own_key, "why": q.why, "delta_s": q.delta_s,
             "track": {"artist": track.first_artist, "title": track.title,
                       "duration_s": round((track.duration_ms or 0) / 1000, 1), "folder": q.folder, "link": track.link},
@@ -803,7 +814,7 @@ def _question_item(q: Question, state: dict, cover: Url | None, audio: Url | Non
 
 
 def _duplicate_item(g: DuplicateGroup, files: Sequence[DupFile], state: dict, cover: Url | None,
-                    audio: Url | None) -> dict | None:
+                    audio: Url | None, away: Collection[str] = ()) -> dict | None:
     """The To-do item of a duplicate group; None unless every file of it is there to act on (online, not held)."""
     if len(files) != len(g.file_ids) or len(files) < 2 or not all(f.online and f.usable for f in files):
         return None
@@ -811,7 +822,7 @@ def _duplicate_item(g: DuplicateGroup, files: Sequence[DupFile], state: dict, co
     for f in sorted(files, key=lambda f: f.file_id):
         e = state["tracks"].get(f.song_key) if f.song_key else None
         sides.append(file_side(f.file_id, f.song_key, f.path, e, {"status": f.status, "cutoff_hz": f.cutoff_hz},
-                               f.online, f.in_playlists, audio))
+                               file_online({"path": f.path, "online": f.online}, away), f.in_playlists, audio))
     first = next((s for s in sides if s["in_playlist"]), sides[0])  # the playlist song's file names the group
     e = state["tracks"].get(first["song_key"]) if first["song_key"] else None
     row = {"track_id": g.id, "artist": first["artist"], "title": first["title"], "folder": (e or {}).get("folder") or "",
@@ -829,7 +840,7 @@ def _duplicate_item(g: DuplicateGroup, files: Sequence[DupFile], state: dict, co
 def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], today: date,
          cover: Url | None = None, questions: Sequence[Question] = (), duplicates: Sequence[DuplicateGroup] = (),
          dup_files: Mapping[str, Sequence[DupFile]] | None = None, audio: Url | None = None,
-         counted: Collection[str] = ()) -> dict:
+         counted: Collection[str] = (), away: Collection[str] = ()) -> dict:
     """Groups in this order: Check in rekordbox, Is this the same song?, Duplicates, Upgrade ready, Not found, Weak,
     Good lossy, Fake lossless, Other. `others`: track id -> what blocks it (a move blocked by another file, several
     files that could be it). Hidden tracks are left out unless show_hidden. "Check in rekordbox" lists every track
@@ -842,14 +853,15 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     To-do under Upgrade ready, in a question and in a duplicate group; their quality (Weak, Good lossy, Fake) is
     for the Library to show. `counted`: ids of duplicate groups that are known to be there to act on (every file
     online and not held, as db.duplicate_groups finds them): they count in chips["all"] but are not listed, so the
-    sidebar's count needs no `dup_files` for them."""
+    sidebar's count needs no `dup_files` for them. `away`: roots of the import folders that are not there now; a file
+    in one sends `online: false` even if its row still says online (no scan has seen the drive go)."""
     items: dict[str, list] = {g: [] for g, _, _ in TODO_GROUPS}
     never = state.get("never") or {}  # "never download": not a to-do
     hidden = 0
     listed: set[str] = set()
     held: set[str] = set()  # playlist songs waiting for an answer: not Not found meanwhile
     for q in questions:
-        if (item := _question_item(q, state, cover, audio)) is not None:  # none: the question went stale, no wait
+        if (item := _question_item(q, state, cover, audio, away)) is not None:  # none: the question went stale, no wait
             items["same_song"].append(item)
             listed.add(q.song_key)
             held.add(q.song_key)
@@ -860,7 +872,7 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     for g in groups_by_id.values():
         if g.id in counted:
             listed.add(g.id)
-        elif (item := _duplicate_item(g, (dup_files or {}).get(g.id, ()), state, cover, audio)) is not None:
+        elif (item := _duplicate_item(g, (dup_files or {}).get(g.id, ()), state, cover, audio, away)) is not None:
             items["duplicate"].append(item)
             listed.add(g.id)
     for k, e in state["tracks"].items():

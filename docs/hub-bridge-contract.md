@@ -597,8 +597,11 @@ the bitrate only for a lossy download) and `source_full` ("YouTube Music", "boug
 `track()` also carries `sound_checked: bool` as the library rows do; for a file with `sound_checked: false`,
 `quality_line` ends "sound not checked yet" instead of "verified lossless" ("Your own file (PCM) · sound not checked
 yet"; a lossy codec: "Your own file (MP3) · lossy, sound not checked yet").
-`track()` also carries `online: bool` (2026-10-29): false for a file whose watched folder's drive is away (the file row's
-`online`); true otherwise, and for a track without a file. Then `audio_url` is null too; the panel says "Offline: connect
+`track()` also carries `online: bool` (2026-10-29): false for a file whose watched folder's drive is away, true
+otherwise, and for a track without a file. "Away" is read now, not from the last scan: the file row says `online = 0`,
+or its import folder isn't a folder at this moment (checked live, once per request, like `watched_folders()`'s
+`offline`), so an unplugged drive counts before any scan has seen it. `todo()` question and duplicate sides
+(`FileSide.online`) mean the same. Then `audio_url` is null too; the panel says "Offline: connect
 the drive" where the picture would be, keeps the player off and offers no Show in Finder.
 `todo()` items carry `free: bool` (a not found, weak, good lossy or fake track with a free download: the row's FREE
 tag); the `detail` of lossy and fake rows is the source and bitrate ("YT Music · 131 kbps", "Qobuz"), as the badge
