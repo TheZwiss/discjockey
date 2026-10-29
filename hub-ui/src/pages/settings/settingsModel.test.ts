@@ -175,7 +175,14 @@ describe('settings list', () => {
     const job = { id: 9, kind: 'import', track_id: null, started: '', running: true, stopping: false, results: [],
       finished: null, actions: [], last: { ImportProgress: { type: 'ImportProgress', phase: 'tags', done: 340, total: 1500,
         unreadable: 0 } } };
-    expect(rowLine('folders', ctx({ folders: wf([lib, old]), job }))).toEqual({ tone: null, text: 'Importing · 340 of 1,500' });
+    expect(rowLine('folders', ctx({ folders: wf([lib, old]), job }))).toEqual({ tone: null, text: 'Reading tags · 340 of 1,500' });
+    // the next phase restarts its count, and the row says which phase it is in
+    const sound = { ...job, last: { ImportProgress: { type: 'ImportProgress', phase: 'sound', done: 0, total: 1500, unreadable: 0 } } };
+    expect(rowLine('folders', ctx({ folders: wf([lib, old]), job: sound })).text).toBe('Checking the sound · 0 of 1,500');
+    // two folders with one name: the offline line says which by its short path
+    const same = { ...old, id: 5, name: 'Music', path: '/Users/you/Music' };
+    expect(rowLine('folders', ctx({ folders: wf([lib, drive, same, { ...same, id: 6, state: 'online' as const, path: '/Volumes/X/Music' }]) })).text)
+      .toBe('Music (~/Music) is offline');
     expect(rowLine('folders', ctx({ folders: null, job: { ...job, last: {} } }))).toEqual({ tone: null,
       text: 'Looking for music files' });
   });

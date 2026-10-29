@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { SetupStatus, SetupTools } from '$lib/bridge/types';
+import type { SetupStatus, SetupTools, WatchedFolderRow, WatchedFolders } from '$lib/bridge/types';
 import {
-  STEPS, STEP_LABELS, checkClientId, continueFilled, doneRedirect, mustChooseMusic, stripSteps, filledCard, firstStep, neighbour, nextRule, reachable, stepsDone,
+  STEPS, STEP_LABELS, checkClientId, continueFilled, doneRedirect, mustChooseMusic, stripSteps, filledCard, firstStep, neighbour, nextRule, reachable, skipsExisting, stepsDone,
   takeSecret, toolFixes,
 } from './setupModel';
 
@@ -92,6 +92,17 @@ describe('steps done', () => {
     expect(stepsDone(status({ existing: true, import_folders: 1 })).existing).toBe(true);
     expect(stepsDone(status({ existing: true, import_skipped: true })).existing).toBe(true);
     expect(stepsDone(status({ existing: false })).existing).toBe(false);
+  });
+  it('skips Your existing music on Continue only when no folder is watched, by the status or by the folders read', () => {
+    const lib: WatchedFolderRow = { id: 1, path: '/Users/you/Library', name: 'Library', kind: 'library', state: 'online',
+      files: 3, waiting: 0, unreadable: 0 };
+    const crates: WatchedFolderRow = { ...lib, id: 2, name: 'Crates', kind: 'import' };
+    const folders = (...f: WatchedFolderRow[]): WatchedFolders => ({ folders: f, unreadable: [], waiting: 0, stopped: false });
+    expect(skipsExisting(status({ existing: false }), null)).toBe(true);
+    expect(skipsExisting(status({ existing: false }), folders(lib))).toBe(true);
+    // a folder was just added: the status may not know yet, the folders do
+    expect(skipsExisting(status({ existing: false }), folders(lib, crates))).toBe(false);
+    expect(skipsExisting(status({ existing: true }), null)).toBe(false);
   });
   it('needs the app and the login for Spotify, and every program for Programs', () => {
     expect(stepsDone(status({ spotify_login: false })).spotify).toBe(false);

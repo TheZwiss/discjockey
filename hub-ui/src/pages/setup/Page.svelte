@@ -8,7 +8,7 @@
   import { untrack } from 'svelte';
   import { api } from '$lib/bridge/client';
   import type { ProblemKind, SetupStatus, SetupTools } from '$lib/bridge/types';
-  import { Banner, Button, PageHeader, ProblemCard, Skeleton, StepStrip } from '$lib/components';
+  import { Banner, Button, PageHeader, ProblemCard, Skeleton, StepStrip, WatchedFoldersFlow } from '$lib/components';
   import { ColumnFrame } from '$lib/frames';
   import { dataVersion, hub } from '$lib/stores/hub';
   import { go } from '$lib/router';
@@ -21,7 +21,7 @@
   import StepSpotify from './StepSpotify.svelte';
   import StepTools from './StepTools.svelte';
   import {
-    continueFilled, doneRedirect, firstStep, isStep, mustChooseMusic, neighbour, nextRule, stepsDone, stripSteps,
+    continueFilled, doneRedirect, firstStep, isStep, mustChooseMusic, neighbour, nextRule, skipsExisting, stripSteps,
     type WizardStep,
   } from './setupModel';
 
@@ -37,6 +37,8 @@
    *  Continue and the step strip wait too */
   let stepBusy = $state(false);
   let arrived = false;
+  /** Your existing music's folders: the step reads them, Continue asks them (a folder just added is not skipped) */
+  const existing = new WatchedFoldersFlow();
 
   const asked = $derived<WizardStep | null>(isStep(params.step) ? params.step : null);
   // no music folder yet: the music step only, whatever the address says (the later steps read the library)
@@ -87,10 +89,10 @@
   /** a step in the strip: not while the step on screen waits (Back is held for the same reason) */
   function pickStep(s: WizardStep) { if (!stepBusy) goto(s); }
   const finish = () => void go('/');
-  /** Continue: on an optional step left undone it is the skip (Your existing music: setup_skip_import); a refused
+  /** Continue: on Your existing music with no folder watched it is the skip (setup_skip_import); a refused
    *  skip (another change runs) doesn't hold the user, the step stays open in the strip */
   async function onContinue() {
-    if (step === 'existing' && status && !stepsDone(status).existing) {
+    if (step === 'existing' && status && skipsExisting(status, existing.data)) {
       const r = await api.setup_skip_import();
       if (r.ok) loadStatus();
     }
@@ -121,7 +123,7 @@
     {:else if step === 'music'}
       <StepMusic {status} />
     {:else if step === 'existing'}
-      <StepExisting {status} />
+      <StepExisting {status} flow={existing} />
     {:else if step === 'tools'}
       <StepTools {tools} error={toolsError} {checking} onrecheck={() => { checkTools(); loadStatus(); }} />
     {:else if step === 'spotify'}

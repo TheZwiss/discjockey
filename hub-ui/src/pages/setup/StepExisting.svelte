@@ -7,13 +7,13 @@
   // Watched folders, so the two can't drift.
   import { untrack } from 'svelte';
   import type { SetupStatus } from '$lib/bridge/types';
-  import { Hint, ImportCard, ProblemCard, Surface, UnreadableList, WatchedFolderList, WatchedFoldersFlow, WriteButton, importView,
-  } from '$lib/components';
+  import { Hint, ImportCard, ProblemCard, Surface, UnreadableList, WatchedFolderList, WriteButton, importView,
+    type WatchedFoldersFlow } from '$lib/components';
   import { hub, writeBlockedReason } from '$lib/stores/hub';
 
-  let { status }: { status: SetupStatus } = $props();
+  /** the page owns the flow: Continue reads its folders to decide whether it skips the step */
+  let { status, flow }: { status: SetupStatus; flow: WatchedFoldersFlow } = $props();
 
-  const flow = new WatchedFoldersFlow();
   $effect(() => untrack(() => flow.mount()));
 
   const view = $derived(importView($hub.job, flow.data));
@@ -39,13 +39,14 @@
   <ImportCard {view} onstop={() => void flow.stop()} oncontinue={() => void flow.continueImport()}
     starting={flow.starting} test="existing-import" />
 {/if}
-{#if flow.error && !flow.data}
+{#if flow.error}
   <ProblemCard kind={flow.error.kind} message={flow.error.message} onretry={() => void flow.load()} />
-{:else}
+{/if}
+{#if flow.data || !flow.error}
   <WatchedFolderList folders={flow.data?.folders ?? null} onremove={(f) => void flow.remove(f)} removeOff={blocked}
     removing={flow.removing} test="existing-list" />
 {/if}
-<UnreadableList files={flow.data?.unreadable ?? []} test="existing-unreadable" />
+<UnreadableList files={flow.data?.unreadable ?? []} folders={flow.data?.folders ?? []} test="existing-unreadable" />
 
 <style>
   .actions { display: flex; align-items: center; gap: var(--s-3); min-width: 0; }

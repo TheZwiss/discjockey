@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { JobSnap, WatchedFolderRow, WatchedFolders } from '$lib/bridge/types';
 import {
   UNREADABLE_HINT, canContinue, doneLine, filesText, folderLine, folderMark, importView, phaseLine, phaseShare,
-  removeWords, stoppedLine, unreadableLabel, unreadableRow,
+  folderLabel, pathParts, removeWords, settingsLine, sharesName, stoppedLine, unreadableLabel, unreadableSub, unreadableWhere,
 } from './watchedFoldersModel';
 
 const row = (over: Partial<WatchedFolderRow> = {}): WatchedFolderRow => ({ id: 2, path: '/Volumes/Example Drive/Music',
@@ -17,11 +17,29 @@ const progress = (phase: 'scan' | 'tags' | 'sound' | 'link', done = 0, total = 0
 
 describe('a folder row (W3)', () => {
   it('says its state in the engine words, the Library always watched', () => {
-    expect(folderLine(lib)).toBe('Your Library · always watched');
+    expect(folderLine(lib)).toBe('Always watched');
     expect(folderLine(row())).toBe('Online');
     expect(folderLine(row({ state: 'offline' }))).toBe('Offline: connect the drive');
     expect(folderLine(row({ state: 'scanning' }))).toBe('Checking for new files');
-    expect(folderLine(row({ state: 'importing', files: 1840, waiting: 1500 }))).toBe('Importing · 340 of 1,840');
+  });
+  it("never carries the import's run numbers: while it runs, a folder says how many of its files wait", () => {
+    expect(folderLine(row({ state: 'importing', files: 1840, waiting: 1500 }))).toBe('Importing · 1,500 waiting');
+    expect(folderLine(row({ state: 'importing', files: 1840, waiting: 1 }))).toBe('1 file waiting');
+    expect(folderLine(row({ state: 'importing', files: 1840, waiting: 0 }))).toBe('Importing');
+  });
+  it('tells two folders with one name apart by the short path (~ for home)', () => {
+    const a = row({ id: 3, name: 'Crates', path: '/Users/you/Music/Crates' });
+    const b = row({ id: 4, name: 'crates', path: '/Volumes/Example Drive/Crates' });
+    expect(sharesName(a, [lib, a, b])).toBe(true);
+    expect(sharesName(a, [lib, a, row()])).toBe(false);
+    expect(folderLabel(a, [lib, a, b])).toBe('Crates (~/Music/Crates)');
+    expect(folderLabel(a, [lib, a])).toBe('Crates');
+  });
+  it('keeps the end of a path on its one line, the middle gives way', () => {
+    expect(pathParts('/Volumes/Example Drive/Music')).toEqual({ head: '/Volumes/Example Drive', tail: '/Music' });
+    expect(pathParts('/Users/you/Music/Crates/')).toEqual({ head: '~/Music', tail: '/Crates' });
+    expect(pathParts('/Crates')).toEqual({ head: '', tail: '/Crates' });
+    expect(pathParts('/Users/you')).toEqual({ head: '~', tail: '' });
   });
   it('marks it as colour plus shape: readable, offline, worked on', () => {
     expect(folderMark(lib)).toBe('good');
@@ -82,11 +100,28 @@ describe('the import (W6)', () => {
 });
 
 describe("couldn't read (W6)", () => {
-  it('heads the list with the count and shows each file with its reason', () => {
+  const folders = [lib, row({ path: '/Volumes/Example Drive/Music', name: 'Music' })];
+  const u = (path: string) => ({ folder_id: 2, path, reason: "macOS doesn't let Discjockey read it" });
+  it('heads the list with the count', () => {
     expect(unreadableLabel(3)).toBe("Couldn't read (3)");
-    expect(unreadableRow({ folder_id: 2, path: '/Volumes/Example Drive/Music/a.wav', reason: "macOS doesn't let Discjockey read it" }))
-      .toBe("/Volumes/Example Drive/Music/a.wav: macOS doesn't let Discjockey read it");
     expect(UNREADABLE_HINT).toBe('Tried again at the next import.');
+  });
+  it("says where the file is, not its name again: the folder inside the watched one, or that one's name at its root", () => {
+    expect(unreadableWhere(u('/Volumes/Example Drive/Music/Old/Sets/a.wav'), folders)).toBe('Old/Sets');
+    expect(unreadableWhere(u('/Volumes/Example Drive/Music/a.wav'), folders)).toBe('Music');
+    expect(unreadableSub(u('/Volumes/Example Drive/Music/Old/a.wav'), folders))
+      .toBe("Old · macOS doesn't let Discjockey read it");
+    // a folder that is gone from the list: the file's folder, short
+    expect(unreadableWhere({ folder_id: 9, path: '/Users/you/Music/Crates/a.wav', reason: '' }, folders)).toBe('~/Music/Crates');
+  });
+});
+
+describe("Settings' row (W2)", () => {
+  it('names the import phase as the card does', () => {
+    const j = (phase: 'tags' | 'sound', done: number) => job({ last: { ImportProgress: progress(phase, done, 1500) } });
+    expect(settingsLine(data(), j('tags', 340))).toEqual({ tone: null, text: 'Reading tags · 340 of 1,500' });
+    expect(settingsLine(data(), j('sound', 0)).text).toBe('Checking the sound · 0 of 1,500');
+    expect(settingsLine(data(), job()).text).toBe('Looking for music files');
   });
 });
 
@@ -96,6 +131,10 @@ describe('remove (W4)', () => {
       body: 'Discjockey forgets its 1,240 files. The files stay where they are.' });
     expect(removeWords({ name: 'Crates', files: 1, redownload: 0 }).body)
       .toBe('Discjockey forgets its 1 file. The files stay where they are.');
+  });
+  it('keeps the title and says which folder it is when two share the name', () => {
+    expect(removeWords({ name: 'Music', files: 10, redownload: 0 }, '~/Music')).toEqual({ title: 'Remove Music?',
+      body: 'This is the folder at ~/Music. Discjockey forgets its 10 files. The files stay where they are.' });
   });
   it('says the playlist songs that had their only copy there, singular for 1', () => {
     expect(removeWords({ name: 'Music', files: 1240, redownload: 4 }).body).toBe('Discjockey forgets its 1,240 files. '

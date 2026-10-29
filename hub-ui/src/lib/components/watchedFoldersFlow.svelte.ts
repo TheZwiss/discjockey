@@ -10,10 +10,11 @@
 import { api, runJob } from '$lib/bridge/client';
 import { onEvent } from '$lib/bridge/events';
 import type { ProblemKind, WatchedFolderRow, WatchedFolders } from '$lib/bridge/types';
+import { shortPath } from '$lib/musicFolder';
 import { chooseFolder, isFail } from '$lib/musicFolderFlow';
 import { dataVersion } from '$lib/stores/hub';
 import { confirm } from './confirm';
-import { removeWords } from './watchedFoldersModel';
+import { removeWords, sharesName } from './watchedFoldersModel';
 
 /** The line under Add folder…: a refusal (the engine's words) or what the add took over (its merge lines). */
 export type AddNote = { tone: 'problem' | 'info'; lines: string[] };
@@ -93,7 +94,7 @@ export class WatchedFoldersFlow {
     try {
       const p = await api.removal_preview(f.id);
       if (!p.ok) { this.note = { tone: 'problem', lines: [p.message] }; return; }
-      const w = removeWords(p);
+      const w = removeWords(p, sharesName(f, this.data?.folders ?? []) ? shortPath(f.path) : null);
       const yes = await confirm({ title: w.title, body: w.body, confirmLabel: 'Remove folder', cancelLabel: 'Cancel',
         tone: 'danger' });
       if (!yes) return;

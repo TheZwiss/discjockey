@@ -18,9 +18,11 @@
 </script>
 
 {#snippet head()}
-  {#if flow.error && !flow.data}
+  <!-- a failed read shows whenever it is the newest answer, over the rows it leaves standing; the next good read clears it -->
+  {#if flow.error}
     <ProblemCard kind={flow.error.kind} message={flow.error.message} onretry={() => void flow.load()} />
-  {:else if view}
+  {/if}
+  {#if view}
     <ImportCard {view} onstop={() => void flow.stop()} test="folders-import" />
   {/if}
 {/snippet}
@@ -31,7 +33,7 @@
 {/snippet}
 
 {#snippet after()}
-  <UnreadableList files={flow.data?.unreadable ?? []} test="folders-unreadable" />
+  <UnreadableList files={flow.data?.unreadable ?? []} folders={flow.data?.folders ?? []} test="folders-unreadable" />
   {#if flow.note}
     <div class="note" data-test="folders-note" data-tone={flow.note.tone}>
       {#each flow.note.lines as line (line)}<Hint text={line} tone={flow.note.tone === 'problem' ? 'problem' : 'muted'} wrap />{/each}
@@ -51,7 +53,7 @@
   {/if}
 {/snippet}
 
-<Panel head={(flow.error && !flow.data) || view ? head : undefined} {fill}
+<Panel head={flow.error || view ? head : undefined} {fill}
   after={flow.data?.unreadable.length || flow.note || blocked ? after : undefined} {foot} />
 
 <style>

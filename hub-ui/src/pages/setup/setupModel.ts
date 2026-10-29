@@ -1,7 +1,7 @@
 // Setup, the first-run guide (spec settings-setup §8). Pure helpers; nothing here talks to the backend on its own.
 // Credentials (the Spotify Client ID, the Qobuz password) are never kept here: `takeSecret` reads the value straight
 // out of the input element and empties it; the page only holds booleans about fields.
-import type { SetupStatus, SetupTools } from '$lib/bridge/types';
+import type { SetupStatus, SetupTools, WatchedFolders } from '$lib/bridge/types';
 import type { StripStep } from '$lib/components';
 // one copy of takeSecret for Settings and Setup (the account panel's model); Spotify's Client ID uses it here
 export { takeSecret } from '$lib/components/accountModel';
@@ -36,6 +36,12 @@ export function stepsDone(s: SetupStatus): Record<WizardStep, boolean> {
     downloads: s.qobuz || s.qobuz_skipped,
     playlists: s.playlists,
   };
+}
+
+/** Continue on Your existing music skips the step only when nothing is watched: the status says so, and so do the
+ *  folders the page has read (a folder added a moment ago may not be in the status yet). */
+export function skipsExisting(s: SetupStatus, folders: WatchedFolders | null): boolean {
+  return !s.existing && !folders?.folders.some((f) => f.kind === 'import');
 }
 
 /** No music folder is bound yet: the music step is the only one Setup shows (every later step may read the library,

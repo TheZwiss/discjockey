@@ -962,7 +962,7 @@
       <div class="w372"><ImportCard view={{ kind: 'running', line: 'Looking for music files', share: null, stopping: true }} onstop={() => {}} test="g-wf-stopping" /></div>
       <div class="w372"><ImportCard view={{ kind: 'stopped', line: 'Import stopped with 1,160 files to go. It carries on where it stopped.' }} oncontinue={() => {}} test="g-wf-stopped" /></div>
       <div class="w372"><ImportCard view={{ kind: 'done', line: 'Imported 1,240 files.' }} test="g-wf-done" /></div>
-      <div class="w372"><UnreadableList files={[{ folder_id: 2, path: '/Volumes/Example Drive/Music/Old/Untitled 3.mp3', reason: "Discjockey can't find sound it can read in it" }]} test="g-wf-unreadable" /></div>
+      <div class="w372"><UnreadableList folders={gFolders} files={[{ folder_id: 2, path: '/Volumes/Example Drive/Music/Old/Untitled 3.mp3', reason: "Discjockey can't find sound it can read in it" }]} test="g-wf-unreadable" /></div>
     </div>
   </section>
 
