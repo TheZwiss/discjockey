@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from discjockey.models import KnownFile, SeenFile, WatchedFolder
-from discjockey.scanner import scan
+from discjockey.scanner import away_reason, is_offline, scan
 
 
 class Keys:
@@ -274,6 +274,18 @@ def test_unmounted_volume_is_offline(lib):
             mounted=lambda p: asked.append(p) or False)
     assert asked == [Path("/Volumes/DJ-Stick")]
     assert r.offline == [2] and r.gone == []
+
+
+def test_a_folder_is_away_for_one_of_two_reasons_and_offline_for_both(tmp_path):
+    here = tmp_path / "Music"
+    here.mkdir()
+    drive = Path("/Volumes/DJ-Stick/Music")
+    assert away_reason(here, lambda p: False) is None  # not under /Volumes: the mount check does not apply
+    assert away_reason(tmp_path / "Renamed", lambda p: True) == "missing"
+    assert away_reason(drive, lambda p: False) == "unmounted"  # the drive is not mounted, whatever is at the path
+    assert away_reason(drive, lambda p: True) == "missing"  # mounted, but the folder is not on it
+    assert not is_offline(here, lambda p: False)
+    assert is_offline(drive, lambda p: False) and is_offline(tmp_path / "Renamed", lambda p: True)
 
 
 def test_inner_folder_of_an_offline_folder_is_offline_too(tmp_path):

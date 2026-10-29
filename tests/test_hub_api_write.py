@@ -15,7 +15,7 @@ from discjockey.align import Alignment
 from discjockey.events import ImportProgress, SourceChosen
 from discjockey.hub import jobs
 from discjockey.library import load_state, run_lock, save_state
-from discjockey.models import Candidate, ScanSummary
+from discjockey.models import Candidate, ScanSummary, WatchedFolder
 from discjockey.settings import Account, Settings, load_settings, save_settings
 
 
@@ -1068,6 +1068,26 @@ def test_the_sidebar_counts_duplicate_groups_without_loading_their_files(lib, mo
     assert api.sidebar()["todo"] == total["all"] and loaded == []
 
 
+def test_a_duplicate_group_in_a_folder_that_just_went_away_leaves_the_list_and_every_count(lib):
+    import shutil
+    paths, folder, fakes = lib
+    shutil.copy(folder / "Example Artist - Song 1.aiff", folder / "Example Artist - Song 1 copy.aiff")
+    api, rec = make_api(paths)
+    assert wait_job(api, rec, api.add_watched_folder(str(folder))).ok
+    here = api.todo()["chips"]
+    assert here["duplicate"] == 1 and api.sidebar()["todo"] == here["all"]
+    gone = folder.with_name("Music (ejected)")
+    folder.rename(gone)  # no scan has run: the rows still say online
+    with db.connect(paths.db_file) as conn:
+        assert len(db.duplicate_groups(conn)) == 1
+    out = api.todo()
+    assert out["chips"]["duplicate"] == 0 and not any(g["key"] == "duplicate" for g in out["groups"])
+    assert api.todo("duplicate")["chips"] == out["chips"]
+    assert api.sidebar()["todo"] == out["chips"]["all"] == here["all"] - 1  # the sidebar agrees with the page
+    gone.rename(folder)
+    assert api.todo()["chips"] == here and api.sidebar()["todo"] == here["all"]
+
+
 def test_an_unplugged_import_folder_makes_its_files_offline_before_any_scan(lib):
     paths, folder, fakes = lib
     api, rec = make_api(paths)
@@ -1076,19 +1096,46 @@ def test_an_unplugged_import_folder_makes_its_files_offline_before_any_scan(lib)
     file_id = own_songs(paths)[key]["file_id"]
     with db.connect(paths.db_file) as conn:
         assert conn.execute("SELECT online FROM files WHERE id = ?", (file_id,)).fetchone()[0] == 1
-    assert api.track(key)["track"]["online"] is True
+    assert api.track(key)["track"]["file_state"] == "here"
     assert api._file_path(file_id) is not None
     gone = folder.with_name("Music (ejected)")
     folder.rename(gone)  # the drive goes: no scan has run, the row still says online
     with db.connect(paths.db_file) as conn:
         assert conn.execute("SELECT online FROM files WHERE id = ?", (file_id,)).fetchone()[0] == 1
-    assert api.track(key)["track"]["online"] is False
-    assert api.watched_folders()["folders"][1]["state"] == "offline"  # the same answer as Settings
+    detail = api.track(key)["track"]
+    assert (detail["file_state"], detail["audio_url"]) == ("folder_missing", None)  # not under /Volumes: not found
+    assert api.watched_folders()["folders"][1]["state"] == "missing"  # the same answer as Settings
     assert api._file_path(file_id) is None  # the media vetting refuses too: the file can't be resolved
     gone.rename(folder)  # plugged back in
-    assert api.track(key)["track"]["online"] is True
+    assert api.track(key)["track"]["file_state"] == "here"
     assert api.watched_folders()["folders"][1]["state"] == "online"
     assert api._file_path(file_id) is not None
+
+
+def test_a_file_deleted_in_an_online_folder_says_file_missing_until_the_next_scan(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    key = sorted(own_songs(paths))[0]
+    path = Path(api.track(key)["track"]["path"])
+    assert path.exists()
+    path.unlink()
+    detail = api.track(key)["track"]
+    assert (detail["file_state"], detail["audio_url"]) == ("file_missing", None)
+    assert api.watched_folders()["folders"][1]["state"] == "online"  # the folder itself is there
+
+
+def test_the_unplugged_drive_and_the_missing_folder_are_told_apart_by_the_mount(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    asked = []
+    api._svc.mounted = lambda p: asked.append(p) or False
+    assert api._away_folders([WatchedFolder(7, Path("/Volumes/Example Stick/Music"), "import")]) == {7: "unmounted"}
+    assert asked == [Path("/Volumes/Example Stick")]
+    api._svc.mounted = lambda p: True
+    assert api._away_folders([WatchedFolder(7, Path("/Volumes/Example Stick/Music"), "import")]) == {7: "missing"}
+    assert api._away_folders([WatchedFolder(8, folder, "import"), WatchedFolder(9, paths.library, "library")]) == {}
 
 
 def test_a_stored_offline_file_stays_offline_even_when_its_folder_is_there(lib):
@@ -1098,4 +1145,4 @@ def test_a_stored_offline_file_stays_offline_even_when_its_folder_is_there(lib):
     key = sorted(own_songs(paths))[0]
     with db.connect(paths.db_file) as conn:
         conn.execute("UPDATE files SET online = 0 WHERE id = ?", (own_songs(paths)[key]["file_id"],))
-    assert api.track(key)["track"]["online"] is False
+    assert api.track(key)["track"]["file_state"] == "offline"

@@ -35,6 +35,9 @@ describe('fake watched folders', () => {
     const offline = must(await fake('folders_offline').f.watched_folders());
     expect(offline.folders.map((r) => r.state)).toEqual(['online', 'online', 'offline']);
     expect(offline.waiting).toBe(0);
+    const missing = must(await fake('folders_missing').f.watched_folders());
+    expect(missing.folders.map((r) => r.state)).toEqual(['online', 'online', 'missing']);
+    expect(missing.waiting).toBe(0);
     const bad = must(await fake('folders_couldnt_read').f.watched_folders());
     expect(bad.unreadable).toHaveLength(3);
     expect(bad.unreadable[0]).toMatchObject({ folder_id: bad.folders[1].id, reason: "macOS doesn't let Discjockey read it" });

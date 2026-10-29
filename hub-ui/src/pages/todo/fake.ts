@@ -40,7 +40,7 @@ const fake: PageFake = {
     // be and keeps the player off. Open with #/todo?track=t17.
     offline(s) {
       const t = s.tracks.find((x) => x.track_id === 't17');
-      if (t) t.offline = true;
+      if (t) t.away = 'offline';
     },
     // Wrong song?: 12 candidates with long titles.
     'long-candidates'(s) { searchMode.set(s, 'long'); },

@@ -107,7 +107,7 @@ export function pageScenarios(): Record<string, (s: FakeState) => void> {
 export const SCENARIOS = ['normal', 'update_available', 'first_run', 'offline', 'console', 'syncing', 'pause', 'break', 'stopped',
   'finished', 'big', 'errors', 'no_music', 'music_missing', 'qobuz_unreadable', 'qobuz_not_connected',
   // the import of the user's own music (library stage 4)
-  'folders_importing', 'folders_offline', 'folders_couldnt_read', 'folders_long_names', 'folders_library_only', 'setup_existing_empty',
+  'folders_importing', 'folders_offline', 'folders_missing', 'folders_couldnt_read', 'folders_long_names', 'folders_library_only', 'setup_existing_empty',
   'setup_existing_added', 'todo_same_song', 'todo_duplicates', 'todo_duplicates_three', 'sync_waiting_answers'] as const;
 
 /** The dashboard's estimate has no minutes or uses tables (only the Sync page ticks subsets). */
@@ -502,7 +502,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const plus = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return dateOnly(d); };
       const query = `${t.artist} ${t.title}`.replace(/ /g, '+');
       return ok({ track: {
-        ...trackRow(t), sound_checked: !t.unchecked, online: !t.offline, isrc: t.isrc,
+        ...trackRow(t), sound_checked: !t.unchecked, file_state: t.away ?? 'here', isrc: t.isrc,
         playlists: s.previewRead ? [...t.playlists] : null,
         in_playlist_count: t.playlists.length, quality_line: qualityLine(t), format_line: formatLine(t),
         source_full: q === 'missing' ? null : sourceFull(t),
@@ -517,7 +517,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         buy_links: { beatport: `https://www.beatport.com/search?q=${query}`, bandcamp: `https://bandcamp.com/search?q=${query}` },
         free_downloads: q === 'lossless' ? [] : [...(t.free_downloads ?? [])],
         bought_name: `Library/${t.folder}/${t.artist} - ${t.title}.wav`,
-        audio_url: q === 'missing' || t.offline ? null : media(t, 'current'),
+        audio_url: q === 'missing' || t.away ? null : media(t, 'current'),
         upgrade: t.upgrade ? { ...t.upgrade, audio_url: media(t, 'upgrade') } : null,
       } });
     },
@@ -555,7 +555,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     async spectrum(track_id: string, which: Which) {
       const t = track(track_id);
       if (!t || t.status === 'missing') return fail('refused', 'This track has no file yet.');
-      if (t.offline) return fail('refused', "This file's drive is offline.");
+      if (t.away) return fail('refused', "This file isn't there.");
       if (which === 'upgrade' && !t.upgrade) return fail('refused', 'There is no upgrade for this track.');
       return later(350, () => ok({ spectrum: fakeSpectrum(which === 'upgrade' ? null : t.cutoff_hz,
         Math.abs(hash(t.track_id)), t.duration_s, which) }));

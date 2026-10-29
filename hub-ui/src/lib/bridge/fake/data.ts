@@ -1,5 +1,6 @@
 // Fake mode only: an in-memory Discjockey state shaped like the contract. Reads are computed from it, writes change it.
 import type {
+  FileState,
   AnySignalKind, AppUpdate, Alignment, Browser, Budget, LastCheck, LoginBrowser, ByQuality, Candidate, PlaylistInfo, PlaylistRow, PreviewAction, Quality, Result, RunDetail,
   DownloadTools, FolderCheck, SetupStatus, SignalKind, Source, SpotifyStatus, Status, TodoGroupKey, TrackRow, Upgrade, FreeDownload,
   PlaylistService, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
@@ -42,8 +43,9 @@ export type FakeTrack = {
   own?: boolean;
   /** an own file the import has read but whose sound it hasn't judged yet: its quality is the codec's guess */
   unchecked?: boolean;
-  /** an own file whose import folder's drive is away: it has a path, but the player and the spectrum can't reach it */
-  offline?: boolean;
+  /** an own file that isn't there to play (the contract's file_state): its drive is away, its folder isn't found, or
+   *  the file went since the last scan; it has a path, but the player and the spectrum can't reach it */
+  away?: Exclude<FileState, 'here'>;
 };
 /** One move of a move batch as the fake keeps it (the engine's `moves` row). */
 export type FakeMove = {
@@ -81,6 +83,8 @@ export const emptyTidy = (): FakeTidy => ({ batches: [], nextBatch: 1, placed: {
 /** A watched folder as the fake keeps it (folders.ts answers watched_folders from these). */
 export type FakeFolder = {
   id: number; path: string; kind: 'library' | 'import'; offline: boolean; files: number;
+  /** the folder isn't found (moved, renamed, deleted) while its drive is there; `offline`: the drive is away */
+  missing?: boolean;
   /** files the import still works through (not read yet, or read and not sound-checked) */
   waiting: number;
   /** playlist songs whose only file is here: they download again when the folder is removed */

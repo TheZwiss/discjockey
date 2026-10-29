@@ -6,6 +6,14 @@ import type { FakeState, FakeTrack } from '$lib/bridge/fake/data';
 const cantPlay = new WeakSet<FakeState>();
 const BROKEN = 'data:audio/wav;base64,AAAA';
 
+/** A song of the user's own that the import found; `away`: why its file isn't there (none: it is). */
+function ownAway(s: FakeState, n: number, artist: string, title: string, status: FakeTrack['status'],
+  cutoff_hz: number | null, away?: FakeTrack['away']): FakeTrack {
+  return { ...s.tracks[0], track_id: `local:${n}`, artist, title, folder: '', duration_s: 233, status, cutoff_hz,
+    source: 'manual', codec: 'pcm', in_playlists: false, playlists: [], upgrade: null, isrc: null, cover: n,
+    own: true, away };
+}
+
 const fake: PageFake = {
   scenarios: {
     // set up, but no files yet (first_run would open the wizard)
@@ -25,14 +33,19 @@ const fake: PageFake = {
     // an import folder whose drive was ejected: its files stay in the library, the panel says the drive is offline
     // (two fake lossless WAVs, one on the drive that is away, one on a drive that is there; a lossless one away)
     offline: (s) => {
-      const own = (n: number, artist: string, title: string, status: FakeTrack['status'], cutoff_hz: number | null,
-        offline: boolean): FakeTrack => ({
-        ...s.tracks[0], track_id: `local:${n}`, artist, title, folder: '', duration_s: 233, status, cutoff_hz,
-        source: 'manual', codec: 'pcm', in_playlists: false, playlists: [], upgrade: null, isrc: null, cover: n,
-        own: true, offline });
-      s.tracks.push(own(1, 'Mira Nacht', 'Funkenregen', 'fake_lossless', 16000, true),
-        own(2, 'Tom Brandt', 'Letzter Zug', 'fake_lossless', 16000, false),
-        own(3, 'Mira Nacht', 'Stille Post', 'lossless', null, true));
+      s.tracks.push(ownAway(s, 1, 'Mira Nacht', 'Funkenregen', 'fake_lossless', 16000, 'offline'),
+        ownAway(s, 2, 'Tom Brandt', 'Letzter Zug', 'fake_lossless', 16000),
+        ownAway(s, 3, 'Mira Nacht', 'Stille Post', 'lossless', null, 'offline'));
+    },
+    // an import folder that was moved, renamed or deleted (its drive is there): "Folder not found" in the panel
+    folder_missing: (s) => {
+      s.tracks.push(ownAway(s, 1, 'Mira Nacht', 'Funkenregen', 'fake_lossless', 16000, 'folder_missing'),
+        ownAway(s, 2, 'Tom Brandt', 'Letzter Zug', 'fake_lossless', 16000));
+    },
+    // one file deleted inside a folder that is there, before the next scan: "This file isn't there any more."
+    file_missing: (s) => {
+      s.tracks.push(ownAway(s, 1, 'Mira Nacht', 'Funkenregen', 'fake_lossless', 16000, 'file_missing'),
+        ownAway(s, 2, 'Tom Brandt', 'Letzter Zug', 'fake_lossless', 16000));
     },
     // now playing: ▶ on Get Naughty, then ⏭ reaches a file that can't be played (the bar says so and waits)
     cant_play: (s) => { cantPlay.add(s); },

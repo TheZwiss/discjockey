@@ -4,17 +4,17 @@
 
 <script lang="ts">
   // Canvas cols × bands (y = band, low at the bottom), colour map --spec-0…5 by v/255, dashed cutoff line. Nothing to
-  // draw: "No file yet", or, for a file whose drive is away (`offline`), "Offline: connect the drive".
+  // draw: "No file yet", or, for a file that isn't there (`away`: the words for why), those.
   import type { Spectrum } from '../bridge/types';
-  import { OFFLINE_WORDS, khz } from '../format';
+  import { khz } from '../format';
   import { colourMap, decodeSpectrum, hexRgb } from './spectrum-data';
   import Skeleton from './Skeleton.svelte';
 
-  let { spectrum, height = 96, loading = false, cutoffLabel = true, error = null, noFile = false, offline = false }:
+  let { spectrum, height = 96, loading = false, cutoffLabel = true, error = null, noFile = false, away = null }:
     { spectrum: Spectrum | null; height?: number; loading?: boolean; cutoffLabel?: boolean; error?: string | null;
       noFile?: boolean;
-      /** the file is there but its drive is away: says so instead of "No file yet" */
-      offline?: boolean } = $props();
+      /** the file isn't there (drive away, folder or file not found): these words instead of "No file yet" */
+      away?: string | null } = $props();
   let canvas: HTMLCanvasElement | undefined = $state();
 
   $effect(() => {
@@ -47,7 +47,7 @@
   {:else if error}
     <div class="msg bad">{error}</div>
   {:else if !spectrum || noFile}
-    <div class="msg" data-test="spectrum-empty">{offline ? OFFLINE_WORDS : 'No file yet'}</div>
+    <div class="msg" data-test="spectrum-empty">{away ?? 'No file yet'}</div>
   {:else}
     <canvas bind:this={canvas} aria-label="Spectrum{cut ? `, cut off at ${khz(spectrum.cutoff_hz)}` : ''}"></canvas>
     {#if cut !== null}

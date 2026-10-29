@@ -64,9 +64,10 @@ export const isDuplicate = (i: TodoItem): i is DuplicateItem => i.group === 'dup
 
 export type ImportPhase = 'scan' | 'tags' | 'sound' | 'link';
 /** A watched folder (watched_folders()): the Library (always `online`, `scanning` while an import looks for files)
- *  or an import folder. `waiting`: files the import still works through (not read yet, or not sound-checked). */
+ *  or an import folder; `offline`: its drive isn't connected, `missing`: the folder isn't found (moved, renamed,
+ *  deleted). `waiting`: files the import still works through (not read yet, or not sound-checked). */
 export type WatchedFolderRow = { id: number; path: string; name: string; kind: 'library' | 'import';
-  state: 'online' | 'offline' | 'scanning' | 'importing'; files: number; waiting: number; unreadable: number };
+  state: 'online' | 'offline' | 'missing' | 'scanning' | 'importing'; files: number; waiting: number; unreadable: number };
 export type UnreadableFile = { folder_id: number | null; path: string; reason: string };
 export type WatchedFolders = { folders: WatchedFolderRow[]; unreadable: UnreadableFile[];
   /** the files an import would work through now (offline drives' left out) */
@@ -250,11 +251,14 @@ export type Upgrade = {
 export type FreeDownload = { url: string; host: string; direct: boolean; title: string; uploader: string };
 /** The track's page on the service it was read from; `label` "Open in Spotify" / "Open in Qobuz". */
 export type TrackLink = { url: string; label: string };
+export type FileState = 'here' | 'offline' | 'folder_missing' | 'file_missing';
 export type TrackDetail = TrackRow & {
   /** false: an imported file whose sound isn't judged yet (see LibraryRow); `quality_line` then ends "sound not checked yet" */
   sound_checked: boolean;
-  /** false: the file's drive is away (an import folder on an unplugged drive); `audio_url` is then null too */
-  online: boolean;
+  /** why the file is or isn't there: `offline` (its drive isn't connected), `folder_missing` (its watched folder isn't
+   *  found), `file_missing` (the folder is there, the file's path isn't: it went since the last scan); `audio_url` is
+   *  null for all but `here` */
+  file_state: FileState;
   isrc: string | null; playlists: string[] | null; in_playlist_count: number; quality_line: string;
   /** "Opus · 135 kbps", "FLAC"; source_full: "YouTube Music", "bought", "your own file" for a file the import
    *  found (both null without a file) */

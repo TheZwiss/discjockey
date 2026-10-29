@@ -213,6 +213,9 @@ Mac or on a drive. Your `Library/` is always watched and is listed first.
   Discjockey already knows about their files stays.
 - **Offline:** a folder on a drive that isn't connected shows "Offline: connect the drive". Its songs stay in
   Library; they just can't be played or moved until the drive is back, and nothing is forgotten.
+- **Folder not found:** a folder that was moved, renamed or deleted (its drive is there) shows "Folder not found:
+  moved, renamed or deleted? Put it back or remove it here." It waits the same way. A single song whose file was
+  deleted inside a folder that is there says "This file isn't there any more." until the next scan.
 - **Removing:** **Remove** asks first. Discjockey forgets the folder's files; the files stay where they are. If a
   song from your playlists had its only copy there, the dialog says so, and the next sync downloads it again.
 

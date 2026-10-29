@@ -597,12 +597,18 @@ the bitrate only for a lossy download) and `source_full` ("YouTube Music", "boug
 `track()` also carries `sound_checked: bool` as the library rows do; for a file with `sound_checked: false`,
 `quality_line` ends "sound not checked yet" instead of "verified lossless" ("Your own file (PCM) · sound not checked
 yet"; a lossy codec: "Your own file (MP3) · lossy, sound not checked yet").
-`track()` also carries `online: bool` (2026-10-29): false for a file whose watched folder's drive is away, true
-otherwise, and for a track without a file. "Away" is read now, not from the last scan: the file row says `online = 0`,
-or its import folder isn't a folder at this moment (checked live, once per request, like `watched_folders()`'s
-`offline`), so an unplugged drive counts before any scan has seen it. `todo()` question and duplicate sides
-(`FileSide.online`) mean the same. Then `audio_url` is null too; the panel says "Offline: connect
-the drive" where the picture would be, keeps the player off and offers no Show in Finder.
+`track()` also carries `file_state` (2026-10-29, replaces the boolean `online`): `here`, `offline` (the file's drive is
+not connected), `folder_missing` (its watched folder is not found: moved, renamed or deleted while the drive is there)
+or `file_missing` (the folder is there, the file's path is not: it went since the last scan). Away is read now, not
+from the last scan: an import folder is away when the scanner's rule says so (`scanner.away_reason`: `unmounted` when
+its `/Volumes/<drive>` is not mounted, else `missing` when the path is not a folder; checked live once per request, like
+`watched_folders()`'s states), so an unplugged drive counts before any scan has seen it; the innermost watched folder
+holding the file decides. A file row that says `online = 0` and lies in no away folder stays `offline`. `file_missing`
+is checked for this one track (`Path.exists()`), in the api. A track without a file is `here`. For every state but
+`here` `audio_url` is null too: the panel says the words where the picture would be ("Offline: connect the drive" ·
+"Folder not found" · "This file isn't there any more."), keeps the player off, requests no spectrum and offers no Show in
+Finder. `todo()` question and duplicate sides (`FileSide.online`) mean `here` by the folder rule only (and carry no
+`audio_url` when false).
 `todo()` items carry `free: bool` (a not found, weak, good lossy or fake track with a free download: the row's FREE
 tag); the `detail` of lossy and fake rows is the source and bitrate ("YT Music · 131 kbps", "Qobuz"), as the badge
 already says the kHz.
@@ -1566,7 +1572,7 @@ Every word below is the engine's (`folders.py`, `importer.py`, `jobs.py`, `views
 
 | method | kind | result / notes |
 |---|---|---|
-| `watched_folders()` | read | `{folders: WatchedFolderRow[], unreadable: {folder_id, path, reason}[], waiting, stopped}`. `WatchedFolderRow = {id, path, name, kind: library\|import, state: online\|offline\|scanning\|importing, files, waiting, unreadable}`: the Library first (always `online`, or `scanning` while an import looks for files; `name` "Library"; its `waiting` and `unreadable` count like an import folder's: files that came into Library/ before an import finished them), then the import folders by id. `offline`: the folder isn't there now (an unplugged drive; its rows are kept). `scanning`: an import is looking for files. `importing`: one runs and this folder has files it hasn't finished. `files`: file rows; `waiting`: files the import still works through (not read yet, or read and not sound-checked yet); `unreadable`: files it couldn't read. Top level: `unreadable` the files it couldn't read (in the Library and every import folder), each with the id of its folder and the reason in words ("macOS doesn't let Discjockey read it", "Discjockey can't find sound it can read in it"; "The file is empty" for a file of 0 bytes); `waiting` the files an import would work through now (offline drives' files left out); `stopped` true after the user stopped an import this session (the page offers Continue import). The live phase and counts come from the `ImportProgress` event, not from here |
+| `watched_folders()` | read | `{folders: WatchedFolderRow[], unreadable: {folder_id, path, reason}[], waiting, stopped}`. `WatchedFolderRow = {id, path, name, kind: library\|import, state: online\|offline\|missing\|scanning\|importing, files, waiting, unreadable}`: the Library first (always `online`, or `scanning` while an import looks for files; `name` "Library"; its `waiting` and `unreadable` count like an import folder's: files that came into Library/ before an import finished them), then the import folders by id. `offline`: the folder's drive is not connected (path under `/Volumes/<drive>`, that mount absent). `missing`: any other folder that is not a folder now (moved, renamed or deleted; the page says "Folder not found: moved, renamed or deleted? Put it back or remove it here." and the row keeps its ×). Both: checked live, rows kept, nothing downloads. `scanning`: an import is looking for files. `importing`: one runs and this folder has files it hasn't finished. `files`: file rows; `waiting`: files the import still works through (not read yet, or read and not sound-checked yet); `unreadable`: files it couldn't read. Top level: `unreadable` the files it couldn't read (in the Library and every import folder), each with the id of its folder and the reason in words ("macOS doesn't let Discjockey read it", "Discjockey can't find sound it can read in it"; "The file is empty" for a file of 0 bytes); `waiting` the files an import would work through now (offline drives' files left out); `stopped` true after the user stopped an import this session (the page offers Continue import). The live phase and counts come from the `ImportProgress` event, not from here |
 | `check_import_folder(path)` | read | FolderCheck `{path, exists, usable, problem, kind, message, merges, merge_hints}`; changes nothing. `usable` false: `problem` is one of `not_absolute` · `not_a_folder` · `system_folder` · `inside_app` · `is_support_dir` · `not_readable` · `not_found` · `music` · `holds_music` · `watched` · `already`, and `message` says it: "This is inside your music folder, which Discjockey watches already." · "This folder holds your music folder. Choose a folder inside it instead." · "This is inside {name}, which Discjockey watches already." · "Discjockey watches this folder already." · "That folder isn't there. If it is on a drive, connect the drive first." · "macOS doesn't let Discjockey read that folder." (and the music folder check's words for the first four). Usable: `kind` `import`; `merges` the paths of the watched folders inside it that it would take over (their files and links are kept), `merge_hints` one line each: "{name} is inside it and becomes part of it." |
 | `removal_preview(folder_id)` | read | `{name, files, redownload}`: the folder's file count, and the playlist songs whose only file is there (they download again at the next sync). `refused` for the Library or a number that is no watched folder ("That folder isn't one of the watched folders.") |
 | `add_watched_folder(path)` | write → job `import` | Checks the folder as above (`refused` with its message when it can't be watched), watches it, then imports in the same job. `JobFinished.result`: ImportResult (below) |
@@ -1603,7 +1609,7 @@ might be a playlist song") and `duplicate` ("Duplicates", "the same song more th
 - `duplicate`: `track_id` is the `group_id`. `pair = {group_id, why: same_audio\|same_song, files: FileSide[]}`, files by
   file id; a group can hold more than two files, and "Keep both" (`keep_duplicates`) applies to all of them. `detail`:
   "The same audio in {n} files" · "{n} files of the same song". A group found both by the plan and by the records
-  shows once, as `same_audio`. Groups with a file offline, held or gone are left out.
+  shows once, as `same_audio`. Groups with a file offline now, held or gone are left out: "offline now" is the same live away set as the panels' (a group on a just-ejected drive or a renamed folder is neither listed nor counted in `chips`, the filter or the sidebar, even before a scan).
 - `FileSide = {file_id, song_key, path, artist, title, duration_s, quality, quality_label, online, audio_url,
   in_playlist}`: `path` is absolute for an import folder's file; `audio_url` is a media address
   like any other; a file outside the music folder (an import folder's) plays through `file/<file_id>`, which the

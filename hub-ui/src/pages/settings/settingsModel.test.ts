@@ -170,6 +170,10 @@ describe('settings list', () => {
     expect(rowLine('folders', ctx({ folders: wf([lib, drive, crates]) })).text).toBe('2 folders · 1,241 files');
     const old = { ...drive, id: 4, name: 'Old Drive', state: 'offline' as const };
     expect(rowLine('folders', ctx({ folders: wf([lib, drive, old]) }))).toEqual({ tone: 'warn', text: 'Old Drive is offline' });
+    // a folder that isn't found says so in its own words, and also waits
+    const moved = { ...drive, id: 7, name: 'Crates', state: 'missing' as const };
+    expect(rowLine('folders', ctx({ folders: wf([lib, drive, moved]) }))).toEqual({ tone: 'warn', text: "Crates isn't found" });
+    expect(firstAttention(ctx({ folders: wf([lib, moved]) }))).toBe('qobuz');
     // an offline drive waits; it is no reason to open Settings at the watched folders
     expect(firstAttention(ctx({ folders: wf([lib, old]) }))).toBe('qobuz');
     const job = { id: 9, kind: 'import', track_id: null, started: '', running: true, stopping: false, results: [],

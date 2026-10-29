@@ -307,12 +307,12 @@ def test_the_watched_folders_list_the_library_first_with_counts_and_states(tmp_p
         ("import", "Music", str(folder), "online", 2, 0, 0)]
 
 
-def test_a_folder_whose_drive_is_gone_is_offline_and_keeps_its_files(tmp_path, monkeypatch):
+def test_a_folder_that_is_gone_is_missing_and_keeps_its_files(tmp_path, monkeypatch):
     import shutil
     paths, folder, api, rec = watched(tmp_path, monkeypatch)
-    shutil.move(str(folder), str(tmp_path / "unplugged"))
+    shutil.move(str(folder), str(tmp_path / "moved"))  # not under /Volumes: no drive to blame, the folder is not found
     row = api.watched_folders()["folders"][1]
-    assert (row["state"], row["files"]) == ("offline", 2)
+    assert (row["state"], row["files"]) == ("missing", 2)
 
 
 def test_files_the_import_could_not_read_are_listed_with_their_folder_and_reason(tmp_path, monkeypatch):
