@@ -111,11 +111,15 @@ def removal(paths: Paths, folder_id: int) -> RemovalCounts:
         return db.removal_counts(conn, folder_id)
 
 
-def remove(paths: Paths, folder_id: int, today: date | None = None) -> RemovalCounts:
-    """Stops watching an import folder (D12); its files stay where they are. OpProblem(PENDING_HERE, refused) while
-    a pending step names a file in it (its drive is away, so recovery waits for it): finished later, that step would
+def remove(paths: Paths, folder_id: int, today: date | None = None, *, emit: Emit = no_emit) -> RemovalCounts:
+    """Stops watching an import folder (D12); its files stay where they are. Interrupted steps are finished first
+    (as every writer's start), their words emitted. OpProblem(PENDING_HERE, refused) while a step is still pending
+    that names a file in the folder (its drive is away, so recovery waits for it): finished later, that step would
     move a file of a folder nobody watches. ValueError for the Library folder or an unknown id. The caller holds the
     lock, so no step starts in between."""
+    state = library.open_state(paths, emit)
+    for message, ok in library.recover_pending(paths, state):  # as every writer's start (tidy._begin)
+        emit(Message("info" if ok else "warning", message))
     with db.connect(paths.db_file) as conn:
         root = next((fold(str(f.path)) for f in db.watched_folders(conn) if f.id == folder_id and f.kind == "import"),
                     None)
