@@ -574,20 +574,29 @@ class PreviewStore:
         self.message = ""
         self.stale = False  # a sync ran since: the plan is out of date
         self.auto_read = False  # the hub has started its one automatic read of this session (claim_auto_read)
+        self._reopened = False  # the records were rebuilt or reopened: the stored plan's generation no longer counts
+
+    def records_reopened(self) -> None:
+        """The hub learned that its records are another database (a library was bound: _attach): a new one counts
+        its generation from 0 again, so the stored plan's generation says nothing about the next read; the next
+        plan is stored whatever its generation, and the stored one's counts again from then on."""
+        with self._lock:
+            self._reopened = True
 
     def ready(self, prep: run.Prepared, at: datetime, token: CancelToken | None = None) -> None:
         """`token`: a read that was stopped meanwhile (its request answered late) stores nothing. A plan carries the
         records' generation it was planned on (`prep.state["generation"]`): one older than the stored plan's was
         slow to finish (the window's opening read, while an import linked and planned again) and is dropped, so it
-        never overwrites the fresher preview."""
+        never overwrites the fresher preview (unless the records were reopened since: records_reopened)."""
         with self._lock:
             if token is not None and token.cancelled:
                 return
-            new, old = _generation_of(prep), _generation_of(self.prep)
+            new, old = _generation_of(prep), None if self._reopened else _generation_of(self.prep)
             if new is not None and old is not None and new < old:
                 return
             self.prep, self.read_at, self.problem, self.problem_service, self.message, self.stale = (
                 prep, at, None, None, "", False)
+            self._reopened = False
 
     def failed(self, problem: str, message: str, service: str | None = None,
                token: CancelToken | None = None) -> None:

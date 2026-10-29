@@ -297,6 +297,7 @@ class HubApi:
             self._jobs.bind(paths.lock)
             if self._media is not None:
                 self._media.bind(paths, self._file_path)
+            self._store.records_reopened()  # its records may count their generation from 0 again
             self._bound, self._missing = paths, None  # last: the library gate opens once lock and media are ready
 
     def _bind(self, paths: Paths) -> None:
