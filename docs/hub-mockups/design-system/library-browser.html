@@ -123,11 +123,11 @@
   .search { margin-left: auto; flex: none; width: 240px; height: 34px; border-radius: 8px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--label); font-size: 12px; display: flex; align-items: center; gap: 8px; padding: 0 10px; }
   .search kbd { margin-left: auto; font: 11px -apple-system; border: 1px solid var(--ctl-line); border-radius: 4px; padding: 1px 4px; color: var(--muted); }
   .seg { display: flex; border: 1px solid var(--ctl-line); border-radius: 9px; background: var(--ctl-bg); overflow: hidden; height: 32px; min-width: 0; }
-  .seg div { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--muted); border-left: 1px solid var(--ctl-line); white-space: nowrap; padding: 0 8px; }
+  .seg div { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--muted); border-left: 1px solid var(--ctl-line); white-space: nowrap; padding: 0 8px; }
   .seg div > span:not(.dot) { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .seg div:first-child { border-left: 0; }
   .seg div b { font-weight: 500; color: var(--label); font-variant-numeric: tabular-nums; }
-  .seg div.on { background: var(--accent-wash); color: var(--accent-text); flex-shrink: 0; flex-basis: auto; }
+  .seg div.on { background: var(--accent-wash); color: var(--accent-text); flex-shrink: 0; }   /* the chosen one never shrinks (Segmented's tight form below 1280); each segment starts at its content's width and shares the rest, so long labels ("Upgrade ready", "Lossless 3,100") stay whole */
   .seg div.on b { color: var(--accent-text); }
   .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--c); display: inline-block; }
   .tbl { border-radius: 12px; background: var(--list-bg); border: 1px solid var(--list-line); min-width: 0; flex: 1 1 auto !important; min-height: 0; margin-bottom: 20px; display: flex; flex-direction: column; overflow: hidden; }
