@@ -98,6 +98,12 @@ export function segOptions(chips: Library['chips'] | null | undefined, value: Li
 export function optionalColumns(allTracks: boolean): ('folder' | 'source' | 'added')[] {
   return allTracks ? ['folder', 'source', 'added'] : ['source', 'added'];
 }
+/** A row reads dimmed when its song left every playlist (a downloaded file nothing holds any more). A file of the
+ *  user's own is in no playlist by nature, so it is never dimmed: dimming it would say "gone" about a file that is
+ *  exactly where its owner put it. */
+export function rowOff(r: Pick<TrackRow, 'in_playlists' | 'own'>): boolean {
+  return !r.in_playlists && !r.own;
+}
 /** A row's folder cell: a track in no playlist reads so instead of the folder it sits in on disk. */
 export function folderCell(r: Pick<TrackRow, 'folder' | 'in_playlists'>): string {
   return r.in_playlists ? r.folder : 'Not in a playlist';

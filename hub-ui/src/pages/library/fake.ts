@@ -47,6 +47,12 @@ const fake: PageFake = {
       s.tracks.push(ownAway(s, 1, 'Mira Nacht', 'Funkenregen', 'fake_lossless', 16000, 'file_missing'),
         ownAway(s, 2, 'Tom Brandt', 'Letzter Zug', 'fake_lossless', 16000));
     },
+    // the Not in a playlist view with both kinds of row: two files of the user's own (never dimmed, nothing is
+    // wrong with them) beside the downloaded songs that left every playlist (dimmed)
+    not_in_playlist: (s) => {
+      s.tracks.push(ownAway(s, 1, 'Mira Nacht', 'Funkenregen', 'lossless', null),
+        ownAway(s, 2, 'Tom Brandt', 'Letzter Zug', 'lossless', null));
+    },
     // now playing: ▶ on Get Naughty, then ⏭ reaches a file that can't be played (the bar says so and waits)
     cant_play: (s) => { cantPlay.add(s); },
   },

@@ -102,10 +102,10 @@ export function removeFolder(s: FakeState, f: FakeFolder): { files: number; redo
 
 // ---------- the To-do groups (W8) ----------
 const row = (id: string, artist: string, title: string, folder: string, duration_s: number, side: FileSide | null,
-  inPlaylists: boolean): TrackRow => ({
+  inPlaylists: boolean, own = false): TrackRow => ({
   track_id: id, artist, title, folder, duration_s, status: side?.quality === 'lossless' ? 'lossless' : side ? 'not_lossless' : 'missing',
   quality: side?.quality ?? 'missing', quality_label: side?.quality_label ?? 'NOT FOUND', cutoff_hz: null, source: null,
-  source_name: null, in_playlists: inPlaylists, hidden: false, upgrade_ready: false, path: side?.path ?? null, added: null,
+  source_name: null, in_playlists: inPlaylists, own, hidden: false, upgrade_ready: false, path: side?.path ?? null, added: null,
   cover_url: null });
 const byName = (a: TrackRow, b: TrackRow) => `${a.folder}\u0000${a.artist}\u0000${a.title}`
   .localeCompare(`${b.folder}\u0000${b.artist}\u0000${b.title}`);
@@ -119,7 +119,7 @@ export function questionItems(s: FakeState): QuestionItem[] {
 export function duplicateItems(s: FakeState): DuplicateItem[] {
   return s.imp.duplicates.map((g): DuplicateItem => {
     const first = g.files.find((f) => f.in_playlist) ?? g.files[0];
-    return { ...row(g.group_id, first.artist, first.title, '', first.duration_s, first, first.in_playlist),
+    return { ...row(g.group_id, first.artist, first.title, '', first.duration_s, first, first.in_playlist, !first.in_playlist),
       group: 'duplicate', detail: DUPLICATE_WORDS(g.why, g.files.length), free: false,
       pair: { group_id: g.group_id, why: g.why, files: g.files.map((f) => ({ ...f })) } };
   }).sort(byName);

@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { TrackRow } from '$lib/bridge/types';
 import {
   fileName, folderCell, footAction, inTodo, isSort, moveSelection, nextSort, optionalColumns, overview, placeLine,
-  scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
+  rowOff, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
 } from './libraryModel';
 import type { Library, TrackDetail } from '$lib/bridge/types';
 
 const row = (id: string, extra: Partial<TrackRow> = {}): TrackRow => ({
   track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'lossless', quality: 'lossless',
-  quality_label: 'LOSSLESS', cutoff_hz: null, source: 'qobuz', source_name: 'Qobuz', in_playlists: true, hidden: false,
+  quality_label: 'LOSSLESS', cutoff_hz: null, source: 'qobuz', source_name: 'Qobuz', in_playlists: true, own: false, hidden: false,
   upgrade_ready: false, path: `Library/Hard_Bounce/A - ${id}.aiff`, added: null, cover_url: null, ...extra,
 } as TrackRow);
 
@@ -133,6 +133,17 @@ describe('table and strip', () => {
     expect(isSort('-folder')).toBe(true);
     expect(isSort('added')).toBe(true);
     expect(isSort('bpm')).toBe(false);
+  });
+});
+
+describe('a dimmed row', () => {
+  it('is a downloaded song that left every playlist', () => {
+    expect(rowOff(row('a'))).toBe(false);
+    expect(rowOff(row('a', { in_playlists: false }))).toBe(true);
+  });
+  it('is never one of the users own files, which no playlist holds', () => {
+    expect(rowOff(row('a', { in_playlists: false, own: true, source_name: 'own file' }))).toBe(false);
+    expect(rowOff(row('a', { in_playlists: true, own: true }))).toBe(false);
   });
 });
 

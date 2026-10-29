@@ -10,8 +10,8 @@
   import { artistTitle, dayMonth, duration } from '$lib/format';
   import type { LibraryRow, LibrarySort, TrackRow } from '$lib/bridge/types';
   import {
-    folderCell, inTodo, moveSelection, optionalColumns, scrollToCenter, scrollToKeep, selectedIndex, sortState,
-    windowSlice, type SortColumn,
+    folderCell, inTodo, moveSelection, optionalColumns, rowOff, scrollToCenter, scrollToKeep, selectedIndex,
+    sortState, windowSlice, type SortColumn,
   } from './libraryModel';
 
   let { rows, loading = false, allTracks = false, sort, selected, playing = null, onsort, onselect, onplay, onfinder,
@@ -114,7 +114,7 @@
     <div class="spacer" aria-hidden="true" data-test="spacer-above" style:height="{slice.start * rowH}px"></div>
     {#each visible as r (r.track_id)}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <div class="tr" class:all={allTracks} class:sel={r.track_id === selected} class:off={!r.in_playlists} role="row"
+      <div class="tr" class:all={allTracks} class:sel={r.track_id === selected} class:off={rowOff(r)} role="row"
         tabindex="-1" aria-selected={r.track_id === selected} data-test="row-{r.track_id}"
         onclick={() => onselect(r.track_id)} ondblclick={() => onplay(r.track_id)} oncontextmenu={(e) => context(e, r)}
         onpointerenter={() => (hovered = r.track_id)} onpointerleave={() => { if (hovered === r.track_id) hovered = null; }}>
@@ -125,7 +125,7 @@
         </span>
         <span class="td cut sub">{r.artist}</span>
         {#each extra as c, i (c)}
-          <span class="td cut sub o o{i + 1}" class:quiet={c === 'folder' && !r.in_playlists}>
+          <span class="td cut sub o o{i + 1}" class:quiet={c === 'folder' && rowOff(r)}>
             {c === 'folder' ? folderCell(r) : c === 'source' ? (r.source_name ?? '–') : (dayMonth(r.added) || '–')}</span>
         {/each}
         <span class="td num">{duration(r.duration_s)}</span>

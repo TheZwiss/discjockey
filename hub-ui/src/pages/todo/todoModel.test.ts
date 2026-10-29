@@ -13,7 +13,7 @@ import {
 function item(id: string, group: TodoGroupKey, extra: Partial<TodoItem> = {}): TodoItem {
   return { track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'not_lossless',
     quality: 'weak', quality_label: '16.0 kHz', cutoff_hz: 16000, source: 'youtube', source_name: 'YouTube',
-    in_playlists: true, hidden: false, upgrade_ready: false, path: 'Library/Hard_Bounce/A - x.aiff', added: null,
+    in_playlists: true, own: false, hidden: false, upgrade_ready: false, path: 'Library/Hard_Bounce/A - x.aiff', added: null,
     cover_url: null, group, detail: '', free: false, ...extra };
 }
 function todo(groups: [TodoGroupKey, string[]][]): Todo {

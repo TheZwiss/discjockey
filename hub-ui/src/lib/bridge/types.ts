@@ -33,7 +33,9 @@ export type ByQuality = Record<Quality, number>;
 export type TrackRow = {
   track_id: string; artist: string; title: string; folder: string; duration_s: number;
   status: Status; quality: Quality; quality_label: string; cutoff_hz: number | null;
-  source: Source | null; source_name: string | null; in_playlists: boolean; hidden: boolean;
+  source: Source | null; source_name: string | null; in_playlists: boolean;
+  /** a file of the user's own that the import found (no playlist holds it): the table never dims it */
+  own: boolean; hidden: boolean;
   upgrade_ready: boolean; path: string | null; added: string | null; cover_url: string | null;
 };
 export type TodoGroupKey = Exclude<TodoFilter, 'all'>;
