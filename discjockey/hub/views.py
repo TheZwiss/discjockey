@@ -615,7 +615,10 @@ def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url 
                  media: Url | None = None) -> dict:
     folders = in_playlists(track_id, e, fetched)
     has_file = e["status"] != "missing" and e.get("source")
+    # online: false for a file whose watched folder's drive is away (a file row's `online`); entries without the key
+    # (the old records) are there, and a track without a file has nothing to be away
     return {**track_row(track_id, e, cover), "sound_checked": sound_checked(e), "isrc": e.get("isrc"),
+            "online": bool(e.get("online", True)) or not e.get("path"),
             "playlists": folders, "in_playlist_count": len(folders) if folders is not None else None,
             "quality_line": quality_line(e["source"], e.get("source_format") or "?", e["status"], e.get("cutoff_hz"),
                                          e.get("source_kbps"), own=is_own_file(e),
