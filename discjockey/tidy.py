@@ -125,7 +125,7 @@ def _begin(paths: Paths, emit: Emit) -> dict:
     for message, ok in library.recover_pending(paths, state):
         emit(Message("info" if ok else "warning", message))
     library.clear_tmp(paths, state)
-    library.scan_library(paths, emit)
+    library.scan_library(paths, emit, after_recovery=True)
     return library.open_state(paths, emit)
 
 

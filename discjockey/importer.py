@@ -261,7 +261,7 @@ def run_import(paths: Paths, *, emit: Emit = no_emit, token: CancelToken, link: 
     for message, ok in library.recover_pending(paths, state):  # as every writer's start (tidy._begin)
         emit(Message("info" if ok else "warning", message))
     library.clear_tmp(paths, state)
-    library.scan_library(paths, emit, analyze=inspect)
+    library.scan_library(paths, emit, analyze=inspect, after_recovery=True)
     try:
         token.check()
         run.tags()

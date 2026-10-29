@@ -489,7 +489,8 @@ def test_while_the_source_drive_is_away_nothing_is_decided_and_once_back_the_mov
     src, target = from_the_drive(paths, drive, staged_data=b"audio", dst=dst)
     unplug(drive)
     (message, ok), = recover_pending(paths, load_state(paths))
-    assert not ok and "yet" in message and "isn't connected" in message
+    assert not ok and message == (f"Couldn't finish a stopped change: the drive with {src} isn't connected. Connect "
+                                  "it; until then Discjockey doesn't look for new files.")  # W17: the path once
     assert staged_of(target).read_bytes() == b"audio" and target.exists() == dst  # a whole copy, not renamed in
     assert len(load_state(paths)["pending"]) == 1
     plug(drive)
@@ -511,8 +512,20 @@ def test_a_step_waiting_for_an_unplugged_drive_blocks_the_scan_only_when_it_has_
     s["pending"].append({"track_id": "t2", "renames": [[str(drive / "c.aiff"), "Library/A/c.aiff"]], "entry": None})
     save_state(paths, s)
     touch(paths.library / "A/newer.aiff")
-    library.scan_library(paths)
+    told = []
+    library.scan_library(paths, told.append)
     assert "Library/A/newer.aiff" not in load_state(paths)["files"]  # Library/A/c.aiff is visible to a scan
+    # held up by a drive: the scan says so in W17's words, unless the caller's recovery just did
+    assert [(m.level, m.text) for m in told] == [("warning", library.DRIVE_WAITS.format(path=drive / "c.aiff"))]
+    told.clear()
+    library.scan_library(paths, told.append, after_recovery=True)
+    assert told == []
+
+
+def test_a_path_for_the_users_eyes_shows_the_home_folder_as_a_tilde():
+    home = Path.home()
+    assert library.short_path(home / "Music" / "x.aiff") == "~/Music/x.aiff"
+    assert library.short_path("/Volumes/Example/Music/x.aiff") == "/Volumes/Example/Music/x.aiff"
 
 
 def refuse_removing(monkeypatch, path: Path):

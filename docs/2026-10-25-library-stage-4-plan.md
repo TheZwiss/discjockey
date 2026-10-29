@@ -354,7 +354,10 @@ false`. Busy for job kind `import`: W7.
   same name; W14 the Duplicates cards are labelled by the folder of each file (summary "In your playlists" on a
   playlist song's file); W15 Sync shows W9's hints as NoteCards, words unchanged.
 - Added by the stage review's fixes: W16 Remove refused while a pending step names a file in the folder: "Discjockey
-  still has an unfinished change for this folder. Connect its drive and open Discjockey again, then remove it."
+  still has an unfinished change for this folder. Connect its drive and open Discjockey again, then remove it."; W17 a
+  stopped change waits for a drive (recovery, and a scan it holds up): "Couldn't finish a stopped change: the drive
+  with {short path} isn't connected. Connect it; until then Discjockey doesn't look for new files." (the path once,
+  `~` for the home folder)
 
 ---
 

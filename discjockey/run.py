@@ -144,7 +144,7 @@ def _open(paths: Paths, log: rep.RunLog, emit: Emit, *, dry_run: bool) -> dict:
             log.add_text("recovered" if ok else "errors", message)
             emit(Message("info" if ok else "warning", message))
         library.clear_tmp(paths, state)  # keeps what a step that could not be finished yet still needs
-    library.scan_library(paths, emit, recover=not dry_run)
+    library.scan_library(paths, emit, recover=not dry_run, after_recovery=not dry_run)
     return library.load_state(paths)
 
 
