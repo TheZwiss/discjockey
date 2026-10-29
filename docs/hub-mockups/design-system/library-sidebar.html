@@ -39,7 +39,8 @@
   .nav:hover { background: var(--ctl-bg); color: var(--text); }
   .nav.on { color: var(--text-strong); background: var(--nav-on); }
   /* a row: the 14 px glyph slot, 9 px, the name. The two views (All tracks, Not in a playlist) have no glyph and start at
-     the row's inset, as today; a subfolder has no glyph either: its name starts under its parent's name, 12 px a level deeper */
+     the row's inset, as today, together at the top so they share one left edge; a subfolder (one level only) has no glyph
+     either: its name starts under its parent's name */
   .g { width: 14px; height: 14px; flex: none; display: grid; place-items: center; font-size: 12px; margin-right: 9px; }
   .g .gl, .g svg { opacity: .8; }
   .nav.on .g svg { opacity: 1; }
@@ -57,7 +58,7 @@
   .warn-dot { position: absolute; top: 7px; left: 19px; width: 6px; height: 6px; border-radius: 50%; background: var(--wait); }
   .sbcap { font-size: 11px; letter-spacing: .7px; text-transform: uppercase; color: var(--label); padding: 12px 7px 4px; flex: none; }
   .lib { display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 0; overflow-y: auto; }
-  .gap { height: 6px; flex: none; }  /* 6 + the 2 px row gaps = 10 px between All tracks, playlists, folders, Not in a playlist */
+  .gap { height: 6px; flex: none; }  /* 6 + the 2 px row gaps = 10 px between the views, the playlists and the folders */
   .off { opacity: .5; }               /* switched off: the one dim the sidebar has */
   /* StatusMark warn: the "!" of Settings → Watched folders and of AwayTag, for the same state */
   .mark { width: 13px; height: 13px; border-radius: 50%; border: 1px solid rgba(232,185,58,.7); background: rgba(232,185,58,.14); color: var(--wait); font: 700 9px/11px -apple-system; text-align: center; }
@@ -131,6 +132,7 @@
   .lrow:first-child { border-top: 0; }
   .lrow .n { color: var(--text); font-variant-numeric: tabular-nums; }
   .lrow .chv { color: var(--label); }
+  .lrow .q { color: var(--label); }   /* a quiet second part of the label: how many of the row's count are in To-do */
   .pfoot-hint { margin-top: auto; text-align: center; color: var(--label); font-size: 12px; padding: 4px 0 2px; }
 </style>
 </head><body>
@@ -142,14 +144,14 @@
 </div>
 
 <section data-state="sidebar">
-  <div class="opt">a · The Library group: All tracks, the playlists, the folders, Not in a playlist</div>
-  <p class="why">The group stays rows of the sidebar, like Dashboard or Sync above it: the same 30 px rows, the same 14 px glyph slot, the same pill when selected, one right edge for every count. Nothing new floats, nothing reserves space. The four parts are told apart by a 10 px pause between them and by their icon, not by more captions: <b>playlists</b> carry their service's original logo in its own colours (Spotify, Qobuz, SoundCloud, YouTube Music), <b>folders</b> a folder outline, the two <b>views</b> (All tracks, Not in a playlist) no icon and start at the row's inset as today, because they come from nowhere (and "Not in a playlist" needs the width). <b>Subfolders:</b> a folder with subfolders that hold music has a chevron in its own column right before the count; it turns down when open, and choosing the folder opens it too, so clicking a folder is enough to find what is inside. A subfolder has no icon of its own: its name starts under its parent's name, 12 px further a level deeper, so a name like "Techno 2019" still fits the 168 px.</p>
+  <div class="opt">a · The Library group: All tracks, Not in a playlist, the playlists, the folders</div>
+  <p class="why">The group stays rows of the sidebar, like Dashboard or Sync above it: the same 30 px rows, the same 14 px glyph slot, the same pill when selected, one right edge for every count. Nothing new floats, nothing reserves space. The three parts are told apart by a 10 px pause between them and by their icon, not by more captions: the two <b>views</b> (All tracks, Not in a playlist) come first, together, with no icon, starting at the row's inset as today: they come from nowhere, "Not in a playlist" needs the width, and at the top they stay in sight however many playlists follow and share one left edge instead of breaking the icon column twice. Then the <b>playlists</b> with their service's original logo in its own colours (Spotify, Qobuz, SoundCloud, YouTube Music), then the <b>folders</b> with a folder outline. <b>Subfolders, one level:</b> a folder whose subfolders hold music has a chevron in its own column right before the count; it turns down when open, and choosing the folder opens it too. Only a folder's direct subfolders get a row, with no icon and no chevron of their own: the name starts under its parent's name, so "Techno 2019" fits the 168 px. Deeper folders (Techno 2019 › Peak) are in the folder view's Subfolder column; a deeper route lights its subfolder's row.</p>
   <table class="sig">
     <tr><th>Signal</th><th>Means exactly this, nowhere else</th></tr>
     <tr><td>Row at half strength</td><td>A switched-off playlist (Playlists page): its files stay, nothing new downloads. Its count is its last read. The sidebar's only dim.</td></tr>
     <tr><td>Yellow ! in the icon slot</td><td>The folder's drive isn't connected, or the folder isn't found: the same mark Settings → Watched folders and the Library's AwayTag use. Name and count stay at full strength, because the files are still in the library. Tooltip: "Offline: connect the drive" / "Folder not found".</td></tr>
     <tr><td>The service's logo</td><td>Which service the playlist is read from: the original logo in its own colours (Spotify, Qobuz, SoundCloud, YouTube Music), unchanged. The only colour in the sidebar besides the yellow !.</td></tr>
-    <tr><td>Folder outline</td><td>A folder on disk: a watched folder of your own music, or a folder in Library/ that no playlist uses. Its subfolders have no icon; they indent under its name.</td></tr>
+    <tr><td>Folder outline</td><td>A folder on disk: a watched folder of your own music, or a folder in Library/ that no playlist uses. Its direct subfolders have no icon; they indent under its name.</td></tr>
     <tr><td>Number</td><td>Playlist: its songs (also those without a file yet). Folder: the files in it and below. All tracks, Not in a playlist: files.</td></tr>
   </table>
   <div class="stage" data-view="sidebar"></div>
@@ -165,7 +167,7 @@
 
 <section data-state="folder" hidden>
   <div class="opt">c · A folder: the files physically in it and its subfolders</div>
-  <p class="why">A folder's view lists what is on disk there. <b>Subfolder</b> is a column (the first that appears as the table gets wider; "–" is the folder itself), and the default sort, so the files read in the order of the tree. <b>Playlist</b> is the name of the first playlist that holds the song, in your playlist order, as a neutral badge; "+1" when more hold it (the tooltip names them all). A file of your own in no playlist has no badge and is never dimmed. A file whose sound isn't checked yet keeps the neutral "Not checked" badge. Length is the first optional column to go: hidden at 1280, so titles and subfolder paths fit.</p>
+  <p class="why">A folder's view lists what is on disk there. <b>Subfolder</b> is a column (the first that appears as the table gets wider; "–" is the folder itself), and the default sort, so the files read in the order of the tree. <b>Playlist</b> is the name of the first playlist that holds the song, in your playlist order, as a neutral badge; "+1" when more hold it (the tooltip names them all). A file of your own in no playlist has no badge and is never dimmed. A file whose sound isn't checked yet keeps the neutral "Not checked" badge. Length is the first optional column to go: hidden at 1280, so titles and subfolder paths fit. A deeper subfolder reads "Techno 2019 › Peak"; when a place is too wide for its column, its middle gives way in whole folders ("Old Sets › … › Peak"), here and in All tracks' Folder column. The overview's second row counts what isn't lossless here (<b>7</b>) and, quieter, how many of those To-do holds (<b>3 in To-do</b>): a file of your own in no playlist isn't in To-do. Every view's overview says it this way ("all in To-do" in a playlist; All tracks 147 with 141 in To-do), so the number beside "Not lossless yet" is always the files that aren't lossless.</p>
   <div class="stage" data-view="folder"></div>
 </section>
 
@@ -198,7 +200,8 @@
   ];
   const folders = [
     { key: 'old', name: 'Old Sets', path: '~/Music/Old Sets', depth: 0, files: 15, kids: true, open: true },
-    { key: 'techno', name: 'Techno 2019', path: '~/Music/Old Sets/Techno 2019', depth: 1, files: 6, kids: true, open: false },
+    // Techno 2019 holds Peak (2 files), counted here; a subfolder never gets a chevron, Peak no row of its own
+    { key: 'techno', name: 'Techno 2019', path: '~/Music/Old Sets/Techno 2019', depth: 1, files: 6 },
     { key: 'warm', name: 'Warmups', path: '~/Music/Old Sets/Warmups', depth: 1, files: 4 },
     { key: 'drive', name: 'DJ Sets', path: 'Example Drive › DJ Sets', depth: 0, files: 86, away: 'Offline: connect the drive' },
     { key: 'hard', name: 'Old_Hardstyle', path: 'Library/Old_Hardstyle · in no playlist', depth: 0, files: 12 },
@@ -209,12 +212,13 @@
     const view = (key, label, n) => `<div class="nav${sel === key ? ' on' : ''}" title="${label}"><span class="t">${label}</span><span class="c">${n}</span></div>`;
     const pl = playlists.map((p) => `<div class="nav${p.off ? ' off' : ''}${sel === p.name ? ' on' : ''}" title="${p.name}\n${SVC_NAME[p.svc]} playlist · ${p.songs} songs${p.off ? '\nSwitched off: its files stay, nothing new downloads' : ''}">
         <span class="g">${SVC[p.svc]}</span><span class="t">${p.name}</span><span class="c">${p.songs}</span></div>`).join('');
-    const fo = folders.map((f) => `<div class="nav${sel === f.key ? ' on' : ''}" style="padding-left:${f.depth ? 31 + 12 * (f.depth - 1) : 8}px" title="${f.path}${f.away ? '\n' + f.away : ''}">
+    const cw = Math.max(...folders.map((f) => String(f.files).length));   // the folders' count column: their widest count
+    const fo = folders.map((f) => `<div class="nav${sel === f.key ? ' on' : ''}" style="padding-left:${f.depth ? 31 : 8}px;--count-w:${cw}ch" title="${f.path}${f.away ? '\n' + f.away : ''}">
         ${f.depth ? '' : `<span class="g">${f.away ? MARK : FOLDER}</span>`}<span class="t">${f.name}</span>${f.kids ? `<span class="chev${f.open ? ' open' : ''}" title="${f.open ? 'Hide' : 'Show'} the subfolders of ${f.name}">${CHEV}</span>` : ''}<span class="c">${f.files}</span></div>`).join('');
     return `<div class="sb"><div class="brand"><i></i>Discjockey</div>
       ${nav('◉', 'Dashboard')}${nav('⟳', 'Sync')}${nav('✓', 'To-do', '<span class="c">18</span>')}${nav('≡', 'Playlists')}${nav('◔', 'Download limits')}
       <div class="sbcap">Library</div>
-      <div class="lib">${view('all', 'All tracks', 412)}<div class="gap"></div>${pl}<div class="gap"></div>${fo}<div class="gap"></div>${view('unlisted', 'Not in a playlist', 41)}</div>
+      <div class="lib">${view('all', 'All tracks', 412)}${view('unlisted', 'Not in a playlist', 41)}<div class="gap"></div>${pl}<div class="gap"></div>${fo}</div>
       <div class="nav settings"><span class="g"><span class="gl">⚙</span></span><span class="t">Settings</span></div></div>`;
   }
 
@@ -287,19 +291,22 @@
   const seg = (c) => `<div class="seg">${[['All', c[0], null, true], ['Lossless', c[1], '--good'], ['Good lossy', c[2], '--ok'], ['Weak', c[3], '--weak'], ['Fake', c[4], '--lossy'], ['Upgrade ready', c[5], '--good']]
     .map(([l, n, d, on]) => `<div${on ? ' class="on"' : ''}>${d ? `<span class="dot" style="--c:var(${d})"></span>` : ''}<span>${l}</span><b>${n}</b></div>`).join('')}</div>`;
   const header = (title, sub) => `<div class="hd"><h1>${title}</h1><span class="st">${sub}</span><div class="search">⌕ Search title, artist…<kbd>⌘F</kbd></div></div>`;
-  const overview = (share, of, label, q, up, todo) => `<div class="panel"><div class="card"><div><div class="bign">${share}<small> % lossless</small></div><div class="lbl">${of} ${label}</div></div>
+  // nl: { n: checked files that aren't lossless, todo: how many of them To-do holds }. One row in every view: the count is
+  // what isn't lossless; the quiet part says how much of it To-do holds ("all", a number, or "none": then no link)
+  const toDoPart = (nl) => nl.todo === 0 ? 'none in To-do' : nl.todo === nl.n ? 'all in To-do' : `${nl.todo} in To-do`;
+  const overview = (share, of, label, q, up, nl) => `<div class="panel"><div class="card"><div><div class="bign">${share}<small> % lossless</small></div><div class="lbl">${of} ${label}</div></div>
       <div class="qbar">${q.map(([v, n]) => `<i style="--c:var(${v});flex:${n}"></i>`).join('')}</div>
       <div class="q-legend">${q.map(([v, n, l]) => `<span><span class="dot" style="--c:var(${v})"></span>${l} <b>${n}</b></span>`).join('')}</div></div>
       <div class="surf"><div class="lrow"><span class="dot" style="--c:var(--good)"></span><span>Upgrade ready</span><span class="n">${up}</span><span class="chv">›</span></div>
-      <div class="lrow"><span class="dot" style="--c:var(--weak)"></span><span>Not lossless yet · in To-do</span><span class="n">${todo}</span><span class="chv">›</span></div></div>
+      <div class="lrow"${nl.todo < nl.n ? ` title="${nl.todo === 0 ? 'None' : nl.todo} of them in To-do: files of your own in no playlist aren't"` : ''}><span class="dot" style="--c:var(--weak)"></span><span>Not lossless yet<span class="q"> · ${toDoPart(nl)}</span></span><span class="n">${nl.n}</span><span class="chv">${nl.todo ? '›' : ''}</span></div></div>
       <div class="pfoot-hint">Pick a track to see its file, spectrum and upgrade</div></div>`;
 
   function pageAll() {
     const cols = 'minmax(0,1.5fr) minmax(0,1fr) minmax(0,1.3fr) 40px 106px 64px';
-    const rows = all.map(([t, a, f, len, q, b, x = {}], k) => `<div class="tr${x.left ? ' dim' : ''}"${x.left ? ' title="Not in any playlist any more"' : ''}>${t1({ t }, k)}<span class="cut mu">${a}</span><span class="cut mu" title="${f}">${f}</span><span class="num2">${len}</span>${qcell({ q, badge: b, unchecked: x.unchecked })}${slot({ up: x.up })}</div>`).join('');
+    const rows = all.map(([t, a, f, len, q, b, x = {}], k) => `<div class="tr${x.left ? ' dim' : ''}"${x.left ? ' title="Not in any playlist any more"' : ''}>${t1({ t }, k)}<span class="cut mu">${a}</span><span class="cut mu" data-mid title="${f}">${f}</span><span class="num2">${len}</span>${qcell({ q, badge: b, unchecked: x.unchecked })}${slot({ up: x.up })}</div>`).join('');
     return `<div class="main"><div class="col">${header('All tracks', '412 tracks')}${seg([412, 251, 64, 61, 22, 9])}
       <div class="tbl" style="--cols:${cols}"><div class="th-row"><span class="hc">Track</span><span class="hc on">Artist ↑</span><span class="hc">Folder</span><span class="hc r">Length</span><span class="hc">Quality</span><span class="info">i</span></div><div class="scroll">${rows}</div></div></div></div>
-      ${overview(63, '251 of 398 checked tracks', 'in your library', [['--good', 251, 'Lossless'], ['--ok', 64, 'Good lossy'], ['--weak', 61, 'Weak'], ['--lossy', 22, 'Fake']], 9, 141)}`;
+      ${overview(63, '251 of 398 checked tracks', 'in your library', [['--good', 251, 'Lossless'], ['--ok', 64, 'Good lossy'], ['--weak', 61, 'Weak'], ['--lossy', 22, 'Fake']], 9, { n: 147, todo: 141 })}`;
   }
   function pagePlaylist() {
     const cols = '22px minmax(0,1.6fr) minmax(0,1.1fr) 40px 106px 64px';
@@ -309,15 +316,31 @@
       <div class="scroll">${hb.map((r, k) => row(r, k, k + 1)).join('')}
       <div class="sec"><b>Also in this folder</b><span class="cnt">2</span><span class="h">files in Hard_Bounce that aren't in this playlist</span></div>
       ${hbAlso.map((r, k) => row(r, k + 3)).join('')}</div></div></div></div>
-      ${overview(67, '8 of 12 songs', 'with a file', [['--good', 8, 'Lossless'], ['--ok', 2, 'Good lossy'], ['--weak', 1, 'Weak'], ['--lossy', 1, 'Fake']], 1, 4)}`;
+      ${overview(67, '8 of 12 songs', 'with a file', [['--good', 8, 'Lossless'], ['--ok', 2, 'Good lossy'], ['--weak', 1, 'Weak'], ['--lossy', 1, 'Fake']], 1, { n: 4, todo: 4 })}`;
   }
   function pageFolder() {
-    const cols = 'minmax(0,1.3fr) minmax(0,1fr) 126px 104px 106px 64px';
+    const cols = 'minmax(0,1.45fr) minmax(0,1fr) 116px minmax(0,1.1fr) 106px 64px';
     const pl = (p) => !p ? '<span></span>' : `<span class="pl" title="In ${p.join(', ')}"><span>${p[0]}</span>${p.length > 1 ? `<b>+${p.length - 1}</b>` : ''}</span>`;
-    const rows = old.map((r, k) => `<div class="tr">${t1(r, k)}<span class="cut mu">${r.a}</span>${r.sub ? `<span class="cut mu" title="${r.sub}">${r.sub}</span>` : '<span class="lb">–</span>'}${pl(r.pls)}${qcell(r)}${slot(r)}</div>`).join('');
+    const rows = old.map((r, k) => `<div class="tr">${t1(r, k)}<span class="cut mu">${r.a}</span>${r.sub ? `<span class="cut mu" data-mid title="${r.sub}">${r.sub}</span>` : '<span class="lb">–</span>'}${pl(r.pls)}${qcell(r)}${slot(r)}</div>`).join('');
     return `<div class="main"><div class="col">${header('Old Sets', '15 tracks · ~/Music/Old Sets')}${seg([15, 7, 3, 3, 1, 1])}
       <div class="tbl" style="--cols:${cols}"><div class="th-row"><span class="hc">Track</span><span class="hc">Artist</span><span class="hc on">Subfolder ↑</span><span class="hc">Playlist</span><span class="hc">Quality</span><span class="info">i</span></div><div class="scroll">${rows}</div></div></div></div>
-      ${overview(50, '7 of 14 checked tracks', 'in Old Sets', [['--good', 7, 'Lossless'], ['--ok', 3, 'Good lossy'], ['--weak', 3, 'Weak'], ['--lossy', 1, 'Fake']], 1, 3)}`;
+      ${overview(50, '7 of 14 checked tracks', 'in Old Sets', [['--good', 7, 'Lossless'], ['--ok', 3, 'Good lossy'], ['--weak', 3, 'Weak'], ['--lossy', 1, 'Fake']], 1, { n: 7, todo: 3 })}`;
+  }
+
+  // MiddleText with parts (" › "): a place too wide for its column gives way in its middle, whole folders first ("Old Sets ›
+  // … › Peak": the first and the last folder stay), then by characters as MiddleText does today
+  function fitMid(el) {
+    const text = el.title, parts = text.split(' › ');
+    const fits = () => el.scrollWidth <= el.clientWidth;
+    const forms = [text];
+    for (let k = 1; k < parts.length - 1; k++) forms.push([parts[0], '…', ...parts.slice(k + 1)].join(' › '));
+    for (const f of forms) { el.textContent = f; if (fits()) return; }
+    const last = forms[forms.length - 1];
+    for (let n = last.length - 1; n > 2; n--) {
+      const tail = Math.ceil(n / 2);
+      el.textContent = `${last.slice(0, n - tail).trimEnd()}…${last.slice(last.length - tail).trimStart()}`;
+      if (fits()) return;
+    }
   }
 
   const PAGES = { sidebar: ['all', pageAll], playlist: ['Hard_Bounce', pagePlaylist], folder: ['old', pageFolder] };
@@ -331,6 +354,7 @@
     const scale = Math.min(1, (st.clientWidth || document.body.clientWidth - 48) / 1280);
     st.style.height = 800 * scale + 'px';
     st.innerHTML = `<div class="win" style="width:1280px;height:800px;transform:scale(${scale})">${sidebar(sel)}${page()}</div>`;
+    st.querySelectorAll('[data-mid]').forEach(fitMid);
     const z = document.querySelector('[data-zoom]');
     if (state === 'sidebar' && z) {
       z.style.height = 800 * 2 * Math.min(1, (z.clientWidth / 2) / 168) + 'px';

@@ -6,9 +6,9 @@ Leftovers: `docs/issues.md` #26 (first bullet: the read-status wire). Orchestrat
 (states `#sidebar`, `#playlist`, `#folder`; the user approves it before Groups 4 and 5 start). Builds on `main` 5e6d172;
 branch `feat/library-5-sidebar`.
 
-**Goal:** under "Library" the sidebar lists All tracks, the playlists (a service mark and a song count each), the
-folders on disk as a tree (import folders and the `Library/` folders no playlist uses) and Not in a playlist. A
-playlist opens its songs wherever their files are; a folder opens the files physically in it.
+**Goal:** under "Library" the sidebar lists All tracks and Not in a playlist, the playlists (a service mark and a song
+count each) and the folders on disk with their direct subfolders (import folders and the `Library/` folders no playlist
+uses). A playlist opens its songs wherever their files are; a folder opens the files physically in it.
 
 **Architecture.** Today the Library knows only a song's *placement* folder (`songs.folder`), and which songs a playlist
 holds lives only in the hub's last read (`PreviewStore.prep`, session memory). Stage 5 needs both answers before and
@@ -55,13 +55,15 @@ extends the Library page with two view kinds. The Spotify-named read-status wire
 - **D3. A playlist is named by its folder name** (the line's left side), as the sidebar and Playlists page do today;
   the record is keyed by the line's ref (the link's token), so a folder rename keeps the record. A folder is named by its
   **snapshot path** (`Library/Old_Hardstyle`, or the absolute path in an import folder), which is also its route key.
-- **D4. The Library group, in this order:** All tracks · the playlists in `playlists.txt` order (switched-off ones in
-  place, dimmed) · the folders (import folders' roots, by name, then the `Library/` folders no line uses, by name; each
-  root followed by its open subfolders) · Not in a playlist. A 10 px pause (6 px + the row gaps) between the four
-  parts; no extra captions. *Why:* icons and the pause already separate them; captions cost two rows of a sidebar that
-  scrolls at 1100 × 700. The views (All tracks, Not in a playlist) keep no glyph and start at the row's inset as today:
-  they come from no source, and "Not in a playlist" needs the width (measured in the mockup: with a blank glyph slot it
-  read "Not in a pla…").
+- **D4. The Library group, in this order:** All tracks · Not in a playlist · the playlists in `playlists.txt` order
+  (switched-off ones in place, dimmed) · the folders (import folders' roots, by name, then the `Library/` folders no line
+  uses, by name; each root followed by its subfolders when open, D8). A 10 px pause (6 px + the row gaps) between the
+  three parts; no extra captions. *Why:* icons and the pause already separate them; captions cost two rows of a sidebar
+  that scrolls at 1100 × 700. The views keep no glyph and start at the row's inset as today: they come from no source,
+  and "Not in a playlist" needs the width (measured in the mockup: with a blank glyph slot it read "Not in a pla…").
+  They stand together at the top (mockup review): last in the list, "Not in a playlist" scrolled out of sight with 30+
+  playlists, and the two icon-less rows broke the group's left edge in two places; together they share one edge, the
+  icon column below runs unbroken, and both views are always in reach.
 - **D5. Counts.** Playlist: the songs its view lists (distinct songs of its last record; `null` = never read → no
   number). Folder: files with a song at or below it. All tracks and Not in a playlist: files, as today. An offline
   folder keeps its count (its files are still in the library, §6.4).
@@ -94,16 +96,20 @@ extends the Library page with two view kinds. The Spotify-named read-status wire
   decision log. The logos are inline SVG with `fill` attributes. If `scripts/rules-page.js`'s colour check flags them,
   exempt only the `ServiceMark` element, with that reason in a comment. A dimmed (switched-off) row dims the logo with
   the row.
-- **D8. The tree.** Children are subfolders holding at least one file with a song at or below them. Directly under a
+- **D8. The tree: a root and its direct subfolders, no deeper.** A root's children are its direct subfolders holding
+  at least one file with a song at or below them (that count includes their own subfolders). Directly under a
   `Library/` folder, `not_lossless/` is never a node (Discjockey's own place for lossy files; its files count to the
-  folder and show "not_lossless" in the Subfolder column). A subfolder row has no glyph: its name starts under its
-  parent's name, 12 px further per extra level. A folder with subfolders has a chevron in a 10 px column right before
-  the count; the folders' count column is as wide as their widest count (tabular digits), so the chevrons stand in one
-  column and no width is reserved on rows without one. Choosing a folder opens it as well; the chevron toggles without
-  navigating; the folder of the current route and its ancestors are always open. Open folders are remembered per path
-  (`getPref`/`setPref`, key `sidebar.open`). *Why:* aligned icons, counts and chevrons at 168 px (the mockup's first
-  try with a chevron after the name and glyphs on subfolders cut "Techno 2019" to "Techn…"); clicking a folder is
-  enough to discover what is inside.
+  folder and show "not_lossless" in the Subfolder column). A subfolder row has no glyph and no chevron: its name starts
+  under its parent's name. A root with subfolders has a chevron in a 10 px column right before the count; the folders'
+  count column is as wide as their widest count (tabular digits), so the chevrons stand in one column and no width is
+  reserved on rows without one. Choosing a root opens it as well; the chevron toggles without navigating; the root of
+  the current route is always open. A deeper folder has no row: its files are in its ancestors' views, where the
+  Subfolder column (D10, the default sort) keeps them together ("Techno 2019 › Peak"); its route (`#/library/folder/…`)
+  still opens its own view and marks its depth-1 ancestor's row current. Open roots are remembered per path
+  (`getPref`/`setPref`, key `sidebar.open`). *Why:* aligned icons, counts and chevrons at 168 px (the mockup's first try
+  with a chevron after the name and glyphs on subfolders cut "Techno 2019" to "Techn…"); 12 px more per level cut names
+  from the third level on (mockup review), and a crate tree deeper than two levels is rare in a DJ library, while the
+  Subfolder column shows every level whole; clicking a folder is enough to discover what is inside.
 - **D9. A playlist's view:** its songs in playlist order (a `#` column, the view's default sort `order`), a song listed
   twice in the playlist shown once (first place), then the section **Also in this folder**: files physically in
   `Library/<its folder>/` (including `not_lossless/`) whose song the playlist doesn't hold. One table, the section as a
@@ -112,7 +118,17 @@ extends the Library page with two view kinds. The Spotify-named read-status wire
 - **D10. A folder's view:** the files whose path is in the folder or below; optional columns Subfolder (first, the
   default sort, `MiddleText`: the end of a path tells two apart), then Playlist, then Source, Added. Both Subfolder and
   Playlist show at 1280 × 800; Subfolder at 1100 × 700. The folder view's Length column is optional too and is the
-  first to go: it is hidden at 1280 × 800, so titles and subfolder paths fit (orchestrator's mockup check).
+  first to go: it is hidden at 1280 × 800, so titles and subfolder paths fit (orchestrator's mockup check). Columns at
+  1280 (mockup, measured so no title, artist or subfolder is cut): Track `1.45fr`, Artist `1fr`, Subfolder 116 px,
+  Playlist `1.1fr`, Quality 106 px, the upgrade slot 64 px. Subfolder shows its parts with " › ".
+  **The overview's second row** (`FolderOverview`, every view, one rule; mockup review): the count is the checked files
+  that aren't lossless (good lossy, weak, fake), the quiet second part (`--text-label`, after " · ") how many of them
+  To-do holds: `all in To-do` when all, `{m} in To-do` when fewer, `none in To-do` when none (then the row is no link
+  and has no chevron); tooltip when fewer: `{m} of them in To-do: files of your own in no playlist aren't`. Old Sets
+  reads "Not lossless yet · 3 in To-do  7", a playlist "· all in To-do 4", All tracks "· 141 in To-do 147". *Why:* the
+  old row ("Not lossless yet · in To-do 3") put the To-do count where the not-lossless count belongs, so a folder of
+  own files in no playlist looked wrong; All tracks had the same mismatch (147 vs 141). The proposal changed only the
+  folder view; one rule keeps the row reading the same in every view.
 - **D11. The panel head says where the file sits.** `track()` gains `place` (the physical folder, as the location note
   words it) and `TrackHead`'s place line shows it. *Why:* under option A a file can sit outside its song's folder; the
   row would say "in Techno 2019" and the head "Hard_Bounce". Fix I's intent ("the head says only where the file
@@ -122,7 +138,12 @@ extends the Library page with two view kinds. The Spotify-named read-status wire
   names the song's folder, and own files no longer read "Not in a playlist" there. *Why:* after this stage a folder
   view shows the file in Old Sets › Warmups, so a Folder column saying "Bouncy" for the same file would be false, and
   "Not in a playlist" isn't a folder. Being in no playlist stays told by the dim and its tooltip (`rowTitleTip`), as
-  before. The column's end gets cut (title tooltip = the full place). Found in the orchestrator's mockup check.
+  before. A place too wide for the column gives way in the middle, whole folders first: "Old Sets › … › Peak" (the
+  first folder says which watched folder, the last the specific one; cutting the end lost it, mockup review); then by
+  characters as `MiddleText` does today: `MiddleText` gains `sep?: string` (here " › "; the folder view's Subfolder
+  column uses it too). *Why not plain `MiddleText`:* its character cut gives "Old Sets › Te…19 › Peak", half-words;
+  whole names read as names, as `fitPath` already does for watched folders. Title tooltip = the full place. Found in
+  the orchestrator's mockup check.
 - **D13. The read-status wire is renamed** (issue #26): field `spotify` → `read_status`, `views.spotify_status` →
   `views.read_status`, type `SpotifyStatus` → `ReadStatus`, component `SpotifyStatus.svelte` → `ReadStatus.svelte`, the
   `PageHeader` slot's prop and docs words "Spotify slot" → "read-status slot". Real Spotify things (its login, Setup's
@@ -176,8 +197,9 @@ export type Sidebar = {
   playlists: { name: string; service: PlaylistService | null; enabled: boolean; songs: number | null }[];
   folders: SidebarFolder[];   // display order: each parent before its children
 };
-export type SidebarFolder = { path: string; name: string; kind: 'import' | 'library'; depth: number;
+export type SidebarFolder = { path: string; name: string; kind: 'import' | 'library'; depth: 0 | 1;
   parent: string | null; has_children: boolean; files: number; state: 'here' | 'offline' | 'folder_missing' };
+  // depth 0: a root; depth 1: its direct subfolders only (D8). has_children only on a root; files counts every level.
 export type LibraryView = 'all' | 'playlist' | 'folder' | 'unlisted';
 export type LibraryRow = TrackRow & {
   sound_checked: boolean;
@@ -190,6 +212,8 @@ export type LibraryRow = TrackRow & {
 };
 // Library gains: view, key, also: LibraryRow[] | null (playlist view), read_at: string | null (playlist view),
 // enabled: boolean | null (playlist view), service: PlaylistService | null, empty adds 'gone' (an unknown name or path)
+// Library.summary gains not_lossless: number (every view: checked files that aren't lossless, good lossy + weak + fake,
+// of the rows the summary counts), beside the To-do count it has today (check first: that field's name)
 ```
 
 Rules the views pin: `place` is the file's first folder under `Library/` (Library files) or its parent folder's name
@@ -263,40 +287,58 @@ Tasks:
 Checks: `uv run pytest -q tests/test_db.py tests/test_db_migrate.py tests/test_run.py tests/test_hub_jobs.py` (check
 first: the exact db test file names). At the end: the full Python suite. ≈ 600 lines.
 
-## Group 3 — Views, bridge, contract and fake (Sonnet)
+## Group 3a — Views and the bridge, Python (Sonnet)
 
-**Read list:** D3–D12, I3–I5; `discjockey/hub/views.py` lines 500–741 (`track_row`, `file_state`, `track_detail`,
-`SORTS`, `library`, `sidebar`) and `_group`; `discjockey/hub/api.py` (`sidebar`, `library`, `track`, `_folders`,
-`_away_roots`, `_images`); `docs/hub-bridge-contract.md` (`sidebar()`, `library()`, `track()`); `hub-ui/src/lib/bridge/
-types.ts` (Sidebar, TrackRow, Library), `contract.ts`; `hub-ui/src/lib/bridge/fake/` (`bridge.ts` sidebar/library/
-track, `data.ts` FakeTrack/FakeState/FakePlaylist, `folders.ts` outline); `hub-ui/src/pages/library/fake.ts`.
+**Read list:** D3–D12, I3, I5 (words the engine sends); `discjockey/hub/views.py` lines 500–741 (`track_row`,
+`file_state`, `track_detail`, `SORTS`, `library`, `sidebar`) and `_group`; `discjockey/hub/api.py` (`sidebar`,
+`library`, `track`, `_folders`, `_away_roots`, `_images`); `discjockey/hub/jobs.py` (`grep -n "sidebar\|DrivesChanged\|
+def "`, then the hits); `tests/test_hub_views.py`, `tests/test_hub_api.py` (`grep -n "def test_"`).
 
 Tasks:
 1. **3.1 `views.sidebar`** (I3): playlists from `lines` + `records` (songs = distinct resolved songs, `null` unread),
-   folders as D4/D8 (roots, the tree, `not_lossless/` folded in, `state` from `away` per root, inherited by children).
-   Tests `tests/test_hub_views.py`: order; switched-off kept in place; a playlist's own folder not listed (fold-equal);
-   an offline root and its children; counts per D5; a `Library/` file directly in `Library/` belongs to no folder row.
+   folders as D4/D8 (roots, their direct subfolders only, `not_lossless/` folded in, `state` from `away` per root,
+   inherited by children). Tests `tests/test_hub_views.py`: order; switched-off kept in place; a playlist's own folder not
+   listed (fold-equal); an offline root and its children; counts per D5; a `Library/` file directly in `Library/`
+   belongs to no folder row; a folder two levels down has no row, its files count to its depth-1 ancestor and the root,
+   and that ancestor has `has_children` false.
 2. **3.2 `views.library` playlist view** (D9, I3): resolution through keys and aliases, duplicates once, `wait`,
    `place`, `also`, `read_at`, `enabled`, chips and summary as I3, sort `order`. Tests: each rule of I3's list.
 3. **3.3 Folder view** (D10): rows by path prefix (a `/` boundary, NFC), `subfolder`, `playlists` (from `records`, in
-   `lines` order), sort `subfolder`. Tests: a nested subfolder; `not_lossless`; a sibling folder whose name starts the
-   same (`Old Sets 2`) isn't inside `Old Sets`.
+   `lines` order), sort `subfolder`; a route to a deeper folder (no sidebar row) still has its view. Tests: a nested
+   subfolder; `not_lossless`; a sibling folder whose name starts the same (`Old Sets 2`) isn't inside `Old Sets`.
 4. **3.4 `track()` `place`** (D11) and `api.library`'s new signature; `gone` for an unknown name or path. The
-   All tracks / Not in a playlist rows' folder field becomes the same `place` (D12; the fake too). Tests
-   `tests/test_hub_api.py`, `tests/test_hub_views.py` (a file outside its song's folder; an own file).
-5. **3.5 Sidebar refresh:** check first when the shell's store re-fetches `sidebar()` (`stores/hub.ts`); it must also
-   follow a finished read, `DrivesChanged` and a finished import. Add what is missing in the store (no new event if an
-   existing one already says it).
-6. **3.6 Contract, `types.ts`, `contract.ts`** (I3, with an example of each view).
-7. **3.7 Fake backend:** read records per fake playlist, files with paths (Library and import), the methods above.
-   Scenarios (prefix `library:`): `tree` (the mockup's data: six playlists incl. two Qobuz, one switched off, one long
-   name; `Old Sets` with `Techno 2019/Peak` and `Warmups`; `DJ Sets` on an ejected `Example Drive`; `Library/
-   Old_Hardstyle` in no playlist; in Hard_Bounce: a file in `Techno 2019`, one in `Powertrance`, one offline, one
-   waiting, one not found, two files also in the folder, one of them a leftover), `never_read` (a playlist added since
-   the last read), `many_playlists` (14 playlists and two deep trees, for the sidebar's scroll at 1100 × 700).
+   All tracks / Not in a playlist rows' folder field becomes the same `place` (D12), sent whole with " › " between
+   levels (the UI cuts it, 5.2). `summary.not_lossless` in every view (I3). Tests `tests/test_hub_api.py`,
+   `tests/test_hub_views.py` (a file outside its song's folder; an own file; a folder of own files in no playlist:
+   `not_lossless` 2, To-do count 0).
+5. **3.5 Sidebar refresh, engine side:** check first which events the hub sends after a finished read, a drive change
+   and a finished import (`jobs.py`); add one only where none says it, and name them in the report for 3b's 3.8.
 
-Checks: `uv run pytest -q tests/test_hub_views.py tests/test_hub_api.py`; `cd hub-ui && npm run check && npx vitest run
-src/lib/bridge`. At the end: the full Python suite. ≈ 1,300 lines; past 1,500 stop and report.
+Checks: `uv run pytest -q tests/test_hub_views.py tests/test_hub_api.py tests/test_hub_jobs.py`. At the end: the full
+Python suite. ≈ 650 lines; past 800 stop and report.
+
+## Group 3b — Contract, types and the fake backend, TypeScript (Sonnet)
+
+**Read list:** D3–D12, I3–I5; the views' and api's new shapes as 3a left them (`git show --stat` of 3a's commits, then
+`views.sidebar`/`views.library`'s docstrings); `docs/hub-bridge-contract.md` (`sidebar()`, `library()`, `track()`);
+`hub-ui/src/lib/bridge/types.ts` (Sidebar, TrackRow, Library), `contract.ts`; `hub-ui/src/lib/bridge/fake/`
+(`bridge.ts` sidebar/library/track, `data.ts` FakeTrack/FakeState/FakePlaylist, `folders.ts` outline);
+`hub-ui/src/pages/library/fake.ts`; `hub-ui/src/lib/stores/hub.ts` (where it fetches `sidebar()`).
+
+Tasks:
+1. **3.6 Contract, `types.ts`, `contract.ts`** (I3, with an example of each view; `SidebarFolder.depth` 0 | 1).
+2. **3.7 Fake backend:** read records per fake playlist, files with paths (Library and import), the methods above, the
+   same rules as 3a (depth, `summary.not_lossless`, place with " › "). Scenarios (prefix `library:`): `tree` (the
+   mockup's data: six playlists incl. two Qobuz, one switched off, one long name;
+   `Old Sets` with `Techno 2019/Peak` and `Warmups`; `DJ Sets` on an ejected `Example Drive`; `Library/Old_Hardstyle`
+   in no playlist; in Hard_Bounce: a file in `Techno 2019`, one in `Powertrance`, one offline, one waiting, one not found,
+   two files also in the folder, one of them a leftover), `never_read` (a playlist added since the last read),
+   `many_playlists` (30 playlists and two trees with three levels, for the sidebar's scroll at 1100 × 700).
+3. **3.8 Sidebar refresh, store:** `stores/hub.ts` re-fetches `sidebar()` after a finished read, `DrivesChanged` and a
+   finished import (the events 3a found; no new event if an existing one already says it). Test it in the store's test.
+
+Checks: `cd hub-ui && npm run check && npx vitest run src/lib/bridge src/lib/stores`. ≈ 650 lines; past 800 stop and
+report.
 
 ## Group 4 — The sidebar's Library group (Opus, UI)
 
@@ -312,22 +354,25 @@ Tasks:
 1. **4.1 `ServiceMark` block** (D7): `service`, 14 px, the original coloured logos from the mockup's `SVC` table
    (`serviceLogos.ts`), `aria-label` per I5; a gallery section `gallery-servicemark` (all logos, normal, selected
    row, dimmed row), the block table row, the colour-rule exception and a decision-log entry (D7).
-2. **4.2 `sidebarModel.ts` + test:** the visible rows from `Sidebar.folders` and the open set (a closed parent hides
-   its subtree; the route's folder and its ancestors forced open), the folders' count width (widest count in `ch`),
-   tooltips (I5), which row is current for a route (I4).
+2. **4.2 `sidebarModel.ts` + test:** the visible rows from `Sidebar.folders` and the open set (a closed root hides its
+   subfolders; the route's root forced open), the folders' count width (widest count in `ch`), tooltips (I5), which
+   row is current for a route (I4; a route to a folder below depth 1 makes its depth-1 ancestor current, D8). Tests:
+   the order of D4 (both views first); a subfolder never has a chevron; a deeper route lights its ancestor's row.
 3. **4.3 The group** (`Sidebar.svelte`): rows per D4/D8 and the mockup; the whole row navigates, the chevron is a
-   sibling `<button>` (no interactive element inside the `<a>`), `aria-expanded`; on a focused folder row → opens,
-   ← closes (or moves to its parent); choosing a folder opens it. Selection is instant; the chevron turns in 160 ms
+   sibling `<button>` (no interactive element inside the `<a>`), `aria-expanded`; on a focused root → opens,
+   ← closes (on a subfolder ← moves to its root); choosing a folder opens it. Selection is instant; the chevron turns in 160 ms
    (`--ease`), none under reduced motion. The Now playing row still pushes the list up (the list scrolls inside, as
    today).
 4. **4.4 Router** (I4) and every `libraryHref` caller (the player's queue href, Dashboard's folder bars). Tests in
    `router.test.ts`.
 5. **4.5 Shots** (`hub-ui/src/lib/shell` or the library page's `shots.json`, wherever the shell's shots live): 
-   `library-sidebar-tree` (`#/library`, `library:tree`, `Old Sets` opened by a click on its chevron),
-   `library-sidebar-many` (`library:many_playlists`, at 1100 × 700 scrolled to the end), `base-gallery-servicemark`.
+   `library-sidebar-tree` (`#/library`, `library:tree`, `Old Sets` opened by a click on its chevron: Techno 2019 and
+   Warmups with no chevron, no Peak row), `library-sidebar-deep` (`#/library/folder/…Old Sets%2FTechno 2019%2FPeak`:
+   Techno 2019's row current), `library-sidebar-many` (`library:many_playlists`, at 1100 × 700: All tracks and Not in a
+   playlist at the top, scrolled to the end), `base-gallery-servicemark`.
 
 Checks: `npm run check`, the touched `*.test.ts`, `npm run rules -- --page library --only library-sidebar-tree,
-library-sidebar-many` and `--page gallery` for the new section. At the end: `npm run build`. ≈ 800 lines.
+library-sidebar-deep,library-sidebar-many` and `--page gallery` for the new section. At the end: `npm run build`. ≈ 800 lines.
 
 ## Group 5 — The playlist and folder views (Opus, UI)
 
@@ -335,7 +380,8 @@ library-sidebar-many` and `--page gallery` for the new section. At the end: `npm
 `TrackHead`, the Library entries of the decision log).
 
 **Read list:** D6, D9–D12, I3–I5; the mockup `#playlist` and `#folder`; `hub-ui/src/pages/library/` (Page,
-LibraryTable, TrackDetails, FolderOverview, libraryModel + test, shots.json).
+LibraryTable, TrackDetails, FolderOverview, libraryModel + test, shots.json); `hub-ui/src/lib/components/MiddleText.svelte`,
+`fitPathAction.ts` (`fitMiddleAction`), `hub-ui/src/lib/format.ts` (`fitMiddle`) and its test.
 
 Tasks:
 1. **5.1 `libraryModel.ts` + test:** `LibraryView` per I3; `optionalColumns(view)` (D10; playlist: Source, Added);
@@ -343,14 +389,18 @@ Tasks:
    unchanged; `rowDim` = `rowOff || away || no_file`; the badge text (`first +n`) and tooltip; the location note.
 2. **5.2 Table** (`LibraryTable.svelte`): the `#` column (playlist view, right-aligned, label colour); the note after
    the title (D9: gives way first); the quality column's `Waiting` / `NOT FOUND` and the dashed empty cover for
-   `no_file`; Subfolder as `MiddleText`; the Playlist badge (neutral `Badge`; if `Badge` has no neutral tone that keeps
+   `no_file`; `MiddleText` gains `sep` (D12; `fitMiddle` drops whole middle parts first, keeping the first and the last,
+   then cuts characters; tests in the format test; the block table row and a decision-log entry), used by the folder
+   view's Subfolder and All tracks' / Not in a playlist's Folder column; the folder view's column widths (D10); the
+   Playlist badge (neutral `Badge`; if `Badge` has no neutral tone that keeps
    the user's case, stop and report: it is added centrally); the `Also in this folder` `ListSection`.
-3. **5.3 Page and panel:** header lines (I5), the empty states (I5), the overview over the main rows, the panel of a
-   no-file row (I5), `TrackHead`'s place from `track().place` (D11, decision-log entry).
+3. **5.3 Page and panel:** header lines (I5), the empty states (I5), the overview over the main rows; its second row
+   per D10 in every view (`FolderOverview`: the count `summary.not_lossless`, the quiet part from the To-do count, no
+   link at none); the panel of a no-file row (I5), `TrackHead`'s place from `track().place` (D11, decision-log entry).
 4. **5.4 Shots** (`pages/library/shots.json`, scenario `library:tree` unless named): `library-playlist`
    (`#/library/playlist/Hard_Bounce`), `library-playlist-away-selected` (the offline row), `library-playlist-waiting-
    selected`, `library-playlist-off` (`03_06_2026`), `library-playlist-never-read` (`library:never_read`),
-   `library-folder` (Old Sets), `library-folder-subfolder` (`Old Sets/Techno 2019`), `library-folder-offline` (DJ
+   `library-folder` (Old Sets: "Not lossless yet · 3 in To-do 7", "Techno 2019 › Peak" whole), `library-folder-subfolder` (`Old Sets/Techno 2019`), `library-folder-offline` (DJ
    Sets), `library-folder-library` (`Library/Old_Hardstyle`). Existing `library-*` shots keep working through I4's old
    route (switch them to the new routes where it reads clearer).
 
@@ -373,9 +423,11 @@ Checks: `uv run pytest -q tests/test_docs_citations.py tests/test_docs_links.py`
 
 ## Order and sizes
 
-1 → 2 → 3 → (user approves the mockup) → 4 → 5 → 6, one at a time. Group 1 touches the shell's status slot that Group 4
-rebuilds beside, so it goes first; 3 needs 2's records; 4 and 5 need 3's contract and fake. Expected changed lines with
-tests: G1 ≈ 450, G2 ≈ 600, G3 ≈ 1,300, G4 ≈ 800, G5 ≈ 1,000, G6 ≈ 150.
+1 → 2 → 3a → 3b → (user approves the mockup) → 4 → 5 → 6, one at a time. Group 1 touches the shell's status slot that
+Group 4 rebuilds beside, so it goes first; 3a needs 2's records; 3b copies 3a's shapes; 4 and 5 need 3b's contract and
+fake. Expected changed lines with
+tests: G1 ≈ 450, G2 ≈ 600, G3a ≈ 650, G3b ≈ 650, G4 ≈ 800, G5 ≈ 1,000, G6 ≈ 150. Group 3 is split by language (one
+Sonnet job of ≈ 1,300 lines ran out of budget in stage 2): 3a's engine shapes are what 3b's contract and fake copy.
 
 ## Stage checks
 
@@ -384,7 +436,8 @@ tests: G1 ≈ 450, G2 ≈ 600, G3 ≈ 1,300, G4 ≈ 800, G5 ≈ 1,000, G6 ≈ 15
   D5's counts against the views' rows (focus 3).
 - **UI:** `npm run verify` once, by the orchestrator, in the background, before the merge (the sidebar is on every
   page, so every page's shots change). Screenshots looked at by the orchestrator, at the three sizes: Group 4's and 5's
-  shots above, plus `library-all`, `library-not-in-playlist`, `library-ejected` (unchanged views keep their look) and
+  shots above, plus `library-all`, `library-not-in-playlist`, `library-ejected` (unchanged views keep their look, but for
+  D10's overview row, D12's Folder column and its middle cut) and
   one shot of each other page (the sidebar in place). `--compare` against `docs/hub-mockups/design-system/
   library-sidebar.html` (check first how `shots.mjs --compare` maps a shot to a mockup state).
 - **Before the user's check, by the orchestrator:** a scratch run (`DISCJOCKEY_SUPPORT=<scratch> bin/discjockey hub`)
@@ -393,10 +446,11 @@ tests: G1 ≈ 450, G2 ≈ 600, G3 ≈ 1,300, G4 ≈ 800, G5 ≈ 1,000, G6 ≈ 15
   playlists' counts are there before any read.
 - **Live check by the user — the sidebar on their own library, about 10 minutes.** Nothing downloads.
   1. Open the new build and wait for the playlists to be read. *They see* under Library every playlist with an S or Q
-     mark and its song count, a switched-off one dimmed, their import folders with folder icons, and Not in a playlist.
+     mark and its song count, a switched-off one dimmed, their import folders with folder icons, and All tracks and Not
+     in a playlist at the top.
      *They judge* whether the marks read as Spotify and Qobuz and whether the group feels like part of the sidebar.
-  2. Click an import folder that has subfolders. *They see* it open, its files with a Subfolder column and the playlist
-     badges; the chevron closes it again.
+  2. Click an import folder that has subfolders. *They see* it open with its direct subfolders, its files with a
+     Subfolder column (deeper folders there) and the playlist badges; the chevron closes it again.
   3. Open a playlist whose songs they keep in other folders. *They see* "in …" notes on those songs, and below, Also in
      this folder.
   4. Eject the drive of an import folder (if they have one). *They see* the "!" on its folder and "Offline" on its songs
