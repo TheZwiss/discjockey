@@ -9,10 +9,11 @@ Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
 
 - **Sync's Up-to-date view shows no hint when every remaining song waits for an answer;** only the To-do count points
   at them. Show the "{n} songs wait for your answer" note there too.
-- **A possible flake:** `tests/test_spotify.py::test_login_without_a_terminal` failed once in a full run and could
-  not be reproduced (a `free_port` race is plausible). Look at it if it fails again.
 - **The library view's `in_playlists` for a duplicate group comes from its first file** (`hub/views.py`). The UI no
   longer depends on it, but it is misleading; derive it from the group or drop it.
+- **The removal count (W4) misses rare cases:** a playlist track matched only at plan time (no stored song) isn't
+  counted, and a Yes answer for a track that left every playlist still is. A song re-keyed after the removal keeps
+  its file's tag name until the planner updates stored names.
 
 ## 26. Library stage 3 leftovers (Qobuz playlists) — for stages 5 and 6
 
