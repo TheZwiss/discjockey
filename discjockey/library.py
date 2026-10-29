@@ -578,9 +578,12 @@ def safe_rename(root: Path, src: str, dst: str) -> None:
 STAGED_SUFFIX = ".discjockey-move"  # not an audio extension, so the scanner never sees a staged copy
 COPY_MISMATCH = "the copy on the other drive didn't match the original"
 DRIVE_GONE = "the drive of {path} isn't connected"
-# W17 (plan library stage 4 I12): a pending step waits for a drive (recover_pending), and the scan waits with it
+# W17 (plan library stage 4 I12): a pending step waits for a drive (recover_pending). Two forms: the scan is held
+# with it (a file of the step is in a folder that is there) or it goes on with the other folders
 DRIVE_WAITS = ("Couldn't finish a stopped change: the drive with {path} isn't connected. Connect it; until then "
                "Discjockey doesn't look for new files.")
+DRIVE_WAITS_SCAN_GOES_ON = ("Couldn't finish a stopped change: the drive with {path} isn't connected. Connect it, "
+                            "and Discjockey finishes the change.")
 TWO_PLACES = ("{src} couldn't be removed from its drive ({reason}), so the file is in two places now: {src} and "
               "{dst}")
 SOURCE_STAYS = "{src} couldn't be removed from its drive ({reason}), so it stays where it was"
@@ -883,10 +886,11 @@ def short_path(path: Path | str) -> str:
     return "~/" + p.relative_to(home).as_posix() if p != home and p.is_relative_to(home) else p.as_posix()
 
 
-def _waiting(name: str, r: _Recovered) -> tuple[str, bool]:
-    """The message of a step that stays pending: W17 when it waits for a drive, else what stands in its way."""
+def _waiting(name: str, r: _Recovered, scan_held: bool) -> tuple[str, bool]:
+    """The message of a step that stays pending: W17 when it waits for a drive (`scan_held`: scan_library holds up
+    the scan of the other folders for it, else it goes on), else what stands in its way."""
     if r.drive is not None:
-        return DRIVE_WAITS.format(path=r.drive), False
+        return (DRIVE_WAITS if scan_held else DRIVE_WAITS_SCAN_GOES_ON).format(path=r.drive), False
     return f"Could not finish an interrupted step for {name} yet: {r.problem}", False
 
 
@@ -965,7 +969,7 @@ def _recover_files(paths: Paths, op: dict, roots: Collection[Path]) -> tuple[tup
     name = op.get("label") or "a file"
     r = _recover_renames(paths.root, op, roots)
     if r.wait and not r.done_any:
-        return _waiting(name, r), False
+        return _waiting(name, r, not waits_offline(op, paths.root, roots)), False
     with db.connect(paths.db_file) as conn:
         if not r.done_any:
             db.drop_pending(conn, op["op_id"])
@@ -1019,7 +1023,7 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
         name = op.get("label") or f"{e.get('artist', '?')} - {e.get('title', op['track_id'])}"
         r = _recover_renames(paths.root, op, roots)
         if r.wait and not r.done_any:
-            messages.append(_waiting(name, r))
+            messages.append(_waiting(name, r, not waits_offline(op, paths.root, roots)))
             continue
         if r.done_any:
             # once a file was placed, the entry must point at it, or the next run would mis-adopt it

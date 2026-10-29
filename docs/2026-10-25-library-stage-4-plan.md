@@ -355,9 +355,11 @@ false`. Busy for job kind `import`: W7.
   playlist song's file); W15 Sync shows W9's hints as NoteCards, words unchanged.
 - Added by the stage review's fixes: W16 Remove refused while a pending step names a file in the folder: "Discjockey
   still has an unfinished change for this folder. Connect its drive and open Discjockey again, then remove it."; W17 a
-  stopped change waits for a drive (recovery, and a scan it holds up): "Couldn't finish a stopped change: the drive
-  with {short path} isn't connected. Connect it; until then Discjockey doesn't look for new files." (the path once,
-  `~` for the home folder)
+  stopped change waits for a drive (recovery, and a scan it holds up), in two forms. The scan is really held (a file of
+  the step is in a folder that is there): "Couldn't finish a stopped change: the drive with {short path} isn't
+  connected. Connect it; until then Discjockey doesn't look for new files." The scan of the other folders goes on
+  (every file of the step is on the drive that is away): "Couldn't finish a stopped change: the drive with {short
+  path} isn't connected. Connect it, and Discjockey finishes the change." (the path once, `~` for the home folder)
 
 ---
 
