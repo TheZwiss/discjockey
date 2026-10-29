@@ -68,7 +68,8 @@ export function flatten(t: Todo | null): TodoItem[] {
  * the old position, else the previous one. Without a selection: the first item.
  * The import's items: an answered question or duplicate group is done, so the selection goes on to the item now in
  * its place (the next question) rather than following the song into another group; a duplicate group that lost a
- * file to Superseded/ (its id names its files, so the id changes) stays selected as the group of the files left.
+ * file to Superseded/ (its id names its files, so the id changes) stays selected as the group of the files left;
+ * one that is gone altogether (Keep all) goes to the next item of its own kind, else to the item in its place.
  */
 export function keepSelection(key: string | null, before: TodoItem[], after: TodoItem[]): string | null {
   if (!after.length) return null;
@@ -78,6 +79,14 @@ export function keepSelection(key: string | null, before: TodoItem[], after: Tod
   const ids = fileIds(old);
   const rest = ids.length ? after.find((i) => fileIds(i).some((id) => ids.includes(id))) : undefined;
   if (rest) return itemKey(rest);
+  // an import item that is gone (answered, or kept) hands the selection to the next item of its own kind, so a
+  // duplicate stays on a duplicate and a question on a question; only without one does the position decide
+  if (old?.pair) {
+    const kind = (list: TodoItem[]) => list.filter((i) => i.group === old.group);
+    const at = kind(before).findIndex((i) => itemKey(i) === key);
+    const peers = kind(after);
+    if (peers.length) return itemKey(peers[Math.min(Math.max(at, 0), peers.length - 1)]);
+  }
   const same = old && !old.pair ? after.find((i) => !i.pair && i.track_id === old.track_id) : undefined;
   if (same) return itemKey(same);
   const pos = before.findIndex((i) => itemKey(i) === key);
@@ -110,6 +119,10 @@ export function selectAfterHide(items: TodoItem[], key: string): string | null {
     ?? items.slice(0, Math.max(0, pos)).reverse().find((i) => i.track_id !== id);
   return next ? itemKey(next) : null;
 }
+
+/** Whether a row is dimmed ("not in your playlists", for the older kinds). A same-song question and a duplicate
+ *  group are never dimmed: they are about the user's own files, which no playlist holds. */
+export const rowOff = (i: TodoItem): boolean => !i.pair && !i.in_playlists;
 
 /** The rows ▶ in a track's details plays through as the to-do queue. The import's items are left out: a question's
  *  song has no file yet and a duplicate group is several files, so neither is a track the queue could ask for. */

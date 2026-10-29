@@ -5,7 +5,7 @@ import type {
 import { createFakeBridge } from '$lib/bridge/fake/bridge';
 import {
   dropDecision,
-  FILTER_ORDER, actionsFor, segOptions, filterFrom, flatten, headerSub, itemKey, keepSelection, moveSelection,
+  FILTER_ORDER, actionsFor, segOptions, filterFrom, flatten, headerSub, itemKey, keepSelection, moveSelection, rowOff,
   cutoffStat, freeHint, qobuzText, selectAfterHide, selectFromTrack,
   NO_VALUE, compareLines, fileFolder, fileName, fileQueue, fileState, keepLabel, linkService, queueRows, rowBadge,
 } from './todoModel';
@@ -263,6 +263,23 @@ describe('the import groups on the strip and in navigation', () => {
     const after = flatOf(dupe([301, 302]), dupe([201, 203]));
     expect(keepSelection('duplicate/dup:201-202-203', before, after)).toBe('duplicate/dup:201-203');
   });
+  it('stay on a duplicate when Keep all makes the group vanish, even with a question in its place', () => {
+    const before = flatOf(question('q1', 101), dupe([201, 202, 203]), item('t9', 'weak'), dupe([301, 302]));
+    const after = flatOf(question('q1', 101), item('t9', 'weak'), dupe([301, 302]));
+    expect(keepSelection('duplicate/dup:201-202-203', before, after)).toBe('duplicate/dup:301-302');
+    // the last of its kind: the one before it; none left: the item in its place
+    expect(keepSelection('duplicate/dup:301-302', flatOf(dupe([201, 202]), dupe([301, 302])), flatOf(dupe([201, 202]))))
+      .toBe('duplicate/dup:201-202');
+    expect(keepSelection('duplicate/dup:201-202', flatOf(question('q1', 101), dupe([201, 202]), item('t9', 'weak')),
+      flatOf(question('q1', 101), item('t9', 'weak')))).toBe('weak/t9');
+  });
+  it('keep a question on a question after an answer', () => {
+    const before = flatOf(item('t1', 'weak'), question('q1', 101), question('q2', 102));
+    const after = flatOf(item('t1', 'weak'), question('q2', 102));
+    expect(keepSelection('same_song/q2/local:102', before, flatOf(item('t1', 'weak'), question('q3', 103))))
+      .toBe('same_song/q3/local:103');
+    expect(keepSelection('same_song/q1/local:101', before, after)).toBe('same_song/q2/local:102');
+  });
   it('go on to the item in its place when a duplicate group is done', () => {
     const before = flatOf(dupe([201, 202]), dupe([301, 302]), item('t9', 'weak'));
     const after = flatOf(dupe([301, 302]), item('t9', 'weak'));
@@ -347,5 +364,14 @@ describe('the import details', () => {
       expect(imp.every((i) => !!i.pair)).toBe(true);
       expect(new Set(flat.map(itemKey)).size).toBe(flat.length);
     }
+  });
+});
+
+describe('which rows are dimmed', () => {
+  it('only the older kinds dim a track that no playlist holds; questions and duplicate groups never do', () => {
+    expect(rowOff(item('t1', 'weak', { in_playlists: false }))).toBe(true);
+    expect(rowOff(item('t1', 'weak'))).toBe(false);
+    expect(rowOff({ ...question('q1', 101), in_playlists: false })).toBe(false);
+    expect(rowOff({ ...dupe([201, 202]), in_playlists: false })).toBe(false);
   });
 });

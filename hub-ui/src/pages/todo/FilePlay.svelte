@@ -6,7 +6,7 @@
   import type { FileSide } from '$lib/bridge/types';
   import { PlayButton } from '$lib/components';
   import { player } from '$lib/stores/player';
-  import { fileQueue, fileQueueId, fileState } from './todoModel';
+  import { fileName, fileQueue, fileQueueId, fileState } from './todoModel';
 
   let { files, file, cover = null, test }: {
     /** every file of the item, in the order shown (the queue) */
@@ -25,4 +25,4 @@
   }
 </script>
 
-<PlayButton {state} size={22} disabled={off} onclick={press} {test} />
+<PlayButton {state} size={22} disabled={off} onclick={press} {test} subject={fileName(file.path)} />

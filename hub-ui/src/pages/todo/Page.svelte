@@ -7,7 +7,7 @@
   // foot). The import's two groups (plan library stage 4) bring their own panels: QuestionDetails and
   // DuplicateDetails, built from the item's `pair` alone (their songs need no track() call: a question's song may not
   // be downloaded, a duplicate group is no track).
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { api } from '$lib/bridge/client';
   import { isDuplicate, isQuestion } from '$lib/bridge/types';
   import type { Fail, Todo, TodoFilter, TodoItem, TrackDetail } from '$lib/bridge/types';
@@ -20,7 +20,7 @@
   import { ListPanelFrame, Panel } from '$lib/frames';
   import { artistTitle } from '$lib/format';
   import {
-    FILTER_MAX, segOptions, filterFrom, flatten, headerSub, itemKey, keepSelection, moveSelection, queueRows, rowBadge,
+    FILTER_MAX, segOptions, filterFrom, flatten, headerSub, itemKey, keepSelection, moveSelection, queueRows, rowBadge, rowOff,
     selectAfterHide, selectFromTrack,
   } from './todoModel';
   import Details from './Details.svelte';
@@ -50,6 +50,16 @@
     if (t.audio_url) player.play({ url: t.audio_url, title: artistTitle(t.artist, t.title), track_id: t.track_id });
   }
 
+  // After an answer, Keep or Move to Superseded the selection moves on and the button that was pressed is gone, so
+  // focus would fall to the page. It goes to the row now selected, so the arrow keys and Tab carry on from there.
+  // Only when focus was lost (on the page, or in the old panel): never out of a dialog, a field or the list itself.
+  async function focusSelected() {
+    await tick();
+    const a = document.activeElement;
+    if (a && a !== document.body && !a.closest('[data-panel]')) return;
+    if (selKey) document.querySelector<HTMLElement>(`[data-key="${CSS.escape(selKey)}"] button.main`)?.focus();
+  }
+
   async function load() {
     const my = ++seq;
     const r = await api.todo(filter, showHidden);
@@ -66,7 +76,9 @@
       wantTrack = null;
       data = rest;
       error = null;
+      const was = selKey;
       selKey = fromQuery ?? keepSelection(selKey, before, after);
+      if (was !== null && selKey !== was) void focusSelected();
     } else {
       error = r;   // old data stays on screen
     }
@@ -169,7 +181,7 @@
       text="UPGRADE" />{:else if i.free}<span title="The artist gives it away for free"><Badge tone="accent"
       text="FREE" /></span>{/if}</span>
   {/snippet}
-  <ListRow {lead} {name} {sub} {trailing} selected={key === selKey} off={!i.in_playlists} onclick={() => choose(key)}
+  <ListRow {lead} {name} {sub} {trailing} selected={key === selKey} off={rowOff(i)} onclick={() => choose(key)}
     title={artistTitle(i.artist, i.title)} test="todo-row" data-key={key} data-track={i.track_id} />
 {/snippet}
 
@@ -190,7 +202,7 @@
         {#if data.hidden_count || showHidden}<div class="again">{@render hiddenToggle()}</div>{/if}
       </Surface>
     {:else}
-      <Surface kind="list" label={only ? only.label : 'All to-dos'} summary={only ? `${only.items.length} · ${only.hint}` : undefined}
+      <Surface kind="list" label={only ? only.label : 'All to-dos'} summary={only ? String(only.items.length) : undefined} hint={only?.hint}
         header={data.hidden_count || showHidden ? hiddenToggle : undefined} style={COLS}
         grow={{ rows: rowCount, tall: true }} data-test="todo-list">
         {#each data.groups as g (g.key)}

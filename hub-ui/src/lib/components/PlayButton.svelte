@@ -1,19 +1,22 @@
 <script lang="ts">
   // The round play/pause button of every player (MiniPlayer, the foot, the sidebar's Now playing row): an accent ring,
-  // ▶ or ❚❚ drawn in the accent text colour, a spinner while the sound loads. `size` 30 (a player) or 22 (a row).
+  // ▶ or ❚❚ drawn in the accent text colour, a spinner while the sound loads. `size` 30 (a player) or 22 (a row). `subject` names the file for the screen reader (several buttons on one screen).
   // Off (no file, can't play) keeps the ring in grey, never goes away. Like every icon-only control it states its size
   // as `min-width`, so the checker reads it as natural.
   import PlayerIcon from './PlayerIcon.svelte';
   import Spinner from './Spinner.svelte';
 
-  let { state, size = 30, disabled = false, onclick, test }: {
+  let { state, size = 30, disabled = false, onclick, test, subject }: {
     state: 'playing' | 'paused' | 'loading'; size?: 30 | 22; disabled?: boolean; onclick: () => void; test?: string;
+    /** what it plays, for a screen reader when several of these share a screen ("Play Neonfieber.aiff") */
+    subject?: string;
   } = $props();
   const label = $derived(state === 'playing' ? 'Pause' : state === 'loading' ? 'Loading' : 'Play');
+  const spoken = $derived(subject && state !== 'loading' ? `${label} ${subject}` : label);
 </script>
 
 <button type="button" class="pp" class:sm={size === 22} style:width="{size}px" style:min-width="{size}px"
-  style:height="{size}px" aria-label={label} title={label} {disabled} {onclick} data-test={test}>
+  style:height="{size}px" aria-label={spoken} title={label} {disabled} {onclick} data-test={test}>
   {#if state === 'loading'}<Spinner size={size === 22 ? 9 : 11} />{:else}<PlayerIcon name={state === 'playing' ? 'pause' : 'play'} />{/if}
 </button>
 
