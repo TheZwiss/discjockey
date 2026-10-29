@@ -122,10 +122,11 @@ def _begin(paths: Paths, emit: Emit) -> dict:
     """A writer's start: records opened, interrupted steps finished (messages emitted), .tmp/ emptied, the Library
     scanned; then the fresh snapshot the batch is planned on."""
     state = library.open_state(paths, emit)
-    for message, ok in library.recover_pending(paths, state):
+    recovered = library.recover_pending(paths, state)
+    for message, ok in recovered:
         emit(Message("info" if ok else "warning", message))
     library.clear_tmp(paths, state)
-    library.scan_library(paths, emit, after_recovery=True)
+    library.scan_library(paths, emit, shown=[m for m, _ in recovered])
     return library.open_state(paths, emit)
 
 

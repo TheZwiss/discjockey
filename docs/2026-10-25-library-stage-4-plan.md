@@ -356,7 +356,7 @@ false`. Busy for job kind `import`: W7.
   playlist song's file); W15 Sync shows W9's hints as NoteCards, words unchanged.
 - Added by the stage review's fixes: W16 Remove first finishes interrupted steps (recovery, as every writer), then is refused while a pending step still names a file in the folder: "Discjockey
   still has an unfinished change for this folder. Connect its drive and open Discjockey again, then remove it."; W17 a
-  stopped change waits for a drive (recovery, and a scan it holds up), in two forms, one for all steps at once: the held form for every W17 line when any pending step holds the scan, the other only when none does. The scan is really held (a file of
+  stopped change waits for a drive (recovery, and a scan it holds up), in two forms, one for all steps at once: the held form for every W17 line when any pending step holds the scan, the other only when none does. The scan after a recovery leaves out only words already shown: it still says the held line unless a shown line said it. The scan is really held (a file of
   the step is in a folder that is there): "Couldn't finish a stopped change: the drive with {short path} isn't
   connected. Connect it; until then Discjockey doesn't look for new files." The scan of the other folders goes on
   (every file of the step is on the drive that is away): "Couldn't finish a stopped change: the drive with {short

@@ -580,8 +580,9 @@ COPY_MISMATCH = "the copy on the other drive didn't match the original"
 DRIVE_GONE = "the drive of {path} isn't connected"
 # W17 (plan library stage 4 I12): a pending step waits for a drive (recover_pending). Two forms: the scan is held
 # with it (a file of the step is in a folder that is there) or it goes on with the other folders
-DRIVE_WAITS = ("Couldn't finish a stopped change: the drive with {path} isn't connected. Connect it; until then "
-               "Discjockey doesn't look for new files.")
+SCAN_HELD_WORDS = "until then Discjockey doesn't look for new files"  # what only the held form says
+DRIVE_WAITS = ("Couldn't finish a stopped change: the drive with {path} isn't connected. Connect it; " + SCAN_HELD_WORDS
+               + ".")
 DRIVE_WAITS_SCAN_GOES_ON = ("Couldn't finish a stopped change: the drive with {path} isn't connected. Connect it, "
                             "and Discjockey finishes the change.")
 TWO_PLACES = ("{src} couldn't be removed from its drive ({reason}), so the file is in two places now: {src} and "
@@ -1065,7 +1066,7 @@ NOT_JUDGED = ("{path} was changed outside Discjockey, but Discjockey couldn't ch
 def scan_library(paths: Paths, emit: Emit = no_emit, *,
                  analyze: Callable[[Path], tuple[str, int | None]] | None = None,
                  key_of: Callable[[Path], str] = content_key, recover: bool = True,
-                 after_recovery: bool = False) -> ScanSummary:
+                 shown: Collection[str] = ()) -> ScanSummary:
     """Indexes the watched folders (Library/) against library.db and writes what changed (the caller holds the
     lock; the records are opened, and migrated if needed, first): files moved by hand keep their song, new files
     are indexed, a file gone marks its song's file gone, and a song's file whose audio was replaced outside
@@ -1075,8 +1076,8 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
     ready/ and .discjockey/ are never looked at. Nothing is scanned while a step is pending (its files are between
     two places; the next scan after it is finished sees them), unless every file of the step is on a drive that
     isn't connected (waits_offline: the scan can't see any of them); a step that holds the scan up because one of
-    its files is on a drive that isn't connected says so in W17's words (DRIVE_WAITS), unless `after_recovery`: the
-    caller has just emitted recover_pending's messages, which say it already. One message, only when something
+    its files is on a drive that isn't connected says so in W17's words (DRIVE_WAITS), unless one of `shown` (the
+    messages the caller has just emitted from recover_pending) said it already: only words already shown are left out. One message, only when something
     changed (copies count as new files). `recover` as open_records: a dry run passes False, and a state.json with
     steps pending is then neither moved into library.db nor scanned."""
     from . import db, scanner
@@ -1092,7 +1093,7 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
             blocking = [op for op in db.pending_ops(conn) if not waits_offline(op, paths.root, roots)]
             if blocking:
                 away = next((p for op in blocking if (p := drive_away(op, paths.root, roots)) is not None), None)
-                if away is not None and not after_recovery:  # W17, as recover_pending says it
+                if away is not None and not any(SCAN_HELD_WORDS in m for m in shown):  # W17, as recover_pending says it
                     emit(Message("warning", DRIVE_WAITS.format(path=short_path(away))))
                 return ScanSummary()
             known = db.known_files(conn)
