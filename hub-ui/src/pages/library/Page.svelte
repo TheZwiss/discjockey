@@ -24,7 +24,7 @@
   import TrackDetails from './TrackDetails.svelte';
   import FolderOverview from './FolderOverview.svelte';
   import {
-    DEFAULT_SORT, LIBRARY_FILTERS, SORT_KEY, filterKey, isSort, nextSort, segOptions, todoHref, type SortColumn,
+    DEFAULT_SORT, LIBRARY_FILTERS, SORT_KEY, filterKey, isSort, libraryView, nextSort, segOptions, todoHref, type SortColumn,
   } from './libraryModel';
   import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 
@@ -186,8 +186,9 @@
   const emptyLibrary = $derived(lib?.empty === 'empty_library');
   const noFiles = $derived(!!lib && !emptyLibrary && lib.summary.tracks === 0);
   const noRows = $derived(!!lib && !emptyLibrary && !noFiles && lib.rows.length === 0);
-  // All tracks and Not in a playlist hold tracks of several folders: Folder becomes a column
-  const allTracks = $derived(folder === null || folder === NOT_IN_PLAYLIST);
+  // All tracks holds tracks of several folders: Folder becomes a column. Not in a playlist has no folder to show:
+  // Source takes the column's place.
+  const view = $derived(libraryView(folder));
   const playing = $derived($player.playing ? $player.track_id : null);
   function playOrPause(id: string) {
     if ($player.track_id === id && $player.url) player.toggle();
@@ -221,7 +222,7 @@
         <EmptyState title="Nothing matches this filter." action={{ label: 'Show all', onclick: () => setFilter('all') }} />
       </Surface>
     {:else}
-      <LibraryTable rows={lib.rows} {loading} {allTracks} {sort} {selected} {playing} {onsort} onselect={select}
+      <LibraryTable rows={lib.rows} {loading} {view} {sort} {selected} {playing} {onsort} onselect={select}
         onplay={playOrPause} onfinder={(id) => void finder(id)} ontodo={todo} />
     {/if}
   {/if}

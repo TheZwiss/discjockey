@@ -7,7 +7,7 @@ import {
   dropDecision,
   FILTER_ORDER, actionsFor, segOptions, filterFrom, flatten, headerSub, itemKey, keepSelection, moveSelection, rowOff,
   cutoffStat, freeHint, qobuzText, selectAfterHide, selectFromTrack,
-  NO_VALUE, compareLines, fileFolder, fileName, fileQueue, fileState, keepLabel, linkService, queueRows, rowBadge,
+  NO_VALUE, compareLines, fileFolder, filePlace, fileName, fileQueue, fileState, keepLabel, linkService, queueRows, rowBadge,
 } from './todoModel';
 
 function item(id: string, group: TodoGroupKey, extra: Partial<TodoItem> = {}): TodoItem {
@@ -192,10 +192,15 @@ describe('texts', () => {
     expect(cutoffStat({ status: 'lossless', cutoff_hz: null })).toBeNull();
     expect(cutoffStat({ status: 'missing', cutoff_hz: null })).toBeNull();
   });
-  it('header line', () => {
-    expect(headerSub(16)).toBe('16 tracks are not lossless yet');
-    expect(headerSub(1)).toBe('1 track is not lossless yet');
-    expect(headerSub(0)).toBe('Nothing to do');
+  it('header line tells the tracks from the questions about the user\'s own files', () => {
+    const chips = (all: number, same_song = 0, duplicate = 0) => ({ all, same_song, duplicate });
+    expect(headerSub(chips(16))).toBe('16 tracks are not lossless yet');
+    expect(headerSub(chips(1))).toBe('1 track is not lossless yet');
+    expect(headerSub(chips(0))).toBe('Nothing to do');
+    expect(headerSub(chips(18, 1, 1))).toBe('16 tracks are not lossless yet · 2 questions about your files');
+    expect(headerSub(chips(2, 1, 0))).toBe('1 track is not lossless yet · 1 question about your files');
+    expect(headerSub(chips(3, 2, 1))).toBe('3 questions about your files');
+    expect(headerSub(chips(1, 0, 1))).toBe('1 question about your files');
   });
 });
 
@@ -312,7 +317,7 @@ describe('the import details', () => {
     const lines = compareLines(question('q1', 101).pair);
     expect(lines.map((l) => [l.key, l.song, l.file, l.differs])).toEqual([
       ['title', 'Hands Up', 'Hands Up', false], ['artist', 'Neon Riot', 'Neonriot', true],
-      ['length', '3:14', '3:14', false], ['where', 'Hard_Bounce', '/Volumes/Example Drive/Music', false]]);
+      ['length', '3:14', '3:14', false], ['where', 'Hard_Bounce', 'Example Drive › Music', false]]);
     expect(lines[3].fileTitle).toBe('/Volumes/Example Drive/Music/A - x101.aiff');
   });
   it('mark the length for a length why and say "—" for what isn\'t there', () => {
@@ -329,6 +334,12 @@ describe('the import details', () => {
     expect(fileFolder('/Users/you/Music/Crates/A - x.aiff')).toBe('~/Music/Crates');
     expect(fileFolder('Library/Hard_Bounce/A - x.aiff')).toBe('Library/Hard_Bounce');
     expect(fileFolder('/x.aiff')).toBe('/');
+  });
+  it('names a file\'s place as the watched folders do', () => {
+    expect(filePlace('/Volumes/Example Drive/Music/Old/A - x.aiff')).toBe('Example Drive › Music/Old');
+    expect(filePlace('/Volumes/Example Drive/A - x.aiff')).toBe('Example Drive');
+    expect(filePlace('/Users/you/Music/Crates/A - x.aiff')).toBe('~/Music/Crates');
+    expect(filePlace('Library/Hard_Bounce/A - x.aiff')).toBe('Library/Hard_Bounce');
     expect(fileName('/Volumes/Example Drive/Music/A - x.aiff')).toBe('A - x.aiff');
   });
   it('say Keep both for two files, Keep all for more', () => {

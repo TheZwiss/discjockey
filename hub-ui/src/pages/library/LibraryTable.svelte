@@ -11,14 +11,15 @@
   import type { LibraryRow, LibrarySort, TrackRow } from '$lib/bridge/types';
   import {
     folderCell, inTodo, moveSelection, optionalColumns, rowOff, scrollToCenter, scrollToKeep, selectedIndex,
-    sortState, windowSlice, type SortColumn,
+    sortState, windowSlice, type LibraryView, type SortColumn,
   } from './libraryModel';
 
-  let { rows, loading = false, allTracks = false, sort, selected, playing = null, onsort, onselect, onplay, onfinder,
+  let { rows, loading = false, view = 'folder', sort, selected, playing = null, onsort, onselect, onplay, onfinder,
     ontodo }: {
     rows: LibraryRow[]; loading?: boolean;
-    /** All tracks (or Not in a playlist): the rows come from several folders, so Folder is a column */
-    allTracks?: boolean; sort: LibrarySort; selected: string | null;
+    /** All tracks: the rows come from several folders, so Folder is a column. A folder and Not in a playlist (whose
+     *  rows would all say the same) show Source first. */
+    view?: LibraryView; sort: LibrarySort; selected: string | null;
     /** the track playing now */
     playing?: string | null;
     onsort: (c: SortColumn) => void; onselect: (id: string) => void; onplay: (id: string) => void;
@@ -38,7 +39,8 @@
   let menu: { id: string; x: number; y: number; todo: boolean } | null = $state(null);
 
   const st = $derived(sortState(sort));
-  const extra = $derived(optionalColumns(allTracks));
+  const extra = $derived(optionalColumns(view));
+  const allTracks = $derived(view === 'all');
   const slice = $derived(windowSlice(scrollTop, viewport, rowH, rows.length));
   const visible = $derived(rows.slice(slice.start, slice.end));
   const sorted = (c: SortColumn) => (st.column === c ? (st.desc ? 'desc' : 'asc') : null);

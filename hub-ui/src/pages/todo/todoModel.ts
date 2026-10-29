@@ -8,6 +8,7 @@ import { isDuplicate, isQuestion } from '$lib/bridge/types';
 import type { QueueItem } from '$lib/stores/queueModel';
 import type { PlayerState } from '$lib/stores/player';
 import { duration, fileAway } from '$lib/format';
+import { fitPath } from '$lib/components/watchedFoldersModel';
 
 /** Filter order = the contract's group order (= the list's section order), All first. The import's two groups come
  *  right after rekordbox: they hold downloads back until they are answered (plan library stage 4 D4), and the strip
@@ -39,9 +40,17 @@ export function filterFrom(query: string | null, saved: string): TodoFilter {
   return isFilter(query) ? query : isFilter(saved) ? saved : 'all';
 }
 
-export function headerSub(n: number): string {
-  if (!n) return 'Nothing to do';
-  return n === 1 ? '1 track is not lossless yet' : `${n} tracks are not lossless yet`;
+/** The page's second line. `chips.all` counts the tracks and, since stage 4, the questions and duplicate groups about
+ *  the user's own files too (the engine counts each once); those are often lossless files, so they get their own part
+ *  and the rest is what the line always said. */
+export function headerSub(chips: Pick<Record<TodoFilter, number>, 'all' | 'same_song' | 'duplicate'>): string {
+  const questions = chips.same_song + chips.duplicate;
+  const tracks = Math.max(0, chips.all - questions);
+  const parts = [
+    tracks ? (tracks === 1 ? '1 track is not lossless yet' : `${tracks} tracks are not lossless yet`) : null,
+    questions ? `${questions} ${questions === 1 ? 'question' : 'questions'} about your files` : null,
+  ].filter((p): p is string => p !== null);
+  return parts.length ? parts.join(' · ') : 'Nothing to do';
 }
 
 // ---------- navigation ----------
@@ -177,6 +186,13 @@ export function fileFolder(path: string): string {
   const dir = path.replace(/\/+$/, '').split('/').slice(0, -1).join('/');
   return dir.replace(/^\/Users\/[^/]+(?=\/|$)/, '~') || '/';
 }
+/** `fileFolder` as the watched folders read in Settings: a folder on another drive is "Example Drive › Music/Old" (the
+ *  drive's name first, as it is what tells which one to connect), any other stays as `fileFolder` has it. Whole, for
+ *  a place that wraps (nothing is cut). */
+export function filePlace(path: string): string {
+  const { head, tail } = fitPath(fileFolder(path), () => true);
+  return head + tail;
+}
 
 /** One line of "Is this the same song?": the playlist song's value beside the file's; `differs` marks the line the
  *  why is about (the artist for `artist` / `no_artist`, the length for `length` / `no_length`). */
@@ -195,7 +211,7 @@ export function compareLines(p: QuestionPair): CompareLine[] {
     { key: 'artist', song: p.track.artist || NO_VALUE, file: p.file.artist || NO_VALUE, differs: d === 'artist' },
     { key: 'length', song: len(p.track.duration_s), file: p.why === 'no_length' ? NO_VALUE : len(p.file.duration_s),
       differs: d === 'length' },
-    { key: 'where', song: p.track.folder, file: fileFolder(p.file.path), differs: false, fileTitle: p.file.path },
+    { key: 'where', song: p.track.folder, file: filePlace(p.file.path), differs: false, fileTitle: p.file.path },
   ];
 }
 

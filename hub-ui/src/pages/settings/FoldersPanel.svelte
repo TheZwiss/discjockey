@@ -4,7 +4,7 @@
   // one growing list (the Library first, always watched; each import folder with its state, its files and × Remove);
   // after it the files that couldn't be read and the line Add folder… left (a refusal, or what the new folder took
   // over). The foot holds the panel's one filled button: Continue import while files wait and nothing imports, else
-  // Add folder…. The page owns the flow, so the row's line follows the import while another row is open.
+  // Add folder…, and under the buttons why they are off while another change runs. The page owns the flow, so the row's line follows the import while another row is open.
   import { Hint, ImportCard, ProblemCard, UnreadableList, WatchedFolderList, WriteButton, canContinue, importView,
     type WatchedFoldersFlow } from '$lib/components';
   import { Panel } from '$lib/frames';
@@ -39,7 +39,6 @@
       {#each flow.note.lines as line (line)}<Hint text={line} tone={flow.note.tone === 'problem' ? 'problem' : 'muted'} wrap />{/each}
     </div>
   {/if}
-  {#if blocked}<Hint text={blocked} data-test="folders-why" />{/if}
 {/snippet}
 
 {#snippet foot()}
@@ -51,10 +50,13 @@
     <WriteButton variant="filled" wide busy={flow.adding} onclick={() => void flow.add()} data-test="folders-add">Add
       folder…</WriteButton>
   {/if}
+  <!-- why the buttons are off, right under them (Setup's step puts the same Hint beside its button); not while this
+       panel's own add is under way, which is what blocks -->
+  {#if blocked && !flow.adding}<Hint text={blocked} data-test="folders-why" />{/if}
 {/snippet}
 
 <Panel head={flow.error || view ? head : undefined} {fill}
-  after={flow.data?.unreadable.length || flow.note || blocked ? after : undefined} {foot} />
+  after={flow.data?.unreadable.length || flow.note ? after : undefined} {foot} />
 
 <style>
   .note { display: flex; flex-direction: column; gap: var(--s-1); min-width: 0; }
