@@ -11,6 +11,7 @@ import functools
 import inspect
 import json
 import logging
+import os
 import re
 import shutil
 import sqlite3
@@ -31,7 +32,7 @@ from urllib.parse import quote
 from .. import __version__, align, browsers, candidates, config, db, library, ops, planner, playlists_file as pf, qobuz
 from .. import quality
 from .. import app_update as update_check, setup_cmd, tool_updates, tools
-from .. import folders as folders_mod, importer, sources, tidy
+from .. import folders as folders_mod, importer, scanner, sources, tidy
 from ..sources import spotify
 from .. import report as rep, run, upgrades
 from ..accounts import ACCOUNTS, BROWSERS, SERVICE_NAMES, SERVICES, check_message
@@ -99,6 +100,7 @@ class Services:
     compare: Callable = align.compare_files
     decode: Callable = quality.decode_mono
     now: Callable[[], datetime] = datetime.now
+    mounted: Callable[[Path], bool] = os.path.ismount  # whether a /Volumes drive is connected (the scanner's rule)
     home: Path = Path.home()  # where the browsers keep their files (tests: a folder that doesn't exist)
     open_in: Callable[[str, str, str | None], object] = lambda browser, url, profile=None: _open_in(browser, url, profile)
     # the window's folder dialog (app.main sets it: (start folder) -> the chosen path or None); None: no window
@@ -474,20 +476,23 @@ class HubApi:
         """views.todo with the import's questions (the last plan's) and duplicates (the plan's same-song groups and the
         records' same-audio ones, each with its files). `count_only` (the sidebar's number): the records' groups are
         counted without loading their files (they are online and not held by how they are found), so only the plan's
-        few same-song groups read theirs; the groups of the answer are then not listed."""
+        few same-song groups read theirs; the groups of the answer are then not listed. While an import folder is
+        away right now every group's files are read, so a group with a file in it is left out of the count too."""
         prep = self._store.prep
         questions = list(prep.plan.questions) if prep else []
         groups = list(prep.plan.duplicates) if prep else []
         files: dict[str, list] = {}
         counted: set[str] = set()
+        away = self._away_roots()
         with self._move_log() as conn:
             if conn is not None:
                 found = db.duplicate_groups(conn)
-                counted = {g.id for g in found} if count_only else set()
+                # with a folder away now, a group may have a file in it: its files are read to tell (views.todo)
+                counted = {g.id for g in found} if count_only and not away else set()
                 groups += found
                 files = {g.id: db.group_files(conn, g.id) for g in groups if g.id not in counted}
         return views.todo(state, filt, show_hidden, self._others(state), self._today(), self._cover(self._images()),
-                          questions, groups, files, self._audio, counted, self._away_roots())
+                          questions, groups, files, self._audio, counted, away)
 
     # --- read, any time ---
 
@@ -598,8 +603,10 @@ class HubApi:
         if prep is not None:  # the aliases the last read's linking added (a Qobuz track linked to this song) count too
             planned = (prep.state["tracks"].get(track_id) or {}).get("aliases") or []
             e = {**e, "aliases": list(dict.fromkeys([*(e.get("aliases") or []), *planned]))}
+        # whether the file is at its path: asked for this one track only, since the last scan may be old
+        exists = not e.get("path") or (self._paths.root / e["path"]).exists()
         detail = views.track_detail(track_id, e, prep.fetched if prep else [], self._today(),
-                                    self._cover(self._images()), self._audio, self._away_roots())
+                                    self._cover(self._images()), self._audio, self._away_roots(), exists)
         self._remember(state, [track_id])
         return {"track": detail}
 
@@ -611,18 +618,20 @@ class HubApi:
         self._remember(state, [i["track_id"] for g in out["groups"] for i in g["items"] if "pair" not in i])
         return out
 
-    @staticmethod
-    def _offline_folders(rows: Sequence[WatchedFolder]) -> list[WatchedFolder]:
-        """The import folders among `rows` whose path is not a folder right now (an unplugged drive). Checked live:
-        the files' stored `online` only changes with a scan. The one definition of "offline now"."""
-        return [f for f in rows if f.kind == "import" and not f.path.is_dir()]
+    def _away_folders(self, rows: Sequence[WatchedFolder]) -> dict[int, str]:
+        """Folder id -> why it is not there right now ("unmounted" or "missing", scanner.away_reason) for the import
+        folders among `rows` that are away. Checked live: the files' stored `online` only changes with a scan. The one
+        definition of "away now"."""
+        return {f.id: why for f in rows if f.kind == "import"
+                and (why := scanner.away_reason(f.path, self._svc.mounted)) is not None}
 
-    def _away_roots(self) -> list[str]:
-        """The roots (as the files' snapshot paths start) of the import folders that are not there now, for the
-        views that send a file's `online`; looked up once per request."""
+    def _away_roots(self) -> dict[str, str]:
+        """Root (as the files' snapshot paths start) -> why, for the import folders that are not there now, for the
+        views that decide a file's state or whether it is there; looked up once per request."""
         with self._move_log() as conn:
             rows = db.watched_folders(conn) if conn is not None else []
-        return [str(f.path) for f in self._offline_folders(rows)]
+        away = self._away_folders(rows)
+        return {str(f.path): away[f.id] for f in rows if f.id in away}
 
     @bridge
     def watched_folders(self) -> dict:
@@ -645,8 +654,7 @@ class HubApi:
                 for f in rows:
                     if f.kind == "library":  # Library/ is listed like an import folder: its own waiting and unreadable
                         counts[f.id] = db.library_counts(conn)
-        offline = {f.id for f in self._offline_folders(rows)}
-        return views.watched_folders(rows, counts, offline, library_files, unreadable, waiting, self._import_stopped,
+        return views.watched_folders(rows, counts, self._away_folders(rows), library_files, unreadable, waiting, self._import_stopped,
                                      phase)
 
     @bridge

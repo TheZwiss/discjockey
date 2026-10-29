@@ -56,6 +56,7 @@ describe('a folder row (W3)', () => {
     expect(folderLine(lib)).toBe('Always watched');
     expect(folderLine(row())).toBe('Online');
     expect(folderLine(row({ state: 'offline' }))).toBe('Offline: connect the drive');
+    expect(folderLine(row({ state: 'missing' }))).toBe('Folder not found: moved, renamed or deleted? Put it back or remove it here.');
     expect(folderLine(row({ state: 'scanning' }))).toBe('Checking for new files');
   });
   it("never carries the import's run numbers: while it runs, a folder says how many of its files wait", () => {
@@ -80,6 +81,7 @@ describe('a folder row (W3)', () => {
   it('marks it as colour plus shape: readable, offline, worked on', () => {
     expect(folderMark(lib)).toBe('good');
     expect(folderMark(row({ state: 'offline' }))).toBe('warn');
+    expect(folderMark(row({ state: 'missing' }))).toBe('warn');
     expect(folderMark(row({ state: 'importing' }))).toBe('working');
     expect(folderMark({ ...lib, state: 'scanning' })).toBe('working');
   });

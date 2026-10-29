@@ -359,13 +359,18 @@ def test_track_detail():
     assert d["track_link"] == {"url": "https://open.spotify.com/track/t1", "label": "Open in Spotify"}
 
 
-def test_track_detail_says_when_the_files_drive_is_away():
+def test_track_detail_says_why_the_file_is_not_there():
     there = e("lossless", path="/Volumes/Example Drive/x.wav", online=True)
     away = e("lossless", path="/Volumes/Example Drive/x.wav", online=False)
-    assert views.track_detail("t1", there, [], TODAY)["online"] is True
-    assert views.track_detail("t1", away, [], TODAY)["online"] is False
-    assert views.track_detail("t1", e("lossless", path="Library/A/x.wav"), [], TODAY)["online"] is True  # no key: there
-    assert views.track_detail("t1", e("missing", online=False), [], TODAY)["online"] is True  # no file, nothing away
+    detail = lambda entry, **kw: views.track_detail("t1", entry, [], TODAY, media=lambda k, en: "media:" + en["path"], **kw)
+    assert detail(there)["file_state"] == "here" and detail(there)["audio_url"] == "media:/Volumes/Example Drive/x.wav"
+    assert "online" not in detail(there)
+    assert detail(away)["file_state"] == "offline" and detail(away)["audio_url"] is None  # the row says it was away
+    assert detail(e("lossless", path="Library/A/x.wav"))["file_state"] == "here"  # no key: there
+    assert detail(e("missing", online=False))["file_state"] == "here"  # no file, nothing away
+    gone = detail(there, exists=False)  # its folder is there, the file is not (since the last scan)
+    assert gone["file_state"] == "file_missing" and gone["audio_url"] is None
+    assert detail(e("missing"), exists=False)["file_state"] == "here"  # a track without a file has nothing to miss
 
 
 GATE = {"url": "https://hypeddit.com/a/b", "host": "hypeddit.com", "direct": False, "page": "https://sc/1",
@@ -1326,6 +1331,21 @@ def test_a_duplicate_group_with_a_file_offline_held_or_gone_is_not_shown():
         assert out["groups"] == [] and out["chips"]["duplicate"] == 0 and out["empty"] == "all_lossless"
 
 
+def test_a_duplicate_group_with_a_file_in_a_folder_away_now_is_neither_listed_nor_counted():
+    st = state(**{"local:1": own(file_id=4), "local:2": own(file_id=5)})
+    g = DuplicateGroup("dup:4-5", "same_audio", (4, 5))
+    files = {g.id: [dup_file(4, "local:1"), dup_file(5, "local:2", path="/Volumes/Example/Other/b.aiff")]}
+    here = views.todo(st, "duplicate", False, {}, TODAY, None, [], [g], files, away={})
+    assert here["chips"]["duplicate"] == 1 and here["chips"]["all"] == 1 and len(here["groups"]) == 1
+    for filt in ("all", "duplicate"):
+        for why in ("unmounted", "missing"):  # the rows still say online: no scan has seen the folder go
+            out = views.todo(st, filt, False, {}, TODAY, None, [], [g], files, away={"/Volumes/Example/Other": why})
+            assert out["groups"] == [] and out["chips"]["duplicate"] == 0 and out["chips"]["all"] == 0
+    # the sidebar's known-there groups: the api only passes them as counted when nothing is away
+    out = views.todo(st, "all", False, {}, TODAY, None, [], [g], {}, counted={g.id})
+    assert out["chips"]["all"] == 1 and out["groups"] == []
+
+
 def test_a_filter_keeps_only_its_group():
     st = state(t1=e("missing"), **{"local:1": own()})
     q = [question()]
@@ -1364,8 +1384,8 @@ def test_the_watched_folders_with_their_states_counts_and_unreadable_files():
     counts = {2: ImportCounts(120, 20, 5, 2), 3: ImportCounts(7, 7, 0, 0)}
     unreadable = [(Path("/Volumes/Example/Music/Sub/bad.aiff"), "macOS doesn't let Discjockey read it")]
 
-    def view(phase, stopped=False, offline=(3,)):
-        return views.watched_folders([lib, one, two], counts, offline, 500, unreadable, 25, stopped, phase)
+    def view(phase, stopped=False, away={3: "unmounted"}):
+        return views.watched_folders([lib, one, two], counts, away, 500, unreadable, 25, stopped, phase)
 
     out = view(None)
     assert out["folders"] == [
@@ -1380,9 +1400,12 @@ def test_the_watched_folders_with_their_states_counts_and_unreadable_files():
     assert (out["waiting"], out["stopped"]) == (25, False)
     assert [r["state"] for r in view("scan")["folders"]] == ["scanning", "scanning", "offline"]
     assert [r["state"] for r in view("tags")["folders"]] == ["online", "importing", "offline"]
-    assert [r["state"] for r in view("tags", offline=())["folders"]] == ["online", "importing", "importing"]
+    assert [r["state"] for r in view("tags", away={})["folders"]] == ["online", "importing", "importing"]
+    # a folder that is there but not a folder any more is "missing", not "offline": two states, two sentences
+    assert [r["state"] for r in view("tags", away={2: "missing", 3: "unmounted"})["folders"]] == [
+        "online", "missing", "offline"]
     assert view(None, stopped=True)["stopped"] is True
-    done = views.watched_folders([lib, one], {2: ImportCounts(120, 0, 0, 0)}, (), 500, [], 0, False, "link")
+    done = views.watched_folders([lib, one], {2: ImportCounts(120, 0, 0, 0)}, {}, 500, [], 0, False, "link")
     assert [r["state"] for r in done["folders"]] == ["online", "online"]  # nothing of it left to import
 
 
@@ -1481,13 +1504,17 @@ def test_the_detail_of_a_file_whose_sound_is_not_checked_yet_says_so():
     assert views.track_detail("t1", e(), [], TODAY)["sound_checked"] is True
 
 
-def test_a_file_in_an_import_folder_that_is_away_now_counts_as_offline():
+def test_a_file_in_an_import_folder_that_is_away_now_is_offline_or_in_a_folder_not_found():
     mine = e("lossless", path="/Volumes/Example Drive/Music/x.wav", online=True)
     other = e("lossless", path="/Volumes/Example Drive 2/x.wav", online=True)
-    away = ["/Volumes/Example Drive"]
-    assert views.track_detail("t1", mine, [], TODAY, away=away)["online"] is False
-    assert views.track_detail("t1", other, [], TODAY, away=away)["online"] is True  # another folder, same name start
-    assert views.track_detail("t1", mine, [], TODAY, away=[])["online"] is True
+    file_state = lambda entry, away, **kw: views.track_detail("t1", entry, [], TODAY, away=away, **kw)["file_state"]
+    unplugged, renamed = {"/Volumes/Example Drive": "unmounted"}, {"/Volumes/Example Drive": "missing"}
+    assert file_state(mine, unplugged) == "offline" and file_state(mine, renamed) == "folder_missing"
+    assert file_state(other, unplugged) == "here"  # another folder, same name start
+    assert file_state(mine, {}) == "here" and file_state(mine, None) == "here"
     stored = e("lossless", path="/Volumes/Elsewhere/x.wav", online=False)
-    assert views.track_detail("t1", stored, [], TODAY, away=away)["online"] is False  # a stored 0 stays offline
-    assert views.track_detail("t1", e("missing"), [], TODAY, away=away)["online"] is True  # no file, nothing away
+    assert file_state(stored, unplugged) == "offline"  # a stored 0 stays offline
+    assert file_state(e("missing"), unplugged) == "here"  # no file, nothing away
+    inner = {"/Volumes/Example Drive": "unmounted", "/Volumes/Example Drive/Music": "missing"}
+    assert file_state(mine, inner) == "folder_missing"  # the innermost watched folder decides
+    assert file_state(mine, renamed, exists=False) == "folder_missing"  # the folder comes before the file

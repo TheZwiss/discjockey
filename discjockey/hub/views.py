@@ -611,24 +611,40 @@ def upgrade_block(up: dict | None, media: Url | None, track_id: str, e: dict) ->
             "audio_url": media(track_id, {**e, "path": up["file"]}) if media else None}
 
 
-def file_online(e: dict, away: Collection[str] = ()) -> bool:
-    """Whether the file of entry `e` is there to play and act on right now. False when its row says its watched
-    folder was away at the last scan (`online`), or its path lies in one of the import folders in `away` (the roots
-    that are not a folder now, as the api checks them live: an unplugged drive before any scan noticed). Entries
-    without the key (the old records) are there, and a track without a file has nothing to be away."""
+def file_state(e: dict, away: Mapping[str, str] | None = None, exists: bool = True) -> str:
+    """Why the file of entry `e` is or is not there to play and act on right now:
+    "offline" (its drive is not connected), "folder_missing" (its watched folder is not found: moved, renamed or
+    deleted), "file_missing" (its folder is there, the file's path is not: it went since the last scan) or "here".
+    `away`: import-folder root -> why it is not there now ("unmounted" | "missing", scanner.away_reason), as the api
+    checks them live: an unplugged drive counts before any scan noticed. A row that says it was away at the last scan
+    (`online`) stays "offline" while no root says otherwise. `exists`: whether the file is at its path (the api asks
+    for the one track it builds the detail for). Entries without the keys (the old records) are there, and a track
+    without a file has nothing to be away."""
     path = e.get("path")
     if not path:
-        return True
-    return bool(e.get("online", True)) and not any(path == r or path.startswith(r.rstrip("/") + "/") for r in away)
+        return "here"
+    inside = [r for r in (away or ()) if path == r or path.startswith(r.rstrip("/") + "/")]
+    if inside:  # the innermost watched folder holding it decides
+        return "offline" if away[max(inside, key=len)] == "unmounted" else "folder_missing"
+    if not e.get("online", True):
+        return "offline"
+    return "here" if exists else "file_missing"
+
+
+def file_online(e: dict, away: Mapping[str, str] | None = None) -> bool:
+    """Whether the file of entry `e` is in a watched folder that is there (file_state without the file check)."""
+    return file_state(e, away) == "here"
 
 
 def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url | None = None,
-                 media: Url | None = None, away: Collection[str] = ()) -> dict:
-    """`away`: roots of the import folders that are not there now (HubApi._away_roots); see file_online."""
+                 media: Url | None = None, away: Mapping[str, str] | None = None, exists: bool = True) -> dict:
+    """`away`, `exists`: see file_state (HubApi._away_roots; whether the file is at its path). Whatever the state but
+    "here", there is no `audio_url`: nothing to play."""
     folders = in_playlists(track_id, e, fetched)
+    state = file_state(e, away, exists)
     has_file = e["status"] != "missing" and e.get("source")
     return {**track_row(track_id, e, cover), "sound_checked": sound_checked(e), "isrc": e.get("isrc"),
-            "online": file_online(e, away),
+            "file_state": state,
             "playlists": folders, "in_playlist_count": len(folders) if folders is not None else None,
             "quality_line": quality_line(e["source"], e.get("source_format") or "?", e["status"], e.get("cutoff_hz"),
                                          e.get("source_kbps"), own=is_own_file(e),
@@ -641,7 +657,7 @@ def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url 
             "next_qobuz_check": next_check(e, today), "rejected_sources": list(e.get("rejected_sources") or []),
             "buy_links": buy_links(e["artist"], e["title"]), "free_downloads": free_downloads(e),
             "bought_name": f"Library/{e['folder']}/{expected_stem(e['artist'], e['title'])}.wav",
-            "audio_url": media(track_id, e) if media and e.get("path") else None,
+            "audio_url": media(track_id, e) if media and e.get("path") and state == "here" else None,
             "upgrade": upgrade_block(e.get("upgrade"), media, track_id, e)}
 
 
@@ -788,12 +804,12 @@ def file_side(file_id: int, song_key: str | None, path: str, e: dict | None, qua
     return {"file_id": file_id, "song_key": song_key, "path": path, "artist": name["artist"] or "",
             "title": name["title"] or "", "duration_s": round((name.get("duration_ms") or 0) / 1000, 1),
             "quality": quality_class(q), "quality_label": quality_label(q), "online": online,
-            "audio_url": audio(song_key or "", {"path": path, "file_id": file_id}) if audio else None,
+            "audio_url": audio(song_key or "", {"path": path, "file_id": file_id}) if audio and online else None,
             "in_playlist": in_playlist}
 
 
 def _question_item(q: Question, state: dict, cover: Url | None, audio: Url | None,
-                   away: Collection[str] = ()) -> dict | None:
+                   away: Mapping[str, str] | None = None) -> dict | None:
     """The To-do item of a question; None when its own song is gone from the records (answered or removed since)."""
     own = state["tracks"].get(q.own_key)
     if own is None or not own.get("path"):
@@ -814,15 +830,16 @@ def _question_item(q: Question, state: dict, cover: Url | None, audio: Url | Non
 
 
 def _duplicate_item(g: DuplicateGroup, files: Sequence[DupFile], state: dict, cover: Url | None,
-                    audio: Url | None, away: Collection[str] = ()) -> dict | None:
-    """The To-do item of a duplicate group; None unless every file of it is there to act on (online, not held)."""
-    if len(files) != len(g.file_ids) or len(files) < 2 or not all(f.online and f.usable for f in files):
+                    audio: Url | None, away: Mapping[str, str] | None = None) -> dict | None:
+    """The To-do item of a duplicate group; None unless every file of it is there to act on (online now, not held)."""
+    online = {f.file_id: file_online({"path": f.path, "online": f.online}, away) for f in files}
+    if len(files) != len(g.file_ids) or len(files) < 2 or not all(online[f.file_id] and f.usable for f in files):
         return None
     sides = []
     for f in sorted(files, key=lambda f: f.file_id):
         e = state["tracks"].get(f.song_key) if f.song_key else None
         sides.append(file_side(f.file_id, f.song_key, f.path, e, {"status": f.status, "cutoff_hz": f.cutoff_hz},
-                               file_online({"path": f.path, "online": f.online}, away), f.in_playlists, audio))
+                               online[f.file_id], f.in_playlists, audio))
     first = next((s for s in sides if s["in_playlist"]), sides[0])  # the playlist song's file names the group
     e = state["tracks"].get(first["song_key"]) if first["song_key"] else None
     row = {"track_id": g.id, "artist": first["artist"], "title": first["title"], "folder": (e or {}).get("folder") or "",
@@ -840,7 +857,7 @@ def _duplicate_item(g: DuplicateGroup, files: Sequence[DupFile], state: dict, co
 def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], today: date,
          cover: Url | None = None, questions: Sequence[Question] = (), duplicates: Sequence[DuplicateGroup] = (),
          dup_files: Mapping[str, Sequence[DupFile]] | None = None, audio: Url | None = None,
-         counted: Collection[str] = (), away: Collection[str] = ()) -> dict:
+         counted: Collection[str] = (), away: Mapping[str, str] | None = None) -> dict:
     """Groups in this order: Check in rekordbox, Is this the same song?, Duplicates, Upgrade ready, Not found, Weak,
     Good lossy, Fake lossless, Other. `others`: track id -> what blocks it (a move blocked by another file, several
     files that could be it). Hidden tracks are left out unless show_hidden. "Check in rekordbox" lists every track
@@ -853,8 +870,10 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     To-do under Upgrade ready, in a question and in a duplicate group; their quality (Weak, Good lossy, Fake) is
     for the Library to show. `counted`: ids of duplicate groups that are known to be there to act on (every file
     online and not held, as db.duplicate_groups finds them): they count in chips["all"] but are not listed, so the
-    sidebar's count needs no `dup_files` for them. `away`: roots of the import folders that are not there now; a file
-    in one sends `online: false` even if its row still says online (no scan has seen the drive go)."""
+    sidebar's count needs no `dup_files` for them. `away`: root -> why for the import folders that are not there now
+    (file_state). It decides everything that depends on a file being there: a question's side sends `online: false`
+    and a duplicate group with a file in one is neither listed nor counted, even if the rows still say online (no
+    scan has seen the drive go)."""
     items: dict[str, list] = {g: [] for g, _, _ in TODO_GROUPS}
     never = state.get("never") or {}  # "never download": not a to-do
     hidden = 0
@@ -968,16 +987,21 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
 
 # --- watched folders (Settings, Setup; plan library stage 4 I11) ---
 
-def watched_folders(folders: Sequence[WatchedFolder], counts: Mapping[int, ImportCounts], offline: Collection[int],
+AWAY_STATE = {"unmounted": "offline", "missing": "missing"}  # scanner.away_reason -> a watched folder row's state
+
+
+def watched_folders(folders: Sequence[WatchedFolder], counts: Mapping[int, ImportCounts], away: Mapping[int, str],
                     library_files: int, unreadable: Sequence[tuple[PurePosixPath, str]], waiting: int, stopped: bool,
                     phase: str | None) -> dict:
     """The watched folders and how far their import is. `folders`: db.watched_folders (the Library first); `counts`:
-    db.import_counts; `offline`: ids of the folders whose path isn't there now; `library_files`: the Library's file
+    db.import_counts; `away`: folder id -> why its path isn't there now ("unmounted" |
+    "missing", scanner.away_reason); `library_files`: the Library's file
     count; `unreadable`: db.import_unreadable (path, reason); `waiting`: db.import_left, the files an import would work
     through now (offline drives' left out); `stopped`: the user stopped an import this session (Continue import);
     `phase`: the running import's phase (ImportProgress.phase), None when none runs.
 
-    Row state: offline (the path isn't there, whatever else), scanning (an import is looking for files), importing
+    Row state: offline (its drive isn't connected) or missing (the folder isn't found: moved, renamed or deleted),
+    whatever else; the rows are kept either way. Then scanning (an import is looking for files), importing
     (one runs and this folder has files it hasn't finished), else online. Row `waiting`: files of the folder the
     import still works through (not read yet, or read and not yet sound-checked); `unreadable`: files it couldn't read.
     The Library row counts both the same way (`counts` holds its entry), its unreadable files are in the list with
@@ -992,7 +1016,7 @@ def watched_folders(folders: Sequence[WatchedFolder], counts: Mapping[int, Impor
                          "state": "scanning" if phase == "scan" else "online", "files": library_files,
                          "waiting": left, "unreadable": c.unreadable})
             continue
-        state = ("offline" if f.id in offline else "scanning" if phase == "scan"
+        state = (AWAY_STATE[away[f.id]] if f.id in away else "scanning" if phase == "scan"
                  else "importing" if phase is not None and left else "online")
         rows.append({"id": f.id, "path": str(f.path), "name": roots[f.id].name or str(f.path), "kind": "import",
                      "state": state, "files": c.files, "waiting": left, "unreadable": c.unreadable})

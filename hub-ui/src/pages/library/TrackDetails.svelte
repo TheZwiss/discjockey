@@ -3,7 +3,7 @@
   // cards in the same order as To-do's: the track card (cover, name, "Artist · length · place", quality and its
   // words), then the upgrade box when one is ready (its Now spectrum and compare player stand in for the file's
   // own), else the cutoff as a number over the spectrum, then Current file (the player, Format, Source, Added, File)
-  // with Show in Finder as its link (not for a file whose drive is away: the pictures say "Offline: connect the drive"). The foot holds the one filled button: Swap the files when the upgrade matches;
+  // with Show in Finder as its link (not for a file that isn't there: the pictures say why). The foot holds the one filled button: Swap the files when the upgrade matches;
   // Open in to-do (outline) for any other track on the to-do list; nothing for a lossless one.
   import type { ComponentProps } from 'svelte';
   import {
@@ -11,7 +11,7 @@
     Surface, TrackHead, UpgradeCard, WriteButton, envelope,
   } from '$lib/components';
   import { Panel } from '$lib/frames';
-  import { artistTitle, cutoffStat, dateShort, fileOffline, qualityWords } from '$lib/format';
+  import { artistTitle, cutoffStat, dateShort, fileAwayWords, qualityWords } from '$lib/format';
   import type { Fail, TrackDetail } from '$lib/bridge/types';
   import { fileName, footAction, placeLine, shortUrl } from './libraryModel';
 
@@ -29,8 +29,9 @@
   const cutoff = $derived(t && !t.upgrade ? cutoffStat(t) : null);
   const action = $derived(t ? footAction(t) : null);
   const hasFile = $derived(!!t && t.status !== 'missing');
-  // the file exists but its drive is away: the picture says so, the player stays off, there is nothing to show in Finder
-  const offline = $derived(!!t && fileOffline(t));
+  // the file isn't there (drive away, folder or file not found): the picture says why, the player stays off, there is
+  // nothing to show in Finder
+  const away = $derived(t ? fileAwayWords(t) : null);
 </script>
 
 {#snippet waiting()}<Skeleton lines={6} height={18} gap={10} />{/snippet}
@@ -56,18 +57,18 @@
       {:else if cutoff}
         <StatCard value={cutoff.value} unit={cutoff.value ? 'kHz' : undefined} label={cutoff.label} data-test="cutoff">
           <Spectrum {spectrum} height={64} loading={spectrumLoading && !spectrum} error={spectrumError}
-            noFile={!t.audio_url} {offline} cutoffLabel={false} />
+            noFile={!t.audio_url} {away} cutoffLabel={false} />
         </StatCard>
       {/if}
 
       {#if hasFile}
         <Surface kind="card" label="Current file" data-test="current-file">
           {#snippet header()}
-            {#if !offline}<Button variant="link" size="sm" onclick={onfinder} data-test="details-finder">Show in Finder</Button>{/if}
+            {#if !away}<Button variant="link" size="sm" onclick={onfinder} data-test="details-finder">Show in Finder</Button>{/if}
           {/snippet}
           {#if !cutoff && !t.upgrade}
             <div data-test="spectrum"><Spectrum {spectrum} height={64} loading={spectrumLoading && !spectrum}
-              error={spectrumError} noFile={!t.audio_url} {offline} /></div>
+              error={spectrumError} noFile={!t.audio_url} {away} /></div>
           {/if}
           {#if !t.upgrade}
             <MiniPlayer url={t.audio_url} title={artistTitle(t.artist, t.title)} track_id={t.track_id}

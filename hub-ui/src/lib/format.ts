@@ -1,5 +1,5 @@
 // Number and date formats used everywhere (plan 64.10). "3:12", "74 %", "16.0 kHz", "Today 21:47".
-import type { Quality, Service, TrackDetail } from './bridge/types';
+import type { FileState, Quality, Service, TrackDetail } from './bridge/types';
 const NONE = '—';
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -187,8 +187,20 @@ export function fitMiddle(text: string, fits: (text: string) => boolean): string
 
 /** What a watched folder's state line and a file's picture say when its drive is away (library stage 4, W3). */
 export const OFFLINE_WORDS = 'Offline: connect the drive';
-/** The track has a file, but its drive is away (the Library and To-do panels: offline words, no Show in Finder). */
-export const fileOffline = (t: Pick<TrackDetail, 'status' | 'online'>): boolean => t.status !== 'missing' && !t.online;
+/** A watched folder's row when the folder isn't found (moved, renamed or deleted; the row keeps its ×). */
+export const FOLDER_NOT_FOUND_LINE = 'Folder not found: moved, renamed or deleted? Put it back or remove it here.';
+/** What a file's picture says in the Library and To-do panels when the file isn't there, by why. */
+export const FILE_STATE_WORDS: Record<Exclude<FileState, 'here'>, string> = {
+  offline: OFFLINE_WORDS,
+  folder_missing: 'Folder not found',
+  file_missing: "This file isn't there any more.",
+};
+/** The track has a file, but it isn't there to play (the panels: no Show in Finder, the player off). */
+export const fileAway = (t: Pick<TrackDetail, 'status' | 'file_state'>): boolean =>
+  t.status !== 'missing' && t.file_state !== 'here';
+/** The words for a track whose file isn't there; null when it is (or there is no file to be away). */
+export const fileAwayWords = (t: Pick<TrackDetail, 'status' | 'file_state'>): string | null =>
+  fileAway(t) && t.file_state !== 'here' ? FILE_STATE_WORDS[t.file_state] : null;
 
 /** The name of a file's container as people say it ("FLAC", "WAV", "AIFF"), from its path's extension; null for none
  *  we know (a path without an extension, a lossy format). */

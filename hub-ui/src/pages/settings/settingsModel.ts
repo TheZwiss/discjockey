@@ -110,7 +110,7 @@ export function rowLine(row: SettingsRow, c: RowContext): RowLine {
   }
 }
 
-/** `#/settings` opens the first row that needs the user, else Qobuz. A drive that is offline is no such row: its
+/** `#/settings` opens the first row that needs the user, else Qobuz. A folder that is away (offline, not found) is no such row: its
  *  folder keeps its files and waits (plan library stage 4, §6.4), and a DJ whose drive is mostly unplugged would
  *  land on it every time. */
 export function firstAttention(c: RowContext): SettingsRow {

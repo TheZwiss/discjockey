@@ -97,11 +97,19 @@ def _tops(folders: list[WatchedFolder], excluded: set[str]) -> dict[int, tuple[W
     return out
 
 
-def is_offline(path: Path, mounted: Callable[[Path], bool]) -> bool:
+def away_reason(path: Path, mounted: Callable[[Path], bool]) -> str | None:
+    """Why a watched folder is not there to read, or None when it is: "unmounted" (its /Volumes drive is not
+    mounted: an unplugged drive) or "missing" (anything else that is not a folder: moved, renamed, deleted). The one
+    definition the scanner, the move checks and the hub's folder rows and file panels share."""
     parts = path.parts
     if len(parts) >= 3 and parts[0] == "/" and parts[1] == "Volumes" and not mounted(Path("/Volumes", parts[2])):
-        return True
-    return not path.is_dir()
+        return "unmounted"
+    return None if path.is_dir() else "missing"
+
+
+def is_offline(path: Path, mounted: Callable[[Path], bool]) -> bool:
+    """A folder the scan cannot read is offline whatever the reason: its rows are kept and nothing downloads."""
+    return away_reason(path, mounted) is not None
 
 
 # --- walking one folder -------------------------------------------------------------------------------------------

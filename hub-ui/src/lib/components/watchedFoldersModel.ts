@@ -3,7 +3,7 @@
 // the bridge answered (watched_folders, the hub's write job with its last ImportProgress).
 import type { EventOf } from '$lib/bridge/events';
 import type { ImportResult, JobSnap, RemovalPreview, UnreadableFile, WatchedFolderRow, WatchedFolders } from '$lib/bridge/types';
-import { OFFLINE_WORDS, fitMiddle } from '$lib/format';
+import { FOLDER_NOT_FOUND_LINE, OFFLINE_WORDS, fitMiddle } from '$lib/format';
 import { shortPath } from '$lib/musicFolder';
 
 export type ImportProgress = EventOf<'ImportProgress'>;
@@ -22,6 +22,7 @@ export function folderLine(f: WatchedFolderRow): string {
   switch (f.state) {
     case 'online': return 'Online';
     case 'offline': return OFFLINE_WORDS;
+    case 'missing': return FOLDER_NOT_FOUND_LINE;
     case 'scanning': return 'Checking for new files';
     case 'importing':
       if (f.waiting <= 0) return 'Importing';
@@ -91,10 +92,10 @@ function fitDrivePath({ drive, rest }: { drive: string; rest: string[] }, fits: 
   // not even a few letters of the last folder fit beside the drive: the drive's name, and "…" for what is inside
   return { head, tail: fits(head + tail) ? tail : '…' };
 }
-/** The row's mark: ✓ readable, ! offline (it keeps its files, it only waits), a spinner while it is worked on. */
+/** The row's mark: ✓ readable, ! offline or not found (it keeps its files, it only waits), a spinner while it is worked on. */
 export type FolderMark = 'good' | 'warn' | 'working';
 export function folderMark(f: WatchedFolderRow): FolderMark {
-  if (f.state === 'offline') return 'warn';
+  if (f.state === 'offline' || f.state === 'missing') return 'warn';
   if (f.state === 'scanning' || f.state === 'importing') return 'working';
   return 'good';
 }
@@ -181,16 +182,19 @@ export function removeWords(p: RemovalPreview, where: string | null = null): { t
 
 // ---------- Settings' row (W2) ----------
 /** The Watched folders row's line in Settings: the running import first, named by phase as the import card names it
- *  ("Reading tags · 340 of 1,500": the counts restart at 0 in the next phase), then a drive that is offline, then
- *  what is watched. `tone` null: no mark (the import is under way). */
+ *  ("Reading tags · 340 of 1,500": the counts restart at 0 in the next phase), then a folder that is away (a drive
+ *  that is offline, or a folder that isn't found), then what is watched. `tone` null: no mark (the import is under way). */
 export function settingsLine(folders: WatchedFolders | null, job: JobSnap | null):
   { tone: 'good' | 'warn' | 'none' | null; text: string } {
   const view = importView(job, folders);
   if (view?.kind === 'running') return { tone: null, text: view.line };
   if (!folders) return { tone: null, text: '' };
   const imports = folders.folders.filter((f) => f.kind === 'import');
-  const offline = imports.find((f) => f.state === 'offline');
-  if (offline) return { tone: 'warn', text: `${folderLabel(offline, folders.folders)} is offline` };
+  const away = imports.find((f) => f.state === 'offline' || f.state === 'missing');
+  if (away) {
+    const name = folderLabel(away, folders.folders);
+    return { tone: 'warn', text: away.state === 'offline' ? `${name} is offline` : `${name} isn't found` };
+  }
   if (!imports.length) return { tone: 'none', text: 'Library only' };
   const files = imports.reduce((n, f) => n + f.files, 0);
   return { tone: 'good', text: `${count(imports.length)} ${imports.length === 1 ? 'folder' : 'folders'} · ${filesText(files)}` };

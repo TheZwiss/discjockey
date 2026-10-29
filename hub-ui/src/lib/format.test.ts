@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { OFFLINE_WORDS, ago, artistTitle, clock, cutoffStat, dateShort, dayMonth, duration, estimate, estimateText, fileFormat, fitMiddle, foldText, khz, megabytes, minutesLong, noteParts, percent, plural,
+import type { FileState } from './bridge/types';
+import { OFFLINE_WORDS, fileAway, fileAwayWords, ago, artistTitle, clock, cutoffStat, dateShort, dayMonth, duration, estimate, estimateText, fileFormat, fitMiddle, foldText, khz, megabytes, minutesLong, noteParts, percent, plural,
   qualityWords, runIdFromReport, runWhen, upgradeLabel } from './format';
 
 describe('format', () => {
@@ -98,6 +99,16 @@ describe('qualityWords', () => {
     expect(fileFormat('/m/x.mp3')).toBeNull();
   });
   it('OFFLINE_WORDS are the folder state line\'s words', () => expect(OFFLINE_WORDS).toBe('Offline: connect the drive'));
+  it('says why a file isn\'t there, by the file state', () => {
+    const t = (status: 'lossless' | 'missing', file_state: FileState) => ({ status, file_state });
+    expect(fileAwayWords(t('lossless', 'here'))).toBeNull();
+    expect(fileAwayWords(t('lossless', 'offline'))).toBe('Offline: connect the drive');
+    expect(fileAwayWords(t('lossless', 'folder_missing'))).toBe('Folder not found');
+    expect(fileAwayWords(t('lossless', 'file_missing'))).toBe("This file isn't there any more.");
+    expect(fileAway(t('lossless', 'file_missing'))).toBe(true);
+    expect(fileAwayWords(t('missing', 'offline'))).toBeNull();   // no file, nothing to be away
+    expect(fileAway(t('missing', 'offline'))).toBe(false);
+  });
   it('upgradeLabel: "Upgrade ready", plus what it is when it is not lossless', () => {
     expect(upgradeLabel('lossless version')).toBe('Upgrade ready');
     expect(upgradeLabel(undefined)).toBe('Upgrade ready');

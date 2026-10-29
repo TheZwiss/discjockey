@@ -80,12 +80,12 @@ export function watchedFolders(s: FakeState): WatchedFolders {
   const rows: WatchedFolderRow[] = s.imp.folders.map((f) => ({
     id: f.id, path: f.path, name: f.kind === 'library' ? 'Library' : name(f.path), kind: f.kind,
     state: f.kind === 'library' ? (phase === 'scan' ? 'scanning' : 'online')
-      : f.offline ? 'offline' : phase === 'scan' ? 'scanning' : phase !== null && f.waiting > 0 ? 'importing' : 'online',
+      : f.offline ? 'offline' : f.missing ? 'missing' : phase === 'scan' ? 'scanning' : phase !== null && f.waiting > 0 ? 'importing' : 'online',
     files: f.files, waiting: f.waiting,
     unreadable: s.imp.unreadable.filter((u) => u.folder_id === f.id).length,
   }));
   return { folders: rows, unreadable: s.imp.unreadable.map((u) => ({ ...u })),
-    waiting: importFolders(s).filter((f) => !f.offline).reduce((n, f) => n + f.waiting, 0), stopped: s.imp.stopped };
+    waiting: importFolders(s).filter((f) => !f.offline && !f.missing).reduce((n, f) => n + f.waiting, 0), stopped: s.imp.stopped };
 }
 export function folderOf(s: FakeState, id: unknown): FakeFolder | undefined {
   return typeof id === 'number' && Number.isInteger(id) ? importFolders(s).find((f) => f.id === id) : undefined;
@@ -193,7 +193,7 @@ export async function runImport(ctx: FakeContext, run: ImportRun, finish: Finish
     await sleep(700);
     if (opts.adding) { opts.adding.files += 180; opts.adding.waiting += 180; }
   }
-  const targets = importFolders(s).filter((f) => !f.offline && f.waiting > 0);
+  const targets = importFolders(s).filter((f) => !f.offline && !f.missing && f.waiting > 0);
   const initial = new Map(targets.map((f) => [f, f.waiting] as const));
   const total = targets.reduce((n, f) => n + f.waiting, 0);
   let read = 0;
@@ -291,6 +291,7 @@ export function seedImport(s: FakeState, scenario: string): void {
     add({ path: `${DRIVE}/Crates`, files: 220, redownload: 0 });
   }
   if (scenario === 'folders_offline') add({ path: '/Volumes/Old Drive/Music', files: 612, offline: true, redownload: 0 });
+  if (scenario === 'folders_missing') add({ path: '/Users/you/Music/Crates', files: 612, missing: true, redownload: 0 });
   if (scenario === 'folders_couldnt_read') {
     s.imp.unreadable = [
       { folder_id: music.id, path: `${music.path}/Crates/Neon Riot - Strobe Light.aiff`, reason: NO_ACCESS },
