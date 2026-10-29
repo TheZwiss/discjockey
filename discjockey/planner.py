@@ -57,9 +57,9 @@ def superseded_dir(path: str, watched: str | None = None) -> str:
     return f"Superseded/{mirror}" if mirror else "Superseded"
 
 
-def upgrades_ready_dir(path: str) -> str:
-    """Where a better version of the file at `path` waits for the user."""
-    mirror = mirror_dir(path)
+def upgrades_ready_dir(path: str, watched: str | None = None) -> str:
+    """Where a better version of the file at `path` waits for the user (`watched` as mirror_dir)."""
+    mirror = mirror_dir(path, watched)
     return f"Upgrades ready/{mirror}" if mirror else "Upgrades ready"
 
 

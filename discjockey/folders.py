@@ -195,15 +195,6 @@ def _heir(moved: DupFile, others: list[DupFile]) -> int | None:
     return min(own, key=lambda o: (STATUS_RANK.get(o.status or "", 3), o.file_id)).file_id
 
 
-def _watched_root(conn, path: str) -> str | None:
-    """The import folder an absolute snapshot path is in (None for a Library/ path)."""
-    if not PurePosixPath(path).is_absolute():
-        return None
-    roots = [str(f.path) for f in db.watched_folders(conn) if f.kind == "import"
-             if PurePosixPath(path).is_relative_to(str(f.path))]
-    return max(roots, key=len) if roots else None
-
-
 def _target(paths: Paths, state: dict, moved: DupFile, watched: str | None) -> str:
     """The moved file's place in Superseded/, mirroring its folder (spec §7; an import folder's as
     `<its name>/<subfolders>`), its name kept; a name taken there gets the song's ID (a playlist song's) or a
@@ -231,7 +222,7 @@ def supersede(paths: Paths, group_id: str, file_id: int, *, emit: Emit = no_emit
             ops.log_operation(paths, now(), "", None, SUPERSEDE, p.kind, str(p))
             raise
         moved = next(f for f in files if f.file_id == file_id)
-        watched = _watched_root(conn, moved.path)
+        watched = db.watched_root(conn, moved.path)
     key = moved.song_key or ""
     entry = state["tracks"].get(key)
     if not (paths.root / moved.path).is_file():

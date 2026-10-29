@@ -277,6 +277,20 @@ def load_state(paths: Paths) -> dict:
     return _v1_snapshot(paths, _load_v1(paths.state_file))
 
 
+def watched_root(paths: Paths, path: str) -> str | None:
+    """The import folder holding the snapshot path `path` (db.watched_root), so a file's Superseded/ and Upgrades
+    ready/ places mirror its folder relative to its watched folder (spec §7, §10.5). None for a Library/ path, without
+    opening library.db."""
+    from . import db
+    if not PurePosixPath(path).is_absolute() or not paths.db_file.exists():
+        return None
+    try:
+        with db.connect(paths.db_file) as conn:
+            return db.watched_root(conn, path)
+    except sqlite3.Error as e:
+        raise db.unreadable(e) from None
+
+
 def import_left(paths: Paths) -> int:
     """How many files the next import works through (db.import_left), for reading like load_state: 0 before
     library.db exists (nothing is watched yet)."""

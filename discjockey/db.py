@@ -720,6 +720,18 @@ def watched_folders(conn: sqlite3.Connection) -> list[WatchedFolder]:
         "SELECT id, path, kind FROM watched_folders ORDER BY id")]
 
 
+def watched_root(conn: sqlite3.Connection, path: str) -> str | None:
+    """The import folder a snapshot path is in, as its absolute path (the innermost one), for mirroring the file's
+    place in Superseded/ and Upgrades ready/ (planner.mirror_dir's `watched`); None for a Library/ path or one in no
+    import folder."""
+    p = PurePosixPath(path)
+    if not p.is_absolute():
+        return None
+    roots = [root for (root,) in conn.execute("SELECT path FROM watched_folders WHERE kind = 'import'")
+             if p.is_relative_to(root)]
+    return max(roots, key=len) if roots else None
+
+
 def online_file(conn: sqlite3.Connection, file_id: int) -> tuple[Path, str] | None:
     """(the watched folder's root, the file's path inside it) of an online file row, else None (no such row, or its
     drive is offline). What the window plays: the caller checks that the path stays inside the root."""
