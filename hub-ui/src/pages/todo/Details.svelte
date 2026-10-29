@@ -146,7 +146,7 @@
     {/if}
 
     {#if cutoff}
-      <StatCard value={cutoff.value} unit={cutoff.value ? 'kHz' : undefined} label={cutoff.label} data-test="cutoff">
+      <StatCard value={cutoff.value} unit={cutoff.value ? 'kHz' : undefined} label={cutoff.label} wrap data-test="cutoff">
         <Spectrum spectrum={current} height={64} loading={specLoading && !current} error={specError} cutoffLabel={false}
           away={awayWords} />
       </StatCard>

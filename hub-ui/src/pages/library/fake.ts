@@ -64,7 +64,7 @@ const fake: PageFake = {
     // sentence)
     long_panel: (s) => {
       const t = s.tracks.find((x) => x.track_id === 't6');
-      if (t) Object.assign(t, { artist: 'DJ TALLBOY & The Extended Friends', title: 'THE WEEKEND (Extended Festival Mix 2026 Remaster)',
+      if (t) Object.assign(t, { artist: 'DJ TALLBOY & Friends', title: 'THE WEEKEND (Extended Festival Mix)',
         status: 'fake_lossless', cutoff_hz: 16000, source: 'qobuz', codec: 'flac',
         playlists: ['Hard_Bounce', 'Powertrance', 'Bouncy', '03_06_2026'] });
     },

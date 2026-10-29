@@ -554,6 +554,7 @@
       <StatCard value={37} unit="of 80" label="Qobuz today"><ProgressBar value={37 / 80} label="Qobuz today" /></StatCard>
       <StatCard value={226} label="lossless"><ProgressBar value={226 / 306} tone="lossless" label="Lossless share" /></StatCard>
       <StatCard value="12 345 678" unit="tracks" label="a number too long for its card shortens" />
+      <StatCard value="16.0" unit="kHz" wrap label="where the highs end · a lossy file inside the AIFF, shown whole on a second line" />
       <div class="span3"><StatCard value={2} label="tracks added"><QualityBar by_quality={{ lossless: 1, good_lossy: 1, weak: 0, fake: 0, missing: 0 }} legend /></StatCard></div>
     </div>
   </section>

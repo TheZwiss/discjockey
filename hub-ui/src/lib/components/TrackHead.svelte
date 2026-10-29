@@ -16,7 +16,8 @@
     /** under the lines, e.g. the quality badge (To-do) */
     children?: Snippet;
   } = $props();
-  const line = $derived([track.artist, duration(track.duration_s), place].filter(Boolean).join(' · '));
+  // the "·" is glued to the part before it, so a wrapped line ends with it and never starts with it
+  const line = $derived([track.artist, duration(track.duration_s), place].filter(Boolean).join(' · '));
 </script>
 
 <div class="head">

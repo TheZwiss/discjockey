@@ -8,7 +8,7 @@
   // the file's folder (or "Not in a playlist"); the playlists it is in are the Playlists row, by name.
   import type { ComponentProps } from 'svelte';
   import {
-    Button, EmptyState, ExternalLink, KeyValue, MiniPlayer, ProblemCard, QualityBadge, Skeleton, Spectrum, StatCard,
+    Button, EmptyState, ExternalLink, KeyValue, MiddleText, MiniPlayer, ProblemCard, QualityBadge, Skeleton, Spectrum, StatCard,
     Surface, TrackHead, UpgradeCard, WriteButton, envelope,
   } from '$lib/components';
   import { Panel } from '$lib/frames';
@@ -59,7 +59,7 @@
         <UpgradeCard upgrade={t.upgrade} currentUrl={t.audio_url} current={spectrum} next={upgradeSpectrum}
           loading={spectrumLoading} swap={action === 'swap'} />
       {:else if cutoff}
-        <StatCard value={cutoff.value} unit={cutoff.value ? 'kHz' : undefined} label={cutoff.label} data-test="cutoff">
+        <StatCard value={cutoff.value} unit={cutoff.value ? 'kHz' : undefined} label={cutoff.label} wrap data-test="cutoff">
           <Spectrum {spectrum} height={64} loading={spectrumLoading && !spectrum} error={spectrumError}
             noFile={!t.audio_url} {away} cutoffLabel={false} />
         </StatCard>
@@ -86,7 +86,7 @@
             </KeyValue>
             {#if playlists}<KeyValue keyWidth={76} k="Playlists" v={playlists} />{/if}
             <KeyValue keyWidth={76} k="Added" v={dateShort(t.added) || '–'} />
-            <KeyValue keyWidth={76} k="File"><span class="file" title={t.path ?? undefined}>{fileName(t.path) || '–'}</span></KeyValue>
+            <KeyValue keyWidth={76} k="File">{#if fileName(t.path)}<MiddleText text={fileName(t.path)} />{:else}–{/if}</KeyValue>
           </div>
         </Surface>
       {/if}
@@ -122,6 +122,4 @@
   .words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted);
     font-size: var(--fs-small); }
   .facts { display: flex; flex-direction: column; }
-  .file { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    user-select: text; -webkit-user-select: text; }
 </style>
