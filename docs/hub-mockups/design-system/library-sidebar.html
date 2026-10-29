@@ -165,7 +165,7 @@
 
 <section data-state="folder" hidden>
   <div class="opt">c · A folder: the files physically in it and its subfolders</div>
-  <p class="why">A folder's view lists what is on disk there. <b>Subfolder</b> is a column (the first that appears as the table gets wider; "–" is the folder itself), and the default sort, so the files read in the order of the tree. <b>Playlist</b> is the name of the first playlist that holds the song, in your playlist order, as a neutral badge; "+1" when more hold it (the tooltip names them all). A file of your own in no playlist has no badge and is never dimmed. A file whose sound isn't checked yet keeps the neutral "Not checked" badge.</p>
+  <p class="why">A folder's view lists what is on disk there. <b>Subfolder</b> is a column (the first that appears as the table gets wider; "–" is the folder itself), and the default sort, so the files read in the order of the tree. <b>Playlist</b> is the name of the first playlist that holds the song, in your playlist order, as a neutral badge; "+1" when more hold it (the tooltip names them all). A file of your own in no playlist has no badge and is never dimmed. A file whose sound isn't checked yet keeps the neutral "Not checked" badge. Length is the first optional column to go: hidden at 1280, so titles and subfolder paths fit.</p>
   <div class="stage" data-view="folder"></div>
 </section>
 
@@ -256,8 +256,8 @@
     { t: 'Maschinenraum', a: 'Low Ceiling', len: '6:12', q: 'lossless', badge: L, sub: 'Techno 2019' },
     { t: 'Taktgefuehl', a: 'Low Ceiling', len: '4:57', q: 'lossless', badge: L, sub: 'Techno 2019', unchecked: true },
     { t: 'Rush Hour', a: 'Bounce Brigade', len: '4:06', q: 'fake', badge: 'FAKE · 16.0 kHz', sub: 'Techno 2019', pls: ['Afterhour_Sonntag_Warmup_Classics'] },
-    { t: 'Kaltfront', a: 'Pulsar 9', len: '5:49', q: 'lossless', badge: L, sub: 'Techno 2019/Peak' },
-    { t: 'Sonnenfinsternis', a: 'Pulsar 9', len: '5:31', q: 'lossless', badge: L, sub: 'Techno 2019/Peak', pls: ['Powertrance'] },
+    { t: 'Kaltfront', a: 'Pulsar 9', len: '5:49', q: 'lossless', badge: L, sub: 'Techno 2019 › Peak' },
+    { t: 'Sonnenfinsternis', a: 'Pulsar 9', len: '5:31', q: 'lossless', badge: L, sub: 'Techno 2019 › Peak', pls: ['Powertrance'] },
     { t: 'Morgengrauen', a: 'Jana Jump', len: '3:52', q: 'good_lossy', badge: '20.0 kHz', sub: 'Warmups' },
     { t: 'Herzschlag', a: 'Jana Jump', len: '2:44', q: 'lossless', badge: L, sub: 'Warmups', pls: ['Bouncy'] },
     { t: 'Leise Runde', a: 'Echo Gruppe', len: '4:15', q: 'lossless', badge: L, sub: 'Warmups' },
@@ -265,15 +265,15 @@
   ];
   // a · All tracks (as today's Library page)
   const all = [
-    ['Get Naughty', 'Armin Hermann', 'Hard_Bounce', '4:28', 'weak', '16.0 kHz', true], ['Polarlicht', 'Mira Volt', 'Powertrance', '5:27', 'lossless', L],
-    ['Rush Hour', 'Bounce Brigade', 'Bouncy', '4:06', 'good_lossy', '20.0 kHz'], ['Blitzlicht', 'Bounce Brigade', 'Bouncy', '3:06', 'lossless', L],
-    ['THE WEEKEND', 'DJ TALLBOY', 'Hard_Bounce', '3:12', 'lossless', L], ['Vollgas', 'Echo Gruppe', null, '3:28', 'lossless', L],
-    ['Zeitlupe', 'Frau Funk', null, '2:59', 'weak', '17.0 kHz'], ['Afterhour', 'Hardline Theory', 'Qobuz_Picks', '3:14', 'lossless', L],
-    ['Herzschlag', 'Jana Jump', 'Bouncy', '2:44', 'lossless', L], ['Unterwasser', 'Kai Kickdrum', 'Hard_Bounce', '2:51', 'lossless', L],
-    ['Neonfieber', 'Kalte Nacht', 'Hard_Bounce', '2:30', 'lossless', L], ['Taktgefuehl', 'Low Ceiling', null, '4:57', 'lossless', L],
-    ['Funkenregen', 'Mira Nacht', 'Powertrance', '4:01', 'lossless', L], ['Funkenflug', 'Nachtfalter', 'Hard_Bounce', '4:20', 'lossless', L],
-    ['Sonnenfinsternis', 'Pulsar 9', 'Powertrance', '5:31', 'fake', 'FAKE · 16.0 kHz'], ['Kick it Hard', 'Remo Rush', 'Hard_Bounce', '5:35', 'fake', 'FAKE · 16.0 kHz'],
-    ['Letzter Zug', 'Tom Brandt', null, '5:05', 'weak', '16.0 kHz', true],
+    ['Get Naughty', 'Armin Hermann', 'Hard_Bounce', '4:28', 'weak', '16.0 kHz', { up: true }], ['Polarlicht', 'Mira Volt', 'Hard_Bounce', '5:27', 'lossless', L],
+    ['Rush Hour', 'Bounce Brigade', 'Old Sets › Techno 2019', '4:06', 'fake', 'FAKE · 16.0 kHz'], ['Blitzlicht', 'Bounce Brigade', 'Hard_Bounce', '3:06', 'lossless', L],
+    ['THE WEEKEND', 'DJ TALLBOY', 'Hard_Bounce', '3:12', 'lossless', L], ['Vollgas', 'Echo Gruppe', 'Hard_Bounce', '3:28', 'lossless', L, { left: true }],
+    ['Zeitlupe', 'Frau Funk', 'Old Sets', '2:59', 'weak', '17.0 kHz'], ['Afterhour', 'Hardline Theory', 'Hard_Bounce', '3:14', 'lossless', L],
+    ['Herzschlag', 'Jana Jump', 'Old Sets › Warmups', '2:44', 'lossless', L], ['Unterwasser', 'Kai Kickdrum', 'Hard_Bounce', '2:51', 'lossless', L],
+    ['Neonfieber', 'Kalte Nacht', 'Powertrance', '2:30', 'lossless', L], ['Taktgefuehl', 'Low Ceiling', 'Old Sets › Techno 2019', '4:57', 'lossless', L, { unchecked: true }],
+    ['Funkenregen', 'Mira Nacht', 'Old Sets', '4:01', 'lossless', L], ['Funkenflug', 'Nachtfalter', 'Hard_Bounce', '4:20', 'lossless', L],
+    ['Sonnenfinsternis', 'Pulsar 9', 'Old Sets › Techno 2019 › Peak', '5:31', 'lossless', L], ['Kick it Hard', 'Remo Rush', 'Hard_Bounce', '5:35', 'fake', 'FAKE · 16.0 kHz'],
+    ['Letzter Zug', 'Tom Brandt', 'Old Sets', '5:05', 'weak', '16.0 kHz', { up: true }],
   ];
 
   const seg = (c) => `<div class="seg">${[['All', c[0], null, true], ['Lossless', c[1], '--good'], ['Good lossy', c[2], '--ok'], ['Weak', c[3], '--weak'], ['Fake', c[4], '--lossy'], ['Upgrade ready', c[5], '--good']]
@@ -287,8 +287,8 @@
       <div class="pfoot-hint">Pick a track to see its file, spectrum and upgrade</div></div>`;
 
   function pageAll() {
-    const cols = 'minmax(0,1.6fr) minmax(0,1.2fr) 120px 40px 106px 64px';
-    const rows = all.map(([t, a, f, len, q, b, up], k) => `<div class="tr${f ? '' : (k === 6 || k === 11 || k === 16 ? '' : ' dim')}">${t1({ t }, k)}<span class="cut mu">${a}</span>${f ? `<span class="cut mu">${f}</span>` : '<span class="cut lb">Not in a playlist</span>'}<span class="num2">${len}</span>${qcell({ q, badge: b })}${slot({ up })}</div>`).join('');
+    const cols = 'minmax(0,1.5fr) minmax(0,1fr) minmax(0,1.3fr) 40px 106px 64px';
+    const rows = all.map(([t, a, f, len, q, b, x = {}], k) => `<div class="tr${x.left ? ' dim' : ''}"${x.left ? ' title="Not in any playlist any more"' : ''}>${t1({ t }, k)}<span class="cut mu">${a}</span><span class="cut mu" title="${f}">${f}</span><span class="num2">${len}</span>${qcell({ q, badge: b, unchecked: x.unchecked })}${slot({ up: x.up })}</div>`).join('');
     return `<div class="main"><div class="col">${header('All tracks', '412 tracks')}${seg([412, 251, 64, 61, 22, 9])}
       <div class="tbl" style="--cols:${cols}"><div class="th-row"><span class="hc">Track</span><span class="hc on">Artist ↑</span><span class="hc">Folder</span><span class="hc r">Length</span><span class="hc">Quality</span><span class="info">i</span></div><div class="scroll">${rows}</div></div></div></div>
       ${overview(63, '251 of 398 checked tracks', 'in your library', [['--good', 251, 'Lossless'], ['--ok', 64, 'Good lossy'], ['--weak', 61, 'Weak'], ['--lossy', 22, 'Fake']], 9, 141)}`;
@@ -304,11 +304,11 @@
       ${overview(67, '8 of 12 songs', 'with a file', [['--good', 8, 'Lossless'], ['--ok', 2, 'Good lossy'], ['--weak', 1, 'Weak'], ['--lossy', 1, 'Fake']], 1, 4)}`;
   }
   function pageFolder() {
-    const cols = 'minmax(0,1.5fr) minmax(0,1fr) 100px 104px 40px 106px 64px';
+    const cols = 'minmax(0,1.3fr) minmax(0,1fr) 126px 104px 106px 64px';
     const pl = (p) => !p ? '<span></span>' : `<span class="pl" title="In ${p.join(', ')}"><span>${p[0]}</span>${p.length > 1 ? `<b>+${p.length - 1}</b>` : ''}</span>`;
-    const rows = old.map((r, k) => `<div class="tr">${t1(r, k)}<span class="cut mu">${r.a}</span>${r.sub ? `<span class="cut mu" title="${r.sub}">${r.sub.replace('Techno 2019/Peak', 'Techno…/Peak')}</span>` : '<span class="lb">–</span>'}${pl(r.pls)}<span class="num2">${r.len}</span>${qcell(r)}${slot(r)}</div>`).join('');
+    const rows = old.map((r, k) => `<div class="tr">${t1(r, k)}<span class="cut mu">${r.a}</span>${r.sub ? `<span class="cut mu" title="${r.sub}">${r.sub}</span>` : '<span class="lb">–</span>'}${pl(r.pls)}${qcell(r)}${slot(r)}</div>`).join('');
     return `<div class="main"><div class="col">${header('Old Sets', '15 tracks · ~/Music/Old Sets')}${seg([15, 7, 3, 3, 1, 1])}
-      <div class="tbl" style="--cols:${cols}"><div class="th-row"><span class="hc">Track</span><span class="hc">Artist</span><span class="hc on">Subfolder ↑</span><span class="hc">Playlist</span><span class="hc r">Length</span><span class="hc">Quality</span><span class="info">i</span></div><div class="scroll">${rows}</div></div></div></div>
+      <div class="tbl" style="--cols:${cols}"><div class="th-row"><span class="hc">Track</span><span class="hc">Artist</span><span class="hc on">Subfolder ↑</span><span class="hc">Playlist</span><span class="hc">Quality</span><span class="info">i</span></div><div class="scroll">${rows}</div></div></div></div>
       ${overview(50, '7 of 14 checked tracks', 'in Old Sets', [['--good', 7, 'Lossless'], ['--ok', 3, 'Good lossy'], ['--weak', 3, 'Weak'], ['--lossy', 1, 'Fake']], 1, 3)}`;
   }
 

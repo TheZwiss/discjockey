@@ -100,12 +100,18 @@ extends the Library page with two view kinds. The Spotify-named read-status wire
   playlist in its order; one table keeps one column grid.
 - **D10. A folder's view:** the files whose path is in the folder or below; optional columns Subfolder (first, the
   default sort, `MiddleText`: the end of a path tells two apart), then Playlist, then Source, Added. Both Subfolder and
-  Playlist show at 1280 × 800; Subfolder at 1100 × 700.
+  Playlist show at 1280 × 800; Subfolder at 1100 × 700. The folder view's Length column is optional too and is the
+  first to go: it is hidden at 1280 × 800, so titles and subfolder paths fit (orchestrator's mockup check).
 - **D11. The panel head says where the file sits.** `track()` gains `place` (the physical folder, as the location note
   words it) and `TrackHead`'s place line shows it. *Why:* under option A a file can sit outside its song's folder; the
   row would say "in Techno 2019" and the head "Hard_Bounce". Fix I's intent ("the head says only where the file
   sits") is kept, now true; record it in the decision log.
-- **D12. All tracks and Not in a playlist are unchanged** (their Folder column still names the song's folder).
+- **D12. All tracks' and Not in a playlist's Folder column says where the file sits** (as `place`, D11): the
+  playlist folder's name, or the import folder's path with " › " between levels ("Old Sets › Warmups"). It no longer
+  names the song's folder, and own files no longer read "Not in a playlist" there. *Why:* after this stage a folder
+  view shows the file in Old Sets › Warmups, so a Folder column saying "Bouncy" for the same file would be false, and
+  "Not in a playlist" isn't a folder. Being in no playlist stays told by the dim and its tooltip (`rowTitleTip`), as
+  before. The column's end gets cut (title tooltip = the full place). Found in the orchestrator's mockup check.
 - **D13. The read-status wire is renamed** (issue #26): field `spotify` → `read_status`, `views.spotify_status` →
   `views.read_status`, type `SpotifyStatus` → `ReadStatus`, component `SpotifyStatus.svelte` → `ReadStatus.svelte`, the
   `PageHeader` slot's prop and docs words "Spotify slot" → "read-status slot". Real Spotify things (its login, Setup's
@@ -264,8 +270,9 @@ Tasks:
 3. **3.3 Folder view** (D10): rows by path prefix (a `/` boundary, NFC), `subfolder`, `playlists` (from `records`, in
    `lines` order), sort `subfolder`. Tests: a nested subfolder; `not_lossless`; a sibling folder whose name starts the
    same (`Old Sets 2`) isn't inside `Old Sets`.
-4. **3.4 `track()` `place`** (D11) and `api.library`'s new signature; `gone` for an unknown name or path. Tests
-   `tests/test_hub_api.py`.
+4. **3.4 `track()` `place`** (D11) and `api.library`'s new signature; `gone` for an unknown name or path. The
+   All tracks / Not in a playlist rows' folder field becomes the same `place` (D12; the fake too). Tests
+   `tests/test_hub_api.py`, `tests/test_hub_views.py` (a file outside its song's folder; an own file).
 5. **3.5 Sidebar refresh:** check first when the shell's store re-fetches `sidebar()` (`stores/hub.ts`); it must also
    follow a finished read, `DrivesChanged` and a finished import. Add what is missing in the store (no new event if an
    existing one already says it).
