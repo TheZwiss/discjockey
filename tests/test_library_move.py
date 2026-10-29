@@ -650,3 +650,31 @@ def test_a_step_wholly_on_an_unplugged_drive_says_the_scan_goes_on(paths, drive)
     touch(paths.library / "A/new.aiff")
     library.scan_library(paths, after_recovery=True)
     assert "Library/A/new.aiff" in load_state(paths)["files"]
+
+
+def test_every_w17_line_uses_the_held_form_when_any_pending_step_holds_the_scan(paths, drive):
+    s = load_state(paths)
+    s["pending"].append({"track_id": "t1", "renames": [[str(drive / "a.aiff"), str(drive / "B/a.aiff")]],
+                         "entry": None, "label": "A - S"})  # wholly on the drive: alone, the scan would go on
+    s["pending"].append({"track_id": "t2", "renames": [[str(drive / "c.aiff"), "Library/A/c.aiff"]],
+                         "entry": None, "label": "C - S"})  # a file in Library/: holds the scan
+    save_state(paths, s)
+    unplug(drive)
+    messages = recover_pending(paths, load_state(paths))
+    assert messages == [(library.DRIVE_WAITS.format(path=drive / "a.aiff"), False),
+                        (library.DRIVE_WAITS.format(path=drive / "c.aiff"), False)]
+    assert all("until then Discjockey doesn't look for new files" in m for m, _ in messages)
+
+
+def test_a_step_that_finishes_in_the_same_recovery_does_not_hold_the_form_for_the_others(paths, drive):
+    touch(paths.library / "A/x.aiff")
+    s = load_state(paths)
+    s["pending"].append({"track_id": "t1", "renames": [["Library/A/x.aiff", "Library/A/y.aiff"]], "entry": None,
+                         "label": "A - S"})  # connected: finishes now
+    s["pending"].append({"track_id": "t2", "renames": [[str(drive / "a.aiff"), str(drive / "B/a.aiff")]],
+                         "entry": None, "label": "B - S"})
+    save_state(paths, s)
+    unplug(drive)
+    messages = recover_pending(paths, load_state(paths))
+    assert messages[0] == ("Finished an interrupted step for A - S", True)
+    assert messages[1] == (library.DRIVE_WAITS_SCAN_GOES_ON.format(path=drive / "a.aiff"), False)

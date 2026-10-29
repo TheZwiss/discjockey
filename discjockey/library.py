@@ -886,12 +886,20 @@ def short_path(path: Path | str) -> str:
     return "~/" + p.relative_to(home).as_posix() if p != home and p.is_relative_to(home) else p.as_posix()
 
 
-def _waiting(name: str, r: _Recovered, scan_held: bool) -> tuple[str, bool]:
+@dataclass(frozen=True)
+class _Waits:
+    """A step that stays pending, its message still to be worded: `holds` is whether it holds up the scan."""
+    name: str
+    r: _Recovered
+    holds: bool
+
+
+def _waiting(w: _Waits, scan_held: bool) -> tuple[str, bool]:
     """The message of a step that stays pending: W17 when it waits for a drive (`scan_held`: scan_library holds up
-    the scan of the other folders for it, else it goes on), else what stands in its way."""
-    if r.drive is not None:
-        return (DRIVE_WAITS if scan_held else DRIVE_WAITS_SCAN_GOES_ON).format(path=r.drive), False
-    return f"Could not finish an interrupted step for {name} yet: {r.problem}", False
+    the scan of the other folders, because any pending step does, else it goes on), else what stands in its way."""
+    if w.r.drive is not None:
+        return (DRIVE_WAITS if scan_held else DRIVE_WAITS_SCAN_GOES_ON).format(path=w.r.drive), False
+    return f"Could not finish an interrupted step for {w.name} yet: {w.r.problem}", False
 
 
 def _recover_renames(root: Path, op: dict, roots: Collection[Path]) -> _Recovered:
@@ -962,14 +970,15 @@ def _recovered(name: str, problem: str, done_any: bool) -> tuple[str, bool]:
     return f"Could not finish an interrupted step for {name}: {problem}", False
 
 
-def _recover_files(paths: Paths, op: dict, roots: Collection[Path]) -> tuple[tuple[str, bool], bool]:
+def _recover_files(paths: Paths, op: dict, roots: Collection[Path]) -> tuple[tuple[str, bool] | _Waits, bool]:
     """A move_files step: its renames finished (_recover_renames), then db.finish_file_op, or the journal entry
-    dropped when no file moved. Returns the message and whether library.db was written."""
+    dropped when no file moved. Returns the message (a _Waits for a step that stays pending) and whether library.db was
+    written."""
     from . import db
     name = op.get("label") or "a file"
     r = _recover_renames(paths.root, op, roots)
     if r.wait and not r.done_any:
-        return _waiting(name, r, not waits_offline(op, paths.root, roots)), False
+        return _Waits(name, r, not waits_offline(op, paths.root, roots)), False
     with db.connect(paths.db_file) as conn:
         if not r.done_any:
             db.drop_pending(conn, op["op_id"])
@@ -1006,7 +1015,7 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
     (tidy.recover). Returns (message, ok) per step and per batch. A step with a file on a drive that isn't
     connected waits for it. A `files` step (move_files) and tidy.recover write library.db past `state`, so after
     either `state`'s contents are replaced in place with a fresh snapshot: the caller goes on saving a current one."""
-    messages = []
+    messages: list[tuple[str, bool] | _Waits] = []
     roots = watched_roots(paths) if state.get("version") == 2 else [paths.root]
     for op in list(state.get("pending", [])):
         if op.get("kind") == "swap":
@@ -1023,7 +1032,7 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
         name = op.get("label") or f"{e.get('artist', '?')} - {e.get('title', op['track_id'])}"
         r = _recover_renames(paths.root, op, roots)
         if r.wait and not r.done_any:
-            messages.append(_waiting(name, r, not waits_offline(op, paths.root, roots)))
+            messages.append(_Waits(name, r, not waits_offline(op, paths.root, roots)))
             continue
         if r.done_any:
             # once a file was placed, the entry must point at it, or the next run would mis-adopt it
@@ -1039,7 +1048,9 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
             from .tidy import recover  # tidy builds on this module
             messages += recover(paths, state)
             _refresh(paths, state)
-    return messages
+    # W17's form is one for all steps: the scan is held when any step still pending holds it up
+    scan_held = any(m.holds for m in messages if isinstance(m, _Waits))
+    return [_waiting(m, scan_held) if isinstance(m, _Waits) else m for m in messages]
 
 
 # --- the scan (spec library-and-sources §6) ---
