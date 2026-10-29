@@ -440,6 +440,18 @@ class HubApi:
             raise OpProblem("That file is not there.", "refused")
         return rel
 
+    def _imported(self, e: dict, which: str) -> tuple[int, Path] | None:
+        """(file id, vetted real path) when the track's current file is one of an import folder (outside the music
+        folder, so its entry path is absolute); None for a file in the music folder. Never trusts a path from the page:
+        the file row is looked up and vetted by `_file_path` (online, links resolved inside its watched folder)."""
+        path = e.get("path")
+        if which != "current" or not path or not PurePosixPath(path).is_absolute():
+            return None
+        real = self._file_path(e["file_id"]) if e.get("file_id") is not None else None
+        if real is None:
+            raise OpProblem("That file is not there.", "refused")
+        return e["file_id"], real
+
     def _inside_root(self, rel: str) -> Path:
         """Paths from the page are accepted only inside the music folder; "." is the music folder itself."""
         root = self._paths.root
@@ -684,14 +696,18 @@ class HubApi:
 
     @bridge
     def spectrum(self, track_id: str, which: str = "current") -> dict:
-        rel = self._file_of(track_id, which)
         e = self._entry(self._state(), track_id)
-        data = spec.spectrum(self._paths, rel, decode=self._svc.decode)
+        imported = self._imported(e, which)
+        if imported is not None:
+            data = spec.spectrum_of_file(self._paths, *imported, decode=self._svc.decode)
+        else:
+            data = spec.spectrum(self._paths, self._file_of(track_id, which), decode=self._svc.decode)
         return {"spectrum": {**data, "which": which, "cutoff_hz": e.get("cutoff_hz") if which == "current" else None}}
 
     @bridge
     def media_url(self, track_id: str, which: str = "current") -> dict:
-        rel = self._file_of(track_id, which)
+        imported = self._imported(self._entry(self._state(), track_id), which)
+        rel = media_mod.file_address(imported[0]) if imported is not None else self._file_of(track_id, which)
         url = self._media.url(rel) if self._media is not None else None
         if url is None:
             raise OpProblem("This file can't be played here.", "refused")
