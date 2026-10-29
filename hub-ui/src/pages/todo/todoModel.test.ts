@@ -192,10 +192,15 @@ describe('texts', () => {
     expect(cutoffStat({ status: 'lossless', cutoff_hz: null })).toBeNull();
     expect(cutoffStat({ status: 'missing', cutoff_hz: null })).toBeNull();
   });
-  it('header line', () => {
-    expect(headerSub(16)).toBe('16 tracks are not lossless yet');
-    expect(headerSub(1)).toBe('1 track is not lossless yet');
-    expect(headerSub(0)).toBe('Nothing to do');
+  it('header line tells the tracks from the questions about the user\'s own files', () => {
+    const chips = (all: number, same_song = 0, duplicate = 0) => ({ all, same_song, duplicate });
+    expect(headerSub(chips(16))).toBe('16 tracks are not lossless yet');
+    expect(headerSub(chips(1))).toBe('1 track is not lossless yet');
+    expect(headerSub(chips(0))).toBe('Nothing to do');
+    expect(headerSub(chips(18, 1, 1))).toBe('16 tracks are not lossless yet · 2 questions about your files');
+    expect(headerSub(chips(2, 1, 0))).toBe('1 track is not lossless yet · 1 question about your files');
+    expect(headerSub(chips(3, 2, 1))).toBe('3 questions about your files');
+    expect(headerSub(chips(1, 0, 1))).toBe('1 question about your files');
   });
 });
 

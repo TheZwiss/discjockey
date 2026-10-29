@@ -39,9 +39,17 @@ export function filterFrom(query: string | null, saved: string): TodoFilter {
   return isFilter(query) ? query : isFilter(saved) ? saved : 'all';
 }
 
-export function headerSub(n: number): string {
-  if (!n) return 'Nothing to do';
-  return n === 1 ? '1 track is not lossless yet' : `${n} tracks are not lossless yet`;
+/** The page's second line. `chips.all` counts the tracks and, since stage 4, the questions and duplicate groups about
+ *  the user's own files too (the engine counts each once); those are often lossless files, so they get their own part
+ *  and the rest is what the line always said. */
+export function headerSub(chips: Pick<Record<TodoFilter, number>, 'all' | 'same_song' | 'duplicate'>): string {
+  const questions = chips.same_song + chips.duplicate;
+  const tracks = Math.max(0, chips.all - questions);
+  const parts = [
+    tracks ? (tracks === 1 ? '1 track is not lossless yet' : `${tracks} tracks are not lossless yet`) : null,
+    questions ? `${questions} ${questions === 1 ? 'question' : 'questions'} about your files` : null,
+  ].filter((p): p is string => p !== null);
+  return parts.length ? parts.join(' · ') : 'Nothing to do';
 }
 
 // ---------- navigation ----------
