@@ -1115,6 +1115,60 @@ def test_an_unplugged_import_folder_makes_its_files_offline_before_any_scan(lib)
     assert api._file_path(file_id) is not None
 
 
+def _drive_events(rec):
+    return [e for e in rec.events if isinstance(e, jobs.DrivesChanged)]
+
+
+def test_the_drives_watch_says_once_when_a_watched_folder_goes_and_once_when_it_is_back(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    api._check_drives()
+    api._check_drives()
+    assert _drive_events(rec) == []  # the first look is the baseline, the second saw nothing change
+    gone = folder.with_name("Music (ejected)")
+    folder.rename(gone)
+    api._check_drives()
+    api._check_drives()
+    api._check_drives()
+    assert _drive_events(rec) == [jobs.DrivesChanged(1)]  # once per change, however often it looks
+    gone.rename(folder)
+    api._check_drives()
+    api._check_drives()
+    assert _drive_events(rec) == [jobs.DrivesChanged(1), jobs.DrivesChanged(0)]
+
+
+def test_the_drives_watch_tells_an_ejected_drive_from_a_missing_folder_and_waits_out_an_unreadable_db(lib, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    stick = "/Volumes/Example Stick/Music"
+    looks = iter([{}, {stick: "unmounted"}, {stick: "unmounted"}, {stick: "missing"}, None, {stick: "missing"}, {}])
+
+    def away():
+        now = next(looks)
+        if now is None:
+            raise db.unreadable(OSError("busy"))
+        return now
+
+    monkeypatch.setattr(api, "_away_roots", away)
+    for _ in range(7):
+        api._check_drives()
+    # the reason changed with the same count (the stick is back, the folder on it is not): that is a change too; an
+    # unreadable look says nothing and keeps the last answer, so the look after it is no change
+    assert _drive_events(rec) == [jobs.DrivesChanged(1), jobs.DrivesChanged(1), jobs.DrivesChanged(0)]
+
+
+def test_the_drives_watch_runs_in_the_background_and_stops_with_the_window(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    thread = api._watch_drives(interval=0.01)
+    time.sleep(0.05)
+    api._jobs.close()
+    thread.join(1)
+    assert not thread.is_alive() and _drive_events(rec) == []  # nothing came or went
+
+
 def test_a_file_deleted_in_an_online_folder_says_file_missing_until_the_next_scan(lib):
     paths, folder, fakes = lib
     api, rec = make_api(paths)

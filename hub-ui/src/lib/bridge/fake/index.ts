@@ -13,6 +13,9 @@ const HIDDEN_ARGS = new Set(['setup_qobuz_login', 'setup_save_client_id']);
 export type FakeControl = {
   scenario: string; speed: number; ctx: FakeContext;
   dropFile(readable: boolean): void; consoleBusy(running: boolean): void; spotifyRead(): void;
+  /** plugs the ejected drive back in (true) or ejects it again (false): its folders and files change state and
+   *  DrivesChanged goes out, as the engine's drives watch sends it */
+  drive(plugged: boolean): void;
 };
 declare global {
   interface Window { __fakeCalls?: FakeCall[]; __fake?: FakeControl }
@@ -38,6 +41,7 @@ export function installFake(scenario: string): FakeControl {
   }
   installBridge(api);
   const ctx = fake._ctx;
+  let ejected: { tracks: string[]; folders: number[] } | null = null;  // what drive(true) brought back
   const control: FakeControl = {
     scenario, speed, ctx,
     dropFile(readable: boolean) {
@@ -60,6 +64,18 @@ export function installFake(scenario: string): FakeControl {
       emit({ type: 'ConsoleBusy', running });
     },
     spotifyRead() { void api.refresh(); },
+    drive(plugged: boolean) {
+      const s = ctx.s;
+      if (plugged && !ejected) {
+        ejected = { tracks: s.tracks.filter((t) => t.away === 'offline').map((t) => t.track_id),
+          folders: s.imp.folders.filter((f) => f.offline).map((f) => f.id) };
+      }
+      if (!ejected) return;
+      const { tracks, folders } = ejected;
+      for (const t of s.tracks) if (tracks.includes(t.track_id)) t.away = plugged ? undefined : 'offline';
+      for (const f of s.imp.folders) if (folders.includes(f.id)) f.offline = !plugged;
+      emit({ type: 'DrivesChanged', away: s.imp.folders.filter((f) => f.offline || f.missing).length });
+    },
   };
   window.__fake = control;
   return control;

@@ -12,7 +12,7 @@ import { onEvent } from '$lib/bridge/events';
 import type { ProblemKind, WatchedFolderRow, WatchedFolders } from '$lib/bridge/types';
 import { shortPath } from '$lib/musicFolder';
 import { chooseFolder, isFail } from '$lib/musicFolderFlow';
-import { dataVersion } from '$lib/stores/hub';
+import { filesVersion } from '$lib/stores/hub';
 import { confirm } from './confirm';
 import { removeWords, sharesName } from './watchedFoldersModel';
 
@@ -60,8 +60,8 @@ export class WatchedFoldersFlow {
       if (e.phase !== phase) { phase = e.phase; if (timer) clearTimeout(timer); reread(); return; }
       if (!timer) timer = setTimeout(reread, Math.max(0, REREAD_MS - (Date.now() - lastRead)));
     });
-    // dataVersion calls at once (the first read) and after every finished job
-    const offData = dataVersion.subscribe(() => void this.load());
+    // filesVersion calls at once (the first read), after every finished job and when a drive comes or goes
+    const offData = filesVersion.subscribe(() => void this.load());
     return () => { offEvents(); offData(); if (timer) clearTimeout(timer); this.turn++; };
   }
 

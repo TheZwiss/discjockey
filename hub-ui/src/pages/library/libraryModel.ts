@@ -1,6 +1,6 @@
 // Pure helpers for the Library page (sorting, windowing, selection, the filter strip, the panel). Tested in
 // libraryModel.test.ts.
-import type { Library, LibraryFilter, LibrarySort, Quality, TrackDetail, TrackRow } from '$lib/bridge/types';
+import type { Library, LibraryFilter, LibraryRow, LibrarySort, Quality, TrackDetail, TrackRow } from '$lib/bridge/types';
 import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import type { SegOption } from '$lib/components/segmentedModel';
 
@@ -111,6 +111,16 @@ export function optionalColumns(view: LibraryView): ('folder' | 'source' | 'adde
  *  exactly where its owner put it. */
 export function rowOff(r: Pick<TrackRow, 'in_playlists' | 'own'>): boolean {
   return !r.in_playlists && !r.own;
+}
+/** Whether a row's file is there to play: not when its drive is offline or its watched folder isn't found
+ *  (`file_state`, decided per folder by the engine). Enter, double-click and the cover play only such a row, and the
+ *  player's queue holds only these. */
+export function playable(r: Pick<LibraryRow, 'file_state'>): boolean {
+  return r.file_state === 'here';
+}
+/** An away row: dimmed like a leftover one (it can't play), and its `AwayTag` says why. */
+export function rowAway(r: Pick<LibraryRow, 'file_state'>): Exclude<LibraryRow['file_state'], 'here'> | null {
+  return r.file_state === 'here' ? null : r.file_state;
 }
 /** A row's folder cell: a track in no playlist reads so instead of the folder it sits in on disk. */
 export function folderCell(r: Pick<TrackRow, 'folder' | 'in_playlists'>): string {

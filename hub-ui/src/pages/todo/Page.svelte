@@ -11,7 +11,7 @@
   import { api } from '$lib/bridge/client';
   import { isDuplicate, isQuestion } from '$lib/bridge/types';
   import type { Fail, Todo, TodoFilter, TodoItem, TrackDetail } from '$lib/bridge/types';
-  import { dataVersion } from '$lib/stores/hub';
+  import { filesVersion } from '$lib/stores/hub';
   import { getPref, setPref } from '$lib/prefs';
   import { markReady } from '$lib/ready';
   import {
@@ -84,8 +84,8 @@
     }
     markReady('todo');
   }
-  // on mount, after every finished job and on filter / show-hidden changes
-  $effect(() => { void $dataVersion; void filter; void showHidden; untrack(() => void load()); });
+  // on mount, after every finished job, a drive coming or going and on filter / show-hidden changes
+  $effect(() => { void $filesVersion; void filter; void showHidden; untrack(() => void load()); });
 
   // Sync's "Fix →" links: ?track= while the page is already open
   let lastQueryTrack = untrack(() => query.get('track'));
@@ -112,7 +112,7 @@
   let lastSelected: string | null | undefined = undefined;
   $effect(() => {
     const id = selId;
-    void $dataVersion;
+    void $filesVersion;
     untrack(() => {
       if (id !== lastSelected) { lastSelected = id; void api.select(id); }
       void loadTrack(id);

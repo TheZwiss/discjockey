@@ -51,7 +51,7 @@ from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, load
 from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
 from . import media as media_mod, spectrum as spec, views
-from .jobs import (NOT_CONNECTED, UNEXPECTED, AppUpdate, Busy, FileDropped, Jobs, PreviewStore, SignInPhase,
+from .jobs import (NOT_CONNECTED, UNEXPECTED, AppUpdate, Busy, DrivesChanged, FileDropped, Jobs, PreviewStore, SignInPhase,
                    import_work, preview_after_run, problem_of, refresh_work, replanned_work, service_of, sync_work)
 
 RUN_ID = re.compile(r"\d{4}-\d{2}-\d{2}_\d{6}")
@@ -116,6 +116,7 @@ _SIGN_IN_URLS = {
     "soundcloud": "https://soundcloud.com/signin"}
 _SIGN_IN_POLL = 3.0
 _UPDATE_TICK = 3600.0  # s: the update check looks at its day-old cache this often
+_DRIVES_TICK = 2.0  # s: the drives watch looks at the watched folders this often (a drive plugged in or ejected)
 _SIGN_IN_TIMEOUT = 600.0
 DOWNLOAD_TOOLS_UNREADABLE = "Couldn't read the download tools' versions. The other checks above are still correct."
 log = logging.getLogger(__name__)
@@ -258,6 +259,7 @@ class HubApi:
         self._shown: dict[str, dict] = {}  # track id -> how the page last showed it (ops.snapshot)
         self._selected: str | None = None
         self._dropped: dict | None = None
+        self._drives_seen: dict[str, str] | None = None  # the away set the drives watch saw last (None: not yet)
         self._lock = threading.Lock()
         self._auto_lock = threading.Lock()
         self._quit: Callable[[], None] | None = None  # set by app.main: closes the window
@@ -315,6 +317,7 @@ class HubApi:
             self._attach(paths)
             self._jobs.watch_console()
             self._watch_playlists_file()
+            self._watch_drives()
 
     def _first_read(self) -> None:
         self.refresh(auto=True)
@@ -841,6 +844,32 @@ class HubApi:
         thread = threading.Thread(target=loop, name="hub-playlists-watch", daemon=True)
         thread.start()
         return thread
+
+    def _watch_drives(self, interval: float = _DRIVES_TICK) -> threading.Thread:
+        """Notices a watched folder coming or going while the window is open (a drive plugged in or ejected, a folder
+        renamed or put back): the views read the away set live, but only when a page asks, so without this a Library
+        open on an ejected drive would keep looking as if it were there. Read only: the away set every `interval`."""
+        def loop() -> None:
+            self._check_drives()  # the first look is the baseline: the page reads its views itself when it loads
+            while not self._jobs.closed.wait(interval):
+                self._check_drives()
+
+        thread = threading.Thread(target=loop, name="hub-drives-watch", daemon=True)
+        thread.start()
+        return thread
+
+    def _check_drives(self) -> None:
+        """One look of the drives watch: DrivesChanged once when the away set (which import folders are away, and why)
+        differs from the last look's, nothing when it is the same or on the first look. Never raises: a records
+        file that can't be read now keeps the last answer, and the next look tries again."""
+        try:
+            now = self._away_roots()
+        except Exception:  # an unreadable library.db says so on the page's own calls; the watch only waits
+            log.debug("drives watch: the watched folders could not be read", exc_info=True)
+            return
+        seen, self._drives_seen = self._drives_seen, now
+        if seen is not None and now != seen:
+            self._emit(DrivesChanged(len(now)))
 
     # --- what the network reads and the write jobs share ---
 
