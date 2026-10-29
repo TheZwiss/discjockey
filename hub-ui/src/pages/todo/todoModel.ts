@@ -8,6 +8,7 @@ import { isDuplicate, isQuestion } from '$lib/bridge/types';
 import type { QueueItem } from '$lib/stores/queueModel';
 import type { PlayerState } from '$lib/stores/player';
 import { duration, fileAway } from '$lib/format';
+import { fitPath } from '$lib/components/watchedFoldersModel';
 
 /** Filter order = the contract's group order (= the list's section order), All first. The import's two groups come
  *  right after rekordbox: they hold downloads back until they are answered (plan library stage 4 D4), and the strip
@@ -185,6 +186,13 @@ export function fileFolder(path: string): string {
   const dir = path.replace(/\/+$/, '').split('/').slice(0, -1).join('/');
   return dir.replace(/^\/Users\/[^/]+(?=\/|$)/, '~') || '/';
 }
+/** `fileFolder` as the watched folders read in Settings: a folder on another drive is "Example Drive › Music/Old" (the
+ *  drive's name first, as it is what tells which one to connect), any other stays as `fileFolder` has it. Whole, for
+ *  a place that wraps (nothing is cut). */
+export function filePlace(path: string): string {
+  const { head, tail } = fitPath(fileFolder(path), () => true);
+  return head + tail;
+}
 
 /** One line of "Is this the same song?": the playlist song's value beside the file's; `differs` marks the line the
  *  why is about (the artist for `artist` / `no_artist`, the length for `length` / `no_length`). */
@@ -203,7 +211,7 @@ export function compareLines(p: QuestionPair): CompareLine[] {
     { key: 'artist', song: p.track.artist || NO_VALUE, file: p.file.artist || NO_VALUE, differs: d === 'artist' },
     { key: 'length', song: len(p.track.duration_s), file: p.why === 'no_length' ? NO_VALUE : len(p.file.duration_s),
       differs: d === 'length' },
-    { key: 'where', song: p.track.folder, file: fileFolder(p.file.path), differs: false, fileTitle: p.file.path },
+    { key: 'where', song: p.track.folder, file: filePlace(p.file.path), differs: false, fileTitle: p.file.path },
   ];
 }
 
