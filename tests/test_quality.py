@@ -151,3 +151,13 @@ def test_mastering_low_pass_near_20_khz_is_not_fake():
     x = shaped(noise(), [(0, 0), (20000, 0), (20500, -40)])
     c = cutoff_hz(x, SR)
     assert c is None or c >= FAKE_BELOW_HZ
+
+
+def test_the_quality_line_of_an_own_file_puts_the_format_in_brackets():
+    assert quality_line("manual", "pcm_s16le", "lossless", None, own=True) == "Your own file (PCM) · verified lossless"
+    assert quality_line("manual", "pcm_s16le", "fake_lossless", 16100, own=True) == (
+        "Your own file (PCM) · fake lossless, cutoff 16.1 kHz")
+    assert quality_line("manual", "mp3", "not_lossless", 16000, 320, own=True) == (
+        "Your own file (MP3 320 kbps) · cutoff 16.0 kHz")
+    assert quality_line("qobuz", "flac", "lossless", None, own=True) == "Qobuz FLAC · verified lossless"
+    assert quality_line("manual", "pcm_s16le", "lossless", None) == "bought file PCM · verified lossless"

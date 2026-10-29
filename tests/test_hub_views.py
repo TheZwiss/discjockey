@@ -1426,7 +1426,7 @@ def test_the_detail_of_an_own_file_says_so_and_shows_the_day_it_was_first_seen()
     entry = own(placed_by="import", first_seen="2026-10-25T12:00:00", source_format="pcm_s16le", added=None)
     d = views.track_detail("local:1", entry, [], TODAY)
     assert d["source_full"] == "your own file" and d["source_name"] == "own file"
-    assert d["quality_line"] == "your own file PCM · verified lossless"
+    assert d["quality_line"] == "Your own file (PCM) · verified lossless"
     assert d["added"] == "2026-10-25T12:00:00"
     assert views.track_row("local:1", entry)["added"] == "2026-10-25T12:00:00"
 

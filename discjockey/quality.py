@@ -165,10 +165,13 @@ def quality_line(source: str, codec: str, status: str, cutoff: int | None, kbps:
                  own: bool = False) -> str:
     """The words under a track: where it came from, its format and the verdict. `own`: a file of the user's own that
     the import found, which the "manual" source would call a bought file."""
-    name = OWN_FILE if own and source == "manual" else SOURCE_NAMES[source]
     fmt = "PCM" if codec.startswith("pcm_") else codec.upper()
     if kbps and status == "not_lossless":
         fmt += f" {kbps} kbps"
+    if own and source == "manual":  # "Your own file (PCM) · …": the format in brackets reads as a sentence
+        name, fmt = OWN_FILE[0].upper() + OWN_FILE[1:], f"({fmt})"
+    else:
+        name = SOURCE_NAMES[source]
     khz = f"{cutoff / 1000:.1f} kHz" if cutoff else None
     if status == "lossless":
         return f"{name} {fmt} · verified lossless"
