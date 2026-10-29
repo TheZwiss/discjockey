@@ -47,7 +47,8 @@ export function percent(share: number | null | undefined): string {
 }
 /** 16000 → "16.0 kHz". */
 /** What a quality class means, next to its badge (whose label may already say "LOSSY"). */
-export function qualityWords(q: Quality, label = ''): string {
+export function qualityWords(q: Quality, label = '', checked = true): string {
+  if (!checked) return 'sound not checked yet';
   if (label === 'LOSSY' && q === 'good_lossy') return 'hard to hear';
   return { lossless: 'verified lossless', good_lossy: 'lossy, hard to hear', weak: 'lossy, audible',
     fake: 'fake lossless', missing: 'no file yet' }[q];
@@ -166,8 +167,9 @@ export function serviceName(service: Service, full: string): string {
 
 /** The current file's cutoff as a number for its StatCard (where the highs end, over the spectrum; To-do and
  *  Library): null for a lossless file or none (nothing to show), "—" (value null) when the analysis found no edge. */
-export function cutoffStat(t: Pick<TrackDetail, 'status' | 'cutoff_hz'>): { value: string | null; label: string } | null {
-  if (t.status === 'lossless' || t.status === 'missing') return null;
+export function cutoffStat(t: Pick<TrackDetail, 'status' | 'cutoff_hz'> & { sound_checked?: boolean }): { value: string | null; label: string } | null {
+  // a file whose sound isn't checked yet has no cutoff to show: "no clear edge" would be a verdict
+  if (t.status === 'lossless' || t.status === 'missing' || t.sound_checked === false) return null;
   const value = t.cutoff_hz ? (t.cutoff_hz / 1000).toFixed(1) : null;
   if (t.status === 'fake_lossless') return { value, label: 'where the highs end · a lossy file inside the FLAC' };
   return { value, label: value ? 'where the highs end · lossless reaches about 22 kHz' : 'no clear edge in the highs' };

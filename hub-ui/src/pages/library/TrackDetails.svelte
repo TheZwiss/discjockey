@@ -40,9 +40,10 @@
     <div class="details" class:fading={loading} data-test="track-details" data-track={t.track_id}>
       <Surface kind="card">
         <TrackHead track={t} place={placeLine(t.folder, t.in_playlist_count, t.in_playlists)}>
-          <span class="state">
-            <QualityBadge quality={t.quality} label={t.quality_label} upgrade={t.upgrade_ready} />
-            <span class="words">{qualityWords(t.quality, t.quality_label)}{t.source_full ? ` · from ${t.source_full}` : ''}</span>
+          <span class="state" class:stack={!t.sound_checked}>
+            <QualityBadge quality={t.quality} label={t.quality_label} upgrade={t.upgrade_ready}
+              checked={t.sound_checked} />
+            <span class="words">{qualityWords(t.quality, t.quality_label, t.sound_checked)}{t.sound_checked && t.source_full ? ` · from ${t.source_full}` : ''}</span>
           </span>
         </TrackHead>
       </Surface>
@@ -107,6 +108,10 @@
   .details { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; transition: opacity var(--t-state) var(--ease); }
   .fading { opacity: .7; }
   .state { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+  /* "Not checked" and its words ("sound not checked yet", no "from …": the Source row says it) don't fit in one line: the words go
+     under the badge, whole */
+  .state.stack { flex-wrap: wrap; row-gap: var(--s-1); }
+  .state.stack .words { flex-basis: 100%; }
   .words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted);
     font-size: var(--fs-small); }
   .facts { display: flex; flex-direction: column; }

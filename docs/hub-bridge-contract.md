@@ -435,7 +435,12 @@ reload.
 a folder name. filter: `all|lossless|good_lossy|weak|fake|upgrade_ready`. sort:
 `title|artist|length|source|quality|added|folder` (folder: tracks in no playlist last), prefix `-` for descending. Only
 tracks with a file. Every row also has `sound_checked: bool`: false for an imported file whose sound isn't judged yet
-(`import_state` `identified`: the quality is the codec's guess for now; the page says "sound not checked yet"). The user's
+(`import_state` `identified`: the quality is the codec's guess for now; the page says "sound not checked yet", with a
+neutral "Not checked" badge instead of the quality). A row with `sound_checked: false` is left out of the quality
+chips (Lossless, Good lossy, Weak, Fake), of `summary.by_quality` and `summary.lossless_share` (a share of the checked
+files), and it sorts after every checked file by quality; it still counts under All and in `summary.tracks`. The same
+holds for `dashboard`'s `lossless_share` tile and folder bars (`by_quality`, `lossless_share`; `tracks` stays the whole
+count), and the to-do list holds no such file. The user's
 own songs (the import) are in no folder: their rows have `folder: ""` and `in_playlists: false`, they show in All
 tracks and Not in a playlist, never under a playlist folder. `summary` is the folder at a glance and ignores the search and the filter: `by_quality` (as in
 `dashboard`), `upgrades_ready`, and `to_do`, the tracks of the folder the to-do list shows (in a playlist, not hidden).
@@ -588,7 +593,10 @@ lossy download carries the bitrate when known ("YouTube Music OPUS 135 kbps · c
 file may be WAV, AIFF, FLAC or MP3.
 
 Also in `track()` (2026-10-18, details redone as facts): `format_line` ("Opus · 135 kbps", "FLAC", "uncompressed PCM";
-the bitrate only for a lossy download) and `source_full` ("YouTube Music", "bought"), both null without a file.
+the bitrate only for a lossy download) and `source_full` ("YouTube Music", "bought", "your own file" for a file the import found), both null without a file.
+`track()` also carries `sound_checked: bool` as the library rows do; for a file with `sound_checked: false`,
+`quality_line` ends "sound not checked yet" instead of "verified lossless" ("Your own file (PCM) · sound not checked
+yet"; a lossy codec: "Your own file (MP3) · lossy, sound not checked yet").
 `todo()` items carry `free: bool` (a not found, weak, good lossy or fake track with a free download: the row's FREE
 tag); the `detail` of lossy and fake rows is the source and bitrate ("YT Music · 131 kbps", "Qobuz"), as the badge
 already says the kHz.

@@ -251,8 +251,11 @@ export type FreeDownload = { url: string; host: string; direct: boolean; title: 
 /** The track's page on the service it was read from; `label` "Open in Spotify" / "Open in Qobuz". */
 export type TrackLink = { url: string; label: string };
 export type TrackDetail = TrackRow & {
+  /** false: an imported file whose sound isn't judged yet (see LibraryRow); `quality_line` then ends "sound not checked yet" */
+  sound_checked: boolean;
   isrc: string | null; playlists: string[] | null; in_playlist_count: number; quality_line: string;
-  /** "Opus · 135 kbps", "FLAC"; source_full: "YouTube Music", "bought" (both null without a file) */
+  /** "Opus · 135 kbps", "FLAC"; source_full: "YouTube Music", "bought", "your own file" for a file the import
+   *  found (both null without a file) */
   format_line: string | null; source_full: string | null;
   source_url: string | null; track_link: TrackLink | null; next_qobuz_check: string | null;
   rejected_sources: string[]; buy_links: { beatport: string; bandcamp: string }; free_downloads: FreeDownload[];

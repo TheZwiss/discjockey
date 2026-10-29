@@ -8,7 +8,7 @@
   // row's play button (▶ while the row is hovered, ❚❚ while it plays).
   import { Badge, ContextMenu, Cover, InfoTip, QualityBadge, Skeleton, SortHeader, Surface } from '$lib/components';
   import { artistTitle, dayMonth, duration } from '$lib/format';
-  import type { LibrarySort, TrackRow } from '$lib/bridge/types';
+  import type { LibraryRow, LibrarySort, TrackRow } from '$lib/bridge/types';
   import {
     folderCell, inTodo, moveSelection, optionalColumns, scrollToCenter, scrollToKeep, selectedIndex, sortState,
     windowSlice, type SortColumn,
@@ -16,7 +16,7 @@
 
   let { rows, loading = false, allTracks = false, sort, selected, playing = null, onsort, onselect, onplay, onfinder,
     ontodo }: {
-    rows: TrackRow[]; loading?: boolean;
+    rows: LibraryRow[]; loading?: boolean;
     /** All tracks (or Not in a playlist): the rows come from several folders, so Folder is a column */
     allTracks?: boolean; sort: LibrarySort; selected: string | null;
     /** the track playing now */
@@ -129,7 +129,7 @@
             {c === 'folder' ? folderCell(r) : c === 'source' ? (r.source_name ?? '–') : (dayMonth(r.added) || '–')}</span>
         {/each}
         <span class="td num">{duration(r.duration_s)}</span>
-        <span class="td"><QualityBadge quality={r.quality} label={r.quality_label} /></span>
+        <span class="td"><QualityBadge quality={r.quality} label={r.quality_label} checked={r.sound_checked} /></span>
         <span class="td slot">{#if r.upgrade_ready}<Badge tone="lossless" text="UPGRADE" />{/if}</span>
       </div>
     {/each}

@@ -111,11 +111,16 @@ export function footAction(t: Pick<TrackDetail, 'upgrade' | 'status' | 'upgrade_
   return inTodo(t) ? 'todo' : null;
 }
 
-/** The panel with nothing picked: the folder's lossless share (a StatCard over the quality bar). */
+/** The panel with nothing picked: the folder's lossless share (a StatCard over the quality bar). The share is over the
+ *  files whose sound is checked (views.library leaves the others out of `by_quality`), so the label says "checked"
+ *  as soon as some file isn't. */
 export function overview(s: Library['summary']): { value: string | null; unit?: string; label: string } {
-  if (!s.tracks || s.lossless_share === null) return { value: null, label: 'lossless · no tracks yet' };
+  if (!s.tracks) return { value: null, label: 'lossless · no tracks yet' };
+  if (s.lossless_share === null) return { value: null, label: 'lossless · none checked yet' };
+  const counted = Object.values(s.by_quality).reduce((n, c) => n + c, 0);
+  const noun = counted === s.tracks ? (s.tracks === 1 ? 'track' : 'tracks') : 'checked tracks';
   return { value: String(Math.round(s.lossless_share * 100)), unit: '%',
-    label: `lossless · ${s.by_quality.lossless} of ${s.tracks} ${s.tracks === 1 ? 'track' : 'tracks'}` };
+    label: `lossless · ${s.by_quality.lossless} of ${counted} ${noun}` };
 }
 
 /** The file's name from its path; the folder is in the track card already. */
