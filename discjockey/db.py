@@ -20,6 +20,7 @@ from typing import NamedTuple
 
 from . import library as disk  # "library" is the Library/ path argument everywhere here
 from .events import Emit, Message
+from .identify import compare
 from .models import (OWN_PREFIX, AddedFolder, BatchRow, DupFile, DuplicateGroup, ImportCounts, ImportRow, KnownFile,
                      MoveRow, OwnFacts, PlannedMove, RemovalCounts, ScanResult, WatchedFolder, group_id,
                      is_own, split_token, token)
@@ -1321,29 +1322,88 @@ def _import_folder(conn: sqlite3.Connection, folder_id: int) -> None:
         raise ValueError("the Library folder is always watched")
 
 
+def _waiting_links(conn: sqlite3.Connection, folder_id: int) -> int:
+    """The playlist songs that would take a file of the folder at the next plan but have not yet (planner._resolve
+    and its rule 2): an own song whose files are all in the folder, linked to a song by a "same" answer (the song
+    may not be stored yet: the answer names its track token), else to a stored playlist song with no file that
+    identify.compare finds certain. An own song serves one playlist song, as in the plan. Removing the folder
+    takes the file away, so these download too."""
+    own = conn.execute(
+        f"SELECT s.key, s.artist, s.title, s.duration_ms, s.isrc FROM songs s WHERE {_IS_OWN_ONLY} AND EXISTS "
+        "(SELECT 1 FROM files f WHERE f.song = s.id AND f.folder = ?1) AND NOT EXISTS "
+        "(SELECT 1 FROM files f WHERE f.song = s.id AND f.folder != ?1) ORDER BY s.id", (folder_id,)).fetchall()
+    if not own:
+        return 0
+    by_key = {key: dict(artist=a, title=t, duration_ms=ms, isrc=isrc) for key, a, t, ms, isrc in own}
+    song_of = {token(service, id): song for service, id, song in conn.execute("SELECT service, id, song FROM song_ids")}
+    open_songs = {song: (key, a, t, ms, isrc) for song, key, a, t, ms, isrc in conn.execute(
+        f"SELECT s.id, s.key, s.artist, s.title, s.duration_ms, s.isrc FROM songs s WHERE s.in_playlists = 1 "
+        f"AND NOT ({_IS_OWN}) AND NOT EXISTS (SELECT 1 FROM files f WHERE f.song = s.id) ORDER BY s.id")}
+    tokens: dict[int, set[str]] = {}
+    for tok, song in song_of.items():
+        tokens.setdefault(song, set()).add(tok)
+    answers = conn.execute("SELECT a, b, answer FROM decisions WHERE kind = 'same_song'").fetchall()
+    not_same = {(a, b) for a, b, answer in answers if answer == "not_same"}
+    taken: set[str] = set()
+    waiting: set[object] = set()  # a stored song's id, or the track token of one not stored yet
+    for a, b, answer in answers:
+        if answer == "same" and b in by_key and b not in taken:
+            song = song_of.get(a)
+            if song is None or song in open_songs:
+                taken.add(b)
+                waiting.add(a if song is None else song)
+    for song, (_, artist, title, ms, isrc) in open_songs.items():
+        if song in waiting:
+            continue
+        for b, e in by_key.items():
+            if (b not in taken and not any((a, b) in not_same for a in tokens.get(song, ()))
+                    and (m := compare(artist, title, ms, isrc, e)) is not None and m[0] == "certain"):
+                taken.add(b)
+                waiting.add(song)
+                break
+    return len(waiting)
+
+
 def _removal_counts(conn: sqlite3.Connection, folder_id: int) -> RemovalCounts:
     files = conn.execute("SELECT COUNT(*) FROM files WHERE folder = ?", (folder_id,)).fetchone()[0]
     redownload = conn.execute(f"SELECT COUNT(*) FROM songs s WHERE s.in_playlists = 1 AND {_LOSING}",
                               (folder_id,)).fetchone()[0]
-    return RemovalCounts(files, redownload)
+    return RemovalCounts(files, redownload + _waiting_links(conn, folder_id))
 
 
 def removal_counts(conn: sqlite3.Connection, folder_id: int) -> RemovalCounts:
-    """What removing an import folder would take away (W4): its file rows, and the songs still in a playlist whose
-    only file is there (they download again at the next sync). The Library folder or an unknown id is ValueError."""
+    """What removing an import folder would take away (W4): its file rows, and the playlist songs that download
+    again at the next sync: those whose only file is there, and those waiting to take a file there (a "same song"
+    answer, a certain match the next plan links: _waiting_links). The Library folder or an unknown id is ValueError."""
     _import_folder(conn, folder_id)
     return _removal_counts(conn, folder_id)
 
 
+def _unlink_own_keys(conn: sqlite3.Connection, folder_id: int) -> None:
+    """A playlist song that got its file by a link to an own song keeps that song's `local:<n>` key (its track token
+    is an alias). Losing the file here, it goes back to its first alias as its key, as if it had never been linked:
+    no `local:` key reaches a view, the next plan finds the song by its token. The own key's answers go with it
+    (_drop_dead_decisions, after). A song with no alias keeps its key."""
+    for song, key in conn.execute(f"SELECT s.id, s.key FROM songs s WHERE s.in_playlists = 1 AND {_IS_OWN} "
+                                  f"AND {_LOSING}", (folder_id,)).fetchall():
+        alias = conn.execute("SELECT service, id FROM song_ids WHERE song = ? AND NOT (service = ? AND id = ?) "
+                             "ORDER BY rowid LIMIT 1", (song, *split_token(key))).fetchone()
+        if alias is not None:
+            conn.execute("DELETE FROM song_ids WHERE song = ? AND service = ? AND id = ?", (song, *split_token(key)))
+            conn.execute("UPDATE songs SET key = ? WHERE id = ?", (token(*alias), song))
+
+
 def remove_watched_folder(conn: sqlite3.Connection, folder_id: int, today: date) -> RemovalCounts:
     """Stops watching an import folder (D12), in one transaction; its files stay where they are. Its file rows go;
-    every playlist song left with no file gets file_gone today (rule 2 downloads it again if it is still wanted);
+    every playlist song left with no file gets file_gone today (rule 2 downloads it again if it is still wanted; one
+    linked to an own song gets its playlist key back, _unlink_own_keys);
     own songs left with no file go (a parked upgrade's file stays in Upgrades ready/), with the answers naming
     them and the keep_both answers of groups with one of its files (_drop_dead_decisions). The Library folder or an unknown id is
     ValueError. Returns removal_counts as they were."""
     with transaction(conn):
         _import_folder(conn, folder_id)
         counts = _removal_counts(conn, folder_id)
+        _unlink_own_keys(conn, folder_id)
         conn.execute(f"UPDATE songs AS s SET file_gone = ?2 WHERE {_LOSING}", (folder_id, str(today)))
         conn.execute("DELETE FROM files WHERE folder = ?", (folder_id,))
         conn.execute("DELETE FROM watched_folders WHERE id = ?", (folder_id,))

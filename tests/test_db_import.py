@@ -317,15 +317,21 @@ def link(lib, key, alias="sp9"):
                      (*db.split_token(alias), key))
 
 
-def test_removing_a_folder_keeps_a_linked_own_song_and_counts_it_as_a_redownload(lib):
+def test_removing_a_folder_counts_a_linked_own_song_as_a_redownload_and_gives_it_back_its_playlist_key(lib):
     folder, _, key = removal_setup(lib)
     link(lib, key)
     with lib.conn() as conn:
         db.set_decision(conn, "same_song", "sp9", key, "same", NOW)
         assert db.removal_counts(conn, folder) == db.RemovalCounts(files=3, redownload=2)
         assert db.remove_watched_folder(conn, folder, date(2026, 10, 26)) == db.RemovalCounts(3, 2)
-        assert db.decisions(conn)["same_song"] == [["sp9", key, "same"]]
-    assert lib.rows("SELECT key, file_gone, in_playlists FROM songs WHERE key = ?", key) == [(key, "2026-10-26", 1)]
+        assert db.decisions(conn)["same_song"] == []  # it names an own song that has no key any more
+    # as if it had never been linked: the playlist song's key, no trace of the own key
+    assert lib.rows("SELECT key, file_gone, in_playlists FROM songs WHERE key IN (?, 'sp9')", key) == [
+        ("sp9", "2026-10-26", 1)]
+    assert lib.rows("SELECT service, id FROM song_ids WHERE service = 'local' OR id = ?", key) == []
+    tracks = lib.snap()["tracks"]
+    assert not any(k.startswith("local:") for k in tracks) and tracks["sp9"]["aliases"] == []
+    assert (tracks["sp9"]["artist"], tracks["sp9"]["title"]) == ("Example Artist", "Own Track")
 
 
 def test_superseding_the_only_file_of_a_linked_own_song_keeps_the_song(lib):
@@ -613,3 +619,19 @@ def test_the_librarys_own_waiting_and_unreadable_files_are_counted_like_an_impor
         assert db.import_unreadable(conn) == []  # the import folders' list is its own
         assert 1 not in db.import_counts(conn)
     assert counts == db.ImportCounts(files=3, waiting=1, identified=0, unreadable=1)
+
+
+def test_removal_counts_a_playlist_song_that_waits_for_a_link_to_a_file_in_the_folder(lib):
+    folder, _, key = removal_setup(lib)
+    (f,) = lib.add_files(folder, "Other.mp3")
+    other = lib.own_song(f, own(title="Other"))
+    state = lib.snap()
+    state["tracks"]["sp4"] = entry("Example Artist", "Other", duration_ms=200000)  # a certain match, not linked yet
+    state["tracks"]["sp5"] = entry("Somebody Else", "Other", duration_ms=200000)  # only plausible: not counted
+    lib.save(state)
+    with lib.conn() as conn:
+        db.set_decision(conn, "same_song", "sp9", key, "same", NOW)  # answered Yes; sp9 is not stored yet
+        assert db.removal_counts(conn, folder) == db.RemovalCounts(files=4, redownload=3)  # sp2, sp9, sp4
+        db.set_decision(conn, "same_song", "sp4", other, "not_same", NOW)
+        assert db.removal_counts(conn, folder) == db.RemovalCounts(files=4, redownload=2)
+        assert db.remove_watched_folder(conn, folder, date(2026, 10, 26)) == db.RemovalCounts(4, 2)
