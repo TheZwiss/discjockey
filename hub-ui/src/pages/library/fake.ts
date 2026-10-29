@@ -37,6 +37,18 @@ const fake: PageFake = {
         ownAway(s, 2, 'Tom Brandt', 'Letzter Zug', 'fake_lossless', 16000),
         ownAway(s, 3, 'Mira Nacht', 'Stille Post', 'lossless', null, 'offline'));
     },
+    // the USB stick an import folder is on was ejected while the window is open (library stage 4 fix K): two of its
+    // files read Offline in the list, beside a file of the user's own on the Mac (there), the playlist songs and the
+    // two that left every playlist (dimmed, no tag). `window.__fake.drive(true)` plugs it back in (DrivesChanged).
+    ejected: (s) => {
+      s.tracks.push(ownAway(s, 1, 'Mira Nacht', 'Funkenregen', 'fake_lossless', 16000, 'offline'),
+        ownAway(s, 3, 'Mira Nacht', 'Stille Post', 'lossless', null, 'offline'),
+        ownAway(s, 2, 'Tom Brandt', 'Letzter Zug', 'lossless', null));
+      const stick = s.imp.folders.find((f) => f.kind === 'import');
+      if (stick) Object.assign(stick, { path: '/Volumes/Example Stick/Music', offline: true, files: 2, redownload: 0 });
+      s.imp.folders.push({ id: s.imp.nextId++, path: '/Users/you/Music/Old Sets', kind: 'import', offline: false,
+        files: 1, waiting: 0, redownload: 0 });
+    },
     // an import folder that was moved, renamed or deleted (its drive is there): "Folder not found" in the panel
     folder_missing: (s) => {
       s.tracks.push(ownAway(s, 1, 'Mira Nacht', 'Funkenregen', 'fake_lossless', 16000, 'folder_missing'),

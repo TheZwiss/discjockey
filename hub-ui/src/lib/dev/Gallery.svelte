@@ -20,7 +20,7 @@
   import { ColumnFrame, ListPanelFrame, Panel } from '../frames';
   import {
     AccountPanel, AddRow, CopyCode, NumberedSteps, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
-    Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
+    AwayTag, Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
     Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NoteCard, PageHeader, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
     Segmented, SectionLabel, SelectCard, Skeleton, SortHeader, SourceLadder, Spectrum, Spinner, SplitView, StatCard, StatusMark, Surface, Switch, TextField, Tile, Toast,
     ToggleGroup, ToggleRow, TrackHead, TrackRow, UpgradeCard, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
@@ -814,7 +814,7 @@
   </section>
 
   <section data-test="gallery-badge">
-    {@render head('Badge · QualityBadge · ExternalLink', 'A short state or value in the quality colours; a link that leaves the app')}
+    {@render head('Badge · QualityBadge · AwayTag · ExternalLink', 'A short state or value in the quality colours; why a file isn\'t there to play, in a row\'s quality column (the panel\'s line as its tooltip); a link that leaves the app')}
     <div class="row"><Badge tone="lossless" text="LOSSLESS" /><Badge tone="good_lossy" text="20.0 kHz" /><Badge tone="weak" text="16.0 kHz" />
       <Badge tone="fake" text="FAKE · 16.0 kHz" /><Badge tone="missing" text="NOT FOUND" /><Badge tone="accent" text="↑" />
       <Badge tone="muted" text="OFFLINE" /><Badge tone="other" text="OTHER" /></div>
@@ -823,6 +823,7 @@
       <QualityBadge quality="weak" label="16.0 kHz" upgrade /><QualityBadge quality="fake" label="FAKE · 16.0 kHz" />
       <QualityBadge quality="missing" label="NOT FOUND" /><QualityBadge quality="lossless" label="LOSSLESS" checked={false} />
     </div>
+    <div class="row" data-test="g-away-tag"><AwayTag state="offline" /><AwayTag state="folder_missing" /><AwayTag state="file_missing" /></div>
     <div class="row"><ExternalLink href="https://www.beatport.com/search?q=Armin+Hermann+Get+Naughty" label="Beatport" />
       <ExternalLink href="https://bandcamp.com">Bandcamp</ExternalLink></div>
   </section>

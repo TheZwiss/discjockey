@@ -1,4 +1,5 @@
 // Every shared component (plan 64.9). Pages import from '$lib/components'.
+export { default as AwayTag } from './AwayTag.svelte';
 export { default as Badge } from './Badge.svelte';
 export { default as Banner } from './Banner.svelte';
 export { default as Button } from './Button.svelte';
