@@ -11,7 +11,7 @@
   import { ListPanelFrame } from '$lib/frames';
   import { api, runJob } from '$lib/bridge/client';
   import type { Fail, Library, LibraryFilter, LibrarySort, ProblemKind, TrackDetail } from '$lib/bridge/types';
-  import { dataVersion } from '$lib/stores/hub';
+  import { filesVersion } from '$lib/stores/hub';
   import { player } from '$lib/stores/player';
   import { listen } from '$lib/listen';
   import { toasts } from '$lib/stores/toasts';
@@ -24,7 +24,7 @@
   import TrackDetails from './TrackDetails.svelte';
   import FolderOverview from './FolderOverview.svelte';
   import {
-    DEFAULT_SORT, LIBRARY_FILTERS, SORT_KEY, filterKey, isSort, libraryView, nextSort, segOptions, todoHref, type SortColumn,
+    DEFAULT_SORT, LIBRARY_FILTERS, SORT_KEY, filterKey, isSort, libraryView, nextSort, playable, segOptions, todoHref, type SortColumn,
   } from './libraryModel';
   import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 
@@ -79,7 +79,7 @@
   let libTurn = 0;
   $effect(() => {
     const args = [folder, q, filter, sort] as const;
-    void $dataVersion;
+    void $filesVersion;
     void retry;
     const turn = ++libTurn;
     untrack(() => { loading = true; });
@@ -101,7 +101,7 @@
   let trackRetry = $state(0);
   $effect(() => {
     const id = selected;
-    void $dataVersion;
+    void $filesVersion;
     void trackRetry;
     const turn = ++trackTurn;
     untrack(() => {
@@ -159,7 +159,8 @@
   // sorted from the engine (`api.library(…, sort)`), and the table shows them in that order.
   function play(id: string) {
     const label = (lib?.title ?? 'All tracks') + (q ? ` · “${q}”` : '');
-    if (!lib || !listen(lib.rows, id, { label, href: libraryHref(folder) })) {
+    // the queue holds the rows whose file is there: ⏭ never lands on a file on an ejected drive
+    if (!lib || !listen(lib.rows.filter(playable), id, { label, href: libraryHref(folder) })) {
       toasts.show({ tone: 'problem', title: "Can't play this file." });
     }
   }

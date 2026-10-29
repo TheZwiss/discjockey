@@ -32,13 +32,15 @@ export type HubEvent =
   | { type: 'FileDropped'; track_id: string | null; name: string; readable: boolean; message: string }
   | { type: 'SignInPhase'; service: 'youtube' | 'soundcloud'; phase: 'waiting' | 'checking'; browser: Browser;
       browser_name: string }
-  | { type: 'AppUpdate'; state: AppUpdate['state']; current: string; latest: string | null; url: string | null };
+  | { type: 'AppUpdate'; state: AppUpdate['state']; current: string; latest: string | null; url: string | null }
+  /** a watched folder came or went while the window is open (a drive plugged in or ejected): `away` folders now */
+  | { type: 'DrivesChanged'; away: number };
 export type EventOf<T extends HubEvent['type']> = Extract<HubEvent, { type: T }>;
 
-/** The 20 names, same order as the schema's oneOf. */
+/** The 21 names, same order as the schema's oneOf. */
 export const EVENT_TYPES = ['RunStarted', 'ActionStarted', 'StepChanged', 'Progress', 'Waiting', 'SourceChosen',
   'Checked', 'AccountUsage', 'ActionFinished', 'RunFinished', 'Message', 'ReadingPlaylist', 'MovesProgress', 'ImportProgress', 'JobStarted', 'JobFinished', 'ConsoleBusy',
-  'FileDropped', 'SignInPhase', 'AppUpdate'] as const satisfies readonly HubEvent['type'][];
+  'FileDropped', 'SignInPhase', 'AppUpdate', 'DrivesChanged'] as const satisfies readonly HubEvent['type'][];
 
 /** Runtime copy of the field names above, so a renamed field breaks a test (spec §9). */
 export const EVENT_FIELDS: { [T in HubEvent['type']]: readonly (keyof EventOf<T>)[] } = {
@@ -62,6 +64,7 @@ export const EVENT_FIELDS: { [T in HubEvent['type']]: readonly (keyof EventOf<T>
   FileDropped: ['type', 'track_id', 'name', 'readable', 'message'],
   SignInPhase: ['type', 'service', 'phase', 'browser', 'browser_name'],
   AppUpdate: ['type', 'state', 'current', 'latest', 'url'],
+  DrivesChanged: ['type', 'away'],
 };
 export const ACTION_FIELDS: readonly (keyof Action)[] = ['kind', 'track_id', 'folder', 'track', 'order', 'src',
   'dest_dir', 'aliases', 'reason', 'qobuz_id'];

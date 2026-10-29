@@ -7,6 +7,10 @@ committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when
 
 Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
 
+- **To-do's list rows don't say a file is away** (fix K did the Library's): an Upgrade ready or Weak item whose file
+  is on an ejected drive looks like any other row; only its panel says "Offline: connect the drive". `views.todo`
+  could send each item's `file_state` as `library()` does (per folder) and the row show the `AwayTag`. Its rows have
+  no quality column, so the tag's place needs a look of its own (the badge slot, or the detail line).
 - **Sync's Up-to-date view shows no hint when every remaining song waits for an answer;** only the To-do count points
   at them. Show the "{n} songs wait for your answer" note there too.
 - **A downloaded file's Format row names the download, not the file.** `views.format_line` prints `source_format`, the

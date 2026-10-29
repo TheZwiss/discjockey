@@ -62,6 +62,9 @@
     },
     {
       "$ref": "#/$defs/AppUpdate"
+    },
+    {
+      "$ref": "#/$defs/DrivesChanged"
     }
   ],
   "$defs": {
@@ -614,6 +617,22 @@
         "current",
         "latest",
         "url"
+      ],
+      "additionalProperties": false
+    },
+    "DrivesChanged": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "DrivesChanged"
+        },
+        "away": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "away"
       ],
       "additionalProperties": false
     },

@@ -1525,3 +1525,23 @@ def test_a_file_in_an_import_folder_that_is_away_now_is_offline_or_in_a_folder_n
     inner = {"/Volumes/Example Drive": "unmounted", "/Volumes/Example Drive/Music": "missing"}
     assert file_state(mine, inner) == "folder_missing"  # the innermost watched folder decides
     assert file_state(mine, renamed, exists=False) == "folder_missing"  # the folder comes before the file
+
+
+def test_library_rows_say_whether_their_file_is_here_offline_or_in_a_folder_not_found():
+    st = {"tracks": {"local:1": own(path="/Volumes/Example Stick/Music/a.aiff"),
+                     "local:2": {**own(path="/Volumes/Example Stick/Music/b.aiff"), "online": False},
+                     "local:3": own(path="/Users/you/Old Music/c.aiff"),
+                     "t1": e("lossless")}}
+
+    def states(away):
+        return {r["track_id"]: r["file_state"] for r in views.library(st, None, "", "all", "title", away=away)["rows"]}
+
+    # no folder away: only the row a scan stored as offline is, read as the panel reads it (file_state)
+    assert states(None) == {"local:1": "here", "local:2": "offline", "local:3": "here",
+                            "t1": "here"}
+    assert states({"/Volumes/Example Stick/Music": "unmounted"}) == {
+        "local:1": "offline", "local:2": "offline", "local:3": "here", "t1": "here"}
+    assert states({"/Users/you/Old Music": "missing"}) == {
+        "local:1": "here", "local:2": "offline", "local:3": "folder_missing", "t1": "here"}
+    # decided per folder: a row never asks whether its own file is there, so "file_missing" stays the panel's
+    assert "file_missing" not in states({"/Volumes/Example Stick/Music": "missing"}).values()

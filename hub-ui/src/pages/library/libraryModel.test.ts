@@ -3,7 +3,7 @@ import type { TrackRow } from '$lib/bridge/types';
 import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import {
   fileName, folderCell, footAction, inTodo, isSort, libraryView, moveSelection, nextSort, optionalColumns, overview, placeLine,
-  rowOff, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
+  playable, rowAway, rowOff, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
 } from './libraryModel';
 import type { Library, TrackDetail } from '$lib/bridge/types';
 
@@ -160,5 +160,16 @@ describe('copy helpers', () => {
     expect(shortUrl('https://soundcloud.com/a')).toBe('soundcloud.com/a');
     expect(placeLine('Hard_Bounce')).toBe('Hard_Bounce');
     expect(placeLine('Old_Sets', false)).toBe('Not in a playlist');
+  });
+});
+
+describe('an away row (library stage 4 fix K)', () => {
+  it('plays only when its file is there, and names why it is not', () => {
+    expect(playable({ file_state: 'here' })).toBe(true);
+    expect(playable({ file_state: 'offline' })).toBe(false);
+    expect(playable({ file_state: 'folder_missing' })).toBe(false);
+    expect(rowAway({ file_state: 'here' })).toBeNull();
+    expect(rowAway({ file_state: 'offline' })).toBe('offline');
+    expect(rowAway({ file_state: 'folder_missing' })).toBe('folder_missing');
   });
 });

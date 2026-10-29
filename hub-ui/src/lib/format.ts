@@ -198,6 +198,12 @@ export const FILE_STATE_WORDS: Record<Exclude<FileState, 'here'>, string> = {
   folder_missing: 'Folder not found',
   file_missing: "This file isn't there any more.",
 };
+/** The same, short, for a list row's `AwayTag` (the panel's line is its tooltip). */
+export const FILE_STATE_TAG: Record<Exclude<FileState, 'here'>, string> = {
+  offline: 'Offline',
+  folder_missing: 'Folder not found',
+  file_missing: 'File not found',
+};
 /** The track has a file, but it isn't there to play (the panels: no Show in Finder, the player off). */
 export const fileAway = (t: Pick<TrackDetail, 'status' | 'file_state'>): boolean =>
   t.status !== 'missing' && t.file_state !== 'here';

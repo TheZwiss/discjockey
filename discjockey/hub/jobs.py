@@ -80,9 +80,16 @@ class AppUpdate:
     url: str | None  # its release page when available
 
 
+@dataclass(frozen=True)
+class DrivesChanged:
+    """A watched folder came or went while the window is open (a drive plugged in or ejected, a folder renamed or put
+    back): the pages showing a file's or a folder's state read them again. Read only; nothing is scanned."""
+    away: int  # how many watched folders are away now
+
+
 EVENT_TYPES = (ev.RunStarted, ev.ActionStarted, ev.StepChanged, ev.Progress, ev.Waiting, ev.SourceChosen, ev.Checked,
                ev.AccountUsage, ev.ActionFinished, ev.RunFinished, ev.Message, ev.ReadingPlaylist, ev.MovesProgress, ev.ImportProgress, JobStarted, JobFinished,
-               ConsoleBusy, FileDropped, SignInPhase, AppUpdate)
+               ConsoleBusy, FileDropped, SignInPhase, AppUpdate, DrivesChanged)
 
 
 def event_dict(event: object) -> dict:

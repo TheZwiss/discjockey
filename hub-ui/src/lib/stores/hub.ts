@@ -28,6 +28,7 @@ export const EMPTY_HUB: HubState = { booted: false, fake: false, job: null, sign
 
 const state = writable<HubState>({ ...EMPTY_HUB });
 const version = writable(0);
+const drives = writable(0);
 
 export const hub: Readable<HubState> = { subscribe: state.subscribe };
 export const writeBusy = derived(state, (s) => !!s.job?.running || s.console_running);
@@ -72,6 +73,11 @@ export const readBlock = derived(state, (s) => readBlockIn(s.spotify));
 export const readBlocked = derived(readBlock, (b) => b !== null);
 /** +1 on every JobFinished (any kind), ConsoleBusy {running:false} and a finished refresh. Pages re-fetch on change. */
 export const dataVersion: Readable<number> = { subscribe: version.subscribe };
+/** dataVersion plus 1 on every DrivesChanged (a drive plugged in or ejected, a watched folder gone or back while the
+ *  window is open). What shows a file's or a watched folder's state re-reads on it: the Library list and its panel,
+ *  To-do, the watched folders (Settings, Setup). A plain bump of dataVersion would also re-read pages a drive can't
+ *  change (Sync's plan, Playlists). */
+export const filesVersion: Readable<number> = derived([version, drives], ([v, d]) => v + d);
 
 /** The job kind of a sign-in (engine `Jobs.start_sign_in`). */
 const SIGN_IN_KIND = 'account_sign_in';
@@ -130,6 +136,9 @@ onEvent((e) => {
   if (e.type === 'JobFinished' || (e.type === 'ConsoleBusy' && !e.running)) {
     version.update((v) => v + 1);
     void refreshHub();
+  } else if (e.type === 'DrivesChanged') {
+    drives.update((v) => v + 1);
+    void refreshHub();  // the sidebar's To-do count leaves out a duplicate whose file just went away
   }
 });
 

@@ -681,9 +681,13 @@ def _matches(row: dict, filt: str) -> bool:
     return row["upgrade_ready"] if filt == "upgrade_ready" else row["sound_checked"] and row["quality"] == filt
 
 
-def library(state: dict, folder: str | None, query: str, filt: str, sort: str, cover: Url | None = None) -> dict:
+def library(state: dict, folder: str | None, query: str, filt: str, sort: str, cover: Url | None = None,
+            away: Mapping[str, str] | None = None) -> dict:
     """folder: None (all tracks), NOT_IN_PLAYLIST, or a folder name. filt: LIBRARY_FILTERS. sort: a SORTS key,
-    "-" in front for descending. Only tracks with a file (not found ones are in the to-do list)."""
+    "-" in front for descending. Only tracks with a file (not found ones are in the to-do list). `away`: the import
+    folders that are not there now (HubApi._away_roots, as track_detail gets it): each row's `file_state` says
+    whether its file is "here", "offline" (its drive is not connected) or "folder_missing", decided per folder
+    (file_state without the file check: no file is looked at per row, so "file_missing" stays the panel's)."""
     with_file = {k: e for k, e in state["tracks"].items() if e["status"] != "missing" and e.get("path")}
     if folder is None:
         chosen, title = with_file, "All tracks"
@@ -693,7 +697,8 @@ def library(state: dict, folder: str | None, query: str, filt: str, sort: str, c
         chosen, title = {k: e for k, e in with_file.items() if fold(e["folder"] or "") == fold(folder)}, folder
     # sound_checked: false while an imported file has only the codec's provisional quality: the page says "sound not
     # checked yet", and no count below holds the file (it still counts under All and in "tracks")
-    rows = [{**track_row(k, e, cover), "sound_checked": sound_checked(e)} for k, e in chosen.items()]
+    rows = [{**track_row(k, e, cover), "sound_checked": sound_checked(e), "file_state": file_state(e, away)}
+            for k, e in chosen.items()]
     in_folder = len(rows)
     by = quality_counts(list(chosen.values()))
     counted = sum(by.values())
