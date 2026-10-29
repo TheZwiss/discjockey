@@ -33,6 +33,7 @@
   import { getContext } from 'svelte';
   import { edgeFade } from './edgeFade';
   import { growFill } from './growFill';
+  import { fitHeadLabel } from './fitPathAction';
   import { GROW_SPARE, type GrowSpareHost } from './toggleModel';
   import type { Snippet } from 'svelte';
   import type { HTMLAttributes } from 'svelte/elements';
@@ -42,12 +43,12 @@
   export type Bulk = { all?: string; allOff: boolean; noneOff: boolean; onall: (on: boolean) => void; test?: string };
 
   type Props = Omit<HTMLAttributes<HTMLElement>, 'children'> & {
-    kind?: 'card' | 'list' | 'table'; label?: string; summary?: string;
+    kind?: 'card' | 'list' | 'table'; label?: string; summary?: string; hint?: string; fitLabel?: string;
     tone?: 'default' | 'good' | 'warn' | 'problem'; header?: Snippet; children: Snippet; padded?: boolean;
     foldable?: boolean; open?: boolean; sticky?: boolean; summaryTest?: string; bulk?: Bulk;
     grow?: { rows: number; tall?: boolean }; columns?: Snippet; scroller?: HTMLElement | null;
   };
-  let { kind = 'card', label, summary, tone = 'default', header, children, padded, foldable = false, open = $bindable(true),
+  let { kind = 'card', label, summary, hint, fitLabel, tone = 'default', header, children, padded, foldable = false, open = $bindable(true),
     sticky = false, summaryTest, bulk, grow, columns, scroller = $bindable(null), class: className, ...rest }: Props = $props();
   // a card is padded, a list or table runs edge to edge unless asked otherwise
   const pad = $derived(padded ?? kind === 'card');
@@ -65,8 +66,11 @@
       <button type="button" class="fold" data-row-hit aria-expanded={open} aria-controls={open ? `${uid}-body` : undefined} onclick={() => (open = !open)}>
         <svg class="chev" class:open viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" /></svg><span class="title" id="{uid}-label">{label}</span>
       </button>
+    {:else if label && fitLabel}<span class="title path" id="{uid}-label" title={fitLabel}
+      use:fitHeadLabel={fitLabel}><span></span><span></span></span>
     {:else if label}<span class="title" id="{uid}-label">{label}</span>{/if}
     {#if summary}<span class="summary" data-test={summaryTest}>{summary}</span>{/if}
+    {#if hint}<span class="hint">{hint}</span>{/if}
     {#if header || bulk}
       <div class="extra">
         {@render header?.()}
@@ -134,6 +138,10 @@
     stroke-linecap: round; stroke-linejoin: round; transition: transform var(--t-press) var(--ease); }
   .chev.open { transform: rotate(90deg); }
   .fold:hover .chev { stroke: var(--text); }
+  .title.path { flex: none; max-width: 100%; }
+  /* a group's one-line hint, as ListSection's (name · count · hint): the same two spans, the same colours */
+  .hint { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--text-label); font-size: var(--fs-small); }
   .summary { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     color: var(--text-muted); font-size: var(--fs-small); font-variant-numeric: tabular-nums; }
   .extra { flex: none; margin-left: auto; display: flex; align-items: center; gap: var(--s-2); }

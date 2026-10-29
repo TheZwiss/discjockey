@@ -399,6 +399,9 @@
         {@render srows(5, 'Playlist')}
       </Surface>
       <Surface kind="list">{@render srows(2, 'A list without a head · row')}</Surface>
+      <!-- hint: a group's one-line hint after its count, the way ListSection prints it; fitLabel: a folder as the label, given in whole folders -->
+      <Surface kind="list" label="Duplicates" summary="2" hint="the same song more than once">{@render srows(2, 'Group')}</Surface>
+      <Surface label="/Volumes/Example Drive/Crates/Old" fitLabel="/Volumes/Example Drive/Crates/Old" summary="In your playlists"><p>A folder as the label</p></Surface>
       <Surface label="Up to date" tone="good"><p>5 playlists · 49 tracks</p></Surface>
       <Surface tone="warn" label="Could be better"><p>Warn tone</p></Surface>
       <Surface tone="problem" label="Needs you" summary="3"><p>Problem tone</p></Surface>

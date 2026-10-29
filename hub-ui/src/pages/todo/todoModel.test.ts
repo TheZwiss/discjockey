@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { Todo, TodoGroupKey, TodoItem, TrackDetail, Upgrade } from '$lib/bridge/types';
+import type {
+  DuplicateItem, FileSide, QuestionItem, QuestionPair, Todo, TodoGroupKey, TodoItem, TrackDetail, Upgrade,
+} from '$lib/bridge/types';
 import { createFakeBridge } from '$lib/bridge/fake/bridge';
 import {
   dropDecision,
-  FILTER_ORDER, actionsFor, segOptions, filterFrom, flatten, headerSub, itemKey, keepSelection, moveSelection,
+  FILTER_ORDER, actionsFor, segOptions, filterFrom, flatten, headerSub, itemKey, keepSelection, moveSelection, rowOff,
   cutoffStat, freeHint, qobuzText, selectAfterHide, selectFromTrack,
+  NO_VALUE, compareLines, fileFolder, fileName, fileQueue, fileState, keepLabel, linkService, queueRows, rowBadge,
 } from './todoModel';
 
 function item(id: string, group: TodoGroupKey, extra: Partial<TodoItem> = {}): TodoItem {
@@ -208,5 +211,167 @@ describe('FileDropped decision', () => {
   });
   it('ignores a drop meant for another track', () => {
     expect(dropDecision(ev({ track_id: 't2' }), 't17')).toEqual({ do: 'ignore' });
+  });
+});
+
+// ---------- the import's groups (plan library stage 4, 7.1–7.3) ----------
+function side(file_id: number, extra: Partial<FileSide> = {}): FileSide {
+  return { file_id, song_key: `local:${file_id}`, path: `/Volumes/Example Drive/Music/A - x${file_id}.aiff`, artist: 'A',
+    title: 'x', duration_s: 200, quality: 'lossless', quality_label: 'LOSSLESS', online: true,
+    audio_url: `u${file_id}`, in_playlist: false, ...extra };
+}
+function question(song_key: string, own: number, extra: Partial<QuestionPair> = {}): QuestionItem {
+  const pair: QuestionPair = { song_key, own_key: `local:${own}`, why: 'artist', delta_s: null,
+    track: { artist: 'Neon Riot', title: 'Hands Up', duration_s: 194, folder: 'Hard_Bounce', link: null },
+    file: side(own, { artist: 'Neonriot', title: 'Hands Up', duration_s: 194, quality: 'weak', quality_label: '16.0 kHz' }),
+    ...extra };
+  return { ...item(song_key, 'same_song'), group: 'same_song', status: 'missing', quality: 'missing',
+    quality_label: 'NOT FOUND', pair };
+}
+function dupe(ids: number[]): DuplicateItem {
+  const group_id = `dup:${ids.join('-')}`;
+  return { ...item(group_id, 'duplicate'), group: 'duplicate', pair: { group_id, why: 'same_audio', files: ids.map((id) => side(id)) } };
+}
+const flatOf = (...items: TodoItem[]) => items;
+
+describe('the import groups on the strip and in navigation', () => {
+  it('come right after rekordbox, in the order the sections do', () => {
+    expect(FILTER_ORDER.slice(0, 5)).toEqual(['all', 'rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready']);
+    const chips = { all: 12, rekordbox_check: 1, same_song: 2, duplicate: 3, upgrade_ready: 1, not_found: 4, weak: 1,
+      good_lossy: 0, fake: 0, other: 0 };
+    const o = segOptions(chips, 'all');
+    expect(o.map((x) => x.key)).toEqual(['all', 'rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready',
+      'not_found', 'weak']);
+    expect(o.find((x) => x.key === 'same_song')).toMatchObject({ label: 'Same song?', count: 2, dot: null });
+    expect(o.find((x) => x.key === 'duplicate')).toMatchObject({ label: 'Duplicates', count: 3 });
+    expect(filterFrom('same_song', 'all')).toBe('same_song');
+    expect(filterFrom(null, 'duplicate')).toBe('duplicate');
+  });
+  it('name a question by its song and file, a duplicate group by its id', () => {
+    expect(itemKey(question('q1', 101))).toBe('same_song/q1/local:101');
+    expect(itemKey(dupe([201, 202]))).toBe('duplicate/dup:201-202');
+    // one song asked about two files: two items
+    expect(itemKey(question('q1', 102))).not.toBe(itemKey(question('q1', 101)));
+  });
+  it('go on to the next question after an answer, never after the song into another group', () => {
+    const before = flatOf(question('q1', 101), question('q2', 102), item('t9', 'weak'));
+    const after = flatOf(question('q2', 102), item('q1', 'weak'), item('t9', 'weak'));
+    expect(keepSelection('same_song/q1/local:101', before, after)).toBe('same_song/q2/local:102');
+  });
+  it('keep a duplicate group selected when it lost a file to Superseded/ (its id changes)', () => {
+    const before = flatOf(dupe([201, 202, 203]), dupe([301, 302]));
+    const after = flatOf(dupe([301, 302]), dupe([201, 203]));
+    expect(keepSelection('duplicate/dup:201-202-203', before, after)).toBe('duplicate/dup:201-203');
+  });
+  it('stay on a duplicate when Keep all makes the group vanish, even with a question in its place', () => {
+    const before = flatOf(question('q1', 101), dupe([201, 202, 203]), item('t9', 'weak'), dupe([301, 302]));
+    const after = flatOf(question('q1', 101), item('t9', 'weak'), dupe([301, 302]));
+    expect(keepSelection('duplicate/dup:201-202-203', before, after)).toBe('duplicate/dup:301-302');
+    // the last of its kind: the one before it; none left: the item in its place
+    expect(keepSelection('duplicate/dup:301-302', flatOf(dupe([201, 202]), dupe([301, 302])), flatOf(dupe([201, 202]))))
+      .toBe('duplicate/dup:201-202');
+    expect(keepSelection('duplicate/dup:201-202', flatOf(question('q1', 101), dupe([201, 202]), item('t9', 'weak')),
+      flatOf(question('q1', 101), item('t9', 'weak')))).toBe('weak/t9');
+  });
+  it('keep a question on a question after an answer', () => {
+    const before = flatOf(item('t1', 'weak'), question('q1', 101), question('q2', 102));
+    const after = flatOf(item('t1', 'weak'), question('q2', 102));
+    expect(keepSelection('same_song/q2/local:102', before, flatOf(item('t1', 'weak'), question('q3', 103))))
+      .toBe('same_song/q3/local:103');
+    expect(keepSelection('same_song/q1/local:101', before, after)).toBe('same_song/q2/local:102');
+  });
+  it('go on to the item in its place when a duplicate group is done', () => {
+    const before = flatOf(dupe([201, 202]), dupe([301, 302]), item('t9', 'weak'));
+    const after = flatOf(dupe([301, 302]), item('t9', 'weak'));
+    expect(keepSelection('duplicate/dup:201-202', before, after)).toBe('duplicate/dup:301-302');
+  });
+  it('select the item of a file playing in the foot (file:<id>), and a question by its song', () => {
+    const flat = flatOf(question('q1', 101), dupe([201, 202]));
+    expect(selectFromTrack(flat, 'file:202')).toBe('duplicate/dup:201-202');
+    expect(selectFromTrack(flat, 'file:101')).toBe('same_song/q1/local:101');
+    expect(selectFromTrack(flat, 'file:999')).toBeNull();
+    expect(selectFromTrack(flat, 'q1')).toBe('same_song/q1/local:101');
+  });
+  it('leave the import items out of the to-do queue', () => {
+    const flat = flatOf(question('q1', 101), dupe([201, 202]), item('t9', 'weak'));
+    expect(queueRows(flat).map((i) => i.track_id)).toEqual(['t9']);
+  });
+  it('show a question row with its file\'s quality, every other row with its own', () => {
+    expect(rowBadge(question('q1', 101))).toEqual({ quality: 'weak', label: '16.0 kHz' });
+    expect(rowBadge(item('t9', 'weak'))).toEqual({ quality: 'weak', label: '16.0 kHz' });
+    expect(rowBadge(dupe([1, 2]))).toEqual({ quality: 'weak', label: '16.0 kHz' });
+  });
+});
+
+describe('the import details', () => {
+  it('line the playlist song up with the file, the why\'s line marked', () => {
+    const lines = compareLines(question('q1', 101).pair);
+    expect(lines.map((l) => [l.key, l.song, l.file, l.differs])).toEqual([
+      ['title', 'Hands Up', 'Hands Up', false], ['artist', 'Neon Riot', 'Neonriot', true],
+      ['length', '3:14', '3:14', false], ['where', 'Hard_Bounce', '/Volumes/Example Drive/Music', false]]);
+    expect(lines[3].fileTitle).toBe('/Volumes/Example Drive/Music/A - x101.aiff');
+  });
+  it('mark the length for a length why and say "—" for what isn\'t there', () => {
+    const q = question('q1', 101, { why: 'no_length' }).pair;
+    const len = compareLines({ ...q, file: { ...q.file, duration_s: 0 } }).find((l) => l.key === 'length')!;
+    expect(len).toMatchObject({ song: '3:14', file: NO_VALUE, differs: true });
+    const noArtist = question('q2', 102, { why: 'no_artist' }).pair;
+    const a = compareLines({ ...noArtist, file: { ...noArtist.file, artist: '' } }).find((l) => l.key === 'artist')!;
+    expect(a).toMatchObject({ file: NO_VALUE, differs: true });
+    const t = compareLines({ ...noArtist, file: { ...noArtist.file, title: '' } })[0];
+    expect(t.file).toBe('A - x102.aiff');   // a file with no title tag: its name
+  });
+  it('give the folder a file is in, home as ~', () => {
+    expect(fileFolder('/Users/you/Music/Crates/A - x.aiff')).toBe('~/Music/Crates');
+    expect(fileFolder('Library/Hard_Bounce/A - x.aiff')).toBe('Library/Hard_Bounce');
+    expect(fileFolder('/x.aiff')).toBe('/');
+    expect(fileName('/Volumes/Example Drive/Music/A - x.aiff')).toBe('A - x.aiff');
+  });
+  it('say Keep both for two files, Keep all for more', () => {
+    expect(keepLabel(2)).toBe('Keep both');
+    expect(keepLabel(3)).toBe('Keep all');
+  });
+  it('name the service of a song\'s link', () => {
+    expect(linkService('https://open.spotify.com/track/abc')).toBe('Spotify');
+    expect(linkService('https://open.qobuz.com/track/1')).toBe('Qobuz');
+    expect(linkService('https://example.com/x')).toBeNull();
+    expect(linkService(null)).toBeNull();
+  });
+  it('queue the playable files from the one pressed', () => {
+    const files = [side(1), side(2, { online: false }), side(3), side(4, { audio_url: null })];
+    const q = fileQueue(files, 3, 'c')!;
+    expect(q.items.map((i) => i.track_id)).toEqual(['file:1', 'file:3']);
+    expect(q.start).toBe(1);
+    expect(q.items[0]).toMatchObject({ artist: 'A', title: 'x', cover_url: 'c', duration_s: 200 });
+    expect(q.urls.get('file:3')).toBe('u3');
+    expect(fileQueue(files, 2)).toBeNull();
+    expect(fileQueue(files, 4)).toBeNull();
+  });
+  it('read a file\'s ▶ state from the player', () => {
+    const p = { track_id: 'file:1', playing: true, loading: false };
+    expect(fileState(p, { file_id: 1 })).toBe('playing');
+    expect(fileState({ ...p, playing: false, loading: true }, { file_id: 1 })).toBe('loading');
+    expect(fileState({ ...p, playing: false }, { file_id: 1 })).toBe('paused');
+    expect(fileState(p, { file_id: 2 })).toBe('paused');
+  });
+  it('get both groups from the fake, every item with its pair and its own key', async () => {
+    for (const scenario of ['todo_same_song', 'todo_duplicates_three']) {
+      const r = await createFakeBridge(scenario).todo('all', false);
+      if (!r.ok) throw new Error('todo failed');
+      const flat = flatten(r);
+      const imp = flat.filter((i) => i.group === 'same_song' || i.group === 'duplicate');
+      expect(imp.length).toBeGreaterThan(1);
+      expect(imp.every((i) => !!i.pair)).toBe(true);
+      expect(new Set(flat.map(itemKey)).size).toBe(flat.length);
+    }
+  });
+});
+
+describe('which rows are dimmed', () => {
+  it('only the older kinds dim a track that no playlist holds; questions and duplicate groups never do', () => {
+    expect(rowOff(item('t1', 'weak', { in_playlists: false }))).toBe(true);
+    expect(rowOff(item('t1', 'weak'))).toBe(false);
+    expect(rowOff({ ...question('q1', 101), in_playlists: false })).toBe(false);
+    expect(rowOff({ ...dupe([201, 202]), in_playlists: false })).toBe(false);
   });
 });

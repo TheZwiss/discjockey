@@ -148,7 +148,8 @@ describe('fake To-do of the import', () => {
       "Same artist and title, the length couldn't be read", 'Same title, different artist',
       'Same title, no artist in your file']);
     const q = qs.find((x) => x.pair.why === 'length' && x.pair.delta_s === 4)!;
-    expect(q.pair.file).toMatchObject({ song_key: 'local:103', quality: 'weak', in_playlist: false, audio_url: null });
+    expect(q.pair.file).toMatchObject({ song_key: 'local:103', quality: 'weak', in_playlist: false, online: true });
+    expect(q.pair.file.audio_url).toMatch(/^data:|^blob:/);   // an import folder's file plays too (file/<id>)
     expect(q.pair.track).toMatchObject({ title: 'Kick it Hard', folder: 'Hard_Bounce', duration_s: 188 });
     expect(must(await fake('todo_same_song').f.sidebar()).todo).toBe(t.chips.all);
   });

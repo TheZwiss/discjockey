@@ -3,7 +3,31 @@ import type { JobSnap, WatchedFolderRow, WatchedFolders } from '$lib/bridge/type
 import {
   UNREADABLE_HINT, canContinue, doneLine, filesText, folderLine, folderMark, importView, phaseLine, phaseShare,
   folderLabel, pathParts, removeWords, settingsLine, sharesName, stoppedLine, unreadableLabel, unreadableSub, unreadableWhere,
+  fitPath,
 } from './watchedFoldersModel';
+
+describe('fitPath', () => {
+  const upTo = (n: number) => (s: string) => s.length <= n;   // a width measured in characters
+  it('keeps the whole path while it fits', () => {
+    expect(fitPath('/Volumes/Example Drive/Music', upTo(40))).toEqual({ head: '/Volumes/Example Drive', tail: '/Music' });
+  });
+  it('gives up /Volumes before the drive, then the folders between the drive and the tail', () => {
+    expect(fitPath('/Volumes/Example Drive/Music', upTo(22)))
+      .toEqual({ head: '…/Example Drive', tail: '/Music' });
+    expect(fitPath('/Volumes/Example Drive/Music/Sets', upTo(27)).head).toBe('…/Example Drive/Music');
+    expect(fitPath('/Volumes/Example Drive/Music/Sets', upTo(22)).head).toBe('…/Example Drive/…');
+  });
+  it('gives up whole folders from the front elsewhere, home as ~', () => {
+    expect(fitPath('/Users/you/Music/Old/Crates', upTo(18)).head).toBe('~/Music/Old');
+    expect(fitPath('/Users/you/Music/Old/Crates', upTo(17)).head).toBe('…/Old');
+    expect(fitPath('/Archive/Music/Old/Crates', upTo(18)).head).toBe('…/Music/Old');
+  });
+  it('cuts the shortest form\'s end when nothing fits, "…" right before the tail, no blank', () => {
+    expect(fitPath('/Volumes/Example Drive/Music', upTo(17))).toEqual({ head: '…/Example…', tail: '/Music' });
+    expect(fitPath('/Volumes/Example Drive/Music', upTo(3))).toEqual({ head: '…', tail: '/Music' });
+    expect(fitPath('/Crates', upTo(1))).toEqual({ head: '', tail: '/Crates' });
+  });
+});
 
 const row = (over: Partial<WatchedFolderRow> = {}): WatchedFolderRow => ({ id: 2, path: '/Volumes/Example Drive/Music',
   name: 'Music', kind: 'import', state: 'online', files: 1240, waiting: 0, unreadable: 0, ...over });
