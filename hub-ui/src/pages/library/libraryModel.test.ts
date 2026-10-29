@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { TrackRow } from '$lib/bridge/types';
+import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import {
-  fileName, folderCell, footAction, inTodo, isSort, moveSelection, nextSort, optionalColumns, overview, placeLine,
+  fileName, folderCell, footAction, inTodo, isSort, libraryView, moveSelection, nextSort, optionalColumns, overview, placeLine,
   rowOff, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
 } from './libraryModel';
 import type { Library, TrackDetail } from '$lib/bridge/types';
@@ -123,9 +124,15 @@ describe('table and strip', () => {
     expect(segOptions(c, 'all')[1]).toEqual({ key: 'lossless', label: 'Lossless', count: 1, dot: 'lossless' });
     expect(segOptions(null, 'all')[0].count).toBe(0);
   });
-  it('optional columns: All tracks shows the folder first', () => {
-    expect(optionalColumns(true)).toEqual(['folder', 'source', 'added']);
-    expect(optionalColumns(false)).toEqual(['source', 'added']);
+  it('optional columns: All tracks shows the folder first, Not in a playlist starts with the source', () => {
+    expect(optionalColumns('all')).toEqual(['folder', 'source', 'added']);
+    expect(optionalColumns('folder')).toEqual(['source', 'added']);
+    expect(optionalColumns('unlisted')).toEqual(['source', 'added']);
+  });
+  it('tells the three lists apart', () => {
+    expect(libraryView(null)).toBe('all');
+    expect(libraryView(NOT_IN_PLAYLIST)).toBe('unlisted');
+    expect(libraryView('Hard_Bounce')).toBe('folder');
   });
   it('folder cell and sorts', () => {
     expect(folderCell(row('a'))).toBe('Hard_Bounce');

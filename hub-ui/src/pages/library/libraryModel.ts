@@ -93,10 +93,18 @@ export function segOptions(chips: Library['chips'] | null | undefined, value: Li
     .map((f) => ({ key: f.key, label: f.label, count: c[f.key], dot: f.dot }));
 }
 
+/** Which list the table shows: one playlist's folder, All tracks (rows of every folder), or Not in a playlist (rows
+ *  that no folder holds, so a Folder column would say the same on every row). */
+export type LibraryView = 'folder' | 'all' | 'unlisted';
+export function libraryView(folder: string | null): LibraryView {
+  return folder === null ? 'all' : folder === NOT_IN_PLAYLIST ? 'unlisted' : 'folder';
+}
 /** The table's optional columns, in the order they appear as the table gets wider (spec §3: more space shows more).
- *  All tracks spans every folder, so its first one is Folder. */
-export function optionalColumns(allTracks: boolean): ('folder' | 'source' | 'added')[] {
-  return allTracks ? ['folder', 'source', 'added'] : ['source', 'added'];
+ *  All tracks spans every folder, so its first one is Folder. Not in a playlist has no folder to tell apart, so it
+ *  shows Source first, like a folder does: it says why a leftover download is dimmed and a file of the user's own
+ *  isn't ("your own file" against "Qobuz"). */
+export function optionalColumns(view: LibraryView): ('folder' | 'source' | 'added')[] {
+  return view === 'all' ? ['folder', 'source', 'added'] : ['source', 'added'];
 }
 /** A row reads dimmed when its song left every playlist (a downloaded file nothing holds any more). A file of the
  *  user's own is in no playlist by nature, so it is never dimmed: dimming it would say "gone" about a file that is
