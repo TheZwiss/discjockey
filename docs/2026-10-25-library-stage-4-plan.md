@@ -348,6 +348,11 @@ false`. Busy for job kind `import`: W7.
 - W10 Console: "{n} files in your watched folders wait to be imported. Open the window to import them." · "{n}
   songs wait for your answer in the window (Is this the same song?)."
 - W11 "Your playlists couldn't be read, so the imported files are linked to them at the next sync."
+- Added by the groups (the UI shows them as given): W12 a folder row while the import runs: "Importing · {n} waiting"
+  ("1 file waiting"), and Settings' Watched folders row shows the running phase line of W6 ("Reading tags · {done} of
+  {total}"); W13 the remove dialog's body starts "This is the folder at {path}. " when another watched folder has the
+  same name; W14 the Duplicates cards are labelled by the folder of each file (summary "In your playlists" on a
+  playlist song's file); W15 Sync shows W9's hints as NoteCards, words unchanged.
 
 ---
 
