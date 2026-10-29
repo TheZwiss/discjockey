@@ -26,6 +26,7 @@ export { default as ListSection } from './ListSection.svelte';
 export { default as MiddleText } from './MiddleText.svelte';
 export { default as MiniPlayer } from './MiniPlayer.svelte';
 export { default as NoteCard } from './NoteCard.svelte';
+export { default as PathText } from './PathText.svelte';
 export { default as NumberedSteps } from './NumberedSteps.svelte';
 export { default as PageHeader } from './PageHeader.svelte';
 export { default as PlayButton } from './PlayButton.svelte';
