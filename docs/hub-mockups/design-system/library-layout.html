@@ -1,37 +1,36 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Library layout – design system</title>
+<!-- The design note, the tables, the states and the reasons are in library-layout-notes.md next to this file.
+     This page is only the app window and the state switcher, so it can be tried by hand. -->
 <style>
-  body { margin: 0; padding: 24px; background: #111; color: #9a9aa0; font: 13px -apple-system, sans-serif; }
-  .bar { padding: 0 0 14px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
-  .bar h2 { margin: 0; color: #f2f2f4; font-size: 15px; }
+  html, body { height: 100%; }
+  body { margin: 0; background: #111; color: #9a9aa0; font: 13px -apple-system, sans-serif; display: flex; flex-direction: column; overflow: hidden; }
+  .bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 16px; }
+  .bar h2 { margin: 0; color: #f2f2f4; font-size: 13px; font-weight: 600; white-space: nowrap; }
   .pick { display: inline-flex; flex-wrap: wrap; border: 1px solid #333; border-radius: 8px; overflow: hidden; }
   .pick button { background: none; border: 0; border-left: 1px solid #333; color: #9a9aa0; font: 12px -apple-system; padding: 6px 10px; cursor: pointer; }
   .pick button:first-child { border-left: 0; }
+  .pick button:hover { color: #dcdce0; }
   .pick button.on { background: rgba(255,90,31,.16); color: #ff8a5a; }
   .pick button:active { transform: scale(.96); }
   .pick .sep { width: 1px; background: #555; }
-  .note { max-width: 1180px; line-height: 1.55; margin: 0 0 18px; }
-  .note h3 { color: #f2f2f4; font-size: 14px; margin: 20px 0 6px; }
-  .note p { margin: 0 0 8px; }
-  .note b { color: #dcdce0; }
-  .note code { color: #c8c8ce; }
-  .note ol { margin: 0 0 8px; padding-left: 20px; } .note li { margin: 0 0 6px; }
-  table.sig { border-collapse: collapse; margin: 0 0 10px; line-height: 1.45; width: 100%; }
-  table.sig td, table.sig th { border-top: 1px solid #262629; padding: 6px 14px 6px 0; vertical-align: top; text-align: left; }
-  table.sig th { color: #dcdce0; font-weight: 600; }
-  table.sig td:first-child { color: #dcdce0; width: 230px; }
-  .opt { margin: 22px 0 8px; color: #f2f2f4; font-size: 15px; font-weight: 700; }
-  .stage { overflow: hidden; }
+  .bar .notes { margin-left: auto; color: #9a9aa0; font-size: 12px; text-decoration: none; white-space: nowrap; }
+  .bar .notes:hover { color: #dcdce0; }
+  .stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 0 16px 16px; }
+  .sizer { flex: none; position: relative; }
+  body.resizing, body.resizing * { cursor: col-resize !important; }
 
   /* ---- look 2 tokens (docs/hub-design-language.md, tokens.css), as library-browser.html ---- */
-  .win { --bg: #000; --sb-bg: linear-gradient(#0b0b0d, #070708); --sb-line: rgba(255,255,255,.06); --panel-bg: #040405; --text: #dcdce0; --text-strong: #f4f4f6; --muted: #9a9aa2; --label: #5c5c64; --nav: #7c7c84;
+  .win { --bg: #000; --sb-bg: linear-gradient(#0b0b0d, #070708); --sb-solid: #09090b; --sb-line: rgba(255,255,255,.06); --panel-bg: #040405; --text: #dcdce0; --text-strong: #f4f4f6; --muted: #9a9aa2; --label: #5c5c64; --nav: #7c7c84;
     --accent: #ff5a1f; --accent-text: #ff8a5a; --accent-wash: rgba(255,90,31,.14); --accent-wash-strong: rgba(255,90,31,.22); --ctl-line: rgba(255,255,255,.09); --ctl-bg: rgba(255,255,255,.03); --hover: rgba(255,255,255,.035); --ctl-hover: rgba(255,255,255,.05);
     --list-bg: linear-gradient(#0c0c0e, #08080a); --list-solid: #0b0b0d; --list-line: rgba(255,255,255,.06); --row-line: rgba(255,255,255,.045);
     --card-bg: linear-gradient(#0f0f12, #0a0a0c); --card-line: rgba(255,255,255,.07); --card-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.6);
     --good: #2fd27a; --ok: #e8b93a; --weak: #f0524a; --lossy: #a77bff; --missing: #c0504a; --wait: #e8b93a; --nav-on: rgba(255,255,255,.07); --pop-bg: #1b1b1f;
-    transform-origin: 0 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; background: var(--sb-bg); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.35); position: relative; }
+    position: absolute; left: 0; top: 0; transform-origin: 0 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; background: var(--sb-bg); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.35); cursor: default; user-select: none; -webkit-user-select: none; }
   .win * { box-sizing: border-box; }
+  .win input { all: unset; flex: 1; min-width: 0; color: var(--text-strong); font-size: 12px; cursor: text; -webkit-user-select: text; user-select: text; }
+  .win input::placeholder { color: var(--label); }
   .body { flex: 1; min-height: 0; display: flex; }
   /* the page sits inside the L frame on black; only its edges have a line (left, and the bottom while the foot shows) */
   .inner { flex: 1; min-width: 0; display: flex; background: var(--bg); border-left: 1px solid var(--sb-line); position: relative; }
@@ -39,13 +38,14 @@
 
   /* ---- the app sidebar, full (168) and rail (50): one markup, the rail hides the labels; the glyph column (18–32 px) and every row's y stay put ---- */
   .sb { width: 168px; flex: none; padding: 16px 10px 14px; display: flex; flex-direction: column; gap: 2px; min-height: 0; position: relative; }
-  .sb.rail { width: 50px; border-right: 1px solid var(--sb-line); }
+  .sb.rail { width: 50px; }
+  .sb.beside { border-right: 1px solid var(--sb-line); }
   .shead { display: flex; align-items: center; height: 22px; margin: 0 0 8px; flex: none; }
   .tog { width: 30px; height: 22px; flex: none; border-radius: 6px; display: grid; place-items: center; color: var(--label); }
   .tog:hover { background: var(--ctl-hover); color: var(--text); }
   .brand { color: #9a9aa0; font-weight: 700; padding-left: 1px; white-space: nowrap; }
   .rail .brand { display: none; }
-  .nav { display: flex; align-items: center; height: 30px; flex: none; padding: 0 8px; border-radius: 7px; color: var(--nav); white-space: nowrap; min-width: 0; cursor: default; position: relative; }
+  .nav { display: flex; align-items: center; height: 30px; flex: none; padding: 0 8px; border-radius: 7px; color: var(--nav); white-space: nowrap; min-width: 0; position: relative; }
   .nav:hover { background: var(--ctl-bg); color: var(--text); }
   .nav.on { color: var(--text-strong); background: var(--nav-on); }
   .rail .nav { width: 30px; }
@@ -62,8 +62,9 @@
   /* a running sync: a neutral ring round ⟳, its arc = the share done */
   .ring { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(-90deg); overflow: visible; }
   .t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .t .h, .t .gt { color: var(--label); }
-  .nav.on .t .h, .nav.on .t .gt { color: var(--muted); }
+  /* a crate's place in its name ("Hardtechno › 2019", "Bounce · Old Sets"): the words keep the row's colour, only the
+     separator is quiet, so no part of a name ever looks dimmed (dimmed = a switched-off playlist, nothing else) */
+  .sepc { color: var(--label); }
   .t .hl { color: var(--text-strong); font-weight: 600; }
   .c { flex: none; min-width: var(--count-w, 14px); margin-left: 4px; text-align: right; font-size: 11px; color: var(--label); font-variant-numeric: tabular-nums; }
   .nav.on .c, .nav.kb .c { color: var(--muted); }
@@ -89,35 +90,43 @@
   .browser { width: var(--bw, 240px); flex: none; display: flex; flex-direction: column; min-height: 0; padding: 23px 8px 10px; position: relative; }
   .bfind { flex: none; height: 28px; margin: 0 0 6px; border-radius: 7px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); display: flex; align-items: center; gap: 7px; padding: 0 5px 0 8px; color: var(--label); font-size: 12px; }
   .bfind .ico { color: var(--muted); display: grid; }
-  .bfind .q { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bfind kbd { font: 11px -apple-system; border: 1px solid var(--ctl-line); border-radius: 4px; padding: 0 4px; color: var(--muted); }
-  .bfind.typed { border-color: rgba(255,138,90,.45); box-shadow: 0 0 0 3px rgba(255,90,31,.12); color: var(--text-strong); }
-  .bfind.typed .q::after { content: ''; display: inline-block; width: 1px; height: 13px; background: var(--accent-text); vertical-align: -2px; margin-left: 1px; }
-  .bfind .x { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); background: rgba(255,255,255,.07); font-size: 10px; }
-  .sh { position: sticky; top: 0; bottom: 0; z-index: 2; background: #09090a; box-shadow: 0 -7px 7px -3px #09090a, 0 7px 7px -3px #09090a; display: flex; align-items: center; height: 28px; flex: none; padding: 0 3px 0 8px; margin-top: 4px; border-radius: 7px; color: var(--label); font-size: 12px; font-weight: 600; cursor: default; }
-  .sh:hover { background: #111113; color: var(--muted); }
+  .bfind kbd, .search kbd { font: 11px -apple-system; border: 1px solid var(--ctl-line); border-radius: 4px; padding: 0 4px; color: var(--muted); flex: none; }
+  .bfind:focus-within, .search:focus-within { border-color: rgba(255,138,90,.45); box-shadow: 0 0 0 3px rgba(255,90,31,.12); }
+  .bfind input { caret-color: var(--accent-text); }
+  .x { width: 18px; height: 18px; flex: none; border-radius: 50%; display: grid; place-items: center; color: var(--muted); background: rgba(255,255,255,.07); font-size: 10px; }
+  .x:hover { background: rgba(255,255,255,.12); color: var(--text); }
+  /* a section head: sticky at the list's top and foot. Solid in the column's own colour and square, so a row never
+     shows through or round its corners; while it stands over rows (stuck) a hairline marks the edge */
+  .sh { position: sticky; top: 0; bottom: 0; z-index: 2; background: var(--sb-solid); display: flex; align-items: center; height: 28px; flex: none; padding: 0 3px 0 8px; margin-top: 4px; color: var(--label); font-size: 12px; font-weight: 600; }
+  .sh:hover { color: var(--muted); }
+  .sh.stuck-t { box-shadow: 0 1px 0 var(--sb-line); }
+  .sh.stuck-b { box-shadow: 0 -1px 0 var(--sb-line); }
   .sh .n { font-weight: 400; margin-left: 6px; font-variant-numeric: tabular-nums; flex: 1; }
   .sh .sp { flex: 1; }
   .sh .ibtn, .sh .chev { width: 20px; height: 20px; margin: 0; }
   .ibtn { flex: none; width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; color: var(--label); }
   .ibtn:hover { background: var(--ctl-hover); color: var(--text); }
+  .ibtn.on { color: var(--muted); }
   .lib { display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; position: relative; }
   .lib::-webkit-scrollbar { display: none; }
   .gap { height: 6px; flex: none; }
-  .hintrow { height: 30px; flex: none; display: flex; align-items: center; padding: 0 8px; margin: 0 0 0 0; border: 1px dashed rgba(255,255,255,.1); border-radius: 7px; color: var(--label); font-size: 12px; white-space: nowrap; overflow: hidden; }
-  .empty { color: var(--label); font-size: 12px; padding: 8px; line-height: 1.4; }
+  .hintrow { height: 30px; flex: none; display: flex; align-items: center; padding: 0 8px; border: 1px dashed rgba(255,255,255,.1); border-radius: 7px; color: var(--label); font-size: 12px; white-space: nowrap; overflow: hidden; }
+  /* the hand-off to the track search: the filter's last row while filtering, the only row when no name matches */
+  .handoff .g { color: var(--muted); }
+  .handoff .c { visibility: hidden; font-size: 12px; }
+  .handoff.kb .c { visibility: visible; }
   .slot { height: 30px; flex: none; }
   .lift { position: absolute; left: 0; right: 0; z-index: 3; background: #1d1d22; color: var(--text-strong); box-shadow: 0 4px 10px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.1); transform: translate(3px, -2px) scale(1.02); }
-  /* the column's right edge is the page's edge line; an 8 px grip sits on it */
-  .edge { position: absolute; top: 0; bottom: 0; right: -5px; width: 9px; z-index: 6; }
+  /* the column's right edge is the page's edge line; a 9 px grip sits on it */
+  .edge { position: absolute; top: 0; bottom: 0; right: -5px; width: 9px; z-index: 6; cursor: col-resize; }
   .edge.drag::after { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px; background: var(--accent); }
   .cursor { position: absolute; z-index: 9; pointer-events: none; }
 
   .cmenu { position: absolute; z-index: 8; min-width: 236px; padding: 5px; border-radius: 9px; background: var(--pop-bg); border: 1px solid rgba(255,255,255,.1); box-shadow: 0 14px 40px rgba(0,0,0,.7); font-size: 13px; }
   .cmenu div { display: flex; align-items: center; gap: 12px; height: 26px; padding: 0 9px; border-radius: 5px; color: var(--text); white-space: nowrap; }
-  .cmenu div.hov { background: var(--accent); color: #fff; }
+  .cmenu div.hov, .cmenu div:hover { background: var(--accent); color: #fff; }
   .cmenu div span { margin-left: auto; color: var(--label); font-size: 12px; }
-  .cmenu div.hov span { color: rgba(255,255,255,.75); }
+  .cmenu div.hov span, .cmenu div:hover span { color: rgba(255,255,255,.75); }
   .cmenu hr { border: 0; border-top: 1px solid rgba(255,255,255,.08); margin: 4px 6px; }
   .tip { position: absolute; z-index: 8; padding: 5px 8px; border-radius: 6px; background: #26262b; border: 1px solid rgba(255,255,255,.1); color: var(--text); font-size: 11px; line-height: 1.45; box-shadow: 0 6px 18px rgba(0,0,0,.6); white-space: nowrap; }
   .tip .lb { color: var(--muted); } .tip kbd { font: 11px -apple-system; color: var(--muted); margin-left: 10px; }
@@ -127,17 +136,22 @@
   .col { width: 100%; max-width: var(--max, 1244px); height: 100%; padding: 20px 22px 0; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
   .col > * { flex: none; }
   .hd { display: flex; align-items: center; gap: 10px; min-height: 34px; min-width: 0; }
-  .hd h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-strong); letter-spacing: -.02em; white-space: nowrap; }
-  .hd .st { color: var(--muted); font-size: 12px; padding-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
-  .hd .st a { color: var(--accent-text); text-decoration: none; }
-  .search { margin-left: auto; flex: none; width: 240px; height: 34px; border-radius: 8px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--label); font-size: 12px; display: flex; align-items: center; gap: 8px; padding: 0 10px; }
-  .search kbd { margin-left: auto; font: 11px -apple-system; border: 1px solid var(--ctl-line); border-radius: 4px; padding: 1px 4px; color: var(--muted); }
+  .hd h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-strong); letter-spacing: -.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+  /* the subtitle's parts drop whole, the last (least important) first: they wrap onto a second line that's clipped */
+  .hd .st { color: var(--muted); font-size: 12px; line-height: 16px; height: 16px; margin-top: 5px; display: flex; flex-wrap: wrap; overflow: hidden; min-width: 0; flex: 1 1 0; }
+  .hd .st > span { white-space: pre; }
+  .hd .st > span:first-child { width: 0; height: 16px; flex: none; }   /* an empty first item, a line tall: even the first part wraps away rather than be cut */
+  .search { margin-left: auto; flex: none; width: 240px; height: 34px; border-radius: 8px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--label); font-size: 12px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 10px; }
+  .search > svg { color: var(--muted); flex: none; }
   /* the details toggle: a header control (34 px, the row's height); pressed = accent text on the strong wash plus a dot */
   .itog { flex: none; width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); display: grid; place-items: center; color: var(--muted); position: relative; }
+  .itog:hover { color: var(--text); background: var(--ctl-hover); }
+  .itog:active, .pbtn:active, .go:active { transform: scale(.97); }
   .itog.pressed { color: var(--accent-text); background: var(--accent-wash-strong); border-color: rgba(255,138,90,.35); }
   .itog.pressed::after { content: ''; position: absolute; bottom: 4px; left: 50%; width: 3px; height: 3px; margin-left: -1.5px; border-radius: 50%; background: var(--accent-text); }
   .seg { display: flex; border: 1px solid var(--ctl-line); border-radius: 9px; background: var(--ctl-bg); overflow: hidden; height: 32px; min-width: 0; }
   .seg div { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--muted); border-left: 1px solid var(--ctl-line); white-space: nowrap; padding: 0 8px; }
+  .seg div:hover { background: var(--hover); color: var(--text); }
   .seg div > span:not(.dot) { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .seg div:first-child { border-left: 0; }
   .seg div b { font-weight: 500; color: var(--label); font-variant-numeric: tabular-nums; }
@@ -155,18 +169,24 @@
   .qbar i { display: block; background: var(--c); }
   .sum .rows { align-self: stretch; border-left: 1px solid var(--row-line); display: flex; flex-direction: column; justify-content: center; min-width: 0; }
   .lrow { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto 12px; align-items: center; gap: 10px; height: 34px; padding: 0 14px; border-top: 1px solid var(--row-line); font-size: 12px; white-space: nowrap; }
+  .lrow.go-row:hover { background: var(--hover); }
   .lrow:first-child { border-top: 0; }
   .lrow > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .lrow .n { color: var(--text); font-variant-numeric: tabular-nums; }
-  .lrow .chv, .lrow .q { color: var(--label); }
+  .lrow .chv { color: var(--label); }
+  .lrow .q { color: var(--muted); }
 
   .tbl { border-radius: 12px; background: var(--list-bg); border: 1px solid var(--list-line); min-width: 0; flex: 1 1 auto !important; min-height: 0; margin-bottom: 20px; display: flex; flex-direction: column; overflow: hidden; }
-  .scroll { flex: 1; min-height: 0; overflow: hidden; -webkit-mask-image: linear-gradient(#000 calc(100% - 18px), transparent); }
+  .scroll { flex: 1; min-height: 0; position: relative; overflow-y: auto; scrollbar-width: none; -webkit-mask-image: linear-gradient(#000 calc(100% - 18px), transparent); }
+  .scroll::-webkit-scrollbar { display: none; }
   .th-row, .tr { display: grid; grid-template-columns: var(--cols); align-items: center; column-gap: 12px; padding: 0 14px; }
   .th-row { height: 34px; border-bottom: 1px solid var(--row-line); background: var(--list-solid); flex: none; }
   .tr { height: 36px; border-top: 1px solid var(--row-line); font-size: 12px; }
-  .tr.sel { background: var(--accent-wash); }
+  .tr:hover { background: var(--hover); }
+  .tr.sel, .tr.sel:hover { background: var(--accent-wash); }
   .scroll > .tr:first-child { border-top: 0; }
+  .tempty { padding: 40px 14px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.6; }
+  .tempty a, .kv .v a, .card .ttl .s.lnk { color: var(--accent-text); text-decoration: none; }
   .hc { color: var(--label); font: 500 11px -apple-system; letter-spacing: .7px; text-transform: uppercase; white-space: nowrap; justify-self: start; }
   .hc.on { color: var(--muted); } .hc.r { justify-self: end; }
   .info { justify-self: end; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--ctl-line); color: var(--muted); font: 600 10px -apple-system; display: grid; place-items: center; }
@@ -177,31 +197,30 @@
   .mu { color: var(--muted); } .lbc { color: var(--label); }
   .len { justify-self: end; color: var(--muted); font-variant-numeric: tabular-nums; }
   .badge { justify-self: start; font: 600 11px -apple-system; letter-spacing: .3px; padding: 2px 6px; border-radius: 5px; border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); color: var(--c); white-space: nowrap; }
+  .tr .badge[data-qb]:hover { background: color-mix(in srgb, var(--c) 14%, transparent); }
   .pl { justify-self: start; max-width: 100%; display: inline-flex; gap: 4px; font: 500 11px -apple-system; padding: 2px 6px; border-radius: 5px; border: 1px solid rgba(255,255,255,.13); color: var(--muted); white-space: nowrap; overflow: hidden; }
   .pl span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .pl b { font-weight: 500; color: var(--label); flex: none; }
 
   /* ---- the details inspector (Library) and the docked panel (other pages) ---- */
-  .panel { flex: none; width: var(--pw, 360px); background: var(--panel-bg); border-left: 1px solid var(--sb-line); padding: 20px; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-  .card { border-radius: 12px; background: var(--card-bg); border: 1px solid var(--card-line); box-shadow: var(--card-shadow); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .panel { flex: none; width: var(--pw, 360px); background: var(--panel-bg); border-left: 1px solid var(--sb-line); padding: 20px; display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow: hidden; }
+  .card { border-radius: 12px; background: var(--card-bg); border: 1px solid var(--card-line); box-shadow: var(--card-shadow); padding: 14px; display: flex; flex-direction: column; gap: 10px; flex: none; }
   .card .ttl { font-size: 13px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
   .card .ttl .s { margin-left: auto; font-weight: 400; color: var(--muted); font-size: 12px; }
   .thead { display: grid; grid-template-columns: 44px minmax(0,1fr); gap: 12px; align-items: center; }
   .thead .cv { width: 44px; height: 44px; border-radius: 6px; }
   .thead .a { font-size: 17px; font-weight: 600; color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .thead .b { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .thead .b .lbc { color: var(--label); }
   .badges { display: flex; gap: 6px; }
   .spec { height: 56px; border-radius: 6px; position: relative; overflow: hidden; background: #050506; border: 1px solid var(--row-line); }
   .spec i { position: absolute; inset: 0; }
-  .spec .cutl { position: absolute; left: 0; right: 0; border-top: 1px dashed rgba(240,82,74,.75); }
-  .spec .cutt { position: absolute; right: 6px; font-size: 11px; color: var(--weak); background: rgba(0,0,0,.6); padding: 0 3px; border-radius: 3px; }
+  .spec .cutl { position: absolute; left: 0; right: 0; border-top: 1px dashed color-mix(in srgb, var(--c) 75%, transparent); }
+  .spec .cutt { position: absolute; right: 6px; font-size: 11px; color: var(--c); background: rgba(0,0,0,.6); padding: 0 3px; border-radius: 3px; }
   .cmp { display: grid; grid-template-columns: 26px minmax(0,1fr); gap: 8px 10px; align-items: center; }
   .cmp .k { grid-column: 2; font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; margin-bottom: -4px; }
   .pbtn { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--ctl-line); background: var(--ctl-bg); display: grid; place-items: center; color: var(--text); font-size: 9px; }
   .kv { display: grid; grid-template-columns: 76px minmax(0,1fr); gap: 6px 10px; font-size: 12px; }
   .kv .k { color: var(--label); } .kv .v { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .kv .v a { color: var(--accent-text); text-decoration: none; }
   .go { height: 34px; border-radius: 10px; border: 0; background: linear-gradient(#ff6a32, #f24f14); color: #fff; font: 600 13px -apple-system; box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 0 18px rgba(255,90,31,.25); margin-top: auto; flex: none; }
   .surf { border-radius: 12px; background: var(--list-bg); border: 1px solid var(--list-line); min-width: 0; }
   .sh2 { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-bottom: 1px solid var(--row-line); font-size: 13px; color: var(--text); }
@@ -215,9 +234,10 @@
   .q-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
   .q-legend span { display: inline-flex; align-items: center; gap: 5px; }
   .q-legend b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
-  .krow { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--muted); }
+  .krow { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 12px; color: var(--muted); white-space: nowrap; }
   .krow b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
-  .emptyp { margin: auto 0; text-align: center; color: var(--label); font-size: 12px; }
+  .krow b.wait { color: var(--wait); }
+  .emptyp { margin: auto 0; text-align: center; color: var(--muted); font-size: 12px; }
 
   /* ---- the foot: the L's lower arm, full window width, the page's lower edge is the position ---- */
   .foot { height: 44px; flex: none; position: relative; display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: center; padding: 0 18px; column-gap: 16px; }
@@ -231,6 +251,8 @@
   .foot .tb { width: 26px; height: 26px; display: grid; place-items: center; color: var(--text); }
   .foot .pp { width: 30px; height: 30px; border-radius: 50%; background: var(--text-strong); color: #000; display: grid; place-items: center; font-size: 10px; }
   .foot .end { justify-self: end; display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .foot .end [data-foot-x] { font-size: 14px; padding: 0 4px; }
+  .foot .end [data-foot-x]:hover { color: var(--text); }
   .foot .sep { width: 1px; height: 16px; background: var(--ctl-line); }
   .foot .syncs { display: inline-flex; align-items: center; gap: 7px; }
   .foot .syncs .mini { width: 40px; height: 3px; border-radius: 2px; background: rgba(255,255,255,.1); overflow: hidden; } .foot .syncs .mini i { display: block; height: 100%; background: var(--muted); }
@@ -238,106 +260,10 @@
 </head><body>
 
 <div class="bar">
-  <h2>Library layout (rail + browser column)</h2>
+  <h2>Library layout</h2>
   <span class="pick" id="state"></span>
-  <span style="color:#6a6a70">each state has a hash, read on load, e.g. <code>#library</code>, <code>#library-1100</code></span>
+  <a class="notes" href="library-layout-notes.md" title="The design note: decisions, widths, signals, motion, keys, the states">Notes</a>
 </div>
-
-<div class="note">
-  <h3>The layout in one line</h3>
-  <p>In Library the app's sidebar folds into a 50 px <b>rail</b> of page icons, and the space goes to a <b>browser column</b> (Favourites, playlists, folders, a filter field) that the user drags wider or narrower. The <b>right panel leaves Library</b>: its summary card becomes a <b>strip</b> on the page, and the track's details become an <b>inspector</b> that opens only when asked. Every other page keeps the full sidebar and its docked panel. The user can fold the sidebar on any page with ⌃⌘S.</p>
-
-  <h3>Decisions</h3>
-  <ol>
-    <li><b>One sidebar, two forms: full (168 px) and rail (50 px).</b> The rail is the full sidebar with its labels folded away. The glyph column (18–32 px from the window's edge) and each row's height (30 px, 2 px apart) are the same in both forms, so <b>no icon moves</b> when the sidebar folds. The selected pill becomes a 30 × 30 square on the same spot. The fold button sits on that glyph column too, at the top of both forms (the macOS sidebar symbol, "Hide sidebar ⌃⌘S" / "Show sidebar ⌃⌘S"), so it never moves either, and the word "Discjockey" folds away beside it. <i>Why:</i> navigation stays obvious when a DJ's eye finds To-do at the same place in either form. Opening a collection scrolls its row into view in the browser. Every rail icon has a tooltip with its name and shortcut, and the first one waits 500 ms, then the next ones open at once (the InfoTip rule).</li>
-    <li><b>Library gets a nav item of its own (♫, after Download limits), and its collections leave the app sidebar.</b> The full sidebar holds only the pages, plus <b>Favourites</b> as shortcuts (no counts) on pages where the browser column isn't shown. A favourite opens Library at that playlist or folder. <i>Why:</i> the A variant's "everything in the sidebar" was what made names cut and the sidebar long. Favourites are short, the user picks them, and they stay one click away from To-do or Sync, which was A's real advantage. Without counts, 168 px fits "Bounce · Old Sets".</li>
-    <li><b>The browser column is chrome, not page.</b> It uses the frame's material beside the rail, so the L frame just grows wider in Library (50 + 240 px). The page keeps its single edge line, and a quiet hairline (the same 6 % white) separates the rail from the browser, marking the two levels: pages | collections. The filter field sits at the top and stays visible ("Filter playlists, folders ⌘K", centred on the page header's row). The track search stays top right on the page ("Search title, artist… ⌘F"). The two fields use different words, sit in different materials and have different shortcuts. <i>Why visible, not behind a magnifier:</i> the column has the room, and a new user should see that they can filter.</li>
-    <li><b>Resizable by drag, 200–360 px, 240 by default.</b> The grip is the page's edge line (9 px wide). On hover the pointer turns into the resize cursor, and while dragging the line turns orange (the action) and follows the pointer 1:1, with no animation. Double-clicking the line returns to 240. The width is remembered. Every row is now <b>one line</b>: "Rekordbox Library", "Bounce · Old Sets" and "Hardtechno › 2019" (the same words as the page's Subfolder column) all fit at 240 px. The two-line crate rows and the balanced wrap for watched folders are gone. A playlist name that's still too long ("Afterhour_Sonntag_Warmup_…") ends in "…" with a tooltip, and comes out whole when the column is dragged wider.</li>
-    <li><b>The right panel leaves Library, because the width doesn't add up.</b> With the rail, the browser and a docked 360 px panel, the 1280 table would be 586 px, less than today's 708. So: <b>the summary card becomes a 72 px strip</b> between the header and the filter segments. It keeps the share, the bar, Upgrade ready and Not lossless yet · n in To-do, each with its count and link. The bar's legend is dropped, because the segments right below it carry the same dots and counts. <b>The track details become an inspector</b> (the same card content, 360 / 320 px): it opens from the header's details toggle, ⌘I, the right-click menu's "Show details", or a click on a row's quality badge ("Why is this weak?"). It then follows the selection and stays open until closed. Its state is remembered, and it starts closed. A click selects and a double-click or Enter plays, as today. <i>Why the badge:</i> the quality question is what makes a DJ want the details, and the badge is where they ask it.</li>
-    <li><b>The list stays fully usable at 1280 × 800 and at 1100 × 700; its columns follow its own width</b> (the container rule, nothing scrolls sideways). The drop order is Length first, then Playlist, then Subfolder (D10). What I chose: with details closed, which is the normal state, Library at 1280 shows <b>more</b> than today (+ Length), and at 1100 it shows what 1280 shows today. With details open, the list never goes below today's 1100 set (Track, Artist, Subfolder, Quality, about 586 px), and the facts of the columns it drops are in the inspector for the selected track: Playlists in its file card, the place in its head ("in Hardtechno › 2019"). The filter segments keep their whole labels in every state. Variant B's failure (a list too narrow to be useful, single-letter filters) can't happen.</li>
-    <li><b>Below 1240 px the window holds the browser or the details beside the list, not both.</b> At 1100, opening details steps the browser column back behind the rail (the rail stays, with Library's pill, and ⌘K or a click on ♫ brings the browser back and closes the details). Closing details brings the browser back at its own width. <i>Why:</i> rail + browser + a 320 px inspector leave 446 px at 1100, which is variant B's narrowness. Choosing a collection and reading one track's details are different moments, so on a small screen they take turns. At 1280 and up both fit.</li>
-    <li><b>Sidebar memory: two places, not per page.</b> Library remembers its form (rail by default) and all other pages share one form (full by default). <i>Changed from the brief ("remembered per page"):</i> per page, folding the sidebar on Dashboard and then opening Sync would unfold it again, which feels like the app ignoring you, and every page switch could animate the chrome. With two places the chrome changes only on the way into or out of Library, and that change is expected because Library has its own browser.</li>
-    <li><b>⌘K works on every page:</b> it opens Library with the filter focused (from any page, any collection is ⌘K + a few letters + Enter). The filter behaves as decided for A: it filters names, keeps sections and the watched folder as context, opens folded sections, finds hidden crates and the 312 albums, and puts the keyboard highlight on the first match.</li>
-    <li><b>Discoverable without being told:</b> the fold button with its tooltip; visible chevrons on every section header and watched folder; section headers that stick to the list's edges, so "Folders ⌄" sits at the foot from the first look; an <b>empty Favourites section that shows one dashed row "Drag a playlist or folder here"</b> until the first pin (it folds and stays folded if the user wants); the right-click menu (Open · Play · Add to favourites · Hide from sidebar · Show in Finder) with the note "Settings brings it back"; and the resize cursor plus the line lighting up on the column's edge.</li>
-    <li><b>The rail carries the sidebar's signals, in the same colours:</b> the To-do count as a neutral pill on the glyph's corner; Download limits' yellow dot where it is today; a running sync as a neutral ring round ⟳ (the arc is the share done; in the full form, "12/40" in the count column). The hidden player becomes ⌃ Show player above a play button whose orange ring is the position, the same orange as the foot's line.</li>
-    <li><b>The foot doesn't change.</b> It stays full window width under the rail and the browser, with the transport centred on the window. Its line (the page's lower edge and the position) starts at the page's edge, so in Library it starts at 290 px: the line follows <code>--sidebar-w</code>, which becomes the chrome's whole width.</li>
-    <li><b>Folder logic as decided:</b> only crates are listed (wrappers skipped, full path in the tooltip), a crate can be hidden (right-click, Settings → Watched folders), and above 25 crates the watched folder is one row with Settings' message and the page link "Show some in the sidebar…" ("sidebar" here means the Library list, which is what the browser column is). The offline "!", the dimmed switched-off playlist, Favourites by drag, and Playlists in priority order or A–Z are all unchanged.</li>
-  </ol>
-
-  <h3>Widths (the table's own width decides its columns)</h3>
-  <table class="sig">
-    <tr><th>Window · state</th><th>Chrome · panel</th><th>Table</th><th>Columns</th></tr>
-    <tr><td>Today 1280 · today 1100</td><td>168 · 360 / 320</td><td>708 · 568</td><td>Track, Artist, Subfolder, Playlist, Quality · without Playlist</td></tr>
-    <tr><td>1280 · Library (rail)</td><td>50 + 240 · none</td><td>946</td><td>Track, Artist, Subfolder, Playlist, <b>Length</b>, Quality</td></tr>
-    <tr><td>1280 · column dragged to 320</td><td>50 + 320 · none</td><td>866</td><td>Length goes (first to go)</td></tr>
-    <tr><td>1280 · details open</td><td>50 + 240 · 360</td><td>586</td><td>Track, Artist, Subfolder, Quality (today's 1100 set)</td></tr>
-    <tr><td>1100 · Library (rail)</td><td>50 + 240 · none</td><td>766</td><td>Track, Artist, Subfolder, Playlist, Quality (today's 1280 set)</td></tr>
-    <tr><td>1100 · details open</td><td>50 (browser steps back) · 320</td><td>685</td><td>Track, Artist, Subfolder, Quality (rail + browser + details would leave 446: variant B's narrowness, so they take turns)</td></tr>
-  </table>
-
-  <h3>What each signal means</h3>
-  <table class="sig">
-    <tr><th>Signal</th><th>Means exactly this, nowhere else</th></tr>
-    <tr><td>Row at half strength</td><td>A switched-off playlist. The only dim in the sidebar and the browser.</td></tr>
-    <tr><td>Yellow ! in the icon slot</td><td>The watched folder's drive isn't connected (or the folder isn't found). Name and count stay at full strength.</td></tr>
-    <tr><td>Yellow dot on ◔</td><td>Download limits: a limit is reached or waiting (as today), in both forms.</td></tr>
-    <tr><td>Service logo, own colours</td><td>Which service the playlist is read from.</td></tr>
-    <tr><td>Folder outline</td><td>A folder on disk standing on its own: a watched folder, a pinned crate, a Library folder no playlist uses. A crate under its watched folder has none; it indents.</td></tr>
-    <tr><td>Label-grey part of a crate's name</td><td>"Hardtechno ›": the crate it sits in. "· Old Sets": another crate has the same name, and this names the folder above.</td></tr>
-    <tr><td>Grey pill on the page's row / the rail's square</td><td>The page or collection on screen.</td></tr>
-    <tr><td>Neutral pill with a number on ✓</td><td>Rail only: the To-do count (the full form shows it in the count column).</td></tr>
-    <tr><td>Grey ring round ⟳</td><td>A sync is running; its arc is the share done. Neutral, because it's status.</td></tr>
-    <tr><td>Orange ring round the rail's ▶</td><td>The hidden player's position (the same as the foot's orange line).</td></tr>
-    <tr><td>Orange line on the browser's edge</td><td>Only while dragging it: the width being set.</td></tr>
-    <tr><td>Orange details toggle with a dot</td><td>The inspector is open (pressed state of an icon button).</td></tr>
-    <tr><td>Orange wash on a browser row</td><td>Only while filtering: the keyboard highlight (Enter opens it).</td></tr>
-    <tr><td>Orange wash on a table row</td><td>The selected track (what the inspector shows when it's open).</td></tr>
-    <tr><td>Orange ring round a row</td><td>The row the open context menu acts on.</td></tr>
-    <tr><td>Dashed row in Favourites</td><td>Favourites is empty: where a dragged row lands.</td></tr>
-  </table>
-
-  <h3>Motion: the page lays out once, the chrome moves over it</h3>
-  <p>Reflowing a 500-row table on every frame would stutter, and it would make the columns flicker. So the page takes its final width <b>at once</b>, and only the chrome moves: when the chrome shrinks it uncovers the page, and when it grows it covers space that is already empty. This is the foot's rule ("the page makes room at once, only the contents move"), applied to the sidebar and the inspector. Only transform, opacity and the chrome's own width move. Every transition is a CSS transition, so a second ⌃⌘S mid-way turns it round from where it is.</p>
-  <table class="sig">
-    <tr><th>What</th><th>How</th></tr>
-    <tr><td>Fold / unfold (⌃⌘S, the button)</td><td>The edge glides 168 ↔ 50 in <b>220 ms, cubic-bezier(.32,.72,0,1)</b> (the drawer curve, no bounce). Labels fade out in the first 90 ms (ease-out) and fade in during the last 120 ms (100 ms delay). Icons don't move.</td></tr>
-    <tr><td>Into Library / out of it</td><td>The page switches at once (selection after navigation is instant). The chrome's edge glides 168 → 290 in 220 ms on the same curve while the labels fade out, and the browser's rows fade in over the last 150 ms, 8 px from the left. On the way out it's quicker: the rows fade in 90 ms, then the edge glides back. Exit is faster than entry.</td></tr>
-    <tr><td>Drag the column's edge</td><td>1:1 with the pointer, with no easing (direct manipulation), and the table reflows live because the user is steering it. Double-click to reset: 220 ms, drawer curve.</td></tr>
-    <tr><td>Details below 1240 px</td><td>The browser column steps back behind the rail (translateX -24 px and fading, 200 ms, the drawer curve) while the inspector slides in. On close it comes back the same way (240 ms). The page lays out once.</td></tr>
-    <tr><td>Details inspector</td><td>Open: the table narrows at once and the inspector slides in from the window's right edge (translateX 100 % → 0), <b>240 ms</b>, drawer curve. Close: the table widens at once and the inspector slides out the same way, <b>200 ms</b>, so it leaves the way it came. A selection change inside it is instant.</td></tr>
-    <tr><td>Tooltips (rail, rows)</td><td>Fade and grow from scale(.97) at the trigger, 140 ms (<code>--t-pop</code>). The first waits 500 ms, the next open at once.</td></tr>
-    <tr><td>Favourites drag</td><td>Lift: 120 ms (raised, shadow, scale 1.02). The other rows part with a 200 ms ease-out transform. Drop: a spring with damping 1 and response 0.3, with no overshoot (a drop has no momentum).</td></tr>
-    <tr><td>Sync ring, player ring</td><td>Their arcs move linearly with progress, and nothing turns or pulses.</td></tr>
-    <tr><td>Reduced motion</td><td>No glides: widths change at once and the chrome's contents cross-fade in 150 ms. The inspector fades in place.</td></tr>
-  </table>
-
-  <h3>Keyboard</h3>
-  <table class="sig">
-    <tr><th>Keys</th><th>Does</th></tr>
-    <tr><td>⌃⌘S</td><td>Fold or unfold the sidebar (macOS's standard key, also in the View menu as Hide / Show Sidebar)</td></tr>
-    <tr><td>⌘1 … ⌘6, ⌘,</td><td>Dashboard, Sync, To-do, Playlists, Download limits, Library; Settings (the order of the rail)</td></tr>
-    <tr><td>⌘K</td><td>From any page: Library with the filter field focused. In the filter: ↑ ↓ move, Enter opens, Esc clears and leaves</td></tr>
-    <tr><td>⌘F</td><td>The page's own track search (unchanged)</td></tr>
-    <tr><td>⌘I</td><td>Show or hide the details inspector (macOS's Get Info key)</td></tr>
-    <tr><td>↑ ↓ · Enter · double-click</td><td>In the table: select · play · play (unchanged)</td></tr>
-  </table>
-
-  <h3>House-rule changes (for docs/hub-design-language.md, not edited now)</h3>
-  <ol>
-    <li><b>The L frame: the sidebar has two forms, and in Library the frame holds the browser column.</b> <code>--sidebar-w</code> becomes the chrome's whole width (168, 50, or 50 + the browser's width), and the foot's line and seek area follow it. <i>Why:</i> the frame stays one seamless material, it only changes width.</li>
-    <li><b>One more line inside the chrome: the rail's right edge</b>, the same hairline as the page's edge. "Only the page's edge has a line" becomes "the page's edge, and the rail's edge when the browser stands next to it". <i>Why:</i> without it, the icon column and the browser read as one ragged list.</li>
-    <li><b>ListPanelFrame: Library drops the docked panel.</b> Library gets a details inspector instead (on demand, the same widths, the same Panel inside), and its summary becomes a strip block (<code>SummaryStrip</code>: share · bar · two link rows, 72 px). The other pages keep the docked panel. <i>Why:</i> the widths table above.</li>
-    <li><b>The sidebar's Library group retires;</b> the sidebar shows Favourites (no counts) on pages without the browser. The two-line crate rows and the watched folders' balanced wrap retire with it: the browser's rows are one line.</li>
-    <li><b>Motion: the "chrome moves, page lays out once" rule</b> joins the motion table, together with the timings above.</li>
-    <li><b>The nav's text glyphs (◉ ⟳ ✓ ≡ ◔ ⚙) become drawn icons</b> (14 px, 1.3 px stroke, one family), the same in both forms. <i>Why:</i> in the rail the icon is the only label, and at 12 px ⟳ and ◉ render as dots and rings that can't be told apart. Library gets the note.</li>
-    <li><b>Segmented: no change.</b> With 946 / 766 px the Library strip is never tight, and "Upgrade ready" and "Lossless 290" stay whole.</li>
-  </ol>
-
-  <h3>Considered and not built</h3>
-  <p><b>Details under the table (a 200 px shelf), so the table never loses a column.</b> The spectra would get width, but the table would keep 10 rows at 1280 × 800 and only 6–8 at 1100 × 700 with the foot, which is too few to browse a crate. <b>Page icons as a row at the top of one wide Library sidebar</b> (Xcode's navigator bar) would save the rail's 50 px, but every icon would jump from the column to the row, against the spatial rule. <b>The panel docked as today</b> leaves 586 px at 1280 (see widths). A third option, <b>a narrower inspector in place of stepping the browser back at 1100</b>, would cut the upgrade's spectra to about 220 px, too small to see a cutoff. So the recommended structure is the user's own direction, completed: rail + browser + summary strip + the details inspector on demand. I found nothing better worth a second set of states.</p>
-</div>
-
-<div class="opt" id="optTitle"></div>
 <div class="stage" id="stage"></div>
 
 <script>
@@ -348,7 +274,7 @@
     youtube: '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M9 7.5v9l7-4.5z"/><path fill="#FF0000" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>',
     youtubemusic: '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11.5" fill="#fff"/><path fill="#FF0000" d="M12 0C5.376 0 0 5.376 0 12s5.376 12 12 12 12-5.376 12-12S18.624 0 12 0zm0 19.104c-3.924 0-7.104-3.18-7.104-7.104S8.076 4.896 12 4.896s7.104 3.18 7.104 7.104-3.18 7.104-7.104 7.104zm0-13.332c-3.432 0-6.228 2.796-6.228 6.228S8.568 18.228 12 18.228s6.228-2.796 6.228-6.228S15.432 5.772 12 5.772zM9.684 15.54V8.46L15.816 12l-6.132 3.54z"/></svg>',
     soundcloud: '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="5" fill="#FF5500"/><g transform="translate(3.6 3.6) scale(.7)"><path fill="#fff" d="M23.999 14.165c-.052 1.796-1.612 3.169-3.4 3.169h-8.18a.68.68 0 0 1-.675-.683V7.862a.747.747 0 0 1 .452-.724s.75-.513 2.333-.513a5.364 5.364 0 0 1 2.763.755 5.433 5.433 0 0 1 2.57 3.54c.282-.08.574-.121.868-.12.884 0 1.73.358 2.347.992s.948 1.49.922 2.373ZM10.721 8.421c.247 2.98.427 5.697 0 8.672a.264.264 0 0 1-.53 0c-.395-2.946-.22-5.718 0-8.672a.264.264 0 0 1 .53 0ZM9.072 9.448c.285 2.659.37 4.986-.006 7.655a.277.277 0 0 1-.55 0c-.331-2.63-.256-5.02 0-7.655a.277.277 0 0 1 .556 0Zm-1.663-.257c.27 2.726.39 5.171 0 7.904a.266.266 0 0 1-.532 0c-.38-2.69-.257-5.21 0-7.904a.266.266 0 0 1 .532 0Zm-1.647.77a26.108 26.108 0 0 1-.008 7.147.272.272 0 0 1-.542 0 27.955 27.955 0 0 1 0-7.147.275.275 0 0 1 .55 0Zm-1.67 1.769c.421 1.865.228 3.5-.029 5.388a.257.257 0 0 1-.514 0c-.21-1.858-.398-3.549 0-5.389a.272.272 0 0 1 .543 0Zm-1.655-.273c.388 1.897.26 3.508-.01 5.412-.026.28-.514.283-.54 0-.244-1.878-.347-3.54-.01-5.412a.283.283 0 0 1 .56 0Zm-1.668.911c.4 1.268.257 2.292-.026 3.572a.257.257 0 0 1-.514 0c-.241-1.262-.354-2.312-.023-3.572a.283.283 0 0 1 .563 0Z"/></g></svg>',
-    qobuz: '<svg width="14" height="14" viewBox="0 0 180 180" aria-hidden="true"><rect width="180" height="180" rx="24.26" ry="24.26"/><path fill="#fff" d="M154.98,107.69s-.06,0-.09,0h-20.06c6.73-8.99,22.89-30.61,22.9-30.62.73-1.01,1.17-2.25,1.17-3.59,0-3.32-2.65-6.01-5.95-6.08h0s-24.55,0-24.55,0h-.15s.14,0,.13,0c-2.34,0-4.38,1.9-4.38,4.24s1.9,4.23,4.23,4.23c.03,0,.06,0,.1,0h19.74s-22.82,30.51-22.84,30.53c-.77,1.02-1.23,2.29-1.23,3.67,0,3.37,2.73,6.09,6.09,6.09h24.88s0,0,.01,0c2.15,0,3.89-1.9,3.89-4.23s-1.74-4.23-3.89-4.23Z"/><path fill="#fff" d="M45.53,115.85c4.68,0,9.06-1.32,12.77-3.61v-11.25c-2.91,3.88-7.55,6.39-12.77,6.39-8.81,0-15.96-7.15-15.96-15.96s7.14-15.96,15.96-15.96,15.96,7.15,15.96,15.96h0v43.76s0,.03,0,.05c0,2.34,1.9,4.24,4.23,4.24s4.23-1.9,4.23-4.24c0-.02,0-.03,0-.05v-43.76c0-13.49-10.93-24.43-24.42-24.43s-24.42,10.94-24.42,24.43,10.93,24.43,24.42,24.43Z"/><path fill="#fff" d="M99.42,66.97c-4.68,0-9.06,1.32-12.77,3.61v11.25c2.91-3.88,7.55-6.39,12.77-6.39,8.81,0,15.96,7.15,15.96,15.96s-7.14,15.96-15.96,15.96-15.96-7.15-15.96-15.96h0v-43.76s0-.03,0-.05c0-2.34-1.9-4.24-4.23-4.24s-4.23,1.9-4.23,4.24c0,.02,0,.03,0,.05v43.76c0,13.49,10.93,24.43,24.42,24.43s24.42-10.94,24.42-24.43-10.93-24.43-24.42-24.43Z"/></svg>',
+    qobuz: '<svg width="14" height="14" viewBox="0 0 180 180" aria-hidden="true"><rect x="4" y="4" width="172" height="172" rx="22" fill="#000" stroke="rgba(255,255,255,.3)" stroke-width="8"/><path fill="#fff" d="M154.98,107.69s-.06,0-.09,0h-20.06c6.73-8.99,22.89-30.61,22.9-30.62.73-1.01,1.17-2.25,1.17-3.59,0-3.32-2.65-6.01-5.95-6.08h0s-24.55,0-24.55,0h-.15s.14,0,.13,0c-2.34,0-4.38,1.9-4.38,4.24s1.9,4.23,4.23,4.23c.03,0,.06,0,.1,0h19.74s-22.82,30.51-22.84,30.53c-.77,1.02-1.23,2.29-1.23,3.67,0,3.37,2.73,6.09,6.09,6.09h24.88s0,0,.01,0c2.15,0,3.89-1.9,3.89-4.23s-1.74-4.23-3.89-4.23Z"/><path fill="#fff" d="M45.53,115.85c4.68,0,9.06-1.32,12.77-3.61v-11.25c-2.91,3.88-7.55,6.39-12.77,6.39-8.81,0-15.96-7.15-15.96-15.96s7.14-15.96,15.96-15.96,15.96,7.15,15.96,15.96h0v43.76s0,.03,0,.05c0,2.34,1.9,4.24,4.23,4.24s4.23-1.9,4.23-4.24c0-.02,0-.03,0-.05v-43.76c0-13.49-10.93-24.43-24.42-24.43s-24.42,10.94-24.42,24.43,10.93,24.43,24.42,24.43Z"/><path fill="#fff" d="M99.42,66.97c-4.68,0-9.06,1.32-12.77,3.61v11.25c2.91-3.88,7.55-6.39,12.77-6.39,8.81,0,15.96,7.15,15.96,15.96s-7.14,15.96-15.96,15.96-15.96-7.15-15.96-15.96h0v-43.76s0-.03,0-.05c0-2.34-1.9-4.24-4.23-4.24s-4.23,1.9-4.23,4.24c0,.02,0,.03,0,.05v43.76c0,13.49,10.93,24.43,24.42,24.43s24.42-10.94,24.42-24.43-10.93-24.43-24.42-24.43Z"/></svg>',
   };
   const SVC_NAME = { spotify: 'Spotify', qobuz: 'Qobuz', soundcloud: 'SoundCloud', youtubemusic: 'YouTube Music', youtube: 'YouTube' };
   const FOLDER = '<svg width="14" height="12" viewBox="0 0 14 12" aria-hidden="true"><path d="M1.2 2.2c0-.6.4-1 1-1h3.1l1.4 1.5h5.1c.6 0 1 .4 1 1v6.9c0 .6-.4 1-1 1H2.2c-.6 0-1-.4-1-1z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>';
@@ -364,8 +290,12 @@
   const cur = (svg, l, t) => svg.replace('LEFT', l).replace('TOP', t);
   const fmt = (n) => n.toLocaleString('en-US');
   const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  const SEP = (s) => `<span class="sepc">${s}</span>`;
+  // a place as words: the separators (› and ·) quiet, the words in the text's own colour
+  const placeHtml = (s) => esc(s).replace(/ (›|·) /g, (m) => SEP(m));
+  const ROWCAP = 18;   // the sample of a collection's tracks the table holds (the window shows about 15)
 
-  // ---------- the data (made up, as library-browser.html): 35 playlists in playlists.txt order ----------
+  // ---------- the collections (made up, as library-browser.html): 35 playlists in playlists.txt order ----------
   const P = (name, svc, songs, off) => ({ kind: 'pl', key: 'pl:' + name, name, svc, n: songs, off: !!off });
   const playlists = [
     P('Hard_Bounce', 'spotify', 14), P('Powertrance', 'spotify', 31), P('Peak Time', 'qobuz', 46), P('Bouncy', 'spotify', 27),
@@ -391,8 +321,8 @@
     { key: 'wf:vinyl', name: 'Vinyl Rips', path: 'Example Drive › Vinyl Rips', own: 64, crates: [], away: 'Offline: connect the drive' },
     { key: 'wf:albums', name: 'Albums', path: '~/Music/Albums', files: 3604, many: 312, crates: [] },
   ];
-  const libFolders = [{ key: 'lf:oldhard', name: 'Old_Hardstyle', path: 'Library/Old_Hardstyle · no playlist uses it', n: 12 }];
-  const VIEWS = [{ key: 'all', name: 'All tracks', n: 5318 }, { key: 'unlisted', name: 'Not in a playlist', n: 4021 }];
+  const libFolders = [{ kind: 'lf', key: 'lf:oldhard', name: 'Old_Hardstyle', path: 'Library › Old_Hardstyle', n: 12 }];
+  const VIEWS = [{ kind: 'view', key: 'all', name: 'All tracks', n: 5318 }, { kind: 'view', key: 'unlisted', name: 'Not in a playlist', n: 4021 }];
   const LIMIT = 25;
   const TODO = 64;   // = Dashboard's Needs you: 9 upgrades ready + 3 not found + 52 weak versions
 
@@ -407,56 +337,183 @@
       c.n = w.crates.filter((d) => d.path === c.path || d.path.startsWith(c.path + '/')).reduce((s, d) => s + d.own, 0);
       c.key = 'cr:' + w.key + ':' + c.path; c.kind = 'crate'; c.wf = w;
       c.tip = `${w.name} › ${c.path.split('/').join(' › ')}`;
+      c.subs = w.crates.filter((d) => d.path.startsWith(c.path + '/'));
     }
     if (w.files == null) w.files = w.crates.length ? w.crates.reduce((s, d) => s + d.own, 0) : w.own;
     w.kind = 'wf'; w.n = w.files;
   }
   const shownCrates = (w) => (w.many > LIMIT ? [] : w.crates.filter((c) => !c.hidden));
   const allShown = watched.flatMap(shownCrates);
-  for (const c of allShown) c.hint = allShown.some((d) => d !== c && d.chain.length === 1 && c.chain.length === 1 && d.base === c.base) ? c.parent : null;
+  for (const c of watched.flatMap((w) => w.crates)) c.hint = allShown.some((d) => d !== c && d.chain.length === 1 && c.chain.length === 1 && d.base === c.base) ? c.parent : null;
   const crateSort = (a, b) => (a.chain.join(' › ') + (a.hint || '')).localeCompare(b.chain.join(' › ') + (b.hint || ''), 'en', { numeric: true });
   for (const w of watched) w.crates.sort(crateSort);
-  const byKey = {};
-  [...VIEWS, ...playlists, ...watched, ...libFolders, ...watched.flatMap((w) => w.crates)].forEach((x) => { byKey[x.key] = x; });
-  const albumCrates = ALBUM_SAMPLE.map(([a, al, n]) => ({ kind: 'crate', key: 'al:' + a + '/' + al, base: al, chain: [al], parent: a, n, wf: watched[2], tip: `Albums › ${a} › ${al}\nNot shown in the sidebar (Albums has 312 folders with music)` }));
+  const albumCrates = ALBUM_SAMPLE.map(([a, al, n]) => ({ kind: 'crate', key: 'al:' + a + '/' + al, base: al, chain: [al], parent: a, artist: a, n, wf: watched[2], subs: [], tip: `Albums › ${a} › ${al}` }));
   for (const c of albumCrates) c.hint = albumCrates.some((d) => d !== c && d.base === c.base) ? c.parent : null;
+  const byKey = {};
+  [...VIEWS, ...playlists, ...watched, ...libFolders, ...watched.flatMap((w) => w.crates), ...albumCrates].forEach((x) => { byKey[x.key] = x; });
+  // a crate's name on one line: "Hardtechno › 2019" (the crate it sits in) or "Bounce · Old Sets" (a same name: the folder above)
+  const crateText = (c) => c.chain.length > 1 ? c.chain.join(' › ') : c.hint ? `${c.base} · ${c.hint}` : c.base;
+  const nameOf = (x) => x.kind === 'crate' ? crateText(x) : x.name;
+
+  // ---------- the tracks: a sample per collection, every count agreeing with it ----------
+  const RB = 'cr:wf:rb:Music/';
+  // [title, artist, crate (Rekordbox Library) or Library folder, quality, playlists, upgrade ready, length, added]
+  const T = (t, a, at, q, pls, up, len, added) => ({ id: t, t, a, q, pls: pls || [], up: !!up, len, added,
+    ...(at.startsWith('Music/') ? { home: 'own', wf: 'wf:rb', crate: 'cr:wf:rb:' + at } : { home: 'lib', folder: at }) });
+  const POOL = [
+    T('Kaltstart', 'Mira Volt', 'Music/Old Sets/2016 Closing', 'L', null, 0, '6:12', '3 Feb 2017'), T('Letzte Runde', 'Tom Brandt', 'Music/Old Sets/2016 Closing', 'W', null, 1, '5:48', '3 Feb 2017'),
+    T('Sprungfeder', 'Bounce Brigade', 'Music/DJ/Bounce', 'L', ['Hard_Bounce', 'Bouncy'], 0, '4:56', '9 Jun 2022'), T('Gummiboot', 'Jana Jump', 'Music/DJ/Bounce', 'G', ['Bouncy'], 0, '5:03', '9 Jun 2022'),
+    T('Trampolin', 'Kalte Nacht', 'Music/DJ/Bounce', 'L', null, 0, '4:41', '14 Aug 2023'), T('Hoch hinaus', 'Remo Rush', 'Music/Old Sets/Bounce', 'F', null, 0, '5:20', '2 May 2016'),
+    T('Flummi', 'Echo Gruppe', 'Music/Old Sets/Bounce', 'L', null, 0, '4:37', '2 May 2016'), T('Maschinenraum', 'Low Ceiling', 'Music/DJ/Hardtechno', 'L', ['Hardtechno 2026'], 0, '6:05', '21 Jan 2026'),
+    T('Stahlwerk', 'Pulsar 9', 'Music/DJ/Hardtechno', 'L', ['Schranz Bunker', 'Industrial Pressure', 'Techno Tools'], 0, '5:52', '30 Oct 2024'),
+    T('Druckkammer', 'Ferro', 'Music/DJ/Hardtechno', 'G', null, 0, '6:30', '30 Oct 2024'), T('Taktgefuehl', 'Low Ceiling', 'Music/DJ/Hardtechno', 'L', null, 0, '5:15', '30 Oct 2024'),
+    T('Kaltfront', 'Pulsar 9', 'Music/DJ/Hardtechno/2019', 'L', ['Peak Time'], 0, '5:31', '12 Mar 2019'), T('Sonnenfinsternis', 'Pulsar 9', 'Music/DJ/Hardtechno/2019', 'W', null, 1, '6:44', '12 Mar 2019'),
+    T('Gitarrenwand', 'Neon Riot', 'Music/DJ/Rock', 'L', null, 0, '3:58', '5 Jul 2021'), T('Verstaerker', 'Neon Riot', 'Music/DJ/Rock', 'G', null, 0, '4:12', '5 Jul 2021'),
+    T('Morgengrauen', 'Jana Jump', 'Music/DJ/Warmup', 'L', ['Warmup Grooves'], 0, '7:02', '18 Nov 2023'), T('Leise Runde', 'Echo Gruppe', 'Music/DJ/Warmup', 'L', null, 0, '6:26', '18 Nov 2023'),
+    T('Ruhepol', 'Echo Gruppe', 'Music/DJ/Warmup', 'G', null, 0, '6:48', '18 Nov 2023'), T('Nebelwand', 'Mira Volt', 'Music/DJ/Warmup', 'L', null, 0, '6:10', '18 Nov 2023'),
+    T('Langsam', 'Tom Brandt', 'Music/DJ/Warmup', 'G', null, 0, '5:57', '18 Nov 2023'),
+    T('Bunkerluft', 'Cold Signal', 'Music/DJ/Hardtechno', 'L', null, 0, '5:44', '30 Oct 2024'), T('Rostfrei', 'Ferro', 'Music/DJ/Hardtechno', 'L', ['Schranz Bunker'], 0, '6:01', '30 Oct 2024'),
+    T('Nachtschicht', 'Glasshaus', 'Music/DJ/Hardtechno', 'G', null, 0, '5:36', '30 Oct 2024'), T('Eisenbahn', 'Ferro', 'Music/DJ/Hardtechno/2019', 'G', null, 1, '6:18', '12 Mar 2019'),
+    T('Kesselhaus', 'Pulsar 9', 'Music/DJ/Hardtechno/2019', 'L', null, 0, '5:49', '12 Mar 2019'), T('Funkstille', 'Cold Signal', 'Music/DJ/Hardtechno/2019', 'F', null, 0, '5:27', '12 Mar 2019'),
+    T('Schwermetall', 'Low Ceiling', 'Music/DJ/Hardtechno', 'L', ['Hardtechno 2026'], 0, '6:09', '21 Jan 2026'), T('Hochofen', 'Ferro', 'Music/DJ/Hardtechno', 'W', null, 0, '5:40', '30 Oct 2024'),
+    T('Funkenflug', 'Pulsar 9', 'Music/DJ/Hardtechno', 'L', null, 0, '6:22', '30 Oct 2024'), T('Gleisbett', 'Glasshaus', 'Music/DJ/Hardtechno/2019', 'G', null, 0, '5:58', '12 Mar 2019'),
+    T('Zahnrad', 'Cold Signal', 'Music/DJ/Hardtechno', 'L', null, 0, '6:03', '30 Oct 2024'), T('Kaltwalze', 'Ferro', 'Music/DJ/Hardtechno/2019', 'L', null, 0, '6:35', '12 Mar 2019'),
+    // downloaded into Library/<playlist folder>
+    T('Lichtkegel', 'Nova Pulse', 'Peak Time', 'L', ['Peak Time'], 0, '6:14', '7 Oct 2026'), T('Gipfelsturm', 'Aurora Drift', 'Peak Time', 'G', ['Peak Time', 'Powertrance'], 1, '6:51', '7 Oct 2026'),
+    T('Federweg', 'Bassline Unit', 'Hard_Bounce', 'L', ['Hard_Bounce'], 0, '4:49', '22 Sep 2026'), T('Sprunggelenk', 'Dr. Kickbass', 'Hard_Bounce', 'W', ['Hard_Bounce', 'Bouncy'], 0, '5:02', '22 Sep 2026'),
+    T('Rueckstoss', 'Dr. Kickbass', 'Hard_Bounce', 'L', ['Hard_Bounce'], 0, '4:58', '22 Sep 2026'), T('Polarlicht', 'Echo Vault', 'Powertrance', 'L', ['Powertrance'], 0, '7:11', '1 Oct 2026'),
+  ];
+  // the counts of the collections the states open (the rest derive from their size, never below their sample)
+  const FIXED = {
+    // = Dashboard (12 of Rekordbox Library's files not checked yet); To-do: 9 upgrades ready + 52 weak versions
+    'all': { n: 5318, checked: 5306, L: 3776, G: 900, W: 470, F: 160, up: 9, todo: 61 },
+    'unlisted': { n: 4021, checked: 4009, L: 2810, G: 701, W: 380, F: 118, up: 6, todo: 6 },
+    'wf:albums': { n: 3604, checked: 3604, L: 2640, G: 610, W: 270, F: 84, up: 0, todo: 0 },
+    // Rekordbox Library and its crates: the crates add up to it (Hardtechno includes 2019)
+    'wf:rb': { n: 472, checked: 460, L: 290, G: 92, W: 58, F: 20, up: 6, todo: 41 },
+    [RB + 'DJ/Hardtechno']: { n: 180, checked: 180, L: 120, G: 30, W: 22, F: 8, up: 3, todo: 18 },
+    [RB + 'DJ/Hardtechno/2019']: { n: 38, checked: 38, L: 25, G: 6, W: 5, F: 2, up: 2, todo: 5 },
+    [RB + 'DJ/Bounce']: { n: 96, checked: 92, L: 56, G: 20, W: 12, F: 4, up: 1, todo: 7 },
+    [RB + 'DJ/Edits']: { n: 23, checked: 21, L: 10, G: 6, W: 3, F: 2, up: 0, todo: 2 },
+    [RB + 'DJ/Rock']: { n: 51, checked: 49, L: 30, G: 12, W: 5, F: 2, up: 0, todo: 3 },
+    [RB + 'DJ/Warmup']: { n: 44, checked: 43, L: 28, G: 10, W: 4, F: 1, up: 1, todo: 4 },
+    [RB + 'Old Sets/2016 Closing']: { n: 17, checked: 17, L: 10, G: 3, W: 3, F: 1, up: 1, todo: 3 },
+    [RB + 'Old Sets/Bounce']: { n: 61, checked: 58, L: 36, G: 11, W: 9, F: 2, up: 0, todo: 4 },
+  };
+  // where the 9 upgrades ready are: 6 in Rekordbox Library (2019: 2, Hardtechno: 1, 2016 Closing, Warmup, Bounce · DJ), 3 in Library folders
+  const UPS = { 'pl:Peak Time': 1, 'pl:Powertrance': 1, 'pl:Acid Wednesdays': 1, 'pl:Neo Rave': 1 };
+  const WORDS = ['Abendrot', 'Blitzlicht', 'Dampfhammer', 'Eiszeit', 'Feuerwerk', 'Glutkern', 'Hallraum', 'Irrlicht', 'Kettenglied', 'Lautsprecher', 'Mitternacht', 'Nordwind',
+    'Ostkurve', 'Pulsschlag', 'Querfeld', 'Rauschen', 'Schallmauer', 'Tiefflug', 'Uhrwerk', 'Vollgas', 'Wellenbrecher', 'Zeitraffer', 'Bassdruck', 'Funkturm', 'Nachtzug',
+    'Stroboskop', 'Hochdruck', 'Steinbruch', 'Sturmflut', 'Wolkenbruch', 'Kreisel', 'Spiegelsaal', 'Neonherz', 'Lichtjahr', 'Fernweh', 'Gegenwind'];
+  const ARTISTS = ['Aurora Drift', 'Bassline Unit', 'Cold Signal', 'Dr. Kickbass', 'Echo Vault', 'Ferro', 'Glasshaus', 'Jana Jump', 'Kalte Nacht', 'Low Ceiling', 'Mira Volt', 'Neon Riot', 'Nova Pulse', 'Pulsar 9', 'Remo Rush', 'Tom Brandt'];
+  // Rekordbox Library's made-up files sort after the named ones (Artist ↑), so its first screen stays the sample above
+  const LATE = ['Mira Volt', 'Neon Riot', 'Nova Pulse', 'Pulsar 9', 'Remo Rush', 'Tom Brandt', 'Vela Static', 'Zinnober'];
+  const LOSSY_SRC = { spotify: ['YouTube Music', 'SoundCloud', 'YouTube'], qobuz: ['YouTube Music'], soundcloud: ['SoundCloud'], youtubemusic: ['YouTube Music'] };
+  const rng = (seed) => { let s = 7; for (const ch of seed) s = (s * 31 + ch.charCodeAt(0)) >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; };
+  function member(t, x) {
+    if (x.key === 'all') return true;
+    if (x.key === 'unlisted') return !t.pls.length;
+    if (x.kind === 'pl') return t.pls.includes(x.name);
+    if (x.kind === 'wf') return t.wf === x.key;
+    if (x.kind === 'crate') return !!t.crate && (t.crate === x.key || t.crate.startsWith(x.key + '/'));
+    if (x.kind === 'lf') return t.home === 'lib' && t.folder === x.name;
+    return false;
+  }
+  function deriveCounts(n, pool, ups) {
+    const pc = { L: 0, G: 0, W: 0, F: 0 };
+    pool.forEach((t) => { pc[t.q]++; });
+    const G = Math.max(pc.G, Math.round(n * .16)), W = Math.max(pc.W, Math.round(n * .12)), F = Math.max(pc.F, Math.round(n * .04));
+    const up = Math.max(ups, pool.filter((t) => t.up).length);
+    return { n, checked: n, L: n - G - W - F, G, W, F, up, todo: Math.min(G + W + F, up + Math.round(W * .6)) };
+  }
+  // Every collection's files are made once, for the whole library: each smallest collection (a crate's own files, a
+  // playlist, a Library folder, an album) gets, per quality, as many files as its counts say (up to a screenful), and its
+  // upgrades exactly. A page lists its members, so every page, filter and search agrees with every other.
+  const ALL = [...POOL], LEAF = {}, TAKEN = new Set(POOL.map((t) => t.a + '|' + t.t));
+  function fill(key, c, pool, make) {
+    const r = rng(key), have = { L: 0, G: 0, W: 0, F: 0 };
+    pool.forEach((t) => { have[t.q]++; });
+    let upLeft = c.up - pool.filter((t) => t.up).length, i = 0;
+    const s0 = Math.floor(r() * WORDS.length);
+    for (const q of ['G', 'W', 'F', 'L']) for (let k = have[q]; k < Math.min(c[q], ROWCAP); k++, i++) {
+      const t = { id: `${key}#${i}`, t: WORDS[(s0 + i) % WORDS.length] + ['', ' (Edit)', ' (Dub)'][Math.floor(i / WORDS.length)], q, pls: [], up: false,
+        len: `${4 + Math.floor(r() * 4)}:${String(Math.floor(r() * 60)).padStart(2, '0')}`, added: `${1 + Math.floor(r() * 27)} ${['Jan', 'Mar', 'May', 'Aug', 'Oct'][Math.floor(r() * 5)]} ${2018 + Math.floor(r() * 8)}` };
+      if (q !== 'L' && upLeft > 0) { t.up = true; upLeft--; }
+      make(t, r);
+      for (let b = 1; TAKEN.has(t.a + '|' + t.t); b++) t.t = WORDS[(s0 + i + b) % WORDS.length] + ['', ' (Edit)', ' (Dub)', ' (Tool)', ' (Rework)'][Math.floor(b / WORDS.length) % 5];
+      TAKEN.add(t.a + '|' + t.t); ALL.push(t);
+    }
+  }
+  for (const c of watched[0].crates) {
+    const own = { ...FIXED[c.key] };
+    for (const s of c.subs) for (const k of Object.keys(own)) own[k] -= FIXED[s.key][k];
+    fill(c.key, own, POOL.filter((t) => t.crate === c.key), (t, r) => Object.assign(t, { a: LATE[Math.floor(r() * LATE.length)], home: 'own', wf: 'wf:rb', crate: c.key }));
+  }
+  for (const p of playlists) {
+    const pool = POOL.filter((t) => member(t, p)), src = LOSSY_SRC[p.svc];
+    LEAF[p.key] = deriveCounts(p.n, pool, UPS[p.key] || 0);
+    fill(p.key, LEAF[p.key], pool, (t, r) => Object.assign(t, { a: ARTISTS[Math.floor(r() * ARTISTS.length)], home: 'lib', folder: p.name, pls: [p.name], src: t.q === 'L' ? 'Qobuz' : src[Math.floor(r() * src.length)] }));
+  }
+  for (const f of libFolders) {
+    LEAF[f.key] = deriveCounts(f.n, [], 0);
+    fill(f.key, LEAF[f.key], [], (t, r) => Object.assign(t, { a: ARTISTS[Math.floor(r() * ARTISTS.length)], home: 'lib', folder: f.name, src: t.q === 'L' ? 'Qobuz' : 'YouTube Music' }));
+  }
+  for (const al of albumCrates) {
+    LEAF[al.key] = deriveCounts(al.n, [], 0);
+    fill(al.key, LEAF[al.key], [], (t) => Object.assign(t, { a: al.artist, home: 'own', wf: 'wf:albums', crate: al.key }));
+  }
+  // Albums: the 11 albums above stand for its 312; the rest of its files sit in albums the list doesn't name
+  {
+    const have = ALL.filter((t) => t.wf === 'wf:albums'), c = FIXED['wf:albums'], rest = { ...c };
+    for (const k of ['L', 'G', 'W', 'F']) rest[k] = Math.max(have.filter((t) => t.q === k).length, Math.min(c[k], ROWCAP));
+    const ALBUMS = ['Nachtfahrt', 'Kaltlicht', 'Signalfeuer', 'Archiv Zwei', 'Momentum', 'Polarkreis', 'Tiefgarage', 'Sendeschluss'];
+    fill('wf:albums', rest, have, (t, r) => Object.assign(t, { a: ARTISTS[Math.floor(r() * ARTISTS.length)], home: 'own', wf: 'wf:albums', sub: ALBUMS[Math.floor(r() * ALBUMS.length)] }));
+  }
+  const TRACKS = {}; ALL.forEach((t) => { TRACKS[t.id] = t; });
+  const pageCache = {};
+  function pageOf(key) {
+    if (pageCache[key]) return pageCache[key];
+    const x = byKey[key];
+    const all = ALL.filter((t) => member(t, x)).sort((a, b) => a.a.localeCompare(b.a) || a.t.localeCompare(b.t));
+    return (pageCache[key] = { x, c: FIXED[key] || LEAF[key], all });
+  }
 
   // ---------- the browser's rows ----------
   const hl = (s, q) => { if (!q) return esc(s); const i = s.toLowerCase().indexOf(q); return i < 0 ? esc(s) : esc(s.slice(0, i)) + `<b class="hl">${esc(s.slice(i, i + q.length))}</b>` + esc(s.slice(i + q.length)); };
-  // a crate on one line: "Hardtechno › 2019" (the crate it sits in, label grey) or "Bounce · Old Sets" (a same name: the folder above)
-  const crateLabel = (c, q) => c.chain.length > 1 ? `<span class="gt">${esc(c.chain[0])} › </span>${hl(c.base, q)}` : c.hint ? `${hl(c.base, q)}<span class="h"> · ${esc(c.hint)}</span>` : hl(c.base, q);
-  const plain = (x) => x.kind === 'crate' ? (x.chain.length > 1 ? x.chain.join(' › ') : x.hint ? `${x.base} · ${x.hint}` : x.base) : x.name;
+  const crateLabel = (c, q) => c.chain.length > 1 ? `${esc(c.chain[0])}${SEP(' › ')}${hl(c.base, q)}` : c.hint ? `${hl(c.base, q)}${SEP(' · ')}${esc(c.hint)}` : hl(c.base, q);
   function cls(x, o, extra = '') {
     const on = o.sel === x.key && !o.used.has(x.key);   // the pill goes on the topmost row for the open page
     if (on) o.used.add(x.key);
-    return `nav${x.off ? ' off' : ''}${on ? ' on' : ''}${o.kb === x.key ? ' kb' : ''}${o.menu === x.key ? ' menu-on' : ''}${extra}`;
+    return `nav${x.off ? ' off' : ''}${on ? ' on' : ''}${o.menu && o.menu.key === x.key ? ' menu-on' : ''}${extra}`;
   }
   const glyph = (x) => x.kind === 'pl' ? SVC[x.svc] : x.away ? MARK : FOLDER;
   const title = (x) => x.kind === 'pl' ? `${x.name}\n${SVC_NAME[x.svc]} playlist · ${x.n} songs${x.off ? '\nSwitched off: its files stay, nothing new downloads' : ''}`
-    : x.kind === 'crate' ? `${x.tip}\n${fmt(x.n)} files` : x.kind === 'wf' ? `${x.path} · ${fmt(x.n)} files${x.away ? '\n' + x.away : ''}${x.many ? `\n${x.many} folders with music: choose which to show in Settings → Watched folders` : x.crates.some((c) => c.hidden) ? `\n${shownCrates(x).length} of ${x.crates.length} folders shown` : ''}` : `${x.path}`;
+    : x.kind === 'crate' ? `${x.tip}\n${fmt(x.n)} files${x.wf.many ? `\nNot shown in the list (Albums has ${x.wf.many} folders with music)` : ''}` : x.kind === 'wf' ? `${x.path} · ${fmt(x.n)} files${x.away ? '\n' + x.away : ''}${x.many ? `\n${x.many} folders with music: choose which to show in Settings → Watched folders` : x.crates.some((c) => c.hidden) ? `\n${shownCrates(x).length} of ${x.crates.length} folders shown` : ''}` : `${x.path} · no playlist uses it`;
   function row(x, o, place) {
-    const q = o.q;
+    const q = o.qq;
     if (x.kind === 'view') return `<div class="${cls(x, o)}" data-k="${x.key}"><span class="t">${esc(x.name)}</span><span class="c">${fmt(x.n)}</span></div>`;
     if (x.kind === 'crate' && place !== 'fav')
       return `<div class="${cls(x, o, ' crate')}" data-k="${x.key}" title="${esc(title(x))}"><span class="t">${crateLabel(x, q)}</span><span class="c">${fmt(x.n)}</span></div>`;
     const name = x.kind === 'crate' ? crateLabel(x, q) : hl(x.name, q);
     const crates = x.kind === 'wf' ? shownCrates(x) : [];
-    const chev = crates.length ? `<span class="chev${o.closed.has(x.key) && !q ? '' : ' open'}">${CHEV}</span>` : '';
+    const chev = crates.length ? `<span class="chev${o.closed.has(x.key) && !q ? '' : ' open'}" data-fold="${x.key}">${CHEV}</span>` : '';
     const cw = x.kind === 'wf' && crates.length ? ` style="--count-w:${o.cw}ch"` : '';
     return `<div class="${cls(x, o)}"${cw} data-k="${x.key}" title="${esc(title(x))}"><span class="g">${glyph(x)}</span><span class="t">${name}</span>${chev}<span class="c">${fmt(x.n)}</span></div>`;
   }
-  const header = (label, key, o, extra = '', n = '') => `<div class="sh" data-sec="${key}" title="${o.closed.has(key) ? 'Show' : 'Hide'} ${label.toLowerCase()}"><span>${label}</span>${n !== '' ? `<span class="n">${n}</span>` : '<span class="sp"></span>'}${extra}<span class="chev${o.closed.has(key) && !o.q ? '' : ' open'}">${CHEV}</span></div>`;
+  const header = (label, key, o, extra = '', n = '') => `<div class="sh" data-sec="${key}" title="${o.closed.has(key) ? 'Show' : 'Hide'} ${label.toLowerCase()}"><span>${label}</span>${n !== '' ? `<span class="n">${n}</span>` : '<span class="sp"></span>'}${extra}<span class="chev${o.closed.has(key) && !o.qq ? '' : ' open'}">${CHEV}</span></div>`;
   const folderCw = Math.max(...watched.filter((w) => shownCrates(w).length).map((x) => fmt(x.n).length));
 
+  // While filtering, each match is listed once, in its own section: Favourites (shortcuts to rows that are also in
+  // Playlists or Folders) steps aside, so one row carries the keyboard highlight and Enter has one target.
   function libraryRows(o) {
-    const q = o.q;
+    const q = o.qq;
     const m = (s) => !q || s.toLowerCase().includes(q);
-    const out = [];
-    if (!q) out.push(...VIEWS.map((v) => row({ ...v, kind: 'view' }, o)));
-    const favs = o.favs.map((k) => byKey[k]).filter((x) => !q || m(x.name || x.base));
-    if (!q || favs.length) {
+    const out = [], targets = [];
+    if (!q) {
+      out.push(...VIEWS.map((v) => row(v, o)));
       out.push('<div class="gap"></div>' + header('Favourites', 'fav', o));
-      if (!o.closed.has('fav') || q) {
+      if (!o.closed.has('fav')) {
+        const favs = o.favs.map((k) => byKey[k]);
         if (o.drag) {
           const list = favs.filter((x) => x.key !== o.drag.key);
           list.forEach((x, i) => { if (i === o.drag.at) out.push('<div class="slot" data-slot></div>'); out.push(row(x, o, 'fav')); });
@@ -467,22 +524,29 @@
     }
     const pls = (o.az ? [...playlists].sort((a, b) => a.name.localeCompare(b.name)) : playlists).filter((p) => m(p.name));
     if (pls.length) {
-      out.push('<div class="gap"></div>' + header('Playlists', 'pl', o, `<span class="ibtn" title="Order: download priority (change it on the Playlists page) · A–Z">${SORT}</span>`, q ? '' : playlists.length));
-      if (!o.closed.has('pl') || q) out.push(...pls.map((p) => row(p, o)));
+      out.push('<div class="gap"></div>' + header('Playlists', 'pl', o, `<span class="ibtn${o.az ? ' on' : ''}" data-sort title="Order: ${o.az ? 'A–Z' : 'download priority (change it on the Playlists page)'} · click for ${o.az ? 'download priority' : 'A–Z'}">${SORT}</span>`, q ? '' : playlists.length));
+      if (!o.closed.has('pl') || q) { out.push(...pls.map((p) => row(p, o))); if (q) targets.push(...pls.map((p) => p.key)); }
     }
     const fo = [];
     for (const w of [...watched].sort((a, b) => a.name.localeCompare(b.name))) {
       const crates = q ? [...shownCrates(w), ...w.crates.filter((c) => c.hidden), ...(w.many ? albumCrates : [])].filter((c) => m(c.base)) : shownCrates(w);
       if (q && !m(w.name) && !crates.length) continue;
-      fo.push(row(w, o, 'folders'));
-      if (!o.closed.has(w.key) || q) fo.push(...crates.sort(crateSort).map((c) => row(c, o, 'folders')));
+      fo.push(row(w, o, 'folders')); if (q && m(w.name)) targets.push(w.key);   // a watched folder shown only as context isn't a target
+      if (!o.closed.has(w.key) || q) { crates.sort(crateSort); fo.push(...crates.map((c) => row(c, o, 'folders'))); if (q) targets.push(...crates.map((c) => c.key)); }
     }
-    fo.push(...libFolders.filter((f) => m(f.name)).map((f) => row({ ...f, kind: 'lf' }, o, 'folders')));
+    const lfs = libFolders.filter((f) => m(f.name));
+    fo.push(...lfs.map((f) => row(f, o, 'folders'))); if (q) targets.push(...lfs.map((f) => f.key));
     if (fo.length) {
       out.push('<div class="gap"></div>' + header('Folders', 'fo', o));
       if (!o.closed.has('fo') || q) out.push(...fo);
     }
-    if (q && !pls.length && !fo.length && !favs.length) out.push(`<div class="empty">No playlist or folder has “${esc(q)}” in its name.</div>`);
+    if (q) {
+      // the hand-off: the filter finds names, the track search finds tracks; one row passes the text on
+      out.push(`${targets.length ? '<div class="gap"></div>' : ''}<div class="nav handoff" data-k="handoff" title="Search every track’s title and artist for “${esc(o.q.trim())}” (All tracks)"><span class="g">${MAG}</span><span class="t">Search tracks for “${esc(o.q.trim())}”</span><span class="c">↵</span></div>`);
+      targets.push('handoff');
+    }
+    o.targets = targets;
+    if (q && !targets.includes(o.kb)) o.kb = targets[0];
     return out.join('');
   }
 
@@ -497,208 +561,400 @@
     lib: ic('<path d="M5.2 10.9V3.1l6.6-1.5v7.7"/><circle cx="3.6" cy="10.9" r="1.6"/><circle cx="10.2" cy="9.3" r="1.6"/>'),
     set: ic('<circle cx="7" cy="7" r="2"/><path d="M7 1.2v1.6M7 11.2v1.6M1.2 7h1.6M11.2 7h1.6M2.9 2.9 4 4M10 10l1.1 1.1M2.9 11.1 4 10M10 4l1.1-1.1"/>'),
   };
-  const APP = [['dash', '◉', 'Dashboard', '⌘1'], ['sync', '⟳', 'Sync', '⌘2'], ['todo', '✓', 'To-do', '⌘3'], ['pls', '≡', 'Playlists', '⌘4'], ['lim', '◔', 'Download limits', '⌘5'], ['lib', '♫', 'Library', '⌘6']];
+  const APP = [['dash', 'Dashboard', '⌘1'], ['sync', 'Sync', '⌘2'], ['todo', 'To-do', '⌘3'], ['pls', 'Playlists', '⌘4'], ['lim', 'Download limits', '⌘5'], ['lib', 'Library', '⌘6']];
+  const BUILT = new Set(['dash', 'lib']);
   const ring = (frac, color, r = 11, w = 2) => { const c = 2 * Math.PI * r; return `<svg class="ring" width="${2 * r + w}" height="${2 * r + w}" viewBox="0 0 ${2 * r + w} ${2 * r + w}" aria-hidden="true"><circle cx="${r + w / 2}" cy="${r + w / 2}" r="${r}" fill="none" stroke="rgba(255,255,255,.1)" stroke-width="${w}"/><circle cx="${r + w / 2}" cy="${r + w / 2}" r="${r}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="round" stroke-dasharray="${(frac * c).toFixed(1)} ${c.toFixed(1)}"/></svg>`; };
-  function appSidebar(o) {
-    const rail = o.form === 'rail';
-    const nav = APP.map(([k, g, l, kb]) => {
+  const limitReached = (o) => o.qobuz[0] >= o.qobuz[1];
+  function appSidebar(o, form, beside) {
+    const rail = form === 'rail';
+    const nav = APP.map(([k, l, kb]) => {
       const on = o.page === k;
       const sync = k === 'sync' && o.sync;
-      const extra = (k === 'lim' ? '<span class="warn"></span>' : '') + (sync && rail ? ring(o.sync[0] / o.sync[1], 'var(--muted)', 12) : '') + (k === 'todo' && rail ? `<span class="bdg">${TODO}</span>` : '');
+      // the yellow dot: a download limit is reached or a service is waiting, exactly when the limits say so
+      const extra = (k === 'lim' && limitReached(o) ? '<span class="warn"></span>' : '') + (sync && rail ? ring(o.sync[0] / o.sync[1], 'var(--muted)', 12) : '') + (k === 'todo' && rail ? `<span class="bdg">${TODO}</span>` : '');
       const count = k === 'todo' ? `<span class="c">${TODO}</span>` : sync ? `<span class="c">${o.sync[0]}/${o.sync[1]}</span>` : '';
-      return `<div class="nav${on ? ' on' : ''}" data-nav="${k}" title="${l}${k === 'todo' ? ` · ${TODO} to look at` : ''} (${kb})"><span class="g">${NAVI[k]}${extra}</span><span class="t">${l}</span>${count}</div>`;
+      const tip = `${l}${k === 'todo' ? ` · ${TODO} to look at` : ''}${k === 'lim' && limitReached(o) ? ' · Qobuz: today’s limit reached' : ''}${k === 'sync' && o.sync ? ` · syncing, ${o.sync[0]} of ${o.sync[1]}` : ''} (${kb})${BUILT.has(k) ? '' : ' · not part of this mockup'}`;
+      return `<div class="nav${on ? ' on' : ''}" data-nav="${k}" title="${tip}"><span class="g">${NAVI[k]}${extra}</span><span class="t">${l}</span>${count}</div>`;
     }).join('');
     // Favourites as shortcuts, on pages where the browser column isn't shown (no counts: they're links)
     const favs = !rail && o.page !== 'lib' && o.favs.length ? `<div class="grp">Favourites</div><div class="favs">${o.favs.map((k) => byKey[k]).map((x) =>
-      `<div class="nav" title="${esc(title(x))}"><span class="g">${glyph(x)}</span><span class="t">${x.kind === 'crate' ? crateLabel(x) : esc(x.name)}</span></div>`).join('')}</div>` : '';
+      `<div class="nav" data-k="${x.key}" title="${esc(title(x))}"><span class="g">${glyph(x)}</span><span class="t">${x.kind === 'crate' ? crateLabel(x) : esc(x.name)}</span></div>`).join('')}</div>` : '';
     const np = o.hiddenPlayer ? (rail
       ? `<div class="np" title="Kaltfront · Pulsar 9"><span class="up" title="Show player">⌃</span><span class="pb">${ring(.23, 'var(--accent)', 11)}<span style="font-size:9px">❚❚</span></span></div>`
       : `<div class="nprow"><span class="pb" style="position:relative;width:22px;height:22px;display:grid;place-items:center">${ring(.23, 'var(--accent)', 10)}<span style="font-size:8px">❚❚</span></span><span class="t" style="font-size:12px">Kaltfront</span><span class="ibtn">⌃</span></div>`) : '';
-    return `<div class="sb${rail ? ' rail' : ''}" data-sb><div class="shead"><span class="tog" data-tog title="${rail ? 'Show' : 'Hide'} sidebar (⌃⌘S)">${SBICON}</span><span class="brand">Discjockey</span></div>${nav}${favs}<div class="spacer"></div>${np}
-      <div class="nav settings" data-nav="set" title="Settings (⌘,)"><span class="g">${NAVI.set}</span><span class="t">Settings</span></div></div>`;
+    return `<div class="sb${rail ? ' rail' : ''}${beside ? ' beside' : ''}" data-sb><div class="shead"><span class="tog" data-tog title="${rail ? 'Show' : 'Hide'} sidebar (⌃⌘S)">${SBICON}</span><span class="brand">Discjockey</span></div>${nav}${favs}<div class="spacer"></div>${np}
+      <div class="nav settings" data-nav="set" title="Settings (⌘,) · not part of this mockup"><span class="g">${NAVI.set}</span><span class="t">Settings</span></div></div>`;
   }
   function browser(o) {
-    const field = `<div class="bfind${o.q ? ' typed' : ''}"><span class="ico">${MAG}</span><span class="q">${o.q ? esc(o.q) : 'Filter playlists, folders'}</span>${o.q ? '<span class="x" title="Clear (Esc)">✕</span>' : '<kbd>⌘K</kbd>'}</div>`;
-    return `<div class="browser" data-browser style="--bw:${o.bw}px">${field}<div class="lib" data-lib>${libraryRows({ ...o, cw: folderCw })}</div><div class="edge${o.resizing ? ' drag' : ''}" data-edge title="Drag to resize · double-click: back to 240"></div></div>`;
+    const field = `<label class="bfind"><span class="ico">${MAG}</span><input data-field="filter" placeholder="Filter playlists, folders" value="${esc(o.q)}" spellcheck="false" autocomplete="off">${o.q ? '<span class="x" data-x title="Clear (Esc)">✕</span>' : '<kbd>⌘K</kbd>'}</label>`;
+    return `<div class="browser" data-browser style="--bw:${o.bw}px">${field}<div class="lib" data-lib>${libraryRows(o)}</div><div class="edge${o.resizing ? ' drag' : ''}" data-edge title="Drag to resize · double-click: back to 240"></div></div>`;
   }
 
   // ---------- the Library page ----------
-  const C = { lossless: '--good', good_lossy: '--ok', weak: '--weak', fake: '--lossy' };
+  const QV = { L: '--good', G: '--ok', W: '--weak', F: '--lossy' };
+  const QL = { L: 'LOSSLESS', G: '20.0 kHz', W: '16.0 kHz', F: 'FAKE · 16.0 kHz' };
+  const QCUT = { L: 0, G: 91, W: 72, F: 72 };   // the cutoff's height in the spectrum (of 22.05 kHz)
   const grads = ['linear-gradient(135deg,#2fd27a,#1a7cff)', 'linear-gradient(135deg,#ff6a8a,#7a4cff)', 'linear-gradient(135deg,#1a7cff,#f0b93a)', 'linear-gradient(135deg,#f0b93a,#c04aff)', 'linear-gradient(135deg,#7a4cff,#2fd27a)', 'linear-gradient(135deg,#f0524a,#a77bff)'];
-  const Q = { L: ['lossless', 'LOSSLESS'], G: ['good_lossy', '20.0 kHz'], W: ['weak', '16.0 kHz'], F: ['fake', 'FAKE · 16.0 kHz'] };
-  // [title, artist, subfolder, quality, playlists, upgrade ready, length]
-  const RB_ROWS = [
-    ['Kaltstart', 'Mira Volt', '2016 Closing', 'L', null, false, '6:12'], ['Letzte Runde', 'Tom Brandt', '2016 Closing', 'W', null, true, '5:48'],
-    ['Sprungfeder', 'Bounce Brigade', 'Bounce · DJ', 'L', ['Hard_Bounce', 'Bouncy'], false, '4:56'], ['Gummiboot', 'Jana Jump', 'Bounce · DJ', 'G', ['Bouncy'], false, '5:03'],
-    ['Trampolin', 'Kalte Nacht', 'Bounce · DJ', 'L', null, false, '4:41'], ['Hoch hinaus', 'Remo Rush', 'Bounce · Old Sets', 'F', null, false, '5:20'],
-    ['Flummi', 'Echo Gruppe', 'Bounce · Old Sets', 'L', null, false, '4:37'], ['Maschinenraum', 'Low Ceiling', 'Hardtechno', 'L', ['Hardtechno 2026'], false, '6:05'],
-    ['Stahlwerk', 'Pulsar 9', 'Hardtechno', 'L', ['Schranz Bunker', 'Industrial Pressure', 'Techno Tools'], false, '5:52'],
-    ['Druckkammer', 'Ferro', 'Hardtechno', 'G', null, false, '6:30'], ['Taktgefuehl', 'Low Ceiling', 'Hardtechno', 'L', null, false, '5:15'],
-    ['Kaltfront', 'Pulsar 9', 'Hardtechno › 2019', 'L', ['Peak Time'], false, '5:31'], ['Sonnenfinsternis', 'Pulsar 9', 'Hardtechno › 2019', 'W', null, true, '6:44'],
-    ['Gitarrenwand', 'Neon Riot', 'Rock', 'L', null, false, '3:58'], ['Verstaerker', 'Neon Riot', 'Rock', 'G', null, false, '4:12'],
-    ['Morgengrauen', 'Jana Jump', 'Warmup', 'L', ['Warmup Grooves'], false, '7:02'], ['Leise Runde', 'Echo Gruppe', 'Warmup', 'L', null, false, '6:26'], ['Ruhepol', 'Echo Gruppe', 'Warmup', 'G', null, false, '6:48'],
-    ['Nebelwand', 'Mira Volt', 'Warmup', 'L', null, false, '6:10'], ['Langsam', 'Tom Brandt', 'Warmup', 'G', null, false, '5:57'],
-  ];
-  const HT_ROWS = RB_ROWS.filter((r) => r[2].startsWith('Hardtechno')).map((r) => [r[0], r[1], r[2] === 'Hardtechno' ? '' : '2019', r[3], r[4], r[5], r[6]])
-    .concat([['Bunkerluft', 'Cold Signal', '', 'L', null, false, '5:44'], ['Rostfrei', 'Ferro', '', 'L', ['Schranz Bunker'], false, '6:01'], ['Nachtschicht', 'Glasshaus', '', 'G', null, false, '5:36'],
-      ['Eisenbahn', 'Ferro', '2019', 'L', null, true, '6:18'], ['Kesselhaus', 'Pulsar 9', '2019', 'L', null, false, '5:49'], ['Funkstille', 'Cold Signal', '2019', 'F', null, false, '5:27'],
-      ['Schwermetall', 'Low Ceiling', '', 'L', ['Hardtechno 2026'], false, '6:09'], ['Hochofen', 'Ferro', '', 'W', null, false, '5:40'], ['Funkenflug', 'Pulsar 9', '', 'L', null, false, '6:22'],
-      ['Gleisbett', 'Glasshaus', '2019', 'G', null, false, '5:58'], ['Zahnrad', 'Cold Signal', '', 'L', null, false, '6:03'], ['Kaltwalze', 'Ferro', '2019', 'L', null, false, '6:35']])
-    .sort((a, b) => a[2].localeCompare(b[2]));
-  const PAGES = {
-    rb: { title: 'Rekordbox Library', sub: '472 tracks · 8 folders with music · ~/Music/Rekordbox Library', rows: RB_ROWS, seg: [472, 290, 92, 58, 20, 6],
-      sum: [63, '290 of 460 checked tracks', [290, 92, 58, 20], 6, { n: 170, todo: 41 }] },
-    ht: { title: 'Hardtechno', sub: '180 tracks · Rekordbox Library › Music › DJ › Hardtechno', rows: HT_ROWS, seg: [180, 120, 30, 22, 8, 3],
-      sum: [67, '120 of 180 checked tracks', [120, 30, 22, 8], 3, { n: 60, todo: 18 }] },
-  };
-  const seg = (c) => `<div class="seg">${[['All', c[0], null, true], ['Lossless', c[1], '--good'], ['Good lossy', c[2], '--ok'], ['Weak', c[3], '--weak'], ['Fake', c[4], '--lossy'], ['Upgrade ready', c[5], '--good']]
-    .map(([l, n, d, on]) => `<div${on ? ' class="on"' : ''}>${d ? `<span class="dot" style="--c:var(${d})"></span>` : ''}<span>${l}</span><b>${fmt(n)}</b></div>`).join('')}</div>`;
-  const head = (p, insp) => `<div class="hd"><h1>${p.title}</h1><span class="st" title="${esc(p.sub)}">${p.sub}</span><div class="search">${MAG} Search title, artist…<kbd>⌘F</kbd></div><span class="itog${insp ? ' pressed' : ''}" data-itog title="${insp ? 'Hide' : 'Show'} details (⌘I)">${INSPICON}</span></div>`;
-  const toDoPart = (nl) => nl.todo === 0 ? 'none in To-do' : nl.todo === nl.n ? 'all in To-do' : `${nl.todo} in To-do`;
-  function summary([share, of, q, up, nl]) {
-    const qs = [['--good', q[0]], ['--ok', q[1]], ['--weak', q[2]], ['--lossy', q[3]]];
-    return `<div class="sum" data-sum><div class="share"><div class="bign">${share}<small> % lossless</small></div><div class="lbl">${of}</div></div>
-      <div class="qbar" title="Lossless ${q[0]} · Good lossy ${q[1]} · Weak ${q[2]} · Fake ${q[3]}">${qs.filter(([, n]) => n).map(([v, n]) => `<i style="--c:var(${v});flex:${n}"></i>`).join('')}</div>
-      <div class="rows"><div class="lrow"><span class="dot" style="--c:var(--good)"></span><span>Upgrade ready</span><span class="n">${up}</span><span class="chv">${up ? '›' : ''}</span></div>
-      <div class="lrow"><span class="dot" style="--c:var(--weak)"></span><span>Not lossless yet<span class="q"> · ${toDoPart(nl)}</span></span><span class="n">${nl.n}</span><span class="chv">${nl.todo ? '›' : ''}</span></div></div></div>`;
+  const cover = (t) => grads[[...t.t].reduce((s, ch) => s + ch.charCodeAt(0), 0) % grads.length];
+  // where a file sits, as words: its crate in Rekordbox Library, or its Library folder
+  const placeOf = (t) => t.home === 'own' ? (t.crate ? crateText(byKey[t.crate]) : t.sub ? `${byKey[t.wf].name} › ${t.sub}` : byKey[t.wf].name) : `Library › ${t.folder}`;
+  function pageMeta(x, c) {
+    const n = `${fmt(c.n)} tracks`;
+    if (x.kind === 'view') return { parts: [n, x.key === 'all' ? 'every folder' : 'in no playlist'], subCol: 'Folder', plCol: x.key === 'all' };
+    if (x.kind === 'pl') return { parts: [n, `${SVC_NAME[x.svc]} playlist`, ...(x.off ? ['switched off'] : []), `Library › ${x.name}`] };
+    if (x.kind === 'lf') return { parts: [n, 'no playlist uses it', x.path] };
+    if (x.kind === 'wf') return { parts: [n, `${x.many || shownCrates(x).length + x.crates.filter((d) => d.hidden).length} folders with music`, x.path], subCol: x.crates.length || x.many ? 'Subfolder' : null, plCol: true };
+    return { parts: [n, x.tip], subCol: x.subs.length ? 'Subfolder' : null, plCol: true };
   }
-  const qcell = (k) => `<span class="badge" style="--c:var(${C[Q[k][0]]})" title="Show details">${Q[k][1]}</span>`;
-  const slot = (up) => `<span>${up ? '<span class="badge" style="--c:var(--good)">UPGRADE</span>' : ''}</span>`;
-  const plb = (p) => !p ? '<span class="lbc">–</span>' : `<span class="pl" title="In ${esc(p.join(', '))}"><span>${esc(p[0])}</span>${p.length > 1 ? `<b>+${p.length - 1}</b>` : ''}</span>`;
-  const subc = (s) => s ? `<span class="cut mu" title="${esc(s)}">${esc(s).replace(/ › /g, '<span class="lbc"> › </span>').replace(/ · (.*)$/, '<span class="lbc"> · $1</span>')}</span>` : '<span class="lbc">–</span>';
-  const t1 = (t, k) => `<span class="t1"><span class="cov" style="background:${grads[k % grads.length]}"></span><span class="nm">${esc(t)}</span></span>`;
+  function subOf(t, x) {
+    if (x.kind === 'view') return t.home === 'own' ? byKey[t.wf].name : t.folder;
+    if (!t.crate) return t.sub || '';
+    const cr = byKey[t.crate];
+    if (x.kind === 'wf') return crateText(cr);
+    return t.crate === x.key ? '' : cr.path.slice(x.path.length + 1).split('/').join(' › ');
+  }
+  const head = (x, parts, o) => `<div class="hd"><h1 title="${esc(nameOf(x))}">${esc(nameOf(x))}</h1><span class="st" title="${esc(parts.join(' · '))}"><span></span>${parts.map((p, i) => `<span>${i ? ' · ' : ''}${esc(p)}</span>`).join('')}</span>
+    <label class="search">${MAG}<input data-field="search" placeholder="Search title, artist…" value="${esc(o.search)}" spellcheck="false" autocomplete="off">${o.search ? '<span class="x" data-clear-search title="Clear (Esc)">✕</span>' : '<kbd>⌘F</kbd>'}</label>
+    <span class="itog${o.insp ? ' pressed' : ''}" data-itog title="${o.insp ? 'Hide' : 'Show'} details (⌘I)">${INSPICON}</span></div>`;
+  const SEGS = [['all', 'All', null], ['L', 'Lossless', '--good'], ['G', 'Good lossy', '--ok'], ['W', 'Weak', '--weak'], ['F', 'Fake', '--lossy'], ['up', 'Upgrade ready', '--good']];
+  const seg = (c, on) => `<div class="seg">${SEGS.filter(([k]) => k !== 'F' || c.F > 0 || on === 'F')
+    .map(([k, l, d]) => `<div data-seg="${k}"${k === on ? ' class="on"' : ''}>${d ? `<span class="dot" style="--c:var(${d})"></span>` : ''}<span>${l}</span><b>${fmt(k === 'all' ? c.n : c[k])}</b></div>`).join('')}</div>`;
+  const toDoPart = (c) => { const nl = c.G + c.W + c.F; return c.todo === 0 ? 'none in To-do' : c.todo === nl ? 'all in To-do' : `${fmt(c.todo)} in To-do`; };
+  function summary(c) {
+    const nl = c.G + c.W + c.F;
+    const qs = [['--good', c.L], ['--ok', c.G], ['--weak', c.W], ['--lossy', c.F]];
+    return `<div class="sum" data-sum><div class="share"><div class="bign">${Math.round(c.L / c.checked * 100)}<small> % lossless</small></div><div class="lbl">${fmt(c.L)} of ${fmt(c.checked)} checked tracks</div></div>
+      <div class="qbar" title="Lossless ${fmt(c.L)} · Good lossy ${fmt(c.G)} · Weak ${fmt(c.W)} · Fake ${fmt(c.F)}">${qs.filter(([, n]) => n).map(([v, n]) => `<i style="--c:var(${v});flex:${n}"></i>`).join('')}</div>
+      <div class="rows"><div class="lrow${c.up ? ' go-row" data-seg="up' : ''}"><span class="dot" style="--c:var(--good)"></span><span>Upgrade ready</span><span class="n">${fmt(c.up)}</span><span class="chv">${c.up ? '›' : ''}</span></div>
+      <div class="lrow${c.todo ? ' go-row' : ''}" title="${c.todo ? 'Open To-do' : ''}"><span class="dot" style="--c:var(--weak)"></span><span>Not lossless yet<span class="q"> · ${toDoPart(c)}</span></span><span class="n">${fmt(nl)}</span><span class="chv">${c.todo ? '›' : ''}</span></div></div></div>`;
+  }
+  const plb = (p) => !p.length ? '<span class="lbc">–</span>' : `<span class="pl" title="In ${esc(p.join(', '))}"><span>${esc(p[0])}</span>${p.length > 1 ? `<b>+${p.length - 1}</b>` : ''}</span>`;
+  const subc = (s) => s ? `<span class="cut mu" title="${esc(s)}">${placeHtml(s)}</span>` : '<span class="lbc">–</span>';
   // the columns by the table's own width (the container rule): Length first to go, then Playlist, then Subfolder
-  function columns(w) {
-    const c = [['t', 'Track', 'minmax(0,1.45fr)'], ['a', 'Artist', 'minmax(0,1fr)']];
-    if (w >= 520) c.push(['s', 'Subfolder ↑', 'minmax(116px,.95fr)']);
-    if (w >= 700) c.push(['p', 'Playlist', 'minmax(0,1.1fr)']);
-    if (w >= 900) c.push(['l', 'Length', '52px']);
+  function columns(meta, w) {
+    const c = [['t', 'Track', 'minmax(0,1.45fr)'], ['a', 'Artist ↑', 'minmax(0,1fr)']];
+    let need = 380;
+    if (meta.subCol) { need += 140; if (w >= need) c.push(['s', meta.subCol, 'minmax(116px,.95fr)']); }
+    if (meta.plCol) { need += 180; if (w >= need) c.push(['p', 'Playlist', 'minmax(0,1.1fr)']); }
+    need += 200; if (w >= need) c.push(['l', 'Length', '52px']);
     c.push(['q', 'Quality', '106px'], ['u', '', '64px']);
     return c;
   }
-  function table(p, w, selRow) {
-    const cols = columns(w);
-    const cell = { t: (r, k) => t1(r[0], k), a: (r) => `<span class="cut mu">${esc(r[1])}</span>`, s: (r) => subc(r[2]), p: (r) => plb(r[4]), l: (r) => `<span class="len">${r[6]}</span>`, q: (r) => qcell(r[3]), u: (r) => slot(r[5]) };
-    const hcell = ([k, h]) => k === 'u' ? '<span class="info">i</span>' : `<span class="hc${k === 's' ? ' on' : ''}${k === 'l' ? ' r' : ''}">${h}</span>`;
-    const rows = p.rows.map((r, k) => `<div class="tr${r[0] === selRow ? ' sel' : ''}">${cols.map(([c]) => cell[c](r, k)).join('')}</div>`).join('');
-    return `<div class="tbl" data-tbl style="--cols:${cols.map((c) => c[2]).join(' ')}"><div class="th-row">${cols.map(hcell).join('')}</div><div class="scroll">${rows}</div></div>`;
+  const visibleRows = (pg, o) => {
+    const s = o.search.trim().toLowerCase();
+    return pg.all.filter((t) => (o.seg === 'all' || (o.seg === 'up' ? t.up : t.q === o.seg)) && (!s || t.t.toLowerCase().includes(s) || t.a.toLowerCase().includes(s))).slice(0, ROWCAP);
+  };
+  function table(pg, meta, w, o) {
+    const cols = columns(meta, w);
+    const cell = { t: (t) => `<span class="t1"><span class="cov" style="background:${cover(t)}"></span><span class="nm">${esc(t.t)}</span></span>`, a: (t) => `<span class="cut mu">${esc(t.a)}</span>`,
+      s: (t) => subc(subOf(t, pg.x)), p: (t) => plb(t.pls), l: (t) => `<span class="len">${t.len}</span>`,
+      q: (t) => `<span class="badge" data-qb style="--c:var(${QV[t.q]})" title="Show details">${QL[t.q]}</span>`, u: (t) => `<span>${t.up ? '<span class="badge" style="--c:var(--good)">UPGRADE</span>' : ''}</span>` };
+    const hcell = ([k, h]) => k === 'u' ? '<span class="info" title="Click a row to select it · double-click or Enter plays · ⌘I or a quality badge shows the details">i</span>' : `<span class="hc${k === 'a' ? ' on' : ''}${k === 'l' ? ' r' : ''}">${h}</span>`;
+    const rows = visibleRows(pg, o);
+    const s = o.search.trim();
+    const body = rows.length ? rows.map((t) => `<div class="tr${t.id === o.selRow ? ' sel' : ''}" data-row="${esc(t.id)}">${cols.map(([c]) => cell[c](t)).join('')}</div>`).join('')
+      : `<div class="tempty">${s ? `Nothing in ${esc(nameOf(pg.x))} matches “${esc(s)}”.<br><a href="#" data-clear-search>Clear search</a>` : 'No tracks with this quality here.'}</div>`;
+    return `<div class="tbl" data-tbl style="--cols:${cols.map((c) => c[2]).join(' ')}"><div class="th-row">${cols.map(hcell).join('')}</div><div class="scroll" data-scroll>${body}</div></div>`;
   }
   // a stand-in spectrum: energy falling with height, cut at the file's cutoff
-  const spectrum = (cut, k) => `<div class="spec"><i style="background:linear-gradient(to top, rgba(220,220,224,.55), rgba(220,220,224,.28) ${cut ? cut - 14 : 60}%, rgba(220,220,224,.12) ${cut ? cut - 2 : 92}%, transparent ${cut || 100}%), repeating-linear-gradient(90deg, rgba(0,0,0,.35) 0 1px, transparent 1px ${k}px)"></i>${cut ? `<span class="cutl" style="bottom:${cut}%"></span><span class="cutt" style="bottom:calc(${cut}% + 2px)">16.0 kHz</span>` : ''}</div>`;
-  function inspector() {
-    return `<div class="panel" data-insp><div class="card"><div class="thead"><span class="cv" style="background:${grads[12 % grads.length]}"></span><div style="min-width:0"><div class="a">Sonnenfinsternis</div><div class="b">Pulsar 9<span class="lbc"> · in Hardtechno › 2019</span></div></div></div>
-        <div class="badges"><span class="badge" style="--c:var(--weak)">16.0 kHz</span><span class="badge" style="--c:var(--good)">UPGRADE</span></div></div>
-      <div class="card"><div class="ttl">Upgrade ready<span class="s">Qobuz · 16-bit AIFF</span></div>
-        <div class="cmp"><span class="k"><span>Now · MP3 320</span><span>cut at 16.0 kHz</span></span><span class="pbtn">▶</span>${spectrum(72, 3)}
-        <span class="k"><span>Upgrade · lossless</span><span>full range</span></span><span class="pbtn">▶</span>${spectrum(0, 3)}</div></div>
-      <div class="card"><div class="ttl">Current file<span class="s" style="color:var(--accent-text)">Show in Finder</span></div>
-        <div class="kv"><span class="k">Format</span><span class="v">MP3 · 320 kbps · 44.1 kHz</span><span class="k">Source</span><span class="v">SoundCloud</span><span class="k">Playlists</span><span class="v">–</span><span class="k">Added</span><span class="v">12 Mar 2019</span><span class="k">File</span><span class="v">Pulsar 9 - Sonnenfinsternis.mp3</span></div></div>
-      <button class="go">Swap the files</button></div>`;
+  const spectrum = (q, k) => { const cut = QCUT[q]; return `<div class="spec" style="--c:var(${QV[q]})"><i style="background:linear-gradient(to top, rgba(220,220,224,.55), rgba(220,220,224,.28) ${cut ? cut - 14 : 60}%, rgba(220,220,224,.12) ${cut ? cut - 2 : 92}%, transparent ${cut || 100}%), repeating-linear-gradient(90deg, rgba(0,0,0,.35) 0 1px, transparent 1px ${k}px)"></i>${cut ? `<span class="cutl" style="bottom:${cut}%"></span><span class="cutt" style="bottom:calc(${cut}% ${cut > 80 ? '- 17px' : '+ 2px'})">${cut === 91 ? '20.0' : '16.0'} kHz</span>` : ''}</div>`; };
+  const FORMAT = { L: ['AIFF · 16-bit · 44.1 kHz', 'aiff'], G: ['MP3 · 320 kbps · 44.1 kHz', 'mp3'], W: ['MP3 · 128 kbps · 44.1 kHz', 'mp3'], F: ['WAV · 16-bit · 44.1 kHz', 'wav'] };
+  function inspector(o) {
+    const t = o.selRow && TRACKS[o.selRow];
+    if (!t) return `<div class="panel" data-insp><div class="emptyp">Select a track to see its details.</div></div>`;
+    const [fmtLine, ext] = FORMAT[t.q];
+    const short = fmtLine.split(' · ').slice(0, 2).join(' ');
+    const sound = t.up
+      ? `<div class="card"><div class="ttl">Upgrade ready<span class="s">Qobuz · 16-bit AIFF</span></div>
+        <div class="cmp"><span class="k"><span>Now · ${short}</span><span>cut at ${QL[t.q].replace('FAKE · ', '')}</span></span><span class="pbtn">▶</span>${spectrum(t.q, 3)}
+        <span class="k"><span>Upgrade · lossless</span><span>full range</span></span><span class="pbtn">▶</span>${spectrum('L', 3)}</div></div>`
+      : `<div class="card"><div class="ttl">Sound<span class="s">${t.q === 'L' ? 'lossless · full range' : t.q === 'F' ? 'lossless file, lossy sound: cut at 16.0 kHz' : `cut at ${QL[t.q]}`}</span></div>
+        <div class="cmp"><span class="pbtn">▶</span>${spectrum(t.q, 3)}</div></div>`;
+    const src = t.home === 'own' ? 'your own file' : t.src || (t.q === 'L' ? 'Qobuz' : 'YouTube Music');
+    return `<div class="panel" data-insp><div class="card"><div class="thead"><span class="cv" style="background:${cover(t)}"></span><div style="min-width:0"><div class="a" title="${esc(t.t)}">${esc(t.t)}</div><div class="b">${esc(t.a)} · in ${placeHtml(placeOf(t))}</div></div></div>
+        <div class="badges"><span class="badge" style="--c:var(${QV[t.q]})">${QL[t.q]}</span>${t.up ? '<span class="badge" style="--c:var(--good)">UPGRADE</span>' : ''}</div></div>
+      ${sound}
+      <div class="card"><div class="ttl">Current file<span class="s lnk">Show in Finder</span></div>
+        <div class="kv"><span class="k">Format</span><span class="v">${fmtLine}</span><span class="k">Source</span><span class="v">${src}</span><span class="k">Playlists</span><span class="v" title="${esc(t.pls.join(', '))}">${t.pls.length ? esc(t.pls.join(', ')) : '–'}</span><span class="k">Added</span><span class="v">${t.added}</span><span class="k">File</span><span class="v">${esc(t.a)} - ${esc(t.t)}.${ext}</span></div></div>
+      ${t.up ? '<button class="go">Swap the files</button>' : ''}</div>`;
   }
   function libraryPage(o, W) {
-    const p = PAGES[o.p];
+    const x = byKey[o.sel];
     const pw = W < 1240 ? 320 : 360;
-    const chrome = (o.form === 'rail' ? 50 : 168) + (o.browser ? o.bw : 0);
+    const chrome = (o.form === 'rail' ? 50 : 168) + (o.browser ? o.bw + 1 : 0);
     const mainW = W - chrome - 1 - (o.insp ? pw : 0);
     const tw = Math.min(mainW, 1244) - 44;
-    return `<div class="main"><div class="col">${head(p, o.insp)}${summary(p.sum)}${seg(p.seg)}${table(p, tw, o.insp ? 'Sonnenfinsternis' : null)}</div></div>${o.insp ? inspector() : ''}`;
+    if (x.away) {
+      return `<div class="main"><div class="col">${head(x, [`${fmt(x.n)} files`, 'offline', x.path], o)}<div class="tbl"><div class="tempty" style="margin:auto 0">${esc(x.name)} is offline. Connect the drive to see its ${fmt(x.n)} files.</div></div></div></div>${o.insp ? inspector(o) : ''}`;
+    }
+    const pg = pageOf(o.sel), meta = pageMeta(x, pg.c);
+    return `<div class="main"><div class="col">${head(x, meta.parts, o)}${summary(pg.c)}${seg(pg.c, o.seg)}${table(pg, meta, tw, o)}</div></div>${o.insp ? inspector(o) : ''}`;
   }
 
   // ---------- Dashboard (a stand-in for "another page": ListPanelFrame, list 900 px, panel docked) ----------
-  function dashboardPage() {
-    const qs = [['--good', 3776, 'Lossless'], ['--ok', 912, 'Good lossy'], ['--weak', 470, 'Weak'], ['--lossy', 160, 'Fake']];
+  function dashboardPage(o) {
+    const qs = [['--good', 3776, 'Lossless'], ['--ok', 900, 'Good lossy'], ['--weak', 470, 'Weak'], ['--lossy', 160, 'Fake']];
     const needs = [['--good', '9 upgrades ready'], ['--missing', '3 not found'], ['--weak', '52 weak versions']];
     const pls = playlists.slice(0, 14);
-    return `<div class="main"><div class="col" style="--max:900px"><div class="hd"><h1>Good morning</h1><span class="st">Last sync today, 07:12 · 33 of 35 playlists on</span></div>
-      <div class="card"><div class="bign">71<small> % lossless</small></div><div class="lbl" style="margin-top:-4px">3,776 of 5,318 checked tracks</div>
+    const full = limitReached(o);
+    // today's Qobuz downloads (new songs and upgrades) are what the day's limit counts
+    const runs = [[full ? 'Today, 07:12' : 'Today, 07:12', full ? '34 new · 6 upgrades' : '13 new · 2 upgrades'], ['Yesterday, 19:00', '2 new'], ['Yesterday, 07:00', 'nothing new'], ['27 Oct, 19:00', '7 new · 2 upgrades'], ['27 Oct, 07:00', '1 new'], ['26 Oct, 19:00', '3 new'], ['26 Oct, 07:00', 'nothing new']];
+    return `<div class="main"><div class="col" style="--max:900px"><div class="hd"><h1>Good morning</h1><span class="st" title="Last sync today, 07:12 · 33 of 35 playlists on"><span></span><span>Last sync today, 07:12</span><span> · 33 of 35 playlists on</span></span></div>
+      <div class="card"><div class="bign">71<small> % lossless</small></div><div class="lbl" style="margin-top:-4px">3,776 of 5,306 checked tracks</div>
         <div class="qbar">${qs.map(([v, n]) => `<i style="--c:var(${v});flex:${n}"></i>`).join('')}</div>
         <div class="q-legend">${qs.map(([v, n, l]) => `<span><span class="dot" style="--c:var(${v})"></span>${l} <b>${fmt(n)}</b></span>`).join('')}</div></div>
       <div class="surf"><div class="sh2"><b>Needs you</b><span class="cnt">${TODO} in To-do</span></div>${needs.map(([v, l]) => `<div class="drow"><span class="dot" style="--c:var(${v})"></span><span class="nm2">${l}</span><span></span><span class="n">›</span></div>`).join('')}</div>
       <div class="surf grow"><div class="sh2"><b>Playlists</b><span class="cnt">35</span></div><div class="rows">${pls.map((x) => `<div class="drow${x.off ? ' off' : ''}"><span class="g" style="margin:0">${SVC[x.svc]}</span><span class="nm2">${esc(x.name)}</span><span class="s">up to date</span><span class="n">${x.n} songs</span></div>`).join('')}</div></div>
     </div></div>
-    <div class="panel"><div class="card"><div class="ttl">Up to date<span class="s">today, 07:12</span></div><div class="krow">Next sync<b>19:00</b></div><div class="krow">Qobuz today<b>15 of 40</b></div></div>
-      <div class="surf grow" style="margin-bottom:0"><div class="sh2"><b>Last runs</b></div><div class="rows">${[['Today, 07:12', '4 new · 1 upgrade'], ['Yesterday, 19:00', '2 new'], ['Yesterday, 07:00', 'nothing new'], ['27 Oct, 19:00', '7 new · 2 upgrades'], ['27 Oct, 07:00', '1 new'], ['26 Oct, 19:00', '3 new'], ['26 Oct, 07:00', 'nothing new']]
+    <div class="panel"><div class="card"><div class="ttl">Up to date<span class="s">today, 07:12</span></div><div class="krow">Next sync<b>19:00</b></div><div class="krow">Qobuz today<b${full ? ' class="wait"' : ''}>${o.qobuz[0]} of ${o.qobuz[1]}${full ? ' · limit reached' : ''}</b></div></div>
+      <div class="surf grow" style="margin-bottom:0"><div class="sh2"><b>Last runs</b></div><div class="rows">${runs
         .map(([d, s]) => `<div class="drow" style="grid-template-columns:minmax(0,1fr) auto"><span class="nm2">${d}</span><span class="s">${s}</span></div>`).join('')}</div></div>
       <button class="go" style="margin-top:0">Start sync</button></div>`;
   }
 
   // ---------- the foot (player bar; sync's short form at its right end) ----------
   function foot(o, chromeW, W) {
-    const frac = .23;
-    return `<div class="foot" data-foot><span class="played" style="left:${chromeW}px;width:${Math.round((W - chromeW) * frac)}px"></span>
-      <div class="item"><span class="cv" style="background:${grads[11 % grads.length]}"></span><div style="min-width:0"><div class="a">Kaltfront</div><div class="b">Pulsar 9 · Rekordbox Library</div></div></div>
-      <div class="mid"><span class="tm l">1:16</span><span class="tb">⏮</span><span class="pp">❚❚</span><span class="tb">⏭</span><span class="tm">5:31</span></div>
-      <div class="end">${o.sync ? `<span class="syncs">Sync ${o.sync[0]} of ${o.sync[1]}<span class="mini"><i style="width:${Math.round(o.sync[0] / o.sync[1] * 100)}%"></i></span></span><span class="sep"></span>` : ''}<span>⤮</span><span class="sep"></span><span>⌄ Hide player</span><span style="font-size:14px">×</span></div></div>`;
+    const t = TRACKS[o.playing] || TRACKS.Kaltfront;
+    const place = t.home === 'own' ? byKey[t.wf].name : `Library › ${t.folder}`;
+    return `<div class="foot" data-foot><span class="played" style="left:${chromeW}px;width:${Math.round((W - chromeW) * .23)}px"></span>
+      <div class="item"><span class="cv" style="background:${cover(t)}"></span><div style="min-width:0"><div class="a">${esc(t.t)}</div><div class="b">${esc(t.a)} · ${esc(place)}</div></div></div>
+      <div class="mid"><span class="tm l">1:16</span><span class="tb">⏮</span><span class="pp">❚❚</span><span class="tb">⏭</span><span class="tm">${t.len}</span></div>
+      <div class="end">${o.sync ? `<span class="syncs" title="Syncing: ${o.sync[0]} of ${o.sync[1]} songs">Sync ${o.sync[0]} of ${o.sync[1]}<span class="mini"><i style="width:${Math.round(o.sync[0] / o.sync[1] * 100)}%"></i></span></span><span class="sep"></span>` : ''}<span>⤮</span><span class="sep"></span><span>⌄ Hide player</span><span data-foot-x title="Stop and close the player">×</span></div></div>`;
   }
 
-  // ---------- the states ----------
+  // ---------- the states (a staged state can show a pointer, a menu or a drag; the first real input clears them) ----------
   const FAVS = ['pl:Hard_Bounce', 'cr:wf:rb:Music/DJ/Hardtechno', 'pl:Peak Time', 'cr:wf:rb:Music/Old Sets/Bounce'];
-  const base = { form: 'rail', page: 'lib', p: 'rb', sel: 'wf:rb', bw: 240, favs: FAVS, W: 1280 };
+  const BASE = { page: 'lib', sel: 'wf:rb', bw: 240, favs: FAVS, W: 1280, formLib: 'rail', formOther: 'full', q: '', search: '', seg: 'all', selRow: null, insp: false,
+    foot: false, playing: 'Kaltfront', sync: null, hiddenPlayer: false, qobuz: [15, 40], az: false, closedSecs: [] };
   const STATES = {
     'library': { label: 'Library', title: 'Library, 1280 × 800: the rail, the browser column at 240, Rekordbox Library open; the table keeps every column and gains Length', o: {} },
-    'search': { label: 'Filter “bou”', title: 'Filtering “bou” (⌘K): matches across sections, the watched folder as context, Enter opens the highlighted one; a crate’s tooltip gives its full path', o: { q: 'bou', kb: 'pl:Hard_Bounce', tip: 'crate' } },
-    'favourites': { label: 'Favourites drag', title: 'Favourites in use: Peak Time is being dragged to the top, the rows below make room; Hardtechno open (its pill on its topmost row)', o: { p: 'ht', sel: 'cr:wf:rb:Music/DJ/Hardtechno', drag: { key: 'pl:Peak Time', at: 0 } } },
+    'search': { label: 'Filter “bou”', title: 'Filtering “bou” (⌘K): each match once, in its own section; the watched folder as context; one highlighted row, the one Enter opens; the hand-off to the track search last', o: { q: 'bou', focus: 'filter', tip: 'crate' } },
+    'filter-none': { label: 'Filter, no match', title: 'A track name typed into the filter (“kaltf”): no playlist or folder matches, so the one row hands the text to the track search (Enter or click opens All tracks searched for it)', o: { q: 'kaltf', focus: 'filter' } },
+    'favourites': { label: 'Favourites drag', title: 'Favourites in use: Peak Time is being dragged to the top, the rows below make room; Hardtechno open (its pill on its topmost row)', o: { sel: 'cr:wf:rb:Music/DJ/Hardtechno', drag: { key: 'pl:Peak Time', at: 0 } } },
     'wide': { label: 'Column wider', title: 'The browser column dragged to 320: the edge line in orange follows the pointer; long names come out whole; the table lets Length go', o: { bw: 320, resizing: true } },
-    'inspector': { label: 'Details open', title: 'Details open (⌘I, the toggle, or a click on a quality badge): an upgrade-ready track; the table drops to Track, Artist, Subfolder, Quality while it’s open', o: { insp: true } },
-    'inspector-1100': { label: 'Details 1100', title: 'Details open at 1100 × 700: below 1240 the browser column steps back behind the rail while the details are open (it returns when they close), so the list keeps Track, Artist, Subfolder, Quality and whole filter labels', o: { W: 1100, insp: true } },
+    'inspector': { label: 'Details open', title: 'Details open (⌘I, the toggle, or a click on a quality badge): an upgrade-ready track; the table drops to Track, Artist, Subfolder, Quality while it’s open', o: { insp: true, selRow: 'Eisenbahn' } },
+    'inspector-1100': { label: 'Details 1100', title: 'Details open at 1100 × 700: below 1240 the browser column steps back behind the rail while the details are open (it returns when they close), so the list keeps Track, Artist, Subfolder, Quality and whole filter labels', o: { W: 1100, insp: true, selRow: 'Eisenbahn' } },
     'library-1100': { label: 'Library 1100', title: 'Library, 1100 × 700, later: a track playing and a sync running; the foot keeps working under the rail and the browser (its line starts at the page’s edge)', o: { W: 1100, foot: true, sync: [12, 40] } },
-    'first-look': { label: 'First look', title: 'A new user’s first look: Favourites empty, with its landing row; Playlists folded by its header; the right-click menu on a crate offers Add to favourites and Hide', o: { favs: [], menu: 'cr:wf:rb:Music/DJ/Rock', closedSecs: ['pl'] } },
-    'dashboard': { label: 'Dashboard', title: 'Another page: the full sidebar (pages, Library, Favourites as shortcuts), the page’s docked panel as today', o: { form: 'full', page: 'dash', sel: null } },
-    'dashboard-rail': { label: 'Dashboard, folded', title: 'Dashboard with the sidebar folded by hand (⌃⌘S): the same icons in the same places, tooltips name them; the hidden player sits above Settings; the page’s list takes the space up to its 900 px (825 here)', o: { form: 'rail', page: 'dash', sel: null, hiddenPlayer: true, tip: 'todo' } },
+    'first-look': { label: 'First look', title: 'A new user’s first look: Favourites empty, with its landing row; Playlists folded by its header; the right-click menu on a crate offers Add to favourites and Hide', o: { favs: [], menu: { key: 'cr:wf:rb:Music/DJ/Rock', staged: true }, closedSecs: ['pl'] } },
+    'dashboard': { label: 'Dashboard', title: 'Another page: the full sidebar (pages, Library, Favourites as shortcuts), the page’s docked panel as today; Qobuz at 15 of 40, so Download limits has no dot', o: { page: 'dash' } },
+    'dashboard-rail': { label: 'Dashboard, folded', title: 'Dashboard with the sidebar folded by hand (⌃⌘S): the same icons in the same places, tooltips name them; Qobuz’s limit reached today (40 of 40), so Download limits carries its yellow dot; the hidden player sits above Settings', o: { page: 'dash', formOther: 'rail', hiddenPlayer: true, tip: 'todo', qobuz: [40, 40] } },
   };
 
-  const pick = document.getElementById('state');
-  pick.innerHTML = Object.entries(STATES).map(([k, s]) => `${k === 'dashboard' ? '<span class="sep"></span>' : ''}<button data-v="${k}">${s.label}</button>`).join('');
-  let state = location.hash.slice(1);
-  if (!STATES[state]) state = 'library';
+  const pick = document.getElementById('state'), stage = document.getElementById('stage');
+  pick.innerHTML = Object.entries(STATES).map(([k, s]) => `${k === 'dashboard' ? '<span class="sep"></span>' : ''}<button data-v="${k}" title="${esc(s.title)}">${s.label}</button>`).join('');
+  let stateKey, o, rendering = false, scale = 1, lastPage = null, drag = null, lastRow = { id: null, t: 0 }, lastEdge = 0;
 
-  function render() {
-    const s = STATES[state];
-    const o = { ...base, ...s.o, closed: new Set(s.o.closedSecs || []), used: new Set() };
+  function load(key) {
+    stateKey = STATES[key] ? key : 'library';
+    const s = STATES[stateKey].o;
+    o = { ...BASE, ...s, favs: [...(s.favs || BASE.favs)], closed: new Set(s.closedSecs || []), kb: null, staged: !!(s.tip || s.drag || s.resizing || (s.menu && s.menu.staged)) };
+    pick.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === stateKey));
+    lastPage = null;
+    render(true);
+  }
+  function unstage() { if (!o.staged) return; o.staged = false; o.tip = null; o.drag = null; o.resizing = false; if (o.menu && o.menu.staged) o.menu = null; }
+
+  function render(fresh) {
+    const win0 = stage.querySelector('[data-win]');
+    const keep = !fresh && win0 ? { lib: win0.querySelector('[data-lib]')?.scrollTop, tbl: win0.querySelector('[data-scroll]')?.scrollTop } : null;
+    rendering = true;
     const W = o.W, H = W === 1100 ? 700 : 800;
+    o.form = o.page === 'lib' ? o.formLib : o.formOther;
     o.browser = o.page === 'lib' && !(o.insp && W < 1240);   // below 1240 the window holds the browser or the details beside the list, not both
-    pick.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === state));
-    document.getElementById('optTitle').textContent = s.title;
-    const st = document.getElementById('stage');
-    const scale = Math.min(1, (st.clientWidth || document.body.clientWidth - 48) / W);
-    st.style.height = H * scale + 'px';
-    const chromeW = (o.form === 'rail' ? 50 : 168) + (o.browser ? o.bw : 0);
-    const left = appSidebar(o) + (o.browser ? browser(o) : '');
-    const pageHtml = o.page === 'lib' ? libraryPage(o, W) : dashboardPage();
-    st.innerHTML = `<div class="win${o.foot ? ' has-foot' : ''}" data-win style="width:${W}px;height:${H}px;--pw:${W < 1240 ? 320 : 360}px;transform:scale(${scale})"><div class="body">${left}<div class="inner">${pageHtml}</div></div>${o.foot ? foot(o, chromeW, W) : ''}</div>`;
-    const win = st.querySelector('[data-win]');
-    const lib = win.querySelector('[data-lib]');
+    o.qq = o.q.trim().toLowerCase();
+    o.used = new Set(); o.cw = folderCw;
+    scale = Math.min(1, (stage.clientWidth - 32) / W, (stage.clientHeight - 16) / H);
+    const chromeW = (o.form === 'rail' ? 50 : 168) + (o.browser ? o.bw + 1 : 0);
+    const left = appSidebar(o, o.form, o.browser) + (o.browser ? browser(o) : '');
+    const pageHtml = o.page === 'lib' ? libraryPage(o, W) : dashboardPage(o);
+    stage.innerHTML = `<div class="sizer" style="width:${W * scale}px;height:${H * scale}px"><div class="win${o.foot ? ' has-foot' : ''}" data-win style="width:${W}px;height:${H}px;--pw:${W < 1240 ? 320 : 360}px;transform:scale(${scale})"><div class="body">${left}<div class="inner">${pageHtml}</div></div>${o.foot ? foot(o, chromeW, W) : ''}</div></div>`;
+    const win = stage.querySelector('[data-win]');
+    const lib = win.querySelector('[data-lib]'), sc = win.querySelector('[data-scroll]');
     const at = (el) => { const r = el.getBoundingClientRect(), w = win.getBoundingClientRect(); return { x: (r.left - w.left) / scale, y: (r.top - w.top) / scale, w: r.width / scale, h: r.height / scale }; };
-    const selEl = lib && lib.querySelector('.nav.on');
-    if (selEl && !o.q && selEl.offsetTop + 40 > lib.clientHeight) lib.scrollTop = selEl.offsetTop - lib.clientHeight + 130;
-    const selRow = win.querySelector('.tr.sel');
-    if (selRow) { const sc = selRow.parentElement; if (selRow.offsetTop + 60 > sc.clientHeight) sc.scrollTop = selRow.offsetTop - sc.clientHeight / 2; }
-    if (o.scroll === 'end' && lib) { const el = lib.querySelector(`[data-k="${o.menu}"]`); lib.scrollTop = el.offsetTop - lib.clientHeight + 200; }
+    if (lib && o.qq && o.kb) { const k = lib.querySelector(`[data-k="${CSS.escape(o.kb)}"]`); if (k) k.classList.add('kb'); }
+    // scroll: kept while the user works; a state, an opened collection or a moved highlight brings its row into view
+    const pageId = o.page + ':' + o.sel;
+    if (keep && lib && keep.lib != null) lib.scrollTop = keep.lib;
+    if (keep && sc && keep.tbl != null && pageId === lastPage) sc.scrollTop = keep.tbl;
+    lastPage = pageId;
+    const into = (box, el, pad) => { if (!box || !el) return; const top = el.offsetTop, bot = top + el.offsetHeight; if (top < box.scrollTop + pad) box.scrollTop = top - pad; else if (bot > box.scrollTop + box.clientHeight - pad) box.scrollTop = bot - box.clientHeight + pad; };
+    if (lib && !o.qq && (fresh || o.reveal)) { const selEl = lib.querySelector('.nav.on'); if (selEl && fresh) { if (selEl.offsetTop + 40 > lib.clientHeight) lib.scrollTop = selEl.offsetTop - lib.clientHeight + 130; } else into(lib, selEl, 40); }
+    if (lib && o.qq && o.revealKb) into(lib, lib.querySelector('.nav.kb'), 36);
+    if (sc && (fresh || o.revealRow)) { const r = sc.querySelector('.tr.sel'); if (r && fresh) { if (r.offsetTop + 60 > sc.clientHeight) sc.scrollTop = r.offsetTop - sc.clientHeight / 2; } else into(sc, r, 8); }
+    if (lib && (fresh || o.reveal || o.revealKb)) clearHeads(lib);
+    o.reveal = o.revealKb = o.revealRow = false;
+    if (lib) { stuck(lib); lib.addEventListener('scroll', () => stuck(lib), { passive: true }); }
+    // the context menu (staged on a row, or where the user right-clicked)
     if (o.menu) {
-      const r = at(win.querySelector('.menu-on'));
-      const px = r.x + 80, py = r.y + 18;
-      win.insertAdjacentHTML('beforeend', `<div class="cmenu" style="left:${px + 4}px;top:${Math.min(py, H - 170)}px"><div>Open</div><div>Play</div><hr><div class="hov">Add to favourites</div><div>Hide from sidebar<span>Settings brings it back</span></div><hr><div>Show in Finder</div></div>` + cur(ARROW, px, py - 4));
+      const x = byKey[o.menu.key], rowEl = win.querySelector('.menu-on');
+      let px = o.menu.x, py = o.menu.y;
+      if (o.menu.staged && rowEl) { const r = at(rowEl); px = r.x + 80; py = r.y + 18; }
+      const fav = o.favs.includes(x.key);
+      const items = `<div data-mi="open">Open</div><div data-mi="play">Play</div><hr><div data-mi="fav"${o.menu.staged ? ' class="hov"' : ''}>${fav ? 'Remove from favourites' : 'Add to favourites'}</div>${x.kind === 'crate' ? '<div data-mi="close">Hide from sidebar<span>Settings brings it back</span></div>' : ''}<hr><div data-mi="close">Show in Finder</div>`;
+      win.insertAdjacentHTML('beforeend', `<div class="cmenu" style="left:${Math.min(px + 4, W - 250)}px;top:${Math.min(py, H - 180)}px">${items}</div>` + (o.menu.staged ? cur(ARROW, px, py - 4) : ''));
     }
     if (o.tip === 'crate') {
-      const els = win.querySelectorAll('[data-k="cr:wf:rb:Music/Old Sets/Bounce"]'), el = els[els.length - 1];
-      if (el) { const r = at(el); win.insertAdjacentHTML('beforeend', `<div class="tip" style="left:${r.x + 70}px;top:${r.y + r.h + 3}px">Rekordbox Library › Music › Old Sets › Bounce<br><span class="lb">61 files</span></div>` + cur(ARROW, r.x + 62, r.y + 18)); }
+      const el = win.querySelector('[data-k="cr:wf:rb:Music/Old Sets/Bounce"]');
+      if (el) { const r = at(el), cx = r.x + r.w - 44; win.insertAdjacentHTML('beforeend', `<div class="tip" style="left:${cx + 8}px;top:${r.y + r.h + 3}px">Rekordbox Library › Music › Old Sets › Bounce<br><span class="lb">61 files</span></div>` + cur(ARROW, cx, r.y + 18)); }
     }
     if (o.tip === 'todo') {
       const r = at(win.querySelector('[data-nav="todo"]'));
       win.insertAdjacentHTML('beforeend', `<div class="tip" style="left:${r.x + r.w + 8}px;top:${r.y + 4}px">To-do · ${TODO} to look at<kbd>⌘3</kbd></div>` + cur(ARROW, r.x + 16, r.y + 14));
     }
     if (o.drag) {
-      const sl = win.querySelector('[data-slot]'), r = at(sl), x = byKey[o.drag.key];
-      const libr = at(lib);
+      const sl = win.querySelector('[data-slot]'), r = at(sl), x = byKey[o.drag.key], libr = at(lib);
       lib.insertAdjacentHTML('beforeend', `<div class="nav lift" style="top:${r.y - libr.y + lib.scrollTop}px"><span class="g">${SVC[x.svc]}</span><span class="t">${x.name}</span><span class="c">${x.n}</span></div>`);
       win.insertAdjacentHTML('beforeend', cur(HAND, r.x + 124, r.y + 12));
     }
-    if (o.resizing) { const r = at(win.querySelector('[data-edge]')); win.insertAdjacentHTML('beforeend', cur(RESIZE, r.x - 7, 310)); }
+    if (o.resizing && o.staged) { const r = at(win.querySelector('[data-edge]')); win.insertAdjacentHTML('beforeend', cur(RESIZE, r.x - 7, 310)); }
+    if (o.focus) { const f = win.querySelector(`[data-field="${o.focus}"]`); if (f) { f.focus({ preventScroll: true }); const p = o.caret ?? f.value.length; f.setSelectionRange(p, p); } }
+    o.caret = null;
+    rendering = false;
   }
-  pick.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { state = b.dataset.v; history.replaceState(null, '', '#' + state); render(); }));
-  addEventListener('hashchange', () => location.reload());
-  addEventListener('resize', render);
-  render();
+  // a row the code scrolls to never stops half under a stuck section head: it shows whole, just below it
+  function clearHeads(lib) {
+    const st = lib.scrollTop, h = 28;
+    if (st <= 0) return;
+    const r = [...lib.querySelectorAll(':scope > .nav, :scope > .hintrow')].find((el) => el.offsetTop < st + h && el.offsetTop + el.offsetHeight > st + h);
+    if (r) lib.scrollTop = r.offsetTop - h - 2;
+  }
+  // a section head that stands over rows gets its hairline (top or foot of the list)
+  function stuck(lib) {
+    const lr = lib.getBoundingClientRect();
+    const more = lib.scrollTop + lib.clientHeight < lib.scrollHeight - 1;
+    lib.querySelectorAll('.sh').forEach((h) => {
+      const r = h.getBoundingClientRect();
+      h.classList.toggle('stuck-t', lib.scrollTop > 0 && r.top - lr.top < 1);
+      h.classList.toggle('stuck-b', more && lr.bottom - r.bottom < 1 && !(lib.scrollTop > 0 && r.top - lr.top < 1));
+    });
+  }
+
+  // ---------- what the user can do ----------
+  function open(key) {
+    unstage();
+    if (key === 'handoff') { o.search = o.q.trim(); key = 'all'; o.focus = 'search'; } else o.focus = null;
+    o.page = 'lib'; o.sel = key; o.q = ''; o.kb = null; o.seg = 'all'; if (key !== 'all') o.search = ''; o.selRow = null; o.menu = null; o.reveal = true;
+  }
+  const libFocus = () => { o.page = 'lib'; if (o.insp && o.W < 1240) o.insp = false; o.focus = 'filter'; };
+  function toggleInsp() { if (o.page !== 'lib') return; o.insp = !o.insp; }
+  function play(id) { o.playing = id; o.foot = true; }
+  function fold() { if (o.page === 'lib') o.formLib = o.formLib === 'rail' ? 'full' : 'rail'; else o.formOther = o.formOther === 'rail' ? 'full' : 'rail'; }
+  function moveRow(d) {
+    if (o.page !== 'lib' || byKey[o.sel].away) return;
+    const rows = visibleRows(pageOf(o.sel), o); if (!rows.length) return;
+    const i = rows.findIndex((t) => t.id === o.selRow);
+    o.selRow = rows[Math.max(0, Math.min(rows.length - 1, i < 0 ? 0 : i + d))].id; o.revealRow = true;
+  }
+
+  stage.addEventListener('click', (e) => {
+    const t = e.target, win = t.closest('[data-win]');
+    if (!win) return;
+    unstage();
+    const mi = t.closest('[data-mi]');
+    if (mi) {
+      const k = o.menu.key, a = mi.dataset.mi;
+      o.menu = null;
+      if (a === 'open') open(k);
+      else if (a === 'fav') o.favs = o.favs.includes(k) ? o.favs.filter((f) => f !== k) : [...o.favs, k];
+      render(); return;
+    }
+    if (o.menu && !t.closest('.cmenu')) { o.menu = null; render(); return; }
+    let el;
+    if (t.closest('[data-tog]')) fold();
+    else if ((el = t.closest('[data-nav]'))) {
+      const k = el.dataset.nav;
+      if (k === 'lib') { if (o.page === 'lib' && o.insp && o.W < 1240) o.insp = false; o.page = 'lib'; o.focus = null; }
+      else if (k === 'dash') { o.page = 'dash'; o.focus = null; }
+      else return;
+    }
+    else if (t.closest('[data-sort]')) o.az = !o.az;
+    else if ((el = t.closest('[data-fold]')) && !o.qq) { const k = el.dataset.fold; o.closed.has(k) ? o.closed.delete(k) : o.closed.add(k); }
+    else if ((el = t.closest('[data-sec]'))) { if (o.qq) return; const k = el.dataset.sec; o.closed.has(k) ? o.closed.delete(k) : o.closed.add(k); }
+    else if ((el = t.closest('[data-k]'))) open(el.dataset.k);
+    else if (t.closest('[data-x]')) { o.q = ''; o.kb = null; o.focus = 'filter'; }
+    else if (t.closest('[data-clear-search]')) { e.preventDefault(); o.search = ''; o.focus = 'search'; }
+    else if (t.closest('[data-itog]')) toggleInsp();
+    else if ((el = t.closest('[data-row]'))) {
+      o.selRow = el.dataset.row;
+      if (t.closest('[data-qb]')) o.insp = true;          // the quality badge asks "why is this weak?"
+      else if (lastRow.id === el.dataset.row && e.timeStamp - lastRow.t < 450) play(el.dataset.row);   // double-click plays
+      lastRow = { id: el.dataset.row, t: e.timeStamp };
+    }
+    else if ((el = t.closest('[data-seg]'))) o.seg = el.dataset.seg;
+    else if (t.closest('[data-foot-x]')) o.foot = false;
+    else if (t.closest('input')) return;
+    else return;
+    render();
+  });
+  stage.addEventListener('contextmenu', (e) => {
+    const el = e.target.closest('[data-browser] [data-k]');
+    if (!el || el.dataset.k === 'handoff') return;
+    e.preventDefault(); unstage();
+    const w = stage.querySelector('[data-win]').getBoundingClientRect();
+    o.menu = { key: el.dataset.k, x: (e.clientX - w.left) / scale, y: (e.clientY - w.top) / scale };
+    render();
+  });
+  stage.addEventListener('input', (e) => {
+    const f = e.target.dataset.field;
+    if (f === 'filter') { o.q = e.target.value; o.kb = null; }
+    else if (f === 'search') { o.search = e.target.value; }
+    else return;
+    unstage(); o.focus = f; o.caret = e.target.selectionStart; render();
+  });
+  stage.addEventListener('focusin', (e) => { if (!rendering && e.target.dataset.field) o.focus = e.target.dataset.field; });
+  stage.addEventListener('focusout', (e) => { if (!rendering && e.target.dataset.field) o.focus = null; });
+  // drag the browser's edge: 1:1 with the pointer, 200–360
+  stage.addEventListener('pointerdown', (e) => {
+    if (!e.target.closest('[data-edge]') || e.button !== 0) return;
+    e.preventDefault(); unstage();
+    if (e.timeStamp - lastEdge < 400) { lastEdge = 0; o.bw = 240; render(); return; }   // double-click: back to 240
+    lastEdge = e.timeStamp;
+    drag = { x0: e.clientX, bw0: o.bw }; o.resizing = true; document.body.classList.add('resizing'); render();
+  });
+  addEventListener('pointermove', (e) => { if (!drag) return; const bw = Math.round(Math.max(200, Math.min(360, drag.bw0 + (e.clientX - drag.x0) / scale))); if (bw !== o.bw) { o.bw = bw; render(); } });
+  addEventListener('pointerup', () => { if (!drag) return; drag = null; o.resizing = false; document.body.classList.remove('resizing'); render(); });
+
+  addEventListener('keydown', (e) => {
+    const k = e.key.toLowerCase(), field = e.target.dataset && e.target.dataset.field;
+    if (e.metaKey && e.ctrlKey && k === 's') { e.preventDefault(); unstage(); fold(); render(); return; }
+    if (e.metaKey && !e.ctrlKey && k === 'k') { e.preventDefault(); unstage(); libFocus(); render(); return; }
+    if (e.metaKey && !e.ctrlKey && k === 'i') { e.preventDefault(); unstage(); toggleInsp(); render(); return; }
+    if (e.metaKey && !e.ctrlKey && k === 'f') { if (o.page !== 'lib') return; e.preventDefault(); unstage(); o.focus = 'search'; render(); return; }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (field === 'filter') {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (!o.qq || !o.targets) return;
+        e.preventDefault(); unstage();
+        const i = o.targets.indexOf(o.kb); o.kb = o.targets[Math.max(0, Math.min(o.targets.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
+        o.revealKb = true; o.caret = e.target.selectionStart; render();
+      } else if (e.key === 'Enter') { if (!o.qq || !o.kb) return; e.preventDefault(); open(o.kb); render(); }
+      else if (e.key === 'Escape') { e.preventDefault(); unstage(); o.q = ''; o.kb = null; o.focus = null; e.target.blur(); render(); }
+      return;
+    }
+    if (field === 'search') { if (e.key === 'Escape') { e.preventDefault(); o.search = ''; o.focus = null; render(); } return; }
+    if (e.target.closest && e.target.closest('input, textarea, button')) return;
+    if (e.key === 'Escape' && o.menu) { o.menu = null; render(); return; }
+    if (o.page !== 'lib') return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); unstage(); moveRow(e.key === 'ArrowDown' ? 1 : -1); render(); }
+    else if (e.key === 'Enter' && o.selRow) { e.preventDefault(); play(o.selRow); render(); }
+  });
+
+  pick.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; history.replaceState(null, '', '#' + b.dataset.v); load(b.dataset.v); });
+  addEventListener('hashchange', () => load(location.hash.slice(1)));
+  addEventListener('resize', () => render());
+
+  // a self-check of the made-up data: every collection's files agree with its counts, its upgrades exactly
+  for (const key of Object.keys(byKey)) {
+    if (byKey[key].away) continue;
+    const { c, all } = pageOf(key), q = { L: 0, G: 0, W: 0, F: 0 };
+    all.forEach((t) => { q[t.q]++; if (t.up && t.q === 'L') console.error('upgrade on a lossless file', key, t.t); });
+    if (c.L + c.G + c.W + c.F !== c.checked || c.checked > c.n) console.error('qualities do not add up', key, c);
+    for (const k of ['L', 'G', 'W', 'F']) if (q[k] > c[k] || q[k] < Math.min(c[k], ROWCAP)) console.error('files of quality', k, q[k], 'vs the count', c[k], key);
+    if (all.filter((t) => t.up).length !== c.up || c.up > c.G + c.W + c.F) console.error('upgrades do not agree', key, all.filter((t) => t.up).length, c.up);
+    if (c.todo > c.G + c.W + c.F || c.todo < c.up) console.error('To-do part does not fit', key, c);
+    if (new Set(all.map((t) => t.a + '|' + t.t)).size !== all.length) console.error('a title twice by one artist', key);
+  }
+  load(location.hash.slice(1));
 })();
 </script>
 </body></html>
