@@ -73,7 +73,8 @@ Use the kind for the card/headline; always show `message` as the detail.
 - `status`: `lossless|not_lossless|fake_lossless|missing`. `quality` (colour): `lossless` green · `good_lossy` yellow ·
   `weak` red (cutoff ≤ 17 kHz) · `fake` purple · `missing` red. `quality_label`: `LOSSLESS`, `20.0 kHz`, `LOSSY`,
   `FAKE · 16.0 kHz`, `NOT FOUND`. `source`: `qobuz|youtube_music|soundcloud|youtube|manual|null`; `source_name` short
-  (`Qobuz`, `YT Music`, `SoundCloud`, `YouTube`, `bought`). `cover_url`: media URL of the embedded cover, else the
+  (`Qobuz`, `YT Music`, `SoundCloud`, `YouTube`, `bought`; `own file` for a file the import found). `added`: the playlist
+  day, else for an own file the day Discjockey first saw it. `cover_url`: media URL of the embedded cover, else the
   Spotify image URL (https), else null (show placeholder). `duration_s` float.
 - **SpotifyStatus** (`spotify` field; it is the status of reading *all* playlists, whichever service): `read_at`
   ISO|null, `minutes_ago` int|null, `problem` kind|null, `problem_service` `"spotify"|"qobuz"|null` (the playlist

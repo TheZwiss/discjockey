@@ -11,6 +11,7 @@ SOURCE_NAMES = {
     "youtube": "YouTube",
     "manual": "bought file",
 }
+OWN_FILE = "your own file"  # what SOURCE_NAMES["manual"] reads as for a file the import found (placed_by "import")
 
 
 # Playlist services (where a playlist and its tracks are read from); SOURCE_NAMES above names the download sources.

@@ -17,7 +17,7 @@ from ..accounts import (ACCOUNTS, BROWSERS, DEFAULT_LIMITS, MAX_LIMIT, PREMIUM_M
                         SERVICE_SIGNALS)
 from ..accounts import assessment as service_assessment, zones as service_zones
 from ..names import expected_stem, fold
-from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, DupFile, DuplicateGroup,
+from ..models import (OWN_FILE, SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, DupFile, DuplicateGroup,
                       ImportCounts, MoveRow, PlannedMove, Question, WatchedFolder, is_own, split_token,
                       track_link as key_link)
 from ..pacing import KEEP_SIGNALS, Budget
@@ -34,6 +34,7 @@ QUALITIES = ("lossless", "good_lossy", "weak", "fake", "missing")
 SIGNAL_DAYS = 14
 SHORT_SOURCE = {"qobuz": "Qobuz", "youtube_music": "YT Music", "soundcloud": "SoundCloud", "youtube": "YouTube",
                 "manual": "bought"}
+SHORT_OWN = "own file"  # SHORT_SOURCE["manual"] for a file the import found
 LOSSLESS_SECTIONS = ("new_lossless", "redownloaded", "bought", "replaced", "swapped", "added_new")
 LOSSY_SECTIONS = ("new_not_lossless", "fake")
 PROBLEM_SECTIONS = ("missing", "errors", "conflicts", "ambiguous")
@@ -489,14 +490,23 @@ CUE_TEXT = {"exact": "matches exactly, cues stay", "different": "doesn't match: 
             "unknown": "could not compare the two versions"}
 
 
+def is_own_file(e: dict) -> bool:
+    """A file of the user's own that the import found (its file row is placed by "import"), not one bought through a
+    sync: its source is "manual" like a bought file's, but it was never bought by Discjockey."""
+    return e.get("source") == "manual" and e.get("placed_by") == "import"
+
+
 def track_row(track_id: str, e: dict, cover: Url | None = None) -> dict:
     source = e.get("source")
+    # an own file has no added day from a playlist: the day Discjockey first saw the file stands in
+    added = e.get("added") or (e.get("first_seen") if is_own_file(e) else None)
     return {"track_id": track_id, "artist": e["artist"], "title": e["title"], "folder": e["folder"] or "",
             "duration_s": round((e.get("duration_ms") or 0) / 1000, 1), "status": e["status"],
             "quality": quality_class(e), "quality_label": quality_label(e), "cutoff_hz": e.get("cutoff_hz"),
-            "source": source, "source_name": SHORT_SOURCE.get(source) if source else None,
+            "source": source,
+            "source_name": (SHORT_OWN if is_own_file(e) else SHORT_SOURCE.get(source)) if source else None,
             "in_playlists": bool(e.get("in_playlists")), "hidden": bool(e.get("hidden")),
-            "upgrade_ready": bool(e.get("upgrade")), "path": e.get("path"), "added": e.get("added"),
+            "upgrade_ready": bool(e.get("upgrade")), "path": e.get("path"), "added": added,
             "cover_url": cover(track_id, e) if cover else None}
 
 
@@ -596,10 +606,10 @@ def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url 
     return {**track_row(track_id, e, cover), "isrc": e.get("isrc"),
             "playlists": folders, "in_playlist_count": len(folders) if folders is not None else None,
             "quality_line": quality_line(e["source"], e.get("source_format") or "?", e["status"], e.get("cutoff_hz"),
-                                         e.get("source_kbps")) if has_file else None,
+                                         e.get("source_kbps"), own=is_own_file(e)) if has_file else None,
             "format_line": format_line(e) if has_file else None,
-            "source_full": (("bought" if e["source"] == "manual" else SOURCE_NAMES.get(e["source"]))
-                            if has_file else None),
+            "source_full": ((OWN_FILE if is_own_file(e) else "bought" if e["source"] == "manual"
+                             else SOURCE_NAMES.get(e["source"])) if has_file else None),
             "source_url": source_url(e.get("source"), e.get("source_id")),
             "track_link": track_link(track_id, e, fetched),
             "next_qobuz_check": next_check(e, today), "rejected_sources": list(e.get("rejected_sources") or []),
@@ -711,7 +721,7 @@ def _detail(group: str, e: dict, today: date, other: str | None) -> str:
     if group == "other":
         return other or ""
     # the badge already says the kHz: where it came from, and how many kbps for a lossy download
-    source = SHORT_SOURCE.get(e.get("source") or "", "")
+    source = SHORT_OWN if is_own_file(e) else SHORT_SOURCE.get(e.get("source") or "", "")
     kbps = f"{e['source_kbps']} kbps" if e.get("source_kbps") and e["status"] == "not_lossless" else ""
     return " · ".join(x for x in (source, kbps) if x)
 
