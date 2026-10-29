@@ -22,7 +22,7 @@
   body.resizing, body.resizing * { cursor: col-resize !important; }
 
   /* ---- look 2 tokens (docs/hub-design-language.md, tokens.css), as library-browser.html ---- */
-  .win { --bg: #000; --sb-bg: linear-gradient(#0b0b0d, #070708); --sb-solid: #09090b; --sb-line: rgba(255,255,255,.06); --panel-bg: #040405; --text: #dcdce0; --text-strong: #f4f4f6; --muted: #9a9aa2; --label: #5c5c64; --nav: #7c7c84;
+  .win { --bg: #000; --sb-bg: linear-gradient(#0b0b0d, #070708); --sb-solid: #09090b; --sb-line: rgba(255,255,255,.07); --panel-bg: #040405; --text: #dcdce0; --text-strong: #f4f4f6; --muted: #9a9aa2; --label: #5c5c64; --nav: #7c7c84;
     --accent: #ff5a1f; --accent-text: #ff8a5a; --accent-wash: rgba(255,90,31,.14); --accent-wash-strong: rgba(255,90,31,.22); --ctl-line: rgba(255,255,255,.09); --ctl-bg: rgba(255,255,255,.03); --hover: rgba(255,255,255,.035); --ctl-hover: rgba(255,255,255,.05);
     --list-bg: linear-gradient(#0c0c0e, #08080a); --list-solid: #0b0b0d; --list-line: rgba(255,255,255,.06); --row-line: rgba(255,255,255,.045);
     --card-bg: linear-gradient(#0f0f12, #0a0a0c); --card-line: rgba(255,255,255,.07); --card-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.6);
@@ -34,7 +34,6 @@
   .body { flex: 1; min-height: 0; display: flex; }
   /* the page sits inside the L frame on black; only its edges have a line (left, and the bottom while the foot shows) */
   .inner { flex: 1; min-width: 0; display: flex; background: var(--bg); border-left: 1px solid var(--sb-line); position: relative; }
-  .has-foot .inner { border-bottom: 1px solid var(--sb-line); }
 
   /* ---- the app sidebar, full (168) and rail (50): one markup, the rail hides the labels; the glyph column (18–32 px) and every row's y stay put ---- */
   .sb { width: 168px; flex: none; padding: 16px 10px 14px; display: flex; flex-direction: column; gap: 2px; min-height: 0; position: relative; }
@@ -79,12 +78,33 @@
   .favs { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; }
   .settings { margin-top: auto; }
   .spacer { flex: 1; }
-  /* the hidden player in the rail: ⌃ Show player above a play button whose ring is the position */
-  .np { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 30px; flex: none; margin-top: auto; }
-  .np .up { width: 30px; height: 18px; border-radius: 5px; display: grid; place-items: center; color: var(--label); }
-  .np .pb { width: 30px; height: 30px; display: grid; place-items: center; position: relative; color: var(--text-strong); }
+  /* the hidden player (hub-ui NowPlayingRow, PlayButton size 22): in the rail ⌃ Show player above the play button, the
+     position as the row's 2 px line under it; in the full form the real row, unchanged */
+  .np, .nprow, .foot { --f-text: #d9d9dc; --f-strong: #f2f2f4; --f-muted: #9a9aa0; --f-dim: #8c8c92; --f-label: #7a7a80; --f-inset: #17171a; --f-hover: rgba(255,255,255,.035); --f-sep: rgba(255,255,255,.09); }
+  .np { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 30px; flex: none; margin-top: auto; padding-bottom: 2px; }
+  .np .pos { width: 22px; position: relative; height: 2px; border-radius: 1px; background: var(--f-sep); overflow: hidden; }
   .rail .np + .settings { margin-top: 2px; }
-  .nprow { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 6px 0 4px; margin-top: auto; flex: none; }
+  .nprow { flex: none; display: flex; flex-direction: column; margin-top: auto; }
+  .nprow .grp { margin: 12px 7px 4px; }
+  .nprow .row { position: relative; display: grid; grid-template-columns: 22px minmax(0,1fr) 22px; column-gap: 8px; align-items: center; height: 32px; padding: 0 4px; border-radius: 7px; }
+  .nprow .row:hover { background: var(--f-hover); }
+  .nprow .ttl { min-width: 0; color: var(--f-text); font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nprow .pos { position: absolute; left: 34px; right: 34px; bottom: 3px; height: 2px; border-radius: 1px; background: var(--f-sep); overflow: hidden; }
+  .np .pos i, .nprow .pos i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); }
+  /* hub-ui PlayButton: an accent ring, ▶ / ❚❚ in the accent text colour, nothing filled (30 in a player, 22 in a row) */
+  .pp { flex: none; width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid var(--accent); color: var(--accent-text); background: transparent; display: inline-flex; align-items: center; justify-content: center; transition: border-color 120ms ease, transform 100ms ease-out; }
+  .pp:hover { border-color: var(--accent-text); }
+  .pp:active { transform: scale(.97); }
+  .pp svg { width: 10px; height: 10px; fill: currentColor; display: block; }
+  .pp.sm { width: 22px; height: 22px; } .pp.sm svg { width: 8px; height: 8px; }
+  /* hub-ui Button variant="icon": 26 px square (xs: 22), no box at rest, a 16 px (xs: 12) line glyph in the label grey */
+  .ib { flex: none; width: 26px; height: 26px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; color: var(--f-label); transition: background-color 120ms ease, color 120ms ease, transform 100ms ease-out; }
+  .ib:hover { background: var(--f-hover); color: var(--f-text); }
+  .ib:active { transform: scale(.97); }
+  .ib.xs { width: 22px; height: 22px; border-radius: 6px; }
+  .ib svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; display: block; }
+  .ib.xs svg { width: 12px; height: 12px; }
+  .ib svg .f { fill: currentColor; stroke: none; }
 
   /* ---- the browser column: chrome, as wide as the user drags it (200–360, 240 by default) ---- */
   .browser { width: var(--bw, 240px); flex: none; display: flex; flex-direction: column; min-height: 0; padding: 23px 8px 10px; position: relative; }
@@ -239,23 +259,31 @@
   .krow b.wait { color: var(--wait); }
   .emptyp { margin: auto 0; text-align: center; color: var(--muted); font-size: 12px; }
 
-  /* ---- the foot: the L's lower arm, full window width, the page's lower edge is the position ---- */
-  .foot { height: 44px; flex: none; position: relative; display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: center; padding: 0 18px; column-gap: 16px; }
-  .foot .played { position: absolute; top: -1px; height: 2px; background: var(--accent); }
-  .foot .item { display: grid; grid-template-columns: 28px minmax(0,1fr); column-gap: 10px; align-items: center; min-width: 0; }
+  /* ---- the foot: hub-ui shell/Foot.svelte as it is, unchanged (the L's lower arm, full window width). Its top line is
+     the page's lower edge, from the page's left edge to the window's right; the played part of the position is 2 px in
+     the accent on it. Three columns, the transport centred on the window ---- */
+  .foot { height: 44px; flex: none; position: relative; }
+  .foot::before { content: ''; position: absolute; left: var(--edge-x); right: 0; top: 0; height: 1px; background: var(--sb-line); }
+  .foot .played { position: absolute; left: calc(var(--edge-x) + 1px); top: 0; height: 2px; background: var(--accent); }
+  .foot .fbar { height: 100%; display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: center; column-gap: 24px; padding: 0 8px; }
+  .foot .item { display: grid; grid-template-columns: 28px minmax(0,1fr); column-gap: 10px; align-items: center; justify-self: start; max-width: 100%; min-width: 0; margin-left: 4px; padding: 4px 6px; border-radius: 7px; }
+  .foot .item:hover { background: var(--f-hover); }
   .foot .item .cv { width: 28px; height: 28px; border-radius: 4px; }
-  .foot .item .a { color: var(--text-strong); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .foot .item .b { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .foot .mid { display: flex; align-items: center; gap: 10px; color: var(--text); }
-  .foot .tm { width: 44px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; } .foot .tm.l { text-align: right; }
-  .foot .tb { width: 26px; height: 26px; display: grid; place-items: center; color: var(--text); }
-  .foot .pp { width: 30px; height: 30px; border-radius: 50%; background: var(--text-strong); color: #000; display: grid; place-items: center; font-size: 10px; }
-  .foot .end { justify-self: end; display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); white-space: nowrap; }
-  .foot .end [data-foot-x] { font-size: 14px; padding: 0 4px; }
-  .foot .end [data-foot-x]:hover { color: var(--text); }
-  .foot .sep { width: 1px; height: 16px; background: var(--ctl-line); }
-  .foot .syncs { display: inline-flex; align-items: center; gap: 7px; }
-  .foot .syncs .mini { width: 40px; height: 3px; border-radius: 2px; background: rgba(255,255,255,.1); overflow: hidden; } .foot .syncs .mini i { display: block; height: 100%; background: var(--muted); }
+  .foot .item .lines { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+  .foot .item .a { color: var(--f-strong); font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .foot .item .b { color: var(--f-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .foot .mid { display: flex; align-items: center; gap: 6px; }
+  .foot .tm { width: 44px; font-size: 11px; color: var(--f-label); font-variant-numeric: tabular-nums; white-space: nowrap; } .foot .tm.l { text-align: right; }
+  .foot .end { display: flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 0; }
+  .foot .fsep { width: 1px; height: 18px; background: var(--f-sep); flex: none; margin: 0 8px; }
+  /* the sync's short form (hub-ui SyncPart short): dot · "Sync 12 of 40" · a 90 px bar; the long sentence in its tooltip */
+  .foot .syncs { text-decoration: none; display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--f-dim); font-size: 12px; white-space: nowrap; transition: color 120ms ease; }
+  .foot .syncs:hover { color: var(--f-text); }
+  .foot .syncs .sdot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); flex: none; animation: dj-pulse 1.6s ease-in-out infinite; }
+  .foot .syncs .stext { font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .foot .syncs .pbar { flex: none; width: 90px; height: 4px; border-radius: 2px; background: var(--f-inset); overflow: hidden; }
+  .foot .syncs .pbar i { display: block; height: 100%; background: var(--accent); }
+  @keyframes dj-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 </style>
 </head><body>
 
@@ -563,6 +591,22 @@
   };
   const APP = [['dash', 'Dashboard', '⌘1'], ['sync', 'Sync', '⌘2'], ['todo', 'To-do', '⌘3'], ['pls', 'Playlists', '⌘4'], ['lim', 'Download limits', '⌘5'], ['lib', 'Library', '⌘6']];
   const BUILT = new Set(['dash', 'lib']);
+  // the player's glyphs, the paths of hub-ui PlayerIcon.svelte
+  const PI = {
+    play: '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.6 1.2 9 5 2.6 8.8z"/></svg>',
+    pause: '<svg viewBox="0 0 10 10" aria-hidden="true"><rect x="1.8" y="1.2" width="2.4" height="7.6" rx=".5"/><rect x="5.8" y="1.2" width="2.4" height="7.6" rx=".5"/></svg>',
+    prev: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3.5v9"/><path class="f" d="M13 3.6v8.8L6 8z"/></svg>',
+    next: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12 3.5v9"/><path class="f" d="M3 3.6v8.8L10 8z"/></svg>',
+    shuffle: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5h2.2c1.4 0 2.3.6 3.1 1.8l1.4 2.4c.8 1.2 1.7 1.8 3.1 1.8H14M2 11.5h2.2c1.2 0 2-.4 2.7-1.2M9.1 5.7c.7-.8 1.5-1.2 2.7-1.2H14M12.2 2.8 14 4.5l-1.8 1.7M12.2 9.8 14 11.5l-1.8 1.7"/></svg>',
+    hide: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 6.25 8 9.75l3.5-3.5"/></svg>',
+    show: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 9.75 8 6.25l3.5 3.5"/></svg>',
+    stop: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 5l6 6M11 5l-6 6"/></svg>',
+  };
+  const POS = .23;   // the made-up position of the playing track (1:16 of 5:31)
+  // the playing track and the list it plays from (the foot's second line and tooltip, as footModel)
+  const nowPlaying = (o) => { const t = TRACKS[o.playing] || TRACKS.Kaltfront; const x = byKey[o.from]; const list = x ? (x.kind === 'crate' ? crateText(x) : x.name) : 'All tracks'; return { t, list, tip: `${t.a} - ${t.t} · ${list}` }; };
+  const ppBtn = (o, sm) => { const l = o.paused ? 'Play' : 'Pause'; return `<span class="pp${sm ? ' sm' : ''}" data-pl="pp" title="${l}" aria-label="${l}">${o.paused ? PI.play : PI.pause}</span>`; };
+  const ib = (k, label, xs) => `<span class="ib${xs ? ' xs' : ''}" data-pl="${k}" title="${label}" aria-label="${label}">${PI[k]}</span>`;
   const ring = (frac, color, r = 11, w = 2) => { const c = 2 * Math.PI * r; return `<svg class="ring" width="${2 * r + w}" height="${2 * r + w}" viewBox="0 0 ${2 * r + w} ${2 * r + w}" aria-hidden="true"><circle cx="${r + w / 2}" cy="${r + w / 2}" r="${r}" fill="none" stroke="rgba(255,255,255,.1)" stroke-width="${w}"/><circle cx="${r + w / 2}" cy="${r + w / 2}" r="${r}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="round" stroke-dasharray="${(frac * c).toFixed(1)} ${c.toFixed(1)}"/></svg>`; };
   const limitReached = (o) => o.qobuz[0] >= o.qobuz[1];
   function appSidebar(o, form, beside) {
@@ -579,9 +623,12 @@
     // Favourites as shortcuts, on pages where the browser column isn't shown (no counts: they're links)
     const favs = !rail && o.page !== 'lib' && o.favs.length ? `<div class="grp">Favourites</div><div class="favs">${o.favs.map((k) => byKey[k]).map((x) =>
       `<div class="nav" data-k="${x.key}" title="${esc(title(x))}"><span class="g">${glyph(x)}</span><span class="t">${x.kind === 'crate' ? crateLabel(x) : esc(x.name)}</span></div>`).join('')}</div>` : '';
-    const np = o.hiddenPlayer ? (rail
-      ? `<div class="np" title="Kaltfront · Pulsar 9"><span class="up" title="Show player">⌃</span><span class="pb">${ring(.23, 'var(--accent)', 11)}<span style="font-size:9px">❚❚</span></span></div>`
-      : `<div class="nprow"><span class="pb" style="position:relative;width:22px;height:22px;display:grid;place-items:center">${ring(.23, 'var(--accent)', 10)}<span style="font-size:8px">❚❚</span></span><span class="t" style="font-size:12px">Kaltfront</span><span class="ibtn">⌃</span></div>`) : '';
+    // the hidden player (hub-ui NowPlayingRow): the real row in the full form; in the rail ⌃ Show player, the PlayButton
+    // (size 22) and the row's position line under it
+    const npw = o.hiddenPlayer && o.foot ? nowPlaying(o) : null;
+    const np = npw ? (rail
+      ? `<div class="np" title="${esc(npw.tip)}">${ib('show', 'Show player', true)}${ppBtn(o, true)}<span class="pos" aria-hidden="true"><i style="width:${POS * 100}%"></i></span></div>`
+      : `<div class="nprow"><div class="grp">Now playing</div><div class="row">${ppBtn(o, true)}<span class="ttl" data-pl="show" title="${esc(npw.tip)} · Show player">${esc(npw.t.t)}</span>${ib('show', 'Show player', true)}<span class="pos" aria-hidden="true"><i style="width:${POS * 100}%"></i></span></div></div>`) : '';
     return `<div class="sb${rail ? ' rail' : ''}${beside ? ' beside' : ''}" data-sb><div class="shead"><span class="tog" data-tog title="${rail ? 'Show' : 'Hide'} sidebar (⌃⌘S)">${SBICON}</span><span class="brand">Discjockey</span></div>${nav}${favs}<div class="spacer"></div>${np}
       <div class="nav settings" data-nav="set" title="Settings (⌘,) · not part of this mockup"><span class="g">${NAVI.set}</span><span class="t">Settings</span></div></div>`;
   }
@@ -713,31 +760,31 @@
   }
 
   // ---------- the foot (player bar; sync's short form at its right end) ----------
-  function foot(o, chromeW, W) {
-    const t = TRACKS[o.playing] || TRACKS.Kaltfront;
-    const place = t.home === 'own' ? byKey[t.wf].name : `Library › ${t.folder}`;
-    return `<div class="foot" data-foot><span class="played" style="left:${chromeW}px;width:${Math.round((W - chromeW) * .23)}px"></span>
-      <div class="item"><span class="cv" style="background:${cover(t)}"></span><div style="min-width:0"><div class="a">${esc(t.t)}</div><div class="b">${esc(t.a)} · ${esc(place)}</div></div></div>
-      <div class="mid"><span class="tm l">1:16</span><span class="tb">⏮</span><span class="pp">❚❚</span><span class="tb">⏭</span><span class="tm">${t.len}</span></div>
-      <div class="end">${o.sync ? `<span class="syncs" title="Syncing: ${o.sync[0]} of ${o.sync[1]} songs">Sync ${o.sync[0]} of ${o.sync[1]}<span class="mini"><i style="width:${Math.round(o.sync[0] / o.sync[1] * 100)}%"></i></span></span><span class="sep"></span>` : ''}<span>⤮</span><span class="sep"></span><span>⌄ Hide player</span><span data-foot-x title="Stop and close the player">×</span></div></div>`;
+  function foot(o, edgeX, W) {
+    const { t, list, tip } = nowPlaying(o);
+    const sync = o.sync ? `<a class="syncs" title="Sync running · ${o.sync[0]} of ${o.sync[1]} · Downloading Pulsar 9 - Kaltfront · Qobuz ${o.qobuz[0]} of ${o.qobuz[1]} today"><span class="sdot"></span><span class="stext">Sync ${o.sync[0]} of ${o.sync[1]}</span><span class="pbar"><i style="width:${((o.sync[0] - 1) / o.sync[1] * 100).toFixed(1)}%"></i></span></a><span class="fsep"></span>` : '';
+    return `<div class="foot" data-foot style="--edge-x:${edgeX}px"><span class="played" style="width:${Math.round((W - edgeX - 1) * POS)}px"></span>
+      <div class="fbar"><div class="item" title="${esc(tip)}"><span class="cv" style="background:${cover(t)}"></span><span class="lines"><span class="a">${esc(t.t)}</span><span class="b">${esc(t.a)} · ${esc(list)}</span></span></div>
+      <div class="mid"><span class="tm l">1:16</span>${ib('prev', 'Previous')}${ppBtn(o)}${ib('next', 'Next')}<span class="tm">${t.len}</span></div>
+      <div class="end">${sync}${ib('shuffle', 'Shuffle')}<span class="fsep"></span>${ib('hide', 'Hide player')}${ib('stop', 'Stop')}</div></div></div>`;
   }
 
   // ---------- the states (a staged state can show a pointer, a menu or a drag; the first real input clears them) ----------
   const FAVS = ['pl:Hard_Bounce', 'cr:wf:rb:Music/DJ/Hardtechno', 'pl:Peak Time', 'cr:wf:rb:Music/Old Sets/Bounce'];
   const BASE = { page: 'lib', sel: 'wf:rb', bw: 240, favs: FAVS, W: 1280, formLib: 'rail', formOther: 'full', q: '', search: '', seg: 'all', selRow: null, insp: false,
-    foot: false, playing: 'Kaltfront', sync: null, hiddenPlayer: false, qobuz: [15, 40], az: false, closedSecs: [] };
+    foot: false, playing: 'Kaltfront', from: 'wf:rb', paused: false, sync: null, hiddenPlayer: false, qobuz: [15, 40], az: false, closedSecs: [] };
   const STATES = {
     'library': { label: 'Library', title: 'Library, 1280 × 800: the rail, the browser column at 240, Rekordbox Library open; the table keeps every column and gains Length', o: {} },
     'search': { label: 'Filter “bou”', title: 'Filtering “bou” (⌘K): each match once, in its own section; the watched folder as context; one highlighted row, the one Enter opens; the hand-off to the track search last', o: { q: 'bou', focus: 'filter', tip: 'crate' } },
     'filter-none': { label: 'Filter, no match', title: 'A track name typed into the filter (“kaltf”): no playlist or folder matches, so the one row hands the text to the track search (Enter or click opens All tracks searched for it)', o: { q: 'kaltf', focus: 'filter' } },
-    'favourites': { label: 'Favourites drag', title: 'Favourites in use: Peak Time is being dragged to the top, the rows below make room; Hardtechno open (its pill on its topmost row)', o: { sel: 'cr:wf:rb:Music/DJ/Hardtechno', drag: { key: 'pl:Peak Time', at: 0 } } },
+    'favourites': { label: 'Favourites drag', title: 'Favourites in use, in the same order as everywhere (Hard_Bounce, Hardtechno, Peak Time, Bounce · Old Sets): Peak Time is being dragged up one place, below Hard_Bounce, and the rows make room; Hardtechno open (its pill on its topmost row)', o: { sel: 'cr:wf:rb:Music/DJ/Hardtechno', drag: { key: 'pl:Peak Time', at: 1 } } },
     'wide': { label: 'Column wider', title: 'The browser column dragged to 320: the edge line in orange follows the pointer; long names come out whole; the table lets Length go', o: { bw: 320, resizing: true } },
     'inspector': { label: 'Details open', title: 'Details open (⌘I, the toggle, or a click on a quality badge): an upgrade-ready track; the table drops to Track, Artist, Subfolder, Quality while it’s open', o: { insp: true, selRow: 'Eisenbahn' } },
     'inspector-1100': { label: 'Details 1100', title: 'Details open at 1100 × 700: below 1240 the browser column steps back behind the rail while the details are open (it returns when they close), so the list keeps Track, Artist, Subfolder, Quality and whole filter labels', o: { W: 1100, insp: true, selRow: 'Eisenbahn' } },
     'library-1100': { label: 'Library 1100', title: 'Library, 1100 × 700, later: a track playing and a sync running; the foot keeps working under the rail and the browser (its line starts at the page’s edge)', o: { W: 1100, foot: true, sync: [12, 40] } },
     'first-look': { label: 'First look', title: 'A new user’s first look: Favourites empty, with its landing row; Playlists folded by its header; the right-click menu on a crate offers Add to favourites and Hide', o: { favs: [], menu: { key: 'cr:wf:rb:Music/DJ/Rock', staged: true }, closedSecs: ['pl'] } },
     'dashboard': { label: 'Dashboard', title: 'Another page: the full sidebar (pages, Library, Favourites as shortcuts), the page’s docked panel as today; Qobuz at 15 of 40, so Download limits has no dot', o: { page: 'dash' } },
-    'dashboard-rail': { label: 'Dashboard, folded', title: 'Dashboard with the sidebar folded by hand (⌃⌘S): the same icons in the same places, tooltips name them; Qobuz’s limit reached today (40 of 40), so Download limits carries its yellow dot; the hidden player sits above Settings', o: { page: 'dash', formOther: 'rail', hiddenPlayer: true, tip: 'todo', qobuz: [40, 40] } },
+    'dashboard-rail': { label: 'Dashboard, folded', title: 'Dashboard with the sidebar folded by hand (⌃⌘S): the same icons in the same places, tooltips name them; Qobuz’s limit reached today (40 of 40), so Download limits carries its yellow dot; the hidden player sits above Settings', o: { page: 'dash', formOther: 'rail', foot: true, hiddenPlayer: true, tip: 'todo', qobuz: [40, 40] } },
   };
 
   const pick = document.getElementById('state'), stage = document.getElementById('stage');
@@ -764,10 +811,12 @@
     o.qq = o.q.trim().toLowerCase();
     o.used = new Set(); o.cw = folderCw;
     scale = Math.min(1, (stage.clientWidth - 32) / W, (stage.clientHeight - 16) / H);
-    const chromeW = (o.form === 'rail' ? 50 : 168) + (o.browser ? o.bw + 1 : 0);
+    // the page's left edge: where the foot's line starts (the sidebar's width, plus the browser's beside it)
+    const edgeX = (o.form === 'rail' ? 50 : 168) + (o.browser ? o.bw : 0);
+    const footOn = o.foot && !o.hiddenPlayer;
     const left = appSidebar(o, o.form, o.browser) + (o.browser ? browser(o) : '');
     const pageHtml = o.page === 'lib' ? libraryPage(o, W) : dashboardPage(o);
-    stage.innerHTML = `<div class="sizer" style="width:${W * scale}px;height:${H * scale}px"><div class="win${o.foot ? ' has-foot' : ''}" data-win style="width:${W}px;height:${H}px;--pw:${W < 1240 ? 320 : 360}px;transform:scale(${scale})"><div class="body">${left}<div class="inner">${pageHtml}</div></div>${o.foot ? foot(o, chromeW, W) : ''}</div></div>`;
+    stage.innerHTML = `<div class="sizer" style="width:${W * scale}px;height:${H * scale}px"><div class="win${footOn ? ' has-foot' : ''}" data-win style="width:${W}px;height:${H}px;--pw:${W < 1240 ? 320 : 360}px;transform:scale(${scale})"><div class="body">${left}<div class="inner">${pageHtml}</div></div>${footOn ? foot(o, edgeX, W) : ''}</div></div>`;
     const win = stage.querySelector('[data-win]');
     const lib = win.querySelector('[data-lib]'), sc = win.querySelector('[data-scroll]');
     const at = (el) => { const r = el.getBoundingClientRect(), w = win.getBoundingClientRect(); return { x: (r.left - w.left) / scale, y: (r.top - w.top) / scale, w: r.width / scale, h: r.height / scale }; };
@@ -837,7 +886,7 @@
   }
   const libFocus = () => { o.page = 'lib'; if (o.insp && o.W < 1240) o.insp = false; o.focus = 'filter'; };
   function toggleInsp() { if (o.page !== 'lib') return; o.insp = !o.insp; }
-  function play(id) { o.playing = id; o.foot = true; }
+  function play(id) { o.playing = id; o.from = o.sel; o.paused = false; o.foot = true; }
   function fold() { if (o.page === 'lib') o.formLib = o.formLib === 'rail' ? 'full' : 'rail'; else o.formOther = o.formOther === 'rail' ? 'full' : 'rail'; }
   function moveRow(d) {
     if (o.page !== 'lib' || byKey[o.sel].away) return;
@@ -881,7 +930,14 @@
       lastRow = { id: el.dataset.row, t: e.timeStamp };
     }
     else if ((el = t.closest('[data-seg]'))) o.seg = el.dataset.seg;
-    else if (t.closest('[data-foot-x]')) o.foot = false;
+    else if ((el = t.closest('[data-pl]'))) {
+      const a = el.dataset.pl;
+      if (a === 'pp') o.paused = !o.paused;
+      else if (a === 'hide') o.hiddenPlayer = true;
+      else if (a === 'show') o.hiddenPlayer = false;
+      else if (a === 'stop') { o.foot = false; o.hiddenPlayer = false; }
+      else return;
+    }
     else if (t.closest('input')) return;
     else return;
     render();

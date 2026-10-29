@@ -19,6 +19,7 @@ scaled down only when the browser window is smaller. Each state has a hash that 
 | Section heads, a watched folder's chevron, the sort button | Fold the section or the folder, or switch Playlists between priority order and A–Z. |
 | The browser's right edge | Drag it (200–360 px). Double-click it to go back to 240. |
 | A table row | A click selects it, and a double-click (or Enter) plays it in the foot. ↑ ↓ move the selection. |
+| The foot's buttons | ⏯ pauses and plays, ⌄ (Hide player) folds the player into the sidebar, ⌃ (Show player) brings it back, × (Stop) closes it. The others have tooltips only. |
 | A quality badge, the details toggle, or ⌘I | Opens the details inspector. It follows the selection. At 1100 it steps the browser back, and ⌘K or ♫ brings the browser back. |
 | ⌘F, the filter segments, "Upgrade ready ›" | Search the open collection's tracks, or filter them by quality. |
 
@@ -31,14 +32,14 @@ The mockup changes size and layout instantly. The motion table below is how the 
 | Library (`library`) | Library at 1280 × 800: the rail, the browser column at 240, Rekordbox Library open. The table keeps every column and gains Length. |
 | Filter "bou" (`search`) | Filtering with ⌘K. Each match is listed once, in its own section. The watched folder appears as context. One highlighted row is the one Enter opens, and the hand-off to the track search comes last. A crate's tooltip gives its full path. |
 | Filter, no match (`filter-none`) | A track name typed into the filter ("kaltf"). No playlist or folder matches, so the only row hands the text to the track search. |
-| Favourites drag (`favourites`) | Peak Time is being dragged to the top of Favourites and the rows below make room. Hardtechno is open, with its pill on its topmost row. |
+| Favourites drag (`favourites`) | Peak Time is being dragged up one place, below Hard_Bounce, and the rows make room. Hardtechno is open, with its pill on its topmost row. Favourites have the same order in every state (Hard_Bounce, Hardtechno, Peak Time, Bounce · Old Sets); only the row in the air moves here. |
 | Column wider (`wide`) | The browser column dragged to 320. The orange edge line follows the pointer, long names come out whole, and the table lets Length go. |
 | Details open (`inspector`) | An upgrade-ready track (Eisenbahn, a 20 kHz MP3) in the details. The table drops to Track, Artist, Subfolder and Quality while the details are open. |
 | Details 1100 (`inspector-1100`) | The same at 1100 × 700. The browser column steps back behind the rail. |
-| Library 1100 (`library-1100`) | 1100 × 700 with a track playing and a sync running. The foot keeps working under the rail and the browser. |
+| Library 1100 (`library-1100`) | 1100 × 700 with a track playing and a sync running. The foot is today's foot, unchanged, under the rail and the browser. |
 | First look (`first-look`) | A new user's first look: Favourites empty with its landing row, Playlists folded, and the right-click menu on a crate. |
 | Dashboard (`dashboard`) | Another page: the full sidebar with Favourites as shortcuts and the docked panel. Qobuz is at 15 of 40, so Download limits has no dot. |
-| Dashboard, folded (`dashboard-rail`) | The sidebar folded by hand. Qobuz's limit is reached today (40 of 40), so Download limits has its yellow dot. The hidden player sits above Settings. |
+| Dashboard, folded (`dashboard-rail`) | The sidebar folded by hand. Qobuz's limit is reached today (40 of 40), so Download limits has its yellow dot. The hidden player sits above Settings: ⌃ Show player, the play button and its position line. |
 
 ## The layout in one line
 
@@ -64,7 +65,7 @@ with ⌃⌘S.
    sidebar" was what made names cut and the sidebar long. Favourites are short, the user picks them, and they stay one
    click away from To-do or Sync, which was A's real advantage. Without counts, 168 px fits "Bounce · Old Sets".
 3. **The browser column is chrome, not page.** It uses the frame's material beside the rail, so the L frame just grows
-   wider in Library (50 + 240 px). The page keeps its single edge line. A quiet hairline (the same 6 % white)
+   wider in Library (50 + 240 px). The page keeps its single edge line. A quiet hairline (the same 7 % white as the page's edge, `--surface-line`)
    separates the sidebar from the browser in either form and marks the two levels, pages | collections. The filter
    field sits at the top and stays visible ("Filter playlists, folders ⌘K", centred on the page header's row). The
    track search stays top right on the page ("Search title, artist… ⌘F"). The two fields use different words, sit in
@@ -130,11 +131,16 @@ with ⌃⌘S.
 11. **The rail carries the sidebar's signals, in the same colours:** the To-do count as a neutral pill on the glyph's
     corner; Download limits' yellow dot where it is today, **only while a limit is reached or a service is waiting**;
     a running sync as a neutral ring round ⟳ (the arc is the share done; in the full form, "12/40" in the count
-    column). The hidden player becomes ⌃ Show player above a play button whose orange ring is the position, the same
-    orange as the foot's line.
-12. **The foot doesn't change.** It stays full window width under the rail and the browser, with the transport centred
-    on the window. Its line (the page's lower edge and the position) starts at the page's edge, so in Library it starts
-    at 291 px: the line follows `--sidebar-w`, which becomes the chrome's whole width.
+    column). The hidden player (today's Now playing row) becomes ⌃ Show player above the same play button as the row's
+    (PlayButton at 22 px: an orange ring, ⏯ in the accent text colour, nothing filled), with the row's 2 px position
+    line under it. *Why not a ring as the position:* the PlayButton's ring is always whole, so a ring that fills up would
+    be a second meaning for the same shape.
+12. **The foot doesn't change.** It is today's `shell/Foot.svelte` exactly (the mockup copies it: sizes, colours,
+    PlayButton, the icon buttons with their tooltips, the sync's short form). It stays full window width under the rail
+    and the browser, with the transport centred on the window. The one thing that follows the layout is where its line
+    starts: the line (the page's lower edge and the position) starts at the page's edge, so in Library at 1280 it
+    starts at 290 px and the played part at 291 px. The line follows `--sidebar-w`, which becomes the chrome's whole
+    width.
 13. **Folder logic as decided:** only crates are listed (wrappers skipped, full path in the tooltip), a crate can be
     hidden (right-click, Settings → Watched folders), and above 25 crates the watched folder is one row with Settings'
     message and the page link "Show some in the sidebar…" ("sidebar" here means the Library list, which is what the
@@ -177,7 +183,8 @@ with ⌃⌘S.
 | Grey pill on the page's row / the rail's square | The page or collection on screen. |
 | Neutral pill with a number on ✓ | Rail only: the To-do count (the full form shows it in the count column). |
 | Grey ring round ⟳ | A sync is running, and its arc is the share done. It is neutral because it's status. |
-| Orange ring round the rail's ▶ | The hidden player's position (the same as the foot's orange line). |
+| Orange ring round the rail's ⏯ | The play button (PlayButton, as in the foot and the Now playing row). Always whole. |
+| Orange line under the rail's ⏯ | The hidden player's position (the Now playing row's line, the same as the foot's orange line). |
 | Orange line on the browser's edge | Only while dragging it: the width being set. |
 | Orange details toggle with a dot | The inspector is open (the pressed state of an icon button). |
 | Orange wash on a browser row | Only while filtering, and on one row only: the row Enter opens. On the hand-off row it comes with ↵. |
@@ -207,7 +214,7 @@ a CSS transition, so a second ⌃⌘S mid-way turns it round from where it is. (
 | Filtering | No motion: the list is rebuilt on each key (a keyboard action, used many times a day). The highlight moves instantly. |
 | Tooltips (rail, rows) | Fade and grow from scale(.97) at the trigger, 140 ms (`--t-pop`). The first waits 500 ms, the next open at once. |
 | Favourites drag | Lift: 120 ms (raised, shadow, scale 1.02). The other rows part with a 200 ms ease-out transform. Drop: a spring with damping 1 and response 0.3, with no overshoot (a drop has no momentum). |
-| Sync ring, player ring | Their arcs move linearly with progress, and nothing turns or pulses. |
+| Sync ring, player's position line | They move linearly with progress, and nothing turns or pulses. |
 | Reduced motion | No glides: widths change at once and the chrome's contents cross-fade in 150 ms. The inspector fades in place. |
 
 ## Keyboard
@@ -280,7 +287,16 @@ The mockup's numbers agree with each other, and the page checks this on load (er
 - The table sorts by Artist ↑ (the app's default). Rekordbox Library's made-up files sort after its named sample, so
   its first screen is the sample.
 
-## This fix round (2026-10-30)
+## Foot fix round (2026-10-30)
+
+| Problem | Fix |
+|-----|-----|
+| The foot was drawn from scratch (a white filled ⏯ with a black glyph, "⌄ Hide player" written out, other sizes and greys) | It copies today's foot: the 30 px PlayButton (orange ring, orange glyph, nothing filled), icon buttons with tooltips in today's order (sync's short form · shuffle · Hide player · Stop), today's sizes, spacing and colour tokens. |
+| The rail's play button had its own look (a ring as the position, a white glyph) | The Now playing row's PlayButton at 22 px with the row's position line under it. |
+| Favourites started with Peak Time in Library and with Hard_Bounce on Dashboard | The drag state lifts Peak Time one place up instead of to the top; every state keeps one order. |
+| The page's edge was 6 % white, today's is 7 % (`--surface-line`) | 7 %, so the foot's line and the page's edge are today's line. |
+
+## Layout fix round (2026-10-30)
 
 | Problem | Fix |
 |-----|-----|
