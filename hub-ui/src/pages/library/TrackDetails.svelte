@@ -46,7 +46,7 @@
           <span class="state" class:stack={!t.sound_checked}>
             <QualityBadge quality={t.quality} label={t.quality_label} upgrade={t.upgrade_ready}
               checked={t.sound_checked} />
-            <span class="words">{qualityWords(t.quality, t.quality_label, t.sound_checked)}{t.sound_checked && t.source_full ? ` · from ${t.source_full}` : ''}</span>
+            <span class="words">{qualityWords(t.quality, t.quality_label, t.sound_checked)}</span>
           </span>
         </TrackHead>
       </Surface>
@@ -110,10 +110,9 @@
 <style>
   .details { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; transition: opacity var(--t-state) var(--ease); }
   .fading { opacity: .7; }
-  .state { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
-  /* "Not checked" and its words ("sound not checked yet", no "from …": the Source row says it) don't fit in one line: the words go
-     under the badge, whole */
-  .state.stack { flex-wrap: wrap; row-gap: var(--s-1); }
+  /* the badge and its words ("fake lossless"; no "from …": the Source row in Current file says it, with its link).
+     When both don't fit in the column, the words go under the badge whole, never cut: the badge is up to 130 px wide */
+  .state { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2); min-width: 0; }
   .state.stack .words { flex-basis: 100%; }
   .words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted);
     font-size: var(--fs-small); }

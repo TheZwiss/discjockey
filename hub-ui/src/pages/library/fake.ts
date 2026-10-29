@@ -53,6 +53,12 @@ const fake: PageFake = {
       s.tracks.push(ownAway(s, 1, 'Mira Nacht', 'Funkenregen', 'lossless', null),
         ownAway(s, 2, 'Tom Brandt', 'Letzter Zug', 'lossless', null));
     },
+    // the longest words the panel's head line carries: a Qobuz file that is really lossy (the badge is the widest,
+    // "FAKE · 16.0 kHz", beside "fake lossless"); the Source row below says where the file came from
+    fake_qobuz: (s) => {
+      const t = s.tracks.find((x) => x.track_id === 't6');
+      if (t) Object.assign(t, { status: 'fake_lossless', cutoff_hz: 16000, source: 'qobuz', codec: 'flac' });
+    },
     // now playing: ▶ on Get Naughty, then ⏭ reaches a file that can't be played (the bar says so and waits)
     cant_play: (s) => { cantPlay.add(s); },
   },
