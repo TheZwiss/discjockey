@@ -179,7 +179,7 @@ describe('actionsFor', () => {
 
 describe('texts', () => {
   it('says when Qobuz checks again', () => {
-    expect(qobuzText('2026-10-20')).toBe('not there yet · looks again on 20 Oct');
+    expect(qobuzText('2026-10-20')).toBe('not there yet · looks again on 20\u00A0Oct');
     expect(qobuzText('next_sync')).toBe('not there yet · looks again at the next sync');
     expect(qobuzText(null)).toBeNull();
   });

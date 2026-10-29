@@ -7,7 +7,7 @@ import type {
 import { isDuplicate, isQuestion } from '$lib/bridge/types';
 import type { QueueItem } from '$lib/stores/queueModel';
 import type { PlayerState } from '$lib/stores/player';
-import { duration, fileAway } from '$lib/format';
+import { dayMonth, duration, fileAway } from '$lib/format';
 import { fitPath } from '$lib/components/watchedFoldersModel';
 
 /** Filter order = the contract's group order (= the list's section order), All first. The import's two groups come
@@ -276,14 +276,12 @@ export function freeHint(fs: FreeDownload[]): string {
     : 'For a follow, a like or an e-mail · usually WAV or 320 kbps MP3';
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 /** The "Qobuz" fact from `next_qobuz_check`: ISO date → "not there yet · looks again on 20 Oct", null → nothing. */
 export function qobuzText(next: string | null): string | null {
   if (!next) return null;
   if (next === 'next_sync') return 'not there yet · looks again at the next sync';
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(next);
-  if (!m) return null;
-  return `not there yet · looks again on ${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}`;
+  const day = dayMonth(next);
+  return day ? `not there yet · looks again on ${day}` : null;
 }
 
 export { cueTone, cutoffStat, foundText } from '$lib/format';
