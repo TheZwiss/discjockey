@@ -28,12 +28,15 @@ A user's data never sits in the repo and none of it is in git — never test aga
 | `bin/discjockey` | Launcher: `uv sync`, then `.venv/bin/python -m discjockey` (under `caffeinate` except for `hub`) |
 | `discjockey/` | Engine. Each module's docstring says what it owns; read that before opening the file |
 | `discjockey/planner.py`, `discjockey/hub/views.py` | Pure: no I/O, no clock. Keep them that way |
-| `discjockey/library.py` | Everything on disk: paths (music folder, `.discjockey/`, support folder), `config.json`, lock, names, crash-safe ops (`run_op`, backed by `db.py`), `scan_library` |
+| `discjockey/library.py` | Everything on disk: paths (music folder, `.discjockey/`, support folder), `config.json`, lock, names, crash-safe ops (`run_op` for single steps, `move_files` / `move_path` for file moves, also across drives; both backed by `db.py`), `scan_library` |
 | `discjockey/db.py` | `library.db`: the schema, the migration from `state.json`, the move log (batches and moves), every query. Nothing else writes SQL |
 | `discjockey/sources/` | Playlist services, one module per service (`spotify.py`, `qobuz.py`) behind one interface (`recognise`, `canonical_link`, `login_state`, `open` → a `Reader` with `fetch` and `info`; `base.py` holds `SourceError`, `LoginState`, `Reader`). `__init__.py` is the registry (`SOURCES`) with `recognise`, `read` and `read_infos`. A new service is a new module plus one registry line. Songs and playlists are named by tokens (`models.token`): a Spotify id stays bare, every other service's id is `service:id` |
 | `discjockey/qobuz.py` | The Qobuz **download** client (streamrip: login, search, download one track). Reading Qobuz playlists is `sources/qobuz.py`, which opens its own login per read |
-| `discjockey/tidy.py` | The tidy-up: move batches (tidy-up, save question, folder rename), undo, recovery of batches a crash left open; every move through `run_op` |
-| `discjockey/scanner.py` | Walks the watched folders (`Library/`) against the index's file rows and returns a `ScanResult`. Reads only, no SQL; `db.apply_scan` writes it, `library.scan_library` ties the two together |
+| `discjockey/tidy.py` | The tidy-up: move batches (tidy-up, save question, folder rename), undo, recovery of batches a crash left open; every move through `run_op` or `library.move_files` (the file journal, staging across drives) |
+| `discjockey/scanner.py` | Walks the watched folders (`Library/` and the import folders) against the index's file rows and returns a `ScanResult`. Reads only, no SQL; `db.apply_scan` writes it, `library.scan_library` ties the two together |
+| `discjockey/identify.py` | Pure: whether a playlist song and a song of the user's own (a file the import read) are the same song (`compare`: certain or plausible), and an own song's name from its tags or file name. The planner calls it on every plan |
+| `discjockey/importer.py` | The import of watched folders (`run_import`, a write job): scan, pass 1 tags, pass 2 sound check, then linking to the playlists (`run.link_only`). Progress lives on each file's row, so a stop resumes; nothing is copied, moved or renamed |
+| `discjockey/folders.py` | Watched-folder actions and the To-do answers for the import: check, add, remove, "Is this the same song?", Keep both, Move to Superseded. Every file change through `library.move_files` |
 | `discjockey/content_key.py` | The content key of an audio file (`1:<payload length>:<sha256>` over windows of the audio, so it survives renames, moves and tag edits; how a moved file is found) and `AUDIO_EXTS` |
 | `discjockey/run.py` | One sync run, front-end independent; `console.py` and `hub/jobs.py` render its `events.py` events |
 | `discjockey/__main__.py`, `discjockey/cli.py`, `discjockey/tools.py`, `discjockey/tool_updates.py` | `python -m discjockey` runs `tools.activate()` (bundled ffmpeg/ffprobe/deno first on `PATH`, a newer downloaded yt-dlp first on `sys.path`) before `cli.py` imports anything that imports yt-dlp; `--check-tools <folder>` is the update check's child process (spec public-release §6.1, §6.4); `tool_updates.py` updates yt-dlp from PyPI into `<support>/tools/` (never `uv.lock`), keeps one previous, rolls back |
@@ -95,7 +98,8 @@ their Qobuz daily limit. Long commands run in the background with a status line.
 ## Invariants
 
 - **Never delete or overwrite a music file.** Replaced files move to `Superseded/`. Every file change goes through
-  `library.run_op` (crash-safe, resumable). A new code path that writes into `Library/` without it is a bug.
+  `library.run_op`, or `library.move_files` / `move_path` for moves (the file journal; crash-safe, resumable, across
+  drives). A new code path that writes into `Library/` or a watched folder without one of them is a bug.
 - **Names in `Library/` are always `Artist - Title.<ext>`** for files Discjockey downloads or adds — no `(v2)`,
   `(new)` or similar suffixes; those exist only in `Superseded/`. The one exception: a file that is in the way of the
   correct name gets an ID added. **Moving never renames:** a tidy-up and its undo keep each file's name as it is,
