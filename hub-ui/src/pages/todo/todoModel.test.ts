@@ -183,7 +183,7 @@ describe('texts', () => {
     expect(cutoffStat({ status: 'not_lossless', cutoff_hz: 20100 }))
       .toEqual({ value: '20.1', label: 'where the highs end · lossless reaches about 22 kHz' });
     expect(cutoffStat({ status: 'not_lossless', cutoff_hz: null })).toEqual({ value: null, label: 'no clear edge in the highs' });
-    expect(cutoffStat({ status: 'fake_lossless', cutoff_hz: 16000 }))
+    expect(cutoffStat({ status: 'fake_lossless', cutoff_hz: 16000, path: 'Library/A/x.flac' }))
       .toEqual({ value: '16.0', label: 'where the highs end · a lossy file inside the FLAC' });
     expect(cutoffStat({ status: 'lossless', cutoff_hz: null })).toBeNull();
     expect(cutoffStat({ status: 'missing', cutoff_hz: null })).toBeNull();

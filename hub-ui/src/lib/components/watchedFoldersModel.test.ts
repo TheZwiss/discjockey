@@ -8,14 +8,26 @@ import {
 
 describe('fitPath', () => {
   const upTo = (n: number) => (s: string) => s.length <= n;   // a width measured in characters
-  it('keeps the whole path while it fits', () => {
-    expect(fitPath('/Volumes/Example Drive/Music', upTo(40))).toEqual({ head: '/Volumes/Example Drive', tail: '/Music' });
+  const NB = '\u00A0';
+  it('names the drive first, then what is inside it: "Example Drive › Music"', () => {
+    expect(fitPath('/Volumes/Example Drive/Music', upTo(40))).toEqual({ head: `Example Drive ›${NB}`, tail: 'Music' });
+    expect(fitPath('/Volumes/New Volume/Some Crates', upTo(40))).toEqual({ head: `New Volume ›${NB}`, tail: 'Some Crates' });
+    expect(fitPath('/Volumes/Example Drive/Music/Sets/', upTo(40))).toEqual({ head: `Example Drive ›${NB}`, tail: 'Music/Sets' });
+    expect(fitPath('/Volumes/Example Drive', upTo(40))).toEqual({ head: 'Example Drive', tail: '' });
   });
-  it('gives up /Volumes before the drive, then the folders between the drive and the tail', () => {
-    expect(fitPath('/Volumes/Example Drive/Music', upTo(22)))
-      .toEqual({ head: '…/Example Drive', tail: '/Music' });
-    expect(fitPath('/Volumes/Example Drive/Music/Sets', upTo(27)).head).toBe('…/Example Drive/Music');
-    expect(fitPath('/Volumes/Example Drive/Music/Sets', upTo(22)).head).toBe('…/Example Drive/…');
+  it('gives up the folders inside the drive whole from the front, the drive stays whole', () => {
+    expect(fitPath('/Volumes/Example Drive/Music/Old/Sets', upTo(30)).tail).toBe('Music/Old/Sets');   // 16 + 14
+    expect(fitPath('/Volumes/Example Drive/Music/Old/Sets', upTo(29)).tail).toBe('…/Old/Sets');
+    expect(fitPath('/Volumes/Example Drive/Music/Old/Sets', upTo(24)).tail).toBe('…/Sets');
+  });
+  it('cuts the middle of the last folder only when it alone is too wide, the drive still whole', () => {
+    const r = fitPath('/Volumes/Example Drive/Long Crates Name', upTo(24));
+    expect(r.head).toBe(`Example Drive ›${NB}`);
+    expect(r.tail).toBe('Lon…Name');
+    expect(fitPath('/Volumes/Example Drive/Music/Long Crates Name', upTo(24)).tail).toBe('…/Lo…ame');
+    // nothing of the folder fits beside the drive: "…" stands for it
+    expect(fitPath('/Volumes/Example Drive/Music', upTo(18))).toEqual({ head: `Example Drive ›${NB}`, tail: '…' });
+    expect(fitPath('/Volumes/Example Drive/Music', upTo(3))).toEqual({ head: `Example Drive ›${NB}`, tail: '…' });
   });
   it('gives up whole folders from the front elsewhere, home as ~', () => {
     expect(fitPath('/Users/you/Music/Old/Crates', upTo(18)).head).toBe('~/Music/Old');
@@ -23,8 +35,8 @@ describe('fitPath', () => {
     expect(fitPath('/Archive/Music/Old/Crates', upTo(18)).head).toBe('…/Music/Old');
   });
   it('cuts the shortest form\'s end when nothing fits, "…" right before the tail, no blank', () => {
-    expect(fitPath('/Volumes/Example Drive/Music', upTo(17))).toEqual({ head: '…/Example…', tail: '/Music' });
-    expect(fitPath('/Volumes/Example Drive/Music', upTo(3))).toEqual({ head: '…', tail: '/Music' });
+    expect(fitPath('/Archive Drive/Music', upTo(10))).toEqual({ head: '/Ar…', tail: '/Music' });
+    expect(fitPath('/Archive Drive/Music', upTo(3))).toEqual({ head: '…', tail: '/Music' });
     expect(fitPath('/Crates', upTo(1))).toEqual({ head: '', tail: '/Crates' });
   });
 });
@@ -60,7 +72,7 @@ describe('a folder row (W3)', () => {
     expect(folderLabel(a, [lib, a])).toBe('Crates');
   });
   it('keeps the end of a path on its one line, the middle gives way', () => {
-    expect(pathParts('/Volumes/Example Drive/Music')).toEqual({ head: '/Volumes/Example Drive', tail: '/Music' });
+    expect(pathParts('/Archive/Example Drive/Music')).toEqual({ head: '/Archive/Example Drive', tail: '/Music' });
     expect(pathParts('/Users/you/Music/Crates/')).toEqual({ head: '~/Music', tail: '/Crates' });
     expect(pathParts('/Crates')).toEqual({ head: '', tail: '/Crates' });
     expect(pathParts('/Users/you')).toEqual({ head: '~', tail: '' });

@@ -22,6 +22,18 @@ const fake: PageFake = {
       s.tracks.push(own(1, 'Mira Nacht', 'Funkenregen', 241, true), own(2, 'Mira Nacht', 'Stille Post', 198, true),
         own(3, 'Tom Brandt', 'Letzter Zug', 305, false));
     },
+    // an import folder whose drive was ejected: its files stay in the library, the panel says the drive is offline
+    // (two fake lossless WAVs, one on the drive that is away, one on a drive that is there; a lossless one away)
+    offline: (s) => {
+      const own = (n: number, artist: string, title: string, status: FakeTrack['status'], cutoff_hz: number | null,
+        offline: boolean): FakeTrack => ({
+        ...s.tracks[0], track_id: `local:${n}`, artist, title, folder: '', duration_s: 233, status, cutoff_hz,
+        source: 'manual', codec: 'pcm', in_playlists: false, playlists: [], upgrade: null, isrc: null, cover: n,
+        own: true, offline });
+      s.tracks.push(own(1, 'Mira Nacht', 'Funkenregen', 'fake_lossless', 16000, true),
+        own(2, 'Tom Brandt', 'Letzter Zug', 'fake_lossless', 16000, false),
+        own(3, 'Mira Nacht', 'Stille Post', 'lossless', null, true));
+    },
     // now playing: ▶ on Get Naughty, then ⏭ reaches a file that can't be played (the bar says so and waits)
     cant_play: (s) => { cantPlay.add(s); },
   },

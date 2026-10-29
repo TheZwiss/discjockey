@@ -1,6 +1,7 @@
 <script lang="ts">
   // The files the import couldn't read (plan library stage 4, W6), shared by Settings → Watched folders and Setup:
-  // a foldable list headed "Couldn't read (n)"; each row the file's name over "{folder} · {reason}" (the folder relative to its watched
+  // a foldable list headed "Couldn't read (n)"; each row the file's name (MiddleText: a long one gives way in its middle,
+  // so its end shows) over "{folder} · {reason}" (the folder relative to its watched
   // folder, or that folder's name at its root; the title is the file's name already), wrapping between words only,
   // since the reason must be read whole; "Tried again at the next import." closes the list (beside the label it cut the label short
   // in a 320 px panel). Open while it is short, folded once it
@@ -8,6 +9,7 @@
   import type { UnreadableFile, WatchedFolderRow } from '$lib/bridge/types';
   import Hint from './Hint.svelte';
   import ListRow from './ListRow.svelte';
+  import MiddleText from './MiddleText.svelte';
   import StatusMark from './StatusMark.svelte';
   import Surface from './Surface.svelte';
   import { UNREADABLE_HINT, unreadableLabel, unreadableSub } from './watchedFoldersModel';
@@ -26,7 +28,7 @@
     {#each files as u (u.path)}
       <ListRow wrap title={u.path}>
         {#snippet lead()}<StatusMark tone="warn" />{/snippet}
-        {#snippet name()}{fileName(u.path)}{/snippet}
+        {#snippet name()}<MiddleText text={fileName(u.path)} />{/snippet}
         {#snippet sub()}<span class="sub">{unreadableSub(u, folders)}</span>{/snippet}
       </ListRow>
     {/each}

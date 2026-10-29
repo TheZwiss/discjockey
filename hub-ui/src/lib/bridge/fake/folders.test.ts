@@ -41,6 +41,13 @@ describe('fake watched folders', () => {
     expect(bad.folders[1].unreadable).toBe(3);
   });
 
+  it('long names and folders on other drives', async () => {
+    const r = must(await fake('folders_long_names').f.watched_folders());
+    expect(r.folders.map((x) => x.name)).toEqual(['Library', 'Music', 'Crates Mix', 'Peak Hour Rarities and Other Long Folder Names']);
+    expect(r.unreadable.map((u) => u.reason)).toEqual(['The file is empty', 'The file is empty', "Discjockey can't find sound it can read in it"]);
+    expect(r.unreadable[0].path).not.toBe(r.unreadable[1].path);
+  });
+
   it('checks a folder in the engine\'s words', async () => {
     const { f } = fake('normal');
     const check = async (path: string) => must(await f.check_import_folder(path));

@@ -42,6 +42,8 @@ export type FakeTrack = {
   own?: boolean;
   /** an own file the import has read but whose sound it hasn't judged yet: its quality is the codec's guess */
   unchecked?: boolean;
+  /** an own file whose import folder's drive is away: it has a path, but the player and the spectrum can't reach it */
+  offline?: boolean;
 };
 /** One move of a move batch as the fake keeps it (the engine's `moves` row). */
 export type FakeMove = {

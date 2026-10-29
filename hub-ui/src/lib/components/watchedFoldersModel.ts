@@ -3,6 +3,7 @@
 // the bridge answered (watched_folders, the hub's write job with its last ImportProgress).
 import type { EventOf } from '$lib/bridge/events';
 import type { ImportResult, JobSnap, RemovalPreview, UnreadableFile, WatchedFolderRow, WatchedFolders } from '$lib/bridge/types';
+import { OFFLINE_WORDS, fitMiddle } from '$lib/format';
 import { shortPath } from '$lib/musicFolder';
 
 export type ImportProgress = EventOf<'ImportProgress'>;
@@ -20,7 +21,7 @@ export function folderLine(f: WatchedFolderRow): string {
   if (f.kind === 'library') return 'Always watched';
   switch (f.state) {
     case 'online': return 'Online';
-    case 'offline': return 'Offline: connect the drive';
+    case 'offline': return OFFLINE_WORDS;
     case 'scanning': return 'Checking for new files';
     case 'importing':
       if (f.waiting <= 0) return 'Importing';
@@ -42,24 +43,24 @@ export function pathParts(path: string): { head: string; tail: string } {
   return i < 0 ? { head: p, tail: '' } : { head: p.slice(0, i), tail: p.slice(i) };
 }
 /**
- * The path as a row shows it in the width it has (`fits` says whether a text fits): whole while it fits; else the
- * parents give way in whole folders from the front, a drive's name last ("/Volumes/Example Drive/Music/Sets" →
- * "…/Example Drive/Music/Sets" → "…/Example Drive/…/Sets"; "~/Music/Old/Crates" → "…/Old/Crates"). Whole
- * folders, so no name is cut; only when even the shortest form doesn't fit is its end cut, measured, so no blank sits
- * before the tail ("…/Example…/Music").
+ * The path as a row shows it in the width it has (`fits` says whether a text fits).
+ * A folder on another drive ("/Volumes/Example Drive/Music/Sets") reads "Example Drive › Music/Sets": the drive's name
+ * is whole and first (it tells which drive to connect), the rest follows. When that is too wide the rest's folders give
+ * way whole from the front ("Example Drive › …/Sets"); only when even the last folder alone is too wide is its middle
+ * cut ("Example Drive › …/Long Na…ame"), and where not even that fits, the drive's name stands with "…"
+ * ("Example Drive › …"). `head` ends in a no-break space so the blank survives the row's layout.
+ * Any other path stays whole while it fits; else the parents give way in whole folders from the front ("~/Music/Old/Crates"
+ * → "…/Old/Crates"), and only when even the shortest form doesn't fit is its end cut, measured, so no blank sits before
+ * the tail ("…/Archi…/Crates").
  */
 export function fitPath(path: string, fits: (text: string) => boolean): { head: string; tail: string } {
+  const drive = driveParts(path);
+  if (drive) return fitDrivePath(drive, fits);
   const { head, tail } = pathParts(path);
   const segs = head.split('/');
   const heads = [head];
-  if (segs[0] === '' && segs[1] === 'Volumes' && segs.length > 2) {
-    const [drive, ...middle] = segs.slice(2);
-    heads.push(`…/${[drive, ...middle].join('/')}`);
-    if (middle.length) heads.push(`…/${drive}/…`);
-  } else {
-    // "…" for "~" or a single first folder would save nothing: the first form drops two
-    for (let i = 2; i < segs.length; i++) heads.push(`…/${segs.slice(i).join('/')}`);
-  }
+  // "…" for "~" or a single first folder would save nothing: the first form drops two
+  for (let i = 2; i < segs.length; i++) heads.push(`…/${segs.slice(i).join('/')}`);
   const whole = heads.find((h) => fits(h + tail));
   if (whole !== undefined) return { head: whole, tail };
   // even the shortest form is too wide: its end gives way character by character, ending in "…" right before the
@@ -70,6 +71,25 @@ export function fitPath(path: string, fits: (text: string) => boolean): { head: 
     if (fits(cut + tail)) return { head: cut, tail };
   }
   return { head: last ? '…' : '', tail };
+}
+/** A path on another drive: the drive's name and the folders inside it (none for the drive's top). */
+function driveParts(path: string): { drive: string; rest: string[] } | null {
+  const segs = path.replace(/\/+$/, '').split('/');
+  if (segs[0] !== '' || segs[1] !== 'Volumes' || !segs[2]) return null;
+  return { drive: segs[2], rest: segs.slice(3).filter(Boolean) };
+}
+function fitDrivePath({ drive, rest }: { drive: string; rest: string[] }, fits: (text: string) => boolean):
+    { head: string; tail: string } {
+  if (!rest.length) return { head: drive, tail: '' };
+  const head = `${drive} ›\u00A0`;
+  const forms = [rest.join('/')];
+  for (let i = 1; i < rest.length; i++) forms.push(`…/${rest.slice(i).join('/')}`);
+  const whole = forms.find((f) => fits(head + f));
+  if (whole !== undefined) return { head, tail: whole };
+  const lead = rest.length > 1 ? '…/' : '';
+  const tail = lead + fitMiddle(rest[rest.length - 1], (t) => fits(head + lead + t));
+  // not even a few letters of the last folder fit beside the drive: the drive's name, and "…" for what is inside
+  return { head, tail: fits(head + tail) ? tail : '…' };
 }
 /** The row's mark: ✓ readable, ! offline (it keeps its files, it only waits), a spinner while it is worked on. */
 export type FolderMark = 'good' | 'warn' | 'working';

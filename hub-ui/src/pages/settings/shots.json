@@ -101,6 +101,8 @@
    "steps": [{ "wait": "[data-test=folders-list] [data-state=offline]" }, { "sleep": 400 }] },
  { "name": "settings-folders-couldnt-read", "route": "#/settings/folders", "scenario": "folders_couldnt_read",
    "steps": [{ "wait": "[data-test=folders-unreadable]" }, { "sleep": 400 }] },
+ { "name": "settings-folders-long-names", "route": "#/settings/folders", "scenario": "folders_long_names",
+   "steps": [{ "wait": "[data-test=folders-unreadable]" }, { "wait": "[data-test=folders-list-row-3] .path .tail:not(:empty)" }, { "sleep": 400 }] },
  { "name": "settings-folders-remove", "route": "#/settings/folders", "scenario": "folders_offline",
    "steps": [{ "wait": "[data-test=folders-list-remove-2]" }, { "click": "[data-test=folders-list-remove-2]" },
      { "wait": "dialog[open]" }, { "sleep": 400 }] },
