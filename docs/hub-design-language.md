@@ -219,8 +219,10 @@ Finish later in its `actions`).
 ```
 
 - Props: `title`, `sub` (the status line, 12 px, on the title's baseline), `actions` (snippet: search, Full report),
-  `spotify` (show the read slot), `spotifyInBody`, `spotifyState`. The title never shrinks while the status line can
-  give way: the line ends in "…" (down to nothing) first; only a title longer than the whole lead is cut.
+  `spotify` (show the read slot), `spotifyInBody`, `spotifyState`. The title never shrinks and the status line is
+  never cut: when it doesn't fit beside the title it wraps under it, balanced, breaking between words and after a "·"
+  (never before it), so the header grows by a line only where the words need it. Only a title longer than the whole
+  lead (a folder name) ends in "…".
 - The **read slot** (the playlists' read status, every service at once; its wire and block names still say Spotify
   until stage 5 rebuilds it) is always last, so its right edge is the content's right edge. It is on Dashboard, Sync
   (before the start), To-do and Playlists. `SpotifyStatus` is placed only by this slot; the checker fails it anywhere
@@ -740,3 +742,8 @@ before reopening anything. New system-level decisions from phase 2 on go here, n
 - **2026-10-21 · `DayBar` day mode.** The Dashboard draws the whole daily limit (used · this sync · left), not only
   this run against later; "This sync" replaces "Today" there, because beside "Used" it would read as "used today".
   Sync keeps its bar. Why: the user's choice from the mockup, and one bar replaces three tiles. Seen: `dashboard`.
+- **2026-10-29 · `PageHeader`'s status line wraps instead of ending in "…".** It goes under the title, balanced, and breaks
+  between words and after a "·", never before it (the block writes the separator with a no-break space in front). Why:
+  To-do at 1100 lost "5 questions about your files" next to the read note; nothing the header says may be cut, and
+  only a name (the title) may be shortened. The header grows by a line only where the words need it. Seen:
+  `todo-same-song` at 1100, gallery PageHeader.

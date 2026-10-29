@@ -6,8 +6,9 @@
   // - It spans its frame's content box and adds no padding of its own: the list area's content in ListPanelFrame (never
   //   the panel, which has its own head), the 900 px column in ColumnFrame, the page's padding box on a plain page.
   //   So the title starts where the rows start and the last control ends where the rows end, at every window size.
-  // - Title and sub share one baseline (a 22 px title and a 12 px line centred on each other sat 4 px off it); both
-  //   end in "…" instead of wrapping or pushing the controls out.
+  // - Title and sub share one baseline (a 22 px title and a 12 px line centred on each other sat 4 px off it). The
+  //   title ends in "…" when it is longer than the header (a folder name); the sub never does: when it doesn't fit
+  //   beside the title it wraps under it, so no word is lost.
   // - `spotify`: the fixed slot at the right edge (the playlists' read status; the name stays until stage 5), used by
   //   the pages whose content comes from the last read (Dashboard, Sync, To-do, Playlists). `spotifyInBody`: the page
   //   shows the read in progress and its problems as cards in its body (Sync before the start), so the slot keeps
@@ -20,12 +21,14 @@
   let { title, sub, actions, spotify = false, spotifyInBody = false, spotifyState }:
     { title: string; sub?: string; actions?: Snippet; spotify?: boolean; spotifyInBody?: boolean;
       spotifyState?: SpotifyState | null } = $props();
+  // a line breaks after the "·", never before it: the separator stays with the words it follows (no line starts "· 5 …")
+  const subText = $derived(sub?.replaceAll(' · ', '\u00a0· '));
 </script>
 
 <header class="ph" data-page-header>
   <div class="lead">
     <h1 {title}>{title}</h1>
-    {#if sub}<span class="sub" title={sub} data-test="page-sub">{sub}</span>{/if}
+    {#if sub}<span class="sub" title={sub} data-test="page-sub">{subText}</span>{/if}
   </div>
   {#if actions || spotify}
     <div class="trail">
@@ -41,18 +44,18 @@
   /* baseline: the slot's 12 px line and the controls' labels sit on the title's baseline (centred, they sat 3.8 px
      above it; Apple typography: one line, one baseline) */
   .ph { display: flex; align-items: baseline; gap: var(--s-4); min-height: var(--h-btn); min-width: 0; flex: none; }
-  .lead { display: flex; align-items: baseline; gap: var(--s-3); min-width: 0; flex: 1 1 auto; }
-  /* the title keeps its whole width while the sub can give way: flex shares a shortfall by size × factor, so a short
-     title beside a longer sub lost a third of the cut ("Playl…" at 1100 beside Tidy up files and the read slot), and
-     any factor at all cuts a few tenths of a pixel, which already draws "…". So it doesn't shrink; a title longer
-     than the lead (a long folder name) is capped by max-width instead, and the sub goes to nothing first. */
+  /* the lead wraps: a status line that doesn't fit beside the title goes under it, whole, instead of ending in "…"
+     (To-do at 1100: "18 tracks are not lossless yet · 5 quest…"). The first line keeps the title's baseline, so the
+     controls on the right still sit on it; only the header grows, by one line, and only where the words need it. */
+  .lead { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--s-3); row-gap: 0; min-width: 0;
+    flex: 1 1 auto; }
+  /* the title keeps its whole width: it never shrinks; a title longer than the lead (a long folder name) is capped
+     by max-width and ends in "…" (only a name, never the status words, is cut) */
   h1 { font-size: var(--fs-h1); white-space: nowrap; min-width: 0; max-width: 100%;
     overflow: hidden; text-overflow: ellipsis; flex: 0 0 auto; }
-  .lead:has(.sub) h1 { max-width: calc(100% - var(--s-3)); }
-  /* long folder names: title and sub shorten with … instead of wrapping or pushing the controls out; the sub gives
-     way first */
-  .sub { color: var(--text-label); font-size: var(--fs-small); white-space: nowrap; min-width: 0; overflow: hidden;
-    text-overflow: ellipsis; flex: 0 3 auto; }
+  /* the status line breaks between words, balanced so no word is left alone on the second line; beside the title
+     while it fits, under it otherwise */
+  .sub { color: var(--text-label); font-size: var(--fs-small); min-width: 0; flex: 0 1 auto; text-wrap: balance; }
   .trail { flex: none; display: flex; align-items: center; gap: var(--s-4); }
   .actions { display: flex; align-items: center; gap: var(--s-2); }
 </style>
