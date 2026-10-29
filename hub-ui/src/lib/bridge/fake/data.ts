@@ -206,7 +206,7 @@ export function trackRow(t: FakeTrack): TrackRow {
     track_id: t.track_id, artist: t.artist, title: t.title, folder: t.folder, duration_s: t.duration_s,
     status: t.status, quality: qualityOf(t), quality_label: qualityLabel(t), cutoff_hz: t.cutoff_hz,
     source: t.source, source_name: t.own ? OWN_SHORT : t.source ? SOURCE_NAMES[t.source] : null, in_playlists: t.in_playlists,
-    hidden: t.hidden, upgrade_ready: !!t.upgrade, path: pathOf(t), added: t.added, cover_url: coverUri(t.cover),
+    own: !!t.own, hidden: t.hidden, upgrade_ready: !!t.upgrade, path: pathOf(t), added: t.added, cover_url: coverUri(t.cover),
   };
 }
 export function qualityLine(t: FakeTrack): string {

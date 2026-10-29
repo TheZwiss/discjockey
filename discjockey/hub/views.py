@@ -517,7 +517,7 @@ def track_row(track_id: str, e: dict, cover: Url | None = None) -> dict:
             "quality": quality_class(e), "quality_label": quality_label(e), "cutoff_hz": e.get("cutoff_hz"),
             "source": source,
             "source_name": (SHORT_OWN if is_own_file(e) else SHORT_SOURCE.get(source)) if source else None,
-            "in_playlists": bool(e.get("in_playlists")), "hidden": bool(e.get("hidden")),
+            "in_playlists": bool(e.get("in_playlists")), "own": is_own_file(e), "hidden": bool(e.get("hidden")),
             "upgrade_ready": bool(e.get("upgrade")), "path": e.get("path"), "added": added,
             "cover_url": cover(track_id, e) if cover else None}
 

@@ -328,8 +328,8 @@ def test_track_row():
                                    upgrade=UPGRADE), cover)
     assert row == {"track_id": "t1", "artist": "Artist", "title": "Song", "folder": "A", "duration_s": 268.0,
                    "status": "not_lossless", "quality": "weak", "quality_label": "16.0 kHz", "cutoff_hz": 16000,
-                   "source": "youtube", "source_name": "YouTube", "in_playlists": True, "hidden": False,
-                   "upgrade_ready": True, "path": "Library/A/x.aiff", "added": None, "cover_url": "cover:t1"}
+                   "source": "youtube", "source_name": "YouTube", "in_playlists": True, "own": False,
+                   "hidden": False, "upgrade_ready": True, "path": "Library/A/x.aiff", "added": None, "cover_url": "cover:t1"}
 
 
 @pytest.mark.parametrize("alignment,text", [
@@ -1461,6 +1461,13 @@ def test_the_detail_of_an_own_file_says_so_and_shows_the_day_it_was_first_seen()
     assert d["quality_line"] == "Your own file (PCM) · verified lossless"
     assert d["added"] == "2026-10-25T12:00:00"
     assert views.track_row("local:1", entry)["added"] == "2026-10-25T12:00:00"
+
+
+def test_track_row_says_whether_a_file_is_the_users_own():
+    # the table dims a row only when it is in no playlist and not an own file: the engine says which is which
+    assert views.track_row("local:1", own(placed_by="import"))["own"] is True
+    assert views.track_row("t1", e("lossless", source="manual", placed_by="app"))["own"] is False  # bought
+    assert views.track_row("t2", e("not_lossless", source="youtube", cutoff=16000, in_playlists=False))["own"] is False
 
 
 def test_a_bought_file_the_sync_adopted_stays_bought_with_its_own_added_day():

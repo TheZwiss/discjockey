@@ -63,6 +63,7 @@ Use the kind for the card/headline; always show `message` as the detail.
  "source": "youtube",
  "source_name": "YouTube",
  "in_playlists": true,
+ "own": false,
  "hidden": false,
  "upgrade_ready": true,
  "path": "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff",
@@ -70,6 +71,9 @@ Use the kind for the card/headline; always show `message` as the detail.
  "cover_url": "https://i.scdn.co/image/t2"
 }
 ```
+- `own`: true for a file of the user's own that the import found (source `manual`, placed by the import), false for a
+  downloaded or bought one. An own file is in no playlist by nature, so the Library table dims a row only when
+  `!in_playlists && !own` (a song that left every playlist), never an own file.
 - `status`: `lossless|not_lossless|fake_lossless|missing`. `quality` (colour): `lossless` green · `good_lossy` yellow ·
   `weak` red (cutoff ≤ 17 kHz) · `fake` purple · `missing` red. `quality_label`: `LOSSLESS`, `20.0 kHz`, `LOSSY`,
   `FAKE · 16.0 kHz`, `NOT FOUND`. `source`: `qobuz|youtube_music|soundcloud|youtube|manual|null`; `source_name` short

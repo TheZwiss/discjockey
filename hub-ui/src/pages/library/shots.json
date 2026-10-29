@@ -5,7 +5,7 @@
    "steps": [{ "wait": "[data-test=library-overview] [data-test=overview-upgrades]" }] },
  { "name": "library-all", "route": "#/library", "scenario": "normal",
    "steps": [{ "wait": "[data-test=library-table] [data-test^=row-]" }, { "wait": "[data-test=overview-todo]" }] },
- { "name": "library-not-in-playlist", "route": "#/library/not-in-playlist?track=t40", "scenario": "normal",
+ { "name": "library-not-in-playlist", "route": "#/library/not-in-playlist?track=t40", "scenario": "library:not_in_playlist",
    "steps": [{ "wait": "[data-test=track-details]" }, { "sleep": 800 }] },
  { "name": "library-lossless-selected", "route": "#/library/folder/Hard_Bounce?track=t6", "scenario": "normal",
    "steps": [{ "wait": "[data-test=track-details]" }, { "sleep": 800 }] },
