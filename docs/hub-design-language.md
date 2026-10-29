@@ -747,3 +747,7 @@ before reopening anything. New system-level decisions from phase 2 on go here, n
   To-do at 1100 lost "5 questions about your files" next to the read note; nothing the header says may be cut, and
   only a name (the title) may be shortened. The header grows by a line only where the words need it. Seen:
   `todo-same-song` at 1100, gallery PageHeader.
+- **2026-10-29 · `DropZone` shows the name being added on its own line, through `MiddleText`.** "Adding…" first, then the file name, which
+  breaks nowhere and gives way in its middle when it is wider than the zone (the end, ".wav", stays). Why: a name without spaces
+  ("Artist_-_Title_(Extended_Mix).wav") ran out of the dashed box at 1100, and a name may be cut only in its middle. Seen:
+  `todo-drop-add` at 1100.
