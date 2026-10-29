@@ -56,7 +56,17 @@
   .chev svg { transition: transform 160ms cubic-bezier(.23,1,.32,1); }
   .chev.open svg { transform: rotate(90deg); }
   .nav.on .chev { color: var(--muted); }
-  .crate { padding-left: 31px; }                                             /* a crate: no glyph, its name under its watched folder's name */
+  .crate { padding-left: 31px; }
+  /* a crate that needs context: its own name, and under it, quiet, the folder above ("in Old Sets", "in Hardtechno") */
+  .nav.two { height: 40px; }
+  .t .l1, .t .l2 { display: block; overflow: hidden; text-overflow: ellipsis; }
+  .t .l1 { line-height: 16px; } .t .l2 { font-size: 11px; line-height: 14px; color: var(--label); }
+  .nav.on .t .l2 { color: var(--muted); }
+  /* a watched folder's own name is never cut short: it wraps, balanced, onto a second line (at most two); glyph,
+     chevron and count stay on the first line */
+  .nav.wfr { height: auto; min-height: 30px; align-items: flex-start; padding-top: 7px; padding-bottom: 7px; }
+  .nav.wfr .t { white-space: normal; text-wrap: balance; line-height: 16px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .nav.wfr .g { height: 16px; } .nav.wfr .c { line-height: 16px; } .nav.wfr .chev { height: 16px; }                                             /* a crate: no glyph, its name under its watched folder's name */
   .mark { width: 13px; height: 13px; border-radius: 50%; border: 1px solid rgba(232,185,58,.7); background: rgba(232,185,58,.14); color: var(--wait); font: 700 9px/11px -apple-system; text-align: center; }
   .off { opacity: .5; }                                                      /* switched off: the sidebar's one dim */
 
@@ -73,8 +83,8 @@
   .find .q::after { content: ''; display: inline-block; width: 1px; height: 13px; background: var(--accent-text); vertical-align: -2px; margin-left: 1px; }
   .find .x { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); background: rgba(255,255,255,.07); font-size: 10px; }
   /* a section header: sentence case, quieter than the rows, the whole row folds; its chevron on the counts' right edge */
-  .sh { display: flex; align-items: center; height: 26px; flex: none; padding: 0 3px 0 8px; margin-top: 6px; border-radius: 7px; color: var(--label); font-size: 12px; font-weight: 600; cursor: default; }
-  .sh:hover { background: var(--ctl-bg); color: var(--muted); }
+  .sh { position: sticky; top: 0; bottom: 0; z-index: 2; background: #09090a; box-shadow: 0 -7px 7px -3px #09090a, 0 7px 7px -3px #09090a; display: flex; align-items: center; height: 28px; flex: none; padding: 0 3px 0 8px; margin-top: 4px; border-radius: 7px; color: var(--label); font-size: 12px; font-weight: 600; cursor: default; }
+  .sh:hover { background: #111113; color: var(--muted); }
   .sh .n { font-weight: 400; margin-left: 6px; font-variant-numeric: tabular-nums; flex: 1; }
   .sh .sp { flex: 1; }
   .sh .ibtn { width: 20px; height: 20px; }
@@ -88,8 +98,8 @@
   .empty { color: var(--label); font-size: 12px; padding: 8px 8px; line-height: 1.4; }
 
   /* drag: the lifted row follows the pointer; the rows below part to show where it lands */
-  .slot { height: 30px; flex: none; border-radius: 7px; border: 1px dashed rgba(255,255,255,.16); background: rgba(255,255,255,.02); }
-  .lift { position: absolute; left: 0; right: 0; z-index: 3; background: #1d1d22; color: var(--text-strong); box-shadow: 0 10px 24px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,.08); transform: scale(1.03) rotate(-.6deg); }
+  .slot { height: 30px; flex: none; }
+  .lift { position: absolute; left: 0; right: 0; z-index: 3; background: #1d1d22; color: var(--text-strong); box-shadow: 0 4px 10px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.1); transform: translate(3px, -2px) scale(1.02); }
   .cursor { position: absolute; z-index: 9; pointer-events: none; }
 
   /* the context menu (ContextMenu block): at the pointer, a note column on the right */
@@ -138,7 +148,7 @@
   .pl { justify-self: start; max-width: 100%; display: inline-flex; gap: 4px; font: 500 11px -apple-system; padding: 2px 6px; border-radius: 5px; border: 1px solid rgba(255,255,255,.13); color: var(--muted); white-space: nowrap; overflow: hidden; }
   .pl span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .pl b { font-weight: 500; color: var(--label); flex: none; }
-  .panel { flex: none; width: 360px; background: var(--panel-bg); border-left: 1px solid var(--sb-line); padding: 20px; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .panel { flex: none; width: var(--pw, 360px); background: var(--panel-bg); border-left: 1px solid var(--sb-line); padding: 20px; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
   .card { border-radius: 12px; background: var(--card-bg); border: 1px solid var(--card-line); box-shadow: var(--card-shadow); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
   .bign { font-size: 30px; font-weight: 700; color: var(--text-strong); line-height: 1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
   .bign small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
@@ -206,7 +216,7 @@
 <div class="bar">
   <h2>Library browser (sidebar rethink)</h2>
   <span class="pick" id="state"></span>
-  <span style="color:#6a6a70">1280 × 800 · each state has a hash, e.g. <code>#a-default</code></span>
+  <span style="color:#6a6a70">1280 × 800 · each state has a hash, e.g. <code>#a-default</code>; add <code>@1100</code> for 1100 × 700 (<code>#a-default@1100</code>)</span>
 </div>
 
 <div class="note">
@@ -216,16 +226,16 @@
   <h3>Decisions (both variants)</h3>
   <ol>
     <li><b>Folders show their crates, not their tree.</b> A crate is a folder that holds music files itself. Under its watched folder, each crate is one row, one indent deep, whatever its depth on disk. Wrapper folders (no music files of their own: Music, DJ, Old Sets) never get a row; the tooltip gives the full path. <i>Why:</i> the folders a DJ thinks in are the ones with tracks in them, and they're exactly the ones rekordbox users drag into crates; the wrapper levels are just how the disk happens to be arranged.</li>
-    <li><b>A crate is called by its own folder name.</b> When two crates share a name, both get their parent folder as a quiet hint: <b>Bounce · DJ</b>, <b>Bounce · Old Sets</b>. A crate inside another crate reads <b>Hardtechno › 2019</b> and sorts right after its parent. Crates are A–Z under their watched folder. <i>Why:</i> an A–Z list is what you scan for a name; the "›" form keeps a nested crate beside its parent without making the list a tree. A crate's count is its files plus those of crates inside it (Hardtechno 180 = 142 + 2019's 38), the same rule as before (files at or below).</li>
+    <li><b>A crate is called by its own folder name, and context goes on a quiet second line.</b> When a crate needs context, its row gets a second line at 11 px in label grey naming the folder above it: two crates with the same name read <b>Bounce</b> / <i>in DJ</i> and <b>Bounce</b> / <i>in Old Sets</i>, and a crate inside a crate reads <b>2019</b> / <i>in Hardtechno</i> (and sorts right after Hardtechno). Every other crate stays one line. Crates are A–Z under their watched folder. On the page, the Subfolder column still says it on one line ("Bounce · Old Sets", "Hardtechno › 2019"), because it has the width. <i>Why (review round):</i> at 168 px a crate row has about 85 px for its name, and "Hardtechno › 2019" and "Bounce · Old Sets" were both cut down to "Hardtech…" and "Bounce · …". Widening the sidebar to fix that cut the Library page instead (filters, badges, subtitles). The second line costs 10 px of height only on the rows that need it. A crate's count is its files plus those of crates inside it (Hardtechno 180 = 142 + 2019's 38), the same rule as before (files at or below).</li>
     <li><b>Hiding is per crate, and only hides the row.</b> Right-click → Hide from sidebar, or switch it off in Settings → Watched folders. The crate's files stay everywhere else: the watched folder's page, All tracks, search. <i>Why:</i> the sidebar is a shortcut list. Hiding never changes what's in the library.</li>
     <li><b>Too many crates: limit 25.</b> A watched folder with more than 25 crates (an Artist › Album library: 312 albums) shows as one row with no chevron. Settings says "312 folders with music, too many for the sidebar: switch on the ones you want to see", and the ones you switch on show under it. <i>Why 25:</i> 25 rows of 30 px are 750 px, a whole sidebar at 800. A curated crate set is usually well under that, while an album library is in the hundreds, so the limit only ever catches the second kind. Search still finds every album.</li>
     <li><b>A watched folder's page shows everything in it.</b> Its Subfolder column uses the crate names from the sidebar, without the wrapper levels ("Hardtechno › 2019", not "Music › DJ › Hardtechno › 2019"), and it's the page's default sort. Hidden crates are listed too.</li>
     <li><b>Search filters names, not tracks.</b> The magnifier in the LIBRARY heading (or ⌘K) turns the heading into a filter field. Everything that doesn't match goes away. Folded sections open for the search. Matches keep their section and, for a crate, its watched folder row as context. The matched letters are drawn in strong text. The first match has the keyboard highlight: Enter opens it, ↑ ↓ move, Esc closes. It also finds hidden crates and the 312 albums that aren't in the sidebar. ⌘F stays the page's own track search. <i>Why ⌘K:</i> ⌘F already searches tracks; two meanings for one key would be a trap.</li>
-    <li><b>Favourites are the user's own order.</b> The section shows up only once something is pinned (right-click → Add to favourites, or drag a row in; while you drag a row, an empty Favourites slot appears so it has somewhere to land). You order it by dragging: the lifted row follows the pointer and the rows below make room. A pinned crate gets the folder outline, because it now stands outside its watched folder. A pinned row stays in its own section too. When the page is open, the pill goes on the topmost row for it.</li>
+    <li><b>Favourites are the user's own order.</b> The section shows up only once something is pinned (right-click → Add to favourites, or drag a row in; while you drag a row, an empty Favourites slot appears so it has somewhere to land). You order it by dragging: the dragged row lifts (raised, a small shadow, nudged towards the pointer), and the rows open a gap where it will land. No other row changes its look, because dimming in the sidebar means only a switched-off playlist. A pinned crate gets the folder outline, because it now stands outside its watched folder. A pinned row stays in its own section too. When the page is open, the pill goes on the topmost row for it.</li>
     <li><b>Playlists come in download priority</b> (<code>playlists.txt</code>, set on the Playlists page, so no dragging here), or A–Z. The sort button in the header opens a two-item menu (Download priority ✓ · A–Z). The header counts the playlists (35, switched-off ones included).</li>
-    <li><b>Folding.</b> Every section header folds (the whole header row toggles it, and its chevron sits on the counts' right edge). Each watched folder folds on its own (D8's chevron, right before the count). Folding is remembered. Folding also hides the current row; the page title still says where you are, and opening a page from search or a link unfolds its section.</li>
+    <li><b>Folding, and long lists.</b> Every section header folds (the whole header row toggles it, and its chevron sits on the counts' right edge). Each watched folder folds on its own (D8's chevron, right before the count). Folding is remembered. Folding also hides the current row; the page title still says where you are, and opening a page from search or a link unfolds its section. <b>Section headers stick to the list's edges:</b> the section you are scrolling through keeps its header at the top, and a section further down keeps its header at the bottom. With 35 playlists open, "Folders ⌄" therefore sits at the foot of the list from the first look, about 40 rows before you'd scroll to it. Clicking a header stuck at the foot scrolls to its section; its chevron folds as usual. <i>Why, and not folding Playlists by default:</i> a new user sees at once that more lies below and that the headers carry chevrons, so they learn that sections fold without being told. Folding by default would hide the app's main list on day one and change on its own as playlists are added. The headers' soft edges replace the old fade mask, which would have faded a stuck header.</li>
     <li><b>Section headers are quieter than the LIBRARY caption.</b> They use 12 px semibold in sentence case, against the caption's 11 px capitals, so they read as parts of the Library group, not as new groups. <i>Changed from D4:</i> D4 had no captions, only 6 px pauses. With 35 playlists the pause scrolled away, and a fold needs something to click.</li>
-    <li><b>A widens the sidebar from 168 to 200 px</b> (one token, every page). <i>Why:</i> the first shot of this mockup at 168 px showed "Hardtech…" for both Hardtechno and Hardtechno › 2019, and "Bounce · …" twice. A crate row starts 31 px in, so at 168 px it has about 75 px for its name, and crate names then can't be told apart. At 200 px a crate has about 115 px and a playlist about 110 px. <i>Cost:</i> every page is 32 px narrower (Library's table at 1280: ≈ 676 px instead of 708; it keeps every column). B doesn't need this, because its column has its own width.</li>
+    <li><b>The sidebar stays 168 px; names fit by wrapping, not by width.</b> A watched folder's own name is never cut: it wraps onto a second line, balanced ("Rekordbox / Library"), with its icon, chevron and count on the first line. Watched folders are few, so the extra height costs little. Playlist names stay on one line and end in "…" with a tooltip, as today: 35 rows of one height read better than a ragged list. <i>Why (review round):</i> a 200 px try cut the Library page at 1280 (filters "Lossle…", badges, subtitles, Subfolder). At 168 px every page stays exactly as it is today at 1280 and at 1100.</li>
   </ol>
 
   <h3>What each signal means</h3>
@@ -235,8 +245,8 @@
     <tr><td>Yellow ! in the icon slot</td><td>The watched folder's drive isn't connected, or the folder isn't found. The same mark as Settings → Watched folders and AwayTag. Name and count stay at full strength (the files are still in the library).</td></tr>
     <tr><td>Service logo, own colours</td><td>Which service the playlist is read from (Spotify, Qobuz, SoundCloud, YouTube Music). Unchanged.</td></tr>
     <tr><td>Folder outline</td><td>A folder on disk that stands on its own: a watched folder, a pinned crate in Favourites, or a Library folder no playlist uses. A crate under its watched folder has no icon; it indents.</td></tr>
-    <tr><td>"· DJ" after a name, label grey</td><td>Another crate in the sidebar has the same name. This is the folder above it.</td></tr>
-    <tr><td>"›" inside a name</td><td>A crate inside another crate (Hardtechno › 2019).</td></tr>
+    <tr><td>Second line "in Old Sets", label grey</td><td>On a crate only: another crate in the sidebar has the same name, or this crate sits inside another crate. It names the folder above.</td></tr>
+    <tr><td>Name on two lines, first line bright</td><td>On a watched folder only: its name is too long for one line. Nothing else.</td></tr>
     <tr><td>Number at the right</td><td>Playlist: its songs (also those with no file yet). Watched folder, crate: files in it and in the crates inside it. All tracks, Not in a playlist: files.</td></tr>
     <tr><td>Number after a header's name</td><td>How many playlists there are. Only Playlists has one; Favourites is short, and Folders has its counts on the rows.</td></tr>
     <tr><td>Chevron</td><td>Folds what's below: pointing down = open. On a header: the section. On a watched folder: its crates. A watched folder with no crates shown has none.</td></tr>
@@ -249,7 +259,7 @@
   <table class="sig">
     <tr><th></th><th>A · sections in the sidebar (recommended)</th><th>B · a browser column in the Library page</th></tr>
     <tr><td>Reach</td><td>Every playlist and crate is one click away from any page (from To-do or Sync straight to a crate), and it's where the stage 5 user already looks.</td><td>Library first, then the column: two clicks from other pages. The app sidebar stays short and calm: only the pages.</td></tr>
-    <tr><td>Width</td><td>The sidebar grows to 200 px (decision 11), so every page loses 32 px. Library's table is still ≈ 676 px at 1280 and keeps Track, Artist, Subfolder, Playlist and Quality. Names get ≈ 110–115 px; the longest playlist names still end in "…" (tooltip).</td><td>The column is 216 px: names get ≈ 130 px. At 1280 the table falls to ≈ 480 px, so <b>Artist and Playlist columns go</b>, and the right panel takes 360 px of what's left. At 1100 it's ≈ 400 px: Track, Quality and little else. To fix that, the panel would have to fold away until a track is chosen.</td></tr>
+    <tr><td>Width</td><td>The sidebar stays 168 px, so every page keeps today's width (Library's table ≈ 708 px at 1280: Track, Artist, Subfolder, Playlist, Quality). Crates that need context and long watched-folder names take a second line. Long playlist names end in "…" (tooltip).</td><td>The column is 216 px: names get ≈ 130 px. At 1280 the table falls to ≈ 480 px, so <b>Artist and Playlist columns go</b>, and the right panel takes 360 px of what's left. At 1100 it's ≈ 400 px: Track, Quality and little else. To fix that, the panel would have to fold away until a track is chosen.</td></tr>
     <tr><td>Search</td><td>Behind the magnifier (one click or ⌘K).</td><td>Always visible. But it's a second search field on the same page as the track search, and they're easy to mix up.</td></tr>
     <tr><td>Scale</td><td>Both scroll the same list. A's list scrolls in the app's chrome, so the pages (Dashboard … Settings) stay fixed above and below it.</td><td>Same list, with more width per name and the full page height.</td></tr>
   </table>
@@ -344,7 +354,8 @@
   // ---------- rows ----------
   const hl = (s, q) => { if (!q) return esc(s); const i = s.toLowerCase().indexOf(q); return i < 0 ? esc(s) : esc(s.slice(0, i)) + `<b class="hl">${esc(s.slice(i, i + q.length))}</b>` + esc(s.slice(i + q.length)); };
   const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-  const crateName = (c, q) => c.chain.map((p) => hl(p, q)).join('<span class="gt"> › </span>') + (c.hint ? `<span class="h"> · ${esc(c.hint)}</span>` : '');
+  const ctx = (c) => c.chain.length > 1 ? c.chain[0] : c.hint;
+  const crateName = (c, q) => ctx(c) ? `<span class="l1">${hl(c.base, q)}</span><span class="l2">in ${esc(ctx(c))}</span>` : hl(c.base, q);
   const cls = (x, o, extra = '') => `nav${x.off ? ' off' : ''}${o.sel === x.key ? ' on' : ''}${o.kb === x.key ? ' kb' : ''}${o.menu === x.key ? ' menu-on' : ''}${extra}`;
   const glyph = (x) => x.kind === 'pl' ? SVC[x.svc] : x.away ? MARK : FOLDER;
   const title = (x) => x.kind === 'pl' ? `${x.name}\n${SVC_NAME[x.svc]} playlist · ${x.n} songs${x.off ? '\nSwitched off: its files stay, nothing new downloads' : ''}`
@@ -353,12 +364,12 @@
     const q = o.q;
     if (x.kind === 'view') return `<div class="${cls(x, o)}" data-k="${x.key}"><span class="t">${esc(x.name)}</span><span class="c">${fmt(x.n)}</span></div>`;
     if (x.kind === 'crate' && place !== 'fav')
-      return `<div class="${cls(x, o, ' crate')}" data-k="${x.key}" title="${esc(title(x))}"><span class="t">${crateName(x, q)}</span><span class="c">${fmt(x.n)}</span></div>`;
+      return `<div class="${cls(x, o, ' crate' + (ctx(x) ? ' two' : ''))}" data-k="${x.key}" title="${esc(title(x))}"><span class="t">${crateName(x, q)}</span><span class="c">${fmt(x.n)}</span></div>`;
     const name = x.kind === 'crate' ? crateName(x, q) : hl(x.name, q);
     const crates = x.kind === 'wf' ? shownCrates(x) : [];
     const chev = crates.length ? `<span class="chev${o.closed.has(x.key) && !q ? '' : ' open'}">${CHEV}</span>` : '';
-    const cw = x.kind === 'wf' ? ` style="--count-w:${o.cw}ch"` : '';
-    return `<div class="${cls(x, o)}"${cw} data-k="${x.key}" title="${esc(title(x))}"><span class="g">${glyph(x)}</span><span class="t">${name}</span>${chev}<span class="c">${fmt(x.n)}</span></div>`;
+    const cw = x.kind === 'wf' && crates.length ? ` style="--count-w:${o.cw}ch"` : '';
+    return `<div class="${cls(x, o, x.kind === 'wf' ? ' wfr' : x.kind === 'crate' && ctx(x) ? ' two' : '')}"${cw} data-k="${x.key}" title="${esc(title(x))}"><span class="g">${glyph(x)}</span><span class="t">${name}</span>${chev}<span class="c">${fmt(x.n)}</span></div>`;
   }
   const header = (label, key, o, extra = '', n = '') => `<div class="sh" data-sec="${key}" title="${o.closed.has(key) ? 'Show' : 'Hide'} ${label.toLowerCase()}"><span>${label}</span>${n !== '' ? `<span class="n">${n}</span>` : '<span class="sp"></span>'}${extra}<span class="chev${o.closed.has(key) && !o.q ? '' : ' open'}">${CHEV}</span></div>`;
 
@@ -403,7 +414,7 @@
     return out.join('');
   }
   // the folders' count column: as wide as their widest count, so the watched folders' chevrons stand in one column
-  const folderCw = Math.max(...watched.map((x) => fmt(x.n).length));
+  const folderCw = Math.max(...watched.filter((w) => shownCrates(w).length).map((x) => fmt(x.n).length));
 
   const APP = [['◉', 'Dashboard'], ['⟳', 'Sync'], ['✓', 'To-do', 18], ['≡', 'Playlists'], ['◔', 'Download limits']];
   const appNav = (sel) => APP.map(([g, l, n]) => `<div class="nav${sel === l ? ' on' : ''}"><span class="g"><span class="gl">${g}</span></span><span class="t">${l}</span>${n ? `<span class="c">${n}</span>` : ''}</div>`).join('');
@@ -413,8 +424,8 @@
     const capRow = o.q != null
       ? `<div class="find"><span class="ico">${MAG}</span><span class="q">${esc(o.q)}</span><span class="x" title="Clear (Esc)">✕</span></div>`
       : `<div class="cap-row"><span class="sbcap">Library</span><span class="ibtn" title="Find a playlist or folder (⌘K)">${MAG}</span></div>`;
-    return `<div class="sb" data-sb style="--sb-w:200px"><div class="brand"><i></i>Discjockey</div>${appNav(o.page)}${capRow}
-      <div class="lib${o.scrolled ? ' fade' : ' fade-b'}" data-lib>${libraryRows({ ...o, cw: folderCw })}</div>${settingsRow(o.page === 'Settings')}</div>`;
+    return `<div class="sb" data-sb><div class="brand"><i></i>Discjockey</div>${appNav(o.page)}${capRow}
+      <div class="lib" data-lib>${libraryRows({ ...o, cw: folderCw })}</div>${settingsRow(o.page === 'Settings')}</div>`;
   }
   function sidebarB(page) {
     return `<div class="sb"><div class="brand"><i></i>Discjockey</div>${appNav(page)}
@@ -423,7 +434,7 @@
   }
   function browserB(o) {
     const field = `<div class="find${o.q ? ' typed' : ''}"><span class="ico">${MAG}</span><span class="q">${o.q ? esc(o.q) : 'Find a playlist or folder'}</span>${o.q ? '<span class="x">✕</span>' : '<kbd>⌘K</kbd>'}</div>`;
-    return `<div class="browser">${field}<div class="lib fade-b" data-lib>${libraryRows({ ...o, cw: folderCw })}</div></div>`;
+    return `<div class="browser">${field}<div class="lib" data-lib>${libraryRows({ ...o, cw: folderCw })}</div></div>`;
   }
 
   // ---------- the pages ----------
@@ -544,46 +555,47 @@
 
   const pick = document.getElementById('state');
   pick.innerHTML = Object.entries(STATES).map(([k, s], i) => `${k === 'settings' || k === 'b-default' ? '<span class="sep"></span>' : ''}<button data-v="${k}">${s.label}</button>`).join('');
-  let state = location.hash.slice(1);
+  let [state, size] = location.hash.slice(1).split('@');
   if (!STATES[state]) state = 'a-default';
+  const W = size === '1100' ? 1100 : 1280, H = W === 1100 ? 700 : 800, PW = W < 1240 ? 320 : 360;
 
   function render() {
     const s = STATES[state];
     pick.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === state));
     document.getElementById('optTitle').textContent = s.title;
     const st = document.getElementById('stage');
-    const scale = Math.min(1, (st.clientWidth || document.body.clientWidth - 48) / 1280);
-    st.style.height = 800 * scale + 'px';
+    const scale = Math.min(1, (st.clientWidth || document.body.clientWidth - 48) / W);
+    st.style.height = H * scale + 'px';
     let inner;
     if (s.set) inner = sidebarA(S({ page: 'Settings' })) + settingsPage(s.set);
     else if (s.a) inner = sidebarA({ ...s.a, page: s.a.page || '' }) + pageA(PAGES[s.p]);
     else inner = sidebarB('Library') + pageB(PAGES[s.p], s.b);
-    st.innerHTML = `<div class="win" data-win style="width:1280px;height:800px;transform:scale(${scale})">${inner}</div>`;
+    st.innerHTML = `<div class="win" data-win style="width:${W}px;height:${H}px;--pw:${PW}px;transform:scale(${scale})">${inner}</div>`;
     const win = st.querySelector('[data-win]');
     const lib = win.querySelector('[data-lib]');
     const at = (el) => { const r = el.getBoundingClientRect(), w = win.getBoundingClientRect(); return { x: (r.left - w.left) / scale, y: (r.top - w.top) / scale, w: r.width / scale, h: r.height / scale }; };
-    if (s.a && s.a.scroll === 'end') { lib.scrollTop = lib.scrollHeight; lib.classList.replace('fade-b', 'fade'); }
+    if (s.a && s.a.scroll === 'end') lib.scrollTop = lib.scrollHeight;
     if (s.menu) {
       const r = at(win.querySelector('.menu-on'));
       const px = r.x + 70, py = r.y + 18;
-      win.insertAdjacentHTML('beforeend', `<div class="cmenu" style="left:${px + 4}px;top:${Math.min(py, 800 - 160)}px"><div>Open</div><div>Play</div><hr><div class="hov">Add to favourites</div><div>Hide from sidebar<span>Settings brings it back</span></div><hr><div>Show in Finder</div></div>` + cur(ARROW, px, py - 4));
+      win.insertAdjacentHTML('beforeend', `<div class="cmenu" style="left:${px + 4}px;top:${Math.min(py, H - 160)}px"><div>Open</div><div>Play</div><hr><div class="hov">Add to favourites</div><div>Hide from sidebar<span>Settings brings it back</span></div><hr><div>Show in Finder</div></div>` + cur(ARROW, px, py - 4));
     }
     if (s.tip) {
       const el = win.querySelector('[data-k="cr:wf:rb:Music/Old Sets/Bounce"]');
-      if (el) { const r = at(el); win.insertAdjacentHTML('beforeend', `<div class="tip" style="left:${r.x + 60}px;top:${r.y + 30}px">Rekordbox Library › Music › Old Sets › Bounce<br><span class="lb">61 files</span></div>` + cur(ARROW, r.x + 52, r.y + 12)); }
+      if (el) { const r = at(el); win.insertAdjacentHTML('beforeend', `<div class="tip" style="left:${r.x + 60}px;top:${r.y + r.h + 3}px">Rekordbox Library › Music › Old Sets › Bounce<br><span class="lb">61 files</span></div>` + cur(ARROW, r.x + 52, r.y + 20)); }
     }
     if (s.drag) {
       const sl = win.querySelector('[data-slot]'), r = at(sl), x = byKey[s.a.drag.key];
       const libr = at(lib);
-      lib.insertAdjacentHTML('beforeend', `<div class="nav lift" style="top:${r.y - libr.y + lib.scrollTop + 5}px"><span class="g">${SVC[x.svc]}</span><span class="t">${x.name}</span><span class="c">${x.n}</span></div>`);
-      win.insertAdjacentHTML('beforeend', cur(HAND, r.x + 112, r.y + 14));
+      lib.insertAdjacentHTML('beforeend', `<div class="nav lift" style="top:${r.y - libr.y + lib.scrollTop}px"><span class="g">${SVC[x.svc]}</span><span class="t">${x.name}</span><span class="c">${x.n}</span></div>`);
+      win.insertAdjacentHTML('beforeend', cur(HAND, r.x + 104, r.y + 12));
     }
     // A: the whole Library list, unclipped (what the sidebar scrolls through), at 1x and the 2x alignment check
     const ex = document.getElementById('extra');
-    ex.innerHTML = s.full ? `<div><div class="cap">The whole sidebar, unscrolled (what the Library list scrolls through at 800 px)</div><div class="win" data-full style="width:200px">${sidebarA({ ...s.a, page: s.a.page || '' }).replace('class="lib fade-b"', 'class="lib"')}</div></div>` : '';
+    ex.innerHTML = s.full ? `<div><div class="cap">The whole sidebar, unscrolled (what the Library list scrolls through at 800 px)</div><div class="win" data-full style="width:168px">${sidebarA({ ...s.a, page: s.a.page || '' })}</div></div>` : '';
   }
   pick.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { state = b.dataset.v; history.replaceState(null, '', '#' + state); render(); }));
-  addEventListener('hashchange', () => { const h = location.hash.slice(1); if (STATES[h]) { state = h; render(); } });
+  addEventListener('hashchange', () => location.reload());
   addEventListener('resize', render);
   render();
 })();
