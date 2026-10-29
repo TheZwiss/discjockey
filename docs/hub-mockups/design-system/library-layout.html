@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Library layout – design system</title>
+<style>
+  body { margin: 0; padding: 24px; background: #111; color: #9a9aa0; font: 13px -apple-system, sans-serif; }
+  .bar { padding: 0 0 14px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  .bar h2 { margin: 0; color: #f2f2f4; font-size: 15px; }
+  .pick { display: inline-flex; flex-wrap: wrap; border: 1px solid #333; border-radius: 8px; overflow: hidden; }
+  .pick button { background: none; border: 0; border-left: 1px solid #333; color: #9a9aa0; font: 12px -apple-system; padding: 6px 10px; cursor: pointer; }
+  .pick button:first-child { border-left: 0; }
+  .pick button.on { background: rgba(255,90,31,.16); color: #ff8a5a; }
+  .pick button:active { transform: scale(.96); }
+  .pick .sep { width: 1px; background: #555; }
+  .note { max-width: 1180px; line-height: 1.55; margin: 0 0 18px; }
+  .note h3 { color: #f2f2f4; font-size: 14px; margin: 20px 0 6px; }
+  .note p { margin: 0 0 8px; }
+  .note b { color: #dcdce0; }
+  .note code { color: #c8c8ce; }
+  .note ol { margin: 0 0 8px; padding-left: 20px; } .note li { margin: 0 0 6px; }
+  table.sig { border-collapse: collapse; margin: 0 0 10px; line-height: 1.45; width: 100%; }
+  table.sig td, table.sig th { border-top: 1px solid #262629; padding: 6px 14px 6px 0; vertical-align: top; text-align: left; }
+  table.sig th { color: #dcdce0; font-weight: 600; }
+  table.sig td:first-child { color: #dcdce0; width: 230px; }
+  .opt { margin: 22px 0 8px; color: #f2f2f4; font-size: 15px; font-weight: 700; }
+  .stage { overflow: hidden; }
+
+  /* ---- look 2 tokens (docs/hub-design-language.md, tokens.css), as library-browser.html ---- */
+  .win { --bg: #000; --sb-bg: linear-gradient(#0b0b0d, #070708); --sb-line: rgba(255,255,255,.06); --panel-bg: #040405; --text: #dcdce0; --text-strong: #f4f4f6; --muted: #9a9aa2; --label: #5c5c64; --nav: #7c7c84;
+    --accent: #ff5a1f; --accent-text: #ff8a5a; --accent-wash: rgba(255,90,31,.14); --accent-wash-strong: rgba(255,90,31,.22); --ctl-line: rgba(255,255,255,.09); --ctl-bg: rgba(255,255,255,.03); --hover: rgba(255,255,255,.035); --ctl-hover: rgba(255,255,255,.05);
+    --list-bg: linear-gradient(#0c0c0e, #08080a); --list-solid: #0b0b0d; --list-line: rgba(255,255,255,.06); --row-line: rgba(255,255,255,.045);
+    --card-bg: linear-gradient(#0f0f12, #0a0a0c); --card-line: rgba(255,255,255,.07); --card-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.6);
+    --good: #2fd27a; --ok: #e8b93a; --weak: #f0524a; --lossy: #a77bff; --missing: #c0504a; --wait: #e8b93a; --nav-on: rgba(255,255,255,.07); --pop-bg: #1b1b1f;
+    transform-origin: 0 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; background: var(--sb-bg); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.35); position: relative; }
+  .win * { box-sizing: border-box; }
+  .body { flex: 1; min-height: 0; display: flex; }
+  /* the page sits inside the L frame on black; only its edges have a line (left, and the bottom while the foot shows) */
+  .inner { flex: 1; min-width: 0; display: flex; background: var(--bg); border-left: 1px solid var(--sb-line); position: relative; }
+  .has-foot .inner { border-bottom: 1px solid var(--sb-line); }
+
+  /* ---- the app sidebar, full (168) and rail (50): one markup, the rail hides the labels; the glyph column (18–32 px) and every row's y stay put ---- */
+  .sb { width: 168px; flex: none; padding: 16px 10px 14px; display: flex; flex-direction: column; gap: 2px; min-height: 0; position: relative; }
+  .sb.rail { width: 50px; border-right: 1px solid var(--sb-line); }
+  .shead { display: flex; align-items: center; height: 22px; margin: 0 0 8px; flex: none; }
+  .tog { width: 30px; height: 22px; flex: none; border-radius: 6px; display: grid; place-items: center; color: var(--label); }
+  .tog:hover { background: var(--ctl-hover); color: var(--text); }
+  .brand { color: #9a9aa0; font-weight: 700; padding-left: 1px; white-space: nowrap; }
+  .rail .brand { display: none; }
+  .nav { display: flex; align-items: center; height: 30px; flex: none; padding: 0 8px; border-radius: 7px; color: var(--nav); white-space: nowrap; min-width: 0; cursor: default; position: relative; }
+  .nav:hover { background: var(--ctl-bg); color: var(--text); }
+  .nav.on { color: var(--text-strong); background: var(--nav-on); }
+  .rail .nav { width: 30px; }
+  .rail .nav .t, .rail .nav .c { display: none; }
+  .nav.kb { background: var(--accent-wash); color: var(--text-strong); }
+  .nav.menu-on { box-shadow: inset 0 0 0 1px rgba(255,138,90,.55); color: var(--text); }
+  .g { width: 14px; height: 14px; flex: none; display: grid; place-items: center; font-size: 12px; margin-right: 9px; position: relative; }
+  .rail .g { margin-right: 0; }
+  .g .gl, .g > svg { opacity: .8; }
+  .nav.on .g > svg, .nav.on .g .gl { opacity: 1; }
+  .warn { position: absolute; top: -1px; right: -4px; width: 6px; height: 6px; border-radius: 50%; background: var(--wait); }
+  /* the rail's To-do count: a neutral pill on the glyph's corner (the count, not an alarm) */
+  .bdg { position: absolute; left: 11px; top: -9px; min-width: 18px; height: 14px; padding: 0 4px; border-radius: 7px; background: #2a2a30; box-shadow: 0 0 0 2px #0a0a0b; color: var(--text); font: 600 11px/14px -apple-system; text-align: center; font-variant-numeric: tabular-nums; }
+  /* a running sync: a neutral ring round ⟳, its arc = the share done */
+  .ring { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(-90deg); overflow: visible; }
+  .t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .t .h, .t .gt { color: var(--label); }
+  .nav.on .t .h, .nav.on .t .gt { color: var(--muted); }
+  .t .hl { color: var(--text-strong); font-weight: 600; }
+  .c { flex: none; min-width: var(--count-w, 14px); margin-left: 4px; text-align: right; font-size: 11px; color: var(--label); font-variant-numeric: tabular-nums; }
+  .nav.on .c, .nav.kb .c { color: var(--muted); }
+  .chev { flex: none; width: 10px; height: 22px; margin-left: 2px; display: grid; place-items: center; border-radius: 5px; color: var(--label); }
+  .chev svg { transition: transform 160ms cubic-bezier(.23,1,.32,1); }
+  .chev.open svg { transform: rotate(90deg); }
+  .nav.on .chev { color: var(--muted); }
+  .crate { padding-left: 31px; }
+  .mark { width: 13px; height: 13px; border-radius: 50%; border: 1px solid rgba(232,185,58,.7); background: rgba(232,185,58,.14); color: var(--wait); font: 700 9px/11px -apple-system; text-align: center; }
+  .off { opacity: .5; }
+  .grp { margin: 12px 7px 4px; font-size: 11px; letter-spacing: .7px; text-transform: uppercase; color: var(--label); flex: none; }
+  .favs { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; }
+  .settings { margin-top: auto; }
+  .spacer { flex: 1; }
+  /* the hidden player in the rail: ⌃ Show player above a play button whose ring is the position */
+  .np { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 30px; flex: none; margin-top: auto; }
+  .np .up { width: 30px; height: 18px; border-radius: 5px; display: grid; place-items: center; color: var(--label); }
+  .np .pb { width: 30px; height: 30px; display: grid; place-items: center; position: relative; color: var(--text-strong); }
+  .rail .np + .settings { margin-top: 2px; }
+  .nprow { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 6px 0 4px; margin-top: auto; flex: none; }
+
+  /* ---- the browser column: chrome, as wide as the user drags it (200–360, 240 by default) ---- */
+  .browser { width: var(--bw, 240px); flex: none; display: flex; flex-direction: column; min-height: 0; padding: 23px 8px 10px; position: relative; }
+  .bfind { flex: none; height: 28px; margin: 0 0 6px; border-radius: 7px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); display: flex; align-items: center; gap: 7px; padding: 0 5px 0 8px; color: var(--label); font-size: 12px; }
+  .bfind .ico { color: var(--muted); display: grid; }
+  .bfind .q { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bfind kbd { font: 11px -apple-system; border: 1px solid var(--ctl-line); border-radius: 4px; padding: 0 4px; color: var(--muted); }
+  .bfind.typed { border-color: rgba(255,138,90,.45); box-shadow: 0 0 0 3px rgba(255,90,31,.12); color: var(--text-strong); }
+  .bfind.typed .q::after { content: ''; display: inline-block; width: 1px; height: 13px; background: var(--accent-text); vertical-align: -2px; margin-left: 1px; }
+  .bfind .x { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); background: rgba(255,255,255,.07); font-size: 10px; }
+  .sh { position: sticky; top: 0; bottom: 0; z-index: 2; background: #09090a; box-shadow: 0 -7px 7px -3px #09090a, 0 7px 7px -3px #09090a; display: flex; align-items: center; height: 28px; flex: none; padding: 0 3px 0 8px; margin-top: 4px; border-radius: 7px; color: var(--label); font-size: 12px; font-weight: 600; cursor: default; }
+  .sh:hover { background: #111113; color: var(--muted); }
+  .sh .n { font-weight: 400; margin-left: 6px; font-variant-numeric: tabular-nums; flex: 1; }
+  .sh .sp { flex: 1; }
+  .sh .ibtn, .sh .chev { width: 20px; height: 20px; margin: 0; }
+  .ibtn { flex: none; width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; color: var(--label); }
+  .ibtn:hover { background: var(--ctl-hover); color: var(--text); }
+  .lib { display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; position: relative; }
+  .lib::-webkit-scrollbar { display: none; }
+  .gap { height: 6px; flex: none; }
+  .hintrow { height: 30px; flex: none; display: flex; align-items: center; padding: 0 8px; margin: 0 0 0 0; border: 1px dashed rgba(255,255,255,.1); border-radius: 7px; color: var(--label); font-size: 12px; white-space: nowrap; overflow: hidden; }
+  .empty { color: var(--label); font-size: 12px; padding: 8px; line-height: 1.4; }
+  .slot { height: 30px; flex: none; }
+  .lift { position: absolute; left: 0; right: 0; z-index: 3; background: #1d1d22; color: var(--text-strong); box-shadow: 0 4px 10px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.1); transform: translate(3px, -2px) scale(1.02); }
+  /* the column's right edge is the page's edge line; an 8 px grip sits on it */
+  .edge { position: absolute; top: 0; bottom: 0; right: -5px; width: 9px; z-index: 6; }
+  .edge.drag::after { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px; background: var(--accent); }
+  .cursor { position: absolute; z-index: 9; pointer-events: none; }
+
+  .cmenu { position: absolute; z-index: 8; min-width: 236px; padding: 5px; border-radius: 9px; background: var(--pop-bg); border: 1px solid rgba(255,255,255,.1); box-shadow: 0 14px 40px rgba(0,0,0,.7); font-size: 13px; }
+  .cmenu div { display: flex; align-items: center; gap: 12px; height: 26px; padding: 0 9px; border-radius: 5px; color: var(--text); white-space: nowrap; }
+  .cmenu div.hov { background: var(--accent); color: #fff; }
+  .cmenu div span { margin-left: auto; color: var(--label); font-size: 12px; }
+  .cmenu div.hov span { color: rgba(255,255,255,.75); }
+  .cmenu hr { border: 0; border-top: 1px solid rgba(255,255,255,.08); margin: 4px 6px; }
+  .tip { position: absolute; z-index: 8; padding: 5px 8px; border-radius: 6px; background: #26262b; border: 1px solid rgba(255,255,255,.1); color: var(--text); font-size: 11px; line-height: 1.45; box-shadow: 0 6px 18px rgba(0,0,0,.6); white-space: nowrap; }
+  .tip .lb { color: var(--muted); } .tip kbd { font: 11px -apple-system; color: var(--muted); margin-left: 10px; }
+
+  /* ---- the page ---- */
+  .main { flex: 1; min-width: 0; overflow: hidden; display: flex; justify-content: center; }
+  .col { width: 100%; max-width: var(--max, 1244px); height: 100%; padding: 20px 22px 0; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .col > * { flex: none; }
+  .hd { display: flex; align-items: center; gap: 10px; min-height: 34px; min-width: 0; }
+  .hd h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-strong); letter-spacing: -.02em; white-space: nowrap; }
+  .hd .st { color: var(--muted); font-size: 12px; padding-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
+  .hd .st a { color: var(--accent-text); text-decoration: none; }
+  .search { margin-left: auto; flex: none; width: 240px; height: 34px; border-radius: 8px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); color: var(--label); font-size: 12px; display: flex; align-items: center; gap: 8px; padding: 0 10px; }
+  .search kbd { margin-left: auto; font: 11px -apple-system; border: 1px solid var(--ctl-line); border-radius: 4px; padding: 1px 4px; color: var(--muted); }
+  /* the details toggle: a header control (34 px, the row's height); pressed = accent text on the strong wash plus a dot */
+  .itog { flex: none; width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--ctl-line); background: var(--ctl-bg); display: grid; place-items: center; color: var(--muted); position: relative; }
+  .itog.pressed { color: var(--accent-text); background: var(--accent-wash-strong); border-color: rgba(255,138,90,.35); }
+  .itog.pressed::after { content: ''; position: absolute; bottom: 4px; left: 50%; width: 3px; height: 3px; margin-left: -1.5px; border-radius: 50%; background: var(--accent-text); }
+  .seg { display: flex; border: 1px solid var(--ctl-line); border-radius: 9px; background: var(--ctl-bg); overflow: hidden; height: 32px; min-width: 0; }
+  .seg div { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--muted); border-left: 1px solid var(--ctl-line); white-space: nowrap; padding: 0 8px; }
+  .seg div > span:not(.dot) { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .seg div:first-child { border-left: 0; }
+  .seg div b { font-weight: 500; color: var(--label); font-variant-numeric: tabular-nums; }
+  .seg div.on { background: var(--accent-wash); color: var(--accent-text); flex-shrink: 0; }
+  .seg div.on b { color: var(--accent-text); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--c); display: inline-block; }
+
+  /* the summary strip: the old panel's summary card, laid along the page (share · bar · the two rows) */
+  .sum { display: grid; grid-template-columns: auto minmax(80px, 1fr) minmax(0, 276px); align-items: center; column-gap: 18px; height: 72px; padding: 0 0 0 16px; border-radius: 12px; background: var(--card-bg); border: 1px solid var(--card-line); box-shadow: var(--card-shadow); min-width: 0; }
+  .sum .share { white-space: nowrap; }
+  .bign { font-size: 30px; font-weight: 700; color: var(--text-strong); line-height: 1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .bign small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .lbl { color: var(--label); font-size: 11px; margin-top: 5px; }
+  .qbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; }
+  .qbar i { display: block; background: var(--c); }
+  .sum .rows { align-self: stretch; border-left: 1px solid var(--row-line); display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+  .lrow { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto 12px; align-items: center; gap: 10px; height: 34px; padding: 0 14px; border-top: 1px solid var(--row-line); font-size: 12px; white-space: nowrap; }
+  .lrow:first-child { border-top: 0; }
+  .lrow > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .lrow .n { color: var(--text); font-variant-numeric: tabular-nums; }
+  .lrow .chv, .lrow .q { color: var(--label); }
+
+  .tbl { border-radius: 12px; background: var(--list-bg); border: 1px solid var(--list-line); min-width: 0; flex: 1 1 auto !important; min-height: 0; margin-bottom: 20px; display: flex; flex-direction: column; overflow: hidden; }
+  .scroll { flex: 1; min-height: 0; overflow: hidden; -webkit-mask-image: linear-gradient(#000 calc(100% - 18px), transparent); }
+  .th-row, .tr { display: grid; grid-template-columns: var(--cols); align-items: center; column-gap: 12px; padding: 0 14px; }
+  .th-row { height: 34px; border-bottom: 1px solid var(--row-line); background: var(--list-solid); flex: none; }
+  .tr { height: 36px; border-top: 1px solid var(--row-line); font-size: 12px; }
+  .tr.sel { background: var(--accent-wash); }
+  .scroll > .tr:first-child { border-top: 0; }
+  .hc { color: var(--label); font: 500 11px -apple-system; letter-spacing: .7px; text-transform: uppercase; white-space: nowrap; justify-self: start; }
+  .hc.on { color: var(--muted); } .hc.r { justify-self: end; }
+  .info { justify-self: end; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--ctl-line); color: var(--muted); font: 600 10px -apple-system; display: grid; place-items: center; }
+  .t1 { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .cov { width: 22px; height: 22px; border-radius: 4px; flex: none; }
+  .nm { color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .cut { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .mu { color: var(--muted); } .lbc { color: var(--label); }
+  .len { justify-self: end; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .badge { justify-self: start; font: 600 11px -apple-system; letter-spacing: .3px; padding: 2px 6px; border-radius: 5px; border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); color: var(--c); white-space: nowrap; }
+  .pl { justify-self: start; max-width: 100%; display: inline-flex; gap: 4px; font: 500 11px -apple-system; padding: 2px 6px; border-radius: 5px; border: 1px solid rgba(255,255,255,.13); color: var(--muted); white-space: nowrap; overflow: hidden; }
+  .pl span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .pl b { font-weight: 500; color: var(--label); flex: none; }
+
+  /* ---- the details inspector (Library) and the docked panel (other pages) ---- */
+  .panel { flex: none; width: var(--pw, 360px); background: var(--panel-bg); border-left: 1px solid var(--sb-line); padding: 20px; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .card { border-radius: 12px; background: var(--card-bg); border: 1px solid var(--card-line); box-shadow: var(--card-shadow); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .card .ttl { font-size: 13px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  .card .ttl .s { margin-left: auto; font-weight: 400; color: var(--muted); font-size: 12px; }
+  .thead { display: grid; grid-template-columns: 44px minmax(0,1fr); gap: 12px; align-items: center; }
+  .thead .cv { width: 44px; height: 44px; border-radius: 6px; }
+  .thead .a { font-size: 17px; font-weight: 600; color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .thead .b { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .thead .b .lbc { color: var(--label); }
+  .badges { display: flex; gap: 6px; }
+  .spec { height: 56px; border-radius: 6px; position: relative; overflow: hidden; background: #050506; border: 1px solid var(--row-line); }
+  .spec i { position: absolute; inset: 0; }
+  .spec .cutl { position: absolute; left: 0; right: 0; border-top: 1px dashed rgba(240,82,74,.75); }
+  .spec .cutt { position: absolute; right: 6px; font-size: 11px; color: var(--weak); background: rgba(0,0,0,.6); padding: 0 3px; border-radius: 3px; }
+  .cmp { display: grid; grid-template-columns: 26px minmax(0,1fr); gap: 8px 10px; align-items: center; }
+  .cmp .k { grid-column: 2; font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; margin-bottom: -4px; }
+  .pbtn { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--ctl-line); background: var(--ctl-bg); display: grid; place-items: center; color: var(--text); font-size: 9px; }
+  .kv { display: grid; grid-template-columns: 76px minmax(0,1fr); gap: 6px 10px; font-size: 12px; }
+  .kv .k { color: var(--label); } .kv .v { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kv .v a { color: var(--accent-text); text-decoration: none; }
+  .go { height: 34px; border-radius: 10px; border: 0; background: linear-gradient(#ff6a32, #f24f14); color: #fff; font: 600 13px -apple-system; box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 0 18px rgba(255,90,31,.25); margin-top: auto; flex: none; }
+  .surf { border-radius: 12px; background: var(--list-bg); border: 1px solid var(--list-line); min-width: 0; }
+  .sh2 { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-bottom: 1px solid var(--row-line); font-size: 13px; color: var(--text); }
+  .sh2 b { font-weight: 600; } .sh2 .cnt { color: var(--label); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .drow { display: grid; grid-template-columns: 14px minmax(0,1fr) auto 64px; gap: 10px; align-items: center; height: 38px; padding: 0 14px; border-top: 1px solid var(--row-line); font-size: 12px; }
+  .drow:first-child { border-top: 0; }
+  .drow .nm2 { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .drow .s { color: var(--muted); white-space: nowrap; } .drow .n { color: var(--label); text-align: right; font-variant-numeric: tabular-nums; }
+  .grow { flex: 1 1 auto !important; min-height: 0; overflow: hidden; margin-bottom: 20px; display: flex; flex-direction: column; }
+  .grow .rows { flex: 1; min-height: 0; overflow: hidden; -webkit-mask-image: linear-gradient(#000 calc(100% - 18px), transparent); }
+  .q-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
+  .q-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .q-legend b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .krow { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--muted); }
+  .krow b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .emptyp { margin: auto 0; text-align: center; color: var(--label); font-size: 12px; }
+
+  /* ---- the foot: the L's lower arm, full window width, the page's lower edge is the position ---- */
+  .foot { height: 44px; flex: none; position: relative; display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: center; padding: 0 18px; column-gap: 16px; }
+  .foot .played { position: absolute; top: -1px; height: 2px; background: var(--accent); }
+  .foot .item { display: grid; grid-template-columns: 28px minmax(0,1fr); column-gap: 10px; align-items: center; min-width: 0; }
+  .foot .item .cv { width: 28px; height: 28px; border-radius: 4px; }
+  .foot .item .a { color: var(--text-strong); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .foot .item .b { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .foot .mid { display: flex; align-items: center; gap: 10px; color: var(--text); }
+  .foot .tm { width: 44px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; } .foot .tm.l { text-align: right; }
+  .foot .tb { width: 26px; height: 26px; display: grid; place-items: center; color: var(--text); }
+  .foot .pp { width: 30px; height: 30px; border-radius: 50%; background: var(--text-strong); color: #000; display: grid; place-items: center; font-size: 10px; }
+  .foot .end { justify-self: end; display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .foot .sep { width: 1px; height: 16px; background: var(--ctl-line); }
+  .foot .syncs { display: inline-flex; align-items: center; gap: 7px; }
+  .foot .syncs .mini { width: 40px; height: 3px; border-radius: 2px; background: rgba(255,255,255,.1); overflow: hidden; } .foot .syncs .mini i { display: block; height: 100%; background: var(--muted); }
+</style>
+</head><body>
+
+<div class="bar">
+  <h2>Library layout (rail + browser column)</h2>
+  <span class="pick" id="state"></span>
+  <span style="color:#6a6a70">each state has a hash, read on load, e.g. <code>#library</code>, <code>#library-1100</code></span>
+</div>
+
+<div class="note">
+  <h3>The layout in one line</h3>
+  <p>In Library the app's sidebar folds into a 50 px <b>rail</b> of page icons, and the space goes to a <b>browser column</b> (Favourites, playlists, folders, a filter field) that the user drags wider or narrower. The <b>right panel leaves Library</b>: its summary card becomes a <b>strip</b> on the page, and the track's details become an <b>inspector</b> that opens only when asked. Every other page keeps the full sidebar and its docked panel. The user can fold the sidebar on any page with ⌃⌘S.</p>
+
+  <h3>Decisions</h3>
+  <ol>
+    <li><b>One sidebar, two forms: full (168 px) and rail (50 px).</b> The rail is the full sidebar with its labels folded away. The glyph column (18–32 px from the window's edge) and each row's height (30 px, 2 px apart) are the same in both forms, so <b>no icon moves</b> when the sidebar folds. The selected pill becomes a 30 × 30 square on the same spot. The fold button sits on that glyph column too, at the top of both forms (the macOS sidebar symbol, "Hide sidebar ⌃⌘S" / "Show sidebar ⌃⌘S"), so it never moves either, and the word "Discjockey" folds away beside it. <i>Why:</i> navigation stays obvious when a DJ's eye finds To-do at the same place in either form. Opening a collection scrolls its row into view in the browser. Every rail icon has a tooltip with its name and shortcut, and the first one waits 500 ms, then the next ones open at once (the InfoTip rule).</li>
+    <li><b>Library gets a nav item of its own (♫, after Download limits), and its collections leave the app sidebar.</b> The full sidebar holds only the pages, plus <b>Favourites</b> as shortcuts (no counts) on pages where the browser column isn't shown. A favourite opens Library at that playlist or folder. <i>Why:</i> the A variant's "everything in the sidebar" was what made names cut and the sidebar long. Favourites are short, the user picks them, and they stay one click away from To-do or Sync, which was A's real advantage. Without counts, 168 px fits "Bounce · Old Sets".</li>
+    <li><b>The browser column is chrome, not page.</b> It uses the frame's material beside the rail, so the L frame just grows wider in Library (50 + 240 px). The page keeps its single edge line, and a quiet hairline (the same 6 % white) separates the rail from the browser, marking the two levels: pages | collections. The filter field sits at the top and stays visible ("Filter playlists, folders ⌘K", centred on the page header's row). The track search stays top right on the page ("Search title, artist… ⌘F"). The two fields use different words, sit in different materials and have different shortcuts. <i>Why visible, not behind a magnifier:</i> the column has the room, and a new user should see that they can filter.</li>
+    <li><b>Resizable by drag, 200–360 px, 240 by default.</b> The grip is the page's edge line (9 px wide). On hover the pointer turns into the resize cursor, and while dragging the line turns orange (the action) and follows the pointer 1:1, with no animation. Double-clicking the line returns to 240. The width is remembered. Every row is now <b>one line</b>: "Rekordbox Library", "Bounce · Old Sets" and "Hardtechno › 2019" (the same words as the page's Subfolder column) all fit at 240 px. The two-line crate rows and the balanced wrap for watched folders are gone. A playlist name that's still too long ("Afterhour_Sonntag_Warmup_…") ends in "…" with a tooltip, and comes out whole when the column is dragged wider.</li>
+    <li><b>The right panel leaves Library, because the width doesn't add up.</b> With the rail, the browser and a docked 360 px panel, the 1280 table would be 586 px, less than today's 708. So: <b>the summary card becomes a 72 px strip</b> between the header and the filter segments. It keeps the share, the bar, Upgrade ready and Not lossless yet · n in To-do, each with its count and link. The bar's legend is dropped, because the segments right below it carry the same dots and counts. <b>The track details become an inspector</b> (the same card content, 360 / 320 px): it opens from the header's details toggle, ⌘I, the right-click menu's "Show details", or a click on a row's quality badge ("Why is this weak?"). It then follows the selection and stays open until closed. Its state is remembered, and it starts closed. A click selects and a double-click or Enter plays, as today. <i>Why the badge:</i> the quality question is what makes a DJ want the details, and the badge is where they ask it.</li>
+    <li><b>The list stays fully usable at 1280 × 800 and at 1100 × 700; its columns follow its own width</b> (the container rule, nothing scrolls sideways). The drop order is Length first, then Playlist, then Subfolder (D10). What I chose: with details closed, which is the normal state, Library at 1280 shows <b>more</b> than today (+ Length), and at 1100 it shows what 1280 shows today. With details open, the list never goes below today's 1100 set (Track, Artist, Subfolder, Quality, about 586 px), and the facts of the columns it drops are in the inspector for the selected track: Playlists in its file card, the place in its head ("in Hardtechno › 2019"). The filter segments keep their whole labels in every state. Variant B's failure (a list too narrow to be useful, single-letter filters) can't happen.</li>
+    <li><b>Below 1240 px the window holds the browser or the details beside the list, not both.</b> At 1100, opening details steps the browser column back behind the rail (the rail stays, with Library's pill, and ⌘K or a click on ♫ brings the browser back and closes the details). Closing details brings the browser back at its own width. <i>Why:</i> rail + browser + a 320 px inspector leave 446 px at 1100, which is variant B's narrowness. Choosing a collection and reading one track's details are different moments, so on a small screen they take turns. At 1280 and up both fit.</li>
+    <li><b>Sidebar memory: two places, not per page.</b> Library remembers its form (rail by default) and all other pages share one form (full by default). <i>Changed from the brief ("remembered per page"):</i> per page, folding the sidebar on Dashboard and then opening Sync would unfold it again, which feels like the app ignoring you, and every page switch could animate the chrome. With two places the chrome changes only on the way into or out of Library, and that change is expected because Library has its own browser.</li>
+    <li><b>⌘K works on every page:</b> it opens Library with the filter focused (from any page, any collection is ⌘K + a few letters + Enter). The filter behaves as decided for A: it filters names, keeps sections and the watched folder as context, opens folded sections, finds hidden crates and the 312 albums, and puts the keyboard highlight on the first match.</li>
+    <li><b>Discoverable without being told:</b> the fold button with its tooltip; visible chevrons on every section header and watched folder; section headers that stick to the list's edges, so "Folders ⌄" sits at the foot from the first look; an <b>empty Favourites section that shows one dashed row "Drag a playlist or folder here"</b> until the first pin (it folds and stays folded if the user wants); the right-click menu (Open · Play · Add to favourites · Hide from sidebar · Show in Finder) with the note "Settings brings it back"; and the resize cursor plus the line lighting up on the column's edge.</li>
+    <li><b>The rail carries the sidebar's signals, in the same colours:</b> the To-do count as a neutral pill on the glyph's corner; Download limits' yellow dot where it is today; a running sync as a neutral ring round ⟳ (the arc is the share done; in the full form, "12/40" in the count column). The hidden player becomes ⌃ Show player above a play button whose orange ring is the position, the same orange as the foot's line.</li>
+    <li><b>The foot doesn't change.</b> It stays full window width under the rail and the browser, with the transport centred on the window. Its line (the page's lower edge and the position) starts at the page's edge, so in Library it starts at 290 px: the line follows <code>--sidebar-w</code>, which becomes the chrome's whole width.</li>
+    <li><b>Folder logic as decided:</b> only crates are listed (wrappers skipped, full path in the tooltip), a crate can be hidden (right-click, Settings → Watched folders), and above 25 crates the watched folder is one row with Settings' message and the page link "Show some in the sidebar…" ("sidebar" here means the Library list, which is what the browser column is). The offline "!", the dimmed switched-off playlist, Favourites by drag, and Playlists in priority order or A–Z are all unchanged.</li>
+  </ol>
+
+  <h3>Widths (the table's own width decides its columns)</h3>
+  <table class="sig">
+    <tr><th>Window · state</th><th>Chrome · panel</th><th>Table</th><th>Columns</th></tr>
+    <tr><td>Today 1280 · today 1100</td><td>168 · 360 / 320</td><td>708 · 568</td><td>Track, Artist, Subfolder, Playlist, Quality · without Playlist</td></tr>
+    <tr><td>1280 · Library (rail)</td><td>50 + 240 · none</td><td>946</td><td>Track, Artist, Subfolder, Playlist, <b>Length</b>, Quality</td></tr>
+    <tr><td>1280 · column dragged to 320</td><td>50 + 320 · none</td><td>866</td><td>Length goes (first to go)</td></tr>
+    <tr><td>1280 · details open</td><td>50 + 240 · 360</td><td>586</td><td>Track, Artist, Subfolder, Quality (today's 1100 set)</td></tr>
+    <tr><td>1100 · Library (rail)</td><td>50 + 240 · none</td><td>766</td><td>Track, Artist, Subfolder, Playlist, Quality (today's 1280 set)</td></tr>
+    <tr><td>1100 · details open</td><td>50 (browser steps back) · 320</td><td>685</td><td>Track, Artist, Subfolder, Quality (rail + browser + details would leave 446: variant B's narrowness, so they take turns)</td></tr>
+  </table>
+
+  <h3>What each signal means</h3>
+  <table class="sig">
+    <tr><th>Signal</th><th>Means exactly this, nowhere else</th></tr>
+    <tr><td>Row at half strength</td><td>A switched-off playlist. The only dim in the sidebar and the browser.</td></tr>
+    <tr><td>Yellow ! in the icon slot</td><td>The watched folder's drive isn't connected (or the folder isn't found). Name and count stay at full strength.</td></tr>
+    <tr><td>Yellow dot on ◔</td><td>Download limits: a limit is reached or waiting (as today), in both forms.</td></tr>
+    <tr><td>Service logo, own colours</td><td>Which service the playlist is read from.</td></tr>
+    <tr><td>Folder outline</td><td>A folder on disk standing on its own: a watched folder, a pinned crate, a Library folder no playlist uses. A crate under its watched folder has none; it indents.</td></tr>
+    <tr><td>Label-grey part of a crate's name</td><td>"Hardtechno ›": the crate it sits in. "· Old Sets": another crate has the same name, and this names the folder above.</td></tr>
+    <tr><td>Grey pill on the page's row / the rail's square</td><td>The page or collection on screen.</td></tr>
+    <tr><td>Neutral pill with a number on ✓</td><td>Rail only: the To-do count (the full form shows it in the count column).</td></tr>
+    <tr><td>Grey ring round ⟳</td><td>A sync is running; its arc is the share done. Neutral, because it's status.</td></tr>
+    <tr><td>Orange ring round the rail's ▶</td><td>The hidden player's position (the same as the foot's orange line).</td></tr>
+    <tr><td>Orange line on the browser's edge</td><td>Only while dragging it: the width being set.</td></tr>
+    <tr><td>Orange details toggle with a dot</td><td>The inspector is open (pressed state of an icon button).</td></tr>
+    <tr><td>Orange wash on a browser row</td><td>Only while filtering: the keyboard highlight (Enter opens it).</td></tr>
+    <tr><td>Orange wash on a table row</td><td>The selected track (what the inspector shows when it's open).</td></tr>
+    <tr><td>Orange ring round a row</td><td>The row the open context menu acts on.</td></tr>
+    <tr><td>Dashed row in Favourites</td><td>Favourites is empty: where a dragged row lands.</td></tr>
+  </table>
+
+  <h3>Motion: the page lays out once, the chrome moves over it</h3>
+  <p>Reflowing a 500-row table on every frame would stutter, and it would make the columns flicker. So the page takes its final width <b>at once</b>, and only the chrome moves: when the chrome shrinks it uncovers the page, and when it grows it covers space that is already empty. This is the foot's rule ("the page makes room at once, only the contents move"), applied to the sidebar and the inspector. Only transform, opacity and the chrome's own width move. Every transition is a CSS transition, so a second ⌃⌘S mid-way turns it round from where it is.</p>
+  <table class="sig">
+    <tr><th>What</th><th>How</th></tr>
+    <tr><td>Fold / unfold (⌃⌘S, the button)</td><td>The edge glides 168 ↔ 50 in <b>220 ms, cubic-bezier(.32,.72,0,1)</b> (the drawer curve, no bounce). Labels fade out in the first 90 ms (ease-out) and fade in during the last 120 ms (100 ms delay). Icons don't move.</td></tr>
+    <tr><td>Into Library / out of it</td><td>The page switches at once (selection after navigation is instant). The chrome's edge glides 168 → 290 in 220 ms on the same curve while the labels fade out, and the browser's rows fade in over the last 150 ms, 8 px from the left. On the way out it's quicker: the rows fade in 90 ms, then the edge glides back. Exit is faster than entry.</td></tr>
+    <tr><td>Drag the column's edge</td><td>1:1 with the pointer, with no easing (direct manipulation), and the table reflows live because the user is steering it. Double-click to reset: 220 ms, drawer curve.</td></tr>
+    <tr><td>Details below 1240 px</td><td>The browser column steps back behind the rail (translateX -24 px and fading, 200 ms, the drawer curve) while the inspector slides in. On close it comes back the same way (240 ms). The page lays out once.</td></tr>
+    <tr><td>Details inspector</td><td>Open: the table narrows at once and the inspector slides in from the window's right edge (translateX 100 % → 0), <b>240 ms</b>, drawer curve. Close: the table widens at once and the inspector slides out the same way, <b>200 ms</b>, so it leaves the way it came. A selection change inside it is instant.</td></tr>
+    <tr><td>Tooltips (rail, rows)</td><td>Fade and grow from scale(.97) at the trigger, 140 ms (<code>--t-pop</code>). The first waits 500 ms, the next open at once.</td></tr>
+    <tr><td>Favourites drag</td><td>Lift: 120 ms (raised, shadow, scale 1.02). The other rows part with a 200 ms ease-out transform. Drop: a spring with damping 1 and response 0.3, with no overshoot (a drop has no momentum).</td></tr>
+    <tr><td>Sync ring, player ring</td><td>Their arcs move linearly with progress, and nothing turns or pulses.</td></tr>
+    <tr><td>Reduced motion</td><td>No glides: widths change at once and the chrome's contents cross-fade in 150 ms. The inspector fades in place.</td></tr>
+  </table>
+
+  <h3>Keyboard</h3>
+  <table class="sig">
+    <tr><th>Keys</th><th>Does</th></tr>
+    <tr><td>⌃⌘S</td><td>Fold or unfold the sidebar (macOS's standard key, also in the View menu as Hide / Show Sidebar)</td></tr>
+    <tr><td>⌘1 … ⌘6, ⌘,</td><td>Dashboard, Sync, To-do, Playlists, Download limits, Library; Settings (the order of the rail)</td></tr>
+    <tr><td>⌘K</td><td>From any page: Library with the filter field focused. In the filter: ↑ ↓ move, Enter opens, Esc clears and leaves</td></tr>
+    <tr><td>⌘F</td><td>The page's own track search (unchanged)</td></tr>
+    <tr><td>⌘I</td><td>Show or hide the details inspector (macOS's Get Info key)</td></tr>
+    <tr><td>↑ ↓ · Enter · double-click</td><td>In the table: select · play · play (unchanged)</td></tr>
+  </table>
+
+  <h3>House-rule changes (for docs/hub-design-language.md, not edited now)</h3>
+  <ol>
+    <li><b>The L frame: the sidebar has two forms, and in Library the frame holds the browser column.</b> <code>--sidebar-w</code> becomes the chrome's whole width (168, 50, or 50 + the browser's width), and the foot's line and seek area follow it. <i>Why:</i> the frame stays one seamless material, it only changes width.</li>
+    <li><b>One more line inside the chrome: the rail's right edge</b>, the same hairline as the page's edge. "Only the page's edge has a line" becomes "the page's edge, and the rail's edge when the browser stands next to it". <i>Why:</i> without it, the icon column and the browser read as one ragged list.</li>
+    <li><b>ListPanelFrame: Library drops the docked panel.</b> Library gets a details inspector instead (on demand, the same widths, the same Panel inside), and its summary becomes a strip block (<code>SummaryStrip</code>: share · bar · two link rows, 72 px). The other pages keep the docked panel. <i>Why:</i> the widths table above.</li>
+    <li><b>The sidebar's Library group retires;</b> the sidebar shows Favourites (no counts) on pages without the browser. The two-line crate rows and the watched folders' balanced wrap retire with it: the browser's rows are one line.</li>
+    <li><b>Motion: the "chrome moves, page lays out once" rule</b> joins the motion table, together with the timings above.</li>
+    <li><b>The nav's text glyphs (◉ ⟳ ✓ ≡ ◔ ⚙) become drawn icons</b> (14 px, 1.3 px stroke, one family), the same in both forms. <i>Why:</i> in the rail the icon is the only label, and at 12 px ⟳ and ◉ render as dots and rings that can't be told apart. Library gets the note.</li>
+    <li><b>Segmented: no change.</b> With 946 / 766 px the Library strip is never tight, and "Upgrade ready" and "Lossless 290" stay whole.</li>
+  </ol>
+
+  <h3>Considered and not built</h3>
+  <p><b>Details under the table (a 200 px shelf), so the table never loses a column.</b> The spectra would get width, but the table would keep 10 rows at 1280 × 800 and only 6–8 at 1100 × 700 with the foot, which is too few to browse a crate. <b>Page icons as a row at the top of one wide Library sidebar</b> (Xcode's navigator bar) would save the rail's 50 px, but every icon would jump from the column to the row, against the spatial rule. <b>The panel docked as today</b> leaves 586 px at 1280 (see widths). A third option, <b>a narrower inspector in place of stepping the browser back at 1100</b>, would cut the upgrade's spectra to about 220 px, too small to see a cutoff. So the recommended structure is the user's own direction, completed: rail + browser + summary strip + the details inspector on demand. I found nothing better worth a second set of states.</p>
+</div>
+
+<div class="opt" id="optTitle"></div>
+<div class="stage" id="stage"></div>
+
+<script>
+(function () {
+  // the services' own logos, in their own colours, unchanged (Simple Icons shapes; Qobuz's from its site)
+  const SVC = {
+    spotify: '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#000"/><path fill="#1ED760" d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>',
+    youtube: '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M9 7.5v9l7-4.5z"/><path fill="#FF0000" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>',
+    youtubemusic: '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11.5" fill="#fff"/><path fill="#FF0000" d="M12 0C5.376 0 0 5.376 0 12s5.376 12 12 12 12-5.376 12-12S18.624 0 12 0zm0 19.104c-3.924 0-7.104-3.18-7.104-7.104S8.076 4.896 12 4.896s7.104 3.18 7.104 7.104-3.18 7.104-7.104 7.104zm0-13.332c-3.432 0-6.228 2.796-6.228 6.228S8.568 18.228 12 18.228s6.228-2.796 6.228-6.228S15.432 5.772 12 5.772zM9.684 15.54V8.46L15.816 12l-6.132 3.54z"/></svg>',
+    soundcloud: '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="5" fill="#FF5500"/><g transform="translate(3.6 3.6) scale(.7)"><path fill="#fff" d="M23.999 14.165c-.052 1.796-1.612 3.169-3.4 3.169h-8.18a.68.68 0 0 1-.675-.683V7.862a.747.747 0 0 1 .452-.724s.75-.513 2.333-.513a5.364 5.364 0 0 1 2.763.755 5.433 5.433 0 0 1 2.57 3.54c.282-.08.574-.121.868-.12.884 0 1.73.358 2.347.992s.948 1.49.922 2.373ZM10.721 8.421c.247 2.98.427 5.697 0 8.672a.264.264 0 0 1-.53 0c-.395-2.946-.22-5.718 0-8.672a.264.264 0 0 1 .53 0ZM9.072 9.448c.285 2.659.37 4.986-.006 7.655a.277.277 0 0 1-.55 0c-.331-2.63-.256-5.02 0-7.655a.277.277 0 0 1 .556 0Zm-1.663-.257c.27 2.726.39 5.171 0 7.904a.266.266 0 0 1-.532 0c-.38-2.69-.257-5.21 0-7.904a.266.266 0 0 1 .532 0Zm-1.647.77a26.108 26.108 0 0 1-.008 7.147.272.272 0 0 1-.542 0 27.955 27.955 0 0 1 0-7.147.275.275 0 0 1 .55 0Zm-1.67 1.769c.421 1.865.228 3.5-.029 5.388a.257.257 0 0 1-.514 0c-.21-1.858-.398-3.549 0-5.389a.272.272 0 0 1 .543 0Zm-1.655-.273c.388 1.897.26 3.508-.01 5.412-.026.28-.514.283-.54 0-.244-1.878-.347-3.54-.01-5.412a.283.283 0 0 1 .56 0Zm-1.668.911c.4 1.268.257 2.292-.026 3.572a.257.257 0 0 1-.514 0c-.241-1.262-.354-2.312-.023-3.572a.283.283 0 0 1 .563 0Z"/></g></svg>',
+    qobuz: '<svg width="14" height="14" viewBox="0 0 180 180" aria-hidden="true"><rect width="180" height="180" rx="24.26" ry="24.26"/><path fill="#fff" d="M154.98,107.69s-.06,0-.09,0h-20.06c6.73-8.99,22.89-30.61,22.9-30.62.73-1.01,1.17-2.25,1.17-3.59,0-3.32-2.65-6.01-5.95-6.08h0s-24.55,0-24.55,0h-.15s.14,0,.13,0c-2.34,0-4.38,1.9-4.38,4.24s1.9,4.23,4.23,4.23c.03,0,.06,0,.1,0h19.74s-22.82,30.51-22.84,30.53c-.77,1.02-1.23,2.29-1.23,3.67,0,3.37,2.73,6.09,6.09,6.09h24.88s0,0,.01,0c2.15,0,3.89-1.9,3.89-4.23s-1.74-4.23-3.89-4.23Z"/><path fill="#fff" d="M45.53,115.85c4.68,0,9.06-1.32,12.77-3.61v-11.25c-2.91,3.88-7.55,6.39-12.77,6.39-8.81,0-15.96-7.15-15.96-15.96s7.14-15.96,15.96-15.96,15.96,7.15,15.96,15.96h0v43.76s0,.03,0,.05c0,2.34,1.9,4.24,4.23,4.24s4.23-1.9,4.23-4.24c0-.02,0-.03,0-.05v-43.76c0-13.49-10.93-24.43-24.42-24.43s-24.42,10.94-24.42,24.43,10.93,24.43,24.42,24.43Z"/><path fill="#fff" d="M99.42,66.97c-4.68,0-9.06,1.32-12.77,3.61v11.25c2.91-3.88,7.55-6.39,12.77-6.39,8.81,0,15.96,7.15,15.96,15.96s-7.14,15.96-15.96,15.96-15.96-7.15-15.96-15.96h0v-43.76s0-.03,0-.05c0-2.34-1.9-4.24-4.23-4.24s-4.23,1.9-4.23,4.24c0,.02,0,.03,0,.05v43.76c0,13.49,10.93,24.43,24.42,24.43s24.42-10.94,24.42-24.43-10.93-24.43-24.42-24.43Z"/></svg>',
+  };
+  const SVC_NAME = { spotify: 'Spotify', qobuz: 'Qobuz', soundcloud: 'SoundCloud', youtubemusic: 'YouTube Music', youtube: 'YouTube' };
+  const FOLDER = '<svg width="14" height="12" viewBox="0 0 14 12" aria-hidden="true"><path d="M1.2 2.2c0-.6.4-1 1-1h3.1l1.4 1.5h5.1c.6 0 1 .4 1 1v6.9c0 .6-.4 1-1 1H2.2c-.6 0-1-.4-1-1z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+  const CHEV = '<svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M2.6 1.2 5.6 4l-3 2.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const MAG = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="5.2" cy="5.2" r="3.9" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8.1 8.1 11 11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+  const SORT = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 3h9M1.5 6h6.5M1.5 9h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
+  const SBICON = '<svg width="16" height="13" viewBox="0 0 16 13" aria-hidden="true"><rect x=".75" y=".75" width="14.5" height="11.5" rx="2.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M5.6 1v11" stroke="currentColor" stroke-width="1.3"/><path d="M2.4 3.4h1.6M2.4 5.4h1.6M2.4 7.4h1.6" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>';
+  const INSPICON = '<svg width="16" height="13" viewBox="0 0 16 13" aria-hidden="true"><rect x=".75" y=".75" width="14.5" height="11.5" rx="2.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M10.4 1v11" stroke="currentColor" stroke-width="1.3"/><path d="M12 3.4h1.6M12 5.4h1.6M12 7.4h1.6" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>';
+  const MARK = '<span class="mark" aria-hidden="true">!</span>';
+  const ARROW = '<svg class="cursor" width="16" height="22" viewBox="0 0 16 22" style="left:LEFTpx;top:TOPpx"><path d="M1 1v16.5l4.2-4 2.8 6.5 2.6-1.1-2.8-6.4H14z" fill="#fff" stroke="#000" stroke-width="1.1" stroke-linejoin="round"/></svg>';
+  const HAND = '<svg class="cursor" width="20" height="20" viewBox="0 0 20 20" style="left:LEFTpx;top:TOPpx"><path d="M6 9V4.2a1.2 1.2 0 0 1 2.4 0V8V3.2a1.2 1.2 0 0 1 2.4 0V8V4a1.2 1.2 0 0 1 2.4 0v4.5V6.2a1.2 1.2 0 0 1 2.4 0v6.3c0 3-2 5.5-5.2 5.5-2.4 0-3.6-1.1-4.8-3L3.4 12a1.3 1.3 0 0 1 2-1.6z" fill="#fff" stroke="#000" stroke-width="1" stroke-linejoin="round"/></svg>';
+  const RESIZE = '<svg class="cursor" width="24" height="18" viewBox="0 0 24 18" style="left:LEFTpx;top:TOPpx"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M11 2v14M13 2v14M8 9H2m0 0 3-3M2 9l3 3M16 9h6m0 0-3-3m3 3-3 3" stroke="#000" stroke-width="3.2"/><path d="M11 2v14M13 2v14M8 9H2m0 0 3-3M2 9l3 3M16 9h6m0 0-3-3m3 3-3 3" stroke="#fff" stroke-width="1.3"/></g></svg>';
+  const cur = (svg, l, t) => svg.replace('LEFT', l).replace('TOP', t);
+  const fmt = (n) => n.toLocaleString('en-US');
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+
+  // ---------- the data (made up, as library-browser.html): 35 playlists in playlists.txt order ----------
+  const P = (name, svc, songs, off) => ({ kind: 'pl', key: 'pl:' + name, name, svc, n: songs, off: !!off });
+  const playlists = [
+    P('Hard_Bounce', 'spotify', 14), P('Powertrance', 'spotify', 31), P('Peak Time', 'qobuz', 46), P('Bouncy', 'spotify', 27),
+    P('Afterhour_Sonntag_Warmup_Classics', 'qobuz', 64), P('Schranz Bunker', 'spotify', 38), P('Hardgroove Openers', 'spotify', 22),
+    P('Bounce Reposts', 'soundcloud', 9), P('Industrial Pressure', 'spotify', 41), P('Acid Wednesdays', 'qobuz', 19),
+    P('Rave Classics 90s', 'spotify', 73), P('Hard_Uploads', 'youtubemusic', 12), P('160 Club', 'spotify', 28),
+    P('Frenchcore Edits', 'soundcloud', 17), P('Tekk Night', 'spotify', 33), P('Neo Rave', 'qobuz', 24), P('Closing Tracks', 'spotify', 15),
+    P('Trance Reworks', 'youtubemusic', 21), P('Hardtechno 2026', 'spotify', 57), P('Melodic Hard', 'qobuz', 30), P('Vocals & Hooks', 'spotify', 18),
+    P('Gabber Heritage', 'spotify', 26), P('Free_DLs', 'soundcloud', 44), P('Warmup Grooves', 'spotify', 35), P('Euro Edits', 'youtubemusic', 16),
+    P('Rawstyle IDs', 'soundcloud', 11), P('Sunrise Set', 'qobuz', 20), P('Basement 145', 'spotify', 29), P('Request Box', 'spotify', 23),
+    P('Live Set Rips', 'youtubemusic', 8), P('Hard Trance Gold', 'qobuz', 39), P('Techno Tools', 'spotify', 52), P('03_06_2026', 'spotify', 22, true),
+    P('Pride Party 2025', 'spotify', 31, true), P('Old Faves', 'spotify', 48),
+  ];
+  const RB_CRATES = [
+    ['Music/DJ/Bounce', 96], ['Music/DJ/Edits', 23, 'hidden'], ['Music/DJ/Hardtechno', 142], ['Music/DJ/Hardtechno/2019', 38],
+    ['Music/DJ/Rock', 51], ['Music/DJ/Warmup', 44], ['Music/Old Sets/2016 Closing', 17], ['Music/Old Sets/Bounce', 61],
+  ];
+  const ALBUM_SAMPLE = [['Aurora Drift', 'Afterglow', 11], ['Aurora Drift', 'Night Bus', 9], ['Bassline Unit', 'Bounce Generation', 12], ['Bassline Unit', 'Pressure', 10],
+    ['Bounce Generation', 'Greatest Hits', 14], ['Cold Signal', 'Greatest Hits', 16], ['Cold Signal', 'Static', 8], ['Dr. Kickbass', 'Kick Theory', 13],
+    ['Echo Vault', 'Archive One', 12], ['Ferro', 'Iron Age', 10], ['Glasshaus', 'Prism', 11]];
+  const watched = [
+    { key: 'wf:rb', name: 'Rekordbox Library', path: '~/Music/Rekordbox Library', crates: RB_CRATES.map(([p, own, h]) => ({ path: p, own, hidden: h === 'hidden' })) },
+    { key: 'wf:vinyl', name: 'Vinyl Rips', path: 'Example Drive › Vinyl Rips', own: 64, crates: [], away: 'Offline: connect the drive' },
+    { key: 'wf:albums', name: 'Albums', path: '~/Music/Albums', files: 3604, many: 312, crates: [] },
+  ];
+  const libFolders = [{ key: 'lf:oldhard', name: 'Old_Hardstyle', path: 'Library/Old_Hardstyle · no playlist uses it', n: 12 }];
+  const VIEWS = [{ key: 'all', name: 'All tracks', n: 5318 }, { key: 'unlisted', name: 'Not in a playlist', n: 4021 }];
+  const LIMIT = 25;
+  const TODO = 64;   // = Dashboard's Needs you: 9 upgrades ready + 3 not found + 52 weak versions
+
+  for (const w of watched) {
+    const paths = new Set(w.crates.map((c) => c.path));
+    for (const c of w.crates) {
+      const parts = c.path.split('/');
+      c.base = parts[parts.length - 1];
+      const anc = parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('/')).filter((p) => paths.has(p));
+      c.chain = anc.length ? [anc[anc.length - 1].split('/').pop(), c.base] : [c.base];
+      c.parent = parts[parts.length - 2] || w.name;
+      c.n = w.crates.filter((d) => d.path === c.path || d.path.startsWith(c.path + '/')).reduce((s, d) => s + d.own, 0);
+      c.key = 'cr:' + w.key + ':' + c.path; c.kind = 'crate'; c.wf = w;
+      c.tip = `${w.name} › ${c.path.split('/').join(' › ')}`;
+    }
+    if (w.files == null) w.files = w.crates.length ? w.crates.reduce((s, d) => s + d.own, 0) : w.own;
+    w.kind = 'wf'; w.n = w.files;
+  }
+  const shownCrates = (w) => (w.many > LIMIT ? [] : w.crates.filter((c) => !c.hidden));
+  const allShown = watched.flatMap(shownCrates);
+  for (const c of allShown) c.hint = allShown.some((d) => d !== c && d.chain.length === 1 && c.chain.length === 1 && d.base === c.base) ? c.parent : null;
+  const crateSort = (a, b) => (a.chain.join(' › ') + (a.hint || '')).localeCompare(b.chain.join(' › ') + (b.hint || ''), 'en', { numeric: true });
+  for (const w of watched) w.crates.sort(crateSort);
+  const byKey = {};
+  [...VIEWS, ...playlists, ...watched, ...libFolders, ...watched.flatMap((w) => w.crates)].forEach((x) => { byKey[x.key] = x; });
+  const albumCrates = ALBUM_SAMPLE.map(([a, al, n]) => ({ kind: 'crate', key: 'al:' + a + '/' + al, base: al, chain: [al], parent: a, n, wf: watched[2], tip: `Albums › ${a} › ${al}\nNot shown in the sidebar (Albums has 312 folders with music)` }));
+  for (const c of albumCrates) c.hint = albumCrates.some((d) => d !== c && d.base === c.base) ? c.parent : null;
+
+  // ---------- the browser's rows ----------
+  const hl = (s, q) => { if (!q) return esc(s); const i = s.toLowerCase().indexOf(q); return i < 0 ? esc(s) : esc(s.slice(0, i)) + `<b class="hl">${esc(s.slice(i, i + q.length))}</b>` + esc(s.slice(i + q.length)); };
+  // a crate on one line: "Hardtechno › 2019" (the crate it sits in, label grey) or "Bounce · Old Sets" (a same name: the folder above)
+  const crateLabel = (c, q) => c.chain.length > 1 ? `<span class="gt">${esc(c.chain[0])} › </span>${hl(c.base, q)}` : c.hint ? `${hl(c.base, q)}<span class="h"> · ${esc(c.hint)}</span>` : hl(c.base, q);
+  const plain = (x) => x.kind === 'crate' ? (x.chain.length > 1 ? x.chain.join(' › ') : x.hint ? `${x.base} · ${x.hint}` : x.base) : x.name;
+  function cls(x, o, extra = '') {
+    const on = o.sel === x.key && !o.used.has(x.key);   // the pill goes on the topmost row for the open page
+    if (on) o.used.add(x.key);
+    return `nav${x.off ? ' off' : ''}${on ? ' on' : ''}${o.kb === x.key ? ' kb' : ''}${o.menu === x.key ? ' menu-on' : ''}${extra}`;
+  }
+  const glyph = (x) => x.kind === 'pl' ? SVC[x.svc] : x.away ? MARK : FOLDER;
+  const title = (x) => x.kind === 'pl' ? `${x.name}\n${SVC_NAME[x.svc]} playlist · ${x.n} songs${x.off ? '\nSwitched off: its files stay, nothing new downloads' : ''}`
+    : x.kind === 'crate' ? `${x.tip}\n${fmt(x.n)} files` : x.kind === 'wf' ? `${x.path} · ${fmt(x.n)} files${x.away ? '\n' + x.away : ''}${x.many ? `\n${x.many} folders with music: choose which to show in Settings → Watched folders` : x.crates.some((c) => c.hidden) ? `\n${shownCrates(x).length} of ${x.crates.length} folders shown` : ''}` : `${x.path}`;
+  function row(x, o, place) {
+    const q = o.q;
+    if (x.kind === 'view') return `<div class="${cls(x, o)}" data-k="${x.key}"><span class="t">${esc(x.name)}</span><span class="c">${fmt(x.n)}</span></div>`;
+    if (x.kind === 'crate' && place !== 'fav')
+      return `<div class="${cls(x, o, ' crate')}" data-k="${x.key}" title="${esc(title(x))}"><span class="t">${crateLabel(x, q)}</span><span class="c">${fmt(x.n)}</span></div>`;
+    const name = x.kind === 'crate' ? crateLabel(x, q) : hl(x.name, q);
+    const crates = x.kind === 'wf' ? shownCrates(x) : [];
+    const chev = crates.length ? `<span class="chev${o.closed.has(x.key) && !q ? '' : ' open'}">${CHEV}</span>` : '';
+    const cw = x.kind === 'wf' && crates.length ? ` style="--count-w:${o.cw}ch"` : '';
+    return `<div class="${cls(x, o)}"${cw} data-k="${x.key}" title="${esc(title(x))}"><span class="g">${glyph(x)}</span><span class="t">${name}</span>${chev}<span class="c">${fmt(x.n)}</span></div>`;
+  }
+  const header = (label, key, o, extra = '', n = '') => `<div class="sh" data-sec="${key}" title="${o.closed.has(key) ? 'Show' : 'Hide'} ${label.toLowerCase()}"><span>${label}</span>${n !== '' ? `<span class="n">${n}</span>` : '<span class="sp"></span>'}${extra}<span class="chev${o.closed.has(key) && !o.q ? '' : ' open'}">${CHEV}</span></div>`;
+  const folderCw = Math.max(...watched.filter((w) => shownCrates(w).length).map((x) => fmt(x.n).length));
+
+  function libraryRows(o) {
+    const q = o.q;
+    const m = (s) => !q || s.toLowerCase().includes(q);
+    const out = [];
+    if (!q) out.push(...VIEWS.map((v) => row({ ...v, kind: 'view' }, o)));
+    const favs = o.favs.map((k) => byKey[k]).filter((x) => !q || m(x.name || x.base));
+    if (!q || favs.length) {
+      out.push('<div class="gap"></div>' + header('Favourites', 'fav', o));
+      if (!o.closed.has('fav') || q) {
+        if (o.drag) {
+          const list = favs.filter((x) => x.key !== o.drag.key);
+          list.forEach((x, i) => { if (i === o.drag.at) out.push('<div class="slot" data-slot></div>'); out.push(row(x, o, 'fav')); });
+          if (o.drag.at >= list.length) out.push('<div class="slot" data-slot></div>');
+        } else if (favs.length) out.push(...favs.map((x) => row(x, o, 'fav')));
+        else out.push('<div class="hintrow">Drag a playlist or folder here</div>');
+      }
+    }
+    const pls = (o.az ? [...playlists].sort((a, b) => a.name.localeCompare(b.name)) : playlists).filter((p) => m(p.name));
+    if (pls.length) {
+      out.push('<div class="gap"></div>' + header('Playlists', 'pl', o, `<span class="ibtn" title="Order: download priority (change it on the Playlists page) · A–Z">${SORT}</span>`, q ? '' : playlists.length));
+      if (!o.closed.has('pl') || q) out.push(...pls.map((p) => row(p, o)));
+    }
+    const fo = [];
+    for (const w of [...watched].sort((a, b) => a.name.localeCompare(b.name))) {
+      const crates = q ? [...shownCrates(w), ...w.crates.filter((c) => c.hidden), ...(w.many ? albumCrates : [])].filter((c) => m(c.base)) : shownCrates(w);
+      if (q && !m(w.name) && !crates.length) continue;
+      fo.push(row(w, o, 'folders'));
+      if (!o.closed.has(w.key) || q) fo.push(...crates.sort(crateSort).map((c) => row(c, o, 'folders')));
+    }
+    fo.push(...libFolders.filter((f) => m(f.name)).map((f) => row({ ...f, kind: 'lf' }, o, 'folders')));
+    if (fo.length) {
+      out.push('<div class="gap"></div>' + header('Folders', 'fo', o));
+      if (!o.closed.has('fo') || q) out.push(...fo);
+    }
+    if (q && !pls.length && !fo.length && !favs.length) out.push(`<div class="empty">No playlist or folder has “${esc(q)}” in its name.</div>`);
+    return out.join('');
+  }
+
+  // ---------- the app sidebar (full or rail) ----------
+  const ic = (d) => `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  const NAVI = {
+    dash: ic('<rect x="1.5" y="1.5" width="4.6" height="4.6" rx="1.2"/><rect x="7.9" y="1.5" width="4.6" height="4.6" rx="1.2"/><rect x="1.5" y="7.9" width="4.6" height="4.6" rx="1.2"/><rect x="7.9" y="7.9" width="4.6" height="4.6" rx="1.2"/>'),
+    sync: ic('<path d="M11.9 5.6A5.1 5.1 0 0 0 2.6 4.3M2.1 8.4a5.1 5.1 0 0 0 9.3 1.3"/><path d="M2.4 1.6v2.9h2.9M11.6 12.4V9.5H8.7"/>'),
+    todo: ic('<circle cx="7" cy="7" r="5.6"/><path d="M4.6 7.1 6.2 8.7 9.5 5.3"/>'),
+    pls: ic('<path d="M4.8 3.2h7.7M4.8 7h7.7M4.8 10.8h7.7"/><circle cx="2" cy="3.2" r=".5" fill="currentColor"/><circle cx="2" cy="7" r=".5" fill="currentColor"/><circle cx="2" cy="10.8" r=".5" fill="currentColor"/>'),
+    lim: ic('<path d="M1.9 10.6a5.3 5.3 0 1 1 10.2 0"/><path d="M7 9.3 9.4 6.1"/><circle cx="7" cy="9.6" r=".7" fill="currentColor"/>'),
+    lib: ic('<path d="M5.2 10.9V3.1l6.6-1.5v7.7"/><circle cx="3.6" cy="10.9" r="1.6"/><circle cx="10.2" cy="9.3" r="1.6"/>'),
+    set: ic('<circle cx="7" cy="7" r="2"/><path d="M7 1.2v1.6M7 11.2v1.6M1.2 7h1.6M11.2 7h1.6M2.9 2.9 4 4M10 10l1.1 1.1M2.9 11.1 4 10M10 4l1.1-1.1"/>'),
+  };
+  const APP = [['dash', '◉', 'Dashboard', '⌘1'], ['sync', '⟳', 'Sync', '⌘2'], ['todo', '✓', 'To-do', '⌘3'], ['pls', '≡', 'Playlists', '⌘4'], ['lim', '◔', 'Download limits', '⌘5'], ['lib', '♫', 'Library', '⌘6']];
+  const ring = (frac, color, r = 11, w = 2) => { const c = 2 * Math.PI * r; return `<svg class="ring" width="${2 * r + w}" height="${2 * r + w}" viewBox="0 0 ${2 * r + w} ${2 * r + w}" aria-hidden="true"><circle cx="${r + w / 2}" cy="${r + w / 2}" r="${r}" fill="none" stroke="rgba(255,255,255,.1)" stroke-width="${w}"/><circle cx="${r + w / 2}" cy="${r + w / 2}" r="${r}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="round" stroke-dasharray="${(frac * c).toFixed(1)} ${c.toFixed(1)}"/></svg>`; };
+  function appSidebar(o) {
+    const rail = o.form === 'rail';
+    const nav = APP.map(([k, g, l, kb]) => {
+      const on = o.page === k;
+      const sync = k === 'sync' && o.sync;
+      const extra = (k === 'lim' ? '<span class="warn"></span>' : '') + (sync && rail ? ring(o.sync[0] / o.sync[1], 'var(--muted)', 12) : '') + (k === 'todo' && rail ? `<span class="bdg">${TODO}</span>` : '');
+      const count = k === 'todo' ? `<span class="c">${TODO}</span>` : sync ? `<span class="c">${o.sync[0]}/${o.sync[1]}</span>` : '';
+      return `<div class="nav${on ? ' on' : ''}" data-nav="${k}" title="${l}${k === 'todo' ? ` · ${TODO} to look at` : ''} (${kb})"><span class="g">${NAVI[k]}${extra}</span><span class="t">${l}</span>${count}</div>`;
+    }).join('');
+    // Favourites as shortcuts, on pages where the browser column isn't shown (no counts: they're links)
+    const favs = !rail && o.page !== 'lib' && o.favs.length ? `<div class="grp">Favourites</div><div class="favs">${o.favs.map((k) => byKey[k]).map((x) =>
+      `<div class="nav" title="${esc(title(x))}"><span class="g">${glyph(x)}</span><span class="t">${x.kind === 'crate' ? crateLabel(x) : esc(x.name)}</span></div>`).join('')}</div>` : '';
+    const np = o.hiddenPlayer ? (rail
+      ? `<div class="np" title="Kaltfront · Pulsar 9"><span class="up" title="Show player">⌃</span><span class="pb">${ring(.23, 'var(--accent)', 11)}<span style="font-size:9px">❚❚</span></span></div>`
+      : `<div class="nprow"><span class="pb" style="position:relative;width:22px;height:22px;display:grid;place-items:center">${ring(.23, 'var(--accent)', 10)}<span style="font-size:8px">❚❚</span></span><span class="t" style="font-size:12px">Kaltfront</span><span class="ibtn">⌃</span></div>`) : '';
+    return `<div class="sb${rail ? ' rail' : ''}" data-sb><div class="shead"><span class="tog" data-tog title="${rail ? 'Show' : 'Hide'} sidebar (⌃⌘S)">${SBICON}</span><span class="brand">Discjockey</span></div>${nav}${favs}<div class="spacer"></div>${np}
+      <div class="nav settings" data-nav="set" title="Settings (⌘,)"><span class="g">${NAVI.set}</span><span class="t">Settings</span></div></div>`;
+  }
+  function browser(o) {
+    const field = `<div class="bfind${o.q ? ' typed' : ''}"><span class="ico">${MAG}</span><span class="q">${o.q ? esc(o.q) : 'Filter playlists, folders'}</span>${o.q ? '<span class="x" title="Clear (Esc)">✕</span>' : '<kbd>⌘K</kbd>'}</div>`;
+    return `<div class="browser" data-browser style="--bw:${o.bw}px">${field}<div class="lib" data-lib>${libraryRows({ ...o, cw: folderCw })}</div><div class="edge${o.resizing ? ' drag' : ''}" data-edge title="Drag to resize · double-click: back to 240"></div></div>`;
+  }
+
+  // ---------- the Library page ----------
+  const C = { lossless: '--good', good_lossy: '--ok', weak: '--weak', fake: '--lossy' };
+  const grads = ['linear-gradient(135deg,#2fd27a,#1a7cff)', 'linear-gradient(135deg,#ff6a8a,#7a4cff)', 'linear-gradient(135deg,#1a7cff,#f0b93a)', 'linear-gradient(135deg,#f0b93a,#c04aff)', 'linear-gradient(135deg,#7a4cff,#2fd27a)', 'linear-gradient(135deg,#f0524a,#a77bff)'];
+  const Q = { L: ['lossless', 'LOSSLESS'], G: ['good_lossy', '20.0 kHz'], W: ['weak', '16.0 kHz'], F: ['fake', 'FAKE · 16.0 kHz'] };
+  // [title, artist, subfolder, quality, playlists, upgrade ready, length]
+  const RB_ROWS = [
+    ['Kaltstart', 'Mira Volt', '2016 Closing', 'L', null, false, '6:12'], ['Letzte Runde', 'Tom Brandt', '2016 Closing', 'W', null, true, '5:48'],
+    ['Sprungfeder', 'Bounce Brigade', 'Bounce · DJ', 'L', ['Hard_Bounce', 'Bouncy'], false, '4:56'], ['Gummiboot', 'Jana Jump', 'Bounce · DJ', 'G', ['Bouncy'], false, '5:03'],
+    ['Trampolin', 'Kalte Nacht', 'Bounce · DJ', 'L', null, false, '4:41'], ['Hoch hinaus', 'Remo Rush', 'Bounce · Old Sets', 'F', null, false, '5:20'],
+    ['Flummi', 'Echo Gruppe', 'Bounce · Old Sets', 'L', null, false, '4:37'], ['Maschinenraum', 'Low Ceiling', 'Hardtechno', 'L', ['Hardtechno 2026'], false, '6:05'],
+    ['Stahlwerk', 'Pulsar 9', 'Hardtechno', 'L', ['Schranz Bunker', 'Industrial Pressure', 'Techno Tools'], false, '5:52'],
+    ['Druckkammer', 'Ferro', 'Hardtechno', 'G', null, false, '6:30'], ['Taktgefuehl', 'Low Ceiling', 'Hardtechno', 'L', null, false, '5:15'],
+    ['Kaltfront', 'Pulsar 9', 'Hardtechno › 2019', 'L', ['Peak Time'], false, '5:31'], ['Sonnenfinsternis', 'Pulsar 9', 'Hardtechno › 2019', 'W', null, true, '6:44'],
+    ['Gitarrenwand', 'Neon Riot', 'Rock', 'L', null, false, '3:58'], ['Verstaerker', 'Neon Riot', 'Rock', 'G', null, false, '4:12'],
+    ['Morgengrauen', 'Jana Jump', 'Warmup', 'L', ['Warmup Grooves'], false, '7:02'], ['Leise Runde', 'Echo Gruppe', 'Warmup', 'L', null, false, '6:26'], ['Ruhepol', 'Echo Gruppe', 'Warmup', 'G', null, false, '6:48'],
+    ['Nebelwand', 'Mira Volt', 'Warmup', 'L', null, false, '6:10'], ['Langsam', 'Tom Brandt', 'Warmup', 'G', null, false, '5:57'],
+  ];
+  const HT_ROWS = RB_ROWS.filter((r) => r[2].startsWith('Hardtechno')).map((r) => [r[0], r[1], r[2] === 'Hardtechno' ? '' : '2019', r[3], r[4], r[5], r[6]])
+    .concat([['Bunkerluft', 'Cold Signal', '', 'L', null, false, '5:44'], ['Rostfrei', 'Ferro', '', 'L', ['Schranz Bunker'], false, '6:01'], ['Nachtschicht', 'Glasshaus', '', 'G', null, false, '5:36'],
+      ['Eisenbahn', 'Ferro', '2019', 'L', null, true, '6:18'], ['Kesselhaus', 'Pulsar 9', '2019', 'L', null, false, '5:49'], ['Funkstille', 'Cold Signal', '2019', 'F', null, false, '5:27'],
+      ['Schwermetall', 'Low Ceiling', '', 'L', ['Hardtechno 2026'], false, '6:09'], ['Hochofen', 'Ferro', '', 'W', null, false, '5:40'], ['Funkenflug', 'Pulsar 9', '', 'L', null, false, '6:22'],
+      ['Gleisbett', 'Glasshaus', '2019', 'G', null, false, '5:58'], ['Zahnrad', 'Cold Signal', '', 'L', null, false, '6:03'], ['Kaltwalze', 'Ferro', '2019', 'L', null, false, '6:35']])
+    .sort((a, b) => a[2].localeCompare(b[2]));
+  const PAGES = {
+    rb: { title: 'Rekordbox Library', sub: '472 tracks · 8 folders with music · ~/Music/Rekordbox Library', rows: RB_ROWS, seg: [472, 290, 92, 58, 20, 6],
+      sum: [63, '290 of 460 checked tracks', [290, 92, 58, 20], 6, { n: 170, todo: 41 }] },
+    ht: { title: 'Hardtechno', sub: '180 tracks · Rekordbox Library › Music › DJ › Hardtechno', rows: HT_ROWS, seg: [180, 120, 30, 22, 8, 3],
+      sum: [67, '120 of 180 checked tracks', [120, 30, 22, 8], 3, { n: 60, todo: 18 }] },
+  };
+  const seg = (c) => `<div class="seg">${[['All', c[0], null, true], ['Lossless', c[1], '--good'], ['Good lossy', c[2], '--ok'], ['Weak', c[3], '--weak'], ['Fake', c[4], '--lossy'], ['Upgrade ready', c[5], '--good']]
+    .map(([l, n, d, on]) => `<div${on ? ' class="on"' : ''}>${d ? `<span class="dot" style="--c:var(${d})"></span>` : ''}<span>${l}</span><b>${fmt(n)}</b></div>`).join('')}</div>`;
+  const head = (p, insp) => `<div class="hd"><h1>${p.title}</h1><span class="st" title="${esc(p.sub)}">${p.sub}</span><div class="search">${MAG} Search title, artist…<kbd>⌘F</kbd></div><span class="itog${insp ? ' pressed' : ''}" data-itog title="${insp ? 'Hide' : 'Show'} details (⌘I)">${INSPICON}</span></div>`;
+  const toDoPart = (nl) => nl.todo === 0 ? 'none in To-do' : nl.todo === nl.n ? 'all in To-do' : `${nl.todo} in To-do`;
+  function summary([share, of, q, up, nl]) {
+    const qs = [['--good', q[0]], ['--ok', q[1]], ['--weak', q[2]], ['--lossy', q[3]]];
+    return `<div class="sum" data-sum><div class="share"><div class="bign">${share}<small> % lossless</small></div><div class="lbl">${of}</div></div>
+      <div class="qbar" title="Lossless ${q[0]} · Good lossy ${q[1]} · Weak ${q[2]} · Fake ${q[3]}">${qs.filter(([, n]) => n).map(([v, n]) => `<i style="--c:var(${v});flex:${n}"></i>`).join('')}</div>
+      <div class="rows"><div class="lrow"><span class="dot" style="--c:var(--good)"></span><span>Upgrade ready</span><span class="n">${up}</span><span class="chv">${up ? '›' : ''}</span></div>
+      <div class="lrow"><span class="dot" style="--c:var(--weak)"></span><span>Not lossless yet<span class="q"> · ${toDoPart(nl)}</span></span><span class="n">${nl.n}</span><span class="chv">${nl.todo ? '›' : ''}</span></div></div></div>`;
+  }
+  const qcell = (k) => `<span class="badge" style="--c:var(${C[Q[k][0]]})" title="Show details">${Q[k][1]}</span>`;
+  const slot = (up) => `<span>${up ? '<span class="badge" style="--c:var(--good)">UPGRADE</span>' : ''}</span>`;
+  const plb = (p) => !p ? '<span class="lbc">–</span>' : `<span class="pl" title="In ${esc(p.join(', '))}"><span>${esc(p[0])}</span>${p.length > 1 ? `<b>+${p.length - 1}</b>` : ''}</span>`;
+  const subc = (s) => s ? `<span class="cut mu" title="${esc(s)}">${esc(s).replace(/ › /g, '<span class="lbc"> › </span>').replace(/ · (.*)$/, '<span class="lbc"> · $1</span>')}</span>` : '<span class="lbc">–</span>';
+  const t1 = (t, k) => `<span class="t1"><span class="cov" style="background:${grads[k % grads.length]}"></span><span class="nm">${esc(t)}</span></span>`;
+  // the columns by the table's own width (the container rule): Length first to go, then Playlist, then Subfolder
+  function columns(w) {
+    const c = [['t', 'Track', 'minmax(0,1.45fr)'], ['a', 'Artist', 'minmax(0,1fr)']];
+    if (w >= 520) c.push(['s', 'Subfolder ↑', 'minmax(116px,.95fr)']);
+    if (w >= 700) c.push(['p', 'Playlist', 'minmax(0,1.1fr)']);
+    if (w >= 900) c.push(['l', 'Length', '52px']);
+    c.push(['q', 'Quality', '106px'], ['u', '', '64px']);
+    return c;
+  }
+  function table(p, w, selRow) {
+    const cols = columns(w);
+    const cell = { t: (r, k) => t1(r[0], k), a: (r) => `<span class="cut mu">${esc(r[1])}</span>`, s: (r) => subc(r[2]), p: (r) => plb(r[4]), l: (r) => `<span class="len">${r[6]}</span>`, q: (r) => qcell(r[3]), u: (r) => slot(r[5]) };
+    const hcell = ([k, h]) => k === 'u' ? '<span class="info">i</span>' : `<span class="hc${k === 's' ? ' on' : ''}${k === 'l' ? ' r' : ''}">${h}</span>`;
+    const rows = p.rows.map((r, k) => `<div class="tr${r[0] === selRow ? ' sel' : ''}">${cols.map(([c]) => cell[c](r, k)).join('')}</div>`).join('');
+    return `<div class="tbl" data-tbl style="--cols:${cols.map((c) => c[2]).join(' ')}"><div class="th-row">${cols.map(hcell).join('')}</div><div class="scroll">${rows}</div></div>`;
+  }
+  // a stand-in spectrum: energy falling with height, cut at the file's cutoff
+  const spectrum = (cut, k) => `<div class="spec"><i style="background:linear-gradient(to top, rgba(220,220,224,.55), rgba(220,220,224,.28) ${cut ? cut - 14 : 60}%, rgba(220,220,224,.12) ${cut ? cut - 2 : 92}%, transparent ${cut || 100}%), repeating-linear-gradient(90deg, rgba(0,0,0,.35) 0 1px, transparent 1px ${k}px)"></i>${cut ? `<span class="cutl" style="bottom:${cut}%"></span><span class="cutt" style="bottom:calc(${cut}% + 2px)">16.0 kHz</span>` : ''}</div>`;
+  function inspector() {
+    return `<div class="panel" data-insp><div class="card"><div class="thead"><span class="cv" style="background:${grads[12 % grads.length]}"></span><div style="min-width:0"><div class="a">Sonnenfinsternis</div><div class="b">Pulsar 9<span class="lbc"> · in Hardtechno › 2019</span></div></div></div>
+        <div class="badges"><span class="badge" style="--c:var(--weak)">16.0 kHz</span><span class="badge" style="--c:var(--good)">UPGRADE</span></div></div>
+      <div class="card"><div class="ttl">Upgrade ready<span class="s">Qobuz · 16-bit AIFF</span></div>
+        <div class="cmp"><span class="k"><span>Now · MP3 320</span><span>cut at 16.0 kHz</span></span><span class="pbtn">▶</span>${spectrum(72, 3)}
+        <span class="k"><span>Upgrade · lossless</span><span>full range</span></span><span class="pbtn">▶</span>${spectrum(0, 3)}</div></div>
+      <div class="card"><div class="ttl">Current file<span class="s" style="color:var(--accent-text)">Show in Finder</span></div>
+        <div class="kv"><span class="k">Format</span><span class="v">MP3 · 320 kbps · 44.1 kHz</span><span class="k">Source</span><span class="v">SoundCloud</span><span class="k">Playlists</span><span class="v">–</span><span class="k">Added</span><span class="v">12 Mar 2019</span><span class="k">File</span><span class="v">Pulsar 9 - Sonnenfinsternis.mp3</span></div></div>
+      <button class="go">Swap the files</button></div>`;
+  }
+  function libraryPage(o, W) {
+    const p = PAGES[o.p];
+    const pw = W < 1240 ? 320 : 360;
+    const chrome = (o.form === 'rail' ? 50 : 168) + (o.browser ? o.bw : 0);
+    const mainW = W - chrome - 1 - (o.insp ? pw : 0);
+    const tw = Math.min(mainW, 1244) - 44;
+    return `<div class="main"><div class="col">${head(p, o.insp)}${summary(p.sum)}${seg(p.seg)}${table(p, tw, o.insp ? 'Sonnenfinsternis' : null)}</div></div>${o.insp ? inspector() : ''}`;
+  }
+
+  // ---------- Dashboard (a stand-in for "another page": ListPanelFrame, list 900 px, panel docked) ----------
+  function dashboardPage() {
+    const qs = [['--good', 3776, 'Lossless'], ['--ok', 912, 'Good lossy'], ['--weak', 470, 'Weak'], ['--lossy', 160, 'Fake']];
+    const needs = [['--good', '9 upgrades ready'], ['--missing', '3 not found'], ['--weak', '52 weak versions']];
+    const pls = playlists.slice(0, 14);
+    return `<div class="main"><div class="col" style="--max:900px"><div class="hd"><h1>Good morning</h1><span class="st">Last sync today, 07:12 · 33 of 35 playlists on</span></div>
+      <div class="card"><div class="bign">71<small> % lossless</small></div><div class="lbl" style="margin-top:-4px">3,776 of 5,318 checked tracks</div>
+        <div class="qbar">${qs.map(([v, n]) => `<i style="--c:var(${v});flex:${n}"></i>`).join('')}</div>
+        <div class="q-legend">${qs.map(([v, n, l]) => `<span><span class="dot" style="--c:var(${v})"></span>${l} <b>${fmt(n)}</b></span>`).join('')}</div></div>
+      <div class="surf"><div class="sh2"><b>Needs you</b><span class="cnt">${TODO} in To-do</span></div>${needs.map(([v, l]) => `<div class="drow"><span class="dot" style="--c:var(${v})"></span><span class="nm2">${l}</span><span></span><span class="n">›</span></div>`).join('')}</div>
+      <div class="surf grow"><div class="sh2"><b>Playlists</b><span class="cnt">35</span></div><div class="rows">${pls.map((x) => `<div class="drow${x.off ? ' off' : ''}"><span class="g" style="margin:0">${SVC[x.svc]}</span><span class="nm2">${esc(x.name)}</span><span class="s">up to date</span><span class="n">${x.n} songs</span></div>`).join('')}</div></div>
+    </div></div>
+    <div class="panel"><div class="card"><div class="ttl">Up to date<span class="s">today, 07:12</span></div><div class="krow">Next sync<b>19:00</b></div><div class="krow">Qobuz today<b>15 of 40</b></div></div>
+      <div class="surf grow" style="margin-bottom:0"><div class="sh2"><b>Last runs</b></div><div class="rows">${[['Today, 07:12', '4 new · 1 upgrade'], ['Yesterday, 19:00', '2 new'], ['Yesterday, 07:00', 'nothing new'], ['27 Oct, 19:00', '7 new · 2 upgrades'], ['27 Oct, 07:00', '1 new'], ['26 Oct, 19:00', '3 new'], ['26 Oct, 07:00', 'nothing new']]
+        .map(([d, s]) => `<div class="drow" style="grid-template-columns:minmax(0,1fr) auto"><span class="nm2">${d}</span><span class="s">${s}</span></div>`).join('')}</div></div>
+      <button class="go" style="margin-top:0">Start sync</button></div>`;
+  }
+
+  // ---------- the foot (player bar; sync's short form at its right end) ----------
+  function foot(o, chromeW, W) {
+    const frac = .23;
+    return `<div class="foot" data-foot><span class="played" style="left:${chromeW}px;width:${Math.round((W - chromeW) * frac)}px"></span>
+      <div class="item"><span class="cv" style="background:${grads[11 % grads.length]}"></span><div style="min-width:0"><div class="a">Kaltfront</div><div class="b">Pulsar 9 · Rekordbox Library</div></div></div>
+      <div class="mid"><span class="tm l">1:16</span><span class="tb">⏮</span><span class="pp">❚❚</span><span class="tb">⏭</span><span class="tm">5:31</span></div>
+      <div class="end">${o.sync ? `<span class="syncs">Sync ${o.sync[0]} of ${o.sync[1]}<span class="mini"><i style="width:${Math.round(o.sync[0] / o.sync[1] * 100)}%"></i></span></span><span class="sep"></span>` : ''}<span>⤮</span><span class="sep"></span><span>⌄ Hide player</span><span style="font-size:14px">×</span></div></div>`;
+  }
+
+  // ---------- the states ----------
+  const FAVS = ['pl:Hard_Bounce', 'cr:wf:rb:Music/DJ/Hardtechno', 'pl:Peak Time', 'cr:wf:rb:Music/Old Sets/Bounce'];
+  const base = { form: 'rail', page: 'lib', p: 'rb', sel: 'wf:rb', bw: 240, favs: FAVS, W: 1280 };
+  const STATES = {
+    'library': { label: 'Library', title: 'Library, 1280 × 800: the rail, the browser column at 240, Rekordbox Library open; the table keeps every column and gains Length', o: {} },
+    'search': { label: 'Filter “bou”', title: 'Filtering “bou” (⌘K): matches across sections, the watched folder as context, Enter opens the highlighted one; a crate’s tooltip gives its full path', o: { q: 'bou', kb: 'pl:Hard_Bounce', tip: 'crate' } },
+    'favourites': { label: 'Favourites drag', title: 'Favourites in use: Peak Time is being dragged to the top, the rows below make room; Hardtechno open (its pill on its topmost row)', o: { p: 'ht', sel: 'cr:wf:rb:Music/DJ/Hardtechno', drag: { key: 'pl:Peak Time', at: 0 } } },
+    'wide': { label: 'Column wider', title: 'The browser column dragged to 320: the edge line in orange follows the pointer; long names come out whole; the table lets Length go', o: { bw: 320, resizing: true } },
+    'inspector': { label: 'Details open', title: 'Details open (⌘I, the toggle, or a click on a quality badge): an upgrade-ready track; the table drops to Track, Artist, Subfolder, Quality while it’s open', o: { insp: true } },
+    'inspector-1100': { label: 'Details 1100', title: 'Details open at 1100 × 700: below 1240 the browser column steps back behind the rail while the details are open (it returns when they close), so the list keeps Track, Artist, Subfolder, Quality and whole filter labels', o: { W: 1100, insp: true } },
+    'library-1100': { label: 'Library 1100', title: 'Library, 1100 × 700, later: a track playing and a sync running; the foot keeps working under the rail and the browser (its line starts at the page’s edge)', o: { W: 1100, foot: true, sync: [12, 40] } },
+    'first-look': { label: 'First look', title: 'A new user’s first look: Favourites empty, with its landing row; Playlists folded by its header; the right-click menu on a crate offers Add to favourites and Hide', o: { favs: [], menu: 'cr:wf:rb:Music/DJ/Rock', closedSecs: ['pl'] } },
+    'dashboard': { label: 'Dashboard', title: 'Another page: the full sidebar (pages, Library, Favourites as shortcuts), the page’s docked panel as today', o: { form: 'full', page: 'dash', sel: null } },
+    'dashboard-rail': { label: 'Dashboard, folded', title: 'Dashboard with the sidebar folded by hand (⌃⌘S): the same icons in the same places, tooltips name them; the hidden player sits above Settings; the page’s list takes the space up to its 900 px (825 here)', o: { form: 'rail', page: 'dash', sel: null, hiddenPlayer: true, tip: 'todo' } },
+  };
+
+  const pick = document.getElementById('state');
+  pick.innerHTML = Object.entries(STATES).map(([k, s]) => `${k === 'dashboard' ? '<span class="sep"></span>' : ''}<button data-v="${k}">${s.label}</button>`).join('');
+  let state = location.hash.slice(1);
+  if (!STATES[state]) state = 'library';
+
+  function render() {
+    const s = STATES[state];
+    const o = { ...base, ...s.o, closed: new Set(s.o.closedSecs || []), used: new Set() };
+    const W = o.W, H = W === 1100 ? 700 : 800;
+    o.browser = o.page === 'lib' && !(o.insp && W < 1240);   // below 1240 the window holds the browser or the details beside the list, not both
+    pick.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === state));
+    document.getElementById('optTitle').textContent = s.title;
+    const st = document.getElementById('stage');
+    const scale = Math.min(1, (st.clientWidth || document.body.clientWidth - 48) / W);
+    st.style.height = H * scale + 'px';
+    const chromeW = (o.form === 'rail' ? 50 : 168) + (o.browser ? o.bw : 0);
+    const left = appSidebar(o) + (o.browser ? browser(o) : '');
+    const pageHtml = o.page === 'lib' ? libraryPage(o, W) : dashboardPage();
+    st.innerHTML = `<div class="win${o.foot ? ' has-foot' : ''}" data-win style="width:${W}px;height:${H}px;--pw:${W < 1240 ? 320 : 360}px;transform:scale(${scale})"><div class="body">${left}<div class="inner">${pageHtml}</div></div>${o.foot ? foot(o, chromeW, W) : ''}</div>`;
+    const win = st.querySelector('[data-win]');
+    const lib = win.querySelector('[data-lib]');
+    const at = (el) => { const r = el.getBoundingClientRect(), w = win.getBoundingClientRect(); return { x: (r.left - w.left) / scale, y: (r.top - w.top) / scale, w: r.width / scale, h: r.height / scale }; };
+    const selEl = lib && lib.querySelector('.nav.on');
+    if (selEl && !o.q && selEl.offsetTop + 40 > lib.clientHeight) lib.scrollTop = selEl.offsetTop - lib.clientHeight + 130;
+    const selRow = win.querySelector('.tr.sel');
+    if (selRow) { const sc = selRow.parentElement; if (selRow.offsetTop + 60 > sc.clientHeight) sc.scrollTop = selRow.offsetTop - sc.clientHeight / 2; }
+    if (o.scroll === 'end' && lib) { const el = lib.querySelector(`[data-k="${o.menu}"]`); lib.scrollTop = el.offsetTop - lib.clientHeight + 200; }
+    if (o.menu) {
+      const r = at(win.querySelector('.menu-on'));
+      const px = r.x + 80, py = r.y + 18;
+      win.insertAdjacentHTML('beforeend', `<div class="cmenu" style="left:${px + 4}px;top:${Math.min(py, H - 170)}px"><div>Open</div><div>Play</div><hr><div class="hov">Add to favourites</div><div>Hide from sidebar<span>Settings brings it back</span></div><hr><div>Show in Finder</div></div>` + cur(ARROW, px, py - 4));
+    }
+    if (o.tip === 'crate') {
+      const els = win.querySelectorAll('[data-k="cr:wf:rb:Music/Old Sets/Bounce"]'), el = els[els.length - 1];
+      if (el) { const r = at(el); win.insertAdjacentHTML('beforeend', `<div class="tip" style="left:${r.x + 70}px;top:${r.y + r.h + 3}px">Rekordbox Library › Music › Old Sets › Bounce<br><span class="lb">61 files</span></div>` + cur(ARROW, r.x + 62, r.y + 18)); }
+    }
+    if (o.tip === 'todo') {
+      const r = at(win.querySelector('[data-nav="todo"]'));
+      win.insertAdjacentHTML('beforeend', `<div class="tip" style="left:${r.x + r.w + 8}px;top:${r.y + 4}px">To-do · ${TODO} to look at<kbd>⌘3</kbd></div>` + cur(ARROW, r.x + 16, r.y + 14));
+    }
+    if (o.drag) {
+      const sl = win.querySelector('[data-slot]'), r = at(sl), x = byKey[o.drag.key];
+      const libr = at(lib);
+      lib.insertAdjacentHTML('beforeend', `<div class="nav lift" style="top:${r.y - libr.y + lib.scrollTop}px"><span class="g">${SVC[x.svc]}</span><span class="t">${x.name}</span><span class="c">${x.n}</span></div>`);
+      win.insertAdjacentHTML('beforeend', cur(HAND, r.x + 124, r.y + 12));
+    }
+    if (o.resizing) { const r = at(win.querySelector('[data-edge]')); win.insertAdjacentHTML('beforeend', cur(RESIZE, r.x - 7, 310)); }
+  }
+  pick.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { state = b.dataset.v; history.replaceState(null, '', '#' + state); render(); }));
+  addEventListener('hashchange', () => location.reload());
+  addEventListener('resize', render);
+  render();
+})();
+</script>
+</body></html>
