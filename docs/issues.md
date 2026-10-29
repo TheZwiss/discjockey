@@ -68,5 +68,8 @@ Noted while moving the engine onto `library.db` (`docs/2026-10-23-library-stage-
 Follow-up of `docs/2026-10-23-library-and-sources-design.md` (§1 out of scope, §10.3). Files with missing or wrong tags
 are identified today only from tags and file names. An opt-in setting would send Chromaprint fingerprints to AcoustID
 (free service; needs an application key and the `fpcalc` program bundled, with its licence in `packaging/licenses/`)
-and use the returned recording's ISRC and names. Ask the user before building: it sends data about their files to an
-outside service.
+and use the returned recording's ISRC and names.
+
+**User decision (2026-10-29): yes, build it, as a last resort only.** A file is fingerprinted only when its tags and
+file name can't identify it. Files that are already identified send nothing. The setting stays off until the user turns
+it on, because it sends data about their files to an outside service. Plan it as a stage after stage 6.
