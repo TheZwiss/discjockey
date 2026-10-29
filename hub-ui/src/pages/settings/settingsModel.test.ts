@@ -81,7 +81,7 @@ describe('settings rows', () => {
     const yt = acc({ state: 'on', browser: 'chrome', browser_name: 'Chrome', profile: 'Profile 2', profile_name: 'DJ',
       last_check: { ok: true, problem: null, kbps: 256, at: '2026-10-21T10:00:00' } });
     expect(rowLine('youtube', ctx({ downloads: view({ youtube: yt }) }))).toEqual(
-      { tone: 'good', text: 'via Chrome (DJ) · 256 kbps · checked 21 Oct' });
+      { tone: 'good', text: 'via Chrome (DJ) · 256 kbps · checked 21\u00A0Oct' });
   });
   it('accounts that need the user', () => {
     const lost = acc({ state: 'off', browser: 'chrome', browser_name: 'Chrome' });

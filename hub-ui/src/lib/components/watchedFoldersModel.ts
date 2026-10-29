@@ -49,7 +49,7 @@ export function pathParts(path: string): { head: string; tail: string } {
  * is whole and first (it tells which drive to connect), the rest follows. When that is too wide the rest's folders give
  * way whole from the front ("Example Drive › …/Sets"); only when even the last folder alone is too wide is its middle
  * cut ("Example Drive › …/Long Na…ame"), and where not even that fits, the drive's name stands with "…"
- * ("Example Drive › …"). `head` ends in a no-break space so the blank survives the row's layout.
+ * ("Example Drive › …"). `head` ends in a no-break space so the blank survives the row's layout, and the blank before "›" is one too, so a line never breaks before the "›" (a place that wraps, `filePlace`, makes the one after it breakable).
  * Any other path stays whole while it fits; else the parents give way in whole folders from the front ("~/Music/Old/Crates"
  * → "…/Old/Crates"), and only when even the shortest form doesn't fit is its end cut, measured, so no blank sits before
  * the tail ("…/Archi…/Crates").
@@ -82,7 +82,7 @@ function driveParts(path: string): { drive: string; rest: string[] } | null {
 function fitDrivePath({ drive, rest }: { drive: string; rest: string[] }, fits: (text: string) => boolean):
     { head: string; tail: string } {
   if (!rest.length) return { head: drive, tail: '' };
-  const head = `${drive} ›\u00A0`;
+  const head = `${drive}\u00A0›\u00A0`;
   const forms = [rest.join('/')];
   for (let i = 1; i < rest.length; i++) forms.push(`…/${rest.slice(i).join('/')}`);
   const whole = forms.find((f) => fits(head + f));

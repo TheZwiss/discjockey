@@ -4,6 +4,9 @@ const NONE = '—';
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const two = (n: number) => String(n).padStart(2, '0');
+/** A day and its month ("2 Nov"), joined by a no-break space: a line never splits a date between day and month. Every
+ *  date the hub writes comes from here (`runWhen`, `dateShort`, `dayMonth`). */
+const dayAndMonth = (day: number, month: number) => `${day} ${MONTHS[month]}`;
 
 /** 192 → "3:12"; 3725 → "1:02:05"; null → "—". */
 export function duration(s: number | null | undefined): string {
@@ -83,12 +86,12 @@ export function runWhen(iso: string | null | undefined, now: Date | number = new
   if (sameDay(d, n)) return `Today ${time}`;
   const y = new Date(n); y.setDate(y.getDate() - 1);
   if (sameDay(d, y)) return `Yesterday ${time}`;
-  return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  return `${DAYS[d.getDay()]} ${dayAndMonth(d.getDate(), d.getMonth())}`;
 }
 /** "13 Oct 2026". */
 export function dateShort(iso: string | null | undefined): string {
   const d = iso ? parse(iso.length === 10 ? `${iso}T12:00:00` : iso) : null;
-  return d ? `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}` : NONE;
+  return d ? `${dayAndMonth(d.getDate(), d.getMonth())} ${d.getFullYear()}` : NONE;
 }
 /** "21:47". */
 export function clock(iso: string | null | undefined): string {
@@ -139,7 +142,7 @@ export function foundText(iso: string | null | undefined): string {
 /** "18 Oct" from an ISO date (its calendar date, whatever the time zone); '' when there is none. Library's Added. */
 export function dayMonth(iso: string | null | undefined): string {
   const m = iso ? /^(\d{4})-(\d{2})-(\d{2})/.exec(iso) : null;
-  return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}` : '';
+  return m ? dayAndMonth(Number(m[3]), Number(m[2]) - 1) : '';
 }
 
 /** The upgrade box's heading: "Upgrade ready", and for a better lossy stream what it is ("· 256 kbps version"). */

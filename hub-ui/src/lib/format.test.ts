@@ -48,12 +48,20 @@ describe('format', () => {
     const now = new Date('2026-10-16T22:00:00');
     expect(runWhen('2026-10-16T21:47:00', now)).toBe('Today 21:47');
     expect(runWhen('2026-10-15T21:47:00', now)).toBe('Yesterday 21:47');
-    expect(runWhen('2026-10-13T21:47:00', now)).toBe('Tue 13 Oct');
-    expect(dateShort('2026-10-13T21:47:00')).toBe('13 Oct 2026');
-    expect(dateShort('2026-10-13')).toBe('13 Oct 2026');
-    expect(dayMonth('2026-10-03T21:47:00')).toBe('3 Oct');
+    expect(runWhen('2026-10-13T21:47:00', now)).toBe('Tue 13\u00A0Oct');
+    expect(dateShort('2026-10-13T21:47:00')).toBe('13\u00A0Oct\u00A02026');
+    expect(dateShort('2026-10-13')).toBe('13\u00A0Oct\u00A02026');
+    expect(dayMonth('2026-10-03T21:47:00')).toBe('3\u00A0Oct');
     expect(dayMonth(null)).toBe('');
     expect(clock('2026-10-13T09:05:00')).toBe('09:05');
+  });
+  it('a date never splits across lines: day and month (and year) are joined by no-break spaces', () => {
+    const now = new Date('2026-10-16T22:00:00');
+    for (const d of [runWhen('2026-11-02T21:47:00', now), dateShort('2026-11-02'), dayMonth('2026-11-02')]) {
+      expect(d).not.toMatch(/\d [A-Z][a-z]{2}/);   // no plain blank between a day and its month
+      expect(d).toMatch(/2 Nov/);
+    }
+    expect(dateShort('2026-11-02')).not.toMatch(/Nov 2026/);   // nor between the month and the year
   });
   it('plural, artistTitle, runIdFromReport', () => {
     expect(plural(1, 'track')).toBe('1 track');

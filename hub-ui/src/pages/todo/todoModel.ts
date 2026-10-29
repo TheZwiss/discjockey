@@ -7,7 +7,7 @@ import type {
 import { isDuplicate, isQuestion } from '$lib/bridge/types';
 import type { QueueItem } from '$lib/stores/queueModel';
 import type { PlayerState } from '$lib/stores/player';
-import { duration, fileAway } from '$lib/format';
+import { dayMonth, duration, fileAway } from '$lib/format';
 import { fitPath } from '$lib/components/watchedFoldersModel';
 
 /** Filter order = the contract's group order (= the list's section order), All first. The import's two groups come
@@ -191,7 +191,8 @@ export function fileFolder(path: string): string {
  *  a place that wraps (nothing is cut). */
 export function filePlace(path: string): string {
   const { head, tail } = fitPath(fileFolder(path), () => true);
-  return head + tail;
+  // the blank after "›" is a plain one: a line may break after the "›", never before it (fitPath keeps that one tight)
+  return head.replace(/\u00A0$/, ' ') + tail;
 }
 
 /** One line of "Is this the same song?": the playlist song's value beside the file's; `differs` marks the line the
@@ -275,14 +276,12 @@ export function freeHint(fs: FreeDownload[]): string {
     : 'For a follow, a like or an e-mail · usually WAV or 320 kbps MP3';
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 /** The "Qobuz" fact from `next_qobuz_check`: ISO date → "not there yet · looks again on 20 Oct", null → nothing. */
 export function qobuzText(next: string | null): string | null {
   if (!next) return null;
   if (next === 'next_sync') return 'not there yet · looks again at the next sync';
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(next);
-  if (!m) return null;
-  return `not there yet · looks again on ${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}`;
+  const day = dayMonth(next);
+  return day ? `not there yet · looks again on ${day}` : null;
 }
 
 export { cueTone, cutoffStat, foundText } from '$lib/format';
