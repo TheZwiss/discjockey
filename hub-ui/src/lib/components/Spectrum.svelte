@@ -7,7 +7,7 @@
   // draw: "No file yet", or, for a file that isn't there (`away`: the words for why), those.
   import type { Spectrum } from '../bridge/types';
   import { khz } from '../format';
-  import { colourMap, decodeSpectrum, hexRgb } from './spectrum-data';
+  import { colourMap, decodeSpectrum, hexRgb, showTopLabel } from './spectrum-data';
   import Skeleton from './Skeleton.svelte';
 
   let { spectrum, height = 96, loading = false, cutoffLabel = true, error = null, noFile = false, away = null }:
@@ -56,8 +56,8 @@
       {#if cutoffLabel}<span class="cutlabel" style:bottom={cut > 0.75 ? `calc(${cut * 100}% - 1.4em - 2px)` : `calc(${cut * 100}% + 2px)`}>cut off at {khz(spectrum.cutoff_hz)}</span>{/if}
     {/if}
     <!-- small strips (upgrade compare) have no room for the top label, and near the top it would sit on the
-         cutoff line -->
-    {#if height >= 64 && (cut === null || cut < 0.8)}<span class="axis top">{khz(spectrum.max_hz)}</span>{/if}
+         cutoff line (showTopLabel decides, in pixels) -->
+    {#if showTopLabel(height, cut)}<span class="axis top">{khz(spectrum.max_hz)}</span>{/if}
   {/if}
 </div>
 

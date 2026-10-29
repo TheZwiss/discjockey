@@ -484,6 +484,11 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-29 · The spectrum's top label only shows with room above the cutoff line (library stage 4 fix L).** In the
+  64 px strip a 16 kHz file's cutoff line is about 17 px from the top, and "22.1 kHz" sat on it, reading as "cut off at
+  22.1 kHz". `showTopLabel(height, cut)` (`spectrum-data.ts`) now decides in pixels: a strip of 64 px or more, and the
+  line at least a label and a gap (22 px) below the top; the old fraction rule (`cut < 0.8`) was only right at one
+  height. Bigger strips keep the label for a deeper cut or none. Seen: `library-fake-qobuz-selected`, `library-ejected-back`.
 - **2026-10-29 · An away row says why (library stage 4 fix K).** New block `AwayTag`. A Library row whose file is away
   (`file_state` `offline` or `folder_missing`: the drive is ejected, the watched folder isn't found) is dimmed like a
   leftover row (it can't play) and shows the `AwayTag` **in place of its quality badge**; its cover has no ▶, and
