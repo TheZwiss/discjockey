@@ -12,7 +12,7 @@ import pytest
 
 from audio_helpers import music, needs_ffmpeg, write_aiff
 from discjockey import db, folders, importer, library
-from discjockey.events import CancelToken
+from discjockey.events import CancelToken, Message
 from discjockey.library import Paths, empty_state, load_state, save_state
 from discjockey.models import DupFile
 from discjockey.ops import CHANGED, OpProblem
@@ -329,6 +329,57 @@ def test_a_refused_move_moves_nothing_and_says_why(paths, tmp_path, monkeypatch)
 
 
 @needs_ffmpeg
+def stopped_supersede(paths, tmp_path, monkeypatch):
+    """A Move to Superseded cut off after its journal entry, before the rename: one step pending."""
+    copies(paths, tmp_path)
+    gid, files = group(paths)
+    moved = next(f for f in files if f.path.endswith("House/Example Artist - Twice.aiff"))
+
+    def power_cut(*a, **k):
+        raise SystemExit("power cut")
+    monkeypatch.setattr(library, "move_path", power_cut)
+    monkeypatch.setattr(db, "drop_pending", power_cut)
+    with pytest.raises(SystemExit):
+        folders.supersede(paths, gid, moved.file_id, now=lambda: NOW)
+    monkeypatch.undo()
+    with db.connect(paths.db_file) as conn:
+        assert len(db.pending_ops(conn)) == 1
+    return gid, moved
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("writer", ["import", "supersede"])
+def test_a_writer_that_finishes_a_stopped_step_says_so(paths, tmp_path, monkeypatch, writer):
+    gid, moved = stopped_supersede(paths, tmp_path, monkeypatch)
+    events = []
+    if writer == "import":
+        importer.run_import(paths, emit=events.append, token=CancelToken(), link=lambda: None,
+                            probe=lambda p: AudioInfo("pcm_s16be", 44100, 1.0), inspect=lambda p: ("pcm_s16be", None))
+    else:
+        with pytest.raises(OpProblem):  # the step moved the file: the group isn't as the window showed it now
+            folders.supersede(paths, gid, moved.file_id, emit=events.append, now=lambda: NOW)
+    texts = [e.text for e in events if isinstance(e, Message)]
+    assert texts and "Twice" in texts[0]  # the recovery's words reach the window, as tidy-up's and a sync's do
+    with db.connect(paths.db_file) as conn:
+        assert db.pending_ops(conn) == []
+
+
+@needs_ffmpeg
+def test_a_folder_a_pending_step_still_names_is_not_removed(paths, tmp_path, monkeypatch):
+    stopped_supersede(paths, tmp_path, monkeypatch)
+    with db.connect(paths.db_file) as conn:
+        folder_id = next(f.id for f in db.watched_folders(conn) if f.kind == "import")
+    with pytest.raises(OpProblem) as refused:
+        folders.remove(paths, folder_id, NOW.date())
+    assert (refused.value.kind, str(refused.value)) == ("refused", "Discjockey still has an unfinished change for "
+                                                        "this folder. Connect its drive and open Discjockey again, "
+                                                        "then remove it.")
+    with db.connect(paths.db_file) as conn:
+        assert folder_id in [f.id for f in db.watched_folders(conn)] and len(db.pending_ops(conn)) == 1
+    library.recover_pending(paths, load_state(paths))  # the drive is back: the step finishes, then it can go
+    assert folders.remove(paths, folder_id, NOW.date()).files == 1
+
+
 def test_a_name_taken_in_superseded_gets_a_counter_never_an_id_for_an_own_song(paths, tmp_path):
     copies(paths, tmp_path)
     gid, files = group(paths)

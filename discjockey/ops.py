@@ -211,7 +211,8 @@ def add_bought_file(paths: Paths, state: dict, track_id: str, src: Path, *,
 
 def _superseded_name(paths: Paths, state: dict, track_id: str, e: dict) -> str:
     stem, ext = split_name(strip_id_suffix(PurePosixPath(e["path"]).name, track_id))
-    return NameReserver(paths.root, state).choose(superseded_dir(e["path"]), stem, ext, track_id)
+    return NameReserver(paths.root, state).choose(superseded_dir(e["path"], library.watched_root(paths, e["path"])),
+                                                  stem, ext, track_id)
 
 
 def _move_away(paths: Paths, state: dict, track_id: str, e: dict, today: str, dst: str | None = None) -> str:

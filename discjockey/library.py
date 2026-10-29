@@ -27,7 +27,7 @@ from typing import Literal
 from .content_key import content_key
 from .events import Emit, Message, no_emit
 from .models import ScanSummary
-from .names import fold
+from .names import fold, id_tags
 
 log = logging.getLogger(__name__)
 
@@ -275,6 +275,20 @@ def load_state(paths: Paths) -> dict:
     if db.is_stub(paths.state_file):
         raise StateError(db.DB_MISSING)
     return _v1_snapshot(paths, _load_v1(paths.state_file))
+
+
+def watched_root(paths: Paths, path: str) -> str | None:
+    """The import folder holding the snapshot path `path` (db.watched_root), so a file's Superseded/ and Upgrades
+    ready/ places mirror its folder relative to its watched folder (spec §7, §10.5). None for a Library/ path, without
+    opening library.db."""
+    from . import db
+    if not PurePosixPath(path).is_absolute() or not paths.db_file.exists():
+        return None
+    try:
+        with db.connect(paths.db_file) as conn:
+            return db.watched_root(conn, path)
+    except sqlite3.Error as e:
+        raise db.unreadable(e) from None
 
 
 def import_left(paths: Paths) -> int:
@@ -537,9 +551,9 @@ class NameReserver:
         self.taken.discard(fold(rel))
 
     def choose(self, dest_dir: str, stem: str, ext: str, track_id: str) -> str:
-        """The stem, else with the track ID (none when `track_id` is "": a file of no playlist song). In
+        """The stem, else with the song's ID tag (names.id_tags; none when `track_id` is "": a file of no song). In
         Superseded/ a counter follows ("<stem> (2)", ...), so a replaced file always finds a place there."""
-        names = [stem, f"{stem} [{track_id[:6]}]", f"{stem} [{track_id}]"] if track_id else [stem]
+        names = [stem, *(f"{stem} {tag}" for tag in id_tags(track_id))]
         if fold(dest_dir).split("/")[0] == "superseded":
             names = itertools.chain(names, (f"{stem} ({n})" for n in itertools.count(2)))
         for candidate in names:
@@ -564,6 +578,9 @@ def safe_rename(root: Path, src: str, dst: str) -> None:
 STAGED_SUFFIX = ".discjockey-move"  # not an audio extension, so the scanner never sees a staged copy
 COPY_MISMATCH = "the copy on the other drive didn't match the original"
 DRIVE_GONE = "the drive of {path} isn't connected"
+# W17 (plan library stage 4 I12): a pending step waits for a drive (recover_pending), and the scan waits with it
+DRIVE_WAITS = ("Couldn't finish a stopped change: the drive with {path} isn't connected. Connect it; until then "
+               "Discjockey doesn't look for new files.")
 TWO_PLACES = ("{src} couldn't be removed from its drive ({reason}), so the file is in two places now: {src} and "
               "{dst}")
 SOURCE_STAYS = "{src} couldn't be removed from its drive ({reason}), so it stays where it was"
@@ -857,6 +874,20 @@ class _Recovered:
     problem: str  # "" when every rename is done
     done_any: bool  # a file is in its new place: the step's result must be written
     wait: bool  # nothing decided: the step stays pending for the next start
+    drive: str | None = None  # it waits for a drive that isn't connected: a file's path there (short_path)
+
+
+def short_path(path: Path | str) -> str:
+    """A path for the user's eyes: the home folder as `~`."""
+    p, home = Path(path), Path.home()
+    return "~/" + p.relative_to(home).as_posix() if p != home and p.is_relative_to(home) else p.as_posix()
+
+
+def _waiting(name: str, r: _Recovered) -> tuple[str, bool]:
+    """The message of a step that stays pending: W17 when it waits for a drive, else what stands in its way."""
+    if r.drive is not None:
+        return DRIVE_WAITS.format(path=r.drive), False
+    return f"Could not finish an interrupted step for {name} yet: {r.problem}", False
 
 
 def _recover_renames(root: Path, op: dict, roots: Collection[Path]) -> _Recovered:
@@ -875,8 +906,8 @@ def _recover_renames(root: Path, op: dict, roots: Collection[Path]) -> _Recovere
         copy = root / staged[str(i)] if str(i) in staged else None
         s_path, d_path = root / src, root / dst
         if not (online(s_path, roots) and online(d_path, roots)):
-            return _Recovered(f"could not move {src} ({DRIVE_GONE.format(path=dst if online(s_path, roots) else src)})",
-                              done_any, True)
+            away = short_path(d_path if online(s_path, roots) else s_path)
+            return _Recovered(DRIVE_GONE.format(path=away), done_any, True, drive=away)
         s, d = s_path.exists(), d_path.exists()
         try:
             if d and not s:
@@ -934,7 +965,7 @@ def _recover_files(paths: Paths, op: dict, roots: Collection[Path]) -> tuple[tup
     name = op.get("label") or "a file"
     r = _recover_renames(paths.root, op, roots)
     if r.wait and not r.done_any:
-        return (f"Could not finish an interrupted step for {name} yet: {r.problem}", False), False
+        return _waiting(name, r), False
     with db.connect(paths.db_file) as conn:
         if not r.done_any:
             db.drop_pending(conn, op["op_id"])
@@ -952,6 +983,11 @@ def _refresh(paths: Paths, state: dict) -> None:
     fresh = load_state(paths)
     state.clear()
     state.update(fresh)
+
+
+def drive_away(op: dict, root: Path, roots: Collection[Path]) -> Path | None:
+    """The first file a pending step names that is on a drive that isn't connected, or None."""
+    return next((root / p for p in op_paths(op) if not online(root / p, roots)), None)
 
 
 def waits_offline(op: dict, root: Path, roots: Collection[Path]) -> bool:
@@ -983,7 +1019,7 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
         name = op.get("label") or f"{e.get('artist', '?')} - {e.get('title', op['track_id'])}"
         r = _recover_renames(paths.root, op, roots)
         if r.wait and not r.done_any:
-            messages.append((f"Could not finish an interrupted step for {name} yet: {r.problem}", False))
+            messages.append(_waiting(name, r))
             continue
         if r.done_any:
             # once a file was placed, the entry must point at it, or the next run would mis-adopt it
@@ -1013,7 +1049,8 @@ NOT_JUDGED = ("{path} was changed outside Discjockey, but Discjockey couldn't ch
 
 def scan_library(paths: Paths, emit: Emit = no_emit, *,
                  analyze: Callable[[Path], tuple[str, int | None]] | None = None,
-                 key_of: Callable[[Path], str] = content_key, recover: bool = True) -> ScanSummary:
+                 key_of: Callable[[Path], str] = content_key, recover: bool = True,
+                 after_recovery: bool = False) -> ScanSummary:
     """Indexes the watched folders (Library/) against library.db and writes what changed (the caller holds the
     lock; the records are opened, and migrated if needed, first): files moved by hand keep their song, new files
     are indexed, a file gone marks its song's file gone, and a song's file whose audio was replaced outside
@@ -1022,9 +1059,11 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
     a file the check fails on keeps its row as it was, so the next scan judges it again. Superseded/, Upgrades
     ready/ and .discjockey/ are never looked at. Nothing is scanned while a step is pending (its files are between
     two places; the next scan after it is finished sees them), unless every file of the step is on a drive that
-    isn't connected (waits_offline: the scan can't see any of them). One message, only when something changed (copies
-    count as new files). `recover` as open_records: a dry run passes False, and a state.json with steps pending is
-    then neither moved into library.db nor scanned."""
+    isn't connected (waits_offline: the scan can't see any of them); a step that holds the scan up because one of
+    its files is on a drive that isn't connected says so in W17's words (DRIVE_WAITS), unless `after_recovery`: the
+    caller has just emitted recover_pending's messages, which say it already. One message, only when something
+    changed (copies count as new files). `recover` as open_records: a dry run passes False, and a state.json with
+    steps pending is then neither moved into library.db nor scanned."""
     from . import db, scanner
     from .quality import is_lossless_codec, verdict
     if analyze is None:
@@ -1035,7 +1074,11 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
         with db.connect(paths.db_file) as conn:
             folders = {f.id: f for f in db.watched_folders(conn)}
             roots = [paths.root, *(f.path for f in folders.values() if f.kind != "library")]  # as watched_roots
-            if any(not waits_offline(op, paths.root, roots) for op in db.pending_ops(conn)):
+            blocking = [op for op in db.pending_ops(conn) if not waits_offline(op, paths.root, roots)]
+            if blocking:
+                away = next((p for op in blocking if (p := drive_away(op, paths.root, roots)) is not None), None)
+                if away is not None and not after_recovery:  # W17, as recover_pending says it
+                    emit(Message("warning", DRIVE_WAITS.format(path=short_path(away))))
                 return ScanSummary()
             known = db.known_files(conn)
 

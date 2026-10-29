@@ -262,3 +262,22 @@ def test_add_as_new_for_a_file_kept_elsewhere_lands_next_to_it(env):
     assert r.path == state["tracks"]["t1aaaaaaa"]["path"] == "Library/Sets/2024/Artist - Song.aiff"
     assert (paths.root / "Library/Sets/2024/Artist - Song.aiff").read_bytes() == b"new audio"
     assert (paths.root / "Superseded/Sets/2024/x.aiff").read_bytes() == b"old audio"
+
+
+def test_add_as_new_for_an_own_song_in_an_import_folder_supersedes_into_its_watched_folders_mirror(tmp_path,
+                                                                                                 tmp_path_factory):
+    from discjockey import db
+    paths = Paths(tmp_path, support=tmp_path / ".support")
+    save_state(paths, empty_state())
+    music = tmp_path_factory.mktemp("drive") / "Music"  # an import folder outside the music folder
+    current = str(music / "Sub" / "x.aiff")
+    touch(paths, current, b"old audio")
+    touch(paths, "Upgrades ready/Music/Sub/Artist - Song.aiff", b"new audio")
+    with db.connect(paths.db_file) as conn:
+        db.add_watched_folder(conn, music, datetime(2026, 10, 25, 12, 0))
+    state = load_state(paths)
+    state["tracks"]["local:1"] = make_entry(path=current, upgrade_file="Upgrades ready/Music/Sub/Artist - Song.aiff",
+                                            source="manual", in_playlists=False)
+    upgrades.add_new(paths, state, "local:1", up(state, "local:1"))
+    assert (paths.root / "Superseded/Music/Sub/x.aiff").read_bytes() == b"old audio"  # spec §7, §10.5
+    assert (music / "Sub" / "Artist - Song.aiff").read_bytes() == b"new audio"

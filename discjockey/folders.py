@@ -17,7 +17,7 @@ from . import db, identify, library, ops, report as rep
 from .events import Emit, Message, no_emit
 from .library import FolderCheck, NameReserver, Paths
 from .models import AddedFolder, DupFile, RemovalCounts, is_own
-from .names import split_name, strip_id_suffix
+from .names import fold, split_name, strip_id_suffix
 from .ops import OpProblem
 from .planner import superseded_dir
 from .tidy import failed_detail
@@ -38,6 +38,8 @@ SUPERSEDE = "move_to_superseded"  # the operation's name in reports/operations.j
 MOVED = "Moved to {dst}."
 NOT_MOVED = "Nothing was moved: {detail}."
 NOT_RECORDED = "Moved to {dst}, but Discjockey's records couldn't follow. The next sync catches up."
+PENDING_HERE = ("Discjockey still has an unfinished change for this folder. Connect its drive and open Discjockey "
+                "again, then remove it.")  # W16
 NOT_A_PLAYLIST_SONG = "That song isn't in your playlists any more, so there is nothing to answer."
 STATUS_RANK = {"lossless": 0, "fake_lossless": 1, "not_lossless": 2}  # which own file takes over a playlist song
 
@@ -110,9 +112,16 @@ def removal(paths: Paths, folder_id: int) -> RemovalCounts:
 
 
 def remove(paths: Paths, folder_id: int, today: date | None = None) -> RemovalCounts:
-    """Stops watching an import folder (D12); its files stay where they are. ValueError for the Library folder or an
-    unknown id."""
+    """Stops watching an import folder (D12); its files stay where they are. OpProblem(PENDING_HERE, refused) while
+    a pending step names a file in it (its drive is away, so recovery waits for it): finished later, that step would
+    move a file of a folder nobody watches. ValueError for the Library folder or an unknown id. The caller holds the
+    lock, so no step starts in between."""
     with db.connect(paths.db_file) as conn:
+        root = next((fold(str(f.path)) for f in db.watched_folders(conn) if f.id == folder_id and f.kind == "import"),
+                    None)
+        if root is not None and any(fold(p).startswith(root.rstrip("/") + "/")
+                                    for op in db.pending_ops(conn) for p in library.op_paths(op)):
+            raise OpProblem(PENDING_HERE, "refused")
         return db.remove_watched_folder(conn, folder_id, today or date.today())
 
 
@@ -195,15 +204,6 @@ def _heir(moved: DupFile, others: list[DupFile]) -> int | None:
     return min(own, key=lambda o: (STATUS_RANK.get(o.status or "", 3), o.file_id)).file_id
 
 
-def _watched_root(conn, path: str) -> str | None:
-    """The import folder an absolute snapshot path is in (None for a Library/ path)."""
-    if not PurePosixPath(path).is_absolute():
-        return None
-    roots = [str(f.path) for f in db.watched_folders(conn) if f.kind == "import"
-             if PurePosixPath(path).is_relative_to(str(f.path))]
-    return max(roots, key=len) if roots else None
-
-
 def _target(paths: Paths, state: dict, moved: DupFile, watched: str | None) -> str:
     """The moved file's place in Superseded/, mirroring its folder (spec §7; an import folder's as
     `<its name>/<subfolders>`), its name kept; a name taken there gets the song's ID (a playlist song's) or a
@@ -222,8 +222,9 @@ def supersede(paths: Paths, group_id: str, file_id: int, *, emit: Emit = no_emit
     over (_heir). No move batch, no undo; a line in reports/operations.jsonl. Interrupted steps are finished first.
     OpProblem(CHANGED) when the group isn't as the window showed it, OpProblem(failed) when the move was refused
     (nothing moved). Returns where the file went."""
-    state = library.open_state(paths)
-    library.recover_pending(paths, state)
+    state = library.open_state(paths, emit)
+    for message, ok in library.recover_pending(paths, state):  # as every writer's start (tidy._begin)
+        emit(Message("info" if ok else "warning", message))
     with db.connect(paths.db_file) as conn:
         try:
             files = _current(conn, state, group_id, file_id)
@@ -231,7 +232,7 @@ def supersede(paths: Paths, group_id: str, file_id: int, *, emit: Emit = no_emit
             ops.log_operation(paths, now(), "", None, SUPERSEDE, p.kind, str(p))
             raise
         moved = next(f for f in files if f.file_id == file_id)
-        watched = _watched_root(conn, moved.path)
+        watched = db.watched_root(conn, moved.path)
     key = moved.song_key or ""
     entry = state["tracks"].get(key)
     if not (paths.root / moved.path).is_file():

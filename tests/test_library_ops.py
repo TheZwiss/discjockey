@@ -4,6 +4,7 @@ import signal
 import pytest
 
 from discjockey import library
+from discjockey.names import strip_id_suffix
 from discjockey.library import (
     NameReserver, Paths, deferred_interrupt, delete_parked, empty_state, load_state, op_paths, recover_pending,
     run_op,
@@ -35,6 +36,14 @@ def test_choose_avoids_file_on_disk_with_other_case(paths):
     touch(paths, "Library/A/artist - song.aiff")
     r = NameReserver(paths.root, empty_state())
     assert r.choose("Library/A", "Artist - Song", ".aiff", "abcdef123") == "Library/A/Artist - Song [abcdef].aiff"
+
+
+def test_an_own_songs_name_in_the_way_gets_a_tag_without_a_colon(paths):
+    touch(paths, "Upgrades ready/Music/Artist - Song.aiff")
+    r = NameReserver(paths.root, empty_state())
+    chosen = r.choose("Upgrades ready/Music", "Artist - Song", ".aiff", "local:12")
+    assert chosen == "Upgrades ready/Music/Artist - Song [local 12].aiff"  # Finder would show a colon as "/"
+    assert strip_id_suffix("Artist - Song [local 12].aiff", "local:12") == "Artist - Song.aiff"
 
 
 def test_choose_avoids_name_in_state(paths):

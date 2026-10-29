@@ -255,6 +255,25 @@ def test_an_upgrade_of_a_file_kept_elsewhere_waits_in_its_mirror_folder(env):
     assert (paths.root / "Upgrades ready/Sets/2024/Artist - Song.aiff").read_bytes() == b"new audio"
 
 
+def test_an_upgrade_of_an_own_song_in_an_import_folder_waits_in_the_mirror_of_its_watched_folder(env, tmp_path_factory):
+    from discjockey import db
+    from discjockey.library import save_state
+    paths, state, make = env
+    music = tmp_path_factory.mktemp("drive") / "Music"  # an import folder outside the music folder
+    current = str(music / "Sub" / "x.mp3")
+    touch(paths, current)
+    save_state(paths, state)
+    with db.connect(paths.db_file) as conn:
+        db.add_watched_folder(conn, music, NOW)
+    state.update(load_state(paths))  # the records as the new folder left them
+    state["tracks"]["local:1"] = entry(current, status="not_lossless", source="manual", in_playlists=False)
+    ex, _ = make(ready())
+    ex.run([act("upgrade", tid="local:1")])
+    parked = "Upgrades ready/Music/Sub/Artist - Song.aiff"  # spec §7: relative to its watched folder
+    assert state["tracks"]["local:1"]["upgrade"]["file"] == parked
+    assert (paths.root / parked).read_bytes() == b"new audio"
+
+
 def test_parked_name_already_taken_gets_the_id_suffix(env):
     paths, state, make = env
     touch(paths, "Library/A/not_lossless/Artist - Song.aiff")

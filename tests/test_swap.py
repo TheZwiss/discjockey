@@ -1,15 +1,16 @@
 import os
+from datetime import datetime
 
 import numpy as np
 import pytest
 from audio_helpers import SR, lowpass, music, needs_ffmpeg, pcm, write_aiff
 from mutagen.aiff import AIFF
 
-from discjockey import upgrades
+from discjockey import db, upgrades
 from discjockey.align import Alignment, compare_files
 from discjockey.audio import write_tags
 from hub_helpers import records
-from discjockey.library import Paths, empty_state, load_state, recover_pending
+from discjockey.library import Paths, empty_state, load_state, recover_pending, save_state
 from discjockey.planner import ENTRY_KEYS
 from discjockey.upgrades import UpgradeProblem
 
@@ -447,3 +448,20 @@ def test_a_swap_deeper_down_stays_where_the_file_is(tmp_path):
     upgrades.swap(paths, state, TID, up(state))
     assert state["tracks"][TID]["path"] == deep and os.stat(paths.root / deep).st_ino == inode
     assert (paths.root / "Superseded/A/B/not_lossless/Artist - Song (lossy).aiff").exists()
+
+
+@needs_ffmpeg
+def test_the_swap_backup_of_an_own_song_in_an_import_folder_mirrors_its_watched_folder(tmp_path, tmp_path_factory):
+    watched = tmp_path_factory.mktemp("drive") / "Music"  # an import folder outside the music folder
+    current = str(watched / "Sub" / "x.aiff")
+    paths, state = setup_files(tmp_path, lowpass(X, 16000), shifted(23), path=current)
+    own = {**state["tracks"].pop(TID), "source": "manual", "in_playlists": False}
+    save_state(paths, empty_state())
+    with db.connect(paths.db_file) as conn:
+        db.add_watched_folder(conn, watched, datetime(2026, 10, 25, 12, 0))
+    state = load_state(paths)
+    state["tracks"]["local:1"] = own
+    old_bytes = (watched / "Sub" / "x.aiff").read_bytes()
+    upgrades.swap(paths, state, "local:1", dict(own["upgrade"]))
+    assert (paths.root / "Superseded/Music/Sub/x (lossy).aiff").read_bytes() == old_bytes  # spec §7, §10.5
+    assert state["tracks"]["local:1"]["path"] == current  # swapped in place

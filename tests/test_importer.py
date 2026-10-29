@@ -325,6 +325,24 @@ def test_a_file_gone_between_scan_and_pass_one_is_left_for_the_next_scan(paths, 
     assert go(paths, fakes).left == 0  # the next scan knows it is gone: its row went
 
 
+def test_a_file_moved_into_the_library_before_its_sound_check_is_still_judged_and_counted(paths, tmp_path):
+    folder = songs_folder(paths, tmp_path, n=2)
+    fakes, token = Fakes(), CancelToken()
+    fakes.on_inspect = lambda n: token.cancel()  # stop during the first sound check: one file waits for its own
+    with pytest.raises(importer.ImportStopped):
+        go(paths, fakes, token)
+    waiting = next(e for e in own_entries(paths).values() if e["import_state"] == "identified")
+    name = f"{waiting['artist']} - {waiting['title']}.aiff"
+    (paths.library / "Example").mkdir(parents=True)
+    shutil.move(folder / name, paths.library / "Example" / name)  # moved in Finder into the Library
+    library.scan_library(paths, analyze=lambda p: ("pcm_s16be", None))
+    assert importer.files_waiting(paths) == 1  # still the import's to finish, and counted while it waits
+    fakes.on_inspect, fakes.inspected = None, []
+    result = go(paths, fakes)
+    assert fakes.inspected == [name] and result.sound_checked == 1 and result.left == 0
+    assert {e["import_state"] for e in own_entries(paths).values()} == {"done"}
+
+
 def test_files_waiting_counts_what_an_import_would_do(paths, tmp_path):
     assert importer.files_waiting(paths) == 0
     songs_folder(paths, tmp_path, n=2)

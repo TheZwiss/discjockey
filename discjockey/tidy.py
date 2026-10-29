@@ -125,7 +125,7 @@ def _begin(paths: Paths, emit: Emit) -> dict:
     for message, ok in library.recover_pending(paths, state):
         emit(Message("info" if ok else "warning", message))
     library.clear_tmp(paths, state)
-    library.scan_library(paths, emit)
+    library.scan_library(paths, emit, after_recovery=True)
     return library.open_state(paths, emit)
 
 
@@ -340,6 +340,10 @@ def _file_undo_skip(paths: Paths, m: MoveRow, e: dict | None, taken: set[str],
                     roots: Sequence[Path]) -> str | None:
     if e is None or m.now_path is None:  # the file row is gone, or no song's file any more
         return "moved_on"
+    # it goes back to an import folder no longer watched (an absolute path is never in the music folder, D11): the
+    # records would lose sight of it there, so it stays where it is
+    if PurePosixPath(m.src).is_absolute() and not any(Path(m.src).is_relative_to(r) for r in roots):
+        return "failed"
     if not e.get("online", True) or not library.online(paths.root / m.src, roots):  # here, or where it goes back to
         return "offline"
     if fold(m.now_path) != fold(m.dst) or m.now_key != m.content_key or e.get("held"):
@@ -364,7 +368,8 @@ def _folder_undo_skip(paths: Paths, m: MoveRow, rows: list[pf.Row]) -> tuple[str
 
 def undo_preview(paths: Paths, state: dict, batch_id: int) -> list[PlannedMove]:
     """Read only: the batch's done moves in reverse order, each back from `dst` to `src`, the file's placed_by
-    back to what it was. A move that can't go back carries its skip: `offline` (the file is, or the import folder
+    back to what it was. A move that can't go back carries its skip: `failed` (it goes back to an import folder
+    that isn't watched any more; worded "Couldn't move it"); `offline` (the file is, or the import folder
     it goes back to is, on a drive that isn't connected); `moved_on` (the file isn't at `dst`
     with the key it had, or its song is gone; a folder: `Library/<new>` isn't there); `place_taken` (something is
     at `src`; a folder: `Library/<old>` exists, detail `folder_there`, or another playlist is called {old}, detail
