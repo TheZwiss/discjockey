@@ -71,7 +71,7 @@ extends the Library page with two view kinds. The Spotify-named read-status wire
   |---|---|---|
   | Sidebar | whole row at `.5` (today's `.dimmed`) | a switched-off playlist. The sidebar's only dim. |
   | Sidebar | `StatusMark warn` "!" in a folder's glyph slot, name and count at full strength | the folder's drive isn't connected or the folder isn't found (the same "!" as Settings → Watched folders and `AwayTag`) |
-  | Sidebar | `ServiceMark` (letter in a ring) | which service the playlist is read from |
+  | Sidebar | `ServiceMark` (the service's original logo, its own colours) | which service the playlist is read from |
   | Sidebar | folder outline | a folder on disk (a root; subfolders have no glyph) |
   | Rows | lead dimmed (`rowOff`) | a downloaded song that left every playlist (unchanged; own files never) |
   | Rows | lead dimmed + `AwayTag` in the quality column | the file is away (unchanged) |
@@ -80,9 +80,20 @@ extends the Library page with two view kinds. The Spotify-named read-status wire
   | Rows | neutral `Badge` with a playlist's name (+n) | the playlists that hold the song (folder view) |
 
   "Waiting" gets no colour: yellow in the quality column reads as good lossy, and nothing is wrong.
-- **D7. `ServiceMark`: a capital letter in a 14 px ring, monochrome, the glyphs' grey** (S Spotify, Q Qobuz). *Why:* the
-  spec asks for marks that name the service without brand art; a letter needs no learning and breaks no colour job.
-  Stage 6 adds SoundCloud and YouTube Music in the same form with letters that don't collide (its plan picks them).
+- **D7. `ServiceMark`: the service's original logo in its own colours, 14 px, unchanged** (the user's explicit wish,
+  2026-10-29; it overrides this plan's first draft, a monochrome letter in a ring). Spotify: the green (#1ED760)
+  circle with black stripes. Qobuz: its own black rounded square with the white "qbz" (from Qobuz's favicon). SoundCloud:
+  the orange (#FF5500) rounded square with the white cloud. YouTube Music: the red circle with the white ring and play.
+  YouTube (if a plain YouTube source ever appears): the red rounded rectangle with the white play. **The exact SVGs are
+  the ones in the mockup's `SVC` table** (`docs/hub-mockups/design-system/library-sidebar.html`): copy them into
+  `hub-ui/src/lib/components/serviceLogos.ts` as they are, with a comment naming their source (Simple Icons shapes, CC0
+  data; Qobuz's from static.qobuz.com). SoundCloud and YouTube Music are in the block now, so stage 6 only uses them.
+  *Why:* a logo is recognised at a glance; these are the services' own marks, used unchanged and only to say where a
+  playlist comes from (nominative use). **Colour rule:** amend `docs/hub-design-language.md`'s colour rule with one
+  exception: a service's logo keeps its own colours. It is an image naming a service, not a signal. Record it in the
+  decision log. The logos are inline SVG with `fill` attributes. If `scripts/rules-page.js`'s colour check flags them,
+  exempt only the `ServiceMark` element, with that reason in a comment. A dimmed (switched-off) row dims the logo with
+  the row.
 - **D8. The tree.** Children are subfolders holding at least one file with a song at or below them. Directly under a
   `Library/` folder, `not_lossless/` is never a node (Discjockey's own place for lossy files; its files count to the
   folder and show "not_lossless" in the Subfolder column). A subfolder row has no glyph: its name starts under its
@@ -298,9 +309,9 @@ block table, the decision log's sidebar entries). The approved mockup is the tar
 `hub-ui/src/lib/dev/Gallery.svelte` (one section's pattern); `hub-ui/src/lib/prefs*` (`getPref`/`setPref`).
 
 Tasks:
-1. **4.1 `ServiceMark` block** (D7): `service`, 14 px, `currentColor` at the glyphs' opacity, `aria-label` per I5; a
-   gallery section `gallery-servicemark` (both marks, normal, selected row, dimmed row) and the block table row plus a
-   decision-log entry (the mark's form and why, D7).
+1. **4.1 `ServiceMark` block** (D7): `service`, 14 px, the original coloured logos from the mockup's `SVC` table
+   (`serviceLogos.ts`), `aria-label` per I5; a gallery section `gallery-servicemark` (all logos, normal, selected
+   row, dimmed row), the block table row, the colour-rule exception and a decision-log entry (D7).
 2. **4.2 `sidebarModel.ts` + test:** the visible rows from `Sidebar.folders` and the open set (a closed parent hides
    its subtree; the route's folder and its ancestors forced open), the folders' count width (widest count in `ch`),
    tooltips (I5), which row is current for a route (I4).
@@ -350,9 +361,11 @@ Checks: as Group 4, `--page library` on the new shots. At the end: `npm run buil
 **Read list:** this plan's D1–D14 and I5; `README.md` (its Library section); `docs/issues.md` #26, #27; `CLAUDE.md`
 Layout (the `db.py` row).
 
-Tasks: **6.1 README:** the sidebar's Library group (service marks, counts, the tree, offline "!", switched-off dim), a
+Tasks: **6.1 README:** the sidebar's Library group (service logos, counts, the tree, offline "!", switched-off dim), a
 playlist's view (the note, Waiting/Not found, Also in this folder), a folder's view. **6.2 `docs/issues.md`:** add any
-leftover the groups reported; #27's To-do item stays. **6.3 `CLAUDE.md`:** the `db.py` row names the read records.
+leftover the groups reported; #27's To-do item stays. **6.4 Trademarks:** one line at the end of the README: Spotify,
+Qobuz, SoundCloud and YouTube names and logos are trademarks of their owners, used only to show where a playlist
+comes from; Discjockey isn't affiliated with them. **6.3 `CLAUDE.md`:** the `db.py` row names the read records.
 
 Checks: `uv run pytest -q tests/test_docs_citations.py tests/test_docs_links.py`; `scripts/check_public.sh`. ≈ 150 lines.
 

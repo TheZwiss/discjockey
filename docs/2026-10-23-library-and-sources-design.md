@@ -349,7 +349,8 @@ Qobuz allowance. Parked versions, swap and "Add as new file" work as in §7.
    folders in `Library/` that belong to no playlist. A playlist's own folder is not listed again.
 4. **Not in a playlist**, as today.
 
-The icons are small monochrome marks in the sidebar's glyph style, used only to name the service. The group
+The icons are the services' original logos in their own colours (the user's wish, 2026-10-29), used unchanged and only
+to name the service. The group
 follows the seamless-chrome rules of `docs/hub-design-language.md`. Mockups come before building and are approved by
 the user.
 
