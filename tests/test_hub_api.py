@@ -30,6 +30,7 @@ CONTRACT = {
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
     "watched_folders", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
     "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate", "setup_skip_import",
+    "set_favourites", "set_crate_shown",
 }
 READ_ONLY = ["dashboard", "sidebar", "sync_preview", "job_status", "library", "todo", "limits",
              "runs", "setup_status", "playlists", "downloads_view", "tidy_preview", "move_batches", "watched_folders"]
@@ -261,7 +262,18 @@ def test_sidebar_lists_every_playlists_line_with_its_service_and_switch(root):
     rows = api.sidebar()["playlists"]
     assert [(p["name"], p["service"], p["enabled"]) for p in rows] == [
         ("Hard_Bounce", "spotify", True), ("Powertrance", "spotify", True), ("Example_Playlist", "qobuz", False)]
-    assert rows[2]["ref"].startswith("qobuz:") and rows[2]["tracks"] == 0
+    assert rows[2]["ref"].startswith("qobuz:") and rows[2]["songs"] is None  # never read
+
+
+def test_a_finished_read_gives_the_sidebar_each_playlists_songs(root):
+    api, rec = make_api(root)
+    assert [p["songs"] for p in api.sidebar()["playlists"]] == [None, None]
+    finished = refreshed(api, rec)  # B2.4: the page re-reads the sidebar on this JobFinished
+    assert (finished.kind, finished.ok) == ("refresh", True)
+    sb = api.sidebar()
+    assert [(p["name"], p["songs"]) for p in sb["playlists"]] == [("Hard_Bounce", 4), ("Powertrance", 2)]
+    assert (sb["favourites"], sb["watched"]) == ([], [])
+    assert sb["library_folders"] == []
 
 
 def test_library_subtitle_comes_from_the_playlists_lines(root):

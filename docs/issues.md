@@ -3,6 +3,19 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 29. Library stage 5b leftovers (folders)
+
+Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, step B (folders), task group B2.
+
+- **Same label for two crates:** two crates under different wrapper folders can get the same label ("Hard › 2019"),
+  so the UI tells them apart only by the tooltip (the full path). This is the plan's D8 rule.
+- **Count differences:** the sidebar's count for a watched folder leaves out the files an import still has to work
+  through, while Settings' row counts them.
+- **For B4 (the UI):** the events the page re-reads the sidebar on are `JobFinished` with `kind` `refresh`, `sync` or
+  `import`, and `DrivesChanged`; no event was added. The UI's `shortPath` / `filePlace` duplicate `views.place`, so B4
+  drops the UI copy. The contract must record `set_favourites` and `set_crate_shown` as the exception to "write
+  methods return a `job_id`": they are brief saves that answer `{favourites}` / `{path, shown}` or `busy`.
+
 ## 28. Library stage 5a leftovers (layout)
 
 Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, step A (the layout).
