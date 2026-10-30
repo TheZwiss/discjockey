@@ -63,6 +63,13 @@ NO_DROP = "Drag the bought file onto the window while this track is selected in 
 NOT_SELECTED = "Select the track in the to-do list first, then drop the file on the window."
 CLIENT_ID = re.compile(r"[0-9a-fA-F]{32}")
 NO_FOLDER = "That folder isn't one of the watched folders."
+FAVOURITE_KEYS = ("playlist:", "folder:")  # what a Favourite's key starts with (plan library stage 5, D3)
+BAD_FAVOURITES = "That list of favourites isn't one Discjockey can keep."
+BAD_CRATE = "That isn't a folder Discjockey can show or hide."
+BRIEF_WRITE_FAILED = "Discjockey couldn't save that just now. Try again in a moment."
+# how long a Favourites or crate-switch save waits for a running job's write (D15): longer than the engine's usual
+# short transactions, short enough that a click never seems to hang (the binding 5 s would)
+BRIEF_WRITE_WAIT_MS = 1500
 NOT_ANSWERABLE = "Each answer needs the song or group it is about."
 NOT_CHOSEN = "Choose your music folder first: it is the first step of Setup."
 MISSING = "Your music folder isn't there: {path}. Connect the drive it is on, or choose another folder."
@@ -76,7 +83,7 @@ LIBRARY_METHODS = frozenset((
     "hide", "never_download", "add_bought_file", "use_candidate", "use_link", "reject_current",
     "rekordbox_checked", "upgrade", "rescan_library", "show_in_finder", "reveal", "open_report",
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
-    "watched_folders", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
+    "watched_folders", "set_favourites", "set_crate_shown", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
     "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate",
 ))
 
@@ -669,6 +676,39 @@ class HubApi:
                               [str(f.path) for f in rows if f.kind == "import"], overrides)
         return views.watched_folders(rows, counts, self._away_folders(rows), library_files, unreadable, waiting, self._import_stopped,
                                      phase, crates)
+
+    def _brief_write(self, write: Callable[[sqlite3.Connection], None]) -> None:
+        """A write to the records the hub keeps beside the library (Favourites, crate switches; plan library stage 5
+        D15): not a job and without the engine lock, since these tables are no library state and pinning a playlist
+        must work during a sync. SQLite's busy timeout orders it against a running job's transactions; a write that
+        still can't be made answers `busy` (nothing was changed) and the page puts its list back. A library.db that
+        is damaged or of another version answers as every other call does (config_invalid)."""
+        if not self._paths.db_file.exists():
+            raise OpProblem(BRIEF_WRITE_FAILED, "refused")
+        try:
+            with db.connect(self._paths.db_file, wait_ms=BRIEF_WRITE_WAIT_MS) as conn:
+                db.check(conn)
+                write(conn)
+        except sqlite3.Error:
+            raise OpProblem(BRIEF_WRITE_FAILED, "busy") from None
+
+    @bridge
+    def set_favourites(self, keys: list[str]) -> dict:
+        """Replaces the Favourites with `keys` (`playlist:<ref>` / `folder:<path>`, D3) in their order: a brief save,
+        not a job. Answers the stored list."""
+        if not isinstance(keys, list) or not all(isinstance(k, str) and k.startswith(FAVOURITE_KEYS) for k in keys):
+            raise ValueError(BAD_FAVOURITES)
+        self._brief_write(lambda conn: db.set_favourites(conn, keys))
+        return {"favourites": list(dict.fromkeys(keys))}
+
+    @bridge
+    def set_crate_shown(self, path: str, shown: bool | None) -> dict:
+        """Shows or hides the crate at snapshot path `path` in the sidebar (Settings' switch; None goes back to the
+        default, D8): a brief save, not a job."""
+        if not isinstance(path, str) or not path or not (shown is None or isinstance(shown, bool)):
+            raise ValueError(BAD_CRATE)
+        self._brief_write(lambda conn: db.set_crate_shown(conn, path, shown))
+        return {"path": path, "shown": shown}
 
     @bridge
     def check_import_folder(self, path: str) -> dict:

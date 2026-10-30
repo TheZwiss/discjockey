@@ -1232,3 +1232,82 @@ def test_the_sidebar_and_the_settings_rows_list_the_crates_of_a_watched_folder(t
     row = api.watched_folders()["folders"][1]
     assert (row["crates"], row["too_many"]) == (w["crates"], False)
     assert api.watched_folders()["folders"][0]["crates"] == []  # the Library has none
+
+
+def test_set_crate_shown_hides_and_shows_and_none_goes_back_to_the_default(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    house = str(folder / "House")
+    assert api.set_crate_shown(house, False) == {"ok": True, "path": house, "shown": False}
+    hidden = lambda: {c["name"]: c["hidden"] for c in api.sidebar()["watched"][0]["crates"]}  # noqa: E731
+    assert hidden() == {"Hard": False, "2019": False, "House": True}
+    assert {c["name"]: c["hidden"] for c in api.watched_folders()["folders"][1]["crates"]}["House"] is True
+    assert api.set_crate_shown(house, True)["shown"] is True and hidden()["House"] is False
+    api.set_crate_shown(house, False)
+    assert api.set_crate_shown(house, None)["shown"] is None and hidden()["House"] is False
+    assert api.set_crate_shown("", True)["kind"] == "refused"
+    assert api.set_crate_shown(house, "yes")["kind"] == "refused"
+    assert api.set_crate_shown(3, True)["kind"] == "refused"
+
+
+def test_set_favourites_keeps_the_order_and_the_sidebar_resolves_them(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    ref = api.sidebar()["playlists"][1]["ref"]
+    keys = [f"folder:{folder}/Hard", f"playlist:{ref}", "playlist:gone", f"folder:{folder}/Hard"]
+    assert api.set_favourites(keys) == {"ok": True, "favourites": [f"folder:{folder}/Hard", f"playlist:{ref}",
+                                                                   "playlist:gone"]}
+    assert [(f["key"], f["name"]) for f in api.sidebar()["favourites"]] == [
+        (f"folder:{folder}/Hard", "Hard"), (f"playlist:{ref}", "Powertrance")]  # the gone key stays stored, unshown
+    assert api.set_favourites([])["favourites"] == [] and api.sidebar()["favourites"] == []
+    for bad in ("playlist:x", [3], ["x:y"], None):
+        assert api.set_favourites(bad)["kind"] == "refused", bad
+
+
+def test_a_favourite_or_a_crate_switch_saves_during_a_sync_and_a_console_run_without_a_job(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    release = threading.Event()
+    job = api._jobs.start("sync", lambda ctx: release.wait(5) and None)
+    assert api.set_favourites(["folder:Library/Hard_Bounce"])["ok"]
+    assert api.set_crate_shown(str(folder / "House"), False)["ok"]
+    release.set()
+    api._jobs.wait(5)
+    with run_lock(paths.lock):
+        assert api.set_favourites([])["ok"] and api.set_crate_shown(str(folder / "House"), None)["ok"]
+    assert api._jobs.running() is None and rec.finished().job_id == job.id  # no job of its own
+
+
+def test_a_save_that_cannot_get_the_database_answers_busy_and_changes_nothing(tmp_path, monkeypatch):
+    import sqlite3
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    api.set_favourites(["folder:Library/Hard_Bounce"])  # stored; no line uses the key as a folder, so none is shown
+    monkeypatch.setattr("discjockey.hub.api.BRIEF_WRITE_WAIT_MS", 50)
+    other = sqlite3.connect(str(paths.db_file), isolation_level=None)
+    other.execute("BEGIN IMMEDIATE")  # a running job's write transaction
+    try:
+        answers = [api.set_favourites([]), api.set_crate_shown(str(folder / "House"), False)]
+        assert api.sidebar()["ok"]  # reading still works beside the writer
+    finally:
+        other.execute("ROLLBACK")
+        other.close()
+    assert [(a["ok"], a["kind"]) for a in answers] == [(False, "busy"), (False, "busy")]
+    assert all("Try again" in a["message"] for a in answers)
+    with db.connect(paths.db_file) as conn:
+        assert db.favourites(conn) == ["folder:Library/Hard_Bounce"] and db.crate_overrides(conn) == {}
+    assert not api.sidebar()["watched"][0]["crates"][2]["hidden"]
+    assert api.set_favourites([])["ok"]  # once the writer is done it works
+
+
+def test_the_events_that_tell_the_page_to_read_the_sidebar_again(tmp_path, monkeypatch):
+    """B2.4: no event was added. A finished read is JobFinished (kind refresh), a finished import JobFinished (kind
+    import), a drive that came or went DrivesChanged; the page re-reads the sidebar on each (stores/hub.ts)."""
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    assert rec.finished().kind == "import" and rec.finished().ok
+    assert api.sidebar()["watched"][0]["files"] == 5  # what the page reads on that event
+    api._check_drives()
+    gone = folder.with_name("Music (ejected)")
+    folder.rename(gone)
+    api._check_drives()
+    assert [e for e in rec.events if isinstance(e, jobs.DrivesChanged)] == [jobs.DrivesChanged(1)]
+    sb = api.sidebar()
+    assert (sb["watched"][0]["state"], sb["watched"][0]["files"]) == ("folder_missing", 5)  # an away folder keeps its count
+    refreshed(api, rec)
+    assert rec.finished().kind == "refresh"
