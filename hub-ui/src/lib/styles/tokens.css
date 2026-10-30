@@ -26,6 +26,7 @@
   --surface-line: rgba(255, 255, 255, .07);
   --surface-highlight: inset 0 1px 0 rgba(255, 255, 255, .04);
   --sidebar-bg: linear-gradient(#0b0b0d, #070708);
+  --sidebar-solid: #09090b;        /* the frame's material as one colour, for what must be opaque on it (a stuck section head) */
   --panel-bg: #040405;
   --line-soft: rgba(255, 255, 255, .045);   /* row dividers */
   --ctl-line: rgba(255, 255, 255, .09);

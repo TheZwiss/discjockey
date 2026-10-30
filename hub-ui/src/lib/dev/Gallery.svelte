@@ -54,6 +54,8 @@
     ['586 px: the list beside the inspector at 1280', strip(), 586],
   ];
   const HDR_PARTS = ['472 tracks', '8 folders with music', '~/Music/Rekordbox Library'];
+  /** Gallery only: starts a scroller at a given offset, so a stuck state shows without scrolling by hand. */
+  function scrollAt(node: HTMLElement, y: number) { requestAnimationFrame(() => { node.scrollTop = y; }); }
   const now = new Date();
   const tracks = sampleTracks(now).map(trackRow);
   const t = (id: string) => tracks.find((x) => x.track_id === id) as Row;
@@ -968,6 +970,30 @@
     </div>
   </section>
 
+  <section data-test="gallery-listsection-chrome">
+    {@render head('ListSection · stuck', 'A stuck head is opaque and square, a hairline on the edge rows pass (rule 10)')}
+    <div class="row top">
+      <div class="col tight">
+        <span class="cap">on the frame, sticking at both ends: top stuck, foot stuck</span>
+        <div class="g-chrome-list" use:scrollAt={200} data-test="g-section-chrome">
+          {#each [['Favourites', 4], ['Playlists', 12], ['Folders', 6]] as [name, n] (name)}
+            <ListSection label={name as string} summary={String(n)} stick="both" on="chrome" />
+            {#each Array(n as number) as _, i (i)}<div class="g-crow">{name} row {i + 1}</div>{/each}
+          {/each}
+        </div>
+      </div>
+      <div class="col tight">
+        <span class="cap">at the top of its list: not stuck, no line of its own</span>
+        <div class="g-chrome-list" data-test="g-section-chrome-top">
+          {#each [['Favourites', 4], ['Playlists', 12], ['Folders', 6]] as [name, n] (name)}
+            <ListSection label={name as string} summary={String(n)} stick="both" on="chrome" />
+            {#each Array(n as number) as _, i (i)}<div class="g-crow">{name} row {i + 1}</div>{/each}
+          {/each}
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section data-test="gallery-trackrow">
     {@render head('TrackRow · KeyValue', 'To-do and Library rows until phase 2 re-bases TrackRow on ListRow (§7)')}
     <div class="col w640">
@@ -1355,4 +1381,8 @@
   .g-cut { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
   button.g-navrow { padding: 0 var(--s-2); }
   .g-hdr { max-width: 100%; padding: 0 var(--s-2); border-left: var(--bw) dashed var(--surface-line); border-right: var(--bw) dashed var(--surface-line); }
+  .g-chrome-list { width: 220px; height: 240px; overflow-y: auto; padding: 0 var(--s-2); background: var(--sidebar-bg);
+    border: var(--bw) solid var(--surface-line); border-radius: var(--r-surface); }
+  .g-crow { display: flex; align-items: center; height: var(--h-ctl); padding: 0 var(--s-4); color: var(--text-nav);
+    font-size: var(--fs-body); }
 </style>
