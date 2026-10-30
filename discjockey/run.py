@@ -29,7 +29,7 @@ from .pacing import Budget, Pacer, record_signal
 from .qobuz import QobuzError, QobuzNotSetUp, QobuzSource
 from .settings import MAX_EXTRA, Settings, SettingsError, load_settings, save_settings
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)  # not `log`: that is a run's RunLog here
 
 
 class SetupProblem(Exception):
@@ -128,9 +128,9 @@ def record_reads(paths: Paths, fetched: list[FetchedPlaylist], now: datetime) ->
     shows a playlist's songs and counts when it opens, offline, and for switched-off playlists. Every read passes
     through here: the console's sync and dry run, the hub's read, its sync and the import's linking (prepare). The
     records aren't library state, so this takes no library lock and also runs when the caller couldn't get it, and
-    in a dry run (it changes no music file). Best-effort: a library without library.db yet (a dry run never creates
-    one), or records this Discjockey can't write (another version, a drive gone, a write that waited too long), keep
-    the read as it is; the failure is logged."""
+    in a dry run (it changes no music file). Best-effort: a library without library.db yet (still on state.json;
+    this never creates one), or records this Discjockey can't write (another version, a drive gone, a write that
+    waited too long), keep the read as it is; the failure is logged."""
     if not paths.db_file.exists():
         return
     try:
@@ -139,7 +139,7 @@ def record_reads(paths: Paths, fetched: list[FetchedPlaylist], now: datetime) ->
             db.check(conn)
             db.record_reads(conn, fetched, now, keep)
     except Exception:  # whatever went wrong, the read and what it plans stand
-        log.warning("couldn't keep the playlists' read records", exc_info=True)
+        logger.warning("couldn't keep the playlists' read records", exc_info=True)
 
 
 FIRST_CHECKS_PER_RUN = 25  # plan library stage 4, D9: at about 70 s a check, 25 add half an hour to a run
