@@ -1007,9 +1007,9 @@
         </div>
       </div>
       <div class="col tight">
-        <span class="cap">at the top of its list: not stuck, no line of its own</span>
-        <div class="g-chrome-list" data-test="g-section-chrome-top">
-          {#each [['Favourites', 4], ['Playlists', 12], ['Folders', 6]] as [name, n] (name)}
+        <span class="cap">Playlists folded, stuck; Folders right below it, not stuck: no line</span>
+        <div class="g-chrome-list" use:scrollAt={170} data-test="g-section-chrome-folded">
+          {#each [['Favourites', 4], ['Playlists', 0], ['Folders', 10]] as [name, n] (name)}
             <ListSection label={name as string} summary={String(n)} stick="both" on="chrome" />
             {#each Array(n as number) as _, i (i)}<div class="g-crow">{name} row {i + 1}</div>{/each}
           {/each}
