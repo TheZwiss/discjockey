@@ -41,7 +41,7 @@
   import TrackDetails from './TrackDetails.svelte';
   import {
     LEGACY_SORT_KEY, LIBRARY_FILTERS, alsoHint, filterKey, hasSubfolders, libraryCalls, nextSort, offTable,
-    pageEmpty, playQueue, playlistColumnFor, rowOf, segOptions, sortKey, subtitleParts, tableKind, todoHref, tooManyFor,
+    pageEmpty, playQueue, playlistColumnFor, artistColumnFor, shownSort, rowOf, segOptions, sortKey, subtitleParts, tableKind, todoHref, tooManyFor,
     viewSort, type LibraryCall,
     type SortColumn,
   } from './libraryModel';
@@ -143,7 +143,7 @@
   const sort = $derived(sortOf(view));
   // whether the Playlist column can say anything (libraryModel.playlistColumnFor): the collection's last answer without
   // search or filter, held while one is on so the columns don't jump; before one, the answer at hand
-  let playlistHeld = $state<{ for: string | null; value: boolean } | null>(null);
+  let playlistHeld = $state<{ for: string | null; value: boolean; artist: boolean } | null>(null);
   let libTurn = 0;
   $effect(() => {
     const args = [folder, q, filter] as const;
@@ -159,7 +159,7 @@
       if (r.ok) {
         lib = r;
         libFor = args[0];
-        if (!args[1] && args[2] === 'all') playlistHeld = { for: args[0], value: playlistColumnFor(r) };
+        if (!args[1] && args[2] === 'all') playlistHeld = { for: args[0], value: playlistColumnFor(r), artist: artistColumnFor(r) };
         libError = null;
         if (filter !== 'all' && r.chips[filter] === 0 && !q) setFilter('all');
       } else {
@@ -227,7 +227,7 @@
     setPref(filterKey(folder), f);
   }
   function onsort(c: SortColumn) {
-    const next = nextSort(sort, c);
+    const next = nextSort(shown, c);
     sorts = { ...sorts, [view]: next };
     setPref(sortKey(view), next);
   }
@@ -285,6 +285,10 @@
   const tooMany = $derived(tooManyFor(lib, $hub.sidebar));
   const playlistColumn = $derived(!lib ? true : playlistHeld && playlistHeld.for === libFor ? playlistHeld.value
     : playlistColumnFor(lib));
+  // the same for the Artist column (artistColumnFor); with it gone a sort by Artist reads as one by Track
+  const artistColumn = $derived(!lib ? true : playlistHeld && playlistHeld.for === libFor ? playlistHeld.artist
+    : artistColumnFor(lib));
+  const shown = $derived(shownSort(sort, artistColumn));
   const pending = $derived(noFileRow ? { row: noFileRow,
     next: detail?.track_id === noFileRow.track_id ? detail.next_qobuz_check : null, off: lib?.enabled === false } : null);
   const playing = $derived($player.playing ? $player.track_id : null);
@@ -353,7 +357,7 @@
       </Surface>
     {:else}
       <LibraryTable rows={lib.rows} also={lib.also} alsoHint={alsoHint(lib.title, neverRead)} emptyLine={empty.line} {loading} {kind}
-        {subfolders} {playlistColumn} off={lib.enabled === false} {sort} {selected} {playing} {onsort} onselect={select} onplay={playOrPause}
+        {subfolders} {playlistColumn} {artistColumn} off={lib.enabled === false} sort={shown} {selected} {playing} {onsort} onselect={select} onplay={playOrPause}
         onfinder={(id) => void finder(id)} ontodo={todo} ondetails={showDetails} />
     {/if}
   {/if}
