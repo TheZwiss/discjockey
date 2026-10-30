@@ -175,9 +175,11 @@ Open, in order:
    `upgrades_cmd.REKORDBOX_ADDED` and README (~431–441) still carry the old fixed sentence (goes with item 2); `cueTone`
    colours "same edit, but a new rekordbox entry" green (goes to item 3); a shifted file added as new sits N ms off
    the old cues (the wording says so; note only).
-2. **Upgrade undo** (Opus, engine + hub API): undo for add-as-new and swap. It restores the old file, path, entry and
-   parked upgrade; it is refused if either file changed; it is crash-safe (reuse `recover_swap`); it is gone after
-   "Done, checked in rekordbox".
+2. ~~Upgrade undo~~ done (Opus 214k): undo for Swap and Add as new until "Done, checked in rekordbox"; the record
+   lives in `rekordbox_check.undo`; a swap now also leaves a rekordbox-check row; a swap's undo deletes the
+   byte-identical `(lossy)` copy last; plain "Undo" link under Done (design round places it). Not done: CLI undo.
+   Notes: after "Wrong song?" the old undo record stays (undo not offered, a swap's kept download waits until Done);
+   an upgrade on a track with an earlier rekordbox check overwrites that check's text (older behaviour).
 3. **To-do decision panels design** (Opus + design skills, mockup with before/after for the user's approval, then
    build + shots):
    - Upgrade ready: show the outcome of "Add as new file" before the click, not in a tooltip; button order; where the
