@@ -4,6 +4,8 @@
 // the browser behind the rail. The shell derives `--sidebar-w` from it (the form, plus 1 + the browser's width while
 // it stands) and sets it on the app root, so the page's edge, the foot's line and the rule checker read one value.
 // The layout and the move between two layouts are pure (`chromeLayout`, `chromeMove`); the stores keep the prefs.
+// It also keeps when Library's details show (`detailsAfter`): picking a track opens them, unless the user hid them by
+// hand, which sticks (also across restarts) until they open them again by hand.
 import { derived, get, readable, writable, type Readable } from 'svelte/store';
 import { persisted } from '../prefs';
 import { route, type Route } from '../router';
@@ -78,8 +80,11 @@ export const browserWidth = persisted<number>('shell.browser.width', BROWSER_DEF
 export const browserClosed = persisted<string[]>('shell.browser.closed', []);
 /** Playlists in A–Z order instead of download priority (A5) */
 export const playlistsAz = persisted<boolean>('shell.playlists.az', false);
-/** Library's details inspector is open (the page sets it, ⌘I toggles it); it starts closed */
+/** Library's details inspector is open (picking a track opens it, ⌘I and the toggle turn it over); it starts closed */
 export const inspectorOpen = persisted<boolean>('library.inspector', false);
+/** The user hid the details by hand (the toggle or ⌘I while they showed): picking a track no longer opens them, and
+ *  the toggle says so, until the user opens them by hand again. Remembered, like the other layout choices. */
+export const detailsHidden = persisted<boolean>('library.details.hidden', false);
 /** Library sets it false while it has nothing to show details of (an empty library: the toggle is hidden), so ⌘I does
  *  nothing and a remembered open inspector neither shows nor steps the browser back; true again when the page goes. */
 export const inspectorAvailable = writable(true);
@@ -93,8 +98,12 @@ export const windowWidth: Readable<number> = readable(hasWindow() ? window.inner
   return () => window.removeEventListener('resize', fn);
 });
 
+/** Whether Library's details show: open, and not hidden by hand (two stored values that a hand edit or an older
+ *  version could leave both true; hidden wins). */
+export const detailsShown: Readable<boolean> = derived([inspectorOpen, detailsHidden], ([o, h]) => o && !h);
+
 export const chrome: Readable<ChromeLayout> = derived(
-  [route, formLibrary, formOther, browserWidth, inspectorOpen, windowWidth, inspectorAvailable],
+  [route, formLibrary, formOther, browserWidth, detailsShown, windowWidth, inspectorAvailable],
   ([r, fl, fo, bw, insp, ww, avail]) => chromeLayout({ place: placeOf(r.name), formLibrary: fl, formOther: fo,
     browserWidth: bw, inspectorOpen: insp, windowWidth: ww, inspectorAvailable: avail }));
 
@@ -152,19 +161,51 @@ export function edgeCursor(w: number): 'col-resize' | 'e-resize' | 'w-resize' {
   return w <= BROWSER_MIN ? 'e-resize' : w >= BROWSER_MAX ? 'w-resize' : 'col-resize';
 }
 
+/**
+ * When Library's details show (the user's wish after the step A live check): `pick` (a click on a track or ↑ ↓) opens
+ * them, unless the user hid them by hand; `toggle` (the details toggle, ⌘I) hides them by hand while they show and
+ * opens them otherwise, which ends a hide by hand; `show` (a quality badge, the menu's Show details) opens them by
+ * hand; `yield` (⌘K or ♫ below 1240 px: the browser column wants the room) closes them without counting as a hide by
+ * hand, so the next pick opens them again. Arriving with a track in the route is no pick: ♫ and ⌘K go back to
+ * Library and must not undo the yield that brought the browser back.
+ */
+export type DetailsState = { open: boolean; hidden: boolean };
+export type DetailsAct = 'pick' | 'toggle' | 'show' | 'yield';
+export function detailsAfter(s: DetailsState, act: DetailsAct): DetailsState {
+  const shown = s.open && !s.hidden;
+  if (act === 'pick') return s.hidden ? { open: false, hidden: true } : { open: true, hidden: false };
+  if (act === 'toggle') return shown ? { open: false, hidden: true } : { open: true, hidden: false };
+  if (act === 'show') return { open: true, hidden: false };
+  return { open: false, hidden: s.hidden };
+}
+function actOnDetails(act: DetailsAct): void {
+  const next = detailsAfter({ open: get(inspectorOpen), hidden: get(detailsHidden) }, act);
+  inspectorOpen.set(next.open);
+  detailsHidden.set(next.hidden);
+}
+/** A track picked in Library's table (a click, ↑ ↓): the details open, unless hidden by hand. */
+export function pickTrack(): void {
+  actOnDetails('pick');
+}
+/** A quality badge or the menu's Show details: open by hand. */
+export function showDetails(): void {
+  actOnDetails('show');
+}
+
 /** Whether ⌘I turns the inspector over: only in Library, and only while it has one to show. */
 export function inspectorToggles(place: Place, available: boolean): boolean {
   return place === 'library' && available;
 }
-/** ⌘I: only Library has the inspector. */
+/** ⌘I and the details toggle: only Library has the inspector. */
 export function toggleInspector(): void {
-  if (inspectorToggles(get(chrome).place, get(inspectorAvailable))) inspectorOpen.update((o) => !o);
+  if (inspectorToggles(get(chrome).place, get(inspectorAvailable))) actOnDetails('toggle');
 }
 
 /** ⌘K from any page, or ♫ on Library: below 1240 px the inspector closes, so the browser stands (again) when Library
- *  shows. At 1240 and up both fit and nothing changes. `width`: the window's (the live one by default). */
+ *  shows (no hide by hand: the next pick opens the details again). At 1240 and up both fit and nothing changes.
+ *  `width`: the window's (the live one by default). */
 export function bringBrowserBack(width: number = get(windowWidth)): void {
-  if (width < NARROW_BELOW && get(inspectorOpen)) inspectorOpen.set(false);
+  if (width < NARROW_BELOW && get(inspectorOpen)) actOnDetails('yield');
 }
 
 /** A request for the browser's filter field to take focus (⌘K); the column answers each new number. */

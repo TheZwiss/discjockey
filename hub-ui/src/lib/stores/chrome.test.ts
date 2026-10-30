@@ -3,8 +3,8 @@ import { get } from 'svelte/store';
 import { parseHash } from '../router';
 import {
   BROWSER_DEFAULT, BROWSER_MAX, BROWSER_MIN, bringBrowserBack, chrome, chromeLayout, chromeMotion, chromeMove,
-  clampBrowserWidth, edgeCursor, edgeKeyWidth, filterFocus, fold, formOther,
-  inspectorOpen, inspectorToggles, libraryReturn, placeOf, requestFilterFocus, setBrowserWidth, toggleInspector, type ChromeInput,
+  clampBrowserWidth, detailsAfter, detailsHidden, detailsShown, edgeCursor, edgeKeyWidth, filterFocus, fold, formOther,
+  inspectorOpen, inspectorToggles, pickTrack, showDetails, type DetailsState, libraryReturn, placeOf, requestFilterFocus, setBrowserWidth, toggleInspector, type ChromeInput,
 } from './chrome';
 
 const input = (o: Partial<ChromeInput> = {}): ChromeInput => ({ place: 'library', formLibrary: 'rail', formOther: 'full',
@@ -149,6 +149,74 @@ describe('the stores', () => {
     const n = get(filterFocus);
     requestFilterFocus();
     expect(get(filterFocus)).toBe(n + 1);
+  });
+});
+
+describe('when Library\'s details show (detailsAfter)', () => {
+  const closed: DetailsState = { open: false, hidden: false };
+  const shown: DetailsState = { open: true, hidden: false };
+  const hidden: DetailsState = { open: false, hidden: true };
+  it('picking a track opens them', () => {
+    expect(detailsAfter(closed, 'pick')).toEqual(shown);
+    expect(detailsAfter(shown, 'pick')).toEqual(shown);
+  });
+  it('the toggle (or ⌘I) while they show hides them by hand, and further picks only select', () => {
+    const h = detailsAfter(shown, 'toggle');
+    expect(h).toEqual(hidden);
+    expect(detailsAfter(detailsAfter(h, 'pick'), 'pick')).toEqual(hidden);
+  });
+  it('opening them by hand ends the hide: the toggle, a quality badge or the menu', () => {
+    expect(detailsAfter(hidden, 'toggle')).toEqual(shown);
+    expect(detailsAfter(hidden, 'show')).toEqual(shown);
+    // and then picks open them again after a later close by the browser
+    expect(detailsAfter(detailsAfter(detailsAfter(hidden, 'show'), 'yield'), 'pick')).toEqual(shown);
+  });
+  it('the toggle opens details that are only closed (never shown yet, or closed for the browser)', () => {
+    expect(detailsAfter(closed, 'toggle')).toEqual(shown);
+  });
+  it('making room for the browser (⌘K, ♫ below 1240) closes them without a hide by hand', () => {
+    expect(detailsAfter(shown, 'yield')).toEqual(closed);
+    expect(detailsAfter(hidden, 'yield')).toEqual(hidden);
+  });
+  it('two stored values both true (hand edit, older version): hidden wins and the next act straightens them', () => {
+    const both: DetailsState = { open: true, hidden: true };
+    expect(detailsAfter(both, 'pick')).toEqual(hidden);
+    expect(detailsAfter(both, 'toggle')).toEqual(shown);
+  });
+});
+
+describe('the details stores', () => {
+  const reset = () => { inspectorOpen.set(false); detailsHidden.set(false); };
+  it('a pick opens them and the chrome steps the browser back at 1100', () => {
+    reset();
+    pickTrack();
+    expect(get(detailsShown)).toBe(true);
+    expect(chromeLayout(input({ inspectorOpen: get(detailsShown), windowWidth: 1100 })).steppedBack).toBe(true);
+    reset();
+  });
+  it('hidden by hand: a pick keeps them closed; a badge opens them and ends the hide', () => {
+    reset();
+    detailsHidden.set(true);
+    pickTrack();
+    expect([get(inspectorOpen), get(detailsShown), get(detailsHidden)]).toEqual([false, false, true]);
+    showDetails();
+    expect([get(detailsShown), get(detailsHidden)]).toEqual([true, false]);
+    reset();
+  });
+  it('⌘K below 1240 closes them but the next pick opens them again', () => {
+    reset();
+    pickTrack();
+    bringBrowserBack(1100);
+    expect([get(detailsShown), get(detailsHidden)]).toEqual([false, false]);
+    pickTrack();
+    expect(get(detailsShown)).toBe(true);
+    reset();
+  });
+  it('hidden wins over a stored open', () => {
+    inspectorOpen.set(true);
+    detailsHidden.set(true);
+    expect(get(detailsShown)).toBe(false);
+    reset();
   });
 });
 
