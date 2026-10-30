@@ -103,9 +103,26 @@ describe('the stores', () => {
   });
   it('⌘K below 1240 closes the inspector from any page, so the browser stands when Library shows', () => {
     inspectorOpen.set(true);
-    bringBrowserBack();   // the tests' window is 1280 wide: both fit, nothing changes
+    bringBrowserBack(1100);
+    expect(get(inspectorOpen)).toBe(false);
+  });
+  it('at 1240 and up both fit: ⌘K leaves the inspector open', () => {
+    inspectorOpen.set(true);
+    bringBrowserBack(1240);
+    expect(get(inspectorOpen)).toBe(true);
+    bringBrowserBack();   // the tests' window: 1280
     expect(get(inspectorOpen)).toBe(true);
     inspectorOpen.set(false);
+  });
+  it('chromeMotion stays quiet while the layout stays: no `none` cuts a glide short', () => {
+    const seen: string[] = [];
+    const stop = chromeMotion.subscribe((m) => seen.push(m.move));
+    fold();
+    inspectorOpen.set(true);    // outside Library: the layout is the same
+    inspectorOpen.set(false);
+    fold();
+    stop();
+    expect(seen).toEqual(['none', 'fold', 'fold']);
   });
   it('⌘I does nothing outside Library', () => {
     toggleInspector();

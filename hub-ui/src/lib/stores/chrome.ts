@@ -100,12 +100,20 @@ export const chromeMotion: Readable<{ layout: ChromeLayout; move: ChromeMove }> 
   { layout: get(chrome), move: 'none' as ChromeMove }, (set) => {
     let prev: ChromeLayout | null = null;
     return chrome.subscribe((l) => {
+      // a route change or a resize that leaves the chrome as it is says nothing: a `none` mid-glide would cut the
+      // glide and its fades short
+      if (prev && sameLayout(prev, l)) return;
       const move = chromeMove(prev, l, glideNext);
       prev = l;
       glideNext = false;
       set({ layout: l, move });
     });
   });
+
+export function sameLayout(a: ChromeLayout, b: ChromeLayout): boolean {
+  return a.place === b.place && a.form === b.form && a.browserShown === b.browserShown
+    && a.steppedBack === b.steppedBack && a.browserWidth === b.browserWidth && a.sidebarW === b.sidebarW;
+}
 
 /** ⌃⌘S and the fold button: the current place's form turns over (the other place keeps its own). */
 export function fold(): void {
@@ -127,9 +135,9 @@ export function toggleInspector(): void {
 }
 
 /** ⌘K from any page, or ♫ on Library: below 1240 px the inspector closes, so the browser stands (again) when Library
- *  shows. At 1240 and up both fit and nothing changes. */
-export function bringBrowserBack(): void {
-  if (get(windowWidth) < NARROW_BELOW && get(inspectorOpen)) inspectorOpen.set(false);
+ *  shows. At 1240 and up both fit and nothing changes. `width`: the window's (the live one by default). */
+export function bringBrowserBack(width: number = get(windowWidth)): void {
+  if (width < NARROW_BELOW && get(inspectorOpen)) inspectorOpen.set(false);
 }
 
 /** A request for the browser's filter field to take focus (⌘K); the column answers each new number. */
