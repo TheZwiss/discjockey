@@ -7,6 +7,9 @@
   // add the short path when two folders share a name) · its files, right-aligned · × Remove (the Library is always watched, so its slot stays
   // empty and the counts line up). Presentational: the page's WatchedFoldersFlow reads and changes the folders.
   // `grow`: the list fills a Panel's `fill` and scrolls inside (the folders grow over time).
+  // `onpick` (Settings, plan library stage 5 B7): an import folder with crates is a row to pick, `picked` the chosen one
+  // (wash, brought into view). Its line stays the state line: the crates' count ("6 folders with music · 5 in the
+  // sidebar", the mockup's) took three lines in the row's ~107 px text column; the switches' head says it instead.
   import type { WatchedFolderRow } from '$lib/bridge/types';
   import Button from './Button.svelte';
   import ListRow from './ListRow.svelte';
@@ -17,8 +20,8 @@
   import { count, folderLabel, folderLine, folderMark } from './watchedFoldersModel';
   import { fitPathAction } from './fitPathAction';
 
-  let { folders, label = 'Watched folders', onremove, removeOff = null, removing = null, grow = false,
-    test = 'watched-folders' }: {
+  let { folders, label = 'Watched folders', onremove, removeOff = null, removing = null, grow = false, onpick,
+    picked = null, cap, test = 'watched-folders' }: {
     folders: WatchedFolderRow[] | null; label?: string;
     /** × on an import folder's row; none: the list is shown only */
     onremove?: (f: WatchedFolderRow) => void;
@@ -26,25 +29,36 @@
     removeOff?: string | null;
     /** the folder whose removal is asked or under way: its button is off meanwhile (a spinner would widen the slot) */
     removing?: number | null;
-    grow?: boolean; test?: string;
+    grow?: boolean;
+    /** a click on an import folder that has crates (its switches show beside the list) */
+    onpick?: (f: WatchedFolderRow) => void;
+    /** the picked folder's id */
+    picked?: number | null;
+    /** a list that is not `grow` but must leave room for what follows it (Settings, with a folder picked): at most
+     *  this many rows and half a row's peek, then it scrolls */
+    cap?: number;
+    test?: string;
   } = $props();
+  const pickable = (f: WatchedFolderRow) => !!onpick && f.kind === 'import' && f.crates.length > 0;
 
   const rows = $derived(folders ?? []);
 </script>
 
-<Surface kind="list" {label} style="--row-cols: 16px minmax(0, 1fr) calc(var(--w-row-action) + var(--s-2) + var(--h-ctl-sm))"
+<Surface kind="list" {label} class={cap && !grow ? 'wf-capped' : undefined} fade={!!cap && !grow} style={`--row-cols: 16px minmax(0, 1fr) calc(var(--w-row-action) + var(--s-2) + var(--h-ctl-sm))${cap && !grow ? `; --cap-rows: ${cap}` : ''}`}
   grow={grow ? { rows: Math.max(1, rows.length), tall: true } : undefined} data-test={test}>
   {#if !folders}
     <div class="wait"><Skeleton lines={2} /></div>
   {:else}
     {#each rows as f (f.id)}
       {@const mark = folderMark(f)}
+      {@const line = folderLine(f)}
       <ListRow height={52} wrap title={f.path} test="{test}-row-{f.kind === 'library' ? 'library' : f.id}"
-        data-state={f.state}>
-        {#snippet lead()}{#if mark === 'working'}<span class="spin"><Spinner size={12} label={folderLine(f)} /></span>
+        data-state={f.state} selected={pickable(f) && f.id === picked}
+        onclick={pickable(f) ? () => onpick?.(f) : undefined}>
+        {#snippet lead()}{#if mark === 'working'}<span class="spin"><Spinner size={12} label={line} /></span>
           {:else}<StatusMark tone={mark} quiet={mark === 'good'} />{/if}{/snippet}
         {#snippet name()}{f.name}{/snippet}
-        {#snippet sub()}<span class="line">{folderLine(f)}</span>{#if f.kind === 'import'}<span class="path" use:fitPathAction={f.path}><span class="head"></span><span class="tail"></span></span>{/if}{/snippet}
+        {#snippet sub()}<span class="line">{line}</span>{#if f.kind === 'import'}<span class="path" use:fitPathAction={f.path}><span class="head"></span><span class="tail"></span></span>{/if}{/snippet}
         {#snippet trailing()}
           <span class="files" title="{count(f.files)} {f.files === 1 ? 'file' : 'files'}">{count(f.files)}</span>
           <span class="act">{#if f.kind === 'import' && onremove}
@@ -61,6 +75,9 @@
 </Surface>
 
 <style>
+  /* head + its rule, cap rows with the rules between, the 2 borders, and half a row's peek (as a grown list's minimum) */
+  :global(.surface.wf-capped) { max-height: calc(var(--h-list-row) + var(--cap-rows) * var(--h-list-row-tall)
+    + (var(--cap-rows) + 2) * var(--bw) + var(--h-list-row-tall) / 2); }
   .wait { padding: var(--s-3) var(--s-4); }
   .spin { display: inline-grid; place-items: center; width: 16px; height: 16px; color: var(--text-muted); }
   /* the state line and where the folder is, each its own line (a 320 px panel has no room for both on one). The state

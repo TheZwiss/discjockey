@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterItems, groupSummary, growSpare, SEARCH_FROM, setOn, visibleKeys } from './toggleModel';
+import { allDisabled, filterItems, groupSummary, growSpare, SEARCH_FROM, setOn, visibleKeys } from './toggleModel';
 const items = [
   { key: 'a', label: 'Ohne_Quatsch', count: 41, on: true },
   { key: 'b', label: 'Kölsch Mix', count: 3, on: false },
@@ -10,6 +10,11 @@ describe('toggle groups', () => {
   it('says "all on" plainly too', () => expect(groupSummary(items.map((i) => ({ ...i, on: true })))).toBe('3 of 3 on'));
   it('finds without accents or case', () => expect(filterItems(items, 'kolsch').map((i) => i.key)).toEqual(['b']));
   it('returns everything for an empty query', () => expect(filterItems(items, '  ')).toHaveLength(3));
+  it('finds a row by its extra words too', () => {
+    const albums = [{ key: 'x', label: 'Night Tapes', on: false, find: 'Aphex' }, { key: 'y', label: 'Aphex Mix', on: false },
+      { key: 'z', label: 'Dawn', on: false }];
+    expect(filterItems(albums, 'aphex').map((i) => i.key)).toEqual(['x', 'y']);
+  });
   it('searches from seven rows', () => expect(SEARCH_FROM).toBe(7));
 });
 
@@ -96,4 +101,17 @@ describe('grow group cut', () => {
   });
   it('gives nothing without a row pitch (fewer than 2 rows)', () =>
     expect(growSpare({ ...base, pitch: 0, given: 60, content: 80 })).toBe(0));
+});
+
+describe('All with a cap', () => {
+  const rows = (n: number, on = false) => Array.from({ length: n }, (_, i) => ({ key: `k${i}`, label: `Row ${i}`, on }));
+  it('is on at the cap and off one row past it', () => {
+    expect(allDisabled(rows(25), 25)).toBe(false);
+    expect(allDisabled(rows(26), 25)).toBe(true);
+  });
+  it('has no cap without allMax', () => expect(allDisabled(rows(300))).toBe(false));
+  it('is off when every shown row is on, or none is shown', () => {
+    expect(allDisabled(rows(3, true), 25)).toBe(true);
+    expect(allDisabled([], 25)).toBe(true);
+  });
 });

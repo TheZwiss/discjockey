@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildHash, go, href, libraryHref, onRouteChange, parseHash, setLeaveGuard } from './router';
+import { buildHash, go, href, libraryHref, onRouteChange, parseHash, setLeaveGuard, settingsFolderHref } from './router';
 import { NOT_IN_PLAYLIST } from './bridge/types';
 
 describe('parseHash', () => {
@@ -30,6 +30,8 @@ describe('parseHash', () => {
     ['#/setup/sources', 'setup', { step: 'downloads' }],
     ['#/settings/youtube', 'settings', { row: 'youtube' }],
     ['#/settings/nonsense', 'unknown', {}],
+    ['#/settings/folders/%2FVolumes%2FExample%20Drive%2FAlbums', 'settings', { row: 'folders', folder: '/Volumes/Example Drive/Albums' }],
+    ['#/settings/music/%2FUsers%2Fyou', 'unknown', {}],  // only Watched folders picks a folder
     ['#/settings', 'settings', {}],
     ['#/dev/gallery', 'gallery', {}],
     ['#/setup/nonsense', 'unknown', {}],
@@ -56,6 +58,13 @@ describe('buildHash and href', () => {
     expect(href('#/x')).toBe('#/x');
     expect(libraryHref(null)).toBe('#/library');
     expect(libraryHref(NOT_IN_PLAYLIST)).toBe('#/library/not-in-playlist');
+  });
+  it('round-trips a watched folder for Settings, whatever its path holds', () => {
+    for (const path of ['/Volumes/Example Drive/Albums', '/Users/you/Music/100% Vinyl', '/Users/you/Music/Caf\u0065\u0301 › Sets']) {
+      const r = parseHash(settingsFolderHref(path));
+      expect(r.name).toBe('settings');
+      expect(r.params).toEqual({ row: 'folders', folder: path });
+    }
   });
 });
 

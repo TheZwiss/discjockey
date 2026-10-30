@@ -209,6 +209,21 @@ export async function saveCrateShown(path: string, shown: boolean | null): Promi
   await refreshSidebar();
   return r;
 }
+/** Several crate switches at once (Settings' All · None): one save after another, stopping at the first refusal, and
+ *  the sidebar read once at the end (each `set_crate_shown` is its own brief save; 312 sidebar reads would not be).
+ *  `saved` are the paths stored, in order; `failed` the refusal that stopped the rest (null when all were stored). */
+export async function saveCratesShown(changes: { path: string; shown: boolean | null }[]):
+  Promise<{ saved: string[]; failed: Extract<Res<CrateSaved>, { ok: false }> | null }> {
+  const saved: string[] = [];
+  let failed: Extract<Res<CrateSaved>, { ok: false }> | null = null;
+  for (const c of changes) {
+    const r = await api.set_crate_shown(c.path, c.shown);
+    if (!r.ok) { failed = r; break; }
+    saved.push(c.path);
+  }
+  if (changes.length) await refreshSidebar();
+  return { saved, failed };
+}
 
 /** Boot (main.ts). */
 export function markBooted(fake: boolean): void {

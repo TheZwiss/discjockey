@@ -221,6 +221,11 @@
   let panelPls = $state<ToggleItem[]>(playlists(['Ohne_Quatsch', 'Tekke_Ecke', 'Powertrance', 'Hard_Bounce', 'Bouncy', '03_06_2026',
     'Voller_Quatsch', 'Rollers', 'Peak Time'], [41, 9, 3, 12, 2, 8, 14, 6, 5], [2]));
   let panelFew = $state<ToggleItem[]>(playlists(['Ohne_Quatsch', 'Tekke_Ecke', 'Powertrance', 'Hard_Bounce'], [41, 9, 3, 12], [2]));
+  // a folder with too many crates (Settings, B7): All waits for a search (allMax), a row is found by its parent folder too
+  let crates = $state<ToggleItem[]>(Array.from({ length: 40 }, (_, i) => {
+    const artist = ['Aphex', 'Burial', 'Calibre', 'Dusk'][i % 4], album = `Album ${i + 1}`;
+    return { key: `c${i}`, label: album, count: 8 + (i % 5), on: i < 2, tip: `Albums › ${artist} › ${album}`, find: artist };
+  }));
   let sources = $state<ToggleItem[]>([{ key: 'ytm', label: 'YouTube Music', on: true }, { key: 'sc', label: 'SoundCloud', on: false },
     { key: 'yt', label: 'YouTube', count: null, on: true }]);
   let auto = $state<ToggleItem>({ key: 'auto', label: 'Read Spotify when the hub opens', on: true });
@@ -317,6 +322,15 @@
     { id: 2, path: '/Volumes/Example Drive/Music', name: 'Music', kind: 'import', state: 'importing', files: 1840, waiting: 1500, unreadable: 0, crates: [], too_many: false },
     { id: 3, path: '/Volumes/Old Drive/Music', name: 'Music', kind: 'import', state: 'offline', files: 612, waiting: 0, unreadable: 0, crates: [], too_many: false },
     { id: 4, path: '/Users/you/Music/Crates', name: 'Crates', kind: 'import', state: 'online', files: 1, waiting: 0, unreadable: 0, crates: [], too_many: false },
+  ];
+  // Settings: import folders with crates are rows to pick (`onpick`), the picked one washed; `cap` keeps the list to 4 rows and a peek
+  const gCrate = (name: string) => ({ path: `/Users/you/Music/Rekordbox Library/${name}`, label: name, name, tip: `Rekordbox Library › ${name}`, files: 4, hidden: false, has_crates: false });
+  const gPickable: WatchedFolderRow[] = [
+    gFolders[0],
+    { id: 5, path: '/Users/you/Music/Rekordbox Library', name: 'Rekordbox Library', kind: 'import', state: 'online', files: 30, waiting: 0, unreadable: 0, crates: [gCrate('Bounce'), gCrate('Edits')], too_many: false },
+    { id: 6, path: '/Volumes/Example Drive/Albums', name: 'Albums', kind: 'import', state: 'online', files: 312, waiting: 0, unreadable: 0, crates: [gCrate('Night Tapes')], too_many: false },
+    gFolders[3],
+    { id: 7, path: '/Users/you/Music/Festival Sets', name: 'Festival Sets', kind: 'import', state: 'online', files: 41, waiting: 0, unreadable: 0, crates: [], too_many: false },
   ];
 </script>
 
@@ -653,6 +667,11 @@
         <span class="cap">all off</span>
         <ToggleGroup label="Playlists" items={allOff} test="g-alloff"
           onchange={(k, on) => (allOff = flip(allOff, k, on))} onall={(on, keys) => (allOff = setOn(allOff, keys, on))} />
+        <span class="cap">40 rows · All after a search (allMax 25) · found by artist</span>
+        <div class="fillbox">
+          <ToggleGroup label="In the sidebar" items={crates} grow allMax={25} placeholder="Search Albums…" test="g-crates"
+            onchange={(k, on) => (crates = flip(crates, k, on))} onall={(on, keys) => (crates = setOn(crates, keys, on))} />
+        </div>
         <span class="cap">disabled (a change is running)</span>
         <ToggleGroup label="Locked" items={kinds} disabled disabledReason="Not while a sync runs." search={false} test="g-locked" onchange={() => {}} onall={() => {}}>
           {#snippet lead(item)}<span class="toggle-icon">{#if isKindKey(item.key)}<KindIcon kind={item.key} />{/if}</span>{/snippet}
@@ -1178,6 +1197,7 @@
     <div class="grid3">
       <div class="w372"><WatchedFolderList folders={gFolders} onremove={() => {}} test="g-wf-list" /></div>
       <div class="w372"><WatchedFolderList folders={null} test="g-wf-loading" /></div>
+      <div class="w372"><WatchedFolderList folders={gPickable} picked={5} cap={4} onpick={() => {}} onremove={() => {}} test="g-wf-picked" /></div>
       <div class="w372"><ImportCard view={{ kind: 'running', line: 'Reading tags · 340 of 1,500', share: 340 / 1500, stopping: false }} onstop={() => {}} test="g-wf-running" /></div>
       <div class="w372"><ImportCard view={{ kind: 'running', line: 'Looking for music files', share: null, stopping: true }} onstop={() => {}} test="g-wf-stopping" /></div>
       <div class="w372"><ImportCard view={{ kind: 'stopped', line: 'Import stopped with 1,160 files to go. It carries on where it stopped.' }} oncontinue={() => {}} test="g-wf-stopped" /></div>

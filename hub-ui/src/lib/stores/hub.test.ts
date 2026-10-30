@@ -3,7 +3,7 @@ import { get } from 'svelte/store';
 import { installBridge, _resetBridge } from '../bridge/client';
 import { dispatch } from '../bridge/events';
 import { EMPTY_HUB, dataVersion, filesVersion, hub, refreshHub, refreshOnNoLibrary, readBlockIn, readNeedsSetupIn, reduceHub,
-  saveCrateShown, saveFavourites } from './hub';
+  saveCrateShown, saveCratesShown, saveFavourites } from './hub';
 import type { SetupStatus, ReadStatus } from '../bridge/types';
 
 describe('reduceHub', () => {
@@ -295,9 +295,9 @@ describe('a DrivesChanged event', () => {
 describe('the sidebar is read again (plan library stage 5, B2.4 and D15)', () => {
   afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
   /** a bridge that counts the sidebar reads and keeps the Favourites the way library.db would */
-  function bridge(opts: { busy?: boolean; hang?: boolean } = {}) {
+  function bridge(opts: { busy?: boolean; hang?: boolean; busyFrom?: number } = {}) {
     (globalThis as any).window = new EventTarget();
-    const seen = { sidebars: 0, others: 0, saved: [] as unknown[][], stored: ['playlist:a'] };
+    const seen = { sidebars: 0, others: 0, saved: [] as unknown[][], stored: ['playlist:a'], crates: [] as string[] };
     const never = new Promise<never>(() => {});   // an unrelated call that does not answer
     installBridge({
       job_status: async () => { seen.others++; if (opts.hang) return never; return { ok: true, job: null, refresh_running: false, console_running: false, read_status: null,
@@ -312,7 +312,11 @@ describe('the sidebar is read again (plan library stage 5, B2.4 and D15)', () =>
         seen.stored = keys;
         return { ok: true, favourites: keys };
       },
-      set_crate_shown: async (path: string, shown: boolean | null) => ({ ok: true, path, shown }),
+      set_crate_shown: async (path: string, shown: boolean | null) => {
+        seen.crates.push(path);
+        if (opts.busyFrom !== undefined && seen.crates.length > opts.busyFrom) return { ok: false, kind: 'busy', message: 'Held.' };
+        return { ok: true, path, shown };
+      },
     });
     return seen;
   }
@@ -355,6 +359,20 @@ describe('the sidebar is read again (plan library stage 5, B2.4 and D15)', () =>
     const before = seen.sidebars;
     expect(await saveCrateShown('/Volumes/Example Drive/Albums/Aphex', false)).toMatchObject({ ok: true, shown: false });
     expect(seen.sidebars).toBeGreaterThan(before);
+  });
+  it('after several crate switches, once, stopping at the first refusal', async () => {
+    const seen = bridge();
+    await refreshHub();
+    const before = seen.sidebars;
+    const all = ['/A/x', '/A/y', '/A/z'].map((path) => ({ path, shown: true }));
+    expect(await saveCratesShown(all)).toEqual({ saved: ['/A/x', '/A/y', '/A/z'], failed: null });
+    expect(seen.sidebars).toBe(before + 1);
+    const held = bridge({ busyFrom: 1 });
+    await refreshHub();
+    const r = await saveCratesShown(all);
+    expect(r.saved).toEqual(['/A/x']);
+    expect(r.failed).toMatchObject({ ok: false, kind: 'busy' });
+    expect(held.crates).toEqual(['/A/x', '/A/y']);   // nothing asked after the refusal
   });
   it('a save reads only the sidebar and does not wait for the other calls', async () => {
     const seen = bridge();
