@@ -21,7 +21,7 @@
   import {
     AccountPanel, AddRow, CopyCode, NumberedSteps, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
     AwayTag, Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
-    Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, tip, SummaryStrip, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
+    Hint, InfoTip, KeyValue, ListRow, ListSection, MiddleText, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, tip, SummaryStrip, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
     Segmented, SectionLabel, SelectCard, Skeleton, SortHeader, SourceLadder, Spectrum, Spinner, SplitView, StatCard, StatusMark, Surface, Switch, TextField, Tile, Toast,
     ToggleGroup, ToggleRow, TrackHead, TrackRow, UpgradeCard, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
     confirm, envelope, ImportCard, UnreadableList, WatchedFolderList,
@@ -969,6 +969,15 @@
       <QualityBadge quality="missing" label="NOT FOUND" /><QualityBadge quality="lossless" label="LOSSLESS" checked={false} />
     </div>
     <div class="row" data-test="g-away-tag"><AwayTag state="offline" /><AwayTag state="folder_missing" /><AwayTag state="file_missing" /></div>
+    <span class="cap">muted with <code>more</code> (Library's Playlist column): a name as the user spelled it, "+n" for the others; in a narrow cell the name gives way, the +n never</span>
+    <div class="row" data-test="g-badge-more"><Badge text="Hard_Bounce" more={2} /><Badge text="Peak Time" more={0} />
+      <span class="cell140"><Badge text="Afterhour_Sonntag_Warmup_Classics" more={3} /></span></div>
+    <span class="cap">MiddleText with <code>sep="›"</code> (a place: whole folders give way first, then characters; the separators quiet)</span>
+    <div class="col" data-test="g-middle-sep">
+      <span class="cell320"><MiddleText text="Rekordbox Library › Old Sets › Bounce › 2019" sep="›" /></span>
+      <span class="cell200"><MiddleText text="Rekordbox Library › Old Sets › Bounce › 2019" sep="›" /></span>
+      <span class="cell140"><MiddleText text="Rekordbox Library › Old Sets › Bounce › 2019" sep="›" /></span>
+    </div>
     <div class="row"><ExternalLink href="https://www.beatport.com/search?q=Armin+Hermann+Get+Naughty" label="Beatport" />
       <ExternalLink href="https://bandcamp.com">Bandcamp</ExternalLink></div>
   </section>
@@ -985,6 +994,8 @@
       <Cover url={null} seed="c2" size={22} onplay={() => (gPlaying = gPlaying === 'c2' ? null : 'c2')} playing={gPlaying === 'c2'} name="Track two" />
       <Cover url={coverUri(2)} seed="c3" size={22} hint onplay={() => (gPlaying = gPlaying === 'c3' ? null : 'c3')} playing={gPlaying === 'c3'} name="Track three" />
     </div>
+    <span class="cap">empty: no file yet (a playlist song waiting or not found), a dashed outline in the cover's place, no ▶</span>
+    <div class="row" data-test="g-cover-empty"><Cover url={null} seed="e1" size={22} empty /><Cover url={null} seed="e2" size={64} empty /></div>
   </section>
 
   <section data-test="gallery-listsection">
@@ -1273,6 +1284,11 @@
           <QualityBadge quality={weak.quality} label={weak.quality_label} />
         </TrackHead>
       </Surface>
+      <Surface kind="card" data-test="g-trackhead-empty">
+        <TrackHead track={{ ...weak, cover_url: null, title: 'AEIOU', artist: 'Pegassi' }} place="not downloaded yet" empty>
+          <Badge tone="missing" text="NOT FOUND" />
+        </TrackHead>
+      </Surface>
       <UpgradeCard upgrade={upExact} currentUrl={toneA} current={specCut} next={specFull} swap>
         {#snippet actions()}<Button variant="link" size="sm">Add as new file</Button><Button variant="link" muted size="sm">Discard</Button>{/snippet}
       </UpgradeCard>
@@ -1386,6 +1402,9 @@
   .w260 { width: 260px; }
   .w320 { width: 320px; }
   .w360 { width: 360px; max-width: 100%; }
+  /* table cells of a fixed width, to show how a block gives way in one (Badge more, MiddleText sep) */
+  .cell140, .cell200, .cell320 { display: flex; min-width: 0; color: var(--text-muted); font-size: var(--fs-small); }
+  .cell140 { width: 140px; } .cell200 { width: 200px; } .cell320 { width: 320px; max-width: 100%; }
   .w240 { width: 240px; max-width: 100%; margin-bottom: var(--s-3); }
   .w372 { width: 372px; max-width: 100%; }
   .g-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-3); }

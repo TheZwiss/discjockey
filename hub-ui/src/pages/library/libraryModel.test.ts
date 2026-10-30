@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { TrackRow } from '$lib/bridge/types';
 import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import {
-  columnThresholds, columnsAt, fileName, folderCell, footAction, gridColumns, inTodo, isSort, libraryView, moveSelection,
-  asToday, playQueue, libraryCalls, nextSort, offTable, optionalColumns, placeLine, playable, rowAway, rowOff, rowTitleTip, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
+  centerLine, columnThresholds, columnsAt, defaultSort, fileName, folderCell, footAction, gridColumns, hasSubfolders, inTodo,
+  isSort, keepLine, lineTop, moveSelection, noFileCount, noFileNote, pageEmpty, placeLine, playQueue, playable,
+  playlistCell, playlistsLine, libraryCalls, nextSort, offTable, optionalColumns, rowAway, rowDim, rowInTodo, rowOf, rowOff,
+  rowTitleTip, segOptions, selectedIndex, shortUrl, sortKey, sortState, subfolderCell, subtitleParts, tableKind, tableLines,
+  titleNote, viewSort, waitWords, windowSlice, alsoHint,
 } from './libraryModel';
 import type { LibraryRow, TrackDetail } from '$lib/bridge/types';
 
@@ -43,10 +46,15 @@ describe('windowing slice', () => {
   it('end of a long list stops at the count', () => {
     expect(windowSlice(1500 * 36, 360, 36, 1500)).toEqual({ start: 1490, end: 1500 });
   });
-  it('keeps the selected row in view', () => {
-    expect(scrollToKeep(0, 360, 36, 3)).toBe(0);
-    expect(scrollToKeep(0, 360, 36, 12)).toBe(13 * 36 - 360);
-    expect(scrollToKeep(500, 360, 36, 2)).toBe(72);
+  it('keeps the selected line in view, clear of a stuck section head', () => {
+    expect(keepLine(0, 360, 3 * 36, 36)).toBe(0);
+    expect(keepLine(0, 360, 12 * 36, 36)).toBe(13 * 36 - 360);
+    expect(keepLine(500, 360, 2 * 36, 36)).toBe(72);
+    // a row of the Also section under a 32 px stuck head stops below it, not half under it
+    expect(keepLine(500, 360, 510, 36, 32)).toBe(478);
+    expect(keepLine(500, 360, 540, 36, 32)).toBe(500);
+    expect(centerLine(360, 20 * 36, 36)).toBe(20 * 36 - 162);
+    expect(centerLine(360, 36, 36)).toBe(0);
   });
 });
 
@@ -111,55 +119,116 @@ describe('table and strip', () => {
     expect(segOptions(c, 'all')[1]).toEqual({ key: 'lossless', label: 'Lossless', count: 1, dot: 'lossless' });
     expect(segOptions(null, 'all')[0].count).toBe(0);
   });
-  it('optional columns (D10): Folder in the two views, Length everywhere, no Source or Added', () => {
-    expect(optionalColumns('all')).toEqual(['folder', 'length']);
+  it('optional columns (D10): per kind, a column that would say the same on every row left out', () => {
+    expect(optionalColumns('all')).toEqual(['folder', 'playlist', 'length']);
     expect(optionalColumns('unlisted')).toEqual(['folder', 'length']);
-    expect(optionalColumns('folder')).toEqual(['length']);
+    expect(optionalColumns('playlist')).toEqual(['length']);
+    expect(optionalColumns('library')).toEqual(['length']);
+    expect(optionalColumns('watched', true)).toEqual(['subfolder', 'playlist', 'length']);
+    expect(optionalColumns('watched', false)).toEqual(['playlist', 'length']);
+    expect(optionalColumns('crate', true)).toEqual(['subfolder', 'playlist', 'length']);
+    expect(optionalColumns('crate')).toEqual(['playlist', 'length']);
   });
-  it('thresholds add up from Track + Artist (380): Folder +140, Length +200', () => {
-    expect(columnThresholds('all')).toEqual([{ column: 'folder', from: 520 }, { column: 'length', from: 720 }]);
-    expect(columnThresholds('folder')).toEqual([{ column: 'length', from: 580 }]);
+  it('thresholds add up from Track + Artist (380): Folder or Subfolder +140, Playlist +180, Length +200; a playlist\'s # +40', () => {
+    expect(columnThresholds('all')).toEqual([{ column: 'folder', from: 520 }, { column: 'playlist', from: 700 },
+      { column: 'length', from: 900 }]);
+    expect(columnThresholds('watched', true)).toEqual([{ column: 'subfolder', from: 520 }, { column: 'playlist', from: 700 },
+      { column: 'length', from: 900 }]);
+    expect(columnThresholds('playlist')).toEqual([{ column: 'length', from: 620 }]);
+    expect(columnThresholds('library')).toEqual([{ column: 'length', from: 580 }]);
   });
-  it("columns by the table's own width: Length goes first, Folder last (the widths table)", () => {
+  it("columns by the table's own width: Length goes first, then Playlist, Subfolder or Folder last (the widths table)", () => {
     // 1280 · Library (rail + browser), details closed: 946
-    expect(columnsAt('all', 946)).toEqual(['folder', 'length']);
-    // 1100 · Library, details closed: 766
-    expect(columnsAt('all', 766)).toEqual(['folder', 'length']);
-    // 1100 · details open (the browser stepped back): 685; 1280 · details open: 586
-    expect(columnsAt('all', 685)).toEqual(['folder']);
+    expect(columnsAt('watched', 946, true)).toEqual(['subfolder', 'playlist', 'length']);
+    expect(columnsAt('all', 946)).toEqual(['folder', 'playlist', 'length']);
+    // 1280 · the browser dragged to 320: 866 (Length goes first)
+    expect(columnsAt('watched', 866, true)).toEqual(['subfolder', 'playlist']);
+    // 1100 · Library, details closed: 766 (today's 1280 set)
+    expect(columnsAt('watched', 766, true)).toEqual(['subfolder', 'playlist']);
+    // 1100 · details open (the browser stepped back): 685; 1280 · details open: 586 (today's 1100 set)
+    expect(columnsAt('watched', 685, true)).toEqual(['subfolder']);
+    expect(columnsAt('watched', 586, true)).toEqual(['subfolder']);
+    expect(columnsAt('crate', 586)).toEqual(['playlist']);   // no crates inside: Playlist from 560
+    expect(columnsAt('crate', 559)).toEqual([]);
     expect(columnsAt('unlisted', 586)).toEqual(['folder']);
-    expect(columnsAt('folder', 586)).toEqual(['length']);
-    expect(columnsAt('folder', 579)).toEqual([]);
+    expect(columnsAt('playlist', 619)).toEqual([]);
+    expect(columnsAt('playlist', 620)).toEqual(['length']);
+    expect(columnsAt('library', 580)).toEqual(['length']);
     expect(columnsAt('all', 519)).toEqual([]);
-    expect(columnsAt('all', 520)).toEqual(['folder']);
-    // Length's edges: All tracks at 720, a playlist at 580
-    expect(columnsAt('all', 719)).toEqual(['folder']);
-    expect(columnsAt('all', 720)).toEqual(['folder', 'length']);
+    expect(columnsAt('all', 699)).toEqual(['folder']);
     expect(columnsAt('unlisted', 720)).toEqual(['folder', 'length']);
-    expect(columnsAt('folder', 580)).toEqual(['length']);
   });
-  it('grid: the names share the rest, fixed Length, Quality and slot', () => {
+  it('grid: the names share the rest, fixed #, Length, Quality and slot', () => {
     expect(gridColumns([])).toBe('minmax(0, 1.45fr) minmax(0, 1fr) 116px var(--w-row-action)');
-    expect(gridColumns(['folder', 'length']))
-      .toBe('minmax(0, 1.45fr) minmax(0, 1fr) minmax(96px, .8fr) 52px 116px var(--w-row-action)');
+    expect(gridColumns(['folder', 'playlist', 'length']))
+      .toBe('minmax(0, 1.45fr) minmax(0, 1fr) minmax(96px, .8fr) minmax(0, 1.1fr) 52px 116px var(--w-row-action)');
+    expect(gridColumns(['length'], true)).toBe('24px minmax(0, 1.45fr) minmax(0, 1fr) 52px 116px var(--w-row-action)');
   });
-  it('tells the three lists apart', () => {
-    expect(libraryView(null)).toBe('all');
-    expect(libraryView(NOT_IN_PLAYLIST)).toBe('unlisted');
-    expect(libraryView('Hard_Bounce')).toBe('folder');
+  it('tells the kinds apart: the views, and a folder view by what the folder is', () => {
+    expect(tableKind({ view: 'all', folder_kind: null })).toBe('all');
+    expect(tableKind({ view: 'unlisted', folder_kind: null })).toBe('unlisted');
+    expect(tableKind({ view: 'playlist', folder_kind: null })).toBe('playlist');
+    expect(tableKind({ view: 'folder', folder_kind: 'watched' })).toBe('watched');
+    expect(tableKind({ view: 'folder', folder_kind: 'crate' })).toBe('crate');
+    expect(tableKind({ view: 'folder', folder_kind: 'library' })).toBe('library');
+    expect(tableKind({ view: 'folder', folder_kind: null })).toBe('library');
   });
-  it('folder cell and sorts', () => {
-    expect(folderCell(row('a'))).toBe('Hard_Bounce');
-    expect(folderCell(row('a', { in_playlists: false }))).toBe('Not in a playlist');
-    // Not in a playlist: every row is in none, so the cell says where the file sits; "–" (null) without a folder
-    expect(folderCell(row('a', { in_playlists: false }), 'unlisted')).toBe('Hard_Bounce');
-    expect(folderCell(row('a', { in_playlists: false, folder: '' }), 'unlisted')).toBeNull();
-    expect(isSort('-folder')).toBe(true);
+});
+
+describe('sorts: a default and a saved sort per view kind', () => {
+  it('a playlist opens in its own order, every other view by Artist', () => {
+    expect(defaultSort('playlist')).toBe('order');
+    expect(defaultSort('all')).toBe('artist');
+    expect(defaultSort('folder')).toBe('artist');
+  });
+  it('each kind has its own key', () => {
+    expect(sortKey('playlist')).toBe('library.sort.playlist');
+    expect(sortKey('folder')).not.toBe(sortKey('all'));
+  });
+  it('a sort a view has no column for is not one of its sorts', () => {
+    expect(isSort('-order', 'playlist')).toBe(true);
+    expect(isSort('order', 'all')).toBe(false);
+    expect(isSort('folder', 'playlist')).toBe(false);
+    expect(isSort('-folder', 'all')).toBe(true);
+    expect(isSort('folder', 'folder')).toBe(false);
+    expect(isSort('length', 'folder')).toBe(true);
     // Source and Added left the table: a sort by them saved before falls back to the default
-    expect(isSort('added')).toBe(false);
-    expect(isSort('-source')).toBe(false);
-    expect(isSort('length')).toBe(true);
-    expect(isSort('bpm')).toBe(false);
+    expect(isSort('added', 'all')).toBe(false);
+    expect(isSort('-source', 'all')).toBe(false);
+    expect(isSort('bpm', 'all')).toBe(false);
+    expect(isSort(3, 'all')).toBe(false);
+  });
+  it('opens with its own saved sort, else the shared one from before when it fits, else its default', () => {
+    expect(viewSort('playlist', '-length', 'artist')).toBe('-length');
+    expect(viewSort('playlist', null, '-title')).toBe('-title');
+    expect(viewSort('folder', null, 'folder')).toBe('artist');
+    expect(viewSort('playlist', 'folder', null)).toBe('order');
+    expect(viewSort('all', null, null)).toBe('artist');
+  });
+});
+
+describe('the cells', () => {
+  const lr = (over: Partial<LibraryRow> = {}): LibraryRow => ({ ...here(row('a')), ...over });
+  it('Folder says where the file sits (D12), "–" without a place', () => {
+    expect(folderCell(lr({ place: 'Rekordbox Library › Hardtechno › 2019' }))).toBe('Rekordbox Library › Hardtechno › 2019');
+    expect(folderCell(lr({ place: null }))).toBeNull();
+  });
+  it('Subfolder: the crate or the folders below; "–" for a file in the folder itself', () => {
+    expect(subfolderCell(lr({ subfolder: '2019' }))).toBe('2019');
+    expect(subfolderCell(lr({ subfolder: '' }))).toBeNull();
+    expect(subfolderCell(lr({ subfolder: null }))).toBeNull();
+  });
+  it('Playlist: the first playlist, +n for the others, all of them by name as the tooltip', () => {
+    expect(playlistCell(lr({ playlists: ['Hard_Bounce', 'Powertrance', 'Bouncy'] })))
+      .toEqual({ name: 'Hard_Bounce', more: 2, tip: 'In Hard_Bounce, Powertrance, Bouncy' });
+    expect(playlistCell(lr({ playlists: ['Hard_Bounce'] }))).toEqual({ name: 'Hard_Bounce', more: 0, tip: 'In Hard_Bounce' });
+    expect(playlistCell(lr({ playlists: [] }))).toBeNull();
+  });
+  it('a playlist row whose file sits elsewhere says where after its title; nowhere else', () => {
+    expect(titleNote(lr({ place: 'Techno 2019' }), 'playlist')).toBe('in Techno 2019');
+    expect(titleNote(lr({ place: null }), 'playlist')).toBeNull();
+    expect(titleNote(lr({ place: 'Techno 2019' }), 'all')).toBeNull();
+    expect(titleNote(lr({ place: 'Techno 2019', file_state: 'no_file' }), 'playlist')).toBeNull();
   });
 });
 
@@ -189,11 +258,14 @@ describe('a dimmed row', () => {
 });
 
 describe('copy helpers', () => {
-  it('short source link and place line', () => {
+  it('short source link, the place line (D11) and the Playlists row', () => {
     expect(shortUrl('https://www.youtube.com/watch?v=abcdefghijk')).toBe('youtube.com/watch?v=…');
     expect(shortUrl('https://soundcloud.com/a')).toBe('soundcloud.com/a');
-    expect(placeLine('Hard_Bounce')).toBe('Hard_Bounce');
-    expect(placeLine('Old_Sets', false)).toBe('Not in a playlist');
+    expect(placeLine('Hardtechno › 2019')).toBe('in Hardtechno › 2019');
+    expect(placeLine(null)).toBe('');
+    expect(playlistsLine({ in_playlists: true, playlists: ['Hard_Bounce', 'Bouncy'] })).toBe('Hard_Bounce, Bouncy');
+    expect(playlistsLine({ in_playlists: false, playlists: [] })).toBe('–');
+    expect(playlistsLine({ in_playlists: true, playlists: null })).toBeNull();
   });
 });
 
@@ -210,7 +282,8 @@ describe('an away row (library stage 4 fix K)', () => {
 
 describe('offTable: the selected track known to be off the table (the details then never stand empty)', () => {
   // the answer's own `folder`/`key` is the engine's spelling; offTable goes by the route param the answer was asked for
-  const lib = (ids: string[]) => ({ folder: 'Library/Old_Sets', key: 'Library/Old_Sets', rows: ids.map((id) => row(id)) as unknown as LibraryRow[] });
+  const lib = (ids: string[], also: string[] | null = null) => ({ folder: 'Library/Old_Sets', key: 'Library/Old_Sets',
+    rows: ids.map((id) => row(id)) as unknown as LibraryRow[], also: also && (also.map((id) => row(id)) as unknown as LibraryRow[]) });
   it('a track among the rows shown is on the table', () => {
     expect(offTable(lib(['t1', 't2']), 'Hard_Bounce', 'Hard_Bounce', 't2')).toBe(false);
   });
@@ -229,6 +302,11 @@ describe('offTable: the selected track known to be off the table (the details th
   it('not known yet: before the first answer, or while the answer is still another folder\'s', () => {
     expect(offTable(null, null, 'Hard_Bounce', 't2')).toBe(false);
     expect(offTable(lib(['t9']), 'Qobuz_Picks', 'Hard_Bounce', 't2')).toBe(false);
+  });
+  it('a playlist\'s other files of its folder (`also`) are on the table too', () => {
+    expect(offTable(lib(['t1'], ['left']), 'Hard_Bounce', 'Hard_Bounce', 'left')).toBe(false);
+    expect(rowOf(lib(['t1'], ['left']), 'left')?.track_id).toBe('left');
+    expect(rowOf(lib(['t1']), 'x')).toBeNull();
   });
   it('nothing selected: nothing to be off', () => {
     expect(offTable(lib([]), 'Hard_Bounce', 'Hard_Bounce', null)).toBe(false);
@@ -256,62 +334,138 @@ describe('which library(view, key, …) call answers the route', () => {
   });
 });
 
-describe('asToday: a playlist view drawn as the page drew a folder, until the playlist views (B6)', () => {
-  const rowOf = (id: string, over: Partial<LibraryRow> = {}): LibraryRow => ({ ...here(row(id, { title: id })), ...over });
-  const waiting = (id: string): LibraryRow => ({ ...here(row(id, { path: null, quality: 'missing', status: 'missing' }), 'no_file'), wait: 'waiting' });
+
+describe('a playlist view (D6, D9; issues #29 "For B6")', () => {
+  const lr = (id: string, over: Partial<LibraryRow> = {}): LibraryRow => ({ ...here(row(id, { title: id })), ...over });
+  const waiting = (id: string, wait: LibraryRow['wait'] = 'waiting'): LibraryRow =>
+    ({ ...here(row(id, { path: null, quality: 'missing', status: 'missing' }), 'no_file'), wait });
   const summary = (tracks: number) => ({ tracks, lossless_share: null, by_quality: { lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 },
     upgrades_ready: 0, to_do: 0, not_lossless: 0 });
-  const view = (over: object): never => ({ view: 'playlist', key: 'Hard_Bounce', title: 'Hard_Bounce', folder: 'Hard_Bounce', empty: null,
-    subtitle: ['0 tracks', 'Spotify playlist', 'Library › Hard_Bounce'], summary: summary(0), chips: { all: 0, lossless: 0, good_lossy: 0, weak: 0, fake: 0, upgrade_ready: 0 },
-    rows: [], also: null, read_at: '2026-10-01', enabled: true, service: 'spotify', ...over }) as never;
+  const view = (over: object): never => ({ view: 'playlist', key: 'Hard_Bounce', title: 'Hard_Bounce', folder: 'Hard_Bounce',
+    folder_kind: null, empty: null, subtitle: ['9 tracks', 'Spotify playlist', 'Library › Hard_Bounce'], summary: summary(9),
+    chips: { all: 9, lossless: 0, good_lossy: 0, weak: 0, fake: 0, upgrade_ready: 0 }, rows: [], also: null,
+    read_at: '2026-10-01', enabled: true, service: 'spotify', ...over }) as never;
 
-  it('a playlist never read lists the files of its folder, with their counts', () => {
-    const lib = view({ read_at: null, subtitle: ['Spotify playlist', 'not read yet'], also: [rowOf('a'), rowOf('b', { quality: 'weak' })] });
-    const out = asToday(lib, '', 'all', 'artist') as unknown as { rows: LibraryRow[]; also: unknown; summary: { tracks: number }; chips: Record<string, number>; subtitle: string[]; empty: string | null };
-    expect(out.rows.map((r) => r.track_id)).toEqual(['a', 'b']);
-    expect(out.also).toBeNull();
-    expect(out.summary.tracks).toBe(2);
-    expect(out.chips).toMatchObject({ all: 2, lossless: 1, weak: 1 });
-    expect(out.subtitle[0]).toBe('2 tracks');
-    expect(out.empty).toBeNull();
+  it('a song without a file is dimmed, never plays, and is in To-do only when it was not found', () => {
+    expect(rowDim(waiting('w'))).toBe(true);
+    expect(rowDim(lr('a', { file_state: 'offline' }))).toBe(true);
+    expect(rowDim(lr('a', { in_playlists: false }))).toBe(true);
+    expect(rowDim(lr('a'))).toBe(false);
+    expect(rowDim(lr('a', { in_playlists: false, own: true }))).toBe(false);
+    expect(playable(waiting('w'))).toBe(false);
+    expect(rowAway(waiting('w'))).toBeNull();
+    expect(rowInTodo(waiting('w'))).toBe(false);
+    expect(rowInTodo(waiting('w', 'not_found'))).toBe(true);
+    expect(rowInTodo(lr('a', { status: 'not_lossless' }))).toBe(true);
+    expect(rowTitleTip({ ...waiting('w'), in_playlists: false }, 'A - w')).toBe('A - w');
   });
-  it('a never-read playlist whose folder is empty stays empty', () => {
-    const lib = view({ read_at: null, subtitle: ['Spotify playlist', 'not read yet'] });
-    const out = asToday(lib, '', 'all', 'artist') as unknown as { rows: unknown[]; summary: { tracks: number }; subtitle: string[] };
-    expect(out.rows).toEqual([]);
-    expect(out.summary.tracks).toBe(0);
-    expect(out.subtitle).toEqual(['Spotify playlist', 'not read yet']);
+  it('the table lists the songs, then the folder\'s other files under their head; an empty line only beside them', () => {
+    const kinds = (l: ReturnType<typeof tableLines>) => l.map((x) => (x.kind === 'row' ? `${x.also ? '+' : ''}${x.row.track_id}` : x.kind));
+    expect(kinds(tableLines([lr('a'), waiting('w')], [lr('left')], 'x'))).toEqual(['a', 'w', 'section', '+left']);
+    expect(kinds(tableLines([], [lr('left')], 'This playlist is empty.'))).toEqual(['empty', 'section', '+left']);
+    expect(kinds(tableLines([lr('a')], [], null))).toEqual(['a']);
+    expect(kinds(tableLines([lr('a')], null, null))).toEqual(['a']);
+    const lines = tableLines([lr('a'), lr('b')], [lr('left')], null);
+    expect(lineTop(lines, 3, 38, 32)).toBe(2 * 38 + 32);
+    expect(lineTop(lines, 99, 38, 32)).toBe(3 * 38 + 32);
   });
-  it('a leftover joins the rows and the counts, still dimmed by its own fields; waiting songs stay out', () => {
-    const left = rowOf('left', { in_playlists: false, quality: 'weak', status: 'not_lossless' });
-    const lib = view({ rows: [rowOf('a'), waiting('w')], also: [left], summary: { ...summary(1), by_quality: { lossless: 1, good_lossy: 0, weak: 0, fake: 0, missing: 0 }, lossless_share: 1 },
-      subtitle: ['1 track', 'Spotify playlist', 'Library › Hard_Bounce'] });
-    const out = asToday(lib, '', 'all', 'artist') as unknown as { rows: LibraryRow[]; summary: { tracks: number; by_quality: Record<string, number>; not_lossless: number; lossless_share: number }; chips: Record<string, number>; subtitle: string[] };
-    expect(out.rows.map((r) => r.track_id)).toEqual(['a', 'left']);
-    expect(rowOff(out.rows[1])).toBe(true);
-    expect(out.summary).toMatchObject({ tracks: 2, not_lossless: 1, lossless_share: 0.5 });
-    expect(out.summary.by_quality).toMatchObject({ lossless: 1, weak: 1 });
-    expect(out.chips).toMatchObject({ all: 2, lossless: 1, weak: 1 });
-    expect(out.subtitle).toEqual(['2 tracks', 'Spotify playlist', 'Library › Hard_Bounce']);
+  it('the queue (the browser\'s Play too) is the table\'s order: songs, then the other files, only files that are there', () => {
+    const away = lr('away', { file_state: 'offline' });
+    expect(playQueue(view({ rows: [lr('b'), waiting('w'), away], also: [lr('a', { in_playlists: false })] })).map((r) => r.track_id))
+      .toEqual(['b', 'a']);
+    expect(playQueue(view({ rows: [lr('x'), away], also: null, view: 'folder' })).map((r) => r.track_id)).toEqual(['x']);
   });
-  it('the queue of the browser\'s Play is the page\'s: the merged leftovers, only files that are there, in the sort', () => {
-    const away = rowOf('away', { file_state: 'offline' });
-    const lib = view({ rows: [rowOf('b'), waiting('w'), away], also: [rowOf('a', { in_playlists: false })] });
-    expect(playQueue(lib, 'title').map((r) => r.track_id)).toEqual(['a', 'b']);
-    expect(playQueue(lib, '-title').map((r) => r.track_id)).toEqual(['b', 'a']);
-    const folder = view({ rows: [rowOf('x'), away], view: 'folder' });
-    expect(playQueue(folder, 'artist').map((r) => r.track_id)).toEqual(['x']);
+  it('the songs without a file: the sidebar\'s songs less the ones with a file, so 9 + 3 make its 12', () => {
+    const side = { playlists: [{ name: 'hard_bounce', songs: 12 }] } as never;
+    const lib = view({ rows: [lr('a'), waiting('w')] });
+    expect(noFileCount(lib, side, false)).toBe(3);
+    // no sidebar yet: the rows, when they are the whole list
+    expect(noFileCount(lib, null, true)).toBe(1);
+    expect(noFileCount(lib, null, false)).toBeNull();
+    expect(noFileCount(view({ read_at: null }), side, true)).toBeNull();
+    expect(noFileCount(view({ view: 'folder' }), side, true)).toBeNull();
+    expect(noFileCount(view({}), { playlists: [{ name: 'Hard_Bounce', songs: null }] } as never, false)).toBeNull();
   });
-  it('search and filter are applied after the merge, the chips count the searched list', () => {
-    const lib = view({ rows: [rowOf('alpha')], also: [rowOf('beta', { quality: 'weak' }), rowOf('alps', { quality: 'weak' })] });
-    const out = asToday(lib, 'al', 'weak', 'artist') as unknown as { rows: LibraryRow[]; chips: Record<string, number> };
-    expect(out.rows.map((r) => r.track_id)).toEqual(['alps']);
-    expect(out.chips).toMatchObject({ all: 2, lossless: 1, weak: 1 });
+  it('the subtitle counts them in a part of their own after the count', () => {
+    expect(subtitleParts(view({}), 3)).toEqual(['9 tracks', '3 not downloaded yet', 'Spotify playlist', 'Library › Hard_Bounce']);
+    expect(subtitleParts(view({}), 0)).toEqual(['9 tracks', 'Spotify playlist', 'Library › Hard_Bounce']);
+    expect(subtitleParts(view({}), null)).toEqual(['9 tracks', 'Spotify playlist', 'Library › Hard_Bounce']);
+    expect(subtitleParts(view({ subtitle: [] }), 3)).toEqual([]);
   });
-  it('another view and a playlist that is gone come back untouched', () => {
-    const all = { view: 'all', rows: [waiting('w')], also: null } as never;
-    expect(asToday(all, '', 'all', 'artist')).toBe(all);
-    const gone = view({ empty: 'gone', subtitle: [] });
-    expect(asToday(gone, '', 'all', 'artist')).toBe(gone);
+  it('a song not found says what To-do offers; a waiting one when it comes', () => {
+    expect(noFileNote('waiting')).toMatch(/^It downloads at the next sync/);
+    expect(noFileNote('not_found', '2026-10-20'))
+      .toBe('No source had a usable copy when the sync looked. Qobuz looks again on 20\u00a0Oct. To-do has links to buy it or get it another way.');
+    expect(noFileNote('not_found', 'next_sync')).toMatch(/Qobuz looks again at the next sync\./);
+    expect(noFileNote('not_found')).not.toMatch(/Qobuz/);
+    // a switched-off playlist downloads nothing new: its waiting song says how to get it, not "at the next sync"
+    expect(noFileNote('waiting', null, true)).toMatch(/switched off.*Switch it on in Playlists/);
+    expect(noFileNote('not_found', null, true)).toMatch(/^No source/);
+    expect(waitWords(false)).toEqual({ word: 'Waiting', tip: 'Downloads at the next sync' });
+    expect(waitWords(true)).toEqual({ word: 'Switched off', tip: 'Switched off: its files stay, nothing new downloads' });
+  });
+});
+
+describe('the empty states, worded by the view (I7; the engine says no_match even without search)', () => {
+  const lr = (id: string): LibraryRow => here(row(id));
+  const lib = (over: object) => ({ view: 'playlist', title: 'Hard_Bounce', empty: 'no_match', read_at: '2026-10-01', rows: [],
+    also: null, ...over }) as never;
+  it('an empty playlist, an empty folder, Not in a playlist with nothing', () => {
+    expect(pageEmpty(lib({}), '', 'all').page).toMatchObject({ kind: 'empty', title: 'This playlist is empty.' });
+    expect(pageEmpty(lib({ view: 'folder' }), '', 'all').page).toMatchObject({ kind: 'empty', title: 'No music in this folder.' });
+    expect(pageEmpty(lib({ view: 'unlisted' }), '', 'all').page?.title).toBe('Every track is in a playlist.');
+  });
+  it('a playlist never read', () => {
+    expect(pageEmpty(lib({ read_at: null }), '', 'all').page)
+      .toEqual({ kind: 'never_read', title: "This playlist hasn't been read yet.", body: 'Read your playlists above to see its songs.' });
+    expect(pageEmpty(lib({ read_at: null }), 'neon', 'all').page?.kind).toBe('never_read');
+  });
+  it('gone, by the view', () => {
+    expect(pageEmpty(lib({ empty: 'gone' }), '', 'all').page?.title).toBe("This playlist isn't in your list any more.");
+    expect(pageEmpty(lib({ empty: 'gone', view: 'folder' }), '', 'all').page?.title).toBe("This folder isn't in your library any more.");
+  });
+  it('a search or a filter that matches nothing; an empty library', () => {
+    expect(pageEmpty(lib({}), ' neon ', 'all').page).toEqual({ kind: 'search', title: 'Nothing in Hard_Bounce matches “neon”.' });
+    expect(pageEmpty(lib({}), '', 'weak').page).toEqual({ kind: 'filter', title: 'No tracks with this quality here.' });
+    expect(pageEmpty(lib({ empty: 'empty_library', view: 'all' }), '', 'all').page?.kind).toBe('library');
+  });
+  it('rows on the table: nothing to say', () => {
+    expect(pageEmpty(lib({ rows: [lr('a')], empty: null }), '', 'all')).toEqual({ page: null, line: null });
+  });
+  it('the playlist\'s own part empty beside its folder\'s other files: one line in the table, no empty page', () => {
+    const also = [lr('left')];
+    expect(pageEmpty(lib({ also }), '', 'all')).toEqual({ page: null, line: 'This playlist is empty.' });
+    expect(pageEmpty(lib({ also, read_at: null }), '', 'all').line).toBe("This playlist hasn't been read yet.");
+    expect(pageEmpty(lib({ also }), 'neon', 'all').line).toBe("None of the playlist's songs match “neon”.");
+    expect(pageEmpty(lib({ also }), '', 'weak').line).toBe("None of the playlist's songs have this quality.");
+  });
+});
+
+describe('the Also section\'s hint', () => {
+  it('says the files aren\'t in the playlist only once it was read', () => {
+    expect(alsoHint('Hard_Bounce')).toBe("files in Hard_Bounce that aren't in this playlist");
+    expect(alsoHint('Hard_Bounce', true)).toBe('files in Hard_Bounce, until the playlist is read');
+  });
+});
+
+describe('a folder view\'s Subfolder column: only with crates inside', () => {
+  const lib = (over: object) => ({ view: 'folder', folder_kind: 'watched', key: '/Users/you/Music/Rekordbox Library', rows: [], ...over }) as never;
+  const crate = (path: string, has_crates: boolean) => ({ path, has_crates });
+  const side = { watched: [{ path: '/Users/you/Music/Rekordbox Library/', crate_count: 4, too_many: false,
+    crates: [crate('/Users/you/Music/Rekordbox Library/Hardtechno', true), crate('/Users/you/Music/Rekordbox Library/Edits', false)] },
+  { path: '/Volumes/Example Drive/Albums', crate_count: 312, too_many: true, crates: [] },
+  { path: '/Users/you/Music/Plain', crate_count: 0, too_many: false, crates: [] }] } as never;
+  it('the sidebar says: a watched folder by its crates, a crate by the crates inside it', () => {
+    expect(hasSubfolders(lib({}), side)).toBe(true);
+    expect(hasSubfolders(lib({ key: '/Volumes/Example Drive/Albums' }), side)).toBe(true);
+    expect(hasSubfolders(lib({ key: '/Users/you/Music/Plain' }), side)).toBe(false);
+    expect(hasSubfolders(lib({ folder_kind: 'crate', key: '/Users/you/Music/Rekordbox Library/Hardtechno' }), side)).toBe(true);
+    expect(hasSubfolders(lib({ folder_kind: 'crate', key: '/Users/you/Music/Rekordbox Library/Edits' }), side)).toBe(false);
+  });
+  it('before the sidebar, the rows do; a Library folder and the views never', () => {
+    expect(hasSubfolders(lib({ rows: [{ subfolder: '2019' }] }), null)).toBe(true);
+    expect(hasSubfolders(lib({ rows: [{ subfolder: '' }] }), null)).toBe(false);
+    expect(hasSubfolders(lib({ folder_kind: 'library', rows: [{ subfolder: 'x' }] }), side)).toBe(false);
+    expect(hasSubfolders(lib({ view: 'all' }), side)).toBe(false);
   });
 });

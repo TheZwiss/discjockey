@@ -1,19 +1,54 @@
-// Pure helpers for the Library page (sorting, windowing, selection, the filter segments, the columns, the inspector).
-// Tested in libraryModel.test.ts.
-import type { Library, LibraryFilter, LibraryRow, LibrarySort, LibraryView as WireView, Quality, Sidebar, TrackDetail,
+// Pure helpers for the Library page (sorting, windowing, selection, the filter segments, the columns, the row signals,
+// the words of the header and the empty states, the inspector). Tested in libraryModel.test.ts.
+import type { Library, LibraryFilter, LibraryRow, LibrarySort, LibraryView, Quality, Sidebar, TrackDetail,
   TrackRow } from '$lib/bridge/types';
-import { NOT_IN_PLAYLIST, QUALITIES } from '$lib/bridge/types';
+import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import type { SegOption } from '$lib/components/segmentedModel';
+import { dayMonth } from '$lib/format';
 
-/** The columns a header click sorts by. Source and Added left the table (plan library stage 5 D10: the inspector shows
- *  both), so a sort by them saved before isn't one any more (isSort): it falls back to the default, rather than sort
- *  the rows by a column nobody can see. */
-export type SortColumn = 'title' | 'artist' | 'folder' | 'length' | 'quality';
-export const DEFAULT_SORT: LibrarySort = 'artist';
-export const SORT_COLUMNS: SortColumn[] = ['title', 'artist', 'folder', 'length', 'quality'];
-/** Above this many rows only the visible rows (plus overscan) are rendered. */
-export const WINDOW_FROM = 300;
-export const OVERSCAN = 10;
+// ---------- what kind of collection the table shows ----------
+/** The table's kind: the four views, with a folder view told apart by what the folder is (plan library stage 5 D10:
+ *  each has its own column set). A folder whose kind isn't known (gone) is drawn as a Library folder. */
+export type TableKind = 'all' | 'unlisted' | 'playlist' | 'library' | 'watched' | 'crate';
+export function tableKind(lib: Pick<Library, 'view' | 'folder_kind'>): TableKind {
+  if (lib.view !== 'folder') return lib.view;
+  return lib.folder_kind ?? 'library';
+}
+
+// ---------- sorting (a saved sort per view kind) ----------
+/** The columns a header click sorts by (the engine's sorts, views.SORTS). Source and Added left the table (D10: the
+ *  inspector shows both), and the engine has no sort by Subfolder or Playlist, so those heads don't sort. `order` is a
+ *  playlist's own (the `#` column), `folder` the two views' Folder column. */
+export type SortColumn = 'order' | 'title' | 'artist' | 'folder' | 'length' | 'quality';
+const COMMON: SortColumn[] = ['title', 'artist', 'length', 'quality'];
+export function sortColumns(view: LibraryView): SortColumn[] {
+  if (view === 'playlist') return ['order', ...COMMON];
+  if (view === 'folder') return COMMON;
+  return [...COMMON, 'folder'];
+}
+/** A playlist starts in its own order (D9), every other view by Artist ↑ (the mockup). */
+export function defaultSort(view: LibraryView): LibrarySort {
+  return view === 'playlist' ? 'order' : 'artist';
+}
+/** Each view kind remembers its own sort: a playlist sorted by Length doesn't turn All tracks round, and `order` (a
+ *  playlist's) never reaches a view that has no order. */
+export function sortKey(view: LibraryView): string {
+  return `library.sort.${view}`;
+}
+/** The sort every view shared before (step A); a view kind with no sort of its own yet starts from it. */
+export const LEGACY_SORT_KEY = 'library.sort';
+export function isSort(v: unknown, view: LibraryView): v is LibrarySort {
+  if (typeof v !== 'string') return false;
+  const c = v.startsWith('-') ? v.slice(1) : v;
+  return (sortColumns(view) as string[]).includes(c);
+}
+/** The sort a view kind opens with: its own saved one, else the shared one from before (when this view has that
+ *  column), else its default. */
+export function viewSort(view: LibraryView, saved: unknown, legacy: unknown = null): LibrarySort {
+  if (isSort(saved, view)) return saved;
+  if (isSort(legacy, view)) return legacy;
+  return defaultSort(view);
+}
 
 /** Header click: same column → flips direction; another column → ascending. */
 export function nextSort(current: LibrarySort, column: SortColumn): LibrarySort {
@@ -26,11 +61,10 @@ export function sortState(sort: LibrarySort): { column: string; desc: boolean } 
   return sort.startsWith('-') ? { column: sort.slice(1), desc: true } : { column: sort, desc: false };
 }
 
-export function isSort(v: unknown): v is LibrarySort {
-  if (typeof v !== 'string') return false;
-  const c = v.startsWith('-') ? v.slice(1) : v;
-  return (SORT_COLUMNS as string[]).includes(c);
-}
+// ---------- windowing and selection ----------
+/** Above this many rows only the visible rows (plus overscan) are rendered. */
+export const WINDOW_FROM = 300;
+export const OVERSCAN = 10;
 
 /** Rows to render: all of them up to WINDOW_FROM, else the visible ones plus OVERSCAN on each side. */
 export function windowSlice(scrollTop: number, viewport: number, rowH: number, count: number,
@@ -41,60 +75,95 @@ export function windowSlice(scrollTop: number, viewport: number, rowH: number, c
   return { start: Math.max(0, first - overscan), end: Math.min(count, last + overscan) };
 }
 
-/** The scrollTop that keeps row `index` in view (unchanged when it already is). */
-export function scrollToKeep(scrollTop: number, viewport: number, rowH: number, index: number): number {
-  if (index < 0) return scrollTop;
-  const top = index * rowH;
-  if (top < scrollTop) return top;
-  if (top + rowH > scrollTop + viewport) return Math.max(0, top + rowH - viewport);
+/** The scrollTop that keeps a line (its top and height in px) in view, unchanged when it already is; `clear`: the
+ *  height at the top it must stay below (a stuck section head over the rows of its section). */
+export function keepLine(scrollTop: number, viewport: number, top: number, height: number, clear = 0): number {
+  if (top - clear < scrollTop) return Math.max(0, top - clear);
+  if (top + height > scrollTop + viewport) return Math.max(0, top + height - viewport);
   return scrollTop;
 }
 
-/** scrollTop that puts row `index` in the middle of the view (first load with ?track=). */
-export function scrollToCenter(viewport: number, rowH: number, index: number): number {
-  return index < 0 ? 0 : Math.max(0, index * rowH - (viewport - rowH) / 2);
+/** The scrollTop that puts a line in the middle of the view (first load with ?track=). */
+export function centerLine(viewport: number, top: number, height: number): number {
+  return Math.max(0, top - (viewport - height) / 2);
+}
+
+/** The table's lines in order: the main rows, then (a playlist whose folder holds files it doesn't) the main part's
+ *  empty line when it has no rows, the `Also in this folder` head and those files. One table, one column grid (D9). */
+export type TableLine = { kind: 'row'; row: LibraryRow; also: boolean } | { kind: 'empty'; text: string } | { kind: 'section' };
+export function tableLines(rows: LibraryRow[], also: LibraryRow[] | null, emptyLine: string | null): TableLine[] {
+  const out: TableLine[] = rows.map((row) => ({ kind: 'row', row, also: false }));
+  if (also?.length) {
+    if (!rows.length && emptyLine) out.push({ kind: 'empty', text: emptyLine });
+    out.push({ kind: 'section' });
+    for (const row of also) out.push({ kind: 'row', row, also: true });
+  }
+  return out;
+}
+/** The top of line `index` when rows are `rowH` high and the other lines (the empty line, the section head) `otherH`. */
+export function lineTop(lines: TableLine[], index: number, rowH: number, otherH: number): number {
+  let top = 0;
+  for (let i = 0; i < Math.min(index, lines.length); i++) top += lines[i].kind === 'row' ? rowH : otherH;
+  return top;
 }
 
 /** Selection survives a re-fetch by track id; the index is -1 when the track is not in the new rows. */
-export function selectedIndex(rows: TrackRow[], id: string | null): number {
+export function selectedIndex(rows: Pick<TrackRow, 'track_id'>[], id: string | null): number {
   return id === null ? -1 : rows.findIndex((r) => r.track_id === id);
 }
 
+/** The rows the table shows, main ones then a playlist's `also` (what ↑ ↓ walk, what a selection is found in). */
+export function allRows(lib: Pick<Library, 'rows' | 'also'>): LibraryRow[] {
+  return lib.also?.length ? [...lib.rows, ...lib.also] : lib.rows;
+}
+/** The row of the selected track on the table, if it is there. */
+export function rowOf(lib: Pick<Library, 'rows' | 'also'> | null, id: string | null): LibraryRow | null {
+  if (!lib || id === null) return null;
+  return allRows(lib).find((r) => r.track_id === id) ?? null;
+}
+
 /** Whether the selected track is known to be off the table (its details then don't stand, stores/chrome.ts
- *  `detailsStand`): not among the rows shown, filtered or searched away, gone from the library, or no rows at all (an
- *  empty library or folder, nothing matches). Not known (false) before the first answer, or while the answer on
- *  screen is still another folder's (a link into a new folder with a track): the selection came from a table.
- *  `answeredFor` is the route's folder param the answer on screen was asked for; the answer's own `key` is not
- *  compared, since the engine echoes its spelling of it (`Library/Old_Sets` for the route's `Old_Sets`). */
-export function offTable(lib: Pick<Library, 'rows'> | null, answeredFor: string | null | undefined, folder: string | null,
-  track: string | null): boolean {
+ *  `detailsStand`): not among the rows shown (a playlist's `also` count), filtered or searched away, gone from the
+ *  library, or no rows at all (an empty library or folder, nothing matches). Not known (false) before the first
+ *  answer, or while the answer on screen is still another folder's (a link into a new folder with a track): the
+ *  selection came from a table. `answeredFor` is the route's folder param the answer on screen was asked for; the
+ *  answer's own `key` is not compared, since the engine echoes its spelling of it (`Library/Old_Sets` for the route's
+ *  `Old_Sets`). */
+export function offTable(lib: Pick<Library, 'rows' | 'also'> | null, answeredFor: string | null | undefined,
+  folder: string | null, track: string | null): boolean {
   if (!lib || track === null || answeredFor !== folder) return false;
-  return !lib.rows.some((r) => r.track_id === track);
+  return rowOf(lib, track) === null;
 }
 
 /** ↑/↓: the next selected id (stays at the ends; nothing selected → first/last row). */
-export function moveSelection(rows: TrackRow[], id: string | null, delta: 1 | -1): string | null {
+export function moveSelection(rows: Pick<TrackRow, 'track_id'>[], id: string | null, delta: 1 | -1): string | null {
   if (!rows.length) return null;
   const i = selectedIndex(rows, id);
   if (i < 0) return rows[delta > 0 ? 0 : rows.length - 1].track_id;
   return rows[Math.min(rows.length - 1, Math.max(0, i + delta))].track_id;
 }
 
+// ---------- to-do ----------
 /** "Open in to-do" only for tracks the to-do list shows: in a playlist, not hidden, and not lossless or with an upgrade
  *  ready (views.todo; a track in no playlist or a hidden one isn't there, so the link would find nothing). */
 export function inTodo(t: Pick<TrackRow, 'status' | 'upgrade_ready' | 'in_playlists' | 'hidden'>): boolean {
   return t.in_playlists && !t.hidden && (t.status !== 'lossless' || t.upgrade_ready);
+}
+/** The same for a table row: a song without a file is on the to-do list only when it was not found (its group there);
+ *  one still waiting for the next sync isn't. */
+export function rowInTodo(r: Pick<LibraryRow, 'status' | 'upgrade_ready' | 'in_playlists' | 'hidden' | 'file_state' | 'wait'>): boolean {
+  return r.file_state === 'no_file' ? r.wait === 'not_found' : inTodo(r);
 }
 
 export function todoHref(id: string): string {
   return `/todo?track=${encodeURIComponent(id)}`;
 }
 
+// ---------- the quality filter ----------
 /** Remembered filter per folder. */
 export function filterKey(folder: string | null): string {
   return `library.filter.${folder === null ? '__all__' : folder === NOT_IN_PLAYLIST ? '__not_in_playlist__' : folder}`;
 }
-export const SORT_KEY = 'library.sort';
 
 const FILTERS: { key: LibraryFilter; label: string; dot: Quality | null }[] = [
   { key: 'all', label: 'All', dot: null }, { key: 'lossless', label: 'Lossless', dot: 'lossless' },
@@ -109,63 +178,104 @@ export function segOptions(chips: Library['chips'] | null | undefined, value: Li
     .map((f) => ({ key: f.key, label: f.label, count: c[f.key], dot: f.dot }));
 }
 
-/** Which list the table shows: one playlist's folder, All tracks (rows of every folder), or Not in a playlist (rows
- *  that no folder holds, so a Folder column would say the same on every row). */
-export type LibraryView = 'folder' | 'all' | 'unlisted';
-export function libraryView(folder: string | null): LibraryView {
-  return folder === null ? 'all' : folder === NOT_IN_PLAYLIST ? 'unlisted' : 'folder';
-}
-/** The table's optional columns (plan library stage 5 D10, notes N6, the mockup's `columns()`): Track, Artist, Quality
- *  and the upgrade slot are always there; these come in as the table's own width allows, in this order, and go in the
- *  reverse one (Length first, Folder last). A column that would say the same on every row isn't one: a playlist's
- *  rows all sit in its folder, so it has Length only (its order carries the rest). All tracks and Not in a playlist
- *  name the Folder. *Playlist* (the playlists holding the song, +180 px, between Folder and Length) joins in step B,
- *  when the rows carry them; today a track's folder is its playlist's, so the column would repeat Folder. */
-export type OptionalColumn = 'folder' | 'length';
-export function optionalColumns(view: LibraryView): OptionalColumn[] {
-  return view === 'folder' ? ['length'] : ['folder', 'length'];
+// ---------- columns (D10) ----------
+/** The table's optional columns (D10, notes N6, the mockup's `columns()`): Track, Artist, Quality and the upgrade slot
+ *  are always there; these come in as the table's own width allows, in this order, and go in the reverse one (Length
+ *  first, Subfolder or Folder last). A column that would say the same on every row isn't one: a playlist has Length
+ *  only (its order and its "in …" notes carry the rest), a Library folder too (its files hold no crates and no
+ *  playlist of their own beyond the one the folder is named for, or none); a watched folder or a crate has Subfolder
+ *  only when crates sit inside it (`subfolders`). All tracks and Not in a playlist name the Folder (where the file
+ *  sits, D12); Not in a playlist has no Playlist column (every row is in none). */
+export type OptionalColumn = 'folder' | 'subfolder' | 'playlist' | 'length';
+export function optionalColumns(kind: TableKind, subfolders = false): OptionalColumn[] {
+  if (kind === 'all') return ['folder', 'playlist', 'length'];
+  if (kind === 'unlisted') return ['folder', 'length'];
+  if (kind === 'playlist' || kind === 'library') return ['length'];
+  return [...(subfolders ? ['subfolder' as const] : []), 'playlist', 'length'];
 }
 /** The width (px) the table needs for Track and Artist beside Quality and the upgrade slot, and what each optional
- *  column adds to it (D10, the mockup's numbers): a column shows from the sum of its own and those before it. */
+ *  column adds to it (D10, the mockup's numbers): a column shows from the sum of its own and those before it. A
+ *  playlist's `#` column comes on top of the base. */
 export const BASE_WIDTH = 380;
-export const COLUMN_WIDTH: Record<OptionalColumn, number> = { folder: 140, length: 200 };
-/** The table's own width from which each of the view's optional columns shows (All tracks: Folder 520, Length 720). */
-export function columnThresholds(view: LibraryView): { column: OptionalColumn; from: number }[] {
-  let need = BASE_WIDTH;
-  return optionalColumns(view).map((column) => ({ column, from: (need += COLUMN_WIDTH[column]) }));
+export const ORDER_WIDTH = 40;
+export const COLUMN_WIDTH: Record<OptionalColumn, number> = { folder: 140, subfolder: 140, playlist: 180, length: 200 };
+/** The table's own width from which each of the kind's optional columns shows (All tracks: Folder 520, Playlist 700,
+ *  Length 900). */
+export function columnThresholds(kind: TableKind, subfolders = false): { column: OptionalColumn; from: number }[] {
+  let need = BASE_WIDTH + (kind === 'playlist' ? ORDER_WIDTH : 0);
+  return optionalColumns(kind, subfolders).map((column) => ({ column, from: (need += COLUMN_WIDTH[column]) }));
 }
 /** The optional columns a table this wide shows. */
-export function columnsAt(view: LibraryView, width: number): OptionalColumn[] {
-  return columnThresholds(view).filter((t) => width >= t.from).map((t) => t.column);
+export function columnsAt(kind: TableKind, width: number, subfolders = false): OptionalColumn[] {
+  return columnThresholds(kind, subfolders).filter((t) => width >= t.from).map((t) => t.column);
 }
-/** The grid's tracks for those columns: the names share what is left (Track a little more than Artist, Folder less:
+/** The grid's tracks for those columns: the names share what is left (Track a little more than Artist, a place less:
  *  with the details open at 1280 a wider Folder cut the artists while "Hard_Bounce" had room to spare; the mockup's
- *  116 px / .95fr), Folder never below a playlist folder's name ("Hard_Bounce"), Length fits "12:34", Quality the widest badge (FAKE · 16.0 kHz), so
- *  every badge starts at one x, and the slot fits UPGRADE. */
-const TRACK: Record<OptionalColumn | 'title' | 'artist' | 'end', string> = {
-  title: 'minmax(0, 1.45fr)', artist: 'minmax(0, 1fr)', folder: 'minmax(96px, .8fr)', length: '52px',
-  end: '116px var(--w-row-action)',
+ *  116 px / .95fr), a place never below a playlist folder's name ("Hard_Bounce"), the Playlist badge a little more
+ *  than the Artist (a playlist's name and its +n), Length fits "12:34", Quality the widest badge (FAKE · 16.0 kHz), so
+ *  every badge starts at one x, and the slot fits UPGRADE. A playlist's `#` comes first and fits "999". */
+const TRACK: Record<OptionalColumn | 'order' | 'title' | 'artist' | 'end', string> = {
+  order: '24px', title: 'minmax(0, 1.45fr)', artist: 'minmax(0, 1fr)', folder: 'minmax(96px, .8fr)',
+  subfolder: 'minmax(96px, .8fr)', playlist: 'minmax(0, 1.1fr)', length: '52px', end: '116px var(--w-row-action)',
 };
-export function gridColumns(cols: OptionalColumn[]): string {
-  return [TRACK.title, TRACK.artist, ...cols.map((c) => TRACK[c]), TRACK.end].join(' ');
+export function gridColumns(cols: OptionalColumn[], order = false): string {
+  return [...(order ? [TRACK.order] : []), TRACK.title, TRACK.artist, ...cols.map((c) => TRACK[c]), TRACK.end].join(' ');
 }
+/** Whether a watched folder or a crate has crates inside it (its Subfolder column, D10): the sidebar says (a watched
+ *  folder's crate count, a crate's `has_crates`); before it is there, the rows do (a row in a crate below). */
+export function hasSubfolders(lib: Pick<Library, 'view' | 'folder_kind' | 'key' | 'rows'>,
+  side: Pick<Sidebar, 'watched'> | null | undefined): boolean {
+  if (lib.view !== 'folder' || (lib.folder_kind !== 'watched' && lib.folder_kind !== 'crate')) return false;
+  const key = lib.key === null ? null : samePath(lib.key);
+  const w = side?.watched.find((x) => samePath(x.path) === key);
+  if (w) return w.crate_count > 0 || w.too_many;
+  const c = side?.watched.flatMap((x) => x.crates).find((x) => samePath(x.path) === key);
+  if (c) return c.has_crates;
+  return lib.rows.some((r) => !!r.subfolder);
+}
+const samePath = (p: string): string => p.normalize('NFC').replace(/\/+$/, '');
+
+// ---------- the cells ----------
+/** The two views' Folder cell: where the file sits (D12, `place`); null → "–". Being in no playlist is told by the
+ *  dim and the title's tooltip, not here. */
+export function folderCell(r: Pick<LibraryRow, 'place'>): string | null {
+  return r.place || null;
+}
+/** A folder view's Subfolder cell: the crate (a watched folder) or the folders below (a crate); null ("–") for a file
+ *  in the folder itself. */
+export function subfolderCell(r: Pick<LibraryRow, 'subfolder'>): string | null {
+  return r.subfolder || null;
+}
+/** The Playlist cell: the first playlist holding the song (playlists.txt order) as a neutral badge, "+n" for the
+ *  others, and every one of them by name as its tooltip; null ("–") for a song in none. */
+export function playlistCell(r: Pick<LibraryRow, 'playlists'>): { name: string; more: number; tip: string } | null {
+  if (!r.playlists.length) return null;
+  return { name: r.playlists[0], more: r.playlists.length - 1, tip: `In ${r.playlists.join(', ')}` };
+}
+/** A playlist's row whose file sits outside the playlist's own folder says where, after its title ("in Techno 2019",
+ *  D9); it gives way before the title. Null inside the folder (the engine's `place` is null there) and elsewhere. */
+export function titleNote(r: Pick<LibraryRow, 'place' | 'file_state'>, kind: TableKind): string | null {
+  return kind === 'playlist' && r.place && r.file_state !== 'no_file' ? `in ${r.place}` : null;
+}
+
+// ---------- row signals (D6) ----------
 /** A row reads dimmed when its song left every playlist (a downloaded file nothing holds any more). A file of the
  *  user's own is in no playlist by nature, so it is never dimmed: dimming it would say "gone" about a file that is
  *  exactly where its owner put it. */
 export function rowOff(r: Pick<TrackRow, 'in_playlists' | 'own'>): boolean {
   return !r.in_playlists && !r.own;
 }
-/** Why a dimmed leftover row is dimmed. The Folder column says it too ("Not in a playlist"), but only at the widths
- *  that show that column; this is the same word on the title cell at every width. */
+/** Why a dimmed leftover row is dimmed: the title cell's tooltip says it at every width. */
 export const ROW_OFF_REASON = 'Not in any playlist any more';
 /** The title cell's tooltip: the full name (the cell cuts a long one), and under it, for a dimmed leftover row, why it
- *  is dimmed. An away row (drive or folder not there) keeps the name alone: its `AwayTag` says why it can't play. */
+ *  is dimmed. An away row (drive or folder not there) and a song without a file keep the name alone: the quality
+ *  column says why. */
 export function rowTitleTip(r: Pick<LibraryRow, 'in_playlists' | 'own' | 'file_state'>, name: string): string {
-  return rowOff(r) && rowAway(r) === null ? `${name}\n${ROW_OFF_REASON}` : name;
+  return rowOff(r) && rowAway(r) === null && r.file_state !== 'no_file' ? `${name}\n${ROW_OFF_REASON}` : name;
 }
 /** Whether a row's file is there to play: not when its drive is offline or its watched folder isn't found
- *  (`file_state`, decided per folder by the engine). Enter, double-click and the cover play only such a row, and the
- *  player's queue holds only these. */
+ *  (`file_state`, decided per folder by the engine), nor for a song with no file yet (`no_file`). Enter, double-click
+ *  and the cover play only such a row, and the player's queue holds only these. */
 export function playable(r: Pick<LibraryRow, 'file_state'>): boolean {
   return r.file_state === 'here';
 }
@@ -173,14 +283,87 @@ export function playable(r: Pick<LibraryRow, 'file_state'>): boolean {
 export function rowAway(r: Pick<LibraryRow, 'file_state'>): Exclude<LibraryRow['file_state'], 'here' | 'no_file'> | null {
   return r.file_state === 'here' || r.file_state === 'no_file' ? null : r.file_state;
 }
-/** A row's Folder cell. All tracks: the folder of its playlist, or "Not in a playlist" for a track in none. Not in a
- *  playlist (every row in none): the folder the file sits in, which is what tells its rows apart. Null: nothing there
- *  (the cell shows "–"). */
-export function folderCell(r: Pick<TrackRow, 'folder' | 'in_playlists'>, view: LibraryView = 'all'): string | null {
-  if (view !== 'unlisted' && !r.in_playlists) return 'Not in a playlist';
-  return r.folder || null;
+/** The row's lead (cover and title) is dimmed: a song that left every playlist, a file that is away, or a playlist
+ *  song with no file yet (D6). The quality column tells the three apart: nothing, an `AwayTag`, Waiting / NOT FOUND. */
+export function rowDim(r: Pick<LibraryRow, 'in_playlists' | 'own' | 'file_state'>): boolean {
+  return rowOff(r) || r.file_state !== 'here';
+}
+/** A playlist song without a file, in the quality column (D6, I7): "Waiting" in muted words while the next sync will
+ *  download it; the red NOT FOUND badge when the sync looked and found nothing usable (To-do's not-found group). */
+export const WAITING_WORD = 'Waiting';
+export const WAITING_TIP = 'Downloads at the next sync';
+/** In a switched-off playlist nothing new downloads, so its songs without a file aren't waiting for anything: they say
+ *  so, in the same muted words (I7's line for a switched-off playlist as the tooltip). */
+export const OFF_WORD = 'Switched off';
+export const OFF_TIP = 'Switched off: its files stay, nothing new downloads';
+export function waitWords(off: boolean): { word: string; tip: string } {
+  return off ? { word: OFF_WORD, tip: OFF_TIP } : { word: WAITING_WORD, tip: WAITING_TIP };
+}
+export const NOT_FOUND_WORD = 'NOT FOUND';
+/** The row has no next-try date (only the track's details do), so its tooltip says what To-do offers instead. */
+export const NOT_FOUND_TIP = 'Nothing usable found yet: To-do has other ways to get it';
+
+// ---------- the header ----------
+/** A playlist's songs that have no file yet (waiting or not found): the sidebar's song count (every song the view
+ *  lists, D5) less the ones with a file (`summary.tracks`); without the sidebar, the rows themselves when they are
+ *  the whole list (no search, no filter). Null when it can't be told. */
+export function noFileCount(lib: Pick<Library, 'view' | 'key' | 'read_at' | 'summary' | 'rows'>,
+  side: Pick<Sidebar, 'playlists'> | null | undefined, whole: boolean): number | null {
+  if (lib.view !== 'playlist' || lib.read_at === null) return null;
+  const fold = (x: string) => x.normalize('NFC').toLowerCase();
+  const line = side?.playlists.find((p) => lib.key !== null && fold(p.name) === fold(lib.key));
+  if (line && line.songs !== null) return Math.max(0, line.songs - lib.summary.tracks);
+  return whole ? lib.rows.filter((r) => r.file_state === 'no_file').length : null;
+}
+/** The header's second line (I7, the engine's parts): a read playlist's count is its songs with a file, which is what
+ *  the strip and the filter count, so the songs still without one follow it as a part of their own ("9 tracks · 3 not
+ *  downloaded yet · Spotify playlist · Library › Hard_Bounce"): the 12 rows and the sidebar's "12 songs" add up. The
+ *  same words as the inspector's line for such a song. */
+export function subtitleParts(lib: Pick<Library, 'subtitle'>, missing: number | null): string[] {
+  if (!missing || !lib.subtitle.length) return lib.subtitle;
+  const [count, ...rest] = lib.subtitle;
+  return [count, `${missing} not downloaded yet`, ...rest];
 }
 
+// ---------- the empty states (I7; issues #29 "For B6") ----------
+export type PageEmpty = { kind: 'library' | 'gone' | 'never_read' | 'empty' | 'search' | 'filter'; title: string;
+  body?: string };
+/** What the list area says when the table has nothing to show, or (`line`) when a playlist's own part is empty but its
+ *  folder holds files it doesn't (`also`): then the table stays, with this line above the `Also in this folder`
+ *  section. The engine answers an empty folder and a read playlist with no songs as `no_match` even without search
+ *  text, so the words come from the view, the folder's kind, the read and the search, not from `empty`. */
+export function pageEmpty(lib: Pick<Library, 'view' | 'title' | 'empty' | 'read_at' | 'rows' | 'also'>, query: string,
+  filter: LibraryFilter): { page: PageEmpty | null; line: string | null } {
+  if (lib.empty === 'empty_library') return { page: { kind: 'library', title: 'No tracks yet. Run a sync to fill your library.' }, line: null };
+  if (lib.empty === 'gone') {
+    return { page: { kind: 'gone', title: lib.view === 'playlist' ? "This playlist isn't in your list any more."
+      : "This folder isn't in your library any more." }, line: null };
+  }
+  if (lib.rows.length) return { page: null, line: null };
+  const q = query.trim();
+  const playlist = lib.view === 'playlist';
+  const neverRead = playlist && lib.read_at === null;
+  const empty: PageEmpty = neverRead
+    ? { kind: 'never_read', title: "This playlist hasn't been read yet.", body: 'Read your playlists above to see its songs.' }
+    : q ? { kind: 'search', title: `Nothing in ${lib.title} matches “${q}”.` }
+    : filter !== 'all' ? { kind: 'filter', title: 'No tracks with this quality here.' }
+    : { kind: 'empty', title: playlist ? 'This playlist is empty.' : lib.view === 'unlisted' ? 'Every track is in a playlist.'
+      : lib.view === 'all' ? 'No tracks yet. Run a sync to fill your library.' : 'No music in this folder.' };
+  if (!lib.also?.length) return { page: empty, line: null };
+  // the folder's other files are there: the playlist's own part says it is empty, in one line of the table
+  const line = neverRead ? "This playlist hasn't been read yet."
+    : q ? `None of the playlist's songs match “${q}”.`
+    : filter !== 'all' ? "None of the playlist's songs have this quality."
+    : 'This playlist is empty.';
+  return { page: null, line };
+}
+/** The `Also in this folder` head's hint (I7). Before the playlist was ever read nobody knows which of its folder's
+ *  files it holds, so the hint doesn't claim they aren't in it. */
+export function alsoHint(folder: string, neverRead = false): string {
+  return neverRead ? `files in ${folder}, until the playlist is read` : `files in ${folder} that aren't in this playlist`;
+}
+
+// ---------- the inspector ----------
 /** The panel's foot: Swap when the upgrade matches exactly; Open in to-do for any other to-do; nothing for a
  *  lossless track (or one the to-do list doesn't show). */
 export function footAction(t: Pick<TrackDetail, 'upgrade' | 'status' | 'upgrade_ready' | 'in_playlists' | 'hidden'>):
@@ -209,14 +392,37 @@ export function shortUrl(url: string | null | undefined, max = 9): string {
   }
 }
 
-/** The panel head's place: the folder the file sits in; a track in no playlist says so. (Which playlists it is in is
- *  the Playlists row, by name: a count here was cut at 1100 and named none of them.) */
-export function placeLine(folder: string, inPlaylists = true): string {
-  return inPlaylists ? folder : 'Not in a playlist';
+/** The panel head's place (D11): where the file sits, in the Folder and Subfolder columns' words ("in Hardtechno ›
+ *  2019"); a song with no file yet says so, in the words the header counts it with. (Which playlists it is in is the
+ *  Playlists row, by name.) */
+export const NO_FILE_PLACE = 'not downloaded yet';
+export function placeLine(place: string | null): string {
+  return place ? `in ${place}` : '';
+}
+/** The details of a song without a file say what happens next (one NoteCard): a waiting one downloads at the next
+ *  sync, Qobuz first (the order every download takes); a song not found was looked for, Qobuz looks again (`next`, its
+ *  details' `next_qobuz_check` when the engine has them: "next_sync" or a date), and To-do has the other ways to get it
+ *  (its foot: Open in to-do). In a switched-off playlist (`off`) a song still to come waits for nothing: it says how to
+ *  get it. */
+export function noFileNote(wait: LibraryRow['wait'], next: string | null = null, off = false): string {
+  if (off && wait !== 'not_found') {
+    return 'Its playlist is switched off, so nothing new downloads. Switch it on in Playlists to get this song.';
+  }
+  if (wait !== 'not_found') return 'It downloads at the next sync: from Qobuz when it has it, else from the best other source.';
+  const day = next === 'next_sync' ? 'at the next sync' : next && dayMonth(next) ? `on ${dayMonth(next)}` : null;
+  return `No source had a usable copy when the sync looked.${day ? ` Qobuz looks again ${day}.` : ''} To-do has links to`
+    + ' buy it or get it another way.';
+}
+/** The details' Playlists row: every playlist holding the song, by name; "–" for a song in none; nothing while the
+ *  playlists weren't read yet (`playlists` null). */
+export function playlistsLine(t: Pick<TrackDetail, 'in_playlists' | 'playlists'>): string | null {
+  if (!t.in_playlists) return '–';
+  return t.playlists?.length ? t.playlists.join(', ') : null;
 }
 
+// ---------- the calls ----------
 /** One `library(view, key, …)` call (the engine answers one view of the library per call). */
-export type LibraryCall = { view: WireView; key: string | null };
+export type LibraryCall = { view: LibraryView; key: string | null };
 const same = (a: string, b: string): boolean => a.normalize('NFC').toLowerCase() === b.normalize('NFC').toLowerCase();
 /** The calls that answer the page's `folder` (the route's param: null = All tracks, NOT_IN_PLAYLIST, a path, or a name; the
  *  new routes of plan library stage 5 I5 replace this). A name is a playlist's folder when the sidebar lists one of
@@ -235,71 +441,9 @@ export function libraryCalls(folder: string | null, side: Pick<Sidebar, 'playlis
   const lib = side.library_folders.find((f) => same(f.name, folder));
   return lib ? [{ view: 'folder', key: lib.path }] : [asPlaylist];
 }
-// --- today's playlist screen, until the playlist views are drawn (plan library stage 5, B6) ---
-const fold = (x: string): string => x.normalize('NFC').toLowerCase();
-const SORT_KEYS: Record<string, (r: LibraryRow) => string | number | (string | number | boolean)[]> = {
-  title: (r) => fold(r.title),
-  artist: (r) => [fold(r.artist), fold(r.title)],
-  length: (r) => r.duration_s,
-  source: (r) => r.source_name ?? '',
-  quality: (r) => (r.sound_checked ? QUALITIES.indexOf(r.quality) : QUALITIES.length),
-  added: (r) => r.added ?? '',
-  order: (r) => [r.position === null, r.position ?? 0],
-  folder: (r) => [!r.in_playlists, fold(r.folder), fold(r.artist), fold(r.title)],
-};
-function compareKeys(a: unknown, b: unknown): number {
-  if (Array.isArray(a) && Array.isArray(b)) {
-    for (let i = 0; i < Math.min(a.length, b.length); i++) {
-      const c = compareKeys(a[i], b[i]);
-      if (c) return c;
-    }
-    return a.length - b.length;
-  }
-  return (a as number) < (b as number) ? -1 : (a as number) > (b as number) ? 1 : 0;
-}
-/** A filter chip never holds a file whose sound isn't checked yet; only All does (views._matches). */
-const inFilter = (r: LibraryRow, f: LibraryFilter): boolean =>
-  f === 'all' || (f === 'upgrade_ready' ? r.upgrade_ready : r.sound_checked && r.quality === f);
-/** The playlist's own summary (it counts the songs it holds that have a file) with the leftover files added, counted
- *  as views._group counts a row's to-do state. */
-function summaryWith(base: Library['summary'], extra: LibraryRow[]): Library['summary'] {
-  const by = { ...base.by_quality };
-  for (const r of extra) if (r.sound_checked) by[r.quality]++;
-  const counted = Object.values(by).reduce((n, c) => n + c, 0);
-  return { tracks: base.tracks + extra.length, lossless_share: counted ? Math.round((by.lossless / counted) * 10000) / 10000 : null,
-    by_quality: by, upgrades_ready: base.upgrades_ready + extra.filter((r) => r.upgrade_ready).length,
-    not_lossless: by.good_lossy + by.weak + by.fake,
-    to_do: base.to_do + extra.filter((r) => r.in_playlists && !r.hidden && r.sound_checked
-      && (r.upgrade_ready || r.quality === 'weak' || r.quality === 'good_lossy' || r.quality === 'fake')).length };
-}
-const tracksWord = (n: number): string => (n === 1 ? '1 track' : `${n} tracks`);
-/** What ▶ queues for a collection asked whole (no search, no filter) in `sort`: the page's own list (a playlist's
- *  leftover files merged in by `asToday`) and, of it, the rows whose file is there. The browser's Play uses it, so
- *  both start the same queue. */
-export function playQueue<L extends Library>(lib: L, sort: LibrarySort): LibraryRow[] {
-  return asToday(lib, '', 'all', sort).rows.filter(playable);
-}
-/** A playlist view as the page drew a folder before the playlist views: the playlist's songs with a file and the files
- *  of its own Library folder it does not hold (`also`, the leftovers, dimmed by their own row fields) are one list,
- *  with the counts of that list; the songs still waiting for a file are left out. `lib` must be asked for without
- *  search and filter (the summary and the chips count the whole list; the search and the filter are applied here, as
- *  the engine applies them to a folder). Any other view, and a playlist that is gone, comes back as it is.
- *  B6 draws the waiting rows and the `also` section itself and removes this. */
-export function asToday<L extends Library>(lib: L, query: string, filter: LibraryFilter, sort: LibrarySort): L {
-  if (lib.view !== 'playlist' || lib.empty === 'gone') return lib;
-  const files = [...lib.rows.filter((r) => r.file_state !== 'no_file'), ...(lib.also ?? [])];
-  const q = fold(query ?? '').trim();
-  const found = q ? files.filter((r) => fold(`${r.artist} ${r.title}`).includes(q)) : files;
-  const chips = Object.fromEntries(LIBRARY_FILTERS.map((f) => [f, found.filter((r) => inFilter(r, f)).length])) as Library['chips'];
-  const key = SORT_KEYS[sort.replace(/^-/, '')] ?? SORT_KEYS.artist;
-  const sign = sort.startsWith('-') ? -1 : 1;
-  const rows = found.filter((r) => inFilter(r, filter)).sort((a, b) => sign * compareKeys(key(a), key(b)));
-  // the engine counts only the songs with a file that the playlist holds: the count part is this list's
-  const [first, ...rest] = lib.subtitle;
-  const subtitle = lib.read_at === null
-    ? (files.length ? [tracksWord(files.length), first, ...(lib.enabled === false ? ['switched off'] : []), `Library › ${lib.title}`]
-      : lib.subtitle)
-    : [tracksWord(files.length), ...rest];
-  return { ...lib, rows, also: null, chips, summary: summaryWith(lib.summary, lib.also ?? []), subtitle,
-    empty: lib.empty === 'empty_library' ? lib.empty : null };
+/** What ▶ queues for a collection asked whole (no search, no filter): the page's own list as the table shows it (a
+ *  playlist's songs, then the other files of its folder) and, of it, the rows whose file is there. The browser's Play
+ *  uses it, so both start the same queue. */
+export function playQueue(lib: Pick<Library, 'rows' | 'also'>): LibraryRow[] {
+  return allRows(lib).filter(playable);
 }

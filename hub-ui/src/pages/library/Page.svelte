@@ -13,14 +13,20 @@
   // badge, the menu's Show details); the rules are `detailsAfter` in stores/chrome.ts. A right-click selects without
   // opening (the menu is what it asks for). A double-click or Enter plays. Below 1240 px the open inspector steps the
   // browser column back behind the rail (the chrome's job, stores/chrome.ts).
+  // The views (plan library stage 5, B6): a playlist lists its songs in its order (`#`), a song without a file too
+  // (Waiting / NOT FOUND, its details from the row itself), then the other files of its folder in an `Also in this
+  // folder` section; a folder view has its own columns (Subfolder, Playlist). Each view kind remembers its own sort.
+  // The empty states are worded by the view (`pageEmpty`); a playlist never read has Read playlists in the header's
+  // read-status slot (its one place, design language §4); a watched folder with too many crates for the sidebar links
+  // to Settings' list, where the user picks the ones to show.
   import { untrack, type ComponentProps } from 'svelte';
   import {
     Button, EmptyState, PageHeader, ProblemCard, SearchField, Segmented, Skeleton, Spectrum, SummaryStrip, Surface, confirm,
   } from '$lib/components';
   import { ListPanelFrame } from '$lib/frames';
   import { api, runJob } from '$lib/bridge/client';
-  import type { Fail, Library, LibraryFilter, LibrarySort, ProblemKind, TrackDetail } from '$lib/bridge/types';
-  import { filesVersion, hubNow } from '$lib/stores/hub';
+  import type { Fail, Library, LibraryFilter, LibrarySort, LibraryView, ProblemKind, TrackDetail } from '$lib/bridge/types';
+  import { filesVersion, hub, hubNow } from '$lib/stores/hub';
   import {
     detailsHidden, detailsShown, detailsSubject, pickTrack, showDetails, toggleInspector, trackOffTable,
   } from '$lib/stores/chrome';
@@ -34,8 +40,9 @@
   import LibraryTable from './LibraryTable.svelte';
   import TrackDetails from './TrackDetails.svelte';
   import {
-    DEFAULT_SORT, LIBRARY_FILTERS, SORT_KEY, filterKey, isSort, libraryCalls, libraryView, nextSort, offTable, playable,
-    asToday, segOptions, todoHref, type LibraryCall, type SortColumn,
+    LEGACY_SORT_KEY, LIBRARY_FILTERS, alsoHint, filterKey, hasSubfolders, libraryCalls, nextSort, noFileCount, offTable,
+    pageEmpty, playQueue, rowOf, segOptions, sortKey, subtitleParts, tableKind, todoHref, viewSort, type LibraryCall,
+    type SortColumn,
   } from './libraryModel';
   import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 
@@ -43,8 +50,10 @@
   type Spec = ComponentProps<typeof Spectrum>['spectrum'];
 
   const folder = $derived(params.folder ?? null);
-  const savedSort = getPref<string>(SORT_KEY, DEFAULT_SORT);
-  let sort = $state<LibrarySort>(isSort(savedSort) ? savedSort : DEFAULT_SORT);
+  // each view kind's sort: what the user chose here, else what was saved, else the kind's default
+  let sorts = $state<Partial<Record<LibraryView, LibrarySort>>>({});
+  const sortOf = (v: LibraryView): LibrarySort => sorts[v]
+    ?? viewSort(v, getPref<string | null>(sortKey(v), null), getPref<string | null>(LEGACY_SORT_KEY, null));
   let filter = $state<LibraryFilter>('all');
   let search = $state('');
   let q = $state('');
@@ -109,19 +118,22 @@
     return () => clearTimeout(h);
   });
 
-  /** The first call that doesn't come back gone (a name asked as a playlist may be a Library folder), shaped as the
-   *  page drew its folder before the playlist views (`asToday`: a playlist is asked for whole, then searched, filtered
-   *  and sorted here). */
+  /** The first call that doesn't come back gone (a name asked as a playlist may be a Library folder); when every one
+   *  does, the first one's answer (a name is a playlist's first: the words say so). */
   async function askLibrary(calls: LibraryCall[], query: string, filt: LibraryFilter, order: LibrarySort) {
-    const ask = (c: LibraryCall) => c.view === 'playlist' ? api.library('playlist', c.key, '', 'all', order)
-      : api.library(c.view, c.key, query, filt, order);
-    let r = await ask(calls[0]);
+    const ask = (c: LibraryCall) => api.library(c.view, c.key, query, filt, order);
+    const first = await ask(calls[0]);
+    let r = first;
     for (const next of calls.slice(1)) {
       if (!r.ok || r.empty !== 'gone') break;
       r = await ask(next);
     }
-    return r.ok ? asToday(r, query, filt, order) : r;
+    return r.ok && r.empty === 'gone' ? first : r;
   }
+  // the view the page asks for (before an answer: the route's first call; then the answer's own, which a name asked as
+  // a playlist may turn into a folder) and so its sort
+  const view = $derived<LibraryView>(lib && libFor === folder ? lib.view : libraryCalls(folder, $hub.sidebar)[0].view);
+  const sort = $derived(sortOf(view));
   let libTurn = 0;
   $effect(() => {
     const args = [folder, q, filter, sort] as const;
@@ -146,15 +158,22 @@
 
   let trackTurn = 0;
   let trackRetry = $state(0);
+  // the selected row when it is a song without a file: its details come from the row (the engine may not know it yet)
+  const selRow = $derived(rowOf(lib, selected));
+  const noFileRow = $derived(selRow?.file_state === 'no_file' ? selRow : null);
+  // a song still waiting for its file: nothing to ask (its details are the row's; a song only just read isn't one the
+  // engine's track() knows)
+  const skipTrack = $derived(noFileRow?.wait === 'waiting');
   $effect(() => {
     const id = selected;
+    const skip = skipTrack;
     void $filesVersion;
     void trackRetry;
     const turn = ++trackTurn;
     untrack(() => {
       gone = false;
       detailError = null;
-      if (!id) { detail = null; return; }
+      if (!id || skip) { detail = null; detailLoading = false; return; }
       if (detail?.track_id !== id) { detail = null; spectrum = null; upgradeSpectrum = null; }
       void loadTrack(id, turn);
     });
@@ -195,8 +214,9 @@
     setPref(filterKey(folder), f);
   }
   function onsort(c: SortColumn) {
-    sort = nextSort(sort, c);
-    setPref(SORT_KEY, sort);
+    const next = nextSort(sort, c);
+    sorts = { ...sorts, [view]: next };
+    setPref(sortKey(view), next);
   }
   // `pick`: the user chose this track in the table (a click, ↑ ↓), which opens the details unless hidden by hand
   function select(id: string, pick = true) {
@@ -204,12 +224,13 @@
     selected = id;
     void go(`${libraryHref(folder)}?track=${encodeURIComponent(id)}`, { replace: true });
   }
-  // ▶ starts the folder as shown (filter, search and sort applied) as the queue, from this track. The rows come
-  // sorted from the engine (`api.library(…, sort)`), and the table shows them in that order.
+  // ▶ starts the folder as shown (filter, search and sort applied) as the queue, from this track: a playlist's songs,
+  // then the other files of its folder, as the table lists them. The rows come sorted from the engine
+  // (`api.library(…, sort)`), and the table shows them in that order.
   function play(id: string) {
     const label = (lib?.title ?? 'All tracks') + (q ? ` · “${q}”` : '');
-    // the queue holds the rows whose file is there: ⏭ never lands on a file on an ejected drive
-    if (!lib || !listen(lib.rows.filter(playable), id, { label, href: libraryHref(folder) })) {
+    // the queue holds the rows whose file is there: ⏭ never lands on a file on an ejected drive or a song not downloaded
+    if (!lib || !listen(playQueue(lib), id, { label, href: libraryHref(folder) })) {
       toasts.show({ tone: 'problem', title: "Can't play this file." });
     }
   }
@@ -232,14 +253,23 @@
   }
 
   const options = $derived(segOptions(lib?.chips, filter));
-  // the header's second line: its parts in order of importance, the last dropping first when the header is narrow
-  const sub = $derived(lib?.subtitle);
+  // the header's second line: its parts in order of importance, the last dropping first when the header is narrow; a
+  // read playlist's songs without a file are a part of their own after the count
+  const sub = $derived(lib ? subtitleParts(lib, noFileCount(lib, $hub.sidebar, filter === 'all' && !q)) : undefined);
   const emptyLibrary = $derived(lib?.empty === 'empty_library');
-  const isGone = $derived(lib?.empty === 'gone');
-  const noFiles = $derived(!!lib && !emptyLibrary && !isGone && lib.summary.tracks === 0);
-  const noRows = $derived(!!lib && !emptyLibrary && !noFiles && lib.rows.length === 0);
-  // which list (its optional columns): All tracks and Not in a playlist name the folder, a playlist doesn't
-  const view = $derived(libraryView(folder));
+  // what the list area says when the table has nothing (or a playlist's own part is empty beside its folder's files)
+  const empty = $derived(lib ? pageEmpty(lib, q, filter) : { page: null, line: null });
+  // the strip and the filter count the files the collection holds: none, nothing to sum up or to filter
+  const hasFiles = $derived(!!lib && lib.summary.tracks > 0);
+  // the table's kind (its columns), and whether a folder view has crates inside it (its Subfolder column)
+  const kind = $derived(lib ? tableKind(lib) : 'library');
+  const subfolders = $derived(!!lib && hasSubfolders(lib, $hub.sidebar));
+  const neverRead = $derived(lib?.view === 'playlist' && lib.empty !== 'gone' && lib.read_at === null);
+  // a watched folder with more crates than the sidebar holds: the link to Settings' list of them
+  const tooMany = $derived(lib?.view === 'folder' && lib.folder_kind === 'watched'
+    ? ($hub.sidebar?.watched.find((w) => w.path.normalize('NFC') === lib?.key?.normalize('NFC')) ?? null) : null);
+  const pending = $derived(noFileRow ? { row: noFileRow,
+    next: detail?.track_id === noFileRow.track_id ? detail.next_qobuz_check : null, off: lib?.enabled === false } : null);
   const playing = $derived($player.playing ? $player.track_id : null);
   function playOrPause(id: string) {
     if ($player.track_id === id && $player.url) player.toggle();
@@ -271,8 +301,12 @@
 {/snippet}
 
 {#snippet main()}
-  <PageHeader title={lib?.title ?? (folder === null ? 'All tracks' : folder === NOT_IN_PLAYLIST ? 'Not in a playlist' : folder)} {sub}>
-    {#snippet actions()}<SearchField bind:value={search} bind:input={searchInput} placeholder="Search title, artist…" shortcut="cmd+f"
+  <PageHeader title={lib?.title ?? (folder === null ? 'All tracks' : folder === NOT_IN_PLAYLIST ? 'Not in a playlist' : folder)} {sub}
+    readStatus={neverRead}>
+    {#snippet actions()}{#if tooMany?.too_many}<Button variant="link" muted href="#/settings/folders"
+        tip={`${tooMany.crate_count} folders with music, too many for the sidebar: choose which to show in Settings`}
+        data-test="library-show-some">Show some in the sidebar…</Button>{/if}<SearchField bind:value={search}
+      bind:input={searchInput} placeholder="Search title, artist…" shortcut="cmd+f"
       test="library-search" />{#if !emptyLibrary}<Button variant="icon"
         icon={handHidden ? detailsHiddenIcon : detailsIcon} pressed={detailsOpen} disabled={!$detailsSubject}
         switchedOff={handHidden ? 'Show details' : undefined}
@@ -286,39 +320,32 @@
     <!-- waiting: the strip at its height with dashes, so nothing moves when the numbers come -->
     <SummaryStrip summary={null} onupgrades={() => {}} ontodo={() => {}} />
     <Surface kind="card"><Skeleton lines={8} height={18} gap={14} /></Surface>
-  {:else if emptyLibrary}
-    <Surface kind="card" data-test="library-empty">
-      <EmptyState title="No tracks yet. Run a sync to fill your library." action={{ label: 'Open Sync', href: '#/sync' }} />
-    </Surface>
-  {:else if isGone}
-    <Surface kind="card" data-test="library-gone">
-      <EmptyState title={EMPTY.gone.title} action={EMPTY.gone.action} />
-    </Surface>
   {:else}
     {#if libError}<ProblemCard compact kind={libError.kind} message={libError.message} />{/if}
-    <SummaryStrip summary={lib.summary} onupgrades={() => setFilter('upgrade_ready')} ontodo={() => void go('/todo')} />
-    {#if !noFiles}<Segmented {options} value={filter} onchange={setFilter} label="Quality" test="library-filter" />{/if}
-    {#if noFiles}
-      <Surface kind="card" data-test="library-no-files"><EmptyState title="No files in this folder yet." /></Surface>
-    {:else if noRows && q}
-      <Surface kind="card" data-test="library-no-match">
-        <EmptyState title={`Nothing matches “${q}”.`} action={{ label: 'Clear search', onclick: () => { search = ''; q = ''; } }} />
-      </Surface>
-    {:else if noRows}
-      <Surface kind="card" data-test="library-no-filter-match">
-        <EmptyState title="Nothing matches this filter." action={{ label: 'Show all', onclick: () => setFilter('all') }} />
+    {#if hasFiles}
+      <SummaryStrip summary={lib.summary} onupgrades={() => setFilter('upgrade_ready')} ontodo={() => void go('/todo')} />
+      <Segmented {options} value={filter} onchange={setFilter} label="Quality" test="library-filter" />
+    {/if}
+    {#if empty.page}
+      {@const e = empty.page}
+      <Surface kind="card" data-test="library-empty-{e.kind}">
+        <EmptyState title={e.title} body={e.body} action={e.kind === 'library' ? { label: 'Open Sync', href: '#/sync' }
+          : e.kind === 'gone' ? { label: 'All tracks', href: '#/library' }
+          : e.kind === 'search' ? { label: 'Clear search', onclick: () => { search = ''; q = ''; } }
+          : e.kind === 'filter' ? { label: 'Show all', onclick: () => setFilter('all') } : null} />
       </Surface>
     {:else}
-      <LibraryTable rows={lib.rows} {loading} {view} {sort} {selected} {playing} {onsort} onselect={select}
-        onplay={playOrPause} onfinder={(id) => void finder(id)} ontodo={todo} ondetails={showDetails} />
+      <LibraryTable rows={lib.rows} also={lib.also} alsoHint={alsoHint(lib.title, neverRead)} emptyLine={empty.line} {loading} {kind}
+        {subfolders} off={lib.enabled === false} {sort} {selected} {playing} {onsort} onselect={select} onplay={playOrPause}
+        onfinder={(id) => void finder(id)} ontodo={todo} ondetails={showDetails} />
     {/if}
   {/if}
 {/snippet}
 
 {#snippet panel()}
-  <TrackDetails {detail} loading={detailLoading} {gone} error={detailError} {spectrum} {spectrumLoading} {spectrumError}
+  <TrackDetails {detail} {pending} loading={detailLoading} {gone} error={detailError} {spectrum} {spectrumLoading} {spectrumError}
     {upgradeSpectrum} {swapping} onretry={() => { trackRetry++; }}
-    onfinder={() => detail && void finder(detail.track_id)} ontodo={() => detail && todo(detail.track_id)}
+    onfinder={() => detail && void finder(detail.track_id)} ontodo={() => { const id = pending?.row.track_id ?? detail?.track_id; if (id) todo(id); }}
     onswap={() => void swap()} onlisten={() => detail && play(detail.track_id)} />
 {/snippet}
 

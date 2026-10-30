@@ -176,10 +176,23 @@ export function serviceName(service: Service, full: string): string {
  * `text` in the width it has (`fits` says whether a text fits): whole while it fits; else its middle gives way to "…"
  * and both ends stay, the end a little longer, since the end is what tells two long names apart
  * ("Artist - Title (… EDIT).wav" against "Artist - Title (… EDIT)(1).wav"). At least a character of each end stays, even
- * when nothing fits (the element clips the rest).
+ * when nothing fits (the element clips the rest). With `sep` ("›", a place's separator) the text is a row of folders:
+ * whole folders between the first and the last give way first ("Rekordbox Library › … › 2019"), then characters.
  */
-export function fitMiddle(text: string, fits: (text: string) => boolean): string {
+export function fitMiddle(text: string, fits: (text: string) => boolean, sep?: string): string {
   if (fits(text) || text.length <= 2) return text;
+  if (sep) {
+    // a place ("Rekordbox Library › Old Sets › Bounce › 2019"): whole folders give way first, from the front of the
+    // middle, so the first (which folder) and the last (the crate) stay; only the shortest form is cut by characters
+    const parts = text.split(` ${sep} `);
+    if (parts.length >= 3) {
+      for (let drop = 1; drop <= parts.length - 2; drop++) {
+        const form = [parts[0], '…', ...parts.slice(1 + drop)].join(` ${sep} `);
+        if (fits(form)) return form;
+      }
+      return fitMiddle([parts[0], '…', parts[parts.length - 1]].join(` ${sep} `), fits);
+    }
+  }
   const cut = (n: number) => {
     const tail = Math.ceil(n / 2);
     return `${text.slice(0, n - tail).trimEnd()}…${text.slice(text.length - tail).trimStart()}`;
