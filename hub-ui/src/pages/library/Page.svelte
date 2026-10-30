@@ -6,7 +6,7 @@
   // scrolls in place (LibraryTable). No docked panel: the docked panel squeezed the table, so the selected track's
   // details (TrackDetails, the same cards as To-do's) are an inspector that comes when wanted: picking a track (a
   // click, ↑ ↓) opens it, it follows the selection and stays open (remembered, closed at first). Closing it with the
-  // toggle or ⌘I hides it by hand: picks then only select, and the toggle shows the choice in words ("Details hidden",
+  // toggle or ⌘I hides it by hand: picks then only select, and the toggle shows the choice in words ("Show details",
   // a dashed outline, the glyph struck through) until the user opens the details by hand (the toggle, ⌘I, a quality
   // badge, the menu's Show details); the rules are `detailsAfter` in stores/chrome.ts. A right-click selects without
   // opening (the menu is what it asks for). A double-click or Enter plays. Below 1240 px the open inspector steps the
@@ -227,7 +227,7 @@
   const detailsOpen = $derived($detailsShown && !emptyLibrary);
   const handHidden = $derived($detailsHidden && !emptyLibrary);
   const detailsTip = $derived(detailsOpen ? { text: 'Hide details', keys: '⌘I' }
-    : handHidden ? { text: "Show details\nHidden by you: selecting a track won't open them", keys: '⌘I' }
+    : handHidden ? { text: "Hidden by you: selecting a track won't open them", keys: '⌘I' }
     : { text: 'Show details', keys: '⌘I' });
   // the chrome knows too: with an empty library ⌘I does nothing and a remembered open inspector steps nothing back
   $effect(() => { inspectorAvailable.set(!emptyLibrary); });
@@ -250,8 +250,8 @@
     {#snippet actions()}<SearchField bind:value={search} bind:input={searchInput} placeholder="Search title, artist…" shortcut="cmd+f"
       test="library-search" />{#if !emptyLibrary}<Button variant="icon"
         icon={handHidden ? detailsHiddenIcon : detailsIcon} pressed={detailsOpen}
-        switchedOff={handHidden ? 'Details hidden' : undefined}
-        aria-label={detailsOpen ? 'Hide details' : handHidden ? 'Details hidden, show details' : 'Show details'}
+        switchedOff={handHidden ? 'Show details' : undefined}
+        aria-label={detailsOpen ? 'Hide details' : 'Show details'}
         tip={detailsTip} aria-keyshortcuts="Meta+I" onclick={toggleInspector} data-test="library-details"
         data-hidden={handHidden || undefined} />{/if}{/snippet}
   </PageHeader>

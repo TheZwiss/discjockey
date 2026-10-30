@@ -282,8 +282,8 @@ root, so the frame, the foot's line and the rule checker read one value.
   "~/…" / "Drive › …": engine or `watchedFoldersModel.ts`; the subtitle uses the same, from the same side).
 - Strip (N5): `{p} % lossless`, `{l} of {c} checked tracks`; rows `Upgrade ready {n} ›`, `Not lossless yet · {all in
   To-do | {m} in To-do | none in To-do} {n} ›` (no link and no › at none; tooltip when fewer: `{m} of them in To-do:
-  files of your own in no playlist aren't`). Inspector toggle `Show details (⌘I)` / `Hide details (⌘I)`; hidden by hand: the toggle's words `Details hidden`, tip
-  `Show details (⌘I)` ⏎ `Hidden by you: selecting a track won't open them`; empty
+  files of your own in no playlist aren't`). Inspector toggle `Show details (⌘I)` / `Hide details (⌘I)`; hidden by hand: the toggle's words `Show details`, tip
+  `Hidden by you: selecting a track won't open them`; empty
   inspector `Select a track to see its details.`; a quality badge's tooltip `Show details`.
 - Step B: playlist rows `{name}` ⏎ `{Service} playlist · {n} songs` (never read `· not read yet`; off adds ⏎
   `Switched off: its files stay, nothing new downloads`); folder rows their tip, away adds ⏎ `Offline: connect the
@@ -435,7 +435,7 @@ Tasks:
    menu's Show details), after which picks open them again. ⌘K / ♫ below 1240 px close them for the browser without a
    hide by hand. Arriving with `?track=` (♫, ⌘6, the foot's link) is no pick and keeps the remembered state; a
    right-click selects without opening (the menu is what it asks for). Hidden by hand, the toggle says so: `Button
-   switchedOff` (words `Details hidden` before the glyph, which keeps its place; a dashed outline, the house shape for
+   switchedOff` (words `Show details` before the glyph, which keeps its place; a dashed outline, the house shape for
    switched off; the glyph struck through), neutral because red means weak quality or a problem and orange means on.
    The rules are pure (`detailsAfter` in `stores/chrome.ts`, tested).
 3. **A6.3 Table:** the columns by container width (D10), Length added, Source and Added gone, the "–" cells; the
@@ -474,7 +474,7 @@ Checks: `npm run rules -- --self-test`; `node scripts/shots.mjs --page library -
   their playlists and logos, the table with Length. *They judge* the fold (⌃⌘S, the button) and the slide into and out
   of Library: smooth, nothing jumping. 2. Drag the column's edge wider and back; double-click it. 3. ⌘K, type part of
   a playlist name, Enter; then type a track name and take the "Search tracks for …" row. 4. Click a track (its
-  details open), ⌘I to hide them: the button reads "Details hidden"; click other tracks (they only select; still
+  details open), ⌘I to hide them: the button reads "Show details"; click other tracks (they only select; still
   hidden after leaving Library and coming back); click a quality badge or ⌘I (details back, clicks open them again). 5. Make the window as small as it goes: the list stays
   usable; open details: the column steps back; ⌘K brings it back. 6. Play a track, hide the player: the rail's play
   button. *They report* anything that feels slow, cramped or unclear.

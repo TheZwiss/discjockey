@@ -326,7 +326,7 @@ that have a file are played. Changing the filter later doesn't change what plays
 stands the **browser column**: your playlists and your Library folders. Click a name to see its
 tracks. Click a track (or move with ↑ ↓) and its details open on the right; they follow the track you select. If you
 close them with the details button at the top right or **⌘I**, they stay closed: clicking a track then only selects
-it, and the button reads **Details hidden** (dashed, its symbol struck through) so you can see they are hidden on
+it, and the button reads **Show details** (dashed, its symbol struck through) so you can see they are hidden on
 purpose. Discjockey remembers this, also after a restart. Press the button or **⌘I** again, or click a track's quality
 badge, to show them again; from then on a click opens them again. Below 1240 pixels of window width the details take
 the room of the browser column, which waits behind the rail until you close them (⌘K or the Library icon ♫ also

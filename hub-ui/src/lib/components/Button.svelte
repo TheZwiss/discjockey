@@ -10,7 +10,7 @@
   // the text colour (glyphs like ⊘ or ▸ render as faint rings or dots at 11–13 px); the caller gives `aria-label`.
   // `destructive` turns it red on hover, for an action that hides or removes something. `pressed` makes an icon
   // button a toggle that is on (shuffle): accent text on the strong wash plus a dot under the glyph, colour plus shape
-  // (design language §2), and `aria-pressed`. `switchedOff` (its words, "Details hidden") is the same toggle turned
+  // (design language §2), and `aria-pressed`. `switchedOff` (its words, "Show details") is the same toggle turned
   // off by the user on purpose, a choice that sticks until they turn it on again (Library's details hidden by hand): the
   // words before the glyph, so the glyph keeps its place at the right end and stays under the pointer, in a dashed
   // outline, the house shape for "switched off" (SelectCard's `off`, the ladder's unlit rung). Neutral on purpose:

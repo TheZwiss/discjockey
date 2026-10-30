@@ -608,8 +608,8 @@
       <span class="cap">icon toggle</span>
       <div class="row"><Button variant="icon" aria-label="Show details" tip={{ text: 'Show details', keys: '⌘I' }}>{@render gDetailsGlyph()}</Button>
         <Button variant="icon" pressed aria-label="Hide details" tip={{ text: 'Hide details', keys: '⌘I' }}>{@render gDetailsGlyph()}</Button>
-        <Button variant="icon" switchedOff="Details hidden" aria-label="Details hidden, show details"
-          tip={{ text: "Show details\nHidden by you: selecting a track won't open them", keys: '⌘I' }}>{@render gDetailsGlyph(true)}</Button>
+        <Button variant="icon" switchedOff="Show details" aria-label="Show details"
+          tip={{ text: "Hidden by you: selecting a track won't open them", keys: '⌘I' }}>{@render gDetailsGlyph(true)}</Button>
         <span class="note">off · on (pressed) · switched off by hand (switchedOff: words, dashed outline, glyph struck through)</span></div>
       <span class="cap">busy</span>
       <div class="row"><Button variant="primary" busy busyLabel="Swapping…">Swap</Button><Button size="sm" busy>Busy small</Button></div>
