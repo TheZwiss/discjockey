@@ -1,1 +1,0 @@
-import{c as t,ah as e,N as n,dc as s,f as r}from"./index-C3U6u-S6.js";import{E as i}from"./EmptyState-d9E5mRzJ.js";function p(a,o){t(o,!1),e(()=>n("unknown")),s(),i(a,{title:"Nothing here.",action:{label:"Go to the Dashboard →",href:"#/"}}),r()}export{p as default};
