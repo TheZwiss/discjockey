@@ -324,6 +324,11 @@
   <header class="sh"><h2>{name}</h2><p class="rule">{rule}</p></header>
 {/snippet}
 
+{#snippet gDetailsGlyph(struck = false)}
+  <!-- Library's details glyph (the macOS inspector symbol); struck: hidden by hand -->
+  <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2.4" /><path d="M10 2.5v11" />
+    {#if struck}<path d="M1.8 1.6l12.4 12.8" />{:else}<path d="M11.6 5.2h1.3M11.6 7.2h1.3M11.6 9.2h1.3" />{/if}</svg>
+{/snippet}
 {#snippet srows(n: number, prefix: string)}
   {#each Array(n) as _, i (i)}<div class="srow">{prefix} {i + 1}</div>{/each}
 {/snippet}
@@ -356,16 +361,14 @@
         {#snippet main()}<Surface kind="list" label="Rows">{@render srows(2, 'Row')}</Surface>{/snippet}
       </ListPanelFrame>
     </div>
-    <span class="cap">ListPanelFrame inspector · on demand: the list resizes at once, the panel slides in</span>
+    <span class="cap">ListPanelFrame inspector · when wanted: the list resizes at once, the panel slides in</span>
     <div class="framebox" data-test="g-frame-inspector">
       <ListPanelFrame panelMode="inspector" open={inspectorOpen}>
         {#snippet main()}
           <PageHeader title="Rekordbox Library" sub={HDR_PARTS}>{#snippet actions()}
             <Button variant="icon" pressed={inspectorOpen} aria-label={inspectorOpen ? 'Hide details' : 'Show details'}
               tip={{ text: inspectorOpen ? 'Hide details' : 'Show details', keys: '⌘I' }}
-              onclick={() => (inspectorOpen = !inspectorOpen)} data-test="g-inspector-toggle">
-              <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2.4" /><path
-                d="M10 2.5v11" /><path d="M11.6 5.2h1.3M11.6 7.2h1.3M11.6 9.2h1.3" /></svg></Button>{/snippet}</PageHeader>
+              onclick={() => (inspectorOpen = !inspectorOpen)} data-test="g-inspector-toggle">{@render gDetailsGlyph()}</Button>{/snippet}</PageHeader>
           <Surface kind="list" label="Rows" summary="4">{@render srows(4, 'Row')}</Surface>
         {/snippet}
         {#snippet panel()}
@@ -602,6 +605,12 @@
       <div class="row"><NeverButton name="this track" onclick={() => {}} />
         <NeverButton name="this track" blocked="Wait until the current change is finished." onclick={() => {}} />
         <span class="note">a drawn 16 px SVG, red on hover when destructive · off</span></div>
+      <span class="cap">icon toggle</span>
+      <div class="row"><Button variant="icon" aria-label="Show details" tip={{ text: 'Show details', keys: '⌘I' }}>{@render gDetailsGlyph()}</Button>
+        <Button variant="icon" pressed aria-label="Hide details" tip={{ text: 'Hide details', keys: '⌘I' }}>{@render gDetailsGlyph()}</Button>
+        <Button variant="icon" switchedOff="Details hidden" aria-label="Details hidden, show details"
+          tip={{ text: "Show details\nHidden by you: selecting a track won't open them", keys: '⌘I' }}>{@render gDetailsGlyph(true)}</Button>
+        <span class="note">off · on (pressed) · switched off by hand (switchedOff: words, dashed outline, glyph struck through)</span></div>
       <span class="cap">busy</span>
       <div class="row"><Button variant="primary" busy busyLabel="Swapping…">Swap</Button><Button size="sm" busy>Busy small</Button></div>
       <span class="cap">disabled</span>
