@@ -320,6 +320,33 @@ that have a file are played. Changing the filter later doesn't change what plays
 - Keys: **Space** plays or pauses, **⌘→** next, **⌘←** previous (not while you type in a field).
 - If a file can't be played, the bar says so and waits; ⏭ goes on.
 
+## The Library page
+
+**Library** shows every track you have, with its quality. Its sidebar is a narrow **rail** of icons, and next to it
+stands the **browser column**: your playlists, your watched folders and your favourites. Click a name to see its
+tracks. The details of a track are not always open: they appear on the right when you ask for them (click a quality
+badge, press the details button at the top right, or press **⌘I**) and follow the track you select. Below 1240 pixels
+of window width the details take the room of the browser column, which waits behind the rail until you close them.
+
+- **Two sidebar forms.** The rail (icons only) is the form Library starts with. Every other page starts with the full
+  sidebar (icons and names). **⌃⌘S**, or the button at the top of the sidebar, folds it into the rail or opens it
+  again. Library remembers its own form, and all the other pages share another. Point at a rail icon to see its name.
+- **Filter the browser.** Type in the field at the top of the browser column (or press **⌘K** on any page) to find
+  a playlist or folder by name. Every match shows once, in its own section. The last row, **Search tracks for "…"**,
+  opens All tracks searched for what you typed. **Enter** opens the highlighted row, **Esc** clears the field.
+- **Make the column wider or narrower.** Drag its right edge. Double-click the edge to go back to the usual width.
+- **Keys:**
+
+| Key | What it does |
+|-----|-----|
+| **⌘1** to **⌘6** | Dashboard, Sync, To-do, Playlists, Download limits, Library |
+| **⌘,** | Settings |
+| **⌘K** | Opens Library and puts the cursor in the browser's filter |
+| **⌘I** | Opens or closes the details (Library only) |
+| **⌃⌘S** | Folds the sidebar into the rail, or opens it again |
+
+The keys work while you type in a field, but not while a dialog is open.
+
 ## Folders
 
 - `Library/<Folder>/` holds lossless tracks (verified) and files you bought.

@@ -460,6 +460,7 @@ npm run rules -- --page sync --only sync-many,sync-end       # only the named sh
 | `font-size` | a text size not in `--type-scale` |
 | `colour` | a text, background or border colour that isn't a token value (transparent is fine) |
 | `read-status` | a `[data-read-status]` outside `[data-page-header]` |
+| `chrome-edge` | with the sidebar showing: the page frame's left edge is not `--sidebar-w` (the chrome's whole width, which the foot's line follows) |
 | `error` | the page logged an error while the shot loaded |
 
 Anything marked `data-dev` (the fake toolbar) is ignored.
