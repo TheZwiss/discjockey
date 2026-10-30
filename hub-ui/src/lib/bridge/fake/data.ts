@@ -23,12 +23,15 @@ export type FakeService = { limit: number; extra_today: number; carry_over: numb
 export type FakeAccount = FakeService & { browser: Browser; profile?: string | null; profileName?: string | null;
   lastCheck?: LastCheck | null };
 
+/** As the state's `rekordbox_check`: an added_as_new also keeps what the two files measured as. */
+export type RekordboxCheck = { reason: 'wrong_song' | 'added_as_new'; since: string; match?: string; offset_ms?: number };
+
 export type FakeTrack = {
   track_id: string; artist: string; title: string; folder: string; duration_s: number;
   status: Status; cutoff_hz: number | null; source: Source | null; codec: string | null;
   in_playlists: boolean; hidden: boolean; added: string | null; cover: number | null;  // cover: gradient index
   isrc: string | null; playlists: string[]; upgrade: (Upgrade & { cutoff_hz?: null }) | null;
-  rekordbox_check: { reason: 'wrong_song' | 'added_as_new'; since: string } | null;
+  rekordbox_check: RekordboxCheck | null;
   other: string | null;          // "Other" to-do item text (something is in the way)
   next_try_days: number | null;  // not found: next try in N days
   rejected_sources: string[];
@@ -241,7 +244,7 @@ export function todoGroup(t: FakeTrack): TodoGroupKey | null {
   return q === 'missing' ? 'not_found' : q === 'lossless' ? null : q === 'good_lossy' ? 'good_lossy' : q;
 }
 export function todoDetail(t: FakeTrack, g: TodoGroupKey): string {
-  if (g === 'rekordbox_check') return checkText(t.rekordbox_check!.reason);
+  if (g === 'rekordbox_check') return checkText(t.rekordbox_check!);
   if (g === 'upgrade_ready') return t.upgrade!.cue_text;
   if (g === 'not_found') {
     const d = t.next_try_days;
@@ -269,10 +272,17 @@ export function formatLine(t: FakeTrack): string | null {
   const name = FORMAT_NAMES[t.codec] ?? t.codec.toUpperCase();
   return t.kbps && t.status === 'not_lossless' ? `${name} · ${t.kbps} kbps` : name;
 }
-export function checkText(reason: 'wrong_song' | 'added_as_new'): string {
-  return reason === 'wrong_song'
-    ? 'This track now plays the right song. In rekordbox: analyse it again and delete the old cues (they belong to the wrong song).'
-    : 'This is a different edit. In rekordbox: analyse it again and set the cues again.';
+/** As report.check_text: the same edit (exact or shifted) can be relocated in rekordbox and keeps its cues. */
+export function checkText(check: RekordboxCheck): string {
+  if (check.reason === 'wrong_song') {
+    return 'This track now plays the right song. In rekordbox: analyse it again and delete the old cues (they belong to the wrong song).';
+  }
+  if (check.match === 'exact') return 'This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit.';
+  if (check.match === 'shifted') {
+    const ms = Math.abs(Math.round(check.offset_ms ?? 0));
+    return `This is the same edit, ${ms} ms apart. In rekordbox: relocate the old entry to the new file, its cues fit to within ${ms} ms.`;
+  }
+  return 'This is a different edit. In rekordbox: analyse it again and set the cues again.';
 }
 /** As views.quality_counts: a file whose sound isn't checked yet is not counted. */
 export function byQuality(ts: FakeTrack[]): ByQuality {

@@ -46,6 +46,10 @@ REKORDBOX_CHECK = {
                   "belong to the wrong song).",
     "added_as_new": "This is a different edit. In rekordbox: analyse it again and set the cues again.",
 }
+# added_as_new when the two files were measured as the same edit (upgrades.add_new stores the measurement as `match`)
+SAME_EDIT_CHECK = "This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit."
+SHIFTED_EDIT_CHECK = ("This is the same edit, {ms:.0f} ms apart. In rekordbox: relocate the old entry to the new "
+                      "file, its cues fit to within {ms:.0f} ms.")
 STATUS_TEXT = {"not_lossless": "not lossless", "fake_lossless": "fake lossless", "missing": "not found"}
 PLAN_LABELS = [
     ("acquire:new", "Download (new)"),
@@ -150,8 +154,16 @@ def write_crash(paths: Paths, log: RunLog, at: datetime, step: str, error: BaseE
 
 
 def check_text(check: dict) -> str:
-    """What to do in rekordbox for an entry's `rekordbox_check` ({reason, since})."""
-    return REKORDBOX_CHECK.get((check or {}).get("reason"), "Check this track in rekordbox.")
+    """What to do in rekordbox for an entry's `rekordbox_check` ({reason, since}; an added_as_new also has `match`, the
+    measurement of the two files, and `offset_ms`). Same edit (exact or shifted): the old entry can be relocated to the
+    new file and keeps its cues. A real mismatch, no measurement or a record from before it: analyse and cue again."""
+    check = check or {}
+    if check.get("reason") == "added_as_new":
+        if check.get("match") == "exact":
+            return SAME_EDIT_CHECK
+        if check.get("match") == "shifted":
+            return SHIFTED_EDIT_CHECK.format(ms=abs(check.get("offset_ms") or 0))
+    return REKORDBOX_CHECK.get(check.get("reason"), "Check this track in rekordbox.")
 
 
 def rekordbox_checks(state: dict) -> list[tuple[str, dict]]:
