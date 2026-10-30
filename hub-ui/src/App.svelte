@@ -8,7 +8,10 @@
   import { hubSyncRunning, hub } from '$lib/stores/hub';
   import { musicGate } from '$lib/musicFolder';
   import { attachAudio, player } from '$lib/stores/player';
-  import { keyTarget, playerKey } from '$lib/shell/footModel';
+  import { footShape, keyTarget, playerKey } from '$lib/shell/footModel';
+  import { chromeKey, NAV, SETTINGS } from '$lib/shell/keys';
+  import { bringBrowserBack, chrome as chromeLayout, fold, lastLibrary, libraryReturn, requestFilterFocus, toggleInspector }
+    from '$lib/stores/chrome';
   import { onEvent } from '$lib/bridge/events';
   import { toasts } from '$lib/stores/toasts';
   import { clearReady } from '$lib/ready';
@@ -46,6 +49,12 @@
   });
   const chrome = $derived(entry.chrome === 'app' && gate !== 'missing');
   const syncInFoot = $derived(chrome && $hubSyncRunning && $route.name !== 'sync');
+  // the chrome's whole width (plan library stage 5, I6): set here on the app root, so the page's edge, the foot's line
+  // and the rule checker read one value; without the chrome the token's default stands
+  const sidebarW = $derived(chrome ? `${$chromeLayout.sidebarW}px` : undefined);
+  const footShown = $derived(chrome && footShape($player, syncInFoot) !== null);
+  // where Library was left: ♫ and ⌘6 go back to that collection
+  $effect(() => { const back = libraryReturn($route); if (back) lastLibrary.set(back); });
 
   // the player's keys, on every page (plan now-playing, Keys): Space, ⌘→, ⌘←, only while a queue is up
   function keys(e: KeyboardEvent) {
@@ -56,6 +65,28 @@
     if (k === 'toggle') player.toggle();
     else if (k === 'next') player.next();
     else player.prev();
+  }
+
+  // the chrome's keys (plan library stage 5, D18; lib/shell/keys.ts): only while the chrome is there (not in Setup
+  // or the missing-folder screen), also from a text field, never in a dialog
+  function chromeKeys(e: KeyboardEvent) {
+    if (!chrome || e.defaultPrevented) return;
+    const k = chromeKey(e, { dialogOpen: !!document.querySelector('dialog[open]'), onLibrary: $route.name === 'library' });
+    if (!k) return;
+    e.preventDefault();
+    if (k.kind === 'fold') fold();
+    else if (k.kind === 'inspector') toggleInspector();
+    else if (k.kind === 'filter') {
+      bringBrowserBack();
+      void go($lastLibrary).then((ok) => { if (ok) requestFilterFocus(); });
+    } else {
+      const page = k.page === 'settings' ? SETTINGS : NAV.find((n) => n.key === k.page)!;
+      void go(page.key === 'library' ? $lastLibrary : page.href);
+    }
+  }
+  function onKey(e: KeyboardEvent) {
+    chromeKeys(e);
+    keys(e);
   }
 
   let audio: HTMLAudioElement | undefined = $state();
@@ -75,9 +106,9 @@
   }
 </script>
 
-<div class="app" class:nochrome={!chrome} data-booted={$hub.booted || undefined}>
+<div class="app" class:nochrome={!chrome} data-booted={$hub.booted || undefined} style:--sidebar-w={sidebarW}>
   <div class="body">
-    {#if chrome}<Sidebar />{/if}
+    {#if chrome}<Sidebar foot={footShown} />{/if}
     <div class="content">
       {#if chrome}<Banners />{/if}
       <main class="page" data-page={gate === 'missing' ? 'music-missing' : entry.key}>
@@ -97,17 +128,18 @@
     </div>
   </div>
   {#if chrome}<Foot p={$player} sync={syncInFoot} />{/if}
+  {#if FakeToolbar}<FakeToolbar />{/if}
 </div>
-<svelte:window onkeydown={keys} />
+<svelte:window onkeydown={onKey} />
 <audio bind:this={audio} hidden preload="auto"></audio>
 <ConfirmHost />
-{#if FakeToolbar}<FakeToolbar />{/if}
 
 <style>
   .app { height: 100vh; display: flex; flex-direction: column; min-width: 1100px; min-height: 0; background: var(--bg); }
   /* the frame's one material behind sidebar and foot; the page area covers it in black */
   .app:not(.nochrome) { background: var(--sidebar-bg); }
-  .body { flex: 1; display: flex; min-height: 0; }
+  /* the chrome lies over the body's left edge (Sidebar.svelte), above the page and the foot's first pixel row */
+  .body { flex: 1; display: flex; min-height: 0; position: relative; }
   .content { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative;
     background: var(--bg); }
   .page { flex: 1; min-height: 0; overflow: auto; }
