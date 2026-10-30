@@ -123,7 +123,9 @@ export function sameLayout(a: ChromeLayout, b: ChromeLayout): boolean {
 /** ⌃⌘S and the fold button: the current place's form turns over (the other place keeps its own). */
 export function fold(): void {
   const store = get(chrome).place === 'library' ? formLibrary : formOther;
-  store.update((f) => (f === 'rail' ? 'full' : 'rail'));
+  // from the form the layout shows: a corrupt stored value shows the default, and the first press must turn that over
+  const next: Form = get(chrome).form === 'rail' ? 'full' : 'rail';
+  store.set(next);
 }
 
 /** The column's edge: dragged (1:1, at once) or double-clicked back to 240 (`glide`). */
