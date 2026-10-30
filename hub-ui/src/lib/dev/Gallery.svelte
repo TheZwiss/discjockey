@@ -351,7 +351,7 @@
         {#snippet main()}<Surface kind="list" label="Rows">{@render srows(2, 'Row')}</Surface>{/snippet}
       </ListPanelFrame>
     </div>
-    <span class="cap">ListPanelFrame panelMode="inspector" · details on demand: the list takes its width at once, the inspector slides in from the right edge</span>
+    <span class="cap">ListPanelFrame inspector · on demand: the list resizes at once, the panel slides in</span>
     <div class="framebox" data-test="g-frame-inspector">
       <ListPanelFrame panelMode="inspector" open={inspectorOpen}>
         {#snippet main()}
@@ -437,7 +437,7 @@
       <PageHeader title="Hard_Bounce_Extended_Afterhour_Selection_2026" sub="1,204 tracks · 82 % lossless · 3 not in a playlist" readStatus readStatusState={sp({})} />
       <PageHeader title="Settings" />
     </div>
-    <span class="cap">subtitle as parts (Library): whole parts drop, the last first; the whole subtitle is the tooltip</span>
+    <span class="cap">subtitle as parts: whole parts drop, the last first; all of it is the tooltip</span>
     <div class="col" data-test="g-header-parts">
       {#each [[946, 'Rekordbox Library', HDR_PARTS], [586, 'Rekordbox Library', HDR_PARTS], [440, 'Rekordbox Library', HDR_PARTS],
         [300, 'Rekordbox Library', HDR_PARTS], [586, 'Afterhour_Sonntag_Warmup', ['88 tracks', 'Qobuz playlist', 'switched off', 'Library › Afterhour_Sonntag_Warmup']],
