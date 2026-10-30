@@ -29,6 +29,13 @@ const fake: PageFake = {
     crates,
     // the same while a running job holds the library file: a switch's save answers busy, the row goes back (a toast)
     crates_busy(s) { crates(s); s.briefBusy = true; },
+    // six watched folders (the Library, Rekordbox Library, Albums, Vinyl Rips and two more): the list must give way to the switches
+    crates_many_folders(s) {
+      crates(s);
+      for (const [path, files] of [['/Users/you/Music/Warehouse Rips', 86], ['/Users/you/Music/Festival Sets', 41]] as const) {
+        s.imp.folders.push({ id: s.imp.nextId++, path, kind: 'import', offline: false, files, waiting: 0, redownload: 0 });
+      }
+    },
     // the user's case: Qobuz only; YouTube's login is in Chrome's second profile (found → Use this login)
     'yt-found'(s) {
       signedQobuz(s);

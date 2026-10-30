@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterItems, groupSummary, growSpare, SEARCH_FROM, setOn, visibleKeys } from './toggleModel';
+import { allDisabled, filterItems, groupSummary, growSpare, SEARCH_FROM, setOn, visibleKeys } from './toggleModel';
 const items = [
   { key: 'a', label: 'Ohne_Quatsch', count: 41, on: true },
   { key: 'b', label: 'Kölsch Mix', count: 3, on: false },
@@ -101,4 +101,17 @@ describe('grow group cut', () => {
   });
   it('gives nothing without a row pitch (fewer than 2 rows)', () =>
     expect(growSpare({ ...base, pitch: 0, given: 60, content: 80 })).toBe(0));
+});
+
+describe('All with a cap', () => {
+  const rows = (n: number, on = false) => Array.from({ length: n }, (_, i) => ({ key: `k${i}`, label: `Row ${i}`, on }));
+  it('is on at the cap and off one row past it', () => {
+    expect(allDisabled(rows(25), 25)).toBe(false);
+    expect(allDisabled(rows(26), 25)).toBe(true);
+  });
+  it('has no cap without allMax', () => expect(allDisabled(rows(300))).toBe(false));
+  it('is off when every shown row is on, or none is shown', () => {
+    expect(allDisabled(rows(3, true), 25)).toBe(true);
+    expect(allDisabled([], 25)).toBe(true);
+  });
 });

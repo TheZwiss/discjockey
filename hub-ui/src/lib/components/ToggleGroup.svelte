@@ -15,7 +15,7 @@
   import ToggleRow from './ToggleRow.svelte';
   import { edgeFade } from './edgeFade';
   import { growFill } from './growFill';
-  import { filterItems, groupSummary, GROW_SPARE, SEARCH_FROM, visibleKeys, type GrowSpareHost,
+  import { allDisabled, filterItems, groupSummary, GROW_SPARE, SEARCH_FROM, visibleKeys, type GrowSpareHost,
     type ToggleItem } from './toggleModel';
 
   let { label, items, lead, onchange, onall, test, rowTest, grow = false, disabled = false, disabledReason,
@@ -47,7 +47,7 @@
   const minStyle = $derived(grow ? `--min-rows: ${minRows}; --peek: ${items.length > 3 ? 'calc(var(--h-row) / 2)' : '0px'}` : undefined);
   // both links are off when they would change nothing among the shown rows (also in an empty group or search)
   // (All also while more than `allMax` rows show)
-  const allIdle = $derived(shown.every((i) => i.on) || (allMax !== undefined && shown.length > allMax));
+  const allIdle = $derived(allDisabled(shown, allMax));
   const noneOn = $derived(shown.every((i) => !i.on));
   const setAll = (on: boolean) => onall(on, visibleKeys(items, searchable ? query : ''));
   const sub = (suffix: string) => (test ? `${test}-${suffix}` : undefined);

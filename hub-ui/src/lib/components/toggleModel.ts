@@ -23,6 +23,11 @@ export function filterItems(items: ToggleItem[], query: string): ToggleItem[] {
 /** The keys All · None act on: the rows the search shows (all rows for an empty query). */
 export const visibleKeys = (items: ToggleItem[], query: string) => filterItems(items, query).map((i) => i.key);
 
+/** All is off when it would change nothing among the shown rows (all on, also none shown) or, with `allMax`, when more
+ *  rows than that show (a list whose whole would flood where it switches things on asks for a search first). */
+export const allDisabled = (shown: ToggleItem[], allMax?: number): boolean =>
+  shown.every((i) => i.on) || (allMax !== undefined && shown.length > allMax);
+
 /** The items with the given keys switched on or off, the others unchanged; a new list (the input is not changed). */
 export function setOn(items: ToggleItem[], keys: string[], on: boolean): ToggleItem[] {
   const pick = new Set(keys);

@@ -45,4 +45,64 @@ export function crateChanges(f: WatchedFolderRow, keys: string[], on: boolean, p
 
 /** The note over a folder with too many crates for the sidebar. */
 export const tooManyText = (f: Pick<WatchedFolderRow, 'crates'>): string =>
-  `${count(f.crates.length)} folders with music, too many for the sidebar: switch on the ones you want to see.`;
+  `${count(f.crates.length)} folders with music, too many for the sidebar: switch on some, or search, then use All.`;
+
+/** The group's head: "<folder> in the sidebar", or just "In the sidebar" when the name is too long for the head. */
+export const GROUP_NAME_MAX = 30;
+export const groupLabel = (name: string): string => (name.length > GROUP_NAME_MAX ? 'In the sidebar' : `${name} in the sidebar`);
+
+export type CrateChange = { path: string; shown: boolean | null };
+/** What a run of saves answers: the paths stored (in order), and the refusal that stopped it (null when none). */
+export type CrateSaveResult = { saved: string[]; failed: unknown };
+export type CrateSavesIO = {
+  folder: () => WatchedFolderRow;
+  /** stores the changes one after the other and stops at the first refusal */
+  send: (changes: CrateChange[]) => Promise<CrateSaveResult>;
+  /** reads the folders again, so the rows then show what is stored */
+  reload: () => Promise<void>;
+  /** the switches whose save is under way, by path: their value shows instead of the stored one */
+  pending: (p: Record<string, boolean>) => void;
+  /** a save was refused */
+  failed: () => void;
+};
+
+/**
+ * The saves behind the switches. A click shows its value at once (`pending`) and is sent after every earlier click
+ * (one chain, so a later click is always stored after an earlier one, also a second All · None during the first,
+ * which is queued; its changes are worked out against what the rows show). Each path remembers which click set it
+ * last: an older answer never takes back a newer click. When a run stops at a refusal (`busy` after k of n), the
+ * unsaved ones are put back before the folders are read again, the saved ones keep their value until after it, so
+ * nothing flickers back and forth. Resolves when that click's save is done.
+ */
+export function crateSaves(io: CrateSavesIO): (keys: string[], on: boolean) => Promise<void> {
+  let pending: Record<string, boolean> = {};
+  const owner = new Map<string, number>();
+  let seq = 0;
+  let tail: Promise<void> = Promise.resolve();
+  const release = (paths: string[], mine: number) => {
+    const next = { ...pending };
+    for (const p of paths) if (owner.get(p) === mine) { owner.delete(p); delete next[p]; }
+    pending = next;
+    io.pending({ ...pending });
+  };
+  async function run(changes: CrateChange[], mine: number) {
+    let r: CrateSaveResult;
+    try { r = await io.send(changes); } catch (e) { r = { saved: [], failed: e ?? true }; }
+    const stored = new Set(r.saved);
+    release(changes.filter((c) => !stored.has(c.path)).map((c) => c.path), mine);
+    if (r.saved.length) { try { await io.reload(); } catch { /* the rows keep what they show */ } }
+    release(r.saved, mine);
+    if (r.failed) io.failed();
+  }
+  return (keys, on) => {
+    const changes = crateChanges(io.folder(), keys, on, pending);
+    if (!changes.length) return Promise.resolve();
+    const mine = ++seq;
+    for (const c of changes) owner.set(c.path, mine);
+    pending = { ...pending, ...Object.fromEntries(changes.map((c) => [c.path, on])) };
+    io.pending({ ...pending });
+    const done = tail.then(() => run(changes, mine));
+    tail = done.catch(() => undefined);
+    return done;
+  };
+}

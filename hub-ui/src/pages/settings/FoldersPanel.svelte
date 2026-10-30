@@ -36,9 +36,9 @@
 
 {#snippet fill()}
   <WatchedFolderList folders={flow.data?.folders ?? null} grow={!picked} onremove={(f) => void flow.remove(f)}
-    removeOff={blocked} removing={flow.removing} picked={picked?.id ?? null}
+    removeOff={blocked} removing={flow.removing} picked={picked?.id ?? null} cap={picked ? 4 : undefined}
     onpick={(f) => { if (f.id !== picked?.id) void go(settingsFolderHref(f.path)); }} test="folders-list" />
-  {#if picked}<CrateSwitches folder={picked} reload={flow.load} />{/if}
+  {#if picked}{#key picked.id}<CrateSwitches folder={picked} reload={flow.load} />{/key}{/if}
 {/snippet}
 
 {#snippet after()}

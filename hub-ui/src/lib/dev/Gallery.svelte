@@ -323,6 +323,15 @@
     { id: 3, path: '/Volumes/Old Drive/Music', name: 'Music', kind: 'import', state: 'offline', files: 612, waiting: 0, unreadable: 0, crates: [], too_many: false },
     { id: 4, path: '/Users/you/Music/Crates', name: 'Crates', kind: 'import', state: 'online', files: 1, waiting: 0, unreadable: 0, crates: [], too_many: false },
   ];
+  // Settings: import folders with crates are rows to pick (`onpick`), the picked one washed; `cap` keeps the list to 4 rows and a peek
+  const gCrate = (name: string) => ({ path: `/Users/you/Music/Rekordbox Library/${name}`, label: name, name, tip: `Rekordbox Library › ${name}`, files: 4, hidden: false, has_crates: false });
+  const gPickable: WatchedFolderRow[] = [
+    gFolders[0],
+    { id: 5, path: '/Users/you/Music/Rekordbox Library', name: 'Rekordbox Library', kind: 'import', state: 'online', files: 30, waiting: 0, unreadable: 0, crates: [gCrate('Bounce'), gCrate('Edits')], too_many: false },
+    { id: 6, path: '/Volumes/Example Drive/Albums', name: 'Albums', kind: 'import', state: 'online', files: 312, waiting: 0, unreadable: 0, crates: [gCrate('Night Tapes')], too_many: false },
+    gFolders[3],
+    { id: 7, path: '/Users/you/Music/Festival Sets', name: 'Festival Sets', kind: 'import', state: 'online', files: 41, waiting: 0, unreadable: 0, crates: [], too_many: false },
+  ];
 </script>
 
 {#snippet head(name: string, rule: string)}
@@ -1188,6 +1197,7 @@
     <div class="grid3">
       <div class="w372"><WatchedFolderList folders={gFolders} onremove={() => {}} test="g-wf-list" /></div>
       <div class="w372"><WatchedFolderList folders={null} test="g-wf-loading" /></div>
+      <div class="w372"><WatchedFolderList folders={gPickable} picked={5} cap={4} onpick={() => {}} onremove={() => {}} test="g-wf-picked" /></div>
       <div class="w372"><ImportCard view={{ kind: 'running', line: 'Reading tags · 340 of 1,500', share: 340 / 1500, stopping: false }} onstop={() => {}} test="g-wf-running" /></div>
       <div class="w372"><ImportCard view={{ kind: 'running', line: 'Looking for music files', share: null, stopping: true }} onstop={() => {}} test="g-wf-stopping" /></div>
       <div class="w372"><ImportCard view={{ kind: 'stopped', line: 'Import stopped with 1,160 files to go. It carries on where it stopped.' }} oncontinue={() => {}} test="g-wf-stopped" /></div>
