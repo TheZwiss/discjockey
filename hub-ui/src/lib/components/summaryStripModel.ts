@@ -6,7 +6,7 @@ export type StripRow = { count: string; link: boolean };
 export type StripView = {
   /** the lossless share as a whole number ("63"); null: "—" (waiting, no tracks, none checked yet) */
   share: string | null;
-  /** under the share: "290 of 460 checked tracks"; '' while waiting (the line keeps its height) */
+  /** under the share: "290 of 460 checked tracks"; without a share it names it ("lossless · none checked yet") */
   line: string;
   upgrades: StripRow;
   notLossless: StripRow & {
@@ -21,12 +21,12 @@ const WAIT = '—';
 
 export function stripView(s: Library['summary'] | null): StripView {
   if (!s) {
-    return { share: null, line: '', upgrades: { count: WAIT, link: false },
+    return { share: null, line: 'lossless', upgrades: { count: WAIT, link: false },
       notLossless: { count: WAIT, link: false, todo: null, tip: null } };
   }
   const checked = Object.values(s.by_quality).reduce((n, c) => n + c, 0);
   const share = s.tracks && s.lossless_share !== null ? String(Math.round(s.lossless_share * 100)) : null;
-  const line = !s.tracks ? 'no tracks yet' : s.lossless_share === null ? 'none checked yet'
+  const line = !s.tracks ? 'lossless · no tracks yet' : s.lossless_share === null ? 'lossless · none checked yet'
     : `${count(s.by_quality.lossless)} of ${count(checked)} checked tracks`;
   const n = s.not_lossless;
   const m = Math.min(s.to_do, n);

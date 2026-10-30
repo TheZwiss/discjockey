@@ -7,13 +7,15 @@
   // the two rows say where to go from here, each with its count. No legend: the filter segments right below carry the
   // same dots and counts. A row is a link only when it leads somewhere: Upgrade ready (`onupgrades`, the page shows
   // the Upgrade ready segment) while there are upgrades, Not lossless yet (`ontodo`, opens To-do) while some of them
-  // are on the to-do list; at none it keeps its words and count without › (stripView, the words of I7). The summary
+  // are on the to-do list; at none it keeps its words and count without › (stripView, the words of I7). Fewer in
+  // To-do than not lossless explains itself in a Tip under the row (the row takes focus for it when it is no link). The summary
   // ignores the search and the filter (views.library), so the strip stays the collection's while the table narrows.
   // `summary={null}`: waiting (dashes and the bar's shimmer), the same height.
   import type { Library } from '../bridge/types';
   import QualityBar from './QualityBar.svelte';
   import Surface from './Surface.svelte';
   import { stripView } from './summaryStripModel';
+  import { tip as tipAction } from './tip';
 
   let { summary, onupgrades, ontodo }: {
     summary: Library['summary'] | null; onupgrades: () => void; ontodo: () => void;
@@ -25,12 +27,15 @@
 
 {#snippet row(tone: 'good' | 'problem', link: boolean, onclick: () => void, n: string, test: string, words: string, todo: string | null, tip: string | null)}
   {#if link}
-    <button type="button" class="srow link" data-row-hit data-test={test} title={tip ?? undefined} {onclick}>
+    <button type="button" class="srow link" data-row-hit data-test={test} use:tipAction={tip} {onclick}>
       <span class="dot {tone}" aria-hidden="true"></span><span class="w">{words}{#if todo}<span class="q">{` · ${todo}`}</span>{/if}</span>
       <span class="n">{n}</span>{@render chev()}
     </button>
   {:else}
-    <div class="srow" data-test={test} title={tip ?? undefined}>
+    <!-- a row that explains itself takes focus, so its tip opens from the keyboard too (the tooltip pattern needs a
+         focusable trigger); it stays a plain row, it does nothing when pressed -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div class="srow" data-test={test} use:tipAction={tip} tabindex={tip ? 0 : undefined}>
       <span class="dot {tone}" aria-hidden="true"></span><span class="w">{words}{#if todo}<span class="q">{` · ${todo}`}</span>{/if}</span>
       <span class="n">{n}</span><span></span>
     </div>
@@ -40,8 +45,9 @@
 <Surface class="strip" padded={false} data-test="summary-strip">
   <div class="grid">
     <div class="share">
-      <div class="num"><span data-test="strip-share">{v.share ?? '—'}</span><span class="unit">% lossless</span></div>
-      <div class="label" data-test="strip-line">{v.line || '\u00a0'}</div>
+      <!-- without a share the line names it, so the unit doesn't stand beside a dash -->
+      <div class="num"><span data-test="strip-share">{v.share ?? '—'}</span>{#if v.share !== null}<span class="unit">% lossless</span>{/if}</div>
+      <div class="label" data-test="strip-line">{v.line}</div>
     </div>
     <div class="bar"><QualityBar by_quality={summary?.by_quality ?? null} /></div>
     <div class="rows">

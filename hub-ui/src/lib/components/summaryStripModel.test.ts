@@ -44,10 +44,10 @@ describe('stripView', () => {
     expect(stripView(sum({ to_do: 200 })).notLossless.todo).toBe('all in To-do');
   });
   it('waits with dashes, and says why a share is missing', () => {
-    expect(stripView(null)).toMatchObject({ share: null, line: '', upgrades: { count: '—', link: false } });
+    expect(stripView(null)).toMatchObject({ share: null, line: 'lossless', upgrades: { count: '—', link: false } });
     expect(stripView(sum({ tracks: 0, lossless_share: null, not_lossless: 0, to_do: 0, upgrades_ready: 0,
-      by_quality: { lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 } })).line).toBe('no tracks yet');
+      by_quality: { lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 } })).line).toBe('lossless · no tracks yet');
     expect(stripView(sum({ lossless_share: null, by_quality: { lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 },
-      not_lossless: 0, to_do: 0 }))).toMatchObject({ share: null, line: 'none checked yet' });
+      not_lossless: 0, to_do: 0 }))).toMatchObject({ share: null, line: 'lossless · none checked yet' });
   });
 });
