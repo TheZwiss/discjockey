@@ -233,6 +233,23 @@ export function sidebarOf(s: FakeState, todo: number, limits_warning: boolean): 
     playlists, watched, library_folders };
 }
 
+/** db.set_favourites: the request replaces the list, but a stored key that is absent from it and whose target is
+ *  gone right now (`resolving` lacks it) stays, right after the nearest stored key before it that is in the new list
+ *  (or first): the UI never saw it, so it can't have meant to remove it. */
+export function mergedFavourites(stored: readonly string[], keys: readonly string[], resolving: ReadonlySet<string>): string[] {
+  const out = [...new Set(keys)];
+  const wanted = new Set(out);
+  let previous: string | null = null;
+  for (const key of new Set(stored)) {
+    if (wanted.has(key)) previous = key;
+    else if (!resolving.has(key)) {
+      out.splice(previous === null ? 0 : out.indexOf(previous) + 1, 0, key);
+      previous = key;
+    }
+  }
+  return out;
+}
+
 // ---------- library() (views.library) ----------
 type Key = string | number | boolean | Key[];
 function compare(a: Key, b: Key): number {

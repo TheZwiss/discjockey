@@ -167,6 +167,16 @@ describe('Favourites and crate switches are brief saves (D15)', () => {
     expect(must(await f.sidebar()).favourites.map((x) => x.key)).toEqual(keys);
     expect(must(await f.set_favourites([ghost])).favourites).toEqual([ghost]);
   });
+  it('a save keeps a stored key that is absent and gone right now, in its place (as db.set_favourites)', async () => {
+    const f = fake('library:crates');
+    const [a, b, c] = must(await f.sidebar()).favourites.map((x) => x.key);
+    const g0 = 'folder:/Volumes/Gone/Zero';
+    const g1 = 'playlist:gone-one';
+    await f.set_favourites([g0, a, g1, b, c]);
+    expect(must(await f.set_favourites([c, b])).favourites).toEqual([g0, g1, c, b]);  // a resolves: the user took it out
+    expect(must(await f.set_favourites([])).favourites).toEqual([g0, g1]);  // an empty sidebar wipes none of them
+    expect(must(await f.set_favourites([g1])).favourites).toEqual([g0, g1]);
+  });
   it('refuses what is no list of keys', async () => {
     const f = fake('normal');
     expect(await f.set_favourites(['nonsense'])).toMatchObject({ ok: false, kind: 'refused' });

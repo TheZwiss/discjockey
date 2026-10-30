@@ -204,7 +204,8 @@ export type Crate = { path: string; label: string; name: string; tip: string; fi
 export type WatchedEntry = { path: string; name: string; place: string; files: number; state: FolderState;
   too_many: boolean; crate_count: number; crates: Crate[] };
 /** A Favourite, resolved: `key` is `playlist:<ref>` or `folder:<path>` (what `set_favourites` takes). Keys whose
- *  playlist or folder is gone are left out of the answer (the engine keeps them stored). `count`: a playlist's songs
+ *  playlist or folder is gone are left out of the answer (the engine keeps them stored, also through a
+ *  `set_favourites` that does not name them). `count`: a playlist's songs
  *  (null: never read) or a folder's files. `path`: the folder's, null for a playlist. */
 export type Favourite = { key: string; kind: 'playlist' | 'folder'; name: string; service: PlaylistService | null;
   enabled: boolean; count: number | null; path: string | null; state: FolderState };

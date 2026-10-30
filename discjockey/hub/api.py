@@ -522,6 +522,11 @@ class HubApi:
 
     @bridge
     def sidebar(self) -> dict:
+        return self._sidebar_view()
+
+    def _sidebar_view(self, also: Sequence[str] = ()) -> dict:
+        """The sidebar's numbers; `also`: Favourites keys to resolve besides the stored ones (set_favourites asks
+        which of the keys it is given exist right now)."""
         state = self._state()
         count = self._todo(state, "all", False, count_only=True)["chips"]["all"]
         # the dot on "Download limits": a warning sign the user hasn't marked as seen, or a service paused today
@@ -531,7 +536,8 @@ class HubApi:
                                                   db.crate_overrides(conn), db.watched_folders(conn))
                                                  if conn is not None else ({}, [], {}, []))
         return views.sidebar(state, pf.load(self._paths.playlists_file).rows, count, warnings, records=records,
-                             favourites=favs, overrides=overrides, watched=folders, away=self._away_folders(folders))
+                             favourites=[*favs, *also], overrides=overrides, watched=folders,
+                             away=self._away_folders(folders))
 
     @bridge
     def sync_preview(self) -> dict:
@@ -728,11 +734,21 @@ class HubApi:
     @bridge
     def set_favourites(self, keys: list[str]) -> dict:
         """Replaces the Favourites with `keys` (`playlist:<ref>` / `folder:<path>`, D3) in their order: a brief save,
-        not a job. Answers the stored list."""
+        not a job. A stored key that isn't in `keys` and whose playlist or folder isn't there right now stays, in its
+        place (the UI never saw it, so it can't have meant to remove it). Answers the stored list."""
         if not isinstance(keys, list) or not all(isinstance(k, str) and k.startswith(FAVOURITE_KEYS) for k in keys):
             raise ValueError(BAD_FAVOURITES)
-        self._brief_write(lambda conn: db.set_favourites(conn, keys))
-        return {"favourites": list(dict.fromkeys(keys))}
+        if not self._paths.db_file.exists():
+            raise OpProblem(NO_RECORDS, "refused")
+        resolving = {f["key"] for f in self._sidebar_view(keys)["favourites"]}
+        stored: list[str] = []
+
+        def save(conn):
+            db.set_favourites(conn, keys, resolving)
+            stored.extend(db.favourites(conn))
+
+        self._brief_write(save)
+        return {"favourites": stored}
 
     @bridge
     def set_crate_shown(self, path: str, shown: bool | None) -> dict:

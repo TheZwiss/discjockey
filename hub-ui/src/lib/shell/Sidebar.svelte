@@ -27,7 +27,8 @@
     BROWSER_DEFAULT, BROWSER_MAX, BROWSER_MIN, bringBrowserBack, chromeMotion, edgeCursor, edgeKeyWidth, fold,
     lastLibrary, setBrowserWidth,
   } from '../stores/chrome';
-  import { EDGE_TIP, edgeValueText } from './browserModel';
+  import { EDGE_TIP, currentTarget, edgeValueText, favouriteRow, nameParts } from './browserModel';
+  import RowLead from './RowLead.svelte';
   import { activityProgress } from './activity';
   import { FOLD_KEYS, NAV, SETTINGS, type NavPage } from './keys';
   import { navCount, navTip, railPill, type NavSignals } from './sidebarModel';
@@ -74,6 +75,10 @@
     limitsWarning: !!side?.limits_warning,
   });
   const pill = $derived(railPill(sig.todo));
+  // Favourites as shortcuts on the pages without the browser column (notes N2): no counts, a click opens Library at it
+  const favs = $derived(side ? side.favourites.map((f) => favouriteRow(f, side)) : []);
+  // the collection open in Library: its favourite wears the same "current" look as the page rows
+  const openTarget = $derived(currentTarget(side, r.name === 'library' ? (r.params.folder ?? null) : undefined));
   const isOn = (n: NavPage) => r.name === n.key || (n.also ?? []).includes(r.name);
   // Library goes back to the collection it was left at; on Library itself it stays where it is
   const here = $derived(`#${r.path}${r.query.toString() ? `?${r.query}` : ''}`);
@@ -164,6 +169,22 @@
       </a>
     {/each}
 
+    {#if favs.length && !L.browserShown}
+      <!-- the user's Favourites, shortcuts into Library (plan library stage 5 B5, D4): the full form only (in the rail
+           they fold away with the labels, keeping their place, so nothing below moves) -->
+      <div class="favs lab" data-test="sidebar-favourites">
+        <div class="grp caps">Favourites</div>
+        {#each favs as f (f.key)}
+          {@const on = f.target === openTarget}
+          <a class="nav" class:on class:off={f.kind === 'playlist' && !f.enabled} href={f.href} use:link use:tip={rail ? null : f.tip}
+            aria-current={on ? 'page' : undefined} tabindex={rail ? -1 : undefined} draggable="false" data-test="sidebar-fav">
+            <RowLead row={f} />
+            <span class="t">{#each nameParts(f.name, null) as p, i (i)}{#if p.sep}<span class="sep">{p.text}</span>{:else}{p.text}{/if}{/each}</span>
+            {#if f.kind === 'playlist' && !f.enabled}<span class="sr-only">, switched off</span>{/if}
+          </a>
+        {/each}
+      </div>
+    {/if}
     <div class="spacer"></div>
     <!-- the hidden player bar, folded into the sidebar's foot (plan now-playing; in the rail its stacked form) -->
     <NowPlayingRow p={$player} {rail} />
@@ -269,6 +290,15 @@
   .rail .lab { opacity: 0; visibility: hidden; }
   .side:not(.rail) .ro { opacity: 0; visibility: hidden; }
   .spacer { flex: 1; min-height: 0; }
+  /* Favourites under the pages: the Now playing caption's look; a long list scrolls in its own room (no bar: the
+     sidebar is chrome) and never pushes Settings away */
+  .favs { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto;
+    scrollbar-width: none; }
+  .favs::-webkit-scrollbar { display: none; }
+  .grp { margin: var(--s-3) 7px var(--s-1); flex: none; }
+  .nav.off { opacity: var(--dim-locked); }
+  /* a crate's place in its name keeps the row's colour; only the separator is quiet (dim is reserved) */
+  .sep { color: var(--text-label); }
   .settings { margin-top: var(--s-2); }
 
   /* the browser's filter field on the page header's row: level with the page's own search field (30 px, which the

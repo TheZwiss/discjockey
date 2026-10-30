@@ -12,7 +12,7 @@ import {
   readStatus, sampleCandidates, readOk, todoDetail, todoFree, formatLine, sourceFull, todoGroup, trackRow, type FakeAccount, type FakeFolder, type FakeState,
   type FakeTrack,
 } from './data';
-import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, libraryOf, sidebarOf, trackPlace } from './library';
+import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, libraryOf, mergedFavourites, sidebarOf, trackPlace } from './library';
 import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, rewrite } from './replay';
 import { daysToLoad } from '../../days';
 import { minutesByDownloads } from './minutes';
@@ -834,7 +834,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         return fail('refused', BAD_FAVOURITES);
       }
       if (s.briefBusy) return fail('busy', BRIEF_WRITE_FAILED);
-      s.favourites = [...new Set(keys)];
+      const resolving = new Set(sidebarOf({ ...s, favourites: [...s.favourites, ...keys] }, 0, false).favourites.map((f) => f.key));
+      s.favourites = mergedFavourites(s.favourites, keys, resolving);
       return ok({ favourites: [...s.favourites] });
     },
     async set_crate_shown(path: string, shown: boolean | null) {
