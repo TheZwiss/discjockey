@@ -244,28 +244,43 @@ Use the kind for the card/headline; always show `message` as the detail.
 the same `estimate` fields as `sync_preview`. `tiles.account_today`: the first set-up card of `limits()` (Qobuz first,
 then YouTube Premium, then SoundCloud Go+), null when no service is set up.
 
-`sidebar()` — counts for the sidebar (to-do badge, folders with file counts, Not in a playlist).
+`sidebar()` — counts and lists for the sidebar (to-do badge, one entry per `playlists.txt` line, the Library folders no line uses, Not in a playlist).
 ```json
 {
  "ok": true,
  "todo": 2,
  "all_tracks": 2,
- "folders": [
+ "not_in_playlist": 0,
+ "limits_warning": false,
+ "playlists": [
   {
-   "folder": "Hard_Bounce",
-   "tracks": 2,
-   "in_playlists_txt": true
+   "name": "Hard_Bounce",
+   "ref": "37i9dQZF1DX0XUsuxWHRQd",
+   "service": "spotify",
+   "enabled": true,
+   "tracks": 2
   },
   {
-   "folder": "Powertrance",
-   "tracks": 0,
-   "in_playlists_txt": true
+   "name": "Powertrance",
+   "ref": "qobuz:900000001",
+   "service": "qobuz",
+   "enabled": false,
+   "tracks": 0
   }
  ],
- "not_in_playlist": 0,
- "limits_warning": false
+ "library_folders": [
+  {
+   "folder": "Old_Sets",
+   "tracks": 1
+  }
+ ]
 }
 ```
+`playlists` has every line of `playlists.txt` in file order, switched-off ones too (`enabled: false`; `#off#` lines): `name`
+is the folder name, `ref` the playlist's token (a Spotify id stays bare, any other service is `service:id`), `service`
+a key of the playlist services, and `tracks` the files in its folder (case and accents ignored, as the disk does).
+`library_folders` are the `Library/` folders with files that no line uses, by name, with their file counts (the
+user's own songs belong to no folder). This replaces `folders` / `in_playlists_txt`.
 `limits_warning`: true when a set-up service has a warning sign the user hasn't marked as seen ("Got it",
 `mark_warnings_seen`), or is paused today (the dot on "Download limits").
 
@@ -451,12 +466,23 @@ holds for `dashboard`'s `lossless_share` tile and folder bars (`by_quality`, `lo
 count), and the to-do list holds no such file. The user's
 own songs (the import) are in no folder: their rows have `folder: ""` and `in_playlists: false`, they show in All
 tracks and Not in a playlist, never under a playlist folder. `summary` is the folder at a glance and ignores the search and the filter: `by_quality` (as in
-`dashboard`), `upgrades_ready`, and `to_do`, the tracks of the folder the to-do list shows (in a playlist, not hidden).
+`dashboard`), `upgrades_ready`, `to_do`, the tracks of the folder the to-do list shows (in a playlist, not hidden),
+and `not_lossless`, the checked files that aren't lossless (`good_lossy` + `weak` + `fake`; the strip's "Not lossless
+yet" row, beside `to_do`). `subtitle` is the header's second line as parts in order of importance (the page drops the
+last parts first when it is too long): All tracks `["{n} tracks", "every folder"]`; Not in a playlist `["{n} tracks",
+"in no playlist"]`; a folder a `playlists.txt` line names `["{n} tracks", "{Service} playlist", ("switched off",)
+"Library › {folder}"]`, or `["{Service} playlist", "not read yet"]` while no song of it is known; any other folder
+`["{n} tracks", "no playlist uses it", "Library › {name}"]` (`1 track` for one).
 ```json
 {
  "ok": true,
  "title": "Hard_Bounce",
  "folder": "Hard_Bounce",
+ "subtitle": [
+  "2 tracks",
+  "Spotify playlist",
+  "Library › Hard_Bounce"
+ ],
  "summary": {
   "tracks": 2,
   "lossless_share": 0.5,
@@ -468,7 +494,8 @@ tracks and Not in a playlist, never under a playlist folder. `summary` is the fo
    "missing": 0
   },
   "upgrades_ready": 1,
-  "to_do": 1
+  "to_do": 1,
+  "not_lossless": 1
  },
  "chips": {
   "all": 2,

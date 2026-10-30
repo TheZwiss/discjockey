@@ -66,7 +66,10 @@ describe('fake backend', () => {
     const side = await f.sidebar();
     if (!side.ok) throw new Error();
     expect(side.not_in_playlist).toBe(2);
-    expect(side.folders.find((x) => x.folder === 'Old_Sets')?.in_playlists_txt).toBe(false);
+    expect(side.library_folders).toEqual([{ folder: 'Old_Sets', tracks: 2 }]);
+    expect(side.playlists.map((x) => [x.name, x.service, x.enabled]).slice(3, 7)).toEqual([
+      ['03_06_2026', 'spotify', true], ['Tekke_Ecke', 'spotify', false], ['Hard_Techno', 'spotify', true],
+      ['Qobuz_Picks', 'qobuz', true]]);
     const pl = await f.playlists();
     if (!pl.ok) throw new Error();
     expect(pl.rows).toHaveLength(7);   // six Spotify lines (one without access) and one from Qobuz

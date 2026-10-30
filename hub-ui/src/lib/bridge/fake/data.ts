@@ -3,7 +3,7 @@ import type {
   FileState, LibraryRow,
   AnySignalKind, AppUpdate, Alignment, Browser, Budget, LastCheck, LoginBrowser, ByQuality, Candidate, PlaylistInfo, PlaylistRow, PreviewAction, Quality, Result, RunDetail,
   DownloadTools, FolderCheck, SetupStatus, SignalKind, Source, ReadStatus, Status, TodoGroupKey, TrackRow, Upgrade, FreeDownload,
-  PlaylistService, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
+  PlaylistService, Sidebar, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
 } from '../types';
 import { NOT_IN_PLAYLIST, QUALITIES } from '../types';
 
@@ -638,6 +638,32 @@ export function folderList(s: FakeState): { folder: string; in_playlists_txt: bo
   const out = s.playlists.map((p) => ({ folder: p.folder, in_playlists_txt: true }));
   for (const f of s.extraFolders) if (!out.some((o) => o.folder === f.folder)) out.push(f);
   return out;
+}
+/** The sidebar's lists as `views.sidebar` builds them: one entry per playlists.txt line, then the folders with files
+ *  that no line uses (by name). Folder names compare as the disk does, case ignored. */
+export function sidebarLists(s: FakeState): Pick<Sidebar, 'playlists' | 'library_folders'> {
+  const files = s.tracks.filter((t) => t.status !== 'missing');
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  const used = (f: string) => s.playlists.some((p) => same(p.folder, f));
+  const unused = [...new Set(files.map((t) => t.folder).filter((f) => f && !used(f)))]
+    .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  return {
+    playlists: s.playlists.map((p) => ({ name: p.folder, ref: playlistRef(p.link) ?? '', service: serviceOfLink(p.link),
+      enabled: p.enabled, tracks: files.filter((t) => same(t.folder, p.folder)).length })),
+    library_folders: unused.map((f) => ({ folder: f, tracks: files.filter((t) => t.folder === f).length })),
+  };
+}
+/** `Library.subtitle` as `views.library` builds it (plan library stage 5 I7, step A's four views). A playlist is
+ *  "never read" while the fake holds no song of its folder at all. */
+export function librarySubtitle(s: FakeState, folder: string | null, n: number): string[] {
+  const tracks = n === 1 ? '1 track' : `${n} tracks`;
+  if (folder === null) return [tracks, 'every folder'];
+  if (folder === NOT_IN_PLAYLIST) return [tracks, 'in no playlist'];
+  const line = s.playlists.find((p) => p.folder.toLowerCase() === folder.toLowerCase());
+  if (!line) return [tracks, 'no playlist uses it', `Library › ${folder}`];
+  const service = `${SERVICE_NAME[serviceOfLink(line.link)]} playlist`;
+  if (!s.tracks.some((t) => t.folder.toLowerCase() === folder.toLowerCase())) return [service, 'not read yet'];
+  return [tracks, service, ...(line.enabled ? [] : ['switched off']), `Library › ${line.folder}`];
 }
 export function playlistRows(s: FakeState): PlaylistRow[] {
   return s.playlists.map((p, index) => {

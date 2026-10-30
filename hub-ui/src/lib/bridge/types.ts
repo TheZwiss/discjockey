@@ -185,10 +185,12 @@ export type Dashboard = {
   last_runs: RunSummary[]; has_more_runs: boolean; next_checks: number; empty: EmptyKind | null;
 };
 export type Sidebar = {
-  todo: number; all_tracks: number;
-  folders: { folder: string; tracks: number; in_playlists_txt: boolean }[];
-  not_in_playlist: number;
-  limits_warning: boolean;
+  todo: number; all_tracks: number; not_in_playlist: number; limits_warning: boolean;
+  /** every line of playlists.txt in file order, switched-off ones too; `ref` the playlist's token, `tracks` the
+   *  files in its folder */
+  playlists: { name: string; ref: string; service: PlaylistService | null; enabled: boolean; tracks: number }[];
+  /** the Library/ folders with files that no playlist line uses, by name */
+  library_folders: { folder: string; tracks: number }[];
 };
 export type PreviewGroupKey = 'acquire:new' | 'acquire:retry' | 'acquire:redownload' | 'adopt_bought' | 'upgrade';
 export type PreviewAction = {
@@ -238,9 +240,12 @@ export type JobStatus = { job: JobSnap | null; refresh_running: boolean; console
  *  `track()` checks); a row that isn't `here` doesn't play. */
 export type LibraryRow = TrackRow & { sound_checked: boolean; file_state: Exclude<FileState, 'file_missing'> };
 export type Library = {
-  /** the folder at a glance, unaffected by the search and the filter; to_do: what the to-do list shows of it */
+  /** the folder at a glance, unaffected by the search and the filter; to_do: what the to-do list shows of it;
+   *  not_lossless: the checked files that aren't lossless (good lossy + weak + fake) */
   title: string; folder: string | null; summary: { tracks: number; lossless_share: number | null;
-    by_quality: ByQuality; upgrades_ready: number; to_do: number };
+    by_quality: ByQuality; upgrades_ready: number; to_do: number; not_lossless: number };
+  /** the header's second line as parts in order of importance (the page drops the last parts first) */
+  subtitle: string[];
   chips: Record<LibraryFilter, number>; rows: LibraryRow[]; empty: EmptyKind | null;
 };
 export type Alignment = { drift_ms: number | null; offset_ms: number | null; offset_samples: number | null;
