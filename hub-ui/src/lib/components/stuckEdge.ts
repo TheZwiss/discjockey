@@ -1,7 +1,8 @@
 // Which edge of its scroller a sticky element stands on (plan library stage 5 A3.6, notes N15): ListSection's head
 // gets its hairline only while it is stuck and rows pass beneath it, on that side. CSS can't tell (scroll-state
 // queries aren't in WebKit), so this compares where the head is with where it would be without sticking: after its
-// nearest sibling that never sticks (or its parent's content top), plus the heads in between and its own top margin. Pushed down = stuck at the top, pulled up =
+// nearest sibling that never sticks (or its parent's content top), plus the heads in between, its own top margin and
+// the parent's row gaps between them. Pushed down = stuck at the top, pulled up =
 // stuck at the foot.
 
 export type StuckSide = 'top' | 'bottom' | null;
@@ -22,8 +23,11 @@ function scrollParent(el: HTMLElement): HTMLElement | null {
 /** Where an element would sit without sticking: `base` is the bottom of the nearest sibling before it that never
  *  sticks (or its parent's content top), and `heads` the sticky heads between them, nearest first. Their own rects
  *  may be stuck (a folded section's head right above the next one), so they count by their size, not their place. */
-export function naturalOffset(base: number, heads: { height: number; margin: number }[], ownMargin: number): number {
-  return heads.reduce((y, h) => y + h.height + h.margin, base) + ownMargin;
+export function naturalOffset(base: number, heads: { height: number; margin: number }[], ownMargin: number,
+  gap = 0, afterSibling = true): number {
+  // a flex or grid parent's row gap stands between each two of its children (the browser column's 2 px)
+  const gaps = (heads.length + (afterSibling ? 1 : 0)) * gap;
+  return heads.reduce((y, h) => y + h.height + h.margin, base) + ownMargin + gaps;
 }
 
 const isHead = (el: Element) => el.hasAttribute('data-list-section');
@@ -39,17 +43,18 @@ function naturalTop(el: HTMLElement, scroller: HTMLElement | null): number {
     heads.push({ height: (prev as HTMLElement).offsetHeight, margin: marginOf(prev) });
     prev = prev.previousElementSibling;
   }
+  const parent = el.parentElement;
+  if (!parent) return el.getBoundingClientRect().top;
+  const pcs = getComputedStyle(parent);
+  const gap = /flex|grid/.test(pcs.display) ? parseFloat(pcs.rowGap) || 0 : 0;
   let base: number;
   if (prev) base = prev.getBoundingClientRect().bottom + (parseFloat(getComputedStyle(prev).marginBottom) || 0);
   else {
-    const parent = el.parentElement;
-    if (!parent) return el.getBoundingClientRect().top;
-    const cs = getComputedStyle(parent);
-    base = parent.getBoundingClientRect().top + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.paddingTop) || 0)
+    base = parent.getBoundingClientRect().top + (parseFloat(pcs.borderTopWidth) || 0) + (parseFloat(pcs.paddingTop) || 0)
       // the scroller's own box doesn't move when it scrolls; its content does
       - (parent === scroller ? parent.scrollTop : 0);
   }
-  return naturalOffset(base, heads, parseFloat(getComputedStyle(el).marginTop) || 0);
+  return naturalOffset(base, heads, parseFloat(getComputedStyle(el).marginTop) || 0, gap, !!prev);
 }
 
 /** Sets `data-stuck="top" | "bottom"` on the element while it is stuck; none while it sits where it would anyway. */

@@ -12,6 +12,8 @@
 //   keeps: one Escape closes one layer, so it doesn't also clear the field below).
 // - Fades and grows from scale(.97) out of its trigger in --t-pop (base.css `.dj-tip`), placed by `placeTip`:
 //   `side: 'right'` beside the trigger (the rail), `'below'` under it at the pointer (a row, as macOS does).
+// - `atPointer`: for a tall, thin trigger (the browser column's edge): the tip stands beside it at the pointer's
+//   height, not beside its middle (`side: 'right'`).
 // - `cut`: only when the text is cut ("…"): `true` checks the element itself, a selector checks the element inside it
 //   that ends in "…" (a row's name).
 // - In the top layer (popover API), so no list, panel or dialog clips it. While open the trigger is described by it
@@ -22,7 +24,8 @@
 import { openTiming, placeTip, TIP_DELAY_MS, type TipSide } from './infoTipModel';
 import { tipClosed, tipGone, tipOpened, tipWarmth } from './tipRegistry';
 
-export type TipOptions = { text: string; keys?: string; side?: TipSide; cut?: boolean | string; show?: boolean };
+export type TipOptions = { text: string; keys?: string; side?: TipSide; cut?: boolean | string; show?: boolean;
+  atPointer?: boolean };
 export type TipParams = string | TipOptions | null | undefined;
 
 const norm = (p: TipParams): TipOptions | null => {
@@ -37,6 +40,7 @@ export function tip(node: HTMLElement, params: TipParams) {
   let el: HTMLDivElement | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let pointerX: number | undefined;
+  let pointerY: number | undefined;
   let described: string | null = null;   // the trigger's own aria-describedby, given back on close
   const id = `dj-tip-${++ids}`;
 
@@ -64,7 +68,8 @@ export function tip(node: HTMLElement, params: TipParams) {
   function place() {
     if (!el || !opts) return;
     const r = node.getBoundingClientRect();
-    const p = placeTip({ left: r.left, top: r.top, width: r.width, height: r.height },
+    const atY = opts.atPointer && pointerY !== undefined;
+    const p = placeTip({ left: r.left, top: atY ? pointerY! : r.top, width: r.width, height: atY ? 0 : r.height },
       { width: el.offsetWidth, height: el.offsetHeight }, { width: innerWidth, height: innerHeight },
       opts.side ?? 'below', opts.side === 'right' ? undefined : pointerX);
     // a tip shown for good hides while its trigger is scrolled out of the window, instead of sticking to an edge
@@ -114,12 +119,13 @@ export function tip(node: HTMLElement, params: TipParams) {
 
   function enter(e: PointerEvent) {
     pointerX = e.clientX;
+    pointerY = e.clientY;
     if (!opts || opts.show || el) return;
     const t = openTiming('hover', performance.now(), tipWarmth(close), TIP_DELAY_MS);
     if (t.delay === 0) open(t.fade);
     else timer = setTimeout(() => open(t.fade), t.delay);
   }
-  function move(e: PointerEvent) { if (!el) pointerX = e.clientX; }
+  function move(e: PointerEvent) { if (!el) { pointerX = e.clientX; pointerY = e.clientY; } }
   function leave() { if (!opts?.show) close(); }
   function focus() { if (opts && !opts.show && node.matches(':focus-visible')) open(false); }
 

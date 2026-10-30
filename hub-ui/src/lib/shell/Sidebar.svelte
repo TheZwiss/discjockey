@@ -23,7 +23,11 @@
   import { ExternalLink, NavIcon, Ring, tip } from '../components';
   import { player } from '../stores/player';
   import { run } from '../stores/run';
-  import { bringBrowserBack, chromeMotion, fold, lastLibrary } from '../stores/chrome';
+  import {
+    BROWSER_DEFAULT, BROWSER_MAX, BROWSER_MIN, bringBrowserBack, chromeMotion, edgeCursor, edgeKeyWidth, fold,
+    lastLibrary, setBrowserWidth,
+  } from '../stores/chrome';
+  import { EDGE_TIP, edgeValueText } from './browserModel';
   import { activityProgress } from './activity';
   import { FOLD_KEYS, NAV, SETTINGS, type NavPage } from './keys';
   import { navCount, navTip, railPill, type NavSignals } from './sidebarModel';
@@ -76,6 +80,35 @@
   const hrefOf = (n: NavPage) => (n.key !== 'library' ? n.href : r.name === 'library' ? here : $lastLibrary);
   const foldTip = $derived({ text: rail ? 'Show sidebar' : 'Hide sidebar', keys: FOLD_KEYS, side: 'right' as const });
   const navTipOf = (n: NavPage) => (rail ? { text: navTip(n.key, n.label, sig), keys: n.keys, side: 'right' as const } : null);
+  // the browser's edge (notes N4): a 9 px grip on the page's edge line, outside the chrome (whose overflow would cut
+  // its outer half). Dragged 1:1 with no easing (pointer capture, the width at once, the table reflows live), held to
+  // 200–360; while dragging the line is orange and the resize cursor stays wherever the pointer goes. A double-click
+  // goes back to the default width (BROWSER_DEFAULT) in the fold's glide. It is a focusable separator too: ← → (⇧ larger steps), Home, End.
+  let drag = $state<{ x0: number; w0: number; id: number } | null>(null);
+  function edgeDown(e: PointerEvent) {
+    if (e.button !== 0 || drag) return;   // one pointer at a time: a second touch doesn't take over
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    drag = { x0: e.clientX, w0: L.browserWidth, id: e.pointerId };
+  }
+  function edgeMove(e: PointerEvent) {
+    if (drag && e.pointerId === drag.id) setBrowserWidth(drag.w0 + e.clientX - drag.x0);
+  }
+  function edgeUp(e: PointerEvent) {
+    if (drag && e.pointerId === drag.id) drag = null;
+  }
+  function edgeKey(e: KeyboardEvent) {
+    const w = edgeKeyWidth(e.key, L.browserWidth, e.shiftKey);
+    if (w === null) return;
+    e.preventDefault();
+    setBrowserWidth(w);
+  }
+  $effect(() => {
+    if (!drag) return;
+    const root = document.documentElement;
+    root.classList.add('edge-drag');
+    return () => root.classList.remove('edge-drag');
+  });
   // ♫ while the browser waits behind the rail (below 1240 with details open): the details close, the browser returns
   function libraryClick() {
     if (r.name === 'library') bringBrowserBack();
@@ -84,6 +117,15 @@
 
 <div class="space" aria-hidden="true"></div>
 <span class="floor" class:foot={footHeld} aria-hidden="true"></span>
+{#if L.browserShown}
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+  <div class="edge" class:drag={!!drag} role="separator" aria-orientation="vertical" aria-label="Width of the list"
+    aria-valuemin={BROWSER_MIN} aria-valuemax={BROWSER_MAX} aria-valuenow={L.browserWidth}
+    aria-valuetext={edgeValueText(L.browserWidth)} tabindex="0"
+    style:cursor={drag ? null : edgeCursor(L.browserWidth)} use:tip={drag ? null : { text: EDGE_TIP, side: 'right', atPointer: true }}
+    onpointerdown={edgeDown} onpointermove={edgeMove} onpointerup={edgeUp} onpointercancel={edgeUp}
+    ondblclick={() => setBrowserWidth(BROWSER_DEFAULT, true)} onkeydown={edgeKey} data-test="browser-edge"></div>
+{/if}
 <div class="chrome" class:foot={footHeld} data-chrome data-form={L.form} data-browser={L.browserShown || undefined}
   data-move={motion.move} style:--chrome-w="{L.sidebarW}px">
   <nav class="side chrome-part" class:rail class:beside={L.browserShown} aria-label="Main" data-test="sidebar"
@@ -151,6 +193,19 @@
     height: var(--bw); background: var(--surface-line); display: none; }
   .floor.foot { display: block; }
 
+  /* the browser's edge: a 9 px grip centred on the page's edge line (the chrome's right border, its last pixel), over
+     the chrome and the page's first pixels. Hovered for a moment the line lights up a step (a neutral line: orange
+     means the width is being set); while dragging it is the accent, 2 px, and follows the pointer at once */
+  .edge { position: absolute; top: 0; bottom: 0; left: calc(var(--sidebar-w) - 5px); width: 9px; z-index: 5;
+    touch-action: none; outline: none; }
+  .edge::after { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: var(--bw);
+    background: transparent; transition: background-color var(--t-hover) var(--ease); }
+  .edge:hover::after { background: var(--line-control-hover); transition-delay: var(--t-hint-delay); }
+  .edge:focus-visible::after { background: var(--accent-line); width: 2px; }
+  .edge.drag::after { width: 2px; background: var(--accent); transition: none; }
+  :global(html.edge-drag), :global(html.edge-drag *) { cursor: col-resize !important; user-select: none !important;
+    -webkit-user-select: none !important; }
+
   .side { position: relative; width: var(--form-w); flex: none; padding: var(--s-4) 10px;
     display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; }
   /* the second chrome line: the sidebar's right edge while the browser stands beside it (pages | collections) */
@@ -175,7 +230,7 @@
   .update { margin: calc(-1 * var(--s-1)) 0 var(--s-2) 31px; font-size: var(--fs-label); line-height: 1.4;
     text-wrap: balance; flex: none; }
 
-  .nav { display: flex; align-items: center; gap: 9px; height: var(--h-ctl); flex-shrink: 0; padding: 0 var(--s-2);
+  .nav { display: flex; align-items: center; gap: var(--gap-nav); height: var(--h-ctl); flex-shrink: 0; padding: 0 var(--s-2);
     color: var(--text-nav); border-radius: var(--r-nav); text-decoration: none; white-space: nowrap; min-width: 0; }
   .nav:hover { color: var(--text); background-color: var(--ctl-hover); text-decoration: none; }
   /* hover fades in its fill and its text together (spec §6, --t-hover) and goes at once (exit faster than enter).
@@ -213,8 +268,10 @@
   .spacer { flex: 1; min-height: 0; }
   .settings { margin-top: var(--s-2); }
 
+  /* the browser's filter field on the page header's row: level with the page's own search field (30 px, which the
+     header's baseline puts 4 px below the page's 16 px padding) */
   .browser { position: relative; flex: none; display: flex; flex-direction: column; min-height: 0;
-    padding-top: calc(var(--s-4) + 22px + var(--s-2)); --away-x: -8px; }
+    padding-top: calc(var(--s-4) + 4px); --away-x: -8px; }
   .browser.away { opacity: 0; visibility: hidden; transform: translateX(var(--away-x)); }
 
   /* ---------- motion (the notes' motion table) ---------- */
