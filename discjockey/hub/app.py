@@ -4,7 +4,9 @@ with `discjockey hub` (or Discjockey.app, which runs that in the background)."""
 from __future__ import annotations
 
 import importlib
+import logging
 import os
+import sys
 import threading
 from pathlib import Path
 
@@ -102,6 +104,30 @@ def set_app_name(name: str, icon: Path | None = None) -> None:
         pass
 
 
+FRAME_CAP_FEATURE = "PreferPageRenderingUpdatesNear60FPSEnabled"  # WebKit's own switch for the ~60 fps page cap
+
+
+def _view_preferences(window):
+    """The WKPreferences of this window's WKWebView (pywebview keeps the view in its cocoa BrowserView)."""
+    cocoa = importlib.import_module("webview.platforms.cocoa")
+    return cocoa.BrowserView.instances[window.uid].webview.configuration().preferences()
+
+
+def render_at_display_rate(window) -> None:
+    """WKWebView caps page rendering near 60 fps by default; turn that internal feature off so a ProMotion display
+    animates at its full rate. Runs on pywebview's `before_show` (the view exists, the page has not loaded yet).
+    Only a nicety: any missing piece (not macOS, no WebKit, WebKit renamed the feature) does nothing."""
+    try:
+        if sys.platform != "darwin":
+            return
+        prefs = _view_preferences(window)
+        feature = next((f for f in type(prefs)._features() if f.key() == FRAME_CAP_FEATURE), None)
+        if feature is not None:
+            prefs._setEnabled_forFeature_(False, feature)
+    except Exception:
+        logging.getLogger(__name__).debug("could not lift the 60 fps page cap", exc_info=True)
+
+
 def folder_dialog(window, webview, start: str) -> str | None:
     """pywebview's native folder dialog (works from a bridge thread; proven in the frozen app by the packaging
     spike). The chosen folder, or None when cancelled."""
@@ -123,6 +149,7 @@ def main(resolved: Resolved, webview=None) -> int:
     holder["window"] = window
     api._svc.pick_folder = lambda start: folder_dialog(window, webview, start)
     show = ShowOnce(window)
+    window.events.before_show += lambda: render_at_display_rate(window)
     window.events.loaded += show
     threading.Timer(SHOW_AT_LATEST, show).start()
     api._quit = lambda: threading.Timer(0.3, window.destroy).start()  # the page gets its answer first

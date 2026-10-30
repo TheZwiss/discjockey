@@ -41,7 +41,7 @@ class FakeWindow:
 
     def __init__(self, answers=()):
         self.events = type("E", (), {})()
-        for name in ("closing", "loaded", "closed"):
+        for name in ("closing", "loaded", "closed", "before_show"):
             setattr(self.events, name, Hooks())
         self.answers = list(answers)
         self.asked = []
@@ -285,6 +285,76 @@ def test_the_placeholder_page_prevents_the_browser_default_on_drop():
 
 def test_setting_the_app_name_never_fails():
     app.set_app_name("Discjockey")  # with or without pyobjc
+
+
+class FakeFeature:
+    def __init__(self, key):
+        self._key = key
+
+    def key(self):
+        return self._key
+
+
+def fake_prefs(keys, on=None):
+    on = {} if on is None else on
+
+    class Prefs:
+        @classmethod
+        def _features(cls):
+            return [FakeFeature(k) for k in keys]
+
+        def _setEnabled_forFeature_(self, value, feature):
+            on[feature.key()] = value
+
+    return Prefs()
+
+
+def test_the_60_fps_page_cap_is_turned_off(monkeypatch):
+    on = {}
+    monkeypatch.setattr(app.sys, "platform", "darwin")
+    monkeypatch.setattr(app, "_view_preferences", lambda window: fake_prefs(["Other", app.FRAME_CAP_FEATURE], on))
+    app.render_at_display_rate(FakeWindow())
+    assert on == {app.FRAME_CAP_FEATURE: False}  # only that feature, and only off
+
+
+def test_the_frame_cap_does_nothing_when_a_piece_is_missing(monkeypatch):
+    monkeypatch.setattr(app.sys, "platform", "darwin")
+    on = {}
+    monkeypatch.setattr(app, "_view_preferences", lambda window: fake_prefs(["Other"], on))
+    app.render_at_display_rate(FakeWindow())  # WebKit renamed the feature
+    assert on == {}
+
+    class NoSelector:
+        pass
+
+    monkeypatch.setattr(app, "_view_preferences", lambda window: NoSelector())
+    app.render_at_display_rate(FakeWindow())  # no _features selector
+
+    def no_webkit(window):
+        raise ModuleNotFoundError("webview.platforms.cocoa")
+
+    monkeypatch.setattr(app, "_view_preferences", no_webkit)
+    app.render_at_display_rate(FakeWindow())
+    monkeypatch.undo()
+    app.render_at_display_rate(FakeWindow())  # the real lookup: this fake has no view behind it
+
+
+def test_the_frame_cap_is_left_alone_off_macos(monkeypatch):
+    on = {}
+    monkeypatch.setattr(app.sys, "platform", "linux")
+    monkeypatch.setattr(app, "_view_preferences", lambda window: fake_prefs([app.FRAME_CAP_FEATURE], on))
+    app.render_at_display_rate(FakeWindow())
+    assert on == {}
+
+
+def test_main_lifts_the_frame_cap_before_the_window_shows(tmp_path, monkeypatch):
+    fake_spotify(monkeypatch)
+    paths = make_root(tmp_path)
+    window = FakeWindow()
+    seen = []
+    monkeypatch.setattr(app, "render_at_display_rate", lambda w: seen.append(w))
+    app.main(Resolved(paths.support, paths, None, paths.root), webview=FakeWebview(window))
+    assert window.events.before_show.fire() == [None] and seen == [window]
 
 
 def test_quit_from_the_page_destroys_the_window(tmp_path, monkeypatch):
