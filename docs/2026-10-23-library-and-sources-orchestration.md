@@ -70,12 +70,18 @@ Every brief has the same parts, in this order, and stays under about 60 lines:
    before/after shots, and is not done silently.
 
 The orchestrator tells the user each job's expected size before sending it (a planner: about 100–150k tokens; an
-Opus implementer: up to about 150k; a Sonnet task: 40–100k).
+Opus implementer: up to about 150k; a Sonnet task: 40–100k). It estimates from the record, not the plan's line counts:
+in stage 5, every Opus UI group that also took its own shots used 300–420k (B6 about twice that, over two agents).
 
 ## 5. Sizing and runaway protection
 
 - **A task group fits in one agent:** at most about 8 plan tasks or about 1,500 changed lines, one area of the code.
   Bigger groups are split before dispatch.
+- **A UI group is two agents** (the user, 2026-10-30): a *build* agent writes the code and its tests and takes no
+  shots; a *shots* agent then takes the group's shots, looks at each once, and fixes only what they show. Screenshots
+  stay in an agent's context and are re-read on every later step, so they never share an agent with the build.
+- **Every brief carries a hard stop:** at about 80 tool calls the agent commits what works and reports what is left.
+  The orchestrator then sends a fresh, narrower brief for the rest, never a "keep going".
 - **Fix rounds go to the implementer that wrote the code** (by `SendMessage`) only while its context is still small:
   check its reported tokens first, and **above about 150k never resume it** (resuming reloads its whole transcript on
   every step). After a second fix round, when the fix concerns another area, or above that size, a fresh Sonnet gets
