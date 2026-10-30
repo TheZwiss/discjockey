@@ -43,7 +43,7 @@
     <a class="nav" class:on={libFolder === null} href="#/library" use:link data-test="nav-library">
       <span class="t">All tracks</span>{#if side}<span class="n num">{side.all_tracks}</span>{/if}
     </a>
-    {#each side?.playlists ?? [] as f (f.ref)}
+    {#each side?.playlists ?? [] as f, i (`${i}:${f.ref}`)}
       <a class="nav" class:on={libFolder === f.name} class:dimmed={!f.enabled} href={libraryHref(f.name)} use:link
         title={f.enabled ? f.name : `${f.name} · switched off`}>
         <span class="t">{f.name}</span><span class="n num">{f.tracks}</span>

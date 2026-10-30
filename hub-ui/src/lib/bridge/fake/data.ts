@@ -645,12 +645,18 @@ export function sidebarLists(s: FakeState): Pick<Sidebar, 'playlists' | 'library
   const files = s.tracks.filter((t) => t.status !== 'missing');
   const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
   const used = (f: string) => s.playlists.some((p) => same(p.folder, f));
-  const unused = [...new Set(files.map((t) => t.folder).filter((f) => f && !used(f)))]
-    .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  const counts = new Map<string, { folder: string; tracks: number }>();   // by folded name, first spelling kept
+  for (const t of files) {
+    if (!t.folder || used(t.folder)) continue;
+    const key = t.folder.toLowerCase();
+    const seen = counts.get(key);
+    if (seen) seen.tracks++; else counts.set(key, { folder: t.folder, tracks: 1 });
+  }
+  const unused = [...counts.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, v]) => v);
   return {
     playlists: s.playlists.map((p) => ({ name: p.folder, ref: playlistRef(p.link) ?? '', service: serviceOfLink(p.link),
       enabled: p.enabled, tracks: files.filter((t) => same(t.folder, p.folder)).length })),
-    library_folders: unused.map((f) => ({ folder: f, tracks: files.filter((t) => t.folder === f).length })),
+    library_folders: unused,
   };
 }
 /** `Library.subtitle` as `views.library` builds it (plan library stage 5 I7, step A's four views). A playlist is

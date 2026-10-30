@@ -595,7 +595,7 @@ class HubApi:
             raise ValueError(f"filter must be one of {', '.join(views.LIBRARY_FILTERS)}")
         state = self._state()
         out = views.library(state, folder, query, filter, sort, self._cover(self._images()), self._away_roots(),
-                            pf.load(self._paths.playlists_file).rows)
+                            lines=pf.load(self._paths.playlists_file).rows)
         self._remember(state, [r["track_id"] for r in out["rows"]])
         return out
 

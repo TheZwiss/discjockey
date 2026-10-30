@@ -693,14 +693,14 @@ def _subtitle(state: dict, folder: str | None, tracks: int, lines: Sequence[pf.R
     line = next((r for r in lines if fold(r.folder) == fold(folder)), None)
     if line is None:
         return [n, "no playlist uses it", f"Library › {folder}"]
-    service = f"{PLAYLIST_SERVICES.get(line.service or '', 'Playlist')} playlist"
+    service = f"{PLAYLIST_SERVICES[line.service]} playlist"
     if not any(fold(e["folder"] or "") == fold(folder) for e in state["tracks"].values()):
         return [service, "not read yet"]
     return [n, service, *(["switched off"] if not line.enabled else []), f"Library › {line.folder}"]
 
 
 def library(state: dict, folder: str | None, query: str, filt: str, sort: str, cover: Url | None = None,
-            away: Mapping[str, str] | None = None, lines: Sequence[pf.Row] = ()) -> dict:
+            away: Mapping[str, str] | None = None, *, lines: Sequence[pf.Row]) -> dict:
     """folder: None (all tracks), NOT_IN_PLAYLIST, or a folder name. filt: LIBRARY_FILTERS. sort: a SORTS key,
     "-" in front for descending. Only tracks with a file (not found ones are in the to-do list). `away`: the import
     folders that are not there now (HubApi._away_roots, as track_detail gets it): each row's `file_state` says

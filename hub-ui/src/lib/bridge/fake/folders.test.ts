@@ -229,6 +229,10 @@ describe('fake To-do of the import', () => {
       ['2 tracks', 'no playlist uses it', 'Library › Old_Sets']);
     const hb = must(await f.library('Hard_Bounce', '', 'all', 'artist'));
     expect(hb.subtitle).toEqual([`${hb.rows.length} tracks`, 'Spotify playlist', 'Library › Hard_Bounce']);
+    const found = must(await f.library('Hard_Bounce', 'a', 'weak', 'artist'));   // search and filter don't change it
+    expect(found.rows.length).toBeLessThan(hb.rows.length);
+    expect(found.subtitle).toEqual(hb.subtitle);
+    expect(must(await f.library(null, 'zzzz-no-such-track', 'all', 'artist')).subtitle).toEqual([`${all.rows.length} tracks`, 'every folder']);
     expect(must(await f.library('Tekke_Ecke', '', 'all', 'artist')).subtitle.slice(1)).toEqual(
       ['Spotify playlist', 'switched off', 'Library › Tekke_Ecke']);
   });
