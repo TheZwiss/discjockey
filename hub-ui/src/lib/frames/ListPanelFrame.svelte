@@ -31,10 +31,14 @@
     if (!aside) return;
     const moving = aside.getAnimations().length > 0;
     if (!moving) { gone = true; return; }
-    const done = (e: TransitionEvent) => { if (e.target === aside) gone = true; };
-    aside.addEventListener('transitionend', done);
-    aside.addEventListener('transitioncancel', done);
-    return () => { aside?.removeEventListener('transitionend', done); aside?.removeEventListener('transitioncancel', done); };
+    const el = aside;
+    const done = (e: TransitionEvent) => { if (e.target === el) gone = true; };
+    // a cancel can be the slide in that this close interrupted (it may arrive after this listener is attached):
+    // only hide when nothing on the panel is moving any more
+    const cancelled = (e: TransitionEvent) => { if (e.target === el && el.getAnimations().length === 0) gone = true; };
+    el.addEventListener('transitionend', done);
+    el.addEventListener('transitioncancel', cancelled);
+    return () => { el.removeEventListener('transitionend', done); el.removeEventListener('transitioncancel', cancelled); };
   });
 </script>
 
