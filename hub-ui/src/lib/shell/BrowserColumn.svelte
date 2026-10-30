@@ -18,11 +18,14 @@
   // the first Esc). ⌘K anywhere asks for the field (`filterFocus`); the column answers once it stands. Opening a
   // collection (a click, Enter, the route) scrolls its row into view, whole beside the stuck heads.
   //
+  // Favourites by keyboard: ⌥↑ / ⌥↓ on a focused favourite moves it one place, saved like a drag (same put-back on a
+  // refusal), without motion; focus stays on the row.
+  //
   // Favourites by drag (notes "Motion"), only into and inside Favourites: a playlist or folder row pressed and moved
   // 4 px lifts (120 ms: raised, a shadow, 1.02, nudged towards the pointer) and follows the pointer 1:1 up and down;
   // over Favourites the rows part where it will land (200 ms ease-out transforms, `animate:flip`), and a drop settles
   // it there on a critically damped spring (response 0.3, no overshoot: a drop has no momentum). Dropped anywhere
-  // else, or Esc, it goes back the same way. The order shows at once and is saved (a brief save, D15); a refused save
+  // else, a favourite included, or Esc, it goes back the same way. The order shows at once and is saved (a brief save, D15); a refused save
   // puts it back and says so in a toast. The list scrolls by itself while the pointer holds near its ends.
   //
   // The right-click menu (I7): Open · Play · Add to favourites / Remove from favourites · Hide from sidebar (a crate
@@ -45,10 +48,13 @@
   import { toasts } from '../stores/toasts';
   import { problemCopy } from '../copy';
   import { listen } from '../listen';
+  import { count as thousands } from '../format';
+  import { getPref } from '../prefs';
+  import { DEFAULT_SORT, SORT_KEY, isSort, playQueue } from '../../pages/library/libraryModel';
   import { Button, ContextMenu, ListSection, SearchField, tip } from '../components';
   import type { MenuItem } from '../components/ContextMenu.svelte';
   import {
-    HANDOFF, LANDING_TEXT, browserList, crateShownValue, currentTarget, dropIndex, dropSpring, favouritesIn,
+    HANDOFF, LANDING_TEXT, browserList, crateShownValue, currentTarget, dropIndex, dropSpring, favouritesIn, inDropZone,
     foldWatchedTip, highlightOf, menuFor, moveHighlight, moveKey, nameParts, playCall, revealPath, rowByKey, rowId,
     sortTip, toggleClosed, type BrowserRow, type CollectionRow, type MenuAction, type Match, type ViewRow,
   } from './browserModel';
@@ -206,7 +212,26 @@
     cancelDrag();
     menu = { row, x: e.clientX, y: e.clientY, keys: false };
   }
+  /** ⌥↑ / ⌥↓ on a favourite: one place up or down, saved like a drag. The rows are moved in the DOM (focus is lost
+   *  there), so focus goes back to the row; keyboard actions never animate (spec §6). */
+  function moveFav(e: KeyboardEvent, row: CollectionRow): boolean {
+    if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || filtering || row.place !== 'favourites') return false;
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return false;
+    e.preventDefault();
+    const i = favKeys.indexOf(row.target);
+    const to = i + (e.key === 'ArrowUp' ? -1 : 1);
+    if (i < 0 || to < 0 || to >= favKeys.length || drag?.started) return true;
+    flipMs = 0;
+    void saveFavs(moveKey(favKeys, row.target, to));
+    void tick().then(() => {
+      scroller?.querySelector<HTMLElement>(`[data-key="${CSS.escape(row.key)}"]`)?.focus();
+      reveal(row.key);
+      flipMs = FLIP_MS;
+    });
+    return true;
+  }
   function menuKey(e: KeyboardEvent, row: ViewRow | CollectionRow) {
+    if (row.kind !== 'view' && moveFav(e, row)) return;
     if (!(e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey))) return;
     e.preventDefault();
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -214,32 +239,48 @@
   }
   const menuItems = $derived<MenuItem[]>(menu ? menuFor(menu.row, favSet).map((m) => ({
     label: m.label, note: m.note ?? null, test: `browser-menu-${m.action}`, onpick: () => pick(m.action) })) : []);
+  /** Focus goes back to the row a keyboard-opened menu acted on (Esc, a pick), so the next key starts there. A click
+   *  elsewhere (focus already on something else) is left alone. */
+  async function returnFocus(m: NonNullable<typeof menu>) {
+    if (!m.keys) return;
+    const a = document.activeElement;
+    if (a && a !== document.body && !a.closest('[role=menu]')) return;
+    await tick();
+    scroller?.querySelector<HTMLElement>(`[data-key="${CSS.escape(m.row.key)}"]`)?.focus();
+  }
   function closeMenu() {
+    const m = menu;
     menu = null;
+    if (m) void returnFocus(m);
   }
   function pick(action: MenuAction) {
-    const row = menu?.row;
+    const m = menu;
+    const row = m?.row;
     menu = null;
-    if (!row) return;
+    if (!m || !row) return;
+    void returnFocus(m);
     if (action === 'open') enter(row);
     else if (action === 'play') void play(row);
     else if (row.kind === 'view') return;
-    else if (action === 'fav-add') void saveFavs(moveKey(favKeys, row.target, favKeys.length));
+    else if (action === 'fav-add') { showFavourites(); void saveFavs(moveKey(favKeys, row.target, favKeys.length)); }
     else if (action === 'fav-remove') void saveFavs(favKeys.filter((k) => k !== row.target));
     else if ((action === 'hide' || action === 'show') && row.kind === 'folder' && row.crate) {
       void saveShown(row.path, row.crate.tooMany, action === 'show');
     } else if (action === 'finder') void finder(row);
   }
   const AWAY: Record<Exclude<FolderState, 'here'>, string> = { offline: 'Offline: connect the drive', folder_missing: 'Folder not found' };
-  /** Play: the collection in its own order, every file that is there, from the first. */
+  /** Play: what ▶ on the collection's page queues (`playQueue`: the page's list in the page's sort, the leftover
+   *  files of a playlist's folder merged in, only files that are there), from the first. */
   async function play(row: ViewRow | CollectionRow) {
     const c = playCall(row);
-    const r = await api.library(c.view, c.key, '', 'all', null);
+    const saved = getPref<string>(SORT_KEY, DEFAULT_SORT);
+    const sort = isSort(saved) ? saved : DEFAULT_SORT;
+    const r = await api.library(c.view, c.key, '', 'all', sort);
     if (!r.ok) {
       toasts.show({ tone: 'problem', title: problemCopy(r.kind).title, body: r.message || undefined });
       return;
     }
-    const rows = r.rows.filter((x) => x.file_state === 'here');
+    const rows = playQueue(r, sort);
     const away = row.kind === 'folder' && row.state !== 'here' ? AWAY[row.state] : undefined;
     if (!rows.length || !listen(rows, rows[0].track_id, { label: row.name, href: row.href })) {
       toasts.show({ tone: 'info', title: 'Nothing here can play right now.', body: away });
@@ -255,6 +296,7 @@
   // ---------- Favourites by drag ----------
   const ROW_PITCH = 32;    // a row (--h-ctl, 30) and the list's 2 px gap: every row is one line
   const ROW_H = 30;
+  const FLIP_MS = 200;
   const THRESHOLD = 4;     // px before a press becomes a drag (a click stays a click)
   type Drag = {
     row: CollectionRow; id: number; x0: number; y0: number; el: HTMLElement; started: boolean;
@@ -265,6 +307,8 @@
   let lifted: HTMLDivElement | undefined = $state();
   let favBox: HTMLDivElement | undefined = $state();
   let swallowClick = false;
+  /** the rows' glide when the order changes: 0 for a keyboard move */
+  let flipMs = $state(FLIP_MS);
   let autoRaf = 0;
   let lastY = 0;
 
@@ -288,7 +332,7 @@
     const g = favGeometry(d);
     if (!g) return;
     const mid = d.top + ROW_H / 2;
-    d.over = d.fromFav || (mid >= g.zone[0] && mid <= g.zone[1]);
+    d.over = inDropZone(mid, g.zone);
     const mids = Array.from({ length: g.n }, (_, i) => g.top + i * ROW_PITCH + ROW_H / 2);
     d.at = d.over ? Math.min(g.n, dropIndex(mids, mid)) : d.at;
   }
@@ -378,8 +422,13 @@
     drag = null;
     if (d?.started && d.over) {
       const next = moveKey(favKeys, d.row.target, d.at);
+      showFavourites();
       if (next.join('\n') !== favKeys.join('\n')) void saveFavs(next);
     }
+  }
+  /** Favourites open (they were folded): a row added by a drop or the menu lands where it shows. */
+  function showFavourites() {
+    if ($browserClosed.includes('favourites')) fold('favourites');
   }
   function cancelDrag() {
     const d = drag;
@@ -414,7 +463,10 @@
     // the dragged favourite is out of the list while in the air; going back, its place holds it, hidden under the
     // lifted row until that lands
     const back = !!live?.fromFav && live.settling && !live.over;
-    const rows: FavItem[] = s.rows.filter((r) => back || !(live?.fromFav && r.target === live.row.target))
+    // a row dragged in from Playlists or Folders that already is a favourite is not drawn twice: while it is over
+    // Favourites the slot is where it is
+    const out = (r: CollectionRow) => !!live && r.target === live.row.target && (live.fromFav || live.over);
+    const rows: FavItem[] = s.rows.filter((r) => back || !out(r))
       .map((r) => ({ key: r.key, row: r, ghost: back && r.target === live?.row.target }));
     if (live?.over && (rows.length || live.fromFav)) rows.splice(Math.min(live.at, rows.length), 0, { key: '__slot', row: null });
     return rows;
@@ -439,7 +491,7 @@
   {#if r.kind === 'playlist' && !r.enabled}<span class="sr-only">, switched off</span>{/if}
   {#if leadState(r)}<span class="sr-only">, {leadState(r)}</span>{/if}
   {#if r.kind === 'folder' && r.fold}<span class="chev-room" aria-hidden="true"></span>{/if}
-  {#if count}<span class="n num" class:cw={r.kind === 'folder' && r.folder === 'watched'}>{r.count ?? ''}</span>{/if}
+  {#if count}<span class="n num" class:cw={r.kind === 'folder' && r.folder === 'watched'}>{r.count === null ? '' : thousands(r.count)}</span>{/if}
 {/snippet}
 
 {#snippet row(r: CollectionRow)}
@@ -476,13 +528,13 @@
         draggable="false" onclick={() => opened(v)} oncontextmenu={(e) => openMenu(e, v)} onkeydown={(e) => menuKey(e, v)}
         data-key={v.key} id={rowId(v.key)} aria-current={at === v.key ? 'page' : undefined}
         data-test={v.key === 'view:all' ? 'browser-all' : 'browser-unlisted'}>
-        <span class="t">{v.name}</span><span class="n num">{v.count}</span>
+        <span class="t">{v.name}</span><span class="n num">{thousands(v.count)}</span>
       </a>
     {/each}
 
     {#each list.sections as s (s.key)}
       {@const open = s.key === 'favourites' ? favOpen(s.open) : s.open}
-      <ListSection label={s.label} summary={s.count === null ? undefined : String(s.count)} on="chrome" stick="both"
+      <ListSection label={s.label} summary={s.count === null ? undefined : thousands(s.count)} on="chrome" stick="both"
         fold={{ open, toggle: () => fold(s.key), disabled: !s.foldable }} test="browser-section-{s.key}">
         {#if s.key === 'playlists'}
           <span class="sort" use:tip={sortTip($playlistsAz)}>
@@ -497,7 +549,7 @@
         {#if open}
           <div class="favs" bind:this={favBox} data-test="browser-favourites">
             {#each favItems as it (it.key)}
-              <div class="fi" class:ghost={it.ghost} animate:flip={{ duration: 200, easing: cubicOut }}>
+              <div class="fi" class:ghost={it.ghost} animate:flip={{ duration: flipMs, easing: cubicOut }}>
                 {#if it.row}{@render row(it.row)}{:else}<div class="slot" data-fav-slot aria-hidden="true"></div>{/if}
               </div>
             {:else}

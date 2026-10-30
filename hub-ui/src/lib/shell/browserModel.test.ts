@@ -5,7 +5,7 @@ import { parseHash } from '../router';
 import {
   EDGE_TIP, HANDOFF, browserList, currentTarget, edgeValueText, filterText, fold, highlightOf, matchName, moveHighlight,
   playlistTip, rowByKey, rowId, searchTracksHref, sortTip, toggleClosed,
-  LANDING_TEXT, crateShownValue, dropIndex, dropSpring, favouriteOf, favouriteRow, favouritesIn, folderHref, menuFor,
+  LANDING_TEXT, crateShownValue, dropIndex, inDropZone, dropSpring, favouriteOf, favouriteRow, favouritesIn, folderHref, menuFor,
   moveKey, nameParts, playCall, revealPath, watchedFoldKey, type CollectionRow, type FolderRow,
 } from './browserModel';
 import type { Crate, WatchedEntry } from '../bridge/types';
@@ -390,6 +390,12 @@ describe('the drag', () => {
     expect(dropIndex([15, 47, 79], 10)).toBe(0);
     expect(dropIndex([15, 47, 79], 50)).toBe(2);
     expect(dropIndex([15, 47, 79], 200)).toBe(3);
+  });
+  it('counts a drop only inside the zone, a favourite lifted out of it included', () => {
+    const zone: [number, number] = [20, 100];
+    expect(inDropZone(20, zone) && inDropZone(60, zone) && inDropZone(100, zone)).toBe(true);
+    expect(inDropZone(19, zone)).toBe(false);
+    expect(inDropZone(101, zone)).toBe(false);
   });
   it('settles on a critically damped spring: no overshoot, about 0.4 s for a row', () => {
     const s = dropSpring(32);

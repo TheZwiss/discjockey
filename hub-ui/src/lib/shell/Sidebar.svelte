@@ -27,7 +27,7 @@
     BROWSER_DEFAULT, BROWSER_MAX, BROWSER_MIN, bringBrowserBack, chromeMotion, edgeCursor, edgeKeyWidth, fold,
     lastLibrary, setBrowserWidth,
   } from '../stores/chrome';
-  import { EDGE_TIP, edgeValueText, favouriteRow, nameParts } from './browserModel';
+  import { EDGE_TIP, currentTarget, edgeValueText, favouriteRow, nameParts } from './browserModel';
   import RowLead from './RowLead.svelte';
   import { activityProgress } from './activity';
   import { FOLD_KEYS, NAV, SETTINGS, type NavPage } from './keys';
@@ -77,6 +77,8 @@
   const pill = $derived(railPill(sig.todo));
   // Favourites as shortcuts on the pages without the browser column (notes N2): no counts, a click opens Library at it
   const favs = $derived(side ? side.favourites.map((f) => favouriteRow(f, side)) : []);
+  // the collection open in Library: its favourite wears the same "current" look as the page rows
+  const openTarget = $derived(currentTarget(side, r.name === 'library' ? (r.params.folder ?? null) : undefined));
   const isOn = (n: NavPage) => r.name === n.key || (n.also ?? []).includes(r.name);
   // Library goes back to the collection it was left at; on Library itself it stays where it is
   const here = $derived(`#${r.path}${r.query.toString() ? `?${r.query}` : ''}`);
@@ -173,8 +175,9 @@
       <div class="favs lab" data-test="sidebar-favourites">
         <div class="grp caps">Favourites</div>
         {#each favs as f (f.key)}
-          <a class="nav" class:off={f.kind === 'playlist' && !f.enabled} href={f.href} use:link use:tip={rail ? null : f.tip}
-            tabindex={rail ? -1 : undefined} draggable="false" data-test="sidebar-fav">
+          {@const on = f.target === openTarget}
+          <a class="nav" class:on class:off={f.kind === 'playlist' && !f.enabled} href={f.href} use:link use:tip={rail ? null : f.tip}
+            aria-current={on ? 'page' : undefined} tabindex={rail ? -1 : undefined} draggable="false" data-test="sidebar-fav">
             <RowLead row={f} />
             <span class="t">{#each nameParts(f.name, null) as p, i (i)}{#if p.sep}<span class="sep">{p.text}</span>{:else}{p.text}{/if}{/each}</span>
             {#if f.kind === 'playlist' && !f.enabled}<span class="sr-only">, switched off</span>{/if}

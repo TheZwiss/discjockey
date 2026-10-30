@@ -17,6 +17,7 @@
 // row whenever there is text, and the only one, with the highlight, when no name matches (N3).
 import type { Crate, Favourite, FolderState, LibraryView, PlaylistService, Sidebar, WatchedEntry } from '../bridge/types';
 import { NOT_IN_PLAYLIST } from '../bridge/types';
+import { count } from '../format';
 import { buildHash, libraryHref } from '../router';
 
 export const HANDOFF = 'handoff';
@@ -160,8 +161,8 @@ export function nameParts(text: string, m: Match): NamePart[] {
   return out;
 }
 
-const songsWord = (n: number): string => (n === 1 ? '1 song' : `${n} songs`);
-const tracksWord = (n: number): string => (n === 1 ? '1 track' : `${n.toLocaleString('en-US')} tracks`);
+const songsWord = (n: number): string => (n === 1 ? '1 song' : `${count(n)} songs`);
+const tracksWord = (n: number): string => (n === 1 ? '1 track' : `${count(n)} tracks`);
 const awayLine = (state: FolderState): string => (state === 'here' ? '' : `\n${AWAY_WORDS[state]}`);
 
 export function playlistTip(p: { name: string; service: PlaylistService | null; enabled: boolean; songs: number | null }): string {
@@ -334,7 +335,7 @@ export function browserList({ side, query, az, closed: storedClosed, current = n
     const open = filtering || !closed.includes(watchedFoldKey(w.path));
     if (!filtering) {
       folders.push(watchedRow(w, visible.length ? open : null, 'folders'));
-      if (visible.length) countCh = Math.max(countCh, w.files.toLocaleString('en-US').length);
+      if (visible.length) countCh = Math.max(countCh, count(w.files).length);
       if (open) folders.push(...visible.map((c) => crateRow(c, w, false, 'folders')));
       continue;
     }
@@ -429,6 +430,11 @@ export function moveKey(keys: readonly string[], key: string, to: number): strin
   const rest = keys.filter((k) => k !== key);
   const at = Math.max(0, Math.min(rest.length, Math.round(to)));
   return [...rest.slice(0, at), key, ...rest.slice(at)];
+}
+/** Whether the dragged row's middle is over the Favourites' drop zone `[top, bottom]` (its head to its last row): a
+ *  row released anywhere else, a favourite included, goes back where it came from. */
+export function inDropZone(mid: number, zone: readonly [number, number]): boolean {
+  return mid >= zone[0] && mid <= zone[1];
 }
 /** Where a dragged row lands: how many of the other rows' middles lie above the pointer. */
 export function dropIndex(mids: readonly number[], y: number): number {

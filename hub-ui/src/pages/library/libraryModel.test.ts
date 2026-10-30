@@ -3,7 +3,7 @@ import type { TrackRow } from '$lib/bridge/types';
 import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import {
   columnThresholds, columnsAt, fileName, folderCell, footAction, gridColumns, inTodo, isSort, libraryView, moveSelection,
-  asToday, libraryCalls, nextSort, offTable, optionalColumns, placeLine, playable, rowAway, rowOff, rowTitleTip, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
+  asToday, playQueue, libraryCalls, nextSort, offTable, optionalColumns, placeLine, playable, rowAway, rowOff, rowTitleTip, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
 } from './libraryModel';
 import type { LibraryRow, TrackDetail } from '$lib/bridge/types';
 
@@ -293,6 +293,14 @@ describe('asToday: a playlist view drawn as the page drew a folder, until the pl
     expect(out.summary.by_quality).toMatchObject({ lossless: 1, weak: 1 });
     expect(out.chips).toMatchObject({ all: 2, lossless: 1, weak: 1 });
     expect(out.subtitle).toEqual(['2 tracks', 'Spotify playlist', 'Library › Hard_Bounce']);
+  });
+  it('the queue of the browser\'s Play is the page\'s: the merged leftovers, only files that are there, in the sort', () => {
+    const away = rowOf('away', { file_state: 'offline' });
+    const lib = view({ rows: [rowOf('b'), waiting('w'), away], also: [rowOf('a', { in_playlists: false })] });
+    expect(playQueue(lib, 'title').map((r) => r.track_id)).toEqual(['a', 'b']);
+    expect(playQueue(lib, '-title').map((r) => r.track_id)).toEqual(['b', 'a']);
+    const folder = view({ rows: [rowOf('x'), away], view: 'folder' });
+    expect(playQueue(folder, 'artist').map((r) => r.track_id)).toEqual(['x']);
   });
   it('search and filter are applied after the merge, the chips count the searched list', () => {
     const lib = view({ rows: [rowOf('alpha')], also: [rowOf('beta', { quality: 'weak' }), rowOf('alps', { quality: 'weak' })] });

@@ -273,6 +273,12 @@ function summaryWith(base: Library['summary'], extra: LibraryRow[]): Library['su
       && (r.upgrade_ready || r.quality === 'weak' || r.quality === 'good_lossy' || r.quality === 'fake')).length };
 }
 const tracksWord = (n: number): string => (n === 1 ? '1 track' : `${n} tracks`);
+/** What ▶ queues for a collection asked whole (no search, no filter) in `sort`: the page's own list (a playlist's
+ *  leftover files merged in by `asToday`) and, of it, the rows whose file is there. The browser's Play uses it, so
+ *  both start the same queue. */
+export function playQueue<L extends Library>(lib: L, sort: LibrarySort): LibraryRow[] {
+  return asToday(lib, '', 'all', sort).rows.filter(playable);
+}
 /** A playlist view as the page drew a folder before the playlist views: the playlist's songs with a file and the files
  *  of its own Library folder it does not hold (`also`, the leftovers, dimmed by their own row fields) are one list,
  *  with the counts of that list; the songs still waiting for a file are left out. `lib` must be asked for without
