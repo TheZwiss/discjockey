@@ -247,8 +247,9 @@ Sets"); only its separator is quiet. A part in label grey would read as a dimmed
   `data-max` names them) and `--panel-w` / `--panel-w-narrow` / `--panel-narrow-below` (1240 px), the chrome's widths
   (`--sidebar-full-w` 168, `--rail-w` 50, `--browser-w-min` / `-default` / `-max` 200 / 240 / 360; `--sidebar-w` is the
   chrome's whole width), `--surface-list-solid` (a list's colour as one value: a stuck head on it), `--sidebar-solid` (the frame's material as one colour: a stuck head on it, the ring that cuts
-  the rail's pill out of a glyph), `--rail-pill-bg` (the rail's neutral count pill) and `--h-section-chrome` (28 px: a
-  section head on the frame, the browser column's).
+  the rail's pill out of a glyph), `--rail-pill-bg` (the rail's neutral count pill) `--h-section-chrome` (28 px: a
+  section head on the frame, the browser column's), `--gap-nav` (9 px: a sidebar or browser row's glyph to its name)
+  and `--t-hint-delay` (300 ms: a hover hint that waits, the browser edge's line).
 
 | Do | Don't |
 |---|---|
@@ -557,9 +558,13 @@ before reopening anything. New system-level decisions from phase 2 on go here, n
   (`#/library?q=`, which Library's page takes into its track search over every quality and drops from the route).
   The edge: a 9 px grip on the page's edge line, outside the chrome so its outer half isn't cut; 1:1 with pointer
   capture, the accent line while dragging, a neutral line a step lighter after 300 ms of hover (orange keeps its one
-  meaning), the one-way resize cursor at 200 and 360 (as macOS does), a double-click back to 240 in the fold's glide,
-  and a focusable separator (← → Home End); its Tip stands beside it at the pointer's height (`Tip atPointer`, new).
-  `SearchField` gains `fill`, `input` and `onkeydown`; `stuckEdge` counts a
+  meaning), the one-way resize cursor at 200 and 360 (as macOS does), a double-click back to the default width in the
+  fold's glide (Tip "Drag to resize · double-click to reset"), and a focusable separator (← → Home End, its width as
+  `aria-valuetext`); its Tip stands beside it at the pointer's height (`Tip atPointer`, new).
+  The filter is a combobox for screen readers (the list a listbox while filtering, rows options with `bc-…` ids, the
+  field's `aria-activedescendant` on the highlighted one); a switched-off playlist says so in words; matching folds
+  accents as well as case ("motley" finds "Mötley"). `SearchField` gains `fill`, `input`, `onkeydown` and passes the
+  combobox attributes to its input; `stuckEdge` counts a
   flex parent's row gap (a head in the column was taken for stuck by its 2 px). The 10 px under the list belong to the
   column, not the scroller, so a head stuck at the list's foot is its last pixel and no row shows below it. Why: the notes, and a column used with
   the keyboard as much as the pointer. Seen: `library-browser`, `library-filter`, `library-filter-none`,

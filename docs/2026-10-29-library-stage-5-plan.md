@@ -270,7 +270,7 @@ root, so the frame, the foot's line and the rule checker read one value.
 - Filter: placeholder `Filter playlists, folders`, the `⌘K` key cap, clear `Clear (Esc)`; hand-off row `Search tracks for
   "{text}"` with ↵, tooltip `Search every track's title and artist for "{text}" (All tracks)`. Track search unchanged
   (`Search title, artist…`, ⌘F). Sort toggle: `Order: download priority (change it on the Playlists page) · click for
-  A–Z` / `Order: A–Z · click for download priority`. Column edge: `Drag to resize · double-click: back to 240`.
+  A–Z` / `Order: A–Z · click for download priority`. Column edge: `Drag to resize · double-click to reset`.
 - Subtitles: All tracks `{n} tracks · every folder`; Not in a playlist `{n} tracks · in no playlist`; a playlist `{n}
   tracks · {Service} playlist[ · switched off] · Library › {folder}` (never read: `{Service} playlist · not read
   yet`); a Library folder `{n} tracks · no playlist uses it · Library › {name}`; a watched folder `{n} tracks · {k}

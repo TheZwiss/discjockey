@@ -86,7 +86,7 @@
   .own { position: relative; display: flex; align-items: center; gap: 2px; }
   .chev { flex: none; width: 20px; height: 20px; display: grid; place-items: center; color: var(--text-label); }
   .chev svg { width: 8px; height: 8px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round;
-    stroke-linejoin: round; transition: transform 160ms var(--ease); }
+    stroke-linejoin: round; transition: transform var(--t-hover) var(--ease); }
   .chev.open svg { transform: rotate(90deg); }
   /* hover: the head's words and chevron one step brighter, together (the whole head is the control) */
   .foldable:has(.hit:not(:disabled):hover) :is(.title, .summary, .chev) { color: var(--text-muted);

@@ -27,7 +27,7 @@
     BROWSER_DEFAULT, BROWSER_MAX, BROWSER_MIN, bringBrowserBack, chromeMotion, edgeCursor, edgeKeyWidth, fold,
     lastLibrary, setBrowserWidth,
   } from '../stores/chrome';
-  import { EDGE_TIP } from './browserModel';
+  import { EDGE_TIP, edgeValueText } from './browserModel';
   import { activityProgress } from './activity';
   import { FOLD_KEYS, NAV, SETTINGS, type NavPage } from './keys';
   import { navCount, navTip, railPill, type NavSignals } from './sidebarModel';
@@ -83,7 +83,7 @@
   // the browser's edge (notes N4): a 9 px grip on the page's edge line, outside the chrome (whose overflow would cut
   // its outer half). Dragged 1:1 with no easing (pointer capture, the width at once, the table reflows live), held to
   // 200–360; while dragging the line is orange and the resize cursor stays wherever the pointer goes. A double-click
-  // goes back to 240 in the fold's glide. It is a focusable separator too: ← → (⇧ larger steps), Home, End.
+  // goes back to the default width (BROWSER_DEFAULT) in the fold's glide. It is a focusable separator too: ← → (⇧ larger steps), Home, End.
   let drag = $state<{ x0: number; w0: number; id: number } | null>(null);
   function edgeDown(e: PointerEvent) {
     if (e.button !== 0 || drag) return;   // one pointer at a time: a second touch doesn't take over
@@ -120,7 +120,8 @@
 {#if L.browserShown}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
   <div class="edge" class:drag={!!drag} role="separator" aria-orientation="vertical" aria-label="Width of the list"
-    aria-valuemin={BROWSER_MIN} aria-valuemax={BROWSER_MAX} aria-valuenow={L.browserWidth} tabindex="0"
+    aria-valuemin={BROWSER_MIN} aria-valuemax={BROWSER_MAX} aria-valuenow={L.browserWidth}
+    aria-valuetext={edgeValueText(L.browserWidth)} tabindex="0"
     style:cursor={drag ? null : edgeCursor(L.browserWidth)} use:tip={drag ? null : { text: EDGE_TIP, side: 'right', atPointer: true }}
     onpointerdown={edgeDown} onpointermove={edgeMove} onpointerup={edgeUp} onpointercancel={edgeUp}
     ondblclick={() => setBrowserWidth(BROWSER_DEFAULT, true)} onkeydown={edgeKey} data-test="browser-edge"></div>
@@ -199,7 +200,7 @@
     touch-action: none; outline: none; }
   .edge::after { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: var(--bw);
     background: transparent; transition: background-color var(--t-hover) var(--ease); }
-  .edge:hover::after { background: var(--line-control-hover); transition-delay: 300ms; }
+  .edge:hover::after { background: var(--line-control-hover); transition-delay: var(--t-hint-delay); }
   .edge:focus-visible::after { background: var(--accent-line); width: 2px; }
   .edge.drag::after { width: 2px; background: var(--accent); transition: none; }
   :global(html.edge-drag), :global(html.edge-drag *) { cursor: col-resize !important; user-select: none !important;
@@ -229,7 +230,7 @@
   .update { margin: calc(-1 * var(--s-1)) 0 var(--s-2) 31px; font-size: var(--fs-label); line-height: 1.4;
     text-wrap: balance; flex: none; }
 
-  .nav { display: flex; align-items: center; gap: 9px; height: var(--h-ctl); flex-shrink: 0; padding: 0 var(--s-2);
+  .nav { display: flex; align-items: center; gap: var(--gap-nav); height: var(--h-ctl); flex-shrink: 0; padding: 0 var(--s-2);
     color: var(--text-nav); border-radius: var(--r-nav); text-decoration: none; white-space: nowrap; min-width: 0; }
   .nav:hover { color: var(--text); background-color: var(--ctl-hover); text-decoration: none; }
   /* hover fades in its fill and its text together (spec §6, --t-hover) and goes at once (exit faster than enter).

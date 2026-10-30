@@ -107,6 +107,7 @@
   --gap-split: 3px;       /* between the parts of a split bar (DayBar's today · later) */
   --h-list-row: 40px; --h-list-row-tall: 52px;   /* ListRow: a list's rows (the Sync plan), and rows with a second line */
   --h-section: 32px;   /* ListSection: a group's head among a list's rows (To-do), lower than a row so it reads as a label */
+  --gap-nav: 9px;   /* a sidebar or browser row: its 14 px glyph to its name, so names start 31 px in on the glyph column */
   --h-section-chrome: 28px;   /* ListSection on the frame (the browser column): a step lower than its 30 px rows */
   /* scroll edge effect (edgeFade): how far an end with more beyond it fades, and to what (35 %, so a cut row still
      reads on or off) */
@@ -115,6 +116,7 @@
   --ease: cubic-bezier(.22, 1, .36, 1);
   --t-press: 100ms; --t-state: 240ms; --t-value: 420ms;
   --t-reply: 280ms;  /* a value change the user just caused (the day bar after an amount click): under 300 ms */
+  --t-hint-delay: 300ms;   /* a hover hint that waits, so a pointer passing by flashes nothing (the browser's edge line) */
   --t-hover: 120ms;  /* hover: quick and quiet. Selection after navigation or an arrow key doesn't animate at all */
   --t-pop: 140ms;    /* a popover or menu fading and growing in from what opened it (exit is instant) */
   --t-live: 300ms;   /* live progress, linear: a bit longer than the engine's 250 ms update pace, so the bar never stops between updates */
