@@ -8,7 +8,7 @@ import type {
 import { NOT_IN_PLAYLIST } from '../types';
 import { LIBRARY_METHODS } from '../contract';
 import {
-  FAKE_MUSIC, FAKE_NEWEST_YT_DLP, QOBUZ_UNREADABLE, SERVICE_NAME, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkText, coverUri, dateOnly, folderList, hash, inFolder, isoLocal, makeState, nextStep,
+  FAKE_MUSIC, FAKE_NEWEST_YT_DLP, QOBUZ_UNREADABLE, SERVICE_NAME, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkText, coverUri, dateOnly, folderList, hash, inFolder, isoLocal, librarySubtitle, sidebarLists, makeState, nextStep,
   pathOf, playlistRows, previewAction, qualityLabel, qualityLine, qualityOf, result, runDetail, runId,
   readStatus, sampleCandidates, readOk, todoDetail, todoFree, formatLine, sourceFull, todoGroup, trackRow, rowState, type FakeAccount, type FakeFolder, type FakeState,
   type FakeTrack,
@@ -401,9 +401,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     async sidebar() {
       const files = s.tracks.filter((t) => t.status !== 'missing');
       return ok({ todo: todoView('all', false).chips.all, all_tracks: files.length,
-        folders: folderList(s).map((f) => ({ ...f, tracks: files.filter((t) => t.folder === f.folder).length })),
         not_in_playlist: files.filter((t) => !t.in_playlists).length,
-        limits_warning: cards(s).some((c) => c.new_warnings > 0 || c.paused) });
+        limits_warning: cards(s).some((c) => c.new_warnings > 0 || c.paused), ...sidebarLists(s) });
     },
     async sync_preview() {
       const p = preview();
@@ -490,9 +489,10 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const counted = byQuality(all);
       const checked = Object.values(counted).reduce((n, c) => n + c, 0);
       return ok({ title: folder === null ? 'All tracks' : folder === NOT_IN_PLAYLIST ? 'Not in a playlist' : folder,
-        folder, summary: { tracks: all.length, lossless_share: checked ? counted.lossless / checked : null,
+        folder, subtitle: librarySubtitle(s, folder, all.length), summary: { tracks: all.length, lossless_share: checked ? counted.lossless / checked : null,
           by_quality: counted, upgrades_ready: all.filter((t) => !!t.upgrade).length,
-          to_do: all.filter((t) => t.in_playlists && !t.hidden && todoGroup(t)).length }, chips,
+          to_do: all.filter((t) => t.in_playlists && !t.hidden && todoGroup(t)).length,
+          not_lossless: counted.good_lossy + counted.weak + counted.fake }, chips,
         rows: rows.map((t) => ({ ...trackRow(t), sound_checked: !t.unchecked, file_state: rowState(t) })), empty: !s.tracks.length ? 'empty_library' as const : rows.length ? null : 'no_match' as const });
     },
     async track(track_id: string) {

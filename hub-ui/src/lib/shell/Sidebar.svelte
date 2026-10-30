@@ -43,9 +43,15 @@
     <a class="nav" class:on={libFolder === null} href="#/library" use:link data-test="nav-library">
       <span class="t">All tracks</span>{#if side}<span class="n num">{side.all_tracks}</span>{/if}
     </a>
-    {#each side?.folders ?? [] as f (f.folder)}
-      <a class="nav" class:on={libFolder === f.folder} class:dimmed={!f.in_playlists_txt} href={libraryHref(f.folder)} use:link
-        title={f.in_playlists_txt ? f.folder : `${f.folder} · no longer in your playlists`}>
+    {#each side?.playlists ?? [] as f, i (`${i}:${f.ref}`)}
+      <a class="nav" class:on={libFolder === f.name} class:dimmed={!f.enabled} href={libraryHref(f.name)} use:link
+        title={f.enabled ? f.name : `${f.name} · switched off`}>
+        <span class="t">{f.name}</span><span class="n num">{f.tracks}</span>
+      </a>
+    {/each}
+    {#each side?.library_folders ?? [] as f (f.folder)}
+      <a class="nav" class:on={libFolder === f.folder} class:dimmed={true} href={libraryHref(f.folder)} use:link
+        title="{f.folder} · no longer in your playlists">
         <span class="t">{f.folder}</span><span class="n num">{f.tracks}</span>
       </a>
     {/each}
