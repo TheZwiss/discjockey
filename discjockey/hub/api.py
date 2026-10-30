@@ -512,7 +512,7 @@ class HubApi:
         count = self._todo(state, "all", False, count_only=True)["chips"]["all"]
         # the dot on "Download limits": a warning sign the user hasn't marked as seen, or a service paused today
         warnings = any(c["new_warnings"] or c["paused"] for c in views.limit_cards(state, self._settings(), self._today()))
-        return views.sidebar(state, self._folders(), count, warnings)
+        return views.sidebar(state, pf.load(self._paths.playlists_file).rows, count, warnings)
 
     @bridge
     def sync_preview(self) -> dict:

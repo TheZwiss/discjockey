@@ -723,18 +723,24 @@ def tracks_with_file(state: dict) -> list[dict]:
     return [e for e in state["tracks"].values() if e["status"] != "missing" and e.get("path")]
 
 
-def sidebar(state: dict, folder_order: list[str], todo_count: int, warnings: bool = False) -> dict:
+def sidebar(state: dict, lines: Sequence[pf.Row], todo_count: int, warnings: bool = False) -> dict:
+    """The sidebar's numbers. `lines`: every playlist line of playlists.txt in file order, switched-off ones too
+    (playlists_file.load(...).rows). A playlist's count is the files in its folder; `library_folders` are the folders
+    with files that no line uses, by name (the user's own songs belong to no folder)."""
     with_file = tracks_with_file(state)
     counts: dict[str, int] = {}
+    names: dict[str, str] = {}
     for e in with_file:
-        if e["folder"]:  # the user's own songs (the import) belong to no playlist folder
-            counts[e["folder"]] = counts.get(e["folder"], 0) + 1
-    order = list(folder_order) + sorted((f for f in counts if fold(f) not in {fold(x) for x in folder_order}),
-                                        key=fold)
+        if e["folder"]:
+            counts[fold(e["folder"])] = counts.get(fold(e["folder"]), 0) + 1
+            names.setdefault(fold(e["folder"]), e["folder"])
+    used = {fold(r.folder) for r in lines}
     return {"todo": todo_count, "all_tracks": len(with_file),
-            "folders": [{"folder": f, "tracks": counts.get(f, 0), "in_playlists_txt": f in folder_order}
-                        for f in order],
-            "not_in_playlist": sum(1 for e in with_file if not e.get("in_playlists")), "limits_warning": warnings}
+            "not_in_playlist": sum(1 for e in with_file if not e.get("in_playlists")), "limits_warning": warnings,
+            "playlists": [{"name": r.folder, "ref": r.ref, "service": r.service, "enabled": r.enabled,
+                           "tracks": counts.get(fold(r.folder), 0)} for r in lines],
+            "library_folders": [{"folder": names[k], "tracks": counts[k]}
+                                for k in sorted(k for k in counts if k not in used)]}
 
 
 # --- to-do ---

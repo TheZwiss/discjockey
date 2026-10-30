@@ -481,11 +481,23 @@ def test_library_search_all_tracks_and_not_in_a_playlist():
 
 
 def test_sidebar():
-    sb = views.sidebar(LIB, ["Hard_Bounce", "Powertrance"], 3)
+    lines = [Row("Hard_Bounce", "https://open.spotify.com/playlist/37i9dQZF1DX0XUsuxWHRQd"),
+             Row("Powertrance", "https://open.qobuz.com/playlist/900000001", enabled=False)]
+    sb = views.sidebar(LIB, lines, 3)
     assert sb == {"todo": 3, "all_tracks": 5, "not_in_playlist": 1, "limits_warning": False,
-                  "folders": [{"folder": "Hard_Bounce", "tracks": 4, "in_playlists_txt": True},
-                              {"folder": "Powertrance", "tracks": 0, "in_playlists_txt": True},
-                              {"folder": "Bouncy", "tracks": 1, "in_playlists_txt": False}]}
+                  "playlists": [{"name": "Hard_Bounce", "ref": "37i9dQZF1DX0XUsuxWHRQd", "service": "spotify",
+                                 "enabled": True, "tracks": 4},
+                                {"name": "Powertrance", "ref": "qobuz:900000001", "service": "qobuz",
+                                 "enabled": False, "tracks": 0}],
+                  "library_folders": [{"folder": "Bouncy", "tracks": 1}]}
+
+
+def test_sidebar_matches_folders_by_folded_name_and_sorts_the_unused_ones():
+    st = state(a=e(folder="Zeta"), b=e(folder="alpha"), c=e(folder="Hard_bounce"), d=e("missing", folder="Gone"))
+    sb = views.sidebar(st, [Row("Hard_Bounce", "https://open.spotify.com/playlist/37i9dQZF1DX0XUsuxWHRQd")], 0)
+    assert sb["playlists"][0]["tracks"] == 1  # the disk ignores case
+    assert sb["library_folders"] == [{"folder": "alpha", "tracks": 1}, {"folder": "Zeta", "tracks": 1}]
+    assert views.sidebar(st, [], 0)["playlists"] == []
 
 
 def test_todo_groups_in_order_with_details():
@@ -1361,9 +1373,9 @@ def test_the_library_marks_files_whose_sound_is_not_checked_yet_and_copes_with_o
     assert [r["folder"] for r in out["rows"] if r["track_id"].startswith("local")] == ["", ""]
     assert views.library(st, "A", "", "all", "artist")["summary"]["tracks"] == 1  # own songs are in no folder
     assert views.library(st, views.NOT_IN_PLAYLIST, "", "all", "artist")["summary"]["tracks"] == 2
-    sb = views.sidebar(st, ["A"], 0)
-    assert (sb["all_tracks"], sb["not_in_playlist"], sb["folders"]) == (
-        3, 2, [{"folder": "A", "tracks": 1, "in_playlists_txt": True}])
+    sb = views.sidebar(st, [Row("A", "https://open.spotify.com/playlist/37i9dQZF1DX0XUsuxWHRQd")], 0)
+    assert (sb["all_tracks"], sb["not_in_playlist"], [p["tracks"] for p in sb["playlists"]],
+            sb["library_folders"]) == (3, 2, [1], [])
 
 
 def test_sync_preview_counts_the_songs_waiting_for_an_answer_and_the_checks_left_for_later():
