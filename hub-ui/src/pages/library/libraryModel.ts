@@ -188,11 +188,19 @@ export function segOptions(chips: Library['chips'] | null | undefined, value: Li
  *  only when crates sit inside it (`subfolders`). All tracks and Not in a playlist name the Folder (where the file
  *  sits, D12); Not in a playlist has no Playlist column (every row is in none). */
 export type OptionalColumn = 'folder' | 'subfolder' | 'playlist' | 'length';
-export function optionalColumns(kind: TableKind, subfolders = false): OptionalColumn[] {
+export function optionalColumns(kind: TableKind, subfolders = false, playlists = true): OptionalColumn[] {
   if (kind === 'all') return ['folder', 'playlist', 'length'];
   if (kind === 'unlisted') return ['folder', 'length'];
   if (kind === 'playlist' || kind === 'library') return ['length'];
-  return [...(subfolders ? ['subfolder' as const] : []), 'playlist', 'length'];
+  return [...(subfolders ? ['subfolder' as const] : []), ...(playlists ? ['playlist' as const] : []), 'length'];
+}
+/** Whether a folder view's Playlist column can say anything (`columnsAt`'s `playlists`; D10 amended): false only when
+ *  no row of the collection's unfiltered answer is in a playlist (an album drive no playlist uses), where the column
+ *  would print "–" on every row and only take room from the cut titles; Length then shows from where Playlist did.
+ *  The page asks it of an answer without search or filter and holds that value while one is on, so the columns don't
+ *  jump as the user types. Only the watched and crate kinds have the column. */
+export function playlistColumnFor(lib: Pick<Library, 'rows' | 'also'>): boolean {
+  return allRows(lib).some((r) => r.playlists.length > 0);
 }
 /** The width (px) the table needs for Track and Artist beside Quality and the upgrade slot, and what each optional
  *  column adds to it (D10, the mockup's numbers): a column shows from the sum of its own and those before it. A
@@ -202,13 +210,13 @@ export const ORDER_WIDTH = 40;
 export const COLUMN_WIDTH: Record<OptionalColumn, number> = { folder: 140, subfolder: 140, playlist: 180, length: 200 };
 /** The table's own width from which each of the kind's optional columns shows (All tracks: Folder 520, Playlist 700,
  *  Length 900). */
-export function columnThresholds(kind: TableKind, subfolders = false): { column: OptionalColumn; from: number }[] {
+export function columnThresholds(kind: TableKind, subfolders = false, playlists = true): { column: OptionalColumn; from: number }[] {
   let need = BASE_WIDTH + (kind === 'playlist' ? ORDER_WIDTH : 0);
-  return optionalColumns(kind, subfolders).map((column) => ({ column, from: (need += COLUMN_WIDTH[column]) }));
+  return optionalColumns(kind, subfolders, playlists).map((column) => ({ column, from: (need += COLUMN_WIDTH[column]) }));
 }
-/** The optional columns a table this wide shows. */
-export function columnsAt(kind: TableKind, width: number, subfolders = false): OptionalColumn[] {
-  return columnThresholds(kind, subfolders).filter((t) => width >= t.from).map((t) => t.column);
+/** The optional columns a table this wide shows; `playlists` false leaves the Playlist column out (playlistColumnFor). */
+export function columnsAt(kind: TableKind, width: number, subfolders = false, playlists = true): OptionalColumn[] {
+  return columnThresholds(kind, subfolders, playlists).filter((t) => width >= t.from).map((t) => t.column);
 }
 /** The grid's tracks for those columns: the names share what is left (Track a little more than Artist, a place less:
  *  with the details open at 1280 a wider Folder cut the artists while "Hard_Bounce" had room to spare; the mockup's
@@ -235,6 +243,16 @@ export function hasSubfolders(lib: Pick<Library, 'view' | 'folder_kind' | 'key' 
   return lib.rows.some((r) => !!r.subfolder);
 }
 const samePath = (p: string): string => p.normalize('NFC').replace(/\/+$/, '');
+/** A watched folder with more crates than the sidebar holds (its header's link to Settings' list of them): the sidebar's
+ *  line for it when `too_many`, else null. The folder's key and the sidebar's path match as paths (NFC, no trailing
+ *  slash), as `hasSubfolders` matches them. */
+export function tooManyFor(lib: Pick<Library, 'view' | 'folder_kind' | 'key'> | null,
+  side: Pick<Sidebar, 'watched'> | null | undefined): Sidebar['watched'][number] | null {
+  if (!lib || lib.view !== 'folder' || lib.folder_kind !== 'watched' || lib.key === null) return null;
+  const key = samePath(lib.key);
+  const w = side?.watched.find((x) => samePath(x.path) === key);
+  return w?.too_many ? w : null;
+}
 
 // ---------- the cells ----------
 /** The two views' Folder cell: where the file sits (D12, `place`); null → "–". Being in no playlist is told by the
@@ -314,7 +332,8 @@ export function noFileCount(lib: Pick<Library, 'view' | 'key' | 'read_at' | 'sum
   const fold = (x: string) => x.normalize('NFC').toLowerCase();
   const line = side?.playlists.find((p) => lib.key !== null && fold(p.name) === fold(lib.key));
   if (line && line.songs !== null) return Math.max(0, line.songs - lib.summary.tracks);
-  return whole ? lib.rows.filter((r) => r.file_state === 'no_file').length : null;
+  // a song listed twice is one song, as the sidebar counts it
+  return whole ? new Set(lib.rows.filter((r) => r.file_state === 'no_file').map((r) => r.track_id)).size : null;
 }
 /** The header's second line (I7, the engine's parts). A read playlist's count is its songs with a file, which is what
  *  the strip and the filter count, while the table also lists the songs still without one and the sidebar counts every
@@ -328,6 +347,9 @@ export function subtitleParts(lib: Pick<Library, 'subtitle' | 'summary'>, missin
 }
 
 // ---------- the empty states (I7; issues #29 "For B6") ----------
+/** A playlist with no read record (`read_at` null) while the header's read status (every playlist's) may say "read 2 min
+ *  ago": it was added since the last read, or that read couldn't open it. Both stay true side by side. */
+export const NOT_IN_LAST_READ = "This playlist wasn't in the last read.";
 export type PageEmpty = { kind: 'library' | 'gone' | 'never_read' | 'empty' | 'search' | 'filter'; title: string;
   body?: string };
 /** What the list area says when the table has nothing to show, or (`line`) when a playlist's own part is empty but its
@@ -346,14 +368,14 @@ export function pageEmpty(lib: Pick<Library, 'view' | 'title' | 'empty' | 'read_
   const playlist = lib.view === 'playlist';
   const neverRead = playlist && lib.read_at === null;
   const empty: PageEmpty = neverRead
-    ? { kind: 'never_read', title: "This playlist hasn't been read yet.", body: 'Read your playlists above to see its songs.' }
+    ? { kind: 'never_read', title: NOT_IN_LAST_READ, body: "It was added since, or it couldn't be opened. Read your playlists above to see its songs." }
     : q ? { kind: 'search', title: `Nothing in ${lib.title} matches “${q}”.` }
     : filter !== 'all' ? { kind: 'filter', title: 'No tracks with this quality here.' }
     : { kind: 'empty', title: playlist ? 'This playlist is empty.' : lib.view === 'unlisted' ? 'Every track is in a playlist.'
       : lib.view === 'all' ? EMPTY.empty_library.title : 'No music in this folder.' };
   if (!lib.also?.length) return { page: empty, line: null };
   // the folder's other files are there: the playlist's own part says it is empty, in one line of the table
-  const line = neverRead ? "This playlist hasn't been read yet."
+  const line = neverRead ? NOT_IN_LAST_READ
     : q ? `None of the playlist's songs match “${q}”.`
     : filter !== 'all' ? "None of the playlist's songs have this quality."
     : 'This playlist is empty.';

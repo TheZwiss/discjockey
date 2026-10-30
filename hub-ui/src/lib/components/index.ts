@@ -23,6 +23,7 @@ export { default as InfoTip } from './InfoTip.svelte';
 export { default as KeyValue } from './KeyValue.svelte';
 export { default as ListRow } from './ListRow.svelte';
 export { default as ListSection } from './ListSection.svelte';
+export { default as ListLine } from './ListLine.svelte';
 export { default as MiddleText } from './MiddleText.svelte';
 export { default as MiniPlayer } from './MiniPlayer.svelte';
 export { default as NavIcon, NAV_ICONS, type NavIconName } from './NavIcon.svelte';

@@ -15,8 +15,11 @@
   // Row signals (D6): a dimmed lead is a song that left every playlist, a file that is away (an `AwayTag` in the
   // quality column says why), or a playlist song without a file (a dashed empty cover; "Waiting" in muted words or the
   // red NOT FOUND badge in the quality column). Only a row whose file is there plays.
+  // `playlistColumn` false: no row of the collection's unfiltered answer is in a playlist, so the Playlist column would
+  // say "–" on every row and only take room from the cut titles (D10 amended); the page holds it while a search or
+  // filter is on.
   import {
-    AwayTag, Badge, ContextMenu, Cover, InfoTip, ListSection, MiddleText, QualityBadge, Skeleton, SortHeader, Surface, tip,
+    AwayTag, Badge, ContextMenu, Cover, InfoTip, ListLine, ListSection, MiddleText, QualityBadge, Skeleton, SortHeader, Surface, tip,
   } from '$lib/components';
   import { artistTitle, duration } from '$lib/format';
   import type { LibraryRow, LibrarySort } from '$lib/bridge/types';
@@ -27,7 +30,8 @@
     type TableKind,
   } from './libraryModel';
 
-  let { rows, also = null, alsoHint = '', emptyLine = null, loading = false, kind = 'library', subfolders = false, off = false, sort,
+  let { rows, also = null, alsoHint = '', emptyLine = null, loading = false, kind = 'library', subfolders = false,
+    playlistColumn = true, off = false, sort,
     selected, playing = null, onsort, onselect, onplay, onfinder, ontodo, ondetails }: {
     rows: LibraryRow[];
     /** a playlist's other files of its folder, under their own section head (null elsewhere) */
@@ -39,6 +43,8 @@
     kind?: TableKind;
     /** a watched folder or crate with crates inside it: the Subfolder column */
     subfolders?: boolean;
+    /** whether the Playlist column can say anything (libraryModel.columnsAt's `playlists`) */
+    playlistColumn?: boolean;
     /** a switched-off playlist: its songs without a file wait for nothing (libraryModel.waitWords) */
     off?: boolean;
     sort: LibrarySort; selected: string | null;
@@ -72,7 +78,7 @@
   const viewOf = $derived(kind === 'library' || kind === 'watched' || kind === 'crate' ? 'folder' as const : kind);
   const sortable = $derived(new Set<string>(sortColumns(viewOf)));
   const st = $derived(sortState(sort));
-  const extra = $derived(columnsAt(kind, width, subfolders));
+  const extra = $derived(columnsAt(kind, width, subfolders, playlistColumn));
   const grid = $derived(gridColumns(extra, playlist));
   const lines = $derived(tableLines(rows, also, emptyLine));
   const wait = $derived(waitWords(off));
@@ -155,7 +161,7 @@
       onsort={() => onsort(c as SortColumn)} test="sort-{c}" />
   {:else}
     <!-- the engine has no sort by this column: its name, not a button -->
-    <span class="th" role="columnheader" data-test="head-{c}">{LABEL[c]}</span>
+    <SortHeader label={LABEL[c]} test="head-{c}" />
   {/if}
 {/snippet}
 
@@ -188,7 +194,7 @@
       {#if l.kind === 'section'}
         <ListSection label="Also in this folder" summary={String(also?.length ?? 0)} hint={alsoHint} test="library-also" />
       {:else if l.kind === 'empty'}
-        <div class="tline" data-test="library-main-empty">{l.text}</div>
+        <ListLine text={l.text} test="library-main-empty" />
       {:else}
         {@const r = l.row}
         {@const away = rowAway(r)}
@@ -218,13 +224,12 @@
             {:else if c === 'subfolder'}{@render place(subfolderCell(r))}
             {:else}
               {@const pl = playlistCell(r)}
-              {#if pl}<span class="td pl" use:tip={pl.tip}><Badge tone="muted" text={pl.name} more={pl.more} /></span>
+              {#if pl}<span class="td"><Badge tone="muted" text={pl.name} more={pl.more} tip={pl.tip} /></span>
               {:else}<span class="td sub quiet">–</span>{/if}
             {/if}
           {/each}
-          <span class="td">{#if noFile}{#if r.wait === 'not_found'}<span class="wait" use:tip={NOT_FOUND_TIP}
-              data-test="wait-{r.track_id}"><Badge tone="missing" text={NOT_FOUND_WORD} /></span>{:else}<span
-              class="wait words" use:tip={wait.tip} data-test="wait-{r.track_id}">{wait.word}</span>{/if}
+          <span class="td">{#if noFile}{#if r.wait === 'not_found'}<Badge tone="missing" text={NOT_FOUND_WORD} tip={NOT_FOUND_TIP}
+              test="wait-{r.track_id}" />{:else}<Badge tone="quiet" text={wait.word} tip={wait.tip} test="wait-{r.track_id}" />{/if}
             {:else if away}<AwayTag state={away} test="away-{r.track_id}" />{:else}<button type="button"
             class="qbtn" tabindex="-1" use:tip={'Show details'} onclick={(e) => badge(e, r.track_id)}
             ondblclick={(e) => e.stopPropagation()} data-test="badge-{r.track_id}"><QualityBadge quality={r.quality}
@@ -273,18 +278,9 @@
   .quiet { color: var(--text-label); }
   .num { justify-self: end; color: var(--text-muted); font-size: var(--fs-small); font-variant-numeric: tabular-nums; }
   .pos { color: var(--text-label); }
-  .pl { display: flex; min-width: 0; }
-  .wait { display: inline-flex; }
-  .words { color: var(--text-muted); font-size: var(--fs-small); }
   .slot { display: flex; justify-content: flex-end; }
   .tip { display: flex; justify-content: flex-end; }
   .sk { padding: var(--s-3) var(--s-4); }
-  /* a column the engine doesn't sort by: the sorting heads' words, as a label */
-  .th { display: flex; align-items: center; min-width: 0; overflow: hidden; padding: var(--s-1) 0; color: var(--text-label);
-    font-size: var(--fs-label); letter-spacing: var(--ls-label); text-transform: uppercase; white-space: nowrap; }
-  /* the playlist's own part is empty but its folder holds other files: one quiet line where its rows would be */
-  .tline { display: flex; align-items: center; height: var(--h-section); padding: 0 var(--s-4); color: var(--text-muted);
-    font-size: var(--fs-small); }
   /* the quality badge is a button (it opens the details): no box of its own, a faint wash of the badge under the
      pointer says it can be clicked; it highlights, it doesn't shrink (a badge in a row) */
   .qbtn { display: inline-flex; padding: 0; border: 0; background: none; border-radius: var(--r-badge);

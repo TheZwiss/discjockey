@@ -443,6 +443,30 @@
   "each": "[data-test=gallery-badge]"
  },
  {
+  "name": "base-gallery-columns",
+  "route": "#/dev/gallery",
+  "scenario": "normal",
+  "settle": 400,
+  "steps": [
+   {
+    "eval": "document.querySelector('[data-test=g-surface-columns]').scrollIntoView()"
+   }
+  ],
+  "each": "[data-test=g-surface-columns]"
+ },
+ {
+  "name": "base-gallery-listline",
+  "route": "#/dev/gallery",
+  "scenario": "normal",
+  "settle": 400,
+  "steps": [
+   {
+    "eval": "document.querySelector('[data-test=gallery-listline]').scrollIntoView()"
+   }
+  ],
+  "each": "[data-test=gallery-listline]"
+ },
+ {
   "name": "base-gallery-watchedfolders",
   "route": "#/dev/gallery",
   "scenario": "normal",

@@ -192,7 +192,6 @@ export function fitMiddle(text: string, fits: (text: string) => boolean, sep?: s
         if (fits(form)) return form;
       }
       // even that is too wide: the first and the last folder alone give way by characters, so the cut is the one "…"
-      // (cutting "Rekordbox Library › … › 2019" could keep its "…" beside a second one)
       // (cutting "Rekordbox Library › … › 2019" could keep its "…" beside a second one); never whole, which would
       // read as a place with nothing between the two
       const ends = [parts[0], parts[parts.length - 1]].join(` ${sep} `);

@@ -248,6 +248,8 @@ const fake: PageFake = {
         }
       }
     },
+    // every file is in a playlist: Not in a playlist has nothing to show
+    all_listed: (s) => { s.tracks = s.tracks.filter((t) => t.in_playlists); },
     // a watched import folder with no music in it yet, beside the sidebar's other folders
     empty_watched: (s) => {
       crateFolders(s);

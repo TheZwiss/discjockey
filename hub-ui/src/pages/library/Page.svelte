@@ -41,7 +41,8 @@
   import TrackDetails from './TrackDetails.svelte';
   import {
     LEGACY_SORT_KEY, LIBRARY_FILTERS, alsoHint, filterKey, hasSubfolders, libraryCalls, nextSort, noFileCount, offTable,
-    pageEmpty, playQueue, rowOf, segOptions, sortKey, subtitleParts, tableKind, todoHref, viewSort, type LibraryCall,
+    pageEmpty, playQueue, playlistColumnFor, rowOf, segOptions, sortKey, subtitleParts, tableKind, todoHref, tooManyFor,
+    viewSort, type LibraryCall,
     type SortColumn,
   } from './libraryModel';
   import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
@@ -119,9 +120,12 @@
   });
 
   /** The first call that doesn't come back gone (a name asked as a playlist may be a Library folder); when every one
-   *  does, the first one's answer (a name is a playlist's first: the words say so). */
-  async function askLibrary(calls: LibraryCall[], query: string, filt: LibraryFilter, order: LibrarySort) {
-    const ask = (c: LibraryCall) => api.library(c.view, c.key, query, filt, order);
+   *  does, the first one's answer (a name is a playlist's first: the words say so). Each call goes with its own view's
+   *  sort, so a name asked before the sidebar is there (as a playlist, then as a folder) is answered in the right order
+   *  at once. */
+  async function askLibrary(calls: LibraryCall[], query: string, filt: LibraryFilter,
+    order: (v: LibraryView) => LibrarySort) {
+    const ask = (c: LibraryCall) => api.library(c.view, c.key, query, filt, order(c.view));
     const first = await ask(calls[0]);
     let r = first;
     for (const next of calls.slice(1)) {
@@ -130,23 +134,32 @@
     }
     return r.ok && r.empty === 'gone' ? first : r;
   }
-  // the view the page asks for (before an answer: the route's first call; then the answer's own, which a name asked as
-  // a playlist may turn into a folder) and so its sort
+  // the view the page shows (before an answer: the route's first call; then the answer's own, which a name asked as
+  // a playlist may turn into a folder) and so its sort. The fetch doesn't follow it: the view settles when the sidebar
+  // comes (a name it lists as a Library folder flips playlist → folder), and a fetch on that flip would ask again in
+  // the other sort. Each call takes its own view's sort instead (askLibrary), and a sort chosen by the user (`sorts`)
+  // asks again.
   const view = $derived<LibraryView>(lib && libFor === folder ? lib.view : libraryCalls(folder, $hub.sidebar)[0].view);
   const sort = $derived(sortOf(view));
+  // whether the Playlist column can say anything (libraryModel.playlistColumnFor): the collection's last answer without
+  // search or filter, held while one is on so the columns don't jump; before one, the answer at hand
+  let playlistHeld = $state<{ for: string | null; value: boolean } | null>(null);
   let libTurn = 0;
   $effect(() => {
-    const args = [folder, q, filter, sort] as const;
+    const args = [folder, q, filter] as const;
+    const chosen = { ...sorts };
     void $filesVersion;
     void retry;
     const turn = ++libTurn;
     untrack(() => { loading = true; });
-    void askLibrary(libraryCalls(args[0], hubNow().sidebar), args[1], args[2], args[3]).then((r) => {
+    const order = (v: LibraryView) => chosen[v] ?? sortOf(v);
+    void askLibrary(libraryCalls(args[0], hubNow().sidebar), args[1], args[2], order).then((r) => {
       if (turn !== libTurn) return;
       loading = false;
       if (r.ok) {
         lib = r;
         libFor = args[0];
+        if (!args[1] && args[2] === 'all') playlistHeld = { for: args[0], value: playlistColumnFor(r) };
         libError = null;
         if (filter !== 'all' && r.chips[filter] === 0 && !q) setFilter('all');
       } else {
@@ -269,8 +282,9 @@
   const subfolders = $derived(!!lib && hasSubfolders(lib, $hub.sidebar));
   const neverRead = $derived(lib?.view === 'playlist' && lib.empty !== 'gone' && lib.read_at === null);
   // a watched folder with more crates than the sidebar holds: the link to Settings' list of them
-  const tooMany = $derived(lib?.view === 'folder' && lib.folder_kind === 'watched'
-    ? ($hub.sidebar?.watched.find((w) => w.path.normalize('NFC') === lib?.key?.normalize('NFC')) ?? null) : null);
+  const tooMany = $derived(tooManyFor(lib, $hub.sidebar));
+  const playlistColumn = $derived(!lib ? true : playlistHeld && playlistHeld.for === libFor ? playlistHeld.value
+    : playlistColumnFor(lib));
   const pending = $derived(noFileRow ? { row: noFileRow,
     next: detail?.track_id === noFileRow.track_id ? detail.next_qobuz_check : null, off: lib?.enabled === false } : null);
   const playing = $derived($player.playing ? $player.track_id : null);
@@ -306,7 +320,7 @@
 {#snippet main()}
   <PageHeader title={lib?.title ?? (folder === null ? 'All tracks' : folder === NOT_IN_PLAYLIST ? 'Not in a playlist' : folder)} {sub}
     readStatus={neverRead}>
-    {#snippet actions()}{#if tooMany?.too_many}<Button variant="link" muted href="#/settings/folders"
+    {#snippet actions()}{#if tooMany}<Button variant="link" size="sm" href="#/settings/folders"
         tip={`${tooMany.crate_count} folders with music, too many for the sidebar: choose which to show in Settings`}
         data-test="library-show-some">Show some in the sidebar…</Button>{/if}{#if !viewGone}<SearchField bind:value={search}
       bind:input={searchInput} placeholder="Search title, artist…" shortcut="cmd+f"
@@ -339,7 +353,7 @@
       </Surface>
     {:else}
       <LibraryTable rows={lib.rows} also={lib.also} alsoHint={alsoHint(lib.title, neverRead)} emptyLine={empty.line} {loading} {kind}
-        {subfolders} off={lib.enabled === false} {sort} {selected} {playing} {onsort} onselect={select} onplay={playOrPause}
+        {subfolders} {playlistColumn} off={lib.enabled === false} {sort} {selected} {playing} {onsort} onselect={select} onplay={playOrPause}
         onfinder={(id) => void finder(id)} ontodo={todo} ondetails={showDetails} />
     {/if}
   {/if}

@@ -29,9 +29,9 @@ Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, st
   either, but also no crates).
 - **From B6 (the playlist and folder views):** a NOT FOUND row's tooltip can't give To-do's next-try line ("next
   try in 5 days", I7): `LibraryRow` carries no date, only `track()` does (the details' note says it). It reads
-  "Nothing usable found yet: To-do has other ways to get it" until the engine adds the date to the row. A playlist
-  added after the last read shows "Playlists read 2 min ago" in the header beside "This playlist hasn't been read
-  yet." (the read status is the whole list's); true, but it may read as a contradiction at first.
+  "Nothing usable found yet: To-do has other ways to get it" until the engine adds the date to the row. Sorted by
+  Length ascending, the engine puts a playlist's songs without a file first (their duration is 0); they belong last
+  (or by the length the playlist gives). An engine matter (`views.library`'s sort), left for a Python change.
 - **From B5 (the browser column):** *Show in Finder* is offered only where `api.reveal` can open the folder (a
   playlist's folder, a Library folder): it refuses any path outside the music folder, so an import folder and its
   crates have no Show in Finder until the engine gets a reveal for watched folders (no Python change in B5). The browser

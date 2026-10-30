@@ -111,7 +111,7 @@
       <Surface kind="card">
         <TrackHead track={r} place={NO_FILE_PLACE} empty>
           {#if r.wait === 'not_found'}<Badge tone="missing" text={NOT_FOUND_WORD} />
-          {:else}<span class="words">{waitWords(pending.off).word}</span>{/if}
+          {:else}<Badge tone="quiet" text={waitWords(pending.off).word} />{/if}
         </TrackHead>
       </Surface>
       <NoteCard data-test="no-file-note">{noFileNote(r.wait, pending.next, pending.off)}</NoteCard>
