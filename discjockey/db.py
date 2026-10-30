@@ -27,7 +27,7 @@ from .models import (OWN_PREFIX, AddedFolder, BatchRow, DupFile, DuplicateGroup,
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 NEWER = ("This music folder was last used by a newer Discjockey. Update Discjockey, then try again. "
          "Nothing was changed.")
@@ -128,6 +128,17 @@ SCHEMA_V3_STEP = (
     """UPDATE files SET import_state = 'new'
       WHERE song IS NULL AND folder IN (SELECT id FROM watched_folders WHERE kind = 'import')""",
 )
+# Stage 5 (plan library stage 5, I1, D1, D15): what the hub shows beside the library, never in the snapshot and
+# never a generation bump. A playlist's last read (keyed by its playlists.txt line's ref) with its tracks as read;
+# the user's Favourites in their order; the user's crate visibility overrides (no row: the default)
+SCHEMA_V4_STEP = (
+    "CREATE TABLE playlist_reads (playlist TEXT PRIMARY KEY, service TEXT NOT NULL, read_at TEXT NOT NULL)",
+    """CREATE TABLE playlist_tracks (playlist TEXT NOT NULL REFERENCES playlist_reads (playlist) ON DELETE CASCADE,
+      position INTEGER NOT NULL, token TEXT NOT NULL, artist TEXT NOT NULL, title TEXT NOT NULL, duration_ms INTEGER,
+      PRIMARY KEY (playlist, position))""",
+    "CREATE TABLE favourites (position INTEGER PRIMARY KEY, key TEXT NOT NULL UNIQUE)",
+    "CREATE TABLE crate_shown (path TEXT PRIMARY KEY, shown INTEGER NOT NULL)",
+)
 
 
 def _statements(statements: tuple[str, ...]) -> Callable[[sqlite3.Connection], None]:
@@ -140,7 +151,8 @@ def _statements(statements: tuple[str, ...]) -> Callable[[sqlite3.Connection], N
 # version n -> the step that turns a version-n database into version n+1, run inside the open transaction. `create`
 # builds SCHEMA_V1 and then runs every step, so a fresh database and an upgraded one are the same
 UPGRADES: dict[int, Callable[[sqlite3.Connection], None]] = {1: _statements(SCHEMA_V2_STEP),
-                                                           2: _statements(SCHEMA_V3_STEP)}
+                                                           2: _statements(SCHEMA_V3_STEP),
+                                                           3: _statements(SCHEMA_V4_STEP)}
 
 
 class _Connection(sqlite3.Connection):
