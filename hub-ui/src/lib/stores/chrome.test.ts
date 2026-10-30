@@ -1,0 +1,125 @@
+import { describe, expect, it } from 'vitest';
+import { get } from 'svelte/store';
+import { parseHash } from '../router';
+import {
+  BROWSER_DEFAULT, chrome, chromeLayout, chromeMotion, chromeMove, clampBrowserWidth, filterFocus, fold, formOther,
+  inspectorOpen, libraryReturn, placeOf, requestFilterFocus, setBrowserWidth, toggleInspector, type ChromeInput,
+} from './chrome';
+
+const input = (o: Partial<ChromeInput> = {}): ChromeInput => ({ place: 'library', formLibrary: 'rail', formOther: 'full',
+  browserWidth: 240, inspectorOpen: false, windowWidth: 1280, ...o });
+
+describe('chromeLayout', () => {
+  it('Library: the rail and the browser at 240 make the chrome 50 + 1 + 240', () => {
+    expect(chromeLayout(input())).toEqual({ place: 'library', form: 'rail', browserShown: true, steppedBack: false,
+      browserWidth: 240, sidebarW: 291 });
+  });
+  it('another page: the full sidebar alone, 168', () => {
+    const l = chromeLayout(input({ place: 'other' }));
+    expect([l.form, l.browserShown, l.sidebarW]).toEqual(['full', false, 168]);
+  });
+  it('each place keeps its own form: folded by hand outside Library, unfolded in Library', () => {
+    expect(chromeLayout(input({ place: 'other', formOther: 'rail' })).sidebarW).toBe(50);
+    expect(chromeLayout(input({ formLibrary: 'full' })).sidebarW).toBe(168 + 1 + 240);
+  });
+  it('a stored form that is neither falls back to the place\'s default', () => {
+    expect(chromeLayout(input({ formLibrary: 'x' as never })).form).toBe('rail');
+    expect(chromeLayout(input({ place: 'other', formOther: 'x' as never })).form).toBe('full');
+  });
+  it('the width is clamped to 200–360 and whole', () => {
+    expect(chromeLayout(input({ browserWidth: 120 })).sidebarW).toBe(50 + 1 + 200);
+    expect(chromeLayout(input({ browserWidth: 999 })).sidebarW).toBe(50 + 1 + 360);
+    expect(clampBrowserWidth(301.6)).toBe(302);
+    expect(clampBrowserWidth(Number.NaN)).toBe(BROWSER_DEFAULT);
+    expect(clampBrowserWidth('300')).toBe(BROWSER_DEFAULT);
+  });
+  it('below 1240 an open inspector steps the browser back behind the rail; at 1240 and up both stand', () => {
+    const narrow = chromeLayout(input({ inspectorOpen: true, windowWidth: 1100 }));
+    expect([narrow.steppedBack, narrow.browserShown, narrow.sidebarW]).toEqual([true, false, 50]);
+    const wide = chromeLayout(input({ inspectorOpen: true, windowWidth: 1240 }));
+    expect([wide.steppedBack, wide.browserShown, wide.sidebarW]).toEqual([false, true, 291]);
+    expect(chromeLayout(input({ inspectorOpen: false, windowWidth: 1100 })).browserShown).toBe(true);
+  });
+  it('the inspector pref never steps anything back outside Library', () => {
+    const l = chromeLayout(input({ place: 'other', inspectorOpen: true, windowWidth: 1100 }));
+    expect([l.steppedBack, l.browserShown]).toEqual([false, false]);
+  });
+});
+
+describe('chromeMove', () => {
+  const lib = chromeLayout(input());
+  const other = chromeLayout(input({ place: 'other' }));
+  it('nothing moves on the first layout or between two other pages', () => {
+    expect(chromeMove(null, lib)).toBe('none');
+    expect(chromeMove(other, chromeLayout(input({ place: 'other' })))).toBe('none');
+  });
+  it('into and out of Library', () => {
+    expect(chromeMove(other, lib)).toBe('into');
+    expect(chromeMove(lib, other)).toBe('out');
+  });
+  it('folding in either place', () => {
+    expect(chromeMove(other, chromeLayout(input({ place: 'other', formOther: 'rail' })))).toBe('fold');
+    expect(chromeMove(lib, chromeLayout(input({ formLibrary: 'full' })))).toBe('fold');
+  });
+  it('the step-back and its return', () => {
+    const back = chromeLayout(input({ inspectorOpen: true, windowWidth: 1100 }));
+    expect(chromeMove(lib, back)).toBe('step-back');
+    expect(chromeMove(back, chromeLayout(input({ windowWidth: 1100 })))).toBe('step-in');
+  });
+  it('a dragged width changes at once; the double-click back to 240 glides', () => {
+    const wide = chromeLayout(input({ browserWidth: 320 }));
+    expect(chromeMove(wide, lib)).toBe('none');
+    expect(chromeMove(wide, lib, true)).toBe('reset');
+  });
+});
+
+describe('the stores', () => {
+  it('fold turns over the current place\'s form only (the tests run on Dashboard)', () => {
+    expect(get(chrome).place).toBe('other');
+    expect(get(chrome).sidebarW).toBe(168);
+    fold();
+    expect(get(formOther)).toBe('rail');
+    expect(get(chrome).sidebarW).toBe(50);
+    fold();
+    expect(get(chrome).form).toBe('full');
+  });
+  it('chromeMotion names the move that led to each layout, starting with none', () => {
+    const seen: string[] = [];
+    const stop = chromeMotion.subscribe((m) => seen.push(m.move));
+    fold();
+    fold();
+    stop();
+    expect(seen).toEqual(['none', 'fold', 'fold']);
+  });
+  it('a width set with glide moves as a reset, once', () => {
+    const seen: string[] = [];
+    const stop = chromeMotion.subscribe((m) => seen.push(m.move));
+    setBrowserWidth(320);
+    setBrowserWidth(240, true);
+    setBrowserWidth(500);
+    stop();
+    expect(seen).toEqual(['none', 'none', 'reset', 'none']);
+    setBrowserWidth(240);
+  });
+  it('⌘I does nothing outside Library', () => {
+    toggleInspector();
+    expect(get(inspectorOpen)).toBe(false);
+  });
+  it('each filter request is a new number for the column to answer', () => {
+    const n = get(filterFocus);
+    requestFilterFocus();
+    expect(get(filterFocus)).toBe(n + 1);
+  });
+});
+
+describe('places', () => {
+  it('Library is its own place; every other route shares one', () => {
+    expect(placeOf('library')).toBe('library');
+    expect(['dashboard', 'runs', 'sync', 'settings', 'gallery'].map(placeOf)).toEqual(Array(5).fill('other'));
+  });
+  it('libraryReturn keeps the collection, not the selected track', () => {
+    expect(libraryReturn(parseHash('#/library/folder/Hard%20Bounce?track=t2'))).toBe('#/library/folder/Hard%20Bounce');
+    expect(libraryReturn(parseHash('#/library'))).toBe('#/library');
+    expect(libraryReturn(parseHash('#/todo'))).toBeNull();
+  });
+});
