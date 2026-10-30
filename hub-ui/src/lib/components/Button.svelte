@@ -10,7 +10,12 @@
   // the text colour (glyphs like ⊘ or ▸ render as faint rings or dots at 11–13 px); the caller gives `aria-label`.
   // `destructive` turns it red on hover, for an action that hides or removes something. `pressed` makes an icon
   // button a toggle that is on (shuffle): accent text on the strong wash plus a dot under the glyph, colour plus shape
-  // (design language §2), and `aria-pressed`. `size="xs"` is the 22 px icon square of a row inside the sidebar
+  // (design language §2), and `aria-pressed`. `switchedOff` (its words, "Show details") is the same toggle turned
+  // off by the user on purpose, a choice that sticks until they turn it on again (Library's details hidden by hand): the
+  // words before the glyph, so the glyph keeps its place at the right end and stays under the pointer, in a dashed
+  // outline, the house shape for "switched off" (SelectCard's `off`, the ladder's unlit rung). Neutral on purpose:
+  // red means weak quality or a problem, orange means on. The caller passes a glyph that says it too (struck
+  // through). `size="xs"` is the 22 px icon square of a row inside the sidebar
   // (the Now playing row), its glyph 12 px. `tip` gives an icon button the house tooltip (`Tip`: its name and
   // shortcut as a key cap, Library's details toggle) in place of a native `title`.
   // Press: buttons scale (.98, small and icon .97); a link dims instead, so text inside a sentence or row doesn't shrink.
@@ -27,9 +32,11 @@
     disabled?: boolean; busy?: boolean; busyLabel?: string; title?: string;
     onclick?: (e: MouseEvent) => void; type?: 'button' | 'submit'; wide?: boolean; href?: string;
     children?: Snippet; icon?: Snippet; muted?: boolean; destructive?: boolean; pressed?: boolean; tip?: TipParams;
+    switchedOff?: string;
   };
   let { variant = 'secondary', size = 'md', disabled = false, busy = false, busyLabel, title, onclick,
-    type = 'button', wide = false, href, children, icon, muted = false, destructive = false, pressed, tip = null, ...rest }: Props = $props();
+    type = 'button', wide = false, href, children, icon, muted = false, destructive = false, pressed, tip = null, switchedOff,
+    ...rest }: Props = $props();
   const off = $derived(disabled || busy);
   // aria-disabled instead of disabled, so the tooltip (the reason) still shows on hover
   function click(e: MouseEvent) {
@@ -45,6 +52,7 @@
     <Spinner size={size === 'sm' ? 10 : 12} label={busyLabel ?? 'Working'} />
     {#if busyLabel}<span>{busyLabel}</span>{:else}{@render children?.()}{/if}
   {:else}
+    {#if switchedOff}<span class="words">{switchedOff}</span>{/if}
     {#if icon}<span class="glyph">{@render icon()}</span>{/if}
     {@render children?.()}
   {/if}
@@ -59,7 +67,7 @@
     data-primary={variant === 'filled' || undefined} data-stretch={wide || undefined} onclick={click}>{@render label()}</a>
 {:else}
   <button {...rest} {type} use:tipAction={tip} class="btn {variant} {size}" class:muted class:destructive class:off class:busy class:pressed
-    aria-pressed={pressed} aria-disabled={off || undefined}
+    class:switched={!!switchedOff} aria-pressed={pressed} aria-disabled={off || undefined}
     aria-busy={busy || undefined} {title} data-primary={variant === 'filled' || undefined}
     data-stretch={wide || undefined} onclick={click}>{@render label()}</button>
 {/if}
@@ -113,6 +121,10 @@
   .icon.pressed:not(.off) { position: relative; color: var(--accent-text); background: var(--accent-wash-strong); }
   .icon.pressed:not(.off)::after { content: ''; position: absolute; left: 50%; bottom: 2px; width: 3px; height: 3px; margin-left: -1.5px;
     border-radius: var(--r-pill); background: currentColor; }
+  /* switched off by hand: words + glyph in a dashed outline; the glyph's right edge where the bare glyph's was */
+  .icon.switched:not(.off) { gap: var(--s-1); padding: 0 var(--s-1) 0 var(--s-2); border: var(--bw) dashed var(--line-control-hover);
+    color: var(--text-muted); font-size: var(--fs-small); }
+  .icon.switched:hover:not(.off) { color: var(--text); }
   .icon.destructive:hover:not(.off) { background: none; border-color: var(--q-weak-line); color: var(--q-weak); }
   /* off keeps the control's box, so the user still sees where the action is and that it waits (a disabled Start sync
      doesn't turn into floating grey text); a filled one keeps its --r-go corners. A link stays a bare link. */

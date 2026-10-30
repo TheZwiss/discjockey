@@ -4,10 +4,13 @@
   // subtitle's parts that drop whole, the track search, the details toggle), the collection at a glance as a 72 px
   // SummaryStrip, the quality filter as one Segmented, then the tracks as one table Surface that fills the height and
   // scrolls in place (LibraryTable). No docked panel: the docked panel squeezed the table, so the selected track's
-  // details (TrackDetails, the same cards as To-do's) are an inspector on demand. It opens from the toggle, ⌘I, a
-  // row's quality badge or the menu's Show details, follows the selection, stays open until closed and is
-  // remembered (`inspectorOpen`, closed at first). A click only selects; a double-click or Enter plays. Below 1240 px
-  // the open inspector steps the browser column back behind the rail (the chrome's job, stores/chrome.ts).
+  // details (TrackDetails, the same cards as To-do's) are an inspector that comes when wanted: picking a track (a
+  // click, ↑ ↓) opens it, it follows the selection and stays open (remembered, closed at first). Closing it with the
+  // toggle or ⌘I hides it by hand: picks then only select, and the toggle shows the choice in words ("Show details",
+  // a dashed outline, the glyph struck through) until the user opens the details by hand (the toggle, ⌘I, a quality
+  // badge, the menu's Show details); the rules are `detailsAfter` in stores/chrome.ts. A right-click selects without
+  // opening (the menu is what it asks for). A double-click or Enter plays. Below 1240 px the open inspector steps the
+  // browser column back behind the rail (the chrome's job, stores/chrome.ts).
   import { untrack, type ComponentProps } from 'svelte';
   import {
     Button, EmptyState, PageHeader, ProblemCard, SearchField, Segmented, Skeleton, Spectrum, SummaryStrip, Surface, confirm,
@@ -16,7 +19,7 @@
   import { api, runJob } from '$lib/bridge/client';
   import type { Fail, Library, LibraryFilter, LibrarySort, ProblemKind, TrackDetail } from '$lib/bridge/types';
   import { filesVersion } from '$lib/stores/hub';
-  import { inspectorAvailable, inspectorOpen } from '$lib/stores/chrome';
+  import { detailsHidden, detailsShown, inspectorAvailable, pickTrack, showDetails, toggleInspector } from '$lib/stores/chrome';
   import { player } from '$lib/stores/player';
   import { listen } from '$lib/listen';
   import { toasts } from '$lib/stores/toasts';
@@ -174,7 +177,9 @@
     sort = nextSort(sort, c);
     setPref(SORT_KEY, sort);
   }
-  function select(id: string) {
+  // `pick`: the user chose this track in the table (a click, ↑ ↓), which opens the details unless hidden by hand
+  function select(id: string, pick = true) {
+    if (pick) pickTrack();
     selected = id;
     void go(`${libraryHref(folder)}?track=${encodeURIComponent(id)}`, { replace: true });
   }
@@ -218,9 +223,12 @@
     if ($player.track_id === id && $player.url) player.toggle();
     else play(id);
   }
-  // the details: open on demand, and only where there is a library to show (the empty page has no table to select in)
-  const detailsOpen = $derived($inspectorOpen && !emptyLibrary);
-  function openDetails() { inspectorOpen.set(true); }
+  // the details: only where there is a library to show (the empty page has no table to select in)
+  const detailsOpen = $derived($detailsShown && !emptyLibrary);
+  const handHidden = $derived($detailsHidden && !emptyLibrary);
+  const detailsTip = $derived(detailsOpen ? { text: 'Hide details', keys: '⌘I' }
+    : handHidden ? { text: "Hidden by you: selecting a track won't open them", keys: '⌘I' }
+    : { text: 'Show details', keys: '⌘I' });
   // the chrome knows too: with an empty library ⌘I does nothing and a remembered open inspector steps nothing back
   $effect(() => { inspectorAvailable.set(!emptyLibrary); });
   $effect(() => () => inspectorAvailable.set(true));
@@ -231,14 +239,21 @@
   <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2.4" /><path d="M10 2.5v11" />
     <path d="M11.6 5.2h1.3M11.6 7.2h1.3M11.6 9.2h1.3" /></svg>
 {/snippet}
+{#snippet detailsHiddenIcon()}
+  <!-- the same window, its pane empty and struck through (hidden on purpose, like eye.slash) -->
+  <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2.4" /><path d="M10 2.5v11" />
+    <path d="M1.8 1.6l12.4 12.8" /></svg>
+{/snippet}
 
 {#snippet main()}
   <PageHeader title={lib?.title ?? (folder === null ? 'All tracks' : folder === NOT_IN_PLAYLIST ? 'Not in a playlist' : folder)} {sub}>
     {#snippet actions()}<SearchField bind:value={search} bind:input={searchInput} placeholder="Search title, artist…" shortcut="cmd+f"
-      test="library-search" />{#if !emptyLibrary}<Button variant="icon" icon={detailsIcon} pressed={detailsOpen}
+      test="library-search" />{#if !emptyLibrary}<Button variant="icon"
+        icon={handHidden ? detailsHiddenIcon : detailsIcon} pressed={detailsOpen}
+        switchedOff={handHidden ? 'Show details' : undefined}
         aria-label={detailsOpen ? 'Hide details' : 'Show details'}
-        tip={{ text: detailsOpen ? 'Hide details' : 'Show details', keys: '⌘I' }} aria-keyshortcuts="Meta+I"
-        onclick={() => inspectorOpen.update((o) => !o)} data-test="library-details" />{/if}{/snippet}
+        tip={detailsTip} aria-keyshortcuts="Meta+I" onclick={toggleInspector} data-test="library-details"
+        data-hidden={handHidden || undefined} />{/if}{/snippet}
   </PageHeader>
   {#if libError && !lib}
     <ProblemCard kind={libError.kind} message={libError.message} onretry={() => { retry++; }} />
@@ -266,7 +281,7 @@
       </Surface>
     {:else}
       <LibraryTable rows={lib.rows} {loading} {view} {sort} {selected} {playing} {onsort} onselect={select}
-        onplay={playOrPause} onfinder={(id) => void finder(id)} ontodo={todo} ondetails={openDetails} />
+        onplay={playOrPause} onfinder={(id) => void finder(id)} ontodo={todo} ondetails={showDetails} />
     {/if}
   {/if}
 {/snippet}

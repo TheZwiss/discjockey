@@ -8,7 +8,7 @@
   // Optional columns query the list itself (Surface's rows are the `list` container), not this area.
   //
   // `panelMode="inspector"` (Library, plan library stage 5 A3.7, D16.3, house rule 3): the panel is there only while
-  // `open`, the details on demand. Same widths, same `data-panel`, same Panel inside. The page lays out once and the
+  // `open`, the details when wanted (the page decides: Library opens them on a pick). Same widths, same `data-panel`, same Panel inside. The page lays out once and the
   // chrome moves over it (the notes' motion table): on open the list takes its final width at once and the inspector
   // slides in from the window's right edge over the space just freed (--t-slide-in, 240 ms, the drawer curve); on
   // close the list widens at once and the inspector slides out the way it came, over the rows (--t-slide-out, 200 ms:

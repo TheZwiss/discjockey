@@ -7,8 +7,9 @@
   // reverse order. The rows' width is measured (a ResizeObserver, which reports before the frame is painted, so a
   // column never shows for a frame at the wrong width) and `columnsAt` picks the columns, so the thresholds live in
   // one tested place; the head and the rows share the one grid. Above 300 rows only the visible ones are rendered
-  // (windowSlice). A click selects (the inspector, when open, follows it); a click on a row's quality badge also
-  // opens the details ("why is this weak?", N5). ↑ / ↓ select, Enter plays, right-click opens the shared menu; the cover is the
+  // (windowSlice). A click or ↑ / ↓ picks a row (`onselect`; the page opens the details unless the user hid them by
+  // hand); a click on a row's quality badge opens the details even then ("why is this weak?", N5). Enter plays,
+  // right-click selects without picking (`onselect(id, false)`) and opens the shared menu; the cover is the
   // row's play button (▶ while the row is hovered, ❚❚ while it plays). A row whose file is away (its drive offline, its
   // watched folder not found: `file_state`) is dimmed, says why with an `AwayTag` in the quality column (the one fixed
   // column wide enough for "Folder not found" at every width; the quality stays in the panel and the filters), and
@@ -28,7 +29,10 @@
     view?: LibraryView; sort: LibrarySort; selected: string | null;
     /** the track playing now */
     playing?: string | null;
-    onsort: (c: SortColumn) => void; onselect: (id: string) => void; onplay: (id: string) => void;
+    onsort: (c: SortColumn) => void;
+    /** a row selected; `pick` false: selected for the right-click menu only, not picked to look at */
+    onselect: (id: string, pick?: boolean) => void;
+    onplay: (id: string) => void;
     onfinder: (id: string) => void; ontodo: (id: string) => void;
     /** open the details inspector (a quality badge, the menu's Show details); the row is selected first */
     ondetails: () => void;
@@ -95,7 +99,7 @@
   }
   function context(e: MouseEvent, r: LibraryRow) {
     e.preventDefault();
-    onselect(r.track_id);
+    onselect(r.track_id, false);
     // an away file can't be shown in Finder (the panel offers it only for a file that is there)
     const finder = playable(r), todo = inTodo(r);
     menu = { id: r.track_id, x: e.clientX, y: e.clientY, todo, finder };
@@ -124,8 +128,9 @@
     {/each}
     <SortHeader label={LABEL.quality} sorted={sorted('quality')} onsort={() => onsort('quality')} test="sort-quality" />
     <span class="tip"><InfoTip label="Keys and clicks" data-test="library-keys">Click a header to sort, again to turn it
-      round. A click selects a row, ↑ ↓ move. Double-click, Enter or the cover plays. ⌘I or a quality badge shows the
-      details. Right-click: Show details, Show in Finder, Open in to-do.</InfoTip></span>
+      round. A click or ↑ ↓ selects a row and shows its details, unless you hid them. Double-click, Enter or the cover
+      plays. ⌘I shows or hides the details; a quality badge shows them. Right-click: Show details, Show in Finder, Open
+      in to-do.</InfoTip></span>
   </div>
 {/snippet}
 
