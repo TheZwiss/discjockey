@@ -7,7 +7,8 @@
   // a Surface with sections doesn't fade its top end (Surface CSS). `data-list-section` marks it for that rule.
   //
   // A stuck head is solid and square (plan library stage 5 A3.6, notes N15, house rule 10): opaque in its list's own
-  // colour, no rounded corners, no soft fade, so no row shows through it or round it; while rows pass beneath it, it
+  // colour (one solid value, `--surface-list-solid`: a gradient of its own would restart at each head), no rounded
+  // corners, no soft fade, so no row shows through it or round it; while rows pass beneath it, it
   // gets a hairline on that edge (`stuckEdge` sets `data-stuck`). Not stuck it has no line of its own: in a list with
   // row rules the next row's rule is the line under it. A row scrolled into view (a selection, the keyboard, a
   // collection opened) stops whole beside a stuck head, never half under it: the rows beside sections get the head's
@@ -33,7 +34,7 @@
   /* the caption's 16 px inset, so the name starts where the rows' covers do */
   .section { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: var(--s-2);
     min-height: var(--h-section); padding: 0 var(--s-4); min-width: 0; white-space: nowrap; border-radius: 0;
-    --section-line: var(--line-soft); background: var(--surface); }
+    --section-line: var(--line-soft); background: var(--surface-list-solid); }
   .section.both { bottom: 0; }
   .section.chrome { --section-line: var(--surface-line); background: var(--sidebar-solid); }
   /* the hairline on the edge rows pass: a shadow, so it takes no room and travels with the head */
