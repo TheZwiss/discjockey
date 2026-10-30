@@ -5,10 +5,14 @@
   // `fill`: as wide as its container (the browser column's filter), not its own 180 px. `input` (bindable): the
   // field itself, for a caller that focuses it on a request (⌘K). `onkeydown` comes first: a caller that handles a
   // key (↑ ↓ Enter in the browser's filter, or an Esc that also leaves) prevents its default, and the field then
-  // leaves that key alone.
-  let { value = $bindable(''), placeholder = 'Search…', shortcut, test, fill = false, input = $bindable(), onkeydown }:
-    { value?: string; placeholder?: string; shortcut?: 'cmd+f' | 'cmd+k'; test?: string; fill?: boolean;
-      input?: HTMLInputElement; onkeydown?: (e: KeyboardEvent) => void } = $props();
+  // leaves that key alone. The combobox attributes (`role`, `aria-controls`, `aria-expanded`, `aria-activedescendant`,
+  // `aria-autocomplete`) go onto the input as given: the browser's filter is a combobox over its rows.
+  import type { HTMLInputAttributes } from 'svelte/elements';
+  type Combo = Pick<HTMLInputAttributes, 'role' | 'aria-controls' | 'aria-expanded' | 'aria-activedescendant'
+    | 'aria-autocomplete'>;
+  let { value = $bindable(''), placeholder = 'Search…', shortcut, test, fill = false, input = $bindable(), onkeydown,
+    ...combo }: { value?: string; placeholder?: string; shortcut?: 'cmd+f' | 'cmd+k'; test?: string; fill?: boolean;
+      input?: HTMLInputElement; onkeydown?: (e: KeyboardEvent) => void } & Combo = $props();
   $effect(() => {
     if (shortcut !== 'cmd+f') return;
     const fn = (e: KeyboardEvent) => {
@@ -26,7 +30,7 @@
 
 <label class="sf" class:filled={!!value} class:fill>
   <span class="glyph" aria-hidden="true">⌕</span>
-  <input bind:this={input} bind:value type="search" {placeholder} aria-label={placeholder} spellcheck="false"
+  <input {...combo} bind:this={input} bind:value type="search" {placeholder} aria-label={placeholder} spellcheck="false"
     aria-keyshortcuts={shortcut === "cmd+k" ? "Meta+K" : shortcut ? "Meta+F" : undefined}
     data-test={test} onkeydown={key} />
   {#if value}<button type="button" class="clear" aria-label="Clear the search" title="Clear (Esc)" onclick={() => { value = ''; input?.focus(); }}>×</button>

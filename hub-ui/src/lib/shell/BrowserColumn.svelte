@@ -14,6 +14,10 @@
   // its search, `#/library?q=`). No motion: the list is rebuilt on each key. Esc clears and leaves the field (an open
   // Tip takes the first Esc). ⌘K anywhere asks for the field (`filterFocus`); the column answers once it stands.
   // Opening a collection (a click, Enter, the route) scrolls its row into view, whole beside the stuck heads.
+  //
+  // For a screen reader the filter is a combobox over the rows: while filtering the list is a listbox, each row an
+  // option with its own id (`bc-…`), and the field's `aria-activedescendant` names the highlighted one, so ↑ ↓ are
+  // read out as they move. A switched-off playlist says so in words, not only by its dim.
   import { tick } from 'svelte';
   import { get } from 'svelte/store';
   import { hub } from '../stores/hub';
@@ -21,7 +25,7 @@
   import { browserClosed, filterFocus, playlistsAz } from '../stores/chrome';
   import { Button, ListSection, SearchField, ServiceMark, tip } from '../components';
   import {
-    HANDOFF, browserList, currentKey, highlightOf, moveHighlight, rowByKey, sortTip, toggleClosed,
+    HANDOFF, browserList, currentKey, highlightOf, moveHighlight, rowByKey, rowId, sortTip, toggleClosed,
     type BrowserRow, type Match,
   } from './browserModel';
 
@@ -37,10 +41,13 @@
   const hi = $derived(highlightOf(list.targets, moved));
   const at = $derived(currentKey(side, $route.name === 'library' ? ($route.params.folder ?? null) : undefined));
 
-  // a new text starts the highlight over at the first match
+  // a new text starts the highlight over at the first match, and brings it into view
   let lastQuery = '';
   $effect.pre(() => {
-    if (query !== lastQuery) { lastQuery = query; moved = null; }
+    if (query === lastQuery) return;
+    lastQuery = query;
+    moved = null;
+    void tick().then(() => reveal(hi));
   });
 
   function clear() {
@@ -59,7 +66,8 @@
   }
 
   function keydown(e: KeyboardEvent) {
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    // keys that compose a letter (an input method's ↑ ↓ Enter Esc) belong to the input method
+    if (e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       if (!filtering) return;
       e.preventDefault();
@@ -114,15 +122,25 @@
     if (top < s.top) scroller.scrollTop += top - s.top;
     else if (bottom > s.bottom) scroller.scrollTop += bottom - s.bottom;
   }
-  // the collection on screen: its row comes into view (a click, Enter, ♫, a link from another page, a folded section
-  // opened); not while filtering, where the highlight leads
+  // the collection on screen: its row comes into view when it changes (a click, Enter, ♫, a link from another page),
+  // when its folded section opens, and when the filter is cleared; not while filtering, where the highlight leads.
+  // Nothing else moves the list: a refresh of the counts, another section folding or the A–Z order leave the user's
+  // scroll where it is (`atShown` is a boolean, so a new list with the row still shown doesn't count as a change)
+  const atShown = $derived(!!at && (at.startsWith('view:')
+    || list.sections.some((s) => s.open && s.rows.some((r) => r.key === at))));
   $effect(() => {
     const k = at;
-    void list;
-    if (!k || filtering) return;
+    if (!k || !atShown || filtering) return;
     void tick().then(() => reveal(k));
   });
 
+  // the A–Z toggle reorders the rows in place; WebKit moves the list's scroll while the rows are moved (measured: 400
+  // → 176), so the list keeps the scroll it had
+  function toggleAz() {
+    const top = scroller?.scrollTop ?? 0;
+    playlistsAz.update((v) => !v);
+    void tick().then(() => { if (scroller) scroller.scrollTop = top; });
+  }
   function fold(key: string) {
     browserClosed.update((c) => toggleClosed(c, key));
   }
@@ -138,12 +156,15 @@
 <div class="col" data-test="browser">
   <div class="find">
     <SearchField bind:value={query} bind:input placeholder="Filter playlists, folders" shortcut="cmd+k" fill
-      onkeydown={keydown} test="browser-filter" />
+      onkeydown={keydown} test="browser-filter" role="combobox" aria-controls="bc-list" aria-expanded={filtering}
+      aria-autocomplete="list" aria-activedescendant={filtering && hi ? rowId(hi) : undefined} />
   </div>
 
-  <div class="list" bind:this={scroller} data-test="browser-list">
+  <div class="list" id="bc-list" bind:this={scroller} role={filtering ? 'listbox' : undefined}
+    aria-label={filtering ? 'Matches' : undefined} data-test="browser-list">
     {#each list.views as v (v.key)}
       <a class="row" class:on={at === v.key} href={v.href} use:link onclick={() => opened(v)} data-key={v.key}
+        id={rowId(v.key)}
         aria-current={at === v.key ? 'page' : undefined}
         data-test={v.key === 'view:all' ? 'browser-all' : 'browser-unlisted'}>
         <span class="t">{v.name}</span><span class="n num">{v.count}</span>
@@ -156,7 +177,7 @@
         {#if s.key === 'playlists'}
           <span class="sort" use:tip={sortTip($playlistsAz)}>
             <Button variant="icon" size="xs" pressed={$playlistsAz} aria-label="Order A to Z"
-              onclick={() => playlistsAz.update((v) => !v)} data-test="browser-az">
+              onclick={toggleAz} data-test="browser-az">
               <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 3h9M1.5 6h6.5M1.5 9h4" /></svg>
             </Button>
           </span>
@@ -165,7 +186,8 @@
       {#if s.open}
         {#each s.rows as r (r.key)}
           <a class="row" class:on={at === r.key} class:kb={hi === r.key} class:off={r.kind === 'playlist' && !r.enabled}
-            href={r.href} use:link use:tip={r.tip} onclick={() => opened(r)} data-key={r.key}
+            href={r.href} use:link use:tip={r.tip} onclick={() => opened(r)} data-key={r.key} id={rowId(r.key)}
+            role={filtering ? 'option' : undefined} aria-selected={filtering ? hi === r.key : undefined}
             aria-current={at === r.key ? 'page' : undefined} data-test="browser-row">
             <span class="lead">
               {#if r.kind === 'playlist'}
@@ -176,6 +198,7 @@
               {/if}
             </span>
             {@render name(r.name, r.match)}
+            {#if r.kind === 'playlist' && !r.enabled}<span class="sr-only">, switched off</span>{/if}
             <span class="n num">{r.count}</span>
           </a>
         {/each}
@@ -185,7 +208,8 @@
     {#if list.handoff}
       {@const h = list.handoff}
       <a class="row handoff" class:kb={hi === HANDOFF} class:alone={!list.sections.length} href={h.href} use:link
-        use:tip={h.tip} onclick={() => opened(h)} data-key={HANDOFF} data-test="browser-handoff">
+        use:tip={h.tip} onclick={() => opened(h)} data-key={HANDOFF} id={rowId(HANDOFF)} role="option"
+        aria-selected={hi === HANDOFF} data-test="browser-handoff">
         <span class="lead"><svg class="mag" viewBox="0 0 12 12" aria-hidden="true"><circle cx="5.2" cy="5.2" r="3.9" /><path
           d="M8.1 8.1 11 11" /></svg></span>
         <span class="t">Search tracks for “{h.text}”</span>
@@ -196,19 +220,19 @@
 </div>
 
 <style>
-  /* the 10 px under the list belong to the column, not the scroller: a head stuck at the list's foot is its last
+  /* the room under the list belongs to the column, not the scroller: a head stuck at the list's foot is its last
      pixel, and no row shows below it */
-  .col { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-bottom: 10px; }
-  .find { flex: none; padding: 0 var(--s-2) 6px; }
+  .col { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-bottom: var(--s-3); }
+  .find { flex: none; padding: 0 var(--s-2) var(--s-2); }
   /* one scroller for the rows and their heads; no scrollbar of its own (the column is chrome, the stuck heads and the
      rows passing under them say there is more) */
   .list { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px;
     overflow-y: auto; padding: 0 var(--s-2); scrollbar-width: none; }
   .list::-webkit-scrollbar { display: none; }
   /* a section's head stands a little apart from the rows above it */
-  .list > :global([data-list-section]) { margin-top: 10px; }
+  .list > :global([data-list-section]) { margin-top: var(--s-3); }
 
-  .row { display: flex; align-items: center; gap: 9px; height: var(--h-ctl); flex-shrink: 0; padding: 0 var(--s-2);
+  .row { display: flex; align-items: center; gap: var(--gap-nav); height: var(--h-ctl); flex-shrink: 0; padding: 0 var(--s-2);
     color: var(--text-nav); border-radius: var(--r-nav); text-decoration: none; white-space: nowrap; min-width: 0; }
   .row:hover { color: var(--text); background-color: var(--ctl-hover); text-decoration: none; }
   .row:not(.on):hover { transition: background-color var(--t-hover) var(--ease), color var(--t-hover) var(--ease); }
@@ -228,7 +252,7 @@
     font-size: var(--fs-label); }
   .on .n, .kb .n { color: var(--text-muted); }
 
-  .handoff { margin-top: 6px; }
+  .handoff { margin-top: var(--s-1); }
   .handoff.alone { margin-top: 0; }
   .mag { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round;
     color: var(--text-muted); }
