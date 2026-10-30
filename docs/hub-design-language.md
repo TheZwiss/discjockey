@@ -609,7 +609,8 @@ before reopening anything. New system-level decisions from phase 2 on go here, n
   characters with a single "…" (the mockup's fallback cut the shortened form again, which could print "…" twice).
   The header counts a playlist with songs still to come as "13 of 18 downloaded", one part, so the count, the 18
   rows and the sidebar's "18 songs" agree at every width (two parts dropped one at a time and left "13 tracks"
-  beside 18 rows). Why: the D6 row signals and D9–D12 needed these four forms; each is one block's option, used by
+  beside 18 rows). Both numbers now come from one call: the engine's `songs: {listed, with_file}` in `views.library`
+  (the page no longer joins it with the sidebar's count). Why: the D6 row signals and D9–D12 needed these four forms; each is one block's option, used by
   Library only so far. Seen: `library-playlist*`, `library-folder-*`, gallery sections `gallery-badge`,
   `gallery-cover`, `gallery-trackhead`.
 

@@ -279,7 +279,8 @@ root, so the frame, the foot's line and the rule checker read one value.
   yet`); a Library folder `{n} tracks · no playlist uses it · Library › {name}`; a watched folder `{n} tracks · {k}
   folders with music · {place}`; a crate `{n} tracks · {tip}`; an away folder puts `Offline: connect the drive` /
   `Folder not found` second. `{place}` uses the watched-folder list's form (check first where Settings' rows get
-  "~/…" / "Drive › …": engine or `watchedFoldersModel.ts`; the subtitle uses the same, from the same side).
+  "~/…" / "Drive › …": engine or `watchedFoldersModel.ts`; the subtitle uses the same, from the same side). A read playlist's page words its songs from the engine's `songs:
+  {listed, with_file}` (`views.library`) as "{with_file} of {listed} downloaded", not from the sidebar's count and the rows.
 - Strip (N5): `{p} % lossless`, `{l} of {c} checked tracks`; rows `Upgrade ready {n} ›`, `Not lossless yet · {all in
   To-do | {m} in To-do | none in To-do} {n} ›` (no link and no › at none; tooltip when fewer: `{m} of them in To-do:
   files of your own in no playlist aren't`). Inspector toggle `Show details (⌘I)` / `Hide details (⌘I)`; hidden by hand: the toggle's words `Show details`, tip

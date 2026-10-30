@@ -34,6 +34,10 @@ Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, st
   (`saveCratesShown`, one sidebar read at the end), so None on a folder with many switched-on crates is that many
   brief saves: a `set_crates_shown(paths, shown)` would make it one (an engine change). Under a folder with too
   many crates, All needs a search that leaves at most 25 rows.
+- **`set_favourites` reads the whole sidebar:** it loads the whole sidebar view before every save just to know which
+  keys exist.
+- **Favourites save and `refreshHub`:** a full `refreshHub` landing during a Favourites save can briefly show the old order.
+- **`set_crate_shown` stores any path:** it does not check that the path is a crate.
 - **Later cleanup:** `views.library` is about 140 lines; `_playlist_rows` / `_folder_rows` would split it. `track()`
   recomputes `views.sites` over every file on each pick (linear, fast enough today).
 
