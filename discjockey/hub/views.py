@@ -786,6 +786,7 @@ def crates(files: Iterable[str], watched: Iterable[str], overrides: Mapping[str,
     for w, found in outer.items():
         root = roots[w]
         too_many = len(found) > CRATE_LIMIT
+        parents = {anc for anc in found.values() if anc is not None}  # a crate has crates when one has it nearest
         rows = []
         for d, anc in found.items():
             label = (f"{anc.name} › {d.name}" if anc is not None
@@ -793,7 +794,7 @@ def crates(files: Iterable[str], watched: Iterable[str], overrides: Mapping[str,
             rows.append({"path": str(d), "label": label, "name": d.name,
                          "tip": " › ".join([root.name or w, *d.relative_to(root).parts]), "files": below[d],
                          "hidden": not overrides.get(str(d), not too_many),
-                         "has_crates": any(o != d and o.is_relative_to(d) for o in found)})
+                         "has_crates": d in parents})
         rows.sort(key=lambda r: (_natural(r["label"]), r["path"]))
         out[w] = {"too_many": too_many, "crate_count": len(rows), "crates": rows}
     return out

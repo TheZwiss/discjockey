@@ -1,6 +1,8 @@
 from dataclasses import replace
 from datetime import date, datetime
 
+import time
+
 import pytest
 
 from discjockey.hub import views
@@ -1667,6 +1669,19 @@ def test_more_than_25_crates_make_a_too_many_folder_with_every_crate_hidden_unle
     assert {c["name"] for c in got["crates"] if not c["hidden"]} == {"Crate 03"}
     exactly = views.crates(under(W, *folders[:25]), [W], {})[W]
     assert (exactly["too_many"], any(c["hidden"] for c in exactly["crates"])) == (False, False)
+
+
+def test_a_few_thousand_crates_are_worked_out_in_linear_time():
+    # 3000 flat crates, 30 of them with one more inside: the quadratic version took over a minute here, this under a
+    # second; the result is checked as well, so a fast wrong answer fails too
+    folders = [f"Crate {i:04d}" for i in range(3000)]
+    nested = [f"{f}/Inner" for f in folders[:30]]
+    start = time.monotonic()
+    rows = crate_rows(under(W, *folders, *nested))
+    assert time.monotonic() - start < 3
+    assert len(rows) == 3030
+    assert {r["name"] for r in rows if r["has_crates"]} == set(folders[:30])
+    assert not any(r["has_crates"] for r in rows if r["name"] == "Inner" or r["name"] in folders[30:])
 
 
 def test_a_file_under_two_watched_folders_belongs_to_the_deeper_one():
