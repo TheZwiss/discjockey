@@ -35,6 +35,11 @@ Every page uses one, from `hub-ui/src/lib/frames`:
 - **`ListPanelFrame`** (snippets `main`, `panel`; `emptyPanel` text; `wide`): sidebar 168 · list area · panel docked
   right, **360 px**, **320 px** below 1240 px window width (one step, never fluid). List content grows to **900 px**
   (`wide`, Library's table: **1200 px**), then centres.
+  `panelMode="inspector"` (Library only): the panel is the details **when wanted** (Library opens it when a track is
+  picked, unless the user hid it by hand), there only while `open`, at the
+  same widths with the same `Panel` and `data-panel`; the list takes its final width at once and the inspector slides
+  in from the window's right edge over the freed space, and out the same way (motion table). Closed it is `inert` and
+  hidden. Every other page keeps the docked panel.
 - **`ColumnFrame`** (snippets `content`, `foot`): content up to **900 px**, centred. For the running sync, the end
   screen, Settings, Setup.
 
@@ -48,6 +53,38 @@ The window's chrome is one **L-shaped frame**: the sidebar and, while something 
 by `App.svelte` behind them, so they never meet in a seam; the page sits inside on black. Only the page's edge has a
 line: the sidebar's right border, continued along the page's lower edge (1 px `--surface-line` from `--sidebar-w` to the
 right). Chrome joins this frame; it never floats over the page or reserves a strip of its own.
+- **Two sidebar forms, and the browser column in Library** (library stage 5, D16 rules 1, 2, 4, 6; `Sidebar.svelte`,
+  its state in `lib/stores/chrome.ts`). The sidebar is **full** (168 px,
+  `--sidebar-full-w`) or a **rail** (50 px, `--rail-w`): the rail is the full sidebar with its labels folded away, and
+  the glyph column (18–32 px from the window's edge) and every row (30 px, 2 px apart) stay put, so no icon moves; the
+  selected pill becomes a 30 × 30 square. The pages' icons are drawn (`NavIcon`), the only label in the rail, named
+  by a `Tip`. Library remembers its form (rail by default), all other pages share one (full by default); ⌃⌘S folds.
+  In Library the frame also holds the **browser column** (the collections and their filter; 200–360 px, 240 by
+  default: `--browser-w-min` / `-default` / `-max`), in the same material. `--sidebar-w` is the chrome's whole width
+  (the form, plus 1 + the browser's width while it stands), so the page's edge, the foot's line and its seek area
+  follow it. **One more line inside the chrome:** the sidebar's right edge while the browser stands beside it, the
+  same hairline as the page's edge, so the icon column and the collections read as two levels, pages | collections.
+  Below 1240 px (`--panel-narrow-below`) Library holds the browser or the details beside the list, not both: an open
+  inspector steps the browser back behind the rail, and ⌘K or ♫ brings it back and closes the details.
+- **The fold button and the rail's signals.** The fold button (the macOS sidebar symbol, a Tip "Hide sidebar ⌃⌘S" /
+  "Show sidebar ⌃⌘S") sits on the glyph column at the top of both forms, and "Discjockey" (with the update line under
+  it) folds away beside it but keeps its height, so no row below moves. The rail carries the full form's signals in the
+  same colours: To-do's count as a neutral pill on the glyph's top-right corner, growing rightwards
+  (`--rail-pill-bg`; two digits, "99+" above, which alone grows leftwards so it stays inside the rail; the full form
+  prints the count in the count column), Download limits' yellow dot where it always is, and a running sync
+  as a neutral 2 px ring round ⟳ whose arc is the share done (`Ring mark`; the full form prints "12/40" in the count
+  column). Every rail icon has a Tip with its page's name, its signal in words ("To-do · 5 to look at", "Sync ·
+  syncing, 12 of 40") and its shortcut as a key cap. Library's ♫ goes back to the collection it was left at.
+- **The keys** (`lib/shell/keys.ts`, one window-level handler in `App.svelte`): ⌘1–⌘6 the pages in the rail's order
+  (by the key's place, so any layout reaches them), ⌘, Settings, ⌘K Library with its filter focused, ⌘I the details
+  (Library only), ⌃⌘S fold. All carry ⌘, so they work from a text field too; never in a dialog, never repeated by a
+  held key. Space and ⌘← ⌘→ stay the player's, ⌘F the page's track search, ↑ ↓ Enter Esc whatever has focus. Not in
+  the View menu: pywebview 6.2 adds a program's menus only as new menus beside its default View menu (and its menu
+  items take no key equivalents), so a "Hide Sidebar" item there would mean a second View menu; the key stays.
+- **The sidebar's Library group retires:** the collections live in the browser column, every row one line (the
+  two-line crate rows and the watched folders' balanced wrap retire with it); Library is a page of its own in the nav
+  (♫). On pages without the browser the sidebar holds only the pages, plus Favourites as shortcuts without counts
+  (step B).
 - **The foot holds what goes on:** the player bar while a list plays (a queue, plan now-playing), the sync's status
   while the hub's own sync runs (not on Sync itself), or both in one bar (the sync's short form at the bar's right end).
   No foot when neither.
@@ -60,7 +97,9 @@ right). Chrome joins this frame; it never floats over the page or reserves a str
   The hit area is 10 px, centred on the line. While a track loads, no fill.
 - **Hide folds the bar into the sidebar:** a **Now playing** row above Settings (`NowPlayingRow.svelte`: the "Library"
   label's style, a 32 px row with a 22 px `PlayButton`, the title, a 22 px ⌃ `Button icon xs`, the position as a 2 px
-  line under the title). Show (⌃ or the title) unfolds it again. The folders above give way.
+  line under the title). Show (⌃ or the title) unfolds it again. In the rail it stacks on the glyph column: ⌃ Show
+  player, the same 22 px `PlayButton`, the row's 2 px position line under it, and one Tip naming it all ("Artist –
+  Title · list · Show player"); the PlayButton's own tooltip stays off there (`title={null}`), so it never shows two.
 - Disabled controls are grey, never removed (a list of one: ⤮ ⏮ ⏭ grey; the end of the list: ⏭ grey).
 
 | Do | Don't |
@@ -175,6 +214,12 @@ the Download limits dot). **Risk** is the one other job green, yellow and red ha
 yellow easier to notice, red risky), through the `--risk-*` tokens, and only on Download limits' `RiskScale`, its
 verdict, the 14-day bars and a service's status. No other colours. A read in progress is status, so it is neutral
 (Sync's reading card), not orange.
+**The one exception:** a service's logo (`ServiceMark`) keeps its own colours. It is an image that names a service,
+not a signal, so it never stands for quality, action or risk (plan library stage 5 D7, the user's wish).
+
+**Dim is reserved** (D16 rule 9). In lists of collections (the sidebar, the browser column) half strength means
+switched off and nothing else. A name's secondary part keeps the name's colour ("Hardtechno › 2019", "Bounce · Old
+Sets"); only its separator is quiet. A part in label grey would read as a dimmed row.
 
 | Do | Don't |
 |---|---|
@@ -200,7 +245,12 @@ verdict, the 14-day bars and a service's status. No other colours. A read in pro
   TextField), `--h-ctl-sm` (26 px: small controls, the icon button's square, the DayBar), `--w-row-action` (64 px: a
   row's action or number slot), `--gap-split` (3 px: the DayBar's split), `--dim-locked` (.5: the one dim for "can't use
   right now", a disabled Switch and the plan while Spotify is read), `--content-max` / `--content-max-wide` (the frames'
-  `data-max` names them) and `--panel-w` / `--panel-w-narrow` / `--panel-narrow-below` (1240 px).
+  `data-max` names them) and `--panel-w` / `--panel-w-narrow` / `--panel-narrow-below` (1240 px), the chrome's widths
+  (`--sidebar-full-w` 168, `--rail-w` 50, `--browser-w-min` / `-default` / `-max` 200 / 240 / 360; `--sidebar-w` is the
+  chrome's whole width), `--surface-list-solid` (a list's colour as one value: a stuck head on it), `--sidebar-solid` (the frame's material as one colour: a stuck head on it, the ring that cuts
+  the rail's pill out of a glyph), `--rail-pill-bg` (the rail's neutral count pill) `--h-section-chrome` (28 px: a
+  section head on the frame, the browser column's), `--gap-nav` (9 px: a sidebar or browser row's glyph to its name)
+  and `--t-hint-delay` (300 ms: a hover hint that waits, the browser edge's line).
 
 | Do | Don't |
 |---|---|
@@ -219,14 +269,20 @@ Finish later in its `actions`).
 ```
 
 - Props: `title`, `sub` (the status line, 12 px, on the title's baseline), `actions` (snippet: search, Full report),
-  `spotify` (show the read slot), `spotifyInBody`, `spotifyState`. The title never shrinks and the status line is
+  `readStatus` (show the read slot), `readStatusInBody`, `readStatusState`. The title never shrinks and the status line is
   never cut: when it doesn't fit beside the title it wraps under it, balanced, breaking between words and after a "·"
   (never before it), so the header grows by a line only where the words need it. Only a title longer than the whole
   lead (a folder name) ends in "…".
-- The **read slot** (the playlists' read status, every service at once; its wire and block names still say Spotify
-  until stage 5 rebuilds it) is always last, so its right edge is the content's right edge. It is on Dashboard, Sync
-  (before the start), To-do and Playlists. `SpotifyStatus` is placed only by this slot; the checker fails it anywhere
-  else (`spotify-status`).
+- **`sub` as a list of parts** (Library's collections): the parts in order of importance ("472 tracks", "8 folders
+  with music", "~/Music/Rekordbox Library") on the title's line only. When they don't all fit, whole parts drop, the
+  last first, down to none; a part is never cut mid-word, and the whole subtitle is the tooltip (the title's too, so
+  it can be read when every part has dropped). The space before the first part is that part's own. CSS only (the parts
+  wrap onto a clipped second line behind a zero-width strut), so it follows the width live. The title keeps its whole
+  width and ends in "…" only when even the title alone doesn't fit.
+- The **read slot** (the playlists' read status, every service at once; the wire field is `read_status`, the block
+  `ReadStatus`) is always last, so its right edge is the content's right edge. It is on Dashboard, Sync
+  (before the start), To-do and Playlists. `ReadStatus` is placed only by this slot; the checker fails it anywhere
+  else (`read-status`).
 - The header spans its frame's content box (the list area, never the panel). Height at least 34 px; content starts
   `--s-3` under it, so it starts at the same y on every page.
 
@@ -244,11 +300,11 @@ remove it on every page, not just yours.
   One wording everywhere: `problemCopy(kind, { service })` in `lib/copy.ts`.
 - Read playlists lives only in the header slot. Cards don't repeat it.
 - **A page takes a banner over only through `bannersSaidInBody`** (`lib/stores/shell.ts`): the view that says the
-  state in its body calls `$effect(() => sayInBody({ console, spotify }))`, which clears itself when the view goes.
+  state in its body calls `$effect(() => sayInBody({ console, readStatus }))`, which clears itself when the view goes.
   The shell imports no page. A view never loses the warning: it claims a banner only while it really shows its own.
 - **Sync's use of it:** the before-start view shows reading and Spotify problems as cards in its body
-  (`spotifyInBody`), so the slot keeps only the control. It claims `console` only while it shows a plan (Start
-  off, with its Hint "A sync is running in the terminal"), and `spotify` only while the card above the plan can
+  (`readStatusInBody`), so the slot keeps only the control. It claims `console` only while it shows a plan (Start
+  off, with its Hint "A sync is running in the terminal"), and `readStatus` only while the card above the plan can
   show. The up-to-date, empty and preview-error views keep the console banner (`sync-before-up-to-date-console`);
   the running and end views keep both banners.
 
@@ -266,8 +322,10 @@ remove it on every page, not just yours.
 | A value that changes on its own (bar, ring, quality bar after a refresh) | `--t-value` (~420 ms). A value shown for the first time is drawn at once; **bars don't fill on load**. |
 | A value the user just caused (the DayBar after an amount click) | `--t-reply` (280 ms). |
 | Live progress during a sync | linear, `--t-live`; nothing bounces. |
-| Popovers and menus (InfoTip, More, context menu) | Fade and grow from `scale(.97)` at the trigger, `--t-pop` (140 ms); close at once. **Once one tip is open (or just closed), the next opens instantly** (`infoTipModel.ts`). Modals only fade. |
+| Popovers and menus (InfoTip, Tip, More, context menu) | Fade and grow from `scale(.97)` at the trigger, `--t-pop` (140 ms); close at once. An InfoTip waits 300 ms on hover, a Tip 500 ms. **Once one tip is open (or just closed), the next opens instantly**, InfoTips and Tips alike (`infoTipModel.ts`, `tipRegistry.ts`). Modals only fade. |
 | Entrances | At most a ≤ 150 ms fade. CSS transitions only; nothing waits for an animation. Reduced motion: fades only. |
+| The chrome: folding the sidebar, into and out of Library (D16 rule 5) | **The page lays out once, the chrome moves over it** (the foot's rule, for the sidebar and the inspector): `--sidebar-w` changes at once and only the chrome's edge glides, so a shrinking chrome uncovers the page and a growing one covers space already empty. Fold 168 ↔ 50: `--t-fold` (220 ms) on `--ease-drawer`, labels fade out in the first 90 ms and in during the last 120 ms; icons don't move. Into Library: the edge glides in `--t-fold` while the labels fade, the browser's rows fade in over the last 150 ms, 8 px from the left; the glide starts once the page's first frame has painted (two animation frames: that frame mounts the table and is long, and a glide started with it would be mostly over before anything is drawn; not under reduced motion). Out of it quicker: the rows fade in 90 ms, the edge glides back from 50 ms in 150 ms. Tokens: `--t-fold-fade-out` (90), `--t-fold-fade-in` (120), `--t-fold-rows-in` (150), `--t-fold-exit` (150), `--t-fold-exit-delay` (50); each delay is the fold's time less the fade's. The step-back below 1240: the browser goes 24 px behind the rail and fades in `--t-slide-out`, and comes back in `--t-slide-in`, on `--ease-drawer`. Other page switches never move the chrome. Dragging the browser's edge: 1:1, no easing; double-click back to 240 in `--t-fold`. How (`Sidebar.svelte`): the page's room is `--sidebar-w` at once; the chrome lies over the body's left edge with its own width (a CSS transition, so a second ⌃⌘S turns it round from where it is) and its right border is the page's edge; with the foot there it also covers the foot's first two pixel rows (`--foot-edge-h`: its line and the played part; held until the foot's 240 ms way out is over), and a floor line draws the foot's line from the chrome's edge to the page's, so the L stays joined mid-glide. The browser column stays mounted outside Library (hidden, `inert`, its scroll kept). Reduced motion: widths at once, contents cross-fade in `--t-fade`. |
+| The details inspector (`ListPanelFrame panelMode="inspector"`) | The page lays out once, the chrome moves over it: the list takes its final width at once; the inspector slides in from the window's right edge (`translateX(100%)` → 0) in `--t-slide-in` (240 ms) and out the same way in `--t-slide-out` (200 ms), both on `--ease-drawer` (`cubic-bezier(.32,.72,0,1)`, no bounce); a CSS transition, so a second toggle turns it round mid-way. A selection change inside it is instant. Reduced motion: it fades in place, `--t-fade` (150 ms). |
 | The frame's foot (plan now-playing) | Appear: up from the window's bottom, 220 ms, strong ease-out (the page makes room at once, only the contents move); Stop: down, 180 ms. Hide: the bar's contents move 40 px left towards the sidebar's corner and fade, 240 ms ease-in-out, then the row fades in; Show: the same path back, 280 ms. Track change, play/pause, shuffle and the keys: instant. Reduced motion: cross-fades. |
 
 `ProgressBar` has `pace`: `value` (moves on its own), `reply` (answers the user), `live` (a running sync). Placeholders
@@ -305,14 +363,15 @@ used.
 
 | Block | File | Gallery | What it does |
 |---|---|---|---|
-| `ListPanelFrame`, `ColumnFrame` | `lib/frames/` | `gallery-frames` | The two page frames (§1 here). |
+| `ListPanelFrame`, `ColumnFrame` | `lib/frames/` | `gallery-frames` | The two page frames (§1 here); `ListPanelFrame` `panelMode` `docked` (default) or `inspector` with `open` (Library's details: open on a pick, unless hidden by hand); `panelLabel` names the panel's landmark (an inspector without one is "Details"). |
 | `Panel` | `lib/frames/Panel.svelte` | `gallery-panel` | `head` / `fill` / `after` / `foot`. |
-| `PageHeader` | `lib/components/PageHeader.svelte` | `gallery-page-header` | Title · status line, actions, the Spotify slot. |
+| `PageHeader` | `lib/components/PageHeader.svelte` | `gallery-page-header` | Title · status line (a string that wraps under the title, or a list of parts that drop whole, last first), actions, the read-status slot. |
 | `Surface` | `lib/components/Surface.svelte` | `gallery-surface` | `card` / `list` / `table`; `label`, `summary`, `tone`, `foldable`, `sticky`, `bulk` (All · None), `hint` (a group's one-line hint after the count, printed like `ListSection`'s: no dot between name, count and hint), `fitLabel` (the label is a folder's path, fitted into the head's free width like a watched folder's: `~` for home, parents giving way in whole folders, the folder's own name last; the full path is the tooltip; a path that is not whole beside the head's links goes on a line of its own and the links wrap below it, and is cut only when even the head's width is too narrow), `header` (a Hint there gives way with the label), `grow` (`{ rows, tall? }`: fills its column up to its rows, 3-row minimum plus a peek, rows scroll inside; shared measuring with ToggleGroup in `growFill.ts`); `columns` (a table's column head, ruled and fixed above the rows, a `list` container of the rows' width so optional columns match) and `scroller` (bindable: the rows' scroller of a `grow` surface, for a table that renders only its visible rows); sets `data-surface`, `data-scrolls-itself` with `grow`, the fold `data-row-hit`. |
-| `Button` | `lib/components/Button.svelte` | `gallery-button` | `filled` · `primary` · `secondary` · `danger` · `link` · `icon`; an `icon` can be a toggle (`pressed`: accent text on `--accent-wash-strong` plus a dot, `aria-pressed`, the foot's Shuffle) and `size="xs"` (22 px, a row inside the sidebar). |
+| `Button` | `lib/components/Button.svelte` | `gallery-button` | `filled` · `primary` · `secondary` · `danger` · `link` · `icon`; an `icon` can be a toggle (`pressed`: accent text on `--accent-wash-strong` plus a dot, `aria-pressed`, the foot's Shuffle; Library's details toggle) and a toggle switched off by hand that stays so (`switchedOff="Show details"`: its words before the glyph, which keeps its place, in a dashed outline, the house shape for switched off; neutral, since red means weak or a problem and orange means on; the caller passes a struck-through glyph) and `size="xs"` (22 px, a row inside the sidebar). `tip` gives it the house `Tip` (name plus the shortcut's key cap, "Show details ⌘I") in place of a native title. |
 | `ToggleGroup`, `ToggleRow` | `lib/components/` | `gallery-toggles` | On/off rows; `grow` inside a Panel `fill` (one per Panel); search from `SEARCH_FROM` rows (the query clears below it); `disabledReason`: each row's tooltip and a Hint in the head in place of All · None (gallery "Locked"). A `ToggleRow` alone in a `Surface kind="list"` is a single setting; its `sub` is a wrapping second line (the setting's detail, or why it is locked; Playlists' "Rename the folder on disk too"). |
 | `Segmented` | `lib/components/Segmented.svelte` | `gallery-segmented` | One of up to 6; counts, dots (none at a count of 0), More, tight mode. |
 | `StatCard` | `lib/components/StatCard.svelte` | `gallery-statcard` | 30 px number + unit + label; a bar or ring as its child; `value={null}` is "—", also its loading state; `wrap`: a label that is a sentence (the cutoff's "a lossy file inside the AIFF") takes a second line whole instead of ending in "…". |
+| `SummaryStrip` | `lib/components/SummaryStrip.svelte` (+ `summaryStripModel.ts`) | `gallery-summarystrip` | A collection at a glance along the page, 72 px, between the header and the filter segments (Library, in place of the panel's summary card): the lossless share in StatCard's type ("63 % lossless" over "290 of 460 checked tracks") · the `QualityBar` (no legend: the segments below carry the dots and counts) · two rows, "Upgrade ready {n}" (the lossless dot) and "Not lossless yet · {all / m / none} in To-do {n}" (a 14 px pill of the good-lossy, weak and fake colours in proportion: the group is mixed, so no single quality's dot), each a link with › only while it leads somewhere (`onupgrades`, `ontodo`); fewer in To-do than not lossless explains itself in a `Tip` under the row (a row that is no link then takes focus for it). Rows highlight, never shrink; without a share the number is a dash with no unit and the line names it ("lossless · none checked yet"); `summary={null}` waits with dashes at the same height. Words in `stripView`. |
 | `DayBar` | `lib/components/DayBar.svelte` | `gallery-daybar` | Today vs later; no limit; limit reached. Day mode (`input.day`, Dashboard): used today (filled, quiet) · this sync · left (outline) or later. Input from `dayBar` (`dayBarModel.ts`). |
 | `DeltaBar` | `lib/components/DeltaBar.svelte` | `gallery-deltabar` | A signed change either side of a centre line, `--w-row-action` wide: a gain grows right in the accent, a loss left in grey; every row of a list passes the same `max`, so lengths compare. The number sits beside it (the caller's). Playlists' move view. |
 | `SelectCard` | `lib/components/SelectCard.svelte` | `gallery-selectcard` | One of a few things to pick, as a card that shows its state where you click (`title`, children: usage bar, status); picked = accent edge, `off` = dashed; a row of them is a tablist, ← / →. |
@@ -331,16 +390,20 @@ used.
 | `PathText` | `lib/components/PathText.svelte` (+ `pathBreak.ts`) | `gallery-trackrow` (KeyValue's File), `gallery-dropzone` | A file or folder path that may take several lines (DropZone's "→ Library/Hard_Bounce/…", the "Is this the same song?" table's place): it breaks only after a "/" (and after a drive's "›"), never inside a folder's or file's name, spaces included; a piece wider than its box breaks inside itself as the last resort. `lead` (an arrow) joins the first piece. The text is the path, so it copies as one. A path on one line never uses it: `fitPathAction` / `MiddleText` / `FolderField`. The base `.path` class no longer sets `word-break`. |
 | `CopyCode` | `lib/components/CopyCode.svelte` | `gallery-copycode` | A line to paste into the Terminal with its Copy link (`Button` link); the code wraps in its own column, so Copy stays at the first line's end. Without clipboard access it selects the line and says "Press ⌘C". |
 | `SecretField` | `lib/components/SecretField.svelte` | `gallery-secretfield` | An input whose text stays in the element (a password, a Client ID): the page reads it out with `takeSecret` as the call goes out; `oninput` derives only a boolean or a check; `tone` ok / bad; `multiline` for a pasted line. Same box as `TextField`. |
+| `SearchField` | `lib/components/SearchField.svelte` | `gallery-fields` | A search or filter field; × or Esc clears ("Clear (Esc)"). `shortcut` shows its key cap while empty: `cmd+f` also binds ⌘F at the window (a page's track search), `cmd+k` is the cap only (the browser column's filter; the key is the shell's handler); `aria-keyshortcuts` says it. `fill`: as wide as its container (the browser column). `input` (bindable): the field, for a caller that focuses it on a request (⌘K, the filter's hand-off into Library's track search). `onkeydown` runs first; a key it handles (`preventDefault`) the field leaves alone (the filter's ↑ ↓ Enter, an Esc that also leaves the field). |
 | `SortHeader` | `lib/components/SortHeader.svelte` | `gallery-surface` (`g-surface-columns`) | One column's head of a sortable table: the name as a button of its natural width, ↑ / ↓ on the sorted column, `aria-sort` on its `columnheader` cell; `align="end"` for numbers. Library. |
 | `ProgressBar` | `lib/components/ProgressBar.svelte` | `gallery-progress` | `pace` value / reply / live; `tone`. |
-| `PlayButton`, `PlayerIcon` | `lib/components/` | `gallery-player`, `gallery-foot` | The round play/pause of every player (MiniPlayer, the foot, the Now playing row): accent ring, ▶ / ❚❚ drawn as shapes, a spinner while loading, grey ring when off; `size` 30 or 22. `PlayerIcon`: the player's 16 px line glyphs (⏮ ⏭ ⤮ ⌄ ⌃ ×) for `Button icon`. |
+| `PlayButton`, `PlayerIcon` | `lib/components/` | `gallery-player`, `gallery-foot` | The round play/pause of every player (MiniPlayer, the foot, the Now playing row): accent ring, ▶ / ❚❚ drawn as shapes, a spinner while loading, grey ring when off; `size` 30 or 22; `title={null}` drops its own tooltip where a Tip on what holds it names it (the rail's hidden player). `PlayerIcon`: the player's 16 px line glyphs (⏮ ⏭ ⤮ ⌄ ⌃ ×) for `Button icon`. |
 | `Foot`, `NowPlayingRow`, `SyncPart` | `lib/shell/` (+ `footModel.ts`) | `gallery-foot` | The frame's foot and the hidden player's sidebar row (rule "the frame is an L" above); `SyncPart` is the sync's long form (alone in the foot) or `short` ("Sync 4 of 6", at the player bar's right end), a link to Sync. Shell parts, placed by `App` and `Sidebar` only. |
+| `NavIcon` | `lib/components/NavIcon.svelte` | `gallery-navicon` | A page's icon in the app's navigation (`name`: dashboard · sync · todo · playlists · limits · library · settings; `NAV_ICONS` in the rail's order): drawn on a 14 px grid with a 1.3 px stroke in its row's colour, one family, the same spot in the full sidebar and the rail. Decorative (`aria-hidden`): the row's text or, in the rail, its tooltip and `aria-label` name the page. |
+| `ServiceMark` | `lib/components/ServiceMark.svelte` (+ `serviceLogos.ts`) | `gallery-servicemark` | Which service a playlist is read from: the service's own logo in its own colours, 14 px, unchanged (`service`: a `LogoKey`, all five services: spotify · youtube · youtubemusic · soundcloud · qobuz; Qobuz's black tile has a faint edge). `role="img"`, `aria-label` "{Service} playlist" (`label` replaces it), `data-service-mark`. Inside a row that dims as a whole it dims with the row; `dim` only for a mark standing alone. The colour rule's one exception (§2). |
 | `QualityBar` | `lib/components/QualityBar.svelte` | `gallery-qualitybar` | The quality split with legend; `by_quality={null}` waits (gallery "waiting"). |
 | `Hint`, `InfoTip`, `NoteCard` | `lib/components/` | `gallery-explain` | The only three ways to explain; Hint `tone="problem"` for an error beside its control. |
+| `Tip` | `lib/components/tip.ts` (action `use:tip`; placement `placeTip` in `infoTipModel.ts`, one-open rule `tipRegistry.ts`, look `.dj-tip` in `base.css`) | `gallery-tip` | The hover tooltip of an icon-only control (the rail's icons) or a row whose name is cut: text only, one line per `\n`, the first in the text colour, the rest muted; `keys` puts the shortcut at the first line's end as a muted cap ("To-do · 5 to look at  ⌘3", as macOS menus print it). `side` `right` (beside the trigger, centred) or `below` (under it at the pointer, above when there's no room); `atPointer` (a tall, thin trigger such as the browser column's edge: beside it at the pointer's height); `cut` (`true` or a selector) shows it only while that text ends in "…". Waits 500 ms (`TIP_DELAY_MS`), then the next one (Tip or InfoTip) opens at once; keyboard focus opens it at once; one open at a time; closes at once on leave, press, scroll, and Escape, which it keeps (one Escape closes one layer). Takes the element's `title` away (never two tooltips); describes the trigger while open. Popover material at the label size, radius `--r-icon`. `show`: open at once and through scrolls (the gallery only), still the one open tip. |
 | `KeyValue` | `lib/components/KeyValue.svelte` | `gallery-trackrow` | A key and its value on one line (To-do and Library details, Settings' Download tools). The key is an uppercase caption (`caps`) by default; `plain` keeps a name's own spelling (`yt-dlp`, `streamrip`: normal case, muted); `keyWidth` (px) sets the key column (default 96) so a list of short names needn't reach in with `:global`. |
 | `ListRow` | `lib/components/ListRow.svelte` | `gallery-listrow` | The row grid of every list; `off` dims the lead, not a `data-mark` tick; the hit area is `data-row-hit`; a row that becomes `selected` scrolls into view (`block: 'nearest'`: a row already visible does not move); `wrap` lets the sub-line wrap instead of ending in "…", for what must be read whole (a destination folder, a reason a file can't move); the row grows by its lines. |
 | `Tick` | `lib/components/Tick.svelte` | `gallery-listrow` | The checkbox look inside a `ListRow` lead (the row's button is the control, `checked`): orange filled ✓, empty box, `mixed` – for a group control with only some ticked. Marks itself `data-mark`, so an `off` row never dims it. Sync's plan, Playlists' tidy-up. |
-| `ListSection` | `lib/components/ListSection.svelte` | `gallery-listsection` | A group's head among one list's rows (name, count, hint, `--h-section` 32 px; no dots between them, and a single group's `Surface` head prints the same through `summary` + `hint`): a sibling of the rows, sticky at the scroller's top while its rows pass (heading level 3). A `Surface grow` with sections doesn't fade its top end (the stuck head is the edge) and gives its rows `scroll-margin-top`, so a row scrolled into view stops below the head. One anchored list with sections replaces stacked lists of groups (To-do). |
+| `ListSection` | `lib/components/ListSection.svelte` (+ `stuckEdge.ts`) | `gallery-listsection`, `gallery-listsection-chrome` | A group's head among one list's rows (name, count, hint, `--h-section` 32 px; no dots between them, and a single group's `Surface` head prints the same through `summary` + `hint`): a sibling of the rows, sticky while its rows pass (heading level 3). **A stuck head is the edge:** opaque in its list's own colour as one solid value (`on`: `list` = `--surface-list-solid`, `chrome` = `--sidebar-solid` on the frame's material; a gradient of its own would restart at each head), square, no fade, and a hairline on the edge rows pass only while stuck (`data-stuck`, set by `stuckEdge`; not stuck, the next row's rule is the line under it). `stick`: `top`, or `both` (a short list of sections in a tall column: the last head waits at the foot). On `chrome` the head is a step lower than the column's rows (`--h-section-chrome`, 28 px), on the rows' 8 px inset, name and count in the label grey. `fold` (`{ open, toggle, disabled? }`): the whole head folds its section (one button over it, `aria-expanded`, a Tip "Hide …" / "Show …") and a chevron at its end turns (open points down); `disabled` shows it open and not foldable (a filter opened it); the caller leaves the folded rows out. `children`: the head's own controls before the chevron (the browser's A–Z toggle), which take their own clicks. `stuckEdge` counts a flex parent's row gap, so a head in a column with gaps between its rows isn't taken for stuck. Any scroller holding sections gives its rows the head's height as their scroll margin, so a row scrolled into view stops whole beside a stuck head; a `Surface grow` with sections doesn't fade its top end. One anchored list with sections replaces stacked lists of groups (To-do).
 | `TrackHead`, `UpgradeCard` | `lib/components/` | `gallery-trackhead` | A details panel's head (To-do, Library): 64 px cover, title · "Artist · length · place" · `children`; nothing in it is cut: a long title and the "Artist · length · place" line wrap whole, the quality badge's words go under it, `action` at the title's end on its first line (To-do's Hide). The upgrade box: a good-tone Surface card (label, found date as summary), Now/New spectra, ComparePlayer, the cue verdict ruled off, the page's `actions`. |
 | `ProblemCard` | `lib/components/ProblemCard.svelte` | `gallery-problemcard` | A problem as a problem-tone Surface card; `compact` one-line form; `actions`; `alert` only for a problem the user's own action caused; `service` (a playlist service's login: "Qobuz isn't connected." with Connect Qobuz →, no detail line repeating it); `hint` (the page's own line under the headline, e.g. Sync's "what is affected" for a missing login; replaces the stock hint); `offline` with a `service` reads "Qobuz isn't answering.". |
 | `EmptyState`, `Skeleton` | `lib/components/` | `gallery-emptystate`, `gallery-skeleton` | Empty content; a placeholder of the content's shape. |
@@ -350,7 +413,9 @@ needs one, it moves to `lib/components` first (centrally).
 
 The gallery's "Other components" (WriteButton, Badge, Cover, TrackRow, fields (CopyCode and SecretField have their own
 sections), Banner, Dialog, Ring, Spectrum, player,
-DropZone) are shared and in use, not reworked yet; phase 2 reworks each with its page. To-do no longer uses `TrackRow`
+DropZone) are shared and in use, not reworked yet; phase 2 reworks each with its page. `Ring mark` is a 2 px ring
+with nothing inside, round a glyph (the rail's running sync): decorative (the glyph's Tip says it), its arc at the
+live pace. To-do no longer uses `TrackRow`
 (its rows are `ListRow`s) and Library's table has its own cells, so `TrackRow` is in no page any more. A round icon button that isn't a `Button` (`PlayButton`,
 the Wrong song dialog's preview, a playable `Cover`) states its size as `min-width`, so the checker reads it as
 natural. `Cover` with `onplay` is a track's play button (Library's rows): ▶ over it while hovered or while `hint` (its
@@ -395,7 +460,8 @@ npm run rules -- --page sync --only sync-many,sync-end       # only the named sh
 | `loose-text` | more than 90 characters of text outside `[data-surface]`, `[data-note]`, `[data-infotip]` or a dialog (blocks set these markers; `lib/guards.test.ts` fails a page that writes one, or any other checker marker, by hand) |
 | `font-size` | a text size not in `--type-scale` |
 | `colour` | a text, background or border colour that isn't a token value (transparent is fine) |
-| `spotify-status` | a `[data-spotify-status]` outside `[data-page-header]` |
+| `read-status` | a `[data-read-status]` outside `[data-page-header]` |
+| `chrome-edge` | with the sidebar showing: the page frame's left edge is not `--sidebar-w` (the chrome's whole width, which the foot's line follows) |
 | `error` | the page logged an error while the shot loaded |
 
 Anything marked `data-dev` (the fake toolbar) is ignored.
@@ -485,6 +551,155 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-30 · Settings' nav icon is a gear (`NavIcon settings`).** The mockup's shape, eight rays round a dot,
+  read as a sun (the user, step A live check: "why is settings now a sun icon"). Now a gear in the same family: six
+  teeth (eight closed up into a ring at 14 px with a 1.3 px stroke), tip radius 5.9, root 4.4, a 1.7 hole; the
+  mockup's `NAVI.set` follows. The other six were checked at real size in both forms and keep their shapes. Seen:
+  `base-shell-*`, gallery NavIcon (`base-gallery`).
+- **2026-10-30 · Library's details never stand empty (`detailsStand`, `trackOffTable`).** The user's second live
+  check: the first open of Library showed an empty inspector ("Select a track to see its details.") with the toggle
+  lit, a third of the window, the table squeezed past its Length column; an open inspector remembered from before
+  was enough. The stored value is now only the wish: the details stand when wanted and a track is selected (the
+  route's `?track=`, so the chrome knows on arrival) and on the table (the page reports otherwise: filtered or
+  searched away, gone, an empty folder, nothing matches). Without one the toggle keeps its place and its words,
+  disabled (`Button disabled`, the reason in its tip), and ⌘I does nothing; the empty-words inspector no longer
+  appears in Library. Also: ♫ caught on capture, so ♫ from another page no longer closes the details that coming
+  back should show. Seen: `library-first-open-old-prefs`, `library-first-open-hidden`, `library-filtered-away`,
+  `library-filtered-back`, `library-playlist-switch`, `library-come-back`, `library-inspector-empty`,
+  `library-track-gone`.
+- **2026-10-30 · Library's details open on a pick; a hide by hand sticks and shows (`Button switchedOff`).** The
+  user's live check of step A: a click that only selected made them ask for the details every time. Now picking a
+  track (click, ↑ ↓) opens them; closing them with the toggle or ⌘I hides them by hand, remembered
+  (`library.details.hidden`), until opened by hand again (`detailsAfter`, `stores/chrome.ts`). The user's first idea
+  for the hidden state was a red toggle; red already means weak quality or a problem and sits right below in the bar
+  and the Weak badges, so the toggle says it in words instead: "Show details" in a dashed outline (switched off, as
+  SelectCard's `off` and the ladder's unlit rung) with the glyph struck through. The glyph keeps its place, so the
+  pointer that hid the details is still on the control that brings them back. Seen: `library-pick-opens`,
+  `library-details-hidden`, `library-details-hidden-1100`, `base-gallery-button`.
+- **2026-10-30 · A6 fixes: the strip's "Not lossless yet" mark is the group's own colours.** The row counts good lossy,
+  weak and fake together, but its mark was the weak red dot, the Weak segment's dot right below: it claimed one quality
+  for the whole group. Now a 14 px pill of the three colours in proportion (`stripView.mix`), the not-lossless part of
+  the bar beside it; the approved mockup had the red dot. Also: the inspector's landmark has a name
+  (`ListPanelFrame panelLabel`, Library "Track details"), the toggle carries `aria-keyshortcuts`, and with an empty
+  library ⌘I does nothing and a remembered open inspector steps nothing back (`inspectorAvailable`, since replaced
+  by `trackOffTable`). Seen:
+  `library-folder` (a6-fix-strip-before / -after).
+- **2026-10-30 · The Library page: the strip, the inspector on demand, the columns by the table's width (library
+  stage 5 A6, D10, N5–N7, N14).** The docked panel and `FolderOverview` left Library: the header carries the
+  subtitle's parts (`Library.subtitle`) and a details toggle (`Button icon pressed` with `tip`, "Show details ⌘I"), the
+  `SummaryStrip` sits between the header and the segments, and the details are `ListPanelFrame panelMode="inspector"`,
+  opened by the toggle, ⌘I, a click on a row's quality badge ("Show details") or the menu's Show details; never
+  empty (since the second live check: no track, no inspector, the toggle disabled). The table's optional columns follow its own width: Folder (All tracks, Not in
+  a playlist) from 520 px, Length from 720 (a playlist: Length from 580), so Source and Added left the table (the
+  inspector shows both) and a sort saved by them falls back to Artist. The width is measured (ResizeObserver, before
+  paint) and `libraryModel.columnsAt` picks the columns, one tested place for the thresholds instead of container
+  queries per view. Against the mockup: Folder is `minmax(96px, .8fr)`, not 116 px / .95fr (with the details open at
+  1280 a wider Folder cut the artists); Not in a playlist's Folder says where the file sits (every row is in none).
+  *Why:* the docked panel squeezed the table to "Get N…" at 1100; now titles and artists read whole at 1280 × 800 and
+  1100 × 700. Seen: `library-closed-1280`, `library-closed-1100`, `library-long-titles-1100`, `library-inspector*`,
+  `library-playing-sync`.
+- **2026-10-30 · The browser column (library stage 5 A5, D4, I7; notes N2–N4, N9, N10, N13, N15).**
+  `BrowserColumn` (rows from `lib/shell/browserModel.ts`): the filter field on the page header's row, level with the
+  page's search field; All tracks and Not in a playlist, then Playlists (priority order, or A–Z by the head's pressed
+  toggle) and Folders under `ListSection on="chrome" stick="both"` heads that fold (`fold`, new) and are a step lower
+  than the rows (`--h-section-chrome`, new). Filtering lists each match once, folded sections open, the matching
+  letters bold, one orange-washed row for Enter (↑ ↓ move it), and the hand-off row "Search tracks for “…”" last
+  (`#/library?q=`, which Library's page takes into its track search over every quality and drops from the route).
+  The edge: a 9 px grip on the page's edge line, outside the chrome so its outer half isn't cut; 1:1 with pointer
+  capture, the accent line while dragging, a neutral line a step lighter after 300 ms of hover (orange keeps its one
+  meaning), the one-way resize cursor at 200 and 360 (as macOS does), a double-click back to the default width in the
+  fold's glide (Tip "Drag to resize · double-click to reset"), and a focusable separator (← → Home End, its width as
+  `aria-valuetext`); its Tip stands beside it at the pointer's height (`Tip atPointer`, new).
+  The filter is a combobox for screen readers (the list a listbox while filtering, rows options with `bc-…` ids, the
+  field's `aria-activedescendant` on the highlighted one); a switched-off playlist says so in words; matching folds
+  accents as well as case ("motley" finds "Mötley"). `SearchField` gains `fill`, `input`, `onkeydown` and passes the
+  combobox attributes to its input; `stuckEdge` counts a
+  flex parent's row gap (a head in the column was taken for stuck by its 2 px). The 10 px under the list belong to the
+  column, not the scroller, so a head stuck at the list's foot is its last pixel and no row shows below it. Why: the notes, and a column used with
+  the keyboard as much as the pointer. Seen: `library-browser`, `library-filter`, `library-filter-none`,
+  `library-browser-wide`, `library-browser-1100`; gallery ListSection · stuck (heads that fold).
+- **2026-10-30 · The chrome's two forms, its memory, motion and keys (library stage 5 A4, D17, D18, I6).** `Sidebar`
+  is the full form or the rail, by place (`lib/stores/chrome.ts`: Library rail, the others full, ⌃⌘S folds the current
+  place's form), with Library as a page of its own (♫, back to the collection it was left at) and the browser column
+  beside it; the old Library group is gone. The shell sets `--sidebar-w` on the app root. The rail's signals (To-do's
+  pill, the limits' dot, `Ring mark` round ⟳) and its Tips with key caps; the hidden player's rail form
+  (`NowPlayingRow rail`, `PlayButton title={null}`); the keys in one handler (`lib/shell/keys.ts`). The fold button
+  replaces the brand's dot: the macOS sidebar symbol on the glyph column, so it is the one control that never moves.
+  Why: the notes N1, N7, N8, N11, N12 and the motion and keyboard tables. Into Library the glide waits for the page's
+  first frame (see §5): measured in a production build, the table's mount took one 66 ms frame in which a glide
+  started with the click was 85 % done, so it read as a jump. The foot is untouched; only its line's start follows
+  `--sidebar-w`, as before. Not in the View menu: pywebview 6.2 can't add an item to its default View menu (§1). The
+  fake toolbar's pill moved into the page's top left corner, since the rail has no room beside a brand. Seen:
+  `a4-*` shots of the stage 5 A4 report (Dashboard full, Library rail + browser at 1280 and 1100, a rail Tip, the
+  hidden player's rail form, a folded Dashboard, mid-fold).
+- **2026-10-30 · Library stage 5's house rules and the chrome's tokens (A3.8, D16).** Written into this doc: the two
+  sidebar forms and the browser column in the L frame, the one more chrome line, the Library group's retirement and
+  the nav's drawn icons (§1, rules 1, 2, 4, 6); "the chrome moves, the page lays out once" with its timings (§5, rule
+  5); dim is reserved in lists of collections (§2, rule 9); with the earlier entries for the inspector (rule 3), the
+  subtitle's parts (rule 8) and stuck heads (rule 10), and the colour rule's one exception (`ServiceMark`). Rule 7
+  (`Segmented`) stays as it is. New tokens: `--sidebar-full-w` (and `--sidebar-w` now names it, until the shell sets
+  the chrome's width), `--rail-w`, `--browser-w-min` / `-default` / `-max`, `--rail-pill-bg` (the mockup's `#2a2a30`,
+  ringed in `--sidebar-solid`), `--t-fold`. Why: the notes' house-rule changes, so A4–A6 build against written rules
+  and tokens, not the mockup's literals. Seen: gallery NavIcon's rail with To-do's pill (`base-gallery`).
+- **2026-10-30 · `ListPanelFrame` gets an inspector mode; `SearchField` a ⌘K cap (library stage 5 A3.7, D16.3, house
+  rules 3 and 5).** `panelMode="inspector"` with `open` (the plan wrote `panel: 'docked' | 'inspector'`, but `panel` is
+  already the frame's snippet, so the prop is `panelMode`). Why: the widths don't add up for a docked panel beside
+  the rail and the browser (586 px at 1280), and choosing a collection and reading one track's details are different
+  moments. Motion: "the chrome moves, the page lays out once" (the foot's rule): the list jumps to its final width,
+  only the inspector moves (new tokens `--ease-drawer`, `--t-slide-in`, `--t-slide-out`, `--t-fade`). Closed it is
+  `inert` and, once out, `visibility: hidden`, so the checker's `clipped` rule never sees its buttons beyond the
+  window. `SearchField shortcut="cmd+k"` shows the cap only; the clear × says "Clear (Esc)". Seen: gallery frames
+  (`g-frame-inspector`, toggle it) and fields (`base-gallery`).
+- **2026-10-30 · Stuck section heads are opaque, square and get a hairline (library stage 5 A3.6, N15, house rule
+  10).** `ListSection` draws its line only while stuck, on the edge rows pass (`stuckEdge.ts` compares the head with
+  where it would sit without sticking; WebKit has no scroll-state queries), gains `stick="both"` and `on="chrome"`
+  (new token `--sidebar-solid`, the frame's material as one colour, for the browser column's heads), and the scroll
+  margin that keeps a scrolled-to row whole moved from `Surface grow` into `ListSection`, so any scroller with sections
+  has it. Why: the mockup's first round faded the head over the rows, so a row showed through and rounded its
+  corners, which looked like a glitch; a stuck head is the edge. To-do looks the same as before: not stuck, the next
+  row's rule was always the line under the head. Seen: gallery ListSection and ListSection · stuck (`base-gallery`).
+- **2026-10-30 · `PageHeader`: a subtitle of parts that drop whole, the last first (library stage 5 A3.5, N14, house
+  rule 8).** `sub` may be a list of parts in order of importance (the wire's `Library.subtitle`). Why: Library's header
+  narrows with the details open and at 1100, and the old string either wrapped under the title (a second header line
+  over a table that needs every row) or, in the mockup's first round, was cut mid-word ("8 f…", "~/Music/Reko…"). Now
+  the path goes first, then the kind, finally the count; the whole subtitle stays the tooltip. The string form keeps
+  its wrapping for every other page. Seen: gallery PageHeader's parts at 946, 586, 440 and 300 px (`base-gallery`).
+- **2026-10-30 · `SummaryStrip`: Library's summary card becomes a strip on the page (library stage 5 A3.4, N5, house
+  rule 3).** Why: with the rail, the browser column and a docked 360 px panel the 1280 table would be 586 px, so the
+  panel leaves Library; its summary keeps the share, the bar and the two rows with their counts and links, along the
+  page in 72 px. Against the mockup: the bar is the system's `QualityBar` (6 px, no gaps between the qualities; the
+  mockup drew 8 px with 2 px gaps), the share's line is StatCard's muted label colour (the mockup's was darker), and the
+  rows' column is 300 px instead of 276, so "Not lossless yet · none in To-do 170" and four-digit counts stay whole.
+  At no file that isn't lossless the row drops "· none in To-do" (it says nothing beside a 0). `count()` joins
+  `format.ts` (thousands separators: "3,776 of 5,306"). Library's `FolderOverview` retired with A6, which put the
+  strip on the page.
+  Seen: gallery SummaryStrip (`base-gallery`).
+- **2026-10-30 · A3 fixes: `Tip` gets `keys`, keeps its Escape, and the gallery shows one tip at a time.** The rail's
+  tooltip prints its shortcut as the approved mockup does, a muted cap at the line's end ("To-do · 64 to look at ⌘3"),
+  not inline in parentheses, so the rail's words (plan I7) become `{Page}` + `keys: '⌘n'`. Escape that closes a tip
+  stops there, so one Escape doesn't also clear the field under it. A tip shown for good (the gallery) counts as the
+  one open tip, and the gallery picks which example shows its tip, because the app never shows two. Seen: gallery Tip.
+- **2026-10-30 · `Tip`, the hover tooltip of icons and cut rows (library stage 5 A3.3).** An action, not a component,
+  so a rail icon or a row stays its own element. It reuses InfoTip's timing (`openTiming`, now with the hover wait as
+  a parameter: 500 ms for a Tip, 300 ms for an ⓘ) and shares one registry with InfoTip (`tipRegistry.ts`, moved out
+  of InfoTip's module script), so only one tip of either kind is open and moving down the rail answers at once.
+  Changed from the mockup: the mockup's tip is a flat `#26262b`; here it is the popover material (`--popover-bg`,
+  `--popover-line`), the same as InfoTip and the menus, at the mockup's size (11 px, radius 6, the same padding). Why:
+  one popover material in the app, and a colour that isn't a token fails the checker. Seen: gallery Tip
+  (`base-gallery`), before/after against the mockup's states "Dashboard, folded" and "Filter "bou"".
+- **2026-10-30 · `ServiceMark`: the services' original coloured logos (library stage 5 A3.2, D7).** The five logos of
+  the approved mockup's `SVC` table, copied unchanged into `serviceLogos.ts` (Simple Icons shapes, CC0; Qobuz's mark
+  from its site on a black tile with a faint edge), 14 px, in their own colours. Why: the user's wish ("the services'
+  original coloured logos"), which replaces stage 3's "the service as a word, no mark" for the playlist rows of the
+  browser column and Favourites. Colour rule: a logo is an image that names a service, not a signal, so it is the
+  rule's one exception; the rule checker reads text, background and border colours only, so it needs no exemption.
+  `LogoKey` has all five services while the wire's `PlaylistService` stays 'spotify' | 'qobuz' until stage 6. Seen:
+  gallery ServiceMark (`base-gallery`).
+- **2026-10-30 · The nav's text glyphs become drawn icons: `NavIcon` (library stage 5 A3.1, house rule 6).** Seven
+  icons from the approved mockup (`library-layout.html`, `NAVI`), unchanged: 14 px, 1.3 px stroke, round caps, one
+  family; Library gets ♫ as a note. Why: in the rail (step A) the icon is the only label, and at 12 px the text glyphs
+  ◉ ⟳ ✓ ≡ ◔ ⚙ rendered as dots and rings that couldn't be told apart. The sidebar switches to them with its two forms
+  (A4). Seen: gallery NavIcon (`base-gallery`).
 - **2026-10-29 · A path breaks after a "/", never inside a name (library stage 4 fix M).** New block `PathText` (`pathSegments`). Drop zone's "→ Library/Hard_Bounce/Nachtfalter – Sunris / e Tekk" at 1280: the base `.path { word-break: break-all }` broke a word anywhere, and the zone's own `overflow-wrap: anywhere` only made it worse; the same class served every path. Now a wrapping path is a row of unbreakable pieces (a folder and its slash; a file's name) with a break opportunity after each; only a piece wider than the box breaks inside itself, as the last resort. `break-all` is gone from `.path` and the gallery; the To-do compare table's place uses the block instead of its own `<wbr>` split. One-line paths (`WatchedFolderList`, `FolderField`, `Surface` `fitLabel`) never wrapped and are unchanged. Seen: `todo-weak-selected`, `todo-same-song` at 1100 and 1280.
 - **2026-10-29 · A dimmed leftover row says why at every width (library stage 4 fix L).** The Library's dimmed row (a
   downloaded song that left every playlist) was explained only by the Folder column's "Not in a playlist", which is

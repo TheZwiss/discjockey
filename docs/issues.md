@@ -3,6 +3,32 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 28. Library stage 5a leftovers (layout)
+
+Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, step A (the layout).
+
+- **Rail tooltips:** the shortcut shows as a grey key cap per the mockup, not the plan's I7 text "{Page} (⌘n)". The
+  plan's I7 could be updated to match.
+- **"Hide/Show Sidebar" can't go in the View menu:** pywebview 6.2.1 adds custom menus only as new top-level menus, and
+  its items take no shortcut, so ⌃⌘S is key-only.
+- **The rail's "99+" To-do pill** covers most of the To-do icon (the 30 px rail column has no room); the tooltip gives
+  the exact count.
+- **ARIA nit:** while filtering, the browser column's section heads sit inside the listbox (needed so they stick),
+  which ARIA doesn't strictly allow.
+- **No Playlist column in the track table** until step B, because rows don't carry their playlists yet. Your own files
+  in "Not in a playlist" show "–" under Folder until step B.
+- **The selected table row stays grey,** like To-do's, instead of the mockup's orange wash. Changing it would be one
+  change for both pages.
+- **The base page's rule check has old failures,** the same before and after this step:
+  `npm run rules -- --page base --force` reports 1,808 FAIL lines in 40 shots, base-gallery 99, mostly the gallery's
+  long section descriptions. Worth a cleanup group.
+- **The dev-only FAKE pill** now sits at the page's top-left corner and touches the page title's top in fake mode.
+- **"Not lossless yet" in the summary strip** has a small pill split into the good-lossy, weak and fake colours instead
+  of the mockup's red dot, because the row counts all three. Settled.
+- **The Playlists A–Z toggle turns orange when pressed** (the plan's `Button icon xs pressed`), where the mockup has it
+  grey. Settled.
+- **The browser's drag edge turns a lighter grey after 300 ms of hover,** so orange still means only "dragging". Settled.
+
 ## 27. Library stage 4 leftovers (import)
 
 Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
@@ -33,9 +59,6 @@ Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
 
 Noted while building and reviewing `docs/2026-10-24-library-stage-3-plan.md`.
 
-- **The read-status wire names still say Spotify** (`spotify` field, `SpotifyStatus` type and component,
-  `spotify_status` in `hub/views.py`), though the words are service-neutral since stage 3 (plan D2). Rename them when
-  stage 5 rebuilds the shell-wide status slot with the sidebar, not before.
 - **SoundCloud and YouTube Music track links can't be derived from an id:** `models.track_link` returns None for
   them. When stage 6 adds those sources and a view needs the link, store it with the track.
 - **A file downloaded by its exact Qobuz id gets no record-label tag.** `make_ready` writes `cand.label`, and the

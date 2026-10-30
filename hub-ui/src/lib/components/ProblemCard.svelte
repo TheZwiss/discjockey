@@ -2,7 +2,7 @@
   // One look per problem kind (spec §8). The backend's message is always the detail line, shown verbatim.
   // The card is a `Surface` card with the problem tone (design system §4: everything sits in a container; §5 look),
   // and `data-note` marks it as explanation for the rule checker, like NoteCard: its hint and message lines may be
-  // long. `compact` is the one-line form that sits inside another control or row (SpotifyStatus in the page header,
+  // long. `compact` is the one-line form that sits inside another control or row (ReadStatus in the page header,
   // a playlist row, a dialog's search): no box of its own, since a box inside a row would be a container in a
   // container (§4), but still marked `data-note`.
   // `actions`: the caller's own recovery control for this problem, set

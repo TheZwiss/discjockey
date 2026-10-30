@@ -1,10 +1,3 @@
-<script lang="ts" module>
-  // The other tips on the page (openTiming): while one is open, or right after one closed, the next opens at once.
-  // `openTip` closes the one open now; only one is open at a time.
-  let lastClosedAt: number | null = null;
-  let openTip: (() => void) | null = null;
-</script>
-
 <script lang="ts">
   // The ⓘ behind which longer explanation waits (design system §6). The small round button opens a popover on
   // hover (after a short wait, openTiming), on keyboard focus and on click; a click pins it open until the next click, a click elsewhere, Escape or a
@@ -16,7 +9,9 @@
   // Other attributes (`data-test`) go onto the root; the button is `<data-test>-button`, the popover `<data-test>-tip`.
   import type { Snippet } from 'svelte';
   import type { HTMLAttributes } from 'svelte/elements';
-  import { openTiming, TIP_CLOSED, tipStep, type TipEvent, type TipState, type TipStep, type TipWarmth } from './infoTipModel';
+  import { openTiming, TIP_CLOSED, tipStep, type TipEvent, type TipState, type TipStep } from './infoTipModel';
+  // the other tips on the page, InfoTips and Tips alike (tipRegistry.ts): one open at a time, the next one warm
+  import { tipClosed, tipGone, tipOpened, tipWarmth } from './tipRegistry';
 
   type Props = Omit<HTMLAttributes<HTMLSpanElement>, 'children'> & { label: string; children: Snippet };
   let { label, children, class: className, ...rest }: Props = $props();
@@ -36,7 +31,7 @@
   let pos = $state({ left: 0, top: 0, origin: '50% 0' });   // origin: the ⓘ's spot, so the tip grows out of it
   let fade = $state(true);   // this opening fades in (not from the keyboard, not while or right after another tip is open)
   const closeNow = () => send({ type: 'dismiss' });
-  const warmth = (): TipWarmth => ({ otherOpen: openTip !== null && openTip !== closeNow, lastClosedAt });
+  const warmth = () => tipWarmth(closeNow);
 
   /** Feeds one event to the model (infoTipModel.ts) and applies what it says. `fadeIn`: how a closed tip opens. */
   function send(e: TipEvent, fadeIn = true): TipStep {
@@ -44,16 +39,12 @@
     clearTimeout(hoverTimer);
     const was = tipState.open;
     const r = tipStep(tipState, e);
+    tipState = r.state;
     if (!was && r.state.open) {
       fade = fadeIn;
-      if (openTip && openTip !== closeNow) openTip();   // the tip the user just left goes as this one comes
-      openTip = closeNow;
+      tipOpened(closeNow);   // the tip the user just left goes as this one comes
     }
-    if (was && !r.state.open) {
-      lastClosedAt = performance.now();
-      if (openTip === closeNow) openTip = null;
-    }
-    tipState = r.state;
+    if (was && !r.state.open) tipClosed(closeNow);
     if (r.refocus) trigger?.focus();
     return r;
   }
@@ -108,7 +99,7 @@
   });
   $effect(() => () => {
     clearTimeout(leaveTimer); clearTimeout(hoverTimer);
-    if (openTip === closeNow) openTip = null;   // removed while open (its page went away)
+    tipGone(closeNow);   // removed while open (its page went away)
   });
 
   function leave() {

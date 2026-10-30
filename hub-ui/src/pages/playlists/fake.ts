@@ -70,7 +70,7 @@ const fake: PageFake = {
     // renaming Powertrance offers the folder rename on disk (the base seed as it is: rename it in the list)
     'rename-offered': () => {},
     // ... and here Library already has a Powertrance_2026 folder, so the rename isn't offered
-    'rename-taken': (s) => { s.extraFolders.push({ folder: 'Powertrance_2026', in_playlists_txt: false }); },
+    'rename-taken': (s) => { s.extraFolders.push({ folder: 'Powertrance_2026', listed: false }); },
     // the move log: an undo (undoable), the save it undid part of, the tidy-up, and an old folder rename with
     // nothing left to undo
     batches: (s) => {

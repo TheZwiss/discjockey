@@ -192,7 +192,7 @@ def test_saving_makes_the_preview_stale(root):
     api, rec = make_api(root)
     refreshed(api, rec)
     wait_job(api, rec, api.save_playlists(lines(POWER, HARD), api.playlists()["version"]))
-    assert api.sync_preview()["spotify"]["stale"] is True
+    assert api.sync_preview()["read_status"]["stale"] is True
 
 
 @pytest.mark.parametrize("name,folder", [("Hard Bounce 2026", "Hard_Bounce_2026"), ("POWERTRANCE 🔥", "POWERTRANCE"),

@@ -2,8 +2,8 @@
 import type {
   FileState, LibraryRow,
   AnySignalKind, AppUpdate, Alignment, Browser, Budget, LastCheck, LoginBrowser, ByQuality, Candidate, PlaylistInfo, PlaylistRow, PreviewAction, Quality, Result, RunDetail,
-  DownloadTools, FolderCheck, SetupStatus, SignalKind, Source, SpotifyStatus, Status, TodoGroupKey, TrackRow, Upgrade, FreeDownload,
-  PlaylistService, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
+  DownloadTools, FolderCheck, SetupStatus, SignalKind, Source, ReadStatus, Status, TodoGroupKey, TrackRow, Upgrade, FreeDownload,
+  PlaylistService, Sidebar, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
 } from '../types';
 import { NOT_IN_PLAYLIST, QUALITIES } from '../types';
 
@@ -121,7 +121,7 @@ export type FakeState = {
   now: Date;
   tracks: FakeTrack[];
   newTracks: { track_id: string; artist: string; title: string; folder: string; duration_s: number }[];
-  extraFolders: { folder: string; in_playlists_txt: boolean }[];
+  extraFolders: { folder: string; listed: boolean }[];
   playlists: FakePlaylist[];
   version: number;
   runs: FakeRun[];
@@ -149,7 +149,7 @@ export type FakeState = {
   downloadTools: DownloadTools;
   /** open_licenses is refused: the licences folder is missing from this copy */
   licensesMissing?: boolean;
-  spotify: SpotifyStatus;
+  read_status: ReadStatus;
   console_running: boolean;
   offline: boolean;
   /** app_update(): the update check's answer (scenario update_available: a newer version) */
@@ -549,17 +549,17 @@ export function nextStep(s: SetupStatus): SetupStatus {
   return { ...s, next_step: next, complete: next === null };
 }
 /** The read status's services: the playlist services the fake's playlists.txt uses, in line order. */
-export const readServices = (qobuzConnected = true): SpotifyStatus['services'] => [
+export const readServices = (qobuzConnected = true): ReadStatus['services'] => [
   { service: 'spotify', name: 'Spotify', connected: true }, { service: 'qobuz', name: 'Qobuz', connected: qobuzConnected }];
 /** The read status as the bridge answers it: `services` worked out now, like `api._logins` — the services the
  *  switched-on lines use, in line order, Spotify connected when its login is there, Qobuz unless the scenario took
  *  its login away. So a Spotify left out in Setup is no problem while no line uses it (plan stage 3, D1). */
-export function readStatus(s: FakeState): SpotifyStatus {
+export function readStatus(s: FakeState): ReadStatus {
   const used = [...new Set(s.playlists.filter((p) => p.enabled).map((p) => serviceOfLink(p.link)))];
   const connected = (x: PlaylistService) => (x === 'spotify' ? s.setup.spotify_login : !s.qobuzNotConnected);
-  return { ...s.spotify, services: used.map((x) => ({ service: x, name: SERVICE_NAME[x], connected: connected(x) })) };
+  return { ...s.read_status, services: used.map((x) => ({ service: x, name: SERVICE_NAME[x], connected: connected(x) })) };
 }
-export function spotifyOk(minutes = 2, now = new Date()): SpotifyStatus {
+export function readOk(minutes = 2, now = new Date()): ReadStatus {
   return { read_at: iso(new Date(now.getTime() - minutes * 60000)), minutes_ago: minutes, problem: null,
     problem_service: null, services: readServices(), message: '', stale: false, reading: false, offline: false, auto_read: true };  // as after the hub's read when it opens
 }
@@ -586,13 +586,13 @@ export function makeState(scenario: string, now = new Date()): FakeState {
   const days = Array.from({ length: 14 }, (_, i) => (i === 13 ? 37 : [12, 0, 44, 60, 31, 0, 0, 58, 75, 20, 9, 0, 66][i]));
   const s: FakeState = {
     scenario, folders: {}, pick: '/Users/you/Music/DJ Sets', now, tracks, newTracks: newTracks(big ? 60 : 10),
-    extraFolders: [{ folder: 'Old_Sets', in_playlists_txt: false }],
+    extraFolders: [{ folder: 'Old_Sets', listed: false }],
     playlists, version: 1, runs: sampleRuns(now, tracks, big ? 30 : 3),
     qobuz: { limit: 60, extra_today: 0, carry_over: 20, used_today: 37, days,
       signals: [{ time: iso(daysAgo(now, 3, 22, 12)), kind: 'search_failed', message: 'Qobuz search did not answer twice' },
         { time: iso(daysAgo(now, 6, 21, 58)), kind: 'duration_mismatch', message: 'Length 3:12 vs Spotify 4:28' }],
       last_download: iso(daysAgo(now, 0, 21, 47)) },
-    setup: setupComplete(), downloadTools: builtInTools(), spotify: spotifyOk(2, now), console_running: false, offline: false, previewRead: true,
+    setup: setupComplete(), downloadTools: builtInTools(), read_status: readOk(2, now), console_running: false, offline: false, previewRead: true,
     appUpdate: { state: 'up_to_date', current: '1.0.0', latest: null, url: null },
     selected: null, dropped: null, errors: scenario === 'errors', errorTurn: 0, syncStarts: 0, never: [], tidy: emptyTidy(), imp: emptyImport(),
     accounts: { youtube: null, soundcloud: null }, qobuzSkipped: false,  // the user's own setup: Qobuz only
@@ -601,7 +601,7 @@ export function makeState(scenario: string, now = new Date()): FakeState {
     s.tracks = []; s.newTracks = []; s.playlists = []; s.runs = []; s.extraFolders = []; s.previewRead = false;
     s.qobuz = { ...s.qobuz, used_today: 0, carry_over: 0, days: Array(14).fill(0), signals: [], last_download: null };
     s.setup = nextStep({ ...setupComplete(), spotify_login: false, qobuz: false, playlists: false });
-    s.spotify = { read_at: null, minutes_ago: null, problem: 'not_set_up', problem_service: null,
+    s.read_status = { read_at: null, minutes_ago: null, problem: 'not_set_up', problem_service: null,
       services: [], message: 'Spotify is not set up yet.',
       stale: false, reading: false, offline: false, auto_read: false };
   }
@@ -614,7 +614,7 @@ export function makeState(scenario: string, now = new Date()): FakeState {
   }
   if (scenario === 'offline') {
     s.offline = true;
-    s.spotify = { ...spotifyOk(184, now), problem: 'offline', offline: true,
+    s.read_status = { ...readOk(184, now), problem: 'offline', offline: true,
       message: 'Spotify did not answer. Check your internet connection.' };
     s.appUpdate = { state: 'unknown', current: '1.0.0', latest: null, url: null };  // no answer: the page shows nothing
   }
@@ -622,7 +622,7 @@ export function makeState(scenario: string, now = new Date()): FakeState {
   if (scenario === 'qobuz_not_connected') {
     // playlists.txt has a Qobuz line, but Qobuz has no login: the read is blocked and says which service
     s.qobuzNotConnected = true;
-    s.spotify = { ...spotifyOk(2, now), problem: 'not_set_up', problem_service: 'qobuz',
+    s.read_status = { ...readOk(2, now), problem: 'not_set_up', problem_service: 'qobuz',
       services: readServices(false), message: 'Connect Qobuz first.' };
   }
   if (scenario === 'console') s.console_running = true;
@@ -634,10 +634,42 @@ export function makeState(scenario: string, now = new Date()): FakeState {
 }
 
 /** Folders as the sidebar and library see them: playlists.txt order, then folders with files only. */
-export function folderList(s: FakeState): { folder: string; in_playlists_txt: boolean }[] {
-  const out = s.playlists.map((p) => ({ folder: p.folder, in_playlists_txt: true }));
+export function folderList(s: FakeState): { folder: string; listed: boolean }[] {
+  const out = s.playlists.map((p) => ({ folder: p.folder, listed: true }));
   for (const f of s.extraFolders) if (!out.some((o) => o.folder === f.folder)) out.push(f);
   return out;
+}
+/** The sidebar's lists as `views.sidebar` builds them: one entry per playlists.txt line, then the folders with files
+ *  that no line uses (by name). Folder names compare as the disk does, case ignored. */
+export function sidebarLists(s: FakeState): Pick<Sidebar, 'playlists' | 'library_folders'> {
+  const files = s.tracks.filter((t) => t.status !== 'missing');
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  const used = (f: string) => s.playlists.some((p) => same(p.folder, f));
+  const counts = new Map<string, { folder: string; tracks: number }>();   // by folded name, first spelling kept
+  for (const t of files) {
+    if (!t.folder || used(t.folder)) continue;
+    const key = t.folder.toLowerCase();
+    const seen = counts.get(key);
+    if (seen) seen.tracks++; else counts.set(key, { folder: t.folder, tracks: 1 });
+  }
+  const unused = [...counts.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, v]) => v);
+  return {
+    playlists: s.playlists.map((p) => ({ name: p.folder, ref: playlistRef(p.link) ?? '', service: serviceOfLink(p.link),
+      enabled: p.enabled, tracks: files.filter((t) => same(t.folder, p.folder)).length })),
+    library_folders: unused,
+  };
+}
+/** `Library.subtitle` as `views.library` builds it (plan library stage 5 I7, step A's four views). A playlist is
+ *  "never read" while the fake holds no song of its folder at all. */
+export function librarySubtitle(s: FakeState, folder: string | null, n: number): string[] {
+  const tracks = n === 1 ? '1 track' : `${n} tracks`;
+  if (folder === null) return [tracks, 'every folder'];
+  if (folder === NOT_IN_PLAYLIST) return [tracks, 'in no playlist'];
+  const line = s.playlists.find((p) => p.folder.toLowerCase() === folder.toLowerCase());
+  if (!line) return [tracks, 'no playlist uses it', `Library › ${folder}`];
+  const service = `${SERVICE_NAME[serviceOfLink(line.link)]} playlist`;
+  if (!s.tracks.some((t) => t.folder.toLowerCase() === folder.toLowerCase())) return [service, 'not read yet'];
+  return [tracks, service, ...(line.enabled ? [] : ['switched off']), `Library › ${line.folder}`];
 }
 export function playlistRows(s: FakeState): PlaylistRow[] {
   return s.playlists.map((p, index) => {

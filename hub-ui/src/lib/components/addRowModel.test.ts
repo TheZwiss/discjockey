@@ -62,7 +62,7 @@ describe('bannerSaysIt: the banner already asks for this login', () => {
   it('is false for the first link a user pastes (no banner), another service, or a banner the page took over', () => {
     expect(bannerSaysIt(qobuz, null, {})).toBe(false);
     expect(bannerSaysIt(qobuz, { service: 'spotify' }, {})).toBe(false);
-    expect(bannerSaysIt(qobuz, { service: 'qobuz' }, { spotify: true })).toBe(false);
+    expect(bannerSaysIt(qobuz, { service: 'qobuz' }, { readStatus: true })).toBe(false);
   });
   it('is false for other problems and answers without a service', () => {
     expect(bannerSaysIt({ kind: 'offline', service: 'qobuz' }, { service: 'qobuz' }, {})).toBe(false);

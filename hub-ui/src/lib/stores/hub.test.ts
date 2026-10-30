@@ -3,7 +3,7 @@ import { get } from 'svelte/store';
 import { installBridge, _resetBridge } from '../bridge/client';
 import { dispatch } from '../bridge/events';
 import { EMPTY_HUB, dataVersion, filesVersion, hub, refreshHub, refreshOnNoLibrary, readBlockIn, readNeedsSetupIn, reduceHub } from './hub';
-import type { SetupStatus, SpotifyStatus } from '../bridge/types';
+import type { SetupStatus, ReadStatus } from '../bridge/types';
 
 describe('reduceHub', () => {
   it('tracks the write job from JobStarted to JobFinished', () => {
@@ -108,9 +108,9 @@ describe('reduceHub', () => {
 });
 
 describe('readBlockIn: the read is blocked only by a service playlists.txt uses (plan stage 3, D1)', () => {
-  const both = (spotify: boolean, qobuz: boolean): SpotifyStatus['services'] => [
+  const both = (spotify: boolean, qobuz: boolean): ReadStatus['services'] => [
     { service: 'spotify', name: 'Spotify', connected: spotify }, { service: 'qobuz', name: 'Qobuz', connected: qobuz }];
-  const ok: SpotifyStatus = { read_at: '2026-10-21T10:00:00Z', minutes_ago: 2, problem: null, problem_service: null,
+  const ok: ReadStatus = { read_at: '2026-10-21T10:00:00Z', minutes_ago: 2, problem: null, problem_service: null,
     message: '', services: both(true, true), stale: false, reading: false, offline: false, auto_read: false };
   it('is null while nothing is known yet and while every used service is connected', () => {
     expect(readBlockIn(null)).toBeNull();
@@ -161,7 +161,7 @@ describe('a no_library answer from any page', () => {
     const w = new EventTarget() as any;
     (globalThis as any).window = w;
     installBridge({
-      job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: false, spotify: null,
+      job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: false, read_status: null,
         sign_in: null }),
       setup_status: async () => { calls.setup += 1; return music(setupState()); },
       sidebar: async () => ({ ok: false, kind: 'no_library', message: 'Gone.' }),
@@ -202,7 +202,7 @@ describe('an AppUpdate event that arrives while a refresh runs', () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => { release = r; });
     installBridge({
-      job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: false, spotify: null,
+      job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: false, read_status: null,
         sign_in: null }),
       setup_status: async () => ({ ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }),
       sidebar: async () => ({ ok: false, kind: 'no_library', message: 'Gone.' }),
@@ -226,7 +226,7 @@ describe('a scan job in job_status', () => {
   function bridge(job: unknown) {
     (globalThis as any).window = new EventTarget();
     installBridge({
-      job_status: async () => ({ ok: true, job, refresh_running: false, console_running: false, spotify: null,
+      job_status: async () => ({ ok: true, job, refresh_running: false, console_running: false, read_status: null,
         sign_in: null }),
       setup_status: async () => ({ ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }),
       sidebar: async () => ({ ok: false, kind: 'no_library', message: 'Gone.' }),
@@ -246,7 +246,7 @@ describe('a scan job in job_status', () => {
 });
 
 describe('readNeedsSetupIn: a not_set_up without a service is a missing playlists.txt (first-run Dashboard, §5a)', () => {
-  const ok: SpotifyStatus = { read_at: null, minutes_ago: null, problem: 'not_set_up', problem_service: null,
+  const ok: ReadStatus = { read_at: null, minutes_ago: null, problem: 'not_set_up', problem_service: null,
     message: '', services: [], stale: false, reading: false, offline: false, auto_read: false };
   const setup = (playlists: boolean) => ({ playlists }) as unknown as SetupStatus;
   it('is true for the missing playlists.txt, which is no login block', () => {
@@ -271,7 +271,7 @@ describe('a DrivesChanged event', () => {
     (globalThis as any).window = new EventTarget();
     let sidebars = 0;
     installBridge({
-      job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: false, spotify: null,
+      job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: false, read_status: null,
         sign_in: null }),
       setup_status: async () => ({ ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }),
       sidebar: async () => { sidebars++; return { ok: true, todo: 2, all_tracks: 5, folders: [], not_in_playlist: 3,

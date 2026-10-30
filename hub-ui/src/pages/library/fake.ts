@@ -1,6 +1,7 @@
 // Library fake scenarios (scenario names get the prefix "library:").
 import type { PageFake } from '$lib/bridge/fake/bridge';
-import type { FakeState, FakeTrack } from '$lib/bridge/fake/data';
+import type { FakePlaylist, FakeState, FakeTrack } from '$lib/bridge/fake/data';
+import { QOBUZ_PLAYLIST_LINK, SPOTIFY_HINT } from '$lib/bridge/fake/data';
 
 /** States whose second Hard_Bounce track (Sternenstaub) has a file the player can't play. */
 const cantPlay = new WeakSet<FakeState>();
@@ -19,7 +20,7 @@ const fake: PageFake = {
     // set up, but no files yet (first_run would open the wizard)
     empty: (s) => { s.tracks = []; s.runs = []; },
     // a folder from playlists.txt that has no files yet
-    empty_folder: (s) => { s.extraFolders.push({ folder: 'New_Folder', in_playlists_txt: true }); },
+    empty_folder: (s) => { s.extraFolders.push({ folder: 'New_Folder', listed: true }); },
     // an import stopped after its first pass: two WAVs read but not sound-checked (a "Not checked" badge, no
     // quality colour, left out of the counts) beside one the sound check has judged
     unchecked: (s) => {
@@ -79,6 +80,48 @@ const fake: PageFake = {
       if (t) Object.assign(t, { artist: 'DJ TALLBOY & Friends', title: 'THE WEEKEND (Extended Festival Mix)',
         status: 'fake_lossless', cutoff_hz: 16000, source: 'qobuz', codec: 'flac',
         playlists: ['Hard_Bounce', 'Powertrance', 'Bouncy', '03_06_2026'] });
+    },
+    // the browser column's load (plan library stage 5): 35 playlist lines, two switched off, one with a very long
+    // folder name, a mix of Spotify and Qobuz lines (the wire knows only those two services until stage 6), most
+    // with a few files of their own, a few never read; and two Library folders no line uses (Old_Sets from the base state, Crate_Dumps)
+    browser: (s) => {
+      const names = ['Warehouse_Nights', 'Peak_Hour', 'Afterhours', 'Closing_Set', 'Rave_Classics', 'Big_Room_Hard',
+        'Kick_Studies', 'Acid_Trax', 'Hardstyle_Gold', 'Schranz_Selects', 'Festival_Edits', 'Basement_Cuts',
+        'Warm_Up', 'Tekk_Tools', 'Gabber_Basics', 'Industrial_Hard', 'Late_Trains', 'Sunday_Set', 'Open_Air_2024',
+        'Clubnight_Berlin', 'Rotterdam_Run', 'Bouncy_Edits', 'Detour_Techno', 'Pitch_Black',
+        'Hardtechno_Warehouse_Afterhours_Closing_Sets_2019_To_2024_Extended_Edition', 'Vinyl_Only', 'Radio_Rips',
+        'New_Finds'];
+      const base = s.tracks.filter((t) => t.in_playlists && t.status !== 'missing' && !t.own);
+      const added: FakePlaylist[] = names.map((folder, i) => {
+        const qobuz = i % 4 === 3;
+        const id = `Browser${String(i).padStart(2, '0')}xxxxxxxxxxxxxxxx`;
+        return { folder, enabled: i !== 11, link: qobuz ? `${QOBUZ_PLAYLIST_LINK.slice(0, -2)}${String(i).padStart(2, '0')}`
+          : `https://open.spotify.com/playlist/${id}`,
+          info: { name: folder.replace(/_/g, ' '), owner_name: 'DJ One', yours: true, collaborative: false, readable: true,
+            image_url: null, track_count: (i * 3) % 7, hint: SPOTIFY_HINT } };
+      });
+      added.forEach((p, i) => {
+        const n = i % 6 === 5 ? 0 : (i * 5) % 6;   // every sixth playlist has no file yet (never read)
+        for (let k = 0; k < n; k++) {
+          const from = base[(i * 7 + k) % base.length];
+          s.tracks.push({ ...from, track_id: `browser-${i}-${k}`, folder: p.folder, playlists: [p.folder] });
+        }
+      });
+      s.playlists.push(...added);
+      for (let k = 0; k < 3; k++) {   // the second Library folder no line uses (Old_Sets is the first)
+        const from = base[(3 + k) % base.length];
+        s.tracks.push({ ...from, track_id: `browser-lib-${k}`, folder: 'Crate_Dumps', in_playlists: false, playlists: [] });
+      }
+    },
+    // a playlist of long names, as DJ downloads come (mix names in brackets, several artists): every Hard_Bounce track
+    // gets a long title and artist, so the table shows what it keeps of a name at 1100 × 700 (plan library stage 5
+    // A6: names readable on a laptop)
+    long_titles: (s) => {
+      const mixes = ['(Extended Festival Mix)', '(Original Mix)', '(Hardtechno Remix)', '(Warehouse Edit)', '(Club Mix)'];
+      s.tracks.filter((t) => t.folder === 'Hard_Bounce').forEach((t, i) => {
+        Object.assign(t, { title: `${t.title} ${mixes[i % mixes.length]}`,
+          artist: i % 2 ? `${t.artist} & Frau Funk` : t.artist });
+      });
     },
     // now playing: ▶ on Get Naughty, then ⏭ reaches a file that can't be played (the bar says so and waits)
     cant_play: (s) => { cantPlay.add(s); },

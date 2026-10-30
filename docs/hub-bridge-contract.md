@@ -15,7 +15,7 @@ library (lists cut to 2 items, `data` cut).
   same `job_id` (see Jobs). At most one write job runs; others are refused with kind `busy` (hub) or `console`
   (a terminal run holds the lock).
 - After a write job finishes, re-fetch the screens you show (`track`, `todo`, `sidebar`, ...). After a playlists save,
-  `spotify.stale` is true: offer ↻ (`refresh()`). After a sync (finished, stopped or crashed) `sync_preview` is the
+  `read_status.stale` is true: offer ↻ (`refresh()`). After a sync (finished, stopped or crashed) `sync_preview` is the
   plan worked out again from the sync's own Spotify read and the library as the run left it (`read_at` = that read,
   `stale` false), so what the run did is not offered again; only when the library records (`library.db`) or settings.json can't be read then
   does the old plan stay, with `stale` true.
@@ -80,7 +80,7 @@ Use the kind for the card/headline; always show `message` as the detail.
   (`Qobuz`, `YT Music`, `SoundCloud`, `YouTube`, `bought`; `own file` for a file the import found). `added`: the playlist
   day, else for an own file the day Discjockey first saw it. `cover_url`: media URL of the embedded cover, else the
   Spotify image URL (https), else null (show placeholder). `duration_s` float.
-- **SpotifyStatus** (`spotify` field; it is the status of reading *all* playlists, whichever service): `read_at`
+- **ReadStatus** (`read_status` field; it is the status of reading *all* playlists, whichever service): `read_at`
   ISO|null, `minutes_ago` int|null, `problem` kind|null, `problem_service` `"spotify"|"qobuz"|null` (the playlist
   service `problem` is about: a missing Qobuz login on a read is `not_set_up` + `qobuz`; null for a problem that is no
   service's; a good read clears it, and so does a login made for that service: a good Setup or Settings login, or a good "Check again", so the page never waits for a restart), `message` (a missing login reads "Connect Qobuz first." in the hub, never the console's "Run: discjockey setup"), `services` [{`service` `spotify|qobuz`, `name` "Spotify"|"Qobuz",
@@ -118,7 +118,7 @@ Use the kind for the card/headline; always show `message` as the detail.
 {
  "ok": true,
  "greeting": "Good evening",
- "spotify": {
+ "read_status": {
   "read_at": "2026-10-20T21:47:00",
   "minutes_ago": 0,
   "problem": null,
@@ -244,28 +244,43 @@ Use the kind for the card/headline; always show `message` as the detail.
 the same `estimate` fields as `sync_preview`. `tiles.account_today`: the first set-up card of `limits()` (Qobuz first,
 then YouTube Premium, then SoundCloud Go+), null when no service is set up.
 
-`sidebar()` — counts for the sidebar (to-do badge, folders with file counts, Not in a playlist).
+`sidebar()` — counts and lists for the sidebar (to-do badge, one entry per `playlists.txt` line, the Library folders no line uses, Not in a playlist).
 ```json
 {
  "ok": true,
  "todo": 2,
  "all_tracks": 2,
- "folders": [
+ "not_in_playlist": 0,
+ "limits_warning": false,
+ "playlists": [
   {
-   "folder": "Hard_Bounce",
-   "tracks": 2,
-   "in_playlists_txt": true
+   "name": "Hard_Bounce",
+   "ref": "37i9dQZF1DX0XUsuxWHRQd",
+   "service": "spotify",
+   "enabled": true,
+   "tracks": 2
   },
   {
-   "folder": "Powertrance",
-   "tracks": 0,
-   "in_playlists_txt": true
+   "name": "Powertrance",
+   "ref": "qobuz:900000001",
+   "service": "qobuz",
+   "enabled": false,
+   "tracks": 0
   }
  ],
- "not_in_playlist": 0,
- "limits_warning": false
+ "library_folders": [
+  {
+   "folder": "Old_Sets",
+   "tracks": 1
+  }
+ ]
 }
 ```
+`playlists` has every line of `playlists.txt` in file order, switched-off ones too (`enabled: false`; `#off#` lines): `name`
+is the folder name, `ref` the playlist's token (a Spotify id stays bare, any other service is `service:id`), `service`
+a key of the playlist services, and `tracks` the files in its folder (case and accents ignored, as the disk does).
+`library_folders` are the `Library/` folders with files that no line uses, by name, with their file counts (the
+user's own songs belong to no folder). This replaces `folders` / `in_playlists_txt`.
 `limits_warning`: true when a set-up service has a warning sign the user hasn't marked as seen ("Got it",
 `mark_warnings_seen`), or is paused today (the dot on "Download limits").
 
@@ -297,7 +312,7 @@ ticked count (a larger count takes the last entry) for the service rows and neve
 ```json
 {
  "ok": true,
- "spotify": {
+ "read_status": {
   "read_at": "2026-10-20T21:47:00",
   "minutes_ago": 0,
   "problem": null,
@@ -396,11 +411,11 @@ ticked count (a larger count takes the last entry) for the service rows and neve
 
 `refresh(auto=false)` → `{"job_id"}` — read-only playlists read: "↻ Read playlists", and by itself whenever
 playlists.txt changes on disk (mtime or size, checked every 2 s; retried until no hub sync blocks it). `auto=true`: the
-session's one automatic read (the hub when it opens; the Sync page when it opens and `spotify.auto_read` is still
-false, e.g. the hub's own read could not start). It sets `spotify.auto_read` when it starts; later `auto=true` calls are
+session's one automatic read (the hub when it opens; the Sync page when it opens and `read_status.auto_read` is still
+false, e.g. the hub's own read could not start). It sets `read_status.auto_read` when it starts; later `auto=true` calls are
 refused (`refused`), so a stopped or failed automatic read is never redone by itself. Each playlist read emits
 `ReadingPlaylist`. Outcome: `JobFinished` kind `refresh`, `result {"actions": n}`; on problems (`offline`, ...) the
-last preview stays with `spotify.problem` set.
+last preview stays with `read_status.problem` set.
 `stop_refresh()` → `{"stopped": bool}`. The read's `JobFinished` (`stopped`) comes at once, also while one slow
 Spotify request is still under way; that request's late answer is dropped (the last preview stays).
 
@@ -418,7 +433,7 @@ reload.
  "job": null,
  "refresh_running": false,
  "console_running": false,
- "spotify": {
+ "read_status": {
   "read_at": "2026-10-20T21:47:00",
   "minutes_ago": 0,
   "problem": null,
@@ -451,12 +466,23 @@ holds for `dashboard`'s `lossless_share` tile and folder bars (`by_quality`, `lo
 count), and the to-do list holds no such file. The user's
 own songs (the import) are in no folder: their rows have `folder: ""` and `in_playlists: false`, they show in All
 tracks and Not in a playlist, never under a playlist folder. `summary` is the folder at a glance and ignores the search and the filter: `by_quality` (as in
-`dashboard`), `upgrades_ready`, and `to_do`, the tracks of the folder the to-do list shows (in a playlist, not hidden).
+`dashboard`), `upgrades_ready`, `to_do`, the tracks of the folder the to-do list shows (in a playlist, not hidden),
+and `not_lossless`, the checked files that aren't lossless (`good_lossy` + `weak` + `fake`; the strip's "Not lossless
+yet" row, beside `to_do`). `subtitle` is the header's second line as parts in order of importance (the page drops the
+last parts first when it is too long): All tracks `["{n} tracks", "every folder"]`; Not in a playlist `["{n} tracks",
+"in no playlist"]`; a folder a `playlists.txt` line names `["{n} tracks", "{Service} playlist", ("switched off",)
+"Library › {folder}"]`, or `["{Service} playlist", "not read yet"]` while no song of it is known; any other folder
+`["{n} tracks", "no playlist uses it", "Library › {name}"]` (`1 track` for one).
 ```json
 {
  "ok": true,
  "title": "Hard_Bounce",
  "folder": "Hard_Bounce",
+ "subtitle": [
+  "2 tracks",
+  "Spotify playlist",
+  "Library › Hard_Bounce"
+ ],
  "summary": {
   "tracks": 2,
   "lossless_share": 0.5,
@@ -468,7 +494,8 @@ tracks and Not in a playlist, never under a playlist folder. `summary` is the fo
    "missing": 0
   },
   "upgrades_ready": 1,
-  "to_do": 1
+  "to_do": 1,
+  "not_lossless": 1
  },
  "chips": {
   "all": 2,

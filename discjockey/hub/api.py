@@ -512,7 +512,7 @@ class HubApi:
         count = self._todo(state, "all", False, count_only=True)["chips"]["all"]
         # the dot on "Download limits": a warning sign the user hasn't marked as seen, or a service paused today
         warnings = any(c["new_warnings"] or c["paused"] for c in views.limit_cards(state, self._settings(), self._today()))
-        return views.sidebar(state, self._folders(), count, warnings)
+        return views.sidebar(state, pf.load(self._paths.playlists_file).rows, count, warnings)
 
     @bridge
     def sync_preview(self) -> dict:
@@ -586,15 +586,16 @@ class HubApi:
 
     @bridge
     def job_status(self) -> dict:
-        return {**self._jobs.status(), "spotify": views.spotify_status(self._store, self._svc.now(), self._reading(),
-                                                                         self._logins())}
+        return {**self._jobs.status(), "read_status": views.read_status(self._store, self._svc.now(), self._reading(),
+                                                                           self._logins())}
 
     @bridge
     def library(self, folder: str | None = None, query: str = "", filter: str = "all", sort: str = "artist") -> dict:
         if filter not in views.LIBRARY_FILTERS:
             raise ValueError(f"filter must be one of {', '.join(views.LIBRARY_FILTERS)}")
         state = self._state()
-        out = views.library(state, folder, query, filter, sort, self._cover(self._images()), self._away_roots())
+        out = views.library(state, folder, query, filter, sort, self._cover(self._images()), self._away_roots(),
+                            lines=pf.load(self._paths.playlists_file).rows)
         self._remember(state, [r["track_id"] for r in out["rows"]])
         return out
 

@@ -320,6 +320,40 @@ that have a file are played. Changing the filter later doesn't change what plays
 - Keys: **Space** plays or pauses, **⌘→** next, **⌘←** previous (not while you type in a field).
 - If a file can't be played, the bar says so and waits; ⏭ goes on.
 
+## The Library page
+
+**Library** shows every track you have, with its quality. Its sidebar is a narrow **rail** of icons, and next to it
+stands the **browser column**: your playlists and your Library folders. Click a name to see its
+tracks. Click a track (or move with ↑ ↓) and its details open on the right; they follow the track you select. They
+only show while a track is selected and in the list: when you open Library, switch to another playlist, or a filter
+or search hides the selected track, they close, and the details button waits (greyed) until you select a track. If you
+close them with the details button at the top right or **⌘I**, they stay closed: clicking a track then only selects
+it, and the button reads **Show details** (dashed, its symbol struck through) so you can see they are hidden on
+purpose. Discjockey remembers this, also after a restart. Press the button or **⌘I** again, or click a track's quality
+badge, to show them again; from then on a click opens them again. Below 1240 pixels of window width the details take
+the room of the browser column, which waits behind the rail until you close them (⌘K or the Library icon ♫ also
+brings it back and closes the details; that doesn't count as hiding them, so the next track you click opens them
+again).
+
+- **Two sidebar forms.** The rail (icons only) is the form Library starts with. Every other page starts with the full
+  sidebar (icons and names). **⌃⌘S**, or the button at the top of the sidebar, folds it into the rail or opens it
+  again. Library remembers its own form, and all the other pages share another. Point at a rail icon to see its name.
+- **Filter the browser.** Type in the field at the top of the browser column (or press **⌘K** on any page) to find
+  a playlist or folder by name. Every match shows once, in its own section. The last row, **Search tracks for "…"**,
+  opens All tracks searched for what you typed. **Enter** opens the highlighted row, **Esc** clears the field.
+- **Make the column wider or narrower.** Drag its right edge. Double-click the edge to go back to the usual width.
+- **Keys:**
+
+| Key | What it does |
+|-----|-----|
+| **⌘1** to **⌘6** | Dashboard, Sync, To-do, Playlists, Download limits, Library |
+| **⌘,** | Settings |
+| **⌘K** | Opens Library and puts the cursor in the browser's filter |
+| **⌘I** | Opens or closes the details (Library only) |
+| **⌃⌘S** | Folds the sidebar into the rail, or opens it again |
+
+The keys work while you type in a field, but not while a dialog is open.
+
 ## Folders
 
 - `Library/<Folder>/` holds lossless tracks (verified) and files you bought.

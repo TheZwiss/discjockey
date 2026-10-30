@@ -235,8 +235,8 @@ def still_to_load(prep, money: dict | None, state: dict) -> dict:
     return {"count": count, "days": days, "fits_today": money is None or count <= money["remaining"]}
 
 
-def spotify_status(store, now: datetime, reading: bool, logins: Sequence[tuple[str, bool]]) -> dict:
-    """"Playlists read 2 min ago · ↻" (the field is still called `spotify`). problem: the last read's problem kind
+def read_status(store, now: datetime, reading: bool, logins: Sequence[tuple[str, bool]]) -> dict:
+    """"Playlists read 2 min ago · ↻" (the wire field is `read_status`). problem: the last read's problem kind
     (offline: the data shown is older); problem_service: the playlist service it is about, else null. auto_read: the
     hub's one automatic read of this session has started (the Sync page then never reads by itself). services: each
     playlist service playlists.txt uses with whether its login is there; `logins` is (service, connected) in that
@@ -352,7 +352,7 @@ def dashboard(state: dict, settings: Settings, store, reports: list[tuple[str, d
         empty = "not_set_up"
     elif not state["tracks"]:
         empty = "empty_library"
-    return {"greeting": greeting(now), "spotify": spotify_status(store, now, reading, logins),
+    return {"greeting": greeting(now), "read_status": read_status(store, now, reading, logins),
             "tiles": {"lossless": lossless_share(state), "qobuz_today": money,
                       "still_to_load": still_to_load(prep, gate(m), state),
                       "account_today": next((c for c in limit_cards(state, settings, today) if c["set_up"]), None)},
@@ -681,13 +681,32 @@ def _matches(row: dict, filt: str) -> bool:
     return row["upgrade_ready"] if filt == "upgrade_ready" else row["sound_checked"] and row["quality"] == filt
 
 
+def _subtitle(state: dict, folder: str | None, tracks: int, lines: Sequence[pf.Row]) -> list[str]:
+    """The header's subtitle as parts in order of importance (plan library stage 5 I7; the page drops the last parts
+    first when the line gets too long). A folder is a playlist's when a playlists.txt line names it; "never read" is a
+    playlist none of whose songs (found or not) the state holds."""
+    n = _plural(tracks, "1 track", "{n} tracks")
+    if folder is None:
+        return [n, "every folder"]
+    if folder == NOT_IN_PLAYLIST:
+        return [n, "in no playlist"]
+    line = next((r for r in lines if fold(r.folder) == fold(folder)), None)
+    if line is None:
+        return [n, "no playlist uses it", f"Library › {folder}"]
+    service = f"{PLAYLIST_SERVICES[line.service]} playlist"
+    if not any(fold(e["folder"] or "") == fold(folder) for e in state["tracks"].values()):
+        return [service, "not read yet"]
+    return [n, service, *(["switched off"] if not line.enabled else []), f"Library › {line.folder}"]
+
+
 def library(state: dict, folder: str | None, query: str, filt: str, sort: str, cover: Url | None = None,
-            away: Mapping[str, str] | None = None) -> dict:
+            away: Mapping[str, str] | None = None, *, lines: Sequence[pf.Row]) -> dict:
     """folder: None (all tracks), NOT_IN_PLAYLIST, or a folder name. filt: LIBRARY_FILTERS. sort: a SORTS key,
     "-" in front for descending. Only tracks with a file (not found ones are in the to-do list). `away`: the import
     folders that are not there now (HubApi._away_roots, as track_detail gets it): each row's `file_state` says
     whether its file is "here", "offline" (its drive is not connected) or "folder_missing", decided per folder
-    (file_state without the file check: no file is looked at per row, so "file_missing" stays the panel's)."""
+    (file_state without the file check: no file is looked at per row, so "file_missing" stays the panel's).
+    `lines`: the playlists.txt lines (playlists_file.load(...).rows), for the subtitle."""
     with_file = {k: e for k, e in state["tracks"].items() if e["status"] != "missing" and e.get("path")}
     if folder is None:
         chosen, title = with_file, "All tracks"
@@ -705,6 +724,8 @@ def library(state: dict, folder: str | None, query: str, filt: str, sort: str, c
     # the folder at a glance (the panel's overview): unaffected by the search and the filter
     summary = {"tracks": in_folder, "lossless_share": round(by["lossless"] / counted, 4) if counted else None,
                "by_quality": by, "upgrades_ready": sum(1 for r in rows if r["upgrade_ready"]),
+               # checked files that aren't lossless: the strip's "Not lossless yet" row
+               "not_lossless": by["good_lossy"] + by["weak"] + by["fake"],
                "to_do": sum(1 for e in chosen.values()
                             if e.get("in_playlists") and not e.get("hidden") and _group(e) is not None)}
     q = fold(query or "").strip()
@@ -715,7 +736,8 @@ def library(state: dict, folder: str | None, query: str, filt: str, sort: str, c
     key = (sort or "artist").lstrip("-")
     rows.sort(key=SORTS.get(key, SORTS["artist"]), reverse=(sort or "").startswith("-"))
     empty = "empty_library" if not with_file else ("no_match" if not rows else None)
-    return {"title": title, "folder": folder, "summary": summary, "chips": chips, "rows": rows, "empty": empty}
+    return {"title": title, "folder": folder, "subtitle": _subtitle(state, folder, in_folder, lines),
+            "summary": summary, "chips": chips, "rows": rows, "empty": empty}
 
 
 def tracks_with_file(state: dict) -> list[dict]:
@@ -723,18 +745,24 @@ def tracks_with_file(state: dict) -> list[dict]:
     return [e for e in state["tracks"].values() if e["status"] != "missing" and e.get("path")]
 
 
-def sidebar(state: dict, folder_order: list[str], todo_count: int, warnings: bool = False) -> dict:
+def sidebar(state: dict, lines: Sequence[pf.Row], todo_count: int, warnings: bool = False) -> dict:
+    """The sidebar's numbers. `lines`: every playlist line of playlists.txt in file order, switched-off ones too
+    (playlists_file.load(...).rows). A playlist's count is the files in its folder; `library_folders` are the folders
+    with files that no line uses, by name (the user's own songs belong to no folder)."""
     with_file = tracks_with_file(state)
     counts: dict[str, int] = {}
+    names: dict[str, str] = {}
     for e in with_file:
-        if e["folder"]:  # the user's own songs (the import) belong to no playlist folder
-            counts[e["folder"]] = counts.get(e["folder"], 0) + 1
-    order = list(folder_order) + sorted((f for f in counts if fold(f) not in {fold(x) for x in folder_order}),
-                                        key=fold)
+        if e["folder"]:
+            counts[fold(e["folder"])] = counts.get(fold(e["folder"]), 0) + 1
+            names.setdefault(fold(e["folder"]), e["folder"])
+    used = {fold(r.folder) for r in lines}
     return {"todo": todo_count, "all_tracks": len(with_file),
-            "folders": [{"folder": f, "tracks": counts.get(f, 0), "in_playlists_txt": f in folder_order}
-                        for f in order],
-            "not_in_playlist": sum(1 for e in with_file if not e.get("in_playlists")), "limits_warning": warnings}
+            "not_in_playlist": sum(1 for e in with_file if not e.get("in_playlists")), "limits_warning": warnings,
+            "playlists": [{"name": r.folder, "ref": r.ref, "service": r.service, "enabled": r.enabled,
+                           "tracks": counts.get(fold(r.folder), 0)} for r in lines],
+            "library_folders": [{"folder": names[k], "tracks": counts[k]}
+                                for k in sorted(k for k in counts if k not in used)]}
 
 
 # --- to-do ---
@@ -958,9 +986,9 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
                  cover: Url | None = None, logins: Sequence[tuple[str, bool]] = ()) -> dict:
     """The check before the start: every planned action in groups, each with the key the page sends back ticked."""
     prep = store.prep
-    status = spotify_status(store, now, reading, logins)
+    status = read_status(store, now, reading, logins)
     if prep is None:
-        return {"spotify": status, "counts": None, "groups": [], "estimate": None, "never": [], "folders": [],
+        return {"read_status": status, "counts": None, "groups": [], "estimate": None, "never": [], "folders": [],
                 "in_playlists": None, "ambiguous": [], "dropped": [], "notes": [], "empty": "no_preview",
                 "waiting_answers": 0, "deferred_checks": 0}
     plan_state = prep.state
@@ -971,7 +999,7 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
         groups.setdefault(f"acquire:{a.reason}" if a.kind == "acquire" else a.kind, []).append(a)
     in_playlists = {t.key for fp in prep.fetched for t in fp.tracks}
     run_index = {id(a): i for i, a in enumerate(todo)}  # the order the sync works through them
-    return {"spotify": status, "counts": plan_counts(todo),
+    return {"read_status": status, "counts": plan_counts(todo),
             "groups": [{"key": key, "label": label,
                         "actions": [{**action_row(a, plan_state, cover), "run": run_index[id(a)]} for a in groups[key]]}
                        for key, label in PLAN_LABELS if key in groups],

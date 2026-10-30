@@ -121,8 +121,7 @@
   /* with ListSections, the stuck head is the scroller's top edge: the rows pass under it, so that end doesn't fade
      (it would fade the head itself) */
   .rows.scroll:has(> :global([data-list-section]))[data-fade-above] { --fade-top: black; }
-  /* and a row scrolled into view (arrow keys, ?track=) stops below the stuck head, not under it */
-  .rows.scroll:has(> :global([data-list-section])) > :global(*) { scroll-margin-top: var(--h-section); }
+  /* a row scrolled into view (arrow keys, ?track=) stops below the stuck head: ListSection's own rule */
   .head { display: flex; align-items: center; gap: var(--s-2); min-height: var(--h-list-row); padding: 0 var(--s-4);
     min-width: 0; }
   .head.inset { min-height: 0; padding: 0; }

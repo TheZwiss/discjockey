@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { FULL_W, NARROW_BELOW, RAIL_W } from './stores/chrome';
 import { handWrittenMarkers, importedBlocks, outdatedBlocksIn, outdatedTokensIn, usesGhost } from './guards';
 
 const files = (dir: string): string[] => readdirSync(dir).flatMap((f) => {
@@ -49,5 +50,15 @@ describe('the panel breakpoint has one value', () => {
     const query = /@media \(width < (\d+)px\)/.exec(readFileSync(join(__dirname, 'frames/ListPanelFrame.svelte'), 'utf8'));
     expect(token?.[1]).toBeDefined();
     expect(query?.[1]).toBe(token?.[1]);
+  });
+});
+
+describe('the chrome widths have one value', () => {
+  const css = readFileSync(join(__dirname, 'styles/tokens.css'), 'utf8');
+  const token = (name: string) => Number(new RegExp(`${name}:\\s*(\\d+)px`).exec(css)?.[1]);
+  it("chrome.ts FULL_W, RAIL_W and NARROW_BELOW are tokens.css's --sidebar-full-w, --rail-w and --panel-narrow-below", () => {
+    expect(token('--sidebar-full-w')).toBe(FULL_W);
+    expect(token('--rail-w')).toBe(RAIL_W);
+    expect(token('--panel-narrow-below')).toBe(NARROW_BELOW);
   });
 });

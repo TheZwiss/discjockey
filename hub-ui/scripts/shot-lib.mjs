@@ -7,7 +7,13 @@
 //                { "press": "Escape" }, { "fill": ["input[type=search]", "gimme"] }, { "resize": [1100, 700] }],
 //      "mockup": "todo.html", "mockupClip": null }]
 // Steps also take { "rightclick": selector } (opens a right-click menu), { "hover": selector } and { "eval": "js" }.
-// Optional shot keys: "each": "section" (also one PNG per matching element), "width"/"height" (a window of its own: with a
+// Optional shot keys: "prefs": { "shell.form.other": "rail" } (UI prefs seeded into localStorage, without the app's
+// "discjockey." prefix, right after the per-shot clear: a shot can start with the folded sidebar, a wider browser column
+// or an open inspector; a shot without it starts from the defaults: Library rail, other pages full),
+// "mockupState": "dashboard-rail" (with "mockup": the state's hash, read by shots.mjs --compare: it loads
+// <mockup>#<state>, waits for [data-win] and clips it) and "mockupScale": 1 (the mockup's size in the comparison; 1
+// for library-layout.html, which is drawn at real size; 1.15 is the default for the older, smaller mockups),
+// "each": "section" (also one PNG per matching element), "width"/"height" (a window of its own: with a
 // width the shot is taken once, at that size; a height alone keeps the widths up to 1280, see sizesFor), "settle": ms (default 250), "fullPage": true,
 // "reducedMotion": "reduce".
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -94,9 +100,15 @@ export async function openShot(ctx, port, shot, size) {
   // every shot starts from the app's defaults: the context is shared across shots and sizes, and a shot that changes a
   // pref (Sync's playlists or amount) would otherwise carry it into the next one. Cleared once per page (its first
   // load), so a shot that reloads keeps what it set.
-  await page.addInitScript(() => {
-    try { if (!sessionStorage.getItem('shot-fresh')) { localStorage.clear(); sessionStorage.setItem('shot-fresh', '1'); } } catch { /* storage off */ }
-  });
+  // The shot's `prefs` are seeded right after that clear, in the same first load.
+  await page.addInitScript((prefs) => {
+    try {
+      if (sessionStorage.getItem('shot-fresh')) return;
+      localStorage.clear();
+      sessionStorage.setItem('shot-fresh', '1');
+      for (const [k, v] of Object.entries(prefs)) localStorage.setItem(`discjockey.${k}`, JSON.stringify(v));
+    } catch { /* storage off */ }
+  }, shot.prefs ?? {});
   const errors = [];
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push(String(e)));

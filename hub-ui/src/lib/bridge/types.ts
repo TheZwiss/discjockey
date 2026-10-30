@@ -129,7 +129,7 @@ export type BatchResult = { batch_id: number | null; title: string; moved: numbe
 /** `save_playlists`' third argument: the answer to the save question. */
 export type SaveFiles = { choice: 'leave' | 'move'; renames: [string, string][]; moves: [number, string][] };
 
-export type SpotifyStatus = {
+export type ReadStatus = {
   read_at: string | null; minutes_ago: number | null; problem: ProblemKind | null; message: string;
   /** the playlist service `problem` is about (null: no service's problem; a good read clears it) */
   problem_service: PlaylistService | null;
@@ -172,7 +172,7 @@ export type Estimate = { duration_min: number; qobuz_limit: number; qobuz_needed
 export type SyncAccount = EstimateAccount & { uses_by_downloads: number[] | null };
 export type SyncEstimate = Omit<Estimate, 'accounts'> & { accounts: SyncAccount[]; minutes_by_downloads: number[] };
 export type Dashboard = {
-  greeting: string; spotify: SpotifyStatus;
+  greeting: string; read_status: ReadStatus;
   tiles: {
     lossless: { share: number | null; lossless: number; total: number; by_quality: ByQuality };
     qobuz_today: Budget;
@@ -185,10 +185,12 @@ export type Dashboard = {
   last_runs: RunSummary[]; has_more_runs: boolean; next_checks: number; empty: EmptyKind | null;
 };
 export type Sidebar = {
-  todo: number; all_tracks: number;
-  folders: { folder: string; tracks: number; in_playlists_txt: boolean }[];
-  not_in_playlist: number;
-  limits_warning: boolean;
+  todo: number; all_tracks: number; not_in_playlist: number; limits_warning: boolean;
+  /** every line of playlists.txt in file order, switched-off ones too; `ref` the playlist's token, `tracks` the
+   *  files in its folder */
+  playlists: { name: string; ref: string; service: PlaylistService | null; enabled: boolean; tracks: number }[];
+  /** the Library/ folders with files that no playlist line uses, by name */
+  library_folders: { folder: string; tracks: number }[];
 };
 export type PreviewGroupKey = 'acquire:new' | 'acquire:retry' | 'acquire:redownload' | 'adopt_bought' | 'upgrade';
 export type PreviewAction = {
@@ -199,7 +201,7 @@ export type PreviewAction = {
   run?: number;
 };
 export type SyncPreview = {
-  spotify: SpotifyStatus; counts: PlanCounts | null;
+  read_status: ReadStatus; counts: PlanCounts | null;
   /** songs held back until the user answers "Is this the same song?" (not downloaded meanwhile) */
   waiting_answers: number;
   /** first upgrade checks of imported music that the per-run cap left for later runs */
@@ -229,7 +231,7 @@ export type JobSnap = {
   actions: PlannedAction[];
 };
 export type JobStatus = { job: JobSnap | null; refresh_running: boolean; console_running: boolean;
-  spotify: SpotifyStatus;
+  read_status: ReadStatus;
   /** a sign-in waiting for the browser (its own slot beside the write jobs; Settings restores its phase from it) */
   sign_in?: JobSnap | null };
 
@@ -238,9 +240,12 @@ export type JobStatus = { job: JobSnap | null; refresh_running: boolean; console
  *  `track()` checks); a row that isn't `here` doesn't play. */
 export type LibraryRow = TrackRow & { sound_checked: boolean; file_state: Exclude<FileState, 'file_missing'> };
 export type Library = {
-  /** the folder at a glance, unaffected by the search and the filter; to_do: what the to-do list shows of it */
+  /** the folder at a glance, unaffected by the search and the filter; to_do: what the to-do list shows of it;
+   *  not_lossless: the checked files that aren't lossless (good lossy + weak + fake) */
   title: string; folder: string | null; summary: { tracks: number; lossless_share: number | null;
-    by_quality: ByQuality; upgrades_ready: number; to_do: number };
+    by_quality: ByQuality; upgrades_ready: number; to_do: number; not_lossless: number };
+  /** the header's second line as parts in order of importance (the page drops the last parts first) */
+  subtitle: string[];
   chips: Record<LibraryFilter, number>; rows: LibraryRow[]; empty: EmptyKind | null;
 };
 export type Alignment = { drift_ms: number | null; offset_ms: number | null; offset_samples: number | null;

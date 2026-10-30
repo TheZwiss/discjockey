@@ -66,7 +66,10 @@ describe('fake backend', () => {
     const side = await f.sidebar();
     if (!side.ok) throw new Error();
     expect(side.not_in_playlist).toBe(2);
-    expect(side.folders.find((x) => x.folder === 'Old_Sets')?.in_playlists_txt).toBe(false);
+    expect(side.library_folders).toEqual([{ folder: 'Old_Sets', tracks: 2 }]);
+    expect(side.playlists.map((x) => [x.name, x.service, x.enabled]).slice(3, 7)).toEqual([
+      ['03_06_2026', 'spotify', true], ['Tekke_Ecke', 'spotify', false], ['Hard_Techno', 'spotify', true],
+      ['Qobuz_Picks', 'qobuz', true]]);
     const pl = await f.playlists();
     if (!pl.ok) throw new Error();
     expect(pl.rows).toHaveLength(7);   // six Spotify lines (one without access) and one from Qobuz
@@ -250,11 +253,11 @@ describe('fake backend', () => {
   it('reads Spotify by itself once per session; "↻ Read Spotify" still reads; Stop ends the read at once', async () => {
     const evs: HubEvent[] = [];
     const f = createFakeBridge('normal', { speed: 50, emit: (e) => evs.push(e) });
-    f._ctx.s.spotify = { ...f._ctx.s.spotify, auto_read: false };  // the hub has not read by itself yet
+    f._ctx.s.read_status = { ...f._ctx.s.read_status, auto_read: false };  // the hub has not read by itself yet
     const first = await f.refresh(true);
     if (!first.ok) throw new Error();
     const p = await f.sync_preview();
-    expect(p.ok && p.spotify.auto_read).toBe(true);
+    expect(p.ok && p.read_status.auto_read).toBe(true);
     expect(await f.stop_refresh()).toMatchObject({ ok: true, stopped: true });
     const fin = evs.find((e) => e.type === 'JobFinished' && e.job_id === first.job_id);
     expect(fin).toMatchObject({ problem: 'stopped' });
@@ -263,7 +266,7 @@ describe('fake backend', () => {
     if (!manual.ok) throw new Error();
     await until(evs, (e) => e.type === 'JobFinished' && e.job_id === manual.job_id);
     const js = await f.job_status();
-    expect(js.ok && js.spotify.auto_read).toBe(true);
+    expect(js.ok && js.read_status.auto_read).toBe(true);
   });
 });
 
@@ -582,10 +585,10 @@ describe('fake backend: Qobuz playlists (stage 3)', () => {
     const ok = await createFakeBridge('normal').dashboard();
     const bad = await createFakeBridge('qobuz_not_connected').dashboard();
     if (!ok.ok || !bad.ok) throw new Error();
-    expect(ok.spotify).toMatchObject({ problem: null, problem_service: null });
-    expect(ok.spotify.services.map((x) => [x.service, x.connected])).toEqual([['spotify', true], ['qobuz', true]]);
-    expect(bad.spotify.services.find((x) => x.service === 'qobuz')).toMatchObject({ name: 'Qobuz', connected: false });
-    expect(bad.spotify).toMatchObject({ problem: 'not_set_up', problem_service: 'qobuz' });
+    expect(ok.read_status).toMatchObject({ problem: null, problem_service: null });
+    expect(ok.read_status.services.map((x) => [x.service, x.connected])).toEqual([['spotify', true], ['qobuz', true]]);
+    expect(bad.read_status.services.find((x) => x.service === 'qobuz')).toMatchObject({ name: 'Qobuz', connected: false });
+    expect(bad.read_status).toMatchObject({ problem: 'not_set_up', problem_service: 'qobuz' });
   });
   it('setup_skip_spotify counts the Spotify step as done', async () => {
     const evs: HubEvent[] = [];

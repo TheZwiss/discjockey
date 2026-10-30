@@ -74,7 +74,7 @@ def test_connecting_a_service_clears_its_stored_read_problem(root, monkeypatch):
     api._store.failed("not_set_up", "Connect Qobuz first.", "qobuz")
     assert wait_job(api, rec, api.setup_qobuz_login("dj@example.com", "pw")).ok
     assert api._store.problem is None
-    assert api.dashboard()["spotify"]["problem"] is None  # the page unblocks without a restart
+    assert api.dashboard()["read_status"]["problem"] is None  # the page unblocks without a restart
 
 
 def test_spotify_login_can_be_cancelled(root, monkeypatch):

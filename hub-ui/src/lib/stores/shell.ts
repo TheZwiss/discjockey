@@ -5,7 +5,7 @@
 // leaves its banner on, so no view loses the warning (I1).
 import { writable } from 'svelte/store';
 
-export type SaidInBody = { console?: boolean; spotify?: boolean };
+export type SaidInBody = { console?: boolean; readStatus?: boolean };
 
 export const bannersSaidInBody = writable<SaidInBody>({});
 

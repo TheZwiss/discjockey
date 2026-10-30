@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { TrackRow } from '$lib/bridge/types';
 import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import {
-  fileName, folderCell, footAction, inTodo, isSort, libraryView, moveSelection, nextSort, optionalColumns, overview, placeLine,
-  playable, rowAway, rowOff, rowTitleTip, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
+  columnThresholds, columnsAt, fileName, folderCell, footAction, gridColumns, inTodo, isSort, libraryView, moveSelection,
+  nextSort, offTable, optionalColumns, placeLine, playable, rowAway, rowOff, rowTitleTip, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
 } from './libraryModel';
-import type { Library, LibraryRow, TrackDetail } from '$lib/bridge/types';
+import type { LibraryRow, TrackDetail } from '$lib/bridge/types';
 
 const row = (id: string, extra: Partial<TrackRow> = {}): TrackRow => ({
   track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'lossless', quality: 'lossless',
@@ -95,19 +95,6 @@ describe('the panel', () => {
     expect(footAction(t({}))).toBeNull();
     expect(footAction(t({ status: 'not_lossless', in_playlists: false }))).toBeNull();
   });
-  it('overview: the share as a number, nothing known without tracks', () => {
-    const s = (tracks: number, lossless: number): Library['summary'] => ({ tracks, lossless_share: tracks ? lossless / tracks : null,
-      by_quality: { lossless, good_lossy: 0, weak: tracks - lossless, fake: 0, missing: 0 }, upgrades_ready: 0, to_do: 0 });
-    expect(overview(s(10, 6))).toEqual({ value: '60', unit: '%', label: 'lossless · 6 of 10 tracks' });
-    expect(overview(s(1, 1)).label).toBe('lossless · 1 of 1 track');
-    expect(overview(s(0, 0))).toEqual({ value: null, label: 'lossless · no tracks yet' });
-    // two files not sound-checked yet: left out of by_quality and of the share, still in `tracks`
-    const part: Library['summary'] = { tracks: 10, lossless_share: 0.5, upgrades_ready: 0, to_do: 0,
-      by_quality: { lossless: 4, good_lossy: 0, weak: 4, fake: 0, missing: 0 } };
-    expect(overview(part)).toEqual({ value: '50', unit: '%', label: 'lossless · 4 of 8 checked tracks' });
-    expect(overview({ ...part, lossless_share: null, by_quality: { lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 } }))
-      .toEqual({ value: null, label: 'lossless · none checked yet' });
-  });
   it('file name without the folders', () => {
     expect(fileName('Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff')).toBe('Armin Hermann - Get Naughty.aiff');
     expect(fileName('x.aiff')).toBe('x.aiff');
@@ -124,10 +111,37 @@ describe('table and strip', () => {
     expect(segOptions(c, 'all')[1]).toEqual({ key: 'lossless', label: 'Lossless', count: 1, dot: 'lossless' });
     expect(segOptions(null, 'all')[0].count).toBe(0);
   });
-  it('optional columns: All tracks shows the folder first, Not in a playlist starts with the source', () => {
-    expect(optionalColumns('all')).toEqual(['folder', 'source', 'added']);
-    expect(optionalColumns('folder')).toEqual(['source', 'added']);
-    expect(optionalColumns('unlisted')).toEqual(['source', 'added']);
+  it('optional columns (D10): Folder in the two views, Length everywhere, no Source or Added', () => {
+    expect(optionalColumns('all')).toEqual(['folder', 'length']);
+    expect(optionalColumns('unlisted')).toEqual(['folder', 'length']);
+    expect(optionalColumns('folder')).toEqual(['length']);
+  });
+  it('thresholds add up from Track + Artist (380): Folder +140, Length +200', () => {
+    expect(columnThresholds('all')).toEqual([{ column: 'folder', from: 520 }, { column: 'length', from: 720 }]);
+    expect(columnThresholds('folder')).toEqual([{ column: 'length', from: 580 }]);
+  });
+  it("columns by the table's own width: Length goes first, Folder last (the widths table)", () => {
+    // 1280 · Library (rail + browser), details closed: 946
+    expect(columnsAt('all', 946)).toEqual(['folder', 'length']);
+    // 1100 · Library, details closed: 766
+    expect(columnsAt('all', 766)).toEqual(['folder', 'length']);
+    // 1100 · details open (the browser stepped back): 685; 1280 · details open: 586
+    expect(columnsAt('all', 685)).toEqual(['folder']);
+    expect(columnsAt('unlisted', 586)).toEqual(['folder']);
+    expect(columnsAt('folder', 586)).toEqual(['length']);
+    expect(columnsAt('folder', 579)).toEqual([]);
+    expect(columnsAt('all', 519)).toEqual([]);
+    expect(columnsAt('all', 520)).toEqual(['folder']);
+    // Length's edges: All tracks at 720, a playlist at 580
+    expect(columnsAt('all', 719)).toEqual(['folder']);
+    expect(columnsAt('all', 720)).toEqual(['folder', 'length']);
+    expect(columnsAt('unlisted', 720)).toEqual(['folder', 'length']);
+    expect(columnsAt('folder', 580)).toEqual(['length']);
+  });
+  it('grid: the names share the rest, fixed Length, Quality and slot', () => {
+    expect(gridColumns([])).toBe('minmax(0, 1.45fr) minmax(0, 1fr) 116px var(--w-row-action)');
+    expect(gridColumns(['folder', 'length']))
+      .toBe('minmax(0, 1.45fr) minmax(0, 1fr) minmax(96px, .8fr) 52px 116px var(--w-row-action)');
   });
   it('tells the three lists apart', () => {
     expect(libraryView(null)).toBe('all');
@@ -137,8 +151,14 @@ describe('table and strip', () => {
   it('folder cell and sorts', () => {
     expect(folderCell(row('a'))).toBe('Hard_Bounce');
     expect(folderCell(row('a', { in_playlists: false }))).toBe('Not in a playlist');
+    // Not in a playlist: every row is in none, so the cell says where the file sits; "–" (null) without a folder
+    expect(folderCell(row('a', { in_playlists: false }), 'unlisted')).toBe('Hard_Bounce');
+    expect(folderCell(row('a', { in_playlists: false, folder: '' }), 'unlisted')).toBeNull();
     expect(isSort('-folder')).toBe(true);
-    expect(isSort('added')).toBe(true);
+    // Source and Added left the table: a sort by them saved before falls back to the default
+    expect(isSort('added')).toBe(false);
+    expect(isSort('-source')).toBe(false);
+    expect(isSort('length')).toBe(true);
     expect(isSort('bpm')).toBe(false);
   });
 });
@@ -184,5 +204,26 @@ describe('an away row (library stage 4 fix K)', () => {
     expect(rowAway({ file_state: 'here' })).toBeNull();
     expect(rowAway({ file_state: 'offline' })).toBe('offline');
     expect(rowAway({ file_state: 'folder_missing' })).toBe('folder_missing');
+  });
+});
+
+describe('offTable: the selected track known to be off the table (the details then never stand empty)', () => {
+  const lib = (folder: string | null, ids: string[]) => ({ folder, rows: ids.map((id) => row(id)) as unknown as LibraryRow[] });
+  it('a track among the rows shown is on the table', () => {
+    expect(offTable(lib('Hard_Bounce', ['t1', 't2']), 'Hard_Bounce', 't2')).toBe(false);
+  });
+  it('filtered or searched away, or gone from the library: off', () => {
+    expect(offTable(lib('Hard_Bounce', ['t1']), 'Hard_Bounce', 't2')).toBe(true);
+  });
+  it('no rows at all (an empty library or folder, nothing matches): off', () => {
+    expect(offTable(lib('Hard_Bounce', []), 'Hard_Bounce', 't2')).toBe(true);
+    expect(offTable(lib(NOT_IN_PLAYLIST, []), NOT_IN_PLAYLIST, 'local:1')).toBe(true);
+  });
+  it('not known yet: before the first answer, or while the answer is still another folder\'s', () => {
+    expect(offTable(null, 'Hard_Bounce', 't2')).toBe(false);
+    expect(offTable(lib('Qobuz_Picks', ['t9']), 'Hard_Bounce', 't2')).toBe(false);
+  });
+  it('nothing selected: nothing to be off', () => {
+    expect(offTable(lib('Hard_Bounce', []), 'Hard_Bounce', null)).toBe(false);
   });
 });

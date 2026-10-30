@@ -27,7 +27,7 @@ function fakeWindow(over: Record<string, (...a: any[]) => any> = {}) {
   const w = new EventTarget() as any;
   w.pywebview = { api: {
     find_logins: async () => ({ ok: true, ...LOGINS }),
-    job_status: async () => ({ ok: true, job: null, sign_in: null, refresh_running: false, console_running: false, spotify: null }),
+    job_status: async () => ({ ok: true, job: null, sign_in: null, refresh_running: false, console_running: false, read_status: null }),
     setup_account: job('setup_account'), account_sign_in: job('account_sign_in'), qobuz_check_login: job('qobuz_check_login'),
     setup_qobuz_login: job('setup_qobuz_login'), setup_skip_qobuz: job('setup_skip_qobuz'),
     setup_forget_account: job('setup_forget_account'),
@@ -144,7 +144,7 @@ describe('AccountFlow', () => {
     expect(calls[0]).toEqual(['setup_account', ['youtube', 'chrome', 'Profile 2']]);
   });
   it('picks up a sign-in still waiting from before', async () => {
-    fakeWindow({ job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: false, spotify: null,
+    fakeWindow({ job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: false, read_status: null,
       sign_in: { id: 7, kind: 'account_sign_in', running: true, last: { SignInPhase: { type: 'SignInPhase',
         service: 'youtube', phase: 'waiting', browser: 'chrome', browser_name: 'Chrome' } } } }) });
     const changed = vi.fn();

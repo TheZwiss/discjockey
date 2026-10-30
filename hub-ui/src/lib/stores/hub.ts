@@ -2,7 +2,7 @@
 import { derived, get, writable, type Readable } from 'svelte/store';
 import { onEvent } from '../bridge/events';
 import { api, onNoLibrary } from '../bridge/client';
-import type { AppUpdate, JobSnap, PlaylistService, SetupStatus, Sidebar, SpotifyStatus } from '../bridge/types';
+import type { AppUpdate, JobSnap, PlaylistService, SetupStatus, Sidebar, ReadStatus } from '../bridge/types';
 import { WRITE_BLOCKED } from '../copy';
 
 export type HubState = {
@@ -11,10 +11,10 @@ export type HubState = {
   /** a sign-in waiting for the browser: its own slot beside the write jobs, so it never blocks a write (plan R3) */
   sign_in: JobSnap | null;
   refresh_running: boolean; console_running: boolean;
-  spotify: SpotifyStatus | null;  setup: SetupStatus | null;  sidebar: Sidebar | null;
+  read_status: ReadStatus | null;  setup: SetupStatus | null;  sidebar: Sidebar | null;
   /** while Spotify is read (a refresh or a sync's start): which playlist, from ReadingPlaylist */
   read_progress: ReadProgress | null;
-  /** the last Spotify read was stopped (until the next one starts): SpotifyStatus says so */
+  /** the last playlist read was stopped (until the next one starts): ReadStatus says so */
   read_stopped: boolean;
   /** the update check's last answer (app_update / AppUpdate; spec public-release §8) */
   app_update: AppUpdate | null;
@@ -23,7 +23,7 @@ export type HubState = {
 };
 export type ReadProgress = { index: number; total: number; folder: string };
 export const EMPTY_HUB: HubState = { booted: false, fake: false, job: null, sign_in: null, refresh_running: false,
-  console_running: false, spotify: null, setup: null, sidebar: null, read_progress: null, read_stopped: false, app_update: null,
+  console_running: false, read_status: null, setup: null, sidebar: null, read_progress: null, read_stopped: false, app_update: null,
   app_update_seq: 0 };
 
 const state = writable<HubState>({ ...EMPTY_HUB });
@@ -43,7 +43,7 @@ export const writeBlockedReason = derived(state, (s): string | null =>
  *  shell's banner says it (with its Connect link) and the header slot turns Read playlists off, so the state is said
  *  once (design system §5a/§11). Offline is not a block: a read fixes it. */
 export type ReadBlock = { kind: 'login_expired' | 'not_set_up'; service: PlaylistService };
-export function readBlockIn(sp: SpotifyStatus | null): ReadBlock | null {
+export function readBlockIn(sp: ReadStatus | null): ReadBlock | null {
   if (!sp) return null;
   if (sp.problem === 'login_expired') return { kind: 'login_expired', service: sp.problem_service ?? 'spotify' };
   const off = sp.services?.find((x) => !x.connected);
@@ -64,12 +64,12 @@ export function readBlockIn(sp: SpotifyStatus | null): ReadBlock | null {
  *  problem only clears after a successful read, so the live setup state decides too: once playlists.txt exists
  *  (`setup.playlists`) the problem is stale and Read must stay enabled so a read can clear it. Setup not known yet
  *  keeps the block. */
-export function readNeedsSetupIn(sp: SpotifyStatus | null, setup: SetupStatus | null): boolean {
+export function readNeedsSetupIn(sp: ReadStatus | null, setup: SetupStatus | null): boolean {
   return !!sp && sp.problem === 'not_set_up' && !sp.problem_service && readBlockIn(sp) === null
     && setup?.playlists !== true;
 }
 /** The one source for the banner, the header slot and Sync's card (spec §5a/§11). */
-export const readBlock = derived(state, (s) => readBlockIn(s.spotify));
+export const readBlock = derived(state, (s) => readBlockIn(s.read_status));
 export const readBlocked = derived(readBlock, (b) => b !== null);
 /** +1 on every JobFinished (any kind), ConsoleBusy {running:false} and a finished refresh. Pages re-fetch on change. */
 export const dataVersion: Readable<number> = { subscribe: version.subscribe };
@@ -92,7 +92,7 @@ export function reduceHub(s: HubState, e: Parameters<Parameters<typeof onEvent>[
     case 'JobStarted':
       if (e.kind === 'refresh') {
         return { ...s, refresh_running: true, read_progress: null, read_stopped: false,
-          spotify: s.spotify ? { ...s.spotify, reading: true } : s.spotify };
+          read_status: s.read_status ? { ...s.read_status, reading: true } : s.read_status };
       }
       {
         const snap: JobSnap = { id: e.job_id, kind: e.kind, track_id: e.track_id, started: new Date().toISOString(),
@@ -104,7 +104,7 @@ export function reduceHub(s: HubState, e: Parameters<Parameters<typeof onEvent>[
     case 'JobFinished':
       if (e.kind === 'refresh') {
         return { ...s, refresh_running: false, read_progress: null, read_stopped: e.problem === 'stopped',
-          spotify: s.spotify ? { ...s.spotify, reading: false } : s.spotify };
+          read_status: s.read_status ? { ...s.read_status, reading: false } : s.read_status };
       }
       if (e.kind === SIGN_IN_KIND) {
         return s.sign_in?.id === e.job_id ? { ...s, sign_in: { ...s.sign_in, running: false, finished: e } } : s;
@@ -166,7 +166,7 @@ export function refreshHub(): Promise<void> {
       state.update((s) => ({
         ...s,
         ...(js.ok ? { job: (js.job && js.job.kind !== SCAN_KIND ? js.job : null) ?? (s.job && !s.job.running ? s.job : null), refresh_running: js.refresh_running,
-          console_running: js.console_running, spotify: js.spotify,
+          console_running: js.console_running, read_status: js.read_status,
           sign_in: js.sign_in ?? (s.sign_in && !s.sign_in.running ? s.sign_in : null) } : {}),
         setup: setup.ok ? stripOk(setup) : s.setup,
         sidebar: side.ok ? stripOk(side) : s.sidebar,
@@ -185,7 +185,7 @@ function stripOk<T extends { ok: true }>(r: T): Omit<T, 'ok'> {
 export function markBooted(fake: boolean): void {
   state.update((s) => ({ ...s, booted: true, fake }));
 }
-/** Pages that changed Spotify's state through their own call (e.g. SpotifyStatus Stop) can poke the hub. */
+/** Pages that changed Spotify's state through their own call (e.g. ReadStatus Stop) can poke the hub. */
 export function bumpData(): void {
   version.update((v) => v + 1);
   void refreshHub();

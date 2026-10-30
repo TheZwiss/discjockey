@@ -74,22 +74,22 @@
   const searching = $derived(query.trim() !== '');
   const hidden = $derived(ordered.length - scoped.length);
 
-  const reading = $derived($hub.refresh_running || !!preview?.spotify.reading);
+  const reading = $derived($hub.refresh_running || !!preview?.read_status.reading);
   // the shared store first (it also knows a missing login before any read failed), so this card, the banner on
   // other pages and the header slot say the same state with the same words (spec §11)
-  const spotifyProblem = $derived($readBlock?.kind ?? preview?.spotify.problem ?? null);
-  const problemService = $derived($readBlock?.service ?? preview?.spotify.problem_service ?? null);
+  const readProblem = $derived($readBlock?.kind ?? preview?.read_status.problem ?? null);
+  const problemService = $derived($readBlock?.service ?? preview?.read_status.problem_service ?? null);
   // what a missing or expired login affects: the switched-on lines of that service (playlists.txt is local, so this
   // is cheap); until it answers the line speaks of "your Qobuz playlists" without promising anything
   let lines = $state<PlaylistRow[] | null>(null);
   $effect(() => {
     const svc = problemService;
     void $dataVersion;
-    if (!svc || (spotifyProblem !== 'not_set_up' && spotifyProblem !== 'login_expired')) return;
+    if (!svc || (readProblem !== 'not_set_up' && readProblem !== 'login_expired')) return;
     void api.playlists().then((r) => { lines = r.ok ? r.rows : null; });
   });
-  const problemLine = $derived(problemService && (spotifyProblem === 'not_set_up' || spotifyProblem === 'login_expired')
-    ? readBlockLine(spotifyProblem, problemService, lines) : undefined);
+  const problemLine = $derived(problemService && (readProblem === 'not_set_up' || readProblem === 'login_expired')
+    ? readBlockLine(readProblem, problemService, lines) : undefined);
   const lastView = $derived(lastSyncView(lastRun, lastDetail));
   // up to date with no sync ever and nothing that could be better: the frame's empty panel, not a blank Panel
   const upToDatePanel = $derived(preview?.empty === 'up_to_date'
@@ -100,7 +100,7 @@
   // and its Hint show (a plan), Spotify while the card above the plan can show (a preview); up to date and the empty
   // states have no Start, so the console banner stays there (final review I1). While loading, both are claimed: the
   // body says them in nearly every outcome, and a banner drawn over the skeleton would jump away when the plan comes
-  $effect(() => sayInBody({ console: loading || hasPlan, spotify: loading || (!problem && !!preview) }));
+  $effect(() => sayInBody({ console: loading || hasPlan, readStatus: loading || (!problem && !!preview) }));
   const startTitle = $derived($hub.console_running ? 'A sync is running in the terminal. Its progress shows there.'
     : chosen.length === 0 ? 'Nothing ticked' : nothingToday ? NOTHING_TODAY : undefined);
 
@@ -227,7 +227,7 @@
 
 {#snippet main()}
   <div class="before" data-test="sync-before">
-    <PageHeader title="Sync" spotify spotifyInBody />
+    <PageHeader title="Sync" readStatus readStatusInBody />
 
     {#if loading}
       <Skeleton height={28} />
@@ -237,9 +237,9 @@
     {:else if preview}
       <!-- The read's problem is said here once (the banner stays off on this view): no Retry, since Read playlists
            sits in the header slot right above, its one place (spec §11) -->
-      {#if spotifyProblem}
-        <div data-test="spotify-problem">
-          <ProblemCard kind={spotifyProblem} message={preview.spotify.message} service={problemService} hint={problemLine} />
+      {#if readProblem}
+        <div data-test="read-problem">
+          <ProblemCard kind={readProblem} message={preview.read_status.message} service={problemService} hint={problemLine} />
         </div>
       {/if}
       {#if reading}<ReadingCard progress={$hub.read_progress} stale={hasPlan || preview.empty === 'up_to_date'} />{/if}
