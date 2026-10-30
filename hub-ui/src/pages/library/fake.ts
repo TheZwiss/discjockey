@@ -92,6 +92,29 @@ function watchFolder(s: FakeState, path: string, over: { offline?: boolean } = {
   s.imp.folders.push({ id: s.imp.nextId++, path, kind: 'import', offline: false, files, waiting: 0, redownload: 0, ...over });
 }
 
+/** An import of a folder of many crates under way (the live check of plan library stage 5): Incoming holds 11 crates
+ *  and 140 files that wait; every step of the import (each ~140–220 ms) brings one more crate, in among the others by
+ *  name, up to 24 (under D8's limit, so each shows), so the lists that show the crates grow while they are open. */
+function importingCrates(s: FakeState): void {
+  const incoming = '/Users/you/Music/Incoming';
+  const names = WORDS.map((w, i) => `${w} Selects`);
+  const crate = (name: string) => ['Opening', 'Middle', 'Closing'].forEach((part) =>
+    s.tracks.push(ownIn(s, `${incoming}/${name}`, ARTISTS[s.tracks.length % ARTISTS.length], `${name} (${part})`)));
+  // every other name first, so the later ones land between them
+  const later = names.filter((_, i) => i % 2 === 1 || i >= 22);
+  names.filter((_, i) => i % 2 === 0 && i < 22).forEach(crate);
+  watchFolder(s, incoming);
+  const folder = s.imp.folders[s.imp.folders.length - 1];
+  folder.waiting = 140;
+  s.imp.onStep = (phase) => {
+    if (phase !== 'tags' && phase !== 'sound') return;
+    const next = later.shift();
+    if (!next) return;
+    crate(next);
+    folder.files += 3;
+  };
+}
+
 /** Hard_Bounce as a playlist view shows it at its fullest (plan library stage 5, D6 and D9): beside its songs with a
  *  file there, a song whose file was downloaded for Powertrance first (it sits in that folder: "in Powertrance"), one the
  *  user had already in a crate of an import folder ("in Rekordbox Library › Hardtechno › 2019"), one on a drive that is
@@ -267,6 +290,8 @@ const fake: PageFake = {
     crates_busy: (s) => { withFavourites(s); s.briefBusy = true; },
     // the first look at the same sidebar: folders and crates there, nothing pinned yet
     first_look: (s) => { crateFolders(s); },
+    // the same while an import of Incoming runs (started by the page or a script): its crates arrive one by one
+    crates_importing: (s) => { crateFolders(s); importingCrates(s); },
     // no playlist was read yet: no read record, so no playlist knows its songs (the files are in their folders)
     never_read: (s) => { s.unread = s.playlists.map((p) => p.folder); },
     // now playing: ▶ on Get Naughty, then ⏭ reaches a file that can't be played (the bar says so and waits)
