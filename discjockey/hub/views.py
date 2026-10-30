@@ -235,8 +235,8 @@ def still_to_load(prep, money: dict | None, state: dict) -> dict:
     return {"count": count, "days": days, "fits_today": money is None or count <= money["remaining"]}
 
 
-def spotify_status(store, now: datetime, reading: bool, logins: Sequence[tuple[str, bool]]) -> dict:
-    """"Playlists read 2 min ago · ↻" (the field is still called `spotify`). problem: the last read's problem kind
+def read_status(store, now: datetime, reading: bool, logins: Sequence[tuple[str, bool]]) -> dict:
+    """"Playlists read 2 min ago · ↻" (the wire field is `read_status`). problem: the last read's problem kind
     (offline: the data shown is older); problem_service: the playlist service it is about, else null. auto_read: the
     hub's one automatic read of this session has started (the Sync page then never reads by itself). services: each
     playlist service playlists.txt uses with whether its login is there; `logins` is (service, connected) in that
@@ -352,7 +352,7 @@ def dashboard(state: dict, settings: Settings, store, reports: list[tuple[str, d
         empty = "not_set_up"
     elif not state["tracks"]:
         empty = "empty_library"
-    return {"greeting": greeting(now), "spotify": spotify_status(store, now, reading, logins),
+    return {"greeting": greeting(now), "read_status": read_status(store, now, reading, logins),
             "tiles": {"lossless": lossless_share(state), "qobuz_today": money,
                       "still_to_load": still_to_load(prep, gate(m), state),
                       "account_today": next((c for c in limit_cards(state, settings, today) if c["set_up"]), None)},
@@ -958,9 +958,9 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
                  cover: Url | None = None, logins: Sequence[tuple[str, bool]] = ()) -> dict:
     """The check before the start: every planned action in groups, each with the key the page sends back ticked."""
     prep = store.prep
-    status = spotify_status(store, now, reading, logins)
+    status = read_status(store, now, reading, logins)
     if prep is None:
-        return {"spotify": status, "counts": None, "groups": [], "estimate": None, "never": [], "folders": [],
+        return {"read_status": status, "counts": None, "groups": [], "estimate": None, "never": [], "folders": [],
                 "in_playlists": None, "ambiguous": [], "dropped": [], "notes": [], "empty": "no_preview",
                 "waiting_answers": 0, "deferred_checks": 0}
     plan_state = prep.state
@@ -971,7 +971,7 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
         groups.setdefault(f"acquire:{a.reason}" if a.kind == "acquire" else a.kind, []).append(a)
     in_playlists = {t.key for fp in prep.fetched for t in fp.tracks}
     run_index = {id(a): i for i, a in enumerate(todo)}  # the order the sync works through them
-    return {"spotify": status, "counts": plan_counts(todo),
+    return {"read_status": status, "counts": plan_counts(todo),
             "groups": [{"key": key, "label": label,
                         "actions": [{**action_row(a, plan_state, cover), "run": run_index[id(a)]} for a in groups[key]]}
                        for key, label in PLAN_LABELS if key in groups],

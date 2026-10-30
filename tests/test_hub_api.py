@@ -100,7 +100,7 @@ def test_dashboard_after_reading_spotify(root):
     assert api.dashboard()["ready"] is None
     refreshed(api, rec)
     d = api.dashboard()
-    assert d["ready"]["counts"]["new"] == 2 and d["spotify"]["read_at"] == "2026-10-20T21:47:00"
+    assert d["ready"]["counts"]["new"] == 2 and d["read_status"]["read_at"] == "2026-10-20T21:47:00"
     assert d["needs_you"]["upgrades"] == 1 and d["tiles"]["lossless"]["total"] == 3
 
 
@@ -149,14 +149,14 @@ def started_reads(rec):
 
 def test_spotify_is_read_by_itself_once_per_session(root):
     api, rec = make_api(root)
-    assert api.job_status()["spotify"]["auto_read"] is False
+    assert api.job_status()["read_status"]["auto_read"] is False
     assert wait_job(api, rec, api.refresh(auto=True)).ok  # the first automatic read
-    assert api.sync_preview()["spotify"]["auto_read"] is True
+    assert api.sync_preview()["read_status"]["auto_read"] is True
     again = api.refresh(auto=True)  # the Sync page opened again, or after a window reload
     assert again["ok"] is False and again["kind"] == "refused"
     assert len(started_reads(rec)) == 1
     assert refreshed(api, rec).ok  # "↻ Read Spotify" still reads
-    assert len(started_reads(rec)) == 2 and api.dashboard()["spotify"]["auto_read"] is True
+    assert len(started_reads(rec)) == 2 and api.dashboard()["read_status"]["auto_read"] is True
 
 
 def test_a_qobuz_playlist_without_a_qobuz_login_blocks_the_read_under_qobuz(root, monkeypatch):
@@ -167,7 +167,7 @@ def test_a_qobuz_playlist_without_a_qobuz_login_blocks_the_read_under_qobuz(root
     assert (done.ok, done.problem) == (False, "not_set_up")
     expected = [{"service": "spotify", "name": "Spotify", "connected": True},
                 {"service": "qobuz", "name": "Qobuz", "connected": False}]
-    for status in (api.job_status()["spotify"], api.sync_preview()["spotify"], api.dashboard()["spotify"]):
+    for status in (api.job_status()["read_status"], api.sync_preview()["read_status"], api.dashboard()["read_status"]):
         assert (status["problem"], status["problem_service"]) == ("not_set_up", "qobuz")
         assert status["services"] == expected
 
@@ -176,16 +176,16 @@ def test_only_the_services_the_switched_on_lines_use_are_listed(root, monkeypatc
     fake_qobuz(monkeypatch, connected=False)
     root.playlists_file.write_text(PLAYLISTS + f"#off# Example_Playlist = {QOBUZ_LINK}\n")
     api, rec = make_api(root)
-    assert [s["service"] for s in api.job_status()["spotify"]["services"]] == ["spotify"]
+    assert [s["service"] for s in api.job_status()["read_status"]["services"]] == ["spotify"]
     root.playlists_file.write_text("# nothing yet\n")
-    assert api.job_status()["spotify"]["services"] == []
+    assert api.job_status()["read_status"]["services"] == []
 
 
 def test_a_playlists_file_that_cannot_be_read_never_fails_the_poll(root):
     root.playlists_file.write_bytes(b"\xff\xfe")
     api, rec = make_api(root)
     status = api.job_status()
-    assert status["ok"] and status["spotify"]["services"] == []
+    assert status["ok"] and status["read_status"]["services"] == []
 
 
 def test_a_login_file_that_makes_no_sense_never_fails_the_poll(root, monkeypatch):
@@ -199,7 +199,7 @@ def test_a_login_file_that_makes_no_sense_never_fails_the_poll(root, monkeypatch
     api, rec = make_api(root)
     status = api.job_status()
     assert status["ok"]
-    assert [(s["service"], s["connected"]) for s in status["spotify"]["services"]] == [
+    assert [(s["service"], s["connected"]) for s in status["read_status"]["services"]] == [
         ("spotify", True), ("qobuz", False)]
 
 
@@ -230,7 +230,7 @@ def test_an_automatic_read_that_could_not_start_does_not_count(root):
     release = threading.Event()
     api._jobs.start("sync", lambda ctx: release.wait(5) and None)
     assert api.refresh(auto=True)["kind"] == "busy"
-    assert api.job_status()["spotify"]["auto_read"] is False
+    assert api.job_status()["read_status"]["auto_read"] is False
     release.set()
     api._jobs.wait(5)
     assert wait_job(api, rec, api.refresh(auto=True)).ok
@@ -332,8 +332,8 @@ def test_a_skipped_spotify_is_no_problem_until_playlists_txt_has_a_spotify_line(
     root.playlists_file.write_text(f"Example_Playlist = {QOBUZ_LINK}\n")
     api, rec = make_api(root)
     assert api.setup_status()["next_step"] != "spotify"
-    status = api.job_status()["spotify"]
+    status = api.job_status()["read_status"]
     assert status["services"] == [{"service": "qobuz", "name": "Qobuz", "connected": True}]
     assert status["problem"] is None
     root.playlists_file.write_text(PLAYLISTS + f"Example_Playlist = {QOBUZ_LINK}\n")
-    assert [s["service"] for s in api.job_status()["spotify"]["services"]] == ["spotify", "qobuz"]
+    assert [s["service"] for s in api.job_status()["read_status"]["services"]] == ["spotify", "qobuz"]

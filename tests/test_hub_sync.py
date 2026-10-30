@@ -110,8 +110,8 @@ def test_a_missing_qobuz_login_files_the_problem_under_qobuz(env, monkeypatch):
     refresh(js, paths, store)
     assert (rec.finished().ok, rec.finished().problem) == (False, "not_set_up")
     assert (store.problem, store.problem_service) == ("not_set_up", "qobuz") and "Qobuz" in store.message
-    status = views.spotify_status(store, datetime(2026, 10, 20, 21, 47), False,
-                                  [("spotify", True), ("qobuz", False)])
+    status = views.read_status(store, datetime(2026, 10, 20, 21, 47), False,
+                               [("spotify", True), ("qobuz", False)])
     assert status["problem_service"] == "qobuz"
     assert status["services"] == [{"service": "spotify", "name": "Spotify", "connected": True},
                                   {"service": "qobuz", "name": "Qobuz", "connected": False}]
