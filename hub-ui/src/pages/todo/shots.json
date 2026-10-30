@@ -75,14 +75,8 @@
    "steps": [{ "wait": "[data-test=duplicates][data-files='3']" },
      { "eval": "if (document.querySelector('[data-test=duplicates-keep]').textContent.trim() !== 'Keep all') throw new Error('three files keep all')" },
      { "sleep": 400 }] },
-  {
-    "name": "todo-upgrade-undo",
-    "route": "#/todo",
-    "scenario": "normal",
-    "steps": [
-      { "wait": "[data-test=todo-list] [data-track]" },
-      { "eval": "(async () => { const api = window.pywebview.api; const t = await api.todo('upgrade_ready', false); const id = t.groups.find((g) => g.key === 'upgrade_ready').items[0].track_id; await api.upgrade(id, 'add_new'); await new Promise((r) => setTimeout(r, 3000)); document.querySelector('[data-test=todo-list] [data-track=\"' + id + '\"]').click(); })()" },
-      { "wait": "[data-test=upgrade-undo]" }
-    ]
-  }
+  { "name": "todo-upgrade-undo", "route": "#/todo?filter=upgrade_ready", "scenario": "normal",
+    "steps": [{ "wait": "[data-test=upgrade-swap]" }, { "click": "[data-test=upgrade-swap]" }, { "sleep": 500 },
+      { "press": "Enter" }, { "sleep": 3000 }, { "eval": "location.hash = '#/todo?filter=rekordbox_check'" },
+      { "wait": "[data-test=upgrade-undo]" }, { "sleep": 400 }] }
 ]
