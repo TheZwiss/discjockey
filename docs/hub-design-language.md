@@ -548,6 +548,20 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-30 · The browser column (library stage 5 A5, D4, I7; notes N2–N4, N9, N10, N13, N15).**
+  `BrowserColumn` (rows from `lib/shell/browserModel.ts`): the filter field on the page header's row, level with the
+  page's search field; All tracks and Not in a playlist, then Playlists (priority order, or A–Z by the head's pressed
+  toggle) and Folders under `ListSection on="chrome" stick="both"` heads that fold (`fold`, new) and are a step lower
+  than the rows (`--h-section-chrome`, new). Filtering lists each match once, folded sections open, the matching
+  letters bold, one orange-washed row for Enter (↑ ↓ move it), and the hand-off row "Search tracks for “…”" last
+  (`#/library?q=`, which Library's page takes into its track search over every quality and drops from the route).
+  The edge: a 9 px grip on the page's edge line, outside the chrome so its outer half isn't cut; 1:1 with pointer
+  capture, the accent line while dragging, a neutral line a step lighter after 300 ms of hover (orange keeps its one
+  meaning), the one-way resize cursor at 200 and 360 (as macOS does), a double-click back to 240 in the fold's glide,
+  and a focusable separator (← → Home End). `SearchField` gains `fill`, `input` and `onkeydown`; `stuckEdge` counts a
+  flex parent's row gap (a head in the column was taken for stuck by its 2 px). Why: the notes, and a column used with
+  the keyboard as much as the pointer. Seen: `library-browser`, `library-filter`, `library-filter-none`,
+  `library-browser-wide`, `library-browser-1100`; gallery ListSection · stuck (heads that fold).
 - **2026-10-30 · The chrome's two forms, its memory, motion and keys (library stage 5 A4, D17, D18, I6).** `Sidebar`
   is the full form or the rail, by place (`lib/stores/chrome.ts`: Library rail, the others full, ⌃⌘S folds the current
   place's form), with Library as a page of its own (♫, back to the collection it was left at) and the browser column

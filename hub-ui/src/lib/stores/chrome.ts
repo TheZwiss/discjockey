@@ -129,6 +129,22 @@ export function setBrowserWidth(w: number, glide = false): void {
   browserWidth.set(next);
 }
 
+/** The column's edge from the keyboard (it is a focusable separator): ← → by 10 px (⇧ 40), Home / End to the
+ *  narrowest and widest. Null: not a key the edge takes. */
+export function edgeKeyWidth(key: string, w: number, shift = false): number | null {
+  const step = shift ? 40 : 10;
+  if (key === 'ArrowLeft') return clampBrowserWidth(w - step);
+  if (key === 'ArrowRight') return clampBrowserWidth(w + step);
+  if (key === 'Home') return BROWSER_MIN;
+  if (key === 'End') return BROWSER_MAX;
+  return null;
+}
+
+/** The edge's cursor: both ways, or the one way left at a limit (macOS's resize cursors). */
+export function edgeCursor(w: number): 'col-resize' | 'e-resize' | 'w-resize' {
+  return w <= BROWSER_MIN ? 'e-resize' : w >= BROWSER_MAX ? 'w-resize' : 'col-resize';
+}
+
 /** ⌘I: only Library has the inspector. */
 export function toggleInspector(): void {
   if (get(chrome).place === 'library') inspectorOpen.update((o) => !o);

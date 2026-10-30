@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { get } from 'svelte/store';
 import { parseHash } from '../router';
 import {
-  BROWSER_DEFAULT, bringBrowserBack, chrome, chromeLayout, chromeMotion, chromeMove, clampBrowserWidth, filterFocus, fold, formOther,
+  BROWSER_DEFAULT, BROWSER_MAX, BROWSER_MIN, bringBrowserBack, chrome, chromeLayout, chromeMotion, chromeMove,
+  clampBrowserWidth, edgeCursor, edgeKeyWidth, filterFocus, fold, formOther,
   inspectorOpen, libraryReturn, placeOf, requestFilterFocus, setBrowserWidth, toggleInspector, type ChromeInput,
 } from './chrome';
 
@@ -144,5 +145,22 @@ describe('places', () => {
     expect(libraryReturn(parseHash('#/library/folder/Hard%20Bounce?track=t2'))).toBe('#/library/folder/Hard%20Bounce?track=t2');
     expect(libraryReturn(parseHash('#/library'))).toBe('#/library');
     expect(libraryReturn(parseHash('#/todo'))).toBeNull();
+  });
+});
+
+describe('the column edge from the keyboard and its cursor', () => {
+  it('steps by 10 (⇧ 40) within 200–360, Home and End to the ends', () => {
+    expect(edgeKeyWidth('ArrowRight', 240)).toBe(250);
+    expect(edgeKeyWidth('ArrowLeft', 240, true)).toBe(200);
+    expect(edgeKeyWidth('ArrowLeft', 205)).toBe(BROWSER_MIN);
+    expect(edgeKeyWidth('ArrowRight', 355, true)).toBe(BROWSER_MAX);
+    expect(edgeKeyWidth('Home', 300)).toBe(BROWSER_MIN);
+    expect(edgeKeyWidth('End', 300)).toBe(BROWSER_MAX);
+    expect(edgeKeyWidth('Enter', 300)).toBeNull();
+  });
+  it('shows the one way left at a limit', () => {
+    expect(edgeCursor(200)).toBe('e-resize');
+    expect(edgeCursor(360)).toBe('w-resize');
+    expect(edgeCursor(240)).toBe('col-resize');
   });
 });
