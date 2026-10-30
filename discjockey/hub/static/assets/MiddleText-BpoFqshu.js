@@ -1,1 +1,0 @@
-import{w as d,cd as n,t as o,y as l,h as m,C as r}from"./index-BNpDaNYS.js";var c=r('<span class="mid svelte-6s6dm6"></span>');function p(e,a){var t=c();d(t,(s,i)=>n?.(s,i),()=>a.text),o(()=>l(t,"title",a.text)),m(e,t)}export{p as M};
