@@ -323,10 +323,10 @@ that have a file are played. Changing the filter later doesn't change what plays
 ## The Library page
 
 **Library** shows every track you have, with its quality. Its sidebar is a narrow **rail** of icons, and next to it
-stands the **browser column**: your playlists, your watched folders and your favourites. Click a name to see its
+stands the **browser column**: your playlists and your Library folders. Click a name to see its
 tracks. The details of a track are not always open: they appear on the right when you ask for them (click a quality
 badge, press the details button at the top right, or press **⌘I**) and follow the track you select. Below 1240 pixels
-of window width the details take the room of the browser column, which waits behind the rail until you close them.
+of window width the details take the room of the browser column, which waits behind the rail until you close them (⌘K or the Library icon ♫ also brings it back and closes the details).
 
 - **Two sidebar forms.** The rail (icons only) is the form Library starts with. Every other page starts with the full
   sidebar (icons and names). **⌃⌘S**, or the button at the top of the sidebar, folds it into the rail or opens it
