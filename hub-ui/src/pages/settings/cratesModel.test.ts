@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Crate, WatchedFolderRow } from '$lib/bridge/types';
-import { crateChanges, crateItems, crateSaves, groupLabel, pickedFolder, tooManyText, type CrateChange,
+import { crateChanges, crateItems, crateSaves, pickedFolder, tooManyText, type CrateChange,
   type CrateSaveResult } from './cratesModel';
 
 const W = '/Users/you/Music/Rekordbox Library';
@@ -66,14 +66,6 @@ describe('what a switch saves', () => {
 it('the too-many note counts the crates', () => {
   expect(tooManyText({ crates: Array.from({ length: 312 }, (_, i) => crate(`A${i}`)) }))
     .toBe('312 folders with music, too many for the sidebar: switch on some, or search, then use All.');
-});
-
-describe('the group label', () => {
-  it('names the folder', () => expect(groupLabel('Rekordbox Library')).toBe('Rekordbox Library in the sidebar'));
-  it('falls back past 30 characters', () => {
-    expect(groupLabel('A'.repeat(30))).toBe(`${'A'.repeat(30)} in the sidebar`);
-    expect(groupLabel('A'.repeat(31))).toBe('In the sidebar');
-  });
 });
 
 // the saves behind the switches: a fake store that answers when told, and the rows' pending state as the page sees it

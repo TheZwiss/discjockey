@@ -11,7 +11,7 @@
   import { Hint, ToggleGroup } from '$lib/components';
   import { saveCratesShown } from '$lib/stores/hub';
   import { toasts } from '$lib/stores/toasts';
-  import { ALL_MAX, crateItems, crateSaves, groupLabel, tooManyText } from './cratesModel';
+  import { ALL_MAX, crateItems, crateSaves, tooManyText } from './cratesModel';
 
   let { folder, reload, test = 'folders-crates' }:
     { folder: WatchedFolderRow; reload: () => Promise<void>; test?: string } = $props();
@@ -24,7 +24,7 @@
   });
 </script>
 
-<ToggleGroup label={groupLabel(folder.name)} {items} grow placeholder="Search folders in {folder.name}…"
+<ToggleGroup label="In the sidebar" {items} grow placeholder="Search folders in {folder.name}…"
   allMax={folder.too_many ? ALL_MAX : undefined} onchange={(key, on) => void save([key], on)}
   onall={(on, keys) => void save(keys, on)} {test} rowTest="{test}-row" />
 {#if folder.too_many}<div class="many"><Hint text={tooManyText(folder)} wrap data-test="{test}-too-many" /></div>{/if}

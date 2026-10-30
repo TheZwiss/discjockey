@@ -44,7 +44,7 @@
   const rows = $derived(folders ?? []);
 </script>
 
-<Surface kind="list" {label} class={cap && !grow ? 'wf-capped' : undefined} style={`--row-cols: 16px minmax(0, 1fr) calc(var(--w-row-action) + var(--s-2) + var(--h-ctl-sm))${cap && !grow ? `; --cap-rows: ${cap}` : ''}`}
+<Surface kind="list" {label} class={cap && !grow ? 'wf-capped' : undefined} fade={!!cap && !grow} style={`--row-cols: 16px minmax(0, 1fr) calc(var(--w-row-action) + var(--s-2) + var(--h-ctl-sm))${cap && !grow ? `; --cap-rows: ${cap}` : ''}`}
   grow={grow ? { rows: Math.max(1, rows.length), tall: true } : undefined} data-test={test}>
   {#if !folders}
     <div class="wait"><Skeleton lines={2} /></div>
@@ -78,7 +78,6 @@
   /* head + its rule, cap rows with the rules between, the 2 borders, and half a row's peek (as a grown list's minimum) */
   :global(.surface.wf-capped) { max-height: calc(var(--h-list-row) + var(--cap-rows) * var(--h-list-row-tall)
     + (var(--cap-rows) + 2) * var(--bw) + var(--h-list-row-tall) / 2); }
-  :global(.surface.wf-capped > .rows) { overflow: hidden auto; }
   .wait { padding: var(--s-3) var(--s-4); }
   .spin { display: inline-grid; place-items: center; width: 16px; height: 16px; color: var(--text-muted); }
   /* the state line and where the folder is, each its own line (a 320 px panel has no room for both on one). The state

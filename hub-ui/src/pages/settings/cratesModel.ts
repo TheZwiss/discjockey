@@ -47,10 +47,6 @@ export function crateChanges(f: WatchedFolderRow, keys: string[], on: boolean, p
 export const tooManyText = (f: Pick<WatchedFolderRow, 'crates'>): string =>
   `${count(f.crates.length)} folders with music, too many for the sidebar: switch on some, or search, then use All.`;
 
-/** The group's head: "<folder> in the sidebar", or just "In the sidebar" when the name is too long for the head. */
-export const GROUP_NAME_MAX = 30;
-export const groupLabel = (name: string): string => (name.length > GROUP_NAME_MAX ? 'In the sidebar' : `${name} in the sidebar`);
-
 export type CrateChange = { path: string; shown: boolean | null };
 /** What a run of saves answers: the paths stored (in order), and the refusal that stopped it (null when none). */
 export type CrateSaveResult = { saved: string[]; failed: unknown };
