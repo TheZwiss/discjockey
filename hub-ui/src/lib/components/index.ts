@@ -40,6 +40,8 @@ export { default as RiskScale } from './RiskScale.svelte';
 export { default as Ring } from './Ring.svelte';
 export { default as SearchField } from './SearchField.svelte';
 export { default as Segmented } from './Segmented.svelte';
+export { default as ServiceMark } from './ServiceMark.svelte';
+export { LOGO_KEYS, LOGO_NAMES, type LogoKey } from './serviceLogos';
 export { default as SelectCard } from './SelectCard.svelte';
 export { default as SectionLabel } from './SectionLabel.svelte';
 export { default as Skeleton } from './Skeleton.svelte';

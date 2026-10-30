@@ -21,7 +21,7 @@
   import {
     AccountPanel, AddRow, CopyCode, NumberedSteps, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
     AwayTag, Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
-    Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
+    Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
     Segmented, SectionLabel, SelectCard, Skeleton, SortHeader, SourceLadder, Spectrum, Spinner, SplitView, StatCard, StatusMark, Surface, Switch, TextField, Tile, Toast,
     ToggleGroup, ToggleRow, TrackHead, TrackRow, UpgradeCard, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
     confirm, envelope, ImportCard, UnreadableList, WatchedFolderList,
@@ -419,6 +419,23 @@
           {/each}
         </div>
       </div>
+    </div>
+  </section>
+
+  <section data-test="gallery-servicemark">
+    {@render head('ServiceMark', 'The service\'s own logo in its own colours, 14 px: the colour rule\'s one exception (D7)')}
+    <div class="g-svc" data-test="g-servicemark">
+      <span class="cap">service</span><span class="cap">mark</span><span class="cap">dim</span>
+      <span class="cap">on the frame · a row, a switched-off row</span>
+      {#each LOGO_KEYS as k (k)}
+        <span>{LOGO_NAMES[k]}</span>
+        <ServiceMark service={k} />
+        <ServiceMark service={k} dim />
+        <span class="g-nav g-svc-rows">
+          <span class="g-navrow"><ServiceMark service={k} /><span>Hard_Bounce</span><span class="g-n">45</span></span>
+          <span class="g-navrow g-off"><ServiceMark service={k} /><span>Peak Time</span><span class="g-n">12</span></span>
+        </span>
+      {/each}
     </div>
   </section>
 
@@ -1259,4 +1276,11 @@
   .g-navrow { display: flex; align-items: center; gap: 9px; height: var(--h-ctl); padding: 0 var(--s-2); color: var(--text-nav);
     border-radius: var(--r-nav); white-space: nowrap; }
   .g-navrow.on { color: var(--text-strong); background: var(--nav-on-bg); }
+  /* ServiceMark: each logo alone, dimmed, and in a row of the frame's material (a switched-off row dims as a whole) */
+  .g-svc { display: grid; grid-template-columns: 120px 40px 40px 240px; gap: var(--s-2) var(--s-3); align-items: center;
+    font-size: var(--fs-small); color: var(--text-muted); }
+  .g-svc-rows { padding: var(--s-1) 6px; }
+  .g-svc-rows .g-navrow { height: 26px; color: var(--text); }
+  .g-n { margin-left: auto; color: var(--text-label); font-size: var(--fs-label); font-variant-numeric: tabular-nums; }
+  .g-off { opacity: var(--dim-locked); }
 </style>

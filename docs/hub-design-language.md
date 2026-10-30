@@ -175,6 +175,8 @@ the Download limits dot). **Risk** is the one other job green, yellow and red ha
 yellow easier to notice, red risky), through the `--risk-*` tokens, and only on Download limits' `RiskScale`, its
 verdict, the 14-day bars and a service's status. No other colours. A read in progress is status, so it is neutral
 (Sync's reading card), not orange.
+**The one exception:** a service's logo (`ServiceMark`) keeps its own colours. It is an image that names a service,
+not a signal, so it never stands for quality, action or risk (plan library stage 5 D7, the user's wish).
 
 | Do | Don't |
 |---|---|
@@ -336,6 +338,7 @@ used.
 | `PlayButton`, `PlayerIcon` | `lib/components/` | `gallery-player`, `gallery-foot` | The round play/pause of every player (MiniPlayer, the foot, the Now playing row): accent ring, ▶ / ❚❚ drawn as shapes, a spinner while loading, grey ring when off; `size` 30 or 22. `PlayerIcon`: the player's 16 px line glyphs (⏮ ⏭ ⤮ ⌄ ⌃ ×) for `Button icon`. |
 | `Foot`, `NowPlayingRow`, `SyncPart` | `lib/shell/` (+ `footModel.ts`) | `gallery-foot` | The frame's foot and the hidden player's sidebar row (rule "the frame is an L" above); `SyncPart` is the sync's long form (alone in the foot) or `short` ("Sync 4 of 6", at the player bar's right end), a link to Sync. Shell parts, placed by `App` and `Sidebar` only. |
 | `NavIcon` | `lib/components/NavIcon.svelte` | `gallery-navicon` | A page's icon in the app's navigation (`name`: dashboard · sync · todo · playlists · limits · library · settings; `NAV_ICONS` in the rail's order): drawn on a 14 px grid with a 1.3 px stroke in its row's colour, one family, the same spot in the full sidebar and the rail. Decorative (`aria-hidden`): the row's text or, in the rail, its tooltip and `aria-label` name the page. |
+| `ServiceMark` | `lib/components/ServiceMark.svelte` (+ `serviceLogos.ts`) | `gallery-servicemark` | Which service a playlist is read from: the service's own logo in its own colours, 14 px, unchanged (`service`: a `LogoKey`, all five services: spotify · youtube · youtubemusic · soundcloud · qobuz; Qobuz's black tile has a faint edge). `role="img"`, `aria-label` "{Service} playlist" (`label` replaces it), `data-service-mark`. Inside a row that dims as a whole it dims with the row; `dim` only for a mark standing alone. The colour rule's one exception (§2). |
 | `QualityBar` | `lib/components/QualityBar.svelte` | `gallery-qualitybar` | The quality split with legend; `by_quality={null}` waits (gallery "waiting"). |
 | `Hint`, `InfoTip`, `NoteCard` | `lib/components/` | `gallery-explain` | The only three ways to explain; Hint `tone="problem"` for an error beside its control. |
 | `KeyValue` | `lib/components/KeyValue.svelte` | `gallery-trackrow` | A key and its value on one line (To-do and Library details, Settings' Download tools). The key is an uppercase caption (`caps`) by default; `plain` keeps a name's own spelling (`yt-dlp`, `streamrip`: normal case, muted); `keyWidth` (px) sets the key column (default 96) so a list of short names needn't reach in with `:global`. |
@@ -486,6 +489,14 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-30 · `ServiceMark`: the services' original coloured logos (library stage 5 A3.2, D7).** The five logos of
+  the approved mockup's `SVC` table, copied unchanged into `serviceLogos.ts` (Simple Icons shapes, CC0; Qobuz's mark
+  from its site on a black tile with a faint edge), 14 px, in their own colours. Why: the user's wish ("the services'
+  original coloured logos"), which replaces stage 3's "the service as a word, no mark" for the playlist rows of the
+  browser column and Favourites. Colour rule: a logo is an image that names a service, not a signal, so it is the
+  rule's one exception; the rule checker reads text, background and border colours only, so it needs no exemption.
+  `LogoKey` has all five services while the wire's `PlaylistService` stays 'spotify' | 'qobuz' until stage 6. Seen:
+  gallery ServiceMark (`base-gallery`).
 - **2026-10-30 · The nav's text glyphs become drawn icons: `NavIcon` (library stage 5 A3.1, house rule 6).** Seven
   icons from the approved mockup (`library-layout.html`, `NAVI`), unchanged: 14 px, 1.3 px stroke, round caps, one
   family; Library gets ♫ as a note. Why: in the rail (step A) the icon is the only label, and at 12 px the text glyphs
