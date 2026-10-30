@@ -73,7 +73,7 @@
   $effect(() => untrack(() => folders.mount()));
 
   const ctx = $derived<RowContext>({ downloads, status: $hub.setup, tools, reports, now: new Date(), toolsFailed: !tools && !!toolsError,
-    spotifyUsed: spotifyUsed($hub.spotify),
+    spotifyUsed: spotifyUsed($hub.read_status),
     update: $hub.app_update, folders: folders.data, job: $hub.job });
   // #/settings: the first row that needs the user, once everything it depends on has answered
   $effect(() => {
@@ -84,7 +84,7 @@
   });
 
   // the Spotify panel says Spotify's state and offers Connect itself, so the shell's banner stays off there
-  $effect(() => { if (row === 'spotify') return sayInBody({ spotify: true }); });
+  $effect(() => { if (row === 'spotify') return sayInBody({ readStatus: true }); });
 
   const blockedAccount = $derived(accountBlocked($hub));
   const open = (r: SettingsRow) => { if (r !== row) void go(`/settings/${r}`); };

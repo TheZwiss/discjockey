@@ -13,9 +13,9 @@ const fake: PageFake = {
     /** no run has finished yet (setup done) */
     no_runs: (s) => { s.runs = []; },
     /** Spotify never read (setup done): the ready card points up to the header's Read Spotify */
-    unread: (s) => { s.previewRead = false; s.spotify = { ...s.spotify, read_at: null, minutes_ago: null }; },
+    unread: (s) => { s.previewRead = false; s.read_status = { ...s.read_status, read_at: null, minutes_ago: null }; },
     /** the Spotify login expired: the banner says it, the header slot keeps the last read with Read Spotify off */
-    login_expired: (s) => { s.spotify = { ...s.spotify, problem: 'login_expired',
+    login_expired: (s) => { s.read_status = { ...s.read_status, problem: 'login_expired',
       message: 'Your Spotify login has expired.' }; },
     /** a library grown over a year: 20 playlists (one with a long name) and 30 runs, so Folders and Last runs fill their
      *  space and scroll in place */

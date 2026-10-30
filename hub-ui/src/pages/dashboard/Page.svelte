@@ -61,7 +61,7 @@
 {#snippet chev()}<svg class="chev" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" /></svg>{/snippet}
 
 {#snippet main()}
-  <PageHeader title={data?.greeting ?? 'Hello'} spotify />
+  <PageHeader title={data?.greeting ?? 'Hello'} readStatus />
 
   {#if error}
     <ProblemCard kind={error.kind} message={error.message} onretry={load} compact={!!data} />

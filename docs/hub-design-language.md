@@ -219,14 +219,14 @@ Finish later in its `actions`).
 ```
 
 - Props: `title`, `sub` (the status line, 12 px, on the title's baseline), `actions` (snippet: search, Full report),
-  `spotify` (show the read slot), `spotifyInBody`, `spotifyState`. The title never shrinks and the status line is
+  `readStatus` (show the read slot), `readStatusInBody`, `readStatusState`. The title never shrinks and the status line is
   never cut: when it doesn't fit beside the title it wraps under it, balanced, breaking between words and after a "·"
   (never before it), so the header grows by a line only where the words need it. Only a title longer than the whole
   lead (a folder name) ends in "…".
-- The **read slot** (the playlists' read status, every service at once; its wire and block names still say Spotify
-  until stage 5 rebuilds it) is always last, so its right edge is the content's right edge. It is on Dashboard, Sync
-  (before the start), To-do and Playlists. `SpotifyStatus` is placed only by this slot; the checker fails it anywhere
-  else (`spotify-status`).
+- The **read slot** (the playlists' read status, every service at once; the wire field is `read_status`, the block
+  `ReadStatus`) is always last, so its right edge is the content's right edge. It is on Dashboard, Sync
+  (before the start), To-do and Playlists. `ReadStatus` is placed only by this slot; the checker fails it anywhere
+  else (`read-status`).
 - The header spans its frame's content box (the list area, never the panel). Height at least 34 px; content starts
   `--s-3` under it, so it starts at the same y on every page.
 
@@ -244,11 +244,11 @@ remove it on every page, not just yours.
   One wording everywhere: `problemCopy(kind, { service })` in `lib/copy.ts`.
 - Read playlists lives only in the header slot. Cards don't repeat it.
 - **A page takes a banner over only through `bannersSaidInBody`** (`lib/stores/shell.ts`): the view that says the
-  state in its body calls `$effect(() => sayInBody({ console, spotify }))`, which clears itself when the view goes.
+  state in its body calls `$effect(() => sayInBody({ console, readStatus }))`, which clears itself when the view goes.
   The shell imports no page. A view never loses the warning: it claims a banner only while it really shows its own.
 - **Sync's use of it:** the before-start view shows reading and Spotify problems as cards in its body
-  (`spotifyInBody`), so the slot keeps only the control. It claims `console` only while it shows a plan (Start
-  off, with its Hint "A sync is running in the terminal"), and `spotify` only while the card above the plan can
+  (`readStatusInBody`), so the slot keeps only the control. It claims `console` only while it shows a plan (Start
+  off, with its Hint "A sync is running in the terminal"), and `readStatus` only while the card above the plan can
   show. The up-to-date, empty and preview-error views keep the console banner (`sync-before-up-to-date-console`);
   the running and end views keep both banners.
 
@@ -307,7 +307,7 @@ used.
 |---|---|---|---|
 | `ListPanelFrame`, `ColumnFrame` | `lib/frames/` | `gallery-frames` | The two page frames (§1 here). |
 | `Panel` | `lib/frames/Panel.svelte` | `gallery-panel` | `head` / `fill` / `after` / `foot`. |
-| `PageHeader` | `lib/components/PageHeader.svelte` | `gallery-page-header` | Title · status line, actions, the Spotify slot. |
+| `PageHeader` | `lib/components/PageHeader.svelte` | `gallery-page-header` | Title · status line, actions, the read-status slot. |
 | `Surface` | `lib/components/Surface.svelte` | `gallery-surface` | `card` / `list` / `table`; `label`, `summary`, `tone`, `foldable`, `sticky`, `bulk` (All · None), `hint` (a group's one-line hint after the count, printed like `ListSection`'s: no dot between name, count and hint), `fitLabel` (the label is a folder's path, fitted into the head's free width like a watched folder's: `~` for home, parents giving way in whole folders, the folder's own name last; the full path is the tooltip; a path that is not whole beside the head's links goes on a line of its own and the links wrap below it, and is cut only when even the head's width is too narrow), `header` (a Hint there gives way with the label), `grow` (`{ rows, tall? }`: fills its column up to its rows, 3-row minimum plus a peek, rows scroll inside; shared measuring with ToggleGroup in `growFill.ts`); `columns` (a table's column head, ruled and fixed above the rows, a `list` container of the rows' width so optional columns match) and `scroller` (bindable: the rows' scroller of a `grow` surface, for a table that renders only its visible rows); sets `data-surface`, `data-scrolls-itself` with `grow`, the fold `data-row-hit`. |
 | `Button` | `lib/components/Button.svelte` | `gallery-button` | `filled` · `primary` · `secondary` · `danger` · `link` · `icon`; an `icon` can be a toggle (`pressed`: accent text on `--accent-wash-strong` plus a dot, `aria-pressed`, the foot's Shuffle) and `size="xs"` (22 px, a row inside the sidebar). |
 | `ToggleGroup`, `ToggleRow` | `lib/components/` | `gallery-toggles` | On/off rows; `grow` inside a Panel `fill` (one per Panel); search from `SEARCH_FROM` rows (the query clears below it); `disabledReason`: each row's tooltip and a Hint in the head in place of All · None (gallery "Locked"). A `ToggleRow` alone in a `Surface kind="list"` is a single setting; its `sub` is a wrapping second line (the setting's detail, or why it is locked; Playlists' "Rename the folder on disk too"). |
@@ -395,7 +395,7 @@ npm run rules -- --page sync --only sync-many,sync-end       # only the named sh
 | `loose-text` | more than 90 characters of text outside `[data-surface]`, `[data-note]`, `[data-infotip]` or a dialog (blocks set these markers; `lib/guards.test.ts` fails a page that writes one, or any other checker marker, by hand) |
 | `font-size` | a text size not in `--type-scale` |
 | `colour` | a text, background or border colour that isn't a token value (transparent is fine) |
-| `spotify-status` | a `[data-spotify-status]` outside `[data-page-header]` |
+| `read-status` | a `[data-read-status]` outside `[data-page-header]` |
 | `error` | the page logged an error while the shot loaded |
 
 Anything marked `data-dev` (the fake toolbar) is ignored.

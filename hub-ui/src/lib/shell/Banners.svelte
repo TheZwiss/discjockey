@@ -9,11 +9,11 @@
   import { BANNER, problemCopy } from '../copy';
   import Banner from '../components/Banner.svelte';
   // one wording and one link per state on every page: the same copy Sync's card shows
-  const spotify = $derived($readBlock ? problemCopy($readBlock.kind, { service: $readBlock.service }) : null);
+  const readCopy = $derived($readBlock ? problemCopy($readBlock.kind, { service: $readBlock.service }) : null);
 </script>
 
 {#if $hub.console_running && !$bannersSaidInBody.console}<div data-test="banner-console"><Banner tone="warn" text={BANNER.console} /></div>{/if}
-{#if spotify && !$bannersSaidInBody.spotify}
-  <div data-test="banner-spotify"><Banner tone="info" text={spotify.title}
-    action={spotify.action?.href ? { label: spotify.action.label, href: spotify.action.href } : undefined} /></div>
+{#if readCopy && !$bannersSaidInBody.readStatus}
+  <div data-test="banner-read-status"><Banner tone="info" text={readCopy.title}
+    action={readCopy.action?.href ? { label: readCopy.action.label, href: readCopy.action.href } : undefined} /></div>
 {/if}

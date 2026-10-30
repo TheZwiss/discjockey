@@ -10,7 +10,7 @@ import { LIBRARY_METHODS } from '../contract';
 import {
   FAKE_MUSIC, FAKE_NEWEST_YT_DLP, QOBUZ_UNREADABLE, SERVICE_NAME, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkText, coverUri, dateOnly, folderList, hash, inFolder, isoLocal, makeState, nextStep,
   pathOf, playlistRows, previewAction, qualityLabel, qualityLine, qualityOf, result, runDetail, runId,
-  readStatus, sampleCandidates, spotifyOk, todoDetail, todoFree, formatLine, sourceFull, todoGroup, trackRow, rowState, type FakeAccount, type FakeFolder, type FakeState,
+  readStatus, sampleCandidates, readOk, todoDetail, todoFree, formatLine, sourceFull, todoGroup, trackRow, rowState, type FakeAccount, type FakeFolder, type FakeState,
   type FakeTrack,
 } from './data';
 import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, rewrite } from './replay';
@@ -354,7 +354,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     const results = rec.results.map((e) => e.result as Result);
     const done = new Set(results.filter((r) => r.track_id && r.section !== 'queued' && r.section !== 'errors')
       .map((r) => r.track_id));
-    s.spotify = { ...s.spotify, stale: false, read_at: rec.started, minutes_ago: 0 };
+    s.read_status = { ...s.read_status, stale: false, read_at: rec.started, minutes_ago: 0 };
     s.newTracks = s.newTracks.filter((t) => t.track_id === 't5' || !done.has(t.track_id));
     const run = rec.last.RunFinished;
     if (!run) return;
@@ -379,7 +379,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const hour = new Date().getHours();
       return ok({
         greeting: hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening',
-        spotify: readStatus(s),
+        read_status: readStatus(s),
         tiles: { lossless: { share: inPl.length ? lossless / inPl.length : null, lossless, total: inPl.length,
           by_quality: byQuality(inPl) }, qobuz_today: budget(s), still_to_load: stillToLoad(),
           account_today: cards(s).find((c) => c.set_up) ?? null },
@@ -407,16 +407,16 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     },
     async sync_preview() {
       const p = preview();
-      if (!s.previewRead) return ok({ spotify: readStatus(s), counts: null, groups: [], estimate: null, never: [],
+      if (!s.previewRead) return ok({ read_status: readStatus(s), counts: null, groups: [], estimate: null, never: [],
         folders: [], in_playlists: null, ambiguous: [], dropped: [], notes: [], waiting_answers: 0, deferred_checks: 0,
         empty: 'no_preview' as const });  // like views.sync_preview: never not_set_up
-      return ok({ spotify: readStatus(s), counts: p.counts, groups: p.groups, estimate: p.estimate, never: p.never,
+      return ok({ read_status: readStatus(s), counts: p.counts, groups: p.groups, estimate: p.estimate, never: p.never,
         folders: p.folders, in_playlists: p.in_playlists, ambiguous: [], dropped: [], notes: [],
         waiting_answers: s.imp.questions.length, deferred_checks: s.imp.deferred,
         empty: p.actions ? null : 'up_to_date' as const });
     },
     async refresh(auto = false) {
-      if (auto && s.spotify.auto_read) {
+      if (auto && s.read_status.auto_read) {
         return fail('refused', 'Spotify was read by itself once this session already. Use ↻ Read Spotify to read it again.');
       }
       if (job?.running && job.kind === 'sync') return fail('busy', 'Not while a sync runs.');
@@ -425,7 +425,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const off = readStatus(s).services.find((x) => !x.connected);
       if (off) return fail('not_set_up', `Connect ${off.name} first.`, off.service);
       const id = nextId++;
-      s.spotify = { ...s.spotify, reading: true, auto_read: s.spotify.auto_read || auto };
+      s.read_status = { ...s.read_status, reading: true, auto_read: s.read_status.auto_read || auto };
       const [, msg] = STREAMS.sync;
       const folders = s.playlists.filter((p) => p.enabled).map((p) => p.folder);
       const reads = folders.map((folder, i) => setTimeout(() => {
@@ -439,12 +439,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         reads.forEach(clearTimeout);
         refreshJob = null;
         if (s.offline) {
-          s.spotify = { ...s.spotify, reading: false };
+          s.read_status = { ...s.read_status, reading: false };
           emit({ type: 'JobFinished', job_id: id, kind: 'refresh', ok: false, problem: 'offline', message: MSG.offline,
             result: null, service: null });
           return;
         }
-        s.spotify = { ...spotifyOk(0), auto_read: s.spotify.auto_read }; s.previewRead = true;
+        s.read_status = { ...readOk(0), auto_read: s.read_status.auto_read }; s.previewRead = true;
         emit({ type: 'JobFinished', job_id: id, kind: 'refresh', ok: true, problem: null, message: '',
           result: { actions: preview().actions }, service: null });
       }, 2500 / speed) };
@@ -455,14 +455,14 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       clearTimeout(refreshJob.timer);
       const id = refreshJob.id;
       refreshJob = null;
-      s.spotify = { ...s.spotify, reading: false };
+      s.read_status = { ...s.read_status, reading: false };
       emit({ type: 'JobFinished', job_id: id, kind: 'refresh', ok: false, problem: 'stopped',
         message: 'Stopped. The last read stays.', result: null, service: null });
       return ok({ stopped: true });
     },
     async job_status() {
       return ok({ job: job ? job.snapshot() : null, refresh_running: !!refreshJob, console_running: s.console_running,
-        spotify: readStatus(s), sign_in: signIn ? signIn.snapshot() : null });
+        read_status: readStatus(s), sign_in: signIn ? signIn.snapshot() : null });
     },
     async library(folder: string | null, query: string, filter: LibraryFilter, sort: LibrarySort) {
       const known = folder === null || folder === NOT_IN_PLAYLIST || folderList(s).some((f) => f.folder === folder);
@@ -762,7 +762,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           s.version++;
           // as the real setup_status, which reads playlists.txt: a saved list counts as "playlists added"
           s.setup = { ...s.setup, playlists: s.playlists.length > 0 };
-          s.spotify = { ...s.spotify, stale: true };
+          s.read_status = { ...s.read_status, stale: true };
           if (!choice) return finish(true, { version: versionHash(), batches: [] });
           // the songs get their new folder; their files stay until moved, and a file left in place is the user's own
           for (const t of s.tracks) {
@@ -1026,7 +1026,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           if (pendingFinish !== finish) return;
           pendingFinish = null;
           s.setup = nextStep({ ...s.setup, spotify_login: true, spotify_skipped: false });
-          s.spotify = { ...spotifyOk(0), auto_read: s.spotify.auto_read };
+          s.read_status = { ...readOk(0), auto_read: s.read_status.auto_read };
           finish(true, { user: 'DJ One' });
         }, 4000 / speed);
       });

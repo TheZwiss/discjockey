@@ -586,8 +586,8 @@ class HubApi:
 
     @bridge
     def job_status(self) -> dict:
-        return {**self._jobs.status(), "spotify": views.spotify_status(self._store, self._svc.now(), self._reading(),
-                                                                         self._logins())}
+        return {**self._jobs.status(), "read_status": views.read_status(self._store, self._svc.now(), self._reading(),
+                                                                           self._logins())}
 
     @bridge
     def library(self, folder: str | None = None, query: str = "", filter: str = "all", sort: str = "artist") -> dict:

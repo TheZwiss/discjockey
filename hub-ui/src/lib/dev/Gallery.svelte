@@ -7,7 +7,7 @@
   import { onMount } from 'svelte';
   import { markReady } from '../ready';
   import { OUTDATED, OUTDATED_TOKENS } from '../outdated';
-  import { PROBLEM_KINDS, type WatchedFolderRow, type DownloadsAccount, type DownloadsView, type EmptyKind, type FindLogins, type FolderCheck, type Service, type SpotifyStatus as SpotifyStatusT, type TrackRow as Row } from '../bridge/types';
+  import { PROBLEM_KINDS, type WatchedFolderRow, type DownloadsAccount, type DownloadsView, type EmptyKind, type FindLogins, type FolderCheck, type Service, type ReadStatus as ReadStatusT, type TrackRow as Row } from '../bridge/types';
   import { sampleTracks, trackRow, coverUri, makeUpgrade, dateOnly } from '../bridge/fake/data';
   import { fakeSpectrum } from '../bridge/fake/spectrum';
   import { toneUrl } from '../bridge/fake/audio';
@@ -74,7 +74,7 @@
     ['Long names', 'cut with …, the full name in the tooltip', np({ at: 0, items: [longItem, ...qItems], label: 'Hard_Bounce_Classics_2026' }), {}],
     ['Playing while a sync runs', 'the sync\'s short form at the right end, a link to Sync', np(), { sync: true }],
   ];
-  const sp = (o: Partial<SpotifyStatusT>): SpotifyStatusT => ({ read_at: new Date(now.getTime() - 120000).toISOString(),
+  const sp = (o: Partial<ReadStatusT>): ReadStatusT => ({ read_at: new Date(now.getTime() - 120000).toISOString(),
     minutes_ago: 2, problem: null, message: '', stale: false, reading: false, offline: false, auto_read: true,
     problem_service: null, services: [{ service: 'spotify', name: 'Spotify', connected: true }], ...o });
   const EMPTY_KINDS: EmptyKind[] = ['no_playlists', 'not_set_up', 'empty_library', 'no_preview', 'up_to_date', 'no_match',
@@ -375,25 +375,25 @@
   <section data-test="gallery-page-header">
     {@render head('PageHeader · the read slot', 'One per page: title · status line, the page\'s actions, the playlists\' read slot always last at the right edge (§5a)')}
     <div class="col headers">
-      <PageHeader title="Good morning" spotify spotifyState={sp({})} />
-      <PageHeader title="To-do" sub="18 tracks are not lossless yet" spotify spotifyState={sp({ reading: true })} />
-      <PageHeader title="To-do" sub="18 tracks are not lossless yet" spotify spotifyState={sp({ stale: true })} />
-      <PageHeader title="To-do" sub="18 tracks are not lossless yet" spotify
-        spotifyState={sp({ offline: true, problem: 'offline', minutes_ago: 184, read_at: new Date(now.getTime() - 184 * 60000).toISOString() })} />
+      <PageHeader title="Good morning" readStatus readStatusState={sp({})} />
+      <PageHeader title="To-do" sub="18 tracks are not lossless yet" readStatus readStatusState={sp({ reading: true })} />
+      <PageHeader title="To-do" sub="18 tracks are not lossless yet" readStatus readStatusState={sp({ stale: true })} />
+      <PageHeader title="To-do" sub="18 tracks are not lossless yet" readStatus
+        readStatusState={sp({ offline: true, problem: 'offline', minutes_ago: 184, read_at: new Date(now.getTime() - 184 * 60000).toISOString() })} />
       <!-- a status line too long for the space beside the title wraps under it, whole, after a "·" -->
-      <PageHeader title="To-do" sub="18 tracks are not lossless yet · 5 questions about your files · 3 songs need a look in rekordbox · 2 upgrades are ready" spotify spotifyState={sp({})} />
-      <PageHeader title="Good morning" spotify spotifyState={sp({ problem: 'login_expired', message: 'Your Spotify login has expired.' })} />
-      <PageHeader title="Good morning" spotify spotifyState={sp({ read_at: null, minutes_ago: null })} />
+      <PageHeader title="To-do" sub="18 tracks are not lossless yet · 5 questions about your files · 3 songs need a look in rekordbox · 2 upgrades are ready" readStatus readStatusState={sp({})} />
+      <PageHeader title="Good morning" readStatus readStatusState={sp({ problem: 'login_expired', message: 'Your Spotify login has expired.' })} />
+      <PageHeader title="Good morning" readStatus readStatusState={sp({ read_at: null, minutes_ago: null })} />
       <!-- a used service without its login: Read playlists off, its reason names the service (the banner says it) -->
-      <PageHeader title="Playlists" sub="33 tracks in your playlists" spotify spotifyState={sp({
+      <PageHeader title="Playlists" sub="33 tracks in your playlists" readStatus readStatusState={sp({
         services: [{ service: 'spotify', name: 'Spotify', connected: true }, { service: 'qobuz', name: 'Qobuz', connected: false }] })} />
-      <PageHeader title="Good morning" spotify spotifyState={null} />
-      <PageHeader title="Sync" spotify spotifyInBody spotifyState={sp({ reading: true })} />
-      <PageHeader title="Sync" spotify spotifyInBody
-        spotifyState={sp({ offline: true, problem: 'offline', minutes_ago: 184, read_at: new Date(now.getTime() - 184 * 60000).toISOString() })} />
+      <PageHeader title="Good morning" readStatus readStatusState={null} />
+      <PageHeader title="Sync" readStatus readStatusInBody readStatusState={sp({ reading: true })} />
+      <PageHeader title="Sync" readStatus readStatusInBody
+        readStatusState={sp({ offline: true, problem: 'offline', minutes_ago: 184, read_at: new Date(now.getTime() - 184 * 60000).toISOString() })} />
       <PageHeader title="Hard_Bounce" sub="45 tracks · 82 % lossless">{#snippet actions()}<SearchField bind:value={search2} placeholder="Search…" shortcut="cmd+f" />{/snippet}</PageHeader>
       <PageHeader title="Sync done" sub="Today 21:47 · 24 min">{#snippet actions()}<Button size="sm" variant="link" href="https://example.com">Full report ↗</Button>{/snippet}</PageHeader>
-      <PageHeader title="Hard_Bounce_Extended_Afterhour_Selection_2026" sub="1,204 tracks · 82 % lossless · 3 not in a playlist" spotify spotifyState={sp({})} />
+      <PageHeader title="Hard_Bounce_Extended_Afterhour_Selection_2026" sub="1,204 tracks · 82 % lossless · 3 not in a playlist" readStatus readStatusState={sp({})} />
       <PageHeader title="Settings" />
     </div>
   </section>

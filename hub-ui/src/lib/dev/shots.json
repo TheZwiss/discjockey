@@ -110,7 +110,7 @@
     "click": "[data-test=finish-later]"
    },
    {
-    "wait": "[data-test=banner-spotify]"
+    "wait": "[data-test=banner-read-status]"
    }
   ]
  },

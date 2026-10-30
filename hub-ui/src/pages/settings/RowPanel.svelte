@@ -182,7 +182,7 @@
     {#if !status}
       <Skeleton lines={3} />
     {:else}
-      {@const sp = spotifyState(status, spotifyUsed($hub.spotify))}
+      {@const sp = spotifyState(status, spotifyUsed($hub.read_status))}
       {@const tone = sp === 'connected' ? 'good' : sp === 'left_out' ? 'default' : 'problem'}
       <Surface kind="card" label="Spotify" {tone}>
         <div class="state">

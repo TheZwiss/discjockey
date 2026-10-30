@@ -12,11 +12,11 @@ import { allActions, keyId } from './selection';
 export const PREF_SCOPE = 'sync.scope';
 
 /** Spotify is read by itself once per app session: only while the hub has not started its automatic read
- * (`spotify.auto_read`, kept in Python so a window reload doesn't read again), never while a read or a sync runs and
+ * (`read_status.auto_read`, kept in Python so a window reload doesn't read again), never while a read or a sync runs and
  * never before setup. A stopped or failed read stays as it is; the page offers "↻ Read Spotify". */
-export function shouldAutoRead(p: Pick<SyncPreview, 'spotify' | 'empty'>,
+export function shouldAutoRead(p: Pick<SyncPreview, 'read_status' | 'empty'>,
   busy: { refreshRunning: boolean; syncRunning: boolean }): boolean {
-  const sp = p.spotify;
+  const sp = p.read_status;
   return !sp.auto_read && p.empty !== 'not_set_up' && sp.problem !== 'not_set_up' && !sp.reading
     && !busy.refreshRunning && !busy.syncRunning;
 }

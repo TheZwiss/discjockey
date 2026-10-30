@@ -151,30 +151,30 @@ def test_still_to_load():
     assert views.still_to_load(store.prep, money, never) == {"count": 9, "days": 1, "fits_today": True}
 
 
-def test_spotify_status():
+def test_read_status():
     store = store_with([])
-    st = views.spotify_status(store, NOW, False, [])
+    st = views.read_status(store, NOW, False, [])
     assert st["read_at"] == "2026-10-20T21:45:00" and st["minutes_ago"] == 2 and not st["offline"]
     assert st["problem_service"] is None and st["services"] == []
     store.failed("offline", "Cannot reach Spotify.")
-    st = views.spotify_status(store, NOW, True, [])
+    st = views.read_status(store, NOW, True, [])
     assert st["offline"] and st["problem"] == "offline" and st["reading"] and st["read_at"] == "2026-10-20T21:45:00"
     assert st["problem_service"] is None
 
 
-def test_spotify_status_names_the_service_of_a_problem_and_each_login():
+def test_read_status_names_the_service_of_a_problem_and_each_login():
     store = store_with([])
     store.failed("not_set_up", "Qobuz isn't set up yet.", "qobuz")
-    st = views.spotify_status(store, NOW, False, [("spotify", True), ("qobuz", False)])
+    st = views.read_status(store, NOW, False, [("spotify", True), ("qobuz", False)])
     assert (st["problem"], st["problem_service"]) == ("not_set_up", "qobuz")
     assert st["services"] == [{"service": "spotify", "name": "Spotify", "connected": True},
                               {"service": "qobuz", "name": "Qobuz", "connected": False}]
     store.ready(store.prep, NOW)  # a good read clears the problem, service included
-    assert views.spotify_status(store, NOW, False, [])["problem_service"] is None
+    assert views.read_status(store, NOW, False, [])["problem_service"] is None
     assert views.dashboard(state(), Settings(), store, [], [], SETUP_OK, TODAY, NOW, False,
-                           [("qobuz", True)])["spotify"]["services"][0]["connected"] is True
+                           [("qobuz", True)])["read_status"]["services"][0]["connected"] is True
     assert views.sync_preview(store, state(), Settings(), TODAY, NOW, False,
-                              logins=[("qobuz", True)])["spotify"]["services"][0]["service"] == "qobuz"
+                              logins=[("qobuz", True)])["read_status"]["services"][0]["service"] == "qobuz"
 
 
 def test_playlist_rows_name_their_service_and_info_carries_the_hint():
@@ -545,7 +545,7 @@ def test_sync_preview_groups_with_keys():
     assert new_row["key"] == ["acquire", "n1", "Library/A"] and new_row["artist"] == "Artist"
     assert p["estimate"]["qobuz_needed"] == 2 and p["counts"]["bought"] == 1
     assert p["dropped"] == [{"track_id": "m9", "artist": "Gone", "title": "Dropped", "folder": "A"}]
-    assert p["notes"] == ["a note"] and p["empty"] is None and p["spotify"]["minutes_ago"] == 2
+    assert p["notes"] == ["a note"] and p["empty"] is None and p["read_status"]["minutes_ago"] == 2
 
 
 def test_sync_preview_never_download_moves_at_once():

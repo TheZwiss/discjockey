@@ -186,7 +186,7 @@
 {/snippet}
 
 {#snippet main()}
-  <PageHeader title="To-do" sub={data ? headerSub(data.chips) : undefined} spotify />
+  <PageHeader title="To-do" sub={data ? headerSub(data.chips) : undefined} readStatus />
 
   {#if error}
     <ProblemCard kind={error.kind} message={error.message} onretry={load} compact={!!data} />

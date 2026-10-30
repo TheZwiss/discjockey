@@ -222,9 +222,9 @@ describe('service rows', () => {
   });
 });
 describe('the automatic Spotify read', () => {
-  const sp = (more: Partial<SyncPreview['spotify']> = {}): SyncPreview['spotify'] => ({ read_at: null, minutes_ago: null,
+  const sp = (more: Partial<SyncPreview['read_status']> = {}): SyncPreview['read_status'] => ({ read_at: null, minutes_ago: null,
     problem: null, message: '', stale: false, reading: false, offline: false, auto_read: false, problem_service: null, services: [], ...more });
-  const pv = (spotify = sp(), empty: SyncPreview['empty'] = null) => ({ spotify, empty });
+  const pv = (read_status = sp(), empty: SyncPreview['empty'] = null) => ({ read_status, empty });
   const idle = { refreshRunning: false, syncRunning: false };
   it('reads once per session: only while the hub has not read by itself yet', () => {
     expect(shouldAutoRead(pv(), idle)).toBe(true);

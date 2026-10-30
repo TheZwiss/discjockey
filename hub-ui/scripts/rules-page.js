@@ -92,8 +92,8 @@
       for (const side of ['Top', 'Right', 'Bottom', 'Left']) if (parseFloat(s[`border${side}Width`]) > 0 && !colours.has(s[`border${side}Color`]))
         { add('colour', el, `border ${s[`border${side}Color`]}`); break; } }
     // 7 Spotify status only in the page header (§5a, §12: a shared element is placed by its block, never by the page)
-    for (const el of document.querySelectorAll('[data-spotify-status]'))
-      if (!el.matches(SKIP) && !el.closest('[data-page-header]')) add('spotify-status', el, 'Spotify status outside the page header');
+    for (const el of document.querySelectorAll('[data-read-status]'))
+      if (!el.matches(SKIP) && !el.closest('[data-page-header]')) add('read-status', el, 'Spotify status outside the page header');
     return v;
   };
 })();

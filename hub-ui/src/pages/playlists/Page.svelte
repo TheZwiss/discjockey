@@ -170,7 +170,7 @@
 </script>
 
 {#snippet main()}
-  <PageHeader title="Playlists" sub={loaded ? statusLine(draft) : undefined} {actions} spotify />
+  <PageHeader title="Playlists" sub={loaded ? statusLine(draft) : undefined} {actions} readStatus />
   <AddRow {draft} onadd={added} />
 
   {#if pl?.problem}

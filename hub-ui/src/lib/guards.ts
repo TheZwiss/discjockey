@@ -29,7 +29,7 @@ export const usesGhost = (src: string): boolean => /variant\s*(=|:)\s*\{?\s*["']
  *  wrote `data-note` on a paragraph made its own shelter from the loose-text rule (final review I5: LiveView did). */
 export const BLOCK_MARKERS = ['note', 'surface', 'infotip', 'dev', 'hint', 'row-hit', 'frame', 'frame-main',
   'frame-content', 'frame-foot', 'panel', 'panel-root', 'panel-head', 'panel-fill', 'panel-after', 'panel-foot',
-  'page-header', 'max', 'stretch', 'primary', 'spotify-status'] as const;
+  'page-header', 'max', 'stretch', 'primary', 'read-status'] as const;
 
 /** The block markers written as attributes in a file's markup. A selector that names one (`'[data-panel]'`, a
  *  `querySelector` or a shot's `wait`) reads it and is fine. */
