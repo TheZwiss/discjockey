@@ -68,10 +68,12 @@
   }
 
   // the chrome's keys (plan library stage 5, D18; lib/shell/keys.ts): only while the chrome is there (not in Setup
-  // or the missing-folder screen), also from a text field, never in a dialog
+  // or the missing-folder screen), also from a text field, never while a dialog or a menu is open (the context menu
+  // has no open flag of its own; it is in the page only while open, as role="menu")
   function chromeKeys(e: KeyboardEvent) {
     if (!chrome || e.defaultPrevented) return;
-    const k = chromeKey(e, { dialogOpen: !!document.querySelector('dialog[open]'), onLibrary: $route.name === 'library' });
+    const layer = !!document.querySelector('dialog[open], [role=menu]');
+    const k = chromeKey(e, { dialogOpen: layer, onLibrary: $route.name === 'library' });
     if (!k) return;
     e.preventDefault();
     if (k.kind === 'fold') fold();
