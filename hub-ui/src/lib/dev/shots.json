@@ -89,6 +89,43 @@
   "mockupClip": "[data-f=hidden-sync]"
  },
  {
+  "name": "base-shell-folded",
+  "route": "#/library/folder/Hard_Bounce",
+  "scenario": "normal",
+  "prefs": {
+   "shell.form.other": "rail"
+  },
+  "steps": [
+   {
+    "wait": "[data-test=library-table] [data-test^=row-]"
+   },
+   {
+    "click": "[data-test=row-t2] [data-test=cover-play]"
+   },
+   {
+    "wait": "[data-test=foot-play][aria-label=Pause]"
+   },
+   {
+    "click": "[data-test=foot-hide]"
+   },
+   {
+    "wait": "[data-test=now-playing-row]"
+   },
+   {
+    "click": "[data-test=nav-dashboard]"
+   },
+   {
+    "wait": "[data-test=sidebar].rail"
+   },
+   {
+    "sleep": 800
+   }
+  ],
+  "mockup": "design-system/library-layout.html",
+  "mockupState": "dashboard-rail",
+  "mockupScale": 1
+ },
+ {
   "name": "base-shell-console",
   "route": "#/playlists",
   "scenario": "console",
