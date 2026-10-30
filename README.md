@@ -47,6 +47,9 @@ accounts: Qobuz first, then YouTube Music, YouTube or SoundCloud. It comes with 
 your own accounts for the services you use, and you are responsible for following the terms of use of Spotify, Qobuz and
 every other service you use with it. Read [Account risk](#account-risk) before your first sync.
 
+Spotify, Qobuz, SoundCloud and YouTube names and logos are trademarks of their owners, used only to show where a
+playlist comes from; Discjockey isn't affiliated with them.
+
 ## Install and "Open Anyway"
 
 Discjockey isn't registered with Apple, so the first time macOS asks you to confirm that you want to open it. You do
@@ -141,7 +144,8 @@ line to see it on the right.
   The Spotify app's Client ID can be changed under "Spotify app (Client ID)". If you skipped Spotify in Setup,
   connect it here when you want to use Spotify playlists.
 - **Watched folders:** the folders Discjockey reads for music you already have, and the import's progress
-  (see [Your existing music](#your-existing-music)).
+  (see [Your existing music](#your-existing-music)). Each folder also says which of its crates show in Library's
+  sidebar (see [The Library page](#the-library-page)).
 - **This Mac:** the **Music folder** (**Change…** picks another one and closes Discjockey so it
   starts again with it; **Show in Finder** opens it), the programs Discjockey uses and its download
   tools: yt-dlp shows its version and "built in" (it came with Discjockey) or "updated". **Update
@@ -323,8 +327,8 @@ that have a file are played. Changing the filter later doesn't change what plays
 ## The Library page
 
 **Library** shows every track you have, with its quality. Its sidebar is a narrow **rail** of icons, and next to it
-stands the **browser column**: your playlists and your Library folders. Click a name to see its
-tracks. Click a track (or move with ↑ ↓) and its details open on the right; they follow the track you select. They
+stands the **browser column**: your Favourites, your playlists, your Library folders and the folders you
+watch. Click a name to see its tracks. Click a track (or move with ↑ ↓) and its details open on the right; they follow the track you select. They
 only show while a track is selected and in the list: when you open Library, switch to another playlist, or a filter
 or search hides the selected track, they close, and the details button waits (greyed) until you select a track. If you
 close them with the details button at the top right or **⌘I**, they stay closed: clicking a track then only selects
@@ -341,6 +345,30 @@ again).
 - **Filter the browser.** Type in the field at the top of the browser column (or press **⌘K** on any page) to find
   a playlist or folder by name. Every match shows once, in its own section. The last row, **Search tracks for "…"**,
   opens All tracks searched for what you typed. **Enter** opens the highlighted row, **Esc** clears the field.
+- **Favourites.** The playlists and folders you use most can sit at the top of the column. Right-click any
+  playlist or folder and choose **Add to favourites**, or drag its row into the **Favourites** section. Drag a
+  favourite up or down to put them in your order (with a favourite selected, **⌥↑** and **⌥↓** move it by keyboard).
+  **Remove from favourites** in the same right-click menu takes it out again. On the other pages the full
+  sidebar lists your favourites too, without counts; a click opens Library at that one. An empty Favourites section
+  says **Drag a playlist or folder here**. Discjockey saves the order at once, and puts it back and tells you if it
+  couldn't.
+- **Watched folders and their crates.** Each folder you watch (see [Your existing music](#your-existing-music))
+  gets a place in the column, and the folders with music inside it, its **crates**, sit below it. Open or fold a
+  watched folder with its arrow. A folder that is offline shows a **!**; its tooltip says to connect the drive.
+  Right-click a crate and choose **Hide from sidebar** if you don't want to see it; the filter above still finds
+  hidden crates and offers **Show in sidebar**. To bring crates back, or to choose which ones to show, go to **Settings → Watched folders**: each
+  folder has an **In the sidebar** group with a switch per crate and a search field for folders with many crates.
+  A folder with too many crates for the sidebar says so: switch on the ones you want, or search and then press **All**.
+- **A right-click menu on every row.** **Open**, **Play**, **Add to favourites** or **Remove from favourites**,
+  **Hide from sidebar** (crates only) and **Show in Finder** (where the folder is one Discjockey can open).
+- **A playlist's view.** The line under its name says how many songs you have: **13 of 18 downloaded** means five
+  are still to come. A song that has no file yet shows as **Waiting** (it downloads at the next sync), or as
+  **NOT FOUND** when Discjockey found nothing usable yet (To-do has other ways to get it). Below the playlist's
+  songs, **Also in this folder** lists the files in the playlist's folder that aren't in the playlist. Switched-off playlists stay in the list; their files stay and nothing new downloads. A
+  playlist Discjockey hasn't read yet says so, with a **Read playlists** button.
+- **A folder's view.** Opening a watched folder or a crate lists every track in it and below it. A **Subfolder**
+  column says which of its folders a track is in, and a **Playlist** column names the playlist that holds the song, if
+  any (a **+2** means it is in more playlists; point at it to see their names). A column that would say the same on every row is left out.
 - **Make the column wider or narrower.** Drag its right edge. Double-click the edge to go back to the usual width.
 - **Keys:**
 
