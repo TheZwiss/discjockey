@@ -90,7 +90,7 @@
  { "name": "library-now-playing-one", "route": "#/library/folder/Hard_Bounce", "scenario": "normal",
    "steps": [{ "fill": ["[data-test=library-search]", "naughty"] }, { "sleep": 500 }, { "wait": "[data-test=library-table] [data-test^=row-]" }, { "click": "[data-test=row-t2] [data-test=cover-play]" }, { "wait": "[data-test=foot-play][aria-label=Pause]" }, { "sleep": 400 }] },
  { "name": "library-now-playing-end", "route": "#/library/folder/Hard_Bounce", "scenario": "normal",
-   "steps": [{ "wait": "[data-test=library-table] [data-test^=row-]" }, { "eval": "[...document.querySelectorAll('[data-test=library-table] [data-test^=row-]')].at(-1).querySelector('[data-test=cover-play]').click()" },
+   "steps": [{ "wait": "[data-test=library-table] [data-test^=row-]" }, { "eval": "[...document.querySelectorAll('[data-test=library-table] [data-test=cover-play]')].at(-1).click()" },
      { "wait": "[data-test=foot-play][aria-label=Pause]" },
      { "eval": "const a = document.querySelector('audio'); a.currentTime = a.duration - 0.2" },
      { "wait": "[data-test=foot-play][aria-label=Play]" }, { "sleep": 400 }] },

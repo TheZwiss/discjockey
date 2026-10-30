@@ -3,7 +3,7 @@ import type { PageFake } from '$lib/bridge/fake/bridge';
 import type { FakePlaylist, FakeState, FakeTrack } from '$lib/bridge/fake/data';
 import { QOBUZ_PLAYLIST_LINK, SPOTIFY_HINT, playlistRef } from '$lib/bridge/fake/data';
 
-/** States whose second Hard_Bounce track (Sternenstaub) has a file the player can't play. */
+/** States whose next playable Hard_Bounce track after Get Naughty (THE WEEKEND; Gone Track has no file) has a file the player can't play. */
 const cantPlay = new WeakSet<FakeState>();
 const BROKEN = 'data:audio/wav;base64,AAAA';
 
@@ -140,11 +140,14 @@ const fake: PageFake = {
     // files read Offline in the list, beside a file of the user's own on the Mac (there), the playlist songs and the
     // two that left every playlist (dimmed, no tag). `window.__fake.drive(true)` plugs it back in (DrivesChanged).
     ejected: (s) => {
-      s.tracks.push(ownAway(s, 1, 'Mira Nacht', 'Funkenregen', 'fake_lossless', 16000, 'offline'),
-        ownAway(s, 3, 'Mira Nacht', 'Stille Post', 'lossless', null, 'offline'),
+      // the list reads a row's state from the folder its path sits in (library.ts folderState), so the two offline files
+      // sit under the stick's own path, not the fake's default one
+      const STICK = '/Volumes/Example Stick/Music';
+      s.tracks.push({ ...ownAway(s, 1, 'Mira Nacht', 'Funkenregen', 'fake_lossless', 16000, 'offline'), dir: STICK },
+        { ...ownAway(s, 3, 'Mira Nacht', 'Stille Post', 'lossless', null, 'offline'), dir: STICK },
         ownAway(s, 2, 'Tom Brandt', 'Letzter Zug', 'lossless', null));
       const stick = s.imp.folders.find((f) => f.kind === 'import');
-      if (stick) Object.assign(stick, { path: '/Volumes/Example Stick/Music', offline: true, files: 2, redownload: 0 });
+      if (stick) Object.assign(stick, { path: STICK, offline: true, files: 2, redownload: 0 });
       s.imp.folders.push({ id: s.imp.nextId++, path: '/Users/you/Music/Old Sets', kind: 'import', offline: false,
         files: 1, waiting: 0, redownload: 0 });
     },
@@ -272,7 +275,7 @@ const fake: PageFake = {
   overrides: {
     track: (ctx, base) => async (id) => {
       const r = await base(id);
-      if (!r.ok || !cantPlay.has(ctx.s) || r.track.title !== 'Sternenstaub' || !r.track.audio_url) return r;
+      if (!r.ok || !cantPlay.has(ctx.s) || r.track.title !== 'THE WEEKEND' || !r.track.audio_url) return r;
       return { ...r, track: { ...r.track, audio_url: BROKEN } };
     },
   },

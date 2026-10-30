@@ -124,6 +124,12 @@ describe('library:crates', () => {
     const crate = must(await f.library('folder', '/Volumes/Vinyl Drive/Vinyl Rips/Side A', '', 'all', 'artist'));
     expect(crate.subtitle).toEqual(['3 tracks', 'Offline: connect the drive', 'Vinyl Rips › Side A']);
   });
+  it('the ejected scenario: the two files on the stick read offline, the one on the Mac reads here', async () => {
+    const e = fake('library:ejected');
+    const all = must(await e.library('all', null, '', 'all', 'artist'));
+    const state = (id: string) => all.rows.find((r) => r.track_id === id)!.file_state;
+    expect([state('local:1'), state('local:2'), state('local:3')]).toEqual(['offline', 'here', 'offline']);
+  });
   it('a row reads its folder\'s state, not its own flag (as the engine does)', async () => {
     const f = fake('library:crates');
     for (const t of f._ctx.s.tracks) t.away = undefined;
