@@ -67,6 +67,7 @@ FAVOURITE_KEYS = ("playlist:", "folder:")  # what a Favourite's key starts with 
 BAD_FAVOURITES = "That list of favourites isn't one Discjockey can keep."
 BAD_CRATE = "That isn't a folder Discjockey can show or hide."
 BRIEF_WRITE_FAILED = "Discjockey couldn't save that just now. Try again in a moment."
+NO_RECORDS = "Discjockey has no records of your library yet, so it can't save that. Quit and open Discjockey again."
 # how long a Favourites or crate-switch save waits for a running job's write (D15): longer than the engine's usual
 # short transactions, short enough that a click never seems to hang (the binding 5 s would)
 BRIEF_WRITE_WAIT_MS = 1500
@@ -165,6 +166,12 @@ def bridge(fn):
 
     call.__signature__ = inspect.signature(fn)  # pywebview reads the parameter names from it
     return call
+
+
+def _lock_error(e: sqlite3.Error) -> bool:
+    """Whether SQLite refused because another connection holds the database (SQLITE_BUSY / SQLITE_LOCKED)."""
+    return getattr(e, "sqlite_errorcode", None) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or any(
+        word in str(e).lower() for word in ("locked", "busy"))
 
 
 def profile_name(browser: str, profile: str | None, home: Path | None) -> str | None:
@@ -684,12 +691,14 @@ class HubApi:
         still can't be made answers `busy` (nothing was changed) and the page puts its list back. A library.db that
         is damaged or of another version answers as every other call does (config_invalid)."""
         if not self._paths.db_file.exists():
-            raise OpProblem(BRIEF_WRITE_FAILED, "refused")
+            raise OpProblem(NO_RECORDS, "refused")
         try:
             with db.connect(self._paths.db_file, wait_ms=BRIEF_WRITE_WAIT_MS) as conn:
                 db.check(conn)
                 write(conn)
-        except sqlite3.Error:
+        except sqlite3.Error as e:
+            if not _lock_error(e):  # a damaged file, a read-only drive: retrying can't help
+                raise db.unreadable(e) from None
             raise OpProblem(BRIEF_WRITE_FAILED, "busy") from None
 
     @bridge

@@ -1311,3 +1311,27 @@ def test_the_events_that_tell_the_page_to_read_the_sidebar_again(tmp_path, monke
     assert (sb["watched"][0]["state"], sb["watched"][0]["files"]) == ("folder_missing", 5)  # an away folder keeps its count
     refreshed(api, rec)
     assert rec.finished().kind == "refresh"
+
+
+def test_a_save_that_fails_for_any_other_reason_than_a_lock_does_not_say_try_again(tmp_path, monkeypatch):
+    import sqlite3
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    for error in (sqlite3.DatabaseError("file is not a database"),
+                  sqlite3.OperationalError("attempt to write a readonly database")):
+        monkeypatch.setattr(db, "set_favourites", lambda conn, keys, error=error: (_ for _ in ()).throw(error))
+        answer = api.set_favourites([])
+        assert (answer["ok"], answer["kind"]) == (False, "config_invalid"), error
+        assert "Try again" not in answer["message"]
+    locked = sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(db, "set_crate_shown", lambda conn, path, shown: (_ for _ in ()).throw(locked))
+    assert api.set_crate_shown(str(folder / "House"), True)["kind"] == "busy"
+
+
+def test_a_save_without_library_db_is_refused_and_says_what_to_do(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    api._jobs.wait(5)
+    for name in ("library.db", "library.db-wal", "library.db-shm"):
+        (paths.data / name).unlink(missing_ok=True)
+    answers = [api.set_favourites([]), api.set_crate_shown(str(folder / "House"), False)]
+    assert [(a["ok"], a["kind"]) for a in answers] == [(False, "refused")] * 2
+    assert all("open Discjockey again" in a["message"] and "Try again" not in a["message"] for a in answers)
