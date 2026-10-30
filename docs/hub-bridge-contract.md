@@ -15,7 +15,7 @@ library (lists cut to 2 items, `data` cut).
   same `job_id` (see Jobs). At most one write job runs; others are refused with kind `busy` (hub) or `console`
   (a terminal run holds the lock).
 - After a write job finishes, re-fetch the screens you show (`track`, `todo`, `sidebar`, ...). After a playlists save,
-  `spotify.stale` is true: offer ↻ (`refresh()`). After a sync (finished, stopped or crashed) `sync_preview` is the
+  `read_status.stale` is true: offer ↻ (`refresh()`). After a sync (finished, stopped or crashed) `sync_preview` is the
   plan worked out again from the sync's own Spotify read and the library as the run left it (`read_at` = that read,
   `stale` false), so what the run did is not offered again; only when the library records (`library.db`) or settings.json can't be read then
   does the old plan stay, with `stale` true.
@@ -80,7 +80,7 @@ Use the kind for the card/headline; always show `message` as the detail.
   (`Qobuz`, `YT Music`, `SoundCloud`, `YouTube`, `bought`; `own file` for a file the import found). `added`: the playlist
   day, else for an own file the day Discjockey first saw it. `cover_url`: media URL of the embedded cover, else the
   Spotify image URL (https), else null (show placeholder). `duration_s` float.
-- **SpotifyStatus** (`spotify` field; it is the status of reading *all* playlists, whichever service): `read_at`
+- **ReadStatus** (`read_status` field; it is the status of reading *all* playlists, whichever service): `read_at`
   ISO|null, `minutes_ago` int|null, `problem` kind|null, `problem_service` `"spotify"|"qobuz"|null` (the playlist
   service `problem` is about: a missing Qobuz login on a read is `not_set_up` + `qobuz`; null for a problem that is no
   service's; a good read clears it, and so does a login made for that service: a good Setup or Settings login, or a good "Check again", so the page never waits for a restart), `message` (a missing login reads "Connect Qobuz first." in the hub, never the console's "Run: discjockey setup"), `services` [{`service` `spotify|qobuz`, `name` "Spotify"|"Qobuz",
@@ -118,7 +118,7 @@ Use the kind for the card/headline; always show `message` as the detail.
 {
  "ok": true,
  "greeting": "Good evening",
- "spotify": {
+ "read_status": {
   "read_at": "2026-10-20T21:47:00",
   "minutes_ago": 0,
   "problem": null,
@@ -297,7 +297,7 @@ ticked count (a larger count takes the last entry) for the service rows and neve
 ```json
 {
  "ok": true,
- "spotify": {
+ "read_status": {
   "read_at": "2026-10-20T21:47:00",
   "minutes_ago": 0,
   "problem": null,
@@ -396,11 +396,11 @@ ticked count (a larger count takes the last entry) for the service rows and neve
 
 `refresh(auto=false)` → `{"job_id"}` — read-only playlists read: "↻ Read playlists", and by itself whenever
 playlists.txt changes on disk (mtime or size, checked every 2 s; retried until no hub sync blocks it). `auto=true`: the
-session's one automatic read (the hub when it opens; the Sync page when it opens and `spotify.auto_read` is still
-false, e.g. the hub's own read could not start). It sets `spotify.auto_read` when it starts; later `auto=true` calls are
+session's one automatic read (the hub when it opens; the Sync page when it opens and `read_status.auto_read` is still
+false, e.g. the hub's own read could not start). It sets `read_status.auto_read` when it starts; later `auto=true` calls are
 refused (`refused`), so a stopped or failed automatic read is never redone by itself. Each playlist read emits
 `ReadingPlaylist`. Outcome: `JobFinished` kind `refresh`, `result {"actions": n}`; on problems (`offline`, ...) the
-last preview stays with `spotify.problem` set.
+last preview stays with `read_status.problem` set.
 `stop_refresh()` → `{"stopped": bool}`. The read's `JobFinished` (`stopped`) comes at once, also while one slow
 Spotify request is still under way; that request's late answer is dropped (the last preview stays).
 
@@ -418,7 +418,7 @@ reload.
  "job": null,
  "refresh_running": false,
  "console_running": false,
- "spotify": {
+ "read_status": {
   "read_at": "2026-10-20T21:47:00",
   "minutes_ago": 0,
   "problem": null,
