@@ -15,7 +15,8 @@ export const SECTION_KEYS = ['playlists', 'folders'] as const;
 export type SectionKey = (typeof SECTION_KEYS)[number];
 export const HANDOFF = 'handoff';
 
-/** The matched letters of a name, as [start, end) in the name (none when folding changed the name's length). */
+/** The matched letters of a name, as [start, end) in the name (none when folding changed the name's length, as for
+ *  decomposed accents). */
 export type Match = [number, number] | null;
 
 export type ViewRow = { kind: 'view'; key: string; name: string; count: number; href: string };
@@ -59,7 +60,7 @@ export function matchName(name: string, q: string): Match | false {
   const n = fold(name);
   const i = n.indexOf(q);
   if (i < 0) return false;
-  return n.length === name.normalize('NFC').length ? [i, i + q.length] : null;
+  return n.length === name.length ? [i, i + q.length] : null;
 }
 
 /** The text the filter filters by: trimmed, folded. */

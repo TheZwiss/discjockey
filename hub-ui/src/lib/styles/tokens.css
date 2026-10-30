@@ -107,6 +107,7 @@
   --gap-split: 3px;       /* between the parts of a split bar (DayBar's today · later) */
   --h-list-row: 40px; --h-list-row-tall: 52px;   /* ListRow: a list's rows (the Sync plan), and rows with a second line */
   --h-section: 32px;   /* ListSection: a group's head among a list's rows (To-do), lower than a row so it reads as a label */
+  --h-section-chrome: 28px;   /* ListSection on the frame (the browser column): a step lower than its 30 px rows */
   /* scroll edge effect (edgeFade): how far an end with more beyond it fades, and to what (35 %, so a cut row still
      reads on or off) */
   --edge-fade: 16px; --edge-fade-to: rgb(0 0 0 / .35);

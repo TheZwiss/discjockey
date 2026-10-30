@@ -213,8 +213,10 @@
   .spacer { flex: 1; min-height: 0; }
   .settings { margin-top: var(--s-2); }
 
+  /* the browser's filter field on the page header's row: level with the page's own search field (30 px, which the
+     header's baseline puts 4 px below the page's 16 px padding) */
   .browser { position: relative; flex: none; display: flex; flex-direction: column; min-height: 0;
-    padding-top: calc(var(--s-4) + 22px + var(--s-2)); --away-x: -8px; }
+    padding-top: calc(var(--s-4) + 4px); --away-x: -8px; }
   .browser.away { opacity: 0; visibility: hidden; transform: translateX(var(--away-x)); }
 
   /* ---------- motion (the notes' motion table) ---------- */

@@ -57,6 +57,7 @@
   /** Gallery only: starts a scroller at a given offset, so a stuck state shows without scrolling by hand. */
   function scrollAt(node: HTMLElement, y: number) { requestAnimationFrame(() => { node.scrollTop = y; }); }
   let inspectorOpen = $state(true);
+  let gFolded = $state(['Playlists']);
   // Tip: one tip open at a time, as in the app; the strip picks which example shows its own
   const TIP_SHOW: SegOption<'rail' | 'cut' | 'crate'>[] = [{ key: 'rail', label: 'Rail icon' }, { key: 'cut', label: 'Cut name' },
     { key: 'crate', label: 'Crate, two lines' }];
@@ -1007,11 +1008,13 @@
         </div>
       </div>
       <div class="col tight">
-        <span class="cap">Playlists folded, stuck; Folders right below it, not stuck: no line</span>
-        <div class="g-chrome-list" use:scrollAt={170} data-test="g-section-chrome-folded">
-          {#each [['Favourites', 4], ['Playlists', 0], ['Folders', 10]] as [name, n] (name)}
-            <ListSection label={name as string} summary={String(n)} stick="both" on="chrome" />
-            {#each Array(n as number) as _, i (i)}<div class="g-crow">{name} row {i + 1}</div>{/each}
+        <span class="cap">heads that fold (fold): Playlists folded, stuck; Folders right below it, not stuck: no line</span>
+        <div class="g-chrome-list" use:scrollAt={149} data-test="g-section-chrome-folded">
+          {#each [['Favourites', 4], ['Playlists', 12], ['Folders', 10]] as [name, n] (name)}
+            {@const open = !gFolded.includes(name as string)}
+            <ListSection label={name as string} summary={String(n)} stick="both" on="chrome"
+              fold={{ open, toggle: () => { gFolded = open ? [...gFolded, name as string] : gFolded.filter((x) => x !== name); } }} />
+            {#if open}{#each Array(n as number) as _, i (i)}<div class="g-crow">{name} row {i + 1}</div>{/each}{/if}
           {/each}
         </div>
       </div>
@@ -1417,7 +1420,7 @@
   .g-hdr { max-width: 100%; padding: 0 var(--s-2); border-left: var(--bw) dashed var(--surface-line); border-right: var(--bw) dashed var(--surface-line); }
   .g-chrome-list { width: 220px; height: 240px; overflow-y: auto; padding: 0 var(--s-2); background: var(--sidebar-bg);
     border: var(--bw) solid var(--surface-line); border-radius: var(--r-surface); }
-  .g-crow { display: flex; align-items: center; height: var(--h-ctl); padding: 0 var(--s-4); color: var(--text-nav);
+  .g-crow { display: flex; align-items: center; height: var(--h-ctl); padding: 0 var(--s-2); color: var(--text-nav);
     font-size: var(--fs-body); }
   .g-glyph { position: relative; display: grid; }
   /* the rail's count pill on the glyph's corner, ringed in the frame's colour so it cuts the glyph cleanly */

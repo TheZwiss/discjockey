@@ -94,5 +94,20 @@
    "steps": [{ "wait": "[data-test=library-table] [data-test^=row-]" }, { "eval": "[...document.querySelectorAll('[data-test=library-table] [data-test^=row-]')].at(-1).querySelector('[data-test=cover-play]').click()" },
      { "wait": "[data-test=foot-play][aria-label=Pause]" },
      { "eval": "const a = document.querySelector('audio'); a.currentTime = a.duration - 0.2" },
-     { "wait": "[data-test=foot-play][aria-label=Play]" }, { "sleep": 400 }] }
+     { "wait": "[data-test=foot-play][aria-label=Play]" }, { "sleep": 400 }] },
+ { "name": "library-browser", "route": "#/library", "scenario": "library:browser",
+   "steps": [{ "wait": "[data-test=browser-row]" }, { "wait": "[data-test=library-table] [data-test^=row-]" }] },
+ { "name": "library-filter", "route": "#/library", "scenario": "library:browser",
+   "steps": [{ "wait": "[data-test=browser-row]" }, { "fill": ["[data-test=browser-filter]", "bou"] },
+     { "wait": "[data-test=browser-handoff]" }] },
+ { "name": "library-filter-none", "route": "#/library", "scenario": "library:browser",
+   "steps": [{ "wait": "[data-test=browser-row]" }, { "fill": ["[data-test=browser-filter]", "kaltf"] },
+     { "wait": "[data-test=browser-handoff]" }] },
+ { "name": "library-browser-wide", "route": "#/library", "scenario": "library:browser", "width": 1280, "height": 800,
+   "steps": [{ "wait": "[data-test=browser-row]" },
+     { "eval": "localStorage.setItem('discjockey.shell.browser.width', '320'); location.reload()" },
+     { "wait": "[data-test=browser-column][style*='320px'] [data-test=browser-row]" },
+     { "wait": "[data-test=library-table] [data-test^=row-]" }] },
+ { "name": "library-browser-1100", "route": "#/library/folder/Old_Sets", "scenario": "library:browser", "width": 1100, "height": 700,
+   "steps": [{ "wait": "[data-test=browser-row]" }, { "wait": "[data-test=library-table] [data-test^=row-]" }] }
 ]

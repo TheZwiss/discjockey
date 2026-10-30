@@ -64,6 +64,26 @@
       q = '';
     });
   });
+  // ?q= from the browser column's hand-off ("Search tracks for “…”", plan library stage 5 A5, notes N3): the text goes
+  // into the track search at once (no debounce), over every quality, and the field takes the focus; the route then
+  // drops the q, so the search is the page's own again (clearing it, a reload, Back don't bring the text back). After
+  // the folder's effect above, which starts a folder with an empty search.
+  const handed = $derived(query.get('q'));
+  let searchInput: HTMLInputElement | undefined = $state();
+  $effect(() => {
+    const text = handed;
+    if (text === null) return;
+    untrack(() => {
+      search = text;
+      q = text.trim();
+      filter = 'all';
+      const rest = new URLSearchParams(query);
+      rest.delete('q');
+      const qs = rest.toString();
+      void go(`${libraryHref(folder)}${qs ? `?${qs}` : ''}`, { replace: true });
+      requestAnimationFrame(() => searchInput?.focus());
+    });
+  });
   // ?track= from outside (sidebar, other pages)
   $effect(() => {
     const t = query.get('track');
@@ -199,7 +219,7 @@
 
 {#snippet main()}
   <PageHeader title={lib?.title ?? (folder === null ? 'All tracks' : folder === NOT_IN_PLAYLIST ? 'Not in a playlist' : folder)} {sub}>
-    {#snippet actions()}<SearchField bind:value={search} placeholder="Search title, artist…" shortcut="cmd+f" />{/snippet}
+    {#snippet actions()}<SearchField bind:value={search} bind:input={searchInput} placeholder="Search title, artist…" shortcut="cmd+f" />{/snippet}
   </PageHeader>
   {#if libError && !lib}
     <ProblemCard kind={libError.kind} message={libError.message} onretry={() => { retry++; }} />
