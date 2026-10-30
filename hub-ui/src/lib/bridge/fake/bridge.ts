@@ -9,7 +9,7 @@ import { LIBRARY_METHODS } from '../contract';
 import {
   FAKE_MUSIC, FAKE_NEWEST_YT_DLP, QOBUZ_UNREADABLE, SERVICE_NAME, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkText, coverUri, dateOnly, folderList, hash, isoLocal, makeState, nextStep,
   pathOf, playlistRows, previewAction, qualityLabel, qualityLine, qualityOf, result, runDetail, runId,
-  readStatus, sampleCandidates, readOk, todoDetail, todoFree, formatLine, sourceFull, todoGroup, trackRow, rowState, type FakeAccount, type FakeFolder, type FakeState,
+  readStatus, sampleCandidates, readOk, todoDetail, todoFree, formatLine, sourceFull, todoGroup, trackRow, type FakeAccount, type FakeFolder, type FakeState,
   type FakeTrack,
 } from './data';
 import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, libraryOf, sidebarOf, trackPlace } from './library';

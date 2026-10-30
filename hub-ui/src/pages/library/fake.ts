@@ -29,6 +29,16 @@ const WORDS = ['Neon', 'Harbour', 'Static', 'Lantern', 'Copper', 'Velvet', 'Orbi
 const SUFFIXES = ['Nights', 'Sessions', 'Tapes', 'Rooms', 'Hours', 'Letters', 'Maps', 'Visions', 'Echoes', 'Gardens',
   'Stories', 'Lines', 'Remains'];
 
+/** `crates` and `crates_busy`: the sidebar at its fullest with four Favourites in the mockup's order (a playlist, two
+ *  crates, and the crate inside a wrapper folder, whose label says where it is). */
+function withFavourites(s: FakeState): void {
+  crateFolders(s);
+  const rekordbox = '/Users/you/Music/Rekordbox Library';
+  const hard = s.playlists.find((p) => p.folder === 'Hard_Bounce')!;
+  s.favourites = [`playlist:${playlistRef(hard.link)}`, `folder:${rekordbox}/Hardtechno`, `folder:${rekordbox}/Peak Time`,
+    `folder:${rekordbox}/Old Sets/Bounce`];
+}
+
 /** The sidebar's folders at their fullest (plan library stage 5, the library-browser mockup): a watched folder with
  *  crates, one with 312 album folders (more than 25, so all hidden at first), one whose drive is away, and a Library
  *  folder no playlist uses. No Favourites yet: `crates` pins four, `first_look` none. */
@@ -186,13 +196,10 @@ const fake: PageFake = {
     },
     // the sidebar's folders at their fullest (see crateFolders) and four Favourites in the mockup's order: a playlist, two
     // crates and the crate inside a wrapper folder, whose label says where it is
-    crates: (s) => {
-      crateFolders(s);
-      const rekordbox = '/Users/you/Music/Rekordbox Library';
-      const hard = s.playlists.find((p) => p.folder === 'Hard_Bounce')!;
-      s.favourites = [`playlist:${playlistRef(hard.link)}`, `folder:${rekordbox}/Hardtechno`, `folder:${rekordbox}/Peak Time`,
-        `folder:${rekordbox}/Old Sets/Bounce`];
-    },
+    crates: (s) => { withFavourites(s); },
+    // the same sidebar while the library file is held by a running job: saving a Favourite or a crate switch answers
+    // busy (the brief-write failure B5 shows)
+    crates_busy: (s) => { withFavourites(s); s.briefBusy = true; },
     // the first look at the same sidebar: folders and crates there, nothing pinned yet
     first_look: (s) => { crateFolders(s); },
     // no playlist was read yet: no read record, so no playlist knows its songs (the files are in their folders)

@@ -184,19 +184,29 @@ function stripOk<T extends { ok: true }>(r: T): Omit<T, 'ok'> {
   return rest;
 }
 
+/** Reads only the sidebar again (a save of the Favourites or a crate switch changes nothing else), without waiting for
+ *  job_status, setup_status or app_update. The newest question wins when two overlap. */
+let sidebarTurn = 0;
+async function refreshSidebar(): Promise<void> {
+  const turn = ++sidebarTurn;
+  const side = await api.sidebar();
+  if (turn !== sidebarTurn || !side.ok) return;
+  state.update((s) => ({ ...s, sidebar: stripOk(side) }));
+}
+
 /** Saves the Favourites (the stored order of `keys`) and reads the sidebar again. A brief save, not a job (D15): the
  *  answer is `{favourites}` or `busy` when a running job's write held the file too long. The sidebar is read after a
  *  refusal too, so the list the page showed while saving is put back by what is stored. */
 export async function saveFavourites(keys: string[]): Promise<Res<FavouritesSaved>> {
   const r = await api.set_favourites(keys);
-  await refreshHub();
+  await refreshSidebar();
   return r;
 }
 /** Shows (true), hides (false) or resets (null: the default) a crate in the sidebar, then reads the sidebar again,
  *  as `saveFavourites` does. */
 export async function saveCrateShown(path: string, shown: boolean | null): Promise<Res<CrateSaved>> {
   const r = await api.set_crate_shown(path, shown);
-  await refreshHub();
+  await refreshSidebar();
   return r;
 }
 

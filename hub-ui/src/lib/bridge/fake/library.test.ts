@@ -124,6 +124,16 @@ describe('library:crates', () => {
     const crate = must(await f.library('folder', '/Volumes/Vinyl Drive/Vinyl Rips/Side A', '', 'all', 'artist'));
     expect(crate.subtitle).toEqual(['3 tracks', 'Offline: connect the drive', 'Vinyl Rips › Side A']);
   });
+  it('a row reads its folder\'s state, not its own flag (as the engine does)', async () => {
+    const f = fake('library:crates');
+    for (const t of f._ctx.s.tracks) t.away = undefined;
+    const v = must(await f.library('folder', '/Volumes/Vinyl Drive/Vinyl Rips', '', 'all', 'artist'));
+    expect(v.rows.every((r) => r.file_state === 'offline')).toBe(true);
+    // a flag on a file in a folder that is there changes nothing in the list
+    f._ctx.s.tracks.find((t) => t.folder === 'Hard_Bounce')!.away = 'offline';
+    const all = must(await f.library('all', null, '', 'all', 'artist'));
+    expect(all.rows.filter((r) => r.file_state === 'offline').length).toBe(v.rows.length);
+  });
   it('a Library folder no playlist uses has its own words; a path nothing knows is gone', async () => {
     const v = must(await f.library('folder', 'Library/Old_Hardstyle', '', 'all', 'artist'));
     expect(v).toMatchObject({ folder_kind: 'library', subtitle: ['4 tracks', 'no playlist uses it', 'Library › Old_Hardstyle'] });
@@ -174,6 +184,11 @@ describe('Favourites and crate switches are brief saves (D15)', () => {
     const side = must(await f.sidebar());
     expect(side.favourites.map((x) => x.key)).toEqual(before);
     expect(side.watched[1].crates.find((c) => c.name === 'Peak Time')!.hidden).toBe(false);
+  });
+  it('the scenario library:crates_busy starts with the file held, for the page that shoots the busy state', async () => {
+    const f = fake('library:crates_busy');
+    expect(must(await f.sidebar()).favourites).toHaveLength(4);
+    expect(await f.set_favourites([])).toMatchObject({ ok: false, kind: 'busy' });
   });
   it('set_crate_shown switches a crate; null goes back to the default', async () => {
     const f = fake('library:crates');
@@ -246,6 +261,14 @@ describe('library views of a playlist (D9)', () => {
     }
     expect(v.subtitle).toEqual([`${v.summary.tracks} tracks`, 'Spotify playlist', 'Library › Hard_Bounce']);
     expect(v.also).toEqual([]);
+  });
+  it('waiting songs of a library with no file at all still list', async () => {
+    const f = fake('normal');
+    f._ctx.s.tracks = [];
+    const v = must(await f.library('playlist', 'Hard_Bounce', '', 'all', null));
+    expect(v.rows.length).toBeGreaterThan(0);
+    expect(v.rows.every((r) => r.file_state === 'no_file' && r.wait === 'waiting' && r.path === null)).toBe(true);
+    expect(v.summary.tracks).toBe(0);
   });
   it('a song held by two playlists names both, in playlists.txt order, and has a place outside its own folder', async () => {
     const f = fake('normal');

@@ -221,11 +221,6 @@ export function trackRow(t: FakeTrack): TrackRow {
     own: !!t.own, hidden: t.hidden, upgrade_ready: !!t.upgrade, path: pathOf(t), added: t.added, cover_url: coverUri(t.cover),
   };
 }
-/** A Library row's `file_state`: as the panel's, but per folder only (the engine never checks a row's own file, so a
- *  file that went since the last scan still reads `here` in the list). */
-export function rowState(t: FakeTrack): LibraryRow['file_state'] {
-  return t.away === 'offline' || t.away === 'folder_missing' ? t.away : 'here';
-}
 export function qualityLine(t: FakeTrack): string {
   const q = qualityOf(t);
   const src = t.source ? SOURCE_NAMES[t.source] : '';

@@ -27,7 +27,7 @@
   import { player } from '$lib/stores/player';
   import { listen } from '$lib/listen';
   import { toasts } from '$lib/stores/toasts';
-  import { problemCopy } from '$lib/copy';
+  import { EMPTY, problemCopy } from '$lib/copy';
   import { getPref, setPref } from '$lib/prefs';
   import { go, libraryHref } from '$lib/router';
   import { markReady } from '$lib/ready';
@@ -35,7 +35,7 @@
   import TrackDetails from './TrackDetails.svelte';
   import {
     DEFAULT_SORT, LIBRARY_FILTERS, SORT_KEY, filterKey, isSort, libraryCalls, libraryView, nextSort, offTable, playable,
-    segOptions, todoHref, withFiles, type LibraryCall, type SortColumn,
+    asToday, segOptions, todoHref, type LibraryCall, type SortColumn,
   } from './libraryModel';
   import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 
@@ -49,6 +49,8 @@
   let search = $state('');
   let q = $state('');
   let lib = $state<Library | null>(null);
+  /** the route's folder param `lib` was asked for (its own `key` is the engine's spelling of it) */
+  let libFor = $state<string | null>(null);
   let libError: { kind: ProblemKind; message: string } | null = $state(null);
   let loading = $state(true);
   let selected = $state<string | null>(untrack(() => query.get('track')));
@@ -107,14 +109,18 @@
     return () => clearTimeout(h);
   });
 
-  /** the first call that doesn't come back gone (a name asked as a playlist may be a Library folder) */
+  /** The first call that doesn't come back gone (a name asked as a playlist may be a Library folder), shaped as the
+   *  page drew its folder before the playlist views (`asToday`: a playlist is asked for whole, then searched, filtered
+   *  and sorted here). */
   async function askLibrary(calls: LibraryCall[], query: string, filt: LibraryFilter, order: LibrarySort) {
-    let r = await api.library(calls[0].view, calls[0].key, query, filt, order);
+    const ask = (c: LibraryCall) => c.view === 'playlist' ? api.library('playlist', c.key, '', 'all', order)
+      : api.library(c.view, c.key, query, filt, order);
+    let r = await ask(calls[0]);
     for (const next of calls.slice(1)) {
       if (!r.ok || r.empty !== 'gone') break;
-      r = await api.library(next.view, next.key, query, filt, order);
+      r = await ask(next);
     }
-    return r;
+    return r.ok ? asToday(r, query, filt, order) : r;
   }
   let libTurn = 0;
   $effect(() => {
@@ -127,7 +133,8 @@
       if (turn !== libTurn) return;
       loading = false;
       if (r.ok) {
-        lib = withFiles(r);
+        lib = r;
+        libFor = args[0];
         libError = null;
         if (filter !== 'all' && r.chips[filter] === 0 && !q) setFilter('all');
       } else {
@@ -228,7 +235,8 @@
   // the header's second line: its parts in order of importance, the last dropping first when the header is narrow
   const sub = $derived(lib?.subtitle);
   const emptyLibrary = $derived(lib?.empty === 'empty_library');
-  const noFiles = $derived(!!lib && !emptyLibrary && lib.summary.tracks === 0);
+  const isGone = $derived(lib?.empty === 'gone');
+  const noFiles = $derived(!!lib && !emptyLibrary && !isGone && lib.summary.tracks === 0);
   const noRows = $derived(!!lib && !emptyLibrary && !noFiles && lib.rows.length === 0);
   // which list (its optional columns): All tracks and Not in a playlist name the folder, a playlist doesn't
   const view = $derived(libraryView(folder));
@@ -239,7 +247,7 @@
   }
   // the details stand only with a track to show: the chrome reads the selection from the route, the page tells it when
   // that track is off the table, so ⌘I waits, nothing steps the browser back, and no inspector stands empty
-  const selectedOff = $derived(offTable(lib, folder, selected));
+  const selectedOff = $derived(offTable(lib, libFor, folder, selected));
   $effect(() => { trackOffTable.set(selectedOff); });
   $effect(() => () => trackOffTable.set(false));
   const detailsOpen = $derived($detailsShown);
@@ -281,6 +289,10 @@
   {:else if emptyLibrary}
     <Surface kind="card" data-test="library-empty">
       <EmptyState title="No tracks yet. Run a sync to fill your library." action={{ label: 'Open Sync', href: '#/sync' }} />
+    </Surface>
+  {:else if isGone}
+    <Surface kind="card" data-test="library-gone">
+      <EmptyState title={EMPTY.gone.title} action={EMPTY.gone.action} />
     </Surface>
   {:else}
     {#if libError}<ProblemCard compact kind={libError.kind} message={libError.message} />{/if}

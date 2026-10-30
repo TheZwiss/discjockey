@@ -295,16 +295,17 @@ describe('a DrivesChanged event', () => {
 describe('the sidebar is read again (plan library stage 5, B2.4 and D15)', () => {
   afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
   /** a bridge that counts the sidebar reads and keeps the Favourites the way library.db would */
-  function bridge(opts: { busy?: boolean } = {}) {
+  function bridge(opts: { busy?: boolean; hang?: boolean } = {}) {
     (globalThis as any).window = new EventTarget();
-    const seen = { sidebars: 0, saved: [] as unknown[][], stored: ['playlist:a'] };
+    const seen = { sidebars: 0, others: 0, saved: [] as unknown[][], stored: ['playlist:a'] };
+    const never = new Promise<never>(() => {});   // an unrelated call that does not answer
     installBridge({
-      job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: false, read_status: null,
-        sign_in: null }),
-      setup_status: async () => ({ ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }),
+      job_status: async () => { seen.others++; if (opts.hang) return never; return { ok: true, job: null, refresh_running: false, console_running: false, read_status: null,
+        sign_in: null }; },
+      setup_status: async () => { seen.others++; return { ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }; },
       sidebar: async () => { seen.sidebars++; return { ok: true, todo: 0, all_tracks: 0, not_in_playlist: 0, limits_warning: false,
         favourites: seen.stored.map((key) => ({ key })), playlists: [], watched: [], library_folders: [] }; },
-      app_update: async () => ({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null }),
+      app_update: async () => { seen.others++; if (opts.hang) return never; return { ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null }; },
       set_favourites: async (keys: string[]) => {
         seen.saved.push(keys);
         if (opts.busy) return { ok: false, kind: 'busy', message: 'Discjockey couldn\'t save that just now.' };
@@ -354,5 +355,18 @@ describe('the sidebar is read again (plan library stage 5, B2.4 and D15)', () =>
     const before = seen.sidebars;
     expect(await saveCrateShown('/Volumes/Example Drive/Albums/Aphex', false)).toMatchObject({ ok: true, shown: false });
     expect(seen.sidebars).toBeGreaterThan(before);
+  });
+  it('a save reads only the sidebar and does not wait for the other calls', async () => {
+    const seen = bridge();
+    await refreshHub();
+    const others = seen.others;
+    await saveFavourites(['playlist:b']);
+    await saveCrateShown('/Volumes/Example Drive/Albums/Aphex', false);
+    expect(seen.others).toBe(others);
+    const hung = bridge({ hang: true });
+    const r = await saveFavourites(['playlist:b']);   // would never return if it waited for job_status or app_update
+    expect(r).toMatchObject({ ok: true });
+    expect(get(hub).sidebar?.favourites.map((f) => f.key)).toEqual(['playlist:b']);
+    expect(hung.sidebars).toBeGreaterThan(0);
   });
 });

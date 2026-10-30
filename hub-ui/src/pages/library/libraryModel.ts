@@ -2,7 +2,7 @@
 // Tested in libraryModel.test.ts.
 import type { Library, LibraryFilter, LibraryRow, LibrarySort, LibraryView as WireView, Quality, Sidebar, TrackDetail,
   TrackRow } from '$lib/bridge/types';
-import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
+import { NOT_IN_PLAYLIST, QUALITIES } from '$lib/bridge/types';
 import type { SegOption } from '$lib/components/segmentedModel';
 
 /** The columns a header click sorts by. Source and Added left the table (plan library stage 5 D10: the inspector shows
@@ -63,9 +63,12 @@ export function selectedIndex(rows: TrackRow[], id: string | null): number {
 /** Whether the selected track is known to be off the table (its details then don't stand, stores/chrome.ts
  *  `detailsStand`): not among the rows shown, filtered or searched away, gone from the library, or no rows at all (an
  *  empty library or folder, nothing matches). Not known (false) before the first answer, or while the answer on
- *  screen is still another folder's (a link into a new folder with a track): the selection came from a table. */
-export function offTable(lib: Pick<Library, 'folder' | 'rows'> | null, folder: string | null, track: string | null): boolean {
-  if (!lib || track === null || lib.folder !== folder) return false;
+ *  screen is still another folder's (a link into a new folder with a track): the selection came from a table.
+ *  `answeredFor` is the route's folder param the answer on screen was asked for; the answer's own `key` is not
+ *  compared, since the engine echoes its spelling of it (`Library/Old_Sets` for the route's `Old_Sets`). */
+export function offTable(lib: Pick<Library, 'rows'> | null, answeredFor: string | null | undefined, folder: string | null,
+  track: string | null): boolean {
+  if (!lib || track === null || answeredFor !== folder) return false;
   return !lib.rows.some((r) => r.track_id === track);
 }
 
@@ -230,8 +233,65 @@ export function libraryCalls(folder: string | null, side: Pick<Sidebar, 'playlis
   const lib = side.library_folders.find((f) => same(f.name, folder));
   return lib ? [{ view: 'folder', key: lib.path }] : [asPlaylist];
 }
-/** The rows the table draws today: those with a file. A playlist view also lists its songs that wait for a file
- *  (`file_state: 'no_file'`); the table gets them with the playlist view's own screen (plan library stage 5, B6). */
-export function withFiles(lib: Library): Library {
-  return { ...lib, rows: lib.rows.filter((r) => r.file_state !== 'no_file') };
+// --- today's playlist screen, until the playlist views are drawn (plan library stage 5, B6) ---
+const fold = (x: string): string => x.normalize('NFC').toLowerCase();
+const SORT_KEYS: Record<string, (r: LibraryRow) => string | number | (string | number | boolean)[]> = {
+  title: (r) => fold(r.title),
+  artist: (r) => [fold(r.artist), fold(r.title)],
+  length: (r) => r.duration_s,
+  source: (r) => r.source_name ?? '',
+  quality: (r) => (r.sound_checked ? QUALITIES.indexOf(r.quality) : QUALITIES.length),
+  added: (r) => r.added ?? '',
+  order: (r) => [r.position === null, r.position ?? 0],
+  folder: (r) => [!r.in_playlists, fold(r.folder), fold(r.artist), fold(r.title)],
+};
+function compareKeys(a: unknown, b: unknown): number {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    for (let i = 0; i < Math.min(a.length, b.length); i++) {
+      const c = compareKeys(a[i], b[i]);
+      if (c) return c;
+    }
+    return a.length - b.length;
+  }
+  return (a as number) < (b as number) ? -1 : (a as number) > (b as number) ? 1 : 0;
+}
+/** A filter chip never holds a file whose sound isn't checked yet; only All does (views._matches). */
+const inFilter = (r: LibraryRow, f: LibraryFilter): boolean =>
+  f === 'all' || (f === 'upgrade_ready' ? r.upgrade_ready : r.sound_checked && r.quality === f);
+/** The playlist's own summary (it counts the songs it holds that have a file) with the leftover files added, counted
+ *  as views._group counts a row's to-do state. */
+function summaryWith(base: Library['summary'], extra: LibraryRow[]): Library['summary'] {
+  const by = { ...base.by_quality };
+  for (const r of extra) if (r.sound_checked) by[r.quality]++;
+  const counted = Object.values(by).reduce((n, c) => n + c, 0);
+  return { tracks: base.tracks + extra.length, lossless_share: counted ? Math.round((by.lossless / counted) * 10000) / 10000 : null,
+    by_quality: by, upgrades_ready: base.upgrades_ready + extra.filter((r) => r.upgrade_ready).length,
+    not_lossless: by.good_lossy + by.weak + by.fake,
+    to_do: base.to_do + extra.filter((r) => r.in_playlists && !r.hidden && r.sound_checked
+      && (r.upgrade_ready || r.quality === 'weak' || r.quality === 'good_lossy' || r.quality === 'fake')).length };
+}
+const tracksWord = (n: number): string => (n === 1 ? '1 track' : `${n} tracks`);
+/** A playlist view as the page drew a folder before the playlist views: the playlist's songs with a file and the files
+ *  of its own Library folder it does not hold (`also`, the leftovers, dimmed by their own row fields) are one list,
+ *  with the counts of that list; the songs still waiting for a file are left out. `lib` must be asked for without
+ *  search and filter (the summary and the chips count the whole list; the search and the filter are applied here, as
+ *  the engine applies them to a folder). Any other view, and a playlist that is gone, comes back as it is.
+ *  B6 draws the waiting rows and the `also` section itself and removes this. */
+export function asToday<L extends Library>(lib: L, query: string, filter: LibraryFilter, sort: LibrarySort): L {
+  if (lib.view !== 'playlist' || lib.empty === 'gone') return lib;
+  const files = [...lib.rows.filter((r) => r.file_state !== 'no_file'), ...(lib.also ?? [])];
+  const q = fold(query ?? '').trim();
+  const found = q ? files.filter((r) => fold(`${r.artist} ${r.title}`).includes(q)) : files;
+  const chips = Object.fromEntries(LIBRARY_FILTERS.map((f) => [f, found.filter((r) => inFilter(r, f)).length])) as Library['chips'];
+  const key = SORT_KEYS[sort.replace(/^-/, '')] ?? SORT_KEYS.artist;
+  const sign = sort.startsWith('-') ? -1 : 1;
+  const rows = found.filter((r) => inFilter(r, filter)).sort((a, b) => sign * compareKeys(key(a), key(b)));
+  // the engine counts only the songs with a file that the playlist holds: the count part is this list's
+  const [first, ...rest] = lib.subtitle;
+  const subtitle = lib.read_at === null
+    ? (files.length ? [tracksWord(files.length), first, ...(lib.enabled === false ? ['switched off'] : []), `Library › ${lib.title}`]
+      : lib.subtitle)
+    : [tracksWord(files.length), ...rest];
+  return { ...lib, rows, also: null, chips, summary: summaryWith(lib.summary, lib.also ?? []), subtitle,
+    empty: lib.empty === 'empty_library' ? lib.empty : null };
 }

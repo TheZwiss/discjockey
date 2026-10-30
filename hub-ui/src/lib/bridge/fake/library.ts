@@ -8,7 +8,7 @@ import type {
 } from '../types';
 import { NOT_IN_PLAYLIST, QUALITIES } from '../types';
 import {
-  SERVICE_NAME, byQuality, pathOf, playlistRef, rowState, serviceOfLink, todoGroup, trackRow, type FakeState,
+  SERVICE_NAME, byQuality, pathOf, playlistRef, serviceOfLink, todoGroup, trackRow, type FakeState,
   type FakeTrack,
 } from './data';
 
@@ -183,6 +183,12 @@ function folderState(s: FakeState, path: string): FolderState {
   return f.offline ? 'offline' : 'folder_missing';
 }
 
+/** a row's `file_state`, from its watched folder as the engine reads it (never from the file itself: a file that went
+ *  since the last scan still reads `here` in the list); a Library file is always `here` */
+function pathState(s: FakeState, t: FakeTrack): LibraryRow['file_state'] {
+  return folderState(s, nfc(pathOf(t)!));
+}
+
 // ---------- the sidebar (views.sidebar) ----------
 export function sidebarOf(s: FakeState, todo: number, limits_warning: boolean): Sidebar {
   const files = filesOf(s);
@@ -266,7 +272,7 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
   const sites = sitesOf(s);
   const held = holders(s);
   const mk = (t: FakeTrack, over: Partial<LibraryRow> = {}): Entry => ({ t, row: {
-    ...trackRow(t), sound_checked: !t.unchecked, file_state: rowState(t), wait: null, position: null,
+    ...trackRow(t), sound_checked: !t.unchecked, file_state: pathState(s, t), wait: null, position: null,
     place: placeOf(sites, pathOf(t)!), subfolder: null, playlists: held.get(t.track_id) ?? [], ...over } });
 
   let entries: Entry[] = [];
@@ -306,8 +312,10 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
           continue;
         }
         // a song without a file: waiting (or, when the sync found nothing usable, Not found)
-        const name: FakeTrack = h.t ?? { ...files[0], track_id: h.key, artist: h.artist, title: h.title, folder: '',
-          duration_s: h.duration_s, in_playlists: true, playlists: [line.folder] };
+        const name: FakeTrack = h.t ?? { track_id: h.key, artist: h.artist, title: h.title, folder: '', duration_s: h.duration_s,
+          status: 'missing', cutoff_hz: null, source: null, codec: null, in_playlists: true, hidden: false, added: null, cover: null,
+          isrc: null, playlists: [line.folder], upgrade: null, rekordbox_check: null, other: null, next_try_days: null,
+          rejected_sources: [] };
         const missing: FakeTrack = { ...name, status: 'missing', source: null, cutoff_hz: null, upgrade: null, away: undefined };
         entries.push({ t: null, row: { ...trackRow(missing), sound_checked: true, file_state: 'no_file',
           wait: h.t !== null && todoGroup(h.t) === 'not_found' ? 'not_found' : 'waiting', position, place: null,
