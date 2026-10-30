@@ -7,7 +7,7 @@
   import { onMount } from 'svelte';
   import { markReady } from '../ready';
   import { OUTDATED, OUTDATED_TOKENS } from '../outdated';
-  import { PROBLEM_KINDS, type WatchedFolderRow, type DownloadsAccount, type DownloadsView, type EmptyKind, type FindLogins, type FolderCheck, type Service, type ReadStatus as ReadStatusT, type TrackRow as Row } from '../bridge/types';
+  import { PROBLEM_KINDS, type Library, type WatchedFolderRow, type DownloadsAccount, type DownloadsView, type EmptyKind, type FindLogins, type FolderCheck, type Service, type ReadStatus as ReadStatusT, type TrackRow as Row } from '../bridge/types';
   import { sampleTracks, trackRow, coverUri, makeUpgrade, dateOnly } from '../bridge/fake/data';
   import { fakeSpectrum } from '../bridge/fake/spectrum';
   import { toneUrl } from '../bridge/fake/audio';
@@ -21,7 +21,7 @@
   import {
     AccountPanel, AddRow, CopyCode, NumberedSteps, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
     AwayTag, Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
-    Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, tip, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
+    Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, tip, SummaryStrip, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
     Segmented, SectionLabel, SelectCard, Skeleton, SortHeader, SourceLadder, Spectrum, Spinner, SplitView, StatCard, StatusMark, Surface, Switch, TextField, Tile, Toast,
     ToggleGroup, ToggleRow, TrackHead, TrackRow, UpgradeCard, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
     confirm, envelope, ImportCard, UnreadableList, WatchedFolderList,
@@ -35,6 +35,24 @@
 
   const NAV_NAMES = { dashboard: 'Dashboard', sync: 'Sync', todo: 'To-do', playlists: 'Playlists', limits: 'Download limits',
     library: 'Library', settings: 'Settings' } as const;
+  // SummaryStrip: a collection's summary in each state (the counts add up like the mockup's Rekordbox Library)
+  const strip = (o: Partial<Library['summary']> = {}): Library['summary'] => ({ tracks: 472, lossless_share: 290 / 460,
+    by_quality: { lossless: 290, good_lossy: 120, weak: 41, fake: 9, missing: 0 }, upgrades_ready: 6, to_do: 41,
+    not_lossless: 170, ...o });
+  const STRIPS: [string, Library['summary'] | null, number][] = [
+    ['fewer in To-do: files of your own in no playlist aren\'t (tooltip)', strip(), 900],
+    ['all in To-do, a big library', strip({ tracks: 5318, lossless_share: 3776 / 5306, upgrades_ready: 9, to_do: 1530,
+      not_lossless: 1530, by_quality: { lossless: 3776, good_lossy: 900, weak: 500, fake: 130, missing: 0 } }), 900],
+    ['the longest words: big counts, some in To-do', strip({ tracks: 5318, lossless_share: 3776 / 5306, upgrades_ready: 1204,
+      to_do: 1234, not_lossless: 1530, by_quality: { lossless: 3776, good_lossy: 900, weak: 500, fake: 130, missing: 0 } }), 900],
+    ['none in To-do, no upgrades: no links, no ›', strip({ upgrades_ready: 0, to_do: 0 }), 900],
+    ['everything lossless', strip({ lossless_share: 1, upgrades_ready: 0, to_do: 0, not_lossless: 0,
+      by_quality: { lossless: 460, good_lossy: 0, weak: 0, fake: 0, missing: 0 } }), 900],
+    ['nothing checked yet', strip({ lossless_share: null, upgrades_ready: 0, to_do: 0, not_lossless: 0,
+      by_quality: { lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 } }), 900],
+    ['waiting', null, 900],
+    ['586 px: the list beside the inspector at 1280', strip(), 586],
+  ];
   const now = new Date();
   const tracks = sampleTracks(now).map(trackRow);
   const t = (id: string) => tracks.find((x) => x.track_id === id) as Row;
@@ -459,6 +477,19 @@
           <span class="g-navrow" use:tip={{ text: 'Rekordbox Library › Music › Old Sets › Bounce\n61 files', show: true }}><span class="g-cut">Bounce · Old Sets</span><span class="g-n">61</span></span>
         </div>
       </div>
+    </div>
+  </section>
+
+  <section data-test="gallery-summarystrip">
+    {@render head('SummaryStrip', 'A collection at a glance along the page, 72 px: share · bar · two link rows')}
+    <div class="col">
+      {#each STRIPS as [cap, sm, w], i (i)}
+        <div class="col tight" style="width: {w}px; max-width: 100%">
+          <span class="cap">{cap}</span>
+          <SummaryStrip summary={sm} onupgrades={() => toasts.show({ tone: 'info', title: 'Upgrade ready segment' })}
+            ontodo={() => toasts.show({ tone: 'info', title: 'Opens To-do' })} />
+        </div>
+      {/each}
     </div>
   </section>
 

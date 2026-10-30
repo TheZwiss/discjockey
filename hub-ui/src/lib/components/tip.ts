@@ -58,6 +58,8 @@ export function tip(node: HTMLElement, params: TipParams) {
     const p = placeTip({ left: r.left, top: r.top, width: r.width, height: r.height },
       { width: el.offsetWidth, height: el.offsetHeight }, { width: innerWidth, height: innerHeight },
       opts.side ?? 'below', opts.side === 'right' ? undefined : pointerX);
+    // a tip shown for good hides while its trigger is scrolled out of the window, instead of sticking to an edge
+    el.style.visibility = opts.show && (r.bottom < 0 || r.top > innerHeight) ? 'hidden' : '';
     el.style.left = `${p.left}px`;
     el.style.top = `${p.top}px`;
     el.style.transformOrigin = p.origin;

@@ -315,6 +315,7 @@ used.
 | `ToggleGroup`, `ToggleRow` | `lib/components/` | `gallery-toggles` | On/off rows; `grow` inside a Panel `fill` (one per Panel); search from `SEARCH_FROM` rows (the query clears below it); `disabledReason`: each row's tooltip and a Hint in the head in place of All · None (gallery "Locked"). A `ToggleRow` alone in a `Surface kind="list"` is a single setting; its `sub` is a wrapping second line (the setting's detail, or why it is locked; Playlists' "Rename the folder on disk too"). |
 | `Segmented` | `lib/components/Segmented.svelte` | `gallery-segmented` | One of up to 6; counts, dots (none at a count of 0), More, tight mode. |
 | `StatCard` | `lib/components/StatCard.svelte` | `gallery-statcard` | 30 px number + unit + label; a bar or ring as its child; `value={null}` is "—", also its loading state; `wrap`: a label that is a sentence (the cutoff's "a lossy file inside the AIFF") takes a second line whole instead of ending in "…". |
+| `SummaryStrip` | `lib/components/SummaryStrip.svelte` (+ `summaryStripModel.ts`) | `gallery-summarystrip` | A collection at a glance along the page, 72 px, between the header and the filter segments (Library, in place of the panel's summary card): the lossless share in StatCard's type ("63 % lossless" over "290 of 460 checked tracks") · the `QualityBar` (no legend: the segments below carry the dots and counts) · two rows, "Upgrade ready {n}" and "Not lossless yet · {all / m / none} in To-do {n}", each a link with › only while it leads somewhere (`onupgrades`, `ontodo`); fewer in To-do than not lossless explains itself in the row's tooltip. Rows highlight, never shrink; `summary={null}` waits with dashes at the same height. Words in `stripView`. |
 | `DayBar` | `lib/components/DayBar.svelte` | `gallery-daybar` | Today vs later; no limit; limit reached. Day mode (`input.day`, Dashboard): used today (filled, quiet) · this sync · left (outline) or later. Input from `dayBar` (`dayBarModel.ts`). |
 | `DeltaBar` | `lib/components/DeltaBar.svelte` | `gallery-deltabar` | A signed change either side of a centre line, `--w-row-action` wide: a gain grows right in the accent, a loss left in grey; every row of a list passes the same `max`, so lengths compare. The number sits beside it (the caller's). Playlists' move view. |
 | `SelectCard` | `lib/components/SelectCard.svelte` | `gallery-selectcard` | One of a few things to pick, as a card that shows its state where you click (`title`, children: usage bar, status); picked = accent edge, `off` = dashed; a row of them is a tablist, ← / →. |
@@ -490,6 +491,15 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-30 · `SummaryStrip`: Library's summary card becomes a strip on the page (library stage 5 A3.4, N5, house
+  rule 3).** Why: with the rail, the browser column and a docked 360 px panel the 1280 table would be 586 px, so the
+  panel leaves Library; its summary keeps the share, the bar and the two rows with their counts and links, along the
+  page in 72 px. Against the mockup: the bar is the system's `QualityBar` (6 px, no gaps between the qualities; the
+  mockup drew 8 px with 2 px gaps), the share's line is StatCard's muted label colour (the mockup's was darker), and the
+  rows' column is 300 px instead of 276, so "Not lossless yet · none in To-do 170" and four-digit counts stay whole.
+  At no file that isn't lossless the row drops "· none in To-do" (it says nothing beside a 0). `count()` joins
+  `format.ts` (thousands separators: "3,776 of 5,306"). `FolderOverview` stays until A6 puts the strip on the page.
+  Seen: gallery SummaryStrip (`base-gallery`).
 - **2026-10-30 · `Tip`, the hover tooltip of icons and cut rows (library stage 5 A3.3).** An action, not a component,
   so a rail icon or a row stays its own element. It reuses InfoTip's timing (`openTiming`, now with the hover wait as
   a parameter: 500 ms for a Tip, 300 ms for an ⓘ) and shares one registry with InfoTip (`tipRegistry.ts`, moved out

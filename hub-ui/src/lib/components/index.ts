@@ -60,6 +60,8 @@ export { default as StepStrip, type StripStep } from './StepStrip.svelte';
 export { folderProblem, hasLink, ownerText, playlistKey, type PlaylistRef } from './addRowModel';
 export { copyText } from './clipboard';
 export { default as StatCard } from './StatCard.svelte';
+export { default as SummaryStrip } from './SummaryStrip.svelte';
+export { stripView, type StripView } from './summaryStripModel';
 export { default as Surface } from './Surface.svelte';
 export { default as Switch } from './Switch.svelte';
 export { default as Tick } from './Tick.svelte';

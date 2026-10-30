@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FileState } from './bridge/types';
-import { OFFLINE_WORDS, fileAway, fileAwayWords, ago, artistTitle, clock, cutoffStat, dateShort, dayMonth, duration, estimate, estimateText, fileFormat, fitMiddle, foldText, khz, megabytes, minutesLong, noteParts, percent, plural,
+import { OFFLINE_WORDS, fileAway, fileAwayWords, ago, artistTitle, clock, count, cutoffStat, dateShort, dayMonth, duration, estimate, estimateText, fileFormat, fitMiddle, foldText, khz, megabytes, minutesLong, noteParts, percent, plural,
   qualityWords, runIdFromReport, runWhen, upgradeLabel } from './format';
 
 describe('format', () => {
@@ -27,6 +27,11 @@ describe('format', () => {
     expect(minutesLong(25)).toBe('25 min');
     expect(minutesLong(92)).toBe('1 h 32 min');
     expect(minutesLong(120)).toBe('2 h');
+  });
+  it('count: thousands separators', () => {
+    expect(count(0)).toBe('0');
+    expect(count(472)).toBe('472');
+    expect(count(5318)).toBe('5,318');
   });
   it('megabytes, percent, khz', () => {
     expect(megabytes(19_800_000)).toBe('19.8');
