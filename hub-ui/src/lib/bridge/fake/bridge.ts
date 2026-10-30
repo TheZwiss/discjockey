@@ -951,14 +951,26 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           return finish(true, opResult(t, 'discarded', 'upgrade discarded'));
         }
         const measured = t.upgrade!.alignment;
+        const before = { status: t.status, cutoff_hz: t.cutoff_hz, source: t.source, codec: t.codec, upgrade: t.upgrade,
+          rekordbox_check: t.rekordbox_check ? { ...t.rekordbox_check, undo: undefined } : null };
         Object.assign(t, { status: 'lossless', cutoff_hz: null, source: 'qobuz', codec: 'flac', upgrade: null });
-        if (mode === 'add_new') {
-          t.rekordbox_check = { reason: 'added_as_new', since: dateOnly(new Date()), match: measured.result,
-            offset_ms: measured.offset_ms ?? 0 };
-        }
+        t.rekordbox_check = { reason: mode === 'add_new' ? 'added_as_new' : 'swapped', since: dateOnly(new Date()),
+          match: measured.result, offset_ms: measured.offset_ms ?? 0, ...(mode === 'swap' ? { moved: false } : {}),
+          undo: before };
         finish(true, opResult(t, mode === 'swap' ? 'swapped' : 'added_new', mode === 'swap'
           ? 'swapped, the old file is in Superseded' : 'added as a new file, the old one is in Superseded'));
       }, 900 / speed));
+    },
+
+    async undo_upgrade(track_id: string) {
+      const t = track(track_id);
+      if (!t) return fail('refused', 'This track is not in your library any more.');
+      return startJob('undo_upgrade', track_id, (finish) => setTimeout(() => {
+        const before = t.rekordbox_check?.undo;
+        if (!before || t.upgrade) return finish(false, null, 'refused', 'There is no upgrade to undo for this track.');
+        Object.assign(t, before);
+        finish(true, opResult(t, 'upgrade_undone', 'the old file is back; the new version waits again'));
+      }, 600 / speed));
     },
 
     async show_in_finder() { return ok({}); },
@@ -1120,7 +1132,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     let hidden_count = 0;
     for (const t of s.tracks) {
       if (t.rekordbox_check) {
-        items.rekordbox_check.push({ ...trackRow(t), group: 'rekordbox_check', detail: checkText(t.rekordbox_check), free: false });
+        items.rekordbox_check.push({ ...trackRow(t), group: 'rekordbox_check', detail: checkText(t.rekordbox_check), free: false,
+          can_undo: !!t.rekordbox_check.undo && !t.upgrade });
         chips.rekordbox_check++;
         if (!t.hidden) counted.add(t.track_id);
       }

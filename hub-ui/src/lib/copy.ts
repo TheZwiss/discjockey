@@ -73,6 +73,7 @@ export const SUCCESS: Record<string, string> = {
   upgrade_swap: 'Swapped. rekordbox keeps the cue points.',
   upgrade_add_new: 'Added as a new file.',
   upgrade_discard: 'Upgrade discarded.',
+  undo_upgrade: 'Upgrade undone. Your old file is back.',
   save_playlists: 'Playlists saved. Changes happen at the next sync.',
   save_limits: 'Daily limit saved.',
   setup_skip_qobuz: 'Qobuz left out.',

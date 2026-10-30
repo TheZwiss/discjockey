@@ -23,8 +23,10 @@ export type FakeService = { limit: number; extra_today: number; carry_over: numb
 export type FakeAccount = FakeService & { browser: Browser; profile?: string | null; profileName?: string | null;
   lastCheck?: LastCheck | null };
 
-/** As the state's `rekordbox_check`: an added_as_new also keeps what the two files measured as. */
-export type RekordboxCheck = { reason: 'wrong_song' | 'added_as_new'; since: string; match?: string; offset_ms?: number };
+/** As the state's `rekordbox_check`: an added_as_new and a swapped one also keep what the two files measured as, a
+ *  swapped one whether the file moved up out of not_lossless/, and both the undo (here: the fields as they were). */
+export type RekordboxCheck = { reason: 'wrong_song' | 'added_as_new' | 'swapped'; since: string; match?: string;
+  offset_ms?: number; moved?: boolean; undo?: Partial<FakeTrack> };
 
 export type FakeTrack = {
   track_id: string; artist: string; title: string; folder: string; duration_s: number;
@@ -274,6 +276,11 @@ export function formatLine(t: FakeTrack): string | null {
 }
 /** As report.check_text: the same edit (exact or shifted) can be relocated in rekordbox and keeps its cues. */
 export function checkText(check: RekordboxCheck): string {
+  if (check.reason === 'swapped') {
+    return check.moved
+      ? 'The lossless audio is in your file, which moved up out of not_lossless/. In rekordbox: Auto Relocate finds it by its name with its cues, then Reload Tag and analyse it again.'
+      : 'The lossless audio is in your file, so rekordbox keeps its cues. In rekordbox: Reload Tag, and analyse it again so the waveform shows the full sound.';
+  }
   if (check.reason === 'wrong_song') {
     return 'This track now plays the right song. In rekordbox: analyse it again and delete the old cues (they belong to the wrong song).';
   }

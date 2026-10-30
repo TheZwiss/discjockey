@@ -211,6 +211,36 @@ def test_add_new_and_discard(root):
     assert api.upgrade("t2", "explode")["kind"] == "refused"
 
 
+def test_undo_upgrade_through_the_bridge(root):
+    api, rec = make_api(root)
+    api.track("t2")
+    assert wait_job(api, rec, api.upgrade("t2", "add_new")).ok
+    [item] = [g for g in api.todo()["groups"] if g["key"] == "rekordbox_check"][0]["items"]
+    assert item["track_id"] == "t2" and item["can_undo"] is True
+    f = wait_job(api, rec, api.undo_upgrade("t2"))
+    assert f.ok and f.kind == "undo_upgrade" and f.result["result"]["section"] == "upgrade_undone"
+    e = load_state(root)["tracks"]["t2"]
+    assert (e["path"], e["status"], e["upgrade"]["file"], e["rekordbox_check"]) == (LOSSY, "not_lossless", PARKED,
+                                                                                      None)
+    assert (root.root / LOSSY).read_bytes() == b"lossy audio" and (root.root / PARKED).read_bytes() == b"parked lossless"
+    keys = [g["key"] for g in api.todo()["groups"]]
+    assert "rekordbox_check" not in keys and "upgrade_ready" in keys
+    f = wait_job(api, rec, api.undo_upgrade("t2"))  # nothing left to undo
+    assert (f.ok, f.problem) == (False, "refused") and f.message == "There is no upgrade to undo for this track."
+
+
+def test_undo_upgrade_refused_when_the_new_file_changed(root):
+    api, rec = make_api(root)
+    api.track("t2")
+    assert wait_job(api, rec, api.upgrade("t2", "add_new")).ok
+    new = load_state(root)["tracks"]["t2"]["path"]
+    (root.root / new).write_bytes(b"edited elsewhere")
+    api.todo()
+    f = wait_job(api, rec, api.undo_upgrade("t2"))
+    assert (f.ok, f.problem) == (False, "refused") and "changed since the upgrade" in f.message
+    assert load_state(root)["tracks"]["t2"]["path"] == new
+
+
 def test_save_the_qobuz_limit(root):
     api, rec = make_api(root)
     assert wait_job(api, rec, api.save_limits("qobuz", 90, 20)).ok

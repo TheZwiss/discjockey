@@ -30,7 +30,7 @@ from ..quality import quality_line
 from ..report import PLAN_LABELS, check_text
 from ..settings import Settings
 from ..sources import SOURCES
-from ..upgrades import swap_possible, upgrade_name
+from ..upgrades import can_undo, swap_possible, upgrade_name
 
 SECONDS_PER_DOWNLOAD = 70  # average per acquisition or upgrade check: pause, download, conversion, long breaks
 WEAK_HZ = 17_000  # a lossy cutoff at or below this is audible: "weak"
@@ -1212,7 +1212,7 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     for k, e in state["tracks"].items():
         if e.get("rekordbox_check"):
             items["rekordbox_check"].append({**track_row(k, e, cover), "group": "rekordbox_check",
-                                             "detail": check_text(e["rekordbox_check"])})
+                                             "detail": check_text(e["rekordbox_check"]), "can_undo": can_undo(e)})
             listed.add(k)
         if k in held or (not e.get("in_playlists") and not (is_own(k) and e.get("upgrade"))) \
                 or (e["status"] == "missing" and k in never):

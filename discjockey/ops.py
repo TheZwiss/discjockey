@@ -354,8 +354,10 @@ def reject_current(paths: Paths, state: dict, track_id: str, now: Callable[[], d
 
 
 def rekordbox_checked(paths: Paths, state: dict, track_id: str) -> Result:
-    """The user did what the "Check in rekordbox" reminder asked; the reminder goes away."""
+    """The user did what the "Check in rekordbox" reminder asked; the reminder goes away, and with it the undo of
+    the upgrade that asked for it (its kept download is deleted)."""
     e = state["tracks"][track_id]
     state["tracks"][track_id] = {**e, "rekordbox_check": None}
     library.save_state(paths, state)
+    library.forget_undo(paths, library.upgrade_undo(e))  # an upgrade's undo ends here
     return _result("rekordbox_checked", track_id, e, "checked in rekordbox")

@@ -1,13 +1,20 @@
 """Parked upgrades: what the user can do with a better version an upgrade check found (spec "Upgrades"): a lossless
 one, or a clearly better ~256 kbps stream of a lossy file (spec §4).
 
-Front-end independent: `discjockey upgrades` (console) uses it now, the hub's "Upgrade ready" group later.
+Front-end independent: `discjockey upgrades` (console) and the hub's "Upgrade ready" group use it.
 Callers hold the run lock and have recovered pending operations first. Every action re-checks its
 precondition and returns one events.Result; problems the user should read raise UpgradeProblem.
+
+Undo: Swap and Add as new file leave a rekordbox check whose `undo` record (library.upgrade_undo) says how to put
+everything back: the fields the step changed as they were (`before`, the parked upgrade included), where the new and
+the old file are now (`file`, `old`) with their content keys (`file_key`, `old_key`), and for a swap the kept parked
+download (`held`, in .discjockey/undo/). `undo` puts it all back while the check stands; "Done, checked in rekordbox"
+ends it (library.forget_undo). It is refused when either file changed since the step.
 """
 from __future__ import annotations
 
 import hashlib
+import itertools
 import os
 import shutil
 import subprocess
@@ -18,10 +25,11 @@ from typing import Callable
 from . import align
 from .align import Alignment
 from .audio import copy_tags
+from .content_key import content_key
 from .events import Result
 from .library import (
     NameReserver, Paths, deferred_interrupt, delete_parked, fsync_dir, full_fsync, run_op, safe_rename, save_state,
-    watched_root,
+    upgrade_undo, watched_root,
 )
 from .models import SOURCE_NAMES
 from .names import expected_stem, fold, split_name, strip_id_suffix
@@ -108,6 +116,28 @@ def _result(section: str, track_id: str, e: dict, note: str, **fields) -> Result
     return Result(section, e["folder"], e["artist"], e["title"], track_id, note, **fields)
 
 
+UNDO_FIELDS = ("status", "source", "source_id", "source_format", "cutoff_hz", "source_kbps", "path", "upgrade",
+               "rekordbox_check")
+
+
+def _before(e: dict) -> dict:
+    """The fields an upgrade changes, as they were: its undo puts them back. A check that stood before keeps its
+    words but not its own undo: one step back only (its kept copy goes at the next clean-up, library._prune_undo)."""
+    b = {k: e.get(k) for k in UNDO_FIELDS}
+    if b["rekordbox_check"]:
+        b["rekordbox_check"] = {k: v for k, v in b["rekordbox_check"].items() if k != "undo"}
+    return b
+
+
+def _keys(paths: Paths, new: str, old: str) -> dict | None:
+    """The content keys of the two files an undo checks, or None (no undo) if one can't be read."""
+    try:
+        return {"file": new, "file_key": content_key(paths.root / new), "old": old,
+                "old_key": content_key(paths.root / old)}
+    except OSError:
+        return None
+
+
 def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict,
             now: Callable[[], datetime] = datetime.now) -> Result:
     """The parked file takes the correct name in the current file's folder (`<folder>/<Artist - Title>.aiff`, ID
@@ -128,10 +158,12 @@ def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict,
     else:
         new = names.choose(folder, expected_stem(e["artist"], e["title"]), ".aiff", track_id)
     measured = upgrade.get("alignment") or {}
-    entry = {**_upgraded(e, upgrade, new),
-             "rekordbox_check": {"reason": "added_as_new", "since": now().date().isoformat(),
-                                 "match": measured.get("result") or "unknown",
-                                 "offset_ms": measured.get("offset_ms") or 0.0}}
+    check = {"reason": "added_as_new", "since": now().date().isoformat(), "match": measured.get("result") or "unknown",
+             "offset_ms": measured.get("offset_ms") or 0.0}
+    keys = _keys(paths, upgrade["file"], e["path"])  # read before the move; the move keeps the content
+    if keys is not None:
+        check["undo"] = {"kind": "add_new", "before": _before(e), **keys, "file": new, "old": old}
+    entry = {**_upgraded(e, upgrade, new), "rekordbox_check": check}
     run_op(paths, state, track_id, [(e["path"], old), (upgrade["file"], new)], entry)
     return _result("added_new", track_id, e, f"new file {new}; the old one moved to {old}", status=status,
                    source=upgrade["source"], path=new)
@@ -246,12 +278,45 @@ def _finish(paths: Paths, state: dict, op: dict) -> str:
             path = dst
         except OSError:  # the name was taken meanwhile: the file stays where it is
             pass
-    state["tracks"][op["track_id"]] = {**op["entry"], "path": path}
-    delete_parked(paths, op["parked"])
+    entry = {**op["entry"], "path": path}
+    if "check" in op:  # a swap from before undo existed has neither a check nor a kept copy
+        held = _hold(paths, op)
+        check = {**op["check"], "moved": path != op["target"]}
+        keys = _keys(paths, path, op["backup"]) if held else None
+        if keys is not None:
+            check["undo"] = {"kind": "swap", "before": op["before"], **keys, "held": held}
+        entry["rekordbox_check"] = check
+    else:
+        delete_parked(paths, op["parked"])
+    state["tracks"][op["track_id"]] = entry
     shutil.rmtree(paths.root / PurePosixPath(op["staged"]).parent, ignore_errors=True)
     state["pending"].remove(op)
     save_state(paths, state, rekeyed=[path])  # the new audio is in it, whether or not the entry changed
     return path
+
+
+def _hold(paths: Paths, op: dict) -> str | None:
+    """Step 6: the parked download moves to .discjockey/undo/ (kept for the undo) instead of being deleted.
+    Returns where it is, or None (no undo) when it can't be kept there: then it is deleted as before."""
+    held = op["held"]
+    if (paths.root / held).is_file() and not (paths.root / op["parked"]).exists():  # done before an interruption
+        return held
+    try:
+        safe_rename(paths.root, op["parked"], held)
+        return held
+    except OSError:
+        delete_parked(paths, op["parked"])
+        return None
+
+
+def _held_place(paths: Paths, track_id: str, parked: str) -> str:
+    """A free place for a swap's kept download: .discjockey/undo/<track>/<its name>, another folder if taken."""
+    name = PurePosixPath(parked).name
+    for n in itertools.count(1):
+        folder = paths.undo / (track_id if n == 1 else f"{track_id}-{n}")
+        if not (folder / name).exists():
+            return (folder / name).relative_to(paths.root).as_posix()
+    raise AssertionError("unreachable")
 
 
 def _drop(paths: Paths, state: dict, op: dict) -> None:
@@ -261,8 +326,11 @@ def _drop(paths: Paths, state: dict, op: dict) -> None:
     save_state(paths, state, rekeyed=[op["target"]])  # an undo may have written the old audio back into it
 
 
-def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compare = align.compare_files) -> Result:
-    """Swap (spec "Upgrades", steps 1-6). Refused unless the versions line up, measured again now."""
+def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compare = align.compare_files,
+         now: Callable[[], datetime] = datetime.now) -> Result:
+    """Swap (spec "Upgrades", steps 1-6). Refused unless the versions line up, measured again now. The entry asks
+    for a rekordbox check (swapped: Reload Tag and analyse again; Auto Relocate when the file moved up), which holds
+    the undo; the parked download is kept for it."""
     e = precondition(paths, state, track_id, upgrade, need_current=True)
     target = e["path"]
     if not swap_possible(e):
@@ -290,7 +358,10 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
     op = {"kind": "swap", "track_id": track_id, "target": target,
           "staged": staged.relative_to(paths.root).as_posix(), "backup": backup,
           "old_sha256": _sha256(paths.root / target), "new_sha256": _sha256(staged), "renames": renames,
-          "parked": upgrade["file"], "entry": _upgraded(e, upgrade, target)}
+          "parked": upgrade["file"], "entry": _upgraded(e, upgrade, target),
+          "held": _held_place(paths, track_id, upgrade["file"]), "before": _before(e),
+          "check": {"reason": "swapped", "since": now().date().isoformat(), "match": alignment.result,
+                    "offset_ms": alignment.offset_ms}}
     with deferred_interrupt():  # a Ctrl-C waits until the file is complete again
         state["pending"].append(op)  # step 2
         save_state(paths, state)
@@ -379,3 +450,153 @@ def recover_swap(paths: Paths, state: dict, op: dict, retry: bool = True) -> tup
                 f"{op['backup']}). The {what} is still waiting.", False)
     except Exception as err:  # e.g. permissions: keep the operation and try again at the next start
         return f"Could not finish an interrupted swap for {name} yet: {err}", False
+
+
+# --- Undo: a swap or an added file put back as it was, while its rekordbox check stands ---
+
+NOTHING_TO_UNDO = "There is no upgrade to undo for this track."
+
+
+def can_undo(entry: dict) -> bool:
+    """Pure: whether the entry's rekordbox check holds an undo that may still apply (the track still has the step's
+    file and no newer version waits). Whether the files changed is checked only when the undo runs."""
+    u = upgrade_undo(entry)
+    return bool(u) and entry.get("path") == u.get("file") and not entry.get("upgrade")
+
+
+class _UndoStuck(Exception):
+    """An undo of a swap can't go on; the message is for the user (the step was dropped or waits for help)."""
+
+
+def _track_name(e: dict, track_id: str) -> str:
+    return f"{e.get('artist', '?')} - {e.get('title', track_id)}"
+
+
+def _unchanged(paths: Paths, rel: str, key: str) -> None:
+    """Refuses the undo unless the file at `rel` still has the content key it had right after the step."""
+    try:
+        now = content_key(paths.root / rel)
+    except OSError:
+        raise UpgradeProblem(f"{rel} is gone, so the upgrade can't be undone. Nothing was changed.") from None
+    if now != key:
+        raise UpgradeProblem(f"{rel} changed since the upgrade (edited by another program?), so it can't be undone. "
+                             "Nothing was changed.")
+
+
+def _in_the_way(paths: Paths, state: dict, track_id: str, rel: str, own: str) -> bool:
+    """Whether another file (on disk or another track's) holds `rel`; `own` (the track's own file, which moves out
+    of the way first) does not count."""
+    if fold(rel) == fold(own):
+        return False
+    if (paths.root / rel).exists():
+        return True
+    return any(k != track_id and fold(rel) in (fold(x.get("path") or ""), fold((x.get("upgrade") or {}).get("file")
+                                                                              or ""))
+               for k, x in state["tracks"].items())
+
+
+def undo(paths: Paths, state: dict, track_id: str) -> Result:
+    """Puts a swap or an added file back as it was: the old file at its old path, the entry's fields as they were
+    (the parked upgrade waits again, its file back in Upgrades ready/), the new file out of the folder. Refused when
+    either file changed since the step, the track's file is another one now, a newer version is waiting, or a file
+    is in the way of a place something goes back to. Crash-safe: Add as new goes back through run_op, a swap
+    through a pending `swap_undo` step (recover_swap_undo)."""
+    e = state["tracks"].get(track_id)
+    u = upgrade_undo(e)
+    if not u:
+        raise UpgradeProblem(NOTHING_TO_UNDO)
+    if e.get("path") != u["file"]:
+        raise UpgradeProblem("This track has another file now, so the upgrade can't be undone. Nothing was changed.")
+    if e.get("upgrade"):
+        raise UpgradeProblem("Another better version is waiting for this track now, so the upgrade can't be undone. "
+                             "Nothing was changed.")
+    before = u["before"]
+    parked = before["upgrade"]["file"]
+    _unchanged(paths, u["file"], u["file_key"])
+    _unchanged(paths, u["old"], u["old_key"])
+    if u["kind"] == "swap" and not (paths.root / u["held"]).is_file():
+        raise UpgradeProblem("The copy of the new version Discjockey kept for the undo is gone, so the swap can't be "
+                             "undone. Nothing was changed.")
+    for rel in (before["path"], parked):
+        if _in_the_way(paths, state, track_id, rel, u["file"]):
+            raise UpgradeProblem(f"Another file is at {rel} now, so the upgrade can't be undone. Nothing was changed.")
+    entry = {**e, **before}
+    what = upgrade_name(before["upgrade"])
+    if u["kind"] == "add_new":
+        # the new file first: it may have the old file's name (the old one moved away first in add_new)
+        run_op(paths, state, track_id, [(u["file"], parked), (u["old"], before["path"])], entry,
+               label=_track_name(e, track_id))
+        note = f"the old file is back at {before['path']}; the {what} waits in {parked} again"
+    else:
+        _undo_swap(paths, state, track_id, u, entry)
+        note = f"your old audio is back in {before['path']}; the {what} waits in {parked} again"
+    return _result("upgrade_undone", track_id, e, note, status=before["status"], source=before["source"],
+                   path=before["path"])
+
+
+def _undo_swap(paths: Paths, state: dict, track_id: str, u: dict, entry: dict) -> None:
+    """The backup's audio goes back into the file (same inode, so rekordbox keeps its entry), the file back to its
+    old place, the kept download back to Upgrades ready/, then the entry; the backup, now the same as the file,
+    is deleted last. One pending step; the file is only ever written while the backup (checked by SHA-256) is there."""
+    before = u["before"]
+    op = {"kind": "swap_undo", "track_id": track_id, "target": u["file"], "home": before["path"],
+          "backup": u["old"], "held": u["held"], "parked": before["upgrade"]["file"],
+          "old_sha256": _sha256(paths.root / u["old"]), "new_sha256": _sha256(paths.root / u["file"]),
+          "entry": entry}
+    with deferred_interrupt():  # a Ctrl-C waits until the file is complete again
+        state["pending"].append(op)
+        save_state(paths, state)
+        try:
+            _finish_undo(paths, state, op)
+        except _UndoStuck as stuck:
+            raise UpgradeProblem(str(stuck)) from None
+        except Exception as err:  # e.g. the disk is full: one more try right now, else at the next start
+            message, ok = recover_swap_undo(paths, state, op)
+            if not ok:
+                raise UpgradeProblem(f"The undo did not work ({err}). {message}") from err
+
+
+def _finish_undo(paths: Paths, state: dict, op: dict) -> None:
+    """Every step of a swap's undo that is still to do; each one sees whether it was done before an interruption."""
+    e = op.get("entry") or {}
+    name = _track_name(e, op["track_id"])
+    where = next((rel for rel in (op["target"], op["home"]) if (paths.root / rel).is_file()), None)
+    if where is None:
+        state["pending"].remove(op)
+        save_state(paths, state)
+        raise _UndoStuck(f"Could not undo the swap for {name}: {op['target']} is gone. Nothing more was changed.")
+    now = _sha256(paths.root / where)
+    if now != op["old_sha256"]:  # not written back yet, or only half
+        if not _verified(paths.root / op["backup"], op["old_sha256"]):
+            if now == op["new_sha256"]:  # nothing was changed: the swap stays
+                state["pending"].remove(op)
+                save_state(paths, state)
+                raise _UndoStuck(f"The swap for {name} was not undone: its backup {op['backup']} is missing or "
+                                 "changed. Nothing was changed.")
+            raise _UndoStuck(f"Undoing the swap for {name} needs your help: {where} may be damaged and its backup "
+                             f"{op['backup']} is missing or changed. Nothing more was changed.")
+        _write_in_place(paths.root / where, paths.root / op["backup"], op["old_sha256"])
+    if where != op["home"]:
+        safe_rename(paths.root, where, op["home"])
+    if (paths.root / op["held"]).is_file():
+        safe_rename(paths.root, op["held"], op["parked"])
+        try:
+            (paths.root / op["held"]).parent.rmdir()
+        except OSError:  # not empty
+            pass
+    (paths.root / op["backup"]).unlink(missing_ok=True)  # its audio is in the file again (checked above)
+    state["tracks"][op["track_id"]] = op["entry"]
+    state["pending"].remove(op)
+    save_state(paths, state, rekeyed=[op["home"]])
+
+
+def recover_swap_undo(paths: Paths, state: dict, op: dict) -> tuple[str, bool]:
+    """Finish an undo of a swap that was interrupted. Returns (message, finished)."""
+    name = _track_name(op.get("entry") or {}, op["track_id"])
+    try:
+        _finish_undo(paths, state, op)
+        return f"Finished undoing the swap for {name}", True
+    except _UndoStuck as stuck:
+        return str(stuck), False
+    except Exception as err:  # e.g. permissions: keep the step and try again at the next start
+        return f"Could not finish undoing the swap for {name} yet: {err}", False

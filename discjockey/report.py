@@ -47,6 +47,10 @@ REKORDBOX_CHECK = {
     "added_as_new": "This is a different edit. In rekordbox: analyse it again and set the cues again.",
 }
 # added_as_new when the two files were measured as the same edit (upgrades.add_new stores the measurement as `match`)
+SWAPPED_CHECK = ("The lossless audio is in your file, so rekordbox keeps its cues. In rekordbox: Reload Tag, and "
+                 "analyse it again so the waveform shows the full sound.")
+SWAPPED_MOVED_CHECK = ("The lossless audio is in your file, which moved up out of not_lossless/. In rekordbox: Auto "
+                       "Relocate finds it by its name with its cues, then Reload Tag and analyse it again.")
 SAME_EDIT_CHECK = "This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit."
 SHIFTED_EDIT_CHECK = ("This is the same edit, {ms:.0f} ms apart. In rekordbox: relocate the old entry to the new "
                       "file, its cues fit to within {ms:.0f} ms.")
@@ -155,9 +159,12 @@ def write_crash(paths: Paths, log: RunLog, at: datetime, step: str, error: BaseE
 
 def check_text(check: dict) -> str:
     """What to do in rekordbox for an entry's `rekordbox_check` ({reason, since}; an added_as_new also has `match`, the
-    measurement of the two files, and `offset_ms`). Same edit (exact or shifted): the old entry can be relocated to the
+    measurement of the two files, and `offset_ms`; a swapped one `moved`, whether the file moved up out of
+    not_lossless/). Same edit (exact or shifted): the old entry can be relocated to the
     new file and keeps its cues. A real mismatch, no measurement or a record from before it: analyse and cue again."""
     check = check or {}
+    if check.get("reason") == "swapped":
+        return SWAPPED_MOVED_CHECK if check.get("moved") else SWAPPED_CHECK
     if check.get("reason") == "added_as_new":
         if check.get("match") == "exact":
             return SAME_EDIT_CHECK

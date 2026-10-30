@@ -4,7 +4,7 @@
 // mark_warnings_seen: 52; downloads_view: 53; the two Qobuz web-player methods gone: 51; Settings' sign-ins: 57; rollback_tools: +1; app_update: +1; tidy_preview, move_batches, undo_preview, tidy_up, undo_moves: +5;
 // the import (library stage 4): watched_folders, check_import_folder, removal_preview, add_watched_folder,
 // remove_watched_folder, start_import, answer_same_song, keep_duplicates, supersede_duplicate, setup_skip_import: +10;
-// set_favourites and set_crate_shown (library stage 5, brief saves, no job): +2.)
+// set_favourites and set_crate_shown (library stage 5, brief saves, no job): +2; undo_upgrade: +1.)
 export const CONTRACT_METHODS = [
   // read, any time
   'dashboard', 'sidebar', 'sync_preview', 'refresh', 'stop_refresh', 'job_status', 'library', 'track', 'todo',
@@ -16,7 +16,7 @@ export const CONTRACT_METHODS = [
   'search_candidates', 'preview', 'add_playlist', 'preview_playlist_change',
   // write jobs
   'start_sync', 'stop', 'save_playlists', 'save_limits', 'mark_warnings_seen', 'hide', 'never_download', 'add_bought_file',
-  'use_candidate', 'use_link', 'reject_current', 'rekordbox_checked', 'upgrade', 'rescan_library',
+  'use_candidate', 'use_link', 'reject_current', 'rekordbox_checked', 'upgrade', 'undo_upgrade', 'rescan_library',
   'tidy_up', 'undo_moves',
   'add_watched_folder', 'remove_watched_folder', 'start_import', 'answer_same_song', 'keep_duplicates',
   'supersede_duplicate',
@@ -40,7 +40,7 @@ export const LIBRARY_METHODS = [
   'limits_what_if', 'save_limits', 'mark_warnings_seen', 'runs', 'run', 'spectrum', 'media_url',
   'search_candidates', 'preview', 'add_playlist', 'preview_playlist_change', 'start_sync', 'save_playlists',
   'hide', 'never_download', 'add_bought_file', 'use_candidate', 'use_link', 'reject_current',
-  'rekordbox_checked', 'upgrade', 'rescan_library', 'show_in_finder', 'reveal', 'open_report',
+  'rekordbox_checked', 'upgrade', 'undo_upgrade', 'rescan_library', 'show_in_finder', 'reveal', 'open_report',
   'tidy_preview', 'move_batches', 'undo_preview', 'tidy_up', 'undo_moves',
   'watched_folders', 'set_favourites', 'set_crate_shown', 'check_import_folder', 'removal_preview',
   'add_watched_folder', 'remove_watched_folder', 'start_import', 'answer_same_song', 'keep_duplicates', 'supersede_duplicate',
