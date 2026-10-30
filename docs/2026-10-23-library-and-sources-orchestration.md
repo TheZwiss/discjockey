@@ -76,9 +76,10 @@ Opus implementer: up to about 150k; a Sonnet task: 40–100k).
 
 - **A task group fits in one agent:** at most about 8 plan tasks or about 1,500 changed lines, one area of the code.
   Bigger groups are split before dispatch.
-- **Fix rounds go to the implementer that wrote the code** (by `SendMessage`) while its context is still small
-  (it wrote one group). After a second fix round, or when the fix concerns another area, a fresh Sonnet gets the
-  findings plus the files instead. Minors are fixed in the same round; only spec conflicts and user decisions are
+- **Fix rounds go to the implementer that wrote the code** (by `SendMessage`) only while its context is still small:
+  check its reported tokens first, and **above about 150k never resume it** (resuming reloads its whole transcript on
+  every step). After a second fix round, when the fix concerns another area, or above that size, a fresh Sonnet gets
+  the findings plus the exact files instead. Minors are fixed in the same round; only spec conflicts and user decisions are
   parked.
 - **An agent that stops at its budget is not restarted with "keep going".** The orchestrator reads its report, then
   narrows the task or answers the question, and sends a fresh, smaller brief.
