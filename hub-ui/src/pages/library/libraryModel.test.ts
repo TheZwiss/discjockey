@@ -6,7 +6,7 @@ import {
   isSort, keepLine, lineTop, moveSelection, noFileNote, pageEmpty, placeLine, playQueue, playable,
   playlistCell, playlistsLine, libraryCalls, nextSort, offTable, optionalColumns, rowAway, rowDim, rowInTodo, rowOf, rowOff,
   rowTitleTip, segOptions, selectedIndex, shortUrl, sortKey, sortState, subfolderCell, subtitleParts, tableKind, tableLines,
-  titleNote, viewSort, waitWords, windowSlice, alsoHint, playlistColumnFor, tooManyFor,
+  titleNote, viewSort, waitWords, windowSlice, alsoHint, playlistColumnFor, artistColumnFor, shownSort, tooManyFor,
 } from './libraryModel';
 import type { LibraryRow, TrackDetail } from '$lib/bridge/types';
 
@@ -172,6 +172,22 @@ describe('table and strip', () => {
     expect(playlistColumnFor({ rows: [lr('a', []), lr('b', ['Hard_Bounce'])], also: null })).toBe(true);
     expect(playlistColumnFor({ rows: [], also: [lr('x', ['Bouncy'])] })).toBe(true);
     expect(playlistColumnFor({ rows: [], also: null })).toBe(false);
+  });
+  it('no row has an artist: the Artist column leaves, whitespace counts as none', () => {
+    const ar = (id: string, artist: string) => ({ ...here(row(id)), artist });
+    expect(artistColumnFor({ rows: [ar('a', ''), ar('b', '  ')], also: null })).toBe(false);
+    expect(artistColumnFor({ rows: [ar('a', ''), ar('b', 'Frau Funk')], also: null })).toBe(true);
+    expect(artistColumnFor({ rows: [], also: [ar('x', 'Frau Funk')] })).toBe(true);
+    expect(artistColumnFor({ rows: [], also: null })).toBe(true);   // an empty view keeps the default
+  });
+  it('without the Artist column the grid has no track for it, and an Artist sort reads as Track', () => {
+    expect(gridColumns(['length'], false, false)).toBe('minmax(0, 1.45fr) 52px 116px var(--w-row-action)');
+    expect(gridColumns(['length'], true, false)).toBe('24px minmax(0, 1.45fr) 52px 116px var(--w-row-action)');
+    expect(shownSort('artist', false)).toBe('title');
+    expect(shownSort('-artist', false)).toBe('-title');
+    expect(shownSort('-artist', true)).toBe('-artist');
+    expect(shownSort('length', false)).toBe('length');
+    expect(shownSort('order', false)).toBe('order');
   });
   it('grid: the names share the rest, fixed #, Length, Quality and slot', () => {
     expect(gridColumns([])).toBe('minmax(0, 1.45fr) minmax(0, 1fr) 116px var(--w-row-action)');

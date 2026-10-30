@@ -31,7 +31,7 @@
   } from './libraryModel';
 
   let { rows, also = null, alsoHint = '', emptyLine = null, loading = false, kind = 'library', subfolders = false,
-    playlistColumn = true, off = false, sort,
+    playlistColumn = true, artistColumn = true, off = false, sort,
     selected, playing = null, onsort, onselect, onplay, onfinder, ontodo, ondetails }: {
     rows: LibraryRow[];
     /** a playlist's other files of its folder, under their own section head (null elsewhere) */
@@ -45,6 +45,8 @@
     subfolders?: boolean;
     /** whether the Playlist column can say anything (libraryModel.columnsAt's `playlists`) */
     playlistColumn?: boolean;
+    /** whether the Artist column can say anything (libraryModel.artistColumnFor) */
+    artistColumn?: boolean;
     /** a switched-off playlist: its songs without a file wait for nothing (libraryModel.waitWords) */
     off?: boolean;
     sort: LibrarySort; selected: string | null;
@@ -79,7 +81,7 @@
   const sortable = $derived(new Set<string>(sortColumns(viewOf)));
   const st = $derived(sortState(sort));
   const extra = $derived(columnsAt(kind, width, subfolders, playlistColumn));
-  const grid = $derived(gridColumns(extra, playlist));
+  const grid = $derived(gridColumns(extra, playlist, artistColumn));
   const lines = $derived(tableLines(rows, also, emptyLine));
   const wait = $derived(waitWords(off));
   // what ↑ ↓ walk and a selection is found in: the rows, the section's included, in the table's order
@@ -169,7 +171,7 @@
   <div class="tr head" role="row" bind:this={root} style:grid-template-columns={grid}>
     {#if playlist}{@render head('order')}{/if}
     {@render head('title')}
-    {@render head('artist')}
+    {#if artistColumn}{@render head('artist')}{/if}
     {#each extra as c (c)}{@render head(c)}{/each}
     {@render head('quality')}
     <span class="tip"><InfoTip label="Keys and clicks" data-test="library-keys">Click a header to sort, again to turn it
@@ -217,7 +219,7 @@
               data-test="note-{r.track_id}">{note}</span></span>
             {:else}<span class="cut name">{r.title}</span>{/if}
           </span>
-          <span class="td cut sub">{r.artist}</span>
+          {#if artistColumn}<span class="td cut sub">{r.artist}</span>{/if}
           {#each extra as c (c)}
             {#if c === 'length'}<span class="td num">{noFile && !r.duration_s ? '–' : duration(r.duration_s)}</span>
             {:else if c === 'folder'}{@render place(folderCell(r))}

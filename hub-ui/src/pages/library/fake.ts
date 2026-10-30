@@ -274,6 +274,13 @@ const fake: PageFake = {
         }
       }
     },
+    // a crate of the user's own untagged files: titles come from the file names and no row has an artist, so the table
+    // leaves the Artist column out (libraryModel.artistColumnFor)
+    untagged: (s) => {
+      crateFolders(s);
+      ['Chrome Intro', 'Chrome Loop 1', 'Chrome Loop 2', 'Chrome Drums', 'Chrome Bass Take', 'Chrome Vocal Cut', 'Chrome Fx Hit',
+        'Chrome Final'].forEach((title) => s.tracks.push(ownIn(s, '/Users/you/Music/Rekordbox Library/Chrome', '', title)));
+    },
     // every file is in a playlist: Not in a playlist has nothing to show
     all_listed: (s) => { s.tracks = s.tracks.filter((t) => t.in_playlists); },
     // a watched import folder with no music in it yet, beside the sidebar's other folders

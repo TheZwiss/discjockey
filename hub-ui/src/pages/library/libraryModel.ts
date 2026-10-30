@@ -202,6 +202,21 @@ export function optionalColumns(kind: TableKind, subfolders = false, playlists =
 export function playlistColumnFor(lib: Pick<Library, 'rows' | 'also'>): boolean {
   return allRows(lib).some((r) => r.playlists.length > 0);
 }
+/** Whether the table's Artist column can say anything: false only when no row of the view has an artist (a crate of
+ *  the user's own untagged files, whose titles come from the file names), where the column would be empty on every
+ *  row and only take room from the cut titles. Nothing stands in for it: a name is shown as the file gives it. Asked of
+ *  an answer without search or filter, held while one is on (like `playlistColumnFor`); an empty view keeps the column. */
+export function artistColumnFor(lib: Pick<Library, 'rows' | 'also'>): boolean {
+  const rows = allRows(lib);
+  return rows.length === 0 || rows.some((r) => r.artist.trim() !== '');
+}
+/** The sort the table shows: with no Artist column, a sort by Artist reads as the same direction on Track (the
+ *  engine's Artist sort breaks ties by title, and with no artist anywhere that is a sort by title). */
+export function shownSort(sort: LibrarySort, artist: boolean): LibrarySort {
+  if (artist) return sort;
+  const { column, desc } = sortState(sort);
+  return column === 'artist' ? (desc ? '-title' : 'title') : sort;
+}
 /** The width (px) the table needs for Track and Artist beside Quality and the upgrade slot, and what each optional
  *  column adds to it (D10, the mockup's numbers): a column shows from the sum of its own and those before it. A
  *  playlist's `#` column comes on top of the base. */
@@ -227,8 +242,8 @@ const TRACK: Record<OptionalColumn | 'order' | 'title' | 'artist' | 'end', strin
   order: '24px', title: 'minmax(0, 1.45fr)', artist: 'minmax(0, 1fr)', folder: 'minmax(96px, .8fr)',
   subfolder: 'minmax(96px, .8fr)', playlist: 'minmax(0, 1.1fr)', length: '52px', end: '116px var(--w-row-action)',
 };
-export function gridColumns(cols: OptionalColumn[], order = false): string {
-  return [...(order ? [TRACK.order] : []), TRACK.title, TRACK.artist, ...cols.map((c) => TRACK[c]), TRACK.end].join(' ');
+export function gridColumns(cols: OptionalColumn[], order = false, artist = true): string {
+  return [...(order ? [TRACK.order] : []), TRACK.title, ...(artist ? [TRACK.artist] : []), ...cols.map((c) => TRACK[c]), TRACK.end].join(' ');
 }
 /** Whether a watched folder or a crate has crates inside it (its Subfolder column, D10): the sidebar says (a watched
  *  folder's crate count, a crate's `has_crates`); before it is there, the rows do (a row in a crate below). */
