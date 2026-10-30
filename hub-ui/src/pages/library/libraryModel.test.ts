@@ -132,6 +132,11 @@ describe('table and strip', () => {
     expect(columnsAt('folder', 579)).toEqual([]);
     expect(columnsAt('all', 519)).toEqual([]);
     expect(columnsAt('all', 520)).toEqual(['folder']);
+    // Length's edges: All tracks at 720, a playlist at 580
+    expect(columnsAt('all', 719)).toEqual(['folder']);
+    expect(columnsAt('all', 720)).toEqual(['folder', 'length']);
+    expect(columnsAt('unlisted', 720)).toEqual(['folder', 'length']);
+    expect(columnsAt('folder', 580)).toEqual(['length']);
   });
   it('grid: the names share the rest, fixed Length, Quality and slot', () => {
     expect(gridColumns([])).toBe('minmax(0, 1.45fr) minmax(0, 1fr) 116px var(--w-row-action)');
