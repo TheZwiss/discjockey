@@ -1,6 +1,7 @@
 // Pure helpers for the Library page (sorting, windowing, selection, the filter segments, the columns, the inspector).
 // Tested in libraryModel.test.ts.
-import type { Library, LibraryFilter, LibraryRow, LibrarySort, Quality, TrackDetail, TrackRow } from '$lib/bridge/types';
+import type { Library, LibraryFilter, LibraryRow, LibrarySort, LibraryView as WireView, Quality, Sidebar, TrackDetail,
+  TrackRow } from '$lib/bridge/types';
 import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import type { SegOption } from '$lib/components/segmentedModel';
 
@@ -166,8 +167,8 @@ export function playable(r: Pick<LibraryRow, 'file_state'>): boolean {
   return r.file_state === 'here';
 }
 /** An away row: dimmed like a leftover one (it can't play), and its `AwayTag` says why. */
-export function rowAway(r: Pick<LibraryRow, 'file_state'>): Exclude<LibraryRow['file_state'], 'here'> | null {
-  return r.file_state === 'here' ? null : r.file_state;
+export function rowAway(r: Pick<LibraryRow, 'file_state'>): Exclude<LibraryRow['file_state'], 'here' | 'no_file'> | null {
+  return r.file_state === 'here' || r.file_state === 'no_file' ? null : r.file_state;
 }
 /** A row's Folder cell. All tracks: the folder of its playlist, or "Not in a playlist" for a track in none. Not in a
  *  playlist (every row in none): the folder the file sits in, which is what tells its rows apart. Null: nothing there
@@ -209,4 +210,28 @@ export function shortUrl(url: string | null | undefined, max = 9): string {
  *  the Playlists row, by name: a count here was cut at 1100 and named none of them.) */
 export function placeLine(folder: string, inPlaylists = true): string {
   return inPlaylists ? folder : 'Not in a playlist';
+}
+
+/** One `library(view, key, …)` call (the engine answers one view of the library per call). */
+export type LibraryCall = { view: WireView; key: string | null };
+const same = (a: string, b: string): boolean => a.normalize('NFC').toLowerCase() === b.normalize('NFC').toLowerCase();
+/** The calls that answer the page's `folder` (the route's param: null = All tracks, NOT_IN_PLAYLIST, or a name; the
+ *  new routes of plan library stage 5 I5 replace this). A name is a playlist's folder when the sidebar lists one of
+ *  that name, else a Library folder no playlist uses (`Library/<name>`); a name nothing lists is asked as a playlist,
+ *  which the engine answers with `empty: 'gone'`. Without the sidebar yet (the window just opened) both are tried in
+ *  that order: the second only when the first came back gone. */
+export function libraryCalls(folder: string | null, side: Pick<Sidebar, 'playlists' | 'library_folders'> | null): LibraryCall[] {
+  if (folder === null) return [{ view: 'all', key: null }];
+  if (folder === NOT_IN_PLAYLIST) return [{ view: 'unlisted', key: null }];
+  const asPlaylist: LibraryCall = { view: 'playlist', key: folder };
+  const asFolder: LibraryCall = { view: 'folder', key: `Library/${folder}` };
+  if (!side) return [asPlaylist, asFolder];
+  if (side.playlists.some((p) => same(p.name, folder))) return [asPlaylist];
+  const lib = side.library_folders.find((f) => same(f.name, folder));
+  return lib ? [{ view: 'folder', key: lib.path }] : [asPlaylist];
+}
+/** The rows the table draws today: those with a file. A playlist view also lists its songs that wait for a file
+ *  (`file_state: 'no_file'`); the table gets them with the playlist view's own screen (plan library stage 5, B6). */
+export function withFiles(lib: Library): Library {
+  return { ...lib, rows: lib.rows.filter((r) => r.file_state !== 'no_file') };
 }

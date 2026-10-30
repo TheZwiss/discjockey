@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { installBridge, _resetBridge } from '../bridge/client';
 import { dispatch } from '../bridge/events';
-import { EMPTY_HUB, dataVersion, filesVersion, hub, refreshHub, refreshOnNoLibrary, readBlockIn, readNeedsSetupIn, reduceHub } from './hub';
+import { EMPTY_HUB, dataVersion, filesVersion, hub, refreshHub, refreshOnNoLibrary, readBlockIn, readNeedsSetupIn, reduceHub,
+  saveCrateShown, saveFavourites } from './hub';
 import type { SetupStatus, ReadStatus } from '../bridge/types';
 
 describe('reduceHub', () => {
@@ -288,5 +289,70 @@ describe('a DrivesChanged event', () => {
     dispatch({ type: 'JobFinished', job_id: 1, kind: 'scan', ok: true, problem: null, message: '', result: null });
     expect(get(filesVersion)).toBe(files + 2);  // a finished job counts for both
     await refreshHub();
+  });
+});
+
+describe('the sidebar is read again (plan library stage 5, B2.4 and D15)', () => {
+  afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
+  /** a bridge that counts the sidebar reads and keeps the Favourites the way library.db would */
+  function bridge(opts: { busy?: boolean } = {}) {
+    (globalThis as any).window = new EventTarget();
+    const seen = { sidebars: 0, saved: [] as unknown[][], stored: ['playlist:a'] };
+    installBridge({
+      job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: false, read_status: null,
+        sign_in: null }),
+      setup_status: async () => ({ ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }),
+      sidebar: async () => { seen.sidebars++; return { ok: true, todo: 0, all_tracks: 0, not_in_playlist: 0, limits_warning: false,
+        favourites: seen.stored.map((key) => ({ key })), playlists: [], watched: [], library_folders: [] }; },
+      app_update: async () => ({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null }),
+      set_favourites: async (keys: string[]) => {
+        seen.saved.push(keys);
+        if (opts.busy) return { ok: false, kind: 'busy', message: 'Discjockey couldn\'t save that just now.' };
+        seen.stored = keys;
+        return { ok: true, favourites: keys };
+      },
+      set_crate_shown: async (path: string, shown: boolean | null) => ({ ok: true, path, shown }),
+    });
+    return seen;
+  }
+  const finished = (kind: string) => ({ type: 'JobFinished' as const, job_id: 9, kind, ok: true, problem: null, message: '',
+    result: null });
+  it.each(['refresh', 'sync', 'import'])('after a finished %s job', async (kind) => {
+    const seen = bridge();
+    await refreshHub();
+    const before = seen.sidebars;
+    dispatch(finished(kind));
+    await vi.waitFor(() => expect(seen.sidebars).toBeGreaterThan(before));
+  });
+  it('after a drive was plugged in or ejected', async () => {
+    const seen = bridge();
+    await refreshHub();
+    const before = seen.sidebars;
+    dispatch({ type: 'DrivesChanged', away: 1 });
+    await vi.waitFor(() => expect(seen.sidebars).toBeGreaterThan(before));
+  });
+  it('after its own save of the Favourites, which shows the stored list', async () => {
+    const seen = bridge();
+    await refreshHub();
+    const r = await saveFavourites(['playlist:b', 'playlist:a']);
+    expect(r).toMatchObject({ ok: true, favourites: ['playlist:b', 'playlist:a'] });
+    expect(get(hub).sidebar?.favourites.map((f) => f.key)).toEqual(['playlist:b', 'playlist:a']);
+    expect(seen.saved).toEqual([['playlist:b', 'playlist:a']]);
+  });
+  it('after a refused save too: the stored list comes back and the refusal is handed on', async () => {
+    const seen = bridge({ busy: true });
+    await refreshHub();
+    const before = seen.sidebars;
+    const r = await saveFavourites(['playlist:b']);
+    expect(r).toMatchObject({ ok: false, kind: 'busy' });
+    expect(seen.sidebars).toBeGreaterThan(before);
+    expect(get(hub).sidebar?.favourites.map((f) => f.key)).toEqual(['playlist:a']);
+  });
+  it('after its own crate switch', async () => {
+    const seen = bridge();
+    await refreshHub();
+    const before = seen.sidebars;
+    expect(await saveCrateShown('/Volumes/Example Drive/Albums/Aphex', false)).toMatchObject({ ok: true, shown: false });
+    expect(seen.sidebars).toBeGreaterThan(before);
   });
 });

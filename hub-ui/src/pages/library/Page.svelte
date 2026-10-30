@@ -20,7 +20,7 @@
   import { ListPanelFrame } from '$lib/frames';
   import { api, runJob } from '$lib/bridge/client';
   import type { Fail, Library, LibraryFilter, LibrarySort, ProblemKind, TrackDetail } from '$lib/bridge/types';
-  import { filesVersion } from '$lib/stores/hub';
+  import { filesVersion, hubNow } from '$lib/stores/hub';
   import {
     detailsHidden, detailsShown, detailsSubject, pickTrack, showDetails, toggleInspector, trackOffTable,
   } from '$lib/stores/chrome';
@@ -34,8 +34,8 @@
   import LibraryTable from './LibraryTable.svelte';
   import TrackDetails from './TrackDetails.svelte';
   import {
-    DEFAULT_SORT, LIBRARY_FILTERS, SORT_KEY, filterKey, isSort, libraryView, nextSort, offTable, playable, segOptions, todoHref,
-    type SortColumn,
+    DEFAULT_SORT, LIBRARY_FILTERS, SORT_KEY, filterKey, isSort, libraryCalls, libraryView, nextSort, offTable, playable,
+    segOptions, todoHref, withFiles, type LibraryCall, type SortColumn,
   } from './libraryModel';
   import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 
@@ -107,6 +107,15 @@
     return () => clearTimeout(h);
   });
 
+  /** the first call that doesn't come back gone (a name asked as a playlist may be a Library folder) */
+  async function askLibrary(calls: LibraryCall[], query: string, filt: LibraryFilter, order: LibrarySort) {
+    let r = await api.library(calls[0].view, calls[0].key, query, filt, order);
+    for (const next of calls.slice(1)) {
+      if (!r.ok || r.empty !== 'gone') break;
+      r = await api.library(next.view, next.key, query, filt, order);
+    }
+    return r;
+  }
   let libTurn = 0;
   $effect(() => {
     const args = [folder, q, filter, sort] as const;
@@ -114,11 +123,11 @@
     void retry;
     const turn = ++libTurn;
     untrack(() => { loading = true; });
-    void api.library(...args).then((r) => {
+    void askLibrary(libraryCalls(args[0], hubNow().sidebar), args[1], args[2], args[3]).then((r) => {
       if (turn !== libTurn) return;
       loading = false;
       if (r.ok) {
-        lib = r;
+        lib = withFiles(r);
         libError = null;
         if (filter !== 'all' && r.chips[filter] === 0 && !q) setFilter('all');
       } else {

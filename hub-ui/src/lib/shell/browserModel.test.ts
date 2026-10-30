@@ -8,14 +8,15 @@ import {
 } from './browserModel';
 
 const side: Sidebar = {
-  todo: 3, all_tracks: 120, not_in_playlist: 4, limits_warning: false,
+  todo: 3, all_tracks: 120, not_in_playlist: 4, limits_warning: false, favourites: [], watched: [],
   playlists: [
-    { name: 'Peak_Time', ref: 'a', service: 'spotify', enabled: true, tracks: 10 },
-    { name: 'Hard_Bounce', ref: 'b', service: 'qobuz', enabled: true, tracks: 7 },
-    { name: 'acid_Nights', ref: 'c', service: 'spotify', enabled: false, tracks: 2 },
-    { name: 'Bouncy', ref: 'd', service: null, enabled: true, tracks: 0 },
+    { name: 'Peak_Time', ref: 'a', service: 'spotify', enabled: true, songs: 10 },
+    { name: 'Hard_Bounce', ref: 'b', service: 'qobuz', enabled: true, songs: 7 },
+    { name: 'acid_Nights', ref: 'c', service: 'spotify', enabled: false, songs: 2 },
+    { name: 'Bouncy', ref: 'd', service: null, enabled: true, songs: 0 },
   ],
-  library_folders: [{ folder: 'Old_Sets', tracks: 5 }, { folder: 'Bounce_Dumps', tracks: 3 }],
+  library_folders: [{ path: 'Library/Old_Sets', name: 'Old_Sets', files: 5 },
+    { path: 'Library/Bounce_Dumps', name: 'Bounce_Dumps', files: 3 }],
 };
 const list = (o: Partial<{ query: string; az: boolean; closed: string[] }> = {}) =>
   browserList({ side, query: '', az: false, closed: [], ...o });
@@ -177,7 +178,7 @@ describe('the current row', () => {
     expect(currentKey(null, 'Hard_Bounce')).toBeNull();
   });
   it('picks the playlist when a Library folder has the same name', () => {
-    const both = { ...side, library_folders: [{ folder: 'Hard_Bounce', tracks: 1 }] };
+    const both = { ...side, library_folders: [{ path: 'Library/Hard_Bounce', name: 'Hard_Bounce', files: 1 }] };
     expect(currentKey(both, 'Hard_Bounce')).toBe('pl:b');
   });
   it('picks the first line of a repeated ref, whose row has the plain key', () => {

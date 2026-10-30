@@ -97,6 +97,9 @@ export const EMPTY: Record<EmptyKind, { title: string; body?: string; action?: C
   all_lossless: { title: 'Everything is lossless.' },
   all_hidden: { title: 'Only hidden tracks are left.' },
   nothing_here: { title: 'Nothing here.' },
+  // a playlist or folder that is not there any more (library(…) answers `gone`); the playlist and folder views word it
+  // each their own way (plan library stage 5, I7)
+  gone: { title: "This isn't in your library any more.", action: { label: 'All tracks →', href: '#/library' } },
 };
 
 /** Why Read playlists is off while setup isn't finished (the header slot; the first-run page says the rest). */

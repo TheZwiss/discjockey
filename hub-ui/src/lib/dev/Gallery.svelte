@@ -313,10 +313,10 @@
     focusMe?.querySelector('button')?.focus();
   });
   const gFolders: WatchedFolderRow[] = [
-    { id: 1, path: '/Users/you/Music/Discjockey/Library', name: 'Library', kind: 'library', state: 'online', files: 412, waiting: 0, unreadable: 0 },
-    { id: 2, path: '/Volumes/Example Drive/Music', name: 'Music', kind: 'import', state: 'importing', files: 1840, waiting: 1500, unreadable: 0 },
-    { id: 3, path: '/Volumes/Old Drive/Music', name: 'Music', kind: 'import', state: 'offline', files: 612, waiting: 0, unreadable: 0 },
-    { id: 4, path: '/Users/you/Music/Crates', name: 'Crates', kind: 'import', state: 'online', files: 1, waiting: 0, unreadable: 0 },
+    { id: 1, path: '/Users/you/Music/Discjockey/Library', name: 'Library', kind: 'library', state: 'online', files: 412, waiting: 0, unreadable: 0, crates: [], too_many: false },
+    { id: 2, path: '/Volumes/Example Drive/Music', name: 'Music', kind: 'import', state: 'importing', files: 1840, waiting: 1500, unreadable: 0, crates: [], too_many: false },
+    { id: 3, path: '/Volumes/Old Drive/Music', name: 'Music', kind: 'import', state: 'offline', files: 612, waiting: 0, unreadable: 0, crates: [], too_many: false },
+    { id: 4, path: '/Users/you/Music/Crates', name: 'Crates', kind: 'import', state: 'online', files: 1, waiting: 0, unreadable: 0, crates: [], too_many: false },
   ];
 </script>
 

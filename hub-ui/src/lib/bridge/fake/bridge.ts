@@ -2,17 +2,17 @@
 import type { Bridge } from '../client';
 import type { HubEvent } from '../events';
 import type {
-  BatchResult, Candidate, ChangePreview, Fail, JobStart, LibraryFilter, LibrarySort, PlaylistLine, ProblemKind, Res, Result,
+  BatchResult, Candidate, ChangePreview, Fail, JobStart, LibraryFilter, LibrarySort, LibraryView, PlaylistLine, ProblemKind, Res, Result,
   AccountCheck, Browser, PlaylistService, SaveFiles, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate,
 } from '../types';
-import { NOT_IN_PLAYLIST } from '../types';
 import { LIBRARY_METHODS } from '../contract';
 import {
-  FAKE_MUSIC, FAKE_NEWEST_YT_DLP, QOBUZ_UNREADABLE, SERVICE_NAME, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkText, coverUri, dateOnly, folderList, hash, inFolder, isoLocal, librarySubtitle, sidebarLists, makeState, nextStep,
+  FAKE_MUSIC, FAKE_NEWEST_YT_DLP, QOBUZ_UNREADABLE, SERVICE_NAME, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkText, coverUri, dateOnly, folderList, hash, isoLocal, makeState, nextStep,
   pathOf, playlistRows, previewAction, qualityLabel, qualityLine, qualityOf, result, runDetail, runId,
   readStatus, sampleCandidates, readOk, todoDetail, todoFree, formatLine, sourceFull, todoGroup, trackRow, rowState, type FakeAccount, type FakeFolder, type FakeState,
   type FakeTrack,
 } from './data';
+import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, libraryOf, sidebarOf, trackPlace } from './library';
 import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, rewrite } from './replay';
 import { daysToLoad } from '../../days';
 import { minutesByDownloads } from './minutes';
@@ -399,10 +399,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       });
     },
     async sidebar() {
-      const files = s.tracks.filter((t) => t.status !== 'missing');
-      return ok({ todo: todoView('all', false).chips.all, all_tracks: files.length,
-        not_in_playlist: files.filter((t) => !t.in_playlists).length,
-        limits_warning: cards(s).some((c) => c.new_warnings > 0 || c.paused), ...sidebarLists(s) });
+      return ok(sidebarOf(s, todoView('all', false).chips.all, cards(s).some((c) => c.new_warnings > 0 || c.paused)));
     },
     async sync_preview() {
       const p = preview();
@@ -463,37 +460,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return ok({ job: job ? job.snapshot() : null, refresh_running: !!refreshJob, console_running: s.console_running,
         read_status: readStatus(s), sign_in: signIn ? signIn.snapshot() : null });
     },
-    async library(folder: string | null, query: string, filter: LibraryFilter, sort: LibrarySort) {
-      const known = folder === null || folder === NOT_IN_PLAYLIST || folderList(s).some((f) => f.folder === folder);
-      if (!known) return fail('refused', `There is no folder "${folder}".`);
-      const q = (query ?? '').trim().toLowerCase();
-      const all = inFolder(s, folder);
-      const found = q ? all.filter((t) => `${t.artist} ${t.title}`.toLowerCase().includes(q)) : all;
-      const chips = { all: found.length, lossless: 0, good_lossy: 0, weak: 0, fake: 0, upgrade_ready: 0 };
-      for (const t of found) {
-        const k = qualityOf(t);
-        if (k !== 'missing' && !t.unchecked) chips[k]++;
-        if (t.upgrade) chips.upgrade_ready++;
-      }
-      const rows = found.filter((t) => filter === 'all' || (filter === 'upgrade_ready' ? !!t.upgrade
-        : !t.unchecked && qualityOf(t) === filter));
-      const desc = sort.startsWith('-');
-      const key = sort.replace('-', '');
-      const qorder = ['lossless', 'good_lossy', 'weak', 'fake', 'missing'];
-      const val = (t: FakeTrack): string | number => key === 'title' ? t.title.toLowerCase()
-        : key === 'length' ? t.duration_s : key === 'source' ? (t.source ?? '') : key === 'quality'
-          ? (t.unchecked ? qorder.length : qorder.indexOf(qualityOf(t))) : key === 'added' ? (t.added ?? '')
-            : key === 'folder' ? `${t.in_playlists ? 0 : 1} ${t.folder} ${t.artist} ${t.title}`.toLowerCase()
-              : `${t.artist} ${t.title}`.toLowerCase();
-      rows.sort((a, b) => (val(a) < val(b) ? -1 : val(a) > val(b) ? 1 : 0) * (desc ? -1 : 1));
-      const counted = byQuality(all);
-      const checked = Object.values(counted).reduce((n, c) => n + c, 0);
-      return ok({ title: folder === null ? 'All tracks' : folder === NOT_IN_PLAYLIST ? 'Not in a playlist' : folder,
-        folder, subtitle: librarySubtitle(s, folder, all.length), summary: { tracks: all.length, lossless_share: checked ? counted.lossless / checked : null,
-          by_quality: counted, upgrades_ready: all.filter((t) => !!t.upgrade).length,
-          to_do: all.filter((t) => t.in_playlists && !t.hidden && todoGroup(t)).length,
-          not_lossless: counted.good_lossy + counted.weak + counted.fake }, chips,
-        rows: rows.map((t) => ({ ...trackRow(t), sound_checked: !t.unchecked, file_state: rowState(t) })), empty: !s.tracks.length ? 'empty_library' as const : rows.length ? null : 'no_match' as const });
+    async library(view: LibraryView, key: string | null, query: string, filter: LibraryFilter, sort: LibrarySort | null) {
+      const r = libraryOf(s, view, key, query, filter, sort);
+      return 'refused' in r ? fail('refused', r.refused) : ok(r);
     },
     async track(track_id: string) {
       const t = track(track_id);
@@ -502,7 +471,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const plus = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return dateOnly(d); };
       const query = `${t.artist} ${t.title}`.replace(/ /g, '+');
       return ok({ track: {
-        ...trackRow(t), sound_checked: !t.unchecked, file_state: t.away ?? 'here', isrc: t.isrc,
+        ...trackRow(t), sound_checked: !t.unchecked, file_state: t.away ?? 'here', place: trackPlace(s, t), isrc: t.isrc,
         playlists: s.previewRead ? [...t.playlists] : null,
         in_playlist_count: t.playlists.length, quality_line: qualityLine(t), format_line: formatLine(t),
         source_full: q === 'missing' ? null : sourceFull(t),
@@ -858,6 +827,21 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (job?.running) return fail('busy', job.kind === 'import' ? IMPORTING_BUSY : MSG.busy);
       s.imp.skipped = true;
       return ok({});
+    },
+    // brief saves (D15): no job and no engine lock; they answer at once, or `busy` when library.db is held (a hook)
+    async set_favourites(keys: string[]) {
+      if (!Array.isArray(keys) || !keys.every((k) => typeof k === 'string' && /^(playlist|folder):/.test(k))) {
+        return fail('refused', BAD_FAVOURITES);
+      }
+      if (s.briefBusy) return fail('busy', BRIEF_WRITE_FAILED);
+      s.favourites = [...new Set(keys)];
+      return ok({ favourites: [...s.favourites] });
+    },
+    async set_crate_shown(path: string, shown: boolean | null) {
+      if (typeof path !== 'string' || !path || !(shown === null || typeof shown === 'boolean')) return fail('refused', BAD_CRATE);
+      if (s.briefBusy) return fail('busy', BRIEF_WRITE_FAILED);
+      if (shown === null) delete s.crateShown[path]; else s.crateShown[path] = shown;
+      return ok({ path, shown });
     },
     async save_limits(service: Service, limit: number, extra_today: number) {
       const f = serviceOf(s, service);

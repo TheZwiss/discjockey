@@ -3,7 +3,7 @@ import type { TrackRow } from '$lib/bridge/types';
 import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import {
   columnThresholds, columnsAt, fileName, folderCell, footAction, gridColumns, inTodo, isSort, libraryView, moveSelection,
-  nextSort, offTable, optionalColumns, placeLine, playable, rowAway, rowOff, rowTitleTip, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
+  libraryCalls, nextSort, offTable, optionalColumns, placeLine, playable, rowAway, rowOff, rowTitleTip, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice, withFiles,
 } from './libraryModel';
 import type { LibraryRow, TrackDetail } from '$lib/bridge/types';
 
@@ -163,7 +163,8 @@ describe('table and strip', () => {
   });
 });
 
-const here = (r: TrackRow, file_state: LibraryRow['file_state'] = 'here'): LibraryRow => ({ ...r, sound_checked: true, file_state });
+const here = (r: TrackRow, file_state: LibraryRow['file_state'] = 'here'): LibraryRow => ({ ...r, sound_checked: true, file_state,
+  wait: null, position: null, place: null, subfolder: null, playlists: [] });
 
 describe('a dimmed row', () => {
   it('is a downloaded song that left every playlist', () => {
@@ -225,5 +226,30 @@ describe('offTable: the selected track known to be off the table (the details th
   });
   it('nothing selected: nothing to be off', () => {
     expect(offTable(lib('Hard_Bounce', []), 'Hard_Bounce', null)).toBe(false);
+  });
+});
+
+describe('which library(view, key, …) call answers the route', () => {
+  const side = { playlists: [{ name: 'Hard_Bounce' }, { name: 'Peak_Time' }], library_folders: [{ name: 'Old_Sets', path: 'Library/Old_Sets' }] } as never;
+  it('All tracks and Not in a playlist are views of their own', () => {
+    expect(libraryCalls(null, side)).toEqual([{ view: 'all', key: null }]);
+    expect(libraryCalls(NOT_IN_PLAYLIST, side)).toEqual([{ view: 'unlisted', key: null }]);
+  });
+  it('a name the sidebar lists as a playlist is a playlist (case ignored), a Library folder asks by its path', () => {
+    expect(libraryCalls('hard_bounce', side)).toEqual([{ view: 'playlist', key: 'hard_bounce' }]);
+    expect(libraryCalls('Old_Sets', side)).toEqual([{ view: 'folder', key: 'Library/Old_Sets' }]);
+  });
+  it('a name nothing lists is asked as a playlist, which the engine answers as gone', () => {
+    expect(libraryCalls('Nowhere', side)).toEqual([{ view: 'playlist', key: 'Nowhere' }]);
+  });
+  it('without the sidebar yet the playlist is tried first, then the Library folder', () => {
+    expect(libraryCalls('Old_Sets', null)).toEqual([{ view: 'playlist', key: 'Old_Sets' }, { view: 'folder', key: 'Library/Old_Sets' }]);
+  });
+});
+
+describe('withFiles: the table draws the rows that have a file', () => {
+  it('drops the playlist songs that wait for one', () => {
+    const lib = { rows: [here(row('a')), here(row('b', { path: null, quality: 'missing' }), 'no_file')], title: 'x' } as never;
+    expect(withFiles(lib).rows.map((r) => r.track_id)).toEqual(['a']);
   });
 });

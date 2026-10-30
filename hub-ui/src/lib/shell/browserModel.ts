@@ -86,12 +86,12 @@ export const filterText = (raw: string): string => fold(raw.trim());
 /** `#/library?q=…`: All tracks with the text in its track search (the hand-off). */
 export const searchTracksHref = (text: string): string => buildHash('/library', {}, { q: text });
 
-export function playlistTip(p: { name: string; service: PlaylistService | null; enabled: boolean; tracks: number }): string {
+export function playlistTip(p: { name: string; service: PlaylistService | null; enabled: boolean; songs: number | null }): string {
   const kind = p.service ? `${SERVICE_NAME[p.service]} playlist · ` : '';
-  return `${p.name}\n${kind}${p.tracks} tracks${p.enabled ? '' : '\nSwitched off: its files stay, nothing new downloads'}`;
+  return `${p.name}\n${kind}${p.songs ?? 0} tracks${p.enabled ? '' : '\nSwitched off: its files stay, nothing new downloads'}`;
 }
-export const folderTip = (f: { folder: string; tracks: number }): string =>
-  `Library › ${f.folder}\n${f.tracks} tracks · no playlist uses it`;
+export const folderTip = (f: { name: string; files: number }): string =>
+  `Library › ${f.name}\n${f.files} tracks · no playlist uses it`;
 export const handoffTip = (text: string): string =>
   `Search every track’s title and artist for “${text}” (All tracks)`;
 export const sortTip = (az: boolean): string => (az ? 'Order: A–Z · click for download priority'
@@ -128,12 +128,12 @@ export function browserList({ side, query, az, closed: storedClosed }: BrowserIn
     let key = `pl:${p.ref}`;
     if (seen.has(key)) key = `${key}#${i}`;
     seen.add(key);
-    return { kind: 'playlist', key, name: p.name, service: p.service, enabled: p.enabled, count: p.tracks,
+    return { kind: 'playlist', key, name: p.name, service: p.service, enabled: p.enabled, count: p.songs ?? 0,
       href: libraryHref(p.name), tip: playlistTip(p), match: null };
   });
   if (az) playlists = [...playlists].sort(byName);
-  let folders: FolderRow[] = side.library_folders.map((f) => ({ kind: 'folder', key: `fo:${f.folder}`, name: f.folder,
-    count: f.tracks, href: libraryHref(f.folder), tip: folderTip(f), match: null }));
+  let folders: FolderRow[] = side.library_folders.map((f) => ({ kind: 'folder', key: `fo:${f.name}`, name: f.name,
+    count: f.files, href: libraryHref(f.name), tip: folderTip(f), match: null }));
 
   if (filtering) {
     const keep = <T extends PlaylistRow | FolderRow>(rows: T[]): T[] => rows.flatMap((r) => {
@@ -194,7 +194,7 @@ export function currentKey(side: Sidebar | null, folder: string | null | undefin
   if (!side) return null;
   const p = side.playlists.find((x) => x.name === folder);
   if (p) return `pl:${p.ref}`;
-  return side.library_folders.some((f) => f.folder === folder) ? `fo:${folder}` : null;
+  return side.library_folders.some((f) => f.name === folder) ? `fo:${folder}` : null;
 }
 
 /** A folded section's key in or out of the remembered list. */
