@@ -30,7 +30,7 @@ from ..quality import quality_line
 from ..report import PLAN_LABELS, check_text
 from ..settings import Settings
 from ..sources import SOURCES
-from ..upgrades import upgrade_name
+from ..upgrades import swap_possible, upgrade_name
 
 SECONDS_PER_DOWNLOAD = 70  # average per acquisition or upgrade check: pause, download, conversion, long breaks
 WEAK_HZ = 17_000  # a lossy cutoff at or below this is audible: "weak"
@@ -526,11 +526,19 @@ def track_row(track_id: str, e: dict, cover: Url | None = None) -> dict:
             "cover_url": cover(track_id, e) if cover else None}
 
 
-def cue_text(alignment: dict | None) -> str:
+def cue_text(alignment: dict | None, can_swap: bool = True) -> str:
+    """The line under a parked better version: what the measurement says about the cue points, and what that means
+    for the way it goes in. Only a swap (AIFF only) keeps the rekordbox entry and its cues; a file that cannot be
+    swapped goes in as a new file, which rekordbox sees as a new entry, so the old entry has to be relocated."""
     a = alignment or {}
-    if a.get("result") == "shifted":
-        return f"aligned by {abs(a.get('offset_ms') or 0):.0f} ms, cues stay"
-    return CUE_TEXT.get(a.get("result"), CUE_TEXT["unknown"])
+    result = a.get("result")
+    ms = abs(a.get("offset_ms") or 0)
+    if result in ("exact", "shifted") and not can_swap:
+        same = "same edit" if result == "exact" else f"same edit, {ms:.0f} ms apart"
+        return f"{same}, but a new rekordbox entry: relocate the old one to the new file to keep its cues"
+    if result == "shifted":
+        return f"aligned by {ms:.0f} ms, cues stay"
+    return CUE_TEXT.get(result, CUE_TEXT["unknown"])
 
 
 def source_url(source: str | None, source_id: str | None) -> str | None:
@@ -609,9 +617,9 @@ def upgrade_block(up: dict | None, media: Url | None, track_id: str, e: dict) ->
             "what": upgrade_name(up),
             "quality_line": quality_line(up["source"], up.get("source_format") or "flac", up.get("status", "lossless"),
                                          up.get("cutoff_hz"), up.get("kbps")),
-            "alignment": alignment, "cue_text": cue_text(alignment),
+            "alignment": alignment, "cue_text": cue_text(alignment, swap_possible(e)),
             "swap_safe": alignment.get("result") in ("exact", "shifted"),
-            "swap_possible": (e.get("path") or "").lower().endswith((".aiff", ".aif")),
+            "swap_possible": swap_possible(e),
             "audio_url": media(track_id, {**e, "path": up["file"]}) if media else None}
 
 
@@ -1065,7 +1073,7 @@ def _group(e: dict) -> str | None:
 
 def _detail(group: str, e: dict, today: date, other: str | None) -> str:
     if group == "upgrade_ready":
-        return cue_text(e["upgrade"].get("alignment"))
+        return cue_text(e["upgrade"].get("alignment"), swap_possible(e))
     if group == "not_found":
         when = next_check(e, today)
         if when is None or when == "next_sync":

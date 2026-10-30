@@ -135,6 +135,18 @@ describe('actionsFor', () => {
     expect(actionsFor(detail({ upgrade: upgrade({ swap_possible: false }) })).upgrade).toEqual({ swap: false, primary: 'add_new' });
     expect(actionsFor(detail()).upgrade).toBeNull();
   });
+  it('picks the primary action from the match and the file format together', () => {
+    // [swap_safe, swap_possible] -> what leads: only an AIFF file that lines up swaps; an MP3 is added as a new file
+    // however well it matches
+    const cases: [boolean, boolean, 'swap' | 'add_new'][] = [
+      [true, true, 'swap'], [true, false, 'add_new'], [false, true, 'add_new'], [false, false, 'add_new'],
+    ];
+    for (const [swap_safe, swap_possible, primary] of cases) {
+      const d = detail({ upgrade: upgrade({ swap_safe, swap_possible }) });
+      expect(actionsFor(d).upgrade).toEqual({ swap: primary === 'swap', primary });
+      expect(actionsFor(d, 'upgrade_ready').main).toBe(primary);
+    }
+  });
   it('offers Find a version for missing tracks, Wrong song? otherwise; None of these not for missing', () => {
     const missing = actionsFor(detail({ status: 'missing', quality: 'missing', audio_url: null, path: null }));
     expect(missing.versions).toBe('find');
