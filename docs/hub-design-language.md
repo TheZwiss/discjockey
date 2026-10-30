@@ -35,7 +35,8 @@ Every page uses one, from `hub-ui/src/lib/frames`:
 - **`ListPanelFrame`** (snippets `main`, `panel`; `emptyPanel` text; `wide`): sidebar 168 · list area · panel docked
   right, **360 px**, **320 px** below 1240 px window width (one step, never fluid). List content grows to **900 px**
   (`wide`, Library's table: **1200 px**), then centres.
-  `panelMode="inspector"` (Library only): the panel is the details **on demand**, there only while `open`, at the
+  `panelMode="inspector"` (Library only): the panel is the details **when wanted** (Library opens it when a track is
+  picked, unless the user hid it by hand), there only while `open`, at the
   same widths with the same `Panel` and `data-panel`; the list takes its final width at once and the inspector slides
   in from the window's right edge over the freed space, and out the same way (motion table). Closed it is `inert` and
   hidden. Every other page keeps the docked panel.
@@ -362,11 +363,11 @@ used.
 
 | Block | File | Gallery | What it does |
 |---|---|---|---|
-| `ListPanelFrame`, `ColumnFrame` | `lib/frames/` | `gallery-frames` | The two page frames (§1 here); `ListPanelFrame` `panelMode` `docked` (default) or `inspector` with `open` (Library's details on demand); `panelLabel` names the panel's landmark (an inspector without one is "Details"). |
+| `ListPanelFrame`, `ColumnFrame` | `lib/frames/` | `gallery-frames` | The two page frames (§1 here); `ListPanelFrame` `panelMode` `docked` (default) or `inspector` with `open` (Library's details: open on a pick, unless hidden by hand); `panelLabel` names the panel's landmark (an inspector without one is "Details"). |
 | `Panel` | `lib/frames/Panel.svelte` | `gallery-panel` | `head` / `fill` / `after` / `foot`. |
 | `PageHeader` | `lib/components/PageHeader.svelte` | `gallery-page-header` | Title · status line (a string that wraps under the title, or a list of parts that drop whole, last first), actions, the read-status slot. |
 | `Surface` | `lib/components/Surface.svelte` | `gallery-surface` | `card` / `list` / `table`; `label`, `summary`, `tone`, `foldable`, `sticky`, `bulk` (All · None), `hint` (a group's one-line hint after the count, printed like `ListSection`'s: no dot between name, count and hint), `fitLabel` (the label is a folder's path, fitted into the head's free width like a watched folder's: `~` for home, parents giving way in whole folders, the folder's own name last; the full path is the tooltip; a path that is not whole beside the head's links goes on a line of its own and the links wrap below it, and is cut only when even the head's width is too narrow), `header` (a Hint there gives way with the label), `grow` (`{ rows, tall? }`: fills its column up to its rows, 3-row minimum plus a peek, rows scroll inside; shared measuring with ToggleGroup in `growFill.ts`); `columns` (a table's column head, ruled and fixed above the rows, a `list` container of the rows' width so optional columns match) and `scroller` (bindable: the rows' scroller of a `grow` surface, for a table that renders only its visible rows); sets `data-surface`, `data-scrolls-itself` with `grow`, the fold `data-row-hit`. |
-| `Button` | `lib/components/Button.svelte` | `gallery-button` | `filled` · `primary` · `secondary` · `danger` · `link` · `icon`; an `icon` can be a toggle (`pressed`: accent text on `--accent-wash-strong` plus a dot, `aria-pressed`, the foot's Shuffle; Library's details toggle) and `size="xs"` (22 px, a row inside the sidebar). `tip` gives it the house `Tip` (name plus the shortcut's key cap, "Show details ⌘I") in place of a native title. |
+| `Button` | `lib/components/Button.svelte` | `gallery-button` | `filled` · `primary` · `secondary` · `danger` · `link` · `icon`; an `icon` can be a toggle (`pressed`: accent text on `--accent-wash-strong` plus a dot, `aria-pressed`, the foot's Shuffle; Library's details toggle) and a toggle switched off by hand that stays so (`switchedOff="Details hidden"`: its words before the glyph, which keeps its place, in a dashed outline, the house shape for switched off; neutral, since red means weak or a problem and orange means on; the caller passes a struck-through glyph) and `size="xs"` (22 px, a row inside the sidebar). `tip` gives it the house `Tip` (name plus the shortcut's key cap, "Show details ⌘I") in place of a native title. |
 | `ToggleGroup`, `ToggleRow` | `lib/components/` | `gallery-toggles` | On/off rows; `grow` inside a Panel `fill` (one per Panel); search from `SEARCH_FROM` rows (the query clears below it); `disabledReason`: each row's tooltip and a Hint in the head in place of All · None (gallery "Locked"). A `ToggleRow` alone in a `Surface kind="list"` is a single setting; its `sub` is a wrapping second line (the setting's detail, or why it is locked; Playlists' "Rename the folder on disk too"). |
 | `Segmented` | `lib/components/Segmented.svelte` | `gallery-segmented` | One of up to 6; counts, dots (none at a count of 0), More, tight mode. |
 | `StatCard` | `lib/components/StatCard.svelte` | `gallery-statcard` | 30 px number + unit + label; a bar or ring as its child; `value={null}` is "—", also its loading state; `wrap`: a label that is a sentence (the cutoff's "a lossy file inside the AIFF") takes a second line whole instead of ending in "…". |
@@ -550,6 +551,15 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-30 · Library's details open on a pick; a hide by hand sticks and shows (`Button switchedOff`).** The
+  user's live check of step A: a click that only selected made them ask for the details every time. Now picking a
+  track (click, ↑ ↓) opens them; closing them with the toggle or ⌘I hides them by hand, remembered
+  (`library.details.hidden`), until opened by hand again (`detailsAfter`, `stores/chrome.ts`). The user's first idea
+  for the hidden state was a red toggle; red already means weak quality or a problem and sits right below in the bar
+  and the Weak badges, so the toggle says it in words instead: "Details hidden" in a dashed outline (switched off, as
+  SelectCard's `off` and the ladder's unlit rung) with the glyph struck through. The glyph keeps its place, so the
+  pointer that hid the details is still on the control that brings them back. Seen: `library-pick-opens`,
+  `library-details-hidden`, `library-details-hidden-1100`, `base-gallery-button`.
 - **2026-10-30 · A6 fixes: the strip's "Not lossless yet" mark is the group's own colours.** The row counts good lossy,
   weak and fake together, but its mark was the weak red dot, the Weak segment's dot right below: it claimed one quality
   for the whole group. Now a 14 px pill of the three colours in proportion (`stripView.mix`), the not-lossless part of
