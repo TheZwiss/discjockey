@@ -1363,7 +1363,7 @@ def test_a_save_that_fails_for_any_other_reason_than_a_lock_does_not_say_try_aga
     api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
     for error in (sqlite3.DatabaseError("file is not a database"),
                   sqlite3.OperationalError("attempt to write a readonly database")):
-        monkeypatch.setattr(db, "set_favourites", lambda conn, keys, error=error: (_ for _ in ()).throw(error))
+        monkeypatch.setattr(db, "set_favourites", lambda conn, keys, resolving=None, error=error: (_ for _ in ()).throw(error))
         answer = api.set_favourites([])
         assert (answer["ok"], answer["kind"]) == (False, "config_invalid"), error
         assert "Try again" not in answer["message"]

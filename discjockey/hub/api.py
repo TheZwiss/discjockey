@@ -738,6 +738,8 @@ class HubApi:
         place (the UI never saw it, so it can't have meant to remove it). Answers the stored list."""
         if not isinstance(keys, list) or not all(isinstance(k, str) and k.startswith(FAVOURITE_KEYS) for k in keys):
             raise ValueError(BAD_FAVOURITES)
+        if not self._paths.db_file.exists():
+            raise OpProblem(NO_RECORDS, "refused")
         resolving = {f["key"] for f in self._sidebar_view(keys)["favourites"]}
         stored: list[str] = []
 
