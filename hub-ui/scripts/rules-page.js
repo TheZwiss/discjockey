@@ -94,6 +94,20 @@
     // 7 Spotify status only in the page header (§5a, §12: a shared element is placed by its block, never by the page)
     for (const el of document.querySelectorAll('[data-read-status]'))
       if (!el.matches(SKIP) && !el.closest('[data-page-header]')) add('read-status', el, 'Spotify status outside the page header');
+    // 8 chrome edge (plan library stage 5, D19): the page frame's left edge is --sidebar-w, the chrome's whole width, so
+    // the foot's line and the page's edge can't drift apart. Only where the chrome stands: a page without the sidebar
+    // (Setup, the missing-folder screen) has its frame at the window's edge
+    if (document.querySelector('[data-test=sidebar]')) {
+      for (const f of frames) {
+        const probe = document.createElement('i');   // measured inside the frame, where --sidebar-w is inherited
+        probe.style.cssText = 'position:absolute;visibility:hidden;width:var(--sidebar-w)';
+        f.append(probe);
+        const want = probe.getBoundingClientRect().width;
+        probe.remove();
+        const left = f.getBoundingClientRect().left;
+        if (!Number.isNaN(want) && Math.abs(left - want) > 1) add('chrome-edge', f, `frame starts at ${Math.round(left)}, --sidebar-w is ${Math.round(want)}`);
+      }
+    }
     return v;
   };
 })();

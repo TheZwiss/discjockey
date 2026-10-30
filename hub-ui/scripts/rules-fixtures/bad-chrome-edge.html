@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>bad chrome edge</title>
+<script src="../rules-page.js"></script>
+<style>
+  :root { --bg: #101114; --surface: #1b1d22; --text: #e8e8ea; --accent: #4f8cff; --on-accent: #ffffff; --border: #2a2d34; --type-scale: 13 22 30;
+    --panel-w: 360px; --panel-w-narrow: 320px; --panel-narrow-below: 1240px; --content-max: 900px; --sidebar-w: 240px; }
+  html, body { margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.4 -apple-system, sans-serif; }
+  h1, h2, p { margin: 0; }
+  h1 { font-size: 30px; }
+  h2 { font-size: 22px; }
+  button { font: inherit; color: var(--text); background: var(--surface); border: 0; padding: 6px 12px; }
+  button[data-primary] { background: var(--accent); color: var(--on-accent); }
+  [data-surface] { background: var(--surface); border: 1px solid var(--border); padding: 12px; }
+</style>
+</<body>
+<div style="display: flex;">
+<nav data-test="sidebar" style="width: 291px; flex: none; background: var(--surface);"><span>Rail</span></nav>
+<div data-frame style="flex: 1; min-width: 0; box-sizing: border-box; padding: 16px;">
+  <main data-frame-content data-max="--content-max" style="max-width: 900px;">
+    <header data-page-header><h1>Frame under the chrome</h1></header>
+  </main>
+</div>
+</div>
+</body>
+</html>
