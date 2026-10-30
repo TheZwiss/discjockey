@@ -158,4 +158,25 @@ describe('fitMiddle', () => {
   it('leaves no blank beside the ellipsis', () => {
     expect(fitMiddle('Artist - Title', upTo(9))).not.toMatch(/ …|… /);
   });
+  describe('a place (sep "›"): whole folders give way first', () => {
+    const place = 'Rekordbox Library › Old Sets › Bounce › 2019';
+    it('stays whole while it fits', () => {
+      expect(fitMiddle(place, upTo(place.length), '›')).toBe(place);
+    });
+    it('drops the middle folders from the front, keeping the first and the last', () => {
+      expect(fitMiddle(place, upTo(40), '›')).toBe('Rekordbox Library › … › Bounce › 2019');
+      expect(fitMiddle(place, upTo(30), '›')).toBe('Rekordbox Library › … › 2019');
+    });
+    it('then gives way by characters, in the middle of the shortest form', () => {
+      const x = fitMiddle(place, upTo(20), '›');
+      expect(x.length).toBeLessThanOrEqual(20);
+      expect(x).toMatch(/^Rekord.*….*2019$/);
+      // one ellipsis, never the dropped folders' "…" beside the cut's
+      for (const w of [12, 16, 20, 24, 27]) expect(fitMiddle(place, upTo(w), '›').split('…').length).toBe(2);
+    });
+    it('two folders have no middle to drop: characters at once', () => {
+      const two = 'Rekordbox Library › Hardtechno';
+      expect(fitMiddle(two, upTo(20), '›')).toBe(fitMiddle(two, upTo(20)));
+    });
+  });
 });

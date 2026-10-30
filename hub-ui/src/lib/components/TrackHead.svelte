@@ -9,8 +9,10 @@
   import { duration } from '../format';
   import Cover from './Cover.svelte';
 
-  let { track, place, action, children }: {
+  let { track, place, empty = false, action, children }: {
     track: Pick<TrackDetail, 'cover_url' | 'track_id' | 'title' | 'artist' | 'duration_s'>; place: string;
+    /** no file yet: the cover's place is an empty dashed outline (Cover `empty`), as in the table's row */
+    empty?: boolean;
     /** at the title's right end, e.g. Hide */
     action?: Snippet;
     /** under the lines, e.g. the quality badge (To-do) */
@@ -21,7 +23,7 @@
 </script>
 
 <div class="head">
-  <Cover url={track.cover_url} seed={track.track_id} size={64} />
+  <Cover url={track.cover_url} seed={track.track_id} size={64} {empty} />
   <div class="lines">
     <div class="top">
       <h2 class="title">{track.title}</h2>

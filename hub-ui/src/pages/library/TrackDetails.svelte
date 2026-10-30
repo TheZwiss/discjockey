@@ -4,22 +4,32 @@
   // words), then the upgrade box when one is ready (its Now spectrum and compare player stand in for the file's
   // own), else the cutoff as a number over the spectrum, then Current file (the player, Format, Source, Added, File)
   // with Show in Finder as its link (not for a file that isn't there: the pictures say why). The foot holds the one filled button: Swap the files when the upgrade matches;
-  // Open in to-do (outline) for any other track on the to-do list; nothing for a lossless one. The head's place line is
-  // the file's folder (or "Not in a playlist"); the playlists it is in are the Playlists row, by name.
+  // Open in to-do (outline) for any other track on the to-do list; nothing for a lossless one. The head's place line
+  // says where the file sits, in the Folder and Subfolder columns' words ("in Hardtechno › 2019", plan library stage 5
+  // D11); the playlists it is in are the Playlists row, by name ("–" for none).
+  // A playlist song without a file (`pending`, the selected row: a song only just read isn't a track `track()` knows)
+  // has no file to show: its head (the dashed cover, "Artist · length · not downloaded yet", Waiting or NOT FOUND as in
+  // its row) and one NoteCard that says what happens next; a song not found also has Open in to-do, where the ways to
+  // get it are (`next`: when Qobuz looks again, from its details when the engine has them).
   import type { ComponentProps } from 'svelte';
   import {
-    Button, EmptyState, ExternalLink, KeyValue, MiddleText, MiniPlayer, ProblemCard, QualityBadge, Skeleton, Spectrum, StatCard,
-    Surface, TrackHead, UpgradeCard, WriteButton, envelope,
+    Badge, Button, EmptyState, ExternalLink, KeyValue, MiddleText, MiniPlayer, NoteCard, ProblemCard, QualityBadge, Skeleton,
+    Spectrum, StatCard, Surface, TrackHead, UpgradeCard, WriteButton, envelope,
   } from '$lib/components';
   import { Panel } from '$lib/frames';
   import { artistTitle, cutoffStat, dateShort, fileAwayWords, qualityWords } from '$lib/format';
-  import type { Fail, TrackDetail } from '$lib/bridge/types';
-  import { fileName, footAction, placeLine, shortUrl } from './libraryModel';
+  import type { Fail, LibraryRow, TrackDetail } from '$lib/bridge/types';
+  import {
+    NOT_FOUND_WORD, NO_FILE_PLACE, fileName, waitWords, noFileNote, footAction, placeLine, playlistsLine, shortUrl,
+  } from './libraryModel';
 
   type Spec = ComponentProps<typeof Spectrum>['spectrum'];
-  let { detail, loading = false, gone = false, error = null, spectrum = null, spectrumLoading = false,
+  let { detail, pending = null, loading = false, gone = false, error = null, spectrum = null, spectrumLoading = false,
     spectrumError = null, upgradeSpectrum = null, swapping = false, onretry, onfinder, ontodo, onswap, onlisten }: {
-    detail: TrackDetail | null; loading?: boolean; gone?: boolean; error?: Fail | null; spectrum?: Spec;
+    detail: TrackDetail | null;
+    /** the selected row when it is a playlist song without a file; `next`: its details' `next_qobuz_check` (not found) */
+    pending?: { row: LibraryRow; next: string | null; off: boolean } | null;
+    loading?: boolean; gone?: boolean; error?: Fail | null; spectrum?: Spec;
     spectrumLoading?: boolean; spectrumError?: string | null; upgradeSpectrum?: Spec; swapping?: boolean;
     onretry: () => void; onfinder: () => void; ontodo: () => void; onswap: () => void;
     /** ▶ in the player: start the folder from this track (the page's queue) */
@@ -31,7 +41,7 @@
   const action = $derived(t ? footAction(t) : null);
   // every playlist the song is in, by name, whole (the head only says where the file sits); nothing when it is in none
   // or the playlists weren't read yet
-  const playlists = $derived(t?.in_playlists && t.playlists?.length ? t.playlists.join(', ') : null);
+  const playlists = $derived(t ? playlistsLine(t) : null);
   const hasFile = $derived(!!t && t.status !== 'missing');
   // the file isn't there (drive away, folder or file not found): the picture says why, the player stays off, there is
   // nothing to show in Finder
@@ -46,7 +56,7 @@
   {#if t}
     <div class="details" class:fading={loading} data-test="track-details" data-track={t.track_id}>
       <Surface kind="card">
-        <TrackHead track={t} place={placeLine(t.folder, t.in_playlists)}>
+        <TrackHead track={t} place={placeLine(t.place)}>
           <span class="state" class:stack={!t.sound_checked}>
             <QualityBadge quality={t.quality} label={t.quality_label} upgrade={t.upgrade_ready}
               checked={t.sound_checked} />
@@ -94,6 +104,22 @@
   {/if}
 {/snippet}
 
+{#snippet noFile()}
+  {#if pending}
+    {@const r = pending.row}
+    <div class="details" data-test="track-details" data-track={r.track_id} data-wait={r.wait}>
+      <Surface kind="card">
+        <TrackHead track={r} place={NO_FILE_PLACE} empty>
+          {#if r.wait === 'not_found'}<Badge tone="missing" text={NOT_FOUND_WORD} />
+          {:else}<Badge tone="quiet" text={waitWords(pending.off).word} />{/if}
+        </TrackHead>
+      </Surface>
+      <NoteCard data-test="no-file-note">{noFileNote(r.wait, pending.next, pending.off)}</NoteCard>
+    </div>
+  {/if}
+{/snippet}
+{#snippet noFileFoot()}<Button wide onclick={ontodo} data-test="details-todo">Open in to-do</Button>{/snippet}
+
 {#snippet foot()}
   {#if action === 'swap'}
     <WriteButton variant="filled" wide busy={swapping} onclick={onswap} data-test="swap">Swap the files</WriteButton>
@@ -102,7 +128,9 @@
   {/if}
 {/snippet}
 
-{#if gone}
+{#if pending}
+  <Panel head={noFile} foot={pending.row.wait === 'not_found' ? noFileFoot : undefined} />
+{:else if gone}
   <Panel head={isGone} />
 {:else if error && !t}
   <Panel head={failed} />

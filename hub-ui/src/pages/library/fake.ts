@@ -86,12 +86,39 @@ function crateFolders(s: FakeState): void {
   s.crateShown[`${rekordbox}/Edits`] = false;
 }
 
+/** A watched import folder at `path` that counts the files of the scenario under it. */
+function watchFolder(s: FakeState, path: string, over: { offline?: boolean } = {}): void {
+  const files = s.tracks.filter((t) => t.own && t.dir !== undefined && (t.dir === path || t.dir.startsWith(`${path}/`))).length;
+  s.imp.folders.push({ id: s.imp.nextId++, path, kind: 'import', offline: false, files, waiting: 0, redownload: 0, ...over });
+}
+
+/** Hard_Bounce as a playlist view shows it at its fullest (plan library stage 5, D6 and D9): beside its songs with a
+ *  file there, a song whose file was downloaded for Powertrance first (it sits in that folder: "in Powertrance"), one the
+ *  user had already in a crate of an import folder ("in Rekordbox Library › Hardtechno › 2019"), one on a drive that is
+ *  away, the song not found (t3) and the ones still waiting (t4 and the songs only just read), and two files in its
+ *  folder that the playlist no longer holds (the `Also in this folder` section). */
+function playlistFull(s: FakeState): void {
+  const rekordbox = '/Users/you/Music/Rekordbox Library';
+  const vinyl = '/Volumes/Vinyl Drive/Vinyl Rips';
+  const held = { in_playlists: true, playlists: ['Hard_Bounce'], folder: 'Hard_Bounce' };
+  s.tracks.push(ownIn(s, `${rekordbox}/Hardtechno/2019`, 'Mira Nacht', 'Berlin 2019', held));
+  s.tracks.push(ownIn(s, `${vinyl}/Side A`, 'Tom Brandt', 'A2 Groove', { ...held, away: 'offline' }));
+  watchFolder(s, rekordbox);
+  watchFolder(s, vinyl, { offline: true });
+  const elsewhere = s.tracks.find((t) => t.folder === 'Powertrance' && t.status === 'lossless' && !t.own
+    && !t.playlists.includes('Hard_Bounce'));
+  if (elsewhere) elsewhere.playlists = [...elsewhere.playlists, 'Hard_Bounce'];
+  const donor = s.tracks.filter((t) => t.status === 'lossless' && t.in_playlists && !t.own);
+  [['Nova Strand', 'Old Favourite'], ['Eli Brandt', 'Last Summer']].forEach(([artist, title], i) => {
+    s.tracks.push({ ...donor[i + 2], track_id: `left-${i + 1}`, artist, title, folder: 'Hard_Bounce', at: undefined,
+      in_playlists: false, playlists: [], hidden: false, upgrade: null });
+  });
+}
+
 const fake: PageFake = {
   scenarios: {
     // set up, but no files yet (first_run would open the wizard)
     empty: (s) => { s.tracks = []; s.runs = []; },
-    // a folder from playlists.txt that has no files yet
-    empty_folder: (s) => { s.extraFolders.push({ folder: 'New_Folder', listed: true }); },
     // an import stopped after its first pass: two WAVs read but not sound-checked (a "Not checked" badge, no
     // quality colour, left out of the counts) beside one the sound check has judged
     unchecked: (s) => {
@@ -193,6 +220,41 @@ const fake: PageFake = {
         Object.assign(t, { title: `${t.title} ${mixes[i % mixes.length]}`,
           artist: i % 2 ? `${t.artist} & Frau Funk` : t.artist });
       });
+    },
+    // a playlist view at its fullest (see playlistFull)
+    playlist: (s) => { playlistFull(s); },
+    // the same playlist switched off: its files stay, nothing new downloads
+    playlist_off: (s) => {
+      playlistFull(s);
+      const p = s.playlists.find((x) => x.folder === 'Hard_Bounce');
+      if (p) p.enabled = false;
+    },
+    // a playlist read and found empty, whose folder holds nothing
+    empty_playlist: (s) => {
+      const hard = s.playlists.find((p) => p.folder === 'Hard_Bounce')!;
+      s.playlists.push({ ...hard, folder: 'Fresh_Finds', link: 'https://open.spotify.com/playlist/FreshFindsxxxxxxxxxxxx',
+        info: hard.info ? { ...hard.info, name: 'Fresh Finds', track_count: 0 } : null });
+      s.emptyRead.push('Fresh_Finds');
+    },
+    // the crates' folders, some of Hardtechno's files held by playlists (the folder views' Playlist column: a badge, "+n")
+    crates_held: (s) => {
+      withFavourites(s);
+      const hold: Record<string, string[]> = { Rumble: ['Hard_Techno', 'Hard_Bounce', 'Powertrance'],
+        'Warehouse Fire': ['Powertrance'], 'Berlin 2019': ['Hard_Techno'], 'Peak 2019': ['Hard_Techno', 'Bouncy'] };
+      for (const t of s.tracks) {
+        if (t.own && t.dir?.includes('/Hardtechno') && hold[t.title]) {
+          t.playlists = hold[t.title];
+          t.in_playlists = true;
+        }
+      }
+    },
+    // every file is in a playlist: Not in a playlist has nothing to show
+    all_listed: (s) => { s.tracks = s.tracks.filter((t) => t.in_playlists); },
+    // a watched import folder with no music in it yet, beside the sidebar's other folders
+    empty_watched: (s) => {
+      crateFolders(s);
+      s.imp.folders.push({ id: s.imp.nextId++, path: '/Users/you/Music/New Crates', kind: 'import', offline: false, files: 0,
+        waiting: 0, redownload: 0 });
     },
     // the sidebar's folders at their fullest (see crateFolders) and four Favourites in the mockup's order: a playlist, two
     // crates and the crate inside a wrapper folder, whose label says where it is

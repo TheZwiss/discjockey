@@ -50,7 +50,7 @@
   import { listen } from '../listen';
   import { count as thousands } from '../format';
   import { getPref } from '../prefs';
-  import { DEFAULT_SORT, SORT_KEY, isSort, playQueue } from '../../pages/library/libraryModel';
+  import { LEGACY_SORT_KEY, playQueue, sortKey, viewSort } from '../../pages/library/libraryModel';
   import { Button, ContextMenu, ListSection, SearchField, tip } from '../components';
   import type { MenuItem } from '../components/ContextMenu.svelte';
   import {
@@ -269,18 +269,18 @@
     } else if (action === 'finder') void finder(row);
   }
   const AWAY: Record<Exclude<FolderState, 'here'>, string> = { offline: 'Offline: connect the drive', folder_missing: 'Folder not found' };
-  /** Play: what ▶ on the collection's page queues (`playQueue`: the page's list in the page's sort, the leftover
-   *  files of a playlist's folder merged in, only files that are there), from the first. */
+  /** Play: what ▶ on the collection's page queues (`playQueue`: the page's list in the page's sort, a playlist's songs
+   *  then the other files of its folder, only files that are there), from the first. */
   async function play(row: ViewRow | CollectionRow) {
     const c = playCall(row);
-    const saved = getPref<string>(SORT_KEY, DEFAULT_SORT);
-    const sort = isSort(saved) ? saved : DEFAULT_SORT;
+    // the sort the page opens this view kind with, so the queue is the page's
+    const sort = viewSort(c.view, getPref<string | null>(sortKey(c.view), null), getPref<string | null>(LEGACY_SORT_KEY, null));
     const r = await api.library(c.view, c.key, '', 'all', sort);
     if (!r.ok) {
       toasts.show({ tone: 'problem', title: problemCopy(r.kind).title, body: r.message || undefined });
       return;
     }
-    const rows = playQueue(r, sort);
+    const rows = playQueue(r);
     const away = row.kind === 'folder' && row.state !== 'here' ? AWAY[row.state] : undefined;
     if (!rows.length || !listen(rows, rows[0].track_id, { label: row.name, href: row.href })) {
       toasts.show({ tone: 'info', title: 'Nothing here can play right now.', body: away });

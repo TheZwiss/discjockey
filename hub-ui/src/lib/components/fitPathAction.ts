@@ -63,23 +63,35 @@ export function fitPathAction(el: HTMLElement, path: string, opts: FitOptions = 
 
 /** A name's text in the form that fits the element's width (fitMiddle: the middle gives way, both ends stay), measured
  *  with the element's own font, again when its width changes or the fonts finish loading. MiddleText uses it. */
-export function fitMiddleAction(el: HTMLElement, text: string) {
-  let current = text;
+export function fitMiddleAction(el: HTMLElement, arg: string | { text: string; sep?: string }) {
+  const read = (a: typeof arg) => (typeof a === 'string' ? { text: a, sep: undefined } : a);
+  let { text: current, sep } = read(arg);
   const ctx = document.createElement('canvas').getContext('2d');
+  // with a separator, each one is a span of its own (`.sep`, the quiet grey), the folders the text's own colour
+  function put(text: string) {
+    if (!sep) { el.textContent = text; return; }
+    el.replaceChildren(...text.split(` ${sep} `).flatMap((part, i) => {
+      if (!i) return [document.createTextNode(part)];
+      const s = document.createElement('span');
+      s.className = 'sep';
+      s.textContent = ` ${sep} `;
+      return [s, document.createTextNode(part)];
+    }));
+  }
   function run() {
     const width = el.getBoundingClientRect().width;
     // no canvas (tests) or not laid out yet: the whole text, and the element's ellipsis does the rest
-    if (!ctx || width === 0) { el.textContent = current; return; }
+    if (!ctx || width === 0) { put(current); return; }
     const s = getComputedStyle(el);
     ctx.font = `${s.fontStyle} ${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
-    el.textContent = fitMiddle(current, (t) => ctx.measureText(t).width <= width);
+    put(fitMiddle(current, (t) => ctx.measureText(t).width <= width, sep));
   }
   const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(run);
   ro?.observe(el);
   run();
   void document.fonts?.ready.then(run);
   return {
-    update(t: string) { current = t; run(); },
+    update(a: typeof arg) { ({ text: current, sep } = read(a)); run(); },
     destroy() { ro?.disconnect(); },
   };
 }

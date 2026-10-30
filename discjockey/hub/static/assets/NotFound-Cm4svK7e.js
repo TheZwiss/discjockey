@@ -1,0 +1,1 @@
+import{c as t,as as e,N as n,d9 as s,f as r}from"./index-PXPgPTRX.js";import{E as i}from"./EmptyState-qclTcrE_.js";function h(a,o){t(o,!1),e(()=>n("unknown")),s(),i(a,{title:"Nothing here.",action:{label:"Go to the Dashboard →",href:"#/"}}),r()}export{h as default};

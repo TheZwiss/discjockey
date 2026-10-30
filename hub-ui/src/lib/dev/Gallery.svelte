@@ -21,7 +21,7 @@
   import {
     AccountPanel, AddRow, CopyCode, NumberedSteps, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
     AwayTag, Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
-    Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, tip, SummaryStrip, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
+    Hint, InfoTip, KeyValue, ListRow, ListLine, ListSection, MiddleText, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, tip, SummaryStrip, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
     Segmented, SectionLabel, SelectCard, Skeleton, SortHeader, SourceLadder, Spectrum, Spinner, SplitView, StatCard, StatusMark, Surface, Switch, TextField, Tile, Toast,
     ToggleGroup, ToggleRow, TrackHead, TrackRow, UpgradeCard, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
     confirm, envelope, ImportCard, UnreadableList, WatchedFolderList,
@@ -562,11 +562,14 @@
       <div class="col grow-demo span2" data-test="g-surface-columns">
         <Surface kind="table" grow={{ rows: 12 }}>
           {#snippet columns()}
+            <!-- Playlist has no onsort: a static head, the same words as a label (no button, no aria-sort) -->
             <div class="gtr"><SortHeader label="Track" sorted={gSorted('track')} onsort={() => gSortBy('track')} />
+              <SortHeader label="Playlist" test="g-sort-static" />
               <SortHeader label="Length" align="end" sorted={gSorted('length')} onsort={() => gSortBy('length')} /></div>
           {/snippet}
           {#each Array.from({ length: 12 }, (_, i) => i) as i (i)}
-            <div class="gtr row-line"><span>Track {i + 1}</span><span class="num">{3 + (i % 3)}:{10 + i}</span></div>
+            <div class="gtr row-line"><span>Track {i + 1}</span><span>{i % 3 ? 'Hard_Bounce' : 'Peak Time'}</span><span
+              class="num">{3 + (i % 3)}:{10 + i}</span></div>
           {/each}
         </Surface>
       </div>
@@ -969,6 +972,18 @@
       <QualityBadge quality="missing" label="NOT FOUND" /><QualityBadge quality="lossless" label="LOSSLESS" checked={false} />
     </div>
     <div class="row" data-test="g-away-tag"><AwayTag state="offline" /><AwayTag state="folder_missing" /><AwayTag state="file_missing" /></div>
+    <span class="cap">quiet: a state with no badge yet, as words in the badge's place (a playlist song waiting for its file)</span>
+    <div class="row" data-test="g-badge-quiet"><Badge tone="quiet" text="Waiting" tip="Downloads at the next sync" />
+      <Badge tone="quiet" text="Switched off" /><Badge tone="missing" text="NOT FOUND" /></div>
+    <span class="cap">muted with <code>more</code> (Library's Playlist column): a name as the user spelled it, "+n" for the others; in a narrow cell the name gives way, the +n never</span>
+    <div class="row" data-test="g-badge-more"><Badge text="Hard_Bounce" more={2} /><Badge text="Peak Time" more={0} />
+      <span class="cell140"><Badge text="Afterhour_Sonntag_Warmup_Classics" more={3} /></span></div>
+    <span class="cap">MiddleText with <code>sep="›"</code> (a place: whole folders give way first, then characters; the separators quiet)</span>
+    <div class="col" data-test="g-middle-sep">
+      <span class="cell320"><MiddleText text="Rekordbox Library › Old Sets › Bounce › 2019" sep="›" /></span>
+      <span class="cell200"><MiddleText text="Rekordbox Library › Old Sets › Bounce › 2019" sep="›" /></span>
+      <span class="cell140"><MiddleText text="Rekordbox Library › Old Sets › Bounce › 2019" sep="›" /></span>
+    </div>
     <div class="row"><ExternalLink href="https://www.beatport.com/search?q=Armin+Hermann+Get+Naughty" label="Beatport" />
       <ExternalLink href="https://bandcamp.com">Bandcamp</ExternalLink></div>
   </section>
@@ -985,6 +1000,8 @@
       <Cover url={null} seed="c2" size={22} onplay={() => (gPlaying = gPlaying === 'c2' ? null : 'c2')} playing={gPlaying === 'c2'} name="Track two" />
       <Cover url={coverUri(2)} seed="c3" size={22} hint onplay={() => (gPlaying = gPlaying === 'c3' ? null : 'c3')} playing={gPlaying === 'c3'} name="Track three" />
     </div>
+    <span class="cap">empty: no file yet (a playlist song waiting or not found), a dashed outline in the cover's place, no ▶</span>
+    <div class="row" data-test="g-cover-empty"><Cover url={null} seed="e1" size={22} empty /><Cover url={null} seed="e2" size={64} empty /></div>
   </section>
 
   <section data-test="gallery-listsection">
@@ -1001,6 +1018,23 @@
               {#snippet trailing()}<Badge tone={r.quality} text={r.quality_label} />{/snippet}
             </ListRow>
           {/each}
+        {/each}
+      </Surface>
+    </div>
+  </section>
+
+  <section data-test="gallery-listline">
+    {@render head('ListLine', 'An empty group\'s one quiet line among a list\'s rows, at a section head\'s height')}
+    <div class="col w640" data-test="g-list-line">
+      <Surface kind="list" label="Hard_Bounce" summary="0 songs">
+        <ListLine text="This playlist is empty." />
+        <ListSection label="Also in this folder" summary="2" hint="files in Hard_Bounce that aren't in this playlist" />
+        {#each [weak, fakeQ] as r, ri (ri)}
+          <ListRow onclick={() => {}} title="{r.artist} – {r.title}">
+            {#snippet lead()}<Cover url={null} seed={r.track_id + ri} size={28} />{/snippet}
+            {#snippet name()}{r.artist} – {r.title}{/snippet}
+            {#snippet trailing()}<Badge tone={r.quality} text={r.quality_label} />{/snippet}
+          </ListRow>
         {/each}
       </Surface>
     </div>
@@ -1273,6 +1307,11 @@
           <QualityBadge quality={weak.quality} label={weak.quality_label} />
         </TrackHead>
       </Surface>
+      <Surface kind="card" data-test="g-trackhead-empty">
+        <TrackHead track={{ ...weak, cover_url: null, title: 'AEIOU', artist: 'Pegassi' }} place="not downloaded yet" empty>
+          <Badge tone="missing" text="NOT FOUND" />
+        </TrackHead>
+      </Surface>
       <UpgradeCard upgrade={upExact} currentUrl={toneA} current={specCut} next={specFull} swap>
         {#snippet actions()}<Button variant="link" size="sm">Add as new file</Button><Button variant="link" muted size="sm">Discard</Button>{/snippet}
       </UpgradeCard>
@@ -1379,13 +1418,16 @@
   .tbl td { padding: var(--s-2) var(--s-4); border-bottom: var(--bw) solid var(--surface-line); color: var(--text); }
   .tbl tr:last-child td { border-bottom: none; }
   .tbl .num { text-align: right; }
-  .gtr { display: grid; grid-template-columns: minmax(0, 1fr) 56px; align-items: center; gap: var(--s-3); height: var(--h-row);
+  .gtr { display: grid; grid-template-columns: minmax(0, 1fr) 120px 56px; align-items: center; gap: var(--s-3); height: var(--h-row);
     padding: 0 var(--s-4); font-size: var(--fs-body); color: var(--text); }
   .gtr.row-line + .gtr.row-line { border-top: var(--bw) solid var(--line-soft); }
   .gtr .num { justify-self: end; color: var(--text-muted); font-variant-numeric: tabular-nums; }
   .w260 { width: 260px; }
   .w320 { width: 320px; }
   .w360 { width: 360px; max-width: 100%; }
+  /* table cells of a fixed width, to show how a block gives way in one (Badge more, MiddleText sep) */
+  .cell140, .cell200, .cell320 { display: flex; min-width: 0; color: var(--text-muted); font-size: var(--fs-small); }
+  .cell140 { width: 140px; } .cell200 { width: 200px; } .cell320 { width: 320px; max-width: 100%; }
   .w240 { width: 240px; max-width: 100%; margin-bottom: var(--s-3); }
   .w372 { width: 372px; max-width: 100%; }
   .g-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-3); }
