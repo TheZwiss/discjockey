@@ -158,17 +158,36 @@ window (2ee90d0, **user to re-check**: import with a small window, then full scr
 weak 12 dB wall only 19.5–20.4 kHz (7b71617; calibrated on 120 real Qobuz files + 31 DJ Stick Jan WAVs, all right);
 Sync's blank playlist row for own songs (765085d).
 
+Item 1 done, the upgrade investigation (Opus, 107k, report only). Results:
+- Compare fails because `ComparePlayer.load()` uses `fetch()` across ports and `media.py:MediaServer._serve` sends no
+  `Access-Control-Allow-Origin` header. It has never worked in the real app.
+- Basswell is the same edit (measured: lag 0, 1 sample apart). "cues stay" ignored that an MP3 can't be swapped
+  (`swap_possible` is AIFF only). The "different edit" text after the step is a fixed sentence: `upgrades.add_new`
+  always adds `REKORDBOX_CHECK["added_as_new"]`.
+- The user pressed "Add as new file", which was primary because Swap is impossible for an MP3. That makes a new
+  rekordbox entry with no cues.
+- There is no undo for upgrades anywhere.
+- The stray `library.db` came from our own agent's `sqlite3` CLI on a wrong path; deleted.
+
 Open, in order:
-1. **Upgrade-ready investigation** (Opus, report only, worktree `5b-upgrade`): Compare says "Can't play these
-   files"; "matches exactly, cues stay" before the swap vs "This is a different edit" after it (Basswell – Bass
-   Revolution 2000; old MP3 in `Superseded/Techno/`, user told to leave the track alone); no undo for the swap; why
-   "Add as new file" is the orange primary; a stray 0-byte `~/Music/Discjockey/library.db` (created 00:05).
-2. **To-do decision panels design** (Opus + design skills, mockup with before/after for the user's approval, then
-   build): Upgrade ready (warning before the step, undo, button order) and Duplicates (user: "very bad UX";
-   "Move to Superseded" is jargon and badly placed, "Keep both" is the orange primary, no recommendation, paths as
-   headings, the Superseded explanation in a separate box). Feed in item 1's findings.
-3. **Compare playback fix**, if item 2 doesn't cover it.
-4. **Tooltip cut off at the window edge** (To-do's "Add as new file makes a new rekordbox e…"), small UI fix + shots.
+1. **Upgrade engine fixes** (Sonnet, code + tests, no UI shots):
+   - Compare: send the CORS header for the page's own origin only (port from `window_port`), never `*`.
+   - `views.upgrade_block` / `cue_text`: combine the measurement with `swap_possible`, and tests pin which button is
+     primary.
+   - `add_new`: store the measurement in `rekordbox_check`, and have `report.check_text` say "same edit: relocate in
+     rekordbox, cues fit" unless the edit really differs.
+2. **Upgrade undo** (Opus, engine + hub API): undo for add-as-new and swap. It restores the old file, path, entry and
+   parked upgrade; it is refused if either file changed; it is crash-safe (reuse `recover_swap`); it is gone after
+   "Done, checked in rekordbox".
+3. **To-do decision panels design** (Opus + design skills, mockup with before/after for the user's approval, then
+   build + shots):
+   - Upgrade ready: show the outcome of "Add as new file" before the click, not in a tooltip; button order; where the
+     Undo link sits.
+   - Duplicates (user: "very bad UX"): "Move to Superseded" is jargon and badly placed, "Keep both" is the orange
+     primary, there is no recommendation, paths serve as headings, and the Superseded explanation sits in a separate
+     box.
+4. **Tooltip cut off at the window edge** (To-do's "Add as new file makes a new rekordbox e…"), small UI fix + shots
+   (may fold into 3).
 5. **Ask the user:** re-judge old quality verdicts with the new rule? (`docs/issues.md` #27; e.g. 27 DJ Stick Jan
    WAVs still show lossless until judged again).
 6. Then: CI + verify, the user's re-check, merge `feat/library-5b-folders` into main, update this table and memory.
