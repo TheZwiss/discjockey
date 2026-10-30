@@ -35,10 +35,7 @@ Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, st
   waiting rows so the numbers don't seem to disagree (e.g. "3 waiting").
 - **From B5 (the browser column):** *Show in Finder* is offered only where `api.reveal` can open the folder (a
   playlist's folder, a Library folder): it refuses any path outside the music folder, so an import folder and its
-  crates have no Show in Finder until the engine gets a reveal for watched folders (no Python change in B5). A
-  favourite can be reordered only by drag (the menu adds at the end and removes); a keyboard way (⌥↑ / ⌥↓ on a
-  favourite) would make it reachable without a pointer. The UI saves the Favourites it is shown, so a stored key whose
-  playlist or folder is gone right now (left out of `sidebar()`) is dropped by the next save from the UI. The browser
+  crates have no Show in Finder until the engine gets a reveal for watched folders (no Python change in B5). The browser
   links an import folder and a crate by its path (`#/library/folder/<path encoded>`; `libraryCalls` asks a path as a
   folder view); the rest of I5's routes (`/library/playlist/:name`, `libraryTarget`) are still open. Folder rows count
   "tracks" (the word of the page they open), playlists "songs".

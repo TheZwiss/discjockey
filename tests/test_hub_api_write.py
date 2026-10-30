@@ -1270,9 +1270,41 @@ def test_set_favourites_keeps_the_order_and_the_sidebar_resolves_them(tmp_path, 
                                                                    "playlist:gone"]}
     assert [(f["key"], f["name"]) for f in api.sidebar()["favourites"]] == [
         (f"folder:{folder}/Hard", "Hard"), (f"playlist:{ref}", "Powertrance")]  # the gone key stays stored, unshown
-    assert api.set_favourites([])["favourites"] == [] and api.sidebar()["favourites"] == []
+    assert api.set_favourites([f"playlist:{ref}"])["favourites"] == [f"playlist:{ref}", "playlist:gone"]
+    assert api.set_favourites([])["favourites"] == ["playlist:gone"] and api.sidebar()["favourites"] == []
     for bad in ("playlist:x", [3], ["x:y"], None):
         assert api.set_favourites(bad)["kind"] == "refused", bad
+
+
+def test_a_save_keeps_the_favourites_that_are_gone_right_now_and_removes_the_ones_the_user_took_out(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    ref = api.sidebar()["playlists"][1]["ref"]
+    hard, house, play = f"folder:{folder}/Hard", f"folder:{folder}/House", f"playlist:{ref}"
+    api.set_favourites([hard, house, play])
+    # a watched folder removed: its crates are not in the sidebar, the UI saves what it shows
+    fid = next(r["id"] for r in api.watched_folders()["folders"] if r["kind"] == "import")
+    wait_job(api, rec, api.remove_watched_folder(fid))
+    assert [f["key"] for f in api.sidebar()["favourites"]] == [play]
+    assert api.set_favourites([play])["favourites"] == [hard, house, play]
+    assert api.set_favourites([])["favourites"] == [hard, house]  # a briefly empty sidebar wipes nothing
+    # added back: they are shown again, in their place
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    assert api.set_favourites([play])["favourites"] == [play]  # now they resolve, so leaving them out removes them
+    api.set_favourites([hard, house, play])
+    assert [f["key"] for f in api.sidebar()["favourites"]] == [hard, house, play]
+
+
+def test_a_playlist_taken_out_of_the_file_and_added_again_keeps_its_favourite(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    ref = api.sidebar()["playlists"][1]["ref"]
+    play, hard = f"playlist:{ref}", f"folder:{folder}/Hard"
+    api.set_favourites([hard, play])
+    text = paths.playlists_file.read_text()
+    paths.playlists_file.write_text("\n".join(l for l in text.splitlines() if ref not in l) + "\n")
+    assert [f["key"] for f in api.sidebar()["favourites"]] == [hard]
+    assert api.set_favourites([hard])["favourites"] == [hard, play]  # the save after the user reordered kept it
+    paths.playlists_file.write_text(text)
+    assert [f["key"] for f in api.sidebar()["favourites"]] == [hard, play]
 
 
 def test_a_favourite_or_a_crate_switch_saves_during_a_sync_and_a_console_run_without_a_job(tmp_path, monkeypatch):

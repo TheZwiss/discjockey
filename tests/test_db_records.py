@@ -136,6 +136,24 @@ def test_a_favourite_given_twice_keeps_its_first_place(path):
         assert db.favourites(conn) == ["folder:/Volumes/Example/Crates/Old", f"playlist:{BOUNCE}"]
 
 
+def test_a_save_keeps_a_stored_key_that_is_absent_and_gone_in_its_place(path):
+    resolving = {"a", "b", "c"}
+    with db.connect(path) as conn:
+        db.set_favourites(conn, ["gone0", "a", "gone1", "b", "gone2", "gone3", "c"])
+        # "a" resolves and was left out: the user removed it. A gone key follows the nearest stored key before it
+        # that is in the new list (the first leads); the users order of the rest is theirs
+        db.set_favourites(conn, ["c", "b"], resolving)
+        assert db.favourites(conn) == ["gone0", "gone1", "c", "b", "gone2", "gone3"]
+        db.set_favourites(conn, ["b"], resolving)
+        assert db.favourites(conn) == ["gone0", "gone1", "b", "gone2", "gone3"]
+        db.set_favourites(conn, [], resolving)  # a briefly empty sidebar wipes none of them
+        assert db.favourites(conn) == ["gone0", "gone1", "gone2", "gone3"]
+        db.set_favourites(conn, ["gone1"], resolving)  # a key the request names is the user's, wherever it is
+        assert db.favourites(conn) == ["gone0", "gone1", "gone2", "gone3"]
+        db.set_favourites(conn, [])  # without `resolving` a set replaces everything
+        assert db.favourites(conn) == []
+
+
 def test_a_crate_switch_is_kept_until_it_is_removed(path):
     old, new = "/Volumes/Example/Crates/Old", "/Volumes/Example/Crates/New"
     with db.connect(path) as conn:

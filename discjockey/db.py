@@ -1614,13 +1614,24 @@ def favourites(conn: sqlite3.Connection) -> list[str]:
     return [key for (key,) in conn.execute("SELECT key FROM favourites ORDER BY position")]
 
 
-def set_favourites(conn: sqlite3.Connection, keys: Iterable[str]) -> None:
+def set_favourites(conn: sqlite3.Connection, keys: Iterable[str], resolving: Collection[str] | None = None) -> None:
     """Replaces the Favourites with `keys` in their order, in one transaction; a key given twice keeps its first
-    place."""
+    place. `resolving`: the keys whose playlist or folder exists right now. When given, a stored key that is absent
+    from `keys` and not in `resolving` stays: the UI never saw it, so its absence is no wish to remove it (a playlist
+    taken out of playlists.txt for a while, a folder on an unplugged drive). It keeps its place relative to the
+    rest, right after the nearest stored key before it that is in the new list (or first)."""
+    ordered = list(dict.fromkeys(keys))
     with transaction(conn):
+        if resolving is not None:
+            wanted, previous = set(ordered), None
+            for key in favourites(conn):
+                if key in wanted:
+                    previous = key
+                elif key not in resolving:
+                    ordered.insert(ordered.index(previous) + 1 if previous is not None else 0, key)
+                    previous = key
         conn.execute("DELETE FROM favourites")
-        conn.executemany("INSERT INTO favourites (position, key) VALUES (?, ?)",
-                         list(enumerate(dict.fromkeys(keys))))
+        conn.executemany("INSERT INTO favourites (position, key) VALUES (?, ?)", list(enumerate(ordered)))
 
 
 def crate_overrides(conn: sqlite3.Connection) -> dict[str, bool]:
