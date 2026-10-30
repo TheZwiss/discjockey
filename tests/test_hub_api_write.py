@@ -1234,6 +1234,19 @@ def test_the_sidebar_and_the_settings_rows_list_the_crates_of_a_watched_folder(t
     assert api.watched_folders()["folders"][0]["crates"] == []  # the Library has none
 
 
+def test_a_watched_folder_and_its_crates_have_their_views_with_crate_labels_as_places(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    whole = api.library("folder", str(folder))
+    assert (whole["folder_kind"], whole["title"], whole["summary"]["tracks"], whole["empty"]) == ("watched", "Music", 5, None)
+    assert sorted({r["subfolder"] for r in whole["rows"]}) == ["", "Hard", "Hard › 2019", "House"]
+    hard = api.library("folder", str(folder / "Hard"))
+    assert (hard["folder_kind"], hard["title"], hard["subtitle"][-1]) == ("crate", "Hard", "Music › Hard")
+    assert sorted((r["subfolder"], r["place"]) for r in hard["rows"]) == [
+        ("", "Music › Hard"), ("", "Music › Hard"), ("2019", "Music › Hard › 2019")]
+    row = hard["rows"][0]
+    assert api.track(row["track_id"])["track"]["place"] == row["place"]
+
+
 def test_set_crate_shown_hides_and_shows_and_none_goes_back_to_the_default(tmp_path, monkeypatch):
     api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
     house = str(folder / "House")
