@@ -6,17 +6,19 @@
   import PlayerIcon from './PlayerIcon.svelte';
   import Spinner from './Spinner.svelte';
 
-  let { state, size = 30, disabled = false, onclick, test, subject }: {
+  let { state, size = 30, disabled = false, onclick, test, subject, title }: {
     state: 'playing' | 'paused' | 'loading'; size?: 30 | 22; disabled?: boolean; onclick: () => void; test?: string;
     /** what it plays, for a screen reader when several of these share a screen ("Play Neonfieber.aiff") */
     subject?: string;
+    /** null: no tooltip of its own, where a Tip on what holds it names it (the rail's hidden player) */
+    title?: null;
   } = $props();
   const label = $derived(state === 'playing' ? 'Pause' : state === 'loading' ? 'Loading' : 'Play');
   const spoken = $derived(subject && state !== 'loading' ? `${label} ${subject}` : label);
 </script>
 
 <button type="button" class="pp" class:sm={size === 22} style:width="{size}px" style:min-width="{size}px"
-  style:height="{size}px" aria-label={spoken} title={label} {disabled} {onclick} data-test={test}>
+  style:height="{size}px" aria-label={spoken} title={title === null ? undefined : label} {disabled} {onclick} data-test={test}>
   {#if state === 'loading'}<Spinner size={size === 22 ? 9 : 11} />{:else}<PlayerIcon name={state === 'playing' ? 'pause' : 'play'} />{/if}
 </button>
 

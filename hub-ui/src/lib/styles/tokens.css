@@ -100,6 +100,7 @@
   --content-max: 900px; --content-max-wide: 1200px;
   --main-w: 660px;   /* OUTDATED (design system §7): only for pages not yet redesigned; use the frames */
   --activity-h: 44px; --banner-h: 36px;
+  --foot-edge-h: 2px;   /* the foot's top rows the chrome covers up to its edge: the page's lower edge and the played part */
   /* control heights: controls that sit side by side share one of these */
   --h-ctl-sm: 26px; --h-ctl: 30px; --h-btn: 34px; --h-row: 38px;
   --w-row-action: 64px;   /* a row's trailing slot (an optional action such as Review →, a count): fixed, so a stacked column shares one right edge */
@@ -120,6 +121,11 @@
      no bounce; the inspector slides in 240 ms and out 200 ms (exit faster than entry); reduced motion cross-fades */
   --ease-drawer: cubic-bezier(.32, .72, 0, 1);
   --t-fold: 220ms;   /* the sidebar folding 168 ↔ 50, and gliding into and out of Library */
+  /* within a fold: the labels (and the browser's rows on the way out) leave in the first 90 ms, the labels arrive in
+     the last 120 ms, the browser's rows in the last 150 ms. Out of Library is quicker: the edge glides back in 150 ms
+     after the rows' first 50 ms (done at 200 ms, entry 220). Each delay is the fold's time less the fade's */
+  --t-fold-fade-out: 90ms; --t-fold-fade-in: 120ms; --t-fold-rows-in: 150ms;
+  --t-fold-exit: 150ms; --t-fold-exit-delay: 50ms;
   --t-slide-in: 240ms; --t-slide-out: 200ms; --t-fade: 150ms;
   --t-fast: 120ms; --t-med: 220ms;   /* OUTDATED (design audit A15): map each use to a §6 token in phase 2 */
   /* overlays (dialog backdrop, toast shadow): black only; a cover under the countdown is dimmed, its ring track light */
