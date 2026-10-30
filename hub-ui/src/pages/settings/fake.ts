@@ -31,6 +31,9 @@ const fake: PageFake = {
     crates_busy(s) { crates(s); s.briefBusy = true; },
     // Incoming's crates while its import runs (start_import): one more crate arrives on every step of it
     crates_importing(s) { library!.crates_importing(s); },
+    // DJ Stick Jan as the real engine read it during an import (library's crates_import_recorded): its crates stay,
+    // the row's waiting count goes down while start_import runs
+    crates_import_recorded(s) { library!.crates_import_recorded(s); },
     // six watched folders (the Library, Rekordbox Library, Albums, Vinyl Rips and two more): the list must give way to the switches
     crates_many_folders(s) {
       crates(s);

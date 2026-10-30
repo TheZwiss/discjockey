@@ -115,6 +115,21 @@ function importingCrates(s: FakeState): void {
   };
 }
 
+/** The import of the live check after b80085b, as the real engine read it (a recorded run over 140 files in 11
+ *  folders; the record's crates and file counts): DJ Stick Jan, the only import folder, whose crates are all there
+ *  from the start and whose 140 files wait; its import (start_import) changes only the row's waiting count. */
+function recordedImport(s: FakeState): void {
+  const stick = '/Users/you/Downloads/DJ Stick Jan';
+  const crates: [string, number][] = [['Chrome', 35], ['D&B', 8], ['Deep', 12], ['Electro', 10], ['Hardgroove', 14],
+    ['Minimal', 9], ['Nibirii', 20], ['Psy-Techno', 1], ['Random', 1], ['Trance', 18], ['Tribal', 12]];
+  for (const [name, files] of crates) {
+    for (let i = 1; i <= files; i++) s.tracks.push(ownIn(s, `${stick}/${name}`, ARTISTS[i % ARTISTS.length], `${name} ${i}`));
+  }
+  s.imp.folders = s.imp.folders.filter((f) => f.kind === 'library');  // the user's: the Library and DJ Stick Jan
+  watchFolder(s, stick);
+  s.imp.folders[s.imp.folders.length - 1].waiting = 140;
+}
+
 /** Hard_Bounce as a playlist view shows it at its fullest (plan library stage 5, D6 and D9): beside its songs with a
  *  file there, a song whose file was downloaded for Powertrance first (it sits in that folder: "in Powertrance"), one the
  *  user had already in a crate of an import folder ("in Rekordbox Library › Hardtechno › 2019"), one on a drive that is
@@ -299,6 +314,8 @@ const fake: PageFake = {
     first_look: (s) => { crateFolders(s); },
     // the same while an import of Incoming runs (started by the page or a script): its crates arrive one by one
     crates_importing: (s) => { crateFolders(s); importingCrates(s); },
+    // the recorded import of DJ Stick Jan (see recordedImport): run it with start_import
+    crates_import_recorded: (s) => { recordedImport(s); },
     // no playlist was read yet: no read record, so no playlist knows its songs (the files are in their folders)
     never_read: (s) => { s.unread = s.playlists.map((p) => p.folder); },
     // now playing: ▶ on Get Naughty, then ⏭ reaches a file that can't be played (the bar says so and waits)

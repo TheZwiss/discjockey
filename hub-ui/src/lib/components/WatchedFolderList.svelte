@@ -75,8 +75,13 @@
 </Surface>
 
 <style>
-  /* head + its rule, cap rows with the rules between, the 2 borders, and half a row's peek (as a grown list's minimum) */
-  :global(.surface.wf-capped) { max-height: calc(var(--h-list-row) + var(--cap-rows) * var(--h-list-row-tall)
+  /* head + its rule, cap rows with the rules between, the 2 borders, and half a row's peek (as a grown list's minimum).
+     It keeps that height and never gives way in the panel (flex-shrink 0): the crates' group beside it is the one grow
+     list, whose growFill hands its cut-off px to the panel's spacer counting on being the only one that gives way. A
+     list that shrank too (WKWebView shrank it in a small window: the card cut mid-row) took part of every spare change,
+     so the group's next measure disagreed, and the two flipped the spare by ~30 px each frame: the card's bottom and the
+     whole crate group jittered (live check of plan library stage 5) */
+  :global(.surface.wf-capped) { flex-shrink: 0; max-height: calc(var(--h-list-row) + var(--cap-rows) * var(--h-list-row-tall)
     + (var(--cap-rows) + 2) * var(--bw) + var(--h-list-row-tall) / 2); }
   .wait { padding: var(--s-3) var(--s-4); }
   .spin { display: inline-grid; place-items: center; width: 16px; height: 16px; color: var(--text-muted); }
