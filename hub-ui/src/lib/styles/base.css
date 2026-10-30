@@ -80,7 +80,7 @@ nav, button, .chrome, .caps { user-select: none; -webkit-user-select: none; }
 
 /* Tip (components/tip.ts): the hover tooltip of an icon-only control or a cut row. The action builds it outside any
    component, so its look lives here. Popover material, the size of a label; one line per line of its text, the first
-   in the text colour, the rest muted. It fades and grows from .97 out of its trigger (`.fade`, --t-pop) and goes at
+   in the text colour (its shortcut, if any, as a muted cap at its end), the rest muted. It fades and grows from .97 out of its trigger (`.fade`, --t-pop) and goes at
    once; never under the pointer's way (pointer-events: none). The popover API puts it in the top layer; `inset` and
    `margin` undo the popover's own centring, `left` / `top` / `transform-origin` come from placeTip. */
 .dj-tip {
@@ -94,3 +94,6 @@ nav, button, .chrome, .caps { user-select: none; -webkit-user-select: none; }
 @starting-style { .dj-tip.fade { opacity: 0; transform: scale(.97); } }
 .dj-tip > span { display: block; }
 .dj-tip > .lb { color: var(--text-muted); }
+/* the shortcut as macOS menus print it: a muted cap at the first line's end */
+.dj-tip > .ln:has(kbd) { display: flex; justify-content: space-between; gap: 10px; }
+.dj-tip kbd { font: inherit; color: var(--text-muted); }

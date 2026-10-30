@@ -57,6 +57,10 @@
   /** Gallery only: starts a scroller at a given offset, so a stuck state shows without scrolling by hand. */
   function scrollAt(node: HTMLElement, y: number) { requestAnimationFrame(() => { node.scrollTop = y; }); }
   let inspectorOpen = $state(true);
+  // Tip: one tip open at a time, as in the app; the strip picks which example shows its own
+  const TIP_SHOW: SegOption<'rail' | 'cut' | 'crate'>[] = [{ key: 'rail', label: 'Rail icon' }, { key: 'cut', label: 'Cut name' },
+    { key: 'crate', label: 'Crate, two lines' }];
+  let tipShown = $state<'rail' | 'cut' | 'crate'>('rail');
   const now = new Date();
   const tracks = sampleTracks(now).map(trackRow);
   const t = (id: string) => tracks.find((x) => x.track_id === id) as Row;
@@ -490,23 +494,24 @@
   </section>
 
   <section data-test="gallery-tip">
-    {@render head('Tip', 'Names an icon or a cut row on hover: 500 ms, then the next at once; grows from its trigger')}
+    {@render head('Tip', 'Names an icon or a cut row on hover: 500 ms, then the next at once; one at a time')}
+    <div class="w480"><Segmented label="Which tip shows" options={TIP_SHOW} value={tipShown} onchange={(k) => (tipShown = k)} test="g-tip-which" /></div>
     <div class="row top g-tips">
       <div class="col tight">
-        <span class="cap">rail · beside the icon (hover the others)</span>
+        <span class="cap">rail · beside the icon, the shortcut as a cap</span>
         <div class="g-nav g-nav-rail" data-test="g-tip-rail">
-          <button type="button" class="g-navrow" aria-label="Dashboard" use:tip={{ text: 'Dashboard (⌘1)', side: 'right' }}><NavIcon name="dashboard" /></button>
-          <button type="button" class="g-navrow" aria-label="Sync" use:tip={{ text: 'Sync (⌘2) · syncing, 12 of 40', side: 'right' }}><NavIcon name="sync" /></button>
-          <button type="button" class="g-navrow" aria-label="To-do" use:tip={{ text: 'To-do (⌘3) · 5 to look at', side: 'right', show: true }}><NavIcon name="todo" /></button>
-          <button type="button" class="g-navrow" aria-label="Playlists" use:tip={{ text: 'Playlists (⌘4)', side: 'right' }}><NavIcon name="playlists" /></button>
+          <button type="button" class="g-navrow" aria-label="Dashboard" use:tip={{ text: 'Dashboard', keys: '⌘1', side: 'right' }}><NavIcon name="dashboard" /></button>
+          <button type="button" class="g-navrow" aria-label="Sync" use:tip={{ text: 'Sync · syncing, 12 of 40', keys: '⌘2', side: 'right' }}><NavIcon name="sync" /></button>
+          <button type="button" class="g-navrow" aria-label="To-do" use:tip={{ text: 'To-do · 5 to look at', keys: '⌘3', side: 'right', show: tipShown === 'rail' }}><NavIcon name="todo" /></button>
+          <button type="button" class="g-navrow" aria-label="Playlists" use:tip={{ text: 'Playlists', keys: '⌘4', side: 'right' }}><NavIcon name="playlists" /></button>
         </div>
       </div>
       <div class="col tight g-tip-rows">
-        <span class="cap">rows · under it, at the pointer; only a cut name gets one on hover</span>
+        <span class="cap">rows · under it, at the pointer; a whole name gets none</span>
         <div class="g-nav g-tip-col" data-test="g-tip-rows">
-          <span class="g-navrow" use:tip={{ text: 'Afterhour_Sonntag_Warmup_Selection_2026', cut: '.g-cut' }}><span class="g-cut">Afterhour_Sonntag_Warmup_Selection_2026</span><span class="g-n">88</span></span>
+          <span class="g-navrow" use:tip={{ text: 'Afterhour_Sonntag_Warmup_Selection_2026', cut: '.g-cut', show: tipShown === 'cut' }}><span class="g-cut">Afterhour_Sonntag_Warmup_Selection_2026</span><span class="g-n">88</span></span>
           <span class="g-navrow" use:tip={{ text: 'Hard_Bounce', cut: '.g-cut' }}><span class="g-cut">Hard_Bounce</span><span class="g-n">45</span></span>
-          <span class="g-navrow" use:tip={{ text: 'Rekordbox Library › Music › Old Sets › Bounce\n61 files', show: true }}><span class="g-cut">Bounce · Old Sets</span><span class="g-n">61</span></span>
+          <span class="g-navrow" use:tip={{ text: 'Rekordbox Library › Music › Old Sets › Bounce\n61 files', show: tipShown === 'crate' }}><span class="g-cut">Bounce · Old Sets</span><span class="g-n">61</span></span>
         </div>
       </div>
     </div>
