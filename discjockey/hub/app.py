@@ -172,6 +172,7 @@ def main(resolved: Resolved, webview=None) -> int:
     storage = SupportPaths(support=resolved.support).cache / "webview"
     storage.mkdir(parents=True, exist_ok=True)
     port = window_port(resolved.support)  # issue 17: our own port, the same at every start
+    media.page_origin = f"http://127.0.0.1:{port.port}"  # the compare player fetch()es the files from this origin
     try:
         webview.start(private_mode=False, storage_path=str(storage), http_server=True, http_port=port.port,
                       debug=bool(os.environ.get("DISCJOCKEY_HUB_DEBUG")))

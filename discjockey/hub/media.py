@@ -7,6 +7,11 @@ folder (addressed as `file/<file id>`: the hub's resolver says which file that i
 and only with the random token in the URL. bottle's
 static_file answers range requests (WebKit needs them to play and seek). Every URL carries the file's size and
 mtime, so the window never plays a cached old version after a swap.
+
+The page and this server have different ports, so they are different origins: the compare player decodes both files
+with fetch(), which the browser only allows when the answer names the page's origin in Access-Control-Allow-Origin.
+The server names exactly one origin, the page's own (`page_origin`, set once the window's port is known), never "*":
+a web page of anyone else gets no header and cannot read the files.
 """
 from __future__ import annotations
 
@@ -66,12 +71,14 @@ class MediaServer:
     host = "127.0.0.1"
 
     def __init__(self, paths: Paths | None = None, token: str | None = None,
-                 files: Callable[[int], Path | None] | None = None):
+                 files: Callable[[int], Path | None] | None = None, page_origin: str | None = None):
         self.paths = paths  # None: nothing is served until the hub binds a library
+        self.page_origin = page_origin  # "http://127.0.0.1:<window port>": the one origin that may read the files
         self.files = files  # file id -> the real path the hub's records allow, else None (the `file/<id>` addresses)
         self.token = token or secrets.token_urlsafe(24)
         app = bottle.Bottle()
         app.route("/<token>/<rel:path>", "GET", self._serve)
+        app.route("/<token>/<rel:path>", "OPTIONS", self._preflight)
         self._server = make_server(self.host, 0, app, server_class=_ThreadingServer, handler_class=_QuietHandler)
         self.port = self._server.server_port
         self._thread = threading.Thread(target=self._server.serve_forever, kwargs={"poll_interval": 0.1},
@@ -144,13 +151,34 @@ class MediaServer:
         return (f"http://{self.host}:{self.port}/{self.token}/{urllib.parse.quote(rel)}"
                 f"?v={st.st_size}-{st.st_mtime_ns}")
 
+    def _cors(self, response) -> None:
+        """Lets the page's own origin read the answer: its header and nothing for any other origin (or none)."""
+        response.set_header("Vary", "Origin")
+        if self.page_origin and bottle.request.headers.get("Origin") == self.page_origin:
+            response.set_header("Access-Control-Allow-Origin", self.page_origin)
+            response.set_header("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
+
+    def _preflight(self, token: str, rel: str):
+        """The answer to a CORS preflight (a fetch() with a Range header needs one): the page's origin may GET."""
+        if not hmac.compare_digest(token.encode(), self.token.encode()):
+            return bottle.HTTPError(403, "Forbidden")
+        response = bottle.HTTPResponse(status=204)
+        self._cors(response)
+        if response.get_header("Access-Control-Allow-Origin"):
+            response.set_header("Access-Control-Allow-Methods", "GET")
+            response.set_header("Access-Control-Allow-Headers", "Range")
+            response.set_header("Access-Control-Max-Age", "600")
+        return response
+
     def _serve(self, token: str, rel: str):
         if not hmac.compare_digest(token.encode(), self.token.encode()):
             return bottle.HTTPError(403, "Forbidden")
         real = self.allowed(rel)
         if real is None:
             return bottle.HTTPError(403, "Forbidden")
-        return bottle.static_file(real.name, root=str(real.parent))
+        response = bottle.static_file(real.name, root=str(real.parent))
+        self._cors(response)
+        return response
 
 
 # --- covers (spec 6.9): from the file's embedded cover, cached in .cache/covers/ by path, size and mtime ---
