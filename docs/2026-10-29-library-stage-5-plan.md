@@ -195,7 +195,7 @@ CREATE TABLE crate_shown (path TEXT PRIMARY KEY, shown INTEGER NOT NULL);
 `playlist` is the line's ref (check first: that a `FetchedPlaylist` carries the same token as `playlists_file.Row.ref`).
 `crate_shown` holds only the user's overrides; no row = the default (shown, or hidden under a too-many folder).
 
-**I2. `db.py` (step B):** `record_reads(conn, reads, now, keep)` (one transaction; replaces each read that has tracks;
+**I2. `db.py` (step B):** `record_reads(conn, reads, now, keep)` (one transaction; every successful read replaces its record, an empty one too (D1);
 an unreadable playlist keeps its record; deletes refs not in `keep`); `playlist_records(conn) -> dict[str,
 PlaylistRecord]` (`PlaylistRecord(service, read_at, tracks)`, `RecordedTrack(position, token, artist, title,
 duration_ms)`, NamedTuples beside `ImportCounts`); `favourites(conn) -> list[str]`; `set_favourites(conn, keys)`
