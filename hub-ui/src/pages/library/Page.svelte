@@ -16,7 +16,7 @@
   import { api, runJob } from '$lib/bridge/client';
   import type { Fail, Library, LibraryFilter, LibrarySort, ProblemKind, TrackDetail } from '$lib/bridge/types';
   import { filesVersion } from '$lib/stores/hub';
-  import { inspectorOpen } from '$lib/stores/chrome';
+  import { inspectorAvailable, inspectorOpen } from '$lib/stores/chrome';
   import { player } from '$lib/stores/player';
   import { listen } from '$lib/listen';
   import { toasts } from '$lib/stores/toasts';
@@ -221,6 +221,9 @@
   // the details: open on demand, and only where there is a library to show (the empty page has no table to select in)
   const detailsOpen = $derived($inspectorOpen && !emptyLibrary);
   function openDetails() { inspectorOpen.set(true); }
+  // the chrome knows too: with an empty library ⌘I does nothing and a remembered open inspector steps nothing back
+  $effect(() => { inspectorAvailable.set(!emptyLibrary); });
+  $effect(() => () => inspectorAvailable.set(true));
 </script>
 
 {#snippet detailsIcon()}
@@ -234,7 +237,7 @@
     {#snippet actions()}<SearchField bind:value={search} bind:input={searchInput} placeholder="Search title, artist…" shortcut="cmd+f"
       test="library-search" />{#if !emptyLibrary}<Button variant="icon" icon={detailsIcon} pressed={detailsOpen}
         aria-label={detailsOpen ? 'Hide details' : 'Show details'}
-        tip={{ text: detailsOpen ? 'Hide details' : 'Show details', keys: '⌘I' }}
+        tip={{ text: detailsOpen ? 'Hide details' : 'Show details', keys: '⌘I' }} aria-keyshortcuts="Meta+I"
         onclick={() => inspectorOpen.update((o) => !o)} data-test="library-details" />{/if}{/snippet}
   </PageHeader>
   {#if libError && !lib}
@@ -276,4 +279,4 @@
 {/snippet}
 
 <ListPanelFrame {main} panel={selected ? panel : null} emptyPanel="Select a track to see its details." wide
-  panelMode="inspector" open={detailsOpen} />
+  panelMode="inspector" open={detailsOpen} panelLabel="Track details" />
