@@ -5,6 +5,7 @@ import type { Library, LibraryFilter, LibraryRow, LibrarySort, LibraryView, Qual
 import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import type { SegOption } from '$lib/components/segmentedModel';
 import { dayMonth } from '$lib/format';
+import { EMPTY } from '$lib/copy';
 
 // ---------- what kind of collection the table shows ----------
 /** The table's kind: the four views, with a folder view told apart by what the folder is (plan library stage 5 D10:
@@ -315,14 +316,15 @@ export function noFileCount(lib: Pick<Library, 'view' | 'key' | 'read_at' | 'sum
   if (line && line.songs !== null) return Math.max(0, line.songs - lib.summary.tracks);
   return whole ? lib.rows.filter((r) => r.file_state === 'no_file').length : null;
 }
-/** The header's second line (I7, the engine's parts): a read playlist's count is its songs with a file, which is what
- *  the strip and the filter count, so the songs still without one follow it as a part of their own ("9 tracks · 3 not
- *  downloaded yet · Spotify playlist · Library › Hard_Bounce"): the 12 rows and the sidebar's "12 songs" add up. The
- *  same words as the inspector's line for such a song. */
-export function subtitleParts(lib: Pick<Library, 'subtitle'>, missing: number | null): string[] {
+/** The header's second line (I7, the engine's parts). A read playlist's count is its songs with a file, which is what
+ *  the strip and the filter count, while the table also lists the songs still without one and the sidebar counts every
+ *  song (issues #29 "For B6": 13 tracks beside 18 rows and "18 songs" read as a disagreement). So when some have no
+ *  file the count names both in one part, "13 of 18 downloaded" (the inspector's "not downloaded yet" for such a
+ *  song): one part, so the parts dropping at a narrow width never leave half of it. */
+export function subtitleParts(lib: Pick<Library, 'subtitle' | 'summary'>, missing: number | null): string[] {
   if (!missing || !lib.subtitle.length) return lib.subtitle;
-  const [count, ...rest] = lib.subtitle;
-  return [count, `${missing} not downloaded yet`, ...rest];
+  const [, ...rest] = lib.subtitle;
+  return [`${lib.summary.tracks} of ${lib.summary.tracks + missing} downloaded`, ...rest];
 }
 
 // ---------- the empty states (I7; issues #29 "For B6") ----------
@@ -334,7 +336,7 @@ export type PageEmpty = { kind: 'library' | 'gone' | 'never_read' | 'empty' | 's
  *  text, so the words come from the view, the folder's kind, the read and the search, not from `empty`. */
 export function pageEmpty(lib: Pick<Library, 'view' | 'title' | 'empty' | 'read_at' | 'rows' | 'also'>, query: string,
   filter: LibraryFilter): { page: PageEmpty | null; line: string | null } {
-  if (lib.empty === 'empty_library') return { page: { kind: 'library', title: 'No tracks yet. Run a sync to fill your library.' }, line: null };
+  if (lib.empty === 'empty_library') return { page: { kind: 'library', title: EMPTY.empty_library.title }, line: null };
   if (lib.empty === 'gone') {
     return { page: { kind: 'gone', title: lib.view === 'playlist' ? "This playlist isn't in your list any more."
       : "This folder isn't in your library any more." }, line: null };
@@ -348,7 +350,7 @@ export function pageEmpty(lib: Pick<Library, 'view' | 'title' | 'empty' | 'read_
     : q ? { kind: 'search', title: `Nothing in ${lib.title} matches “${q}”.` }
     : filter !== 'all' ? { kind: 'filter', title: 'No tracks with this quality here.' }
     : { kind: 'empty', title: playlist ? 'This playlist is empty.' : lib.view === 'unlisted' ? 'Every track is in a playlist.'
-      : lib.view === 'all' ? 'No tracks yet. Run a sync to fill your library.' : 'No music in this folder.' };
+      : lib.view === 'all' ? EMPTY.empty_library.title : 'No music in this folder.' };
   if (!lib.also?.length) return { page: empty, line: null };
   // the folder's other files are there: the playlist's own part says it is empty, in one line of the table
   const line = neverRead ? "This playlist hasn't been read yet."

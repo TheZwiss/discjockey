@@ -33,7 +33,7 @@
   import { player } from '$lib/stores/player';
   import { listen } from '$lib/listen';
   import { toasts } from '$lib/stores/toasts';
-  import { EMPTY, problemCopy } from '$lib/copy';
+  import { problemCopy } from '$lib/copy';
   import { getPref, setPref } from '$lib/prefs';
   import { go, libraryHref } from '$lib/router';
   import { markReady } from '$lib/ready';
@@ -257,6 +257,9 @@
   // read playlist's songs without a file are a part of their own after the count
   const sub = $derived(lib ? subtitleParts(lib, noFileCount(lib, $hub.sidebar, filter === 'all' && !q)) : undefined);
   const emptyLibrary = $derived(lib?.empty === 'empty_library');
+  // a playlist or folder that isn't there any more: nothing to search and no track to show, so the header keeps only
+  // the title (the empty state's All tracks is the way on)
+  const viewGone = $derived(lib?.empty === 'gone');
   // what the list area says when the table has nothing (or a playlist's own part is empty beside its folder's files)
   const empty = $derived(lib ? pageEmpty(lib, q, filter) : { page: null, line: null });
   // the strip and the filter count the files the collection holds: none, nothing to sum up or to filter
@@ -305,9 +308,9 @@
     readStatus={neverRead}>
     {#snippet actions()}{#if tooMany?.too_many}<Button variant="link" muted href="#/settings/folders"
         tip={`${tooMany.crate_count} folders with music, too many for the sidebar: choose which to show in Settings`}
-        data-test="library-show-some">Show some in the sidebar…</Button>{/if}<SearchField bind:value={search}
+        data-test="library-show-some">Show some in the sidebar…</Button>{/if}{#if !viewGone}<SearchField bind:value={search}
       bind:input={searchInput} placeholder="Search title, artist…" shortcut="cmd+f"
-      test="library-search" />{#if !emptyLibrary}<Button variant="icon"
+      test="library-search" />{/if}{#if !emptyLibrary && !viewGone}<Button variant="icon"
         icon={handHidden ? detailsHiddenIcon : detailsIcon} pressed={detailsOpen} disabled={!$detailsSubject}
         switchedOff={handHidden ? 'Show details' : undefined}
         aria-label={detailsOpen ? 'Hide details' : 'Show details'}

@@ -119,8 +119,6 @@ const fake: PageFake = {
   scenarios: {
     // set up, but no files yet (first_run would open the wizard)
     empty: (s) => { s.tracks = []; s.runs = []; },
-    // a folder from playlists.txt that has no files yet
-    empty_folder: (s) => { s.extraFolders.push({ folder: 'New_Folder', listed: true }); },
     // an import stopped after its first pass: two WAVs read but not sound-checked (a "Not checked" badge, no
     // quality colour, left out of the counts) beside one the sound check has judged
     unchecked: (s) => {
@@ -237,6 +235,18 @@ const fake: PageFake = {
       s.playlists.push({ ...hard, folder: 'Fresh_Finds', link: 'https://open.spotify.com/playlist/FreshFindsxxxxxxxxxxxx',
         info: hard.info ? { ...hard.info, name: 'Fresh Finds', track_count: 0 } : null });
       s.emptyRead.push('Fresh_Finds');
+    },
+    // the crates' folders, some of Hardtechno's files held by playlists (the folder views' Playlist column: a badge, "+n")
+    crates_held: (s) => {
+      withFavourites(s);
+      const hold: Record<string, string[]> = { Rumble: ['Hard_Techno', 'Hard_Bounce', 'Powertrance'],
+        'Warehouse Fire': ['Powertrance'], 'Berlin 2019': ['Hard_Techno'], 'Peak 2019': ['Hard_Techno', 'Bouncy'] };
+      for (const t of s.tracks) {
+        if (t.own && t.dir?.includes('/Hardtechno') && hold[t.title]) {
+          t.playlists = hold[t.title];
+          t.in_playlists = true;
+        }
+      }
     },
     // a watched import folder with no music in it yet, beside the sidebar's other folders
     empty_watched: (s) => {

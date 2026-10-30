@@ -386,8 +386,8 @@ describe('a playlist view (D6, D9; issues #29 "For B6")', () => {
     expect(noFileCount(view({ view: 'folder' }), side, true)).toBeNull();
     expect(noFileCount(view({}), { playlists: [{ name: 'Hard_Bounce', songs: null }] } as never, false)).toBeNull();
   });
-  it('the subtitle counts them in a part of their own after the count', () => {
-    expect(subtitleParts(view({}), 3)).toEqual(['9 tracks', '3 not downloaded yet', 'Spotify playlist', 'Library › Hard_Bounce']);
+  it('the subtitle counts them with the songs in one part, so the count and the rows add up at every width', () => {
+    expect(subtitleParts(view({}), 3)).toEqual(['9 of 12 downloaded', 'Spotify playlist', 'Library › Hard_Bounce']);
     expect(subtitleParts(view({}), 0)).toEqual(['9 tracks', 'Spotify playlist', 'Library › Hard_Bounce']);
     expect(subtitleParts(view({}), null)).toEqual(['9 tracks', 'Spotify playlist', 'Library › Hard_Bounce']);
     expect(subtitleParts(view({ subtitle: [] }), 3)).toEqual([]);

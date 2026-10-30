@@ -177,7 +177,8 @@ export function serviceName(service: Service, full: string): string {
  * and both ends stay, the end a little longer, since the end is what tells two long names apart
  * ("Artist - Title (… EDIT).wav" against "Artist - Title (… EDIT)(1).wav"). At least a character of each end stays, even
  * when nothing fits (the element clips the rest). With `sep` ("›", a place's separator) the text is a row of folders:
- * whole folders between the first and the last give way first ("Rekordbox Library › … › 2019"), then characters.
+ * whole folders between the first and the last give way first ("Rekordbox Library › … › 2019"), then characters of the
+ * first and the last folder, with one "…".
  */
 export function fitMiddle(text: string, fits: (text: string) => boolean, sep?: string): string {
   if (fits(text) || text.length <= 2) return text;
@@ -190,7 +191,12 @@ export function fitMiddle(text: string, fits: (text: string) => boolean, sep?: s
         const form = [parts[0], '…', ...parts.slice(1 + drop)].join(` ${sep} `);
         if (fits(form)) return form;
       }
-      return fitMiddle([parts[0], '…', parts[parts.length - 1]].join(` ${sep} `), fits);
+      // even that is too wide: the first and the last folder alone give way by characters, so the cut is the one "…"
+      // (cutting "Rekordbox Library › … › 2019" could keep its "…" beside a second one)
+      // (cutting "Rekordbox Library › … › 2019" could keep its "…" beside a second one); never whole, which would
+      // read as a place with nothing between the two
+      const ends = [parts[0], parts[parts.length - 1]].join(` ${sep} `);
+      return fitMiddle(ends, (t) => t !== ends && fits(t));
     }
   }
   const cut = (n: number) => {

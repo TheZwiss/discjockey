@@ -1,8 +1,8 @@
 <script lang="ts">
   // A short state or value in a quality colour, or `muted` (neutral: a name the user gave, kept as spelled, e.g. a
   // playlist in Library's Playlist column). `more` (a list's first name, e.g. the playlists holding a song): how many
-  // others there are besides `text`, as "+n" after it in the label grey (none at 0); such a badge fits its cell: the
-  // text gives way with "…", the "+n" never.
+  // others there are besides `text`, as "+n" after it in the label grey (none at 0), in the medium weight of a name;
+  // such a badge fits its cell: the text gives way with "…", the "+n" never.
   import type { Quality } from '../bridge/types';
   let { tone = 'muted', text, more }: { tone?: Quality | 'accent' | 'muted' | 'other'; text: string; more?: number } = $props();
 </script>
@@ -26,7 +26,10 @@
   .fake { color: var(--q-fake); border-color: var(--q-fake-line); }
   .accent { color: var(--accent-text); border-color: var(--accent-line); }
   .muted { color: var(--text-muted); border-color: var(--line-control); }
-  .parts { display: inline-flex; gap: var(--s-1); max-width: 100%; min-width: 0; vertical-align: middle; }
+  /* a name, not a state: the medium weight and no tracking, so it reads as the user's own words and stays quieter than
+     the quality badge beside it (at the states' bold it competed with it) */
+  .parts { display: inline-flex; gap: var(--s-1); max-width: 100%; min-width: 0; vertical-align: middle;
+    font-weight: var(--fw-medium); letter-spacing: 0; }
   .text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .more { flex: none; color: var(--text-label); }
 </style>

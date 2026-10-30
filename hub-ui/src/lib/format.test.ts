@@ -171,6 +171,8 @@ describe('fitMiddle', () => {
       const x = fitMiddle(place, upTo(20), '›');
       expect(x.length).toBeLessThanOrEqual(20);
       expect(x).toMatch(/^Rekord.*….*2019$/);
+      // one ellipsis, never the dropped folders' "…" beside the cut's
+      for (const w of [12, 16, 20, 24, 27]) expect(fitMiddle(place, upTo(w), '›').split('…').length).toBe(2);
     });
     it('two folders have no middle to drop: characters at once', () => {
       const two = 'Rekordbox Library › Hardtechno';
