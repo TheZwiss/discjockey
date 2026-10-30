@@ -462,10 +462,10 @@
         </div>
       </div>
       <div class="col tight">
-        <span class="cap">rail · the same icons, the same spot</span>
+        <span class="cap">rail · the same spot; To-do's count as a pill</span>
         <div class="g-nav g-nav-rail" data-test="g-navicon-rail">
           {#each NAV_ICONS as n (n)}
-            <span class="g-navrow" class:on={n === 'sync'} title={NAV_NAMES[n]}><NavIcon name={n} /></span>
+            <span class="g-navrow" class:on={n === 'sync'} title={NAV_NAMES[n]}><span class="g-glyph"><NavIcon name={n} />{#if n === 'todo'}<span class="g-pill">5</span>{/if}</span></span>
           {/each}
         </div>
       </div>
@@ -1404,4 +1404,9 @@
     border: var(--bw) solid var(--surface-line); border-radius: var(--r-surface); }
   .g-crow { display: flex; align-items: center; height: var(--h-ctl); padding: 0 var(--s-4); color: var(--text-nav);
     font-size: var(--fs-body); }
+  .g-glyph { position: relative; display: grid; }
+  /* the rail's count pill on the glyph's corner, ringed in the frame's colour so it cuts the glyph cleanly */
+  .g-pill { position: absolute; left: 11px; top: -9px; min-width: 18px; height: 14px; padding: 0 4px; border-radius: var(--r-pill);
+    background: var(--rail-pill-bg); box-shadow: 0 0 0 2px var(--sidebar-solid); color: var(--text); font-size: var(--fs-label);
+    font-weight: var(--fw-semi); line-height: 14px; text-align: center; font-variant-numeric: tabular-nums; }
 </style>

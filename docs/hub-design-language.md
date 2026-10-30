@@ -52,6 +52,21 @@ The window's chrome is one **L-shaped frame**: the sidebar and, while something 
 by `App.svelte` behind them, so they never meet in a seam; the page sits inside on black. Only the page's edge has a
 line: the sidebar's right border, continued along the page's lower edge (1 px `--surface-line` from `--sidebar-w` to the
 right). Chrome joins this frame; it never floats over the page or reserves a strip of its own.
+- **Two sidebar forms, and the browser column in Library** (library stage 5, D16 rules 1, 2, 4, 6; the shell switches
+  over in step A's A4–A5, until then the sidebar keeps its Library group). The sidebar is **full** (168 px,
+  `--sidebar-full-w`) or a **rail** (50 px, `--rail-w`): the rail is the full sidebar with its labels folded away, and
+  the glyph column (18–32 px from the window's edge) and every row (30 px, 2 px apart) stay put, so no icon moves; the
+  selected pill becomes a 30 × 30 square. The pages' icons are drawn (`NavIcon`), the only label in the rail, named
+  by a `Tip`. Library remembers its form (rail by default), all other pages share one (full by default); ⌃⌘S folds.
+  In Library the frame also holds the **browser column** (the collections and their filter; 200–360 px, 240 by
+  default: `--browser-w-min` / `-default` / `-max`), in the same material. `--sidebar-w` is the chrome's whole width
+  (the form, plus 1 + the browser's width while it stands), so the page's edge, the foot's line and its seek area
+  follow it. **One more line inside the chrome:** the sidebar's right edge while the browser stands beside it, the
+  same hairline as the page's edge, so the icon column and the collections read as two levels, pages | collections.
+- **The sidebar's Library group retires:** the collections live in the browser column, every row one line (the
+  two-line crate rows and the watched folders' balanced wrap retire with it); Library is a page of its own in the nav
+  (♫). On pages without the browser the sidebar holds only the pages, plus Favourites as shortcuts without counts
+  (step B).
 - **The foot holds what goes on:** the player bar while a list plays (a queue, plan now-playing), the sync's status
   while the hub's own sync runs (not on Sync itself), or both in one bar (the sync's short form at the bar's right end).
   No foot when neither.
@@ -182,6 +197,10 @@ verdict, the 14-day bars and a service's status. No other colours. A read in pro
 **The one exception:** a service's logo (`ServiceMark`) keeps its own colours. It is an image that names a service,
 not a signal, so it never stands for quality, action or risk (plan library stage 5 D7, the user's wish).
 
+**Dim is reserved** (D16 rule 9). In lists of collections (the sidebar, the browser column) half strength means
+switched off and nothing else. A name's secondary part keeps the name's colour ("Hardtechno › 2019", "Bounce · Old
+Sets"); only its separator is quiet. A part in label grey would read as a dimmed row.
+
 | Do | Don't |
 |---|---|
 | Download limits: the risk scale, the verdict and the 14-day bars in green → yellow → red; usage bars in orange. | Download limits' first mockup: risk and pace in grey to keep the quality colours "quality only". The user found it "absolutely horrific and depressing": grey can't say how safe something is. |
@@ -206,7 +225,10 @@ not a signal, so it never stands for quality, action or risk (plan library stage
   TextField), `--h-ctl-sm` (26 px: small controls, the icon button's square, the DayBar), `--w-row-action` (64 px: a
   row's action or number slot), `--gap-split` (3 px: the DayBar's split), `--dim-locked` (.5: the one dim for "can't use
   right now", a disabled Switch and the plan while Spotify is read), `--content-max` / `--content-max-wide` (the frames'
-  `data-max` names them) and `--panel-w` / `--panel-w-narrow` / `--panel-narrow-below` (1240 px).
+  `data-max` names them) and `--panel-w` / `--panel-w-narrow` / `--panel-narrow-below` (1240 px), the chrome's widths
+  (`--sidebar-full-w` 168, `--rail-w` 50, `--browser-w-min` / `-default` / `-max` 200 / 240 / 360; `--sidebar-w` is the
+  chrome's whole width), `--sidebar-solid` (the frame's material as one colour: a stuck head on it, the ring that cuts
+  the rail's pill out of a glyph) and `--rail-pill-bg` (the rail's neutral count pill).
 
 | Do | Don't |
 |---|---|
@@ -279,6 +301,7 @@ remove it on every page, not just yours.
 | Live progress during a sync | linear, `--t-live`; nothing bounces. |
 | Popovers and menus (InfoTip, Tip, More, context menu) | Fade and grow from `scale(.97)` at the trigger, `--t-pop` (140 ms); close at once. An InfoTip waits 300 ms on hover, a Tip 500 ms. **Once one tip is open (or just closed), the next opens instantly**, InfoTips and Tips alike (`infoTipModel.ts`, `tipRegistry.ts`). Modals only fade. |
 | Entrances | At most a ≤ 150 ms fade. CSS transitions only; nothing waits for an animation. Reduced motion: fades only. |
+| The chrome: folding the sidebar, into and out of Library (D16 rule 5) | **The page lays out once, the chrome moves over it** (the foot's rule, for the sidebar and the inspector): `--sidebar-w` changes at once and only the chrome's edge glides, so a shrinking chrome uncovers the page and a growing one covers space already empty. Fold 168 ↔ 50: `--t-fold` (220 ms) on `--ease-drawer`, labels fade out in the first 90 ms and in during the last 120 ms; icons don't move. Into Library: the edge glides in `--t-fold` while the labels fade, the browser's rows fade in over the last 150 ms, 8 px from the left; out of it quicker (the rows fade in 90 ms, then the edge). Other page switches never move the chrome. Dragging the browser's edge: 1:1, no easing; double-click back to 240 in `--t-fold`. CSS transitions, so a second ⌃⌘S turns it round. Reduced motion: widths at once, contents cross-fade in `--t-fade`. |
 | The details inspector (`ListPanelFrame panelMode="inspector"`) | The page lays out once, the chrome moves over it: the list takes its final width at once; the inspector slides in from the window's right edge (`translateX(100%)` → 0) in `--t-slide-in` (240 ms) and out the same way in `--t-slide-out` (200 ms), both on `--ease-drawer` (`cubic-bezier(.32,.72,0,1)`, no bounce); a CSS transition, so a second toggle turns it round mid-way. A selection change inside it is instant. Reduced motion: it fades in place, `--t-fade` (150 ms). |
 | The frame's foot (plan now-playing) | Appear: up from the window's bottom, 220 ms, strong ease-out (the page makes room at once, only the contents move); Stop: down, 180 ms. Hide: the bar's contents move 40 px left towards the sidebar's corner and fade, 240 ms ease-in-out, then the row fades in; Show: the same path back, 280 ms. Track change, play/pause, shuffle and the keys: instant. Reduced motion: cross-fades. |
 
@@ -502,6 +525,15 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-30 · Library stage 5's house rules and the chrome's tokens (A3.8, D16).** Written into this doc: the two
+  sidebar forms and the browser column in the L frame, the one more chrome line, the Library group's retirement and
+  the nav's drawn icons (§1, rules 1, 2, 4, 6); "the chrome moves, the page lays out once" with its timings (§5, rule
+  5); dim is reserved in lists of collections (§2, rule 9); with the earlier entries for the inspector (rule 3), the
+  subtitle's parts (rule 8) and stuck heads (rule 10), and the colour rule's one exception (`ServiceMark`). Rule 7
+  (`Segmented`) stays as it is. New tokens: `--sidebar-full-w` (and `--sidebar-w` now names it, until the shell sets
+  the chrome's width), `--rail-w`, `--browser-w-min` / `-default` / `-max`, `--rail-pill-bg` (the mockup's `#2a2a30`,
+  ringed in `--sidebar-solid`), `--t-fold`. Why: the notes' house-rule changes, so A4–A6 build against written rules
+  and tokens, not the mockup's literals. Seen: gallery NavIcon's rail with To-do's pill (`base-gallery`).
 - **2026-10-30 · `ListPanelFrame` gets an inspector mode; `SearchField` a ⌘K cap (library stage 5 A3.7, D16.3, house
   rules 3 and 5).** `panelMode="inspector"` with `open` (the plan wrote `panel: 'docked' | 'inspector'`, but `panel` is
   already the frame's snippet, so the prop is `panelMode`). Why: the widths don't add up for a docked panel beside
