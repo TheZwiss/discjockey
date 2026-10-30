@@ -35,17 +35,29 @@
   // what the chrome shows: the layout and the move that led to it. Into Library the page's first frame is a long one
   // (the table mounts), and a glide started with it would be mostly over before anything is drawn, so the chrome waits
   // until that frame has painted (two animation frames) and then glides the whole way, over room the page has
-  // already left empty. Any other change, or a second one meanwhile, applies at once.
+  // already left empty. Any other change, or a second one meanwhile, applies at once; so does everything under
+  // reduced motion, where nothing glides and a held frame would only leave the browser's room empty.
+  const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   let motion = $state(get(chromeMotion));
   let pending = 0;
   $effect.pre(() => {
     const m = $chromeMotion;
     cancelAnimationFrame(pending);
     pending = 0;
-    if (m.move !== 'into') { motion = m; return; }
+    if (m.move !== 'into' || reduced()) { motion = m; return; }
     pending = requestAnimationFrame(() => { pending = requestAnimationFrame(() => { pending = 0; motion = m; }); });
   });
   $effect(() => () => cancelAnimationFrame(pending));
+  // the foot's first rows under the chrome: they come with the foot at once, and go only once the foot has gone (its
+  // slowest way out, Hide's fold, takes 240 ms; Foot.svelte's motion), so the chrome's edge strip never retracts
+  // while the foot's line is still there
+  const FOOT_LEAVES_MS = 240;
+  let footHeld = $state(false);
+  $effect(() => {
+    if (foot) { footHeld = true; return; }
+    const t = setTimeout(() => (footHeld = false), FOOT_LEAVES_MS);
+    return () => clearTimeout(t);
+  });
   const L = $derived(motion.layout);
   const rail = $derived(L.form === 'rail');
   const side = $derived($hub.sidebar);
@@ -71,11 +83,11 @@
 </script>
 
 <div class="space" aria-hidden="true"></div>
-<span class="floor" class:foot aria-hidden="true"></span>
-<div class="chrome" class:foot data-chrome data-form={L.form} data-browser={L.browserShown || undefined}
+<span class="floor" class:foot={footHeld} aria-hidden="true"></span>
+<div class="chrome" class:foot={footHeld} data-chrome data-form={L.form} data-browser={L.browserShown || undefined}
   data-move={motion.move} style:--chrome-w="{L.sidebarW}px">
   <nav class="side chrome-part" class:rail class:beside={L.browserShown} aria-label="Main" data-test="sidebar"
-    style:--form-w="{rail ? 50 : 168}px">
+    style:--form-w={rail ? 'var(--rail-w)' : 'var(--sidebar-full-w)'}>
     <div class="head">
       <button type="button" class="tog" aria-label={foldTip.text} aria-expanded={!rail} use:tip={foldTip} onclick={fold}
         data-test="sidebar-fold">
@@ -99,7 +111,8 @@
           {#if n.key === 'limits' && sig.limitsWarning}<span class="warn" data-test="limits-dot"></span>{/if}
           {#if n.key === 'sync' && sig.sync}<span class="ring ro" data-test="sync-ring"><Ring mark size={26} value={sig.sync.frac}
             max={1} tone="muted" /></span>{/if}
-          {#if n.key === 'todo' && pill}<span class="pill ro num" data-test="todo-pill">{pill}</span>{/if}
+          {#if n.key === 'todo' && pill}<span class="pill ro num" class:wide={pill.length > 2}
+            data-test="todo-pill">{pill}</span>{/if}
         </span>
         <span class="t lab">{n.label}</span>
         {#if count}<span class="n num lab">{count}</span>{/if}
@@ -133,7 +146,7 @@
   /* with the foot there the chrome also covers the foot's first two rows (its line and the played part's 2 px) up to
      the chrome's edge; .floor draws the line from the chrome's edge to the page's while the chrome is narrower than
      the page's room. At rest both lie under the chrome, where the foot shows only its material anyway */
-  .chrome.foot { bottom: -2px; }
+  .chrome.foot { bottom: calc(-1 * var(--foot-edge-h)); }
   .floor { position: absolute; left: 0; bottom: calc(-1 * var(--bw)); z-index: 3; width: var(--sidebar-w);
     height: var(--bw); background: var(--surface-line); display: none; }
   .floor.foot { display: block; }
@@ -145,7 +158,7 @@
     background: var(--surface-line); opacity: 0; }
   .side.beside::after { opacity: 1; }
   /* it ends where the foot begins: the foot's first row is the page's lower edge, not the chrome's */
-  .chrome.foot .side::after { bottom: 2px; }
+  .chrome.foot .side::after { bottom: var(--foot-edge-h); }
 
   .head { display: flex; align-items: center; height: 22px; margin-bottom: var(--s-2); flex: none; }
   /* the fold button sits on the glyph column (18–32 px) in both forms, so it never moves */
@@ -182,11 +195,14 @@
   .warn { position: absolute; top: -1px; right: -4px; width: 6px; height: 6px; border-radius: var(--r-pill);
     background: var(--q-good); }  /* yellow = a warning sign or a pause (spec §4) */
   /* the rail's marks: a running sync's neutral ring round ⟳ (its arc the share done), To-do's count as a neutral pill
-     on the glyph's corner, ringed in the frame's colour; its right edge stays inside the rail */
+     on the glyph's top-right corner, growing rightwards (the mockup's place), ringed in the frame's colour */
   .ring { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; }
-  .pill { position: absolute; right: -15px; top: -9px; min-width: 18px; height: 14px; padding: 0 4px;
+  .pill { position: absolute; left: 11px; top: -9px; min-width: 18px; height: 14px; padding: 0 4px;
     border-radius: var(--r-pill); background: var(--rail-pill-bg); box-shadow: 0 0 0 2px var(--sidebar-solid);
     color: var(--text); font-size: var(--fs-label); font-weight: var(--fw-semi); line-height: 14px; text-align: center; }
+  /* "99+" would cross the rail's edge from there: it alone ends 2 px inside the rail, a little tighter, and grows
+     leftwards, so it covers only the glyph's top-right corner as a two-digit count does */
+  .pill.wide { left: auto; right: -16px; padding: 0 3px; letter-spacing: -.2px; }
   .t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .n { margin-left: auto; color: var(--text-label); font-size: var(--fs-label); padding-left: var(--s-1); }
   .on .n { color: var(--text-muted); }
@@ -203,24 +219,29 @@
 
   /* ---------- motion (the notes' motion table) ---------- */
   /* the edge: the chrome and the sidebar's form glide together on the drawer curve, no bounce */
-  .chrome { --edge-dur: 0ms; --edge-delay: 0ms; --lab-in: 120ms; --lab-delay: 100ms; }
+  .chrome { --edge-dur: 0ms; --edge-delay: 0ms; --lab-delay: calc(var(--t-fold) - var(--t-fold-fade-in)); }
   .chrome[data-move='fold'], .chrome[data-move='into'], .chrome[data-move='reset'] { --edge-dur: var(--t-fold); }
   /* out of Library quicker: the browser's rows fade in 90 ms, then the edge glides back (done at 200 ms, entry 220) */
-  .chrome[data-move='out'] { --edge-dur: 150ms; --edge-delay: 50ms; --lab-delay: 80ms; }
+  .chrome[data-move='out'] { --edge-dur: var(--t-fold-exit); --edge-delay: var(--t-fold-exit-delay);
+    --lab-delay: calc(var(--t-fold-exit-delay) + var(--t-fold-exit) - var(--t-fold-fade-in)); }
   .chrome[data-move='step-back'] { --edge-dur: var(--t-slide-out); }
   .chrome[data-move='step-in'] { --edge-dur: var(--t-slide-in); }
   .chrome, .side { transition: width var(--edge-dur) var(--ease-drawer) var(--edge-delay); }
   /* the labels: out in the first 90 ms, in during the last 120 ms; the rail's marks the other way round. Hidden ones
      turn invisible only once faded */
-  .lab, .ro { transition: opacity var(--lab-in) var(--ease) var(--lab-delay), visibility 0s linear 0s; }
-  .rail .lab, .side:not(.rail) .ro { transition: opacity 90ms var(--ease), visibility 0s linear 90ms; }
+  .lab, .ro { transition: opacity var(--t-fold-fade-in) var(--ease) var(--lab-delay), visibility 0s linear 0s; }
+  .rail .lab, .side:not(.rail) .ro { transition: opacity var(--t-fold-fade-out) var(--ease),
+    visibility 0s linear var(--t-fold-fade-out); }
   /* the browser and its hairline: into Library its rows fade in over the last 150 ms from 8 px to the left; out of it
      they fade in 90 ms; the step-back moves it 24 px behind the rail and back (200 ms out, 240 ms in, drawer curve) */
   .browser, .side::after { transition: none; }
   [data-move='into'] .browser, [data-move='into'] .side::after {
-    transition: opacity 150ms var(--ease) 70ms, transform 150ms var(--ease) 70ms; }
+    --rows-delay: calc(var(--t-fold) - var(--t-fold-rows-in));
+    transition: opacity var(--t-fold-rows-in) var(--ease) var(--rows-delay),
+      transform var(--t-fold-rows-in) var(--ease) var(--rows-delay); }
   [data-move='out'] .browser, [data-move='out'] .side::after {
-    transition: opacity 90ms var(--ease), transform 90ms var(--ease), visibility 0s linear 90ms; }
+    transition: opacity var(--t-fold-fade-out) var(--ease), transform var(--t-fold-fade-out) var(--ease),
+      visibility 0s linear var(--t-fold-fade-out); }
   [data-move='step-back'] .browser, [data-move='step-in'] .browser { --away-x: -24px; }
   [data-move='step-back'] .browser, [data-move='step-back'] .side::after { transition: opacity var(--t-slide-out)
     var(--ease-drawer), transform var(--t-slide-out) var(--ease-drawer), visibility 0s linear var(--t-slide-out); }
