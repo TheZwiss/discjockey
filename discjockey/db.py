@@ -12,7 +12,7 @@ import os
 import sqlite3
 import unicodedata
 import uuid
-from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path, PurePosixPath
@@ -21,9 +21,9 @@ from typing import NamedTuple
 from . import library as disk  # "library" is the Library/ path argument everywhere here
 from .events import Emit, Message
 from .identify import compare
-from .models import (OWN_PREFIX, AddedFolder, BatchRow, DupFile, DuplicateGroup, ImportCounts, ImportRow, KnownFile,
-                     MoveRow, NOT_OPENABLE, OwnFacts, PlannedMove, RemovalCounts, ScanResult, WatchedFolder, group_id,
-                     is_own, split_token, token)
+from .models import (OWN_PREFIX, AddedFolder, BatchRow, DupFile, DuplicateGroup, FetchedPlaylist, ImportCounts,
+                     ImportRow, KnownFile, MoveRow, NOT_OPENABLE, OwnFacts, PlannedMove, PlaylistRecord, RecordedTrack,
+                     RemovalCounts, ScanResult, WatchedFolder, group_id, is_own, split_token, token)
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
@@ -1560,6 +1560,82 @@ def decisions(conn: sqlite3.Connection) -> dict:
         else:
             out["keep_both"].append(a)
     return out
+
+
+# --- stage 5: what the hub shows beside the library (plan library stage 5, D1, D2, D15, I1, I2) ---
+# None of it is library state: the snapshot never holds it and no write here bumps the generation, so a read
+# record, a Favourite or a crate switch never makes a prepared step stale (STALE). The writers take no library lock
+# (D15: they run while a sync or an import does); a write transaction of another connection makes them wait out the
+# busy timeout (connect), after which they raise sqlite3.OperationalError and nothing of theirs was written.
+
+def record_reads(conn: sqlite3.Connection, reads: Sequence[FetchedPlaylist], now: datetime,
+                 keep: Collection[str]) -> None:
+    """Records the playlists just read (D1), in one transaction. Each read (a successful one: an empty playlist is
+    one too) replaces its playlist's record, keyed by its line's ref: its service, `now`, and its tracks in
+    playlist order (token and display facts, D2). A playlist missing from `reads` (it couldn't be read, or it is
+    switched off) keeps its record. Records of refs not in `keep` (the refs of every playlists.txt line, on or
+    off) are dropped, with their tracks."""
+    stamp = now.isoformat(timespec="seconds")
+    keep = set(keep)
+    with transaction(conn):
+        for fp in reads:
+            ref = fp.line.ref
+            conn.execute("DELETE FROM playlist_reads WHERE playlist = ?", (ref,))  # its tracks go with it (CASCADE)
+            conn.execute("INSERT INTO playlist_reads (playlist, service, read_at) VALUES (?, ?, ?)",
+                         (ref, fp.line.service, stamp))
+            conn.executemany(
+                "INSERT INTO playlist_tracks (playlist, position, token, artist, title, duration_ms) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                [(ref, i, t.key, t.first_artist, t.title, t.duration_ms or None)
+                 for i, t in enumerate(fp.tracks, start=1)])
+        gone = [(ref,) for (ref,) in conn.execute("SELECT playlist FROM playlist_reads") if ref not in keep]
+        conn.executemany("DELETE FROM playlist_reads WHERE playlist = ?", gone)
+
+
+def playlist_records(conn: sqlite3.Connection) -> dict[str, PlaylistRecord]:
+    """Every playlist's last read, by its line's ref, its tracks in playlist order. One query, so a record being
+    replaced meanwhile is read whole, before or after."""
+    reads: dict[str, tuple[str, str]] = {}
+    tracks: dict[str, list[RecordedTrack]] = {}
+    for ref, service, read_at, *track in conn.execute(
+            "SELECT r.playlist, r.service, r.read_at, t.position, t.token, t.artist, t.title, t.duration_ms "
+            "FROM playlist_reads r LEFT JOIN playlist_tracks t ON t.playlist = r.playlist "
+            "ORDER BY r.playlist, t.position"):
+        reads[ref] = (service, read_at)
+        if track[0] is not None:  # a playlist read empty has no track rows
+            tracks.setdefault(ref, []).append(RecordedTrack(*track))
+    return {ref: PlaylistRecord(service, read_at, tuple(tracks.get(ref, ())))
+            for ref, (service, read_at) in reads.items()}
+
+
+def favourites(conn: sqlite3.Connection) -> list[str]:
+    """The Favourites' keys (`playlist:<ref>`, `folder:<path>`, D3) in the user's order."""
+    return [key for (key,) in conn.execute("SELECT key FROM favourites ORDER BY position")]
+
+
+def set_favourites(conn: sqlite3.Connection, keys: Iterable[str]) -> None:
+    """Replaces the Favourites with `keys` in their order, in one transaction; a key given twice keeps its first
+    place."""
+    with transaction(conn):
+        conn.execute("DELETE FROM favourites")
+        conn.executemany("INSERT INTO favourites (position, key) VALUES (?, ?)",
+                         list(enumerate(dict.fromkeys(keys))))
+
+
+def crate_overrides(conn: sqlite3.Connection) -> dict[str, bool]:
+    """The user's crate switches, by the crate's snapshot path: shown (True) or hidden (False). A crate without one
+    has the default (shown, or hidden under a folder with too many crates, D8)."""
+    return {path: bool(shown) for path, shown in conn.execute("SELECT path, shown FROM crate_shown")}
+
+
+def set_crate_shown(conn: sqlite3.Connection, path: str, shown: bool | None) -> None:
+    """Sets the crate at snapshot path `path` shown or hidden; None removes the switch (back to the default)."""
+    with transaction(conn):
+        if shown is None:
+            conn.execute("DELETE FROM crate_shown WHERE path = ?", (path,))
+        else:
+            conn.execute("INSERT INTO crate_shown (path, shown) VALUES (?, ?) "
+                         "ON CONFLICT (path) DO UPDATE SET shown = excluded.shown", (path, int(shown)))
 
 
 DB_NAME = "library.db"
