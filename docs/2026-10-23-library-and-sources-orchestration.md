@@ -145,5 +145,30 @@ Everything else is decided and done without asking, and reported in one short me
 | 2 Tidy-up | `docs/2026-10-24-library-stage-2-plan.md` | `feat/library-2-tidy` | Done: 7 groups, Opus stage review, 2 fix rounds + Sonnet re-review (145f34c); verify 615 shots 0 problems, CI green; rekordbox live check passed 2026-10-24 (Relocate needs the music folder in Auto Relocate's search folders: README); merged into main with stage 1 |
 | 3 Qobuz playlists | `docs/2026-10-24-library-stage-3-plan.md` | `feat/library-3-qobuz` | Done, merged into main 43e786f (2026-10-25): 7 groups + stage review fix rounds; Qobuz live read checked; Spotify optional in Setup; leftovers in docs/issues.md #26 |
 | 4 Import | `docs/2026-10-25-library-stage-4-plan.md` (f5624fd) | `feat/library-4-import` | Done, merged into main 014bcdc (2026-10-29): 8 groups, Opus stage review, fix rounds A–M (A–D review; E–M from the user's live checks: quality floor rule, own files in the sound picture, offline and missing files with a live drive watcher, whole-screen fixes); verify 741 shots 0 problems, CI green; user live check passed (drive eject); leftovers in docs/issues.md #27 |
-| 5 Sidebar | — | — | Not started |
+| 5 Sidebar | `docs/2026-10-29-library-stage-5-plan.md` | `feat/library-5b-folders` | Step A merged into main b47a3b2. Step B built + reviewed; in the user's live check (2026-10-31), fix queue below; merge into main after the user's re-check |
 | 6 SoundCloud, YouTube Music | — | — | Not started |
+
+### Stage 5 live-check queue (2026-10-31)
+
+One agent at a time, each in a worktree `.claude/worktrees/5b-<name>` off `feat/library-5b-folders`, merged back with
+`--no-ff`, pushed.
+
+Done on the step branch: the 120 fps cap lifted (user confirmed); empty Artist column; crate panel jitter in a small
+window (2ee90d0, **user to re-check**: import with a small window, then full screen); quality rule: fake line 20.8 kHz,
+weak 12 dB wall only 19.5–20.4 kHz (7b71617; calibrated on 120 real Qobuz files + 31 DJ Stick Jan WAVs, all right);
+Sync's blank playlist row for own songs (765085d).
+
+Open, in order:
+1. **Upgrade-ready investigation** (Opus, report only, worktree `5b-upgrade`): Compare says "Can't play these
+   files"; "matches exactly, cues stay" before the swap vs "This is a different edit" after it (Basswell – Bass
+   Revolution 2000; old MP3 in `Superseded/Techno/`, user told to leave the track alone); no undo for the swap; why
+   "Add as new file" is the orange primary; a stray 0-byte `~/Music/Discjockey/library.db` (created 00:05).
+2. **To-do decision panels design** (Opus + design skills, mockup with before/after for the user's approval, then
+   build): Upgrade ready (warning before the step, undo, button order) and Duplicates (user: "very bad UX";
+   "Move to Superseded" is jargon and badly placed, "Keep both" is the orange primary, no recommendation, paths as
+   headings, the Superseded explanation in a separate box). Feed in item 1's findings.
+3. **Compare playback fix**, if item 2 doesn't cover it.
+4. **Tooltip cut off at the window edge** (To-do's "Add as new file makes a new rekordbox e…"), small UI fix + shots.
+5. **Ask the user:** re-judge old quality verdicts with the new rule? (`docs/issues.md` #27; e.g. 27 DJ Stick Jan
+   WAVs still show lossless until judged again).
+6. Then: CI + verify, the user's re-check, merge `feat/library-5b-folders` into main, update this table and memory.
