@@ -296,6 +296,12 @@ export function favouritesIn(side: Sidebar, keys: readonly string[] | null): Fav
   });
 }
 
+/** the rows with each key once, the first kept: the lists are keyed by it */
+function once<T extends { key: string }>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  return rows.filter((r) => !seen.has(r.key) && !!seen.add(r.key));
+}
+
 export function browserList({ side, query, az, closed: storedClosed, current = null, shown = {} }: BrowserInput): BrowserList {
   // a stored value is only checked for its type (getPref), so an object or a string can stand here
   const closed = Array.isArray(storedClosed) ? storedClosed : [];
@@ -346,6 +352,9 @@ export function browserList({ side, query, az, closed: storedClosed, current = n
     folders.push(own ?? { ...watchedRow(w, null, 'folders'), context: true }, ...crates);
   }
   folders.push(...kept(side.library_folders.map((f) => libraryFolderRow(f, 'folders'))));
+  // one folder is one row: a watched folder or crate that sits at the path of a Library folder (or twice) is drawn once,
+  // the first (a keyed list can't hold a key twice)
+  const onceFolders = once(folders);
 
   const section = (key: Section['key'], label: string, rows: CollectionRow[], count: number | null): Section => ({
     key, label, rows, count: filtering ? null : count, foldable: !filtering, open: filtering || !closed.includes(key) });
@@ -353,10 +362,10 @@ export function browserList({ side, query, az, closed: storedClosed, current = n
   // Favourites steps aside while filtering: each match once, in its own section, one highlight (N9)
   if (!filtering) {
     const crates = cratesByPath(side);
-    sections.push(section('favourites', 'Favourites', side.favourites.map((f) => favouriteRow(f, side, crates)), null));
+    sections.push(section('favourites', 'Favourites', once(side.favourites.map((f) => favouriteRow(f, side, crates))), null));
   }
   if (playlists.length) sections.push(section('playlists', 'Playlists', playlists, side.playlists.length));
-  if (folders.length) sections.push(section('folders', 'Folders', folders, null));
+  if (onceFolders.length) sections.push(section('folders', 'Folders', onceFolders, null));
 
   const ho = filtering ? handoff(query) : null;
   const targets = filtering

@@ -111,9 +111,12 @@ their Qobuz daily limit. Long commands run in the background with a status line.
 - **Tests are offline and never touch the user's data.** Use `tmp_path` libraries and the fixtures; no real Spotify,
   Qobuz or yt-dlp calls.
 - **One writer at a time:** the library lock (`.lock`) is shared by console runs and hub jobs; hub write methods
-  answer `busy`/`console` instead of waiting.
+  answer `busy`/`console` instead of waiting. The exception is the brief saves `setup_skip_import`, `set_favourites`
+  and `set_crate_shown`: they take no library lock, wait up to 1.5 s on `library.db`, then answer `busy`; that is safe
+  because no job writes those records.
 - **Bridge methods never reject:** `{"ok": true, …}` or `{"ok": false, "kind", "message"}`; write methods return a
-  `job_id` and finish with a `JobFinished` event.
+  `job_id` and finish with a `JobFinished` event, except the same three brief saves, which answer their result at once
+  and start no job.
 - User-facing text is plain English for a non-technical DJ — no jargon, no stack traces (see README's tone).
 
 ---

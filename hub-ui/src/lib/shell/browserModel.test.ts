@@ -447,3 +447,28 @@ describe('the right-click menu', () => {
     expect(revealPath(byName('Hardtechno'))).toBeNull();
   });
 });
+
+describe('browserList with a folder twice in the sidebar', () => {
+  const twice: Sidebar = {
+    ...side,
+    library_folders: [{ path: 'Library/Powertrance', name: 'Powertrance', files: 4 },
+      { path: 'Library/Powertrance', name: 'Powertrance', files: 4 }],
+    watched: [{ path: 'Library/Powertrance', name: 'Powertrance', place: 'in Library', files: 4, state: 'here', crates: [] } as never],
+    favourites: [{ key: 'folder:Library/Powertrance', kind: 'folder', name: 'Powertrance', service: null, enabled: true,
+      count: 4, path: 'Library/Powertrance', state: 'here' },
+    { key: 'folder:Library/Powertrance', kind: 'folder', name: 'Powertrance', service: null, enabled: true,
+      count: 4, path: 'Library/Powertrance', state: 'here' }],
+  };
+  it('draws each key once in every section (a keyed list would crash on it)', () => {
+    for (const query of ['', 'power']) {
+      const l = browserList({ side: twice, query, az: false, closed: [] });
+      for (const s of l.sections) {
+        const keys = s.rows.map((r) => r.key);
+        expect(new Set(keys).size, `${s.key} (${query})`).toBe(keys.length);
+      }
+    }
+    const folders = browserList({ side: twice, query: '', az: false, closed: [] }).sections.find((s) => s.key === 'folders')!;
+    expect(folders.rows.filter((r) => r.key === 'folder:Library/Powertrance')).toHaveLength(1);
+    expect(folders.rows[0]).toMatchObject({ folder: 'watched' });
+  });
+});

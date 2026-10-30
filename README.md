@@ -358,13 +358,13 @@ again).
   Right-click a crate and choose **Hide from sidebar** if you don't want to see it; the filter above still finds
   hidden crates and offers **Show in sidebar**. To bring crates back, or to choose which ones to show, go to **Settings → Watched folders**: each
   folder has an **In the sidebar** group with a switch per crate and a search field for folders with many crates.
-  A folder with too many crates for the sidebar says so: switch on the ones you want, or search and then press **All**.
+  A folder with too many crates for the sidebar says so: switch on the ones you want, or search and then press **All**. Its **Show some in the sidebar…** link opens Settings → Watched folders on that folder.
 - **A right-click menu on every row.** **Open**, **Play**, **Add to favourites** or **Remove from favourites**,
   **Hide from sidebar** (crates only) and **Show in Finder** (where the folder is one Discjockey can open).
 - **A playlist's view.** The line under its name says how many songs you have: **13 of 18 downloaded** means five
   are still to come. A song that has no file yet shows as **Waiting** (it downloads at the next sync), or as
   **NOT FOUND** when Discjockey found nothing usable yet (To-do has other ways to get it). Below the playlist's
-  songs, **Also in this folder** lists the files in the playlist's folder that aren't in the playlist. Switched-off playlists stay in the list; their files stay and nothing new downloads. A
+  songs, a title with **in {place}** after it is a song whose file sits in another folder than the playlist's. **Also in this folder** lists the files in the playlist's folder that aren't in the playlist. Switched-off playlists stay in the list; their files stay and nothing new downloads. A
   playlist Discjockey hasn't read yet says so, with a **Read playlists** button.
 - **A folder's view.** Opening a watched folder or a crate lists every track in it and below it. A **Subfolder**
   column says which of its folders a track is in, and a **Playlist** column names the playlist that holds the song, if
