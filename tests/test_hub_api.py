@@ -261,7 +261,18 @@ def test_sidebar_lists_every_playlists_line_with_its_service_and_switch(root):
     rows = api.sidebar()["playlists"]
     assert [(p["name"], p["service"], p["enabled"]) for p in rows] == [
         ("Hard_Bounce", "spotify", True), ("Powertrance", "spotify", True), ("Example_Playlist", "qobuz", False)]
-    assert rows[2]["ref"].startswith("qobuz:") and rows[2]["tracks"] == 0
+    assert rows[2]["ref"].startswith("qobuz:") and rows[2]["songs"] is None  # never read
+
+
+def test_a_finished_read_gives_the_sidebar_each_playlists_songs(root):
+    api, rec = make_api(root)
+    assert [p["songs"] for p in api.sidebar()["playlists"]] == [None, None]
+    finished = refreshed(api, rec)  # B2.4: the page re-reads the sidebar on this JobFinished
+    assert (finished.kind, finished.ok) == ("refresh", True)
+    sb = api.sidebar()
+    assert [(p["name"], p["songs"]) for p in sb["playlists"]] == [("Hard_Bounce", 4), ("Powertrance", 2)]
+    assert (sb["favourites"], sb["watched"]) == ([], [])
+    assert sb["library_folders"] == []
 
 
 def test_library_subtitle_comes_from_the_playlists_lines(root):

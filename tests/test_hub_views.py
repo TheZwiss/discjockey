@@ -6,7 +6,7 @@ import pytest
 from discjockey.hub import views
 from discjockey.hub.jobs import PreviewStore
 from discjockey.models import (Action, BatchResult, BatchRow, FetchedPlaylist, MoveRow, Plan, PlannedMove, PlaylistInfo,
-                               PlaylistLine, SourceTrack)
+                               PlaylistLine, PlaylistRecord, RecordedTrack, SourceTrack)
 from discjockey.planner import ENTRY_KEYS, TidyRow, tidy_rows
 from discjockey import playlists_file as pf
 from discjockey.playlists_file import Loaded, Row
@@ -517,19 +517,20 @@ def test_sidebar():
     lines = [Row("Hard_Bounce", "https://open.spotify.com/playlist/37i9dQZF1DX0XUsuxWHRQd"),
              Row("Powertrance", "https://open.qobuz.com/playlist/900000001", enabled=False)]
     sb = views.sidebar(LIB, lines, 3)
-    assert sb == {"todo": 3, "all_tracks": 5, "not_in_playlist": 1, "limits_warning": False,
+    assert sb == {"todo": 3, "all_tracks": 5, "not_in_playlist": 1, "limits_warning": False, "favourites": [],
                   "playlists": [{"name": "Hard_Bounce", "ref": "37i9dQZF1DX0XUsuxWHRQd", "service": "spotify",
-                                 "enabled": True, "tracks": 4},
+                                 "enabled": True, "songs": None},
                                 {"name": "Powertrance", "ref": "qobuz:900000001", "service": "qobuz",
-                                 "enabled": False, "tracks": 0}],
-                  "library_folders": [{"folder": "Bouncy", "tracks": 1}]}
+                                 "enabled": False, "songs": None}],
+                  "watched": [], "library_folders": [{"path": "Library/Bouncy", "name": "Bouncy", "files": 1}]}
 
 
 def test_sidebar_matches_folders_by_folded_name_and_sorts_the_unused_ones():
     st = state(a=e(folder="Zeta"), b=e(folder="alpha"), c=e(folder="Hard_bounce"), d=e("missing", folder="Gone"))
     sb = views.sidebar(st, [Row("Hard_Bounce", "https://open.spotify.com/playlist/37i9dQZF1DX0XUsuxWHRQd")], 0)
-    assert sb["playlists"][0]["tracks"] == 1  # the disk ignores case
-    assert sb["library_folders"] == [{"folder": "alpha", "tracks": 1}, {"folder": "Zeta", "tracks": 1}]
+    assert sb["library_folders"] == [{"path": "Library/alpha", "name": "alpha", "files": 1},
+                                     {"path": "Library/Zeta", "name": "Zeta", "files": 1}]  # the disk ignores case
+    assert [f["name"] for f in views.sidebar(st, [], 0)["library_folders"]] == ["alpha", "Hard_bounce", "Zeta"]
     assert views.sidebar(st, [], 0)["playlists"] == []
 
 
@@ -1407,8 +1408,8 @@ def test_the_library_marks_files_whose_sound_is_not_checked_yet_and_copes_with_o
     assert views.library(st, "A", "", "all", "artist", lines=[])["summary"]["tracks"] == 1  # own songs are in no folder
     assert views.library(st, views.NOT_IN_PLAYLIST, "", "all", "artist", lines=[])["summary"]["tracks"] == 2
     sb = views.sidebar(st, [Row("A", "https://open.spotify.com/playlist/37i9dQZF1DX0XUsuxWHRQd")], 0)
-    assert (sb["all_tracks"], sb["not_in_playlist"], [p["tracks"] for p in sb["playlists"]],
-            sb["library_folders"]) == (3, 2, [1], [])
+    assert (sb["all_tracks"], sb["not_in_playlist"], [p["songs"] for p in sb["playlists"]],
+            sb["library_folders"]) == (3, 2, [None], [])
 
 
 def test_sync_preview_counts_the_songs_waiting_for_an_answer_and_the_checks_left_for_later():
@@ -1435,11 +1436,11 @@ def test_the_watched_folders_with_their_states_counts_and_unreadable_files():
     out = view(None)
     assert out["folders"] == [
         {"id": 1, "path": "/m/Library", "name": "Library", "kind": "library", "state": "online", "files": 500,
-         "waiting": 0, "unreadable": 0},
+         "waiting": 0, "unreadable": 0, "crates": [], "too_many": False},
         {"id": 2, "path": "/Volumes/Example/Music", "name": "Music", "kind": "import", "state": "online",
-         "files": 120, "waiting": 25, "unreadable": 2},
+         "files": 120, "waiting": 25, "unreadable": 2, "crates": [], "too_many": False},
         {"id": 3, "path": "/Volumes/Gone", "name": "Gone", "kind": "import", "state": "offline", "files": 7,
-         "waiting": 7, "unreadable": 0}]
+         "waiting": 7, "unreadable": 0, "crates": [], "too_many": False}]
     assert out["unreadable"] == [{"folder_id": 2, "path": "/Volumes/Example/Music/Sub/bad.aiff",
                                   "reason": "macOS doesn't let Discjockey read it"}]
     assert (out["waiting"], out["stopped"]) == (25, False)
@@ -1491,7 +1492,8 @@ def test_the_library_row_counts_its_own_waiting_and_unreadable_files():
                   (Path("/m/Library/worse.wav"), "Discjockey can't find sound it can read in it")]
     out = views.watched_folders([lib, one], counts, (), 500, unreadable, 29, False, None)
     assert out["folders"][0] == {"id": 1, "path": "/m/Library", "name": "Library", "kind": "library",
-                                 "state": "online", "files": 500, "waiting": 4, "unreadable": 2}
+                                 "state": "online", "files": 500, "waiting": 4, "unreadable": 2, "crates": [],
+                                 "too_many": False}
     assert out["folders"][1]["waiting"] == 25 and out["folders"][1]["unreadable"] == 0
     assert [(u["folder_id"], u["path"]) for u in out["unreadable"]] == [(1, "/m/Library/House/bad.aiff"),
                                                                         (1, "/m/Library/worse.wav")]
@@ -1590,3 +1592,151 @@ def test_library_rows_say_whether_their_file_is_here_offline_or_in_a_folder_not_
         "local:1": "here", "local:2": "offline", "local:3": "folder_missing", "t1": "here"}
     # decided per folder: a row never asks whether its own file is there, so "file_missing" stays the panel's
     assert "file_missing" not in states({"/Volumes/Example Stick/Music": "missing"}).values()
+
+# --- crates (plan library stage 5, D8) ---
+
+W = "/Volumes/Example Drive/Crates"
+OTHER = "/Users/dj/Music/Sets"
+
+
+def under(root, *folders):
+    return [f"{root}/{folder}/Example Artist - Song.aiff" for folder in folders]
+
+
+def crate_rows(files, watched=(W,), overrides=None, root=W):
+    return views.crates(files, list(watched), overrides or {})[root]["crates"]
+
+
+def test_a_crate_is_a_folder_that_holds_a_file_and_a_wrapper_gets_no_row():
+    files = [f"{W}/Example Artist - Root.aiff", *under(W, "Old Sets/Bounce", "Old Sets/Bounce/Peak", "Techno")]
+    got = views.crates(files, [W], {})[W]
+    assert [(c["label"], c["files"], c["has_crates"]) for c in got["crates"]] == [
+        ("Bounce", 2, True), ("Bounce › Peak", 1, False), ("Techno", 1, False)]  # "Old Sets" holds no file itself
+    assert (got["too_many"], got["crate_count"]) == (False, 3)
+    assert [c["tip"] for c in got["crates"]] == ["Crates › Old Sets › Bounce", "Crates › Old Sets › Bounce › Peak",
+                                                 "Crates › Techno"]
+    assert [c["path"] for c in got["crates"]][0] == f"{W}/Old Sets/Bounce"
+
+
+def test_files_in_the_watched_folder_itself_belong_to_no_crate():
+    got = views.crates([f"{W}/Example Artist - Song.aiff"], [W], {})
+    assert got == {W: {"too_many": False, "crate_count": 0, "crates": []}}
+    assert views.crates([], [W, OTHER], {}) == {W: got[W], OTHER: got[W]}  # every watched folder has its entry
+
+
+def test_crates_count_the_files_at_or_below_them_and_a_prefix_is_not_a_parent():
+    files = under(W, "Hard", "Hard", "Hard/2019", "Hard 2")
+    assert [(c["label"], c["files"]) for c in crate_rows(files)] == [("Hard", 3), ("Hard 2", 1), ("Hard › 2019", 1)]
+
+
+def test_a_crate_in_a_crate_reads_its_nearest_crate_ancestor_then_its_own_name():
+    files = under(W, "Hardtechno", "Hardtechno/2019", "Hardtechno/2019/Peak", "Wrapper/Deep/House")
+    assert [c["label"] for c in crate_rows(files)] == [
+        "2019 › Peak", "Hardtechno", "Hardtechno › 2019", "House"]  # a wrapper in the way changes nothing
+
+
+def test_crates_sharing_a_name_read_with_their_parent_folder_in_one_watched_folder_and_in_two():
+    files = under(W, "Old Sets/Bounce", "New Sets/Bounce", "Techno") + under(OTHER, "bounce", "Tech")
+    got = views.crates(files, [W, OTHER], {})
+    assert [c["label"] for c in got[W]["crates"]] == ["Bounce · New Sets", "Bounce · Old Sets", "Techno"]
+    assert [c["label"] for c in got[OTHER]["crates"]] == ["bounce · Sets", "Tech"]  # fold-equal across watched folders
+    # a crate inside another crate has a many-name label and is not compared with the single-name ones
+    nested = under(W, "Bounce", "Bounce/Peak", "Peak")
+    assert [c["label"] for c in crate_rows(nested)] == ["Bounce", "Bounce › Peak", "Peak"]
+
+
+def test_crates_come_in_natural_case_folded_label_order():
+    files = under(W, "Set 10", "set 2", "Set 1", "Zeta", "alpha")
+    assert [c["label"] for c in crate_rows(files)] == ["alpha", "Set 1", "set 2", "Set 10", "Zeta"]
+
+
+def test_a_label_never_changes_with_what_is_hidden():
+    files = under(W, "Old Sets/Bounce", "New Sets/Bounce")
+    shown = crate_rows(files)
+    hidden = crate_rows(files, overrides={f"{W}/Old Sets/Bounce": False})
+    assert [c["label"] for c in hidden] == [c["label"] for c in shown] == ["Bounce · New Sets", "Bounce · Old Sets"]
+    assert [c["hidden"] for c in shown] == [False, False]
+    assert [c["hidden"] for c in hidden] == [False, True]
+    assert crate_rows(files, overrides={f"{W}/Old Sets/Bounce": True})[1]["hidden"] is False
+
+
+def test_more_than_25_crates_make_a_too_many_folder_with_every_crate_hidden_unless_switched_on():
+    folders = [f"Crate {i:02d}" for i in range(26)]
+    got = views.crates(under(W, *folders), [W], {f"{W}/Crate 03": True, f"{W}/Crate 04": False})[W]
+    assert (got["too_many"], got["crate_count"], len(got["crates"])) == (True, 26, 26)
+    assert {c["name"] for c in got["crates"] if not c["hidden"]} == {"Crate 03"}
+    exactly = views.crates(under(W, *folders[:25]), [W], {})[W]
+    assert (exactly["too_many"], any(c["hidden"] for c in exactly["crates"])) == (False, False)
+
+
+def test_a_file_under_two_watched_folders_belongs_to_the_deeper_one():
+    inner = f"{W}/Deep"
+    got = views.crates(under(inner, "A"), [W, inner], {})
+    assert [c["label"] for c in got[W]["crates"]] == [] and [c["tip"] for c in got[inner]["crates"]] == ["Deep › A"]
+
+
+# --- the sidebar's records, Favourites and watched folders (D3, D5, I4) ---
+
+def record(*tokens, service="spotify"):
+    return PlaylistRecord(service, "2026-10-30T10:00:00", tuple(
+        RecordedTrack(i, t, "Artist", f"Title {t}", 180000) for i, t in enumerate(tokens, start=1)))
+
+
+def test_a_playlists_songs_are_the_distinct_songs_of_its_record_and_unread_is_none():
+    st = state(a=e(folder="A"), b=e(folder="A", aliases=["sp-b"]), c=e("missing", folder="A"))
+    lines = [Row("A", "https://open.spotify.com/playlist/37i9dQZF1DX0XUsuxWHRQd"),
+             Row("B", "https://open.spotify.com/playlist/3DiscjockeyExampleList"),
+             Row("C", "https://open.qobuz.com/playlist/900000001", enabled=False),
+             Row("D", "https://open.qobuz.com/playlist/900000002")]
+    refs = [r.ref for r in lines]
+    records = {refs[0]: record("a", "sp-b", "b", "a", "c", "unknown", "unknown"), refs[1]: record(),
+               refs[2]: record("a", service="qobuz")}
+    out = views.sidebar(st, lines, 0, records=records)["playlists"]
+    # a listed twice, "sp-b" is b's alias, "unknown" has no song yet but is one row of the view: a, b, c, unknown
+    assert [p["songs"] for p in out] == [4, 0, 1, None]
+    assert [p["enabled"] for p in out] == [True, True, False, True]  # a switched-off playlist keeps its number
+
+
+def test_the_watched_folders_come_by_name_with_place_files_state_and_crates():
+    lib = WatchedFolder(1, Path("/m/Library"), "library")
+    crates_ = WatchedFolder(2, Path(W), "import")
+    sets = WatchedFolder(3, Path(OTHER), "import")
+    st = state(a=e(folder="A"), **{
+        "local:1": own(path=f"{W}/Hard/Example Artist - Song.aiff"), "local:2": own(path=f"{W}/Example Artist - B.aiff"),
+        "local:3": own(path=f"{OTHER}/House/2019/Example Artist - C.aiff"),
+        "local:4": own(path=f"{W}Extra/Example Artist - D.aiff")})  # "Crates" is not a parent of "CratesExtra"
+    out = views.sidebar(st, [], 0, watched=[lib, crates_, sets], away={2: "unmounted"})["watched"]
+    assert [(w["name"], w["place"], w["files"], w["state"], w["too_many"], w["crate_count"]) for w in out] == [
+        ("Crates", "Example Drive › Crates", 2, "offline", False, 1), ("Sets", "~/Music/Sets", 1, "here", False, 1)]
+    assert out[0]["crates"] == [{"path": f"{W}/Hard", "label": "Hard", "name": "Hard", "tip": "Crates › Hard",
+                                 "files": 1, "hidden": False, "has_crates": False}]
+    assert views.sidebar(st, [], 0, watched=[sets], away={3: "missing"})["watched"][0]["state"] == "folder_missing"
+    assert views.sidebar(st, [], 0)["watched"] == []  # no library.db: nothing watched
+
+
+def test_place_words_a_folder_as_the_watched_folder_list_does():
+    assert views.place("/Users/dj/Music/Sets") == "~/Music/Sets"
+    assert views.place("/Users/dj") == "~" and views.place("/Users/dj/") == "~"
+    assert views.place("/Volumes/Example Drive") == "Example Drive"
+    assert views.place("/Volumes/Example Drive/Music/Old") == "Example Drive › Music/Old"
+    assert views.place("/srv/music/Old") == "/srv/music/Old"
+
+
+def test_favourites_resolve_in_their_stored_order_and_a_gone_key_is_left_out():
+    crate = WatchedFolder(2, Path(W), "import")
+    st = state(a=e(folder="A"), b=e(folder="Zeta"), c=e(folder="Hard_Bounce"),
+               **{"local:1": own(path=f"{W}/Old Sets/Hard/Example Artist - Song.aiff"),
+                  "local:2": own(path=f"{W}/Old Sets/Hard/Peak/Example Artist - B.aiff")})
+    lines = [Row("Hard_Bounce", "https://open.spotify.com/playlist/37i9dQZF1DX0XUsuxWHRQd", enabled=False)]
+    ref = lines[0].ref
+    keys = [f"folder:{W}/Old Sets/Hard/Peak", "folder:Library/Zeta", f"playlist:{ref}", "playlist:qobuz:1",
+            "folder:Library/Gone", f"folder:{W}", "folder:Library/Zeta", "folder:Library/Hard_Bounce"]
+    out = views.sidebar(st, lines, 0, records={ref: record("c", "x")}, favourites=keys, watched=[crate],
+                        away={2: "unmounted"}, overrides={f"{W}/Old Sets/Hard/Peak": False})["favourites"]
+    assert [(f["key"], f["kind"], f["name"], f["count"], f["path"], f["state"]) for f in out] == [
+        (f"folder:{W}/Old Sets/Hard/Peak", "folder", "Hard › Peak", 1, f"{W}/Old Sets/Hard/Peak", "offline"),
+        ("folder:Library/Zeta", "folder", "Zeta", 1, "Library/Zeta", "here"),
+        (f"playlist:{ref}", "playlist", "Hard_Bounce", 2, None, "here"),
+        (f"folder:{W}", "folder", "Crates", 2, W, "offline")]  # a hidden crate and a folder in use stay as they are
+    assert out[2]["service"] == "spotify" and out[2]["enabled"] is False
+    assert views.sidebar(st, lines, 0, favourites=[f"playlist:{ref}"])["favourites"][0]["count"] is None  # never read

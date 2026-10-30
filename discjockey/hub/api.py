@@ -512,7 +512,12 @@ class HubApi:
         count = self._todo(state, "all", False, count_only=True)["chips"]["all"]
         # the dot on "Download limits": a warning sign the user hasn't marked as seen, or a service paused today
         warnings = any(c["new_warnings"] or c["paused"] for c in views.limit_cards(state, self._settings(), self._today()))
-        return views.sidebar(state, pf.load(self._paths.playlists_file).rows, count, warnings)
+        with self._move_log() as conn:  # no library.db yet: no records, no Favourites, no watched folders
+            records, favs, overrides, folders = ((db.playlist_records(conn), db.favourites(conn),
+                                                  db.crate_overrides(conn), db.watched_folders(conn))
+                                                 if conn is not None else ({}, [], {}, []))
+        return views.sidebar(state, pf.load(self._paths.playlists_file).rows, count, warnings, records=records,
+                             favourites=favs, overrides=overrides, watched=folders, away=self._away_folders(folders))
 
     @bridge
     def sync_preview(self) -> dict:
@@ -643,23 +648,27 @@ class HubApi:
         it couldn't read, how many wait, and whether the user stopped the import this session (plan library stage 4
         I11)."""
         paths = self._paths
+        state = self._state()
         job = self._jobs.running()
         phase = None
         if job is not None and job.kind == "import":
             phase = (job.last.get("ImportProgress") or {}).get("phase", "scan")
         with self._move_log() as conn:
             if conn is None:  # no library.db yet: only the Library, nothing imported; its files as "All tracks" counts
-                rows, counts, unreadable, waiting = [WatchedFolder(0, paths.library, "library")], {}, [], 0
-                library_files = len(views.tracks_with_file(self._state()))
+                rows, counts, unreadable, waiting, overrides = [WatchedFolder(0, paths.library, "library")], {}, [], 0, {}
+                library_files = len(views.tracks_with_file(state))
             else:
+                overrides = db.crate_overrides(conn)
                 rows, counts = db.watched_folders(conn), db.import_counts(conn)
                 library_files, waiting = db.library_files(conn), db.import_left(conn)
                 unreadable = sorted(db.import_unreadable(conn) + db.import_unreadable(conn, "library"))
                 for f in rows:
                     if f.kind == "library":  # Library/ is listed like an import folder: its own waiting and unreadable
                         counts[f.id] = db.library_counts(conn)
+        crates = views.crates([e["path"] for e in views.tracks_with_file(state)],
+                              [str(f.path) for f in rows if f.kind == "import"], overrides)
         return views.watched_folders(rows, counts, self._away_folders(rows), library_files, unreadable, waiting, self._import_stopped,
-                                     phase)
+                                     phase, crates)
 
     @bridge
     def check_import_folder(self, path: str) -> dict:

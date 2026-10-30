@@ -1204,3 +1204,31 @@ def test_a_stored_offline_file_stays_offline_even_when_its_folder_is_there(lib):
     with db.connect(paths.db_file) as conn:
         conn.execute("UPDATE files SET online = 0 WHERE id = ?", (own_songs(paths)[key]["file_id"],))
     assert api.track(key)["track"]["file_state"] == "offline"
+
+
+# --- the sidebar, Favourites and crate switches (plan library stage 5, B2) ---
+
+def crate_library(tmp_path, monkeypatch):
+    """A hub with an import folder of crates: Hard/ (2 files), Hard/2019/ (1), House/ (1), a file in the folder itself."""
+    fake_spotify(monkeypatch)
+    paths = music_root(tmp_path, upgrade=True)
+    folder = import_folder(tmp_path, 1)
+    for sub, n in (("Hard", 2), ("Hard/2019", 1), ("House", 1)):
+        (folder / sub).mkdir(parents=True, exist_ok=True)
+        for i in range(n):
+            (folder / sub / f"Example Artist - {sub.replace('/', ' ')} {i}.aiff").write_bytes(f"{sub}{i}".encode() * 50)
+    fake_import(monkeypatch)
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    return api, rec, paths, folder
+
+
+def test_the_sidebar_and_the_settings_rows_list_the_crates_of_a_watched_folder(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    [w] = api.sidebar()["watched"]
+    assert (w["path"], w["name"], w["files"], w["state"], w["too_many"]) == (str(folder), "Music", 5, "here", False)
+    assert [(c["label"], c["files"], c["has_crates"], c["hidden"]) for c in w["crates"]] == [
+        ("Hard", 3, True, False), ("Hard › 2019", 1, False, False), ("House", 1, False, False)]
+    row = api.watched_folders()["folders"][1]
+    assert (row["crates"], row["too_many"]) == (w["crates"], False)
+    assert api.watched_folders()["folders"][0]["crates"] == []  # the Library has none
