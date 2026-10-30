@@ -170,12 +170,11 @@ Item 1 done, the upgrade investigation (Opus, 107k, report only). Results:
 - The stray `library.db` came from our own agent's `sqlite3` CLI on a wrong path; deleted.
 
 Open, in order:
-1. **Upgrade engine fixes** (Sonnet, code + tests, no UI shots):
-   - Compare: send the CORS header for the page's own origin only (port from `window_port`), never `*`.
-   - `views.upgrade_block` / `cue_text`: combine the measurement with `swap_possible`, and tests pin which button is
-     primary.
-   - `add_new`: store the measurement in `rekordbox_check`, and have `report.check_text` say "same edit: relocate in
-     rekordbox, cues fit" unless the edit really differs.
+1. ~~Upgrade engine fixes~~ done (Sonnet 135k, merged bf470aa): Compare CORS for the page origin only; card text
+   uses `swap_possible`; the text after "Add as new" follows the stored measurement. Leftovers: the CLI
+   `upgrades_cmd.REKORDBOX_ADDED` and README (~431–441) still carry the old fixed sentence (goes with item 2); `cueTone`
+   colours "same edit, but a new rekordbox entry" green (goes to item 3); a shifted file added as new sits N ms off
+   the old cues (the wording says so; note only).
 2. **Upgrade undo** (Opus, engine + hub API): undo for add-as-new and swap. It restores the old file, path, entry and
    parked upgrade; it is refused if either file changed; it is crash-safe (reuse `recover_swap`); it is gone after
    "Done, checked in rekordbox".
