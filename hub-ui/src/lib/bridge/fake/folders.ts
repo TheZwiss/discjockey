@@ -188,6 +188,7 @@ export async function runImport(ctx: FakeContext, run: ImportRun, finish: Finish
   const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms / ctx.speed));
   const progress = (phase: ImportPhase, done: number, total: number) => {
     s.imp.phase = phase;
+    s.imp.onStep?.(phase, done, total);
     emit({ type: 'ImportProgress', phase, done, total, unreadable: s.imp.unreadable.length });
   };
   const resumed = opts.resume;

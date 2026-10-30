@@ -134,7 +134,9 @@ right). Chrome joins this frame; it never floats over the page or reserves a str
 - `foot` holds the page's main action and **never scrolls away**.
 - **Every list that grows over time is anchored and scrolls in place** (playlists, runs, folders): a `ToggleGroup
   grow` or a `Surface grow` in `fill`, or a `Surface grow` as the last item of a page frame's list, which then keeps
-  the list area at the window's height (`data-scrolls-itself`). Lists that grow are never stacked one above another
+  the list area at the window's height (`data-scrolls-itself`). A `ToggleGroup`'s rows also hold their scroll while
+  rows come or go above the ones on screen (`scrollAnchor`: the first row whole at the top stays where it is; a list at
+  its top stays at its top). Lists that grow are never stacked one above another
   in a scrolling column, where a long one pushes the next off screen. A list with a fixed maximum (Dashboard's Needs
   you, three rows) keeps its natural height.
 
@@ -573,6 +575,15 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-30 · `scrollAnchor`: a ToggleGroup read again while it grows keeps what is on screen still (library stage 5
+  live check).** Settings' crate switches "jittered violently" during an import: the folders are read again once a
+  second while it counts, each read brought the crates found since in among the others by name, and every row on
+  screen slid down by the rows that arrived above it; WebKit has no CSS scroll anchoring and moved the scroll on top of
+  it (measured in fake mode, `settings:crates_importing`: 4 moves of up to 190 px of the row in view in 11 s, WebKit
+  and Chromium alike). The block now anchors its own scroller: when its rows change, the first row whole at the top
+  keeps its place (the scroll moves by as much as it would have), the browser's own anchoring is off there so the two
+  never both correct one change, and a list at its top stays at its top so a crate that sorts first shows. Measured
+  after: the row in view moves only when the import card leaves at the end (once, 19 px). Seen: `settings-folders-crates*`.
 - **2026-10-30 · Favourites in the browser column and the full sidebar (library stage 5 B5, D16.4).** Drag only into
   and inside Favourites, an empty section's dashed landing row, the order saved at once and put back with a toast, ⌥↑ /
   ⌥↓ as the keyboard's drag, the right-click menu with the accent ring on its row; written into §1 beside rule 4.

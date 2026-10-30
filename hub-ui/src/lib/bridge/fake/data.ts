@@ -109,6 +109,8 @@ export type FakeImport = {
   deferred: number;
   /** the phase the running import is in (null: none runs) */
   phase: ImportPhase | null;
+  /** called on every progress step of a running import (a scenario's files turning up as it reads them) */
+  onStep?: (phase: ImportPhase, done: number, total: number) => void;
 };
 export const emptyImport = (): FakeImport => ({ folders: [], nextId: 2, unreadable: [], stopped: false, skipped: false,
   questions: [], duplicates: [], deferred: 0, phase: null });

@@ -29,6 +29,8 @@ const fake: PageFake = {
     crates,
     // the same while a running job holds the library file: a switch's save answers busy, the row goes back (a toast)
     crates_busy(s) { crates(s); s.briefBusy = true; },
+    // Incoming's crates while its import runs (start_import): one more crate arrives on every step of it
+    crates_importing(s) { library!.crates_importing(s); },
     // six watched folders (the Library, Rekordbox Library, Albums, Vinyl Rips and two more): the list must give way to the switches
     crates_many_folders(s) {
       crates(s);

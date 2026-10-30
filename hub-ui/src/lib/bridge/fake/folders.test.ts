@@ -275,4 +275,21 @@ describe('fake Setup step "Your existing music"', () => {
     expect(await f.setup_skip_import()).toEqual({ ok: true });
     expect(must(await f.setup_status())).toMatchObject({ existing: true, import_folders: 0, import_skipped: true });
   });
+
+  it('settings:crates_importing brings Incoming one more crate on each step of its import', async () => {
+    const { evs, f } = fake('settings:crates_importing');
+    const incoming = (r: Awaited<ReturnType<typeof f.watched_folders>>) =>
+      must(r).folders.find((x) => x.path === '/Users/you/Music/Incoming')!;
+    const before = incoming(await f.watched_folders());
+    expect(before.crates).toHaveLength(11);
+    expect(before.too_many).toBe(false);
+    const job = must(await f.start_import()).job_id;
+    await finished(evs, job);
+    const after = incoming(await f.watched_folders());
+    expect(after.crates).toHaveLength(24);
+    expect(after.too_many).toBe(false);
+    // the later crates came in among the first ones, by name
+    expect(after.crates.map((c) => c.label)).toEqual([...after.crates.map((c) => c.label)].sort());
+    expect(after.files).toBe(before.files + 13 * 3);
+  });
 });
