@@ -126,9 +126,10 @@ export function toggleInspector(): void {
   if (get(chrome).place === 'library') inspectorOpen.update((o) => !o);
 }
 
-/** ⌘K, or ♫ while the browser waits behind the rail: below 1240 px the inspector closes so the browser comes back. */
+/** ⌘K from any page, or ♫ on Library: below 1240 px the inspector closes, so the browser stands (again) when Library
+ *  shows. At 1240 and up both fit and nothing changes. */
 export function bringBrowserBack(): void {
-  if (get(chrome).steppedBack) inspectorOpen.set(false);
+  if (get(windowWidth) < NARROW_BELOW && get(inspectorOpen)) inspectorOpen.set(false);
 }
 
 /** A request for the browser's filter field to take focus (⌘K); the column answers each new number. */
@@ -137,8 +138,10 @@ export function requestFilterFocus(): void {
   filterFocus.update((n) => n + 1);
 }
 
-/** Library's own place, without the selected track: where ♫ and ⌘6 go back to (the collection last open). */
+/** Where ♫, ⌘6 and ⌘K go back to: the collection last open in Library, with its selected track. */
 export function libraryReturn(r: Route): string | null {
-  return r.name === 'library' ? `#${r.path}` : null;
+  if (r.name !== 'library') return null;
+  const q = r.query.toString();
+  return `#${r.path}${q ? `?${q}` : ''}`;
 }
 export const lastLibrary = writable('#/library');

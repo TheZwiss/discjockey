@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { get } from 'svelte/store';
 import { parseHash } from '../router';
 import {
-  BROWSER_DEFAULT, chrome, chromeLayout, chromeMotion, chromeMove, clampBrowserWidth, filterFocus, fold, formOther,
+  BROWSER_DEFAULT, bringBrowserBack, chrome, chromeLayout, chromeMotion, chromeMove, clampBrowserWidth, filterFocus, fold, formOther,
   inspectorOpen, libraryReturn, placeOf, requestFilterFocus, setBrowserWidth, toggleInspector, type ChromeInput,
 } from './chrome';
 
@@ -101,6 +101,12 @@ describe('the stores', () => {
     expect(seen).toEqual(['none', 'none', 'reset', 'none']);
     setBrowserWidth(240);
   });
+  it('⌘K below 1240 closes the inspector from any page, so the browser stands when Library shows', () => {
+    inspectorOpen.set(true);
+    bringBrowserBack();   // the tests' window is 1280 wide: both fit, nothing changes
+    expect(get(inspectorOpen)).toBe(true);
+    inspectorOpen.set(false);
+  });
   it('⌘I does nothing outside Library', () => {
     toggleInspector();
     expect(get(inspectorOpen)).toBe(false);
@@ -117,8 +123,8 @@ describe('places', () => {
     expect(placeOf('library')).toBe('library');
     expect(['dashboard', 'runs', 'sync', 'settings', 'gallery'].map(placeOf)).toEqual(Array(5).fill('other'));
   });
-  it('libraryReturn keeps the collection, not the selected track', () => {
-    expect(libraryReturn(parseHash('#/library/folder/Hard%20Bounce?track=t2'))).toBe('#/library/folder/Hard%20Bounce');
+  it('libraryReturn keeps the collection and its selected track', () => {
+    expect(libraryReturn(parseHash('#/library/folder/Hard%20Bounce?track=t2'))).toBe('#/library/folder/Hard%20Bounce?track=t2');
     expect(libraryReturn(parseHash('#/library'))).toBe('#/library');
     expect(libraryReturn(parseHash('#/todo'))).toBeNull();
   });

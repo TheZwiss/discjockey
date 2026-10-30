@@ -14,9 +14,19 @@
   let { p, motion = true, hovered = false, rail = false }:
     { p: PlayerState; motion?: boolean; hovered?: boolean; rail?: boolean } = $props();
   const f = $derived(footPlayer(p));
-  // it fades in once the bar has folded away towards it (the bar takes 240 ms), and goes quickly on Show
-  const appear = (node: Element) => fade(node, motion ? { delay: 180, duration: 150 } : { duration: 0 });
-  const leave = (node: Element) => fade(node, { duration: motion ? 100 : 0 });
+  // it fades in once the bar has folded away towards it (the bar takes 240 ms), and goes quickly on Show. When the
+  // sidebar folds or unfolds, one form gives way to the other as the labels do: the old one at once, the new one
+  // fading in at the fold's end, so the two never stand together
+  let shownRail: boolean | null = null;
+  let swappedAt = -Infinity;
+  $effect.pre(() => {
+    if (shownRail !== null && rail !== shownRail) swappedAt = performance.now();
+    shownRail = rail;
+  });
+  const swapping = () => performance.now() - swappedAt < 50;
+  const appear = (node: Element) => fade(node, !motion ? { duration: 0 } : swapping() ? { delay: 100, duration: 120 }
+    : { delay: 180, duration: 150 });
+  const leave = (node: Element) => fade(node, { duration: motion && !swapping() ? 100 : 0 });
 </script>
 
 {#if f && rowShown(p) && rail}

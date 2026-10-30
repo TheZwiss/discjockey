@@ -5,9 +5,18 @@
   // place, so no icon moves. The frame's material (--sidebar-bg) is painted by App behind the chrome and the foot, so
   // the L they form has no seam.
   //
-  // The page takes the chrome's width at once (`.space`, `--sidebar-w`); the chrome itself (`.chrome`) lies over the
-  // body's left edge with its own width and its edge line, the page's left edge. `foot`: the foot is there, so the
-  // chrome also covers the foot's first pixel row (its line) up to its own edge.
+  // Motion (notes "Motion"; design language §5): the page lays out once, the chrome moves over it. The page takes the
+  // chrome's width at once (`.space`, `--sidebar-w`); the chrome itself (`.chrome`) lies over the body's left edge and
+  // follows with a CSS transition of its own width, its right border being the page's edge line. So a shrinking chrome
+  // uncovers a page that is already laid out, and a growing one covers room already empty. `foot`: the foot is there,
+  // so the chrome also covers the foot's first two pixel rows (its line, the played part) up to its own edge, and
+  // `.floor` draws the line from the chrome's edge to the page's while the chrome is narrower: the L stays joined
+  // mid-glide. Which timings
+  // apply comes from the move that led to the layout (`data-move`, chromeMotion): fold, into or out of Library, the
+  // step-back and its return, the edge's reset; `none` is at once. All CSS transitions, so a second ⌃⌘S turns a fold
+  // round from where it is. The browser column stays mounted outside Library (`away`: hidden, inert, its scroll kept),
+  // so its arrival and leaving are transitions too.
+  import { get } from 'svelte/store';
   import { hub, hubSyncRunning } from '../stores/hub';
   import { route, link } from '../router';
   import { updateLink } from '../appUpdate';
@@ -23,7 +32,20 @@
 
   let { foot = false }: { foot?: boolean } = $props();
 
-  const motion = $derived($chromeMotion);
+  // what the chrome shows: the layout and the move that led to it. Into Library the page's first frame is a long one
+  // (the table mounts), and a glide started with it would be mostly over before anything is drawn, so the chrome waits
+  // until that frame has painted (two animation frames) and then glides the whole way, over room the page has
+  // already left empty. Any other change, or a second one meanwhile, applies at once.
+  let motion = $state(get(chromeMotion));
+  let pending = 0;
+  $effect.pre(() => {
+    const m = $chromeMotion;
+    cancelAnimationFrame(pending);
+    pending = 0;
+    if (m.move !== 'into') { motion = m; return; }
+    pending = requestAnimationFrame(() => { pending = requestAnimationFrame(() => { pending = 0; motion = m; }); });
+  });
+  $effect(() => () => cancelAnimationFrame(pending));
   const L = $derived(motion.layout);
   const rail = $derived(L.form === 'rail');
   const side = $derived($hub.sidebar);
@@ -50,7 +72,8 @@
 
 <div class="space" aria-hidden="true"></div>
 <span class="floor" class:foot aria-hidden="true"></span>
-<div class="chrome" class:foot data-chrome data-form={L.form} data-browser={L.browserShown || undefined}>
+<div class="chrome" class:foot data-chrome data-form={L.form} data-browser={L.browserShown || undefined}
+  data-move={motion.move} style:--chrome-w="{L.sidebarW}px">
   <nav class="side chrome-part" class:rail class:beside={L.browserShown} aria-label="Main" data-test="sidebar"
     style:--form-w="{rail ? 50 : 168}px">
     <div class="head">
@@ -94,11 +117,10 @@
     </a>
   </nav>
 
-  {#if L.browserShown}
-    <div class="browser chrome-part" style:width="{L.browserWidth}px" data-test="browser-column">
-      <BrowserColumn />
-    </div>
-  {/if}
+  <div class="browser chrome-part" class:away={!L.browserShown} style:width="{L.browserWidth}px" inert={!L.browserShown}
+    aria-hidden={!L.browserShown || undefined} data-test="browser-column">
+    <BrowserColumn />
+  </div>
 </div>
 
 <style>
@@ -106,11 +128,12 @@
   .space { width: var(--sidebar-w); flex: none; }
   /* the chrome: over the body's left edge, as wide as --sidebar-w, its right border the page's edge line. Opaque in the
      frame's material (fixed to the window, so it is the very gradient App paints behind it) */
-  .chrome { position: absolute; left: 0; top: 0; bottom: 0; z-index: 4; width: var(--sidebar-w); display: flex;
+  .chrome { position: absolute; left: 0; top: 0; bottom: 0; z-index: 4; width: var(--chrome-w); display: flex;
     overflow: hidden; border-right: var(--bw) solid var(--surface-line); background: var(--sidebar-bg) fixed; }
-  /* with the foot there the chrome also covers the foot's first row, its line, up to the chrome's edge; .floor draws
-     that line from the chrome's edge to the page's while the chrome is narrower than the page's room */
-  .chrome.foot { bottom: calc(-1 * var(--bw)); }
+  /* with the foot there the chrome also covers the foot's first two rows (its line and the played part's 2 px) up to
+     the chrome's edge; .floor draws the line from the chrome's edge to the page's while the chrome is narrower than
+     the page's room. At rest both lie under the chrome, where the foot shows only its material anyway */
+  .chrome.foot { bottom: -2px; }
   .floor { position: absolute; left: 0; bottom: calc(-1 * var(--bw)); z-index: 3; width: var(--sidebar-w);
     height: var(--bw); background: var(--surface-line); display: none; }
   .floor.foot { display: block; }
@@ -118,8 +141,11 @@
   .side { position: relative; width: var(--form-w); flex: none; padding: var(--s-4) 10px;
     display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; }
   /* the second chrome line: the sidebar's right edge while the browser stands beside it (pages | collections) */
-  .side.beside::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: var(--bw);
-    background: var(--surface-line); }
+  .side::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: var(--bw);
+    background: var(--surface-line); opacity: 0; }
+  .side.beside::after { opacity: 1; }
+  /* it ends where the foot begins: the foot's first row is the page's lower edge, not the chrome's */
+  .chrome.foot .side::after { bottom: 2px; }
 
   .head { display: flex; align-items: center; height: 22px; margin-bottom: var(--s-2); flex: none; }
   /* the fold button sits on the glyph column (18–32 px) in both forms, so it never moves */
@@ -172,5 +198,42 @@
   .settings { margin-top: var(--s-2); }
 
   .browser { position: relative; flex: none; display: flex; flex-direction: column; min-height: 0;
-    padding-top: calc(var(--s-4) + 22px + var(--s-2)); }
+    padding-top: calc(var(--s-4) + 22px + var(--s-2)); --away-x: -8px; }
+  .browser.away { opacity: 0; visibility: hidden; transform: translateX(var(--away-x)); }
+
+  /* ---------- motion (the notes' motion table) ---------- */
+  /* the edge: the chrome and the sidebar's form glide together on the drawer curve, no bounce */
+  .chrome { --edge-dur: 0ms; --edge-delay: 0ms; --lab-in: 120ms; --lab-delay: 100ms; }
+  .chrome[data-move='fold'], .chrome[data-move='into'], .chrome[data-move='reset'] { --edge-dur: var(--t-fold); }
+  /* out of Library quicker: the browser's rows fade in 90 ms, then the edge glides back (done at 200 ms, entry 220) */
+  .chrome[data-move='out'] { --edge-dur: 150ms; --edge-delay: 50ms; --lab-delay: 80ms; }
+  .chrome[data-move='step-back'] { --edge-dur: var(--t-slide-out); }
+  .chrome[data-move='step-in'] { --edge-dur: var(--t-slide-in); }
+  .chrome, .side { transition: width var(--edge-dur) var(--ease-drawer) var(--edge-delay); }
+  /* the labels: out in the first 90 ms, in during the last 120 ms; the rail's marks the other way round. Hidden ones
+     turn invisible only once faded */
+  .lab, .ro { transition: opacity var(--lab-in) var(--ease) var(--lab-delay), visibility 0s linear 0s; }
+  .rail .lab, .side:not(.rail) .ro { transition: opacity 90ms var(--ease), visibility 0s linear 90ms; }
+  /* the browser and its hairline: into Library its rows fade in over the last 150 ms from 8 px to the left; out of it
+     they fade in 90 ms; the step-back moves it 24 px behind the rail and back (200 ms out, 240 ms in, drawer curve) */
+  .browser, .side::after { transition: none; }
+  [data-move='into'] .browser, [data-move='into'] .side::after {
+    transition: opacity 150ms var(--ease) 70ms, transform 150ms var(--ease) 70ms; }
+  [data-move='out'] .browser, [data-move='out'] .side::after {
+    transition: opacity 90ms var(--ease), transform 90ms var(--ease), visibility 0s linear 90ms; }
+  [data-move='step-back'] .browser, [data-move='step-in'] .browser { --away-x: -24px; }
+  [data-move='step-back'] .browser, [data-move='step-back'] .side::after { transition: opacity var(--t-slide-out)
+    var(--ease-drawer), transform var(--t-slide-out) var(--ease-drawer), visibility 0s linear var(--t-slide-out); }
+  [data-move='step-in'] .browser, [data-move='step-in'] .side::after { transition: opacity var(--t-slide-in)
+    var(--ease-drawer), transform var(--t-slide-in) var(--ease-drawer); }
+  /* reduced motion: no glides, widths change at once; the chrome's contents cross-fade */
+  @media (prefers-reduced-motion: reduce) {
+    .chrome, .side { transition: none; }
+    .lab, .ro, .rail .lab, .side:not(.rail) .ro { transition: opacity var(--t-fade) linear, visibility 0s linear 0s; }
+    .rail .lab, .side:not(.rail) .ro { transition: opacity var(--t-fade) linear, visibility 0s linear var(--t-fade); }
+    .browser.away { transform: none; }
+    .chrome:not([data-move='none']) .browser, .chrome:not([data-move='none']) .side::after {
+      transition: opacity var(--t-fade) linear, visibility 0s linear 0s; }
+    .chrome:not([data-move='none']) .browser.away { transition: opacity var(--t-fade) linear, visibility 0s linear var(--t-fade); }
+  }
 </style>
