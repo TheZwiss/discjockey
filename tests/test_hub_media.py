@@ -194,3 +194,61 @@ def test_file_inside_keeps_a_file_within_its_folder(tmp_path):
     assert media.file_inside(root, "escape.aiff") is None
     assert media.file_inside(root, "../secret.aiff") is None
     assert media.file_inside(root, "sub") is None and media.file_inside(root, "missing.aiff") is None
+
+
+# --- CORS: the compare player fetch()es the files from the page's port, so the page's origin must be named ---
+
+PAGE = "http://127.0.0.1:23456"
+
+
+def request(server, method, path, headers=None):
+    conn = http.client.HTTPConnection("127.0.0.1", server.port, timeout=5)
+    conn.request(method, path, headers=headers or {})
+    r = conn.getresponse()
+    body = r.read()
+    conn.close()
+    return r.status, {k.lower(): v for k, v in r.getheaders()}, body
+
+
+def test_the_pages_own_origin_may_read_the_files(server):
+    server.page_origin = PAGE
+    status, h, body = request(server, "GET", f"/{server.token}/{urllib.parse.quote(NAME)}", {"Origin": PAGE})
+    assert status == 200 and body == AUDIO
+    assert h["access-control-allow-origin"] == PAGE and h["vary"] == "Origin"
+
+
+def test_a_range_answer_names_the_origin_too(server):
+    server.page_origin = PAGE
+    status, h, body = request(server, "GET", f"/{server.token}/{urllib.parse.quote(NAME)}",
+                              {"Origin": PAGE, "Range": "bytes=0-9"})
+    assert status == 206 and body == AUDIO[:10] and h["access-control-allow-origin"] == PAGE
+
+
+@pytest.mark.parametrize("origin", ["http://127.0.0.1:23457", "http://localhost:23456", "https://example.com", "null"])
+def test_any_other_origin_gets_no_header(server, origin):
+    server.page_origin = PAGE
+    _, h, _ = request(server, "GET", f"/{server.token}/{urllib.parse.quote(NAME)}", {"Origin": origin})
+    assert "access-control-allow-origin" not in h
+
+
+def test_no_origin_header_and_no_page_origin_never_open_the_files_to_all(server):
+    path = f"/{server.token}/{urllib.parse.quote(NAME)}"
+    _, h, _ = request(server, "GET", path, {"Origin": PAGE})  # the page's port is not known yet
+    assert "access-control-allow-origin" not in h
+    server.page_origin = PAGE
+    _, h, _ = request(server, "GET", path)  # not a browser page
+    assert "access-control-allow-origin" not in h
+    for headers in ({"Origin": PAGE}, {"Origin": "https://example.com"}, {}):
+        assert request(server, "GET", path, headers)[1].get("access-control-allow-origin") != "*"
+
+
+def test_the_preflight_of_a_range_fetch_is_answered_for_the_page_only(server):
+    server.page_origin = PAGE
+    path = f"/{server.token}/{urllib.parse.quote(NAME)}"
+    ask = {"Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "range"}
+    status, h, _ = request(server, "OPTIONS", path, {"Origin": PAGE, **ask})
+    assert status == 204 and h["access-control-allow-origin"] == PAGE
+    assert h["access-control-allow-methods"] == "GET" and h["access-control-allow-headers"] == "Range"
+    status, h, _ = request(server, "OPTIONS", path, {"Origin": "https://example.com", **ask})
+    assert "access-control-allow-origin" not in h and "access-control-allow-methods" not in h
+    assert request(server, "OPTIONS", f"/wrong-token/{urllib.parse.quote(NAME)}", {"Origin": PAGE, **ask})[0] == 403

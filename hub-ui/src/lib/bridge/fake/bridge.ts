@@ -950,8 +950,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           t.upgrade = null;
           return finish(true, opResult(t, 'discarded', 'upgrade discarded'));
         }
+        const measured = t.upgrade!.alignment;
         Object.assign(t, { status: 'lossless', cutoff_hz: null, source: 'qobuz', codec: 'flac', upgrade: null });
-        if (mode === 'add_new') t.rekordbox_check = { reason: 'added_as_new', since: dateOnly(new Date()) };
+        if (mode === 'add_new') {
+          t.rekordbox_check = { reason: 'added_as_new', since: dateOnly(new Date()), match: measured.result,
+            offset_ms: measured.offset_ms ?? 0 };
+        }
         finish(true, opResult(t, mode === 'swap' ? 'swapped' : 'added_new', mode === 'swap'
           ? 'swapped, the old file is in Superseded' : 'added as a new file, the old one is in Superseded'));
       }, 900 / speed));
@@ -1116,7 +1120,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     let hidden_count = 0;
     for (const t of s.tracks) {
       if (t.rekordbox_check) {
-        items.rekordbox_check.push({ ...trackRow(t), group: 'rekordbox_check', detail: checkText(t.rekordbox_check.reason), free: false });
+        items.rekordbox_check.push({ ...trackRow(t), group: 'rekordbox_check', detail: checkText(t.rekordbox_check), free: false });
         chips.rekordbox_check++;
         if (!t.hidden) counted.add(t.track_id);
       }

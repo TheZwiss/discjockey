@@ -113,8 +113,9 @@ def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict,
     """The parked file takes the correct name in the current file's folder (`<folder>/<Artist - Title>.aiff`, ID
     suffix only if another file has it; a playlist folder's root unless it stays lossy, spec §7: `replacement_dir`);
     the current file moves to Superseded/ (mirroring its folder) first, so the new one can also take the name
-    the old one had. One pending operation with two renames. rekordbox's Auto Relocate then links the old entry to the
-    new file by its name, but its cues fit the old edit: the entry asks for a rekordbox check (added_as_new)."""
+    the old one had. One pending operation with two renames. rekordbox gets a new file, so it makes a new entry; the old
+    entry can be relocated to it. The entry asks for a rekordbox check (added_as_new) and keeps what the two files
+    measured as (`match`, `offset_ms`): the same edit means the old cues fit, the report words it so."""
     e = precondition(paths, state, track_id, upgrade, need_current=True)
     names = NameReserver(paths.root, state)
     stem, ext = split_name(strip_id_suffix(PurePosixPath(e["path"]).name, track_id))
@@ -126,8 +127,11 @@ def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict,
         new = target
     else:
         new = names.choose(folder, expected_stem(e["artist"], e["title"]), ".aiff", track_id)
-    entry = {**_upgraded(e, upgrade, new), "rekordbox_check": {"reason": "added_as_new",
-                                                               "since": now().date().isoformat()}}
+    measured = upgrade.get("alignment") or {}
+    entry = {**_upgraded(e, upgrade, new),
+             "rekordbox_check": {"reason": "added_as_new", "since": now().date().isoformat(),
+                                 "match": measured.get("result") or "unknown",
+                                 "offset_ms": measured.get("offset_ms") or 0.0}}
     run_op(paths, state, track_id, [(e["path"], old), (upgrade["file"], new)], entry)
     return _result("added_new", track_id, e, f"new file {new}; the old one moved to {old}", status=status,
                    source=upgrade["source"], path=new)

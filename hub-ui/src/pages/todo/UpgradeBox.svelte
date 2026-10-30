@@ -14,8 +14,8 @@
   } = $props();
 
   const a = $derived(actionsFor(track).upgrade!);
-  // without Swap the new file goes in beside the old one; say so unless the cue line already does
-  const NEW_ENTRY = "doesn't match: would be a new rekordbox entry";
+  // without Swap the new file goes in beside the old one; every measured cue line says so itself, only an
+  // unmeasured one ("could not compare") leaves it to the hint
 </script>
 
 <UpgradeCard upgrade={track.upgrade!} currentUrl={track.audio_url} {current} next={upgrade} {loading} swap={a.swap}>
@@ -27,5 +27,5 @@
     <WriteButton variant="link" muted size="sm" busy={busy === 'discard'} onclick={() => onrun('discard')}
       data-test="upgrade-discard">Discard</WriteButton>
   {/snippet}
-  {#if !a.swap && track.upgrade!.cue_text !== NEW_ENTRY}<Hint text="Add as new file makes a new rekordbox entry" />{/if}
+  {#if !a.swap && track.upgrade!.alignment.result === 'unknown'}<Hint text="Add as new file makes a new rekordbox entry" />{/if}
 </UpgradeCard>

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createFakeBridge } from './bridge';
 import { STREAMS } from './replay';
 import { minutesByDownloads } from './minutes';
+import { checkText } from './data';
 import { LIBRARY_METHODS } from '../contract';
 import type { HubEvent } from '../events';
 
@@ -22,6 +23,22 @@ describe('fake minutes table', () => {
     const t = minutesByDownloads(200);
     expect(t).toHaveLength(201);
     expect([0, 1, 10, 45, 195].map((n) => t[n])).toEqual([0, 5, 10, 50, 230]);
+  });
+});
+
+describe('fake rekordbox check text', () => {
+  // the same words as tests/test_report.py: the fake mimics report.check_text
+  const since = '2026-10-16';
+  it('words an added file by what the two files measured as', () => {
+    expect(checkText({ reason: 'added_as_new', since, match: 'exact', offset_ms: 0 }))
+      .toBe('This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit.');
+    expect(checkText({ reason: 'added_as_new', since, match: 'shifted', offset_ms: -23 }))
+      .toBe('This is the same edit, 23 ms apart. In rekordbox: relocate the old entry to the new file, its cues fit to within 23 ms.');
+    const different = 'This is a different edit. In rekordbox: analyse it again and set the cues again.';
+    for (const match of ['different', 'unknown', undefined]) {
+      expect(checkText({ reason: 'added_as_new', since, match })).toBe(different);
+    }
+    expect(checkText({ reason: 'wrong_song', since, match: 'exact' })).toMatch(/^This track now plays the right song/);
   });
 });
 

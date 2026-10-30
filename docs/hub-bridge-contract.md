@@ -111,7 +111,11 @@ Use the kind for the card/headline; always show `message` as the detail.
   have them and `run(run_id)` still shows them.
 - **rekordbox_check** (state.json entry field): null or `{reason: "wrong_song"|"added_as_new", since: "YYYY-MM-DD"}`.
   `wrong_song`: set by `use_candidate`/`use_link` when the old file was moved away to Superseded/, and by
-  `reject_current` ("None of these"). `added_as_new`: set by `upgrade(id, "add_new")`. The next sync keeps it; only
+  `reject_current` ("None of these"). `added_as_new`: set by `upgrade(id, "add_new")`, with `match` (the parked
+  version's measurement: `exact`/`shifted`/`different`/`unknown`) and `offset_ms`; records from before them have
+  neither. The `detail` text follows `match`: exact/shifted say it is the same edit, relocate the old entry to the new
+  file and its cues fit (shifted: to within the offset); `different`, `unknown` and old records say it is a different
+  edit, analyse and set the cues again. The next sync keeps it; only
   `rekordbox_checked(track_id)` clears it. The page sees it through `todo()`'s `rekordbox_check` group (the item's
   `detail` is the text to show) and the report section `rekordbox_check`; `track()` does not return it.
 - `empty` fields: null or a first-run/empty state: `no_playlists`, `not_set_up`, `empty_library`, `no_preview`,
@@ -804,7 +808,15 @@ was read from: the link of the first fetched track (playlist order) that is this
 (Spotify and Qobuz; null for a key with none). `label` is `Open in {service name}` ("Open in Spotify", "Open in Qobuz").
 `playlists` matches a song by its key and aliases (tokens), so a Qobuz song lists its folders too.
 `upgrade`: null or the parked version; `what` names it ("lossless version" or e.g. "256 kbps version"); Swap only
-when `swap_safe && swap_possible`; `cue_text` is the line to show.
+when `swap_safe && swap_possible`; `cue_text` is the line to show. It combines the measurement with `swap_possible`:
+exact/shifted on a file that can be swapped says the cues stay; on one that can't (MP3, WAV: "Add as new file" is the
+only way in, which rekordbox sees as a new entry) it says it is the same edit but a new rekordbox entry, and that
+relocating the old entry to the new file keeps its cues; a mismatch or unknown keeps its own line. The To-do row's
+`detail` for `upgrade_ready` is the same line.
+
+The media server (`audio_url`) answers `Access-Control-Allow-Origin: http://127.0.0.1:<window port>` to requests from the
+page's own origin, and nothing (never `*`) to any other: the compare player `fetch()`es both files to decode them, and
+the page and the server run on different ports. A CORS preflight (`OPTIONS`) is answered the same way.
 
 `track()`'s `free_downloads` (added 2026-10-18): the artists' free downloads found on SoundCloud while the track is
 not lossless, each `{"url", "host", "direct", "title", "uploader"}`, e.g. `{"url": "https://hypeddit.com/djtallboy/x",
@@ -843,7 +855,9 @@ in a duplicate group (their quality is for the Library to show). First group
 `rekordbox_check` (label "Check in rekordbox", hint "the file changed; rekordbox needs a hand"): every track with a
 `rekordbox_check`, also hidden tracks and tracks no longer in a playlist; `detail` is what to do in rekordbox ("This
 track now plays the right song. In rekordbox: analyse it again and delete the old cues (they belong to the wrong
-song)." / "This is a different edit. In rekordbox: analyse it again and set the cues again."); its button calls
+song)." / "This is a different edit. In rekordbox: analyse it again and set the cues again." for a real mismatch, no
+measurement or an old record; "This is the same edit. In rekordbox: relocate the old entry to the new file, its cues
+fit." when the two files were measured as the same edit); its button calls
 `rekordbox_checked(track_id)`. A track can be in two groups (e.g. Check in rekordbox and Not found); `chips.all`
 counts each track once, `chips.rekordbox_check` every check (hidden ones too).
 ```json
@@ -1585,8 +1599,9 @@ old file was moved away to Superseded/, the entry gets `rekordbox_check` (`wrong
 
 `upgrade(track_id, "add_new")`: the current file moves to `Superseded/<Folder>/` and the new lossless file gets the
 correct name `Library/<Folder>/<Artist - Title>.aiff` (no "(lossless)"; an ID suffix only if another file has that
-name); the entry gets `rekordbox_check` (`added_as_new`), because rekordbox relinks the old entry by name but its cues
-fit the old edit.
+name); the entry gets `rekordbox_check` (`added_as_new`, with the measurement of the two files: `match`,
+`offset_ms`), because rekordbox sees a new file as a new entry; the old entry can be relocated to it and keeps its cues
+when the two are the same edit.
 
 OpResult = `{"track_id", "result": Result, "recovered": [[message, ok], ...]}` (interrupted steps finished first; show
 them). The single operations check that the track still looks as the page last showed it (via `track`, `todo` or

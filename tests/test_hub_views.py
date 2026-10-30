@@ -356,6 +356,47 @@ def test_track_row():
 ])
 def test_cue_text(alignment, text):
     assert views.cue_text(alignment) == text
+    assert views.cue_text(alignment, can_swap=True) == text
+
+
+# a file that can't be swapped (MP3, WAV...) goes in as a new file: a new rekordbox entry, cues only by relocating
+NO_SWAP_SAME = "same edit, but a new rekordbox entry: relocate the old one to the new file to keep its cues"
+
+
+@pytest.mark.parametrize("alignment,can_swap,text", [
+    ({"result": "exact"}, True, "matches exactly, cues stay"),
+    ({"result": "exact"}, False, NO_SWAP_SAME),
+    ({"result": "shifted", "offset_ms": -23.0}, True, "aligned by 23 ms, cues stay"),
+    ({"result": "shifted", "offset_ms": -23.0}, False,
+     "same edit, 23 ms apart, but a new rekordbox entry: relocate the old one to the new file to keep its cues"),
+    ({"result": "different"}, True, "doesn't match: would be a new rekordbox entry"),
+    ({"result": "different"}, False, "doesn't match: would be a new rekordbox entry"),
+    ({"result": "unknown"}, True, "could not compare the two versions"),
+    ({"result": "unknown"}, False, "could not compare the two versions"),
+    (None, False, "could not compare the two versions"),
+])
+def test_cue_text_by_match_and_swap(alignment, can_swap, text):
+    assert views.cue_text(alignment, can_swap) == text
+
+
+@pytest.mark.parametrize("path,result,swap_safe,swap_possible,text", [
+    ("Library/A/x.aiff", "exact", True, True, "matches exactly, cues stay"),
+    ("Library/A/x.aif", "exact", True, True, "matches exactly, cues stay"),
+    ("Library/A/x.mp3", "exact", True, False, NO_SWAP_SAME),
+    ("Library/A/x.wav", "exact", True, False, NO_SWAP_SAME),
+    ("Library/A/x.mp3", "different", False, False, "doesn't match: would be a new rekordbox entry"),
+    ("Library/A/x.aiff", "different", False, True, "doesn't match: would be a new rekordbox entry"),
+    ("Library/A/x.mp3", "unknown", False, False, "could not compare the two versions"),
+])
+def test_the_card_and_the_todo_row_say_what_the_file_can_do(path, result, swap_safe, swap_possible, text):
+    """The card line combines the measurement with whether the file can be swapped (AIFF only); the To-do row says
+    the same, and the UI offers Swap only when swap_safe and swap_possible (todoModel.actionsFor)."""
+    entry = e("not_lossless", path=path, upgrade={**UPGRADE, "alignment": {"result": result, "offset_ms": 0.0}})
+    up = views.track_detail("t1", entry, [], TODAY)["upgrade"]
+    assert (up["swap_safe"], up["swap_possible"], up["cue_text"]) == (swap_safe, swap_possible, text)
+    row = {i["track_id"]: i for g in views.todo(state(t1=entry), "all", False, {}, TODAY)["groups"]
+           for i in g["items"]}["t1"]
+    assert row["group"] == "upgrade_ready" and row["detail"] == text
 
 
 def test_track_detail():
@@ -796,6 +837,14 @@ def test_todo_check_in_rekordbox_group_also_for_lossless_and_hidden_tracks():
     assert out["chips"]["rekordbox_check"] == 2 and out["chips"]["all"] == 2 and out["hidden_count"] == 1
     both = views.todo(s, "all", True, {}, TODAY)
     assert [g["key"] for g in both["groups"]] == ["rekordbox_check", "not_found"] and both["chips"]["all"] == 2
+
+
+def test_todo_check_in_rekordbox_words_an_added_file_by_what_was_measured():
+    s = state(a=e(rekordbox_check={"reason": "added_as_new", "since": "2026-10-16", "match": "exact"}),
+              b=e(title="B", rekordbox_check={"reason": "added_as_new", "since": "2026-10-16", "match": "different"}))
+    by = {i["track_id"]: i for i in views.todo(s, "all", False, {}, TODAY)["groups"][0]["items"]}
+    assert by["a"]["detail"] == "This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit."
+    assert by["b"]["detail"] == "This is a different edit. In rekordbox: analyse it again and set the cues again."
 
 
 def test_change_of_tracks_without_a_file_says_where_they_will_go():

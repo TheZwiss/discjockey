@@ -200,6 +200,8 @@ def test_main_makes_the_window(tmp_path, monkeypatch):
     assert web.started["private_mode"] is False and web.started["http_server"] is True
     assert web.started["storage_path"] == str(paths.cache / "webview")
     assert web.started["http_port"] == json.loads((paths.support / "window.json").read_text())["port"]
+    # the media server lets the page's own origin (the window's port) read the files, for the compare player
+    assert c["js_api"]._media.page_origin == f"http://127.0.0.1:{web.started['http_port']}"
     # the window is closed: the lock is let go, so the next window is the first again
     again = window_port(paths.support, free=lambda p: True)
     assert again.kept and again.lock is not None
