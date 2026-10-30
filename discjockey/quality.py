@@ -26,7 +26,12 @@ FALL_SPAN_HZ = 3_000   # the music this far below the floor's start (its level o
 FALL_DB = 30.0         # ... sits at least this far above the floor (a natural roll-off falls slower)
 MUSIC_HZ = 500
 EDGE_DB = 10.0         # the cutoff is where the fall first drops this far below that music level
-FAKE_BELOW_HZ = 19_500
+# A lossless file whose sound ends below this is fake. The cutoff is only ever a wall (a cliff, or a steep fall into
+# a flat floor); natural roll-offs and resamplers' anti-alias filters fall too slowly to leave one. Lossy encoders wall
+# at or below 20.5 kHz (Opus always ~20 kHz, LAME 320 kbps 20.2-20.5 kHz); a steep anti-alias filter sits at 21+ kHz.
+FAKE_BELOW_HZ = 20_800
+WALL_LOW_HZ = 19_500   # from here up to FAKE_BELOW_HZ a smaller cliff is a wall too: an encoder's wall into a quiet
+                       # top end can fall only 15-20 dB, while natural roll-offs fall about 10 dB per kHz or less
 CHUNK_FRAMES = 256
 LOSSLESS_CODECS = {"flac", "alac", "wavpack", "ape", "tta"}
 
@@ -92,19 +97,24 @@ def _bands(x: np.ndarray, sr: int) -> np.ndarray | None:
 
 def cutoff_hz(samples: np.ndarray, sample_rate: int, cliff_db: float = CLIFF_DB) -> int | None:
     """Where the top end ends, or None for full band: the lowest spectral cliff (>= cliff_db within 400 Hz)
-    between 10 and 21.5 kHz, failing that the edge of a steeper fall into a flat floor (`_floor_edge`)."""
+    between 10 and 21.5 kHz, failing that the edge of a steeper fall into a flat floor (`_floor_edge`), failing that
+    a smaller wall (>= LOSSY_CLIFF_DB) between WALL_LOW_HZ and FAKE_BELOW_HZ."""
     bands = _bands(samples, sample_rate)
     if bands is None:
         return None
-    cliff = _cliff(bands, cliff_db)
-    return cliff if cliff is not None else _floor_edge(bands)
+    for edge in (_cliff(bands, cliff_db), _floor_edge(bands),
+                 _cliff(bands, min(cliff_db, LOSSY_CLIFF_DB), WALL_LOW_HZ, FAKE_BELOW_HZ - BAND_HZ)):
+        if edge is not None:
+            return edge
+    return None
 
 
-def _cliff(bands: np.ndarray, cliff_db: float) -> int | None:
+def _cliff(bands: np.ndarray, cliff_db: float,
+           low_hz: int = SEARCH_LOW_HZ, high_hz: int = SEARCH_HIGH_HZ) -> int | None:
     w = WINDOW_BANDS
     drops = {}
     for b in range(w, len(bands) - w + 1):
-        if SEARCH_LOW_HZ <= b * BAND_HZ <= SEARCH_HIGH_HZ:
+        if low_hz <= b * BAND_HZ <= high_hz:
             drops[b] = float(bands[b - w:b].mean() - bands[b:b + w].mean())
     region: list[int] = []
     for b in sorted(drops):

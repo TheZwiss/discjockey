@@ -92,6 +92,10 @@ Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
 - **Files judged before the floor rule (fix round E1) keep their old verdict.** Nothing judges a library file again
   when the detector improves; in the user's library three House_Banger files would now be fake. Two more just miss
   the rule (a 28–29.7 dB fall into a flat floor, the rule needs 30); lowering it would take in looser shapes.
+  The same holds for the 20 kHz wall rule (2026-10-30): a lossless file walled at 19.5–20.8 kHz (decoded Opus or
+  MP3 320 saved as WAV/FLAC) is now fake, but files judged before keep "verified lossless". Re-judging would mean a
+  rule version stored with each verdict and a background pass that re-runs `quality.inspect` on files of an older
+  version (the import's sound pass already does the work per file), updating status and cutoff only.
 
 ## 26. Library stage 3 leftovers (Qobuz playlists) — for stages 5 and 6
 
