@@ -15,6 +15,13 @@ Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, st
   `import`, and `DrivesChanged`; no event was added. The UI's `shortPath` / `filePlace` duplicate `views.place`, so B4
   drops the UI copy. The contract must record `set_favourites` and `set_crate_shown` as the exception to "write
   methods return a `job_id`": they are brief saves that answer `{favourites}` / `{path, shown}` or `busy`.
+- **For B6 (from the B3 review):** an empty folder and a read-but-empty playlist both come with `empty` `no_match`
+  even without search text; B6 picks I7's words ("No music in this folder." / "This playlist is empty.") from `view`,
+  `folder_kind`, `read_at` and the empty query, and pins it. A playlist's subtitle and `summary.tracks` count rows
+  with a file (9) while the table shows the waiting ones too (12) and the sidebar says "12 songs": B6 words the
+  waiting rows so the numbers don't seem to disagree (e.g. "3 waiting").
+- **Later cleanup:** `views.library` is about 140 lines; `_playlist_rows` / `_folder_rows` would split it. `track()`
+  recomputes `views.sites` over every file on each pick (linear, fast enough today).
 
 ## 28. Library stage 5a leftovers (layout)
 
