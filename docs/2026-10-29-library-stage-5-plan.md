@@ -283,8 +283,8 @@ root, so the frame, the foot's line and the rule checker read one value.
 - Strip (N5): `{p} % lossless`, `{l} of {c} checked tracks`; rows `Upgrade ready {n} ›`, `Not lossless yet · {all in
   To-do | {m} in To-do | none in To-do} {n} ›` (no link and no › at none; tooltip when fewer: `{m} of them in To-do:
   files of your own in no playlist aren't`). Inspector toggle `Show details (⌘I)` / `Hide details (⌘I)`; hidden by hand: the toggle's words `Show details`, tip
-  `Hidden by you: selecting a track won't open them`; empty
-  inspector `Select a track to see its details.`; a quality badge's tooltip `Show details`.
+  `Hidden by you: selecting a track won't open them`; no
+  track to show (the toggle disabled): tip `Select a track to see its details`; a quality badge's tooltip `Show details`.
 - Step B: playlist rows `{name}` ⏎ `{Service} playlist · {n} songs` (never read `· not read yet`; off adds ⏎
   `Switched off: its files stay, nothing new downloads`); folder rows their tip, away adds ⏎ `Offline: connect the
   drive` / `Folder not found`; Favourites' landing row `Drag a playlist or folder here`; the menu `Open · Play · Add to
@@ -427,7 +427,7 @@ Tasks:
 1. **A6.1 `libraryModel.ts` + test:** column sets per view kind and their thresholds (D10, today's three views; a
    playlist folder counts as "a playlist"); the strip's numbers from `summary`; subtitle parts from `Library.subtitle`.
 2. **A6.2 Page:** `ListPanelFrame` in inspector mode; the details toggle (`Button icon pressed`, I7 words) and ⌘I;
-   the inspector follows the selection, empty words without one; double-click or Enter plays (unchanged); the strip
+   the inspector follows the selection; double-click or Enter plays (unchanged); the strip
    between header and filter segments, its rows linking to the Upgrade ready segment and To-do. **When the details
    show (changed after the step A live check, the user's wish):** picking a track (a click, ↑ ↓) opens them, unless
    the user hid them by hand; hiding by hand is the toggle or ⌘I while they show, and it sticks (`library.details.hidden`,
@@ -437,7 +437,14 @@ Tasks:
    right-click selects without opening (the menu is what it asks for). Hidden by hand, the toggle says so: `Button
    switchedOff` (words `Show details` before the glyph, which keeps its place; a dashed outline, the house shape for
    switched off; the glyph struck through), neutral because red means weak quality or a problem and orange means on.
-   The rules are pure (`detailsAfter` in `stores/chrome.ts`, tested).
+   The rules are pure (`detailsAfter` in `stores/chrome.ts`, tested). **They never stand empty (second live check):**
+   they stand only while wanted *and* a track is selected and on the table (`detailsStand`; the selection is the
+   route's `?track=`, so the chrome knows on arrival; the page reports a track off its table, `trackOffTable` /
+   `libraryModel.offTable`). No selection (a first open, also with an open inspector remembered from before; a new
+   playlist), the selected track filtered or searched away, gone, or an empty folder: closed, nothing steps back, and
+   the toggle keeps its place and words, disabled, tip "Select a track to see its details"; ⌘I does nothing. The wish
+   is kept, so the track coming back (the filter cleared, back to Library with it) shows them again. ♫ from another
+   page keeps them (only ♫ on Library makes room for the browser).
 3. **A6.3 Table:** the columns by container width (D10), Length added, Source and Added gone, the "–" cells; the
    filter segments keep whole labels in every state.
 
@@ -473,8 +480,9 @@ Checks: `npm run rules -- --self-test`; `node scripts/shots.mjs --page library -
 - **Live check by the user, about 10 minutes, nothing downloads.** 1. Open Library. *They see* the rail, the column with
   their playlists and logos, the table with Length. *They judge* the fold (⌃⌘S, the button) and the slide into and out
   of Library: smooth, nothing jumping. 2. Drag the column's edge wider and back; double-click it. 3. ⌘K, type part of
-  a playlist name, Enter; then type a track name and take the "Search tracks for …" row. 4. Click a track (its
-  details open), ⌘I to hide them: the button reads "Show details"; click other tracks (they only select; still
+  a playlist name, Enter; then type a track name and take the "Search tracks for …" row. 4. Open Library fresh:
+  no details panel, the button greyed; click a track (its details open); filter it away with a quality segment
+  (the details close, the button greys) and back; ⌘I to hide them: the button reads "Show details"; click other tracks (they only select; still
   hidden after leaving Library and coming back); click a quality badge or ⌘I (details back, clicks open them again). 5. Make the window as small as it goes: the list stays
   usable; open details: the column steps back; ⌘K brings it back. 6. Play a track, hide the player: the rail's play
   button. *They report* anything that feels slow, cramped or unclear.
