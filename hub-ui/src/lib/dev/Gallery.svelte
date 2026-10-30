@@ -7,7 +7,7 @@
   import { onMount } from 'svelte';
   import { markReady } from '../ready';
   import { OUTDATED, OUTDATED_TOKENS } from '../outdated';
-  import { PROBLEM_KINDS, type WatchedFolderRow, type DownloadsAccount, type DownloadsView, type EmptyKind, type FindLogins, type FolderCheck, type Service, type ReadStatus as ReadStatusT, type TrackRow as Row } from '../bridge/types';
+  import { PROBLEM_KINDS, type Library, type WatchedFolderRow, type DownloadsAccount, type DownloadsView, type EmptyKind, type FindLogins, type FolderCheck, type Service, type ReadStatus as ReadStatusT, type TrackRow as Row } from '../bridge/types';
   import { sampleTracks, trackRow, coverUri, makeUpgrade, dateOnly } from '../bridge/fake/data';
   import { fakeSpectrum } from '../bridge/fake/spectrum';
   import { toneUrl } from '../bridge/fake/audio';
@@ -21,7 +21,7 @@
   import {
     AccountPanel, AddRow, CopyCode, NumberedSteps, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
     AwayTag, Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
-    Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NoteCard, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
+    Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, tip, SummaryStrip, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
     Segmented, SectionLabel, SelectCard, Skeleton, SortHeader, SourceLadder, Spectrum, Spinner, SplitView, StatCard, StatusMark, Surface, Switch, TextField, Tile, Toast,
     ToggleGroup, ToggleRow, TrackHead, TrackRow, UpgradeCard, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
     confirm, envelope, ImportCard, UnreadableList, WatchedFolderList,
@@ -33,6 +33,34 @@
   import KindIcon from '../../pages/sync/plan/KindIcon.svelte';
   import { isKindKey, KINDS, type KindKey } from '../../pages/sync/planModel';
 
+  const NAV_NAMES = { dashboard: 'Dashboard', sync: 'Sync', todo: 'To-do', playlists: 'Playlists', limits: 'Download limits',
+    library: 'Library', settings: 'Settings' } as const;
+  // SummaryStrip: a collection's summary in each state (the counts add up like the mockup's Rekordbox Library)
+  const strip = (o: Partial<Library['summary']> = {}): Library['summary'] => ({ tracks: 472, lossless_share: 290 / 460,
+    by_quality: { lossless: 290, good_lossy: 120, weak: 41, fake: 9, missing: 0 }, upgrades_ready: 6, to_do: 41,
+    not_lossless: 170, ...o });
+  const STRIPS: [string, Library['summary'] | null, number][] = [
+    ['fewer in To-do: files of your own in no playlist aren\'t (tooltip)', strip(), 900],
+    ['all in To-do, a big library', strip({ tracks: 5318, lossless_share: 3776 / 5306, upgrades_ready: 9, to_do: 1530,
+      not_lossless: 1530, by_quality: { lossless: 3776, good_lossy: 900, weak: 500, fake: 130, missing: 0 } }), 900],
+    ['the longest words: big counts, some in To-do', strip({ tracks: 5318, lossless_share: 3776 / 5306, upgrades_ready: 1204,
+      to_do: 1234, not_lossless: 1530, by_quality: { lossless: 3776, good_lossy: 900, weak: 500, fake: 130, missing: 0 } }), 900],
+    ['none in To-do, no upgrades: no links, no ›', strip({ upgrades_ready: 0, to_do: 0 }), 900],
+    ['everything lossless', strip({ lossless_share: 1, upgrades_ready: 0, to_do: 0, not_lossless: 0,
+      by_quality: { lossless: 460, good_lossy: 0, weak: 0, fake: 0, missing: 0 } }), 900],
+    ['nothing checked yet', strip({ lossless_share: null, upgrades_ready: 0, to_do: 0, not_lossless: 0,
+      by_quality: { lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 } }), 900],
+    ['waiting', null, 900],
+    ['586 px: the list beside the inspector at 1280', strip(), 586],
+  ];
+  const HDR_PARTS = ['472 tracks', '8 folders with music', '~/Music/Rekordbox Library'];
+  /** Gallery only: starts a scroller at a given offset, so a stuck state shows without scrolling by hand. */
+  function scrollAt(node: HTMLElement, y: number) { requestAnimationFrame(() => { node.scrollTop = y; }); }
+  let inspectorOpen = $state(true);
+  // Tip: one tip open at a time, as in the app; the strip picks which example shows its own
+  const TIP_SHOW: SegOption<'rail' | 'cut' | 'crate'>[] = [{ key: 'rail', label: 'Rail icon' }, { key: 'cut', label: 'Cut name' },
+    { key: 'crate', label: 'Crate, two lines' }];
+  let tipShown = $state<'rail' | 'cut' | 'crate'>('rail');
   const now = new Date();
   const tracks = sampleTracks(now).map(trackRow);
   const t = (id: string) => tracks.find((x) => x.track_id === id) as Row;
@@ -327,6 +355,23 @@
         {#snippet main()}<Surface kind="list" label="Rows">{@render srows(2, 'Row')}</Surface>{/snippet}
       </ListPanelFrame>
     </div>
+    <span class="cap">ListPanelFrame inspector · on demand: the list resizes at once, the panel slides in</span>
+    <div class="framebox" data-test="g-frame-inspector">
+      <ListPanelFrame panelMode="inspector" open={inspectorOpen}>
+        {#snippet main()}
+          <PageHeader title="Rekordbox Library" sub={HDR_PARTS}>{#snippet actions()}
+            <Button variant="icon" pressed={inspectorOpen} aria-label={inspectorOpen ? 'Hide details (⌘I)' : 'Show details (⌘I)'}
+              onclick={() => (inspectorOpen = !inspectorOpen)} data-test="g-inspector-toggle">
+              <svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="2" /><path d="M10 3v10" /></svg></Button>{/snippet}</PageHeader>
+          <Surface kind="list" label="Rows" summary="4">{@render srows(4, 'Row')}</Surface>
+        {/snippet}
+        {#snippet panel()}
+          <Panel>
+            {#snippet head()}<StatCard value={20} unit="kHz" label="cutoff · a lossy file" />{/snippet}
+          </Panel>
+        {/snippet}
+      </ListPanelFrame>
+    </div>
     <span class="cap">ColumnFrame · one 900 px column, the foot's rule spans the content</span>
     <div class="framebox tall">
       <ColumnFrame>
@@ -395,6 +440,94 @@
       <PageHeader title="Sync done" sub="Today 21:47 · 24 min">{#snippet actions()}<Button size="sm" variant="link" href="https://example.com">Full report ↗</Button>{/snippet}</PageHeader>
       <PageHeader title="Hard_Bounce_Extended_Afterhour_Selection_2026" sub="1,204 tracks · 82 % lossless · 3 not in a playlist" readStatus readStatusState={sp({})} />
       <PageHeader title="Settings" />
+    </div>
+    <span class="cap">subtitle as parts: whole parts drop, the last first; all of it is the tooltip</span>
+    <div class="col" data-test="g-header-parts">
+      {#each [[946, 'Rekordbox Library', HDR_PARTS], [586, 'Rekordbox Library', HDR_PARTS], [440, 'Rekordbox Library', HDR_PARTS],
+        [300, 'Rekordbox Library', HDR_PARTS], [586, 'Afterhour_Sonntag_Warmup', ['88 tracks', 'Qobuz playlist', 'switched off', 'Library › Afterhour_Sonntag_Warmup']],
+        [300, 'Afterhour_Sonntag_Warmup_Selection_2026', ['88 tracks', 'Qobuz playlist']],
+        [245, 'Rekordbox Library', HDR_PARTS]] as [w, t, ps], i (i)}
+        <div class="g-hdr" style="width: {w}px">
+          <PageHeader title={t as string} sub={ps as string[]}>{#snippet actions()}<Button variant="icon" aria-label="Show details (⌘I)">
+            <svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="2" /><path d="M10 3v10" /></svg></Button>{/snippet}</PageHeader>
+        </div>
+      {/each}
+    </div>
+  </section>
+
+  <section data-test="gallery-navicon">
+    {@render head('NavIcon', 'A page\'s icon: 14 px, 1.3 px stroke, one family, the same spot in both forms (rule 6)')}
+    <div class="row top">
+      <div class="col tight">
+        <span class="cap">full sidebar · Sync selected</span>
+        <div class="g-nav g-nav-full" data-test="g-navicon-full">
+          {#each NAV_ICONS as n (n)}
+            <span class="g-navrow" class:on={n === 'sync'}><NavIcon name={n} /><span>{NAV_NAMES[n]}</span></span>
+          {/each}
+        </div>
+      </div>
+      <div class="col tight">
+        <span class="cap">rail · the same spot; To-do's count as a pill</span>
+        <div class="g-nav g-nav-rail" data-test="g-navicon-rail">
+          {#each NAV_ICONS as n (n)}
+            <span class="g-navrow" class:on={n === 'sync'} title={NAV_NAMES[n]}><span class="g-glyph"><NavIcon name={n} />{#if n === 'todo'}<span class="g-pill">5</span>{/if}</span></span>
+          {/each}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section data-test="gallery-servicemark">
+    {@render head('ServiceMark', 'The service\'s own logo in its own colours, 14 px: the colour rule\'s one exception (D7)')}
+    <div class="g-svc" data-test="g-servicemark">
+      <span class="cap">service</span><span class="cap">mark</span><span class="cap">dim</span>
+      <span class="cap">on the frame · a row, a switched-off row</span>
+      {#each LOGO_KEYS as k (k)}
+        <span>{LOGO_NAMES[k]}</span>
+        <ServiceMark service={k} />
+        <ServiceMark service={k} dim />
+        <span class="g-nav g-svc-rows">
+          <span class="g-navrow"><ServiceMark service={k} /><span>Hard_Bounce</span><span class="g-n">45</span></span>
+          <span class="g-navrow g-off"><ServiceMark service={k} /><span>Peak Time</span><span class="g-n">12</span></span>
+        </span>
+      {/each}
+    </div>
+  </section>
+
+  <section data-test="gallery-tip">
+    {@render head('Tip', 'Names an icon or a cut row on hover: 500 ms, then the next at once; one at a time')}
+    <div class="w480"><Segmented label="Which tip shows" options={TIP_SHOW} value={tipShown} onchange={(k) => (tipShown = k)} test="g-tip-which" /></div>
+    <div class="row top g-tips">
+      <div class="col tight">
+        <span class="cap">rail · beside the icon, the shortcut as a cap</span>
+        <div class="g-nav g-nav-rail" data-test="g-tip-rail">
+          <button type="button" class="g-navrow" aria-label="Dashboard" use:tip={{ text: 'Dashboard', keys: '⌘1', side: 'right' }}><NavIcon name="dashboard" /></button>
+          <button type="button" class="g-navrow" aria-label="Sync" use:tip={{ text: 'Sync · syncing, 12 of 40', keys: '⌘2', side: 'right' }}><NavIcon name="sync" /></button>
+          <button type="button" class="g-navrow" aria-label="To-do" use:tip={{ text: 'To-do · 5 to look at', keys: '⌘3', side: 'right', show: tipShown === 'rail' }}><NavIcon name="todo" /></button>
+          <button type="button" class="g-navrow" aria-label="Playlists" use:tip={{ text: 'Playlists', keys: '⌘4', side: 'right' }}><NavIcon name="playlists" /></button>
+        </div>
+      </div>
+      <div class="col tight g-tip-rows">
+        <span class="cap">rows · under it, at the pointer; a whole name gets none</span>
+        <div class="g-nav g-tip-col" data-test="g-tip-rows">
+          <span class="g-navrow" use:tip={{ text: 'Afterhour_Sonntag_Warmup_Selection_2026', cut: '.g-cut', show: tipShown === 'cut' }}><span class="g-cut">Afterhour_Sonntag_Warmup_Selection_2026</span><span class="g-n">88</span></span>
+          <span class="g-navrow" use:tip={{ text: 'Hard_Bounce', cut: '.g-cut' }}><span class="g-cut">Hard_Bounce</span><span class="g-n">45</span></span>
+          <span class="g-navrow" use:tip={{ text: 'Rekordbox Library › Music › Old Sets › Bounce\n61 files', show: tipShown === 'crate' }}><span class="g-cut">Bounce · Old Sets</span><span class="g-n">61</span></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section data-test="gallery-summarystrip">
+    {@render head('SummaryStrip', 'A collection at a glance along the page, 72 px: share · bar · two link rows')}
+    <div class="col">
+      {#each STRIPS as [cap, sm, w], i (i)}
+        <div class="col tight" style="width: {w}px; max-width: 100%">
+          <span class="cap">{cap}</span>
+          <SummaryStrip summary={sm} onupgrades={() => toasts.show({ tone: 'info', title: 'Upgrade ready segment' })}
+            ontodo={() => toasts.show({ tone: 'info', title: 'Opens To-do' })} />
+        </div>
+      {/each}
     </div>
   </section>
 
@@ -861,6 +994,30 @@
     </div>
   </section>
 
+  <section data-test="gallery-listsection-chrome">
+    {@render head('ListSection · stuck', 'A stuck head is opaque and square, a hairline on the edge rows pass (rule 10)')}
+    <div class="row top">
+      <div class="col tight">
+        <span class="cap">on the frame, sticking at both ends: top stuck, foot stuck</span>
+        <div class="g-chrome-list" use:scrollAt={200} data-test="g-section-chrome">
+          {#each [['Favourites', 4], ['Playlists', 12], ['Folders', 6]] as [name, n] (name)}
+            <ListSection label={name as string} summary={String(n)} stick="both" on="chrome" />
+            {#each Array(n as number) as _, i (i)}<div class="g-crow">{name} row {i + 1}</div>{/each}
+          {/each}
+        </div>
+      </div>
+      <div class="col tight">
+        <span class="cap">Playlists folded, stuck; Folders right below it, not stuck: no line</span>
+        <div class="g-chrome-list" use:scrollAt={170} data-test="g-section-chrome-folded">
+          {#each [['Favourites', 4], ['Playlists', 0], ['Folders', 10]] as [name, n] (name)}
+            <ListSection label={name as string} summary={String(n)} stick="both" on="chrome" />
+            {#each Array(n as number) as _, i (i)}<div class="g-crow">{name} row {i + 1}</div>{/each}
+          {/each}
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section data-test="gallery-trackrow">
     {@render head('TrackRow · KeyValue', 'To-do and Library rows until phase 2 re-bases TrackRow on ListRow (§7)')}
     <div class="col w640">
@@ -907,6 +1064,7 @@
       <TextField value="secret" type="password" placeholder="Password" />
       <SearchField bind:value={search} />
       <SearchField placeholder="Search…" shortcut="cmd+f" />
+      <SearchField placeholder="Filter playlists, folders" shortcut="cmd+k" />
     </div>
   </section>
 
@@ -1227,4 +1385,34 @@
   .footbox .sb { width: var(--sidebar-w); border-right: var(--bw) solid var(--surface-line); }
   .rowbox { width: var(--sidebar-w); padding: 0 10px var(--s-2); background: var(--sidebar-bg); border-radius: var(--r-surface);
     border: var(--bw) solid var(--surface-line); }
+  /* NavIcon: a sidebar column in the frame's material, its rows as the sidebar draws them */
+  .g-nav { display: flex; flex-direction: column; gap: 2px; padding: var(--s-2) 10px; background: var(--sidebar-bg);
+    border: var(--bw) solid var(--surface-line); border-radius: var(--r-surface); }
+  .g-nav-full { width: var(--sidebar-w); }
+  .g-nav-rail { width: 50px; }
+  .g-navrow { display: flex; align-items: center; gap: 9px; height: var(--h-ctl); padding: 0 var(--s-2); color: var(--text-nav);
+    border-radius: var(--r-nav); white-space: nowrap; }
+  .g-navrow.on { color: var(--text-strong); background: var(--nav-on-bg); }
+  /* ServiceMark: each logo alone, dimmed, and in a row of the frame's material (a switched-off row dims as a whole) */
+  .g-svc { display: grid; grid-template-columns: 120px 40px 40px 240px; gap: var(--s-2) var(--s-3); align-items: center;
+    font-size: var(--fs-small); color: var(--text-muted); }
+  .g-svc-rows { padding: var(--s-1) 6px; }
+  .g-svc-rows .g-navrow { height: 26px; color: var(--text); }
+  .g-n { margin-left: auto; color: var(--text-label); font-size: var(--fs-label); font-variant-numeric: tabular-nums; }
+  .g-off { opacity: var(--dim-locked); }
+  /* Tip: room on the right of the rail and under the rows for the tips shown open */
+  .g-tips { gap: 220px; padding-bottom: var(--s-8); }
+  .g-tip-col { width: 200px; }
+  .g-cut { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  button.g-navrow { padding: 0 var(--s-2); }
+  .g-hdr { max-width: 100%; padding: 0 var(--s-2); border-left: var(--bw) dashed var(--surface-line); border-right: var(--bw) dashed var(--surface-line); }
+  .g-chrome-list { width: 220px; height: 240px; overflow-y: auto; padding: 0 var(--s-2); background: var(--sidebar-bg);
+    border: var(--bw) solid var(--surface-line); border-radius: var(--r-surface); }
+  .g-crow { display: flex; align-items: center; height: var(--h-ctl); padding: 0 var(--s-4); color: var(--text-nav);
+    font-size: var(--fs-body); }
+  .g-glyph { position: relative; display: grid; }
+  /* the rail's count pill on the glyph's corner, ringed in the frame's colour so it cuts the glyph cleanly */
+  .g-pill { position: absolute; left: 11px; top: -9px; min-width: 18px; height: 14px; padding: 0 4px; border-radius: var(--r-pill);
+    background: var(--rail-pill-bg); box-shadow: 0 0 0 2px var(--sidebar-solid); color: var(--text); font-size: var(--fs-label);
+    font-weight: var(--fw-semi); line-height: 14px; text-align: center; font-variant-numeric: tabular-nums; }
 </style>

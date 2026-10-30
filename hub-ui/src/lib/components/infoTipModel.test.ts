@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HOVER_DELAY_MS, openTiming, TIP_CLOSED, tipStep, WARM_MS, type TipEvent, type TipState, type TipStep } from './infoTipModel';
+import { HOVER_DELAY_MS, openTiming, placeTip, TIP_DELAY_MS, TIP_GAP, TIP_CLOSED, tipStep, WARM_MS, type TipEvent, type TipState, type TipStep } from './infoTipModel';
 
 /** Runs the events from closed and returns the last step. */
 function run(...events: TipEvent[]) {
@@ -87,5 +87,44 @@ describe('info tip opening', () => {
     expect(openTiming('click', 10_000, { otherOpen: true, lastClosedAt: null })).toEqual({ delay: 0, fade: false });
     // an open tip counts however long ago the last one closed
     expect(openTiming('hover', 10_000, { otherOpen: true, lastClosedAt: 1_000 })).toEqual({ delay: 0, fade: false });
+  });
+});
+
+describe('tip opening (Tip)', () => {
+  const cold = { otherOpen: false, lastClosedAt: null };
+  it('waits longer on a cold hover, and the next one opens at once', () => {
+    expect(openTiming('hover', 10_000, cold, TIP_DELAY_MS)).toEqual({ delay: 500, fade: true });
+    expect(openTiming('hover', 10_000, { otherOpen: false, lastClosedAt: 9_800 }, TIP_DELAY_MS)).toEqual({ delay: 0, fade: false });
+    expect(openTiming('keyboard', 10_000, cold, TIP_DELAY_MS)).toEqual({ delay: 0, fade: false });
+  });
+});
+
+describe('tip placement', () => {
+  const win = { width: 1280, height: 800 };
+  const size = { width: 120, height: 22 };
+  it('sits right of a rail icon, centred on it, growing out of its left edge', () => {
+    const p = placeTip({ left: 10, top: 100, width: 30, height: 30 }, size, win, 'right');
+    expect(p).toEqual({ left: 40 + TIP_GAP.right, top: 104, origin: '0px 11px' });
+  });
+  it('goes left of a trigger at the window\'s right edge', () => {
+    const p = placeTip({ left: 1200, top: 100, width: 30, height: 30 }, size, win, 'right');
+    expect(p.left).toBe(1200 - TIP_GAP.right - 120);
+    expect(p.origin).toBe('120px 11px');
+  });
+  it('stays inside the window vertically', () => {
+    expect(placeTip({ left: 10, top: 2, width: 30, height: 10 }, size, win, 'right').top).toBe(8);
+    expect(placeTip({ left: 10, top: 790, width: 30, height: 10 }, size, win, 'right').top).toBe(800 - 8 - 22);
+  });
+  it('sits below a row at the pointer, above it when there is no room below', () => {
+    const r = { left: 60, top: 200, width: 240, height: 30 };
+    expect(placeTip(r, size, win, 'below', 150)).toEqual({ left: 150, top: 230 + TIP_GAP.below, origin: '0px 0px' });
+    expect(placeTip(r, size, win, 'below')).toMatchObject({ left: 60 });
+    const low = { ...r, top: 770 };
+    expect(placeTip(low, size, win, 'below', 150)).toEqual({ left: 150, top: 770 - TIP_GAP.below - 22, origin: '0px 22px' });
+  });
+  it('is pushed in from the window\'s right edge, its origin still at the pointer', () => {
+    const p = placeTip({ left: 1100, top: 200, width: 170, height: 30 }, size, win, 'below', 1250);
+    expect(p.left).toBe(1280 - 8 - 120);
+    expect(p.origin).toBe(`${1250 - p.left}px 0px`);
   });
 });

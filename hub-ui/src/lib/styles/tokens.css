@@ -23,9 +23,12 @@
   /* look 2 ("OLED with depth", spec design-system §5) */
   --surface: linear-gradient(#0f0f12, #0a0a0c);
   --surface-list: linear-gradient(#0c0c0e, #08080a);
+  --surface-list-solid: #0b0b0d;   /* a list's colour as one value, for what must be opaque on it (a stuck section head) */
   --surface-line: rgba(255, 255, 255, .07);
   --surface-highlight: inset 0 1px 0 rgba(255, 255, 255, .04);
   --sidebar-bg: linear-gradient(#0b0b0d, #070708);
+  --sidebar-solid: #09090b;        /* the frame's material as one colour, for what must be opaque on it (a stuck section head) */
+  --rail-pill-bg: #2a2a30;         /* the rail's count pill on a glyph's corner (To-do's count): neutral, a step above the frame */
   --panel-bg: #040405;
   --line-soft: rgba(255, 255, 255, .045);   /* row dividers */
   --ctl-line: rgba(255, 255, 255, .09);
@@ -85,7 +88,13 @@
   /* space */
   --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px; --s-8: 32px;
   /* layout (spec design-system §3; window min 1100 × 700, default 1280 × 800) */
-  --sidebar-w: 168px; --panel-w: 360px; --panel-w-narrow: 320px; --panel-narrow-below: 1240px;
+  /* the chrome (plan library stage 5): the sidebar's two forms, full and rail (the glyph column and every row's y are
+     the same in both), and the browser column beside it in Library, dragged at its edge. --sidebar-w is the chrome's
+     whole width (the shell sets it: form + 1 + the browser while it stands), which the page's edge and the foot's
+     line follow */
+  --sidebar-full-w: 168px; --rail-w: 50px;
+  --browser-w-min: 200px; --browser-w-default: 240px; --browser-w-max: 360px;
+  --sidebar-w: var(--sidebar-full-w); --panel-w: 360px; --panel-w-narrow: 320px; --panel-narrow-below: 1240px;
   /* the panel is narrow below that window width: ListPanelFrame's media query repeats it (a media query can't read a
      var; guards.test.ts keeps the two equal) and the rule checker reads it */
   --content-max: 900px; --content-max-wide: 1200px;
@@ -107,6 +116,11 @@
   --t-hover: 120ms;  /* hover: quick and quiet. Selection after navigation or an arrow key doesn't animate at all */
   --t-pop: 140ms;    /* a popover or menu fading and growing in from what opened it (exit is instant) */
   --t-live: 300ms;   /* live progress, linear: a bit longer than the engine's 250 ms update pace, so the bar never stops between updates */
+  /* the chrome moving over a page that lays out once (plan library stage 5, notes' motion table): the drawer curve,
+     no bounce; the inspector slides in 240 ms and out 200 ms (exit faster than entry); reduced motion cross-fades */
+  --ease-drawer: cubic-bezier(.32, .72, 0, 1);
+  --t-fold: 220ms;   /* the sidebar folding 168 ↔ 50, and gliding into and out of Library */
+  --t-slide-in: 240ms; --t-slide-out: 200ms; --t-fade: 150ms;
   --t-fast: 120ms; --t-med: 220ms;   /* OUTDATED (design audit A15): map each use to a §6 token in phase 2 */
   /* overlays (dialog backdrop, toast shadow): black only; a cover under the countdown is dimmed, its ring track light */
   --backdrop: rgba(0, 0, 0, .72);

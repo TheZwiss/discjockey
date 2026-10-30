@@ -6,17 +6,48 @@
   // shrinks below its content (a shrunk box would let the rows overflow past the padding); a list that scrolls inside
   // itself marks its root `data-scrolls-itself`, and then `.content` keeps exactly the scroller's height instead.
   // Optional columns query the list itself (Surface's rows are the `list` container), not this area.
+  //
+  // `panelMode="inspector"` (Library, plan library stage 5 A3.7, D16.3, house rule 3): the panel is there only while
+  // `open`, the details on demand. Same widths, same `data-panel`, same Panel inside. The page lays out once and the
+  // chrome moves over it (the notes' motion table): on open the list takes its final width at once and the inspector
+  // slides in from the window's right edge over the space just freed (--t-slide-in, 240 ms, the drawer curve); on
+  // close the list widens at once and the inspector slides out the way it came, over the rows (--t-slide-out, 200 ms:
+  // exit faster than entry). A CSS transition, so a toggle mid-way turns it round from where it is. Reduced motion:
+  // it fades in place. Closed, it is `inert` and, once out, hidden (no focus, no reader, nothing for the checker).
+  // Keep passing `panel` while closed: its content stays during the slide out.
   import type { Snippet } from 'svelte';
   import EmptyState from '../components/EmptyState.svelte';
-  let { main, panel = null, emptyPanel = 'Pick a track to see its details.', wide = false }:
-    { main: Snippet; panel?: Snippet | null; emptyPanel?: string; wide?: boolean } = $props();
+  let { main, panel = null, emptyPanel = 'Pick a track to see its details.', wide = false, panelMode = 'docked',
+    open = false }:
+    { main: Snippet; panel?: Snippet | null; emptyPanel?: string; wide?: boolean;
+      panelMode?: 'docked' | 'inspector'; open?: boolean } = $props();
+
+  const inspector = $derived(panelMode === 'inspector');
+  // out of view and hidden once the slide out has ended (transitionend, or at once when nothing moves)
+  let gone = $state(true);
+  let aside: HTMLElement | undefined = $state();
+  $effect(() => {
+    if (!inspector || open) { gone = false; return; }
+    if (!aside) return;
+    const moving = aside.getAnimations().length > 0;
+    if (!moving) { gone = true; return; }
+    const el = aside;
+    const done = (e: TransitionEvent) => { if (e.target === el) gone = true; };
+    // a cancel can be the slide in that this close interrupted (it may arrive after this listener is attached):
+    // only hide when nothing on the panel is moving any more
+    const cancelled = (e: TransitionEvent) => { if (e.target === el && el.getAnimations().length === 0) gone = true; };
+    el.addEventListener('transitionend', done);
+    el.addEventListener('transitioncancel', cancelled);
+    return () => { el.removeEventListener('transitionend', done); el.removeEventListener('transitioncancel', cancelled); };
+  });
 </script>
 
-<div class="frame" data-frame="list-panel">
+<div class="frame" class:inspector class:open={inspector && open} data-frame="list-panel">
   <div class="main" data-frame-main>
     <div class="content" class:wide data-frame-content data-max={wide ? '--content-max-wide' : '--content-max'}>{@render main()}</div>
   </div>
-  <aside data-panel>
+  <aside bind:this={aside} class:gone={inspector && !open && gone} data-panel data-panel-mode={panelMode}
+    data-open={inspector ? String(open) : undefined} inert={inspector && !open}>
     {#if panel}{@render panel()}{:else}<div class="empty"><EmptyState title={emptyPanel} /></div>{/if}
   </aside>
 </div>
@@ -36,5 +67,20 @@
   aside { flex: none; width: var(--panel-w); background: var(--panel-bg); border-left: var(--bw) solid var(--surface-line);
     min-height: 0; display: flex; flex-direction: column; }
   @media (width < 1240px) { aside { width: var(--panel-w-narrow); } }
+
+  /* the inspector: out of the flow, over the frame's right edge; the frame clips it while it is out (clip, not
+     hidden: the frame doesn't become a scroller) */
+  .inspector { position: relative; overflow: clip; }
+  .inspector aside { position: absolute; top: 0; right: 0; bottom: 0; z-index: 2; transform: translateX(100%);
+    transition: transform var(--t-slide-out) var(--ease-drawer); }
+  .inspector.open aside { transform: none; transition-duration: var(--t-slide-in); }
+  .inspector aside.gone { visibility: hidden; }
+  /* the list makes room at once (no transition on purpose: a table reflowing per frame would stutter) */
+  .inspector.open .main { margin-right: var(--panel-w); }
+  @media (width < 1240px) { .inspector.open .main { margin-right: var(--panel-w-narrow); } }
+  @media (prefers-reduced-motion: reduce) {
+    .inspector aside { transform: none; opacity: 0; transition: opacity var(--t-fade) var(--ease); }
+    .inspector.open aside { opacity: 1; }
+  }
   .empty { margin: auto 0; padding: var(--s-4); }
 </style>

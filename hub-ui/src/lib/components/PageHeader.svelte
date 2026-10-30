@@ -15,20 +15,33 @@
   //   only its control and the state is said once.
   // - `actions`: the page's own controls (search, Full report), left of the read-status slot.
   // - `readStatusState`: the gallery only, shows a given read state instead of the live one.
+  // - `sub` as a list of parts (Library, plan library stage 5 N14, house rule 8): the parts in order of importance
+  //   ("472 tracks", "8 folders with music", "~/Music/Rekordbox Library"), on the title's line only. When they don't
+  //   all fit, whole parts drop, the last (least important) first, down to none; a part is never cut mid-word and the
+  //   whole subtitle is the tooltip. CSS only, so it follows the width live with no measuring: the parts are flex
+  //   items that wrap onto a second line, which is clipped, behind an empty first item one line tall (a zero-width
+  //   strut, which also gives the row its baseline), so even the first part wraps away rather than be cut. The
+  //   parts take no width of their own (flex-basis 0, and the space before them is the first part's own padding), so
+  //   the title keeps its whole width and ends in "…" only when even the title alone doesn't fit. The title's tooltip
+  //   carries the whole subtitle too, so it can be read when every part has dropped.
   import type { Snippet } from 'svelte';
   import ReadStatus from './ReadStatus.svelte';
   import type { ReadStatus as ReadState } from '../bridge/types';
   let { title, sub, actions, readStatus = false, readStatusInBody = false, readStatusState }:
-    { title: string; sub?: string; actions?: Snippet; readStatus?: boolean; readStatusInBody?: boolean;
+    { title: string; sub?: string | string[]; actions?: Snippet; readStatus?: boolean; readStatusInBody?: boolean;
       readStatusState?: ReadState | null } = $props();
+  const parts = $derived(Array.isArray(sub) ? sub.filter(Boolean) : null);
   // a line breaks after the "·", never before it: the separator stays with the words it follows (no line starts "· 5 …")
-  const subText = $derived(sub?.replaceAll(' · ', '\u00a0· '));
+  const subText = $derived(typeof sub === 'string' ? sub.replaceAll(' · ', '\u00a0· ') : '');
 </script>
 
 <header class="ph" data-page-header>
-  <div class="lead">
-    <h1 {title}>{title}</h1>
-    {#if sub}<span class="sub" title={sub} data-test="page-sub">{subText}</span>{/if}
+  <div class="lead" class:has-parts={!!parts}>
+    <h1 title={parts?.length ? `${title}\n${parts.join(' · ')}` : title}>{title}</h1>
+    {#if parts}
+      {#if parts.length}<span class="parts" title={parts.join(' · ')} data-test="page-sub"><span class="strut"
+        aria-hidden="true">{'\u200b'}</span>{#each parts as p, i (i)}<span class="part">{i ? ` · ${p}` : p}</span>{/each}</span>{/if}
+    {:else if subText}<span class="sub" title={sub as string} data-test="page-sub">{subText}</span>{/if}
   </div>
   {#if actions || readStatus}
     <div class="trail">
@@ -56,6 +69,16 @@
   /* the status line breaks between words, balanced so no word is left alone on the second line; beside the title
      while it fits, under it otherwise */
   .sub { color: var(--text-label); font-size: var(--fs-small); min-width: 0; flex: 0 1 auto; text-wrap: balance; }
+  /* parts: one line beside the title, never under it; the title gives way only to the gap when it fills the lead */
+  /* no gap of the lead's own: the space before the first part is that part's, so it goes when the part goes, and a title
+     that fits alone keeps its whole width */
+  .lead.has-parts { flex-wrap: nowrap; column-gap: 0; }
+  .strut + .part { padding-left: var(--s-3); }
+  .has-parts h1 { flex: 0 1 auto; }
+  .parts { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; height: 16px; line-height: 16px; overflow: hidden;
+    color: var(--text-label); font-size: var(--fs-small); }
+  .strut { width: 0; flex: none; }
+  .part { white-space: pre; }
   .trail { flex: none; display: flex; align-items: center; gap: var(--s-4); }
   .actions { display: flex; align-items: center; gap: var(--s-2); }
 </style>

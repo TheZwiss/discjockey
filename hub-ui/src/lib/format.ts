@@ -98,6 +98,10 @@ export function clock(iso: string | null | undefined): string {
   const d = iso ? parse(iso) : null;
   return d ? `${two(d.getHours())}:${two(d.getMinutes())}` : NONE;
 }
+/** A count with thousands separators: 5318 → "5,318" (the app's numbers are English). */
+export function count(n: number): string {
+  return n.toLocaleString('en-US');
+}
 /** plural(1, 'track') → "1 track"; plural(3, 'track') → "3 tracks"; plural(2, 'match', 'matches'). */
 export function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
