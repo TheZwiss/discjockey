@@ -1,8 +1,10 @@
 // What SummaryStrip says (plan library stage 5 A3.4, notes N5, words I7). Pure, so every case is pinned.
-import type { Library } from '../bridge/types';
+import type { Library, Quality } from '../bridge/types';
 import { count } from '../format';
 
 export type StripRow = { count: string; link: boolean };
+/** One quality of the not-lossless group and its count, for the row's mark (a small bar in those qualities' colours) */
+export type MixPart = { quality: Extract<Quality, 'good_lossy' | 'weak' | 'fake'>; n: number };
 export type StripView = {
   /** the lossless share as a whole number ("63"); null: "—" (waiting, no tracks, none checked yet) */
   share: string | null;
@@ -15,14 +17,20 @@ export type StripView = {
     /** the row's tooltip when fewer of them are in To-do than not lossless */
     tip: string | null;
   };
+  /** What "Not lossless yet" holds, in the bar's order (good lossy, weak, fake), only the qualities it has: its mark
+   *  is these colours side by side in proportion, the not-lossless part of the bar beside it. Empty: none (or waiting),
+   *  the mark is the empty track. */
+  mix: MixPart[];
 };
+
+const MIX: MixPart['quality'][] = ['good_lossy', 'weak', 'fake'];
 
 const WAIT = '—';
 
 export function stripView(s: Library['summary'] | null): StripView {
   if (!s) {
     return { share: null, line: 'lossless', upgrades: { count: WAIT, link: false },
-      notLossless: { count: WAIT, link: false, todo: null, tip: null } };
+      notLossless: { count: WAIT, link: false, todo: null, tip: null }, mix: [] };
   }
   const checked = Object.values(s.by_quality).reduce((n, c) => n + c, 0);
   const share = s.tracks && s.lossless_share !== null ? String(Math.round(s.lossless_share * 100)) : null;
@@ -37,5 +45,6 @@ export function stripView(s: Library['summary'] | null): StripView {
     share, line,
     upgrades: { count: count(s.upgrades_ready), link: s.upgrades_ready > 0 },
     notLossless: { count: count(n), link: m > 0, todo, tip },
+    mix: MIX.filter((q) => s.by_quality[q] > 0).map((quality) => ({ quality, n: s.by_quality[quality] })),
   };
 }
