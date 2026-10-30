@@ -59,6 +59,15 @@ export function selectedIndex(rows: TrackRow[], id: string | null): number {
   return id === null ? -1 : rows.findIndex((r) => r.track_id === id);
 }
 
+/** Whether the selected track is known to be off the table (its details then don't stand, stores/chrome.ts
+ *  `detailsStand`): not among the rows shown, filtered or searched away, gone from the library, or no rows at all (an
+ *  empty library or folder, nothing matches). Not known (false) before the first answer, or while the answer on
+ *  screen is still another folder's (a link into a new folder with a track): the selection came from a table. */
+export function offTable(lib: Pick<Library, 'folder' | 'rows'> | null, folder: string | null, track: string | null): boolean {
+  if (!lib || track === null || lib.folder !== folder) return false;
+  return !lib.rows.some((r) => r.track_id === track);
+}
+
 /** ↑/↓: the next selected id (stays at the ends; nothing selected → first/last row). */
 export function moveSelection(rows: TrackRow[], id: string | null, delta: 1 | -1): string | null {
   if (!rows.length) return null;

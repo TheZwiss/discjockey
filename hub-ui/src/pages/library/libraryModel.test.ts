@@ -3,7 +3,7 @@ import type { TrackRow } from '$lib/bridge/types';
 import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import {
   columnThresholds, columnsAt, fileName, folderCell, footAction, gridColumns, inTodo, isSort, libraryView, moveSelection,
-  nextSort, optionalColumns, placeLine, playable, rowAway, rowOff, rowTitleTip, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
+  nextSort, offTable, optionalColumns, placeLine, playable, rowAway, rowOff, rowTitleTip, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
 } from './libraryModel';
 import type { LibraryRow, TrackDetail } from '$lib/bridge/types';
 
@@ -204,5 +204,26 @@ describe('an away row (library stage 4 fix K)', () => {
     expect(rowAway({ file_state: 'here' })).toBeNull();
     expect(rowAway({ file_state: 'offline' })).toBe('offline');
     expect(rowAway({ file_state: 'folder_missing' })).toBe('folder_missing');
+  });
+});
+
+describe('offTable: the selected track known to be off the table (the details then never stand empty)', () => {
+  const lib = (folder: string | null, ids: string[]) => ({ folder, rows: ids.map((id) => row(id)) as unknown as LibraryRow[] });
+  it('a track among the rows shown is on the table', () => {
+    expect(offTable(lib('Hard_Bounce', ['t1', 't2']), 'Hard_Bounce', 't2')).toBe(false);
+  });
+  it('filtered or searched away, or gone from the library: off', () => {
+    expect(offTable(lib('Hard_Bounce', ['t1']), 'Hard_Bounce', 't2')).toBe(true);
+  });
+  it('no rows at all (an empty library or folder, nothing matches): off', () => {
+    expect(offTable(lib('Hard_Bounce', []), 'Hard_Bounce', 't2')).toBe(true);
+    expect(offTable(lib(NOT_IN_PLAYLIST, []), NOT_IN_PLAYLIST, 'local:1')).toBe(true);
+  });
+  it('not known yet: before the first answer, or while the answer is still another folder\'s', () => {
+    expect(offTable(null, 'Hard_Bounce', 't2')).toBe(false);
+    expect(offTable(lib('Qobuz_Picks', ['t9']), 'Hard_Bounce', 't2')).toBe(false);
+  });
+  it('nothing selected: nothing to be off', () => {
+    expect(offTable(lib('Hard_Bounce', []), 'Hard_Bounce', null)).toBe(false);
   });
 });

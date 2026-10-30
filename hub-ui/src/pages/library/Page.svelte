@@ -5,7 +5,9 @@
   // SummaryStrip, the quality filter as one Segmented, then the tracks as one table Surface that fills the height and
   // scrolls in place (LibraryTable). No docked panel: the docked panel squeezed the table, so the selected track's
   // details (TrackDetails, the same cards as To-do's) are an inspector that comes when wanted: picking a track (a
-  // click, ↑ ↓) opens it, it follows the selection and stays open (remembered, closed at first). Closing it with the
+  // click, ↑ ↓) opens it, it follows the selection and stays open (remembered, closed at first). It never stands
+  // empty: with no track selected, or the selected one off the table (filtered or searched away, gone, an empty
+  // folder), it closes and the toggle waits, disabled, until there is a track again (`detailsStand`). Closing it with the
   // toggle or ⌘I hides it by hand: picks then only select, and the toggle shows the choice in words ("Show details",
   // a dashed outline, the glyph struck through) until the user opens the details by hand (the toggle, ⌘I, a quality
   // badge, the menu's Show details); the rules are `detailsAfter` in stores/chrome.ts. A right-click selects without
@@ -19,7 +21,9 @@
   import { api, runJob } from '$lib/bridge/client';
   import type { Fail, Library, LibraryFilter, LibrarySort, ProblemKind, TrackDetail } from '$lib/bridge/types';
   import { filesVersion } from '$lib/stores/hub';
-  import { detailsHidden, detailsShown, inspectorAvailable, pickTrack, showDetails, toggleInspector } from '$lib/stores/chrome';
+  import {
+    detailsHidden, detailsShown, detailsSubject, pickTrack, showDetails, toggleInspector, trackOffTable,
+  } from '$lib/stores/chrome';
   import { player } from '$lib/stores/player';
   import { listen } from '$lib/listen';
   import { toasts } from '$lib/stores/toasts';
@@ -30,7 +34,8 @@
   import LibraryTable from './LibraryTable.svelte';
   import TrackDetails from './TrackDetails.svelte';
   import {
-    DEFAULT_SORT, LIBRARY_FILTERS, SORT_KEY, filterKey, isSort, libraryView, nextSort, playable, segOptions, todoHref, type SortColumn,
+    DEFAULT_SORT, LIBRARY_FILTERS, SORT_KEY, filterKey, isSort, libraryView, nextSort, offTable, playable, segOptions, todoHref,
+    type SortColumn,
   } from './libraryModel';
   import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 
@@ -223,15 +228,18 @@
     if ($player.track_id === id && $player.url) player.toggle();
     else play(id);
   }
-  // the details: only where there is a library to show (the empty page has no table to select in)
-  const detailsOpen = $derived($detailsShown && !emptyLibrary);
-  const handHidden = $derived($detailsHidden && !emptyLibrary);
-  const detailsTip = $derived(detailsOpen ? { text: 'Hide details', keys: '⌘I' }
+  // the details stand only with a track to show: the chrome reads the selection from the route, the page tells it when
+  // that track is off the table, so ⌘I waits, nothing steps the browser back, and no inspector stands empty
+  const selectedOff = $derived(offTable(lib, folder, selected));
+  $effect(() => { trackOffTable.set(selectedOff); });
+  $effect(() => () => trackOffTable.set(false));
+  const detailsOpen = $derived($detailsShown);
+  const handHidden = $derived($detailsHidden);
+  // nothing to show: the toggle keeps its place and its words (hidden by hand: "Show details"), disabled, and says why
+  const detailsTip = $derived(!$detailsSubject ? { text: 'Select a track to see its details', keys: '⌘I' }
+    : detailsOpen ? { text: 'Hide details', keys: '⌘I' }
     : handHidden ? { text: "Hidden by you: selecting a track won't open them", keys: '⌘I' }
     : { text: 'Show details', keys: '⌘I' });
-  // the chrome knows too: with an empty library ⌘I does nothing and a remembered open inspector steps nothing back
-  $effect(() => { inspectorAvailable.set(!emptyLibrary); });
-  $effect(() => () => inspectorAvailable.set(true));
 </script>
 
 {#snippet detailsIcon()}
@@ -249,7 +257,7 @@
   <PageHeader title={lib?.title ?? (folder === null ? 'All tracks' : folder === NOT_IN_PLAYLIST ? 'Not in a playlist' : folder)} {sub}>
     {#snippet actions()}<SearchField bind:value={search} bind:input={searchInput} placeholder="Search title, artist…" shortcut="cmd+f"
       test="library-search" />{#if !emptyLibrary}<Button variant="icon"
-        icon={handHidden ? detailsHiddenIcon : detailsIcon} pressed={detailsOpen}
+        icon={handHidden ? detailsHiddenIcon : detailsIcon} pressed={detailsOpen} disabled={!$detailsSubject}
         switchedOff={handHidden ? 'Show details' : undefined}
         aria-label={detailsOpen ? 'Hide details' : 'Show details'}
         tip={detailsTip} aria-keyshortcuts="Meta+I" onclick={toggleInspector} data-test="library-details"
