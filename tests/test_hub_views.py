@@ -446,7 +446,7 @@ def test_library_folder_chips_and_sort():
     lib = views.library(LIB, "Hard_Bounce", "", "all", "title")
     assert [r["title"] for r in lib["rows"]] == ["Balling (LÄUFF Remix)", "Get Naughty", "Gimme Gimme", "Old Favourite"]
     assert lib["chips"] == {"all": 4, "lossless": 2, "good_lossy": 1, "weak": 1, "fake": 0, "upgrade_ready": 1}
-    assert lib["summary"] == {"tracks": 4, "lossless_share": 0.5, "upgrades_ready": 1, "to_do": 2,
+    assert lib["summary"] == {"tracks": 4, "lossless_share": 0.5, "upgrades_ready": 1, "to_do": 2, "not_lossless": 2,
                               "by_quality": {"lossless": 2, "good_lossy": 1, "weak": 1, "fake": 0, "missing": 0}}
     assert lib["empty"] is None
     assert [r["title"] for r in views.library(LIB, "Hard_Bounce", "", "weak", "title")["rows"]] == ["Get Naughty"]
@@ -457,6 +457,36 @@ def test_library_summary_ignores_search_and_filter():
     """The panel's folder overview stays the folder's, whatever the table shows."""
     whole = views.library(LIB, "Hard_Bounce", "", "all", "artist")["summary"]
     assert views.library(LIB, "Hard_Bounce", "gimme", "weak", "artist")["summary"] == whole
+
+
+def test_library_summary_counts_the_checked_files_that_are_not_lossless():
+    s = state(a=e(folder="A"), b=e("not_lossless", folder="A", cutoff=20000), c=e("not_lossless", folder="A", cutoff=16000),
+              d=e("fake_lossless", folder="A", cutoff=16000), g=e("missing", folder="A"),
+              **{"local:1": own(import_state="identified")})
+    summary = views.library(s, None, "", "all", "artist")["summary"]
+    assert summary["not_lossless"] == 3 and summary["by_quality"]["lossless"] == 1  # the unchecked own file is in neither
+    assert views.library(s, "A", "", "weak", "artist")["summary"]["not_lossless"] == 3  # not narrowed by the filter
+
+
+LINES = [Row("Hard_Bounce", "https://open.spotify.com/playlist/37i9dQZF1DX0XUsuxWHRQd"),
+         Row("Powertrance", "https://open.qobuz.com/playlist/900000001"),
+         Row("Off_Set", "https://open.qobuz.com/playlist/900000002", enabled=False)]
+
+
+def test_library_subtitle_per_view():
+    def sub(folder, st=LIB):
+        return views.library(st, folder, "", "all", "artist", lines=LINES)["subtitle"]
+    assert sub(None) == ["5 tracks", "every folder"]
+    assert sub(views.NOT_IN_PLAYLIST) == ["1 track", "in no playlist"]
+    assert sub("Hard_Bounce") == ["4 tracks", "Spotify playlist", "Library › Hard_Bounce"]
+    assert sub("hard_bounce")[-1] == "Library › Hard_Bounce"  # the line's spelling, not the route's
+    assert sub("Bouncy") == ["1 track", "no playlist uses it", "Library › Bouncy"]
+    off = state(a=e(folder="Off_Set"), b=e(folder="Off_Set"))
+    assert sub("Off_Set", off) == ["2 tracks", "Qobuz playlist", "switched off", "Library › Off_Set"]
+    assert sub("Powertrance") == ["Qobuz playlist", "not read yet"]  # no song of it in the state at all
+    assert views.library(LIB, "Hard_Bounce", "gimme", "weak", "artist", lines=LINES)["subtitle"][0] == "4 tracks"
+    assert views.library(LIB, "Hard_Bounce", "", "all", "artist")["subtitle"][1:] == ["no playlist uses it",
+                                                                                      "Library › Hard_Bounce"]
 
 
 def test_library_to_do_counts_only_what_the_to_do_list_shows():

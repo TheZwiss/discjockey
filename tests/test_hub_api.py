@@ -264,6 +264,14 @@ def test_sidebar_lists_every_playlists_line_with_its_service_and_switch(root):
     assert rows[2]["ref"].startswith("qobuz:") and rows[2]["tracks"] == 0
 
 
+def test_library_subtitle_comes_from_the_playlists_lines(root):
+    api, _ = make_api(root)
+    assert api.library("Hard_Bounce")["subtitle"] == ["2 tracks", "Spotify playlist", "Library › Hard_Bounce"]
+    assert api.library()["subtitle"] == ["2 tracks", "every folder"]
+    summary = api.library()["summary"]
+    assert summary["not_lossless"] == 1 and summary["by_quality"]["lossless"] == 1
+
+
 def test_runs_and_one_run(root):
     api, _ = make_api(root)
     (root.reports).mkdir()

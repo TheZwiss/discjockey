@@ -681,13 +681,32 @@ def _matches(row: dict, filt: str) -> bool:
     return row["upgrade_ready"] if filt == "upgrade_ready" else row["sound_checked"] and row["quality"] == filt
 
 
+def _subtitle(state: dict, folder: str | None, tracks: int, lines: Sequence[pf.Row]) -> list[str]:
+    """The header's subtitle as parts in order of importance (plan library stage 5 I7; the page drops the last parts
+    first when the line gets too long). A folder is a playlist's when a playlists.txt line names it; "never read" is a
+    playlist none of whose songs (found or not) the state holds."""
+    n = _plural(tracks, "1 track", "{n} tracks")
+    if folder is None:
+        return [n, "every folder"]
+    if folder == NOT_IN_PLAYLIST:
+        return [n, "in no playlist"]
+    line = next((r for r in lines if fold(r.folder) == fold(folder)), None)
+    if line is None:
+        return [n, "no playlist uses it", f"Library › {folder}"]
+    service = f"{PLAYLIST_SERVICES.get(line.service or '', 'Playlist')} playlist"
+    if not any(fold(e["folder"] or "") == fold(folder) for e in state["tracks"].values()):
+        return [service, "not read yet"]
+    return [n, service, *(["switched off"] if not line.enabled else []), f"Library › {line.folder}"]
+
+
 def library(state: dict, folder: str | None, query: str, filt: str, sort: str, cover: Url | None = None,
-            away: Mapping[str, str] | None = None) -> dict:
+            away: Mapping[str, str] | None = None, lines: Sequence[pf.Row] = ()) -> dict:
     """folder: None (all tracks), NOT_IN_PLAYLIST, or a folder name. filt: LIBRARY_FILTERS. sort: a SORTS key,
     "-" in front for descending. Only tracks with a file (not found ones are in the to-do list). `away`: the import
     folders that are not there now (HubApi._away_roots, as track_detail gets it): each row's `file_state` says
     whether its file is "here", "offline" (its drive is not connected) or "folder_missing", decided per folder
-    (file_state without the file check: no file is looked at per row, so "file_missing" stays the panel's)."""
+    (file_state without the file check: no file is looked at per row, so "file_missing" stays the panel's).
+    `lines`: the playlists.txt lines (playlists_file.load(...).rows), for the subtitle."""
     with_file = {k: e for k, e in state["tracks"].items() if e["status"] != "missing" and e.get("path")}
     if folder is None:
         chosen, title = with_file, "All tracks"
@@ -705,6 +724,8 @@ def library(state: dict, folder: str | None, query: str, filt: str, sort: str, c
     # the folder at a glance (the panel's overview): unaffected by the search and the filter
     summary = {"tracks": in_folder, "lossless_share": round(by["lossless"] / counted, 4) if counted else None,
                "by_quality": by, "upgrades_ready": sum(1 for r in rows if r["upgrade_ready"]),
+               # checked files that aren't lossless: the strip's "Not lossless yet" row
+               "not_lossless": by["good_lossy"] + by["weak"] + by["fake"],
                "to_do": sum(1 for e in chosen.values()
                             if e.get("in_playlists") and not e.get("hidden") and _group(e) is not None)}
     q = fold(query or "").strip()
@@ -715,7 +736,8 @@ def library(state: dict, folder: str | None, query: str, filt: str, sort: str, c
     key = (sort or "artist").lstrip("-")
     rows.sort(key=SORTS.get(key, SORTS["artist"]), reverse=(sort or "").startswith("-"))
     empty = "empty_library" if not with_file else ("no_match" if not rows else None)
-    return {"title": title, "folder": folder, "summary": summary, "chips": chips, "rows": rows, "empty": empty}
+    return {"title": title, "folder": folder, "subtitle": _subtitle(state, folder, in_folder, lines),
+            "summary": summary, "chips": chips, "rows": rows, "empty": empty}
 
 
 def tracks_with_file(state: dict) -> list[dict]:
