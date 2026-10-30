@@ -1187,8 +1187,9 @@
   </section>
 
   <section data-test="gallery-ring">
-    {@render head('Ring', 'A share or a countdown as a ring with its number inside')}
+    {@render head('Ring', 'A share or a countdown as a ring with its number inside; mark: 2 px round a glyph')}
     <div class="row">
+      <span class="g-ringmark"><Ring mark size={26} value={0.3} max={1} tone="muted" /><NavIcon name="sync" /></span>
       <Ring value={37} max={80} label="37" sub="of 80" />
       <Ring value={34} max={43} countdown sub="pause" />
       <Ring value={690} max={720} countdown sub="break" size={90} />
@@ -1234,6 +1235,11 @@
       <div class="rowbox"><NowPlayingRow p={np({ hidden: true })} motion={false} /></div>
       <div class="rowbox"><NowPlayingRow p={np({ hidden: true, playing: false })} motion={false} /></div>
       <div class="rowbox"><NowPlayingRow p={np({ hidden: true })} motion={false} hovered /></div>
+    </div>
+    <span class="cap">In the rail · playing · paused</span>
+    <div class="row">
+      <div class="rowbox railbox"><NowPlayingRow p={np({ hidden: true })} motion={false} rail /></div>
+      <div class="rowbox railbox"><NowPlayingRow p={np({ hidden: true, playing: false })} motion={false} rail /></div>
     </div>
   </section>
 
@@ -1383,12 +1389,15 @@
     overflow: hidden; background: var(--sidebar-bg); border: var(--bw) solid var(--surface-line); }
   .footbox .pg { flex: 1; display: flex; background: var(--bg); }
   .footbox .sb { width: var(--sidebar-w); border-right: var(--bw) solid var(--surface-line); }
-  .rowbox { width: var(--sidebar-w); padding: 0 10px var(--s-2); background: var(--sidebar-bg); border-radius: var(--r-surface);
+  .rowbox { width: var(--sidebar-full-w); padding: 0 10px var(--s-2); background: var(--sidebar-bg); border-radius: var(--r-surface);
     border: var(--bw) solid var(--surface-line); }
   /* NavIcon: a sidebar column in the frame's material, its rows as the sidebar draws them */
   .g-nav { display: flex; flex-direction: column; gap: 2px; padding: var(--s-2) 10px; background: var(--sidebar-bg);
     border: var(--bw) solid var(--surface-line); border-radius: var(--r-surface); }
-  .g-nav-full { width: var(--sidebar-w); }
+  .railbox { width: var(--rail-w); padding-top: var(--s-2); }
+  .g-ringmark { position: relative; width: 26px; height: 26px; display: grid; place-items: center; color: var(--text-nav); }
+  .g-ringmark :global(.ring) { position: absolute; inset: 0; }
+  .g-nav-full { width: var(--sidebar-full-w); }
   .g-nav-rail { width: 50px; }
   .g-navrow { display: flex; align-items: center; gap: 9px; height: var(--h-ctl); padding: 0 var(--s-2); color: var(--text-nav);
     border-radius: var(--r-nav); white-space: nowrap; }
