@@ -7,6 +7,9 @@ committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when
 
 Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, step B (folders), task groups B2 to B7.
 
+- **Own songs' folder in run reports:** an upgrade check of an imported song has `folder=""` (`planner.py`); Sync
+  now names it via `views.action_folder`, but `run.py` (about line 231) still writes `a.folder` into the queued
+  results, so the run report likely shows a blank folder. `Page.svelte` and the end screen read `a.folder` too.
 - **Same label for two crates:** two crates under different wrapper folders can get the same label ("Hard › 2019"),
   so the UI tells them apart only by the tooltip (the full path). This is the plan's D8 rule.
 - **Count differences:** the sidebar's count for a watched folder leaves out the files an import still has to work
