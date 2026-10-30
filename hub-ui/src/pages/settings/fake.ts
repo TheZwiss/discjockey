@@ -3,6 +3,14 @@
 import type { PageFake } from '$lib/bridge/fake/bridge';
 import { account, at, check, chrome, safari, signedQobuz } from '$lib/bridge/fake/logins';
 import type { FakeState } from '$lib/bridge/fake/data';
+import { scenarios as library } from '../library/fake';
+
+/** `crates` and `crates_busy`: the library page's folders at their fullest (Rekordbox Library's crates, Albums' 312,
+ *  Vinyl Rips away), Edits switched out of the sidebar as in the mockup */
+function crates(s: FakeState): void {
+  library!.first_look(s);
+  s.crateShown['/Users/you/Music/Rekordbox Library/Edits'] = false;
+}
 
 // states whose quit is refused, as while a change is still being written
 const quitBusy = new WeakSet<FakeState>();
@@ -17,6 +25,10 @@ const checkFails = new WeakSet<FakeState>();
 
 const fake: PageFake = {
   scenarios: {
+    // Watched folders with crates: the switches of the picked folder (Rekordbox Library, Edits off; Albums: too many)
+    crates,
+    // the same while a running job holds the library file: a switch's save answers busy, the row goes back (a toast)
+    crates_busy(s) { crates(s); s.briefBusy = true; },
     // the user's case: Qobuz only; YouTube's login is in Chrome's second profile (found → Use this login)
     'yt-found'(s) {
       signedQobuz(s);

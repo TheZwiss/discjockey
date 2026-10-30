@@ -2,7 +2,11 @@
 // from seven rows. Pure, so it is tested; ToggleGroup and ToggleRow render it.
 import { foldText } from '../format';
 
-export type ToggleItem = { key: string; label: string; count?: number | null; on: boolean };
+export type ToggleItem = { key: string; label: string; count?: number | null; on: boolean;
+  /** the row's tooltip (a crate's whole way from its watched folder) */
+  tip?: string;
+  /** more words the search finds the row by besides its label (a crate's parent folders: an album by its artist) */
+  find?: string };
 
 /** A group gets a search field from this many rows. */
 export const SEARCH_FROM = 7;
@@ -10,10 +14,10 @@ export const SEARCH_FROM = 7;
 /** "6 of 7 on" — also when all or none are on, so the header never changes shape. */
 export const groupSummary = (items: ToggleItem[]) => `${items.filter((i) => i.on).length} of ${items.length} on`;
 
-/** The rows whose name contains the query, ignoring case and accents; all rows for an empty query. */
+/** The rows whose name (or `find`) contains the query, ignoring case and accents; all rows for an empty query. */
 export function filterItems(items: ToggleItem[], query: string): ToggleItem[] {
   const q = foldText(query.trim());
-  return q ? items.filter((i) => foldText(i.label).includes(q)) : items;
+  return q ? items.filter((i) => foldText(i.label).includes(q) || (!!i.find && foldText(i.find).includes(q))) : items;
 }
 
 /** The keys All · None act on: the rows the search shows (all rows for an empty query). */

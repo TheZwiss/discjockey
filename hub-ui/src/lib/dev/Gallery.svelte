@@ -221,6 +221,11 @@
   let panelPls = $state<ToggleItem[]>(playlists(['Ohne_Quatsch', 'Tekke_Ecke', 'Powertrance', 'Hard_Bounce', 'Bouncy', '03_06_2026',
     'Voller_Quatsch', 'Rollers', 'Peak Time'], [41, 9, 3, 12, 2, 8, 14, 6, 5], [2]));
   let panelFew = $state<ToggleItem[]>(playlists(['Ohne_Quatsch', 'Tekke_Ecke', 'Powertrance', 'Hard_Bounce'], [41, 9, 3, 12], [2]));
+  // a folder with too many crates (Settings, B7): All waits for a search (allMax), a row is found by its parent folder too
+  let crates = $state<ToggleItem[]>(Array.from({ length: 40 }, (_, i) => {
+    const artist = ['Aphex', 'Burial', 'Calibre', 'Dusk'][i % 4], album = `Album ${i + 1}`;
+    return { key: `c${i}`, label: album, count: 8 + (i % 5), on: i < 2, tip: `Albums › ${artist} › ${album}`, find: artist };
+  }));
   let sources = $state<ToggleItem[]>([{ key: 'ytm', label: 'YouTube Music', on: true }, { key: 'sc', label: 'SoundCloud', on: false },
     { key: 'yt', label: 'YouTube', count: null, on: true }]);
   let auto = $state<ToggleItem>({ key: 'auto', label: 'Read Spotify when the hub opens', on: true });
@@ -653,6 +658,11 @@
         <span class="cap">all off</span>
         <ToggleGroup label="Playlists" items={allOff} test="g-alloff"
           onchange={(k, on) => (allOff = flip(allOff, k, on))} onall={(on, keys) => (allOff = setOn(allOff, keys, on))} />
+        <span class="cap">40 rows · All after a search (allMax 25) · found by artist</span>
+        <div class="fillbox">
+          <ToggleGroup label="In the sidebar" items={crates} grow allMax={25} placeholder="Search Albums…" test="g-crates"
+            onchange={(k, on) => (crates = flip(crates, k, on))} onall={(on, keys) => (crates = setOn(crates, keys, on))} />
+        </div>
         <span class="cap">disabled (a change is running)</span>
         <ToggleGroup label="Locked" items={kinds} disabled disabledReason="Not while a sync runs." search={false} test="g-locked" onchange={() => {}} onall={() => {}}>
           {#snippet lead(item)}<span class="toggle-icon">{#if isKindKey(item.key)}<KindIcon kind={item.key} />{/if}</span>{/snippet}

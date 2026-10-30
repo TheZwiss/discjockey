@@ -10,6 +10,11 @@ describe('toggle groups', () => {
   it('says "all on" plainly too', () => expect(groupSummary(items.map((i) => ({ ...i, on: true })))).toBe('3 of 3 on'));
   it('finds without accents or case', () => expect(filterItems(items, 'kolsch').map((i) => i.key)).toEqual(['b']));
   it('returns everything for an empty query', () => expect(filterItems(items, '  ')).toHaveLength(3));
+  it('finds a row by its extra words too', () => {
+    const albums = [{ key: 'x', label: 'Night Tapes', on: false, find: 'Aphex' }, { key: 'y', label: 'Aphex Mix', on: false },
+      { key: 'z', label: 'Dawn', on: false }];
+    expect(filterItems(albums, 'aphex').map((i) => i.key)).toEqual(['x', 'y']);
+  });
   it('searches from seven rows', () => expect(SEARCH_FROM).toBe(7));
 });
 

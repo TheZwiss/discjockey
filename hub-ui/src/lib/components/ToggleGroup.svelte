@@ -19,7 +19,7 @@
     type ToggleItem } from './toggleModel';
 
   let { label, items, lead, onchange, onall, test, rowTest, grow = false, disabled = false, disabledReason,
-    search = true }:
+    search = true, placeholder, allMax }:
     { label: string; items: ToggleItem[]; lead?: Snippet<[ToggleItem]>; onchange: (key: string, on: boolean) => void;
       onall: (on: boolean, keys: string[]) => void; test?: string; rowTest?: string; grow?: boolean; disabled?: boolean;
       /** why the group is off: each row's tooltip, and a one-line Hint in the group's head in place of the All · None
@@ -27,7 +27,12 @@
        *  its group as from the next one) */
       disabledReason?: string;
       /** false: a fixed set the app defines (Sync's kinds), never the user's own list, needs no search (spec §11) */
-      search?: boolean } = $props();
+      search?: boolean;
+      /** the search's words (default "Search {label}…"), when the label alone doesn't say what is searched */
+      placeholder?: string;
+      /** All is off while more rows than this show: a list whose whole would flood where it switches things on
+       *  (Settings' crates of a folder with too many of them) asks for a search first, None stays */
+      allMax?: number } = $props();
 
   let query = $state('');
   const searchable = $derived(search && items.length >= SEARCH_FROM);
@@ -41,7 +46,8 @@
   const minRows = $derived(Math.min(3, Math.max(1, items.length)));
   const minStyle = $derived(grow ? `--min-rows: ${minRows}; --peek: ${items.length > 3 ? 'calc(var(--h-row) / 2)' : '0px'}` : undefined);
   // both links are off when they would change nothing among the shown rows (also in an empty group or search)
-  const allOn = $derived(shown.every((i) => i.on));
+  // (All also while more than `allMax` rows show)
+  const allIdle = $derived(shown.every((i) => i.on) || (allMax !== undefined && shown.length > allMax));
   const noneOn = $derived(shown.every((i) => !i.on));
   const setAll = (on: boolean) => onall(on, visibleKeys(items, searchable ? query : ''));
   const sub = (suffix: string) => (test ? `${test}-${suffix}` : undefined);
@@ -52,15 +58,15 @@
 </script>
 
 {#snippet reason()}<Hint text={disabledReason ?? ''} data-test={sub('reason')} />{/snippet}
-<Surface kind="list" {label} summary={items.length ? groupSummary(items) : undefined} data-test={test} class="toggle-group{grow ? ' grow' : ''}{searchable ? ' searchable' : ''}" style={minStyle}
-  header={locked ? reason : undefined} bulk={locked ? undefined : { allOff: disabled || allOn, noneOff: disabled || noneOn, onall: setAll, test }}>
+<Surface kind="list" {label} summary={items.length ? groupSummary(items) : undefined} data-test={test} class="toggle-group{grow ? ' toggle-grow' : ''}{searchable ? ' searchable' : ''}" style={minStyle}
+  header={locked ? reason : undefined} bulk={locked ? undefined : { allOff: disabled || allIdle, noneOff: disabled || noneOn, onall: setAll, test }}>
   {#if searchable}
-    <div class="find"><SearchField bind:value={query} placeholder="Search {label.toLowerCase()}…" test={sub('search')} /></div>
+    <div class="find"><SearchField bind:value={query} placeholder={placeholder ?? `Search ${label.toLowerCase()}…`} test={sub('search')} /></div>
   {/if}
   <div class="scroller" use:edgeFade use:growFill={grow ? host : undefined}>
     {#each shown as item (item.key)}
       {#snippet rowLead()}{@render lead?.(item)}{/snippet}
-      <ToggleRow {item} {onchange} {disabled} title={disabled ? disabledReason : undefined} test={rowTest} lead={lead ? rowLead : undefined} />
+      <ToggleRow {item} {onchange} {disabled} title={disabled ? disabledReason : item.tip} test={rowTest} lead={lead ? rowLead : undefined} />
     {:else}
       <div class="none">{query.trim() ? `No match for “${query.trim()}”` : 'Nothing here yet'}</div>
     {/each}
@@ -68,13 +74,15 @@
 </Surface>
 
 <style>
-  /* up to its rows' height, never an empty box; never less than --min-rows whole rows (3, fewer in a smaller group)
+  /* (`toggle-grow`, not `grow`: Surface's own `class:grow` directive, off for a group, took a plain "grow" token out
+     of the class, so no group ever grew; B7)
+     up to its rows' height, never an empty box; never less than --min-rows whole rows (3, fewer in a smaller group)
      plus --peek (spec §11, Task 9B fix rounds 1 and 2), from the real sizes: head --h-list-row + its rule, [search
      --h-ctl + 2 × --s-2], rows × --h-row + (rows − 1) row rules, the Surface's 2 borders: 3 rows 159 px (+19 peek),
      205 px with a search (+19 peek); the peek is half a row (issue 10) */
-  :global(.toggle-group.grow) { flex: 0 1 auto;
+  :global(.toggle-group.toggle-grow) { flex: 0 1 auto;
     min-height: calc(var(--h-list-row) + var(--min-rows) * var(--h-row) + (var(--min-rows) + 2) * var(--bw) + var(--peek)); }
-  :global(.toggle-group.grow.searchable) {
+  :global(.toggle-group.toggle-grow.searchable) {
     min-height: calc(var(--h-list-row) + var(--h-ctl) + 2 * var(--s-2) + var(--min-rows) * var(--h-row)
       + (var(--min-rows) + 2) * var(--bw) + var(--peek)); }
   .find { padding: var(--s-2) var(--s-4); }

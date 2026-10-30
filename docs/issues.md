@@ -38,6 +38,12 @@ Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, st
   links an import folder and a crate by its path (`#/library/folder/<path encoded>`; `libraryCalls` asks a path as a
   folder view); the rest of I5's routes (`/library/playlist/:name`, `libraryTarget`) are still open. Folder rows count
   "tracks" (the word of the page they open), playlists "songs".
+- **From B7 (Settings' crate switches):** `#/settings/folders/<path encoded>` (`settingsFolderHref`) picks an import
+  folder in Watched folders; Library's "Show some in the sidebar…" opens it. Settings reads the crates from
+  `watched_folders()` and reads them again after a save that stored something (the sidebar is read by the store);
+  All · None save one crate after another (`saveCratesShown`, one sidebar read at the end), so None on a folder
+  with many switched-on crates is that many brief saves: a `set_crates_shown(paths, shown)` would make it one (an
+  engine change, not made in B7). Under a folder with too many crates, All needs a search that leaves at most 25 rows.
 - **Later cleanup:** `views.library` is about 140 lines; `_playlist_rows` / `_folder_rows` would split it. `track()`
   recomputes `views.sites` over every file on each pick (linear, fast enough today).
 

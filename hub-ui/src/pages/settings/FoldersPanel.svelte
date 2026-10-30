@@ -3,14 +3,21 @@
   // head is the import while it runs, stopped or just ended (ImportCard, Stop at its end); the fill the folders as
   // one growing list (the Library first, always watched; each import folder with its state, its files and × Remove);
   // after it the files that couldn't be read and the line Add folder… left (a refusal, or what the new folder took
-  // over). The foot holds the panel's one filled button: Continue import while files wait and nothing imports, else
+  // over). An import folder with crates is a row to pick (the route's folder, else the first one): its crates' switches
+  // follow the list and take the growing part, the list then keeping its rows' height (one grow group per Panel). The
+  // foot holds the panel's one filled button: Continue import while files wait and nothing imports, else
   // Add folder…, and under the buttons why they are off while another change runs. The page owns the flow, so the row's line follows the import while another row is open.
   import { Hint, ImportCard, ProblemCard, UnreadableList, WatchedFolderList, WriteButton, canContinue, importView,
     type WatchedFoldersFlow } from '$lib/components';
   import { Panel } from '$lib/frames';
+  import { go, settingsFolderHref } from '$lib/router';
   import { hub, writeBlockedReason } from '$lib/stores/hub';
+  import CrateSwitches from './CrateSwitches.svelte';
+  import { pickedFolder } from './cratesModel';
 
-  let { flow }: { flow: WatchedFoldersFlow } = $props();
+  let { flow, folder }: { flow: WatchedFoldersFlow; /** the route's folder path (`#/settings/folders/<path>`) */ folder?: string } = $props();
+
+  const picked = $derived(pickedFolder(flow.data?.folders, folder));
 
   const view = $derived(importView($hub.job, flow.data));
   const offerContinue = $derived(canContinue($hub.job, flow.data));
@@ -28,8 +35,10 @@
 {/snippet}
 
 {#snippet fill()}
-  <WatchedFolderList folders={flow.data?.folders ?? null} grow onremove={(f) => void flow.remove(f)}
-    removeOff={blocked} removing={flow.removing} test="folders-list" />
+  <WatchedFolderList folders={flow.data?.folders ?? null} grow={!picked} onremove={(f) => void flow.remove(f)}
+    removeOff={blocked} removing={flow.removing} picked={picked?.id ?? null}
+    onpick={(f) => { if (f.id !== picked?.id) void go(settingsFolderHref(f.path)); }} test="folders-list" />
+  {#if picked}<CrateSwitches folder={picked} reload={flow.load} />{/if}
 {/snippet}
 
 {#snippet after()}

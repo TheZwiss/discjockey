@@ -35,7 +35,7 @@
   import { toasts } from '$lib/stores/toasts';
   import { problemCopy } from '$lib/copy';
   import { getPref, setPref } from '$lib/prefs';
-  import { go, libraryHref } from '$lib/router';
+  import { go, libraryHref, settingsFolderHref } from '$lib/router';
   import { markReady } from '$lib/ready';
   import LibraryTable from './LibraryTable.svelte';
   import TrackDetails from './TrackDetails.svelte';
@@ -320,7 +320,7 @@
 {#snippet main()}
   <PageHeader title={lib?.title ?? (folder === null ? 'All tracks' : folder === NOT_IN_PLAYLIST ? 'Not in a playlist' : folder)} {sub}
     readStatus={neverRead}>
-    {#snippet actions()}{#if tooMany}<Button variant="link" size="sm" href="#/settings/folders"
+    {#snippet actions()}{#if tooMany}<Button variant="link" size="sm" href={settingsFolderHref(tooMany.path)}
         tip={`${tooMany.crate_count} folders with music, too many for the sidebar: choose which to show in Settings`}
         data-test="library-show-some">Show some in the sidebar…</Button>{/if}{#if !viewGone}<SearchField bind:value={search}
       bind:input={searchInput} placeholder="Search title, artist…" shortcut="cmd+f"

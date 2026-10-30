@@ -28,6 +28,8 @@ export const ROUTES: Pattern[] = [
   P('setup', '/setup/:step'),
   P('settings', '/settings'),
   P('settings', '/settings/:row'),
+  // Settings → Watched folders with one import folder picked (its crate switches; the path encoded whole)
+  P('settings', '/settings/:row/:folder'),
   P('gallery', '/dev/gallery'),
 ];
 export const SETUP_STEPS = ['music', 'existing', 'tools', 'spotify', 'downloads', 'playlists'];
@@ -52,6 +54,7 @@ export function parseHash(hash: string): Route {
     if (r.name === 'setup' && params.step) params.step = RETIRED_SETUP_STEPS.get(params.step) ?? params.step;
     if (r.name === 'setup' && params.step && !SETUP_STEPS.includes(params.step)) break;
     if (r.name === 'settings' && params.row && !(SETTINGS_ROWS as readonly string[]).includes(params.row)) break;
+    if (r.name === 'settings' && params.folder !== undefined && params.row !== 'folders') break;
     return { name: r.name, params, query, path };
   }
   return { name: 'unknown', params: {}, query, path };
@@ -75,6 +78,11 @@ export function libraryHref(folder: string | null): string {
   if (folder === null) return '#/library';
   if (folder === NOT_IN_PLAYLIST) return '#/library/not-in-playlist';
   return buildHash('/library/folder/:folder', { folder });
+}
+/** Settings → Watched folders with an import folder picked, its crates' switches shown (Library's "Show some in the
+ *  sidebar…" lands here). */
+export function settingsFolderHref(path: string): string {
+  return buildHash('/settings/:row/:folder', { row: 'folders', folder: path });
 }
 
 // ---------- leave guard ----------
