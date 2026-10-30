@@ -15,24 +15,23 @@ Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, st
   `import`, and `DrivesChanged`; no event was added. The UI's `shortPath` / `filePlace` duplicate `views.place`, so B4
   drops the UI copy. The contract must record `set_favourites` and `set_crate_shown` as the exception to "write
   methods return a `job_id`": they are brief saves that answer `{favourites}` / `{path, shown}` or `busy`.
-- **From B4 (for B5–B7):** the contract, types, fake and store match the engine; the UI still draws today's screens.
-  Stand-ins to remove: `libraryCalls` / `asToday` in `pages/library/libraryModel.ts` (the Library page asks by the old
-  route param; for a playlist it asks for the whole view, then merges `also` (the leftover files, still dimmed) into
-  the rows, summary, chips and subtitle, leaves out the rows without a file, and applies search, filter and sort
-  itself, so a never-read playlist still lists its folder and no leftover vanishes; B6 draws the waiting rows and the
-  `also` section from the engine's counts and removes `asToday`). `shortPath` (`musicFolder.ts`) and `filePlace`
+- **From B4 (for B5–B7):** the contract, types, fake and store match the engine. B6 removed `asToday`: the page
+  draws the engine's rows (the waiting ones too), its `also` section, summary and chips as they come. Still a
+  stand-in: `libraryCalls` in `pages/library/libraryModel.ts` asks by the old route param (a name is a playlist when
+  the sidebar lists one, else a Library folder), until I5's routes (`/library/playlist/:name`, `libraryTarget`)
+  replace it. `shortPath` (`musicFolder.ts`) and `filePlace`
   (`todoModel.ts`) stay: they word arbitrary paths (the music folder, a To-do file, Settings' rows, fitted to a width)
   that carry no engine `place`; only `track()`'s and the rows' `place` (and the sidebar's `watched[].place`) come from
   the engine. The store has `saveFavourites(keys)` / `saveCrateShown(path, shown)`: they read the sidebar again after
   every answer, `busy` too, and hand the answer back; the toast and the optimistic list are B5's. In the fake, `ctx.s.briefBusy = true`
   (`window.__fake.ctx.s`) makes both brief saves answer `busy`; `s.unread` / `s.emptyRead` make a playlist never read /
   read and empty. `library:crates_busy` is `library:crates` with `briefBusy` already on (B5 shoots the busy state with it). `library:first_look` is `library:crates`' folders and crates with no Favourites (the normal state has none
-  either, but also no crates). `empty: 'gone'` shows the generic line in `copy.ts` EMPTY until B6 words it by `view`.
-- **For B6 (from the B3 review):** an empty folder and a read-but-empty playlist both come with `empty` `no_match`
-  even without search text; B6 picks I7's words ("No music in this folder." / "This playlist is empty.") from `view`,
-  `folder_kind`, `read_at` and the empty query, and pins it. A playlist's subtitle and `summary.tracks` count rows
-  with a file (9) while the table shows the waiting ones too (12) and the sidebar says "12 songs": B6 words the
-  waiting rows so the numbers don't seem to disagree (e.g. "3 waiting").
+  either, but also no crates).
+- **From B6 (the playlist and folder views):** a NOT FOUND row's tooltip can't give To-do's next-try line ("next
+  try in 5 days", I7): `LibraryRow` carries no date, only `track()` does (the details' note says it). It reads
+  "Nothing usable found yet: To-do has other ways to get it" until the engine adds the date to the row. A playlist
+  added after the last read shows "Playlists read 2 min ago" in the header beside "This playlist hasn't been read
+  yet." (the read status is the whole list's); true, but it may read as a contradiction at first.
 - **From B5 (the browser column):** *Show in Finder* is offered only where `api.reveal` can open the folder (a
   playlist's folder, a Library folder): it refuses any path outside the music folder, so an import folder and its
   crates have no Show in Finder until the engine gets a reveal for watched folders (no Python change in B5). The browser
