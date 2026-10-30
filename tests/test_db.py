@@ -42,6 +42,8 @@ def test_connect_sets_the_binding_pragmas(tmp_path, library):
         assert conn.execute("PRAGMA fullfsync").fetchone()[0] == 1
         assert conn.execute("PRAGMA checkpoint_fullfsync").fetchone()[0] == 1
         assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+    with db.connect(path, wait_ms=750) as conn:  # a best-effort writer's shorter wait
+        assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 750
 
 
 def test_the_connection_closes_at_the_end_of_its_with(tmp_path, library):
@@ -58,7 +60,7 @@ def test_a_fresh_database_has_the_current_version(tmp_path, library):
         db.check(conn)
         version = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
         created = conn.execute("SELECT value FROM meta WHERE key = 'created'").fetchone()[0]
-    assert int(version) == db.SCHEMA_VERSION == 3
+    assert int(version) == db.SCHEMA_VERSION == 4
     assert created == "2026-10-23T12:00:00"
 
 
@@ -102,10 +104,11 @@ def test_an_upgrade_step_is_applied_once_and_bumps_the_version(tmp_path, library
 
     def step(conn):
         calls.append(1)
-        conn.execute("CREATE TABLE extra_v4 (id INTEGER PRIMARY KEY)")
+        conn.execute("CREATE TABLE extra_next (id INTEGER PRIMARY KEY)")
 
-    monkeypatch.setattr(db, "SCHEMA_VERSION", 4)
-    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, 3: step})
+    current = db.SCHEMA_VERSION  # a made-up next step on top of the real ones
+    monkeypatch.setattr(db, "SCHEMA_VERSION", current + 1)
+    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, current: step})
     with db.connect(path) as conn, pytest.raises(StateError) as e:
         db.check(conn)  # a reader (no lock) never upgrades
     assert str(e.value) == ("Discjockey's records of this music folder are from an older version. Run a sync once "
@@ -116,8 +119,8 @@ def test_an_upgrade_step_is_applied_once_and_bumps_the_version(tmp_path, library
             db.check(conn, upgrade=True)
     assert calls == [1]
     with db.connect(path) as conn:
-        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "4"
-        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'extra_v4'").fetchone()
+        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == str(current + 1)
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'extra_next'").fetchone()
 
 
 def test_a_failing_upgrade_step_leaves_the_old_version(tmp_path, library, monkeypatch):
@@ -127,23 +130,27 @@ def test_a_failing_upgrade_step_leaves_the_old_version(tmp_path, library, monkey
         conn.execute("CREATE TABLE half_done (id INTEGER PRIMARY KEY)")
         raise RuntimeError("disk full")
 
-    monkeypatch.setattr(db, "SCHEMA_VERSION", 4)
-    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, 3: step})
+    current = db.SCHEMA_VERSION  # a made-up next step on top of the real ones
+    monkeypatch.setattr(db, "SCHEMA_VERSION", current + 1)
+    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, current: step})
     with db.connect(path) as conn, pytest.raises(RuntimeError):
         db.check(conn, upgrade=True)
     with db.connect(path) as conn:
-        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "3"
+        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == str(current)
         assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'half_done'").fetchone() is None
 
 
 def test_create_builds_the_current_version_through_the_upgrade_steps(tmp_path, library, monkeypatch):
-    monkeypatch.setattr(db, "SCHEMA_VERSION", 4)
-    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES, 3: lambda conn: conn.execute("CREATE TABLE extra_v4 (id INTEGER)")})
+    current = db.SCHEMA_VERSION
+    monkeypatch.setattr(db, "SCHEMA_VERSION", current + 1)
+    monkeypatch.setattr(db, "UPGRADES", {**db.UPGRADES,
+                                         current: lambda conn: conn.execute("CREATE TABLE extra_next (id INTEGER)")})
     path = fresh(tmp_path, library)
     with db.connect(path) as conn:
         db.check(conn)
-        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "4"
-        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'extra_v4'").fetchone()
+        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == str(current + 1)
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'extra_next'").fetchone()
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'favourites'").fetchone()
         assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'decisions'").fetchone()
         assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'moves'").fetchone()
 
@@ -235,6 +242,7 @@ def test_a_writer_upgrades_a_version_2_database_and_leaves_its_rows(tmp_path, li
     path = version_2(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
     before = everything(path)
     assert "decisions" not in before
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 3)  # this step alone; 3 -> 4 has its own test
     with db.connect(path) as conn:
         db.check(conn, upgrade=True)
         columns = [r[1] for r in conn.execute("PRAGMA table_info(files)")]
@@ -288,6 +296,65 @@ def test_a_reader_refuses_a_version_2_database(tmp_path, library, monkeypatch):
     with db.connect(path) as conn, pytest.raises(StateError) as e:
         db.check(conn)
     assert str(e.value) == db.OLDER
+
+
+# --- stage 5, B1.1: the schema step 3 -> 4 (read records, Favourites, crate visibility) ---
+
+STAGE_5_TABLES = ("crate_shown", "favourites", "playlist_reads", "playlist_tracks")
+
+
+def version_3(tmp_path, library, monkeypatch, state=None, facts=no_facts):
+    """A database as stage 4 built it: version 3, none of stage 5's tables."""
+    with monkeypatch.context() as m:
+        m.setattr(db, "SCHEMA_VERSION", 3)
+        m.setattr(db, "UPGRADES", {1: db.UPGRADES[1], 2: db.UPGRADES[2]})
+        return fresh(tmp_path, library, state, facts)
+
+
+def test_a_writer_upgrades_a_version_3_database_and_leaves_its_rows(tmp_path, library, monkeypatch):
+    path = version_3(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
+    with db.connect(path) as conn:  # rows in stage 4's own tables too
+        conn.execute("INSERT INTO decisions (kind, a, b, answer, at) VALUES ('keep_both', 'dup:1-2', '', 'keep', "
+                     "'2026-10-28T10:00:00')")
+    before = everything(path)
+    assert not set(STAGE_5_TABLES) & set(before)
+    with db.connect(path) as conn:
+        db.check(conn, upgrade=True)
+    after = everything(path)
+    assert [after.pop(t) for t in STAGE_5_TABLES] == [[], [], [], []]
+    meta = dict(after.pop("meta"))
+    assert meta.pop("schema_version") == "4"
+    assert meta == {k: v for k, v in before.pop("meta") if k != "schema_version"}  # the generation too
+    assert after == before
+
+
+def test_fresh_and_v3_upgraded_databases_have_the_same_schema(tmp_path, library, monkeypatch):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    upgraded = version_3(tmp_path / "a", library, monkeypatch)
+    with db.connect(upgraded) as conn:
+        db.check(conn, upgrade=True)
+    created = fresh(tmp_path / "b", library)
+    assert schema(upgraded) == schema(created)
+    assert {name for _, name, _, _ in schema(created)} >= set(STAGE_5_TABLES)
+
+
+def test_a_reader_refuses_a_version_3_database(tmp_path, library, monkeypatch):
+    path = version_3(tmp_path, library, monkeypatch)
+    with db.connect(path) as conn, pytest.raises(StateError) as e:
+        db.check(conn)
+    assert str(e.value) == db.OLDER
+
+
+def test_a_stage_4_build_refuses_a_version_4_database(tmp_path, library, monkeypatch):
+    path = fresh(tmp_path, library)
+    before = everything(path)
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 3)  # what a stage 4 Discjockey knows
+    for upgrade in (False, True):
+        with db.connect(path) as conn, pytest.raises(StateError) as e:
+            db.check(conn, upgrade=upgrade)
+        assert str(e.value) == db.NEWER
+    assert everything(path) == before
 
 
 # --- 1.2 entry <-> rows, create, snapshot ---

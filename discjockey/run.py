@@ -9,6 +9,7 @@ execute() is safe to run in a worker thread; it never touches signals or the ter
 """
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field, replace
@@ -16,7 +17,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Callable
 
-from . import config, library, planner, quality, report as rep, sources
+from . import config, db, library, planner, playlists_file, quality, report as rep, sources
 from .accounts import ACCOUNTS
 from .acquire import Acquirer, make_ready
 from .events import ActionStarted, Cancelled, CancelToken, Emit, Message, Result, RunFinished, no_emit
@@ -27,6 +28,8 @@ from .models import Action, FetchedPlaylist, Plan, PlaylistLine
 from .pacing import Budget, Pacer, record_signal
 from .qobuz import QobuzError, QobuzNotSetUp, QobuzSource
 from .settings import MAX_EXTRA, Settings, SettingsError, load_settings, save_settings
+
+logger = logging.getLogger(__name__)  # not `log`: that is a run's RunLog here
 
 
 class SetupProblem(Exception):
@@ -106,6 +109,7 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
         fetched = sources.read(paths, lines, emit=emit, token=token, want_info=want_info)
     except sources.SourceError as e:
         raise SetupProblem(str(e), e.kind, e.service) from None
+    record_reads(paths, fetched, datetime.now())
     for fp in fetched:
         for item in fp.skipped:
             log.add_text("skipped", f"[{fp.line.folder}] {item}")
@@ -117,6 +121,33 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
     for key, track, folder, files in plan.ambiguous:
         log.add(Result("ambiguous", folder, track.first_artist, track.title, key, "; ".join(files)))
     return Prepared(paths, plan.state, settings, plan, log, lines, fetched, import_waiting)
+
+
+# How long recording a read waits for another writer (a job's transaction, e.g. an import's scan): long enough to
+# outlast the engine's usual short transactions, short enough that a window read never feels held up (the binding
+# 5 s would add up to 5 s to every read during a long one). A record missed here is written by the next read
+RECORD_WAIT_MS = 750
+
+
+def record_reads(paths: Paths, fetched: list[FetchedPlaylist], now: datetime) -> None:
+    """Keeps what this read found as the playlists' records in library.db (plan library stage 5, D1), so the window
+    shows a playlist's songs and counts when it opens, offline, and for switched-off playlists. Every read passes
+    through here: the console's sync and dry run, the hub's read, its sync and the import's linking (prepare). The
+    records aren't library state, so this takes no library lock and also runs when the caller couldn't get it, and
+    in a dry run (it changes no music file). Best-effort: a library without library.db yet (still on state.json;
+    this never creates one), or records this Discjockey can't write (another version, a drive gone, a write that
+    waited out RECORD_WAIT_MS), keep the read as it is; the failure is logged."""
+    if not paths.db_file.exists():
+        return
+    try:
+        keep = {r.ref for r in playlists_file.load(paths.playlists_file).rows if r.ref is not None}
+        with db.connect(paths.db_file, wait_ms=RECORD_WAIT_MS) as conn:
+            db.check(conn)
+            db.record_reads(conn, fetched, now, keep)
+    except StateError as e:  # records of another version, or a database SQLite refused: expected, its words say why
+        logger.warning("couldn't keep the playlists' read records: %s", e)
+    except Exception:  # whatever went wrong, the read and what it plans stand
+        logger.warning("couldn't keep the playlists' read records", exc_info=True)
 
 
 FIRST_CHECKS_PER_RUN = 25  # plan library stage 4, D9: at about 70 s a check, 25 add half an hour to a run
