@@ -681,15 +681,16 @@ def test_a_refused_folder_says_why_and_starts_nothing(lib):
     assert again["message"] == "Discjockey watches this folder already."
 
 
-def test_every_other_write_answers_busy_with_the_import_words_while_it_runs(lib):
+def test_every_other_write_answers_busy_with_the_import_words_while_it_runs(lib, tmp_path):
     paths, folder, fakes = lib
-    gate = threading.Event()
-    fakes.on_probe = lambda n: gate.wait(10)
+    other = import_folder(tmp_path, 1, "Example Drive/More")  # a folder the check passes: the job, not it, refuses
+    gate, reading = threading.Event(), threading.Event()
+    fakes.on_probe = lambda n: reading.set() or gate.wait(10)
     api, rec = make_api(paths)
     job = api.add_watched_folder(str(folder))
     try:
-        assert job["ok"]
-        for answer in (api.hide("t2", True), api.start_import(), api.add_watched_folder(str(folder)),
+        assert job["ok"] and reading.wait(5)  # the job is past adding the folder, held at its first file
+        for answer in (api.hide("t2", True), api.start_import(), api.add_watched_folder(str(other)),
                        api.setup_skip_import(), api.rescan_library()):
             assert (answer["ok"], answer["kind"], answer["message"]) == (False, "busy", IMPORTING_TEXT), answer
     finally:
