@@ -3,7 +3,7 @@
 // Playlists), Playlists in playlists.txt order (download priority, switched-off ones in place and dimmed) or A–Z, and
 // Folders (step A: the Library folders no playlist uses). Each row one line.
 //
-// The filter (N9): a case-folded substring of the names. While filtering, the views step aside, folded sections open,
+// The filter (N9): a substring of the names, with case and accents folded ("motley" finds "Mötley"). While filtering, the views step aside, folded sections open,
 // every match is listed once in its own section, and exactly one row carries the highlight (the first match; ↑ ↓ move
 // it, down to the hand-off row). The hand-off row ("Search tracks for “…”") is the last row whenever there is text,
 // and the only one, with the highlight, when no name matches (N3).
@@ -11,12 +11,9 @@ import type { PlaylistService, Sidebar } from '../bridge/types';
 import { NOT_IN_PLAYLIST } from '../bridge/types';
 import { buildHash, libraryHref } from '../router';
 
-export const SECTION_KEYS = ['playlists', 'folders'] as const;
-export type SectionKey = (typeof SECTION_KEYS)[number];
 export const HANDOFF = 'handoff';
 
-/** The matched letters of a name, as [start, end) in the name (none when folding changed the name's length, as for
- *  decomposed accents). */
+/** The matched letters of a name, as [start, end) in the name (null: nothing to mark, no filter). */
 export type Match = [number, number] | null;
 
 export type ViewRow = { kind: 'view'; key: string; name: string; count: number; href: string };
@@ -28,7 +25,7 @@ export type HandoffRow = { kind: 'handoff'; key: typeof HANDOFF; text: string; h
 export type BrowserRow = ViewRow | PlaylistRow | FolderRow | HandoffRow;
 
 export type Section = {
-  key: SectionKey; label: string;
+  key: 'playlists' | 'folders'; label: string;
   /** the head's count (Playlists: every line; none while filtering, where only matches are listed) */
   count: number | null;
   /** its rows show: unfolded, or filtering (a filter opens folded sections) */
@@ -50,20 +47,40 @@ export type BrowserInput = { side: Sidebar | null; query: string; az: boolean; c
 
 const SERVICE_NAME: Record<PlaylistService, string> = { spotify: 'Spotify', qobuz: 'Qobuz' };
 
-/** Case-folded for matching: one form of each letter (NFC), lower case. */
-export const fold = (s: string): string => s.normalize('NFC').toLocaleLowerCase();
+/** One character folded for matching: its base letters without accents (NFD, the combining marks dropped), lower
+ *  case. A combining mark on its own folds to nothing. */
+const foldChar = (c: string): string => c.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase();
 
-/** Where the folded text sits in the name; null: no match. A match whose letters can't be mapped back (folding
- *  changed the name's length) still matches, without bold letters. */
+/** A name folded for matching, with where each folded letter came from in the name (`from[i]`: the name's index of
+ *  folded letter i; one more entry, the name's length, closes it). Folded one character at a time, so the text
+ *  typed and the names fold the same way and every match maps back to whole characters of the name. */
+export function foldMap(name: string): { folded: string; from: number[] } {
+  let folded = '';
+  const from: number[] = [];
+  let at = 0;
+  for (const c of name) {
+    const f = foldChar(c);
+    for (let k = 0; k < f.length; k++) from.push(at);
+    folded += f;
+    at += c.length;
+  }
+  from.push(name.length);
+  return { folded, from };
+}
+/** Folded for matching: case and accents ("Mötley" → "motley", "Über" → "uber"). */
+export const fold = (s: string): string => foldMap(s).folded;
+
+/** Where the folded text sits in the name, as the name's own characters (a decomposed accent after the last matched
+ *  letter included); false: no match; null: no text. */
 export function matchName(name: string, q: string): Match | false {
   if (!q) return null;
-  const n = fold(name);
-  const i = n.indexOf(q);
+  const { folded, from } = foldMap(name);
+  const i = folded.indexOf(q);
   if (i < 0) return false;
-  return n.length === name.length ? [i, i + q.length] : null;
+  return [from[i], from[i + q.length]];
 }
 
-/** The text the filter filters by: trimmed, folded. */
+/** The text the filter filters by: trimmed, folded (blank: no filter). */
 export const filterText = (raw: string): string => fold(raw.trim());
 
 /** `#/library?q=…`: All tracks with the text in its track search (the hand-off). */
@@ -79,8 +96,14 @@ export const handoffTip = (text: string): string =>
   `Search every track’s title and artist for “${text}” (All tracks)`;
 export const sortTip = (az: boolean): string => (az ? 'Order: A–Z · click for download priority'
   : 'Order: download priority (change it on the Playlists page) · click for A–Z');
-export const sectionTip = (label: string, open: boolean): string => `${open ? 'Hide' : 'Show'} ${label.toLowerCase()}`;
-export const EDGE_TIP = 'Drag to resize · double-click: back to 240';
+export const EDGE_TIP = 'Drag to resize · double-click to reset';
+/** The edge's width for a screen reader. */
+export const edgeValueText = (w: number): string => `${w} px`;
+
+/** A row's element id (`aria-activedescendant` names the highlighted one): `bc-` and its key, every character that
+ *  can't stand in an id spelled out, so two keys never share an id. */
+export const rowId = (key: string): string =>
+  `bc-${key.replace(/[^A-Za-z0-9_-]/g, (c) => `.${c.codePointAt(0)!.toString(16)}.`)}`;
 
 const byName = (a: { name: string }, b: { name: string }) =>
   a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true });
@@ -119,7 +142,7 @@ export function browserList({ side, query, az, closed }: BrowserInput): BrowserL
     folders = keep(folders);
   }
 
-  const section = (key: SectionKey, label: string, rows: (PlaylistRow | FolderRow)[], count: number | null): Section => ({
+  const section = (key: Section['key'], label: string, rows: (PlaylistRow | FolderRow)[], count: number | null): Section => ({
     key, label, rows, count: filtering ? null : count, foldable: !filtering, open: filtering || !closed.includes(key) });
   const sections: Section[] = [];
   // step B: Favourites goes here, above Playlists (it steps aside while filtering, N9)

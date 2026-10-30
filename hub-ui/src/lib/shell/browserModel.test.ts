@@ -3,8 +3,8 @@ import type { Sidebar } from '../bridge/types';
 import { NOT_IN_PLAYLIST } from '../bridge/types';
 import { parseHash } from '../router';
 import {
-  HANDOFF, browserList, currentKey, filterText, highlightOf, matchName, moveHighlight, playlistTip, rowByKey,
-  searchTracksHref, sortTip, toggleClosed,
+  EDGE_TIP, HANDOFF, browserList, currentKey, edgeValueText, filterText, fold, highlightOf, matchName, moveHighlight,
+  playlistTip, rowByKey, rowId, searchTracksHref, sortTip, toggleClosed,
 } from './browserModel';
 
 const side: Sidebar = {
@@ -87,9 +87,36 @@ describe('browserList while filtering', () => {
 
   it('trims the text and matches composed and decomposed letters alike', () => {
     expect(filterText('  Peak ')).toBe('peak');
-    const nfd = 'Café';   // "Café" with a combining accent
+    const nfd = 'Cafe\u0301';   // "Café" with a combining accent
     const l = browserList({ side: { ...side, playlists: [{ ...side.playlists[0], name: nfd }] }, query: 'café', az: false, closed: [] });
     expect(l.sections[0].rows).toHaveLength(1);
+    expect(l.sections[0].rows[0].match).toEqual([0, 5]);   // the accent after the last letter is marked with it
+  });
+
+  it('folds accents as well as case, and marks the name\'s own letters', () => {
+    expect(fold('Mötley Crüe')).toBe('motley crue');
+    expect(fold('ÜBER')).toBe('uber');
+    expect(matchName('Mötley_Edits', 'motley')).toEqual([0, 6]);
+    expect(matchName('Das Über-Set', filterText('UBER'))).toEqual([4, 8]);
+    expect(matchName('Über', filterText('ü'))).toEqual([0, 1]);
+    const names = { ...side, playlists: [{ ...side.playlists[0], name: 'Mötley_Edits' }, { ...side.playlists[1], name: 'Über_Trax' }] };
+    const found = (query: string) => browserList({ side: names, query, az: false, closed: [] }).sections[0]?.rows.map((r) => r.name);
+    expect(found('motley')).toEqual(['Mötley_Edits']);
+    expect(found('uber')).toEqual(['Über_Trax']);
+  });
+
+  it('takes text of spaces only as no filter: no hand-off, no targets', () => {
+    const l = list({ query: '   ' });
+    expect(l.handoff).toBeNull();
+    expect(l.targets).toEqual([]);
+    expect(l.views).toHaveLength(2);
+  });
+
+  it('lists the matches A–Z when Playlists is in A–Z order', () => {
+    expect(list({ query: 'a' }).sections[0].rows.map((r) => r.name)).toEqual(['Peak_Time', 'Hard_Bounce', 'acid_Nights']);
+    const l = list({ query: 'a', az: true });
+    expect(l.sections[0].rows.map((r) => r.name)).toEqual(['acid_Nights', 'Hard_Bounce', 'Peak_Time']);
+    expect(l.targets.slice(0, 3)).toEqual(['pl:c', 'pl:b', 'pl:a']);
   });
 
   it('puts the hand-off last, with the text as typed (trimmed)', () => {
@@ -140,9 +167,29 @@ describe('the current row', () => {
     expect(currentKey(side, 'Gone')).toBeNull();
     expect(currentKey(null, 'Hard_Bounce')).toBeNull();
   });
+  it('picks the playlist when a Library folder has the same name', () => {
+    const both = { ...side, library_folders: [{ folder: 'Hard_Bounce', tracks: 1 }] };
+    expect(currentKey(both, 'Hard_Bounce')).toBe('pl:b');
+  });
+  it('picks the first line of a repeated ref, whose row has the plain key', () => {
+    const twice = { ...side, playlists: [side.playlists[0], { ...side.playlists[0], name: 'Peak_Time_2' }] };
+    const rows = browserList({ side: twice, query: '', az: false, closed: [] }).sections[0].rows;
+    expect(currentKey(twice, 'Peak_Time')).toBe(rows[0].key);
+    expect(rows[1].key).not.toBe(rows[0].key);
+  });
 });
 
-describe('words', () => {
+describe('ids and words', () => {
+  it('gives each row an id of its own, whatever its key holds', () => {
+    expect(rowId('pl:abc')).toBe('bc-pl.3a.abc');
+    expect(rowId('fo:Old Sets')).toBe('bc-fo.3a.Old.20.Sets');
+    expect(rowId('handoff')).toBe('bc-handoff');
+    expect(new Set(['fo:a b', 'fo:a_b', 'fo:a.b', 'fo:a.20.b'].map(rowId)).size).toBe(4);
+  });
+  it('the edge names no number and says its width', () => {
+    expect(EDGE_TIP).toBe('Drag to resize · double-click to reset');
+    expect(edgeValueText(312)).toBe('312 px');
+  });
   it('the sort toggle names the order and the click', () => {
     expect(sortTip(false)).toBe('Order: download priority (change it on the Playlists page) · click for A–Z');
     expect(sortTip(true)).toBe('Order: A–Z · click for download priority');
