@@ -3,14 +3,6 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
-## 28. Library stage 5 wishes
-
-- **A sidebar the user can widen by dragging** would show long playlist names in full (at 168 px
-  "Afterhour_Sonntag_Warmup_Classics" reads "Afterhour_S…"; the tooltip has it whole). It changes the app-wide L frame
-  (seamless chrome: the sidebar and the foot are one material, the foot's player starts at the sidebar items' inset),
-  so it is not part of stage 5: the width would be a remembered pref, every page's layout and shots follow it, and the
-  drag edge is the sidebar's right border.
-
 ## 27. Library stage 4 leftovers (import)
 
 Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.

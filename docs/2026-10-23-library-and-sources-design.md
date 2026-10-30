@@ -13,7 +13,7 @@ playlist, and the sync decides where each file lives. This design turns it into 
   is indexed, its quality analysed, identified where possible, and offered upgrades, as if Discjockey had
   downloaded it.
 - **Files are found again** when you move or rename them inside the watched folders.
-- **The sidebar** lists playlists and folders side by side, each with an icon for where it comes from.
+- **Library's browser column** lists playlists and folders side by side, each with an icon for where it comes from.
 
 Decided with the user:
 
@@ -65,8 +65,9 @@ syncing anything back to a service.
    section. Adding a folder starts a background scan with progress: it indexes every file, analyses quality, and
    links files to playlist songs. The To-do page then shows upgrades, "Is this the same song?" questions and
    duplicates.
-4. **Sidebar (stage 5):** under "Library", the playlists (each with its service's icon) and then the watched
-   folders (folder icon, as a tree).
+4. **Library layout (stage 5):** in Library the sidebar folds into a rail and a browser column lists the
+   playlists (each with its service's icon) and the watched folders' crates (folder icon); Favourites are shortcuts
+   on every page.
 5. **SoundCloud and YouTube Music playlists (stage 6):** links of those services work too.
 
 ## 4. Stages
@@ -81,7 +82,7 @@ tidy-up.
 | 2 Tidy-up | Tidy-up preview, the playlist-save question, folder rename on disk, move batches with undo | §8 |
 | 3 Qobuz playlists | The source interface, Spotify behind it, the Qobuz source | §9 |
 | 4 Import | Watched folders in Setup/Settings, the import job, identification, duplicates, upgrades for imported files | §10 |
-| 5 Sidebar | Sources and folders in the sidebar, playlist and folder views | §11 |
+| 5 Library layout | The rail and browser column, Favourites, crates, playlist and folder views (two steps) | §11 |
 | 6 SoundCloud, YouTube Music | Two more sources, title splitting | §9.4, §9.5 |
 
 ## 5. The library database (stage 1)
@@ -338,21 +339,26 @@ Lossy and fake-lossless imported files get the weekly upgrade check like any los
 of the Download limits page; a large import spreads its first checks over several runs instead of using up a day's
 Qobuz allowance. Parked versions, swap and "Add as new file" work as in §7.
 
-## 11. Sidebar and views (stage 5)
+## 11. Library layout and views (stage 5)
 
-### 11.1 The sidebar's Library group
+### 11.1 The browser column
 
-1. **All tracks**, as today.
-2. **Playlists**, in priority order, each with its service's icon and its song count; switched-off playlists dimmed,
-   as today.
-3. **Folders**, with a folder icon: the watched import folders as a tree (subfolders with audio, expandable), and
-   folders in `Library/` that belong to no playlist. A playlist's own folder is not listed again.
-4. **Not in a playlist**, as today.
+The agreed design is `docs/hub-mockups/design-system/library-layout.html` with its notes `library-layout-notes.md`;
+the plan is `docs/2026-10-29-library-stage-5-plan.md`. In short:
+
+1. In Library the app's sidebar folds into a 50 px **rail** of page icons, and a **browser column** (200–360 px, dragged
+   by its edge) lists, top to bottom: **All tracks** and **Not in a playlist**; **Favourites** (the user's own order, by
+   drag); **Playlists** in priority order (or A–Z), each with its service's icon and its song count, switched-off ones
+   dimmed; **Folders**: each watched import folder with its **crates** (the folders that hold music themselves; wrapper
+   folders get no row), then the folders in `Library/` that belong to no playlist. A playlist's own folder is not
+   listed again. A filter field (⌘K) filters the names and hands a text that matches nothing on to the track search.
+2. Other pages keep the full sidebar, which lists the pages, Library and the Favourites. The user can fold it on any
+   page.
+3. Library's right panel leaves the page: the summary becomes a strip and a track's details an inspector that opens
+   on demand.
 
 The icons are the services' original logos in their own colours (the user's wish, 2026-10-29), used unchanged and only
-to name the service. The group
-follows the seamless-chrome rules of `docs/hub-design-language.md`. Mockups come before building and are approved by
-the user.
+to name the service. The column follows the seamless-chrome rules of `docs/hub-design-language.md`.
 
 ### 11.2 A playlist's view
 
@@ -362,8 +368,8 @@ the user.
 
 ### 11.3 A folder's view
 
-The files physically in the folder and its subfolders, with the subfolder as a column. A file that belongs to a
-playlist carries that playlist's name as a badge.
+The files physically in the folder and its subfolders, with the crate they sit in as a column. A file that belongs to
+a playlist carries that playlist's name as a badge.
 
 ## 12. Error handling
 
