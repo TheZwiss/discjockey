@@ -52,8 +52,8 @@ The window's chrome is one **L-shaped frame**: the sidebar and, while something 
 by `App.svelte` behind them, so they never meet in a seam; the page sits inside on black. Only the page's edge has a
 line: the sidebar's right border, continued along the page's lower edge (1 px `--surface-line` from `--sidebar-w` to the
 right). Chrome joins this frame; it never floats over the page or reserves a strip of its own.
-- **Two sidebar forms, and the browser column in Library** (library stage 5, D16 rules 1, 2, 4, 6; the shell switches
-  over in step A's A4–A5, until then the sidebar keeps its Library group). The sidebar is **full** (168 px,
+- **Two sidebar forms, and the browser column in Library** (library stage 5, D16 rules 1, 2, 4, 6; `Sidebar.svelte`,
+  its state in `lib/stores/chrome.ts`). The sidebar is **full** (168 px,
   `--sidebar-full-w`) or a **rail** (50 px, `--rail-w`): the rail is the full sidebar with its labels folded away, and
   the glyph column (18–32 px from the window's edge) and every row (30 px, 2 px apart) stay put, so no icon moves; the
   selected pill becomes a 30 × 30 square. The pages' icons are drawn (`NavIcon`), the only label in the rail, named
@@ -63,6 +63,22 @@ right). Chrome joins this frame; it never floats over the page or reserves a str
   (the form, plus 1 + the browser's width while it stands), so the page's edge, the foot's line and its seek area
   follow it. **One more line inside the chrome:** the sidebar's right edge while the browser stands beside it, the
   same hairline as the page's edge, so the icon column and the collections read as two levels, pages | collections.
+  Below 1240 px (`--panel-narrow-below`) Library holds the browser or the details beside the list, not both: an open
+  inspector steps the browser back behind the rail, and ⌘K or ♫ brings it back and closes the details.
+- **The fold button and the rail's signals.** The fold button (the macOS sidebar symbol, a Tip "Hide sidebar ⌃⌘S" /
+  "Show sidebar ⌃⌘S") sits on the glyph column at the top of both forms, and "Discjockey" (with the update line under
+  it) folds away beside it but keeps its height, so no row below moves. The rail carries the full form's signals in the
+  same colours: To-do's count as a neutral pill on the glyph's corner (`--rail-pill-bg`, two digits, "99+" above;
+  the full form prints it in the count column), Download limits' yellow dot where it always is, and a running sync
+  as a neutral 2 px ring round ⟳ whose arc is the share done (`Ring mark`; the full form prints "12/40" in the count
+  column). Every rail icon has a Tip with its page's name, its signal in words ("To-do · 5 to look at", "Sync ·
+  syncing, 12 of 40") and its shortcut as a key cap. Library's ♫ goes back to the collection it was left at.
+- **The keys** (`lib/shell/keys.ts`, one window-level handler in `App.svelte`): ⌘1–⌘6 the pages in the rail's order
+  (by the key's place, so any layout reaches them), ⌘, Settings, ⌘K Library with its filter focused, ⌘I the details
+  (Library only), ⌃⌘S fold. All carry ⌘, so they work from a text field too; never in a dialog, never repeated by a
+  held key. Space and ⌘← ⌘→ stay the player's, ⌘F the page's track search, ↑ ↓ Enter Esc whatever has focus. Not in
+  the View menu: pywebview 6.2 adds a program's menus only as new menus beside its default View menu (and its menu
+  items take no key equivalents), so a "Hide Sidebar" item there would mean a second View menu; the key stays.
 - **The sidebar's Library group retires:** the collections live in the browser column, every row one line (the
   two-line crate rows and the watched folders' balanced wrap retire with it); Library is a page of its own in the nav
   (♫). On pages without the browser the sidebar holds only the pages, plus Favourites as shortcuts without counts
@@ -79,7 +95,9 @@ right). Chrome joins this frame; it never floats over the page or reserves a str
   The hit area is 10 px, centred on the line. While a track loads, no fill.
 - **Hide folds the bar into the sidebar:** a **Now playing** row above Settings (`NowPlayingRow.svelte`: the "Library"
   label's style, a 32 px row with a 22 px `PlayButton`, the title, a 22 px ⌃ `Button icon xs`, the position as a 2 px
-  line under the title). Show (⌃ or the title) unfolds it again. The folders above give way.
+  line under the title). Show (⌃ or the title) unfolds it again. In the rail it stacks on the glyph column: ⌃ Show
+  player, the same 22 px `PlayButton`, the row's 2 px position line under it, and one Tip naming it all ("Artist –
+  Title · list · Show player"); the PlayButton's own tooltip stays off there (`title={null}`), so it never shows two.
 - Disabled controls are grey, never removed (a list of one: ⤮ ⏮ ⏭ grey; the end of the list: ⏭ grey).
 
 | Do | Don't |
@@ -371,7 +389,7 @@ used.
 | `SearchField` | `lib/components/SearchField.svelte` | `gallery-fields` | A search or filter field; × or Esc clears ("Clear (Esc)"). `shortcut` shows its key cap while empty: `cmd+f` also binds ⌘F at the window (a page's track search), `cmd+k` is the cap only (the browser column's filter; the key is the shell's handler); `aria-keyshortcuts` says it. |
 | `SortHeader` | `lib/components/SortHeader.svelte` | `gallery-surface` (`g-surface-columns`) | One column's head of a sortable table: the name as a button of its natural width, ↑ / ↓ on the sorted column, `aria-sort` on its `columnheader` cell; `align="end"` for numbers. Library. |
 | `ProgressBar` | `lib/components/ProgressBar.svelte` | `gallery-progress` | `pace` value / reply / live; `tone`. |
-| `PlayButton`, `PlayerIcon` | `lib/components/` | `gallery-player`, `gallery-foot` | The round play/pause of every player (MiniPlayer, the foot, the Now playing row): accent ring, ▶ / ❚❚ drawn as shapes, a spinner while loading, grey ring when off; `size` 30 or 22. `PlayerIcon`: the player's 16 px line glyphs (⏮ ⏭ ⤮ ⌄ ⌃ ×) for `Button icon`. |
+| `PlayButton`, `PlayerIcon` | `lib/components/` | `gallery-player`, `gallery-foot` | The round play/pause of every player (MiniPlayer, the foot, the Now playing row): accent ring, ▶ / ❚❚ drawn as shapes, a spinner while loading, grey ring when off; `size` 30 or 22; `title={null}` drops its own tooltip where a Tip on what holds it names it (the rail's hidden player). `PlayerIcon`: the player's 16 px line glyphs (⏮ ⏭ ⤮ ⌄ ⌃ ×) for `Button icon`. |
 | `Foot`, `NowPlayingRow`, `SyncPart` | `lib/shell/` (+ `footModel.ts`) | `gallery-foot` | The frame's foot and the hidden player's sidebar row (rule "the frame is an L" above); `SyncPart` is the sync's long form (alone in the foot) or `short` ("Sync 4 of 6", at the player bar's right end), a link to Sync. Shell parts, placed by `App` and `Sidebar` only. |
 | `NavIcon` | `lib/components/NavIcon.svelte` | `gallery-navicon` | A page's icon in the app's navigation (`name`: dashboard · sync · todo · playlists · limits · library · settings; `NAV_ICONS` in the rail's order): drawn on a 14 px grid with a 1.3 px stroke in its row's colour, one family, the same spot in the full sidebar and the rail. Decorative (`aria-hidden`): the row's text or, in the rail, its tooltip and `aria-label` name the page. |
 | `ServiceMark` | `lib/components/ServiceMark.svelte` (+ `serviceLogos.ts`) | `gallery-servicemark` | Which service a playlist is read from: the service's own logo in its own colours, 14 px, unchanged (`service`: a `LogoKey`, all five services: spotify · youtube · youtubemusic · soundcloud · qobuz; Qobuz's black tile has a faint edge). `role="img"`, `aria-label` "{Service} playlist" (`label` replaces it), `data-service-mark`. Inside a row that dims as a whole it dims with the row; `dim` only for a mark standing alone. The colour rule's one exception (§2). |
@@ -391,7 +409,9 @@ needs one, it moves to `lib/components` first (centrally).
 
 The gallery's "Other components" (WriteButton, Badge, Cover, TrackRow, fields (CopyCode and SecretField have their own
 sections), Banner, Dialog, Ring, Spectrum, player,
-DropZone) are shared and in use, not reworked yet; phase 2 reworks each with its page. To-do no longer uses `TrackRow`
+DropZone) are shared and in use, not reworked yet; phase 2 reworks each with its page. `Ring mark` is a 2 px ring
+with nothing inside, round a glyph (the rail's running sync): decorative (the glyph's Tip says it), its arc at the
+live pace. To-do no longer uses `TrackRow`
 (its rows are `ListRow`s) and Library's table has its own cells, so `TrackRow` is in no page any more. A round icon button that isn't a `Button` (`PlayButton`,
 the Wrong song dialog's preview, a playable `Cover`) states its size as `min-width`, so the checker reads it as
 natural. `Cover` with `onplay` is a track's play button (Library's rows): ▶ over it while hovered or while `hint` (its
