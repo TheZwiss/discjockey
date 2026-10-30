@@ -93,7 +93,6 @@
      whole width (the shell sets it: form + 1 + the browser while it stands), which the page's edge and the foot's
      line follow */
   --sidebar-full-w: 168px; --rail-w: 50px;
-  --browser-w-min: 200px; --browser-w-default: 240px; --browser-w-max: 360px;
   --sidebar-w: var(--sidebar-full-w); --panel-w: 360px; --panel-w-narrow: 320px; --panel-narrow-below: 1240px;
   /* the panel is narrow below that window width: ListPanelFrame's media query repeats it (a media query can't read a
      var; guards.test.ts keeps the two equal) and the rule checker reads it */
