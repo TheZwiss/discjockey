@@ -14,7 +14,7 @@
   import { Cover, ListRow, Surface } from '$lib/components';
   import type { PreviewAction } from '$lib/bridge/types';
   import { artistTitle } from '$lib/format';
-  import { canNever, kindOf, sectionSummary, tagOf, waitsWhole, whyColumn, type Section } from '../planModel';
+  import { canNever, folderLabel, kindOf, sectionSummary, tagOf, waitsWhole, whyColumn, type Section } from '../planModel';
   import { keyId } from '../selection';
   import NeverButton from './NeverButton.svelte';
   import { Tick } from '$lib/components';
@@ -42,7 +42,7 @@
 
 {#each sections as s (s.folder)}
   {@const allWait = waitsWhole(s.waiting, s.downloads)}
-  <Surface kind="list" label={s.folder} summary={sectionSummary(s.ticked, s.total, s.waiting)}
+  <Surface kind="list" label={folderLabel(s.folder)} summary={sectionSummary(s.ticked, s.total, s.waiting)}
     summaryTest="sync-section-count" foldable bind:open={() => !closed.has(s.folder), (v) => setOpen(s.folder, v)}
     sticky style={whyColumn(s.rows, mayWait) ? WIDE : COLS} data-test="sync-section" data-folder={s.folder}
     bulk={{ all: 'Tick all', allOff: s.ticked === s.total, noneOff: s.ticked === 0, test: 'sync-section',

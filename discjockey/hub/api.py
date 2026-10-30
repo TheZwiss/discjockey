@@ -542,8 +542,11 @@ class HubApi:
     @bridge
     def sync_preview(self) -> dict:
         state = self._state()
+        with self._move_log() as conn:
+            folders = db.watched_folders(conn) if conn is not None else []
+        where = views.sites(state, pf.load(self._paths.playlists_file).rows, folders).place
         return views.sync_preview(self._store, state, self._settings(), self._today(), self._svc.now(),
-                                  self._reading(), self._cover(self._images()), self._logins())
+                                  self._reading(), self._cover(self._images()), self._logins(), where)
 
     @bridge
     def refresh(self, auto: bool = False) -> dict:

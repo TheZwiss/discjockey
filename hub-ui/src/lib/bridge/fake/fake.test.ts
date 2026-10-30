@@ -36,6 +36,14 @@ describe('fake backend', () => {
       expect(r.path).not.toMatch(/\((v?\d+|new)\)|\s\d+\.aiff$/);
     }
   });
+  it('lists an own song of an imported folder under the folder name, never blank', async () => {
+    const f = createFakeBridge('normal', { speed: 50, emit: () => {} });
+    const p = await f.sync_preview();
+    if (!p.ok) throw new Error();
+    const all = p.groups.flatMap((g) => g.actions);
+    expect(all.every((x) => x.folder.trim() !== '')).toBe(true);
+    expect(all.find((x) => x.track_id === 'own-techno-1')).toMatchObject({ kind: 'upgrade', folder: 'Techno' });
+  });
   it('"never download" moves a planned download out of the plan and back, like the backend', async () => {
     const evs: HubEvent[] = [];
     const f = createFakeBridge('normal', { speed: 50, emit: (e) => evs.push(e) });

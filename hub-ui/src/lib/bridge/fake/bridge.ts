@@ -235,6 +235,10 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   }
 
   // ---------- computed views ----------
+  // the weekly check of an imported file (a song of the user's own): in no playlist, so the engine names its folder
+  // after the folder the file sits in ("Techno"), the way the rest of the app does (views.action_folder)
+  const OWN_CHECK = [previewAction('upgrade', 'weekly', { track_id: 'own-techno-1', artist: 'Dub Chord', title: 'Night Drive',
+    folder: 'Techno' }, true, '/Volumes/Example/Music/Techno/Dub Chord - Night Drive.mp3', null)];
   function preview() {
     type Row = ReturnType<typeof previewAction>;
     const groups: { key: string; label: string; actions: Row[] }[] = [];
@@ -250,7 +254,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       && t.in_playlists).map((t) => previewAction('acquire', 'retry', t, false, null, t.cover)));
     add('upgrade', 'Look for a better version (weekly check)', s.tracks.filter((t) => qualityOf(t) === 'weak'
       && !t.upgrade && !t.hidden && t.in_playlists).slice(0, 3).map((t) => previewAction('upgrade', 'weekly', t,
-      true, pathOf(t), t.cover)));
+      true, pathOf(t), t.cover)).concat(OWN_CHECK));
     // the order the sync works through them: bought files first, then downloads, then the weekly checks; playlist order
     const rank = (k: string) => ({ adopt_bought: 0, acquire: 1, upgrade: 2 }[k] ?? 1);
     const folderAt = (f: string) => { const i = s.playlists.findIndex((p) => p.folder === f); return i < 0 ? 99 : i; };
