@@ -21,7 +21,7 @@
   import {
     AccountPanel, AddRow, CopyCode, NumberedSteps, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
     AwayTag, Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
-    Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
+    Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, tip, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
     Segmented, SectionLabel, SelectCard, Skeleton, SortHeader, SourceLadder, Spectrum, Spinner, SplitView, StatCard, StatusMark, Surface, Switch, TextField, Tile, Toast,
     ToggleGroup, ToggleRow, TrackHead, TrackRow, UpgradeCard, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
     confirm, envelope, ImportCard, UnreadableList, WatchedFolderList,
@@ -436,6 +436,29 @@
           <span class="g-navrow g-off"><ServiceMark service={k} /><span>Peak Time</span><span class="g-n">12</span></span>
         </span>
       {/each}
+    </div>
+  </section>
+
+  <section data-test="gallery-tip">
+    {@render head('Tip', 'Names an icon or a cut row on hover: 500 ms, then the next at once; grows from its trigger')}
+    <div class="row top g-tips">
+      <div class="col tight">
+        <span class="cap">rail · beside the icon (hover the others)</span>
+        <div class="g-nav g-nav-rail" data-test="g-tip-rail">
+          <button type="button" class="g-navrow" aria-label="Dashboard" use:tip={{ text: 'Dashboard (⌘1)', side: 'right' }}><NavIcon name="dashboard" /></button>
+          <button type="button" class="g-navrow" aria-label="Sync" use:tip={{ text: 'Sync (⌘2) · syncing, 12 of 40', side: 'right' }}><NavIcon name="sync" /></button>
+          <button type="button" class="g-navrow" aria-label="To-do" use:tip={{ text: 'To-do (⌘3) · 5 to look at', side: 'right', show: true }}><NavIcon name="todo" /></button>
+          <button type="button" class="g-navrow" aria-label="Playlists" use:tip={{ text: 'Playlists (⌘4)', side: 'right' }}><NavIcon name="playlists" /></button>
+        </div>
+      </div>
+      <div class="col tight g-tip-rows">
+        <span class="cap">rows · under it, at the pointer; only a cut name gets one on hover</span>
+        <div class="g-nav g-tip-col" data-test="g-tip-rows">
+          <span class="g-navrow" use:tip={{ text: 'Afterhour_Sonntag_Warmup_Selection_2026', cut: '.g-cut' }}><span class="g-cut">Afterhour_Sonntag_Warmup_Selection_2026</span><span class="g-n">88</span></span>
+          <span class="g-navrow" use:tip={{ text: 'Hard_Bounce', cut: '.g-cut' }}><span class="g-cut">Hard_Bounce</span><span class="g-n">45</span></span>
+          <span class="g-navrow" use:tip={{ text: 'Rekordbox Library › Music › Old Sets › Bounce\n61 files', show: true }}><span class="g-cut">Bounce · Old Sets</span><span class="g-n">61</span></span>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -1283,4 +1306,9 @@
   .g-svc-rows .g-navrow { height: 26px; color: var(--text); }
   .g-n { margin-left: auto; color: var(--text-label); font-size: var(--fs-label); font-variant-numeric: tabular-nums; }
   .g-off { opacity: var(--dim-locked); }
+  /* Tip: room on the right of the rail and under the rows for the tips shown open */
+  .g-tips { gap: 220px; padding-bottom: var(--s-8); }
+  .g-tip-col { width: 200px; }
+  .g-cut { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  button.g-navrow { padding: 0 var(--s-2); }
 </style>

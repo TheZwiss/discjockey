@@ -49,14 +49,47 @@ export function tipStep(s: TipState, e: TipEvent): TipStep {
 // (keyboard actions never animate). While the user is reading the tips one after another, the next one opens at once
 // and without a fade: another tip is still open (the pointer left it less than its grace delay ago), or one closed
 // less than WARM_MS ago. Only one tip is open at a time, so the one still open closes as this one opens.
+// A `Tip` (the hover tooltip of an icon-only control or a cut row, tip.ts) waits TIP_DELAY_MS instead: it names what
+// the pointer rests on, so it waits until the pointer stays (macOS's own tooltips wait longer still), and the warm
+// rule below makes the rail's next icons answer at once.
 export const HOVER_DELAY_MS = 300;
+export const TIP_DELAY_MS = 500;
 export const WARM_MS = 800;
 export type TipOpening = { delay: number; fade: boolean };
 /** What the other tips on the page are doing: one is open right now, and when the last one closed. */
 export type TipWarmth = { otherOpen: boolean; lastClosedAt: number | null };
 
-export function openTiming(how: 'hover' | 'click' | 'keyboard', now: number, w: TipWarmth): TipOpening {
+/** `hoverDelay`: how long a cold hover waits (InfoTip HOVER_DELAY_MS, Tip TIP_DELAY_MS). */
+export function openTiming(how: 'hover' | 'click' | 'keyboard', now: number, w: TipWarmth,
+  hoverDelay = HOVER_DELAY_MS): TipOpening {
   const warm = w.otherOpen || (w.lastClosedAt !== null && now - w.lastClosedAt < WARM_MS);
   if (warm || how === 'keyboard') return { delay: 0, fade: false };
-  return { delay: how === 'hover' ? HOVER_DELAY_MS : 0, fade: true };
+  return { delay: how === 'hover' ? hoverDelay : 0, fade: true };
+}
+
+/** Where a Tip sits (tip.ts): `right` of its trigger, centred on it (a rail icon), or `below` it (a row), starting at
+ *  `anchorX` (the pointer's x, as macOS places a tooltip; the trigger's left edge without one) and above it when the
+ *  window has no room below. Kept `edge` px inside the window. `origin` is the trigger's spot in the tip's own box, so
+ *  the tip grows out of what it names. */
+export type TipSide = 'right' | 'below';
+export type TipBox = { left: number; top: number; width: number; height: number };
+export type TipPlace = { left: number; top: number; origin: string };
+export const TIP_GAP = { right: 8, below: 4 } as const;
+
+export function placeTip(t: TipBox, size: { width: number; height: number }, win: { width: number; height: number },
+  side: TipSide, anchorX?: number, edge = 8): TipPlace {
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, Math.max(lo, hi)));
+  if (side === 'right') {
+    const right = t.left + t.width + TIP_GAP.right;
+    // no room on the right (a trigger at the window's right edge): on its left instead
+    const left = right + size.width <= win.width - edge ? right : Math.max(edge, t.left - TIP_GAP.right - size.width);
+    const centre = t.top + t.height / 2;
+    const top = clamp(centre - size.height / 2, edge, win.height - edge - size.height);
+    return { left, top, origin: `${left >= right ? 0 : size.width}px ${centre - top}px` };
+  }
+  const below = t.top + t.height + TIP_GAP.below;
+  const top = below + size.height <= win.height - edge ? below : Math.max(edge, t.top - TIP_GAP.below - size.height);
+  const x = anchorX ?? t.left;
+  const left = clamp(x, edge, win.width - edge - size.width);
+  return { left, top, origin: `${x - left}px ${top === below ? 0 : size.height}px` };
 }

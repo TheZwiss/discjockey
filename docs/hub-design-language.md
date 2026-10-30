@@ -268,7 +268,7 @@ remove it on every page, not just yours.
 | A value that changes on its own (bar, ring, quality bar after a refresh) | `--t-value` (~420 ms). A value shown for the first time is drawn at once; **bars don't fill on load**. |
 | A value the user just caused (the DayBar after an amount click) | `--t-reply` (280 ms). |
 | Live progress during a sync | linear, `--t-live`; nothing bounces. |
-| Popovers and menus (InfoTip, More, context menu) | Fade and grow from `scale(.97)` at the trigger, `--t-pop` (140 ms); close at once. **Once one tip is open (or just closed), the next opens instantly** (`infoTipModel.ts`). Modals only fade. |
+| Popovers and menus (InfoTip, Tip, More, context menu) | Fade and grow from `scale(.97)` at the trigger, `--t-pop` (140 ms); close at once. An InfoTip waits 300 ms on hover, a Tip 500 ms. **Once one tip is open (or just closed), the next opens instantly**, InfoTips and Tips alike (`infoTipModel.ts`, `tipRegistry.ts`). Modals only fade. |
 | Entrances | At most a ≤ 150 ms fade. CSS transitions only; nothing waits for an animation. Reduced motion: fades only. |
 | The frame's foot (plan now-playing) | Appear: up from the window's bottom, 220 ms, strong ease-out (the page makes room at once, only the contents move); Stop: down, 180 ms. Hide: the bar's contents move 40 px left towards the sidebar's corner and fade, 240 ms ease-in-out, then the row fades in; Show: the same path back, 280 ms. Track change, play/pause, shuffle and the keys: instant. Reduced motion: cross-fades. |
 
@@ -341,6 +341,7 @@ used.
 | `ServiceMark` | `lib/components/ServiceMark.svelte` (+ `serviceLogos.ts`) | `gallery-servicemark` | Which service a playlist is read from: the service's own logo in its own colours, 14 px, unchanged (`service`: a `LogoKey`, all five services: spotify · youtube · youtubemusic · soundcloud · qobuz; Qobuz's black tile has a faint edge). `role="img"`, `aria-label` "{Service} playlist" (`label` replaces it), `data-service-mark`. Inside a row that dims as a whole it dims with the row; `dim` only for a mark standing alone. The colour rule's one exception (§2). |
 | `QualityBar` | `lib/components/QualityBar.svelte` | `gallery-qualitybar` | The quality split with legend; `by_quality={null}` waits (gallery "waiting"). |
 | `Hint`, `InfoTip`, `NoteCard` | `lib/components/` | `gallery-explain` | The only three ways to explain; Hint `tone="problem"` for an error beside its control. |
+| `Tip` | `lib/components/tip.ts` (action `use:tip`; placement `placeTip` in `infoTipModel.ts`, one-open rule `tipRegistry.ts`, look `.dj-tip` in `base.css`) | `gallery-tip` | The hover tooltip of an icon-only control (the rail's icons) or a row whose name is cut: text only, one line per `\n`, the first in the text colour, the rest muted. `side` `right` (beside the trigger, centred) or `below` (under it at the pointer, above when there's no room); `cut` (`true` or a selector) shows it only while that text ends in "…". Waits 500 ms (`TIP_DELAY_MS`), then the next one (Tip or InfoTip) opens at once; keyboard focus opens it at once; closes at once on leave, press, scroll, Escape. Takes the element's `title` away (never two tooltips); describes the trigger while open. Popover material at the label size, radius `--r-icon`. `show`: open for good (gallery only). |
 | `KeyValue` | `lib/components/KeyValue.svelte` | `gallery-trackrow` | A key and its value on one line (To-do and Library details, Settings' Download tools). The key is an uppercase caption (`caps`) by default; `plain` keeps a name's own spelling (`yt-dlp`, `streamrip`: normal case, muted); `keyWidth` (px) sets the key column (default 96) so a list of short names needn't reach in with `:global`. |
 | `ListRow` | `lib/components/ListRow.svelte` | `gallery-listrow` | The row grid of every list; `off` dims the lead, not a `data-mark` tick; the hit area is `data-row-hit`; a row that becomes `selected` scrolls into view (`block: 'nearest'`: a row already visible does not move); `wrap` lets the sub-line wrap instead of ending in "…", for what must be read whole (a destination folder, a reason a file can't move); the row grows by its lines. |
 | `Tick` | `lib/components/Tick.svelte` | `gallery-listrow` | The checkbox look inside a `ListRow` lead (the row's button is the control, `checked`): orange filled ✓, empty box, `mixed` – for a group control with only some ticked. Marks itself `data-mark`, so an `off` row never dims it. Sync's plan, Playlists' tidy-up. |
@@ -489,6 +490,14 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-30 · `Tip`, the hover tooltip of icons and cut rows (library stage 5 A3.3).** An action, not a component,
+  so a rail icon or a row stays its own element. It reuses InfoTip's timing (`openTiming`, now with the hover wait as
+  a parameter: 500 ms for a Tip, 300 ms for an ⓘ) and shares one registry with InfoTip (`tipRegistry.ts`, moved out
+  of InfoTip's module script), so only one tip of either kind is open and moving down the rail answers at once.
+  Changed from the mockup: the mockup's tip is a flat `#26262b`; here it is the popover material (`--popover-bg`,
+  `--popover-line`), the same as InfoTip and the menus, at the mockup's size (11 px, radius 6, the same padding). Why:
+  one popover material in the app, and a colour that isn't a token fails the checker. Seen: gallery Tip
+  (`base-gallery`), before/after against the mockup's states "Dashboard, folded" and "Filter "bou"".
 - **2026-10-30 · `ServiceMark`: the services' original coloured logos (library stage 5 A3.2, D7).** The five logos of
   the approved mockup's `SVC` table, copied unchanged into `serviceLogos.ts` (Simple Icons shapes, CC0; Qobuz's mark
   from its site on a black tile with a faint edge), 14 px, in their own colours. Why: the user's wish ("the services'

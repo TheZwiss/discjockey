@@ -77,3 +77,20 @@ nav, button, .chrome, .caps { user-select: none; -webkit-user-select: none; }
 }
 [data-fade-above] { --fade-top: var(--edge-fade-to); }
 [data-fade-below] { --fade-bottom: var(--edge-fade-to); }
+
+/* Tip (components/tip.ts): the hover tooltip of an icon-only control or a cut row. The action builds it outside any
+   component, so its look lives here. Popover material, the size of a label; one line per line of its text, the first
+   in the text colour, the rest muted. It fades and grows from .97 out of its trigger (`.fade`, --t-pop) and goes at
+   once; never under the pointer's way (pointer-events: none). The popover API puts it in the top layer; `inset` and
+   `margin` undo the popover's own centring, `left` / `top` / `transform-origin` come from placeTip. */
+.dj-tip {
+  position: fixed; inset: auto; margin: 0; z-index: 40; pointer-events: none;
+  width: max-content; max-width: min(480px, calc(100vw - 16px)); padding: 5px var(--s-2);
+  background: var(--popover-bg); color: var(--text); border: var(--bw) solid var(--popover-line);
+  border-radius: var(--r-icon); box-shadow: var(--surface-highlight), var(--shadow);
+  font-size: var(--fs-label); line-height: 1.45; text-align: left; white-space: normal;
+  transition: opacity var(--t-pop) var(--ease), transform var(--t-pop) var(--ease);
+}
+@starting-style { .dj-tip.fade { opacity: 0; transform: scale(.97); } }
+.dj-tip > span { display: block; }
+.dj-tip > .lb { color: var(--text-muted); }

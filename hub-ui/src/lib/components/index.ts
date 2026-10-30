@@ -67,6 +67,7 @@ export { default as TextField } from './TextField.svelte';
 export { default as Tile } from './Tile.svelte';
 export { default as ToggleGroup } from './ToggleGroup.svelte';
 export { default as ToggleRow } from './ToggleRow.svelte';
+export { tip, type TipOptions, type TipParams } from './tip';
 export { default as Toast } from './Toast.svelte';
 export { default as TrackRow } from './TrackRow.svelte';
 export { default as WriteButton } from './WriteButton.svelte';
