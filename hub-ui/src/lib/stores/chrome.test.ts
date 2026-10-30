@@ -3,12 +3,14 @@ import { get } from 'svelte/store';
 import { parseHash } from '../router';
 import {
   BROWSER_DEFAULT, BROWSER_MAX, BROWSER_MIN, bringBrowserBack, chrome, chromeLayout, chromeMotion, chromeMove,
-  clampBrowserWidth, detailsAfter, detailsHidden, detailsShown, edgeCursor, edgeKeyWidth, filterFocus, fold, formOther,
-  inspectorOpen, inspectorToggles, pickTrack, showDetails, type DetailsState, libraryReturn, placeOf, requestFilterFocus, setBrowserWidth, toggleInspector, type ChromeInput,
+  clampBrowserWidth, detailsAfter, detailsHidden, detailsShown, detailsStand, detailsSubject, detailsWanted, edgeCursor,
+  edgeKeyWidth, filterFocus, fold, formOther, hasDetailsSubject, inspectorOpen, inspectorToggles, libraryTrack, pickTrack,
+  showDetails, trackOffTable, type DetailsState, libraryReturn, placeOf, requestFilterFocus, setBrowserWidth,
+  toggleInspector, type ChromeInput,
 } from './chrome';
 
 const input = (o: Partial<ChromeInput> = {}): ChromeInput => ({ place: 'library', formLibrary: 'rail', formOther: 'full',
-  browserWidth: 240, inspectorOpen: false, windowWidth: 1280, inspectorAvailable: true, ...o });
+  browserWidth: 240, details: false, windowWidth: 1280, ...o });
 
 describe('chromeLayout', () => {
   it('Library: the rail and the browser at 240 make the chrome 50 + 1 + 240', () => {
@@ -34,19 +36,20 @@ describe('chromeLayout', () => {
     expect(clampBrowserWidth(Number.NaN)).toBe(BROWSER_DEFAULT);
     expect(clampBrowserWidth('300')).toBe(BROWSER_DEFAULT);
   });
-  it('below 1240 an open inspector steps the browser back behind the rail; at 1240 and up both stand', () => {
-    const narrow = chromeLayout(input({ inspectorOpen: true, windowWidth: 1100 }));
+  it('below 1240 standing details step the browser back behind the rail; at 1240 and up both stand', () => {
+    const narrow = chromeLayout(input({ details: true, windowWidth: 1100 }));
     expect([narrow.steppedBack, narrow.browserShown, narrow.sidebarW]).toEqual([true, false, 50]);
-    const wide = chromeLayout(input({ inspectorOpen: true, windowWidth: 1240 }));
+    const wide = chromeLayout(input({ details: true, windowWidth: 1240 }));
     expect([wide.steppedBack, wide.browserShown, wide.sidebarW]).toEqual([false, true, 291]);
-    expect(chromeLayout(input({ inspectorOpen: false, windowWidth: 1100 })).browserShown).toBe(true);
+    expect(chromeLayout(input({ details: false, windowWidth: 1100 })).browserShown).toBe(true);
   });
-  it('an empty library has no inspector: a remembered open one steps nothing back', () => {
-    const l = chromeLayout(input({ inspectorOpen: true, inspectorAvailable: false, windowWidth: 1100 }));
+  it('details wanted but with nothing to show step nothing back (the first open with a remembered open inspector)', () => {
+    const details = detailsStand({ open: true, hidden: false }, null, false);
+    const l = chromeLayout(input({ details, windowWidth: 1100 }));
     expect([l.steppedBack, l.browserShown, l.sidebarW]).toEqual([false, true, 291]);
   });
   it('the inspector pref never steps anything back outside Library', () => {
-    const l = chromeLayout(input({ place: 'other', inspectorOpen: true, windowWidth: 1100 }));
+    const l = chromeLayout(input({ place: 'other', details: true, windowWidth: 1100 }));
     expect([l.steppedBack, l.browserShown]).toEqual([false, false]);
   });
 });
@@ -67,7 +70,7 @@ describe('chromeMove', () => {
     expect(chromeMove(lib, chromeLayout(input({ formLibrary: 'full' })))).toBe('fold');
   });
   it('the step-back and its return', () => {
-    const back = chromeLayout(input({ inspectorOpen: true, windowWidth: 1100 }));
+    const back = chromeLayout(input({ details: true, windowWidth: 1100 }));
     expect(chromeMove(lib, back)).toBe('step-back');
     expect(chromeMove(back, chromeLayout(input({ windowWidth: 1100 })))).toBe('step-in');
   });
@@ -190,33 +193,80 @@ describe('the details stores', () => {
   it('a pick opens them and the chrome steps the browser back at 1100', () => {
     reset();
     pickTrack();
-    expect(get(detailsShown)).toBe(true);
-    expect(chromeLayout(input({ inspectorOpen: get(detailsShown), windowWidth: 1100 })).steppedBack).toBe(true);
+    expect(get(detailsWanted)).toBe(true);
+    expect(chromeLayout(input({ details: detailsStand({ open: true, hidden: false }, 't2', false), windowWidth: 1100 }))
+      .steppedBack).toBe(true);
     reset();
   });
   it('hidden by hand: a pick keeps them closed; a badge opens them and ends the hide', () => {
     reset();
     detailsHidden.set(true);
     pickTrack();
-    expect([get(inspectorOpen), get(detailsShown), get(detailsHidden)]).toEqual([false, false, true]);
+    expect([get(inspectorOpen), get(detailsWanted), get(detailsHidden)]).toEqual([false, false, true]);
     showDetails();
-    expect([get(detailsShown), get(detailsHidden)]).toEqual([true, false]);
+    expect([get(detailsWanted), get(detailsHidden)]).toEqual([true, false]);
     reset();
   });
   it('⌘K below 1240 closes them but the next pick opens them again', () => {
     reset();
     pickTrack();
     bringBrowserBack(1100);
-    expect([get(detailsShown), get(detailsHidden)]).toEqual([false, false]);
+    expect([get(detailsWanted), get(detailsHidden)]).toEqual([false, false]);
     pickTrack();
-    expect(get(detailsShown)).toBe(true);
+    expect(get(detailsWanted)).toBe(true);
     reset();
   });
   it('hidden wins over a stored open', () => {
     inspectorOpen.set(true);
     detailsHidden.set(true);
-    expect(get(detailsShown)).toBe(false);
+    expect(get(detailsWanted)).toBe(false);
     reset();
+  });
+  it('outside Library (the tests\' route) nothing stands and ⌘I does nothing, whatever is wanted', () => {
+    reset();
+    pickTrack();
+    expect([get(detailsWanted), get(detailsShown), get(detailsSubject)]).toEqual([true, false, false]);
+    reset();
+  });
+  it('the page\'s word that the track is off the table reaches the subject; it starts unknown (false)', () => {
+    expect(get(trackOffTable)).toBe(false);
+    trackOffTable.set(true);
+    expect(get(detailsSubject)).toBe(false);
+    trackOffTable.set(false);
+  });
+});
+
+describe('the details never stand empty (detailsStand)', () => {
+  const wanted: DetailsState = { open: true, hidden: false };
+  it('they stand only with a selected track on the table', () => {
+    expect(detailsStand(wanted, 't2', false)).toBe(true);
+    expect(detailsStand(wanted, null, false)).toBe(false);   // nothing selected: a first open, a new playlist
+    expect(detailsStand(wanted, 't2', true)).toBe(false);    // filtered or searched away, gone, an empty folder
+  });
+  it('old saved prefs (open, from before or from the last session) show nothing on a first open of Library', () => {
+    // a first open: the route has no track
+    const first = libraryTrack(parseHash('#/library'));
+    expect(first).toBeNull();
+    expect(detailsStand({ open: true, hidden: false }, first, false)).toBe(false);
+    expect(detailsStand({ open: true, hidden: true }, first, false)).toBe(false);
+    expect(hasDetailsSubject(first, false)).toBe(false);
+    // coming back to Library with its last track: they stand again
+    expect(detailsStand({ open: true, hidden: false }, libraryTrack(parseHash('#/library/folder/Hard_Bounce?track=t2')), false))
+      .toBe(true);
+  });
+  it('not wanted (closed, or hidden by hand): never, whatever the selection', () => {
+    expect(detailsStand({ open: false, hidden: false }, 't2', false)).toBe(false);
+    expect(detailsStand({ open: false, hidden: true }, 't2', false)).toBe(false);
+    expect(detailsStand({ open: true, hidden: true }, 't2', false)).toBe(false);
+  });
+  it('the selected track is the route\'s, and only in Library', () => {
+    expect(libraryTrack(parseHash('#/library/not-in-playlist?track=local%3A1'))).toBe('local:1');
+    expect(libraryTrack(parseHash('#/todo?track=t2'))).toBeNull();
+  });
+  it('the toggle and ⌘I need a subject', () => {
+    expect(hasDetailsSubject('t2', false)).toBe(true);
+    expect(hasDetailsSubject('t2', true)).toBe(false);
+    expect(inspectorToggles('library', hasDetailsSubject(null, false))).toBe(false);
   });
 });
 

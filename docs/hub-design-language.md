@@ -551,6 +551,22 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-30 · Settings' nav icon is a gear (`NavIcon settings`).** The mockup's shape, eight rays round a dot,
+  read as a sun (the user, step A live check: "why is settings now a sun icon"). Now a gear in the same family: six
+  teeth (eight closed up into a ring at 14 px with a 1.3 px stroke), tip radius 5.9, root 4.4, a 1.7 hole; the
+  mockup's `NAVI.set` follows. The other six were checked at real size in both forms and keep their shapes. Seen:
+  `base-shell-*`, gallery NavIcon (`base-gallery`).
+- **2026-10-30 · Library's details never stand empty (`detailsStand`, `trackOffTable`).** The user's second live
+  check: the first open of Library showed an empty inspector ("Select a track to see its details.") with the toggle
+  lit, a third of the window, the table squeezed past its Length column; an open inspector remembered from before
+  was enough. The stored value is now only the wish: the details stand when wanted and a track is selected (the
+  route's `?track=`, so the chrome knows on arrival) and on the table (the page reports otherwise: filtered or
+  searched away, gone, an empty folder, nothing matches). Without one the toggle keeps its place and its words,
+  disabled (`Button disabled`, the reason in its tip), and ⌘I does nothing; the empty-words inspector no longer
+  appears in Library. Also: ♫ caught on capture, so ♫ from another page no longer closes the details that coming
+  back should show. Seen: `library-first-open-old-prefs`, `library-first-open-hidden`, `library-filtered-away`,
+  `library-filtered-back`, `library-playlist-switch`, `library-come-back`, `library-inspector-empty`,
+  `library-track-gone`.
 - **2026-10-30 · Library's details open on a pick; a hide by hand sticks and shows (`Button switchedOff`).** The
   user's live check of step A: a click that only selected made them ask for the details every time. Now picking a
   track (click, ↑ ↓) opens them; closing them with the toggle or ⌘I hides them by hand, remembered
@@ -565,14 +581,15 @@ before reopening anything. New system-level decisions from phase 2 on go here, n
   for the whole group. Now a 14 px pill of the three colours in proportion (`stripView.mix`), the not-lossless part of
   the bar beside it; the approved mockup had the red dot. Also: the inspector's landmark has a name
   (`ListPanelFrame panelLabel`, Library "Track details"), the toggle carries `aria-keyshortcuts`, and with an empty
-  library ⌘I does nothing and a remembered open inspector steps nothing back (`inspectorAvailable`). Seen:
+  library ⌘I does nothing and a remembered open inspector steps nothing back (`inspectorAvailable`, since replaced
+  by `trackOffTable`). Seen:
   `library-folder` (a6-fix-strip-before / -after).
 - **2026-10-30 · The Library page: the strip, the inspector on demand, the columns by the table's width (library
   stage 5 A6, D10, N5–N7, N14).** The docked panel and `FolderOverview` left Library: the header carries the
   subtitle's parts (`Library.subtitle`) and a details toggle (`Button icon pressed` with `tip`, "Show details ⌘I"), the
   `SummaryStrip` sits between the header and the segments, and the details are `ListPanelFrame panelMode="inspector"`,
-  opened by the toggle, ⌘I, a click on a row's quality badge ("Show details") or the menu's Show details; empty, it says
-  "Select a track to see its details.". The table's optional columns follow its own width: Folder (All tracks, Not in
+  opened by the toggle, ⌘I, a click on a row's quality badge ("Show details") or the menu's Show details; never
+  empty (since the second live check: no track, no inspector, the toggle disabled). The table's optional columns follow its own width: Folder (All tracks, Not in
   a playlist) from 520 px, Length from 720 (a playlist: Length from 580), so Source and Added left the table (the
   inspector shows both) and a sort saved by them falls back to Artist. The width is measured (ResizeObserver, before
   paint) and `libraryModel.columnsAt` picks the columns, one tested place for the thresholds instead of container

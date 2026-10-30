@@ -4,8 +4,9 @@
 // the browser behind the rail. The shell derives `--sidebar-w` from it (the form, plus 1 + the browser's width while
 // it stands) and sets it on the app root, so the page's edge, the foot's line and the rule checker read one value.
 // The layout and the move between two layouts are pure (`chromeLayout`, `chromeMove`); the stores keep the prefs.
-// It also keeps when Library's details show (`detailsAfter`): picking a track opens them, unless the user hid them by
-// hand, which sticks (also across restarts) until they open them again by hand.
+// It also keeps when Library's details show: whether the user wants them (`detailsAfter`: picking a track opens them,
+// unless the user hid them by hand, which sticks, also across restarts, until they open them again by hand), and
+// whether there is a track to show (`detailsStand`): they never stand empty.
 import { derived, get, readable, writable, type Readable } from 'svelte/store';
 import { persisted } from '../prefs';
 import { route, type Route } from '../router';
@@ -30,15 +31,15 @@ export function clampBrowserWidth(w: unknown): number {
 }
 
 export type ChromeInput = {
-  place: Place; formLibrary: Form; formOther: Form; browserWidth: number; inspectorOpen: boolean; windowWidth: number;
-  /** Library has an inspector to show (not while its library is empty: no toggle, no details) */
-  inspectorAvailable: boolean;
+  place: Place; formLibrary: Form; formOther: Form; browserWidth: number; windowWidth: number;
+  /** Library's details stand (`detailsStand`: wanted, and a track on the table to show) */
+  details: boolean;
 };
 export type ChromeLayout = {
   place: Place; form: Form;
   /** the browser column stands beside the sidebar: Library, unless stepped back */
   browserShown: boolean;
-  /** Library below 1240 px with the inspector open: the browser waits behind the rail (⌘K or ♫ bring it back) */
+  /** Library below 1240 px with the details standing: the browser waits behind the rail (⌘K or ♫ bring it back) */
   steppedBack: boolean;
   browserWidth: number;
   /** the chrome's whole width in px, the value of `--sidebar-w` */
@@ -49,7 +50,7 @@ export function chromeLayout(i: ChromeInput): ChromeLayout {
   // a stored value that isn't one of the two forms falls back to the place's default
   const form: Form = i.place === 'library' ? (i.formLibrary === 'full' ? 'full' : 'rail')
     : (i.formOther === 'rail' ? 'rail' : 'full');
-  const steppedBack = i.place === 'library' && i.inspectorOpen && i.inspectorAvailable && i.windowWidth < NARROW_BELOW;
+  const steppedBack = i.place === 'library' && i.details && i.windowWidth < NARROW_BELOW;
   const browserShown = i.place === 'library' && !steppedBack;
   const browserWidth = clampBrowserWidth(i.browserWidth);
   const sidebarW = (form === 'rail' ? RAIL_W : FULL_W) + (browserShown ? 1 + browserWidth : 0);
@@ -80,14 +81,17 @@ export const browserWidth = persisted<number>('shell.browser.width', BROWSER_DEF
 export const browserClosed = persisted<string[]>('shell.browser.closed', []);
 /** Playlists in A–Z order instead of download priority (A5) */
 export const playlistsAz = persisted<boolean>('shell.playlists.az', false);
-/** Library's details inspector is open (picking a track opens it, ⌘I and the toggle turn it over); it starts closed */
+/** The user wants Library's details open (picking a track opens them, ⌘I and the toggle turn them over); closed at
+ *  first. A wish only: they stand only with a track to show (`detailsStand`), so an open one remembered from an
+ *  older version, or from the last session, never shows an empty inspector. */
 export const inspectorOpen = persisted<boolean>('library.inspector', false);
 /** The user hid the details by hand (the toggle or ⌘I while they showed): picking a track no longer opens them, and
  *  the toggle says so, until the user opens them by hand again. Remembered, like the other layout choices. */
 export const detailsHidden = persisted<boolean>('library.details.hidden', false);
-/** Library sets it false while it has nothing to show details of (an empty library: the toggle is hidden), so ⌘I does
- *  nothing and a remembered open inspector neither shows nor steps the browser back; true again when the page goes. */
-export const inspectorAvailable = writable(true);
+/** Library sets it true while it knows the route's track is off its table: filtered or searched away, gone from the
+ *  library, or no table at all (an empty library or folder, nothing matches); false while it doesn't know yet (the
+ *  first load) and again when the page goes. */
+export const trackOffTable = writable(false);
 
 const hasWindow = () => typeof window !== 'undefined';
 export const windowWidth: Readable<number> = readable(hasWindow() ? window.innerWidth : 1280, (set) => {
@@ -98,14 +102,35 @@ export const windowWidth: Readable<number> = readable(hasWindow() ? window.inner
   return () => window.removeEventListener('resize', fn);
 });
 
-/** Whether Library's details show: open, and not hidden by hand (two stored values that a hand edit or an older
- *  version could leave both true; hidden wins). */
-export const detailsShown: Readable<boolean> = derived([inspectorOpen, detailsHidden], ([o, h]) => o && !h);
+/** Whether the user wants Library's details: open, and not hidden by hand (two stored values that a hand edit or an
+ *  older version could leave both true; hidden wins). */
+export const detailsWanted: Readable<boolean> = derived([inspectorOpen, detailsHidden], ([o, h]) => o && !h);
+
+/** The selected track Library's details would show: the route's `?track=`, only in Library. The route, not the
+ *  page, so the chrome knows at once on arriving (no step-back glide after a first frame without one). */
+export function libraryTrack(r: Route): string | null {
+  return r.name === 'library' ? r.query.get('track') : null;
+}
+/** Whether Library has a track to show details of: one selected, and not known to be off the table. Without one the
+ *  details toggle waits (disabled) and ⌘I does nothing. */
+export function hasDetailsSubject(track: string | null, offTable: boolean): boolean {
+  return track !== null && !offTable;
+}
+/** Whether Library's details stand (the inspector, and below 1240 px the step-back): wanted, and a track to show.
+ *  Never an empty inspector: no selection (a first open, a new playlist, a remembered open from before), the
+ *  selected track filtered or searched away or gone, an empty folder: closed, the wish kept for the next track. */
+export function detailsStand(s: DetailsState, track: string | null, offTable: boolean): boolean {
+  return s.open && !s.hidden && hasDetailsSubject(track, offTable);
+}
+export const detailsSubject: Readable<boolean> = derived([route, trackOffTable],
+  ([r, off]) => hasDetailsSubject(libraryTrack(r), off));
+export const detailsShown: Readable<boolean> = derived([inspectorOpen, detailsHidden, route, trackOffTable],
+  ([o, h, r, off]) => detailsStand({ open: o, hidden: h }, libraryTrack(r), off));
 
 export const chrome: Readable<ChromeLayout> = derived(
-  [route, formLibrary, formOther, browserWidth, detailsShown, windowWidth, inspectorAvailable],
-  ([r, fl, fo, bw, insp, ww, avail]) => chromeLayout({ place: placeOf(r.name), formLibrary: fl, formOther: fo,
-    browserWidth: bw, inspectorOpen: insp, windowWidth: ww, inspectorAvailable: avail }));
+  [route, formLibrary, formOther, browserWidth, detailsShown, windowWidth],
+  ([r, fl, fo, bw, details, ww]) => chromeLayout({ place: placeOf(r.name), formLibrary: fl, formOther: fo,
+    browserWidth: bw, details, windowWidth: ww }));
 
 let glideNext = false;
 /** The layout with the move that led to it (Sidebar picks its transitions by it). A new subscriber (the chrome
@@ -192,13 +217,13 @@ export function showDetails(): void {
   actOnDetails('show');
 }
 
-/** Whether ⌘I turns the inspector over: only in Library, and only while it has one to show. */
-export function inspectorToggles(place: Place, available: boolean): boolean {
-  return place === 'library' && available;
+/** Whether ⌘I turns the details over: only in Library, and only with a track to show (`hasDetailsSubject`). */
+export function inspectorToggles(place: Place, subject: boolean): boolean {
+  return place === 'library' && subject;
 }
 /** ⌘I and the details toggle: only Library has the inspector. */
 export function toggleInspector(): void {
-  if (inspectorToggles(get(chrome).place, get(inspectorAvailable))) actOnDetails('toggle');
+  if (inspectorToggles(get(chrome).place, get(detailsSubject))) actOnDetails('toggle');
 }
 
 /** ⌘K from any page, or ♫ on Library: below 1240 px the inspector closes, so the browser stands (again) when Library

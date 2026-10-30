@@ -324,7 +324,9 @@ that have a file are played. Changing the filter later doesn't change what plays
 
 **Library** shows every track you have, with its quality. Its sidebar is a narrow **rail** of icons, and next to it
 stands the **browser column**: your playlists and your Library folders. Click a name to see its
-tracks. Click a track (or move with ↑ ↓) and its details open on the right; they follow the track you select. If you
+tracks. Click a track (or move with ↑ ↓) and its details open on the right; they follow the track you select. They
+only show while a track is selected and in the list: when you open Library, switch to another playlist, or a filter
+or search hides the selected track, they close, and the details button waits (greyed) until you select a track. If you
 close them with the details button at the top right or **⌘I**, they stay closed: clicking a track then only selects
 it, and the button reads **Show details** (dashed, its symbol struck through) so you can see they are hidden on
 purpose. Discjockey remembers this, also after a restart. Press the button or **⌘I** again, or click a track's quality

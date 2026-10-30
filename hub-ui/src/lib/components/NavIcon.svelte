@@ -1,7 +1,7 @@
 <script lang="ts" module>
   /** The pages of the app's navigation, in the rail's order (plan library stage 5 A3.1). */
   export type NavIconName = 'dashboard' | 'sync' | 'todo' | 'playlists' | 'limits' | 'library' | 'settings';
-  // The shapes of the approved mockup (docs/hub-mockups/design-system/library-layout.html, `NAVI`), unchanged: one
+  // The shapes of the approved mockup (docs/hub-mockups/design-system/library-layout.html, `NAVI`), but Settings: one
   // family on a 14 px grid, drawn with a 1.3 px stroke in the text colour; a dot is a filled circle. Constant markup,
   // never user text, so {@html} is safe here.
   const SHAPES: Record<NavIconName, string> = {
@@ -11,7 +11,8 @@
     playlists: '<path d="M4.8 3.2h7.7M4.8 7h7.7M4.8 10.8h7.7"/><circle cx="2" cy="3.2" r=".5" fill="currentColor"/><circle cx="2" cy="7" r=".5" fill="currentColor"/><circle cx="2" cy="10.8" r=".5" fill="currentColor"/>',
     limits: '<path d="M1.9 10.6a5.3 5.3 0 1 1 10.2 0"/><path d="M7 9.3 9.4 6.1"/><circle cx="7" cy="9.6" r=".7" fill="currentColor"/>',
     library: '<path d="M5.2 10.9V3.1l6.6-1.5v7.7"/><circle cx="3.6" cy="10.9" r="1.6"/><circle cx="10.2" cy="9.3" r="1.6"/>',
-    settings: '<circle cx="7" cy="7" r="2"/><path d="M7 1.2v1.6M7 11.2v1.6M1.2 7h1.6M11.2 7h1.6M2.9 2.9 4 4M10 10l1.1 1.1M2.9 11.1 4 10M10 4l1.1-1.1"/>',
+    // a gear (six teeth, a hole), never rays: the mockup's eight rays round a dot read as a sun (the user, step A)
+    settings: '<path d="M5.64 2.82 5.77 1.23A5.9 5.9 0 0 1 8.23 1.23L8.36 2.82A4.4 4.4 0 0 1 9.94 3.73L11.38 3.05A5.9 5.9 0 0 1 12.61 5.18L11.3 6.09A4.4 4.4 0 0 1 11.3 7.91L12.61 8.82A5.9 5.9 0 0 1 11.38 10.95L9.94 10.27A4.4 4.4 0 0 1 8.36 11.18L8.23 12.77A5.9 5.9 0 0 1 5.77 12.77L5.64 11.18A4.4 4.4 0 0 1 4.06 10.27L2.62 10.95A5.9 5.9 0 0 1 1.39 8.82L2.7 7.91A4.4 4.4 0 0 1 2.7 6.09L1.39 5.18A5.9 5.9 0 0 1 2.62 3.05L4.06 3.73A4.4 4.4 0 0 1 5.64 2.82Z"/><circle cx="7" cy="7" r="1.7"/>',
   };
   export const NAV_ICONS = Object.keys(SHAPES) as NavIconName[];
 </script>

@@ -109,7 +109,10 @@
     root.classList.add('edge-drag');
     return () => root.classList.remove('edge-drag');
   });
-  // ♫ while the browser waits behind the rail (below 1240 with details open): the details close, the browser returns
+  // ♫ while the browser waits behind the rail (below 1240 with details open): the details close, the browser returns.
+  // Caught on the way down (capture), before `use:link` navigates: a real click runs the microtasks between the
+  // listeners, so a bubbling handler saw the route already in Library and ♫ from another page closed the details
+  // that coming back should show.
   function libraryClick() {
     if (r.name === 'library') bringBrowserBack();
   }
@@ -146,7 +149,7 @@
       {@const on = isOn(n)}
       {@const count = navCount(n.key, sig)}
       <a class="nav" class:on href={hrefOf(n)} use:link use:tip={navTipOf(n)} aria-current={on ? 'page' : undefined}
-        aria-label={rail ? navTip(n.key, n.label, sig) : undefined} onclick={n.key === 'library' ? libraryClick : undefined}
+        aria-label={rail ? navTip(n.key, n.label, sig) : undefined} onclickcapture={n.key === 'library' ? libraryClick : undefined}
         data-test="nav-{n.key}">
         <span class="g" aria-hidden="true">
           <NavIcon name={n.icon} />
