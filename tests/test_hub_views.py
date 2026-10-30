@@ -1979,3 +1979,70 @@ def test_a_folder_view_searches_filters_and_counts_like_the_others():
 def test_track_detail_carries_the_place_it_is_given():
     assert views.track_detail("t1", e(), [], TODAY, place="Techno")["place"] == "Techno"
     assert views.track_detail("t1", e(), [], TODAY)["place"] is None
+
+
+# --- stage review of step B: the browser's counts are the views' rows; the playlist's songs; hidden; the order of also ---
+
+def browser_state():
+    """Every kind of place at once: a file outside its song's folder (`far`), an own file in a Library folder no song
+    uses (`local:9`) and one in a playlist's folder (`local:8`), plus the playlist and folder states."""
+    return state(**playlist_state()["tracks"], **folder_state()["tracks"],
+                 far=song("Techno", "Far", "Library/Loose/Example Artist - Far.aiff"),
+                 **{"local:9": mine("Library/Extra/Example Artist - Own.aiff", title="Own"),
+                    "local:8": mine("Library/Techno/Example Artist - Mine.aiff", title="Mine")})
+
+
+def test_every_count_in_the_browser_is_the_length_of_the_rows_of_the_view_it_opens():
+    st, records = browser_state(), {**techno_records(), TECHNO.ref: record("a", "b", "far", "g", "unheard", "a")}
+    kw = dict(lines=[TECHNO, HOUSE], records=records, watched=WATCHED)
+    side = views.sidebar(st, [TECHNO, HOUSE], 0, records=records, watched=WATCHED)
+
+    def rows(view, key=None):
+        return views.library(st, view, key, "", "all", None, **kw)["rows"]
+
+    assert side["all_tracks"] == len(rows("all")) and side["not_in_playlist"] == len(rows("unlisted"))
+    assert [p["songs"] for p in side["playlists"]] == [len(rows("playlist", p["name"])) for p in side["playlists"]]
+    assert [f["name"] for f in side["library_folders"]] == ["Extra", "Loose", "Technology"]
+    assert [f["files"] for f in side["library_folders"]] == [1, 1, 1]  # `far` counts under Loose, `local:9` under Extra
+    folders = [*side["library_folders"], *side["watched"], *(c for w in side["watched"] for c in w["crates"])]
+    assert len(folders) > 6 and all(f["files"] == len(rows("folder", f["path"])) for f in folders)
+
+
+def test_a_folder_that_holds_only_own_files_has_a_sidebar_row_and_a_file_outside_its_songs_folder_is_counted_where_it_sits():
+    st = state(a=song("Techno", "One", "Library/Techno/Example Artist - One.aiff"),
+               far=song("Techno", "Far", "Library/Loose/Example Artist - Far.aiff"),
+               **{"local:1": mine("Library/Extra/not_lossless/Example Artist - Own.mp3", "not_lossless", cutoff=20000)})
+    side = views.sidebar(st, [TECHNO], 0)
+    assert side["library_folders"] == [{"path": "Library/Extra", "name": "Extra", "files": 1},
+                                       {"path": "Library/Loose", "name": "Loose", "files": 1}]
+    assert [r["track_id"] for r in views.library(st, "folder", "Library/Extra", "", "all", None, lines=[TECHNO])["rows"]] == [
+        "local:1"]
+
+
+def test_a_playlist_view_says_how_many_of_its_songs_have_a_file_whatever_the_search_and_filter():
+    out = playlist_view()
+    assert out["songs"] == {"listed": 5, "with_file": 3} and out["summary"]["tracks"] == 3  # a, b, c | g, unheard
+    assert playlist_view(query="one", filt="lossless")["songs"] == out["songs"]
+    assert playlist_view(records={})["songs"] is None  # never read
+    assert views.library(playlist_state(), "all", None, "", "all", None, lines=[TECHNO])["songs"] is None
+    assert views.library(playlist_state(), "playlist", "Nowhere", "", "all", None, lines=[TECHNO])["songs"] is None
+
+
+def test_a_hidden_song_that_was_not_found_still_says_it_is_hidden_so_the_page_sends_nobody_to_the_to_do_list():
+    st = state(**{**playlist_state()["tracks"], "g": {**playlist_state()["tracks"]["g"], "hidden": True}})
+    rows = {r["track_id"]: r for r in playlist_view(st)["rows"]}
+    assert (rows["g"]["wait"], rows["g"]["hidden"]) == ("not_found", True)
+    assert {r["track_id"]: r["hidden"] for r in playlist_view()["rows"]}["g"] is False
+    assert "not_found" not in [g["key"] for g in views.todo(st, "all", False, {}, TODAY)["groups"]]  # nothing to open
+
+
+def test_the_also_rows_come_by_artist_then_title_and_the_playlists_own_rows_keep_their_order():
+    st = state(**playlist_state()["tracks"],
+               e1=song("Techno", "Zed", "Library/Techno/Example Artist - Zed.aiff"),
+               e2=e(folder="Techno", artist="Abe", title="Mid", path="Library/Techno/Abe - Mid.aiff"),
+               e3=song("Techno", "Aaa", "Library/Techno/Example Artist - Aaa.aiff"))
+    for sort in (None, "order"):
+        out = playlist_view(st, sort=sort)
+        assert [r["track_id"] for r in out["also"]] == ["e2", "e3", "d", "e1"]  # Abe; Example Artist: Aaa, Four, Zed
+        assert [r["track_id"] for r in out["rows"]][:3] == ["a", "b", "c"]
+    assert [r["track_id"] for r in playlist_view(st, sort="-order")["also"]] == ["e1", "d", "e3", "e2"]

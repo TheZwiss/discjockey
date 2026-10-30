@@ -193,15 +193,15 @@ function pathState(s: FakeState, t: FakeTrack): LibraryRow['file_state'] {
 export function sidebarOf(s: FakeState, todo: number, limits_warning: boolean): Sidebar {
   const files = filesOf(s);
   const used = new Set(s.playlists.map((p) => fold(p.folder)));
-  const lib = new Map<string, { path: string; name: string; files: number }>();
+  // the Library folders by the place of the file, as the folder view lists it (libraryFolder; D5)
+  const lib = new Map<string, number>();
   for (const t of files) {
-    if (!t.folder || used.has(fold(t.folder))) continue;
-    const parts = pathOf(t)!.split('/');
-    const seen = lib.get(fold(t.folder));
-    if (seen) seen.files++;
-    else lib.set(fold(t.folder), { path: parts[0] === 'Library' ? parts.slice(0, 2).join('/') : `Library/${t.folder}`, name: t.folder, files: 1 });
+    const dir = libraryFolder(pathOf(t)!);
+    if (dir !== null) lib.set(dir, (lib.get(dir) ?? 0) + 1);
   }
-  const library_folders = [...lib].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, v]) => v);
+  const library_folders = [...lib].filter(([n]) => !used.has(fold(n)))
+    .sort(([a], [b]) => (fold(a) < fold(b) ? -1 : fold(a) > fold(b) ? 1 : a < b ? -1 : a > b ? 1 : 0))
+    .map(([name, n]) => ({ path: `Library/${name}`, name, files: n }));
   const playlists = s.playlists.map((p) => {
     const read = readOf(s, p.folder);
     return { name: p.folder, ref: playlistRef(p.link) ?? '', service: serviceOfLink(p.link) as PlaylistService | null,
@@ -269,7 +269,7 @@ const SORTS: Record<string, (r: LibraryRow) => Key> = {
   source: (r) => r.source_name ?? '',
   quality: (r) => (r.sound_checked ? QUALITIES.indexOf(r.quality) : QUALITIES.length),
   added: (r) => r.added ?? '',
-  order: (r) => [r.position === null, r.position ?? 0],
+  order: (r) => [r.position === null, r.position ?? 0, fold(r.artist), fold(r.title)],
   folder: (r) => [!r.in_playlists, fold(r.folder), fold(r.artist), fold(r.title)],
 };
 type Entry = { row: LibraryRow; t: FakeTrack | null };
@@ -298,6 +298,7 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
   let readAt: string | null = null;
   let enabled: boolean | null = null;
   let service: PlaylistService | null = null;
+  let songs: Library['songs'] = null;
   let gone = false;
   let title = 'All tracks';
   let shownKey: string | null = null;
@@ -340,6 +341,7 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
       }
       also = files.filter((t) => !heldKeys.has(t.track_id) && fold(libraryFolder(pathOf(t)!) ?? '') === fold(line.folder))
         .map((t) => mk(t, { place: null }));
+      if (read) songs = { listed: heldKeys.size, with_file: entries.filter((e) => e.row.file_state !== 'no_file').length };
     }
   } else {
     shownKey = folder = key ?? '';
@@ -398,5 +400,5 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
     : !files.length ? 'empty_library' as const : 'no_match' as const;
   return { title, folder, view: view as LibraryView, key: shownKey, folder_kind: folderKind,
     subtitle: gone ? [] : subtitle(plural(have.length, '1 track', '{n} tracks')), summary, chips, rows, also: alsoRows,
-    read_at: readAt, enabled, service, empty };
+    songs, read_at: readAt, enabled, service, empty };
 }

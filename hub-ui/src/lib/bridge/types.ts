@@ -297,6 +297,9 @@ export type Library = {
   chips: Record<LibraryFilter, number>; rows: LibraryRow[];
   /** a playlist view: the files in the playlist's own Library folder whose song the playlist doesn't hold; null elsewhere */
   also: LibraryRow[] | null;
+  /** a read playlist's songs: how many it lists (distinct, what the sidebar's `songs` counts) and how many of them have
+   *  a file, before any search or filter; null elsewhere and while never read. The page words "13 of 18 downloaded". */
+  songs: { listed: number; with_file: number } | null;
   /** a playlist view: when its read was made (null: never read), whether its line is switched on, its service */
   read_at: string | null; enabled: boolean | null; service: PlaylistService | null;
   empty: EmptyKind | null;

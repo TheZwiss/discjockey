@@ -24,7 +24,7 @@
   import { artistTitle, duration } from '$lib/format';
   import type { LibraryRow, LibrarySort } from '$lib/bridge/types';
   import {
-    NOT_FOUND_TIP, NOT_FOUND_WORD, columnsAt, folderCell, gridColumns, lineTop, moveSelection,
+    NOT_FOUND_HIDDEN_TIP, NOT_FOUND_TIP, NOT_FOUND_WORD, columnsAt, folderCell, gridColumns, lineTop, moveSelection,
     playable, playlistCell, rowAway, rowDim, rowInTodo, rowTitleTip, centerLine, keepLine, selectedIndex,
     sortColumns, sortState, subfolderCell, tableLines, titleNote, waitWords, windowSlice, type OptionalColumn, type SortColumn,
     type TableKind,
@@ -228,7 +228,7 @@
               {:else}<span class="td sub quiet">–</span>{/if}
             {/if}
           {/each}
-          <span class="td">{#if noFile}{#if r.wait === 'not_found'}<Badge tone="missing" text={NOT_FOUND_WORD} tip={NOT_FOUND_TIP}
+          <span class="td">{#if noFile}{#if r.wait === 'not_found'}<Badge tone="missing" text={NOT_FOUND_WORD} tip={r.hidden ? NOT_FOUND_HIDDEN_TIP : NOT_FOUND_TIP}
               test="wait-{r.track_id}" />{:else}<Badge tone="quiet" text={wait.word} tip={wait.tip} test="wait-{r.track_id}" />{/if}
             {:else if away}<AwayTag state={away} test="away-{r.track_id}" />{:else}<button type="button"
             class="qbtn" tabindex="-1" use:tip={'Show details'} onclick={(e) => badge(e, r.track_id)}

@@ -40,7 +40,7 @@
   import LibraryTable from './LibraryTable.svelte';
   import TrackDetails from './TrackDetails.svelte';
   import {
-    LEGACY_SORT_KEY, LIBRARY_FILTERS, alsoHint, filterKey, hasSubfolders, libraryCalls, nextSort, noFileCount, offTable,
+    LEGACY_SORT_KEY, LIBRARY_FILTERS, alsoHint, filterKey, hasSubfolders, libraryCalls, nextSort, offTable,
     pageEmpty, playQueue, playlistColumnFor, rowOf, segOptions, sortKey, subtitleParts, tableKind, todoHref, tooManyFor,
     viewSort, type LibraryCall,
     type SortColumn,
@@ -268,7 +268,7 @@
   const options = $derived(segOptions(lib?.chips, filter));
   // the header's second line: its parts in order of importance, the last dropping first when the header is narrow; a
   // read playlist's songs without a file are a part of their own after the count
-  const sub = $derived(lib ? subtitleParts(lib, noFileCount(lib, $hub.sidebar, filter === 'all' && !q)) : undefined);
+  const sub = $derived(lib ? subtitleParts(lib) : undefined);
   const emptyLibrary = $derived(lib?.empty === 'empty_library');
   // a playlist or folder that isn't there any more: nothing to search and no track to show, so the header keeps only
   // the title (the empty state's All tracks is the way on)

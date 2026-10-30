@@ -114,7 +114,7 @@
           {:else}<Badge tone="quiet" text={waitWords(pending.off).word} />{/if}
         </TrackHead>
       </Surface>
-      <NoteCard data-test="no-file-note">{noFileNote(r.wait, pending.next, pending.off)}</NoteCard>
+      <NoteCard data-test="no-file-note">{noFileNote(r.wait, pending.next, pending.off, r.hidden)}</NoteCard>
     </div>
   {/if}
 {/snippet}
@@ -129,7 +129,7 @@
 {/snippet}
 
 {#if pending}
-  <Panel head={noFile} foot={pending.row.wait === 'not_found' ? noFileFoot : undefined} />
+  <Panel head={noFile} foot={pending.row.wait === 'not_found' && !pending.row.hidden ? noFileFoot : undefined} />
 {:else if gone}
   <Panel head={isGone} />
 {:else if error && !t}

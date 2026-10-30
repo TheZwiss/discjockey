@@ -66,7 +66,9 @@ describe('fake backend', () => {
     const side = await f.sidebar();
     if (!side.ok) throw new Error();
     expect(side.not_in_playlist).toBe(2);
-    expect(side.library_folders).toEqual([{ path: 'Library/Old_Sets', name: 'Old_Sets', files: 2 }]);
+    // Elsewhere: files moved there by hand (their songs say another folder), counted where they sit
+    expect(side.library_folders).toEqual([{ path: 'Library/Elsewhere', name: 'Elsewhere', files: 3 },
+      { path: 'Library/Old_Sets', name: 'Old_Sets', files: 2 }]);
     expect(side.playlists.map((x) => [x.name, x.service, x.enabled]).slice(3, 7)).toEqual([
       ['03_06_2026', 'spotify', true], ['Tekke_Ecke', 'spotify', false], ['Hard_Techno', 'spotify', true],
       ['Qobuz_Picks', 'qobuz', true]]);

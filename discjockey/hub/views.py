@@ -674,8 +674,9 @@ SORTS = {"title": lambda r: fold(r["title"]), "artist": lambda r: (fold(r["artis
          # files whose sound isn't checked yet have no real quality: they sort after every checked one
          "quality": lambda r: QUALITIES.index(r["quality"]) if r["sound_checked"] else len(QUALITIES),
          "added": lambda r: r["added"] or "",
-         # a playlist's own order; a row without a place in it (a file the playlist doesn't hold) goes last
-         "order": lambda r: (r["position"] is None, r["position"] or 0),
+         # a playlist's own order; a row without a place in it (a file the playlist doesn't hold) goes last, those by
+         # artist, then title
+         "order": lambda r: (r["position"] is None, r["position"] or 0, fold(r["artist"]), fold(r["title"])),
          # tracks in no playlist sit in their folder on disk, but read as "Not in a playlist": they sort last
          # (the user's own songs, from the import, have no folder: "")
          "folder": lambda r: (not r["in_playlists"], fold(r["folder"]), fold(r["artist"]), fold(r["title"]))}
@@ -786,7 +787,9 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
     one without a file is a row too (`file_state` "no_file", `wait` "waiting" or "not_found"), and `also` holds the
     files in the playlist's own Library folder whose song the playlist doesn't hold. A folder lists the files at or
     below its path (a path nothing is known by still has its view; a vanished one is `gone`). Only the rows with a
-    file count in `summary` and `chips`; the search narrows the rows and `also`. `folder` keeps the old meaning
+    file count in `summary` and `chips`; the search narrows the rows and `also`. `songs` (a read playlist, else
+    None): `{"listed", "with_file"}`, its distinct songs and how many of them have a file, before any search or
+    filter: the page words "13 of 18 downloaded" from it. `folder` keeps the old meaning
     (None, NOT_IN_PLAYLIST, the playlist's or the folder's key)."""
     records = records or {}
     with_file = {k: e for k, e in state["tracks"].items() if e["status"] != "missing" and e.get("path")}
@@ -800,7 +803,7 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
                 "playlists": holders.get(k, []), **extra}
 
     rows: list[dict] = []
-    also = folder_kind = read_at = enabled = service = None
+    also = folder_kind = read_at = enabled = service = songs = None
     gone = False
     title, shown_key, folder = "All tracks", None, None
     subtitle: Callable[[str], list[str]] = lambda n: [n, "every folder"]
@@ -841,6 +844,8 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
                              "playlists": holders.get(k, [line.folder])})
             also = [row(k, e, place=None) for k, e in with_file.items()
                     if k not in held and fold(found.library_folder(e["path"]) or "") == fold(line.folder)]
+            if record is not None:  # the playlist's songs (D5: what the sidebar counts) and how many have a file
+                songs = {"listed": len(held), "with_file": sum(1 for r in rows if r["file_state"] != "no_file")}
     else:  # a folder
         shown_key = folder = key or ""
         nkey = _nfc(shown_key).rstrip("/")
@@ -899,7 +904,8 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
     empty = ("gone" if gone else None if rows or also else "empty_library" if not with_file else "no_match")
     return {"title": title, "folder": folder, "view": view, "key": shown_key, "folder_kind": folder_kind,
             "subtitle": [] if gone else subtitle(_plural(len(have), "1 track", "{n} tracks")), "summary": summary, "chips": chips,
-            "rows": rows, "also": also, "read_at": read_at, "enabled": enabled, "service": service, "empty": empty}
+            "rows": rows, "also": also, "songs": songs, "read_at": read_at, "enabled": enabled, "service": service,
+            "empty": empty}
 
 
 def tracks_with_file(state: dict) -> list[dict]:
@@ -981,22 +987,18 @@ def sidebar(state: dict, lines: Sequence[pf.Row], todo_count: int, warnings: boo
     switched-off ones too (playlists_file.load(...).rows). A playlist's `songs` are the distinct songs of its read
     record (D5: a token resolves through a song's key or alias; one never read has None); `records`:
     db.playlist_records. `library_folders` are the folders of Library/ that no line uses, by name, with their path
-    and the files at or below. `watched`: db.watched_folders (the Library among them is left out), `away`: folder id
+    and the files at or below, found by the file's place (`Sites.library_folder`), as the folder view lists them. `watched`: db.watched_folders (the Library among them is left out), `away`: folder id
     -> why it isn't there (scanner.away_reason); `watched` entries come by name, each with its crates (`crates`,
     `overrides` = db.crate_overrides). `favourites`: db.favourites; a key whose playlist or folder is gone is left
     out (stored as it is), the rest come resolved in the stored order."""
     records = records or {}
     with_file = tracks_with_file(state)
+    # the Library folders by the place of the file, as the folder view lists it (`Sites.library_folder`; D5)
     counts: dict[str, int] = {}
-    names: dict[str, str] = {}
-    library_paths: dict[str, str] = {}
+    site = Sites({}, {}, {}, {})
     for e in with_file:
-        if e["folder"]:
-            k = fold(e["folder"])
-            counts[k] = counts.get(k, 0) + 1
-            names.setdefault(k, e["folder"])
-            parts = PurePosixPath(e["path"]).parts
-            library_paths.setdefault(k, "/".join(parts[:2]) if parts[0] == "Library" else f"Library/{e['folder']}")
+        if (name := site.library_folder(e["path"])) is not None:
+            counts[name] = counts.get(name, 0) + 1
     resolve = _resolver(state)
 
     def songs(ref: str) -> int | None:
@@ -1006,8 +1008,8 @@ def sidebar(state: dict, lines: Sequence[pf.Row], todo_count: int, warnings: boo
     used = {fold(r.folder) for r in lines}
     playlists = [{"name": r.folder, "ref": r.ref, "service": r.service, "enabled": r.enabled, "songs": songs(r.ref)}
                  for r in lines]
-    library_folders = [{"path": library_paths[k], "name": names[k], "files": counts[k]}
-                       for k in sorted(k for k in counts if k not in used)]
+    library_folders = [{"path": f"Library/{n}", "name": n, "files": counts[n]}
+                       for n in sorted((n for n in counts if fold(n) not in used), key=lambda n: (fold(n), n))]
     imports = sorted((f for f in watched if f.kind == "import"), key=lambda f: (fold(f.path.name or str(f.path)), str(f.path)))
     found = crates([e["path"] for e in with_file], [str(f.path) for f in imports], overrides or {})
     paths = [PurePosixPath(e["path"]) for e in with_file]

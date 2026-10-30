@@ -150,10 +150,10 @@ export function moveSelection(rows: Pick<TrackRow, 'track_id'>[], id: string | n
 export function inTodo(t: Pick<TrackRow, 'status' | 'upgrade_ready' | 'in_playlists' | 'hidden'>): boolean {
   return t.in_playlists && !t.hidden && (t.status !== 'lossless' || t.upgrade_ready);
 }
-/** The same for a table row: a song without a file is on the to-do list only when it was not found (its group there);
- *  one still waiting for the next sync isn't. */
+/** The same for a table row: a song without a file is on the to-do list only when it was not found (its group there)
+ *  and the user didn't hide it there; one still waiting for the next sync isn't. */
 export function rowInTodo(r: Pick<LibraryRow, 'status' | 'upgrade_ready' | 'in_playlists' | 'hidden' | 'file_state' | 'wait'>): boolean {
-  return r.file_state === 'no_file' ? r.wait === 'not_found' : inTodo(r);
+  return r.file_state === 'no_file' ? r.wait === 'not_found' && !r.hidden : inTodo(r);
 }
 
 export function todoHref(id: string): string {
@@ -321,29 +321,21 @@ export function waitWords(off: boolean): { word: string; tip: string } {
 export const NOT_FOUND_WORD = 'NOT FOUND';
 /** The row has no next-try date (only the track's details do), so its tooltip says what To-do offers instead. */
 export const NOT_FOUND_TIP = 'Nothing usable found yet: To-do has other ways to get it';
+/** The same for a song the user hid from To-do: it isn't there, so the tooltip doesn't send anyone. */
+export const NOT_FOUND_HIDDEN_TIP = 'Nothing usable found yet. You hid it from To-do.';
 
 // ---------- the header ----------
-/** A playlist's songs that have no file yet (waiting or not found): the sidebar's song count (every song the view
- *  lists, D5) less the ones with a file (`summary.tracks`); without the sidebar, the rows themselves when they are
- *  the whole list (no search, no filter). Null when it can't be told. */
-export function noFileCount(lib: Pick<Library, 'view' | 'key' | 'read_at' | 'summary' | 'rows'>,
-  side: Pick<Sidebar, 'playlists'> | null | undefined, whole: boolean): number | null {
-  if (lib.view !== 'playlist' || lib.read_at === null) return null;
-  const fold = (x: string) => x.normalize('NFC').toLowerCase();
-  const line = side?.playlists.find((p) => lib.key !== null && fold(p.name) === fold(lib.key));
-  if (line && line.songs !== null) return Math.max(0, line.songs - lib.summary.tracks);
-  // a song listed twice is one song, as the sidebar counts it
-  return whole ? new Set(lib.rows.filter((r) => r.file_state === 'no_file').map((r) => r.track_id)).size : null;
-}
 /** The header's second line (I7, the engine's parts). A read playlist's count is its songs with a file, which is what
  *  the strip and the filter count, while the table also lists the songs still without one and the sidebar counts every
  *  song (issues #29 "For B6": 13 tracks beside 18 rows and "18 songs" read as a disagreement). So when some have no
  *  file the count names both in one part, "13 of 18 downloaded" (the inspector's "not downloaded yet" for such a
- *  song): one part, so the parts dropping at a narrow width never leave half of it. */
-export function subtitleParts(lib: Pick<Library, 'subtitle' | 'summary'>, missing: number | null): string[] {
-  if (!missing || !lib.subtitle.length) return lib.subtitle;
+ *  song): one part, so the parts dropping at a narrow width never leave half of it. Both numbers come from the one
+ *  answer (`songs`, before any search or filter). */
+export function subtitleParts(lib: Pick<Library, 'subtitle' | 'songs'>): string[] {
+  const s = lib.songs;
+  if (!s || s.listed <= s.with_file || !lib.subtitle.length) return lib.subtitle;
   const [, ...rest] = lib.subtitle;
-  return [`${lib.summary.tracks} of ${lib.summary.tracks + missing} downloaded`, ...rest];
+  return [`${s.with_file} of ${s.listed} downloaded`, ...rest];
 }
 
 // ---------- the empty states (I7; issues #29 "For B6") ----------
@@ -427,15 +419,15 @@ export function placeLine(place: string | null): string {
  *  sync, Qobuz first (the order every download takes); a song not found was looked for, Qobuz looks again (`next`, its
  *  details' `next_qobuz_check` when the engine has them: "next_sync" or a date), and To-do has the other ways to get it
  *  (its foot: Open in to-do). In a switched-off playlist (`off`) a song still to come waits for nothing: it says how to
- *  get it. */
-export function noFileNote(wait: LibraryRow['wait'], next: string | null = null, off = false): string {
+ *  get it. A song not found that the user hid from To-do (`hidden`) is not sent there: To-do doesn't show it. */
+export function noFileNote(wait: LibraryRow['wait'], next: string | null = null, off = false, hidden = false): string {
   if (off && wait !== 'not_found') {
     return 'Its playlist is switched off, so nothing new downloads. Switch it on in Playlists to get this song.';
   }
   if (wait !== 'not_found') return 'It downloads at the next sync: from Qobuz when it has it, else from the best other source.';
   const day = next === 'next_sync' ? 'at the next sync' : next && dayMonth(next) ? `on ${dayMonth(next)}` : null;
-  return `No source had a usable copy when the sync looked.${day ? ` Qobuz looks again ${day}.` : ''} To-do has links to`
-    + ' buy it or get it another way.';
+  return `No source had a usable copy when the sync looked.${day ? ` Qobuz looks again ${day}.` : ''}`
+    + (hidden ? ' You hid it from To-do.' : ' To-do has links to buy it or get it another way.');
 }
 /** The details' Playlists row: every playlist holding the song, by name; "–" for a song in none; nothing while the
  *  playlists weren't read yet (`playlists` null). */

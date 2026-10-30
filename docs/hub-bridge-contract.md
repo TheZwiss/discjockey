@@ -345,8 +345,11 @@ of it, kept per playlist in `library.db`; a token resolves through a song's key 
 that was never read. A read that found no song is a record of 0 songs, not `null`. It replaces `tracks`, the files in
 the playlist's folder, which the sidebar no longer sends.
 `library_folders` are the `Library/` folders with files that no line uses (case and accents ignored, as the disk
-does), by name, with their `path` (`Library/<name>`, what `library("folder", …)` takes) and the files at or below it
-(the user's own songs belong to no folder). This replaces `folders` / `in_playlists_txt`.
+does), by name, with their `path` (`Library/<name>`, what `library("folder", …)` takes) and the files at or below it.
+A file belongs to the folder it sits in, not to its song's folder: a file outside its song's folder counts where it
+is, and a folder holding only the user's own files has its row. So every `files` (a Library folder's, a watched
+folder's, a crate's) is the length of the `rows` of the view it opens, as are `all_tracks`, `not_in_playlist` and a
+playlist's `songs`. This replaces `folders` / `in_playlists_txt`.
 `watched` has the watched import folders (not the Library) ordered by name; `path` is the folder as the snapshot spells
 it, `place` its path in words (`~/Music/Old`, `Example Drive › Music/Old`: the home folder as `~`, a folder on
 another drive with the drive's name first and a no-break blank before the `›`), `files` the imported files at or below
@@ -555,11 +558,12 @@ even when it holds no file yet; any other folder without a file, and a path that
 playlist's read record in the record's order, each once; the record is what the last successful read found, so the view
 shows what the playlist holds now, not where the files are. A song of the record without a file is a row too:
 `file_state` `no_file`, `path` `null`, `wait` `waiting` (the sync has yet to get it) or `not_found` (the sync found
-nothing usable: the song is in To-do's Not found group). `also` holds the files in the playlist's own Library folder
-whose song the playlist does not hold (null in every other view). The search narrows `rows` and `also`; the quality
+nothing usable: the song is in To-do's Not found group). A not-found song the user hid in To-do keeps `not_found` and
+carries `hidden: true`: the page doesn't offer "Open in to-do" for it, as To-do doesn't show it. `also` holds the files in the playlist's own Library folder
+whose song the playlist does not hold (null in every other view), by artist, then title. The search narrows `rows` and `also`; the quality
 filter, `chips` and `summary` count only the rows with a file: a playlist's `subtitle` and `summary.tracks` count its songs
-with a file, the table also shows the waiting ones, and the sidebar's `songs` counts them all (so the page words the
-waiting rows, e.g. "3 waiting", rather than let the numbers seem to disagree). An empty folder, and a playlist that was
+with a file, the table also shows the waiting ones, and the sidebar's `songs` counts them all (so the
+subtitle names both, "13 of 18 downloaded", from `songs`, rather than let the numbers seem to disagree). An empty folder, and a playlist that was
 read and holds nothing, both come with `empty: "no_match"` even without search text; the page tells them apart by
 `view`, `folder_kind` and `read_at`.
 
@@ -589,7 +593,9 @@ sits in (`""` for a file directly in the folder), in a crate's view the folders 
 *Answer fields.* `view` and `key` echo the request (`key` the playlist's folder name as `playlists.txt` spells it, or the
 folder's path; `null` for All and Not in a playlist); `folder` keeps the old meaning (`null`, `"__not_in_playlist__"`, the
 playlist's folder name or the folder's key). `folder_kind` (folder views): `watched`, `crate`, `library`, or `null` for a
-path none of these. `read_at`, `enabled` and `service` (playlist views, else `null`): when the playlist was read
+path none of these. `songs` (a read playlist, else `null`): `{"listed", "with_file"}`, the distinct songs it lists
+(what the sidebar's `songs` counts) and how many of them have a file, before any search or filter; the page words the
+subtitle's "13 of 18 downloaded" from it and joins no other call. `read_at`, `enabled` and `service` (playlist views, else `null`): when the playlist was read
 (`null`: never), whether its line is switched on, its service. `empty` adds `gone`.
 
 *Summary and subtitle.* `summary` is the view at a glance and ignores the search and the filter: `by_quality` (as in
