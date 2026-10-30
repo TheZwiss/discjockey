@@ -88,7 +88,20 @@ describe('library:crates', () => {
   });
   it('the Library folder no playlist uses is listed beside Old_Sets', async () => {
     expect(must(await f.sidebar()).library_folders).toEqual([
+      { path: 'Library/Elsewhere', name: 'Elsewhere', files: 3 },   // files moved there by hand: counted where they sit
       { path: 'Library/Old_Hardstyle', name: 'Old_Hardstyle', files: 4 }, { path: 'Library/Old_Sets', name: 'Old_Sets', files: 2 }]);
+  });
+  it('every count in the browser is the length of the rows of the view it opens', async () => {
+    const side = must(await f.sidebar());
+    const len = async (view: 'playlist' | 'folder', key: string) => must(await f.library(view, key, '', 'all', null)).rows.length;
+    expect(side.all_tracks).toBe(must(await f.library('all', null, '', 'all', null)).rows.length);
+    expect(side.not_in_playlist).toBe(must(await f.library('unlisted', null, '', 'all', null)).rows.length);
+    for (const p of side.playlists) if (p.songs !== null) expect(p.songs).toBe(await len('playlist', p.name));
+    for (const l of side.library_folders) expect(l.files).toBe(await len('folder', l.path));
+    for (const w of side.watched) {
+      expect(w.files).toBe(await len('folder', w.path));
+      for (const c of w.crates) expect(c.files).toBe(await len('folder', c.path));
+    }
   });
   it('has four Favourites in the stored order, resolved', async () => {
     const side = must(await f.sidebar());
@@ -277,6 +290,11 @@ describe('library views of a playlist (D9)', () => {
     }
     expect(v.subtitle).toEqual([`${v.summary.tracks} tracks`, 'Spotify playlist', 'Library › Hard_Bounce']);
     expect(v.also).toEqual([]);
+    // the page words "x of y downloaded" from this one answer (the sidebar's count is the same number)
+    expect(v.songs).toEqual({ listed: v.rows.length, with_file: v.summary.tracks });
+    expect(must(await f.sidebar()).playlists.find((p) => p.name === 'Hard_Bounce')!.songs).toBe(v.songs!.listed);
+    expect(must(await f.library('playlist', 'Hard_Bounce', 'zzz', 'weak', null)).songs).toEqual(v.songs);
+    expect(must(await f.library('all', null, '', 'all', null)).songs).toBeNull();
   });
   it('waiting songs of a library with no file at all still list', async () => {
     const f = fake('normal');

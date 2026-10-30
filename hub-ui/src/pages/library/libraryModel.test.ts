@@ -3,7 +3,7 @@ import type { TrackRow } from '$lib/bridge/types';
 import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import {
   centerLine, columnThresholds, columnsAt, defaultSort, fileName, folderCell, footAction, gridColumns, hasSubfolders, inTodo,
-  isSort, keepLine, lineTop, moveSelection, noFileCount, noFileNote, pageEmpty, placeLine, playQueue, playable,
+  isSort, keepLine, lineTop, moveSelection, noFileNote, pageEmpty, placeLine, playQueue, playable,
   playlistCell, playlistsLine, libraryCalls, nextSort, offTable, optionalColumns, rowAway, rowDim, rowInTodo, rowOf, rowOff,
   rowTitleTip, segOptions, selectedIndex, shortUrl, sortKey, sortState, subfolderCell, subtitleParts, tableKind, tableLines,
   titleNote, viewSort, waitWords, windowSlice, alsoHint, playlistColumnFor, tooManyFor,
@@ -359,7 +359,7 @@ describe('a playlist view (D6, D9; issues #29 "For B6")', () => {
   const view = (over: object): never => ({ view: 'playlist', key: 'Hard_Bounce', title: 'Hard_Bounce', folder: 'Hard_Bounce',
     folder_kind: null, empty: null, subtitle: ['9 tracks', 'Spotify playlist', 'Library › Hard_Bounce'], summary: summary(9),
     chips: { all: 9, lossless: 0, good_lossy: 0, weak: 0, fake: 0, upgrade_ready: 0 }, rows: [], also: null,
-    read_at: '2026-10-01', enabled: true, service: 'spotify', ...over }) as never;
+    songs: null, read_at: '2026-10-01', enabled: true, service: 'spotify', ...over }) as never;
 
   it('a song without a file is dimmed, never plays, and is in To-do only when it was not found', () => {
     expect(rowDim(waiting('w'))).toBe(true);
@@ -371,6 +371,7 @@ describe('a playlist view (D6, D9; issues #29 "For B6")', () => {
     expect(rowAway(waiting('w'))).toBeNull();
     expect(rowInTodo(waiting('w'))).toBe(false);
     expect(rowInTodo(waiting('w', 'not_found'))).toBe(true);
+    expect(rowInTodo({ ...waiting('w', 'not_found'), hidden: true })).toBe(false);  // To-do doesn't show a hidden one
     expect(rowInTodo(lr('a', { status: 'not_lossless' }))).toBe(true);
     expect(rowTitleTip({ ...waiting('w'), in_playlists: false }, 'A - w')).toBe('A - w');
   });
@@ -390,33 +391,20 @@ describe('a playlist view (D6, D9; issues #29 "For B6")', () => {
       .toEqual(['b', 'a']);
     expect(playQueue(view({ rows: [lr('x'), away], also: null, view: 'folder' })).map((r) => r.track_id)).toEqual(['x']);
   });
-  it('the songs without a file: the sidebar\'s songs less the ones with a file, so 9 + 3 make its 12', () => {
-    const side = { playlists: [{ name: 'hard_bounce', songs: 12 }] } as never;
-    const lib = view({ rows: [lr('a'), waiting('w')] });
-    expect(noFileCount(lib, side, false)).toBe(3);
-    // no sidebar yet: the rows, when they are the whole list
-    expect(noFileCount(lib, null, true)).toBe(1);
-    expect(noFileCount(lib, null, false)).toBeNull();
-    expect(noFileCount(view({ read_at: null }), side, true)).toBeNull();
-    expect(noFileCount(view({ view: 'folder' }), side, true)).toBeNull();
-    expect(noFileCount(view({}), { playlists: [{ name: 'Hard_Bounce', songs: null }] } as never, false)).toBeNull();
-    // songs not known (null) yet: the rows, when they are the whole list
-    expect(noFileCount(lib, { playlists: [{ name: 'Hard_Bounce', songs: null }] } as never, true)).toBe(1);
-    // the sidebar there but without this playlist, and a search or filter on: can't be told
-    expect(noFileCount(lib, { playlists: [{ name: 'Other', songs: 4 }] } as never, false)).toBeNull();
-    // a song listed twice is one song (the sidebar counts each once)
-    expect(noFileCount(view({ rows: [lr('a'), waiting('w'), waiting('w'), waiting('v')] }), null, true)).toBe(2);
-  });
-  it('the subtitle counts them with the songs in one part, so the count and the rows add up at every width', () => {
-    expect(subtitleParts(view({}), 3)).toEqual(['9 of 12 downloaded', 'Spotify playlist', 'Library › Hard_Bounce']);
-    expect(subtitleParts(view({}), 0)).toEqual(['9 tracks', 'Spotify playlist', 'Library › Hard_Bounce']);
-    expect(subtitleParts(view({}), null)).toEqual(['9 tracks', 'Spotify playlist', 'Library › Hard_Bounce']);
-    expect(subtitleParts(view({ subtitle: [] }), 3)).toEqual([]);
+  it('the subtitle counts the songs with a file against all of them, from the one answer, so 9 + 3 make its 12', () => {
+    const songs = (listed: number, with_file: number) => ({ listed, with_file });
+    expect(subtitleParts(view({ songs: songs(12, 9) }))).toEqual(['9 of 12 downloaded', 'Spotify playlist', 'Library › Hard_Bounce']);
+    // all downloaded, never read, or not a playlist: the engine's parts as they are
+    expect(subtitleParts(view({ songs: songs(9, 9) }))).toEqual(['9 tracks', 'Spotify playlist', 'Library › Hard_Bounce']);
+    expect(subtitleParts(view({ songs: null }))).toEqual(['9 tracks', 'Spotify playlist', 'Library › Hard_Bounce']);
+    expect(subtitleParts(view({ songs: songs(12, 9), subtitle: [] }))).toEqual([]);
   });
   it('a song not found says what To-do offers; a waiting one when it comes', () => {
     expect(noFileNote('waiting')).toMatch(/^It downloads at the next sync/);
     expect(noFileNote('not_found', '2026-10-20'))
       .toBe('No source had a usable copy when the sync looked. Qobuz looks again on 20\u00a0Oct. To-do has links to buy it or get it another way.');
+    expect(noFileNote('not_found', '2026-10-20', false, true)).toBe(
+      'No source had a usable copy when the sync looked. Qobuz looks again on 20\u00a0Oct. You hid it from To-do.');
     expect(noFileNote('not_found', 'next_sync')).toMatch(/Qobuz looks again at the next sync\./);
     expect(noFileNote('not_found')).not.toMatch(/Qobuz/);
     // a switched-off playlist downloads nothing new: its waiting song says how to get it, not "at the next sync"

@@ -243,7 +243,7 @@ describe('fake To-do of the import', () => {
     expect(new Set(side.playlists.map((p) => p.ref)).size).toBe(35);
     expect(Math.max(...side.playlists.map((p) => p.name.length))).toBeGreaterThan(60);
     expect(side.playlists.some((p) => p.songs === null)).toBe(true);
-    expect(side.library_folders.map((x) => x.name)).toEqual(['Crate_Dumps', 'Old_Sets']);
+    expect(side.library_folders.map((x) => x.name)).toEqual(['Crate_Dumps', 'Elsewhere', 'Old_Sets']);
     expect(side.playlists.map((p) => p.service)).toContain('qobuz');
   });
 

@@ -290,7 +290,7 @@ def test_a_playlist_view_comes_from_its_read_record_and_the_track_says_where_it_
     api, rec = make_api(root)
     never = api.library("playlist", "hard_bounce")
     assert (never["rows"], never["read_at"], never["title"]) == ([], None, "Hard_Bounce")
-    assert [r["track_id"] for r in never["also"]] == ["t1", "t2"]  # the folder's files, before any read
+    assert [r["track_id"] for r in never["also"]] == ["t2", "t1"]  # the folder's files by artist and title, before any read
     refreshed(api, rec)
     out = api.library("playlist", "Hard_Bounce")
     assert out["read_at"] and out["service"] == "spotify" and out["enabled"] is True and out["also"] == []
