@@ -2,7 +2,7 @@
 import { derived, get, writable, type Readable } from 'svelte/store';
 import { onEvent } from '../bridge/events';
 import { api, onNoLibrary } from '../bridge/client';
-import type { AppUpdate, JobSnap, PlaylistService, SetupStatus, Sidebar, ReadStatus } from '../bridge/types';
+import type { AppUpdate, CrateSaved, FavouritesSaved, JobSnap, PlaylistService, SetupStatus, Sidebar, ReadStatus, Res } from '../bridge/types';
 import { WRITE_BLOCKED } from '../copy';
 
 export type HubState = {
@@ -131,6 +131,9 @@ export function reduceHub(s: HubState, e: Parameters<Parameters<typeof onEvent>[
   }
 }
 
+// The sidebar is read again (refreshHub) after every JobFinished (a refresh, a sync and an import change what it
+// counts and lists, so do a tidy-up or a folder change), after ConsoleBusy {running: false} and after DrivesChanged
+// (a folder's state: here, offline, not found). No event was added for the sidebar (plan library stage 5, B2.4).
 onEvent((e) => {
   state.update((s) => reduceHub(s, e));
   if (e.type === 'JobFinished' || (e.type === 'ConsoleBusy' && !e.running)) {
@@ -179,6 +182,32 @@ export function refreshHub(): Promise<void> {
 function stripOk<T extends { ok: true }>(r: T): Omit<T, 'ok'> {
   const { ok: _ok, ...rest } = r;
   return rest;
+}
+
+/** Reads only the sidebar again (a save of the Favourites or a crate switch changes nothing else), without waiting for
+ *  job_status, setup_status or app_update. The newest question wins when two overlap. */
+let sidebarTurn = 0;
+async function refreshSidebar(): Promise<void> {
+  const turn = ++sidebarTurn;
+  const side = await api.sidebar();
+  if (turn !== sidebarTurn || !side.ok) return;
+  state.update((s) => ({ ...s, sidebar: stripOk(side) }));
+}
+
+/** Saves the Favourites (the stored order of `keys`) and reads the sidebar again. A brief save, not a job (D15): the
+ *  answer is `{favourites}` or `busy` when a running job's write held the file too long. The sidebar is read after a
+ *  refusal too, so the list the page showed while saving is put back by what is stored. */
+export async function saveFavourites(keys: string[]): Promise<Res<FavouritesSaved>> {
+  const r = await api.set_favourites(keys);
+  await refreshSidebar();
+  return r;
+}
+/** Shows (true), hides (false) or resets (null: the default) a crate in the sidebar, then reads the sidebar again,
+ *  as `saveFavourites` does. */
+export async function saveCrateShown(path: string, shown: boolean | null): Promise<Res<CrateSaved>> {
+  const r = await api.set_crate_shown(path, shown);
+  await refreshSidebar();
+  return r;
 }
 
 /** Boot (main.ts). */

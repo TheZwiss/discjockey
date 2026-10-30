@@ -4,7 +4,7 @@ import type {
   Limits, LibraryFilter, MoveBatches, SaveFiles, TidyPreview, UndoPreview, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res, RunDetail,
   RunSummary, SetupStatus, SetupTools, Sidebar, Spectrum, SyncPreview, Todo, TodoFilter, TrackDetail, WhatIf, Which,
   AccountCheck, Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus, ImportFolderCheck,
-  RemovalPreview, WatchedFolders,
+  RemovalPreview, WatchedFolders, LibraryView, FavouritesSaved, CrateSaved,
 } from './types';
 import { CONTRACT_METHODS } from './contract';
 import { waitForJob } from '../stores/jobs';
@@ -16,7 +16,7 @@ export interface Bridge {
   dashboard(): Promise<Res<Dashboard>>;           sidebar(): Promise<Res<Sidebar>>;
   sync_preview(): Promise<Res<SyncPreview>>;      refresh(auto?: boolean): Promise<JobStart>;
   stop_refresh(): Promise<Res<{ stopped: boolean }>>;   job_status(): Promise<Res<JobStatus>>;
-  library(folder: string | null, query: string, filter: LibraryFilter, sort: LibrarySort): Promise<Res<Library>>;
+  library(view: LibraryView, key: string | null, query: string, filter: LibraryFilter, sort: LibrarySort | null): Promise<Res<Library>>;
   track(track_id: string): Promise<Res<{ track: TrackDetail }>>;
   todo(filter: TodoFilter, show_hidden: boolean): Promise<Res<Todo>>;
   playlists(): Promise<Res<Playlists>>;
@@ -27,6 +27,10 @@ export interface Bridge {
   watched_folders(): Promise<Res<WatchedFolders>>;
   check_import_folder(path: string): Promise<Res<ImportFolderCheck>>;
   removal_preview(folder_id: number): Promise<Res<RemovalPreview>>;
+  // Favourites and crate switches: brief saves in library.db, no job and no engine lock (D15); `busy` when a running
+  // job's write holds the file for too long
+  set_favourites(keys: string[]): Promise<Res<FavouritesSaved>>;
+  set_crate_shown(path: string, shown: boolean | null): Promise<Res<CrateSaved>>;
   limits(service: Service): Promise<Res<Limits>>;
   limits_what_if(service: Service, limit: number, extra_today: number): Promise<Res<WhatIf>>;
   runs(): Promise<Res<{ runs: RunSummary[] }>>;   run(run_id: string): Promise<Res<{ run: RunDetail }>>;

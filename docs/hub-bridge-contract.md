@@ -13,7 +13,15 @@ library (lists cut to 2 items, `data` cut).
   for every other problem the key is absent. The page names that service in its card.
 - Write methods return `{"ok": true, "job_id": <int>}` at once; the outcome arrives as a `JobFinished` event with the
   same `job_id` (see Jobs). At most one write job runs; others are refused with kind `busy` (hub) or `console`
-  (a terminal run holds the lock).
+  (a terminal run holds the lock). **The exception: brief saves** (`set_favourites`, `set_crate_shown`, plus
+  `setup_skip_import`) answer their result at once (`{favourites}` / `{path, shown}`) and start no job and send no
+  `JobFinished`. The two new ones also take no engine lock: they write the Favourites and the crate switches, which
+  are records beside the library, not library state (`library.db` tables `favourites` and `crate_shown`, never in the
+  snapshot, no `generation` bump). So pinning a playlist or switching a crate works during a sync, an import or a
+  terminal run, where every job is refused. SQLite's busy timeout (1.5 s) orders them against a running job's
+  transactions; a save that still can't be made answers `busy` (nothing was changed) and the page puts its list back
+  and says so. They do not use localStorage because the window's saved settings start over when its port changes
+  (`hub/window_port.py`), which is fine for a width but not for a curated list.
 - After a write job finishes, re-fetch the screens you show (`track`, `todo`, `sidebar`, ...). After a playlists save,
   `read_status.stale` is true: offer ↻ (`refresh()`). After a sync (finished, stopped or crashed) `sync_preview` is the
   plan worked out again from the sync's own Spotify read and the library as the run left it (`read_at` = that read,
@@ -244,7 +252,7 @@ Use the kind for the card/headline; always show `message` as the detail.
 the same `estimate` fields as `sync_preview`. `tiles.account_today`: the first set-up card of `limits()` (Qobuz first,
 then YouTube Premium, then SoundCloud Go+), null when no service is set up.
 
-`sidebar()` — counts and lists for the sidebar (to-do badge, one entry per `playlists.txt` line, the Library folders no line uses, Not in a playlist).
+`sidebar()` — counts and lists for the sidebar (to-do badge, Favourites, one entry per `playlists.txt` line, the watched import folders with their crates, the Library folders no line uses, Not in a playlist).
 ```json
 {
  "ok": true,
@@ -252,37 +260,117 @@ then YouTube Premium, then SoundCloud Go+), null when no service is set up.
  "all_tracks": 2,
  "not_in_playlist": 0,
  "limits_warning": false,
+ "favourites": [
+  {
+   "key": "playlist:37i9dQZF1DX0XUsuxWHRQd",
+   "kind": "playlist",
+   "name": "Hard_Bounce",
+   "service": "spotify",
+   "enabled": true,
+   "count": 2,
+   "path": null,
+   "state": "here"
+  },
+  {
+   "key": "folder:/Users/you/Music/Rekordbox Library/Hardtechno",
+   "kind": "folder",
+   "name": "Hardtechno",
+   "service": null,
+   "enabled": true,
+   "count": 9,
+   "path": "/Users/you/Music/Rekordbox Library/Hardtechno",
+   "state": "here"
+  }
+ ],
  "playlists": [
   {
    "name": "Hard_Bounce",
    "ref": "37i9dQZF1DX0XUsuxWHRQd",
    "service": "spotify",
    "enabled": true,
-   "tracks": 2
+   "songs": 2
   },
   {
    "name": "Powertrance",
    "ref": "qobuz:900000001",
    "service": "qobuz",
    "enabled": false,
-   "tracks": 0
+   "songs": null
+  }
+ ],
+ "watched": [
+  {
+   "path": "/Users/you/Music/Rekordbox Library",
+   "name": "Rekordbox Library",
+   "place": "~/Music/Rekordbox Library",
+   "files": 9,
+   "state": "here",
+   "too_many": false,
+   "crate_count": 2,
+   "crates": [
+    {
+     "path": "/Users/you/Music/Rekordbox Library/Hardtechno",
+     "label": "Hardtechno",
+     "name": "Hardtechno",
+     "tip": "Rekordbox Library › Hardtechno",
+     "files": 9,
+     "hidden": false,
+     "has_crates": true
+    },
+    {
+     "path": "/Users/you/Music/Rekordbox Library/Hardtechno/2019",
+     "label": "Hardtechno › 2019",
+     "name": "2019",
+     "tip": "Rekordbox Library › Hardtechno › 2019",
+     "files": 4,
+     "hidden": false,
+     "has_crates": false
+    }
+   ]
   }
  ],
  "library_folders": [
   {
-   "folder": "Old_Sets",
-   "tracks": 1
+   "path": "Library/Old_Sets",
+   "name": "Old_Sets",
+   "files": 1
   }
  ]
 }
 ```
 `playlists` has every line of `playlists.txt` in file order, switched-off ones too (`enabled: false`; `#off#` lines): `name`
 is the folder name, `ref` the playlist's token (a Spotify id stays bare, any other service is `service:id`), `service`
-a key of the playlist services, and `tracks` the files in its folder (case and accents ignored, as the disk does).
-`library_folders` are the `Library/` folders with files that no line uses, by name, with their file counts (the
-user's own songs belong to no folder). This replaces `folders` / `in_playlists_txt`.
+a key of the playlist services, and `songs` the distinct songs of the playlist's read record (the last successful read
+of it, kept per playlist in `library.db`; a token resolves through a song's key or alias), or `null` for a playlist
+that was never read. A read that found no song is a record of 0 songs, not `null`. It replaces `tracks`, the files in
+the playlist's folder, which the sidebar no longer sends.
+`library_folders` are the `Library/` folders with files that no line uses (case and accents ignored, as the disk
+does), by name, with their `path` (`Library/<name>`, what `library("folder", …)` takes) and the files at or below it
+(the user's own songs belong to no folder). This replaces `folders` / `in_playlists_txt`.
+`watched` has the watched import folders (not the Library) ordered by name; `path` is the folder as the snapshot spells
+it, `place` its path in words (`~/Music/Old`, `Example Drive › Music/Old`: the home folder as `~`, a folder on
+another drive with the drive's name first and a no-break blank before the `›`), `files` the imported files at or below
+it (Settings' row counts those an import has yet to work through as well, the sidebar leaves them out), `state` where
+the folder is now: `here`, `offline` (its drive is not connected) or `folder_missing` (not found: moved, renamed,
+deleted), checked live. `crates` are the folders below it that hold a file themselves (wrapper folders get no row;
+files directly in the watched folder belong to no crate; a file under two watched folders belongs to the deeper one),
+all of them in label order (numbers read as numbers, case ignored), hidden ones too; `crate_count` is their number.
+A crate: `label` the browser's short name (`Hardtechno › 2019` for a crate inside a crate; `Bounce · Old Sets` when
+another top-level crate of any watched folder has the same name, with its parent folder's name), `name` the folder's own
+name, `tip` the way from the watched folder (`Rekordbox Library › Hardtechno › 2019`), `files` the files at or below it,
+`has_crates` whether another crate lies below it. `hidden` is out of the sidebar: the user's switch (`set_crate_shown`)
+or, without one, the default: shown, but hidden when the watched folder has more than 25 crates (`too_many`; the folder is
+then one row, and Settings switches single crates on). A label never depends on what is hidden.
+`favourites` are the keys of `set_favourites` in their stored order, resolved: `kind` `playlist` (`key` = `playlist:<ref>`) or
+`folder` (`key` = `folder:<path>` of a Library folder, a watched folder or a crate), `name` (a crate's `label`), `service`
+and `enabled` (playlists; a folder has `null` and `true`), `count` (a playlist's `songs`, a folder's `files`), `path`
+(a folder's, `null` for a playlist) and `state` (a playlist is `here`; a crate has its watched folder's). A key whose
+playlist or folder is gone is left out of the answer, and stays stored.
 `limits_warning`: true when a set-up service has a warning sign the user hasn't marked as seen ("Got it",
 `mark_warnings_seen`), or is paused today (the dot on "Download limits").
+The page reads `sidebar()` again after `JobFinished` of kind `refresh`, `sync` or `import` (each changes what it counts
+and lists), after `DrivesChanged` (a folder's `state`), and after its own `set_favourites` / `set_crate_shown`; no
+event was added for it. The hub store reads it after every `JobFinished`, which includes those.
 
 `sync_preview()` — the check before Start. Each action's `key` is sent back ticked to `start_sync`.
 It also carries `waiting_answers: int` (songs held back until the user answers "Is this the same song?", the plan's
@@ -450,34 +538,79 @@ reload.
 }
 ```
 
-`library(folder=null, query="", filter="all", sort="artist")` — folder: null (All tracks), `"__not_in_playlist__"`, or
-a folder name. filter: `all|lossless|good_lossy|weak|fake|upgrade_ready`. sort:
-`title|artist|length|source|quality|added|folder` (folder: tracks in no playlist last), prefix `-` for descending. Only
-tracks with a file. Every row also has `sound_checked: bool`: false for an imported file whose sound isn't judged yet
+`library(view="all", key=null, query="", filter="all", sort=null)` — one view of the library. `view`: `all` (All
+tracks), `unlisted` (Not in a playlist), `playlist` (`key` = the playlist's folder name, any case) or `folder` (`key` = a
+folder's snapshot path: `Library/<name>` for a Library folder, the absolute path for a watched folder or a crate). A
+playlist or folder view without its `key`, an unknown view or filter is `refused` ("view must be one of …"). A playlist or
+folder that is not there (any more) is no error: the answer has `empty: "gone"`, `rows: []`, `subtitle: []`. filter:
+`all|lossless|good_lossy|weak|fake|upgrade_ready`. sort:
+`title|artist|length|source|quality|added|folder|order` (folder: tracks in no playlist last; `order`: the playlist's own
+order, its read record's; outside a playlist it means `artist`), prefix `-` for descending; `null` = the view's own
+order (`order` in a playlist, else `artist`).
+
+*What the views list.* All tracks, Not in a playlist and the folder views list files. A folder view lists the files at
+or below its path (a path match with a `/` boundary, NFC: `Old Sets 2` is not in `Old Sets`). A watched folder is a view
+even when it holds no file yet; any other folder without a file, and a path that is none of the kinds, is `gone`.
+`not_lossless/` directly under a Library folder is never a crate or a subfolder. A **playlist** view lists the songs of the
+playlist's read record in the record's order, each once; the record is what the last successful read found, so the view
+shows what the playlist holds now, not where the files are. A song of the record without a file is a row too:
+`file_state` `no_file`, `path` `null`, `wait` `waiting` (the sync has yet to get it) or `not_found` (the sync found
+nothing usable: the song is in To-do's Not found group). `also` holds the files in the playlist's own Library folder
+whose song the playlist does not hold (null in every other view). The search narrows `rows` and `also`; the quality
+filter, `chips` and `summary` count only the rows with a file: a playlist's `subtitle` and `summary.tracks` count its songs
+with a file, the table also shows the waiting ones, and the sidebar's `songs` counts them all (so the page words the
+waiting rows, e.g. "3 waiting", rather than let the numbers seem to disagree). An empty folder, and a playlist that was
+read and holds nothing, both come with `empty: "no_match"` even without search text; the page tells them apart by
+`view`, `folder_kind` and `read_at`.
+
+*Row fields.* Every row also has `sound_checked: bool`: false for an imported file whose sound isn't judged yet
 (`import_state` `identified`: the quality is the codec's guess for now; the page says "sound not checked yet", with a
 neutral "Not checked" badge instead of the quality). A row with `sound_checked: false` is left out of the quality
 chips (Lossless, Good lossy, Weak, Fake), of `summary.by_quality` and `summary.lossless_share` (a share of the checked
 files), and it sorts after every checked file by quality; it still counts under All and in `summary.tracks`. Every
 row also has `file_state` (2026-10-29, fix K): `here`, `offline` or `folder_missing`, read now exactly as `track()`'s
 (below: the live away set of the import folders, a stored `online = 0` stays `offline`), but per watched folder only:
-the list never checks a row's own file, so `file_missing` is `track()`'s alone. A row that isn't `here` doesn't play
-(Enter, double-click and its cover do nothing). The same
+the list never checks a row's own file, so `file_missing` is `track()`'s alone; or `no_file` (above). A row that isn't
+`here` doesn't play (Enter, double-click and its cover do nothing). The same
 holds for `dashboard`'s `lossless_share` tile and folder bars (`by_quality`, `lossless_share`; `tracks` stays the whole
 count), and the to-do list holds no such file. The user's
 own songs (the import) are in no folder: their rows have `folder: ""` and `in_playlists: false`, they show in All
-tracks and Not in a playlist, never under a playlist folder. `summary` is the folder at a glance and ignores the search and the filter: `by_quality` (as in
-`dashboard`), `upgrades_ready`, `to_do`, the tracks of the folder the to-do list shows (in a playlist, not hidden),
+tracks, Not in a playlist and the folder views, never under a playlist folder. Rows (and `also`) carry four more
+fields: `wait` (`waiting`, `not_found` or `null`), `position` (the place in the playlist's record, playlist views
+only, else `null`), `place` and `playlists`. `place` is where the file sits, in the words of the Folder column: a
+file in `Library/` says the name of its playlist line or Library folder as it spells it (`Techno 2019`; `not_lossless/`
+is part of its folder), a file in a watched folder says the folder and its crate (`Rekordbox Library › Hardtechno ›
+2019`; a file directly in the watched folder says just its name), any other file its folder's name. It is `null` for a
+row without a file and, in a playlist view, for a file inside the playlist's own Library folder (the page says nothing
+there). `playlists` are the names of the playlists whose record holds the song, in `playlists.txt` order (a song only a
+file holds: `[]`). `subfolder` (folder views, else `null`): in a watched folder's view the label of the crate the file
+sits in (`""` for a file directly in the folder), in a crate's view the folders below the crate (`2019`, or `A › B`).
+
+*Answer fields.* `view` and `key` echo the request (`key` the playlist's folder name as `playlists.txt` spells it, or the
+folder's path; `null` for All and Not in a playlist); `folder` keeps the old meaning (`null`, `"__not_in_playlist__"`, the
+playlist's folder name or the folder's key). `folder_kind` (folder views): `watched`, `crate`, `library`, or `null` for a
+path none of these. `read_at`, `enabled` and `service` (playlist views, else `null`): when the playlist was read
+(`null`: never), whether its line is switched on, its service. `empty` adds `gone`.
+
+*Summary and subtitle.* `summary` is the view at a glance and ignores the search and the filter: `by_quality` (as in
+`dashboard`), `upgrades_ready`, `to_do`, the tracks of the view the to-do list shows (in a playlist, not hidden),
 and `not_lossless`, the checked files that aren't lossless (`good_lossy` + `weak` + `fake`; the strip's "Not lossless
 yet" row, beside `to_do`). `subtitle` is the header's second line as parts in order of importance (the page drops the
-last parts first when it is too long): All tracks `["{n} tracks", "every folder"]`; Not in a playlist `["{n} tracks",
-"in no playlist"]`; a folder a `playlists.txt` line names `["{n} tracks", "{Service} playlist", ("switched off",)
-"Library › {folder}"]`, or `["{Service} playlist", "not read yet"]` while no song of it is known; any other folder
-`["{n} tracks", "no playlist uses it", "Library › {name}"]` (`1 track` for one).
+last parts first when it is too long; `1 track` for one): All tracks `["{n} tracks", "every folder"]`; Not in a playlist
+`["{n} tracks", "in no playlist"]`; a playlist `["{n} tracks", "{Service} playlist", ("switched off",) "Library ›
+{folder}"]`, or `["{Service} playlist", "not read yet"]` while it was never read; a Library folder no line uses
+`["{n} tracks", "no playlist uses it", "Library › {name}"]`; a watched folder `["{n} tracks", ("Offline: connect the
+drive" | "Folder not found",) "{k} folders with music", "{place}"]` (the folders part is left out at none; `{place}` as
+the sidebar's `place`); a crate `["{n} tracks", ("Offline: …" | "Folder not found",) "{tip}"]`. An away folder (the
+innermost watched folder holding it is offline or not found) puts its words second.
 ```json
 {
  "ok": true,
  "title": "Hard_Bounce",
  "folder": "Hard_Bounce",
+ "view": "playlist",
+ "key": "Hard_Bounce",
+ "folder_kind": null,
  "subtitle": [
   "2 tracks",
   "Spotify playlist",
@@ -523,7 +656,15 @@ last parts first when it is too long): All tracks `["{n} tracks", "every folder"
    "upgrade_ready": true,
    "path": "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff",
    "added": "2026-10-13T22:15:00",
-   "cover_url": "https://i.scdn.co/image/t2"
+   "cover_url": "https://i.scdn.co/image/t2",
+   "own": false,
+   "sound_checked": true,
+   "file_state": "here",
+   "wait": null,
+   "position": 2,
+   "place": null,
+   "subfolder": null,
+   "playlists": ["Hard_Bounce", "Powertrance"]
   },
   {
    "track_id": "t1",
@@ -542,9 +683,48 @@ last parts first when it is too long): All tracks `["{n} tracks", "every folder"
    "upgrade_ready": false,
    "path": "Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff",
    "added": "2026-10-13T22:15:00",
-   "cover_url": "https://i.scdn.co/image/t1"
+   "cover_url": "https://i.scdn.co/image/t1",
+   "own": false,
+   "sound_checked": true,
+   "file_state": "here",
+   "wait": null,
+   "position": 1,
+   "place": null,
+   "subfolder": null,
+   "playlists": ["Hard_Bounce"]
+  },
+  {
+   "track_id": "t3",
+   "artist": "Some Artist",
+   "title": "Gone Track",
+   "folder": "Hard_Bounce",
+   "duration_s": 180.0,
+   "status": "missing",
+   "quality": "missing",
+   "quality_label": "NONE",
+   "cutoff_hz": null,
+   "source": null,
+   "source_name": null,
+   "in_playlists": true,
+   "hidden": false,
+   "upgrade_ready": false,
+   "path": null,
+   "added": "2026-10-13T22:15:00",
+   "cover_url": null,
+   "own": false,
+   "sound_checked": true,
+   "file_state": "no_file",
+   "wait": "not_found",
+   "position": 3,
+   "place": null,
+   "subfolder": null,
+   "playlists": ["Hard_Bounce"]
   }
  ],
+ "also": [],
+ "read_at": "2026-10-20T21:47:00",
+ "enabled": true,
+ "service": "spotify",
  "empty": null
 }
 ```
@@ -629,6 +809,7 @@ file may be WAV, AIFF, FLAC or MP3.
 
 Also in `track()` (2026-10-18, details redone as facts): `format_line` ("Opus · 135 kbps", "FLAC", "uncompressed PCM";
 the bitrate only for a lossy download) and `source_full` ("YouTube Music", "bought", "your own file" for a file the import found), both null without a file.
+`track()` also carries `place` (plan library stage 5): where the file sits, in the same words as the library rows' `place` (the Folder column's; `null` for a track without a file).
 `track()` also carries `sound_checked: bool` as the library rows do; for a file with `sound_checked: false`,
 `quality_line` ends "sound not checked yet" instead of "verified lossless" ("Your own file (PCM) · sound not checked
 yet"; a lossy codec: "Your own file (MP3) · lossy, sound not checked yet").
@@ -1341,7 +1522,7 @@ else null. The old `moves` list is gone. One example (rows cut to one, `folders`
 ### Write jobs (→ `{"job_id"}`; outcome in `JobFinished.result`)
 
 (The import's jobs — `add_watched_folder`, `start_import`, `remove_watched_folder`, `answer_same_song`,
-`keep_duplicates`, `supersede_duplicate` — are in "Watched folders and the import"; `setup_skip_import` is a brief save.
+`keep_duplicates`, `supersede_duplicate` — are in "Watched folders and the import"; `setup_skip_import`, `set_favourites` and `set_crate_shown` are brief saves.
 A job's success can carry words in `JobFinished.message`, empty otherwise: the import's "Imported 3 files.".)
 
 | method (positional args) | job kind | JobFinished.result |
@@ -1588,7 +1769,7 @@ a test compares them): `dashboard`, `sidebar`, `sync_preview`, `refresh`, `libra
 `search_candidates`, `preview`, `add_playlist`, `preview_playlist_change`, `start_sync`, `save_playlists`, `hide`,
 `never_download`, `add_bought_file`, `use_candidate`, `use_link`, `reject_current`, `rekordbox_checked`, `upgrade`,
 `rescan_library`, `show_in_finder`, `reveal`, `open_report`, `tidy_preview`, `move_batches`, `undo_preview`, `tidy_up`,
-`undo_moves`, `watched_folders`, `check_import_folder`, `removal_preview`, `add_watched_folder`,
+`undo_moves`, `watched_folders`, `set_favourites`, `set_crate_shown`, `check_import_folder`, `removal_preview`, `add_watched_folder`,
 `remove_watched_folder`, `start_import`, `answer_same_song`, `keep_duplicates`, `supersede_duplicate`. Everything else works without a music folder, `open_licenses` included (Setup and Settings before one
 is chosen); `downloads_view()` then counts zero tracks.
 
@@ -1600,14 +1781,14 @@ with the bound folder's path. It is never shown as an empty library. The bridge 
 whichever page asked. Nothing is rebound while the window lives: `retry_music_folder` answers `ok` when the folder is
 back, and "Choose another…" saves the other folder and returns `restart: true` (the page calls `quit()`).
 
-### Watched folders and the import (read: `LIBRARY_METHODS`; writes are jobs)
+### Watched folders and the import (read: `LIBRARY_METHODS`; writes are jobs, except the brief saves)
 
 The user's own music (spec library-and-sources §10; plan library stage 4): folders Discjockey indexes where they are.
 Every word below is the engine's (`folders.py`, `importer.py`, `jobs.py`, `views.py`) and is shown as given.
 
 | method | kind | result / notes |
 |---|---|---|
-| `watched_folders()` | read | `{folders: WatchedFolderRow[], unreadable: {folder_id, path, reason}[], waiting, stopped}`. `WatchedFolderRow = {id, path, name, kind: library\|import, state: online\|offline\|missing\|scanning\|importing, files, waiting, unreadable}`: the Library first (always `online`, or `scanning` while an import looks for files; `name` "Library"; its `waiting` and `unreadable` count like an import folder's: files that came into Library/ before an import finished them), then the import folders by id. `offline`: the folder's drive is not connected (path under `/Volumes/<drive>`, that mount absent). `missing`: any other folder that is not a folder now (moved, renamed or deleted; the page says "Folder not found: moved, renamed or deleted? Put it back or remove it here." and the row keeps its ×). Both: checked live, rows kept, nothing downloads. `scanning`: an import is looking for files. `importing`: one runs and this folder has files it hasn't finished. `files`: file rows; `waiting`: files the import still works through (not read yet, or read and not sound-checked yet); `unreadable`: files it couldn't read. Top level: `unreadable` the files it couldn't read (in the Library and every import folder), each with the id of its folder and the reason in words ("macOS doesn't let Discjockey read it", "Discjockey can't find sound it can read in it"; "The file is empty" for a file of 0 bytes); `waiting` the files an import would work through now (offline drives' files left out); `stopped` true after the user stopped an import this session (the page offers Continue import). The live phase and counts come from the `ImportProgress` event, not from here |
+| `watched_folders()` | read | `{folders: WatchedFolderRow[], unreadable: {folder_id, path, reason}[], waiting, stopped}`. `WatchedFolderRow = {id, path, name, kind: library\|import, state: online\|offline\|missing\|scanning\|importing, files, waiting, unreadable, crates: Crate[], too_many}` (`crates` are all the folder's crates in label order, hidden ones too, with the user's switches applied (`Crate` as in `sidebar()`); `too_many`: more than 25, so they start hidden. The Library row has `[]` and `false`): the Library first (always `online`, or `scanning` while an import looks for files; `name` "Library"; its `waiting` and `unreadable` count like an import folder's: files that came into Library/ before an import finished them), then the import folders by id. `offline`: the folder's drive is not connected (path under `/Volumes/<drive>`, that mount absent). `missing`: any other folder that is not a folder now (moved, renamed or deleted; the page says "Folder not found: moved, renamed or deleted? Put it back or remove it here." and the row keeps its ×). Both: checked live, rows kept, nothing downloads. `scanning`: an import is looking for files. `importing`: one runs and this folder has files it hasn't finished. `files`: file rows; `waiting`: files the import still works through (not read yet, or read and not sound-checked yet); `unreadable`: files it couldn't read. Top level: `unreadable` the files it couldn't read (in the Library and every import folder), each with the id of its folder and the reason in words ("macOS doesn't let Discjockey read it", "Discjockey can't find sound it can read in it"; "The file is empty" for a file of 0 bytes); `waiting` the files an import would work through now (offline drives' files left out); `stopped` true after the user stopped an import this session (the page offers Continue import). The live phase and counts come from the `ImportProgress` event, not from here |
 | `check_import_folder(path)` | read | FolderCheck `{path, exists, usable, problem, kind, message, merges, merge_hints}`; changes nothing. `usable` false: `problem` is one of `not_absolute` · `not_a_folder` · `system_folder` · `inside_app` · `is_support_dir` · `not_readable` · `not_found` · `music` · `holds_music` · `watched` · `already`, and `message` says it: "This is inside your music folder, which Discjockey watches already." · "This folder holds your music folder. Choose a folder inside it instead." · "This is inside {name}, which Discjockey watches already." · "Discjockey watches this folder already." · "That folder isn't there. If it is on a drive, connect the drive first." · "macOS doesn't let Discjockey read that folder." (and the music folder check's words for the first four). Usable: `kind` `import`; `merges` the paths of the watched folders inside it that it would take over (their files and links are kept), `merge_hints` one line each: "{name} is inside it and becomes part of it." |
 | `removal_preview(folder_id)` | read | `{name, files, redownload}`: the folder's file count, and the playlist songs whose only file is there (they download again at the next sync). `refused` for the Library or a number that is no watched folder ("That folder isn't one of the watched folders.") |
 | `add_watched_folder(path)` | write → job `import` | Checks the folder as above (`refused` with its message when it can't be watched), watches it, then imports in the same job. `JobFinished.result`: ImportResult (below) |
@@ -1616,6 +1797,8 @@ Every word below is the engine's (`folders.py`, `importer.py`, `jobs.py`, `views
 | `answer_same_song(song_key, own_key, same)` | write → job `answer` | "Is this the same song?" answered (`same`: bool): the preview is planned again (Yes: the next plan links the file to the playlist song; No: the song downloads at the next sync, and is never asked again). `result` `{}`. `changed` when `song_key` isn't a playlist song any more |
 | `keep_duplicates(group_id, paths)` | write → job `answer` | "Keep both" / "Keep all": the group isn't asked again; it applies to every file of the group (a group can hold more than two). `paths`: the group's files' `path`s as the card showed them (list of strings, any order); `changed` when they are not the group's files now (a file id can be given out again to another file). `result` `{}` |
 | `supersede_duplicate(group_id, file_id, paths)` | write → job `supersede` | "Move to Superseded" for one file of the group; nothing is deleted. `paths`: as for `keep_duplicates`. `result` `{result: Result, recovered: []}` (`result.section` `replaced`, `result.path` where the file went, relative to the music folder). `changed` when the group isn't as the page showed it (a file gone, offline or a different group), `failed` when the move was refused (nothing moved) |
+| `set_favourites(keys)` | brief save | `{favourites: string[]}`: replaces the Favourites with `keys` (`playlist:<ref>` / `folder:<path>`, in the order given; a key given twice keeps its first place) and answers the list as stored. Not a job and no engine lock: it works during a sync, an import and a terminal run (see "Calling"). `refused` for anything but a list of such keys; `busy` ("Discjockey couldn't save that just now. Try again in a moment.") when a running job's write holds `library.db` past the 1.5 s wait, nothing changed; `refused` with "Discjockey has no records of your library yet, so it can't save that. Quit and open Discjockey again." while there is no `library.db`. A key stays stored when its playlist or folder is gone (`sidebar()` leaves it out) |
+| `set_crate_shown(path, shown)` | brief save | `{path, shown}`: shows (`true`) or hides (`false`) the crate at snapshot path `path` in the sidebar, or goes back to the default (`null`: shown, hidden under a folder with more than 25 crates). Settings' switch. Same rules, answers and refusals as `set_favourites` (`refused` for an empty path or a `shown` that is neither bool nor null); the path is not checked against the crates |
 | `setup_skip_import()` | brief save | `{}`: sets `import_skipped` in settings.json (Setup's "Your existing music" step counts as done). Not a job; `busy` while a job writes, `console` while a terminal run does |
 
 **Jobs.** `import` runs the import: `ImportProgress` events (phase `scan` · `tags` · `sound` · `link`, `done` of `total`

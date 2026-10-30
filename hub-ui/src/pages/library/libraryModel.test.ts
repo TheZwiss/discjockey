@@ -3,7 +3,7 @@ import type { TrackRow } from '$lib/bridge/types';
 import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import {
   columnThresholds, columnsAt, fileName, folderCell, footAction, gridColumns, inTodo, isSort, libraryView, moveSelection,
-  nextSort, offTable, optionalColumns, placeLine, playable, rowAway, rowOff, rowTitleTip, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
+  asToday, libraryCalls, nextSort, offTable, optionalColumns, placeLine, playable, rowAway, rowOff, rowTitleTip, scrollToKeep, segOptions, selectedIndex, shortUrl, sortState, windowSlice,
 } from './libraryModel';
 import type { LibraryRow, TrackDetail } from '$lib/bridge/types';
 
@@ -163,7 +163,8 @@ describe('table and strip', () => {
   });
 });
 
-const here = (r: TrackRow, file_state: LibraryRow['file_state'] = 'here'): LibraryRow => ({ ...r, sound_checked: true, file_state });
+const here = (r: TrackRow, file_state: LibraryRow['file_state'] = 'here'): LibraryRow => ({ ...r, sound_checked: true, file_state,
+  wait: null, position: null, place: null, subfolder: null, playlists: [] });
 
 describe('a dimmed row', () => {
   it('is a downloaded song that left every playlist', () => {
@@ -208,22 +209,98 @@ describe('an away row (library stage 4 fix K)', () => {
 });
 
 describe('offTable: the selected track known to be off the table (the details then never stand empty)', () => {
-  const lib = (folder: string | null, ids: string[]) => ({ folder, rows: ids.map((id) => row(id)) as unknown as LibraryRow[] });
+  // the answer's own `folder`/`key` is the engine's spelling; offTable goes by the route param the answer was asked for
+  const lib = (ids: string[]) => ({ folder: 'Library/Old_Sets', key: 'Library/Old_Sets', rows: ids.map((id) => row(id)) as unknown as LibraryRow[] });
   it('a track among the rows shown is on the table', () => {
-    expect(offTable(lib('Hard_Bounce', ['t1', 't2']), 'Hard_Bounce', 't2')).toBe(false);
+    expect(offTable(lib(['t1', 't2']), 'Hard_Bounce', 'Hard_Bounce', 't2')).toBe(false);
   });
   it('filtered or searched away, or gone from the library: off', () => {
-    expect(offTable(lib('Hard_Bounce', ['t1']), 'Hard_Bounce', 't2')).toBe(true);
+    expect(offTable(lib(['t1']), 'Hard_Bounce', 'Hard_Bounce', 't2')).toBe(true);
+  });
+  it('the engine echoing another spelling of the folder (Library/Old_Sets for the route Old_Sets) changes nothing', () => {
+    expect(offTable(lib(['t1']), 'Old_Sets', 'Old_Sets', 't2')).toBe(true);
+    expect(offTable(lib(['t1', 't2']), 'Old_Sets', 'Old_Sets', 't2')).toBe(false);
   });
   it('no rows at all (an empty library or folder, nothing matches): off', () => {
-    expect(offTable(lib('Hard_Bounce', []), 'Hard_Bounce', 't2')).toBe(true);
-    expect(offTable(lib(NOT_IN_PLAYLIST, []), NOT_IN_PLAYLIST, 'local:1')).toBe(true);
+    expect(offTable(lib([]), 'Hard_Bounce', 'Hard_Bounce', 't2')).toBe(true);
+    expect(offTable(lib([]), NOT_IN_PLAYLIST, NOT_IN_PLAYLIST, 'local:1')).toBe(true);
+    expect(offTable(lib([]), null, null, 't2')).toBe(true);
   });
   it('not known yet: before the first answer, or while the answer is still another folder\'s', () => {
-    expect(offTable(null, 'Hard_Bounce', 't2')).toBe(false);
-    expect(offTable(lib('Qobuz_Picks', ['t9']), 'Hard_Bounce', 't2')).toBe(false);
+    expect(offTable(null, null, 'Hard_Bounce', 't2')).toBe(false);
+    expect(offTable(lib(['t9']), 'Qobuz_Picks', 'Hard_Bounce', 't2')).toBe(false);
   });
   it('nothing selected: nothing to be off', () => {
-    expect(offTable(lib('Hard_Bounce', []), 'Hard_Bounce', null)).toBe(false);
+    expect(offTable(lib([]), 'Hard_Bounce', 'Hard_Bounce', null)).toBe(false);
+  });
+});
+
+describe('which library(view, key, …) call answers the route', () => {
+  const side = { playlists: [{ name: 'Hard_Bounce' }, { name: 'Peak_Time' }], library_folders: [{ name: 'Old_Sets', path: 'Library/Old_Sets' }] } as never;
+  it('All tracks and Not in a playlist are views of their own', () => {
+    expect(libraryCalls(null, side)).toEqual([{ view: 'all', key: null }]);
+    expect(libraryCalls(NOT_IN_PLAYLIST, side)).toEqual([{ view: 'unlisted', key: null }]);
+  });
+  it('a name the sidebar lists as a playlist is a playlist (case ignored), a Library folder asks by its path', () => {
+    expect(libraryCalls('hard_bounce', side)).toEqual([{ view: 'playlist', key: 'hard_bounce' }]);
+    expect(libraryCalls('Old_Sets', side)).toEqual([{ view: 'folder', key: 'Library/Old_Sets' }]);
+  });
+  it('a name nothing lists is asked as a playlist, which the engine answers as gone', () => {
+    expect(libraryCalls('Nowhere', side)).toEqual([{ view: 'playlist', key: 'Nowhere' }]);
+  });
+  it('without the sidebar yet the playlist is tried first, then the Library folder', () => {
+    expect(libraryCalls('Old_Sets', null)).toEqual([{ view: 'playlist', key: 'Old_Sets' }, { view: 'folder', key: 'Library/Old_Sets' }]);
+  });
+});
+
+describe('asToday: a playlist view drawn as the page drew a folder, until the playlist views (B6)', () => {
+  const rowOf = (id: string, over: Partial<LibraryRow> = {}): LibraryRow => ({ ...here(row(id, { title: id })), ...over });
+  const waiting = (id: string): LibraryRow => ({ ...here(row(id, { path: null, quality: 'missing', status: 'missing' }), 'no_file'), wait: 'waiting' });
+  const summary = (tracks: number) => ({ tracks, lossless_share: null, by_quality: { lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 },
+    upgrades_ready: 0, to_do: 0, not_lossless: 0 });
+  const view = (over: object): never => ({ view: 'playlist', key: 'Hard_Bounce', title: 'Hard_Bounce', folder: 'Hard_Bounce', empty: null,
+    subtitle: ['0 tracks', 'Spotify playlist', 'Library › Hard_Bounce'], summary: summary(0), chips: { all: 0, lossless: 0, good_lossy: 0, weak: 0, fake: 0, upgrade_ready: 0 },
+    rows: [], also: null, read_at: '2026-10-01', enabled: true, service: 'spotify', ...over }) as never;
+
+  it('a playlist never read lists the files of its folder, with their counts', () => {
+    const lib = view({ read_at: null, subtitle: ['Spotify playlist', 'not read yet'], also: [rowOf('a'), rowOf('b', { quality: 'weak' })] });
+    const out = asToday(lib, '', 'all', 'artist') as unknown as { rows: LibraryRow[]; also: unknown; summary: { tracks: number }; chips: Record<string, number>; subtitle: string[]; empty: string | null };
+    expect(out.rows.map((r) => r.track_id)).toEqual(['a', 'b']);
+    expect(out.also).toBeNull();
+    expect(out.summary.tracks).toBe(2);
+    expect(out.chips).toMatchObject({ all: 2, lossless: 1, weak: 1 });
+    expect(out.subtitle[0]).toBe('2 tracks');
+    expect(out.empty).toBeNull();
+  });
+  it('a never-read playlist whose folder is empty stays empty', () => {
+    const lib = view({ read_at: null, subtitle: ['Spotify playlist', 'not read yet'] });
+    const out = asToday(lib, '', 'all', 'artist') as unknown as { rows: unknown[]; summary: { tracks: number }; subtitle: string[] };
+    expect(out.rows).toEqual([]);
+    expect(out.summary.tracks).toBe(0);
+    expect(out.subtitle).toEqual(['Spotify playlist', 'not read yet']);
+  });
+  it('a leftover joins the rows and the counts, still dimmed by its own fields; waiting songs stay out', () => {
+    const left = rowOf('left', { in_playlists: false, quality: 'weak', status: 'not_lossless' });
+    const lib = view({ rows: [rowOf('a'), waiting('w')], also: [left], summary: { ...summary(1), by_quality: { lossless: 1, good_lossy: 0, weak: 0, fake: 0, missing: 0 }, lossless_share: 1 },
+      subtitle: ['1 track', 'Spotify playlist', 'Library › Hard_Bounce'] });
+    const out = asToday(lib, '', 'all', 'artist') as unknown as { rows: LibraryRow[]; summary: { tracks: number; by_quality: Record<string, number>; not_lossless: number; lossless_share: number }; chips: Record<string, number>; subtitle: string[] };
+    expect(out.rows.map((r) => r.track_id)).toEqual(['a', 'left']);
+    expect(rowOff(out.rows[1])).toBe(true);
+    expect(out.summary).toMatchObject({ tracks: 2, not_lossless: 1, lossless_share: 0.5 });
+    expect(out.summary.by_quality).toMatchObject({ lossless: 1, weak: 1 });
+    expect(out.chips).toMatchObject({ all: 2, lossless: 1, weak: 1 });
+    expect(out.subtitle).toEqual(['2 tracks', 'Spotify playlist', 'Library › Hard_Bounce']);
+  });
+  it('search and filter are applied after the merge, the chips count the searched list', () => {
+    const lib = view({ rows: [rowOf('alpha')], also: [rowOf('beta', { quality: 'weak' }), rowOf('alps', { quality: 'weak' })] });
+    const out = asToday(lib, 'al', 'weak', 'artist') as unknown as { rows: LibraryRow[]; chips: Record<string, number> };
+    expect(out.rows.map((r) => r.track_id)).toEqual(['alps']);
+    expect(out.chips).toMatchObject({ all: 2, lossless: 1, weak: 1 });
+  });
+  it('another view and a playlist that is gone come back untouched', () => {
+    const all = { view: 'all', rows: [waiting('w')], also: null } as never;
+    expect(asToday(all, '', 'all', 'artist')).toBe(all);
+    const gone = view({ empty: 'gone', subtitle: [] });
+    expect(asToday(gone, '', 'all', 'artist')).toBe(gone);
   });
 });

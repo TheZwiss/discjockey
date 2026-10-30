@@ -25,8 +25,8 @@ describe('calls', () => {
   it('passes positional arguments in order', async () => {
     const seen: unknown[] = [];
     fakeWindow({ library: async (...a: unknown[]) => { seen.push(...a); return { ok: true }; } });
-    await api.library('Hard_Bounce', 'gim', 'weak', '-added');
-    expect(seen).toEqual(['Hard_Bounce', 'gim', 'weak', '-added']);
+    await api.library('playlist', 'Hard_Bounce', 'gim', 'weak', '-added');
+    expect(seen).toEqual(['playlist', 'Hard_Bounce', 'gim', 'weak', '-added']);
   });
   it('turns a rejected promise into crashed, without the original text', async () => {
     fakeWindow({ dashboard: async () => { throw new Error('Traceback: KeyError'); } });

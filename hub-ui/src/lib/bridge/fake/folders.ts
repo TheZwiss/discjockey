@@ -8,6 +8,7 @@ import type {
 import { FAKE_MUSIC, type FakeDuplicate, type FakeFolder, type FakeQuestion, type FakeState } from './data';
 import type { FakeContext, Finish } from './bridge';
 import { toneUrl } from './audio';
+import { cratesIn } from './library';
 
 // ---------- the engine's words ----------
 export const IMPORTING_BUSY = 'Discjockey is importing your music. Stop the import in Settings → Watched folders to do '
@@ -77,12 +78,14 @@ export function checkImportFolder(s: FakeState, path: string): ImportFolderCheck
 // ---------- the list (W2, W3) ----------
 export function watchedFolders(s: FakeState): WatchedFolders {
   const phase = s.imp.phase;
+  const crates = cratesIn(s);
   const rows: WatchedFolderRow[] = s.imp.folders.map((f) => ({
     id: f.id, path: f.path, name: f.kind === 'library' ? 'Library' : name(f.path), kind: f.kind,
     state: f.kind === 'library' ? (phase === 'scan' ? 'scanning' : 'online')
       : f.offline ? 'offline' : f.missing ? 'missing' : phase === 'scan' ? 'scanning' : phase !== null && f.waiting > 0 ? 'importing' : 'online',
     files: f.files, waiting: f.waiting,
     unreadable: s.imp.unreadable.filter((u) => u.folder_id === f.id).length,
+    crates: crates[f.path]?.crates ?? [], too_many: crates[f.path]?.too_many ?? false,
   }));
   return { folders: rows, unreadable: s.imp.unreadable.map((u) => ({ ...u })),
     waiting: importFolders(s).filter((f) => !f.offline && !f.missing).reduce((n, f) => n + f.waiting, 0), stopped: s.imp.stopped };

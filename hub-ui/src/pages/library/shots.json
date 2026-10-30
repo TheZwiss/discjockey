@@ -159,5 +159,13 @@
    "steps": [{ "wait": "[data-test=library-table] [data-test^=row-]" }, { "click": "[data-test=row-t2] [data-test=cover-play]" },
      { "wait": "[data-test=foot-play][aria-label=Pause]" }, { "sleep": 600 }] },
  { "name": "library-long-titles-1100", "route": "#/library/folder/Hard_Bounce", "scenario": "library:long_titles", "width": 1100,
-   "height": 700, "steps": [{ "wait": "[data-test=library-table] [data-test^=row-]" }, { "click": "[data-test=row-t2]" }, { "sleep": 400 }] }
+   "height": 700, "steps": [{ "wait": "[data-test=library-table] [data-test^=row-]" }, { "click": "[data-test=row-t2]" }, { "sleep": 400 }] },
+ { "name": "library-crates", "route": "#/library", "scenario": "library:crates", "width": 1280, "height": 800,
+   "steps": [{ "wait": "[data-test=library-table] [data-test^=row-]" }, { "sleep": 400 }] },
+ { "name": "library-first-look", "route": "#/library", "scenario": "library:first_look", "width": 1280, "height": 800,
+   "steps": [{ "wait": "[data-test=library-table] [data-test^=row-]" }, { "sleep": 400 }] },
+ { "name": "library-never-read", "route": "#/library/folder/Hard_Bounce", "scenario": "library:never_read", "width": 1280, "height": 800,
+   "steps": [{ "wait": "[data-test=library-table] [data-test^=row-]" }, { "sleep": 400 }] },
+ { "name": "library-crates-busy", "route": "#/library", "scenario": "library:crates_busy", "width": 1280, "height": 800,
+   "steps": [{ "wait": "[data-test=library-table] [data-test^=row-]" }, { "sleep": 400 }] }
 ]

@@ -1,7 +1,7 @@
 // Library fake scenarios (scenario names get the prefix "library:").
 import type { PageFake } from '$lib/bridge/fake/bridge';
 import type { FakePlaylist, FakeState, FakeTrack } from '$lib/bridge/fake/data';
-import { QOBUZ_PLAYLIST_LINK, SPOTIFY_HINT } from '$lib/bridge/fake/data';
+import { QOBUZ_PLAYLIST_LINK, SPOTIFY_HINT, playlistRef } from '$lib/bridge/fake/data';
 
 /** States whose second Hard_Bounce track (Sternenstaub) has a file the player can't play. */
 const cantPlay = new WeakSet<FakeState>();
@@ -13,6 +13,77 @@ function ownAway(s: FakeState, n: number, artist: string, title: string, status:
   return { ...s.tracks[0], track_id: `local:${n}`, artist, title, folder: '', duration_s: 233, status, cutoff_hz,
     source: 'manual', codec: 'pcm', in_playlists: false, playlists: [], upgrade: null, isrc: null, cover: n,
     own: true, away };
+}
+
+/** An own file in `dir` (its folder, absolute); the files of a scenario are numbered on from the ones already there. */
+function ownIn(s: FakeState, dir: string, artist: string, title: string, over: Partial<FakeTrack> = {}): FakeTrack {
+  const n = s.tracks.filter((t) => t.track_id.startsWith('local:')).length + 1;
+  return { ...s.tracks[0], track_id: `local:${n}`, artist, title, folder: '', duration_s: 180 + ((n * 37) % 200),
+    status: 'lossless', cutoff_hz: null, source: 'manual', codec: 'pcm', in_playlists: false, playlists: [],
+    upgrade: null, isrc: null, cover: n, own: true, dir, away: undefined, ...over };
+}
+const ARTISTS = ['Mira Nacht', 'Tom Brandt', 'Kalte Welle', 'Nova Strand', 'Eli Brandt', 'Ruth Kessel'];
+const WORDS = ['Neon', 'Harbour', 'Static', 'Lantern', 'Copper', 'Velvet', 'Orbit', 'Gravel', 'Signal', 'Ember', 'Tidal',
+  'Hollow', 'Marble', 'Drift', 'Pulse', 'Quarry', 'Saffron', 'Thunder', 'Willow', 'Zenith', 'Anchor', 'Basalt', 'Cinder',
+  'Dusk'];
+const SUFFIXES = ['Nights', 'Sessions', 'Tapes', 'Rooms', 'Hours', 'Letters', 'Maps', 'Visions', 'Echoes', 'Gardens',
+  'Stories', 'Lines', 'Remains'];
+
+/** `crates` and `crates_busy`: the sidebar at its fullest with four Favourites in the mockup's order (a playlist, two
+ *  crates, and the crate inside a wrapper folder, whose label says where it is). */
+function withFavourites(s: FakeState): void {
+  crateFolders(s);
+  const rekordbox = '/Users/you/Music/Rekordbox Library';
+  const hard = s.playlists.find((p) => p.folder === 'Hard_Bounce')!;
+  s.favourites = [`playlist:${playlistRef(hard.link)}`, `folder:${rekordbox}/Hardtechno`, `folder:${rekordbox}/Peak Time`,
+    `folder:${rekordbox}/Old Sets/Bounce`];
+}
+
+/** The sidebar's folders at their fullest (plan library stage 5, the library-browser mockup): a watched folder with
+ *  crates, one with 312 album folders (more than 25, so all hidden at first), one whose drive is away, and a Library
+ *  folder no playlist uses. No Favourites yet: `crates` pins four, `first_look` none. */
+function crateFolders(s: FakeState): void {
+  const rekordbox = '/Users/you/Music/Rekordbox Library';
+  const albums = '/Volumes/Example Drive/Albums';
+  const vinyl = '/Volumes/Vinyl Drive/Vinyl Rips';
+  const add = (dir: string, names: string[], over: Partial<FakeTrack> = {}) => names.forEach((title, i) =>
+    s.tracks.push(ownIn(s, dir, ARTISTS[(s.tracks.length + i) % ARTISTS.length], title, over)));
+  // Rekordbox Library: Bounce twice (one inside the wrapper folder Old Sets), Hardtechno with a crate of 2019, Edits
+  add(rekordbox, ['Loose End', 'Untitled Idea']);
+  add(`${rekordbox}/Bounce`, ['Bounce Wave', 'Low Rider Bounce', 'Jump Up', 'Heavy Bounce', 'Kick Bounce', 'Bounce Back']);
+  add(`${rekordbox}/Old Sets/Bounce`, ['Old Bounce', 'Bounce Memory', 'Bounce 2014', 'Rave Bounce']);
+  add(`${rekordbox}/Hardtechno`, ['Warehouse Fire', 'Dark Room', 'Industrial Dream', 'Rumble', 'Basement Rule']);
+  add(`${rekordbox}/Hardtechno/2019`, ['Berlin 2019', 'Night Shift 2019', 'Closing 2019', 'Peak 2019'],
+    { status: 'not_lossless', cutoff_hz: 16000 });
+  add(`${rekordbox}/Edits`, ['Edit One', 'Edit Two', 'Edit Three']);
+  add(`${rekordbox}/Peak Time`, ['Main Floor', 'Hands Up Hour', 'Last Drop', 'Big Room Break', 'Peak Moment', 'Final Call',
+    'Strobe Season']);
+  // Albums: one folder per album, 24 words x 13 words = 312 different names
+  for (let i = 0; i < 312; i++) {
+    const album = `${WORDS[i % WORDS.length]} ${SUFFIXES[Math.floor(i / WORDS.length)]}`;
+    s.tracks.push(ownIn(s, `${albums}/${album}`, ARTISTS[i % ARTISTS.length], `${album} (Opening)`));
+  }
+  // Vinyl Rips: its drive is not connected
+  add(`${vinyl}/Side A`, ['A1 Intro', 'A2 Groove', 'A3 Break'], { away: 'offline' });
+  add(`${vinyl}/Side B`, ['B1 Loop', 'B2 Fade', 'B3 Outro'], { away: 'offline' });
+  // a Library folder no playlist line uses, beside Old_Sets
+  const lib = s.tracks.filter((t) => t.status === 'lossless' && t.in_playlists && !t.own);
+  ['Hardstyle Anthem', 'Euphoric Rush', 'Reverse Bass', 'Gold Kick'].forEach((title, i) => {
+    s.tracks.push({ ...lib[i], track_id: `old-hardstyle-${i}`, artist: ARTISTS[i], title, folder: 'Old_Hardstyle',
+      at: undefined, in_playlists: false, playlists: [], hidden: false });
+  });
+  // the watched folders: ids go on after the Library's, and their file counts are what is there
+  const [library] = s.imp.folders;
+  library.files = s.tracks.filter((t) => !t.own && t.status !== 'missing').length;
+  s.imp.folders = [library];
+  const watch = (path: string, over: { offline?: boolean } = {}) => {
+    const files = s.tracks.filter((t) => t.own && t.dir !== undefined && (t.dir === path || t.dir.startsWith(`${path}/`))).length;
+    s.imp.folders.push({ id: s.imp.nextId++, path, kind: 'import', offline: false, files, waiting: 0, redownload: 0, ...over });
+  };
+  watch(rekordbox);
+  watch(albums);
+  watch(vinyl, { offline: true });
+  s.crateShown[`${rekordbox}/Edits`] = false;
 }
 
 const fake: PageFake = {
@@ -123,6 +194,16 @@ const fake: PageFake = {
           artist: i % 2 ? `${t.artist} & Frau Funk` : t.artist });
       });
     },
+    // the sidebar's folders at their fullest (see crateFolders) and four Favourites in the mockup's order: a playlist, two
+    // crates and the crate inside a wrapper folder, whose label says where it is
+    crates: (s) => { withFavourites(s); },
+    // the same sidebar while the library file is held by a running job: saving a Favourite or a crate switch answers
+    // busy (the brief-write failure B5 shows)
+    crates_busy: (s) => { withFavourites(s); s.briefBusy = true; },
+    // the first look at the same sidebar: folders and crates there, nothing pinned yet
+    first_look: (s) => { crateFolders(s); },
+    // no playlist was read yet: no read record, so no playlist knows its songs (the files are in their folders)
+    never_read: (s) => { s.unread = s.playlists.map((p) => p.folder); },
     // now playing: ▶ on Get Naughty, then ⏭ reaches a file that can't be played (the bar says so and waits)
     cant_play: (s) => { cantPlay.add(s); },
   },

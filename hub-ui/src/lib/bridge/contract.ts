@@ -3,12 +3,15 @@
 // then never_download: 47; limits, limits_what_if and save_limits: 50; the four account setup methods: 54; the three Qobuz-only methods gone: 51;
 // mark_warnings_seen: 52; downloads_view: 53; the two Qobuz web-player methods gone: 51; Settings' sign-ins: 57; rollback_tools: +1; app_update: +1; tidy_preview, move_batches, undo_preview, tidy_up, undo_moves: +5;
 // the import (library stage 4): watched_folders, check_import_folder, removal_preview, add_watched_folder,
-// remove_watched_folder, start_import, answer_same_song, keep_duplicates, supersede_duplicate, setup_skip_import: +10.)
+// remove_watched_folder, start_import, answer_same_song, keep_duplicates, supersede_duplicate, setup_skip_import: +10;
+// set_favourites and set_crate_shown (library stage 5, brief saves, no job): +2.)
 export const CONTRACT_METHODS = [
   // read, any time
   'dashboard', 'sidebar', 'sync_preview', 'refresh', 'stop_refresh', 'job_status', 'library', 'track', 'todo',
   'playlists', 'limits', 'limits_what_if', 'runs', 'run', 'spectrum', 'media_url', 'setup_status', 'select',
   'tidy_preview', 'move_batches', 'undo_preview', 'watched_folders', 'check_import_folder', 'removal_preview',
+  // brief saves (no job): Favourites and the crate switches
+  'set_favourites', 'set_crate_shown',
   // read with network
   'search_candidates', 'preview', 'add_playlist', 'preview_playlist_change',
   // write jobs
@@ -39,6 +42,6 @@ export const LIBRARY_METHODS = [
   'hide', 'never_download', 'add_bought_file', 'use_candidate', 'use_link', 'reject_current',
   'rekordbox_checked', 'upgrade', 'rescan_library', 'show_in_finder', 'reveal', 'open_report',
   'tidy_preview', 'move_batches', 'undo_preview', 'tidy_up', 'undo_moves',
-  'watched_folders', 'check_import_folder', 'removal_preview', 'add_watched_folder', 'remove_watched_folder',
-  'start_import', 'answer_same_song', 'keep_duplicates', 'supersede_duplicate',
+  'watched_folders', 'set_favourites', 'set_crate_shown', 'check_import_folder', 'removal_preview',
+  'add_watched_folder', 'remove_watched_folder', 'start_import', 'answer_same_song', 'keep_duplicates', 'supersede_duplicate',
 ] as const satisfies readonly ContractMethod[];

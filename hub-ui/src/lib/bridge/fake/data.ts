@@ -3,9 +3,9 @@ import type {
   FileState, LibraryRow,
   AnySignalKind, AppUpdate, Alignment, Browser, Budget, LastCheck, LoginBrowser, ByQuality, Candidate, PlaylistInfo, PlaylistRow, PreviewAction, Quality, Result, RunDetail,
   DownloadTools, FolderCheck, SetupStatus, SignalKind, Source, ReadStatus, Status, TodoGroupKey, TrackRow, Upgrade, FreeDownload,
-  PlaylistService, Sidebar, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
+  PlaylistService, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
 } from '../types';
-import { NOT_IN_PLAYLIST, QUALITIES } from '../types';
+import { QUALITIES } from '../types';
 
 /** the fake's newest yt-dlp on PyPI */
 export const FAKE_NEWEST_YT_DLP = '2026.10.28';
@@ -41,6 +41,8 @@ export type FakeTrack = {
   link?: TrackLink;
   /** a song of the user's own that the import found (source `manual`, no folder, in no playlist) */
   own?: boolean;
+  /** an own file's folder (absolute); without it the file sits in `/Volumes/Example/Music` */
+  dir?: string;
   /** an own file the import has read but whose sound it hasn't judged yet: its quality is the codec's guess */
   unchecked?: boolean;
   /** an own file that isn't there to play (the contract's file_state): its drive is away, its folder isn't found, or
@@ -163,6 +165,16 @@ export type FakeState = {
   never: string[];               // "never download": Spotify ids the plan leaves out
   tidy: FakeTidy;
   imp: FakeImport;
+  /** the Favourites' keys in the stored order (`playlist:<ref>`, `folder:<path>`); a key whose target is gone stays stored */
+  favourites: string[];
+  /** the user's crate switches: crate path -> shown (a crate without one has the default) */
+  crateShown: Record<string, boolean>;
+  /** playlists (folder names) that were never read; the others are read once a song names them */
+  unread: string[];
+  /** playlists that were read and held no song */
+  emptyRead: string[];
+  /** hook: the brief saves (`set_favourites`, `set_crate_shown`) answer `busy`, as when a running job's write holds library.db */
+  briefBusy: boolean;
 };
 
 // ---------- helpers ----------
@@ -197,7 +209,7 @@ export function qualityLabel(t: FakeTrack): string {
 }
 export function pathOf(t: FakeTrack): string | null {
   if (t.status === 'missing') return null;
-  if (t.own) return `/Volumes/Example/Music/${t.artist} - ${t.title}.wav`;
+  if (t.own) return `${t.dir ?? '/Volumes/Example/Music'}/${t.artist} - ${t.title}.wav`;
   const sub = t.status === 'lossless' ? '' : '/not_lossless';
   return `Library/${t.at ?? t.folder}${sub}/${t.artist} - ${t.title}.aiff`;
 }
@@ -208,11 +220,6 @@ export function trackRow(t: FakeTrack): TrackRow {
     source: t.source, source_name: t.own ? OWN_SHORT : t.source ? SOURCE_NAMES[t.source] : null, in_playlists: t.in_playlists,
     own: !!t.own, hidden: t.hidden, upgrade_ready: !!t.upgrade, path: pathOf(t), added: t.added, cover_url: coverUri(t.cover),
   };
-}
-/** A Library row's `file_state`: as the panel's, but per folder only (the engine never checks a row's own file, so a
- *  file that went since the last scan still reads `here` in the list). */
-export function rowState(t: FakeTrack): LibraryRow['file_state'] {
-  return t.away === 'offline' || t.away === 'folder_missing' ? t.away : 'here';
 }
 export function qualityLine(t: FakeTrack): string {
   const q = qualityOf(t);
@@ -595,6 +602,7 @@ export function makeState(scenario: string, now = new Date()): FakeState {
     setup: setupComplete(), downloadTools: builtInTools(), read_status: readOk(2, now), console_running: false, offline: false, previewRead: true,
     appUpdate: { state: 'up_to_date', current: '1.0.0', latest: null, url: null },
     selected: null, dropped: null, errors: scenario === 'errors', errorTurn: 0, syncStarts: 0, never: [], tidy: emptyTidy(), imp: emptyImport(),
+    favourites: [], crateShown: {}, unread: [], emptyRead: [], briefBusy: false,
     accounts: { youtube: null, soundcloud: null }, qobuzSkipped: false,  // the user's own setup: Qobuz only
   };
   if (scenario === 'first_run' || scenario === 'no_music' || scenario.startsWith('setup_existing')) {
@@ -639,38 +647,6 @@ export function folderList(s: FakeState): { folder: string; listed: boolean }[] 
   for (const f of s.extraFolders) if (!out.some((o) => o.folder === f.folder)) out.push(f);
   return out;
 }
-/** The sidebar's lists as `views.sidebar` builds them: one entry per playlists.txt line, then the folders with files
- *  that no line uses (by name). Folder names compare as the disk does, case ignored. */
-export function sidebarLists(s: FakeState): Pick<Sidebar, 'playlists' | 'library_folders'> {
-  const files = s.tracks.filter((t) => t.status !== 'missing');
-  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
-  const used = (f: string) => s.playlists.some((p) => same(p.folder, f));
-  const counts = new Map<string, { folder: string; tracks: number }>();   // by folded name, first spelling kept
-  for (const t of files) {
-    if (!t.folder || used(t.folder)) continue;
-    const key = t.folder.toLowerCase();
-    const seen = counts.get(key);
-    if (seen) seen.tracks++; else counts.set(key, { folder: t.folder, tracks: 1 });
-  }
-  const unused = [...counts.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, v]) => v);
-  return {
-    playlists: s.playlists.map((p) => ({ name: p.folder, ref: playlistRef(p.link) ?? '', service: serviceOfLink(p.link),
-      enabled: p.enabled, tracks: files.filter((t) => same(t.folder, p.folder)).length })),
-    library_folders: unused,
-  };
-}
-/** `Library.subtitle` as `views.library` builds it (plan library stage 5 I7, step A's four views). A playlist is
- *  "never read" while the fake holds no song of its folder at all. */
-export function librarySubtitle(s: FakeState, folder: string | null, n: number): string[] {
-  const tracks = n === 1 ? '1 track' : `${n} tracks`;
-  if (folder === null) return [tracks, 'every folder'];
-  if (folder === NOT_IN_PLAYLIST) return [tracks, 'in no playlist'];
-  const line = s.playlists.find((p) => p.folder.toLowerCase() === folder.toLowerCase());
-  if (!line) return [tracks, 'no playlist uses it', `Library › ${folder}`];
-  const service = `${SERVICE_NAME[serviceOfLink(line.link)]} playlist`;
-  if (!s.tracks.some((t) => t.folder.toLowerCase() === folder.toLowerCase())) return [service, 'not read yet'];
-  return [tracks, service, ...(line.enabled ? [] : ['switched off']), `Library › ${line.folder}`];
-}
 export function playlistRows(s: FakeState): PlaylistRow[] {
   return s.playlists.map((p, index) => {
     const ts = s.tracks.filter((t) => t.playlists.includes(p.folder));
@@ -678,10 +654,4 @@ export function playlistRows(s: FakeState): PlaylistRow[] {
     return { index, folder: p.folder, link: p.link, playlist_id: playlistRef(p.link), service,
       service_name: SERVICE_NAME[service], enabled: p.enabled, info: p.info, tracks: ts.length, quality: byQuality(ts) };
   });
-}
-export function inFolder(s: FakeState, folder: string | null): FakeTrack[] {
-  const files = s.tracks.filter((t) => t.status !== 'missing');
-  if (folder === null) return files;
-  if (folder === NOT_IN_PLAYLIST) return files.filter((t) => !t.in_playlists);
-  return files.filter((t) => t.folder === folder);
 }

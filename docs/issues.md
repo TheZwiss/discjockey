@@ -15,6 +15,20 @@ Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, st
   `import`, and `DrivesChanged`; no event was added. The UI's `shortPath` / `filePlace` duplicate `views.place`, so B4
   drops the UI copy. The contract must record `set_favourites` and `set_crate_shown` as the exception to "write
   methods return a `job_id`": they are brief saves that answer `{favourites}` / `{path, shown}` or `busy`.
+- **From B4 (for B5–B7):** the contract, types, fake and store match the engine; the UI still draws today's screens.
+  Stand-ins to remove: `libraryCalls` / `asToday` in `pages/library/libraryModel.ts` (the Library page asks by the old
+  route param; for a playlist it asks for the whole view, then merges `also` (the leftover files, still dimmed) into
+  the rows, summary, chips and subtitle, leaves out the rows without a file, and applies search, filter and sort
+  itself, so a never-read playlist still lists its folder and no leftover vanishes; B6 draws the waiting rows and the
+  `also` section from the engine's counts and removes `asToday`), and the browser column's `songs ?? 0` / `files`
+  counts under the word "tracks" (B5 words them "songs"). `shortPath` (`musicFolder.ts`) and `filePlace`
+  (`todoModel.ts`) stay: they word arbitrary paths (the music folder, a To-do file, Settings' rows, fitted to a width)
+  that carry no engine `place`; only `track()`'s and the rows' `place` (and the sidebar's `watched[].place`) come from
+  the engine. The store has `saveFavourites(keys)` / `saveCrateShown(path, shown)`: they read the sidebar again after
+  every answer, `busy` too, and hand the answer back; the toast and the optimistic list are B5's. In the fake, `ctx.s.briefBusy = true`
+  (`window.__fake.ctx.s`) makes both brief saves answer `busy`; `s.unread` / `s.emptyRead` make a playlist never read /
+  read and empty. `library:crates_busy` is `library:crates` with `briefBusy` already on (B5 shoots the busy state with it). `library:first_look` is `library:crates`' folders and crates with no Favourites (the normal state has none
+  either, but also no crates). `empty: 'gone'` shows the generic line in `copy.ts` EMPTY until B6 words it by `view`.
 - **For B6 (from the B3 review):** an empty folder and a read-but-empty playlist both come with `empty` `no_match`
   even without search text; B6 picks I7's words ("No music in this folder." / "This playlist is empty.") from `view`,
   `folder_kind`, `read_at` and the empty query, and pins it. A playlist's subtitle and `summary.tracks` count rows

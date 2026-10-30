@@ -28,7 +28,7 @@ describe('fake minutes table', () => {
 describe('fake backend', () => {
   it('library file names are "Artist - Title" without suffixes', async () => {
     const f = createFakeBridge('big');
-    const lib = await f.library(null, '', 'all', 'artist');
+    const lib = await f.library('all', null, '', 'all', 'artist');
     if (!lib.ok) throw new Error();
     expect(lib.rows.length).toBeGreaterThan(1000);
     for (const r of lib.rows) {
@@ -66,7 +66,7 @@ describe('fake backend', () => {
     const side = await f.sidebar();
     if (!side.ok) throw new Error();
     expect(side.not_in_playlist).toBe(2);
-    expect(side.library_folders).toEqual([{ folder: 'Old_Sets', tracks: 2 }]);
+    expect(side.library_folders).toEqual([{ path: 'Library/Old_Sets', name: 'Old_Sets', files: 2 }]);
     expect(side.playlists.map((x) => [x.name, x.service, x.enabled]).slice(3, 7)).toEqual([
       ['03_06_2026', 'spotify', true], ['Tekke_Ecke', 'spotify', false], ['Hard_Techno', 'spotify', true],
       ['Qobuz_Picks', 'qobuz', true]]);
@@ -480,7 +480,7 @@ describe('fake tidy-up', () => {
     if (!save.ok) throw new Error();
     const done = await finished(evs, save.job_id);
     expect(done.ok).toBe(true);
-    const folders = await f.library(null, '', 'all', 'artist');
+    const folders = await f.library('all', null, '', 'all', 'artist');
     if (!folders.ok) throw new Error();
     const carried = folders.rows.filter((x) => x.path?.startsWith('Library/Hard_New/')).length;
     expect(carried).toBeGreaterThan(1);

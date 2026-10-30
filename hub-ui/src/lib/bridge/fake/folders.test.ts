@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createFakeBridge } from './bridge';
 import type { HubEvent } from '../events';
-import { NOT_IN_PLAYLIST } from '../types';
 import type { QuestionItem, DuplicateItem, Todo } from '../types';
 
 const until = (evs: HubEvent[], pred: (e: HubEvent) => boolean, ms = 4000) => new Promise<HubEvent>((resolve, reject) => {
@@ -213,27 +212,27 @@ describe('fake To-do of the import', () => {
   });
 
   it('marks files whose sound is not checked as checked in the Library rows', async () => {
-    const lib = must(await fake('normal').f.library(null, '', 'all', 'artist'));
+    const lib = must(await fake('normal').f.library('all', null, '', 'all', 'artist'));
     expect(lib.rows.every((r) => r.sound_checked === true)).toBe(true);
   });
 
   it('library: subtitle parts and summary.not_lossless follow the engine (I7)', async () => {
     const f = fake('normal').f;
-    const all = must(await f.library(null, '', 'all', 'artist'));
+    const all = must(await f.library('all', null, '', 'all', 'artist'));
     expect(all.subtitle).toEqual([`${all.rows.length} tracks`, 'every folder']);
     const q = all.summary.by_quality;
     expect(all.summary.not_lossless).toBe(q.good_lossy + q.weak + q.fake);
-    expect(must(await f.library(null, '', 'weak', 'artist')).summary.not_lossless).toBe(all.summary.not_lossless);
-    expect(must(await f.library(NOT_IN_PLAYLIST, '', 'all', 'artist')).subtitle).toEqual(['2 tracks', 'in no playlist']);
-    expect(must(await f.library('Old_Sets', '', 'all', 'artist')).subtitle).toEqual(
+    expect(must(await f.library('all', null, '', 'weak', 'artist')).summary.not_lossless).toBe(all.summary.not_lossless);
+    expect(must(await f.library('unlisted', null, '', 'all', 'artist')).subtitle).toEqual(['2 tracks', 'in no playlist']);
+    expect(must(await f.library('folder', 'Library/Old_Sets', '', 'all', 'artist')).subtitle).toEqual(
       ['2 tracks', 'no playlist uses it', 'Library › Old_Sets']);
-    const hb = must(await f.library('Hard_Bounce', '', 'all', 'artist'));
-    expect(hb.subtitle).toEqual([`${hb.rows.length} tracks`, 'Spotify playlist', 'Library › Hard_Bounce']);
-    const found = must(await f.library('Hard_Bounce', 'a', 'weak', 'artist'));   // search and filter don't change it
+    const hb = must(await f.library('playlist', 'Hard_Bounce', '', 'all', 'artist'));
+    expect(hb.subtitle).toEqual([`${hb.summary.tracks} tracks`, 'Spotify playlist', 'Library › Hard_Bounce']);
+    const found = must(await f.library('playlist', 'Hard_Bounce', 'a', 'weak', 'artist'));   // search and filter don't change it
     expect(found.rows.length).toBeLessThan(hb.rows.length);
     expect(found.subtitle).toEqual(hb.subtitle);
-    expect(must(await f.library(null, 'zzzz-no-such-track', 'all', 'artist')).subtitle).toEqual([`${all.rows.length} tracks`, 'every folder']);
-    expect(must(await f.library('Tekke_Ecke', '', 'all', 'artist')).subtitle.slice(1)).toEqual(
+    expect(must(await f.library('all', null, 'zzzz-no-such-track', 'all', 'artist')).subtitle).toEqual([`${all.rows.length} tracks`, 'every folder']);
+    expect(must(await f.library('playlist', 'Tekke_Ecke', '', 'all', 'artist')).subtitle.slice(1)).toEqual(
       ['Spotify playlist', 'switched off', 'Library › Tekke_Ecke']);
   });
 
@@ -243,20 +242,20 @@ describe('fake To-do of the import', () => {
     expect(side.playlists.filter((p) => !p.enabled)).toHaveLength(2);
     expect(new Set(side.playlists.map((p) => p.ref)).size).toBe(35);
     expect(Math.max(...side.playlists.map((p) => p.name.length))).toBeGreaterThan(60);
-    expect(side.playlists.some((p) => p.tracks === 0)).toBe(true);
-    expect(side.library_folders.map((x) => x.folder)).toEqual(['Crate_Dumps', 'Old_Sets']);
+    expect(side.playlists.some((p) => p.songs === null)).toBe(true);
+    expect(side.library_folders.map((x) => x.name)).toEqual(['Crate_Dumps', 'Old_Sets']);
     expect(side.playlists.map((p) => p.service)).toContain('qobuz');
   });
 
   it('library:unchecked has own files whose sound is not checked: out of the counts, in All, with their own words', async () => {
     const f = fake('library:unchecked').f;
-    const all = must(await f.library(null, '', 'all', 'artist'));
+    const all = must(await f.library('all', null, '', 'all', 'artist'));
     const open = all.rows.filter((r) => !r.sound_checked).map((r) => r.track_id);
     expect(open).toEqual(['local:1', 'local:2']);
     expect(all.chips.all).toBe(all.rows.length);
     expect(all.summary.by_quality.lossless).toBe(all.rows.filter((r) => r.quality === 'lossless').length - 2);
-    expect(must(await f.library(null, '', 'lossless', 'artist')).rows.some((r) => r.track_id === 'local:1')).toBe(false);
-    expect(must(await f.library(null, '', 'all', '-quality')).rows[0].sound_checked).toBe(false);
+    expect(must(await f.library('all', null, '', 'lossless', 'artist')).rows.some((r) => r.track_id === 'local:1')).toBe(false);
+    expect(must(await f.library('all', null, '', 'all', '-quality')).rows[0].sound_checked).toBe(false);
     const d = must(await f.track('local:1')).track;
     expect(d).toMatchObject({ sound_checked: false, source_full: 'your own file', source_name: 'own file',
       quality_line: 'Your own file (PCM) · sound not checked yet', format_line: 'uncompressed PCM' });
