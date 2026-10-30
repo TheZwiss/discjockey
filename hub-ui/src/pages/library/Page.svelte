@@ -1,28 +1,31 @@
 <script lang="ts">
-  // Library (spec §5.4; design system mockup design-system/library.html): on ListPanelFrame (`wide`, the table gets
-  // up to 1200 px). The list area: the header (title · track count, search), the quality filter as one Segmented,
-  // then the tracks as one table Surface that fills the height and scrolls in place (LibraryTable). The panel is the
-  // picked track (TrackDetails, the same cards as To-do's) or, with nothing picked, the folder at a glance
-  // (FolderOverview).
+  // Library (spec §5.4; plan library stage 5 A6, notes N5–N7 and N14, mockup design-system/library-layout.html): on
+  // ListPanelFrame (`wide`, the table gets up to 1200 px) in inspector mode. The list area: the header (title, the
+  // subtitle's parts that drop whole, the track search, the details toggle), the collection at a glance as a 72 px
+  // SummaryStrip, the quality filter as one Segmented, then the tracks as one table Surface that fills the height and
+  // scrolls in place (LibraryTable). No docked panel: the docked panel squeezed the table, so the selected track's
+  // details (TrackDetails, the same cards as To-do's) are an inspector on demand. It opens from the toggle, ⌘I, a
+  // row's quality badge or the menu's Show details, follows the selection, stays open until closed and is
+  // remembered (`inspectorOpen`, closed at first). A click only selects; a double-click or Enter plays. Below 1240 px
+  // the open inspector steps the browser column back behind the rail (the chrome's job, stores/chrome.ts).
   import { untrack, type ComponentProps } from 'svelte';
   import {
-    EmptyState, PageHeader, ProblemCard, SearchField, Segmented, Skeleton, Spectrum, Surface, confirm,
+    Button, EmptyState, PageHeader, ProblemCard, SearchField, Segmented, Skeleton, Spectrum, SummaryStrip, Surface, confirm,
   } from '$lib/components';
   import { ListPanelFrame } from '$lib/frames';
   import { api, runJob } from '$lib/bridge/client';
   import type { Fail, Library, LibraryFilter, LibrarySort, ProblemKind, TrackDetail } from '$lib/bridge/types';
   import { filesVersion } from '$lib/stores/hub';
+  import { inspectorOpen } from '$lib/stores/chrome';
   import { player } from '$lib/stores/player';
   import { listen } from '$lib/listen';
   import { toasts } from '$lib/stores/toasts';
   import { problemCopy } from '$lib/copy';
-  import { plural } from '$lib/format';
   import { getPref, setPref } from '$lib/prefs';
   import { go, libraryHref } from '$lib/router';
   import { markReady } from '$lib/ready';
   import LibraryTable from './LibraryTable.svelte';
   import TrackDetails from './TrackDetails.svelte';
-  import FolderOverview from './FolderOverview.svelte';
   import {
     DEFAULT_SORT, LIBRARY_FILTERS, SORT_KEY, filterKey, isSort, libraryView, nextSort, playable, segOptions, todoHref, type SortColumn,
   } from './libraryModel';
@@ -203,28 +206,42 @@
   }
 
   const options = $derived(segOptions(lib?.chips, filter));
-  const sub = $derived(lib ? plural(lib.summary.tracks, 'track') : undefined);
+  // the header's second line: its parts in order of importance, the last dropping first when the header is narrow
+  const sub = $derived(lib?.subtitle);
   const emptyLibrary = $derived(lib?.empty === 'empty_library');
   const noFiles = $derived(!!lib && !emptyLibrary && lib.summary.tracks === 0);
   const noRows = $derived(!!lib && !emptyLibrary && !noFiles && lib.rows.length === 0);
-  // All tracks holds tracks of several folders: Folder becomes a column. Not in a playlist has no folder to show:
-  // Source takes the column's place.
+  // which list (its optional columns): All tracks and Not in a playlist name the folder, a playlist doesn't
   const view = $derived(libraryView(folder));
   const playing = $derived($player.playing ? $player.track_id : null);
   function playOrPause(id: string) {
     if ($player.track_id === id && $player.url) player.toggle();
     else play(id);
   }
+  // the details: open on demand, and only where there is a library to show (the empty page has no table to select in)
+  const detailsOpen = $derived($inspectorOpen && !emptyLibrary);
+  function openDetails() { inspectorOpen.set(true); }
 </script>
+
+{#snippet detailsIcon()}
+  <!-- the macOS inspector symbol: a window with its right-hand pane -->
+  <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2.4" /><path d="M10 2.5v11" />
+    <path d="M11.6 5.2h1.3M11.6 7.2h1.3M11.6 9.2h1.3" /></svg>
+{/snippet}
 
 {#snippet main()}
   <PageHeader title={lib?.title ?? (folder === null ? 'All tracks' : folder === NOT_IN_PLAYLIST ? 'Not in a playlist' : folder)} {sub}>
     {#snippet actions()}<SearchField bind:value={search} bind:input={searchInput} placeholder="Search title, artist…" shortcut="cmd+f"
-      test="library-search" />{/snippet}
+      test="library-search" />{#if !emptyLibrary}<Button variant="icon" icon={detailsIcon} pressed={detailsOpen}
+        aria-label={detailsOpen ? 'Hide details' : 'Show details'}
+        tip={{ text: detailsOpen ? 'Hide details' : 'Show details', keys: '⌘I' }}
+        onclick={() => inspectorOpen.update((o) => !o)} data-test="library-details" />{/if}{/snippet}
   </PageHeader>
   {#if libError && !lib}
     <ProblemCard kind={libError.kind} message={libError.message} onretry={() => { retry++; }} />
   {:else if !lib}
+    <!-- waiting: the strip at its height with dashes, so nothing moves when the numbers come -->
+    <SummaryStrip summary={null} onupgrades={() => {}} ontodo={() => {}} />
     <Surface kind="card"><Skeleton lines={8} height={18} gap={14} /></Surface>
   {:else if emptyLibrary}
     <Surface kind="card" data-test="library-empty">
@@ -232,6 +249,7 @@
     </Surface>
   {:else}
     {#if libError}<ProblemCard compact kind={libError.kind} message={libError.message} />{/if}
+    <SummaryStrip summary={lib.summary} onupgrades={() => setFilter('upgrade_ready')} ontodo={() => void go('/todo')} />
     {#if !noFiles}<Segmented {options} value={filter} onchange={setFilter} label="Quality" test="library-filter" />{/if}
     {#if noFiles}
       <Surface kind="card" data-test="library-no-files"><EmptyState title="No files in this folder yet." /></Surface>
@@ -245,21 +263,17 @@
       </Surface>
     {:else}
       <LibraryTable rows={lib.rows} {loading} {view} {sort} {selected} {playing} {onsort} onselect={select}
-        onplay={playOrPause} onfinder={(id) => void finder(id)} ontodo={todo} />
+        onplay={playOrPause} onfinder={(id) => void finder(id)} ontodo={todo} ondetails={openDetails} />
     {/if}
   {/if}
 {/snippet}
 
 {#snippet panel()}
-  {#if selected}
-    <TrackDetails {detail} loading={detailLoading} {gone} error={detailError} {spectrum} {spectrumLoading} {spectrumError}
-      {upgradeSpectrum} {swapping} onretry={() => { trackRetry++; }}
-      onfinder={() => detail && void finder(detail.track_id)} ontodo={() => detail && todo(detail.track_id)}
-      onswap={() => void swap()} onlisten={() => detail && play(detail.track_id)} />
-  {:else}
-    <FolderOverview summary={lib && !emptyLibrary ? lib.summary : null} onupgrades={() => setFilter('upgrade_ready')}
-      ontodo={() => void go('/todo')} />
-  {/if}
+  <TrackDetails {detail} loading={detailLoading} {gone} error={detailError} {spectrum} {spectrumLoading} {spectrumError}
+    {upgradeSpectrum} {swapping} onretry={() => { trackRetry++; }}
+    onfinder={() => detail && void finder(detail.track_id)} ontodo={() => detail && todo(detail.track_id)}
+    onswap={() => void swap()} onlisten={() => detail && play(detail.track_id)} />
 {/snippet}
 
-<ListPanelFrame {main} panel={emptyLibrary ? null : panel} emptyPanel="No tracks yet." wide />
+<ListPanelFrame {main} panel={selected ? panel : null} emptyPanel="Select a track to see its details." wide
+  panelMode="inspector" open={detailsOpen} />
