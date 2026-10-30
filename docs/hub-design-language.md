@@ -225,6 +225,11 @@ Finish later in its `actions`).
   never cut: when it doesn't fit beside the title it wraps under it, balanced, breaking between words and after a "·"
   (never before it), so the header grows by a line only where the words need it. Only a title longer than the whole
   lead (a folder name) ends in "…".
+- **`sub` as a list of parts** (Library's collections): the parts in order of importance ("472 tracks", "8 folders
+  with music", "~/Music/Rekordbox Library") on the title's line only. When they don't all fit, whole parts drop, the
+  last first, down to none; a part is never cut mid-word, and the whole subtitle is the tooltip. CSS only (the parts
+  wrap onto a clipped second line behind a zero-width strut), so it follows the width live. The title keeps its whole
+  width and ends in "…" only when even the title alone doesn't fit.
 - The **read slot** (the playlists' read status, every service at once; the wire field is `read_status`, the block
   `ReadStatus`) is always last, so its right edge is the content's right edge. It is on Dashboard, Sync
   (before the start), To-do and Playlists. `ReadStatus` is placed only by this slot; the checker fails it anywhere
@@ -309,7 +314,7 @@ used.
 |---|---|---|---|
 | `ListPanelFrame`, `ColumnFrame` | `lib/frames/` | `gallery-frames` | The two page frames (§1 here). |
 | `Panel` | `lib/frames/Panel.svelte` | `gallery-panel` | `head` / `fill` / `after` / `foot`. |
-| `PageHeader` | `lib/components/PageHeader.svelte` | `gallery-page-header` | Title · status line, actions, the read-status slot. |
+| `PageHeader` | `lib/components/PageHeader.svelte` | `gallery-page-header` | Title · status line (a string that wraps under the title, or a list of parts that drop whole, last first), actions, the read-status slot. |
 | `Surface` | `lib/components/Surface.svelte` | `gallery-surface` | `card` / `list` / `table`; `label`, `summary`, `tone`, `foldable`, `sticky`, `bulk` (All · None), `hint` (a group's one-line hint after the count, printed like `ListSection`'s: no dot between name, count and hint), `fitLabel` (the label is a folder's path, fitted into the head's free width like a watched folder's: `~` for home, parents giving way in whole folders, the folder's own name last; the full path is the tooltip; a path that is not whole beside the head's links goes on a line of its own and the links wrap below it, and is cut only when even the head's width is too narrow), `header` (a Hint there gives way with the label), `grow` (`{ rows, tall? }`: fills its column up to its rows, 3-row minimum plus a peek, rows scroll inside; shared measuring with ToggleGroup in `growFill.ts`); `columns` (a table's column head, ruled and fixed above the rows, a `list` container of the rows' width so optional columns match) and `scroller` (bindable: the rows' scroller of a `grow` surface, for a table that renders only its visible rows); sets `data-surface`, `data-scrolls-itself` with `grow`, the fold `data-row-hit`. |
 | `Button` | `lib/components/Button.svelte` | `gallery-button` | `filled` · `primary` · `secondary` · `danger` · `link` · `icon`; an `icon` can be a toggle (`pressed`: accent text on `--accent-wash-strong` plus a dot, `aria-pressed`, the foot's Shuffle) and `size="xs"` (22 px, a row inside the sidebar). |
 | `ToggleGroup`, `ToggleRow` | `lib/components/` | `gallery-toggles` | On/off rows; `grow` inside a Panel `fill` (one per Panel); search from `SEARCH_FROM` rows (the query clears below it); `disabledReason`: each row's tooltip and a Hint in the head in place of All · None (gallery "Locked"). A `ToggleRow` alone in a `Surface kind="list"` is a single setting; its `sub` is a wrapping second line (the setting's detail, or why it is locked; Playlists' "Rename the folder on disk too"). |
@@ -491,6 +496,12 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-30 · `PageHeader`: a subtitle of parts that drop whole, the last first (library stage 5 A3.5, N14, house
+  rule 8).** `sub` may be a list of parts in order of importance (the wire's `Library.subtitle`). Why: Library's header
+  narrows with the details open and at 1100, and the old string either wrapped under the title (a second header line
+  over a table that needs every row) or, in the mockup's first round, was cut mid-word ("8 f…", "~/Music/Reko…"). Now
+  the path goes first, then the kind, finally the count; the whole subtitle stays the tooltip. The string form keeps
+  its wrapping for every other page. Seen: gallery PageHeader's parts at 946, 586, 440 and 300 px (`base-gallery`).
 - **2026-10-30 · `SummaryStrip`: Library's summary card becomes a strip on the page (library stage 5 A3.4, N5, house
   rule 3).** Why: with the rail, the browser column and a docked 360 px panel the 1280 table would be 586 px, so the
   panel leaves Library; its summary keeps the share, the bar and the two rows with their counts and links, along the

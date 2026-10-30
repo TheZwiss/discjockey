@@ -53,6 +53,7 @@
     ['waiting', null, 900],
     ['586 px: the list beside the inspector at 1280', strip(), 586],
   ];
+  const HDR_PARTS = ['472 tracks', '8 folders with music', '~/Music/Rekordbox Library'];
   const now = new Date();
   const tracks = sampleTracks(now).map(trackRow);
   const t = (id: string) => tracks.find((x) => x.track_id === id) as Row;
@@ -415,6 +416,17 @@
       <PageHeader title="Sync done" sub="Today 21:47 · 24 min">{#snippet actions()}<Button size="sm" variant="link" href="https://example.com">Full report ↗</Button>{/snippet}</PageHeader>
       <PageHeader title="Hard_Bounce_Extended_Afterhour_Selection_2026" sub="1,204 tracks · 82 % lossless · 3 not in a playlist" readStatus readStatusState={sp({})} />
       <PageHeader title="Settings" />
+    </div>
+    <span class="cap">subtitle as parts (Library): whole parts drop, the last first; the whole subtitle is the tooltip</span>
+    <div class="col" data-test="g-header-parts">
+      {#each [[946, 'Rekordbox Library', HDR_PARTS], [586, 'Rekordbox Library', HDR_PARTS], [440, 'Rekordbox Library', HDR_PARTS],
+        [300, 'Rekordbox Library', HDR_PARTS], [586, 'Afterhour_Sonntag_Warmup', ['88 tracks', 'Qobuz playlist', 'switched off', 'Library › Afterhour_Sonntag_Warmup']],
+        [300, 'Afterhour_Sonntag_Warmup_Selection_2026', ['88 tracks', 'Qobuz playlist']]] as [w, t, ps], i (i)}
+        <div class="g-hdr" style="width: {w}px">
+          <PageHeader title={t as string} sub={ps as string[]}>{#snippet actions()}<Button variant="icon" aria-label="Show details (⌘I)">
+            <svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="2" /><path d="M10 3v10" /></svg></Button>{/snippet}</PageHeader>
+        </div>
+      {/each}
     </div>
   </section>
 
@@ -1342,4 +1354,5 @@
   .g-tip-col { width: 200px; }
   .g-cut { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
   button.g-navrow { padding: 0 var(--s-2); }
+  .g-hdr { max-width: 100%; padding: 0 var(--s-2); border-left: var(--bw) dashed var(--surface-line); border-right: var(--bw) dashed var(--surface-line); }
 </style>
