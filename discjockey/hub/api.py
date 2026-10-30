@@ -42,7 +42,7 @@ from ..fallback import FallbackSource
 from ..library import NoLibrary, Paths, Resolved, StateError, SupportPaths
 from ..events import CancelToken, Result
 from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, Candidate, PlaylistLine,
-                      SaveChoice, SourceTrack, WatchedFolder, token)
+                      PlaylistRecord, SaveChoice, SourceTrack, WatchedFolder, token)
 from ..names import fold
 from ..ops import OpProblem, snapshot
 from ..pacing import Budget
@@ -609,13 +609,24 @@ class HubApi:
                                                                            self._logins())}
 
     @bridge
-    def library(self, folder: str | None = None, query: str = "", filter: str = "all", sort: str = "artist") -> dict:
+    def library(self, view: str = "all", key: str | None = None, query: str = "", filter: str = "all",
+                sort: str | None = None) -> dict:
+        """One view of the library (views.library): view "all" | "unlisted" | "playlist" | "folder"; key the playlist's
+        folder name or the folder's path for the last two; sort None = the view's own order. An unknown playlist or
+        folder is not an error: the answer says `empty: "gone"`."""
+        if view not in views.LIBRARY_VIEWS:
+            raise ValueError(f"view must be one of {', '.join(views.LIBRARY_VIEWS)}")
+        if view in ("playlist", "folder") and not key:
+            raise ValueError(f"a {view} view needs its key")
         if filter not in views.LIBRARY_FILTERS:
             raise ValueError(f"filter must be one of {', '.join(views.LIBRARY_FILTERS)}")
         state = self._state()
-        out = views.library(state, folder, query, filter, sort, self._cover(self._images()), self._away_roots(),
-                            lines=pf.load(self._paths.playlists_file).rows)
-        self._remember(state, [r["track_id"] for r in out["rows"]])
+        records, folders = self._records_and_folders()
+        out = views.library(state, view, key, query, filter, sort, self._cover(self._images()),
+                            self._away_by_root(folders), lines=pf.load(self._paths.playlists_file).rows,
+                            records=records, watched=folders)
+        # a row without a file (a playlist song that waits) is no track the page can act on
+        self._remember(state, [r["track_id"] for r in (*out["rows"], *(out["also"] or ())) if r["file_state"] != "no_file"])
         return out
 
     @bridge
@@ -628,8 +639,12 @@ class HubApi:
             e = {**e, "aliases": list(dict.fromkeys([*(e.get("aliases") or []), *planned]))}
         # whether the file is at its path: asked for this one track only, since the last scan may be old
         exists = not e.get("path") or (self._paths.root / e["path"]).exists()
+        with self._move_log() as conn:
+            folders = db.watched_folders(conn) if conn is not None else []
+        lines = pf.load(self._paths.playlists_file).rows
+        where = views.sites(state, lines, folders).place(e["path"]) if e.get("path") else None
         detail = views.track_detail(track_id, e, prep.fetched if prep else [], self._today(),
-                                    self._cover(self._images()), self._audio, self._away_roots(), exists)
+                                    self._cover(self._images()), self._audio, self._away_by_root(folders), exists, where)
         self._remember(state, [track_id])
         return {"track": detail}
 
@@ -648,13 +663,22 @@ class HubApi:
         return {f.id: why for f in rows if f.kind == "import"
                 and (why := scanner.away_reason(f.path, self._svc.mounted)) is not None}
 
-    def _away_roots(self) -> dict[str, str]:
-        """Root (as the files' snapshot paths start) -> why, for the import folders that are not there now, for the
-        views that decide a file's state or whether it is there; looked up once per request."""
-        with self._move_log() as conn:
-            rows = db.watched_folders(conn) if conn is not None else []
+    def _away_by_root(self, rows: Sequence[WatchedFolder]) -> dict[str, str]:
+        """Root (as the files' snapshot paths start) -> why, for the import folders among `rows` that are not there
+        now, for the views that decide a file's state or whether it is there."""
         away = self._away_folders(rows)
         return {str(f.path): away[f.id] for f in rows if f.id in away}
+
+    def _records_and_folders(self) -> tuple[dict[str, PlaylistRecord], list[WatchedFolder]]:
+        """The playlists' read records and the watched folders, from library.db ({} and [] before there is one)."""
+        with self._move_log() as conn:
+            return (db.playlist_records(conn), db.watched_folders(conn)) if conn is not None else ({}, [])
+
+    def _away_roots(self) -> dict[str, str]:
+        """`_away_by_root` for the watched folders as they are now; looked up once per request."""
+        with self._move_log() as conn:
+            rows = db.watched_folders(conn) if conn is not None else []
+        return self._away_by_root(rows)
 
     @bridge
     def watched_folders(self) -> dict:

@@ -56,7 +56,7 @@ def test_the_page_sees_exactly_the_contract(root):
 
 def test_parameter_names_are_visible_to_pywebview(root):
     api, _ = make_api(root)
-    assert inspect.getfullargspec(api.library).args == ["self", "folder", "query", "filter", "sort"]
+    assert inspect.getfullargspec(api.library).args == ["self", "view", "key", "query", "filter", "sort"]
 
 
 @pytest.mark.parametrize("name", READ_ONLY)
@@ -93,7 +93,8 @@ def test_wrong_arguments_from_the_page(root, capsys):
     answer = api.track()
     assert answer["kind"] == "crashed" and answer["message"].startswith("Something unexpected went wrong.")
     assert "TypeError" not in answer["message"] and "TypeError" in capsys.readouterr().err  # the detail goes to the terminal
-    assert api.library(None, "", "everything")["kind"] == "refused"
+    assert api.library("all", None, "", "everything")["kind"] == "refused"
+    assert api.library("somewhere")["kind"] == "refused" and api.library("playlist")["kind"] == "refused"  # no key
 
 
 def test_dashboard_after_reading_spotify(root):
@@ -239,7 +240,7 @@ def test_an_automatic_read_that_could_not_start_does_not_count(root):
 
 def test_library_track_and_todo(root):
     api, rec = make_api(root)
-    lib = api.library("Hard_Bounce", "", "all", "title")
+    lib = api.library("folder", "Library/Hard_Bounce", "", "all", "title")
     assert [r["track_id"] for r in lib["rows"]] == ["t2", "t1"]
     t = api.track("t2")["track"]
     assert t["upgrade"]["cue_text"] == "matches exactly, cues stay" and t["quality"] == "weak"
@@ -278,10 +279,28 @@ def test_a_finished_read_gives_the_sidebar_each_playlists_songs(root):
 
 def test_library_subtitle_comes_from_the_playlists_lines(root):
     api, _ = make_api(root)
-    assert api.library("Hard_Bounce")["subtitle"] == ["2 tracks", "Spotify playlist", "Library › Hard_Bounce"]
+    assert api.library("folder", "Library/Hard_Bounce")["subtitle"] == ["2 tracks", "Library › Hard_Bounce"]  # in use
+    assert api.library("playlist", "Hard_Bounce")["subtitle"] == ["Spotify playlist", "not read yet"]
     assert api.library()["subtitle"] == ["2 tracks", "every folder"]
     summary = api.library()["summary"]
     assert summary["not_lossless"] == 1 and summary["by_quality"]["lossless"] == 1
+
+
+def test_a_playlist_view_comes_from_its_read_record_and_the_track_says_where_it_sits(root):
+    api, rec = make_api(root)
+    never = api.library("playlist", "hard_bounce")
+    assert (never["rows"], never["read_at"], never["title"]) == ([], None, "Hard_Bounce")
+    assert [r["track_id"] for r in never["also"]] == ["t1", "t2"]  # the folder's files, before any read
+    refreshed(api, rec)
+    out = api.library("playlist", "Hard_Bounce")
+    assert out["read_at"] and out["service"] == "spotify" and out["enabled"] is True and out["also"] == []
+    assert [(r["track_id"], r["position"], r["file_state"], r["wait"]) for r in out["rows"]] == [
+        ("t1", 1, "here", None), ("t2", 2, "here", None), ("t3", 3, "no_file", "not_found"),  # t3 is in the library
+        ("t4", 4, "no_file", "waiting")]  # t4 isn't yet
+    assert api.library("playlist", "Nowhere")["empty"] == "gone"
+    assert api.library("folder", "Library/Nowhere")["empty"] == "gone"
+    assert api.track("t2")["track"]["place"] == "Hard_Bounce"
+    assert api.library()["rows"][0]["place"] == "Hard_Bounce"
 
 
 def test_runs_and_one_run(root):
