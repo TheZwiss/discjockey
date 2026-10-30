@@ -5,45 +5,35 @@ committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when
 
 ## 29. Library stage 5b leftovers (folders)
 
-Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, step B (folders), task group B2.
+Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, step B (folders), task groups B2 to B7.
 
 - **Same label for two crates:** two crates under different wrapper folders can get the same label ("Hard › 2019"),
   so the UI tells them apart only by the tooltip (the full path). This is the plan's D8 rule.
 - **Count differences:** the sidebar's count for a watched folder leaves out the files an import still has to work
   through, while Settings' row counts them.
-- **For B4 (the UI):** the events the page re-reads the sidebar on are `JobFinished` with `kind` `refresh`, `sync` or
-  `import`, and `DrivesChanged`; no event was added. The UI's `shortPath` / `filePlace` duplicate `views.place`, so B4
-  drops the UI copy. The contract must record `set_favourites` and `set_crate_shown` as the exception to "write
-  methods return a `job_id`": they are brief saves that answer `{favourites}` / `{path, shown}` or `busy`.
-- **From B4 (for B5–B7):** the contract, types, fake and store match the engine. B6 removed `asToday`: the page
-  draws the engine's rows (the waiting ones too), its `also` section, summary and chips as they come. Still a
-  stand-in: `libraryCalls` in `pages/library/libraryModel.ts` asks by the old route param (a name is a playlist when
-  the sidebar lists one, else a Library folder), until I5's routes (`/library/playlist/:name`, `libraryTarget`)
-  replace it. `shortPath` (`musicFolder.ts`) and `filePlace`
-  (`todoModel.ts`) stay: they word arbitrary paths (the music folder, a To-do file, Settings' rows, fitted to a width)
-  that carry no engine `place`; only `track()`'s and the rows' `place` (and the sidebar's `watched[].place`) come from
-  the engine. The store has `saveFavourites(keys)` / `saveCrateShown(path, shown)`: they read the sidebar again after
-  every answer, `busy` too, and hand the answer back; the toast and the optimistic list are B5's. In the fake, `ctx.s.briefBusy = true`
-  (`window.__fake.ctx.s`) makes both brief saves answer `busy`; `s.unread` / `s.emptyRead` make a playlist never read /
-  read and empty. `library:crates_busy` is `library:crates` with `briefBusy` already on (B5 shoots the busy state with it). `library:first_look` is `library:crates`' folders and crates with no Favourites (the normal state has none
-  either, but also no crates).
-- **From B6 (the playlist and folder views):** a NOT FOUND row's tooltip can't give To-do's next-try line ("next
-  try in 5 days", I7): `LibraryRow` carries no date, only `track()` does (the details' note says it). It reads
-  "Nothing usable found yet: To-do has other ways to get it" until the engine adds the date to the row. Sorted by
-  Length ascending, the engine puts a playlist's songs without a file first (their duration is 0); they belong last
-  (or by the length the playlist gives). An engine matter (`views.library`'s sort), left for a Python change.
-- **From B5 (the browser column):** *Show in Finder* is offered only where `api.reveal` can open the folder (a
-  playlist's folder, a Library folder): it refuses any path outside the music folder, so an import folder and its
-  crates have no Show in Finder until the engine gets a reveal for watched folders (no Python change in B5). The browser
-  links an import folder and a crate by its path (`#/library/folder/<path encoded>`; `libraryCalls` asks a path as a
-  folder view); the rest of I5's routes (`/library/playlist/:name`, `libraryTarget`) are still open. Folder rows count
-  "tracks" (the word of the page they open), playlists "songs".
-- **From B7 (Settings' crate switches):** `#/settings/folders/<path encoded>` (`settingsFolderHref`) picks an import
-  folder in Watched folders; Library's "Show some in the sidebar…" opens it. Settings reads the crates from
-  `watched_folders()` and reads them again after a save that stored something (the sidebar is read by the store);
-  All · None save one crate after another (`saveCratesShown`, one sidebar read at the end), so None on a folder
-  with many switched-on crates is that many brief saves: a `set_crates_shown(paths, shown)` would make it one (an
-  engine change, not made in B7). Under a folder with too many crates, All needs a search that leaves at most 25 rows.
+- **Routes (I5) still open:** `libraryCalls` in `pages/library/libraryModel.ts` asks by the old route param (a name is
+  a playlist when the sidebar lists one, else a Library folder, and a path as a folder view). `/library/playlist/:name`
+  and `libraryTarget` are not built yet.
+- **Paths worded by the UI:** `shortPath` (`musicFolder.ts`) and `filePlace` (`todoModel.ts`) stay: they word
+  arbitrary paths (the music folder, a To-do file, Settings' rows, fitted to a width) that carry no engine `place`.
+  Only `track()`'s and the rows' `place` and the sidebar's `watched[].place` come from the engine.
+- **Dev fake:** `ctx.s.briefBusy = true` (`window.__fake.ctx.s`) makes both brief saves answer `busy`; `s.unread` and
+  `s.emptyRead` make a playlist never read / read and empty. `library:crates_busy` is `library:crates` with
+  `briefBusy` on; `library:first_look` is its folders and crates with no Favourites.
+- **NOT FOUND tooltip:** it can't give To-do's next-try line ("next try in 5 days", I7): `LibraryRow` carries no
+  date, only `track()` does (the details' note says it). It reads "Nothing usable found yet: To-do has other ways
+  to get it" until the engine adds the date to the row.
+- **Sort by Length:** ascending, the engine puts a playlist's songs without a file first (their duration is 0); they
+  belong last (or by the length the playlist gives). An engine matter (`views.library`'s sort), left for a Python
+  change.
+- **Show in Finder for watched folders:** it is offered only where `api.reveal` can open the folder (a playlist's
+  folder, a Library folder). `api.reveal` refuses any path outside the music folder, so an import folder and its
+  crates have none until the engine gets a reveal for watched folders.
+- **Settings' crate switches:** `#/settings/folders/<path encoded>` (`settingsFolderHref`) picks an import folder in
+  Watched folders; Library's "Show some in the sidebar…" opens it. All · None save one crate after another
+  (`saveCratesShown`, one sidebar read at the end), so None on a folder with many switched-on crates is that many
+  brief saves: a `set_crates_shown(paths, shown)` would make it one (an engine change). Under a folder with too
+  many crates, All needs a search that leaves at most 25 rows.
 - **Later cleanup:** `views.library` is about 140 lines; `_playlist_rows` / `_folder_rows` would split it. `track()`
   recomputes `views.sites` over every file on each pick (linear, fast enough today).
 

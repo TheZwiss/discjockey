@@ -84,7 +84,21 @@ right). Chrome joins this frame; it never floats over the page or reserves a str
 - **The sidebar's Library group retires:** the collections live in the browser column, every row one line (the
   two-line crate rows and the watched folders' balanced wrap retire with it); Library is a page of its own in the nav
   (♫). On pages without the browser the sidebar holds only the pages, plus Favourites as shortcuts without counts
-  (step B).
+  (D16 rule 4; step B, below).
+- **Favourites** (library stage 5 B5, D16 rule 4's second half; `BrowserColumn.svelte`, `browserModel.ts`). The user's own
+  list of playlists and folders, the first section of the browser column and, as shortcuts, of the full sidebar on the
+  other pages. It is the one list the user orders by hand, so it is the only place a row can be dragged: a playlist or
+  folder row dragged into it joins it, a favourite dragged inside it moves, anything dropped elsewhere (or Esc) goes
+  back. The row lifts in 120 ms, the others part in 200 ms ease-out, the drop settles on a critically damped spring
+  (response 0.3); under reduced motion it just lands. ⌥↑ / ⌥↓ on a focused favourite move it one place, saved like a
+  drag. Empty, the section shows a dashed landing row, "Drag a playlist or folder here" (the house shape for a place
+  waiting to be filled). While the filter has text Favourites steps aside (a match shows once, in its own section). The
+  full sidebar's favourites carry no counts and no drag: a long name ends in "…" with its tooltip, a click opens Library
+  at it, and the one on screen wears the current pill (a favourite's pill sits on its topmost row, so a collection
+  never shows two). A save is optimistic and put back with the toast "Couldn't save your favourites. Try again." when
+  it comes back busy. The right-click menu (`ContextMenu`) on a browser row: Open · Play · Add to favourites / Remove
+  from favourites · Hide from sidebar (crates only, with "Settings brings it back") · Show in Finder (only where a
+  folder can be opened); the row it acts on keeps the accent ring while the menu is open.
 - **The foot holds what goes on:** the player bar while a list plays (a queue, plan now-playing), the sync's status
   while the hub's own sync runs (not on Sync itself), or both in one bar (the sync's short form at the bar's right end).
   No foot when neither.
@@ -559,6 +573,12 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-30 · Favourites in the browser column and the full sidebar (library stage 5 B5, D16.4).** Drag only into
+  and inside Favourites, an empty section's dashed landing row, the order saved at once and put back with a toast, ⌥↑ /
+  ⌥↓ as the keyboard's drag, the right-click menu with the accent ring on its row; written into §1 beside rule 4.
+  Why: a favourite is the user's hand-made order, so it is the one list that can be reordered, and a drag that leaves it
+  can't drop anywhere surprising; the sidebar on other pages keeps them as plain shortcuts so the pages stay the
+  pages. Seen: `library-favourites`, `library-first-look`, `base-shell-favourites`.
 - **2026-10-30 · Settings' crate switches (library stage 5, B7): `ToggleGroup` `placeholder`, `allMax`, item `tip` /
   `find`; `WatchedFolderList` `onpick` / `picked`; ToggleGroup's grow class is `toggle-grow`.** Watched folders' panel:
   the picked import folder's crates as a grow `ToggleGroup` "In the sidebar" after the folders (which then keep their
