@@ -1,5 +1,6 @@
 import copy
 import json
+import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -506,7 +507,7 @@ def test_a_dry_run_on_a_library_not_yet_migrated_finishes_no_pending_step(paths)
     before = paths.state_file.read_bytes()
     prep = run.prepare(paths, dry_run=True)
     assert tmp.exists() and not (paths.library / "A" / "x.aiff").exists()  # no music file was changed
-    assert paths.state_file.read_bytes() == before and not paths.db_file.exists()
+    assert paths.state_file.read_bytes() == before and not paths.db_file.exists()  # recording the read made none
     assert len(prep.state["pending"]) == 1
     run.prepare(paths)  # the next sync finishes the step and moves the records
     assert (paths.library / "A" / "x.aiff").exists() and paths.db_file.exists()
@@ -627,3 +628,78 @@ def test_an_import_links_its_files_with_the_real_link_only_from_a_stale_read(pat
     assert "t2" not in tracks  # nothing downloaded or planned into the records
     assert "Artist - Song 1: the same song as a file of yours, not downloaded." in [
         e.text for e in events if isinstance(e, Message)]
+
+
+# --- plan library stage 5, B1.4: every read is kept as the playlists' records (D1) ---
+
+BOUNCE = "0DiscjockeyExampleList"
+BOUNCY = "3DiscjockeyExampleList"
+TWO_PLAYLISTS = PLAYLISTS + f"Bouncy = https://open.spotify.com/playlist/{BOUNCY}\n"
+
+
+def recorded(paths):
+    """{ref: [track tokens]} of library.db's read records."""
+    with db.connect(paths.db_file) as conn:
+        return {ref: [t.token for t in r.tracks] for ref, r in db.playlist_records(conn).items()}
+
+
+def per_playlist(monkeypatch, tracks_of):
+    monkeypatch.setattr(spotify, "fetch_playlist",
+                        lambda s, line: FetchedPlaylist(line, list(tracks_of[line.playlist_id]), []))
+
+
+def test_a_sync_keeps_what_it_read_as_the_playlists_records(paths):
+    run.prepare(paths)
+    with db.connect(paths.db_file) as conn:
+        record = db.playlist_records(conn)[BOUNCE]
+    assert record.service == "spotify" and record.read_at.startswith(date.today().isoformat())
+    assert [(t.position, t.token, t.artist, t.title, t.duration_ms) for t in record.tracks] == [
+        (1, "t1", "Artist", "Song 1", 180000), (2, "t2", "Artist", "Song 2", 180000),
+        (3, "t3", "Artist", "Song 3", 180000)]
+
+
+def test_a_dry_run_keeps_its_read_too_with_or_without_the_lock(paths, monkeypatch):
+    save_state(paths, empty_state())  # a library with library.db
+    run.prepare(paths, dry_run=True)
+    assert recorded(paths) == {BOUNCE: ["t1", "t2", "t3"]}
+
+    @contextmanager
+    def taken():
+        yield False
+    monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: FetchedPlaylist(line, list(TRACKS[:1]), []))
+    run.prepare(paths, dry_run=True, lock=taken)  # the window's read while a job holds the lock
+    assert recorded(paths) == {BOUNCE: ["t1"]}
+
+
+def test_a_playlist_that_cant_be_read_or_is_switched_off_keeps_its_record(paths, monkeypatch):
+    paths.playlists_file.write_text(TWO_PLAYLISTS)
+    per_playlist(monkeypatch, {BOUNCE: TRACKS, BOUNCY: TRACKS[2:]})
+    run.prepare(paths)
+    assert recorded(paths) == {BOUNCE: ["t1", "t2", "t3"], BOUNCY: ["t3"]}
+
+    def unreadable(s, line):
+        raise spotify.SpotifyError("Spotify answered HTTP 404.", "playlist_unreadable")
+    monkeypatch.setattr(spotify, "fetch_playlist", unreadable)
+    with pytest.raises(run.SetupProblem):
+        run.prepare(paths)
+    assert recorded(paths) == {BOUNCE: ["t1", "t2", "t3"], BOUNCY: ["t3"]}
+
+    paths.playlists_file.write_text(PLAYLISTS + f"#off# Bouncy = https://open.spotify.com/playlist/{BOUNCY}\n")
+    per_playlist(monkeypatch, {BOUNCE: TRACKS[:2]})
+    run.prepare(paths)
+    assert recorded(paths) == {BOUNCE: ["t1", "t2"], BOUNCY: ["t3"]}  # off, not read: its record stays
+
+    paths.playlists_file.write_text(PLAYLISTS)  # its line is gone: so is its record
+    run.prepare(paths)
+    assert recorded(paths) == {BOUNCE: ["t1", "t2"]}
+
+
+def test_a_failing_record_never_fails_the_read(paths, monkeypatch, caplog):
+    run.prepare(paths)
+
+    def locked(*a, **kw):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(db, "record_reads", locked)
+    prep = run.prepare(paths, dry_run=True)
+    assert [a.kind for a in prep.plan.actions] == ["acquire"] * 3
+    assert "couldn't keep the playlists' read records" in caplog.text
