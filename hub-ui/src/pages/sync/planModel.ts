@@ -95,13 +95,16 @@ export function readScope(v: unknown): Scope {
   return { folders: strings(o.folders), kinds: strings(o.kinds).filter(isKindKey) };
 }
 
+/** What a playlist or folder is called on the page: never blank, even when an action arrives without a folder name. */
+export const folderLabel = (folder: string): string => folder.trim() || 'Your own music';
+
 export type Facet = { key: string; label: string; count: number };
 /** Playlists (playlists.txt order) and kinds that have actions, with their counts. */
 export function facets(actions: PreviewAction[], folderOrder: string[]): { folders: Facet[]; kinds: Facet[] } {
   const byFolder = new Map<string, number>();
   for (const a of actions) byFolder.set(a.folder, (byFolder.get(a.folder) ?? 0) + 1);
   const order = [...folderOrder, ...[...byFolder.keys()].filter((f) => !folderOrder.includes(f))];
-  const folders = order.filter((f) => byFolder.has(f)).map((f) => ({ key: f, label: f, count: byFolder.get(f)! }));
+  const folders = order.filter((f) => byFolder.has(f)).map((f) => ({ key: f, label: folderLabel(f), count: byFolder.get(f)! }));
   const kinds = KINDS.map((k) => ({ key: k.key, label: k.label, count: actions.filter((a) => kindOf(a) === k.key).length }))
     .filter((k) => k.count > 0);
   return { folders, kinds };

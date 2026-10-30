@@ -9,6 +9,7 @@
   import { Button, Cover, ListRow, Surface } from '$lib/components';
   import type { PreviewAction, SyncPreview } from '$lib/bridge/types';
   import { artistTitle, plural } from '$lib/format';
+  import { folderLabel } from '../planModel';
 
   let { preview, busy, blocked, onagain }: {
     preview: SyncPreview;
@@ -35,7 +36,7 @@
       {#each preview.never as a (a.track_id)}
         {#snippet cover()}{@render lead(a.track_id, a.cover_url)}{/snippet}
         {#snippet name()}{artistTitle(a.artist, a.title)}{/snippet}
-        {#snippet sub()}{a.folder}{/snippet}
+        {#snippet sub()}{folderLabel(a.folder)}{/snippet}
         {#snippet again()}
           <Button size="sm" variant="secondary" busy={busy === a.track_id} disabled={!!blocked && busy !== a.track_id}
             title={blocked ?? undefined} onclick={() => onagain(a)} data-test="sync-download-again">Download again</Button>
@@ -51,7 +52,7 @@
       {#each preview.dropped as x (x.track_id)}
         {#snippet cover()}{@render lead(x.track_id, null)}{/snippet}
         {#snippet name()}{artistTitle(x.artist, x.title)}{/snippet}
-        {#snippet sub()}{x.folder}{/snippet}
+        {#snippet sub()}{folderLabel(x.folder)}{/snippet}
         <ListRow lead={cover} {name} {sub} title={artistTitle(x.artist, x.title)} />
       {/each}
     </Surface>
@@ -63,7 +64,7 @@
       {#each preview.ambiguous as x (x.track_id)}
         {#snippet cover()}{@render lead(x.track_id, null)}{/snippet}
         {#snippet name()}{artistTitle(x.artist, x.title)}{/snippet}
-        {#snippet sub()}{x.folder}{/snippet}
+        {#snippet sub()}{folderLabel(x.folder)}{/snippet}
         <ListRow lead={cover} {name} {sub} title={artistTitle(x.artist, x.title)} />
       {/each}
     </Surface>

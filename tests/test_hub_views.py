@@ -144,6 +144,19 @@ def test_sync_preview_gives_the_minutes_for_every_count_the_page_can_tick():
     assert "minutes_by_downloads" not in views.estimate(actions, None)  # the dashboard's estimate stays as it was
 
 
+def test_sync_preview_names_the_folder_of_an_own_song_never_blank():
+    # an upgrade check of an imported file belongs to no playlist: its action has no folder (live check, 2026-10-31)
+    own = Action("upgrade", "own1", "", t("own1"), (1, 0))
+    st = state(own1=e(folder="", path="/Music/Old/Techno/x.mp3"), own2=e(folder="", path=None))
+    actions = [a("upgrade", "u1"), own, Action("upgrade", "own2", "", t("own2"), (1, 1))]
+    store = store_with(actions, st)
+    rows = {r["track_id"]: r for g in views.sync_preview(store, st, Settings(), TODAY, NOW, False,
+                                                         where=lambda path: "Techno")["groups"] for r in g["actions"]}
+    assert (rows["u1"]["folder"], rows["own1"]["folder"], rows["own2"]["folder"]) == ("A", "Techno", views.OWN_MUSIC)
+    bare = views.sync_preview(store, st, Settings(), TODAY, NOW, False)["groups"][0]["actions"]
+    assert all(r["folder"] for r in bare)
+
+
 def test_still_to_load():
     money = {"remaining": 10, "limit": 60}
     store = store_with([a("acquire", f"t{i}", "new") for i in range(12)] + [a("upgrade", "u")])

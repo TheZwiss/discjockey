@@ -1246,19 +1246,34 @@ def todo_others(prep, last_report: dict | None) -> dict[str, str]:
 
 # --- sync screen, before the start ---
 
-def action_row(a, state: dict, cover: Url | None = None) -> dict:
+OWN_MUSIC = "Your own music"  # the name of an own song's folder when its file's place can't be told
+
+
+def action_folder(a, e: dict | None, where: Callable[[str], str] | None = None) -> str:
+    """The playlist or folder an action is listed under, never empty. A playlist song has its playlist's folder; an
+    own song (an upgrade check of an imported file, no playlist) has none, so it goes by the folder its file sits in,
+    named as the rest of the app names it (`Sites.place`: "Techno", "Rekordbox Library › Hardtechno")."""
+    if a.folder:
+        return a.folder
+    path = e.get("path") if e else None
+    return (where(path) if where and path else "") or OWN_MUSIC
+
+
+def action_row(a, state: dict, cover: Url | None = None, where: Callable[[str], str] | None = None) -> dict:
     e = state["tracks"].get(a.track_id)
     artist, title = (e["artist"], e["title"]) if e else (a.track.first_artist, a.track.title)
     to_dir = a.dest_dir or f"Library/{a.folder}"
     return {"key": [a.kind, a.track_id, to_dir], "kind": a.kind, "reason": a.reason or None,
-            "track_id": a.track_id, "artist": artist, "title": title, "folder": a.folder,
+            "track_id": a.track_id, "artist": artist, "title": title, "folder": action_folder(a, e, where),
             "to_dir": to_dir, "to_not_lossless": to_dir.endswith("/not_lossless"),
             "src": a.src, "cover_url": cover(a.track_id, e) if cover and e else a.track.image_url}
 
 
 def sync_preview(store, state: dict, settings: Settings, today: date, now: datetime, reading: bool,
-                 cover: Url | None = None, logins: Sequence[tuple[str, bool]] = ()) -> dict:
-    """The check before the start: every planned action in groups, each with the key the page sends back ticked."""
+                 cover: Url | None = None, logins: Sequence[tuple[str, bool]] = (),
+                 where: Callable[[str], str] | None = None) -> dict:
+    """The check before the start: every planned action in groups, each with the key the page sends back ticked.
+    `where`: a file's path -> its folder's name (`Sites.place`), for the own songs that belong to no playlist."""
     prep = store.prep
     status = read_status(store, now, reading, logins)
     if prep is None:
@@ -1275,10 +1290,10 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
     run_index = {id(a): i for i, a in enumerate(todo)}  # the order the sync works through them
     return {"read_status": status, "counts": plan_counts(todo),
             "groups": [{"key": key, "label": label,
-                        "actions": [{**action_row(a, plan_state, cover), "run": run_index[id(a)]} for a in groups[key]]}
+                        "actions": [{**action_row(a, plan_state, cover, where), "run": run_index[id(a)]} for a in groups[key]]}
                        for key, label in PLAN_LABELS if key in groups],
             "estimate": sync_estimate(todo, m),
-            "never": [action_row(a, plan_state, cover) for a in never],
+            "never": [action_row(a, plan_state, cover, where) for a in never],
             "folders": [line.folder for line in prep.lines],
             "in_playlists": len(in_playlists),
             "ambiguous": [{"track_id": key, "artist": t.first_artist, "title": t.title, "folder": folder,
