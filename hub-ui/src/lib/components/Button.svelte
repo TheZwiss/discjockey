@@ -11,7 +11,8 @@
   // `destructive` turns it red on hover, for an action that hides or removes something. `pressed` makes an icon
   // button a toggle that is on (shuffle): accent text on the strong wash plus a dot under the glyph, colour plus shape
   // (design language §2), and `aria-pressed`. `size="xs"` is the 22 px icon square of a row inside the sidebar
-  // (the Now playing row), its glyph 12 px.
+  // (the Now playing row), its glyph 12 px. `tip` gives an icon button the house tooltip (`Tip`: its name and
+  // shortcut as a key cap, Library's details toggle) in place of a native `title`.
   // Press: buttons scale (.98, small and icon .97); a link dims instead, so text inside a sentence or row doesn't shrink.
   // OUTDATED: `ghost` is an alias of `secondary` since look 2; phase 2 maps each use to `secondary` or `link`.
   import type { Snippet } from 'svelte';
@@ -19,15 +20,16 @@
   import Spinner from './Spinner.svelte';
   import { api } from '../bridge/client';
   import { link } from '../router';
+  import { tip as tipAction, type TipParams } from './tip';
 
   type Props = Omit<HTMLButtonAttributes, 'disabled' | 'onclick' | 'type' | 'title'> & {
     variant?: 'primary' | 'filled' | 'secondary' | 'ghost' | 'danger' | 'link' | 'icon'; size?: 'md' | 'sm' | 'xs';
     disabled?: boolean; busy?: boolean; busyLabel?: string; title?: string;
     onclick?: (e: MouseEvent) => void; type?: 'button' | 'submit'; wide?: boolean; href?: string;
-    children?: Snippet; icon?: Snippet; muted?: boolean; destructive?: boolean; pressed?: boolean;
+    children?: Snippet; icon?: Snippet; muted?: boolean; destructive?: boolean; pressed?: boolean; tip?: TipParams;
   };
   let { variant = 'secondary', size = 'md', disabled = false, busy = false, busyLabel, title, onclick,
-    type = 'button', wide = false, href, children, icon, muted = false, destructive = false, pressed, ...rest }: Props = $props();
+    type = 'button', wide = false, href, children, icon, muted = false, destructive = false, pressed, tip = null, ...rest }: Props = $props();
   const off = $derived(disabled || busy);
   // aria-disabled instead of disabled, so the tooltip (the reason) still shows on hover
   function click(e: MouseEvent) {
@@ -52,11 +54,11 @@
   <!-- no href while off: the router's link action and the browser both leave it alone; role and tabindex keep it
        focusable (like a disabled button) so the reason tooltip still shows -->
   <a {...rest as Record<string, unknown>} href={off ? undefined : href} role={off ? 'link' : undefined}
-    tabindex={off ? 0 : undefined} use:link class="btn {variant} {size}" class:muted class:destructive
+    tabindex={off ? 0 : undefined} use:link use:tipAction={tip} class="btn {variant} {size}" class:muted class:destructive
     class:off class:busy aria-disabled={off || undefined} aria-busy={busy || undefined} {title}
     data-primary={variant === 'filled' || undefined} data-stretch={wide || undefined} onclick={click}>{@render label()}</a>
 {:else}
-  <button {...rest} {type} class="btn {variant} {size}" class:muted class:destructive class:off class:busy class:pressed
+  <button {...rest} {type} use:tipAction={tip} class="btn {variant} {size}" class:muted class:destructive class:off class:busy class:pressed
     aria-pressed={pressed} aria-disabled={off || undefined}
     aria-busy={busy || undefined} {title} data-primary={variant === 'filled' || undefined}
     data-stretch={wide || undefined} onclick={click}>{@render label()}</button>

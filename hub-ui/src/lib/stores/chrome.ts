@@ -29,6 +29,8 @@ export function clampBrowserWidth(w: unknown): number {
 
 export type ChromeInput = {
   place: Place; formLibrary: Form; formOther: Form; browserWidth: number; inspectorOpen: boolean; windowWidth: number;
+  /** Library has an inspector to show (not while its library is empty: no toggle, no details) */
+  inspectorAvailable: boolean;
 };
 export type ChromeLayout = {
   place: Place; form: Form;
@@ -45,7 +47,7 @@ export function chromeLayout(i: ChromeInput): ChromeLayout {
   // a stored value that isn't one of the two forms falls back to the place's default
   const form: Form = i.place === 'library' ? (i.formLibrary === 'full' ? 'full' : 'rail')
     : (i.formOther === 'rail' ? 'rail' : 'full');
-  const steppedBack = i.place === 'library' && i.inspectorOpen && i.windowWidth < NARROW_BELOW;
+  const steppedBack = i.place === 'library' && i.inspectorOpen && i.inspectorAvailable && i.windowWidth < NARROW_BELOW;
   const browserShown = i.place === 'library' && !steppedBack;
   const browserWidth = clampBrowserWidth(i.browserWidth);
   const sidebarW = (form === 'rail' ? RAIL_W : FULL_W) + (browserShown ? 1 + browserWidth : 0);
@@ -78,6 +80,9 @@ export const browserClosed = persisted<string[]>('shell.browser.closed', []);
 export const playlistsAz = persisted<boolean>('shell.playlists.az', false);
 /** Library's details inspector is open (the page sets it, ⌘I toggles it); it starts closed */
 export const inspectorOpen = persisted<boolean>('library.inspector', false);
+/** Library sets it false while it has nothing to show details of (an empty library: the toggle is hidden), so ⌘I does
+ *  nothing and a remembered open inspector neither shows nor steps the browser back; true again when the page goes. */
+export const inspectorAvailable = writable(true);
 
 const hasWindow = () => typeof window !== 'undefined';
 export const windowWidth: Readable<number> = readable(hasWindow() ? window.innerWidth : 1280, (set) => {
@@ -89,9 +94,9 @@ export const windowWidth: Readable<number> = readable(hasWindow() ? window.inner
 });
 
 export const chrome: Readable<ChromeLayout> = derived(
-  [route, formLibrary, formOther, browserWidth, inspectorOpen, windowWidth],
-  ([r, fl, fo, bw, insp, ww]) => chromeLayout({ place: placeOf(r.name), formLibrary: fl, formOther: fo,
-    browserWidth: bw, inspectorOpen: insp, windowWidth: ww }));
+  [route, formLibrary, formOther, browserWidth, inspectorOpen, windowWidth, inspectorAvailable],
+  ([r, fl, fo, bw, insp, ww, avail]) => chromeLayout({ place: placeOf(r.name), formLibrary: fl, formOther: fo,
+    browserWidth: bw, inspectorOpen: insp, windowWidth: ww, inspectorAvailable: avail }));
 
 let glideNext = false;
 /** The layout with the move that led to it (Sidebar picks its transitions by it). A new subscriber (the chrome
@@ -145,9 +150,13 @@ export function edgeCursor(w: number): 'col-resize' | 'e-resize' | 'w-resize' {
   return w <= BROWSER_MIN ? 'e-resize' : w >= BROWSER_MAX ? 'w-resize' : 'col-resize';
 }
 
+/** Whether ⌘I turns the inspector over: only in Library, and only while it has one to show. */
+export function inspectorToggles(place: Place, available: boolean): boolean {
+  return place === 'library' && available;
+}
 /** ⌘I: only Library has the inspector. */
 export function toggleInspector(): void {
-  if (get(chrome).place === 'library') inspectorOpen.update((o) => !o);
+  if (inspectorToggles(get(chrome).place, get(inspectorAvailable))) inspectorOpen.update((o) => !o);
 }
 
 /** ⌘K from any page, or ♫ on Library: below 1240 px the inspector closes, so the browser stands (again) when Library

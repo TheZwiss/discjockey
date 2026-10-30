@@ -113,6 +113,16 @@ const fake: PageFake = {
         s.tracks.push({ ...from, track_id: `browser-lib-${k}`, folder: 'Crate_Dumps', in_playlists: false, playlists: [] });
       }
     },
+    // a playlist of long names, as DJ downloads come (mix names in brackets, several artists): every Hard_Bounce track
+    // gets a long title and artist, so the table shows what it keeps of a name at 1100 × 700 (plan library stage 5
+    // A6: names readable on a laptop)
+    long_titles: (s) => {
+      const mixes = ['(Extended Festival Mix)', '(Original Mix)', '(Hardtechno Remix)', '(Warehouse Edit)', '(Club Mix)'];
+      s.tracks.filter((t) => t.folder === 'Hard_Bounce').forEach((t, i) => {
+        Object.assign(t, { title: `${t.title} ${mixes[i % mixes.length]}`,
+          artist: i % 2 ? `${t.artist} & Frau Funk` : t.artist });
+      });
+    },
     // now playing: ▶ on Get Naughty, then ⏭ reaches a file that can't be played (the bar says so and waits)
     cant_play: (s) => { cantPlay.add(s); },
   },

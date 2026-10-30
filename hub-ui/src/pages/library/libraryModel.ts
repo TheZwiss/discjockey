@@ -1,12 +1,15 @@
-// Pure helpers for the Library page (sorting, windowing, selection, the filter strip, the panel). Tested in
-// libraryModel.test.ts.
+// Pure helpers for the Library page (sorting, windowing, selection, the filter segments, the columns, the inspector).
+// Tested in libraryModel.test.ts.
 import type { Library, LibraryFilter, LibraryRow, LibrarySort, Quality, TrackDetail, TrackRow } from '$lib/bridge/types';
 import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import type { SegOption } from '$lib/components/segmentedModel';
 
-export type SortColumn = 'title' | 'artist' | 'folder' | 'source' | 'added' | 'length' | 'quality';
+/** The columns a header click sorts by. Source and Added left the table (plan library stage 5 D10: the inspector shows
+ *  both), so a sort by them saved before isn't one any more (isSort): it falls back to the default, rather than sort
+ *  the rows by a column nobody can see. */
+export type SortColumn = 'title' | 'artist' | 'folder' | 'length' | 'quality';
 export const DEFAULT_SORT: LibrarySort = 'artist';
-export const SORT_COLUMNS: SortColumn[] = ['title', 'artist', 'folder', 'source', 'added', 'length', 'quality'];
+export const SORT_COLUMNS: SortColumn[] = ['title', 'artist', 'folder', 'length', 'quality'];
 /** Above this many rows only the visible rows (plus overscan) are rendered. */
 export const WINDOW_FROM = 300;
 export const OVERSCAN = 10;
@@ -99,12 +102,39 @@ export type LibraryView = 'folder' | 'all' | 'unlisted';
 export function libraryView(folder: string | null): LibraryView {
   return folder === null ? 'all' : folder === NOT_IN_PLAYLIST ? 'unlisted' : 'folder';
 }
-/** The table's optional columns, in the order they appear as the table gets wider (spec §3: more space shows more).
- *  All tracks spans every folder, so its first one is Folder. Not in a playlist has no folder to tell apart, so it
- *  shows Source first, like a folder does: it says why a leftover download is dimmed and a file of the user's own
- *  isn't ("your own file" against "Qobuz"). */
-export function optionalColumns(view: LibraryView): ('folder' | 'source' | 'added')[] {
-  return view === 'all' ? ['folder', 'source', 'added'] : ['source', 'added'];
+/** The table's optional columns (plan library stage 5 D10, notes N6, the mockup's `columns()`): Track, Artist, Quality
+ *  and the upgrade slot are always there; these come in as the table's own width allows, in this order, and go in the
+ *  reverse one (Length first, Folder last). A column that would say the same on every row isn't one: a playlist's
+ *  rows all sit in its folder, so it has Length only (its order carries the rest). All tracks and Not in a playlist
+ *  name the Folder. *Playlist* (the playlists holding the song, +180 px, between Folder and Length) joins in step B,
+ *  when the rows carry them; today a track's folder is its playlist's, so the column would repeat Folder. */
+export type OptionalColumn = 'folder' | 'length';
+export function optionalColumns(view: LibraryView): OptionalColumn[] {
+  return view === 'folder' ? ['length'] : ['folder', 'length'];
+}
+/** The width (px) the table needs for Track and Artist beside Quality and the upgrade slot, and what each optional
+ *  column adds to it (D10, the mockup's numbers): a column shows from the sum of its own and those before it. */
+export const BASE_WIDTH = 380;
+export const COLUMN_WIDTH: Record<OptionalColumn, number> = { folder: 140, length: 200 };
+/** The table's own width from which each of the view's optional columns shows (All tracks: Folder 520, Length 720). */
+export function columnThresholds(view: LibraryView): { column: OptionalColumn; from: number }[] {
+  let need = BASE_WIDTH;
+  return optionalColumns(view).map((column) => ({ column, from: (need += COLUMN_WIDTH[column]) }));
+}
+/** The optional columns a table this wide shows. */
+export function columnsAt(view: LibraryView, width: number): OptionalColumn[] {
+  return columnThresholds(view).filter((t) => width >= t.from).map((t) => t.column);
+}
+/** The grid's tracks for those columns: the names share what is left (Track a little more than Artist, Folder less:
+ *  with the details open at 1280 a wider Folder cut the artists while "Hard_Bounce" had room to spare; the mockup's
+ *  116 px / .95fr), Folder never below a playlist folder's name ("Hard_Bounce"), Length fits "12:34", Quality the widest badge (FAKE · 16.0 kHz), so
+ *  every badge starts at one x, and the slot fits UPGRADE. */
+const TRACK: Record<OptionalColumn | 'title' | 'artist' | 'end', string> = {
+  title: 'minmax(0, 1.45fr)', artist: 'minmax(0, 1fr)', folder: 'minmax(96px, .8fr)', length: '52px',
+  end: '116px var(--w-row-action)',
+};
+export function gridColumns(cols: OptionalColumn[]): string {
+  return [TRACK.title, TRACK.artist, ...cols.map((c) => TRACK[c]), TRACK.end].join(' ');
 }
 /** A row reads dimmed when its song left every playlist (a downloaded file nothing holds any more). A file of the
  *  user's own is in no playlist by nature, so it is never dimmed: dimming it would say "gone" about a file that is
@@ -130,9 +160,12 @@ export function playable(r: Pick<LibraryRow, 'file_state'>): boolean {
 export function rowAway(r: Pick<LibraryRow, 'file_state'>): Exclude<LibraryRow['file_state'], 'here'> | null {
   return r.file_state === 'here' ? null : r.file_state;
 }
-/** A row's folder cell: a track in no playlist reads so instead of the folder it sits in on disk. */
-export function folderCell(r: Pick<TrackRow, 'folder' | 'in_playlists'>): string {
-  return r.in_playlists ? r.folder : 'Not in a playlist';
+/** A row's Folder cell. All tracks: the folder of its playlist, or "Not in a playlist" for a track in none. Not in a
+ *  playlist (every row in none): the folder the file sits in, which is what tells its rows apart. Null: nothing there
+ *  (the cell shows "–"). */
+export function folderCell(r: Pick<TrackRow, 'folder' | 'in_playlists'>, view: LibraryView = 'all'): string | null {
+  if (view !== 'unlisted' && !r.in_playlists) return 'Not in a playlist';
+  return r.folder || null;
 }
 
 /** The panel's foot: Swap when the upgrade matches exactly; Open in to-do for any other to-do; nothing for a
@@ -141,18 +174,6 @@ export function footAction(t: Pick<TrackDetail, 'upgrade' | 'status' | 'upgrade_
     'swap' | 'todo' | null {
   if (t.upgrade?.swap_safe && t.upgrade.swap_possible) return 'swap';
   return inTodo(t) ? 'todo' : null;
-}
-
-/** The panel with nothing picked: the folder's lossless share (a StatCard over the quality bar). The share is over the
- *  files whose sound is checked (views.library leaves the others out of `by_quality`), so the label says "checked"
- *  as soon as some file isn't. */
-export function overview(s: Library['summary']): { value: string | null; unit?: string; label: string } {
-  if (!s.tracks) return { value: null, label: 'lossless · no tracks yet' };
-  if (s.lossless_share === null) return { value: null, label: 'lossless · none checked yet' };
-  const counted = Object.values(s.by_quality).reduce((n, c) => n + c, 0);
-  const noun = counted === s.tracks ? (s.tracks === 1 ? 'track' : 'tracks') : 'checked tracks';
-  return { value: String(Math.round(s.lossless_share * 100)), unit: '%',
-    label: `lossless · ${s.by_quality.lossless} of ${counted} ${noun}` };
 }
 
 /** The file's name from its path; the folder is in the track card already. */

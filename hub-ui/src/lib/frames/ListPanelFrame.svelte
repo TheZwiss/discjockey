@@ -14,15 +14,18 @@
   // close the list widens at once and the inspector slides out the way it came, over the rows (--t-slide-out, 200 ms:
   // exit faster than entry). A CSS transition, so a toggle mid-way turns it round from where it is. Reduced motion:
   // it fades in place. Closed, it is `inert` and, once out, hidden (no focus, no reader, nothing for the checker).
-  // Keep passing `panel` while closed: its content stays during the slide out.
+  // Keep passing `panel` while closed: its content stays during the slide out. `panelLabel` names the panel's
+  // landmark (Library: "Track details"; an inspector without one is "Details"), so a screen reader's landmark list
+  // says what the region holds.
   import type { Snippet } from 'svelte';
   import EmptyState from '../components/EmptyState.svelte';
   let { main, panel = null, emptyPanel = 'Pick a track to see its details.', wide = false, panelMode = 'docked',
-    open = false }:
+    open = false, panelLabel }:
     { main: Snippet; panel?: Snippet | null; emptyPanel?: string; wide?: boolean;
-      panelMode?: 'docked' | 'inspector'; open?: boolean } = $props();
+      panelMode?: 'docked' | 'inspector'; open?: boolean; panelLabel?: string } = $props();
 
   const inspector = $derived(panelMode === 'inspector');
+  const asideLabel = $derived(panelLabel ?? (inspector ? 'Details' : undefined));
   // out of view and hidden once the slide out has ended (transitionend, or at once when nothing moves)
   let gone = $state(true);
   let aside: HTMLElement | undefined = $state();
@@ -47,7 +50,7 @@
     <div class="content" class:wide data-frame-content data-max={wide ? '--content-max-wide' : '--content-max'}>{@render main()}</div>
   </div>
   <aside bind:this={aside} class:gone={inspector && !open && gone} data-panel data-panel-mode={panelMode}
-    data-open={inspector ? String(open) : undefined} inert={inspector && !open}>
+    data-open={inspector ? String(open) : undefined} inert={inspector && !open} aria-label={asideLabel}>
     {#if panel}{@render panel()}{:else}<div class="empty"><EmptyState title={emptyPanel} /></div>{/if}
   </aside>
 </div>

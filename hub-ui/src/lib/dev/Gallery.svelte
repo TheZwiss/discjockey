@@ -361,9 +361,11 @@
       <ListPanelFrame panelMode="inspector" open={inspectorOpen}>
         {#snippet main()}
           <PageHeader title="Rekordbox Library" sub={HDR_PARTS}>{#snippet actions()}
-            <Button variant="icon" pressed={inspectorOpen} aria-label={inspectorOpen ? 'Hide details (⌘I)' : 'Show details (⌘I)'}
+            <Button variant="icon" pressed={inspectorOpen} aria-label={inspectorOpen ? 'Hide details' : 'Show details'}
+              tip={{ text: inspectorOpen ? 'Hide details' : 'Show details', keys: '⌘I' }}
               onclick={() => (inspectorOpen = !inspectorOpen)} data-test="g-inspector-toggle">
-              <svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="2" /><path d="M10 3v10" /></svg></Button>{/snippet}</PageHeader>
+              <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2.4" /><path
+                d="M10 2.5v11" /><path d="M11.6 5.2h1.3M11.6 7.2h1.3M11.6 9.2h1.3" /></svg></Button>{/snippet}</PageHeader>
           <Surface kind="list" label="Rows" summary="4">{@render srows(4, 'Row')}</Surface>
         {/snippet}
         {#snippet panel()}

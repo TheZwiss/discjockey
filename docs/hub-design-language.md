@@ -362,15 +362,15 @@ used.
 
 | Block | File | Gallery | What it does |
 |---|---|---|---|
-| `ListPanelFrame`, `ColumnFrame` | `lib/frames/` | `gallery-frames` | The two page frames (§1 here); `ListPanelFrame` `panelMode` `docked` (default) or `inspector` with `open` (Library's details on demand). |
+| `ListPanelFrame`, `ColumnFrame` | `lib/frames/` | `gallery-frames` | The two page frames (§1 here); `ListPanelFrame` `panelMode` `docked` (default) or `inspector` with `open` (Library's details on demand); `panelLabel` names the panel's landmark (an inspector without one is "Details"). |
 | `Panel` | `lib/frames/Panel.svelte` | `gallery-panel` | `head` / `fill` / `after` / `foot`. |
 | `PageHeader` | `lib/components/PageHeader.svelte` | `gallery-page-header` | Title · status line (a string that wraps under the title, or a list of parts that drop whole, last first), actions, the read-status slot. |
 | `Surface` | `lib/components/Surface.svelte` | `gallery-surface` | `card` / `list` / `table`; `label`, `summary`, `tone`, `foldable`, `sticky`, `bulk` (All · None), `hint` (a group's one-line hint after the count, printed like `ListSection`'s: no dot between name, count and hint), `fitLabel` (the label is a folder's path, fitted into the head's free width like a watched folder's: `~` for home, parents giving way in whole folders, the folder's own name last; the full path is the tooltip; a path that is not whole beside the head's links goes on a line of its own and the links wrap below it, and is cut only when even the head's width is too narrow), `header` (a Hint there gives way with the label), `grow` (`{ rows, tall? }`: fills its column up to its rows, 3-row minimum plus a peek, rows scroll inside; shared measuring with ToggleGroup in `growFill.ts`); `columns` (a table's column head, ruled and fixed above the rows, a `list` container of the rows' width so optional columns match) and `scroller` (bindable: the rows' scroller of a `grow` surface, for a table that renders only its visible rows); sets `data-surface`, `data-scrolls-itself` with `grow`, the fold `data-row-hit`. |
-| `Button` | `lib/components/Button.svelte` | `gallery-button` | `filled` · `primary` · `secondary` · `danger` · `link` · `icon`; an `icon` can be a toggle (`pressed`: accent text on `--accent-wash-strong` plus a dot, `aria-pressed`, the foot's Shuffle) and `size="xs"` (22 px, a row inside the sidebar). |
+| `Button` | `lib/components/Button.svelte` | `gallery-button` | `filled` · `primary` · `secondary` · `danger` · `link` · `icon`; an `icon` can be a toggle (`pressed`: accent text on `--accent-wash-strong` plus a dot, `aria-pressed`, the foot's Shuffle; Library's details toggle) and `size="xs"` (22 px, a row inside the sidebar). `tip` gives it the house `Tip` (name plus the shortcut's key cap, "Show details ⌘I") in place of a native title. |
 | `ToggleGroup`, `ToggleRow` | `lib/components/` | `gallery-toggles` | On/off rows; `grow` inside a Panel `fill` (one per Panel); search from `SEARCH_FROM` rows (the query clears below it); `disabledReason`: each row's tooltip and a Hint in the head in place of All · None (gallery "Locked"). A `ToggleRow` alone in a `Surface kind="list"` is a single setting; its `sub` is a wrapping second line (the setting's detail, or why it is locked; Playlists' "Rename the folder on disk too"). |
 | `Segmented` | `lib/components/Segmented.svelte` | `gallery-segmented` | One of up to 6; counts, dots (none at a count of 0), More, tight mode. |
 | `StatCard` | `lib/components/StatCard.svelte` | `gallery-statcard` | 30 px number + unit + label; a bar or ring as its child; `value={null}` is "—", also its loading state; `wrap`: a label that is a sentence (the cutoff's "a lossy file inside the AIFF") takes a second line whole instead of ending in "…". |
-| `SummaryStrip` | `lib/components/SummaryStrip.svelte` (+ `summaryStripModel.ts`) | `gallery-summarystrip` | A collection at a glance along the page, 72 px, between the header and the filter segments (Library, in place of the panel's summary card): the lossless share in StatCard's type ("63 % lossless" over "290 of 460 checked tracks") · the `QualityBar` (no legend: the segments below carry the dots and counts) · two rows, "Upgrade ready {n}" and "Not lossless yet · {all / m / none} in To-do {n}", each a link with › only while it leads somewhere (`onupgrades`, `ontodo`); fewer in To-do than not lossless explains itself in a `Tip` under the row (a row that is no link then takes focus for it). Rows highlight, never shrink; without a share the number is a dash with no unit and the line names it ("lossless · none checked yet"); `summary={null}` waits with dashes at the same height. Words in `stripView`. |
+| `SummaryStrip` | `lib/components/SummaryStrip.svelte` (+ `summaryStripModel.ts`) | `gallery-summarystrip` | A collection at a glance along the page, 72 px, between the header and the filter segments (Library, in place of the panel's summary card): the lossless share in StatCard's type ("63 % lossless" over "290 of 460 checked tracks") · the `QualityBar` (no legend: the segments below carry the dots and counts) · two rows, "Upgrade ready {n}" (the lossless dot) and "Not lossless yet · {all / m / none} in To-do {n}" (a 14 px pill of the good-lossy, weak and fake colours in proportion: the group is mixed, so no single quality's dot), each a link with › only while it leads somewhere (`onupgrades`, `ontodo`); fewer in To-do than not lossless explains itself in a `Tip` under the row (a row that is no link then takes focus for it). Rows highlight, never shrink; without a share the number is a dash with no unit and the line names it ("lossless · none checked yet"); `summary={null}` waits with dashes at the same height. Words in `stripView`. |
 | `DayBar` | `lib/components/DayBar.svelte` | `gallery-daybar` | Today vs later; no limit; limit reached. Day mode (`input.day`, Dashboard): used today (filled, quiet) · this sync · left (outline) or later. Input from `dayBar` (`dayBarModel.ts`). |
 | `DeltaBar` | `lib/components/DeltaBar.svelte` | `gallery-deltabar` | A signed change either side of a centre line, `--w-row-action` wide: a gain grows right in the accent, a loss left in grey; every row of a list passes the same `max`, so lengths compare. The number sits beside it (the caller's). Playlists' move view. |
 | `SelectCard` | `lib/components/SelectCard.svelte` | `gallery-selectcard` | One of a few things to pick, as a card that shows its state where you click (`title`, children: usage bar, status); picked = accent edge, `off` = dashed; a row of them is a tablist, ← / →. |
@@ -549,6 +549,27 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-30 · A6 fixes: the strip's "Not lossless yet" mark is the group's own colours.** The row counts good lossy,
+  weak and fake together, but its mark was the weak red dot, the Weak segment's dot right below: it claimed one quality
+  for the whole group. Now a 14 px pill of the three colours in proportion (`stripView.mix`), the not-lossless part of
+  the bar beside it; the approved mockup had the red dot. Also: the inspector's landmark has a name
+  (`ListPanelFrame panelLabel`, Library "Track details"), the toggle carries `aria-keyshortcuts`, and with an empty
+  library ⌘I does nothing and a remembered open inspector steps nothing back (`inspectorAvailable`). Seen:
+  `library-folder` (a6-fix-strip-before / -after).
+- **2026-10-30 · The Library page: the strip, the inspector on demand, the columns by the table's width (library
+  stage 5 A6, D10, N5–N7, N14).** The docked panel and `FolderOverview` left Library: the header carries the
+  subtitle's parts (`Library.subtitle`) and a details toggle (`Button icon pressed` with `tip`, "Show details ⌘I"), the
+  `SummaryStrip` sits between the header and the segments, and the details are `ListPanelFrame panelMode="inspector"`,
+  opened by the toggle, ⌘I, a click on a row's quality badge ("Show details") or the menu's Show details; empty, it says
+  "Select a track to see its details.". The table's optional columns follow its own width: Folder (All tracks, Not in
+  a playlist) from 520 px, Length from 720 (a playlist: Length from 580), so Source and Added left the table (the
+  inspector shows both) and a sort saved by them falls back to Artist. The width is measured (ResizeObserver, before
+  paint) and `libraryModel.columnsAt` picks the columns, one tested place for the thresholds instead of container
+  queries per view. Against the mockup: Folder is `minmax(96px, .8fr)`, not 116 px / .95fr (with the details open at
+  1280 a wider Folder cut the artists); Not in a playlist's Folder says where the file sits (every row is in none).
+  *Why:* the docked panel squeezed the table to "Get N…" at 1100; now titles and artists read whole at 1280 × 800 and
+  1100 × 700. Seen: `library-closed-1280`, `library-closed-1100`, `library-long-titles-1100`, `library-inspector*`,
+  `library-playing-sync`.
 - **2026-10-30 · The browser column (library stage 5 A5, D4, I7; notes N2–N4, N9, N10, N13, N15).**
   `BrowserColumn` (rows from `lib/shell/browserModel.ts`): the filter field on the page header's row, level with the
   page's search field; All tracks and Not in a playlist, then Playlists (priority order, or A–Z by the head's pressed
@@ -622,7 +643,8 @@ before reopening anything. New system-level decisions from phase 2 on go here, n
   mockup drew 8 px with 2 px gaps), the share's line is StatCard's muted label colour (the mockup's was darker), and the
   rows' column is 300 px instead of 276, so "Not lossless yet · none in To-do 170" and four-digit counts stay whole.
   At no file that isn't lossless the row drops "· none in To-do" (it says nothing beside a 0). `count()` joins
-  `format.ts` (thousands separators: "3,776 of 5,306"). `FolderOverview` stays until A6 puts the strip on the page.
+  `format.ts` (thousands separators: "3,776 of 5,306"). Library's `FolderOverview` retired with A6, which put the
+  strip on the page.
   Seen: gallery SummaryStrip (`base-gallery`).
 - **2026-10-30 · A3 fixes: `Tip` gets `keys`, keeps its Escape, and the gallery shows one tip at a time.** The rail's
   tooltip prints its shortcut as the approved mockup does, a muted cap at the line's end ("To-do · 64 to look at ⌘3"),

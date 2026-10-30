@@ -14,7 +14,14 @@ describe('stripView', () => {
       share: '63', line: '290 of 460 checked tracks',
       upgrades: { count: '6', link: true },
       notLossless: { count: '170', link: true, todo: 'all in To-do', tip: null },
+      mix: [{ quality: 'good_lossy', n: 120 }, { quality: 'weak', n: 41 }, { quality: 'fake', n: 9 }],
     });
+  });
+  it("marks Not lossless yet with the qualities it holds, not one quality's colour", () => {
+    expect(stripView(sum({ by_quality: { lossless: 10, good_lossy: 3, weak: 0, fake: 2, missing: 4 } })).mix)
+      .toEqual([{ quality: 'good_lossy', n: 3 }, { quality: 'fake', n: 2 }]);
+    expect(stripView(sum({ by_quality: { lossless: 10, good_lossy: 0, weak: 0, fake: 0, missing: 0 } })).mix).toEqual([]);
+    expect(stripView(null).mix).toEqual([]);
   });
   it('counts with thousands separators', () => {
     const v = stripView(sum({ tracks: 5318, lossless_share: 3776 / 5306,

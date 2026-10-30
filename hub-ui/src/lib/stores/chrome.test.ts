@@ -4,11 +4,11 @@ import { parseHash } from '../router';
 import {
   BROWSER_DEFAULT, BROWSER_MAX, BROWSER_MIN, bringBrowserBack, chrome, chromeLayout, chromeMotion, chromeMove,
   clampBrowserWidth, edgeCursor, edgeKeyWidth, filterFocus, fold, formOther,
-  inspectorOpen, libraryReturn, placeOf, requestFilterFocus, setBrowserWidth, toggleInspector, type ChromeInput,
+  inspectorOpen, inspectorToggles, libraryReturn, placeOf, requestFilterFocus, setBrowserWidth, toggleInspector, type ChromeInput,
 } from './chrome';
 
 const input = (o: Partial<ChromeInput> = {}): ChromeInput => ({ place: 'library', formLibrary: 'rail', formOther: 'full',
-  browserWidth: 240, inspectorOpen: false, windowWidth: 1280, ...o });
+  browserWidth: 240, inspectorOpen: false, windowWidth: 1280, inspectorAvailable: true, ...o });
 
 describe('chromeLayout', () => {
   it('Library: the rail and the browser at 240 make the chrome 50 + 1 + 240', () => {
@@ -40,6 +40,10 @@ describe('chromeLayout', () => {
     const wide = chromeLayout(input({ inspectorOpen: true, windowWidth: 1240 }));
     expect([wide.steppedBack, wide.browserShown, wide.sidebarW]).toEqual([false, true, 291]);
     expect(chromeLayout(input({ inspectorOpen: false, windowWidth: 1100 })).browserShown).toBe(true);
+  });
+  it('an empty library has no inspector: a remembered open one steps nothing back', () => {
+    const l = chromeLayout(input({ inspectorOpen: true, inspectorAvailable: false, windowWidth: 1100 }));
+    expect([l.steppedBack, l.browserShown, l.sidebarW]).toEqual([false, true, 291]);
   });
   it('the inspector pref never steps anything back outside Library', () => {
     const l = chromeLayout(input({ place: 'other', inspectorOpen: true, windowWidth: 1100 }));
@@ -128,6 +132,11 @@ describe('the stores', () => {
   it('⌘I does nothing outside Library', () => {
     toggleInspector();
     expect(get(inspectorOpen)).toBe(false);
+  });
+  it('⌘I turns the inspector over only in Library with something to show', () => {
+    expect(inspectorToggles('library', true)).toBe(true);
+    expect(inspectorToggles('library', false)).toBe(false);
+    expect(inspectorToggles('other', true)).toBe(false);
   });
   it('each filter request is a new number for the column to answer', () => {
     const n = get(filterFocus);
