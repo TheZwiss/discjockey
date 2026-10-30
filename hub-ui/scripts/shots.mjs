@@ -33,21 +33,22 @@ function args(argv) {
   return a;
 }
 
-// Left: the built screen at its real size. Right: the mockup at 1.15x (mockups are drawn small, plan 64.2).
-async function compose(ctx, leftPng, rightPng, file, name) {
+// Left: the built screen at its real size. Right: the mockup at `scale` (1.15 by default: mockups are drawn small, plan
+// 64.2; 1 for library-layout.html, which is drawn at real size).
+async function compose(ctx, leftPng, rightPng, file, name, scale = 1.15) {
   const page = await ctx.newPage();
   const src = (b) => `data:image/png;base64,${b.toString('base64')}`;
   await page.setContent(`<!doctype html><html><body style="margin:0;background:#111;color:#999;font:12px -apple-system">
     <div style="display:flex;gap:16px;padding:12px;align-items:flex-start">
       <figure style="margin:0"><figcaption>built · ${name}</figcaption><img id="l" src="${src(leftPng)}" style="display:block"></figure>
-      <figure style="margin:0"><figcaption>mockup × 1.15</figcaption><img id="r" src="${src(rightPng)}" style="display:block"></figure>
+      <figure style="margin:0"><figcaption>mockup × ${scale}</figcaption><img id="r" src="${src(rightPng)}" style="display:block"></figure>
     </div></body></html>`);
   await page.waitForLoadState('load');
-  await page.evaluate(() => {
+  await page.evaluate((k) => {
     const l = document.getElementById('l'), r = document.getElementById('r');
     l.style.width = `${l.naturalWidth / 2}px`;
-    r.style.width = `${(r.naturalWidth / 2) * 1.15}px`;
-  });
+    r.style.width = `${(r.naturalWidth / 2) * k}px`;
+  }, scale);
   await page.screenshot({ path: file, fullPage: true });
   await page.close();
 }
@@ -74,10 +75,15 @@ await pool(browser, jobs, a.jobs, async (ctx, { s, size }) => {
       }
       if (a.compare && s.mockup) {
         const m = await ctx.newPage();
-        await m.goto(pathToFileURL(join(mockups, s.mockup)).href);
-        const mp = s.mockupClip ? await m.locator(s.mockupClip).first().screenshot() : await m.screenshot({ fullPage: true });
+        // a mockup state (`mockupState`): the mockup's page opens at <mockup>#<state> in a window big enough that its
+        // stage doesn't scale the window down, and the window ([data-win]) is clipped
+        if (s.mockupState) await m.setViewportSize({ width: 1700, height: 1200 });
+        await m.goto(`${pathToFileURL(join(mockups, s.mockup)).href}${s.mockupState ? `#${s.mockupState}` : ''}`);
+        if (s.mockupState) await m.waitForSelector('[data-win]', { timeout: 10000 });
+        const clip = s.mockupClip ?? (s.mockupState ? '[data-win]' : null);
+        const mp = clip ? await m.locator(clip).first().screenshot() : await m.screenshot({ fullPage: true });
         await m.close();
-        await compose(ctx, png, mp, join(out, `${label}.compare.png`), label);
+        await compose(ctx, png, mp, join(out, `${label}.compare.png`), label, s.mockupScale ?? 1.15);
       }
     }
   } catch (e) {
