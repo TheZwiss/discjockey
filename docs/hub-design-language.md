@@ -35,6 +35,10 @@ Every page uses one, from `hub-ui/src/lib/frames`:
 - **`ListPanelFrame`** (snippets `main`, `panel`; `emptyPanel` text; `wide`): sidebar 168 · list area · panel docked
   right, **360 px**, **320 px** below 1240 px window width (one step, never fluid). List content grows to **900 px**
   (`wide`, Library's table: **1200 px**), then centres.
+  `panelMode="inspector"` (Library only): the panel is the details **on demand**, there only while `open`, at the
+  same widths with the same `Panel` and `data-panel`; the list takes its final width at once and the inspector slides
+  in from the window's right edge over the freed space, and out the same way (motion table). Closed it is `inert` and
+  hidden. Every other page keeps the docked panel.
 - **`ColumnFrame`** (snippets `content`, `foot`): content up to **900 px**, centred. For the running sync, the end
   screen, Settings, Setup.
 
@@ -275,6 +279,7 @@ remove it on every page, not just yours.
 | Live progress during a sync | linear, `--t-live`; nothing bounces. |
 | Popovers and menus (InfoTip, Tip, More, context menu) | Fade and grow from `scale(.97)` at the trigger, `--t-pop` (140 ms); close at once. An InfoTip waits 300 ms on hover, a Tip 500 ms. **Once one tip is open (or just closed), the next opens instantly**, InfoTips and Tips alike (`infoTipModel.ts`, `tipRegistry.ts`). Modals only fade. |
 | Entrances | At most a ≤ 150 ms fade. CSS transitions only; nothing waits for an animation. Reduced motion: fades only. |
+| The details inspector (`ListPanelFrame panelMode="inspector"`) | The page lays out once, the chrome moves over it: the list takes its final width at once; the inspector slides in from the window's right edge (`translateX(100%)` → 0) in `--t-slide-in` (240 ms) and out the same way in `--t-slide-out` (200 ms), both on `--ease-drawer` (`cubic-bezier(.32,.72,0,1)`, no bounce); a CSS transition, so a second toggle turns it round mid-way. A selection change inside it is instant. Reduced motion: it fades in place, `--t-fade` (150 ms). |
 | The frame's foot (plan now-playing) | Appear: up from the window's bottom, 220 ms, strong ease-out (the page makes room at once, only the contents move); Stop: down, 180 ms. Hide: the bar's contents move 40 px left towards the sidebar's corner and fade, 240 ms ease-in-out, then the row fades in; Show: the same path back, 280 ms. Track change, play/pause, shuffle and the keys: instant. Reduced motion: cross-fades. |
 
 `ProgressBar` has `pace`: `value` (moves on its own), `reply` (answers the user), `live` (a running sync). Placeholders
@@ -312,7 +317,7 @@ used.
 
 | Block | File | Gallery | What it does |
 |---|---|---|---|
-| `ListPanelFrame`, `ColumnFrame` | `lib/frames/` | `gallery-frames` | The two page frames (§1 here). |
+| `ListPanelFrame`, `ColumnFrame` | `lib/frames/` | `gallery-frames` | The two page frames (§1 here); `ListPanelFrame` `panelMode` `docked` (default) or `inspector` with `open` (Library's details on demand). |
 | `Panel` | `lib/frames/Panel.svelte` | `gallery-panel` | `head` / `fill` / `after` / `foot`. |
 | `PageHeader` | `lib/components/PageHeader.svelte` | `gallery-page-header` | Title · status line (a string that wraps under the title, or a list of parts that drop whole, last first), actions, the read-status slot. |
 | `Surface` | `lib/components/Surface.svelte` | `gallery-surface` | `card` / `list` / `table`; `label`, `summary`, `tone`, `foldable`, `sticky`, `bulk` (All · None), `hint` (a group's one-line hint after the count, printed like `ListSection`'s: no dot between name, count and hint), `fitLabel` (the label is a folder's path, fitted into the head's free width like a watched folder's: `~` for home, parents giving way in whole folders, the folder's own name last; the full path is the tooltip; a path that is not whole beside the head's links goes on a line of its own and the links wrap below it, and is cut only when even the head's width is too narrow), `header` (a Hint there gives way with the label), `grow` (`{ rows, tall? }`: fills its column up to its rows, 3-row minimum plus a peek, rows scroll inside; shared measuring with ToggleGroup in `growFill.ts`); `columns` (a table's column head, ruled and fixed above the rows, a `list` container of the rows' width so optional columns match) and `scroller` (bindable: the rows' scroller of a `grow` surface, for a table that renders only its visible rows); sets `data-surface`, `data-scrolls-itself` with `grow`, the fold `data-row-hit`. |
@@ -339,6 +344,7 @@ used.
 | `PathText` | `lib/components/PathText.svelte` (+ `pathBreak.ts`) | `gallery-trackrow` (KeyValue's File), `gallery-dropzone` | A file or folder path that may take several lines (DropZone's "→ Library/Hard_Bounce/…", the "Is this the same song?" table's place): it breaks only after a "/" (and after a drive's "›"), never inside a folder's or file's name, spaces included; a piece wider than its box breaks inside itself as the last resort. `lead` (an arrow) joins the first piece. The text is the path, so it copies as one. A path on one line never uses it: `fitPathAction` / `MiddleText` / `FolderField`. The base `.path` class no longer sets `word-break`. |
 | `CopyCode` | `lib/components/CopyCode.svelte` | `gallery-copycode` | A line to paste into the Terminal with its Copy link (`Button` link); the code wraps in its own column, so Copy stays at the first line's end. Without clipboard access it selects the line and says "Press ⌘C". |
 | `SecretField` | `lib/components/SecretField.svelte` | `gallery-secretfield` | An input whose text stays in the element (a password, a Client ID): the page reads it out with `takeSecret` as the call goes out; `oninput` derives only a boolean or a check; `tone` ok / bad; `multiline` for a pasted line. Same box as `TextField`. |
+| `SearchField` | `lib/components/SearchField.svelte` | `gallery-fields` | A search or filter field; × or Esc clears ("Clear (Esc)"). `shortcut` shows its key cap while empty: `cmd+f` also binds ⌘F at the window (a page's track search), `cmd+k` is the cap only (the browser column's filter; the key is the shell's handler); `aria-keyshortcuts` says it. |
 | `SortHeader` | `lib/components/SortHeader.svelte` | `gallery-surface` (`g-surface-columns`) | One column's head of a sortable table: the name as a button of its natural width, ↑ / ↓ on the sorted column, `aria-sort` on its `columnheader` cell; `align="end"` for numbers. Library. |
 | `ProgressBar` | `lib/components/ProgressBar.svelte` | `gallery-progress` | `pace` value / reply / live; `tone`. |
 | `PlayButton`, `PlayerIcon` | `lib/components/` | `gallery-player`, `gallery-foot` | The round play/pause of every player (MiniPlayer, the foot, the Now playing row): accent ring, ▶ / ❚❚ drawn as shapes, a spinner while loading, grey ring when off; `size` 30 or 22. `PlayerIcon`: the player's 16 px line glyphs (⏮ ⏭ ⤮ ⌄ ⌃ ×) for `Button icon`. |
@@ -496,6 +502,15 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-30 · `ListPanelFrame` gets an inspector mode; `SearchField` a ⌘K cap (library stage 5 A3.7, D16.3, house
+  rules 3 and 5).** `panelMode="inspector"` with `open` (the plan wrote `panel: 'docked' | 'inspector'`, but `panel` is
+  already the frame's snippet, so the prop is `panelMode`). Why: the widths don't add up for a docked panel beside
+  the rail and the browser (586 px at 1280), and choosing a collection and reading one track's details are different
+  moments. Motion: "the chrome moves, the page lays out once" (the foot's rule): the list jumps to its final width,
+  only the inspector moves (new tokens `--ease-drawer`, `--t-slide-in`, `--t-slide-out`, `--t-fade`). Closed it is
+  `inert` and, once out, `visibility: hidden`, so the checker's `clipped` rule never sees its buttons beyond the
+  window. `SearchField shortcut="cmd+k"` shows the cap only; the clear × says "Clear (Esc)". Seen: gallery frames
+  (`g-frame-inspector`, toggle it) and fields (`base-gallery`).
 - **2026-10-30 · Stuck section heads are opaque, square and get a hairline (library stage 5 A3.6, N15, house rule
   10).** `ListSection` draws its line only while stuck, on the edge rows pass (`stuckEdge.ts` compares the head with
   where it would sit without sticking; WebKit has no scroll-state queries), gains `stick="both"` and `on="chrome"`

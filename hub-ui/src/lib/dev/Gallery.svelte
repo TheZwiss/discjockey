@@ -56,6 +56,7 @@
   const HDR_PARTS = ['472 tracks', '8 folders with music', '~/Music/Rekordbox Library'];
   /** Gallery only: starts a scroller at a given offset, so a stuck state shows without scrolling by hand. */
   function scrollAt(node: HTMLElement, y: number) { requestAnimationFrame(() => { node.scrollTop = y; }); }
+  let inspectorOpen = $state(true);
   const now = new Date();
   const tracks = sampleTracks(now).map(trackRow);
   const t = (id: string) => tracks.find((x) => x.track_id === id) as Row;
@@ -348,6 +349,23 @@
     <div class="framebox short">
       <ListPanelFrame panel={null}>
         {#snippet main()}<Surface kind="list" label="Rows">{@render srows(2, 'Row')}</Surface>{/snippet}
+      </ListPanelFrame>
+    </div>
+    <span class="cap">ListPanelFrame panelMode="inspector" · details on demand: the list takes its width at once, the inspector slides in from the right edge</span>
+    <div class="framebox" data-test="g-frame-inspector">
+      <ListPanelFrame panelMode="inspector" open={inspectorOpen}>
+        {#snippet main()}
+          <PageHeader title="Rekordbox Library" sub={HDR_PARTS}>{#snippet actions()}
+            <Button variant="icon" pressed={inspectorOpen} aria-label={inspectorOpen ? 'Hide details (⌘I)' : 'Show details (⌘I)'}
+              onclick={() => (inspectorOpen = !inspectorOpen)} data-test="g-inspector-toggle">
+              <svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="2" /><path d="M10 3v10" /></svg></Button>{/snippet}</PageHeader>
+          <Surface kind="list" label="Rows" summary="4">{@render srows(4, 'Row')}</Surface>
+        {/snippet}
+        {#snippet panel()}
+          <Panel>
+            {#snippet head()}<StatCard value={20} unit="kHz" label="cutoff · a lossy file" />{/snippet}
+          </Panel>
+        {/snippet}
       </ListPanelFrame>
     </div>
     <span class="cap">ColumnFrame · one 900 px column, the foot's rule spans the content</span>
@@ -1040,6 +1058,7 @@
       <TextField value="secret" type="password" placeholder="Password" />
       <SearchField bind:value={search} />
       <SearchField placeholder="Search…" shortcut="cmd+f" />
+      <SearchField placeholder="Filter playlists, folders" shortcut="cmd+k" />
     </div>
   </section>
 

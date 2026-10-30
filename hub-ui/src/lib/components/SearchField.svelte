@@ -1,6 +1,9 @@
 <script lang="ts">
+  // A search or filter field. `shortcut` shows its key cap while the field is empty: `cmd+f` also binds ⌘F at the
+  // window (the page's track search); `cmd+k` is the cap only (the browser column's filter), the key itself belongs
+  // to the shell's window-level handler (plan library stage 5 D18). Esc or × clears.
   let { value = $bindable(''), placeholder = 'Search…', shortcut, test }:
-    { value?: string; placeholder?: string; shortcut?: 'cmd+f'; test?: string } = $props();
+    { value?: string; placeholder?: string; shortcut?: 'cmd+f' | 'cmd+k'; test?: string } = $props();
   let el: HTMLInputElement | undefined = $state();
   $effect(() => {
     if (shortcut !== 'cmd+f') return;
@@ -16,9 +19,10 @@
 <label class="sf" class:filled={!!value}>
   <span class="glyph" aria-hidden="true">⌕</span>
   <input bind:this={el} bind:value type="search" {placeholder} aria-label={placeholder} spellcheck="false"
+    aria-keyshortcuts={shortcut === "cmd+k" ? "Meta+K" : shortcut ? "Meta+F" : undefined}
     data-test={test} onkeydown={key} />
-  {#if value}<button type="button" class="clear" aria-label="Clear the search" onclick={() => { value = ''; el?.focus(); }}>×</button>
-  {:else if shortcut}<span class="kbd">⌘F</span>{/if}
+  {#if value}<button type="button" class="clear" aria-label="Clear the search" title="Clear (Esc)" onclick={() => { value = ''; el?.focus(); }}>×</button>
+  {:else if shortcut}<span class="kbd" aria-hidden="true">{shortcut === 'cmd+k' ? '⌘K' : '⌘F'}</span>{/if}
 </label>
 
 <style>

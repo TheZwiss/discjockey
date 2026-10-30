@@ -108,6 +108,10 @@
   --t-hover: 120ms;  /* hover: quick and quiet. Selection after navigation or an arrow key doesn't animate at all */
   --t-pop: 140ms;    /* a popover or menu fading and growing in from what opened it (exit is instant) */
   --t-live: 300ms;   /* live progress, linear: a bit longer than the engine's 250 ms update pace, so the bar never stops between updates */
+  /* the chrome moving over a page that lays out once (plan library stage 5, notes' motion table): the drawer curve,
+     no bounce; the inspector slides in 240 ms and out 200 ms (exit faster than entry); reduced motion cross-fades */
+  --ease-drawer: cubic-bezier(.32, .72, 0, 1);
+  --t-slide-in: 240ms; --t-slide-out: 200ms; --t-fade: 150ms;
   --t-fast: 120ms; --t-med: 220ms;   /* OUTDATED (design audit A15): map each use to a §6 token in phase 2 */
   /* overlays (dialog backdrop, toast shadow): black only; a cover under the countdown is dimmed, its ring track light */
   --backdrop: rgba(0, 0, 0, .72);
