@@ -196,12 +196,14 @@
 </div>
 
 <style>
-  .col { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  /* the 10 px under the list belong to the column, not the scroller: a head stuck at the list's foot is its last
+     pixel, and no row shows below it */
+  .col { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-bottom: 10px; }
   .find { flex: none; padding: 0 var(--s-2) 6px; }
   /* one scroller for the rows and their heads; no scrollbar of its own (the column is chrome, the stuck heads and the
      rows passing under them say there is more) */
   .list { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px;
-    overflow-y: auto; padding: 0 var(--s-2) 10px; scrollbar-width: none; }
+    overflow-y: auto; padding: 0 var(--s-2); scrollbar-width: none; }
   .list::-webkit-scrollbar { display: none; }
   /* a section's head stands a little apart from the rows above it */
   .list > :global([data-list-section]) { margin-top: 10px; }

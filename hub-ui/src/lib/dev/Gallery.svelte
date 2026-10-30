@@ -1008,7 +1008,7 @@
         </div>
       </div>
       <div class="col tight">
-        <span class="cap">heads that fold (fold): Playlists folded, stuck; Folders right below it, not stuck: no line</span>
+        <span class="cap">fold: Playlists folded, stuck; Folders right below it, not stuck: no line</span>
         <div class="g-chrome-list" use:scrollAt={149} data-test="g-section-chrome-folded">
           {#each [['Favourites', 4], ['Playlists', 12], ['Folders', 10]] as [name, n] (name)}
             {@const open = !gFolded.includes(name as string)}

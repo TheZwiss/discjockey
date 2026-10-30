@@ -219,7 +219,8 @@
 
 {#snippet main()}
   <PageHeader title={lib?.title ?? (folder === null ? 'All tracks' : folder === NOT_IN_PLAYLIST ? 'Not in a playlist' : folder)} {sub}>
-    {#snippet actions()}<SearchField bind:value={search} bind:input={searchInput} placeholder="Search title, artist…" shortcut="cmd+f" />{/snippet}
+    {#snippet actions()}<SearchField bind:value={search} bind:input={searchInput} placeholder="Search title, artist…" shortcut="cmd+f"
+      test="library-search" />{/snippet}
   </PageHeader>
   {#if libError && !lib}
     <ProblemCard kind={libError.kind} message={libError.message} onretry={() => { retry++; }} />

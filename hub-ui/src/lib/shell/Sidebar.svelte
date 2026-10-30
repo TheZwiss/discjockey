@@ -121,7 +121,7 @@
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
   <div class="edge" class:drag={!!drag} role="separator" aria-orientation="vertical" aria-label="Width of the list"
     aria-valuemin={BROWSER_MIN} aria-valuemax={BROWSER_MAX} aria-valuenow={L.browserWidth} tabindex="0"
-    style:cursor={drag ? null : edgeCursor(L.browserWidth)} use:tip={drag ? null : EDGE_TIP}
+    style:cursor={drag ? null : edgeCursor(L.browserWidth)} use:tip={drag ? null : { text: EDGE_TIP, side: 'right', atPointer: true }}
     onpointerdown={edgeDown} onpointermove={edgeMove} onpointerup={edgeUp} onpointercancel={edgeUp}
     ondblclick={() => setBrowserWidth(BROWSER_DEFAULT, true)} onkeydown={edgeKey} data-test="browser-edge"></div>
 {/if}
