@@ -165,14 +165,15 @@ class _Connection(sqlite3.Connection):
             self.close()
 
 
-def connect(path: Path) -> sqlite3.Connection:
+def connect(path: Path, *, wait_ms: int = 5000) -> sqlite3.Connection:
     """Opens library.db with the binding settings: WAL (if the volume can't do WAL, the default journal: correctness
     doesn't depend on it), synchronous=FULL, foreign keys, F_FULLFSYNC for commits and checkpoints (the SQLite form
-    of library.full_fsync), a 5 s wait for another writer. A file that isn't a database is StateError."""
+    of library.full_fsync), a 5 s wait for another writer (`wait_ms`: shorter for a best-effort write that must not
+    hold its caller up). A file that isn't a database is StateError."""
     conn = None
     try:
         conn = sqlite3.connect(str(path), isolation_level=None, factory=_Connection)
-        conn.execute("PRAGMA busy_timeout = 5000")
+        conn.execute(f"PRAGMA busy_timeout = {int(wait_ms)}")
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA synchronous = FULL")
         conn.execute("PRAGMA fullfsync = ON")

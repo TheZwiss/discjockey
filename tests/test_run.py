@@ -2,6 +2,7 @@ import copy
 import json
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 from datetime import date, datetime
 
@@ -702,4 +703,37 @@ def test_a_failing_record_never_fails_the_read(paths, monkeypatch, caplog):
     monkeypatch.setattr(db, "record_reads", locked)
     prep = run.prepare(paths, dry_run=True)
     assert [a.kind for a in prep.plan.actions] == ["acquire"] * 3
+    [warning] = [r for r in caplog.records if "couldn't keep the playlists' read records" in r.getMessage()]
+    assert warning.exc_info is not None  # unexpected: with its traceback
+
+
+def test_records_of_another_version_are_one_warning_line(paths, caplog):
+    run.prepare(paths)
+    fetched = run.prepare(paths, dry_run=True).fetched  # (prepare itself then refuses the records before reading)
+    with db.connect(paths.db_file) as conn:
+        conn.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (str(db.SCHEMA_VERSION + 1),))
+    run.record_reads(paths, fetched, datetime.now())
+    [warning] = [r for r in caplog.records if "couldn't keep the playlists' read records" in r.getMessage()]
+    assert warning.exc_info is None and warning.getMessage() == (
+        f"couldn't keep the playlists' read records: {db.NEWER}")
+
+
+def test_a_long_job_transaction_holds_the_read_up_briefly_not_for_the_full_wait(paths, caplog):
+    run.prepare(paths)
+    before = recorded(paths)
+    other = sqlite3.connect(str(paths.db_file), isolation_level=None)
+    other.execute("BEGIN IMMEDIATE")  # a job's long transaction (an import's scan)
+
+    @contextmanager
+    def taken():
+        yield False
+    start = time.monotonic()
+    try:
+        prep = run.prepare(paths, dry_run=True, lock=taken)
+    finally:
+        other.execute("ROLLBACK")
+        other.close()
+    assert time.monotonic() - start < run.RECORD_WAIT_MS / 1000 + 2  # far below the binding 5 s
+    assert [fp.line.folder for fp in prep.fetched] == ["Hard_Bounce"]
     assert "couldn't keep the playlists' read records" in caplog.text
+    assert recorded(paths) == before

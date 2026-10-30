@@ -123,6 +123,12 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
     return Prepared(paths, plan.state, settings, plan, log, lines, fetched, import_waiting)
 
 
+# How long recording a read waits for another writer (a job's transaction, e.g. an import's scan): long enough to
+# outlast the engine's usual short transactions, short enough that a window read never feels held up (the binding
+# 5 s would add up to 5 s to every read during a long one). A record missed here is written by the next read
+RECORD_WAIT_MS = 750
+
+
 def record_reads(paths: Paths, fetched: list[FetchedPlaylist], now: datetime) -> None:
     """Keeps what this read found as the playlists' records in library.db (plan library stage 5, D1), so the window
     shows a playlist's songs and counts when it opens, offline, and for switched-off playlists. Every read passes
@@ -130,14 +136,16 @@ def record_reads(paths: Paths, fetched: list[FetchedPlaylist], now: datetime) ->
     records aren't library state, so this takes no library lock and also runs when the caller couldn't get it, and
     in a dry run (it changes no music file). Best-effort: a library without library.db yet (still on state.json;
     this never creates one), or records this Discjockey can't write (another version, a drive gone, a write that
-    waited too long), keep the read as it is; the failure is logged."""
+    waited out RECORD_WAIT_MS), keep the read as it is; the failure is logged."""
     if not paths.db_file.exists():
         return
     try:
         keep = {r.ref for r in playlists_file.load(paths.playlists_file).rows if r.ref is not None}
-        with db.connect(paths.db_file) as conn:
+        with db.connect(paths.db_file, wait_ms=RECORD_WAIT_MS) as conn:
             db.check(conn)
             db.record_reads(conn, fetched, now, keep)
+    except StateError as e:  # records of another version, or a database SQLite refused: expected, its words say why
+        logger.warning("couldn't keep the playlists' read records: %s", e)
     except Exception:  # whatever went wrong, the read and what it plans stand
         logger.warning("couldn't keep the playlists' read records", exc_info=True)
 

@@ -42,6 +42,8 @@ def test_connect_sets_the_binding_pragmas(tmp_path, library):
         assert conn.execute("PRAGMA fullfsync").fetchone()[0] == 1
         assert conn.execute("PRAGMA checkpoint_fullfsync").fetchone()[0] == 1
         assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+    with db.connect(path, wait_ms=750) as conn:  # a best-effort writer's shorter wait
+        assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 750
 
 
 def test_the_connection_closes_at_the_end_of_its_with(tmp_path, library):
