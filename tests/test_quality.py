@@ -174,6 +174,28 @@ def test_decoded_opus_saved_as_wav_is_fake(points):
     assert verdict(True, c) == "fake_lossless"
 
 
+@pytest.mark.parametrize("drop_db", [13, 15])
+def test_a_small_cliff_at_20_khz_is_fake(drop_db):
+    # an encoder's wall into a quiet top end can fall only 13-15 dB
+    c = cutoff_hz(shaped(noise(), [(0, 0), (19950, 0), (20050, -drop_db)]), SR)
+    assert c is not None and 19900 <= c <= 20100
+    assert verdict(True, c) == "fake_lossless"
+
+
+@pytest.mark.parametrize("drop_db", [12, 15])
+def test_a_small_cliff_at_20_7_khz_stays_lossless(drop_db):
+    # a mastering filter sits higher than the encoders' walls: below CLIFF_DB it is no wall up here
+    c = cutoff_hz(shaped(noise(), [(0, 0), (20650, 0), (20750, -drop_db)]), SR)
+    assert c is None or c >= FAKE_BELOW_HZ
+    assert verdict(True, c) == "lossless"
+
+
+def test_a_cliff_of_18_db_at_20_6_khz_is_fake():
+    c = cutoff_hz(shaped(noise(), [(0, 0), (20550, 0), (20650, -20)]), SR)
+    assert c is not None and 20500 <= c <= 20700
+    assert verdict(True, c) == "fake_lossless"
+
+
 @pytest.mark.parametrize("points", [
     [(0, 0), (17000, 0), (20000, -12), (22050, -28)],  # a natural roll-off near 20 kHz
     [(0, 0), (19500, 0), (22050, -25)],  # a resampler's anti-alias filter, falling over 2.5 kHz

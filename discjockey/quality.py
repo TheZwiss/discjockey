@@ -30,8 +30,9 @@ EDGE_DB = 10.0         # the cutoff is where the fall first drops this far below
 # a flat floor); natural roll-offs and resamplers' anti-alias filters fall too slowly to leave one. Lossy encoders wall
 # at or below 20.5 kHz (Opus always ~20 kHz, LAME 320 kbps 20.2-20.5 kHz); a steep anti-alias filter sits at 21+ kHz.
 FAKE_BELOW_HZ = 20_800
-WALL_LOW_HZ = 19_500   # from here up to FAKE_BELOW_HZ a smaller cliff is a wall too: an encoder's wall into a quiet
-                       # top end can fall only 15-20 dB, while natural roll-offs fall about 10 dB per kHz or less
+WALL_LOW_HZ = 19_500   # from here up to WALL_HIGH_HZ a smaller cliff (LOSSY_CLIFF_DB) is a wall too: an encoder's wall into
+                       # a quiet top end can fall only 12-18 dB, while natural roll-offs fall about 10 dB per kHz or less
+WALL_HIGH_HZ = 20_400  # encoders low-pass near 20 kHz (Opus, LAME); mastering filters sit higher, so above this a cliff must be CLIFF_DB
 CHUNK_FRAMES = 256
 LOSSLESS_CODECS = {"flac", "alac", "wavpack", "ape", "tta"}
 
@@ -98,12 +99,12 @@ def _bands(x: np.ndarray, sr: int) -> np.ndarray | None:
 def cutoff_hz(samples: np.ndarray, sample_rate: int, cliff_db: float = CLIFF_DB) -> int | None:
     """Where the top end ends, or None for full band: the lowest spectral cliff (>= cliff_db within 400 Hz)
     between 10 and 21.5 kHz, failing that the edge of a steeper fall into a flat floor (`_floor_edge`), failing that
-    a smaller wall (>= LOSSY_CLIFF_DB) between WALL_LOW_HZ and FAKE_BELOW_HZ."""
+    a smaller wall (>= LOSSY_CLIFF_DB) between WALL_LOW_HZ and WALL_HIGH_HZ."""
     bands = _bands(samples, sample_rate)
     if bands is None:
         return None
     for edge in (_cliff(bands, cliff_db), _floor_edge(bands),
-                 _cliff(bands, min(cliff_db, LOSSY_CLIFF_DB), WALL_LOW_HZ, FAKE_BELOW_HZ - BAND_HZ)):
+                 _cliff(bands, min(cliff_db, LOSSY_CLIFF_DB), WALL_LOW_HZ, WALL_HIGH_HZ - BAND_HZ)):
         if edge is not None:
             return edge
     return None
