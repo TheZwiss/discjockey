@@ -22,7 +22,7 @@
   import { get } from 'svelte/store';
   import { hub } from '../stores/hub';
   import { route, link, go } from '../router';
-  import { browserClosed, filterFocus, playlistsAz } from '../stores/chrome';
+  import { browserClosed, chrome, filterFocus, playlistsAz } from '../stores/chrome';
   import { Button, ListSection, SearchField, ServiceMark, tip } from '../components';
   import {
     HANDOFF, browserList, currentKey, highlightOf, moveHighlight, rowByKey, rowId, sortTip, toggleClosed,
@@ -48,6 +48,11 @@
     lastQuery = query;
     moved = null;
     void tick().then(() => reveal(hi));
+  });
+
+  // the column stays mounted outside Library: typed text must not wait for the next visit
+  $effect(() => {
+    if ($chrome.place !== 'library') clear();
   });
 
   function clear() {

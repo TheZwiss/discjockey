@@ -121,7 +121,7 @@ export type FakeState = {
   now: Date;
   tracks: FakeTrack[];
   newTracks: { track_id: string; artist: string; title: string; folder: string; duration_s: number }[];
-  extraFolders: { folder: string; in_playlists_txt: boolean }[];
+  extraFolders: { folder: string; listed: boolean }[];
   playlists: FakePlaylist[];
   version: number;
   runs: FakeRun[];
@@ -586,7 +586,7 @@ export function makeState(scenario: string, now = new Date()): FakeState {
   const days = Array.from({ length: 14 }, (_, i) => (i === 13 ? 37 : [12, 0, 44, 60, 31, 0, 0, 58, 75, 20, 9, 0, 66][i]));
   const s: FakeState = {
     scenario, folders: {}, pick: '/Users/you/Music/DJ Sets', now, tracks, newTracks: newTracks(big ? 60 : 10),
-    extraFolders: [{ folder: 'Old_Sets', in_playlists_txt: false }],
+    extraFolders: [{ folder: 'Old_Sets', listed: false }],
     playlists, version: 1, runs: sampleRuns(now, tracks, big ? 30 : 3),
     qobuz: { limit: 60, extra_today: 0, carry_over: 20, used_today: 37, days,
       signals: [{ time: iso(daysAgo(now, 3, 22, 12)), kind: 'search_failed', message: 'Qobuz search did not answer twice' },
@@ -634,8 +634,8 @@ export function makeState(scenario: string, now = new Date()): FakeState {
 }
 
 /** Folders as the sidebar and library see them: playlists.txt order, then folders with files only. */
-export function folderList(s: FakeState): { folder: string; in_playlists_txt: boolean }[] {
-  const out = s.playlists.map((p) => ({ folder: p.folder, in_playlists_txt: true }));
+export function folderList(s: FakeState): { folder: string; listed: boolean }[] {
+  const out = s.playlists.map((p) => ({ folder: p.folder, listed: true }));
   for (const f of s.extraFolders) if (!out.some((o) => o.folder === f.folder)) out.push(f);
   return out;
 }

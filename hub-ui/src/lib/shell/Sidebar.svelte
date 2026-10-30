@@ -278,7 +278,7 @@
   /* the edge: the chrome and the sidebar's form glide together on the drawer curve, no bounce */
   .chrome { --edge-dur: 0ms; --edge-delay: 0ms; --lab-delay: calc(var(--t-fold) - var(--t-fold-fade-in)); }
   .chrome[data-move='fold'], .chrome[data-move='into'], .chrome[data-move='reset'] { --edge-dur: var(--t-fold); }
-  /* out of Library quicker: the browser's rows fade in 90 ms, then the edge glides back (done at 200 ms, entry 220) */
+  /* out of Library quicker: the browser's rows fade out in 90 ms, then the edge glides back (done at 200 ms, entry 220) */
   .chrome[data-move='out'] { --edge-dur: var(--t-fold-exit); --edge-delay: var(--t-fold-exit-delay);
     --lab-delay: calc(var(--t-fold-exit-delay) + var(--t-fold-exit) - var(--t-fold-fade-in)); }
   .chrome[data-move='step-back'] { --edge-dur: var(--t-slide-out); }
@@ -290,7 +290,7 @@
   .rail .lab, .side:not(.rail) .ro { transition: opacity var(--t-fold-fade-out) var(--ease),
     visibility 0s linear var(--t-fold-fade-out); }
   /* the browser and its hairline: into Library its rows fade in over the last 150 ms from 8 px to the left; out of it
-     they fade in 90 ms; the step-back moves it 24 px behind the rail and back (200 ms out, 240 ms in, drawer curve) */
+     they fade out in 90 ms; the step-back moves it 24 px behind the rail and back (200 ms out, 240 ms in, drawer curve) */
   .browser, .side::after { transition: none; }
   [data-move='into'] .browser, [data-move='into'] .side::after {
     --rows-delay: calc(var(--t-fold) - var(--t-fold-rows-in));

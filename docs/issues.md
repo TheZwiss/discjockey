@@ -23,6 +23,11 @@ Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, st
   `npm run rules -- --page base --force` reports 1,808 FAIL lines in 40 shots, base-gallery 99, mostly the gallery's
   long section descriptions. Worth a cleanup group.
 - **The dev-only FAKE pill** now sits at the page's top-left corner and touches the page title's top in fake mode.
+- **"Not lossless yet" in the summary strip** has a small pill split into the good-lossy, weak and fake colours instead
+  of the mockup's red dot, because the row counts all three. Settled.
+- **The Playlists A–Z toggle turns orange when pressed** (the plan's `Button icon xs pressed`), where the mockup has it
+  grey. Settled.
+- **The browser's drag edge turns a lighter grey after 300 ms of hover,** so orange still means only "dragging". Settled.
 
 ## 27. Library stage 4 leftovers (import)
 

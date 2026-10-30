@@ -108,7 +108,9 @@ export const rowId = (key: string): string =>
 const byName = (a: { name: string }, b: { name: string }) =>
   a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true });
 
-export function browserList({ side, query, az, closed }: BrowserInput): BrowserList {
+export function browserList({ side, query, az, closed: storedClosed }: BrowserInput): BrowserList {
+  // a stored value is only checked for its type (getPref), so an object or a string can stand here
+  const closed = Array.isArray(storedClosed) ? storedClosed : [];
   const q = filterText(query);
   const filtering = q !== '';
   if (!side) {

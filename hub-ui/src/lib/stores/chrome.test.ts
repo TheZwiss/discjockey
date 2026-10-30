@@ -88,6 +88,13 @@ describe('the stores', () => {
     fold();
     expect(get(chrome).form).toBe('full');
   });
+  it('a corrupt stored form shows the default, and the first fold turns that over', () => {
+    formOther.set('foo' as never);
+    expect(get(chrome).form).toBe('full');
+    fold();
+    expect(get(chrome).form).toBe('rail');
+    formOther.set('full');
+  });
   it('chromeMotion names the move that led to each layout, starting with none', () => {
     const seen: string[] = [];
     const stop = chromeMotion.subscribe((m) => seen.push(m.move));

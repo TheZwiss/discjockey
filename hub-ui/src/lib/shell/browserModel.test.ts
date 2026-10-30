@@ -20,6 +20,15 @@ const side: Sidebar = {
 const list = (o: Partial<{ query: string; az: boolean; closed: string[] }> = {}) =>
   browserList({ side, query: '', az: false, closed: [], ...o });
 
+describe('browserList with a corrupt stored fold list', () => {
+  it('treats a stored object or string as no folded sections', () => {
+    for (const bad of [{ playlists: true }, 'playlists', 7, null]) {
+      const l = list({ closed: bad as never });
+      expect(l.sections.map((s) => s.open)).toEqual([true, true]);
+    }
+  });
+});
+
 describe('browserList without a filter', () => {
   it('lists the views, then Playlists in playlists.txt order, then Folders', () => {
     const l = list();
