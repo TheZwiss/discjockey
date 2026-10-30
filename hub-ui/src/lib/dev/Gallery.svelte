@@ -445,7 +445,8 @@
     <div class="col" data-test="g-header-parts">
       {#each [[946, 'Rekordbox Library', HDR_PARTS], [586, 'Rekordbox Library', HDR_PARTS], [440, 'Rekordbox Library', HDR_PARTS],
         [300, 'Rekordbox Library', HDR_PARTS], [586, 'Afterhour_Sonntag_Warmup', ['88 tracks', 'Qobuz playlist', 'switched off', 'Library › Afterhour_Sonntag_Warmup']],
-        [300, 'Afterhour_Sonntag_Warmup_Selection_2026', ['88 tracks', 'Qobuz playlist']]] as [w, t, ps], i (i)}
+        [300, 'Afterhour_Sonntag_Warmup_Selection_2026', ['88 tracks', 'Qobuz playlist']],
+        [245, 'Rekordbox Library', HDR_PARTS]] as [w, t, ps], i (i)}
         <div class="g-hdr" style="width: {w}px">
           <PageHeader title={t as string} sub={ps as string[]}>{#snippet actions()}<Button variant="icon" aria-label="Show details (⌘I)">
             <svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="2" /><path d="M10 3v10" /></svg></Button>{/snippet}</PageHeader>

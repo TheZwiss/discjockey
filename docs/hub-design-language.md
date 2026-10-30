@@ -253,7 +253,8 @@ Finish later in its `actions`).
   lead (a folder name) ends in "…".
 - **`sub` as a list of parts** (Library's collections): the parts in order of importance ("472 tracks", "8 folders
   with music", "~/Music/Rekordbox Library") on the title's line only. When they don't all fit, whole parts drop, the
-  last first, down to none; a part is never cut mid-word, and the whole subtitle is the tooltip. CSS only (the parts
+  last first, down to none; a part is never cut mid-word, and the whole subtitle is the tooltip (the title's too, so
+  it can be read when every part has dropped). The space before the first part is that part's own. CSS only (the parts
   wrap onto a clipped second line behind a zero-width strut), so it follows the width live. The title keeps its whole
   width and ends in "…" only when even the title alone doesn't fit.
 - The **read slot** (the playlists' read status, every service at once; the wire field is `read_status`, the block

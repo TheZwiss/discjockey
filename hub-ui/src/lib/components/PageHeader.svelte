@@ -21,8 +21,9 @@
   //   whole subtitle is the tooltip. CSS only, so it follows the width live with no measuring: the parts are flex
   //   items that wrap onto a second line, which is clipped, behind an empty first item one line tall (a zero-width
   //   strut, which also gives the row its baseline), so even the first part wraps away rather than be cut. The
-  //   parts take no width of their own (flex-basis 0), so the title keeps its whole width and ends in "…" only when
-  //   even the title alone doesn't fit.
+  //   parts take no width of their own (flex-basis 0, and the space before them is the first part's own padding), so
+  //   the title keeps its whole width and ends in "…" only when even the title alone doesn't fit. The title's tooltip
+  //   carries the whole subtitle too, so it can be read when every part has dropped.
   import type { Snippet } from 'svelte';
   import ReadStatus from './ReadStatus.svelte';
   import type { ReadStatus as ReadState } from '../bridge/types';
@@ -36,7 +37,7 @@
 
 <header class="ph" data-page-header>
   <div class="lead" class:has-parts={!!parts}>
-    <h1 {title}>{title}</h1>
+    <h1 title={parts?.length ? `${title}\n${parts.join(' · ')}` : title}>{title}</h1>
     {#if parts}
       {#if parts.length}<span class="parts" title={parts.join(' · ')} data-test="page-sub"><span class="strut"
         aria-hidden="true">{'\u200b'}</span>{#each parts as p, i (i)}<span class="part">{i ? ` · ${p}` : p}</span>{/each}</span>{/if}
@@ -69,7 +70,10 @@
      while it fits, under it otherwise */
   .sub { color: var(--text-label); font-size: var(--fs-small); min-width: 0; flex: 0 1 auto; text-wrap: balance; }
   /* parts: one line beside the title, never under it; the title gives way only to the gap when it fills the lead */
-  .lead.has-parts { flex-wrap: nowrap; }
+  /* no gap of the lead's own: the space before the first part is that part's, so it goes when the part goes, and a title
+     that fits alone keeps its whole width */
+  .lead.has-parts { flex-wrap: nowrap; column-gap: 0; }
+  .strut + .part { padding-left: var(--s-3); }
   .has-parts h1 { flex: 0 1 auto; }
   .parts { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; height: 16px; line-height: 16px; overflow: hidden;
     color: var(--text-label); font-size: var(--fs-small); }
