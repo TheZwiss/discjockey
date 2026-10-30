@@ -45,6 +45,11 @@ def env(tmp_path):
     return paths, state
 
 
+def without_undo(check):
+    """The check as the user reads it; its undo record is pinned in test_upgrade_undo.py."""
+    return {k: v for k, v in check.items() if k != "undo"}
+
+
 def up(state, tid="t1aaaaaaa"):
     return dict(state["tracks"][tid]["upgrade"])
 
@@ -100,8 +105,8 @@ def test_add_as_new_file(env):
     assert (e["status"], e["path"], e["source"], e["source_id"], e["source_format"], e["cutoff_hz"], e["upgrade"]) == (
         "lossless", new, "qobuz", "q1", "flac", None, None)
     assert e["last_upgrade_check"] == "2026-10-10" and e["rejected_sources"] == ["qobuz:q0"]
-    assert e["rekordbox_check"] == {"reason": "added_as_new", "since": "2026-10-16", "match": "exact",
-                                    "offset_ms": 0.0}  # the measurement of the two files goes with the check
+    assert without_undo(e["rekordbox_check"]) == {"reason": "added_as_new", "since": "2026-10-16", "match": "exact",
+                                                  "offset_ms": 0.0}  # the measurement of the two files goes with it
     assert state["pending"] == [] and records(load_state(paths)) == records(state)
     assert (r.section, r.path, r.status) == ("added_new", new, "lossless")
 
@@ -120,7 +125,7 @@ def test_add_as_new_file_keeps_what_the_two_files_measured_as(env, alignment, ma
     else:
         upgrade["alignment"] = alignment
     upgrades.add_new(paths, state, "t1aaaaaaa", upgrade, now=lambda: datetime(2026, 10, 16, 21, 0))
-    assert state["tracks"]["t1aaaaaaa"]["rekordbox_check"] == {
+    assert without_undo(state["tracks"]["t1aaaaaaa"]["rekordbox_check"]) == {
         "reason": "added_as_new", "since": "2026-10-16", "match": match, "offset_ms": offset}
 
 

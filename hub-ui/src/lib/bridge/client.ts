@@ -61,6 +61,8 @@ export interface Bridge {
   reject_current(track_id: string): Promise<JobStart>;
   rekordbox_checked(track_id: string): Promise<JobStart>;
   upgrade(track_id: string, mode: 'swap' | 'add_new' | 'discard'): Promise<JobStart>;
+  /** "Undo" on a "Check in rekordbox" item with `can_undo`: puts a swap or an added file back */
+  undo_upgrade(track_id: string): Promise<JobStart>;
   rescan_library(): Promise<JobStart>;
   // other
   show_in_finder(track_id: string, which: Which): Promise<Res<{}>>;   reveal(rel_path: string): Promise<Res<{}>>;

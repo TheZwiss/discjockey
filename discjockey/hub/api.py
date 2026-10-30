@@ -82,7 +82,7 @@ LIBRARY_METHODS = frozenset((
     "limits_what_if", "save_limits", "mark_warnings_seen", "runs", "run", "spectrum", "media_url",
     "search_candidates", "preview", "add_playlist", "preview_playlist_change", "start_sync", "save_playlists",
     "hide", "never_download", "add_bought_file", "use_candidate", "use_link", "reject_current",
-    "rekordbox_checked", "upgrade", "rescan_library", "show_in_finder", "reveal", "open_report",
+    "rekordbox_checked", "upgrade", "undo_upgrade", "rescan_library", "show_in_finder", "reveal", "open_report",
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
     "watched_folders", "set_favourites", "set_crate_shown", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
     "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate",
@@ -1585,12 +1585,19 @@ class HubApi:
             if not up:
                 raise OpProblem("No better version is waiting for this track any more.", "changed")
             if mode == "swap":
-                return upgrades.swap(self._paths, state, track_id, up, self._svc.compare)
+                return upgrades.swap(self._paths, state, track_id, up, self._svc.compare, now=self._svc.now)
             if mode == "add_new":
                 return upgrades.add_new(self._paths, state, track_id, up, now=self._svc.now)
             return upgrades.discard(self._paths, state, track_id, up)
 
         return self._single(f"upgrade_{mode}", track_id, do)
+
+    @bridge
+    def undo_upgrade(self, track_id: str) -> dict:
+        """"Undo" next to "Done, checked in rekordbox": puts a swap or an added file back as it was (the upgrade
+        waits again). Refused (UpgradeProblem) when either file changed since; gone once the check is done."""
+        return self._single("undo_upgrade", track_id,
+                            lambda state, ctx: upgrades.undo(self._paths, state, track_id))
 
 
     # --- setup wizard (spec 5.7); the steps that write files are write jobs ---

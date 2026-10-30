@@ -6,6 +6,7 @@
   // buy links, the drop zone). The body scrolls when it is long (Panel). The foot holds the to-do's own action as the
   // screen's one filled button (actionsFor().main): Swap / Add as new file, Done, checked in rekordbox, Find a
   // version, Show in Finder; a lossy file has none in the app (it is bought and dropped), so its foot stays empty.
+  // A rekordbox check left by a swap or an added file also offers a plain "Undo" link under Done (item.can_undo).
   import { untrack } from 'svelte';
   import type { Spectrum as Spec, TodoItem, TrackDetail } from '$lib/bridge/types';
   import { api, runJob } from '$lib/bridge/client';
@@ -72,7 +73,7 @@
     upSpec = u && u.ok ? u.spectrum : null;
   }
 
-  let busy = $state<'hide' | 'rekordbox' | 'swap' | 'add_new' | 'discard' | null>(null);
+  let busy = $state<'hide' | 'rekordbox' | 'undo' | 'swap' | 'add_new' | 'discard' | null>(null);
   async function hide() {
     busy = 'hide';
     const r = await runJob(api.hide(track.track_id, !track.hidden));
@@ -82,6 +83,14 @@
   async function checked() {
     busy = 'rekordbox';
     await runJob(api.rekordbox_checked(track.track_id));
+    busy = null;
+  }
+  async function undoUpgrade() {
+    if (!(await confirm({ title: 'Undo the upgrade?',
+      body: 'Your old file goes back where it was, and the new version waits in Upgrades ready again.',
+      confirmLabel: 'Undo' }))) return;
+    busy = 'undo';
+    await runJob(api.undo_upgrade(track.track_id));
     busy = null;
   }
   // Swap / Add as new file / Discard (spec §6.6): the main one from the foot, the others from the upgrade box
@@ -215,6 +224,10 @@
   {:else if act.main === 'rekordbox'}
     <WriteButton variant="filled" wide busy={busy === 'rekordbox'} onclick={checked} data-test="rekordbox-done">
       Done, checked in rekordbox</WriteButton>
+    {#if item?.can_undo}
+      <div><WriteButton variant="link" size="sm" busy={busy === 'undo'} onclick={undoUpgrade}
+        data-test="upgrade-undo">Undo</WriteButton></div>
+    {/if}
   {:else if act.main === 'find'}
     <Button variant="filled" wide disabled={!!offline} title={offline} onclick={() => onversions(track)}
       data-test="wrong-song">Find a version</Button>

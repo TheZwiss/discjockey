@@ -74,5 +74,9 @@
  { "name": "todo-duplicates-three", "route": "#/todo?filter=duplicate", "scenario": "todo_duplicates_three",
    "steps": [{ "wait": "[data-test=duplicates][data-files='3']" },
      { "eval": "if (document.querySelector('[data-test=duplicates-keep]').textContent.trim() !== 'Keep all') throw new Error('three files keep all')" },
-     { "sleep": 400 }] }
+     { "sleep": 400 }] },
+  { "name": "todo-upgrade-undo", "route": "#/todo?filter=upgrade_ready", "scenario": "normal",
+    "steps": [{ "wait": "[data-test=upgrade-swap]" }, { "click": "[data-test=upgrade-swap]" }, { "sleep": 500 },
+      { "press": "Enter" }, { "sleep": 3000 }, { "eval": "location.hash = '#/todo?filter=rekordbox_check'" },
+      { "wait": "[data-test=upgrade-undo]" }, { "sleep": 400 }] }
 ]

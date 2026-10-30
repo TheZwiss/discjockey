@@ -109,11 +109,16 @@ Use the kind for the card/headline; always show `message` as the detail.
   queued, ambiguous, conflicts, skipped, recovered, errors). `moved`, `adopted` and `conflicts` are no longer written by
   new runs (a sync moves no files and picks none up by name); they stay in the list because the reports of past runs
   have them and `run(run_id)` still shows them.
-- **rekordbox_check** (state.json entry field): null or `{reason: "wrong_song"|"added_as_new", since: "YYYY-MM-DD"}`.
+- **rekordbox_check** (state.json entry field): null or `{reason: "wrong_song"|"added_as_new"|"swapped", since:
+  "YYYY-MM-DD"}`.
   `wrong_song`: set by `use_candidate`/`use_link` when the old file was moved away to Superseded/, and by
   `reject_current` ("None of these"). `added_as_new`: set by `upgrade(id, "add_new")`, with `match` (the parked
   version's measurement: `exact`/`shifted`/`different`/`unknown`) and `offset_ms`; records from before them have
-  neither. The `detail` text follows `match`: exact/shifted say it is the same edit, relocate the old entry to the new
+  neither. `swapped`: set by `upgrade(id, "swap")`, with `match`, `offset_ms` (the fresh measurement) and `moved`
+  (the file moved up out of not_lossless/); its `detail` says rekordbox keeps the cues, Reload Tag and analyse
+  again (moved: Auto Relocate finds it by name first). Both upgrade checks also hold `undo` (engine-internal, see
+  `upgrades.py`: the fields as they were, both files' content keys, a swap's kept download in
+  `.discjockey/undo/`); checks from before undo existed have none. The page sees only `can_undo`. The `detail` text follows `match`: exact/shifted say it is the same edit, relocate the old entry to the new
   file and its cues fit (shifted: to within the offset); `different`, `unknown` and old records say it is a different
   edit, analyse and set the cues again. The next sync keeps it; only
   `rekordbox_checked(track_id)` clears it. The page sees it through `todo()`'s `rekordbox_check` group (the item's
@@ -857,8 +862,10 @@ in a duplicate group (their quality is for the Library to show). First group
 track now plays the right song. In rekordbox: analyse it again and delete the old cues (they belong to the wrong
 song)." / "This is a different edit. In rekordbox: analyse it again and set the cues again." for a real mismatch, no
 measurement or an old record; "This is the same edit. In rekordbox: relocate the old entry to the new file, its cues
-fit." when the two files were measured as the same edit); its button calls
-`rekordbox_checked(track_id)`. A track can be in two groups (e.g. Check in rekordbox and Not found); `chips.all`
+fit." when the two files were measured as the same edit; the two `swapped` texts after a swap); its button calls
+`rekordbox_checked(track_id)`. Its items also carry `can_undo` (bool): the check belongs to a swap or an added file
+that `undo_upgrade(track_id)` can still put back (the track still has that file and no newer version waits; whether
+the files changed is checked when it runs). False for every other check and for upgrades from before undo existed. A track can be in two groups (e.g. Check in rekordbox and Not found); `chips.all`
 counts each track once, `chips.rekordbox_check` every check (hidden ones too).
 ```json
 {
@@ -1563,6 +1570,7 @@ A job's success can carry words in `JobFinished.message`, empty otherwise: the i
 | `rekordbox_checked(track_id)` — "Done" on a "Check in rekordbox" item: clears `rekordbox_check` | `rekordbox_checked` | OpResult (`result.section` `rekordbox_checked`, note "checked in rekordbox") |
 | `rescan_library()` — the window opened or came back to the front: indexes `Library/` against `library.db`, so files moved, renamed or replaced by hand are found (a write method like the rest; the page ignores a `busy` or `console` answer, a running sync scans by itself). Every sync and dry run scans first too | `scan` | `{moved, new, gone, changed, copies}`, all ints: files found at a new place, new files, songs whose file is gone, files whose audio was replaced outside Discjockey (judged again like a bought file), and `copies` (new files with the audio of a file that is still there; the `Message` counts them as new files). All zero when nothing changed, and when a crash-safe step is still pending (nothing is scanned then). A scan that changed something sends one `Message` |
 | `upgrade(track_id, mode)` — `swap|add_new|discard` | `upgrade_swap` / `upgrade_add_new` / `upgrade_discard` | OpResult |
+| `undo_upgrade(track_id)` — "Undo" next to "Done, checked in rekordbox" on an item with `can_undo`: puts a swap or an added file back (the old file at its old path, the entry as it was, the new version parked in `Upgrades ready/` again, so the upgrade is offered again; the check goes, or the one before the step comes back). Crash-safe; gone once `rekordbox_checked` ran (a swap's kept download is then deleted) | `undo_upgrade` | OpResult (`result.section` `upgrade_undone`, `path` the old file's path); `refused` with the reason when nothing is left to undo ("There is no upgrade to undo for this track."), either file changed or is gone since the step, the track has another file, a newer version waits, or another file is at a place something goes back to — nothing is changed then |
 
 **BatchResult** (`tidy_up`, `undo_moves`, the items of `save_playlists`' `batches`): `{batch_id, title, moved (files; a folder rename counts the files it carried), headline,
 skipped: [{label, from, to, reason, text}], stopped}`. `headline` "Moved {n} files." / "Moved 1 file." (undo: "... back."),
@@ -1789,7 +1797,7 @@ a test compares them): `dashboard`, `sidebar`, `sync_preview`, `refresh`, `libra
 `limits`, `limits_what_if`, `save_limits`, `mark_warnings_seen`, `runs`, `run`, `spectrum`, `media_url`,
 `search_candidates`, `preview`, `add_playlist`, `preview_playlist_change`, `start_sync`, `save_playlists`, `hide`,
 `never_download`, `add_bought_file`, `use_candidate`, `use_link`, `reject_current`, `rekordbox_checked`, `upgrade`,
-`rescan_library`, `show_in_finder`, `reveal`, `open_report`, `tidy_preview`, `move_batches`, `undo_preview`, `tidy_up`,
+`undo_upgrade`, `rescan_library`, `show_in_finder`, `reveal`, `open_report`, `tidy_preview`, `move_batches`, `undo_preview`, `tidy_up`,
 `undo_moves`, `watched_folders`, `set_favourites`, `set_crate_shown`, `check_import_folder`, `removal_preview`, `add_watched_folder`,
 `remove_watched_folder`, `start_import`, `answer_same_song`, `keep_duplicates`, `supersede_duplicate`. Everything else works without a music folder, `open_licenses` included (Setup and Settings before one
 is chosen); `downloads_view()` then counts zero tracks.

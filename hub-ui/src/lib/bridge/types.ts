@@ -41,9 +41,10 @@ export type TrackRow = {
 };
 export type TodoGroupKey = Exclude<TodoFilter, 'all'>;
 /** `free`: the artist gives it away (see TrackDetail.free_downloads). `pair`: only the import's two groups
- *  (`same_song`, `duplicate`) have one; narrow with `isQuestion` / `isDuplicate`. */
+ *  (`same_song`, `duplicate`) have one; narrow with `isQuestion` / `isDuplicate`. `can_undo`: only `rekordbox_check`
+ *  items have it; true when the check belongs to a swap or an added file `undo_upgrade` can still put back. */
 export type TodoItem = TrackRow & { group: TodoGroupKey; detail: string; free: boolean;
-  pair?: QuestionPair | DuplicatePair };
+  pair?: QuestionPair | DuplicatePair; can_undo?: boolean };
 
 // --- the import of the user's own music (plan library stage 4, I11; contract "Watched folders and the import") ---
 /** One file of a question or a duplicate group. `path` is absolute for an import folder's file; `audio_url` is null
@@ -524,7 +525,7 @@ export type JobResults = {
   scan: { moved: number; new: number; gone: number; changed: number; copies: number };
   hide: OpResult; unhide: OpResult; add_bought_file: OpResult; use_candidate: OpResult; use_link: OpResult;
   reject_current: OpResult; rekordbox_checked: OpResult; upgrade_swap: OpResult; upgrade_add_new: OpResult;
-  upgrade_discard: OpResult; setup_save_client_id: Record<string, never>; setup_spotify_login: { user: string };
+  upgrade_discard: OpResult; undo_upgrade: OpResult; setup_save_client_id: Record<string, never>; setup_spotify_login: { user: string };
   setup_qobuz_login: Record<string, never>;
   update_tools: ToolsChange; rollback_tools: ToolsChange;
 };
