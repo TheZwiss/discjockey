@@ -60,6 +60,14 @@ Every brief has the same parts, in this order, and stays under about 60 lines:
    `npm run verify` (§6).
 6. **Report format.** At most 15 lines, no code, no diffs: what was done, commits (hash + subject), checks run with
    their result, what is left or doubtful, anything added to `docs/issues.md`.
+7. **Scope, whenever the work follows a mockup.** Three short lists:
+   - **Build from the mockup:** the exact elements and states the task takes from it, by name.
+   - **Must not change:** the pages, shared components, icons, tokens and the foot outside the task. Everything else
+     the mockup shows is illustration, not a spec.
+   - **Mockup errors:** a shape, colour or word copied from the mockup is still checked at real size for what it reads
+     as (the stage 5 mockup drew Settings as a sun, and A3 copied it). Fix what is wrong and name it in the report.
+   Any change the agent finds necessary outside "build from the mockup" goes in the report as "beyond scope", with
+   before/after shots, and is not done silently.
 
 The orchestrator tells the user each job's expected size before sending it (a planner: about 100–150k tokens; an
 Opus implementer: up to about 150k; a Sonnet task: 40–100k).
