@@ -25,6 +25,7 @@ export { default as ListRow } from './ListRow.svelte';
 export { default as ListSection } from './ListSection.svelte';
 export { default as MiddleText } from './MiddleText.svelte';
 export { default as MiniPlayer } from './MiniPlayer.svelte';
+export { default as NavIcon, NAV_ICONS, type NavIconName } from './NavIcon.svelte';
 export { default as NoteCard } from './NoteCard.svelte';
 export { default as PathText } from './PathText.svelte';
 export { default as NumberedSteps } from './NumberedSteps.svelte';

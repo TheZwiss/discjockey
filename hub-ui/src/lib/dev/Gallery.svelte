@@ -21,7 +21,7 @@
   import {
     AccountPanel, AddRow, CopyCode, NumberedSteps, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
     AwayTag, Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
-    Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NoteCard, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
+    Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
     Segmented, SectionLabel, SelectCard, Skeleton, SortHeader, SourceLadder, Spectrum, Spinner, SplitView, StatCard, StatusMark, Surface, Switch, TextField, Tile, Toast,
     ToggleGroup, ToggleRow, TrackHead, TrackRow, UpgradeCard, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
     confirm, envelope, ImportCard, UnreadableList, WatchedFolderList,
@@ -33,6 +33,8 @@
   import KindIcon from '../../pages/sync/plan/KindIcon.svelte';
   import { isKindKey, KINDS, type KindKey } from '../../pages/sync/planModel';
 
+  const NAV_NAMES = { dashboard: 'Dashboard', sync: 'Sync', todo: 'To-do', playlists: 'Playlists', limits: 'Download limits',
+    library: 'Library', settings: 'Settings' } as const;
   const now = new Date();
   const tracks = sampleTracks(now).map(trackRow);
   const t = (id: string) => tracks.find((x) => x.track_id === id) as Row;
@@ -395,6 +397,28 @@
       <PageHeader title="Sync done" sub="Today 21:47 · 24 min">{#snippet actions()}<Button size="sm" variant="link" href="https://example.com">Full report ↗</Button>{/snippet}</PageHeader>
       <PageHeader title="Hard_Bounce_Extended_Afterhour_Selection_2026" sub="1,204 tracks · 82 % lossless · 3 not in a playlist" readStatus readStatusState={sp({})} />
       <PageHeader title="Settings" />
+    </div>
+  </section>
+
+  <section data-test="gallery-navicon">
+    {@render head('NavIcon', 'A page\'s icon: 14 px, 1.3 px stroke, one family, the same spot in both forms (rule 6)')}
+    <div class="row top">
+      <div class="col tight">
+        <span class="cap">full sidebar · Sync selected</span>
+        <div class="g-nav g-nav-full" data-test="g-navicon-full">
+          {#each NAV_ICONS as n (n)}
+            <span class="g-navrow" class:on={n === 'sync'}><NavIcon name={n} /><span>{NAV_NAMES[n]}</span></span>
+          {/each}
+        </div>
+      </div>
+      <div class="col tight">
+        <span class="cap">rail · the same icons, the same spot</span>
+        <div class="g-nav g-nav-rail" data-test="g-navicon-rail">
+          {#each NAV_ICONS as n (n)}
+            <span class="g-navrow" class:on={n === 'sync'} title={NAV_NAMES[n]}><NavIcon name={n} /></span>
+          {/each}
+        </div>
+      </div>
     </div>
   </section>
 
@@ -1227,4 +1251,12 @@
   .footbox .sb { width: var(--sidebar-w); border-right: var(--bw) solid var(--surface-line); }
   .rowbox { width: var(--sidebar-w); padding: 0 10px var(--s-2); background: var(--sidebar-bg); border-radius: var(--r-surface);
     border: var(--bw) solid var(--surface-line); }
+  /* NavIcon: a sidebar column in the frame's material, its rows as the sidebar draws them */
+  .g-nav { display: flex; flex-direction: column; gap: 2px; padding: var(--s-2) 10px; background: var(--sidebar-bg);
+    border: var(--bw) solid var(--surface-line); border-radius: var(--r-surface); }
+  .g-nav-full { width: var(--sidebar-w); }
+  .g-nav-rail { width: 50px; }
+  .g-navrow { display: flex; align-items: center; gap: 9px; height: var(--h-ctl); padding: 0 var(--s-2); color: var(--text-nav);
+    border-radius: var(--r-nav); white-space: nowrap; }
+  .g-navrow.on { color: var(--text-strong); background: var(--nav-on-bg); }
 </style>

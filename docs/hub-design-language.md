@@ -335,6 +335,7 @@ used.
 | `ProgressBar` | `lib/components/ProgressBar.svelte` | `gallery-progress` | `pace` value / reply / live; `tone`. |
 | `PlayButton`, `PlayerIcon` | `lib/components/` | `gallery-player`, `gallery-foot` | The round play/pause of every player (MiniPlayer, the foot, the Now playing row): accent ring, ▶ / ❚❚ drawn as shapes, a spinner while loading, grey ring when off; `size` 30 or 22. `PlayerIcon`: the player's 16 px line glyphs (⏮ ⏭ ⤮ ⌄ ⌃ ×) for `Button icon`. |
 | `Foot`, `NowPlayingRow`, `SyncPart` | `lib/shell/` (+ `footModel.ts`) | `gallery-foot` | The frame's foot and the hidden player's sidebar row (rule "the frame is an L" above); `SyncPart` is the sync's long form (alone in the foot) or `short` ("Sync 4 of 6", at the player bar's right end), a link to Sync. Shell parts, placed by `App` and `Sidebar` only. |
+| `NavIcon` | `lib/components/NavIcon.svelte` | `gallery-navicon` | A page's icon in the app's navigation (`name`: dashboard · sync · todo · playlists · limits · library · settings; `NAV_ICONS` in the rail's order): drawn on a 14 px grid with a 1.3 px stroke in its row's colour, one family, the same spot in the full sidebar and the rail. Decorative (`aria-hidden`): the row's text or, in the rail, its tooltip and `aria-label` name the page. |
 | `QualityBar` | `lib/components/QualityBar.svelte` | `gallery-qualitybar` | The quality split with legend; `by_quality={null}` waits (gallery "waiting"). |
 | `Hint`, `InfoTip`, `NoteCard` | `lib/components/` | `gallery-explain` | The only three ways to explain; Hint `tone="problem"` for an error beside its control. |
 | `KeyValue` | `lib/components/KeyValue.svelte` | `gallery-trackrow` | A key and its value on one line (To-do and Library details, Settings' Download tools). The key is an uppercase caption (`caps`) by default; `plain` keeps a name's own spelling (`yt-dlp`, `streamrip`: normal case, muted); `keyWidth` (px) sets the key column (default 96) so a list of short names needn't reach in with `:global`. |
@@ -485,6 +486,11 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-10-30 · The nav's text glyphs become drawn icons: `NavIcon` (library stage 5 A3.1, house rule 6).** Seven
+  icons from the approved mockup (`library-layout.html`, `NAVI`), unchanged: 14 px, 1.3 px stroke, round caps, one
+  family; Library gets ♫ as a note. Why: in the rail (step A) the icon is the only label, and at 12 px the text glyphs
+  ◉ ⟳ ✓ ≡ ◔ ⚙ rendered as dots and rings that couldn't be told apart. The sidebar switches to them with its two forms
+  (A4). Seen: gallery NavIcon (`base-gallery`).
 - **2026-10-29 · A path breaks after a "/", never inside a name (library stage 4 fix M).** New block `PathText` (`pathSegments`). Drop zone's "→ Library/Hard_Bounce/Nachtfalter – Sunris / e Tekk" at 1280: the base `.path { word-break: break-all }` broke a word anywhere, and the zone's own `overflow-wrap: anywhere` only made it worse; the same class served every path. Now a wrapping path is a row of unbreakable pieces (a folder and its slash; a file's name) with a break opportunity after each; only a piece wider than the box breaks inside itself, as the last resort. `break-all` is gone from `.path` and the gallery; the To-do compare table's place uses the block instead of its own `<wbr>` split. One-line paths (`WatchedFolderList`, `FolderField`, `Surface` `fitLabel`) never wrapped and are unchanged. Seen: `todo-weak-selected`, `todo-same-song` at 1100 and 1280.
 - **2026-10-29 · A dimmed leftover row says why at every width (library stage 4 fix L).** The Library's dimmed row (a
   downloaded song that left every playlist) was explained only by the Folder column's "Not in a playlist", which is
