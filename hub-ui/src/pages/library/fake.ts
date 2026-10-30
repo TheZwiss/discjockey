@@ -20,7 +20,7 @@ const fake: PageFake = {
     // set up, but no files yet (first_run would open the wizard)
     empty: (s) => { s.tracks = []; s.runs = []; },
     // a folder from playlists.txt that has no files yet
-    empty_folder: (s) => { s.extraFolders.push({ folder: 'New_Folder', in_playlists_txt: true }); },
+    empty_folder: (s) => { s.extraFolders.push({ folder: 'New_Folder', listed: true }); },
     // an import stopped after its first pass: two WAVs read but not sound-checked (a "Not checked" badge, no
     // quality colour, left out of the counts) beside one the sound check has judged
     unchecked: (s) => {
