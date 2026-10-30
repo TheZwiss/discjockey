@@ -218,7 +218,7 @@ export function placeLine(folder: string, inPlaylists = true): string {
 /** One `library(view, key, …)` call (the engine answers one view of the library per call). */
 export type LibraryCall = { view: WireView; key: string | null };
 const same = (a: string, b: string): boolean => a.normalize('NFC').toLowerCase() === b.normalize('NFC').toLowerCase();
-/** The calls that answer the page's `folder` (the route's param: null = All tracks, NOT_IN_PLAYLIST, or a name; the
+/** The calls that answer the page's `folder` (the route's param: null = All tracks, NOT_IN_PLAYLIST, a path, or a name; the
  *  new routes of plan library stage 5 I5 replace this). A name is a playlist's folder when the sidebar lists one of
  *  that name, else a Library folder no playlist uses (`Library/<name>`); a name nothing lists is asked as a playlist,
  *  which the engine answers with `empty: 'gone'`. Without the sidebar yet (the window just opened) both are tried in
@@ -226,6 +226,8 @@ const same = (a: string, b: string): boolean => a.normalize('NFC').toLowerCase()
 export function libraryCalls(folder: string | null, side: Pick<Sidebar, 'playlists' | 'library_folders'> | null): LibraryCall[] {
   if (folder === null) return [{ view: 'all', key: null }];
   if (folder === NOT_IN_PLAYLIST) return [{ view: 'unlisted', key: null }];
+  // an import folder or a crate (the browser column links them by their path, plan library stage 5 I5)
+  if (folder.startsWith('/')) return [{ view: 'folder', key: folder }];
   const asPlaylist: LibraryCall = { view: 'playlist', key: folder };
   const asFolder: LibraryCall = { view: 'folder', key: `Library/${folder}` };
   if (!side) return [asPlaylist, asFolder];

@@ -240,6 +240,9 @@ describe('which library(view, key, …) call answers the route', () => {
   it('All tracks and Not in a playlist are views of their own', () => {
     expect(libraryCalls(null, side)).toEqual([{ view: 'all', key: null }]);
     expect(libraryCalls(NOT_IN_PLAYLIST, side)).toEqual([{ view: 'unlisted', key: null }]);
+    // an import folder or a crate by its path (the browser column's rows)
+    expect(libraryCalls('/Users/you/Music/Rekordbox Library/Hardtechno', side))
+      .toEqual([{ view: 'folder', key: '/Users/you/Music/Rekordbox Library/Hardtechno' }]);
   });
   it('a name the sidebar lists as a playlist is a playlist (case ignored), a Library folder asks by its path', () => {
     expect(libraryCalls('hard_bounce', side)).toEqual([{ view: 'playlist', key: 'hard_bounce' }]);

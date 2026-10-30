@@ -466,5 +466,18 @@
     "sleep": 400
    }
   ]
+ },
+ {
+  "name": "base-shell-favourites",
+  "route": "#/",
+  "scenario": "library:crates",
+  "mockup": "design-system/library-layout.html",
+  "mockupState": "dashboard",
+  "mockupScale": 1,
+  "steps": [
+   {
+    "wait": "[data-test=sidebar-fav]"
+   }
+  ]
  }
 ]

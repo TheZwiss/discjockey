@@ -20,8 +20,7 @@ Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, st
   route param; for a playlist it asks for the whole view, then merges `also` (the leftover files, still dimmed) into
   the rows, summary, chips and subtitle, leaves out the rows without a file, and applies search, filter and sort
   itself, so a never-read playlist still lists its folder and no leftover vanishes; B6 draws the waiting rows and the
-  `also` section from the engine's counts and removes `asToday`), and the browser column's `songs ?? 0` / `files`
-  counts under the word "tracks" (B5 words them "songs"). `shortPath` (`musicFolder.ts`) and `filePlace`
+  `also` section from the engine's counts and removes `asToday`). `shortPath` (`musicFolder.ts`) and `filePlace`
   (`todoModel.ts`) stay: they word arbitrary paths (the music folder, a To-do file, Settings' rows, fitted to a width)
   that carry no engine `place`; only `track()`'s and the rows' `place` (and the sidebar's `watched[].place`) come from
   the engine. The store has `saveFavourites(keys)` / `saveCrateShown(path, shown)`: they read the sidebar again after
@@ -34,6 +33,15 @@ Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, st
   `folder_kind`, `read_at` and the empty query, and pins it. A playlist's subtitle and `summary.tracks` count rows
   with a file (9) while the table shows the waiting ones too (12) and the sidebar says "12 songs": B6 words the
   waiting rows so the numbers don't seem to disagree (e.g. "3 waiting").
+- **From B5 (the browser column):** *Show in Finder* is offered only where `api.reveal` can open the folder (a
+  playlist's folder, a Library folder): it refuses any path outside the music folder, so an import folder and its
+  crates have no Show in Finder until the engine gets a reveal for watched folders (no Python change in B5). A
+  favourite can be reordered only by drag (the menu adds at the end and removes); a keyboard way (⌥↑ / ⌥↓ on a
+  favourite) would make it reachable without a pointer. The UI saves the Favourites it is shown, so a stored key whose
+  playlist or folder is gone right now (left out of `sidebar()`) is dropped by the next save from the UI. The browser
+  links an import folder and a crate by its path (`#/library/folder/<path encoded>`; `libraryCalls` asks a path as a
+  folder view); the rest of I5's routes (`/library/playlist/:name`, `libraryTarget`) are still open. Folder rows count
+  "tracks" (the word of the page they open), playlists "songs".
 - **Later cleanup:** `views.library` is about 140 lines; `_playlist_rows` / `_folder_rows` would split it. `track()`
   recomputes `views.sites` over every file on each pick (linear, fast enough today).
 
