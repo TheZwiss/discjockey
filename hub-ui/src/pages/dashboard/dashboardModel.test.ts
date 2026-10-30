@@ -5,7 +5,7 @@ import { folderLine, groupByMonth, healthCard, needsRows, nextSync, runLine, run
 // the contract example (docs/hub-bridge-contract.md, dashboard())
 const EX: Dashboard = {
   greeting: 'Good evening',
-  spotify: { read_at: '2026-10-20T21:47:00', minutes_ago: 0, problem: null, message: '', stale: false, reading: false,
+  read_status: { read_at: '2026-10-20T21:47:00', minutes_ago: 0, problem: null, message: '', stale: false, reading: false,
     offline: false, auto_read: true, problem_service: null, services: [] },
   tiles: {
     lossless: { share: 0.3333, lossless: 1, total: 3,

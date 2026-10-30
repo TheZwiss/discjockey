@@ -12,7 +12,7 @@ const files = (dir: string): string[] => readdirSync(dir).flatMap((f) => {
 const name = (f: string) => relative(__dirname, f);
 
 // What a redesigned page renders: its own folder, and the blocks and frames (final review I3: the guard read only
-// page folders, so Skeleton's --r-card and SpotifyStatus's ghost reached Sync unseen). The outdated blocks themselves
+// page folders, so Skeleton's --r-card and ReadStatus's ghost reached Sync unseen). The outdated blocks themselves
 // are skipped; tokens.css defines the outdated tokens and isn't scanned.
 const pageFiles = (page: string) => files(join(__dirname, '../pages', page));
 const blockFiles = ['components', 'frames'].flatMap((d) => files(join(__dirname, d)))

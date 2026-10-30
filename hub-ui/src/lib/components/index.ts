@@ -45,7 +45,7 @@ export { default as Skeleton } from './Skeleton.svelte';
 export { default as Spectrum } from './Spectrum.svelte';
 export { default as Spinner } from './Spinner.svelte';
 export { default as SplitView } from './SplitView.svelte';
-export { default as SpotifyStatus } from './SpotifyStatus.svelte';
+export { default as ReadStatus } from './ReadStatus.svelte';
 export { default as StatusMark } from './StatusMark.svelte';
 export { default as SortHeader } from './SortHeader.svelte';
 export { default as SourceLadder } from './SourceLadder.svelte';

@@ -2,7 +2,7 @@
 import type {
   FileState, LibraryRow,
   AnySignalKind, AppUpdate, Alignment, Browser, Budget, LastCheck, LoginBrowser, ByQuality, Candidate, PlaylistInfo, PlaylistRow, PreviewAction, Quality, Result, RunDetail,
-  DownloadTools, FolderCheck, SetupStatus, SignalKind, Source, SpotifyStatus, Status, TodoGroupKey, TrackRow, Upgrade, FreeDownload,
+  DownloadTools, FolderCheck, SetupStatus, SignalKind, Source, ReadStatus, Status, TodoGroupKey, TrackRow, Upgrade, FreeDownload,
   PlaylistService, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
 } from '../types';
 import { NOT_IN_PLAYLIST, QUALITIES } from '../types';
@@ -149,7 +149,7 @@ export type FakeState = {
   downloadTools: DownloadTools;
   /** open_licenses is refused: the licences folder is missing from this copy */
   licensesMissing?: boolean;
-  spotify: SpotifyStatus;
+  read_status: ReadStatus;
   console_running: boolean;
   offline: boolean;
   /** app_update(): the update check's answer (scenario update_available: a newer version) */
@@ -549,17 +549,17 @@ export function nextStep(s: SetupStatus): SetupStatus {
   return { ...s, next_step: next, complete: next === null };
 }
 /** The read status's services: the playlist services the fake's playlists.txt uses, in line order. */
-export const readServices = (qobuzConnected = true): SpotifyStatus['services'] => [
+export const readServices = (qobuzConnected = true): ReadStatus['services'] => [
   { service: 'spotify', name: 'Spotify', connected: true }, { service: 'qobuz', name: 'Qobuz', connected: qobuzConnected }];
 /** The read status as the bridge answers it: `services` worked out now, like `api._logins` — the services the
  *  switched-on lines use, in line order, Spotify connected when its login is there, Qobuz unless the scenario took
  *  its login away. So a Spotify left out in Setup is no problem while no line uses it (plan stage 3, D1). */
-export function readStatus(s: FakeState): SpotifyStatus {
+export function readStatus(s: FakeState): ReadStatus {
   const used = [...new Set(s.playlists.filter((p) => p.enabled).map((p) => serviceOfLink(p.link)))];
   const connected = (x: PlaylistService) => (x === 'spotify' ? s.setup.spotify_login : !s.qobuzNotConnected);
-  return { ...s.spotify, services: used.map((x) => ({ service: x, name: SERVICE_NAME[x], connected: connected(x) })) };
+  return { ...s.read_status, services: used.map((x) => ({ service: x, name: SERVICE_NAME[x], connected: connected(x) })) };
 }
-export function spotifyOk(minutes = 2, now = new Date()): SpotifyStatus {
+export function readOk(minutes = 2, now = new Date()): ReadStatus {
   return { read_at: iso(new Date(now.getTime() - minutes * 60000)), minutes_ago: minutes, problem: null,
     problem_service: null, services: readServices(), message: '', stale: false, reading: false, offline: false, auto_read: true };  // as after the hub's read when it opens
 }
@@ -592,7 +592,7 @@ export function makeState(scenario: string, now = new Date()): FakeState {
       signals: [{ time: iso(daysAgo(now, 3, 22, 12)), kind: 'search_failed', message: 'Qobuz search did not answer twice' },
         { time: iso(daysAgo(now, 6, 21, 58)), kind: 'duration_mismatch', message: 'Length 3:12 vs Spotify 4:28' }],
       last_download: iso(daysAgo(now, 0, 21, 47)) },
-    setup: setupComplete(), downloadTools: builtInTools(), spotify: spotifyOk(2, now), console_running: false, offline: false, previewRead: true,
+    setup: setupComplete(), downloadTools: builtInTools(), read_status: readOk(2, now), console_running: false, offline: false, previewRead: true,
     appUpdate: { state: 'up_to_date', current: '1.0.0', latest: null, url: null },
     selected: null, dropped: null, errors: scenario === 'errors', errorTurn: 0, syncStarts: 0, never: [], tidy: emptyTidy(), imp: emptyImport(),
     accounts: { youtube: null, soundcloud: null }, qobuzSkipped: false,  // the user's own setup: Qobuz only
@@ -601,7 +601,7 @@ export function makeState(scenario: string, now = new Date()): FakeState {
     s.tracks = []; s.newTracks = []; s.playlists = []; s.runs = []; s.extraFolders = []; s.previewRead = false;
     s.qobuz = { ...s.qobuz, used_today: 0, carry_over: 0, days: Array(14).fill(0), signals: [], last_download: null };
     s.setup = nextStep({ ...setupComplete(), spotify_login: false, qobuz: false, playlists: false });
-    s.spotify = { read_at: null, minutes_ago: null, problem: 'not_set_up', problem_service: null,
+    s.read_status = { read_at: null, minutes_ago: null, problem: 'not_set_up', problem_service: null,
       services: [], message: 'Spotify is not set up yet.',
       stale: false, reading: false, offline: false, auto_read: false };
   }
@@ -614,7 +614,7 @@ export function makeState(scenario: string, now = new Date()): FakeState {
   }
   if (scenario === 'offline') {
     s.offline = true;
-    s.spotify = { ...spotifyOk(184, now), problem: 'offline', offline: true,
+    s.read_status = { ...readOk(184, now), problem: 'offline', offline: true,
       message: 'Spotify did not answer. Check your internet connection.' };
     s.appUpdate = { state: 'unknown', current: '1.0.0', latest: null, url: null };  // no answer: the page shows nothing
   }
@@ -622,7 +622,7 @@ export function makeState(scenario: string, now = new Date()): FakeState {
   if (scenario === 'qobuz_not_connected') {
     // playlists.txt has a Qobuz line, but Qobuz has no login: the read is blocked and says which service
     s.qobuzNotConnected = true;
-    s.spotify = { ...spotifyOk(2, now), problem: 'not_set_up', problem_service: 'qobuz',
+    s.read_status = { ...readOk(2, now), problem: 'not_set_up', problem_service: 'qobuz',
       services: readServices(false), message: 'Connect Qobuz first.' };
   }
   if (scenario === 'console') s.console_running = true;

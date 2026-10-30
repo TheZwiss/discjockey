@@ -129,7 +129,7 @@ export type BatchResult = { batch_id: number | null; title: string; moved: numbe
 /** `save_playlists`' third argument: the answer to the save question. */
 export type SaveFiles = { choice: 'leave' | 'move'; renames: [string, string][]; moves: [number, string][] };
 
-export type SpotifyStatus = {
+export type ReadStatus = {
   read_at: string | null; minutes_ago: number | null; problem: ProblemKind | null; message: string;
   /** the playlist service `problem` is about (null: no service's problem; a good read clears it) */
   problem_service: PlaylistService | null;
@@ -172,7 +172,7 @@ export type Estimate = { duration_min: number; qobuz_limit: number; qobuz_needed
 export type SyncAccount = EstimateAccount & { uses_by_downloads: number[] | null };
 export type SyncEstimate = Omit<Estimate, 'accounts'> & { accounts: SyncAccount[]; minutes_by_downloads: number[] };
 export type Dashboard = {
-  greeting: string; spotify: SpotifyStatus;
+  greeting: string; read_status: ReadStatus;
   tiles: {
     lossless: { share: number | null; lossless: number; total: number; by_quality: ByQuality };
     qobuz_today: Budget;
@@ -199,7 +199,7 @@ export type PreviewAction = {
   run?: number;
 };
 export type SyncPreview = {
-  spotify: SpotifyStatus; counts: PlanCounts | null;
+  read_status: ReadStatus; counts: PlanCounts | null;
   /** songs held back until the user answers "Is this the same song?" (not downloaded meanwhile) */
   waiting_answers: number;
   /** first upgrade checks of imported music that the per-run cap left for later runs */
@@ -229,7 +229,7 @@ export type JobSnap = {
   actions: PlannedAction[];
 };
 export type JobStatus = { job: JobSnap | null; refresh_running: boolean; console_running: boolean;
-  spotify: SpotifyStatus;
+  read_status: ReadStatus;
   /** a sign-in waiting for the browser (its own slot beside the write jobs; Settings restores its phase from it) */
   sign_in?: JobSnap | null };
 

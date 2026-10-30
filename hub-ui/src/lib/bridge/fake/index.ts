@@ -12,7 +12,7 @@ const HIDDEN_ARGS = new Set(['setup_qobuz_login', 'setup_save_client_id']);
 
 export type FakeControl = {
   scenario: string; speed: number; ctx: FakeContext;
-  dropFile(readable: boolean): void; consoleBusy(running: boolean): void; spotifyRead(): void;
+  dropFile(readable: boolean): void; consoleBusy(running: boolean): void; readPlaylists(): void;
   /** plugs the ejected drive back in (true) or ejects it again (false): its folders and files change state and
    *  DrivesChanged goes out, as the engine's drives watch sends it */
   drive(plugged: boolean): void;
@@ -63,7 +63,7 @@ export function installFake(scenario: string): FakeControl {
       ctx.s.console_running = running;
       emit({ type: 'ConsoleBusy', running });
     },
-    spotifyRead() { void api.refresh(); },
+    readPlaylists() { void api.refresh(); },
     drive(plugged: boolean) {
       const s = ctx.s;
       if (plugged && !ejected) {

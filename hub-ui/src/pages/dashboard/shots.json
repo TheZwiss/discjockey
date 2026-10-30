@@ -30,7 +30,7 @@
     "wait": "[data-test=no-runs]"
    },
    {
-    "eval": "if (document.querySelector('[data-page-header] [data-spotify-status]').querySelector('[data-test=spotify-when]') || /set up/i.test(document.querySelector('[data-page-header] [data-spotify-status]').textContent) || document.querySelector('[data-test=next-unread] p.body')) throw new Error(\"not set up said more than once on the first-run Dashboard (\\u00a75a)\")"
+    "eval": "if (document.querySelector('[data-page-header] [data-read-status]').querySelector('[data-test=read-when]') || /set up/i.test(document.querySelector('[data-page-header] [data-read-status]').textContent) || document.querySelector('[data-test=next-unread] p.body')) throw new Error(\"not set up said more than once on the first-run Dashboard (\\u00a75a)\")"
    }
   ]
  },
@@ -56,7 +56,7 @@
     "wait": "[data-test=next-unread], [data-test=next-sync]"
    },
    {
-    "eval": "if (document.querySelectorAll('[data-test=banner-spotify]').length !== 1 || /expired/i.test(document.querySelector('[data-page-header] [data-spotify-status]').textContent) || document.querySelector('[data-test=spotify-read]').getAttribute('aria-disabled') !== 'true') throw new Error(\"login expired must be said once, by the banner, with Read Spotify off (\\u00a75a)\")"
+    "eval": "if (document.querySelectorAll('[data-test=banner-read-status]').length !== 1 || /expired/i.test(document.querySelector('[data-page-header] [data-read-status]').textContent) || document.querySelector('[data-test=read-read]').getAttribute('aria-disabled') !== 'true') throw new Error(\"login expired must be said once, by the banner, with Read Spotify off (\\u00a75a)\")"
    }
   ]
  },

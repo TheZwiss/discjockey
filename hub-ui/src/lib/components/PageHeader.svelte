@@ -1,6 +1,6 @@
 <script lang="ts">
   // The page header (design system §5a): one block for every page, so the title, its status line, the page's actions
-  // and Spotify's status sit in the same place with the same look everywhere (§12: a shared element is placed by its
+  // and the playlists' read status sit in the same place with the same look everywhere (§12: a shared element is placed by its
   // block, never by the page).
   //   [title · sub] ............................ [actions] [Playlists read 2 min ago · ↻ Read playlists]
   // - It spans its frame's content box and adds no padding of its own: the list area's content in ListPanelFrame (never
@@ -9,18 +9,18 @@
   // - Title and sub share one baseline (a 22 px title and a 12 px line centred on each other sat 4 px off it). The
   //   title ends in "…" when it is longer than the header (a folder name); the sub never does: when it doesn't fit
   //   beside the title it wraps under it, so no word is lost.
-  // - `spotify`: the fixed slot at the right edge (the playlists' read status; the name stays until stage 5), used by
-  //   the pages whose content comes from the last read (Dashboard, Sync, To-do, Playlists). `spotifyInBody`: the page
+  // - `readStatus`: the fixed slot at the right edge (the playlists' read status), used by
+  //   the pages whose content comes from the last read (Dashboard, Sync, To-do, Playlists). `readStatusInBody`: the page
   //   shows the read in progress and its problems as cards in its body (Sync before the start), so the slot keeps
   //   only its control and the state is said once.
-  // - `actions`: the page's own controls (search, Full report), left of the Spotify slot.
-  // - `spotifyState`: the gallery only, shows a given Spotify state instead of the live one.
+  // - `actions`: the page's own controls (search, Full report), left of the read-status slot.
+  // - `readStatusState`: the gallery only, shows a given read state instead of the live one.
   import type { Snippet } from 'svelte';
-  import SpotifyStatus from './SpotifyStatus.svelte';
-  import type { SpotifyStatus as SpotifyState } from '../bridge/types';
-  let { title, sub, actions, spotify = false, spotifyInBody = false, spotifyState }:
-    { title: string; sub?: string; actions?: Snippet; spotify?: boolean; spotifyInBody?: boolean;
-      spotifyState?: SpotifyState | null } = $props();
+  import ReadStatus from './ReadStatus.svelte';
+  import type { ReadStatus as ReadState } from '../bridge/types';
+  let { title, sub, actions, readStatus = false, readStatusInBody = false, readStatusState }:
+    { title: string; sub?: string; actions?: Snippet; readStatus?: boolean; readStatusInBody?: boolean;
+      readStatusState?: ReadState | null } = $props();
   // a line breaks after the "·", never before it: the separator stays with the words it follows (no line starts "· 5 …")
   const subText = $derived(sub?.replaceAll(' · ', '\u00a0· '));
 </script>
@@ -30,10 +30,10 @@
     <h1 {title}>{title}</h1>
     {#if sub}<span class="sub" title={sub} data-test="page-sub">{subText}</span>{/if}
   </div>
-  {#if actions || spotify}
+  {#if actions || readStatus}
     <div class="trail">
       {#if actions}<div class="actions">{@render actions()}</div>{/if}
-      {#if spotify}<SpotifyStatus inBody={spotifyInBody} status={spotifyState} />{/if}
+      {#if readStatus}<ReadStatus inBody={readStatusInBody} status={readStatusState} />{/if}
     </div>
   {/if}
 </header>

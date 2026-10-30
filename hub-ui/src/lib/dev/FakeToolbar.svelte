@@ -36,7 +36,7 @@
       <button type="button" onclick={() => act(() => fake?.dropFile(false))}>Drop a blocked file</button>
       <button type="button" onclick={() => act(() => { consoleOn = !consoleOn; fake?.consoleBusy(consoleOn); })}>
         {consoleOn ? 'Console ends' : 'Console starts'}</button>
-      <button type="button" onclick={() => act(() => fake?.spotifyRead())}>Spotify read</button>
+      <button type="button" onclick={() => act(() => fake?.readPlaylists())}>Read playlists</button>
       <div class="row">
         <button type="button" onclick={() => toasts.show({ tone: 'info', title: 'Info toast', body: 'Hides after 5 s.' })}>Info</button>
         <button type="button" onclick={() => toasts.show({ tone: 'success', title: 'Hidden from the to-do list.' })}>Success</button>

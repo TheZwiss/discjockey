@@ -41,7 +41,7 @@ export function ownerText(info: PlaylistInfo): string {
  *  the answer is only the bridge's sentence ("Connect Qobuz first."), without a second headline and Connect button
  *  (a state is said once, spec §11). The banner is on unless the page's body took it over (`saidInBody`). */
 export function bannerSaysIt(error: { kind: ProblemKind; service: PlaylistService | null },
-  block: { service: PlaylistService } | null, saidInBody: { spotify?: boolean }): boolean {
+  block: { service: PlaylistService } | null, saidInBody: { readStatus?: boolean }): boolean {
   return (error.kind === 'not_set_up' || error.kind === 'login_expired') && !!error.service && !!block
-    && block.service === error.service && !saidInBody.spotify;
+    && block.service === error.service && !saidInBody.readStatus;
 }

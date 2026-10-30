@@ -87,7 +87,7 @@ const longNames = (s: FakeState) => {
 };
 const reading = (first: boolean) => (s: FakeState) => {
   s.scenario = first ? 'sync:reading' : 'sync:rereading';
-  s.spotify = { ...s.spotify, reading: true };
+  s.read_status = { ...s.read_status, reading: true };
   if (first) s.previewRead = false;
 };
 

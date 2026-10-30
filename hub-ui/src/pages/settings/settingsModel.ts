@@ -3,7 +3,7 @@
 // The download sources' lines live with the account panel (accountModel), so a row and its panel say the same thing.
 import { aboutLine } from '$lib/appUpdate';
 import type {
-  AppUpdate, DownloadsView, DownloadTool, DownloadTools, JobSnap, SetupStatus, SetupTools, SpotifyStatus, WatchedFolders,
+  AppUpdate, DownloadsView, DownloadTool, DownloadTools, JobSnap, SetupStatus, SetupTools, ReadStatus, WatchedFolders,
 } from '$lib/bridge/types';
 import { WHAT_IT_GIVES, checkedWhen, stateLine, type RowLine, type Tone } from '$lib/components/accountModel';
 import { shortPath } from '$lib/musicFolder';
@@ -58,7 +58,7 @@ export type RowContext = {
  *  it is the missing login it is. */
 export type SpotifyState = 'connected' | 'left_out' | 'not_connected' | 'not_set_up';
 /** playlists.txt has a switched-on Spotify line: the read status names Spotify among its services. */
-export function spotifyUsed(sp: SpotifyStatus | null): boolean {
+export function spotifyUsed(sp: ReadStatus | null): boolean {
   return !!sp?.services?.some((x) => x.service === 'spotify');
 }
 export function spotifyState(s: SetupStatus, used: boolean): SpotifyState {
