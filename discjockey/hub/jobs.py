@@ -613,12 +613,15 @@ class PreviewStore:
                 return
             self.problem, self.message, self.problem_service = problem, message, service
 
-    def clear_service(self, service: str, kinds: frozenset[str] | None = None) -> None:
+    def clear_service(self, service: str, kinds: frozenset[str] | None = None, message: str | None = None) -> None:
         """A login for `service` was just made: a stored read problem that is about it (not set up, login failed...)
         is out of date, so the page stops waiting for a restart. Other problems, and the plan, stay. `kinds`: clear
-        only a problem of one of these kinds (a login cannot cure an offline service)."""
+        only a problem of one of these kinds (a login cannot cure an offline service). `message`: clear only a problem
+        that says exactly this (a login cures SoundCloud's likes hint, not a private set's "doesn't show this
+        playlist")."""
         with self._lock:
-            if self.problem is not None and self.problem_service == service and (kinds is None or self.problem in kinds):
+            if self.problem is not None and self.problem_service == service and (kinds is None or self.problem in kinds) \
+                    and (message is None or self.message == message):
                 self.problem, self.problem_service, self.message = None, None, ""
 
     def mark_stale(self) -> None:

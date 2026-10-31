@@ -33,7 +33,7 @@ from .. import __version__, align, browsers, candidates, config, db, library, op
 from .. import quality
 from .. import app_update as update_check, setup_cmd, tool_updates, tools
 from .. import folders as folders_mod, importer, scanner, sources, tidy
-from ..sources import spotify
+from ..sources import soundcloud, spotify
 from ..sources.soundcloud import YOU as SOUNDCLOUD_YOU  # the module imports yt-dlp only inside functions
 from .. import report as rep, run, upgrades
 from ..accounts import ACCOUNTS, BROWSERS, SERVICE_NAMES, SERVICES, check_message
@@ -1757,7 +1757,9 @@ class HubApi:
             return s
         self._update_settings(change)
         if saved and service == "soundcloud":  # a read problem about SoundCloud's login (a you/likes line) is out of date now
-            self._store.clear_service("soundcloud", frozenset({"login_expired", "playlist_unreadable"}))  # not offline
+            self._store.clear_service("soundcloud", frozenset({"login_expired"}))  # not offline
+            # only the likes hint (W8) is about the login: a private set's "doesn't show this playlist" stays
+            self._store.clear_service("soundcloud", frozenset({"playlist_unreadable"}), soundcloud.LIKES_HINT)
         return {"service": service, "browser": browser, "profile": profile, "saved": saved,
                 "check": {**{k: check[k] for k in ("ok", "problem", "kbps")},
                           "message": check_message(service, browser, check)}}
