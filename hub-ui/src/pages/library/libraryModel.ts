@@ -137,6 +137,35 @@ export function offTable(lib: Pick<Library, 'rows' | 'also'> | null, answeredFor
   return rowOf(lib, track) === null;
 }
 
+/** The track the user just acted on in the details (a replace, Discard, Done, Undo, Keep): it stays on the table and
+ *  selected, its result and Undo in the details, until the user picks another track or changes the view, the search or
+ *  the filter, so a replace under "Upgrade ready" doesn't take the row (and with it the rekordbox steps) away, as To-do
+ *  keeps the item it acted on. `keep`: a duplicate's Keep, the paths of the files that stay; when the track's own file
+ *  went (or its row took another name, the engine's heir), the hold follows the track that has a kept file now. */
+export type Hold = { id: string; keep: string[] | null; folder: string | null; q: string; filter: LibraryFilter };
+export function holdApplies(h: Hold | null, folder: string | null, q: string, filter: LibraryFilter): h is Hold {
+  return !!h && h.folder === folder && h.q === q && h.filter === filter;
+}
+/** The held track's row among `rows`: the track itself, else (a duplicate's Keep) the one whose file stayed. */
+export function heldRow(rows: LibraryRow[], h: Pick<Hold, 'id' | 'keep'>): LibraryRow | null {
+  const own = rows.find((r) => r.track_id === h.id);
+  if (own) return own;
+  const keep = h.keep;
+  return keep ? rows.find((r) => !!r.path && keep.includes(r.path)) ?? null : null;
+}
+/** The answer with the held row put back where it stood before (`before`: the answer on screen, the held track's
+ *  place in it), when the new answer no longer lists it: in the playlist's `also` part when it stood there, else among
+ *  the rows (at their end when it stood nowhere). An answer that lists it already comes back as it is. */
+export function withHeld<L extends Pick<Library, 'rows' | 'also'>>(lib: L, row: LibraryRow, before: Pick<Library, 'rows' | 'also'> | null,
+  was: string): L {
+  if (rowOf(lib, row.track_id)) return lib;
+  const put = (list: LibraryRow[], at: number) => [...list.slice(0, at), row, ...list.slice(at)];
+  const inAlso = before?.also?.findIndex((r) => r.track_id === was) ?? -1;
+  if (inAlso >= 0 && lib.also) return { ...lib, also: put(lib.also, Math.min(inAlso, lib.also.length)) };
+  const at = before ? before.rows.findIndex((r) => r.track_id === was) : -1;
+  return { ...lib, rows: put(lib.rows, at < 0 ? lib.rows.length : Math.min(at, lib.rows.length)) };
+}
+
 /** ↑/↓: the next selected id (stays at the ends; nothing selected → first/last row). */
 export function moveSelection(rows: Pick<TrackRow, 'track_id'>[], id: string | null, delta: 1 | -1): string | null {
   if (!rows.length) return null;

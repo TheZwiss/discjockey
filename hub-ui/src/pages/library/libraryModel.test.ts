@@ -7,6 +7,7 @@ import {
   playlistCell, playlistsLine, libraryCalls, nextSort, offTable, optionalColumns, rowAway, rowDim, rowInTodo, rowOf, rowOff,
   rowTitleTip, segOptions, selectedIndex, shortUrl, sortKey, sortState, subfolderCell, subtitleParts, tableKind, tableLines,
   titleNote, viewSort, waitWords, windowSlice, alsoHint, playlistColumnFor, artistColumnFor, shownSort, tooManyFor,
+  heldRow, holdApplies, withHeld,
 } from './libraryModel';
 import type { LibraryRow, TrackDetail } from '$lib/bridge/types';
 
@@ -522,5 +523,34 @@ describe('a folder view\'s Subfolder column: only with crates inside', () => {
     expect(tooManyFor(lib({ view: 'playlist', key: '/Volumes/Example Drive/Albums' }), side)).toBeNull();
     expect(tooManyFor(lib({ key: '/Volumes/Example Drive/Albums' }), null)).toBeNull();
     expect(tooManyFor(null, side)).toBeNull();
+  });
+});
+
+describe('the held track (the one just acted on in the details)', () => {
+  const lr = (id: string, path: string | null = `Library/X/${id}.aiff`) => ({ ...row(id, { path }) }) as LibraryRow;
+  const hold = { id: 't2', keep: null, folder: 'X', q: '', filter: 'upgrade_ready' as const };
+
+  it('holds only in the view, search and filter it was made in', () => {
+    expect(holdApplies(hold, 'X', '', 'upgrade_ready')).toBe(true);
+    expect(holdApplies(hold, 'Y', '', 'upgrade_ready')).toBe(false);
+    expect(holdApplies(hold, 'X', 'a', 'upgrade_ready')).toBe(false);
+    expect(holdApplies(hold, 'X', '', 'all')).toBe(false);
+    expect(holdApplies(null, 'X', '', 'upgrade_ready')).toBe(false);
+  });
+  it('finds the track itself, else the one with a kept file (a duplicate\'s Keep)', () => {
+    const rows = [lr('t1'), lr('t9', '/Volumes/M/kept.aiff')];
+    expect(heldRow(rows, { id: 't1', keep: null })?.track_id).toBe('t1');
+    expect(heldRow(rows, { id: 'local:5', keep: ['/Volumes/M/kept.aiff'] })?.track_id).toBe('t9');
+    expect(heldRow(rows, { id: 'local:5', keep: null })).toBeNull();
+  });
+  it('puts the held row back where it stood, or leaves an answer that lists it alone', () => {
+    const before = { rows: [lr('t1'), lr('t2'), lr('t3')], also: null };
+    const after = { rows: [lr('t1'), lr('t3')], also: null };
+    expect(withHeld(after, lr('t2'), before, 't2').rows.map((r) => r.track_id)).toEqual(['t1', 't2', 't3']);
+    expect(withHeld(before, lr('t2'), before, 't2')).toBe(before);
+    expect(withHeld(after, lr('t9'), null, 't2').rows.map((r) => r.track_id)).toEqual(['t1', 't3', 't9']);
+    const inAlso = { rows: [lr('t1')], also: [lr('a1'), lr('t2')] };
+    expect(withHeld({ rows: [lr('t1')], also: [lr('a1')] }, lr('t2'), inAlso, 't2').also?.map((r) => r.track_id))
+      .toEqual(['a1', 't2']);
   });
 });

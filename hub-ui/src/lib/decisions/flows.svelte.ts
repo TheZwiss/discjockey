@@ -16,6 +16,13 @@ export class UpgradeFlow {
   /** an undo's refusal, kept under its button until the next track */
   undoProblem = $state<string | null>(null);
   #for = '';
+  #onact: (() => void) | undefined;
+
+  /** `onact`: called as an action's job starts (after its confirm), so a page can keep the track it acted on in
+   *  view (the Library's hold; To-do keeps its item by its own selection). */
+  constructor(opts: { onact?: () => void } = {}) {
+    this.#onact = opts.onact;
+  }
 
   /** A new track starts over: Same track picked again where both ways are possible, no old refusal. */
   follow(track_id: string): void {
@@ -35,12 +42,14 @@ export class UpgradeFlow {
     if (mode === 'discard' && !(await confirm({ title: 'Throw away the new version?',
       body: 'Your current file stays. This version is not offered again.', confirmLabel: 'Discard', tone: 'danger' }))) return;
     this.busy = mode;
+    this.#onact?.();
     await runJob(api.upgrade(track_id, mode));
     this.busy = null;
   }
   /** "Done, checked in rekordbox". */
   async checked(track_id: string): Promise<void> {
     this.busy = 'rekordbox';
+    this.#onact?.();
     await runJob(api.rekordbox_checked(track_id));
     this.busy = null;
   }
@@ -54,6 +63,7 @@ export class UpgradeFlow {
       confirmLabel: 'Undo the replace' }))) return;
     this.busy = 'undo';
     this.undoProblem = null;
+    this.#onact?.();
     const r = await runJob(api.undo_upgrade(track_id));
     this.busy = null;
     if (!r.ok) this.undoProblem = r.message;
@@ -67,6 +77,13 @@ export class DuplicateFlow {
   chosen = $state<DuplicatePick | undefined>(undefined);
   busy = $state(false);
   #for = '';
+  #onact: ((keep: string[]) => void) | undefined;
+
+  /** `onact`: called as a Keep's jobs start, with the paths of the files that stay (all of them for Keep both), so a
+   *  page can follow the track that holds a kept file afterwards (the Library's hold). */
+  constructor(opts: { onact?: (keep: string[]) => void } = {}) {
+    this.#onact = opts.onact;
+  }
 
   /** A new group starts over from the app's pick. */
   follow(group_id: string): void {
@@ -83,11 +100,13 @@ export class DuplicateFlow {
   }
   async #keepAll(g: DuplicatePair): Promise<void> {
     this.busy = true;
+    this.#onact?.(g.files.map((f) => f.path));
     await runJob(api.keep_duplicates(g.group_id, g.files.map((f) => f.path)));
     this.busy = false;
   }
   async #keepOne(g: DuplicatePair, keep: number): Promise<void> {
     this.busy = true;
+    this.#onact?.(g.files.filter((x) => x.file_id === keep).map((x) => x.path));
     let left = [...g.files];
     let last: Result | null = null;
     for (const f of g.files.filter((x) => x.file_id !== keep)) {

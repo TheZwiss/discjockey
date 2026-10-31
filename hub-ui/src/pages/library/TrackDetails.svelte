@@ -33,7 +33,7 @@
 
   type Spec = ComponentProps<typeof Spectrum>['spectrum'];
   let { detail, decision = null, playSource, pending = null, loading = false, gone = false, error = null, spectrum = null,
-    spectrumLoading = false, spectrumError = null, upgradeSpectrum = null, onretry, onfinder, ontodo, onlisten }: {
+    spectrumLoading = false, spectrumError = null, upgradeSpectrum = null, onretry, onfinder, ontodo, onlisten, onacted }: {
     detail: TrackDetail | null;
     /** what `detail` waits for (decisionFor over the to-do list, fetched with it) */
     decision?: Decision;
@@ -46,6 +46,9 @@
     onretry: () => void; onfinder: () => void; ontodo: () => void;
     /** ▶ in the player: start the folder from this track (the page's queue) */
     onlisten?: () => void;
+    /** a decision's job starts here: the page keeps this track on its table and selected (its Hold); `keep`: a
+     *  duplicate's Keep, the paths of the files that stay */
+    onacted?: (keep: string[] | null) => void;
   } = $props();
 
   const t = $derived(detail);
@@ -54,8 +57,8 @@
   const cutoff = $derived(t && !upgrading ? cutoffStat(t) : null);
   const action = $derived(t ? footAction(t, decision) : null);
   // the decisions' state (the "In rekordbox" pick, the file that stays, the running job), as in To-do's panel
-  const upFlow = new UpgradeFlow();
-  const dupFlow = new DuplicateFlow();
+  const upFlow = new UpgradeFlow({ onact: () => onacted?.(null) });
+  const dupFlow = new DuplicateFlow({ onact: (keep) => onacted?.(keep) });
   $effect(() => { if (t) upFlow.follow(t.track_id); });
   const swap = $derived(canSwap(t?.upgrade));
   const way = $derived(upFlow.way(swap));

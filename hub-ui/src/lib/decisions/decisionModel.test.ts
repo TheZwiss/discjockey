@@ -69,6 +69,15 @@ describe('the fake backend answers the decisions made from the Library', () => {
     if (!t.ok || !todo.ok) throw new Error('read failed');
     return { t: t.track as TrackDetail, d: decisionFor(todo.groups.flatMap((g) => g.items), t.track) };
   };
+  // the playlist song of the fake's same-song group (a real track of the sample library)
+  const songOfGroup = async (f: ReturnType<typeof fake>['f']) => {
+    const todo = await f.todo('all', true);
+    if (!todo.ok) throw new Error('read failed');
+    const g = todo.groups.flatMap((x) => x.items).find((i) => i.group === 'duplicate' && i.pair?.why === 'same_song');
+    const key = (g as DuplicateItem | undefined)?.pair.files.find((x) => x.in_playlist)?.song_key;
+    if (!key) throw new Error('no same-song group');
+    return key;
+  };
   const job = async (evs: HubEvent[], start: Promise<{ ok: boolean; job_id?: number }>) => {
     const r = await start;
     if (!r.ok || r.job_id === undefined) throw new Error(JSON.stringify(r));
@@ -90,12 +99,28 @@ describe('the fake backend answers the decisions made from the Library', () => {
   });
   it('a Library track in a duplicate group: keeping it moves the other file away and the decision goes', async () => {
     const { evs, f } = fake('todo_duplicates');
-    const before = await at(f, 't7');
+    const id = await songOfGroup(f);
+    const before = await at(f, id);
     expect(before.d?.kind).toBe('duplicate');
     if (before.d?.kind !== 'duplicate') return;
     const g = before.d.item.pair;
-    const other = g.files.find((x) => x.song_key !== 't7')!;
+    const other = g.files.find((x) => x.song_key !== id)!;
     await job(evs, f.supersede_duplicate(g.group_id, other.file_id, g.files.map((x) => x.path)));
-    expect((await at(f, 't7')).d).toBeNull();
+    expect((await at(f, id)).d).toBeNull();
+  });
+  it("keeping the other file: the file of the user's own takes the playlist song over (the engine's heir)", async () => {
+    const { evs, f } = fake('todo_duplicates');
+    const id = await songOfGroup(f);
+    const before = await at(f, id);
+    if (before.d?.kind !== 'duplicate') throw new Error('no group');
+    const g = before.d.item.pair;
+    const mine = g.files.find((x) => x.song_key === id)!;
+    const kept = g.files.find((x) => x.song_key !== id)!;
+    await job(evs, f.supersede_duplicate(g.group_id, mine.file_id, g.files.map((x) => x.path)));
+    const read = await f.track(id);
+    if (!read.ok) throw new Error('read failed');
+    const after = read.track;
+    expect(after).toMatchObject({ path: kept.path, quality: kept.quality, status: 'not_lossless' });
+    expect((await at(f, id)).d).toBeNull();
   });
 });

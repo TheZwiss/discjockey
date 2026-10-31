@@ -43,7 +43,8 @@
   import LibraryTable from './LibraryTable.svelte';
   import TrackDetails from './TrackDetails.svelte';
   import {
-    LEGACY_SORT_KEY, LIBRARY_FILTERS, alsoHint, filterKey, hasSubfolders, libraryCalls, nextSort, offTable,
+    LEGACY_SORT_KEY, LIBRARY_FILTERS, allRows, alsoHint, filterKey, hasSubfolders, heldRow, holdApplies, libraryCalls,
+    nextSort, offTable, withHeld, type Hold,
     pageEmpty, playQueue, playlistColumnFor, artistColumnFor, shownSort, rowOf, segOptions, sortKey, subtitleParts, tableKind, todoHref, tooManyFor,
     viewSort, type LibraryCall,
     type SortColumn,
@@ -67,6 +68,12 @@
   let libError: { kind: ProblemKind; message: string } | null = $state(null);
   let loading = $state(true);
   let selected = $state<string | null>(untrack(() => query.get('track')));
+  // the track just acted on in the details stays on the table and selected (libraryModel Hold, keepHeld)
+  let hold = $state<Hold | null>(null);
+  $effect(() => {
+    const h = hold;
+    if (h && (selected !== h.id || !holdApplies(h, folder, q, filter))) untrack(() => { hold = null; });
+  });
 
   let detail = $state<TrackDetail | null>(null);
   let detailLoading = $state(false);
@@ -76,6 +83,9 @@
   let spectrumLoading = $state(false);
   let spectrumError = $state<string | null>(null);
   let upgradeSpectrum = $state<Spec>(null);
+  /** the files version the current spectrum was drawn at: a replace keeps the file's name (and so its audio_url) but
+   *  not its sound, so a new version draws it again (the old picture stays meanwhile) */
+  let spectrumAt = -1;
   // the to-do list's items, fetched with the details: the rekordbox check a replace left and the duplicate groups
   // aren't in a track's details, and the panel decides them as To-do's does (decisionFor)
   let todoItems = $state<TodoItem[]>([]);
@@ -158,7 +168,9 @@
     const turn = ++libTurn;
     untrack(() => { loading = true; });
     const order = (v: LibraryView) => chosen[v] ?? sortOf(v);
-    void askLibrary(libraryCalls(args[0], hubNow().sidebar), args[1], args[2], order).then((r) => {
+    void askLibrary(libraryCalls(args[0], hubNow().sidebar), args[1], args[2], order).then(async (r) => {
+      if (turn !== libTurn) return;
+      if (r.ok) r = await keepHeld(r, order);
       if (turn !== libTurn) return;
       loading = false;
       if (r.ok) {
@@ -173,6 +185,30 @@
       if (!ready) { ready = true; markReady('library'); }
     });
   });
+
+  // the held track (Hold) on a new answer: still listed, it stays selected; a duplicate's Keep that took its row (its
+  // file went, or the engine's heir renamed it) moves the selection to the track that has the kept file now. Not
+  // listed (filtered away: a replace under "Upgrade ready" leaves it lossless), its row is asked from the same view
+  // without filter and search, then from All tracks, and put back where it stood, so the details keep its result and
+  // Undo instead of closing. Not found anywhere: the details say the track isn't here any more.
+  async function keepHeld<L extends Library>(r: L, order: (v: LibraryView) => LibrarySort): Promise<L> {
+    const h = hold;
+    if (!holdApplies(h, folder, q, filter)) return r;
+    const follow = (id: string) => { if (id !== h.id) { hold = { ...h, id }; select(id, false); } };
+    const here = heldRow(allRows(r), h);
+    if (here) { follow(here.track_id); return r; }
+    const before = libFor === folder ? lib : null;
+    for (const c of [{ view: r.view, key: r.key }, { view: 'all' as const, key: null }]) {
+      const a = await api.library(c.view, c.key, '', 'all', order(c.view));
+      if (!a.ok) continue;
+      const row = heldRow(allRows(a), h);
+      if (row) { follow(row.track_id); return withHeld(r, row, before, h.id); }
+    }
+    return r;
+  }
+  function acted(keep: string[] | null) {
+    if (selected) hold = { id: selected, keep, folder, q, filter };
+  }
 
   let trackTurn = 0;
   let trackRetry = $state(0);
@@ -223,7 +259,8 @@
     detail = t;
     todoItems = items;
     if (!t.audio_url) { spectrum = null; return; }
-    if (fresh || !spectrum) {
+    if (fresh || !spectrum || spectrumAt !== version) {
+      spectrumAt = version;
       spectrumLoading = true;
       spectrumError = null;
       const s = await api.spectrum(id, 'current');
@@ -377,7 +414,7 @@
   <TrackDetails {detail} {decision} {playSource} {pending} loading={detailLoading} {gone} error={detailError} {spectrum}
     {spectrumLoading} {spectrumError} {upgradeSpectrum} onretry={() => { trackRetry++; }}
     onfinder={() => detail && void finder(detail.track_id)} ontodo={() => { const id = pending?.row.track_id ?? detail?.track_id; if (id) todo(id); }}
-    onlisten={() => detail && play(detail.track_id)} />
+    onlisten={() => detail && play(detail.track_id)} onacted={acted} />
 {/snippet}
 
 <ListPanelFrame {main} panel={selected ? panel : null} emptyPanel="Select a track to see its details." wide
