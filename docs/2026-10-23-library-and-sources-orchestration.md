@@ -180,19 +180,34 @@ Open, in order:
    byte-identical `(lossy)` copy last; plain "Undo" link under Done (design round places it). Not done: CLI undo.
    Notes: after "Wrong song?" the old undo record stays (undo not offered, a swap's kept download waits until Done);
    an upgrade on a track with an earlier rekordbox check overwrites that check's text (older behaviour).
-3. **To-do decision panels design** (Opus + design skills, mockup with before/after for the user's approval, then
-   build + shots):
-   - Upgrade ready: show the outcome of "Add as new file" before the click, not in a tooltip; button order; where the
-     Undo link sits.
-   - Duplicates (user: "very bad UX"): "Move to Superseded" is jargon and badly placed, "Keep both" is the orange
-     primary, there is no recommendation, paths serve as headings, and the Superseded explanation sits in a separate
-     box.
-4. **Tooltip cut off at the window edge** (To-do's "Add as new file makes a new rekordbox e…"), small UI fix + shots
-   (may fold into 3).
+3. **To-do decision panels** — design approved by the user 2026-10-31 (mockup `docs/hub-mockups/todo-decisions.html`
+   + notes, 45e964b on `feat/library-5b-panels`, worktree `.claude/worktrees/5b-panels`). User answers: label
+   "Replace with lossless"; one "quit rekordbox first" line in the In rekordbox card; rekordbox XML for duplicates
+   later (list it next to AcoustID). Orchestrator changes: the Duplicates button names the result ("Keep the AIFF",
+   "the MP3 goes to Superseded/, not deleted"); NOW/NEW both show quality. Scope: ONLY the right details panel
+   (Upgrade ready, rekordbox check, Duplicates, empty state) + the short status in To-do list rows; the mockup's
+   sidebar, settings icon, foot player, header, tabs, list layout are hand-drawn and must not change.
+   - a. Build (Opus, no shots) — running overnight 2026-10-31.
+   - b. Shots agent (Opus or Sonnet per findings; ~100–150k): every fake state at 1100×700 + full window, light/dark;
+     compare the WHOLE screen with today's app, anything changed outside scope is a bug to revert; fix what shots
+     show; check the old orange "Undo" text link is gone. Hard stop ~80 calls.
+   - c. Merge `feat/library-5b-panels` into the step branch (`--no-ff`), push, remove worktree.
+4. **Tooltip cut off at the window edge**: check it is gone after 3 (the design removed the tooltip); if any remain,
+   small fix in the shots round.
 5. **Sync: no cover for folder-imported tracks** in the top card (next up / syncing now) while a sync runs (user,
    2026-10-31, shot at 00:58). Qobuz/Spotify tracks show covers in the rows; Kø:lab shows a gradient (not on Spotify).
    Find where the top card gets its cover and why imported own songs have none; consider the file's embedded artwork
-   as the fallback, also for rows like Kø:lab. Sonnet, code + tests + a fake shot.
-6. **Ask the user:** re-judge old quality verdicts with the new rule? (`docs/issues.md` #27; e.g. 27 DJ Stick Jan
-   WAVs still show lossless until judged again).
-7. Then: CI + verify, the user's re-check, merge `feat/library-5b-folders` into main, update this table and memory.
+   as the fallback, also for rows like Kø:lab. Sonnet, code + tests + a fake shot; worktree `5b-covers`.
+6. ~~Ask the user: re-judge old quality verdicts?~~ User 2026-10-31: **no**, the new imports are only test files.
+   Close the #27 re-judge point in `docs/issues.md` with that answer (fold into item 5's commit or a docs commit).
+7. Then: CI + `npm run verify` (background), and **stop for the user**: their re-check (jitter in a small window,
+   the new panels with a real upgrade + duplicate, Compare plays, sync covers). Only after their OK: merge
+   `feat/library-5b-folders` into main (`--no-ff`), push, update this table and memory.
+
+Later (each needs its own plan / the user's go): stage 6, AcoustID (#24), rekordbox XML for the duplicates pick, the
+leftovers in `docs/issues.md`, CLI undo for upgrades. **No release without the user's go.**
+
+Overnight rules: one agent at a time; check `ps` and the worktree after each; size from the record (Opus UI build
+250–350k, shots 100–150k, Sonnet fix 115–150k); never resume an agent above ~150k (fresh one with findings + files);
+two failed rounds on one problem → stop and leave it for the user; never touch the running app, the user's files or
+the real DB.
