@@ -677,3 +677,37 @@ def test_a_login_never_writes_into_yt_dlps_shared_headers(monkeypatch):
         assert base._HEADERS == {} and yt_soundcloud.SoundcloudIE()._HEADERS == {}
     finally:
         ydl.close()
+
+
+# --- a private track's secret token (docs/issues.md 34) ---------------------------------------------------------
+
+PRIVATE_LINE = PlaylistLine("House", "example-label/sets/private-set/s-SetTok123", 3, "soundcloud")
+
+
+def test_a_private_set_s_private_tracks_carry_their_token(world, paths):
+    world.set_resolve = fixture("private_set_resolve.json")
+    fetched = read(paths, PRIVATE_LINE)
+    assert [t.secret() for t in fetched.tracks] == [
+        "s-OwnTok111",   # the track's own `secret_token` wins
+        "s-SetTok123",   # a private track that gives none takes the set's
+        None,            # a public track in a private set sends nothing
+        "s-PageTok222"]  # the token of its private page link
+    assert len(world.calls) == 1  # all four were listed in full: no batch request
+
+
+def test_public_sets_and_tracks_carry_no_token(world, paths):
+    fetched = read(paths)
+    assert fetched.tracks and all(t.secret() is None for t in fetched.tracks)
+    likes = read(paths, LIKES_LINE)
+    assert likes.tracks and all(t.secret() is None for t in likes.tracks)
+    assert source.parse_track(fixture("tracks_batch1.json")[1], "s-SetTok123").secret() is None  # not private
+
+
+def test_the_token_is_no_field_of_the_track(world, paths):
+    import dataclasses
+    world.set_resolve = fixture("private_set_resolve.json")
+    track = read(paths, PRIVATE_LINE).tracks[1]  # (a private page link names its own token: tracks[0], [3]; see issue 34)
+    assert track.secret() == "s-SetTok123"
+    assert "s-SetTok123" not in repr(track) and "s-SetTok123" not in repr(dataclasses.asdict(track))
+    assert "secret_token" not in {f.name for f in dataclasses.fields(track)}
+    assert dataclasses.replace(track, title="x").secret() is None  # a copy is rebuilt from fields: never by accident

@@ -9,7 +9,7 @@ from typing import Any, Callable
 from . import audio, quality
 from .accounts import ACCOUNT_KBPS, ACCOUNT_OF, PREMIUM_MIN_KBPS, signal_of, stream_rank, tier
 from .events import AccountUsage, Checked, Emit, Message, SourceChosen, Tracker, no_emit, null_tracker
-from .fallback import drm_protected, short_error, stream_url
+from .fallback import drm_protected, scrub, short_error, stream_url
 from .matching import duration_ok, fallback_match, isrc_match, qobuz_match, rank
 from .models import Candidate, SourceTrack
 
@@ -83,10 +83,11 @@ class _Tries:
 
 def upload_candidate(upload: SourceTrack) -> Candidate:
     """The playlist's own upload as a candidate (stage 6 I6): its service and id are the candidate's (D1). The download
-    address comes from the id, never from the track's page link."""
+    address comes from the id, never from the track's page link. A private upload's secret link token rides along as
+    `secret` (never in `url`): the download asks for the track with it."""
     return Candidate(upload.service, upload.id, upload.title, " ".join(upload.artists), upload.duration_ms / 1000,
                      url=stream_url(upload.service, upload.id), album=upload.album or None,
-                     image_url=upload.image_url)
+                     image_url=upload.image_url, secret=upload.secret())
 
 
 def _with_twins(keys: set[str]) -> set[str]:
@@ -292,7 +293,8 @@ class Acquirer:
         budget = self.accounts[service]
         who = f"{track.first_artist} - {track.title}"
         try:
-            kbps = self.fallback.stream_kbps(c.source, c.id, account=True)
+            kbps = (self.fallback.stream_kbps(c.source, c.id, account=True, secret=c.secret) if c.secret
+                    else self.fallback.stream_kbps(c.source, c.id, account=True))
         except Exception as e:  # yt-dlp raises many types
             text = short_error(e)
             if drm_protected(e):  # never worked around, and not the account's fault
@@ -586,13 +588,13 @@ class Acquirer:
                                              progress=lambda done, total: tracker.progress(done, total, "bytes"))
         except Exception as e:
             if c.direct:  # the download button can need a SoundCloud login; the stream is tried next
-                self._debug(f"SoundCloud original of {c.id} not available: {e}")
+                self._debug(f"SoundCloud original of {c.id} not available: {scrub(str(e))}")
                 return None
             if getattr(e, "permanent", False):  # e.g. region-locked on Qobuz: never try this one again
                 res.rejected.append(c.key)
                 skip.add(c.key)
             else:
-                res.errors.append(f"Download from {c.source} ({c.id}) failed: {e}")
+                res.errors.append(f"Download from {c.source} ({c.id}) failed: {scrub(str(e))}")
                 if qobuz:  # also a preview-only answer: usually the account, so it counts toward the auto-stop
                     self._qobuz_failed(f"{track.first_artist} - {track.title}: {e}",
                                        getattr(e, "signal", "download_rejected"))

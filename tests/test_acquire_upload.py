@@ -552,3 +552,81 @@ def test_a_track_without_an_album_takes_the_candidate_s_album(tmp_path):
     track = SourceTrack("t1", "Song", ("Artist",), "Own Album", None, 10000, None)
     r = make_ready(src2, track, Candidate("qobuz", "2", "Song", "Artist", 10.0, album="Example Album"), tmp_path)
     assert AIFF(str(r.path)).tags.getall("TALB")[0].text == ["Own Album"]
+
+
+# --- a private upload's secret link token (docs/issues.md 34) ---------------------------------------------------
+
+SECRET = "s-OwnTok111"
+
+
+class SecretFallback(AccountFallback):
+    """AccountFallback that notes the secret token each listing and download was given."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.secrets = []  # ("probe" | "download", secret)
+
+    def stream_kbps(self, source, source_id, account=False, secret=None):
+        self.secrets.append(("probe", secret))
+        return super().stream_kbps(source, source_id, account)
+
+    def download(self, cand, workdir, progress=None, account=False):
+        self.secrets.append(("download", cand.secret))
+        return super().download(cand, workdir, progress, account)
+
+
+def private_upload():
+    return SourceTrack(SC_ID, "Gimme Gimme", ("Vatoz Locoz",), "", None, 156000, None, service="soundcloud",
+                       link="https://soundcloud.com/example-label/example", secret_token=SECRET)
+
+
+def test_the_candidate_of_a_private_upload_carries_the_token_apart_from_its_address():
+    c = upload_candidate(private_upload())
+    assert c.secret == SECRET and c.url == f"https://api.soundcloud.com/tracks/{SC_ID}"
+    assert SECRET not in repr(c) and SECRET not in repr(private_upload())
+    assert upload_candidate(sc_upload()).secret is None
+
+
+def test_a_private_upload_is_downloaded_with_its_token(tmp_path):
+    fb = SecretFallback()
+    a, _ = acquirer(None, fb)
+    r = get(a, tmp_path, private_upload())
+    assert r.kind == "ready" and fb.downloads == [SC_ID] and fb.searched == []
+    assert fb.secrets == [("download", SECRET)]
+
+
+def test_the_account_listing_and_stream_of_a_private_upload_carry_the_token(tmp_path):
+    fb = SecretFallback(kbps={SC_KEY: 256})
+    a, _, _ = setup(fb, limits={"soundcloud": 60})
+    r = get(a, tmp_path, private_upload())
+    assert r.kind == "ready" and fb.downloads == [f"account:{SC_ID}"]
+    assert fb.secrets == [("probe", SECRET), ("download", SECRET)]
+
+
+def test_a_public_upload_sends_no_token(tmp_path):
+    fb = SecretFallback(kbps={SC_KEY: 256})
+    a, _, _ = setup(fb, limits={"soundcloud": 60})
+    assert get(a, tmp_path, sc_upload()).kind == "ready"
+    assert fb.secrets == [("probe", None), ("download", None)]
+    fb = SecretFallback()
+    a, _ = acquirer(None, fb)
+    get(a, tmp_path, sc_upload())
+    assert fb.secrets == [("download", None)]
+
+
+def test_the_token_never_reaches_the_report_the_events_or_the_log(tmp_path):
+    import json
+    from dataclasses import asdict
+
+    class Failing(SecretFallback):
+        def download(self, cand, workdir, progress=None, account=False):
+            raise RuntimeError(f"[soundcloud] {cand.id}: HTTP Error 404 for https://api-v2.soundcloud.com/tracks/"
+                               f"{cand.id}?secret_token={cand.secret}&client_id=x")
+
+    fb = Failing([fc("y1")])
+    a, _ = acquirer(None, fb)
+    events = []
+    r = get(a, tmp_path, private_upload(), events=events)
+    everything = json.dumps({"result": asdict(r), "events": [asdict(e) for e in events]}, default=repr)
+    assert SECRET not in everything and SECRET not in repr(r) and SECRET not in repr(events)
+    assert r.errors and "secret_token=" in r.errors[0]  # the error stays readable, only the token is gone

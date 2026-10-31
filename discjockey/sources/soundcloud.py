@@ -221,10 +221,29 @@ def skipped_text(track_id: object) -> str:
     return f"A track SoundCloud no longer shows (ID {track_id})" if track_id else "A track SoundCloud no longer shows"
 
 
-def parse_track(obj: object) -> SourceTrack | str:
+_TOKEN = re.compile(r"s-[\w-]+")
+
+
+def _secret_of(obj: dict, set_secret: str | None) -> str | None:
+    """The secret link token a download of this track needs, or None for a public one (nothing is sent then). The
+    track's own wins: its `secret_token`, else the token in its private page link (`.../s-<token>`). A private track
+    of a private set that gives none takes the set's token (as yt-dlp does for the set's tracks)."""
+    own = obj.get("secret_token")
+    if isinstance(own, str) and _TOKEN.fullmatch(own.strip()):
+        return own.strip()
+    last = str(obj.get("permalink_url") or "").split("?")[0].rstrip("/").rsplit("/", 1)[-1]
+    if _TOKEN.fullmatch(last):
+        return last
+    if set_secret and str(obj.get("sharing") or "").lower() == "private":
+        return set_secret
+    return None
+
+
+def parse_track(obj: object, set_secret: str | None = None) -> SourceTrack | str:
     """One SoundCloud track object as a SourceTrack, or the words for why it is skipped. SoundCloud's own metadata
     wins where it exists (D9): a label-distributed upload names its artist, album and ISRC; `policy` BLOCK is not
-    playable here, SNIP is a 30 s preview unless the Go+ account plays it."""
+    playable here, SNIP is a 30 s preview unless the Go+ account plays it. A private track carries its secret link
+    token (`set_secret`: the token of the private set it was read from), which the upload step needs."""
     if not isinstance(obj, dict) or not obj.get("id"):
         return skipped_text(obj.get("id") if isinstance(obj, dict) else None)
     user = obj.get("user") if isinstance(obj.get("user"), dict) else {}
@@ -246,6 +265,7 @@ def parse_track(obj: object) -> SourceTrack | str:
         link=obj.get("permalink_url") or None,
         streamable=policy != "BLOCK",
         account_only=policy == "SNIP",
+        secret_token=_secret_of(obj, set_secret),
     )
 
 
@@ -316,11 +336,11 @@ class SoundCloudReader:
     # -- what a read returns
 
     @staticmethod
-    def _sorted(tracks: list) -> tuple[list[SourceTrack], list[str]]:
+    def _sorted(tracks: list, set_secret: str | None = None) -> tuple[list[SourceTrack], list[str]]:
         out: list[SourceTrack] = []
         skipped: list[str] = []
         for t in tracks:
-            r = parse_track(t) if not _is_stub(t) else skipped_text(t.get("id"))
+            r = parse_track(t, set_secret) if not _is_stub(t) else skipped_text(t.get("id"))
             (out if isinstance(r, SourceTrack) else skipped).append(r)
         return out, skipped
 
@@ -336,7 +356,7 @@ class SoundCloudReader:
         secret = pid.split("/")[3] if pid.count("/") >= 3 else None
         items = playlist.get("tracks") or []
         items = self._fill(items if isinstance(items, list) else [], str(playlist["id"]), secret)
-        tracks, skipped = self._sorted(items)
+        tracks, skipped = self._sorted(items, secret)
         info = self._set_info(playlist, pid) if self.want_info else None
         return FetchedPlaylist(line, tracks, skipped, info)
 

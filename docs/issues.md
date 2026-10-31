@@ -3,15 +3,6 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
-## 34. The own upload of a track in a private SoundCloud set
-
-Noted while building library stage 6, group 4 (`docs/2026-10-31-library-stage-6-plan.md`). The upload step downloads
-a SoundCloud playlist's own track by its id (`fallback.stream_url`). A track that is private itself and sits in a
-private set (read through the set's share link, `user/sets/slug/s-token`) may need the set's secret token to be
-fetched, and `SourceTrack` doesn't carry it. Such a track then fails its upload try and goes on to the usual search,
-like any upload that can't be downloaded. A known limit, not built: it would need the token on the track from the
-reader to the download.
-
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them — needs a design round (user, 2026-10-31)
 
 The user's wish: files of their own (imported, MP3 or other lossy) end up as the library format (16-bit AIFF), with
@@ -43,19 +34,14 @@ Noted while reviewing `docs/2026-10-31-library-stage-6-plan.md`. The first three
   built.
 - **No view renders `track_link`** ("Open in Spotify / Qobuz / SoundCloud / YouTube Music"). Pre-existing, not new in
   stage 6.
-- **Open question: an upload whose own account is used up or paused.** The track waits (I6) instead of searching
-  elsewhere. Decide whether it should search the other sources meanwhile.
-- **Decided: a Go+-only (SNIP) track whose Go+ stream is below ~256 kbps** (user, 2026-10-31: "of course get the 128
-  kbps version"). A full non-DRM stream of about 128 kbps is one more candidate in the usual hierarchy (stage 6 D9):
-  every better source first, an equal free stream before it, then the account stream (counted, paced, it waits when
-  the account is used up). DRM-only and preview-only listings stay rejected. **Live check:** that a Go+-only upload
-  seen through an account without Go+ really lists the 30 s preview (`…_preview`) and not a full stream, and that a
-  Go+ account lists a full ~128 kbps one for such an upload (read from yt-dlp's code, not seen live). Two more
-  yt-dlp assumptions, also unseen: for a Go+ track whose `hq` transcoding is DRM-protected, yt-dlp still picks a
-  named, unprotected full format (`http_mp3_128` or an HLS mp3 id) for `info["format_id"]` and never a `ctr-`/`cbc-`
-  protocol one, so `stream_kbps` can tell it from "only protected" (then no format is named, or it ends in
-  `_preview`); and `abr`/`tbr` of that format is its own ~128, not the protected stream's. If either is wrong the
-  typical Go+ track's 128 stream is rejected as DRM again (nothing else breaks).
+- **Live check (a Go+-only SNIP track, stage 6 D9):** that a Go+-only upload seen through an account without Go+ really
+  lists the 30 s preview (`…_preview`) and not a full stream, and that a Go+ account lists a full ~128 kbps one for such
+  an upload (read from yt-dlp's code, not seen live). Two more yt-dlp assumptions, also unseen: for a Go+ track whose
+  `hq` transcoding is DRM-protected, yt-dlp still picks a named, unprotected full format (`http_mp3_128` or an HLS mp3
+  id) for `info["format_id"]` and never a `ctr-`/`cbc-` protocol one, so `stream_kbps` can tell it from "only
+  protected" (then no format is named, or it ends in `_preview`); and `abr`/`tbr` of that format is its own ~128, not
+  the protected stream's. If either is wrong the typical Go+ track's 128 stream is rejected as DRM again (nothing else
+  breaks).
 - **Live check:** the short-link redirect follows one hop. Confirm that `on.soundcloud.com` goes straight to
   `soundcloud.com/...`.
 - **Seen in the stage 6 screenshots (all pre-existing):**

@@ -1,7 +1,7 @@
 """Plain data records shared by all modules."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
@@ -87,12 +87,21 @@ class SourceTrack:
     link: str | None = None  # the track's page; filled from TRACK_LINKS when None
     streamable: bool = True  # False: the service lists it but won't deliver it now (Qobuz preview or region)
     account_only: bool = False  # True: only the service's account can deliver the full track (SoundCloud SNIP: Go+)
+    # A private SoundCloud track's secret link token (the track's own, or its private set's). A secret: NOT a field,
+    # so `asdict` (events, the hub) and `repr` never carry it; only `secret()` hands it to the download.
+    secret_token: InitVar[str | None] = None
 
-    def __post_init__(self):
+    def __post_init__(self, secret_token: str | None = None):
         if self.link is None:
             pattern = TRACK_LINKS.get(self.service)
             if pattern:
                 object.__setattr__(self, "link", pattern.format(id=self.id))
+        if isinstance(secret_token, str) and secret_token:
+            object.__setattr__(self, "_secret", secret_token)
+
+    def secret(self) -> str | None:
+        """The secret link token a download of this track needs (SoundCloud), or None."""
+        return self.__dict__.get("_secret")
 
     @property
     def first_artist(self) -> str:
@@ -141,6 +150,8 @@ class Candidate:
     label: str | None = None
     image_url: str | None = None
     direct: bool = False  # SoundCloud: download the artist's original file (its download button), not the stream
+    # SoundCloud: the secret link token of a private upload (never in `url`, `repr`, logs or events)
+    secret: str | None = field(default=None, repr=False, compare=False)
 
     @property
     def key(self) -> str:
