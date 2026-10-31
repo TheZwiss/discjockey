@@ -234,7 +234,14 @@
   {/if}
 {/snippet}
 
-<ListPanelFrame {main} panel={selected ? panel : null} emptyPanel="Pick a track to see what you can do." />
+{#snippet nothing()}
+  <div class="nothing" data-test="todo-nothing"><EmptyState title="Nothing to decide"
+    body="When a better version arrives or two files are the same song, you choose here." /></div>
+{/snippet}
+
+<!-- with no to-do left the panel says when it will have something, never blank (mockup todo-decisions) -->
+<ListPanelFrame {main} panel={selected ? panel : data?.empty === 'all_lossless' || data?.empty === 'all_hidden' ? nothing : null}
+  emptyPanel="Pick a track to see what you can do." />
 
 {#if versionsFor}
   {#key versionsFor.track_id}
@@ -246,4 +253,5 @@
   /* the badge's slot after it: 64 px fits UPGRADE, the widest, so every quality badge ends at one x */
   .act { display: inline-flex; justify-content: flex-end; min-width: var(--w-row-action); }
   .again { display: flex; justify-content: center; }
+  .nothing { height: 100%; display: flex; align-items: center; justify-content: center; padding: 0 var(--s-5); }
 </style>

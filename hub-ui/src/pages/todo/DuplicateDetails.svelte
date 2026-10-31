@@ -1,68 +1,107 @@
 <script lang="ts">
-  // Duplicates in the panel (plan library stage 4, 7.3, W8): the same audio, or the same song, in two or more files.
-  // The head names the song (the track card, the why under it); then every file as its own card, labelled with the
-  // folder it is in (what tells copies apart), "In your playlists" on the playlist song's copy, Move to Superseded at
-  // the card's head like "Wrong song?" on the current file's card; inside, ▶ · the file's name · the quality. Then the
-  // W8 note, and Keep both (Keep all for more than two) in the foot as the screen's one filled button.
-  // Move to Superseded is a write job ("supersede", D10: journaled, no undo), so it asks first, naming the file; its
-  // result says where the file went (a toast with the result's own words). The re-fetch keeps the group selected
-  // while files are left in it (keepSelection), else goes on to the next to-do. Errors: runJob's toast, words as sent.
+  // Duplicates in the panel (plan library stage 4, 7.3, W8; mockup todo-decisions "Which file stays?"): the same
+  // audio, or the same song, in two or more files. The head names the song (the track card, the why under it); then
+  // one ChoiceGroup of the files: line 1 the quality and format, line 2 the folder's last part (+ "in your
+  // playlists"), ▶ at the row's end, the full path its tooltip; the app's pick (pair.recommended) is picked and says
+  // why, every file that won't stay says "Goes to Superseded/" while another is picked, and Keep both / Keep all is
+  // the list's last, ruled row. With no clear winner nothing is picked and the head says so. The foot's one filled
+  // button names the result ("Keep the AIFF"; off with "Choose the file that stays" until a pick), the line under it
+  // where the others go (nothing is deleted).
+  // Keeping a file is "supersede" write jobs (D10: journaled, no undo), one per file that goes; after each, the
+  // group is the one of the files left (groupIdOf), so a group of three takes two jobs. Keep both is one "answer"
+  // job. Errors: runJob's toast, words as sent; the re-fetch keeps the group selected while files are left in it.
   import type { DuplicateItem, FileSide, Result } from '$lib/bridge/types';
   import { api, runJob } from '$lib/bridge/client';
   import { toasts } from '$lib/stores/toasts';
-  import { NoteCard, QualityBadge, Surface, TrackHead, WriteButton, confirm } from '$lib/components';
+  import { ChoiceGroup, Hint, QualityBadge, Surface, TrackHead, WriteButton } from '$lib/components';
+  import type { ChoiceOption } from '$lib/components';
   import { Panel } from '$lib/frames';
-  import { fileFolder, fileName, keepLabel } from './todoModel';
+  import { fileFormat, fileName, groupIdOf, keepLabel, keepWords, lastFolder, type DuplicatePick } from './todoModel';
   import FilePlay from './FilePlay.svelte';
 
   let { item }: { item: DuplicateItem } = $props();
 
   const g = $derived(item.pair);
-  let busy = $state<number | 'keep' | null>(null);
-  /** The paths of the files this card shows: sent with an answer, so one given to another group is refused. */
-  const shown = () => g.files.map((f) => f.path);
+  // the app's pick until the user picks (the component is keyed by the group, so a new group starts over)
+  let chosen = $state<DuplicatePick | undefined>(undefined);
+  const pick = $derived<DuplicatePick>(chosen !== undefined ? chosen : g.recommended ?? null);
+  const words = $derived(keepWords(g.files, pick));
+  let busy = $state(false);
 
-  async function keep() {
-    busy = 'keep';
-    await runJob(api.keep_duplicates(g.group_id, shown()));
-    busy = null;
+  const ALL = 'all' as const;
+  type Key = number | typeof ALL;
+  const options = $derived<ChoiceOption<Key>[]>([
+    ...g.files.map((f): ChoiceOption<Key> => ({ key: f.file_id, test: 'duplicate-file' })),
+    { key: ALL, name: keepLabel(g.files.length), summary: `${g.files.length > 2 ? 'All' : 'Both'} stay; this to-do goes away`,
+      ruled: true, test: 'duplicates-keep-all' }]);
+  const byId = $derived(new Map(g.files.map((f) => [f.file_id, f])));
+
+  async function keepAll() {
+    busy = true;
+    await runJob(api.keep_duplicates(g.group_id, g.files.map((f) => f.path)));
+    busy = false;
   }
-  async function supersede(f: FileSide) {
-    if (!(await confirm({ title: `Move ${fileName(f.path)} to Superseded?`,
-      body: 'Nothing is deleted: the file goes to Superseded/.', confirmLabel: 'Move to Superseded' }))) return;
-    busy = f.file_id;
-    const r = await runJob<{ result: Result }>(api.supersede_duplicate(g.group_id, f.file_id, shown()), { success: false });
-    busy = null;
-    if (r.ok && r.result?.result?.note) toasts.show({ tone: 'success', title: r.result.result.note });
+  async function keepOne(keep: number) {
+    busy = true;
+    let left = [...g.files];
+    let last: Result | null = null;
+    for (const f of g.files.filter((x) => x.file_id !== keep)) {
+      const r = await runJob<{ result: Result }>(api.supersede_duplicate(groupIdOf(left.map((x) => x.file_id)), f.file_id,
+        left.map((x) => x.path)), { success: false });
+      if (!r.ok) break;
+      last = r.result?.result ?? null;
+      left = left.filter((x) => x !== f);
+    }
+    busy = false;
+    const moved = g.files.length - left.length;
+    if (moved === 1 && last?.note) toasts.show({ tone: 'success', title: last.note });
+    else if (moved > 1) toasts.show({ tone: 'success', title: `Moved ${moved} files to Superseded/.` });
+  }
+  function go() {
+    if (pick === ALL) void keepAll();
+    else if (typeof pick === 'number') void keepOne(pick);
   }
 </script>
 
+{#snippet fileRow(o: ChoiceOption<Key>, on: boolean)}
+  {#if o.key === ALL}
+    <span class="nm">{o.name}</span><span class="line">{o.summary}</span>
+  {:else}
+    {@const f = byId.get(o.key) as FileSide}
+    <span class="fmt"><QualityBadge quality={f.quality} label={f.quality_label} /><span class="f">{fileFormat(f.path)}</span></span>
+    <span class="line" title={f.path}>{lastFolder(f.path) || fileName(f.path)}{f.in_playlist ? ' · in your playlists' : ''}</span>
+    {#if f.file_id === g.recommended && g.recommended_why}<span class="reason" data-test="duplicate-why">{g.recommended_why}</span>{/if}
+    {#if typeof pick === 'number' && !on}
+      <span class="gone" data-test="duplicate-goes"><svg viewBox="0 0 12 12" aria-hidden="true" fill="none"
+        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path
+        d="M2 6h7.5M6.8 3.2L9.6 6 6.8 8.8" /></svg>Goes to Superseded/</span>
+    {/if}
+  {/if}
+{/snippet}
+
+{#snippet play(o: ChoiceOption<Key>)}
+  {#if o.key !== ALL}
+    <FilePlay files={g.files} file={byId.get(o.key) as FileSide} cover={item.cover_url} test="duplicate-play" />
+  {/if}
+{/snippet}
+
 {#snippet head()}
-  <div class="details" data-test="duplicates" data-group={g.group_id} data-files={g.files.length}>
+  <div class="details" data-test="duplicates" data-group={g.group_id} data-files={g.files.length}
+    data-pick={pick ?? undefined}>
     <Surface kind="card">
       <TrackHead track={item} place={item.folder}><span class="why">{item.detail}</span></TrackHead>
     </Surface>
-    {#each g.files as f (f.file_id)}
-      <Surface kind="card" label={fileFolder(f.path)} fitLabel={fileFolder(f.path)} summary={f.in_playlist ? 'In your playlists' : undefined}
-        data-test="duplicate-file" data-file={f.file_id}>
-        {#snippet header()}
-          <WriteButton variant="link" size="sm" busy={busy === f.file_id} disabled={busy !== null && busy !== f.file_id}
-            onclick={() => supersede(f)} data-test="supersede">Move to Superseded</WriteButton>
-        {/snippet}
-        <div class="file">
-          <FilePlay files={g.files} file={f} cover={item.cover_url} test="duplicate-play" />
-          <span class="path" title={f.path}>{fileName(f.path)}</span>
-          <QualityBadge quality={f.quality} label={f.quality_label} />
-        </div>
-      </Surface>
-    {/each}
-    <NoteCard data-test="duplicates-note">Nothing is deleted: the file goes to Superseded/.</NoteCard>
+    <ChoiceGroup label="Which file stays?" summary={g.recommended === null ? 'no clear winner' : undefined}
+      hint={g.recommended === null ? 'Same quality and format. Keep the one in the folder rekordbox uses.' : undefined}
+      {options} value={pick} onchange={(k) => (chosen = k)} content={fileRow} trail={play} disabled={busy}
+      test="duplicate-files" />
   </div>
 {/snippet}
 
 {#snippet foot()}
-  <WriteButton variant="filled" wide busy={busy === 'keep'} disabled={busy !== null && busy !== 'keep'} onclick={keep}
-    data-test="duplicates-keep">{keepLabel(g.files.length)}</WriteButton>
+  <WriteButton variant="filled" wide busy={busy} disabled={!words.ready} onclick={go} data-test="duplicates-keep">
+    {words.label}</WriteButton>
+  {#if words.hint}<div class="centered"><Hint text={words.hint} wrap data-test="duplicates-hint" /></div>{/if}
 {/snippet}
 
 <Panel {head} {foot} />
@@ -70,9 +109,13 @@
 <style>
   .details { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; }
   .why { font-size: var(--fs-small); color: var(--text-muted); }
-  /* ▶ · the file's name · the quality, on one row */
-  .file { display: flex; align-items: center; gap: var(--s-3); min-width: 0; }
-  /* the name breaks between words, inside a word only when one alone is wider than the column; the full path is the tooltip */
-  .path { flex: 1; min-width: 0; font-size: var(--fs-small); color: var(--text-muted); overflow-wrap: break-word;
-    word-break: normal; }
+  .nm { color: var(--text); font-weight: var(--fw-medium); }
+  .fmt { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .f { color: var(--text); font-weight: var(--fw-medium); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .line { font-size: var(--fs-small); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .reason { font-size: var(--fs-small); color: var(--accent-text); }
+  /* yellow: it needs nothing from the user, but it is a change they should see before they press */
+  .gone { font-size: var(--fs-small); color: var(--q-good); display: flex; gap: 5px; align-items: center; }
+  .gone svg { width: 12px; height: 12px; flex-shrink: 0; }
+  .centered :global(.hint) { text-align: center; }
 </style>

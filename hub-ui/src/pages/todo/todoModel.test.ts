@@ -8,7 +8,12 @@ import {
   FILTER_ORDER, actionsFor, segOptions, filterFrom, flatten, headerSub, itemKey, keepSelection, moveSelection, rowOff,
   cutoffStat, freeHint, qobuzText, selectAfterHide, selectFromTrack,
   NO_VALUE, compareLines, fileFolder, filePlace, fileName, fileQueue, fileState, keepLabel, linkService, queueRows, rowBadge,
+  checkCard, editLine, fileFormat, fileWords, groupIdOf, keepWords, lastFolder, localDay, replaceLabel, replacedCard,
+  sinceText, upgradeWays,
 } from './todoModel';
+import type { RekordboxCheckView } from '$lib/bridge/types';
+import { stepChoice } from '$lib/components/choiceModel';
+import { cueTone } from '$lib/format';
 
 function item(id: string, group: TodoGroupKey, extra: Partial<TodoItem> = {}): TodoItem {
   return { track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'not_lossless',
@@ -23,7 +28,7 @@ function todo(groups: [TodoGroupKey, string[]][]): Todo {
 }
 function upgrade(extra: Partial<Upgrade> = {}): Upgrade {
   return { file: 'Upgrades ready/Hard_Bounce/A - x.aiff', source: 'qobuz', source_name: 'Qobuz', source_id: 'q1',
-    found: '2026-10-16', what: 'lossless version', quality_line: 'Qobuz FLAC · verified lossless',
+    found: '2026-10-16', what: 'lossless version', quality_line: 'Qobuz FLAC · verified lossless', format_line: 'FLAC · lossless',
     alignment: { drift_ms: 0, offset_ms: 0, offset_samples: 0, result: 'exact', text: 'matches exactly' },
     cue_text: 'matches exactly, cues stay', swap_safe: true, swap_possible: true, audio_url: 'u2', ...extra };
 }
@@ -164,6 +169,12 @@ describe('actionsFor', () => {
     }
     expect(actionsFor(detail({ status: 'lossless', quality: 'lossless' })).dropZone).toBe(false);
   });
+  it('offers no buy links or drop zone under a lossless version that is ready, but does under a better lossy one', () => {
+    const ready = actionsFor(detail({ upgrade: upgrade({ what: 'lossless version' }) }));
+    expect([ready.buy, ready.dropZone]).toEqual([false, false]);
+    const better = actionsFor(detail({ upgrade: upgrade({ what: 'better version' }) }));
+    expect([better.buy, better.dropZone]).toEqual([true, true]);
+  });
   it('hides or unhides', () => {
     expect(actionsFor(detail()).hide).toBe('hide');
     expect(actionsFor(detail({ hidden: true })).hide).toBe('unhide');
@@ -251,7 +262,7 @@ function question(song_key: string, own: number, extra: Partial<QuestionPair> = 
 }
 function dupe(ids: number[]): DuplicateItem {
   const group_id = `dup:${ids.join('-')}`;
-  return { ...item(group_id, 'duplicate'), group: 'duplicate', pair: { group_id, why: 'same_audio', files: ids.map((id) => side(id)) } };
+  return { ...item(group_id, 'duplicate'), group: 'duplicate', pair: { group_id, why: 'same_audio', files: ids.map((id) => side(id)), recommended: null, recommended_why: null } };
 }
 const flatOf = (...items: TodoItem[]) => items;
 
@@ -400,5 +411,160 @@ describe('which rows are dimmed', () => {
     expect(rowOff(item('t1', 'weak'))).toBe(false);
     expect(rowOff({ ...question('q1', 101), in_playlists: false })).toBe(false);
     expect(rowOff({ ...dupe([201, 202]), in_playlists: false })).toBe(false);
+  });
+});
+
+
+describe('upgrade decision', () => {
+  const align = (result: string, offset_ms = 0) => ({ drift_ms: 0, offset_ms, offset_samples: 0, result, text: '' });
+  it('offers a choice only where both ways are possible, Same track first', () => {
+    const w = upgradeWays(upgrade(), true);
+    expect(w.choice).toBe(true);
+    expect(w.options.map((o) => [o.key, o.name])).toEqual([['swap', 'Same track'], ['add_new', 'New track']]);
+    expect(w.options[0].outcomes).toEqual([{ tone: 'kept', text: 'Your track keeps its cues' }]);
+    expect(w.options[1].summary).toBe('Relocate your old track to keep cues');
+    expect(w.reason).toBeNull();
+  });
+  it('says a shifted match moves the audio onto the cues', () => {
+    const w = upgradeWays(upgrade({ alignment: align('shifted', -12.4) }), true);
+    expect(w.options[0].outcomes.map((o) => o.text)).toEqual(['Your track keeps its cues',
+      'Moved 12 ms to sit on your cues']);
+  });
+  it('without a swap says what happens and why Same track is off', () => {
+    const mp3 = upgradeWays(upgrade({ swap_possible: false }), false);
+    expect([mp3.choice, mp3.reason]).toEqual([false, 'Same track needs an AIFF file']);
+    expect(mp3.fixed.map((o) => [o.tone, o.text])).toEqual([['step', 'rekordbox lists it as a new track'],
+      ['kept', 'Relocate your old track: cues fit']]);
+    const diff = upgradeWays(upgrade({ alignment: align('different'), swap_safe: false }), false);
+    expect(diff.reason).toBe('Same track needs the same edit');
+    expect(diff.fixed[1]).toEqual({ tone: 'step', text: 'A different edit: set the cues again' });
+    const unk = upgradeWays(upgrade({ alignment: align('unknown'), swap_safe: false, swap_possible: false }), false);
+    expect(unk.reason).toBe('Same track needs a measured match');
+    expect(unk.fixed[1].text).toBe('Unsure if your cues fit: listen first');
+  });
+  it('words the edit as a fact about the audio', () => {
+    expect(editLine(align('exact'))).toEqual({ tone: 'lossless', text: 'The same edit as yours' });
+    expect(editLine(align('shifted', 12))).toEqual({ tone: 'lossless', text: 'The same edit, 12 ms apart' });
+    expect(editLine(align('different')).tone).toBe('good_lossy');
+    expect(editLine(null)).toEqual({ tone: 'other', text: "Couldn't compare them" });
+  });
+  it('shows a shifted match green (the engine says shifted, not aligned)', () => {
+    expect(cueTone('shifted')).toBe('lossless');
+    expect(cueTone('different')).toBe('good_lossy');
+  });
+  it('names the main button by the result', () => {
+    expect(replaceLabel(upgrade())).toBe('Replace with lossless');
+    expect(replaceLabel(upgrade({ what: '256 kbps version' }))).toBe('Replace with the better version');
+  });
+});
+
+describe('rekordbox check after a replace', () => {
+  const check = (extra: Partial<RekordboxCheckView>): RekordboxCheckView => ({ reason: 'swapped', since: '2026-10-31',
+    match: 'exact', offset_ms: 0, moved: false, text: 'long', old_path: 'Superseded/Hard_Bounce/A - x (lossy).aiff', ...extra });
+  const words = (c: RekordboxCheckView) => checkCard(c)!.steps.map((s) => s.parts.map((p) => p.text).join('') + (s.note ? ` ${s.note}` : ''));
+  it('a swap: Reload Tag, analyse; the hint about Auto Relocate', () => {
+    const c = checkCard(check({}))!;
+    expect(c.summary).toBe('same track, cues kept');
+    expect(words(check({}))).toEqual(['Right-click the track › Reload Tag',
+      'Analyse it again, so the waveform shows the full sound (lock the beatgrid first if you set it by hand)']);
+    expect(c.hint).toMatch(/Auto Relocate/);
+    expect(c.steps[0].parts[1]).toEqual({ text: 'Reload Tag', strong: true });
+  });
+  it('a swap that moved up out of not_lossless/: relocate first', () => {
+    expect(words(check({ moved: true }))[0]).toBe('The track shows as missing: Auto Relocate finds it by its name, cues and all');
+    expect(checkCard(check({ moved: true }))!.hint).toBeNull();
+  });
+  it('an added file: relocate, then analyse; the cues by what was measured', () => {
+    const add = (match: string | null, offset_ms = 0) => words(check({ reason: 'added_as_new', match, offset_ms }))[1];
+    expect(words(check({ reason: 'added_as_new' }))[0]).toBe('The track shows as missing: Auto Relocate finds the new file by name');
+    expect(add('exact')).toBe('Analyse it again · your cues fit');
+    expect(add('shifted', 9)).toBe('Analyse it again · your cues fit to within 9 ms');
+    expect(add('different')).toBe('Analyse it again and set the cues again · a different edit');
+    expect(add(null)).toBe("Analyse it again and set the cues again · it couldn't be compared");
+  });
+  it('a wrong song keeps its note', () => {
+    expect(checkCard(check({ reason: 'wrong_song' }))).toBeNull();
+    expect(checkCard(undefined)).toBeNull();
+    expect(replacedCard(check({ reason: 'wrong_song' }), { path: 'x', quality: 'lossless' })).toBeNull();
+  });
+  it('says where each file is now and what Undo puts back', () => {
+    const it2 = { path: 'Library/Hard_Bounce/A - x.aiff', quality: 'lossless' as const };
+    expect(replacedCard(check({}), it2)).toEqual({ title: 'Replaced with lossless', undo: 'Undo puts your old audio back in the file.',
+      rows: [{ icon: 'file', name: 'Your file, now lossless', where: 'in Library/Hard_Bounce' },
+        { icon: 'folder', name: 'A copy of the old audio', where: 'in Superseded/Hard_Bounce' }] });
+    const added = replacedCard(check({ reason: 'added_as_new', old_path: null }), it2)!;
+    expect(added.rows.map((r) => r.name)).toEqual(['New file, lossless', 'Your old file']);
+    expect(added.rows[1].where).toBe('in Superseded/');
+    expect(added.undo).toBe('Undo puts both back as they were.');
+  });
+  it('words the day', () => {
+    expect(sinceText('2026-10-31', '2026-10-31')).toBe('today');
+    expect(sinceText('2026-10-18', '2026-10-31')).toBe('18\u00a0Oct');
+    expect(sinceText(null, '2026-10-31')).toBe('');
+    expect(localDay(new Date(2026, 0, 5))).toBe('2026-01-05');
+  });
+});
+
+describe('which duplicate stays', () => {
+  const f = (id: number, path: string, quality: FileSide['quality'] = 'lossless', label = 'LOSSLESS'): FileSide =>
+    ({ ...side(id), path, quality, quality_label: label });
+  const aiff = f(1, '/Volumes/X/Music/A - x.aiff');
+  const mp3 = f(2, '/Volumes/X/Music/Old/A - x.mp3', 'good_lossy', '20.0 kHz');
+  it('reads the format and folder from the path', () => {
+    expect([fileFormat(aiff.path), fileFormat('x.aif'), fileFormat('/a/b.WAV'), fileFormat('noext')]).toEqual(['AIFF', 'AIFF', 'WAV', '']);
+    expect(lastFolder(mp3.path)).toBe('Old');
+  });
+  it('names the button by the result; the line under it says the others are kept, not deleted', () => {
+    expect(keepWords([aiff, mp3], 1)).toEqual({ label: 'Keep the AIFF', hint: 'Not deleted: kept in Superseded/', ready: true });
+    expect(keepWords([aiff, mp3], 2).label).toBe('Keep the MP3');
+  });
+  it('same format: tells them apart by quality, then by folder, else plainly', () => {
+    const weak = f(3, '/Volumes/X/Music/Old/A - x.aiff', 'weak', '16.0 kHz');
+    expect(keepWords([aiff, weak], 1)).toEqual({ label: 'Keep the lossless file',
+      hint: 'Not deleted: kept in Superseded/', ready: true });
+    const twin = f(4, '/Volumes/X/Music/Old/A - x.aiff');
+    expect(keepWords([aiff, twin], 4)).toEqual({ label: 'Keep the one in Old', hint: 'Not deleted: kept in Superseded/', ready: true });
+    const long = f(5, '/Volumes/X/Peak Hour Rarities and More/A - x.aiff');
+    expect(fileWords(long, [aiff, long])).toBeNull();
+    expect(keepWords([aiff, long], 5).label).toBe('Keep this file');
+  });
+  it('asks for a pick, keeps both, and counts the others', () => {
+    expect(keepWords([aiff, mp3], null)).toEqual({ label: 'Choose the file that stays', hint: null, ready: false });
+    expect(keepWords([aiff, mp3], 'all')).toEqual({ label: 'Keep both', hint: null, ready: true });
+    const wav = f(6, '/Volumes/X/Crates/A - x.wav');
+    expect(keepWords([aiff, mp3, wav], 1).hint).toBe('Not deleted: kept in Superseded/');
+    expect(keepWords([aiff, mp3, wav], 'all').label).toBe('Keep all');
+  });
+  it('a group id from its files, sorted', () => {
+    expect(groupIdOf([12, 3, 7])).toBe('dup:3-7-12');
+  });
+  it('arrow keys skip rows that cannot be picked and wrap', () => {
+    const opts = [{ key: 'a' }, { key: 'b', disabled: true }, { key: 'c' }];
+    expect(stepChoice(opts, 'a', 1)).toBe('c');
+    expect(stepChoice(opts, 'c', 1)).toBe('a');
+    expect(stepChoice(opts, null, -1)).toBe('c');
+    expect(stepChoice([{ key: 'x', disabled: true }], null, 1)).toBeNull();
+  });
+});
+
+describe('the fake backend follows the engine', () => {
+  it('rows say the short status; the check carries the steps\' data', async () => {
+    const b = createFakeBridge('todo:after-swap');
+    const t = await b.todo('all', false);
+    if (!t.ok) throw new Error('todo failed');
+    const check = t.groups.find((g) => g.key === 'rekordbox_check')!.items.find((i) => i.track_id === 't2')!;
+    expect(check.detail).toBe('Reload Tag, analyse again');
+    expect(check.check?.reason).toBe('swapped');
+    expect(check.can_undo).toBe(true);
+    const up = (await createFakeBridge('normal').todo('upgrade_ready', false));
+    if (!up.ok) throw new Error('todo failed');
+    expect(up.groups[0].items.find((i) => i.track_id === 't2')!.detail).toBe('Lossless ready · cues can stay');
+  });
+  it('a duplicate group with a clear winner is picked, a tie is not', async () => {
+    const t = await createFakeBridge('todo:duplicates').todo('duplicate', false);
+    if (!t.ok) throw new Error('todo failed');
+    const pairs = t.groups[0].items.map((i) => (i as DuplicateItem).pair);
+    expect(pairs.map((p) => p.recommended === null)).toContain(true);
+    expect(pairs.some((p) => p.recommended !== null && p.recommended_why === 'Recommended: best quality')).toBe(true);
   });
 });

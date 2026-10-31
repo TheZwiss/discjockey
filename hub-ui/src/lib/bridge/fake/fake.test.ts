@@ -87,7 +87,7 @@ describe('fake backend', () => {
       'good_lossy', 'fake', 'other']);
     expect(todo.hidden_count).toBe(1);
     const up = todo.groups.find((g) => g.key === 'upgrade_ready')!.items;
-    expect(up.map((i) => i.detail).sort()).toEqual(["doesn't match: would be a new rekordbox entry", 'matches exactly, cues stay']);
+    expect(up.map((i) => i.detail).sort()).toEqual(['Lossless ready · cues can stay', 'Lossless ready · different edit']);
     const side = await f.sidebar();
     if (!side.ok) throw new Error();
     expect(side.not_in_playlist).toBe(2);

@@ -248,9 +248,10 @@ Mac or on a drive. Your `Library/` is always watched and is listed first.
 - **Is this the same song?** A file of yours might be a playlist song: same title with another artist, or the same
   artist and title with a different length. Until you answer, Discjockey doesn't download that song. **Yes, it's the
   same song** links your file to it; **No, keep them apart** lets the next sync download it.
-- **Duplicates:** the same song more than once among your files. **Keep both** (**Keep all**) leaves them; **Move to
-  Superseded** on a file moves it to `Superseded/`. Nothing is deleted. The cards are labelled by the folder each file
-  is in.
+- **Duplicates:** the same song more than once among your files. Under **Which file stays?** you pick the file to
+  keep; when one is clearly better (lossless, or an AIFF beside a WAV) Discjockey picks it for you and says why. The
+  button names the result (for example **Keep the AIFF**); the other files move to `Superseded/`. Nothing is deleted.
+  **Keep both** (**Keep all**), the list's last row, leaves them all.
 
 Your own music appears on the To-do page only here and under **Upgrade ready**, never as "weak" or "fake" lossless:
 the Library shows each file's quality.
@@ -419,10 +420,11 @@ you imported from your own folders, the first check of each file is spread over 
 [Your existing music](#your-existing-music)).
 
 **Tip: quit rekordbox first.** For each waiting track you see the file you have now (**Now**) and the new
-one (**New**), side by side, and whether they line up. A small player lets you listen to
-both in the window before you choose. Then you choose:
+one (**New**), side by side with the quality of each, and whether they are the same edit. A small player lets you
+listen to both in the window before you choose. **Replace with lossless** puts the lossless audio in place of your
+file either way; the only difference is what rekordbox sees, which you pick under **In rekordbox**:
 
-- **Swap the files** (only offered when the versions line up). The lossless audio goes into your
+- **Same track** (only offered for an AIFF file and the same edit; recommended). The lossless audio goes into your
   existing file, so rekordbox keeps the track with your cue points, loops and beatgrid. If
   the new version starts a few milliseconds earlier or later, Discjockey shifts it so your cues
   still sit on the same beat. Before anything is overwritten, a checked copy of your old file
@@ -433,8 +435,9 @@ both in the window before you choose. Then you choose:
   The track already plays the lossless audio. Then right-click → **Reload Tag** so the
   comment shows the new source, and analyse it again so the waveform shows the full sound
   (lock the beatgrid first if you adjusted it by hand). The To-do page ("Check in rekordbox")
-  reminds you until you mark it as done.
-- **Add as new file.** Your old file moves to `Superseded/` first, then the lossless
+  shows these steps until you mark it as done.
+- **New track** (the only way for an MP3 or WAV file, a different edit, or versions that couldn't be compared). Your
+  old file moves to `Superseded/` first, then the lossless
   file goes into the folder under the correct name, `<Artist - Title>.aiff` (files in
   `Library/` always carry the correct name; only a file that is in the way gets an ID added).
   In rekordbox, if the track shows as missing, use Auto Relocate: it finds the new file by
@@ -442,13 +445,12 @@ both in the window before you choose. Then you choose:
   measured: if they are the same edit (they line up, maybe a few milliseconds apart), your
   cues and beatgrid still fit; if they are a different edit, analyse the track again and set
   the cues again. Discjockey tells you which: the run report and the To-do page ("Check in
-  rekordbox") list the track with what to do until you mark it as done. Use this when the
-  versions can't be swapped (not an AIFF file, or a different edit).
-- **Discard.** The parked file is deleted and Discjockey never offers that file again.
+  rekordbox") list the track with the steps until you mark it as done.
+- **Discard the new version.** The parked file is deleted and Discjockey never offers that file again.
 - Or leave it: nothing changes, and it waits for next time.
 
 **Changed your mind?** Until you press **Done, checked in rekordbox**, the To-do page offers
-**Undo** next to it: your old file goes back where it was, the new version waits in
+**Undo the replace** under it: your old file goes back where it was, the new version waits in
 `Upgrades ready/` again, and the upgrade is offered as before. Discjockey refuses if either
 file was changed since (for example edited by another program). After **Done** there is no
 undo; for a swap Discjockey then deletes the copy of the new version it kept for the undo.

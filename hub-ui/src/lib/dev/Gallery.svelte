@@ -19,7 +19,7 @@
   import NowPlayingRow from '../shell/NowPlayingRow.svelte';
   import { ColumnFrame, ListPanelFrame, Panel } from '../frames';
   import {
-    AccountPanel, AddRow, CopyCode, NumberedSteps, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
+    AccountPanel, AddRow, CopyCode, NumberedSteps, ChoiceGroup, OutcomeList, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
     AwayTag, Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
     Hint, InfoTip, KeyValue, ListRow, ListLine, ListSection, MiddleText, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, tip, SummaryStrip, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
     Segmented, SectionLabel, SelectCard, Skeleton, SortHeader, SourceLadder, Spectrum, Spinner, SplitView, StatCard, StatusMark, Surface, Switch, TextField, Tile, Toast,
@@ -57,6 +57,7 @@
   /** Gallery only: starts a scroller at a given offset, so a stuck state shows without scrolling by hand. */
   function scrollAt(node: HTMLElement, y: number) { requestAnimationFrame(() => { node.scrollTop = y; }); }
   let inspectorOpen = $state(true);
+  let galleryWay = $state<string>('same');
   let gFolded = $state(['Playlists']);
   // Tip: one tip open at a time, as in the app; the strip picks which example shows its own
   const TIP_SHOW: SegOption<'rail' | 'cut' | 'crate'>[] = [{ key: 'rail', label: 'Rail icon' }, { key: 'cut', label: 'Cut name' },
@@ -1157,6 +1158,26 @@
     </div>
   </section>
 
+  <section data-test="gallery-choicegroup">
+    {@render head('ChoiceGroup · OutcomeList', 'One of a few, each with a consequence (To-do\'s "In rekordbox", "Which file stays?"): the picked row lists what it does, the others a summary; a row that can\'t be picked is dimmed with its reason; a ruled last row; outcome glyphs: kept ✓, a step ⓘ, lost ✕, a file')}
+    <div class="col start w360">
+      <ChoiceGroup label="In rekordbox" value={galleryWay} onchange={(k) => (galleryWay = k)} test="g-choice"
+        options={[
+          { key: 'same', name: 'Same track', recommended: true, summary: 'Cues and beatgrid stay',
+            outcomes: [{ tone: 'kept', text: 'Your rekordbox track keeps its cues' }] },
+          { key: 'new', name: 'New track', summary: 'Relocate your old track to keep cues',
+            outcomes: [{ tone: 'step', text: 'rekordbox lists it as a new track' }, { tone: 'kept', text: 'Relocate your old track to it: cues fit' }] },
+          { key: 'locked', name: 'Locked choice', disabled: true, reason: 'Needs an AIFF file' },
+          { key: 'neither', name: 'Keep both', summary: 'Both stay; this to-do goes away', ruled: true }]}>
+        {#snippet foot()}<OutcomeList items={[{ tone: 'file', text: 'Your old file is kept in Superseded/' }]} />{/snippet}
+      </ChoiceGroup>
+      <ChoiceGroup label="Nothing picked" summary="no clear winner" hint="Same quality and format. Pick one." value={null}
+        onchange={() => {}} options={[{ key: 'a', name: 'First file', summary: 'Music' }, { key: 'b', name: 'Second file', summary: 'Old' }]} />
+      <OutcomeList items={[{ tone: 'kept', text: 'Kept: stays as it was, or fits' }, { tone: 'step', text: 'A step: needs something from you' },
+        { tone: 'lost', text: 'Lost: something goes away' }, { tone: 'file', text: 'A file: where it goes' }]} />
+    </div>
+  </section>
+
   <section data-test="gallery-addrow">
     {@render head('AddRow', 'Paste a Spotify or Qobuz playlist link, check it, name its folder (Playlists\' list head, Setup\'s first playlist)')}
     <div class="col w800"><AddRow draft={[]} onadd={(a, f) => { toasts.show({ tone: 'success', title: `Would add ${a.info?.name ?? a.link} as ${f}` }); return true; }} /></div>
@@ -1285,6 +1306,8 @@
       <MiniPlayer url="data:audio/wav;base64,AAAA" title="Broken" length_s={10} />
       <ComparePlayer a={{ url: toneA, label: 'Current' }} b={{ url: toneB, label: 'New' }} cueText="matches exactly, cues stay" />
       <ComparePlayer a={{ url: 'data:audio/wav;base64,AAAA', label: 'Current' }} b={{ url: 'data:audio/wav;base64,AAAA', label: 'New' }} />
+      <!-- ready: the player from the start (To-do's upgrade decision) -->
+      <ComparePlayer ready total={40} a={{ url: toneA, label: 'Now' }} b={{ url: toneB, label: 'New' }} />
     </div>
   </section>
 
