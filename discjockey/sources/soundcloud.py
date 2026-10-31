@@ -110,12 +110,19 @@ def _extractor(options: dict):
 
 
 def _api(ie, token: CancelToken, url: str, *, headers: dict, query: dict | None = None,
-         refused: SourceError | None = None, **kwargs):
+         refused: SourceError | None = None, retry_502: bool = False, **kwargs):
     """One API answer. Stop is checked before the request. 404/401/403 raise `refused` when given; 429 and every
-    other failure say SoundCloud isn't answering."""
+    other failure say SoundCloud isn't answering. `retry_502`: one 502 is asked again once (Stop checked first),
+    for a long read of many pages that one gateway hiccup should not end."""
     token.check()
     try:
-        return ie._call_api(url, None, query=dict(query or {}), headers=headers, **kwargs)
+        try:
+            return ie._call_api(url, None, query=dict(query or {}), headers=headers, **kwargs)
+        except Exception as e:
+            if not (retry_502 and _status(e) == 502):
+                raise
+            token.check()
+            return ie._call_api(url, None, query=dict(query or {}), headers=headers, **kwargs)
     except Exception as e:
         if refused is not None and _status(e) in (401, 403, 404):
             raise refused from None
@@ -346,7 +353,7 @@ class SoundCloudReader:
         url, query = base, {"limit": LIKES_PAGE, "linked_partitioning": "1"}
         while url:  # a later page is refused as a read error: the user was found, so it isn't "private"
             page = _api(ie, self.token, url, headers=headers, query=query,
-                        refused=unreadable if url == base else None, impersonate=ie._browser_impersonate_target)
+                        refused=unreadable if url == base else None, impersonate=ie._browser_impersonate_target, retry_502=True)
             if not isinstance(page, dict):
                 raise unreadable
             for entry in page.get("collection") or []:

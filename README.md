@@ -220,8 +220,8 @@ Mixes = https://music.youtube.com/playlist?list=...
   public or unlisted. Neither needs a login to be read, and reading them counts against no limit; only downloads do.
   Their titles are split into artist and title, and tags like `[FREE DL]` or `(Premiere)` are dropped, so
   "Artist - Title [FREE DL]" is saved as `Artist - Title`.
-- **How a track is found:** Discjockey looks for it on Qobuz by name (a Qobuz playlist's track is fetched by its exact
-  id). If Qobuz doesn't have it and the track comes from a SoundCloud or YouTube Music playlist, it then tries that
+- **How a track is found:** Discjockey looks for it on Qobuz by ISRC and name (a Qobuz playlist's track is fetched by its
+  exact id). If Qobuz doesn't have it and the track comes from a SoundCloud or YouTube Music playlist, it then tries that
   upload itself: SoundCloud's free download first, if the artist offers one, then its stream (through your SoundCloud
   Go+ login when you set one up). Only after that it searches YouTube Music, SoundCloud and YouTube.
 

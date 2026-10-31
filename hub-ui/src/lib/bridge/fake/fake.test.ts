@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createFakeBridge } from './bridge';
 import { STREAMS } from './replay';
 import { minutesByDownloads } from './minutes';
-import { checkText } from './data';
+import { checkText, playlistRef } from './data';
 import { LIBRARY_METHODS } from '../contract';
 import type { HubEvent } from '../events';
 
@@ -39,6 +39,16 @@ describe('fake rekordbox check text', () => {
       expect(checkText({ reason: 'added_as_new', since, match })).toBe(different);
     }
     expect(checkText({ reason: 'wrong_song', since, match: 'exact' })).toMatch(/^This track now plays the right song/);
+  });
+});
+
+describe('fake playlist refs', () => {
+  it('lower-cases a SoundCloud user and slug but keeps a private set\'s secret token as it is', () => {
+    expect(playlistRef('https://soundcloud.com/Example-Label/sets/Example-Set/s-AbC123xYz'))
+      .toBe('soundcloud:example-label/sets/example-set/s-AbC123xYz');
+    expect(playlistRef('https://soundcloud.com/Example-Label/sets/Example-Set'))
+      .toBe('soundcloud:example-label/sets/example-set');
+    expect(playlistRef('https://soundcloud.com/Example-DJ/likes')).toBe('soundcloud:example-dj/likes');
   });
 });
 

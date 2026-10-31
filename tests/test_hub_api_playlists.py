@@ -364,6 +364,14 @@ class OneAnswerYDL:
         pass
 
 
+def test_pasting_a_youtube_music_link_reads_the_page_once(root, monkeypatch):
+    OneAnswerYDL.requested = []
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", OneAnswerYDL)
+    api, rec = make_api(root)
+    assert api.add_playlist(YTM_LINK)["ok"]
+    assert OneAnswerYDL.requested == [YTM_LINK]  # not once for info() and again for fetch()
+
+
 def test_a_youtube_music_link_is_added_with_its_service_and_ref(root, monkeypatch):
     OneAnswerYDL.requested = []
     monkeypatch.setattr(yt_dlp, "YoutubeDL", OneAnswerYDL)
@@ -395,6 +403,33 @@ def test_your_own_likes_without_a_soundcloud_login_answer_w8(root, monkeypatch):
     assert answer["message"].startswith("To read your own likes, use your profile's likes link")
 
 
+def test_pasting_a_soundcloud_link_asks_the_service_once(root, monkeypatch):
+    calls = []
+
+    class Reader:
+        want_info = False
+
+        def close(self):
+            pass
+
+        def info(self, playlist_id):
+            calls.append("info")
+            raise AssertionError("the paste reads once")
+
+        def fetch(self, line):
+            calls.append("fetch")
+            info = PlaylistInfo("soundcloud", line.playlist_id, "Example Set", "example-label", "Example Label", False,
+                                None, 1, False, True) if self.want_info else None
+            return FetchedPlaylist(line, [track("900000101", "Example Title", "Example Artist")], [], info)
+
+    monkeypatch.setattr(soundcloud, "open", lambda paths, token: Reader())
+    api, rec = make_api(root)
+    added = api.add_playlist(SC_SET)
+    assert added["ok"] and added["tracks"] == 1 and added["info"]["name"] == "Example Set"
+    assert calls == ["fetch"] and api._infos["soundcloud:example-label/sets/example-set"].name == "Example Set"
+    assert api._extra_tracks["soundcloud:example-label/sets/example-set"][0].id == "900000101"
+
+
 def test_a_soundcloud_set_that_is_not_shown_answers_w5(root, monkeypatch):
     class Reader:
         want_info = False
@@ -410,6 +445,10 @@ def test_a_soundcloud_set_that_is_not_shown_answers_w5(root, monkeypatch):
 
         def info(self, playlist_id):
             raise SourceError(soundcloud.UNREADABLE_SET, "playlist_unreadable", "soundcloud")
+
+        def fetch(self, line):  # worded for playlists.txt: the pasted link gets the page's own words from info()
+            raise SourceError("playlists.txt line 1 (x): SoundCloud doesn't show this playlist.", "playlist_unreadable",
+                              "soundcloud")
 
     monkeypatch.setattr(soundcloud, "open", lambda paths, token: Reader())
     api, rec = make_api(root)

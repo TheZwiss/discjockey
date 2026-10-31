@@ -432,6 +432,37 @@ def test_a_refused_later_likes_page_is_a_read_error_not_private(world, paths, st
     assert e.value.kind == "offline"
 
 
+def test_one_502_on_a_likes_page_is_asked_again(world, paths):
+    errors = [ExtractorFailure(502)]
+    serve = world.serve
+
+    def flaky(url, query):
+        if "offset=" in url and errors:
+            raise errors.pop()
+        return serve(url, query)
+    world.serve = flaky
+    fetched = read(paths, LIKES_LINE)
+    assert [t.id for t in fetched.tracks] == ["900000301", "900000302", "900000303"]
+    assert len([c for c in world.calls if "offset=" in c[0]]) == 2  # the page was asked twice
+
+
+def test_two_502s_on_a_likes_page_say_soundcloud_is_not_responding(world, paths):
+    world.failures["offset="] = ExtractorFailure(502)
+    with pytest.raises(SourceError) as e:
+        read(paths, LIKES_LINE)
+    assert str(e.value) == "SoundCloud is not responding (ExtractorFailure). Try again later."
+    assert e.value.kind == "offline" and len([c for c in world.calls if "offset=" in c[0]]) == 2
+
+
+def test_stop_is_checked_before_the_502_retry(world, paths):
+    token = CancelToken()
+    world.failures["offset="] = ExtractorFailure(502)
+    world.on_call = lambda n: token.cancel() if n == 3 else None  # the first try of the second page
+    with pytest.raises(Cancelled):
+        read(paths, LIKES_LINE, token=token)
+    assert len([c for c in world.calls if "offset=" in c[0]]) == 1
+
+
 def test_a_refused_first_likes_page_is_unreadable(world, paths):
     world.failures["/track_likes"] = ExtractorFailure(403)
     with pytest.raises(SourceError) as e:

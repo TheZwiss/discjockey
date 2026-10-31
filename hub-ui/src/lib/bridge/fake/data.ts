@@ -464,10 +464,14 @@ export const SERVICE_NAME = PLAYLIST_SERVICE_NAMES; // the one map (copy.ts)
 export const hintOf = (service: PlaylistService) => ({ spotify: SPOTIFY_HINT, qobuz: QOBUZ_HINT,
   soundcloud: SOUNDCLOUD_HINT, youtube_music: YOUTUBE_MUSIC_HINT })[service];
 /** A playlist's ref: a Spotify id stays bare, every other service's is `<service>:<id>`: Qobuz the number,
- *  SoundCloud the link's path (lower case), YouTube Music the `list=` id. */
+ *  SoundCloud the link's path (user and slug in lower case; a private set's secret token keeps its case, as the
+ *  engine's `recognise` does), YouTube Music the `list=` id. */
 export function playlistRef(link: string): string | null {
   const service = serviceOfLink(link);
-  if (service === 'soundcloud') return `soundcloud:${new URL(link).pathname.replace(/^\/|\/$/g, '').toLowerCase()}`;
+  if (service === 'soundcloud') {
+    const path = new URL(link).pathname.replace(/^\/|\/$/g, '').split('/');
+    return `soundcloud:${path.map((part, i) => (i < 3 ? part.toLowerCase() : part)).join('/')}`;
+  }
   if (service === 'youtube_music') {
     const list = new URL(link).searchParams.get('list');
     return list ? `youtube_music:${list}` : null;
