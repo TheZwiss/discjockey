@@ -126,8 +126,8 @@ def test_save_returns_the_new_version_and_creates_the_file(tmp_path):
 def test_clean_link_refuses_other_links():
     with pytest.raises(ValueError) as excinfo:
         pf.clean_link("https://open.spotify.com/album/0DiscjockeyExampleList")
-    assert str(excinfo.value) == ("That isn't a Spotify or Qobuz playlist link. Open the playlist in Spotify or Qobuz, "
-                                  "choose Share, then Copy link, and paste it here.")
+    assert str(excinfo.value) == ("That isn't a playlist link Discjockey can read. Open the playlist in Spotify, Qobuz, "
+                                  "SoundCloud or YouTube Music, choose Share, then Copy link, and paste it here.")
 
 
 def test_clean_link_gives_the_canonical_link_of_the_recognising_source():

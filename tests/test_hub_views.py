@@ -1304,7 +1304,10 @@ def test_track_detail_link_is_the_first_fetched_tracks_else_the_keys():
     assert d["track_link"] == {"url": "https://open.spotify.com/track/t1", "label": "Open in Spotify"}
     d = views.track_detail("qobuz:900000001", e("lossless"), [], TODAY)
     assert d["track_link"] == {"url": "https://open.qobuz.com/track/900000001", "label": "Open in Qobuz"}
-    assert views.track_detail("soundcloud:1", e("lossless"), [], TODAY)["track_link"] is None
+    assert views.track_detail("soundcloud:900000101", e("lossless"), [], TODAY)["track_link"] == {
+        "url": "https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/900000101",
+        "label": "Open in SoundCloud"}
+    assert views.track_detail("youtube:1", e("lossless"), [], TODAY)["track_link"] is None
 
 
 def test_a_qobuz_keyed_ambiguous_song_shows_on_the_todo_and_in_the_preview_under_its_song_key():

@@ -187,9 +187,11 @@ service needs a login to read. `fetch` fills `FetchedPlaylist.info` from its fir
 - `SOURCES` gains `soundcloud` and `youtube_music` (one line each, added by groups 2 and 3).
 - `service_list() -> str` (D11): the registry's `SERVICE_NAMES`, "A, B, C or D".
 - `expand(link, paths, token) -> str`: a source module may define `expand(link, paths, token) -> str` (network
-  allowed; raises `SourceError`); `sources.expand` calls the recognising source's, else returns the link. Only
-  `hub/api.add_playlist` calls it, after `clean_link` and before `recognise`. SoundCloud uses it (D4 and short links,
-  group 2); nothing else does.
+  allowed; raises `SourceError`); it returns the link unchanged when the link is not its own. `sources.expand` does
+  not go through `recognise` (a short link has no id): it asks every source that defines `expand`, in registry order,
+  and the first that changes the link wins; none → the link unchanged. Only `hub/api.add_playlist` calls it, before
+  `clean_link` (`link = clean_link(expand(url.strip()))`). `recognise` stays strict, so a short link written into
+  `playlists.txt` is still refused (W2). SoundCloud uses it (D4 and short links, group 2); nothing else does.
 - Words W1, W2 and `hub/api.py`'s line check (`This is not a … playlist link`) use `service_list()`.
 
 ### I5. The upload on actions — `planner.py`, `models.Action` (group 4)
@@ -346,13 +348,14 @@ Tasks:
    `…/<user>/likes`, `…/you/likes`, with any `?…`/`#…`, case-insensitive, stored lowercase except the secret token
    (*check first:* yt-dlp's `SoundcloudSetIE._VALID_URL`: slugs may contain `:`, discover sets
    `soundcloud.com/discover/sets/…` are refused — they change daily). A track link, a user page, `on.soundcloud.com`
-   short links → None (short links are handled by `expand`). Tests: each form; tracks, albums (`/<user>/albums`),
+   short links → None (`recognise` stays strict; `expand` handles short links, 2.2). Tests: each form; tracks, albums (`/<user>/albums`),
    reposts, Spotify and Qobuz links → None.
-2. **2.2 expand** (I4, D4): `on.soundcloud.com/<code>` → follow the redirect once (10 s timeout, stdlib
-   `urllib.request`, our own User-Agent), then `recognise` the target; `you/likes` → with the SoundCloud account in
+2. **2.2 expand** (I4, D4): SoundCloud's `expand` itself claims `on.soundcloud.com/<code>` links (it is asked
+   before `recognise`) and returns every other link unchanged: it follows the redirect once (10 s timeout, stdlib
+   `urllib.request`, our own User-Agent), then `recognise`s the target; `you/likes` → with the SoundCloud account in
    settings, `me` through the login (`accounts.ytdlp_login("soundcloud", browser, profile)` options) → its
    `permalink` → `<permalink>/likes`; without the account W8; cookie or 401 trouble W9 (`accounts.signal_of`
-   decides "cookies unreadable"). Everything else unchanged.
+   decides "cookies unreadable"). Everything else unchanged (the link comes back as it is).
 3. **2.3 Reader** (`open`, `fetch`, `info`): one `YoutubeDL` + initialised SoundCloud extractor per reader, no
    cookies (except `you/likes`: a second, logged-in extractor opened on first need). Sets: `resolve?url=<canonical>`
    → the playlist object; stub ids fetched with `tracks?ids=` in batches of 50, `playlistId` and (secret sets)

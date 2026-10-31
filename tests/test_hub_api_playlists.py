@@ -1,9 +1,14 @@
+from types import SimpleNamespace
+
 import pytest
 from hub_helpers import (ID1, ID2, PLAYLISTS, QOBUZ_ID, QOBUZ_LINK, QOBUZ_UNREADABLE, TRACKS, fake_qobuz, fake_spotify,
                          make_api, make_root, refreshed, track, wait_job)
 
-from discjockey.models import PlaylistInfo
-from discjockey.sources.base import SourceError
+from discjockey import playlists_file as pf
+from discjockey import sources
+from discjockey.events import CancelToken
+from discjockey.models import FetchedPlaylist, PlaylistInfo
+from discjockey.sources.base import LoginState, SourceError
 from discjockey.sources import spotify
 from discjockey.hub.api import rows_from, suggest_folder
 from discjockey.library import run_lock
@@ -106,6 +111,109 @@ def test_a_service_that_is_not_connected_is_named_when_adding(root, monkeypatch,
                                       "message": f"Connect {name} first."}
 
 
+SC_SET = "https://soundcloud.com/example-label/sets/example-set"
+
+
+def fake_soundcloud(monkeypatch, *, expand_error=None):
+    """A service that is read without a login (login_state: not_needed), as SoundCloud will be: its source module
+    stands in the registry, so the hub's handling of such a service is pinned before the real module exists."""
+    calls = []
+
+    class Reader:
+        want_info = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.close()
+
+        def close(self):
+            pass
+
+        def info(self, playlist_id):
+            return PlaylistInfo("soundcloud", playlist_id, "Example Set", "example-label", "Example Label", False,
+                                None, 1, False, True)
+
+        def fetch(self, line):
+            return FetchedPlaylist(line, [track("900000101", "Example Title", "Example Artist")], [])
+
+    def expand(link, paths, token):
+        calls.append(link)
+        if expand_error:
+            raise expand_error
+        if link.startswith("https://on.soundcloud.com/"):
+            return SC_SET
+        return link.replace("/you/likes", "/example-dj/likes")
+
+    monkeypatch.setitem(sources.SOURCES, "soundcloud", SimpleNamespace(
+        SERVICE="soundcloud", UNREADABLE_HINT="x",
+        recognise=lambda link: link.split("https://soundcloud.com/", 1)[1] if link.startswith("https://soundcloud.com/")
+        else None,
+        canonical_link=lambda pid: f"https://soundcloud.com/{pid}", login_state=lambda paths: LoginState("not_needed"),
+        open=lambda paths, token: Reader(), expand=expand))
+    return calls
+
+
+def test_a_service_that_needs_no_login_is_added_and_listed_connected(root, monkeypatch):
+    calls = fake_soundcloud(monkeypatch)
+    root.playlists_file.write_text(PLAYLISTS + f"Example_Set = {SC_SET}\n")
+    api, rec = make_api(root)
+    added = api.add_playlist(SC_SET)
+    assert added["ok"] and added["tracks"] == 1 and added["readable"] and calls == [SC_SET]
+    assert (added["playlist_id"], added["service"], added["service_name"]) == (
+        "soundcloud:example-label/sets/example-set", "soundcloud", "SoundCloud")
+    assert [(s["service"], s["connected"]) for s in api.job_status()["read_status"]["services"]] == [
+        ("spotify", True), ("soundcloud", True)]
+
+
+def test_add_playlist_adds_what_expand_made_of_the_link(root, monkeypatch):
+    fake_soundcloud(monkeypatch)
+    added = make_api(root)[0].add_playlist("https://soundcloud.com/you/likes")
+    assert added["ok"] and added["link"] == "https://soundcloud.com/example-dj/likes"
+    assert added["playlist_id"] == "soundcloud:example-dj/likes"
+
+
+def test_a_short_link_pasted_in_the_hub_reaches_expand_and_is_saved_as_the_full_link(root, monkeypatch):
+    calls = fake_soundcloud(monkeypatch)  # recognise knows no short link, as the real SoundCloud source's
+    short = "https://on.soundcloud.com/abc123"
+    added = make_api(root)[0].add_playlist(f"  {short}  ")
+    assert calls == [short] and added["ok"] and added["link"] == SC_SET
+    assert added["playlist_id"] == "soundcloud:example-label/sets/example-set"
+
+
+def test_a_short_link_in_playlists_txt_is_still_refused(root, monkeypatch):
+    fake_soundcloud(monkeypatch)
+    short = "https://on.soundcloud.com/abc123"
+    with pytest.raises(ValueError) as e:
+        pf.clean_link(short)
+    assert str(e.value).startswith("That isn't a playlist link Discjockey can read. Open the playlist in Spotify")
+    root.playlists_file.write_text(PLAYLISTS + f"Short = {short}\n")
+    assert "Short" not in [r.folder for r in pf.load(root.playlists_file).rows]
+
+
+def test_an_expand_that_fails_answers_with_its_kind_and_service(root, monkeypatch):
+    fake_soundcloud(monkeypatch, expand_error=SourceError("Use your profile's likes link.", "playlist_unreadable",
+                                                          "soundcloud"))
+    api, rec = make_api(root)
+    assert api.add_playlist("https://soundcloud.com/you/likes") == {
+        "ok": False, "kind": "playlist_unreadable", "service": "soundcloud", "message": "Use your profile's likes link."}
+    assert api._infos == {} and api._extra_tracks == {}
+
+
+def test_other_links_pass_expand_untouched(root, monkeypatch):
+    fake_soundcloud(monkeypatch)
+    assert sources.expand(LINK3, root.support, CancelToken()) == LINK3  # Spotify defines no expand
+
+
+def test_preview_reads_an_unread_playlist_of_a_service_that_needs_no_login(root, monkeypatch):
+    fake_soundcloud(monkeypatch)
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    added = api.preview_playlist_change(lines(HARD, POWER, ("Example_Set", SC_SET, True)))
+    assert added["ok"] and added["kind"] == "add" and added["new_downloads"] == 1
+
+
 def test_the_page_lists_a_qobuz_row_by_its_ref(root, monkeypatch):
     fake_qobuz(monkeypatch)
     root.playlists_file.write_text(PLAYLISTS + f"Example_Playlist = {QOBUZ_LINK}\n")
@@ -202,5 +310,7 @@ def test_suggest_folder(name, folder):
 
 
 def test_rows_from_checks_the_links():
-    with pytest.raises(ValueError, match="not a Spotify or Qobuz playlist link"):
+    with pytest.raises(ValueError) as e:
         rows_from([{"folder": "A", "link": "https://example.com"}])
+    assert str(e.value) == ("This is not a playlist link Discjockey can read (Spotify, Qobuz, SoundCloud or YouTube "
+                            "Music): https://example.com")

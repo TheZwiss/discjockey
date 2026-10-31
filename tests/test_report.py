@@ -180,9 +180,11 @@ def test_not_lossless_md_lists_bitrate_and_free_downloads():
 def test_links_follow_the_tracks_service():
     log = RunLog(STARTED)
     log.add(Result("new_lossless", "A", "Artist", "Song", "qobuz:900000001", "Qobuz FLAC"))
-    log.add(Result("missing", "A", "Artist", "Other", "soundcloud:1"))
+    log.add(Result("missing", "A", "Artist", "Other", "youtube:1"))  # a service whose links can't be derived from an id
+    log.add(Result("missing", "A", "Artist", "Third", "soundcloud:900000101"))
     text = render_report(log, FINISHED)
     assert "Qobuz FLAC — https://open.qobuz.com/track/900000001" in text
+    assert "- [A] Artist - Third — https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/900000101" in text
     assert "- [A] Artist - Other\n" in text and "spotify.com" not in text
     state = {"tracks": {"qobuz:900000001": entry("missing", title="Gone")}}
     assert "· [Qobuz](https://open.qobuz.com/track/900000001) · [Beatport]" in render_not_lossless(state)

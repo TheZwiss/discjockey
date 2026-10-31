@@ -394,7 +394,7 @@ class HubApi:
         logins = []
         for service in used:
             try:
-                logins.append((service, sources.SOURCES[service].login_state(self._support).state == "ok"))
+                logins.append((service, sources.SOURCES[service].login_state(self._support).connected))
             except Exception:  # noqa: BLE001 - a login file this check can't make sense of counts as not connected
                 logins.append((service, False))
         return logins
@@ -1105,10 +1105,11 @@ class HubApi:
     def add_playlist(self, url: str) -> dict:
         """A pasted link: the playlist's name, owner and cover, whether Discjockey can read it, and its tracks."""
         self._no_sync_running()
-        link = pf.clean_link(url or "")
+        # a short link or one that names no user yet is expanded first (stage 6); clean_link then refuses what no source reads
+        link = pf.clean_link(sources.expand((url or "").strip(), self._support, CancelToken()))
         service, pid = sources.recognise(link)  # clean_link raised for anything no source recognises
         source, ref = sources.SOURCES[service], token(service, pid)
-        if source.login_state(self._support).state != "ok":
+        if not source.login_state(self._support).connected:
             raise sources.SourceError(NOT_CONNECTED.format(name=PLAYLIST_SERVICES[service]), "not_set_up", service)
         reader = source.open(self._support, CancelToken())
         try:
@@ -1136,7 +1137,7 @@ class HubApi:
         unread = [r for r in rows if r.enabled and r.ref not in tracks]
         for service in dict.fromkeys(r.service for r in unread):  # one reader per service; a failing one is skipped
             source = sources.SOURCES[service]
-            if source.login_state(self._support).state != "ok":
+            if not source.login_state(self._support).connected:
                 continue
             try:
                 reader = source.open(self._support, CancelToken())
@@ -2049,7 +2050,8 @@ def rows_from(lines: list) -> list[pf.Row]:
         if not isinstance(line, dict) or not isinstance(line.get("folder"), str) or not line.get("link"):
             raise ValueError("Each playlist row needs a folder name and a link.")
         if sources.recognise(line["link"].strip()) is None:
-            raise ValueError(f"This is not a Spotify or Qobuz playlist link: {line['link']}")
+            raise ValueError(f"This is not a playlist link Discjockey can read ({sources.service_list()}): "
+                             f"{line['link']}")
         rows.append(pf.Row(unicodedata.normalize("NFC", line["folder"].strip()), line["link"].strip(),
                            bool(line.get("enabled", True))))
     return rows
