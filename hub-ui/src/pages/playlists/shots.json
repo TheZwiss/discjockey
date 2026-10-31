@@ -661,5 +661,97 @@
     "wait": "[data-test=add-problem]"
    }
   ]
+ },
+ {
+  "name": "playlists-soundcloud-row",
+  "route": "#/playlists",
+  "scenario": "normal",
+  "steps": [
+   {
+    "wait": "[data-test=row-Example_Label]"
+   },
+   {
+    "eval": "document.querySelector('[data-test=row-Example_Label]').scrollIntoView({ block: 'nearest' })"
+   },
+   {
+    "sleep": 300
+   }
+  ]
+ },
+ {
+  "name": "playlists-soundcloud-likes-row",
+  "route": "#/playlists",
+  "scenario": "normal",
+  "steps": [
+   {
+    "wait": "[data-test=row-Example_DJ_likes]"
+   },
+   {
+    "eval": "document.querySelector('[data-test=row-Example_DJ_likes]').scrollIntoView({ block: 'nearest' })"
+   },
+   {
+    "sleep": 300
+   }
+  ]
+ },
+ {
+  "name": "playlists-youtube-music-row",
+  "route": "#/playlists",
+  "scenario": "normal",
+  "steps": [
+   {
+    "wait": "[data-test=row-Example_Channel]"
+   },
+   {
+    "eval": "document.querySelector('[data-test=row-Example_Channel]').scrollIntoView({ block: 'nearest' })"
+   },
+   {
+    "sleep": 300
+   }
+  ]
+ },
+ {
+  "name": "playlists-soundcloud-unreadable",
+  "route": "#/playlists",
+  "scenario": "soundcloud_unreadable",
+  "steps": [
+   {
+    "wait": "[data-test=row-Example_Label]"
+   },
+   {
+    "fill": [
+     "[data-test=add-row] input",
+     "https://soundcloud.com/example-label/sets/example-set"
+    ]
+   },
+   {
+    "click": "[data-test=add-button]"
+   },
+   {
+    "wait": "[data-test=add-problem]"
+   }
+  ]
+ },
+ {
+  "name": "playlists-youtube-mix-refused",
+  "route": "#/playlists",
+  "scenario": "youtube_mix_refused",
+  "steps": [
+   {
+    "wait": "[data-test=row-Example_Channel]"
+   },
+   {
+    "fill": [
+     "[data-test=add-row] input",
+     "https://music.youtube.com/playlist?list=PLEXAMPLE0001"
+    ]
+   },
+   {
+    "click": "[data-test=add-button]"
+   },
+   {
+    "wait": "[data-test=add-problem]"
+   }
+  ]
  }
 ]
