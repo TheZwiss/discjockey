@@ -146,7 +146,7 @@ Everything else is decided and done without asking, and reported in one short me
 | 3 Qobuz playlists | `docs/2026-10-24-library-stage-3-plan.md` | `feat/library-3-qobuz` | Done, merged into main 43e786f (2026-10-25): 7 groups + stage review fix rounds; Qobuz live read checked; Spotify optional in Setup; leftovers in docs/issues.md #26 |
 | 4 Import | `docs/2026-10-25-library-stage-4-plan.md` (f5624fd) | `feat/library-4-import` | Done, merged into main 014bcdc (2026-10-29): 8 groups, Opus stage review, fix rounds A–M (A–D review; E–M from the user's live checks: quality floor rule, own files in the sound picture, offline and missing files with a live drive watcher, whole-screen fixes); verify 741 shots 0 problems, CI green; user live check passed (drive eject); leftovers in docs/issues.md #27 |
 | 5 Sidebar | `docs/2026-10-29-library-stage-5-plan.md` | `feat/library-5b-folders` | Step A merged into main b47a3b2. Step B built + reviewed; in the user's live check (2026-10-31), fix queue below; merge into main after the user's re-check |
-| 6 SoundCloud, YouTube Music | `docs/2026-10-31-library-stage-6-plan.md` (planning) | `feat/library-6-sources` | Planning started 2026-10-31 (lane B of the live-check queue) |
+| 6 SoundCloud, YouTube Music | `docs/2026-10-31-library-stage-6-plan.md` | `feat/library-6-sources` | Built + stage review + fixes 2026-10-31 (fa1f9f9), CI + verify green; waits for stage 5 in main, live check, 3 questions |
 
 ### Stage 5 live-check queue (2026-10-31)
 
@@ -250,6 +250,12 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   fake tracks show FLAC next to `.aiff`; empty Playlists state still shows tidy/moves/read counts; likes row prints
   the owner twice (`"Example DJ's likes" · Example DJ`); Library header drops "YouTube Music playlist" at 1280;
   W22/W5/W18 hints end on a short last line at 1100 (balanced wrapping in the blocks).
+- **Stage 6 built 2026-10-31 night:** Opus stage review 183k (ready after 1 Important: a failed Go+ listing
+  rejected a SNIP upload for good) + fix round 107k merged fa1f9f9; suite 3177 green, CI green, verify 889 shots 0
+  problems (branch is off stage 5 before the panels; re-run verify after merging onto main). Leftovers: issue 32.
+  Waits for: the user's stage 5 re-check + merge into main, then stage 6 merged onto main, the user's read-only live
+  check (plan "Stage checks": paste a SoundCloud set, you/likes, a YTM playlist; read; look at the splits), and the
+  three questions (Liked music; wait vs search when the upload's account is used up; SNIP at ~128 kbps).
 - Stage 6 merges into main only after stage 5 is in main and its own final review + CI.
 
 Later (each needs its own plan / the user's go): AcoustID (#24, a stage after 6), rekordbox XML for the duplicates
