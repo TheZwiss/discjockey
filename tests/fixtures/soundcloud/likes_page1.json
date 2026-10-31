@@ -1,0 +1,51 @@
+{
+ "collection": [
+  {
+   "kind": "like",
+   "created_at": "2026-01-01T00:00:00Z",
+   "track": {
+    "id": 900000301,
+    "kind": "track",
+    "title": "Example Artist - Liked One",
+    "user": {
+     "id": 900000010,
+     "kind": "user",
+     "username": "Example Uploader",
+     "permalink": "example-label",
+     "avatar_url": "https://i1.sndcdn.com/avatars-example900000010-large.jpg"
+    },
+    "permalink_url": "https://soundcloud.com/example-label/example-track-900000301",
+    "artwork_url": "https://i1.sndcdn.com/artworks-example900000301-large.jpg",
+    "duration": 200000,
+    "full_duration": 200500,
+    "policy": "ALLOW",
+    "streamable": true,
+    "publisher_metadata": null
+   }
+  },
+  {
+   "kind": "like",
+   "created_at": "2026-01-01T00:00:00Z",
+   "track": {
+    "id": 900000302,
+    "kind": "track",
+    "title": "Example Artist - Liked Two",
+    "user": {
+     "id": 900000010,
+     "kind": "user",
+     "username": "Example Uploader",
+     "permalink": "example-label",
+     "avatar_url": "https://i1.sndcdn.com/avatars-example900000010-large.jpg"
+    },
+    "permalink_url": "https://soundcloud.com/example-label/example-track-900000302",
+    "artwork_url": "https://i1.sndcdn.com/artworks-example900000302-large.jpg",
+    "duration": 200000,
+    "full_duration": 200500,
+    "policy": "ALLOW",
+    "streamable": true,
+    "publisher_metadata": null
+   }
+  }
+ ],
+ "next_href": "https://api-v2.soundcloud.com/users/900000020/track_likes?offset=2026-01-01T00%3A00%3A00.000Z%2Cuser-track-likes%2C000-00000000000900000020-00000000000000000001&limit=200"
+}
