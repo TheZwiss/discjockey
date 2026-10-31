@@ -132,6 +132,7 @@ class FallbackSource:
         self.opts = {"quiet": True, "no_warnings": not verbose, "noprogress": True, "logger": _Logger(emit)}
         # account service -> (browser, profile); only for format listings and downloads
         self.logins = dict(logins or {})
+        self.preview_only = False  # the last stream_kbps(): the format taken is only a 30 s preview
 
     def _extract(self, url: str, flat: bool) -> dict:
         opts = {**self.opts, "skip_download": True}
@@ -240,7 +241,10 @@ class FallbackSource:
         """The bitrate of the stream a download takes (the format download() picks), read without downloading:
         before an account download (does the login give ~256 kbps for this track?), and for files downloaded before
         Discjockey kept it. None for a source it can't ask. Through a SoundCloud login, a Go+ stream that exists only
-        DRM-protected raises a "DRM protected" error (drm_protected), as yt-dlp does when every stream is protected."""
+        DRM-protected raises a "DRM protected" error (drm_protected), as yt-dlp does when every stream is protected.
+        `preview_only` tells afterwards whether the format taken is only a 30 s preview (this call's, single-threaded
+        use: read it right after)."""
+        self.preview_only = False
         url = stream_url(source, source_id)
         if url is None:
             return None
@@ -254,6 +258,9 @@ class FallbackSource:
             info = ydl.extract_info(url, download=False) or {}
         rate = info.get("abr") or info.get("tbr")
         kbps = round(rate) if rate else None
+        # yt-dlp names a 30 s preview stream "…_preview" and ranks it last: it is the pick only when the login plays
+        # nothing else of the upload (a Go+-only upload without Go+), so its bitrate says nothing about the full track
+        self.preview_only = "preview" in str(info.get("format_id") or "")
         if sc and sc.drm_premium and (kbps or 0) < PREMIUM_MIN_KBPS:  # not "no Go+ stream": the account isn't at fault
             raise RuntimeError(f"[soundcloud] {source_id}: the Go+ stream is DRM protected")
         return kbps

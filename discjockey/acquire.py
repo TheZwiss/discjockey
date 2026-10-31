@@ -76,6 +76,8 @@ class _Tries:
     attempts: int = 0  # downloads started for this track outside Qobuz: the next one gets the fallback pause
     missed: dict = field(default_factory=dict)  # account service -> format listings without ~256 kbps (this track)
     streams: int = 0  # stream downloads started for this track (MAX_FALLBACK_DOWNLOADS holds across upload and search)
+    low: dict = field(default_factory=dict)  # key -> upload candidate: a Go+-only upload whose account listing showed
+    # a full stream below ~256 kbps; it joins the search's matches, ranked as the free stream of its quality
 
 
 def upload_candidate(upload: SourceTrack) -> Candidate:
@@ -115,6 +117,7 @@ class Acquirer:
     account_downloaded: set = field(default_factory=set, init=False)  # a logged-in request was made: pause first
     misses: dict = field(default_factory=dict, init=False)  # service -> tracks in a row without a ~256 kbps stream
     given_up: set = field(default_factory=set, init=False)  # services not asked again in this run (GIVE_UP_AFTER)
+    listed: dict = field(default_factory=dict, init=False)  # key -> kbps of the last account listing with a full stream
     qobuz_downloaded: bool = field(default=False, init=False)  # a protection pause is due before the next one
     qobuz_trouble: bool = field(default=False, init=False)  # a Qobuz request failed for the current track
 
@@ -279,10 +282,13 @@ class Acquirer:
         """§4: the stream's bitrate through the login, read before the download. False means no ~256 kbps stream
         for this version (or a DRM-protected one); it is then tried as a free one. None: the listing itself failed
         (timeout, 5xx, unreadable login), which says nothing about the stream: falsy like False, but never
-        remembered against the version. A warning sign counts toward the account's auto-stop; a
-        missing premium stream only once per track (`first`), since one song's other uploads say nothing new."""
+        remembered against the version. A listing without ~256 kbps that did show a full stream (not a DRM-protected
+        one, a failed listing or a 30 s preview) is noted in `listed`. A warning sign counts toward the account's
+        auto-stop; a missing premium stream only once per track (`first`), since one song's other uploads say nothing
+        new."""
         budget = self.accounts[service]
         who = f"{track.first_artist} - {track.title}"
+        self.listed.pop(c.key, None)
         try:
             kbps = self.fallback.stream_kbps(c.source, c.id, account=True)
         except Exception as e:  # yt-dlp raises many types
@@ -298,6 +304,8 @@ class Acquirer:
             budget.succeeded()
             self.misses[service] = 0
             return True
+        if kbps and not getattr(self.fallback, "preview_only", False):
+            self.listed[c.key] = kbps  # a full stream, not DRM-protected, below ~256 kbps: _streams may keep it
         message = f"{who}: no ~{ACCOUNT_KBPS} kbps stream through your account ({kbps or '?'} kbps)"
         if not first:
             budget.note("premium_missing", message)
@@ -400,7 +408,10 @@ class Acquirer:
         if wait:  # only an original below the account tier came: the track still waits for the account
             res.kind, res.note = "queued", wait
             return None
-        return self._streams(track, matches, workdir, res, skip, tracker, tries, spare=spare)
+        # the upload's own full ~128 kbps account stream (the search leaves the upload out: its key is in `skip`)
+        # competes here with the matches, after _waits and the originals: it never makes the track wait for itself
+        return self._streams(track, matches + list(tries.low.values()), workdir, res, skip, tracker, tries,
+                             spare=spare)
 
     def _streams(self, track: SourceTrack, matches: list[Candidate], workdir: Path, res: AcquireResult,
                  skip: set[str], tracker: Tracker, tries: _Tries, spare: Ready | None = None, how: str = "fallback",
@@ -411,8 +422,11 @@ class Acquirer:
         pause, and an account service is listed at most MISSES_PER_TRACK times per track without a ~256 kbps stream
         (`tries.missed`, over the upload step and the search). A track whose best remaining match needs a used-up or
         paused account waits (res.kind "queued", §4). `spare`: an artist's original below the account tier, returned
-        once only free streams are left. `account_only`: keys never downloaded without their account."""
-        pending, demoted, failed = list(matches), set(), set()
+        once only free streams are left. `account_only`: keys never downloaded without their account; one whose
+        listing showed a full stream below ~256 kbps is kept in `tries.low` instead of being rejected. _fallback hands it over with the search's matches:
+        it ranks as the free stream of its quality (the usual order, an equal free one first) but is downloaded
+        through the account, listed already, counted and paced, and it waits when the account is used up."""
+        pending, demoted, failed = list(matches), set(tries.low), set()  # a low stream is listed already
         place = {c.key: i for i, c in enumerate(matches)}
         while pending and tries.streams < MAX_FALLBACK_DOWNLOADS:
             usable = self._usable()  # a limit can run out, or an account pause, during one track
@@ -420,8 +434,9 @@ class Acquirer:
             if wait:  # what's left is worse than what an account gives on another day
                 res.kind, res.note = "queued", wait
                 return None
+            # an equal free stream goes before the account stream of the same rank (a low stream costs usage)
             pending.sort(key=lambda x: (stream_rank(x.source, set() if x.key in demoted else usable),
-                                        abs(x.duration_s * 1000 - track.duration_ms), place[x.key]))
+                                        x.key in tries.low, abs(x.duration_s * 1000 - track.duration_ms), place[x.key]))
             c = pending[0]
             service = ACCOUNT_OF.get(c.source)
             account = service in usable and c.key not in demoted
@@ -442,20 +457,34 @@ class Acquirer:
                     demoted.add(c.key)  # tried later as a free stream, in its free rank
                     continue
             pending.pop(0)
-            if not account and c.key in account_only:  # its free stream is only a preview
+            low = c.key in tries.low
+            if not account and not low and c.key in account_only:  # its free stream is only a preview
                 self._debug(f"{c.key}: only the account plays all of it, so it isn't downloaded without the account")
-                if c.key in demoted and c.key not in failed:  # its listing showed no ~256 kbps stream: rejected for good,
-                    res.rejected.append(c.key)  # as its preview was (a failed listing, or a missing, paused or
-                    # used-up account, is not that: not remembered)
+                if c.key in demoted and c.key not in failed:  # its listing showed no ~256 kbps stream
+                    if c.key in self.listed:  # ...but a full one below it: kept for the ranking with the search's
+                        tries.low[c.key] = c  # matches (_fallback), where it ranks as the free stream it equals
+                    else:  # DRM-protected, or no full stream at all: rejected for good, as its preview was
+                        res.rejected.append(c.key)  # (a failed listing, or a missing, paused or used-up account, is
+                        # not that: not remembered)
                 continue
             if spare is not None and not account:
                 return spare  # what's left are free streams: the artist's own file is the better one
-            if not account and tries.attempts:
+            if low:  # the account plays it (listed already: no second request), counted and paced like any account stream
+                if self.accounts[service].exhausted():  # used up or paused: it waits, as for any account stream (§4)
+                    res.kind, res.note = "queued", self.accounts[service].why_exhausted()
+                    return None
+                if service in self.account_downloaded:
+                    self.pacer.between_account_downloads(service)
+                elif tries.attempts:
+                    self.pacer.between_fallback_downloads()
+                self.account_downloaded.add(service)
+                account = True
+            elif not account and tries.attempts:
                 self.pacer.between_fallback_downloads()
             tries.attempts += 1
             tries.streams += 1
-            ready = self._try(c, track, workdir, res, skip, False, tracker, qobuz=False, how=how,
-                              account=service if account else None)
+            ready = self._try(c, track, workdir, res, skip, False, tracker, qobuz=False,
+                              how="upload" if low else how, account=service if account else None)
             if ready:
                 return ready
         return spare

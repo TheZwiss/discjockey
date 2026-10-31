@@ -104,7 +104,15 @@ logo mapping, so it waits for no mockup. The user is needed only for the live ch
   runs. `policy` `BLOCK` (not playable here) → `streamable=False` (no exact try); `SNIP` (Go+ only: 30 s for
   others) → `account_only=True` (I1): the exact try only through the SoundCloud account, never free, because a free
   try downloads a 30 s preview that `make_ready` rejects and `_try` records the upload as rejected for good. Length:
-  `full_duration`, else `duration` (a SNIP's `duration` is the preview's).
+  `full_duration`, else `duration` (a SNIP's `duration` is the preview's). **Quality (user decision, "of course get
+  the 128 kbps version, better than nothing at all"):** the account listing decides. ~256 kbps → the usual account
+  stream. A full non-DRM stream below that (about 128 kbps) → one more candidate in the usual hierarchy (spec
+  sources-and-limits §2), ranked by what it is: the free SoundCloud stream's rank, so every better source goes first
+  (Qobuz, a ~256 kbps account stream, a free YouTube Music stream) and an equal free stream that costs no account
+  usage goes before it; it is downloaded through the account only when it is the best that is left, with the account
+  rules (usage counted, pacing, `MAX_FALLBACK_DOWNLOADS`, a used-up or paused account makes the track wait). Only
+  DRM-protected full streams, or a listing that shows only the 30 s preview (`FallbackSource.preview_only`), stay
+  rejected for good; a failed listing never rejects.
 - **D10. Album fallback in tags:** `make_ready` writes `track.album or cand.album`. YouTube Music tracks have no
   album (D6), SoundCloud ones mostly none; a Qobuz match knows it.
 - **D11. Service-neutral words come from the registry:** `sources.service_list()` → "Spotify, Qobuz, SoundCloud or
@@ -114,7 +122,10 @@ logo mapping, so it waits for no mockup. The user is needed only for the live ch
 
 1. No read touches a pacer, budget, usage row or auto-stop; no read except `you/likes` uses cookies.
 2. The exact upload is tried once, after Qobuz, before the fallback search, through `_try` and the account rules;
-   a SNIP upload is never tried free; a failure falls through to the usual chain without retrying that upload.
+   a SNIP upload is never tried free; a failure falls through to the usual chain without retrying that upload. A SNIP
+   upload that the account plays only at ~128 kbps (full, not DRM, not a preview) is ranked in the usual hierarchy by
+   its quality (D9): after every better source and after an equal free one, never ahead of them; it waits like any
+   account stream when the account is used up or paused.
 3. The splitter's pinned cases (I2) and that both sources use it.
 4. Spotify and Qobuz read, plan and save exactly as before (stage 3's tests untouched).
 5. `import discjockey.sources` doesn't import yt-dlp; bridge methods never reject; every error names its service.
@@ -223,6 +234,11 @@ their own `exact` id and name/ISRC search) and before `_fallback`, when `self.fa
    pacing and `premium()` listing `_fallback` uses for an account candidate); a usable account that is used up or
    paused today makes the track wait (`queued`, the account's `why_exhausted()`), as §4 does for a match that needs
    it; else the free stream — **except** an `account_only` upload, which is skipped without the account. `how="upload"`.
+   An `account_only` upload whose listing shows a full stream below ~256 kbps (D9) is not downloaded in this step and
+   not rejected: it is kept (`_Tries.low`) and handed to `_fallback`'s `_streams` with the search's matches, ranked as
+   the free SoundCloud stream of its quality (an equal free match first), then downloaded through the account without
+   a second listing. Used up or paused at that point → `queued`, like any account stream. The upload still comes
+   before the search; the search still runs.
 4. Ready → done. A failed try adds `c.key` to `skip` (no second download in the search that follows), and `_try`
    records rejections exactly as for a searched candidate. Then `_fallback` as today.
 5. **Upgrade checks** (`lossless_only`): the upload's direct free download joins the originals step (SoundCloud
@@ -236,7 +252,9 @@ their own `exact` id and name/ISRC search) and before `_fallback`, when `self.fa
 Tests pin (`tests/test_acquire.py`, fakes): Qobuz first, then the upload, no fallback search when it succeeds; a
 direct free download before the stream; a gate offer recorded and the stream taken; SoundCloud account usable →
 account listing with its pause, used up → `queued`; an `account_only` upload without the account → no download
-of it, the search follows; a failed upload → the search runs and doesn't download it again; a rejected upload key
+of it, the search follows; a SNIP upload with a ~128 kbps account listing: taken when nothing better exists (once, one
+listing, counted, paced), after a better source, after an equal free stream, queued when the account is used up or
+paused, never free, not past the stream cap; DRM-only, preview-only → rejected; a failed listing → not rejected; a failed upload → the search runs and doesn't download it again; a rejected upload key
 → not tried; `upload=None` → today's behaviour (existing tests unchanged); D10's album from the candidate.
 
 ### I7. Bridge changes (group 5)

@@ -177,3 +177,26 @@ def test_check_account_skips_a_song_whose_go_plus_stream_is_drm_protected(monkey
 
     monkeypatch.setattr(src, "stream_kbps", kbps)
     assert src.check_account("soundcloud", "firefox") == {"ok": True, "problem": None, "kbps": 256, "detail": ""}
+
+
+class PreviewOrFull(Recorder):
+    """The listing through the login for a Go+-only upload: the format taken is a 30 s preview or a full stream."""
+    format_id = "http_mp3_0_preview"
+
+    def add_info_extractor(self, ie):
+        self.ie = ie
+
+    def extract_info(self, url, download=False):
+        self.ie.drm_premium = False
+        return {"id": "1", "abr": 128, "format_id": self.format_id}
+
+
+def test_a_listing_says_whether_the_stream_it_took_is_only_a_preview(monkeypatch):
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", PreviewOrFull)
+    src = FallbackSource(logins={"soundcloud": ("firefox", None)})
+    assert src.stream_kbps("soundcloud", "1", account=True) == 128 and src.preview_only  # yt-dlp's "..._preview"
+    PreviewOrFull.format_id = "http_mp3_0"
+    try:
+        assert src.stream_kbps("soundcloud", "1", account=True) == 128 and not src.preview_only
+    finally:
+        PreviewOrFull.format_id = "http_mp3_0_preview"
