@@ -417,6 +417,42 @@ def own_track(api):
     return next((k, e) for k, e in api._state()["tracks"].items() if e.get("path") and e["path"].startswith("/"))
 
 
+def tiny_aiff(path):
+    """A valid silent AIFF (1 s, 44.1 kHz, 16 bit, stereo) written by hand, so no ffmpeg is needed."""
+    import struct
+    frames = 44100
+    comm = b"COMM" + struct.pack(">IhIh", 18, 2, frames, 16) + b"\x40\x0e\xac\x44\x00\x00\x00\x00\x00\x00"
+    data = bytes(frames * 4)
+    ssnd = b"SSND" + struct.pack(">III", 8 + len(data), 0, 0) + data
+    body = b"AIFF" + comm + ssnd
+    path.write_bytes(b"FORM" + struct.pack(">I", len(body)) + body)
+
+
+def test_a_file_of_an_import_folder_gives_its_embedded_artwork_as_the_cover(tmp_path, monkeypatch):
+    # the plan's cover link (what the Sync page's live card shows for a track whose service has no picture) comes from
+    # the file's own cover, also when the file sits in an import folder outside the music folder
+    from discjockey import audio
+    from discjockey.hub.media import MediaServer
+    paths, folder, api, rec = watched(tmp_path, monkeypatch, n=2)
+    api._media = MediaServer(paths)
+    api._media.bind(paths, api._file_path)
+    jpeg = b"\xff\xd8\xff\xe0" + b"jpeg data" * 10
+    tiny_aiff(folder / "Example Artist - Song 1.aiff")
+    audio.write_tags(folder / "Example Artist - Song 1.aiff", title="Song 1", artists=("Example Artist",), album="",
+                     isrc=None, label=None, cover=jpeg, comment="x")
+    tiny_aiff(folder / "Example Artist - Song 2.aiff")  # a file without artwork
+    tracks = api._state()["tracks"]
+    by_name = {k: v for k, v in tracks.items() if (v.get("path") or "").startswith("/")}
+    with_art = next(k for k, v in by_name.items() if v["path"].endswith("Song 1.aiff"))
+    without = next(k for k, v in by_name.items() if v["path"].endswith("Song 2.aiff"))
+    cover = api._cover({})
+    url = cover(with_art, by_name[with_art])
+    assert url.startswith(f"http://127.0.0.1:{api._media.port}/{api._media.token}/cache/covers/") and ".jpg" in url
+    assert (paths.cache / "covers").iterdir() and next((paths.cache / "covers").glob("*.jpg")).read_bytes() == jpeg
+    assert cover(without, by_name[without]) is None  # neither a service picture nor artwork: the placeholder
+    assert api._cover({without: "https://example.com/c.jpg"})(without, by_name[without]) == "https://example.com/c.jpg"
+
+
 def test_the_sound_picture_and_the_player_open_a_file_of_an_import_folder(tmp_path, monkeypatch):
     import numpy as np
     from discjockey.hub.media import MediaServer

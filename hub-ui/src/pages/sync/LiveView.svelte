@@ -15,7 +15,7 @@
   import { markReady } from '$lib/ready';
   import { cardState, liveUsage, qobuzFallback } from './cardState';
   import { PREF_LAST_SELECTION, minutesLeft, type Picked } from './selection';
-  import { liveMessage } from './results';
+  import { coverMap, liveMessage } from './results';
   import SyncCard from './SyncCard.svelte';
   import RunList from './RunList.svelte';
 
@@ -35,6 +35,7 @@
   });
 
   const card = $derived(cardState($run, now, qobuzToday));
+  const covers = $derived(coverMap(selection, $run.planned));
   const plan = $derived($run.planned.length ? $run.planned : selection);
   const done = $derived($run.results.map((r) => r.action.track_id));
   const left = $derived(minutesLeft(plan, done));
@@ -68,7 +69,7 @@
     <ProgressBar value={share} tone="muted" pace="live" label="Sync progress" />
     {#if message}<p class="message" data-test="sync-message" title={message}>{message}</p>{/if}
   </Surface>
-  <SyncCard {card} />
+  <SyncCard {card} {covers} />
   <RunList />
 {/snippet}
 

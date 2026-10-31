@@ -1,0 +1,1 @@
+import{bh as r,t as o,y as l,h as m,A as p,C as d}from"./index-Kcqw8c9F.js";var i=d('<ol class="steps svelte-3r1m0b"><!></ol>');function c(a,e){var t=i(),s=p(t);r(s,()=>e.children),o(()=>l(t,"data-test",e.test)),m(a,t)}export{c as N};

@@ -3,6 +3,15 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 30. To-do decision panels leftovers
+
+Noted in the screenshot review of the To-do panels (2026-10-31).
+
+- **The To-do header's subtitle wraps to two lines at 1100×700 when there are questions** ("… not lossless yet · 1 question
+  about your files"), so the header's height changes between the filters. It existed before stage 5.
+- **The step numbers in the "In rekordbox" card stay grey** where the mockup drew them yellow. They come from a shared
+  numbered-list block, so changing the colour there changes every numbered list; decide it centrally, not in To-do.
+
 ## 29. Library stage 5b leftovers (folders)
 
 Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, step B (folders), task groups B2 to B7.
@@ -92,7 +101,8 @@ Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
 - **The removal count (W4) misses rare cases:** a playlist track matched only at plan time (no stored song) isn't
   counted, and a Yes answer for a track that left every playlist still is. A song re-keyed after the removal keeps
   its file's tag name until the planner updates stored names.
-- **Files judged before the floor rule (fix round E1) keep their old verdict.** Nothing judges a library file again
+- **CLOSED, decided NO (2026-10-31): re-judging older quality verdicts.** The user decided against it ("the new imports are only test files anyways"); kept here as the record of the question and why it was considered.
+  **Files judged before the floor rule (fix round E1) keep their old verdict.** Nothing judges a library file again
   when the detector improves; in the user's library three House_Banger files would now be fake. Two more just miss
   the rule (a 28–29.7 dB fall into a flat floor, the rule needs 30); lowering it would take in looser shapes.
   The same holds for the 20 kHz wall rule (2026-10-30): a lossless file walled below 20.8 kHz (decoded Opus or

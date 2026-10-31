@@ -4,6 +4,8 @@
 //   sync:reading     Spotify is read for the first time (no plan yet), at playlist 3 of 7
 //   sync:rereading   Spotify is read again, the old plan dims below the reading card
 //   sync:converting  a sync already running, frozen at the StepChanged convert of "non stop" (SYNC_LINES.converting)
+//   sync:own-cover   as sync:converting, but "non stop" has no service picture (the recorded run has none) and its file
+//                    carries artwork: the plan's cover link, saved at Start, fills the live card's cover
 //   sync:up-to-date  Spotify read, nothing to do (2 "never download" tracks)
 //   sync:crashed           a sync already running crashes; its crash note is filed as the run's report
 //   sync:stop-refused  a sync already running (as sync:converting) whose Stop safely fails
@@ -20,9 +22,11 @@
 //   sync:long-names  the long plan with three titles over 120 characters and one track by six artists
 import type { PageFake } from '$lib/bridge/fake/bridge';
 import type { FakeState } from '$lib/bridge/fake/data';
-import { FAKE_MUSIC, SPOTIFY_HINT, previewAction, runId, samplePlaylists } from '$lib/bridge/fake/data';
+import { FAKE_MUSIC, SPOTIFY_HINT, coverUri, previewAction, runId, samplePlaylists } from '$lib/bridge/fake/data';
 import { STREAMS, SYNC_LINES, SYNC_START_LINE } from '$lib/bridge/fake/replay';
+import { setPref } from '$lib/prefs';
 import type { SyncPreview } from '$lib/bridge/types';
+import { PREF_LAST_SELECTION, type Picked } from './selection';
 
 const ARTISTS = ['Pegassi', 'Vatoz Locoz', 'torbentorben', 'Armin Hermann', 'DJ TALLBOY', 'Nina Kraviz', 'Kölsch',
   'Ben Klock', 'Changing Faces', 'Luude', 'Sub Focus', 'Hannah Laing'];
@@ -139,6 +143,13 @@ export const scenarios: PageFake['scenarios'] = {
   reading: reading(true),
   rereading: reading(false),
   converting: (s) => { s.scenario = 'sync:converting'; },
+  'own-cover'(s) {
+    s.scenario = 'sync:own-cover';
+    // what Start saves: the plan's cover link of "non stop" (t5), the artwork of its file (the run's own events have none)
+    const picked: Picked[] = [{ key: ['acquire', 't5', 'Library/Hard_Bounce'], kind: 'acquire', track_id: 't5',
+      title: 'non stop', artist: 'torbentorben', folder: 'Hard_Bounce', cover_url: coverUri(3) }];
+    setPref(PREF_LAST_SELECTION, picked);
+  },
   'up-to-date': (s) => { s.scenario = 'sync:up-to-date'; },
   'up-to-date-console': (s) => { s.scenario = 'sync:up-to-date'; s.console_running = true; },
   'up-to-date-wait': (s) => { s.scenario = 'sync:up-to-date-wait'; },
@@ -175,7 +186,7 @@ export const overrides: PageFake['overrides'] = {
   },
   job_status: (ctx, base) => {
     // a sync that already runs when the window opens, frozen in the conversion of "non stop"
-    if (ctx.s.scenario === 'sync:converting' || ctx.s.scenario === 'sync:stop-refused') {
+    if (ctx.s.scenario === 'sync:converting' || ctx.s.scenario === 'sync:stop-refused' || ctx.s.scenario === 'sync:own-cover') {
       ctx.startJob('sync', null, () => {
         for (const e of STREAMS.sync.slice(SYNC_START_LINE, SYNC_LINES.converting)) ctx.emit(e);
       });
