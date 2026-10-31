@@ -16,11 +16,15 @@ OWN_FILE = "your own file"  # what SOURCE_NAMES["manual"] reads as for a file th
 
 
 # Playlist services (where a playlist and its tracks are read from); SOURCE_NAMES above names the download sources.
-SERVICE_NAMES = {"spotify": "Spotify", "qobuz": "Qobuz"}
-# A track's page on its service, derived from its id. SoundCloud's links can't be derived from an id (stage 6).
+# Registry order: it is the order the words list the services in (sources.service_list).
+SERVICE_NAMES = {"spotify": "Spotify", "qobuz": "Qobuz", "soundcloud": "SoundCloud", "youtube_music": "YouTube Music"}
+# A track's page on its service, derived from its id. A SoundCloud track's real page is its permalink, which a read
+# passes as `link`; the player page below covers views without a read (stage 6 D8).
 TRACK_LINKS = {
     "spotify": "https://open.spotify.com/track/{id}",
     "qobuz": "https://open.qobuz.com/track/{id}",
+    "soundcloud": "https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/{id}",
+    "youtube_music": "https://music.youtube.com/watch?v={id}",
 }
 
 
@@ -82,6 +86,7 @@ class SourceTrack:
     service: str = "spotify"  # a key of SERVICE_NAMES
     link: str | None = None  # the track's page; filled from TRACK_LINKS when None
     streamable: bool = True  # False: the service lists it but won't deliver it now (Qobuz preview or region)
+    account_only: bool = False  # True: only the service's account can deliver the full track (SoundCloud SNIP: Go+)
 
     def __post_init__(self):
         if self.link is None:
