@@ -204,7 +204,8 @@ Open, in order:
    `feat/library-5b-folders` into main (`--no-ff`), push, update this table and memory.
 
 **Lane B (user 2026-10-31: continue the implementation plan). Back to ONE agent at a time once the panels build and
-stage 6 group 1 are done (user, 2026-10-31); order then: lane A first (3b → 5 → 7), lane B after or between:**
+stage 6 group 1 are done (user, 2026-10-31). Lane A is finished FIRST (3b → 3c → 4 → 5 → 6 → 7, stop for the
+user's re-check); lane B resumes only after that (group 1's review, then groups 2–5), never between (user 2026-10-31):**
 - B1. **Stage 6 plan** (Opus planner): `docs/2026-10-31-library-stage-6-plan.md` on branch `feat/library-6-sources`
   (off `feat/library-5b-folders`; rebased/merged onto main after stage 5 lands), worktree `.claude/worktrees/6-sources`.
   Spec §9.4, §9.5, §4 row 6. The planner lists product questions and whether any UI change needs a mockup.
