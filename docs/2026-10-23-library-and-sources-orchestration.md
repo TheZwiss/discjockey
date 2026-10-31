@@ -203,7 +203,8 @@ Open, in order:
 7. Then: CI + `npm run verify` (background), and **stop for the user**: their re-check (the new panels with a real upgrade + duplicate, Compare plays, sync covers). Only after their OK: merge
    `feat/library-5b-folders` into main (`--no-ff`), push, update this table and memory.
 
-**Lane B, in parallel (user 2026-10-31: continue the implementation plan; up to 2 agents at once):**
+**Lane B (user 2026-10-31: continue the implementation plan). Back to ONE agent at a time once the panels build and
+stage 6 group 1 are done (user, 2026-10-31); order then: lane A first (3b → 5 → 7), lane B after or between:**
 - B1. **Stage 6 plan** (Opus planner): `docs/2026-10-31-library-stage-6-plan.md` on branch `feat/library-6-sources`
   (off `feat/library-5b-folders`; rebased/merged onto main after stage 5 lands), worktree `.claude/worktrees/6-sources`.
   Spec §9.4, §9.5, §4 row 6. The planner lists product questions and whether any UI change needs a mockup.
@@ -215,7 +216,7 @@ Open, in order:
 Later (each needs its own plan / the user's go): AcoustID (#24, a stage after 6), rekordbox XML for the duplicates
 pick, the leftovers in `docs/issues.md`, CLI undo for upgrades. **No release without the user's go.**
 
-Overnight rules: at most two agents at once, one per lane, never on the same files or worktree; check `ps` and the
+Overnight rules: ONE agent at a time (user 2026-10-31, after the two that ran together); never two on the same files or worktree; check `ps` and the
 worktree after each; size from the record (Opus UI build 250–350k, shots 100–150k, Sonnet fix 115–150k, Sonnet group
 150–310k, review 110–140k); never resume an agent above ~150k (fresh one with findings + files); two failed rounds on
 one problem → stop and leave it for the user; never touch the running app, the user's files or the real DB.
