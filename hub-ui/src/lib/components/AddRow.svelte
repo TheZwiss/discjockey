@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Paste a Spotify or Qobuz playlist link → add_playlist (a network read) → the playlist it found as a card between
+  // Paste a Spotify, Qobuz, SoundCloud or YouTube Music playlist link → add_playlist (a network read) → the playlist it found as a card between
   // the field and the list (design system mockup design-system/playlists.html) → "Add to the list" appends the row.
   // The field and Add share one line (--h-btn); a note or a problem sits under it as a Hint or a compact ProblemCard
   // (a login the service needs: "Qobuz isn't connected." with Connect Qobuz →, unless the shell's banner says it already).
@@ -28,8 +28,8 @@
   } = $props();
 
   const DUPLICATE = 'This playlist is already in your list.';
-  /** answers whose message is the whole point (W2 "That isn't a Spotify or Qobuz playlist link…", W4 "Qobuz doesn't
-   *  show this playlist…"): no headline of ours says more than the engine's sentence */
+  /** answers whose message is the whole point (W2 "That isn't a playlist link Discjockey can read…", W4 "SoundCloud
+   *  doesn't show this playlist…"): no headline of ours says more than the engine's sentence */
   const SAID_BY_MESSAGE = new Set<ProblemKind>(['refused', 'playlist_unreadable']);
   let url = $state('');
   let busy = $state(false);
@@ -80,7 +80,7 @@
 
 <div class="add" data-test="add-row">
   <div class="field">
-    <TextField bind:value={url} placeholder="Paste a Spotify or Qobuz playlist link…" onenter={add} name="playlist-link" />
+    <TextField bind:value={url} placeholder="Paste a Spotify, Qobuz, SoundCloud or YouTube Music link…" onenter={add} name="playlist-link" />
   </div>
   <Button {busy} disabled={!$networkReadsAllowed || !url.trim()} title={$networkReadsAllowed ? undefined : NOT_WHILE_SYNC}
     onclick={add} data-test="add-button">Add</Button>
