@@ -98,19 +98,28 @@ def test_a_service_that_needs_no_login_reads_without_one(support, monkeypatch):
 
 
 def _expanding():
-    return SimpleNamespace(SERVICE="fake", recognise=lambda link: "1" if link.startswith("fake:") else None,
-                           expand=lambda link, paths, token: f"{link}/expanded")
+    """A source whose expand claims `short:` links only and returns every other link unchanged."""
+    return SimpleNamespace(SERVICE="fake", recognise=lambda link: None,
+                           expand=lambda link, paths, token: "fake:1" if link.startswith("short:") else link)
 
 
-def test_expand_asks_the_source_that_recognises_the_link(support, monkeypatch):
+def test_expand_asks_every_source_that_defines_expand(support, monkeypatch):
     monkeypatch.setitem(sources.SOURCES, "fake", _expanding())
-    assert sources.expand("fake:1", support, CancelToken()) == "fake:1/expanded"
+    assert sources.expand("short:abc", support, CancelToken()) == "fake:1"  # recognise is not asked: it knows no short link
 
 
 def test_expand_returns_other_links_as_they_are(support, monkeypatch):
     monkeypatch.setitem(sources.SOURCES, "fake", _expanding())
     assert sources.expand("https://example.com/x", support, CancelToken()) == "https://example.com/x"
     assert sources.expand(f"spotify:playlist:{ID1}", support, CancelToken()) == f"spotify:playlist:{ID1}"  # no expand
+
+
+def test_expand_takes_the_first_source_that_changes_the_link(support, monkeypatch):
+    monkeypatch.setitem(sources.SOURCES, "one", SimpleNamespace(SERVICE="one", expand=lambda link, p, t: link))
+    monkeypatch.setitem(sources.SOURCES, "two", SimpleNamespace(SERVICE="two", expand=lambda link, p, t: "two:" + link))
+    monkeypatch.setitem(sources.SOURCES, "three", SimpleNamespace(SERVICE="three",
+                                                                  expand=lambda link, p, t: "three:" + link))
+    assert sources.expand("x", support, CancelToken()) == "two:x"
 
 
 def test_expand_passes_a_source_error_on(support, monkeypatch):

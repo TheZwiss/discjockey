@@ -4,6 +4,7 @@ import pytest
 from hub_helpers import (ID1, ID2, PLAYLISTS, QOBUZ_ID, QOBUZ_LINK, QOBUZ_UNREADABLE, TRACKS, fake_qobuz, fake_spotify,
                          make_api, make_root, refreshed, track, wait_job)
 
+from discjockey import playlists_file as pf
 from discjockey import sources
 from discjockey.events import CancelToken
 from discjockey.models import FetchedPlaylist, PlaylistInfo
@@ -141,6 +142,8 @@ def fake_soundcloud(monkeypatch, *, expand_error=None):
         calls.append(link)
         if expand_error:
             raise expand_error
+        if link.startswith("https://on.soundcloud.com/"):
+            return SC_SET
         return link.replace("/you/likes", "/example-dj/likes")
 
     monkeypatch.setitem(sources.SOURCES, "soundcloud", SimpleNamespace(
@@ -169,6 +172,24 @@ def test_add_playlist_adds_what_expand_made_of_the_link(root, monkeypatch):
     added = make_api(root)[0].add_playlist("https://soundcloud.com/you/likes")
     assert added["ok"] and added["link"] == "https://soundcloud.com/example-dj/likes"
     assert added["playlist_id"] == "soundcloud:example-dj/likes"
+
+
+def test_a_short_link_pasted_in_the_hub_reaches_expand_and_is_saved_as_the_full_link(root, monkeypatch):
+    calls = fake_soundcloud(monkeypatch)  # recognise knows no short link, as the real SoundCloud source's
+    short = "https://on.soundcloud.com/abc123"
+    added = make_api(root)[0].add_playlist(f"  {short}  ")
+    assert calls == [short] and added["ok"] and added["link"] == SC_SET
+    assert added["playlist_id"] == "soundcloud:example-label/sets/example-set"
+
+
+def test_a_short_link_in_playlists_txt_is_still_refused(root, monkeypatch):
+    fake_soundcloud(monkeypatch)
+    short = "https://on.soundcloud.com/abc123"
+    with pytest.raises(ValueError) as e:
+        pf.clean_link(short)
+    assert str(e.value).startswith("That isn't a playlist link Discjockey can read. Open the playlist in Spotify")
+    root.playlists_file.write_text(PLAYLISTS + f"Short = {short}\n")
+    assert "Short" not in [r.folder for r in pf.load(root.playlists_file).rows]
 
 
 def test_an_expand_that_fails_answers_with_its_kind_and_service(root, monkeypatch):

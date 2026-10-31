@@ -1105,8 +1105,8 @@ class HubApi:
     def add_playlist(self, url: str) -> dict:
         """A pasted link: the playlist's name, owner and cover, whether Discjockey can read it, and its tracks."""
         self._no_sync_running()
-        link = pf.clean_link(url or "")
-        link = pf.clean_link(sources.expand(link, self._support, CancelToken()))  # a link that names no user yet (stage 6)
+        # a short link or one that names no user yet is expanded first (stage 6); clean_link then refuses what no source reads
+        link = pf.clean_link(sources.expand((url or "").strip(), self._support, CancelToken()))
         service, pid = sources.recognise(link)  # clean_link raised for anything no source recognises
         source, ref = sources.SOURCES[service], token(service, pid)
         if not source.login_state(self._support).connected:

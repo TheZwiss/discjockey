@@ -10,7 +10,8 @@ A source module has:
                                                             # for a service read without a login
     def open(paths, token) -> Reader                        # logs in; raises SourceError
     def expand(link, paths, token) -> str                   # optional: the link a pasted link of this service stands
-                                                            # for (may use the network; raises SourceError)
+                                                            # for, or the link unchanged when it is not this
+                                                            # service's (may use the network; raises SourceError)
 
 A `Reader` (base.py) is a context manager holding one logged-in session: `fetch(line)` reads a playlist's tracks,
 `info(playlist_id)` its name, owner and cover. Playlists and songs are named by tokens (models.token): a bare id for
@@ -53,14 +54,18 @@ def service_list() -> str:
 
 
 def expand(link: str, paths: SupportPaths, token: CancelToken) -> str:
-    """The link a pasted playlist link stands for, when its service can say so (SoundCloud's own likes link names no
-    user until the login is asked). A source module may define `expand(link, paths, token)`; the one that recognises
-    the link is asked, any other link comes back as it is. May use the network; raises SourceError."""
-    found = recognise(link)
-    if found is None:
-        return link
-    handler = getattr(SOURCES[found[0]], "expand", None)
-    return handler(link, paths, token) if handler else link
+    """The link a pasted playlist link stands for, when its service can say so: a short link names no playlist
+    (`on.soundcloud.com/...`), SoundCloud's own likes link no user until the login is asked. A source module may
+    define `expand(link, paths, token)`; it returns the link unchanged when it is not its own, so every such source
+    is asked, in registry order, and the first that changes the link wins. May use the network; raises SourceError."""
+    for source in SOURCES.values():
+        handler = getattr(source, "expand", None)
+        if handler is None:
+            continue
+        expanded = handler(link, paths, token)
+        if expanded != link:
+            return expanded
+    return link
 
 
 def read(paths: SupportPaths, lines: list[PlaylistLine], *, emit: Emit = no_emit,
