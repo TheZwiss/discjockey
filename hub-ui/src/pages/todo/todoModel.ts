@@ -2,8 +2,10 @@
 // across re-fetches, the filter strip, the list's sections, actions per track and the panel's main action.
 import type { SegOption } from '$lib/components/segmentedModel';
 import type {
-  FileSide, FreeDownload, Quality, QuestionPair, QuestionWhy, Todo, TodoFilter, TodoGroupKey, TodoItem, TrackDetail,
+  Alignment, FileSide, FreeDownload, Quality, QuestionPair, QuestionWhy, RekordboxCheckView, Todo, TodoFilter,
+  TodoGroupKey, TodoItem, TrackDetail, Upgrade,
 } from '$lib/bridge/types';
+import type { Outcome } from '$lib/components/choiceModel';
 import { isDuplicate, isQuestion } from '$lib/bridge/types';
 import type { QueueItem } from '$lib/stores/queueModel';
 import type { PlayerState } from '$lib/stores/player';
@@ -306,4 +308,169 @@ export function dropDecision(e: DroppedFile, selectedId: string | null): DropDec
   if (e.track_id !== selectedId) return { do: 'ignore' };
   if (!e.readable) return { do: 'message', text: e.message };
   return { do: 'add' };
+}
+
+// ---------- the upgrade decision (mockup todo-decisions) ----------
+/** The two ways an upgrade goes in. Both put the lossless audio in place of the user's file ("Replace with
+ *  lossless"); only rekordbox differs: Swap keeps the same rekordbox track ("Same track", AIFF and the same edit only),
+ *  Add as new file makes a new one ("New track"). The engine's modes stay; the panel maps the choice to them. */
+export type Way = 'swap' | 'add_new';
+export type WayOption = { key: Way; name: string; summary: string; outcomes: Outcome[] };
+export type UpgradeWays = {
+  /** both ways are possible: the "In rekordbox" card is a choice (Same track recommended) */
+  choice: boolean;
+  options: WayOption[];
+  /** no choice: what will happen (New track's outcomes) */
+  fixed: Outcome[];
+  /** why Same track isn't possible; null with a choice */
+  reason: string | null;
+};
+export const KEPT_FILE: Outcome = { tone: 'file', text: 'Your old file is kept in Superseded/' };
+export const QUIT_REKORDBOX = 'Tip: quit rekordbox before you replace';
+/** How far apart the two versions start, in whole ms (an alignment or a check's measurement). */
+const ms = (a: { offset_ms: number | null } | null | undefined) => Math.round(Math.abs(a?.offset_ms ?? 0));
+const fits = (r: string | null | undefined) => r === 'exact' || r === 'shifted';
+
+export function upgradeWays(up: Upgrade, swap: boolean): UpgradeWays {
+  const r = up.alignment?.result;
+  const same: WayOption = { key: 'swap', name: 'Same track', summary: 'Cues and beatgrid stay', outcomes: [
+    { tone: 'kept', text: 'Your rekordbox track keeps its cues' },
+    ...(r === 'shifted' && ms(up.alignment) ? [{ tone: 'kept' as const, text: `Moved ${ms(up.alignment)} ms to sit on your cues` }] : [])] };
+  const added: WayOption = { key: 'add_new', name: 'New track',
+    summary: fits(r) ? 'Relocate your old track to keep cues' : 'Set the cues again', outcomes: [
+      { tone: 'step', text: 'rekordbox lists it as a new track' },
+      fits(r) ? { tone: 'kept', text: 'Relocate your old track to it: cues fit' }
+        : r === 'different' ? { tone: 'step', text: 'A different edit: set the cues again' }
+        : { tone: 'step', text: 'Unsure if your cues fit: listen first' }] };
+  if (swap) return { choice: true, options: [same, added], fixed: [], reason: null };
+  const reason = r === 'different' ? 'Same track needs the same edit'
+    : !fits(r) ? 'Same track needs a measured match' : 'Same track needs an AIFF file';
+  return { choice: false, options: [added], fixed: added.outcomes, reason };
+}
+
+/** The "Edit" row under the comparison: a fact about the audio (the "In rekordbox" card says what it means). */
+export function editLine(a: Alignment | null | undefined): { tone: 'lossless' | 'good_lossy' | 'other'; text: string } {
+  const r = a?.result;
+  if (r === 'exact') return { tone: 'lossless', text: 'The same edit as yours' };
+  if (r === 'shifted') return { tone: 'lossless', text: ms(a) ? `The same edit, ${ms(a)} ms apart` : 'The same edit as yours' };
+  if (r === 'different') return { tone: 'good_lossy', text: 'A different edit' };
+  return { tone: 'other', text: "Couldn't compare them" };
+}
+
+/** The main button: what replacing does, named by the result. */
+export function replaceLabel(up: Upgrade): string {
+  return up.what === 'lossless version' ? 'Replace with lossless' : 'Replace with the better version';
+}
+
+// ---------- the rekordbox check after a replace ----------
+/** One numbered step: its words, parts in bold (a rekordbox command), and a muted note after them. */
+export type CheckStep = { parts: { text: string; strong?: boolean }[]; note?: string };
+export type CheckCard = { summary: string; steps: CheckStep[]; hint: string | null };
+const RELOCATE_NEW: CheckStep = { parts: [{ text: 'The track shows as missing: ' }, { text: 'Auto Relocate', strong: true },
+  { text: ' finds the new file by its name' }] };
+
+/** The steps in rekordbox after a swap or an added file (README "Upgrades"); null for any other check (its `text`). */
+export function checkCard(c: RekordboxCheckView | undefined): CheckCard | null {
+  if (!c) return null;
+  const analyse: CheckStep = { parts: [{ text: 'Analyse it again, so the waveform shows the full sound' }],
+    note: '(lock the beatgrid first if you set it by hand)' };
+  const reload: CheckStep = { parts: [{ text: 'Right-click the track › ' }, { text: 'Reload Tag', strong: true }] };
+  if (c.reason === 'swapped') {
+    if (c.moved) {
+      return { summary: 'same track, cues kept', hint: null, steps: [
+        { parts: [{ text: 'The track shows as missing: ' }, { text: 'Auto Relocate', strong: true },
+          { text: ' finds it by its name, cues and all' }] }, reload, analyse] };
+    }
+    return { summary: 'same track, cues kept', steps: [reload, analyse],
+      hint: 'Shows as missing? Auto Relocate finds it by its name, cues and all.' };
+  }
+  if (c.reason === 'added_as_new') {
+    const second: CheckStep = c.match === 'exact' ? { parts: [{ text: 'Analyse it again' }], note: '· your cues fit' }
+      : c.match === 'shifted' ? { parts: [{ text: 'Analyse it again' }],
+        note: ms(c) ? `· your cues fit to within ${ms(c)} ms` : '· your cues fit' }
+      : { parts: [{ text: 'Analyse it again and ' }, { text: 'set the cues again', strong: true }],
+        note: c.match === 'different' ? '· a different edit' : "· it couldn't be compared" };
+    return { summary: 'a new track', steps: [RELOCATE_NEW, second], hint: null };
+  }
+  return null;
+}
+
+/** The folder a path is in ("Library/Hard_Bounce" from "Library/Hard_Bounce/x.aiff"). */
+const dirOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
+export type ReplacedRow = { icon: 'file' | 'folder'; name: string; where: string };
+export type ReplacedCard = { title: string; rows: ReplacedRow[]; undo: string };
+/** "Replaced with lossless": where each file is now, and what Undo puts back. Null for a check of another kind. */
+export function replacedCard(c: RekordboxCheckView | undefined, item: Pick<TodoItem, 'path' | 'quality'>): ReplacedCard | null {
+  if (!c || (c.reason !== 'swapped' && c.reason !== 'added_as_new')) return null;
+  const title = item.quality === 'lossless' ? 'Replaced with lossless' : 'Replaced with the better version';
+  const here = item.path ? `in ${dirOf(item.path)}` : 'in your library';
+  const old = c.old_path ? `in ${dirOf(c.old_path)}` : 'in Superseded/';
+  const now = item.quality === 'lossless' ? 'lossless' : 'the better version';
+  if (c.reason === 'swapped') {
+    return { title, undo: 'Undo puts your old audio back in the file.', rows: [
+      { icon: 'file', name: `Your file, now ${now}`, where: here },
+      { icon: 'folder', name: 'A copy of the old audio', where: old }] };
+  }
+  return { title, undo: 'Undo puts both back as they were.', rows: [
+    { icon: 'file', name: `New file, ${now}`, where: here },
+    { icon: 'folder', name: 'Your old file', where: old }] };
+}
+/** A date's calendar day in local time, "YYYY-MM-DD" (as the engine writes `since`). */
+export function localDay(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+/** "today" or "31 Oct" for a check's `since` (YYYY-MM-DD), against today's date. */
+export function sinceText(since: string | null, today: string): string {
+  if (!since) return '';
+  return since.slice(0, 10) === today.slice(0, 10) ? 'today' : dayMonth(since);
+}
+
+// ---------- duplicates: which file stays ----------
+const FORMATS: Record<string, string> = { aiff: 'AIFF', aif: 'AIFF', wav: 'WAV', flac: 'FLAC', mp3: 'MP3', m4a: 'M4A',
+  aac: 'AAC', ogg: 'OGG', opus: 'Opus', alac: 'ALAC' };
+/** "AIFF" from a file's extension. */
+export function fileFormat(path: string): string {
+  const ext = /\.([^./]+)$/.exec(path)?.[1]?.toLowerCase() ?? '';
+  return FORMATS[ext] ?? ext.toUpperCase();
+}
+/** The last folder of a file's path ("Old" from ".../Music/Old/x.aiff"). */
+export function lastFolder(path: string): string {
+  const d = dirOf(path);
+  return d.slice(d.lastIndexOf('/') + 1);
+}
+const FOLDER_IN_LABEL = 16;   // longer folder names make "Keep the one in …" too wide for the foot at 1100
+/** What tells this file apart from the others in a few words ("the AIFF", "the lossless file", "the one in Old"), or
+ *  null when nothing short does. */
+export function fileWords(f: FileSide, files: FileSide[]): string | null {
+  const others = files.filter((x) => x.file_id !== f.file_id);
+  const fmt = fileFormat(f.path);
+  if (fmt && others.every((x) => fileFormat(x.path) !== fmt)) return `the ${fmt}`;
+  if (others.every((x) => x.quality_label !== f.quality_label)) {
+    return f.quality === 'lossless' ? 'the lossless file' : `the ${f.quality_label} file`;
+  }
+  const dir = lastFolder(f.path);
+  if (dir && dir.length <= FOLDER_IN_LABEL && others.every((x) => lastFolder(x.path) !== dir)) return `the one in ${dir}`;
+  return null;
+}
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+/** The pick in "Which file stays?": a file's id, 'all' (Keep both / Keep all), or null (nothing picked yet). */
+export type DuplicatePick = number | 'all' | null;
+/** The foot's button and the line under it: named by the result ("Keep the AIFF" / "The MP3 goes to Superseded/,
+ *  not deleted"); with no pick it is off and asks for one. */
+export function keepWords(files: FileSide[], pick: DuplicatePick): { label: string; hint: string | null; ready: boolean } {
+  if (pick === null) return { label: 'Choose the file that stays', hint: null, ready: false };
+  if (pick === 'all') return { label: keepLabel(files.length), hint: null, ready: true };
+  const kept = files.find((f) => f.file_id === pick);
+  if (!kept) return { label: 'Choose the file that stays', hint: null, ready: false };
+  const leaving = files.filter((f) => f !== kept);
+  const label = `Keep ${fileWords(kept, files) ?? 'this file'}`;
+  const one = leaving.length === 1 ? fileWords(leaving[0], files) : null;
+  const hint = leaving.length === 1 ? `${cap(one ?? 'the other file')} goes to Superseded/, not deleted`
+    : `The other ${leaving.length} go to Superseded/, not deleted`;
+  return { label: cap(label), hint, ready: true };
+}
+/** A duplicate group's id from its file ids (models.group_id): the group left after one of its files moved. */
+export function groupIdOf(ids: number[]): string {
+  return 'dup:' + [...ids].sort((a, b) => a - b).join('-');
 }

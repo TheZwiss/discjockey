@@ -115,14 +115,19 @@ Use the kind for the card/headline; always show `message` as the detail.
   `reject_current` ("None of these"). `added_as_new`: set by `upgrade(id, "add_new")`, with `match` (the parked
   version's measurement: `exact`/`shifted`/`different`/`unknown`) and `offset_ms`; records from before them have
   neither. `swapped`: set by `upgrade(id, "swap")`, with `match`, `offset_ms` (the fresh measurement) and `moved`
-  (the file moved up out of not_lossless/); its `detail` says rekordbox keeps the cues, Reload Tag and analyse
-  again (moved: Auto Relocate finds it by name first). Both upgrade checks also hold `undo` (engine-internal, see
+  (the file moved up out of not_lossless/). Both upgrade checks also hold `undo` (engine-internal, see
   `upgrades.py`: the fields as they were, both files' content keys, a swap's kept download in
-  `.discjockey/undo/`); checks from before undo existed have none. The page sees only `can_undo`. The `detail` text follows `match`: exact/shifted say it is the same edit, relocate the old entry to the new
-  file and its cues fit (shifted: to within the offset); `different`, `unknown` and old records say it is a different
-  edit, analyse and set the cues again. The next sync keeps it; only
-  `rekordbox_checked(track_id)` clears it. The page sees it through `todo()`'s `rekordbox_check` group (the item's
-  `detail` is the text to show) and the report section `rekordbox_check`; `track()` does not return it.
+  `.discjockey/undo/`); checks from before undo existed have none. The page sees `can_undo` and, from the undo
+  record, only where the old file is now (`check.old_path`). The next sync keeps it; only
+  `rekordbox_checked(track_id)` clears it. The page sees it through `todo()`'s `rekordbox_check` group and the report
+  section `rekordbox_check`; `track()` does not return it. A `rekordbox_check` item carries `detail` (the row's short
+  line, `views.check_status`: "Reload Tag, analyse again", "relocate, Reload Tag, analyse again", "relocate, analyse
+  again", "analyse, set the cues again", "now the right song: analyse again") and `check` (`views.check_view`):
+  `{reason, since, match, offset_ms, moved, text, old_path}`; `text` is the whole instruction (report.check_text: its
+  words follow `match`: exact/shifted the same edit, relocate, the cues fit (shifted: to within the offset);
+  `different`, `unknown` and old records a different edit, analyse and set the cues again), `old_path` where the old
+  file (added) or the copy of the old audio (swap) is now, null without an undo record. The panel builds its numbered
+  steps from `reason`, `match`, `offset_ms` and `moved`, and keeps `text` for any other reason.
 - `empty` fields: null or a first-run/empty state: `no_playlists`, `not_set_up`, `empty_library`, `no_preview`,
   `up_to_date`, `no_match`, `all_lossless`, `all_hidden`, `nothing_here`.
 
@@ -792,6 +797,7 @@ innermost watched folder holding it is offline or not found) puts its words seco
    "found": "2026-10-18",
    "what": "lossless version",
    "quality_line": "Qobuz FLAC · verified lossless",
+   "format_line": "FLAC · lossless",
    "alignment": {
     "drift_ms": 0.0,
     "offset_ms": 0.0,
@@ -816,8 +822,12 @@ was read from: the link of the first fetched track (playlist order) that is this
 when `swap_safe && swap_possible`; `cue_text` is the line to show. It combines the measurement with `swap_possible`:
 exact/shifted on a file that can be swapped says the cues stay; on one that can't (MP3, WAV: "Add as new file" is the
 only way in, which rekordbox sees as a new entry) it says it is the same edit but a new rekordbox entry, and that
-relocating the old entry to the new file keeps its cues; a mismatch or unknown keeps its own line. The To-do row's
-`detail` for `upgrade_ready` is the same line.
+relocating the old entry to the new file keeps its cues; a mismatch or unknown keeps its own line (the Library's
+card shows it). `format_line` is the parked version's quality in the words of the current file's `format_line`
+("FLAC · lossless", "AAC · 256 kbps"): the To-do panel's New beside Now. The To-do row's `detail` for
+`upgrade_ready` is a short line (`views.upgrade_status`): "Lossless ready · cues can stay" (swap possible),
+"· new rekordbox track" (same edit, no swap), "· different edit", "· not compared" ("256 kbps ready · …" for a better
+lossy stream); the To-do panel words the rest from `alignment` and `swap_possible` (todoModel.upgradeWays).
 
 The media server (`audio_url`) answers `Access-Control-Allow-Origin: http://127.0.0.1:<window port>` to requests from the
 page's own origin, and nothing (never `*`) to any other: the compare player `fetch()`es both files to decode them, and
@@ -1825,7 +1835,7 @@ Every word below is the engine's (`folders.py`, `importer.py`, `jobs.py`, `views
 | `remove_watched_folder(folder_id)` | write → job `folders` | `{files, redownload}` as `removal_preview` said. The files stay where they are; own songs left with no file go; playlist songs left with no file download again. The preview is planned again at once. `refused` for the Library or an unknown number |
 | `answer_same_song(song_key, own_key, same)` | write → job `answer` | "Is this the same song?" answered (`same`: bool): the preview is planned again (Yes: the next plan links the file to the playlist song; No: the song downloads at the next sync, and is never asked again). `result` `{}`. `changed` when `song_key` isn't a playlist song any more |
 | `keep_duplicates(group_id, paths)` | write → job `answer` | "Keep both" / "Keep all": the group isn't asked again; it applies to every file of the group (a group can hold more than two). `paths`: the group's files' `path`s as the card showed them (list of strings, any order); `changed` when they are not the group's files now (a file id can be given out again to another file). `result` `{}` |
-| `supersede_duplicate(group_id, file_id, paths)` | write → job `supersede` | "Move to Superseded" for one file of the group; nothing is deleted. `paths`: as for `keep_duplicates`. `result` `{result: Result, recovered: []}` (`result.section` `replaced`, `result.path` where the file went, relative to the music folder). `changed` when the group isn't as the page showed it (a file gone, offline or a different group), `failed` when the move was refused (nothing moved) |
+| `supersede_duplicate(group_id, file_id, paths)` | write → job `supersede` | One file of the group to Superseded/ (the panel's "Keep the …" sends one per file that goes); nothing is deleted. `paths`: as for `keep_duplicates`. `result` `{result: Result, recovered: []}` (`result.section` `replaced`, `result.path` where the file went, relative to the music folder). `changed` when the group isn't as the page showed it (a file gone, offline or a different group), `failed` when the move was refused (nothing moved) |
 | `set_favourites(keys)` | brief save | `{favourites: string[]}`: replaces the Favourites with `keys` (`playlist:<ref>` / `folder:<path>`, in the order given; a key given twice keeps its first place) and answers the list as stored. Not a job and no engine lock: it works during a sync, an import and a terminal run (see "Calling"). `refused` for anything but a list of such keys; `busy` ("Discjockey couldn't save that just now. Try again in a moment.") when a running job's write holds `library.db` past the 1.5 s wait, nothing changed; `refused` with "Discjockey has no records of your library yet, so it can't save that. Quit and open Discjockey again." while there is no `library.db`. A stored key that is not in `keys` and whose playlist or folder is gone right now (`sidebar()` leaves it out) stays stored, right after the nearest stored key before it that is in the new list (first if none): the UI never saw it, so a save from the UI cannot have meant to remove it (a playlist taken out of playlists.txt for a while, a folder on an unplugged drive, a briefly empty sidebar). A key in `keys` is the user's, wherever it points. The answer is the list as stored, those kept keys among them |
 | `set_crate_shown(path, shown)` | brief save | `{path, shown}`: shows (`true`) or hides (`false`) the crate at snapshot path `path` in the sidebar, or goes back to the default (`null`: shown, hidden under a folder with more than 25 crates). Settings' switch. Same rules, answers and refusals as `set_favourites` (`refused` for an empty path or a `shown` that is neither bool nor null); the path is not checked against the crates |
 | `setup_skip_import()` | brief save | `{}`: sets `import_skipped` in settings.json (Setup's "Your existing music" step counts as done). Not a job; `busy` while a job writes, `console` while a terminal run does |
@@ -1853,8 +1863,14 @@ might be a playlist song") and `duplicate` ("Duplicates", "the same song more th
   `no_length`, `delta_s` the file's length minus the song's in whole seconds (null with `no_length`). `detail` is the
   why in words: "Same title, different artist" · "Same title, no artist in your file" · "Same artist and title, {s} s
   longer" / "{s} s shorter" · "Same artist and title, the length couldn't be read".
-- `duplicate`: `track_id` is the `group_id`. `pair = {group_id, why: same_audio\|same_song, files: FileSide[]}`, files by
-  file id; a group can hold more than two files, and "Keep both" (`keep_duplicates`) applies to all of them. `detail`:
+- `duplicate`: `track_id` is the `group_id`. `pair = {group_id, why: same_audio\|same_song, files: FileSide[],
+  recommended, recommended_why}`, files by file id; a group can hold more than two files, and "Keep both"
+  (`keep_duplicates`) applies to all of them. `recommended`: the file id the panel picks to keep (`views.recommend`:
+  the better sound, lossless before lossy then the higher cutoff, then AIFF before any other format; being in a
+  playlist or in `Library/` breaks no tie), null when there is no clear winner; `recommended_why` its line
+  ("Recommended: best quality" / "Recommended: AIFF keeps tags"), null with it. Keeping one file of a group is one
+  `supersede_duplicate` per other file; after each move the group is the one of the files left (`"dup:" + their ids
+  sorted`). `detail`:
   "The same audio in {n} files" · "{n} files of the same song". A group found both by the plan and by the records
   shows once, as `same_audio`. Groups with a file offline now, held or gone are left out: "offline now" is the same live away set as the panels' (a group on a just-ejected drive or a renamed folder is neither listed nor counted in `chips`, the filter or the sidebar, even before a scan).
 - `FileSide = {file_id, song_key, path, artist, title, duration_s, quality, quality_label, online, audio_url,

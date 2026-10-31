@@ -154,9 +154,10 @@ export function upgradeLabel(what: string | null | undefined): string {
   return what && what !== 'lossless version' ? `Upgrade ready · ${what}` : 'Upgrade ready';
 }
 
-/** Green dot for exact/aligned cue points, yellow for anything that doesn't match. */
+/** Green dot for the same edit (exact, or shifted by a few ms: the engine's `alignment.result`), yellow for anything
+ *  that doesn't match. */
 export function cueTone(result: string | null | undefined): 'lossless' | 'good_lossy' {
-  return result === 'exact' || result === 'aligned' ? 'lossless' : 'good_lossy';
+  return result === 'exact' || result === 'shifted' ? 'lossless' : 'good_lossy';
 }
 
 /** Text for searching: Unicode-normalised, case-insensitive and accent-free, the same idea as the library search

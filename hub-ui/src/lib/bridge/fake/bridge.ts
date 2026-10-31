@@ -7,7 +7,7 @@ import type {
 } from '../types';
 import { LIBRARY_METHODS } from '../contract';
 import {
-  FAKE_MUSIC, FAKE_NEWEST_YT_DLP, QOBUZ_UNREADABLE, SERVICE_NAME, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkText, coverUri, dateOnly, folderList, hash, isoLocal, makeState, nextStep,
+  FAKE_MUSIC, FAKE_NEWEST_YT_DLP, QOBUZ_UNREADABLE, SERVICE_NAME, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkStatus, checkView, coverUri, dateOnly, folderList, hash, isoLocal, makeState, nextStep,
   pathOf, playlistRows, previewAction, qualityLabel, qualityLine, qualityOf, result, runDetail, runId,
   readStatus, sampleCandidates, readOk, todoDetail, todoFree, formatLine, sourceFull, todoGroup, trackRow, type FakeAccount, type FakeFolder, type FakeState,
   type FakeTrack,
@@ -951,12 +951,15 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           return finish(true, opResult(t, 'discarded', 'upgrade discarded'));
         }
         const measured = t.upgrade!.alignment;
+        const old = pathOf(t)!;
+        const oldPath = `Superseded/${t.folder}/${mode === 'swap' ? old.split('/').pop()!.replace(/\.[^.]+$/, ' (lossy)$&')
+          : old.split('/').pop()}`;
         const before = { status: t.status, cutoff_hz: t.cutoff_hz, source: t.source, codec: t.codec, upgrade: t.upgrade,
           rekordbox_check: t.rekordbox_check ? { ...t.rekordbox_check, undo: undefined } : null };
         Object.assign(t, { status: 'lossless', cutoff_hz: null, source: 'qobuz', codec: 'flac', upgrade: null });
         t.rekordbox_check = { reason: mode === 'add_new' ? 'added_as_new' : 'swapped', since: dateOnly(new Date()),
           match: measured.result, offset_ms: measured.offset_ms ?? 0, ...(mode === 'swap' ? { moved: false } : {}),
-          undo: before };
+          undo: before, old_path: oldPath };
         finish(true, opResult(t, mode === 'swap' ? 'swapped' : 'added_new', mode === 'swap'
           ? 'swapped, the old file is in Superseded' : 'added as a new file, the old one is in Superseded'));
       }, 900 / speed));
@@ -1132,7 +1135,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     let hidden_count = 0;
     for (const t of s.tracks) {
       if (t.rekordbox_check) {
-        items.rekordbox_check.push({ ...trackRow(t), group: 'rekordbox_check', detail: checkText(t.rekordbox_check), free: false,
+        items.rekordbox_check.push({ ...trackRow(t), group: 'rekordbox_check', detail: checkStatus(t.rekordbox_check),
+          check: checkView(t.rekordbox_check), free: false,
           can_undo: !!t.rekordbox_check.undo && !t.upgrade });
         chips.rekordbox_check++;
         if (!t.hidden) counted.add(t.track_id);

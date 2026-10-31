@@ -1,7 +1,8 @@
 // Fake scenarios of the To-do page (fake mode only). Open them with ?scenario=todo:<name>.
 import type { PageFake } from '$lib/bridge/fake/bridge';
 import type { FakeState } from '$lib/bridge/fake/data';
-import { dateOnly, makeUpgrade } from '$lib/bridge/fake/data';
+import { dateOnly, makeUpgrade, pathOf, type FakeMatch, type FakeTrack } from '$lib/bridge/fake/data';
+import { sameAudio, sameSong } from '$lib/bridge/fake/folders';
 import type { Candidate } from '$lib/bridge/types';
 
 // Wrong song? search variants per fake state (scenarios run once per state; the override reads the mode back).
@@ -24,8 +25,53 @@ function longList(base: Candidate[]): Candidate[] {
   return [...base, ...more];   // 6 + 7 = 13
 }
 
+/** t2 (Armin Hermann – Get Naughty, Hard_Bounce) with an upgrade measured as `match`; `aiff` false: its file is an
+ *  MP3 at 320 kbps, so it can't be swapped. */
+function upgradeOf(s: FakeState, match: FakeMatch, aiff: boolean) {
+  const t = s.tracks.find((x) => x.track_id === 't2');
+  if (!t) return;
+  if (!aiff) Object.assign(t, { codec: 'mp3', kbps: 320 });
+  t.upgrade = makeUpgrade(t, match, dateOnly(s.now), aiff);
+}
+/** t2 after "Replace with lossless" (as the fake upgrade() leaves it): the rekordbox check, its undo while `undo`. */
+function replaced(s: FakeState, reason: 'swapped' | 'added_as_new', match: FakeMatch, undo = true) {
+  const t = s.tracks.find((x) => x.track_id === 't2');
+  if (!t) return;
+  const old = pathOf(t)!.split('/').pop()!;
+  const before: Partial<FakeTrack> = { status: t.status, cutoff_hz: t.cutoff_hz, source: t.source, codec: t.codec,
+    upgrade: makeUpgrade(t, match, dateOnly(s.now)), rekordbox_check: null };
+  Object.assign(t, { status: 'lossless', cutoff_hz: null, source: 'qobuz', codec: 'flac', upgrade: null });
+  t.rekordbox_check = { reason, since: dateOnly(s.now), match, offset_ms: match === 'shifted' ? 12 : 0,
+    ...(reason === 'swapped' ? { moved: false } : {}), ...(undo ? { undo: before } : {}),
+    old_path: `Superseded/${t.folder}/${reason === 'swapped' ? old.replace(/\.[^.]+$/, ' (lossy)$&') : old}` };
+}
+
 const fake: PageFake = {
   scenarios: {
+    // The upgrade decision (mockup todo-decisions). Open each with #/todo?track=t2.
+    // An AIFF file and the same edit: "In rekordbox" is a choice, Same track picked (Swap).
+    'upgrade-aiff-same'(s) { upgradeOf(s, 'exact', true); },
+    // As above, the new version 12 ms apart: Same track also says it moves the audio onto the cues.
+    'upgrade-aiff-shifted'(s) { upgradeOf(s, 'shifted', true); },
+    // An MP3 and the same edit: no choice, a new rekordbox track ("Same track needs an AIFF file").
+    'upgrade-mp3-same'(s) { upgradeOf(s, 'exact', false); },
+    // An AIFF file, a different edit: no choice ("Same track needs the same edit").
+    'upgrade-different'(s) { upgradeOf(s, 'different', true); },
+    // An MP3 the measurement couldn't compare: no choice ("Same track needs a measured match").
+    'upgrade-unknown'(s) { upgradeOf(s, 'unknown', false); },
+    // After the replace: the rekordbox check with its steps, "Replaced with lossless", Done and Undo the replace.
+    // Open each with #/todo?track=t2.
+    'after-swap'(s) { replaced(s, 'swapped', 'exact'); },
+    'after-add-same'(s) { replaced(s, 'added_as_new', 'exact'); },
+    'after-add-different'(s) { replaced(s, 'added_as_new', 'different'); },
+    // A swap whose undo is gone (no copy kept): Done only, no Undo, no "Undo puts …" line.
+    'after-no-undo'(s) { replaced(s, 'swapped', 'exact', false); },
+    // Duplicates (open with #/todo?filter=duplicate): a clear winner (the lossless AIFF in a playlist against a
+    // 16 kHz copy) is picked; a tie (two lossless AIFFs) picks nothing; both together.
+    'duplicates-pick'(s) { s.imp.duplicates = [sameSong()]; },
+    'duplicates-tie'(s) { s.imp.duplicates = [sameAudio(2)]; },
+    'duplicates'(s) { s.imp.duplicates = [sameAudio(2), sameSong()]; },
+    'duplicates-three'(s) { s.imp.duplicates = [sameAudio(3)]; },
     // t2 (Armin Hermann – Get Naughty) has an upgrade that doesn't match: no Swap, "Add as new file" is primary.
     // Open with #/todo?track=t2.
     'upgrade-mismatch'(s) {

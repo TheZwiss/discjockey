@@ -396,7 +396,34 @@ def test_the_card_and_the_todo_row_say_what_the_file_can_do(path, result, swap_s
     assert (up["swap_safe"], up["swap_possible"], up["cue_text"]) == (swap_safe, swap_possible, text)
     row = {i["track_id"]: i for g in views.todo(state(t1=entry), "all", False, {}, TODAY)["groups"]
            for i in g["items"]}["t1"]
-    assert row["group"] == "upgrade_ready" and row["detail"] == text
+    assert row["group"] == "upgrade_ready" and row["detail"] == ROW_STATUS[(result, swap_possible)]
+
+
+# the To-do row's short line (the panel says the rest)
+ROW_STATUS = {("exact", True): "Lossless ready · cues can stay", ("exact", False): "Lossless ready · new rekordbox track",
+              ("different", False): "Lossless ready · different edit", ("different", True): "Lossless ready · different edit",
+              ("unknown", False): "Lossless ready · not compared"}
+
+
+@pytest.mark.parametrize("up,can_swap,text", [
+    ({"alignment": {"result": "shifted"}}, True, "Lossless ready · cues can stay"),
+    ({"alignment": {"result": "shifted"}}, False, "Lossless ready · new rekordbox track"),
+    ({"alignment": None}, True, "Lossless ready · not compared"),
+    ({"status": "not_lossless", "kbps": 256, "alignment": {"result": "exact"}}, False,
+     "256 kbps ready · new rekordbox track"),
+])
+def test_upgrade_status_is_short(up, can_swap, text):
+    assert views.upgrade_status(up, can_swap) == text
+
+
+@pytest.mark.parametrize("up,text", [
+    ({"source_format": "flac"}, "FLAC · lossless"),
+    ({}, "FLAC · lossless"),
+    ({"source_format": "aac", "status": "not_lossless", "kbps": 256}, "AAC · 256 kbps"),
+    ({"source_format": "pcm_s16be"}, "PCM · lossless"),
+])
+def test_upgrade_format_says_the_new_quality(up, text):
+    assert views.upgrade_format(up) == text
 
 
 def test_track_detail():
@@ -601,7 +628,7 @@ def test_todo_groups_in_order_with_details():
     out = views.todo(s, "all", False, {"m": "MOVE BLOCKED · a file is in the way"}, TODAY, cover)
     assert [g["key"] for g in out["groups"]] == ["upgrade_ready", "not_found", "good_lossy", "fake", "other"]
     by = {i["track_id"]: i for g in out["groups"] for i in g["items"]}
-    assert by["b"]["detail"] == "aligned by 23 ms, cues stay" and by["b"]["group"] == "upgrade_ready"
+    assert by["b"]["detail"] == "Lossless ready · cues can stay" and by["b"]["group"] == "upgrade_ready"
     assert by["g"]["detail"] == "next try in 3 days" and by["n"]["detail"] == "tried again at the next sync"
     assert by["c"]["detail"] == "YT Music" and by["k"]["detail"] == "Qobuz"
     assert by["m"]["detail"] == "MOVE BLOCKED · a file is in the way"
@@ -831,9 +858,13 @@ def test_todo_check_in_rekordbox_group_also_for_lossless_and_hidden_tracks():
     group = out["groups"][0]
     assert group["label"] == "Check in rekordbox"
     by = {i["track_id"]: i for i in group["items"]}
-    assert by["a"]["detail"] == ("This track now plays the right song. In rekordbox: analyse it again and delete the "
-                                 "old cues (they belong to the wrong song).")
-    assert by["h"]["detail"] == "This is a different edit. In rekordbox: analyse it again and set the cues again."
+    assert by["a"]["detail"] == "now the right song: analyse again"
+    assert by["a"]["check"]["text"] == ("This track now plays the right song. In rekordbox: analyse it again and delete "
+                                        "the old cues (they belong to the wrong song).")
+    assert by["h"]["detail"] == "analyse, set the cues again"
+    assert by["h"]["check"] == {"reason": "added_as_new", "since": "2026-10-16", "match": None, "offset_ms": None,
+                                "moved": False, "old_path": None,
+                                "text": "This is a different edit. In rekordbox: analyse it again and set the cues again."}
     assert out["chips"]["rekordbox_check"] == 2 and out["chips"]["all"] == 2 and out["hidden_count"] == 1
     both = views.todo(s, "all", True, {}, TODAY)
     assert [g["key"] for g in both["groups"]] == ["rekordbox_check", "not_found"] and both["chips"]["all"] == 2
@@ -843,8 +874,30 @@ def test_todo_check_in_rekordbox_words_an_added_file_by_what_was_measured():
     s = state(a=e(rekordbox_check={"reason": "added_as_new", "since": "2026-10-16", "match": "exact"}),
               b=e(title="B", rekordbox_check={"reason": "added_as_new", "since": "2026-10-16", "match": "different"}))
     by = {i["track_id"]: i for i in views.todo(s, "all", False, {}, TODAY)["groups"][0]["items"]}
-    assert by["a"]["detail"] == "This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit."
-    assert by["b"]["detail"] == "This is a different edit. In rekordbox: analyse it again and set the cues again."
+    assert by["a"]["detail"] == "relocate, analyse again" and by["a"]["check"]["match"] == "exact"
+    assert by["a"]["check"]["text"] == "This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit."
+    assert by["b"]["detail"] == "analyse, set the cues again"
+    assert by["b"]["check"]["text"] == "This is a different edit. In rekordbox: analyse it again and set the cues again."
+
+
+@pytest.mark.parametrize("check,text", [
+    ({"reason": "swapped"}, "Reload Tag, analyse again"),
+    ({"reason": "swapped", "moved": True}, "relocate, Reload Tag, analyse again"),
+    ({"reason": "added_as_new", "match": "shifted"}, "relocate, analyse again"),
+    ({"reason": "added_as_new", "match": "unknown"}, "analyse, set the cues again"),
+    ({"reason": "wrong_song"}, "now the right song: analyse again"),
+    (None, "check it in rekordbox"),
+])
+def test_check_status_is_short(check, text):
+    assert views.check_status(check) == text
+
+
+def test_check_view_says_where_the_old_file_is_from_the_undo_record():
+    c = {"reason": "swapped", "since": "2026-10-31", "match": "shifted", "offset_ms": 12.0, "moved": False,
+         "undo": {"kind": "swap", "file": "Library/A/x.aiff", "old": "Superseded/A/x (lossy).aiff"}}
+    v = views.check_view(c)
+    assert v["old_path"] == "Superseded/A/x (lossy).aiff" and v["match"] == "shifted" and v["offset_ms"] == 12.0
+    assert "undo" not in v and v["text"].startswith("The lossless audio is in your file")
 
 
 def test_change_of_tracks_without_a_file_says_where_they_will_go():
@@ -2108,3 +2161,34 @@ def test_the_also_rows_come_by_artist_then_title_and_the_playlists_own_rows_keep
         assert [r["track_id"] for r in out["also"]] == ["e2", "e3", "d", "e1"]  # Abe; Example Artist: Aaa, Four, Zed
         assert [r["track_id"] for r in out["rows"]][:3] == ["a", "b", "c"]
     assert [r["track_id"] for r in playlist_view(st, sort="-order")["also"]] == ["e1", "d", "e3", "e2"]
+
+
+def _df(file_id, status="lossless", cutoff=None, path=None, in_playlists=False):
+    return DupFile(file_id, None, path or f"/Volumes/Example/Music/x{file_id}.aiff", status, cutoff, None, True,
+                   in_playlists)
+
+
+@pytest.mark.parametrize("files,pick", [
+    # the better sound wins: lossless before lossy, then the higher cutoff
+    ([_df(1, "not_lossless", 20000), _df(2)], (2, views.RECOMMEND_QUALITY)),
+    ([_df(1, "not_lossless", 16000), _df(2, "not_lossless", 20000), _df(3, "not_lossless", 17000)],
+     (2, views.RECOMMEND_QUALITY)),
+    # same sound: AIFF before another format (it keeps tags)
+    ([_df(1, path="/Volumes/Example/Music/x.wav"), _df(2, path="Library/A/x.aiff")], (2, views.RECOMMEND_AIFF)),
+    ([_df(1, path="/Volumes/Example/Music/x.aif"), _df(2, path="/Volumes/Example/Music/x.flac")],
+     (1, views.RECOMMEND_AIFF)),
+    # no clear winner: same sound and format; a playlist or Library/ breaks no tie
+    ([_df(1, in_playlists=True), _df(2, path="Library/A/x.aiff")], (None, None)),
+    ([_df(1, path="/a/x.wav"), _df(2, path="/b/x.flac")], (None, None)),
+    ([_df(1), _df(2), _df(3, "not_lossless", 20000)], (None, None)),  # the two best tie
+])
+def test_recommend_picks_the_file_to_keep_or_none(files, pick):
+    assert views.recommend(files) == pick
+
+
+def test_a_duplicate_item_carries_the_recommendation():
+    st = state(**{"local:1": own(file_id=4), "local:2": own("not_lossless", cutoff=16000, file_id=5)})
+    g = DuplicateGroup("dup:4-5", "same_audio", (4, 5))
+    files = {g.id: [dup_file(4, "local:1"), dup_file(5, "local:2", "not_lossless", 16000)]}
+    pair = views.todo(st, "all", False, {}, TODAY, None, [], [g], files)["groups"][0]["items"][0]["pair"]
+    assert (pair["recommended"], pair["recommended_why"]) == (4, "Recommended: best quality")

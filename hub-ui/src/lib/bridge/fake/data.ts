@@ -4,6 +4,7 @@ import type {
   AnySignalKind, AppUpdate, Alignment, Browser, Budget, LastCheck, LoginBrowser, ByQuality, Candidate, PlaylistInfo, PlaylistRow, PreviewAction, Quality, Result, RunDetail,
   DownloadTools, FolderCheck, SetupStatus, SignalKind, Source, ReadStatus, Status, TodoGroupKey, TrackRow, Upgrade, FreeDownload,
   PlaylistService, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
+  RekordboxCheckView,
 } from '../types';
 import { QUALITIES } from '../types';
 
@@ -26,7 +27,9 @@ export type FakeAccount = FakeService & { browser: Browser; profile?: string | n
 /** As the state's `rekordbox_check`: an added_as_new and a swapped one also keep what the two files measured as, a
  *  swapped one whether the file moved up out of not_lossless/, and both the undo (here: the fields as they were). */
 export type RekordboxCheck = { reason: 'wrong_song' | 'added_as_new' | 'swapped'; since: string; match?: string;
-  offset_ms?: number; moved?: boolean; undo?: Partial<FakeTrack> };
+  offset_ms?: number; moved?: boolean; undo?: Partial<FakeTrack>;
+  /** as the undo record's `old`: where the old file (added) or the copy of the old audio (swap) is now */
+  old_path?: string };
 
 export type FakeTrack = {
   track_id: string; artist: string; title: string; folder: string; duration_s: number;
@@ -246,8 +249,8 @@ export function todoGroup(t: FakeTrack): TodoGroupKey | null {
   return q === 'missing' ? 'not_found' : q === 'lossless' ? null : q === 'good_lossy' ? 'good_lossy' : q;
 }
 export function todoDetail(t: FakeTrack, g: TodoGroupKey): string {
-  if (g === 'rekordbox_check') return checkText(t.rekordbox_check!);
-  if (g === 'upgrade_ready') return t.upgrade!.cue_text;
+  if (g === 'rekordbox_check') return checkStatus(t.rekordbox_check);
+  if (g === 'upgrade_ready') return upgradeStatus(t.upgrade!);
   if (g === 'not_found') {
     const d = t.next_try_days;
     return d === null ? 'tried again at the next sync' : `next try in ${d} day${d === 1 ? '' : 's'}`;
@@ -273,6 +276,27 @@ export function formatLine(t: FakeTrack): string | null {
   if (t.status === 'missing' || !t.codec) return null;
   const name = FORMAT_NAMES[t.codec] ?? t.codec.toUpperCase();
   return t.kbps && t.status === 'not_lossless' ? `${name} · ${t.kbps} kbps` : name;
+}
+/** As views.upgrade_status: the To-do row's short line for an upgrade. */
+export function upgradeStatus(up: Upgrade): string {
+  const r = up.alignment?.result;
+  const how = r === 'exact' || r === 'shifted' ? (up.swap_possible ? 'cues can stay' : 'new rekordbox track')
+    : r === 'different' ? 'different edit' : 'not compared';
+  return `${up.what === 'lossless version' ? 'Lossless' : up.what.replace(' version', '')} ready · ${how}`;
+}
+/** As views.check_status: the To-do row's short line for a rekordbox check. */
+export function checkStatus(c: RekordboxCheck | null): string {
+  if (c?.reason === 'swapped') return c.moved ? 'relocate, Reload Tag, analyse again' : 'Reload Tag, analyse again';
+  if (c?.reason === 'added_as_new') {
+    return c.match === 'exact' || c.match === 'shifted' ? 'relocate, analyse again' : 'analyse, set the cues again';
+  }
+  if (c?.reason === 'wrong_song') return 'now the right song: analyse again';
+  return 'check it in rekordbox';
+}
+/** As views.check_view. */
+export function checkView(c: RekordboxCheck): RekordboxCheckView {
+  return { reason: c.reason, since: c.since, match: c.match ?? null, offset_ms: c.offset_ms ?? null, moved: !!c.moved,
+    text: checkText(c), old_path: c.old_path ?? null };
 }
 /** As report.check_text: the same edit (exact or shifted) can be relocated in rekordbox and keeps its cues. */
 export function checkText(check: RekordboxCheck): string {
@@ -302,19 +326,31 @@ export function budget(s: FakeState): Budget {
   return { used: s.qobuz.used_today, allowance, limit: s.qobuz.limit, carry_over: s.qobuz.carry_over,
     extra: s.qobuz.extra_today, remaining: Math.max(0, allowance - s.qobuz.used_today) };
 }
-const ALIGN: Record<'exact' | 'different', Alignment> = {
+export type FakeMatch = 'exact' | 'shifted' | 'different' | 'unknown';
+const ALIGN: Record<FakeMatch, Alignment> = {
   exact: { drift_ms: 0, offset_ms: 0, offset_samples: 0, result: 'exact', text: 'matches exactly' },
+  shifted: { drift_ms: 0.4, offset_ms: 12, offset_samples: 529, result: 'shifted', text: 'aligned by 12 ms' },
   different: { drift_ms: 412.5, offset_ms: 1830, offset_samples: 80703, result: 'different', text: "doesn't match" },
+  unknown: { drift_ms: null, offset_ms: null, offset_samples: null, result: 'unknown', text: 'could not compare' },
 };
-export function makeUpgrade(t: { folder: string; artist: string; title: string }, kind: 'exact' | 'different',
-  found: string): Upgrade {
+/** As views.cue_text. */
+function cueText(kind: FakeMatch, swap: boolean): string {
+  if ((kind === 'exact' || kind === 'shifted') && !swap) {
+    return `${kind === 'exact' ? 'same edit' : 'same edit, 12 ms apart'}, but a new rekordbox entry: relocate the old one to the new file to keep its cues`;
+  }
+  return { exact: 'matches exactly, cues stay', shifted: 'aligned by 12 ms, cues stay',
+    different: "doesn't match: would be a new rekordbox entry", unknown: 'could not compare the two versions' }[kind];
+}
+/** `swap_possible`: the current file is an AIFF (views.swap_possible). */
+export function makeUpgrade(t: { folder: string; artist: string; title: string }, kind: FakeMatch,
+  found: string, swap_possible = true): Upgrade {
   return {
     file: `Upgrades ready/${t.folder}/${t.artist} - ${t.title}.aiff`, source: 'qobuz', source_name: 'Qobuz',
     source_id: `q${Math.abs(hash(t.title)) % 900000}`, found, what: 'lossless version',
     quality_line: 'Qobuz FLAC · verified lossless',
-    alignment: ALIGN[kind],
-    cue_text: kind === 'exact' ? 'matches exactly, cues stay' : "doesn't match: would be a new rekordbox entry",
-    swap_safe: kind === 'exact', swap_possible: true, audio_url: null,
+    format_line: 'FLAC · lossless',
+    alignment: ALIGN[kind], cue_text: cueText(kind, swap_possible),
+    swap_safe: kind === 'exact' || kind === 'shifted', swap_possible, audio_url: null,
   };
 }
 export function hash(s: string): number {

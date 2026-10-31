@@ -124,8 +124,20 @@ export function duplicateItems(s: FakeState): DuplicateItem[] {
     const first = g.files.find((f) => f.in_playlist) ?? g.files[0];
     return { ...row(g.group_id, first.artist, first.title, '', first.duration_s, first, first.in_playlist, !first.in_playlist),
       group: 'duplicate', detail: DUPLICATE_WORDS(g.why, g.files.length), free: false,
-      pair: { group_id: g.group_id, why: g.why, files: g.files.map((f) => ({ ...f })) } };
+      pair: { group_id: g.group_id, why: g.why, files: g.files.map((f) => ({ ...f })), ...recommend(g.files) } };
   }).sort(byName);
+}
+
+/** As views.recommend: the better sound (lossless, then the higher cutoff in the label), then AIFF; else no pick. */
+function recommend(files: FileSide[]): { recommended: number | null; recommended_why: string | null } {
+  const sound = (f: FileSide) => (f.quality === 'lossless' ? 1000 : 0) + (parseFloat(f.quality_label) || 0);
+  const aiff = (f: FileSide) => /\.aiff?$/i.test(f.path);
+  const ranked = [...files].sort((a, b) => sound(b) - sound(a) || Number(aiff(b)) - Number(aiff(a)));
+  const [best, second] = ranked;
+  if (!best || !second) return { recommended: null, recommended_why: null };
+  if (sound(best) !== sound(second)) return { recommended: best.file_id, recommended_why: 'Recommended: best quality' };
+  if (aiff(best) && !aiff(second)) return { recommended: best.file_id, recommended_why: 'Recommended: AIFF keeps tags' };
+  return { recommended: null, recommended_why: null };
 }
 
 // ---------- the answers ----------
@@ -268,10 +280,10 @@ export const sampleQuestions = (): FakeQuestion[] => [
   ask('q5', 'Kalte Nacht', 'Bis zum Morgen', 'Powertrance', 207, 'no_length', null,
     own(105, 'Kalte Nacht', 'Bis zum Morgen', 0, 'good_lossy', '20.0 kHz')),
 ];
-const sameAudio = (n: number) => group('same_audio', [
+export const sameAudio = (n: number) => group('same_audio', [
   own(201, 'Neon Riot', 'Neonfieber', 229), own(202, 'Neon Riot', 'Neonfieber', 229, 'lossless', 'LOSSLESS', 'Music/Old'),
   ...(n > 2 ? [own(203, 'Neon Riot', 'Neonfieber', 229, 'lossless', 'LOSSLESS', 'Crates')] : [])]);
-const sameSong = () => group('same_song', [
+export const sameSong = () => group('same_song', [
   side(210, 't7', 'Library/Hard_Bounce/Rave Kollektiv - Bis zum Morgen.aiff', 'Rave Kollektiv', 'Bis zum Morgen', 207,
     'lossless', 'LOSSLESS', true),
   own(211, 'Rave Kollektiv', 'Bis zum Morgen', 207, 'weak', '16.0 kHz')]);
