@@ -14,6 +14,7 @@ from discjockey.models import FetchedPlaylist, PlaylistInfo, PlaylistLine
 from discjockey.sources import LoginState, SourceError, spotify
 from discjockey.sources import qobuz as qobuz_source
 from discjockey.sources import soundcloud as soundcloud_source
+from discjockey.sources import youtube_music as youtube_music_source
 
 ID1, ID2 = "0DiscjockeyExampleList", "3DiscjockeyExampleList"
 
@@ -58,10 +59,11 @@ def support(tmp_path):
     return SupportPaths(support=tmp_path / ".support")
 
 
-def test_the_registry_holds_spotify_qobuz_and_soundcloud():
-    assert list(sources.SOURCES) == ["spotify", "qobuz", "soundcloud"]
+def test_the_registry_holds_spotify_qobuz_soundcloud_and_youtube_music():
+    assert list(sources.SOURCES) == ["spotify", "qobuz", "soundcloud", "youtube_music"]
     assert sources.SOURCES["spotify"] is spotify and sources.SOURCES["qobuz"] is qobuz_source
     assert sources.SOURCES["soundcloud"] is soundcloud_source
+    assert sources.SOURCES["youtube_music"] is youtube_music_source
 
 
 def test_service_list_names_every_service_in_registry_order():

@@ -1,0 +1,115 @@
+{
+ "id": "OLAK5uy_exampleAlbum0000000000000",
+ "title": "Album - Example Album",
+ "availability": null,
+ "description": "",
+ "tags": [],
+ "thumbnails": [
+  {
+   "url": "https://i.ytimg.com/vi/EXAMPLEalb01/hqdefault.jpg",
+   "height": 188,
+   "width": 336
+  },
+  {
+   "url": "https://i.ytimg.com/vi/EXAMPLEalb01/sddefault.jpg",
+   "height": 360,
+   "width": 640
+  }
+ ],
+ "modified_date": null,
+ "view_count": null,
+ "playlist_count": 3,
+ "channel": "Example Artist",
+ "channel_id": "UCexampleChannel00000001",
+ "uploader": "Example Artist",
+ "_type": "playlist",
+ "extractor_key": "YoutubeTab",
+ "extractor": "youtube:tab",
+ "webpage_url": "https://www.youtube.com/playlist?list=OLAK5uy_exampleAlbum0000000000000",
+ "entries": [
+  {
+   "_type": "url",
+   "ie_key": "Youtube",
+   "id": "EXAMPLEalb01",
+   "url": "https://music.youtube.com/watch?v=EXAMPLEalb01",
+   "title": "Example Song One",
+   "description": null,
+   "duration": 215,
+   "channel_id": "UCexampleChannel00000001",
+   "channel": "Example Artist",
+   "channel_url": "https://www.youtube.com/channel/UCexampleChannel00000001",
+   "uploader": "Example Artist",
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEalb01/default.jpg",
+     "height": 90,
+     "width": 120
+    },
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEalb01/hqdefault.jpg",
+     "height": 360,
+     "width": 480
+    }
+   ],
+   "availability": null,
+   "view_count": null,
+   "live_status": null
+  },
+  {
+   "_type": "url",
+   "ie_key": "Youtube",
+   "id": "EXAMPLEalb02",
+   "url": "https://music.youtube.com/watch?v=EXAMPLEalb02",
+   "title": "Example Song Two (Example Remix)",
+   "description": null,
+   "duration": 242,
+   "channel_id": "UCexampleChannel00000001",
+   "channel": "Example Artist - Topic",
+   "channel_url": "https://www.youtube.com/channel/UCexampleChannel00000001",
+   "uploader": "Example Artist - Topic",
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEalb02/default.jpg",
+     "height": 90,
+     "width": 120
+    },
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEalb02/hqdefault.jpg",
+     "height": 360,
+     "width": 480
+    }
+   ],
+   "availability": null,
+   "view_count": null,
+   "live_status": null
+  },
+  {
+   "_type": "url",
+   "ie_key": "Youtube",
+   "id": "EXAMPLEalb03",
+   "url": "https://music.youtube.com/watch?v=EXAMPLEalb03",
+   "title": "Example Song Three",
+   "description": null,
+   "duration": 188,
+   "channel_id": "UCexampleChannel00000001",
+   "channel": "Example Artist",
+   "channel_url": "https://www.youtube.com/channel/UCexampleChannel00000001",
+   "uploader": "Example Artist",
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEalb03/default.jpg",
+     "height": 90,
+     "width": 120
+    },
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEalb03/hqdefault.jpg",
+     "height": 360,
+     "width": 480
+    }
+   ],
+   "availability": null,
+   "view_count": null,
+   "live_status": null
+  }
+ ]
+}
