@@ -86,6 +86,19 @@ def upload_candidate(upload: SourceTrack) -> Candidate:
                      image_url=upload.image_url)
 
 
+def _with_twins(keys: set[str]) -> set[str]:
+    """YouTube Music's upload `youtube_music:X` and the search's `youtube:X` are the same video: what is skipped or
+    rejected under one name stays out under the other too."""
+    out = set(keys)
+    for key in keys:
+        source, _, vid = key.partition(":")
+        if source == "youtube_music":
+            out.add(f"youtube:{vid}")
+        elif source == "youtube":
+            out.add(f"youtube_music:{vid}")
+    return out
+
+
 def _offers(offers: list[dict]) -> list[dict]:
     return [{k: v for k, v in o.items() if k != "key"} for o in offers]
 
@@ -130,7 +143,7 @@ class Acquirer:
         before the fallback search (_upload); an upgrade check takes its original and its account stream first."""
         tracker = tracker or null_tracker()
         res = AcquireResult("missing")
-        skip = set(rejected)
+        skip = _with_twins(set(rejected))
         self.qobuz_trouble = False
 
         if self.qobuz is not None and qobuz:
@@ -217,7 +230,7 @@ class Acquirer:
         ready = None
         if up is not None and up.key not in skip:  # rejected before ("Wrong song?", a failed check): not tried
             ready = self._upload(track, up, upload.account_only, workdir, res, skip, tracker, tries)
-            skip.add(up.key)  # tried once: the search that follows doesn't download it again
+            skip |= _with_twins({up.key})  # tried once: the search that follows doesn't download it again
         if ready is None and res.kind != "queued":
             ready = self._fallback(track, workdir, res, skip, False, tracker, tries=tries)
         if res.kind == "queued":
@@ -262,9 +275,11 @@ class Acquirer:
             self.emit(Message("warning", f"{budget.name} failed several times in a row, so it is paused for the rest "
                                          "of this run. Tracks that need it wait for the next run."))
 
-    def premium(self, c: Candidate, service: str, track: SourceTrack, first: bool = True) -> bool:
+    def premium(self, c: Candidate, service: str, track: SourceTrack, first: bool = True) -> bool | None:
         """§4: the stream's bitrate through the login, read before the download. False means no ~256 kbps stream
-        for this version; it is then tried as a free one. A warning sign counts toward the account's auto-stop; a
+        for this version (or a DRM-protected one); it is then tried as a free one. None: the listing itself failed
+        (timeout, 5xx, unreadable login), which says nothing about the stream: falsy like False, but never
+        remembered against the version. A warning sign counts toward the account's auto-stop; a
         missing premium stream only once per track (`first`), since one song's other uploads say nothing new."""
         budget = self.accounts[service]
         who = f"{track.first_artist} - {track.title}"
@@ -278,7 +293,7 @@ class Acquirer:
                 self._account_failed(service, f"{who}: {text}", signal_of(e))
             else:
                 self._debug(f"{c.key}: {budget.name} formats not read: {text}")
-            return False
+            return False if drm_protected(e) else None
         if kbps and kbps >= PREMIUM_MIN_KBPS:
             budget.succeeded()
             self.misses[service] = 0
@@ -397,7 +412,7 @@ class Acquirer:
         (`tries.missed`, over the upload step and the search). A track whose best remaining match needs a used-up or
         paused account waits (res.kind "queued", §4). `spare`: an artist's original below the account tier, returned
         once only free streams are left. `account_only`: keys never downloaded without their account."""
-        pending, demoted = list(matches), set()
+        pending, demoted, failed = list(matches), set(), set()
         place = {c.key: i for i, c in enumerate(matches)}
         while pending and tries.streams < MAX_FALLBACK_DOWNLOADS:
             usable = self._usable()  # a limit can run out, or an account pause, during one track
@@ -419,15 +434,19 @@ class Acquirer:
                 elif tries.attempts:
                     self.pacer.between_fallback_downloads()
                 self.account_downloaded.add(service)
-                if not self.premium(c, service, track, first=not tries.missed.get(service)):
+                listed = self.premium(c, service, track, first=not tries.missed.get(service))
+                if not listed:
                     tries.missed[service] = tries.missed.get(service, 0) + 1
+                    if listed is None:
+                        failed.add(c.key)  # the listing failed: the version isn't known to lack the stream
                     demoted.add(c.key)  # tried later as a free stream, in its free rank
                     continue
             pending.pop(0)
             if not account and c.key in account_only:  # its free stream is only a preview
                 self._debug(f"{c.key}: only the account plays all of it, so it isn't downloaded without the account")
-                if c.key in demoted:  # its listing showed no ~256 kbps stream: rejected for good, as its preview was
-                    res.rejected.append(c.key)  # (a missing, paused or used-up account is not that: not remembered)
+                if c.key in demoted and c.key not in failed:  # its listing showed no ~256 kbps stream: rejected for good,
+                    res.rejected.append(c.key)  # as its preview was (a failed listing, or a missing, paused or
+                    # used-up account, is not that: not remembered)
                 continue
             if spare is not None and not account:
                 return spare  # what's left are free streams: the artist's own file is the better one

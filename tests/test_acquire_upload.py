@@ -151,6 +151,21 @@ def test_a_rejected_upload_is_not_tried(tmp_path):
     assert fb.downloads == ["y1"] and fb.looked_up == [] and r.ready.source_id == "y1"
 
 
+def test_a_rejected_youtube_music_upload_does_not_come_back_through_the_youtube_search(tmp_path):
+    fb = RecordingFallback([fc(YT_ID), fc("y1")])  # the search finds the same video as youtube:EXAMPLEid01
+    a, _ = acquirer(None, fb)
+    r = get(a, tmp_path, yt_upload(), rejected={YT_KEY})
+    assert fb.downloads == ["y1"] and r.ready.source_id == "y1"
+
+
+def test_a_youtube_music_upload_tried_once_is_not_downloaded_again_by_the_youtube_search(tmp_path):
+    fb = RecordingFallback([fc(YT_ID), fc("y1")])
+    a, _ = acquirer(None, fb, statuses={YT_KEY: None})  # its length check fails
+    r = get(a, tmp_path, yt_upload())
+    assert fb.downloads == [YT_ID, "y1"] and r.ready.source_id == "y1"
+    assert r.rejected == [YT_KEY]
+
+
 def test_the_stream_cap_spans_the_upload_and_the_search(tmp_path):
     fb = RecordingFallback([fc(f"y{i}") for i in range(5)])
     a, _ = acquirer(None, fb, statuses={SC_KEY: None, **{f"youtube:y{i}": None for i in range(5)}})
@@ -226,6 +241,14 @@ def test_a_go_plus_only_upload_without_a_go_plus_stream_is_never_taken_free(tmp_
     assert fb.probes == [(SC_KEY, True)] and fb.downloads == ["y1"]
     # its listing showed no Go+ stream, so the free preview is out for good, as the failed length check made it before
     assert r.ready.source_id == "y1" and r.rejected == [SC_KEY]
+
+
+def test_a_go_plus_only_upload_whose_listing_failed_is_not_rejected_for_good(tmp_path):
+    fb = AccountFallback([fc("y1")], probe_error=RuntimeError("HTTP Error 502: Bad Gateway"))
+    a, _, _ = setup(fb, limits={"soundcloud": 60})
+    r = get(a, tmp_path, sc_upload(account_only=True))
+    assert fb.probes[0] == (SC_KEY, True) and fb.downloads == ["y1"] and r.ready.source_id == "y1"
+    assert r.rejected == []  # the listing failed: nothing is known about the stream, so it is tried again next run
 
 
 def test_a_go_plus_only_upload_comes_through_the_account(tmp_path):
