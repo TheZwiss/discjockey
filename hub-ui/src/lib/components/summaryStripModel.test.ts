@@ -33,12 +33,12 @@ describe('stripView', () => {
   it('says how many are in To-do when fewer, with the reason as the tooltip', () => {
     const v = stripView(sum({ to_do: 41 }));
     expect(v.notLossless).toEqual({ count: '170', link: true, todo: '41 in To-do',
-      tip: "41 of them in To-do: files of your own in no playlist aren't" });
+      tip: "41 of them in To-do: files of your own in no playlist and hidden tracks aren't" });
   });
   it('has no link and no › when none is in To-do', () => {
     const v = stripView(sum({ to_do: 0 }));
     expect(v.notLossless).toMatchObject({ link: false, todo: 'none in To-do',
-      tip: "None of them in To-do: files of your own in no playlist aren't" });
+      tip: "None of them in To-do: files of your own in no playlist and hidden tracks aren't" });
   });
   it('says nothing about To-do when every checked track is lossless', () => {
     const v = stripView(sum({ lossless_share: 1, by_quality: { lossless: 460, good_lossy: 0, weak: 0, fake: 0, missing: 0 },

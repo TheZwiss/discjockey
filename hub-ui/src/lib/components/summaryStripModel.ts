@@ -40,7 +40,7 @@ export function stripView(s: Library['summary'] | null): StripView {
   const m = Math.min(s.to_do, n);
   // with nothing that isn't lossless there is nothing to say about To-do ("· none in To-do" beside a 0 says nothing)
   const todo = n === 0 ? null : m === n ? 'all in To-do' : m === 0 ? 'none in To-do' : `${count(m)} in To-do`;
-  const tip = n > 0 && m < n ? `${m === 0 ? 'None' : count(m)} of them in To-do: files of your own in no playlist aren't` : null;
+  const tip = n > 0 && m < n ? `${m === 0 ? 'None' : count(m)} of them in To-do: files of your own in no playlist and hidden tracks aren't` : null;
   return {
     share, line,
     upgrades: { count: count(s.upgrades_ready), link: s.upgrades_ready > 0 },
