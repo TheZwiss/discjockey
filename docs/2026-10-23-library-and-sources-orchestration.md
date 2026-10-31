@@ -146,7 +146,7 @@ Everything else is decided and done without asking, and reported in one short me
 | 3 Qobuz playlists | `docs/2026-10-24-library-stage-3-plan.md` | `feat/library-3-qobuz` | Done, merged into main 43e786f (2026-10-25): 7 groups + stage review fix rounds; Qobuz live read checked; Spotify optional in Setup; leftovers in docs/issues.md #26 |
 | 4 Import | `docs/2026-10-25-library-stage-4-plan.md` (f5624fd) | `feat/library-4-import` | Done, merged into main 014bcdc (2026-10-29): 8 groups, Opus stage review, fix rounds A–M (A–D review; E–M from the user's live checks: quality floor rule, own files in the sound picture, offline and missing files with a live drive watcher, whole-screen fixes); verify 741 shots 0 problems, CI green; user live check passed (drive eject); leftovers in docs/issues.md #27 |
 | 5 Sidebar | `docs/2026-10-29-library-stage-5-plan.md` | `feat/library-5b-folders` | Step A merged into main b47a3b2. Step B built + reviewed; in the user's live check (2026-10-31), fix queue below; merge into main after the user's re-check |
-| 6 SoundCloud, YouTube Music | — | — | Not started |
+| 6 SoundCloud, YouTube Music | `docs/2026-10-31-library-stage-6-plan.md` (planning) | `feat/library-6-sources` | Planning started 2026-10-31 (lane B of the live-check queue) |
 
 ### Stage 5 live-check queue (2026-10-31)
 
@@ -154,7 +154,7 @@ One agent at a time, each in a worktree `.claude/worktrees/5b-<name>` off `feat/
 `--no-ff`, pushed.
 
 Done on the step branch: the 120 fps cap lifted (user confirmed); empty Artist column; crate panel jitter in a small
-window (2ee90d0, **user to re-check**: import with a small window, then full screen); quality rule: fake line 20.8 kHz,
+window (2ee90d0, user confirmed fixed 2026-10-31); quality rule: fake line 20.8 kHz,
 weak 12 dB wall only 19.5–20.4 kHz (7b71617; calibrated on 120 real Qobuz files + 31 DJ Stick Jan WAVs, all right);
 Sync's blank playlist row for own songs (765085d).
 
@@ -200,14 +200,22 @@ Open, in order:
    as the fallback, also for rows like Kø:lab. Sonnet, code + tests + a fake shot; worktree `5b-covers`.
 6. ~~Ask the user: re-judge old quality verdicts?~~ User 2026-10-31: **no**, the new imports are only test files.
    Close the #27 re-judge point in `docs/issues.md` with that answer (fold into item 5's commit or a docs commit).
-7. Then: CI + `npm run verify` (background), and **stop for the user**: their re-check (jitter in a small window,
-   the new panels with a real upgrade + duplicate, Compare plays, sync covers). Only after their OK: merge
+7. Then: CI + `npm run verify` (background), and **stop for the user**: their re-check (the new panels with a real upgrade + duplicate, Compare plays, sync covers). Only after their OK: merge
    `feat/library-5b-folders` into main (`--no-ff`), push, update this table and memory.
 
-Later (each needs its own plan / the user's go): stage 6, AcoustID (#24), rekordbox XML for the duplicates pick, the
-leftovers in `docs/issues.md`, CLI undo for upgrades. **No release without the user's go.**
+**Lane B, in parallel (user 2026-10-31: continue the implementation plan; up to 2 agents at once):**
+- B1. **Stage 6 plan** (Opus planner): `docs/2026-10-31-library-stage-6-plan.md` on branch `feat/library-6-sources`
+  (off `feat/library-5b-folders`; rebased/merged onto main after stage 5 lands), worktree `.claude/worktrees/6-sources`.
+  Spec §9.4, §9.5, §4 row 6. The planner lists product questions and whether any UI change needs a mockup.
+- B2. Build stage 6 groups per the plan, one group at a time in this lane (worktrees `6-<group>`), review per §6.
+  Engine/non-UI groups may run overnight; a UI group with a design change waits for the user's mockup approval;
+  product questions wait for the user.
+- Stage 6 merges into main only after stage 5 is in main and its own final review + CI.
 
-Overnight rules: one agent at a time; check `ps` and the worktree after each; size from the record (Opus UI build
-250–350k, shots 100–150k, Sonnet fix 115–150k); never resume an agent above ~150k (fresh one with findings + files);
-two failed rounds on one problem → stop and leave it for the user; never touch the running app, the user's files or
-the real DB.
+Later (each needs its own plan / the user's go): AcoustID (#24, a stage after 6), rekordbox XML for the duplicates
+pick, the leftovers in `docs/issues.md`, CLI undo for upgrades. **No release without the user's go.**
+
+Overnight rules: at most two agents at once, one per lane, never on the same files or worktree; check `ps` and the
+worktree after each; size from the record (Opus UI build 250–350k, shots 100–150k, Sonnet fix 115–150k, Sonnet group
+150–310k, review 110–140k); never resume an agent above ~150k (fresh one with findings + files); two failed rounds on
+one problem → stop and leave it for the user; never touch the running app, the user's files or the real DB.
