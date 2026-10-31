@@ -8,6 +8,7 @@ import type {
 import { isDuplicate, isQuestion } from '$lib/bridge/types';
 import { dayMonth, duration, fileAway } from '$lib/format';
 import { canSwap, fileName } from '$lib/decisions/decisionModel';
+import { heldRow, putAt } from '$lib/decisions/hold';
 import { fitPath } from '$lib/components/watchedFoldersModel';
 
 /** Filter order = the contract's group order (= the list's section order), All first. The import's two groups come
@@ -101,6 +102,54 @@ export function keepSelection(key: string | null, before: TodoItem[], after: Tod
   const pos = before.findIndex((i) => itemKey(i) === key);
   if (pos < 0) return itemKey(after[0]);
   return itemKey(after[Math.min(pos, after.length - 1)]);
+}
+
+// ---------- the item just acted on ----------
+/** The item the user just acted on in the details (a Replace, Discard, Done, Undo or a duplicate's Keep). It stays in
+ *  the list where it stood and stays selected, its result and Undo in the details, until the user picks another item
+ *  or changes the filter or Show hidden: "Upgrades" shows only upgrades, and a replace takes the track to "Check in
+ *  rekordbox", so without it the rekordbox steps and "Undo the replace" would go out of sight with the row (the
+ *  Library keeps the track it acted on the same way, libraryModel Hold). `keep`: a duplicate's Keep, the paths of the
+ *  files that stay (the hold follows the song that has a kept file now). `put`: the item was put into the list after
+ *  an answer dropped it, so the list asks again when the hold ends. `ghost`: no to-do is left of it (Done, Discard on a
+ *  lossless track): its row stays as it was, and its details are the track's, without a decision. */
+export type TodoHold = { key: string; id: string; keep: string[] | null; filter: TodoFilter; showHidden: boolean;
+  put: boolean; ghost: boolean };
+export function holdApplies(h: TodoHold | null, key: string | null, filter: TodoFilter, showHidden: boolean): boolean {
+  return !!h && h.key === key && h.filter === filter && h.showHidden === showHidden;
+}
+/** The held item among `items`: the same item, else the same track (now in another group), else (a duplicate's Keep)
+ *  the song whose file stayed. The import's items are never "the same track". */
+export function findHeld(items: TodoItem[], h: Pick<TodoHold, 'key' | 'id' | 'keep'>): TodoItem | null {
+  return find(items, h.key) ?? heldRow(items.filter((i) => !i.pair), h);
+}
+/** A held item with no to-do left: the row as it was, minus what only a to-do has. */
+export function ghostOf(old: TodoItem): TodoItem {
+  return { ...old, upgrade_ready: false, can_undo: false, check: undefined, detail: '' };
+}
+/** How many of a section's `items` are open to-dos: the item a load put back into the list (`extraKey`, the answer
+ *  didn't list it) stays in view but is not one, so it is in neither the section's count nor the chip's. */
+export function openCount(items: TodoItem[], extraKey: string | null): number {
+  return extraKey === null ? items.length : items.filter((i) => itemKey(i) !== extraKey).length;
+}
+/** The answer with the held item put back where its place stood in `before` (the answer on screen; `was`: the held
+ *  key there): in the section it stood in, at its position there; the section is made again when the answer has none
+ *  left. An answer that lists the item already comes back as it is. */
+export function withHeldItem(view: Todo, item: TodoItem, before: Todo | null, was: string): Todo {
+  if (flatten(view).some((i) => itemKey(i) === itemKey(item))) return view;
+  const home = before?.groups.find((g) => g.items.some((i) => itemKey(i) === was));
+  const key = home?.key ?? item.group;
+  const at = home ? home.items.findIndex((i) => itemKey(i) === was) : -1;
+  const there = view.groups.find((g) => g.key === key);
+  if (there) {
+    const groups = view.groups.map((g) => (g === there ? { ...g, items: putAt(g.items, item, at < 0 ? g.items.length : at) } : g));
+    return { ...view, groups, empty: null };
+  }
+  if (!home) return view;
+  const rank = (k: TodoGroupKey) => FILTER_ORDER.indexOf(k);
+  const next = view.groups.findIndex((g) => rank(g.key) > rank(key));
+  const made = { key, label: home.label, hint: home.hint, items: [item] };
+  return { ...view, groups: putAt(view.groups, made, next < 0 ? view.groups.length : next), empty: null };
 }
 
 /** ↑ (-1) / ↓ (+1); stays at the ends. */

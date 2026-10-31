@@ -41,7 +41,7 @@
     by_quality: { lossless: 290, good_lossy: 120, weak: 41, fake: 9, missing: 0 }, upgrades_ready: 6, to_do: 41,
     not_lossless: 170, ...o });
   const STRIPS: [string, Library['summary'] | null, number][] = [
-    ['fewer in To-do: files of your own in no playlist aren\'t (tooltip)', strip(), 900],
+    ['fewer in To-do: files of your own in no playlist and hidden tracks aren\'t (tooltip)', strip(), 900],
     ['all in To-do, a big library', strip({ tracks: 5318, lossless_share: 3776 / 5306, upgrades_ready: 9, to_do: 1530,
       not_lossless: 1530, by_quality: { lossless: 3776, good_lossy: 900, weak: 500, fake: 130, missing: 0 } }), 900],
     ['the longest words: big counts, some in To-do', strip({ tracks: 5318, lossless_share: 3776 / 5306, upgrades_ready: 1204,
@@ -1306,10 +1306,9 @@
       <MiniPlayer url={toneB} title="Armin Hermann – Get Naughty" track_id="t2" envelope={env} length_s={40} />
       <MiniPlayer url={null} title="Some Artist – Gone Track" />
       <MiniPlayer url="data:audio/wav;base64,AAAA" title="Broken" length_s={10} />
-      <ComparePlayer a={{ url: toneA, label: 'Current' }} b={{ url: toneB, label: 'New' }} cueText="matches exactly, cues stay" />
-      <ComparePlayer a={{ url: 'data:audio/wav;base64,AAAA', label: 'Current' }} b={{ url: 'data:audio/wav;base64,AAAA', label: 'New' }} />
-      <!-- ready: the player from the start (To-do's upgrade decision) -->
-      <ComparePlayer ready total={40} a={{ url: toneA, label: 'Now' }} b={{ url: toneB, label: 'New' }} />
+      <!-- the upgrade decision's player; the second one can't play (its first ▶ shows the error) -->
+      <ComparePlayer total={40} a={{ url: toneA, label: 'Now' }} b={{ url: toneB, label: 'New' }} />
+      <ComparePlayer total={40} a={{ url: 'data:audio/wav;base64,AAAA', label: 'Now' }} b={{ url: 'data:audio/wav;base64,AAAA', label: 'New' }} />
     </div>
   </section>
 

@@ -211,6 +211,28 @@ describe('fake To-do of the import', () => {
     expect(await f.keep_duplicates('nope', [])).toMatchObject({ ok: false, kind: 'refused' });
   });
 
+  it('a duplicate\'s Keep that hands the song to the kept file: the song is counted in To-do, once', async () => {
+    const { f, evs } = fake('todo_duplicates');
+    const pair = (items(must(await f.todo('all', false)), 'duplicate') as DuplicateItem[])
+      .find((d) => d.pair.why === 'same_song')!.pair;
+    const song = pair.files.find((x) => x.in_playlist)!;
+    const start = must(await f.supersede_duplicate(pair.group_id, song.file_id, pair.files.map((x) => x.path)));
+    await finished(evs, start.job_id);
+    const lib = must(await f.library('all', null, '', 'all', 'artist'));
+    const todo = must(await f.todo('all', false));
+    const heir = lib.rows.find((r) => r.track_id === song.song_key)!;
+    expect(heir).toMatchObject({ quality: 'weak', in_playlists: true });
+    // the song is one to-do item, and the strip's count is the number of such items (hidden tracks are not in To-do,
+    // as the engine's views counts them): "N in To-do" of the not-lossless ones is short by exactly the hidden ones
+    const listed = todo.groups.flatMap((g) => g.items).filter((i) => i.track_id === song.song_key);
+    expect(listed).toHaveLength(1);
+    const single = ['rekordbox_check', 'same_song', 'duplicate', 'not_found'];   // the strip counts tracks with a file
+    const tracks = todo.groups.filter((g) => !single.includes(g.key)).flatMap((g) => g.items).filter((i) => !i.hidden);
+    expect(lib.summary.to_do).toBe(tracks.length);
+    const hiddenLossy = lib.rows.filter((r) => r.hidden && ['good_lossy', 'weak', 'fake'].includes(r.quality)).length;
+    expect(lib.summary.not_lossless - lib.summary.to_do).toBe(hiddenLossy);
+  });
+
   it('marks files whose sound is not checked as checked in the Library rows', async () => {
     const lib = must(await fake('normal').f.library('all', null, '', 'all', 'artist'));
     expect(lib.rows.every((r) => r.sound_checked === true)).toBe(true);

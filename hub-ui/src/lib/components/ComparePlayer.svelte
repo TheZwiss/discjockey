@@ -1,9 +1,8 @@
 <script lang="ts">
   // Current vs new without a gap: both files decoded once, one AudioBufferSourceNode restarted at the same offset.
-  // Two looks: by default it starts from one "▶ Compare" button (the Library's upgrade card); `ready` shows the player
-  // from the start (To-do's upgrade decision, mockup todo-decisions): the play button, the A | B switch as a Segmented
-  // and the time, so A/B reads as A/B before anything plays. The first ▶ loads both files (a pick before it is kept)
-  // and brings the bar.
+  // The upgrade decision's player (To-do's and the Library's details, mockup todo-decisions): shown from the start, the
+  // play button, the A | B switch as a Segmented and the time, so A/B reads as A/B before anything plays. The first ▶
+  // loads both files (a pick before it is kept) and brings the bar.
   import { onDestroy } from 'svelte';
   import { claimSound, player, releaseSound } from '../stores/player';
   import { duration } from '../format';
@@ -13,9 +12,7 @@
   import { scrub } from './scrub';
 
   type Side = { url: string; label: string };
-  let { a, b, cueText, ready = false, total = null }: { a: Side; b: Side; cueText?: string;
-    /** the player shows before anything loads (see above) */
-    ready?: boolean;
+  let { a, b, total = null }: { a: Side; b: Side;
     /** the track's length (s), shown and seekable before both files are decoded */
     total?: number | null } = $props();
   const ME = Symbol('compare');
@@ -103,58 +100,36 @@
 </script>
 
 <div class="cmp" data-phase={phase}>
-  {#if phase === 'idle' && !ready}
-    <Button size="sm" variant="primary" onclick={play}>▶ Compare</Button>
-    {#if cueText}<span class="cue">{cueText}</span>{/if}
-  {:else if phase === 'loading' && !ready}
-    <Button size="sm" busy busyLabel="Loading both versions…" />
-  {:else if phase === 'error'}
+  {#if phase === 'error'}
     <span class="err">Can't play these files.</span>
     <Button size="sm" onclick={() => { phase = 'idle'; buffers = null; }}>Try again</Button>
   {:else}
     <div class="top">
-      {#if ready}
-        <!-- the round play button of every player (spinner while both files load) -->
-        <PlayButton state={phase === 'playing' ? 'playing' : phase === 'loading' ? 'loading' : 'paused'}
-          subject="the comparison" test="compare-play"
-          onclick={() => (phase === 'playing' ? pause() : phase === 'loading' ? undefined : play())} />
-        <div class="seg"><Segmented label="Which version" value={which} onchange={pick} test="compare-which"
-          options={[{ key: 'a', label: a.label }, { key: 'b', label: b.label }]} /></div>
-      {:else}
-        <button type="button" class="pp" aria-label={phase === 'playing' ? 'Pause' : 'Play'}
-          onclick={() => (phase === 'playing' ? pause() : play())}>{phase === 'playing' ? '❚❚' : '▶'}</button>
-        <div class="switch" role="group" aria-label="Which version">
-          <button type="button" class:on={which === 'a'} aria-pressed={which === 'a'} onclick={() => pick('a')}>{a.label}</button>
-          <button type="button" class:on={which === 'b'} aria-pressed={which === 'b'} onclick={() => pick('b')}>{b.label}</button>
-        </div>
-      {/if}
+      <!-- the round play button of every player (spinner while both files load) -->
+      <PlayButton state={phase === 'playing' ? 'playing' : phase === 'loading' ? 'loading' : 'paused'}
+        subject="the comparison" test="compare-play"
+        onclick={() => (phase === 'playing' ? pause() : phase === 'loading' ? undefined : play())} />
+      <div class="seg"><Segmented label="Which version" value={which} onchange={pick} test="compare-which"
+        options={[{ key: 'a', label: a.label }, { key: 'b', label: b.label }]} /></div>
       <span class="time num">{duration(shownPos)} / {duration(span)}</span>
     </div>
-    <!-- the bar comes with the first ▶ (ready: the row alone until then, as the mockup; it keeps the card short) -->
+    <!-- the bar comes with the first ▶ (the row alone until then, as the mockup; it keeps the card short) -->
     {#if phase !== 'idle'}
     <div class="bar" role="slider" tabindex="0" aria-label="Position" aria-valuemin={0} aria-valuemax={Math.round(span)}
       aria-valuenow={Math.round(shownPos)} use:scrub={drag} onkeydown={key}>
       <span style:width="{span ? (shownPos / span) * 100 : 0}%"></span>
     </div>
     {/if}
-    {#if cueText}<span class="cue">{cueText}</span>{/if}
   {/if}
 </div>
 
 <style>
   .cmp { display: flex; flex-direction: column; gap: var(--s-2); align-items: flex-start; }
   .top { display: flex; align-items: center; gap: var(--s-3); width: 100%; }
-  .pp { width: 30px; height: 30px; border-radius: var(--r-pill); border: var(--bw-accent) solid var(--accent);
-    color: var(--accent-text); background: transparent; font-size: var(--fs-label); padding: 0; flex-shrink: 0; }
-  .switch { display: inline-flex; border: var(--bw) solid var(--line-control); border-radius: var(--r-pill); padding: 2px; }
-  .switch button { border: var(--bw) solid transparent; background: transparent; color: var(--text-muted); border-radius: var(--r-pill);
-    padding: 2px var(--s-3); font-size: var(--fs-small); }
-  .switch button.on { border-color: var(--accent); color: var(--accent-text); }
   /* the Segmented takes the row's middle; the time keeps its place at the end */
   .seg { flex: 1; min-width: 0; }
   .time { margin-left: auto; color: var(--text-muted); font-size: var(--fs-small); white-space: nowrap; min-width: 11ch; text-align: right; }
   .bar { width: 100%; height: 4px; touch-action: none; cursor: pointer; background: var(--bg-inset); border-radius: var(--r-pill); overflow: hidden; }
   .bar span { display: block; height: 100%; background: var(--accent); }
-  .cue { color: var(--text-muted); font-size: var(--fs-small); }
   .err { color: var(--q-weak); font-size: var(--fs-small); }
 </style>
