@@ -3,6 +3,15 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 34. The own upload of a track in a private SoundCloud set
+
+Noted while building library stage 6, group 4 (`docs/2026-10-31-library-stage-6-plan.md`). The upload step downloads
+a SoundCloud playlist's own track by its id (`fallback.stream_url`). A track that is private itself and sits in a
+private set (read through the set's share link, `user/sets/slug/s-token`) may need the set's secret token to be
+fetched, and `SourceTrack` doesn't carry it. Such a track then fails its upload try and goes on to the usual search,
+like any upload that can't be downloaded. A known limit, not built: it would need the token on the track from the
+reader to the download.
+
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them — needs a design round (user, 2026-10-31)
 
 The user's wish: files of their own (imported, MP3 or other lossy) end up as the library format (16-bit AIFF), with
@@ -57,7 +66,7 @@ Noted while reviewing `docs/2026-10-31-library-stage-6-plan.md`. The first three
   - W22 and the W5/W18 hints end on a short last line at 1100 px (the empty-state and hint blocks want balanced
     wrapping).
 
-## 31. YouTube Music "Liked music" — open question for the user
+## 31. YouTube Music "Liked music" — a Settings choice, needs a design round
 
 Library stage 6 reads YouTube Music playlists but leaves out "Liked music", "Watch later" and mixes for now: the
 reader refuses them before any request and says so (`sources/youtube_music.py`, W17: add the songs to a playlist, set
@@ -65,14 +74,18 @@ it to public or unlisted, and paste that link). Reading "Liked music" would need
 on every read and risks YouTube's bot check on the Premium account, which the downloads also use. Decide later
 whether it is worth that; until then the hint is the answer.
 
-## 30. The own upload of a track in a private SoundCloud set
+**Decided (user, 2026-10-31):** a choice in Settings, off by default, with a short warning that explains the bot-check
+risk to the account. Read through the YouTube login only when it is on. It goes into the next design round,
+together with the paste field's four service logos ("Paste a playlist link here" plus the logos).
 
-Noted while building library stage 6, group 4 (`docs/2026-10-31-library-stage-6-plan.md`). The upload step downloads
-a SoundCloud playlist's own track by its id (`fallback.stream_url`). A track that is private itself and sits in a
-private set (read through the set's share link, `user/sets/slug/s-token`) may need the set's secret token to be
-fetched, and `SourceTrack` doesn't carry it. Such a track then fails its upload try and goes on to the usual search,
-like any upload that can't be downloaded. A known limit, not built: it would need the token on the track from the
-reader to the download.
+## 30. To-do decision panels leftovers
+
+Noted in the screenshot review of the To-do panels (2026-10-31).
+
+- **The To-do header's subtitle wraps to two lines at 1100×700 when there are questions** ("… not lossless yet · 1 question
+  about your files"), so the header's height changes between the filters. It existed before stage 5.
+- **The step numbers in the "In rekordbox" card stay grey** where the mockup drew them yellow. They come from a shared
+  numbered-list block, so changing the colour there changes every numbered list; decide it centrally, not in To-do.
 
 ## 29. Library stage 5b leftovers (folders)
 
@@ -166,10 +179,6 @@ Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
 - **Files judged before the floor rule (fix round E1) keep their old verdict.** Nothing judges a library file again
   when the detector improves; in the user's library three House_Banger files would now be fake. Two more just miss
   the rule (a 28–29.7 dB fall into a flat floor, the rule needs 30); lowering it would take in looser shapes.
-  The same holds for the 20 kHz wall rule (2026-10-30): a lossless file walled below 20.8 kHz (decoded Opus or
-  MP3 320 saved as WAV/FLAC; a 12 dB cliff counts from 19.5 to 20.4 kHz, an 18 dB one above) is now fake, but files judged before keep "verified lossless". Re-judging would mean a
-  rule version stored with each verdict and a background pass that re-runs `quality.inspect` on files of an older
-  version (the import's sound pass already does the work per file), updating status and cutoff only.
 
 ## 26. Library stage 3 leftovers (Qobuz playlists) — for stages 5 and 6
 
