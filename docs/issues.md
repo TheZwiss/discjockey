@@ -3,6 +3,81 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 34. The own upload of a track in a private SoundCloud set
+
+Noted while building library stage 6, group 4 (`docs/2026-10-31-library-stage-6-plan.md`). The upload step downloads
+a SoundCloud playlist's own track by its id (`fallback.stream_url`). A track that is private itself and sits in a
+private set (read through the set's share link, `user/sets/slug/s-token`) may need the set's secret token to be
+fetched, and `SourceTrack` doesn't carry it. Such a track then fails its upload try and goes on to the usual search,
+like any upload that can't be downloaded. A known limit, not built: it would need the token on the track from the
+reader to the download.
+
+## 33. Lossless AIFF for imported files, with rekordbox pointed at them — needs a design round (user, 2026-10-31)
+
+The user's wish: files of their own (imported, MP3 or other lossy) end up as the library format (16-bit AIFF), with
+rekordbox's entry pointing at the new file automatically. Then every later upgrade is an in-place audio swap inside the
+same file ("Same track"), and cues and beatgrid stay exact. Two shapes to weigh in the design round:
+- **All at once:** at import, convert the whole library to AIFF and repoint rekordbox for every file.
+- **One by one (likely better):** nothing is converted up front. When an upgrade is ready, the lossless AIFF goes in
+  and rekordbox's entry is repointed to it at that moment.
+
+**Bundle with it:** today the "New track" choice keeps the downloaded file as it is. Its cues therefore fit only
+"to within N ms" (`report.SHIFTED_EDIT_CHECK`), while "Same track" shifts the audio sample-exactly
+(`upgrades.build_staged`). If the new file is also shifted, cues fit exactly with either choice.
+
+**Facts to design around** (reference: the rekordbox notes):
+- rekordbox's `master.db` is SQLCipher-encrypted, so "auto point rekordbox" needs a safe route, such as the XML
+  export/import or a relocate rekordbox does itself.
+- Cues and beatgrid live at the rekordbox entry, not in the file.
+- Relocate matches on file name only.
+- rekordbox keeps following files it finds anywhere in the watched folder.
+
+Any write to the user's rekordbox data needs a backup and an undo, and the user's go.
+
+## 32. Library stage 6 leftovers (SoundCloud and YouTube Music playlists)
+
+Noted while reviewing `docs/2026-10-31-library-stage-6-plan.md`. The first three need a design round.
+
+- **W20 has no place on a page:** "the playlist's own upload" (which track came from which upload) is not shown anywhere.
+- **Setup's playlist step has no example-link element:** W23's example links (what to paste for each service) are not
+  built.
+- **No view renders `track_link`** ("Open in Spotify / Qobuz / SoundCloud / YouTube Music"). Pre-existing, not new in
+  stage 6.
+- **Open question: an upload whose own account is used up or paused.** The track waits (I6) instead of searching
+  elsewhere. Decide whether it should search the other sources meanwhile.
+- **Decided: a Go+-only (SNIP) track whose Go+ stream is below ~256 kbps** (user, 2026-10-31: "of course get the 128
+  kbps version"). A full non-DRM stream of about 128 kbps is one more candidate in the usual hierarchy (stage 6 D9):
+  every better source first, an equal free stream before it, then the account stream (counted, paced, it waits when
+  the account is used up). DRM-only and preview-only listings stay rejected. **Live check:** that a Go+-only upload
+  seen through an account without Go+ really lists the 30 s preview (`…_preview`) and not a full stream, and that a
+  Go+ account lists a full ~128 kbps one for such an upload (read from yt-dlp's code, not seen live). Two more
+  yt-dlp assumptions, also unseen: for a Go+ track whose `hq` transcoding is DRM-protected, yt-dlp still picks a
+  named, unprotected full format (`http_mp3_128` or an HLS mp3 id) for `info["format_id"]` and never a `ctr-`/`cbc-`
+  protocol one, so `stream_kbps` can tell it from "only protected" (then no format is named, or it ends in
+  `_preview`); and `abr`/`tbr` of that format is its own ~128, not the protected stream's. If either is wrong the
+  typical Go+ track's 128 stream is rejected as DRM again (nothing else breaks).
+- **Live check:** the short-link redirect follows one hop. Confirm that `on.soundcloud.com` goes straight to
+  `soundcloud.com/...`.
+- **Seen in the stage 6 screenshots (all pre-existing):**
+  - Fake tracks show FORMAT "FLAC" next to a `.aiff` file.
+  - The empty Playlists state still shows the tidy-up, moves and "read 2 min ago" counts.
+  - The likes row prints the owner twice (`"Example DJ's likes" · Example DJ`).
+  - The Library header drops "YouTube Music playlist" at 1280 px wide; the logo is then the only sign.
+  - W22 and the W5/W18 hints end on a short last line at 1100 px (the empty-state and hint blocks want balanced
+    wrapping).
+
+## 31. YouTube Music "Liked music" — a Settings choice, needs a design round
+
+Library stage 6 reads YouTube Music playlists but leaves out "Liked music", "Watch later" and mixes for now: the
+reader refuses them before any request and says so (`sources/youtube_music.py`, W17: add the songs to a playlist, set
+it to public or unlisted, and paste that link). Reading "Liked music" would need the YouTube login (browser cookies)
+on every read and risks YouTube's bot check on the Premium account, which the downloads also use. Decide later
+whether it is worth that; until then the hint is the answer.
+
+**Decided (user, 2026-10-31):** a choice in Settings, off by default, with a short warning that explains the bot-check
+risk to the account. Read through the YouTube login only when it is on. It goes into the next design round,
+together with the paste field's four service logos ("Paste a playlist link here" plus the logos).
+
 ## 30. To-do decision panels leftovers
 
 Noted in the screenshot review of the To-do panels (2026-10-31).
@@ -101,14 +176,9 @@ Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
 - **The removal count (W4) misses rare cases:** a playlist track matched only at plan time (no stored song) isn't
   counted, and a Yes answer for a track that left every playlist still is. A song re-keyed after the removal keeps
   its file's tag name until the planner updates stored names.
-- **CLOSED, decided NO (2026-10-31): re-judging older quality verdicts.** The user decided against it ("the new imports are only test files anyways"); kept here as the record of the question and why it was considered.
-  **Files judged before the floor rule (fix round E1) keep their old verdict.** Nothing judges a library file again
+- **Files judged before the floor rule (fix round E1) keep their old verdict.** Nothing judges a library file again
   when the detector improves; in the user's library three House_Banger files would now be fake. Two more just miss
   the rule (a 28–29.7 dB fall into a flat floor, the rule needs 30); lowering it would take in looser shapes.
-  The same holds for the 20 kHz wall rule (2026-10-30): a lossless file walled below 20.8 kHz (decoded Opus or
-  MP3 320 saved as WAV/FLAC; a 12 dB cliff counts from 19.5 to 20.4 kHz, an 18 dB one above) is now fake, but files judged before keep "verified lossless". Re-judging would mean a
-  rule version stored with each verdict and a background pass that re-runs `quality.inspect` on files of an older
-  version (the import's sound pass already does the work per file), updating status and cutoff only.
 
 ## 26. Library stage 3 leftovers (Qobuz playlists) — for stages 5 and 6
 
