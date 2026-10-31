@@ -99,7 +99,7 @@ def test_a_window_that_raises_or_is_gone_is_ignored():
 def run_engine(tmp_path, emit, n=30):
     """The real execution loop with a fake download that reports progress through `emit`."""
     class Acq:
-        def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None):
+        def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None, upload=None):
             for i in range(20):
                 tracker.progress(i, 19, "bytes")
             f = workdir / "q.aiff"
