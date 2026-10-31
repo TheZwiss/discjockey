@@ -182,5 +182,8 @@
  {"name": "library-folder-offline", "route": "#/library/folder/%2FVolumes%2FVinyl%20Drive%2FVinyl%20Rips", "scenario": "library:crates", "steps": [{"wait": "[data-test=library-table] [data-away]"}]},
  {"name": "library-folder-library", "route": "#/library/folder/Old_Hardstyle", "scenario": "library:crates", "steps": [{"wait": "[data-test=library-table] [data-test^=row-]"}]},
  {"name": "library-folder-empty", "route": "#/library/folder/%2FUsers%2Fyou%2FMusic%2FNew%20Crates", "scenario": "library:empty_watched", "steps": [{"wait": "[data-test=library-empty-empty]"}]},
- {"name": "library-folder-gone", "route": "#/library/folder/%2FUsers%2Fyou%2FMusic%2FGone%20Folder", "scenario": "normal", "steps": [{"wait": "[data-test=library-empty-gone]"}]}
+ {"name": "library-folder-gone", "route": "#/library/folder/%2FUsers%2Fyou%2FMusic%2FGone%20Folder", "scenario": "normal", "steps": [{"wait": "[data-test=library-empty-gone]"}]},
+ {"name": "library-soundcloud-selected", "route": "#/library/folder/Example_Label?track=soundcloud%3A900000101", "scenario": "normal", "steps": [{"click": "[data-test=library-details]"}, {"wait": "[data-test=track-details]"}, {"sleep": 800}]},
+ {"name": "library-soundcloud-likes-selected", "route": "#/library/folder/Example_DJ_likes?track=soundcloud%3A900000102", "scenario": "normal", "steps": [{"click": "[data-test=library-details]"}, {"wait": "[data-test=track-details]"}, {"sleep": 800}]},
+ {"name": "library-youtube-music-selected", "route": "#/library/folder/Example_Channel?track=youtube_music%3AEXAMPLEid01", "scenario": "normal", "steps": [{"click": "[data-test=library-details]"}, {"wait": "[data-test=track-details]"}, {"sleep": 800}]}
 ]

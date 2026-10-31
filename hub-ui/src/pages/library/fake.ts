@@ -221,7 +221,7 @@ const fake: PageFake = {
         playlists: ['Hard_Bounce', 'Powertrance', 'Bouncy', '03_06_2026'] });
     },
     // the browser column's load (plan library stage 5): 35 playlist lines, two switched off, one with a very long
-    // folder name, a mix of Spotify and Qobuz lines (the wire knows only those two services until stage 6), most
+    // folder name, a mix of Spotify and Qobuz lines (the rows of the other two services come from the base state), most
     // with a few files of their own, a few never read; and two Library folders no line uses (Old_Sets from the base state, Crate_Dumps)
     browser: (s) => {
       const names = ['Warehouse_Nights', 'Peak_Hour', 'Afterhours', 'Closing_Set', 'Rave_Classics', 'Big_Room_Hard',

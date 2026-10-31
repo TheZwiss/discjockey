@@ -35,10 +35,11 @@ export const NOT_WHILE_SYNC = "Not while a sync runs. Try again when it's finish
 export const PLAYLIST_SERVICE_NAMES: Record<PlaylistService, string> = {
   spotify: 'Spotify', qobuz: 'Qobuz', soundcloud: 'SoundCloud', youtube_music: 'YouTube Music',
 };
-/** Where each playlist service's login lives in Settings (Qobuz's login card is also its download account). */
-export const SERVICE_SETTINGS: Record<PlaylistService, string> = {
-  spotify: '#/settings/spotify', qobuz: '#/settings/qobuz', soundcloud: '#/settings/soundcloud',
-  youtube_music: '#/settings/youtube', // read without a login: no problem names it, the YouTube row is the nearest
+/** Where each playlist service's login lives in Settings (Qobuz's login card is also its download account).
+ *  SoundCloud's is optional (only the `you/likes` expansion uses it). YouTube Music is read without a login: it never
+ *  answers `not_set_up` or `login_expired`, so it has no place (null: the title stands without a Connect link). */
+export const SERVICE_SETTINGS: Record<PlaylistService, string | null> = {
+  spotify: '#/settings/spotify', qobuz: '#/settings/qobuz', soundcloud: '#/settings/soundcloud', youtube_music: null,
 };
 
 /** A playlist service can't be read because its login is missing (`not_set_up` with a service; the engine's
@@ -46,8 +47,9 @@ export const SERVICE_SETTINGS: Record<PlaylistService, string> = {
  *  on every page (spec §11): the banner, Sync's card, the add row (plan stage 3, I8 W6). */
 export function serviceProblem(kind: 'not_set_up' | 'login_expired', service: PlaylistService): ProblemCopy {
   const name = PLAYLIST_SERVICE_NAMES[service];
-  return { title: kind === 'login_expired' ? `Your ${name} login has expired.` : `${name} isn't connected.`,
-    action: { label: `Connect ${name} →`, href: SERVICE_SETTINGS[service] } };
+  const title = kind === 'login_expired' ? `Your ${name} login has expired.` : `${name} isn't connected.`;
+  const href = SERVICE_SETTINGS[service];
+  return href ? { title, action: { label: `Connect ${name} →`, href } } : { title };
 }
 
 /** The headline for a problem. `service`: the playlist service that caused it (the bridge's `Fail.service`, the read

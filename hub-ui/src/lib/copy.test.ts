@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PLAN_COUNT_WORDS, detailLine, problemCopy } from './copy';
+import { PLAN_COUNT_WORDS, PLAYLIST_SERVICE_NAMES, SERVICE_SETTINGS, detailLine, problemCopy, serviceProblem } from './copy';
 
 describe('detailLine', () => {
   it('drops a detail that only repeats the headline', () => {
@@ -33,6 +33,22 @@ describe('a playlist service missing: one wording and one link per service on ev
   it("names Qobuz with its own card and Settings' Qobuz login (I8 W6)", () => {
     expect(problemCopy('not_set_up', { service: 'qobuz' })).toEqual({ title: "Qobuz isn't connected.",
       action: { label: 'Connect Qobuz →', href: '#/settings/qobuz' } });
+  });
+  it('names all four services, once', () => {
+    expect(PLAYLIST_SERVICE_NAMES).toEqual({ spotify: 'Spotify', qobuz: 'Qobuz', soundcloud: 'SoundCloud',
+      youtube_music: 'YouTube Music' });
+  });
+  it("points SoundCloud's missing login at its own Settings row; YouTube Music has no login and no link", () => {
+    expect(serviceProblem('login_expired', 'soundcloud')).toEqual({ title: 'Your SoundCloud login has expired.',
+      action: { label: 'Connect SoundCloud →', href: '#/settings/soundcloud' } });
+    expect(SERVICE_SETTINGS.youtube_music).toBeNull();
+    expect(serviceProblem('not_set_up', 'youtube_music')).toEqual({ title: "YouTube Music isn't connected." });
+    expect(problemCopy('login_expired', { service: 'youtube_music' }).action).toBeUndefined();
+  });
+  it('names SoundCloud and YouTube Music when they are the ones not answering (I8 W6, W15)', () => {
+    expect(problemCopy('offline', { service: 'soundcloud' })).toEqual({ title: "SoundCloud isn't answering.",
+      action: { label: 'Retry', retry: true } });
+    expect(problemCopy('offline', { service: 'youtube_music' }).title).toBe("YouTube Music isn't answering.");
   });
   it("names the service when it is the one not answering, and keeps Retry", () => {
     expect(problemCopy('offline', { service: 'qobuz' })).toEqual({ title: "Qobuz isn't answering.",

@@ -189,7 +189,7 @@
     <div data-test="playlists-loading"><Skeleton lines={5} height={52} gap={2} /></div>
   {:else if !draft.length}
     <Surface kind="card" data-test="playlists-empty">
-      <EmptyState title="No playlists yet." body="Paste a Spotify or Qobuz playlist link above." action={null} />
+      <EmptyState title="No playlists yet." body="Paste a playlist link from Spotify, Qobuz, SoundCloud or YouTube Music above." action={null} />
     </Surface>
   {:else}
     <Surface kind="list" label="Your playlists" summary={onOffText(draft)} grow={{ rows: draft.length, tall: true }}

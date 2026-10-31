@@ -6,6 +6,7 @@ import type {
   PlaylistService, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
 } from '../types';
 import { QUALITIES } from '../types';
+import { PLAYLIST_SERVICE_NAMES } from '../../copy';
 
 /** the fake's newest yt-dlp on PyPI */
 export const FAKE_NEWEST_YT_DLP = '2026.10.28';
@@ -459,9 +460,7 @@ export const LINK_REFUSED = "That isn't a playlist link Discjockey can read. Ope
 export const serviceOfLink = (link: string): PlaylistService =>
   /qobuz\.com/.test(link) ? 'qobuz' : /soundcloud\.com/.test(link) ? 'soundcloud'
     : /youtube\.com/.test(link) ? 'youtube_music' : 'spotify';
-export const SERVICE_NAME: Record<PlaylistService, string> = {
-  spotify: 'Spotify', qobuz: 'Qobuz', soundcloud: 'SoundCloud', youtube_music: 'YouTube Music',
-};
+export const SERVICE_NAME = PLAYLIST_SERVICE_NAMES; // the one map (copy.ts)
 export const hintOf = (service: PlaylistService) => ({ spotify: SPOTIFY_HINT, qobuz: QOBUZ_HINT,
   soundcloud: SOUNDCLOUD_HINT, youtube_music: YOUTUBE_MUSIC_HINT })[service];
 /** A playlist's ref: a Spotify id stays bare, every other service's is `<service>:<id>`: Qobuz the number,
@@ -500,7 +499,7 @@ export function samplePlaylists(): FakePlaylist[] {
       info: { name: "Example DJ's likes", owner_name: 'Example DJ', yours: false, collaborative: false, readable: true,
         image_url: null, track_count: null, hint: SOUNDCLOUD_HINT } },
     { folder: 'Example_Channel', link: YOUTUBE_MUSIC_LINK, enabled: true,
-      info: { name: 'Example Mix Tape', owner_name: 'Example Channel', yours: false, collaborative: false, readable: true,
+      info: { name: 'Example Warm-up', owner_name: 'Example Channel', yours: false, collaborative: false, readable: true,
         image_url: null, track_count: 1, hint: YOUTUBE_MUSIC_HINT } },
   ];
 }

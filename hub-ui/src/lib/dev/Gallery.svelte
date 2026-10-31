@@ -1158,7 +1158,7 @@
   </section>
 
   <section data-test="gallery-addrow">
-    {@render head('AddRow', 'Paste a Spotify or Qobuz playlist link, check it, name its folder (Playlists\' list head, Setup\'s first playlist)')}
+    {@render head('AddRow', 'Paste a Spotify, Qobuz, SoundCloud or YouTube Music playlist link, check it, name its folder (Playlists\' list head, Setup\'s first playlist)')}
     <div class="col w800"><AddRow draft={[]} onadd={(a, f) => { toasts.show({ tone: 'success', title: `Would add ${a.info?.name ?? a.link} as ${f}` }); return true; }} /></div>
   </section>
 

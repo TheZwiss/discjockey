@@ -42,7 +42,7 @@
   }
 </script>
 
-<Surface kind="card" label="Add a Spotify or Qobuz playlist"
+<Surface kind="card" label="Add a playlist"
   summary="Discjockey keeps each playlist's tracks in a folder of its own." data-test="playlist-add">
   <AddRow {draft} filled={!draft.length} onadd={added} />
   {#if saveError}

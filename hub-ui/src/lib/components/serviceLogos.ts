@@ -4,8 +4,8 @@
 // from static.qobuz.com on its black tile, with a faint edge so it doesn't vanish on the black frame. Each is 14 px
 // and keeps its own colours: the colour rule's one exception (design language §2), because a logo is an image that
 // names a service, not a signal. Constant markup, never user text; `ServiceMark` renders it.
-//
-// All five are here now, though the wire's `PlaylistService` is still 'spotify' | 'qobuz' (stage 6 adds the others).
+
+import type { PlaylistService } from '../bridge/types';
 
 /** A service whose logo `ServiceMark` can draw. */
 export type LogoKey = 'spotify' | 'youtube' | 'youtubemusic' | 'soundcloud' | 'qobuz';
@@ -28,6 +28,12 @@ export const SERVICE_LOGOS: Record<LogoKey, string> = {
   qobuz:
     '<svg width="14" height="14" viewBox="0 0 180 180" aria-hidden="true"><rect x="4" y="4" width="172" height="172" rx="22" fill="#000" stroke="rgba(255,255,255,.3)" stroke-width="8"/><path fill="#fff" d="M154.98,107.69s-.06,0-.09,0h-20.06c6.73-8.99,22.89-30.61,22.9-30.62.73-1.01,1.17-2.25,1.17-3.59,0-3.32-2.65-6.01-5.95-6.08h0s-24.55,0-24.55,0h-.15s.14,0,.13,0c-2.34,0-4.38,1.9-4.38,4.24s1.9,4.23,4.23,4.23c.03,0,.06,0,.1,0h19.74s-22.82,30.51-22.84,30.53c-.77,1.02-1.23,2.29-1.23,3.67,0,3.37,2.73,6.09,6.09,6.09h24.88s0,0,.01,0c2.15,0,3.89-1.9,3.89-4.23s-1.74-4.23-3.89-4.23Z"/><path fill="#fff" d="M45.53,115.85c4.68,0,9.06-1.32,12.77-3.61v-11.25c-2.91,3.88-7.55,6.39-12.77,6.39-8.81,0-15.96-7.15-15.96-15.96s7.14-15.96,15.96-15.96,15.96,7.15,15.96,15.96h0v43.76s0,.03,0,.05c0,2.34,1.9,4.24,4.23,4.24s4.23-1.9,4.23-4.24c0-.02,0-.03,0-.05v-43.76c0-13.49-10.93-24.43-24.42-24.43s-24.42,10.94-24.42,24.43,10.93,24.43,24.42,24.43Z"/><path fill="#fff" d="M99.42,66.97c-4.68,0-9.06,1.32-12.77,3.61v11.25c2.91-3.88,7.55-6.39,12.77-6.39,8.81,0,15.96,7.15,15.96,15.96s-7.14,15.96-15.96,15.96-15.96-7.15-15.96-15.96h0v-43.76s0-.03,0-.05c0-2.34-1.9-4.24-4.23-4.24s-4.23,1.9-4.23,4.24c0,.02,0,.03,0,.05v43.76c0,13.49,10.93,24.43,24.42,24.43s24.42-10.94,24.42-24.43-10.93-24.43-24.42-24.43Z"/></svg>',
 };
+
+/** The logo of a playlist service from the wire: the one place that maps its names to the logos' (YouTube Music is
+ *  `youtube_music` on the wire, `youtubemusic` here). Every `ServiceMark` for a playlist passes through it. */
+export function logoOf(service: PlaylistService): LogoKey {
+  return service === 'youtube_music' ? 'youtubemusic' : service;
+}
 
 /** The keys in the order the gallery shows them. */
 export const LOGO_KEYS = Object.keys(SERVICE_LOGOS) as LogoKey[];
