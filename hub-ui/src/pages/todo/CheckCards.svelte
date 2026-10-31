@@ -20,8 +20,7 @@
     <div class="col">
       <NumberedSteps test="rekordbox-steps">
         {#each card.steps as s, i (i)}
-          <li><span class="step">{#each s.parts as p, j (j)}{#if p.strong}<b>{p.text}</b>{:else}{p.text}{/if}{/each}{#if s.note}
-            <span class="note">{s.note}</span>{/if}</span></li>
+          <li><span class="step">{#each s.parts as p, j (j)}{#if p.strong}<b>{p.text}</b>{:else}{p.text}{/if}{/each}{#if s.note}{' '}<span class="note">{s.note}</span>{/if}</span></li>
         {/each}
       </NumberedSteps>
       {#if card.hint}<Hint text={card.hint} wrap />{/if}

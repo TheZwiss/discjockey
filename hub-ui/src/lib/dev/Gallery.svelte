@@ -1306,6 +1306,8 @@
       <MiniPlayer url="data:audio/wav;base64,AAAA" title="Broken" length_s={10} />
       <ComparePlayer a={{ url: toneA, label: 'Current' }} b={{ url: toneB, label: 'New' }} cueText="matches exactly, cues stay" />
       <ComparePlayer a={{ url: 'data:audio/wav;base64,AAAA', label: 'Current' }} b={{ url: 'data:audio/wav;base64,AAAA', label: 'New' }} />
+      <!-- ready: the player from the start (To-do's upgrade decision) -->
+      <ComparePlayer ready total={40} a={{ url: toneA, label: 'Now' }} b={{ url: toneB, label: 'New' }} />
     </div>
   </section>
 

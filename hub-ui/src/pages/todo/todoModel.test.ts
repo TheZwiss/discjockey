@@ -169,6 +169,12 @@ describe('actionsFor', () => {
     }
     expect(actionsFor(detail({ status: 'lossless', quality: 'lossless' })).dropZone).toBe(false);
   });
+  it('offers no buy links or drop zone under a lossless version that is ready, but does under a better lossy one', () => {
+    const ready = actionsFor(detail({ upgrade: upgrade({ what: 'lossless version' }) }));
+    expect([ready.buy, ready.dropZone]).toEqual([false, false]);
+    const better = actionsFor(detail({ upgrade: upgrade({ what: 'better version' }) }));
+    expect([better.buy, better.dropZone]).toEqual([true, true]);
+  });
   it('hides or unhides', () => {
     expect(actionsFor(detail()).hide).toBe('hide');
     expect(actionsFor(detail({ hidden: true })).hide).toBe('unhide');
@@ -415,20 +421,20 @@ describe('upgrade decision', () => {
     const w = upgradeWays(upgrade(), true);
     expect(w.choice).toBe(true);
     expect(w.options.map((o) => [o.key, o.name])).toEqual([['swap', 'Same track'], ['add_new', 'New track']]);
-    expect(w.options[0].outcomes).toEqual([{ tone: 'kept', text: 'Your rekordbox track keeps its cues' }]);
+    expect(w.options[0].outcomes).toEqual([{ tone: 'kept', text: 'Your track keeps its cues' }]);
     expect(w.options[1].summary).toBe('Relocate your old track to keep cues');
     expect(w.reason).toBeNull();
   });
   it('says a shifted match moves the audio onto the cues', () => {
     const w = upgradeWays(upgrade({ alignment: align('shifted', -12.4) }), true);
-    expect(w.options[0].outcomes.map((o) => o.text)).toEqual(['Your rekordbox track keeps its cues',
+    expect(w.options[0].outcomes.map((o) => o.text)).toEqual(['Your track keeps its cues',
       'Moved 12 ms to sit on your cues']);
   });
   it('without a swap says what happens and why Same track is off', () => {
     const mp3 = upgradeWays(upgrade({ swap_possible: false }), false);
     expect([mp3.choice, mp3.reason]).toEqual([false, 'Same track needs an AIFF file']);
     expect(mp3.fixed.map((o) => [o.tone, o.text])).toEqual([['step', 'rekordbox lists it as a new track'],
-      ['kept', 'Relocate your old track to it: cues fit']]);
+      ['kept', 'Relocate your old track: cues fit']]);
     const diff = upgradeWays(upgrade({ alignment: align('different'), swap_safe: false }), false);
     expect(diff.reason).toBe('Same track needs the same edit');
     expect(diff.fixed[1]).toEqual({ tone: 'step', text: 'A different edit: set the cues again' });
@@ -470,7 +476,7 @@ describe('rekordbox check after a replace', () => {
   });
   it('an added file: relocate, then analyse; the cues by what was measured', () => {
     const add = (match: string | null, offset_ms = 0) => words(check({ reason: 'added_as_new', match, offset_ms }))[1];
-    expect(words(check({ reason: 'added_as_new' }))[0]).toBe('The track shows as missing: Auto Relocate finds the new file by its name');
+    expect(words(check({ reason: 'added_as_new' }))[0]).toBe('The track shows as missing: Auto Relocate finds the new file by name');
     expect(add('exact')).toBe('Analyse it again · your cues fit');
     expect(add('shifted', 9)).toBe('Analyse it again · your cues fit to within 9 ms');
     expect(add('different')).toBe('Analyse it again and set the cues again · a different edit');
@@ -508,16 +514,16 @@ describe('which duplicate stays', () => {
     expect([fileFormat(aiff.path), fileFormat('x.aif'), fileFormat('/a/b.WAV'), fileFormat('noext')]).toEqual(['AIFF', 'AIFF', 'WAV', '']);
     expect(lastFolder(mp3.path)).toBe('Old');
   });
-  it('names the button by the result, the line under it by where the other goes', () => {
-    expect(keepWords([aiff, mp3], 1)).toEqual({ label: 'Keep the AIFF', hint: 'The MP3 goes to Superseded/, not deleted', ready: true });
+  it('names the button by the result; the line under it says the others are kept, not deleted', () => {
+    expect(keepWords([aiff, mp3], 1)).toEqual({ label: 'Keep the AIFF', hint: 'Not deleted: kept in Superseded/', ready: true });
     expect(keepWords([aiff, mp3], 2).label).toBe('Keep the MP3');
   });
   it('same format: tells them apart by quality, then by folder, else plainly', () => {
     const weak = f(3, '/Volumes/X/Music/Old/A - x.aiff', 'weak', '16.0 kHz');
     expect(keepWords([aiff, weak], 1)).toEqual({ label: 'Keep the lossless file',
-      hint: 'The 16.0 kHz file goes to Superseded/, not deleted', ready: true });
+      hint: 'Not deleted: kept in Superseded/', ready: true });
     const twin = f(4, '/Volumes/X/Music/Old/A - x.aiff');
-    expect(keepWords([aiff, twin], 4)).toEqual({ label: 'Keep the one in Old', hint: 'The one in Music goes to Superseded/, not deleted', ready: true });
+    expect(keepWords([aiff, twin], 4)).toEqual({ label: 'Keep the one in Old', hint: 'Not deleted: kept in Superseded/', ready: true });
     const long = f(5, '/Volumes/X/Peak Hour Rarities and More/A - x.aiff');
     expect(fileWords(long, [aiff, long])).toBeNull();
     expect(keepWords([aiff, long], 5).label).toBe('Keep this file');
@@ -526,7 +532,7 @@ describe('which duplicate stays', () => {
     expect(keepWords([aiff, mp3], null)).toEqual({ label: 'Choose the file that stays', hint: null, ready: false });
     expect(keepWords([aiff, mp3], 'all')).toEqual({ label: 'Keep both', hint: null, ready: true });
     const wav = f(6, '/Volumes/X/Crates/A - x.wav');
-    expect(keepWords([aiff, mp3, wav], 1).hint).toBe('The other 2 go to Superseded/, not deleted');
+    expect(keepWords([aiff, mp3, wav], 1).hint).toBe('Not deleted: kept in Superseded/');
     expect(keepWords([aiff, mp3, wav], 'all').label).toBe('Keep all');
   });
   it('a group id from its files, sorted', () => {

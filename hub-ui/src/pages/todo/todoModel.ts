@@ -258,12 +258,14 @@ export function actionsFor(track: TrackDetail, group: TodoGroupKey | null = null
   const check = group === 'rekordbox_check';
   const upgrade = up ? { swap, primary: swap ? 'swap' as const : 'add_new' as const } : null;
   const finder = group === 'other' && !!track.path && !fileAway(track);   // nothing to show when the file isn't there
+  // a lossless version is ready: the upgrade decision is the way to it, so no "Get a lossless file" (buy, drop) under it
+  const getBetter = improvable && !(up && up.what === 'lossless version');
   return {
     listen: !!track.audio_url || fileAway(track),   // away: the player stays, switched off, as in the Library
     versions: missing ? 'find' : 'wrong_song',
     noneOfThese: !missing,
-    buy: improvable,
-    dropZone: improvable,
+    buy: getBetter,
+    dropZone: getBetter,
     hide: track.hidden ? 'unhide' : check ? null : improvable || group === 'other' ? 'hide' : null,
     upgrade,
     showInFinder: finder,
@@ -334,12 +336,12 @@ const fits = (r: string | null | undefined) => r === 'exact' || r === 'shifted';
 export function upgradeWays(up: Upgrade, swap: boolean): UpgradeWays {
   const r = up.alignment?.result;
   const same: WayOption = { key: 'swap', name: 'Same track', summary: 'Cues and beatgrid stay', outcomes: [
-    { tone: 'kept', text: 'Your rekordbox track keeps its cues' },
+    { tone: 'kept', text: 'Your track keeps its cues' },
     ...(r === 'shifted' && ms(up.alignment) ? [{ tone: 'kept' as const, text: `Moved ${ms(up.alignment)} ms to sit on your cues` }] : [])] };
   const added: WayOption = { key: 'add_new', name: 'New track',
     summary: fits(r) ? 'Relocate your old track to keep cues' : 'Set the cues again', outcomes: [
       { tone: 'step', text: 'rekordbox lists it as a new track' },
-      fits(r) ? { tone: 'kept', text: 'Relocate your old track to it: cues fit' }
+      fits(r) ? { tone: 'kept', text: 'Relocate your old track: cues fit' }
         : r === 'different' ? { tone: 'step', text: 'A different edit: set the cues again' }
         : { tone: 'step', text: 'Unsure if your cues fit: listen first' }] };
   if (swap) return { choice: true, options: [same, added], fixed: [], reason: null };
@@ -367,7 +369,7 @@ export function replaceLabel(up: Upgrade): string {
 export type CheckStep = { parts: { text: string; strong?: boolean }[]; note?: string };
 export type CheckCard = { summary: string; steps: CheckStep[]; hint: string | null };
 const RELOCATE_NEW: CheckStep = { parts: [{ text: 'The track shows as missing: ' }, { text: 'Auto Relocate', strong: true },
-  { text: ' finds the new file by its name' }] };
+  { text: ' finds the new file by name' }] };
 
 /** The steps in rekordbox after a swap or an added file (README "Upgrades"); null for any other check (its `text`). */
 export function checkCard(c: RekordboxCheckView | undefined): CheckCard | null {
@@ -454,21 +456,20 @@ export function fileWords(f: FileSide, files: FileSide[]): string | null {
   return null;
 }
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+/** Under the duplicates' button: the files that don't stay aren't deleted (one line at 1100). */
+export const SUPERSEDED_NOT_DELETED = 'Not deleted: kept in Superseded/';
 /** The pick in "Which file stays?": a file's id, 'all' (Keep both / Keep all), or null (nothing picked yet). */
 export type DuplicatePick = number | 'all' | null;
-/** The foot's button and the line under it: named by the result ("Keep the AIFF" / "The MP3 goes to Superseded/,
- *  not deleted"); with no pick it is off and asks for one. */
+/** The foot's button and the line under it: named by the result ("Keep the AIFF", then "Not deleted: kept in
+ *  Superseded/"); with no pick it is off and asks for one. */
 export function keepWords(files: FileSide[], pick: DuplicatePick): { label: string; hint: string | null; ready: boolean } {
   if (pick === null) return { label: 'Choose the file that stays', hint: null, ready: false };
   if (pick === 'all') return { label: keepLabel(files.length), hint: null, ready: true };
   const kept = files.find((f) => f.file_id === pick);
   if (!kept) return { label: 'Choose the file that stays', hint: null, ready: false };
-  const leaving = files.filter((f) => f !== kept);
   const label = `Keep ${fileWords(kept, files) ?? 'this file'}`;
-  const one = leaving.length === 1 ? fileWords(leaving[0], files) : null;
-  const hint = leaving.length === 1 ? `${cap(one ?? 'the other file')} goes to Superseded/, not deleted`
-    : `The other ${leaving.length} go to Superseded/, not deleted`;
-  return { label: cap(label), hint, ready: true };
+  // which file leaves is already in its row ("→ Goes to Superseded/"); the line says only that it isn't deleted
+  return { label: cap(label), hint: SUPERSEDED_NOT_DELETED, ready: true };
 }
 /** A duplicate group's id from its file ids (models.group_id): the group left after one of its files moved. */
 export function groupIdOf(ids: number[]): string {

@@ -99,8 +99,8 @@
   async function undoUpgrade() {
     const swapped = item?.check?.reason === 'swapped';
     if (!(await confirm({ title: 'Undo the replace?',
-      body: swapped ? 'Your old audio goes back in the file, and the new version waits in Upgrades ready again.'
-        : 'Your old file goes back where it was, and the new version waits in Upgrades ready again.',
+      body: swapped ? 'Your old audio goes back in the file. The new version waits in Upgrades ready again.'
+        : 'Your old file goes back where it was. The new version waits in Upgrades ready again.',
       confirmLabel: 'Undo the replace' }))) return;
     busy = 'undo';
     undoProblem = null;

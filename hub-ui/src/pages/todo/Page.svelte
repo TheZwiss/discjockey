@@ -236,7 +236,7 @@
 
 {#snippet nothing()}
   <div class="nothing" data-test="todo-nothing"><EmptyState title="Nothing to decide"
-    body="When a better version arrives or two of your files are the same song, you choose here." /></div>
+    body="When a better version arrives or two files are the same song, you choose here." /></div>
 {/snippet}
 
 <!-- with no to-do left the panel says when it will have something, never blank (mockup todo-decisions) -->

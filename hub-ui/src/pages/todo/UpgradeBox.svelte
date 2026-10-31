@@ -35,18 +35,19 @@
   <div class="up" data-test="upgrade-box" data-swap={swap}>
     <div class="specs">
       <div>
-        <Spectrum spectrum={current} height={40} loading={loading && !current} cutoffLabel={false} />
-        <span class="fmt" title={nowLabel}><span class="caps">Now</span> {nowLabel}</span>
+        <Spectrum spectrum={current} height={28} loading={loading && !current} cutoffLabel={false} />
+        <span class="fmt"><span class="caps">Now</span><span class="q" title={nowLabel}>{nowLabel}</span></span>
       </div>
       <div>
-        <Spectrum spectrum={upgrade} height={40} loading={loading && !upgrade} cutoffLabel={false} />
-        <span class="fmt" title={up.format_line}><span class="caps">New</span> {up.format_line}</span>
+        <Spectrum spectrum={upgrade} height={28} loading={loading && !upgrade} cutoffLabel={false} />
+        <span class="fmt"><span class="caps">New</span><span class="q" title={up.format_line}>{up.format_line}</span></span>
       </div>
     </div>
     {#if track.audio_url && up.audio_url}
-      <ComparePlayer a={{ url: track.audio_url, label: 'Now' }} b={{ url: up.audio_url, label: 'New' }} />
+      <ComparePlayer ready total={track.duration_s} a={{ url: track.audio_url, label: 'Now' }}
+        b={{ url: up.audio_url, label: 'New' }} />
     {/if}
-    <KeyValue k="Edit" keyWidth={62}>
+    <KeyValue k="Edit" keyWidth={44}>
       <span class="edit" data-test="upgrade-edit" data-tone={edit.tone}><span class="dot {edit.tone}" aria-hidden="true"></span>{edit.text}</span>
     </KeyValue>
   </div>
@@ -74,11 +75,13 @@
   .up { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; }
   .specs { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2); }
   .specs > div { display: flex; flex-direction: column; gap: var(--s-1); min-width: 0; }
-  /* "NOW MP3 · 320 kbps": the version's name in caps, then its quality, cut with … only in a very narrow column */
-  .fmt { font-size: var(--fs-small); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* NOW over "MP3 · 320 kbps": the version's name in caps, its quality whole on the line under it (side by side they
+     didn't fit a column at 1100: "Opus · 135 k…"); cut with … only in a very narrow column */
+  .fmt { display: flex; flex-direction: column; gap: 1px; min-width: 0; font-size: var(--fs-small); color: var(--text-muted); }
+  .q { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .caps { font-size: var(--fs-label); text-transform: uppercase; letter-spacing: 0.7px; color: var(--text-label); }
-  .edit { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
-  .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .edit { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; align-self: flex-start; margin-top: 0.45em; }
   .dot.lossless { background: var(--q-lossless); }
   .dot.good_lossy { background: var(--q-good); }
   .dot.other { background: var(--q-other); }
