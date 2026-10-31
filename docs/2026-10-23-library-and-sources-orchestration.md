@@ -234,6 +234,15 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   None) + fakes; `sources.expand` can raise `SourceError` (W6–W9) and open a browser-login Keychain prompt inside
   `add_playlist`: check `@bridge` returns `{ok:false, kind, service}` and `login_expired` for soundcloud reaches the
   Settings banner; a `you/likes` line in `playlists.txt` logs in on every read (D4): sync summary needs W9's text.
+- Groups 2 (fix 73k) and 3 (171k, review 95k, fix 63k) merged 430cf8e. Group 4 built on `feat/library-6-upload`
+  (Opus 212k): found the SoundCloud login leak in the EXISTING download chain too (after a Go+ download every later
+  free SoundCloud request ran logged in, unpaced and uncounted; likely in v1.1.0), fixed in `fallback.py`. Review
+  143k: ready after the stream cap fix (1 upload + 3 search streams = 4 account downloads); fix round running.
+  **Morning questions for the user:** (a) YouTube Music "Liked music" (plan: left out, W17); (b) when a playlist
+  upload's own account is used up or paused, the track waits (I6) instead of letting the other account or a free
+  source stand in; (c) tell them about the login leak fix. *Group 5 also:* `events.ts` `Action.upload:
+  SourceTrack | null`, field list `'upload'`, `query_kind` `'upload'`; fake actions; contract lines ~1885/1889
+  (`upload`, `account_only`, W20); W20 in `views.py` and `cardState.ts` (`how="upload"`); check `report.py` copes.
 - Stage 6 merges into main only after stage 5 is in main and its own final review + CI.
 
 Later (each needs its own plan / the user's go): AcoustID (#24, a stage after 6), rekordbox XML for the duplicates
