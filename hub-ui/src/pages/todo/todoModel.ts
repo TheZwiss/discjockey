@@ -127,6 +127,11 @@ export function findHeld(items: TodoItem[], h: Pick<TodoHold, 'key' | 'id' | 'ke
 export function ghostOf(old: TodoItem): TodoItem {
   return { ...old, upgrade_ready: false, can_undo: false, check: undefined, detail: '' };
 }
+/** How many of a section's `items` are open to-dos: the item a load put back into the list (`extraKey`, the answer
+ *  didn't list it) stays in view but is not one, so it is in neither the section's count nor the chip's. */
+export function openCount(items: TodoItem[], extraKey: string | null): number {
+  return extraKey === null ? items.length : items.filter((i) => itemKey(i) !== extraKey).length;
+}
 /** The answer with the held item put back where its place stood in `before` (the answer on screen; `was`: the held
  *  key there): in the section it stood in, at its position there; the section is made again when the answer has none
  *  left. An answer that lists the item already comes back as it is. */

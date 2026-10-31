@@ -41,7 +41,7 @@
     by_quality: { lossless: 290, good_lossy: 120, weak: 41, fake: 9, missing: 0 }, upgrades_ready: 6, to_do: 41,
     not_lossless: 170, ...o });
   const STRIPS: [string, Library['summary'] | null, number][] = [
-    ['fewer in To-do: files of your own in no playlist aren\'t (tooltip)', strip(), 900],
+    ['fewer in To-do: files of your own in no playlist and hidden tracks aren\'t (tooltip)', strip(), 900],
     ['all in To-do, a big library', strip({ tracks: 5318, lossless_share: 3776 / 5306, upgrades_ready: 9, to_do: 1530,
       not_lossless: 1530, by_quality: { lossless: 3776, good_lossy: 900, weak: 500, fake: 130, missing: 0 } }), 900],
     ['the longest words: big counts, some in To-do', strip({ tracks: 5318, lossless_share: 3776 / 5306, upgrades_ready: 1204,

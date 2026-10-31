@@ -9,7 +9,7 @@ import {
   cutoffStat, freeHint, qobuzText, selectAfterHide, selectFromTrack,
   NO_VALUE, compareLines, fileFolder, filePlace, fileName, fileQueue, fileState, keepLabel, linkService, queueRows, rowBadge,
   checkCard, editLine, fileFormat, fileWords, groupIdOf, keepWords, lastFolder, localDay, replaceLabel, replacedCard,
-  sinceText, upgradeWays, findHeld, ghostOf, holdApplies, withHeldItem, type TodoHold,
+  sinceText, upgradeWays, findHeld, ghostOf, holdApplies, openCount, withHeldItem, type TodoHold,
 } from './todoModel';
 import type { RekordboxCheckView } from '$lib/bridge/types';
 import { stepChoice } from '$lib/components/choiceModel';
@@ -623,6 +623,28 @@ describe('the item just acted on (the hold)', () => {
   it('leaves an answer that lists the item as it is', () => {
     const view = todo([['upgrade_ready', ['t2']]]);
     expect(withHeldItem(view, item('t2', 'upgrade_ready'), view, 'upgrade_ready/t2')).toBe(view);
+  });
+
+  it('the item put back is in view but not an open to-do: the section counts without it, as the chips do', () => {
+    const before = todo([['upgrade_ready', ['t1', 't2', 't3']]]);
+    const out = withHeldItem(todo([['upgrade_ready', ['t1', 't3']]]), item('t2', 'rekordbox_check'), before, 'upgrade_ready/t2');
+    const g = out.groups[0].items;
+    expect(g).toHaveLength(3);
+    expect(openCount(g, 'rekordbox_check/t2')).toBe(2);
+    expect(openCount(g, null)).toBe(3);
+    // a section made again for the item alone has no open item
+    const only = withHeldItem({ ...todo([]), empty: 'nothing_here' }, item('t2', 'rekordbox_check'), todo([['upgrade_ready', ['t2']]]), 'upgrade_ready/t2');
+    expect(openCount(only.groups[0].items, 'rekordbox_check/t2')).toBe(0);
+    // the same row listed by the answer itself (no extra) counts
+    expect(openCount(g, 'weak/zzz')).toBe(3);
+  });
+
+  it('the arrow keys go on from the held row to its neighbours', () => {
+    const out = withHeldItem(todo([['upgrade_ready', ['t1', 't3']]]), item('t2', 'rekordbox_check'),
+      todo([['upgrade_ready', ['t1', 't2', 't3']]]), 'upgrade_ready/t2');
+    const flat = flatten(out);
+    expect(moveSelection(flat, 'rekordbox_check/t2', 1)).toBe('upgrade_ready/t3');
+    expect(moveSelection(flat, 'rekordbox_check/t2', -1)).toBe('upgrade_ready/t1');
   });
 
   it('a ghost is the row as it was, without what only a to-do has', () => {

@@ -21,7 +21,7 @@
   import { artistTitle } from '$lib/format';
   import {
     FILTER_MAX, segOptions, filterFrom, findHeld, flatten, ghostOf, headerSub, holdApplies, itemKey, keepSelection,
-    moveSelection, queueRows, rowBadge, rowOff, selectAfterHide, selectFromTrack, withHeldItem, type TodoHold,
+    moveSelection, openCount, queueRows, rowBadge, rowOff, selectAfterHide, selectFromTrack, withHeldItem, type TodoHold,
   } from './todoModel';
   import Details from './Details.svelte';
   import QuestionDetails from './QuestionDetails.svelte';
@@ -55,8 +55,14 @@
       });
     }
   });
+  // The row a load put into the list that the answer didn't list (the held item is no open to-do of this filter): the
+  // section heads count the open items, so not that one, as the chips don't.
+  let extraKey = $state<string | null>(null);
   function acted(keep: string[] | null) {
-    if (selected && selKey) hold = { key: selKey, id: selected.track_id, keep, filter, showHidden, put: false, ghost: false };
+    if (!selected || !selKey) return;
+    // a second action on an item that was put in keeps the "ask again when it ends"
+    const put = holdApplies(hold, selKey, filter, showHidden) && !!hold?.put;
+    hold = { key: selKey, id: selected.track_id, keep, filter, showHidden, put, ghost: false };
   }
 
   // ▶ in the details starts the to-do list as the queue: its rows with a file, in the order shown. A track that
@@ -95,19 +101,22 @@
       // section it stood in, from the whole to-do list; with no to-do left of it, its row as it was
       let held: TodoItem | null = null;
       let next = hold;
+      let put = false;
       if (!fromQuery && hold && holdApplies(hold, selKey, filter, showHidden)) {
         const h = hold;
         held = findHeld(after, h);
-        let put = false;
         let ghost = false;
+        let live = true;
         if (!held && filter !== 'all') {
           const all = await api.todo('all', showHidden);
           if (my !== seq) return;
-          held = all.ok ? findHeld(flatten(all), h) : null;
+          // the user may have picked another item meanwhile (the hold ended): then nothing is held and the pick stays
+          live = hold === h;
+          held = live && all.ok ? findHeld(flatten(all), h) : null;
           put = !!held;
         }
         const old = before.find((i) => itemKey(i) === h.key);
-        if (!held && !h.keep && old) { held = ghostOf(old); put = true; ghost = true; }
+        if (live && !held && !h.keep && old) { held = ghostOf(old); put = true; ghost = true; }
         if (held && put) {
           rest = withHeldItem(rest, held, data, h.key);
           after = flatten(rest);
@@ -115,6 +124,7 @@
         if (held) next = { ...h, key: itemKey(held), put: put || h.put, ghost };
       }
       data = rest;
+      extraKey = held && !fromQuery && put ? itemKey(held) : null;
       error = null;
       const was = selKey;
       selKey = fromQuery ?? (held ? itemKey(held) : keepSelection(selKey, before, after));
@@ -243,11 +253,11 @@
         {#if data.hidden_count || showHidden}<div class="again">{@render hiddenToggle()}</div>{/if}
       </Surface>
     {:else}
-      <Surface kind="list" label={only ? only.label : 'All to-dos'} summary={only ? String(only.items.length) : undefined} hint={only?.hint}
+      <Surface kind="list" label={only ? only.label : 'All to-dos'} summary={only ? String(openCount(only.items, extraKey)) : undefined} hint={only?.hint} summaryTest="todo-count"
         header={data.hidden_count || showHidden ? hiddenToggle : undefined} style={COLS}
         grow={{ rows: rowCount, tall: true }} data-test="todo-list">
         {#each data.groups as g (g.key)}
-          {#if sections}<ListSection label={g.label} summary={String(g.items.length)} hint={g.hint} test="todo-section" />{/if}
+          {#if sections}<ListSection label={g.label} summary={String(openCount(g.items, extraKey))} hint={g.hint} test="todo-section" />{/if}
           {#each g.items as i (itemKey(i))}{@render row(i)}{/each}
         {/each}
       </Surface>
