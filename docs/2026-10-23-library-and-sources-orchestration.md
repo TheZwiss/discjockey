@@ -261,6 +261,9 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   (`pages/todo/UpgradeBox.svelte` etc., a1a15a3), and it is a dead end (Compare plays, no way to act). Fix: every
   place an upgrade or duplicate decision shows uses the same approved panel with its actions (mockup
   `docs/hub-mockups/todo-decisions.html`). Opus build (no shots) + Opus shots.
+- **Issues live on main (user, 2026-10-31):** a new `docs/issues.md` entry is committed straight to main and main is
+  merged into the open stage branches, so the list is never split across branches (29–34 moved there 78255ea; stage 6's
+  "own upload in a private set" became 34). A branch only removes or edits entries its own code settles.
 - **The user's answers 2026-10-31:** (1) Liked music: a Settings choice, off by default, with a warning that
   explains the bot-check risk to the Premium account (needs a design round + mockup OK, then a plan; engine reads via
   the YouTube login only when on). (2) The upload's account used up or paused: the track waits (I6 stays, no change;
