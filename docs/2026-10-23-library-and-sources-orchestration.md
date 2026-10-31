@@ -260,8 +260,10 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   explains the bot-check risk to the Premium account (needs a design round + mockup OK, then a plan; engine reads via
   the YouTube login only when on). (2) The upload's account used up or paused: the track waits (I6 stays, no change;
   "why take worse if the better one comes the next day"). (3) A Go+-only (SNIP) upload with no ~256 kbps Go+ stream:
-  take its full ~128 kbps Go+ stream as the last resort when Qobuz and the search find nothing (counts against the
-  SoundCloud limit; a used-up/paused account waits as in (2)). Built on `feat/library-6-snip` before stage 6 merges.
+  its full ~128 kbps Go+ stream is one more candidate ranked by quality in the usual hierarchy (no special rule):
+  better sources and accounts with usage left first, an equal free stream before spending SoundCloud usage; a
+  used-up/paused account waits as in (2). (Both (2) and (3) were already answered by the hierarchy: check open
+  questions against the rules before asking.) Built on `feat/library-6-snip` before stage 6 merges.
 - **Design round after the SNIP job (one Opus agent, mockup + notes, the user approves):** (a) the Liked-music
   Settings choice with its warning; (b) the user's wish 2026-10-31 for the paste field on Playlists (and Setup's
   first playlist): "Paste a playlist link here" followed by the four service logos as in the Library sidebar
