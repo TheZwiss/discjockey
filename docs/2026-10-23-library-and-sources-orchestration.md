@@ -262,6 +262,10 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   "why take worse if the better one comes the next day"). (3) A Go+-only (SNIP) upload with no ~256 kbps Go+ stream:
   take its full ~128 kbps Go+ stream as the last resort when Qobuz and the search find nothing (counts against the
   SoundCloud limit; a used-up/paused account waits as in (2)). Built on `feat/library-6-snip` before stage 6 merges.
+- **Design round after the SNIP job (one Opus agent, mockup + notes, the user approves):** (a) the Liked-music
+  Settings choice with its warning; (b) the user's wish 2026-10-31 for the paste field on Playlists (and Setup's
+  first playlist): "Paste a playlist link here" followed by the four service logos as in the Library sidebar
+  (YouTube Music, SoundCloud, Spotify, Qobuz), instead of naming services in the text.
 - Stage 6 merges into main only after stage 5 is in main and its own final review + CI.
 
 Later (each needs its own plan / the user's go): AcoustID (#24, a stage after 6), rekordbox XML for the duplicates
