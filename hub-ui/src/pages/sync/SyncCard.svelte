@@ -9,9 +9,11 @@
   import type { Spectrum as SpectrumData } from '$lib/bridge/types';
   import { artistTitle, duration, noteParts } from '$lib/format';
   import { sourceName, stepIndex, stepsFor, verdict, type Card } from './cardState';
+  import { stripCover } from './results';
   import StepBar from './StepBar.svelte';
 
-  let { card }: { card: Card } = $props();
+  // `covers`: cover links by track id (the plan's, file artwork included), for a track whose service gave no picture
+  let { card, covers = new Map() }: { card: Card; covers?: Map<string, string> } = $props();
 
   const who = (a: Action) => artistTitle(a.track.artists.join(', '), a.track.title);
   const kicker = (a: Action, source: string | null) => ['Now', a.folder, sourceName(source)].filter(Boolean).join(' · ');
@@ -52,7 +54,7 @@
     </div>
   {:else if card.kind === 'working' || card.kind === 'downloading' || card.kind === 'converting'}
     <div class="row">
-      <Cover url={card.action.track.image_url} seed={card.action.track_id} size={120} />
+      <Cover url={stripCover(card.action.track.image_url, card.action.track_id, covers)} seed={card.action.track_id} size={120} />
       <div class="text">
         <div class="kicker">{kicker(card.action, card.source)}</div>
         <div class="title">{who(card.action)}</div>
@@ -73,7 +75,7 @@
     </div>
   {:else if card.kind === 'analysed' && v}
     <div class="row">
-      <Cover url={card.action.track.image_url} seed={card.action.track_id} size={120} />
+      <Cover url={stripCover(card.action.track.image_url, card.action.track_id, covers)} seed={card.action.track_id} size={120} />
       <div class="text">
         <div class="kicker">Done · {card.result.folder}</div>
         <div class="title">{artistTitle(card.result.artist, card.result.title)}</div>
@@ -102,7 +104,7 @@
     <div class="row">
       <!-- the cover stays where it was while downloading, darkened, with the countdown on it -->
       <div class="paused" data-test="pause-cover">
-        <Cover url={card.nextUp.track.image_url} seed={card.nextUp.track_id} size={120} />
+        <Cover url={stripCover(card.nextUp.track.image_url, card.nextUp.track_id, covers)} seed={card.nextUp.track_id} size={120} />
         <div class="over"><Ring value={card.remaining_s} max={card.total_s} size={88} countdown /></div>
       </div>
       <div class="text">

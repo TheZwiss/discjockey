@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Result } from '$lib/bridge/types';
-import { chipCounts, coverMap, fixHref, listFor, liveMessage, rowBadge, segOptions } from './results';
+import { chipCounts, coverMap, stripCover, fixHref, listFor, liveMessage, rowBadge, segOptions } from './results';
 
 const r = (section: string, extra: Partial<Result> = {}): Result => ({ section, folder: 'Hard_Bounce', artist: 'A',
   title: section, track_id: section, note: '', status: null, source: null, cutoff_hz: null, path: null,
@@ -81,5 +81,12 @@ describe('below the live card', () => {
     expect(covers.get('b')).toBe('spotify/b');
     expect(covers.get('c')).toBeUndefined();
     expect(covers.get('d')).toBeUndefined();
+  });
+  it('gives the live card the service picture, else the plan\'s cover (a file\'s artwork), else the placeholder', () => {
+    const covers = new Map([['a', 'cache/covers/a.jpg'], ['b', 'cache/covers/b.jpg']]);
+    expect(stripCover('spotify/a', 'a', covers)).toBe('spotify/a');   // a service picture stays as it was
+    expect(stripCover(null, 'a', covers)).toBe('cache/covers/a.jpg'); // a folder track with artwork in its file
+    expect(stripCover('', 'b', covers)).toBe('cache/covers/b.jpg');
+    expect(stripCover(undefined, 'c', covers)).toBeNull();            // neither: the placeholder
   });
 });

@@ -157,6 +157,20 @@ def test_sync_preview_names_the_folder_of_an_own_song_never_blank():
     assert all(r["folder"] for r in bare)
 
 
+def test_sync_preview_covers_come_from_the_tracks_own_file_when_the_service_has_none():
+    # the live card of the Sync page takes these links for a track whose service gave no picture (a folder track, or
+    # one that is not on Spotify): its file's artwork, else nothing (the page draws its placeholder)
+    own = Action("upgrade", "own1", "", t("own1"), (1, 0))
+    bare = Action("upgrade", "own2", "", t("own2"), (1, 1))
+    st = state(own1=e(folder="", path="/Music/Old/Techno/Ko-lab - Song.aiff"), own2=e(folder="", path="/Music/Old/x.aiff"))
+    store = store_with([own, bare], st)
+    links = {"own1": "cache/covers/own1.jpg"}
+    rows = {r["track_id"]: r for g in views.sync_preview(store, st, Settings(), TODAY, NOW, False,
+                                                         cover=lambda tid, entry: links.get(tid))["groups"]
+            for r in g["actions"]}
+    assert rows["own1"]["cover_url"] == "cache/covers/own1.jpg" and rows["own2"]["cover_url"] is None
+
+
 def test_still_to_load():
     money = {"remaining": 10, "limit": 60}
     store = store_with([a("acquire", f"t{i}", "new") for i in range(12)] + [a("upgrade", "u")])
