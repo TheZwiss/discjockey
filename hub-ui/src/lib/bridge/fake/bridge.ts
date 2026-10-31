@@ -7,7 +7,7 @@ import type {
 } from '../types';
 import { LIBRARY_METHODS } from '../contract';
 import {
-  FAKE_MUSIC, FAKE_NEWEST_YT_DLP, QOBUZ_UNREADABLE, SERVICE_NAME, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkText, coverUri, dateOnly, folderList, hash, isoLocal, makeState, nextStep,
+  FAKE_MUSIC, FAKE_NEWEST_YT_DLP, LINK_REFUSED, QOBUZ_UNREADABLE, SOUNDCLOUD_SET_LINK, SERVICE_NAME, SOUNDCLOUD_UNREADABLE, YOUTUBE_MIX_REFUSED, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkText, coverUri, dateOnly, folderList, hash, isoLocal, makeState, nextStep,
   pathOf, playlistRows, previewAction, qualityLabel, qualityLine, qualityOf, result, runDetail, runId,
   readStatus, sampleCandidates, readOk, todoDetail, todoFree, formatLine, sourceFull, todoGroup, trackRow, type FakeAccount, type FakeFolder, type FakeState,
   type FakeTrack,
@@ -106,6 +106,7 @@ export function pageScenarios(): Record<string, (s: FakeState) => void> {
 }
 export const SCENARIOS = ['normal', 'update_available', 'first_run', 'offline', 'console', 'syncing', 'pause', 'break', 'stopped',
   'finished', 'big', 'errors', 'no_music', 'music_missing', 'qobuz_unreadable', 'qobuz_not_connected',
+  'soundcloud_unreadable', 'youtube_mix_refused',
   // the import of the user's own music (library stage 4)
   'folders_importing', 'folders_offline', 'folders_missing', 'folders_couldnt_read', 'folders_long_names', 'folders_library_only', 'setup_existing_empty',
   'setup_existing_added', 'todo_same_song', 'todo_duplicates', 'todo_duplicates_three', 'sync_waiting_answers'] as const;
@@ -656,8 +657,35 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
             image_url: null, track_count: 18, hint: hintOf('qobuz') }, tracks: 18, readable: true,
           suggested_folder: name.replace(/\W+/g, '_'), hint: null }));
       }
+      // a short link or "you/likes" is expanded first (the real engine: sources.expand); here to the sample set / likes
+      const pasted = (url ?? '').trim().replace(/^https?:\/\/on\.soundcloud\.com\/\w+\/?$/i, SOUNDCLOUD_SET_LINK)
+        .replace(/^(https?:\/\/(?:www\.)?soundcloud\.com\/)you\/likes\/?$/i, '$1example-dj/likes');
+      const sc = /^https?:\/\/(?:www\.)?soundcloud\.com\/([\w-]+(?:\/(?:sets\/[\w-]+(?:\/s-\w+)?|likes))?)\/?$/i.exec(pasted);
+      if (sc) {
+        if (s.soundcloudUnreadable) return later(700, () => fail('playlist_unreadable', SOUNDCLOUD_UNREADABLE, 'soundcloud'));
+        const link = `https://soundcloud.com/${sc[1].toLowerCase()}`;
+        const likes = /\/likes$/.test(link);
+        const name = likes ? "Example DJ's likes" : 'Example Set';
+        return later(700, () => ok({ playlist_id: playlistRef(link)!, service: 'soundcloud' as const,
+          service_name: 'SoundCloud', link,
+          info: { name, owner_name: likes ? 'Example DJ' : 'Example Label', yours: false, collaborative: false,
+            readable: true, image_url: null, track_count: likes ? null : 12, hint: hintOf('soundcloud') },
+          tracks: 12, readable: true, suggested_folder: name.replace(/\W+/g, '_'), hint: null }));
+      }
+      const yt = /^https?:\/\/(?:music\.|www\.|m\.)?youtube\.com\/(?:playlist|watch)\?(?:[^#]*&)?list=([\w-]+)/i.exec((url ?? '').trim());
+      if (yt) {
+        if (s.youtubeMixRefused || /^RD(?!CLAK5uy_)/.test(yt[1])) {
+          return fail('playlist_unreadable', YOUTUBE_MIX_REFUSED, 'youtube_music');
+        }
+        const link = `https://music.youtube.com/playlist?list=${yt[1]}`;
+        return later(700, () => ok({ playlist_id: `youtube_music:${yt[1]}`, service: 'youtube_music' as const,
+          service_name: 'YouTube Music', link,
+          info: { name: 'Example Mix Tape', owner_name: 'Example Channel', yours: false, collaborative: false,
+            readable: true, image_url: null, track_count: 20, hint: hintOf('youtube_music') },
+          tracks: 20, readable: true, suggested_folder: 'Example_Mix_Tape', hint: null }));
+      }
       const m = /open\.spotify\.com\/playlist\/([A-Za-z0-9]+)/.exec(url ?? '');
-      if (!m) return fail('refused', "That isn't a Spotify or Qobuz playlist link. Copy it in Spotify: Share → Copy link to playlist.");
+      if (!m) return fail('refused', LINK_REFUSED);
       const id = m[1];
       const readable = !/private|follow/i.test(id);
       const name = `Name of ${id.slice(0, 4)}`;

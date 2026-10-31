@@ -32,10 +32,13 @@ export const CRASHED_MESSAGE = 'Something went wrong. Try again.';
 export const NOT_WHILE_SYNC = "Not while a sync runs. Try again when it's finished.";
 
 /** The playlist services by name (the engine's `PLAYLIST_SERVICES`; a row's `service_name` says the same). */
-export const PLAYLIST_SERVICE_NAMES: Record<PlaylistService, string> = { spotify: 'Spotify', qobuz: 'Qobuz' };
+export const PLAYLIST_SERVICE_NAMES: Record<PlaylistService, string> = {
+  spotify: 'Spotify', qobuz: 'Qobuz', soundcloud: 'SoundCloud', youtube_music: 'YouTube Music',
+};
 /** Where each playlist service's login lives in Settings (Qobuz's login card is also its download account). */
 export const SERVICE_SETTINGS: Record<PlaylistService, string> = {
-  spotify: '#/settings/spotify', qobuz: '#/settings/qobuz',
+  spotify: '#/settings/spotify', qobuz: '#/settings/qobuz', soundcloud: '#/settings/soundcloud',
+  youtube_music: '#/settings/youtube', // read without a login: no problem names it, the YouTube row is the nearest
 };
 
 /** A playlist service can't be read because its login is missing (`not_set_up` with a service; the engine's

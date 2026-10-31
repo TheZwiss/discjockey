@@ -9,7 +9,7 @@ library (lists cut to 2 items, `data` cut).
 
 - `await window.pywebview.api.<method>(arg1, arg2, ...)` — **positional** arguments in the order listed. Every method
   resolves (never rejects) to `{"ok": true, ...fields}` or `{"ok": false, "kind": <problem>, "message": <plain English>}`.
-  A problem with a playlist service (a `SourceError`: Spotify or Qobuz) also carries `"service": "spotify" | "qobuz"`;
+  A problem with a playlist service (a `SourceError`: Spotify, Qobuz, SoundCloud or YouTube Music) also carries `"service": "spotify" | "qobuz" | "soundcloud" | "youtube_music"`;
   for every other problem the key is absent. The page names that service in its card.
 - Write methods return `{"ok": true, "job_id": <int>}` at once; the outcome arrives as a `JobFinished` event with the
   same `job_id` (see Jobs). At most one write job runs; others are refused with kind `busy` (hub) or `console`
@@ -36,10 +36,10 @@ library (lists cut to 2 items, `data` cut).
 | `busy` | another hub job runs (or a refresh already runs) |
 | `console` | a Discjockey run in the terminal holds the lock → read-only banner |
 | `sync_running` | network read refused while any sync runs (searches, previews, playlist reads) |
-| `not_set_up` | Spotify/Qobuz/playlists.txt not set up → wizard (`service` names the playlist service that isn't, when it is one). `message` is the inline wording ("Connect Qobuz first." for a pasted link, a read or a sync alike; `JobFinished.service` names the service for a read or sync too); a card's title and route ("Qobuz isn't connected.", "Connect Qobuz →") are the UI's, built from `kind` + `service` |
-| `login_expired` | Spotify login expired → wizard Spotify step |
-| `offline` | no connection / Spotify or Qobuz not answering (`service` says which, for Qobuz: "Qobuz is not responding (…). Try again later.") → "No internet connection. Try again when you're online." + Retry |
-| `playlist_unreadable` | a playlist can't be read → the hint of its service (`service` on the answer; `info.hint`) |
+| `not_set_up` | Spotify/Qobuz/playlists.txt not set up (SoundCloud and YouTube Music playlists need no login, so they never are) → wizard (`service` names the playlist service that isn't, when it is one). `message` is the inline wording ("Connect Qobuz first." for a pasted link, a read or a sync alike; `JobFinished.service` names the service for a read or sync too); a card's title and route ("Qobuz isn't connected.", "Connect Qobuz →") are the UI's, built from `kind` + `service` |
+| `login_expired` | Spotify login expired → wizard Spotify step. With `service` `soundcloud`: a `soundcloud.com/you/likes` line (or a pasted one) is read through the SoundCloud login of Settings and SoundCloud didn't accept it ("SoundCloud didn't accept the login from {browser}. Log in to SoundCloud there, or use your profile's likes link (soundcloud.com/your-name/likes)."); it blocks reading like any login problem (`read_status.problem` + `problem_service`, the banner's "Connect SoundCloud →" goes to Settings' SoundCloud row) until a login is saved there |
+| `offline` | no connection / a playlist service not answering (`service` says which, for Qobuz: "Qobuz is not responding (…). Try again later."; SoundCloud and YouTube Music say the same with their names, or "{name} asked Discjockey to slow down. Try again in an hour." for too many requests or a bot check) → "No internet connection. Try again when you're online." + Retry |
+| `playlist_unreadable` | a playlist can't be read → the hint of its service (`service` on the answer; `info.hint`). Also a link the service refuses to read at all: YouTube Music's liked songs, Watch later and mixes ("Discjockey can't read your liked songs or Watch later. …", "This is a YouTube mix, …"), and `soundcloud.com/you/likes` without a SoundCloud login ("To read your own likes, use your profile's likes link: …") |
 | `config_invalid` | playlists.txt / settings.json / state.json needs fixing → show message |
 | `qobuz_login_failed` | Qobuz login failed at sync start, or when reading a Qobuz playlist (`add_playlist`, a read; `service` `qobuz`) → wizard Qobuz step |
 | `login_failed` | Spotify login in the wizard failed (port busy, timeout, refused) |
@@ -89,11 +89,11 @@ Use the kind for the card/headline; always show `message` as the detail.
   day, else for an own file the day Discjockey first saw it. `cover_url`: media URL of the embedded cover, else the
   Spotify image URL (https), else null (show placeholder). `duration_s` float.
 - **ReadStatus** (`read_status` field; it is the status of reading *all* playlists, whichever service): `read_at`
-  ISO|null, `minutes_ago` int|null, `problem` kind|null, `problem_service` `"spotify"|"qobuz"|null` (the playlist
+  ISO|null, `minutes_ago` int|null, `problem` kind|null, `problem_service` `"spotify"|"qobuz"|"soundcloud"|"youtube_music"|null` (the playlist
   service `problem` is about: a missing Qobuz login on a read is `not_set_up` + `qobuz`; null for a problem that is no
-  service's; a good read clears it, and so does a login made for that service: a good Setup or Settings login, or a good "Check again", so the page never waits for a restart), `message` (a missing login reads "Connect Qobuz first." in the hub, never the console's "Run: discjockey setup"), `services` [{`service` `spotify|qobuz`, `name` "Spotify"|"Qobuz",
+  service's; a good read clears it, and so does a login made for that service: a good Setup or Settings login, or a good "Check again", so the page never waits for a restart), `message` (a missing login reads "Connect Qobuz first." in the hub, never the console's "Run: discjockey setup"), `services` [{`service` `spotify|qobuz|soundcloud|youtube_music`, `name` "Spotify"|"Qobuz"|"SoundCloud"|"YouTube Music",
   `connected` bool}] (the services the switched-on lines of playlists.txt use, in line order; `connected` is a local
-  check of that service's login files, so `[]` when no line uses a service; the page blocks reading only while one of
+  check of that service's login files (SoundCloud and YouTube Music playlists are read without a login: always `true`), so `[]` when no line uses a service; the page blocks reading only while one of
   them isn't connected), `stale` bool, `reading` bool, `offline` bool (show last data with an "offline" badge), `auto_read` bool (the hub's
   one automatic read of this session has started, whatever its outcome; kept in Python, so also true after a window
   reload: the Sync page then never reads by itself).
@@ -810,7 +810,7 @@ innermost watched folder holding it is offline or not found) puts its words seco
 `next_qobuz_check`: ISO date, `"next_sync"`, or null. `playlists`: null until the playlists were read.
 `track_link` (stage 3, replaces `spotify_url`): `{url, label}` or null. `url` is the track's page on the service it
 was read from: the link of the first fetched track (playlist order) that is this song, else the link its key gives
-(Spotify and Qobuz; null for a key with none). `label` is `Open in {service name}` ("Open in Spotify", "Open in Qobuz").
+(all four services; null for a key with none: SoundCloud's is its player page `https://w.soundcloud.com/player/?url=…/tracks/{id}`, YouTube Music's `https://music.youtube.com/watch?v={id}`; a fetched SoundCloud track carries its real `permalink_url`). `label` is `Open in {service name}` ("Open in Spotify", "Open in Qobuz", "Open in SoundCloud", "Open in YouTube Music").
 `playlists` matches a song by its key and aliases (tokens), so a Qobuz song lists its folders too.
 `upgrade`: null or the parked version; `what` names it ("lossless version" or e.g. "256 kbps version"); Swap only
 when `swap_safe && swap_possible`; `cue_text` is the line to show. It combines the measurement with `swap_possible`:
@@ -946,10 +946,10 @@ counts each track once, `chips.rekordbox_check` every check (hidden ones too).
 }
 ```
 
-`playlists()` — rows top = highest priority. `playlist_id` is the playlist's **ref** (a Spotify id stays bare, a
-Qobuz one is `qobuz:<id>`); the page keys rows by it. `service` (`spotify|qobuz`) and `service_name` ("Spotify",
-"Qobuz") name the row's service. `info.hint`: the words of the row's service for a playlist it won't show (Spotify:
-"Follow ≠ own: make your own copy in Spotify."; Qobuz: "Make it public in Qobuz, or use one of your own playlists."), always set once `info` is.
+`playlists()` — rows top = highest priority. `playlist_id` is the playlist's **ref** (a Spotify id stays bare, every other service's is `<service>:<id>`: `qobuz:<id>`,
+`soundcloud:<user>/sets/<slug>` or `soundcloud:<user>/likes` (the link's path, lower case), `youtube_music:<list id>`); the page keys rows by it. `service` (`spotify|qobuz|soundcloud|youtube_music`) and `service_name` ("Spotify",
+"Qobuz", "SoundCloud", "YouTube Music") name the row's service. `info.hint`: the words of the row's service for a playlist it won't show (Spotify:
+"Follow ≠ own: make your own copy in Spotify."; Qobuz: "Make it public in Qobuz, or use one of your own playlists."; SoundCloud: "Make it public in SoundCloud, or use its private share link."; YouTube Music: "Set it to public or unlisted in YouTube Music."), always set once `info` is. `info.track_count` is `null` when the service gives no count (a SoundCloud likes list); the row's `tracks` is then what the read found.
 `info` null until read (refresh or add_playlist); `tracks` null when
 neither the tracks nor the playlist's count were read (the row then shows no count). `version` must be sent to
 `save_playlists`. `overlaps` for the panel when nothing is unsaved: each track that is in several switched-on
@@ -1433,8 +1433,8 @@ Candidate back unchanged to `preview` / `use_candidate`.
 `preview(track_id, candidate)` → `{"url"}` — 30 s AIFF for youtube_music/soundcloud/youtube only (`can_preview`);
 qobuz → refused "Qobuz versions have no preview." Plays 20 s of it in the UI.
 
-`add_playlist(url)` — pasted link, a Spotify or a Qobuz playlist (`sources.recognise`); its info and tracks are read
-through that service's reader. `playlist_id` is the ref (see `playlists()`); `service` and `service_name` as there.
+`add_playlist(url)` — pasted link, a playlist of Spotify, Qobuz, SoundCloud or YouTube Music (`sources.recognise`); its info and tracks are read
+through that service's reader. The link is first run through `sources.expand`: a short SoundCloud link (`on.soundcloud.com/…`) becomes the set's or likes list's link, and `soundcloud.com/you/likes` becomes `<your permalink>/likes` through the SoundCloud login of Settings (the stored line then needs no login; this may ask macOS for the browser's Keychain access). A failure there (or in the read) is an ordinary `ok: false` answer with its `kind` and `service`, never a rejection. `playlist_id` is the ref (see `playlists()`); `service` and `service_name` as there.
 ```json
 {
  "ok": true,
@@ -1463,7 +1463,10 @@ through that service's reader. `playlist_id` is the ref (see `playlists()`); `se
 `{"ok": false, "kind": "playlist_unreadable", "service": "qobuz", "message": "Qobuz doesn't show this playlist. It
 must be public or one of yours. Check the link."}` (a Qobuz playlist Qobuz won't show), and
 `{"ok": false, "kind": "not_set_up", "service": "qobuz"|"spotify", "message": "Connect Qobuz first."}` (that service
-isn't connected: nothing is read). A link that is neither service's is `refused` without `service`.
+isn't connected: nothing is read; SoundCloud and YouTube Music need no login), and, with the words of the engine,
+`{"ok": false, "kind": "playlist_unreadable", "service": "soundcloud", "message": "SoundCloud doesn't show this playlist. It may be private or removed; for a private set, use its private share link."}`,
+`{"ok": false, "kind": "playlist_unreadable", "service": "youtube_music", "message": "This is a YouTube mix, which changes every time it plays. Save its songs to a playlist and paste that link."}` (a mix, or liked songs / Watch later: the YouTube Music reader refuses them before any request),
+`{"ok": false, "kind": "login_expired", "service": "soundcloud", …}` and `{"ok": false, "kind": "offline", "service": "soundcloud"|"youtube_music", …}`. A link that is no service's is `refused` without `service`: "That isn't a playlist link Discjockey can read. Open the playlist in Spotify, Qobuz, SoundCloud or YouTube Music, choose Share, then Copy link, and paste it here."
 
 `preview_playlist_change(lines)` — `lines`: `[{"folder", "link", "enabled"}]` in the new order (top first).
 A switched-on line whose playlist was not read yet is read once, through its own service's reader; a service that
@@ -1875,18 +1878,18 @@ the third action).
 | type | fields |
 |---|---|
 | `JobStarted` | `job_id` int, `kind` str, `track_id` str\|null |
-| `JobFinished` | `job_id`, `kind`, `ok` bool, `problem` kind\|null, `message` str, `result` object\|null, `service` `spotify\|qobuz`\|null (the playlist service a failed job's problem is about — a sync or read that stops at a missing login, a rejected login, an unreadable playlist, a service not answering; null for everything else and for success) |
+| `JobFinished` | `job_id`, `kind`, `ok` bool, `problem` kind\|null, `message` str, `result` object\|null, `service` `spotify\|qobuz\|soundcloud\|youtube_music`\|null (the playlist service a failed job's problem is about — a sync or read that stops at a missing login, a rejected login, an unreadable playlist, a service not answering; null for everything else and for success) |
 | `ConsoleBusy` | `running` bool (terminal run started/ended → banner, read-only) |
 | `FileDropped` | `track_id` str\|null, `name` str, `readable` bool, `message` str ("macOS didn't let Discjockey read this file…" / "Select the track…") |
 | `SignInPhase` | `service` (`youtube\|soundcloud`), `phase` `waiting\|checking`, `browser`, `browser_name` — a sign-in through the browser (Settings, Setup) |
 | `AppUpdate` | `state`, `current`, `latest`, `url` as `app_update()` — sent when the update check's answer changes (at start, then at most daily) |
 | `DrivesChanged` | `away` int (how many watched folders are away now) — sent once when the set of import folders that are away (and why: `unmounted` or `missing`, `scanner.away_reason`) differs from the last look: a drive plugged in or ejected, a watched folder renamed or put back while the window is open. The hub's drives watch looks every 2 s, read only (no scan, no write); its first look is the baseline and sends nothing, and a look that can't read `library.db` sends nothing and keeps the last answer. The page re-reads what shows a file's or a watched folder's state (`library()` and the open `track()`, `todo()` and its panel, `watched_folders()`, `sidebar()`), not every page. A new event rather than `JobFinished` (no job ran) or `ConsoleBusy` (it means the window goes read-only) |
 | `RunStarted` | `total` int, `actions` [{`kind`, `track_id`, `title`, `artist`, `image_url` str\|null}] — every action of the run in the order the run does them ("Up next", time left; `image_url`: Spotify's cover for the rows) |
-| `ActionStarted` | `index` (1-based), `total`, `action` {kind, track_id, folder, track {id, title, artists[], album, image_url, duration_ms, isrc, service, link\|null, streamable}, order [int,int], src, dest_dir, aliases[], reason, qobuz_id\|null} (`service` `spotify\|qobuz`: the service the track was read from; `id` is that service's own id, and `link` its page) |
+| `ActionStarted` | `index` (1-based), `total`, `action` {kind, track_id, folder, track {id, title, artists[], album, image_url, duration_ms, isrc, service, link\|null, streamable}, order [int,int], src, dest_dir, aliases[], reason, qobuz_id\|null, upload SourceTrack\|null} (`track.service` `spotify\|qobuz\|soundcloud\|youtube_music`: the service the track was read from; `id` is that service's own id, and `link` its page; `track.account_only`: only the SoundCloud Go+ account plays the whole track; `upload`: the playlist's own SoundCloud or YouTube Music upload of the song, tried after Qobuz and before the search (null: none), a `SourceTrack` with the same fields as `track`) |
 | `StepChanged` | `track_id`, `step`: `search|download|check|convert|analyse|compare` |
 | `Progress` | `track_id`, `step`, `done` number, `total` number\|null, `unit` `bytes` (download) \| `seconds` (conversion) |
 | `Waiting` | `kind` `search|between|break|fallback`, `label`, `remaining` s, `total` s, `service` (`qobuz`, `youtube`, `soundcloud`; empty for free sources) — pause card only for `between`/`break` |
-| `SourceChosen` | `track_id`, `source`, `query_kind` `exact|isrc|name|fallback|chosen` (`exact`: the Qobuz id the playlist track carries, "exact Qobuz track"), `title`, `duration_s`\|null ("Qobuz by ISRC") — sent before the protection pause (`Waiting` `between`/`break`) that precedes a Qobuz download, so the pause card can name the next source |
+| `SourceChosen` | `track_id`, `source`, `query_kind` `exact|isrc|name|fallback|chosen|upload` (`exact`: the Qobuz id the playlist track carries, "exact Qobuz track"; `upload`: the playlist's own upload, "the playlist's own upload" (W20), whether its free download, the account's stream or the free stream is the one tried), `title`, `duration_s`\|null ("Qobuz by ISRC") — sent before the protection pause (`Waiting` `between`/`break`) that precedes a Qobuz download, so the pause card can name the next source |
 | `Checked` | `track_id`, `file_duration_s`, `track_duration_s` (the playlist track's length, whichever service; was `spotify_duration_s`), `codec`, `ok` ("Length matches (3:12 = playlist 3:12)", "Length differs (3:12, playlist 3:20)") |
 | `AccountUsage` | `service`, `used`, `allowance` ("Qobuz 42 of 80 today") |
 | `ActionFinished` | `action` (as above), `result` Result — Problems = sections missing/errors/conflicts/ambiguous; `error_kind: network` → "NO INTERNET" |

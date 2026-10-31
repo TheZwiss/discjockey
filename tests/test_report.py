@@ -188,3 +188,11 @@ def test_links_follow_the_tracks_service():
     assert "- [A] Artist - Other\n" in text and "spotify.com" not in text
     state = {"tracks": {"qobuz:900000001": entry("missing", title="Gone")}}
     assert "· [Qobuz](https://open.qobuz.com/track/900000001) · [Beatport]" in render_not_lossless(state)
+
+
+def test_a_report_links_a_track_of_every_playlist_service():
+    from discjockey import report
+    assert report.service_link("soundcloud:900000101") == (
+        "[SoundCloud](https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/900000101) · ")
+    assert report.service_link("youtube_music:EXAMPLEid01") == (
+        "[YouTube Music](https://music.youtube.com/watch?v=EXAMPLEid01) · ")

@@ -89,7 +89,9 @@ export type BrowserInput = {
   shown?: Readonly<Record<string, boolean>>;
 };
 
-const SERVICE_NAME: Record<PlaylistService, string> = { spotify: 'Spotify', qobuz: 'Qobuz' };
+const SERVICE_NAME: Record<PlaylistService, string> = {
+  spotify: 'Spotify', qobuz: 'Qobuz', soundcloud: 'SoundCloud', youtube_music: 'YouTube Music',
+};
 const AWAY_WORDS: Record<Exclude<FolderState, 'here'>, string> = {
   offline: 'Offline: connect the drive', folder_missing: 'Folder not found',
 };

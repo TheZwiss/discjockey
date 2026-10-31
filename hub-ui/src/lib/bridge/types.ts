@@ -11,7 +11,7 @@ export const QUALITIES: readonly Quality[] = ['lossless', 'good_lossy', 'weak', 
 export type EmptyKind = 'no_playlists' | 'not_set_up' | 'empty_library' | 'no_preview' | 'up_to_date' | 'no_match'
   | 'all_lossless' | 'all_hidden' | 'nothing_here' | 'gone';
 /** A playlist service (`sources.py`): the one a playlist row, a link or a problem belongs to. */
-export type PlaylistService = 'spotify' | 'qobuz';
+export type PlaylistService = 'spotify' | 'qobuz' | 'soundcloud' | 'youtube_music';
 /** `service`: set when a playlist service caused the problem (a `SourceError`), absent for every other. */
 export type Fail = { ok: false; kind: ProblemKind; message: string; service?: PlaylistService };
 export type Res<T> = ({ ok: true } & T) | Fail;
@@ -341,10 +341,13 @@ export type Todo = {
 };
 
 export type PlaylistInfo = { name: string; owner_name: string; yours: boolean; collaborative: boolean;
-  readable: boolean; image_url: string | null; track_count: number;
+  readable: boolean; image_url: string | null;
+  /** null: the service gave no count (a SoundCloud likes list) */
+  track_count: number | null;
   /** the words of the row's service for a playlist it won't show (always set once info is) */
   hint: string };
-/** `playlist_id` is the playlist's ref: a Spotify id stays bare, a Qobuz one is `qobuz:<id>`. */
+/** `playlist_id` is the playlist's ref: a Spotify id stays bare, every other service's is `<service>:<id>`
+ *  (`qobuz:<id>`, `soundcloud:user/sets/slug`, `youtube_music:<list id>`). */
 export type PlaylistRow = { index: number; folder: string; link: string; playlist_id: string | null;
   service: PlaylistService; service_name: string; enabled: boolean; info: PlaylistInfo | null;
   tracks: number | null; quality: ByQuality };

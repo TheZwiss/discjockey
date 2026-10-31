@@ -359,6 +359,18 @@ def test_setup_account_checks_saves_and_keeps_the_qobuz_limit(root):
                                                          "last_check": checked}
 
 
+def test_a_saved_soundcloud_login_clears_a_stored_soundcloud_read_problem(root):
+    """A you/likes line whose login SoundCloud did not accept blocks the read (login_expired, service soundcloud) until
+    the user signs in again in Settings; saving that login makes the stored problem out of date."""
+    api, rec = make_api(root, fallback=CheckingFallback)
+    api._store.failed("login_expired", "SoundCloud didn't accept the login from Chrome.", "soundcloud")
+    assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
+    assert api._store.problem is None
+    api._store.failed("login_expired", "Qobuz is not accepted.", "qobuz")  # another service's problem stays
+    assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
+    assert api._store.problem == "login_expired"
+
+
 def test_a_youtube_login_without_premium_is_not_saved(root):
     CheckingFallback.answer = {"ok": False, "problem": "no_premium", "kbps": 129, "detail": ""}
     try:

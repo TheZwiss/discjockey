@@ -10,7 +10,7 @@
 </script>
 
 <span class="lead">
-  {#if lead === 'service' && row.kind === 'playlist' && row.service}<ServiceMark service={row.service} />
+  {#if lead === 'service' && row.kind === 'playlist' && row.service}<ServiceMark service={row.service === 'youtube_music' ? 'youtubemusic' : row.service} />
   {:else if lead === 'warn'}<span class="warn"><StatusMark tone="warn" /></span>
   {:else if lead === 'folder'}<svg class="folder" viewBox="0 0 14 12" aria-hidden="true"><path
     d="M1.2 2.2c0-.6.4-1 1-1h3.1l1.4 1.5h5.1c.6 0 1 .4 1 1v6.9c0 .6-.4 1-1 1H2.2c-.6 0-1-.4-1-1z" /></svg>

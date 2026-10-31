@@ -1753,6 +1753,8 @@ class HubApi:
                 return s.with_check(service, record)  # the saved login no longer works: Settings says so
             return s
         self._update_settings(change)
+        if saved and service == "soundcloud":  # a read problem about SoundCloud's login (a you/likes line) is out of date now
+            self._store.clear_service("soundcloud")
         return {"service": service, "browser": browser, "profile": profile, "saved": saved,
                 "check": {**{k: check[k] for k in ("ok", "problem", "kbps")},
                           "message": check_message(service, browser, check)}}
