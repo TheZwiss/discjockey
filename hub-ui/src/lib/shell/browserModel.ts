@@ -17,6 +17,7 @@
 // row whenever there is text, and the only one, with the highlight, when no name matches (N3).
 import type { Crate, Favourite, FolderState, LibraryView, PlaylistService, Sidebar, WatchedEntry } from '../bridge/types';
 import { NOT_IN_PLAYLIST } from '../bridge/types';
+import { PLAYLIST_SERVICE_NAMES } from '../copy';
 import { count } from '../format';
 import { buildHash, libraryHref } from '../router';
 
@@ -89,9 +90,6 @@ export type BrowserInput = {
   shown?: Readonly<Record<string, boolean>>;
 };
 
-const SERVICE_NAME: Record<PlaylistService, string> = {
-  spotify: 'Spotify', qobuz: 'Qobuz', soundcloud: 'SoundCloud', youtube_music: 'YouTube Music',
-};
 const AWAY_WORDS: Record<Exclude<FolderState, 'here'>, string> = {
   offline: 'Offline: connect the drive', folder_missing: 'Folder not found',
 };
@@ -168,7 +166,7 @@ const tracksWord = (n: number): string => (n === 1 ? '1 track' : `${count(n)} tr
 const awayLine = (state: FolderState): string => (state === 'here' ? '' : `\n${AWAY_WORDS[state]}`);
 
 export function playlistTip(p: { name: string; service: PlaylistService | null; enabled: boolean; songs: number | null }): string {
-  const kind = p.service ? `${SERVICE_NAME[p.service]} playlist` : '';
+  const kind = p.service ? `${PLAYLIST_SERVICE_NAMES[p.service]} playlist` : '';
   const songs = p.songs === null ? 'not read yet' : songsWord(p.songs);
   return `${p.name}\n${kind ? `${kind} · ` : ''}${songs}${p.enabled ? '' : '\nSwitched off: its files stay, nothing new downloads'}`;
 }

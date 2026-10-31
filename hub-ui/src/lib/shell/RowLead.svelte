@@ -3,14 +3,14 @@
   // service's own logo for a playlist, the folder outline for a folder that stands on its own (a watched folder, a
   // pinned crate, a Library folder no playlist uses), the yellow "!" (StatusMark warn, the mark Settings and AwayTag
   // use for the same state) while a folder's drive is away, or nothing. Decorative: the row's words say it.
-  import { ServiceMark, StatusMark } from '../components';
+  import { ServiceMark, StatusMark, logoOf } from '../components';
   import type { CollectionRow } from './browserModel';
 
   let { row, lead = row.lead }: { row: CollectionRow; lead?: CollectionRow['lead'] } = $props();
 </script>
 
 <span class="lead">
-  {#if lead === 'service' && row.kind === 'playlist' && row.service}<ServiceMark service={row.service === 'youtube_music' ? 'youtubemusic' : row.service} />
+  {#if lead === 'service' && row.kind === 'playlist' && row.service}<ServiceMark service={logoOf(row.service)} />
   {:else if lead === 'warn'}<span class="warn"><StatusMark tone="warn" /></span>
   {:else if lead === 'folder'}<svg class="folder" viewBox="0 0 14 12" aria-hidden="true"><path
     d="M1.2 2.2c0-.6.4-1 1-1h3.1l1.4 1.5h5.1c.6 0 1 .4 1 1v6.9c0 .6-.4 1-1 1H2.2c-.6 0-1-.4-1-1z" /></svg>
