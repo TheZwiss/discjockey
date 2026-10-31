@@ -75,6 +75,7 @@ class _Tries:
     MISSES_PER_TRACK hold across both."""
     attempts: int = 0  # downloads started for this track outside Qobuz: the next one gets the fallback pause
     missed: dict = field(default_factory=dict)  # account service -> format listings without ~256 kbps (this track)
+    streams: int = 0  # stream downloads started for this track (MAX_FALLBACK_DOWNLOADS holds across upload and search)
 
 
 def upload_candidate(upload: SourceTrack) -> Candidate:
@@ -389,15 +390,16 @@ class Acquirer:
     def _streams(self, track: SourceTrack, matches: list[Candidate], workdir: Path, res: AcquireResult,
                  skip: set[str], tracker: Tracker, tries: _Tries, spare: Ready | None = None, how: str = "fallback",
                  account_only: set[str] | frozenset[str] = frozenset()) -> Ready | None:
-        """The stream downloads of spec §2, best rank first, at most MAX_FALLBACK_DOWNLOADS: through an account when
+        """The stream downloads of spec §2, best rank first, at most MAX_FALLBACK_DOWNLOADS per track
+        (`tries.streams`, over the upload step and the search): through an account when
         its format listing shows ~256 kbps, else free. The listing is a logged-in request: it gets the protection
         pause, and an account service is listed at most MISSES_PER_TRACK times per track without a ~256 kbps stream
         (`tries.missed`, over the upload step and the search). A track whose best remaining match needs a used-up or
         paused account waits (res.kind "queued", §4). `spare`: an artist's original below the account tier, returned
         once only free streams are left. `account_only`: keys never downloaded without their account."""
-        pending, demoted, streams = list(matches), set(), 0
+        pending, demoted = list(matches), set()
         place = {c.key: i for i, c in enumerate(matches)}
-        while pending and streams < MAX_FALLBACK_DOWNLOADS:
+        while pending and tries.streams < MAX_FALLBACK_DOWNLOADS:
             usable = self._usable()  # a limit can run out, or an account pause, during one track
             wait = self._waits(pending, usable, demoted)
             if wait:  # what's left is worse than what an account gives on another day
@@ -424,13 +426,15 @@ class Acquirer:
             pending.pop(0)
             if not account and c.key in account_only:  # its free stream is only a preview
                 self._debug(f"{c.key}: only the account plays all of it, so it isn't downloaded without the account")
+                if c.key in demoted:  # its listing showed no ~256 kbps stream: rejected for good, as its preview was
+                    res.rejected.append(c.key)  # (a missing, paused or used-up account is not that: not remembered)
                 continue
             if spare is not None and not account:
                 return spare  # what's left are free streams: the artist's own file is the better one
             if not account and tries.attempts:
                 self.pacer.between_fallback_downloads()
             tries.attempts += 1
-            streams += 1
+            tries.streams += 1
             ready = self._try(c, track, workdir, res, skip, False, tracker, qobuz=False, how=how,
                               account=service if account else None)
             if ready:

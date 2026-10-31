@@ -151,6 +151,20 @@ def test_a_rejected_upload_is_not_tried(tmp_path):
     assert fb.downloads == ["y1"] and fb.looked_up == [] and r.ready.source_id == "y1"
 
 
+def test_the_stream_cap_spans_the_upload_and_the_search(tmp_path):
+    fb = RecordingFallback([fc(f"y{i}") for i in range(5)])
+    a, _ = acquirer(None, fb, statuses={SC_KEY: None, **{f"youtube:y{i}": None for i in range(5)}})
+    r = get(a, tmp_path, sc_upload())
+    assert fb.downloads == [SC_ID, "y0", "y1"] and r.kind == "missing"  # 3 streams for the track, not 1 + 3
+
+
+def test_a_track_without_an_upload_keeps_its_three_streams(tmp_path):
+    fb = RecordingFallback([fc(f"y{i}") for i in range(5)])
+    a, _ = acquirer(None, fb, statuses={f"youtube:y{i}": None for i in range(5)})
+    r = get(a, tmp_path, None)
+    assert fb.downloads == ["y0", "y1", "y2"] and r.kind == "missing"
+
+
 def test_without_an_upload_nothing_changes(tmp_path):
     fb = RecordingFallback([fc("y1")])
     a, _ = acquirer(None, fb)
@@ -201,7 +215,8 @@ def test_a_go_plus_only_upload_without_the_account_is_not_downloaded_and_the_sea
                           fc("y1")])
     a, _, _ = setup(fb, limits={})
     r = get(a, tmp_path, sc_upload(account_only=True))
-    assert fb.downloads == ["y1"] and r.ready.source_id == "y1" and r.rejected == []
+    assert fb.downloads == ["y1"] and r.ready.source_id == "y1"
+    assert r.rejected == []  # no account: nothing was listed, so the upload is not remembered as no good
 
 
 def test_a_go_plus_only_upload_without_a_go_plus_stream_is_never_taken_free(tmp_path):
@@ -209,7 +224,8 @@ def test_a_go_plus_only_upload_without_a_go_plus_stream_is_never_taken_free(tmp_
     a, _, _ = setup(fb, limits={"soundcloud": 60})
     r = get(a, tmp_path, sc_upload(account_only=True))
     assert fb.probes == [(SC_KEY, True)] and fb.downloads == ["y1"]
-    assert r.ready.source_id == "y1" and r.rejected == []  # not tried, so not rejected for good either
+    # its listing showed no Go+ stream, so the free preview is out for good, as the failed length check made it before
+    assert r.ready.source_id == "y1" and r.rejected == [SC_KEY]
 
 
 def test_a_go_plus_only_upload_comes_through_the_account(tmp_path):
