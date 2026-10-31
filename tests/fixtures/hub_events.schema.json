@@ -774,6 +774,9 @@
         },
         "streamable": {
           "type": "boolean"
+        },
+        "account_only": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -786,7 +789,8 @@
         "isrc",
         "service",
         "link",
-        "streamable"
+        "streamable",
+        "account_only"
       ],
       "additionalProperties": false
     },
