@@ -87,8 +87,10 @@ class FakeIE:
     _API_V2_BASE = API
     _browser_impersonate_target = True
 
-    def __init__(self, world, headers):
-        self.world, self._HEADERS = world, headers
+    _HEADERS = {}  # like yt-dlp's class-level dict; `_extractor` must give the instance its own before the login
+
+    def __init__(self, world, logged_in):
+        self.world, self.logged_in = world, logged_in
 
     @staticmethod
     def _resolv_url(url):
@@ -97,6 +99,8 @@ class FakeIE:
     def initialize(self):
         if self.world.initialize_error:
             raise self.world.initialize_error
+        if self.logged_in:  # yt-dlp's login finds the browser's token and writes the header in place
+            self._HEADERS.update(self.world.login_headers)
 
     def _call_api(self, url, video_id, query=None, headers=None, **kwargs):
         world = self.world
@@ -112,8 +116,7 @@ class FakeYDL:
 
     def get_info_extractor(self, key):
         assert key == "SoundcloudUser"
-        logged_in = "cookiesfrombrowser" in self.opts
-        return FakeIE(self.world, dict(self.world.login_headers) if logged_in else {})
+        return FakeIE(self.world, "cookiesfrombrowser" in self.opts)
 
     def close(self):
         self.closed = True
@@ -322,7 +325,8 @@ def test_likes_page_through_next_href(world, paths):
     assert urls[0] == API + "resolve?url=https://soundcloud.com/example-dj"
     assert urls[1] == API + "users/900000020/track_likes"
     assert world.calls[1][1] == {"limit": 200, "linked_partitioning": "1"}
-    assert "offset=" in urls[2] and world.calls[2][1] == {}  # the cursor is in the address
+    assert "offset=" in urls[2]  # the cursor is in the address ...
+    assert world.calls[2][1] == {"limit": 200, "linked_partitioning": "1"}  # ... and the page size is sent again
     assert len(urls) == 3
     assert all(c[2] == {} for c in world.calls)
     assert all(c[3].get("impersonate") is True for c in world.calls[1:])  # yt-dlp's own impersonation target
@@ -337,6 +341,17 @@ def test_likes_info_needs_only_the_user(world, paths):
     assert info.name == "Example DJ's likes" and info.track_count is None and len(world.calls) == 1
 
 
+def test_a_likes_card_without_tracks_takes_the_avatar_as_its_cover(world, paths):
+    with source.open(paths, CancelToken()) as reader:
+        info = reader.info("example-dj/likes")
+    assert info.image_url == "https://i1.sndcdn.com/avatars-example900000020-t500x500.jpg"
+
+
+def test_a_likes_card_prefers_a_liked_tracks_artwork(world, paths):
+    fetched = read(paths, LIKES_LINE, want_info=True)
+    assert "artworks-example900000301" in fetched.info.image_url
+
+
 def test_a_like_listed_by_id_only_is_fetched(world, paths, monkeypatch):
     page = fixture("likes_page2.json")
     page["collection"][1] = {"kind": "like", "track": {"id": 900000201, "kind": "track"}}
@@ -345,6 +360,27 @@ def test_a_like_listed_by_id_only_is_fetched(world, paths, monkeypatch):
     fetched = read(paths, LIKES_LINE)
     assert fetched.tracks[-1].id == "900000201" and fetched.skipped == []
     assert "playlistId" not in world.calls[-1][1]
+
+
+# --- 2.3 stubs ---------------------------------------------------------------------------------------------------
+
+def test_a_full_track_with_an_empty_title_is_not_a_stub():
+    full = {"id": 900000999, "kind": "track", "title": "", "policy": "ALLOW", "user": {"username": "Example"}}
+    assert not source._is_stub(full)
+    assert not source._is_stub({"id": 900000998, "title": "", "policy": "ALLOW"})
+    assert not source._is_stub({"id": 900000997, "title": "", "user": {"id": 1}})
+    assert source._is_stub({"id": 900000996, "kind": "track"})
+    assert not source._is_stub({"kind": "track"}) and not source._is_stub(None)
+    assert isinstance(source.parse_track(full), SourceTrack)  # read as a track, not "no longer shows"
+
+
+def test_a_batch_answer_keeps_a_full_track_with_an_empty_title(world, paths, monkeypatch):
+    full = {"id": 900000201, "kind": "track", "title": "", "policy": "ALLOW", "user": {"username": "Example"}}
+    monkeypatch.setattr(world, "serve", lambda url, query: [full] if url == API + "tracks" else (
+        {"id": 900000001, "kind": "playlist", "title": "S", "user": {}, "tracks": [{"id": 900000201, "kind": "track"}]}
+        if "resolve" in url else World.serve(world, url, query)))
+    fetched = read(paths)
+    assert [t.id for t in fetched.tracks] == ["900000201"] and fetched.skipped == []
 
 
 # --- 2.3 errors ------------------------------------------------------------------------------------------------
@@ -378,11 +414,29 @@ def test_an_unknown_likes_user_is_unreadable(world, paths):
     assert e.value.kind == "playlist_unreadable" and "likes" not in str(e.value).split("(")[0]
 
 
-def test_a_refused_batch_is_unreadable(world, paths):
-    world.failures["/tracks"] = ExtractorFailure(403)
+@pytest.mark.parametrize("status", [401, 403])
+def test_a_refused_batch_is_a_read_error_not_private(world, paths, status):
+    world.failures["/tracks"] = ExtractorFailure(status)  # the set itself was found
     with pytest.raises(SourceError) as e:
         read(paths)
-    assert str(e.value) == UNREADABLE_FETCH
+    assert str(e.value) == "SoundCloud is not responding (ExtractorFailure). Try again later."
+    assert e.value.kind == "offline"
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_a_refused_later_likes_page_is_a_read_error_not_private(world, paths, status):
+    world.failures["offset="] = ExtractorFailure(status)  # the first page was read
+    with pytest.raises(SourceError) as e:
+        read(paths, LIKES_LINE)
+    assert str(e.value) == "SoundCloud is not responding (ExtractorFailure). Try again later."
+    assert e.value.kind == "offline"
+
+
+def test_a_refused_first_likes_page_is_unreadable(world, paths):
+    world.failures["/track_likes"] = ExtractorFailure(403)
+    with pytest.raises(SourceError) as e:
+        read(paths, LIKES_LINE)
+    assert str(e.value) == UNREADABLE_FETCH.replace("line 3 (House)", "line 4 (Likes)")
 
 
 def test_too_many_requests_says_slow_down(world, paths):
@@ -571,3 +625,24 @@ def test_a_registry_read_needs_no_login(world, paths):
     infos = {}
     sources.read_infos(paths, ["soundcloud:" + SET_ID], infos, CancelToken())
     assert infos["soundcloud:" + SET_ID].owner_name == "Example Label"
+
+
+# --- the shared header dict of yt-dlp ---------------------------------------------------------------------------
+
+def test_a_login_never_writes_into_yt_dlps_shared_headers(monkeypatch):
+    """With the REAL yt-dlp SoundCloud classes (only the network parts patched): the login through `_extractor` puts
+    the OAuth header on our extractor alone; the class dict and every later extractor stay anonymous."""
+    from yt_dlp.extractor import soundcloud as yt_soundcloud
+    base = yt_soundcloud.SoundcloudBaseIE
+    monkeypatch.setattr(base, "_HEADERS", {})  # a fresh class dict, so a leak shows here and goes nowhere else
+    monkeypatch.setattr(base, "_initialize_pre_login", lambda self: setattr(self, "_CLIENT_ID", "example"))
+    monkeypatch.setattr(base, "_request_webpage", lambda self, *a, **k: object())  # the token check "succeeds"
+    monkeypatch.setattr(base, "_get_cookies", lambda self, url: {"oauth_token": type("C", (), {"value": "example"})()})
+    from yt_dlp.YoutubeDL import YoutubeDL as RealYoutubeDL  # conftest stubs `yt_dlp.YoutubeDL`; this one does no I/O
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", RealYoutubeDL)
+    ydl, ie = source._extractor({})
+    try:
+        assert ie._HEADERS == {"Authorization": "OAuth example"}  # the login really ran on this instance
+        assert base._HEADERS == {} and yt_soundcloud.SoundcloudIE()._HEADERS == {}
+    finally:
+        ydl.close()

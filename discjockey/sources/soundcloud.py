@@ -8,8 +8,10 @@ The reader asks SoundCloud's API itself through yt-dlp's SoundCloud extractor (a
 which keeps the client id current. yt-dlp is imported inside the functions that need it, never at module level:
 `sources` is imported by `config` and `playlists_file`, before `tools.activate()` has put the newer yt-dlp first.
 
-yt-dlp's `_HEADERS` is one dict shared by every SoundCloud extractor of the process, and a login writes its OAuth
-header into it. So every anonymous request here passes `headers={}` itself and stays anonymous whatever else ran."""
+yt-dlp's `_HEADERS` is a class-level dict shared by every SoundCloud extractor of the process, and a login writes its
+OAuth header into it in place. So `_extractor` gives its extractor its own `_HEADERS` before the login runs (the
+class dict is never written, and the download side stays anonymous), and every anonymous request here also passes
+`headers={}` itself."""
 from __future__ import annotations
 
 import re
@@ -99,6 +101,7 @@ def _extractor(options: dict):
     ydl = yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "noprogress": True, "socket_timeout": 30, **options})
     try:
         ie = ydl.get_info_extractor("SoundcloudUser")
+        ie._HEADERS = {}  # before the login writes into it: yt-dlp's class-level dict is shared by all
         ie.initialize()
     except BaseException:
         ydl.close()
@@ -240,8 +243,9 @@ def parse_track(obj: object) -> SourceTrack | str:
 
 
 def _is_stub(track: object) -> bool:
-    """A track the set lists by id only (SoundCloud fills in the first few of a set)."""
-    return isinstance(track, dict) and bool(track.get("id")) and not track.get("title")
+    """A track the set lists by id only (SoundCloud fills in the first few of a set): no policy and no uploader. A
+    full track with an empty title is not one."""
+    return isinstance(track, dict) and bool(track.get("id")) and "policy" not in track and "user" not in track
 
 
 class SoundCloudReader:
@@ -284,10 +288,10 @@ class SoundCloudReader:
             raise unreadable
         return data
 
-    def _fill(self, tracks: list, unreadable: SourceError, playlist_id: str | None = None,
-              secret: str | None = None) -> list:
+    def _fill(self, tracks: list, playlist_id: str | None = None, secret: str | None = None) -> list:
         """`tracks` with every stub replaced by its full object: ids fetched 50 at a time, in the original order. An
-        id the answer lacks stays a stub (the caller skips it)."""
+        id the answer lacks stays a stub (the caller skips it). The set was found, so a refused batch is a read
+        error, not "private"."""
         stubs = [str(t["id"]) for t in tracks if _is_stub(t)]
         found: dict[str, dict] = {}
         for i in range(0, len(stubs), BATCH_SIZE):
@@ -296,9 +300,9 @@ class SoundCloudReader:
                 query["playlistId"] = playlist_id
             if secret:
                 query["playlistSecretToken"] = secret
-            answer = self._get(self._ie._API_V2_BASE + "tracks", unreadable, query=query)
+            answer = self._get(self._ie._API_V2_BASE + "tracks", None, query=query)
             for t in answer if isinstance(answer, list) else []:
-                if isinstance(t, dict) and t.get("id") and t.get("title"):
+                if isinstance(t, dict) and t.get("id") and not _is_stub(t):
                     found[str(t["id"])] = t
         return [found.get(str(t.get("id")), t) if _is_stub(t) else t for t in tracks]
 
@@ -324,7 +328,7 @@ class SoundCloudReader:
         playlist = self._set(pid, unreadable)
         secret = pid.split("/")[3] if pid.count("/") >= 3 else None
         items = playlist.get("tracks") or []
-        items = self._fill(items if isinstance(items, list) else [], unreadable, str(playlist["id"]), secret)
+        items = self._fill(items if isinstance(items, list) else [], str(playlist["id"]), secret)
         tracks, skipped = self._sorted(items)
         info = self._set_info(playlist, pid) if self.want_info else None
         return FetchedPlaylist(line, tracks, skipped, info)
@@ -340,16 +344,16 @@ class SoundCloudReader:
         base = ie._API_V2_BASE + f"users/{user['id']}/track_likes"
         items: list = []
         url, query = base, {"limit": LIKES_PAGE, "linked_partitioning": "1"}
-        while url:
-            page = _api(ie, self.token, url, headers=headers, query=query, refused=unreadable,
-                        impersonate=ie._browser_impersonate_target)
+        while url:  # a later page is refused as a read error: the user was found, so it isn't "private"
+            page = _api(ie, self.token, url, headers=headers, query=query,
+                        refused=unreadable if url == base else None, impersonate=ie._browser_impersonate_target)
             if not isinstance(page, dict):
                 raise unreadable
             for entry in page.get("collection") or []:
                 track = entry.get("track") if isinstance(entry, dict) else None
                 items.append(track if isinstance(track, dict) else {})
-            url, query = page.get("next_href"), {}  # the next address holds its own cursor
-        items = self._fill(items, unreadable)
+            url = page.get("next_href")  # its address holds the cursor; the page size is sent again, as yt-dlp does
+        items = self._fill(items)
         tracks, skipped = self._sorted(items)
         info = self._likes_info(user, pid, len(tracks) + len(skipped), items) if self.want_info else None
         return FetchedPlaylist(line, tracks, skipped, info)
@@ -389,6 +393,7 @@ class SoundCloudReader:
     def _likes_info(user: dict, playlist_id: str, count: int | None, items: list) -> PlaylistInfo:
         name = str(user.get("username") or "")
         cover = next((t["artwork_url"] for t in items if isinstance(t, dict) and t.get("artwork_url")), None)
+        cover = cover or user.get("avatar_url")  # `info()` has no tracks to take a cover from
         return PlaylistInfo(SERVICE, playlist_id, f"{name}'s likes", str(user.get("id") or ""), name, False,
                             _image(cover), count, False, True)
 
