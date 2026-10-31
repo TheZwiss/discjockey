@@ -68,9 +68,9 @@ const fake: PageFake = {
     'after-no-undo'(s) { replaced(s, 'swapped', 'exact', false); },
     // Duplicates (open with #/todo?filter=duplicate): a clear winner (the lossless AIFF in a playlist against a
     // 16 kHz copy) is picked; a tie (two lossless AIFFs) picks nothing; both together.
-    'duplicates-pick'(s) { s.imp.duplicates = [sameSong()]; },
+    'duplicates-pick'(s) { s.imp.duplicates = [sameSong(s)]; },
     'duplicates-tie'(s) { s.imp.duplicates = [sameAudio(2)]; },
-    'duplicates'(s) { s.imp.duplicates = [sameAudio(2), sameSong()]; },
+    'duplicates'(s) { s.imp.duplicates = [sameAudio(2), sameSong(s)]; },
     'duplicates-three'(s) { s.imp.duplicates = [sameAudio(3)]; },
     // t2 (Armin Hermann – Get Naughty) has an upgrade that doesn't match: no Swap, "Add as new file" is primary.
     // Open with #/todo?track=t2.

@@ -415,7 +415,8 @@ waiting for a track, the list says so.
 Once a week, Discjockey looks on Qobuz for a lossless version of each track in `not_lossless/`.
 When it finds one, it doesn't replace anything. It **parks** the new file in
 `Upgrades ready/<Folder>/` and checks whether the two versions line up exactly (same edit,
-same start). The track then shows on the **To-do** page as "Upgrade ready". For music
+same start). The track then shows on the **To-do** page as "Upgrade ready", and you can decide it there or in the
+track's details in the **Library** (the same choice, in the same words). For music
 you imported from your own folders, the first check of each file is spread over several runs (see
 [Your existing music](#your-existing-music)).
 

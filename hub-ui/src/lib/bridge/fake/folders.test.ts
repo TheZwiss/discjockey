@@ -179,7 +179,7 @@ describe('fake To-do of the import', () => {
   it('shows a group of three as one item, and "Keep all" answers every file of it', async () => {
     const { f, evs } = fake('todo_duplicates_three');
     const t = must(await f.todo('all', false));
-    const ds = items(t, 'duplicate') as DuplicateItem[];
+    const ds = (items(t, 'duplicate') as DuplicateItem[]).sort((a, b) => (a.pair.why === 'same_audio' ? -1 : 1) - (b.pair.why === 'same_audio' ? -1 : 1));
     expect(ds.map((d) => [d.pair.why, d.pair.files.length, d.detail])).toEqual([
       ['same_audio', 3, 'The same audio in 3 files'], ['same_song', 2, '2 files of the same song']]);
     expect(ds[1].pair.files.find((x) => x.in_playlist)!.audio_url).toMatch(/^data:|^blob:/);
@@ -204,7 +204,7 @@ describe('fake To-do of the import', () => {
     const done = await finished(evs, start.job_id);
     expect(done).toMatchObject({ kind: 'supersede', ok: true });
     expect((done.result as { result: { section: string; path: string } }).result)
-      .toMatchObject({ section: 'replaced', path: 'Superseded/Music/Rave Kollektiv - Bis zum Morgen.aiff' });
+      .toMatchObject({ section: 'replaced', path: `Superseded/Music/${own.artist} - ${own.title}.aiff` });
     expect(must(await f.todo('all', false)).chips.duplicate).toBe(1);
     const again = must(await f.supersede_duplicate(pair.group_id, own.file_id, shown));
     expect(await finished(evs, again.job_id)).toMatchObject({ ok: false, problem: 'changed' });

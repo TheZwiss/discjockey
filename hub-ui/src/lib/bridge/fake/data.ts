@@ -51,6 +51,9 @@ export type FakeTrack = {
   own?: boolean;
   /** an own file's folder (absolute); without it the file sits in `/Volumes/Example/Music` */
   dir?: string;
+  /** a playlist song's file when it isn't its Library one: a duplicate's file of the user's own took the song over
+   *  (the engine's heir, folders._heir), so the song plays from the import folder now */
+  file?: string;
   /** an own file the import has read but whose sound it hasn't judged yet: its quality is the codec's guess */
   unchecked?: boolean;
   /** an own file that isn't there to play (the contract's file_state): its drive is away, its folder isn't found, or
@@ -219,6 +222,7 @@ export function qualityLabel(t: FakeTrack): string {
 }
 export function pathOf(t: FakeTrack): string | null {
   if (t.status === 'missing') return null;
+  if (t.file) return t.file;
   if (t.own) return `${t.dir ?? '/Volumes/Example/Music'}/${t.artist} - ${t.title}.wav`;
   const sub = t.status === 'lossless' ? '' : '/not_lossless';
   return `Library/${t.at ?? t.folder}${sub}/${t.artist} - ${t.title}.aiff`;

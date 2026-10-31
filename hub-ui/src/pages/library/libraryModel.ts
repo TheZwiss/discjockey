@@ -1,5 +1,6 @@
 // Pure helpers for the Library page (sorting, windowing, selection, the filter segments, the columns, the row signals,
 // the words of the header and the empty states, the inspector). Tested in libraryModel.test.ts.
+import type { Decision } from '$lib/decisions/decisionModel';
 import type { Library, LibraryFilter, LibraryRow, LibrarySort, LibraryView, Quality, Sidebar, TrackDetail,
   TrackRow } from '$lib/bridge/types';
 import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
@@ -134,6 +135,35 @@ export function offTable(lib: Pick<Library, 'rows' | 'also'> | null, answeredFor
   folder: string | null, track: string | null): boolean {
   if (!lib || track === null || answeredFor !== folder) return false;
   return rowOf(lib, track) === null;
+}
+
+/** The track the user just acted on in the details (a replace, Discard, Done, Undo, Keep): it stays on the table and
+ *  selected, its result and Undo in the details, until the user picks another track or changes the view, the search or
+ *  the filter, so a replace under "Upgrade ready" doesn't take the row (and with it the rekordbox steps) away, as To-do
+ *  keeps the item it acted on. `keep`: a duplicate's Keep, the paths of the files that stay; when the track's own file
+ *  went (or its row took another name, the engine's heir), the hold follows the track that has a kept file now. */
+export type Hold = { id: string; keep: string[] | null; folder: string | null; q: string; filter: LibraryFilter };
+export function holdApplies(h: Hold | null, folder: string | null, q: string, filter: LibraryFilter): h is Hold {
+  return !!h && h.folder === folder && h.q === q && h.filter === filter;
+}
+/** The held track's row among `rows`: the track itself, else (a duplicate's Keep) the one whose file stayed. */
+export function heldRow(rows: LibraryRow[], h: Pick<Hold, 'id' | 'keep'>): LibraryRow | null {
+  const own = rows.find((r) => r.track_id === h.id);
+  if (own) return own;
+  const keep = h.keep;
+  return keep ? rows.find((r) => !!r.path && keep.includes(r.path)) ?? null : null;
+}
+/** The answer with the held row put back where it stood before (`before`: the answer on screen, the held track's
+ *  place in it), when the new answer no longer lists it: in the playlist's `also` part when it stood there, else among
+ *  the rows (at their end when it stood nowhere). An answer that lists it already comes back as it is. */
+export function withHeld<L extends Pick<Library, 'rows' | 'also'>>(lib: L, row: LibraryRow, before: Pick<Library, 'rows' | 'also'> | null,
+  was: string): L {
+  if (rowOf(lib, row.track_id)) return lib;
+  const put = (list: LibraryRow[], at: number) => [...list.slice(0, at), row, ...list.slice(at)];
+  const inAlso = before?.also?.findIndex((r) => r.track_id === was) ?? -1;
+  if (inAlso >= 0 && lib.also) return { ...lib, also: put(lib.also, Math.min(inAlso, lib.also.length)) };
+  const at = before ? before.rows.findIndex((r) => r.track_id === was) : -1;
+  return { ...lib, rows: put(lib.rows, at < 0 ? lib.rows.length : Math.min(at, lib.rows.length)) };
 }
 
 /** ↑/↓: the next selected id (stays at the ends; nothing selected → first/last row). */
@@ -395,11 +425,12 @@ export function alsoHint(folder: string, neverRead = false): string {
 }
 
 // ---------- the inspector ----------
-/** The panel's foot: Swap when the upgrade matches exactly; Open in to-do for any other to-do; nothing for a
- *  lossless track (or one the to-do list doesn't show). */
-export function footAction(t: Pick<TrackDetail, 'upgrade' | 'status' | 'upgrade_ready' | 'in_playlists' | 'hidden'>):
-    'swap' | 'todo' | null {
-  if (t.upgrade?.swap_safe && t.upgrade.swap_possible) return 'swap';
+/** The panel's foot: the decision the track waits for (the upgrade, the rekordbox check a replace left, a duplicate
+ *  group: decisionFor), decided right here with To-do's own foot; else Open in to-do for any other to-do (a weak file
+ *  is bought and dropped there); nothing for a lossless track (or one the to-do list doesn't show). */
+export function footAction(t: Pick<TrackDetail, 'status' | 'upgrade_ready' | 'in_playlists' | 'hidden'>,
+  decision: Decision): NonNullable<Decision>['kind'] | 'todo' | null {
+  if (decision) return decision.kind;
   return inTodo(t) ? 'todo' : null;
 }
 

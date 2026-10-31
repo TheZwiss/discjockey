@@ -81,7 +81,6 @@ export { confirm } from './confirm';
 export { envelope } from './spectrum-data';
 export { default as ContextMenu } from './ContextMenu.svelte';
 export { default as TrackHead } from './TrackHead.svelte';
-export { default as UpgradeCard } from './UpgradeCard.svelte';
 export { SEARCH_FROM, filterItems, groupSummary, setOn, visibleKeys, type ToggleItem } from './toggleModel';
 export { splitOptions, tabStop, type SegOption } from './segmentedModel';
 export { dayBar, type DayBarInput, type DaySeg } from './dayBarModel';
