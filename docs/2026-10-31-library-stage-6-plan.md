@@ -83,7 +83,7 @@ logo mapping, so it waits for no mockup. The user is needed only for the live ch
   flag. A song entry (an album playlist `OLAK5uy_…`, or a song added from YTM) has the bare song title and the
   artist as `channel` ("One More Time", channel "Daft Punk"); a video entry has "Artist - Title (Official Video)" and
   the uploader. So the splitter's own rule tells them apart: no dash → the channel is the artist (the spec's "song
-  carries artist and title"); a dash → split (the spec's "video is split like a SoundCloud title"). Album stays empty
+  carries artist and title"); a dash → split (the spec's "video is split like a SoundCloud title"); on a "<Artist> - Topic" channel (titles are the song only) the cleaned channel is passed as the known artist, so a dash in the song title is not split. Album stays empty
   (D10 fills tags from the Qobuz match). *Why not a full read per entry:* one watch-page request per track, hundreds
   per playlist on every sync, anonymous: slow and the surest way into YouTube's bot check.
 - **D7. The playlist's own upload** (spec §9.4/§9.5 "then the track itself"). The planner carries the first fetched
