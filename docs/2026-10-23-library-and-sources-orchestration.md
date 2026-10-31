@@ -261,6 +261,10 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   (`pages/todo/UpgradeBox.svelte` etc., a1a15a3), and it is a dead end (Compare plays, no way to act). Fix: every
   place an upgrade or duplicate decision shows uses the same approved panel with its actions (mockup
   `docs/hub-mockups/todo-decisions.html`). Opus build (no shots) + Opus shots.
+- **No leftovers lists (user, 2026-10-31):** a stage's review findings, Minors included, are fixed in its own fix
+  rounds; only user decisions or spec conflicts become an issue. A stage isn't done or merged into main while it adds a
+  leftovers list. At every merge into main the orchestrator re-checks `docs/issues.md` against the code and closes what
+  is done. Backlog 24–34 (~60 points): read-only audit after the To-do hold job, then fix rounds for what's still valid.
 - **Issues live on main (user, 2026-10-31):** a new `docs/issues.md` entry is committed straight to main and main is
   merged into the open stage branches, so the list is never split across branches (29–34 moved there 78255ea; stage 6's
   "own upload in a private set" became 34). A branch only removes or edits entries its own code settles.
