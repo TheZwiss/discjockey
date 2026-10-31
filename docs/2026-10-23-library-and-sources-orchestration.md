@@ -214,6 +214,10 @@ their OK; never lane B between lane A items (user 2026-10-31):**
 - B2. Build stage 6 groups per the plan, one group at a time in this lane (worktrees `6-<group>`), review per §6.
   Engine/non-UI groups may run overnight; a UI group with a design change waits for the user's mockup approval;
   product questions wait for the user.
+- **Lane A done 2026-10-31 night:** panels merged a1a15a3 (build 294k + shots 199k), covers merged ecca764 (151k;
+  left out: a console-started run and a track downloaded during the run get no file cover; would need the cover in
+  run events), #27 re-judge closed, issue 30 opened; CI green, verify 913 shots 0 problems. Waiting for the user's
+  morning re-check, then the merge into main.
 - Group 1 built 2026-10-31 on `feat/library-6-split` (5011d61…3923348, Sonnet 129k, suite green, pushed); review
   not yet run. Its report for later briefs: (1) short links (`on.soundcloud.com/…`) are refused by `clean_link` before
   `expand` runs: group 2's `recognise` must accept them or I4 changes; (2) `preview_playlist_change` also switched to
