@@ -21,10 +21,15 @@ class SourceError(Exception):
 
 @dataclass(frozen=True)
 class LoginState:
-    """The answer of a source's local login check (never a network call): `ok` or `missing`, and the words to
-    show when it is missing."""
-    state: str  # "ok" | "missing"
+    """The answer of a source's local login check (never a network call): `ok`, `missing` (with the words to show)
+    or `not_needed` (the service is read without a login: SoundCloud and YouTube Music playlists)."""
+    state: str  # "ok" | "missing" | "not_needed"
     message: str = ""
+
+    @property
+    def connected(self) -> bool:
+        """Whether a read can start: anything but `missing`."""
+        return self.state != "missing"
 
 
 class Reader(Protocol):

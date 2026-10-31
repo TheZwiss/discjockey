@@ -61,8 +61,8 @@ def version_of(data: bytes) -> str:
 def clean_link(url: str) -> str:
     found = sources.recognise(url.strip())
     if found is None:
-        raise ValueError("That isn't a Spotify or Qobuz playlist link. Open the playlist in Spotify or Qobuz, choose "
-                         "Share, then Copy link, and paste it here.")
+        raise ValueError("That isn't a playlist link Discjockey can read. Open the playlist in "
+                         f"{sources.service_list()}, choose Share, then Copy link, and paste it here.")
     service, pid = found
     return sources.SOURCES[service].canonical_link(pid)
 

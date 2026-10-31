@@ -2,6 +2,7 @@
 downloads that SoundCloud tracks link to (a download gate on hypeddit etc., or SoundCloud's own download button)."""
 from __future__ import annotations
 
+import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Mapping
@@ -42,8 +43,17 @@ class SoundcloudDrmIE(SoundcloudIE):
     """yt-dlp's SoundCloud extractor, which also notes what it leaves out silently: a Go+ ("hq") stream that the track
     JSON (already fetched, no extra request) lists only DRM-protected (protocol ctr-/cbc-encrypted-hls). yt-dlp
     raises "DRM protected" only when every stream is protected; otherwise it lists the free ones as if there were no
-    Go+ stream. Discjockey never uses or decrypts the protected stream; it only tells it apart from a missing one."""
+    Go+ stream. Discjockey never uses or decrypts the protected stream; it only tells it apart from a missing one.
+
+    Every logged-in SoundCloud request goes through one of these, because each keeps its own `_HEADERS`: yt-dlp's is
+    a class-level dict shared by every SoundCloud extractor of the process, and the login writes its OAuth header into
+    it in place. Without that, one account request would make every later anonymous SoundCloud request of the
+    process (free streams, the download-button lookups, searches) a logged-in one, unpaced and uncounted."""
     drm_premium = False
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._HEADERS = {}
 
     @classmethod
     def ie_key(cls):
@@ -122,6 +132,9 @@ class FallbackSource:
         self.opts = {"quiet": True, "no_warnings": not verbose, "noprogress": True, "logger": _Logger(emit)}
         # account service -> (browser, profile); only for format listings and downloads
         self.logins = dict(logins or {})
+        self.preview_only = False  # the last stream_kbps(): the format taken is only a 30 s preview
+        # the last stream_kbps(): the Go+ stream is DRM-protected, but a full unprotected one was taken
+        self.drm_premium = False
 
     def _extract(self, url: str, flat: bool) -> dict:
         opts = {**self.opts, "skip_download": True}
@@ -194,11 +207,14 @@ class FallbackSource:
 
     def _soundcloud_track(self, url: str) -> dict:
         """SoundCloud's own answer for one track: yt-dlp leaves out the download and "buy" fields, so this asks the
-        API through yt-dlp's SoundCloud client (which keeps its access key up to date)."""
+        API through yt-dlp's SoundCloud client (which keeps its access key up to date). A track named by its id
+        (stream_url, a playlist's own upload) is asked for by id; a page link is resolved."""
         with yt_dlp.YoutubeDL(self.opts) as ydl:
             ie = ydl.get_info_extractor("Soundcloud")
             ie.initialize()
-            return ie._call_api(ie._resolv_url(url), None, headers=ie._HEADERS) or {}
+            by_id = re.fullmatch(r"https://api\.soundcloud\.com/tracks/(\d+)", url)
+            api = f"{ie._API_V2_BASE}tracks/{by_id.group(1)}" if by_id else ie._resolv_url(url)
+            return ie._call_api(api, None, headers=ie._HEADERS) or {}
 
     def free_downloads(self, cands: list[Candidate]) -> list[dict]:
         """The artists' free downloads behind these SoundCloud versions, each with the `key` of its version. A failed
@@ -227,7 +243,12 @@ class FallbackSource:
         """The bitrate of the stream a download takes (the format download() picks), read without downloading:
         before an account download (does the login give ~256 kbps for this track?), and for files downloaded before
         Discjockey kept it. None for a source it can't ask. Through a SoundCloud login, a Go+ stream that exists only
-        DRM-protected raises a "DRM protected" error (drm_protected), as yt-dlp does when every stream is protected."""
+        DRM-protected raises a "DRM protected" error (drm_protected), as yt-dlp does when every stream is protected,
+        unless the format yt-dlp took is itself a full, unprotected stream (a ~128 kbps one beside the protected Go+
+        stream): that bitrate is returned and `drm_premium` is set. `preview_only` tells afterwards whether the format
+        taken is only a 30 s preview (both are this call's, single-threaded use: read them right after)."""
+        self.preview_only = False
+        self.drm_premium = False
         url = stream_url(source, source_id)
         if url is None:
             return None
@@ -241,8 +262,17 @@ class FallbackSource:
             info = ydl.extract_info(url, download=False) or {}
         rate = info.get("abr") or info.get("tbr")
         kbps = round(rate) if rate else None
+        # yt-dlp names a 30 s preview stream "…_preview" and ranks it last: it is the pick only when the login plays
+        # nothing else of the upload (a Go+-only upload without Go+), so its bitrate says nothing about the full track
+        format_id = str(info.get("format_id") or "")
+        self.preview_only = "preview" in format_id
         if sc and sc.drm_premium and (kbps or 0) < PREMIUM_MIN_KBPS:  # not "no Go+ stream": the account isn't at fault
-            raise RuntimeError(f"[soundcloud] {source_id}: the Go+ stream is DRM protected")
+            # yt-dlp never picks a protected format, so a named format that is no preview and no protected protocol
+            # is a full, unprotected stream (assumed: a live check confirms it); only that one is told apart
+            protected = str(info.get("protocol") or "").startswith(("ctr-", "cbc-"))
+            if not format_id or self.preview_only or protected or not kbps:
+                raise RuntimeError(f"[soundcloud] {source_id}: the Go+ stream is DRM protected")
+            self.drm_premium = True
         return kbps
 
     def _browser_cookies(self, browser: str, profile: str | None = None):
@@ -303,13 +333,16 @@ class FallbackSource:
         # A section is cut by ffmpeg, which is handed the manifest for a DASH format, and the app's ffmpeg has no dash
         # demuxer (no libxml2): DASH formats come last for a section. Full downloads fetch DASH segments themselves.
         audio_format = SECTION_FORMAT if section else "bestaudio/best"
-        opts = {**self.opts, **self._login(cand.source, account),
+        login = self._login(cand.source, account)
+        opts = {**self.opts, **login,
                 "format": "download" if cand.direct else audio_format, "noplaylist": True,
                 "progress_hooks": [hook],
                 "outtmpl": str(workdir / f"{cand.source}_%(id)s.%(ext)s")}
         if section:
             opts["download_ranges"] = download_range_func(None, [section])
         with yt_dlp.YoutubeDL(opts) as ydl:
+            if cand.source == "soundcloud" and login:
+                ydl.add_info_extractor(SoundcloudDrmIE())  # its own headers: the login stays in this download
             try:
                 info = ydl.extract_info(cand.url, download=True)
             except Exception as e:

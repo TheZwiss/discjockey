@@ -486,8 +486,8 @@ def test_a_login_that_fails_is_a_qobuz_login_problem_in_plain_words(support, mon
 
 # --- 3.5 the registry --------------------------------------------------------------------------------------------
 
-def test_the_registry_holds_both_services_in_order():
-    assert list(sources.SOURCES) == ["spotify", "qobuz"] and sources.SOURCES["qobuz"] is source
+def test_the_registry_holds_qobuz_after_spotify():
+    assert list(sources.SOURCES)[:2] == ["spotify", "qobuz"] and sources.SOURCES["qobuz"] is source
 
 
 def test_recognise_routes_a_qobuz_link_to_qobuz():

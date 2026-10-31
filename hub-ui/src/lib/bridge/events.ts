@@ -2,10 +2,14 @@
 import type { AppUpdate, Browser, PlannedAction, PlaylistService, ProblemKind, Result } from './types';
 
 export type SourceTrack = { id: string; title: string; artists: string[]; album: string; image_url: string | null;
-  duration_ms: number; isrc: string | null; service: string; link: string | null; streamable: boolean };
+  duration_ms: number; isrc: string | null; service: string; link: string | null; streamable: boolean;
+  /** SoundCloud: only the Go+ account plays the whole track (a free try would download a 30 s preview) */
+  account_only: boolean };
 export type Action = { kind: 'acquire' | 'adopt_bought' | 'upgrade' | string; track_id: string;
   folder: string; track: SourceTrack; order: [number, number]; src: string | null; dest_dir: string | null;
-  aliases: string[]; reason: string; qobuz_id: string | null };
+  aliases: string[]; reason: string; qobuz_id: string | null;
+  /** the playlist's own SoundCloud / YouTube Music upload of the song, tried after Qobuz (null: none) */
+  upload: SourceTrack | null };
 export type Step = 'search' | 'download' | 'check' | 'convert' | 'analyse' | 'compare';
 export type HubEvent =
   | { type: 'RunStarted'; total: number; actions: PlannedAction[] }
@@ -14,7 +18,7 @@ export type HubEvent =
   | { type: 'Progress'; track_id: string; step: Step; done: number; total: number | null; unit: 'bytes' | 'seconds' }
   | { type: 'Waiting'; kind: 'search' | 'between' | 'break' | 'fallback'; label: string; remaining: number;
       total: number; service: string }
-  | { type: 'SourceChosen'; track_id: string; source: string; query_kind: 'exact' | 'isrc' | 'name' | 'fallback' | 'chosen';
+  | { type: 'SourceChosen'; track_id: string; source: string; query_kind: 'exact' | 'isrc' | 'name' | 'fallback' | 'chosen' | 'upload';
       title: string; duration_s: number | null }
   | { type: 'Checked'; track_id: string; file_duration_s: number; track_duration_s: number; codec: string;
       ok: boolean }
@@ -67,9 +71,9 @@ export const EVENT_FIELDS: { [T in HubEvent['type']]: readonly (keyof EventOf<T>
   DrivesChanged: ['type', 'away'],
 };
 export const ACTION_FIELDS: readonly (keyof Action)[] = ['kind', 'track_id', 'folder', 'track', 'order', 'src',
-  'dest_dir', 'aliases', 'reason', 'qobuz_id'];
+  'dest_dir', 'aliases', 'reason', 'qobuz_id', 'upload'];
 export const TRACK_FIELDS: readonly (keyof SourceTrack)[] = ['id', 'title', 'artists', 'album', 'image_url',
-  'duration_ms', 'isrc', 'service', 'link', 'streamable'];
+  'duration_ms', 'isrc', 'service', 'link', 'streamable', 'account_only'];
 export const RESULT_FIELDS: readonly (keyof Result)[] = ['section', 'folder', 'artist', 'title', 'track_id', 'note',
   'status', 'source', 'cutoff_hz', 'path', 'error_kind', 'found_status'];
 

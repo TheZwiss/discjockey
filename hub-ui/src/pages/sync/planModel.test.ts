@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ActionKey, EstimateAccount, PreviewAction, SyncAccount, SyncPreview } from '$lib/bridge/types';
+import type { ActionKey, EstimateAccount, PlaylistService, PreviewAction, SyncAccount, SyncPreview } from '$lib/bridge/types';
 import {
   FULL_SCOPE, type Scope, dayBarInput, defaultHowMany, downloadsInScope, inScope, facets, folderItems, folderLabel, foldText, howManyOptions, inRunOrder, isKindKey, kindItems,
   kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount,
@@ -381,10 +381,16 @@ describe('service rows name the service, the tooltip names the plan (Task 9C M1)
 });
 
 describe('readBlockLine: what a missing login affects on Sync\'s card', () => {
-  const row = (folder: string, service: 'spotify' | 'qobuz', enabled = true) => ({ folder, service, enabled });
+  const row = (folder: string, service: PlaylistService, enabled = true) => ({ folder, service, enabled });
   it('names the folder of the one switched-on Qobuz line and says the rest still syncs', () => {
     expect(readBlockLine('not_set_up', 'qobuz', [row('Peak', 'spotify'), row('Qobuz_Picks', 'qobuz')]))
       .toBe("Qobuz_Picks isn't read until Qobuz is connected. Your other playlists sync as usual.");
+  });
+  it('names SoundCloud or YouTube Music the same way', () => {
+    expect(readBlockLine('login_expired', 'soundcloud', [row('Sets', 'soundcloud'), row('Peak', 'spotify')]))
+      .toBe('Sets isn\'t read until you connect SoundCloud again. Your other playlists sync as usual.');
+    expect(readBlockLine('not_set_up', 'youtube_music', null))
+      .toBe("Your YouTube Music playlists aren't read until YouTube Music is connected.");
   });
   it('lists two or three folders, then counts the rest; ignores switched-off lines', () => {
     const rows = ['A', 'B', 'C', 'D', 'E'].map((f) => row(f, 'qobuz'));

@@ -65,7 +65,8 @@ PLAN_LABELS = [
 
 
 def track_link(track_id: str) -> str | None:
-    """The track's page on its own service (Spotify, Qobuz), or None when its key gives no link."""
+    """The track's page on its own service (Spotify, Qobuz, SoundCloud, YouTube Music), or None when its key gives no
+    link."""
     return models.track_link(track_id)
 
 

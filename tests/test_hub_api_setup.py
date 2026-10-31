@@ -10,7 +10,7 @@ from tools_helpers import CheckRun, FakePyPI
 
 import discjockey
 from discjockey import qobuz, setup_cmd, tool_updates, tools
-from discjockey.sources import spotify
+from discjockey.sources import soundcloud, spotify
 from discjockey.library import run_lock
 from discjockey.settings import Account, Settings, load_settings, save_settings
 
@@ -357,6 +357,38 @@ def test_setup_account_checks_saves_and_keeps_the_qobuz_limit(root):
     assert api.setup_status()["accounts"]["youtube"] == {"browser": "chrome", "browser_name": "Chrome",
                                                          "daily_limit": 30, "profile": None, "profile_name": None,
                                                          "last_check": checked}
+
+
+def test_a_saved_soundcloud_login_clears_a_stored_soundcloud_read_problem(root):
+    """A you/likes line whose login SoundCloud did not accept blocks the read (login_expired, service soundcloud) until
+    the user signs in again in Settings; saving that login makes the stored problem out of date."""
+    api, rec = make_api(root, fallback=CheckingFallback)
+    api._store.failed("login_expired", "SoundCloud didn't accept the login from Chrome.", "soundcloud")
+    assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
+    assert api._store.problem is None
+    api._store.failed("login_expired", "Qobuz is not accepted.", "qobuz")  # another service's problem stays
+    assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
+    assert api._store.problem == "login_expired"
+
+
+def test_a_saved_soundcloud_login_leaves_an_offline_problem(root):
+    """A login cannot cure SoundCloud not answering: only login_expired and the likes hint are cleared."""
+    api, rec = make_api(root, fallback=CheckingFallback)
+    api._store.failed("offline", "SoundCloud is not responding.", "soundcloud")
+    assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
+    assert (api._store.problem, api._store.problem_service) == ("offline", "soundcloud")
+
+
+def test_a_saved_soundcloud_login_clears_the_likes_hint_only(root):
+    """W8 (a likes link without the account) is cured by the login; W4/W5 (a private or removed set) are not."""
+    api, rec = make_api(root, fallback=CheckingFallback)
+    api._store.failed("playlist_unreadable", soundcloud.LIKES_HINT, "soundcloud")
+    assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
+    assert api._store.problem is None
+    for words in (soundcloud.UNREADABLE_SET, soundcloud.UNREADABLE_HINT):
+        api._store.failed("playlist_unreadable", words, "soundcloud")
+        assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
+        assert (api._store.problem, api._store.message) == ("playlist_unreadable", words)
 
 
 def test_a_youtube_login_without_premium_is_not_saved(root):

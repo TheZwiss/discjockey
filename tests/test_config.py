@@ -96,11 +96,11 @@ def test_a_line_carries_its_service_and_ref():
     assert (line.service, line.playlist_id, line.ref) == ("spotify", ID1, ID1)
 
 
-def test_an_unknown_link_gives_the_words_for_both_services():
+def test_an_unknown_link_names_every_service():
     with pytest.raises(ConfigError) as excinfo:
         parse_playlists("A = https://example.com/playlist/x")
-    assert str(excinfo.value) == ("playlists.txt line 1: this is not a Spotify or Qobuz playlist link: "
-                                  "https://example.com/playlist/x")
+    assert str(excinfo.value) == ("playlists.txt line 1: this is not a playlist link Discjockey can read "
+                                  "(Spotify, Qobuz, SoundCloud or YouTube Music): https://example.com/playlist/x")
 
 
 def test_the_format_hint_is_service_neutral():

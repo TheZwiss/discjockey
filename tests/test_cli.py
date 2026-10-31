@@ -106,7 +106,7 @@ class FakeAcquirer:
         self.ctrl_c = ctrl_c  # how many SIGINTs one press delivers (uv/caffeinate forward it a second time)
         self.calls = 0
 
-    def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None):
+    def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None, upload=None):
         self.calls += 1
         for _ in range(self.ctrl_c):
             os.kill(os.getpid(), signal.SIGINT)
@@ -401,7 +401,8 @@ def test_setup_skips_spotify_on_an_empty_client_id(root, monkeypatch, capsys):
     assert "Spotify skipped" in capsys.readouterr().out
     assert load_settings(paths.settings_file).spotify_skipped
     text = paths.playlists_file.read_text()
-    assert "Spotify or Qobuz" in text and "open.qobuz.com/playlist" in text
+    assert "Spotify, Qobuz, SoundCloud or YouTube Music" in text and "open.qobuz.com/playlist" in text
+    assert "soundcloud.com/some-label/sets" in text and "music.youtube.com/playlist" in text
 
 
 def test_a_client_id_connects_spotify_and_clears_the_skip(root, monkeypatch):

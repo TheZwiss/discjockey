@@ -1,5 +1,6 @@
 import pytest
 
+from discjockey import fallback as fb
 from discjockey.fallback import FallbackSource, entry_to_candidate, free_download
 from discjockey.models import SourceTrack
 
@@ -220,6 +221,46 @@ def test_free_downloads_asks_only_for_soundcloud_and_survives_a_failed_lookup():
     out = src.free_downloads(cands)
     assert [o["key"] for o in out] == ["soundcloud:1"] and src.asked == ["https://sc/1", "https://sc/bad"]
     assert any("404" in e.text for e in events)
+
+
+def test_the_download_info_of_a_track_named_by_its_id_is_asked_for_by_id(monkeypatch):
+    import yt_dlp
+
+    asked = []
+
+    class IE:
+        _API_V2_BASE, _HEADERS = "https://api-v2.soundcloud.com/", {}
+
+        def initialize(self):
+            pass
+
+        def _resolv_url(self, url):
+            return self._API_V2_BASE + "resolve?url=" + url
+
+        def _call_api(self, url, video_id, headers=None):
+            asked.append((url, headers))
+            return RAW
+
+    class YDL:
+        def __init__(self, opts):
+            assert "cookiesfrombrowser" not in opts  # the lookup is anonymous
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get_info_extractor(self, key):
+            return IE()
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", YDL)
+    src = FallbackSource(logins={"soundcloud": ("firefox", None)})
+    assert src._soundcloud_track(fb.stream_url("soundcloud", "900000101")) == RAW
+    src._soundcloud_track("https://soundcloud.com/example-artist/example-title")
+    assert asked == [("https://api-v2.soundcloud.com/tracks/900000101", {}),
+                     ("https://api-v2.soundcloud.com/resolve?url=https://soundcloud.com/example-artist/example-title",
+                      {})]
 
 
 def test_search_can_be_limited_to_some_sources():

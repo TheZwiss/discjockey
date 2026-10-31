@@ -12,6 +12,7 @@ T = SourceTrack("t1", "Gimme Gimme", ("Vatoz Locoz",), "Album", None, 156000, "D
 class Recorder:
     """Stands in for yt_dlp.YoutubeDL: remembers every options dict; formats get 256 kbps only with a login."""
     seen: list[dict] = []
+    extractors: list = []
 
     def __init__(self, opts):
         self.opts = opts
@@ -32,10 +33,13 @@ class Recorder:
     def prepare_filename(self, info):
         return "/nonexistent"
 
+    def add_info_extractor(self, ie):
+        Recorder.extractors.append(ie)
+
 
 @pytest.fixture(autouse=True)
 def recorder(monkeypatch):
-    Recorder.seen = []
+    Recorder.seen, Recorder.extractors = [], []
     monkeypatch.setattr(yt_dlp, "YoutubeDL", Recorder)
     return Recorder
 
@@ -60,6 +64,34 @@ def test_download_with_the_login(recorder, tmp_path):
     with pytest.raises(RuntimeError):  # Recorder writes no file
         src.download(cand, tmp_path, account=True)
     assert recorder.seen[-1]["cookiesfrombrowser"] == ("firefox", None, None, None)
+
+
+def test_a_soundcloud_login_never_reaches_yt_dlp_s_shared_headers(recorder, tmp_path, monkeypatch):
+    """yt-dlp keeps SoundCloud's OAuth header in a class-level dict that every SoundCloud extractor shares; a login
+    written there would make the later free streams and download-button lookups logged-in requests."""
+    from yt_dlp.YoutubeDL import YoutubeDL  # the real one only for its options (conftest stubs yt_dlp.YoutubeDL)
+    from yt_dlp.extractor import soundcloud as yt_soundcloud
+
+    shared = {}
+    monkeypatch.setattr(yt_soundcloud.SoundcloudBaseIE, "_HEADERS", shared)  # a fresh class dict: a leak shows here
+    src = FallbackSource(logins={"soundcloud": ("firefox", None)})
+    with pytest.raises(RuntimeError):  # Recorder writes no file
+        src.download(Candidate("soundcloud", "1", "x", "y", 156.0, url=fb.stream_url("soundcloud", "1")), tmp_path,
+                     account=True)
+    ie, = recorder.extractors  # the logged-in download runs its own SoundCloud extractor
+    assert isinstance(ie, fb.SoundcloudDrmIE) and ie.ie_key() == "Soundcloud"
+    ie.set_downloader(YoutubeDL({"quiet": True}))
+    ie._CLIENT_ID = "test"
+    ie._initialize_pre_login = lambda: None  # no client id lookup on the network
+    ie._get_cookies = lambda url: {"oauth_token": Cookie("oauth_token", ".soundcloud.com")}
+    ie._request_webpage = lambda *a, **k: True  # the token check answers yes, offline
+    ie.initialize()  # yt-dlp's own login step: the browser's oauth_token cookie, verified, written into _HEADERS
+    assert ie._HEADERS == {"Authorization": "OAuth secret-never-shown"}
+    assert shared == {} and yt_soundcloud.SoundcloudIE()._HEADERS == {}
+    recorder.extractors.clear()
+    with pytest.raises(RuntimeError):
+        src.download(Candidate("soundcloud", "2", "x", "y", 156.0, url="https://soundcloud.com/a/b"), tmp_path)
+    assert recorder.extractors == []  # a free download keeps yt-dlp's own extractor, and its headers are empty
 
 
 def test_download_with_a_login_in_another_browser_profile(recorder, tmp_path):
@@ -145,3 +177,63 @@ def test_check_account_skips_a_song_whose_go_plus_stream_is_drm_protected(monkey
 
     monkeypatch.setattr(src, "stream_kbps", kbps)
     assert src.check_account("soundcloud", "firefox") == {"ok": True, "problem": None, "kbps": 256, "detail": ""}
+
+
+class PreviewOrFull(Recorder):
+    """The listing through the login for a Go+-only upload: the format taken is a 30 s preview or a full stream."""
+    format_id = "http_mp3_0_preview"
+
+    def add_info_extractor(self, ie):
+        self.ie = ie
+
+    def extract_info(self, url, download=False):
+        self.ie.drm_premium = False
+        return {"id": "1", "abr": 128, "format_id": self.format_id}
+
+
+def test_a_listing_says_whether_the_stream_it_took_is_only_a_preview(monkeypatch):
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", PreviewOrFull)
+    src = FallbackSource(logins={"soundcloud": ("firefox", None)})
+    assert src.stream_kbps("soundcloud", "1", account=True) == 128 and src.preview_only  # yt-dlp's "..._preview"
+    PreviewOrFull.format_id = "http_mp3_0"
+    try:
+        assert src.stream_kbps("soundcloud", "1", account=True) == 128 and not src.preview_only
+    finally:
+        PreviewOrFull.format_id = "http_mp3_0_preview"
+
+
+class GoPlusDrmWithFullFree(GoPlusDrm):
+    """The Go+ stream is protected, but yt-dlp took a named format: `format_id`/`protocol` say which."""
+    format_id, protocol = "http_mp3_128", "http"
+
+    def extract_info(self, url, download=False):
+        info = super().extract_info(url, download)
+        return {**info, "format_id": self.format_id, "protocol": self.protocol}
+
+
+def test_a_protected_go_plus_stream_beside_a_full_unprotected_128_one_reports_the_128(monkeypatch):
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", GoPlusDrmWithFullFree)
+    src = FallbackSource(logins={"soundcloud": ("firefox", None)})
+    for format_id in ("http_mp3_128", "hls_mp3_128"):  # the progressive and the HLS id yt-dlp names
+        GoPlusDrmWithFullFree.format_id = format_id
+        assert src.stream_kbps("soundcloud", "1", account=True) == 128
+        assert src.drm_premium and not src.preview_only  # the acquirer tells an ordinary upload apart by this
+    GoPlusDrmWithFullFree.format_id = "http_mp3_128"
+    GoPlusDrm.drm = False
+    try:
+        assert src.stream_kbps("soundcloud", "1", account=True) == 128 and not src.drm_premium
+    finally:
+        GoPlusDrm.drm = True
+
+
+def test_a_protected_go_plus_stream_without_a_usable_full_unprotected_format_is_still_drm(monkeypatch):
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", GoPlusDrmWithFullFree)
+    src = FallbackSource(logins={"soundcloud": ("firefox", None)})
+    try:
+        for format_id, protocol in (("http_mp3_0_preview", "http"), ("", "http"), ("hls_mp3_128", "cbc-encrypted-hls")):
+            GoPlusDrmWithFullFree.format_id, GoPlusDrmWithFullFree.protocol = format_id, protocol
+            with pytest.raises(Exception) as err:
+                src.stream_kbps("soundcloud", "1", account=True)
+            assert fb.drm_protected(err.value), (format_id, protocol)
+    finally:
+        GoPlusDrmWithFullFree.format_id, GoPlusDrmWithFullFree.protocol = "http_mp3_128", "http"

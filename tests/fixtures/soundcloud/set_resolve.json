@@ -1,0 +1,320 @@
+{
+ "kind": "playlist",
+ "id": 900000001,
+ "title": "Example Set",
+ "set_type": "",
+ "track_count": 63,
+ "artwork_url": "https://i1.sndcdn.com/artworks-exampleset-large.jpg",
+ "user": {
+  "id": 900000010,
+  "kind": "user",
+  "username": "Example Label",
+  "permalink": "example-label",
+  "avatar_url": "https://i1.sndcdn.com/avatars-example900000010-large.jpg"
+ },
+ "permalink_url": "https://soundcloud.com/example-label/sets/example-set",
+ "tracks": [
+  {
+   "id": 900000101,
+   "kind": "track",
+   "title": "Example Artist - Example Title [FREE DL]",
+   "user": {
+    "id": 900000010,
+    "kind": "user",
+    "username": "Example Label",
+    "permalink": "example-label",
+    "avatar_url": "https://i1.sndcdn.com/avatars-example900000010-large.jpg"
+   },
+   "permalink_url": "https://soundcloud.com/example-label/example-track-900000101",
+   "artwork_url": "https://i1.sndcdn.com/artworks-example900000101-large.jpg",
+   "duration": 200000,
+   "full_duration": 200500,
+   "policy": "ALLOW",
+   "streamable": true,
+   "publisher_metadata": null
+  },
+  {
+   "id": 900000102,
+   "kind": "track",
+   "title": "Example Title (Original Mix)",
+   "user": {
+    "id": 900000010,
+    "kind": "user",
+    "username": "Example Records",
+    "permalink": "example-label",
+    "avatar_url": "https://i1.sndcdn.com/avatars-example900000010-large.jpg"
+   },
+   "permalink_url": "https://soundcloud.com/example-label/example-track-900000102",
+   "artwork_url": null,
+   "duration": 200000,
+   "full_duration": 200500,
+   "policy": "MONETIZE",
+   "streamable": true,
+   "publisher_metadata": {
+    "artist": "Example Artist",
+    "album_title": "Example Album",
+    "isrc": "xx0001300001",
+    "release_title": "Example Album"
+   }
+  },
+  {
+   "id": 900000103,
+   "kind": "track",
+   "title": "Example Artist - Blocked Title",
+   "user": {
+    "id": 900000010,
+    "kind": "user",
+    "username": "Example Label",
+    "permalink": "example-label",
+    "avatar_url": "https://i1.sndcdn.com/avatars-example900000010-large.jpg"
+   },
+   "permalink_url": "https://soundcloud.com/example-label/example-track-900000103",
+   "artwork_url": "https://i1.sndcdn.com/artworks-example900000103-large.jpg",
+   "duration": 200000,
+   "full_duration": 200500,
+   "policy": "BLOCK",
+   "streamable": true,
+   "publisher_metadata": null
+  },
+  {
+   "id": 900000201,
+   "kind": "track"
+  },
+  {
+   "id": 900000202,
+   "kind": "track"
+  },
+  {
+   "id": 900000203,
+   "kind": "track"
+  },
+  {
+   "id": 900000204,
+   "kind": "track"
+  },
+  {
+   "id": 900000205,
+   "kind": "track"
+  },
+  {
+   "id": 900000206,
+   "kind": "track"
+  },
+  {
+   "id": 900000207,
+   "kind": "track"
+  },
+  {
+   "id": 900000208,
+   "kind": "track"
+  },
+  {
+   "id": 900000209,
+   "kind": "track"
+  },
+  {
+   "id": 900000210,
+   "kind": "track"
+  },
+  {
+   "id": 900000211,
+   "kind": "track"
+  },
+  {
+   "id": 900000212,
+   "kind": "track"
+  },
+  {
+   "id": 900000213,
+   "kind": "track"
+  },
+  {
+   "id": 900000214,
+   "kind": "track"
+  },
+  {
+   "id": 900000215,
+   "kind": "track"
+  },
+  {
+   "id": 900000216,
+   "kind": "track"
+  },
+  {
+   "id": 900000217,
+   "kind": "track"
+  },
+  {
+   "id": 900000218,
+   "kind": "track"
+  },
+  {
+   "id": 900000219,
+   "kind": "track"
+  },
+  {
+   "id": 900000220,
+   "kind": "track"
+  },
+  {
+   "id": 900000221,
+   "kind": "track"
+  },
+  {
+   "id": 900000222,
+   "kind": "track"
+  },
+  {
+   "id": 900000223,
+   "kind": "track"
+  },
+  {
+   "id": 900000224,
+   "kind": "track"
+  },
+  {
+   "id": 900000225,
+   "kind": "track"
+  },
+  {
+   "id": 900000226,
+   "kind": "track"
+  },
+  {
+   "id": 900000227,
+   "kind": "track"
+  },
+  {
+   "id": 900000228,
+   "kind": "track"
+  },
+  {
+   "id": 900000229,
+   "kind": "track"
+  },
+  {
+   "id": 900000230,
+   "kind": "track"
+  },
+  {
+   "id": 900000231,
+   "kind": "track"
+  },
+  {
+   "id": 900000232,
+   "kind": "track"
+  },
+  {
+   "id": 900000233,
+   "kind": "track"
+  },
+  {
+   "id": 900000234,
+   "kind": "track"
+  },
+  {
+   "id": 900000235,
+   "kind": "track"
+  },
+  {
+   "id": 900000236,
+   "kind": "track"
+  },
+  {
+   "id": 900000237,
+   "kind": "track"
+  },
+  {
+   "id": 900000238,
+   "kind": "track"
+  },
+  {
+   "id": 900000239,
+   "kind": "track"
+  },
+  {
+   "id": 900000240,
+   "kind": "track"
+  },
+  {
+   "id": 900000241,
+   "kind": "track"
+  },
+  {
+   "id": 900000242,
+   "kind": "track"
+  },
+  {
+   "id": 900000243,
+   "kind": "track"
+  },
+  {
+   "id": 900000244,
+   "kind": "track"
+  },
+  {
+   "id": 900000245,
+   "kind": "track"
+  },
+  {
+   "id": 900000246,
+   "kind": "track"
+  },
+  {
+   "id": 900000247,
+   "kind": "track"
+  },
+  {
+   "id": 900000248,
+   "kind": "track"
+  },
+  {
+   "id": 900000249,
+   "kind": "track"
+  },
+  {
+   "id": 900000250,
+   "kind": "track"
+  },
+  {
+   "id": 900000251,
+   "kind": "track"
+  },
+  {
+   "id": 900000252,
+   "kind": "track"
+  },
+  {
+   "id": 900000253,
+   "kind": "track"
+  },
+  {
+   "id": 900000254,
+   "kind": "track"
+  },
+  {
+   "id": 900000255,
+   "kind": "track"
+  },
+  {
+   "id": 900000256,
+   "kind": "track"
+  },
+  {
+   "id": 900000257,
+   "kind": "track"
+  },
+  {
+   "id": 900000258,
+   "kind": "track"
+  },
+  {
+   "id": 900000259,
+   "kind": "track"
+  },
+  {
+   "id": 900000260,
+   "kind": "track"
+  }
+ ]
+}

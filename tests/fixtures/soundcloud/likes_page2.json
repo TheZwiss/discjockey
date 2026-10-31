@@ -1,0 +1,33 @@
+{
+ "collection": [
+  {
+   "kind": "like",
+   "created_at": "2026-01-01T00:00:00Z",
+   "track": {
+    "id": 900000303,
+    "kind": "track",
+    "title": "Example Artist - Liked Three",
+    "user": {
+     "id": 900000010,
+     "kind": "user",
+     "username": "Example Uploader",
+     "permalink": "example-label",
+     "avatar_url": "https://i1.sndcdn.com/avatars-example900000010-large.jpg"
+    },
+    "permalink_url": "https://soundcloud.com/example-label/example-track-900000303",
+    "artwork_url": "https://i1.sndcdn.com/artworks-example900000303-large.jpg",
+    "duration": 200000,
+    "full_duration": 200500,
+    "policy": "ALLOW",
+    "streamable": true,
+    "publisher_metadata": null
+   }
+  },
+  {
+   "kind": "like",
+   "created_at": "2025-01-01T00:00:00Z",
+   "track": null
+  }
+ ],
+ "next_href": null
+}

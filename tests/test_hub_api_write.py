@@ -416,7 +416,7 @@ def test_reads_during_a_sync_never_write_state(root, monkeypatch):
     class SlowAcquirer:
         n = 0
 
-        def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None):
+        def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None, upload=None):
             SlowAcquirer.n += 1
             if SlowAcquirer.n == 2:
                 second.set()
@@ -466,7 +466,7 @@ def test_stop_safely_from_the_page(root, monkeypatch):
     started = threading.Event()
 
     class StopAware:
-        def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None):
+        def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None, upload=None):
             started.set()
             while True:
                 tracker.progress(1, 10, "bytes")

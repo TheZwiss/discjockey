@@ -6,6 +6,7 @@ import pytest
 from discjockey.models import FetchedPlaylist, PlaylistLine, SourceTrack
 from discjockey.planner import (TidyRow, desired_folders, mirror_dir, out_of_place, plan, replacement_dir,
                                 superseded_dir, tidy_rows, tidy_target, upgrades_ready_dir)
+from discjockey.titles import split_title
 
 TODAY = date(2026, 10, 20)
 
@@ -232,6 +233,97 @@ def test_a_stored_qobuz_alias_alone_gives_no_qobuz_id():
     s = st(t1=entry(status="missing", last_attempt="2026-10-01", aliases=["qobuz:900000001"]))
     p = plan([pl("A", tr("t1"))], s, [], TODAY)
     assert [(a.kind, a.qobuz_id) for a in p.actions] == [("acquire", None)]
+
+
+# --- the playlist's own upload on actions (stage 6 I5) ---
+
+def sc(id, title="Title t1", artist="Artist", dur=180000, isrc=None, streamable=True, account_only=False):
+    """A SoundCloud playlist's track as the source parses it (its key is `soundcloud:<id>`)."""
+    return SourceTrack(id, title, (artist,), "", None, dur, isrc, service="soundcloud", streamable=streamable,
+                       account_only=account_only)
+
+
+def ytm(id, title="Title t1", artist="Artist", dur=180000):
+    """A YouTube Music playlist's song entry: no album, no ISRC (stage 6 D6)."""
+    return SourceTrack(id, title, (artist,), "", None, dur, None, service="youtube_music")
+
+
+def scpl(folder, *tracks):
+    return FetchedPlaylist(PlaylistLine(folder, "example-label/sets/example-set", 1, "soundcloud"), list(tracks), [])
+
+
+def ytpl(folder, *tracks):
+    return FetchedPlaylist(PlaylistLine(folder, "PLEXAMPLE0001", 1, "youtube_music"), list(tracks), [])
+
+
+def test_a_split_soundcloud_title_and_a_spotify_track_of_the_same_length_are_one_song():
+    artists, title = split_title("Example Artist - Example Title [FREE DL]", "example-label")
+    p = plan([pl("A", tr("t1", title="Example Title", artist="Example Artist", dur=180000)),
+              scpl("B", SourceTrack("900000101", title, artists, "", None, 182000, None, service="soundcloud"))],
+             st(), [], TODAY)
+    assert [(a.track_id, a.aliases) for a in p.actions] == [("t1", ("soundcloud:900000101",))]
+
+
+def test_a_soundcloud_track_3_1_s_longer_is_another_song():
+    p = plan([pl("A", tr("t1")), scpl("B", sc("900000101", dur=183100))], st(), [], TODAY)
+    assert kinds(p) == [("acquire", "t1"), ("acquire", "soundcloud:900000101")]
+
+
+def test_a_soundcloud_track_with_a_publisher_isrc_links_by_isrc():
+    p = plan([pl("A", tr("t1", isrc="DE1")), scpl("B", sc("900000101", title="Other words", isrc="de1", dur=181000))],
+             st(), [], TODAY)
+    assert [(a.track_id, a.aliases) for a in p.actions] == [("t1", ("soundcloud:900000101",))]
+
+
+def test_a_youtube_music_song_links_to_a_qobuz_track_by_name():
+    p = plan([qpl("A", qb("900000001")), ytpl("B", ytm("EXAMPLEid01", dur=179000))], st(), [], TODAY)
+    a, = p.actions
+    assert (a.track_id, a.aliases, a.qobuz_id) == ("qobuz:900000001", ("youtube_music:EXAMPLEid01",), "900000001")
+    assert a.upload == ytm("EXAMPLEid01", dur=179000)
+
+
+def test_the_upload_is_the_first_streamable_soundcloud_or_youtube_music_track_of_the_song():
+    p = plan([scpl("A", sc("900000101", streamable=False)), ytpl("B", ytm("EXAMPLEid01")),
+              scpl("C", sc("900000102"))], st(), [], TODAY)
+    a, = p.actions
+    assert a.track_id == "soundcloud:900000101" and a.upload.key == "youtube_music:EXAMPLEid01"
+
+
+def test_a_blocked_soundcloud_track_gives_no_upload():
+    p = plan([scpl("A", sc("900000101", streamable=False))], st(), [], TODAY)
+    assert [(a.track_id, a.upload) for a in p.actions] == [("soundcloud:900000101", None)]
+
+
+def test_a_go_plus_only_track_is_still_the_upload():
+    # the acquirer decides how it may be fetched (only through the account, D9)
+    p = plan([scpl("A", sc("900000101", account_only=True))], st(), [], TODAY)
+    assert p.actions[0].upload.account_only is True
+
+
+def test_a_spotify_first_song_with_a_later_soundcloud_track_gets_that_upload():
+    p = plan([pl("A", tr("t1")), scpl("B", sc("900000101", dur=181000))], st(), [], TODAY)
+    a, = p.actions
+    assert (a.track_id, a.track.service, a.upload.key) == ("t1", "spotify", "soundcloud:900000101")
+
+
+def test_an_upgrade_check_gets_the_upload_a_bought_file_doesnt():
+    s = st(t1=entry(path="Library/A/x.mp3", status="not_lossless"),
+           t2=entry(path="Library/A/y.mp3", status="not_lossless", title="Title t2"))
+    p = plan([scpl("A", sc("900000101", title="Title t1"), sc("900000102", title="Title t2"))], s,
+             ["Library/A/x.mp3", "Library/A/y.mp3", "Library/A/Artist - Title t2.aiff"], TODAY)
+    assert [(a.kind, a.track_id, a.upload and a.upload.id) for a in p.actions] == [
+        ("adopt_bought", "t2", None), ("upgrade", "t1", "900000101")]
+
+
+def test_a_stored_soundcloud_alias_alone_gives_no_upload():
+    s = st(t1=entry(status="missing", last_attempt="2026-10-01", aliases=["soundcloud:900000101"]))
+    p = plan([pl("A", tr("t1"))], s, [], TODAY)
+    assert [(a.kind, a.upload) for a in p.actions] == [("acquire", None)]
+
+
+def test_spotify_and_qobuz_input_carries_no_upload():
+    p = plan([pl("A", tr("t1"), tr("t2", isrc="DE2")), qpl("B", qb("900000001", title="Title t3"))], st(), [], TODAY)
+    assert [(a.track_id, a.upload) for a in p.actions] == [("t1", None), ("t2", None), ("qobuz:900000001", None)]
 
 
 def test_spotify_only_input_plans_as_before():

@@ -33,7 +33,8 @@ from .. import __version__, align, browsers, candidates, config, db, library, op
 from .. import quality
 from .. import app_update as update_check, setup_cmd, tool_updates, tools
 from .. import folders as folders_mod, importer, scanner, sources, tidy
-from ..sources import spotify
+from ..sources import soundcloud, spotify
+from ..sources.soundcloud import YOU as SOUNDCLOUD_YOU  # the module imports yt-dlp only inside functions
 from .. import report as rep, run, upgrades
 from ..accounts import ACCOUNTS, BROWSERS, SERVICE_NAMES, SERVICES, check_message
 from ..acquire import make_ready
@@ -64,6 +65,7 @@ NOT_SELECTED = "Select the track in the to-do list first, then drop the file on 
 CLIENT_ID = re.compile(r"[0-9a-fA-F]{32}")
 NO_FOLDER = "That folder isn't one of the watched folders."
 FAVOURITE_KEYS = ("playlist:", "folder:")  # what a Favourite's key starts with (plan library stage 5, D3)
+ONE_READ_SERVICES = ("soundcloud", "youtube_music")  # a pasted link: their fetch also gives the page facts (want_info)
 BAD_FAVOURITES = "That list of favourites isn't one Discjockey can keep."
 BAD_CRATE = "That isn't a folder Discjockey can show or hide."
 BRIEF_WRITE_FAILED = "Discjockey couldn't save that just now. Try again in a moment."
@@ -394,7 +396,7 @@ class HubApi:
         logins = []
         for service in used:
             try:
-                logins.append((service, sources.SOURCES[service].login_state(self._support).state == "ok"))
+                logins.append((service, sources.SOURCES[service].login_state(self._support).connected))
             except Exception:  # noqa: BLE001 - a login file this check can't make sense of counts as not connected
                 logins.append((service, False))
         return logins
@@ -1105,18 +1107,28 @@ class HubApi:
     def add_playlist(self, url: str) -> dict:
         """A pasted link: the playlist's name, owner and cover, whether Discjockey can read it, and its tracks."""
         self._no_sync_running()
-        link = pf.clean_link(url or "")
+        # a short link or one that names no user yet is expanded first (stage 6); clean_link then refuses what no source reads
+        link = pf.clean_link(sources.expand((url or "").strip(), self._support, CancelToken()))
         service, pid = sources.recognise(link)  # clean_link raised for anything no source recognises
         source, ref = sources.SOURCES[service], token(service, pid)
-        if source.login_state(self._support).state != "ok":
+        if not source.login_state(self._support).connected:
             raise sources.SourceError(NOT_CONNECTED.format(name=PLAYLIST_SERVICES[service]), "not_set_up", service)
         reader = source.open(self._support, CancelToken())
         try:
-            info = reader.info(pid)
+            tracks, fetched = None, None
+            if service in ONE_READ_SERVICES:  # their info always comes with a fetch: one read answers both
+                reader.want_info = True
+                try:
+                    fetched = reader.fetch(PlaylistLine("x", pid, 0, service))
+                except sources.SourceError as e:
+                    if e.kind == "playlist_unreadable":
+                        reader.info(pid)  # the page's own words (fetch's are worded for playlists.txt); else this one
+                    raise
+            info = fetched.info if fetched is not None and fetched.info is not None else reader.info(pid)
             self._infos[ref] = info
-            tracks = None
-            if info.readable:
+            if fetched is None and info.readable:
                 fetched = reader.fetch(PlaylistLine(suggest_folder(info.name), pid, 0, service))
+            if fetched is not None:
                 self._extra_tracks[ref] = fetched.tracks
                 tracks = len(fetched.tracks)
         finally:
@@ -1136,7 +1148,7 @@ class HubApi:
         unread = [r for r in rows if r.enabled and r.ref not in tracks]
         for service in dict.fromkeys(r.service for r in unread):  # one reader per service; a failing one is skipped
             source = sources.SOURCES[service]
-            if source.login_state(self._support).state != "ok":
+            if not source.login_state(self._support).connected:
                 continue
             try:
                 reader = source.open(self._support, CancelToken())
@@ -1145,8 +1157,10 @@ class HubApi:
             try:
                 for r in (r for r in unread if r.service == service):
                     try:
-                        line = PlaylistLine("x", sources.recognise(r.link)[1], 0, service)
-                        self._extra_tracks[r.ref] = reader.fetch(line).tracks
+                        found = sources.recognise(r.link)
+                        if found is None or (service == "soundcloud" and found[1] == SOUNDCLOUD_YOU):
+                            continue  # not a playlist; or your likes, whose read opens the browser login (Keychain)
+                        self._extra_tracks[r.ref] = reader.fetch(PlaylistLine("x", found[1], 0, service)).tracks
                     except sources.SourceError:
                         continue
             finally:
@@ -1668,7 +1682,7 @@ class HubApi:
 
     @bridge
     def setup_skip_spotify(self) -> dict:
-        """"I don't use Spotify": the Spotify step counts as done and playlists come from Qobuz links. Connecting
+        """"I don't use Spotify": the Spotify step counts as done and playlists come from the other services' links. Connecting
         Spotify later (setup or Settings) un-skips it."""
         def work(ctx) -> dict:
             self._update_settings(lambda s: replace(s, spotify_skipped=True))
@@ -1752,6 +1766,10 @@ class HubApi:
                 return s.with_check(service, record)  # the saved login no longer works: Settings says so
             return s
         self._update_settings(change)
+        if saved and service == "soundcloud":  # a read problem about SoundCloud's login (a you/likes line) is out of date now
+            self._store.clear_service("soundcloud", frozenset({"login_expired"}))  # not offline
+            # only the likes hint (W8) is about the login: a private set's "doesn't show this playlist" stays
+            self._store.clear_service("soundcloud", frozenset({"playlist_unreadable"}), soundcloud.LIKES_HINT)
         return {"service": service, "browser": browser, "profile": profile, "saved": saved,
                 "check": {**{k: check[k] for k in ("ok", "problem", "kbps")},
                           "message": check_message(service, browser, check)}}
@@ -2049,7 +2067,8 @@ def rows_from(lines: list) -> list[pf.Row]:
         if not isinstance(line, dict) or not isinstance(line.get("folder"), str) or not line.get("link"):
             raise ValueError("Each playlist row needs a folder name and a link.")
         if sources.recognise(line["link"].strip()) is None:
-            raise ValueError(f"This is not a Spotify or Qobuz playlist link: {line['link']}")
+            raise ValueError(f"This is not a playlist link Discjockey can read ({sources.service_list()}): "
+                             f"{line['link']}")
         rows.append(pf.Row(unicodedata.normalize("NFC", line["folder"].strip()), line["link"].strip(),
                            bool(line.get("enabled", True))))
     return rows

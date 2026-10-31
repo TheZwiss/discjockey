@@ -51,7 +51,8 @@ def parse_playlists(text: str) -> list[PlaylistLine]:
             )
         found = sources.recognise(ref)
         if found is None:
-            raise ConfigError(f"{where}: this is not a Spotify or Qobuz playlist link: {ref}")
+            raise ConfigError(f"{where}: this is not a playlist link Discjockey can read ({sources.service_list()}): "
+                              f"{ref}")
         service, pid = found
         if fold(folder) in folders:
             raise ConfigError(f"{where}: the folder {folder} is already used on line {folders[fold(folder)]}.")

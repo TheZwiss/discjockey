@@ -25,10 +25,12 @@ class FakeAcquirer:
         self.qobuz = []
         self.declined = []
         self.exact = []
+        self.uploads = []
 
     def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None, originals=True,
-                declined=frozenset(), qobuz=True, exact=None):
+                declined=frozenset(), qobuz=True, exact=None, upload=None):
         self.calls.append((track.id, set(rejected), lossless_only))
+        self.uploads.append(upload)
         self.better.append(better_than)
         self.originals.append(originals)
         self.qobuz.append(qobuz)
@@ -109,6 +111,17 @@ def test_the_qobuz_id_a_playlist_named_reaches_the_acquirer_as_exact(env):
     ex.run([act("acquire", reason="new", qobuz_id="900000001"),
             act("upgrade", tid="t2bbbbbbb", qobuz_id="900000002"), act("acquire", tid="t3ccccccc", reason="new")])
     assert acq.exact == ["900000001", "900000002", None]
+
+
+def test_the_playlist_s_own_upload_reaches_the_acquirer(env):
+    paths, state, make = env
+    touch(paths, "Library/A/Artist - Song.aiff")
+    state["tracks"]["t2bbbbbbb"] = entry("Library/A/Artist - Song.aiff", status="not_lossless", source="soundcloud")
+    up = SourceTrack("900000101", "Song", ("Artist",), "", None, 180000, None, service="soundcloud")
+    ex, acq = make(ready(source="soundcloud", sid="900000101"), AcquireResult("missing"), AcquireResult("missing"))
+    ex.run([act("acquire", reason="new", upload=up), act("upgrade", tid="t2bbbbbbb", upload=up),
+            act("acquire", tid="t3ccccccc", reason="new")])
+    assert acq.uploads == [up, up, None]
 
 
 def test_not_lossless_goes_to_subfolder(env):
@@ -515,7 +528,7 @@ def test_acquirer_gets_a_tracker_that_reports_steps(env):
     events = []
 
     class StepAcquirer:
-        def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None, exact=None):
+        def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None, exact=None, upload=None):
             tracker.step("download")
             return ready()(workdir)
 
@@ -531,7 +544,7 @@ def test_stop_flag_ends_the_run_between_actions(env):
     token = CancelToken()
 
     class StopAfterFirst:
-        def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None, exact=None):
+        def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None, exact=None, upload=None):
             token.cancel()  # e.g. the user pressed Stop while this track was downloading
             return ready()(workdir)
 
@@ -548,7 +561,7 @@ def test_stop_inside_a_download_discards_the_track_cleanly(env):
     token = CancelToken()
 
     class StoppedMidway:
-        def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None, exact=None):
+        def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None, exact=None, upload=None):
             (workdir / "partial.flac").write_bytes(b"half")
             token.cancel()
             tracker.progress(10, 100, "bytes")  # raises Cancelled, as the real download callbacks do
@@ -585,7 +598,7 @@ def test_stop_while_comparing_leaves_the_check_for_next_time(env):
 
     class StopAfterDownload:
         def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None, originals=True,
-                    declined=frozenset(), qobuz=True, exact=None):
+                    declined=frozenset(), qobuz=True, exact=None, upload=None):
             token.cancel()  # the user pressed Stop while the lossless version was downloading
             return ready()(workdir)
 

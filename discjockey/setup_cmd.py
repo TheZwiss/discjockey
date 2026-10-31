@@ -13,7 +13,7 @@ from .library import Paths
 from .settings import SettingsError, load_settings, save_settings
 
 TEMPLATE = """\
-# Your playlists for Discjockey (Spotify or Qobuz).
+# Your playlists for Discjockey (Spotify, Qobuz, SoundCloud or YouTube Music).
 #
 # One playlist per line:   Folder name = playlist link
 # Highest priority first: a track that is in several playlists goes into the
@@ -21,14 +21,18 @@ TEMPLATE = """\
 #
 # Get a Spotify link: open the playlist -> ... -> Share -> Copy link to playlist
 # Get a Qobuz link: open the playlist -> Share -> Copy link
+# Get a SoundCloud link: open the set -> Share -> Copy link (a private set: its private share link)
+# Get a YouTube Music link: open the playlist -> Share -> Copy link (public or unlisted)
 # Lines starting with # are ignored.
 
 # Hard_Bounce = https://open.spotify.com/playlist/...
 # Deep_Cuts = https://open.qobuz.com/playlist/...
+# Warehouse = https://soundcloud.com/some-label/sets/...
+# Mixes = https://music.youtube.com/playlist?list=...
 """
 
 SPOTIFY_STEPS = """\
-Spotify (optional if you only use Qobuz playlists): you need a free "app" in Spotify's developer
+Spotify (optional if you only use playlists of the other services): you need a free "app" in Spotify's developer
 dashboard (one time only).
   1. Open https://developer.spotify.com/dashboard and log in with your Spotify account.
   2. Click "Create app". Name and description: anything, e.g. "Discjockey".
@@ -92,8 +96,8 @@ def run_setup(paths: Paths) -> int:
             return 2
         print(f"Spotify login works ({me.get('display_name') or me.get('id')}).\n")
     else:
-        print("Spotify skipped. Use Qobuz playlist links, or connect Spotify later (run setup again, or Settings in "
-              "the app).\n")
+        print("Spotify skipped. Use Qobuz, SoundCloud or YouTube Music playlist links, or connect Spotify later "
+              "(run setup again, or Settings in the app).\n")
     try:
         save_settings(paths.settings_file, replace(load_settings(paths.settings_file), spotify_skipped=not client_id))
     except SettingsError as e:  # a settings.json that isn't valid: say so, as the sync does

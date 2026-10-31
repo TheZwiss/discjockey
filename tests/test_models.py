@@ -27,12 +27,16 @@ def test_tokens_round_trip(service, id):
 def test_track_link_follows_the_service():
     assert track_link(ID) == f"https://open.spotify.com/track/{ID}"
     assert track_link("qobuz:900000001") == "https://open.qobuz.com/track/900000001"
-    assert track_link("soundcloud:1") is None
+    assert track_link("soundcloud:900000101") == \
+        "https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/900000101"
+    assert track_link("youtube_music:EXAMPLEid01") == "https://music.youtube.com/watch?v=EXAMPLEid01"
+    assert track_link("youtube:EXAMPLEid01") is None
 
 
 def test_service_names_and_link_patterns():
-    assert SERVICE_NAMES == {"spotify": "Spotify", "qobuz": "Qobuz"}
-    assert set(TRACK_LINKS) == {"spotify", "qobuz"}
+    assert list(SERVICE_NAMES.items()) == [("spotify", "Spotify"), ("qobuz", "Qobuz"), ("soundcloud", "SoundCloud"),
+                                           ("youtube_music", "YouTube Music")]
+    assert set(TRACK_LINKS) == {"spotify", "qobuz", "soundcloud", "youtube_music"}
 
 
 def test_a_source_track_fills_its_link_from_its_service():
@@ -46,7 +50,17 @@ def test_a_source_track_fills_its_link_from_its_service():
 def test_a_given_link_stays_and_a_service_without_a_pattern_has_none():
     given = SourceTrack("1", "T", (), "", None, 0, None, "soundcloud", "https://soundcloud.com/example/track")
     assert given.link == "https://soundcloud.com/example/track" and given.key == "soundcloud:1"
-    assert SourceTrack("1", "T", (), "", None, 0, None, "soundcloud").link is None
+    assert SourceTrack("1", "T", (), "", None, 0, None, "youtube").link is None
+
+
+def test_new_services_fill_their_links_and_account_only_defaults_off():
+    sc = SourceTrack("900000101", "T", (), "", None, 0, None, "soundcloud")
+    assert sc.link == "https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/900000101"
+    assert SourceTrack("EXAMPLEid01", "T", (), "", None, 0, None, "youtube_music").link == \
+        "https://music.youtube.com/watch?v=EXAMPLEid01"
+    assert sc.account_only is False and sc.streamable is True
+    assert SourceTrack("1", "T", (), "", None, 0, None, "soundcloud", account_only=True).account_only
+    assert dataclasses.fields(SourceTrack)[-1].name == "account_only"
 
 
 def test_a_source_track_has_no_url_any_more():

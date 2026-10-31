@@ -26,7 +26,7 @@ class FakeAcquirer:
     def __init__(self):
         self.tracks = []
 
-    def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None):
+    def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None, upload=None):
         self.tracks.append(track.id)
         f = workdir / "q.aiff"
         f.write_bytes(b"audio")
@@ -283,7 +283,7 @@ def test_stop_during_the_sync(env, monkeypatch):
     paths, js, store, rec, acq, logins, tracks = env
     refresh(js, paths, store)
 
-    def stop_on_second(track, rejected, workdir, lossless_only, tracker, exact=None):
+    def stop_on_second(track, rejected, workdir, lossless_only, tracker, exact=None, upload=None):
         if track.id == "t2":
             js.stop()
             tracker.progress(1, 10, "bytes")

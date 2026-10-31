@@ -53,6 +53,8 @@ describe('browserList without a filter', () => {
     expect(off.tip).toBe('acid_Nights\nSpotify playlist · 2 songs\nSwitched off: its files stay, nothing new downloads');
     expect(playlistTip(side.playlists[3])).toBe('Bouncy\n0 songs');
     expect(playlistTip({ ...side.playlists[1], songs: 1 })).toBe('Hard_Bounce\nQobuz playlist · 1 song');
+    expect(playlistTip({ ...side.playlists[1], service: 'soundcloud', songs: 1 })).toBe('Hard_Bounce\nSoundCloud playlist · 1 song');
+    expect(playlistTip({ ...side.playlists[1], service: 'youtube_music', songs: 2 })).toBe('Hard_Bounce\nYouTube Music playlist · 2 songs');
   });
 
   it('gives a playlist never read no count, and says so', () => {

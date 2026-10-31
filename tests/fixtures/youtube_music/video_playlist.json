@@ -1,0 +1,233 @@
+{
+ "id": "PLexampleVideoList000000000000000001",
+ "title": "Example Warmup Set",
+ "availability": null,
+ "description": "",
+ "tags": [],
+ "thumbnails": [
+  {
+   "url": "https://i.ytimg.com/vi/EXAMPLEalb01/hqdefault.jpg",
+   "height": 188,
+   "width": 336
+  },
+  {
+   "url": "https://i.ytimg.com/vi/EXAMPLEalb01/sddefault.jpg",
+   "height": 360,
+   "width": 640
+  }
+ ],
+ "modified_date": null,
+ "view_count": null,
+ "playlist_count": 8,
+ "channel": "Example Channel",
+ "channel_id": "UCexampleChannel00000001",
+ "uploader": "Example Channel",
+ "_type": "playlist",
+ "extractor_key": "YoutubeTab",
+ "extractor": "youtube:tab",
+ "webpage_url": "https://www.youtube.com/playlist?list=PLexampleVideoList000000000000000001",
+ "entries": [
+  {
+   "_type": "url",
+   "ie_key": "Youtube",
+   "id": "EXAMPLEvid01",
+   "url": "https://music.youtube.com/watch?v=EXAMPLEvid01",
+   "title": "Example Artist - Example Title (Official Video)",
+   "description": null,
+   "duration": 231,
+   "channel_id": "UCexampleChannel00000001",
+   "channel": "Example Artist VEVO",
+   "channel_url": "https://www.youtube.com/channel/UCexampleChannel00000001",
+   "uploader": "Example Artist VEVO",
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEvid01/default.jpg",
+     "height": 90,
+     "width": 120
+    },
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEvid01/hqdefault.jpg",
+     "height": 360,
+     "width": 480
+    }
+   ],
+   "availability": null,
+   "view_count": null,
+   "live_status": null
+  },
+  {
+   "_type": "url",
+   "ie_key": "Youtube",
+   "id": "EXAMPLEvid02",
+   "url": "https://music.youtube.com/watch?v=EXAMPLEvid02",
+   "title": "Example Artist - Example Title | Genre | Example Label - Copyright Free Music",
+   "description": null,
+   "duration": 199,
+   "channel_id": "UCexampleChannel00000001",
+   "channel": "Example Label",
+   "channel_url": "https://www.youtube.com/channel/UCexampleChannel00000001",
+   "uploader": "Example Label",
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEvid02/default.jpg",
+     "height": 90,
+     "width": 120
+    },
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEvid02/hqdefault.jpg",
+     "height": 360,
+     "width": 480
+    }
+   ],
+   "availability": null,
+   "view_count": null,
+   "live_status": null
+  },
+  {
+   "_type": "url",
+   "ie_key": "Youtube",
+   "id": "EXAMPLEvid03",
+   "url": "https://music.youtube.com/watch?v=EXAMPLEvid03",
+   "title": "[Deleted video]",
+   "description": null,
+   "duration": null,
+   "channel_id": "UCexampleChannel00000001",
+   "channel": "Example Channel",
+   "channel_url": "https://www.youtube.com/channel/UCexampleChannel00000001",
+   "uploader": "Example Channel",
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEvid03/default.jpg",
+     "height": 90,
+     "width": 120
+    },
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEvid03/hqdefault.jpg",
+     "height": 360,
+     "width": 480
+    }
+   ],
+   "availability": null,
+   "view_count": null,
+   "live_status": null
+  },
+  {
+   "_type": "url",
+   "ie_key": "Youtube",
+   "id": "EXAMPLEvid04",
+   "url": "https://music.youtube.com/watch?v=EXAMPLEvid04",
+   "title": "[Private video]",
+   "description": null,
+   "duration": null,
+   "channel_id": "UCexampleChannel00000001",
+   "channel": "Example Channel",
+   "channel_url": "https://www.youtube.com/channel/UCexampleChannel00000001",
+   "uploader": "Example Channel",
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEvid04/default.jpg",
+     "height": 90,
+     "width": 120
+    },
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEvid04/hqdefault.jpg",
+     "height": 360,
+     "width": 480
+    }
+   ],
+   "availability": null,
+   "view_count": null,
+   "live_status": null
+  },
+  {
+   "_type": "url",
+   "ie_key": "Youtube",
+   "id": "EXAMPLEvid05",
+   "url": "https://music.youtube.com/watch?v=EXAMPLEvid05",
+   "title": "Lonely Example Title",
+   "description": null,
+   "duration": 305,
+   "channel_id": "UCexampleChannel00000001",
+   "channel": "Example DJ",
+   "channel_url": "https://www.youtube.com/channel/UCexampleChannel00000001",
+   "uploader": "Example DJ",
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEvid05/default.jpg",
+     "height": 90,
+     "width": 120
+    },
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEvid05/hqdefault.jpg",
+     "height": 360,
+     "width": 480
+    }
+   ],
+   "availability": null,
+   "view_count": null,
+   "live_status": null
+  },
+  {
+   "_type": "url",
+   "id": null,
+   "title": "Odd Example",
+   "duration": 100
+  },
+  {
+   "_type": "url",
+   "ie_key": "Youtube",
+   "id": "EXAMPLEvid07",
+   "url": "https://music.youtube.com/watch?v=EXAMPLEvid07",
+   "title": "Example Artist feat. Other Artist - Example Title [FREE DL]",
+   "description": null,
+   "duration": 260,
+   "channel_id": "UCexampleChannel00000001",
+   "channel": "Example Artist",
+   "channel_url": "https://www.youtube.com/channel/UCexampleChannel00000001",
+   "uploader": "Example Artist",
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEvid07/default.jpg",
+     "height": 90,
+     "width": 120
+    },
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEvid07/hqdefault.jpg",
+     "height": 360,
+     "width": 480
+    }
+   ],
+   "availability": null,
+   "view_count": null,
+   "live_status": null
+  },
+  {
+   "_type": "url",
+   "ie_key": "Youtube",
+   "id": "EXAMPLEvid08",
+   "url": "https://music.youtube.com/watch?v=EXAMPLEvid08",
+   "title": "Example Live Stream",
+   "description": null,
+   "duration": null,
+   "channel_id": "UCexampleChannel00000001",
+   "channel": "Example Channel",
+   "channel_url": "https://www.youtube.com/channel/UCexampleChannel00000001",
+   "uploader": "Example Channel",
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEvid08/default.jpg",
+     "height": 90,
+     "width": 120
+    },
+    {
+     "url": "https://i.ytimg.com/vi/EXAMPLEvid08/hqdefault.jpg",
+     "height": 360,
+     "width": 480
+    }
+   ],
+   "availability": null,
+   "view_count": null,
+   "live_status": null
+  }
+ ]
+}

@@ -184,8 +184,6 @@ Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
 
 Noted while building and reviewing `docs/2026-10-24-library-stage-3-plan.md`.
 
-- **SoundCloud and YouTube Music track links can't be derived from an id:** `models.track_link` returns None for
-  them. When stage 6 adds those sources and a view needs the link, store it with the track.
 - **A file downloaded by its exact Qobuz id gets no record-label tag.** `make_ready` writes `cand.label`, and the
   exact candidate is built from the playlist track, which has no label (`SourceTrack` has none). Fix: carry the label
   from the Qobuz playlist read into the track, or fetch it.
