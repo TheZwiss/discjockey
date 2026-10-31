@@ -1669,7 +1669,7 @@ class HubApi:
 
     @bridge
     def setup_skip_spotify(self) -> dict:
-        """"I don't use Spotify": the Spotify step counts as done and playlists come from Qobuz links. Connecting
+        """"I don't use Spotify": the Spotify step counts as done and playlists come from the other services' links. Connecting
         Spotify later (setup or Settings) un-skips it."""
         def work(ctx) -> dict:
             self._update_settings(lambda s: replace(s, spotify_skipped=True))
