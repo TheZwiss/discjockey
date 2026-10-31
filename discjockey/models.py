@@ -159,6 +159,9 @@ class Action:
     aliases: tuple[str, ...] = ()
     reason: str = ""  # acquire: new | retry | redownload
     qobuz_id: str | None = None  # acquire/upgrade: the Qobuz track to try first (a Qobuz playlist named it)
+    # acquire/upgrade: the playlist's own upload (a SoundCloud or YouTube Music track that resolved to the song), tried
+    # right after Qobuz and before the fallback search (plan library stage 6, D7)
+    upload: SourceTrack | None = None
 
 
 @dataclass(frozen=True)

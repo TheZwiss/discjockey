@@ -19,6 +19,8 @@ LOSSY = ("not_lossless", "fake_lossless")
 BOUGHT_EXTS = (".aiff", ".aif", ".wav")
 WAIT_DAYS = 7
 KIND_RANK = {"adopt_bought": 0, "acquire": 1, "upgrade": 2}
+# playlist services whose tracks are fallback sources too: a track's key is that upload's candidate key (stage 6 D1)
+UPLOAD_SERVICES = ("soundcloud", "youtube_music")
 
 
 def folder_dir(folder: str, status: str) -> str:
@@ -185,6 +187,9 @@ class _Wanted:
     # the first fetched Qobuz track that resolved to the song and that Qobuz delivers now: the exact id to try first.
     # Only from this read, never from a stored alias: only the read says whether Qobuz delivers it today
     qobuz: SourceTrack | None = None
+    # the first fetched SoundCloud / YouTube Music track that resolved to the song and that its service plays: the
+    # playlist's own upload, tried after Qobuz (stage 6 D7). Only from this read, for the same reason as `qobuz`
+    upload: SourceTrack | None = None
     question: Question | None = None  # a new song a file of the user's own might be: held until the answer (D4)
 
 
@@ -371,6 +376,8 @@ def _resolve(fetched: list[FetchedPlaylist], tracks: dict, notes: list[str], own
                     w.question = own.question(key, t, fp.line.folder, ask, t.duration_ms)
             if w.qobuz is None and t.service == "qobuz" and t.streamable:
                 w.qobuz = t
+            if w.upload is None and t.service in UPLOAD_SERVICES and t.streamable:
+                w.upload = t
     for w in wanted.values():  # an own song a later track linked is no question any more: that song downloads
         if w.question is not None and w.question.own_key in wanted:
             own.asked.discard(w.question.own_key)
@@ -435,6 +442,8 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
             skip = kind == "acquire" and key in never_ids  # "never download": nothing is fetched, files stay
             if kind in ("acquire", "upgrade") and w.qobuz:  # a Qobuz playlist named the exact track
                 kw["qobuz_id"] = w.qobuz.id
+            if kind in ("acquire", "upgrade") and w.upload:  # the playlist's own upload, after Qobuz (D7)
+                kw["upload"] = w.upload
             (never if skip else actions).append(Action(kind, key, w.folder, w.track, w.order, **kw))
 
         e = tracks.get(key)
