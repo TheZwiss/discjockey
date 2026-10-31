@@ -1,5 +1,6 @@
-"""Playlist sources: one module per service that playlists can be read from (`spotify`, `qobuz`),
-behind one interface, and the functions that read a list of `playlists.txt` lines with the right source.
+"""Playlist sources: one module per service that playlists can be read from (`spotify`, `qobuz`, `soundcloud`,
+`youtube_music`), behind one interface, and the functions that read a list of `playlists.txt` lines with the
+right source.
 
 A source module has:
 
@@ -25,7 +26,7 @@ from types import ModuleType
 from ..events import CancelToken, Emit, ReadingPlaylist, no_emit
 from ..library import SupportPaths
 from ..models import SERVICE_NAMES, FetchedPlaylist, PlaylistLine, split_token
-from . import qobuz, soundcloud, spotify
+from . import qobuz, soundcloud, spotify, youtube_music
 from .base import LoginState, Reader, SourceError
 
 __all__ = ["SOURCES", "LoginState", "Reader", "SourceError", "expand", "read", "read_infos", "recognise",
@@ -35,6 +36,7 @@ SOURCES: dict[str, ModuleType] = {
     "spotify": spotify,
     "qobuz": qobuz,
     "soundcloud": soundcloud,
+    "youtube_music": youtube_music,
 }
 
 
