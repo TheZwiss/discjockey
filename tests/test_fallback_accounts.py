@@ -12,6 +12,7 @@ T = SourceTrack("t1", "Gimme Gimme", ("Vatoz Locoz",), "Album", None, 156000, "D
 class Recorder:
     """Stands in for yt_dlp.YoutubeDL: remembers every options dict; formats get 256 kbps only with a login."""
     seen: list[dict] = []
+    extractors: list = []
 
     def __init__(self, opts):
         self.opts = opts
@@ -32,10 +33,13 @@ class Recorder:
     def prepare_filename(self, info):
         return "/nonexistent"
 
+    def add_info_extractor(self, ie):
+        Recorder.extractors.append(ie)
+
 
 @pytest.fixture(autouse=True)
 def recorder(monkeypatch):
-    Recorder.seen = []
+    Recorder.seen, Recorder.extractors = [], []
     monkeypatch.setattr(yt_dlp, "YoutubeDL", Recorder)
     return Recorder
 
@@ -60,6 +64,32 @@ def test_download_with_the_login(recorder, tmp_path):
     with pytest.raises(RuntimeError):  # Recorder writes no file
         src.download(cand, tmp_path, account=True)
     assert recorder.seen[-1]["cookiesfrombrowser"] == ("firefox", None, None, None)
+
+
+def test_a_soundcloud_login_never_reaches_yt_dlp_s_shared_headers(recorder, tmp_path, monkeypatch):
+    """yt-dlp keeps SoundCloud's OAuth header in a class-level dict that every SoundCloud extractor shares; a login
+    written there would make the later free streams and download-button lookups logged-in requests."""
+    from yt_dlp.YoutubeDL import YoutubeDL  # the real one only for its options (conftest stubs yt_dlp.YoutubeDL)
+    from yt_dlp.extractor import soundcloud as yt_soundcloud
+
+    shared = {}
+    monkeypatch.setattr(yt_soundcloud.SoundcloudBaseIE, "_HEADERS", shared)  # a fresh class dict: a leak shows here
+    src = FallbackSource(logins={"soundcloud": ("firefox", None)})
+    with pytest.raises(RuntimeError):  # Recorder writes no file
+        src.download(Candidate("soundcloud", "1", "x", "y", 156.0, url=fb.stream_url("soundcloud", "1")), tmp_path,
+                     account=True)
+    ie, = recorder.extractors  # the logged-in download runs its own SoundCloud extractor
+    assert isinstance(ie, fb.SoundcloudDrmIE) and ie.ie_key() == "Soundcloud"
+    ie.set_downloader(YoutubeDL({"quiet": True}))
+    ie._CLIENT_ID = "test"
+    ie._request_webpage = lambda *a, **k: True  # the token check answers yes, offline
+    ie._verify_oauth_token("example")  # what yt-dlp's login step does with the browser's oauth_token cookie
+    assert ie._HEADERS == {"Authorization": "OAuth example"}
+    assert shared == {} and yt_soundcloud.SoundcloudIE()._HEADERS == {}
+    recorder.extractors.clear()
+    with pytest.raises(RuntimeError):
+        src.download(Candidate("soundcloud", "2", "x", "y", 156.0, url="https://soundcloud.com/a/b"), tmp_path)
+    assert recorder.extractors == []  # a free download keeps yt-dlp's own extractor, and its headers are empty
 
 
 def test_download_with_a_login_in_another_browser_profile(recorder, tmp_path):
