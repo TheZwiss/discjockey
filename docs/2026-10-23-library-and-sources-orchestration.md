@@ -256,6 +256,11 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   Waits for: the user's stage 5 re-check + merge into main, then stage 6 merged onto main, the user's read-only live
   check (plan "Stage checks": paste a SoundCloud set, you/likes, a YTM playlist; read; look at the splits), and the
   three questions (Liked music; wait vs search when the upload's account is used up; SNIP at ~128 kbps).
+- **Stage 5 re-check finding 2026-10-31 (fix before main, next agent after the SNIP review):** Library's
+  inspector still shows the OLD upgrade card (`components/UpgradeCard.svelte`), not To-do's new decision panel
+  (`pages/todo/UpgradeBox.svelte` etc., a1a15a3), and it is a dead end (Compare plays, no way to act). Fix: every
+  place an upgrade or duplicate decision shows uses the same approved panel with its actions (mockup
+  `docs/hub-mockups/todo-decisions.html`). Opus build (no shots) + Opus shots.
 - **The user's answers 2026-10-31:** (1) Liked music: a Settings choice, off by default, with a warning that
   explains the bot-check risk to the Premium account (needs a design round + mockup OK, then a plan; engine reads via
   the YouTube login only when on). (2) The upload's account used up or paused: the track waits (I6 stays, no change;
