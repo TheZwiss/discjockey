@@ -34,6 +34,7 @@ from .. import quality
 from .. import app_update as update_check, setup_cmd, tool_updates, tools
 from .. import folders as folders_mod, importer, scanner, sources, tidy
 from ..sources import spotify
+from ..sources.soundcloud import YOU as SOUNDCLOUD_YOU  # the module imports yt-dlp only inside functions
 from .. import report as rep, run, upgrades
 from ..accounts import ACCOUNTS, BROWSERS, SERVICE_NAMES, SERVICES, check_message
 from ..acquire import make_ready
@@ -1146,8 +1147,10 @@ class HubApi:
             try:
                 for r in (r for r in unread if r.service == service):
                     try:
-                        line = PlaylistLine("x", sources.recognise(r.link)[1], 0, service)
-                        self._extra_tracks[r.ref] = reader.fetch(line).tracks
+                        found = sources.recognise(r.link)
+                        if found is None or (service == "soundcloud" and found[1] == SOUNDCLOUD_YOU):
+                            continue  # not a playlist; or your likes, whose read opens the browser login (Keychain)
+                        self._extra_tracks[r.ref] = reader.fetch(PlaylistLine("x", found[1], 0, service)).tracks
                     except sources.SourceError:
                         continue
             finally:
@@ -1669,7 +1672,7 @@ class HubApi:
 
     @bridge
     def setup_skip_spotify(self) -> dict:
-        """"I don't use Spotify": the Spotify step counts as done and playlists come from Qobuz links. Connecting
+        """"I don't use Spotify": the Spotify step counts as done and playlists come from the other services' links. Connecting
         Spotify later (setup or Settings) un-skips it."""
         def work(ctx) -> dict:
             self._update_settings(lambda s: replace(s, spotify_skipped=True))
@@ -1753,6 +1756,8 @@ class HubApi:
                 return s.with_check(service, record)  # the saved login no longer works: Settings says so
             return s
         self._update_settings(change)
+        if saved and service == "soundcloud":  # a read problem about SoundCloud's login (a you/likes line) is out of date now
+            self._store.clear_service("soundcloud", frozenset({"login_expired", "playlist_unreadable"}))  # not offline
         return {"service": service, "browser": browser, "profile": profile, "saved": saved,
                 "check": {**{k: check[k] for k in ("ok", "problem", "kbps")},
                           "message": check_message(service, browser, check)}}

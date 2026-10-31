@@ -1,6 +1,9 @@
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yt_dlp
 from hub_helpers import (ID1, ID2, PLAYLISTS, QOBUZ_ID, QOBUZ_LINK, QOBUZ_UNREADABLE, TRACKS, fake_qobuz, fake_spotify,
                          make_api, make_root, refreshed, track, wait_job)
 
@@ -9,7 +12,7 @@ from discjockey import sources
 from discjockey.events import CancelToken
 from discjockey.models import FetchedPlaylist, PlaylistInfo
 from discjockey.sources.base import LoginState, SourceError
-from discjockey.sources import spotify
+from discjockey.sources import soundcloud, spotify, youtube_music
 from discjockey.hub.api import rows_from, suggest_folder
 from discjockey.library import run_lock
 
@@ -214,6 +217,23 @@ def test_preview_reads_an_unread_playlist_of_a_service_that_needs_no_login(root,
     assert added["ok"] and added["kind"] == "add" and added["new_downloads"] == 1
 
 
+def test_preview_does_not_open_soundcloud_for_a_you_likes_line(root, monkeypatch):
+    """Reading your own likes opens the browser login (a Keychain prompt): a preview skips such a line."""
+    fake_soundcloud(monkeypatch)
+
+    reader = sources.SOURCES["soundcloud"].open(root.support, CancelToken())
+
+    def read(line):
+        raise AssertionError("the preview read your likes")
+    monkeypatch.setattr(reader, "fetch", read)
+    monkeypatch.setattr(sources.SOURCES["soundcloud"], "open", lambda paths, token: reader)
+    monkeypatch.setattr(sources.SOURCES["soundcloud"], "recognise", lambda link: "you/likes")
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    c = api.preview_playlist_change(lines(HARD, POWER, ("Likes", "https://soundcloud.com/you/likes", True)))
+    assert c["ok"]
+
+
 def test_the_page_lists_a_qobuz_row_by_its_ref(root, monkeypatch):
     fake_qobuz(monkeypatch)
     root.playlists_file.write_text(PLAYLISTS + f"Example_Playlist = {QOBUZ_LINK}\n")
@@ -314,3 +334,123 @@ def test_rows_from_checks_the_links():
         rows_from([{"folder": "A", "link": "https://example.com"}])
     assert str(e.value) == ("This is not a playlist link Discjockey can read (Spotify, Qobuz, SoundCloud or YouTube "
                             "Music): https://example.com")
+
+
+# --- SoundCloud and YouTube Music through the real source modules (plan library stage 6, group 5) ---
+
+W9 = ("SoundCloud didn't accept the login from Chrome. Log in to SoundCloud there, or use your profile's likes link "
+      "(soundcloud.com/your-name/likes).")
+W17 = ("Discjockey can't read your liked songs or Watch later. Add the songs to a playlist, set it to public or "
+       "unlisted, and paste that link.")
+W18 = "This is a YouTube mix, which changes every time it plays. Save its songs to a playlist and paste that link."
+YTM_FIXTURE = Path(__file__).parent / "fixtures" / "youtube_music" / "video_playlist.json"
+YTM_ID = "PLexampleVideoList000000000000000001"
+YTM_LINK = f"https://music.youtube.com/playlist?list={YTM_ID}"
+
+
+class OneAnswerYDL:
+    """A yt-dlp that answers the one YouTube Music playlist page with the recorded flat playlist (made-up ids)."""
+
+    requested: list = []
+
+    def __init__(self, opts):
+        pass
+
+    def extract_info(self, url, download=True, process=True, **kwargs):
+        OneAnswerYDL.requested.append(url)
+        return json.loads(YTM_FIXTURE.read_text())
+
+    def close(self):
+        pass
+
+
+def test_a_youtube_music_link_is_added_with_its_service_and_ref(root, monkeypatch):
+    OneAnswerYDL.requested = []
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", OneAnswerYDL)
+    api, rec = make_api(root)
+    added = api.add_playlist(f"  https://www.youtube.com/watch?v=EXAMPLEid01&list={YTM_ID}&si=x ")
+    entries = json.loads(YTM_FIXTURE.read_text())["entries"]
+    assert added["ok"] and added["readable"] and 0 < added["tracks"] <= len(entries)
+    assert (added["playlist_id"], added["service"], added["service_name"]) == (
+        f"youtube_music:{YTM_ID}", "youtube_music", "YouTube Music")
+    assert added["link"] == YTM_LINK and added["hint"] is None
+    assert added["info"]["hint"] == youtube_music.UNREADABLE_HINT
+    assert api._infos[f"youtube_music:{YTM_ID}"].service == "youtube_music"
+
+
+@pytest.mark.parametrize("pid, words", [("LM", W17), ("WL", W17), ("RDEXAMPLEmix0001", W18)])
+def test_a_youtube_music_list_that_is_refused_answers_with_its_service(root, monkeypatch, pid, words):
+    OneAnswerYDL.requested = []
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", OneAnswerYDL)
+    api, rec = make_api(root)
+    assert api.add_playlist(f"https://music.youtube.com/playlist?list={pid}") == {
+        "ok": False, "kind": "playlist_unreadable", "service": "youtube_music", "message": words}
+    assert OneAnswerYDL.requested == [] and api._infos == {} and api._extra_tracks == {}  # refused before any request
+
+
+def test_your_own_likes_without_a_soundcloud_login_answer_w8(root, monkeypatch):
+    api, rec = make_api(root)  # no SoundCloud account in the support folder: expand asks for none and says so
+    answer = api.add_playlist("https://soundcloud.com/you/likes")
+    assert answer == {"ok": False, "kind": "playlist_unreadable", "service": "soundcloud", "message": soundcloud.LIKES_HINT}
+    assert answer["message"].startswith("To read your own likes, use your profile's likes link")
+
+
+def test_a_soundcloud_set_that_is_not_shown_answers_w5(root, monkeypatch):
+    class Reader:
+        want_info = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            pass
+
+        def close(self):
+            pass
+
+        def info(self, playlist_id):
+            raise SourceError(soundcloud.UNREADABLE_SET, "playlist_unreadable", "soundcloud")
+
+    monkeypatch.setattr(soundcloud, "open", lambda paths, token: Reader())
+    api, rec = make_api(root)
+    assert api.add_playlist(SC_SET) == {"ok": False, "kind": "playlist_unreadable", "service": "soundcloud",
+                                        "message": "SoundCloud doesn't show this playlist. It may be private or "
+                                                   "removed; for a private set, use its private share link."}
+
+
+@pytest.mark.parametrize("kind, message", [
+    ("login_expired", W9), ("offline", "SoundCloud is not responding (URLError). Try again later."),
+    ("offline", "SoundCloud asked Discjockey to slow down. Try again in an hour.")])
+def test_a_soundcloud_login_or_network_problem_in_expand_never_rejects(root, monkeypatch, kind, message):
+    def expand(link, paths, token):
+        raise SourceError(message, kind, "soundcloud")
+
+    monkeypatch.setattr(soundcloud, "expand", expand)
+    api, rec = make_api(root)
+    assert api.add_playlist("https://soundcloud.com/you/likes") == {"ok": False, "kind": kind,
+                                                                    "service": "soundcloud", "message": message}
+
+
+def test_a_you_likes_line_whose_login_is_not_accepted_blocks_the_read_with_w9(root, monkeypatch):
+    class Reader:
+        want_info = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            pass
+
+        def close(self):
+            pass
+
+        def fetch(self, line):
+            raise SourceError(W9, "login_expired", "soundcloud")
+
+    monkeypatch.setattr(soundcloud, "open", lambda paths, token: Reader())
+    root.playlists_file.write_text(PLAYLISTS + "Likes = https://soundcloud.com/you/likes\n")
+    api, rec = make_api(root)
+    done = wait_job(api, rec, api.refresh())
+    assert not done.ok and (done.problem, done.service, done.message) == ("login_expired", "soundcloud", W9)
+    status = api.job_status()["read_status"]
+    assert (status["problem"], status["problem_service"], status["message"]) == ("login_expired", "soundcloud", W9)

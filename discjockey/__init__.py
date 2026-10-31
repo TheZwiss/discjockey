@@ -1,4 +1,4 @@
-"""Discjockey: keep a lossless DJ library in sync with Spotify and Qobuz playlists."""
+"""Discjockey: keep a lossless DJ library in sync with Spotify, Qobuz, SoundCloud and YouTube Music playlists."""
 from pathlib import Path
 
 __version__ = "1.1.0"  # the one version source (spec public-release §7); pyproject.toml repeats it, a test compares

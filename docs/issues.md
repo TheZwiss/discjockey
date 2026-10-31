@@ -3,6 +3,14 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 31. YouTube Music "Liked music" — open question for the user
+
+Library stage 6 reads YouTube Music playlists but leaves out "Liked music", "Watch later" and mixes for now: the
+reader refuses them before any request and says so (`sources/youtube_music.py`, W17: add the songs to a playlist, set
+it to public or unlisted, and paste that link). Reading "Liked music" would need the YouTube login (browser cookies)
+on every read and risks YouTube's bot check on the Premium account, which the downloads also use. Decide later
+whether it is worth that; until then the hint is the answer.
+
 ## 30. The own upload of a track in a private SoundCloud set
 
 Noted while building library stage 6, group 4 (`docs/2026-10-31-library-stage-6-plan.md`). The upload step downloads
@@ -113,8 +121,6 @@ Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
 
 Noted while building and reviewing `docs/2026-10-24-library-stage-3-plan.md`.
 
-- **SoundCloud and YouTube Music track links can't be derived from an id:** `models.track_link` returns None for
-  them. When stage 6 adds those sources and a view needs the link, store it with the track.
 - **A file downloaded by its exact Qobuz id gets no record-label tag.** `make_ready` writes `cand.label`, and the
   exact candidate is built from the playlist track, which has no label (`SourceTrack` has none). Fix: carry the label
   from the Qobuz playlist read into the track, or fetch it.

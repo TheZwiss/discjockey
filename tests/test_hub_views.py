@@ -207,6 +207,25 @@ def test_playlist_rows_name_their_service_and_info_carries_the_hint():
     assert views.info_dict(spotify_info)["hint"].startswith("Follow ≠ own")
 
 
+def test_the_new_services_are_listed_connected_and_their_rows_and_hints_are_worded():
+    st = views.read_status(store_with([]), NOW, False, [("spotify", True), ("soundcloud", True), ("youtube_music", True)])
+    assert st["services"] == [{"service": "spotify", "name": "Spotify", "connected": True},
+                              {"service": "soundcloud", "name": "SoundCloud", "connected": True},
+                              {"service": "youtube_music", "name": "YouTube Music", "connected": True}]
+    loaded = Loaded([Row("S", "https://soundcloud.com/example-label/sets/example-set"),
+                     Row("Y", "https://music.youtube.com/playlist?list=PLEXAMPLE0001")], "v", None)
+    infos = {"soundcloud:example-label/sets/example-set": PlaylistInfo(
+        "soundcloud", "example-label/sets/example-set", "Example Set", "9", "Example Label", False, None, None, False, True)}
+    rows = views.playlists(loaded, {}, infos, state())["rows"]
+    assert [(r["playlist_id"], r["service"], r["service_name"]) for r in rows] == [
+        ("soundcloud:example-label/sets/example-set", "soundcloud", "SoundCloud"),
+        ("youtube_music:PLEXAMPLE0001", "youtube_music", "YouTube Music")]
+    assert rows[0]["info"]["track_count"] is None  # a likes list or a set SoundCloud gave no count for
+    assert rows[0]["info"]["hint"] == "Make it public in SoundCloud, or use its private share link."
+    yt = PlaylistInfo("youtube_music", "x", "N", "o", "O", False, None, 1, False, False)
+    assert views.info_dict(yt)["hint"] == "Set it to public or unlisted in YouTube Music."
+
+
 REPORT = {"started": "2026-10-19T21:47:00", "finished": "2026-10-19T22:11:00", "exit_code": 1, "results": [
     {"section": "new_lossless", "folder": "A", "artist": "X", "title": "1", "track_id": "t1", "status": "lossless",
      "path": "Library/A/X - 1.aiff"},

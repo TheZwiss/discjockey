@@ -1,6 +1,6 @@
 # Discjockey
 
-Discjockey keeps a lossless DJ library in step with your Spotify and Qobuz playlists. It downloads each
+Discjockey keeps a lossless DJ library in step with your Spotify, Qobuz, SoundCloud and YouTube Music playlists. It downloads each
 track from Qobuz as lossless 16-bit AIFF, falls back to the best version it can find on
 YouTube Music, YouTube or SoundCloud, and never deletes any of your music files.
 
@@ -42,7 +42,7 @@ Download `Discjockey-<version>.dmg` (for example `Discjockey-1.0.0.dmg`) from th
 
 ## Legal note
 
-Discjockey is a tool that runs on your Mac. It reads your Spotify and Qobuz playlists and downloads their tracks with your own
+Discjockey is a tool that runs on your Mac. It reads your Spotify, Qobuz, SoundCloud and YouTube Music playlists and downloads their tracks with your own
 accounts: Qobuz first, then YouTube Music, YouTube or SoundCloud. It comes with no music and no accounts. You need
 your own accounts for the services you use, and you are responsible for following the terms of use of Spotify, Qobuz and
 every other service you use with it. Read [Account risk](#account-risk) before your first sync.
@@ -108,7 +108,7 @@ back by itself the next time while a needed step is still open.
 5. **Downloads:** sign in to Qobuz, or choose **I don't have Qobuz**. YouTube Premium and
    SoundCloud Go+ are optional; see [Settings](#settings) for how their logins work. Beside
    the logins, "Where your music comes from" lights up as each one works.
-6. **First playlist:** paste the link of a Spotify or Qobuz playlist and click **Add to the list**.
+6. **First playlist:** paste the link of a Spotify, Qobuz, SoundCloud or YouTube Music playlist and click **Add to the list**.
    Add more and change their order later on the Playlists page. **Finish** opens the Sync page.
 
 Everything in Setup can be changed later in **Settings**. Once setup is done, a link to a
@@ -183,12 +183,26 @@ changes it for you; you can also edit it in any text editor:
 ```
 Hard_Bounce = https://open.spotify.com/playlist/...
 Powertrance = https://open.qobuz.com/playlist/...
+Warehouse = https://soundcloud.com/some-label/sets/...
+Mixes = https://music.youtube.com/playlist?list=...
 ```
 
 - The name on the left is the folder in `Library/`.
-- **Links:** each line takes a Spotify or a Qobuz playlist link. For Qobuz, use the link from the Qobuz player
-  (`open.qobuz.com/playlist/...`, `play.qobuz.com/playlist/...` or `listen.qobuz.com/playlist/...`) or from the Qobuz store
-  (`www.qobuz.com/gb-en/playlists/.../...`). In the app, **Share**, then **Copy link** gives you one.
+- **Links:** each line takes a playlist link from Spotify, Qobuz, SoundCloud or YouTube Music. In each service's app,
+  **Share**, then **Copy link** gives you one.
+  - **Qobuz:** the link from the Qobuz player (`open.qobuz.com/playlist/...`, `play.qobuz.com/playlist/...` or
+    `listen.qobuz.com/playlist/...`) or from the Qobuz store (`www.qobuz.com/gb-en/playlists/.../...`).
+  - **SoundCloud:** a set (`soundcloud.com/<name>/sets/<set>`), a private set's share link
+    (`soundcloud.com/<name>/sets/<set>/s-...`) or someone's likes (`soundcloud.com/<name>/likes`). Your own likes
+    work with your profile's likes link too (open your profile, click Likes, copy the address). If you paste
+    `soundcloud.com/you/likes` or a short `on.soundcloud.com/...` link in the window, Discjockey turns it into the full
+    link first; for `you/likes` it uses your SoundCloud login from Settings once to learn your name (macOS may ask
+    for your Mac's password to let Discjockey read the browser's login). A `you/likes` line typed into
+    `playlists.txt` uses that login on every read, and a short link only works when pasted in the window.
+  - **YouTube Music:** playlists and albums (`music.youtube.com/playlist?list=...`); links from youtube.com
+    (`youtube.com/playlist?list=...`, or a video link with `&list=...`) work too. Not "Liked music", "Watch later" or
+    mixes (they are personal or change on every play): add the songs to a playlist, set it to public or unlisted, and
+    paste that link.
 - **Priority:** the line further up wins. A track that is in several playlists goes into the
   folder of the first one.
 - **Switching a playlist off:** put `#` at the start of its line. Its tracks stay where they
@@ -202,6 +216,14 @@ Powertrance = https://open.qobuz.com/playlist/...
 - **Qobuz playlists** must be public or your own. Qobuz has to be set up (signed in) when a line uses it. A track
   in a Qobuz playlist is downloaded as that exact Qobuz track, with no search. Reading a Qobuz playlist does not
   count against the daily [Qobuz limit](#daily-use); only downloads do.
+- **SoundCloud playlists** must be public, or a private set with its share link. **YouTube Music playlists** must be
+  public or unlisted. Neither needs a login to be read, and reading them counts against no limit; only downloads do.
+  Their titles are split into artist and title, and tags like `[FREE DL]` or `(Premiere)` are dropped, so
+  "Artist - Title [FREE DL]" is saved as `Artist - Title`.
+- **How a track is found:** Discjockey looks for it on Qobuz by name (a Qobuz playlist's track is fetched by its exact
+  id). If Qobuz doesn't have it and the track comes from a SoundCloud or YouTube Music playlist, it then tries that
+  upload itself: SoundCloud's free download first, if the artist offers one, then its stream (through your SoundCloud
+  Go+ login when you set one up). Only after that it searches YouTube Music, SoundCloud and YouTube.
 
 ## Your existing music
 

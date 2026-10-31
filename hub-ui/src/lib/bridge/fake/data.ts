@@ -139,6 +139,10 @@ export type FakeState = {
   qobuzSkipped: boolean;  // "I don't have Qobuz" in setup
   /** scenario qobuz_unreadable: add_playlist answers that Qobuz doesn't show a pasted Qobuz playlist */
   qobuzUnreadable?: boolean;
+  /** scenario soundcloud_unreadable: add_playlist answers W5 for a pasted SoundCloud playlist */
+  soundcloudUnreadable?: boolean;
+  /** scenario youtube_mix_refused: add_playlist answers W18 for a pasted YouTube Music link (a mix) */
+  youtubeMixRefused?: boolean;
   /** scenario qobuz_not_connected: playlists.txt has a Qobuz line, but Qobuz has no login to read it with */
   qobuzNotConnected?: boolean;
   /** scenario sync:qobuz-start-fails: Start ends at once with `not_set_up` for Qobuz (the end screen's service card) */
@@ -418,6 +422,14 @@ export function sampleTracks(now: Date, extra = 35): FakeTrack[] {
       t.in_playlists = false; t.folder = 'Old_Sets'; t.playlists = [];
     }
   }
+  // one track for each of the other two services, each with its own page (plan library stage 6, I7)
+  ts.push({ ...base(SOUNDCLOUD_TRACK_ID, 'Example Artist', 'Example Title', 'Example_Label', 233, now, 2),
+    link: { url: 'https://soundcloud.com/example-label/example-title', label: 'Open in SoundCloud' } });
+  ts.push({ ...base(SOUNDCLOUD_LIKED_ID, 'Example Artist', 'Liked Title', 'Example_DJ_likes', 189, now, 2),
+    link: { url: 'https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/900000102',
+      label: 'Open in SoundCloud' } });
+  ts.push({ ...base(YOUTUBE_MUSIC_TRACK_ID, 'Example Artist', 'Example Song', 'Example_Channel', 207, now, 2),
+    link: { url: 'https://music.youtube.com/watch?v=EXAMPLEid01', label: 'Open in YouTube Music' } });
   return ts;
 }
 
@@ -425,17 +437,44 @@ export const PLAYLIST_IDS = ['0DiscjockeyExampleList', '3DiscjockeyExampleList',
   '2Juni2026mX8kLq0Pw3vNe', '7TekkeEckeQe2xYb9LmPzR', '1HardTechnoNoAccessKv4'];
 export const QOBUZ_PLAYLIST_LINK = 'https://open.qobuz.com/playlist/900000001';
 export const QOBUZ_TRACK_ID = 'qobuz:112358';
+export const SOUNDCLOUD_SET_LINK = 'https://soundcloud.com/example-label/sets/example-set';
+export const SOUNDCLOUD_LIKES_LINK = 'https://soundcloud.com/example-dj/likes';
+export const YOUTUBE_MUSIC_LINK = 'https://music.youtube.com/playlist?list=PLEXAMPLE0001';
+export const SOUNDCLOUD_TRACK_ID = 'soundcloud:900000101';
+export const SOUNDCLOUD_LIKED_ID = 'soundcloud:900000102';
+export const YOUTUBE_MUSIC_TRACK_ID = 'youtube_music:EXAMPLEid01';
 /** The words of each service for a playlist it won't show (InfoDict.hint; Python: sources.py). */
 export const SPOTIFY_HINT = 'Follow ≠ own: make your own copy in Spotify.';
 export const QOBUZ_HINT = 'Make it public in Qobuz, or use one of your own playlists.';
 export const QOBUZ_UNREADABLE = "Qobuz doesn't show this playlist. It must be public or one of yours. Check the link.";
-export const serviceOfLink = (link: string): PlaylistService => (/qobuz\.com/.test(link) ? 'qobuz' : 'spotify');
-export const SERVICE_NAME: Record<PlaylistService, string> = { spotify: 'Spotify', qobuz: 'Qobuz' };
-export const hintOf = (service: PlaylistService) => (service === 'qobuz' ? QOBUZ_HINT : SPOTIFY_HINT);
-/** A playlist's ref: a Spotify id stays bare, a Qobuz one is `qobuz:<id>`. */
+export const SOUNDCLOUD_HINT = 'Make it public in SoundCloud, or use its private share link.';
+export const YOUTUBE_MUSIC_HINT = 'Set it to public or unlisted in YouTube Music.';
+/** The engine's words (plan library stage 6, I8): W5, W18 and W2. */
+export const SOUNDCLOUD_UNREADABLE = "SoundCloud doesn't show this playlist. It may be private or removed; for a "
+  + 'private set, use its private share link.';
+export const YOUTUBE_MIX_REFUSED = 'This is a YouTube mix, which changes every time it plays. Save its songs to a '
+  + 'playlist and paste that link.';
+export const LINK_REFUSED = "That isn't a playlist link Discjockey can read. Open the playlist in Spotify, Qobuz, "
+  + 'SoundCloud or YouTube Music, choose Share, then Copy link, and paste it here.';
+export const serviceOfLink = (link: string): PlaylistService =>
+  /qobuz\.com/.test(link) ? 'qobuz' : /soundcloud\.com/.test(link) ? 'soundcloud'
+    : /youtube\.com/.test(link) ? 'youtube_music' : 'spotify';
+export const SERVICE_NAME: Record<PlaylistService, string> = {
+  spotify: 'Spotify', qobuz: 'Qobuz', soundcloud: 'SoundCloud', youtube_music: 'YouTube Music',
+};
+export const hintOf = (service: PlaylistService) => ({ spotify: SPOTIFY_HINT, qobuz: QOBUZ_HINT,
+  soundcloud: SOUNDCLOUD_HINT, youtube_music: YOUTUBE_MUSIC_HINT })[service];
+/** A playlist's ref: a Spotify id stays bare, every other service's is `<service>:<id>`: Qobuz the number,
+ *  SoundCloud the link's path (lower case), YouTube Music the `list=` id. */
 export function playlistRef(link: string): string | null {
+  const service = serviceOfLink(link);
+  if (service === 'soundcloud') return `soundcloud:${new URL(link).pathname.replace(/^\/|\/$/g, '').toLowerCase()}`;
+  if (service === 'youtube_music') {
+    const list = new URL(link).searchParams.get('list');
+    return list ? `youtube_music:${list}` : null;
+  }
   const id = link.split('/').pop() || null;
-  return id && serviceOfLink(link) === 'qobuz' ? `qobuz:${id}` : id;
+  return id && service === 'qobuz' ? `qobuz:${id}` : id;
 }
 export function samplePlaylists(): FakePlaylist[] {
   const info = (name: string, n: number, yours = true, readable = true): PlaylistInfo => ({ name,
@@ -453,6 +492,16 @@ export function samplePlaylists(): FakePlaylist[] {
     { folder: 'Qobuz_Picks', link: QOBUZ_PLAYLIST_LINK, enabled: true,
       info: { name: 'Qobuz Picks', owner_name: 'Example Curator', yours: false, collaborative: false, readable: true,
         image_url: null, track_count: 1, hint: QOBUZ_HINT } },
+    { folder: 'Example_Label', link: SOUNDCLOUD_SET_LINK, enabled: true,
+      info: { name: 'Example Set', owner_name: 'Example Label', yours: false, collaborative: false, readable: true,
+        image_url: null, track_count: 1, hint: SOUNDCLOUD_HINT } },
+    // a likes list: SoundCloud gives no count (W10 names it "{username}'s likes")
+    { folder: 'Example_DJ_likes', link: SOUNDCLOUD_LIKES_LINK, enabled: true,
+      info: { name: "Example DJ's likes", owner_name: 'Example DJ', yours: false, collaborative: false, readable: true,
+        image_url: null, track_count: null, hint: SOUNDCLOUD_HINT } },
+    { folder: 'Example_Channel', link: YOUTUBE_MUSIC_LINK, enabled: true,
+      info: { name: 'Example Mix Tape', owner_name: 'Example Channel', yours: false, collaborative: false, readable: true,
+        image_url: null, track_count: 1, hint: YOUTUBE_MUSIC_HINT } },
   ];
 }
 
@@ -582,7 +631,9 @@ export const readServices = (qobuzConnected = true): ReadStatus['services'] => [
  *  its login away. So a Spotify left out in Setup is no problem while no line uses it (plan stage 3, D1). */
 export function readStatus(s: FakeState): ReadStatus {
   const used = [...new Set(s.playlists.filter((p) => p.enabled).map((p) => serviceOfLink(p.link)))];
-  const connected = (x: PlaylistService) => (x === 'spotify' ? s.setup.spotify_login : !s.qobuzNotConnected);
+  // SoundCloud and YouTube Music are read without a login: always connected (not_needed)
+  const connected = (x: PlaylistService) => (x === 'spotify' ? s.setup.spotify_login
+    : x === 'qobuz' ? !s.qobuzNotConnected : true);
   return { ...s.read_status, services: used.map((x) => ({ service: x, name: SERVICE_NAME[x], connected: connected(x) })) };
 }
 export function readOk(minutes = 2, now = new Date()): ReadStatus {
@@ -646,6 +697,8 @@ export function makeState(scenario: string, now = new Date()): FakeState {
     s.appUpdate = { state: 'unknown', current: '1.0.0', latest: null, url: null };  // no answer: the page shows nothing
   }
   if (scenario === 'qobuz_unreadable') s.qobuzUnreadable = true;
+  if (scenario === 'soundcloud_unreadable') s.soundcloudUnreadable = true;
+  if (scenario === 'youtube_mix_refused') s.youtubeMixRefused = true;
   if (scenario === 'qobuz_not_connected') {
     // playlists.txt has a Qobuz line, but Qobuz has no login: the read is blocked and says which service
     s.qobuzNotConnected = true;

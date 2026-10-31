@@ -99,7 +99,8 @@ describe('fake backend', () => {
       ['Qobuz_Picks', 'qobuz', true]]);
     const pl = await f.playlists();
     if (!pl.ok) throw new Error();
-    expect(pl.rows).toHaveLength(7);   // six Spotify lines (one without access) and one from Qobuz
+    expect(pl.rows).toHaveLength(10);   // six Spotify lines (one without access), one from Qobuz, two SoundCloud, one YouTube Music
+    expect(pl.rows.map((r) => r.service).slice(6)).toEqual(['qobuz', 'soundcloud', 'soundcloud', 'youtube_music']);
     expect(pl.rows.filter((r) => !r.enabled)).toHaveLength(1);
     expect(pl.rows.filter((r) => r.info && !r.info.readable)).toHaveLength(1);
     const runs = await f.runs();
@@ -608,12 +609,47 @@ describe('fake backend: Qobuz playlists (stage 3)', () => {
     const sp = await createFakeBridge('normal', { speed: 50 }).add_playlist('https://open.spotify.com/playlist/37i9dQZF1DX');
     expect(sp).toMatchObject({ ok: true, playlist_id: '37i9dQZF1DX', service: 'spotify' });
   });
+  it('add_playlist reads SoundCloud and YouTube Music links; the scenarios answer W5 and W18; the engine words for a refusal', async () => {
+    const f = createFakeBridge('normal', { speed: 50 });
+    expect(await f.add_playlist('https://soundcloud.com/Example-Label/sets/Example-Set')).toMatchObject({ ok: true,
+      playlist_id: 'soundcloud:example-label/sets/example-set', service: 'soundcloud', service_name: 'SoundCloud',
+      link: 'https://soundcloud.com/example-label/sets/example-set', readable: true });
+    expect(await f.add_playlist('https://soundcloud.com/you/likes')).toMatchObject({ ok: true,
+      playlist_id: 'soundcloud:example-dj/likes', info: { name: "Example DJ's likes", track_count: null } });
+    expect(await f.add_playlist('https://on.soundcloud.com/abc123')).toMatchObject({ ok: true, service: 'soundcloud' });
+    expect(await f.add_playlist('https://music.youtube.com/playlist?list=PLEXAMPLE0001&si=x')).toMatchObject({
+      ok: true, playlist_id: 'youtube_music:PLEXAMPLE0001', service: 'youtube_music', service_name: 'YouTube Music',
+      link: 'https://music.youtube.com/playlist?list=PLEXAMPLE0001' });
+    expect(await f.add_playlist('https://www.youtube.com/watch?v=EXAMPLEid01&list=RDEXAMPLEmix')).toMatchObject({
+      ok: false, kind: 'playlist_unreadable', service: 'youtube_music' });
+    expect(await createFakeBridge('soundcloud_unreadable', { speed: 50 })
+      .add_playlist('https://soundcloud.com/example-label/sets/example-set')).toEqual({ ok: false,
+      kind: 'playlist_unreadable', service: 'soundcloud', message: "SoundCloud doesn't show this playlist. It may be "
+        + 'private or removed; for a private set, use its private share link.' });
+    expect(await createFakeBridge('youtube_mix_refused', { speed: 50 })
+      .add_playlist('https://music.youtube.com/playlist?list=PLEXAMPLE0001')).toEqual({ ok: false,
+      kind: 'playlist_unreadable', service: 'youtube_music', message: 'This is a YouTube mix, which changes every '
+        + 'time it plays. Save its songs to a playlist and paste that link.' });
+    expect(await f.add_playlist('https://example.com/x')).toEqual({ ok: false, kind: 'refused',
+      message: "That isn't a playlist link Discjockey can read. Open the playlist in Spotify, Qobuz, SoundCloud or "
+        + 'YouTube Music, choose Share, then Copy link, and paste it here.' });
+  });
+  it('a track of each new service links to its own page', async () => {
+    const f = createFakeBridge('normal');
+    for (const [id, label] of [['soundcloud:900000101', 'Open in SoundCloud'], ['soundcloud:900000102', 'Open in SoundCloud'],
+      ['youtube_music:EXAMPLEid01', 'Open in YouTube Music']] as const) {
+      const r = await f.track(id);
+      if (!r.ok) throw new Error();
+      expect(r.track.track_link?.label).toBe(label);
+    }
+  });
   it('the read status names the services; qobuz_not_connected has Qobuz unconnected and the problem about it', async () => {
     const ok = await createFakeBridge('normal').dashboard();
     const bad = await createFakeBridge('qobuz_not_connected').dashboard();
     if (!ok.ok || !bad.ok) throw new Error();
     expect(ok.read_status).toMatchObject({ problem: null, problem_service: null });
-    expect(ok.read_status.services.map((x) => [x.service, x.connected])).toEqual([['spotify', true], ['qobuz', true]]);
+    expect(ok.read_status.services.map((x) => [x.service, x.connected])).toEqual([['spotify', true], ['qobuz', true],
+      ['soundcloud', true], ['youtube_music', true]]);   // the last two are read without a login
     expect(bad.read_status.services.find((x) => x.service === 'qobuz')).toMatchObject({ name: 'Qobuz', connected: false });
     expect(bad.read_status).toMatchObject({ problem: 'not_set_up', problem_service: 'qobuz' });
   });

@@ -236,11 +236,11 @@ describe('fake To-do of the import', () => {
       ['Spotify playlist', 'switched off', 'Library › Tekke_Ecke']);
   });
 
-  it('library:browser has 35 playlist lines, two switched off, one long name, two Library folders', async () => {
+  it('library:browser has 38 playlist lines, two switched off, one long name, two Library folders', async () => {
     const side = must(await fake('library:browser').f.sidebar());
-    expect(side.playlists).toHaveLength(35);
+    expect(side.playlists).toHaveLength(38);
     expect(side.playlists.filter((p) => !p.enabled)).toHaveLength(2);
-    expect(new Set(side.playlists.map((p) => p.ref)).size).toBe(35);
+    expect(new Set(side.playlists.map((p) => p.ref)).size).toBe(38);
     expect(Math.max(...side.playlists.map((p) => p.name.length))).toBeGreaterThan(60);
     expect(side.playlists.some((p) => p.songs === null)).toBe(true);
     expect(side.library_folders.map((x) => x.name)).toEqual(['Crate_Dumps', 'Elsewhere', 'Old_Sets']);

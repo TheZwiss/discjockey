@@ -43,6 +43,26 @@ describe('links', () => {
     expect(hasLink(rows, 'https://www.qobuz.com/gb-en/playlists/example-picks/900000001')).toBe(true);
     expect(hasLink(rows, 'https://open.qobuz.com/playlist/900000002')).toBe(false);
   });
+  it('keys a SoundCloud set or likes list like the engine: lowercased, a private set keeping its secret token', () => {
+    expect(playlistKey('https://soundcloud.com/Example-Label/sets/Example-Set?si=abc#x')).toBe('soundcloud:example-label/sets/example-set');
+    expect(playlistKey('https://m.soundcloud.com/example-label/sets/example-set/')).toBe('soundcloud:example-label/sets/example-set');
+    expect(playlistKey('https://soundcloud.com/Example-DJ/likes?x=1')).toBe('soundcloud:example-dj/likes');
+    expect(playlistKey('https://soundcloud.com/ex/sets/my-playlist/s-AbC?si=1')).toBe('soundcloud:ex/sets/my-playlist/s-AbC');
+    const rows = [{ key: 's', folder: 'Set', link: 'https://soundcloud.com/ex/sets/my-playlist/s-AbC' }];
+    expect(hasLink(rows, 'https://www.soundcloud.com/EX/sets/My-Playlist/s-AbC?si=zz')).toBe(true);
+    expect(hasLink(rows, 'https://soundcloud.com/ex/sets/my-playlist/s-XyZ')).toBe(false);
+    expect(hasLink(rows, 'https://soundcloud.com/ex/sets/my-playlist/s-abc')).toBe(false);
+  });
+  it('keys a YouTube Music playlist by its list id, in every link form (sources/youtube_music.py)', () => {
+    const id = 'PLexampleListId_1-x';
+    expect(playlistKey(`https://music.youtube.com/playlist?list=${id}&si=abc`)).toBe(`youtube_music:${id}`);
+    expect(playlistKey(`https://www.youtube.com/playlist?list=${id}`)).toBe(`youtube_music:${id}`);
+    expect(playlistKey(`https://music.youtube.com/browse/VL${id}`)).toBe(`youtube_music:${id}`);
+    expect(playlistKey(`https://m.youtube.com/watch?v=abc123&list=${id}`)).toBe(`youtube_music:${id}`);
+    const rows = [{ key: 'y', folder: 'Mix', link: `https://music.youtube.com/playlist?list=${id}` }];
+    expect(hasLink(rows, `https://www.youtube.com/watch?v=abc123&si=q&list=${id}`)).toBe(true);
+    expect(hasLink(rows, `https://music.youtube.com/playlist?list=${id.toLowerCase()}`)).toBe(false);
+  });
 });
 
 describe('owner', () => {
