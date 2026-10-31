@@ -82,9 +82,11 @@ def test_a_soundcloud_login_never_reaches_yt_dlp_s_shared_headers(recorder, tmp_
     assert isinstance(ie, fb.SoundcloudDrmIE) and ie.ie_key() == "Soundcloud"
     ie.set_downloader(YoutubeDL({"quiet": True}))
     ie._CLIENT_ID = "test"
+    ie._initialize_pre_login = lambda: None  # no client id lookup on the network
+    ie._get_cookies = lambda url: {"oauth_token": Cookie("oauth_token", ".soundcloud.com")}
     ie._request_webpage = lambda *a, **k: True  # the token check answers yes, offline
-    ie._verify_oauth_token("example")  # what yt-dlp's login step does with the browser's oauth_token cookie
-    assert ie._HEADERS == {"Authorization": "OAuth example"}
+    ie.initialize()  # yt-dlp's own login step: the browser's oauth_token cookie, verified, written into _HEADERS
+    assert ie._HEADERS == {"Authorization": "OAuth secret-never-shown"}
     assert shared == {} and yt_soundcloud.SoundcloudIE()._HEADERS == {}
     recorder.extractors.clear()
     with pytest.raises(RuntimeError):
