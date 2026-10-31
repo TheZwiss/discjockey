@@ -179,7 +179,7 @@ describe('fake To-do of the import', () => {
   it('shows a group of three as one item, and "Keep all" answers every file of it', async () => {
     const { f, evs } = fake('todo_duplicates_three');
     const t = must(await f.todo('all', false));
-    const ds = items(t, 'duplicate') as DuplicateItem[];
+    const ds = (items(t, 'duplicate') as DuplicateItem[]).sort((a, b) => (a.pair.why === 'same_audio' ? -1 : 1) - (b.pair.why === 'same_audio' ? -1 : 1));
     expect(ds.map((d) => [d.pair.why, d.pair.files.length, d.detail])).toEqual([
       ['same_audio', 3, 'The same audio in 3 files'], ['same_song', 2, '2 files of the same song']]);
     expect(ds[1].pair.files.find((x) => x.in_playlist)!.audio_url).toMatch(/^data:|^blob:/);
@@ -204,11 +204,33 @@ describe('fake To-do of the import', () => {
     const done = await finished(evs, start.job_id);
     expect(done).toMatchObject({ kind: 'supersede', ok: true });
     expect((done.result as { result: { section: string; path: string } }).result)
-      .toMatchObject({ section: 'replaced', path: 'Superseded/Music/Rave Kollektiv - Bis zum Morgen.aiff' });
+      .toMatchObject({ section: 'replaced', path: `Superseded/Music/${own.artist} - ${own.title}.aiff` });
     expect(must(await f.todo('all', false)).chips.duplicate).toBe(1);
     const again = must(await f.supersede_duplicate(pair.group_id, own.file_id, shown));
     expect(await finished(evs, again.job_id)).toMatchObject({ ok: false, problem: 'changed' });
     expect(await f.keep_duplicates('nope', [])).toMatchObject({ ok: false, kind: 'refused' });
+  });
+
+  it('a duplicate\'s Keep that hands the song to the kept file: the song is counted in To-do, once', async () => {
+    const { f, evs } = fake('todo_duplicates');
+    const pair = (items(must(await f.todo('all', false)), 'duplicate') as DuplicateItem[])
+      .find((d) => d.pair.why === 'same_song')!.pair;
+    const song = pair.files.find((x) => x.in_playlist)!;
+    const start = must(await f.supersede_duplicate(pair.group_id, song.file_id, pair.files.map((x) => x.path)));
+    await finished(evs, start.job_id);
+    const lib = must(await f.library('all', null, '', 'all', 'artist'));
+    const todo = must(await f.todo('all', false));
+    const heir = lib.rows.find((r) => r.track_id === song.song_key)!;
+    expect(heir).toMatchObject({ quality: 'weak', in_playlists: true });
+    // the song is one to-do item, and the strip's count is the number of such items (hidden tracks are not in To-do,
+    // as the engine's views counts them): "N in To-do" of the not-lossless ones is short by exactly the hidden ones
+    const listed = todo.groups.flatMap((g) => g.items).filter((i) => i.track_id === song.song_key);
+    expect(listed).toHaveLength(1);
+    const single = ['rekordbox_check', 'same_song', 'duplicate', 'not_found'];   // the strip counts tracks with a file
+    const tracks = todo.groups.filter((g) => !single.includes(g.key)).flatMap((g) => g.items).filter((i) => !i.hidden);
+    expect(lib.summary.to_do).toBe(tracks.length);
+    const hiddenLossy = lib.rows.filter((r) => r.hidden && ['good_lossy', 'weak', 'fake'].includes(r.quality)).length;
+    expect(lib.summary.not_lossless - lib.summary.to_do).toBe(hiddenLossy);
   });
 
   it('marks files whose sound is not checked as checked in the Library rows', async () => {

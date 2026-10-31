@@ -608,6 +608,53 @@ def track_link(track_id: str, e: dict, fetched: list) -> dict | None:
     return {"url": link, "label": f"Open in {PLAYLIST_SERVICES[service]}"} if link else None
 
 
+def upgrade_format(up: dict) -> str:
+    """The parked version's quality in the words of the current file's `format_line`: "FLAC · lossless",
+    "AAC · 256 kbps" (a better lossy stream), so the To-do panel's Now and New say the same kind of thing."""
+    f = up.get("source_format") or "flac"
+    name = "PCM" if f.startswith("pcm_") else FORMAT_NAMES.get(f, f.upper())
+    if up.get("status", "lossless") == "lossless":
+        return f"{name} · lossless"
+    return f"{name} · {up['kbps']} kbps" if up.get("kbps") else name
+
+
+def upgrade_status(up: dict, can_swap: bool) -> str:
+    """The To-do row's short line for an upgrade: what is ready, and what replacing means for rekordbox (the panel
+    says the rest). Same edit and an AIFF file: the cues can stay (Swap); same edit otherwise: rekordbox gets a new
+    track; a different edit or no measurement: says so."""
+    what = "Lossless" if up.get("status", "lossless") == "lossless" else f"{up.get('kbps') or '?'} kbps"
+    result = (up.get("alignment") or {}).get("result")
+    if result in ("exact", "shifted"):
+        how = "cues can stay" if can_swap else "new rekordbox track"
+    else:
+        how = "different edit" if result == "different" else "not compared"
+    return f"{what} ready · {how}"
+
+
+def check_status(check: dict | None) -> str:
+    """The To-do row's short line for a rekordbox check (report.check_text is the long one, the panel's)."""
+    c = check or {}
+    reason = c.get("reason")
+    if reason == "swapped":
+        return "relocate, Reload Tag, analyse again" if c.get("moved") else "Reload Tag, analyse again"
+    if reason == "added_as_new":
+        return "relocate, analyse again" if c.get("match") in ("exact", "shifted") else "analyse, set the cues again"
+    if reason == "wrong_song":
+        return "now the right song: analyse again"
+    return "check it in rekordbox"
+
+
+def check_view(check: dict | None) -> dict:
+    """RekordboxCheck as the To-do panel reads it: the step that left it and what the two files measured as (its
+    numbered steps follow them), `text` the whole instruction (report.check_text), `old_path` where the old file (an
+    added file) or the copy of the old audio (a swap) is now, from the undo record (null without one)."""
+    c = check or {}
+    undo = c.get("undo") or {}
+    return {"reason": c.get("reason"), "since": c.get("since"), "match": c.get("match"),
+            "offset_ms": c.get("offset_ms"), "moved": bool(c.get("moved")), "text": check_text(c),
+            "old_path": undo.get("old")}
+
+
 def upgrade_block(up: dict | None, media: Url | None, track_id: str, e: dict) -> dict | None:
     if not up:
         return None
@@ -617,6 +664,7 @@ def upgrade_block(up: dict | None, media: Url | None, track_id: str, e: dict) ->
             "what": upgrade_name(up),
             "quality_line": quality_line(up["source"], up.get("source_format") or "flac", up.get("status", "lossless"),
                                          up.get("cutoff_hz"), up.get("kbps")),
+            "format_line": upgrade_format(up),
             "alignment": alignment, "cue_text": cue_text(alignment, swap_possible(e)),
             "swap_safe": alignment.get("result") in ("exact", "shifted"),
             "swap_possible": swap_possible(e),
@@ -1073,7 +1121,7 @@ def _group(e: dict) -> str | None:
 
 def _detail(group: str, e: dict, today: date, other: str | None) -> str:
     if group == "upgrade_ready":
-        return cue_text(e["upgrade"].get("alignment"), swap_possible(e))
+        return upgrade_status(e["upgrade"], swap_possible(e))
     if group == "not_found":
         when = next_check(e, today)
         if when is None or when == "next_sync":
@@ -1165,8 +1213,39 @@ def _duplicate_item(g: DuplicateGroup, files: Sequence[DupFile], state: dict, co
            "added": None, "cover_url": cover(first["song_key"], {"path": first["path"]}) if cover and first["song_key"]
            else None}
     n = len(sides)
+    keep, why = recommend(files)
     return {**row, "group": "duplicate", "detail": (DUPLICATE_AUDIO if g.why == "same_audio" else DUPLICATE_SONG).format(n=n),
-            "free": False, "pair": {"group_id": g.id, "why": g.why, "files": sides}}
+            "free": False, "pair": {"group_id": g.id, "why": g.why, "files": sides, "recommended": keep,
+                                     "recommended_why": why}}
+
+
+RECOMMEND_QUALITY = "Recommended: best quality"
+RECOMMEND_AIFF = "Recommended: AIFF keeps tags"
+
+
+def _sound_rank(f: DupFile) -> tuple:
+    """How good a duplicate's audio is, higher better: lossless before lossy, then the higher cutoff."""
+    return (f.status == "lossless", f.cutoff_hz or 0)
+
+
+def _is_aiff(f: DupFile) -> bool:
+    return PurePosixPath(f.path).suffix.lower() in (".aiff", ".aif")
+
+
+def recommend(files: Sequence[DupFile]) -> tuple[int | None, str | None]:
+    """Which file of a duplicate group the panel picks for the user to keep, and why in one line; (None, None) when
+    there is no clear winner. Only the files themselves decide: the better sound (lossless before lossy, then the
+    higher cutoff), then AIFF before any other format (it keeps rekordbox's tags). Being in a playlist or inside
+    Library/ breaks no tie: which copy rekordbox uses is the user's knowledge, not the app's."""
+    if len(files) < 2:
+        return None, None
+    ranked = sorted(files, key=lambda f: (_sound_rank(f), _is_aiff(f)), reverse=True)
+    best, second = ranked[0], ranked[1]
+    if _sound_rank(best) != _sound_rank(second):
+        return best.file_id, RECOMMEND_QUALITY
+    if _is_aiff(best) and not _is_aiff(second):
+        return best.file_id, RECOMMEND_AIFF
+    return None, None
 
 
 def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], today: date,
@@ -1212,7 +1291,8 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     for k, e in state["tracks"].items():
         if e.get("rekordbox_check"):
             items["rekordbox_check"].append({**track_row(k, e, cover), "group": "rekordbox_check",
-                                             "detail": check_text(e["rekordbox_check"]), "can_undo": can_undo(e)})
+                                             "detail": check_status(e["rekordbox_check"]),
+                                             "check": check_view(e["rekordbox_check"]), "can_undo": can_undo(e)})
             listed.add(k)
         if k in held or (not e.get("in_playlists") and not (is_own(k) and e.get("upgrade"))) \
                 or (e["status"] == "missing" and k in never):

@@ -44,7 +44,13 @@ export type TodoGroupKey = Exclude<TodoFilter, 'all'>;
  *  (`same_song`, `duplicate`) have one; narrow with `isQuestion` / `isDuplicate`. `can_undo`: only `rekordbox_check`
  *  items have it; true when the check belongs to a swap or an added file `undo_upgrade` can still put back. */
 export type TodoItem = TrackRow & { group: TodoGroupKey; detail: string; free: boolean;
-  pair?: QuestionPair | DuplicatePair; can_undo?: boolean };
+  pair?: QuestionPair | DuplicatePair; can_undo?: boolean; check?: RekordboxCheckView };
+/** A `rekordbox_check` item's check (views.check_view): the step that left it, what the two files measured as
+ *  (`match`: exact/shifted/different/unknown, null in records from before it), `text` the whole instruction and
+ *  `old_path` where the old file (added) or the copy of the old audio (swap) is now (null without an undo record).
+ *  The item's `detail` is the row's short line. */
+export type RekordboxCheckView = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | string; since: string | null;
+  match: string | null; offset_ms: number | null; moved: boolean; text: string; old_path: string | null };
 
 // --- the import of the user's own music (plan library stage 4, I11; contract "Watched folders and the import") ---
 /** One file of a question or a duplicate group. `path` is absolute for an import folder's file; `audio_url` is null
@@ -60,7 +66,10 @@ export type QuestionPair = { song_key: string; own_key: string; why: QuestionWhy
   file: FileSide };
 export type DuplicateWhy = 'same_audio' | 'same_song';
 /** A group of files that are the same audio or the same song: two or more, by file id. */
-export type DuplicatePair = { group_id: string; why: DuplicateWhy; files: FileSide[] };
+/** `recommended`: the file the panel picks to keep (views.recommend: the better sound, then AIFF), null when there is no
+ *  clear winner; `recommended_why` its one line ("Recommended: best quality"). */
+export type DuplicatePair = { group_id: string; why: DuplicateWhy; files: FileSide[]; recommended: number | null;
+  recommended_why: string | null };
 export type QuestionItem = TodoItem & { group: 'same_song'; pair: QuestionPair };
 export type DuplicateItem = TodoItem & { group: 'duplicate'; pair: DuplicatePair };
 export const isQuestion = (i: TodoItem): i is QuestionItem => i.group === 'same_song' && !!i.pair;
@@ -309,7 +318,8 @@ export type Alignment = { drift_ms: number | null; offset_ms: number | null; off
   result: string; text: string };
 export type Upgrade = {
   file: string; source: Source | string; source_name: string; source_id: string; found: string; what: string;
-  quality_line: string; alignment: Alignment; cue_text: string; swap_safe: boolean; swap_possible: boolean;
+  quality_line: string; /** "FLAC · lossless": the new version's quality, as the current file's `format_line` */
+  format_line: string; alignment: Alignment; cue_text: string; swap_safe: boolean; swap_possible: boolean;
   audio_url: string | null;
 };
 /** The artist's free download of a SoundCloud version: a gate page (follow, like or e-mail; `host` e.g.

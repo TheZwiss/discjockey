@@ -18,12 +18,13 @@
   import Foot from '../shell/Foot.svelte';
   import NowPlayingRow from '../shell/NowPlayingRow.svelte';
   import { ColumnFrame, ListPanelFrame, Panel } from '../frames';
+  import { UpgradeCards } from '../decisions';
   import {
-    AccountPanel, AddRow, CopyCode, NumberedSteps, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
+    AccountPanel, AddRow, CopyCode, NumberedSteps, ChoiceGroup, OutcomeList, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
     AwayTag, Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
     Hint, InfoTip, KeyValue, ListRow, ListLine, ListSection, MiddleText, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, tip, SummaryStrip, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
     Segmented, SectionLabel, SelectCard, Skeleton, SortHeader, SourceLadder, Spectrum, Spinner, SplitView, StatCard, StatusMark, Surface, Switch, TextField, Tile, Toast,
-    ToggleGroup, ToggleRow, TrackHead, TrackRow, UpgradeCard, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
+    ToggleGroup, ToggleRow, TrackHead, TrackRow, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
     confirm, envelope, ImportCard, UnreadableList, WatchedFolderList,
   } from '../components';
   import Tick from '../components/Tick.svelte';
@@ -40,7 +41,7 @@
     by_quality: { lossless: 290, good_lossy: 120, weak: 41, fake: 9, missing: 0 }, upgrades_ready: 6, to_do: 41,
     not_lossless: 170, ...o });
   const STRIPS: [string, Library['summary'] | null, number][] = [
-    ['fewer in To-do: files of your own in no playlist aren\'t (tooltip)', strip(), 900],
+    ['fewer in To-do: files of your own in no playlist and hidden tracks aren\'t (tooltip)', strip(), 900],
     ['all in To-do, a big library', strip({ tracks: 5318, lossless_share: 3776 / 5306, upgrades_ready: 9, to_do: 1530,
       not_lossless: 1530, by_quality: { lossless: 3776, good_lossy: 900, weak: 500, fake: 130, missing: 0 } }), 900],
     ['the longest words: big counts, some in To-do', strip({ tracks: 5318, lossless_share: 3776 / 5306, upgrades_ready: 1204,
@@ -57,6 +58,8 @@
   /** Gallery only: starts a scroller at a given offset, so a stuck state shows without scrolling by hand. */
   function scrollAt(node: HTMLElement, y: number) { requestAnimationFrame(() => { node.scrollTop = y; }); }
   let inspectorOpen = $state(true);
+  let galleryWay = $state<string>('same');
+  let galleryUpWay = $state<'swap' | 'add_new'>('swap');
   let gFolded = $state(['Playlists']);
   // Tip: one tip open at a time, as in the app; the strip picks which example shows its own
   const TIP_SHOW: SegOption<'rail' | 'cut' | 'crate'>[] = [{ key: 'rail', label: 'Rail icon' }, { key: 'cut', label: 'Cut name' },
@@ -1157,6 +1160,26 @@
     </div>
   </section>
 
+  <section data-test="gallery-choicegroup">
+    {@render head('ChoiceGroup · OutcomeList', 'One of a few, each with a consequence (To-do\'s "In rekordbox", "Which file stays?"): the picked row lists what it does, the others a summary; a row that can\'t be picked is dimmed with its reason; a ruled last row; outcome glyphs: kept ✓, a step ⓘ, lost ✕, a file')}
+    <div class="col start w360">
+      <ChoiceGroup label="In rekordbox" value={galleryWay} onchange={(k) => (galleryWay = k)} test="g-choice"
+        options={[
+          { key: 'same', name: 'Same track', recommended: true, summary: 'Cues and beatgrid stay',
+            outcomes: [{ tone: 'kept', text: 'Your rekordbox track keeps its cues' }] },
+          { key: 'new', name: 'New track', summary: 'Relocate your old track to keep cues',
+            outcomes: [{ tone: 'step', text: 'rekordbox lists it as a new track' }, { tone: 'kept', text: 'Relocate your old track to it: cues fit' }] },
+          { key: 'locked', name: 'Locked choice', disabled: true, reason: 'Needs an AIFF file' },
+          { key: 'neither', name: 'Keep both', summary: 'Both stay; this to-do goes away', ruled: true }]}>
+        {#snippet foot()}<OutcomeList items={[{ tone: 'file', text: 'Your old file is kept in Superseded/' }]} />{/snippet}
+      </ChoiceGroup>
+      <ChoiceGroup label="Nothing picked" summary="no clear winner" hint="Same quality and format. Pick one." value={null}
+        onchange={() => {}} options={[{ key: 'a', name: 'First file', summary: 'Music' }, { key: 'b', name: 'Second file', summary: 'Old' }]} />
+      <OutcomeList items={[{ tone: 'kept', text: 'Kept: stays as it was, or fits' }, { tone: 'step', text: 'A step: needs something from you' },
+        { tone: 'lost', text: 'Lost: something goes away' }, { tone: 'file', text: 'A file: where it goes' }]} />
+    </div>
+  </section>
+
   <section data-test="gallery-addrow">
     {@render head('AddRow', 'Paste a Spotify, Qobuz, SoundCloud or YouTube Music playlist link, check it, name its folder (Playlists\' list head, Setup\'s first playlist)')}
     <div class="col w800"><AddRow draft={[]} onadd={(a, f) => { toasts.show({ tone: 'success', title: `Would add ${a.info?.name ?? a.link} as ${f}` }); return true; }} /></div>
@@ -1283,8 +1306,9 @@
       <MiniPlayer url={toneB} title="Armin Hermann – Get Naughty" track_id="t2" envelope={env} length_s={40} />
       <MiniPlayer url={null} title="Some Artist – Gone Track" />
       <MiniPlayer url="data:audio/wav;base64,AAAA" title="Broken" length_s={10} />
-      <ComparePlayer a={{ url: toneA, label: 'Current' }} b={{ url: toneB, label: 'New' }} cueText="matches exactly, cues stay" />
-      <ComparePlayer a={{ url: 'data:audio/wav;base64,AAAA', label: 'Current' }} b={{ url: 'data:audio/wav;base64,AAAA', label: 'New' }} />
+      <!-- the upgrade decision's player; the second one can't play (its first ▶ shows the error) -->
+      <ComparePlayer total={40} a={{ url: toneA, label: 'Now' }} b={{ url: toneB, label: 'New' }} />
+      <ComparePlayer total={40} a={{ url: 'data:audio/wav;base64,AAAA', label: 'Now' }} b={{ url: 'data:audio/wav;base64,AAAA', label: 'New' }} />
     </div>
   </section>
 
@@ -1312,7 +1336,7 @@
   </section>
 
   <section data-test="gallery-trackhead">
-    {@render head('TrackHead · UpgradeCard', 'A details panel\'s head (beside: 64 px cover, one line each, an action at the title\'s end; stacked: Library) and the parked better version, compared and with its cue verdict (§7)')}
+    {@render head('TrackHead · UpgradeCards', 'A details panel\'s head (beside: 64 px cover, one line each, an action at the title\'s end; stacked: Library) and the upgrade decision To-do and the Library share (lib/decisions): Now/New compared, the Edit row, "In rekordbox" as a choice or, without one, what happens and why')}
     <div class="col w360">
       <Surface kind="card">
         <TrackHead track={{ ...weak, cover_url: null }} place={weak.folder}>
@@ -1332,10 +1356,10 @@
           <Badge tone="missing" text="NOT FOUND" />
         </TrackHead>
       </Surface>
-      <UpgradeCard upgrade={upExact} currentUrl={toneA} current={specCut} next={specFull} swap>
-        {#snippet actions()}<Button variant="link" size="sm">Add as new file</Button><Button variant="link" muted size="sm">Discard</Button>{/snippet}
-      </UpgradeCard>
-      <UpgradeCard upgrade={upDifferent} currentUrl={null} current={specCut} next={null} loading swap={false} />
+      <UpgradeCards track={{ ...weak, audio_url: toneA, format_line: 'Opus · 135 kbps', upgrade: upExact }} current={specCut}
+        upgrade={specFull} loading={false} swap way={galleryUpWay} onway={(w) => (galleryUpWay = w)} />
+      <UpgradeCards track={{ ...weak, audio_url: null, format_line: null, upgrade: upDifferent }} current={specCut}
+        upgrade={null} loading swap={false} way="add_new" onway={() => {}} />
     </div>
   </section>
 

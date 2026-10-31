@@ -20,8 +20,8 @@
   import { ListPanelFrame, Panel } from '$lib/frames';
   import { artistTitle } from '$lib/format';
   import {
-    FILTER_MAX, segOptions, filterFrom, flatten, headerSub, itemKey, keepSelection, moveSelection, queueRows, rowBadge, rowOff,
-    selectAfterHide, selectFromTrack,
+    FILTER_MAX, segOptions, filterFrom, findHeld, flatten, ghostOf, headerSub, holdApplies, itemKey, keepSelection,
+    moveSelection, openCount, queueRows, rowBadge, rowOff, selectAfterHide, selectFromTrack, withHeldItem, type TodoHold,
   } from './todoModel';
   import Details from './Details.svelte';
   import QuestionDetails from './QuestionDetails.svelte';
@@ -42,6 +42,28 @@
 
   const items = $derived(flatten(data));
   const selected = $derived(items.find((i) => itemKey(i) === selKey) ?? null);
+
+  // The item just acted on in the details stays in the list and selected (todoModel TodoHold): the user's own pick,
+  // another filter or Show hidden ends it. When that left a re-fetch that had put the item back, the list asks again.
+  let hold = $state<TodoHold | null>(null);
+  $effect(() => {
+    const h = hold;
+    if (h && !holdApplies(h, selKey, filter, showHidden)) {
+      untrack(() => {
+        hold = null;
+        if (h.put && h.filter === filter && h.showHidden === showHidden) void load();
+      });
+    }
+  });
+  // The row a load put into the list that the answer didn't list (the held item is no open to-do of this filter): the
+  // section heads count the open items, so not that one, as the chips don't.
+  let extraKey = $state<string | null>(null);
+  function acted(keep: string[] | null) {
+    if (!selected || !selKey) return;
+    // a second action on an item that was put in keeps the "ask again when it ends"
+    const put = holdApplies(hold, selKey, filter, showHidden) && !!hold?.put;
+    hold = { key: selKey, id: selected.track_id, keep, filter, showHidden, put, ghost: false };
+  }
 
   // ▶ in the details starts the to-do list as the queue: its rows with a file, in the order shown. A track that
   // isn't among them (the list changed meanwhile) plays on its own.
@@ -65,19 +87,48 @@
     const r = await api.todo(filter, showHidden);
     if (my !== seq) return;
     if (r.ok) {
-      const { ok: _ok, ...rest } = r;
+      const { ok: _ok, ...base } = r;
+      let rest: Todo = base;
       const before = items;
-      const after = flatten(rest);
+      let after = flatten(rest);
       const fromQuery = selectFromTrack(after, wantTrack);
       if (wantTrack && !fromQuery && filter !== 'all') {
         pick('all');   // the asked-for track is outside the chosen chip: show everything (reloads, keeps wantTrack)
         return;
       }
       wantTrack = null;
+      // the held item: still listed, or (a replace under "Upgrades" took it to "Check in rekordbox") put back in the
+      // section it stood in, from the whole to-do list; with no to-do left of it, its row as it was
+      let held: TodoItem | null = null;
+      let next = hold;
+      let put = false;
+      if (!fromQuery && hold && holdApplies(hold, selKey, filter, showHidden)) {
+        const h = hold;
+        held = findHeld(after, h);
+        let ghost = false;
+        let live = true;
+        if (!held && filter !== 'all') {
+          const all = await api.todo('all', showHidden);
+          if (my !== seq) return;
+          // the user may have picked another item meanwhile (the hold ended): then nothing is held and the pick stays
+          live = hold === h;
+          held = live && all.ok ? findHeld(flatten(all), h) : null;
+          put = !!held;
+        }
+        const old = before.find((i) => itemKey(i) === h.key);
+        if (live && !held && !h.keep && old) { held = ghostOf(old); put = true; ghost = true; }
+        if (held && put) {
+          rest = withHeldItem(rest, held, data, h.key);
+          after = flatten(rest);
+        }
+        if (held) next = { ...h, key: itemKey(held), put: put || h.put, ghost };
+      }
       data = rest;
+      extraKey = held && !fromQuery && put ? itemKey(held) : null;
       error = null;
       const was = selKey;
-      selKey = fromQuery ?? keepSelection(selKey, before, after);
+      selKey = fromQuery ?? (held ? itemKey(held) : keepSelection(selKey, before, after));
+      if (held && !fromQuery) hold = next;
       if (was !== null && selKey !== was) void focusSelected();
     } else {
       error = r;   // old data stays on screen
@@ -202,11 +253,11 @@
         {#if data.hidden_count || showHidden}<div class="again">{@render hiddenToggle()}</div>{/if}
       </Surface>
     {:else}
-      <Surface kind="list" label={only ? only.label : 'All to-dos'} summary={only ? String(only.items.length) : undefined} hint={only?.hint}
+      <Surface kind="list" label={only ? only.label : 'All to-dos'} summary={only ? String(openCount(only.items, extraKey)) : undefined} hint={only?.hint} summaryTest="todo-count"
         header={data.hidden_count || showHidden ? hiddenToggle : undefined} style={COLS}
         grow={{ rows: rowCount, tall: true }} data-test="todo-list">
         {#each data.groups as g (g.key)}
-          {#if sections}<ListSection label={g.label} summary={String(g.items.length)} hint={g.hint} test="todo-section" />{/if}
+          {#if sections}<ListSection label={g.label} summary={String(openCount(g.items, extraKey))} hint={g.hint} test="todo-section" />{/if}
           {#each g.items as i (itemKey(i))}{@render row(i)}{/each}
         {/each}
       </Surface>
@@ -225,16 +276,23 @@
   {#if selected && isQuestion(selected)}
     {#key itemKey(selected)}<QuestionDetails item={selected} />{/key}
   {:else if selected && isDuplicate(selected)}
-    {#key selected.pair.group_id}<DuplicateDetails item={selected} />{/key}
+    {#key selected.pair.group_id}<DuplicateDetails item={selected} onacted={acted} />{/key}
   {:else if track}
-    <Details {track} item={selected?.track_id === track.track_id ? selected : null} onhidden={hidden}
-      onversions={openVersions} onlisten={() => track && listenFrom(track)} />
+    <Details {track} item={selected?.track_id === track.track_id && !hold?.ghost ? selected : null} onhidden={hidden}
+      onversions={openVersions} onlisten={() => track && listenFrom(track)} onacted={() => acted(null)} />
   {:else}
     <Panel head={trackError ? failed : waiting} />
   {/if}
 {/snippet}
 
-<ListPanelFrame {main} panel={selected ? panel : null} emptyPanel="Pick a track to see what you can do." />
+{#snippet nothing()}
+  <div class="nothing" data-test="todo-nothing"><EmptyState title="Nothing to decide"
+    body="When a better version arrives or two files are the same song, you choose here." /></div>
+{/snippet}
+
+<!-- with no to-do left the panel says when it will have something, never blank (mockup todo-decisions) -->
+<ListPanelFrame {main} panel={selected ? panel : data?.empty === 'all_lossless' || data?.empty === 'all_hidden' ? nothing : null}
+  emptyPanel="Pick a track to see what you can do." />
 
 {#if versionsFor}
   {#key versionsFor.track_id}
@@ -246,4 +304,5 @@
   /* the badge's slot after it: 64 px fits UPGRADE, the widest, so every quality badge ends at one x */
   .act { display: inline-flex; justify-content: flex-end; min-width: var(--w-row-action); }
   .again { display: flex; justify-content: center; }
+  .nothing { height: 100%; display: flex; align-items: center; justify-content: center; padding: 0 var(--s-5); }
 </style>

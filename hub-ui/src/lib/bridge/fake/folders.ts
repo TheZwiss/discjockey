@@ -5,7 +5,7 @@ import type {
   DuplicateItem, Fail, FileSide, ImportFolderCheck, ImportFolderProblem, ImportPhase, ImportResult, JobStart,
   QuestionItem, QuestionWhy, RemovalPreview, Result, TrackRow, WatchedFolderRow, WatchedFolders,
 } from '../types';
-import { FAKE_MUSIC, type FakeDuplicate, type FakeFolder, type FakeQuestion, type FakeState } from './data';
+import { FAKE_MUSIC, pathOf, type FakeDuplicate, type FakeFolder, type FakeQuestion, type FakeState } from './data';
 import type { FakeContext, Finish } from './bridge';
 import { toneUrl } from './audio';
 import { cratesIn } from './library';
@@ -124,8 +124,20 @@ export function duplicateItems(s: FakeState): DuplicateItem[] {
     const first = g.files.find((f) => f.in_playlist) ?? g.files[0];
     return { ...row(g.group_id, first.artist, first.title, '', first.duration_s, first, first.in_playlist, !first.in_playlist),
       group: 'duplicate', detail: DUPLICATE_WORDS(g.why, g.files.length), free: false,
-      pair: { group_id: g.group_id, why: g.why, files: g.files.map((f) => ({ ...f })) } };
+      pair: { group_id: g.group_id, why: g.why, files: g.files.map((f) => ({ ...f })), ...recommend(g.files) } };
   }).sort(byName);
+}
+
+/** As views.recommend: the better sound (lossless, then the higher cutoff in the label), then AIFF; else no pick. */
+function recommend(files: FileSide[]): { recommended: number | null; recommended_why: string | null } {
+  const sound = (f: FileSide) => (f.quality === 'lossless' ? 1000 : 0) + (parseFloat(f.quality_label) || 0);
+  const aiff = (f: FileSide) => /\.aiff?$/i.test(f.path);
+  const ranked = [...files].sort((a, b) => sound(b) - sound(a) || Number(aiff(b)) - Number(aiff(a)));
+  const [best, second] = ranked;
+  if (!best || !second) return { recommended: null, recommended_why: null };
+  if (sound(best) !== sound(second)) return { recommended: best.file_id, recommended_why: 'Recommended: best quality' };
+  if (aiff(best) && !aiff(second)) return { recommended: best.file_id, recommended_why: 'Recommended: AIFF keeps tags' };
+  return { recommended: null, recommended_why: null };
 }
 
 // ---------- the answers ----------
@@ -168,6 +180,15 @@ export function supersedeDuplicate(ctx: FakeContext, group_id: unknown, file_id:
     const home = importFolders(ctx.s).find((f) => file.path.startsWith(f.path + '/'));
     const dst = `Superseded/${home ? name(home.path) + '/' : ''}${name(file.path)}`;
     g.files = g.files.filter((f) => f !== file);
+    // the engine's heir (folders._heir): a playlist song's file goes while a file of the user's own stays, so that
+    // file takes the song over (its quality, its place); the song's track stays, now with the kept file
+    const song = ctx.s.tracks.find((t) => t.track_id === file.song_key && !t.own);
+    const heir = song ? g.files.find((f) => f.song_key?.startsWith('local:')) : undefined;
+    if (song && heir) {
+      const lossless = heir.quality === 'lossless';
+      Object.assign(song, { file: heir.path, source: 'manual', codec: 'aiff', status: lossless ? 'lossless' : 'not_lossless',
+        cutoff_hz: lossless ? null : Math.round(parseFloat(heir.quality_label) * 1000) || null, kbps: undefined });
+    }
     if (g.files.length < 2) ctx.s.imp.duplicates = ctx.s.imp.duplicates.filter((x) => x !== g);
     const result: Result = { section: 'replaced', folder: '', artist: file.artist, title: file.title,
       track_id: file.song_key, note: `Moved to ${dst}.`, status: file.quality === 'lossless' ? 'lossless' : 'not_lossless',
@@ -268,13 +289,21 @@ export const sampleQuestions = (): FakeQuestion[] => [
   ask('q5', 'Kalte Nacht', 'Bis zum Morgen', 'Powertrance', 207, 'no_length', null,
     own(105, 'Kalte Nacht', 'Bis zum Morgen', 0, 'good_lossy', '20.0 kHz')),
 ];
-const sameAudio = (n: number) => group('same_audio', [
+export const sameAudio = (n: number) => group('same_audio', [
   own(201, 'Neon Riot', 'Neonfieber', 229), own(202, 'Neon Riot', 'Neonfieber', 229, 'lossless', 'LOSSLESS', 'Music/Old'),
   ...(n > 2 ? [own(203, 'Neon Riot', 'Neonfieber', 229, 'lossless', 'LOSSLESS', 'Crates')] : [])]);
-const sameSong = () => group('same_song', [
-  side(210, 't7', 'Library/Hard_Bounce/Rave Kollektiv - Bis zum Morgen.aiff', 'Rave Kollektiv', 'Bis zum Morgen', 207,
-    'lossless', 'LOSSLESS', true),
-  own(211, 'Rave Kollektiv', 'Bis zum Morgen', 207, 'weak', '16.0 kHz')]);
+/** A playlist song's lossless AIFF and a 16 kHz copy of it in an import folder. With the fake's state its side is a
+ *  real track of the sample library (Bouncy's "Bis zum Morgen": its id, path, names and length), so the Library's
+ *  details of that track show the group the way To-do does; without it (the fake's own tests) a made-up song. */
+export const sameSong = (s?: Pick<FakeState, 'tracks'>) => {
+  const t = s?.tracks.find((x) => x.title === 'Bis zum Morgen' && !x.own && x.status === 'lossless');
+  const path = t ? pathOf(t) : null;
+  const [id, artist, title, length] = t && path ? [t.track_id, t.artist, t.title, t.duration_s]
+    : ['t7', 'Rave Kollektiv', 'Bis zum Morgen', 207];
+  return group('same_song', [
+    side(210, id, path ?? `Library/Hard_Bounce/${artist} - ${title}.aiff`, artist, title, length, 'lossless', 'LOSSLESS', true),
+    own(211, artist, title, length, 'weak', '16.0 kHz')]);
+};
 
 /** Called once by createFakeBridge: the Library, and the scenario's import folders, questions and duplicates. */
 export function seedImport(s: FakeState, scenario: string): void {
@@ -314,6 +343,6 @@ export function seedImport(s: FakeState, scenario: string): void {
   }
   if (scenario === 'todo_same_song') s.imp.questions = sampleQuestions();
   if (scenario === 'sync_waiting_answers') { s.imp.questions = sampleQuestions().slice(0, 2); s.imp.deferred = 40; }
-  if (scenario === 'todo_duplicates') s.imp.duplicates = [sameAudio(2), sameSong()];
-  if (scenario === 'todo_duplicates_three') s.imp.duplicates = [sameAudio(3), sameSong()];
+  if (scenario === 'todo_duplicates') s.imp.duplicates = [sameAudio(2), sameSong(s)];
+  if (scenario === 'todo_duplicates_three') s.imp.duplicates = [sameAudio(3), sameSong(s)];
 }
