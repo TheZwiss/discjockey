@@ -189,6 +189,10 @@ Open, in order:
      box.
 4. **Tooltip cut off at the window edge** (To-do's "Add as new file makes a new rekordbox e…"), small UI fix + shots
    (may fold into 3).
-5. **Ask the user:** re-judge old quality verdicts with the new rule? (`docs/issues.md` #27; e.g. 27 DJ Stick Jan
+5. **Sync: no cover for folder-imported tracks** in the top card (next up / syncing now) while a sync runs (user,
+   2026-10-31, shot at 00:58). Qobuz/Spotify tracks show covers in the rows; Kø:lab shows a gradient (not on Spotify).
+   Find where the top card gets its cover and why imported own songs have none; consider the file's embedded artwork
+   as the fallback, also for rows like Kø:lab. Sonnet, code + tests + a fake shot.
+6. **Ask the user:** re-judge old quality verdicts with the new rule? (`docs/issues.md` #27; e.g. 27 DJ Stick Jan
    WAVs still show lossless until judged again).
-6. Then: CI + verify, the user's re-check, merge `feat/library-5b-folders` into main, update this table and memory.
+7. Then: CI + verify, the user's re-check, merge `feat/library-5b-folders` into main, update this table and memory.
