@@ -95,13 +95,16 @@ describe('"Open in to-do" availability', () => {
 describe('the panel', () => {
   const up = (swap_safe: boolean, swap_possible = true) => ({ swap_safe, swap_possible }) as TrackDetail['upgrade'];
   const t = (extra: Partial<TrackDetail>) => ({ ...row('x'), upgrade: null, ...extra }) as TrackDetail;
-  it('foot: Swap when the upgrade matches, Open in to-do for other to-dos, nothing for lossless', () => {
-    expect(footAction(t({ status: 'not_lossless', upgrade_ready: true, upgrade: up(true) }))).toBe('swap');
-    expect(footAction(t({ status: 'not_lossless', upgrade_ready: true, upgrade: up(false) }))).toBe('todo');
-    expect(footAction(t({ status: 'not_lossless', upgrade_ready: true, upgrade: up(true, false) }))).toBe('todo');
-    expect(footAction(t({ status: 'not_lossless' }))).toBe('todo');
-    expect(footAction(t({}))).toBeNull();
-    expect(footAction(t({ status: 'not_lossless', in_playlists: false }))).toBeNull();
+  it('foot: the decision the track waits for, Open in to-do for other to-dos, nothing for lossless', () => {
+    expect(footAction(t({ status: 'not_lossless', upgrade_ready: true, upgrade: up(true) }), { kind: 'upgrade' })).toBe('upgrade');
+    expect(footAction(t({ status: 'not_lossless', upgrade_ready: true, upgrade: up(false) }), { kind: 'upgrade' })).toBe('upgrade');
+    // a hidden track or one in no playlist can still be upgraded right here
+    expect(footAction(t({ status: 'not_lossless', in_playlists: false, upgrade: up(true) }), { kind: 'upgrade' })).toBe('upgrade');
+    expect(footAction(t({}), { kind: 'check', item: { ...row('x'), group: 'rekordbox_check', detail: '', free: false } }))
+      .toBe('check');
+    expect(footAction(t({ status: 'not_lossless' }), null)).toBe('todo');
+    expect(footAction(t({}), null)).toBeNull();
+    expect(footAction(t({ status: 'not_lossless', in_playlists: false }), null)).toBeNull();
   });
   it('file name without the folders', () => {
     expect(fileName('Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff')).toBe('Armin Hermann - Get Naughty.aiff');

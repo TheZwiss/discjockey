@@ -1,5 +1,6 @@
 // Pure helpers for the Library page (sorting, windowing, selection, the filter segments, the columns, the row signals,
 // the words of the header and the empty states, the inspector). Tested in libraryModel.test.ts.
+import type { Decision } from '$lib/decisions/decisionModel';
 import type { Library, LibraryFilter, LibraryRow, LibrarySort, LibraryView, Quality, Sidebar, TrackDetail,
   TrackRow } from '$lib/bridge/types';
 import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
@@ -395,11 +396,12 @@ export function alsoHint(folder: string, neverRead = false): string {
 }
 
 // ---------- the inspector ----------
-/** The panel's foot: Swap when the upgrade matches exactly; Open in to-do for any other to-do; nothing for a
- *  lossless track (or one the to-do list doesn't show). */
-export function footAction(t: Pick<TrackDetail, 'upgrade' | 'status' | 'upgrade_ready' | 'in_playlists' | 'hidden'>):
-    'swap' | 'todo' | null {
-  if (t.upgrade?.swap_safe && t.upgrade.swap_possible) return 'swap';
+/** The panel's foot: the decision the track waits for (the upgrade, the rekordbox check a replace left, a duplicate
+ *  group: decisionFor), decided right here with To-do's own foot; else Open in to-do for any other to-do (a weak file
+ *  is bought and dropped there); nothing for a lossless track (or one the to-do list doesn't show). */
+export function footAction(t: Pick<TrackDetail, 'status' | 'upgrade_ready' | 'in_playlists' | 'hidden'>,
+  decision: Decision): NonNullable<Decision>['kind'] | 'todo' | null {
+  if (decision) return decision.kind;
   return inTodo(t) ? 'todo' : null;
 }
 

@@ -7,9 +7,8 @@
   // when it is long (Panel). The foot holds the to-do's own action as the screen's one filled button
   // (actionsFor().main): Replace with lossless (the "In rekordbox" pick: Same track = swap, New track = add_new),
   // Done, checked in rekordbox, Find a version, Show in Finder; a lossy file has none in the app (it is bought and
-  // dropped), so its foot stays empty. Under Replace: Discard the new version and when a replace can be undone;
-  // under Done, for a check a replace left that can still be undone (item.can_undo), "Undo the replace" (mockup
-  // todo-decisions: full width, plain, the same width as Done).
+  // dropped), so its foot stays empty. The upgrade decision and the rekordbox check are the shared ones
+  // (lib/decisions: UpgradeCards + UpgradeFoot, CheckCards + CheckFoot, one UpgradeFlow), as in the Library's details.
   import { untrack } from 'svelte';
   import type { Spectrum as Spec, TodoItem, TrackDetail } from '$lib/bridge/types';
   import { api, runJob } from '$lib/bridge/client';
@@ -20,12 +19,11 @@
   import { artistTitle, fileAway, fileAwayWords, qualityWords } from '$lib/format';
   import {
     Badge, Button, ExternalLink, Hint, KeyValue, MiniPlayer, NoteCard, QualityBadge, Spectrum, StatCard, Surface,
-    TrackHead, WriteButton, confirm, envelope,
+    TrackHead, WriteButton, envelope,
   } from '$lib/components';
+  import { CheckCards, CheckFoot, UpgradeCards, UpgradeFlow, UpgradeFoot } from '$lib/decisions';
   import { Panel } from '$lib/frames';
-  import { actionsFor, cutoffStat, dropDecision, freeHint, qobuzText, replaceLabel, type Way } from './todoModel';
-  import CheckCards from './CheckCards.svelte';
-  import UpgradeBox from './UpgradeBox.svelte';
+  import { actionsFor, cutoffStat, dropDecision, freeHint, qobuzText } from './todoModel';
   import BoughtFile from './BoughtFile.svelte';
 
   let { track, item, onhidden, onversions, onlisten }: {
@@ -77,47 +75,16 @@
     upSpec = u && u.ok ? u.spectrum : null;
   }
 
-  // the "In rekordbox" pick: Same track (swap) by default where both ways are possible; a new track starts over
-  let picked = $state<Way | null>(null);
-  let undoProblem = $state<string | null>(null);   // an undo's refusal, kept under its button until the next track
-  let pickedFor = '';
-  $effect(() => { if (track.track_id !== pickedFor) { pickedFor = track.track_id; picked = null; undoProblem = null; } });
-  const way = $derived<Way>(act.upgrade?.swap ? (picked ?? 'swap') : 'add_new');
+  // the "In rekordbox" pick, the running action and an undo's refusal; a new track starts over
+  const flow = new UpgradeFlow();
+  $effect(() => flow.follow(track.track_id));
+  const way = $derived(flow.way(!!act.upgrade?.swap));
 
-  let busy = $state<'hide' | 'rekordbox' | 'undo' | 'swap' | 'add_new' | 'discard' | null>(null);
   async function hide() {
-    busy = 'hide';
+    flow.busy = 'hide';
     const r = await runJob(api.hide(track.track_id, !track.hidden));
-    busy = null;
+    flow.busy = null;
     if (r.ok && act.hide === 'hide') onhidden();
-  }
-  async function checked() {
-    busy = 'rekordbox';
-    await runJob(api.rekordbox_checked(track.track_id));
-    busy = null;
-  }
-  async function undoUpgrade() {
-    const swapped = item?.check?.reason === 'swapped';
-    if (!(await confirm({ title: 'Undo the replace?',
-      body: swapped ? 'Your old audio goes back in the file. The new version waits in Upgrades ready again.'
-        : 'Your old file goes back where it was. The new version waits in Upgrades ready again.',
-      confirmLabel: 'Undo the replace' }))) return;
-    busy = 'undo';
-    undoProblem = null;
-    // a refusal (a file changed since, the step already done) shows as runJob's toast and stays under the button
-    const r = await runJob(api.undo_upgrade(track.track_id));
-    busy = null;
-    if (!r.ok) undoProblem = r.message;
-  }
-  // Replace with lossless (swap / add_new, the "In rekordbox" pick) and Discard (spec §6.6). A replace needs no
-  // confirm: it can be undone until Done (the hint under it says so); Discard deletes the new version, so it asks.
-  async function upgrade(mode: 'swap' | 'add_new' | 'discard') {
-    if (mode === 'discard' && !(await confirm({ title: 'Throw away the new version?',
-      body: 'Your current file stays. This version is not offered again.', confirmLabel: 'Discard', tone: 'danger' }))) return;
-    busy = mode;
-    // "changed": runJob shows "This track changed in the meantime."; the finished job re-fetches the page
-    await runJob(api.upgrade(track.track_id, mode));
-    busy = null;
   }
   // A track without a drop zone (e.g. lossless): BoughtFile isn't there and the shell skips To-do, so an
   // unreadable drop on it would show nothing. Toast macOS's message like the shell does on other pages.
@@ -133,7 +100,7 @@
 
 {#snippet hideLink()}
   {#if act.hide}
-    <WriteButton variant="link" muted size="sm" busy={busy === 'hide'} onclick={hide} data-test="hide">
+    <WriteButton variant="link" muted size="sm" busy={flow.busy === 'hide'} onclick={hide} data-test="hide">
       {act.hide === 'hide' ? 'Hide' : 'Unhide'}</WriteButton>
   {/if}
 {/snippet}
@@ -155,8 +122,8 @@
     {/if}
 
     {#if track.upgrade}
-      <UpgradeBox {track} {current} upgrade={upSpec} loading={specLoading} swap={!!act.upgrade?.swap} {way}
-        onway={(w) => (picked = w)} busy={busy !== null} />
+      <UpgradeCards {track} {current} upgrade={upSpec} loading={specLoading} swap={!!act.upgrade?.swap} {way}
+        onway={(w) => (flow.picked = w)} busy={flow.busy !== null} />
     {/if}
 
     {#if !hasFile}
@@ -232,23 +199,9 @@
 
 {#snippet foot()}
   {#if (act.main === 'swap' || act.main === 'add_new') && track.upgrade}
-    <WriteButton variant="filled" wide busy={busy === way} disabled={busy !== null && busy !== way}
-      onclick={() => upgrade(way)} data-test="upgrade-replace" data-mode={way}>{replaceLabel(track.upgrade)}</WriteButton>
-    <WriteButton wide busy={busy === 'discard'} disabled={busy !== null && busy !== 'discard'}
-      onclick={() => upgrade('discard')} title="Deletes the new version; it isn't offered again"
-      data-test="upgrade-discard">Discard the new version</WriteButton>
-    <div class="centered"><Hint text="You can undo a replace until you press Done" /></div>
-  {:else if act.main === 'rekordbox'}
-    <WriteButton variant="filled" wide busy={busy === 'rekordbox'} disabled={busy === 'undo'} onclick={checked}
-      data-test="rekordbox-done">Done, checked in rekordbox</WriteButton>
-    {#if item?.can_undo}
-      <WriteButton wide busy={busy === 'undo'} disabled={busy === 'rekordbox'} onclick={undoUpgrade}
-        title="Puts your old file back; the new version waits again" data-test="upgrade-undo">
-        <svg class="undo" viewBox="0 0 14 14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"
-          stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 3L2 5.5 4.5 8" /><path d="M2.3 5.5h6.2a3.2 3.2 0 010 6.4H6" /></svg>
-        Undo the replace</WriteButton>
-      {#if undoProblem}<Hint text={undoProblem} tone="problem" wrap data-test="undo-problem" />{/if}
-    {/if}
+    <UpgradeFoot track_id={track.track_id} upgrade={track.upgrade} {way} {flow} />
+  {:else if act.main === 'rekordbox' && item}
+    <CheckFoot {item} {flow} />
   {:else if act.main === 'find'}
     <Button variant="filled" wide disabled={!!offline} title={offline} onclick={() => onversions(track)}
       data-test="wrong-song">Find a version</Button>
@@ -272,6 +225,4 @@
   .fline { display: flex; align-items: center; gap: var(--s-2); }
   .buy { display: flex; align-items: baseline; gap: var(--s-3); flex-wrap: wrap; font-size: var(--fs-small); }
   .label { color: var(--text-label); }
-  .undo { width: 14px; height: 14px; flex-shrink: 0; }
-  .centered :global(.hint) { text-align: center; }
 </style>

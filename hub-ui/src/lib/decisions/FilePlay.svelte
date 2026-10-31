@@ -6,11 +6,13 @@
   import type { FileSide } from '$lib/bridge/types';
   import { PlayButton } from '$lib/components';
   import { player } from '$lib/stores/player';
-  import { fileName, fileQueue, fileQueueId, fileState } from './todoModel';
+  import { fileName, fileQueue, fileQueueId, fileState } from './decisionModel';
 
-  let { files, file, cover = null, test }: {
+  let { files, file, cover = null, source = { label: 'To-do', href: '#/todo' }, test }: {
     /** every file of the item, in the order shown (the queue) */
-    files: FileSide[]; file: FileSide; cover?: string | null; test?: string;
+    files: FileSide[]; file: FileSide; cover?: string | null;
+    /** the foot's link back: To-do (its `file:<id>` selects the item), or the Library track the panel shows */
+    source?: { label: string; href: string }; test?: string;
   } = $props();
 
   const state = $derived(fileState($player, file));
@@ -20,7 +22,7 @@
     if ($player.track_id === fileQueueId(file)) { player.toggle(); return; }
     const q = fileQueue(files, file.file_id, cover);
     if (!q) return;
-    player.playQueue({ items: q.items, start: q.start, source: { label: 'To-do', href: '#/todo' },
+    player.playQueue({ items: q.items, start: q.start, source,
       resolve: async (id) => q.urls.get(id) ?? null });
   }
 </script>

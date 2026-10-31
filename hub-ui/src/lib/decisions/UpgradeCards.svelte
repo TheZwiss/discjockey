@@ -1,21 +1,22 @@
 <script lang="ts">
-  // To-do's upgrade decision (mockup todo-decisions, spec §6.6): two cards. "Upgrade ready" holds the comparison: the
+  // The upgrade decision (mockup todo-decisions, spec §6.6), the same in To-do's and the Library's details: two cards. "Upgrade ready" holds the comparison: the
   // spectra with what each version is under them (Now and New both as a quality, "MP3 · 320 kbps" / "FLAC ·
   // lossless"), the compare player, and the "Edit" row (a fact about the audio, not a promise about rekordbox).
   // "In rekordbox" is the only place where the two ways differ, so it is the only choice: with an AIFF file and the
   // same edit, Same track (recommended, = Swap) or New track (= Add as new file), the picked row listing what happens;
   // otherwise no choice, it says what will happen and why Same track isn't possible. Its last section says where the
   // old file goes and the README's tip to quit rekordbox first. The action itself ("Replace with lossless") is the
-  // panel foot's filled button (Details); the Library keeps the shared UpgradeCard.
-  import type { Spectrum as Spec, TrackDetail } from '$lib/bridge/types';
+  // panel foot's filled button (UpgradeFoot, reading the same UpgradeFlow).
+  import type { Spectrum as Spec, TrackDetail, Upgrade } from '$lib/bridge/types';
   import { ChoiceGroup, ComparePlayer, Hint, KeyValue, OutcomeList, Spectrum, Surface } from '$lib/components';
   import type { ChoiceOption } from '$lib/components';
   import { foundText, upgradeLabel } from '$lib/format';
-  import { KEPT_FILE, QUIT_REKORDBOX, editLine, upgradeWays, type Way } from './todoModel';
+  import { KEPT_FILE, QUIT_REKORDBOX, editLine, upgradeWays, type Way } from './decisionModel';
 
   let { track, current, upgrade, loading, swap, way, onway, busy = false }: {
-    track: TrackDetail; current: Spec | null; upgrade: Spec | null; loading: boolean;
-    /** both ways are possible (actionsFor().upgrade.swap) */
+    track: Pick<TrackDetail, 'audio_url' | 'duration_s' | 'format_line' | 'quality_label'> & { upgrade: Upgrade | null };
+    current: Spec | null; upgrade: Spec | null; loading: boolean;
+    /** both ways are possible (canSwap) */
     swap: boolean;
     /** the picked way, and where a new pick goes */
     way: Way; onway: (w: Way) => void;

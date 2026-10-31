@@ -4,7 +4,7 @@
   // subtitle's parts that drop whole, the track search, the details toggle), the collection at a glance as a 72 px
   // SummaryStrip, the quality filter as one Segmented, then the tracks as one table Surface that fills the height and
   // scrolls in place (LibraryTable). No docked panel: the docked panel squeezed the table, so the selected track's
-  // details (TrackDetails, the same cards as To-do's) are an inspector that comes when wanted: picking a track (a
+  // details (TrackDetails, the same cards as To-do's, its decisions decided here as there) are an inspector that comes when wanted: picking a track (a
   // click, ↑ ↓) opens it, it follows the selection and stays open (remembered, closed at first). It never stands
   // empty: with no track selected, or the selected one off the table (filtered or searched away, gone, an empty
   // folder), it closes and the toggle waits, disabled, until there is a track again (`detailsStand`). Closing it with the
@@ -21,11 +21,14 @@
   // to Settings' list, where the user picks the ones to show.
   import { untrack, type ComponentProps } from 'svelte';
   import {
-    Button, EmptyState, PageHeader, ProblemCard, SearchField, Segmented, Skeleton, Spectrum, SummaryStrip, Surface, confirm,
+    Button, EmptyState, PageHeader, ProblemCard, SearchField, Segmented, Skeleton, Spectrum, SummaryStrip, Surface,
   } from '$lib/components';
+  import { decisionFor } from '$lib/decisions';
   import { ListPanelFrame } from '$lib/frames';
-  import { api, runJob } from '$lib/bridge/client';
-  import type { Fail, Library, LibraryFilter, LibrarySort, LibraryView, ProblemKind, TrackDetail } from '$lib/bridge/types';
+  import { api } from '$lib/bridge/client';
+  import type {
+    Fail, Library, LibraryFilter, LibrarySort, LibraryView, ProblemKind, TodoItem, TrackDetail,
+  } from '$lib/bridge/types';
   import { filesVersion, hub, hubNow } from '$lib/stores/hub';
   import {
     detailsHidden, detailsShown, detailsSubject, pickTrack, showDetails, toggleInspector, trackOffTable,
@@ -73,7 +76,9 @@
   let spectrumLoading = $state(false);
   let spectrumError = $state<string | null>(null);
   let upgradeSpectrum = $state<Spec>(null);
-  let swapping = $state(false);
+  // the to-do list's items, fetched with the details: the rekordbox check a replace left and the duplicate groups
+  // aren't in a track's details, and the panel decides them as To-do's does (decisionFor)
+  let todoItems = $state<TodoItem[]>([]);
   let ready = false;
   let retry = $state(0);
 
@@ -180,7 +185,7 @@
   $effect(() => {
     const id = selected;
     const skip = skipTrack;
-    void $filesVersion;
+    const version = $filesVersion;
     void trackRetry;
     const turn = ++trackTurn;
     untrack(() => {
@@ -188,13 +193,24 @@
       detailError = null;
       if (!id || skip) { detail = null; detailLoading = false; return; }
       if (detail?.track_id !== id) { detail = null; spectrum = null; upgradeSpectrum = null; }
-      void loadTrack(id, turn);
+      void loadTrack(id, turn, version);
     });
   });
 
-  async function loadTrack(id: string, turn: number) {
+  // one to-do read per files version (every finished job bumps it), shared by the picks in between: ↑ ↓ through the
+  // table asks for each track's details, not for the whole list again; hidden tracks too (their decisions are here)
+  let todoAsk: { version: number; items: Promise<TodoItem[]> } | null = null;
+  function todoAt(version: number): Promise<TodoItem[]> {
+    if (todoAsk?.version !== version) {
+      todoAsk = { version, items: api.todo('all', true).then((r) => (r.ok ? r.groups.flatMap((g) => g.items) : todoItems)) };
+    }
+    return todoAsk.items;
+  }
+
+  async function loadTrack(id: string, turn: number, version: number) {
     detailLoading = true;
-    const r = await api.track(id);
+    // together, so the panel never shows the details of after a job beside the to-do list of before it
+    const [r, items] = await Promise.all([api.track(id), todoAt(version)]);
     if (turn !== trackTurn) return;
     detailLoading = false;
     if (!r.ok) {
@@ -205,6 +221,7 @@
     const t = r.track;
     const fresh = detail?.track_id !== t.track_id || detail?.audio_url !== t.audio_url;
     detail = t;
+    todoItems = items;
     if (!t.audio_url) { spectrum = null; return; }
     if (fresh || !spectrum) {
       spectrumLoading = true;
@@ -254,17 +271,6 @@
   function todo(id: string) {
     void go(todoHref(id));
   }
-  async function swap() {
-    const id = detail?.track_id;
-    if (!id) return;
-    const yes = await confirm({ title: 'Swap the files?', body: 'rekordbox keeps the cue points and the beatgrid.',
-      confirmLabel: 'Swap' });
-    if (!yes) return;
-    swapping = true;
-    await runJob(api.upgrade(id, 'swap'));
-    swapping = false;
-  }
-
   const options = $derived(segOptions(lib?.chips, filter));
   // the header's second line: its parts in order of importance, the last dropping first when the header is narrow; a
   // read playlist's songs without a file are a part of their own after the count
@@ -289,6 +295,10 @@
   const artistColumn = $derived(!lib ? true : playlistHeld && playlistHeld.for === libFor ? playlistHeld.artist
     : artistColumnFor(lib));
   const shown = $derived(shownSort(sort, artistColumn));
+  const decision = $derived(detail ? decisionFor(todoItems, detail) : null);
+  // a duplicate's file playing in the foot links back to this track in this view
+  const playSource = $derived(detail ? { label: lib?.title ?? 'All tracks',
+    href: `${libraryHref(folder)}?track=${encodeURIComponent(detail.track_id)}` } : undefined);
   const pending = $derived(noFileRow ? { row: noFileRow,
     next: detail?.track_id === noFileRow.track_id ? detail.next_qobuz_check : null, off: lib?.enabled === false } : null);
   const playing = $derived($player.playing ? $player.track_id : null);
@@ -364,10 +374,10 @@
 {/snippet}
 
 {#snippet panel()}
-  <TrackDetails {detail} {pending} loading={detailLoading} {gone} error={detailError} {spectrum} {spectrumLoading} {spectrumError}
-    {upgradeSpectrum} {swapping} onretry={() => { trackRetry++; }}
+  <TrackDetails {detail} {decision} {playSource} {pending} loading={detailLoading} {gone} error={detailError} {spectrum}
+    {spectrumLoading} {spectrumError} {upgradeSpectrum} onretry={() => { trackRetry++; }}
     onfinder={() => detail && void finder(detail.track_id)} ontodo={() => { const id = pending?.row.track_id ?? detail?.track_id; if (id) todo(id); }}
-    onswap={() => void swap()} onlisten={() => detail && play(detail.track_id)} />
+    onlisten={() => detail && play(detail.track_id)} />
 {/snippet}
 
 <ListPanelFrame {main} panel={selected ? panel : null} emptyPanel="Select a track to see its details." wide

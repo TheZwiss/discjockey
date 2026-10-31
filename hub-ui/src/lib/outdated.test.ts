@@ -19,7 +19,7 @@ const blockFiles = ['components', 'frames'].flatMap((d) => files(join(__dirname,
   .filter((f) => !(OUTDATED as readonly string[]).includes(basename(f).replace(/\.svelte$/, '')));
 
 /** An outdated use a block may keep, with why. Each is checked below to be rendered by no redesigned page. Empty
- *  since To-do's pass moved UpgradeCard onto Surface; kept for the next block that needs a stay. */
+ *  since To-do's pass moved the old upgrade card onto Surface; kept for the next block that needs a stay. */
 const ALLOWED: Record<string, { block: string; why: string }> = {};
 
 function problems(list: string[]): string[] {

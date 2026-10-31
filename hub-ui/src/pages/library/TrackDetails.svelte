@@ -1,10 +1,14 @@
 <script lang="ts">
   // The selected track in the panel (design system mockup design-system/library.html), as a Panel with the same
   // cards in the same order as To-do's: the track card (cover, name, "Artist · length · place", quality and its
-  // words), then the upgrade box when one is ready (its Now spectrum and compare player stand in for the file's
-  // own), else the cutoff as a number over the spectrum, then Current file (the player, Format, Source, Added, File)
-  // with Show in Finder as its link (not for a file that isn't there: the pictures say why). The foot holds the one filled button: Swap the files when the upgrade matches;
-  // Open in to-do (outline) for any other track on the to-do list; nothing for a lossless one. The head's place line
+  // words), then the decision the track waits for (`decision`, decisionFor), the very panel To-do shows and decided
+  // here the same way (lib/decisions, mockup todo-decisions): the rekordbox check a replace left (its steps, what was
+  // replaced; Done and Undo the replace in the foot), "Which file stays?" for a duplicate group one of its files is in
+  // (Keep … in the foot), or the upgrade (Now/New and the compare player stand in for the file's own spectrum and
+  // player, "In rekordbox"; Replace with lossless and Discard in the foot). Without an upgrade the cutoff follows as a
+  // number over the spectrum, then Current file (the player, Format, Source, Added, File) with Show in Finder as its
+  // link (not for a file that isn't there: the pictures say why). The foot holds the decision's buttons (its one
+  // filled button), else Open in to-do (outline) for any other track on the to-do list, else nothing. The head's place line
   // says where the file sits, in the Folder and Subfolder columns' words ("in Hardtechno › 2019", plan library stage 5
   // D11); the playlists it is in are the Playlists row, by name ("–" for none).
   // A playlist song without a file (`pending`, the selected row: a song only just read isn't a track `track()` knows)
@@ -14,8 +18,12 @@
   import type { ComponentProps } from 'svelte';
   import {
     Badge, Button, EmptyState, ExternalLink, KeyValue, MiddleText, MiniPlayer, NoteCard, ProblemCard, QualityBadge, Skeleton,
-    Spectrum, StatCard, Surface, TrackHead, UpgradeCard, WriteButton, envelope,
+    Spectrum, StatCard, Surface, TrackHead, envelope,
   } from '$lib/components';
+  import {
+    CheckCards, CheckFoot, DuplicateChoice, DuplicateFlow, DuplicateFoot, UpgradeCards, UpgradeFlow, UpgradeFoot, canSwap,
+    type Decision,
+  } from '$lib/decisions';
   import { Panel } from '$lib/frames';
   import { artistTitle, cutoffStat, dateShort, fileAwayWords, qualityWords } from '$lib/format';
   import type { Fail, LibraryRow, TrackDetail } from '$lib/bridge/types';
@@ -24,21 +32,35 @@
   } from './libraryModel';
 
   type Spec = ComponentProps<typeof Spectrum>['spectrum'];
-  let { detail, pending = null, loading = false, gone = false, error = null, spectrum = null, spectrumLoading = false,
-    spectrumError = null, upgradeSpectrum = null, swapping = false, onretry, onfinder, ontodo, onswap, onlisten }: {
+  let { detail, decision = null, playSource, pending = null, loading = false, gone = false, error = null, spectrum = null,
+    spectrumLoading = false, spectrumError = null, upgradeSpectrum = null, onretry, onfinder, ontodo, onlisten }: {
     detail: TrackDetail | null;
+    /** what `detail` waits for (decisionFor over the to-do list, fetched with it) */
+    decision?: Decision;
+    /** the foot's link back while a duplicate's file plays: this track in this view */
+    playSource?: { label: string; href: string };
     /** the selected row when it is a playlist song without a file; `next`: its details' `next_qobuz_check` (not found) */
     pending?: { row: LibraryRow; next: string | null; off: boolean } | null;
     loading?: boolean; gone?: boolean; error?: Fail | null; spectrum?: Spec;
-    spectrumLoading?: boolean; spectrumError?: string | null; upgradeSpectrum?: Spec; swapping?: boolean;
-    onretry: () => void; onfinder: () => void; ontodo: () => void; onswap: () => void;
+    spectrumLoading?: boolean; spectrumError?: string | null; upgradeSpectrum?: Spec;
+    onretry: () => void; onfinder: () => void; ontodo: () => void;
     /** ▶ in the player: start the folder from this track (the page's queue) */
     onlisten?: () => void;
   } = $props();
 
   const t = $derived(detail);
-  const cutoff = $derived(t && !t.upgrade ? cutoffStat(t) : null);
-  const action = $derived(t ? footAction(t) : null);
+  // the upgrade decision's Now/New and compare player stand in for the cutoff and the file's own spectrum and player
+  const upgrading = $derived(decision?.kind === 'upgrade' && !!t?.upgrade);
+  const cutoff = $derived(t && !upgrading ? cutoffStat(t) : null);
+  const action = $derived(t ? footAction(t, decision) : null);
+  // the decisions' state (the "In rekordbox" pick, the file that stays, the running job), as in To-do's panel
+  const upFlow = new UpgradeFlow();
+  const dupFlow = new DuplicateFlow();
+  $effect(() => { if (t) upFlow.follow(t.track_id); });
+  const swap = $derived(canSwap(t?.upgrade));
+  const way = $derived(upFlow.way(swap));
+  const check = $derived(decision?.kind === 'check' ? decision.item : null);
+  const dup = $derived(decision?.kind === 'duplicate' ? decision.item : null);
   // every playlist the song is in, by name, whole (the head only says where the file sits); nothing when it is in none
   // or the playlists weren't read yet
   const playlists = $derived(t ? playlistsLine(t) : null);
@@ -65,9 +87,12 @@
         </TrackHead>
       </Surface>
 
-      {#if t.upgrade}
-        <UpgradeCard upgrade={t.upgrade} currentUrl={t.audio_url} current={spectrum} next={upgradeSpectrum}
-          loading={spectrumLoading} swap={action === 'swap'} />
+      {#if check}<CheckCards item={check} />{/if}
+      {#if dup}<DuplicateChoice item={dup} flow={dupFlow} source={playSource} />{/if}
+
+      {#if upgrading && t.upgrade}
+        <UpgradeCards track={t} current={spectrum ?? null} upgrade={upgradeSpectrum ?? null} loading={spectrumLoading} {swap}
+          {way} onway={(w) => (upFlow.picked = w)} busy={upFlow.busy !== null} />
       {:else if cutoff}
         <StatCard value={cutoff.value} unit={cutoff.value ? 'kHz' : undefined} label={cutoff.label} wrap data-test="cutoff">
           <Spectrum {spectrum} height={64} loading={spectrumLoading && !spectrum} error={spectrumError}
@@ -80,11 +105,11 @@
           {#snippet header()}
             {#if !away}<Button variant="link" size="sm" onclick={onfinder} data-test="details-finder">Show in Finder</Button>{/if}
           {/snippet}
-          {#if !cutoff && !t.upgrade}
+          {#if !cutoff && !upgrading}
             <div data-test="spectrum"><Spectrum {spectrum} height={64} loading={spectrumLoading && !spectrum}
               error={spectrumError} noFile={!t.audio_url} {away} /></div>
           {/if}
-          {#if !t.upgrade}
+          {#if !upgrading}
             <MiniPlayer url={t.audio_url} title={artistTitle(t.artist, t.title)} track_id={t.track_id}
               envelope={envelope(spectrum)} length_s={t.duration_s} start={onlisten} />
           {/if}
@@ -121,8 +146,12 @@
 {#snippet noFileFoot()}<Button wide onclick={ontodo} data-test="details-todo">Open in to-do</Button>{/snippet}
 
 {#snippet foot()}
-  {#if action === 'swap'}
-    <WriteButton variant="filled" wide busy={swapping} onclick={onswap} data-test="swap">Swap the files</WriteButton>
+  {#if action === 'upgrade' && t?.upgrade}
+    <UpgradeFoot track_id={t.track_id} upgrade={t.upgrade} {way} flow={upFlow} />
+  {:else if action === 'check' && check}
+    <CheckFoot item={check} flow={upFlow} />
+  {:else if action === 'duplicate' && dup}
+    <DuplicateFoot item={dup} flow={dupFlow} />
   {:else if action === 'todo'}
     <Button wide onclick={ontodo} data-test="details-todo">Open in to-do</Button>
   {/if}

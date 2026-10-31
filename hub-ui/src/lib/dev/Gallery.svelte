@@ -18,12 +18,13 @@
   import Foot from '../shell/Foot.svelte';
   import NowPlayingRow from '../shell/NowPlayingRow.svelte';
   import { ColumnFrame, ListPanelFrame, Panel } from '../frames';
+  import { UpgradeCards } from '../decisions';
   import {
     AccountPanel, AddRow, CopyCode, NumberedSteps, ChoiceGroup, OutcomeList, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
     AwayTag, Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
     Hint, InfoTip, KeyValue, ListRow, ListLine, ListSection, MiddleText, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, tip, SummaryStrip, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
     Segmented, SectionLabel, SelectCard, Skeleton, SortHeader, SourceLadder, Spectrum, Spinner, SplitView, StatCard, StatusMark, Surface, Switch, TextField, Tile, Toast,
-    ToggleGroup, ToggleRow, TrackHead, TrackRow, UpgradeCard, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
+    ToggleGroup, ToggleRow, TrackHead, TrackRow, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
     confirm, envelope, ImportCard, UnreadableList, WatchedFolderList,
   } from '../components';
   import Tick from '../components/Tick.svelte';
@@ -58,6 +59,7 @@
   function scrollAt(node: HTMLElement, y: number) { requestAnimationFrame(() => { node.scrollTop = y; }); }
   let inspectorOpen = $state(true);
   let galleryWay = $state<string>('same');
+  let galleryUpWay = $state<'swap' | 'add_new'>('swap');
   let gFolded = $state(['Playlists']);
   // Tip: one tip open at a time, as in the app; the strip picks which example shows its own
   const TIP_SHOW: SegOption<'rail' | 'cut' | 'crate'>[] = [{ key: 'rail', label: 'Rail icon' }, { key: 'cut', label: 'Cut name' },
@@ -1335,7 +1337,7 @@
   </section>
 
   <section data-test="gallery-trackhead">
-    {@render head('TrackHead · UpgradeCard', 'A details panel\'s head (beside: 64 px cover, one line each, an action at the title\'s end; stacked: Library) and the parked better version, compared and with its cue verdict (§7)')}
+    {@render head('TrackHead · UpgradeCards', 'A details panel\'s head (beside: 64 px cover, one line each, an action at the title\'s end; stacked: Library) and the upgrade decision To-do and the Library share (lib/decisions): Now/New compared, the Edit row, "In rekordbox" as a choice or, without one, what happens and why')}
     <div class="col w360">
       <Surface kind="card">
         <TrackHead track={{ ...weak, cover_url: null }} place={weak.folder}>
@@ -1355,10 +1357,10 @@
           <Badge tone="missing" text="NOT FOUND" />
         </TrackHead>
       </Surface>
-      <UpgradeCard upgrade={upExact} currentUrl={toneA} current={specCut} next={specFull} swap>
-        {#snippet actions()}<Button variant="link" size="sm">Add as new file</Button><Button variant="link" muted size="sm">Discard</Button>{/snippet}
-      </UpgradeCard>
-      <UpgradeCard upgrade={upDifferent} currentUrl={null} current={specCut} next={null} loading swap={false} />
+      <UpgradeCards track={{ ...weak, audio_url: toneA, format_line: 'Opus · 135 kbps', upgrade: upExact }} current={specCut}
+        upgrade={specFull} loading={false} swap way={galleryUpWay} onway={(w) => (galleryUpWay = w)} />
+      <UpgradeCards track={{ ...weak, audio_url: null, format_line: null, upgrade: upDifferent }} current={specCut}
+        upgrade={null} loading swap={false} way="add_new" onway={() => {}} />
     </div>
   </section>
 

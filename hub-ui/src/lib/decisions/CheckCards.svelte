@@ -1,11 +1,12 @@
 <script lang="ts">
-  // The rekordbox check a replace left (mockup todo-decisions, "After the step"; README "Upgrades"): "In rekordbox"
+  // The rekordbox check a replace left (mockup todo-decisions, "After the step"; README "Upgrades"), the same in To-do's
+  // and the Library's details: "In rekordbox"
   // (yellow: it waits for the user) as numbered steps in place of a paragraph, then "Replaced with lossless" with where
   // each file is now and what Undo puts back (only while it can). Any other check (a wrong song fixed) keeps its one
   // note, the engine's whole instruction.
   import type { TodoItem } from '$lib/bridge/types';
   import { Hint, NoteCard, NumberedSteps, Surface } from '$lib/components';
-  import { checkCard, localDay, replacedCard, sinceText } from './todoModel';
+  import { checkCard, localDay, replacedCard, sinceText } from './decisionModel';
 
   let { item }: { item: TodoItem } = $props();
 
