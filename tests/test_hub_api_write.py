@@ -211,6 +211,36 @@ def test_add_new_and_discard(root):
     assert api.upgrade("t2", "explode")["kind"] == "refused"
 
 
+def test_undo_upgrade_through_the_bridge(root):
+    api, rec = make_api(root)
+    api.track("t2")
+    assert wait_job(api, rec, api.upgrade("t2", "add_new")).ok
+    [item] = [g for g in api.todo()["groups"] if g["key"] == "rekordbox_check"][0]["items"]
+    assert item["track_id"] == "t2" and item["can_undo"] is True
+    f = wait_job(api, rec, api.undo_upgrade("t2"))
+    assert f.ok and f.kind == "undo_upgrade" and f.result["result"]["section"] == "upgrade_undone"
+    e = load_state(root)["tracks"]["t2"]
+    assert (e["path"], e["status"], e["upgrade"]["file"], e["rekordbox_check"]) == (LOSSY, "not_lossless", PARKED,
+                                                                                      None)
+    assert (root.root / LOSSY).read_bytes() == b"lossy audio" and (root.root / PARKED).read_bytes() == b"parked lossless"
+    keys = [g["key"] for g in api.todo()["groups"]]
+    assert "rekordbox_check" not in keys and "upgrade_ready" in keys
+    f = wait_job(api, rec, api.undo_upgrade("t2"))  # nothing left to undo
+    assert (f.ok, f.problem) == (False, "refused") and f.message == "There is no upgrade to undo for this track."
+
+
+def test_undo_upgrade_refused_when_the_new_file_changed(root):
+    api, rec = make_api(root)
+    api.track("t2")
+    assert wait_job(api, rec, api.upgrade("t2", "add_new")).ok
+    new = load_state(root)["tracks"]["t2"]["path"]
+    (root.root / new).write_bytes(b"edited elsewhere")
+    api.todo()
+    f = wait_job(api, rec, api.undo_upgrade("t2"))
+    assert (f.ok, f.problem) == (False, "refused") and "changed since the upgrade" in f.message
+    assert load_state(root)["tracks"]["t2"]["path"] == new
+
+
 def test_save_the_qobuz_limit(root):
     api, rec = make_api(root)
     assert wait_job(api, rec, api.save_limits("qobuz", 90, 20)).ok
@@ -681,15 +711,16 @@ def test_a_refused_folder_says_why_and_starts_nothing(lib):
     assert again["message"] == "Discjockey watches this folder already."
 
 
-def test_every_other_write_answers_busy_with_the_import_words_while_it_runs(lib):
+def test_every_other_write_answers_busy_with_the_import_words_while_it_runs(lib, tmp_path):
     paths, folder, fakes = lib
-    gate = threading.Event()
-    fakes.on_probe = lambda n: gate.wait(10)
+    other = import_folder(tmp_path, 1, "Example Drive/More")  # a folder the check passes: the job, not it, refuses
+    gate, reading = threading.Event(), threading.Event()
+    fakes.on_probe = lambda n: reading.set() or gate.wait(10)
     api, rec = make_api(paths)
     job = api.add_watched_folder(str(folder))
     try:
-        assert job["ok"]
-        for answer in (api.hide("t2", True), api.start_import(), api.add_watched_folder(str(folder)),
+        assert job["ok"] and reading.wait(5)  # the job is past adding the folder, held at its first file
+        for answer in (api.hide("t2", True), api.start_import(), api.add_watched_folder(str(other)),
                        api.setup_skip_import(), api.rescan_library()):
             assert (answer["ok"], answer["kind"], answer["message"]) == (False, "busy", IMPORTING_TEXT), answer
     finally:
@@ -1203,3 +1234,179 @@ def test_a_stored_offline_file_stays_offline_even_when_its_folder_is_there(lib):
     with db.connect(paths.db_file) as conn:
         conn.execute("UPDATE files SET online = 0 WHERE id = ?", (own_songs(paths)[key]["file_id"],))
     assert api.track(key)["track"]["file_state"] == "offline"
+
+
+# --- the sidebar, Favourites and crate switches (plan library stage 5, B2) ---
+
+def crate_library(tmp_path, monkeypatch):
+    """A hub with an import folder of crates: Hard/ (2 files), Hard/2019/ (1), House/ (1), a file in the folder itself."""
+    fake_spotify(monkeypatch)
+    paths = music_root(tmp_path, upgrade=True)
+    folder = import_folder(tmp_path, 1)
+    for sub, n in (("Hard", 2), ("Hard/2019", 1), ("House", 1)):
+        (folder / sub).mkdir(parents=True, exist_ok=True)
+        for i in range(n):
+            (folder / sub / f"Example Artist - {sub.replace('/', ' ')} {i}.aiff").write_bytes(f"{sub}{i}".encode() * 50)
+    fake_import(monkeypatch)
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    return api, rec, paths, folder
+
+
+def test_the_sidebar_and_the_settings_rows_list_the_crates_of_a_watched_folder(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    [w] = api.sidebar()["watched"]
+    assert (w["path"], w["name"], w["files"], w["state"], w["too_many"]) == (str(folder), "Music", 5, "here", False)
+    assert [(c["label"], c["files"], c["has_crates"], c["hidden"]) for c in w["crates"]] == [
+        ("Hard", 3, True, False), ("Hard › 2019", 1, False, False), ("House", 1, False, False)]
+    row = api.watched_folders()["folders"][1]
+    assert (row["crates"], row["too_many"]) == (w["crates"], False)
+    assert api.watched_folders()["folders"][0]["crates"] == []  # the Library has none
+
+
+def test_a_watched_folder_and_its_crates_have_their_views_with_crate_labels_as_places(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    whole = api.library("folder", str(folder))
+    assert (whole["folder_kind"], whole["title"], whole["summary"]["tracks"], whole["empty"]) == ("watched", "Music", 5, None)
+    assert sorted({r["subfolder"] for r in whole["rows"]}) == ["", "Hard", "Hard › 2019", "House"]
+    hard = api.library("folder", str(folder / "Hard"))
+    assert (hard["folder_kind"], hard["title"], hard["subtitle"][-1]) == ("crate", "Hard", "Music › Hard")
+    assert sorted((r["subfolder"], r["place"]) for r in hard["rows"]) == [
+        ("", "Music › Hard"), ("", "Music › Hard"), ("2019", "Music › Hard › 2019")]
+    row = hard["rows"][0]
+    assert api.track(row["track_id"])["track"]["place"] == row["place"]
+
+
+def test_set_crate_shown_hides_and_shows_and_none_goes_back_to_the_default(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    house = str(folder / "House")
+    assert api.set_crate_shown(house, False) == {"ok": True, "path": house, "shown": False}
+    hidden = lambda: {c["name"]: c["hidden"] for c in api.sidebar()["watched"][0]["crates"]}  # noqa: E731
+    assert hidden() == {"Hard": False, "2019": False, "House": True}
+    assert {c["name"]: c["hidden"] for c in api.watched_folders()["folders"][1]["crates"]}["House"] is True
+    assert api.set_crate_shown(house, True)["shown"] is True and hidden()["House"] is False
+    api.set_crate_shown(house, False)
+    assert api.set_crate_shown(house, None)["shown"] is None and hidden()["House"] is False
+    assert api.set_crate_shown("", True)["kind"] == "refused"
+    assert api.set_crate_shown(house, "yes")["kind"] == "refused"
+    assert api.set_crate_shown(3, True)["kind"] == "refused"
+
+
+def test_set_favourites_keeps_the_order_and_the_sidebar_resolves_them(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    ref = api.sidebar()["playlists"][1]["ref"]
+    keys = [f"folder:{folder}/Hard", f"playlist:{ref}", "playlist:gone", f"folder:{folder}/Hard"]
+    assert api.set_favourites(keys) == {"ok": True, "favourites": [f"folder:{folder}/Hard", f"playlist:{ref}",
+                                                                   "playlist:gone"]}
+    assert [(f["key"], f["name"]) for f in api.sidebar()["favourites"]] == [
+        (f"folder:{folder}/Hard", "Hard"), (f"playlist:{ref}", "Powertrance")]  # the gone key stays stored, unshown
+    assert api.set_favourites([f"playlist:{ref}"])["favourites"] == [f"playlist:{ref}", "playlist:gone"]
+    assert api.set_favourites([])["favourites"] == ["playlist:gone"] and api.sidebar()["favourites"] == []
+    for bad in ("playlist:x", [3], ["x:y"], None):
+        assert api.set_favourites(bad)["kind"] == "refused", bad
+
+
+def test_a_save_keeps_the_favourites_that_are_gone_right_now_and_removes_the_ones_the_user_took_out(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    ref = api.sidebar()["playlists"][1]["ref"]
+    hard, house, play = f"folder:{folder}/Hard", f"folder:{folder}/House", f"playlist:{ref}"
+    api.set_favourites([hard, house, play])
+    # a watched folder removed: its crates are not in the sidebar, the UI saves what it shows
+    fid = next(r["id"] for r in api.watched_folders()["folders"] if r["kind"] == "import")
+    wait_job(api, rec, api.remove_watched_folder(fid))
+    assert [f["key"] for f in api.sidebar()["favourites"]] == [play]
+    assert api.set_favourites([play])["favourites"] == [hard, house, play]
+    assert api.set_favourites([])["favourites"] == [hard, house]  # a briefly empty sidebar wipes nothing
+    # added back: they are shown again, in their place
+    wait_job(api, rec, api.add_watched_folder(str(folder)))
+    assert api.set_favourites([play])["favourites"] == [play]  # now they resolve, so leaving them out removes them
+    api.set_favourites([hard, house, play])
+    assert [f["key"] for f in api.sidebar()["favourites"]] == [hard, house, play]
+
+
+def test_a_playlist_taken_out_of_the_file_and_added_again_keeps_its_favourite(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    ref = api.sidebar()["playlists"][1]["ref"]
+    play, hard = f"playlist:{ref}", f"folder:{folder}/Hard"
+    api.set_favourites([hard, play])
+    text = paths.playlists_file.read_text()
+    paths.playlists_file.write_text("\n".join(l for l in text.splitlines() if ref not in l) + "\n")
+    assert [f["key"] for f in api.sidebar()["favourites"]] == [hard]
+    assert api.set_favourites([hard])["favourites"] == [hard, play]  # the save after the user reordered kept it
+    paths.playlists_file.write_text(text)
+    assert [f["key"] for f in api.sidebar()["favourites"]] == [hard, play]
+
+
+def test_a_favourite_or_a_crate_switch_saves_during_a_sync_and_a_console_run_without_a_job(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    release = threading.Event()
+    job = api._jobs.start("sync", lambda ctx: release.wait(5) and None)
+    assert api.set_favourites(["folder:Library/Hard_Bounce"])["ok"]
+    assert api.set_crate_shown(str(folder / "House"), False)["ok"]
+    release.set()
+    api._jobs.wait(5)
+    with run_lock(paths.lock):
+        assert api.set_favourites([])["ok"] and api.set_crate_shown(str(folder / "House"), None)["ok"]
+    assert api._jobs.running() is None and rec.finished().job_id == job.id  # no job of its own
+
+
+def test_a_save_that_cannot_get_the_database_answers_busy_and_changes_nothing(tmp_path, monkeypatch):
+    import sqlite3
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    api.set_favourites(["folder:Library/Hard_Bounce"])  # stored; no line uses the key as a folder, so none is shown
+    monkeypatch.setattr("discjockey.hub.api.BRIEF_WRITE_WAIT_MS", 50)
+    other = sqlite3.connect(str(paths.db_file), isolation_level=None)
+    other.execute("BEGIN IMMEDIATE")  # a running job's write transaction
+    try:
+        answers = [api.set_favourites([]), api.set_crate_shown(str(folder / "House"), False)]
+        assert api.sidebar()["ok"]  # reading still works beside the writer
+    finally:
+        other.execute("ROLLBACK")
+        other.close()
+    assert [(a["ok"], a["kind"]) for a in answers] == [(False, "busy"), (False, "busy")]
+    assert all("Try again" in a["message"] for a in answers)
+    with db.connect(paths.db_file) as conn:
+        assert db.favourites(conn) == ["folder:Library/Hard_Bounce"] and db.crate_overrides(conn) == {}
+    assert not api.sidebar()["watched"][0]["crates"][2]["hidden"]
+    assert api.set_favourites([])["ok"]  # once the writer is done it works
+
+
+def test_the_events_that_tell_the_page_to_read_the_sidebar_again(tmp_path, monkeypatch):
+    """B2.4: no event was added. A finished read is JobFinished (kind refresh), a finished import JobFinished (kind
+    import), a drive that came or went DrivesChanged; the page re-reads the sidebar on each (stores/hub.ts)."""
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    assert rec.finished().kind == "import" and rec.finished().ok
+    assert api.sidebar()["watched"][0]["files"] == 5  # what the page reads on that event
+    api._check_drives()
+    gone = folder.with_name("Music (ejected)")
+    folder.rename(gone)
+    api._check_drives()
+    assert [e for e in rec.events if isinstance(e, jobs.DrivesChanged)] == [jobs.DrivesChanged(1)]
+    sb = api.sidebar()
+    assert (sb["watched"][0]["state"], sb["watched"][0]["files"]) == ("folder_missing", 5)  # an away folder keeps its count
+    refreshed(api, rec)
+    assert rec.finished().kind == "refresh"
+
+
+def test_a_save_that_fails_for_any_other_reason_than_a_lock_does_not_say_try_again(tmp_path, monkeypatch):
+    import sqlite3
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    for error in (sqlite3.DatabaseError("file is not a database"),
+                  sqlite3.OperationalError("attempt to write a readonly database")):
+        monkeypatch.setattr(db, "set_favourites", lambda conn, keys, resolving=None, error=error: (_ for _ in ()).throw(error))
+        answer = api.set_favourites([])
+        assert (answer["ok"], answer["kind"]) == (False, "config_invalid"), error
+        assert "Try again" not in answer["message"]
+    locked = sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(db, "set_crate_shown", lambda conn, path, shown: (_ for _ in ()).throw(locked))
+    assert api.set_crate_shown(str(folder / "House"), True)["kind"] == "busy"
+
+
+def test_a_save_without_library_db_is_refused_and_says_what_to_do(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    api._jobs.wait(5)
+    for name in ("library.db", "library.db-wal", "library.db-shm"):
+        (paths.data / name).unlink(missing_ok=True)
+    answers = [api.set_favourites([]), api.set_crate_shown(str(folder / "House"), False)]
+    assert [(a["ok"], a["kind"]) for a in answers] == [(False, "refused")] * 2
+    assert all("open Discjockey again" in a["message"] and "Try again" not in a["message"] for a in answers)

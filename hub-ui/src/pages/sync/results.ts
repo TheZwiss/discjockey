@@ -52,6 +52,12 @@ export function coverMap(selection: { track_id: string; cover_url?: string | nul
   return m;
 }
 
+/** The cover of the live card: the service's picture when it gave one, else the plan's cover for the track (the
+ * artwork inside its file, for a track that is not on Spotify or came from a folder), else null (the placeholder). */
+export function stripCover(serviceUrl: string | null | undefined, trackId: string, covers: Map<string, string>): string | null {
+  return serviceUrl || covers.get(trackId) || null;
+}
+
 /** The results a chip shows, split into "Problems first" and "Done", each in run order. */
 export function listFor(results: Result[], chip: ListChip): { problems: Result[]; done: Result[] } {
   const shown = results.filter(MATCH[chip]);

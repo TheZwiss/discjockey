@@ -130,6 +130,11 @@ class Paths(SupportPaths):
         return self.data / "reports"
 
     @property
+    def undo(self) -> Path:
+        """The parked downloads a swap used, kept (one folder per step) while the swap can still be undone."""
+        return self.data / "undo"
+
+    @property
     def not_lossless_md(self) -> Path:
         return self.data / "not_lossless.md"
 
@@ -484,12 +489,13 @@ def _walk_files(paths: Paths) -> list[str]:
     return sorted(out)
 
 
-SWAP_PATH_KEYS = ("target", "staged", "backup", "parked")
+SWAP_PATH_KEYS = ("target", "staged", "backup", "parked", "held", "home")
 
 
 def op_paths(op: dict) -> list[str]:
-    """Every file a pending step names: its renames, for a swap also target, staged, backup and parked, and for a
-    step that crosses drives (run_op, move_files: `staged` maps a rename's index to its copy) the staged copies."""
+    """Every file a pending step names: its renames, for a swap (and its undo) also target, staged, backup, parked,
+    held and home, and for a step that crosses drives (run_op, move_files: `staged` maps a rename's index to its
+    copy) the staged copies."""
     out = [p for pair in op.get("renames", []) for p in pair]
     for k in SWAP_PATH_KEYS:
         v = op.get(k)
@@ -518,6 +524,56 @@ def clear_tmp(paths: Paths, state: dict | None = None) -> None:
             else:
                 child.unlink(missing_ok=True)
     paths.tmp.mkdir(parents=True, exist_ok=True)
+    if state is not None:
+        _prune_undo(paths, state)
+
+
+def upgrade_undo(entry: dict | None) -> dict | None:
+    """The undo record of an upgrade (upgrades.add_new / swap), kept in the entry's `rekordbox_check` until the user
+    says the rekordbox check is done; None for every other check and for steps from before undo existed."""
+    return ((entry or {}).get("rekordbox_check") or {}).get("undo") or None
+
+
+def undo_paths(undo: dict) -> list[str]:
+    """Every file an upgrade's undo needs: where the old file and the parked one go back to, and the kept parked
+    copy of a swap. NameReserver keeps them free, _prune_undo keeps the copy."""
+    before = undo.get("before") or {}
+    out = [before.get("path"), (before.get("upgrade") or {}).get("file"), undo.get("held")]
+    return [p for p in out if p]
+
+
+def forget_undo(paths: Paths, undo: dict | None) -> None:
+    """The undo is gone (the rekordbox check is done): the kept parked copy of a swap is deleted."""
+    held = (undo or {}).get("held")
+    if not held:
+        return
+    prefix = fold(paths.undo.relative_to(paths.root).as_posix()) + "/"
+    if not fold(held).startswith(prefix) or ".." in PurePosixPath(held).parts:
+        raise ValueError(f"{held} is not a kept upgrade, so Discjockey does not delete it")
+    (paths.root / held).unlink(missing_ok=True)
+    try:
+        (paths.root / held).parent.rmdir()
+    except OSError:  # not empty, or already gone
+        pass
+
+
+def _prune_undo(paths: Paths, state: dict) -> None:
+    """Deletes the kept parked copies no undo record and no pending step names any more (a check overwritten by a
+    later step, an undo that finished, a crash in between)."""
+    if not paths.undo.is_dir():
+        return
+    keep = {fold(p) for e in state.get("tracks", {}).values() if (u := upgrade_undo(e)) for p in undo_paths(u)}
+    keep |= {fold(p) for op in state.get("pending", []) for p in op_paths(op)}
+    for folder in paths.undo.iterdir():
+        files = [folder] if not folder.is_dir() or folder.is_symlink() else list(folder.iterdir())
+        for f in files:
+            if fold(f.relative_to(paths.root).as_posix()) not in keep:
+                if f.is_dir() and not f.is_symlink():
+                    shutil.rmtree(f, ignore_errors=True)
+                else:
+                    f.unlink(missing_ok=True)
+        if folder.is_dir() and not folder.is_symlink() and not any(folder.iterdir()):
+            folder.rmdir()
 
 
 def delete_parked(paths: Paths, rel: str | None) -> None:
@@ -541,6 +597,8 @@ class NameReserver:
                 self.taken.add(fold(e["path"]))
             if e.get("upgrade"):  # a parked better version keeps its name in Upgrades ready/
                 self.taken.add(fold(e["upgrade"]["file"]))
+            if (u := upgrade_undo(e)) is not None:  # an upgrade's undo puts its files back there
+                self.taken.update(fold(p) for p in undo_paths(u))
         for op in state.get("pending", []):
             self.taken.update(fold(p) for p in op_paths(op))
 
@@ -1022,6 +1080,10 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
         if op.get("kind") == "swap":
             from .upgrades import recover_swap  # upgrades builds on this module
             messages.append(recover_swap(paths, state, op))
+            continue
+        if op.get("kind") == "swap_undo":
+            from .upgrades import recover_swap_undo  # upgrades builds on this module
+            messages.append(recover_swap_undo(paths, state, op))
             continue
         if op.get("kind") == "files":
             message, wrote = _recover_files(paths, op, roots)

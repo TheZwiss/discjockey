@@ -9,6 +9,7 @@ from discjockey import upgrades
 from discjockey.align import Alignment
 from discjockey.library import Paths, empty_state, load_state, run_lock, save_state
 from discjockey.planner import ENTRY_KEYS
+from discjockey.report import check_text
 from discjockey.upgrades_cmd import run_upgrades
 
 PLAYLISTS = ("Hard_Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n"
@@ -235,9 +236,10 @@ def test_no_keyboard_gives_exit_2(root, monkeypatch):
 def test_add_as_new_says_what_to_do_in_rekordbox(root, capsys):
     assert run(root, "l", "a") == 0
     out = capsys.readouterr().out
-    assert ("  In rekordbox: if the track shows as missing, use Auto Relocate; it finds the new file by its name. "
-            "Then analyse it again and set the cues again (they belong to the old edit).\n") in out
-    assert load_state(root)["tracks"]["t2"]["rekordbox_check"]["reason"] == "added_as_new"
+    check = load_state(root)["tracks"]["t2"]["rekordbox_check"]
+    assert check["reason"] == "added_as_new"
+    assert f"  {check_text(check)}\n" in out  # the To-do's words, from the stored measurement
+    assert "they belong to the old edit" not in out  # the old fixed sentence, wrong for the same edit
     assert "## Check in rekordbox (1)" in report(root)
     assert "1 track to check in rekordbox (see the report)" in out
 

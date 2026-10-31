@@ -42,7 +42,7 @@ describe('fitPath', () => {
 });
 
 const row = (over: Partial<WatchedFolderRow> = {}): WatchedFolderRow => ({ id: 2, path: '/Volumes/Example Drive/Music',
-  name: 'Music', kind: 'import', state: 'online', files: 1240, waiting: 0, unreadable: 0, ...over });
+  name: 'Music', kind: 'import', state: 'online', files: 1240, waiting: 0, unreadable: 0, crates: [], too_many: false, ...over });
 const lib = row({ id: 1, kind: 'library', name: 'Library', path: '/Users/you/Music/Discjockey/Library', files: 412 });
 const data = (over: Partial<WatchedFolders> = {}): WatchedFolders => ({ folders: [lib, row()], unreadable: [], waiting: 0,
   stopped: false, ...over });

@@ -53,7 +53,8 @@ def test_silence_and_short_input():
 
 def test_verdict():
     assert verdict(True, None) == "lossless"
-    assert verdict(True, 20000) == "lossless"
+    assert verdict(True, 21000) == "lossless"  # a steep anti-alias filter of a 44.1 kHz master
+    assert verdict(True, 20000) == "fake_lossless"  # an Opus / MP3 320 wall
     assert verdict(True, 16000) == "fake_lossless"
     assert verdict(False, None) == "not_lossless"
     assert verdict(False, 16000) == "not_lossless"
@@ -110,9 +111,15 @@ def soft_edge(x, start, width, depth_db=28):
 
 def test_soft_edge_of_a_lossy_file_is_still_shown():
     x = soft_edge(noise(), 19800, 800)
-    assert cutoff_hz(x, SR) is None  # too gentle to call a lossless file fake
-    c = cutoff_hz(x, SR, cliff_db=LOSSY_CLIFF_DB)  # but a lossy file shows where it ends
+    c = cutoff_hz(x, SR, cliff_db=LOSSY_CLIFF_DB)  # a lossy file shows where it ends
     assert c is not None and 19800 <= c <= 20600
+
+
+def test_soft_edge_near_20_khz_in_a_lossless_file_is_fake():
+    # 28 dB over 800 Hz is too soft for a cliff, but no natural roll-off falls that fast at 20 kHz
+    c = cutoff_hz(soft_edge(noise(), 19800, 800), SR)
+    assert c is not None and 19800 <= c <= 20600
+    assert verdict(True, c) == "fake_lossless"
 
 
 def shaped(x, points):
@@ -147,10 +154,57 @@ def test_slow_roll_off_into_a_floor_is_full_band():
     assert cutoff_hz(shaped(noise(), [(0, 0), (12000, 0), (18000, -30)]), SR) is None
 
 
-def test_mastering_low_pass_near_20_khz_is_not_fake():
-    x = shaped(noise(), [(0, 0), (20000, 0), (20500, -40)])
-    c = cutoff_hz(x, SR)
+@pytest.mark.parametrize("wall_hz", [19600, 20000, 20200, 20500])
+def test_a_brick_wall_near_20_khz_is_fake(wall_hz):
+    # Opus always walls at ~20 kHz, LAME 320 kbps at 20.2-20.5 kHz: full level up to the wall, nothing above
+    c = cutoff_hz(shaped(noise(), [(0, 0), (wall_hz, 0), (wall_hz + 300, -40)]), SR)
+    assert c is not None and abs(c - wall_hz) <= 300
+    assert verdict(True, c) == "fake_lossless"
+
+
+@pytest.mark.parametrize("points", [
+    [(0, 0), (19900, 0), (20000, -14), (20100, -21), (20300, -27), (20500, -38), (20800, -55), (21500, -60)],
+    [(0, 0), (19900, 0), (20000, -14), (20200, -23), (20400, -25)],  # into a shallow floor only 25 dB down
+    [(0, 0), (19900, 0), (20000, -12), (20200, -19), (20400, -20)],  # 20 dB down: too shallow for a cliff
+])
+def test_decoded_opus_saved_as_wav_is_fake(points):
+    # the measured shape of decoded Opus: flat to 19.9 kHz, 14 dB down at 20.0 kHz, then falling to the floor
+    c = cutoff_hz(shaped(noise(), points), SR)
+    assert c is not None and 19800 <= c <= 20300
+    assert verdict(True, c) == "fake_lossless"
+
+
+@pytest.mark.parametrize("drop_db", [13, 15])
+def test_a_small_cliff_at_20_khz_is_fake(drop_db):
+    # an encoder's wall into a quiet top end can fall only 13-15 dB
+    c = cutoff_hz(shaped(noise(), [(0, 0), (19950, 0), (20050, -drop_db)]), SR)
+    assert c is not None and 19900 <= c <= 20100
+    assert verdict(True, c) == "fake_lossless"
+
+
+@pytest.mark.parametrize("drop_db", [12, 15])
+def test_a_small_cliff_at_20_7_khz_stays_lossless(drop_db):
+    # a mastering filter sits higher than the encoders' walls: below CLIFF_DB it is no wall up here
+    c = cutoff_hz(shaped(noise(), [(0, 0), (20650, 0), (20750, -drop_db)]), SR)
     assert c is None or c >= FAKE_BELOW_HZ
+    assert verdict(True, c) == "lossless"
+
+
+def test_a_cliff_of_18_db_at_20_6_khz_is_fake():
+    c = cutoff_hz(shaped(noise(), [(0, 0), (20550, 0), (20650, -20)]), SR)
+    assert c is not None and 20500 <= c <= 20700
+    assert verdict(True, c) == "fake_lossless"
+
+
+@pytest.mark.parametrize("points", [
+    [(0, 0), (17000, 0), (20000, -12), (22050, -28)],  # a natural roll-off near 20 kHz
+    [(0, 0), (19500, 0), (22050, -25)],  # a resampler's anti-alias filter, falling over 2.5 kHz
+    [(0, 0), (20900, 0), (21200, -40)],  # a steep anti-alias filter above the lossy walls
+])
+def test_a_roll_off_or_anti_alias_filter_stays_lossless(points):
+    c = cutoff_hz(shaped(noise(), points), SR)
+    assert c is None or c >= FAKE_BELOW_HZ
+    assert verdict(True, c) == "lossless"
 
 
 def test_the_quality_line_of_an_own_file_puts_the_format_in_brackets():

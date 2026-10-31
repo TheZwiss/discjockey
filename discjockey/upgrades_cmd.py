@@ -14,8 +14,6 @@ from .quality import quality_line
 from .upgrades import UpgradeProblem
 
 TIP = "Tip: quit rekordbox before swapping."
-REKORDBOX_ADDED = ("  In rekordbox: if the track shows as missing, use Auto Relocate; it finds the new file by its name. "
-                   "Then analyse it again and set the cues again (they belong to the old edit).")
 CHOICES = {"s": "swap", "a": "add as new file", "d": "discard", "f": "show in Finder", "l": "later (default)",
            "q": "quit"}
 DONE = {"s": "Swapped", "a": "Added as a new file", "d": "Discarded"}
@@ -73,7 +71,7 @@ def _choices(paths: Paths, state: dict, track_id: str, entry: dict, compare) -> 
 
 
 def _review(paths: Paths, state: dict, track_id: str, log: rep.RunLog, ask: Callable[[str], str],
-            opener: Callable[[Path], None], compare) -> bool:
+            opener: Callable[[Path], None], compare, now: Callable[[], datetime]) -> bool:
     """One parked upgrade. Returns False when the user wants to quit."""
     entry = state["tracks"][track_id]
     up = entry["upgrade"]
@@ -103,9 +101,9 @@ def _review(paths: Paths, state: dict, track_id: str, log: rep.RunLog, ask: Call
         try:
             with library.deferred_interrupt():  # a Ctrl-C waits until the step is done and in the report
                 if answer == "s":
-                    result = upgrades.swap(paths, state, track_id, up, compare)
+                    result = upgrades.swap(paths, state, track_id, up, compare, now=now)
                 elif answer == "a":
-                    result = upgrades.add_new(paths, state, track_id, up)
+                    result = upgrades.add_new(paths, state, track_id, up, now=now)
                 else:
                     result = upgrades.discard(paths, state, track_id, up)
                 log.add(result)
@@ -117,8 +115,9 @@ def _review(paths: Paths, state: dict, track_id: str, log: rep.RunLog, ask: Call
             _failed(log, track_id, entry, WHAT[answer], err)
             return True
         print(f"  {DONE[answer]}." + (f" ({result.note})" if answer != "d" else ""))
-        if answer == "a":
-            print(REKORDBOX_ADDED)
+        check = state["tracks"][track_id].get("rekordbox_check")
+        if answer != "d" and check:  # the same words as the To-do's "Check in rekordbox", from the measurement
+            print(f"  {rep.check_text(check)}")
         return True
 
 
@@ -150,7 +149,7 @@ def run_upgrades(paths: Paths, *, ask: Callable[[str], str] | None = None,
         else:
             print(TIP)
             for track_id, _ in items:
-                if not _review(paths, state, track_id, log, ask, opener, compare):
+                if not _review(paths, state, track_id, log, ask, opener, compare, now):
                     break
     except KeyboardInterrupt:
         print("\nStopped. Everything finished so far is saved.")

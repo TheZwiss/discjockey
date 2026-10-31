@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import NamedTuple
 
 SOURCE_NAMES = {
     "qobuz": "Qobuz",
@@ -370,6 +371,23 @@ class ImportCounts:
     waiting: int  # import_state "new": not read yet
     identified: int  # tags read, an own song made; the sound check still to come
     unreadable: int
+
+
+class RecordedTrack(NamedTuple):
+    """One track of a playlist's last read as library.db keeps it (plan library stage 5, D2): the fetched token plus
+    what a row shows while no song of the library resolves it."""
+    position: int  # 1, 2, ... in the playlist's order (a song listed twice has two positions)
+    token: str  # the track's token as read (SourceTrack.key)
+    artist: str  # the first artist, as the library's songs name it
+    title: str
+    duration_ms: int | None
+
+
+class PlaylistRecord(NamedTuple):
+    """A playlist's last successful read (db.playlist_records): its service, when, and its tracks in order."""
+    service: str
+    read_at: str  # ISO time, seconds
+    tracks: tuple[RecordedTrack, ...]
 
 
 @dataclass(frozen=True)

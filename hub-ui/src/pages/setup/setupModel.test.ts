@@ -95,7 +95,7 @@ describe('steps done', () => {
   });
   it('skips Your existing music on Continue only when no folder is watched, by the status or by the folders read', () => {
     const lib: WatchedFolderRow = { id: 1, path: '/Users/you/Library', name: 'Library', kind: 'library', state: 'online',
-      files: 3, waiting: 0, unreadable: 0 };
+      files: 3, waiting: 0, unreadable: 0, crates: [], too_many: false };
     const crates: WatchedFolderRow = { ...lib, id: 2, name: 'Crates', kind: 'import' };
     const folders = (...f: WatchedFolderRow[]): WatchedFolders => ({ folders: f, unreadable: [], waiting: 0, stopped: false });
     expect(skipsExisting(status({ existing: false }), null)).toBe(true);

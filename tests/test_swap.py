@@ -311,7 +311,7 @@ def test_crash_after_writing_finishes(fake, monkeypatch):
 
 def test_crash_after_the_move_to_the_root_finishes(fake, monkeypatch):
     inode = os.stat(fake[0].root / CURRENT).st_ino
-    paths, state = crash_and_reload(fake, monkeypatch, "delete_parked")  # inside _finish, after the rename
+    paths, state = crash_and_reload(fake, monkeypatch, "_hold")  # inside _finish, after the rename
     assert (paths.root / ROOT_NAME).read_bytes() == NEW and not (paths.root / CURRENT).exists()
     recover_pending(paths, state)
     assert_swapped(paths, state, inode)

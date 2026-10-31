@@ -47,6 +47,9 @@ accounts: Qobuz first, then YouTube Music, YouTube or SoundCloud. It comes with 
 your own accounts for the services you use, and you are responsible for following the terms of use of Spotify, Qobuz and
 every other service you use with it. Read [Account risk](#account-risk) before your first sync.
 
+Spotify, Qobuz, SoundCloud and YouTube names and logos are trademarks of their owners, used only to show where a
+playlist comes from; Discjockey isn't affiliated with them.
+
 ## Install and "Open Anyway"
 
 Discjockey isn't registered with Apple, so the first time macOS asks you to confirm that you want to open it. You do
@@ -141,7 +144,8 @@ line to see it on the right.
   The Spotify app's Client ID can be changed under "Spotify app (Client ID)". If you skipped Spotify in Setup,
   connect it here when you want to use Spotify playlists.
 - **Watched folders:** the folders Discjockey reads for music you already have, and the import's progress
-  (see [Your existing music](#your-existing-music)).
+  (see [Your existing music](#your-existing-music)). Each folder also says which of its crates show in Library's
+  sidebar (see [The Library page](#the-library-page)).
 - **This Mac:** the **Music folder** (**Change…** picks another one and closes Discjockey so it
   starts again with it; **Show in Finder** opens it), the programs Discjockey uses and its download
   tools: yt-dlp shows its version and "built in" (it came with Discjockey) or "updated". **Update
@@ -244,9 +248,10 @@ Mac or on a drive. Your `Library/` is always watched and is listed first.
 - **Is this the same song?** A file of yours might be a playlist song: same title with another artist, or the same
   artist and title with a different length. Until you answer, Discjockey doesn't download that song. **Yes, it's the
   same song** links your file to it; **No, keep them apart** lets the next sync download it.
-- **Duplicates:** the same song more than once among your files. **Keep both** (**Keep all**) leaves them; **Move to
-  Superseded** on a file moves it to `Superseded/`. Nothing is deleted. The cards are labelled by the folder each file
-  is in.
+- **Duplicates:** the same song more than once among your files. Under **Which file stays?** you pick the file to
+  keep; when one is clearly better (lossless, or an AIFF beside a WAV) Discjockey picks it for you and says why. The
+  button names the result (for example **Keep the AIFF**); the other files move to `Superseded/`. Nothing is deleted.
+  **Keep both** (**Keep all**), the list's last row, leaves them all.
 
 Your own music appears on the To-do page only here and under **Upgrade ready**, never as "weak" or "fake" lossless:
 the Library shows each file's quality.
@@ -323,8 +328,8 @@ that have a file are played. Changing the filter later doesn't change what plays
 ## The Library page
 
 **Library** shows every track you have, with its quality. Its sidebar is a narrow **rail** of icons, and next to it
-stands the **browser column**: your playlists and your Library folders. Click a name to see its
-tracks. Click a track (or move with ↑ ↓) and its details open on the right; they follow the track you select. They
+stands the **browser column**: your Favourites, your playlists, your Library folders and the folders you
+watch. Click a name to see its tracks. Click a track (or move with ↑ ↓) and its details open on the right; they follow the track you select. They
 only show while a track is selected and in the list: when you open Library, switch to another playlist, or a filter
 or search hides the selected track, they close, and the details button waits (greyed) until you select a track. If you
 close them with the details button at the top right or **⌘I**, they stay closed: clicking a track then only selects
@@ -341,6 +346,30 @@ again).
 - **Filter the browser.** Type in the field at the top of the browser column (or press **⌘K** on any page) to find
   a playlist or folder by name. Every match shows once, in its own section. The last row, **Search tracks for "…"**,
   opens All tracks searched for what you typed. **Enter** opens the highlighted row, **Esc** clears the field.
+- **Favourites.** The playlists and folders you use most can sit at the top of the column. Right-click any
+  playlist or folder and choose **Add to favourites**, or drag its row into the **Favourites** section. Drag a
+  favourite up or down to put them in your order (with a favourite selected, **⌥↑** and **⌥↓** move it by keyboard).
+  **Remove from favourites** in the same right-click menu takes it out again. On the other pages the full
+  sidebar lists your favourites too, without counts; a click opens Library at that one. An empty Favourites section
+  says **Drag a playlist or folder here**. Discjockey saves the order at once, and puts it back and tells you if it
+  couldn't.
+- **Watched folders and their crates.** Each folder you watch (see [Your existing music](#your-existing-music))
+  gets a place in the column, and the folders with music inside it, its **crates**, sit below it. Open or fold a
+  watched folder with its arrow. A folder that is offline shows a **!**; its tooltip says to connect the drive.
+  Right-click a crate and choose **Hide from sidebar** if you don't want to see it; the filter above still finds
+  hidden crates and offers **Show in sidebar**. To bring crates back, or to choose which ones to show, go to **Settings → Watched folders**: each
+  folder has an **In the sidebar** group with a switch per crate and a search field for folders with many crates.
+  A folder with too many crates for the sidebar says so: switch on the ones you want, or search and then press **All**. Its **Show some in the sidebar…** link opens Settings → Watched folders on that folder.
+- **A right-click menu on every row.** **Open**, **Play**, **Add to favourites** or **Remove from favourites**,
+  **Hide from sidebar** (crates only) and **Show in Finder** (where the folder is one Discjockey can open).
+- **A playlist's view.** The line under its name says how many songs you have: **13 of 18 downloaded** means five
+  are still to come. A song that has no file yet shows as **Waiting** (it downloads at the next sync), or as
+  **NOT FOUND** when Discjockey found nothing usable yet (To-do has other ways to get it). Below the playlist's
+  songs, a title with **in {place}** after it is a song whose file sits in another folder than the playlist's. **Also in this folder** lists the files in the playlist's folder that aren't in the playlist. Switched-off playlists stay in the list; their files stay and nothing new downloads. A
+  playlist Discjockey hasn't read yet says so, with a **Read playlists** button.
+- **A folder's view.** Opening a watched folder or a crate lists every track in it and below it. A **Subfolder**
+  column says which of its folders a track is in, and a **Playlist** column names the playlist that holds the song, if
+  any (a **+2** means it is in more playlists; point at it to see their names). A column that would say the same on every row is left out.
 - **Make the column wider or narrower.** Drag its right edge. Double-click the edge to go back to the usual width.
 - **Keys:**
 
@@ -386,15 +415,17 @@ waiting for a track, the list says so.
 Once a week, Discjockey looks on Qobuz for a lossless version of each track in `not_lossless/`.
 When it finds one, it doesn't replace anything. It **parks** the new file in
 `Upgrades ready/<Folder>/` and checks whether the two versions line up exactly (same edit,
-same start). The track then shows on the **To-do** page as "Upgrade ready". For music
+same start). The track then shows on the **To-do** page as "Upgrade ready", and you can decide it there or in the
+track's details in the **Library** (the same choice, in the same words). For music
 you imported from your own folders, the first check of each file is spread over several runs (see
 [Your existing music](#your-existing-music)).
 
 **Tip: quit rekordbox first.** For each waiting track you see the file you have now (**Now**) and the new
-one (**New**), side by side, and whether they line up. A small player lets you listen to
-both in the window before you choose. Then you choose:
+one (**New**), side by side with the quality of each, and whether they are the same edit. A small player lets you
+listen to both in the window before you choose. **Replace with lossless** puts the lossless audio in place of your
+file either way; the only difference is what rekordbox sees, which you pick under **In rekordbox**:
 
-- **Swap the files** (only offered when the versions line up). The lossless audio goes into your
+- **Same track** (only offered for an AIFF file and the same edit; recommended). The lossless audio goes into your
   existing file, so rekordbox keeps the track with your cue points, loops and beatgrid. If
   the new version starts a few milliseconds earlier or later, Discjockey shifts it so your cues
   still sit on the same beat. Before anything is overwritten, a checked copy of your old file
@@ -402,22 +433,31 @@ both in the window before you choose. Then you choose:
   `not_lossless/`, it moves up into the folder itself (unless a file with that name is already
   there). In rekordbox, if the track then shows as missing, use Auto Relocate (the search for
   missing files in `Library/`): it finds the file by its name, with cues and beatgrid in place.
-  The track already plays the lossless audio. Optional: right-click → **Reload Tag** so the
+  The track already plays the lossless audio. Then right-click → **Reload Tag** so the
   comment shows the new source, and analyse it again so the waveform shows the full sound
-  (lock the beatgrid first if you adjusted it by hand).
-- **Add as new file.** Your old file moves to `Superseded/` first, then the lossless
+  (lock the beatgrid first if you adjusted it by hand). The To-do page ("Check in rekordbox")
+  shows these steps until you mark it as done.
+- **New track** (the only way for an MP3 or WAV file, a different edit, or versions that couldn't be compared). Your
+  old file moves to `Superseded/` first, then the lossless
   file goes into the folder under the correct name, `<Artist - Title>.aiff` (files in
   `Library/` always carry the correct name; only a file that is in the way gets an ID added).
   In rekordbox, if the track shows as missing, use Auto Relocate: it finds the new file by
-  its name and links your old track to it. The cues and beatgrid belong to the old edit, so
-  analyse the track again and set the cues again. Discjockey reminds you: the run report and
-  the To-do page ("Check in rekordbox") list the track until you mark it as done. Use
-  this when the versions don't line up (for example a different edit).
-- **Discard.** The parked file is deleted and Discjockey never offers that file again.
+  its name and links your old track to it. What to do then depends on how the two versions
+  measured: if they are the same edit (they line up, maybe a few milliseconds apart), your
+  cues and beatgrid still fit; if they are a different edit, analyse the track again and set
+  the cues again. Discjockey tells you which: the run report and the To-do page ("Check in
+  rekordbox") list the track with the steps until you mark it as done.
+- **Discard the new version.** The parked file is deleted and Discjockey never offers that file again.
 - Or leave it: nothing changes, and it waits for next time.
 
-A swap is safe to interrupt. If Discjockey or the Mac stops in the middle of one, Discjockey finishes it or puts
-your old file back the next time it works on your library.
+**Changed your mind?** Until you press **Done, checked in rekordbox**, the To-do page offers
+**Undo the replace** under it: your old file goes back where it was, the new version waits in
+`Upgrades ready/` again, and the upgrade is offered as before. Discjockey refuses if either
+file was changed since (for example edited by another program). After **Done** there is no
+undo; for a swap Discjockey then deletes the copy of the new version it kept for the undo.
+
+A swap and its undo are safe to interrupt. If Discjockey or the Mac stops in the middle of one, Discjockey finishes
+it or puts your old file back the next time it works on your library.
 
 `Upgrades ready/` only holds Discjockey's own downloads. If you delete a file there by hand,
 Discjockey simply forgets it. If you buy the track or it gets downloaded again, the waiting

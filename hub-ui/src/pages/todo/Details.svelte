@@ -1,11 +1,14 @@
 <script lang="ts">
   // The selected to-do in the panel (spec §5.3, design system mockup design-system/todo.html), as a Panel: the head
   // holds the track card (cover, name, quality, Hide at the title's end for every kind), what this to-do needs (the
-  // rekordbox or Other note, the upgrade box, or what is still being looked for), the cutoff as a number over the
-  // spectrum, the current file (player, facts, Wrong song?) and "Get a lossless file" (the artist's free download,
-  // buy links, the drop zone). The body scrolls when it is long (Panel). The foot holds the to-do's own action as the
-  // screen's one filled button (actionsFor().main): Swap / Add as new file, Done, checked in rekordbox, Find a
-  // version, Show in Finder; a lossy file has none in the app (it is bought and dropped), so its foot stays empty.
+  // rekordbox check's cards, the Other note, the upgrade decision, or what is still being looked for), the cutoff as
+  // a number over the spectrum, the current file (player, facts, Wrong song?; not for an upgrade decision, whose Now
+  // column says it) and "Get a lossless file" (the artist's free download, buy links, the drop zone). The body scrolls
+  // when it is long (Panel). The foot holds the to-do's own action as the screen's one filled button
+  // (actionsFor().main): Replace with lossless (the "In rekordbox" pick: Same track = swap, New track = add_new),
+  // Done, checked in rekordbox, Find a version, Show in Finder; a lossy file has none in the app (it is bought and
+  // dropped), so its foot stays empty. The upgrade decision and the rekordbox check are the shared ones
+  // (lib/decisions: UpgradeCards + UpgradeFoot, CheckCards + CheckFoot, one UpgradeFlow), as in the Library's details.
   import { untrack } from 'svelte';
   import type { Spectrum as Spec, TodoItem, TrackDetail } from '$lib/bridge/types';
   import { api, runJob } from '$lib/bridge/client';
@@ -16,11 +19,11 @@
   import { artistTitle, fileAway, fileAwayWords, qualityWords } from '$lib/format';
   import {
     Badge, Button, ExternalLink, Hint, KeyValue, MiniPlayer, NoteCard, QualityBadge, Spectrum, StatCard, Surface,
-    TrackHead, WriteButton, confirm, envelope,
+    TrackHead, WriteButton, envelope,
   } from '$lib/components';
+  import { CheckCards, CheckFoot, UpgradeCards, UpgradeFlow, UpgradeFoot } from '$lib/decisions';
   import { Panel } from '$lib/frames';
   import { actionsFor, cutoffStat, dropDecision, freeHint, qobuzText } from './todoModel';
-  import UpgradeBox from './UpgradeBox.svelte';
   import BoughtFile from './BoughtFile.svelte';
 
   let { track, item, onhidden, onversions, onlisten }: {
@@ -72,28 +75,16 @@
     upSpec = u && u.ok ? u.spectrum : null;
   }
 
-  let busy = $state<'hide' | 'rekordbox' | 'swap' | 'add_new' | 'discard' | null>(null);
+  // the "In rekordbox" pick, the running action and an undo's refusal; a new track starts over
+  const flow = new UpgradeFlow();
+  $effect(() => flow.follow(track.track_id));
+  const way = $derived(flow.way(!!act.upgrade?.swap));
+
   async function hide() {
-    busy = 'hide';
+    flow.busy = 'hide';
     const r = await runJob(api.hide(track.track_id, !track.hidden));
-    busy = null;
+    flow.busy = null;
     if (r.ok && act.hide === 'hide') onhidden();
-  }
-  async function checked() {
-    busy = 'rekordbox';
-    await runJob(api.rekordbox_checked(track.track_id));
-    busy = null;
-  }
-  // Swap / Add as new file / Discard (spec §6.6): the main one from the foot, the others from the upgrade box
-  async function upgrade(mode: 'swap' | 'add_new' | 'discard') {
-    if (mode === 'swap' && !(await confirm({ title: 'Swap the files?',
-      body: 'rekordbox keeps the cue points and the beatgrid.', confirmLabel: 'Swap' }))) return;
-    if (mode === 'discard' && !(await confirm({ title: 'Throw away the new version?', body: 'Your current file stays.',
-      confirmLabel: 'Discard', tone: 'danger' }))) return;
-    busy = mode;
-    // "changed": runJob shows "This track changed in the meantime."; the finished job re-fetches the page
-    await runJob(api.upgrade(track.track_id, mode));
-    busy = null;
   }
   // A track without a drop zone (e.g. lossless): BoughtFile isn't there and the shell skips To-do, so an
   // unreadable drop on it would show nothing. Toast macOS's message like the shell does on other pages.
@@ -109,7 +100,7 @@
 
 {#snippet hideLink()}
   {#if act.hide}
-    <WriteButton variant="link" muted size="sm" busy={busy === 'hide'} onclick={hide} data-test="hide">
+    <WriteButton variant="link" muted size="sm" busy={flow.busy === 'hide'} onclick={hide} data-test="hide">
       {act.hide === 'hide' ? 'Hide' : 'Unhide'}</WriteButton>
   {/if}
 {/snippet}
@@ -125,15 +116,14 @@
       </TrackHead>
     </Surface>
 
-    {#if act.rekordboxDone && item}
-      <NoteCard tone="warn" data-test="rekordbox-check">{item.detail}</NoteCard>
-    {/if}
+    {#if act.rekordboxDone && item}<CheckCards {item} />{/if}
     {#if item?.group === 'other'}
       <NoteCard data-test="other">{item.detail}</NoteCard>
     {/if}
 
     {#if track.upgrade}
-      <UpgradeBox {track} {current} upgrade={upSpec} loading={specLoading} {busy} onrun={upgrade} />
+      <UpgradeCards {track} {current} upgrade={upSpec} loading={specLoading} swap={!!act.upgrade?.swap} {way}
+        onway={(w) => (flow.picked = w)} busy={flow.busy !== null} />
     {/if}
 
     {#if !hasFile}
@@ -152,16 +142,16 @@
       </StatCard>
     {/if}
 
-    {#if hasFile}
+    {#if hasFile && !track.upgrade}
       <Surface kind="card" label="Current file" data-test="current-file">
         {#snippet header()}
           <Button variant="link" size="sm" disabled={!!offline} title={offline} onclick={() => onversions(track)}
             data-test="wrong-song">Wrong song?</Button>
         {/snippet}
-        {#if !cutoff && !track.upgrade}
+        {#if !cutoff}
           <Spectrum spectrum={current} height={64} loading={specLoading && !current} error={specError} away={awayWords} />
         {/if}
-        {#if act.listen && !track.upgrade}
+        {#if act.listen}
           <MiniPlayer url={track.audio_url} title={artistTitle(track.artist, track.title)} track_id={track.track_id}
             envelope={envelope(current)} length_s={track.duration_s} start={onlisten} />
         {/if}
@@ -208,13 +198,10 @@
 {/snippet}
 
 {#snippet foot()}
-  {#if act.main === 'swap' || act.main === 'add_new'}
-    <WriteButton variant="filled" wide busy={busy === act.main} onclick={() => upgrade(act.main as 'swap' | 'add_new')}
-      data-test={act.main === 'swap' ? 'upgrade-swap' : 'upgrade-add-new'}>
-      {act.main === 'swap' ? 'Swap the files' : 'Add as new file'}</WriteButton>
-  {:else if act.main === 'rekordbox'}
-    <WriteButton variant="filled" wide busy={busy === 'rekordbox'} onclick={checked} data-test="rekordbox-done">
-      Done, checked in rekordbox</WriteButton>
+  {#if (act.main === 'swap' || act.main === 'add_new') && track.upgrade}
+    <UpgradeFoot track_id={track.track_id} upgrade={track.upgrade} {way} {flow} />
+  {:else if act.main === 'rekordbox' && item}
+    <CheckFoot {item} {flow} />
   {:else if act.main === 'find'}
     <Button variant="filled" wide disabled={!!offline} title={offline} onclick={() => onversions(track)}
       data-test="wrong-song">Find a version</Button>

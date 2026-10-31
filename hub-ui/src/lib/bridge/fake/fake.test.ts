@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createFakeBridge } from './bridge';
 import { STREAMS } from './replay';
 import { minutesByDownloads } from './minutes';
+import { checkText } from './data';
 import { LIBRARY_METHODS } from '../contract';
 import type { HubEvent } from '../events';
 
@@ -25,16 +26,40 @@ describe('fake minutes table', () => {
   });
 });
 
+describe('fake rekordbox check text', () => {
+  // the same words as tests/test_report.py: the fake mimics report.check_text
+  const since = '2026-10-16';
+  it('words an added file by what the two files measured as', () => {
+    expect(checkText({ reason: 'added_as_new', since, match: 'exact', offset_ms: 0 }))
+      .toBe('This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit.');
+    expect(checkText({ reason: 'added_as_new', since, match: 'shifted', offset_ms: -23 }))
+      .toBe('This is the same edit, 23 ms apart. In rekordbox: relocate the old entry to the new file, its cues fit to within 23 ms.');
+    const different = 'This is a different edit. In rekordbox: analyse it again and set the cues again.';
+    for (const match of ['different', 'unknown', undefined]) {
+      expect(checkText({ reason: 'added_as_new', since, match })).toBe(different);
+    }
+    expect(checkText({ reason: 'wrong_song', since, match: 'exact' })).toMatch(/^This track now plays the right song/);
+  });
+});
+
 describe('fake backend', () => {
   it('library file names are "Artist - Title" without suffixes', async () => {
     const f = createFakeBridge('big');
-    const lib = await f.library(null, '', 'all', 'artist');
+    const lib = await f.library('all', null, '', 'all', 'artist');
     if (!lib.ok) throw new Error();
     expect(lib.rows.length).toBeGreaterThan(1000);
     for (const r of lib.rows) {
       expect(r.path).toMatch(/^Library\/[^/]+(\/not_lossless)?\/[^/]+ - [^/]+\.aiff$/);
       expect(r.path).not.toMatch(/\((v?\d+|new)\)|\s\d+\.aiff$/);
     }
+  });
+  it('lists an own song of an imported folder under the folder name, never blank', async () => {
+    const f = createFakeBridge('normal', { speed: 50, emit: () => {} });
+    const p = await f.sync_preview();
+    if (!p.ok) throw new Error();
+    const all = p.groups.flatMap((g) => g.actions);
+    expect(all.every((x) => x.folder.trim() !== '')).toBe(true);
+    expect(all.find((x) => x.track_id === 'own-techno-1')).toMatchObject({ kind: 'upgrade', folder: 'Techno' });
   });
   it('"never download" moves a planned download out of the plan and back, like the backend', async () => {
     const evs: HubEvent[] = [];
@@ -62,11 +87,13 @@ describe('fake backend', () => {
       'good_lossy', 'fake', 'other']);
     expect(todo.hidden_count).toBe(1);
     const up = todo.groups.find((g) => g.key === 'upgrade_ready')!.items;
-    expect(up.map((i) => i.detail).sort()).toEqual(["doesn't match: would be a new rekordbox entry", 'matches exactly, cues stay']);
+    expect(up.map((i) => i.detail).sort()).toEqual(['Lossless ready · cues can stay', 'Lossless ready · different edit']);
     const side = await f.sidebar();
     if (!side.ok) throw new Error();
     expect(side.not_in_playlist).toBe(2);
-    expect(side.library_folders).toEqual([{ folder: 'Old_Sets', tracks: 2 }]);
+    // Elsewhere: files moved there by hand (their songs say another folder), counted where they sit
+    expect(side.library_folders).toEqual([{ path: 'Library/Elsewhere', name: 'Elsewhere', files: 3 },
+      { path: 'Library/Old_Sets', name: 'Old_Sets', files: 2 }]);
     expect(side.playlists.map((x) => [x.name, x.service, x.enabled]).slice(3, 7)).toEqual([
       ['03_06_2026', 'spotify', true], ['Tekke_Ecke', 'spotify', false], ['Hard_Techno', 'spotify', true],
       ['Qobuz_Picks', 'qobuz', true]]);
@@ -480,7 +507,7 @@ describe('fake tidy-up', () => {
     if (!save.ok) throw new Error();
     const done = await finished(evs, save.job_id);
     expect(done.ok).toBe(true);
-    const folders = await f.library(null, '', 'all', 'artist');
+    const folders = await f.library('all', null, '', 'all', 'artist');
     if (!folders.ok) throw new Error();
     const carried = folders.rows.filter((x) => x.path?.startsWith('Library/Hard_New/')).length;
     expect(carried).toBeGreaterThan(1);

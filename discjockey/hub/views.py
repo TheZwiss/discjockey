@@ -6,7 +6,11 @@ cover or audio URL). Every number on the screens comes from these functions.
 from __future__ import annotations
 
 import math
+import re
+import unicodedata
+from collections import Counter
 from collections.abc import Collection, Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import PurePosixPath
 from typing import Callable
@@ -18,7 +22,7 @@ from ..accounts import (ACCOUNTS, BROWSERS, DEFAULT_LIMITS, MAX_LIMIT, PREMIUM_M
 from ..accounts import assessment as service_assessment, zones as service_zones
 from ..names import expected_stem, fold
 from ..models import (OWN_FILE, SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, DupFile, DuplicateGroup,
-                      ImportCounts, MoveRow, PlannedMove, Question, WatchedFolder, is_own, split_token,
+                      ImportCounts, MoveRow, PlannedMove, PlaylistRecord, Question, WatchedFolder, is_own, split_token,
                       track_link as key_link)
 from ..pacing import KEEP_SIGNALS, Budget
 from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
@@ -26,7 +30,7 @@ from ..quality import quality_line
 from ..report import PLAN_LABELS, check_text
 from ..settings import Settings
 from ..sources import SOURCES
-from ..upgrades import upgrade_name
+from ..upgrades import can_undo, swap_possible, upgrade_name
 
 SECONDS_PER_DOWNLOAD = 70  # average per acquisition or upgrade check: pause, download, conversion, long breaks
 WEAK_HZ = 17_000  # a lossy cutoff at or below this is audible: "weak"
@@ -522,11 +526,19 @@ def track_row(track_id: str, e: dict, cover: Url | None = None) -> dict:
             "cover_url": cover(track_id, e) if cover else None}
 
 
-def cue_text(alignment: dict | None) -> str:
+def cue_text(alignment: dict | None, can_swap: bool = True) -> str:
+    """The line under a parked better version: what the measurement says about the cue points, and what that means
+    for the way it goes in. Only a swap (AIFF only) keeps the rekordbox entry and its cues; a file that cannot be
+    swapped goes in as a new file, which rekordbox sees as a new entry, so the old entry has to be relocated."""
     a = alignment or {}
-    if a.get("result") == "shifted":
-        return f"aligned by {abs(a.get('offset_ms') or 0):.0f} ms, cues stay"
-    return CUE_TEXT.get(a.get("result"), CUE_TEXT["unknown"])
+    result = a.get("result")
+    ms = abs(a.get("offset_ms") or 0)
+    if result in ("exact", "shifted") and not can_swap:
+        same = "same edit" if result == "exact" else f"same edit, {ms:.0f} ms apart"
+        return f"{same}, but a new rekordbox entry: relocate the old one to the new file to keep its cues"
+    if result == "shifted":
+        return f"aligned by {ms:.0f} ms, cues stay"
+    return CUE_TEXT.get(result, CUE_TEXT["unknown"])
 
 
 def source_url(source: str | None, source_id: str | None) -> str | None:
@@ -596,6 +608,53 @@ def track_link(track_id: str, e: dict, fetched: list) -> dict | None:
     return {"url": link, "label": f"Open in {PLAYLIST_SERVICES[service]}"} if link else None
 
 
+def upgrade_format(up: dict) -> str:
+    """The parked version's quality in the words of the current file's `format_line`: "FLAC · lossless",
+    "AAC · 256 kbps" (a better lossy stream), so the To-do panel's Now and New say the same kind of thing."""
+    f = up.get("source_format") or "flac"
+    name = "PCM" if f.startswith("pcm_") else FORMAT_NAMES.get(f, f.upper())
+    if up.get("status", "lossless") == "lossless":
+        return f"{name} · lossless"
+    return f"{name} · {up['kbps']} kbps" if up.get("kbps") else name
+
+
+def upgrade_status(up: dict, can_swap: bool) -> str:
+    """The To-do row's short line for an upgrade: what is ready, and what replacing means for rekordbox (the panel
+    says the rest). Same edit and an AIFF file: the cues can stay (Swap); same edit otherwise: rekordbox gets a new
+    track; a different edit or no measurement: says so."""
+    what = "Lossless" if up.get("status", "lossless") == "lossless" else f"{up.get('kbps') or '?'} kbps"
+    result = (up.get("alignment") or {}).get("result")
+    if result in ("exact", "shifted"):
+        how = "cues can stay" if can_swap else "new rekordbox track"
+    else:
+        how = "different edit" if result == "different" else "not compared"
+    return f"{what} ready · {how}"
+
+
+def check_status(check: dict | None) -> str:
+    """The To-do row's short line for a rekordbox check (report.check_text is the long one, the panel's)."""
+    c = check or {}
+    reason = c.get("reason")
+    if reason == "swapped":
+        return "relocate, Reload Tag, analyse again" if c.get("moved") else "Reload Tag, analyse again"
+    if reason == "added_as_new":
+        return "relocate, analyse again" if c.get("match") in ("exact", "shifted") else "analyse, set the cues again"
+    if reason == "wrong_song":
+        return "now the right song: analyse again"
+    return "check it in rekordbox"
+
+
+def check_view(check: dict | None) -> dict:
+    """RekordboxCheck as the To-do panel reads it: the step that left it and what the two files measured as (its
+    numbered steps follow them), `text` the whole instruction (report.check_text), `old_path` where the old file (an
+    added file) or the copy of the old audio (a swap) is now, from the undo record (null without one)."""
+    c = check or {}
+    undo = c.get("undo") or {}
+    return {"reason": c.get("reason"), "since": c.get("since"), "match": c.get("match"),
+            "offset_ms": c.get("offset_ms"), "moved": bool(c.get("moved")), "text": check_text(c),
+            "old_path": undo.get("old")}
+
+
 def upgrade_block(up: dict | None, media: Url | None, track_id: str, e: dict) -> dict | None:
     if not up:
         return None
@@ -605,9 +664,10 @@ def upgrade_block(up: dict | None, media: Url | None, track_id: str, e: dict) ->
             "what": upgrade_name(up),
             "quality_line": quality_line(up["source"], up.get("source_format") or "flac", up.get("status", "lossless"),
                                          up.get("cutoff_hz"), up.get("kbps")),
-            "alignment": alignment, "cue_text": cue_text(alignment),
+            "format_line": upgrade_format(up),
+            "alignment": alignment, "cue_text": cue_text(alignment, swap_possible(e)),
             "swap_safe": alignment.get("result") in ("exact", "shifted"),
-            "swap_possible": (e.get("path") or "").lower().endswith((".aiff", ".aif")),
+            "swap_possible": swap_possible(e),
             "audio_url": media(track_id, {**e, "path": up["file"]}) if media else None}
 
 
@@ -637,14 +697,16 @@ def file_online(e: dict, away: Mapping[str, str] | None = None) -> bool:
 
 
 def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url | None = None,
-                 media: Url | None = None, away: Mapping[str, str] | None = None, exists: bool = True) -> dict:
+                 media: Url | None = None, away: Mapping[str, str] | None = None, exists: bool = True,
+                 place: str | None = None) -> dict:
     """`away`, `exists`: see file_state (HubApi._away_roots; whether the file is at its path). Whatever the state but
-    "here", there is no `audio_url`: nothing to play."""
+    "here", there is no `audio_url`: nothing to play. `place`: where the file sits (Sites.place, D11), the same words
+    as the Folder column; None for a track without a file."""
     folders = in_playlists(track_id, e, fetched)
     state = file_state(e, away, exists)
     has_file = e["status"] != "missing" and e.get("source")
     return {**track_row(track_id, e, cover), "sound_checked": sound_checked(e), "isrc": e.get("isrc"),
-            "file_state": state,
+            "file_state": state, "place": place,
             "playlists": folders, "in_playlist_count": len(folders) if folders is not None else None,
             "quality_line": quality_line(e["source"], e.get("source_format") or "?", e["status"], e.get("cutoff_hz"),
                                          e.get("source_kbps"), own=is_own_file(e),
@@ -668,6 +730,9 @@ SORTS = {"title": lambda r: fold(r["title"]), "artist": lambda r: (fold(r["artis
          # files whose sound isn't checked yet have no real quality: they sort after every checked one
          "quality": lambda r: QUALITIES.index(r["quality"]) if r["sound_checked"] else len(QUALITIES),
          "added": lambda r: r["added"] or "",
+         # a playlist's own order; a row without a place in it (a file the playlist doesn't hold) goes last, those by
+         # artist, then title
+         "order": lambda r: (r["position"] is None, r["position"] or 0, fold(r["artist"]), fold(r["title"])),
          # tracks in no playlist sit in their folder on disk, but read as "Not in a playlist": they sort last
          # (the user's own songs, from the import, have no folder: "")
          "folder": lambda r: (not r["in_playlists"], fold(r["folder"]), fold(r["artist"]), fold(r["title"]))}
@@ -681,63 +746,222 @@ def _matches(row: dict, filt: str) -> bool:
     return row["upgrade_ready"] if filt == "upgrade_ready" else row["sound_checked"] and row["quality"] == filt
 
 
-def _subtitle(state: dict, folder: str | None, tracks: int, lines: Sequence[pf.Row]) -> list[str]:
-    """The header's subtitle as parts in order of importance (plan library stage 5 I7; the page drops the last parts
-    first when the line gets too long). A folder is a playlist's when a playlists.txt line names it; "never read" is a
-    playlist none of whose songs (found or not) the state holds."""
-    n = _plural(tracks, "1 track", "{n} tracks")
-    if folder is None:
-        return [n, "every folder"]
-    if folder == NOT_IN_PLAYLIST:
-        return [n, "in no playlist"]
-    line = next((r for r in lines if fold(r.folder) == fold(folder)), None)
-    if line is None:
-        return [n, "no playlist uses it", f"Library › {folder}"]
-    service = f"{PLAYLIST_SERVICES[line.service]} playlist"
-    if not any(fold(e["folder"] or "") == fold(folder) for e in state["tracks"].values()):
-        return [service, "not read yet"]
-    return [n, service, *(["switched off"] if not line.enabled else []), f"Library › {line.folder}"]
+LIBRARY_VIEWS = ("all", "unlisted", "playlist", "folder")
+AWAY_WORDS = {"offline": "Offline: connect the drive", "folder_missing": "Folder not found"}
 
 
-def library(state: dict, folder: str | None, query: str, filt: str, sort: str, cover: Url | None = None,
-            away: Mapping[str, str] | None = None, *, lines: Sequence[pf.Row]) -> dict:
-    """folder: None (all tracks), NOT_IN_PLAYLIST, or a folder name. filt: LIBRARY_FILTERS. sort: a SORTS key,
-    "-" in front for descending. Only tracks with a file (not found ones are in the to-do list). `away`: the import
-    folders that are not there now (HubApi._away_roots, as track_detail gets it): each row's `file_state` says
-    whether its file is "here", "offline" (its drive is not connected) or "folder_missing", decided per folder
-    (file_state without the file check: no file is looked at per row, so "file_missing" stays the panel's).
-    `lines`: the playlists.txt lines (playlists_file.load(...).rows), for the subtitle."""
+def _nfc(text: str) -> str:
+    return unicodedata.normalize("NFC", text)
+
+
+def _resolver(state: dict) -> Callable[[str], str]:
+    """A fetched token -> the song it names: a song's key, else the alias a later relink added; a token no song has
+    stays as it is (D2)."""
+    by_token = {key: key for key in state["tracks"]}
+    for key, e in state["tracks"].items():
+        for alias in e.get("aliases") or []:
+            by_token.setdefault(alias, key)
+    return lambda token: by_token.get(token, token)
+
+
+def _holders(lines: Sequence[pf.Row], records: Mapping[str, PlaylistRecord],
+             resolve: Callable[[str], str]) -> dict[str, list[str]]:
+    """Song key (or the token no song has) -> the names of the playlists whose read holds it, in playlists.txt order
+    (a switched-off playlist keeps its record; a name used by two lines counts once)."""
+    out: dict[str, list[str]] = {}
+    for r in lines:
+        record = records.get(r.ref)
+        for t in record.tracks if record else ():
+            names = out.setdefault(resolve(t.token), [])
+            if r.folder not in names:
+                names.append(r.folder)
+    return out
+
+
+@dataclass(frozen=True)
+class Sites:
+    """Where the files sit, in the words of the Folder / Subfolder columns (plan library stage 5, D8, D11, D12). Paths
+    are NFC. `names`: a Library folder's folded name -> the playlist line's spelling; `roots`: each watched import
+    folder -> its name; `crates`: each crate -> (its watched folder's name, its label); `crate_counts`: each watched
+    folder -> how many crates lie under it."""
+    names: Mapping[str, str]
+    roots: Mapping[str, str]
+    crates: Mapping[str, tuple[str, str]]
+    crate_counts: Mapping[str, int]
+
+    def library_folder(self, path: str) -> str | None:
+        """The Library folder a file sits in (its directory's name as the disk spells it, `not_lossless/` included),
+        None for a file elsewhere."""
+        parts = PurePosixPath(_nfc(path)).parts
+        return parts[1] if len(parts) > 2 and parts[0] == "Library" else None
+
+    def place(self, path: str) -> str:
+        """The physical folder of the file at `path`: a playlist's or Library folder's name ("Techno 2019"), for an
+        import file its watched folder and crate ("Rekordbox Library › Hardtechno › 2019"; no wrapper folders, a file
+        in the watched folder itself says just its name). `not_lossless/` is part of its Library folder."""
+        p = PurePosixPath(_nfc(path))
+        if (own := self.library_folder(path)) is not None:
+            return self.names.get(fold(own), own)
+        folder = str(p.parent)
+        if folder in self.crates:
+            root, label = self.crates[folder]
+            return f"{root} › {label}"
+        return self.roots.get(folder) or p.parent.name or folder
+
+
+def sites(state: dict, lines: Sequence[pf.Row], watched: Iterable[WatchedFolder]) -> Sites:
+    """The `Sites` of the files with a file now. `watched`: db.watched_folders (the Library among them is left out)."""
+    imports = [str(f.path) for f in watched if f.kind == "import"]
+    found = crates([e["path"] for e in tracks_with_file(state)], imports, {})
+    roots = {_nfc(w): PurePosixPath(w).name or w for w in imports}
+    return Sites({fold(r.folder): r.folder for r in lines}, roots,
+                 {_nfc(c["path"]): (roots[_nfc(w)], c["label"]) for w, f in found.items() for c in f["crates"]},
+                 {_nfc(w): f["crate_count"] for w, f in found.items()})
+
+
+def _folder_state(away: Mapping[str, str] | None, path: str) -> str:
+    """"here", "offline" or "folder_missing" for the folder at `path` (NFC): the innermost away import folder holding it
+    decides (as file_state does for a file)."""
+    norm = {_nfc(r).rstrip("/"): why for r, why in (away or {}).items()}
+    inside = [r for r in norm if path == r or path.startswith(r + "/")]
+    return FOLDER_STATE.get(norm[max(inside, key=len)], "here") if inside else "here"
+
+
+def library(state: dict, view: str, key: str | None, query: str, filt: str, sort: str | None, cover: Url | None = None,
+            away: Mapping[str, str] | None = None, *, lines: Sequence[pf.Row],
+            records: Mapping[str, PlaylistRecord] | None = None, watched: Sequence[WatchedFolder] = ()) -> dict:
+    """One view of the library (plan library stage 5, I4, D9-D12). `view`: LIBRARY_VIEWS; `key`: the playlist's folder
+    name (as playlists.txt spells it, any case) for "playlist", a folder's snapshot path (`Library/<name>`, or the
+    absolute path in an import folder) for "folder", else ignored. filt: LIBRARY_FILTERS. sort: a SORTS key, "-" in
+    front for descending (None: "order" in a playlist, else "artist"). `away`: the import folders that are not there
+    now (HubApi._away_roots, as track_detail gets it): each row's `file_state` says whether its file is "here",
+    "offline" (its drive is not connected) or "folder_missing", decided per folder (file_state without the file
+    check: no file is looked at per row, so "file_missing" stays the panel's). `lines`: the playlists.txt lines
+    (playlists_file.load(...).rows); `records`: db.playlist_records; `watched`: db.watched_folders.
+
+    All and Not in a playlist list the files. A playlist lists its read record's songs in order, each once (D9):
+    one without a file is a row too (`file_state` "no_file", `wait` "waiting" or "not_found"), and `also` holds the
+    files in the playlist's own Library folder whose song the playlist doesn't hold. A folder lists the files at or
+    below its path (a path nothing is known by still has its view; a vanished one is `gone`). Only the rows with a
+    file count in `summary` and `chips`; the search narrows the rows and `also`. `songs` (a read playlist, else
+    None): `{"listed", "with_file"}`, its distinct songs and how many of them have a file, before any search or
+    filter: the page words "13 of 18 downloaded" from it. `folder` keeps the old meaning
+    (None, NOT_IN_PLAYLIST, the playlist's or the folder's key)."""
+    records = records or {}
     with_file = {k: e for k, e in state["tracks"].items() if e["status"] != "missing" and e.get("path")}
-    if folder is None:
-        chosen, title = with_file, "All tracks"
-    elif folder == NOT_IN_PLAYLIST:
-        chosen, title = {k: e for k, e in with_file.items() if not e.get("in_playlists")}, "Not in a playlist"
-    else:
-        chosen, title = {k: e for k, e in with_file.items() if fold(e["folder"] or "") == fold(folder)}, folder
+    found = sites(state, lines, watched)
+    resolve = _resolver(state)
+    holders = _holders(lines, records, resolve)
+
+    def row(k: str, e: dict, **extra) -> dict:
+        return {**track_row(k, e, cover), "sound_checked": sound_checked(e), "file_state": file_state(e, away),
+                "wait": None, "position": None, "place": found.place(e["path"]), "subfolder": None,
+                "playlists": holders.get(k, []), **extra}
+
+    rows: list[dict] = []
+    also = folder_kind = read_at = enabled = service = songs = None
+    gone = False
+    title, shown_key, folder = "All tracks", None, None
+    subtitle: Callable[[str], list[str]] = lambda n: [n, "every folder"]
+    if view == "unlisted":
+        title, folder = "Not in a playlist", NOT_IN_PLAYLIST
+        rows = [row(k, e) for k, e in with_file.items() if not e.get("in_playlists")]
+        subtitle = lambda n: [n, "in no playlist"]
+    elif view == "all":
+        rows = [row(k, e) for k, e in with_file.items()]
+    elif view == "playlist":
+        line = next((r for r in lines if fold(r.folder) == fold(key or "")), None)
+        title = shown_key = folder = line.folder if line else key or ""
+        gone = line is None
+        if line is not None:
+            record = records.get(line.ref)
+            read_at, enabled, service = record.read_at if record else None, line.enabled, line.service
+            label = f"{PLAYLIST_SERVICES[line.service]} playlist" if line.service else "playlist"
+            subtitle = ((lambda n: [label, "not read yet"]) if record is None else
+                        (lambda n: [n, label, *(["switched off"] if not line.enabled else []),
+                                    f"Library › {line.folder}"]))
+            held: set[str] = set()
+            for t in record.tracks if record else ():
+                k = resolve(t.token)
+                if k in held:
+                    continue
+                held.add(k)
+                e = state["tracks"].get(k)
+                if e is not None and k in with_file:
+                    own = fold(found.library_folder(e["path"]) or "") == fold(line.folder)
+                    rows.append(row(k, e, position=t.position, place=None if own else found.place(e["path"])))
+                    continue
+                base = {**(e or {"artist": t.artist, "title": t.title, "folder": None, "duration_ms": t.duration_ms,
+                                 "in_playlists": True}),
+                        "status": "missing", "path": None, "source": None, "cutoff_hz": None, "upgrade": None}
+                rows.append({**track_row(k, base, cover), "sound_checked": True, "file_state": "no_file",
+                             "wait": "not_found" if e is not None and _group(e) == "not_found" else "waiting",
+                             "position": t.position, "place": None, "subfolder": None,
+                             "playlists": holders.get(k, [line.folder])})
+            also = [row(k, e, place=None) for k, e in with_file.items()
+                    if k not in held and fold(found.library_folder(e["path"]) or "") == fold(line.folder)]
+            if record is not None:  # the playlist's songs (D5: what the sidebar counts) and how many have a file
+                songs = {"listed": len(held), "with_file": sum(1 for r in rows if r["file_state"] != "no_file")}
+    else:  # a folder
+        shown_key = folder = key or ""
+        nkey = _nfc(shown_key).rstrip("/")
+        root = max((r for r in found.roots if nkey == r or nkey.startswith(r + "/")), key=len, default=None)
+        folder_kind = ("watched" if root == nkey else "crate" if root is not None
+                       else "library" if nkey.startswith("Library/") else None)
+        inside = [(k, e) for k, e in with_file.items()
+                  if folder_kind is not None and _nfc(e["path"]).startswith(nkey + "/")]
+        title = (found.roots[nkey] if folder_kind == "watched" else found.crates[nkey][1] if nkey in found.crates
+                 else PurePosixPath(nkey).name)
+        name = PurePosixPath(nkey).name
+        gone = folder_kind is None or (folder_kind != "watched" and not inside)
+        away_part = [AWAY_WORDS[s]] if (s := _folder_state(away, nkey)) != "here" else []
+        for k, e in inside:
+            between = _nfc(e["path"])[len(nkey) + 1:].split("/")[:-1]  # the folders from the folder to the file
+            sub = None
+            if folder_kind == "crate":
+                sub = " › ".join(between)
+            elif folder_kind == "watched":
+                sub = found.crates.get(_nfc(str(PurePosixPath(e["path"]).parent)), ("", " › ".join(between)))[1] \
+                    if between else ""
+            rows.append(row(k, e, subfolder=sub))
+        if folder_kind == "watched":
+            count = found.crate_counts[nkey]
+            subtitle = lambda n: [n, *away_part, *([_plural(count, "1 folder with music", "{n} folders with music")]
+                                                  if count else []), place(nkey)]
+        elif folder_kind == "crate":
+            tip = " › ".join([found.roots[root], *nkey[len(root) + 1:].split("/")])
+            subtitle = lambda n: [n, *away_part, tip]
+        elif folder_kind == "library":
+            used = any(fold(r.folder) == fold(name) for r in lines)
+            subtitle = lambda n: [n, *([] if used else ["no playlist uses it"]), f"Library › {name}"]
+    have = [r for r in rows if r["file_state"] != "no_file"]
+    entries = [state["tracks"][r["track_id"]] for r in have]
     # sound_checked: false while an imported file has only the codec's provisional quality: the page says "sound not
     # checked yet", and no count below holds the file (it still counts under All and in "tracks")
-    rows = [{**track_row(k, e, cover), "sound_checked": sound_checked(e), "file_state": file_state(e, away)}
-            for k, e in chosen.items()]
-    in_folder = len(rows)
-    by = quality_counts(list(chosen.values()))
+    by = quality_counts(entries)
     counted = sum(by.values())
-    # the folder at a glance (the panel's overview): unaffected by the search and the filter
-    summary = {"tracks": in_folder, "lossless_share": round(by["lossless"] / counted, 4) if counted else None,
-               "by_quality": by, "upgrades_ready": sum(1 for r in rows if r["upgrade_ready"]),
+    # the view at a glance (the panel's overview): unaffected by the search and the filter
+    summary = {"tracks": len(have), "lossless_share": round(by["lossless"] / counted, 4) if counted else None,
+               "by_quality": by, "upgrades_ready": sum(1 for r in have if r["upgrade_ready"]),
                # checked files that aren't lossless: the strip's "Not lossless yet" row
                "not_lossless": by["good_lossy"] + by["weak"] + by["fake"],
-               "to_do": sum(1 for e in chosen.values()
-                            if e.get("in_playlists") and not e.get("hidden") and _group(e) is not None)}
+               "to_do": sum(1 for e in entries if e.get("in_playlists") and not e.get("hidden") and _group(e) is not None)}
     q = fold(query or "").strip()
     if q:
         rows = [r for r in rows if q in fold(f"{r['artist']} {r['title']}")]
-    chips = {f: sum(1 for r in rows if _matches(r, f)) for f in LIBRARY_FILTERS}
+        also = [r for r in also if q in fold(f"{r['artist']} {r['title']}")] if also is not None else None
+    chips = {f: sum(1 for r in rows if r["file_state"] != "no_file" and _matches(r, f)) for f in LIBRARY_FILTERS}
     rows = [r for r in rows if _matches(r, filt or "all")]
-    key = (sort or "artist").lstrip("-")
-    rows.sort(key=SORTS.get(key, SORTS["artist"]), reverse=(sort or "").startswith("-"))
-    empty = "empty_library" if not with_file else ("no_match" if not rows else None)
-    return {"title": title, "folder": folder, "subtitle": _subtitle(state, folder, in_folder, lines),
-            "summary": summary, "chips": chips, "rows": rows, "empty": empty}
+    also = [r for r in also if _matches(r, filt or "all")] if also is not None else None
+    order = (sort or ("order" if view == "playlist" else "artist")).lstrip("-")
+    order = "artist" if order == "order" and view != "playlist" else order
+    for lst in (rows, also or []):
+        lst.sort(key=SORTS.get(order, SORTS["artist"]), reverse=(sort or "").startswith("-"))
+    empty = ("gone" if gone else None if rows or also else "empty_library" if not with_file else "no_match")
+    return {"title": title, "folder": folder, "view": view, "key": shown_key, "folder_kind": folder_kind,
+            "subtitle": [] if gone else subtitle(_plural(len(have), "1 track", "{n} tracks")), "summary": summary, "chips": chips,
+            "rows": rows, "also": also, "songs": songs, "read_at": read_at, "enabled": enabled, "service": service,
+            "empty": empty}
 
 
 def tracks_with_file(state: dict) -> list[dict]:
@@ -745,24 +969,130 @@ def tracks_with_file(state: dict) -> list[dict]:
     return [e for e in state["tracks"].values() if e["status"] != "missing" and e.get("path")]
 
 
-def sidebar(state: dict, lines: Sequence[pf.Row], todo_count: int, warnings: bool = False) -> dict:
-    """The sidebar's numbers. `lines`: every playlist line of playlists.txt in file order, switched-off ones too
-    (playlists_file.load(...).rows). A playlist's count is the files in its folder; `library_folders` are the folders
-    with files that no line uses, by name (the user's own songs belong to no folder)."""
+CRATE_LIMIT = 25  # more crates than this under one watched folder: the folder is one row, its crates hidden (D8)
+FOLDER_STATE = {"unmounted": "offline", "missing": "folder_missing"}  # scanner.away_reason -> FolderState (not "here")
+
+
+def _natural(text: str) -> list:
+    """A sort key that reads numbers as numbers and ignores case ("Set 2" before "Set 10")."""
+    return [int(part) if part.isdigit() else part for part in re.split(r"([0-9]+)", fold(text))]
+
+
+def crates(files: Iterable[str], watched: Iterable[str], overrides: Mapping[str, bool]) -> dict[str, dict]:
+    """The crates under each watched import folder (plan library stage 5, D8). `files`: the snapshot paths of the
+    files that are there (absolute for an import folder); `watched`: the import folders' paths; `overrides`:
+    db.crate_overrides (crate path -> shown). A crate is any folder below a watched folder that holds a file itself;
+    wrapper folders get no row, and the files directly in the watched folder belong to no crate. A file under two
+    watched folders belongs to the deeper one. Returns, for every watched path, `{"too_many", "crate_count",
+    "crates"}` with the crates in label order (natural numbers, case-folded) as Crate shapes (I4): its `files` are
+    the files at or below it, `hidden` is the user's switch or, without one, the default (shown; hidden under a
+    folder with more than CRATE_LIMIT crates), `has_crates` says another crate lies below it. A label never depends
+    on what is hidden: every crate of every watched folder counts for the same-name rule."""
+    roots = {w: PurePosixPath(w) for w in watched}
+    holding: dict[str, set[PurePosixPath]] = {w: set() for w in roots}
+    below: dict[PurePosixPath, int] = {}
+    for f in files:
+        folder = PurePosixPath(f).parent
+        inside = [w for w, r in roots.items() if folder != r and folder.is_relative_to(r)]
+        if not inside:
+            continue
+        w = max(inside, key=lambda w: len(roots[w].parts))
+        holding[w].add(folder)
+        for d in (folder, *folder.parents):
+            if d == roots[w]:
+                break
+            below[d] = below.get(d, 0) + 1
+    outer = {w: {d: next((a for a in d.parents if a in dirs), None) for d in dirs} for w, dirs in holding.items()}
+    same_name = Counter(fold(d.name) for w, found in outer.items() for d, anc in found.items() if anc is None)
+    out = {}
+    for w, found in outer.items():
+        root = roots[w]
+        too_many = len(found) > CRATE_LIMIT
+        parents = {anc for anc in found.values() if anc is not None}  # a crate has crates when one has it nearest
+        rows = []
+        for d, anc in found.items():
+            label = (f"{anc.name} › {d.name}" if anc is not None
+                     else f"{d.name} · {d.parent.name}" if same_name[fold(d.name)] > 1 else d.name)
+            rows.append({"path": str(d), "label": label, "name": d.name,
+                         "tip": " › ".join([root.name or w, *d.relative_to(root).parts]), "files": below[d],
+                         "hidden": not overrides.get(str(d), not too_many),
+                         "has_crates": d in parents})
+        rows.sort(key=lambda r: (_natural(r["label"]), r["path"]))
+        out[w] = {"too_many": too_many, "crate_count": len(rows), "crates": rows}
+    return out
+
+
+def place(path: str) -> str:
+    """A folder's path as the watched-folder list words it (hub-ui `filePlace`, whole): the home folder as "~", a
+    folder on another drive as "Example Drive › Music/Old" (the drive's name first, a no-break blank before the "›")."""
+    m = re.fullmatch(r"/Users/[^/]+(/.*)?", path)
+    if m:
+        return f"~{m.group(1)}" if m.group(1) and m.group(1) != "/" else "~"
+    segs = path.rstrip("/").split("/")
+    if len(segs) > 2 and segs[0] == "" and segs[1] == "Volumes" and segs[2]:
+        rest = "/".join(s for s in segs[3:] if s)
+        return f"{segs[2]} › {rest}" if rest else segs[2]
+    return path
+
+
+def sidebar(state: dict, lines: Sequence[pf.Row], todo_count: int, warnings: bool = False, *,
+            records: Mapping[str, PlaylistRecord] | None = None, favourites: Sequence[str] = (),
+            overrides: Mapping[str, bool] | None = None, watched: Sequence[WatchedFolder] = (),
+            away: Mapping[int, str] | None = None) -> dict:
+    """The sidebar's numbers (plan library stage 5, I4). `lines`: every playlist line of playlists.txt in file order,
+    switched-off ones too (playlists_file.load(...).rows). A playlist's `songs` are the distinct songs of its read
+    record (D5: a token resolves through a song's key or alias; one never read has None); `records`:
+    db.playlist_records. `library_folders` are the folders of Library/ that no line uses, by name, with their path
+    and the files at or below, found by the file's place (`Sites.library_folder`), as the folder view lists them. `watched`: db.watched_folders (the Library among them is left out), `away`: folder id
+    -> why it isn't there (scanner.away_reason); `watched` entries come by name, each with its crates (`crates`,
+    `overrides` = db.crate_overrides). `favourites`: db.favourites; a key whose playlist or folder is gone is left
+    out (stored as it is), the rest come resolved in the stored order."""
+    records = records or {}
     with_file = tracks_with_file(state)
+    # the Library folders by the place of the file, as the folder view lists it (`Sites.library_folder`; D5)
     counts: dict[str, int] = {}
-    names: dict[str, str] = {}
+    site = Sites({}, {}, {}, {})
     for e in with_file:
-        if e["folder"]:
-            counts[fold(e["folder"])] = counts.get(fold(e["folder"]), 0) + 1
-            names.setdefault(fold(e["folder"]), e["folder"])
+        if (name := site.library_folder(e["path"])) is not None:
+            counts[name] = counts.get(name, 0) + 1
+    resolve = _resolver(state)
+
+    def songs(ref: str) -> int | None:
+        record = records.get(ref)
+        return None if record is None else len({resolve(t.token) for t in record.tracks})
+
     used = {fold(r.folder) for r in lines}
+    playlists = [{"name": r.folder, "ref": r.ref, "service": r.service, "enabled": r.enabled, "songs": songs(r.ref)}
+                 for r in lines]
+    library_folders = [{"path": f"Library/{n}", "name": n, "files": counts[n]}
+                       for n in sorted((n for n in counts if fold(n) not in used), key=lambda n: (fold(n), n))]
+    imports = sorted((f for f in watched if f.kind == "import"), key=lambda f: (fold(f.path.name or str(f.path)), str(f.path)))
+    found = crates([e["path"] for e in with_file], [str(f.path) for f in imports], overrides or {})
+    paths = [PurePosixPath(e["path"]) for e in with_file]
+    entries = []
+    for f in imports:
+        root = PurePosixPath(str(f.path))
+        entries.append({"path": str(f.path), "name": root.name or str(f.path), "place": place(str(f.path)),
+                        "files": sum(1 for p in paths if p != root and p.is_relative_to(root)),
+                        "state": FOLDER_STATE.get((away or {}).get(f.id), "here"), **found[str(f.path)]})
+    targets: dict[str, dict] = {}
+    for p in playlists:
+        targets[f"playlist:{p['ref']}"] = {"kind": "playlist", "name": p["name"], "service": p["service"],
+                                           "enabled": p["enabled"], "count": p["songs"], "path": None,
+                                           "state": "here"}
+    for lf in library_folders:
+        targets[f"folder:{lf['path']}"] = {"kind": "folder", "name": lf["name"], "service": None, "enabled": True,
+                                           "count": lf["files"], "path": lf["path"], "state": "here"}
+    for w in entries:
+        targets[f"folder:{w['path']}"] = {"kind": "folder", "name": w["name"], "service": None, "enabled": True,
+                                          "count": w["files"], "path": w["path"], "state": w["state"]}
+        for c in w["crates"]:
+            targets[f"folder:{c['path']}"] = {"kind": "folder", "name": c["label"], "service": None, "enabled": True,
+                                              "count": c["files"], "path": c["path"], "state": w["state"]}
     return {"todo": todo_count, "all_tracks": len(with_file),
             "not_in_playlist": sum(1 for e in with_file if not e.get("in_playlists")), "limits_warning": warnings,
-            "playlists": [{"name": r.folder, "ref": r.ref, "service": r.service, "enabled": r.enabled,
-                           "tracks": counts.get(fold(r.folder), 0)} for r in lines],
-            "library_folders": [{"folder": names[k], "tracks": counts[k]}
-                                for k in sorted(k for k in counts if k not in used)]}
+            "favourites": [{"key": k, **targets[k]} for k in dict.fromkeys(favourites) if k in targets],
+            "playlists": playlists, "watched": entries, "library_folders": library_folders}
 
 
 # --- to-do ---
@@ -791,7 +1121,7 @@ def _group(e: dict) -> str | None:
 
 def _detail(group: str, e: dict, today: date, other: str | None) -> str:
     if group == "upgrade_ready":
-        return cue_text(e["upgrade"].get("alignment"))
+        return upgrade_status(e["upgrade"], swap_possible(e))
     if group == "not_found":
         when = next_check(e, today)
         if when is None or when == "next_sync":
@@ -883,8 +1213,39 @@ def _duplicate_item(g: DuplicateGroup, files: Sequence[DupFile], state: dict, co
            "added": None, "cover_url": cover(first["song_key"], {"path": first["path"]}) if cover and first["song_key"]
            else None}
     n = len(sides)
+    keep, why = recommend(files)
     return {**row, "group": "duplicate", "detail": (DUPLICATE_AUDIO if g.why == "same_audio" else DUPLICATE_SONG).format(n=n),
-            "free": False, "pair": {"group_id": g.id, "why": g.why, "files": sides}}
+            "free": False, "pair": {"group_id": g.id, "why": g.why, "files": sides, "recommended": keep,
+                                     "recommended_why": why}}
+
+
+RECOMMEND_QUALITY = "Recommended: best quality"
+RECOMMEND_AIFF = "Recommended: AIFF keeps tags"
+
+
+def _sound_rank(f: DupFile) -> tuple:
+    """How good a duplicate's audio is, higher better: lossless before lossy, then the higher cutoff."""
+    return (f.status == "lossless", f.cutoff_hz or 0)
+
+
+def _is_aiff(f: DupFile) -> bool:
+    return PurePosixPath(f.path).suffix.lower() in (".aiff", ".aif")
+
+
+def recommend(files: Sequence[DupFile]) -> tuple[int | None, str | None]:
+    """Which file of a duplicate group the panel picks for the user to keep, and why in one line; (None, None) when
+    there is no clear winner. Only the files themselves decide: the better sound (lossless before lossy, then the
+    higher cutoff), then AIFF before any other format (it keeps rekordbox's tags). Being in a playlist or inside
+    Library/ breaks no tie: which copy rekordbox uses is the user's knowledge, not the app's."""
+    if len(files) < 2:
+        return None, None
+    ranked = sorted(files, key=lambda f: (_sound_rank(f), _is_aiff(f)), reverse=True)
+    best, second = ranked[0], ranked[1]
+    if _sound_rank(best) != _sound_rank(second):
+        return best.file_id, RECOMMEND_QUALITY
+    if _is_aiff(best) and not _is_aiff(second):
+        return best.file_id, RECOMMEND_AIFF
+    return None, None
 
 
 def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], today: date,
@@ -930,7 +1291,8 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     for k, e in state["tracks"].items():
         if e.get("rekordbox_check"):
             items["rekordbox_check"].append({**track_row(k, e, cover), "group": "rekordbox_check",
-                                             "detail": check_text(e["rekordbox_check"])})
+                                             "detail": check_status(e["rekordbox_check"]),
+                                             "check": check_view(e["rekordbox_check"]), "can_undo": can_undo(e)})
             listed.add(k)
         if k in held or (not e.get("in_playlists") and not (is_own(k) and e.get("upgrade"))) \
                 or (e["status"] == "missing" and k in never):
@@ -972,19 +1334,34 @@ def todo_others(prep, last_report: dict | None) -> dict[str, str]:
 
 # --- sync screen, before the start ---
 
-def action_row(a, state: dict, cover: Url | None = None) -> dict:
+OWN_MUSIC = "Your own music"  # the name of an own song's folder when its file's place can't be told
+
+
+def action_folder(a, e: dict | None, where: Callable[[str], str] | None = None) -> str:
+    """The playlist or folder an action is listed under, never empty. A playlist song has its playlist's folder; an
+    own song (an upgrade check of an imported file, no playlist) has none, so it goes by the folder its file sits in,
+    named as the rest of the app names it (`Sites.place`: "Techno", "Rekordbox Library › Hardtechno")."""
+    if a.folder:
+        return a.folder
+    path = e.get("path") if e else None
+    return (where(path) if where and path else "") or OWN_MUSIC
+
+
+def action_row(a, state: dict, cover: Url | None = None, where: Callable[[str], str] | None = None) -> dict:
     e = state["tracks"].get(a.track_id)
     artist, title = (e["artist"], e["title"]) if e else (a.track.first_artist, a.track.title)
     to_dir = a.dest_dir or f"Library/{a.folder}"
     return {"key": [a.kind, a.track_id, to_dir], "kind": a.kind, "reason": a.reason or None,
-            "track_id": a.track_id, "artist": artist, "title": title, "folder": a.folder,
+            "track_id": a.track_id, "artist": artist, "title": title, "folder": action_folder(a, e, where),
             "to_dir": to_dir, "to_not_lossless": to_dir.endswith("/not_lossless"),
             "src": a.src, "cover_url": cover(a.track_id, e) if cover and e else a.track.image_url}
 
 
 def sync_preview(store, state: dict, settings: Settings, today: date, now: datetime, reading: bool,
-                 cover: Url | None = None, logins: Sequence[tuple[str, bool]] = ()) -> dict:
-    """The check before the start: every planned action in groups, each with the key the page sends back ticked."""
+                 cover: Url | None = None, logins: Sequence[tuple[str, bool]] = (),
+                 where: Callable[[str], str] | None = None) -> dict:
+    """The check before the start: every planned action in groups, each with the key the page sends back ticked.
+    `where`: a file's path -> its folder's name (`Sites.place`), for the own songs that belong to no playlist."""
     prep = store.prep
     status = read_status(store, now, reading, logins)
     if prep is None:
@@ -1001,10 +1378,10 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
     run_index = {id(a): i for i, a in enumerate(todo)}  # the order the sync works through them
     return {"read_status": status, "counts": plan_counts(todo),
             "groups": [{"key": key, "label": label,
-                        "actions": [{**action_row(a, plan_state, cover), "run": run_index[id(a)]} for a in groups[key]]}
+                        "actions": [{**action_row(a, plan_state, cover, where), "run": run_index[id(a)]} for a in groups[key]]}
                        for key, label in PLAN_LABELS if key in groups],
             "estimate": sync_estimate(todo, m),
-            "never": [action_row(a, plan_state, cover) for a in never],
+            "never": [action_row(a, plan_state, cover, where) for a in never],
             "folders": [line.folder for line in prep.lines],
             "in_playlists": len(in_playlists),
             "ambiguous": [{"track_id": key, "artist": t.first_artist, "title": t.title, "folder": folder,
@@ -1025,13 +1402,15 @@ AWAY_STATE = {"unmounted": "offline", "missing": "missing"}  # scanner.away_reas
 
 def watched_folders(folders: Sequence[WatchedFolder], counts: Mapping[int, ImportCounts], away: Mapping[int, str],
                     library_files: int, unreadable: Sequence[tuple[PurePosixPath, str]], waiting: int, stopped: bool,
-                    phase: str | None) -> dict:
+                    phase: str | None, crates: Mapping[str, dict] | None = None) -> dict:
     """The watched folders and how far their import is. `folders`: db.watched_folders (the Library first); `counts`:
     db.import_counts; `away`: folder id -> why its path isn't there now ("unmounted" |
     "missing", scanner.away_reason); `library_files`: the Library's file
     count; `unreadable`: db.import_unreadable (path, reason); `waiting`: db.import_left, the files an import would work
     through now (offline drives' left out); `stopped`: the user stopped an import this session (Continue import);
-    `phase`: the running import's phase (ImportProgress.phase), None when none runs.
+    `phase`: the running import's phase (ImportProgress.phase), None when none runs; `crates`: `crates()`' answer by
+    folder path (Settings' switches): each import row gets `crates` (all of them, label order) and `too_many`, the
+    Library row none ([], False).
 
     Row state: offline (its drive isn't connected) or missing (the folder isn't found: moved, renamed or deleted),
     whatever else; the rows are kept either way. Then scanning (an import is looking for files), importing
@@ -1047,12 +1426,14 @@ def watched_folders(folders: Sequence[WatchedFolder], counts: Mapping[int, Impor
         if f.kind == "library":
             rows.append({"id": f.id, "path": str(f.path), "name": "Library", "kind": "library",
                          "state": "scanning" if phase == "scan" else "online", "files": library_files,
-                         "waiting": left, "unreadable": c.unreadable})
+                         "waiting": left, "unreadable": c.unreadable, "crates": [], "too_many": False})
             continue
         state = (AWAY_STATE[away[f.id]] if f.id in away else "scanning" if phase == "scan"
                  else "importing" if phase is not None and left else "online")
+        found = (crates or {}).get(str(f.path)) or {}
         rows.append({"id": f.id, "path": str(f.path), "name": roots[f.id].name or str(f.path), "kind": "import",
-                     "state": state, "files": c.files, "waiting": left, "unreadable": c.unreadable})
+                     "state": state, "files": c.files, "waiting": left, "unreadable": c.unreadable,
+                     "crates": found.get("crates", []), "too_many": found.get("too_many", False)})
 
     def owner(path: PurePosixPath) -> int | None:
         inside = [i for i, root in roots.items() if path.is_relative_to(root)]

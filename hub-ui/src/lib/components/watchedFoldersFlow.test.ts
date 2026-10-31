@@ -8,7 +8,7 @@ import { answerConfirm, confirmRequest } from './confirm';
 import { WatchedFoldersFlow } from './watchedFoldersFlow.svelte';
 
 const row = (over: Partial<WatchedFolderRow> = {}): WatchedFolderRow => ({ id: 2, path: '/Volumes/Example Drive/Music',
-  name: 'Music', kind: 'import', state: 'online', files: 1240, waiting: 0, unreadable: 0, ...over });
+  name: 'Music', kind: 'import', state: 'online', files: 1240, waiting: 0, unreadable: 0, crates: [], too_many: false, ...over });
 const LIB = row({ id: 1, kind: 'library', name: 'Library', path: '/Users/you/Music/Discjockey/Library', files: 412 });
 const list = (...folders: WatchedFolderRow[]) => ({ ok: true, folders, unreadable: [], waiting: 0, stopped: false });
 const STATUS = { existing: false } as SetupStatus;

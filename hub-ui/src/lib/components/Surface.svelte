@@ -25,6 +25,7 @@
   // rows scroll inside it with faded ends (edgeFade). `rows` is how many it has, `tall` that they carry a second line
   // (52 px). In Panel's `fill` it rounds its cut to the peek like ToggleGroup `grow` (growFill); in a page frame's
   // list it marks itself `data-scrolls-itself`, so the frame keeps the list area at the window's height.
+  // `fade` (a list whose height the caller caps by CSS): its rows scroll with the same faded ends as `grow`'s (edgeFade).
   // A grown list may name its groups with `ListSection` heads among its rows (To-do); they stick while their rows pass.
   // `columns` (a table's column head, Library: `SortHeader`s) sits ruled between the head and the rows and never
   // scrolls, so the rows' faded top end passes under it, not over it. It is a `list` container of the rows' width,
@@ -47,9 +48,10 @@
     tone?: 'default' | 'good' | 'warn' | 'problem'; header?: Snippet; children: Snippet; padded?: boolean;
     foldable?: boolean; open?: boolean; sticky?: boolean; summaryTest?: string; bulk?: Bulk;
     grow?: { rows: number; tall?: boolean }; columns?: Snippet; scroller?: HTMLElement | null;
+    fade?: boolean;
   };
   let { kind = 'card', label, summary, hint, fitLabel, tone = 'default', header, children, padded, foldable = false, open = $bindable(true),
-    sticky = false, summaryTest, bulk, grow, columns, scroller = $bindable(null), class: className, ...rest }: Props = $props();
+    sticky = false, summaryTest, bulk, grow, columns, scroller = $bindable(null), fade = false, class: className, ...rest }: Props = $props();
   // a card is padded, a list or table runs edge to edge unless asked otherwise
   const pad = $derived(padded ?? kind === 'card');
   const hasHead = $derived(!!(label || summary || header || bulk));
@@ -94,6 +96,7 @@
     {#if columns && !pad}<div class="columns">{@render columns()}</div>{/if}
     {#if pad}<div class="body" id="{uid}-body">{@render children()}</div>
     {:else if grow}<div class="rows scroll" id="{uid}-body" bind:this={scroller} use:edgeFade use:growFill={host}>{@render children()}</div>
+    {:else if fade}<div class="rows scroll" id="{uid}-body" use:edgeFade>{@render children()}</div>
     {:else}<div class="rows" id="{uid}-body">{@render children()}</div>{/if}
   {/if}
 </div>

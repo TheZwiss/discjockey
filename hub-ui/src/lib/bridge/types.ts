@@ -9,7 +9,7 @@ export const PROBLEM_KINDS: readonly ProblemKind[] = ['busy', 'console', 'sync_r
 export type Quality = 'lossless' | 'good_lossy' | 'weak' | 'fake' | 'missing';
 export const QUALITIES: readonly Quality[] = ['lossless', 'good_lossy', 'weak', 'fake', 'missing'];
 export type EmptyKind = 'no_playlists' | 'not_set_up' | 'empty_library' | 'no_preview' | 'up_to_date' | 'no_match'
-  | 'all_lossless' | 'all_hidden' | 'nothing_here';
+  | 'all_lossless' | 'all_hidden' | 'nothing_here' | 'gone';
 /** A playlist service (`sources.py`): the one a playlist row, a link or a problem belongs to. */
 export type PlaylistService = 'spotify' | 'qobuz';
 /** `service`: set when a playlist service caused the problem (a `SourceError`), absent for every other. */
@@ -18,7 +18,8 @@ export type Res<T> = ({ ok: true } & T) | Fail;
 export type JobStart = Res<{ job_id: number }>;
 export type ActionKey = [string, string, string];          // sent back unchanged to start_sync
 export type LibraryFilter = 'all' | 'lossless' | 'good_lossy' | 'weak' | 'fake' | 'upgrade_ready';
-export type LibrarySort = `${'' | '-'}${'title' | 'artist' | 'length' | 'source' | 'quality' | 'added' | 'folder'}`;
+/** `order` is a playlist's own order (its read record's); the engine's default there, and `artist` elsewhere. */
+export type LibrarySort = `${'' | '-'}${'title' | 'artist' | 'length' | 'source' | 'quality' | 'added' | 'folder' | 'order'}`;
 // The contract adds `rekordbox_check` (the plan's list predates it) and the import's `same_song` and `duplicate`.
 export type TodoFilter = 'all' | 'rekordbox_check' | 'same_song' | 'duplicate' | 'upgrade_ready' | 'not_found' | 'weak'
   | 'good_lossy' | 'fake' | 'other';
@@ -40,9 +41,16 @@ export type TrackRow = {
 };
 export type TodoGroupKey = Exclude<TodoFilter, 'all'>;
 /** `free`: the artist gives it away (see TrackDetail.free_downloads). `pair`: only the import's two groups
- *  (`same_song`, `duplicate`) have one; narrow with `isQuestion` / `isDuplicate`. */
+ *  (`same_song`, `duplicate`) have one; narrow with `isQuestion` / `isDuplicate`. `can_undo`: only `rekordbox_check`
+ *  items have it; true when the check belongs to a swap or an added file `undo_upgrade` can still put back. */
 export type TodoItem = TrackRow & { group: TodoGroupKey; detail: string; free: boolean;
-  pair?: QuestionPair | DuplicatePair };
+  pair?: QuestionPair | DuplicatePair; can_undo?: boolean; check?: RekordboxCheckView };
+/** A `rekordbox_check` item's check (views.check_view): the step that left it, what the two files measured as
+ *  (`match`: exact/shifted/different/unknown, null in records from before it), `text` the whole instruction and
+ *  `old_path` where the old file (added) or the copy of the old audio (swap) is now (null without an undo record).
+ *  The item's `detail` is the row's short line. */
+export type RekordboxCheckView = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | string; since: string | null;
+  match: string | null; offset_ms: number | null; moved: boolean; text: string; old_path: string | null };
 
 // --- the import of the user's own music (plan library stage 4, I11; contract "Watched folders and the import") ---
 /** One file of a question or a duplicate group. `path` is absolute for an import folder's file; `audio_url` is null
@@ -58,7 +66,10 @@ export type QuestionPair = { song_key: string; own_key: string; why: QuestionWhy
   file: FileSide };
 export type DuplicateWhy = 'same_audio' | 'same_song';
 /** A group of files that are the same audio or the same song: two or more, by file id. */
-export type DuplicatePair = { group_id: string; why: DuplicateWhy; files: FileSide[] };
+/** `recommended`: the file the panel picks to keep (views.recommend: the better sound, then AIFF), null when there is no
+ *  clear winner; `recommended_why` its one line ("Recommended: best quality"). */
+export type DuplicatePair = { group_id: string; why: DuplicateWhy; files: FileSide[]; recommended: number | null;
+  recommended_why: string | null };
 export type QuestionItem = TodoItem & { group: 'same_song'; pair: QuestionPair };
 export type DuplicateItem = TodoItem & { group: 'duplicate'; pair: DuplicatePair };
 export const isQuestion = (i: TodoItem): i is QuestionItem => i.group === 'same_song' && !!i.pair;
@@ -69,7 +80,10 @@ export type ImportPhase = 'scan' | 'tags' | 'sound' | 'link';
  *  or an import folder; `offline`: its drive isn't connected, `missing`: the folder isn't found (moved, renamed,
  *  deleted). `waiting`: files the import still works through (not read yet, or not sound-checked). */
 export type WatchedFolderRow = { id: number; path: string; name: string; kind: 'library' | 'import';
-  state: 'online' | 'offline' | 'missing' | 'scanning' | 'importing'; files: number; waiting: number; unreadable: number };
+  state: 'online' | 'offline' | 'missing' | 'scanning' | 'importing'; files: number; waiting: number; unreadable: number;
+  /** all the folder's crates in label order (Settings' switches); `too_many`: more than 25, so they start hidden.
+   *  The Library row has none ([], false). */
+  crates: Crate[]; too_many: boolean };
 export type UnreadableFile = { folder_id: number | null; path: string; reason: string };
 export type WatchedFolders = { folders: WatchedFolderRow[]; unreadable: UnreadableFile[];
   /** the files an import would work through now (offline drives' left out) */
@@ -184,14 +198,42 @@ export type Dashboard = {
   folders: { folder: string; tracks: number; lossless_share: number | null; by_quality: ByQuality }[];
   last_runs: RunSummary[]; has_more_runs: boolean; next_checks: number; empty: EmptyKind | null;
 };
+/** Where a folder is now: `here`, `offline` (its drive isn't connected) or `folder_missing` (not found: moved, renamed,
+ *  deleted); the innermost watched folder that is away decides, for its crates too. */
+export type FolderState = 'here' | 'offline' | 'folder_missing';
+/** A crate: a folder below a watched import folder that holds music itself (wrapper folders get no row). `label` is
+ *  its short name in the browser ("Hardtechno › 2019", "Bounce · Old Sets" when another crate has the name), `name` the
+ *  folder's own, `tip` the whole way from the watched folder ("Rekordbox Library › Hardtechno › 2019"), `files` the
+ *  files at or below it. `hidden`: out of the sidebar (the user's switch, else the default: shown, but hidden under a
+ *  folder with `too_many` crates); `has_crates`: another crate lies below it. */
+export type Crate = { path: string; label: string; name: string; tip: string; files: number; hidden: boolean;
+  has_crates: boolean };
+/** A watched import folder in the sidebar, by name. `place` is the folder's path in words ("~/Music/Old", "Example
+ *  Drive › Music"); `files` leaves out those an import still has to work through; `crates`: all of them, label
+ *  order; `crate_count` and `too_many` (more than 25 crates) as in `Crate`. */
+export type WatchedEntry = { path: string; name: string; place: string; files: number; state: FolderState;
+  too_many: boolean; crate_count: number; crates: Crate[] };
+/** A Favourite, resolved: `key` is `playlist:<ref>` or `folder:<path>` (what `set_favourites` takes). Keys whose
+ *  playlist or folder is gone are left out of the answer (the engine keeps them stored, also through a
+ *  `set_favourites` that does not name them). `count`: a playlist's songs
+ *  (null: never read) or a folder's files. `path`: the folder's, null for a playlist. */
+export type Favourite = { key: string; kind: 'playlist' | 'folder'; name: string; service: PlaylistService | null;
+  enabled: boolean; count: number | null; path: string | null; state: FolderState };
 export type Sidebar = {
   todo: number; all_tracks: number; not_in_playlist: number; limits_warning: boolean;
-  /** every line of playlists.txt in file order, switched-off ones too; `ref` the playlist's token, `tracks` the
-   *  files in its folder */
-  playlists: { name: string; ref: string; service: PlaylistService | null; enabled: boolean; tracks: number }[];
-  /** the Library/ folders with files that no playlist line uses, by name */
-  library_folders: { folder: string; tracks: number }[];
+  /** in the stored order */
+  favourites: Favourite[];
+  /** every line of playlists.txt in file order, switched-off ones too; `ref` the playlist's token, `songs` the
+   *  distinct songs of its read (null: never read) */
+  playlists: { name: string; ref: string; service: PlaylistService | null; enabled: boolean; songs: number | null }[];
+  /** the import folders by name */
+  watched: WatchedEntry[];
+  /** the Library/ folders with files that no playlist line uses, by name; `path` is `Library/<name>` */
+  library_folders: { path: string; name: string; files: number }[];
 };
+/** What `set_favourites` and `set_crate_shown` answer: brief saves that start no job (plan library stage 5, D15). */
+export type FavouritesSaved = { favourites: string[] };
+export type CrateSaved = { path: string; shown: boolean | null };
 export type PreviewGroupKey = 'acquire:new' | 'acquire:retry' | 'acquire:redownload' | 'adopt_bought' | 'upgrade';
 export type PreviewAction = {
   key: ActionKey; kind: string; reason: string | null; track_id: string; artist: string; title: string;
@@ -237,22 +279,47 @@ export type JobStatus = { job: JobSnap | null; refresh_running: boolean; console
 
 /** `sound_checked` false: an imported file whose sound isn't judged yet, its quality is the codec's guess for now.
  *  `file_state`: whether the row's file is there now, decided per watched folder (never `file_missing`, which only
- *  `track()` checks); a row that isn't `here` doesn't play. */
-export type LibraryRow = TrackRow & { sound_checked: boolean; file_state: Exclude<FileState, 'file_missing'> };
+ *  `track()` checks); a row that isn't `here` doesn't play. `no_file`: a playlist song that has no file yet (only in a
+ *  playlist view): `wait` says why, `path` is null.
+ *  `place`: the folder the file sits in, in the Folder column's words (null: no file, or the playlist view's rows inside
+ *  the playlist's own Library folder). `subfolder`: folder views only: a watched folder's rows carry their crate's label
+ *  ("" for a file directly in it), a crate's the folders below it ("2019" or "A › B"); null elsewhere. `position`: the
+ *  place in the playlist's read (playlist view only). `playlists`: the playlists whose read holds the song, in
+ *  playlists.txt order. */
+export type LibraryRow = TrackRow & { sound_checked: boolean; file_state: Exclude<FileState, 'file_missing'> | 'no_file';
+  wait: 'waiting' | 'not_found' | null; position: number | null; place: string | null; subfolder: string | null;
+  playlists: string[] };
+export type LibraryView = 'all' | 'unlisted' | 'playlist' | 'folder';
 export type Library = {
   /** the folder at a glance, unaffected by the search and the filter; to_do: what the to-do list shows of it;
-   *  not_lossless: the checked files that aren't lossless (good lossy + weak + fake) */
-  title: string; folder: string | null; summary: { tracks: number; lossless_share: number | null;
+   *  not_lossless: the checked files that aren't lossless (good lossy + weak + fake). Only the rows with a file count. */
+  title: string; summary: { tracks: number; lossless_share: number | null;
     by_quality: ByQuality; upgrades_ready: number; to_do: number; not_lossless: number };
-  /** the header's second line as parts in order of importance (the page drops the last parts first) */
+  /** the old `folder` argument: null (All tracks), NOT_IN_PLAYLIST, a playlist's folder name or a folder's key */
+  folder: string | null;
+  /** what the request asked for; `key`: the playlist's folder name as playlists.txt spells it, or the folder's path
+   *  (null for All tracks and Not in a playlist) */
+  view: LibraryView; key: string | null;
+  /** folder views: what the folder is. `library`: a Library/ folder; null: none of these (`empty` is `gone`) */
+  folder_kind: 'watched' | 'crate' | 'library' | null;
+  /** the header's second line as parts in order of importance (the page drops the last parts first); empty when `gone` */
   subtitle: string[];
-  chips: Record<LibraryFilter, number>; rows: LibraryRow[]; empty: EmptyKind | null;
+  chips: Record<LibraryFilter, number>; rows: LibraryRow[];
+  /** a playlist view: the files in the playlist's own Library folder whose song the playlist doesn't hold; null elsewhere */
+  also: LibraryRow[] | null;
+  /** a read playlist's songs: how many it lists (distinct, what the sidebar's `songs` counts) and how many of them have
+   *  a file, before any search or filter; null elsewhere and while never read. The page words "13 of 18 downloaded". */
+  songs: { listed: number; with_file: number } | null;
+  /** a playlist view: when its read was made (null: never read), whether its line is switched on, its service */
+  read_at: string | null; enabled: boolean | null; service: PlaylistService | null;
+  empty: EmptyKind | null;
 };
 export type Alignment = { drift_ms: number | null; offset_ms: number | null; offset_samples: number | null;
   result: string; text: string };
 export type Upgrade = {
   file: string; source: Source | string; source_name: string; source_id: string; found: string; what: string;
-  quality_line: string; alignment: Alignment; cue_text: string; swap_safe: boolean; swap_possible: boolean;
+  quality_line: string; /** "FLAC · lossless": the new version's quality, as the current file's `format_line` */
+  format_line: string; alignment: Alignment; cue_text: string; swap_safe: boolean; swap_possible: boolean;
   audio_url: string | null;
 };
 /** The artist's free download of a SoundCloud version: a gate page (follow, like or e-mail; `host` e.g.
@@ -268,6 +335,8 @@ export type TrackDetail = TrackRow & {
    *  found), `file_missing` (the folder is there, the file's path isn't: it went since the last scan); `audio_url` is
    *  null for all but `here` */
   file_state: FileState;
+  /** where the file sits, as the Folder column says it (null without a file) */
+  place: string | null;
   isrc: string | null; playlists: string[] | null; in_playlist_count: number; quality_line: string;
   /** "Opus · 135 kbps", "FLAC"; source_full: "YouTube Music", "bought", "your own file" for a file the import
    *  found (both null without a file) */
@@ -466,7 +535,7 @@ export type JobResults = {
   scan: { moved: number; new: number; gone: number; changed: number; copies: number };
   hide: OpResult; unhide: OpResult; add_bought_file: OpResult; use_candidate: OpResult; use_link: OpResult;
   reject_current: OpResult; rekordbox_checked: OpResult; upgrade_swap: OpResult; upgrade_add_new: OpResult;
-  upgrade_discard: OpResult; setup_save_client_id: Record<string, never>; setup_spotify_login: { user: string };
+  upgrade_discard: OpResult; undo_upgrade: OpResult; setup_save_client_id: Record<string, never>; setup_spotify_login: { user: string };
   setup_qobuz_login: Record<string, never>;
   update_tools: ToolsChange; rollback_tools: ToolsChange;
 };

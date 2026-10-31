@@ -42,7 +42,7 @@ from ..fallback import FallbackSource
 from ..library import NoLibrary, Paths, Resolved, StateError, SupportPaths
 from ..events import CancelToken, Result
 from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, Candidate, PlaylistLine,
-                      SaveChoice, SourceTrack, WatchedFolder, token)
+                      PlaylistRecord, SaveChoice, SourceTrack, WatchedFolder, token)
 from ..names import fold
 from ..ops import OpProblem, snapshot
 from ..pacing import Budget
@@ -63,6 +63,14 @@ NO_DROP = "Drag the bought file onto the window while this track is selected in 
 NOT_SELECTED = "Select the track in the to-do list first, then drop the file on the window."
 CLIENT_ID = re.compile(r"[0-9a-fA-F]{32}")
 NO_FOLDER = "That folder isn't one of the watched folders."
+FAVOURITE_KEYS = ("playlist:", "folder:")  # what a Favourite's key starts with (plan library stage 5, D3)
+BAD_FAVOURITES = "That list of favourites isn't one Discjockey can keep."
+BAD_CRATE = "That isn't a folder Discjockey can show or hide."
+BRIEF_WRITE_FAILED = "Discjockey couldn't save that just now. Try again in a moment."
+NO_RECORDS = "Discjockey has no records of your library yet, so it can't save that. Quit and open Discjockey again."
+# how long a Favourites or crate-switch save waits for a running job's write (D15): longer than the engine's usual
+# short transactions, short enough that a click never seems to hang (the binding 5 s would)
+BRIEF_WRITE_WAIT_MS = 1500
 NOT_ANSWERABLE = "Each answer needs the song or group it is about."
 NOT_CHOSEN = "Choose your music folder first: it is the first step of Setup."
 MISSING = "Your music folder isn't there: {path}. Connect the drive it is on, or choose another folder."
@@ -74,9 +82,9 @@ LIBRARY_METHODS = frozenset((
     "limits_what_if", "save_limits", "mark_warnings_seen", "runs", "run", "spectrum", "media_url",
     "search_candidates", "preview", "add_playlist", "preview_playlist_change", "start_sync", "save_playlists",
     "hide", "never_download", "add_bought_file", "use_candidate", "use_link", "reject_current",
-    "rekordbox_checked", "upgrade", "rescan_library", "show_in_finder", "reveal", "open_report",
+    "rekordbox_checked", "upgrade", "undo_upgrade", "rescan_library", "show_in_finder", "reveal", "open_report",
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
-    "watched_folders", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
+    "watched_folders", "set_favourites", "set_crate_shown", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
     "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate",
 ))
 
@@ -158,6 +166,12 @@ def bridge(fn):
 
     call.__signature__ = inspect.signature(fn)  # pywebview reads the parameter names from it
     return call
+
+
+def _lock_error(e: sqlite3.Error) -> bool:
+    """Whether SQLite refused because another connection holds the database (SQLITE_BUSY / SQLITE_LOCKED)."""
+    return getattr(e, "sqlite_errorcode", None) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or any(
+        word in str(e).lower() for word in ("locked", "busy"))
 
 
 def profile_name(browser: str, profile: str | None, home: Path | None) -> str | None:
@@ -508,17 +522,31 @@ class HubApi:
 
     @bridge
     def sidebar(self) -> dict:
+        return self._sidebar_view()
+
+    def _sidebar_view(self, also: Sequence[str] = ()) -> dict:
+        """The sidebar's numbers; `also`: Favourites keys to resolve besides the stored ones (set_favourites asks
+        which of the keys it is given exist right now)."""
         state = self._state()
         count = self._todo(state, "all", False, count_only=True)["chips"]["all"]
         # the dot on "Download limits": a warning sign the user hasn't marked as seen, or a service paused today
         warnings = any(c["new_warnings"] or c["paused"] for c in views.limit_cards(state, self._settings(), self._today()))
-        return views.sidebar(state, pf.load(self._paths.playlists_file).rows, count, warnings)
+        with self._move_log() as conn:  # no library.db yet: no records, no Favourites, no watched folders
+            records, favs, overrides, folders = ((db.playlist_records(conn), db.favourites(conn),
+                                                  db.crate_overrides(conn), db.watched_folders(conn))
+                                                 if conn is not None else ({}, [], {}, []))
+        return views.sidebar(state, pf.load(self._paths.playlists_file).rows, count, warnings, records=records,
+                             favourites=[*favs, *also], overrides=overrides, watched=folders,
+                             away=self._away_folders(folders))
 
     @bridge
     def sync_preview(self) -> dict:
         state = self._state()
+        with self._move_log() as conn:
+            folders = db.watched_folders(conn) if conn is not None else []
+        where = views.sites(state, pf.load(self._paths.playlists_file).rows, folders).place
         return views.sync_preview(self._store, state, self._settings(), self._today(), self._svc.now(),
-                                  self._reading(), self._cover(self._images()), self._logins())
+                                  self._reading(), self._cover(self._images()), self._logins(), where)
 
     @bridge
     def refresh(self, auto: bool = False) -> dict:
@@ -590,13 +618,24 @@ class HubApi:
                                                                            self._logins())}
 
     @bridge
-    def library(self, folder: str | None = None, query: str = "", filter: str = "all", sort: str = "artist") -> dict:
+    def library(self, view: str = "all", key: str | None = None, query: str = "", filter: str = "all",
+                sort: str | None = None) -> dict:
+        """One view of the library (views.library): view "all" | "unlisted" | "playlist" | "folder"; key the playlist's
+        folder name or the folder's path for the last two; sort None = the view's own order. An unknown playlist or
+        folder is not an error: the answer says `empty: "gone"`."""
+        if view not in views.LIBRARY_VIEWS:
+            raise ValueError(f"view must be one of {', '.join(views.LIBRARY_VIEWS)}")
+        if view in ("playlist", "folder") and not key:
+            raise ValueError(f"a {view} view needs its key")
         if filter not in views.LIBRARY_FILTERS:
             raise ValueError(f"filter must be one of {', '.join(views.LIBRARY_FILTERS)}")
         state = self._state()
-        out = views.library(state, folder, query, filter, sort, self._cover(self._images()), self._away_roots(),
-                            lines=pf.load(self._paths.playlists_file).rows)
-        self._remember(state, [r["track_id"] for r in out["rows"]])
+        records, folders = self._records_and_folders()
+        out = views.library(state, view, key, query, filter, sort, self._cover(self._images()),
+                            self._away_by_root(folders), lines=pf.load(self._paths.playlists_file).rows,
+                            records=records, watched=folders)
+        # a row without a file (a playlist song that waits) is no track the page can act on
+        self._remember(state, [r["track_id"] for r in (*out["rows"], *(out["also"] or ())) if r["file_state"] != "no_file"])
         return out
 
     @bridge
@@ -609,8 +648,12 @@ class HubApi:
             e = {**e, "aliases": list(dict.fromkeys([*(e.get("aliases") or []), *planned]))}
         # whether the file is at its path: asked for this one track only, since the last scan may be old
         exists = not e.get("path") or (self._paths.root / e["path"]).exists()
+        with self._move_log() as conn:
+            folders = db.watched_folders(conn) if conn is not None else []
+        lines = pf.load(self._paths.playlists_file).rows
+        where = views.sites(state, lines, folders).place(e["path"]) if e.get("path") else None
         detail = views.track_detail(track_id, e, prep.fetched if prep else [], self._today(),
-                                    self._cover(self._images()), self._audio, self._away_roots(), exists)
+                                    self._cover(self._images()), self._audio, self._away_by_root(folders), exists, where)
         self._remember(state, [track_id])
         return {"track": detail}
 
@@ -629,13 +672,22 @@ class HubApi:
         return {f.id: why for f in rows if f.kind == "import"
                 and (why := scanner.away_reason(f.path, self._svc.mounted)) is not None}
 
-    def _away_roots(self) -> dict[str, str]:
-        """Root (as the files' snapshot paths start) -> why, for the import folders that are not there now, for the
-        views that decide a file's state or whether it is there; looked up once per request."""
-        with self._move_log() as conn:
-            rows = db.watched_folders(conn) if conn is not None else []
+    def _away_by_root(self, rows: Sequence[WatchedFolder]) -> dict[str, str]:
+        """Root (as the files' snapshot paths start) -> why, for the import folders among `rows` that are not there
+        now, for the views that decide a file's state or whether it is there."""
         away = self._away_folders(rows)
         return {str(f.path): away[f.id] for f in rows if f.id in away}
+
+    def _records_and_folders(self) -> tuple[dict[str, PlaylistRecord], list[WatchedFolder]]:
+        """The playlists' read records and the watched folders, from library.db ({} and [] before there is one)."""
+        with self._move_log() as conn:
+            return (db.playlist_records(conn), db.watched_folders(conn)) if conn is not None else ({}, [])
+
+    def _away_roots(self) -> dict[str, str]:
+        """`_away_by_root` for the watched folders as they are now; looked up once per request."""
+        with self._move_log() as conn:
+            rows = db.watched_folders(conn) if conn is not None else []
+        return self._away_by_root(rows)
 
     @bridge
     def watched_folders(self) -> dict:
@@ -643,23 +695,72 @@ class HubApi:
         it couldn't read, how many wait, and whether the user stopped the import this session (plan library stage 4
         I11)."""
         paths = self._paths
+        state = self._state()
         job = self._jobs.running()
         phase = None
         if job is not None and job.kind == "import":
             phase = (job.last.get("ImportProgress") or {}).get("phase", "scan")
         with self._move_log() as conn:
             if conn is None:  # no library.db yet: only the Library, nothing imported; its files as "All tracks" counts
-                rows, counts, unreadable, waiting = [WatchedFolder(0, paths.library, "library")], {}, [], 0
-                library_files = len(views.tracks_with_file(self._state()))
+                rows, counts, unreadable, waiting, overrides = [WatchedFolder(0, paths.library, "library")], {}, [], 0, {}
+                library_files = len(views.tracks_with_file(state))
             else:
+                overrides = db.crate_overrides(conn)
                 rows, counts = db.watched_folders(conn), db.import_counts(conn)
                 library_files, waiting = db.library_files(conn), db.import_left(conn)
                 unreadable = sorted(db.import_unreadable(conn) + db.import_unreadable(conn, "library"))
                 for f in rows:
                     if f.kind == "library":  # Library/ is listed like an import folder: its own waiting and unreadable
                         counts[f.id] = db.library_counts(conn)
+        crates = views.crates([e["path"] for e in views.tracks_with_file(state)],
+                              [str(f.path) for f in rows if f.kind == "import"], overrides)
         return views.watched_folders(rows, counts, self._away_folders(rows), library_files, unreadable, waiting, self._import_stopped,
-                                     phase)
+                                     phase, crates)
+
+    def _brief_write(self, write: Callable[[sqlite3.Connection], None]) -> None:
+        """A write to the records the hub keeps beside the library (Favourites, crate switches; plan library stage 5
+        D15): not a job and without the engine lock, since these tables are no library state and pinning a playlist
+        must work during a sync. SQLite's busy timeout orders it against a running job's transactions; a write that
+        still can't be made answers `busy` (nothing was changed) and the page puts its list back. A library.db that
+        is damaged or of another version answers as every other call does (config_invalid)."""
+        if not self._paths.db_file.exists():
+            raise OpProblem(NO_RECORDS, "refused")
+        try:
+            with db.connect(self._paths.db_file, wait_ms=BRIEF_WRITE_WAIT_MS) as conn:
+                db.check(conn)
+                write(conn)
+        except sqlite3.Error as e:
+            if not _lock_error(e):  # a damaged file, a read-only drive: retrying can't help
+                raise db.unreadable(e) from None
+            raise OpProblem(BRIEF_WRITE_FAILED, "busy") from None
+
+    @bridge
+    def set_favourites(self, keys: list[str]) -> dict:
+        """Replaces the Favourites with `keys` (`playlist:<ref>` / `folder:<path>`, D3) in their order: a brief save,
+        not a job. A stored key that isn't in `keys` and whose playlist or folder isn't there right now stays, in its
+        place (the UI never saw it, so it can't have meant to remove it). Answers the stored list."""
+        if not isinstance(keys, list) or not all(isinstance(k, str) and k.startswith(FAVOURITE_KEYS) for k in keys):
+            raise ValueError(BAD_FAVOURITES)
+        if not self._paths.db_file.exists():
+            raise OpProblem(NO_RECORDS, "refused")
+        resolving = {f["key"] for f in self._sidebar_view(keys)["favourites"]}
+        stored: list[str] = []
+
+        def save(conn):
+            db.set_favourites(conn, keys, resolving)
+            stored.extend(db.favourites(conn))
+
+        self._brief_write(save)
+        return {"favourites": stored}
+
+    @bridge
+    def set_crate_shown(self, path: str, shown: bool | None) -> dict:
+        """Shows or hides the crate at snapshot path `path` in the sidebar (Settings' switch; None goes back to the
+        default, D8): a brief save, not a job."""
+        if not isinstance(path, str) or not path or not (shown is None or isinstance(shown, bool)):
+            raise ValueError(BAD_CRATE)
+        self._brief_write(lambda conn: db.set_crate_shown(conn, path, shown))
+        return {"path": path, "shown": shown}
 
     @bridge
     def check_import_folder(self, path: str) -> dict:
@@ -1484,12 +1585,19 @@ class HubApi:
             if not up:
                 raise OpProblem("No better version is waiting for this track any more.", "changed")
             if mode == "swap":
-                return upgrades.swap(self._paths, state, track_id, up, self._svc.compare)
+                return upgrades.swap(self._paths, state, track_id, up, self._svc.compare, now=self._svc.now)
             if mode == "add_new":
                 return upgrades.add_new(self._paths, state, track_id, up, now=self._svc.now)
             return upgrades.discard(self._paths, state, track_id, up)
 
         return self._single(f"upgrade_{mode}", track_id, do)
+
+    @bridge
+    def undo_upgrade(self, track_id: str) -> dict:
+        """"Undo" next to "Done, checked in rekordbox": puts a swap or an added file back as it was (the upgrade
+        waits again). Refused (UpgradeProblem) when either file changed since; gone once the check is done."""
+        return self._single("undo_upgrade", track_id,
+                            lambda state, ctx: upgrades.undo(self._paths, state, track_id))
 
 
     # --- setup wizard (spec 5.7); the steps that write files are write jobs ---

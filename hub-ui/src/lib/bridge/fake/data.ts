@@ -3,9 +3,10 @@ import type {
   FileState, LibraryRow,
   AnySignalKind, AppUpdate, Alignment, Browser, Budget, LastCheck, LoginBrowser, ByQuality, Candidate, PlaylistInfo, PlaylistRow, PreviewAction, Quality, Result, RunDetail,
   DownloadTools, FolderCheck, SetupStatus, SignalKind, Source, ReadStatus, Status, TodoGroupKey, TrackRow, Upgrade, FreeDownload,
-  PlaylistService, Sidebar, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
+  PlaylistService, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
+  RekordboxCheckView,
 } from '../types';
-import { NOT_IN_PLAYLIST, QUALITIES } from '../types';
+import { QUALITIES } from '../types';
 
 /** the fake's newest yt-dlp on PyPI */
 export const FAKE_NEWEST_YT_DLP = '2026.10.28';
@@ -23,12 +24,19 @@ export type FakeService = { limit: number; extra_today: number; carry_over: numb
 export type FakeAccount = FakeService & { browser: Browser; profile?: string | null; profileName?: string | null;
   lastCheck?: LastCheck | null };
 
+/** As the state's `rekordbox_check`: an added_as_new and a swapped one also keep what the two files measured as, a
+ *  swapped one whether the file moved up out of not_lossless/, and both the undo (here: the fields as they were). */
+export type RekordboxCheck = { reason: 'wrong_song' | 'added_as_new' | 'swapped'; since: string; match?: string;
+  offset_ms?: number; moved?: boolean; undo?: Partial<FakeTrack>;
+  /** as the undo record's `old`: where the old file (added) or the copy of the old audio (swap) is now */
+  old_path?: string };
+
 export type FakeTrack = {
   track_id: string; artist: string; title: string; folder: string; duration_s: number;
   status: Status; cutoff_hz: number | null; source: Source | null; codec: string | null;
   in_playlists: boolean; hidden: boolean; added: string | null; cover: number | null;  // cover: gradient index
   isrc: string | null; playlists: string[]; upgrade: (Upgrade & { cutoff_hz?: null }) | null;
-  rekordbox_check: { reason: 'wrong_song' | 'added_as_new'; since: string } | null;
+  rekordbox_check: RekordboxCheck | null;
   other: string | null;          // "Other" to-do item text (something is in the way)
   next_try_days: number | null;  // not found: next try in N days
   rejected_sources: string[];
@@ -41,6 +49,11 @@ export type FakeTrack = {
   link?: TrackLink;
   /** a song of the user's own that the import found (source `manual`, no folder, in no playlist) */
   own?: boolean;
+  /** an own file's folder (absolute); without it the file sits in `/Volumes/Example/Music` */
+  dir?: string;
+  /** a playlist song's file when it isn't its Library one: a duplicate's file of the user's own took the song over
+   *  (the engine's heir, folders._heir), so the song plays from the import folder now */
+  file?: string;
   /** an own file the import has read but whose sound it hasn't judged yet: its quality is the codec's guess */
   unchecked?: boolean;
   /** an own file that isn't there to play (the contract's file_state): its drive is away, its folder isn't found, or
@@ -107,6 +120,8 @@ export type FakeImport = {
   deferred: number;
   /** the phase the running import is in (null: none runs) */
   phase: ImportPhase | null;
+  /** called on every progress step of a running import (a scenario's files turning up as it reads them) */
+  onStep?: (phase: ImportPhase, done: number, total: number) => void;
 };
 export const emptyImport = (): FakeImport => ({ folders: [], nextId: 2, unreadable: [], stopped: false, skipped: false,
   questions: [], duplicates: [], deferred: 0, phase: null });
@@ -163,6 +178,16 @@ export type FakeState = {
   never: string[];               // "never download": Spotify ids the plan leaves out
   tidy: FakeTidy;
   imp: FakeImport;
+  /** the Favourites' keys in the stored order (`playlist:<ref>`, `folder:<path>`); a key whose target is gone stays stored */
+  favourites: string[];
+  /** the user's crate switches: crate path -> shown (a crate without one has the default) */
+  crateShown: Record<string, boolean>;
+  /** playlists (folder names) that were never read; the others are read once a song names them */
+  unread: string[];
+  /** playlists that were read and held no song */
+  emptyRead: string[];
+  /** hook: the brief saves (`set_favourites`, `set_crate_shown`) answer `busy`, as when a running job's write holds library.db */
+  briefBusy: boolean;
 };
 
 // ---------- helpers ----------
@@ -197,7 +222,8 @@ export function qualityLabel(t: FakeTrack): string {
 }
 export function pathOf(t: FakeTrack): string | null {
   if (t.status === 'missing') return null;
-  if (t.own) return `/Volumes/Example/Music/${t.artist} - ${t.title}.wav`;
+  if (t.file) return t.file;
+  if (t.own) return `${t.dir ?? '/Volumes/Example/Music'}/${t.artist} - ${t.title}.wav`;
   const sub = t.status === 'lossless' ? '' : '/not_lossless';
   return `Library/${t.at ?? t.folder}${sub}/${t.artist} - ${t.title}.aiff`;
 }
@@ -208,11 +234,6 @@ export function trackRow(t: FakeTrack): TrackRow {
     source: t.source, source_name: t.own ? OWN_SHORT : t.source ? SOURCE_NAMES[t.source] : null, in_playlists: t.in_playlists,
     own: !!t.own, hidden: t.hidden, upgrade_ready: !!t.upgrade, path: pathOf(t), added: t.added, cover_url: coverUri(t.cover),
   };
-}
-/** A Library row's `file_state`: as the panel's, but per folder only (the engine never checks a row's own file, so a
- *  file that went since the last scan still reads `here` in the list). */
-export function rowState(t: FakeTrack): LibraryRow['file_state'] {
-  return t.away === 'offline' || t.away === 'folder_missing' ? t.away : 'here';
 }
 export function qualityLine(t: FakeTrack): string {
   const q = qualityOf(t);
@@ -232,8 +253,8 @@ export function todoGroup(t: FakeTrack): TodoGroupKey | null {
   return q === 'missing' ? 'not_found' : q === 'lossless' ? null : q === 'good_lossy' ? 'good_lossy' : q;
 }
 export function todoDetail(t: FakeTrack, g: TodoGroupKey): string {
-  if (g === 'rekordbox_check') return checkText(t.rekordbox_check!.reason);
-  if (g === 'upgrade_ready') return t.upgrade!.cue_text;
+  if (g === 'rekordbox_check') return checkStatus(t.rekordbox_check);
+  if (g === 'upgrade_ready') return upgradeStatus(t.upgrade!);
   if (g === 'not_found') {
     const d = t.next_try_days;
     return d === null ? 'tried again at the next sync' : `next try in ${d} day${d === 1 ? '' : 's'}`;
@@ -260,10 +281,43 @@ export function formatLine(t: FakeTrack): string | null {
   const name = FORMAT_NAMES[t.codec] ?? t.codec.toUpperCase();
   return t.kbps && t.status === 'not_lossless' ? `${name} · ${t.kbps} kbps` : name;
 }
-export function checkText(reason: 'wrong_song' | 'added_as_new'): string {
-  return reason === 'wrong_song'
-    ? 'This track now plays the right song. In rekordbox: analyse it again and delete the old cues (they belong to the wrong song).'
-    : 'This is a different edit. In rekordbox: analyse it again and set the cues again.';
+/** As views.upgrade_status: the To-do row's short line for an upgrade. */
+export function upgradeStatus(up: Upgrade): string {
+  const r = up.alignment?.result;
+  const how = r === 'exact' || r === 'shifted' ? (up.swap_possible ? 'cues can stay' : 'new rekordbox track')
+    : r === 'different' ? 'different edit' : 'not compared';
+  return `${up.what === 'lossless version' ? 'Lossless' : up.what.replace(' version', '')} ready · ${how}`;
+}
+/** As views.check_status: the To-do row's short line for a rekordbox check. */
+export function checkStatus(c: RekordboxCheck | null): string {
+  if (c?.reason === 'swapped') return c.moved ? 'relocate, Reload Tag, analyse again' : 'Reload Tag, analyse again';
+  if (c?.reason === 'added_as_new') {
+    return c.match === 'exact' || c.match === 'shifted' ? 'relocate, analyse again' : 'analyse, set the cues again';
+  }
+  if (c?.reason === 'wrong_song') return 'now the right song: analyse again';
+  return 'check it in rekordbox';
+}
+/** As views.check_view. */
+export function checkView(c: RekordboxCheck): RekordboxCheckView {
+  return { reason: c.reason, since: c.since, match: c.match ?? null, offset_ms: c.offset_ms ?? null, moved: !!c.moved,
+    text: checkText(c), old_path: c.old_path ?? null };
+}
+/** As report.check_text: the same edit (exact or shifted) can be relocated in rekordbox and keeps its cues. */
+export function checkText(check: RekordboxCheck): string {
+  if (check.reason === 'swapped') {
+    return check.moved
+      ? 'The lossless audio is in your file, which moved up out of not_lossless/. In rekordbox: Auto Relocate finds it by its name with its cues, then Reload Tag and analyse it again.'
+      : 'The lossless audio is in your file, so rekordbox keeps its cues. In rekordbox: Reload Tag, and analyse it again so the waveform shows the full sound.';
+  }
+  if (check.reason === 'wrong_song') {
+    return 'This track now plays the right song. In rekordbox: analyse it again and delete the old cues (they belong to the wrong song).';
+  }
+  if (check.match === 'exact') return 'This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit.';
+  if (check.match === 'shifted') {
+    const ms = Math.abs(Math.round(check.offset_ms ?? 0));
+    return `This is the same edit, ${ms} ms apart. In rekordbox: relocate the old entry to the new file, its cues fit to within ${ms} ms.`;
+  }
+  return 'This is a different edit. In rekordbox: analyse it again and set the cues again.';
 }
 /** As views.quality_counts: a file whose sound isn't checked yet is not counted. */
 export function byQuality(ts: FakeTrack[]): ByQuality {
@@ -276,19 +330,31 @@ export function budget(s: FakeState): Budget {
   return { used: s.qobuz.used_today, allowance, limit: s.qobuz.limit, carry_over: s.qobuz.carry_over,
     extra: s.qobuz.extra_today, remaining: Math.max(0, allowance - s.qobuz.used_today) };
 }
-const ALIGN: Record<'exact' | 'different', Alignment> = {
+export type FakeMatch = 'exact' | 'shifted' | 'different' | 'unknown';
+const ALIGN: Record<FakeMatch, Alignment> = {
   exact: { drift_ms: 0, offset_ms: 0, offset_samples: 0, result: 'exact', text: 'matches exactly' },
+  shifted: { drift_ms: 0.4, offset_ms: 12, offset_samples: 529, result: 'shifted', text: 'aligned by 12 ms' },
   different: { drift_ms: 412.5, offset_ms: 1830, offset_samples: 80703, result: 'different', text: "doesn't match" },
+  unknown: { drift_ms: null, offset_ms: null, offset_samples: null, result: 'unknown', text: 'could not compare' },
 };
-export function makeUpgrade(t: { folder: string; artist: string; title: string }, kind: 'exact' | 'different',
-  found: string): Upgrade {
+/** As views.cue_text. */
+function cueText(kind: FakeMatch, swap: boolean): string {
+  if ((kind === 'exact' || kind === 'shifted') && !swap) {
+    return `${kind === 'exact' ? 'same edit' : 'same edit, 12 ms apart'}, but a new rekordbox entry: relocate the old one to the new file to keep its cues`;
+  }
+  return { exact: 'matches exactly, cues stay', shifted: 'aligned by 12 ms, cues stay',
+    different: "doesn't match: would be a new rekordbox entry", unknown: 'could not compare the two versions' }[kind];
+}
+/** `swap_possible`: the current file is an AIFF (views.swap_possible). */
+export function makeUpgrade(t: { folder: string; artist: string; title: string }, kind: FakeMatch,
+  found: string, swap_possible = true): Upgrade {
   return {
     file: `Upgrades ready/${t.folder}/${t.artist} - ${t.title}.aiff`, source: 'qobuz', source_name: 'Qobuz',
     source_id: `q${Math.abs(hash(t.title)) % 900000}`, found, what: 'lossless version',
     quality_line: 'Qobuz FLAC · verified lossless',
-    alignment: ALIGN[kind],
-    cue_text: kind === 'exact' ? 'matches exactly, cues stay' : "doesn't match: would be a new rekordbox entry",
-    swap_safe: kind === 'exact', swap_possible: true, audio_url: null,
+    format_line: 'FLAC · lossless',
+    alignment: ALIGN[kind], cue_text: cueText(kind, swap_possible),
+    swap_safe: kind === 'exact' || kind === 'shifted', swap_possible, audio_url: null,
   };
 }
 export function hash(s: string): number {
@@ -595,6 +661,7 @@ export function makeState(scenario: string, now = new Date()): FakeState {
     setup: setupComplete(), downloadTools: builtInTools(), read_status: readOk(2, now), console_running: false, offline: false, previewRead: true,
     appUpdate: { state: 'up_to_date', current: '1.0.0', latest: null, url: null },
     selected: null, dropped: null, errors: scenario === 'errors', errorTurn: 0, syncStarts: 0, never: [], tidy: emptyTidy(), imp: emptyImport(),
+    favourites: [], crateShown: {}, unread: [], emptyRead: [], briefBusy: false,
     accounts: { youtube: null, soundcloud: null }, qobuzSkipped: false,  // the user's own setup: Qobuz only
   };
   if (scenario === 'first_run' || scenario === 'no_music' || scenario.startsWith('setup_existing')) {
@@ -639,38 +706,6 @@ export function folderList(s: FakeState): { folder: string; listed: boolean }[] 
   for (const f of s.extraFolders) if (!out.some((o) => o.folder === f.folder)) out.push(f);
   return out;
 }
-/** The sidebar's lists as `views.sidebar` builds them: one entry per playlists.txt line, then the folders with files
- *  that no line uses (by name). Folder names compare as the disk does, case ignored. */
-export function sidebarLists(s: FakeState): Pick<Sidebar, 'playlists' | 'library_folders'> {
-  const files = s.tracks.filter((t) => t.status !== 'missing');
-  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
-  const used = (f: string) => s.playlists.some((p) => same(p.folder, f));
-  const counts = new Map<string, { folder: string; tracks: number }>();   // by folded name, first spelling kept
-  for (const t of files) {
-    if (!t.folder || used(t.folder)) continue;
-    const key = t.folder.toLowerCase();
-    const seen = counts.get(key);
-    if (seen) seen.tracks++; else counts.set(key, { folder: t.folder, tracks: 1 });
-  }
-  const unused = [...counts.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, v]) => v);
-  return {
-    playlists: s.playlists.map((p) => ({ name: p.folder, ref: playlistRef(p.link) ?? '', service: serviceOfLink(p.link),
-      enabled: p.enabled, tracks: files.filter((t) => same(t.folder, p.folder)).length })),
-    library_folders: unused,
-  };
-}
-/** `Library.subtitle` as `views.library` builds it (plan library stage 5 I7, step A's four views). A playlist is
- *  "never read" while the fake holds no song of its folder at all. */
-export function librarySubtitle(s: FakeState, folder: string | null, n: number): string[] {
-  const tracks = n === 1 ? '1 track' : `${n} tracks`;
-  if (folder === null) return [tracks, 'every folder'];
-  if (folder === NOT_IN_PLAYLIST) return [tracks, 'in no playlist'];
-  const line = s.playlists.find((p) => p.folder.toLowerCase() === folder.toLowerCase());
-  if (!line) return [tracks, 'no playlist uses it', `Library › ${folder}`];
-  const service = `${SERVICE_NAME[serviceOfLink(line.link)]} playlist`;
-  if (!s.tracks.some((t) => t.folder.toLowerCase() === folder.toLowerCase())) return [service, 'not read yet'];
-  return [tracks, service, ...(line.enabled ? [] : ['switched off']), `Library › ${line.folder}`];
-}
 export function playlistRows(s: FakeState): PlaylistRow[] {
   return s.playlists.map((p, index) => {
     const ts = s.tracks.filter((t) => t.playlists.includes(p.folder));
@@ -678,10 +713,4 @@ export function playlistRows(s: FakeState): PlaylistRow[] {
     return { index, folder: p.folder, link: p.link, playlist_id: playlistRef(p.link), service,
       service_name: SERVICE_NAME[service], enabled: p.enabled, info: p.info, tracks: ts.length, quality: byQuality(ts) };
   });
-}
-export function inFolder(s: FakeState, folder: string | null): FakeTrack[] {
-  const files = s.tracks.filter((t) => t.status !== 'missing');
-  if (folder === null) return files;
-  if (folder === NOT_IN_PLAYLIST) return files.filter((t) => !t.in_playlists);
-  return files.filter((t) => t.folder === folder);
 }

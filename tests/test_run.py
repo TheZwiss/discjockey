@@ -1,6 +1,8 @@
 import copy
 import json
+import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 from datetime import date, datetime
 
@@ -506,7 +508,7 @@ def test_a_dry_run_on_a_library_not_yet_migrated_finishes_no_pending_step(paths)
     before = paths.state_file.read_bytes()
     prep = run.prepare(paths, dry_run=True)
     assert tmp.exists() and not (paths.library / "A" / "x.aiff").exists()  # no music file was changed
-    assert paths.state_file.read_bytes() == before and not paths.db_file.exists()
+    assert paths.state_file.read_bytes() == before and not paths.db_file.exists()  # recording the read made none
     assert len(prep.state["pending"]) == 1
     run.prepare(paths)  # the next sync finishes the step and moves the records
     assert (paths.library / "A" / "x.aiff").exists() and paths.db_file.exists()
@@ -627,3 +629,111 @@ def test_an_import_links_its_files_with_the_real_link_only_from_a_stale_read(pat
     assert "t2" not in tracks  # nothing downloaded or planned into the records
     assert "Artist - Song 1: the same song as a file of yours, not downloaded." in [
         e.text for e in events if isinstance(e, Message)]
+
+
+# --- plan library stage 5, B1.4: every read is kept as the playlists' records (D1) ---
+
+BOUNCE = "0DiscjockeyExampleList"
+BOUNCY = "3DiscjockeyExampleList"
+TWO_PLAYLISTS = PLAYLISTS + f"Bouncy = https://open.spotify.com/playlist/{BOUNCY}\n"
+
+
+def recorded(paths):
+    """{ref: [track tokens]} of library.db's read records."""
+    with db.connect(paths.db_file) as conn:
+        return {ref: [t.token for t in r.tracks] for ref, r in db.playlist_records(conn).items()}
+
+
+def per_playlist(monkeypatch, tracks_of):
+    monkeypatch.setattr(spotify, "fetch_playlist",
+                        lambda s, line: FetchedPlaylist(line, list(tracks_of[line.playlist_id]), []))
+
+
+def test_a_sync_keeps_what_it_read_as_the_playlists_records(paths):
+    run.prepare(paths)
+    with db.connect(paths.db_file) as conn:
+        record = db.playlist_records(conn)[BOUNCE]
+    assert record.service == "spotify" and record.read_at.startswith(date.today().isoformat())
+    assert [(t.position, t.token, t.artist, t.title, t.duration_ms) for t in record.tracks] == [
+        (1, "t1", "Artist", "Song 1", 180000), (2, "t2", "Artist", "Song 2", 180000),
+        (3, "t3", "Artist", "Song 3", 180000)]
+
+
+def test_a_dry_run_keeps_its_read_too_with_or_without_the_lock(paths, monkeypatch):
+    save_state(paths, empty_state())  # a library with library.db
+    run.prepare(paths, dry_run=True)
+    assert recorded(paths) == {BOUNCE: ["t1", "t2", "t3"]}
+
+    @contextmanager
+    def taken():
+        yield False
+    monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: FetchedPlaylist(line, list(TRACKS[:1]), []))
+    run.prepare(paths, dry_run=True, lock=taken)  # the window's read while a job holds the lock
+    assert recorded(paths) == {BOUNCE: ["t1"]}
+
+
+def test_a_playlist_that_cant_be_read_or_is_switched_off_keeps_its_record(paths, monkeypatch):
+    paths.playlists_file.write_text(TWO_PLAYLISTS)
+    per_playlist(monkeypatch, {BOUNCE: TRACKS, BOUNCY: TRACKS[2:]})
+    run.prepare(paths)
+    assert recorded(paths) == {BOUNCE: ["t1", "t2", "t3"], BOUNCY: ["t3"]}
+
+    def unreadable(s, line):
+        raise spotify.SpotifyError("Spotify answered HTTP 404.", "playlist_unreadable")
+    monkeypatch.setattr(spotify, "fetch_playlist", unreadable)
+    with pytest.raises(run.SetupProblem):
+        run.prepare(paths)
+    assert recorded(paths) == {BOUNCE: ["t1", "t2", "t3"], BOUNCY: ["t3"]}
+
+    paths.playlists_file.write_text(PLAYLISTS + f"#off# Bouncy = https://open.spotify.com/playlist/{BOUNCY}\n")
+    per_playlist(monkeypatch, {BOUNCE: TRACKS[:2]})
+    run.prepare(paths)
+    assert recorded(paths) == {BOUNCE: ["t1", "t2"], BOUNCY: ["t3"]}  # off, not read: its record stays
+
+    paths.playlists_file.write_text(PLAYLISTS)  # its line is gone: so is its record
+    run.prepare(paths)
+    assert recorded(paths) == {BOUNCE: ["t1", "t2"]}
+
+
+def test_a_failing_record_never_fails_the_read(paths, monkeypatch, caplog):
+    run.prepare(paths)
+
+    def locked(*a, **kw):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(db, "record_reads", locked)
+    prep = run.prepare(paths, dry_run=True)
+    assert [a.kind for a in prep.plan.actions] == ["acquire"] * 3
+    [warning] = [r for r in caplog.records if "couldn't keep the playlists' read records" in r.getMessage()]
+    assert warning.exc_info is not None  # unexpected: with its traceback
+
+
+def test_records_of_another_version_are_one_warning_line(paths, caplog):
+    run.prepare(paths)
+    fetched = run.prepare(paths, dry_run=True).fetched  # (prepare itself then refuses the records before reading)
+    with db.connect(paths.db_file) as conn:
+        conn.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (str(db.SCHEMA_VERSION + 1),))
+    run.record_reads(paths, fetched, datetime.now())
+    [warning] = [r for r in caplog.records if "couldn't keep the playlists' read records" in r.getMessage()]
+    assert warning.exc_info is None and warning.getMessage() == (
+        f"couldn't keep the playlists' read records: {db.NEWER}")
+
+
+def test_a_long_job_transaction_holds_the_read_up_briefly_not_for_the_full_wait(paths, caplog):
+    run.prepare(paths)
+    before = recorded(paths)
+    other = sqlite3.connect(str(paths.db_file), isolation_level=None)
+    other.execute("BEGIN IMMEDIATE")  # a job's long transaction (an import's scan)
+
+    @contextmanager
+    def taken():
+        yield False
+    start = time.monotonic()
+    try:
+        prep = run.prepare(paths, dry_run=True, lock=taken)
+    finally:
+        other.execute("ROLLBACK")
+        other.close()
+    assert time.monotonic() - start < run.RECORD_WAIT_MS / 1000 + 2  # far below the binding 5 s
+    assert [fp.line.folder for fp in prep.fetched] == ["Hard_Bounce"]
+    assert "couldn't keep the playlists' read records" in caplog.text
+    assert recorded(paths) == before

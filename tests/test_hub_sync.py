@@ -6,7 +6,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from discjockey import run
+from discjockey import db, run
 from discjockey.sources import qobuz as qobuz_source, spotify
 from discjockey.sources.base import LoginState
 from discjockey.acquire import AcquireResult, Ready
@@ -87,6 +87,19 @@ def test_refresh_reads_spotify_and_keeps_the_preview(env):
     assert [a.track_id for a in store.prep.plan.actions] == ["t1", "t2", "t3"] and store.read_at is not None
     assert load_state(paths) == before  # read-only
     assert not (paths.data / "reports").exists()
+
+
+def test_the_windows_read_keeps_the_playlists_records(env):
+    """Plan library stage 5, D1: the read the window shows is also what its playlist views show later, offline."""
+    paths, js, store, rec, acq, logins, tracks = env
+    save_state(paths, empty_state())
+    refresh(js, paths, store)
+    assert rec.finished().ok
+    with db.connect(paths.db_file) as conn:
+        records = db.playlist_records(conn)
+    assert list(records) == ["0DiscjockeyExampleList"]
+    assert [(t.token, t.title) for t in records["0DiscjockeyExampleList"].tracks] == [
+        ("t1", "Song 1"), ("t2", "Song 2"), ("t3", "Song 3")]
 
 
 def test_a_failed_refresh_keeps_the_last_known_preview(env, monkeypatch):

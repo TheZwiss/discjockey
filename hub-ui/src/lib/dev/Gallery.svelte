@@ -18,12 +18,13 @@
   import Foot from '../shell/Foot.svelte';
   import NowPlayingRow from '../shell/NowPlayingRow.svelte';
   import { ColumnFrame, ListPanelFrame, Panel } from '../frames';
+  import { UpgradeCards } from '../decisions';
   import {
-    AccountPanel, AddRow, CopyCode, NumberedSteps, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
+    AccountPanel, AddRow, CopyCode, NumberedSteps, ChoiceGroup, OutcomeList, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
     AwayTag, Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
-    Hint, InfoTip, KeyValue, ListRow, ListSection, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, tip, SummaryStrip, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
+    Hint, InfoTip, KeyValue, ListRow, ListLine, ListSection, MiddleText, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, tip, SummaryStrip, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
     Segmented, SectionLabel, SelectCard, Skeleton, SortHeader, SourceLadder, Spectrum, Spinner, SplitView, StatCard, StatusMark, Surface, Switch, TextField, Tile, Toast,
-    ToggleGroup, ToggleRow, TrackHead, TrackRow, UpgradeCard, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
+    ToggleGroup, ToggleRow, TrackHead, TrackRow, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
     confirm, envelope, ImportCard, UnreadableList, WatchedFolderList,
   } from '../components';
   import Tick from '../components/Tick.svelte';
@@ -57,6 +58,8 @@
   /** Gallery only: starts a scroller at a given offset, so a stuck state shows without scrolling by hand. */
   function scrollAt(node: HTMLElement, y: number) { requestAnimationFrame(() => { node.scrollTop = y; }); }
   let inspectorOpen = $state(true);
+  let galleryWay = $state<string>('same');
+  let galleryUpWay = $state<'swap' | 'add_new'>('swap');
   let gFolded = $state(['Playlists']);
   // Tip: one tip open at a time, as in the app; the strip picks which example shows its own
   const TIP_SHOW: SegOption<'rail' | 'cut' | 'crate'>[] = [{ key: 'rail', label: 'Rail icon' }, { key: 'cut', label: 'Cut name' },
@@ -221,6 +224,11 @@
   let panelPls = $state<ToggleItem[]>(playlists(['Ohne_Quatsch', 'Tekke_Ecke', 'Powertrance', 'Hard_Bounce', 'Bouncy', '03_06_2026',
     'Voller_Quatsch', 'Rollers', 'Peak Time'], [41, 9, 3, 12, 2, 8, 14, 6, 5], [2]));
   let panelFew = $state<ToggleItem[]>(playlists(['Ohne_Quatsch', 'Tekke_Ecke', 'Powertrance', 'Hard_Bounce'], [41, 9, 3, 12], [2]));
+  // a folder with too many crates (Settings, B7): All waits for a search (allMax), a row is found by its parent folder too
+  let crates = $state<ToggleItem[]>(Array.from({ length: 40 }, (_, i) => {
+    const artist = ['Aphex', 'Burial', 'Calibre', 'Dusk'][i % 4], album = `Album ${i + 1}`;
+    return { key: `c${i}`, label: album, count: 8 + (i % 5), on: i < 2, tip: `Albums › ${artist} › ${album}`, find: artist };
+  }));
   let sources = $state<ToggleItem[]>([{ key: 'ytm', label: 'YouTube Music', on: true }, { key: 'sc', label: 'SoundCloud', on: false },
     { key: 'yt', label: 'YouTube', count: null, on: true }]);
   let auto = $state<ToggleItem>({ key: 'auto', label: 'Read Spotify when the hub opens', on: true });
@@ -313,10 +321,19 @@
     focusMe?.querySelector('button')?.focus();
   });
   const gFolders: WatchedFolderRow[] = [
-    { id: 1, path: '/Users/you/Music/Discjockey/Library', name: 'Library', kind: 'library', state: 'online', files: 412, waiting: 0, unreadable: 0 },
-    { id: 2, path: '/Volumes/Example Drive/Music', name: 'Music', kind: 'import', state: 'importing', files: 1840, waiting: 1500, unreadable: 0 },
-    { id: 3, path: '/Volumes/Old Drive/Music', name: 'Music', kind: 'import', state: 'offline', files: 612, waiting: 0, unreadable: 0 },
-    { id: 4, path: '/Users/you/Music/Crates', name: 'Crates', kind: 'import', state: 'online', files: 1, waiting: 0, unreadable: 0 },
+    { id: 1, path: '/Users/you/Music/Discjockey/Library', name: 'Library', kind: 'library', state: 'online', files: 412, waiting: 0, unreadable: 0, crates: [], too_many: false },
+    { id: 2, path: '/Volumes/Example Drive/Music', name: 'Music', kind: 'import', state: 'importing', files: 1840, waiting: 1500, unreadable: 0, crates: [], too_many: false },
+    { id: 3, path: '/Volumes/Old Drive/Music', name: 'Music', kind: 'import', state: 'offline', files: 612, waiting: 0, unreadable: 0, crates: [], too_many: false },
+    { id: 4, path: '/Users/you/Music/Crates', name: 'Crates', kind: 'import', state: 'online', files: 1, waiting: 0, unreadable: 0, crates: [], too_many: false },
+  ];
+  // Settings: import folders with crates are rows to pick (`onpick`), the picked one washed; `cap` keeps the list to 4 rows and a peek
+  const gCrate = (name: string) => ({ path: `/Users/you/Music/Rekordbox Library/${name}`, label: name, name, tip: `Rekordbox Library › ${name}`, files: 4, hidden: false, has_crates: false });
+  const gPickable: WatchedFolderRow[] = [
+    gFolders[0],
+    { id: 5, path: '/Users/you/Music/Rekordbox Library', name: 'Rekordbox Library', kind: 'import', state: 'online', files: 30, waiting: 0, unreadable: 0, crates: [gCrate('Bounce'), gCrate('Edits')], too_many: false },
+    { id: 6, path: '/Volumes/Example Drive/Albums', name: 'Albums', kind: 'import', state: 'online', files: 312, waiting: 0, unreadable: 0, crates: [gCrate('Night Tapes')], too_many: false },
+    gFolders[3],
+    { id: 7, path: '/Users/you/Music/Festival Sets', name: 'Festival Sets', kind: 'import', state: 'online', files: 41, waiting: 0, unreadable: 0, crates: [], too_many: false },
   ];
 </script>
 
@@ -562,11 +579,14 @@
       <div class="col grow-demo span2" data-test="g-surface-columns">
         <Surface kind="table" grow={{ rows: 12 }}>
           {#snippet columns()}
+            <!-- Playlist has no onsort: a static head, the same words as a label (no button, no aria-sort) -->
             <div class="gtr"><SortHeader label="Track" sorted={gSorted('track')} onsort={() => gSortBy('track')} />
+              <SortHeader label="Playlist" test="g-sort-static" />
               <SortHeader label="Length" align="end" sorted={gSorted('length')} onsort={() => gSortBy('length')} /></div>
           {/snippet}
           {#each Array.from({ length: 12 }, (_, i) => i) as i (i)}
-            <div class="gtr row-line"><span>Track {i + 1}</span><span class="num">{3 + (i % 3)}:{10 + i}</span></div>
+            <div class="gtr row-line"><span>Track {i + 1}</span><span>{i % 3 ? 'Hard_Bounce' : 'Peak Time'}</span><span
+              class="num">{3 + (i % 3)}:{10 + i}</span></div>
           {/each}
         </Surface>
       </div>
@@ -650,6 +670,11 @@
         <span class="cap">all off</span>
         <ToggleGroup label="Playlists" items={allOff} test="g-alloff"
           onchange={(k, on) => (allOff = flip(allOff, k, on))} onall={(on, keys) => (allOff = setOn(allOff, keys, on))} />
+        <span class="cap">40 rows · All after a search (allMax 25) · found by artist</span>
+        <div class="fillbox">
+          <ToggleGroup label="In the sidebar" items={crates} grow allMax={25} placeholder="Search Albums…" test="g-crates"
+            onchange={(k, on) => (crates = flip(crates, k, on))} onall={(on, keys) => (crates = setOn(crates, keys, on))} />
+        </div>
         <span class="cap">disabled (a change is running)</span>
         <ToggleGroup label="Locked" items={kinds} disabled disabledReason="Not while a sync runs." search={false} test="g-locked" onchange={() => {}} onall={() => {}}>
           {#snippet lead(item)}<span class="toggle-icon">{#if isKindKey(item.key)}<KindIcon kind={item.key} />{/if}</span>{/snippet}
@@ -969,6 +994,18 @@
       <QualityBadge quality="missing" label="NOT FOUND" /><QualityBadge quality="lossless" label="LOSSLESS" checked={false} />
     </div>
     <div class="row" data-test="g-away-tag"><AwayTag state="offline" /><AwayTag state="folder_missing" /><AwayTag state="file_missing" /></div>
+    <span class="cap">quiet: a state with no badge yet, as words in the badge's place (a playlist song waiting for its file)</span>
+    <div class="row" data-test="g-badge-quiet"><Badge tone="quiet" text="Waiting" tip="Downloads at the next sync" />
+      <Badge tone="quiet" text="Switched off" /><Badge tone="missing" text="NOT FOUND" /></div>
+    <span class="cap">muted with <code>more</code> (Library's Playlist column): a name as the user spelled it, "+n" for the others; in a narrow cell the name gives way, the +n never</span>
+    <div class="row" data-test="g-badge-more"><Badge text="Hard_Bounce" more={2} /><Badge text="Peak Time" more={0} />
+      <span class="cell140"><Badge text="Afterhour_Sonntag_Warmup_Classics" more={3} /></span></div>
+    <span class="cap">MiddleText with <code>sep="›"</code> (a place: whole folders give way first, then characters; the separators quiet)</span>
+    <div class="col" data-test="g-middle-sep">
+      <span class="cell320"><MiddleText text="Rekordbox Library › Old Sets › Bounce › 2019" sep="›" /></span>
+      <span class="cell200"><MiddleText text="Rekordbox Library › Old Sets › Bounce › 2019" sep="›" /></span>
+      <span class="cell140"><MiddleText text="Rekordbox Library › Old Sets › Bounce › 2019" sep="›" /></span>
+    </div>
     <div class="row"><ExternalLink href="https://www.beatport.com/search?q=Armin+Hermann+Get+Naughty" label="Beatport" />
       <ExternalLink href="https://bandcamp.com">Bandcamp</ExternalLink></div>
   </section>
@@ -985,6 +1022,8 @@
       <Cover url={null} seed="c2" size={22} onplay={() => (gPlaying = gPlaying === 'c2' ? null : 'c2')} playing={gPlaying === 'c2'} name="Track two" />
       <Cover url={coverUri(2)} seed="c3" size={22} hint onplay={() => (gPlaying = gPlaying === 'c3' ? null : 'c3')} playing={gPlaying === 'c3'} name="Track three" />
     </div>
+    <span class="cap">empty: no file yet (a playlist song waiting or not found), a dashed outline in the cover's place, no ▶</span>
+    <div class="row" data-test="g-cover-empty"><Cover url={null} seed="e1" size={22} empty /><Cover url={null} seed="e2" size={64} empty /></div>
   </section>
 
   <section data-test="gallery-listsection">
@@ -1001,6 +1040,23 @@
               {#snippet trailing()}<Badge tone={r.quality} text={r.quality_label} />{/snippet}
             </ListRow>
           {/each}
+        {/each}
+      </Surface>
+    </div>
+  </section>
+
+  <section data-test="gallery-listline">
+    {@render head('ListLine', 'An empty group\'s one quiet line among a list\'s rows, at a section head\'s height')}
+    <div class="col w640" data-test="g-list-line">
+      <Surface kind="list" label="Hard_Bounce" summary="0 songs">
+        <ListLine text="This playlist is empty." />
+        <ListSection label="Also in this folder" summary="2" hint="files in Hard_Bounce that aren't in this playlist" />
+        {#each [weak, fakeQ] as r, ri (ri)}
+          <ListRow onclick={() => {}} title="{r.artist} – {r.title}">
+            {#snippet lead()}<Cover url={null} seed={r.track_id + ri} size={28} />{/snippet}
+            {#snippet name()}{r.artist} – {r.title}{/snippet}
+            {#snippet trailing()}<Badge tone={r.quality} text={r.quality_label} />{/snippet}
+          </ListRow>
         {/each}
       </Surface>
     </div>
@@ -1104,6 +1160,26 @@
     </div>
   </section>
 
+  <section data-test="gallery-choicegroup">
+    {@render head('ChoiceGroup · OutcomeList', 'One of a few, each with a consequence (To-do\'s "In rekordbox", "Which file stays?"): the picked row lists what it does, the others a summary; a row that can\'t be picked is dimmed with its reason; a ruled last row; outcome glyphs: kept ✓, a step ⓘ, lost ✕, a file')}
+    <div class="col start w360">
+      <ChoiceGroup label="In rekordbox" value={galleryWay} onchange={(k) => (galleryWay = k)} test="g-choice"
+        options={[
+          { key: 'same', name: 'Same track', recommended: true, summary: 'Cues and beatgrid stay',
+            outcomes: [{ tone: 'kept', text: 'Your rekordbox track keeps its cues' }] },
+          { key: 'new', name: 'New track', summary: 'Relocate your old track to keep cues',
+            outcomes: [{ tone: 'step', text: 'rekordbox lists it as a new track' }, { tone: 'kept', text: 'Relocate your old track to it: cues fit' }] },
+          { key: 'locked', name: 'Locked choice', disabled: true, reason: 'Needs an AIFF file' },
+          { key: 'neither', name: 'Keep both', summary: 'Both stay; this to-do goes away', ruled: true }]}>
+        {#snippet foot()}<OutcomeList items={[{ tone: 'file', text: 'Your old file is kept in Superseded/' }]} />{/snippet}
+      </ChoiceGroup>
+      <ChoiceGroup label="Nothing picked" summary="no clear winner" hint="Same quality and format. Pick one." value={null}
+        onchange={() => {}} options={[{ key: 'a', name: 'First file', summary: 'Music' }, { key: 'b', name: 'Second file', summary: 'Old' }]} />
+      <OutcomeList items={[{ tone: 'kept', text: 'Kept: stays as it was, or fits' }, { tone: 'step', text: 'A step: needs something from you' },
+        { tone: 'lost', text: 'Lost: something goes away' }, { tone: 'file', text: 'A file: where it goes' }]} />
+    </div>
+  </section>
+
   <section data-test="gallery-addrow">
     {@render head('AddRow', 'Paste a Spotify or Qobuz playlist link, check it, name its folder (Playlists\' list head, Setup\'s first playlist)')}
     <div class="col w800"><AddRow draft={[]} onadd={(a, f) => { toasts.show({ tone: 'success', title: `Would add ${a.info?.name ?? a.link} as ${f}` }); return true; }} /></div>
@@ -1144,6 +1220,7 @@
     <div class="grid3">
       <div class="w372"><WatchedFolderList folders={gFolders} onremove={() => {}} test="g-wf-list" /></div>
       <div class="w372"><WatchedFolderList folders={null} test="g-wf-loading" /></div>
+      <div class="w372"><WatchedFolderList folders={gPickable} picked={5} cap={4} onpick={() => {}} onremove={() => {}} test="g-wf-picked" /></div>
       <div class="w372"><ImportCard view={{ kind: 'running', line: 'Reading tags · 340 of 1,500', share: 340 / 1500, stopping: false }} onstop={() => {}} test="g-wf-running" /></div>
       <div class="w372"><ImportCard view={{ kind: 'running', line: 'Looking for music files', share: null, stopping: true }} onstop={() => {}} test="g-wf-stopping" /></div>
       <div class="w372"><ImportCard view={{ kind: 'stopped', line: 'Import stopped with 1,160 files to go. It carries on where it stopped.' }} oncontinue={() => {}} test="g-wf-stopped" /></div>
@@ -1231,6 +1308,8 @@
       <MiniPlayer url="data:audio/wav;base64,AAAA" title="Broken" length_s={10} />
       <ComparePlayer a={{ url: toneA, label: 'Current' }} b={{ url: toneB, label: 'New' }} cueText="matches exactly, cues stay" />
       <ComparePlayer a={{ url: 'data:audio/wav;base64,AAAA', label: 'Current' }} b={{ url: 'data:audio/wav;base64,AAAA', label: 'New' }} />
+      <!-- ready: the player from the start (To-do's upgrade decision) -->
+      <ComparePlayer ready total={40} a={{ url: toneA, label: 'Now' }} b={{ url: toneB, label: 'New' }} />
     </div>
   </section>
 
@@ -1258,7 +1337,7 @@
   </section>
 
   <section data-test="gallery-trackhead">
-    {@render head('TrackHead · UpgradeCard', 'A details panel\'s head (beside: 64 px cover, one line each, an action at the title\'s end; stacked: Library) and the parked better version, compared and with its cue verdict (§7)')}
+    {@render head('TrackHead · UpgradeCards', 'A details panel\'s head (beside: 64 px cover, one line each, an action at the title\'s end; stacked: Library) and the upgrade decision To-do and the Library share (lib/decisions): Now/New compared, the Edit row, "In rekordbox" as a choice or, without one, what happens and why')}
     <div class="col w360">
       <Surface kind="card">
         <TrackHead track={{ ...weak, cover_url: null }} place={weak.folder}>
@@ -1273,10 +1352,15 @@
           <QualityBadge quality={weak.quality} label={weak.quality_label} />
         </TrackHead>
       </Surface>
-      <UpgradeCard upgrade={upExact} currentUrl={toneA} current={specCut} next={specFull} swap>
-        {#snippet actions()}<Button variant="link" size="sm">Add as new file</Button><Button variant="link" muted size="sm">Discard</Button>{/snippet}
-      </UpgradeCard>
-      <UpgradeCard upgrade={upDifferent} currentUrl={null} current={specCut} next={null} loading swap={false} />
+      <Surface kind="card" data-test="g-trackhead-empty">
+        <TrackHead track={{ ...weak, cover_url: null, title: 'AEIOU', artist: 'Pegassi' }} place="not downloaded yet" empty>
+          <Badge tone="missing" text="NOT FOUND" />
+        </TrackHead>
+      </Surface>
+      <UpgradeCards track={{ ...weak, audio_url: toneA, format_line: 'Opus · 135 kbps', upgrade: upExact }} current={specCut}
+        upgrade={specFull} loading={false} swap way={galleryUpWay} onway={(w) => (galleryUpWay = w)} />
+      <UpgradeCards track={{ ...weak, audio_url: null, format_line: null, upgrade: upDifferent }} current={specCut}
+        upgrade={null} loading swap={false} way="add_new" onway={() => {}} />
     </div>
   </section>
 
@@ -1379,13 +1463,16 @@
   .tbl td { padding: var(--s-2) var(--s-4); border-bottom: var(--bw) solid var(--surface-line); color: var(--text); }
   .tbl tr:last-child td { border-bottom: none; }
   .tbl .num { text-align: right; }
-  .gtr { display: grid; grid-template-columns: minmax(0, 1fr) 56px; align-items: center; gap: var(--s-3); height: var(--h-row);
+  .gtr { display: grid; grid-template-columns: minmax(0, 1fr) 120px 56px; align-items: center; gap: var(--s-3); height: var(--h-row);
     padding: 0 var(--s-4); font-size: var(--fs-body); color: var(--text); }
   .gtr.row-line + .gtr.row-line { border-top: var(--bw) solid var(--line-soft); }
   .gtr .num { justify-self: end; color: var(--text-muted); font-variant-numeric: tabular-nums; }
   .w260 { width: 260px; }
   .w320 { width: 320px; }
   .w360 { width: 360px; max-width: 100%; }
+  /* table cells of a fixed width, to show how a block gives way in one (Badge more, MiddleText sep) */
+  .cell140, .cell200, .cell320 { display: flex; min-width: 0; color: var(--text-muted); font-size: var(--fs-small); }
+  .cell140 { width: 140px; } .cell200 { width: 200px; } .cell320 { width: 320px; max-width: 100%; }
   .w240 { width: 240px; max-width: 100%; margin-bottom: var(--s-3); }
   .w372 { width: 372px; max-width: 100%; }
   .g-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-3); }

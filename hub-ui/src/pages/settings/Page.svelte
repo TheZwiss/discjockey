@@ -121,7 +121,7 @@
         busy={flow.busy} disabledWhy={blockedAccount} test="settings-panel-{row}" />
     {/key}
   {:else if row === 'folders'}
-    <FoldersPanel flow={folders} />
+    <FoldersPanel flow={folders} folder={params.folder} />
   {:else if row}
     <RowPanel {row} status={$hub.setup} {tools} {toolsError} {reports} disabledWhy={$writeBlockedReason} onchanged={changed}
       onrecheck={load} />

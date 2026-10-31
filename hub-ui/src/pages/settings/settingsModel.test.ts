@@ -158,9 +158,9 @@ describe('settings list', () => {
   });
   it('the watched folders row: Library only, what is watched, an offline drive, the running import live', () => {
     const lib: WatchedFolderRow = { id: 1, path: '/Users/you/Music/Discjockey/Library', name: 'Library', kind: 'library',
-      state: 'online', files: 412, waiting: 0, unreadable: 0 };
+      state: 'online', files: 412, waiting: 0, unreadable: 0, crates: [], too_many: false };
     const drive: WatchedFolderRow = { id: 2, path: '/Volumes/Example Drive/Music', name: 'Music', kind: 'import',
-      state: 'online', files: 1240, waiting: 0, unreadable: 0 };
+      state: 'online', files: 1240, waiting: 0, unreadable: 0, crates: [], too_many: false };
     const wf = (folders: WatchedFolderRow[], over: Partial<WatchedFolders> = {}): WatchedFolders =>
       ({ folders, unreadable: [], waiting: 0, stopped: false, ...over });
     expect(rowLine('folders', ctx())).toEqual({ tone: null, text: '' });   // still reading: the skeleton

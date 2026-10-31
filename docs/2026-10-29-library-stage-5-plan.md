@@ -195,7 +195,7 @@ CREATE TABLE crate_shown (path TEXT PRIMARY KEY, shown INTEGER NOT NULL);
 `playlist` is the line's ref (check first: that a `FetchedPlaylist` carries the same token as `playlists_file.Row.ref`).
 `crate_shown` holds only the user's overrides; no row = the default (shown, or hidden under a too-many folder).
 
-**I2. `db.py` (step B):** `record_reads(conn, reads, now, keep)` (one transaction; replaces each read that has tracks;
+**I2. `db.py` (step B):** `record_reads(conn, reads, now, keep)` (one transaction; every successful read replaces its record, an empty one too (D1);
 an unreadable playlist keeps its record; deletes refs not in `keep`); `playlist_records(conn) -> dict[str,
 PlaylistRecord]` (`PlaylistRecord(service, read_at, tracks)`, `RecordedTrack(position, token, artist, title,
 duration_ms)`, NamedTuples beside `ImportCounts`); `favourites(conn) -> list[str]`; `set_favourites(conn, keys)`
@@ -279,7 +279,8 @@ root, so the frame, the foot's line and the rule checker read one value.
   yet`); a Library folder `{n} tracks · no playlist uses it · Library › {name}`; a watched folder `{n} tracks · {k}
   folders with music · {place}`; a crate `{n} tracks · {tip}`; an away folder puts `Offline: connect the drive` /
   `Folder not found` second. `{place}` uses the watched-folder list's form (check first where Settings' rows get
-  "~/…" / "Drive › …": engine or `watchedFoldersModel.ts`; the subtitle uses the same, from the same side).
+  "~/…" / "Drive › …": engine or `watchedFoldersModel.ts`; the subtitle uses the same, from the same side). A read playlist's page words its songs from the engine's `songs:
+  {listed, with_file}` (`views.library`) as "{with_file} of {listed} downloaded", not from the sidebar's count and the rows.
 - Strip (N5): `{p} % lossless`, `{l} of {c} checked tracks`; rows `Upgrade ready {n} ›`, `Not lossless yet · {all in
   To-do | {m} in To-do | none in To-do} {n} ›` (no link and no › at none; tooltip when fewer: `{m} of them in To-do:
   files of your own in no playlist aren't`). Inspector toggle `Show details (⌘I)` / `Hide details (⌘I)`; hidden by hand: the toggle's words `Show details`, tip

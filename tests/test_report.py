@@ -1,11 +1,13 @@
 import json
 from datetime import datetime
 
+import pytest
+
 from discjockey.events import Result
 from discjockey.library import Paths
 from discjockey.models import Action, Plan, SourceTrack
 from discjockey.report import (
-    SECTIONS, RunLog, render_line, render_not_lossless, render_plan, render_report, summary, upgrades_waiting,
+    SECTIONS, RunLog, check_text, render_line, render_not_lossless, render_plan, render_report, summary, upgrades_waiting,
     write_not_lossless,
     write_run,
 )
@@ -142,6 +144,27 @@ def test_report_and_summary_list_the_tracks_to_check_in_rekordbox(tmp_path):
     out = summary(log, md)
     assert "1 track to check in rekordbox (see the report)" in out and "Check in rekordbox:" not in out
     assert "check in rekordbox" not in summary(RunLog(STARTED), md)
+
+
+@pytest.mark.parametrize("check,text", [
+    ({"reason": "added_as_new", "since": "2026-10-16", "match": "exact", "offset_ms": 0.0},
+     "This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit."),
+    ({"reason": "added_as_new", "since": "2026-10-16", "match": "shifted", "offset_ms": -23.0},
+     "This is the same edit, 23 ms apart. In rekordbox: relocate the old entry to the new file, its cues fit to "
+     "within 23 ms."),
+    ({"reason": "added_as_new", "since": "2026-10-16", "match": "different", "offset_ms": 0.0},
+     "This is a different edit. In rekordbox: analyse it again and set the cues again."),
+    ({"reason": "added_as_new", "since": "2026-10-16", "match": "unknown", "offset_ms": 0.0},
+     "This is a different edit. In rekordbox: analyse it again and set the cues again."),
+    ({"reason": "added_as_new", "since": "2026-10-16"},  # a record from before the measurement was kept
+     "This is a different edit. In rekordbox: analyse it again and set the cues again."),
+    ({"reason": "wrong_song", "since": "2026-10-16", "match": "exact"},  # the measurement only belongs to added_as_new
+     "This track now plays the right song. In rekordbox: analyse it again and delete the old cues (they belong to "
+     "the wrong song)."),
+    ({"reason": "other"}, "Check this track in rekordbox."),
+])
+def test_check_text_words_the_check_by_what_the_files_measured_as(check, text):
+    assert check_text(check) == text
 
 
 def test_not_lossless_md_lists_bitrate_and_free_downloads():

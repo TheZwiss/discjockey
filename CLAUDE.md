@@ -29,7 +29,7 @@ A user's data never sits in the repo and none of it is in git — never test aga
 | `discjockey/` | Engine. Each module's docstring says what it owns; read that before opening the file |
 | `discjockey/planner.py`, `discjockey/hub/views.py` | Pure: no I/O, no clock. Keep them that way |
 | `discjockey/library.py` | Everything on disk: paths (music folder, `.discjockey/`, support folder), `config.json`, lock, names, crash-safe ops (`run_op` for single steps, `move_files` / `move_path` for file moves, also across drives; both backed by `db.py`), `scan_library` |
-| `discjockey/db.py` | `library.db`: the schema, the migration from `state.json`, the move log (batches and moves), every query. Nothing else writes SQL |
+| `discjockey/db.py` | `library.db`: the schema, the migration from `state.json`, the move log (batches and moves), the playlists' read records, Favourites and crate visibility (all three outside library state: they never bump `generation` or enter `snapshot`), every query. Nothing else writes SQL |
 | `discjockey/sources/` | Playlist services, one module per service (`spotify.py`, `qobuz.py`) behind one interface (`recognise`, `canonical_link`, `login_state`, `open` → a `Reader` with `fetch` and `info`; `base.py` holds `SourceError`, `LoginState`, `Reader`). `__init__.py` is the registry (`SOURCES`) with `recognise`, `read` and `read_infos`. A new service is a new module plus one registry line. Songs and playlists are named by tokens (`models.token`): a Spotify id stays bare, every other service's id is `service:id` |
 | `discjockey/qobuz.py` | The Qobuz **download** client (streamrip: login, search, download one track). Reading Qobuz playlists is `sources/qobuz.py`, which opens its own login per read |
 | `discjockey/tidy.py` | The tidy-up: move batches (tidy-up, save question, folder rename), undo, recovery of batches a crash left open; every move through `run_op` or `library.move_files` (the file journal, staging across drives) |
@@ -111,9 +111,12 @@ their Qobuz daily limit. Long commands run in the background with a status line.
 - **Tests are offline and never touch the user's data.** Use `tmp_path` libraries and the fixtures; no real Spotify,
   Qobuz or yt-dlp calls.
 - **One writer at a time:** the library lock (`.lock`) is shared by console runs and hub jobs; hub write methods
-  answer `busy`/`console` instead of waiting.
+  answer `busy`/`console` instead of waiting. The exception is the brief saves `setup_skip_import`, `set_favourites`
+  and `set_crate_shown`: they take no library lock, wait up to 1.5 s on `library.db`, then answer `busy`; that is safe
+  because no job writes those records.
 - **Bridge methods never reject:** `{"ok": true, …}` or `{"ok": false, "kind", "message"}`; write methods return a
-  `job_id` and finish with a `JobFinished` event.
+  `job_id` and finish with a `JobFinished` event, except the same three brief saves, which answer their result at once
+  and start no job.
 - User-facing text is plain English for a non-technical DJ — no jargon, no stack traces (see README's tone).
 
 ---

@@ -3,6 +3,14 @@
 import type { PageFake } from '$lib/bridge/fake/bridge';
 import { account, at, check, chrome, safari, signedQobuz } from '$lib/bridge/fake/logins';
 import type { FakeState } from '$lib/bridge/fake/data';
+import { scenarios as library } from '../library/fake';
+
+/** `crates` and `crates_busy`: the library page's folders at their fullest (Rekordbox Library's crates, Albums' 312,
+ *  Vinyl Rips away), Edits switched out of the sidebar as in the mockup */
+function crates(s: FakeState): void {
+  library!.first_look(s);
+  s.crateShown['/Users/you/Music/Rekordbox Library/Edits'] = false;
+}
 
 // states whose quit is refused, as while a change is still being written
 const quitBusy = new WeakSet<FakeState>();
@@ -17,6 +25,22 @@ const checkFails = new WeakSet<FakeState>();
 
 const fake: PageFake = {
   scenarios: {
+    // Watched folders with crates: the switches of the picked folder (Rekordbox Library, Edits off; Albums: too many)
+    crates,
+    // the same while a running job holds the library file: a switch's save answers busy, the row goes back (a toast)
+    crates_busy(s) { crates(s); s.briefBusy = true; },
+    // Incoming's crates while its import runs (start_import): one more crate arrives on every step of it
+    crates_importing(s) { library!.crates_importing(s); },
+    // DJ Stick Jan as the real engine read it during an import (library's crates_import_recorded): its crates stay,
+    // the row's waiting count goes down while start_import runs
+    crates_import_recorded(s) { library!.crates_import_recorded(s); },
+    // six watched folders (the Library, Rekordbox Library, Albums, Vinyl Rips and two more): the list must give way to the switches
+    crates_many_folders(s) {
+      crates(s);
+      for (const [path, files] of [['/Users/you/Music/Warehouse Rips', 86], ['/Users/you/Music/Festival Sets', 41]] as const) {
+        s.imp.folders.push({ id: s.imp.nextId++, path, kind: 'import', offline: false, files, waiting: 0, redownload: 0 });
+      }
+    },
     // the user's case: Qobuz only; YouTube's login is in Chrome's second profile (found → Use this login)
     'yt-found'(s) {
       signedQobuz(s);

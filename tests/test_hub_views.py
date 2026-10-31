@@ -1,12 +1,15 @@
+import unicodedata
 from dataclasses import replace
 from datetime import date, datetime
+
+import time
 
 import pytest
 
 from discjockey.hub import views
 from discjockey.hub.jobs import PreviewStore
 from discjockey.models import (Action, BatchResult, BatchRow, FetchedPlaylist, MoveRow, Plan, PlannedMove, PlaylistInfo,
-                               PlaylistLine, SourceTrack)
+                               PlaylistLine, PlaylistRecord, RecordedTrack, SourceTrack)
 from discjockey.planner import ENTRY_KEYS, TidyRow, tidy_rows
 from discjockey import playlists_file as pf
 from discjockey.playlists_file import Loaded, Row
@@ -139,6 +142,33 @@ def test_sync_preview_gives_the_minutes_for_every_count_the_page_can_tick():
     assert est["minutes_by_downloads"] == views.minutes_by_downloads(est["qobuz_uses"])
     assert est["duration_min"] == est["minutes_by_downloads"][-1]
     assert "minutes_by_downloads" not in views.estimate(actions, None)  # the dashboard's estimate stays as it was
+
+
+def test_sync_preview_names_the_folder_of_an_own_song_never_blank():
+    # an upgrade check of an imported file belongs to no playlist: its action has no folder (live check, 2026-10-31)
+    own = Action("upgrade", "own1", "", t("own1"), (1, 0))
+    st = state(own1=e(folder="", path="/Music/Old/Techno/x.mp3"), own2=e(folder="", path=None))
+    actions = [a("upgrade", "u1"), own, Action("upgrade", "own2", "", t("own2"), (1, 1))]
+    store = store_with(actions, st)
+    rows = {r["track_id"]: r for g in views.sync_preview(store, st, Settings(), TODAY, NOW, False,
+                                                         where=lambda path: "Techno")["groups"] for r in g["actions"]}
+    assert (rows["u1"]["folder"], rows["own1"]["folder"], rows["own2"]["folder"]) == ("A", "Techno", views.OWN_MUSIC)
+    bare = views.sync_preview(store, st, Settings(), TODAY, NOW, False)["groups"][0]["actions"]
+    assert all(r["folder"] for r in bare)
+
+
+def test_sync_preview_covers_come_from_the_tracks_own_file_when_the_service_has_none():
+    # the live card of the Sync page takes these links for a track whose service gave no picture (a folder track, or
+    # one that is not on Spotify): its file's artwork, else nothing (the page draws its placeholder)
+    own = Action("upgrade", "own1", "", t("own1"), (1, 0))
+    bare = Action("upgrade", "own2", "", t("own2"), (1, 1))
+    st = state(own1=e(folder="", path="/Music/Old/Techno/Ko-lab - Song.aiff"), own2=e(folder="", path="/Music/Old/x.aiff"))
+    store = store_with([own, bare], st)
+    links = {"own1": "cache/covers/own1.jpg"}
+    rows = {r["track_id"]: r for g in views.sync_preview(store, st, Settings(), TODAY, NOW, False,
+                                                         cover=lambda tid, entry: links.get(tid))["groups"]
+            for r in g["actions"]}
+    assert rows["own1"]["cover_url"] == "cache/covers/own1.jpg" and rows["own2"]["cover_url"] is None
 
 
 def test_still_to_load():
@@ -340,6 +370,74 @@ def test_track_row():
 ])
 def test_cue_text(alignment, text):
     assert views.cue_text(alignment) == text
+    assert views.cue_text(alignment, can_swap=True) == text
+
+
+# a file that can't be swapped (MP3, WAV...) goes in as a new file: a new rekordbox entry, cues only by relocating
+NO_SWAP_SAME = "same edit, but a new rekordbox entry: relocate the old one to the new file to keep its cues"
+
+
+@pytest.mark.parametrize("alignment,can_swap,text", [
+    ({"result": "exact"}, True, "matches exactly, cues stay"),
+    ({"result": "exact"}, False, NO_SWAP_SAME),
+    ({"result": "shifted", "offset_ms": -23.0}, True, "aligned by 23 ms, cues stay"),
+    ({"result": "shifted", "offset_ms": -23.0}, False,
+     "same edit, 23 ms apart, but a new rekordbox entry: relocate the old one to the new file to keep its cues"),
+    ({"result": "different"}, True, "doesn't match: would be a new rekordbox entry"),
+    ({"result": "different"}, False, "doesn't match: would be a new rekordbox entry"),
+    ({"result": "unknown"}, True, "could not compare the two versions"),
+    ({"result": "unknown"}, False, "could not compare the two versions"),
+    (None, False, "could not compare the two versions"),
+])
+def test_cue_text_by_match_and_swap(alignment, can_swap, text):
+    assert views.cue_text(alignment, can_swap) == text
+
+
+@pytest.mark.parametrize("path,result,swap_safe,swap_possible,text", [
+    ("Library/A/x.aiff", "exact", True, True, "matches exactly, cues stay"),
+    ("Library/A/x.aif", "exact", True, True, "matches exactly, cues stay"),
+    ("Library/A/x.mp3", "exact", True, False, NO_SWAP_SAME),
+    ("Library/A/x.wav", "exact", True, False, NO_SWAP_SAME),
+    ("Library/A/x.mp3", "different", False, False, "doesn't match: would be a new rekordbox entry"),
+    ("Library/A/x.aiff", "different", False, True, "doesn't match: would be a new rekordbox entry"),
+    ("Library/A/x.mp3", "unknown", False, False, "could not compare the two versions"),
+])
+def test_the_card_and_the_todo_row_say_what_the_file_can_do(path, result, swap_safe, swap_possible, text):
+    """The card line combines the measurement with whether the file can be swapped (AIFF only); the To-do row says
+    the same, and the UI offers Swap only when swap_safe and swap_possible (todoModel.actionsFor)."""
+    entry = e("not_lossless", path=path, upgrade={**UPGRADE, "alignment": {"result": result, "offset_ms": 0.0}})
+    up = views.track_detail("t1", entry, [], TODAY)["upgrade"]
+    assert (up["swap_safe"], up["swap_possible"], up["cue_text"]) == (swap_safe, swap_possible, text)
+    row = {i["track_id"]: i for g in views.todo(state(t1=entry), "all", False, {}, TODAY)["groups"]
+           for i in g["items"]}["t1"]
+    assert row["group"] == "upgrade_ready" and row["detail"] == ROW_STATUS[(result, swap_possible)]
+
+
+# the To-do row's short line (the panel says the rest)
+ROW_STATUS = {("exact", True): "Lossless ready · cues can stay", ("exact", False): "Lossless ready · new rekordbox track",
+              ("different", False): "Lossless ready · different edit", ("different", True): "Lossless ready · different edit",
+              ("unknown", False): "Lossless ready · not compared"}
+
+
+@pytest.mark.parametrize("up,can_swap,text", [
+    ({"alignment": {"result": "shifted"}}, True, "Lossless ready · cues can stay"),
+    ({"alignment": {"result": "shifted"}}, False, "Lossless ready · new rekordbox track"),
+    ({"alignment": None}, True, "Lossless ready · not compared"),
+    ({"status": "not_lossless", "kbps": 256, "alignment": {"result": "exact"}}, False,
+     "256 kbps ready · new rekordbox track"),
+])
+def test_upgrade_status_is_short(up, can_swap, text):
+    assert views.upgrade_status(up, can_swap) == text
+
+
+@pytest.mark.parametrize("up,text", [
+    ({"source_format": "flac"}, "FLAC · lossless"),
+    ({}, "FLAC · lossless"),
+    ({"source_format": "aac", "status": "not_lossless", "kbps": 256}, "AAC · 256 kbps"),
+    ({"source_format": "pcm_s16be"}, "PCM · lossless"),
+])
+def test_upgrade_format_says_the_new_quality(up, text):
+    assert views.upgrade_format(up) == text
 
 
 def test_track_detail():
@@ -443,29 +541,29 @@ LIB = state(
 
 
 def test_library_folder_chips_and_sort():
-    lib = views.library(LIB, "Hard_Bounce", "", "all", "title", lines=[])
+    lib = views.library(LIB, "folder", "Library/Hard_Bounce", "", "all", "title", lines=[])
     assert [r["title"] for r in lib["rows"]] == ["Balling (LÄUFF Remix)", "Get Naughty", "Gimme Gimme", "Old Favourite"]
     assert lib["chips"] == {"all": 4, "lossless": 2, "good_lossy": 1, "weak": 1, "fake": 0, "upgrade_ready": 1}
     assert lib["summary"] == {"tracks": 4, "lossless_share": 0.5, "upgrades_ready": 1, "to_do": 2, "not_lossless": 2,
                               "by_quality": {"lossless": 2, "good_lossy": 1, "weak": 1, "fake": 0, "missing": 0}}
     assert lib["empty"] is None
-    assert [r["title"] for r in views.library(LIB, "Hard_Bounce", "", "weak", "title", lines=[])["rows"]] == ["Get Naughty"]
-    assert [r["title"] for r in views.library(LIB, "Hard_Bounce", "", "all", "-length", lines=[])["rows"]][0] == "Get Naughty"
+    assert [r["title"] for r in views.library(LIB, "folder", "Library/Hard_Bounce", "", "weak", "title", lines=[])["rows"]] == ["Get Naughty"]
+    assert [r["title"] for r in views.library(LIB, "folder", "Library/Hard_Bounce", "", "all", "-length", lines=[])["rows"]][0] == "Get Naughty"
 
 
 def test_library_summary_ignores_search_and_filter():
     """The panel's folder overview stays the folder's, whatever the table shows."""
-    whole = views.library(LIB, "Hard_Bounce", "", "all", "artist", lines=[])["summary"]
-    assert views.library(LIB, "Hard_Bounce", "gimme", "weak", "artist", lines=[])["summary"] == whole
+    whole = views.library(LIB, "folder", "Library/Hard_Bounce", "", "all", "artist", lines=[])["summary"]
+    assert views.library(LIB, "folder", "Library/Hard_Bounce", "gimme", "weak", "artist", lines=[])["summary"] == whole
 
 
 def test_library_summary_counts_the_checked_files_that_are_not_lossless():
     s = state(a=e(folder="A"), b=e("not_lossless", folder="A", cutoff=20000), c=e("not_lossless", folder="A", cutoff=16000),
               d=e("fake_lossless", folder="A", cutoff=16000), g=e("missing", folder="A"),
               **{"local:1": own(import_state="identified")})
-    summary = views.library(s, None, "", "all", "artist", lines=[])["summary"]
+    summary = views.library(s, "all", None, "", "all", "artist", lines=[])["summary"]
     assert summary["not_lossless"] == 3 and summary["by_quality"]["lossless"] == 1  # the unchecked own file is in neither
-    assert views.library(s, "A", "", "weak", "artist", lines=[])["summary"]["not_lossless"] == 3  # not narrowed by the filter
+    assert views.library(s, "folder", "Library/A", "", "weak", "artist", lines=[])["summary"]["not_lossless"] == 3  # not narrowed by the filter
 
 
 LINES = [Row("Hard_Bounce", "https://open.spotify.com/playlist/37i9dQZF1DX0XUsuxWHRQd"),
@@ -474,62 +572,62 @@ LINES = [Row("Hard_Bounce", "https://open.spotify.com/playlist/37i9dQZF1DX0XUsux
 
 
 def test_library_subtitle_per_view():
-    def sub(folder, st=LIB):
-        return views.library(st, folder, "", "all", "artist", lines=LINES)["subtitle"]
-    assert sub(None) == ["5 tracks", "every folder"]
-    assert sub(views.NOT_IN_PLAYLIST) == ["1 track", "in no playlist"]
-    assert sub("Hard_Bounce") == ["4 tracks", "Spotify playlist", "Library › Hard_Bounce"]
-    assert sub("hard_bounce")[-1] == "Library › Hard_Bounce"  # the line's spelling, not the route's
-    assert sub("Bouncy") == ["1 track", "no playlist uses it", "Library › Bouncy"]
-    off = state(a=e(folder="Off_Set"), b=e(folder="Off_Set"))
-    assert sub("Off_Set", off) == ["2 tracks", "Qobuz playlist", "switched off", "Library › Off_Set"]
-    assert sub("Powertrance") == ["Qobuz playlist", "not read yet"]  # no song of it in the state at all
-    assert views.library(LIB, "Hard_Bounce", "gimme", "weak", "artist", lines=LINES)["subtitle"][0] == "4 tracks"
-    spelled = state(a=e(folder="Hard_bounce"), b=e(folder="Hard_bounce"))  # the state spells the folder differently
-    assert sub("Hard_Bounce", spelled) == ["2 tracks", "Spotify playlist", "Library › Hard_Bounce"]
-    assert sub("Hard_bounce", spelled) == ["2 tracks", "Spotify playlist", "Library › Hard_Bounce"]
-    assert views.library(LIB, "Hard_Bounce", "", "all", "artist", lines=[])["subtitle"][1:] == ["no playlist uses it",
-                                                                                      "Library › Hard_Bounce"]
+    records = {LINES[0].ref: record("a", "b", "c", "f"), LINES[2].ref: record("a", service="qobuz")}
+
+    def sub(view, key=None, st=LIB, lines=LINES, query=""):
+        return views.library(st, view, key, query, "all", "artist", lines=lines, records=records)["subtitle"]
+    assert sub("all") == ["5 tracks", "every folder"]
+    assert sub("unlisted") == ["1 track", "in no playlist"]
+    assert sub("playlist", "Hard_Bounce") == ["4 tracks", "Spotify playlist", "Library › Hard_Bounce"]
+    assert sub("playlist", "hard_bounce")[-1] == "Library › Hard_Bounce"  # the line's spelling, not the route's
+    assert sub("playlist", "Off_Set") == ["1 track", "Qobuz playlist", "switched off", "Library › Off_Set"]
+    assert sub("playlist", "Powertrance") == ["Qobuz playlist", "not read yet"]  # no record of it
+    assert sub("playlist", "Hard_Bounce", query="gimme")[0] == "4 tracks"  # the search never changes the count
+    assert sub("playlist", "Nowhere") == [] and sub("folder", "Library/Nowhere") == []
+    assert sub("folder", "Library/Bouncy") == ["1 track", "no playlist uses it", "Library › Bouncy"]
+    assert sub("folder", "Library/Hard_Bounce") == ["4 tracks", "Library › Hard_Bounce"]  # a playlist uses it
+    assert sub("folder", "Library/Hard_Bounce", lines=[])[1:] == ["no playlist uses it", "Library › Hard_Bounce"]
 
 
 def test_library_to_do_counts_only_what_the_to_do_list_shows():
     s = state(**{**LIB["tracks"], "h": e("not_lossless", folder="Hard_Bounce", cutoff=16000, hidden=True)})
     # b (upgrade) and c (good lossy) are to-dos; a is lossless, f is in no playlist, h is hidden
-    assert views.library(s, "Hard_Bounce", "", "all", "artist", lines=[])["summary"]["to_do"] == 2
+    assert views.library(s, "folder", "Library/Hard_Bounce", "", "all", "artist", lines=[])["summary"]["to_do"] == 2
 
 
 def test_library_sorts_by_folder_with_unlisted_tracks_last():
-    rows = views.library(LIB, None, "", "all", "folder", lines=[])["rows"]
+    rows = views.library(LIB, "all", None, "", "all", "folder", lines=[])["rows"]
     assert [r["folder"] for r in rows] == ["Bouncy", "Hard_Bounce", "Hard_Bounce", "Hard_Bounce", "Hard_Bounce"]
     assert rows[-1]["track_id"] == "f"
 
 
 def test_library_search_all_tracks_and_not_in_a_playlist():
-    assert [r["track_id"] for r in views.library(LIB, None, "läuff", "all", "artist", lines=[])["rows"]] == ["c"]
-    assert views.library(LIB, None, "", "all", "artist", lines=[])["summary"]["tracks"] == 5  # not found ones have no file
-    nip = views.library(LIB, views.NOT_IN_PLAYLIST, "", "all", "artist", lines=[])
+    assert [r["track_id"] for r in views.library(LIB, "all", None, "läuff", "all", "artist", lines=[])["rows"]] == ["c"]
+    assert views.library(LIB, "all", None, "", "all", "artist", lines=[])["summary"]["tracks"] == 5  # not found ones have no file
+    nip = views.library(LIB, "unlisted", None, "", "all", "artist", lines=[])
     assert nip["title"] == "Not in a playlist" and [r["track_id"] for r in nip["rows"]] == ["f"]
-    assert views.library(LIB, None, "nothing like this", "all", "artist", lines=[])["empty"] == "no_match"
-    assert views.library(state(), None, "", "all", "artist", lines=[])["empty"] == "empty_library"
+    assert views.library(LIB, "all", None, "nothing like this", "all", "artist", lines=[])["empty"] == "no_match"
+    assert views.library(state(), "all", None, "", "all", "artist", lines=[])["empty"] == "empty_library"
 
 
 def test_sidebar():
     lines = [Row("Hard_Bounce", "https://open.spotify.com/playlist/37i9dQZF1DX0XUsuxWHRQd"),
              Row("Powertrance", "https://open.qobuz.com/playlist/900000001", enabled=False)]
     sb = views.sidebar(LIB, lines, 3)
-    assert sb == {"todo": 3, "all_tracks": 5, "not_in_playlist": 1, "limits_warning": False,
+    assert sb == {"todo": 3, "all_tracks": 5, "not_in_playlist": 1, "limits_warning": False, "favourites": [],
                   "playlists": [{"name": "Hard_Bounce", "ref": "37i9dQZF1DX0XUsuxWHRQd", "service": "spotify",
-                                 "enabled": True, "tracks": 4},
+                                 "enabled": True, "songs": None},
                                 {"name": "Powertrance", "ref": "qobuz:900000001", "service": "qobuz",
-                                 "enabled": False, "tracks": 0}],
-                  "library_folders": [{"folder": "Bouncy", "tracks": 1}]}
+                                 "enabled": False, "songs": None}],
+                  "watched": [], "library_folders": [{"path": "Library/Bouncy", "name": "Bouncy", "files": 1}]}
 
 
 def test_sidebar_matches_folders_by_folded_name_and_sorts_the_unused_ones():
     st = state(a=e(folder="Zeta"), b=e(folder="alpha"), c=e(folder="Hard_bounce"), d=e("missing", folder="Gone"))
     sb = views.sidebar(st, [Row("Hard_Bounce", "https://open.spotify.com/playlist/37i9dQZF1DX0XUsuxWHRQd")], 0)
-    assert sb["playlists"][0]["tracks"] == 1  # the disk ignores case
-    assert sb["library_folders"] == [{"folder": "alpha", "tracks": 1}, {"folder": "Zeta", "tracks": 1}]
+    assert sb["library_folders"] == [{"path": "Library/alpha", "name": "alpha", "files": 1},
+                                     {"path": "Library/Zeta", "name": "Zeta", "files": 1}]  # the disk ignores case
+    assert [f["name"] for f in views.sidebar(st, [], 0)["library_folders"]] == ["alpha", "Hard_bounce", "Zeta"]
     assert views.sidebar(st, [], 0)["playlists"] == []
 
 
@@ -544,7 +642,7 @@ def test_todo_groups_in_order_with_details():
     out = views.todo(s, "all", False, {"m": "MOVE BLOCKED · a file is in the way"}, TODAY, cover)
     assert [g["key"] for g in out["groups"]] == ["upgrade_ready", "not_found", "good_lossy", "fake", "other"]
     by = {i["track_id"]: i for g in out["groups"] for i in g["items"]}
-    assert by["b"]["detail"] == "aligned by 23 ms, cues stay" and by["b"]["group"] == "upgrade_ready"
+    assert by["b"]["detail"] == "Lossless ready · cues can stay" and by["b"]["group"] == "upgrade_ready"
     assert by["g"]["detail"] == "next try in 3 days" and by["n"]["detail"] == "tried again at the next sync"
     assert by["c"]["detail"] == "YT Music" and by["k"]["detail"] == "Qobuz"
     assert by["m"]["detail"] == "MOVE BLOCKED · a file is in the way"
@@ -774,12 +872,46 @@ def test_todo_check_in_rekordbox_group_also_for_lossless_and_hidden_tracks():
     group = out["groups"][0]
     assert group["label"] == "Check in rekordbox"
     by = {i["track_id"]: i for i in group["items"]}
-    assert by["a"]["detail"] == ("This track now plays the right song. In rekordbox: analyse it again and delete the "
-                                 "old cues (they belong to the wrong song).")
-    assert by["h"]["detail"] == "This is a different edit. In rekordbox: analyse it again and set the cues again."
+    assert by["a"]["detail"] == "now the right song: analyse again"
+    assert by["a"]["check"]["text"] == ("This track now plays the right song. In rekordbox: analyse it again and delete "
+                                        "the old cues (they belong to the wrong song).")
+    assert by["h"]["detail"] == "analyse, set the cues again"
+    assert by["h"]["check"] == {"reason": "added_as_new", "since": "2026-10-16", "match": None, "offset_ms": None,
+                                "moved": False, "old_path": None,
+                                "text": "This is a different edit. In rekordbox: analyse it again and set the cues again."}
     assert out["chips"]["rekordbox_check"] == 2 and out["chips"]["all"] == 2 and out["hidden_count"] == 1
     both = views.todo(s, "all", True, {}, TODAY)
     assert [g["key"] for g in both["groups"]] == ["rekordbox_check", "not_found"] and both["chips"]["all"] == 2
+
+
+def test_todo_check_in_rekordbox_words_an_added_file_by_what_was_measured():
+    s = state(a=e(rekordbox_check={"reason": "added_as_new", "since": "2026-10-16", "match": "exact"}),
+              b=e(title="B", rekordbox_check={"reason": "added_as_new", "since": "2026-10-16", "match": "different"}))
+    by = {i["track_id"]: i for i in views.todo(s, "all", False, {}, TODAY)["groups"][0]["items"]}
+    assert by["a"]["detail"] == "relocate, analyse again" and by["a"]["check"]["match"] == "exact"
+    assert by["a"]["check"]["text"] == "This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit."
+    assert by["b"]["detail"] == "analyse, set the cues again"
+    assert by["b"]["check"]["text"] == "This is a different edit. In rekordbox: analyse it again and set the cues again."
+
+
+@pytest.mark.parametrize("check,text", [
+    ({"reason": "swapped"}, "Reload Tag, analyse again"),
+    ({"reason": "swapped", "moved": True}, "relocate, Reload Tag, analyse again"),
+    ({"reason": "added_as_new", "match": "shifted"}, "relocate, analyse again"),
+    ({"reason": "added_as_new", "match": "unknown"}, "analyse, set the cues again"),
+    ({"reason": "wrong_song"}, "now the right song: analyse again"),
+    (None, "check it in rekordbox"),
+])
+def test_check_status_is_short(check, text):
+    assert views.check_status(check) == text
+
+
+def test_check_view_says_where_the_old_file_is_from_the_undo_record():
+    c = {"reason": "swapped", "since": "2026-10-31", "match": "shifted", "offset_ms": 12.0, "moved": False,
+         "undo": {"kind": "swap", "file": "Library/A/x.aiff", "old": "Superseded/A/x (lossy).aiff"}}
+    v = views.check_view(c)
+    assert v["old_path"] == "Superseded/A/x (lossy).aiff" and v["match"] == "shifted" and v["offset_ms"] == 12.0
+    assert "undo" not in v and v["text"].startswith("The lossless audio is in your file")
 
 
 def test_change_of_tracks_without_a_file_says_where_they_will_go():
@@ -1401,14 +1533,14 @@ def test_a_filter_keeps_only_its_group():
 
 def test_the_library_marks_files_whose_sound_is_not_checked_yet_and_copes_with_own_songs():
     st = state(a=e(), **{"local:1": own(import_state="identified"), "local:2": own(file_id=8)})
-    out = views.library(st, None, "", "all", "folder", lines=[])
+    out = views.library(st, "all", None, "", "all", "folder", lines=[])
     assert {r["track_id"]: r["sound_checked"] for r in out["rows"]} == {"a": True, "local:1": False, "local:2": True}
     assert [r["folder"] for r in out["rows"] if r["track_id"].startswith("local")] == ["", ""]
-    assert views.library(st, "A", "", "all", "artist", lines=[])["summary"]["tracks"] == 1  # own songs are in no folder
-    assert views.library(st, views.NOT_IN_PLAYLIST, "", "all", "artist", lines=[])["summary"]["tracks"] == 2
+    assert views.library(st, "folder", "Library/A", "", "all", "artist", lines=[])["summary"]["tracks"] == 1  # own songs are in no folder
+    assert views.library(st, "unlisted", None, "", "all", "artist", lines=[])["summary"]["tracks"] == 2
     sb = views.sidebar(st, [Row("A", "https://open.spotify.com/playlist/37i9dQZF1DX0XUsuxWHRQd")], 0)
-    assert (sb["all_tracks"], sb["not_in_playlist"], [p["tracks"] for p in sb["playlists"]],
-            sb["library_folders"]) == (3, 2, [1], [])
+    assert (sb["all_tracks"], sb["not_in_playlist"], [p["songs"] for p in sb["playlists"]],
+            sb["library_folders"]) == (3, 2, [None], [])
 
 
 def test_sync_preview_counts_the_songs_waiting_for_an_answer_and_the_checks_left_for_later():
@@ -1435,11 +1567,11 @@ def test_the_watched_folders_with_their_states_counts_and_unreadable_files():
     out = view(None)
     assert out["folders"] == [
         {"id": 1, "path": "/m/Library", "name": "Library", "kind": "library", "state": "online", "files": 500,
-         "waiting": 0, "unreadable": 0},
+         "waiting": 0, "unreadable": 0, "crates": [], "too_many": False},
         {"id": 2, "path": "/Volumes/Example/Music", "name": "Music", "kind": "import", "state": "online",
-         "files": 120, "waiting": 25, "unreadable": 2},
+         "files": 120, "waiting": 25, "unreadable": 2, "crates": [], "too_many": False},
         {"id": 3, "path": "/Volumes/Gone", "name": "Gone", "kind": "import", "state": "offline", "files": 7,
-         "waiting": 7, "unreadable": 0}]
+         "waiting": 7, "unreadable": 0, "crates": [], "too_many": False}]
     assert out["unreadable"] == [{"folder_id": 2, "path": "/Volumes/Example/Music/Sub/bad.aiff",
                                   "reason": "macOS doesn't let Discjockey read it"}]
     assert (out["waiting"], out["stopped"]) == (25, False)
@@ -1491,7 +1623,8 @@ def test_the_library_row_counts_its_own_waiting_and_unreadable_files():
                   (Path("/m/Library/worse.wav"), "Discjockey can't find sound it can read in it")]
     out = views.watched_folders([lib, one], counts, (), 500, unreadable, 29, False, None)
     assert out["folders"][0] == {"id": 1, "path": "/m/Library", "name": "Library", "kind": "library",
-                                 "state": "online", "files": 500, "waiting": 4, "unreadable": 2}
+                                 "state": "online", "files": 500, "waiting": 4, "unreadable": 2, "crates": [],
+                                 "too_many": False}
     assert out["folders"][1]["waiting"] == 25 and out["folders"][1]["unreadable"] == 0
     assert [(u["folder_id"], u["path"]) for u in out["unreadable"]] == [(1, "/m/Library/House/bad.aiff"),
                                                                         (1, "/m/Library/worse.wav")]
@@ -1529,14 +1662,14 @@ def test_files_whose_sound_is_not_checked_yet_are_left_out_of_every_quality_coun
     st = state(a=e(), b=e("not_lossless", cutoff=16000), **{"local:1": own(import_state="identified"),
                                                            "local:2": own(import_state="identified", file_id=8, path="/x/b.mp3"),
                                                            "local:3": own(file_id=9)})
-    out = views.library(st, None, "", "all", "artist", lines=[])
+    out = views.library(st, "all", None, "", "all", "artist", lines=[])
     assert out["summary"]["tracks"] == 5 and out["chips"]["all"] == 5
     assert out["summary"]["by_quality"] == {"lossless": 2, "good_lossy": 0, "weak": 1, "fake": 0, "missing": 0}
     assert out["summary"]["lossless_share"] == round(2 / 3, 4)
     assert (out["chips"]["lossless"], out["chips"]["good_lossy"], out["chips"]["weak"]) == (2, 0, 1)
-    assert {r["track_id"] for r in views.library(st, None, "", "lossless", "artist", lines=[])["rows"]} == {"a", "local:3"}
+    assert {r["track_id"] for r in views.library(st, "all", None, "", "lossless", "artist", lines=[])["rows"]} == {"a", "local:3"}
     # sorted by quality they come after every checked file, whatever the direction of the codec's guess
-    assert [r["track_id"] for r in views.library(st, None, "", "all", "quality", lines=[])["rows"]][-2:] == ["local:1", "local:2"]
+    assert [r["track_id"] for r in views.library(st, "all", None, "", "all", "quality", lines=[])["rows"]][-2:] == ["local:1", "local:2"]
 
 
 def test_a_playlist_file_whose_sound_is_not_checked_yet_is_not_counted_nor_a_to_do():
@@ -1579,7 +1712,7 @@ def test_library_rows_say_whether_their_file_is_here_offline_or_in_a_folder_not_
                      "t1": e("lossless")}}
 
     def states(away):
-        return {r["track_id"]: r["file_state"] for r in views.library(st, None, "", "all", "title", away=away, lines=[])["rows"]}
+        return {r["track_id"]: r["file_state"] for r in views.library(st, "all", None, "", "all", "title", away=away, lines=[])["rows"]}
 
     # no folder away: only the row a scan stored as offline is, read as the panel reads it (file_state)
     assert states(None) == {"local:1": "here", "local:2": "offline", "local:3": "here",
@@ -1590,3 +1723,486 @@ def test_library_rows_say_whether_their_file_is_here_offline_or_in_a_folder_not_
         "local:1": "here", "local:2": "offline", "local:3": "folder_missing", "t1": "here"}
     # decided per folder: a row never asks whether its own file is there, so "file_missing" stays the panel's
     assert "file_missing" not in states({"/Volumes/Example Stick/Music": "missing"}).values()
+
+# --- crates (plan library stage 5, D8) ---
+
+W = "/Volumes/Example Drive/Crates"
+OTHER = "/Users/dj/Music/Sets"
+
+
+def under(root, *folders):
+    return [f"{root}/{folder}/Example Artist - Song.aiff" for folder in folders]
+
+
+def crate_rows(files, watched=(W,), overrides=None, root=W):
+    return views.crates(files, list(watched), overrides or {})[root]["crates"]
+
+
+def test_a_crate_is_a_folder_that_holds_a_file_and_a_wrapper_gets_no_row():
+    files = [f"{W}/Example Artist - Root.aiff", *under(W, "Old Sets/Bounce", "Old Sets/Bounce/Peak", "Techno")]
+    got = views.crates(files, [W], {})[W]
+    assert [(c["label"], c["files"], c["has_crates"]) for c in got["crates"]] == [
+        ("Bounce", 2, True), ("Bounce › Peak", 1, False), ("Techno", 1, False)]  # "Old Sets" holds no file itself
+    assert (got["too_many"], got["crate_count"]) == (False, 3)
+    assert [c["tip"] for c in got["crates"]] == ["Crates › Old Sets › Bounce", "Crates › Old Sets › Bounce › Peak",
+                                                 "Crates › Techno"]
+    assert [c["path"] for c in got["crates"]][0] == f"{W}/Old Sets/Bounce"
+
+
+def test_files_in_the_watched_folder_itself_belong_to_no_crate():
+    got = views.crates([f"{W}/Example Artist - Song.aiff"], [W], {})
+    assert got == {W: {"too_many": False, "crate_count": 0, "crates": []}}
+    assert views.crates([], [W, OTHER], {}) == {W: got[W], OTHER: got[W]}  # every watched folder has its entry
+
+
+def test_crates_count_the_files_at_or_below_them_and_a_prefix_is_not_a_parent():
+    files = under(W, "Hard", "Hard", "Hard/2019", "Hard 2")
+    assert [(c["label"], c["files"]) for c in crate_rows(files)] == [("Hard", 3), ("Hard 2", 1), ("Hard › 2019", 1)]
+
+
+def test_a_crate_in_a_crate_reads_its_nearest_crate_ancestor_then_its_own_name():
+    files = under(W, "Hardtechno", "Hardtechno/2019", "Hardtechno/2019/Peak", "Wrapper/Deep/House")
+    assert [c["label"] for c in crate_rows(files)] == [
+        "2019 › Peak", "Hardtechno", "Hardtechno › 2019", "House"]  # a wrapper in the way changes nothing
+
+
+def test_crates_sharing_a_name_read_with_their_parent_folder_in_one_watched_folder_and_in_two():
+    files = under(W, "Old Sets/Bounce", "New Sets/Bounce", "Techno") + under(OTHER, "bounce", "Tech")
+    got = views.crates(files, [W, OTHER], {})
+    assert [c["label"] for c in got[W]["crates"]] == ["Bounce · New Sets", "Bounce · Old Sets", "Techno"]
+    assert [c["label"] for c in got[OTHER]["crates"]] == ["bounce · Sets", "Tech"]  # fold-equal across watched folders
+    # a crate inside another crate has a many-name label and is not compared with the single-name ones
+    nested = under(W, "Bounce", "Bounce/Peak", "Peak")
+    assert [c["label"] for c in crate_rows(nested)] == ["Bounce", "Bounce › Peak", "Peak"]
+
+
+def test_crates_come_in_natural_case_folded_label_order():
+    files = under(W, "Set 10", "set 2", "Set 1", "Zeta", "alpha")
+    assert [c["label"] for c in crate_rows(files)] == ["alpha", "Set 1", "set 2", "Set 10", "Zeta"]
+
+
+def test_a_label_never_changes_with_what_is_hidden():
+    files = under(W, "Old Sets/Bounce", "New Sets/Bounce")
+    shown = crate_rows(files)
+    hidden = crate_rows(files, overrides={f"{W}/Old Sets/Bounce": False})
+    assert [c["label"] for c in hidden] == [c["label"] for c in shown] == ["Bounce · New Sets", "Bounce · Old Sets"]
+    assert [c["hidden"] for c in shown] == [False, False]
+    assert [c["hidden"] for c in hidden] == [False, True]
+    assert crate_rows(files, overrides={f"{W}/Old Sets/Bounce": True})[1]["hidden"] is False
+
+
+def test_more_than_25_crates_make_a_too_many_folder_with_every_crate_hidden_unless_switched_on():
+    folders = [f"Crate {i:02d}" for i in range(26)]
+    got = views.crates(under(W, *folders), [W], {f"{W}/Crate 03": True, f"{W}/Crate 04": False})[W]
+    assert (got["too_many"], got["crate_count"], len(got["crates"])) == (True, 26, 26)
+    assert {c["name"] for c in got["crates"] if not c["hidden"]} == {"Crate 03"}
+    exactly = views.crates(under(W, *folders[:25]), [W], {})[W]
+    assert (exactly["too_many"], any(c["hidden"] for c in exactly["crates"])) == (False, False)
+
+
+def test_a_few_thousand_crates_are_worked_out_in_linear_time():
+    # 3000 flat crates, 30 of them with one more inside: the quadratic version took over a minute here, this under a
+    # second; the result is checked as well, so a fast wrong answer fails too
+    folders = [f"Crate {i:04d}" for i in range(3000)]
+    nested = [f"{f}/Inner" for f in folders[:30]]
+    start = time.monotonic()
+    rows = crate_rows(under(W, *folders, *nested))
+    assert time.monotonic() - start < 3
+    assert len(rows) == 3030
+    assert {r["name"] for r in rows if r["has_crates"]} == set(folders[:30])
+    assert not any(r["has_crates"] for r in rows if r["name"] == "Inner" or r["name"] in folders[30:])
+
+
+def test_a_file_under_two_watched_folders_belongs_to_the_deeper_one():
+    inner = f"{W}/Deep"
+    got = views.crates(under(inner, "A"), [W, inner], {})
+    assert [c["label"] for c in got[W]["crates"]] == [] and [c["tip"] for c in got[inner]["crates"]] == ["Deep › A"]
+
+
+# --- the sidebar's records, Favourites and watched folders (D3, D5, I4) ---
+
+def record(*tokens, service="spotify"):
+    return PlaylistRecord(service, "2026-10-30T10:00:00", tuple(
+        RecordedTrack(i, t, "Artist", f"Title {t}", 180000) for i, t in enumerate(tokens, start=1)))
+
+
+def test_a_playlists_songs_are_the_distinct_songs_of_its_record_and_unread_is_none():
+    st = state(a=e(folder="A"), b=e(folder="A", aliases=["sp-b"]), c=e("missing", folder="A"))
+    lines = [Row("A", "https://open.spotify.com/playlist/37i9dQZF1DX0XUsuxWHRQd"),
+             Row("B", "https://open.spotify.com/playlist/3DiscjockeyExampleList"),
+             Row("C", "https://open.qobuz.com/playlist/900000001", enabled=False),
+             Row("D", "https://open.qobuz.com/playlist/900000002")]
+    refs = [r.ref for r in lines]
+    records = {refs[0]: record("a", "sp-b", "b", "a", "c", "unknown", "unknown"), refs[1]: record(),
+               refs[2]: record("a", service="qobuz")}
+    out = views.sidebar(st, lines, 0, records=records)["playlists"]
+    # a listed twice, "sp-b" is b's alias, "unknown" has no song yet but is one row of the view: a, b, c, unknown
+    assert [p["songs"] for p in out] == [4, 0, 1, None]
+    assert [p["enabled"] for p in out] == [True, True, False, True]  # a switched-off playlist keeps its number
+
+
+def test_the_watched_folders_come_by_name_with_place_files_state_and_crates():
+    lib = WatchedFolder(1, Path("/m/Library"), "library")
+    crates_ = WatchedFolder(2, Path(W), "import")
+    sets = WatchedFolder(3, Path(OTHER), "import")
+    st = state(a=e(folder="A"), **{
+        "local:1": own(path=f"{W}/Hard/Example Artist - Song.aiff"), "local:2": own(path=f"{W}/Example Artist - B.aiff"),
+        "local:3": own(path=f"{OTHER}/House/2019/Example Artist - C.aiff"),
+        "local:4": own(path=f"{W}Extra/Example Artist - D.aiff")})  # "Crates" is not a parent of "CratesExtra"
+    out = views.sidebar(st, [], 0, watched=[lib, crates_, sets], away={2: "unmounted"})["watched"]
+    assert [(w["name"], w["place"], w["files"], w["state"], w["too_many"], w["crate_count"]) for w in out] == [
+        ("Crates", "Example Drive › Crates", 2, "offline", False, 1), ("Sets", "~/Music/Sets", 1, "here", False, 1)]
+    assert out[0]["crates"] == [{"path": f"{W}/Hard", "label": "Hard", "name": "Hard", "tip": "Crates › Hard",
+                                 "files": 1, "hidden": False, "has_crates": False}]
+    assert views.sidebar(st, [], 0, watched=[sets], away={3: "missing"})["watched"][0]["state"] == "folder_missing"
+    assert views.sidebar(st, [], 0)["watched"] == []  # no library.db: nothing watched
+
+
+def test_place_words_a_folder_as_the_watched_folder_list_does():
+    assert views.place("/Users/dj/Music/Sets") == "~/Music/Sets"
+    assert views.place("/Users/dj") == "~" and views.place("/Users/dj/") == "~"
+    assert views.place("/Volumes/Example Drive") == "Example Drive"
+    assert views.place("/Volumes/Example Drive/Music/Old") == "Example Drive › Music/Old"
+    assert views.place("/srv/music/Old") == "/srv/music/Old"
+
+
+def test_favourites_resolve_in_their_stored_order_and_a_gone_key_is_left_out():
+    crate = WatchedFolder(2, Path(W), "import")
+    st = state(a=e(folder="A"), b=e(folder="Zeta"), c=e(folder="Hard_Bounce"),
+               **{"local:1": own(path=f"{W}/Old Sets/Hard/Example Artist - Song.aiff"),
+                  "local:2": own(path=f"{W}/Old Sets/Hard/Peak/Example Artist - B.aiff")})
+    lines = [Row("Hard_Bounce", "https://open.spotify.com/playlist/37i9dQZF1DX0XUsuxWHRQd", enabled=False)]
+    ref = lines[0].ref
+    keys = [f"folder:{W}/Old Sets/Hard/Peak", "folder:Library/Zeta", f"playlist:{ref}", "playlist:qobuz:1",
+            "folder:Library/Gone", f"folder:{W}", "folder:Library/Zeta", "folder:Library/Hard_Bounce"]
+    out = views.sidebar(st, lines, 0, records={ref: record("c", "x")}, favourites=keys, watched=[crate],
+                        away={2: "unmounted"}, overrides={f"{W}/Old Sets/Hard/Peak": False})["favourites"]
+    assert [(f["key"], f["kind"], f["name"], f["count"], f["path"], f["state"]) for f in out] == [
+        (f"folder:{W}/Old Sets/Hard/Peak", "folder", "Hard › Peak", 1, f"{W}/Old Sets/Hard/Peak", "offline"),
+        ("folder:Library/Zeta", "folder", "Zeta", 1, "Library/Zeta", "here"),
+        (f"playlist:{ref}", "playlist", "Hard_Bounce", 2, None, "here"),
+        (f"folder:{W}", "folder", "Crates", 2, W, "offline")]  # a hidden crate and a folder in use stay as they are
+    assert out[2]["service"] == "spotify" and out[2]["enabled"] is False
+    assert views.sidebar(st, lines, 0, favourites=[f"playlist:{ref}"])["favourites"][0]["count"] is None  # never read
+
+
+# --- the playlist and folder views (plan library stage 5, B3: D6, D9-D12, I4) ---
+
+TECHNO = Row("Techno", "https://open.spotify.com/playlist/37i9dQZF1DX0XUsuxWHRQd")
+HOUSE = Row("House", "https://open.qobuz.com/playlist/900000001", enabled=False)
+
+
+def mine(path, status="lossless", artist="Ann", title="Song", **kw):
+    """An own file the import found (`own`), named, with its place marked as the import's."""
+    return {**own(status, path=path, **kw), "artist": artist, "title": title, "placed_by": "import"}
+
+
+def song(folder, name, path, **kw):
+    return e(folder=folder, artist="Example Artist", title=name, path=path, **kw)
+
+
+def playlist_state():
+    """Techno holds a (own folder), b (in not_lossless/ of Techno), c (sits in House's folder), g (not found); d sits in
+    Techno's folder but the playlist doesn't hold it; h sits in House's folder and House holds it."""
+    return state(
+        a=song("Techno", "One", "Library/Techno/Example Artist - One.aiff", aliases=["alias-a"]),
+        b=song("Techno", "Two", "Library/Techno/not_lossless/Example Artist - Two.mp3", status="not_lossless", cutoff=20000),
+        c=song("Techno", "Three", "Library/House/Example Artist - Three.aiff"),
+        d=song("Techno", "Four", "Library/techno/Example Artist - Four.aiff"),
+        g=e("missing", folder="Techno", artist="Example Artist", title="Gone"),
+        h=song("House", "Five", "Library/House/Example Artist - Five.aiff"))
+
+
+def techno_records():
+    # alias-a is a's alias and a again at 7, b and c once, g has no file, "unheard" is no song of the library yet
+    return {TECHNO.ref: record("a", "b", "alias-a", "c", "g", "unheard", "a"), HOUSE.ref: record("h", "a", service="qobuz")}
+
+
+def playlist_view(st=None, key="Techno", query="", filt="all", sort=None, **kw):
+    return views.library(st or playlist_state(), "playlist", key, query, filt, sort, lines=[TECHNO, HOUSE],
+                         records=kw.pop("records", techno_records()), **kw)
+
+
+def test_a_playlist_lists_its_songs_in_order_each_once_with_a_row_for_a_song_without_a_file():
+    out = playlist_view()
+    assert [(r["track_id"], r["position"], r["file_state"]) for r in out["rows"]] == [
+        ("a", 1, "here"), ("b", 2, "here"), ("c", 4, "here"), ("g", 5, "no_file"), ("unheard", 6, "no_file")]
+    assert (out["view"], out["key"], out["folder"], out["title"], out["folder_kind"]) == (
+        "playlist", "Techno", "Techno", "Techno", None)
+    assert (out["read_at"], out["enabled"], out["service"], out["empty"]) == ("2026-10-30T10:00:00", True, "spotify", None)
+    assert views.library(playlist_state(), "playlist", "house", "", "all", None, lines=[TECHNO, HOUSE],
+                         records=techno_records())["enabled"] is False
+
+
+def test_a_song_without_a_file_waits_or_is_not_found():
+    rows = {r["track_id"]: r for r in playlist_view()["rows"]}
+    assert (rows["g"]["wait"], rows["unheard"]["wait"], rows["a"]["wait"]) == ("not_found", "waiting", None)
+    waiting = rows["unheard"]  # the record's own words stand in for the song
+    assert (waiting["artist"], waiting["title"], waiting["duration_s"], waiting["quality"]) == (
+        "Artist", "Title unheard", 180.0, "missing")
+    assert (waiting["place"], waiting["path"], waiting["cover_url"], waiting["playlists"]) == (None, None, None, ["Techno"])
+    assert rows["g"]["playlists"] == ["Techno"] and rows["g"]["title"] == "Gone"  # the library's own naming
+
+
+def test_a_file_outside_the_playlists_folder_says_where_it_sits_and_the_rest_says_nothing():
+    rows = {r["track_id"]: r for r in playlist_view()["rows"]}
+    assert (rows["a"]["place"], rows["b"]["place"], rows["c"]["place"]) == (None, None, "House")  # not_lossless/ is inside
+
+
+def test_the_files_of_the_playlists_folder_it_does_not_hold_come_below_as_also():
+    out = playlist_view()
+    assert [(r["track_id"], r["position"], r["place"]) for r in out["also"]] == [("d", None, None)]  # "techno" is "Techno"
+    assert views.library(playlist_state(), "all", None, "", "all", None, lines=[])["also"] is None
+    assert [r["track_id"] for r in playlist_view(sort="-title")["also"]] == ["d"]
+
+
+def test_a_playlists_summary_and_chips_count_its_rows_with_a_file_and_the_search_narrows_rows_and_also():
+    out = playlist_view()
+    assert out["summary"]["tracks"] == 3 and out["summary"]["by_quality"]["lossless"] == 2
+    assert out["chips"] == {"all": 3, "lossless": 2, "good_lossy": 1, "weak": 0, "fake": 0, "upgrade_ready": 0}
+    assert out["subtitle"] == ["3 tracks", "Spotify playlist", "Library › Techno"]
+    hit = playlist_view(query="four")
+    assert ([r["track_id"] for r in hit["rows"]], [r["track_id"] for r in hit["also"]]) == ([], ["d"])
+    assert hit["chips"]["all"] == 0 and hit["summary"]["tracks"] == 3 and hit["empty"] is None
+    lossy = playlist_view(filt="good_lossy")  # a quality filter leaves out the rows without a file, and the lossless also
+    assert ([r["track_id"] for r in lossy["rows"]], lossy["also"]) == (["b"], [])
+    nothing = playlist_view(query="zzz")
+    assert (nothing["rows"], nothing["also"], nothing["empty"]) == ([], [], "no_match")
+
+
+def test_a_playlist_sorts_by_its_own_order_and_other_views_fall_back_to_artist():
+    assert [r["track_id"] for r in playlist_view(sort="-order")["rows"]] == ["unheard", "g", "c", "b", "a"]
+    out = views.library(playlist_state(), "all", None, "", "all", "order", lines=[TECHNO, HOUSE])
+    assert [r["title"] for r in out["rows"]] == sorted(r["title"] for r in out["rows"])  # artist, then title
+
+
+def test_every_row_names_the_playlists_that_hold_the_song_in_playlists_txt_order():
+    out = views.library(playlist_state(), "all", None, "", "all", "title", lines=[TECHNO, HOUSE], records=techno_records())
+    assert {r["track_id"]: r["playlists"] for r in out["rows"]} == {
+        "a": ["Techno", "House"], "b": ["Techno"], "c": ["Techno"], "d": [], "h": ["House"]}
+
+
+def test_a_playlist_never_read_has_no_rows_but_its_folders_files_and_one_that_is_gone_says_so():
+    never = playlist_view(records={})
+    assert (never["rows"], never["read_at"], never["empty"], never["subtitle"]) == (
+        [], None, None, ["Spotify playlist", "not read yet"])
+    assert {r["track_id"] for r in never["also"]} == {"a", "b", "d"}
+    gone = playlist_view(key="Nowhere")
+    assert (gone["empty"], gone["rows"], gone["also"], gone["subtitle"], gone["read_at"]) == ("gone", [], None, [], None)
+    read_empty = playlist_view(records={TECHNO.ref: record()})
+    assert (read_empty["rows"], read_empty["read_at"]) == ([], "2026-10-30T10:00:00")
+
+
+def test_all_tracks_and_not_in_a_playlist_say_where_each_file_sits():
+    folder = f"{W}/Hard/2019"
+    st = state(a=song("Techno", "One", "Library/Techno/Example Artist - One.aiff"),
+               b=song("Techno", "Two", "Library/techno/not_lossless/Example Artist - Two.mp3"),
+               **{"local:1": mine(f"{folder}/Example Artist - A.aiff"),
+                  "local:2": mine(f"{W}/Example Artist - B.aiff"), "local:6": mine(f"{W}/Hard/Example Artist - F.aiff"),
+                  "local:3": mine(f"{OTHER}/Bounce/Example Artist - C.aiff"),
+                  "local:4": mine(f"{W}/Old Sets/Bounce/Example Artist - D.aiff"),
+                  "local:5": mine(f"{W}/Wrap/Deep/Example Artist - E.aiff")})
+    imports = [WatchedFolder(2, Path(W), "import"), WatchedFolder(3, Path(OTHER), "import")]
+    out = views.library(st, "all", None, "", "all", "title", lines=[TECHNO], watched=imports)
+    assert {r["track_id"]: r["place"] for r in out["rows"]} == {
+        "a": "Techno", "b": "Techno", "local:1": "Crates › Hard › 2019", "local:2": "Crates", "local:6": "Crates › Hard", "local:3": "Sets › Bounce · Sets",
+        "local:4": "Crates › Bounce · Old Sets", "local:5": "Crates › Deep"}
+    unlisted = views.library(st, "unlisted", None, "", "all", "title", lines=[TECHNO], watched=imports)
+    assert {r["track_id"] for r in unlisted["rows"]} == {f"local:{i}" for i in range(1, 7)}
+    assert unlisted["rows"][0]["place"] is not None
+
+
+WATCHED = [WatchedFolder(1, Path("/m/Library"), "library"), WatchedFolder(2, Path(W), "import")]
+
+
+def folder_state():
+    return state(
+        t=song("Techno", "One", "Library/Techno/Example Artist - One.aiff"),
+        n=song("Techno", "Two", "Library/Techno/not_lossless/Example Artist - Two.mp3", status="not_lossless", cutoff=20000),
+        x=song("Technology", "Three", "Library/Technology/Example Artist - Three.aiff"),
+        **{"local:1": mine(f"{W}/Hard/2019/Example Artist - A.aiff", title="A"),
+           "local:2": mine(f"{W}/Hard/Example Artist - B.aiff", title="B"),
+           "local:3": mine(f"{W}/Example Artist - C.aiff", title="C"),
+           "local:4": mine(f"{W}Extra/Example Artist - D.aiff"),
+           "local:5": mine(f"{W}/Wrap/Deep/Example Artist - E.aiff", title="E")})
+
+
+def folder_view(key, st=None, **kw):
+    return views.library(st or folder_state(), "folder", key, "", "all", "title", lines=[TECHNO], watched=WATCHED, **kw)
+
+
+def test_a_watched_folder_lists_what_lies_at_or_below_it_with_each_files_crate():
+    out = folder_view(W)
+    assert (out["folder_kind"], out["title"], out["view"], out["key"], out["empty"]) == ("watched", "Crates", "folder", W, None)
+    assert {r["track_id"]: r["subfolder"] for r in out["rows"]} == {
+        "local:1": "Hard › 2019", "local:2": "Hard", "local:3": "", "local:5": "Deep"}  # "" = the folder itself
+    assert out["subtitle"] == ["4 tracks", "3 folders with music", views.place(W)]
+    assert out["summary"]["tracks"] == 4 and out["also"] is None
+
+
+def test_a_crate_lists_its_files_with_the_path_below_it_and_a_deeper_route_still_has_its_view():
+    hard = folder_view(f"{W}/Hard")
+    assert (hard["folder_kind"], hard["title"], hard["subtitle"]) == ("crate", "Hard", ["2 tracks", "Crates › Hard"])
+    assert {r["track_id"]: r["subfolder"] for r in hard["rows"]} == {"local:1": "2019", "local:2": ""}
+    wrapper = folder_view(f"{W}/Wrap")  # no crate itself, but a route to it still shows what lies below
+    assert (wrapper["folder_kind"], wrapper["title"], wrapper["empty"]) == ("crate", "Wrap", None)
+    assert [(r["track_id"], r["subfolder"]) for r in wrapper["rows"]] == [("local:5", "Deep")]
+    assert folder_view(f"{W}/Hard/2019")["title"] == "Hard › 2019"  # a crate in a crate reads as its label
+
+
+def test_a_folder_is_found_by_path_prefix_with_a_boundary_and_by_nfc():
+    assert [r["track_id"] for r in folder_view("Library/Techno")["rows"]] == ["t", "n"]  # not Technology
+    assert folder_view(f"{W}/Hard/")["summary"]["tracks"] == 2  # a closing slash is the same folder
+    umlaut = unicodedata.normalize("NFC", "Süß")
+    st = state(**{"local:1": mine(f"{W}/{umlaut}/Example Artist - A.aiff")})
+    nfd = unicodedata.normalize("NFD", f"{W}/{umlaut}")
+    assert nfd != f"{W}/{umlaut}"
+    assert [r["track_id"] for r in folder_view(nfd, st)["rows"]] == ["local:1"]
+    assert folder_view(nfd, st)["title"] == umlaut
+
+
+def test_not_lossless_under_a_library_folder_is_never_a_subfolder():
+    out = folder_view("Library/Techno")
+    assert (out["folder_kind"], out["subtitle"]) == ("library", ["2 tracks", "Library › Techno"])
+    assert {r["track_id"]: (r["subfolder"], r["place"]) for r in out["rows"]} == {"t": (None, "Techno"), "n": (None, "Techno")}
+    assert views.library(folder_state(), "folder", "Library/Techno", "", "all", "title", lines=[],
+                         watched=WATCHED)["subtitle"] == ["2 tracks", "no playlist uses it", "Library › Techno"]
+    assert folder_view("Library/Techno/not_lossless")["folder_kind"] == "library"  # still a view, never a crate
+
+
+def test_a_folder_that_is_not_there_any_more_is_gone_and_an_empty_watched_folder_is_not():
+    for key in ("Library/Nowhere", f"{W}Extra", "/Somewhere/else", f"{W}/Hard/2020", "Library", ""):
+        out = folder_view(key)
+        assert (out["empty"], out["rows"], out["subtitle"], out["folder_kind"] in (None, "crate", "library")) == (
+            "gone", [], [], True), key
+    assert folder_view("/Somewhere/else")["folder_kind"] is None
+    empty = folder_view(W, state(t=song("Techno", "One", "Library/Techno/Example Artist - One.aiff")))
+    assert (empty["empty"], empty["rows"], empty["folder_kind"]) == ("no_match", [], "watched")
+    assert empty["subtitle"] == ["0 tracks", views.place(W)]  # no folders with music: that part is left out
+
+
+def test_an_offline_folder_keeps_its_files_and_says_so_second():
+    out = folder_view(f"{W}/Hard", away={W: "unmounted"})
+    assert {r["file_state"] for r in out["rows"]} == {"offline"}
+    assert out["subtitle"] == ["2 tracks", "Offline: connect the drive", "Crates › Hard"]
+    assert folder_view(W, away={W: "missing"})["subtitle"][1] == "Folder not found"
+    assert folder_view("Library/Techno", away={W: "missing"})["subtitle"] == ["2 tracks", "Library › Techno"]  # not that one
+
+
+def test_a_folder_of_own_files_in_no_playlist_counts_its_lossy_files_and_has_nothing_in_the_to_do_list():
+    st = state(**{"local:1": mine(f"{OTHER}/Rips/Example Artist - A.mp3", "not_lossless", cutoff=20000),
+                  "local:2": mine(f"{OTHER}/Rips/Example Artist - B.mp3", "not_lossless", cutoff=16000),
+                  "local:3": mine(f"{OTHER}/Rips/Example Artist - C.aiff")})
+    out = views.library(st, "folder", f"{OTHER}/Rips", "", "all", "title", lines=[],
+                        watched=[WatchedFolder(3, Path(OTHER), "import")])
+    assert out["summary"]["not_lossless"] == 2 and out["summary"]["to_do"] == 0 and out["summary"]["tracks"] == 3
+    assert {r["own"] for r in out["rows"]} == {True} and out["folder_kind"] == "crate"
+
+
+def test_a_folder_view_searches_filters_and_counts_like_the_others():
+    out = views.library(folder_state(), "folder", W, "ann", "lossless", "-title", lines=[], watched=WATCHED)
+    assert [r["title"] for r in out["rows"]] == ["E", "C", "B", "A"]
+    assert out["summary"]["tracks"] == 4 and out["chips"]["all"] == 4
+
+
+def test_track_detail_carries_the_place_it_is_given():
+    assert views.track_detail("t1", e(), [], TODAY, place="Techno")["place"] == "Techno"
+    assert views.track_detail("t1", e(), [], TODAY)["place"] is None
+
+
+# --- stage review of step B: the browser's counts are the views' rows; the playlist's songs; hidden; the order of also ---
+
+def browser_state():
+    """Every kind of place at once: a file outside its song's folder (`far`), an own file in a Library folder no song
+    uses (`local:9`) and one in a playlist's folder (`local:8`), plus the playlist and folder states."""
+    return state(**playlist_state()["tracks"], **folder_state()["tracks"],
+                 far=song("Techno", "Far", "Library/Loose/Example Artist - Far.aiff"),
+                 **{"local:9": mine("Library/Extra/Example Artist - Own.aiff", title="Own"),
+                    "local:8": mine("Library/Techno/Example Artist - Mine.aiff", title="Mine")})
+
+
+def test_every_count_in_the_browser_is_the_length_of_the_rows_of_the_view_it_opens():
+    st, records = browser_state(), {**techno_records(), TECHNO.ref: record("a", "b", "far", "g", "unheard", "a")}
+    kw = dict(lines=[TECHNO, HOUSE], records=records, watched=WATCHED)
+    side = views.sidebar(st, [TECHNO, HOUSE], 0, records=records, watched=WATCHED)
+
+    def rows(view, key=None):
+        return views.library(st, view, key, "", "all", None, **kw)["rows"]
+
+    assert side["all_tracks"] == len(rows("all")) and side["not_in_playlist"] == len(rows("unlisted"))
+    assert [p["songs"] for p in side["playlists"]] == [len(rows("playlist", p["name"])) for p in side["playlists"]]
+    assert [f["name"] for f in side["library_folders"]] == ["Extra", "Loose", "Technology"]
+    assert [f["files"] for f in side["library_folders"]] == [1, 1, 1]  # `far` counts under Loose, `local:9` under Extra
+    folders = [*side["library_folders"], *side["watched"], *(c for w in side["watched"] for c in w["crates"])]
+    assert len(folders) > 6 and all(f["files"] == len(rows("folder", f["path"])) for f in folders)
+
+
+def test_a_folder_that_holds_only_own_files_has_a_sidebar_row_and_a_file_outside_its_songs_folder_is_counted_where_it_sits():
+    st = state(a=song("Techno", "One", "Library/Techno/Example Artist - One.aiff"),
+               far=song("Techno", "Far", "Library/Loose/Example Artist - Far.aiff"),
+               **{"local:1": mine("Library/Extra/not_lossless/Example Artist - Own.mp3", "not_lossless", cutoff=20000)})
+    side = views.sidebar(st, [TECHNO], 0)
+    assert side["library_folders"] == [{"path": "Library/Extra", "name": "Extra", "files": 1},
+                                       {"path": "Library/Loose", "name": "Loose", "files": 1}]
+    assert [r["track_id"] for r in views.library(st, "folder", "Library/Extra", "", "all", None, lines=[TECHNO])["rows"]] == [
+        "local:1"]
+
+
+def test_a_playlist_view_says_how_many_of_its_songs_have_a_file_whatever_the_search_and_filter():
+    out = playlist_view()
+    assert out["songs"] == {"listed": 5, "with_file": 3} and out["summary"]["tracks"] == 3  # a, b, c | g, unheard
+    assert playlist_view(query="one", filt="lossless")["songs"] == out["songs"]
+    assert playlist_view(records={})["songs"] is None  # never read
+    assert views.library(playlist_state(), "all", None, "", "all", None, lines=[TECHNO])["songs"] is None
+    assert views.library(playlist_state(), "playlist", "Nowhere", "", "all", None, lines=[TECHNO])["songs"] is None
+
+
+def test_a_hidden_song_that_was_not_found_still_says_it_is_hidden_so_the_page_sends_nobody_to_the_to_do_list():
+    st = state(**{**playlist_state()["tracks"], "g": {**playlist_state()["tracks"]["g"], "hidden": True}})
+    rows = {r["track_id"]: r for r in playlist_view(st)["rows"]}
+    assert (rows["g"]["wait"], rows["g"]["hidden"]) == ("not_found", True)
+    assert {r["track_id"]: r["hidden"] for r in playlist_view()["rows"]}["g"] is False
+    assert "not_found" not in [g["key"] for g in views.todo(st, "all", False, {}, TODAY)["groups"]]  # nothing to open
+
+
+def test_the_also_rows_come_by_artist_then_title_and_the_playlists_own_rows_keep_their_order():
+    st = state(**playlist_state()["tracks"],
+               e1=song("Techno", "Zed", "Library/Techno/Example Artist - Zed.aiff"),
+               e2=e(folder="Techno", artist="Abe", title="Mid", path="Library/Techno/Abe - Mid.aiff"),
+               e3=song("Techno", "Aaa", "Library/Techno/Example Artist - Aaa.aiff"))
+    for sort in (None, "order"):
+        out = playlist_view(st, sort=sort)
+        assert [r["track_id"] for r in out["also"]] == ["e2", "e3", "d", "e1"]  # Abe; Example Artist: Aaa, Four, Zed
+        assert [r["track_id"] for r in out["rows"]][:3] == ["a", "b", "c"]
+    assert [r["track_id"] for r in playlist_view(st, sort="-order")["also"]] == ["e1", "d", "e3", "e2"]
+
+
+def _df(file_id, status="lossless", cutoff=None, path=None, in_playlists=False):
+    return DupFile(file_id, None, path or f"/Volumes/Example/Music/x{file_id}.aiff", status, cutoff, None, True,
+                   in_playlists)
+
+
+@pytest.mark.parametrize("files,pick", [
+    # the better sound wins: lossless before lossy, then the higher cutoff
+    ([_df(1, "not_lossless", 20000), _df(2)], (2, views.RECOMMEND_QUALITY)),
+    ([_df(1, "not_lossless", 16000), _df(2, "not_lossless", 20000), _df(3, "not_lossless", 17000)],
+     (2, views.RECOMMEND_QUALITY)),
+    # same sound: AIFF before another format (it keeps tags)
+    ([_df(1, path="/Volumes/Example/Music/x.wav"), _df(2, path="Library/A/x.aiff")], (2, views.RECOMMEND_AIFF)),
+    ([_df(1, path="/Volumes/Example/Music/x.aif"), _df(2, path="/Volumes/Example/Music/x.flac")],
+     (1, views.RECOMMEND_AIFF)),
+    # no clear winner: same sound and format; a playlist or Library/ breaks no tie
+    ([_df(1, in_playlists=True), _df(2, path="Library/A/x.aiff")], (None, None)),
+    ([_df(1, path="/a/x.wav"), _df(2, path="/b/x.flac")], (None, None)),
+    ([_df(1), _df(2), _df(3, "not_lossless", 20000)], (None, None)),  # the two best tie
+])
+def test_recommend_picks_the_file_to_keep_or_none(files, pick):
+    assert views.recommend(files) == pick
+
+
+def test_a_duplicate_item_carries_the_recommendation():
+    st = state(**{"local:1": own(file_id=4), "local:2": own("not_lossless", cutoff=16000, file_id=5)})
+    g = DuplicateGroup("dup:4-5", "same_audio", (4, 5))
+    files = {g.id: [dup_file(4, "local:1"), dup_file(5, "local:2", "not_lossless", 16000)]}
+    pair = views.todo(st, "all", False, {}, TODAY, None, [], [g], files)["groups"][0]["items"][0]["pair"]
+    assert (pair["recommended"], pair["recommended_why"]) == (4, "Recommended: best quality")

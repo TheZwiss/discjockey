@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ActionKey, EstimateAccount, PreviewAction, SyncAccount, SyncPreview } from '$lib/bridge/types';
 import {
-  FULL_SCOPE, type Scope, dayBarInput, defaultHowMany, downloadsInScope, inScope, facets, folderItems, foldText, howManyOptions, inRunOrder, isKindKey, kindItems,
+  FULL_SCOPE, type Scope, dayBarInput, defaultHowMany, downloadsInScope, inScope, facets, folderItems, folderLabel, foldText, howManyOptions, inRunOrder, isKindKey, kindItems,
   kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount,
   minutesFor, runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
   readBlockLine, startLabel, tagOf, toggleScope, waitsWhole, whyColumn,
@@ -242,6 +242,19 @@ describe('the automatic Spotify read', () => {
     expect(shouldAutoRead(pv(), { refreshRunning: false, syncRunning: true })).toBe(false);
     expect(shouldAutoRead(pv(sp({ problem: 'not_set_up' })), idle)).toBe(false);
     expect(shouldAutoRead(pv(sp(), 'not_set_up'), idle)).toBe(false);
+  });
+});
+
+describe('folder names', () => {
+  it('never leaves a playlist row blank', () => {
+    expect(folderLabel('')).toBe('Your own music');
+    expect(folderLabel('  ')).toBe('Your own music');
+    expect(folderLabel('Techno')).toBe('Techno');
+  });
+  it('labels an action that came without a folder', () => {
+    const action = { key: ['upgrade', 't', 'Library/'], kind: 'upgrade', reason: 'weekly', track_id: 't', artist: 'A', title: 'T',
+      folder: '', to_dir: 'Library/', to_not_lossless: false, src: null, cover_url: null } as PreviewAction;
+    expect(facets([action], []).folders).toEqual([{ key: '', label: 'Your own music', count: 1 }]);
   });
 });
 

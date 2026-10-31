@@ -4,8 +4,11 @@
   // `hint` says so (the page's row is hovered), ❚❚ while `playing`; a click plays or pauses. It stays out of the tab
   // order (`tabindex=-1`): the row's own keys play (Enter), so a long list isn't hundreds of tab stops.
   import { hashOf } from '../format';
-  let { url, seed, size = 28, onplay, playing = false, hint = false, name = '' }: {
+  let { url, seed, size = 28, onplay, playing = false, hint = false, name = '', empty = false }: {
     url: string | null; seed: string; size?: 18 | 22 | 24 | 28 | 40 | 64 | 120 | 200;
+    /** no file yet (a playlist song still waiting, or not found): an empty dashed outline in the cover's place, no
+     *  picture and no ▶ (Library's table and details) */
+    empty?: boolean;
     onplay?: () => void; playing?: boolean;
     /** show ▶ now (its row is hovered) */
     hint?: boolean;
@@ -36,7 +39,10 @@
   {/if}
 {/snippet}
 
-{#if onplay}
+{#if empty}
+  <span class="cover empty" style:width="{size}px" style:height="{size}px" style:border-radius={radius} aria-hidden="true"
+    data-test="cover-empty"></span>
+{:else if onplay}
   <button type="button" class="cover play" class:playing class:hint style:width="{size}px" style:min-width="{size}px" style:height="{size}px"
     style:border-radius={radius} style:background={bg} tabindex="-1" aria-label="{playing ? 'Pause' : 'Play'}{name ? ` ${name}` : ''}"
     title={playing ? 'Pause' : 'Play'} onclick={click} ondblclick={(e) => e.stopPropagation()} data-test="cover-play">
@@ -53,6 +59,9 @@
 
 <style>
   .cover { display: inline-block; flex-shrink: 0; overflow: hidden; position: relative; vertical-align: middle; }
+  /* the place a cover would take, outlined in dashes: nothing to show yet (the dashed row of Favourites says the same:
+     a place waiting to be filled) */
+  .empty { border: var(--bw) dashed var(--line-control-hover); }
   img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity var(--t-state) var(--ease); }
   img.loaded { opacity: 1; }
   /* the play button: as small as the cover, so it states its size as min-width for the checker (§6) */

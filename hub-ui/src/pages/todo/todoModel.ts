@@ -2,12 +2,12 @@
 // across re-fetches, the filter strip, the list's sections, actions per track and the panel's main action.
 import type { SegOption } from '$lib/components/segmentedModel';
 import type {
-  FileSide, FreeDownload, Quality, QuestionPair, QuestionWhy, Todo, TodoFilter, TodoGroupKey, TodoItem, TrackDetail,
+  FileSide, FreeDownload, Quality, QuestionPair, QuestionWhy, Todo, TodoFilter,
+  TodoGroupKey, TodoItem, TrackDetail,
 } from '$lib/bridge/types';
 import { isDuplicate, isQuestion } from '$lib/bridge/types';
-import type { QueueItem } from '$lib/stores/queueModel';
-import type { PlayerState } from '$lib/stores/player';
 import { dayMonth, duration, fileAway } from '$lib/format';
+import { canSwap, fileName } from '$lib/decisions/decisionModel';
 import { fitPath } from '$lib/components/watchedFoldersModel';
 
 /** Filter order = the contract's group order (= the list's section order), All first. The import's two groups come
@@ -152,35 +152,6 @@ export function filesOf(i: TodoItem): FileSide[] {
   return isQuestion(i) ? [i.pair.file] : isDuplicate(i) ? i.pair.files : [];
 }
 
-/** A file's id in the player's queue (the foot's link back selects its item through selectFromTrack). */
-export const fileQueueId = (f: Pick<FileSide, 'file_id'>): string => `file:${f.file_id}`;
-
-/** ▶ on a file: the files of the item that can play, as a queue starting at that file, so ⏭ goes on to the next copy
- *  and copies are compared one after the other. Null when that file can't play (offline, or no address). */
-export function fileQueue(files: FileSide[], file_id: number, cover_url: string | null = null):
-  { items: QueueItem[]; start: number; urls: Map<string, string> } | null {
-  const playable = files.filter((f) => f.online && f.audio_url);
-  const start = playable.findIndex((f) => f.file_id === file_id);
-  if (start < 0) return null;
-  return {
-    items: playable.map((f) => ({ track_id: fileQueueId(f), artist: f.artist, title: f.title || fileName(f.path),
-      cover_url, duration_s: f.duration_s || null })),
-    start,
-    urls: new Map(playable.map((f) => [fileQueueId(f), f.audio_url as string])),
-  };
-}
-
-/** A file's ▶ as the player has it: its own sound loading or playing, else paused. */
-export function fileState(p: Pick<PlayerState, 'track_id' | 'playing' | 'loading'>, f: Pick<FileSide, 'file_id'>):
-  'playing' | 'paused' | 'loading' {
-  if (p.track_id !== fileQueueId(f)) return 'paused';
-  return p.loading ? 'loading' : p.playing ? 'playing' : 'paused';
-}
-
-/** The last part of a path ("Neon Riot - Neonfieber.aiff"). */
-export function fileName(path: string): string {
-  return path.split('/').filter(Boolean).at(-1) ?? path;
-}
 /** The folder a file is in, home as "~" ("/Volumes/Example Drive/Music/Old", "Library/Hard_Bounce"). */
 export function fileFolder(path: string): string {
   const dir = path.replace(/\/+$/, '').split('/').slice(0, -1).join('/');
@@ -216,11 +187,6 @@ export function compareLines(p: QuestionPair): CompareLine[] {
   ];
 }
 
-/** "Keep both" for two files, "Keep all" for more (W8). */
-export function keepLabel(n: number): string {
-  return n > 2 ? 'Keep all' : 'Keep both';
-}
-
 /** The playlist service a song's link opens ("Open in Spotify"); null for a link of no known service. */
 export function linkService(link: string | null): string | null {
   if (!link) return null;
@@ -252,16 +218,18 @@ export function actionsFor(track: TrackDetail, group: TodoGroupKey | null = null
   const missing = track.status === 'missing';
   const improvable = IMPROVABLE.includes(track.status);
   const up = track.upgrade;
-  const swap = !!up && up.swap_safe && up.swap_possible;
+  const swap = canSwap(up);
   const check = group === 'rekordbox_check';
   const upgrade = up ? { swap, primary: swap ? 'swap' as const : 'add_new' as const } : null;
   const finder = group === 'other' && !!track.path && !fileAway(track);   // nothing to show when the file isn't there
+  // a lossless version is ready: the upgrade decision is the way to it, so no "Get a lossless file" (buy, drop) under it
+  const getBetter = improvable && !(up && up.what === 'lossless version');
   return {
     listen: !!track.audio_url || fileAway(track),   // away: the player stays, switched off, as in the Library
     versions: missing ? 'find' : 'wrong_song',
     noneOfThese: !missing,
-    buy: improvable,
-    dropZone: improvable,
+    buy: getBetter,
+    dropZone: getBetter,
     hide: track.hidden ? 'unhide' : check ? null : improvable || group === 'other' ? 'hide' : null,
     upgrade,
     showInFinder: finder,
@@ -307,3 +275,13 @@ export function dropDecision(e: DroppedFile, selectedId: string | null): DropDec
   if (!e.readable) return { do: 'message', text: e.message };
   return { do: 'add' };
 }
+
+// ---------- the decisions (shared with the Library, lib/decisions) ----------
+export {
+  KEPT_FILE, QUIT_REKORDBOX, SUPERSEDED_NOT_DELETED, canSwap, checkCard, editLine, fileFormat, fileName, fileQueue,
+  fileQueueId, fileState, fileWords, groupIdOf, keepLabel, keepWords, lastFolder, localDay, replaceLabel, replacedCard,
+  sinceText, upgradeWays,
+} from '$lib/decisions/decisionModel';
+export type {
+  CheckCard, CheckStep, DuplicatePick, ReplacedCard, ReplacedRow, UpgradeWays, Way, WayOption,
+} from '$lib/decisions/decisionModel';

@@ -12,7 +12,7 @@
   import { ExternalLink, NoteCard, PathText, QualityBadge, Surface, WriteButton } from '$lib/components';
   import { Panel } from '$lib/frames';
   import { compareLines, linkService } from './todoModel';
-  import FilePlay from './FilePlay.svelte';
+  import { FilePlay } from '$lib/decisions';
 
   let { item }: { item: QuestionItem } = $props();
 
