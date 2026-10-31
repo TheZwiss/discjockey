@@ -217,6 +217,23 @@ def test_preview_reads_an_unread_playlist_of_a_service_that_needs_no_login(root,
     assert added["ok"] and added["kind"] == "add" and added["new_downloads"] == 1
 
 
+def test_preview_does_not_open_soundcloud_for_a_you_likes_line(root, monkeypatch):
+    """Reading your own likes opens the browser login (a Keychain prompt): a preview skips such a line."""
+    fake_soundcloud(monkeypatch)
+
+    reader = sources.SOURCES["soundcloud"].open(root.support, CancelToken())
+
+    def read(line):
+        raise AssertionError("the preview read your likes")
+    monkeypatch.setattr(reader, "fetch", read)
+    monkeypatch.setattr(sources.SOURCES["soundcloud"], "open", lambda paths, token: reader)
+    monkeypatch.setattr(sources.SOURCES["soundcloud"], "recognise", lambda link: "you/likes")
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    c = api.preview_playlist_change(lines(HARD, POWER, ("Likes", "https://soundcloud.com/you/likes", True)))
+    assert c["ok"]
+
+
 def test_the_page_lists_a_qobuz_row_by_its_ref(root, monkeypatch):
     fake_qobuz(monkeypatch)
     root.playlists_file.write_text(PLAYLISTS + f"Example_Playlist = {QOBUZ_LINK}\n")
