@@ -212,6 +212,13 @@ user's re-check); lane B resumes only after that (group 1's review, then groups 
 - B2. Build stage 6 groups per the plan, one group at a time in this lane (worktrees `6-<group>`), review per §6.
   Engine/non-UI groups may run overnight; a UI group with a design change waits for the user's mockup approval;
   product questions wait for the user.
+- Group 1 built 2026-10-31 on `feat/library-6-split` (5011d61…3923348, Sonnet 129k, suite green, pushed); review
+  not yet run. Its report for later briefs: (1) short links (`on.soundcloud.com/…`) are refused by `clean_link` before
+  `expand` runs: group 2's `recognise` must accept them or I4 changes; (2) `preview_playlist_change` also switched to
+  `.connected`; (3) `test_sources.py` pins `SOURCES == [spotify, qobuz]`: groups 2/3 update it; (4) `account_only` on
+  SourceTrack events: group 5 adds it to `types.ts`, `contract.ts`, contract doc (still says "Spotify or Qobuz");
+  (5) splitter: with a known artist a dash splits only if the left part holds that artist; (6) two flaky
+  `test_hub_dispatch.py` tests under load.
 - Stage 6 merges into main only after stage 5 is in main and its own final review + CI.
 
 Later (each needs its own plan / the user's go): AcoustID (#24, a stage after 6), rekordbox XML for the duplicates
