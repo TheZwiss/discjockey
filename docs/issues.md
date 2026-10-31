@@ -3,19 +3,6 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
-## 31. Decisions in the Library's details, leftovers
-
-Noted in the screenshot review of the Library's decision panel (2026-10-31).
-
-- **To-do under the Upgrades filter loses the item it just replaced.** After Replace with lossless the track moves from
-  Upgrade ready to Check in rekordbox, which the Upgrades filter doesn't show, so `keepSelection` moves on to the next
-  item and the rekordbox steps and Undo the replace go out of sight (they are under All or rekordbox). The Library now
-  keeps the acted-on track (`libraryModel` Hold); To-do would need the same (a decision for its approved behaviour).
-- **`ComparePlayer`'s "▶ Compare" form has no user any more** since the old upgrade card went; remove it or keep it
-  for a later use.
-- **Fake mode:** after a duplicate's heir the summary strip says "15 in To-do" of 16 not lossless; the fake's to-do
-  count doesn't count the heir's song yet.
-
 ## 30. To-do decision panels leftovers
 
 Noted in the screenshot review of the To-do panels (2026-10-31).
