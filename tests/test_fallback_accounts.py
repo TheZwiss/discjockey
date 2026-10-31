@@ -237,3 +237,44 @@ def test_a_protected_go_plus_stream_without_a_usable_full_unprotected_format_is_
             assert fb.drm_protected(err.value), (format_id, protocol)
     finally:
         GoPlusDrmWithFullFree.format_id, GoPlusDrmWithFullFree.protocol = "http_mp3_128", "http"
+
+
+# --- a private upload's secret token (docs/issues.md 34) ---------------------------------------------------------
+
+def test_the_stream_address_holds_the_token_only_when_given():
+    assert fb.stream_url("soundcloud", "1") == "https://api.soundcloud.com/tracks/1"
+    assert fb.stream_url("soundcloud", "1", "s-Tok") == "https://api.soundcloud.com/tracks/1?secret_token=s-Tok"
+    assert fb.stream_url("youtube_music", "x", "s-Tok") == "https://music.youtube.com/watch?v=x"
+
+
+def test_a_private_upload_is_downloaded_and_listed_with_its_token(recorder, tmp_path):
+    asked = []
+    original = recorder.extract_info
+
+    def extract_info(self, url, download=False):
+        asked.append(url)
+        return original(self, url, download)
+
+    recorder.extract_info = extract_info
+    src = FallbackSource()
+    cand = Candidate("soundcloud", "1", "x", "y", 156.0, url=fb.stream_url("soundcloud", "1"), secret="s-Tok")
+    with pytest.raises(RuntimeError):  # Recorder writes no file
+        src.download(cand, tmp_path)
+    src.stream_kbps("soundcloud", "1", secret="s-Tok")
+    assert asked == ["https://api.soundcloud.com/tracks/1?secret_token=s-Tok"] * 2
+    asked.clear()
+    with pytest.raises(RuntimeError):
+        src.download(Candidate("soundcloud", "2", "x", "y", 156.0, url=fb.stream_url("soundcloud", "2")), tmp_path)
+    assert asked == ["https://api.soundcloud.com/tracks/2"]  # a public one: the address as before
+
+
+def test_a_secret_token_is_scrubbed_from_errors_and_yt_dlp_s_messages():
+    messages = []
+    logger = fb._Logger(messages.append)
+    logger.debug("[soundcloud] Extracting URL: https://api.soundcloud.com/tracks/1?secret_token=s-Tok")
+    logger.error("HTTP Error 404: https://api-v2.soundcloud.com/tracks/1?secret_token=s-Tok&client_id=c")
+    text = " ".join(m.text for m in messages)
+    assert "s-Tok" not in text and "secret_token=" in text and "client_id=c" in text
+    err = RuntimeError("[soundcloud] 1: failed\nhttps://x/?secret_token=s-Tok")
+    assert "s-Tok" not in fb.short_error(RuntimeError("see https://x/?secret_token=s-Tok"))
+    assert fb.short_error(err) == "[soundcloud] 1: failed"

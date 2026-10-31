@@ -29,9 +29,18 @@ CHECK_SOURCE = {"youtube": "youtube_music", "soundcloud": "soundcloud"}
 SECTION_FORMAT = "bestaudio[protocol!=http_dash_segments]/bestaudio/best"  # for the "Wrong song?" preview clips
 
 
+_SECRET = re.compile(r"(secret_token=)[^&\s'\"]+")
+
+
+def scrub(text: str) -> str:
+    """`text` without any SoundCloud secret link token (a private upload's `?secret_token=…`): yt-dlp names the address
+    it asks for in its messages and errors, and a token is a secret link that no log, report or event may hold."""
+    return _SECRET.sub(r"\1…", text)
+
+
 def short_error(e: Exception) -> str:
     """The first line of an error, at most 200 characters: what a warning sign or a debug line keeps of it."""
-    return (str(e).splitlines() or [type(e).__name__])[0][:200]
+    return scrub((str(e).splitlines() or [type(e).__name__])[0])[:200]
 
 
 def drm_protected(e: Exception) -> bool:
@@ -100,7 +109,9 @@ def free_download(raw: dict) -> dict | None:
     return None
 
 
-def stream_url(source: str, source_id: str | None) -> str | None:
+def stream_url(source: str, source_id: str | None, secret: str | None = None) -> str | None:
+    """The address a track is downloaded from, by its id. `secret` (SoundCloud, a private upload) is yt-dlp's own form
+    for it; the address then holds a secret, so it is built where it is used and never stored or logged."""
     if not source_id:
         return None
     if source == "youtube_music":
@@ -108,7 +119,8 @@ def stream_url(source: str, source_id: str | None) -> str | None:
     if source == "youtube":
         return f"https://www.youtube.com/watch?v={source_id}"
     if source == "soundcloud":
-        return f"https://api.soundcloud.com/tracks/{source_id}"
+        url = f"https://api.soundcloud.com/tracks/{source_id}"
+        return f"{url}?secret_token={secret}" if secret else url
     return None
 
 
@@ -119,7 +131,7 @@ class _Logger:
         self.emit = emit
 
     def debug(self, msg: str) -> None:
-        self.emit(Message("debug", f"yt-dlp: {msg}"))
+        self.emit(Message("debug", f"yt-dlp: {scrub(msg)}"))
 
     info = warning = error = debug
 
@@ -205,16 +217,18 @@ class FallbackSource:
             done = list(pool.map(complete, found))
         return [c for c in done if c is not None], errors
 
-    def _soundcloud_track(self, url: str) -> dict:
+    def _soundcloud_track(self, url: str, secret: str | None = None) -> dict:
         """SoundCloud's own answer for one track: yt-dlp leaves out the download and "buy" fields, so this asks the
         API through yt-dlp's SoundCloud client (which keeps its access key up to date). A track named by its id
-        (stream_url, a playlist's own upload) is asked for by id; a page link is resolved."""
+        (stream_url, a playlist's own upload) is asked for by id, with its `secret` token when it is private; a page link
+        is resolved."""
         with yt_dlp.YoutubeDL(self.opts) as ydl:
             ie = ydl.get_info_extractor("Soundcloud")
             ie.initialize()
             by_id = re.fullmatch(r"https://api\.soundcloud\.com/tracks/(\d+)", url)
             api = f"{ie._API_V2_BASE}tracks/{by_id.group(1)}" if by_id else ie._resolv_url(url)
-            return ie._call_api(api, None, headers=ie._HEADERS) or {}
+            extra = {"query": {"secret_token": secret}} if secret and by_id else {}
+            return ie._call_api(api, None, headers=ie._HEADERS, **extra) or {}
 
     def free_downloads(self, cands: list[Candidate]) -> list[dict]:
         """The artists' free downloads behind these SoundCloud versions, each with the `key` of its version. A failed
@@ -225,7 +239,7 @@ class FallbackSource:
                 continue
             self.check()
             try:
-                found = free_download(self._soundcloud_track(c.url))
+                found = free_download(self._soundcloud_track(c.url, c.secret))
             except Exception as e:
                 self.emit(Message("debug", f"SoundCloud download info for {c.url} failed: {short_error(e)}"))
                 continue
@@ -239,7 +253,8 @@ class FallbackSource:
             return {}
         return ytdlp_login(service, *self.logins[service])
 
-    def stream_kbps(self, source: str, source_id: str, account: bool = False) -> int | None:
+    def stream_kbps(self, source: str, source_id: str, account: bool = False, secret: str | None = None
+                    ) -> int | None:
         """The bitrate of the stream a download takes (the format download() picks), read without downloading:
         before an account download (does the login give ~256 kbps for this track?), and for files downloaded before
         Discjockey kept it. None for a source it can't ask. Through a SoundCloud login, a Go+ stream that exists only
@@ -249,7 +264,7 @@ class FallbackSource:
         taken is only a 30 s preview (both are this call's, single-threaded use: read them right after)."""
         self.preview_only = False
         self.drm_premium = False
-        url = stream_url(source, source_id)
+        url = stream_url(source, source_id, secret)
         if url is None:
             return None
         self.check()
@@ -344,7 +359,8 @@ class FallbackSource:
             if cand.source == "soundcloud" and login:
                 ydl.add_info_extractor(SoundcloudDrmIE())  # its own headers: the login stays in this download
             try:
-                info = ydl.extract_info(cand.url, download=True)
+                info = ydl.extract_info(stream_url(cand.source, cand.id, cand.secret) if cand.secret else cand.url,
+                                        download=True)
             except Exception as e:
                 if drm_protected(e):
                     raise Protected(f"{SOURCE_NAMES[cand.source]} marks this upload as DRM-protected, so Discjockey can't "

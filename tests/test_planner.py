@@ -1126,3 +1126,18 @@ def test_the_cap_keeps_playlist_first_checks_first_and_counts_the_rest():
     assert p.deferred_checks == 1
     p = plan(fetched, s, files_of(s), TODAY, first_checks=0)
     assert kinds(p) == [("upgrade", "p3")] and p.deferred_checks == 4
+
+
+def test_a_private_tracks_secret_token_survives_from_the_read_to_the_action():
+    """The token lives on the track the reader parsed; the plan hands that same track on as the upload."""
+    import json
+    from pathlib import Path
+
+    from discjockey.sources import soundcloud as source
+
+    raw = json.loads((Path(__file__).parent / "fixtures" / "soundcloud" / "private_set_resolve.json").read_text())
+    tracks = [source.parse_track(t, "s-SetTok123") for t in raw["tracks"]]
+    line = PlaylistLine("B", "example-label/sets/private-set/s-SetTok123", 1, "soundcloud")
+    p = plan([FetchedPlaylist(line, tracks, [])], st(), [], TODAY)
+    assert {a.upload.id: a.upload.secret() for a in p.actions} == {
+        "900000301": "s-OwnTok111", "900000302": "s-SetTok123", "900000303": None, "900000304": "s-PageTok222"}

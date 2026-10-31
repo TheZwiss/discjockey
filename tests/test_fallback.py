@@ -207,7 +207,7 @@ def test_free_downloads_asks_only_for_soundcloud_and_survives_a_failed_lookup():
     class Src(FallbackSource):
         asked = []
 
-        def _soundcloud_track(self, url):
+        def _soundcloud_track(self, url, secret=None):
             self.asked.append(url)
             if url.endswith("bad"):
                 raise RuntimeError("HTTP Error 404")
@@ -261,6 +261,40 @@ def test_the_download_info_of_a_track_named_by_its_id_is_asked_for_by_id(monkeyp
     assert asked == [("https://api-v2.soundcloud.com/tracks/900000101", {}),
                      ("https://api-v2.soundcloud.com/resolve?url=https://soundcloud.com/example-artist/example-title",
                       {})]
+
+
+def test_the_download_info_of_a_private_track_is_asked_for_with_its_token(monkeypatch):
+    import yt_dlp
+
+    asked = []
+
+    class IE:
+        _API_V2_BASE, _HEADERS = "https://api-v2.soundcloud.com/", {}
+
+        def initialize(self):
+            pass
+
+        def _call_api(self, url, video_id, query=None, headers=None):
+            asked.append((url, query))
+            return RAW
+
+    class YDL:
+        def __init__(self, opts):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get_info_extractor(self, key):
+            return IE()
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", YDL)
+    src = FallbackSource()
+    assert src._soundcloud_track(fb.stream_url("soundcloud", "900000101"), "s-Tok") == RAW
+    assert asked == [("https://api-v2.soundcloud.com/tracks/900000101", {"secret_token": "s-Tok"})]
 
 
 def test_search_can_be_limited_to_some_sources():
