@@ -25,7 +25,7 @@ from types import ModuleType
 from ..events import CancelToken, Emit, ReadingPlaylist, no_emit
 from ..library import SupportPaths
 from ..models import SERVICE_NAMES, FetchedPlaylist, PlaylistLine, split_token
-from . import qobuz, spotify
+from . import qobuz, soundcloud, spotify
 from .base import LoginState, Reader, SourceError
 
 __all__ = ["SOURCES", "LoginState", "Reader", "SourceError", "expand", "read", "read_infos", "recognise",
@@ -34,6 +34,7 @@ __all__ = ["SOURCES", "LoginState", "Reader", "SourceError", "expand", "read", "
 SOURCES: dict[str, ModuleType] = {
     "spotify": spotify,
     "qobuz": qobuz,
+    "soundcloud": soundcloud,
 }
 
 
