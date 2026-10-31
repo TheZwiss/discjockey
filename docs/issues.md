@@ -3,6 +3,28 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 33. Lossless AIFF for imported files, with rekordbox pointed at them — needs a design round (user, 2026-10-31)
+
+The user's wish: files of their own (imported, MP3 or other lossy) end up as the library format (16-bit AIFF), with
+rekordbox's entry pointing at the new file automatically. Then every later upgrade is an in-place audio swap inside the
+same file ("Same track"), and cues and beatgrid stay exact. Two shapes to weigh in the design round:
+- **All at once:** at import, convert the whole library to AIFF and repoint rekordbox for every file.
+- **One by one (likely better):** nothing is converted up front. When an upgrade is ready, the lossless AIFF goes in
+  and rekordbox's entry is repointed to it at that moment.
+
+**Bundle with it:** today the "New track" choice keeps the downloaded file as it is. Its cues therefore fit only
+"to within N ms" (`report.SHIFTED_EDIT_CHECK`), while "Same track" shifts the audio sample-exactly
+(`upgrades.build_staged`). If the new file is also shifted, cues fit exactly with either choice.
+
+**Facts to design around** (reference: the rekordbox notes):
+- rekordbox's `master.db` is SQLCipher-encrypted, so "auto point rekordbox" needs a safe route, such as the XML
+  export/import or a relocate rekordbox does itself.
+- Cues and beatgrid live at the rekordbox entry, not in the file.
+- Relocate matches on file name only.
+- rekordbox keeps following files it finds anywhere in the watched folder.
+
+Any write to the user's rekordbox data needs a backup and an undo, and the user's go.
+
 ## 32. Library stage 6 leftovers (SoundCloud and YouTube Music playlists)
 
 Noted while reviewing `docs/2026-10-31-library-stage-6-plan.md`. The first three need a design round.
