@@ -65,6 +65,7 @@ NOT_SELECTED = "Select the track in the to-do list first, then drop the file on 
 CLIENT_ID = re.compile(r"[0-9a-fA-F]{32}")
 NO_FOLDER = "That folder isn't one of the watched folders."
 FAVOURITE_KEYS = ("playlist:", "folder:")  # what a Favourite's key starts with (plan library stage 5, D3)
+ONE_READ_SERVICES = ("soundcloud", "youtube_music")  # a pasted link: their fetch also gives the page facts (want_info)
 BAD_FAVOURITES = "That list of favourites isn't one Discjockey can keep."
 BAD_CRATE = "That isn't a folder Discjockey can show or hide."
 BRIEF_WRITE_FAILED = "Discjockey couldn't save that just now. Try again in a moment."
@@ -1114,11 +1115,20 @@ class HubApi:
             raise sources.SourceError(NOT_CONNECTED.format(name=PLAYLIST_SERVICES[service]), "not_set_up", service)
         reader = source.open(self._support, CancelToken())
         try:
-            info = reader.info(pid)
+            tracks, fetched = None, None
+            if service in ONE_READ_SERVICES:  # their info always comes with a fetch: one read answers both
+                reader.want_info = True
+                try:
+                    fetched = reader.fetch(PlaylistLine("x", pid, 0, service))
+                except sources.SourceError as e:
+                    if e.kind == "playlist_unreadable":
+                        reader.info(pid)  # the page's own words (fetch's are worded for playlists.txt); else this one
+                    raise
+            info = fetched.info if fetched is not None and fetched.info is not None else reader.info(pid)
             self._infos[ref] = info
-            tracks = None
-            if info.readable:
+            if fetched is None and info.readable:
                 fetched = reader.fetch(PlaylistLine(suggest_folder(info.name), pid, 0, service))
+            if fetched is not None:
                 self._extra_tracks[ref] = fetched.tracks
                 tracks = len(fetched.tracks)
         finally:
