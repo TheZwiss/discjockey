@@ -31,6 +31,8 @@ _FEAT_SPLIT = re.compile(rf"(?:^|\s+)\b{_FEAT_WORD}\s+", re.I)  # "Artist feat. 
 _FEAT_IN_TITLE = re.compile(rf"\s+\b{_FEAT_WORD}\s+([^\(\)\[\]]+?)(?=\s[-–—]\s|\s*[\(\[]|\s*$)", re.I)
 _NAME_SPLIT = re.compile(r",\s*|\s+x\s+")  # a lowercase x only: "Lil Nas X" is one artist
 _UPLOADER_TAIL = re.compile(r"(?:\s*-\s*Topic|\s*VEVO)\s*$", re.I)
+_MIX_ONLY = re.compile(r"^(?:extended|original|radio|club|dub|vip)?\s*(?:mix|edit|version)$", re.I)  # "Extended Mix"
+_DANGLING_DASH = re.compile(r"\s+[-–—]\s*$")
 
 _STRIPPED_CATEGORIES = {"So", "Sk"}  # symbols and modifiers: emoji, pictographs, skin tones
 _STRIPPED_CHARS = {
@@ -39,6 +41,7 @@ _STRIPPED_CHARS = {
     **{c: None for c in range(0xE0000, 0xE0080)},    # tag characters (flag sequences)
     0x200D: None, 0x20E3: None,                      # zero width joiner, keycap
     0x2122: None, 0x2120: None,                      # TM and SM would turn into letters under NFKC
+    0x00B4: "'", 0x0060: "'",                        # acute accent and grave as an apostrophe: "Don´t Stop"
 }
 
 
@@ -130,13 +133,18 @@ def split_title(title: str, uploader: str, artist: str | None = None) -> tuple[t
             left, right = right[:m2.start()].strip(), right[m2.end():].strip()
         if not left or not right:
             m = None
-        elif known and not _contains(known, normalize(left)):
-            m = None  # the known artist rules: this dash belongs to the title ("Title - Extended Mix")
+        elif known:
+            left_norm = normalize(left)
+            if not (_contains(known, left_norm) or _contains(left_norm, known)):
+                m = None  # the known artist rules: this dash belongs to the title ("Title - Extended Mix")
+        elif _MIX_ONLY.match(right):
+            m = None  # "Title - Extended Mix": a mix name is no title, so the dash belongs to the title
     if m:
         artists, song = _names(left), right
     else:  # rule 6
         artists, song = _names(fallback_artist), text
     song, moved = _move_feat(song)
+    song = _DANGLING_DASH.sub("", song)  # "Title - feat. Other" leaves a dash behind
     for name in moved:
         if name.lower() not in (a.lower() for a in artists):
             artists.append(name)

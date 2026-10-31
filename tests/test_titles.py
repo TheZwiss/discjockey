@@ -80,6 +80,23 @@ CASES = [
     ("Example Title - Extended Mix", "Some Uploader", "Example Artist", A, "Example Title - Extended Mix"),
     ("Example Artist & Other Artist - Example Title", "x", "Example Artist", ("Example Artist & Other Artist",),
      "Example Title"),
+    # a known artist is part of the title's artist, or the other way round
+    ("A - Title", "x", "A, B", ("A",), "Title"),
+    ("Artist - Title", "x", "Artist & Other", ("Artist",), "Title"),
+    ("Artist - Title", "x", "Artist x Other", ("Artist",), "Title"),
+    ("ARTIST (UK) - Title", "x", "Artist", ("ARTIST (UK)",), "Title"),
+    ("Artist - Title", "x", "ARTIST (UK)", ("Artist",), "Title"),
+    ("The Artist - Title", "x", "Artist", ("The Artist",), "Title"),
+    ("Title - Extended Mix", "x", "Artist", ("Artist",), "Title - Extended Mix"),
+    # no known artist: a mix name after the only dash is no title
+    ("Title - Extended Mix", "Example Artist", None, A, "Title - Extended Mix"),
+    ("Title - Radio Edit", "Example Artist", None, A, "Title - Radio Edit"),
+    # accents used as apostrophes
+    ("Artist - Don´t Stop", "x", None, ("Artist",), "Don't Stop"),
+    ("Artist - Don`t Stop", "x", None, ("Artist",), "Don't Stop"),
+    # a dash left behind
+    ("Artist - Title - ", "x", None, ("Artist",), "Title"),
+    ("Title - feat. Other", "x", "Artist", ("Artist", "Other"), "Title"),
 ]
 
 
@@ -93,7 +110,7 @@ def test_only_tags_keeps_the_cleaned_title():
 
 
 def test_a_dash_with_nothing_on_one_side_is_not_a_split():
-    assert split_title("Example Title - ", "Example Artist") == (A, "Example Title -")
+    assert split_title("Example Title - ", "Example Artist") == (A, "Example Title")  # the dangling dash goes
 
 
 def test_no_uploader_and_no_dash_gives_no_artists():
