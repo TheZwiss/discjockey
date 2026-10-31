@@ -3,6 +3,29 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 32. Library stage 6 leftovers (SoundCloud and YouTube Music playlists)
+
+Noted while reviewing `docs/2026-10-31-library-stage-6-plan.md`. The first three need a design round.
+
+- **W20 has no place on a page:** "the playlist's own upload" (which track came from which upload) is not shown anywhere.
+- **Setup's playlist step has no example-link element:** W23's example links (what to paste for each service) are not
+  built.
+- **No view renders `track_link`** ("Open in Spotify / Qobuz / SoundCloud / YouTube Music"). Pre-existing, not new in
+  stage 6.
+- **Open question: an upload whose own account is used up or paused.** The track waits (I6) instead of searching
+  elsewhere. Decide whether it should search the other sources meanwhile.
+- **Open question: a Go+-only (SNIP) track whose Go+ stream is DRM-only or below ~256 kbps** is never taken from its
+  upload, though Go+ might give the full track at ~128 kbps. Decide whether that is worth taking.
+- **Live check:** the short-link redirect follows one hop. Confirm that `on.soundcloud.com` goes straight to
+  `soundcloud.com/...`.
+- **Seen in the stage 6 screenshots (all pre-existing):**
+  - Fake tracks show FORMAT "FLAC" next to a `.aiff` file.
+  - The empty Playlists state still shows the tidy-up, moves and "read 2 min ago" counts.
+  - The likes row prints the owner twice (`"Example DJ's likes" · Example DJ`).
+  - The Library header drops "YouTube Music playlist" at 1280 px wide; the logo is then the only sign.
+  - W22 and the W5/W18 hints end on a short last line at 1100 px (the empty-state and hint blocks want balanced
+    wrapping).
+
 ## 31. YouTube Music "Liked music" — open question for the user
 
 Library stage 6 reads YouTube Music playlists but leaves out "Liked music", "Watch later" and mixes for now: the
