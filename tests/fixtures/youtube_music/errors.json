@@ -5,5 +5,9 @@
  "bot_check": "ERROR: [youtube:tab] PLexampleList00000000000000000001: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication.",
  "too_many_requests": "ERROR: [youtube:tab] PLexampleList00000000000000000001: Unable to download API page: HTTP Error 429: Too Many Requests (caused by <HTTPError 429: Too Many Requests>)",
  "network": "ERROR: [youtube:tab] PLexampleList00000000000000000001: Unable to download webpage: <urlopen error [Errno 8] nodename nor servname provided, or not known> (caused by URLError('example'))",
- "server_down": "ERROR: [youtube:tab] PLexampleList00000000000000000001: Unable to download API page: HTTP Error 503: Service Unavailable (caused by <HTTPError 503: Service Unavailable>)"
+ "server_down": "ERROR: [youtube:tab] PLexampleList00000000000000000001: Unable to download API page: HTTP Error 503: Service Unavailable (caused by <HTTPError 503: Service Unavailable>)",
+ "alert_generic": "ERROR: [youtube:tab] PLexampleList00000000000000000001: YouTube said: Something went wrong. Please try again later.",
+ "api_404": "ERROR: [youtube:tab] PLexampleList00000000000000000001: Unable to download API page: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+ "tab_layout": "ERROR: [youtube:tab] PLexampleList00000000000000000001: Unable to recognize tab page",
+ "forbidden": "ERROR: [youtube:tab] PLexampleList00000000000000000001: Unable to download API page: HTTP Error 403: Forbidden (caused by <HTTPError 403: Forbidden>)"
 }

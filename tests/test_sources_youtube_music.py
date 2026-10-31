@@ -120,6 +120,18 @@ def test_parse_a_topic_channel_and_a_remix_keep_the_remix():
     assert (track.artists, track.title) == (("Example Artist",), "Example Song Two (Example Remix)")
 
 
+@pytest.mark.parametrize("title, channel, artists, name", [
+    ("Song - Radio Edit", "Example Artist - Topic", ("Example Artist",), "Song - Radio Edit"),
+    ("Example Artist - Song", "Example Artist - Topic", ("Example Artist",), "Song"),
+    # not a Topic channel: unchanged, the splitter's own rules (here "Radio Edit" is a tag, so the title stays whole)
+    ("Song - Radio Edit", "Example Artist", ("Example Artist",), "Song - Radio Edit"),
+    ("Other Artist - Song", "Example Artist", ("Other Artist",), "Song"),
+])
+def test_parse_a_topic_channel_is_the_known_artist_so_a_dash_in_the_title_is_not_split(title, channel, artists, name):
+    track = source.parse_entry({"id": "EXAMPLEtop01", "title": title, "duration": 200, "channel": channel})
+    assert (track.artists, track.title) == (artists, name)
+
+
 def test_parse_a_video_is_split_at_its_dash():
     video = fixture("video_playlist")["entries"]
     first = source.parse_entry(video[0])
@@ -374,7 +386,7 @@ def test_the_bot_check_and_too_many_requests_say_slow_down(world, paths, key):
     assert (str(e.value), e.value.kind, e.value.service) == (SLOW_DOWN, "offline", "youtube_music")
 
 
-@pytest.mark.parametrize("key", ["network", "server_down"])
+@pytest.mark.parametrize("key", ["network", "server_down", "alert_generic", "api_404", "tab_layout"])
 def test_anything_else_says_youtube_is_not_answering_with_only_the_error_kind(world, paths, key):
     failing(world, key)
     with pytest.raises(SourceError) as e:
@@ -382,6 +394,14 @@ def test_anything_else_says_youtube_is_not_answering_with_only_the_error_kind(wo
     assert str(e.value) == "YouTube Music is not responding (Failure). Try again later."
     assert (e.value.kind, e.value.service) == ("offline", "youtube_music")
     assert "example" not in str(e.value).lower() and "http" not in str(e.value).lower()
+
+
+def test_a_403_says_refused_not_the_bare_error_kind(world, paths):
+    failing(world, "forbidden")
+    with pytest.raises(SourceError) as e:
+        read(paths)
+    assert str(e.value) == "YouTube Music is not responding (refused). Try again later."
+    assert (e.value.kind, e.value.service) == ("offline", "youtube_music")
 
 
 def test_a_dict_that_is_no_playlist_is_unreadable(world, paths):
@@ -479,14 +499,27 @@ def _tab_page():
 
 # yt-dlp memoises the compiled form of a class's constant `_VALID_URL` on the class (`InfoExtractor._match_valid_url`,
 # a one-tuple holding a compiled pattern): the same value for everyone, not state of a read, so it is not compared.
-_MEMOS = frozenset({"_VALID_URL_RE"})
+# A module's `__builtins__` is the interpreter's own namespace (the test run changes it), not the module's state.
+_MEMOS = frozenset({"_VALID_URL_RE", "__builtins__"})
 
 
 def _class_state(*classes):
-    """Every plain-data class attribute (containers, strings, numbers) of the classes, deep-copied, to compare later."""
+    """Every plain-data attribute (containers, strings, numbers) of the classes or modules, deep-copied, to compare
+    later. A module is read by its `vars()` the same way (module-level state is shared as much as class state is)."""
     plain = (dict, list, set, tuple, str, int, float, bool, bytes, type(None))
-    return {f"{cls.__module__}.{cls.__qualname__}": {k: copy.deepcopy(v) for k, v in vars(cls).items()
-                                                      if isinstance(v, plain) and k not in _MEMOS} for cls in classes}
+    return {f"{cls.__module__ if isinstance(cls, type) else cls.__name__}.{getattr(cls, '__qualname__', '')}":
+            {k: copy.deepcopy(v) for k, v in vars(cls).items() if isinstance(v, plain) and k not in _MEMOS}
+            for cls in classes}
+
+
+def test_the_class_state_snapshot_sees_a_module_write():
+    import types
+
+    module = types.ModuleType("example_module")
+    module.HEADERS = {}
+    before = _class_state(module)
+    module.HEADERS["Authorization"] = "OAuth example"
+    assert _class_state(module) != before
 
 
 def test_the_class_state_snapshot_sees_a_write():
@@ -516,7 +549,9 @@ def test_a_read_through_the_real_extractor_writes_no_class_attribute(paths, monk
     monkeypatch.setattr(YoutubeTabIE, "_reload_with_unavailable_videos", lambda self, *a, **k: None)
     monkeypatch.setattr(yt_dlp, "YoutubeDL", RealYoutubeDL)
 
-    classes = (*YoutubeTabIE.__mro__[:-1], RealYoutubeDL)
+    from yt_dlp.extractor.youtube import _base, _tab
+
+    classes = (*YoutubeTabIE.__mro__[:-1], RealYoutubeDL, _base, _tab)
     before = _class_state(*classes)
     with source.open(paths, CancelToken()) as reader:
         reader.want_info = True

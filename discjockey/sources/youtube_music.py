@@ -27,7 +27,7 @@ from ..accounts import signal_of
 from ..events import CancelToken, no_emit
 from ..library import SupportPaths
 from ..models import FetchedPlaylist, PlaylistInfo, PlaylistLine, SourceTrack
-from ..titles import split_title
+from ..titles import clean_uploader, split_title
 from .base import LoginState, SourceError
 
 SERVICE = "youtube_music"
@@ -42,16 +42,20 @@ MIX = ("This is a YouTube mix, which changes every time it plays. Save its songs
 PERSONAL_IDS = frozenset({"LM", "LL", "WL"})
 CURATED_MIX_PREFIX = "RDCLAK5uy_"  # YouTube Music's curated playlists are named like mixes but stay put
 REMOVED_TITLES = frozenset({"[deleted video]", "[private video]"})
+TOPIC_SUFFIX = " - Topic"  # YouTube's auto-generated artist channels
 ALBUM_PREFIX = "Album - "  # yt-dlp names an album's playlist so
 
 _HOSTS = frozenset({"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"})
 _LIST_ID = re.compile(r"[A-Za-z0-9_-]+")
 
-# What YouTube answers for a playlist it won't show (private, removed, never there), as yt-dlp words it. A removed or
-# private playlist reads "YouTube said: The playlist does not exist."; a malformed id answers HTTP 400.
-_UNREADABLE_SIGNS = ("youtube said", "does not exist", "playlist is private", "playlist is unavailable",
-                     "playlist is not available", "unviewable", "failed to resolve", "unable to recognize",
-                     "redirected to youtube.com home page", "http error 400", "http error 404")
+# What YouTube answers for a playlist it won't show, as yt-dlp words it. A removed, private or never-there playlist
+# reads "YouTube said: The playlist does not exist." (YouTube's own alert) or, when the page falls back to the home
+# page, "The channel/playlist does not exist and the URL redirected to youtube.com home page" (extractor/youtube/
+# _tab.py, `_extract_data`); a malformed id answers HTTP 400. Deliberately absent: the "YouTube said" prefix (it opens
+# every alert, including "Something went wrong"), HTTP 404 (YouTube answers some at random) and "Unable to recognize
+# tab page" (a layout failure of the extractor): those are YouTube not answering (W15), not the playlist's fault.
+_UNREADABLE_SIGNS = ("does not exist", "failed to resolve", "unviewable", "redirected to youtube.com home page",
+                     "http error 400")
 
 
 def recognise(link: str) -> str | None:
@@ -105,8 +109,9 @@ def _refusal(playlist_id: str) -> SourceError | None:
 
 
 def _problem(e: Exception) -> str:
-    """What to say YouTube did when a request failed: only the kind of error (a library's text may hold a link)."""
-    return type(e).__name__
+    """What to say YouTube did when a request failed: "refused" for a 401/403, else only the kind of error (a
+    library's text may hold a link)."""
+    return "refused" if signal_of(e) == "refused" else type(e).__name__
 
 
 def _failure(e: Exception, unreadable: SourceError | None) -> SourceError:
@@ -154,7 +159,11 @@ def parse_entry(entry: object) -> SourceTrack | str:
         return skipped_text(title)
     video_id = str(entry["id"])
     channel = entry.get("channel") or entry.get("uploader") or ""
-    artists, name = split_title(title, str(channel))
+    if str(channel).strip().lower().endswith(TOPIC_SUFFIX.lower()):
+        # an auto-generated "<Artist> - Topic" channel: titles are the song only, so the channel is the known artist
+        artists, name = split_title(title, str(channel), clean_uploader(str(channel)))
+    else:
+        artists, name = split_title(title, str(channel))
     return SourceTrack(
         id=video_id,
         title=name,
