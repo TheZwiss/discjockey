@@ -225,6 +225,15 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   SourceTrack events: group 5 adds it to `types.ts`, `contract.ts`, contract doc (still says "Spotify or Qobuz");
   (5) splitter: with a known artist a dash splits only if the left part holds that artist; (6) two flaky
   `test_hub_dispatch.py` tests under load.
+- Group 1 fixed (review 87k, fix 70k) and merged 60d9d12. Group 2 built on `feat/library-6-soundcloud` (146k, 6 live
+  public probes, no curl_cffi needed), review 103k: shared yt-dlp `_HEADERS` leak (a `you/likes` login would make
+  every later SoundCloud request authenticated) + 4 minors, fix round running. For later briefs:
+  *group 4:* don't rely on `fallback.py` for yt-dlp state isolation; build exact-upload URLs from `SourceTrack.id`
+  via `fallback.stream_url("soundcloud", id)`; tracks in a private set may need the set's secret token, which
+  `SourceTrack` lacks: park it in `docs/issues.md`. *group 5:* `types.ts` `track_count: number | null` (likes give
+  None) + fakes; `sources.expand` can raise `SourceError` (W6–W9) and open a browser-login Keychain prompt inside
+  `add_playlist`: check `@bridge` returns `{ok:false, kind, service}` and `login_expired` for soundcloud reaches the
+  Settings banner; a `you/likes` line in `playlists.txt` logs in on every read (D4): sync summary needs W9's text.
 - Stage 6 merges into main only after stage 5 is in main and its own final review + CI.
 
 Later (each needs its own plan / the user's go): AcoustID (#24, a stage after 6), rekordbox XML for the duplicates
