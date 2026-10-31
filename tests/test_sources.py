@@ -1,5 +1,8 @@
 """The source registry: which service a link belongs to, and one read over the lines of several services."""
 import json
+import subprocess
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -57,6 +60,68 @@ def support(tmp_path):
 def test_the_registry_holds_spotify_and_qobuz():
     assert list(sources.SOURCES) == ["spotify", "qobuz"]
     assert sources.SOURCES["spotify"] is spotify and sources.SOURCES["qobuz"] is qobuz_source
+
+
+def test_service_list_names_every_service_in_registry_order():
+    assert sources.service_list() == "Spotify, Qobuz, SoundCloud or YouTube Music"
+
+
+def test_service_list_with_fewer_names(monkeypatch):
+    monkeypatch.setattr(sources, "SERVICE_NAMES", {"spotify": "Spotify"})
+    assert sources.service_list() == "Spotify"
+    monkeypatch.setattr(sources, "SERVICE_NAMES", {"spotify": "Spotify", "qobuz": "Qobuz"})
+    assert sources.service_list() == "Spotify or Qobuz"
+
+
+@pytest.mark.parametrize("code", ["import discjockey.sources", "import discjockey.config, discjockey.playlists_file",
+                                  "import discjockey.sources as s; s.recognise('https://example.com/x')"])
+def test_the_registry_imports_without_yt_dlp(code):
+    """`sources` is imported by config and playlists_file, which must not pull yt-dlp in before tools.activate().
+    A fresh interpreter, because conftest.py imports yt_dlp itself."""
+    root = Path(__file__).resolve().parents[1]
+    out = subprocess.run([sys.executable, "-c", f"import sys; {code}; print('yt_dlp' in sys.modules)"],
+                         capture_output=True, text=True, cwd=root, timeout=60)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "False"
+
+
+def test_a_login_state_is_connected_unless_missing():
+    assert LoginState("ok").connected and LoginState("not_needed").connected
+    assert not LoginState("missing", "x").connected
+
+
+def test_a_service_that_needs_no_login_reads_without_one(support, monkeypatch):
+    log = []
+    monkeypatch.setitem(sources.SOURCES, "fake", fake_source(log, login="not_needed"))
+    fetched = sources.read(support, [PlaylistLine("A", "1", 1, "fake")])
+    assert [f.line.folder for f in fetched] == ["A"] and ("open", "fake") in log
+
+
+def _expanding():
+    return SimpleNamespace(SERVICE="fake", recognise=lambda link: "1" if link.startswith("fake:") else None,
+                           expand=lambda link, paths, token: f"{link}/expanded")
+
+
+def test_expand_asks_the_source_that_recognises_the_link(support, monkeypatch):
+    monkeypatch.setitem(sources.SOURCES, "fake", _expanding())
+    assert sources.expand("fake:1", support, CancelToken()) == "fake:1/expanded"
+
+
+def test_expand_returns_other_links_as_they_are(support, monkeypatch):
+    monkeypatch.setitem(sources.SOURCES, "fake", _expanding())
+    assert sources.expand("https://example.com/x", support, CancelToken()) == "https://example.com/x"
+    assert sources.expand(f"spotify:playlist:{ID1}", support, CancelToken()) == f"spotify:playlist:{ID1}"  # no expand
+
+
+def test_expand_passes_a_source_error_on(support, monkeypatch):
+    def refuse(link, paths, token):
+        raise SourceError("nope", "playlist_unreadable", "fake")
+
+    monkeypatch.setitem(sources.SOURCES, "fake", SimpleNamespace(SERVICE="fake", recognise=lambda link: "1",
+                                                                 expand=refuse))
+    with pytest.raises(SourceError) as e:
+        sources.expand("fake:1", support, CancelToken())
+    assert (e.value.kind, e.value.service) == ("playlist_unreadable", "fake")
 
 
 def test_recognise_gives_service_and_id():
