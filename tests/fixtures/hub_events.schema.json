@@ -714,6 +714,16 @@
             "string",
             "null"
           ]
+        },
+        "upload": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceTrack"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -726,7 +736,8 @@
         "dest_dir",
         "aliases",
         "reason",
-        "qobuz_id"
+        "qobuz_id",
+        "upload"
       ],
       "additionalProperties": false
     },

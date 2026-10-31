@@ -3,6 +3,15 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 30. The own upload of a track in a private SoundCloud set
+
+Noted while building library stage 6, group 4 (`docs/2026-10-31-library-stage-6-plan.md`). The upload step downloads
+a SoundCloud playlist's own track by its id (`fallback.stream_url`). A track that is private itself and sits in a
+private set (read through the set's share link, `user/sets/slug/s-token`) may need the set's secret token to be
+fetched, and `SourceTrack` doesn't carry it. Such a track then fails its upload try and goes on to the usual search,
+like any upload that can't be downloaded. A known limit, not built: it would need the token on the track from the
+reader to the download.
+
 ## 29. Library stage 5b leftovers (folders)
 
 Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, step B (folders), task groups B2 to B7.
