@@ -243,6 +243,13 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   source stand in; (c) tell them about the login leak fix. *Group 5 also:* `events.ts` `Action.upload:
   SourceTrack | null`, field list `'upload'`, `query_kind` `'upload'`; fake actions; contract lines ~1885/1889
   (`upload`, `account_only`, W20); W20 in `views.py` and `cardState.ts` (`how="upload"`); check `report.py` copes.
+- Group 4 fixed (71k) merged 9b894c3; group 5 (223k, review 116k, fix 67k) merged 9458022; group 6a (114k) + 6b
+  shots (Opus 174k) merged 96af538; CI green on groups 4–5. Opus stage review running. Design-round items (need a
+  mockup + the user's OK, not built): W20 "the playlist's own upload" has no Sync-card place; Setup has no example
+  links; no UI renders `track_link` ("Open in …", pre-existing). Pre-existing seen by 6b (for `docs/issues.md`):
+  fake tracks show FLAC next to `.aiff`; empty Playlists state still shows tidy/moves/read counts; likes row prints
+  the owner twice (`"Example DJ's likes" · Example DJ`); Library header drops "YouTube Music playlist" at 1280;
+  W22/W5/W18 hints end on a short last line at 1100 (balanced wrapping in the blocks).
 - Stage 6 merges into main only after stage 5 is in main and its own final review + CI.
 
 Later (each needs its own plan / the user's go): AcoustID (#24, a stage after 6), rekordbox XML for the duplicates
