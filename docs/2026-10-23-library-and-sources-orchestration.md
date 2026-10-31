@@ -256,6 +256,12 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   Waits for: the user's stage 5 re-check + merge into main, then stage 6 merged onto main, the user's read-only live
   check (plan "Stage checks": paste a SoundCloud set, you/likes, a YTM playlist; read; look at the splits), and the
   three questions (Liked music; wait vs search when the upload's account is used up; SNIP at ~128 kbps).
+- **The user's answers 2026-10-31:** (1) Liked music: a Settings choice, off by default, with a warning that
+  explains the bot-check risk to the Premium account (needs a design round + mockup OK, then a plan; engine reads via
+  the YouTube login only when on). (2) The upload's account used up or paused: the track waits (I6 stays, no change;
+  "why take worse if the better one comes the next day"). (3) A Go+-only (SNIP) upload with no ~256 kbps Go+ stream:
+  take its full ~128 kbps Go+ stream as the last resort when Qobuz and the search find nothing (counts against the
+  SoundCloud limit; a used-up/paused account waits as in (2)). Built on `feat/library-6-snip` before stage 6 merges.
 - Stage 6 merges into main only after stage 5 is in main and its own final review + CI.
 
 Later (each needs its own plan / the user's go): AcoustID (#24, a stage after 6), rekordbox XML for the duplicates
