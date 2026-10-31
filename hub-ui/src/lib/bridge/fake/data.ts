@@ -499,7 +499,7 @@ export function samplePlaylists(): FakePlaylist[] {
       info: { name: "Example DJ's likes", owner_name: 'Example DJ', yours: false, collaborative: false, readable: true,
         image_url: null, track_count: null, hint: SOUNDCLOUD_HINT } },
     { folder: 'Example_Channel', link: YOUTUBE_MUSIC_LINK, enabled: true,
-      info: { name: 'Example Mix Tape', owner_name: 'Example Channel', yours: false, collaborative: false, readable: true,
+      info: { name: 'Example Warm-up', owner_name: 'Example Channel', yours: false, collaborative: false, readable: true,
         image_url: null, track_count: 1, hint: YOUTUBE_MUSIC_HINT } },
   ];
 }

@@ -680,9 +680,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         const link = `https://music.youtube.com/playlist?list=${yt[1]}`;
         return later(700, () => ok({ playlist_id: `youtube_music:${yt[1]}`, service: 'youtube_music' as const,
           service_name: 'YouTube Music', link,
-          info: { name: 'Example Mix Tape', owner_name: 'Example Channel', yours: false, collaborative: false,
+          info: { name: 'Example Warm-up', owner_name: 'Example Channel', yours: false, collaborative: false,
             readable: true, image_url: null, track_count: 20, hint: hintOf('youtube_music') },
-          tracks: 20, readable: true, suggested_folder: 'Example_Mix_Tape', hint: null }));
+          tracks: 20, readable: true, suggested_folder: 'Example_Warm_up', hint: null }));
       }
       const m = /open\.spotify\.com\/playlist\/([A-Za-z0-9]+)/.exec(url ?? '');
       if (!m) return fail('refused', LINK_REFUSED);
