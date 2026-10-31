@@ -223,7 +223,10 @@ Mixes = https://music.youtube.com/playlist?list=...
 - **How a track is found:** Discjockey looks for it on Qobuz by ISRC and name (a Qobuz playlist's track is fetched by its
   exact id). If Qobuz doesn't have it and the track comes from a SoundCloud or YouTube Music playlist, it then tries that
   upload itself: SoundCloud's free download first, if the artist offers one, then its stream (through your SoundCloud
-  Go+ login when you set one up). Only after that it searches YouTube Music, SoundCloud and YouTube.
+  Go+ login when you set one up). Only after that it searches YouTube Music, SoundCloud and YouTube. An upload that
+  only Go+ plays in full (everyone else gets a 30 s preview) is downloaded only through your Go+ login. If Go+ gives it
+  at about 128 kbps only, that stream counts like any other source of that quality: a better one, or an equal one
+  that costs no Go+ download, goes first.
 
 ## Your existing music
 

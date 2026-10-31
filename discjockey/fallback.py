@@ -132,6 +132,9 @@ class FallbackSource:
         self.opts = {"quiet": True, "no_warnings": not verbose, "noprogress": True, "logger": _Logger(emit)}
         # account service -> (browser, profile); only for format listings and downloads
         self.logins = dict(logins or {})
+        self.preview_only = False  # the last stream_kbps(): the format taken is only a 30 s preview
+        # the last stream_kbps(): the Go+ stream is DRM-protected, but a full unprotected one was taken
+        self.drm_premium = False
 
     def _extract(self, url: str, flat: bool) -> dict:
         opts = {**self.opts, "skip_download": True}
@@ -240,7 +243,12 @@ class FallbackSource:
         """The bitrate of the stream a download takes (the format download() picks), read without downloading:
         before an account download (does the login give ~256 kbps for this track?), and for files downloaded before
         Discjockey kept it. None for a source it can't ask. Through a SoundCloud login, a Go+ stream that exists only
-        DRM-protected raises a "DRM protected" error (drm_protected), as yt-dlp does when every stream is protected."""
+        DRM-protected raises a "DRM protected" error (drm_protected), as yt-dlp does when every stream is protected,
+        unless the format yt-dlp took is itself a full, unprotected stream (a ~128 kbps one beside the protected Go+
+        stream): that bitrate is returned and `drm_premium` is set. `preview_only` tells afterwards whether the format
+        taken is only a 30 s preview (both are this call's, single-threaded use: read them right after)."""
+        self.preview_only = False
+        self.drm_premium = False
         url = stream_url(source, source_id)
         if url is None:
             return None
@@ -254,8 +262,17 @@ class FallbackSource:
             info = ydl.extract_info(url, download=False) or {}
         rate = info.get("abr") or info.get("tbr")
         kbps = round(rate) if rate else None
+        # yt-dlp names a 30 s preview stream "…_preview" and ranks it last: it is the pick only when the login plays
+        # nothing else of the upload (a Go+-only upload without Go+), so its bitrate says nothing about the full track
+        format_id = str(info.get("format_id") or "")
+        self.preview_only = "preview" in format_id
         if sc and sc.drm_premium and (kbps or 0) < PREMIUM_MIN_KBPS:  # not "no Go+ stream": the account isn't at fault
-            raise RuntimeError(f"[soundcloud] {source_id}: the Go+ stream is DRM protected")
+            # yt-dlp never picks a protected format, so a named format that is no preview and no protected protocol
+            # is a full, unprotected stream (assumed: a live check confirms it); only that one is told apart
+            protected = str(info.get("protocol") or "").startswith(("ctr-", "cbc-"))
+            if not format_id or self.preview_only or protected or not kbps:
+                raise RuntimeError(f"[soundcloud] {source_id}: the Go+ stream is DRM protected")
+            self.drm_premium = True
         return kbps
 
     def _browser_cookies(self, browser: str, profile: str | None = None):
