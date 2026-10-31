@@ -1306,10 +1306,9 @@
       <MiniPlayer url={toneB} title="Armin Hermann – Get Naughty" track_id="t2" envelope={env} length_s={40} />
       <MiniPlayer url={null} title="Some Artist – Gone Track" />
       <MiniPlayer url="data:audio/wav;base64,AAAA" title="Broken" length_s={10} />
-      <ComparePlayer a={{ url: toneA, label: 'Current' }} b={{ url: toneB, label: 'New' }} cueText="matches exactly, cues stay" />
-      <ComparePlayer a={{ url: 'data:audio/wav;base64,AAAA', label: 'Current' }} b={{ url: 'data:audio/wav;base64,AAAA', label: 'New' }} />
-      <!-- ready: the player from the start (To-do's upgrade decision) -->
-      <ComparePlayer ready total={40} a={{ url: toneA, label: 'Now' }} b={{ url: toneB, label: 'New' }} />
+      <!-- the upgrade decision's player; the second one can't play (its first ▶ shows the error) -->
+      <ComparePlayer total={40} a={{ url: toneA, label: 'Now' }} b={{ url: toneB, label: 'New' }} />
+      <ComparePlayer total={40} a={{ url: 'data:audio/wav;base64,AAAA', label: 'Now' }} b={{ url: 'data:audio/wav;base64,AAAA', label: 'New' }} />
     </div>
   </section>
 

@@ -9,10 +9,14 @@
   import { DuplicateChoice, DuplicateFlow, DuplicateFoot } from '$lib/decisions';
   import { Panel } from '$lib/frames';
 
-  let { item }: { item: DuplicateItem } = $props();
+  let { item, onacted }: {
+    item: DuplicateItem;
+    /** a Keep starts here: `keep` are the paths of the files that stay (the page follows the song that has one) */
+    onacted?: (keep: string[]) => void;
+  } = $props();
 
   // the app's pick until the user picks (the component is keyed by the group, so a new group starts over)
-  const flow = new DuplicateFlow();
+  const flow = new DuplicateFlow({ onact: (keep) => onacted?.(keep) });
   const pick = $derived(flow.pick(item.pair));
 </script>
 

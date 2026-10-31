@@ -9,7 +9,7 @@ import {
   cutoffStat, freeHint, qobuzText, selectAfterHide, selectFromTrack,
   NO_VALUE, compareLines, fileFolder, filePlace, fileName, fileQueue, fileState, keepLabel, linkService, queueRows, rowBadge,
   checkCard, editLine, fileFormat, fileWords, groupIdOf, keepWords, lastFolder, localDay, replaceLabel, replacedCard,
-  sinceText, upgradeWays,
+  sinceText, upgradeWays, findHeld, ghostOf, holdApplies, withHeldItem, type TodoHold,
 } from './todoModel';
 import type { RekordboxCheckView } from '$lib/bridge/types';
 import { stepChoice } from '$lib/components/choiceModel';
@@ -566,5 +566,89 @@ describe('the fake backend follows the engine', () => {
     const pairs = t.groups[0].items.map((i) => (i as DuplicateItem).pair);
     expect(pairs.map((p) => p.recommended === null)).toContain(true);
     expect(pairs.some((p) => p.recommended !== null && p.recommended_why === 'Recommended: best quality')).toBe(true);
+  });
+});
+
+describe('the item just acted on (the hold)', () => {
+  const hold = (extra: Partial<TodoHold> = {}): TodoHold => ({ key: 'upgrade_ready/t2', id: 't2', keep: null,
+    filter: 'upgrade_ready', showHidden: false, put: false, ghost: false, ...extra });
+
+  it('holds only for the selected item, in the filter and Show hidden it was made in', () => {
+    expect(holdApplies(hold(), 'upgrade_ready/t2', 'upgrade_ready', false)).toBe(true);
+    expect(holdApplies(hold(), 'upgrade_ready/t3', 'upgrade_ready', false)).toBe(false);
+    expect(holdApplies(hold(), 'upgrade_ready/t2', 'all', false)).toBe(false);
+    expect(holdApplies(hold(), 'upgrade_ready/t2', 'upgrade_ready', true)).toBe(false);
+    expect(holdApplies(null, 'upgrade_ready/t2', 'upgrade_ready', false)).toBe(false);
+  });
+
+  it('finds the item itself, else the same track in another group, else the song with a kept file', () => {
+    const items = flatten(todo([['rekordbox_check', ['t2']], ['weak', ['t5']]]));
+    expect(findHeld(items, hold())?.group).toBe('rekordbox_check');
+    expect(findHeld(items, hold({ key: 'weak/t5', id: 't5' }))?.track_id).toBe('t5');
+    expect(findHeld(items, hold({ key: 'upgrade_ready/t9', id: 't9' }))).toBeNull();
+    const kept = [item('t5', 'weak', { path: '/Volumes/M/kept.aiff' })];
+    expect(findHeld(kept, hold({ key: 'duplicate/1-2', id: 'local:5', keep: ['/Volumes/M/kept.aiff'] }))?.track_id).toBe('t5');
+    expect(findHeld(kept, hold({ key: 'duplicate/1-2', id: 'local:5', keep: ['/elsewhere.aiff'] }))).toBeNull();
+  });
+
+  it('an import item is never taken for the same track', () => {
+    const dup = item('dup1', 'duplicate', { path: '/Volumes/M/kept.aiff',
+      pair: { group_id: '1-2', why: 'same_audio', files: [], recommended: null, recommended_why: null } });
+    expect(findHeld([dup], hold({ key: 'duplicate/9-9', id: 'other', keep: ['/Volumes/M/kept.aiff'] }))).toBeNull();
+  });
+
+  it('puts a replaced item back into the section it stood in, at its place', () => {
+    const before = todo([['upgrade_ready', ['t1', 't2', 't3']]]);
+    const after = todo([['upgrade_ready', ['t1', 't3']]]);
+    const moved = item('t2', 'rekordbox_check');
+    const out = withHeldItem(after, moved, before, 'upgrade_ready/t2');
+    expect(out.groups).toHaveLength(1);
+    expect(out.groups[0].key).toBe('upgrade_ready');
+    expect(flatten(out).map((i) => itemKey(i))).toEqual(['upgrade_ready/t1', 'rekordbox_check/t2', 'upgrade_ready/t3']);
+  });
+
+  it('makes the section again when the answer has none left, in the contract order, and clears empty', () => {
+    const before = { ...todo([['upgrade_ready', ['t2']]]) };
+    before.groups[0] = { ...before.groups[0], label: 'Upgrade ready', hint: 'a better version is waiting' };
+    const after: Todo = { ...todo([]), empty: 'nothing_here' };
+    const out = withHeldItem(after, item('t2', 'rekordbox_check'), before, 'upgrade_ready/t2');
+    expect(out.empty).toBeNull();
+    expect(out.groups.map((g) => [g.key, g.label, g.hint, g.items.length])).toEqual([['upgrade_ready', 'Upgrade ready', 'a better version is waiting', 1]]);
+    const two = todo([['upgrade_ready', ['t4']], ['weak', ['t5']]]);
+    const gone = todo([['weak', ['t5']]]);
+    expect(withHeldItem(gone, item('t4', 'rekordbox_check'), two, 'upgrade_ready/t4').groups.map((g) => g.key))
+      .toEqual(['upgrade_ready', 'weak']);
+  });
+
+  it('leaves an answer that lists the item as it is', () => {
+    const view = todo([['upgrade_ready', ['t2']]]);
+    expect(withHeldItem(view, item('t2', 'upgrade_ready'), view, 'upgrade_ready/t2')).toBe(view);
+  });
+
+  it('a ghost is the row as it was, without what only a to-do has', () => {
+    const old = item('t2', 'rekordbox_check', { upgrade_ready: true, can_undo: true, detail: 'Reload Tag',
+      check: { reason: 'swapped', since: null, match: null, offset_ms: null, moved: false, text: 't', old_path: null } });
+    const g = ghostOf(old);
+    expect(itemKey(g)).toBe(itemKey(old));
+    expect(g).toMatchObject({ upgrade_ready: false, can_undo: false, check: undefined, detail: '', title: old.title });
+  });
+
+  it('under the Upgrades filter a replace in the fake keeps the item, with its steps and Undo', async () => {
+    const b = createFakeBridge('todo:upgrade-aiff-same', { speed: 200 });
+    const up = await b.todo('upgrade_ready', false);
+    if (!up.ok) throw new Error('todo failed');
+    const h = hold();
+    expect(findHeld(flatten(up), h)?.group).toBe('upgrade_ready');
+    const job = await b.upgrade('t2', 'swap');
+    if (!job.ok) throw new Error('upgrade failed');
+    await new Promise((r) => setTimeout(r, 300));
+    const view = await b.todo('upgrade_ready', false);
+    const all = await b.todo('all', false);
+    if (!view.ok || !all.ok) throw new Error('todo failed');
+    expect(findHeld(flatten(view), h)).toBeNull();
+    const held = findHeld(flatten(all), h)!;
+    expect(held).toMatchObject({ group: 'rekordbox_check', can_undo: true });
+    const out = withHeldItem(view, held, up, h.key);
+    expect(flatten(out).some((i) => itemKey(i) === 'rekordbox_check/t2' && i.check?.reason === 'swapped')).toBe(true);
   });
 });

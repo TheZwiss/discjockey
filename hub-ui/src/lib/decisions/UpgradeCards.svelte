@@ -45,7 +45,7 @@
       </div>
     </div>
     {#if track.audio_url && up.audio_url}
-      <ComparePlayer ready total={track.duration_s} a={{ url: track.audio_url, label: 'Now' }}
+      <ComparePlayer total={track.duration_s} a={{ url: track.audio_url, label: 'Now' }}
         b={{ url: up.audio_url, label: 'New' }} />
     {/if}
     <KeyValue k="Edit" keyWidth={44}>

@@ -26,10 +26,12 @@
   import { actionsFor, cutoffStat, dropDecision, freeHint, qobuzText } from './todoModel';
   import BoughtFile from './BoughtFile.svelte';
 
-  let { track, item, onhidden, onversions, onlisten }: {
+  let { track, item, onhidden, onversions, onlisten, onacted }: {
     track: TrackDetail; item: TodoItem | null;
     /** ▶ in the player: start the to-do list (its rows with a file, in the order shown) from this track */
     onlisten?: () => void;
+    /** a decision's job starts here (Replace, Discard, Done, Undo): the page keeps this item in the list and selected */
+    onacted?: () => void;
     /** after "Hide" finished */
     onhidden: () => void;
     /** "Wrong song?" / "Find a version" (part B opens the dialog) */
@@ -76,7 +78,7 @@
   }
 
   // the "In rekordbox" pick, the running action and an undo's refusal; a new track starts over
-  const flow = new UpgradeFlow();
+  const flow = new UpgradeFlow({ onact: () => onacted?.() });
   $effect(() => flow.follow(track.track_id));
   const way = $derived(flow.way(!!act.upgrade?.swap));
 

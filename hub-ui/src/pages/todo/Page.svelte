@@ -20,8 +20,8 @@
   import { ListPanelFrame, Panel } from '$lib/frames';
   import { artistTitle } from '$lib/format';
   import {
-    FILTER_MAX, segOptions, filterFrom, flatten, headerSub, itemKey, keepSelection, moveSelection, queueRows, rowBadge, rowOff,
-    selectAfterHide, selectFromTrack,
+    FILTER_MAX, segOptions, filterFrom, findHeld, flatten, ghostOf, headerSub, holdApplies, itemKey, keepSelection,
+    moveSelection, queueRows, rowBadge, rowOff, selectAfterHide, selectFromTrack, withHeldItem, type TodoHold,
   } from './todoModel';
   import Details from './Details.svelte';
   import QuestionDetails from './QuestionDetails.svelte';
@@ -42,6 +42,22 @@
 
   const items = $derived(flatten(data));
   const selected = $derived(items.find((i) => itemKey(i) === selKey) ?? null);
+
+  // The item just acted on in the details stays in the list and selected (todoModel TodoHold): the user's own pick,
+  // another filter or Show hidden ends it. When that left a re-fetch that had put the item back, the list asks again.
+  let hold = $state<TodoHold | null>(null);
+  $effect(() => {
+    const h = hold;
+    if (h && !holdApplies(h, selKey, filter, showHidden)) {
+      untrack(() => {
+        hold = null;
+        if (h.put && h.filter === filter && h.showHidden === showHidden) void load();
+      });
+    }
+  });
+  function acted(keep: string[] | null) {
+    if (selected && selKey) hold = { key: selKey, id: selected.track_id, keep, filter, showHidden, put: false, ghost: false };
+  }
 
   // ▶ in the details starts the to-do list as the queue: its rows with a file, in the order shown. A track that
   // isn't among them (the list changed meanwhile) plays on its own.
@@ -65,19 +81,44 @@
     const r = await api.todo(filter, showHidden);
     if (my !== seq) return;
     if (r.ok) {
-      const { ok: _ok, ...rest } = r;
+      const { ok: _ok, ...base } = r;
+      let rest: Todo = base;
       const before = items;
-      const after = flatten(rest);
+      let after = flatten(rest);
       const fromQuery = selectFromTrack(after, wantTrack);
       if (wantTrack && !fromQuery && filter !== 'all') {
         pick('all');   // the asked-for track is outside the chosen chip: show everything (reloads, keeps wantTrack)
         return;
       }
       wantTrack = null;
+      // the held item: still listed, or (a replace under "Upgrades" took it to "Check in rekordbox") put back in the
+      // section it stood in, from the whole to-do list; with no to-do left of it, its row as it was
+      let held: TodoItem | null = null;
+      let next = hold;
+      if (!fromQuery && hold && holdApplies(hold, selKey, filter, showHidden)) {
+        const h = hold;
+        held = findHeld(after, h);
+        let put = false;
+        let ghost = false;
+        if (!held && filter !== 'all') {
+          const all = await api.todo('all', showHidden);
+          if (my !== seq) return;
+          held = all.ok ? findHeld(flatten(all), h) : null;
+          put = !!held;
+        }
+        const old = before.find((i) => itemKey(i) === h.key);
+        if (!held && !h.keep && old) { held = ghostOf(old); put = true; ghost = true; }
+        if (held && put) {
+          rest = withHeldItem(rest, held, data, h.key);
+          after = flatten(rest);
+        }
+        if (held) next = { ...h, key: itemKey(held), put: put || h.put, ghost };
+      }
       data = rest;
       error = null;
       const was = selKey;
-      selKey = fromQuery ?? keepSelection(selKey, before, after);
+      selKey = fromQuery ?? (held ? itemKey(held) : keepSelection(selKey, before, after));
+      if (held && !fromQuery) hold = next;
       if (was !== null && selKey !== was) void focusSelected();
     } else {
       error = r;   // old data stays on screen
@@ -225,10 +266,10 @@
   {#if selected && isQuestion(selected)}
     {#key itemKey(selected)}<QuestionDetails item={selected} />{/key}
   {:else if selected && isDuplicate(selected)}
-    {#key selected.pair.group_id}<DuplicateDetails item={selected} />{/key}
+    {#key selected.pair.group_id}<DuplicateDetails item={selected} onacted={acted} />{/key}
   {:else if track}
-    <Details {track} item={selected?.track_id === track.track_id ? selected : null} onhidden={hidden}
-      onversions={openVersions} onlisten={() => track && listenFrom(track)} />
+    <Details {track} item={selected?.track_id === track.track_id && !hold?.ghost ? selected : null} onhidden={hidden}
+      onversions={openVersions} onlisten={() => track && listenFrom(track)} onacted={() => acted(null)} />
   {:else}
     <Panel head={trackError ? failed : waiting} />
   {/if}

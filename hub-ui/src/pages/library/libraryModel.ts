@@ -7,6 +7,7 @@ import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import type { SegOption } from '$lib/components/segmentedModel';
 import { dayMonth } from '$lib/format';
 import { EMPTY } from '$lib/copy';
+import { heldRow, putAt } from '$lib/decisions/hold';
 
 // ---------- what kind of collection the table shows ----------
 /** The table's kind: the four views, with a folder view told apart by what the folder is (plan library stage 5 D10:
@@ -146,20 +147,15 @@ export type Hold = { id: string; keep: string[] | null; folder: string | null; q
 export function holdApplies(h: Hold | null, folder: string | null, q: string, filter: LibraryFilter): h is Hold {
   return !!h && h.folder === folder && h.q === q && h.filter === filter;
 }
-/** The held track's row among `rows`: the track itself, else (a duplicate's Keep) the one whose file stayed. */
-export function heldRow(rows: LibraryRow[], h: Pick<Hold, 'id' | 'keep'>): LibraryRow | null {
-  const own = rows.find((r) => r.track_id === h.id);
-  if (own) return own;
-  const keep = h.keep;
-  return keep ? rows.find((r) => !!r.path && keep.includes(r.path)) ?? null : null;
-}
+/** The held track's row among `rows` (lib/decisions/hold). */
+export { heldRow };
 /** The answer with the held row put back where it stood before (`before`: the answer on screen, the held track's
  *  place in it), when the new answer no longer lists it: in the playlist's `also` part when it stood there, else among
  *  the rows (at their end when it stood nowhere). An answer that lists it already comes back as it is. */
 export function withHeld<L extends Pick<Library, 'rows' | 'also'>>(lib: L, row: LibraryRow, before: Pick<Library, 'rows' | 'also'> | null,
   was: string): L {
   if (rowOf(lib, row.track_id)) return lib;
-  const put = (list: LibraryRow[], at: number) => [...list.slice(0, at), row, ...list.slice(at)];
+  const put = (list: LibraryRow[], at: number) => putAt(list, row, at);
   const inAlso = before?.also?.findIndex((r) => r.track_id === was) ?? -1;
   if (inAlso >= 0 && lib.also) return { ...lib, also: put(lib.also, Math.min(inAlso, lib.also.length)) };
   const at = before ? before.rows.findIndex((r) => r.track_id === was) : -1;
