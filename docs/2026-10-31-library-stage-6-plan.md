@@ -112,7 +112,14 @@ logo mapping, so it waits for no mockup. The user is needed only for the live ch
   usage goes before it; it is downloaded through the account only when it is the best that is left, with the account
   rules (usage counted, pacing, `MAX_FALLBACK_DOWNLOADS`, a used-up or paused account makes the track wait). Only
   DRM-protected full streams, or a listing that shows only the 30 s preview (`FallbackSource.preview_only`), stay
-  rejected for good; a failed listing never rejects.
+  rejected for good; a failed listing never rejects. **Not a miss:** for an `account_only` key such a listing is no
+  evidence that the account lacks Go+ streams, so `premium(..., keep_low=True)` returns `LOW` without adding to
+  `Acquirer.misses` (the `GIVE_UP_AFTER` run counter) and without a `premium_missing` signal; the listing still counts
+  toward the track's `MISSES_PER_TRACK` cap (it was a logged-in request). A DRM-protected ~256 kbps stream beside a
+  full unprotected ~128 one: `stream_kbps` reports the 128 (`FallbackSource.drm_premium` is set) instead of raising;
+  an ordinary upload still treats that as "no ~256 kbps stream" without a miss (as the DRM error it replaces), an
+  account-only one keeps the 128. A spare artist's original (a free direct download below the account tier) goes
+  before the kept stream: it is free and of equal or better quality, and free originals precede free streams (§2).
 - **D10. Album fallback in tags:** `make_ready` writes `track.album or cand.album`. YouTube Music tracks have no
   album (D6), SoundCloud ones mostly none; a Qobuz match knows it.
 - **D11. Service-neutral words come from the registry:** `sources.service_list()` → "Spotify, Qobuz, SoundCloud or
@@ -125,7 +132,10 @@ logo mapping, so it waits for no mockup. The user is needed only for the live ch
    a SNIP upload is never tried free; a failure falls through to the usual chain without retrying that upload. A SNIP
    upload that the account plays only at ~128 kbps (full, not DRM, not a preview) is ranked in the usual hierarchy by
    its quality (D9): after every better source and after an equal free one, never ahead of them; it waits like any
-   account stream when the account is used up or paused.
+   account stream when the account is used up or paused. Such a kept stream adds no run-level miss and no
+   `premium_missing` (six of them in a run leave SoundCloud on). Its wait check uses `exhausted()` and ignores
+   `given_up` on purpose: the listing already happened and must not be thrown away; the download gets one more
+   `between_account_downloads` pause after the listing's own.
 3. The splitter's pinned cases (I2) and that both sources use it.
 4. Spotify and Qobuz read, plan and save exactly as before (stage 3's tests untouched).
 5. `import discjockey.sources` doesn't import yt-dlp; bridge methods never reject; every error names its service.
@@ -237,8 +247,10 @@ their own `exact` id and name/ISRC search) and before `_fallback`, when `self.fa
    An `account_only` upload whose listing shows a full stream below ~256 kbps (D9) is not downloaded in this step and
    not rejected: it is kept (`_Tries.low`) and handed to `_fallback`'s `_streams` with the search's matches, ranked as
    the free SoundCloud stream of its quality (an equal free match first), then downloaded through the account without
-   a second listing. Used up or paused at that point → `queued`, like any account stream. The upload still comes
-   before the search; the search still runs.
+   a second listing (`premium(keep_low=True)` → `LOW`; no run-level miss, no `premium_missing`, per-track cap still
+   counted). Used up or paused at that point → `queued`, like any account stream (`exhausted()` only: a service given
+   up meanwhile does not throw the listed stream away; the download adds the usual `between_account_downloads` pause
+   to the listing's). The upload still comes before the search; the search still runs.
 4. Ready → done. A failed try adds `c.key` to `skip` (no second download in the search that follows), and `_try`
    records rejections exactly as for a searched candidate. Then `_fallback` as today.
 5. **Upgrade checks** (`lossless_only`): the upload's direct free download joins the originals step (SoundCloud

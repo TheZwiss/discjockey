@@ -7,7 +7,7 @@ from mutagen.aiff import AIFF
 from test_acquire import NAME_Q, FakeFallback, FakeQobuz, T, acquirer, fc, noise_flac
 from test_acquire_accounts import AccountFallback, RecordingPacer, setup
 
-from discjockey.acquire import MISSES_PER_TRACK, make_ready, upload_candidate
+from discjockey.acquire import GIVE_UP_AFTER, MISSES_PER_TRACK, make_ready, upload_candidate
 from discjockey.events import CancelToken, SourceChosen, Tracker
 from discjockey.models import Candidate, SourceTrack
 
@@ -247,14 +247,16 @@ def test_a_go_plus_only_upload_without_a_go_plus_stream_is_never_taken_free(tmp_
 class SnipFallback(AccountFallback):
     """AccountFallback whose listing can also say that the format taken is only a 30 s preview (yt-dlp's `…_preview`)."""
 
-    def __init__(self, *a, preview=(), **kw):
+    def __init__(self, *a, preview=(), drm=(), **kw):
         super().__init__(*a, **kw)
         self.preview, self.preview_only = set(preview), False
+        self.drm, self.drm_premium = set(drm), False  # keys whose Go+ stream is protected beside a full free one
 
     def stream_kbps(self, source, source_id, account=False):
-        self.preview_only = False
+        self.preview_only = self.drm_premium = False
         kbps = super().stream_kbps(source, source_id, account)
         self.preview_only = f"{source}:{source_id}" in self.preview
+        self.drm_premium = f"{source}:{source_id}" in self.drm
         return kbps
 
 
@@ -389,19 +391,78 @@ def test_the_128_account_stream_leaves_the_listing_count_alone(tmp_path):
     a, _, _ = snip(fb)
     a.process = lambda downloaded, track, cand, workdir, tracker: None
     r = get(a, tmp_path, sc_upload(account_only=True))
-    # MISSES_PER_TRACK holds over the upload and the search; the 128 account stream lists no third time
+    # MISSES_PER_TRACK holds over the upload and the search (the kept listing counts toward it, as a logged-in
+    # request); the 128 account stream lists no third time. The equal free stream goes first, then the account one
     assert [p for p, _ in fb.probes] == [SC_KEY, "soundcloud:s0"] and len(fb.probes) == MISSES_PER_TRACK
-    assert r.kind == "missing"
+    assert fb.downloads == ["s0", f"account:{SC_ID}"] and r.kind == "missing"
+
+
+def test_a_spare_artist_original_goes_before_the_128_account_stream(tmp_path):
+    # the search's SoundCloud match has an artist's free download (a 128 kbps MP3 original, below the account tier:
+    # kept as the spare); the upload's ~128 kbps account stream is no better, costs usage and ranks as the free
+    # SoundCloud stream, so the artist's own file is the one that is taken (spec §2 "3½")
+    s1 = Candidate("soundcloud", "s1", "Vatoz Locoz - Gimme Gimme", "Vatoz Locoz", 156.0, url="x1")
+    fb = SnipFallback([s1], kbps={SC_KEY: 128}, offers={"soundcloud:s1": DIRECT})
+    a, state, _ = snip(fb)
+    r = get(a, tmp_path, sc_upload(account_only=True))
+    assert fb.downloads == ["direct:s1"] and r.ready.source_id == "s1" and r.ready.kbps == 128
+    assert state["soundcloud_usage"]["days"]["2026-10-20"] == 0 and r.rejected == []
+
+
+def test_six_go_plus_only_tracks_with_a_128_stream_do_not_turn_soundcloud_off(tmp_path):
+    fb = SnipFallback(kbps={SC_KEY: 128})
+    a, state, _ = snip(fb)
+    for i in range(GIVE_UP_AFTER + 1):
+        work = tmp_path / str(i)
+        work.mkdir()
+        r = get(a, work, sc_upload(account_only=True))
+        assert r.kind == "ready" and r.ready.kbps == 128, i  # the sixth is taken as well
+    assert fb.downloads == [f"account:{SC_ID}"] * (GIVE_UP_AFTER + 1)
+    assert a.misses.get("soundcloud", 0) == 0 and "soundcloud" not in a.given_up
+    assert state["soundcloud_usage"]["signals"] == []  # a full 128 stream is no "premium_missing"
+    assert state["soundcloud_usage"]["days"]["2026-10-20"] == GIVE_UP_AFTER + 1
+
+
+def test_an_ordinary_upload_s_missing_go_plus_stream_still_counts_as_a_miss(tmp_path):
+    fb = SnipFallback(kbps={SC_KEY: 128})  # not Go+-only: nothing is kept, the free stream is taken
+    a, state, _ = snip(fb)
+    r = get(a, tmp_path, sc_upload())
+    assert fb.downloads == [SC_ID] and r.ready.source_id == SC_ID
+    assert a.misses["soundcloud"] == 1 and state["soundcloud_usage"]["signals"][-1]["kind"] == "premium_missing"
+
+
+def test_a_protected_256_stream_beside_a_full_128_one_keeps_the_128_for_a_go_plus_only_upload(tmp_path):
+    fb = SnipFallback(kbps={SC_KEY: 128}, drm={SC_KEY})
+    a, state, _ = snip(fb)
+    r = get(a, tmp_path, sc_upload(account_only=True))
+    assert fb.downloads == [f"account:{SC_ID}"] and r.ready.kbps == 128 and r.rejected == []
+    assert a.misses.get("soundcloud", 0) == 0 and state["soundcloud_usage"]["signals"] == []
+
+
+def test_a_protected_256_stream_beside_a_free_128_one_is_no_go_plus_stream_for_an_ordinary_upload(tmp_path):
+    fb = SnipFallback(kbps={SC_KEY: 128}, drm={SC_KEY})
+    a, state, _ = snip(fb)
+    r = get(a, tmp_path, sc_upload())
+    assert fb.downloads == [SC_ID] and r.ready.source_id == SC_ID  # the free stream, as before
+    assert a.misses.get("soundcloud", 0) == 0  # not the account's fault: no miss, as for the DRM error it replaces
+    assert state["soundcloud_usage"]["signals"] == []
 
 
 def test_a_go_plus_only_upload_is_never_downloaded_free_in_any_path(tmp_path):
-    for fb, kw in ((SnipFallback(kbps={SC_KEY: 128}), {}), (SnipFallback([fc("m1", "youtube_music")], kbps={SC_KEY: 128}), {}),
-                   (SnipFallback(probe_error=RuntimeError("DRM protected")), {}),
-                   (SnipFallback(probe_error=RuntimeError("HTTP Error 502")), {})):
+    same = Candidate("soundcloud", SC_ID, "Vatoz Locoz - Gimme Gimme", "Vatoz Locoz", 156.0, url="x")  # the search finds it
+    m1 = fc("m1", "youtube_music")
+    for fb, expected in ((SnipFallback(kbps={SC_KEY: 128}), [f"account:{SC_ID}"]),
+                         (SnipFallback([m1], kbps={SC_KEY: 128}), ["m1"]),
+                         (SnipFallback([same], kbps={SC_KEY: 128}), [f"account:{SC_ID}"]),
+                         (SnipFallback(probe_error=RuntimeError("DRM protected")), []),
+                         (SnipFallback([same], probe_error=RuntimeError("DRM protected")), []),
+                         (SnipFallback(probe_error=RuntimeError("HTTP Error 502")), []),
+                         (SnipFallback([same], probe_error=RuntimeError("HTTP Error 502")), []),
+                         (SnipFallback([same], kbps={SC_KEY: 128}, preview={SC_KEY}), [])):
         a, _, _ = snip(fb)
         get(a, tmp_path, sc_upload(account_only=True))
-        assert SC_ID not in fb.downloads and f"direct:{SC_ID}" not in fb.downloads
-    a, _, _ = setup(SnipFallback(), limits={})  # no account at all
+        assert fb.downloads == expected  # nothing else: no free stream or direct download of the upload
+    a, _, _ = setup(SnipFallback([same]), limits={})  # no account at all
     fb = a.fallback
     r = get(a, tmp_path, sc_upload(account_only=True))
     assert fb.downloads == [] and r.rejected == []

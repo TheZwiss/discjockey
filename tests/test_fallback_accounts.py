@@ -200,3 +200,40 @@ def test_a_listing_says_whether_the_stream_it_took_is_only_a_preview(monkeypatch
         assert src.stream_kbps("soundcloud", "1", account=True) == 128 and not src.preview_only
     finally:
         PreviewOrFull.format_id = "http_mp3_0_preview"
+
+
+class GoPlusDrmWithFullFree(GoPlusDrm):
+    """The Go+ stream is protected, but yt-dlp took a named format: `format_id`/`protocol` say which."""
+    format_id, protocol = "http_mp3_128", "http"
+
+    def extract_info(self, url, download=False):
+        info = super().extract_info(url, download)
+        return {**info, "format_id": self.format_id, "protocol": self.protocol}
+
+
+def test_a_protected_go_plus_stream_beside_a_full_unprotected_128_one_reports_the_128(monkeypatch):
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", GoPlusDrmWithFullFree)
+    src = FallbackSource(logins={"soundcloud": ("firefox", None)})
+    for format_id in ("http_mp3_128", "hls_mp3_128"):  # the progressive and the HLS id yt-dlp names
+        GoPlusDrmWithFullFree.format_id = format_id
+        assert src.stream_kbps("soundcloud", "1", account=True) == 128
+        assert src.drm_premium and not src.preview_only  # the acquirer tells an ordinary upload apart by this
+    GoPlusDrmWithFullFree.format_id = "http_mp3_128"
+    GoPlusDrm.drm = False
+    try:
+        assert src.stream_kbps("soundcloud", "1", account=True) == 128 and not src.drm_premium
+    finally:
+        GoPlusDrm.drm = True
+
+
+def test_a_protected_go_plus_stream_without_a_usable_full_unprotected_format_is_still_drm(monkeypatch):
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", GoPlusDrmWithFullFree)
+    src = FallbackSource(logins={"soundcloud": ("firefox", None)})
+    try:
+        for format_id, protocol in (("http_mp3_0_preview", "http"), ("", "http"), ("hls_mp3_128", "cbc-encrypted-hls")):
+            GoPlusDrmWithFullFree.format_id, GoPlusDrmWithFullFree.protocol = format_id, protocol
+            with pytest.raises(Exception) as err:
+                src.stream_kbps("soundcloud", "1", account=True)
+            assert fb.drm_protected(err.value), (format_id, protocol)
+    finally:
+        GoPlusDrmWithFullFree.format_id, GoPlusDrmWithFullFree.protocol = "http_mp3_128", "http"
