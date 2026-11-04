@@ -261,11 +261,9 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   (`pages/todo/UpgradeBox.svelte` etc., a1a15a3), and it is a dead end (Compare plays, no way to act). Fix: every
   place an upgrade or duplicate decision shows uses the same approved panel with its actions (mockup
   `docs/hub-mockups/todo-decisions.html`). Opus build (no shots) + Opus shots.
-- **State 2026-10-31 ~16:30 (PAUSED by the user after the running agent):** stage 5 in main 65e297b + To-do hold
-  a9334b1; stage 6 in main f4a4fea (3224 py / 1165 vitest / 958 shots green); checkout on main. Running: issue 34
-  agent (private SoundCloud sets, worktree `.claude/worktrees/6-private`, branch `fix/stage6-private-set`; also cleans
-  issue 32's decided points). When it ends: check, merge into main if green, then START NOTHING until the user says.
-  Queue after that: (1) Opus UI minors from issue 32 (FLAC next to .aiff in fake data, empty Playlists counts, likes
+- **State 2026-11-05 (resumed by the user):** issue 34 merged into main e843d38 (3238 py green). Running: (1), Opus
+  build in `.claude/worktrees/6-uiminors` on `fix/stage6-ui-minors`, then a shots agent, then merge into main.
+  Queue: (1) Opus UI minors from issue 32 (FLAC next to .aiff in fake data, empty Playlists counts, likes
   owner twice, YTM label dropped at 1280, balanced wrapping); (2) design round (Opus mockup: paste field "Paste a
   playlist link here" + 4 logos, Liked music Settings choice + warning, W20 upload on Sync card, Setup example links,
   "Open in …"); (3) read-only audit of issues 24–30, close done points; (4) fix rounds for what's still open. Waiting
