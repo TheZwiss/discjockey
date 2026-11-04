@@ -266,7 +266,8 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   Queue: (1) Opus UI minors from issue 32 (FLAC next to .aiff in fake data, empty Playlists counts, likes
   owner twice, YTM label dropped at 1280, balanced wrapping); (2) design round (Opus mockup: paste field "Paste a
   playlist link here" + 4 logos, Liked music Settings choice + warning, W20 upload on Sync card, Setup example links,
-  "Open in …"); (3) read-only audit of issues 24–30, close done points; (4) fix rounds for what's still open. Waiting
+  "Open in …", the details panel's FORMAT showing the download's codec ("FLAC") next to an `.aiff` file (contract:
+  `format_line` = format of the download; also used by the upgrade card), Setup's playlist list without the owner); (3) read-only audit of issues 24–30, close done points; (4) fix rounds for what's still open. Waiting
   for the user: stage 6 live check on main (paste SC set, you/likes >200, YTM mixed playlist, read, splits; Go+
   listing assumptions in issue 32).
 - **Merge early (user, 2026-10-31):** a finished stage merges into main as soon as its fix rounds, CI and verify are
