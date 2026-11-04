@@ -330,7 +330,8 @@ def test_likes_page_through_next_href(world, paths):
     assert len(urls) == 3
     assert all(c[2] == {} for c in world.calls)
     assert all(c[3].get("impersonate") is True for c in world.calls[1:])  # yt-dlp's own impersonation target
-    assert fetched.info.name == "Example DJ's likes" and fetched.info.owner_name == "Example DJ"
+    assert fetched.info.name == "Example DJ's likes"
+    assert fetched.info.owner_name == ""  # the name already says whose likes: the owner is named once
     assert fetched.info.track_count == 4 and fetched.info.yours is False and fetched.info.readable
     assert fetched.info.image_url == "https://i1.sndcdn.com/artworks-example900000301-t500x500.jpg"
 

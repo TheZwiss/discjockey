@@ -288,7 +288,7 @@ describe('library views of a playlist (D9)', () => {
       const folder = r.path!.split('/')[1];
       expect(r.place).toBe(folder === 'Hard_Bounce' ? null : folder);
     }
-    expect(v.subtitle).toEqual([`${v.summary.tracks} tracks`, 'Spotify playlist', 'Library › Hard_Bounce']);
+    expect(v.subtitle).toEqual(['Spotify playlist', `${v.summary.tracks} tracks`, 'Library › Hard_Bounce']);
     expect(v.also).toEqual([]);
     // the page words "x of y downloaded" from this one answer (the sidebar's count is the same number)
     expect(v.songs).toEqual({ listed: v.rows.length, with_file: v.summary.tracks });
@@ -333,7 +333,7 @@ describe('library views of a playlist (D9)', () => {
     const f = fake('normal');
     f._ctx.s.emptyRead = ['Hard_Techno'];
     expect(must(await f.library('playlist', 'Hard_Techno', '', 'all', null))).toMatchObject({
-      rows: [], also: [], empty: 'no_match', subtitle: ['0 tracks', 'Spotify playlist', 'Library › Hard_Techno'] });
+      rows: [], also: [], empty: 'no_match', subtitle: ['Spotify playlist', '0 tracks', 'Library › Hard_Techno'] });
     expect(must(await f.library('playlist', 'Powertrance', '', 'all', null)).read_at).not.toBeNull();
     expect(must(await f.library('playlist', 'Hard_Techno', '', 'all', null)).read_at).not.toBeNull();
     expect(must(await f.sidebar()).playlists.find((p) => p.name === 'Hard_Techno')!.songs).toBe(0);

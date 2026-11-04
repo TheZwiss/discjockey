@@ -878,7 +878,7 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
             read_at, enabled, service = record.read_at if record else None, line.enabled, line.service
             label = f"{PLAYLIST_SERVICES[line.service]} playlist" if line.service else "playlist"
             subtitle = ((lambda n: [label, "not read yet"]) if record is None else
-                        (lambda n: [n, label, *(["switched off"] if not line.enabled else []),
+                        (lambda n: [label, n, *(["switched off"] if not line.enabled else []),
                                     f"Library › {line.folder}"]))
             held: set[str] = set()
             for t in record.tracks if record else ():

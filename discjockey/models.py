@@ -119,7 +119,7 @@ class PlaylistInfo:
     id: str
     name: str
     owner_id: str
-    owner_name: str
+    owner_name: str  # "" when the name already says it (a SoundCloud likes list: "{username}'s likes")
     collaborative: bool
     image_url: str | None
     track_count: int | None

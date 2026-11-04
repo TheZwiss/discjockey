@@ -23,7 +23,10 @@
   //   strut, which also gives the row its baseline), so even the first part wraps away rather than be cut. The
   //   parts take no width of their own (flex-basis 0, and the space before them is the first part's own padding), so
   //   the title keeps its whole width and ends in "…" only when even the title alone doesn't fit. The title's tooltip
-  //   carries the whole subtitle too, so it can be read when every part has dropped.
+  //   carries the whole subtitle too, so it can be read when every part has dropped. The first part is the exception:
+  //   it never drops, the title gives way to it (ends in "…") instead, because it is the one part the page says nowhere
+  //   else (a playlist's "YouTube Music playlist": the sidebar shows only its logo, and names the folder the title
+  //   repeats).
   import type { Snippet } from 'svelte';
   import ReadStatus from './ReadStatus.svelte';
   import type { ReadStatus as ReadState } from '../bridge/types';
@@ -39,8 +42,9 @@
   <div class="lead" class:has-parts={!!parts}>
     <h1 title={parts?.length ? `${title}\n${parts.join(' · ')}` : title}>{title}</h1>
     {#if parts}
-      {#if parts.length}<span class="parts" title={parts.join(' · ')} data-test="page-sub"><span class="strut"
-        aria-hidden="true">{'\u200b'}</span>{#each parts as p, i (i)}<span class="part">{i ? ` · ${p}` : p}</span>{/each}</span>{/if}
+      {#if parts.length}<span class="first" title={parts.join(' · ')} data-test="page-sub">{parts[0]}</span>{#if parts.length > 1}<span
+        class="parts" title={parts.join(' · ')}><span class="strut" aria-hidden="true">{'\u200b'}</span>{#each parts.slice(1) as p, i (i)}<span
+        class="part">{` · ${p}`}</span>{/each}</span>{/if}{/if}
     {:else if subText}<span class="sub" title={sub as string} data-test="page-sub">{subText}</span>{/if}
   </div>
   {#if actions || readStatus}
@@ -73,8 +77,9 @@
   /* no gap of the lead's own: the space before the first part is that part's, so it goes when the part goes, and a title
      that fits alone keeps its whole width */
   .lead.has-parts { flex-wrap: nowrap; column-gap: 0; }
-  .strut + .part { padding-left: var(--s-3); }
   .has-parts h1 { flex: 0 1 auto; }
+  /* the first part never drops: it keeps its width, the title gives way to it */
+  .first { flex: none; padding-left: var(--s-3); white-space: pre; color: var(--text-label); font-size: var(--fs-small); }
   .parts { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; height: 16px; line-height: 16px; overflow: hidden;
     color: var(--text-label); font-size: var(--fs-small); }
   .strut { width: 0; flex: none; }

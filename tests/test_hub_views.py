@@ -597,11 +597,11 @@ def test_library_subtitle_per_view():
         return views.library(st, view, key, query, "all", "artist", lines=lines, records=records)["subtitle"]
     assert sub("all") == ["5 tracks", "every folder"]
     assert sub("unlisted") == ["1 track", "in no playlist"]
-    assert sub("playlist", "Hard_Bounce") == ["4 tracks", "Spotify playlist", "Library › Hard_Bounce"]
+    assert sub("playlist", "Hard_Bounce") == ["Spotify playlist", "4 tracks", "Library › Hard_Bounce"]
     assert sub("playlist", "hard_bounce")[-1] == "Library › Hard_Bounce"  # the line's spelling, not the route's
-    assert sub("playlist", "Off_Set") == ["1 track", "Qobuz playlist", "switched off", "Library › Off_Set"]
+    assert sub("playlist", "Off_Set") == ["Qobuz playlist", "1 track", "switched off", "Library › Off_Set"]
     assert sub("playlist", "Powertrance") == ["Qobuz playlist", "not read yet"]  # no record of it
-    assert sub("playlist", "Hard_Bounce", query="gimme")[0] == "4 tracks"  # the search never changes the count
+    assert sub("playlist", "Hard_Bounce", query="gimme")[1] == "4 tracks"  # the search never changes the count
     assert sub("playlist", "Nowhere") == [] and sub("folder", "Library/Nowhere") == []
     assert sub("folder", "Library/Bouncy") == ["1 track", "no playlist uses it", "Library › Bouncy"]
     assert sub("folder", "Library/Hard_Bounce") == ["4 tracks", "Library › Hard_Bounce"]  # a playlist uses it
@@ -1982,7 +1982,7 @@ def test_a_playlists_summary_and_chips_count_its_rows_with_a_file_and_the_search
     out = playlist_view()
     assert out["summary"]["tracks"] == 3 and out["summary"]["by_quality"]["lossless"] == 2
     assert out["chips"] == {"all": 3, "lossless": 2, "good_lossy": 1, "weak": 0, "fake": 0, "upgrade_ready": 0}
-    assert out["subtitle"] == ["3 tracks", "Spotify playlist", "Library › Techno"]
+    assert out["subtitle"] == ["Spotify playlist", "3 tracks", "Library › Techno"]
     hit = playlist_view(query="four")
     assert ([r["track_id"] for r in hit["rows"]], [r["track_id"] for r in hit["also"]]) == ([], ["d"])
     assert hit["chips"]["all"] == 0 and hit["summary"]["tracks"] == 3 and hit["empty"] is None

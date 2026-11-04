@@ -24,5 +24,5 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .problem { color: var(--q-weak); }
-  .wrap { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; }
+  .wrap { white-space: normal; text-wrap: balance; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; }
 </style>

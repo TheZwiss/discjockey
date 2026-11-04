@@ -298,7 +298,9 @@ Finish later in its `actions`).
   last first, down to none; a part is never cut mid-word, and the whole subtitle is the tooltip (the title's too, so
   it can be read when every part has dropped). The space before the first part is that part's own. CSS only (the parts
   wrap onto a clipped second line behind a zero-width strut), so it follows the width live. The title keeps its whole
-  width and ends in "…" only when even the title alone doesn't fit.
+  width and ends in "…" only when even the title alone doesn't fit, except for the **first part, which never drops**:
+  the title gives way to it (ends in "…") instead, because the first part is what the page says nowhere else (a
+  playlist's "YouTube Music playlist": the sidebar shows only the logo, and its name the title repeats).
 - The **read slot** (the playlists' read status, every service at once; the wire field is `read_status`, the block
   `ReadStatus`) is always last, so its right edge is the content's right edge. It is on Dashboard, Sync
   (before the start), To-do and Playlists. `ReadStatus` is placed only by this slot; the checker fails it anywhere
@@ -755,6 +757,15 @@ before reopening anything. New system-level decisions from phase 2 on go here, n
   has it. Why: the mockup's first round faded the head over the rows, so a row showed through and rounded its
   corners, which looked like a glitch; a stuck head is the edge. To-do looks the same as before: not stuck, the next
   row's rule was always the line under the head. Seen: gallery ListSection and ListSection · stuck (`base-gallery`).
+- **2026-11-05 · `PageHeader`: the first part never drops; a playlist's service leads its parts (issue 32).** At 1280
+  with the details open Library's header had room for one part beside the folder name, so "YouTube Music playlist"
+  dropped and the rail's logo was the only sign of the service. The engine now puts `"{Service} playlist"` first
+  (as the sidebar's tip does), and the block keeps the first part whole, the title giving way to it: the title is the
+  folder name, which the sidebar shows selected. Seen: `library-youtube-music-selected`, `library-soundcloud-selected`.
+- **2026-11-05 · Wrapping `Hint` and the `EmptyState` body wrap balanced (issue 32).** `text-wrap: balance` in the
+  block, so no page leaves a word alone on a last line (W22 at 1100 ended "…YouTube Music above." over one short line;
+  W18 over "link."). WebKit balances inside `Hint wrap`'s line clamp too (measured). Seen: `playlists-first-run`,
+  `playlists-youtube-mix-refused`, `playlists-soundcloud-unreadable`.
 - **2026-10-30 · `PageHeader`: a subtitle of parts that drop whole, the last first (library stage 5 A3.5, N14, house
   rule 8).** `sub` may be a list of parts in order of importance (the wire's `Library.subtitle`). Why: Library's header
   narrows with the details open and at 1100, and the old string either wrapped under the title (a second header line

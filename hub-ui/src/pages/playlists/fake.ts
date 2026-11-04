@@ -32,8 +32,8 @@ const folderOf = (path: string) => path.replace(/^Library\//, '').split('/').sli
 
 const fake: PageFake = {
   scenarios: {
-    // set up, but no playlists yet (first_run would open the wizard)
-    empty: (s) => { s.playlists = []; },
+    // set up, but no playlists yet (first_run would open the wizard): nothing has been read or moved either
+    empty: (s) => { s.playlists = []; s.tidy.batches = []; s.read_status = { ...s.read_status, read_at: null, minutes_ago: null }; },
     'changed-elsewhere': (s) => { changedElsewhere.add(s); },
     'preview-problem': (s) => { previewProblem.add(s); },
     'slow-preview': (s) => { slowPreview.add(s); },

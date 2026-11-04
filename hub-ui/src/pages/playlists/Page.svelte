@@ -47,7 +47,9 @@
   const dirty = $derived(isDirty(draft, loaded));
   const prios = $derived(priorities(draft));
   const draftLines = $derived(lines(draft));
-  const waiting = $derived(pl?.tidy?.waiting ?? 0);
+  // no saved playlist: nothing to tidy into and nothing to read, so the page shows no count or read time for them
+  const noPlaylists = $derived(loaded !== null && !loaded.rows.length);
+  const waiting = $derived(noPlaylists ? 0 : pl?.tidy?.waiting ?? 0);
   // what the unsaved change does to each folder, said under its playlist ("gets 27 more")
   const changes = $derived(dirty ? folderChanges(panel?.preview ?? null) : new Map<string, number>());
 
@@ -170,7 +172,7 @@
 </script>
 
 {#snippet main()}
-  <PageHeader title="Playlists" sub={loaded ? statusLine(draft) : undefined} {actions} readStatus />
+  <PageHeader title="Playlists" sub={loaded && draft.length ? statusLine(draft) : undefined} {actions} readStatus={!noPlaylists} />
   <AddRow {draft} onadd={added} />
 
   {#if pl?.problem}
@@ -211,8 +213,9 @@
 {/snippet}
 
 {#snippet actions()}
-  <Button variant={waiting ? 'primary' : 'secondary'} disabled={!loaded || dirty || movesBusy}
-    title={dirty ? 'Save or undo your changes first.' : movesBusy ? 'Files are moving.' : undefined}
+  <Button variant={waiting ? 'primary' : 'secondary'} disabled={!loaded || noPlaylists || dirty || movesBusy}
+    title={dirty ? 'Save or undo your changes first.' : movesBusy ? 'Files are moving.'
+      : noPlaylists ? 'Add a playlist first.' : undefined}
     onclick={() => openFlow({ kind: 'tidy' })} data-test="tidy-button">Tidy up files{#if waiting}<span class="count"
       class:off={!loaded || dirty || movesBusy} data-test="tidy-waiting">{waiting}</span>{/if}</Button>
 {/snippet}
