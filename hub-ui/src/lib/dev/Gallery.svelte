@@ -464,11 +464,11 @@
       <PageHeader title="Hard_Bounce_Extended_Afterhour_Selection_2026" sub="1,204 tracks · 82 % lossless · 3 not in a playlist" readStatus readStatusState={sp({})} />
       <PageHeader title="Settings" />
     </div>
-    <span class="cap">subtitle as parts: whole parts drop, the last first; all of it is the tooltip</span>
+    <span class="cap">subtitle as parts: whole parts drop, the last first; the first never drops, the title gives way to it; all of it is the tooltip</span>
     <div class="col" data-test="g-header-parts">
       {#each [[946, 'Rekordbox Library', HDR_PARTS], [586, 'Rekordbox Library', HDR_PARTS], [440, 'Rekordbox Library', HDR_PARTS],
-        [300, 'Rekordbox Library', HDR_PARTS], [586, 'Afterhour_Sonntag_Warmup', ['88 tracks', 'Qobuz playlist', 'switched off', 'Library › Afterhour_Sonntag_Warmup']],
-        [300, 'Afterhour_Sonntag_Warmup_Selection_2026', ['88 tracks', 'Qobuz playlist']],
+        [300, 'Rekordbox Library', HDR_PARTS], [586, 'Afterhour_Sonntag_Warmup', ['Qobuz playlist', '88 tracks', 'switched off', 'Library › Afterhour_Sonntag_Warmup']],
+        [300, 'Afterhour_Sonntag_Warmup_Selection_2026', ['Qobuz playlist', '61 of 88 downloaded']],
         [245, 'Rekordbox Library', HDR_PARTS]] as [w, t, ps], i (i)}
         <div class="g-hdr" style="width: {w}px">
           <PageHeader title={t as string} sub={ps as string[]}>{#snippet actions()}<Button variant="icon" aria-label="Show details (⌘I)">
@@ -849,6 +849,9 @@
           <Hint text="A hint that runs longer than one line is cut with an ellipsis, and the full text shows on hover over it." /></div>
         <div class="col tight start"><Button size="sm">Stop safely</Button>
           <Hint tone="problem" text="tone problem: the error your action just caused, the backend's words" data-test="g-hint-problem" /></div>
+        <!-- wrap: up to three lines, balanced, for a problem that must be read whole (issue 32, W5/W18) -->
+        <div class="col tight start"><Button size="sm">Add</Button>
+          <Hint wrap tone="problem" text="This is a YouTube mix, which changes every time it plays. Save its songs to a playlist and paste that link." /></div>
       </Surface>
       <Surface label="InfoTip">
         <div class="row tight-row"><span>Daily limit · 66</span>
@@ -957,6 +960,8 @@
     <div class="grid3">
       {#each EMPTY_KINDS as k (k)}<Surface><EmptyState kind={k} /></Surface>{/each}
       <Surface><EmptyState title="The plan shows here when Spotify is read." /></Surface>
+      <!-- a body longer than its box wraps balanced: no word left alone on the last line (issue 32, W22) -->
+      <Surface><EmptyState title="No playlists yet." body="Paste a playlist link from Spotify, Qobuz, SoundCloud or YouTube Music above." action={null} /></Surface>
     </div>
   </section>
 

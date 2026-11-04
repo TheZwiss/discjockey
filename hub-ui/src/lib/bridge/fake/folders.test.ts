@@ -249,13 +249,13 @@ describe('fake To-do of the import', () => {
     expect(must(await f.library('folder', 'Library/Old_Sets', '', 'all', 'artist')).subtitle).toEqual(
       ['2 tracks', 'no playlist uses it', 'Library › Old_Sets']);
     const hb = must(await f.library('playlist', 'Hard_Bounce', '', 'all', 'artist'));
-    expect(hb.subtitle).toEqual([`${hb.summary.tracks} tracks`, 'Spotify playlist', 'Library › Hard_Bounce']);
+    expect(hb.subtitle).toEqual(['Spotify playlist', `${hb.summary.tracks} tracks`, 'Library › Hard_Bounce']);
     const found = must(await f.library('playlist', 'Hard_Bounce', 'a', 'weak', 'artist'));   // search and filter don't change it
     expect(found.rows.length).toBeLessThan(hb.rows.length);
     expect(found.subtitle).toEqual(hb.subtitle);
     expect(must(await f.library('all', null, 'zzzz-no-such-track', 'all', 'artist')).subtitle).toEqual([`${all.rows.length} tracks`, 'every folder']);
-    expect(must(await f.library('playlist', 'Tekke_Ecke', '', 'all', 'artist')).subtitle.slice(1)).toEqual(
-      ['Spotify playlist', 'switched off', 'Library › Tekke_Ecke']);
+    const off = must(await f.library('playlist', 'Tekke_Ecke', '', 'all', 'artist')).subtitle;
+    expect([off[0], ...off.slice(2)]).toEqual(['Spotify playlist', 'switched off', 'Library › Tekke_Ecke']);
   });
 
   it('library:browser has 38 playlist lines, two switched off, one long name, two Library folders', async () => {

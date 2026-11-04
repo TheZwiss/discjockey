@@ -118,6 +118,9 @@ describe('row texts', () => {
   it('info line: the service, then name and owner, not read yet, unreadable, switched off', () => {
     expect(infoLine(d[0])).toEqual({ service: 'Spotify', text: '"Name of 0Dis" · yours', tone: 'muted' });
     expect(infoLine({ ...d[0], info: null })).toEqual({ service: 'Spotify', text: 'not read yet', tone: 'muted' });
+    // a likes list's name says its owner, which the engine then leaves out: named once
+    expect(infoLine({ ...d[0], info: { ...d[0].info!, name: "Example DJ's likes", owner_name: '', yours: false } }).text)
+      .toBe('"Example DJ\'s likes"');
     expect(infoLine({ ...d[0], info: { ...info('x', 0), yours: false, collaborative: true } }).text).toBe('"x" · collaborative');
     expect(infoLine({ ...d[0], enabled: false }).text).toBe('switched off · files stay');
   });

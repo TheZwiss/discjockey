@@ -377,7 +377,7 @@ describe('a playlist view (D6, D9; issues #29 "For B6")', () => {
   const summary = (tracks: number) => ({ tracks, lossless_share: null, by_quality: { lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 },
     upgrades_ready: 0, to_do: 0, not_lossless: 0 });
   const view = (over: object): never => ({ view: 'playlist', key: 'Hard_Bounce', title: 'Hard_Bounce', folder: 'Hard_Bounce',
-    folder_kind: null, empty: null, subtitle: ['9 tracks', 'Spotify playlist', 'Library › Hard_Bounce'], summary: summary(9),
+    folder_kind: null, empty: null, subtitle: ['Spotify playlist', '9 tracks', 'Library › Hard_Bounce'], summary: summary(9),
     chips: { all: 9, lossless: 0, good_lossy: 0, weak: 0, fake: 0, upgrade_ready: 0 }, rows: [], also: null,
     songs: null, read_at: '2026-10-01', enabled: true, service: 'spotify', ...over }) as never;
 
@@ -413,11 +413,17 @@ describe('a playlist view (D6, D9; issues #29 "For B6")', () => {
   });
   it('the subtitle counts the songs with a file against all of them, from the one answer, so 9 + 3 make its 12', () => {
     const songs = (listed: number, with_file: number) => ({ listed, with_file });
-    expect(subtitleParts(view({ songs: songs(12, 9) }))).toEqual(['9 of 12 downloaded', 'Spotify playlist', 'Library › Hard_Bounce']);
+    // a playlist's count stands after its service, which leads (the last part to drop when the header is narrow)
+    expect(subtitleParts(view({ songs: songs(12, 9) }))).toEqual(['Spotify playlist', '9 of 12 downloaded', 'Library › Hard_Bounce']);
     // all downloaded, never read, or not a playlist: the engine's parts as they are
-    expect(subtitleParts(view({ songs: songs(9, 9) }))).toEqual(['9 tracks', 'Spotify playlist', 'Library › Hard_Bounce']);
-    expect(subtitleParts(view({ songs: null }))).toEqual(['9 tracks', 'Spotify playlist', 'Library › Hard_Bounce']);
+    expect(subtitleParts(view({ songs: songs(9, 9) }))).toEqual(['Spotify playlist', '9 tracks', 'Library › Hard_Bounce']);
+    expect(subtitleParts(view({ songs: null }))).toEqual(['Spotify playlist', '9 tracks', 'Library › Hard_Bounce']);
     expect(subtitleParts(view({ songs: songs(12, 9), subtitle: [] }))).toEqual([]);
+    expect(subtitleParts(view({ songs: songs(12, 0), read_at: null, subtitle: ['Spotify playlist', 'not read yet'] })))
+      .toEqual(['Spotify playlist', 'not read yet']);
+    // any other view leads with its count
+    expect(subtitleParts(view({ view: 'folder', songs: songs(12, 9), subtitle: ['9 tracks', 'Library › X'] })))
+      .toEqual(['9 of 12 downloaded', 'Library › X']);
   });
   it('a song not found says what To-do offers; a waiting one when it comes', () => {
     expect(noFileNote('waiting')).toMatch(/^It downloads at the next sync/);

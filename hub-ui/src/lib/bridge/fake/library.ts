@@ -318,7 +318,7 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
       const read = readOf(s, line.folder);
       readAt = read?.read_at ?? null; enabled = line.enabled; service = serviceOfLink(line.link);
       const label = `${SERVICE_NAME[service]} playlist`;
-      subtitle = !read ? (() => [label, 'not read yet']) : (n) => [n, label, ...(line.enabled ? [] : ['switched off']), `Library › ${line.folder}`];
+      subtitle = !read ? (() => [label, 'not read yet']) : (n) => [label, n, ...(line.enabled ? [] : ['switched off']), `Library › ${line.folder}`];
       const heldKeys = new Set<string>();
       let position = 0;
       for (const h of read?.held ?? []) {

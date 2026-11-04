@@ -46,11 +46,6 @@ Noted while reviewing `docs/2026-10-31-library-stage-6-plan.md`. The first three
   `soundcloud.com/...`.
 - **Seen in the stage 6 screenshots (all pre-existing):**
   - Fake tracks show FORMAT "FLAC" next to a `.aiff` file.
-  - The empty Playlists state still shows the tidy-up, moves and "read 2 min ago" counts.
-  - The likes row prints the owner twice (`"Example DJ's likes" · Example DJ`).
-  - The Library header drops "YouTube Music playlist" at 1280 px wide; the logo is then the only sign.
-  - W22 and the W5/W18 hints end on a short last line at 1100 px (the empty-state and hint blocks want balanced
-    wrapping).
 
 ## 31. YouTube Music "Liked music" — a Settings choice, needs a design round
 

@@ -617,8 +617,9 @@ subtitle's "13 of 18 downloaded" from it and joins no other call. `read_at`, `en
 and `not_lossless`, the checked files that aren't lossless (`good_lossy` + `weak` + `fake`; the strip's "Not lossless
 yet" row, beside `to_do`). `subtitle` is the header's second line as parts in order of importance (the page drops the
 last parts first when it is too long; `1 track` for one): All tracks `["{n} tracks", "every folder"]`; Not in a playlist
-`["{n} tracks", "in no playlist"]`; a playlist `["{n} tracks", "{Service} playlist", ("switched off",) "Library ›
-{folder}"]`, or `["{Service} playlist", "not read yet"]` while it was never read; a Library folder no line uses
+`["{n} tracks", "in no playlist"]`; a playlist `["{Service} playlist", "{n} tracks", ("switched off",) "Library ›
+{folder}"]`, or `["{Service} playlist", "not read yet"]` while it was never read (the service leads both: it is the
+one part the view says nowhere else in words, so it is the last to drop; the header keeps the first part whole); a Library folder no line uses
 `["{n} tracks", "no playlist uses it", "Library › {name}"]`; a watched folder `["{n} tracks", ("Offline: connect the
 drive" | "Folder not found",) "{k} folders with music", "{place}"]` (the folders part is left out at none; `{place}` as
 the sidebar's `place`); a crate `["{n} tracks", ("Offline: …" | "Folder not found",) "{tip}"]`. An away folder (the
@@ -632,8 +633,8 @@ innermost watched folder holding it is offline or not found) puts its words seco
  "key": "Hard_Bounce",
  "folder_kind": null,
  "subtitle": [
-  "2 tracks",
   "Spotify playlist",
+  "2 tracks",
   "Library › Hard_Bounce"
  ],
  "summary": {
@@ -959,7 +960,7 @@ counts each track once, `chips.rekordbox_check` every check (hidden ones too).
 `playlists()` — rows top = highest priority. `playlist_id` is the playlist's **ref** (a Spotify id stays bare, every other service's is `<service>:<id>`: `qobuz:<id>`,
 `soundcloud:<user>/sets/<slug>` or `soundcloud:<user>/likes` (the link's path, lower case), `youtube_music:<list id>`); the page keys rows by it. `service` (`spotify|qobuz|soundcloud|youtube_music`) and `service_name` ("Spotify",
 "Qobuz", "SoundCloud", "YouTube Music") name the row's service. `info.hint`: the words of the row's service for a playlist it won't show (Spotify:
-"Follow ≠ own: make your own copy in Spotify."; Qobuz: "Make it public in Qobuz, or use one of your own playlists."; SoundCloud: "Make it public in SoundCloud, or use its private share link."; YouTube Music: "Set it to public or unlisted in YouTube Music."), always set once `info` is. `info.track_count` is `null` when the service gives no count (a SoundCloud likes list); the row's `tracks` is then what the read found.
+"Follow ≠ own: make your own copy in Spotify."; Qobuz: "Make it public in Qobuz, or use one of your own playlists."; SoundCloud: "Make it public in SoundCloud, or use its private share link."; YouTube Music: "Set it to public or unlisted in YouTube Music."), always set once `info` is. `info.track_count` is `null` when the service gives no count (a SoundCloud likes list); the row's `tracks` is then what the read found. `info.owner_name` is `""` when the name already says it (a SoundCloud likes list is named "{username}'s likes"), so the page names the owner once.
 `info` null until read (refresh or add_playlist); `tracks` null when
 neither the tracks nor the playlist's count were read (the row then shows no count). `version` must be sent to
 `save_playlists`. `overlaps` for the panel when nothing is unsaved: each track that is in several switched-on

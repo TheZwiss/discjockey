@@ -110,13 +110,14 @@ export function priorities(draft: DraftRow[]): string[] {
 
 /** The line under the folder name: the playlist's service, then its name and owner (or its state). The service leads
  *  every row, so a DJ scanning a mixed list sees where each playlist lives (and where to fix it) in one place (plan
- *  stage 3, 6.3). An unreadable playlist says its service's own words (the engine's hint, W5), tone 'bad' = red. */
+ *  stage 3, 6.3). An unreadable playlist says its service's own words (the engine's hint, W5), tone 'bad' = red. A
+ *  playlist whose name already says its owner (a SoundCloud likes list) comes with no owner name: just the name. */
 export function infoLine(r: DraftRow): { service: string; text: string; tone: 'muted' | 'bad' } {
   const service = r.serviceName;
   if (!r.enabled) return { service, text: 'switched off · files stay', tone: 'muted' };
   if (!r.info) return { service, text: 'not read yet', tone: 'muted' };
   if (!r.info.readable) return { service, text: r.info.hint, tone: 'bad' };
-  return { service, text: `"${r.info.name}" · ${ownerText(r.info)}`, tone: 'muted' };
+  return { service, text: [`"${r.info.name}"`, ownerText(r.info)].filter(Boolean).join(' · '), tone: 'muted' };
 }
 
 /** The page header's status line: the tracks of the switched-on playlists ("38 tracks in your playlists"). */

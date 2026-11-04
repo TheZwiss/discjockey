@@ -372,11 +372,14 @@ export const NOT_FOUND_HIDDEN_TIP = 'Nothing usable found yet. You hid it from T
  *  file the count names both in one part, "13 of 18 downloaded" (the inspector's "not downloaded yet" for such a
  *  song): one part, so the parts dropping at a narrow width never leave half of it. Both numbers come from the one
  *  answer (`songs`, before any search or filter). */
-export function subtitleParts(lib: Pick<Library, 'subtitle' | 'songs'>): string[] {
+export function subtitleParts(lib: Pick<Library, 'subtitle' | 'songs' | 'view' | 'read_at'>): string[] {
   const s = lib.songs;
-  if (!s || s.listed <= s.with_file || !lib.subtitle.length) return lib.subtitle;
-  const [, ...rest] = lib.subtitle;
-  return [`${s.with_file} of ${s.listed} downloaded`, ...rest];
+  // a read playlist's count is its second part, after the service (the engine's order); every other view's is its first
+  const at = lib.view === 'playlist' ? 1 : 0;
+  if (!s || s.listed <= s.with_file || (lib.view === 'playlist' && lib.read_at === null) || lib.subtitle.length <= at) {
+    return lib.subtitle;
+  }
+  return lib.subtitle.map((p, i) => (i === at ? `${s.with_file} of ${s.listed} downloaded` : p));
 }
 
 // ---------- the empty states (I7; issues #29 "For B6") ----------

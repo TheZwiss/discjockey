@@ -30,6 +30,6 @@
   .empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--s-2);
     padding: var(--s-6) var(--s-4); color: var(--text-muted); }
   .title { color: var(--text-muted); font-size: var(--fs-body); text-wrap: balance; }
-  .body { color: var(--text-label); font-size: var(--fs-small); max-width: 360px; }
+  .body { color: var(--text-label); font-size: var(--fs-small); max-width: 360px; text-wrap: balance; }
   .act { color: var(--accent-text); font-weight: var(--fw-semi); }
 </style>

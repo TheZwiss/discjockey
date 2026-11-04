@@ -668,7 +668,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         const name = likes ? "Example DJ's likes" : 'Example Set';
         return later(700, () => ok({ playlist_id: playlistRef(link)!, service: 'soundcloud' as const,
           service_name: 'SoundCloud', link,
-          info: { name, owner_name: likes ? 'Example DJ' : 'Example Label', yours: false, collaborative: false,
+          info: { name, owner_name: likes ? '' : 'Example Label', yours: false, collaborative: false,
             readable: true, image_url: null, track_count: likes ? null : 12, hint: hintOf('soundcloud') },
           tracks: 12, readable: true, suggested_folder: name.replace(/\W+/g, '_'), hint: null }));
       }

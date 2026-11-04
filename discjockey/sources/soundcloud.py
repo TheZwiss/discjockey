@@ -421,7 +421,8 @@ class SoundCloudReader:
         name = str(user.get("username") or "")
         cover = next((t["artwork_url"] for t in items if isinstance(t, dict) and t.get("artwork_url")), None)
         cover = cover or user.get("avatar_url")  # `info()` has no tracks to take a cover from
-        return PlaylistInfo(SERVICE, playlist_id, f"{name}'s likes", str(user.get("id") or ""), name, False,
+        # the name says whose likes they are, so no owner name beside it (the page's line would say it twice)
+        return PlaylistInfo(SERVICE, playlist_id, f"{name}'s likes", str(user.get("id") or ""), "", False,
                             _image(cover), count, False, True)
 
 

@@ -350,6 +350,7 @@ export type Todo = {
   groups: { key: TodoGroupKey; label: string; hint: string; items: TodoItem[] }[]; empty: EmptyKind | null;
 };
 
+/** `owner_name` is "" when the name already says it (a SoundCloud likes list, "{username}'s likes"). */
 export type PlaylistInfo = { name: string; owner_name: string; yours: boolean; collaborative: boolean;
   readable: boolean; image_url: string | null;
   /** null: the service gave no count (a SoundCloud likes list) */

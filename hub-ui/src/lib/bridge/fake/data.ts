@@ -540,7 +540,7 @@ export function samplePlaylists(): FakePlaylist[] {
         image_url: null, track_count: 1, hint: SOUNDCLOUD_HINT } },
     // a likes list: SoundCloud gives no count (W10 names it "{username}'s likes")
     { folder: 'Example_DJ_likes', link: SOUNDCLOUD_LIKES_LINK, enabled: true,
-      info: { name: "Example DJ's likes", owner_name: 'Example DJ', yours: false, collaborative: false, readable: true,
+      info: { name: "Example DJ's likes", owner_name: '', yours: false, collaborative: false, readable: true,
         image_url: null, track_count: null, hint: SOUNDCLOUD_HINT } },
     { folder: 'Example_Channel', link: YOUTUBE_MUSIC_LINK, enabled: true,
       info: { name: 'Example Warm-up', owner_name: 'Example Channel', yours: false, collaborative: false, readable: true,
