@@ -261,13 +261,15 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   (`pages/todo/UpgradeBox.svelte` etc., a1a15a3), and it is a dead end (Compare plays, no way to act). Fix: every
   place an upgrade or duplicate decision shows uses the same approved panel with its actions (mockup
   `docs/hub-mockups/todo-decisions.html`). Opus build (no shots) + Opus shots.
-- **State 2026-11-05 (resumed by the user):** issue 34 merged into main e843d38 (3238 py green). Running: (1), Opus
-  build in `.claude/worktrees/6-uiminors` on `fix/stage6-ui-minors`, then a shots agent, then merge into main.
+- **State 2026-11-05 (resumed by the user):** issue 34 merged into main e843d38; (1) UI minors merged de53b75 (3238
+  py green). Running: Sonnet fake-data round (`fix/fake-data`: settings-paused clock, cross-page fake counts, empty
+  scenario To-do/limits).
   Queue: (1) Opus UI minors from issue 32 (FLAC next to .aiff in fake data, empty Playlists counts, likes
   owner twice, YTM label dropped at 1280, balanced wrapping); (2) design round (Opus mockup: paste field "Paste a
   playlist link here" + 4 logos, Liked music Settings choice + warning, W20 upload on Sync card, Setup example links,
   "Open in …", the details panel's FORMAT showing the download's codec ("FLAC") next to an `.aiff` file (contract:
-  `format_line` = format of the download; also used by the upgrade card), Setup's playlist list without the owner); (3) read-only audit of issues 24–30, close done points; (4) fix rounds for what's still open. Waiting
+  `format_line` = format of the download; also used by the upgrade card), Setup's playlist list without the owner, the Library header count dropped at 1280 with details open, the empty
+  Playlists side panel's zero counts (details panel never empty), the Playlists subtitle wrapping at 1100); (3) read-only audit of issues 24–30, close done points; (4) fix rounds for what's still open. Waiting
   for the user: stage 6 live check on main (paste SC set, you/likes >200, YTM mixed playlist, read, splits; Go+
   listing assumptions in issue 32).
 - **Merge early (user, 2026-10-31):** a finished stage merges into main as soon as its fix rounds, CI and verify are
