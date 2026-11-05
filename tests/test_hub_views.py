@@ -1451,6 +1451,48 @@ def test_track_link_names_its_service_for_every_playlist_service():
         assert link["service"] == service and link["label"] == f"Open in {views.PLAYLIST_SERVICES[service]}"
 
 
+def test_library_rows_carry_the_track_link_from_data_already_held():
+    """The row menu's "Open in {Service}" reads the row, so it is there when the menu opens. The link is the details'
+    (the read's link by the song's keys and aliases, else the key's), worked out from `fetched` in memory: one index
+    for the view, no call to a service per row."""
+    qobuz = SourceTrack("900000001", "Song", ("Artist",), "Al", None, 180000, None, service="qobuz")
+    st = state(t1=e(title="One"), qobuz_9=e(title="Two"), **{"youtube:1": e(title="Three"),
+                                                             "qobuz:900000002": e(title="Four")})
+    fetched = [FetchedPlaylist(PlaylistLine("A", "p1", 1, "qobuz"), [qobuz], [])]
+    # t1 is tied to the Qobuz token only by the last read's linking: `planned`, as HubApi passes prep's aliases
+    out = views.library(st, "all", None, "", "all", "title", lines=[], fetched=fetched,
+                        planned={"t1": ["qobuz:900000001"]})
+    links = {r["track_id"]: r["track_link"] for r in out["rows"]}
+    assert links["t1"] == {"url": "https://open.qobuz.com/track/900000001", "label": "Open in Qobuz", "service": "qobuz"}
+    assert links["qobuz:900000002"]["service"] == "qobuz"  # the key's own link
+    assert links["qobuz_9"] == {"url": "https://open.spotify.com/track/qobuz_9", "label": "Open in Spotify",
+                                "service": "spotify"}
+    assert links["youtube:1"] is None  # unknown: absent from the start, never later
+    for r in out["rows"]:  # the same link the details' head carries
+        aliases = ["qobuz:900000001"] if r["track_id"] == "t1" else []
+        d = views.track_detail(r["track_id"], {**st["tracks"][r["track_id"]], "aliases": aliases}, fetched, TODAY)
+        assert r["track_link"] == d["track_link"]
+
+
+def test_a_waiting_playlist_row_and_an_also_row_carry_a_track_link_too(monkeypatch):
+    qobuz = SourceTrack("900000001", "Song", ("Artist",), "Al", None, 180000, None, service="qobuz",
+                        link="https://open.qobuz.com/track/900000001")
+    st = state(a=e(folder="Mix", title="Here"), b=e(folder="Mix", title="Also here"))
+    line = Row("Mix", "https://open.qobuz.com/playlist/900000001")
+    rec = PlaylistRecord("qobuz", "2026-11-05T10:00:00",
+                         (RecordedTrack(1, "a", "Artist", "Here", 180000),
+                          RecordedTrack(2, "qobuz:900000001", "Artist", "Waiting", 180000)))
+    built = []
+    real = views.link_finder
+    monkeypatch.setattr(views, "link_finder", lambda f: built.append(1) or real(f))
+    fetched = [FetchedPlaylist(PlaylistLine("Mix", "p1", 1, "qobuz"), [qobuz], [])]
+    out = views.library(st, "playlist", "Mix", "", "all", None, lines=[line], records={line.ref: rec}, fetched=fetched)
+    waiting = next(r for r in out["rows"] if r["file_state"] == "no_file")
+    assert waiting["track_link"]["service"] == "qobuz"
+    assert out["also"] and all(r["track_link"] for r in [*out["rows"], *out["also"]])
+    assert built == [1]  # one index for the whole view, not one per row
+
+
 def test_a_qobuz_keyed_ambiguous_song_shows_on_the_todo_and_in_the_preview_under_its_song_key():
     q = SourceTrack("900000001", "Song", ("Artist",), "Al", None, 180000, None, service="qobuz")
     st = state(**{"qobuz:900000001": e("lossless"), "t1": e("lossless")})

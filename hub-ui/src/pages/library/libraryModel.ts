@@ -515,3 +515,16 @@ export function libraryCalls(folder: string | null, side: Pick<Sidebar, 'playlis
 export function playQueue(lib: Pick<Library, 'rows' | 'also'>): LibraryRow[] {
   return allRows(lib).filter(playable);
 }
+
+// ---------- the row's context menu ----------
+/** The row menu's items in their order, worked out from the row alone when the menu opens (`link`: the row's own
+ *  `track_link`, so "Open in {Service}" is in the menu from its first frame and nothing joins it later). `todo`: the
+ *  row is on the to-do list; `finder`: its file can be shown in Finder. */
+export type MenuKind = 'details' | 'finder' | 'open' | 'todo';
+export function rowMenu(m: { todo: boolean; finder: boolean; link: LibraryRow['track_link'] }):
+  { kind: MenuKind; label: string; test?: string }[] {
+  return [{ kind: 'details', label: 'Show details', test: 'menu-details' },
+    ...(m.finder ? [{ kind: 'finder' as const, label: 'Show in Finder' }] : []),
+    ...(m.link ? [{ kind: 'open' as const, label: m.link.label, test: 'menu-open-in' }] : []),
+    ...(m.todo ? [{ kind: 'todo' as const, label: 'Open in to-do', test: 'menu-todo' }] : [])];
+}

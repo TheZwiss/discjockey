@@ -12,7 +12,7 @@ import {
   readStatus, sampleCandidates, readOk, todoDetail, todoFree, fileFormatLine, sourceFormatLine, sourceHowOf, sourceFull, todoGroup, trackRow, type FakeAccount, type FakeFolder, type FakeState,
   type FakeTrack,
 } from './data';
-import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, libraryOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
+import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, fakeLink, libraryOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
 import { LIKED_FOLDER, LIKED_LINK, LIKED_LISTED, LIKED_NEEDS_LOGIN, LIKED_OFF, LIKED_SETTING, isLikedLink, likedOn,
   likedScenarios, likedStatus } from './liked';
 import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, rewrite } from './replay';
@@ -545,7 +545,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const q = qualityOf(t);
       const plus = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return dateOnly(d); };
       const query = `${t.artist} ${t.title}`.replace(/ /g, '+');
-      const link = t.link ?? { url: `https://open.spotify.com/track/${t.track_id}`, label: 'Open in Spotify', service: 'spotify' };
+      const link = fakeLink(t);
       // the engine drops the source's link when it is the song's own page (a YouTube Music playlist's own upload)
       const sourceUrl = t.source === 'youtube' ? 'https://www.youtube.com/watch?v=abcdefghijk'
         : t.source === 'youtube_music' ? (t.how === 'upload' ? link.url : 'https://music.youtube.com/watch?v=abcdefghijk')

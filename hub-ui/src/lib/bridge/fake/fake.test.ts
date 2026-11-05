@@ -629,6 +629,18 @@ describe('fake backend: Qobuz playlists (stage 3)', () => {
     expect(q.track.track_link).toEqual({ url: 'https://open.qobuz.com/track/112358', label: 'Open in Qobuz', service: 'qobuz' });
     expect(sp.track.track_link).toEqual({ url: 'https://open.spotify.com/track/t1', label: 'Open in Spotify', service: 'spotify' });
   });
+  it("a Library row carries its track_link, the same as the details' (the row menu needs no call)", async () => {
+    const f = createFakeBridge('normal');
+    const lib = await f.library('all', null, '', 'all', null);
+    if (!lib.ok) throw new Error();
+    expect(lib.rows.length).toBeGreaterThan(0);
+    for (const r of lib.rows) {
+      const d = await f.track(r.track_id);
+      if (!d.ok) throw new Error();
+      expect(r.track_link).toEqual(d.track.track_link);
+    }
+    expect(lib.rows.find((r) => r.track_id === 'qobuz:112358')?.track_link?.service).toBe('qobuz');
+  });
   it('add_playlist reads a Qobuz link; qobuz_unreadable answers the Qobuz words; qobuz_not_connected asks to connect', async () => {
     const link = 'https://open.qobuz.com/playlist/777000123';
     const read = await createFakeBridge('normal', { speed: 50 }).add_playlist(link);

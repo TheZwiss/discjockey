@@ -7,7 +7,7 @@ import {
   playlistCell, playlistsLine, libraryCalls, nextSort, offTable, optionalColumns, rowAway, rowDim, rowInTodo, rowOf, rowOff,
   rowTitleTip, segOptions, selectedIndex, shortUrl, sortKey, sortState, subfolderCell, subtitleParts, tableKind, tableLines,
   titleNote, viewSort, waitWords, windowSlice, alsoHint, playlistColumnFor, artistColumnFor, shownSort, tooManyFor,
-  heldRow, holdApplies, withHeld,
+  heldRow, holdApplies, withHeld, rowMenu,
 } from './libraryModel';
 import type { LibraryRow, TrackDetail } from '$lib/bridge/types';
 
@@ -268,7 +268,7 @@ describe('the cells', () => {
 });
 
 const here = (r: TrackRow, file_state: LibraryRow['file_state'] = 'here'): LibraryRow => ({ ...r, sound_checked: true, file_state,
-  wait: null, position: null, place: null, subfolder: null, playlists: [] });
+  wait: null, position: null, place: null, subfolder: null, playlists: [], track_link: null });
 
 describe('a dimmed row', () => {
   it('is a downloaded song that left every playlist', () => {
@@ -564,5 +564,23 @@ describe('the held track (the one just acted on in the details)', () => {
     const inAlso = { rows: [lr('t1')], also: [lr('a1'), lr('t2')] };
     expect(withHeld({ rows: [lr('t1')], also: [lr('a1')] }, lr('t2'), inAlso, 't2').also?.map((r) => r.track_id))
       .toEqual(['a1', 't2']);
+  });
+});
+
+describe('rowMenu (the row context menu)', () => {
+  const link = { url: 'https://open.qobuz.com/track/1', label: 'Open in Qobuz', service: 'qobuz' as const };
+  it('has "Open in {Service}" from the row on its first render, between Finder and to-do, in the old order', () => {
+    expect(rowMenu({ todo: true, finder: true, link }).map((i) => i.label))
+      .toEqual(['Show details', 'Show in Finder', 'Open in Qobuz', 'Open in to-do']);
+    expect(rowMenu({ todo: false, finder: false, link }).map((i) => i.label)).toEqual(['Show details', 'Open in Qobuz']);
+  });
+  it('leaves the item out from the start when the row has no link', () => {
+    expect(rowMenu({ todo: true, finder: true, link: null }).map((i) => i.label))
+      .toEqual(['Show details', 'Show in Finder', 'Open in to-do']);
+  });
+  it('is fixed by the row: the same input always gives the same items, nothing is asked later', () => {
+    const m = { todo: false, finder: true, link };
+    expect(rowMenu(m)).toEqual(rowMenu({ ...m }));
+    expect(rowMenu(m).find((i) => i.kind === 'open')?.test).toBe('menu-open-in');
   });
 });

@@ -294,7 +294,9 @@ export type JobStatus = { job: JobSnap | null; refresh_running: boolean; console
  *  playlists.txt order. */
 export type LibraryRow = TrackRow & { sound_checked: boolean; file_state: Exclude<FileState, 'file_missing'> | 'no_file';
   wait: 'waiting' | 'not_found' | null; position: number | null; place: string | null; subfolder: string | null;
-  playlists: string[] };
+  playlists: string[];
+  /** the song's page on its service, for the row menu's "Open in {Service}" (null: no page known; the item is absent) */
+  track_link: TrackLink | null };
 export type LibraryView = 'all' | 'unlisted' | 'playlist' | 'folder';
 export type Library = {
   /** the folder at a glance, unaffected by the search and the filter; to_do: what the to-do list shows of it;

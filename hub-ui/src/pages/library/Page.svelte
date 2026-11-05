@@ -407,7 +407,6 @@
     {:else}
       <LibraryTable rows={lib.rows} also={lib.also} alsoHint={alsoHint(lib.title, neverRead)} emptyLine={empty.line} {loading} {kind}
         {subfolders} {playlistColumn} {artistColumn} off={lib.enabled === false} sort={shown} {selected} {playing} {onsort} onselect={select} onplay={playOrPause}
-        linkOf={(id) => (detail?.track_id === id ? detail.track_link : null)}
         onfinder={(id) => void finder(id)} ontodo={todo} ondetails={showDetails} />
     {/if}
   {/if}

@@ -632,14 +632,30 @@ def in_playlists(track_id: str, e: dict, fetched: list) -> list[str] | None:
     return [fp.line.folder for fp in fetched if any(t.key in ids for t in fp.tracks)]
 
 
+def link_finder(fetched: list) -> Callable[[str, dict], dict | None]:
+    """track_link for many songs: the fetched tracks' links indexed once (in memory, from the last read; no call to a
+    service), so a Library view with thousands of rows pays one pass over `fetched`, not one per row."""
+    first: dict[str, tuple[int, str, str]] = {}  # key -> (order in playlist order, link, service), first one wins
+    n = 0
+    for fp in fetched:
+        for t in fp.tracks:
+            n += 1
+            if t.link and t.key not in first:
+                first[t.key] = (n, t.link, t.service)
+
+    def find(track_id: str, e: dict) -> dict | None:
+        ids = {track_id, *(e.get("aliases") or [])}
+        hit = min((first[i] for i in ids if i in first), default=None)  # the earliest of the song's keys in the read
+        link, service = (hit[1], hit[2]) if hit else (key_link(track_id), split_token(track_id)[0])
+        return {"url": link, "label": f"Open in {PLAYLIST_SERVICES[service]}", "service": service} if link else None
+    return find
+
+
 def track_link(track_id: str, e: dict, fetched: list) -> dict | None:
     """{url, label, service} of the track's page on its service: the link of the first fetched track (playlist order)
     that is this song, else the link its key gives; None when neither has one. `service` is the playlist service the
     page belongs to (the hub's logo beside "Open in …" reads it, never the label's words)."""
-    ids = {track_id, *(e.get("aliases") or [])}
-    link, service = next(((t.link, t.service) for fp in fetched for t in fp.tracks if t.key in ids and t.link),
-                         (key_link(track_id), split_token(track_id)[0]))
-    return {"url": link, "label": f"Open in {PLAYLIST_SERVICES[service]}", "service": service} if link else None
+    return link_finder(fetched)(track_id, e)
 
 
 def upgrade_format(up: dict) -> str:
@@ -866,7 +882,8 @@ def _folder_state(away: Mapping[str, str] | None, path: str) -> str:
 
 def library(state: dict, view: str, key: str | None, query: str, filt: str, sort: str | None, cover: Url | None = None,
             away: Mapping[str, str] | None = None, *, lines: Sequence[pf.Row],
-            records: Mapping[str, PlaylistRecord] | None = None, watched: Sequence[WatchedFolder] = ()) -> dict:
+            records: Mapping[str, PlaylistRecord] | None = None, watched: Sequence[WatchedFolder] = (),
+            fetched: list = (), planned: Mapping[str, Sequence[str]] | None = None) -> dict:
     """One view of the library (plan library stage 5, I4, D9-D12). `view`: LIBRARY_VIEWS; `key`: the playlist's folder
     name (as playlists.txt spells it, any case) for "playlist", a folder's snapshot path (`Library/<name>`, or the
     absolute path in an import folder) for "folder", else ignored. filt: LIBRARY_FILTERS. sort: a SORTS key, "-" in
@@ -874,7 +891,9 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
     now (HubApi._away_roots, as track_detail gets it): each row's `file_state` says whether its file is "here",
     "offline" (its drive is not connected) or "folder_missing", decided per folder (file_state without the file
     check: no file is looked at per row, so "file_missing" stays the panel's). `lines`: the playlists.txt lines
-    (playlists_file.load(...).rows); `records`: db.playlist_records; `watched`: db.watched_folders.
+    (playlists_file.load(...).rows); `records`: db.playlist_records; `watched`: db.watched_folders.; `fetched`, `planned`: the last read's
+    playlists and the aliases its linking added (HubApi's prep): they give each row its `track_link`, the row menu's
+    "Open in {Service}", which so is there when the menu opens (no call to a service per row, as track_detail).
 
     All and Not in a playlist list the files. A playlist lists its read record's songs in order, each once (D9):
     one without a file is a row too (`file_state` "no_file", `wait` "waiting" or "not_found"), and `also` holds the
@@ -889,11 +908,15 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
     found = sites(state, lines, watched)
     resolve = _resolver(state)
     holders = _holders(lines, records, resolve)
+    find_link = link_finder(list(fetched))
+
+    def link_of(k: str, e: dict) -> dict | None:  # the aliases the last read's linking added count too, as in track()
+        return find_link(k, {**e, "aliases": [*(e.get("aliases") or []), *((planned or {}).get(k) or ())]})
 
     def row(k: str, e: dict, **extra) -> dict:
         return {**track_row(k, e, cover), "sound_checked": sound_checked(e), "file_state": file_state(e, away),
                 "wait": None, "position": None, "place": found.place(e["path"]), "subfolder": None,
-                "playlists": holders.get(k, []), **extra}
+                "playlists": holders.get(k, []), "track_link": link_of(k, e), **extra}
 
     rows: list[dict] = []
     also = folder_kind = read_at = enabled = service = songs = None
@@ -934,7 +957,7 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
                 rows.append({**track_row(k, base, cover), "sound_checked": True, "file_state": "no_file",
                              "wait": "not_found" if e is not None and _group(e) == "not_found" else "waiting",
                              "position": t.position, "place": None, "subfolder": None,
-                             "playlists": holders.get(k, [line.folder])})
+                             "playlists": holders.get(k, [line.folder]), "track_link": link_of(k, e or {})})
             also = [row(k, e, place=None) for k, e in with_file.items()
                     if k not in held and fold(found.library_folder(e["path"]) or "") == fold(line.folder)]
             if record is not None:  # the playlist's songs (D5: what the sidebar counts) and how many have a file
