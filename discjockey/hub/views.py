@@ -560,15 +560,22 @@ def own_page_dropped(url: str | None, link: dict | None) -> str | None:
     return None if url and link and link["url"] == url else url
 
 
-def next_check(e: dict, today: date) -> str | None:
-    """When Discjockey looks on Qobuz again: an ISO date, "next_sync" when due, None when it never does."""
+def next_due(e: dict) -> str | None:
+    """The day Discjockey looks on Qobuz again, without a clock: an ISO date (due on and after it), "next_sync" when
+    it never looked yet, None when it never does. A library row carries it as `next_try` (the page words it against
+    its own today); `next_check` words it against the API's."""
     if not e.get("in_playlists") or e.get("upgrade") or e["status"] == "lossless":
         return None
     day = e.get("last_attempt") if e["status"] == "missing" else e.get("last_upgrade_check")
     if not day:
         return "next_sync"
-    due = date.fromisoformat(day[:10]) + timedelta(days=WAIT_DAYS)
-    return "next_sync" if due <= today else due.isoformat()
+    return (date.fromisoformat(day[:10]) + timedelta(days=WAIT_DAYS)).isoformat()
+
+
+def next_check(e: dict, today: date) -> str | None:
+    """When Discjockey looks on Qobuz again: an ISO date, "next_sync" when due, None when it never does."""
+    due = next_due(e)
+    return due if due in (None, "next_sync") or date.fromisoformat(due) > today else "next_sync"
 
 
 def buy_links(artist: str, title: str) -> dict:
@@ -935,7 +942,7 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
 
     def row(k: str, e: dict, **extra) -> dict:
         return {**track_row(k, e, cover), "sound_checked": sound_checked(e), "file_state": file_state(e, away),
-                "wait": None, "position": None, "place": found.place(e["path"]), "subfolder": None,
+                "wait": None, "next_try": None, "position": None, "place": found.place(e["path"]), "subfolder": None,
                 "playlists": holders.get(k, []), "track_link": link_of(k, e), **extra}
 
     rows: list[dict] = []
@@ -977,6 +984,8 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
                         "status": "missing", "path": None, "source": None, "cutoff_hz": None, "upgrade": None}
                 rows.append({**track_row(k, base, cover), "sound_checked": True, "file_state": "no_file",
                              "wait": "not_found" if e is not None and _group(e) == "not_found" else "waiting",
+                             # when a song nothing usable was found for is looked for again (To-do's next-try line)
+                             "next_try": next_due(e) if e is not None and _group(e) == "not_found" else None,
                              "position": t.position, "place": None, "subfolder": None,
                              "playlists": holders.get(k, [line.folder]), "track_link": link_of(k, e or {})})
             also = [row(k, e, place=None) for k, e in with_file.items()

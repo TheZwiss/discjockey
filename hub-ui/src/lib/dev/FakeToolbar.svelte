@@ -1,8 +1,9 @@
 <script lang="ts">
   // Fake mode only: a small "FAKE ▾" pill (the scenario in its tooltip and menu), to switch scenario and poke the fake
   // backend. It sits in the page's top left corner, just inside the page's edge (`--sidebar-w`, so it follows the
-  // chrome), above the page header's title: there it covers nothing the shots show, in either sidebar form (the
-  // rail has no room beside a brand, and the window's bottom holds the foot).
+  // chrome), in the page's 20 px top padding above the header's title: 14 px tall from 2 px down, so 4 px stay clear
+  // of the title and it touches nothing the shots show, in either sidebar form (the rail has no room beside a brand,
+  // and the window's bottom holds the foot).
   import { SCENARIOS, pageScenarios } from '../bridge/fake';
   import { toasts } from '../stores/toasts';
 
@@ -53,7 +54,7 @@
 <style>
   .fake { position: fixed; left: calc(var(--sidebar-w) + 6px); top: 2px; z-index: 50; display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 6px; }
   .pill { border: var(--bw) dashed var(--line-control-hover); border-radius: var(--r-pill); background: var(--bg); color: var(--text-label);
-    font-size: var(--fs-label); line-height: 1.2; padding: 1px 9px; letter-spacing: .3px; }
+    font-size: 10px; line-height: 12px; padding: 0 8px; letter-spacing: .3px; }
   .menu { background: var(--bg); border: var(--bw) solid var(--line-control); border-radius: var(--r-card); padding: var(--s-2);
     display: flex; flex-direction: column; gap: 4px; min-width: 210px; box-shadow: var(--shadow); font-size: var(--fs-small); }
   .menu button, .menu a { text-align: left; border: var(--bw) solid var(--line-control); background: transparent; color: var(--text);

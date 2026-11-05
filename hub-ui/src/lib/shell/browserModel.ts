@@ -16,10 +16,9 @@
 // (the first match; ↑ ↓ move it, down to the hand-off row). The hand-off row ("Search tracks for “…”") is the last
 // row whenever there is text, and the only one, with the highlight, when no name matches (N3).
 import type { Crate, Favourite, FolderState, LibraryView, PlaylistService, Sidebar, WatchedEntry } from '../bridge/types';
-import { NOT_IN_PLAYLIST } from '../bridge/types';
 import { PLAYLIST_SERVICE_NAMES } from '../copy';
 import { count } from '../format';
-import { buildHash, libraryHref } from '../router';
+import { buildHash, libraryHref, resolveTarget, type LibraryTarget } from '../router';
 
 export const HANDOFF = 'handoff';
 export const ALL = 'view:all';
@@ -204,14 +203,14 @@ const byName = (a: { name: string }, b: { name: string }) =>
 export const playlistTarget = (ref: string): string => `playlist:${ref}`;
 export const folderTarget = (path: string): string => `folder:${path}`;
 const LIBRARY_PREFIX = 'Library/';
-/** A folder's link: a Library folder by its name (the step A route the Dashboard links too), any other by its path. */
-export const folderHref = (path: string): string =>
-  libraryHref(path.startsWith(LIBRARY_PREFIX) ? path.slice(LIBRARY_PREFIX.length) : path);
-/** Where Show in Finder can point (`api.reveal` opens places inside the music folder only): a playlist's folder, a
- *  Library folder; null for an import folder and its crates. */
+/** A folder's link, by its path (I5). */
+export const folderHref = (path: string): string => libraryHref({ kind: 'folder', path });
+/** Where Show in Finder points (`api.reveal`: a place inside the music folder, or an absolute path inside a watched
+ *  import folder): a playlist's folder, a Library folder, an import folder or a crate; null for a folder that is away
+ *  (its drive isn't connected or it is gone: there is nothing to show). */
 export function revealPath(row: CollectionRow): string | null {
   if (row.kind === 'playlist') return `${LIBRARY_PREFIX}${row.name}`;
-  return row.path.startsWith(LIBRARY_PREFIX) ? row.path : null;
+  return row.path.startsWith(LIBRARY_PREFIX) || row.state === 'here' ? row.path : null;
 }
 
 /** Every crate of the sidebar with its watched folder, by path. */
@@ -223,7 +222,7 @@ function cratesByPath(side: Sidebar): Map<string, { c: Crate; w: WatchedEntry }>
 
 function playlistRow(p: Sidebar['playlists'][number], key: string, place: Place): PlaylistRow {
   return { kind: 'playlist', key, target: playlistTarget(p.ref), name: p.name, service: p.service, enabled: p.enabled,
-    count: p.songs, href: libraryHref(p.name), tip: playlistTip(p), match: null, lead: p.service ? 'service' : 'none',
+    count: p.songs, href: libraryHref({ kind: 'playlist', name: p.name }), tip: playlistTip(p), match: null, lead: p.service ? 'service' : 'none',
     place, indent: false };
 }
 const folderBase = { kind: 'folder' as const, match: null, indent: false, fold: null, context: false, crate: null };
@@ -311,9 +310,9 @@ export function browserList({ side, query, az, closed: storedClosed, current = n
     return { views: [], sections: [], targets: [], handoff: filtering ? handoff(query) : null, on: null, countCh: 1 };
   }
   const views: ViewRow[] = filtering ? [] : [
-    { kind: 'view', key: ALL, target: ALL, name: 'All tracks', count: side.all_tracks, href: libraryHref(null) },
+    { kind: 'view', key: ALL, target: ALL, name: 'All tracks', count: side.all_tracks, href: libraryHref({ kind: 'all' }) },
     ...(side.not_in_playlist > 0 ? [{ kind: 'view' as const, key: UNLISTED, target: UNLISTED, name: 'Not in a playlist',
-      count: side.not_in_playlist, href: libraryHref(NOT_IN_PLAYLIST) }] : []),
+      count: side.not_in_playlist, href: libraryHref({ kind: 'unlisted' }) }] : []),
   ];
   const keep = <T extends CollectionRow>(r: T): T | null => {
     if (!filtering) return r;
@@ -410,19 +409,19 @@ export function rowByKey(list: BrowserList, key: string): BrowserRow | null {
   return null;
 }
 
-/** The collection on screen as a target: `folder` is the library route's folder param (undefined: not on Library;
- *  null: All tracks). A path (an import folder or a crate, "/…") is a folder; a name is a playlist's folder when a
- *  playlist has it, else a Library folder no playlist uses (step A's route, which the Dashboard links too). */
-export function currentTarget(side: Sidebar | null, folder: string | null | undefined): string | null {
-  if (folder === undefined) return null;
-  if (folder === null) return ALL;
-  if (folder === NOT_IN_PLAYLIST) return UNLISTED;
-  if (folder.startsWith('/')) return folderTarget(folder);
+/** The collection on screen as a browser target: `t` is the library route's (`router.libraryTarget`; undefined: not
+ *  on Library). An old link's playlist name the sidebar lists as a Library folder is that folder (`resolveTarget`); a
+ *  playlist the sidebar doesn't list is no row. */
+export function currentTarget(side: Sidebar | null, t: LibraryTarget | undefined): string | null {
+  if (t === undefined) return null;
+  if (t.kind === 'all') return ALL;
+  if (t.kind === 'unlisted') return UNLISTED;
+  if (t.kind === 'folder') return folderTarget(t.path);
   if (!side) return null;
-  const p = side.playlists.find((x) => x.name === folder);
-  if (p) return playlistTarget(p.ref);
-  const lib = side.library_folders.find((f) => f.name === folder);
-  return lib ? folderTarget(lib.path) : null;
+  const r = resolveTarget(t, side);
+  if (r.kind === 'folder') return folderTarget(r.path);
+  const p = side.playlists.find((x) => x.name.normalize('NFC').toLowerCase() === t.name.normalize('NFC').toLowerCase());
+  return p ? playlistTarget(p.ref) : null;
 }
 
 /** A folded section's or watched folder's key in or out of the remembered list. */

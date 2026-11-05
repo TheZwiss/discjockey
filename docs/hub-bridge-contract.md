@@ -602,7 +602,9 @@ holds for `dashboard`'s `lossless_share` tile and folder bars (`by_quality`, `lo
 count), and the to-do list holds no such file. The user's
 own songs (the import) are in no folder: their rows have `folder: ""` and `in_playlists: false`, they show in All
 tracks, Not in a playlist and the folder views, never under a playlist folder. Rows (and `also`) carry four more
-fields: `wait` (`waiting`, `not_found` or `null`), `position` (the place in the playlist's record, playlist views
+fields: `wait` (`waiting`, `not_found` or `null`), `next_try` (a `not_found` row only, else `null`: the day the sync looks
+for it again, ISO and due on and after it, or `next_sync` when it never looked yet; the page words it as To-do's
+next-try line against its own today), `position` (the place in the playlist's record, playlist views
 only, else `null`), `place` and `playlists`. `place` is where the file sits, in the words of the Folder column: a
 file in `Library/` says the name of its playlist line or Library folder as it spells it (`Techno 2019`; `not_lossless/`
 is part of its folder), a file in a watched folder says the folder and its crate (`Rekordbox Library › Hardtechno ›
@@ -690,6 +692,7 @@ innermost watched folder holding it is offline or not found) puts its words seco
    "sound_checked": true,
    "file_state": "here",
    "wait": null,
+   "next_try": null,
    "position": 2,
    "place": null,
    "subfolder": null,
@@ -717,6 +720,7 @@ innermost watched folder holding it is offline or not found) puts its words seco
    "sound_checked": true,
    "file_state": "here",
    "wait": null,
+   "next_try": null,
    "position": 1,
    "place": null,
    "subfolder": null,
@@ -744,6 +748,7 @@ innermost watched folder holding it is offline or not found) puts its words seco
    "sound_checked": true,
    "file_state": "no_file",
    "wait": "not_found",
+   "next_try": "2026-10-20",
    "position": 3,
    "place": null,
    "subfolder": null,

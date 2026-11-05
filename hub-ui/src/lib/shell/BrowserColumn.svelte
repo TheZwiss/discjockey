@@ -43,7 +43,7 @@
   import { api } from '../bridge/client';
   import type { FolderState } from '../bridge/types';
   import { hub, saveCrateShown, saveFavourites } from '../stores/hub';
-  import { route, link, go } from '../router';
+  import { go, libraryTarget, link, route } from '../router';
   import { browserClosed, chrome, filterFocus, playlistsAz } from '../stores/chrome';
   import { toasts } from '../stores/toasts';
   import { problemCopy } from '../copy';
@@ -71,7 +71,7 @@
 
   const side = $derived($hub.sidebar);
   const shownSide = $derived(side && pendingFavs ? { ...side, favourites: favouritesIn(side, pendingFavs) } : side);
-  const current = $derived(currentTarget(side, $route.name === 'library' ? ($route.params.folder ?? null) : undefined));
+  const current = $derived(currentTarget(side, $route.name === 'library' ? libraryTarget($route.params) : undefined));
   const list = $derived(browserList({ side: shownSide, query, az: $playlistsAz, closed: $browserClosed, current,
     shown: pendingShown }));
   const filtering = $derived(list.targets.length > 0);

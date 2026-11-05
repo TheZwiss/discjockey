@@ -1038,9 +1038,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     },
 
     async show_in_finder() { return ok({}); },
+    // api.reveal: a place inside the music folder, or an absolute path at or inside a watched import folder
     async reveal(rel_path: string) {
-      if (typeof rel_path !== 'string' || rel_path.startsWith('/') || rel_path.includes('..')) {
-        return fail('refused', 'Only folders inside your music folder can be shown.');
+      const inWatched = (p: string) => s.imp.folders.some((f) => p === f.path || p.startsWith(`${f.path}/`));
+      if (typeof rel_path !== 'string' || rel_path.split('/').includes('..') || (rel_path.startsWith('/') && !inWatched(rel_path))) {
+        return fail('refused', 'Discjockey only opens places inside your music folder or a folder it watches.');
       }
       return ok({});
     },

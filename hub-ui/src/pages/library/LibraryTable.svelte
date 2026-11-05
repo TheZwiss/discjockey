@@ -25,7 +25,7 @@
   import type { LibraryRow, LibrarySort } from '$lib/bridge/types';
   import { api } from '$lib/bridge/client';
   import {
-    NOT_FOUND_HIDDEN_TIP, NOT_FOUND_TIP, NOT_FOUND_WORD, columnsAt, folderCell, gridColumns, lineTop, moveSelection,
+    NOT_FOUND_WORD, columnsAt, localDay, notFoundTip, folderCell, gridColumns, lineTop, moveSelection,
     playable, playlistCell, rowAway, rowDim, rowInTodo, rowTitleTip, centerLine, keepLine, selectedIndex,
     sortColumns, sortState, subfolderCell, tableLines, titleNote, waitWords, windowSlice, type OptionalColumn, type SortColumn,
     type TableKind, rowMenu,
@@ -86,6 +86,8 @@
   const grid = $derived(gridColumns(extra, playlist, artistColumn));
   const lines = $derived(tableLines(rows, also, emptyLine));
   const wait = $derived(waitWords(off));
+  // NOT FOUND's tooltip words the next try against today (the table is drawn again on each answer)
+  const today = $derived.by(() => { void rows; return localDay(new Date()); });
   // what ↑ ↓ walk and a selection is found in: the rows, the section's included, in the table's order
   const walk = $derived(lines.flatMap((l) => (l.kind === 'row' ? [l.row] : [])));
   const slice = $derived(windowSlice(scrollTop, viewport, rowH, lines.length));
@@ -232,7 +234,7 @@
               {:else}<span class="td sub quiet">–</span>{/if}
             {/if}
           {/each}
-          <span class="td">{#if noFile}{#if r.wait === 'not_found'}<Badge tone="missing" text={NOT_FOUND_WORD} tip={r.hidden ? NOT_FOUND_HIDDEN_TIP : NOT_FOUND_TIP}
+          <span class="td">{#if noFile}{#if r.wait === 'not_found'}<Badge tone="missing" text={NOT_FOUND_WORD} tip={notFoundTip(r, today)}
               test="wait-{r.track_id}" />{:else}<Badge tone="quiet" text={wait.word} tip={wait.tip} test="wait-{r.track_id}" />{/if}
             {:else if away}<AwayTag state={away} test="away-{r.track_id}" />{:else}<button type="button"
             class="qbtn" tabindex="-1" use:tip={'Show details'} onclick={(e) => badge(e, r.track_id)}
@@ -265,7 +267,9 @@
   /* a row's rule is its top edge; after the section head the head is the line above the first row of its files */
   .tr:not(.head) + .tr, :global([data-list-section]) + .tr { border-top: var(--bw) solid var(--line-soft); }
   .tr:not(.head):hover { background: var(--ctl-hover); }
-  .tr.sel, .tr.sel:hover { background: var(--nav-on-bg); }
+  /* the picked track: the orange wash (`--row-picked`, as To-do's `ListRow pick`), deeper under the pointer */
+  .tr.sel { background: var(--row-picked); }
+  .tr.sel:not(.head):hover { background: var(--row-picked-hover); }
   .tr.off .name { color: var(--text-muted); }
   .tr.off .cov { opacity: var(--dim-cover); }
   /* the dashed empty cover is already the faint thing: dimmed again it would vanish */

@@ -114,7 +114,7 @@
         grow={{ rows: data.folders.length }} data-test="folders">
         {#each data.folders as f (f.folder)}
           {@const line = folderLine(f)}
-          {@const href = libraryHref(f.folder)}
+          {@const href = libraryHref({ kind: 'playlist', name: f.folder })}
           {#snippet name()}{f.folder}{/snippet}
           {#snippet trailing()}<a class="go fold" {href} use:link tabindex="-1" aria-hidden="true"><span class="qb"><QualityBar
             by_quality={f.by_quality} /></span><span class="share">{line.short}</span>{@render chev()}</a>{/snippet}

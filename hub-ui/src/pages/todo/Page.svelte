@@ -232,7 +232,7 @@
       text="UPGRADE" />{:else if i.free}<span title="The artist gives it away for free"><Badge tone="accent"
       text="FREE" /></span>{/if}</span>
   {/snippet}
-  <ListRow {lead} {name} {sub} {trailing} selected={key === selKey} off={rowOff(i)} onclick={() => choose(key)}
+  <ListRow {lead} {name} {sub} {trailing} selected={key === selKey} pick off={rowOff(i)} onclick={() => choose(key)}
     title={artistTitle(i.artist, i.title)} test="todo-row" data-key={key} data-track={i.track_id} />
 {/snippet}
 

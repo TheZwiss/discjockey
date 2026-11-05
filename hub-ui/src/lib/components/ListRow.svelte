@@ -13,7 +13,8 @@
   // wrap instead (a destination folder or a reason the user must read whole); the row grows by its lines.
   // With `onclick`, lead + name + optional are one `<button>` (the row's hit area; `trailing` stays outside it, so ⊘
   // or "Fix →" are their own buttons and own their own disabled state). `checked` makes that button a tick box
-  // (`role="checkbox"`), `selected` marks the chosen row of a "one of many" list (wash + `aria-current`) and brings it into view
+  // (`role="checkbox"`), `selected` marks the chosen row of a "one of many" list (wash + `aria-current`; with `pick`, a
+  // track picked to look at in a track list, the orange `--row-picked` wash, else the nav grey) and brings it into view
   // when it becomes the chosen one (`block: 'nearest'`, instant: a row already in view does not move; a row reached by
   // its address or by the keyboard, below the fold of a short window, is shown). The
   // button's name is the name line only, so it doesn't change when the optional column appears; `sub` and
@@ -27,10 +28,10 @@
 
   type Props = Omit<HTMLAttributes<HTMLDivElement>, 'children' | 'onclick' | 'title'> & {
     lead?: Snippet; name: Snippet; sub?: Snippet; optional?: Snippet; trailing?: Snippet;
-    off?: boolean; selected?: boolean; disabled?: boolean; checked?: boolean; height?: 40 | 52; wrap?: boolean;
+    off?: boolean; selected?: boolean; pick?: boolean; disabled?: boolean; checked?: boolean; height?: 40 | 52; wrap?: boolean;
     onclick?: (e: MouseEvent) => void; title?: string; test?: string;
   };
-  let { lead, name, sub, optional, trailing, off = false, selected = false, disabled = false, checked, height, wrap = false,
+  let { lead, name, sub, optional, trailing, off = false, selected = false, pick = false, disabled = false, checked, height, wrap = false,
     onclick, title, test, class: className, ...rest }: Props = $props();
 
   const uid = $props.id();
@@ -41,7 +42,7 @@
   $effect(() => { if (selected) rowEl?.scrollIntoView?.({ block: 'nearest' }); });
 </script>
 
-<div {...rest} bind:this={rowEl} class="row {className ?? ''}" class:off class:selected class:locked={disabled} class:tall={isTall}
+<div {...rest} bind:this={rowEl} class="row {className ?? ''}" class:off class:selected class:pick class:locked={disabled} class:tall={isTall}
   class:clickable={!!onclick} class:has-lead={!!lead} class:has-trailing={!!trailing} class:wrap data-test={test}>
   {#if onclick}
     <button type="button" class="main" data-row-hit role={checked === undefined ? undefined : 'checkbox'}
@@ -101,6 +102,8 @@
   .clickable:not(.locked):hover { background: var(--ctl-hover); }
   .clickable:not(.locked):has(> .main:active) { background: var(--ctl-press); transition: none; }
   .selected, .selected.clickable:not(.locked):hover { background: var(--nav-on-bg); }
+  .selected.pick { background: var(--row-picked); }
+  .selected.pick.clickable:not(.locked):hover { background: var(--row-picked-hover); }
   .main:active { transform: none; }
   /* the ring sits inside the row; its corners are concentric with the Surface's (rule 10), so the first and last
      row's ring isn't cut by the list's rounded clip */

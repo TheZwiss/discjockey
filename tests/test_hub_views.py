@@ -2063,6 +2063,20 @@ def test_a_song_without_a_file_waits_or_is_not_found():
     assert rows["g"]["playlists"] == ["Techno"] and rows["g"]["title"] == "Gone"  # the library's own naming
 
 
+def test_a_not_found_row_says_when_it_is_looked_for_again_and_no_other_row_does():
+    st = playlist_state()
+    st["tracks"]["g"]["last_attempt"] = "2026-11-01T10:00:00"
+    rows = {r["track_id"]: r for r in playlist_view(st)["rows"]}
+    due = (date(2026, 11, 1) + views.timedelta(days=views.WAIT_DAYS)).isoformat()
+    assert (rows["g"]["next_try"], rows["unheard"]["next_try"], rows["a"]["next_try"]) == (due, None, None)
+    del st["tracks"]["g"]["last_attempt"]  # never looked yet: the next sync does
+    assert {r["track_id"]: r for r in playlist_view(st)["rows"]}["g"]["next_try"] == "next_sync"
+    assert views.next_check(st["tracks"]["g"] | {"last_attempt": "2026-11-01"}, date.fromisoformat(due)) == "next_sync"
+    assert views.next_check(st["tracks"]["g"] | {"last_attempt": "2026-11-01"}, date(2026, 11, 2)) == due
+    out = views.library(st, "all", None, "", "all", None, lines=[TECHNO, HOUSE])
+    assert all(r["next_try"] is None for r in out["rows"])
+
+
 def test_a_file_outside_the_playlists_folder_says_where_it_sits_and_the_rest_says_nothing():
     rows = {r["track_id"]: r for r in playlist_view()["rows"]}
     assert (rows["a"]["place"], rows["b"]["place"], rows["c"]["place"]) == (None, None, "House")  # not_lossless/ is inside

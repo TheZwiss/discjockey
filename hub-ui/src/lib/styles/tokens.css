@@ -50,6 +50,11 @@
   --accent-line: rgba(255, 90, 31, .5);
   --accent-wash: rgba(255, 90, 31, .07);   /* drop zone while dragging, selected chip background */
   --accent-wash-strong: rgba(255, 90, 31, .14);   /* the chosen segment of a Segmented (mockup value) */
+  /* the track picked to look at in a track list (Library's table, To-do's list; `ListRow pick`): the orange wash of
+     the stage 5 mockup, a step stronger under the pointer. Hover elsewhere is a white .035, so the three read apart:
+     hover grey, picked orange, picked + hover deeper orange; the keyboard ring stays the --accent-line outline */
+  --row-picked: rgba(255, 90, 31, .09);
+  --row-picked-hover: rgba(255, 90, 31, .13);
   --accent-stripe: rgba(255, 90, 31, .16); /* the day bar's later stripes, over --accent-wash */
   --text-on-accent: #000;          /* text on a filled accent button */
   /* quality: text / bar fill / outline */
@@ -141,6 +146,7 @@
 /* increased contrast (System Settings › Accessibility › Display): defined edges, no dim chrome text. Kept here, next
    to the tokens it overrides, so a token edit sees its contrast value too */
 @media (prefers-contrast: more) {
+    --row-picked: rgba(255, 90, 31, .18); --row-picked-hover: rgba(255, 90, 31, .24);
   :root {
     --surface-line: rgba(255, 255, 255, .18); --ctl-line: rgba(255, 255, 255, .22); --line-soft: rgba(255, 255, 255, .10);
     --popover-line: rgba(255, 255, 255, .24);

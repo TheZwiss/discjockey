@@ -2,7 +2,7 @@
 import { derived, get, writable, type Readable } from 'svelte/store';
 import { onEvent } from '../bridge/events';
 import { api, onNoLibrary } from '../bridge/client';
-import type { AppUpdate, CrateSaved, FavouritesSaved, JobSnap, PlaylistService, SetupStatus, Sidebar, ReadStatus, Res } from '../bridge/types';
+import type { AppUpdate, CrateSaved, CratesSaved, FavouritesSaved, JobSnap, PlaylistService, SetupStatus, Sidebar, ReadStatus, Res } from '../bridge/types';
 import { WRITE_BLOCKED } from '../copy';
 
 export type HubState = {
@@ -209,17 +209,19 @@ export async function saveCrateShown(path: string, shown: boolean | null): Promi
   await refreshSidebar();
   return r;
 }
-/** Several crate switches at once (Settings' All · None): one save after another, stopping at the first refusal, and
- *  the sidebar read once at the end (each `set_crate_shown` is its own brief save; 312 sidebar reads would not be).
- *  `saved` are the paths stored, in order; `failed` the refusal that stopped the rest (null when all were stored). */
+/** Several crate switches at once (Settings' All · None, a switch): one `set_crates_shown` per stored value (a click
+ *  saves one value, so one write) and the sidebar read once at the end. Each write is all or nothing; `saved` are the
+ *  paths stored, in order, `failed` the refusal that stopped the rest (null when all were stored). */
 export async function saveCratesShown(changes: { path: string; shown: boolean | null }[]):
-  Promise<{ saved: string[]; failed: Extract<Res<CrateSaved>, { ok: false }> | null }> {
+  Promise<{ saved: string[]; failed: Extract<Res<CratesSaved>, { ok: false }> | null }> {
+  const byValue = new Map<boolean | null, string[]>();
+  for (const c of changes) byValue.set(c.shown, [...(byValue.get(c.shown) ?? []), c.path]);
   const saved: string[] = [];
-  let failed: Extract<Res<CrateSaved>, { ok: false }> | null = null;
-  for (const c of changes) {
-    const r = await api.set_crate_shown(c.path, c.shown);
+  let failed: Extract<Res<CratesSaved>, { ok: false }> | null = null;
+  for (const [shown, paths] of byValue) {
+    const r = await api.set_crates_shown(paths, shown);
     if (!r.ok) { failed = r; break; }
-    saved.push(c.path);
+    saved.push(...paths);
   }
   if (changes.length) await refreshSidebar();
   return { saved, failed };

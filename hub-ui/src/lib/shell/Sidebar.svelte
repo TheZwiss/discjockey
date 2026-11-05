@@ -18,7 +18,7 @@
   // so its arrival and leaving are transitions too.
   import { get } from 'svelte/store';
   import { hub, hubSyncRunning } from '../stores/hub';
-  import { route, link } from '../router';
+  import { libraryTarget, link, route } from '../router';
   import { updateLink } from '../appUpdate';
   import { ExternalLink, NavIcon, Ring, tip } from '../components';
   import { player } from '../stores/player';
@@ -78,7 +78,7 @@
   // Favourites as shortcuts on the pages without the browser column (notes N2): no counts, a click opens Library at it
   const favs = $derived(side ? side.favourites.map((f) => favouriteRow(f, side)) : []);
   // the collection open in Library: its favourite wears the same "current" look as the page rows
-  const openTarget = $derived(currentTarget(side, r.name === 'library' ? (r.params.folder ?? null) : undefined));
+  const openTarget = $derived(currentTarget(side, r.name === 'library' ? libraryTarget(r.params) : undefined));
   const isOn = (n: NavPage) => r.name === n.key || (n.also ?? []).includes(r.name);
   // Library goes back to the collection it was left at; on Library itself it stays where it is
   const here = $derived(`#${r.path}${r.query.toString() ? `?${r.query}` : ''}`);
@@ -279,9 +279,11 @@
   .pill { position: absolute; left: 11px; top: -9px; min-width: 18px; height: 14px; padding: 0 4px;
     border-radius: var(--r-pill); background: var(--rail-pill-bg); box-shadow: 0 0 0 2px var(--sidebar-solid);
     color: var(--text); font-size: var(--fs-label); font-weight: var(--fw-semi); line-height: 14px; text-align: center; }
-  /* "99+" would cross the rail's edge from there: it alone ends 2 px inside the rail, a little tighter, and grows
-     leftwards, so it covers only the glyph's top-right corner as a two-digit count does */
-  .pill.wide { left: auto; right: -16px; padding: 0 3px; letter-spacing: -.2px; }
+  /* "99+" keeps the corner: it starts 1 px further left than a two-digit count and is set a size smaller and tighter
+     (10 px, -.4 px), so it covers the same top-right corner of the glyph (4 px of its width, its top 5 px) and still
+     ends inside the rail (the rail's 50 px clip its ring at most); it used to grow leftwards over most of the glyph.
+     The tooltip keeps the exact count */
+  .pill.wide { left: 10px; padding: 0 2px; font-size: 10px; letter-spacing: -.4px; }
   .t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .n { margin-left: auto; color: var(--text-label); font-size: var(--fs-label); padding-left: var(--s-1); }
   .on .n { color: var(--text-muted); }

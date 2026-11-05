@@ -944,6 +944,16 @@
                 {#snippet trailing()}<QualityBadge quality={r.quality} label={r.quality_label} />{/snippet}
               </ListRow>
             {/each}
+          </Surface>
+          <span class="cap">pick · a track picked to look at (Library's table, To-do's list): the orange wash, deeper under the pointer</span>
+          <Surface kind="list" label="Picked track" style="--row-cols: 28px minmax(0, 1fr) 72px">
+            {#each [lossless, weak, fakeQ] as r (r.track_id)}
+              <ListRow pick selected={lrChosen === r.track_id} onclick={() => (lrChosen = r.track_id)} title="{r.artist} – {r.title}">
+                {#snippet lead()}<Cover url={null} seed={r.track_id} size={28} />{/snippet}
+                {#snippet name()}{r.artist} – {r.title}{/snippet}
+                {#snippet trailing()}<QualityBadge quality={r.quality} label={r.quality_label} />{/snippet}
+              </ListRow>
+            {/each}
           </Surface></div>
         <div class="col tight"><span class="cap">no button · second line (sub) · off</span>
           <Surface kind="list" label="Could be better" style="--row-cols: minmax(0, 1fr) 56px">
