@@ -159,6 +159,12 @@ describe('row texts', () => {
     expect(listSummary(addRow(d, ADDED, 'N'))).toBe('3 on · 6 tracks');
     expect(listSummary([])).toBe('0 on · 0 tracks');
   });
+  it('a row that needs a Settings choice counts as off: no priority number, not in "on", no tracks', () => {
+    const lm = { ...d[1], needsSetting: 'read_liked_music' as const };
+    const withLm = [d[0], lm, ...addRow(d, ADDED, 'N').slice(2)];
+    expect(priorities(withLm)).toEqual(['1', '–', '2']);
+    expect(listSummary(withLm)).toBe(`2 on · 1 off · ${(d[0].tracks ?? 0) + (ADDED.tracks ?? 0)} tracks`);
+  });
   it('lossless text beside the quality bar, none before anything is downloaded', () => {
     expect(losslessText(d[0].quality)).toBe('1 of 4 lossless');
     expect(losslessText({ lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 })).toBeNull();
