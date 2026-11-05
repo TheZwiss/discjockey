@@ -52,6 +52,29 @@ describe('fake playlist refs', () => {
   });
 });
 
+describe('fake track details: where a file came from', () => {
+  const detail = async (id: string) => {
+    const r = await createFakeBridge('normal').track(id);
+    if (!r.ok) throw new Error(r.message);
+    return r.track;
+  };
+  it('say the file (format_line) apart from what it was made from (source_format_line) and how it was found', async () => {
+    expect(await detail('t1')).toMatchObject({ format_line: 'AIFF · 16-bit', source_format_line: 'FLAC', source_how: 'exact' });
+    expect(await detail('t2')).toMatchObject({ format_line: 'AIFF · 16-bit', source_format_line: 'Opus · 135 kbps',
+      source_how: 'fallback' });
+    expect(await detail('t3')).toMatchObject({ format_line: null, source_format_line: null, source_how: null });
+  });
+  it('a SoundCloud track carries how: upload', async () => {
+    expect(await detail('soundcloud:900000101')).toMatchObject({ source: 'soundcloud', source_how: 'upload' });
+  });
+  it("a YouTube Music playlist's own upload has no source link of its own (it equals the track link)", async () => {
+    const d = await detail('youtube_music:EXAMPLEid01');
+    expect(d).toMatchObject({ source_how: 'upload', source_url: null });
+    expect(d.track_link?.url).toBe('https://music.youtube.com/watch?v=EXAMPLEid01');
+    expect((await detail('t2')).source_url).not.toBeNull();
+  });
+});
+
 describe('fake backend', () => {
   it('library file names are "Artist - Title" without suffixes', async () => {
     const f = createFakeBridge('big');

@@ -224,7 +224,7 @@ def _move_away(paths: Paths, state: dict, track_id: str, e: dict, today: str, ds
     rejected = sorted(set(e.get("rejected_sources") or []) | ({wrong} if wrong else set()))
     run_op(paths, state, track_id, [(e["path"], dst)], {
         **e, "path": None, "status": "missing", "source": None, "source_id": None, "source_format": None,
-        "cutoff_hz": None, "source_kbps": None, "rejected_sources": rejected, "last_attempt": None, "upgrade": None,
+        "cutoff_hz": None, "source_kbps": None, "source_how": None, "rejected_sources": rejected, "last_attempt": None, "upgrade": None,
         "rekordbox_check": {"reason": "wrong_song", "since": today}})
     if e.get("upgrade"):  # a parked better version of the wrong song is stale too
         delete_parked(paths, e["upgrade"]["file"])
@@ -328,6 +328,7 @@ def use_candidate(paths: Paths, state: dict, track_id: str, cand: Candidate, *, 
         run_op(paths, state, track_id, [(ready.path.relative_to(paths.root).as_posix(), dst)], {
             **e, "path": dst, "status": ready.status, "source": ready.source, "source_id": ready.source_id,
             "source_format": ready.source_format, "cutoff_hz": ready.cutoff_hz, "source_kbps": ready.kbps,
+            "source_how": "chosen",
             "rejected_sources": sorted(rejected),
             "last_attempt": today, "last_upgrade_check": today, "upgrade": None,
             "rekordbox_check": state["tracks"][track_id].get("rekordbox_check")})

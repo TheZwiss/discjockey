@@ -553,6 +553,12 @@ def source_url(source: str | None, source_id: str | None) -> str | None:
     return None  # SoundCloud ids are numbers, not part of a link
 
 
+def own_page_dropped(url: str | None, link: dict | None) -> str | None:
+    """The source's link, or None when it is the song's own page already shown as `track_link` (a YouTube Music
+    playlist's own upload): the details never show the same link twice."""
+    return None if url and link and link["url"] == url else url
+
+
 def next_check(e: dict, today: date) -> str | None:
     """When Discjockey looks on Qobuz again: an ISO date, "next_sync" when due, None when it never does."""
     if not e.get("in_playlists") or e.get("upgrade") or e["status"] == "lossless":
@@ -572,14 +578,41 @@ def buy_links(artist: str, title: str) -> dict:
 FORMAT_NAMES = {"opus": "Opus", "aac": "AAC", "mp3": "MP3", "flac": "FLAC", "vorbis": "Vorbis", "alac": "ALAC"}
 
 
-def format_line(e: dict) -> str | None:
-    """"Opus · 135 kbps", "FLAC": the format of the download (and its bitrate when lossy), None without a file."""
+# the container a file's extension names; .m4a is AAC or ALAC by its codec (file_format_line)
+CONTAINER_NAMES = {".aiff": "AIFF", ".aif": "AIFF", ".wav": "WAV", ".flac": "FLAC", ".mp3": "MP3", ".ogg": "OGG",
+                   ".opus": "Opus"}
+DOWNLOAD_BITS = 16  # audio.convert_to_aiff writes every download as pcm_s16be
+
+
+def source_format_line(e: dict) -> str | None:
+    """"Opus · 135 kbps", "FLAC": the format of what the download was made from (and its bitrate when lossy), None
+    without a file. The SOURCE line of the details and the Now label of an upgrade card."""
     f = e.get("source_format")
     if e["status"] == "missing" or not f:
         return None
     name = "uncompressed PCM" if f.startswith("pcm_") else FORMAT_NAMES.get(f, f.upper())
     kbps = e.get("source_kbps") if e["status"] == "not_lossless" else None
     return f"{name} · {kbps} kbps" if kbps else name
+
+
+def file_format_line(e: dict) -> str | None:
+    """"AIFF · 16-bit", "WAV · 24-bit", "FLAC": what the file is. A download is always 16-bit AIFF (it is converted);
+    a file of the user's own or a bought one names its container by its extension, plus the bit depth when its stored
+    codec is a PCM one (`pcm_s24le`). None without a file."""
+    if e["status"] == "missing" or not e.get("path"):
+        return None
+    ext = PurePosixPath(e["path"]).suffix.lower()
+    codec = e.get("source_format") or ""
+    if e.get("source") != "manual":
+        return f"{CONTAINER_NAMES.get(ext, 'AIFF')} · {DOWNLOAD_BITS}-bit"
+    if ext in (".m4a", ".mp4"):
+        name = "ALAC" if codec == "alac" else "AAC"
+    else:
+        name = CONTAINER_NAMES.get(ext, ext.lstrip(".").upper() or None)
+    if name is None:
+        return None
+    bits = re.fullmatch(r"pcm_[suf](\d+)(?:le|be)?", codec)
+    return f"{name} · {bits.group(1)}-bit" if bits else name
 
 
 def free_downloads(e: dict) -> list[dict]:
@@ -609,7 +642,7 @@ def track_link(track_id: str, e: dict, fetched: list) -> dict | None:
 
 
 def upgrade_format(up: dict) -> str:
-    """The parked version's quality in the words of the current file's `format_line`: "FLAC · lossless",
+    """The parked version's quality in the words of the current file's `source_format_line`: "FLAC · lossless",
     "AAC · 256 kbps" (a better lossy stream), so the To-do panel's Now and New say the same kind of thing."""
     f = up.get("source_format") or "flac"
     name = "PCM" if f.startswith("pcm_") else FORMAT_NAMES.get(f, f.upper())
@@ -705,17 +738,20 @@ def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url 
     folders = in_playlists(track_id, e, fetched)
     state = file_state(e, away, exists)
     has_file = e["status"] != "missing" and e.get("source")
+    link = track_link(track_id, e, fetched)
     return {**track_row(track_id, e, cover), "sound_checked": sound_checked(e), "isrc": e.get("isrc"),
             "file_state": state, "place": place,
             "playlists": folders, "in_playlist_count": len(folders) if folders is not None else None,
             "quality_line": quality_line(e["source"], e.get("source_format") or "?", e["status"], e.get("cutoff_hz"),
                                          e.get("source_kbps"), own=is_own_file(e),
                                          checked=sound_checked(e)) if has_file else None,
-            "format_line": format_line(e) if has_file else None,
+            "format_line": file_format_line(e) if has_file else None,
+            "source_format_line": source_format_line(e) if has_file and e["source"] != "manual" else None,
+            "source_how": e.get("source_how") if has_file else None,
             "source_full": ((OWN_FILE if is_own_file(e) else "bought" if e["source"] == "manual"
                              else SOURCE_NAMES.get(e["source"])) if has_file else None),
-            "source_url": source_url(e.get("source"), e.get("source_id")),
-            "track_link": track_link(track_id, e, fetched),
+            "source_url": own_page_dropped(source_url(e.get("source"), e.get("source_id")), link),
+            "track_link": link,
             "next_qobuz_check": next_check(e, today), "rejected_sources": list(e.get("rejected_sources") or []),
             "buy_links": buy_links(e["artist"], e["title"]), "free_downloads": free_downloads(e),
             "bought_name": f"Library/{e['folder']}/{expected_stem(e['artist'], e['title'])}.wav",

@@ -498,19 +498,60 @@ def test_track_detail_shows_bitrate_and_the_artists_free_downloads():
     d = views.track_detail("t1", e("not_lossless", cutoff=20100, source="youtube_music", source_format="opus",
                                    source_kbps=135, free_downloads=[GATE]), [], TODAY)
     assert d["quality_line"] == "YouTube Music OPUS 135 kbps · cutoff 20.1 kHz"
-    assert d["format_line"] == "Opus · 135 kbps" and d["source_full"] == "YouTube Music"
+    assert d["format_line"] == "AIFF · 16-bit" and d["source_format_line"] == "Opus · 135 kbps"
+    assert d["source_full"] == "YouTube Music"
     assert d["free_downloads"] == [{"url": "https://hypeddit.com/a/b", "host": "hypeddit.com", "direct": False,
                                     "title": "Song (Free DL)", "uploader": "Artist"}]
     assert views.track_detail("t1", e("lossless", free_downloads=[GATE]), [], TODAY)["free_downloads"] == []
     assert views.track_detail("t1", e("missing"), [], TODAY)["free_downloads"] == []  # never looked
 
 
-def test_format_line():
-    assert views.format_line(e("lossless", source="qobuz", source_format="flac")) == "FLAC"
-    assert views.format_line(e("lossless", source="manual", source_format="pcm_s16be")) == "uncompressed PCM"
-    assert views.format_line(e("not_lossless", source="soundcloud", source_format="aac")) == "AAC"  # not looked up yet
-    assert views.format_line(e("fake_lossless", source="qobuz", source_format="flac", source_kbps=900)) == "FLAC"
-    assert views.format_line(e("missing")) is None
+def test_source_format_line():
+    # the old format_line: what the download was made from
+    assert views.source_format_line(e("lossless", source="qobuz", source_format="flac")) == "FLAC"
+    assert views.source_format_line(e("lossless", source="manual", source_format="pcm_s16be")) == "uncompressed PCM"
+    assert views.source_format_line(e("not_lossless", source="soundcloud", source_format="aac")) == "AAC"
+    assert views.source_format_line(e("not_lossless", source="youtube_music", source_format="opus",
+                                      source_kbps=135)) == "Opus · 135 kbps"
+    assert views.source_format_line(e("fake_lossless", source="qobuz", source_format="flac",
+                                      source_kbps=900)) == "FLAC"
+    assert views.source_format_line(e("missing")) is None
+
+
+@pytest.mark.parametrize("entry, line", [
+    (e("lossless", source="qobuz", source_format="flac"), "AIFF · 16-bit"),  # every download is converted
+    (e("not_lossless", source="youtube_music", source_format="opus", source_kbps=135), "AIFF · 16-bit"),
+    (e("lossless", source="manual", source_format="pcm_s24le", path="Music/a.wav"), "WAV · 24-bit"),
+    (e("lossless", source="manual", source_format="pcm_s16be", path="Music/a.aif"), "AIFF · 16-bit"),
+    (e("lossless", source="manual", source_format="flac", path="Music/a.flac"), "FLAC"),
+    (e("not_lossless", source="manual", source_format="mp3", path="Music/a.mp3"), "MP3"),
+    (e("not_lossless", source="manual", source_format="aac", path="Music/a.m4a"), "AAC"),
+    (e("lossless", source="manual", source_format="alac", path="Music/a.m4a"), "ALAC"),
+    (e("missing"), None),
+])
+def test_file_format_line_is_what_the_file_is(entry, line):
+    assert views.file_format_line(entry) == line
+
+
+def test_track_detail_says_how_the_source_was_found_and_for_a_bought_file_nothing():
+    d = views.track_detail("t1", e("lossless", source_format="flac", source_how="isrc"), [], TODAY)
+    assert (d["source_how"], d["format_line"], d["source_format_line"]) == ("isrc", "AIFF · 16-bit", "FLAC")
+    bought = e("lossless", source="manual", source_format="pcm_s24le", path="Music/a.wav", placed_by="app")
+    d = views.track_detail("t1", bought, [], TODAY)
+    assert (d["source_how"], d["format_line"], d["source_format_line"]) == (None, "WAV · 24-bit", None)
+    gone = views.track_detail("t1", e("missing"), [], TODAY)
+    assert (gone["source_how"], gone["format_line"], gone["source_format_line"]) == (None, None, None)
+
+
+def test_source_url_is_dropped_when_it_is_the_songs_own_page():
+    own = e("not_lossless", source="youtube_music", source_id="abc123", source_format="aac", source_how="upload")
+    d = views.track_detail("youtube_music:abc123", own, [], TODAY)
+    assert d["track_link"]["url"] == "https://music.youtube.com/watch?v=abc123" and d["source_url"] is None
+    # a download from another page keeps its link: the Spotify track's page is a different one
+    other = views.track_detail("t1", e("not_lossless", source="youtube", source_id="abc123", source_format="opus"),
+                               [], TODAY)
+    assert other["source_url"] == "https://www.youtube.com/watch?v=abc123"
+
 
 
 def test_todo_rows_say_when_a_free_download_exists():

@@ -97,6 +97,11 @@ export function editLine(a: Alignment | null | undefined): { tone: 'lossless' | 
   return { tone: 'other', text: "Couldn't compare them" };
 }
 
+/** The upgrade card's Now: what the current download was made from ("Opus · 135 kbps"), not the file itself (it is
+ *  AIFF either way); an own or bought file has no source format, so its quality label stands in. */
+export const nowLabel = (t: Pick<TrackDetail, 'source_format_line' | 'quality_label'>): string =>
+  t.source_format_line ?? t.quality_label;
+
 /** The main button: what replacing does, named by the result. */
 export function replaceLabel(up: Upgrade): string {
   return up.what === 'lossless version' ? 'Replace with lossless' : 'Replace with the better version';

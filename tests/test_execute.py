@@ -42,12 +42,12 @@ class FakeAcquirer:
         return r(workdir) if callable(r) else r
 
 
-def ready(status="lossless", source="qobuz", sid="q1"):
+def ready(status="lossless", source="qobuz", sid="q1", how="exact"):
     def make(workdir):
         p = workdir / f"{source}_{sid}.aiff"
         p.write_bytes(b"new audio")
         cutoff = None if status == "lossless" else 16000
-        return AcquireResult("ready", Ready(p, status, source, sid, "flac", cutoff, "comment"))
+        return AcquireResult("ready", Ready(p, status, source, sid, "flac", cutoff, "comment", how=how))
     return make
 
 
@@ -97,6 +97,7 @@ def test_new_lossless_track_is_placed(env):
     ex.run([act("acquire", reason="new")])
     e = state["tracks"]["t1aaaaaaa"]
     assert e["path"] == "Library/A/Artist - Song.aiff" and e["status"] == "lossless"
+    assert e["source_how"] == "exact" and load_state(paths)["tracks"]["t1aaaaaaa"]["source_how"] == "exact"
     assert (paths.root / e["path"]).read_bytes() == b"new audio"
     assert state["pending"] == [] and records(load_state(paths)) == records(state)
     assert len(ex.log.section("new_lossless")) == 1
@@ -237,7 +238,8 @@ def test_upgrade_parks_the_lossless_version(env):
         k: v for k, v in before.items() if k not in ("upgrade", "last_upgrade_check")}
     assert e["last_upgrade_check"] == "2026-10-20"
     assert e["upgrade"] == {"file": "Upgrades ready/A/Artist - Song.aiff", "source": "qobuz", "source_id": "q1",
-                            "source_format": "flac", "found": "2026-10-20", "alignment": SHIFTED.to_dict()}
+                            "source_format": "flac", "how": "exact", "found": "2026-10-20",
+                            "alignment": SHIFTED.to_dict()}
     assert ALIGN_CALLS[0] == (paths.root / "Library/A/not_lossless/Artist - Song.aiff",
                               paths.tmp / "t1aaaaaaa" / "qobuz_q1.aiff")
     r = ex.log.section("upgrade_ready")[0]

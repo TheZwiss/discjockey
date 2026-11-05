@@ -210,6 +210,7 @@ class Placed:
     source_format: str
     cutoff_hz: int | None
     kbps: int | None = None  # lossy downloads: the source's bitrate
+    how: str | None = None  # how the source was found (SourceChosen.query_kind); None: bought (not a download)
 
 
 @dataclass(frozen=True)

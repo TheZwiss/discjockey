@@ -61,6 +61,7 @@ def test_qobuz_comes_first_then_the_upload_and_no_search_when_it_works(tmp_path)
     assert (r.kind, r.ready.source, r.ready.source_id) == ("ready", "soundcloud", SC_ID)
     assert fb.downloads == [SC_ID] and fb.searched == [] and fb.looked_up == [SC_KEY]
     assert [(e.source, e.query_kind) for e in events if isinstance(e, SourceChosen)] == [("soundcloud", "upload")]
+    assert r.ready.how == "upload"
 
 
 def test_a_qobuz_hit_never_reaches_the_upload(tmp_path):

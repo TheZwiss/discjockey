@@ -1361,9 +1361,9 @@
           <Badge tone="missing" text="NOT FOUND" />
         </TrackHead>
       </Surface>
-      <UpgradeCards track={{ ...weak, audio_url: toneA, format_line: 'Opus · 135 kbps', upgrade: upExact }} current={specCut}
+      <UpgradeCards track={{ ...weak, audio_url: toneA, source_format_line: 'Opus · 135 kbps', upgrade: upExact }} current={specCut}
         upgrade={specFull} loading={false} swap way={galleryUpWay} onway={(w) => (galleryUpWay = w)} />
-      <UpgradeCards track={{ ...weak, audio_url: null, format_line: null, upgrade: upDifferent }} current={specCut}
+      <UpgradeCards track={{ ...weak, audio_url: null, source_format_line: null, upgrade: upDifferent }} current={specCut}
         upgrade={null} loading swap={false} way="add_new" onway={() => {}} />
     </div>
   </section>

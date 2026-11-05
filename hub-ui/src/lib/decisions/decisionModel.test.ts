@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { DuplicateItem, FileSide, TodoItem, TrackDetail, Upgrade } from '$lib/bridge/types';
 import { createFakeBridge } from '$lib/bridge/fake/bridge';
 import type { HubEvent } from '$lib/bridge/events';
-import { canSwap, decisionFor } from './decisionModel';
+import { canSwap, decisionFor, nowLabel } from './decisionModel';
 
 const item = (id: string, extra: Partial<TodoItem> = {}): TodoItem => ({
   track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'not_lossless', quality: 'weak',
@@ -122,5 +122,22 @@ describe('the fake backend answers the decisions made from the Library', () => {
     const after = read.track;
     expect(after).toMatchObject({ path: kept.path, quality: kept.quality, status: 'not_lossless' });
     expect((await at(f, id)).d).toBeNull();
+  });
+});
+
+describe("the upgrade card's Now label", () => {
+  it('reads what the download was made from, never the AIFF file', () => {
+    expect(nowLabel({ source_format_line: 'Opus · 135 kbps', quality_label: '16.0 kHz' })).toBe('Opus · 135 kbps');
+  });
+  it('falls back to the quality label without a source format (an own or bought file)', () => {
+    expect(nowLabel({ source_format_line: null, quality_label: 'LOSSLESS' })).toBe('LOSSLESS');
+  });
+  it('is the source format line of the fake backend\'s details, not the file format', async () => {
+    const r = await createFakeBridge('normal').track('t2');
+    if (!r.ok) throw new Error(r.message);
+    const d = r.track;
+    expect(d.format_line).toBe('AIFF · 16-bit');
+    expect(d.source_format_line).toBe('Opus · 135 kbps');
+    expect(nowLabel(d)).toBe('Opus · 135 kbps');
   });
 });
