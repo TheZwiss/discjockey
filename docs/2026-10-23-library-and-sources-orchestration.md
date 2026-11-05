@@ -271,7 +271,7 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   orchestrator: (1) words for the other `source_how` values: "found by name" and "picked by you" (plain English, as
   planned); (2) Library's "All" segment counts the rows it lists (18 incl. waiting songs), so every count matches its
   list; built in U3. E1 merged into `feat/sources-round` 148c6f5 (186k; Format row shows the file format until U3 adds SOURCE). E2 merged cd68d27
-  (303k + fix 73k: a paused LM line keeps its songs via planner `unread_folders`). Running now: U1 (Opus) in `.claude/worktrees/sr-u1`; then S2 after U2. Merge the round into main once S3 + review + verify
+  (303k + fix 73k: a paused LM line keeps its songs via planner `unread_folders`). U1 merged 0fa7a4b (223k). Running now: U2 (Opus) in `.claude/worktrees/sr-u2` (also builds row 13 in AddRow). Notes for S2: `g-addrow-needs` runs a check on open (wait before the shot); Qobuz mark beside the placeholder is weak; dashed segment visible at 6 px. Notes for U3: Library + To-do move to TrackHead `badge` + `word` (replaces Library `.stack`); pass `link={t.track_link}`; strip `waiting = listed - with_file`; strip caption; QualityBadge `title` doubles the badge Tip; add a `service` field to TrackLink (engine views.py + contract + types + fake) and use it in TrackHead instead of reading the label. Merge the round into main once S3 + review + verify
   are green. Then: (3) audit of issues 24–30 + archive the finished stage 1–5 plans; (4) fix rounds.
 - **Merge early (user, 2026-10-31):** a finished stage merges into main as soon as its fix rounds, CI and verify are
   green; the user's live check runs on main afterwards and its findings are fixed there. No release without the go.
