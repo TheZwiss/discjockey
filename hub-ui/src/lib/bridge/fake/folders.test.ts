@@ -331,3 +331,50 @@ describe('fake Setup step "Your existing music"', () => {
     expect(after.files).toBe(before.files + 13 * 3);
   });
 });
+
+describe('fake watched folders hold songs of the user\'s own', () => {
+  // scenario -> [folder name, songs it lists]: most read, some waiting, some unreadable, some away
+  const LISTED: Record<string, [string, number][]> = {
+    folders_offline: [['Music', 1240], ['Music', 612]],
+    folders_missing: [['Music', 1240], ['Crates', 612]],
+    folders_couldnt_read: [['Music', 1237]],
+    folders_importing: [['Music', 680], ['Crates', 220]],
+    folders_long_names: [['Music', 1238], ['Crates Mix', 95], ['Peak Hour Rarities and Other Long Folder Names', 3010]],
+    setup_existing_added: [['Music', 312]],
+  };
+
+  it.each(Object.keys(LISTED))('%s: the sidebar, Settings\' row and the folder\'s page count the same songs', async (scenario) => {
+    const { f } = fake(scenario);
+    const rows = must(await f.watched_folders()).folders.filter((r) => r.kind === 'import');
+    expect(rows.map((r) => r.files)).toEqual(LISTED[scenario].map(([, n]) => n));
+    const side = must(await f.sidebar()).watched;
+    for (const r of rows) {
+      expect(side.find((w) => w.path === r.path)?.files, `${r.name} in the sidebar`).toBe(r.files);
+      const page = must(await f.library('folder', r.path, '', 'all', 'artist'));
+      expect(page.rows.length, `${r.name}'s page`).toBe(r.files);
+      expect(page.chips.all, `${r.name}'s All chip`).toBe(r.files);
+    }
+  });
+
+  it('names its songs "Artist - Title" with no name twice, and makes the same ones every time', async () => {
+    const a = must(await fake('folders_long_names').f.library('all', null, '', 'all', 'artist')).rows;
+    const b = must(await fake('folders_long_names').f.library('all', null, '', 'all', 'artist')).rows;
+    expect(a.map((r) => r.track_id)).toEqual(b.map((r) => r.track_id));
+    const own = a.filter((r) => r.own);
+    expect(own.length).toBe(1238 + 95 + 3010);
+    expect(new Set(own.map((r) => `${r.artist} - ${r.title}`)).size).toBe(own.length);
+    expect(new Set(own.map((r) => r.path)).size).toBe(own.length);
+    expect(own.every((r) => r.artist && r.title && !r.path!.includes('(v2)'))).toBe(true);
+  });
+
+  it('shows what the import is doing: songs read but not checked, files away, files the import cannot read', async () => {
+    const importing = must(await fake('folders_importing').f.library('all', null, '', 'all', 'artist')).rows.filter((r) => r.own);
+    expect(importing.filter((r) => !r.sound_checked)).toHaveLength(340);
+    const offline = must(await fake('folders_offline').f.library('all', null, '', 'all', 'artist')).rows.filter((r) => r.own);
+    expect(offline.filter((r) => r.file_state === 'offline')).toHaveLength(612);
+    const missing = must(await fake('folders_missing').f.library('all', null, '', 'all', 'artist')).rows.filter((r) => r.own);
+    expect(missing.filter((r) => r.file_state === 'folder_missing')).toHaveLength(612);
+    const bad = must(await fake('folders_couldnt_read').f.watched_folders());
+    expect(bad.folders[1].files + bad.folders[1].unreadable).toBe(1240);
+  });
+});

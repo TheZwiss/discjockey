@@ -5,7 +5,8 @@ import type {
   DuplicateItem, Fail, FileSide, ImportFolderCheck, ImportFolderProblem, ImportPhase, ImportResult, JobStart,
   QuestionItem, QuestionWhy, RemovalPreview, Result, TrackRow, WatchedFolderRow, WatchedFolders,
 } from '../types';
-import { FAKE_MUSIC, pathOf, type FakeDuplicate, type FakeFolder, type FakeQuestion, type FakeState } from './data';
+import { FAKE_MUSIC, pathOf, type FakeDuplicate, type FakeFolder, type FakeQuestion, type FakeState, type FakeTrack } from './data';
+import { ownSongs } from './own';
 import type { FakeContext, Finish } from './bridge';
 import { toneUrl } from './audio';
 import { cratesIn, listedCounts } from './library';
@@ -318,15 +319,37 @@ export function seedImport(s: FakeState, scenario: string): void {
     return f;
   };
   if (['first_run', 'no_music', 'music_missing', 'folders_library_only', 'setup_existing_empty'].includes(scenario)) return;
-  if (scenario === 'setup_existing_added') { add({ imported: 312, redownload: 0 }); return; }
+  // The songs the import read in a watched folder (`own.ts`): they are what `listedCounts` counts, so the sidebar, the
+  // folder's page and Settings' row show one number. `imported` is every file the import holds there (the songs, the
+  // files it can't read and the ones it hasn't read yet), which only the removal's words use.
+  let nextOwn = 1;
+  const stock = (f: FakeFolder, listed: number, over: { unchecked?: number; away?: FakeTrack['away'] } = {}): FakeFolder => {
+    s.tracks.push(...ownSongs(f.path, listed, { first: nextOwn, ...over }));
+    nextOwn += listed;
+    return f;
+  };
+  if (scenario === 'setup_existing_added') {
+    stock(add({ imported: 312, redownload: 0 }), 312);
+    return;
+  }
   const music = add();
   if (scenario === 'folders_importing') {
+    // reading the tags is 340 files in: those 340 are songs whose sound isn't checked yet, 340 more are done, and
+    // 1,160 are not read yet (no songs); the folder holds 1,840 files, 1,500 of them waiting
     music.imported = 1840; music.waiting = 1500;
-    add({ path: `${DRIVE}/Crates`, imported: 220, redownload: 0 });
+    stock(music, 680, { unchecked: 340 });
+    stock(add({ path: `${DRIVE}/Crates`, imported: 220, redownload: 0 }), 220);
   }
-  if (scenario === 'folders_offline') add({ path: '/Volumes/Old Drive/Music', imported: 612, offline: true, redownload: 0 });
-  if (scenario === 'folders_missing') add({ path: '/Users/you/Music/Crates', imported: 612, missing: true, redownload: 0 });
+  if (scenario === 'folders_offline') {
+    stock(music, 1240);
+    stock(add({ path: '/Volumes/Old Drive/Music', imported: 612, offline: true, redownload: 0 }), 612, { away: 'offline' });
+  }
+  if (scenario === 'folders_missing') {
+    stock(music, 1240);
+    stock(add({ path: '/Users/you/Music/Crates', imported: 612, missing: true, redownload: 0 }), 612, { away: 'folder_missing' });
+  }
   if (scenario === 'folders_couldnt_read') {
+    stock(music, 1237);  // 1,240 files, 3 of them unreadable
     s.imp.unreadable = [
       { folder_id: music.id, path: `${music.path}/Crates/Neon Riot - Strobe Light.aiff`, reason: NO_ACCESS },
       { folder_id: music.id, path: `${music.path}/Old/Rave Kollektiv - Hyperdrive.wav`, reason: NO_SOUND },
@@ -335,7 +358,9 @@ export function seedImport(s: FakeState, scenario: string): void {
   if (scenario === 'folders_long_names') {
     // names that differ only at their end, and folders on other drives with names of every length
     const crates = add({ path: '/Volumes/New Volume/Crates Mix', imported: 96, redownload: 0 });
-    add({ path: '/Volumes/Backup Drive/DJ Sets/2019/Peak Hour Rarities and Other Long Folder Names', imported: 3010, redownload: 0 });
+    const rarities = add({ path: '/Volumes/Backup Drive/DJ Sets/2019/Peak Hour Rarities and Other Long Folder Names',
+      imported: 3010, redownload: 0 });
+    stock(music, 1238); stock(crates, 95); stock(rarities, 3010);  // two and one files can't be read
     const long = 'Example Artist - A Very Long Title (GUEST ONE x GUEST TWO EDIT)';
     s.imp.unreadable = [
       { folder_id: music.id, path: `${music.path}/Crates/${long}.wav`, reason: EMPTY },
