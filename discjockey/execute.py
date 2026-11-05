@@ -26,6 +26,16 @@ FALLBACK_SOURCES = ("youtube_music", "soundcloud", "youtube")
 NEW_SECTION = {"lossless": "new_lossless", "not_lossless": "new_not_lossless", "fake_lossless": "fake"}
 
 
+def result_folder(a: Action, e: dict | None, where: Callable[[str], str] | None = None) -> str:
+    """The folder a result is filed under in a run report: the action's playlist folder, else (an upgrade check of
+    an own song, which has no playlist) the folder its file sits in, named as Sync names it. "" when that can't be
+    told: the report then says "your music" (report.folder_label)."""
+    if a.folder:
+        return a.folder
+    path = e.get("path") if e else None
+    return (where(path) if where and path else "") or ""
+
+
 @dataclass
 class Executor:
     paths: Paths
@@ -38,6 +48,7 @@ class Executor:
     now: Callable[[], datetime] = datetime.now
     limit: int | None = None
     align_files: Callable[[Path, Path], Alignment] = compare_files  # (current file, new file)
+    where: Callable[[str], str] | None = None  # a file's path -> its folder's name (views.Sites.place), for own songs
     downloads: int = field(default=0, init=False)
 
     def __post_init__(self) -> None:
@@ -77,7 +88,7 @@ class Executor:
     def _result(self, a: Action, section: str, note: str = "", **fields) -> Result:
         e = self._entry(a)
         artist, title = (e["artist"], e["title"]) if e else (a.track.first_artist, a.track.title)
-        return Result(section, a.folder, artist, title, a.track_id, note, **fields)
+        return Result(section, result_folder(a, e, self.where), artist, title, a.track_id, note, **fields)
 
     def _rel(self, path: Path) -> str:
         return path.relative_to(self.paths.root).as_posix()

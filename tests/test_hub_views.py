@@ -2333,3 +2333,41 @@ def test_a_duplicate_item_carries_the_recommendation():
     files = {g.id: [dup_file(4, "local:1"), dup_file(5, "local:2", "not_lossless", 16000)]}
     pair = views.todo(st, "all", False, {}, TODAY, None, [], [g], files)["groups"][0]["items"][0]["pair"]
     assert (pair["recommended"], pair["recommended_why"]) == (4, "Recommended: best quality")
+
+
+def test_sorted_by_length_a_song_with_no_length_goes_last_either_way_and_the_playlist_gives_a_missing_length():
+    """Leftovers C2 (issue 29): a song without a file has duration 0 and sorted first; the playlist's length stands in."""
+    st = playlist_state()
+    st["tracks"]["g"]["duration_ms"] = 0  # no length stored; the playlist's record has 180 s for it
+    st["tracks"]["a"]["duration_ms"] = 120000
+    st["tracks"]["b"]["duration_ms"] = 300000
+    st["tracks"]["c"]["duration_ms"] = 0  # a file with no length at all and no help from the playlist
+    ms = {"a": 1, "b": 1, "c": None, "g": 180000, "unheard": 180000}
+    recs = {TECHNO.ref: PlaylistRecord("spotify", "2026-10-30T10:00:00", tuple(
+        RecordedTrack(i, t, "Artist", f"Title {t}", ms[t]) for i, t in enumerate(ms, start=1)))}
+    asc = playlist_view(st, sort="length", records=recs)["rows"]
+    desc = playlist_view(st, sort="-length", records=recs)["rows"]
+    assert [r["track_id"] for r in asc if r["duration_s"] > 0] == ["a", "g", "unheard", "b"]
+    assert [r["track_id"] for r in desc if r["duration_s"] > 0] == ["b", "g", "unheard", "a"]
+    assert asc[-1]["track_id"] == desc[-1]["track_id"] == "c"
+
+
+def test_todo_items_carry_the_file_state_of_their_file_like_library_rows():
+    """Leftovers C2 (issue 27): an item whose file is on an ejected drive must be told apart from any other row."""
+    up = {"file": "Upgrades ready/x.aiff", "alignment": {"result": "exact"}}
+    st = state(**{"local:1": own("not_lossless", cutoff=16000, upgrade=up, path="/Volumes/Example Stick/Music/a.aiff"),
+                  "local:2": own("not_lossless", cutoff=16000, upgrade=up, path="/Users/you/Old Music/b.aiff"),
+                  "local:3": own("not_lossless", cutoff=16000, upgrade=up, path="/Users/you/Music/c.aiff"),
+                  "t1": e("missing", folder="A"), "t2": e("not_lossless", cutoff=16000, folder="A")})
+
+    def states(away=None, **kw):
+        out = views.todo(st, "all", False, {}, TODAY, None, away=away, **kw)
+        return {i["track_id"]: i["file_state"] for g in out["groups"] for i in g["items"]}
+
+    away = {"/Volumes/Example Stick/Music": "unmounted", "/Users/you/Old Music": "missing"}
+    assert states(away) == {"local:1": "offline", "local:2": "folder_missing", "local:3": "here",
+                            "t1": "no_file", "t2": "here"}
+    assert states()["local:1"] == "here"
+    # a question is about the user's own file, wherever the playlist song stands
+    assert states(away, questions=[question()])["t1"] == "offline"  # its own file local:1 is on the ejected drive
+    assert states(questions=[question()])["t1"] == "here"

@@ -2,6 +2,7 @@ import copy
 import json
 import sqlite3
 import threading
+from types import SimpleNamespace
 import time
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -16,6 +17,7 @@ from discjockey.acquire import AcquireResult, Ready
 from discjockey.events import ActionFinished, CancelToken, Message, ReadingPlaylist, RunFinished
 from discjockey.library import Paths, empty_state, save_state
 from discjockey.models import FetchedPlaylist, Plan, PlannedMove, PlaylistLine, SourceTrack
+from discjockey.report import RunLog
 from discjockey.settings import Account, Settings, save_settings
 
 PLAYLISTS = "Hard_Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n"
@@ -993,3 +995,17 @@ def test_the_sign_is_kept_in_the_snapshot_when_the_lock_is_not_ours(liked):
     prep = run.prepare(liked, lock=not_held)
     assert [s["kind"] for s in prep.state["youtube_usage"]["signals"]] == ["rate_limited"]
     assert "youtube_usage" not in library.load_state(liked) or not library.load_state(liked)["youtube_usage"]["signals"]
+
+
+def test_a_left_out_own_song_is_filed_under_the_folder_sync_names():
+    """Leftovers C2 (issue 29): an own song's check has no playlist folder; the report names the folder of its file."""
+    from discjockey.models import Action
+    t = TRACKS[0]
+    own = Action("upgrade", "t1", "", t, (0, 0))
+    state = {"tracks": {"t1": {"artist": "A", "title": "S", "path": "/Music/Rekordbox/Techno/a.mp3"}}}
+    prep = SimpleNamespace(plan=SimpleNamespace(actions=[own]), state=state, log=RunLog(datetime(2026, 11, 5)))
+    run.select_actions(prep, set(), set(), lambda path: "Rekordbox › Techno")
+    assert [r.folder for r in prep.log.section("queued")] == ["Rekordbox › Techno"]
+    prep.log, prep.plan.actions = RunLog(datetime(2026, 11, 5)), [own]
+    run.select_actions(prep, set(), set())  # no way to name it: the report's own "your music"
+    assert [r.folder for r in prep.log.section("queued")] == [""]

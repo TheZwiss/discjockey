@@ -49,7 +49,11 @@ export type TodoGroupKey = Exclude<TodoFilter, 'all'>;
 /** `free`: the artist gives it away (see TrackDetail.free_downloads). `pair`: only the import's two groups
  *  (`same_song`, `duplicate`) have one; narrow with `isQuestion` / `isDuplicate`. `can_undo`: only `rekordbox_check`
  *  items have it; true when the check belongs to a swap or an added file `undo_upgrade` can still put back. */
+/** `file_state` (as a Library row's): whether the item's file is there now, decided per watched folder; `no_file`: the
+ *  song has none (Not found). A same-song item is about the user's own file, a duplicate group is only listed while
+ *  every file of it is there. */
 export type TodoItem = TrackRow & { group: TodoGroupKey; detail: string; free: boolean;
+  file_state?: Exclude<FileState, 'file_missing'> | 'no_file'; // always sent; optional only until the UI round uses it
   pair?: QuestionPair | DuplicatePair; can_undo?: boolean; check?: RekordboxCheckView };
 /** A `rekordbox_check` item's check (views.check_view): the step that left it, what the two files measured as
  *  (`match`: exact/shifted/different/unknown, null in records from before it), `text` the whole instruction and
@@ -240,6 +244,7 @@ export type Sidebar = {
 /** What `set_favourites` and `set_crate_shown` answer: brief saves that start no job (plan library stage 5, D15). */
 export type FavouritesSaved = { favourites: string[] };
 export type CrateSaved = { path: string; shown: boolean | null };
+export type CratesSaved = { paths: string[]; shown: boolean | null };
 export type PreviewGroupKey = 'acquire:new' | 'acquire:retry' | 'acquire:redownload' | 'adopt_bought' | 'upgrade';
 export type PreviewAction = {
   key: ActionKey; kind: string; reason: string | null; track_id: string; artist: string; title: string;

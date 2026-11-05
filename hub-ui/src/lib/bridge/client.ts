@@ -4,7 +4,7 @@ import type {
   Limits, LibraryFilter, MoveBatches, SaveFiles, TidyPreview, UndoPreview, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res, RunDetail,
   RunSummary, SetupStatus, SetupTools, Sidebar, Spectrum, SyncPreview, Todo, TodoFilter, TrackDetail, WhatIf, Which,
   AccountCheck, Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus, ImportFolderCheck,
-  RemovalPreview, WatchedFolders, LibraryView, FavouritesSaved, CrateSaved,
+  RemovalPreview, WatchedFolders, LibraryView, FavouritesSaved, CrateSaved, CratesSaved,
 } from './types';
 import { CONTRACT_METHODS } from './contract';
 import { waitForJob } from '../stores/jobs';
@@ -31,6 +31,8 @@ export interface Bridge {
   // job's write holds the file for too long
   set_favourites(keys: string[]): Promise<Res<FavouritesSaved>>;
   set_crate_shown(path: string, shown: boolean | null): Promise<Res<CrateSaved>>;
+  /** several crates in one save (Settings' All / None): all or none; every path must be a crate of a watched folder */
+  set_crates_shown(paths: string[], shown: boolean | null): Promise<Res<CratesSaved>>;
   limits(service: Service): Promise<Res<Limits>>;
   limits_what_if(service: Service, limit: number, extra_today: number): Promise<Res<WhatIf>>;
   runs(): Promise<Res<{ runs: RunSummary[] }>>;   run(run_id: string): Promise<Res<{ run: RunDetail }>>;

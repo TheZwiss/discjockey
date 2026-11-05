@@ -741,6 +741,12 @@ def file_state(e: dict, away: Mapping[str, str] | None = None, exists: bool = Tr
     return "here" if exists else "file_missing"
 
 
+def row_file_state(e: dict | None, away: Mapping[str, str] | None = None) -> str:
+    """A To-do item's `file_state`, as a Library row has it: file_state of the file it is about, "no_file" when the
+    song has none (Not found)."""
+    return file_state(e, away) if e is not None and e.get("path") else "no_file"
+
+
 def file_online(e: dict, away: Mapping[str, str] | None = None) -> bool:
     """Whether the file of entry `e` is in a watched folder that is there (file_state without the file check)."""
     return file_state(e, away) == "here"
@@ -789,6 +795,19 @@ SORTS = {"title": lambda r: fold(r["title"]), "artist": lambda r: (fold(r["artis
          # tracks in no playlist sit in their folder on disk, but read as "Not in a playlist": they sort last
          # (the user's own songs, from the import, have no folder: "")
          "folder": lambda r: (not r["in_playlists"], fold(r["folder"]), fold(r["artist"]), fold(r["title"]))}
+
+
+def sort_rows(rows: list[dict], order: str, reverse: bool) -> None:
+    """Sorts `rows` in place by the SORTS key `order`. By length, a row with no length (0: not on the file and not in
+    the playlist) goes last either way, never first because it counts as the shortest."""
+    key = SORTS.get(order, SORTS["artist"])
+    if order != "length":
+        rows.sort(key=key, reverse=reverse)
+        return
+    known = sorted((r for r in rows if r["duration_s"] > 0), key=key, reverse=reverse)
+    rows[:] = known + [r for r in rows if r["duration_s"] <= 0]
+
+
 LIBRARY_FILTERS = ("all", "lossless", "good_lossy", "weak", "fake", "upgrade_ready")
 
 
@@ -951,8 +970,9 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
                     own = fold(found.library_folder(e["path"]) or "") == fold(line.folder)
                     rows.append(row(k, e, position=t.position, place=None if own else found.place(e["path"])))
                     continue
-                base = {**(e or {"artist": t.artist, "title": t.title, "folder": None, "duration_ms": t.duration_ms,
-                                 "in_playlists": True}),
+                base = {**(e or {"artist": t.artist, "title": t.title, "folder": None, "in_playlists": True}),
+                        # the song's own length, else the one the playlist gives
+                        "duration_ms": (e or {}).get("duration_ms") or t.duration_ms,
                         "status": "missing", "path": None, "source": None, "cutoff_hz": None, "upgrade": None}
                 rows.append({**track_row(k, base, cover), "sound_checked": True, "file_state": "no_file",
                              "wait": "not_found" if e is not None and _group(e) == "not_found" else "waiting",
@@ -1019,7 +1039,7 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
     order = (sort or ("order" if view == "playlist" else "artist")).lstrip("-")
     order = "artist" if order == "order" and view != "playlist" else order
     for lst in (rows, also or []):
-        lst.sort(key=SORTS.get(order, SORTS["artist"]), reverse=(sort or "").startswith("-"))
+        sort_rows(lst, order, (sort or "").startswith("-"))
     empty = ("gone" if gone else None if rows or also else "empty_library" if not with_file else "no_match")
     return {"title": title, "folder": folder, "view": view, "key": shown_key, "folder_kind": folder_kind,
             "subtitle": [] if gone else subtitle(_plural(len(have), "1 track", "{n} tracks")), "summary": summary, "chips": chips,
@@ -1158,6 +1178,23 @@ def sidebar(state: dict, lines: Sequence[pf.Row], todo_count: int, warnings: boo
             "playlists": playlists, "watched": entries, "library_folders": library_folders}
 
 
+def sidebar_targets(state: dict, lines: Sequence[pf.Row], watched: Iterable[WatchedFolder]) -> tuple[set[str], set[str]]:
+    """What the sidebar can list right now, without building it (the keys a save checks): the Favourites keys that
+    resolve (`playlist:<ref>`, `folder:<path>` of a Library folder, a watched import folder or a crate) and the paths
+    of the crates (any depth, whatever the user's switch says) of the watched import folders. The same sets `sidebar`
+    resolves its Favourites against. `watched`: db.watched_folders."""
+    with_file = tracks_with_file(state)
+    site = Sites({}, {}, {}, {})
+    used = {fold(r.folder) for r in lines}
+    names = {n for e in with_file if (n := site.library_folder(e["path"])) is not None and fold(n) not in used}
+    imports = [str(f.path) for f in watched if f.kind == "import"]
+    found = crates([e["path"] for e in with_file], imports, {})
+    crate_paths = {c["path"] for w in found.values() for c in w["crates"]}
+    keys = {f"playlist:{r.ref}" for r in lines} | {f"folder:Library/{n}" for n in names}
+    keys |= {f"folder:{w}" for w in imports} | {f"folder:{c}" for c in crate_paths}
+    return keys, crate_paths
+
+
 # --- to-do ---
 
 TODO_GROUPS = [("rekordbox_check", "Check in rekordbox", "the file changed; rekordbox needs a hand"),
@@ -1252,7 +1289,7 @@ def _question_item(q: Question, state: dict, cover: Url | None, audio: Url | Non
                       "duration_s": round((track.duration_ms or 0) / 1000, 1), "folder": q.folder, "link": track.link},
             "file": side}
     return {**track_row(q.song_key, e, cover), "group": "same_song", "detail": question_why(q), "free": False,
-            "pair": pair}
+            "file_state": row_file_state(own, away), "pair": pair}
 
 
 def _duplicate_item(g: DuplicateGroup, files: Sequence[DupFile], state: dict, cover: Url | None,
@@ -1272,12 +1309,12 @@ def _duplicate_item(g: DuplicateGroup, files: Sequence[DupFile], state: dict, co
            "duration_s": first["duration_s"], "status": (e or {}).get("status") or "lossless",
            "quality": first["quality"], "quality_label": first["quality_label"],
            "cutoff_hz": (e or {}).get("cutoff_hz"), "source": None, "source_name": None,
-           "in_playlists": first["in_playlist"], "hidden": False, "upgrade_ready": False, "path": first["path"],
+           "in_playlists": any(s["in_playlist"] for s in sides), "hidden": False, "upgrade_ready": False, "path": first["path"],
            "added": None, "cover_url": cover(first["song_key"], {"path": first["path"]}) if cover and first["song_key"]
            else None}
     n = len(sides)
     keep, why = recommend(files)
-    return {**row, "group": "duplicate", "detail": (DUPLICATE_AUDIO if g.why == "same_audio" else DUPLICATE_SONG).format(n=n),
+    return {**row, "group": "duplicate", "file_state": "here", "detail": (DUPLICATE_AUDIO if g.why == "same_audio" else DUPLICATE_SONG).format(n=n),
             "free": False, "pair": {"group_id": g.id, "why": g.why, "files": sides, "recommended": keep,
                                      "recommended_why": why}}
 
@@ -1355,7 +1392,8 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
         if e.get("rekordbox_check"):
             items["rekordbox_check"].append({**track_row(k, e, cover), "group": "rekordbox_check",
                                              "detail": check_status(e["rekordbox_check"]),
-                                             "check": check_view(e["rekordbox_check"]), "can_undo": can_undo(e)})
+                                             "check": check_view(e["rekordbox_check"]), "can_undo": can_undo(e),
+                                             "file_state": row_file_state(e, away)})
             listed.add(k)
         if k in held or (not e.get("in_playlists") and not (is_own(k) and e.get("upgrade"))) \
                 or (e["status"] == "missing" and k in never):
@@ -1369,7 +1407,8 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
                 continue
         items[group].append({**track_row(k, e, cover), "group": group,
                              "detail": _detail(group, e, today, others.get(k)),
-                             "free": group in FREE_GROUPS and bool(free_downloads(e))})
+                             "free": group in FREE_GROUPS and bool(free_downloads(e)),
+                             "file_state": row_file_state(e, away)})
         listed.add(k)
     for rows in items.values():
         rows.sort(key=lambda r: (fold(r["folder"]), fold(r["artist"]), fold(r["title"])))

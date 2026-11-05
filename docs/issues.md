@@ -58,16 +58,17 @@ Noted in the screenshot review of the To-do panels (2026-10-31).
 
 ## 29. Library stage 5b leftovers (folders)
 
-Audit 2026-11-05: all points are still open. Missing: run reports still write `a.folder` (`run.py` `Result("queued", a.folder, …)`);
-`libraryTarget` and `/library/playlist/:name` are not built; the row has no next-try date; `SORTS["length"]` still sorts by
-`duration_s` only; `api.reveal` still refuses paths outside the music folder; there is no `set_crates_shown`;
-`set_favourites` still builds the sidebar view; `set_crate_shown` checks only the type of `path`.
+Audit 2026-11-05 (updated by leftovers round C2): the engine points are done: run reports name an own song's folder
+(`run.select_actions` / `Executor` take `where`, `jobs.folder_names`), `SORTS["length"]` puts songs without a length
+last either way and the playlist's length stands in (`views.sort_rows`), `api.reveal` opens an absolute path inside a
+watched import folder (symlinks followed, nothing else), `set_crates_shown(paths, shown)` saves several crates in one
+write, `set_favourites` no longer builds the sidebar (`views.sidebar_targets`), `set_crate_shown` refuses a path that is
+no crate of a watched folder. Left for the UI round: `libraryTarget` and `/library/playlist/:name`, the row's next-try
+date (also needs the engine to put the date on `LibraryRow`), Show in Finder for watched folders and crates, Settings'
+All / None using `set_crates_shown`, and the points below that are not engine ones.
 
 Noted while building and reviewing `docs/archive/2026-10-29-library-stage-5-plan.md`, step B (folders), task groups B2 to B7.
 
-- **Own songs' folder in run reports:** an upgrade check of an imported song has `folder=""` (`planner.py`); Sync
-  now names it via `views.action_folder`, but `run.py` (about line 231) still writes `a.folder` into the queued
-  results, so the run report likely shows a blank folder. `Page.svelte` and the end screen read `a.folder` too.
 - **Same label for two crates:** two crates under different wrapper folders can get the same label ("Hard › 2019"),
   so the UI tells them apart only by the tooltip (the full path). This is the plan's D8 rule.
 - **Count differences:** the sidebar's count for a watched folder leaves out the files an import still has to work
@@ -81,22 +82,15 @@ Noted while building and reviewing `docs/archive/2026-10-29-library-stage-5-plan
 - **Dev fake:** `ctx.s.briefBusy = true` (`window.__fake.ctx.s`) makes both brief saves answer `busy`; `s.unread` and
   `s.emptyRead` make a playlist never read / read and empty. `library:crates_busy` is `library:crates` with
   `briefBusy` on; `library:first_look` is its folders and crates with no Favourites.
-- **NOT FOUND tooltip:** it can't give To-do's next-try line ("next try in 5 days", I7): `LibraryRow` carries no
-  date, only `track()` does (the details' note says it). It reads "Nothing usable found yet: To-do has other ways
-  to get it" until the engine adds the date to the row.
-- **Sort by Length:** ascending, the engine puts a playlist's songs without a file first (their duration is 0); they
-  belong last (or by the length the playlist gives). An engine matter (`views.library`'s sort), left for a Python
-  change.
-- **Show in Finder for watched folders:** it is offered only where `api.reveal` can open the folder (a playlist's
-  folder, a Library folder). `api.reveal` refuses any path outside the music folder, so an import folder and its
-  crates have none until the engine gets a reveal for watched folders.
-- **Settings' crate switches:** `#/settings/folders/<path encoded>` (`settingsFolderHref`) picks an import folder in
-  Watched folders; Library's "Show some in the sidebar…" opens it. All · None save one crate after another
-  (`saveCratesShown`, one sidebar read at the end), so None on a folder with many switched-on crates is that many
-  brief saves: a `set_crates_shown(paths, shown)` would make it one (an engine change). Under a folder with too
+- **NOT FOUND tooltip (UI + engine date):** it can't give To-do's next-try line ("next try in 5 days", I7): `LibraryRow` carries no
+  date, only `track()` does. It reads "Nothing usable found yet: To-do has other ways to get it" until the engine adds the
+  date to the row (additive field) and the tooltip shows it.
+- **Show in Finder for watched folders (UI):** `api.reveal` now opens an import folder and its crates (absolute path inside a
+  watched folder). The sidebar's and Library's menus still offer it only where it used to work; offer it for these too.
+- **Settings' crate switches (UI):** `#/settings/folders/<path encoded>` (`settingsFolderHref`) picks an import folder in
+  Watched folders; Library's "Show some in the sidebar…" opens it. All · None still save one crate after another
+  (`saveCratesShown`); switch it to `set_crates_shown(paths, shown)` (one write, one sidebar read). Under a folder with too
   many crates, All needs a search that leaves at most 25 rows.
-- **`set_favourites` reads the whole sidebar:** it loads the whole sidebar view before every save just to know which
-  keys exist.
 - **Favourites save and `refreshHub`:** a full `refreshHub` landing during a Favourites save can briefly show the old order.
 - **`set_crate_shown` stores any path:** it does not check that the path is a crate.
 - **Later cleanup:** `views.library` is about 140 lines; `_playlist_rows` / `_folder_rows` would split it. `track()`
@@ -132,21 +126,18 @@ Noted while building and reviewing `docs/archive/2026-10-29-library-stage-5-plan
 
 ## 27. Library stage 4 leftovers (import)
 
-Audit 2026-11-05: the Format-row point is closed (sources round). Still missing: To-do items carry no `file_state` and no
-`AwayTag`; `UpToDate.svelte` has no "waits for your answer" note (only `RunPanel` shows `waitingAnswersLine`); the
-duplicate item's `in_playlists` is taken from one side (`views._duplicate_item`, the first side in a playlist); the
-other two points are unchanged.
+Audit 2026-11-05 (updated by leftovers round C2): the Format-row point is closed (sources round). Engine done in C2:
+every To-do item carries `file_state` (as a Library row's: `here` / `offline` / `folder_missing` / `no_file`; a same-song
+item is about the user's own file) and the duplicate item's `in_playlists` is now explicitly "any side of the group is in
+a playlist" (it was already that value, from the side that names the group). Left for the UI round: the `AwayTag` on
+To-do rows, the "waits for your answer" note in `UpToDate.svelte`; the other two points are unchanged.
 
 Noted while building and reviewing `docs/archive/2026-10-25-library-stage-4-plan.md`.
 
-- **To-do's list rows don't say a file is away** (fix K did the Library's): an Upgrade ready or Weak item whose file
-  is on an ejected drive looks like any other row; only its panel says "Offline: connect the drive". `views.todo`
-  could send each item's `file_state` as `library()` does (per folder) and the row show the `AwayTag`. Its rows have
-  no quality column, so the tag's place needs a look of its own (the badge slot, or the detail line).
+- **To-do's list rows don't say a file is away (UI):** the items now carry `file_state`; the row still shows no `AwayTag`. Its
+  rows have no quality column, so the tag's place needs a look of its own (the badge slot, or the detail line).
 - **Sync's Up-to-date view shows no hint when every remaining song waits for an answer;** only the To-do count points
   at them. Show the "{n} songs wait for your answer" note there too.
-- **The library view's `in_playlists` for a duplicate group comes from its first file** (`hub/views.py`). The UI no
-  longer depends on it, but it is misleading; derive it from the group or drop it.
 - **The removal count (W4) misses rare cases:** a playlist track matched only at plan time (no stored song) isn't
   counted, and a Yes answer for a track that left every playlist still is. A song re-keyed after the removal keeps
   its file's tag name until the planner updates stored names.
@@ -156,9 +147,11 @@ Noted while building and reviewing `docs/archive/2026-10-25-library-stage-4-plan
 
 ## 25. Library stage 1 leftovers (engine on library.db) — for later stages
 
-Audit 2026-11-05: the Ogg page-header reads, the moved/adopted/conflicts labels and the migration's recovered steps in
-the run report are done (leftovers round C1). Still open: `execute.py`, `ops.py`, `upgrades.py` and `tidy.py` still call
-`run_op` on the entry view; the RF64/streamed WAV/Ogg-FLAC keys and the unreadable replaced file are untouched.
+Audit 2026-11-05 (updated by leftovers round C2): the Ogg page-header reads, the moved/adopted/conflicts labels, the
+migration's recovered steps in the run report, and the RF64 / streamed WAV / Ogg-FLAC keys are done (a tag edit no longer
+changes their key; a file already keyed whole keeps that key until its bytes change). Still open: `execute.py`, `ops.py`,
+`upgrades.py` and `tidy.py` call `run_op` on the entry view (its own stage), and the unreadable replaced file (a design
+choice, below).
 
 Noted while moving the engine onto `library.db` (`docs/archive/2026-10-23-library-stage-1-plan.md`, group 3).
 
@@ -166,9 +159,10 @@ Noted while moving the engine onto `library.db` (`docs/archive/2026-10-23-librar
   `db.save`): the `run_op` callers `execute.py`, `ops.py` and `upgrades.py`, and the folder moves of `tidy.py`. The
   import, the folders and the file journal (`move_files`) write songs and files explicitly. Move the rest the same
   way when a stage touches them.
-- **RF64 WAV, streamed WAV and Ogg-FLAC** get the whole-file key, so a tag edit changes it and a scan reports such a
-  file as changed (judged again) instead of retagged.
-- **A replaced file the quality check can never read** is judged again, with a warning, on every sync.
+- **A replaced file the quality check can never read** is judged again, with a warning, on every sync. That is on purpose
+  (a check that fails once, say with ffmpeg missing, must be tried again), so a fix needs a record of the failed key (a
+  schema change) or moving the retry to the import's sound check (`import_state` `unreadable`); not decided.
+
 
 ## 24. Identify files by their sound (AcoustID) — agreed design, a stage after stage 6
 

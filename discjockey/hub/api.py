@@ -87,7 +87,7 @@ LIBRARY_METHODS = frozenset((
     "hide", "never_download", "add_bought_file", "use_candidate", "use_link", "reject_current",
     "rekordbox_checked", "upgrade", "undo_upgrade", "rescan_library", "show_in_finder", "reveal", "open_report",
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
-    "watched_folders", "set_favourites", "set_crate_shown", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
+    "watched_folders", "set_favourites", "set_crate_shown", "set_crates_shown", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
     "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate", "add_liked_music",
 ))
 
@@ -795,7 +795,7 @@ class HubApi:
             raise ValueError(BAD_FAVOURITES)
         if not self._paths.db_file.exists():
             raise OpProblem(NO_RECORDS, "refused")
-        resolving = {f["key"] for f in self._sidebar_view(keys)["favourites"]}
+        resolving, _ = self._sidebar_targets()
         stored: list[str] = []
 
         def save(conn):
@@ -805,14 +805,44 @@ class HubApi:
         self._brief_write(save)
         return {"favourites": stored}
 
+    def _sidebar_targets(self) -> tuple[set[str], set[str]]:
+        """(the Favourites keys that exist right now, the crates' paths): `views.sidebar_targets` for the library as it
+        is, without the sidebar's counts. A library with no records yet has none."""
+        if not self._paths.db_file.exists():
+            return set(), set()
+        with self._move_log() as conn:
+            watched = db.watched_folders(conn)
+        return views.sidebar_targets(self._state(), pf.load(self._paths.playlists_file).rows, watched)
+
     @bridge
     def set_crate_shown(self, path: str, shown: bool | None) -> dict:
         """Shows or hides the crate at snapshot path `path` in the sidebar (Settings' switch; None goes back to the
-        default, D8): a brief save, not a job."""
+        default, D8): a brief save, not a job. `path` must be a crate of a watched folder right now."""
         if not isinstance(path, str) or not path or not (shown is None or isinstance(shown, bool)):
+            raise ValueError(BAD_CRATE)
+        if not self._paths.db_file.exists():
+            raise OpProblem(NO_RECORDS, "refused")
+        if path not in self._sidebar_targets()[1]:
             raise ValueError(BAD_CRATE)
         self._brief_write(lambda conn: db.set_crate_shown(conn, path, shown))
         return {"path": path, "shown": shown}
+
+    @bridge
+    def set_crates_shown(self, paths: list[str], shown: bool | None) -> dict:
+        """`set_crate_shown` for several crates at once (Settings' All / None): one brief save, one transaction. Every
+        path must be a crate of a watched folder right now, else nothing is saved. A path given twice counts once."""
+        if (not isinstance(paths, list) or not paths or not all(isinstance(p, str) and p for p in paths)
+                or not (shown is None or isinstance(shown, bool))):
+            raise ValueError(BAD_CRATE)
+        if not self._paths.db_file.exists():
+            raise OpProblem(NO_RECORDS, "refused")
+        wanted = list(dict.fromkeys(paths))
+        known = self._sidebar_targets()[1]
+        if not all(p in known for p in wanted):
+            raise ValueError(BAD_CRATE)
+
+        self._brief_write(lambda conn: db.set_crates_shown(conn, wanted, shown))
+        return {"paths": wanted, "shown": shown}
 
     @bridge
     def check_import_folder(self, path: str) -> dict:
@@ -922,8 +952,26 @@ class HubApi:
 
     @bridge
     def reveal(self, rel_path: str) -> dict:
-        self._svc.reveal(self._inside_root(rel_path))
+        """Shows a place in Finder: a path inside the music folder (relative), or an absolute path inside a watched
+        import folder (the folder itself, a crate): only places the library knows, never any path the page names."""
+        self._svc.reveal(self._watched_place(rel_path) if str(rel_path).startswith("/") else self._inside_root(rel_path))
         return {}
+
+    def _watched_place(self, path: str) -> Path:
+        """The absolute `path` when it is a watched import folder or inside one (its symlinks followed: a link leading
+        out of the folder is refused); ValueError for any other place, OpProblem when it is not there (a drive that is
+        not connected)."""
+        with self._move_log() as conn:
+            roots = [f.path for f in db.watched_folders(conn) if f.kind == "import"] if conn is not None else []
+        wanted = Path(path)
+        if ".." in wanted.parts or not any(wanted == r or wanted.is_relative_to(r) for r in roots):
+            raise ValueError("Discjockey only opens places inside your music folder or a folder it watches.")
+        if not wanted.exists():
+            raise OpProblem("That file or folder is not there.", "refused")
+        real = wanted.resolve()
+        if not any(real == r.resolve() or real.is_relative_to(r.resolve()) for r in roots):
+            raise ValueError("Discjockey only opens places inside your music folder or a folder it watches.")
+        return wanted
 
     @bridge
     def open_report(self, run_id: str) -> dict:

@@ -1293,6 +1293,67 @@ def test_set_crate_shown_hides_and_shows_and_none_goes_back_to_the_default(tmp_p
     assert api.set_crate_shown(3, True)["kind"] == "refused"
 
 
+def test_set_crate_shown_refuses_a_path_that_is_no_crate_of_a_watched_folder(tmp_path, monkeypatch):
+    """Leftovers C2 (issue 29): only the type of `path` was checked, so any string became a stored switch."""
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    for bad in (str(folder), str(folder / "Nope"), "/etc", str(paths.root / "Library")):
+        assert api.set_crate_shown(bad, False)["kind"] == "refused", bad
+    with db.connect(paths.db_file) as conn:
+        assert db.crate_overrides(conn) == {}
+    assert api.set_crate_shown(str(folder / "Hard" / "2019"), False)["ok"]  # a crate inside a crate counts
+
+
+def test_set_crates_shown_saves_all_of_them_at_once_or_none(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    hard, house, deep = (str(folder / n) for n in ("Hard", "House", "Hard/2019"))
+    assert api.set_crates_shown([hard, house, hard], False) == {"ok": True, "paths": [hard, house], "shown": False}
+    state = lambda: {c["name"]: c["hidden"] for c in api.sidebar()["watched"][0]["crates"]}  # noqa: E731
+    assert state() == {"Hard": True, "2019": False, "House": True}
+    assert api.set_crates_shown([hard, house], None)["shown"] is None and state() == {"Hard": False, "2019": False, "House": False}
+    assert api.set_crates_shown([deep, "/etc"], True)["kind"] == "refused"  # one stranger: nothing is saved
+    with db.connect(paths.db_file) as conn:
+        assert db.crate_overrides(conn) == {}
+    for bad in ([], "x", [3], [""]):
+        assert api.set_crates_shown(bad, True)["kind"] == "refused", bad
+    assert api.set_crates_shown([deep], "yes")["kind"] == "refused"
+
+
+def test_set_favourites_does_not_build_the_sidebar(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    monkeypatch.setattr(type(api), "_sidebar_view", lambda *a, **k: pytest.fail("the sidebar was built"))
+    hard = f"folder:{folder}/Hard"
+    assert api.set_favourites([hard, f"folder:{folder}/Gone"])["favourites"] == [hard, f"folder:{folder}/Gone"]
+    assert api.set_favourites([])["favourites"] == [f"folder:{folder}/Gone"]  # an unresolved key stays, a resolved one goes
+
+
+def test_the_keys_a_save_checks_are_the_ones_the_sidebar_resolves(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    keys, crates = api._sidebar_targets()
+    side = api.sidebar()
+    assert crates == {c["path"] for w in side["watched"] for c in w["crates"]} != set()
+    with db.connect(paths.db_file) as conn:
+        db.set_favourites(conn, sorted(keys))
+    assert {f["key"] for f in api.sidebar()["favourites"]} == keys  # every one resolves, none is missing from `keys`
+    assert keys >= {f"folder:{folder}", f"folder:{folder}/Hard"} and all(k.startswith(("folder:", "playlist:")) for k in keys)
+
+
+def test_reveal_opens_a_watched_folder_and_its_crates_but_no_other_absolute_path(tmp_path, monkeypatch):
+    """Leftovers C2 (issue 29): Show in Finder for import folders and crates."""
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    calls = api._svc.calls["reveal"]
+    for ok in (folder, folder / "Hard", folder / "Hard" / "2019"):
+        assert api.reveal(str(ok))["ok"]
+    assert calls == [folder, folder / "Hard", folder / "Hard" / "2019"]
+    outside = tmp_path / "Elsewhere"
+    outside.mkdir()
+    (folder / "Link").symlink_to(outside)
+    for bad in (str(outside), "/etc", str(folder.parent), f"{folder}/../Elsewhere", str(folder / "Link")):
+        assert api.reveal(bad)["kind"] == "refused", bad
+    assert api.reveal(str(folder / "Missing"))["kind"] == "refused"  # inside, but not there (a drive away)
+    assert calls == [folder, folder / "Hard", folder / "Hard" / "2019"]
+    assert api.reveal("Library")["ok"]  # relative paths in the music folder still work
+
+
 def test_set_favourites_keeps_the_order_and_the_sidebar_resolves_them(tmp_path, monkeypatch):
     api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
     ref = api.sidebar()["playlists"][1]["ref"]

@@ -236,6 +236,10 @@ export function pathOf(t: FakeTrack): string | null {
   const sub = t.status === 'lossless' ? '' : '/not_lossless';
   return `Library/${t.at ?? t.folder}${sub}/${t.artist} - ${t.title}.aiff`;
 }
+/** A to-do item's `file_state` (the contract's): the file's drive or folder state, `no_file` for a song without one. */
+export function todoFileState(t: FakeTrack): 'here' | 'offline' | 'folder_missing' | 'no_file' {
+  return !trackRow(t).path ? 'no_file' : t.away === 'offline' || t.away === 'folder_missing' ? t.away : 'here';
+}
 export function trackRow(t: FakeTrack): TrackRow {
   return {
     track_id: t.track_id, artist: t.artist, title: t.title, folder: t.folder, duration_s: t.duration_s,

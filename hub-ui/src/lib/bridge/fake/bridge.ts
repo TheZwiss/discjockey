@@ -9,7 +9,7 @@ import { LIBRARY_METHODS } from '../contract';
 import {
   FAKE_MUSIC, FAKE_NEWEST_YT_DLP, LINK_REFUSED, QOBUZ_UNREADABLE, SOUNDCLOUD_SET_LINK, SERVICE_NAME, SOUNDCLOUD_UNREADABLE, YOUTUBE_MIX_REFUSED, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkStatus, checkView, coverUri, dateOnly, folderList, hash, isoLocal, makeState, nextStep,
   pathOf, previewAction, qualityLabel, qualityLine, qualityOf, result, runDetail, runId,
-  readStatus, sampleCandidates, readOk, todoDetail, todoFree, fileFormatLine, sourceFormatLine, sourceHowOf, sourceFull, todoGroup, trackRow, type FakeAccount, type FakeFolder, type FakeState,
+  readStatus, sampleCandidates, readOk, todoDetail, todoFree, fileFormatLine, sourceFormatLine, sourceHowOf, sourceFull, todoFileState, todoGroup, trackRow, type FakeAccount, type FakeFolder, type FakeState,
   type FakeTrack,
 } from './data';
 import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, fakeLink, libraryOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
@@ -895,6 +895,14 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       s.favourites = mergedFavourites(s.favourites, keys, resolving);
       return ok({ favourites: [...s.favourites] });
     },
+    async set_crates_shown(paths: string[], shown: boolean | null) {
+      if (!Array.isArray(paths) || !paths.length || !paths.every((p) => typeof p === 'string' && p)
+        || !(shown === null || typeof shown === 'boolean')) return fail('refused', BAD_CRATE);
+      if (s.briefBusy) return fail('busy', BRIEF_WRITE_FAILED);
+      const wanted = [...new Set(paths)];
+      for (const p of wanted) { if (shown === null) delete s.crateShown[p]; else s.crateShown[p] = shown; }
+      return ok({ paths: wanted, shown });
+    },
     async set_crate_shown(path: string, shown: boolean | null) {
       if (typeof path !== 'string' || !path || !(shown === null || typeof shown === 'boolean')) return fail('refused', BAD_CRATE);
       if (s.briefBusy) return fail('busy', BRIEF_WRITE_FAILED);
@@ -1213,7 +1221,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     for (const t of s.tracks) {
       if (t.rekordbox_check) {
         items.rekordbox_check.push({ ...trackRow(t), group: 'rekordbox_check', detail: checkStatus(t.rekordbox_check),
-          check: checkView(t.rekordbox_check), free: false,
+          check: checkView(t.rekordbox_check), free: false, file_state: todoFileState(t),
           can_undo: !!t.rekordbox_check.undo && !t.upgrade });
         chips.rekordbox_check++;
         if (!t.hidden) counted.add(t.track_id);
@@ -1222,7 +1230,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (!g) continue;
       if (t.hidden) hidden_count++;
       else { chips[g]++; counted.add(t.track_id); }
-      if (!t.hidden || show_hidden) items[g].push({ ...trackRow(t), group: g, detail: todoDetail(t, g), free: todoFree(t, g) });
+      if (!t.hidden || show_hidden) items[g].push({ ...trackRow(t), group: g, detail: todoDetail(t, g), free: todoFree(t, g),
+        file_state: todoFileState(t) });
     }
     for (const q of questionItems(s)) { items.same_song.push(q); chips.same_song++; counted.add(q.track_id); }
     for (const d of duplicateItems(s)) { items.duplicate.push(d); chips.duplicate++; counted.add(d.track_id); }
