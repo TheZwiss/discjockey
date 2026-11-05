@@ -24,7 +24,9 @@
 
 {#snippet logos()}
   {#if folded && !open}
-    <span class="logos" data-test="{test}-logos">
+    <!-- the logos belong to the head's line: a click on them opens it too (the fold button is the keyboard's way) -->
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <span class="logos" data-test="{test}-logos" onclick={() => (open = true)}>
       {#each GUIDE_SERVICES as s (s)}<ServiceMark service={logoOf(s)} label={PLAYLIST_SERVICE_NAMES[s]} />{/each}
     </span>
   {/if}
@@ -43,7 +45,7 @@
 </Surface>
 
 <style>
-  .logos { display: inline-flex; align-items: center; gap: 6px; }
+  .logos { display: inline-flex; align-items: center; gap: 6px; cursor: default; }
   /* the rows' width decides the columns (Surface's rows are the `list` container), wherever the guide stands (Setup's
      column, the Playlists panel). Under 400 px: logo | name over where, a tall row */
   .row { display: grid; grid-template-columns: 14px minmax(0, 1fr); grid-template-areas: 'mark name' '. where';
