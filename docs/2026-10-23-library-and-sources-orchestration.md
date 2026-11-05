@@ -262,8 +262,9 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   place an upgrade or duplicate decision shows uses the same approved panel with its actions (mockup
   `docs/hub-mockups/todo-decisions.html`). Opus build (no shots) + Opus shots.
 - **State 2026-11-05 (resumed by the user):** issue 34 merged into main e843d38; (1) UI minors merged de53b75 (3238
-  py green). Running: Sonnet fake-data round (`fix/fake-data`: settings-paused clock, cross-page fake counts, empty
-  scenario To-do/limits).
+  py green); fake-data round merged 988c790 (verify 958/0). Running: (2) Opus design round, worktree
+  `.claude/worktrees/design-round` on `design/sources-round` → `docs/hub-mockups/sources-round.html` + notes, then
+  the user's approval. Add to (3): archive the finished stage 1–5 plans (CLAUDE.md rule) and carry open points to issues.
   Queue: (1) Opus UI minors from issue 32 (FLAC next to .aiff in fake data, empty Playlists counts, likes
   owner twice, YTM label dropped at 1280, balanced wrapping); (2) design round (Opus mockup: paste field "Paste a
   playlist link here" + 4 logos, Liked music Settings choice + warning, W20 upload on Sync card, Setup example links,
