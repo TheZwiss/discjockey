@@ -56,7 +56,7 @@
   {:else if card.kind === 'working' || card.kind === 'downloading' || card.kind === 'converting'}
     <div class="row">
       <Cover url={stripCover(card.action.track.image_url, card.action.track_id, covers)} seed={card.action.track_id} size={120} />
-      <div class="text">
+      <div class="text running">
         <div class="kicker">{kickerLine(card.action)}</div>
         <div class="title">{who(card.action)}</div>
         <!-- where the file comes from and how it was found; the line keeps its place while the source is still being
@@ -141,8 +141,13 @@
     letter-spacing: var(--ls-label); }
   .title { font-size: var(--fs-title); font-weight: var(--fw-bold); color: var(--text-strong); margin-top: 2px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .from { display: flex; align-items: center; gap: var(--s-2); height: 18px; margin-top: 2px; min-width: 0;
+  .from { display: flex; align-items: center; gap: var(--s-2); height: 16px; min-width: 0;
     font-size: var(--fs-small); color: var(--text-muted); }
+  /* The running card keeps the height it had before the from line (120 px cover, 154 px card): the Sync page's layout
+     must not move (sources round row 15). The from line's 16 px come out of the title's line box (17 px type on a
+     20 px line instead of the body's 1.45) and the gaps of the detail and its bar, which now sit as one group. */
+  .running .title { line-height: 1.2; }
+  .running .detail, .running .progress { margin-top: var(--s-1); }
   .from-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .detail { margin-top: var(--s-2); color: var(--text-muted); font-size: var(--fs-body); }
   .detail b { color: var(--text-strong); font-weight: var(--fw-semi); }

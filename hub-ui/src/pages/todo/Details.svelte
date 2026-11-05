@@ -112,8 +112,8 @@
     <Surface kind="card">
       <TrackHead {track} place={track.folder} action={act.hide ? hideLink : undefined} link={track.track_link}
         word={qualityWords(track.quality, track.quality_label)}>
-        {#snippet badge()}<span data-test="details-state"><QualityBadge quality={track.quality} label={track.quality_label}
-          upgrade={track.upgrade_ready} titled={false} /></span>{/snippet}
+        {#snippet badge(tipped)}<span data-test="details-state"><QualityBadge quality={track.quality} label={track.quality_label}
+          upgrade={track.upgrade_ready} titled={!tipped} /></span>{/snippet}
       </TrackHead>
     </Surface>
 
@@ -163,7 +163,7 @@
               <!-- what the file was made from, and how it was found under it (sources round problems 4, 6), as in Library -->
               <KeyValue keyWidth={76} k="Source" sub={sourceHowWords(track.source_how)}>
                 {#if track.source_url}<ExternalLink href={track.source_url} label={track.source_full ?? track.source_url} />
-                {:else}{track.source_full}{/if}{#if track.source_format_line}{` · ${track.source_format_line}`}{/if}
+                {:else}{track.source_full}{/if}{#if track.source_format_line}{' · '}<span class="fmt">{track.source_format_line}</span>{/if}
               </KeyValue>
             {/if}
             {#if qobuz}<KeyValue keyWidth={76} k="Qobuz" v={qobuz} />{/if}
@@ -215,6 +215,8 @@
 <Panel {head} foot={act.main ? foot : undefined} />
 
 <style>
+  /* the format reads as one piece ("Opus · 135 kbps"): a narrow panel wraps before it, never inside it */
+  .fmt { white-space: nowrap; }
   .details { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; }
   .facts { display: flex; flex-direction: column; }
   .frees { display: flex; flex-direction: column; gap: var(--s-3); }

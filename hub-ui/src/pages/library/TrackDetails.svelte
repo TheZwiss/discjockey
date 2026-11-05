@@ -85,8 +85,8 @@
       <Surface kind="card">
         <TrackHead track={t} place={placeLine(t.place)} link={t.track_link}
           word={qualityWords(t.quality, t.quality_label, t.sound_checked)}>
-          {#snippet badge()}<QualityBadge quality={t.quality} label={t.quality_label} upgrade={t.upgrade_ready}
-            checked={t.sound_checked} titled={false} />{/snippet}
+          {#snippet badge(tipped)}<QualityBadge quality={t.quality} label={t.quality_label} upgrade={t.upgrade_ready}
+            checked={t.sound_checked} titled={!tipped && t.sound_checked} />{/snippet}
         </TrackHead>
       </Surface>
 
@@ -122,7 +122,7 @@
                  its format, and how it was found under it (sources round problems 4, 6) -->
             <KeyValue keyWidth={76} k="Source" sub={sourceHowWords(t.source_how)}>
               {#if t.source_url}<ExternalLink href={t.source_url} label={t.source_full ?? shortUrl(t.source_url)} />
-              {:else}{t.source_full ?? t.source_name ?? '–'}{/if}{#if t.source_format_line}{` · ${t.source_format_line}`}{/if}
+              {:else}{t.source_full ?? t.source_name ?? '–'}{/if}{#if t.source_format_line}{' · '}<span class="fmt">{t.source_format_line}</span>{/if}
             </KeyValue>
             {#if playlists}<KeyValue keyWidth={76} k="Playlists" v={playlists} />{/if}
             <KeyValue keyWidth={76} k="Added" v={dateShort(t.added) || '–'} />
@@ -175,6 +175,8 @@
 {/if}
 
 <style>
+  /* the format reads as one piece ("Opus · 135 kbps"): a narrow panel wraps before it, never inside it */
+  .fmt { white-space: nowrap; }
   .details { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; transition: opacity var(--t-state) var(--ease); }
   .fading { opacity: .7; }
   .facts { display: flex; flex-direction: column; }
