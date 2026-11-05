@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PlaylistInfo } from '../bridge/types';
-import { bannerSaysIt, folderProblem, hasLink, ownerText, playlistKey, type PlaylistRef } from './addRowModel';
+import { bannerSaysIt, folderProblem, hasLink, ownerText, playlistKey, readLine, type PlaylistRef } from './addRowModel';
 
 const ROWS: PlaylistRef[] = [
   { key: 'a', folder: 'Hard_Bounce', link: 'https://open.spotify.com/playlist/3DiscjockeyExampleList' },
@@ -87,5 +87,20 @@ describe('bannerSaysIt: the banner already asks for this login', () => {
   it('is false for other problems and answers without a service', () => {
     expect(bannerSaysIt({ kind: 'offline', service: 'qobuz' }, { service: 'qobuz' }, {})).toBe(false);
     expect(bannerSaysIt({ kind: 'not_set_up', service: null }, { service: 'qobuz' }, {})).toBe(false);
+  });
+});
+
+describe('readLine: what reading a found playlist takes', () => {
+  it('says the YouTube login for Liked music, in every link form', () => {
+    for (const l of ['https://music.youtube.com/playlist?list=LM', 'https://www.youtube.com/playlist?list=LM',
+      'https://music.youtube.com/browse/VLLM']) {
+      expect(readLine(l)).toBe('Discjockey reads it through your YouTube login');
+    }
+  });
+  it('keeps the plain words for every other playlist', () => {
+    for (const l of ['https://music.youtube.com/playlist?list=PLexample123', 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M',
+      'https://open.qobuz.com/playlist/900000001', 'https://soundcloud.com/example/sets/warmup']) {
+      expect(readLine(l)).toBe('Discjockey can read this playlist');
+    }
   });
 });

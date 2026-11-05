@@ -1,14 +1,16 @@
 <script lang="ts">
   // One playlist on the list's grid (design system mockup design-system/playlists.html): ⋮⋮ (pointer drag, never
   // HTML5 drag-and-drop: the window's file-drop handler covers the document) · priority · cover · the folder over
-  // "Qobuz · "name" · owner" (led by what the unsaved change does to it: "gets 27 more"; an unreadable playlist's
-  // service words in red, whole in the tooltip, since the row's one line cuts them) · quality (only while the list
-  // is at least 680 px wide) · tracks · switch · ⋯ (Rename, Remove; right-click opens the same menu). ⌥↑ / ⌥↓ move a
-  // focused row; renaming edits the name in place (Enter keeps it, Esc cancels).
+  // the service's logo and "name" · owner (PlaylistLine; led by what the unsaved change does to it: "gets 27 more";
+  // an unreadable playlist's service words in red, whole in the tooltip, since the row's one line cuts them) ·
+  // quality (only while the list is at least 680 px wide) · tracks · switch · ⋯ (Rename, Remove; right-click opens
+  // the same menu). A listed line whose Settings choice is off (Liked music) reads like a switched-off row and says
+  // why. ⌥↑ / ⌥↓ move a focused row; renaming edits the name in place (Enter keeps it, Esc cancels).
   import { Badge, Button, ContextMenu, Cover, ListRow, QualityBar, Switch, TextField } from '$lib/components';
   import { plural } from '$lib/format';
   import { folderProblem } from '$lib/components/addRowModel';
-  import { changeText, infoLine, losslessText, type DraftRow } from './changeModel';
+  import { changeText, infoLine, losslessText, readsOff, type DraftRow } from './changeModel';
+  import PlaylistLine from './PlaylistLine.svelte';
 
   let { row, prio, draft, delta = null, offset = 0, dragging = false, onhandledown, onmove, onrename, ontoggle,
     onremove }: {
@@ -27,6 +29,7 @@
   const line = $derived(infoLine(row));
   const lossless = $derived(losslessText(row.quality));
   const unreadable = $derived(row.enabled && line.tone === 'bad');
+  const quiet = $derived(readsOff(row));
 
   function startEdit() { edit = row.folder; editing = true; }
   function commit() {
@@ -64,7 +67,7 @@
   ]);
 </script>
 
-<ListRow off={!row.enabled} class="pl{dragging ? ' drag' : ''}" role="option" aria-selected="false" tabindex={0}
+<ListRow off={quiet} class="pl{dragging ? ' drag' : ''}" role="option" aria-selected="false" tabindex={0}
   data-key={row.key} test="row-{row.folder}" style={offset ? `transform: translateY(${offset}px)` : undefined}
   onkeydown={key} oncontextmenu={openMenu} height={52} title={unreadable ? line.text : undefined}>
   {#snippet lead()}
@@ -82,14 +85,14 @@
   {/snippet}
   {#snippet sub()}
     {#if !editing}
-      {#if delta}<span class="delta" class:gain={delta > 0} data-test="delta-{row.folder}">{changeText(delta)}</span>{' · '}{/if}<span
-        data-test="service-{row.folder}">{line.service}</span>{' · '}<span class:bad={line.tone === 'bad'}>{line.text}</span>
+      {#snippet change()}{#if delta}<span class="delta" class:gain={delta > 0} data-test="delta-{row.folder}">{changeText(delta)}</span>{' · '}{/if}{/snippet}
+      <PlaylistLine service={row.service} text={line.text} tone={line.tone} before={change} test="service-{row.folder}" />
     {/if}
   {/snippet}
   {#snippet optional()}
     {#if unreadable}
       <Badge tone="weak" text="CAN'T READ" />
-    {:else if row.enabled}
+    {:else if !quiet}
       <span class="q"><QualityBar by_quality={row.quality} height={4} /><span class="ql">{lossless ?? 'nothing yet'}</span></span>
     {/if}
   {/snippet}
@@ -116,7 +119,6 @@
   .new { margin-left: var(--s-2); }
   .delta { color: var(--text-muted); }
   .delta.gain { color: var(--accent-text); }
-  .bad { color: var(--q-weak); }
   .q { display: flex; flex-direction: column; gap: var(--s-1); width: 100%; }
   .ql { color: var(--text-label); font-size: var(--fs-label); font-variant-numeric: tabular-nums; }
   .count { min-width: 32px; text-align: right; }

@@ -101,3 +101,11 @@ const SETTING_FORMS: Record<SettingKey, SettingForm> = {
 export function settingForm(setting: SettingKey): SettingForm {
   return SETTING_FORMS[setting];
 }
+
+/** The found card's line under the playlist (sources round row 13): what reading it takes. Liked music is read through
+ *  the user's YouTube login (Settings' choice is on, else the card is the "needs a setting" form), so the card says
+ *  so; every other playlist is read without a login of the user's account. */
+export function readLine(link: string): string {
+  return playlistKey(link) === 'youtube_music:LM' ? 'Discjockey reads it through your YouTube login'
+    : 'Discjockey can read this playlist';
+}

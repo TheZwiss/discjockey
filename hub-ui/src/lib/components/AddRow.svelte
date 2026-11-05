@@ -14,6 +14,8 @@
   // A link the engine reads only once a Settings choice is on (`setting_off` with its `setting`: Liked music) gets
   // the "needs a setting" form: the playlist's fixed name, logo + "YouTube Music · yours", the yellow ! line, a Hint
   // and one primary action the caller names (`settingAction`: Playlists' "Turn on in Settings").
+  // The normal found card leads its line with the service's logo (as the rows do) and says what reading it takes
+  // (readLine: Liked music "Discjockey reads it through your YouTube login").
   // `check(link)` puts a link in the field and checks it, as a paste and Add would (the gallery's states).
   import Button from './Button.svelte';
   import Cover from './Cover.svelte';
@@ -32,7 +34,7 @@
   import { bannersSaidInBody } from '../stores/shell';
   import { NOT_WHILE_SYNC, PLAYLIST_SERVICE_NAMES } from '../copy';
   import { plural } from '../format';
-  import { bannerSaysIt, folderProblem, hasLink, ownerText, settingForm, type PlaylistRef } from './addRowModel';
+  import { bannerSaysIt, folderProblem, hasLink, ownerText, readLine, settingForm, type PlaylistRef } from './addRowModel';
 
   let { draft, onadd, filled = false, settingAction }: {
     draft: PlaylistRef[]; onadd: (a: AddedPlaylist, folder: string) => boolean | Promise<boolean>;
@@ -168,9 +170,10 @@
       <Cover url={result.info?.image_url ?? null} seed={result.link} size={40} />
       <div class="what">
         <span class="name">{result.info?.name ?? 'Unknown playlist'}</span>
-        {#if foundLine(result)}<span class="muted">{foundLine(result)}</span>{/if}
+        <span class="muted svc" data-test="add-found-line"><ServiceMark service={logoOf(result.service)}
+          label={PLAYLIST_SERVICE_NAMES[result.service]} />{foundLine(result)}</span>
         {#if result.readable}
-          <Hint text="Discjockey can read this playlist" />
+          <Hint text={readLine(result.link)} data-test="add-read-line" />
         {:else}
           <!-- the service's own words (the engine's hint), whole: they say what to do in that service -->
           <Hint tone="problem" wrap text={result.hint ?? result.info?.hint ?? ''} data-test="add-hint" />

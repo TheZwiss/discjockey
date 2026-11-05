@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { AddedPlaylist, Playlists } from '$lib/bridge/types';
 import {
   addRow, draftFrom, dropIndex, infoLine, isDirty, lines, loadedFrom, moveBy, priorities,
-  remove, rename, reorder, shiftFor, toggle, undo, panelFor, previewRequests, overlapCards, foldTrack, folderBars, folderChanges, changeText, moveRoutes, statusLine,
-  onOffText, losslessText,
+  remove, rename, reorder, shiftFor, toggle, undo, panelFor, previewRequests, overlapCards, foldTrack, folderBars, folderChanges, changeText, moveRoutes, listSummary,
+  losslessText, readsOff, setupLine,
   NO_PREVIEW, type PreviewAnswer, type PreviewState,
 } from './changeModel';
 
@@ -115,9 +115,9 @@ describe('row texts', () => {
   it('numbers switched-on rows, "–" for switched-off ones', () => {
     expect(priorities(toggle(addRow(d, ADDED, 'N'), d[0].key))).toEqual(['–', '1', '2']);
   });
-  it('info line: the service, then name and owner, not read yet, unreadable, switched off', () => {
-    expect(infoLine(d[0])).toEqual({ service: 'Spotify', text: '"Name of 0Dis" · yours', tone: 'muted' });
-    expect(infoLine({ ...d[0], info: null })).toEqual({ service: 'Spotify', text: 'not read yet', tone: 'muted' });
+  it('info line (after the logo): name and owner, not read yet, unreadable, switched off', () => {
+    expect(infoLine(d[0])).toEqual({ text: '"Name of 0Dis" · yours', tone: 'muted' });
+    expect(infoLine({ ...d[0], info: null })).toEqual({ text: 'not read yet', tone: 'muted' });
     // a likes list's name says its owner, which the engine then leaves out: named once
     expect(infoLine({ ...d[0], info: { ...d[0].info!, name: "Example DJ's likes", owner_name: '', yours: false } }).text)
       .toBe('"Example DJ\'s likes"');
@@ -130,17 +130,34 @@ describe('row texts', () => {
       link: 'https://open.qobuz.com/playlist/900000001',
       info: { ...info('Qobuz Picks', 0), yours: false, readable: false, hint } }, 'Qobuz_Picks')[2];
     expect(q).toMatchObject({ service: 'qobuz', serviceName: 'Qobuz' });
-    expect(infoLine(q)).toEqual({ service: 'Qobuz', text: hint, tone: 'bad' });
+    expect(infoLine(q)).toEqual({ text: hint, tone: 'bad' });
     expect(infoLine({ ...d[0], info: { ...info('x', 0), readable: false } }))
-      .toEqual({ service: 'Spotify', text: 'Make your own copy.', tone: 'bad' });
+      .toEqual({ text: 'Make your own copy.', tone: 'bad' });
   });
-  it('header status line and list summary count only what is switched on', () => {
+  it('a listed Liked music line while its Settings choice is off reads like a switched-off row, with the reason', () => {
+    const lm = draftFrom({ version: 'v', rows: [{ ...loaded.rows[0], needs_setting: 'read_liked_music' }] })[0];
+    expect(lm.needsSetting).toBe('read_liked_music');
+    expect(infoLine(lm)).toEqual({ text: 'Liked music is off in Settings', tone: 'muted' });
+    expect(readsOff(lm)).toBe(true);
+    // switched off says that first; a plain row reads on
+    expect(infoLine({ ...lm, enabled: false }).text).toBe('switched off · files stay');
+    expect(readsOff(d[0])).toBe(false);
+    expect(readsOff({ ...d[0], enabled: false })).toBe(true);
+    expect(addRow(d, ADDED, 'N')[2].needsSetting).toBeNull();
+  });
+  it("Setup's line adds the track count to a read playlist only", () => {
+    expect(setupLine(d[0]).text).toBe(`"Name of 0Dis" · yours · ${d[0].tracks} tracks`);
+    expect(setupLine({ ...d[0], tracks: null }).text).toBe('"Name of 0Dis" · yours');
+    expect(setupLine({ ...d[0], info: null }).text).toBe('not read yet');
+    expect(setupLine({ ...d[0], info: { ...info('x', 0), readable: false } })).toEqual({ text: 'Make your own copy.', tone: 'bad' });
+    expect(setupLine({ ...d[0], enabled: false }).text).toBe('switched off · files stay');
+  });
+  it('list head summary: on, off when any, and the switched-on tracks', () => {
     const off = toggle(d, d[1].key);
-    expect(statusLine(d)).toBe('6 tracks in your playlists');
-    expect(statusLine(off)).toBe('4 tracks in your playlists');
-    expect(statusLine(addRow(d, ADDED, 'N'))).toBe('6 tracks in your playlists');
-    expect(onOffText(d)).toBe('2 on');
-    expect(onOffText(off)).toBe('1 on · 1 off');
+    expect(listSummary(d)).toBe('2 on · 6 tracks');
+    expect(listSummary(off)).toBe('1 on · 1 off · 4 tracks');
+    expect(listSummary(addRow(d, ADDED, 'N'))).toBe('3 on · 6 tracks');
+    expect(listSummary([])).toBe('0 on · 0 tracks');
   });
   it('lossless text beside the quality bar, none before anything is downloaded', () => {
     expect(losslessText(d[0].quality)).toBe('1 of 4 lossless');
