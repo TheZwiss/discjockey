@@ -626,8 +626,8 @@ describe('fake backend: Qobuz playlists (stage 3)', () => {
     const q = await f.track('qobuz:112358');
     const sp = await f.track('t1');
     if (!q.ok || !sp.ok) throw new Error();
-    expect(q.track.track_link).toEqual({ url: 'https://open.qobuz.com/track/112358', label: 'Open in Qobuz' });
-    expect(sp.track.track_link).toEqual({ url: 'https://open.spotify.com/track/t1', label: 'Open in Spotify' });
+    expect(q.track.track_link).toEqual({ url: 'https://open.qobuz.com/track/112358', label: 'Open in Qobuz', service: 'qobuz' });
+    expect(sp.track.track_link).toEqual({ url: 'https://open.spotify.com/track/t1', label: 'Open in Spotify', service: 'spotify' });
   });
   it('add_playlist reads a Qobuz link; qobuz_unreadable answers the Qobuz words; qobuz_not_connected asks to connect', async () => {
     const link = 'https://open.qobuz.com/playlist/777000123';

@@ -633,12 +633,13 @@ def in_playlists(track_id: str, e: dict, fetched: list) -> list[str] | None:
 
 
 def track_link(track_id: str, e: dict, fetched: list) -> dict | None:
-    """{url, label} of the track's page on its service: the link of the first fetched track (playlist order) that is
-    this song, else the link its key gives; None when neither has one."""
+    """{url, label, service} of the track's page on its service: the link of the first fetched track (playlist order)
+    that is this song, else the link its key gives; None when neither has one. `service` is the playlist service the
+    page belongs to (the hub's logo beside "Open in …" reads it, never the label's words)."""
     ids = {track_id, *(e.get("aliases") or [])}
     link, service = next(((t.link, t.service) for fp in fetched for t in fp.tracks if t.key in ids and t.link),
                          (key_link(track_id), split_token(track_id)[0]))
-    return {"url": link, "label": f"Open in {PLAYLIST_SERVICES[service]}"} if link else None
+    return {"url": link, "label": f"Open in {PLAYLIST_SERVICES[service]}", "service": service} if link else None
 
 
 def upgrade_format(up: dict) -> str:
@@ -986,7 +987,10 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
     if q:
         rows = [r for r in rows if q in fold(f"{r['artist']} {r['title']}")]
         also = [r for r in also if q in fold(f"{r['artist']} {r['title']}")] if also is not None else None
-    chips = {f: sum(1 for r in rows if r["file_state"] != "no_file" and _matches(r, f)) for f in LIBRARY_FILTERS}
+    # All counts every row the table lists under it (a read playlist's songs without a file too, never `also`); the
+    # quality chips count files, the rows they list
+    chips = {f: sum(1 for r in rows if (f == "all" or r["file_state"] != "no_file") and _matches(r, f))
+             for f in LIBRARY_FILTERS}
     rows = [r for r in rows if _matches(r, filt or "all")]
     also = [r for r in also if _matches(r, filt or "all")] if also is not None else None
     order = (sort or ("order" if view == "playlist" else "artist")).lstrip("-")

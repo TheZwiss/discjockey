@@ -473,7 +473,7 @@ def test_track_detail():
     assert d["bought_name"] == "Library/A/Artist - Song.wav"
     assert d["buy_links"]["beatport"] == "https://www.beatport.com/search?q=Artist+Song"
     assert d["upgrade"] is None and "spotify_url" not in d
-    assert d["track_link"] == {"url": "https://open.spotify.com/track/t1", "label": "Open in Spotify"}
+    assert d["track_link"] == {"url": "https://open.spotify.com/track/t1", "label": "Open in Spotify", "service": "spotify"}
 
 
 def test_track_detail_says_why_the_file_is_not_there():
@@ -1425,16 +1425,30 @@ def test_track_detail_link_is_the_first_fetched_tracks_else_the_keys():
     fetched = [FetchedPlaylist(PlaylistLine("A", "p1", 1, "qobuz"), [qobuz], []),
                FetchedPlaylist(PlaylistLine("B", "p2", 2), [t("t1")], [])]
     d = views.track_detail("t1", entry, fetched, TODAY)
-    assert d["track_link"] == {"url": "https://open.qobuz.com/track/900000001", "label": "Open in Qobuz"}
+    assert d["track_link"] == {"url": "https://open.qobuz.com/track/900000001", "label": "Open in Qobuz", "service": "qobuz"}
     assert d["playlists"] == ["A", "B"]  # a Qobuz track is found by its token, not its bare id
     d = views.track_detail("t1", entry, [], TODAY)  # nothing read yet: the link its key gives
-    assert d["track_link"] == {"url": "https://open.spotify.com/track/t1", "label": "Open in Spotify"}
+    assert d["track_link"] == {"url": "https://open.spotify.com/track/t1", "label": "Open in Spotify", "service": "spotify"}
     d = views.track_detail("qobuz:900000001", e("lossless"), [], TODAY)
-    assert d["track_link"] == {"url": "https://open.qobuz.com/track/900000001", "label": "Open in Qobuz"}
+    assert d["track_link"] == {"url": "https://open.qobuz.com/track/900000001", "label": "Open in Qobuz", "service": "qobuz"}
     assert views.track_detail("soundcloud:900000101", e("lossless"), [], TODAY)["track_link"] == {
         "url": "https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/900000101",
-        "label": "Open in SoundCloud"}
+        "label": "Open in SoundCloud", "service": "soundcloud"}
     assert views.track_detail("youtube:1", e("lossless"), [], TODAY)["track_link"] is None
+
+
+def test_track_link_names_its_service_for_every_playlist_service():
+    """The hub's logo beside "Open in …" reads `service`, never the label's words: a fetched track's own service, else
+    the one its key names."""
+    sc = SourceTrack("900000105", "Song", ("Artist",), "Al", None, 180000, None, service="soundcloud",
+                     link="https://soundcloud.com/artist/song")
+    entry = e("lossless", aliases=["soundcloud:900000105"])
+    fetched = [FetchedPlaylist(PlaylistLine("A", "p1", 1, "soundcloud"), [sc], [])]
+    assert views.track_detail("t1", entry, fetched, TODAY)["track_link"]["service"] == "soundcloud"
+    for key, service in [("t1", "spotify"), ("qobuz:1", "qobuz"), ("soundcloud:2", "soundcloud"),
+                         ("youtube_music:abc", "youtube_music")]:
+        link = views.track_detail(key, e("lossless"), [], TODAY)["track_link"]
+        assert link["service"] == service and link["label"] == f"Open in {views.PLAYLIST_SERVICES[service]}"
 
 
 def test_a_qobuz_keyed_ambiguous_song_shows_on_the_todo_and_in_the_preview_under_its_song_key():
@@ -2019,10 +2033,10 @@ def test_the_files_of_the_playlists_folder_it_does_not_hold_come_below_as_also()
     assert [r["track_id"] for r in playlist_view(sort="-title")["also"]] == ["d"]
 
 
-def test_a_playlists_summary_and_chips_count_its_rows_with_a_file_and_the_search_narrows_rows_and_also():
+def test_a_playlists_summary_and_quality_chips_count_its_rows_with_a_file_and_the_search_narrows_rows_and_also():
     out = playlist_view()
     assert out["summary"]["tracks"] == 3 and out["summary"]["by_quality"]["lossless"] == 2
-    assert out["chips"] == {"all": 3, "lossless": 2, "good_lossy": 1, "weak": 0, "fake": 0, "upgrade_ready": 0}
+    assert out["chips"] == {"all": 5, "lossless": 2, "good_lossy": 1, "weak": 0, "fake": 0, "upgrade_ready": 0}
     assert out["subtitle"] == ["Spotify playlist", "3 tracks", "Library › Techno"]
     hit = playlist_view(query="four")
     assert ([r["track_id"] for r in hit["rows"]], [r["track_id"] for r in hit["also"]]) == ([], ["d"])
@@ -2218,6 +2232,14 @@ def test_a_playlist_view_says_how_many_of_its_songs_have_a_file_whatever_the_sea
     assert playlist_view(records={})["songs"] is None  # never read
     assert views.library(playlist_state(), "all", None, "", "all", None, lines=[TECHNO])["songs"] is None
     assert views.library(playlist_state(), "playlist", "Nowhere", "", "all", None, lines=[TECHNO])["songs"] is None
+
+
+def test_a_playlist_views_all_chip_counts_every_row_it_lists_and_the_quality_chips_only_files():
+    out = playlist_view()
+    assert out["chips"]["all"] == len(out["rows"]) == out["songs"]["listed"] == 5  # 3 files + 2 songs waiting
+    assert sum(out["chips"][f] for f in ("lossless", "good_lossy", "weak", "fake")) <= out["songs"]["with_file"]
+    narrowed = playlist_view(query="one")
+    assert narrowed["chips"]["all"] == len(narrowed["rows"])
 
 
 def test_a_hidden_song_that_was_not_found_still_says_it_is_hidden_so_the_page_sends_nobody_to_the_to_do_list():

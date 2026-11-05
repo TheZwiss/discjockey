@@ -577,9 +577,11 @@ shows what the playlist holds now, not where the files are. A song of the record
 nothing usable: the song is in To-do's Not found group). A not-found song the user hid in To-do keeps `not_found` and
 carries `hidden: true`: the page doesn't offer "Open in to-do" for it, as To-do doesn't show it. `also` holds the files in the playlist's own Library folder
 whose song the playlist does not hold (null in every other view), by artist, then title. The search narrows `rows` and `also`; the quality
-filter, `chips` and `summary` count only the rows with a file: a playlist's `subtitle` and `summary.tracks` count its songs
-with a file, the table also shows the waiting ones, and the sidebar's `songs` counts them all (so the
-subtitle names both, "13 of 18 downloaded", from `songs`, rather than let the numbers seem to disagree). An empty folder, and a playlist that was
+filter, the quality `chips` and `summary` count only the rows with a file; `chips.all` counts every row the table lists
+under All (a read playlist's songs without a file too, never `also`), so the All segment says 18 beside 18 rows. A
+playlist's `subtitle` and `summary.tracks` count its songs with a file, the table also shows the waiting ones, and the
+sidebar's `songs` counts them all (so the page's strip names both, "13 of 18 downloaded", from `songs`, and the header
+leaves out the subtitle's count, rather than let the numbers seem to disagree). An empty folder, and a playlist that was
 read and holds nothing, both come with `empty: "no_match"` even without search text; the page tells them apart by
 `view`, `folder_kind` and `read_at`.
 
@@ -611,7 +613,7 @@ folder's path; `null` for All and Not in a playlist); `folder` keeps the old mea
 playlist's folder name or the folder's key). `folder_kind` (folder views): `watched`, `crate`, `library`, or `null` for a
 path none of these. `songs` (a read playlist, else `null`): `{"listed", "with_file"}`, the distinct songs it lists
 (what the sidebar's `songs` counts) and how many of them have a file, before any search or filter; the page words the
-subtitle's "13 of 18 downloaded" from it and joins no other call. `read_at`, `enabled` and `service` (playlist views, else `null`): when the playlist was read
+strip's "13 of 18 downloaded" (and its quality bar's dashed end) from it and joins no other call. `read_at`, `enabled` and `service` (playlist views, else `null`): when the playlist was read
 (`null`: never), whether its line is switched on, its service. `empty` adds `gone`.
 
 *Summary and subtitle.* `summary` is the view at a glance and ignores the search and the filter: `by_quality` (as in
@@ -785,7 +787,7 @@ innermost watched folder holding it is offline or not found) puts its words seco
   "source_format_line": "Opus · 135 kbps",
   "source_how": "fallback",
   "source_url": "https://www.youtube.com/watch?v=abcdefghijk",
-  "track_link": {"url": "https://open.spotify.com/track/t2", "label": "Open in Spotify"},
+  "track_link": {"url": "https://open.spotify.com/track/t2", "label": "Open in Spotify", "service": "spotify"},
   "next_qobuz_check": null,
   "rejected_sources": [],
   "buy_links": {
@@ -820,7 +822,7 @@ innermost watched folder holding it is offline or not found) puts its words seco
 }
 ```
 `next_qobuz_check`: ISO date, `"next_sync"`, or null. `playlists`: null until the playlists were read.
-`track_link` (stage 3, replaces `spotify_url`): `{url, label}` or null. `url` is the track's page on the service it
+`track_link` (stage 3, replaces `spotify_url`): `{url, label, service}` or null. `service` is the playlist service the page belongs to (`spotify`, `qobuz`, `soundcloud`, `youtube_music`): the hub shows its logo beside "Open in …" from it, never from the label's words. `url` is the track's page on the service it
 was read from: the link of the first fetched track (playlist order) that is this song, else the link its key gives
 (all four services; null for a key with none: SoundCloud's is its player page `https://w.soundcloud.com/player/?url=…/tracks/{id}`, YouTube Music's `https://music.youtube.com/watch?v={id}`; a fetched SoundCloud track carries its real `permalink_url`). `label` is `Open in {service name}` ("Open in Spotify", "Open in Qobuz", "Open in SoundCloud", "Open in YouTube Music").
 `playlists` matches a song by its key and aliases (tokens), so a Qobuz song lists its folders too.

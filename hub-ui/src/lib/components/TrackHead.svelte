@@ -18,7 +18,7 @@
   import ServiceMark from './ServiceMark.svelte';
   import { logoOf } from './serviceLogos';
   import { tip } from './tip';
-  import { headLine, linkService, wordHidden } from './trackHeadModel';
+  import { headLine, wordHidden } from './trackHeadModel';
 
   let { track, place, empty = false, link = null, badge, word, action, children }: {
     track: Pick<TrackDetail, 'cover_url' | 'track_id' | 'title' | 'artist' | 'duration_s'>; place: string;
@@ -35,7 +35,6 @@
     children?: Snippet;
   } = $props();
   const line = $derived(headLine(track.artist, track.duration_s, place));
-  const service = $derived(link ? linkService(link) : null);
 
   let badgeEl: HTMLElement | undefined = $state();
   let wordEl: HTMLElement | undefined = $state();
@@ -74,7 +73,7 @@
   </div>
   {#if link}
     <div class="open" data-test="head-link">
-      {#if service}<ServiceMark service={logoOf(service)} label={PLAYLIST_SERVICE_NAMES[service]} />{/if}
+      <ServiceMark service={logoOf(link.service)} label={PLAYLIST_SERVICE_NAMES[link.service]} />
       <ExternalLink href={link.url} label={link.label} />
     </div>
   {/if}

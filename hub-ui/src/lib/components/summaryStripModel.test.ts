@@ -58,3 +58,14 @@ describe('stripView', () => {
       not_lossless: 0, to_do: 0 }))).toMatchObject({ share: null, line: 'lossless · none checked yet' });
   });
 });
+
+describe('stripView of a read playlist (sources round D10)', () => {
+  it('adds how many of its songs have a file to the caption', () => {
+    const s = sum({ tracks: 13, lossless_share: 9 / 13, by_quality: { lossless: 9, good_lossy: 1, weak: 2, fake: 1, missing: 0 } });
+    expect(stripView(s, { listed: 18, with_file: 13 }).line).toBe('9 of 13 checked · 13 of 18 downloaded');
+    expect(stripView(s, { listed: 13, with_file: 13 }).line).toBe('9 of 13 checked · 13 of 13 downloaded');
+    expect(stripView(s).line).toBe('9 of 13 checked tracks');
+    expect(stripView(sum({ tracks: 2, lossless_share: null }), { listed: 5, with_file: 2 }).line)
+      .toBe('lossless · none checked yet · 2 of 5 downloaded');
+  });
+});

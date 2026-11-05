@@ -65,7 +65,7 @@
   /** AddRow with Liked music pasted while the setting is off (the fake answers setting_off): the needs-setting form */
   let addNeeds: AddRow | undefined = $state();
   const LM_LINK = 'https://music.youtube.com/playlist?list=LM';
-  const SPOTIFY_LINK = { url: 'https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC', label: 'Open in Spotify' };
+  const SPOTIFY_LINK = { url: 'https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC', label: 'Open in Spotify', service: 'spotify' as const };
   let gFolded = $state(['Playlists']);
   // Tip: one tip open at a time, as in the app; the strip picks which example shows its own
   const TIP_SHOW: SegOption<'rail' | 'cut' | 'crate'>[] = [{ key: 'rail', label: 'Rail icon' }, { key: 'cut', label: 'Cut name' },
@@ -561,7 +561,7 @@
       <div class="col tight" style="width: 900px; max-width: 100%" data-test="g-strip-waiting">
         <span class="cap">a playlist: 5 of its 18 songs have no file yet, the bar ends dashed</span>
         <SummaryStrip summary={strip({ tracks: 13, lossless_share: 9 / 13, upgrades_ready: 1, to_do: 4, not_lossless: 4,
-          by_quality: { lossless: 9, good_lossy: 1, weak: 2, fake: 1, missing: 0 } })} waiting={5}
+          by_quality: { lossless: 9, good_lossy: 1, weak: 2, fake: 1, missing: 0 } })} songs={{ listed: 18, with_file: 13 }}
           onupgrades={() => {}} ontodo={() => {}} />
       </div>
     </div>
@@ -1415,7 +1415,7 @@
       </div>
       <Surface kind="card" data-test="g-trackhead-waiting">
         <TrackHead track={{ ...weak, cover_url: null, title: 'AEIOU', artist: 'Pegassi' }} place="not downloaded yet" empty
-          link={{ url: 'https://music.youtube.com/watch?v=EXAMPLEid01', label: 'Open in YouTube Music' }}>
+          link={{ url: 'https://music.youtube.com/watch?v=EXAMPLEid01', label: 'Open in YouTube Music', service: 'youtube_music' }}>
           {#snippet badge()}<Badge tone="quiet" text="Waiting" />{/snippet}
         </TrackHead>
       </Surface>

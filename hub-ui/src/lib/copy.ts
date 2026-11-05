@@ -1,5 +1,5 @@
 // All shared copy in one place: plain English, short, sentence case, "you" voice (plan Part C "Copy").
-import type { EmptyKind, PlanCounts, PlaylistService, ProblemKind } from './bridge/types';
+import type { EmptyKind, PlanCounts, PlaylistService, ProblemKind, SourceHow } from './bridge/types';
 
 export type CopyAction = { label: string; href?: string; retry?: boolean; report?: boolean };
 export type ProblemCopy = { title: string; hint?: string; action?: CopyAction };
@@ -34,6 +34,15 @@ export const PROBLEMS: Record<ProblemKind, ProblemCopy> = {
 export const SYNC_CRASHED = 'The sync stopped unexpectedly';
 export const CRASHED_MESSAGE = 'Something went wrong. Try again.';
 export const NOT_WHILE_SYNC = "Not while a sync runs. Try again when it's finished.";
+
+/** How a download's source was found, in words (plan D11, binding): the Sync card's from line and the details' Source
+ *  line under its value. A fallback search is a name search, so it says the same as `name`. */
+export const SOURCE_HOW_WORDS: Record<SourceHow, string> = {
+  exact: 'exact Qobuz track', isrc: 'found by ISRC', name: 'found by name', fallback: 'found by name',
+  chosen: 'picked by you', upload: "the playlist's own upload",
+};
+/** The how in words; null without one (a file from before it was stored, an own or bought file: no second line). */
+export const sourceHowWords = (how: SourceHow | null | undefined): string | null => (how ? SOURCE_HOW_WORDS[how] ?? null : null);
 
 /** The playlist services by name (the engine's `PLAYLIST_SERVICES`; a row's `service_name` says the same). */
 export const PLAYLIST_SERVICE_NAMES: Record<PlaylistService, string> = {

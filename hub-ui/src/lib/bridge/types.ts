@@ -331,8 +331,9 @@ export type Upgrade = {
 /** The artist's free download of a SoundCloud version: a gate page (follow, like or e-mail; `host` e.g.
  *  hypeddit.com) or SoundCloud's own download button (`direct`). */
 export type FreeDownload = { url: string; host: string; direct: boolean; title: string; uploader: string };
-/** The track's page on the service it was read from; `label` "Open in Spotify" / "Open in Qobuz". */
-export type TrackLink = { url: string; label: string };
+/** The track's page on the service it was read from; `label` "Open in Spotify" / "Open in Qobuz"; `service` the
+ *  playlist service the page belongs to (the logo beside "Open in …"). */
+export type TrackLink = { url: string; label: string; service: PlaylistService };
 export type FileState = 'here' | 'offline' | 'folder_missing' | 'file_missing';
 export type TrackDetail = TrackRow & {
   /** false: an imported file whose sound isn't judged yet (see LibraryRow); `quality_line` then ends "sound not checked yet" */

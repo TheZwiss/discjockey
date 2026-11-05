@@ -401,7 +401,7 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
   entries = search(entries);
   also = also && search(also);
   const chips = Object.fromEntries(LIBRARY_FILTERS.map((f) => [f,
-    entries.filter((e) => e.row.file_state !== 'no_file' && matches(e, f)).length])) as Record<LibraryFilter, number>;
+    entries.filter((e) => (f === 'all' || e.row.file_state !== 'no_file') && matches(e, f)).length])) as Record<LibraryFilter, number>;
   const narrow = (list: Entry[]): Entry[] => list.filter((e) => matches(e, filter || 'all'));
   entries = narrow(entries);
   also = also && narrow(also);
