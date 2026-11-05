@@ -335,6 +335,51 @@ def test_a_long_ogg_file_is_read_in_big_blocks_not_page_by_page(tmp_path, monkey
     assert len(reads) < 10  # a 1.4 MB file: a few reads, not one per page (about 175 with the default buffer)
 
 
+def _vorbis_layout(audio_page: int, count: int) -> tuple[bytes, bytes]:
+    """(file, payload): Vorbis with its three header packets, a big setup packet, audio pages of `audio_page` bytes."""
+    ident = b"\x01vorbis" + b"\x00" * 23
+    pages = [ogg_page(5, 0, [ident], 2), ogg_page(5, 1, [b"\x03vorbis" + b"c" * 300, b"\x05vorbis" + b"s" * 9000])]
+    audio = [bytes([(i * 7) % 251]) * audio_page for i in range(count)]
+    pages += [ogg_page(5, 2 + i, [a]) for i, a in enumerate(audio)]
+    return b"".join(pages), b"".join(audio)
+
+
+def _opus_layout(audio_page: int, count: int, other_serial: bool = False) -> tuple[bytes, bytes]:
+    head = b"OpusHead" + b"\x01\x02" + b"\x00" * 9
+    pages = [ogg_page(7, 0, [head], 2), ogg_page(7, 1, [b"OpusTags"])]
+    audio = [bytes([(i * 3) % 251]) * audio_page for i in range(count)]
+    for i, a in enumerate(audio):
+        pages.append(ogg_page(7, 2 + i, [a]))
+        if other_serial and i % 50 == 0:  # a second stream's pages in between: not part of the key
+            pages.append(ogg_page(9, i, [b"x" * 200]))
+    return b"".join(pages), b"".join(audio)
+
+
+@pytest.mark.parametrize("layout", [
+    pytest.param(lambda: _vorbis_layout(60000, 40), id="vorbis-big-pages-2.4MB"),
+    pytest.param(lambda: _vorbis_layout(300, 6000), id="vorbis-small-pages-1.8MB"),
+    pytest.param(lambda: _opus_layout(20, 30000), id="opus-tiny-pages"),
+    pytest.param(lambda: _opus_layout(900, 3000, other_serial=True), id="opus-with-another-stream"),
+    pytest.param(lambda: _opus_layout(400, 5), id="opus-shorter-than-the-buffer"),
+])
+def test_the_big_ogg_buffer_gives_the_same_key_as_the_default_one(tmp_path, monkeypatch, layout):
+    data, payload = layout()
+    f = tmp_path / "x.ogg"
+    f.write_bytes(data)
+    big = content_key(f)
+    monkeypatch.setattr("discjockey.content_key.OGG_BUFFER", -1)  # the default buffer, as before the change
+    assert content_key(f) == big == windows_key(payload)
+
+
+def test_a_cut_off_ogg_file_keeps_its_whole_file_key_with_the_big_buffer(tmp_path, monkeypatch):
+    data, _ = _opus_layout(900, 3000)
+    f = tmp_path / "cut.opus"
+    f.write_bytes(data[:-100])  # the last page is cut: the pages can't be followed, the whole file is the key
+    big = content_key(f)
+    monkeypatch.setattr("discjockey.content_key.OGG_BUFFER", -1)
+    assert content_key(f) == big and length_of(big) == len(data) - 100
+
+
 @pytest.mark.parametrize("ext", AUDIO_EXTS + (".txt",))
 def test_unparsable_files_use_the_whole_file(tmp_path, ext):
     f = tmp_path / f"junk{ext}"

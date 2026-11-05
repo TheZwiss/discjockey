@@ -1,6 +1,7 @@
 """Plain data records shared by all modules."""
 from __future__ import annotations
 
+import copy
 from dataclasses import InitVar, dataclass, field
 from pathlib import Path
 from typing import NamedTuple
@@ -112,6 +113,15 @@ class SourceTrack:
     def secret(self) -> str | None:
         """The secret link token a download of this track needs (SoundCloud), or None."""
         return self.__dict__.get("_secret")
+
+    def with_label(self, label: str | None) -> "SourceTrack":
+        """A copy with another record label (None: none). A copy by `copy.copy`, not `dataclasses.replace`, which
+        would drop both non-field attributes (the label and the secret token) because they are InitVars."""
+        new = copy.copy(self)
+        new.__dict__.pop("_label", None)
+        if label:
+            object.__setattr__(new, "_label", label)
+        return new
 
     @property
     def first_artist(self) -> str:
