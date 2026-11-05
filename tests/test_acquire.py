@@ -451,6 +451,20 @@ def test_the_exact_id_is_downloaded_first_without_any_search(tmp_path):
     assert r.qobuz_searched is False
 
 
+def test_the_exact_id_carries_the_playlist_tracks_label_into_the_tags(tmp_path):
+    seen = []
+
+    def process(downloaded, track, cand, workdir, tracker):
+        seen.append(cand.label)
+        return Ready(downloaded, "lossless", cand.source, cand.id, "flac", None, "comment")
+
+    labelled = SourceTrack("t1", "Gimme Gimme", ("Vatoz Locoz",), "Album", None, 156000, "DECE72605755",
+                           record_label="Example Label")
+    a = Acquirer(FakeQobuz(), FakeFallback(), Budget({}, lambda: None, Settings(60)), NoPacer(), process)
+    assert a.acquire(labelled, set(), tmp_path, False, exact="900000001").kind == "ready"
+    assert seen == ["Example Label"]
+
+
 def test_a_preview_only_exact_id_is_not_downloaded_again_by_the_search(tmp_path):
     q = FakeQobuz({ISRC_Q: [qc("900000001"), qc("2")]}, preview={"900000001"})
     attempts = []
@@ -517,6 +531,17 @@ def test_an_exact_id_that_was_rejected_before_is_not_tried(tmp_path):
     a, _ = acquirer(q)
     r = a.acquire(T, {"qobuz:900000001"}, tmp_path, False, exact="900000001")
     assert q.downloads == ["2"] and q.searches == [ISRC_Q] and r.ready.source_id == "2"
+
+
+def test_a_recently_searched_check_still_tries_the_exact_id_but_does_not_search(tmp_path):
+    q = FakeQobuz({ISRC_Q: [qc("1")]})
+    a, _ = acquirer(q)
+    r = a.acquire(T, set(), tmp_path, False, exact="900000001", qobuz_search=False)
+    assert r.ready.source_id == "900000001" and q.searches == []
+    q = FakeQobuz({ISRC_Q: [qc("1")]}, preview={"900000001"})
+    a, _ = acquirer(q, FakeFallback())
+    r = a.acquire(T, set(), tmp_path, False, exact="900000001", qobuz_search=False)
+    assert q.searches == [] and q.downloads == [] and r.qobuz_searched is False
 
 
 def test_without_an_exact_id_or_without_qobuz_nothing_changes(tmp_path):

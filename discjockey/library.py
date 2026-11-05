@@ -325,18 +325,20 @@ def _v1_snapshot(paths: Paths, state: dict) -> dict:
     return state
 
 
-def open_state(paths: Paths, emit: Emit = no_emit) -> dict:
+def open_state(paths: Paths, emit: Emit = no_emit, *, recovered: list[tuple[str, bool]] | None = None) -> dict:
     """The snapshot for a writer (the caller holds the lock): open_records, then load_state."""
-    open_records(paths, emit)
+    open_records(paths, emit, recovered=recovered)
     return load_state(paths)
 
 
-def open_records(paths: Paths, emit: Emit = no_emit, *, recover: bool = True) -> bool:
+def open_records(paths: Paths, emit: Emit = no_emit, *, recover: bool = True,
+                 recovered: list[tuple[str, bool]] | None = None) -> bool:
     """A writer's open without the snapshot (the caller holds the lock). Moves state.json into library.db first when
     that hasn't happened yet (spec library-and-sources §5.3; its pending steps are finished on the way), gives a
     library that has neither file an empty library.db, and does the version check of every open. Without `recover`
     (a dry run: no music file is changed) a state.json that still has steps pending is left as it is, records and
-    files alike, and the result is False; else True."""
+    files alike, and the result is False; else True. The steps the migration finished are emitted as messages and
+    also appended to `recovered` as (message, ok), when given, so the caller can put them in its report."""
     from . import db
     if not paths.root.is_dir():
         raise NoLibrary(MUSIC_GONE)
@@ -347,6 +349,8 @@ def open_records(paths: Paths, emit: Emit = no_emit, *, recover: bool = True) ->
     def finish(state: dict) -> None:
         for message, ok in recover_pending(paths, state):
             emit(Message("info" if ok else "warning", message))
+            if recovered is not None:
+                recovered.append((message, ok))
 
     _MIGRATING.on = True
     try:

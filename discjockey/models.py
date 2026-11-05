@@ -1,6 +1,7 @@
 """Plain data records shared by all modules."""
 from __future__ import annotations
 
+import copy
 from dataclasses import InitVar, dataclass, field
 from pathlib import Path
 from typing import NamedTuple
@@ -90,18 +91,37 @@ class SourceTrack:
     # A private SoundCloud track's secret link token (the track's own, or its private set's). A secret: NOT a field,
     # so `asdict` (events, the hub) and `repr` never carry it; only `secret()` hands it to the download.
     secret_token: InitVar[str | None] = None
+    # The record label, where the playlist read has it (Qobuz: the album's), tagged on a download. Not a field either,
+    # so the events and the hub contract stay as they are (and two tracks differing only in it are equal).
+    record_label: InitVar[str | None] = None
 
-    def __post_init__(self, secret_token: str | None = None):
+    def __post_init__(self, secret_token: str | None = None, record_label: str | None = None):
         if self.link is None:
             pattern = TRACK_LINKS.get(self.service)
             if pattern:
                 object.__setattr__(self, "link", pattern.format(id=self.id))
         if isinstance(secret_token, str) and secret_token:
             object.__setattr__(self, "_secret", secret_token)
+        if isinstance(record_label, str) and record_label:
+            object.__setattr__(self, "_label", record_label)
+
+    @property
+    def label(self) -> str | None:
+        """The record label of the track, or None."""
+        return self.__dict__.get("_label")
 
     def secret(self) -> str | None:
         """The secret link token a download of this track needs (SoundCloud), or None."""
         return self.__dict__.get("_secret")
+
+    def with_label(self, label: str | None) -> "SourceTrack":
+        """A copy with another record label (None: none). A copy by `copy.copy`, not `dataclasses.replace`, which
+        would drop both non-field attributes (the label and the secret token) because they are InitVars."""
+        new = copy.copy(self)
+        new.__dict__.pop("_label", None)
+        if label:
+            object.__setattr__(new, "_label", label)
+        return new
 
     @property
     def first_artist(self) -> str:

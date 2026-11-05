@@ -12,8 +12,8 @@ STEP_TEXT = {"search": "searching", "download": "downloading", "check": "checkin
 SHORT = {"new_lossless": "lossless", "new_not_lossless": "not lossless", "fake": "fake lossless",
          "upgrade_ready": "better version found, waiting for you", "checked": "no better version yet",
          "bought": "bought file added",
-         "moved": "moved", "adopted": "picked up", "redownloaded": "downloaded again", "missing": "not found",
-         "queued": "waiting for the next run", "conflicts": "not moved, a file is in the way", "errors": "error"}
+         "redownloaded": "downloaded again", "missing": "not found",
+         "queued": "waiting for the next run", "errors": "error"}
 
 
 # what only the window does (plan library stage 4, D13, W10): the console never imports nor asks
@@ -111,7 +111,7 @@ class ConsolePrinter:
             self._status(f"    {event.label}: {event.remaining:.0f} s")
         elif isinstance(event, ActionFinished):
             r = event.result
-            note = f" ({r.note})" if r.note and r.section in ("errors", "queued", "conflicts", "fake",
+            note = f" ({r.note})" if r.note and r.section in ("errors", "queued", "fake",
                                                                  "new_not_lossless", "new_lossless",
                                                                  "upgrade_ready") else ""
             self._line(f"    -> {SHORT.get(r.section, r.section)}{note}")

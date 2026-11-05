@@ -125,11 +125,26 @@ def test_the_writer_finishes_pending_steps_before_migrating(tmp_path):
     state["pending"] = [{"track_id": "t1", "renames": [[".discjockey/.tmp/t1/a.aiff", "Library/F/A - x.aiff"]],
                          "entry": entry}]
     library.write_json_atomic(p.state_file, state)
-    messages = []
-    got = open_state(p, messages.append)
+    messages, recovered = [], []
+    got = open_state(p, messages.append, recovered=recovered)
     assert got["pending"] == [] and got["tracks"]["t1"]["path"] == "Library/F/A - x.aiff"
     assert any("Finished an interrupted step" in m.text for m in messages)
+    assert recovered == [(m.text, True) for m in messages if "Finished an interrupted step" in m.text]  # for the report
     assert json.loads(p.state_backup.read_text())["pending"] == []  # recovered into state.json, then migrated
+
+
+def test_without_a_run_the_migrations_recovered_steps_are_still_said(tmp_path):
+    p = lib(tmp_path)
+    (p.root / "Library" / "F").mkdir(parents=True)
+    (p.root / "Library" / "F" / "A - x.aiff").write_bytes(b"audio")
+    entry = {"artist": "A", "title": "x", "folder": "F", "path": "Library/F/A - x.aiff", "status": "lossless"}
+    state = v1(t1={**entry, "path": None, "status": "missing"})
+    state["pending"] = [{"track_id": "t1", "renames": [[".discjockey/.tmp/t1/a.aiff", "Library/F/A - x.aiff"]],
+                         "entry": entry}]
+    library.write_json_atomic(p.state_file, state)
+    messages = []
+    open_state(p, messages.append)  # no `recovered` list: no run, no report; the messages are all there is
+    assert sum("Finished an interrupted step" in m.text for m in messages) == 1
 
 
 def test_an_old_format_save_is_refused_outside_the_migration(tmp_path):

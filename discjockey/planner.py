@@ -462,7 +462,10 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
                 kw["qobuz_id"] = w.qobuz.id
             if kind in ("acquire", "upgrade") and w.upload:  # the playlist's own upload, after Qobuz (D7)
                 kw["upload"] = w.upload
-            (never if skip else actions).append(Action(kind, key, w.folder, w.track, w.order, **kw))
+            track = w.track
+            if "qobuz_id" in kw:  # the first track of the song may be another service's: the exact id's own label
+                track = track.with_label(w.qobuz.label)
+            (never if skip else actions).append(Action(kind, key, w.folder, track, w.order, **kw))
 
         e = tracks.get(key)
         if e is None:  # rule 1

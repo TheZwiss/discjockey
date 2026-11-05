@@ -68,6 +68,25 @@ def test_prepare_reports_recovered_steps(paths):
     assert prep.log.section("errors")
 
 
+def test_prepare_reports_the_steps_the_migration_finished(paths):
+    # a state.json still holding an interrupted step: the move into library.db finishes it, and the run's report
+    # lists it as well as the messages
+    (paths.root / "Library" / "F").mkdir(parents=True)
+    (paths.root / "Library" / "F" / "A - Lost.aiff").write_bytes(b"audio")
+    entry = {"artist": "A", "title": "Lost", "folder": "F", "path": "Library/F/A - Lost.aiff", "status": "lossless"}
+    old = {"version": 1, "tracks": {"t9": {**entry, "path": None, "status": "missing"}},
+           "pending": [{"track_id": "t9", "renames": [[".discjockey/.tmp/t9/a.aiff", "Library/F/A - Lost.aiff"]],
+                        "entry": entry}], "qobuz_usage": {"days": {}, "signals": []}, "never": {}}
+    library.write_json_atomic(paths.state_file, old)
+    events = []
+    prep = run.prepare(paths, emit=events.append)
+    said = [e.text for e in events if isinstance(e, Message) and "Finished an interrupted step" in e.text]
+    assert len(said) == 1  # said once
+    notes = [r.note for r in prep.log.section("recovered")]
+    assert len(notes) == 1 and "Lost" in notes[0] and notes[0] == said[0]
+    assert prep.log.section("errors") == []
+
+
 def test_prepare_closes_a_tidy_up_a_crash_left_open_and_says_so(paths):
     state = empty_state()
     for key in ("s1", "s2"):
