@@ -217,7 +217,7 @@ def _song_name(artist: str, title: str, duration_ms: int | None) -> tuple[str, s
 
 # what a playlist song without a file takes over from the own song merged into it (rule 2): the file and what the
 # upgrade checks learned about it (a parked upgrade belongs to the file)
-MERGED_FIELDS = ("path", "status", "source", "source_id", "source_format", "cutoff_hz", "source_kbps", "online",
+MERGED_FIELDS = ("path", "status", "source", "source_id", "source_format", "cutoff_hz", "source_kbps", "source_how", "online",
                  "placed_by", "held", "file_id", "import_state", "first_seen", "last_upgrade_check", "upgrade",
                  "free_downloads", "originals_searched", "qobuz_searched", "declined_streams")
 
@@ -550,13 +550,13 @@ ENTRY_KEYS = (
     "aliases", "isrc", "artist", "title", "duration_ms", "folder", "path", "status", "source",
     "source_id", "source_format", "cutoff_hz", "rejected_sources", "in_playlists", "added",
     "last_attempt", "last_upgrade_check", "upgrade", "source_kbps", "free_downloads", "originals_searched",
-    "qobuz_searched",
+    "qobuz_searched", "source_how",
 )
 
 
 def _placed_fields(p: Placed) -> dict:
     return {"path": p.path, "status": p.status, "source": p.source, "source_id": p.source_id,
-            "source_format": p.source_format, "cutoff_hz": p.cutoff_hz, "source_kbps": p.kbps}
+            "source_format": p.source_format, "cutoff_hz": p.cutoff_hz, "source_kbps": p.kbps, "source_how": p.how}
 
 
 def own_key(entry: dict) -> str | None:
@@ -618,7 +618,7 @@ def apply_outcome(entry: dict | None, action: Action, outcome: Outcome, now: dat
         new["file_gone"] = None
     if outcome.kind == "missing":
         new.update(path=None, status="missing", source=None, source_id=None, source_format=None,
-                   cutoff_hz=None, last_attempt=today)
+                   source_how=None, cutoff_hz=None, last_attempt=today)
     elif outcome.kind == "placed":
         new.update(_placed_fields(outcome.placed), last_upgrade_check=today)
         if action.kind == "acquire":

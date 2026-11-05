@@ -60,7 +60,7 @@ def test_a_fresh_database_has_the_current_version(tmp_path, library):
         db.check(conn)
         version = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
         created = conn.execute("SELECT value FROM meta WHERE key = 'created'").fetchone()[0]
-    assert int(version) == db.SCHEMA_VERSION == 4
+    assert int(version) == db.SCHEMA_VERSION == 5
     assert created == "2026-10-23T12:00:00"
 
 
@@ -157,11 +157,17 @@ def test_create_builds_the_current_version_through_the_upgrade_steps(tmp_path, l
 
 # --- stage 2, 1.1: the schema step 1 -> 2 (move_batches, moves) ---
 
+def without_how(m):
+    """A database from before schema 5 has no `source_how` column: its rows are written without it."""
+    m.setattr(db, "QUALITY", tuple(k for k in db.QUALITY if k != "source_how"))
+
+
 def version_1(tmp_path, library, monkeypatch, state=None, facts=no_facts):
     """A database as stage 1 built it: version 1, no move log."""
     with monkeypatch.context() as m:
         m.setattr(db, "SCHEMA_VERSION", 1)
         m.setattr(db, "UPGRADES", {})
+        without_how(m)
         return fresh(tmp_path, library, state, facts)
 
 
@@ -235,6 +241,7 @@ def version_2(tmp_path, library, monkeypatch, state=None, facts=no_facts):
     with monkeypatch.context() as m:
         m.setattr(db, "SCHEMA_VERSION", 2)
         m.setattr(db, "UPGRADES", {1: db.UPGRADES[1]})
+        without_how(m)
         return fresh(tmp_path, library, state, facts)
 
 
@@ -308,6 +315,7 @@ def version_3(tmp_path, library, monkeypatch, state=None, facts=no_facts):
     with monkeypatch.context() as m:
         m.setattr(db, "SCHEMA_VERSION", 3)
         m.setattr(db, "UPGRADES", {1: db.UPGRADES[1], 2: db.UPGRADES[2]})
+        without_how(m)
         return fresh(tmp_path, library, state, facts)
 
 
@@ -318,6 +326,7 @@ def test_a_writer_upgrades_a_version_3_database_and_leaves_its_rows(tmp_path, li
                      "'2026-10-28T10:00:00')")
     before = everything(path)
     assert not set(STAGE_5_TABLES) & set(before)
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 4)  # this step alone; 4 -> 5 has its own test
     with db.connect(path) as conn:
         db.check(conn, upgrade=True)
     after = everything(path)
@@ -337,6 +346,54 @@ def test_fresh_and_v3_upgraded_databases_have_the_same_schema(tmp_path, library,
     created = fresh(tmp_path / "b", library)
     assert schema(upgraded) == schema(created)
     assert {name for _, name, _, _ in schema(created)} >= set(STAGE_5_TABLES)
+
+
+# --- sources round, E1: the schema step 4 -> 5 (files.source_how) ---
+
+def version_4(tmp_path, library, monkeypatch, state=None, facts=no_facts):
+    """A database as the stages before the sources round built it: version 4, no `source_how` column."""
+    with monkeypatch.context() as m:
+        m.setattr(db, "SCHEMA_VERSION", 4)
+        m.setattr(db, "UPGRADES", {k: db.UPGRADES[k] for k in (1, 2, 3)})
+        without_how(m)
+        return fresh(tmp_path, library, state, facts)
+
+
+def test_a_writer_upgrades_a_version_4_database_with_source_how_null_and_nothing_else_changed(tmp_path, library,
+                                                                                               monkeypatch):
+    path = version_4(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
+    before = everything(path)
+    with db.connect(path) as conn:
+        assert "source_how" not in [r[1] for r in conn.execute("PRAGMA table_info(files)")]
+    with db.connect(path) as conn:
+        db.check(conn, upgrade=True)
+    after = everything(path)
+    meta = dict(after.pop("meta"))
+    assert meta.pop("schema_version") == "5"
+    assert meta == {k: v for k, v in before.pop("meta") if k != "schema_version"}
+    with db.connect(path) as conn:
+        columns = [r[1] for r in conn.execute("PRAGMA table_info(files)")]
+    assert columns[-1] == "source_how"
+    assert [row[:-1] for row in after.pop("files")] == before.pop("files")  # every old column as it was
+    with db.connect(path) as conn:
+        assert conn.execute("SELECT count(*), count(source_how) FROM files").fetchone()[1] == 0  # all NULL
+    assert after == before
+
+
+def test_fresh_and_v4_upgraded_databases_have_the_same_schema(tmp_path, library, monkeypatch):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    upgraded = version_4(tmp_path / "a", library, monkeypatch)
+    with db.connect(upgraded) as conn:
+        db.check(conn, upgrade=True)
+    assert schema(upgraded) == schema(fresh(tmp_path / "b", library))
+
+
+def test_a_reader_refuses_a_version_4_database(tmp_path, library, monkeypatch):
+    path = version_4(tmp_path, library, monkeypatch)
+    with db.connect(path) as conn, pytest.raises(StateError) as e:
+        db.check(conn)
+    assert str(e.value) == db.OLDER
 
 
 def test_a_reader_refuses_a_version_3_database(tmp_path, library, monkeypatch):
@@ -954,6 +1011,20 @@ def test_the_explicit_writers_bump_the_generation(opened):
         with db.transaction(conn):
             db.set_quality(conn, file_id, "lossless", 22000, "aiff")
         assert opened.snap()["generation"] == 4
+
+
+def test_source_how_is_stored_with_the_file_and_set_quality_clears_it(opened):
+    snap = opened.snap()
+    assert snap["tracks"]["sp1"]["source_how"] is None
+    snap["tracks"]["sp1"]["source_how"] = "isrc"
+    opened.save(snap)
+    snap = opened.snap()
+    assert snap["tracks"]["sp1"]["source_how"] == "isrc"
+    assert opened.rows("SELECT source_how FROM files WHERE id = ?", snap["tracks"]["sp1"]["file_id"]) == [("isrc",)]
+    with db.connect(opened.path) as conn:
+        with db.transaction(conn):  # the audio was replaced outside Discjockey: it is the user's own file now
+            db.set_quality(conn, snap["tracks"]["sp1"]["file_id"], "lossless", 22000, "aiff")
+    assert opened.snap()["tracks"]["sp1"]["source_how"] is None
 
 
 def test_create_gives_its_state_the_new_generation(tmp_path, library):

@@ -109,15 +109,16 @@ def _upgraded(entry: dict, upgrade: dict, path: str) -> dict:
     lossless = status == "lossless"
     return {**entry, "status": status, "source": upgrade["source"], "source_id": upgrade["source_id"],
             "source_format": upgrade["source_format"], "cutoff_hz": None if lossless else upgrade.get("cutoff_hz"),
-            "source_kbps": None if lossless else upgrade.get("kbps"), "path": path, "upgrade": None}
+            "source_kbps": None if lossless else upgrade.get("kbps"), "source_how": upgrade.get("how"),
+            "path": path, "upgrade": None}
 
 
 def _result(section: str, track_id: str, e: dict, note: str, **fields) -> Result:
     return Result(section, e["folder"], e["artist"], e["title"], track_id, note, **fields)
 
 
-UNDO_FIELDS = ("status", "source", "source_id", "source_format", "cutoff_hz", "source_kbps", "path", "upgrade",
-               "rekordbox_check")
+UNDO_FIELDS = ("status", "source", "source_id", "source_format", "cutoff_hz", "source_kbps", "source_how", "path",
+               "upgrade", "rekordbox_check")
 
 
 def _before(e: dict) -> dict:

@@ -30,6 +30,7 @@ class Ready:
     cutoff_hz: int | None
     comment: str
     kbps: int | None = None  # lossy sources only
+    how: str = ""  # how the candidate was found (SourceChosen.query_kind), set by `_try` once the file is ready
 
 
 @dataclass
@@ -621,6 +622,8 @@ class Acquirer:
         except Exception as e:
             res.errors.append(f"Could not convert the {c.source} file: {e}")
             return None
+        if ready is not None:
+            ready.how = how
         if ready is None and qobuz:  # a Qobuz file shorter/longer than the track: often a 30 s preview
             self.budget.note("duration_mismatch", f"{track.first_artist} - {track.title}: Qobuz file {c.id} "
                                                   "does not have the track's length")

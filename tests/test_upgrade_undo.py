@@ -34,10 +34,11 @@ def make_entry():
     e = dict.fromkeys(ENTRY_KEYS)
     e.update(aliases=[], artist="Artist", title="Song", duration_ms=40000, folder="A", path=CURRENT,
              status="not_lossless", source="youtube_music", source_id="y1", source_format="opus", cutoff_hz=16000,
+             source_how="fallback",
              rejected_sources=[], in_playlists=True, added="2026-10-01T10:00:00", last_attempt="2026-10-01",
              last_upgrade_check="2026-10-10",
              upgrade={"file": PARKED, "source": "qobuz", "source_id": "q1", "source_format": "flac",
-                      "found": "2026-10-10", "alignment": SHIFT.to_dict()})
+                      "how": "exact", "found": "2026-10-10", "alignment": SHIFT.to_dict()})
     return e
 
 
@@ -123,6 +124,24 @@ def test_undo_puts_everything_back(env, kind):
     r = upgrades.undo(paths, state, TID)
     assert (r.section, r.path, r.status) == ("upgrade_undone", CURRENT, "not_lossless")
     assert_as_before(paths, state, original, inode if kind == "swap" else None)
+
+
+@pytest.mark.parametrize("kind", ["swap", "add_new"])
+def test_the_step_moves_the_parked_how_into_the_entry_and_undo_puts_the_old_one_back(env, kind):
+    paths, state = env
+    assert state["tracks"][TID]["source_how"] == "fallback"
+    step(paths, state, kind)
+    assert state["tracks"][TID]["source_how"] == "exact"
+    assert load_state(paths)["tracks"][TID]["source_how"] == "exact"
+    upgrades.undo(paths, state, TID)
+    assert state["tracks"][TID]["source_how"] == "fallback"
+
+
+def test_an_upgrade_parked_before_how_existed_swaps_in_with_no_how(env):
+    paths, state = env
+    del state["tracks"][TID]["upgrade"]["how"]
+    step(paths, state, "swap")
+    assert state["tracks"][TID]["source_how"] is None
 
 
 @pytest.mark.parametrize("kind", ["swap", "add_new"])

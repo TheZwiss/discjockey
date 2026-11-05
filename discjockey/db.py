@@ -27,7 +27,7 @@ from .models import (OWN_PREFIX, AddedFolder, BatchRow, DupFile, DuplicateGroup,
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 NEWER = ("This music folder was last used by a newer Discjockey. Update Discjockey, then try again. "
          "Nothing was changed.")
@@ -141,6 +141,13 @@ SCHEMA_V4_STEP = (
 )
 
 
+# Sources round (plan sources-round, D3, I1): how the file's source was found (acquire's `SourceChosen.query_kind`:
+# exact | isrc | name | fallback | chosen | upload). NULL for every file from before, and for own and bought files
+SCHEMA_V5_STEP = (
+    "ALTER TABLE files ADD COLUMN source_how TEXT",
+)
+
+
 def _statements(statements: tuple[str, ...]) -> Callable[[sqlite3.Connection], None]:
     def step(conn: sqlite3.Connection) -> None:
         for statement in statements:  # one execute each: executescript would commit mid-transaction
@@ -152,7 +159,8 @@ def _statements(statements: tuple[str, ...]) -> Callable[[sqlite3.Connection], N
 # builds SCHEMA_V1 and then runs every step, so a fresh database and an upgraded one are the same
 UPGRADES: dict[int, Callable[[sqlite3.Connection], None]] = {1: _statements(SCHEMA_V2_STEP),
                                                            2: _statements(SCHEMA_V3_STEP),
-                                                           3: _statements(SCHEMA_V4_STEP)}
+                                                           3: _statements(SCHEMA_V4_STEP),
+                                                           4: _statements(SCHEMA_V5_STEP)}
 
 
 class _Connection(sqlite3.Connection):
@@ -270,7 +278,7 @@ JSON_COLUMNS = frozenset({"artists", "upgrade", "rejected_sources", "declined_st
 # not in planner.ENTRY_KEYS: only in an entry while set (None and absent read the same with .get)
 OPTIONAL_COLUMNS = frozenset({"artists", "album", "image_url", "declined_streams"})
 # the linked file's fields; QUALITY are the ones copied onto the files row
-FILE_FIELDS = ("path", "status", "source", "source_id", "source_format", "cutoff_hz", "source_kbps")
+FILE_FIELDS = ("path", "status", "source", "source_id", "source_format", "cutoff_hz", "source_kbps", "source_how")
 QUALITY = FILE_FIELDS[1:]
 # entry keys the snapshot adds and save ignores; file_id only on an entry with a linked file (plan library
 # stage 2, I2)
@@ -333,7 +341,7 @@ def _entry(values: tuple, aliases: list[str], file: dict | None, path: str | Non
     e["aliases"] = aliases
     if file is None:
         e.update(path=None, status="missing", source=None, source_id=None, source_format=None, cutoff_hz=None,
-                 source_kbps=None, online=False, placed_by=None, held=False, import_state=None, first_seen=None)
+                 source_kbps=None, source_how=None, online=False, placed_by=None, held=False, import_state=None, first_seen=None)
     else:
         e.update({k: file[k] for k in QUALITY}, path=path, online=bool(file["online"]), placed_by=file["placed_by"],
                  held=bool(file["held"]), file_id=file["id"], import_state=file["import_state"],
@@ -431,8 +439,7 @@ def _insert_file(conn, song: int, folder: int, rel: str, entry: dict, facts: Fac
                  placed_by: str = "app") -> int:
     return conn.execute(
         "INSERT INTO files (song, folder, path, size, mtime_ns, content_key, placed_by, online, first_seen, "
-        "last_seen, status, source, source_id, source_format, cutoff_hz, source_kbps) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)",
+        f"last_seen, {', '.join(QUALITY)}) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, {', '.join('?' * len(QUALITY))})",
         (song, folder, rel, *_fact_values(facts, path), placed_by, now, now,
          *(entry.get(k) for k in QUALITY))).rowcount
 
@@ -859,7 +866,7 @@ def set_quality(conn: sqlite3.Connection, file_id: int, status: str, cutoff_hz: 
     """A file judged again after its audio was replaced outside Discjockey: it is no longer the download it was, so
     it counts as the user's own file (source 'manual', as a bought file) with the quality it has now."""
     n = conn.execute("UPDATE files SET status = ?, cutoff_hz = ?, source_format = ?, source = 'manual', "
-                     "source_id = NULL, source_kbps = NULL WHERE id = ?",
+                     "source_id = NULL, source_kbps = NULL, source_how = NULL WHERE id = ?",
                      (status, cutoff_hz, source_format, file_id)).rowcount
     if n:
         _bump(conn)
@@ -1199,7 +1206,8 @@ def add_own_song(conn: sqlite3.Connection, file_id: int, facts: OwnFacts) -> str
                      duration_ms=facts.duration_ms, in_playlists=False, rejected_sources=[], aliases=[])
         song = _insert_song(conn, key, entry)
         conn.execute("UPDATE files SET song = ?, status = ?, source = 'manual', source_id = NULL, source_format = ?, "
-                     "cutoff_hz = NULL, source_kbps = NULL, import_state = 'identified', import_error = NULL "
+                     "cutoff_hz = NULL, source_kbps = NULL, source_how = NULL, import_state = 'identified', "
+                     "import_error = NULL "
                      "WHERE id = ?", (song, facts.status, facts.codec, file_id))
         _bump(conn)
         return key

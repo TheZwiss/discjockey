@@ -540,6 +540,18 @@ def test_source_chosen_names_how_the_candidate_was_found(tmp_path):
     assert not any(isinstance(e, AccountUsage) for e in events)  # YouTube downloads don't count
 
 
+def test_the_ready_file_carries_how_its_source_was_found(tmp_path):
+    q = FakeQobuz({ISRC_Q: [qc("1")]})
+    a, _ = acquirer(q)
+    assert a.acquire(T, set(), tmp_path, False).ready.how == "isrc"
+    a, _ = acquirer(FakeQobuz({ISRC_Q: [], NAME_Q: [qc("2", isrc=None)]}))
+    assert a.acquire(T, set(), tmp_path, False).ready.how == "name"
+    a, _ = acquirer(FakeQobuz({ISRC_Q: [], NAME_Q: []}), FakeFallback([fc("y1", source="youtube_music")]))
+    assert a.acquire(T, set(), tmp_path, False).ready.how == "fallback"
+    a, _ = acquirer(FakeQobuz())
+    assert a.acquire(T, set(), tmp_path, False, exact="900000001").ready.how == "exact"
+
+
 def test_failed_qobuz_download_reports_no_usage(tmp_path):
     events = []
     tracker = Tracker(events.append, CancelToken(), "t1", min_interval=0)
