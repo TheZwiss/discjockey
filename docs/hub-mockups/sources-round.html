@@ -201,8 +201,14 @@
   .thead { display: flex; gap: 14px; align-items: center; }
   .thead .cv { width: 64px; height: 64px; border-radius: 8px; flex: none; }
   .thead .a { font-size: 17px; font-weight: 600; color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .thead .b { font-size: 12px; color: var(--muted); margin-top: 3px; }
-  .thead .st { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+  .thead .b { font-size: 12px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .thead .st { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 20px; height: 20px; margin-top: 8px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+  /* the badge's word shows whole or not at all: when it doesn't fit beside the badge it wraps onto a line the card hides; the badge's tip says it */
+  .thead .st .w { flex: none; }
+  /* Hide sits beside the title only, so the meta and badge lines keep the full text column */
+  .thead { position: relative; }
+  .thead .hide { position: absolute; top: 0; right: 0; color: var(--muted); }
+  .thead:has(.hide) .a { padding-right: 40px; }
   .openin { display: flex; align-items: center; gap: 8px; margin: 12px -16px -14px; padding: 0 16px; height: 36px; border-top: 1px solid var(--row-line); font-size: 12px; }
   .spec { height: 56px; border-radius: 6px; background: linear-gradient(0deg, #ff7a2a 0%, #c43a8a 30%, #4b2ad0 60%, #1b0f3a 85%, #000 100%); opacity: .85; margin: 10px 0; }
   .mp { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
@@ -232,9 +238,10 @@
   .prog { height: 4px; border-radius: 2px; background: #1c1c20; margin-top: 10px; overflow: hidden; }
   .prog i { display: block; height: 100%; background: var(--accent); }
   .stepstrip { display: flex; gap: 12px; flex: none; }
-  .stepstrip span { flex: 1; min-width: 0; text-overflow: ellipsis; height: 34px; border: 1px solid var(--ctl-line); border-radius: 8px; display: flex; align-items: center; gap: 8px; padding: 0 10px; white-space: nowrap; overflow: hidden; color: var(--muted); font-size: 12px; }
-  .stepstrip span.cur { border-color: var(--accent); color: var(--text-strong); }
+  .stepstrip > span { flex: 1; min-width: 0; text-overflow: ellipsis; height: 34px; border: 1px solid var(--ctl-line); border-radius: 8px; display: flex; align-items: center; gap: 8px; padding: 0 10px; white-space: nowrap; overflow: hidden; color: var(--muted); font-size: 12px; }
+  .stepstrip > span.cur { border-color: var(--accent); color: var(--text-strong); }
   .stepstrip .ok { width: 18px; height: 18px; border-radius: 50%; border: 1.4px solid var(--good); color: var(--good); display: grid; place-items: center; font-size: 10px; flex: none; }
+  .stepstrip .tx { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .stepstrip .cur .ok { border-color: var(--accent); color: var(--accent); }
   .colfoot { display: flex; justify-content: space-between; border-top: 1px solid var(--sb-line); padding-top: 16px; margin-top: auto; flex: none; }
   .ladder .rung { display: flex; align-items: center; gap: 12px; height: 40px; }
@@ -289,8 +296,8 @@
   };
   const SBI = '<svg width="16" height="13" viewBox="0 0 16 13"><rect x=".75" y=".75" width="14.5" height="11.5" rx="2.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M5.6 1v11" stroke="currentColor" stroke-width="1.3"/></svg>';
   const NAV = [['dashboard', 'Dashboard'], ['sync', 'Sync'], ['todo', 'To-do', '18'], ['playlists', 'Playlists'], ['limits', 'Download limits'], ['library', 'Library']];
-  function sidebar(active, rail = false, beside = false) {
-    const rows = NAV.map(([k, n, c]) => `<div class="nav ${k === active ? 'on' : ''}"><span class="g">${G[k]}${k === 'limits' ? '<span class="dot"></span>' : ''}${rail && c ? `<span class="pill">${c}</span>` : ''}</span><span class="nl">${n}</span>${c ? `<span class="nc">${c}</span>` : ''}</div>`).join('');
+  function sidebar(active, rail = false, beside = false, fresh = false) {
+    const rows = NAV.map(([k, n, c]) => (fresh ? [k, n] : [k, n, c])).map(([k, n, c]) => `<div class="nav ${k === active ? 'on' : ''}"><span class="g">${G[k]}${k === 'limits' && !fresh ? '<span class="dot"></span>' : ''}${rail && c ? `<span class="pill">${c}</span>` : ''}</span><span class="nl">${n}</span>${c ? `<span class="nc">${c}</span>` : ''}</div>`).join('');
     return `<div class="sb ${rail ? 'rail' : ''} ${beside ? 'beside' : ''}"><div class="shead"><span class="tog">${SBI}</span><span class="brand">Discjockey</span></div>${rows}<div class="grow"></div>
       <div class="nav ${active === 'settings' ? 'on' : ''}"><span class="g">${G.settings}</span><span class="nl">Settings</span></div></div>`;
   }
@@ -382,9 +389,9 @@
     const empty = mode === 'empty';
     const value = mode === 'liked-off' || mode === 'liked-on' ? 'https://music.youtube.com/playlist?list=LM' : '';
     const main = `${plHeader(empty)}${addRow(value)}${value ? foundCard(mode) : ''}${empty
-      ? `<div class="card" style="padding:40px 20px;text-align:center"><div style="color:var(--text)">No playlists yet.</div><div class="hint" style="margin-top:8px">Paste a playlist link from Spotify, Qobuz, SoundCloud or YouTube Music above.</div></div>`
+      ? `<div class="card" style="padding:40px 20px;text-align:center"><div style="color:var(--text)">No playlists yet.</div><div class="hint" style="margin-top:8px">Paste a link above to add your first one.</div></div>`
       : playlistsList()}`;
-    return `${sidebar('playlists')}<div class="inner"><div class="listarea"><div class="content">${main}</div></div>
+    return `${sidebar('playlists', false, false, empty)}<div class="inner"><div class="listarea"><div class="content">${main}</div></div>
       <div class="panel" style="width:${pw()}px">${empty ? plPanelEmpty() : plPanelNormal()}</div></div>`;
   }
 
@@ -400,7 +407,7 @@
         ${rung('ok', 'Premium streams', 'through YouTube Premium and SoundCloud Go+', '<span class="badge b-ok">~256 KBPS</span>')}
         ${rung('weak', 'Free streams', 'YouTube Music, SoundCloud, YouTube · the last resort', '<span class="badge b-weak">~130 KBPS</span>')}</div>
       <div class="sl grow"><div class="slh"><span class="lab">Downloads</span></div>
-        ${srow('◆', 'Qobuz', 'signed in · checked today')}${srow('▶', 'YouTube Premium', 'via Chrome (DJ) · 256 kbps · checked today')}${srow('☁', 'SoundCloud Go+', 'via Chrome · 256 kbps · checked today')}
+        ${srow(logo('qobuz'), 'Qobuz', 'signed in · checked today')}${srow(logo('youtube'), 'YouTube Premium', 'via Chrome (DJ) · 256 kbps · checked today')}${srow(logo('soundcloud'), 'SoundCloud Go+', 'via Chrome · 256 kbps · checked today')}
         ${grp('Reading playlists')}
         ${srow(logo('spotify'), 'Spotify', 'connected as DJ One')}
         ${srow(logo('youtubemusic'), 'YouTube Music', on ? 'public playlists · Liked music on' : 'public playlists · Liked music off', true)}
@@ -414,8 +421,8 @@
 
   // ---- Setup ----
   function setupPage(added) {
-    const steps = ['Music folder', 'Your existing music', 'Programs', 'Spotify', 'Downloads', 'First playlist'];
-    const strip = `<div class="stepstrip">${steps.map((s, i) => `<span class="${i === 5 ? 'cur' : ''}"><span class="ok">${i === 5 ? '6' : '✓'}</span>${s}</span>`).join('')}</div>`;
+    const steps = ['Music folder', 'Existing music', 'Programs', 'Spotify', 'Downloads', 'First playlist'];
+    const strip = `<div class="stepstrip">${steps.map((s, i) => `<span class="${i === 5 ? 'cur' : ''}"><span class="ok">${i === 5 ? '6' : '✓'}</span><span class="tx">${s}</span></span>`).join('')}</div>`;
     const card = `<div class="card"><div style="display:flex;gap:8px;align-items:baseline;margin-bottom:12px"><span class="lab">Add a playlist</span><span class="sum">Discjockey keeps each playlist's tracks in a folder of its own.</span></div>${addRow('')}</div>`;
     const list = added ? `<div class="sl"><div class="slh"><span class="lab">Your playlists</span><span class="sum">2 playlists</span></div>
       <div class="row"><span class="cov" style="background:${cover('Peak_Time')}"></span><span class="lines"><div class="t">Peak_Time</div><div class="s">${subLine('spotify', 'Peak Time', 'yours', '24 tracks')}</div></span></div>
@@ -473,8 +480,8 @@
     const src = up
       ? `<div class="kv"><span class="k">Source</span><span class="v">SoundCloud · WAV<span class="l2">the playlist's own upload</span></span></div>`
       : `<div class="kv"><span class="k">Source</span><span class="v"><span class="lnk">Qobuz${EXT}</span> · FLAC<span class="l2">exact Qobuz track</span></span></div>`;
-    const insp = `<div class="card"><div class="thead"><span class="cv" style="background:${cover(t.n)}"></span><div style="min-width:0;flex:1"><div class="a">${t.n}</div><div class="b">${t.a} · ${up ? '5:40' : '6:12'} · in ${pl[0]}</div>
-        <div class="st"><span class="badge b-good">LOSSLESS</span>verified lossless</div></div></div>
+    const insp = `<div class="card"><div class="thead"><span class="cv" style="background:${cover(t.n)}"></span><div style="min-width:0;flex:1"><div class="a">${t.n}</div><div class="b" title="${t.a} · ${up ? '5:40' : '6:12'} · in ${pl[0]}">${t.a} · ${up ? '5:40' : '6:12'} · in ${pl[0]}</div>
+        <div class="st"><span class="badge b-good" title="verified lossless">LOSSLESS</span><span class="w">verified lossless</span></div></div></div>
         <div class="openin">${logo(pl[1])}<span class="lnk">Open in ${SVC_NAME[pl[1]]}${EXT}</span></div></div>
       <div class="card"><div class="chead"><span class="lab">Current file</span><span class="lnk">Show in Finder</span></div><div class="spec"></div>
         <div class="mp"><span class="pbtn">▶</span><span class="wave"></span><span class="tm">0:00 / ${up ? '5:40' : '6:12'}</span></div>
@@ -498,8 +505,8 @@
         ${sec('Not found', '3', 'nothing usable anywhere')}
         ${row('Some Artist - Gone Track', 'Hard_Bounce · next try in 5 days', '<span class="badge b-weak">NOT FOUND</span>')}
         ${row('Tekk Tobi - Hyperdrive', 'Tekke_Ecke · next try in 2 days', '<span class="badge b-weak">NOT FOUND</span>')}</div>`;
-    const panel = `<div class="card"><div class="thead"><span class="cv" style="background:${cover('Lio Sander - Get Lost')}"></span><div style="min-width:0;flex:1"><div class="a">Get Lost</div><div class="b">Lio Sander · 4:28 · Hard_Bounce</div>
-        <div class="st"><span class="badge b-weak">16.0 kHz</span>lossy, audible</div></div><span class="lnk" style="color:var(--muted);align-self:flex-start">Hide</span></div>
+    const panel = `<div class="card"><div class="thead"><span class="cv" style="background:${cover('Lio Sander - Get Lost')}"></span><div style="min-width:0;flex:1"><div class="a">Get Lost</div><div class="b" title="Lio Sander · 4:28 · Hard_Bounce">Lio Sander · 4:28 · Hard_Bounce</div>
+        <div class="st"><span class="badge b-weak" title="lossy, audible">16.0 kHz</span><span class="w">lossy, audible</span></div></div><span class="lnk hide">Hide</span></div>
         <div class="openin">${logo('spotify')}<span class="lnk">Open in Spotify${EXT}</span></div></div>
       <div class="card upc"><div><span class="lab">Upgrade ready</span> <span class="sum">found 5 Nov</span></div>
         <div class="two"><div><div class="mini"></div><div class="cp">NOW</div><div class="vv" title="Your AIFF was made from this">Opus · 135 kbps</div></div><div><div class="mini"></div><div class="cp">NEW</div><div class="vv">FLAC · lossless</div></div></div>

@@ -15,7 +15,7 @@ The states: `playlists`, `empty`, `liked-off`, `liked-on`, `settings`, `settings
 | `AddRow` | **Changed:** the placeholder is the words plus the four `ServiceMark`s, and the found card has a new "needs a setting" form (problem 3) |
 | `ServiceMark` | Reused, unchanged (14 px, own colours); now also in Playlists and Setup rows, the Sync card and the details panel |
 | **`LinkGuide`** | **New block:** a `Surface list` with one row per service (logo · name · where to click · what a link looks like). Columns come with the container's width: a two-line stack under 400 px (a panel), name + where from 400 px, plus the example link from 560 px. `folded` shows only the head with the four logos. Used by the empty Playlists panel and Setup |
-| `TrackHead` | **Changed:** an optional `link` (`TrackLink`) adds a bottom row inside the head card: logo + "Open in {Service} ↗" (problem 5) |
+| `TrackHead` | **Changed:** an optional `link` (`TrackLink`) adds a bottom row inside the head card: logo + "Open in {Service} ↗" (problem 5). At 320 px the meta line stays on one line and ends in "…" (full line in its tip), the badge's word shows whole or not at all (it wraps onto a hidden line; the badge's tip says it), and To-do's Hide sits beside the title only, so the other lines keep the full width |
 | `KeyValue` | Reused; a value may take a quiet second line (Source's "how") |
 | `SummaryStrip` | **Changed:** for a playlist the quality bar includes songs not downloaded yet as a dashed end segment, and the caption says "13 of 18 downloaded" (problem 8) |
 | `PageHeader` | Reused, unchanged; Playlists no longer passes a `sub` (problem 10) |
@@ -54,7 +54,8 @@ The states: `playlists`, `empty`, `liked-off`, `liked-on`, `settings`, `settings
 - **Settings:** the "Spotify" group in Settings' list becomes **Reading playlists**, with two rows: Spotify (as today)
   and **YouTube Music** ("public playlists · Liked music off"). Its panel holds a card (YouTube Music: "Public and
   unlisted playlists need no login."), one switch row **Read my Liked music** ("uses your YouTube login"), off by
-  default, and a `NoteCard warn` with the risk. The warning shows in both states: before the choice it explains,
+  default, and a `NoteCard warn` with the risk. The Downloads rows (Qobuz, YouTube Premium, SoundCloud Go+) take the
+  same coloured `ServiceMark`s (YouTube's for Premium), so every service row has its logo. The warning shows in both states: before the choice it explains,
   after it reminds. When on and no Liked music line exists yet, the panel offers **Add Liked music to Playlists**
   (primary). It adds the `…list=LM` line, so the user never has to find a link that YouTube Music doesn't share.
 - **Without a YouTube login** the switch is grey with the reason "Sign in to YouTube Premium first" (the
@@ -137,7 +138,8 @@ The states: `playlists`, `empty`, `liked-off`, `liked-on`, `settings`, `settings
   `Sync downloads its songs as AIFF`) and `LinkGuide` in its two-line form. The foot (Undo · Save) stays grey,
   because disabled controls are never removed. When the first playlist is added, the panel goes back to its usual
   content.
-- **Main column:** the EmptyState keeps W22.
+- **Main column:** the EmptyState's line is `Paste a link above to add your first one.` (replaces W22, whose list of
+  names repeated the logos right above it). With no playlist the sidebar shows no To-do count and no Download limits dot.
 
 ## 10. The Playlists subtitle at 1100 (states `playlists` at 1100 and 1280)
 
@@ -151,11 +153,9 @@ The states: `playlists`, `empty`, `liked-off`, `liked-on`, `settings`, `settings
 
 - Library's `All` segment: the app's fake showed `All 13` while the playlist lists 18 songs (5 waiting). The
   mockup uses 18. Check which count is meant.
-- To-do's head card wraps "lossy, audible" and Library's "verified lossless" onto a second line in the 320 px panel
-  at 1100. It is the same in the app today.
-- Setup's step strip cuts "Your existing music" with no "…" at 1100 and 1280.
+- Setup's step strip: the second step is called `Existing music` (was `Your existing music`, cut without "…" at
+  every size); a label that still doesn't fit ends in "…".
 - The Sync results' lossy row: the segment's dot is yellow ("Lossy") while a 16 kHz row's badge is red (weak). The
   same split exists in the app today.
-- The Settings rows' glyphs for Qobuz, YouTube Premium and SoundCloud Go+ are grey shapes (◆ ▶ ☁), while the new
-  "Reading playlists" rows use the coloured logos. The Downloads rows could take the logos too (one rule for "a
-  service's row").
+- Playlists at 1100: the owner still ends in "…" on three rows, and Hard_Techno's problem line reads `Follow ≠ own:
+  make your o…`, which cuts the instruction.
