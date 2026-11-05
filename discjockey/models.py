@@ -87,6 +87,7 @@ class SourceTrack:
     link: str | None = None  # the track's page; filled from TRACK_LINKS when None
     streamable: bool = True  # False: the service lists it but won't deliver it now (Qobuz preview or region)
     account_only: bool = False  # True: only the service's account can deliver the full track (SoundCloud SNIP: Go+)
+    label: str | None = None  # the record label, where the playlist read has it (Qobuz: the album's); tagged on a download
     # A private SoundCloud track's secret link token (the track's own, or its private set's). A secret: NOT a field,
     # so `asdict` (events, the hub) and `repr` never carry it; only `secret()` hands it to the download.
     secret_token: InitVar[str | None] = None

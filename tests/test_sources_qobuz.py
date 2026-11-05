@@ -159,7 +159,7 @@ def test_parse_item_reads_every_field():
     assert t == SourceTrack(
         id="900000101", title="Example Title (Extended Mix)", artists=("Example Artist",), album="Example Album",
         image_url="https://static.example.com/covers/900000101_600.jpg", duration_ms=372000, isrc="XXEXA2600001",
-        service="qobuz", link="https://open.qobuz.com/track/900000101", streamable=True)
+        service="qobuz", link="https://open.qobuz.com/track/900000101", streamable=True, label="Example Label")
     assert t.key == "qobuz:900000101"
 
 
@@ -167,7 +167,7 @@ def test_parse_item_falls_back_to_the_album_artist_and_tolerates_missing_fields(
     t = source.parse_item(fixture("playlist_page1.json")["tracks"]["items"][2])
     assert t.artists == ("Various Example Artists",) and t.isrc is None and t.image_url is None
     bare = source.parse_item({"id": 5, "title": "Bare"})
-    assert (bare.artists, bare.album, bare.duration_ms, bare.isrc, bare.streamable) == ((), "", 0, None, True)
+    assert (bare.artists, bare.album, bare.duration_ms, bare.isrc, bare.streamable, bare.label) == ((), "", 0, None, True, None)
 
 
 def test_a_preview_only_item_stays_in_the_list_marked():

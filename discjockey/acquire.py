@@ -137,11 +137,12 @@ class Acquirer:
     def acquire(self, track: SourceTrack, rejected: set[str], workdir: Path, lossless_only: bool,
                 tracker: Tracker | None = None, better_than: int | None = None, originals: bool = True,
                 declined: set[str] | frozenset[str] = frozenset(), qobuz: bool = True,
-                exact: str | None = None, upload: SourceTrack | None = None) -> AcquireResult:
+                exact: str | None = None, upload: SourceTrack | None = None, qobuz_search: bool = True) -> AcquireResult:
         """`better_than`: an upgrade check of a lossy file with that bitrate; below ~256 kbps the accounts are asked
         too (spec §4), and only a clearly better stream counts. `originals` False: an upgrade check that leaves out
         the artists' originals on SoundCloud, already searched since the last real check (free_downloads stays None).
-        `qobuz` False: likewise without the Qobuz search (qobuz_searched stays False).
+        `qobuz` False: likewise without Qobuz at all (qobuz_searched stays False). `qobuz_search` False with `qobuz`
+        True: the exact id is still tried but the ISRC and name searches are left out (searched recently, execute.py).
         `declined`: streams of the current upload not offered again (state's declined_streams); only the accounts' step
         skips them, the artist's original of the same upload is still tried.
         `upload`: the playlist's own SoundCloud / YouTube Music track (stage 6 D7), tried once right after Qobuz and
@@ -156,7 +157,7 @@ class Acquirer:
                 return AcquireResult("queued", note=self.budget.why_exhausted())
             if exact:  # the playlist read has the facts already: no metadata request, the download is paced and counted
                 c = Candidate("qobuz", exact, track.title, " ".join(track.artists), track.duration_ms / 1000,
-                              isrc=track.isrc, album=track.album, image_url=track.image_url)
+                              isrc=track.isrc, album=track.album, label=track.label, image_url=track.image_url)
                 if c.key not in skip:
                     ready = self._try(c, track, workdir, res, skip, lossless_only, tracker, qobuz=True, how="exact")
                     if ready:
@@ -164,9 +165,10 @@ class Acquirer:
                         return res
                     skip.add(c.key)  # the ISRC search that follows doesn't download the same id again
             steps = []
-            if track.isrc:
+            if track.isrc and qobuz_search:
                 steps.append(("ISRC", track.isrc, lambda c: isrc_match(track, c, skip)))
-            steps.append(("name", f"{track.first_artist} {track.title}", lambda c: qobuz_match(track, c, skip)))
+            if qobuz_search:
+                steps.append(("name", f"{track.first_artist} {track.title}", lambda c: qobuz_match(track, c, skip)))
             how = {"ISRC": "isrc", "name": "name"}
             searched = 0
             for label, query, accept in steps:
@@ -199,7 +201,7 @@ class Acquirer:
                         res.kind, res.ready = "ready", ready
                         return res
             # Qobuz has nothing better: an upgrade check that waits for an account needn't ask again (execute.py)
-            res.qobuz_searched = searched == len(steps) and not self.qobuz_trouble
+            res.qobuz_searched = qobuz_search and searched == len(steps) and not self.qobuz_trouble
 
         if self.fallback is None or (lossless_only and self.qobuz_trouble):
             res.kind = "errored" if res.errors else "missing"

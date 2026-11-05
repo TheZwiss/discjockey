@@ -154,20 +154,6 @@ Noted while building and reviewing `docs/archive/2026-10-25-library-stage-4-plan
   when the detector improves; in the user's library three House_Banger files would now be fake. Two more just miss
   the rule (a 28–29.7 dB fall into a flat floor, the rule needs 30); lowering it would take in looser shapes.
 
-## 26. Library stage 3 leftovers (Qobuz playlists) — for stages 5 and 6
-
-Audit 2026-11-05: both points are still open (`SourceTrack` has no `label`; `execute.py` still passes `qobuz=False` after a
-recent search).
-
-Noted while building and reviewing `docs/archive/2026-10-24-library-stage-3-plan.md`.
-
-- **A file downloaded by its exact Qobuz id gets no record-label tag.** `make_ready` writes `cand.label`, and the
-  exact candidate is built from the playlist track, which has no label (`SourceTrack` has none). Fix: carry the label
-  from the Qobuz playlist read into the track, or fetch it.
-- **An upgrade check with Qobuz recently searched doesn't try a new Qobuz id.** With `searched_since_check` set it
-  passes `qobuz=False`, so a Qobuz id that newly appeared in a playlist waits for the next weekly check. Deliberate
-  for now (it keeps the weekly wait); revisit if users expect an immediate upgrade.
-
 ## 25. Library stage 1 leftovers (engine on library.db) — for later stages
 
 Audit 2026-11-05: all points are still open. Missing: `execute.py`, `ops.py`, `upgrades.py` and `tidy.py` still call

@@ -23,12 +23,14 @@ class FakeAcquirer:
         self.better = []
         self.originals = []
         self.qobuz = []
+        self.qobuz_search = []
         self.declined = []
         self.exact = []
         self.uploads = []
 
     def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None, originals=True,
-                declined=frozenset(), qobuz=True, exact=None, upload=None):
+                declined=frozenset(), qobuz=True, exact=None, upload=None, qobuz_search=True):
+        self.qobuz_search.append(qobuz_search)
         self.calls.append((track.id, set(rejected), lossless_only))
         self.uploads.append(upload)
         self.better.append(better_than)
@@ -462,6 +464,21 @@ def test_the_searches_of_a_queued_check_count_only_until_the_weekly_wait(env, da
     assert acq.qobuz == [again] and acq.originals == [again]
 
 
+def test_a_new_qobuz_id_is_tried_at_once_after_a_recent_search_but_the_searches_still_wait(env):
+    paths, state, make = env
+    touch(paths, "Library/A/not_lossless/Artist - Song.aiff")
+    day = (NOW - timedelta(days=2)).date().isoformat()
+    state["tracks"]["t1aaaaaaa"] = entry("Library/A/not_lossless/Artist - Song.aiff", status="not_lossless",
+                                         source="youtube_music", source_kbps=129, last_upgrade_check="2026-09-01",
+                                         qobuz_searched=day, originals_searched=day)
+    ex, acq = make(AcquireResult("queued", note="x"), AcquireResult("queued", note="x"))
+    ex.run([act("upgrade", qobuz_id="900000001")])
+    assert (acq.qobuz, acq.qobuz_search, acq.exact) == ([True], [False], ["900000001"])
+    state["tracks"]["t1aaaaaaa"]["rejected_sources"] = ["qobuz:900000001"]  # the same id turned out to be the wrong song
+    ex.run([act("upgrade", qobuz_id="900000001")])
+    assert (acq.qobuz, acq.qobuz_search) == ([True, False], [False, False])
+
+
 def test_limit_queues_the_rest(env):
     paths, state, make = env
     ex, acq = make(ready(), limit=1)
@@ -600,7 +617,7 @@ def test_stop_while_comparing_leaves_the_check_for_next_time(env):
 
     class StopAfterDownload:
         def acquire(self, track, rejected, workdir, lossless_only, tracker, better_than=None, originals=True,
-                    declined=frozenset(), qobuz=True, exact=None, upload=None):
+                    declined=frozenset(), qobuz=True, exact=None, upload=None, qobuz_search=True):
             token.cancel()  # the user pressed Stop while the lossless version was downloading
             return ready()(workdir)
 

@@ -17,6 +17,7 @@
         "performer": {"id": 800000001, "name": "Example Artist"},
         "album": {
           "title": "Example Album",
+          "label": {"id": 700000001, "name": "Example Label"},
           "artist": {"id": 800000002, "name": "Example Album Artist"},
           "image": {
             "large": "https://static.example.com/covers/900000101_600.jpg",

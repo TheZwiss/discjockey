@@ -218,13 +218,16 @@ class Executor:
         today = self.now().date()
         originals = not searched_since_check(e, "originals_searched", today)
         qobuz = not searched_since_check(e, "qobuz_searched", today)
+        # a Qobuz id that newly appeared in a playlist is tried at once; only the searches wait for the weekly check
+        new_id = bool(a.qobuz_id) and f"qobuz:{a.qobuz_id}" not in rejected
         workdir = self.paths.tmp / a.track_id
         workdir.mkdir(parents=True, exist_ok=True)
         tracker = Tracker(self.emit, self.token, a.track_id)
         try:
             res = self.acquirer.acquire(a.track, rejected, workdir, True, tracker, better_than=better,
                                         originals=originals, declined=set(e.get("declined_streams") or []),
-                                        qobuz=qobuz, exact=a.qobuz_id, upload=a.upload)
+                                        qobuz=qobuz or new_id, exact=a.qobuz_id, upload=a.upload,
+                                        qobuz_search=qobuz)
             found = None if res.free_downloads is None else tuple(res.free_downloads)
             if res.kind == "queued":
                 if res.rejected or found is not None or res.qobuz_searched:
