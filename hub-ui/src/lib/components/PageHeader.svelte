@@ -62,7 +62,8 @@
      above it; Apple typography: one line, one baseline) */
   .ph { display: flex; align-items: baseline; gap: var(--s-4); min-height: var(--h-btn); min-width: 0; flex: none; }
   /* the lead wraps: a status line that doesn't fit beside the title goes under it, whole, instead of ending in "…"
-     (To-do at 1100: "18 tracks are not lossless yet · 5 quest…"). The first line keeps the title's baseline, so the
+     (a `sub` given as one string, too long to sit beside the title in a narrow window; a status line made of parts,
+     as To-do's and Library's, drops its least important parts instead, see below). The first line keeps the title's baseline, so the
      controls on the right still sit on it; only the header grows, by one line, and only where the words need it. */
   .lead { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--s-3); row-gap: 0; min-width: 0;
     flex: 1 1 auto; }

@@ -146,8 +146,8 @@
 /* increased contrast (System Settings › Accessibility › Display): defined edges, no dim chrome text. Kept here, next
    to the tokens it overrides, so a token edit sees its contrast value too */
 @media (prefers-contrast: more) {
-    --row-picked: rgba(255, 90, 31, .18); --row-picked-hover: rgba(255, 90, 31, .24);
   :root {
+    --row-picked: rgba(255, 90, 31, .18); --row-picked-hover: rgba(255, 90, 31, .24);
     --surface-line: rgba(255, 255, 255, .18); --ctl-line: rgba(255, 255, 255, .22); --line-soft: rgba(255, 255, 255, .10);
     --popover-line: rgba(255, 255, 255, .24);
     --text-label: var(--text-muted); --text-nav: var(--text-muted);

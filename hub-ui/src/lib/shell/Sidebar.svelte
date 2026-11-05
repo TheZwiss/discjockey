@@ -279,11 +279,11 @@
   .pill { position: absolute; left: 11px; top: -9px; min-width: 18px; height: 14px; padding: 0 4px;
     border-radius: var(--r-pill); background: var(--rail-pill-bg); box-shadow: 0 0 0 2px var(--sidebar-solid);
     color: var(--text); font-size: var(--fs-label); font-weight: var(--fw-semi); line-height: 14px; text-align: center; }
-  /* "99+" keeps the corner: it starts 1 px further left than a two-digit count and is set a size smaller and tighter
-     (10 px, -.4 px), so it covers the same top-right corner of the glyph (4 px of its width, its top 5 px) and still
-     ends inside the rail (the rail's 50 px clip its ring at most); it used to grow leftwards over most of the glyph.
-     The tooltip keeps the exact count */
-  .pill.wide { left: 10px; padding: 0 2px; font-size: 10px; letter-spacing: -.4px; }
+  /* "99+" keeps the corner: set tighter (-.4 px, 2 px padding) in the same --fs-label size as every count (the type
+     scale has no smaller step), it ends where a two-digit count ends, a pixel inside it, and so covers only the glyph's
+     top-right corner (6 px of its width, its top 5 px); it used to grow leftwards over most of the glyph. The tooltip
+     keeps the exact count */
+  .pill.wide { left: auto; right: -19px; padding: 0 2px; letter-spacing: -.4px; }
   .t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .n { margin-left: auto; color: var(--text-label); font-size: var(--fs-label); padding-left: var(--s-1); }
   .on .n { color: var(--text-muted); }

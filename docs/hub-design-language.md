@@ -70,7 +70,7 @@ right). Chrome joins this frame; it never floats over the page or reserves a str
   "Show sidebar ⌃⌘S") sits on the glyph column at the top of both forms, and "Discjockey" (with the update line under
   it) folds away beside it but keeps its height, so no row below moves. The rail carries the full form's signals in the
   same colours: To-do's count as a neutral pill on the glyph's top-right corner, growing rightwards
-  (`--rail-pill-bg`; two digits, "99+" above, which alone grows leftwards so it stays inside the rail; the full form
+  (`--rail-pill-bg`; two digits, "99+" above, set tighter in the same size and ending where two digits end, so it keeps their corner; the full form
   prints the count in the count column), Download limits' yellow dot where it always is, and a running sync
   as a neutral 2 px ring round ⟳ whose arc is the share done (`Ring mark`; the full form prints "12/40" in the count
   column). Every rail icon has a Tip with its page's name, its signal in words ("To-do · 5 to look at", "Sync ·
