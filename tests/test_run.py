@@ -15,7 +15,7 @@ from discjockey.sources import spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.events import ActionFinished, CancelToken, Message, ReadingPlaylist, RunFinished
 from discjockey.library import Paths, empty_state, save_state
-from discjockey.models import FetchedPlaylist, Plan, PlannedMove, SourceTrack
+from discjockey.models import FetchedPlaylist, Plan, PlannedMove, PlaylistLine, SourceTrack
 from discjockey.settings import Account, Settings, save_settings
 
 PLAYLISTS = "Hard_Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n"
@@ -827,6 +827,30 @@ def test_a_run_never_reads_liked_music_while_the_youtube_account_is_paused(liked
     assert [fp.line.folder for fp in prep.fetched] == ["Hard_Bounce"]
     assert (liked.root / LM_FILE).exists() and prep.state["tracks"][LM_KEY]["path"] == LM_FILE
     assert_kept_like_a_failed_read(prep)
+
+
+def test_a_paused_liked_music_keeps_a_song_that_left_its_higher_playlist_by_the_stored_read(liked):
+    """The song is in Liked music and in Hard_Bounce (its folder), and was removed from Hard_Bounce: Liked music is
+    not read today, but its last stored read still holds the song."""
+    from discjockey import pacing
+
+    set_liked(liked)
+    state = library.load_state(liked)
+    state["tracks"][LM_KEY]["folder"] = "Hard_Bounce"
+    pacing.record_signal(state, "auto_stop", "3 requests failed", datetime.now(), "youtube")
+    save_state(liked, state)
+    lm_line = PlaylistLine("Liked_music", "LM", 0, "youtube_music")
+    song = SourceTrack("EXAMPLEalb01", "Example Song One", ("Example Artist",), "Example Album", None, 200000, None,
+                       service="youtube_music")
+    with db.connect(liked.db_file) as conn:
+        db.record_reads(conn, [FetchedPlaylist(lm_line, [song], [])], datetime.now(), {"youtube_music:LM"})
+    prep = run.prepare(liked)
+    assert LikedYDL.requested == [] and prep.unread_members == {"Liked_music": (LM_KEY,)}
+    assert_kept_like_a_failed_read(prep)
+    # without the stored read the song's folder (Hard_Bounce, which was read) decides: it is dropped
+    with db.connect(liked.db_file) as conn:
+        conn.execute("DELETE FROM playlist_reads")
+    assert LM_KEY in run.prepare(liked).plan.dropped
 
 
 def assert_kept_like_a_failed_read(prep):

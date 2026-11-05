@@ -64,6 +64,7 @@ class Prepared:
     fetched: list[FetchedPlaylist] = field(default_factory=list)  # as read from the playlist services (the playlist page uses it)
     import_waiting: int = 0  # files the next import works through (library.import_left; the console's W10 line)
     unread_folders: frozenset[str] = frozenset()  # folders of lines not read this time (paused Liked music); replan keeps them
+    unread_members: dict = field(default_factory=dict)  # of those, folder -> track tokens of its last stored read
 
     @property
     def needs_qobuz(self) -> bool:
@@ -123,14 +124,16 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
             log.add_text("skipped", f"[{fp.line.folder}] {item}")
 
     unread_folders = frozenset(line.folder for line in unread)
+    unread_members = recorded_members(paths, unread)
     plan = planner.plan(fetched, state, state["files"], date.today(), first_checks=first_check_room(state, settings),
-                        unread_folders=unread_folders)
+                        unread_folders=unread_folders, unread_members=unread_members)
     for key in plan.dropped:
         e = plan.state["tracks"][key]
         log.add(Result("dropped", e["folder"], e["artist"], e["title"], key))
     for key, track, folder, files in plan.ambiguous:
         log.add(Result("ambiguous", folder, track.first_artist, track.title, key, "; ".join(files)))
-    return Prepared(paths, plan.state, settings, plan, log, lines, fetched, import_waiting, unread_folders)
+    return Prepared(paths, plan.state, settings, plan, log, lines, fetched, import_waiting, unread_folders,
+                    unread_members)
 
 
 # How long recording a read waits for another writer (a job's transaction, e.g. an import's scan): long enough to
@@ -158,6 +161,29 @@ def record_reads(paths: Paths, fetched: list[FetchedPlaylist], now: datetime) ->
         logger.warning("couldn't keep the playlists' read records: %s", e)
     except Exception:  # whatever went wrong, the read and what it plans stand
         logger.warning("couldn't keep the playlists' read records", exc_info=True)
+
+
+def recorded_members(paths: Paths, unread: list[PlaylistLine]) -> dict[str, tuple[str, ...]]:
+    """For the lines not read this time: folder -> the track tokens of the line's last stored read (the playlists'
+    read records), so the planner keeps those songs' playlist membership by what the playlist held, not by the
+    song's own folder (a song of Liked music and of a higher playlist has the higher one as its folder). A line
+    without a stored read is not in the result. Best-effort, read-only: no library.db or one that can't be read
+    gives {}."""
+    if not unread or not paths.db_file.exists():
+        return {}
+    try:
+        with db.connect(paths.db_file, wait_ms=RECORD_WAIT_MS) as conn:
+            db.check(conn)
+            records = db.playlist_records(conn)
+    except Exception:
+        logger.warning("couldn't read the playlists' read records", exc_info=True)
+        return {}
+    members: dict[str, tuple[str, ...]] = {}
+    for line in unread:
+        record = records.get(line.ref)
+        if record is not None:
+            members[line.folder] = members.get(line.folder, ()) + tuple(t.token for t in record.tracks)
+    return members
 
 
 FIRST_CHECKS_PER_RUN = 25  # plan library stage 4, D9: at about 70 s a check, 25 add half an hour to a run
@@ -199,9 +225,9 @@ def replan(prep: Prepared) -> Prepared:
     state = library.load_state(prep.paths)
     settings = load_settings(prep.paths.settings_file)
     plan = planner.plan(prep.fetched, state, state["files"], date.today(), first_checks=first_check_room(state, settings),
-                        unread_folders=prep.unread_folders)
+                        unread_folders=prep.unread_folders, unread_members=prep.unread_members)
     return Prepared(prep.paths, plan.state, settings, plan, rep.RunLog(datetime.now()), prep.lines, prep.fetched,
-                    library.import_left(prep.paths), prep.unread_folders)
+                    library.import_left(prep.paths), prep.unread_folders, prep.unread_members)
 
 
 def link_only(paths: Paths, prep: Prepared, emit: Emit = no_emit) -> Prepared:

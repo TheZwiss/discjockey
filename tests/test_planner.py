@@ -377,6 +377,39 @@ def test_empty_playlist_keeps_files():
     assert p.state["tracks"]["t1"]["path"] == "Library/A/x.aiff"
 
 
+# --- a playlist not read this time (Liked music while its account is paused, sources-round D6) ---
+
+def test_an_unread_line_keeps_a_song_that_is_also_in_a_higher_playlist_when_it_leaves_that_playlist():
+    """t1 is in Liked_music and in A, so its folder is A. Removed from A while Liked_music is unread, it is still in
+    Liked_music (its last stored read): not dropped."""
+    s = st(t1=entry(folder="A", path="Library/A/x.aiff"))
+    p = plan([pl("A")], s, ["Library/A/x.aiff"], TODAY, unread_folders={"Liked_music"},
+             unread_members={"Liked_music": ["t1", "t7"]})
+    assert p.dropped == [] and p.state["tracks"]["t1"]["in_playlists"] is True and kinds(p) == []
+
+
+def test_an_unread_line_matches_its_stored_tokens_through_aliases():
+    s = st(t1=entry(folder="A", path="Library/A/x.aiff", aliases=["lm9"]))
+    p = plan([pl("A")], s, ["Library/A/x.aiff"], TODAY, unread_folders={"Liked_music"},
+             unread_members={"Liked_music": ["lm9"]})
+    assert p.dropped == []
+
+
+def test_a_song_gone_from_every_playlist_is_still_dropped_while_a_line_is_unread():
+    s = st(t1=entry(folder="A", path="Library/A/x.aiff"),
+           t2=entry(folder="Liked_music", path="Library/Liked_music/y.aiff", title="Title t2"))
+    p = plan([pl("A")], s, ["Library/A/x.aiff", "Library/Liked_music/y.aiff"], TODAY, unread_folders={"Liked_music"},
+             unread_members={"Liked_music": ["t9"]})  # neither song was in Liked_music's last read
+    assert sorted(p.dropped) == ["t1", "t2"]
+
+
+def test_an_unread_line_without_a_stored_read_falls_back_to_the_songs_own_folder():
+    s = st(t1=entry(folder="A", path="Library/A/x.aiff"),
+           t2=entry(folder="Liked_music", path="Library/Liked_music/y.aiff", title="Title t2"))
+    p = plan([pl("A")], s, ["Library/A/x.aiff", "Library/Liked_music/y.aiff"], TODAY, unread_folders={"Liked_music"})
+    assert p.dropped == ["t1"] and p.state["tracks"]["t2"]["in_playlists"] is True
+
+
 # --- option A: files stay where they are (spec §7) ---
 
 def test_a_song_whose_folder_changed_is_not_moved():

@@ -117,6 +117,7 @@ def read(paths: SupportPaths, lines: list[PlaylistLine], *, emit: Emit = no_emit
         for reader in readers.values():
             reader.want_info = want_info
             reader.on_signal = on_signal
+            reader.paused = paused
         fetched = []
         for i, line in enumerate(lines, 1):
             token.check()
@@ -129,11 +130,14 @@ def read(paths: SupportPaths, lines: list[PlaylistLine], *, emit: Emit = no_emit
     return fetched
 
 
-def read_infos(paths: SupportPaths, refs: list[str], infos: dict, token: CancelToken) -> None:
+def read_infos(paths: SupportPaths, refs: list[str], infos: dict, token: CancelToken,
+               paused: frozenset[str] = frozenset(),
+               on_signal: Callable[[str, str, str], None] | None = None) -> None:
     """Fills `infos[ref]` (a PlaylistInfo) for each playlist ref, one reader per service. A playlist the service says
     it can't show (kind playlist_unreadable) loses its entry. Any other failure is the service's, not the playlist's
     (a login that fails, the service not answering): the entries already in `infos` stay, and the other services are
-    read as usual. Only Stop (events.Cancelled) raises."""
+    read as usual. Only Stop (events.Cancelled) raises. `paused` and `on_signal` as in `read`: a Liked music ref is
+    skipped (no request) while its account is paused or the choice is off; a warning sign met is passed on."""
     by_service: dict[str, list[tuple[str, str]]] = {}
     for ref in refs:
         service, playlist_id = split_token(ref)
@@ -144,8 +148,12 @@ def read_infos(paths: SupportPaths, refs: list[str], infos: dict, token: CancelT
             continue
         try:
             with source.open(paths, token) as reader:
+                reader.on_signal = on_signal
+                reader.paused = paused
                 for ref, playlist_id in entries:
                     token.check()
+                    if left_out(paths, PlaylistLine("x", playlist_id, 0, service), paused):
+                        continue  # Liked music while it is off or paused: no request (the reader refuses it too)
                     try:
                         infos[ref] = reader.info(playlist_id)
                     except SourceError as e:

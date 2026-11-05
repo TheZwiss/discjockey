@@ -2,12 +2,13 @@
 and the shapes the page reads (`setup_status().youtube_music`, `playlists()` rows' `needs_setting`). Offline: a stub
 yt-dlp serves the recorded album page as Liked music."""
 import json
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
 import pytest
 import yt_dlp
-from hub_helpers import fake_spotify, make_api, make_root, wait_job
+from hub_helpers import fake_spotify, make_api, make_root, refreshed, wait_job
 
 from discjockey import library, pacing
 from discjockey import playlists_file as pf
@@ -173,7 +174,7 @@ def test_pasting_liked_music_while_the_account_is_paused_reads_nothing(root):
     library.save_state(root, state)
     answer = api.add_playlist(LM_LINK)
     assert (answer["ok"], answer["kind"], answer["message"]) == (False, "offline", youtube_music.LIKED_RESTING)
-    assert LikedYDL.created == [] and LikedYDL.requested == []
+    assert LikedYDL.requested == [] and not any("cookiesfrombrowser" in o for o in LikedYDL.created)
 
 
 def test_a_bot_check_met_while_pasting_is_recorded_as_the_accounts_warning_sign(root):
@@ -185,6 +186,66 @@ def test_a_bot_check_met_while_pasting_is_recorded_as_the_accounts_warning_sign(
     signs = library.load_state(root)["youtube_usage"]["signals"]
     assert [s["kind"] for s in signs] == ["bot_check"]
     assert pacing.account_paused(library.load_state(root), "youtube", datetime.now().date())  # the real clock here
+
+
+def pause_youtube(root):
+    state = library.load_state(root)
+    pacing.record_signal(state, "bot_check", "m", datetime.now(), "youtube")  # the refresh runs on the real clock
+    library.save_state(root, state)
+
+
+def test_a_refresh_with_liked_music_listed_and_the_account_paused_makes_no_request(root):
+    """The refresh's page-facts read (read_infos) asks Liked music too when the sync did not read it: it obeys the pause."""
+    api, rec = make_api(root)
+    settings(root)
+    listed(root)
+    pause_youtube(root)
+    refreshed(api, rec)
+    assert LikedYDL.requested == [] and not any("cookiesfrombrowser" in o for o in LikedYDL.created)
+    assert "youtube_music:LM" not in api._infos
+
+
+def test_a_bot_check_met_by_the_refreshs_info_read_is_recorded(root):
+    """Not read by the sync (it was listed after its read), the info read meets the check: the sign is recorded."""
+    api, rec = make_api(root)
+    settings(root)
+    listed(root)
+    LikedYDL.error = Exception("Sign in to confirm you're not a bot")
+    refreshed(api, rec)
+    signs = library.load_state(root)["youtube_usage"]["signals"]
+    assert [s["kind"] for s in signs] == ["bot_check"]  # one: the sync's read, then no second request
+    assert len(LikedYDL.requested) == 1
+
+
+def test_a_bot_check_met_by_the_change_preview_is_recorded_as_the_accounts_warning_sign(root):
+    api, _ = make_api(root)
+    settings(root)
+    LikedYDL.error = Exception("Sign in to confirm you're not a bot")
+    rows = [{"folder": "Liked_music", "link": LM_LINK, "enabled": True}]
+    assert api.preview_playlist_change(rows)["ok"]
+    assert [s["kind"] for s in library.load_state(root)["youtube_usage"]["signals"]] == ["bot_check"]
+    assert pacing.account_paused(library.load_state(root), "youtube", datetime.now().date())  # the real clock here
+
+
+def test_a_sign_met_while_the_lock_is_not_ours_waits_and_is_written_by_the_next_call(root, monkeypatch):
+    api, _ = make_api(root)
+    settings(root)
+    LikedYDL.error = Exception("Sign in to confirm you're not a bot")
+    real = api._jobs.scan_lock
+
+    @contextmanager
+    def not_ours():
+        yield False
+
+    monkeypatch.setattr(api._jobs, "scan_lock", not_ours)
+    assert api.add_playlist(LM_LINK)["kind"] == "offline"
+    assert not library.load_state(root).get("youtube_usage", {}).get("signals")  # nothing could be written yet
+    assert len(api._unrecorded_signs) == 1
+    monkeypatch.setattr(api._jobs, "scan_lock", real)
+    LikedYDL.error = None
+    assert api.add_playlist(LM_LINK)["ok"]  # the waiting sign is written at the start of the next paste
+    assert api._unrecorded_signs == []
+    assert [s["kind"] for s in library.load_state(root)["youtube_usage"]["signals"]] == ["bot_check"]
 
 
 def test_a_changed_plan_preview_does_not_read_a_liked_music_line_that_is_off(root):

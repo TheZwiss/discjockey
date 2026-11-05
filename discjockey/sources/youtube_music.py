@@ -243,13 +243,17 @@ class YouTubeMusicReader:
     a second `YoutubeDL` with the YouTube login (`_liked_music_ydl`).
 
     `on_signal(service, kind, message)`: set by the sync; called with the account service ("youtube") when the Liked
-    music read meets a bot check or "too many requests", so the sync can record the warning sign."""
+    music read meets a bot check or "too many requests", so the sync can record the warning sign.
+    `paused`: the account services paused today (`pacing.paused_accounts`); while "youtube" is in it the Liked music
+    line is never asked, whichever way in (fetch or info): the guard is `_liked_music_ydl`'s, so no caller can
+    forget it."""
 
     def __init__(self, ydl, token: CancelToken, paths: SupportPaths | None = None, make_login_ydl=None):
         self._ydl, self.token = ydl, token
         self._paths, self._make_login_ydl, self._login_ydl = paths, make_login_ydl, None
         self.want_info = False
         self.on_signal: Callable[[str, str, str], None] | None = None
+        self.paused: frozenset[str] = frozenset()  # set by the caller: the account services paused today (D6)
 
     def __enter__(self) -> "YouTubeMusicReader":
         return self
@@ -269,10 +273,13 @@ class YouTubeMusicReader:
 
     def _liked_music_ydl(self):
         """The `YoutubeDL` with the YouTube login for the Liked music line, made on the first such read and closed with
-        the reader. SourceError(setting_off) while the choice is off or no account is set up."""
+        the reader. SourceError(setting_off) while the choice is off or no account is set up; SourceError(offline)
+        while the YouTube account is paused today: no request is made in either case."""
         settings = _liked_music_settings(self._paths) if self._paths is not None else None
         if settings is None:
             raise SourceError(SETTING_OFF, "setting_off", SERVICE, SETTING)
+        if ACCOUNT in self.paused:
+            raise SourceError(LIKED_RESTING, "offline", SERVICE)
         if self._login_ydl is None:
             account = settings.accounts[ACCOUNT]
             if account.browser not in BROWSERS or self._make_login_ydl is None:

@@ -15,12 +15,12 @@ import traceback
 from collections import deque
 from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Callable
 
-from .. import (config, db, events as ev, folders, importer, library, playlists_file, qobuz, report as rep, run, settings,
-                sources, upgrades)
+from .. import (config, db, events as ev, folders, importer, library, pacing, playlists_file, qobuz, report as rep, run,
+                settings, sources, upgrades)
 from ..events import Cancelled, CancelToken, Emit
 from ..library import LockHeld, Paths
 from ..models import SERVICE_NAMES, Protected
@@ -653,14 +653,22 @@ def refresh_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] 
             # it again would mean a second login (spec D3: one login per read)
             known = {fp.line.ref: fp.info for fp in prep.fetched if fp.info is not None}
             infos.update(known)
-            read_infos(paths, [line.ref for line in prep.lines if line.ref not in known], infos, ctx.token)
+            signs: list[tuple[str, str, str]] = []  # a warning sign met by a Liked music read (recorded as a download's)
+            try:
+                read_infos(paths, [line.ref for line in prep.lines if line.ref not in known], infos, ctx.token,
+                           pacing.paused_accounts(prep.state, date.today()), lambda *sign: signs.append(sign))
+            finally:
+                if signs:
+                    run.record_signs(paths, prep.state, signs, lock, True)
         return {"actions": len(prep.plan.actions)}
     return work
 
 
-def read_infos(paths: Paths, refs: list[str], infos: dict, token: CancelToken) -> None:
+def read_infos(paths: Paths, refs: list[str], infos: dict, token: CancelToken,
+               paused: frozenset[str] = frozenset(),
+               on_signal: Callable[[str, str, str], None] | None = None) -> None:
     """Fills `infos` (playlist ref -> PlaylistInfo) through each service's reader (sources.read_infos)."""
-    sources.read_infos(paths, refs, infos, token)
+    sources.read_infos(paths, refs, infos, token, paused, on_signal)
 
 
 def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str]],
