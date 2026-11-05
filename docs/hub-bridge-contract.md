@@ -779,6 +779,9 @@ innermost watched folder holding it is offline or not found) puts its words seco
   ],
   "in_playlist_count": 2,
   "quality_line": "YouTube OPUS · cutoff 16.0 kHz",
+  "format_line": "AIFF · 16-bit",
+  "source_format_line": "Opus · 135 kbps",
+  "source_how": "fallback",
   "source_url": "https://www.youtube.com/watch?v=abcdefghijk",
   "track_link": {"url": "https://open.spotify.com/track/t2", "label": "Open in Spotify"},
   "next_qobuz_check": null,
@@ -824,8 +827,8 @@ when `swap_safe && swap_possible`; `cue_text` is the line to show. It combines t
 exact/shifted on a file that can be swapped says the cues stay; on one that can't (MP3, WAV: "Add as new file" is the
 only way in, which rekordbox sees as a new entry) it says it is the same edit but a new rekordbox entry, and that
 relocating the old entry to the new file keeps its cues; a mismatch or unknown keeps its own line (the Library's
-card shows it). `format_line` is the parked version's quality in the words of the current file's `format_line`
-("FLAC · lossless", "AAC · 256 kbps"): the To-do panel's New beside Now. The To-do row's `detail` for
+card shows it). The upgrade block's `format_line` is the parked version's quality in the words of the current
+file's `source_format_line` ("FLAC · lossless", "AAC · 256 kbps"): the To-do panel's New beside Now. The To-do row's `detail` for
 `upgrade_ready` is a short line (`views.upgrade_status`): "Lossless ready · cues can stay" (swap possible),
 "· new rekordbox track" (same edit, no swap), "· different edit", "· not compared" ("256 kbps ready · …" for a better
 lossy stream); the To-do panel words the rest from `alignment` and `swap_possible` (todoModel.upgradeWays).
@@ -841,8 +844,21 @@ SoundCloud's own download button (`url` is then the SoundCloud page). Empty when
 lossy download carries the bitrate when known ("YouTube Music OPUS 135 kbps · cutoff 20.1 kHz"). A dropped bought
 file may be WAV, AIFF, FLAC or MP3.
 
-Also in `track()` (2026-10-18, details redone as facts): `format_line` ("Opus · 135 kbps", "FLAC", "uncompressed PCM";
-the bitrate only for a lossy download) and `source_full` ("YouTube Music", "bought", "your own file" for a file the import found), both null without a file.
+Also in `track()` (2026-10-18, details redone as facts): `source_full` ("YouTube Music", "bought", "your own file"
+for a file the import found), null without a file.
+`track()` says what the file **is** apart from what it was **made from** (sources round, E1): `format_line` is the file
+itself, null without a file: a download is always `"AIFF · 16-bit"` (every download is converted), an own or bought
+file names its container by its extension (`AIFF`, `WAV`, `FLAC`, `MP3`, `AAC`, `ALAC`) plus the bit depth when its
+stored codec is a PCM one (`"WAV · 24-bit"`; a FLAC or MP3 stays `"FLAC"`, `"MP3"`). `source_format_line` is what a
+download was made from ("Opus · 135 kbps", "FLAC", "uncompressed PCM"; the bitrate only for a lossy download), null
+without a file and for an own or bought file (no download). The To-do upgrade card's Now reads `source_format_line`
+(its tooltip says the AIFF was made from it, group U3). `source_how` is how the source was found, one of `exact`
+(the exact Qobuz track a playlist named), `isrc`, `name` (Qobuz searches), `upload` (the playlist's own upload),
+`fallback` (the search on YouTube Music, SoundCloud or YouTube) or `chosen` ("Use this", picked by the user), or null
+(own and bought files, and every file from before it was stored); the UI words it in `copy.ts`. It is stored in
+`library.db` as `files.source_how` (schema 5) and travels with the file: a parked upgrade carries it as `how`, a Swap
+or Add as new file moves it into the entry and an undo puts the old one back. `source_url` is null when it equals
+`track_link.url` (a YouTube Music playlist's own upload), so the details never show one page twice.
 `track()` also carries `place` (plan library stage 5): where the file sits, in the same words as the library rows' `place` (the Folder column's; `null` for a track without a file).
 `track()` also carries `sound_checked: bool` as the library rows do; for a file with `sound_checked: false`,
 `quality_line` ends "sound not checked yet" instead of "verified lossless" ("Your own file (PCM) · sound not checked

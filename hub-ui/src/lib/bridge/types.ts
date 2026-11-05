@@ -29,6 +29,9 @@ export const NOT_IN_PLAYLIST = '__not_in_playlist__';
 
 export type Status = 'lossless' | 'not_lossless' | 'fake_lossless' | 'missing';
 export type Source = 'qobuz' | 'youtube_music' | 'soundcloud' | 'youtube' | 'manual';
+/** How a download's source was found (the engine's `source_how`): the exact Qobuz track, its ISRC, a name search, the
+ *  playlist's own upload, the fallback search, or picked by the user. */
+export type SourceHow = 'exact' | 'isrc' | 'name' | 'upload' | 'fallback' | 'chosen';
 export type ByQuality = Record<Quality, number>;
 
 export type TrackRow = {
@@ -341,6 +344,12 @@ export type TrackDetail = TrackRow & {
   /** "Opus · 135 kbps", "FLAC"; source_full: "YouTube Music", "bought", "your own file" for a file the import
    *  found (both null without a file) */
   format_line: string | null; source_full: string | null;
+  /** "Opus · 135 kbps", "FLAC": what the download was made from; null without a file and for an own or bought file.
+   *  `format_line` is the file itself ("AIFF · 16-bit", "WAV · 24-bit", "FLAC") */
+  source_format_line: string | null;
+  /** how the source was found; null for an own or bought file and for a file from before this was stored */
+  source_how: SourceHow | null;
+  /** the source's page; null when it is the song's own page (`track_link`) */
   source_url: string | null; track_link: TrackLink | null; next_qobuz_check: string | null;
   rejected_sources: string[]; buy_links: { beatport: string; bandcamp: string }; free_downloads: FreeDownload[];
   bought_name: string; audio_url: string | null; upgrade: Upgrade | null;
