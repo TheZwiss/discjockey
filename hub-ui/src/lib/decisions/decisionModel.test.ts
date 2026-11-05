@@ -11,7 +11,7 @@ const item = (id: string, extra: Partial<TodoItem> = {}): TodoItem => ({
   track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'not_lossless', quality: 'weak',
   quality_label: '16.0 kHz', cutoff_hz: 16000, source: 'youtube', source_name: 'YouTube', in_playlists: true, own: false,
   hidden: false, upgrade_ready: false, path: `Library/Hard_Bounce/A - ${id}.aiff`, added: null, cover_url: null,
-  group: 'weak', detail: '', free: false, ...extra });
+  group: 'weak', detail: '', free: false, file_state: 'here', ...extra });
 const side = (file_id: number, song_key: string | null, path: string): FileSide => ({ file_id, song_key, path, artist: 'A',
   title: 'x', duration_s: 200, quality: 'lossless', quality_label: 'LOSSLESS', online: true, audio_url: null,
   in_playlist: false });

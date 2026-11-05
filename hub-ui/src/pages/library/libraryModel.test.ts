@@ -101,7 +101,7 @@ describe('the panel', () => {
     expect(footAction(t({ status: 'not_lossless', upgrade_ready: true, upgrade: up(false) }), { kind: 'upgrade' })).toBe('upgrade');
     // a hidden track or one in no playlist can still be upgraded right here
     expect(footAction(t({ status: 'not_lossless', in_playlists: false, upgrade: up(true) }), { kind: 'upgrade' })).toBe('upgrade');
-    expect(footAction(t({}), { kind: 'check', item: { ...row('x'), group: 'rekordbox_check', detail: '', free: false } }))
+    expect(footAction(t({}), { kind: 'check', item: { ...row('x'), group: 'rekordbox_check', detail: '', free: false, file_state: 'here' } }))
       .toBe('check');
     expect(footAction(t({ status: 'not_lossless' }), null)).toBe('todo');
     expect(footAction(t({}), null)).toBeNull();

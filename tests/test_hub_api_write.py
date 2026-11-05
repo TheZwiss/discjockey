@@ -1354,6 +1354,34 @@ def test_reveal_opens_a_watched_folder_and_its_crates_but_no_other_absolute_path
     assert api.reveal("Library")["ok"]  # relative paths in the music folder still work
 
 
+def test_reveal_refuses_what_only_looks_like_a_watched_place(tmp_path, monkeypatch):
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    calls = api._svc.calls["reveal"]
+    sibling = folder.parent / (folder.name + "2")  # the watched folder's name is a prefix of this one's
+    (sibling / "Hard").mkdir(parents=True)
+    for bad in (str(sibling), str(sibling / "Hard"), f"{folder}/Hard/../../{sibling.name}/Hard", "~", "~/Music", "Hard",
+                "./Hard", f"{folder}/Hard/..", "//" + str(folder).lstrip("/"), str(folder).lower() + "x", "", "/"):
+        assert api.reveal(bad)["kind"] == "refused", bad
+    assert calls == []
+    assert api.reveal(str(folder) + "/")["ok"] and api.reveal(f"{folder}//Hard")["ok"]  # a slash more or less is the same place
+    assert calls == [folder, folder / "Hard"]
+
+
+def test_the_report_folder_names_of_a_library_are_the_ones_sync_shows(tmp_path, monkeypatch):
+    """jobs.folder_names: what sync_work gives select_actions and execute for an own song (leftovers C2, issue 29)."""
+    from types import SimpleNamespace
+    from discjockey import playlists_file as pf
+    api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
+    state = api._state()
+    prep = SimpleNamespace(paths=paths, state=state, lines=pf.load(paths.playlists_file).rows)
+    where = jobs.folder_names(prep)
+    own = next(e["path"] for e in state["tracks"].values() if (e["path"] or "").startswith(str(folder / "Hard")))
+    assert where(own) in ("Music › Hard", "Music › Hard › 2019")
+    assert where(str(folder / "House" / "x.aiff")) == "Music › House"
+    paths.db_file.unlink()
+    assert jobs.folder_names(prep) is None  # no records: the report says "your music"
+
+
 def test_set_favourites_keeps_the_order_and_the_sidebar_resolves_them(tmp_path, monkeypatch):
     api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
     ref = api.sidebar()["playlists"][1]["ref"]

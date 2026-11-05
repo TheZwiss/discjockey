@@ -391,7 +391,7 @@ def test_unparsable_files_use_the_whole_file(tmp_path, ext):
 def test_empty_file(tmp_path):
     f = tmp_path / "empty.flac"
     f.write_bytes(b"")
-    assert length_of(content_key(f)) == f.stat().st_size  # an empty payload is read whole, not to the end of the chunks
+    assert content_key(f) == windows_key(b"")
 
 
 def test_large_file_reads_only_the_windows(tmp_path):

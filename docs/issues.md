@@ -92,7 +92,6 @@ Noted while building and reviewing `docs/archive/2026-10-29-library-stage-5-plan
   (`saveCratesShown`); switch it to `set_crates_shown(paths, shown)` (one write, one sidebar read). Under a folder with too
   many crates, All needs a search that leaves at most 25 rows.
 - **Favourites save and `refreshHub`:** a full `refreshHub` landing during a Favourites save can briefly show the old order.
-- **`set_crate_shown` stores any path:** it does not check that the path is a crate.
 - **Later cleanup:** `views.library` is about 140 lines; `_playlist_rows` / `_folder_rows` would split it. `track()`
   recomputes `views.sites` over every file on each pick (linear, fast enough today).
 

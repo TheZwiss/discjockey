@@ -53,7 +53,7 @@ export type TodoGroupKey = Exclude<TodoFilter, 'all'>;
  *  song has none (Not found). A same-song item is about the user's own file, a duplicate group is only listed while
  *  every file of it is there. */
 export type TodoItem = TrackRow & { group: TodoGroupKey; detail: string; free: boolean;
-  file_state?: Exclude<FileState, 'file_missing'> | 'no_file'; // always sent; optional only until the UI round uses it
+  file_state: Exclude<FileState, 'file_missing'> | 'no_file';
   pair?: QuestionPair | DuplicatePair; can_undo?: boolean; check?: RekordboxCheckView };
 /** A `rekordbox_check` item's check (views.check_view): the step that left it, what the two files measured as
  *  (`match`: exact/shifted/different/unknown, null in records from before it), `text` the whole instruction and

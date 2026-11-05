@@ -20,6 +20,7 @@ from .. import playlists_file as pf
 from ..accounts import (ACCOUNTS, BROWSERS, DEFAULT_LIMITS, MAX_LIMIT, PREMIUM_MIN_KBPS, SERVICES, SERVICE_NAMES,
                         SERVICE_SIGNALS)
 from ..accounts import assessment as service_assessment, zones as service_zones
+from ..execute import result_folder
 from ..names import expected_stem, fold
 from ..models import (OWN_FILE, SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, DupFile, DuplicateGroup,
                       ImportCounts, MoveRow, PlannedMove, PlaylistRecord, Question, WatchedFolder, is_own, split_token,
@@ -1443,10 +1444,7 @@ def action_folder(a, e: dict | None, where: Callable[[str], str] | None = None) 
     """The playlist or folder an action is listed under, never empty. A playlist song has its playlist's folder; an
     own song (an upgrade check of an imported file, no playlist) has none, so it goes by the folder its file sits in,
     named as the rest of the app names it (`Sites.place`: "Techno", "Rekordbox Library › Hardtechno")."""
-    if a.folder:
-        return a.folder
-    path = e.get("path") if e else None
-    return (where(path) if where and path else "") or OWN_MUSIC
+    return result_folder(a, e, where) or OWN_MUSIC
 
 
 def action_row(a, state: dict, cover: Url | None = None, where: Callable[[str], str] | None = None) -> dict:
