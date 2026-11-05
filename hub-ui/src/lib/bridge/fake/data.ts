@@ -708,12 +708,25 @@ export function makeState(scenario: string, now = new Date()): FakeState {
     for (let i = 0; i < 8; i++) {
       playlists.push({ folder: `Set_${String(i + 1).padStart(2, '0')}`, link: `https://open.spotify.com/playlist/Set${i}xxxxxxxxxxxxxxxxx`,
         enabled: true, info: { name: `Set ${i + 1}`, owner_name: 'DJ One', yours: true, collaborative: false,
-          readable: true, image_url: null, track_count: 30 + i, hint: SPOTIFY_HINT } });
+          readable: true, image_url: null, track_count: null, hint: SPOTIFY_HINT } });
+      // each set holds 30 + i songs the main playlists already hold (their files stay where they are: the sets come
+      // last in playlists.txt), so the set has a read record and every page counts the same songs
+      const pool = tracks.filter((t) => t.in_playlists && !t.hidden && FOLDERS.includes(t.folder));
+      pool.slice(i * 40, i * 40 + 30 + i).forEach((t) => t.playlists.push(`Set_${String(i + 1).padStart(2, '0')}`));
     }
+  }
+  // the service's own song count of a playlist that was read is the number of songs the read holds (one source of
+  // truth with the Playlists page and the Library sidebar); a count the service doesn't give (null) stays null
+  const newTracksList = newTracks(big ? 60 : 10);
+  for (const p of playlists) {
+    if (!p.info || !p.info.readable || (p.info.track_count === null && !p.folder.startsWith('Set_'))) continue;
+    const held = new Set([...tracks.filter((t) => t.playlists.includes(p.folder)).map((t) => t.track_id),
+      ...newTracksList.filter((n) => n.folder === p.folder).map((n) => n.track_id)]);
+    if (held.size) p.info = { ...p.info, track_count: held.size };
   }
   const days = Array.from({ length: 14 }, (_, i) => (i === 13 ? 37 : [12, 0, 44, 60, 31, 0, 0, 58, 75, 20, 9, 0, 66][i]));
   const s: FakeState = {
-    scenario, folders: {}, pick: '/Users/you/Music/DJ Sets', now, tracks, newTracks: newTracks(big ? 60 : 10),
+    scenario, folders: {}, pick: '/Users/you/Music/DJ Sets', now, tracks, newTracks: newTracksList,
     extraFolders: [{ folder: 'Old_Sets', listed: false }],
     playlists, version: 1, runs: sampleRuns(now, tracks, big ? 30 : 3),
     qobuz: { limit: 60, extra_today: 0, carry_over: 20, used_today: 37, days,

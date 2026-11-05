@@ -68,6 +68,29 @@ describe('fake counts', () => {
   });
 });
 
+describe('fake service counts', () => {
+  it.each(['normal', 'big'])('the service count of a read playlist is its song count in %s', async (scenario) => {
+    const f = createFakeBridge(scenario, { speed: 100, emit: noop });
+    const rows = val(await f.playlists()).rows;
+    const side = val(await f.sidebar()).playlists;
+    for (const r of rows) {
+      const songs = side.find((p) => p.name === r.folder)!.songs;
+      if (songs === null || r.info?.track_count == null) continue;
+      expect(r.info.track_count, r.folder).toBe(songs);
+      expect(r.tracks, r.folder).toBe(songs);
+    }
+  });
+
+  it('gives the big scenario sets a read, with the same count on both pages', async () => {
+    const f = createFakeBridge('big', { speed: 100, emit: noop });
+    const rows = val(await f.playlists()).rows.filter((r) => r.folder.startsWith('Set_'));
+    const side = val(await f.sidebar()).playlists.filter((p) => p.name.startsWith('Set_'));
+    expect(rows).toHaveLength(8);
+    expect(rows.map((r) => r.tracks)).toEqual([30, 31, 32, 33, 34, 35, 36, 37]);
+    expect(side.map((p) => p.songs)).toEqual(rows.map((r) => r.tracks));
+  });
+});
+
 describe('fake empty playlists scenario', () => {
   it('has no to-do items and no limits warning without playlists', async () => {
     const f = createFakeBridge('playlists:empty', { speed: 100, emit: noop });
@@ -76,5 +99,6 @@ describe('fake empty playlists scenario', () => {
     expect(side).toMatchObject({ todo: 0, limits_warning: false, playlists: [] });
     expect(side.not_in_playlist).toBe(side.all_tracks);
     expect(val(await f.dashboard()).folders).toEqual([]);
+    expect(val(await f.runs()).runs).toEqual([]);
   });
 });

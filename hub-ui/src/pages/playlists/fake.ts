@@ -33,11 +33,11 @@ const folderOf = (path: string) => path.replace(/^Library\//, '').split('/').sli
 const fake: PageFake = {
   scenarios: {
     // set up, but no playlists yet (first_run would open the wizard): nothing has been read or moved either
-    // The files stay in the Library, but no list holds them: nothing to download, nothing from a playlist for the
+    // The files stay in the Library, but no list holds them: nothing to download, no past run listing songs of a playlist that is gone, nothing from a playlist for the
     // to-do list (the engine's to-do counts only tracks in a playlist), and no warning sign to mark as seen.
     empty: (s) => {
       s.playlists = []; s.tidy.batches = []; s.read_status = { ...s.read_status, read_at: null, minutes_ago: null };
-      s.newTracks = [];
+      s.newTracks = []; s.runs = [];
       for (const t of s.tracks) { t.in_playlists = false; t.playlists = []; t.rekordbox_check = null; }
       s.qobuz = { ...s.qobuz, signals: [] };
     },
