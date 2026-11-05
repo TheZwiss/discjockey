@@ -101,24 +101,24 @@ item is about the user's own file) and the duplicate item's `in_playlists` is no
 a playlist" (it was already that value, from the side that names the group). The leftovers UI round showed the `AwayTag`
 on To-do rows (in place of the quality badge, the row dimmed, as Library) and the "waits for your answer" note on
 Sync's Up-to-date view (`WaitingAnswersNote`, shared with the run panel); the dry run's lines name an own song's folder
-as its run report does. The other two points are unchanged.
+as its run report does. Round C3 closed the removal count (W4): a track only the last read has, a Yes answer for a track
+that left every playlist, and the name a re-keyed song gets back.
 
 Noted while building and reviewing `docs/archive/2026-10-25-library-stage-4-plan.md`.
 
-- **The removal count (W4) misses rare cases:** a playlist track matched only at plan time (no stored song) isn't
-  counted, and a Yes answer for a track that left every playlist still is. A song re-keyed after the removal keeps
-  its file's tag name until the planner updates stored names.
-- **Files judged before the floor rule (fix round E1) keep their old verdict.** Nothing judges a library file again
-  when the detector improves; in the user's library three House_Banger files would now be fake. Two more just miss
-  the rule (a 28–29.7 dB fall into a flat floor, the rule needs 30); lowering it would take in looser shapes.
+- ~~**Files judged before the floor rule (fix round E1) keep their old verdict.**~~ User 2026-10-31: no re-judge of old
+  verdicts (the new imports are only test files). The two files that just miss the rule (a 28-29.7 dB fall into a flat
+  floor, the rule needs 30) are a known limit of the 30 dB rule, closed with it; lowering it would take in looser
+  shapes.
 
 ## 25. Library stage 1 leftovers (engine on library.db) — for later stages
 
 Audit 2026-11-05 (updated by leftovers round C2): the Ogg page-header reads, the moved/adopted/conflicts labels, the
 migration's recovered steps in the run report, and the RF64 / streamed WAV / Ogg-FLAC keys are done (a tag edit no longer
-changes their key; a file already keyed whole keeps that key until its bytes change). Still open: `execute.py`, `ops.py`,
-`upgrades.py` and `tidy.py` call `run_op` on the entry view (its own stage), and the unreadable replaced file (a design
-choice, below).
+changes their key; a file already keyed whole keeps that key until its bytes change). Round C3 closed the unreadable replaced
+file (a judgment that fails is remembered by the file's key and the tools' stamp, `files.judge_failed`, and tried again
+only when either changes). Still open: `execute.py`, `ops.py`, `upgrades.py` and `tidy.py` call `run_op` on the entry
+view (its own stage).
 
 Noted while moving the engine onto `library.db` (`docs/archive/2026-10-23-library-stage-1-plan.md`, group 3).
 
@@ -126,9 +126,6 @@ Noted while moving the engine onto `library.db` (`docs/archive/2026-10-23-librar
   `db.save`): the `run_op` callers `execute.py`, `ops.py` and `upgrades.py`, and the folder moves of `tidy.py`. The
   import, the folders and the file journal (`move_files`) write songs and files explicitly. Move the rest the same
   way when a stage touches them.
-- **A replaced file the quality check can never read** is judged again, with a warning, on every sync. That is on purpose
-  (a check that fails once, say with ffmpeg missing, must be tried again), so a fix needs a record of the failed key (a
-  schema change) or moving the retry to the import's sound check (`import_state` `unreadable`); not decided.
 
 
 ## 24. Identify files by their sound (AcoustID) — agreed design, a stage after stage 6

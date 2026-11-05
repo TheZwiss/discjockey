@@ -27,7 +27,7 @@ from .models import (OWN_PREFIX, AddedFolder, BatchRow, DupFile, DuplicateGroup,
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 NEWER = ("This music folder was last used by a newer Discjockey. Update Discjockey, then try again. "
          "Nothing was changed.")
@@ -148,6 +148,13 @@ SCHEMA_V5_STEP = (
 )
 
 
+# Leftovers round C3 (issue 25): the key + tools of a judgment that failed (`judge_failed`, see
+# `record_judge_failure`), so a file the check can never read is not judged again at every scan
+SCHEMA_V6_STEP = (
+    "ALTER TABLE files ADD COLUMN judge_failed TEXT",
+)
+
+
 def _statements(statements: tuple[str, ...]) -> Callable[[sqlite3.Connection], None]:
     def step(conn: sqlite3.Connection) -> None:
         for statement in statements:  # one execute each: executescript would commit mid-transaction
@@ -160,7 +167,8 @@ def _statements(statements: tuple[str, ...]) -> Callable[[sqlite3.Connection], N
 UPGRADES: dict[int, Callable[[sqlite3.Connection], None]] = {1: _statements(SCHEMA_V2_STEP),
                                                            2: _statements(SCHEMA_V3_STEP),
                                                            3: _statements(SCHEMA_V4_STEP),
-                                                           4: _statements(SCHEMA_V5_STEP)}
+                                                           4: _statements(SCHEMA_V5_STEP),
+                                                           5: _statements(SCHEMA_V6_STEP)}
 
 
 class _Connection(sqlite3.Connection):
@@ -650,7 +658,8 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
     released = {old["id"]: old for _, _, old, new in changed if old is not None and new != (old["folder"], old["path"])}
     released.update({f["id"]: f for song in removed if (f := linked.get(song)) is not None})
     n = 0
-    common = "size = ?, mtime_ns = ?, content_key = ?, " + ", ".join(f"{k} = ?" for k in QUALITY)
+    common = ("size = ?, mtime_ns = ?, content_key = ?, " + ", ".join(f"{k} = ?" for k in QUALITY)
+              + ", judge_failed = NULL")
     for song, e, old, new in changed:
         if new is None:
             continue
@@ -787,7 +796,8 @@ def pending_ops(conn: sqlite3.Connection) -> list[dict]:
 
 
 def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
-               judged: Mapping[int, tuple[str, int | None, str]] | None = None) -> int:
+               judged: Mapping[int, tuple[str, int | None, str]] | None = None,
+               failed: Mapping[int, str] | None = None) -> int:
     """Writes a ScanResult in one transaction (rules: the ScanResult docstring), together with the quality `judged`
     for replaced files (file id -> status, cutoff, source format; set_quality), so a replaced file's new key is never
     recorded without its new quality. Offline folders' rows are marked
@@ -799,7 +809,8 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
     row is deleted and its song's file marked gone today (an own song is deleted with it).
     Held rows keep everything but are marked held (the snapshot's `held`: the planner leaves their songs alone, as
     offline ones); unreadable rows stay as they are (a file the drive lists but can't open, new in an import folder,
-    gets an unreadable row with NOT_OPENABLE as its reason). Returns the rows written."""
+    gets an unreadable row with NOT_OPENABLE as its reason). `failed`: file id -> failure_stamp of a judgment that
+    failed (record_judge_failure, in the same transaction). Returns the rows written."""
     stamp, today = now.isoformat(timespec="seconds"), now.date().isoformat()
     n = scanned = 0  # scanned: last_scan stamps, which no snapshot shows (they don't bump the generation)
     with transaction(conn):
@@ -856,6 +867,8 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
             n += _drop_fileless_own(conn) + _drop_dead_decisions(conn)
         for file_id, (status, cutoff_hz, source_format) in (judged or {}).items():
             n += set_quality(conn, file_id, status, cutoff_hz, source_format)
+        for file_id, stamp_of_failure in (failed or {}).items():
+            scanned += record_judge_failure(conn, file_id, stamp_of_failure)
         if n:
             _bump(conn)
     return n + scanned
@@ -866,8 +879,8 @@ def set_quality(conn: sqlite3.Connection, file_id: int, status: str, cutoff_hz: 
     """A file judged again after its audio was replaced outside Discjockey: it is no longer the download it was, so
     it counts as the user's own file (source 'manual', as a bought file) with the quality it has now."""
     n = conn.execute("UPDATE files SET status = ?, cutoff_hz = ?, source_format = ?, source = 'manual', "
-                     "source_id = NULL, source_kbps = NULL, source_how = NULL WHERE id = ?",
-                     (status, cutoff_hz, source_format, file_id)).rowcount
+                     "source_id = NULL, source_kbps = NULL, source_how = NULL, judge_failed = NULL "
+                     "WHERE id = ?", (status, cutoff_hz, source_format, file_id)).rowcount
     if n:
         _bump(conn)
     return n
@@ -1223,7 +1236,8 @@ def set_sound(conn: sqlite3.Connection, file_id: int, status: str, cutoff_hz: in
         if row is not None and row[0] is None:
             raise ValueError(f"file {file_id} has no song yet; its sound is judged after its tags are read")
         if conn.execute("UPDATE files SET status = ?, cutoff_hz = ?, source_kbps = ?, import_state = 'done', "
-                        "import_error = NULL WHERE id = ?", (status, cutoff_hz, source_kbps, file_id)).rowcount:
+                        "import_error = NULL, judge_failed = NULL WHERE id = ?",
+                        (status, cutoff_hz, source_kbps, file_id)).rowcount:
             _bump(conn)
 
 
@@ -1234,6 +1248,27 @@ def set_unreadable(conn: sqlite3.Connection, file_id: int, reason: str) -> None:
         if conn.execute("UPDATE files SET import_state = 'unreadable', import_error = ? WHERE id = ?",
                         (reason, file_id)).rowcount:
             _bump(conn)
+
+
+# --- a judgment that failed (issue 25) ---
+# A judgment that fails is remembered as the file's key plus the tools' stamp (quality.tools_stamp), and tried again
+# only when either changes.
+
+
+def failure_stamp(content_key: str | None, tools: str) -> str:
+    """What `files.judge_failed` holds for a judgment of this content that failed with these tools."""
+    return f"{content_key or ''}|{tools}"
+
+
+def record_judge_failure(conn: sqlite3.Connection, file_id: int, stamp: str) -> int:
+    """Notes that judging the file failed (a failure_stamp), so the same content with the same tools is not tried
+    again. Nothing the snapshot holds: no generation bump. Returns the rows written."""
+    return conn.execute("UPDATE files SET judge_failed = ? WHERE id = ?", (stamp, file_id)).rowcount
+
+
+def judge_failures(conn: sqlite3.Connection) -> dict[int, str]:
+    """The failure_stamp of every file whose last judgment failed, by file id."""
+    return dict(conn.execute("SELECT id, judge_failed FROM files WHERE judge_failed IS NOT NULL"))
 
 
 def _drop_fileless_own(conn: sqlite3.Connection) -> int:
@@ -1350,12 +1385,26 @@ def _import_folder(conn: sqlite3.Connection, folder_id: int) -> None:
         raise ValueError("the Library folder is always watched")
 
 
+def _recorded_tracks(conn: sqlite3.Connection) -> tuple[bool, dict[str, tuple[str, str, int | None]]]:
+    """(whether any playlist has been read and recorded, the recorded tracks by token: first artist, title, length),
+    the first listing of a token in playlist order. What the playlists held at their last read, which is what the
+    next plan starts from."""
+    reads = conn.execute("SELECT EXISTS (SELECT 1 FROM playlist_reads)").fetchone()[0] == 1
+    tracks: dict[str, tuple[str, str, int | None]] = {}
+    for tok, artist, title, ms in conn.execute(
+            "SELECT t.token, t.artist, t.title, t.duration_ms FROM playlist_tracks t ORDER BY t.playlist, t.position"):
+        tracks.setdefault(tok, (artist, title, ms))
+    return reads, tracks
+
+
 def _waiting_links(conn: sqlite3.Connection, folder_id: int) -> int:
     """The playlist songs that would take a file of the folder at the next plan but have not yet (planner._resolve
     and its rule 2): an own song whose files are all in the folder, linked to a song by a "same" answer (the song
-    may not be stored yet: the answer names its track token), else to a stored playlist song with no file that
-    identify.compare finds certain. An own song serves one playlist song, as in the plan. Removing the folder
-    takes the file away, so these download too."""
+    may not be stored yet: the answer names its track token, and the track must still be in a playlist at its last
+    read, unless none was recorded), else to a playlist song that identify.compare finds certain: a stored one with
+    no file, or a track of the last read the plan has not stored yet (compared by name and length: the record has no
+    ISRC). An own song serves one playlist song, as in the plan. Removing the folder takes the file away, so these
+    download too."""
     own = conn.execute(
         f"SELECT s.key, s.artist, s.title, s.duration_ms, s.isrc FROM songs s WHERE {_IS_OWN_ONLY} AND EXISTS "
         "(SELECT 1 FROM files f WHERE f.song = s.id AND f.folder = ?1) AND NOT EXISTS "
@@ -1370,6 +1419,7 @@ def _waiting_links(conn: sqlite3.Connection, folder_id: int) -> int:
     tokens: dict[int, set[str]] = {}
     for tok, song in song_of.items():
         tokens.setdefault(song, set()).add(tok)
+    reads, recorded = _recorded_tracks(conn)
     answers = conn.execute("SELECT a, b, answer FROM decisions WHERE kind = 'same_song'").fetchall()
     not_same = {(a, b) for a, b, answer in answers if answer == "not_same"}
     taken: set[str] = set()
@@ -1377,18 +1427,27 @@ def _waiting_links(conn: sqlite3.Connection, folder_id: int) -> int:
     for a, b, answer in answers:
         if answer == "same" and b in by_key and b not in taken:
             song = song_of.get(a)
+            if song is None and reads and a not in recorded:
+                continue  # the track left every playlist: nothing is downloaded for it
             if song is None or song in open_songs:
                 taken.add(b)
                 waiting.add(a if song is None else song)
-    for song, (_, artist, title, ms, isrc) in open_songs.items():
-        if song in waiting:
-            continue
+
+    def match(artist: str, title: str, ms: int | None, isrc: str | None, rejects: Collection[str]) -> str | None:
         for b, e in by_key.items():
-            if (b not in taken and not any((a, b) in not_same for a in tokens.get(song, ()))
+            if (b not in taken and not any((a, b) in not_same for a in rejects)
                     and (m := compare(artist, title, ms, isrc, e)) is not None and m[0] == "certain"):
-                taken.add(b)
-                waiting.add(song)
-                break
+                return b
+        return None
+
+    for song, (_, artist, title, ms, isrc) in open_songs.items():
+        if song not in waiting and (b := match(artist, title, ms, isrc, tokens.get(song, ()))) is not None:
+            taken.add(b)
+            waiting.add(song)
+    for tok, (artist, title, ms) in recorded.items():  # tracks the plan has not stored yet, in playlist order
+        if tok not in song_of and tok not in waiting and (b := match(artist, title, ms, None, (tok,))) is not None:
+            taken.add(b)
+            waiting.add(tok)
     return len(waiting)
 
 
@@ -1419,6 +1478,10 @@ def _unlink_own_keys(conn: sqlite3.Connection, folder_id: int) -> None:
         if alias is not None:
             conn.execute("DELETE FROM song_ids WHERE song = ? AND service = ? AND id = ?", (song, *split_token(key)))
             conn.execute("UPDATE songs SET key = ? WHERE id = ?", (token(*alias), song))
+            named = conn.execute("SELECT artist, title FROM playlist_tracks WHERE token = ? ORDER BY playlist, position "
+                                 "LIMIT 1", (token(*alias),)).fetchone()
+            if named is not None:  # the playlist's name again, not the file's tags it took over
+                conn.execute("UPDATE songs SET artist = ?, title = ? WHERE id = ?", (*named, song))
 
 
 def remove_watched_folder(conn: sqlite3.Connection, folder_id: int, today: date) -> RemovalCounts:

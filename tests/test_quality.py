@@ -223,3 +223,20 @@ def test_the_quality_line_of_a_file_whose_sound_is_not_checked_yet_gives_no_verd
     assert quality_line("manual", "mp3", "not_lossless", None, own=True, checked=False) == (
         "Your own file (MP3) · lossy, sound not checked yet")
     assert quality_line("manual", "pcm_s16le", "lossless", None, own=True) == "Your own file (PCM) · verified lossless"
+
+
+def test_the_tools_stamp_changes_when_ffmpeg_or_ffprobe_appears_or_is_replaced(tmp_path, monkeypatch):
+    from discjockey.quality import tools_stamp
+    monkeypatch.setenv("PATH", str(tmp_path))
+    missing = tools_stamp()
+    assert tools_stamp() == missing  # no program is started: the same answer every time
+    (tmp_path / "ffmpeg").write_text("#!/bin/sh\n")
+    (tmp_path / "ffmpeg").chmod(0o755)
+    one = tools_stamp()
+    assert one != missing
+    (tmp_path / "ffprobe").write_text("#!/bin/sh\n")
+    (tmp_path / "ffprobe").chmod(0o755)
+    both = tools_stamp()
+    assert both not in (missing, one)
+    (tmp_path / "ffmpeg").write_text("#!/bin/sh\necho newer\n")  # an updated ffmpeg: another size
+    assert tools_stamp() != both

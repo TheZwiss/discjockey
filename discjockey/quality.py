@@ -1,7 +1,10 @@
 """Spectral cutoff analysis (detects lossy sources), probing, and the verdict rules."""
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,6 +46,21 @@ class AudioInfo:
     sample_rate: int
     duration_s: float
     kbps: int | None = None  # the whole file's average bitrate (for lossy files, the codec's)
+
+
+def tools_stamp() -> str:
+    """Which ffmpeg and ffprobe would run now: their place, size and change time (no program is started), or "-"
+    for one that isn't found. A judgment that failed is tried again when this changes (they were installed or
+    updated)."""
+    parts = []
+    for name in ("ffmpeg", "ffprobe"):
+        found = shutil.which(name)
+        try:
+            st = os.stat(found) if found else None
+        except OSError:
+            st = None
+        parts.append(f"{found}:{st.st_size}:{st.st_mtime_ns}" if found and st else "-")
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
 
 
 def probe(path: Path) -> AudioInfo:
