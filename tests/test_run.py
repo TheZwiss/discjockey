@@ -829,6 +829,71 @@ def test_a_run_never_reads_liked_music_while_the_youtube_account_is_paused(liked
     assert_kept_like_a_failed_read(prep)
 
 
+def test_a_sign_waiting_for_the_lock_pauses_a_run_that_has_it_and_is_recorded_then(liked):
+    """A pasted Liked music link met a bot check while a job held the lock; the sign waits in a file. The next run
+    records it (with the time it was met) before it reads, and so does not ask the account."""
+    from discjockey import pacing, pending_signs
+
+    set_liked(liked)
+    pending_signs.add(liked, [("youtube", "bot_check", "m")], datetime.now())
+    prep = run.prepare(liked)
+    assert LikedYDL.created == [] and LikedYDL.requested == []
+    assert [fp.line.folder for fp in prep.fetched] == ["Hard_Bounce"]
+    assert [s["kind"] for s in library.load_state(liked)["youtube_usage"]["signals"]] == ["bot_check"]
+    assert not liked.pending_signs.exists()
+    assert_kept_like_a_failed_read(prep)
+    assert pacing.account_paused(prep.state, "youtube", date.today())
+
+
+def test_a_sign_waiting_for_the_lock_still_pauses_a_read_that_cannot_have_it(liked):
+    from discjockey import pending_signs
+
+    set_liked(liked)
+    pending_signs.add(liked, [("youtube", "bot_check", "m")], datetime.now())
+
+    @contextmanager
+    def not_ours():
+        yield False
+
+    prep = run.prepare(liked, lock=not_ours)
+    assert LikedYDL.created == [] and LikedYDL.requested == []  # paused by the waiting sign
+    assert len(pending_signs.load(liked)) == 1  # nothing was written, so it still waits
+    assert not library.load_state(liked).get("youtube_usage", {}).get("signals")
+    assert_kept_like_a_failed_read(prep)
+
+
+def test_a_bot_check_met_by_a_read_that_cannot_have_the_lock_waits_in_the_file(liked):
+    from discjockey import pending_signs
+
+    set_liked(liked)
+    LikedYDL.error = Exception("Sign in to confirm you're not a bot")
+
+    @contextmanager
+    def not_ours():
+        yield False
+
+    prep = run.prepare(liked, lock=not_ours)
+    assert [s["kind"] for s in pending_signs.load(liked)] == ["bot_check"]
+    assert not library.load_state(liked).get("youtube_usage", {}).get("signals")  # nothing could be written
+    assert [s["kind"] for s in prep.state["youtube_usage"]["signals"]] == ["bot_check"]  # but this plan knows it
+    run.prepare(liked)  # the next run holds the lock: written once, and read no more today
+    assert [s["kind"] for s in library.load_state(liked)["youtube_usage"]["signals"]] == ["bot_check"]
+    assert len(LikedYDL.requested) == 1 and not liked.pending_signs.exists()
+
+
+def test_a_sign_waiting_from_yesterday_does_not_pause_today_and_is_recorded_with_its_own_day(liked):
+    from datetime import timedelta
+    from discjockey import pending_signs
+
+    set_liked(liked)
+    yesterday = datetime.now() - timedelta(days=1)
+    pending_signs.add(liked, [("youtube", "bot_check", "m")], yesterday)
+    run.prepare(liked)
+    assert LikedYDL.requested == [LM_LINK]  # read as usual
+    signs = library.load_state(liked)["youtube_usage"]["signals"]
+    assert signs[0]["time"].startswith(yesterday.date().isoformat())
+
+
 def test_a_paused_liked_music_keeps_a_song_that_left_its_higher_playlist_by_the_stored_read(liked):
     """The song is in Liked music and in Hard_Bounce (its folder), and was removed from Hard_Bounce: Liked music is
     not read today, but its last stored read still holds the song."""

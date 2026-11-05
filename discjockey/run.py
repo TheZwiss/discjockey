@@ -17,7 +17,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Callable
 
-from . import config, db, library, planner, playlists_file, quality, report as rep, sources
+from . import config, db, library, pending_signs, planner, playlists_file, quality, report as rep, sources
 from .accounts import ACCOUNTS
 from .acquire import Acquirer, make_ready
 from .events import ActionStarted, Cancelled, CancelToken, Emit, Message, Result, RunFinished, no_emit
@@ -94,6 +94,8 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
         settings = load_settings(paths.settings_file)
         with lock() as held:
             state = _open(paths, log, emit, dry_run=dry_run) if held else library.load_state(paths)
+            if held:  # signs a read outside a run met while the lock was not ours are recorded first (they pause)
+                state = record_pending(paths, state, lock_held, dry_run)
         import_waiting = library.import_left(paths)
     except config.ConfigError as e:
         raise SetupProblem(str(e), e.kind) from None
@@ -111,7 +113,7 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
     unread: list[PlaylistLine] = []  # lines not read because of a pause: like a failed read, their songs stay in
     try:
         fetched = sources.read(paths, lines, emit=emit, token=token, want_info=want_info,
-                               paused=paused_accounts(state, date.today()),
+                               paused=paused_now(paths, state, date.today()),
                                on_signal=lambda *sign: signs.append(sign), unread=unread)
     except sources.SourceError as e:
         raise SetupProblem(str(e), e.kind, e.service) from None
@@ -275,23 +277,60 @@ def record_signs(paths: Paths, state: dict, signs: list[tuple[str, str, str]],
     """Records the warning signs a read made with an account's login met, as a download's would be (sources-round D6:
     the account is then paused for the next Liked music reads, and Settings shows the sign). Needs the library lock
     like any state write; where the caller couldn't get it (a preview while a terminal run holds it) or there is no
-    library.db yet, the signs only go into the snapshot the plan works on. Returns the snapshot to plan on: the
-    stored one again after a write, since a save bumps its generation."""
+    library.db yet, the signs go into the snapshot the plan works on and wait in pending_signs.json for the next
+    caller that holds the lock (record_pending). Returns the snapshot to plan on: the stored one again after a
+    write, since a save bumps its generation."""
     now = datetime.now()
+    state, stored = _store_signs(paths, state, [(s, k, m, now) for s, k, m in signs], lock, dry_run)
+    if not stored:
+        pending_signs.add(paths, signs, now)
+        for service, kind, message in signs:
+            record_signal(state, kind, message, now, service)
+    return state
+
+
+def _store_signs(paths: Paths, state: dict, signs: list[tuple[str, str, str, datetime]],
+                 lock: Callable[[], AbstractContextManager[bool]], dry_run: bool) -> tuple[dict, bool]:
+    """Writes the signs ((service, kind, message, time met)) into library.db under `lock`. Returns the stored
+    snapshot and True, or `state` as it was and False when nothing could be written."""
     if paths.db_file.exists():
         try:
             with lock() as held:
                 if held:
                     on_disk = library.open_state(paths) if not dry_run else library.load_state(paths)
-                    for service, kind, message in signs:
-                        record_signal(on_disk, kind, message, now, service)
+                    for service, kind, message, met in signs:
+                        record_signal(on_disk, kind, message, met, service)
                     library.save_state(paths, on_disk)
-                    return library.load_state(paths)
+                    return library.load_state(paths), True
         except (StateError, OSError) as e:
             logger.warning("couldn't record the warning signs of a read: %s", e)
-    for service, kind, message in signs:
-        record_signal(state, kind, message, now, service)
+    return state, False
+
+
+def record_pending(paths: Paths, state: dict, lock: Callable[[], AbstractContextManager[bool]], dry_run: bool) -> dict:
+    """Writes the signs that waited for the library lock (pending_signs.py) into library.db, with the time they were
+    met, and clears them from the file once stored. Called wherever the lock is held: a run's prepare, a hub job's
+    start, the hub's start, a paste or preview. Where nothing can be written they stay in the file. Returns the
+    snapshot to plan on (the stored one after a write, else `state` as given)."""
+    waiting = pending_signs.load(paths)
+    if not waiting:
+        return state
+    entries = []
+    for s in waiting:
+        try:
+            met = datetime.fromisoformat(str(s["time"]))
+        except ValueError:
+            met = datetime.now()
+        entries.append((str(s["service"]), str(s["kind"]), str(s["message"]), met))
+    state, stored = _store_signs(paths, state, entries, lock, dry_run)
+    if stored:
+        pending_signs.remove(paths, waiting)
     return state
+
+
+def paused_now(paths: Paths, state: dict, today: date) -> frozenset[str]:
+    """The account services paused today: by the recorded signs in `state` and by signs still waiting for the lock."""
+    return paused_accounts(state, today) | pending_signs.paused(paths, today)
 
 
 def account_budgets(state: dict, save: Callable[[], None], settings: Settings) -> dict[str, Budget]:

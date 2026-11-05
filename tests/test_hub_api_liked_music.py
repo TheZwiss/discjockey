@@ -10,7 +10,8 @@ import pytest
 import yt_dlp
 from hub_helpers import fake_spotify, make_api, make_root, refreshed, wait_job
 
-from discjockey import library, pacing
+from discjockey import library, pacing, pending_signs
+from discjockey.library import Resolved
 from discjockey import playlists_file as pf
 from discjockey.settings import Account, Settings, load_settings, save_settings
 from discjockey.sources import youtube_music
@@ -227,10 +228,8 @@ def test_a_bot_check_met_by_the_change_preview_is_recorded_as_the_accounts_warni
     assert pacing.account_paused(library.load_state(root), "youtube", datetime.now().date())  # the real clock here
 
 
-def test_a_sign_met_while_the_lock_is_not_ours_waits_and_is_written_by_the_next_call(root, monkeypatch):
-    api, _ = make_api(root)
-    settings(root)
-    LikedYDL.error = Exception("Sign in to confirm you're not a bot")
+def lock_not_ours(api, monkeypatch):
+    """A sync, a scan or a terminal run holds the library lock: scan_lock yields False. Returns the real one."""
     real = api._jobs.scan_lock
 
     @contextmanager
@@ -238,14 +237,69 @@ def test_a_sign_met_while_the_lock_is_not_ours_waits_and_is_written_by_the_next_
         yield False
 
     monkeypatch.setattr(api._jobs, "scan_lock", not_ours)
+    return real
+
+
+def stored_kinds(root):
+    return [s["kind"] for s in library.load_state(root).get("youtube_usage", {}).get("signals", [])]
+
+
+def test_a_sign_met_while_the_lock_is_not_ours_waits_in_a_file_and_is_written_by_the_next_call(root, monkeypatch):
+    api, _ = make_api(root, now=datetime.now)
+    settings(root)
+    LikedYDL.error = Exception("Sign in to confirm you're not a bot")
+    real = lock_not_ours(api, monkeypatch)
     assert api.add_playlist(LM_LINK)["kind"] == "offline"
-    assert not library.load_state(root).get("youtube_usage", {}).get("signals")  # nothing could be written yet
-    assert len(api._unrecorded_signs) == 1
+    assert stored_kinds(root) == []  # nothing could be written yet
+    assert [s["kind"] for s in pending_signs.load(root)] == ["bot_check"]  # but it is kept, on disk
     monkeypatch.setattr(api._jobs, "scan_lock", real)
     LikedYDL.error = None
-    assert api.add_playlist(LM_LINK)["ok"]  # the waiting sign is written at the start of the next paste
-    assert api._unrecorded_signs == []
-    assert [s["kind"] for s in library.load_state(root)["youtube_usage"]["signals"]] == ["bot_check"]
+    answer = api.add_playlist(LM_LINK)  # the waiting sign is written at the start of the next paste ...
+    assert (answer["ok"], answer["kind"]) == (False, "offline") and answer["message"] == youtube_music.LIKED_RESTING
+    assert pending_signs.load(root) == [] and not root.pending_signs.exists()
+    assert stored_kinds(root) == ["bot_check"]
+
+
+def test_a_waiting_sign_already_pauses_the_account_and_survives_a_restart(root, monkeypatch):
+    api, _ = make_api(root, now=datetime.now)
+    settings(root)
+    LikedYDL.error = Exception("Sign in to confirm you're not a bot")
+    lock_not_ours(api, monkeypatch)
+    assert api.add_playlist(LM_LINK)["kind"] == "offline"
+    assert len(LikedYDL.requested) == 1
+    LikedYDL.error = None
+    api2, _ = make_api(root, now=datetime.now)  # the app closed and opened again; the sign was never written to library.db
+    lock_not_ours(api2, monkeypatch)
+    assert stored_kinds(root) == []
+    answer = api2.add_playlist(LM_LINK)  # still waiting for the lock, and the account is still paused
+    assert (answer["kind"], answer["message"]) == ("offline", youtube_music.LIKED_RESTING)
+    api2.preview_playlist_change([{"folder": "Liked_music", "link": LM_LINK, "enabled": True}])
+    assert len(LikedYDL.requested) == 1  # no second request to YouTube
+    assert len(pending_signs.load(root)) == 1  # and not recorded twice
+
+
+def test_the_start_records_the_signs_the_last_session_left_waiting(root, monkeypatch):
+    api, _ = make_api(root)
+    settings(root)
+    LikedYDL.error = Exception("Sign in to confirm you're not a bot")
+    lock_not_ours(api, monkeypatch)
+    api.add_playlist(LM_LINK)
+    api2, _ = make_api(root)
+    monkeypatch.setattr(api2, "_bind", lambda paths: None)
+    monkeypatch.setattr(api2, "_first_read", lambda: None)
+    api2._start(Resolved(root.support, root, None, None))
+    assert stored_kinds(root) == ["bot_check"] and not root.pending_signs.exists()
+
+
+def test_a_write_job_records_the_waiting_signs_when_it_holds_the_lock(root, monkeypatch):
+    api, rec = make_api(root)
+    settings(root)
+    LikedYDL.error = Exception("Sign in to confirm you're not a bot")
+    real = lock_not_ours(api, monkeypatch)
+    api.add_playlist(LM_LINK)
+    monkeypatch.setattr(api._jobs, "scan_lock", real)  # the real lock again; the job below needs nothing from YouTube
+    assert wait_job(api, rec, api.set_read_liked_music(False)).ok
+    assert stored_kinds(root) == ["bot_check"] and not root.pending_signs.exists()
 
 
 def test_a_changed_plan_preview_does_not_read_a_liked_music_line_that_is_off(root):

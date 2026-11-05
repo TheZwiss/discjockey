@@ -46,7 +46,7 @@ from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchRes
                       PlaylistRecord, SaveChoice, SourceTrack, WatchedFolder, token)
 from ..names import fold
 from ..ops import OpProblem, snapshot
-from .. import pacing
+from .. import pending_signs
 from ..pacing import Budget
 from ..qobuz import QobuzError, QobuzLoginRejected, QobuzNotSetUp, QobuzSource, config_file, login_problem
 from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, load_settings, save_settings
@@ -285,12 +285,11 @@ class HubApi:
                                             fetch=lambda url: self._svc.fetch_release(url))
         self._media = media  # MediaServer, or None (no audio or covers)
         self._jobs = Jobs(None, self._emit, now=self._svc.now)
+        self._jobs.on_locked = self._record_waiting_signs  # a write job starts: signs that waited for the lock go in
         self._settings_mutex = threading.Lock()  # settings.json: read, change, save — one at a time
         self._store = PreviewStore()
         self._infos: dict = {}  # playlist ref -> models.PlaylistInfo
         self._extra_tracks: dict = {}  # playlist ref -> tracks of playlists read outside a refresh
-        self._unrecorded_signs: list[tuple[str, str, str]] = []  # warning signs not written yet (_record_signs)
-        self._signs_mutex = threading.Lock()
         self._shown: dict[str, dict] = {}  # track id -> how the page last showed it (ops.snapshot)
         self._selected: str | None = None
         self._dropped: dict | None = None
@@ -361,6 +360,10 @@ class HubApi:
         """At launch (app.main): bind the library when the music folder is there, else remember why not."""
         if resolved.paths is not None:
             self._bind(resolved.paths)
+            try:  # signs the last session left waiting for the lock (a read made while a sync ran)
+                self._record_signs([])
+            except Exception:  # noqa: BLE001 - best-effort: the first job or read tries again
+                log.warning("recording the waiting warning signs failed", exc_info=True)
             self._first_read()
         elif resolved.problem == "missing":
             with self._music_lock:
@@ -430,17 +433,23 @@ class HubApi:
 
     def _record_signs(self, signs: list[tuple[str, str, str]]) -> None:
         """Records the warning signs a Liked music read met outside a sync (a pasted link, the change preview), as a
-        download's would be: written into library.db under the library lock when this can have it. When a sync, a
-        scan or a terminal run holds the lock, the signs wait here (not lost) and are written by the next call, so
-        the account is paused for the next Liked music reads. Called with no signs, it only writes what waits."""
-        with self._signs_mutex:
-            self._unrecorded_signs.extend(signs)
-            if not self._unrecorded_signs:
-                return
-            with self._jobs.scan_lock() as held:
-                if held:
-                    waiting, self._unrecorded_signs = self._unrecorded_signs, []
-                    run.record_signs(self._paths, self._state(), waiting, run.lock_held, False)
+        download's would be. They are kept in the library's pending_signs.json first (so they survive the app closing
+        and already count for the pause), then written into library.db under the library lock when this can have it.
+        When a sync, a scan or a terminal run holds the lock they wait in the file, and the next job, the next start,
+        paste or preview writes them. Called with no signs, it only writes what waits."""
+        pending_signs.add(self._paths, signs, datetime.now())
+        if not self._paths.pending_signs.exists():
+            return
+        with self._jobs.scan_lock() as held:
+            if held:
+                run.record_pending(self._paths, self._state(), run.lock_held, False)
+
+    def _record_waiting_signs(self) -> None:
+        self._record_signs([])
+
+    def _paused_accounts(self) -> frozenset[str]:
+        """The account services paused today, counting the signs still waiting for the library lock."""
+        return run.paused_now(self._paths, self._state(), self._today())
 
     def _images(self) -> dict[str, str]:
         prep = self._store.prep
@@ -1158,7 +1167,7 @@ class HubApi:
         reader = source.open(self._support, CancelToken())
         signs: list[tuple[str, str, str]] = []
         reader.on_signal = lambda *sign: signs.append(sign)
-        reader.paused = pacing.paused_accounts(self._state(), self._today())  # the reader refuses Liked music while paused (D6)
+        reader.paused = self._paused_accounts()  # the reader refuses Liked music while paused (D6)
         try:
             tracks, fetched = None, None
             if service in ONE_READ_SERVICES:  # their info always comes with a fetch: one read answers both
@@ -1192,30 +1201,32 @@ class HubApi:
         rows = rows_from(lines)
         tracks = self._tracks_by_id()
         unread = [r for r in rows if r.enabled and r.ref not in tracks]
-        paused = pacing.paused_accounts(self._state(), self._today())
+        paused = self._paused_accounts()
         signs: list[tuple[str, str, str]] = []
-        for service in dict.fromkeys(r.service for r in unread):  # one reader per service; a failing one is skipped
-            source = sources.SOURCES[service]
-            if not source.login_state(self._support).connected:
-                continue
-            try:
-                reader = source.open(self._support, CancelToken())
-            except sources.SourceError:
-                continue
-            reader.on_signal = lambda *sign: signs.append(sign)  # a bot check met by the Liked music read
-            reader.paused = paused  # the reader refuses Liked music while its account is paused or the choice is off
-            try:
-                for r in (r for r in unread if r.service == service):
-                    try:
-                        found = sources.recognise(r.link)
-                        if found is None or (service == "soundcloud" and found[1] == SOUNDCLOUD_YOU):
-                            continue  # not a playlist; or your likes, whose read opens the browser login (Keychain)
-                        self._extra_tracks[r.ref] = reader.fetch(PlaylistLine("x", found[1], 0, service)).tracks
-                    except sources.SourceError:
-                        continue
-            finally:
-                self._close(reader)
-        self._record_signs(signs)
+        try:
+            for service in dict.fromkeys(r.service for r in unread):  # one reader per service; a failing one is skipped
+                source = sources.SOURCES[service]
+                if not source.login_state(self._support).connected:
+                    continue
+                try:
+                    reader = source.open(self._support, CancelToken())
+                except sources.SourceError:
+                    continue
+                reader.on_signal = lambda *sign: signs.append(sign)  # a bot check met by the Liked music read
+                reader.paused = paused  # the reader refuses Liked music while its account is paused or the choice is off
+                try:
+                    for r in (r for r in unread if r.service == service):
+                        try:
+                            found = sources.recognise(r.link)
+                            if found is None or (service == "soundcloud" and found[1] == SOUNDCLOUD_YOU):
+                                continue  # not a playlist; or your likes, whose read opens the browser login (Keychain)
+                            self._extra_tracks[r.ref] = reader.fetch(PlaylistLine("x", found[1], 0, service)).tracks
+                        except sources.SourceError:
+                            continue
+                finally:
+                    self._close(reader)
+        finally:
+            self._record_signs(signs)
         if unread:
             tracks = self._tracks_by_id()
         problem = None

@@ -19,7 +19,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Callable
 
-from .. import (config, db, events as ev, folders, importer, library, pacing, playlists_file, qobuz, report as rep, run,
+from .. import (config, db, events as ev, folders, importer, library, playlists_file, qobuz, report as rep, run,
                 settings, sources, upgrades)
 from ..events import Cancelled, CancelToken, Emit
 from ..library import LockHeld, Paths
@@ -330,6 +330,7 @@ class Jobs:
         self._watch: threading.Thread | None = None
         self._closed = threading.Event()
         self._holder = threading.local()  # .on: this thread is a write job's and holds the engine lock
+        self.on_locked: Callable[[], None] | None = None  # called in a write job's thread once it holds the lock
         self._brief = False  # lock_briefly or a scan holds (or is about to take) the engine lock: no terminal run
         self._scanning = False  # scan_lock holds the engine lock (without the mutex): writers answer busy
         self._briefs = 0  # how many times lock_briefly has taken it (a probe that overlapped one doesn't count)
@@ -492,6 +493,15 @@ class Jobs:
             self.emit(event)
         return emit
 
+    def _at_lock(self) -> None:
+        """A write job has the lock: the hub's `on_locked` hook runs (it records the warning signs that waited for the
+        lock). Never fails the job."""
+        if self.on_locked is not None:
+            try:
+                self.on_locked()
+            except Exception:  # noqa: BLE001
+                log.warning("the hook at the start of a write job failed", exc_info=True)
+
     def _run(self, job: Job, work, write: bool) -> None:
         emit = self._job_emit(job)
         emit(JobStarted(job.id, job.kind, job.track_id))
@@ -503,6 +513,7 @@ class Jobs:
                 with lock, self.keep_awake("Discjockey is changing your library"):
                     self._holder.on = True
                     try:
+                        self._at_lock()
                         result = work(ctx)
                     finally:
                         self._holder.on = False
@@ -656,7 +667,7 @@ def refresh_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] 
             signs: list[tuple[str, str, str]] = []  # a warning sign met by a Liked music read (recorded as a download's)
             try:
                 read_infos(paths, [line.ref for line in prep.lines if line.ref not in known], infos, ctx.token,
-                           pacing.paused_accounts(prep.state, date.today()), lambda *sign: signs.append(sign))
+                           run.paused_now(paths, prep.state, date.today()), lambda *sign: signs.append(sign))
             finally:
                 if signs:
                     run.record_signs(paths, prep.state, signs, lock, True)
