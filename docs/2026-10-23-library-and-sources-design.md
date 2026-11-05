@@ -344,7 +344,7 @@ Qobuz allowance. Parked versions, swap and "Add as new file" work as in §7.
 ### 11.1 The browser column
 
 The agreed design is `docs/hub-mockups/design-system/library-layout.html` with its notes `library-layout-notes.md`;
-the plan is `docs/2026-10-29-library-stage-5-plan.md`. In short:
+the plan is `docs/archive/2026-10-29-library-stage-5-plan.md`. In short:
 
 1. In Library the app's sidebar folds into a 50 px **rail** of page icons, and a **browser column** (200–360 px, dragged
    by its edge) lists, top to bottom: **All tracks** and **Not in a playlist**; **Favourites** (the user's own order, by

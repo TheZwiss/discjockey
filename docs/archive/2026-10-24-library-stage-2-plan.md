@@ -2,7 +2,7 @@
 
 Spec: `docs/2026-10-23-library-and-sources-design.md` §8 (the spec), with §5.2 (`move_batches`, `moves`), §12 ("a
 move fails mid-tidy-up") and §13 ("Tidy-up", live check). Orchestration: `docs/2026-10-23-library-and-sources-orchestration.md`.
-Builds on stage 1 (`docs/2026-10-23-library-stage-1-plan.md`, its I1–I4). Stage branch: `feat/library-2-tidy-up`, off
+Builds on stage 1 (`docs/archive/2026-10-23-library-stage-1-plan.md`, its I1–I4). Stage branch: `feat/library-2-tidy-up`, off
 `feat/library-1-foundation`; both merge into `main` together and ship in one release (spec §4).
 
 **Goal:** files move to where the playlist order puts them only when the user says so (the "Tidy up files" button,

@@ -2,7 +2,7 @@
 
 Spec: `docs/2026-10-23-library-and-sources-design.md` §3 item 5, §4 row 6, §9 (all; this stage is §9.4 and §9.5),
 §12 ("a source can't read a playlist"), §13 ("Sources"). Orchestration: `docs/2026-10-23-library-and-sources-orchestration.md`.
-Builds on stage 3 (`docs/2026-10-24-library-stage-3-plan.md`: the source interface, tokens, linking, the exact
+Builds on stage 3 (`docs/archive/2026-10-24-library-stage-3-plan.md`: the source interface, tokens, linking, the exact
 Qobuz id). Stage branch: `feat/library-6-sources`, off `main`.
 
 **Goal:** SoundCloud sets and likes and YouTube Music playlists work in `playlists.txt` and on the Playlists page;

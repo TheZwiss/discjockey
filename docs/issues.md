@@ -63,7 +63,7 @@ Audit 2026-11-05: all points are still open. Missing: run reports still write `a
 `duration_s` only; `api.reveal` still refuses paths outside the music folder; there is no `set_crates_shown`;
 `set_favourites` still builds the sidebar view; `set_crate_shown` checks only the type of `path`.
 
-Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, step B (folders), task groups B2 to B7.
+Noted while building and reviewing `docs/archive/2026-10-29-library-stage-5-plan.md`, step B (folders), task groups B2 to B7.
 
 - **Own songs' folder in run reports:** an upgrade check of an imported song has `folder=""` (`planner.py`); Sync
   now names it via `views.action_folder`, but `run.py` (about line 231) still writes `a.folder` into the queued
@@ -108,7 +108,7 @@ Audit 2026-11-05: the point "No Playlist column in the track table" is closed (`
 Not in a playlist names the Folder). The rest is unchanged: pywebview is still `>=6.2.1,<7`, the selected row is still
 grey, the rule check and the other points were not re-run.
 
-Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, step A (the layout).
+Noted while building and reviewing `docs/archive/2026-10-29-library-stage-5-plan.md`, step A (the layout).
 
 - **Rail tooltips:** the shortcut shows as a grey key cap per the mockup, not the plan's I7 text "{Page} (⌘n)". The
   plan's I7 could be updated to match.
@@ -137,7 +137,7 @@ Audit 2026-11-05: the Format-row point is closed (sources round). Still missing:
 duplicate item's `in_playlists` is taken from one side (`views._duplicate_item`, the first side in a playlist); the
 other two points are unchanged.
 
-Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
+Noted while building and reviewing `docs/archive/2026-10-25-library-stage-4-plan.md`.
 
 - **To-do's list rows don't say a file is away** (fix K did the Library's): an Upgrade ready or Weak item whose file
   is on an ejected drive looks like any other row; only its panel says "Offline: connect the drive". `views.todo`
@@ -159,7 +159,7 @@ Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
 Audit 2026-11-05: both points are still open (`SourceTrack` has no `label`; `execute.py` still passes `qobuz=False` after a
 recent search).
 
-Noted while building and reviewing `docs/2026-10-24-library-stage-3-plan.md`.
+Noted while building and reviewing `docs/archive/2026-10-24-library-stage-3-plan.md`.
 
 - **A file downloaded by its exact Qobuz id gets no record-label tag.** `make_ready` writes `cand.label`, and the
   exact candidate is built from the playlist track, which has no label (`SourceTrack` has none). Fix: carry the label
@@ -174,7 +174,7 @@ Audit 2026-11-05: all points are still open. Missing: `execute.py`, `ops.py`, `u
 `run_op` on the entry view; `content_key._ogg` still reads every page header; the moved/adopted/conflicts labels are
 still in `report.py` and `console.py`; `library.open_records` still only emits the recovered steps as messages.
 
-Noted while moving the engine onto `library.db` (`docs/2026-10-23-library-stage-1-plan.md`, group 3).
+Noted while moving the engine onto `library.db` (`docs/archive/2026-10-23-library-stage-1-plan.md`, group 3).
 
 - **The sync's file steps still work on the entry view of the database** (the stage 1 seam: `db.snapshot` /
   `db.save`): the `run_op` callers `execute.py`, `ops.py` and `upgrades.py`, and the folder moves of `tidy.py`. The
