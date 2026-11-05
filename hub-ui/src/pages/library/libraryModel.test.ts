@@ -398,7 +398,7 @@ describe("NOT FOUND's tooltip gives To-do's next-try line", () => {
 });
 
 
-describe('a playlist view (D6, D9; issues #29 "For B6")', () => {
+describe('a playlist view (D6, D9): its rows, its queue and its count', () => {
   const lr = (id: string, over: Partial<LibraryRow> = {}): LibraryRow => ({ ...here(row(id, { title: id })), ...over });
   const waiting = (id: string, wait: LibraryRow['wait'] = 'waiting'): LibraryRow =>
     ({ ...here(row(id, { path: null, quality: 'missing', status: 'missing' }), 'no_file'), wait });
