@@ -1,0 +1,1 @@
+import{c as t,ai as e,N as n,dw as s,f as i}from"./index-Dkn9FzmN.js";import{E as r}from"./EmptyState-BF_QlAma.js";function h(a,o){t(o,!1),e(()=>n("unknown")),s(),r(a,{title:"Nothing here.",action:{label:"Go to the Dashboard →",href:"#/"}}),i()}export{h as default};
