@@ -101,6 +101,11 @@ export function editLine(a: Alignment | null | undefined): { tone: 'lossless' | 
  *  AIFF either way); an own or bought file has no source format, so its quality label stands in. */
 export const nowLabel = (t: Pick<TrackDetail, 'source_format_line' | 'quality_label'>): string =>
   t.source_format_line ?? t.quality_label;
+/** Now's Tip (notes problem 6): the value is what the AIFF was made from, which FORMAT in the details doesn't say. Only
+ *  for a download (a source format); an own or bought file's quality label needs no such word (the Tip then shows the
+ *  value itself when it is cut). */
+export const NOW_TIP = 'Your AIFF was made from this';
+export const nowTip = (t: Pick<TrackDetail, 'source_format_line'>): string | null => (t.source_format_line ? NOW_TIP : null);
 
 /** The main button: what replacing does, named by the result. */
 export function replaceLabel(up: Upgrade): string {

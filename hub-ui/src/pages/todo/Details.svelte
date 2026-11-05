@@ -15,7 +15,7 @@
   import { networkReadsAllowed } from '$lib/stores/hub';
   import { onEvent } from '$lib/bridge/events';
   import { toasts } from '$lib/stores/toasts';
-  import { NOT_WHILE_SYNC } from '$lib/copy';
+  import { NOT_WHILE_SYNC, sourceHowWords } from '$lib/copy';
   import { artistTitle, fileAway, fileAwayWords, qualityWords } from '$lib/format';
   import {
     Badge, Button, ExternalLink, Hint, KeyValue, MiniPlayer, NoteCard, QualityBadge, Spectrum, StatCard, Surface,
@@ -110,11 +110,10 @@
 {#snippet head()}
   <div class="details" data-test="details" data-track={track.track_id}>
     <Surface kind="card">
-      <TrackHead {track} place={track.folder} action={act.hide ? hideLink : undefined}>
-        <span class="state" data-test="details-state">
-          <QualityBadge quality={track.quality} label={track.quality_label} upgrade={track.upgrade_ready} />
-          <span class="words">{qualityWords(track.quality, track.quality_label)}</span>
-        </span>
+      <TrackHead {track} place={track.folder} action={act.hide ? hideLink : undefined} link={track.track_link}
+        word={qualityWords(track.quality, track.quality_label)}>
+        {#snippet badge()}<span data-test="details-state"><QualityBadge quality={track.quality} label={track.quality_label}
+          upgrade={track.upgrade_ready} titled={false} /></span>{/snippet}
       </TrackHead>
     </Surface>
 
@@ -161,9 +160,10 @@
           <div class="facts">
             {#if track.format_line}<KeyValue keyWidth={76} k="Format" v={track.format_line} />{/if}
             {#if track.source_full || track.source_url}
-              <KeyValue keyWidth={76} k="Source">
+              <!-- what the file was made from, and how it was found under it (sources round problems 4, 6), as in Library -->
+              <KeyValue keyWidth={76} k="Source" sub={sourceHowWords(track.source_how)}>
                 {#if track.source_url}<ExternalLink href={track.source_url} label={track.source_full ?? track.source_url} />
-                {:else}{track.source_full}{/if}
+                {:else}{track.source_full}{/if}{#if track.source_format_line}{` · ${track.source_format_line}`}{/if}
               </KeyValue>
             {/if}
             {#if qobuz}<KeyValue keyWidth={76} k="Qobuz" v={qobuz} />{/if}
@@ -216,11 +216,6 @@
 
 <style>
   .details { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; }
-  /* the badge and its words (no "from …": the Source row in Current file says it, with its link). When both don't fit
-     in the column, the words go under the badge whole, never cut: the badge is up to 130 px wide */
-  .state { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2); min-width: 0; }
-  .words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted);
-    font-size: var(--fs-small); }
   .facts { display: flex; flex-direction: column; }
   .frees { display: flex; flex-direction: column; gap: var(--s-3); }
   .free { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
