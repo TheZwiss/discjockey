@@ -5,6 +5,9 @@ committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when
 
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them — needs a design round (user, 2026-10-31)
 
+Audit 2026-11-05: parked, nothing of it is built (no AIFF conversion of imported files, no rekordbox repoint; the New
+track choice still keeps the download as it is).
+
 The user's wish: files of their own (imported, MP3 or other lossy) end up as the library format (16-bit AIFF), with
 rekordbox's entry pointing at the new file automatically. Then every later upgrade is an in-place audio swap inside the
 same file ("Same track"), and cues and beatgrid stay exact. Two shapes to weigh in the design round:
@@ -43,6 +46,9 @@ services.
 
 ## 30. To-do decision panels leftovers
 
+Audit 2026-11-05: both points are still open (the subtitle in `todoModel.headerSub` and the grey step numbers in
+`NumberedSteps.svelte` are unchanged); nothing else is missing.
+
 Noted in the screenshot review of the To-do panels (2026-10-31).
 
 - **The To-do header's subtitle wraps to two lines at 1100×700 when there are questions** ("… not lossless yet · 1 question
@@ -51,6 +57,11 @@ Noted in the screenshot review of the To-do panels (2026-10-31).
   numbered-list block, so changing the colour there changes every numbered list; decide it centrally, not in To-do.
 
 ## 29. Library stage 5b leftovers (folders)
+
+Audit 2026-11-05: all points are still open. Missing: run reports still write `a.folder` (`run.py` `Result("queued", a.folder, …)`);
+`libraryTarget` and `/library/playlist/:name` are not built; the row has no next-try date; `SORTS["length"]` still sorts by
+`duration_s` only; `api.reveal` still refuses paths outside the music folder; there is no `set_crates_shown`;
+`set_favourites` still builds the sidebar view; `set_crate_shown` checks only the type of `path`.
 
 Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, step B (folders), task groups B2 to B7.
 
@@ -93,6 +104,10 @@ Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, st
 
 ## 28. Library stage 5a leftovers (layout)
 
+Audit 2026-11-05: the point "No Playlist column in the track table" is closed (`LibraryTable` has the Playlist column and
+Not in a playlist names the Folder). The rest is unchanged: pywebview is still `>=6.2.1,<7`, the selected row is still
+grey, the rule check and the other points were not re-run.
+
 Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, step A (the layout).
 
 - **Rail tooltips:** the shortcut shows as a grey key cap per the mockup, not the plan's I7 text "{Page} (⌘n)". The
@@ -103,8 +118,6 @@ Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, st
   the exact count.
 - **ARIA nit:** while filtering, the browser column's section heads sit inside the listbox (needed so they stick),
   which ARIA doesn't strictly allow.
-- **No Playlist column in the track table** until step B, because rows don't carry their playlists yet. Your own files
-  in "Not in a playlist" show "–" under Folder until step B.
 - **The selected table row stays grey,** like To-do's, instead of the mockup's orange wash. Changing it would be one
   change for both pages.
 - **The base page's rule check has old failures,** the same before and after this step:
@@ -118,6 +131,11 @@ Noted while building and reviewing `docs/2026-10-29-library-stage-5-plan.md`, st
 - **The browser's drag edge turns a lighter grey after 300 ms of hover,** so orange still means only "dragging". Settled.
 
 ## 27. Library stage 4 leftovers (import)
+
+Audit 2026-11-05: the Format-row point is closed (sources round). Still missing: To-do items carry no `file_state` and no
+`AwayTag`; `UpToDate.svelte` has no "waits for your answer" note (only `RunPanel` shows `waitingAnswersLine`); the
+duplicate item's `in_playlists` is taken from one side (`views._duplicate_item`, the first side in a playlist); the
+other two points are unchanged.
 
 Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
 
@@ -138,6 +156,9 @@ Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
 
 ## 26. Library stage 3 leftovers (Qobuz playlists) — for stages 5 and 6
 
+Audit 2026-11-05: both points are still open (`SourceTrack` has no `label`; `execute.py` still passes `qobuz=False` after a
+recent search).
+
 Noted while building and reviewing `docs/2026-10-24-library-stage-3-plan.md`.
 
 - **A file downloaded by its exact Qobuz id gets no record-label tag.** `make_ready` writes `cand.label`, and the
@@ -148,6 +169,10 @@ Noted while building and reviewing `docs/2026-10-24-library-stage-3-plan.md`.
   for now (it keeps the weekly wait); revisit if users expect an immediate upgrade.
 
 ## 25. Library stage 1 leftovers (engine on library.db) — for later stages
+
+Audit 2026-11-05: all points are still open. Missing: `execute.py`, `ops.py`, `upgrades.py` and `tidy.py` still call
+`run_op` on the entry view; `content_key._ogg` still reads every page header; the moved/adopted/conflicts labels are
+still in `report.py` and `console.py`; `library.open_records` still only emits the recovered steps as messages.
 
 Noted while moving the engine onto `library.db` (`docs/2026-10-23-library-stage-1-plan.md`, group 3).
 
@@ -166,6 +191,10 @@ Noted while moving the engine onto `library.db` (`docs/2026-10-23-library-stage-
 - **A replaced file the quality check can never read** is judged again, with a warning, on every sync.
 
 ## 24. Identify files by their sound (AcoustID) — agreed design, a stage after stage 6
+
+Audit 2026-11-05: parked, nothing of it is built (no AcoustID, `fpcalc` or Chromaprint code or licence file, no Settings
+switch). The "check first" of layer 1 is answered: `identify.compare` already uses the lengths (`SAME_LENGTH_MS`,
+`CERTAIN_MS`, `PLAUSIBLE_MS`), so only layers 2 and 3 are new.
 
 Follow-up of `docs/2026-10-23-library-and-sources-design.md` (§1 out of scope, §10.3). Today files are identified
 only from tags and file names. Design agreed with the user on 2026-10-29 (limits checked on acoustid.org/webservice,
