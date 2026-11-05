@@ -270,8 +270,8 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   `feat/sources-round`, group worktrees `.claude/worktrees/sr-<group>`. The plan's open questions, decided by the
   orchestrator: (1) words for the other `source_how` values: "found by name" and "picked by you" (plain English, as
   planned); (2) Library's "All" segment counts the rows it lists (18 incl. waiting songs), so every count matches its
-  list; built in U3. Running now: E1 (Sonnet) in `.claude/worktrees/sr-e1` on `feat/sources-round-e1`; when it ends:
-  check ps + report, merge into `feat/sources-round`, then E2. Merge the round into main once S3 + review + verify
+  list; built in U3. E1 merged into `feat/sources-round` 148c6f5 (186k; Format row shows the file format until U3 adds SOURCE). Running now: E2
+  (Sonnet) in `.claude/worktrees/sr-e2` on `feat/sources-round-e2`; when it ends: check ps + report, merge, then U1. Merge the round into main once S3 + review + verify
   are green. Then: (3) audit of issues 24–30 + archive the finished stage 1–5 plans; (4) fix rounds.
 - **Merge early (user, 2026-10-31):** a finished stage merges into main as soon as its fix rounds, CI and verify are
   green; the user's live check runs on main afterwards and its findings are fixed there. No release without the go.
