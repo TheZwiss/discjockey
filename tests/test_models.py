@@ -80,3 +80,9 @@ def test_a_playlist_line_has_a_ref():
 def test_an_action_carries_no_qobuz_id_by_default():
     track = SourceTrack(ID, "T", (), "", None, 0, None)
     assert Action("acquire", ID, "A", track, (0, 0)).qobuz_id is None
+
+
+def test_the_record_label_rides_along_without_joining_the_events():
+    t = SourceTrack("1", "T", (), "", None, 0, None, "qobuz", record_label="Example Label")
+    assert t.label == "Example Label" and SourceTrack("1", "T", (), "", None, 0, None, "qobuz").label is None
+    assert "label" not in dataclasses.asdict(t) and "Example Label" not in repr(t)

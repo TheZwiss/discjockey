@@ -159,7 +159,8 @@ def test_parse_item_reads_every_field():
     assert t == SourceTrack(
         id="900000101", title="Example Title (Extended Mix)", artists=("Example Artist",), album="Example Album",
         image_url="https://static.example.com/covers/900000101_600.jpg", duration_ms=372000, isrc="XXEXA2600001",
-        service="qobuz", link="https://open.qobuz.com/track/900000101", streamable=True, label="Example Label")
+        service="qobuz", link="https://open.qobuz.com/track/900000101", streamable=True)
+    assert t.label == "Example Label"
     assert t.key == "qobuz:900000101"
 
 

@@ -73,7 +73,7 @@ def parse_item(item: object) -> SourceTrack | str:
         isrc=item.get("isrc") or None,
         service=SERVICE,
         streamable=item.get("streamable") is not False,
-        label=(album.get("label") or {}).get("name") or None,
+        record_label=(album.get("label") or {}).get("name") or None,
     )
 
 

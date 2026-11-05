@@ -459,7 +459,7 @@ def test_the_exact_id_carries_the_playlist_tracks_label_into_the_tags(tmp_path):
         return Ready(downloaded, "lossless", cand.source, cand.id, "flac", None, "comment")
 
     labelled = SourceTrack("t1", "Gimme Gimme", ("Vatoz Locoz",), "Album", None, 156000, "DECE72605755",
-                           label="Example Label")
+                           record_label="Example Label")
     a = Acquirer(FakeQobuz(), FakeFallback(), Budget({}, lambda: None, Settings(60)), NoPacer(), process)
     assert a.acquire(labelled, set(), tmp_path, False, exact="900000001").kind == "ready"
     assert seen == ["Example Label"]

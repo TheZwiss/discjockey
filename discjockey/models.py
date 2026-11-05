@@ -87,18 +87,27 @@ class SourceTrack:
     link: str | None = None  # the track's page; filled from TRACK_LINKS when None
     streamable: bool = True  # False: the service lists it but won't deliver it now (Qobuz preview or region)
     account_only: bool = False  # True: only the service's account can deliver the full track (SoundCloud SNIP: Go+)
-    label: str | None = None  # the record label, where the playlist read has it (Qobuz: the album's); tagged on a download
     # A private SoundCloud track's secret link token (the track's own, or its private set's). A secret: NOT a field,
     # so `asdict` (events, the hub) and `repr` never carry it; only `secret()` hands it to the download.
     secret_token: InitVar[str | None] = None
+    # The record label, where the playlist read has it (Qobuz: the album's), tagged on a download. Not a field either,
+    # so the events and the hub contract stay as they are (and two tracks differing only in it are equal).
+    record_label: InitVar[str | None] = None
 
-    def __post_init__(self, secret_token: str | None = None):
+    def __post_init__(self, secret_token: str | None = None, record_label: str | None = None):
         if self.link is None:
             pattern = TRACK_LINKS.get(self.service)
             if pattern:
                 object.__setattr__(self, "link", pattern.format(id=self.id))
         if isinstance(secret_token, str) and secret_token:
             object.__setattr__(self, "_secret", secret_token)
+        if isinstance(record_label, str) and record_label:
+            object.__setattr__(self, "_label", record_label)
+
+    @property
+    def label(self) -> str | None:
+        """The record label of the track, or None."""
+        return self.__dict__.get("_label")
 
     def secret(self) -> str | None:
         """The secret link token a download of this track needs (SoundCloud), or None."""
