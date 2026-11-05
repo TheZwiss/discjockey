@@ -27,13 +27,9 @@ Any write to the user's rekordbox data needs a backup and an undo, and the user'
 
 ## 32. Library stage 6 leftovers (SoundCloud and YouTube Music playlists)
 
-Noted while reviewing `docs/2026-10-31-library-stage-6-plan.md`. The first three need a design round.
+Noted while reviewing `docs/2026-10-31-library-stage-6-plan.md`. What is left are live checks, which need the real
+services.
 
-- **W20 has no place on a page:** "the playlist's own upload" (which track came from which upload) is not shown anywhere.
-- **Setup's playlist step has no example-link element:** W23's example links (what to paste for each service) are not
-  built.
-- **No view renders `track_link`** ("Open in Spotify / Qobuz / SoundCloud / YouTube Music"). Pre-existing, not new in
-  stage 6.
 - **Live check (a Go+-only SNIP track, stage 6 D9):** that a Go+-only upload seen through an account without Go+ really
   lists the 30 s preview (`…_preview`) and not a full stream, and that a Go+ account lists a full ~128 kbps one for such
   an upload (read from yt-dlp's code, not seen live). Two more yt-dlp assumptions, also unseen: for a Go+ track whose
@@ -44,20 +40,6 @@ Noted while reviewing `docs/2026-10-31-library-stage-6-plan.md`. The first three
   breaks).
 - **Live check:** the short-link redirect follows one hop. Confirm that `on.soundcloud.com` goes straight to
   `soundcloud.com/...`.
-- **Seen in the stage 6 screenshots (all pre-existing):**
-  - Fake tracks show FORMAT "FLAC" next to a `.aiff` file.
-
-## 31. YouTube Music "Liked music" — a Settings choice, needs a design round
-
-Library stage 6 reads YouTube Music playlists but leaves out "Liked music", "Watch later" and mixes for now: the
-reader refuses them before any request and says so (`sources/youtube_music.py`, W17: add the songs to a playlist, set
-it to public or unlisted, and paste that link). Reading "Liked music" would need the YouTube login (browser cookies)
-on every read and risks YouTube's bot check on the Premium account, which the downloads also use. Decide later
-whether it is worth that; until then the hint is the answer.
-
-**Decided (user, 2026-10-31):** a choice in Settings, off by default, with a short warning that explains the bot-check
-risk to the account. Read through the YouTube login only when it is on. It goes into the next design round,
-together with the paste field's four service logos ("Paste a playlist link here" plus the logos).
 
 ## 30. To-do decision panels leftovers
 
@@ -145,13 +127,6 @@ Noted while building and reviewing `docs/2026-10-25-library-stage-4-plan.md`.
   no quality column, so the tag's place needs a look of its own (the badge slot, or the detail line).
 - **Sync's Up-to-date view shows no hint when every remaining song waits for an answer;** only the To-do count points
   at them. Show the "{n} songs wait for your answer" note there too.
-- **A downloaded file's Format row names the download, not the file.** `views.format_line` prints `source_format`, the
-  codec of what was downloaded (`acquire.make_ready` probes the file before it converts to AIFF), so every Qobuz file
-  reads "Format FLAC" and a YouTube one "Opus · 135 kbps" while the file on disk is a 16-bit `.aiff`, and the cutoff
-  sentence beside it says "a lossy file inside the AIFF". The fake data matches the real wording (it sends "FLAC" for
-  a Qobuz file), so it is not wrong; the engine is. Decide: print the file's own format ("AIFF", `source_format`
-  stays for the quality line), or label the row "Downloaded as"; then change `format_line`, its tests, the contract
-  text and the fake in one commit.
 - **The library view's `in_playlists` for a duplicate group comes from its first file** (`hub/views.py`). The UI no
   longer depends on it, but it is misleading; derive it from the group or drop it.
 - **The removal count (W4) misses rare cases:** a playlist track matched only at plan time (no stored song) isn't
