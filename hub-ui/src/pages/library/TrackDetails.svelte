@@ -26,7 +26,8 @@
   } from '$lib/decisions';
   import { Panel } from '$lib/frames';
   import { artistTitle, cutoffStat, dateShort, fileAwayWords, qualityWords } from '$lib/format';
-  import type { Fail, LibraryRow, TrackDetail } from '$lib/bridge/types';
+  import type { Fail, LibraryRow, TrackDetail, TrackLink } from '$lib/bridge/types';
+  import { sourceHowWords } from '$lib/copy';
   import {
     NOT_FOUND_WORD, NO_FILE_PLACE, fileName, waitWords, noFileNote, footAction, placeLine, playlistsLine, shortUrl,
   } from './libraryModel';
@@ -39,8 +40,9 @@
     decision?: Decision;
     /** the foot's link back while a duplicate's file plays: this track in this view */
     playSource?: { label: string; href: string };
-    /** the selected row when it is a playlist song without a file; `next`: its details' `next_qobuz_check` (not found) */
-    pending?: { row: LibraryRow; next: string | null; off: boolean } | null;
+    /** the selected row when it is a playlist song without a file; `next`: its details' `next_qobuz_check` (not found),
+   *  `link` its `track_link` (the head's Open in: the song's page, file or no file) */
+    pending?: { row: LibraryRow; next: string | null; off: boolean; link: TrackLink | null } | null;
     loading?: boolean; gone?: boolean; error?: Fail | null; spectrum?: Spec;
     spectrumLoading?: boolean; spectrumError?: string | null; upgradeSpectrum?: Spec;
     onretry: () => void; onfinder: () => void; ontodo: () => void;
@@ -81,12 +83,10 @@
   {#if t}
     <div class="details" class:fading={loading} data-test="track-details" data-track={t.track_id}>
       <Surface kind="card">
-        <TrackHead track={t} place={placeLine(t.place)}>
-          <span class="state" class:stack={!t.sound_checked}>
-            <QualityBadge quality={t.quality} label={t.quality_label} upgrade={t.upgrade_ready}
-              checked={t.sound_checked} />
-            <span class="words">{qualityWords(t.quality, t.quality_label, t.sound_checked)}</span>
-          </span>
+        <TrackHead track={t} place={placeLine(t.place)} link={t.track_link}
+          word={qualityWords(t.quality, t.quality_label, t.sound_checked)}>
+          {#snippet badge()}<QualityBadge quality={t.quality} label={t.quality_label} upgrade={t.upgrade_ready}
+            checked={t.sound_checked} titled={false} />{/snippet}
         </TrackHead>
       </Surface>
 
@@ -118,9 +118,11 @@
           {/if}
           <div class="facts">
             {#if t.format_line}<KeyValue keyWidth={76} k="Format" v={t.format_line} />{/if}
-            <KeyValue keyWidth={76} k="Source">
+            <!-- what the file was made from: where (its page when that isn't the song's own, the head's Open in),
+                 its format, and how it was found under it (sources round problems 4, 6) -->
+            <KeyValue keyWidth={76} k="Source" sub={sourceHowWords(t.source_how)}>
               {#if t.source_url}<ExternalLink href={t.source_url} label={t.source_full ?? shortUrl(t.source_url)} />
-              {:else}{t.source_full ?? t.source_name ?? '–'}{/if}
+              {:else}{t.source_full ?? t.source_name ?? '–'}{/if}{#if t.source_format_line}{` · ${t.source_format_line}`}{/if}
             </KeyValue>
             {#if playlists}<KeyValue keyWidth={76} k="Playlists" v={playlists} />{/if}
             <KeyValue keyWidth={76} k="Added" v={dateShort(t.added) || '–'} />
@@ -137,9 +139,9 @@
     {@const r = pending.row}
     <div class="details" data-test="track-details" data-track={r.track_id} data-wait={r.wait}>
       <Surface kind="card">
-        <TrackHead track={r} place={NO_FILE_PLACE} empty>
-          {#if r.wait === 'not_found'}<Badge tone="missing" text={NOT_FOUND_WORD} />
-          {:else}<Badge tone="quiet" text={waitWords(pending.off).word} />{/if}
+        <TrackHead track={r} place={NO_FILE_PLACE} empty link={pending.link}>
+          {#snippet badge()}{#if r.wait === 'not_found'}<Badge tone="missing" text={NOT_FOUND_WORD} />
+          {:else}<Badge tone="quiet" text={waitWords(pending.off).word} />{/if}{/snippet}
         </TrackHead>
       </Surface>
       <NoteCard data-test="no-file-note">{noFileNote(r.wait, pending.next, pending.off, r.hidden)}</NoteCard>
@@ -175,11 +177,5 @@
 <style>
   .details { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; transition: opacity var(--t-state) var(--ease); }
   .fading { opacity: .7; }
-  /* the badge and its words ("fake lossless"; no "from …": the Source row in Current file says it, with its link).
-     When both don't fit in the column, the words go under the badge whole, never cut: the badge is up to 130 px wide */
-  .state { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2); min-width: 0; }
-  .state.stack .words { flex-basis: 100%; }
-  .words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted);
-    font-size: var(--fs-small); }
   .facts { display: flex; flex-direction: column; }
 </style>

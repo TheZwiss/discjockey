@@ -22,7 +22,8 @@
     AwayTag, Badge, ContextMenu, Cover, InfoTip, ListLine, ListSection, MiddleText, QualityBadge, Skeleton, SortHeader, Surface, tip,
   } from '$lib/components';
   import { artistTitle, duration } from '$lib/format';
-  import type { LibraryRow, LibrarySort } from '$lib/bridge/types';
+  import type { LibraryRow, LibrarySort, TrackLink } from '$lib/bridge/types';
+  import { api } from '$lib/bridge/client';
   import {
     NOT_FOUND_HIDDEN_TIP, NOT_FOUND_TIP, NOT_FOUND_WORD, columnsAt, folderCell, gridColumns, lineTop, moveSelection,
     playable, playlistCell, rowAway, rowDim, rowInTodo, rowTitleTip, centerLine, keepLine, selectedIndex,
@@ -32,7 +33,7 @@
 
   let { rows, also = null, alsoHint = '', emptyLine = null, loading = false, kind = 'library', subfolders = false,
     playlistColumn = true, artistColumn = true, off = false, sort,
-    selected, playing = null, onsort, onselect, onplay, onfinder, ontodo, ondetails }: {
+    selected, playing = null, onsort, onselect, onplay, onfinder, ontodo, ondetails, linkOf = () => null }: {
     rows: LibraryRow[];
     /** a playlist's other files of its folder, under their own section head (null elsewhere) */
     also?: LibraryRow[] | null; alsoHint?: string;
@@ -59,6 +60,9 @@
     onfinder: (id: string) => void; ontodo: (id: string) => void;
     /** open the details inspector (a quality badge, the menu's Show details); the row is selected first */
     ondetails: () => void;
+    /** the song's page on its service (its details' `track_link`), for the menu's "Open in {Service}" (sources round
+     *  row 18); null while its details aren't there: the right-click selects the row, which asks for them */
+    linkOf?: (id: string) => TrackLink | null;
   } = $props();
 
   const LABEL: Record<SortColumn | OptionalColumn, string> = { order: '#', title: 'Track', artist: 'Artist',
@@ -245,9 +249,11 @@
 </Surface>
 
 {#if menu}
+  {@const link = linkOf(menu.id)}
   <ContextMenu x={menu.x} y={menu.y} test="library-context-menu" onclose={() => (menu = null)}
     items={[{ label: 'Show details', test: 'menu-details', onpick: () => pick(() => ondetails()) },
       ...(menu.finder ? [{ label: 'Show in Finder', onpick: () => pick(onfinder) }] : []),
+      ...(link ? [{ label: link.label, test: 'menu-open-in', onpick: () => pick(() => void api.open_external(link.url)) }] : []),
       ...(menu.todo ? [{ label: 'Open in to-do', test: 'menu-todo', onpick: () => pick(ontodo) }] : [])]} />
 {/if}
 
