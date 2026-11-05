@@ -1650,12 +1650,18 @@ def crate_overrides(conn: sqlite3.Connection) -> dict[str, bool]:
 
 def set_crate_shown(conn: sqlite3.Connection, path: str, shown: bool | None) -> None:
     """Sets the crate at snapshot path `path` shown or hidden; None removes the switch (back to the default)."""
+    set_crates_shown(conn, [path], shown)
+
+
+def set_crates_shown(conn: sqlite3.Connection, paths: Iterable[str], shown: bool | None) -> None:
+    """`set_crate_shown` for several crates, in one transaction (all or none)."""
     with transaction(conn):
-        if shown is None:
-            conn.execute("DELETE FROM crate_shown WHERE path = ?", (path,))
-        else:
-            conn.execute("INSERT INTO crate_shown (path, shown) VALUES (?, ?) "
-                         "ON CONFLICT (path) DO UPDATE SET shown = excluded.shown", (path, int(shown)))
+        for path in paths:
+            if shown is None:
+                conn.execute("DELETE FROM crate_shown WHERE path = ?", (path,))
+            else:
+                conn.execute("INSERT INTO crate_shown (path, shown) VALUES (?, ?) "
+                             "ON CONFLICT (path) DO UPDATE SET shown = excluded.shown", (path, int(shown)))
 
 
 DB_NAME = "library.db"

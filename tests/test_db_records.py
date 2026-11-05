@@ -168,6 +168,18 @@ def test_a_crate_switch_is_kept_until_it_is_removed(path):
         assert db.crate_overrides(conn) == {old: True}
 
 
+def test_several_crate_switches_are_saved_all_or_none(path):
+    one, two = "/Volumes/Example/Crates/One", "/Volumes/Example/Crates/Two"
+    with db.connect(path) as conn:
+        db.set_crates_shown(conn, [one, two], False)
+        assert db.crate_overrides(conn) == {one: False, two: False}
+        with pytest.raises(sqlite3.Error):
+            db.set_crates_shown(conn, [one, object()], True)  # the second can't be stored: the first is not kept either
+        assert db.crate_overrides(conn) == {one: False, two: False}
+        db.set_crates_shown(conn, [one, two], None)
+        assert db.crate_overrides(conn) == {}
+
+
 # --- B1.2, B1.3: never library state, and a held write makes them wait ---
 
 def every_write(conn, now=NOW):

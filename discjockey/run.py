@@ -22,7 +22,7 @@ from . import config, db, library, pending_signs, planner, playlists_file, quali
 from .accounts import ACCOUNTS
 from .acquire import Acquirer, make_ready
 from .events import ActionStarted, Cancelled, CancelToken, Emit, Message, Result, RunFinished, no_emit
-from .execute import Executor
+from .execute import Executor, result_folder
 from .fallback import FallbackSource, stream_url
 from .library import Paths, StateError
 from .models import Action, FetchedPlaylist, Plan, PlaylistLine, split_token
@@ -270,9 +270,11 @@ def action_key(a: Action) -> tuple[str, str, str]:
     return a.kind, a.track_id, a.dest_dir or f"Library/{a.folder}"
 
 
-def select_actions(prep: Prepared, previewed: set[tuple[str, str, str]], ticked: set[tuple[str, str, str]]) -> None:
+def select_actions(prep: Prepared, previewed: set[tuple[str, str, str]], ticked: set[tuple[str, str, str]],
+                   where: Callable[[str], str] | None = None) -> None:
     """Partial plans (the hub's checkboxes): keeps only actions the user saw and left ticked. Call before
-    open_qobuz, which decides from the kept actions whether Qobuz is needed. The others get a "queued" result."""
+    open_qobuz, which decides from the kept actions whether Qobuz is needed. The others get a "queued" result,
+    filed under the folder Sync names (`where`: a file's path -> its folder's name, for the own songs)."""
     kept = []
     for a in prep.plan.actions:
         key = action_key(a)
@@ -281,7 +283,7 @@ def select_actions(prep: Prepared, previewed: set[tuple[str, str, str]], ticked:
             continue
         e = prep.state["tracks"].get(a.track_id)
         artist, title = (e["artist"], e["title"]) if e else (a.track.first_artist, a.track.title)
-        prep.log.add(Result("queued", a.folder, artist, title, a.track_id,
+        prep.log.add(Result("queued", result_folder(a, e, where), artist, title, a.track_id,
                             LEFT_OUT if key in previewed else NEW_SINCE_PREVIEW))
     prep.plan.actions = kept
 
@@ -436,7 +438,8 @@ def action_step(event: ActionStarted) -> str:
 
 
 def execute(prep: Prepared, qobuz, *, emit: Emit = no_emit, token: CancelToken | None = None,
-            limit: int | None = None, verbose: bool = False) -> tuple[int, Path]:
+            limit: int | None = None, verbose: bool = False,
+            where: Callable[[str], str] | None = None) -> tuple[int, Path]:
     """Runs the plan. Returns (exit code, report path); 130 when stopped through the token (or a KeyboardInterrupt).
     State, not_lossless.md and the report are always written, whatever happens. An unexpected error files the run
     with a crash note as its report (exit code 1, RunFinished sent) and raises RunCrashed."""
@@ -461,7 +464,8 @@ def execute(prep: Prepared, qobuz, *, emit: Emit = no_emit, token: CancelToken |
     fallback = FallbackSource(verbose=verbose, emit=emit, check=token.check,
                               logins={s: (a.browser, a.profile) for s, a in prep.settings.accounts.items()})
     acquirer = Acquirer(qobuz, fallback, budget, Pacer(emit, token), make_ready, emit=emit, accounts=accounts)
-    executor = Executor(paths, state, prep.log, acquirer, quality.inspect, emit=tracking, token=token, limit=limit)
+    executor = Executor(paths, state, prep.log, acquirer, quality.inspect, emit=tracking, token=token, limit=limit,
+                        where=where)
     code, crash = 0, None
     try:
         step = "looking up the bitrate of older downloads"

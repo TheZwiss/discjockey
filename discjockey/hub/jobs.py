@@ -10,6 +10,7 @@ import itertools
 import json
 import logging
 import os
+import sqlite3
 import threading
 import traceback
 from collections import deque
@@ -25,6 +26,7 @@ from ..events import Cancelled, CancelToken, Emit
 from ..library import LockHeld, Paths
 from ..models import SERVICE_NAMES, Protected
 from ..ops import OpProblem
+from . import views
 
 log = logging.getLogger(__name__)
 
@@ -704,7 +706,8 @@ def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str
             prep = run.prepare(paths, emit=ctx.emit, token=ctx.token)
             read_at = now()
             new_since = sum(1 for a in prep.plan.actions if run.action_key(a) not in previewed)
-            run.select_actions(prep, previewed, ticked)
+            where = folder_names(prep)
+            run.select_actions(prep, previewed, ticked, where)
             if not prep.plan.actions:
                 step = "saving the results"
                 code, report = run.finish_quietly(prep, emit=ctx.emit)
@@ -712,7 +715,7 @@ def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str
             else:
                 step = "signing in to Qobuz"
                 qobuz_source = run.open_qobuz(prep)
-                code, report = run.execute(prep, qobuz_source, emit=ctx.emit, token=ctx.token)
+                code, report = run.execute(prep, qobuz_source, emit=ctx.emit, token=ctx.token, where=where)
         except run.RunCrashed as e:  # execute filed the run with its crash note and sent RunFinished
             ctx.failed_result = outcome(1, e.report)
             raise
@@ -731,6 +734,20 @@ def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str
                 preview_after_run(store, prep, read_at)
         return outcome(code, report)
     return work
+
+
+def folder_names(prep: run.Prepared) -> Callable[[str], str] | None:
+    """A file's path -> the name of the folder it sits in, as Sync names it (`views.Sites.place`): what the run report
+    files an own song's results under (it has no playlist). None when the records can't be read: the report then
+    says "your music"."""
+    if not prep.paths.db_file.exists():
+        return None
+    try:
+        with db.connect(prep.paths.db_file) as conn:
+            watched = db.watched_folders(conn)
+    except (OSError, sqlite3.Error):
+        return None
+    return views.sites(prep.state, prep.lines, watched).place
 
 
 def preview_after_run(store: PreviewStore, prep: run.Prepared, read_at: datetime) -> None:

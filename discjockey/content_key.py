@@ -121,10 +121,28 @@ def _aiff(f: BinaryIO, size: int) -> Ranges:
 
 
 def _wav(f: BinaryIO, size: int) -> Ranges:
+    """The `data` chunk of a RIFF or RF64 WAV. RF64 keeps the 64-bit size of `data` in its `ds64` chunk (the chunk's
+    own size reads 0xFFFFFFFF). A streamed WAV (written to a pipe, so its sizes were not known) says 0xFFFFFFFF, or
+    0 with a RIFF size of 0 or 0xFFFFFFFF too: its audio runs to the end of the file."""
     head = _read(f, 0, 12)
-    if head[:4] != b"RIFF" or head[8:12] != b"WAVE":
+    if head[:4] not in (b"RIFF", b"RF64") or head[8:12] != b"WAVE":
         raise _Unparsable
-    return _check([_chunk(f, size, start=12, want=b"data", fmt="<I")], size)
+    unknown = (0, 0xFFFFFFFF)
+    streamed_riff = struct.unpack("<I", head[4:8])[0] in unknown
+    data64 = None
+    pos = 12
+    while pos + 8 <= size:
+        name, n = _read(f, pos, 4), struct.unpack("<I", _read(f, pos + 4, 4))[0]
+        if name == b"ds64" and head[:4] == b"RF64" and n >= 16:
+            data64 = struct.unpack("<Q", _read(f, pos + 16, 8))[0]  # after the 64-bit RIFF size
+        elif name == b"data":
+            if n == 0xFFFFFFFF and data64 is not None:
+                n = data64
+            elif n == 0xFFFFFFFF or (n == 0 and streamed_riff and pos + 8 < size):
+                n = size - pos - 8  # streamed: the audio runs to the end
+            return _check([(pos + 8, n)], size)
+        pos += 8 + n + (n & 1)
+    raise _Unparsable
 
 
 # --- FLAC / MP3: tags around one run of frames ----------------------------------------------------------------------
@@ -143,6 +161,8 @@ def _id3v2_end(f: BinaryIO, size: int, pos: int = 0) -> int:
 
 
 def _flac(f: BinaryIO, size: int) -> Ranges:
+    if _read(f, 0, 4) == b"OggS":  # Ogg-FLAC named .flac
+        return _ogg(f, size)
     pos = _id3v2_end(f, size)
     if _read(f, pos, 4) != b"fLaC":
         raise _Unparsable
@@ -206,10 +226,10 @@ def _m4a(f: BinaryIO, size: int) -> Ranges:
     return ranges
 
 
-# --- Ogg (Vorbis, Opus): page bodies after the header packets -------------------------------------------------------
+# --- Ogg (Vorbis, Opus, FLAC): page bodies after the header packets -------------------------------------------------------
 
 def _ogg(f: BinaryIO, size: int) -> Ranges:
-    """Page bodies of the first stream after its header packets; page headers are left out because a longer
+    """Page bodies of the first stream after its header packets (Ogg-FLAC with no header count is read whole); page headers are left out because a longer
     comment packet renumbers (and so re-checksums) every later page while the audio stays the same."""
     ranges: Ranges = []
     serial = None
@@ -229,11 +249,13 @@ def _ogg(f: BinaryIO, size: int) -> Ranges:
             raise _Unparsable
         if serial is None:
             serial = page_serial
-            first = _read(f, body, min(body_len, 8))
+            first = _read(f, body, min(body_len, 9))
             if first.startswith(b"\x01vorbis"):
                 headers = 3
             elif first.startswith(b"OpusHead"):
                 headers = 2
+            elif first.startswith(b"\x7fFLAC") and len(first) >= 9 and first[7:9] != b"\x00\x00":
+                headers = 1 + int.from_bytes(first[7:9], "big")  # Ogg-FLAC: the mapping header counts the others
             else:
                 raise _Unparsable
         if page_serial == serial:

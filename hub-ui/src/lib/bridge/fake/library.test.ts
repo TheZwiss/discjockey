@@ -219,6 +219,24 @@ describe('Favourites and crate switches are brief saves (D15)', () => {
     expect(must(await f.sidebar()).favourites).toHaveLength(4);
     expect(await f.set_favourites([])).toMatchObject({ ok: false, kind: 'busy' });
   });
+  it('set_crates_shown switches several crates in one save', async () => {
+    const f = fake('library:crates');
+    const crate = async (name: string) => must(await f.sidebar()).watched[1].crates.find((c) => c.name === name)!;
+    const paths = [`${REKORDBOX}/Peak Time`, `${REKORDBOX}/Edits`, `${REKORDBOX}/Peak Time`];
+    expect(must(await f.set_crates_shown(paths, false))).toMatchObject({ paths: paths.slice(0, 2), shown: false });
+    expect([(await crate('Peak Time')).hidden, (await crate('Edits')).hidden]).toEqual([true, true]);
+    must(await f.set_crates_shown(paths, null));
+    expect((await crate('Peak Time')).hidden).toBe(false);
+    expect(await f.set_crates_shown([], true)).toMatchObject({ ok: false, kind: 'refused' });
+    expect(await fake('library:crates_busy').set_crates_shown(paths, true)).toMatchObject({ ok: false, kind: 'busy' });
+  });
+  it('to-do items carry a file_state like the Library rows', async () => {
+    const f = fake('library:crates');
+    const todo = must(await f.todo('all', false));
+    const items = todo.groups.flatMap((g) => g.items);
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.every((i) => ['here', 'offline', 'folder_missing', 'no_file'].includes(i.file_state!))).toBe(true);
+  });
   it('set_crate_shown switches a crate; null goes back to the default', async () => {
     const f = fake('library:crates');
     const crate = async (root: number, name: string) =>

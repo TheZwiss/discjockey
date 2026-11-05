@@ -115,7 +115,7 @@ const byName = (a: TrackRow, b: TrackRow) => `${a.folder}\u0000${a.artist}\u0000
 export function questionItems(s: FakeState): QuestionItem[] {
   return s.imp.questions.map((q): QuestionItem => ({
     ...row(q.song_key, q.track.artist, q.track.title, q.track.folder, q.track.duration_s, null, true),
-    group: 'same_song', detail: QUESTION_WORDS(q.why, q.delta_s), free: false,
+    group: 'same_song', detail: QUESTION_WORDS(q.why, q.delta_s), free: false, file_state: q.file.online ? 'here' : 'offline',
     pair: { song_key: q.song_key, own_key: q.own_key, why: q.why, delta_s: q.delta_s, track: { ...q.track },
       file: { ...q.file } } })).sort(byName);
 }
@@ -123,7 +123,7 @@ export function duplicateItems(s: FakeState): DuplicateItem[] {
   return s.imp.duplicates.map((g): DuplicateItem => {
     const first = g.files.find((f) => f.in_playlist) ?? g.files[0];
     return { ...row(g.group_id, first.artist, first.title, '', first.duration_s, first, first.in_playlist, !first.in_playlist),
-      group: 'duplicate', detail: DUPLICATE_WORDS(g.why, g.files.length), free: false,
+      group: 'duplicate', detail: DUPLICATE_WORDS(g.why, g.files.length), free: false, file_state: 'here',
       pair: { group_id: g.group_id, why: g.why, files: g.files.map((f) => ({ ...f })), ...recommend(g.files) } };
   }).sort(byName);
 }

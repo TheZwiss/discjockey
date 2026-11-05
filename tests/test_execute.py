@@ -713,3 +713,16 @@ def test_lossless_and_qobuz_entries_ask_for_no_stream(env):
     ex, acq = make(AcquireResult("missing"))
     ex.run([act("upgrade")])
     assert acq.better == [None]
+
+
+def test_a_result_of_an_own_song_is_filed_under_the_folder_of_its_file(env):
+    """Leftovers C2 (issue 29): an own song has no playlist folder, so a run report would say "your music"."""
+    paths, state, make = env
+    state["tracks"]["t1aaaaaaa"] = entry("/Music/Rekordbox/Techno/Song.mp3", folder="")
+    ex, _ = make()
+    ex.where = lambda path: "Rekordbox › Techno" if path == "/Music/Rekordbox/Techno/Song.mp3" else ""
+    own = act("upgrade", folder="")
+    assert ex._result(own, "errors").folder == "Rekordbox › Techno"
+    assert ex._result(act("upgrade", folder="A"), "errors").folder == "A"
+    ex.where = None
+    assert ex._result(own, "errors").folder == ""

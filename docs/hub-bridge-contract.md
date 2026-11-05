@@ -13,8 +13,9 @@ library (lists cut to 2 items, `data` cut).
   for every other problem the key is absent. The page names that service in its card.
 - Write methods return `{"ok": true, "job_id": <int>}` at once; the outcome arrives as a `JobFinished` event with the
   same `job_id` (see Jobs). At most one write job runs; others are refused with kind `busy` (hub) or `console`
-  (a terminal run holds the lock). **The exception: brief saves** (`set_favourites`, `set_crate_shown`, plus
-  `setup_skip_import`) answer their result at once (`{favourites}` / `{path, shown}`) and start no job and send no
+  (a terminal run holds the lock). **The exception: brief saves** (`set_favourites`, `set_crate_shown`,
+  `set_crates_shown`, plus `setup_skip_import`) answer their result at once (`{favourites}` / `{path, shown}` /
+  `{paths, shown}`) and start no job and send no
   `JobFinished`. The two new ones also take no engine lock: they write the Favourites and the crate switches, which
   are records beside the library, not library state (`library.db` tables `favourites` and `crate_shown`, never in the
   snapshot, no `generation` bump). So pinning a playlist or switching a crate works during a sync, an import or a
@@ -385,6 +386,9 @@ then one row, and Settings switches single crates on). A label never depends on 
 and `enabled` (playlists; a folder has `null` and `true`), `count` (a playlist's `songs`, a folder's `files`), `path`
 (a folder's, `null` for a playlist) and `state` (a playlist is `here`; a crate has its watched folder's). A key whose
 playlist or folder is gone is left out of the answer, and stays stored.
+`set_crate_shown(path, shown)` refuses a path that is no crate of a watched folder; `set_crates_shown(paths, shown)` is the same
+for several crates in one write (all or none, a path given twice counts once, answers `{paths, shown}`). `reveal(path)` also
+opens an absolute path inside a watched import folder (the folder, a crate); any other absolute path is refused.
 `limits_warning`: true when a set-up service has a warning sign the user hasn't marked as seen ("Got it",
 `mark_warnings_seen`), or is paused today (the dot on "Download limits").
 The page reads `sidebar()` again after `JobFinished` of kind `refresh`, `sync` or `import` (each changes what it counts

@@ -404,3 +404,65 @@ def test_large_file_reads_only_the_windows(tmp_path):
 def test_missing_file_raises_oserror(tmp_path):
     with pytest.raises(OSError):
         content_key(tmp_path / "nope.aiff")
+
+
+# --- RF64, streamed WAV and Ogg-FLAC (leftovers C2, issue 25) ---------------------------------------------------------
+
+def _fmt_chunk() -> bytes:
+    return b"fmt " + struct.pack("<IHHIIHH", 16, 1, 2, 44100, 176400, 4, 16)
+
+
+def _wav_bytes(riff: bytes, riff_size: int, chunks: bytes) -> bytes:
+    return riff + struct.pack("<I", riff_size) + b"WAVE" + chunks
+
+
+def test_an_rf64_wav_is_keyed_by_its_data_chunk_whatever_tags_follow(tmp_path):
+    audio = bytes(range(256)) * 3000
+    ds64 = b"ds64" + struct.pack("<IQQQI", 28, 0, len(audio), 0, 0)
+    f = tmp_path / "a.wav"
+
+    def build(tag: bytes) -> bytes:
+        return (_wav_bytes(b"RF64", 0xFFFFFFFF, ds64 + _fmt_chunk()
+                           + b"data" + struct.pack("<I", 0xFFFFFFFF) + audio) + b"LIST" + struct.pack("<I", len(tag)) + tag)
+
+    f.write_bytes(build(b"INFOshort"))
+    key = content_key(f)
+    assert key == windows_key(audio)
+    f.write_bytes(build(b"INFO" + b"a much longer tag" * 40))
+    assert content_key(f) == key
+
+
+def test_a_streamed_wav_runs_to_the_end_of_the_file(tmp_path):
+    audio = bytes(range(256)) * 3000
+    for riff_size, data_size in ((0xFFFFFFFF, 0xFFFFFFFF), (0, 0)):
+        f = tmp_path / f"s{data_size}.wav"
+        f.write_bytes(_wav_bytes(b"RIFF", riff_size, _fmt_chunk() + b"data" + struct.pack("<I", data_size) + audio))
+        assert content_key(f) == windows_key(audio), (riff_size, data_size)
+
+
+def test_a_wav_with_an_empty_data_chunk_and_a_real_riff_size_is_not_streamed(tmp_path):
+    f = tmp_path / "e.wav"
+    f.write_bytes(_wav_bytes(b"RIFF", 100, _fmt_chunk() + b"data" + struct.pack("<I", 0) + b"LIST" + b"\x04\x00\x00\x00INFO"))
+    assert length_of(content_key(f)) == f.stat().st_size  # an empty payload is read whole, not to the end of the chunks
+
+
+def test_an_ogg_flac_file_is_keyed_by_the_pages_after_its_header_packets(tmp_path):
+    mapping = b"\x7fFLAC\x01\x00" + struct.pack(">H", 1) + b"fLaC" + b"\x00\x00\x00\x22" + b"\x00" * 34
+    audio1, audio2 = b"\xaa" * 500, b"\xbb" * 120
+    f = tmp_path / "a.ogg"
+
+    def build(comment: bytes, first_seq: int) -> bytes:
+        return (ogg_page(9, 0, [mapping], 2) + ogg_page(9, 1, [b"\x84" + len(comment).to_bytes(3, "big") + comment])
+                + ogg_page(9, first_seq, [audio1]) + ogg_page(9, first_seq + 1, [audio2], 4))
+
+    f.write_bytes(build(b"short", 2))
+    key = content_key(f)
+    assert key == windows_key(audio1 + audio2)
+    f.write_bytes(build(b"a much longer comment" * 40, 7))
+    assert content_key(f) == key
+    # a header count of 0 (unknown) is read whole, as before
+    f.write_bytes(build(b"short", 2).replace(b"\x01\x00\x00\x01fLaC", b"\x01\x00\x00\x00fLaC"))
+    assert content_key(f) != key and length_of(content_key(f)) == f.stat().st_size
+    f.write_bytes(build(b"short", 2))  # the same stream under a .flac name
+    flac = f.rename(tmp_path / "b.flac")
+    assert content_key(flac) == key
