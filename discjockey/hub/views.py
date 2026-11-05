@@ -1107,6 +1107,18 @@ def crates(files: Iterable[str], watched: Iterable[str], overrides: Mapping[str,
                      else f"{d.name} · {d.parent.name}" if same_name[fold(d.name)] > 1 else d.name)
             rows.append({"path": str(d), "label": label, "name": d.name,
                          "tip": " › ".join([root.name or w, *d.relative_to(root).parts]), "files": below[d],
+def listed_counts(paths: Iterable[str], folders: Iterable[WatchedFolder]) -> dict[int, int]:
+    """How many tracks each watched folder lists, by folder id: the single definition behind the sidebar's number and
+    Settings' row. `paths`: the snapshot paths of the files that are there (`tracks_with_file`); a folder counts the
+    files at or below it, which are the rows its page lists, so the number says what a click shows. Files the import
+    has not read yet or could not read have no song and are not in it (Settings' `waiting` and `unreadable` say
+    them); a duplicate's second copy is no track either. The Library folder counts `Library/...`; a file in a watched
+    folder inside another counts for both, as both pages list it."""
+    parsed = [PurePosixPath(p) for p in paths]
+    roots = {f.id: PurePosixPath("Library" if f.kind == "library" else str(f.path)) for f in folders}
+    return {i: sum(1 for p in parsed if p != root and p.is_relative_to(root)) for i, root in roots.items()}
+
+
                          "hidden": not overrides.get(str(d), not too_many),
                          "has_crates": d in parents})
         rows.sort(key=lambda r: (_natural(r["label"]), r["path"]))
@@ -1160,12 +1172,12 @@ def sidebar(state: dict, lines: Sequence[pf.Row], todo_count: int, warnings: boo
                        for n in sorted((n for n in counts if fold(n) not in used), key=lambda n: (fold(n), n))]
     imports = sorted((f for f in watched if f.kind == "import"), key=lambda f: (fold(f.path.name or str(f.path)), str(f.path)))
     found = crates([e["path"] for e in with_file], [str(f.path) for f in imports], overrides or {})
-    paths = [PurePosixPath(e["path"]) for e in with_file]
+    listed = listed_counts([e["path"] for e in with_file], imports)
     entries = []
     for f in imports:
         root = PurePosixPath(str(f.path))
         entries.append({"path": str(f.path), "name": root.name or str(f.path), "place": place(str(f.path)),
-                        "files": sum(1 for p in paths if p != root and p.is_relative_to(root)),
+                        "files": listed[f.id],
                         "state": FOLDER_STATE.get((away or {}).get(f.id), "here"), **found[str(f.path)]})
     targets: dict[str, dict] = {}
     for p in playlists:
@@ -1509,12 +1521,12 @@ AWAY_STATE = {"unmounted": "offline", "missing": "missing"}  # scanner.away_reas
 
 
 def watched_folders(folders: Sequence[WatchedFolder], counts: Mapping[int, ImportCounts], away: Mapping[int, str],
-                    library_files: int, unreadable: Sequence[tuple[PurePosixPath, str]], waiting: int, stopped: bool,
+                    listed: Mapping[int, int], unreadable: Sequence[tuple[PurePosixPath, str]], waiting: int, stopped: bool,
                     phase: str | None, crates: Mapping[str, dict] | None = None) -> dict:
     """The watched folders and how far their import is. `folders`: db.watched_folders (the Library first); `counts`:
     db.import_counts; `away`: folder id -> why its path isn't there now ("unmounted" |
-    "missing", scanner.away_reason); `library_files`: the Library's file
-    count; `unreadable`: db.import_unreadable (path, reason); `waiting`: db.import_left, the files an import would work
+    "missing", scanner.away_reason); `listed`: `listed_counts`' answer,
+    the tracks each folder lists (the sidebar's number: one definition for both); `unreadable`: db.import_unreadable (path, reason); `waiting`: db.import_left, the files an import would work
     through now (offline drives' left out); `stopped`: the user stopped an import this session (Continue import);
     `phase`: the running import's phase (ImportProgress.phase), None when none runs; `crates`: `crates()`' answer by
     folder path (Settings' switches): each import row gets `crates` (all of them, label order) and `too_many`, the
@@ -1523,7 +1535,8 @@ def watched_folders(folders: Sequence[WatchedFolder], counts: Mapping[int, Impor
     Row state: offline (its drive isn't connected) or missing (the folder isn't found: moved, renamed or deleted),
     whatever else; the rows are kept either way. Then scanning (an import is looking for files), importing
     (one runs and this folder has files it hasn't finished), else online. Row `waiting`: files of the folder the
-    import still works through (not read yet, or read and not yet sound-checked); `unreadable`: files it couldn't read.
+    import still works through (not read yet, or read and not yet sound-checked); `unreadable`: files it couldn't read;
+    `files`: the tracks the folder lists (`listed_counts`), so the files still waiting are not in it yet.
     The Library row counts both the same way (`counts` holds its entry), its unreadable files are in the list with
     its id."""
     roots = {f.id: PurePosixPath(str(f.path)) for f in folders}
@@ -1533,14 +1546,14 @@ def watched_folders(folders: Sequence[WatchedFolder], counts: Mapping[int, Impor
         left = c.waiting + c.identified
         if f.kind == "library":
             rows.append({"id": f.id, "path": str(f.path), "name": "Library", "kind": "library",
-                         "state": "scanning" if phase == "scan" else "online", "files": library_files,
+                         "state": "scanning" if phase == "scan" else "online", "files": listed.get(f.id, 0),
                          "waiting": left, "unreadable": c.unreadable, "crates": [], "too_many": False})
             continue
         state = (AWAY_STATE[away[f.id]] if f.id in away else "scanning" if phase == "scan"
                  else "importing" if phase is not None and left else "online")
         found = (crates or {}).get(str(f.path)) or {}
         rows.append({"id": f.id, "path": str(f.path), "name": roots[f.id].name or str(f.path), "kind": "import",
-                     "state": state, "files": c.files, "waiting": left, "unreadable": c.unreadable,
+                     "state": state, "files": listed.get(f.id, 0), "waiting": left, "unreadable": c.unreadable,
                      "crates": found.get("crates", []), "too_many": found.get("too_many", False)})
 
     def owner(path: PurePosixPath) -> int | None:

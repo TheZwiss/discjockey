@@ -343,6 +343,23 @@ def test_the_library_row_shows_its_own_waiting_and_unreadable_files(tmp_path, mo
     assert out["unreadable"][0]["path"].startswith(str(paths.library)) and out["waiting"] == 1
 
 
+def test_the_sidebar_and_settings_give_a_watched_folder_the_same_count(tmp_path, monkeypatch):
+    """One definition (views.listed_counts): the tracks the folder's page lists. A file the import has not read yet
+    (no song) or could not read is in neither number; Settings says them in `waiting` and `unreadable`."""
+    from discjockey import db, importer
+    paths, folder, api, rec = watched(tmp_path, monkeypatch, n=4)
+    with db.connect(paths.db_file) as conn:
+        ids = [i for (i,) in conn.execute("SELECT f.id FROM files f JOIN watched_folders w ON w.id = f.folder "
+                                          "WHERE w.kind = 'import' ORDER BY f.id")]
+        conn.execute("UPDATE files SET song = NULL, import_state = 'new' WHERE id = ?", (ids[0],))
+        conn.execute("UPDATE files SET song = NULL WHERE id = ?", (ids[1],))
+        db.set_unreadable(conn, ids[1], importer.NO_ACCESS)
+    row = api.watched_folders()["folders"][1]
+    assert (row["files"], row["waiting"], row["unreadable"]) == (2, 1, 1)
+    assert api.sidebar()["watched"][0]["files"] == row["files"]
+    assert api.library("folder", str(folder))["summary"]["tracks"] == row["files"]  # what a click on it lists
+
+
 def test_the_watched_folders_of_a_library_without_records_are_just_the_library(tmp_path):
     from hub_helpers import music_root
     paths = music_root(tmp_path)
