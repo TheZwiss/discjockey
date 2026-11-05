@@ -247,6 +247,7 @@ def test_save_the_qobuz_limit(root):
     assert json.loads(root.settings_file.read_text()) == {"daily_qobuz_limit": 90,
                                                          "extra_today": {"date": "2026-10-20", "amount": 20},
                                                          "qobuz_skipped": False, "spotify_skipped": False, "import_skipped": False,
+                                                         "read_liked_music": False,
                                                              "warnings_seen": {},
                                                          "qobuz_last_check": None,
                                                          "accounts": {}}

@@ -386,7 +386,7 @@ def test_a_youtube_music_link_is_added_with_its_service_and_ref(root, monkeypatc
     assert api._infos[f"youtube_music:{YTM_ID}"].service == "youtube_music"
 
 
-@pytest.mark.parametrize("pid, words", [("LM", W17), ("WL", W17), ("RDEXAMPLEmix0001", W18)])
+@pytest.mark.parametrize("pid, words", [("LL", W17), ("WL", W17), ("RDEXAMPLEmix0001", W18)])
 def test_a_youtube_music_list_that_is_refused_answers_with_its_service(root, monkeypatch, pid, words):
     OneAnswerYDL.requested = []
     monkeypatch.setattr(yt_dlp, "YoutubeDL", OneAnswerYDL)

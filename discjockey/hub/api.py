@@ -33,7 +33,7 @@ from .. import __version__, align, browsers, candidates, config, db, library, op
 from .. import quality
 from .. import app_update as update_check, setup_cmd, tool_updates, tools
 from .. import folders as folders_mod, importer, scanner, sources, tidy
-from ..sources import soundcloud, spotify
+from ..sources import soundcloud, spotify, youtube_music
 from ..sources.soundcloud import YOU as SOUNDCLOUD_YOU  # the module imports yt-dlp only inside functions
 from .. import report as rep, run, upgrades
 from ..accounts import ACCOUNTS, BROWSERS, SERVICE_NAMES, SERVICES, check_message
@@ -46,7 +46,8 @@ from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchRes
                       PlaylistRecord, SaveChoice, SourceTrack, WatchedFolder, token)
 from ..names import fold
 from ..ops import OpProblem, snapshot
-from ..pacing import Budget
+from .. import pacing
+from ..pacing import Budget, account_paused
 from ..qobuz import QobuzError, QobuzLoginRejected, QobuzNotSetUp, QobuzSource, config_file, login_problem
 from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, load_settings, save_settings
 from ..setup_cmd import TOOL_HINTS
@@ -87,7 +88,7 @@ LIBRARY_METHODS = frozenset((
     "rekordbox_checked", "upgrade", "undo_upgrade", "rescan_library", "show_in_finder", "reveal", "open_report",
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
     "watched_folders", "set_favourites", "set_crate_shown", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
-    "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate",
+    "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate", "add_liked_music",
 ))
 
 
@@ -143,6 +144,10 @@ def _open_in(browser: str, url: str, profile: str | None = None) -> None:
     subprocess.run(cmd, check=False)
 
 
+LIKED_NEEDS_LOGIN = "Sign in to YouTube Premium first: Discjockey reads your Liked music through that login."
+LIKED_LISTED = "Liked music is in your playlists already."
+
+
 def bridge(fn):
     """{"ok": true, **result} or {"ok": false, "kind", "message"}; never raises into pywebview. A problem with a
     playlist service (a SourceError) also carries "service"."""
@@ -164,7 +169,9 @@ def bridge(fn):
             if kind == "crashed":  # for whoever looks at the terminal; the page gets the plain message
                 traceback.print_exc()
             service = service_of(e)
-            return {"ok": False, "kind": kind, "message": message, **({"service": service} if service else {})}
+            setting = getattr(e, "setting", None)  # setting_off: the choice in Settings that is off
+            return {"ok": False, "kind": kind, "message": message, **({"service": service} if service else {}),
+                    **({"setting": setting} if setting else {})}
 
     call.__signature__ = inspect.signature(fn)  # pywebview reads the parameter names from it
     return call
@@ -233,6 +240,12 @@ def setup_status(support: SupportPaths, paths: Paths | None, music: dict, which:
     except SettingsError:
         settings = Settings()
     import_folders = _import_folders(paths)
+    liked_listed = False
+    if paths is not None:
+        try:
+            liked_listed = pf.lists_liked_music(pf.load(paths.playlists_file).rows)
+        except OSError:
+            pass
     steps = [("music", music["state"] == "ok"), ("tools", all(tools.values())),
              ("spotify", (spotify_app and spotify_login) or settings.spotify_skipped), ("downloads", qobuz_ok or settings.qobuz_skipped),
              ("playlists", playlists_ok)]
@@ -242,6 +255,10 @@ def setup_status(support: SupportPaths, paths: Paths | None, music: dict, which:
             "next_step": next((name for name, ok in steps if not ok), None),
             "version": __version__, "qobuz_skipped": settings.qobuz_skipped,
             "spotify_skipped": settings.spotify_skipped,
+            # YouTube Music's Liked music (sources-round D5, I3): the choice, whether it can be turned on (a YouTube
+            # account is set up) and whether a Liked music line is in playlists.txt (on or off)
+            "youtube_music": {"liked_music": settings.reads_liked_music, "can_turn_on": "youtube" in settings.accounts,
+                              "listed": liked_listed},
             # "Your existing music" (plan library stage 4 I11): done once a folder is watched or the step was skipped;
             # not among `steps`, so it never blocks Continue
             "existing": import_folders > 0 or settings.import_skipped, "import_folders": import_folders,
@@ -1101,7 +1118,8 @@ class HubApi:
     @bridge
     def playlists(self) -> dict:
         return views.playlists(pf.load(self._paths.playlists_file), self._tracks_by_id(), dict(self._infos),
-                               self._state(), self._cover(self._images()))
+                               self._state(), self._cover(self._images()),
+                               liked_music_on=self._settings().reads_liked_music)
 
     @bridge
     def add_playlist(self, url: str) -> dict:
@@ -1113,7 +1131,15 @@ class HubApi:
         source, ref = sources.SOURCES[service], token(service, pid)
         if not source.login_state(self._support).connected:
             raise sources.SourceError(NOT_CONNECTED.format(name=PLAYLIST_SERVICES[service]), "not_set_up", service)
+        liked = ref == pf.LIKED_MUSIC_REF
+        if liked:  # signs in, so it is a choice in Settings (D9) and keeps off a paused account (D6): no request first
+            if not self._settings().reads_liked_music:
+                raise sources.SourceError(youtube_music.SETTING_OFF, "setting_off", service, youtube_music.SETTING)
+            if account_paused(self._state(), youtube_music.ACCOUNT, self._today()):
+                raise sources.SourceError(youtube_music.LIKED_RESTING, "offline", service)
         reader = source.open(self._support, CancelToken())
+        signs: list[tuple[str, str, str]] = []
+        reader.on_signal = lambda *sign: signs.append(sign)
         try:
             tracks, fetched = None, None
             if service in ONE_READ_SERVICES:  # their info always comes with a fetch: one read answers both
@@ -1133,6 +1159,8 @@ class HubApi:
                 tracks = len(fetched.tracks)
         finally:
             self._close(reader)
+            if signs:  # a bot check met by the Liked music read: the account's warning sign, as a download's
+                run.record_signs(self._paths, self._state(), signs, self._jobs.scan_lock, False)
         return {"playlist_id": ref, "service": service, "service_name": PLAYLIST_SERVICES[service], "link": link,
                 "info": views.info_dict(info), "tracks": tracks, "readable": info.readable,
                 "suggested_folder": suggest_folder(info.name),
@@ -1146,6 +1174,7 @@ class HubApi:
         rows = rows_from(lines)
         tracks = self._tracks_by_id()
         unread = [r for r in rows if r.enabled and r.ref not in tracks]
+        paused = pacing.paused_accounts(self._state(), self._today())
         for service in dict.fromkeys(r.service for r in unread):  # one reader per service; a failing one is skipped
             source = sources.SOURCES[service]
             if not source.login_state(self._support).connected:
@@ -1160,7 +1189,10 @@ class HubApi:
                         found = sources.recognise(r.link)
                         if found is None or (service == "soundcloud" and found[1] == SOUNDCLOUD_YOU):
                             continue  # not a playlist; or your likes, whose read opens the browser login (Keychain)
-                        self._extra_tracks[r.ref] = reader.fetch(PlaylistLine("x", found[1], 0, service)).tracks
+                        line = PlaylistLine("x", found[1], 0, service)
+                        if sources.left_out(self._support, line, paused):
+                            continue  # Liked music while it is off or its account is paused: no request
+                        self._extra_tracks[r.ref] = reader.fetch(line).tracks
                     except sources.SourceError:
                         continue
             finally:
@@ -1689,6 +1721,46 @@ class HubApi:
             return {}
 
         return {"job_id": self._jobs.start("setup_skip_spotify", work).id}
+
+    @bridge
+    def set_read_liked_music(self, on: bool) -> dict:
+        """Settings' "Read my Liked music" (sources-round D5): whether YouTube Music's Liked music line is read, through
+        the YouTube login. Turning it on without a YouTube account is refused (`not_set_up`); turning it off never
+        touches playlists.txt (a listed line then reads as off)."""
+        if not isinstance(on, bool):
+            raise OpProblem("on must be true or false.", "refused")
+
+        def work(ctx) -> dict:
+            if on and "youtube" not in self._settings().accounts:
+                raise OpProblem(LIKED_NEEDS_LOGIN, "not_set_up")
+            self._update_settings(lambda s: replace(s, read_liked_music=on))
+            return {}
+
+        return {"job_id": self._jobs.start("set_read_liked_music", work).id}
+
+    @bridge
+    def add_liked_music(self) -> dict:
+        """"Add Liked music to Playlists" (sources-round D8): appends `Liked_music = <its link>` to the end of
+        playlists.txt (YouTube Music shares no link for it). Refused with `setting_off` while the choice is off and
+        `exists` when a Liked music line is listed already, on or off. Answers `{folder}`."""
+        def work(ctx) -> dict:
+            if not self._settings().reads_liked_music:
+                raise sources.SourceError(youtube_music.SETTING_OFF, "setting_off", youtube_music.SERVICE,
+                                          youtube_music.SETTING)
+            loaded = pf.load(self._paths.playlists_file)
+            if pf.lists_liked_music(loaded.rows):
+                raise OpProblem(LIKED_LISTED, "exists")
+            taken = {fold(r.folder) for r in loaded.rows}
+            folder, n = youtube_music.LIKED_MUSIC_FOLDER, 1
+            while fold(folder) in taken:  # a folder of that name is another playlist's: add a number
+                n += 1
+                folder = f"{youtube_music.LIKED_MUSIC_FOLDER}_{n}"
+            link = youtube_music.canonical_link(youtube_music.LIKED_MUSIC)
+            pf.save(self._paths.playlists_file, [*loaded.rows, pf.Row(folder, link)], loaded.version)
+            self._store.mark_stale()  # the plan was made for the old lines
+            return {"folder": folder}
+
+        return {"job_id": self._jobs.start("add_liked_music", work).id}
 
     @bridge
     def setup_qobuz_login(self, email: str, password: str) -> dict:

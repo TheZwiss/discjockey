@@ -340,7 +340,7 @@ def test_a_curated_playlist_is_read_like_any_other(world, paths):
 # --- W17, W18: refused before any request --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("playlist_id, words", [
-    ("LM", W17), ("LL", W17), ("WL", W17),
+    ("LL", W17), ("WL", W17),
     ("RDAMVMEXAMPLEid01", W18), ("RDMM", W18), ("RDEMexample", W18),
 ])
 def test_personal_lists_and_mixes_are_refused_without_a_request(world, paths, playlist_id, words):
@@ -598,3 +598,253 @@ def test_read_infos_drops_an_unreadable_playlist_and_keeps_the_rest(world, paths
 
 def test_the_hint_is_the_unreadable_words():
     assert source.UNREADABLE_HINT == "Set it to public or unlisted in YouTube Music."
+
+
+# --- Liked music (sources-round D5-D7): a choice in Settings, read through the YouTube login ------------------------
+
+LM_LINE = PlaylistLine("Liked_music", "LM", 5, "youtube_music")
+SETTING_OFF = "Reading your Liked music is off. Turn it on in Settings."
+BASE_OPTIONS = {"quiet", "no_warnings", "noprogress", "logger", "skip_download", "extract_flat", "socket_timeout"}
+
+
+def set_liked_music(paths, on=True, account=True):
+    from discjockey.settings import Account, Settings, save_settings
+
+    accounts = {"youtube": Account("chrome", 30, profile="Profile 2")} if account else {}
+    save_settings(paths.settings_file, Settings(accounts=accounts, read_liked_music=on))
+
+
+@pytest.fixture
+def liked(world, paths):
+    world.add("album_playlist", "LM")
+    set_liked_music(paths)
+    return world
+
+
+def test_liked_music_off_answers_setting_off_without_a_request(world, paths):
+    world.add("album_playlist", "LM")
+    for state in ("no settings file", "choice off", "choice on without an account"):
+        if state == "choice off":
+            set_liked_music(paths, on=False)
+        elif state == "choice on without an account":
+            set_liked_music(paths, on=True, account=False)
+        with source.open(paths, CancelToken()) as reader:
+            for call in (lambda: reader.fetch(LM_LINE), lambda: reader.info("LM")):
+                with pytest.raises(SourceError) as e:
+                    call()
+                assert str(e.value) == SETTING_OFF, state
+                assert (e.value.kind, e.value.service, e.value.setting) == (
+                    "setting_off", "youtube_music", "read_liked_music")
+    assert world.calls == []
+    assert all("cookiesfrombrowser" not in opts for opts in world.created)  # and no login YoutubeDL was even made
+
+
+def test_liked_videos_and_watch_later_stay_refused_with_the_choice_on(liked, paths):
+    with source.open(paths, CancelToken()) as reader:
+        for playlist_id in ("LL", "WL"):
+            with pytest.raises(SourceError) as e:
+                reader.fetch(PlaylistLine("X", playlist_id, 2, "youtube_music"))
+            assert (str(e.value), e.value.kind) == (W17, "playlist_unreadable")
+    assert liked.calls == []
+
+
+def test_liked_music_on_is_one_read_with_the_login_and_no_other_read_has_it(liked, paths):
+    with source.open(paths, CancelToken()) as reader:
+        before = read_with(reader, ALBUM_LINE)  # an ordinary playlist first, then Liked music, then another
+        fetched = reader.fetch(LM_LINE)
+        after = read_with(reader, VIDEO_LINE)
+    assert len(fetched.tracks) == 3 and len(before.tracks) == 3 and len(after.tracks) == 4
+    assert [url.split("list=")[1] for url, *_ in liked.calls] == [ALBUM_ID, "LM", VIDEO_ID]
+    with_login = [opts for opts in liked.created if "cookiesfrombrowser" in opts]
+    assert len(with_login) == 1 and len(liked.created) == 2  # the anonymous YoutubeDL and the one login YoutubeDL
+    (login,) = with_login
+    assert login["cookiesfrombrowser"] == ("chrome", "Profile 2", None, None)
+    assert login["extract_flat"] == "in_playlist" and login["skip_download"] is True
+    assert set(login) == BASE_OPTIONS | {"cookiesfrombrowser", "extractor_args"}
+    anonymous = liked.created[0]
+    assert set(anonymous) == BASE_OPTIONS
+    assert liked.closed == 2  # both YoutubeDLs are closed with the reader
+
+
+def read_with(reader, line):
+    reader.want_info = False
+    return reader.fetch(line)
+
+
+def test_liked_music_info_reads_through_the_login_too(liked, paths):
+    with source.open(paths, CancelToken()) as reader:
+        info = reader.info("LM")
+    assert info.name == "Example Album"  # the facts of the page
+    assert sum("cookiesfrombrowser" in opts for opts in liked.created) == 1 and liked.closed == 2
+
+
+def test_the_login_options_never_reach_the_download_path_or_a_class(liked, paths, monkeypatch):
+    """A Liked music read must leave nothing behind for the Premium downloads: not a class or module attribute, and
+    not in the options a following download builds."""
+    from discjockey import accounts, fallback
+
+    opts_seen = []
+
+    class DownloadYDL:
+        def __init__(self, opts):
+            opts_seen.append(copy.deepcopy(opts))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def extract_info(self, url, download=True, **kwargs):
+            return {"abr": 256, "format_id": "141"}
+
+    def download_options():
+        opts_seen.clear()
+        monkeypatch.setattr(yt_dlp, "YoutubeDL", DownloadYDL)
+        try:
+            fallback.FallbackSource(logins={"youtube": ("chrome", "Profile 2")}).stream_kbps(
+                "youtube_music", "EXAMPLEid01", account=True)
+            fallback.FallbackSource().stream_kbps("youtube_music", "EXAMPLEid01")  # and a free one
+        finally:
+            monkeypatch.setattr(yt_dlp, "YoutubeDL", lambda opts: (liked.created.append(opts), FakeYDL(liked, opts))[1])
+        return [{k: v for k, v in opts.items() if k != "logger"} for opts in opts_seen]  # a logger is a new object
+
+    before_opts = download_options()
+    modules = (accounts, fallback, source, pacing)
+    before_state = _class_state(*modules, FakeYDL, source.YouTubeMusicReader)
+    with source.open(paths, CancelToken()) as reader:
+        assert len(reader.fetch(LM_LINE).tracks) == 3
+    assert _class_state(*modules, FakeYDL, source.YouTubeMusicReader) == before_state
+    assert download_options() == before_opts
+    assert "cookiesfrombrowser" not in before_opts[1] and before_opts[0]["cookiesfrombrowser"] == (
+        "chrome", "Profile 2", None, None)
+
+
+def test_liked_music_unreadable_has_its_own_words(liked, paths):
+    failing(liked, "removed_or_private", "LM")
+    with pytest.raises(SourceError) as e:
+        read(paths, LM_LINE)
+    assert str(e.value) == source.LIKED_UNREADABLE and e.value.kind == "playlist_unreadable"
+
+
+def test_an_unreadable_browser_login_is_a_login_problem_not_a_network_one(world, paths, monkeypatch):
+    set_liked_music(paths)
+
+    def refuse(opts):
+        if "cookiesfrombrowser" in opts:
+            raise Failure("could not find chrome cookies database; Keychain access was denied")
+        return FakeYDL(world, opts)
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", refuse)
+    with source.open(paths, CancelToken()) as reader:
+        with pytest.raises(SourceError) as e:
+            reader.fetch(LM_LINE)
+    assert (str(e.value), e.value.kind, e.value.service) == (source.LIKED_LOGIN, "login_failed", "youtube_music")
+
+
+@pytest.mark.parametrize("kind, key", [("bot_check", "bot_check"), ("rate_limited", "too_many_requests")])
+def test_a_bot_check_met_by_the_read_is_reported_and_ends_only_that_line(liked, paths, kind, key):
+    liked.answers["LM"] = Failure(fixture("errors")[key])
+    signs = []
+    with source.open(paths, CancelToken()) as reader:
+        reader.on_signal = lambda *sign: signs.append(sign)
+        with pytest.raises(sources.LineSkipped) as e:
+            reader.fetch(LM_LINE)
+        assert str(e.value) == source.LIKED_PAUSED and e.value.kind == "offline"
+        assert len(reader.fetch(ALBUM_LINE).tracks) == 3  # the reader is fine afterwards
+    assert len(signs) == 1 and signs[0][:2] == ("youtube", kind) and "Liked music" in signs[0][2]
+
+
+def test_a_bot_check_on_an_ordinary_playlist_still_stops_the_run_and_reports_nothing(world, paths):
+    failing(world, "bot_check")
+    signs = []
+    with source.open(paths, CancelToken()) as reader:
+        reader.on_signal = lambda *sign: signs.append(sign)
+        with pytest.raises(SourceError) as e:
+            reader.fetch(ALBUM_LINE)
+    assert str(e.value) == SLOW_DOWN and not isinstance(e.value, sources.LineSkipped) and signs == []
+
+
+def test_left_out_is_liked_music_while_off_or_the_account_is_paused(paths):
+    other = PlaylistLine("Album", ALBUM_ID, 1, "youtube_music")
+    assert source.left_out(paths, LM_LINE, frozenset())  # no settings file: off
+    assert not source.left_out(paths, other, frozenset({"youtube"}))
+    set_liked_music(paths, on=False)
+    assert source.left_out(paths, LM_LINE, frozenset())
+    set_liked_music(paths, on=True, account=False)
+    assert source.left_out(paths, LM_LINE, frozenset())
+    set_liked_music(paths)
+    assert not source.left_out(paths, LM_LINE, frozenset())
+    assert not source.left_out(paths, LM_LINE, frozenset({"soundcloud"}))
+    assert source.left_out(paths, LM_LINE, frozenset({"youtube"}))
+    assert not source.left_out(paths, other, frozenset({"youtube"}))
+    assert sources.left_out(paths, LM_LINE, frozenset({"youtube"}))
+    assert not sources.left_out(paths, PlaylistLine("X", "abc", 1, "spotify"), frozenset({"youtube"}))
+
+
+def test_sources_read_leaves_out_an_off_or_paused_liked_music_line(liked, paths):
+    lines = [ALBUM_LINE, LM_LINE]
+    got = sources.read(paths, lines)
+    assert [fp.line for fp in got] == lines and sum("cookiesfrombrowser" in o for o in liked.created) == 1
+
+    liked.calls.clear()
+    liked.created.clear()
+    got = sources.read(paths, lines, paused=frozenset({"youtube"}))
+    assert [fp.line for fp in got] == [ALBUM_LINE]
+    assert [url.split("list=")[1] for url, *_ in liked.calls] == [ALBUM_ID]
+    assert all("cookiesfrombrowser" not in o for o in liked.created)
+
+    set_liked_music(paths, on=False)
+    liked.calls.clear()
+    liked.created.clear()
+    got = sources.read(paths, [LM_LINE])  # only that line: no reader is even opened
+    assert got == [] and liked.calls == [] and liked.created == []
+
+
+def test_sources_read_goes_on_after_a_skipped_line(liked, paths):
+    liked.answers["LM"] = Failure(fixture("errors")["bot_check"])
+    signs, messages = [], []
+    got = sources.read(paths, [LM_LINE, ALBUM_LINE], emit=messages.append, on_signal=lambda *s: signs.append(s))
+    assert [fp.line for fp in got] == [ALBUM_LINE]
+    assert [s[:2] for s in signs] == [("youtube", "bot_check")]
+    assert any(getattr(m, "level", "") == "warning" and source.LIKED_PAUSED in m.text for m in messages)
+
+
+def test_a_logged_in_read_through_the_real_extractor_writes_no_class_attribute(paths, monkeypatch):
+    """The Liked music read, with the login's real options (the player client) on yt-dlp's real `youtube:tab`
+    extractor: no class or module attribute changes either. Only the browser's cookies are left out of the options
+    (reading them would open the maintainer's Keychain); everything else the login adds stays."""
+    from yt_dlp.extractor.youtube import _base, _tab
+    from yt_dlp.extractor.youtube._tab import YoutubeTabIE
+    from yt_dlp.YoutubeDL import YoutubeDL as RealYoutubeDL
+
+    def refuse(*a, **k):
+        raise AssertionError("a read in this test must not open a socket")
+
+    monkeypatch.setattr(socket, "create_connection", refuse)
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+    monkeypatch.setattr(YoutubeTabIE, "_extract_data",
+                        lambda self, url, item_id, *a, **k: (_tab_page(), {}))
+    monkeypatch.setattr(YoutubeTabIE, "_reload_with_unavailable_videos", lambda self, *a, **k: None)
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", RealYoutubeDL)
+    real_login = source.ytdlp_login
+    seen = []
+
+    def login_without_cookies(service, browser, profile=None):
+        opts = real_login(service, browser, profile)
+        assert opts["cookiesfrombrowser"] == ("chrome", "Profile 2", None, None)
+        seen.append(opts)
+        return {k: v for k, v in opts.items() if k != "cookiesfrombrowser"}
+
+    monkeypatch.setattr(source, "ytdlp_login", login_without_cookies)
+    set_liked_music(paths)
+
+    classes = (*YoutubeTabIE.__mro__[:-1], RealYoutubeDL, _base, _tab)
+    before = _class_state(*classes)
+    with source.open(paths, CancelToken()) as reader:
+        reader.want_info = True
+        fetched = reader.fetch(LM_LINE)
+        info = reader.info("LM")
+    assert _class_state(*classes) == before
+    assert len(seen) == 1  # one login YoutubeDL for both calls
+    assert [t.id for t in fetched.tracks] == ["EXAMPLEtab01", "EXAMPLEtab02"] and info.track_count == 2

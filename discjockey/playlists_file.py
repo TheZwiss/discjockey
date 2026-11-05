@@ -28,6 +28,14 @@ class PlaylistsChanged(Exception):
     pass
 
 
+LIKED_MUSIC_REF = token("youtube_music", "LM")  # the ref of YouTube Music's Liked music (sources-round D5)
+
+
+def lists_liked_music(rows: list["Row"]) -> bool:
+    """Whether a row is YouTube Music's Liked music, on or off."""
+    return any(r.ref == LIKED_MUSIC_REF for r in rows)
+
+
 @dataclass(frozen=True)
 class Row:
     folder: str
