@@ -2,13 +2,13 @@
   // The live card: one card, its state from cardState() (preparing, working, downloading, converting, analysed,
   // pause, stopping, finished, failed). It is a `Surface` card (design system §8 Running); a failed card is the
   // ProblemCard alone, itself a problem-tone card (a card inside a card is a container in a container, §4).
-  import { Badge, Cover, ExternalLink, ProblemCard, ProgressBar, QualityBadge, Ring, Spectrum, Spinner, Surface }
+  import { Badge, Cover, ExternalLink, ProblemCard, ProgressBar, QualityBadge, Ring, ServiceMark, Spectrum, Spinner, Surface }
     from '$lib/components';
   import { api } from '$lib/bridge/client';
   import type { Action } from '$lib/bridge/events';
   import type { Spectrum as SpectrumData } from '$lib/bridge/types';
   import { artistTitle, duration, noteParts } from '$lib/format';
-  import { sourceName, stepIndex, stepsFor, verdict, type Card } from './cardState';
+  import { fromLine, kickerLine, sourceName, stepIndex, stepsFor, verdict, type Card } from './cardState';
   import { stripCover } from './results';
   import StepBar from './StepBar.svelte';
 
@@ -16,7 +16,6 @@
   let { card, covers = new Map() }: { card: Card; covers?: Map<string, string> } = $props();
 
   const who = (a: Action) => artistTitle(a.track.artists.join(', '), a.track.title);
-  const kicker = (a: Action, source: string | null) => ['Now', a.folder, sourceName(source)].filter(Boolean).join(' · ');
 
   // one spectrum fetch per finished track that has a file
   let spec = $state<{ track_id: string; data: SpectrumData | null; error: string | null } | null>(null);
@@ -31,6 +30,8 @@
     });
   });
   const v = $derived(card.kind === 'analysed' ? verdict(card.result) : null);
+  const from = $derived(card.kind === 'working' || card.kind === 'downloading' || card.kind === 'converting'
+    ? fromLine(card.source, card.how) : null);
   const dlTail = $derived(card.kind !== 'downloading' ? '' : [card.percent !== null ? `${card.percent} %` : null,
     card.secondsLeft !== null && card.totalMB !== null ? `${card.secondsLeft} s left` : null]
     .filter(Boolean).map((x) => ` · ${x}`).join(''));
@@ -56,8 +57,12 @@
     <div class="row">
       <Cover url={stripCover(card.action.track.image_url, card.action.track_id, covers)} seed={card.action.track_id} size={120} />
       <div class="text">
-        <div class="kicker">{kicker(card.action, card.source)}</div>
+        <div class="kicker">{kickerLine(card.action)}</div>
         <div class="title">{who(card.action)}</div>
+        <!-- where the file comes from and how it was found; the line keeps its place while the source is still being
+             looked for, so nothing under it moves when it comes -->
+        <div class="from" data-test="card-from">{#if from}{#if from.logo}<ServiceMark service={from.logo}
+          label={from.name} />{/if}<span class="from-text">{from.text}</span>{/if}</div>
         {#if card.steps.length}<StepBar steps={card.steps} current={stepIndex(card)} {fill} />{/if}
         <div class="detail" data-test="card-detail">
           {#if card.kind === 'downloading'}
@@ -136,6 +141,9 @@
     letter-spacing: var(--ls-label); }
   .title { font-size: var(--fs-title); font-weight: var(--fw-bold); color: var(--text-strong); margin-top: 2px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .from { display: flex; align-items: center; gap: var(--s-2); height: 18px; margin-top: 2px; min-width: 0;
+    font-size: var(--fs-small); color: var(--text-muted); }
+  .from-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .detail { margin-top: var(--s-2); color: var(--text-muted); font-size: var(--fs-body); }
   .detail b { color: var(--text-strong); font-weight: var(--fw-semi); }
   .detail.muted { color: var(--text-dim); }

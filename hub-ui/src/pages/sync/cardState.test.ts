@@ -6,7 +6,7 @@ import { EMPTY_RUN, reduceRun, type RunState } from '$lib/stores/run';
 import type { Budget, LimitCard, Result } from '$lib/bridge/types';
 import { SYNC_LINES, lineOf } from '$lib/bridge/fake/replay';
 import { problemCopy } from '$lib/copy';
-import { cardState, lengthLine, liveUsage, qobuzFallback, stepIndex, verdict, type Card } from './cardState';
+import { cardState, fromLine, kickerLine, lengthLine, liveUsage, qobuzFallback, stepIndex, verdict, type Card } from './cardState';
 
 const lines = (raw: string): HubEvent[] => raw.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
 const sync = lines(syncRaw);
@@ -232,5 +232,29 @@ describe('the live card of an upgrade check that found a lossless SoundCloud ori
       status: 'not_lossless', source: 'qobuz', cutoff_hz: null, path: 'Upgrades ready/A/x.aiff', error_kind: null,
       found_status: 'not_lossless' };
     expect(verdict(r)).toMatchObject({ tone: 'good_lossy', quality: 'good_lossy' });
+  });
+});
+
+describe('the running card says where the file comes from on a line of its own (sources round problem 4)', () => {
+  it('words each way a source is found (D11), with the service logo', () => {
+    expect(fromLine('soundcloud', 'upload')).toEqual({ logo: 'soundcloud', name: 'SoundCloud',
+      text: "SoundCloud · the playlist's own upload" });
+    expect(fromLine('qobuz', 'exact')?.text).toBe('Qobuz · exact Qobuz track');
+    expect(fromLine('qobuz', 'isrc')?.text).toBe('Qobuz · found by ISRC');
+    expect(fromLine('youtube_music', 'name')).toEqual({ logo: 'youtubemusic', name: 'YouTube Music',
+      text: 'YouTube Music · found by name' });
+    expect(fromLine('youtube', 'fallback')?.text).toBe('YouTube · found by name');
+    expect(fromLine('youtube_music', 'chosen')?.text).toBe('YouTube Music · picked by you');
+    expect(fromLine('qobuz', null)?.text).toBe('Qobuz');
+    expect(fromLine(null, 'exact')).toBeNull();
+  });
+  it('keeps the kicker to the folder and carries the how from SourceChosen', () => {
+    expect(kickerLine({ folder: 'Powertrance' })).toBe('Now · Powertrance');
+    const started = sync.findIndex((e) => e.type === 'SourceChosen');
+    let st: RunState = EMPTY_RUN;
+    for (const e of sync.slice(0, started + 1)) st = reduceRun(st, e, 0);
+    const chosen = sync[started] as Extract<HubEvent, { type: 'SourceChosen' }>;
+    const card = cardState(st, 0);
+    expect('how' in card && card.how).toBe(chosen.query_kind);
   });
 });
