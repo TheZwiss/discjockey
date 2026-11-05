@@ -2,18 +2,21 @@
 
 export type ProblemKind = 'busy' | 'console' | 'sync_running' | 'not_set_up' | 'login_expired' | 'offline'
   | 'playlist_unreadable' | 'config_invalid' | 'qobuz_login_failed' | 'login_failed' | 'changed' | 'refused'
-  | 'failed' | 'stopped' | 'protected' | 'crashed' | 'no_library';
+  | 'failed' | 'stopped' | 'protected' | 'crashed' | 'no_library' | 'setting_off' | 'exists';
 export const PROBLEM_KINDS: readonly ProblemKind[] = ['busy', 'console', 'sync_running', 'not_set_up',
   'login_expired', 'offline', 'playlist_unreadable', 'config_invalid', 'qobuz_login_failed', 'login_failed',
-  'changed', 'refused', 'failed', 'stopped', 'protected', 'crashed', 'no_library'];
+  'changed', 'refused', 'failed', 'stopped', 'protected', 'crashed', 'no_library', 'setting_off', 'exists'];
 export type Quality = 'lossless' | 'good_lossy' | 'weak' | 'fake' | 'missing';
 export const QUALITIES: readonly Quality[] = ['lossless', 'good_lossy', 'weak', 'fake', 'missing'];
 export type EmptyKind = 'no_playlists' | 'not_set_up' | 'empty_library' | 'no_preview' | 'up_to_date' | 'no_match'
   | 'all_lossless' | 'all_hidden' | 'nothing_here' | 'gone';
 /** A playlist service (`sources.py`): the one a playlist row, a link or a problem belongs to. */
 export type PlaylistService = 'spotify' | 'qobuz' | 'soundcloud' | 'youtube_music';
-/** `service`: set when a playlist service caused the problem (a `SourceError`), absent for every other. */
-export type Fail = { ok: false; kind: ProblemKind; message: string; service?: PlaylistService };
+/** A choice in Settings that a read needs (its key in settings.json): `setting_off` names it in `setting`. */
+export type SettingKey = 'read_liked_music';
+/** `service`: set when a playlist service caused the problem (a `SourceError`), absent for every other. `setting`:
+ *  only with kind `setting_off` (add_playlist for a link that needs a Settings choice that is off). */
+export type Fail = { ok: false; kind: ProblemKind; message: string; service?: PlaylistService; setting?: SettingKey };
 export type Res<T> = ({ ok: true } & T) | Fail;
 export type JobStart = Res<{ job_id: number }>;
 export type ActionKey = [string, string, string];          // sent back unchanged to start_sync
@@ -370,7 +373,9 @@ export type PlaylistInfo = { name: string; owner_name: string; yours: boolean; c
  *  (`qobuz:<id>`, `soundcloud:user/sets/slug`, `youtube_music:<list id>`). */
 export type PlaylistRow = { index: number; folder: string; link: string; playlist_id: string | null;
   service: PlaylistService; service_name: string; enabled: boolean; info: PlaylistInfo | null;
-  tracks: number | null; quality: ByQuality };
+  tracks: number | null; quality: ByQuality;
+  /** a listed Liked music line while Settings' choice is off (or no YouTube login): the choice it needs, else null */
+  needs_setting: SettingKey | null };
 /** A track of a Spotify playlist on the playlists page; `downloaded`: it has a file yet. */
 export type PlaylistTrack = { track_id: string; artist: string; title: string; cover_url: string | null;
   downloaded: boolean; quality: Quality; quality_label: string | null;
@@ -462,6 +467,9 @@ export type SetupStatus = {
   /** Skip was pressed (`setup_skip_import`) */
   import_skipped: boolean;
   accounts: { youtube: AccountStatus | null; soundcloud: AccountStatus | null };
+  /** YouTube Music's Liked music: the choice, whether it can be turned on (a YouTube account is set up) and whether
+   *  a Liked music line is in playlists.txt (on or off) */
+  youtube_music: { liked_music: boolean; can_turn_on: boolean; listed: boolean };
 };
 export type AccountStatus = { browser: Browser; browser_name: string; daily_limit: number; profile?: string | null;
   profile_name?: string | null; last_check?: LastCheck | null };
@@ -540,6 +548,7 @@ export type JobResults = {
   save_limits: { service: Service; limit: number; extra_today: number };
   mark_warnings_seen: { service: Service; seen_until: string };
   setup_skip_qobuz: Record<string, never>; setup_skip_spotify: Record<string, never>;
+  set_read_liked_music: Record<string, never>; add_liked_music: { folder: string };
   setup_account: { service: Service; browser: Browser; profile: string | null; saved: boolean; check: AccountCheck };
   account_sign_in: { service: Service; browser: Browser; profile: string | null; saved: boolean; check: AccountCheck };
   qobuz_check_login: Record<string, never>; spotify_sign_out: Record<string, never>;

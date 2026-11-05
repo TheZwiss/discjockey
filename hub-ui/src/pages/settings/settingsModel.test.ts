@@ -63,7 +63,8 @@ const status = (over: Partial<SetupStatus> = {}): SetupStatus => ({
   tools: { ffmpeg: true, ffprobe: true, deno: true }, spotify_app: true, spotify_login: true, qobuz: true,
   playlists: true, complete: true, next_step: null, version: '1.0.0', qobuz_skipped: false, spotify_skipped: false, spotify_user: 'dj',
   existing: false, import_folders: 0, import_skipped: false,
-  accounts: { youtube: null, soundcloud: null }, ...over });
+  accounts: { youtube: null, soundcloud: null },
+  youtube_music: { liked_music: false, can_turn_on: false, listed: false }, ...over });
 const tools = (missing: string[] = []): SetupTools => ({ tools: { ffmpeg: true, ffprobe: true, deno: true }, missing,
   hints: {}, redirect_uri: 'http://127.0.0.1:8888/callback',
   download_tools: { 'yt-dlp': { version: '2026.10.21', source: 'built_in', waiting: null, previous: null },

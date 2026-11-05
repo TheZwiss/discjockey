@@ -7,6 +7,7 @@ import type {
   PlaylistRow, Sidebar, WatchedEntry,
 } from '../types';
 import { NOT_IN_PLAYLIST, QUALITIES } from '../types';
+import { needsSetting } from './liked';
 import {
   SERVICE_NAME, byQuality, isoLocal, pathOf, playlistRef, serviceOfLink, todoGroup, trackRow, type FakeState,
   type FakeTrack,
@@ -78,7 +79,7 @@ export function playlistRows(s: FakeState): PlaylistRow[] {
     quality.missing += [...songs.values()].filter((t) => t === null).length;
     return { index, folder: p.folder, link: p.link, playlist_id: playlistRef(p.link), service,
       service_name: SERVICE_NAME[service], enabled: p.enabled, info: p.info,
-      tracks: read ? songs.size : p.info?.track_count ?? null, quality };
+      tracks: read ? songs.size : p.info?.track_count ?? null, quality, needs_setting: needsSetting(s, p.link) };
   });
 }
 /** song key -> the names of the playlists whose read holds it, in playlists.txt order */

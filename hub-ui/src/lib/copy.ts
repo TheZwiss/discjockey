@@ -26,6 +26,10 @@ export const PROBLEMS: Record<ProblemKind, ProblemCopy> = {
   stopped: { title: 'Stopped. Nothing was left half done.' },
   no_library: { title: 'Choose your music folder first.', action: { label: 'Open setup →', href: '#/setup/music' } },
   crashed: { title: 'Something went wrong', action: { label: 'Open report', report: true } },
+  // Liked music (sources round): the engine's message is the detail ("Reading your Liked music is off. Turn it on in
+  // Settings."); the pages that offer the choice word their own button
+  setting_off: { title: 'That needs a choice in Settings.' },
+  exists: { title: 'That is in your playlists already.' },
 };
 export const SYNC_CRASHED = 'The sync stopped unexpectedly';
 export const CRASHED_MESSAGE = 'Something went wrong. Try again.';

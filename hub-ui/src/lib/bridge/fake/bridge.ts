@@ -3,7 +3,7 @@ import type { Bridge } from '../client';
 import type { HubEvent } from '../events';
 import type {
   BatchResult, Candidate, ChangePreview, Fail, JobStart, LibraryFilter, LibrarySort, LibraryView, PlaylistLine, ProblemKind, Res, Result,
-  AccountCheck, Browser, PlaylistService, SaveFiles, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate,
+  AccountCheck, Browser, PlaylistService, SaveFiles, SettingKey, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate,
 } from '../types';
 import { LIBRARY_METHODS } from '../contract';
 import {
@@ -13,6 +13,8 @@ import {
   type FakeTrack,
 } from './data';
 import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, libraryOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
+import { LIKED_FOLDER, LIKED_LINK, LIKED_LISTED, LIKED_NEEDS_LOGIN, LIKED_OFF, LIKED_SETTING, isLikedLink, likedOn,
+  likedScenarios, likedStatus } from './liked';
 import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, rewrite } from './replay';
 import { daysToLoad } from '../../days';
 import { minutesByDownloads } from './minutes';
@@ -97,7 +99,7 @@ const DOWNLOAD_KINDS = ['sync', 'use_candidate', 'use_link'];
 /** Page extensions: src/pages/<page>/fake.ts may add scenarios and override handlers. */
 const pageFakes = import.meta.glob<PageFake>('/src/pages/*/fake.ts', { eager: true });
 export function pageScenarios(): Record<string, (s: FakeState) => void> {
-  const out: Record<string, (s: FakeState) => void> = {};
+  const out: Record<string, (s: FakeState) => void> = { ...likedScenarios };
   for (const [path, mod] of Object.entries(pageFakes)) {
     const page = path.split('/').at(-2)!;
     for (const [name, fn] of Object.entries(mod.scenarios ?? {})) out[`${page}:${name}`] = fn;
@@ -141,8 +143,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     }
     emitRaw(e);
   };
-  const fail = (kind: ProblemKind, message: string, service?: PlaylistService): Fail =>
-    ({ ok: false, kind, message, ...(service ? { service } : {}) });
+  const fail = (kind: ProblemKind, message: string, service?: PlaylistService, setting?: SettingKey): Fail =>
+    ({ ok: false, kind, message, ...(service ? { service } : {}), ...(setting ? { setting } : {}) });
   const later = <T>(ms: number, value: () => T) => new Promise<T>((r) => setTimeout(() => r(value()), ms / speed));
   const ok = <T extends object>(v: T) => ({ ok: true as const, ...v });
   const syncRunning = () => (job?.running && job.kind === 'sync') || s.console_running;
@@ -552,7 +554,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         existing: imports > 0 || s.imp.skipped, import_folders: imports, import_skipped: s.imp.skipped,
         qobuz_last_check: s.qobuzLastCheck ?? null,
         spotify_user: s.setup.spotify_login ? s.spotifyUser ?? 'DJ One' : null,
-        accounts: { youtube: status(s.accounts.youtube), soundcloud: status(s.accounts.soundcloud) } });
+        accounts: { youtube: status(s.accounts.youtube), soundcloud: status(s.accounts.soundcloud) },
+        youtube_music: likedStatus(s) });
     },
     async select(track_id: string | null) { s.selected = track_id; return ok({}); },
     async downloads_view() {
@@ -677,6 +680,15 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           tracks: 12, readable: true, suggested_folder: name.replace(/\W+/g, '_'), hint: null }));
       }
       const yt = /^https?:\/\/(?:music\.|www\.|m\.)?youtube\.com\/(?:playlist|watch)\?(?:[^#]*&)?list=([\w-]+)/i.exec((url ?? '').trim());
+      if (yt && isLikedLink(url ?? '')) {
+        // Liked music signs in, so it is a choice in Settings (the engine decides before any request)
+        if (!likedOn(s)) return fail('setting_off', LIKED_OFF, 'youtube_music', LIKED_SETTING);
+        return later(700, () => ok({ playlist_id: 'youtube_music:LM', service: 'youtube_music' as const,
+          service_name: 'YouTube Music', link: LIKED_LINK,
+          info: { name: 'Liked music', owner_name: 'You', yours: true, collaborative: false, readable: true,
+            image_url: null, track_count: 312, hint: hintOf('youtube_music') },
+          tracks: 312, readable: true, suggested_folder: LIKED_FOLDER, hint: null }));
+      }
       if (yt) {
         if (s.youtubeMixRefused || /^RD(?!CLAK5uy_)/.test(yt[1])) {
           return fail('playlist_unreadable', YOUTUBE_MIX_REFUSED, 'youtube_music');
@@ -1091,6 +1103,29 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         finish(true, {});
       }, 300 / speed));
     },
+    async set_read_liked_music(on: boolean) {
+      if (typeof on !== 'boolean') return fail('refused', 'on must be true or false.');
+      return startJob('set_read_liked_music', null, (finish) => setTimeout(() => {
+        if (on && !s.accounts.youtube) return finish(false, null, 'not_set_up', LIKED_NEEDS_LOGIN);
+        s.likedMusic = on;  // turning it off never touches playlists.txt
+        finish(true, {});
+      }, 300 / speed));
+    },
+    async add_liked_music() {
+      return startJob('add_liked_music', null, (finish) => setTimeout(() => {
+        if (!likedOn(s)) return finish(false, null, 'setting_off', LIKED_OFF);
+        if (s.playlists.some((p) => isLikedLink(p.link))) return finish(false, null, 'exists', LIKED_LISTED);
+        let folder = LIKED_FOLDER;
+        for (let n = 2; s.playlists.some((p) => p.folder.toLowerCase() === folder.toLowerCase()); n++) folder = `${LIKED_FOLDER}_${n}`;
+        s.playlists = [...s.playlists, { folder, link: LIKED_LINK, enabled: true,
+          info: { name: 'Liked music', owner_name: 'You', yours: true, collaborative: false, readable: true,
+            image_url: null, track_count: 312, hint: hintOf('youtube_music') } }];
+        s.version++;
+        s.setup = { ...s.setup, playlists: true };
+        s.read_status = { ...s.read_status, stale: true };
+        finish(true, { folder });
+      }, 300 / speed));
+    },
     async setup_account(service: 'youtube' | 'soundcloud', browser: Browser, profile: string | null = null) {
       if (!['youtube', 'soundcloud'].includes(service)) return fail('refused', 'service must be one of youtube, soundcloud');
       if (!(browser in BROWSER_NAMES)) return fail('refused', 'browser must be one of safari, chrome, firefox, brave, edge');
@@ -1111,6 +1146,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     async setup_forget_account(service: 'youtube' | 'soundcloud') {
       return startJob('setup_forget_account', null, (finish) => setTimeout(() => {
         s.accounts[service] = null;
+        if (service === 'youtube') s.likedMusic = false;  // nothing to read it with; signing in again doesn't resume
         finish(true, { service });
       }, 300 / speed));
     },
