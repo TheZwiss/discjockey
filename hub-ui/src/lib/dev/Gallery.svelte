@@ -701,6 +701,14 @@
           <ToggleRow item={{ key: 'x', label: 'Rename the folder on disk too', on: false }} disabled
             sub="A folder called Powertrance_2026 is already in your Library." onchange={() => {}} />
         </Surface>
+        <span class="cap">locked, with its way out under the reason (action: a link outside the row's button)</span>
+        <Surface kind="list" data-test="g-toggle-action">
+          <ToggleRow item={{ key: 'l', label: 'Read my Liked music', on: false }} disabled sub="Sign in to YouTube Premium first"
+            onchange={() => {}}>
+            {#snippet action()}<Button variant="link" size="sm"
+              onclick={() => toasts.show({ tone: 'info', title: 'Opens Settings at YouTube Premium' })}>Go to YouTube Premium</Button>{/snippet}
+          </ToggleRow>
+        </Surface>
         <span class="cap">one ToggleRow in a list</span>
         <Surface kind="list" label="A single setting">
           <ToggleRow item={auto} test="g-auto" onchange={(_k, on) => (auto = { ...auto, on })} />

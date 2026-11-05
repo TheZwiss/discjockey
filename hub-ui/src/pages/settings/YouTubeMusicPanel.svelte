@@ -3,9 +3,9 @@
   // login, so the one choice is Liked music, read through the YouTube login the downloads use. The card says what
   // needs nothing; one switch row "Read my Liked music" saves at once (set_read_liked_music); the warning stays in both
   // states (before the choice it explains, after it reminds). Without a YouTube login the switch is locked off with
-  // the reason and a link to the YouTube Premium row. Once the choice is on and no Liked music line is listed, the
-  // panel's one filled button "Add Liked music to Playlists" adds it (add_liked_music), since YouTube Music shares no
-  // link for it. The state comes from setup_status's `youtube_music` (the hub store), read again after each job.
+  // the reason and, in the same card under it, a link to the YouTube Premium row. Once the choice is on and no Liked
+  // music line is listed, the panel's one filled button "Add Liked music to Playlists" adds it (add_liked_music),
+  // since YouTube Music shares no link for it. The state comes from setup_status's `youtube_music` (the hub store), read again after each job.
   import { api, runJob } from '$lib/bridge/client';
   import type { SetupStatus } from '$lib/bridge/types';
   import { Button, Hint, NoteCard, Skeleton, Surface, ToggleRow, WriteButton } from '$lib/components';
@@ -45,6 +45,11 @@
   }
 </script>
 
+{#snippet signIn()}
+  <Button variant="link" size="sm" onclick={() => void go('/settings/youtube')}
+    data-test="liked-music-sign-in">Go to YouTube Premium</Button>
+{/snippet}
+
 {#snippet head()}
   <div class="col" data-test="settings-youtube-music">
     {#if !view}
@@ -56,12 +61,8 @@
       <Surface kind="list" data-test="liked-music">
         <ToggleRow item={{ key: 'liked', label: 'Read my Liked music', on: view.on }} sub={view.sub}
           disabled={view.locked || off} title={view.locked ? view.sub : disabledWhy ?? undefined}
-          onchange={(_k, on) => void setLiked(on)} test="liked-music-switch" />
+          action={view.locked ? signIn : undefined} onchange={(_k, on) => void setLiked(on)} test="liked-music-switch" />
       </Surface>
-      {#if view.locked}
-        <div><Button variant="link" size="sm" onclick={() => void go('/settings/youtube')}
-          data-test="liked-music-sign-in">Go to YouTube Premium</Button></div>
-      {/if}
       <NoteCard tone="warn" data-test="liked-music-warning">{LIKED_WARNING}</NoteCard>
       {#if error}<NoteCard tone="problem" data-test="liked-music-error">{error}</NoteCard>{/if}
     {/if}

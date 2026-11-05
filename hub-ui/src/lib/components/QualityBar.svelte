@@ -38,8 +38,10 @@
   .weak, .missing { background: var(--q-weak-bar); }
   .fake { background: var(--q-fake-bar); }
   .missing { opacity: .55; }
-  /* no fill of its own: the bar's empty track shows through the dashed outline, as an empty cover's place does */
-  .qbar .waiting { box-sizing: border-box; background: transparent; border: var(--bw) dashed var(--line-control-hover);
+  /* no fill of its own: the bar's empty track shows through the dashed outline, as an empty cover's place does. The
+     dashes take the quietest text grey, not the cover's control line: on a 6 px bar that line's 1 px dashes merged
+     with the track and read as nothing; this grey reads as "still to fill" yet stays under every filled colour */
+  .qbar .waiting { box-sizing: border-box; background: transparent; border: var(--bw) dashed var(--text-label);
     border-radius: 0 3px 3px 0; }
   .legend { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-3); margin-top: 6px; color: var(--text-muted);
     font-size: var(--fs-small); }
