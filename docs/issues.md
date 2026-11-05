@@ -44,24 +44,6 @@ services.
 - **Live check:** the short-link redirect follows one hop. Confirm that `on.soundcloud.com` goes straight to
   `soundcloud.com/...`.
 
-## 27. Library stage 4 leftovers (import)
-
-Audit 2026-11-05 (updated by leftovers round C2): the Format-row point is closed (sources round). Engine done in C2:
-every To-do item carries `file_state` (as a Library row's: `here` / `offline` / `folder_missing` / `no_file`; a same-song
-item is about the user's own file) and the duplicate item's `in_playlists` is now explicitly "any side of the group is in
-a playlist" (it was already that value, from the side that names the group). The leftovers UI round showed the `AwayTag`
-on To-do rows (in place of the quality badge, the row dimmed, as Library) and the "waits for your answer" note on
-Sync's Up-to-date view (`WaitingAnswersNote`, shared with the run panel); the dry run's lines name an own song's folder
-as its run report does. Round C3 closed the removal count (W4): a track only the last read has, a Yes answer for a track
-that left every playlist, and the name a re-keyed song gets back.
-
-Noted while building and reviewing `docs/archive/2026-10-25-library-stage-4-plan.md`.
-
-- ~~**Files judged before the floor rule (fix round E1) keep their old verdict.**~~ User 2026-10-31: no re-judge of old
-  verdicts (the new imports are only test files). The two files that just miss the rule (a 28-29.7 dB fall into a flat
-  floor, the rule needs 30) are a known limit of the 30 dB rule, closed with it; lowering it would take in looser
-  shapes.
-
 ## 25. Library stage 1 leftovers (engine on library.db) — for later stages
 
 Audit 2026-11-05 (updated by leftovers round C2): the Ogg page-header reads, the moved/adopted/conflicts labels, the
