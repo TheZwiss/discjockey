@@ -10,7 +10,7 @@ import pytest
 from mutagen.id3 import TALB, TIT2, TPE1, TSRC
 
 from audio_helpers import music, needs_ffmpeg, write_aiff
-from discjockey import db, importer, library, run
+from discjockey import db, importer, library, quality, run
 from discjockey.events import CancelToken, ImportProgress
 from discjockey.library import Paths, empty_state, load_state, save_state
 from discjockey.quality import AudioInfo
@@ -368,6 +368,115 @@ def test_files_waiting_counts_what_an_import_would_do(paths, tmp_path):
     songs_folder(paths, tmp_path, n=2)
     library.scan_library(paths, analyze=lambda p: ("pcm_s16be", None))
     assert importer.files_waiting(paths) == 2
+
+
+# --- files judged by an older sound check are judged again (issue 27) ---
+
+def make_old(paths):
+    """What the files are in a library from before verdicts carried a detector version."""
+    with db.connect(paths.db_file) as conn:
+        conn.execute("UPDATE files SET judged_ver = NULL WHERE import_state = 'done'")
+
+
+def verdicts(paths):
+    with db.connect(paths.db_file) as conn:
+        return conn.execute("SELECT path, status, cutoff_hz, source, source_format, judged_ver, folder FROM files "
+                            "WHERE import_state = 'done' ORDER BY path").fetchall()
+
+
+def test_an_old_verdict_is_judged_again_once_and_a_current_one_is_not(paths, tmp_path):
+    folder = songs_folder(paths, tmp_path, n=3)
+    fakes = Fakes()
+    go(paths, fakes)
+    assert len(fakes.inspected) == 3  # the import's own sound check stamps the current version: nothing to redo
+    assert {row[5] for row in verdicts(paths)} == {quality.DETECTOR_VERSION}
+    assert importer.files_waiting(paths) == 0
+    go(paths, fakes)
+    assert len(fakes.inspected) == 3
+    make_old(paths)
+    before = verdicts(paths)
+    assert importer.files_waiting(paths) == 3  # the window's import starts by itself for them
+    fakes.cutoff["Example Artist - Song 2.aiff"] = 16000  # the detector now sees a wall in one of them
+    fakes.inspected.clear()
+    result = go(paths, fakes)
+    assert sorted(fakes.inspected) == [f"Example Artist - Song {i}.aiff" for i in (1, 2, 3)]
+    after = verdicts(paths)
+    assert [(r[0], r[1], r[2]) for r in after] == [(b[0], "fake_lossless" if "Song 2" in b[0] else "lossless",
+                                                    16000 if "Song 2" in b[0] else None) for b in before]
+    assert all(a[3:5] == b[3:5] and a[6] == b[6] for a, b in zip(after, before))  # source, format, folder as they were
+    assert {row[5] for row in after} == {quality.DETECTOR_VERSION}
+    assert result.sound_checked == 3 and result.files == 0 and result.left == 0
+    assert sorted(p.name for p in folder.iterdir()) == [f"Example Artist - Song {i}.aiff" for i in (1, 2, 3)]
+    fakes.inspected.clear()
+    go(paths, fakes)
+    assert fakes.inspected == [] and importer.files_waiting(paths) == 0  # once
+
+
+def test_a_changed_verdict_is_planned_again_but_an_unchanged_one_is_not(paths, tmp_path):
+    songs_folder(paths, tmp_path, n=2)
+    fakes = Fakes()
+    go(paths, fakes)
+    linked = fakes.linked
+    make_old(paths)
+    go(paths, fakes)  # same verdicts as before
+    assert fakes.linked == linked
+    make_old(paths)
+    fakes.cutoff["Example Artist - Song 1.aiff"] = 16000
+    go(paths, fakes)
+    assert fakes.linked == linked + 1  # the link phase plans on the new verdicts, so To-do and Sync show them
+
+
+def test_a_stopped_rejudge_resumes_with_the_files_left(paths, tmp_path):
+    songs_folder(paths, tmp_path, n=3)
+    fakes = Fakes()
+    go(paths, fakes)
+    make_old(paths)
+    fakes.inspected.clear()
+    token = CancelToken()
+    fakes.on_inspect = lambda n: token.cancel() if n == 2 else None
+    with pytest.raises(importer.ImportStopped) as stopped:
+        go(paths, fakes, token)
+    assert stopped.value.result.left == 1 and fakes.inspected == [f"Example Artist - Song {i}.aiff" for i in (1, 2)]
+    fakes.on_inspect, fakes.inspected = None, []
+    go(paths, fakes)
+    assert fakes.inspected == ["Example Artist - Song 3.aiff"]  # the two judged before the stop are not redone
+
+
+def test_a_file_the_rejudge_cannot_read_keeps_its_verdict_and_is_tried_again_only_when_something_changes(
+        paths, tmp_path, monkeypatch):
+    songs_folder(paths, tmp_path, n=2)
+    monkeypatch.setattr(quality, "tools_stamp", lambda: "tools-1")
+    fakes = Fakes()
+    go(paths, fakes)
+    make_old(paths)
+    fakes.inspect_fails.add("Example Artist - Song 1.aiff")
+    fakes.inspected.clear()
+    events = []
+    go(paths, fakes, events=events)
+    assert sorted(fakes.inspected) == [f"Example Artist - Song {i}.aiff" for i in (1, 2)]
+    assert [e.level for e in events if hasattr(e, "level")] == ["warning"]
+    by_name = {Path(r[0]).name: r for r in verdicts(paths)}
+    assert by_name["Example Artist - Song 1.aiff"][1:6] == ("lossless", None, "manual", "pcm_s16be", None)  # as it was
+    assert by_name["Example Artist - Song 2.aiff"][5] == quality.DETECTOR_VERSION
+    assert importer.files_waiting(paths) == 0  # not offered again ...
+    fakes.inspected.clear()
+    go(paths, fakes)
+    assert fakes.inspected == []
+    monkeypatch.setattr(quality, "tools_stamp", lambda: "tools-2")  # ... until the tools change
+    assert importer.files_waiting(paths) == 1
+    go(paths, fakes)
+    assert fakes.inspected == ["Example Artist - Song 1.aiff"]
+    fakes.inspect_fails.clear()
+    monkeypatch.setattr(quality, "tools_stamp", lambda: "tools-3")
+    go(paths, fakes)
+    assert {r[5] for r in verdicts(paths)} == {quality.DETECTOR_VERSION}
+
+
+def test_files_still_in_the_imports_own_passes_are_left_to_it(paths, tmp_path):
+    songs_folder(paths, tmp_path, n=2)
+    library.scan_library(paths, analyze=lambda p: ("pcm_s16be", None))
+    with db.connect(paths.db_file) as conn:
+        assert db.rejudge_due(conn, "t") == []  # unread files have no verdict to judge again
 
 
 # --- the last phase ---

@@ -6,7 +6,7 @@ from datetime import date, datetime
 import pytest
 
 from audio_helpers import music, write_aiff
-from discjockey import content_key, db, library
+from discjockey import content_key, db, library, quality
 from discjockey.library import Paths, empty_state, load_state, save_state, scan_library
 from discjockey.models import ScanResult, SeenFile
 
@@ -274,22 +274,42 @@ def test_a_copy_of_a_known_file_counts_as_a_new_file(paths):
     assert load_state(paths)["tracks"]["t1"]["path"] == rel  # the song keeps its own file
 
 
-def test_a_replaced_file_whose_check_failed_is_judged_again_next_time(paths):
+def test_a_replaced_file_whose_check_failed_is_not_judged_again_until_its_bytes_or_the_tools_change(paths,
+                                                                                                    monkeypatch):
+    monkeypatch.setattr(quality, "tools_stamp", lambda: "tools-1")
     rel = song(paths)
     write_aiff(paths.root / rel, music(1, seed=7))
+    calls = []
 
     def broken(path):
+        calls.append(path)
         raise RuntimeError("no audio stream")
     summary, _ = scan(paths, analyze=broken)
-    assert summary.replaced == 0  # not recorded: its new key waits for a check that works
+    assert summary.replaced == 0 and len(calls) == 1  # not recorded: its new key waits for a check that works
+    for _ in range(2):  # the same bytes, the same tools: not tried again, and no second warning
+        messages = []
+        scan_library(paths, messages.append, analyze=broken)
+        assert [m.level for m in messages] == []
+    assert len(calls) == 1
+    monkeypatch.setattr(quality, "tools_stamp", lambda: "tools-2")  # ffmpeg was installed or updated
+    scan(paths, analyze=broken)
+    assert len(calls) == 2
+    write_aiff(paths.root / rel, music(1, seed=8))  # the bytes changed
+    scan(paths, analyze=broken)
+    assert len(calls) == 3
     judged = []
 
     def analyze(path):
         judged.append(path)
         return "pcm_s16be", None
+    summary, messages = scan(paths, analyze=analyze)  # same bytes and tools as the last failure: still waits ...
+    assert judged == [] and summary.replaced == 0
+    monkeypatch.setattr(quality, "tools_stamp", lambda: "tools-3")  # ... until something changes
     summary, messages = scan(paths, analyze=analyze)
     assert judged == [paths.root / rel] and summary.replaced == 1
     assert load_state(paths)["tracks"]["t1"]["source"] == "manual"
+    with db.connect(paths.db_file) as conn:
+        assert db.judge_failures(conn) == {}  # a judgment that works clears the note
 
 
 def test_a_crash_while_judging_a_replaced_file_writes_nothing(paths):

@@ -404,6 +404,15 @@ class ImportRow:
 
 
 @dataclass(frozen=True)
+class JudgeRow:
+    """A file the sound check judges again (db.rejudge_due)."""
+    file_id: int
+    path: Path  # absolute
+    folder: int  # watched folder id
+    content_key: str | None  # its key as the index has it (what a failed judgment is remembered by)
+
+
+@dataclass(frozen=True)
 class ImportCounts:
     """The import's progress in one import folder (db.import_counts); done = files - waiting - identified -
     unreadable."""

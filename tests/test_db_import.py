@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from discjockey import db
+from discjockey import db, quality
 from discjockey.library import StateError, empty_state
 from discjockey.models import OwnFacts, PlannedMove, ScanResult, SeenFile
 
@@ -649,6 +649,36 @@ def test_removal_counts_a_playlist_song_that_waits_for_a_link_to_a_file_in_the_f
         db.set_decision(conn, "same_song", "sp4", other, "not_same", NOW)
         assert db.removal_counts(conn, folder) == db.RemovalCounts(files=4, redownload=2)
         assert db.remove_watched_folder(conn, folder, date(2026, 10, 26)) == db.RemovalCounts(4, 2)
+
+
+def test_a_saved_download_is_stamped_with_the_detector_version_and_the_migrated_one_is_not(lib):
+    assert lib.rows("SELECT judged_ver FROM files") == [(None,)]  # sp1 came from the migration: unversioned
+    lib.folder()
+    state = lib.snap()
+    path = f"{DRIVE}/New.aiff"
+    lib.present.add(path)
+    state["tracks"]["sp2"] = entry("Example Artist", "New", path)
+    lib.save(state)
+    assert lib.rows("SELECT judged_ver FROM files WHERE path = 'New.aiff'") == [(quality.DETECTOR_VERSION,)]
+    assert lib.rows("SELECT judged_ver FROM files WHERE path = 'House/Example Artist - Kept.aiff'") == [(None,)]
+    state = lib.snap()
+    state["tracks"]["sp2"].update(status="fake_lossless", cutoff_hz=16000)  # judged again by the app (an upgrade)
+    state["tracks"]["sp1"]["title"] = "Kept (renamed)"  # a song change that leaves its file's sound alone
+    lib.save(state)
+    assert lib.rows("SELECT judged_ver FROM files ORDER BY id") == [(None,), (quality.DETECTOR_VERSION,)]
+
+
+def test_the_import_and_a_rescan_stamp_the_detector_version_on_what_they_judge(lib):
+    folder = lib.folder().id
+    (a,) = lib.add_files(folder, "A.aiff")
+    lib.own_song(a)
+    assert lib.rows("SELECT judged_ver FROM files WHERE id = ?", a) == [(None,)]  # the codec's guess, no verdict
+    with lib.conn() as conn:
+        db.set_sound(conn, a, "lossless", None, None)
+        assert lib.rows("SELECT judged_ver FROM files WHERE id = ?", a) == [(quality.DETECTOR_VERSION,)]
+        conn.execute("UPDATE files SET judged_ver = NULL WHERE id = ?", (a,))
+        db.set_quality(conn, a, "lossless", None, "aiff")
+    assert lib.rows("SELECT judged_ver FROM files WHERE id = ?", a) == [(quality.DETECTOR_VERSION,)]
 
 
 def record_read(lib, *tracks, playlist="p1"):

@@ -262,6 +262,10 @@ Mac or on a drive. Your `Library/` is always watched and is listed first.
 4. *Linking to your playlists:* a playlist song you already own is linked to your file instead of being downloaded.
    If your playlists can't be read just then, this waits for the next sync.
 
+When an update makes the quality check better, the import also checks the sound of the files in your Library again, once
+(the same "Checking the sound" step). A file's verdict can change then, for example to "fake lossless"; no file is
+moved, renamed or deleted, and a file the check can't read keeps its verdict.
+
 - **Stop** (on the import's card) stops the import. "Import stopped with {n} files to go. It carries on
   where it stopped." The import doesn't restart by itself during the session; **Continue import**, or opening the
   window again, carries on exactly where it stopped. After a crash or a power cut it picks up the same way.

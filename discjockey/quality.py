@@ -1,7 +1,10 @@
 """Spectral cutoff analysis (detects lossy sources), probing, and the verdict rules."""
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,6 +38,10 @@ WALL_LOW_HZ = 19_500   # from here up to WALL_HIGH_HZ a smaller cliff (LOSSY_CLI
 WALL_HIGH_HZ = 20_400  # encoders low-pass near 20 kHz (Opus, LAME); mastering filters sit higher, so above this a cliff must be CLIFF_DB
 CHUNK_FRAMES = 256
 LOSSLESS_CODECS = {"flac", "alac", "wavpack", "ape", "tta"}
+# The version of the rules that turn a decoded file into a verdict (the thresholds above and how `cutoff_hz` finds a
+# wall). Bump it whenever a change could give a file another verdict: library.db keeps it with each verdict
+# (files.judged_ver) and the import judges the files of an older one again.
+DETECTOR_VERSION = 1  # 1: the floor rule (a steep fall into a flat floor is a wall)
 
 
 @dataclass(frozen=True)
@@ -43,6 +50,21 @@ class AudioInfo:
     sample_rate: int
     duration_s: float
     kbps: int | None = None  # the whole file's average bitrate (for lossy files, the codec's)
+
+
+def tools_stamp() -> str:
+    """Which ffmpeg and ffprobe would run now: their place, size and change time (no program is started), or "-"
+    for one that isn't found. A judgment that failed is tried again when this changes (they were installed or
+    updated)."""
+    parts = []
+    for name in ("ffmpeg", "ffprobe"):
+        found = shutil.which(name)
+        try:
+            st = os.stat(found) if found else None
+        except OSError:
+            st = None
+        parts.append(f"{found}:{st.st_size}:{st.st_mtime_ns}" if found and st else "-")
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
 
 
 def probe(path: Path) -> AudioInfo:

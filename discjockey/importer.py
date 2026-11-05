@@ -9,6 +9,8 @@ resumes by construction:
   tags   pass 1, every waiting file: its tags, its name (identify.own_name), its codec and length (probe), then a
          song of its own with the quality the codec gives for now (lossless codec → lossless, else not_lossless);
   sound  pass 2, every file read so far: the sound check (inspect → quality.verdict);
+  again  files judged by an older sound check (db.rejudge_due; quality.DETECTOR_VERSION): judged again, and only their
+         verdict is rewritten (status and cutoff), so the usual flows act on a changed one as on any newly judged file;
   link   the playlists planned again on the records as they are now and only the songs' links saved (run.link_only),
          so a playlist song the user already has is linked rather than downloaded.
 
@@ -56,6 +58,7 @@ LINK_FAILED = "Your playlists couldn't be linked yet: {reason}."  # playlists.tx
 NO_ACCESS = "macOS doesn't let Discjockey read it"
 NO_SOUND = "Discjockey can't find sound it can read in it"
 EMPTY = "The file is empty"
+REJUDGE_FAILED = "{path} couldn't be checked again ({reason}). It keeps the verdict it had."
 
 
 @dataclass(frozen=True)
@@ -119,12 +122,13 @@ def read_tags(path: Path) -> dict[str, str | None]:
 
 
 def files_waiting(paths: Paths) -> int:
-    """The files an import would work through now (db.import_left): the window's start condition (D14). An offline
-    drive's files are left out: they wait until it is back, so they never start an import."""
+    """The files an import would work through now (db.import_left, and the files to judge again by the current sound
+    check, db.rejudge_left): the window's start condition (D14). An offline drive's files are left out: they wait
+    until it is back, so they never start an import."""
     if not paths.db_file.exists():
         return 0
     with db.connect(paths.db_file) as conn:
-        return db.import_left(conn)
+        return db.import_left(conn) + db.rejudge_left(conn, quality.tools_stamp())
 
 
 def link_playlists(paths: Paths, prep: Prepared | None = None, *, emit: Emit = no_emit, token: CancelToken | None = None) -> str | None:
@@ -196,7 +200,7 @@ class _Run:
 
     def result(self, stopped: bool) -> ImportResult:
         with db.connect(self.paths.db_file) as conn:
-            left = db.import_left(conn)
+            left = db.import_left(conn) + db.rejudge_left(conn, quality.tools_stamp())
         return ImportResult(len(self.read - self.failed), self.own_songs, self.sound_checked, len(self.failed), left, stopped,
                             self.link_note)
 
@@ -251,6 +255,33 @@ class _Run:
                         self.read.add(row.file_id)
                 pacer.step(done, len(self.failed))
 
+    def rejudge(self) -> None:
+        """Files judged by an older sound check are judged again, one write each (a stop or a crash loses at most the
+        file in hand). Only the verdict changes; a file that can't be read keeps its verdict and is remembered as
+        failed (db.failure_stamp), so it is tried again only when its bytes or the tools change. A changed verdict
+        asks for the link phase, which plans again on the new records."""
+        tools = quality.tools_stamp()
+        with db.connect(self.paths.db_file) as conn:
+            rows = [r for r in db.rejudge_due(conn, tools) if r.file_id not in self.failed]
+            if not rows:
+                return
+            pacer = _Pacer(self.emit, "sound", len(rows), len(self.failed))
+            for done, row in enumerate(rows, 1):
+                self.token.check()
+                if os.path.lexists(row.path):  # a file gone since the scan is the next scan's
+                    try:
+                        codec, cutoff = self.inspect(row.path)
+                        status = quality.verdict(quality.is_lossless_codec(codec), cutoff)
+                    except Exception as e:  # noqa: BLE001 - never the end of the import
+                        db.record_judge_failure(conn, row.file_id, db.failure_stamp(row.content_key, tools))
+                        self.emit(Message("warning", REJUDGE_FAILED.format(path=row.path,
+                                                                           reason=_reason(e, row.path))))
+                    else:
+                        if db.set_rejudged(conn, row.file_id, status, cutoff):
+                            db.set_import_link_pending(conn, True)
+                        self.sound_checked += 1
+                pacer.step(done, len(self.failed))
+
 
 def run_import(paths: Paths, *, emit: Emit = no_emit, token: CancelToken, link: Callable[[], str | None],
                read_tags: Callable[[Path], dict[str, str | None]] = read_tags,
@@ -274,6 +305,8 @@ def run_import(paths: Paths, *, emit: Emit = no_emit, token: CancelToken, link: 
         token.check()
         run.tags()
         run.sound()
+        token.check()
+        run.rejudge()
         token.check()
         with db.connect(paths.db_file) as conn:
             pending = db.import_link_pending(conn)

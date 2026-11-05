@@ -22,12 +22,13 @@ from . import library as disk  # "library" is the Library/ path argument everywh
 from .events import Emit, Message
 from .identify import compare
 from .models import (OWN_PREFIX, AddedFolder, BatchRow, DupFile, DuplicateGroup, FetchedPlaylist, ImportCounts,
-                     ImportRow, KnownFile, MoveRow, NOT_OPENABLE, OwnFacts, PlannedMove, PlaylistRecord, RecordedTrack,
+                     ImportRow, JudgeRow, KnownFile, MoveRow, NOT_OPENABLE, OwnFacts, PlannedMove, PlaylistRecord, RecordedTrack,
                      RemovalCounts, ScanResult, WatchedFolder, group_id, is_own, split_token, token)
 from .names import expected_stem
 from .planner import ENTRY_KEYS
+from .quality import DETECTOR_VERSION
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 NEWER = ("This music folder was last used by a newer Discjockey. Update Discjockey, then try again. "
          "Nothing was changed.")
@@ -148,6 +149,15 @@ SCHEMA_V5_STEP = (
 )
 
 
+# Leftovers round C3 (issues 27, 25): which version of the sound check judged a file (`judged_ver`; NULL: judged
+# before versions existed, or only by its codec), and the key + tools of a judgment that failed (`judge_failed`, see
+# `record_judge_failure`), so a file the check can never read is not judged again at every scan
+SCHEMA_V6_STEP = (
+    "ALTER TABLE files ADD COLUMN judged_ver INTEGER",
+    "ALTER TABLE files ADD COLUMN judge_failed TEXT",
+)
+
+
 def _statements(statements: tuple[str, ...]) -> Callable[[sqlite3.Connection], None]:
     def step(conn: sqlite3.Connection) -> None:
         for statement in statements:  # one execute each: executescript would commit mid-transaction
@@ -160,7 +170,8 @@ def _statements(statements: tuple[str, ...]) -> Callable[[sqlite3.Connection], N
 UPGRADES: dict[int, Callable[[sqlite3.Connection], None]] = {1: _statements(SCHEMA_V2_STEP),
                                                            2: _statements(SCHEMA_V3_STEP),
                                                            3: _statements(SCHEMA_V4_STEP),
-                                                           4: _statements(SCHEMA_V5_STEP)}
+                                                           4: _statements(SCHEMA_V5_STEP),
+                                                           5: _statements(SCHEMA_V6_STEP)}
 
 
 class _Connection(sqlite3.Connection):
@@ -436,12 +447,14 @@ def _fact_values(facts: Facts, path: str) -> tuple:
 
 
 def _insert_file(conn, song: int, folder: int, rel: str, entry: dict, facts: Facts, path: str, now: str,
-                 placed_by: str = "app") -> int:
+                 placed_by: str = "app", *, judged: bool = True) -> int:
+    """`judged` False (the migration from state.json): the quality is an old record, no version's verdict."""
+    columns = (*QUALITY, "judged_ver") if judged else QUALITY
+    values = (*(entry.get(k) for k in QUALITY), *((_judged_ver(entry, None),) if judged else ()))
     return conn.execute(
         "INSERT INTO files (song, folder, path, size, mtime_ns, content_key, placed_by, online, first_seen, "
-        f"last_seen, {', '.join(QUALITY)}) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, {', '.join('?' * len(QUALITY))})",
-        (song, folder, rel, *_fact_values(facts, path), placed_by, now, now,
-         *(entry.get(k) for k in QUALITY))).rowcount
+        f"last_seen, {', '.join(columns)}) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, {', '.join('?' * len(columns))})",
+        (song, folder, rel, *_fact_values(facts, path), placed_by, now, now, *values)).rowcount
 
 
 def _usage_rows(state: dict) -> dict[str, str]:
@@ -482,7 +495,7 @@ def create(path: Path, state: dict, *, library: Path, facts: Facts, now: datetim
                 if (folder, rel) in taken:
                     raise _shared(entry["path"], tracks[taken[folder, rel]], entry)
                 taken[folder, rel] = key
-                _insert_file(conn, ids[key], folder, rel, entry, facts, entry["path"], stamp)
+                _insert_file(conn, ids[key], folder, rel, entry, facts, entry["path"], stamp, judged=False)
         conn.executemany("INSERT INTO pending (op) VALUES (?)", [(_dumps(op),) for op in state.get("pending") or []])
         conn.executemany("INSERT INTO never (song_key, data) VALUES (?, ?)",
                          [(k, _dumps(v)) for k, v in (state.get("never") or {}).items()])
@@ -493,7 +506,17 @@ def create(path: Path, state: dict, *, library: Path, facts: Facts, now: datetim
 
 
 _FILE_COLUMNS = ("id", "song", "folder", "path", "online", "held", "placed_by", "ambiguous", "import_state",
-                 "first_seen") + QUALITY
+                 "first_seen", "judged_ver") + QUALITY
+VERDICTS = frozenset({"lossless", "fake_lossless", "not_lossless"})  # a status the sound check gave
+
+
+def _judged_ver(entry: dict, prior: dict | None) -> int | None:
+    """The detector version for a file row the entry writes: the prior row's own when its quality is the entry's (a
+    rename, or a save that changes nothing about the sound), else the current one, because the quality fields only
+    change when Discjockey judged new audio (a download, an upgrade), and that is judged by this detector."""
+    if prior is not None and all(entry.get(k) == prior[k] for k in QUALITY):
+        return prior["judged_ver"]
+    return DETECTOR_VERSION if entry.get("status") in VERDICTS else None
 
 
 def _generation(conn: sqlite3.Connection) -> int:
@@ -650,15 +673,17 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
     released = {old["id"]: old for _, _, old, new in changed if old is not None and new != (old["folder"], old["path"])}
     released.update({f["id"]: f for song in removed if (f := linked.get(song)) is not None})
     n = 0
-    common = "size = ?, mtime_ns = ?, content_key = ?, " + ", ".join(f"{k} = ?" for k in QUALITY)
+    common = ("size = ?, mtime_ns = ?, content_key = ?, " + ", ".join(f"{k} = ?" for k in QUALITY)
+              + ", judged_ver = ?, judge_failed = NULL")
     for song, e, old, new in changed:
         if new is None:
             continue
-        values = (*_fact_values(facts, e["path"]), *(e.get(k) for k in QUALITY))
+        row = by_place.get(new)
+        prior = row if row is not None else (old if old is not None and old["id"] in released else None)
+        values = (*_fact_values(facts, e["path"]), *(e.get(k) for k in QUALITY), _judged_ver(e, prior))
         # a song's file stays the user's when the app replaces or renames it (stage 2's tidy-up leaves those alone);
         # a song that had no file gets one the app placed
         placed = "app" if old is None else old["placed_by"]
-        row = by_place.get(new)
         if row is not None and folders.rows[row["folder"]][1] == "import":
             placed = row["placed_by"]  # an imported file a playlist song takes over (stage 4, I4 rule 2) stays as placed
         if row is not None:  # the song's own row (new audio, same path) or one found there (a bought file)
@@ -787,7 +812,8 @@ def pending_ops(conn: sqlite3.Connection) -> list[dict]:
 
 
 def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
-               judged: Mapping[int, tuple[str, int | None, str]] | None = None) -> int:
+               judged: Mapping[int, tuple[str, int | None, str]] | None = None,
+               failed: Mapping[int, str] | None = None) -> int:
     """Writes a ScanResult in one transaction (rules: the ScanResult docstring), together with the quality `judged`
     for replaced files (file id -> status, cutoff, source format; set_quality), so a replaced file's new key is never
     recorded without its new quality. Offline folders' rows are marked
@@ -799,7 +825,8 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
     row is deleted and its song's file marked gone today (an own song is deleted with it).
     Held rows keep everything but are marked held (the snapshot's `held`: the planner leaves their songs alone, as
     offline ones); unreadable rows stay as they are (a file the drive lists but can't open, new in an import folder,
-    gets an unreadable row with NOT_OPENABLE as its reason). Returns the rows written."""
+    gets an unreadable row with NOT_OPENABLE as its reason). `failed`: file id -> failure_stamp of a judgment that
+    failed (record_judge_failure, in the same transaction). Returns the rows written."""
     stamp, today = now.isoformat(timespec="seconds"), now.date().isoformat()
     n = scanned = 0  # scanned: last_scan stamps, which no snapshot shows (they don't bump the generation)
     with transaction(conn):
@@ -856,6 +883,8 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
             n += _drop_fileless_own(conn) + _drop_dead_decisions(conn)
         for file_id, (status, cutoff_hz, source_format) in (judged or {}).items():
             n += set_quality(conn, file_id, status, cutoff_hz, source_format)
+        for file_id, stamp_of_failure in (failed or {}).items():
+            scanned += record_judge_failure(conn, file_id, stamp_of_failure)
         if n:
             _bump(conn)
     return n + scanned
@@ -866,8 +895,8 @@ def set_quality(conn: sqlite3.Connection, file_id: int, status: str, cutoff_hz: 
     """A file judged again after its audio was replaced outside Discjockey: it is no longer the download it was, so
     it counts as the user's own file (source 'manual', as a bought file) with the quality it has now."""
     n = conn.execute("UPDATE files SET status = ?, cutoff_hz = ?, source_format = ?, source = 'manual', "
-                     "source_id = NULL, source_kbps = NULL, source_how = NULL WHERE id = ?",
-                     (status, cutoff_hz, source_format, file_id)).rowcount
+                     "source_id = NULL, source_kbps = NULL, source_how = NULL, judged_ver = ?, judge_failed = NULL "
+                     "WHERE id = ?", (status, cutoff_hz, source_format, DETECTOR_VERSION, file_id)).rowcount
     if n:
         _bump(conn)
     return n
@@ -1223,7 +1252,8 @@ def set_sound(conn: sqlite3.Connection, file_id: int, status: str, cutoff_hz: in
         if row is not None and row[0] is None:
             raise ValueError(f"file {file_id} has no song yet; its sound is judged after its tags are read")
         if conn.execute("UPDATE files SET status = ?, cutoff_hz = ?, source_kbps = ?, import_state = 'done', "
-                        "import_error = NULL WHERE id = ?", (status, cutoff_hz, source_kbps, file_id)).rowcount:
+                        "import_error = NULL, judged_ver = ?, judge_failed = NULL WHERE id = ?",
+                        (status, cutoff_hz, source_kbps, DETECTOR_VERSION, file_id)).rowcount:
             _bump(conn)
 
 
@@ -1234,6 +1264,65 @@ def set_unreadable(conn: sqlite3.Connection, file_id: int, reason: str) -> None:
         if conn.execute("UPDATE files SET import_state = 'unreadable', import_error = ? WHERE id = ?",
                         (reason, file_id)).rowcount:
             _bump(conn)
+
+
+# --- judging a file again (issues 27, 25) ---
+# A verdict is stored with the detector version that gave it (`files.judged_ver`, quality.DETECTOR_VERSION); a file
+# judged by an older one (NULL included) is judged again by the import (importer.rejudge), which only rewrites
+# status and cutoff. A judgment that fails is remembered as the file's key plus the tools' stamp (quality.tools_stamp),
+# and tried again only when either changes.
+
+# lossless-codec files in a state the sound check owns (not still in the import's own passes), judged by an older
+# detector, whose last failure (if any) was not for this very content and these tools
+_REJUDGE = ("FROM files f JOIN watched_folders w ON w.id = f.folder "
+            "WHERE f.online = 1 AND f.held = 0 AND f.song IS NOT NULL AND f.status IN ('lossless', 'fake_lossless') "
+            "AND (f.judged_ver IS NULL OR f.judged_ver < ?) AND (f.import_state IS NULL OR f.import_state = 'done') "
+            "AND COALESCE(f.judge_failed, '') != COALESCE(f.content_key, '') || '|' || ?")
+
+
+def failure_stamp(content_key: str | None, tools: str) -> str:
+    """What `files.judge_failed` holds for a judgment of this content that failed with these tools."""
+    return f"{content_key or ''}|{tools}"
+
+
+def rejudge_due(conn: sqlite3.Connection, tools: str) -> list[JudgeRow]:
+    """The files to judge again now, by id: online, not held, linked to a song, judged lossless or fake by an older
+    detector than DETECTOR_VERSION (never by a versioned one: NULL), not in the import's own passes, and not failed
+    already for this content with these `tools`."""
+    return [JudgeRow(i, Path(root) / rel, folder, key) for i, root, rel, folder, key in conn.execute(
+        f"SELECT f.id, w.path, f.path, f.folder, f.content_key {_REJUDGE} ORDER BY f.id", (DETECTOR_VERSION, tools))]
+
+
+def rejudge_left(conn: sqlite3.Connection, tools: str) -> int:
+    """How many files rejudge_due lists."""
+    return conn.execute(f"SELECT COUNT(*) {_REJUDGE}", (DETECTOR_VERSION, tools)).fetchone()[0]
+
+
+def set_rejudged(conn: sqlite3.Connection, file_id: int, status: str, cutoff_hz: int | None) -> bool:
+    """A file judged again by the current detector: only its status and cutoff change (never its source, format,
+    path or file), and the version is stamped, so it is not judged again. The generation moves only when the verdict
+    did. Returns whether it did. A row gone meanwhile is left alone."""
+    with transaction(conn):
+        old = conn.execute("SELECT status, cutoff_hz FROM files WHERE id = ?", (file_id,)).fetchone()
+        if old is None:
+            return False
+        conn.execute("UPDATE files SET status = ?, cutoff_hz = ?, judged_ver = ?, judge_failed = NULL WHERE id = ?",
+                     (status, cutoff_hz, DETECTOR_VERSION, file_id))
+        changed = tuple(old) != (status, cutoff_hz)
+        if changed:
+            _bump(conn)
+    return changed
+
+
+def record_judge_failure(conn: sqlite3.Connection, file_id: int, stamp: str) -> int:
+    """Notes that judging the file failed (a failure_stamp), so the same content with the same tools is not tried
+    again. Nothing the snapshot holds: no generation bump. Returns the rows written."""
+    return conn.execute("UPDATE files SET judge_failed = ? WHERE id = ?", (stamp, file_id)).rowcount
+
+
+def judge_failures(conn: sqlite3.Connection) -> dict[int, str]:
+    """The failure_stamp of every file whose last judgment failed, by file id."""
+    return dict(conn.execute("SELECT id, judge_failed FROM files WHERE judge_failed IS NOT NULL"))
 
 
 def _drop_fileless_own(conn: sqlite3.Connection) -> int:
