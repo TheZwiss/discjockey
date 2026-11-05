@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import shutil
 import struct
 import subprocess
@@ -312,6 +313,26 @@ def test_ogg_key_is_the_page_bodies_after_the_header_packets(tmp_path):
     assert first == windows_key(audio1 + audio2)
     f.write_bytes(build(b"a much longer comment" * 50, 5))  # other page numbers, same audio
     assert content_key(f) == first
+
+
+def test_a_long_ogg_file_is_read_in_big_blocks_not_page_by_page(tmp_path, monkeypatch):
+    head = b"OpusHead" + b"\x01\x02" + b"\x00" * 9
+    pages = [ogg_page(7, 0, [head], 2), ogg_page(7, 1, [b"OpusTags"])]
+    pages += [ogg_page(7, 2 + i, [bytes([i % 251]) * 40]) for i in range(20000)]  # 20000 pages of audio
+    f = tmp_path / "mix.opus"
+    f.write_bytes(b"".join(pages))
+    expected = windows_key(b"".join(bytes([i % 251]) * 40 for i in range(20000)))
+    reads = []
+
+    class Counting(io.FileIO):
+        def readinto(self, b):
+            reads.append(1)
+            return super().readinto(b)
+
+    monkeypatch.setattr("discjockey.content_key.open", lambda p, mode, buffering=-1: io.BufferedReader(
+        Counting(p, "r"), buffer_size=buffering if buffering > 0 else io.DEFAULT_BUFFER_SIZE), raising=False)
+    assert content_key(f) == expected
+    assert len(reads) < 10  # a 1.4 MB file: a few reads, not one per page (about 175 with the default buffer)
 
 
 @pytest.mark.parametrize("ext", AUDIO_EXTS + (".txt",))

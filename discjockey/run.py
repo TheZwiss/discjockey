@@ -220,9 +220,12 @@ def _open(paths: Paths, log: rep.RunLog, emit: Emit, *, dry_run: bool) -> dict:
     from state.json as it is."""
     recovered: list[tuple[str, bool]] = []
     if not dry_run:
-        state = library.open_state(paths, emit)
-        recovered = library.recover_pending(paths, state)
-        for message, ok in recovered:
+        migrated: list[tuple[str, bool]] = []  # steps finished while state.json moved into library.db (said already)
+        state = library.open_state(paths, emit, recovered=migrated)
+        for message, ok in migrated:
+            log.add_text("recovered" if ok else "errors", message)
+        recovered = migrated + library.recover_pending(paths, state)
+        for message, ok in recovered[len(migrated):]:
             log.add_text("recovered" if ok else "errors", message)
             emit(Message("info" if ok else "warning", message))
         library.clear_tmp(paths, state)  # keeps what a step that could not be finished yet still needs

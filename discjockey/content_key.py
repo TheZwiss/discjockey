@@ -17,6 +17,7 @@ from typing import BinaryIO
 
 AUDIO_EXTS = (".aiff", ".aif", ".wav", ".flac", ".mp3", ".m4a", ".ogg", ".opus")
 WINDOW = 256 * 1024
+OGG_BUFFER = 1024 * 1024  # an Ogg file's page headers are read through one big buffer (see _ogg)
 VERSION = "1"
 
 Ranges = list[tuple[int, int]]  # (offset, length) in the file
@@ -28,9 +29,11 @@ class _Unparsable(Exception):
 
 def content_key(path: Path) -> str:
     """The content key of the file at `path`. Errors reading it (gone, permission) raise `OSError`."""
-    with open(path, "rb") as f:
+    parse = _PARSERS.get(path.suffix.lower())
+    # Ogg needs every page's header, a few bytes apart: a big buffer turns those many small reads into one read
+    # per OGG_BUFFER of file (the key itself is unchanged). Other formats read three windows, which it would widen.
+    with open(path, "rb", buffering=OGG_BUFFER if parse is _ogg else -1) as f:
         size = os.fstat(f.fileno()).st_size
-        parse = _PARSERS.get(path.suffix.lower())
         ranges: Ranges | None = None
         if parse is not None:
             try:

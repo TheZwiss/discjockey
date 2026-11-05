@@ -196,3 +196,12 @@ def test_a_report_links_a_track_of_every_playlist_service():
         "[SoundCloud](https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/900000101) · ")
     assert report.service_link("youtube_music:EXAMPLEid01") == (
         "[YouTube Music](https://music.youtube.com/watch?v=EXAMPLEid01) · ")
+
+
+def test_the_sections_no_run_makes_any_more_are_gone():
+    # moved, adopted and conflicts belonged to the old relocate step: the hub still reads them in stored run
+    # results, but no run writes them and a new report has no heading for them
+    assert not {"moved", "adopted", "conflicts"} & {key for key, _ in SECTIONS}
+    log = RunLog(STARTED)
+    log.add(Result("new_lossless", "A", "Artist", "Song", "t1", "q"))
+    assert "Moved to another folder" not in render_report(log, FINISHED)
