@@ -1350,12 +1350,26 @@ def _import_folder(conn: sqlite3.Connection, folder_id: int) -> None:
         raise ValueError("the Library folder is always watched")
 
 
+def _recorded_tracks(conn: sqlite3.Connection) -> tuple[bool, dict[str, tuple[str, str, int | None]]]:
+    """(whether any playlist has been read and recorded, the recorded tracks by token: first artist, title, length),
+    the first listing of a token in playlist order. What the playlists held at their last read, which is what the
+    next plan starts from."""
+    reads = conn.execute("SELECT EXISTS (SELECT 1 FROM playlist_reads)").fetchone()[0] == 1
+    tracks: dict[str, tuple[str, str, int | None]] = {}
+    for tok, artist, title, ms in conn.execute(
+            "SELECT t.token, t.artist, t.title, t.duration_ms FROM playlist_tracks t ORDER BY t.playlist, t.position"):
+        tracks.setdefault(tok, (artist, title, ms))
+    return reads, tracks
+
+
 def _waiting_links(conn: sqlite3.Connection, folder_id: int) -> int:
     """The playlist songs that would take a file of the folder at the next plan but have not yet (planner._resolve
     and its rule 2): an own song whose files are all in the folder, linked to a song by a "same" answer (the song
-    may not be stored yet: the answer names its track token), else to a stored playlist song with no file that
-    identify.compare finds certain. An own song serves one playlist song, as in the plan. Removing the folder
-    takes the file away, so these download too."""
+    may not be stored yet: the answer names its track token, and the track must still be in a playlist at its last
+    read, unless none was recorded), else to a playlist song that identify.compare finds certain: a stored one with
+    no file, or a track of the last read the plan has not stored yet (compared by name and length: the record has no
+    ISRC). An own song serves one playlist song, as in the plan. Removing the folder takes the file away, so these
+    download too."""
     own = conn.execute(
         f"SELECT s.key, s.artist, s.title, s.duration_ms, s.isrc FROM songs s WHERE {_IS_OWN_ONLY} AND EXISTS "
         "(SELECT 1 FROM files f WHERE f.song = s.id AND f.folder = ?1) AND NOT EXISTS "
@@ -1370,6 +1384,7 @@ def _waiting_links(conn: sqlite3.Connection, folder_id: int) -> int:
     tokens: dict[int, set[str]] = {}
     for tok, song in song_of.items():
         tokens.setdefault(song, set()).add(tok)
+    reads, recorded = _recorded_tracks(conn)
     answers = conn.execute("SELECT a, b, answer FROM decisions WHERE kind = 'same_song'").fetchall()
     not_same = {(a, b) for a, b, answer in answers if answer == "not_same"}
     taken: set[str] = set()
@@ -1377,18 +1392,27 @@ def _waiting_links(conn: sqlite3.Connection, folder_id: int) -> int:
     for a, b, answer in answers:
         if answer == "same" and b in by_key and b not in taken:
             song = song_of.get(a)
+            if song is None and reads and a not in recorded:
+                continue  # the track left every playlist: nothing is downloaded for it
             if song is None or song in open_songs:
                 taken.add(b)
                 waiting.add(a if song is None else song)
-    for song, (_, artist, title, ms, isrc) in open_songs.items():
-        if song in waiting:
-            continue
+
+    def match(artist: str, title: str, ms: int | None, isrc: str | None, rejects: Collection[str]) -> str | None:
         for b, e in by_key.items():
-            if (b not in taken and not any((a, b) in not_same for a in tokens.get(song, ()))
+            if (b not in taken and not any((a, b) in not_same for a in rejects)
                     and (m := compare(artist, title, ms, isrc, e)) is not None and m[0] == "certain"):
-                taken.add(b)
-                waiting.add(song)
-                break
+                return b
+        return None
+
+    for song, (_, artist, title, ms, isrc) in open_songs.items():
+        if song not in waiting and (b := match(artist, title, ms, isrc, tokens.get(song, ()))) is not None:
+            taken.add(b)
+            waiting.add(song)
+    for tok, (artist, title, ms) in recorded.items():  # tracks the plan has not stored yet, in playlist order
+        if tok not in song_of and tok not in waiting and (b := match(artist, title, ms, None, (tok,))) is not None:
+            taken.add(b)
+            waiting.add(tok)
     return len(waiting)
 
 
@@ -1419,6 +1443,10 @@ def _unlink_own_keys(conn: sqlite3.Connection, folder_id: int) -> None:
         if alias is not None:
             conn.execute("DELETE FROM song_ids WHERE song = ? AND service = ? AND id = ?", (song, *split_token(key)))
             conn.execute("UPDATE songs SET key = ? WHERE id = ?", (token(*alias), song))
+            named = conn.execute("SELECT artist, title FROM playlist_tracks WHERE token = ? ORDER BY playlist, position "
+                                 "LIMIT 1", (token(*alias),)).fetchone()
+            if named is not None:  # the playlist's name again, not the file's tags it took over
+                conn.execute("UPDATE songs SET artist = ?, title = ? WHERE id = ?", (*named, song))
 
 
 def remove_watched_folder(conn: sqlite3.Connection, folder_id: int, today: date) -> RemovalCounts:

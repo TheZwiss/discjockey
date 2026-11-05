@@ -651,6 +651,54 @@ def test_removal_counts_a_playlist_song_that_waits_for_a_link_to_a_file_in_the_f
         assert db.remove_watched_folder(conn, folder, date(2026, 10, 26)) == db.RemovalCounts(4, 2)
 
 
+def record_read(lib, *tracks, playlist="p1"):
+    """The last read of one playlist as library.db keeps it: (token, artist, title, duration_ms) per track."""
+    with lib.conn() as conn:
+        conn.execute("INSERT INTO playlist_reads (playlist, service, read_at) VALUES (?, 'spotify', ?)",
+                     (playlist, NOW.isoformat()))
+        conn.executemany("INSERT INTO playlist_tracks (playlist, position, token, artist, title, duration_ms) "
+                         "VALUES (?, ?, ?, ?, ?, ?)", [(playlist, i, *t) for i, t in enumerate(tracks, 1)])
+
+
+def test_removal_counts_a_playlist_track_that_only_the_last_read_has(lib):
+    """The plan links an own song to a track of the read that no song stores yet; removing the folder takes the file
+    from it, so it downloads: counted from the recorded read, not only from stored songs."""
+    folder, _, _ = removal_setup(lib)
+    (f,) = lib.add_files(folder, "Other.mp3")
+    lib.own_song(f, own(title="Other"))
+    with lib.conn() as conn:
+        assert db.removal_counts(conn, folder) == db.RemovalCounts(files=4, redownload=1)  # sp2 only
+    record_read(lib, ("sp7", "Example Artist", "Other", 200000), ("sp8", "Somebody Else", "Other", 200000))
+    with lib.conn() as conn:
+        assert db.removal_counts(conn, folder) == db.RemovalCounts(files=4, redownload=2)  # sp2, sp7 (sp8 only plausible)
+        db.set_decision(conn, "same_song", "sp7", lib.rows("SELECT key FROM songs WHERE title = 'Other'")[0][0],
+                        "not_same", NOW)
+        assert db.removal_counts(conn, folder) == db.RemovalCounts(files=4, redownload=1)
+
+
+def test_removal_does_not_count_a_yes_answer_for_a_track_that_left_every_playlist(lib):
+    folder, _, key = removal_setup(lib)
+    with lib.conn() as conn:
+        db.set_decision(conn, "same_song", "sp9", key, "same", NOW)  # sp9 is stored nowhere
+        assert db.removal_counts(conn, folder).redownload == 2  # no read recorded yet: the answer counts
+    record_read(lib, ("sp4", "Somebody", "Else Entirely", 180000))  # the playlists were read; sp9 is not in them
+    with lib.conn() as conn:
+        assert db.removal_counts(conn, folder).redownload == 1  # sp2 only
+    record_read(lib, ("sp9", "Example Artist", "Own Track", 200000), playlist="p2")
+    with lib.conn() as conn:
+        assert db.removal_counts(conn, folder).redownload == 2
+
+
+def test_a_song_rekeyed_by_a_removal_gets_the_playlists_name_back(lib):
+    folder, _, key = removal_setup(lib)
+    link(lib, key)  # the playlist song sp9 took the own song's key and its tag name
+    record_read(lib, ("sp9", "Playlist Artist", "Playlist Title", 200000))
+    with lib.conn() as conn:
+        db.remove_watched_folder(conn, folder, date(2026, 10, 26))
+    assert lib.rows("SELECT key, artist, title FROM songs WHERE key = 'sp9'") == [
+        ("sp9", "Playlist Artist", "Playlist Title")]
+
+
 def test_a_file_the_drive_lists_but_cannot_open_is_listed_as_unreadable_in_an_import_folder(lib):
     folder = lib.folder().id
     scan = ScanResult(unopenable=[(folder, "Example Artist - Broken.wav"), (1, "House/Broken.aiff")])

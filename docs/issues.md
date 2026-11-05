@@ -101,13 +101,11 @@ item is about the user's own file) and the duplicate item's `in_playlists` is no
 a playlist" (it was already that value, from the side that names the group). The leftovers UI round showed the `AwayTag`
 on To-do rows (in place of the quality badge, the row dimmed, as Library) and the "waits for your answer" note on
 Sync's Up-to-date view (`WaitingAnswersNote`, shared with the run panel); the dry run's lines name an own song's folder
-as its run report does. The other two points are unchanged.
+as its run report does. Round C3 closed the removal count (W4): a track only the last read has, a Yes answer for a track
+that left every playlist, and the name a re-keyed song gets back.
 
 Noted while building and reviewing `docs/archive/2026-10-25-library-stage-4-plan.md`.
 
-- **The removal count (W4) misses rare cases:** a playlist track matched only at plan time (no stored song) isn't
-  counted, and a Yes answer for a track that left every playlist still is. A song re-keyed after the removal keeps
-  its file's tag name until the planner updates stored names.
 - **Files judged before the floor rule (fix round E1) keep their old verdict.** Nothing judges a library file again
   when the detector improves; in the user's library three House_Banger files would now be fake. Two more just miss
   the rule (a 28–29.7 dB fall into a flat floor, the rule needs 30); lowering it would take in looser shapes.
