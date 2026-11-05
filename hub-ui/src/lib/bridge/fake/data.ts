@@ -455,7 +455,7 @@ export function sampleTracks(now: Date, extra = 35): FakeTrack[] {
   ts.push({ ...base('t6', 'DJ TALLBOY', 'THE WEEKEND', 'Hard_Bounce', 192, now, 9) });
   // the one track of the Qobuz playlist: its page is Qobuz's
   ts.push({ ...base(QOBUZ_TRACK_ID, 'Mira Volt', 'Qobuz Pick', 'Qobuz_Picks', 201, now, 2),
-    link: { url: 'https://open.qobuz.com/track/112358', label: 'Open in Qobuz' } });
+    link: { url: 'https://open.qobuz.com/track/112358', label: 'Open in Qobuz', service: 'qobuz' } });
   for (let i = 0; i < extra; i++) {
     const n = i + 7;
     const id = `t${n}`;
@@ -495,14 +495,14 @@ export function sampleTracks(now: Date, extra = 35): FakeTrack[] {
   // one track for each of the other two services, each with its own page (plan library stage 6, I7)
   ts.push({ ...base(SOUNDCLOUD_TRACK_ID, 'Example Artist', 'Example Title', 'Example_Label', 233, now, 2),
     source: 'soundcloud', how: 'upload',
-    link: { url: 'https://soundcloud.com/example-label/example-title', label: 'Open in SoundCloud' } });
+    link: { url: 'https://soundcloud.com/example-label/example-title', label: 'Open in SoundCloud', service: 'soundcloud' } });
   ts.push({ ...base(SOUNDCLOUD_LIKED_ID, 'Example Artist', 'Liked Title', 'Example_DJ_likes', 189, now, 2),
     link: { url: 'https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/900000102',
-      label: 'Open in SoundCloud' } });
+      label: 'Open in SoundCloud', service: 'soundcloud' } });
   // the playlist's own upload: the source's page is the song's own page, so the details show one link
   ts.push({ ...lossy(base(YOUTUBE_MUSIC_TRACK_ID, 'Example Artist', 'Example Song', 'Example_Channel', 207, now, 2),
     'youtube_music', 20000, 'aac'), how: 'upload',
-    link: { url: 'https://music.youtube.com/watch?v=EXAMPLEid01', label: 'Open in YouTube Music' } });
+    link: { url: 'https://music.youtube.com/watch?v=EXAMPLEid01', label: 'Open in YouTube Music', service: 'youtube_music' } });
   return ts;
 }
 

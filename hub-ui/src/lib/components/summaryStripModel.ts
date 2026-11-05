@@ -8,7 +8,7 @@ export type MixPart = { quality: Extract<Quality, 'good_lossy' | 'weak' | 'fake'
 export type StripView = {
   /** the lossless share as a whole number ("63"); null: "—" (waiting, no tracks, none checked yet) */
   share: string | null;
-  /** under the share: "290 of 460 checked tracks"; without a share it names it ("lossless · none checked yet") */
+  /** under the share: "290 of 460 checked tracks" (a read playlist: "9 of 13 checked · 13 of 18 downloaded"); without a share it names it ("lossless · none checked yet") */
   line: string;
   upgrades: StripRow;
   notLossless: StripRow & {
@@ -27,15 +27,18 @@ const MIX: MixPart['quality'][] = ['good_lossy', 'weak', 'fake'];
 
 const WAIT = '—';
 
-export function stripView(s: Library['summary'] | null): StripView {
+/** `songs` (a read playlist, D10): the caption also says how many of its songs have a file, "9 of 13 checked · 13 of
+ *  18 downloaded"; every other view keeps "9 of 13 checked tracks". */
+export function stripView(s: Library['summary'] | null, songs: Library['songs'] = null): StripView {
   if (!s) {
     return { share: null, line: 'lossless', upgrades: { count: WAIT, link: false },
       notLossless: { count: WAIT, link: false, todo: null, tip: null }, mix: [] };
   }
   const checked = Object.values(s.by_quality).reduce((n, c) => n + c, 0);
   const share = s.tracks && s.lossless_share !== null ? String(Math.round(s.lossless_share * 100)) : null;
-  const line = !s.tracks ? 'lossless · no tracks yet' : s.lossless_share === null ? 'lossless · none checked yet'
-    : `${count(s.by_quality.lossless)} of ${count(checked)} checked tracks`;
+  const checkedPart = !s.tracks ? 'lossless · no tracks yet' : s.lossless_share === null ? 'lossless · none checked yet'
+    : `${count(s.by_quality.lossless)} of ${count(checked)} checked${songs ? '' : ' tracks'}`;
+  const line = songs ? `${checkedPart} · ${count(songs.with_file)} of ${count(songs.listed)} downloaded` : checkedPart;
   const n = s.not_lossless;
   const m = Math.min(s.to_do, n);
   // with nothing that isn't lossless there is nothing to say about To-do ("· none in To-do" beside a 0 says nothing)

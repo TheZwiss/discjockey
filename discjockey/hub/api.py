@@ -650,9 +650,12 @@ class HubApi:
             raise ValueError(f"filter must be one of {', '.join(views.LIBRARY_FILTERS)}")
         state = self._state()
         records, folders = self._records_and_folders()
+        prep = self._store.prep
         out = views.library(state, view, key, query, filter, sort, self._cover(self._images()),
                             self._away_by_root(folders), lines=pf.load(self._paths.playlists_file).rows,
-                            records=records, watched=folders)
+                            records=records, watched=folders, fetched=prep.fetched if prep else [],
+                            planned={k: t["aliases"] for k, t in (prep.state["tracks"] if prep else {}).items()
+                                     if t.get("aliases")})
         # a row without a file (a playlist song that waits) is no track the page can act on
         self._remember(state, [r["track_id"] for r in (*out["rows"], *(out["also"] or ())) if r["file_state"] != "no_file"])
         return out

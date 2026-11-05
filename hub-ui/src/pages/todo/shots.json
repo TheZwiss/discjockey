@@ -1,4 +1,6 @@
 [
+ { "name": "todo-open-in", "route": "#/todo?track=t2", "scenario": "normal", "mockup": "sources-round.html", "mockupState": "todo",
+   "steps": [{ "wait": "[data-test=details][data-track=t2]" }, { "wait": "[data-test=head-link]" }, { "sleep": 600 }] },
  { "name": "todo-weak-selected", "route": "#/todo?track=t17", "scenario": "normal",
    "steps": [{ "wait": "[data-test=details][data-track=t17]" }, { "sleep": 600 }] },
  { "name": "todo-offline-selected", "route": "#/todo?track=t17", "scenario": "todo:offline",

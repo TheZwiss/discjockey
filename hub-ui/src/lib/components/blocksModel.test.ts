@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { GUIDE_HEAD, GUIDE_SERVICES, guideRows } from './linkGuideModel';
 import { barParts, barTitle } from './qualityBarModel';
-import { headLine, linkService, wordHidden } from './trackHeadModel';
+import { headLine, wordHidden } from './trackHeadModel';
 import { settingForm } from './addRowModel';
 
 const q = (o: Partial<Record<'lossless' | 'good_lossy' | 'weak' | 'fake' | 'missing', number>> = {}) =>
@@ -27,14 +27,6 @@ describe('trackHead', () => {
     expect(headLine('Lio Sander', 268, 'Hard_Bounce')).toBe('Lio Sander · 4:28 · Hard_Bounce');
     expect(headLine('Lio Sander', null, 'Hard_Bounce')).toBe('Lio Sander · Hard_Bounce');
     expect(headLine('', 268, '')).toBe('4:28');
-  });
-  it("finds the service from the engine's label, else none", () => {
-    expect(linkService({ url: 'https://open.spotify.com/track/x', label: 'Open in Spotify' })).toBe('spotify');
-    expect(linkService({ url: 'https://open.qobuz.com/track/1', label: 'Open in Qobuz' })).toBe('qobuz');
-    expect(linkService({ url: 'https://soundcloud.com/a/b', label: 'Open in SoundCloud' })).toBe('soundcloud');
-    expect(linkService({ url: 'https://music.youtube.com/watch?v=x', label: 'Open in YouTube Music' }))
-      .toBe('youtube_music');
-    expect(linkService({ url: 'https://example.com', label: 'Open elsewhere' })).toBeNull();
   });
   it('hides the word only when it went a line lower', () => {
     expect(wordHidden(0, 0)).toBe(false);

@@ -8,10 +8,10 @@
   // old file goes and the README's tip to quit rekordbox first. The action itself ("Replace with lossless") is the
   // panel foot's filled button (UpgradeFoot, reading the same UpgradeFlow).
   import type { Spectrum as Spec, TrackDetail, Upgrade } from '$lib/bridge/types';
-  import { ChoiceGroup, ComparePlayer, Hint, KeyValue, OutcomeList, Spectrum, Surface } from '$lib/components';
+  import { ChoiceGroup, ComparePlayer, Hint, KeyValue, OutcomeList, Spectrum, Surface, tip } from '$lib/components';
   import type { ChoiceOption } from '$lib/components';
   import { foundText, upgradeLabel } from '$lib/format';
-  import { KEPT_FILE, QUIT_REKORDBOX, editLine, nowLabel, upgradeWays, type Way } from './decisionModel';
+  import { KEPT_FILE, QUIT_REKORDBOX, editLine, nowLabel, nowTip, upgradeWays, type Way } from './decisionModel';
 
   let { track, current, upgrade, loading, swap, way, onway, busy = false }: {
     track: Pick<TrackDetail, 'audio_url' | 'duration_s' | 'source_format_line' | 'quality_label'> & { upgrade: Upgrade | null };
@@ -37,7 +37,8 @@
     <div class="specs">
       <div>
         <Spectrum spectrum={current} height={28} loading={loading && !current} cutoffLabel={false} />
-        <span class="fmt"><span class="caps">Now</span><span class="q" title={now}>{now}</span></span>
+        <span class="fmt"><span class="caps">Now</span><span class="q" use:tip={nowTip(track) ?? { text: now, cut: true }}
+          data-test="upgrade-now">{now}</span></span>
       </div>
       <div>
         <Spectrum spectrum={upgrade} height={28} loading={loading && !upgrade} cutoffLabel={false} />

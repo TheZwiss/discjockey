@@ -18,7 +18,7 @@
   import ServiceMark from './ServiceMark.svelte';
   import { logoOf } from './serviceLogos';
   import { tip } from './tip';
-  import { headLine, linkService, wordHidden } from './trackHeadModel';
+  import { headLine, wordHidden } from './trackHeadModel';
 
   let { track, place, empty = false, link = null, badge, word, action, children }: {
     track: Pick<TrackDetail, 'cover_url' | 'track_id' | 'title' | 'artist' | 'duration_s'>; place: string;
@@ -27,7 +27,9 @@
     /** the song's page on its service: the "Open in {Service} ↗" row at the card's foot */
     link?: TrackLink | null;
     /** the state line's badge (QualityBadge, Badge); `word` says it in words beside it, whole or not at all */
-    badge?: Snippet;
+    /** the state badge; its argument says whether the line's Tip (the hidden word) covers it, so the badge drops its
+     *  own titles there (one hover, one tooltip) and keeps them while the word shows (the ↑ chip's "Upgrade ready") */
+    badge?: Snippet<[boolean]>;
     word?: string;
     /** at the title's right end, e.g. Hide */
     action?: Snippet;
@@ -35,7 +37,6 @@
     children?: Snippet;
   } = $props();
   const line = $derived(headLine(track.artist, track.duration_s, place));
-  const service = $derived(link ? linkService(link) : null);
 
   let badgeEl: HTMLElement | undefined = $state();
   let wordEl: HTMLElement | undefined = $state();
@@ -64,7 +65,7 @@
       {#if line}<div class="sub" use:tip={{ text: line, cut: true }} data-test="head-line">{line}</div>{/if}
       {#if badge}
         <div class="state" data-test="head-state">
-          <span class="badge" bind:this={badgeEl} use:tip={hidden && word ? word : null}>{@render badge()}</span>
+          <span class="badge" bind:this={badgeEl} use:tip={hidden && word ? word : null}>{@render badge(hidden && !!word)}</span>
           {#if word}<span class="word" bind:this={wordEl}
             data-hidden={hidden || undefined}>{word}</span>{/if}
         </div>
@@ -74,7 +75,7 @@
   </div>
   {#if link}
     <div class="open" data-test="head-link">
-      {#if service}<ServiceMark service={logoOf(service)} label={PLAYLIST_SERVICE_NAMES[service]} />{/if}
+      <ServiceMark service={logoOf(link.service)} label={PLAYLIST_SERVICE_NAMES[link.service]} />
       <ExternalLink href={link.url} label={link.label} />
     </div>
   {/if}

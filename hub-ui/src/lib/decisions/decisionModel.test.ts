@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { DuplicateItem, FileSide, TodoItem, TrackDetail, Upgrade } from '$lib/bridge/types';
 import { createFakeBridge } from '$lib/bridge/fake/bridge';
 import type { HubEvent } from '$lib/bridge/events';
-import { canSwap, decisionFor, nowLabel } from './decisionModel';
+import { canSwap, decisionFor, nowLabel, nowTip } from './decisionModel';
 
 const item = (id: string, extra: Partial<TodoItem> = {}): TodoItem => ({
   track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'not_lossless', quality: 'weak',
@@ -131,6 +131,10 @@ describe("the upgrade card's Now label", () => {
   });
   it('falls back to the quality label without a source format (an own or bought file)', () => {
     expect(nowLabel({ source_format_line: null, quality_label: 'LOSSLESS' })).toBe('LOSSLESS');
+  });
+  it("says in its Tip that the AIFF was made from it, only for a download", () => {
+    expect(nowTip({ source_format_line: 'Opus · 135 kbps' })).toBe('Your AIFF was made from this');
+    expect(nowTip({ source_format_line: null })).toBeNull();
   });
   it('is the source format line of the fake backend\'s details, not the file format', async () => {
     const r = await createFakeBridge('normal').track('t2');

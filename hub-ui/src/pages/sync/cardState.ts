@@ -1,8 +1,9 @@
 // The live sync card as a pure function of the run state and the clock (plan Task 65, "The card state machine").
 import type { Action, Step } from '$lib/bridge/events';
-import type { Dashboard, PlaylistService, ProblemKind, Quality, Result } from '$lib/bridge/types';
+import type { Dashboard, PlaylistService, ProblemKind, Quality, Result, SourceHow } from '$lib/bridge/types';
+import type { LogoKey } from '$lib/components/serviceLogos';
 import type { RunState } from '$lib/stores/run';
-import { STEP_LABEL } from '$lib/copy';
+import { STEP_LABEL, sourceHowWords } from '$lib/copy';
 import { duration, khz, megabytes } from '$lib/format';
 
 export const ANALYSED_MS = 4000;
@@ -16,12 +17,34 @@ export const SOURCE_NAME: Record<string, string> = {
 };
 export const sourceName = (s: string | null | undefined) => (s ? SOURCE_NAME[s] ?? s : null);
 
+/** The running card's line under the title (sources round problem 4): where the file comes from, with that service's
+ *  logo, and how it was found ("SoundCloud · the playlist's own upload", "Qobuz · exact Qobuz track"). The source
+ *  left the uppercase kicker, which would shout the long words. */
+export type FromLine = { logo: LogoKey | null; name: string; text: string };
+const SOURCE_LOGO: Record<string, LogoKey> = {
+  qobuz: 'qobuz', youtube_music: 'youtubemusic', soundcloud: 'soundcloud', youtube: 'youtube',
+};
+const SOURCE_FULL: Record<string, string> = {
+  qobuz: 'Qobuz', youtube_music: 'YouTube Music', soundcloud: 'SoundCloud', youtube: 'YouTube', manual: 'bought',
+};
+/** null until the source is chosen (`SourceChosen`); without a how (D11) the service's name alone. */
+export function fromLine(source: string | null, how: SourceHow | null): FromLine | null {
+  if (!source) return null;
+  const name = SOURCE_FULL[source] ?? source;
+  const words = sourceHowWords(how);
+  return { logo: SOURCE_LOGO[source] ?? null, name, text: words ? `${name} · ${words}` : name };
+}
+/** The running card's kicker: "Now · <folder>" (the source has its own line, fromLine). */
+export const kickerLine = (a: Pick<Action, 'folder'>): string => ['Now', a.folder].filter(Boolean).join(' · ');
+
 export type Card =
   | { kind: 'preparing'; text: string }
-  | { kind: 'working'; action: Action; step: Step | null; steps: Step[]; detail: string; source: string | null }
-  | { kind: 'downloading'; action: Action; steps: Step[]; source: string | null; doneMB: string; totalMB: string | null;
+  | { kind: 'working'; action: Action; step: Step | null; steps: Step[]; detail: string; source: string | null;
+      how: SourceHow | null }
+  | { kind: 'downloading'; action: Action; steps: Step[]; source: string | null; how: SourceHow | null; doneMB: string; totalMB: string | null;
       percent: number | null; secondsLeft: number | null }
-  | { kind: 'converting'; action: Action; steps: Step[]; source: string | null; lengthLine: string | null;
+  | { kind: 'converting'; action: Action; steps: Step[]; source: string | null; how: SourceHow | null;
+      lengthLine: string | null;
       lengthOk: boolean | null; done_s: number; total_s: number | null }
   | { kind: 'analysed'; result: Result; action: Action }
   | { kind: 'pause'; waiting: 'between' | 'break'; remaining_s: number; total_s: number; label: string;
@@ -81,6 +104,7 @@ export function cardState(r: RunState, now: number,
   }
   const steps = stepsFor(a);
   const source = r.source?.source ?? null;
+  const how = r.source?.query_kind ?? null;
   const w = r.waiting;
   if (w && (w.kind === 'between' || w.kind === 'break') && w.remaining > 0) {
     return { kind: 'pause', waiting: w.kind, remaining_s: Math.max(0, w.remaining - (now - w.at) / 1000),
@@ -92,17 +116,17 @@ export function cardState(r: RunState, now: number,
     const fresh = now - r.last_finished_at < ANALYSED_MS && !(r.step && WORK_STEPS.has(r.step));
     if (ownResult || fresh) return { kind: 'analysed', result: last.result, action: last.action };
   }
-  if (!steps.length) return { kind: 'working', action: a, step: null, steps, detail: noStepDetail(a), source };
+  if (!steps.length) return { kind: 'working', action: a, step: null, steps, detail: noStepDetail(a), source, how };
   const p = r.progress;
   if (r.step === 'download' && p && p.step === 'download' && p.unit === 'bytes') {
     const pct = p.total ? Math.min(100, Math.round((p.done / p.total) * 100)) : null;
     const left = p.total && p.rate && p.rate > 0 ? Math.max(0, Math.ceil((p.total - p.done) / p.rate)) : null;
-    return { kind: 'downloading', action: a, steps, source, doneMB: megabytes(p.done),
+    return { kind: 'downloading', action: a, steps, source, how, doneMB: megabytes(p.done),
       totalMB: p.total ? megabytes(p.total) : null, percent: pct, secondsLeft: left };
   }
   if (r.step === 'convert') {
     const sec = p && p.step === 'convert' && p.unit === 'seconds' ? p : null;
-    return { kind: 'converting', action: a, steps, source, lengthLine: lengthLine(r.checked),
+    return { kind: 'converting', action: a, steps, source, how, lengthLine: lengthLine(r.checked),
       lengthOk: r.checked ? r.checked.ok : null, done_s: sec?.done ?? 0,
       total_s: sec?.total ?? r.checked?.file_duration_s ?? null };
   }
@@ -114,7 +138,7 @@ export function cardState(r: RunState, now: number,
   } else if (step === 'check' && r.checked) {
     detail = lengthLine(r.checked) ?? detail;
   }
-  return { kind: 'working', action: a, step, steps, detail, source };
+  return { kind: 'working', action: a, step, steps, detail, source, how };
 }
 
 /** Index of the step shown as current (accent); every step before it is done. -1 = all done. */
