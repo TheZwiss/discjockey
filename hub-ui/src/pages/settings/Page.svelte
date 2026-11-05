@@ -3,14 +3,15 @@
   // The main column answers "where does my music come from?" first (the source ladder, its rungs lit by what is
   // signed in), then lists every setting in three groups, each row with the one line that says its state. The panel
   // is the selected row: an AccountPanel for the download services (what the login gives, its state, the sign-in),
-  // a RowPanel for the rest. `#/settings` opens the first row that needs the user. A click on a ladder rung or chip
+  // YouTube Music's own panel (its Liked music choice), a RowPanel for the rest. Every service row leads with its
+  // own logo (ServiceMark), the others with a glyph. `#/settings` opens the first row that needs the user. A click on a ladder rung or chip
   // opens its row, so the ladder doubles as a map of the settings below it.
   import { untrack } from 'svelte';
   import { api } from '$lib/bridge/client';
   import type { DownloadsView, ProblemKind, SetupTools } from '$lib/bridge/types';
   import {
-    AccountFlow, AccountPanel, ListRow, ListSection, PageHeader, ProblemCard, Skeleton, SourceLadder, StatusMark,
-    Surface, WatchedFoldersFlow, accountBlocked,
+    AccountFlow, AccountPanel, ListRow, ListSection, PageHeader, ProblemCard, ServiceMark, Skeleton, SourceLadder,
+    StatusMark, Surface, WatchedFoldersFlow, accountBlocked,
   } from '$lib/components';
   import { ListPanelFrame } from '$lib/frames';
   import { go } from '$lib/router';
@@ -19,8 +20,9 @@
   import { sayInBody } from '$lib/stores/shell';
   import FoldersPanel from './FoldersPanel.svelte';
   import RowPanel from './RowPanel.svelte';
+  import YouTubeMusicPanel from './YouTubeMusicPanel.svelte';
   import {
-    ROW_GLYPHS, ROW_GROUPS, ROW_NAMES, firstAttention, isAccountRow, isSettingsRow, rowLine, spotifyUsed, type RowContext,
+    ROW_GROUPS, ROW_LEADS, ROW_NAMES, firstAttention, isAccountRow, isSettingsRow, rowLine, spotifyUsed, type RowContext,
     type SettingsRow,
   } from './settingsModel';
 
@@ -103,7 +105,8 @@
       {#each g.rows as r (r)}
         {@const line = rowLine(r, ctx)}
         <ListRow height={52} selected={r === row} onclick={() => open(r)} test="settings-row-{r}">
-          {#snippet lead()}<span class="glyph">{ROW_GLYPHS[r]}</span>{/snippet}
+          {#snippet lead()}{@const l = ROW_LEADS[r]}{#if 'logo' in l}<ServiceMark service={l.logo}
+            label={ROW_NAMES[r]} />{:else}<span class="glyph">{l.glyph}</span>{/if}{/snippet}
           {#snippet name()}{ROW_NAMES[r]}{/snippet}
           {#snippet sub()}{#if line.text}{line.text}{:else}<Skeleton height={10} width="140px" />{/if}{/snippet}
           {#snippet trailing()}{#if line.tone}<StatusMark tone={line.tone} />{/if}{/snippet}
@@ -120,6 +123,8 @@
       <AccountPanel service={row} {downloads} phase={flow.phase(downloads)} actions={flow} logins={flow.logins}
         busy={flow.busy} disabledWhy={blockedAccount} test="settings-panel-{row}" />
     {/key}
+  {:else if row === 'youtube_music'}
+    <YouTubeMusicPanel status={$hub.setup} disabledWhy={$writeBlockedReason} onchanged={changed} />
   {:else if row === 'folders'}
     <FoldersPanel flow={folders} folder={params.folder} />
   {:else if row}

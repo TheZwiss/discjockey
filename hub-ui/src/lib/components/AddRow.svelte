@@ -14,6 +14,8 @@
   // A link the engine reads only once a Settings choice is on (`setting_off` with its `setting`: Liked music) gets
   // the "needs a setting" form: the playlist's fixed name, logo + "YouTube Music · yours", the yellow ! line, a Hint
   // and one primary action the caller names (`settingAction`: Playlists' "Turn on in Settings").
+  // The normal found card leads its line with the service's logo (as the rows do) and says what reading it takes
+  // (readLine: Liked music "Discjockey reads it through your YouTube login").
   // `check(link)` puts a link in the field and checks it, as a paste and Add would (the gallery's states).
   import Button from './Button.svelte';
   import Cover from './Cover.svelte';
@@ -32,13 +34,14 @@
   import { bannersSaidInBody } from '../stores/shell';
   import { NOT_WHILE_SYNC, PLAYLIST_SERVICE_NAMES } from '../copy';
   import { plural } from '../format';
-  import { bannerSaysIt, folderProblem, hasLink, ownerText, settingForm, type PlaylistRef } from './addRowModel';
+  import { bannerSaysIt, folderProblem, hasLink, ownerText, readLine, settingForm, type PlaylistRef } from './addRowModel';
 
   let { draft, onadd, filled = false, settingAction }: {
     draft: PlaylistRef[]; onadd: (a: AddedPlaylist, folder: string) => boolean | Promise<boolean>;
     /** "Add to the list" is the screen's one filled button (Setup's first playlist, where adding is the step) */
     filled?: boolean;
-    /** the "needs a setting" form's one action: its words and where it goes (Playlists: "Turn on in Settings") */
+    /** the "needs a setting" form's one action: its words and where it goes (Playlists: "Turn on in Settings");
+     *  without one (Setup) the form's Hint says to turn it on in Settings after setup */
     settingAction?: { label: string; onclick: (setting: SettingKey) => void };
   } = $props();
 
@@ -153,7 +156,8 @@
       <Button variant="link" muted size="sm" onclick={cancel} data-test="add-cancel">Cancel</Button>
     </div>
     <div class="keep">
-      <span class="why"><Hint text={form.hint} wrap /></span>
+      <!-- no action (Setup has no way to Settings yet): the Hint says when and where instead, never a dead end -->
+      <span class="why"><Hint text={settingAction ? form.hint : form.later} wrap data-test="add-needs-hint" /></span>
       {#if settingAction}
         <Button variant={filled ? 'filled' : 'primary'} onclick={() => needs && settingAction.onclick(needs.setting)}
           data-test="add-setting">{settingAction.label}</Button>
@@ -168,9 +172,10 @@
       <Cover url={result.info?.image_url ?? null} seed={result.link} size={40} />
       <div class="what">
         <span class="name">{result.info?.name ?? 'Unknown playlist'}</span>
-        {#if foundLine(result)}<span class="muted">{foundLine(result)}</span>{/if}
+        <span class="muted svc" data-test="add-found-line"><ServiceMark service={logoOf(result.service)}
+          label={PLAYLIST_SERVICE_NAMES[result.service]} />{foundLine(result)}</span>
         {#if result.readable}
-          <Hint text="Discjockey can read this playlist" />
+          <Hint text={readLine(result.link)} data-test="add-read-line" />
         {:else}
           <!-- the service's own words (the engine's hint), whole: they say what to do in that service -->
           <Hint tone="problem" wrap text={result.hint ?? result.info?.hint ?? ''} data-test="add-hint" />
@@ -203,7 +208,8 @@
   .ph-logos { flex: none; display: inline-flex; align-items: center; gap: 6px; }
   .ph-logo { display: inline-flex; pointer-events: auto; cursor: text; }
   .svc { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
-  .off { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-small); color: var(--text-muted); }
+  /* the 16 px ! mark, 4 px before its words: they start where the 14 px logo's line above starts (14 + 6) */
+  .off { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-small); color: var(--text-muted); }
   .why { flex: 1; min-width: 0; align-self: center; }
   .found { display: flex; gap: var(--s-3); align-items: center; min-width: 0; }
   .what { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }

@@ -49,7 +49,7 @@ import type {
   DownloadsAccount, DownloadsView, SetupStatus, SetupTools, WatchedFolderRow, WatchedFolders,
 } from '$lib/bridge/types';
 import {
-  ROW_GLYPHS, ROW_GROUPS, SETTINGS_ROWS, checkedWhen, firstAttention, isAccountRow, rowLine, type RowContext,
+  LIKED_NO_LOGIN, ROW_GROUPS, ROW_LEADS, SETTINGS_ROWS, likedPanel, checkedWhen, firstAttention, isAccountRow, rowLine, type RowContext,
 } from './settingsModel';
 
 const NOW = new Date(2026, 9, 22, 12, 0);
@@ -144,10 +144,29 @@ describe('settings rows', () => {
 });
 
 describe('settings list', () => {
-  it('every row has a glyph and sits in exactly one group', () => {
+  it('every row has a lead and sits in exactly one group', () => {
     const grouped = ROW_GROUPS.flatMap((g) => g.rows);
     expect([...grouped].sort()).toEqual([...SETTINGS_ROWS].sort());
-    for (const r of SETTINGS_ROWS) expect(ROW_GLYPHS[r]).toBeTruthy();
+    for (const r of SETTINGS_ROWS) expect(ROW_LEADS[r]).toBeTruthy();
+  });
+  it('every service row leads with its own logo (YouTube for Premium), the rest with a glyph', () => {
+    expect(ROW_LEADS.qobuz).toEqual({ logo: 'qobuz' });
+    expect(ROW_LEADS.youtube).toEqual({ logo: 'youtube' });
+    expect(ROW_LEADS.soundcloud).toEqual({ logo: 'soundcloud' });
+    expect(ROW_LEADS.spotify).toEqual({ logo: 'spotify' });
+    expect(ROW_LEADS.youtube_music).toEqual({ logo: 'youtubemusic' });
+    for (const r of ['music', 'folders', 'programs', 'about', 'reports'] as const) expect('glyph' in ROW_LEADS[r]).toBe(true);
+  });
+  it('Reading playlists holds Spotify and YouTube Music', () => {
+    expect(ROW_GROUPS.find((g) => g.label === 'Reading playlists')?.rows).toEqual(['spotify', 'youtube_music']);
+    expect(ROW_GROUPS.map((g) => g.label)).toEqual(['Downloads', 'Reading playlists', 'This Mac']);
+  });
+  it("YouTube Music's line says the Liked music choice; it never needs the user", () => {
+    expect(rowLine('youtube_music', ctx())).toEqual({ tone: 'good', text: 'public playlists · Liked music off' });
+    const on = status({ youtube_music: { liked_music: true, can_turn_on: true, listed: false } });
+    expect(rowLine('youtube_music', ctx({ status: on }))).toEqual({ tone: 'good', text: 'public playlists · Liked music on' });
+    expect(rowLine('youtube_music', ctx({ status: null }))).toEqual({ tone: null, text: '' });
+    expect(firstAttention(ctx())).toBe('qobuz');
   });
   it('This Mac holds the music folder, the watched folders, programs, About and reports', () => {
     expect(ROW_GROUPS.find((g) => g.label === 'This Mac')?.rows).toEqual(['music', 'folders', 'programs', 'about',
@@ -242,5 +261,25 @@ describe('when Discjockey has to be opened again', () => {
       'Quit Discjockey and open it again to start using the earlier yt-dlp.');
     expect(reopenNote(null, 'update_tools', false).text).toContain('the new yt-dlp');
     expect(reopenNote(null, null, true).text).toBe('Open Discjockey again to start using the new yt-dlp.');
+  });
+});
+
+describe('the YouTube Music panel', () => {
+  const y = (over: Partial<SetupStatus['youtube_music']> = {}) => ({ liked_music: false, can_turn_on: true, listed: false, ...over });
+  it('off with a login: the switch can be turned on, nothing to add', () => {
+    expect(likedPanel(y(), null)).toEqual({ on: false, locked: false, sub: 'uses your YouTube login', canAdd: false });
+  });
+  it('on and not listed offers the add; listed it does not', () => {
+    expect(likedPanel(y({ liked_music: true }), null).canAdd).toBe(true);
+    expect(likedPanel(y({ liked_music: true, listed: true }), null).canAdd).toBe(false);
+  });
+  it('shows a save in flight at once, but offers the add only once it is saved', () => {
+    const p = likedPanel(y(), true);
+    expect(p.on).toBe(true);
+    expect(p.canAdd).toBe(false);
+    expect(likedPanel(y({ liked_music: true }), false).on).toBe(false);
+  });
+  it('without a YouTube login the switch is locked off with the reason', () => {
+    expect(likedPanel(y({ can_turn_on: false }), true)).toEqual({ on: false, locked: true, sub: LIKED_NO_LOGIN, canAdd: false });
   });
 });

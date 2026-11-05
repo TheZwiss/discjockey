@@ -6,6 +6,7 @@ import type {
   AppUpdate, DownloadsView, DownloadTool, DownloadTools, JobSnap, SetupStatus, SetupTools, ReadStatus, WatchedFolders,
 } from '$lib/bridge/types';
 import { WHAT_IT_GIVES, checkedWhen, stateLine, type RowLine, type Tone } from '$lib/components/accountModel';
+import type { LogoKey } from '$lib/components/serviceLogos';
 import { shortPath } from '$lib/musicFolder';
 import { settingsLine } from '$lib/components/watchedFoldersModel';
 import { SETTINGS_ROWS } from '$lib/router';
@@ -14,18 +15,24 @@ export type SettingsRow = (typeof SETTINGS_ROWS)[number];
 export { SETTINGS_ROWS };
 export const ROW_GROUPS: { label: string; rows: SettingsRow[] }[] = [
   { label: 'Downloads', rows: ['qobuz', 'youtube', 'soundcloud'] },
-  { label: 'Spotify', rows: ['spotify'] },
+  // the services Discjockey reads playlists from with a choice of their own (sources round problem 3)
+  { label: 'Reading playlists', rows: ['spotify', 'youtube_music'] },
   // the watched folders sit with the music folder: both say where Discjockey looks for music on this Mac
   { label: 'This Mac', rows: ['music', 'folders', 'programs', 'about', 'reports'] },
 ];
 export const ROW_NAMES: Record<SettingsRow, string> = {
-  qobuz: 'Qobuz', youtube: 'YouTube Premium', soundcloud: 'SoundCloud Go+', spotify: 'Spotify', music: 'Music folder',
+  qobuz: 'Qobuz', youtube: 'YouTube Premium', soundcloud: 'SoundCloud Go+', spotify: 'Spotify',
+  youtube_music: 'YouTube Music', music: 'Music folder',
   folders: 'Watched folders', programs: 'Programs',
   about: 'About Discjockey', reports: 'Reports',
 };
-/** Each row's lead glyph, in the sidebar's style (one 14 px box). */
-export const ROW_GLYPHS: Record<SettingsRow, string> = {
-  qobuz: '◆', youtube: '▶', soundcloud: '☁', spotify: '♫', music: '▤', folders: '◫', programs: '⌘', about: '©', reports: '☰',
+/** Each row's lead in one 14 px box: a service's row its own coloured logo (ServiceMark; sources round problem 3:
+ *  every service row has its logo, YouTube's for Premium), the others a glyph in the sidebar's style. */
+export type RowLead = { logo: LogoKey } | { glyph: string };
+export const ROW_LEADS: Record<SettingsRow, RowLead> = {
+  qobuz: { logo: 'qobuz' }, youtube: { logo: 'youtube' }, soundcloud: { logo: 'soundcloud' }, spotify: { logo: 'spotify' },
+  youtube_music: { logo: 'youtubemusic' }, music: { glyph: '▤' }, folders: { glyph: '◫' }, programs: { glyph: '⌘' },
+  about: { glyph: '©' }, reports: { glyph: '☰' },
 };
 export function isSettingsRow(v: string | undefined): v is SettingsRow {
   return !!v && (SETTINGS_ROWS as readonly string[]).includes(v);
@@ -87,6 +94,12 @@ export function rowLine(row: SettingsRow, c: RowContext): RowLine {
         case 'not_connected': return { tone: 'problem', text: 'not connected' };
         case 'not_set_up': return { tone: 'problem', text: 'not set up' };
       }
+    }
+    case 'youtube_music': {
+      // public and unlisted playlists need no login; the line says the one choice, Liked music
+      const y = c.status?.youtube_music;
+      if (!y) return { tone: null, text: '' };
+      return { tone: 'good', text: `public playlists · Liked music ${y.liked_music ? 'on' : 'off'}` };
     }
     case 'music': {
       const m = c.status?.music;
@@ -190,4 +203,25 @@ export function updateOutcome(fin: { ok: boolean; problem?: string | null; messa
     return { lines: updateLines(r.before, r.after), error: null, restart: r.restart === true };
   }
   return { lines: null, error: fin.problem === 'stopped' ? null : fin.message || null, restart: false };
+}
+
+/** The YouTube Music panel (sources round problem 3, binding words). */
+export const LIKED_WARNING = "Every read signs in with your YouTube account, the one your downloads use. Many reads "
+  + "can set off YouTube's bot check, which pauses downloads from YouTube for a while.";
+export const LIKED_NO_LOGIN = 'Sign in to YouTube Premium first';
+export type LikedPanel = {
+  /** the switch: the choice as saved, or the one being saved */
+  on: boolean;
+  /** no YouTube login to read it with: the switch can't be turned on (it is never shown on then: the engine counts
+   *  the choice only with a login) */
+  locked: boolean;
+  /** the switch row's second line: what it uses, or why it is locked */
+  sub: string;
+  /** "Add Liked music to Playlists": the choice is on (saved) and no Liked music line is listed yet */
+  canAdd: boolean;
+};
+export function likedPanel(y: SetupStatus['youtube_music'], pending: boolean | null): LikedPanel {
+  const locked = !y.can_turn_on;
+  return { on: locked ? false : pending ?? y.liked_music, locked,
+    sub: locked ? LIKED_NO_LOGIN : 'uses your YouTube login', canAdd: !locked && y.liked_music && !y.listed };
 }

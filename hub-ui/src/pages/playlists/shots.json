@@ -100,8 +100,13 @@
   "steps": [
    {
     "wait": "[data-test=playlists-empty]"
+   },
+   {
+    "wait": "[data-test=panel-link-guide]"
    }
-  ]
+  ],
+  "mockup": "sources-round.html",
+  "mockupState": "empty"
  },
  {
   "name": "playlists-big",
@@ -751,6 +756,64 @@
    },
    {
     "wait": "[data-test=add-problem]"
+   }
+  ]
+ },
+ {
+  "name": "playlists-liked-off",
+  "route": "#/playlists",
+  "scenario": "settings:liked-off",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "fill": [
+     "[data-test=add-row] input",
+     "https://music.youtube.com/playlist?list=LM"
+    ]
+   },
+   {
+    "click": "[data-test=add-button]"
+   },
+   {
+    "wait": "[data-test=add-setting]"
+   }
+  ],
+  "mockup": "sources-round.html",
+  "mockupState": "liked-off"
+ },
+ {
+  "name": "playlists-liked-on",
+  "route": "#/playlists",
+  "scenario": "settings:liked-on",
+  "steps": [
+   {
+    "wait": "[data-test=row-Powertrance]"
+   },
+   {
+    "fill": [
+     "[data-test=add-row] input",
+     "https://music.youtube.com/playlist?list=LM"
+    ]
+   },
+   {
+    "click": "[data-test=add-button]"
+   },
+   {
+    "wait": "[data-test=add-keep]"
+   }
+  ],
+  "mockup": "sources-round.html",
+  "mockupState": "liked-on"
+ },
+ {
+  "name": "playlists-liked-listed-off",
+  "route": "#/playlists",
+  "scenario": "playlists:liked-listed-off",
+  "steps": [
+   {
+    "wait": "[data-test=row-Liked_music]"
    }
   ]
  }
