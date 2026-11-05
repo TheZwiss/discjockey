@@ -5,7 +5,7 @@ import type { Library, LibraryFilter, LibraryRow, LibrarySort, LibraryView, Qual
   TrackRow } from '$lib/bridge/types';
 import { resolveTarget, type LibraryTarget } from '$lib/router';
 import type { SegOption } from '$lib/components/segmentedModel';
-import { dayMonth } from '$lib/format';
+import { dayMonth, rowAway } from '$lib/format';
 import { EMPTY } from '$lib/copy';
 import { heldRow, putAt } from '$lib/decisions/hold';
 
@@ -341,10 +341,8 @@ export function rowTitleTip(r: Pick<LibraryRow, 'in_playlists' | 'own' | 'file_s
 export function playable(r: Pick<LibraryRow, 'file_state'>): boolean {
   return r.file_state === 'here';
 }
-/** An away row: dimmed like a leftover one (it can't play), and its `AwayTag` says why. */
-export function rowAway(r: Pick<LibraryRow, 'file_state'>): Exclude<LibraryRow['file_state'], 'here' | 'no_file'> | null {
-  return r.file_state === 'here' || r.file_state === 'no_file' ? null : r.file_state;
-}
+/** An away row: dimmed like a leftover one (it can't play), and its `AwayTag` says why (shared with To-do's rows). */
+export { rowAway };
 /** The row's lead (cover and title) is dimmed: a song that left every playlist, a file that is away, or a playlist
  *  song with no file yet (D6). The quality column tells the three apart: nothing, an `AwayTag`, Waiting / NOT FOUND. */
 export function rowDim(r: Pick<LibraryRow, 'in_playlists' | 'own' | 'file_state'>): boolean {

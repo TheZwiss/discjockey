@@ -44,18 +44,6 @@ services.
 - **Live check:** the short-link redirect follows one hop. Confirm that `on.soundcloud.com` goes straight to
   `soundcloud.com/...`.
 
-## 30. To-do decision panels leftovers
-
-Audit 2026-11-05: both points are still open (the subtitle in `todoModel.headerSub` and the grey step numbers in
-`NumberedSteps.svelte` are unchanged); nothing else is missing.
-
-Noted in the screenshot review of the To-do panels (2026-10-31).
-
-- **The To-do header's subtitle wraps to two lines at 1100×700 when there are questions** ("… not lossless yet · 1 question
-  about your files"), so the header's height changes between the filters. It existed before stage 5.
-- **The step numbers in the "In rekordbox" card stay grey** where the mockup drew them yellow. They come from a shared
-  numbered-list block, so changing the colour there changes every numbered list; decide it centrally, not in To-do.
-
 ## 29. Library stage 5b leftovers (folders)
 
 Audit 2026-11-05 (updated by the leftovers UI round): the engine points are done (C2: run reports name an own song's
@@ -110,15 +98,13 @@ Noted while building and reviewing `docs/archive/2026-10-29-library-stage-5-plan
 Audit 2026-11-05 (updated by leftovers round C2): the Format-row point is closed (sources round). Engine done in C2:
 every To-do item carries `file_state` (as a Library row's: `here` / `offline` / `folder_missing` / `no_file`; a same-song
 item is about the user's own file) and the duplicate item's `in_playlists` is now explicitly "any side of the group is in
-a playlist" (it was already that value, from the side that names the group). Left for the UI round: the `AwayTag` on
-To-do rows, the "waits for your answer" note in `UpToDate.svelte`; the other two points are unchanged.
+a playlist" (it was already that value, from the side that names the group). The leftovers UI round showed the `AwayTag`
+on To-do rows (in place of the quality badge, the row dimmed, as Library) and the "waits for your answer" note on
+Sync's Up-to-date view (`WaitingAnswersNote`, shared with the run panel); the dry run's lines name an own song's folder
+as its run report does. The other two points are unchanged.
 
 Noted while building and reviewing `docs/archive/2026-10-25-library-stage-4-plan.md`.
 
-- **To-do's list rows don't say a file is away (UI):** the items now carry `file_state`; the row still shows no `AwayTag`. Its
-  rows have no quality column, so the tag's place needs a look of its own (the badge slot, or the detail line).
-- **Sync's Up-to-date view shows no hint when every remaining song waits for an answer;** only the To-do count points
-  at them. Show the "{n} songs wait for your answer" note there too.
 - **The removal count (W4) misses rare cases:** a playlist track matched only at plan time (no stored song) isn't
   counted, and a Yes answer for a track that left every playlist still is. A song re-keyed after the removal keeps
   its file's tag name until the planner updates stored names.

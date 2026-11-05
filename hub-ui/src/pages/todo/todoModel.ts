@@ -6,7 +6,7 @@ import type {
   TodoGroupKey, TodoItem, TrackDetail,
 } from '$lib/bridge/types';
 import { isDuplicate, isQuestion } from '$lib/bridge/types';
-import { dayMonth, duration, fileAway } from '$lib/format';
+import { dayMonth, duration, fileAway, rowAway } from '$lib/format';
 import { canSwap, fileName } from '$lib/decisions/decisionModel';
 import { heldRow, putAt } from '$lib/decisions/hold';
 import { fitPath } from '$lib/components/watchedFoldersModel';
@@ -41,17 +41,20 @@ export function filterFrom(query: string | null, saved: string): TodoFilter {
   return isFilter(query) ? query : isFilter(saved) ? saved : 'all';
 }
 
-/** The page's second line. `chips.all` counts the tracks and, since stage 4, the questions and duplicate groups about
- *  the user's own files too (the engine counts each once); those are often lossless files, so they get their own part
- *  and the rest is what the line always said. */
-export function headerSub(chips: Pick<Record<TodoFilter, number>, 'all' | 'same_song' | 'duplicate'>): string {
+/** The page's second line, as `PageHeader` parts in order of importance (issue 30): one line beside the title at every
+ *  width, so the header keeps its height between the filters (as one string it wrapped under the title at 1100). The
+ *  first part never drops; the questions' part drops whole where it doesn't fit (the strip's Same song and Duplicates
+ *  counts say it too) and stays in the tooltip. `chips.all` counts the tracks and, since stage 4, the questions and
+ *  duplicate groups about the user's own files too (the engine counts each once); those are often lossless files, so
+ *  they get their own part and the rest is what the line always said. */
+export function headerSub(chips: Pick<Record<TodoFilter, number>, 'all' | 'same_song' | 'duplicate'>): string[] {
   const questions = chips.same_song + chips.duplicate;
   const tracks = Math.max(0, chips.all - questions);
   const parts = [
     tracks ? (tracks === 1 ? '1 track is not lossless yet' : `${tracks} tracks are not lossless yet`) : null,
     questions ? `${questions} ${questions === 1 ? 'question' : 'questions'} about your files` : null,
   ].filter((p): p is string => p !== null);
-  return parts.length ? parts.join(' · ') : 'Nothing to do';
+  return parts.length ? parts : ['Nothing to do'];
 }
 
 // ---------- navigation ----------
@@ -181,6 +184,10 @@ export function selectAfterHide(items: TodoItem[], key: string): string | null {
 /** Whether a row is dimmed ("not in your playlists", for the older kinds). A same-song question and a duplicate
  *  group are never dimmed: they are about the user's own files, which no playlist holds. */
 export const rowOff = (i: TodoItem): boolean => !i.pair && !i.in_playlists;
+/** The row's lead is dimmed: a track no playlist holds (`rowOff`) or a file that is away (`rowAway`: offline, its
+ *  folder not found), as in Library's table. The trailing column tells the two apart: the quality badge, or the
+ *  `AwayTag` in its place, which says why the file can't play. */
+export const rowDim = (i: TodoItem): boolean => rowOff(i) || rowAway(i) !== null;
 
 /** The rows ▶ in a track's details plays through as the to-do queue. The import's items are left out: a question's
  *  song has no file yet and a duplicate group is several files, so neither is a track the queue could ask for. */

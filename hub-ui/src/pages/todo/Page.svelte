@@ -15,13 +15,13 @@
   import { getPref, setPref } from '$lib/prefs';
   import { markReady } from '$lib/ready';
   import {
-    Badge, Button, Cover, EmptyState, ListRow, ListSection, PageHeader, ProblemCard, Segmented, Skeleton, Surface,
+    AwayTag, Badge, Button, Cover, EmptyState, ListRow, ListSection, PageHeader, ProblemCard, Segmented, Skeleton, Surface,
   } from '$lib/components';
   import { ListPanelFrame, Panel } from '$lib/frames';
-  import { artistTitle } from '$lib/format';
+  import { artistTitle, rowAway } from '$lib/format';
   import {
     FILTER_MAX, segOptions, filterFrom, findHeld, flatten, ghostOf, headerSub, holdApplies, itemKey, keepSelection,
-    moveSelection, openCount, queueRows, rowBadge, rowOff, selectAfterHide, selectFromTrack, withHeldItem, type TodoHold,
+    moveSelection, openCount, queueRows, rowBadge, rowDim, selectAfterHide, selectFromTrack, withHeldItem, type TodoHold,
   } from './todoModel';
   import Details from './Details.svelte';
   import QuestionDetails from './QuestionDetails.svelte';
@@ -206,8 +206,8 @@
   const sections = $derived((data?.groups.length ?? 0) > 1);
   const only = $derived(!sections ? data?.groups[0] ?? null : null);
   const rowCount = $derived(items.length + (sections ? data?.groups.length ?? 0 : 0));
-  // cover · "Artist – Title" over "folder · detail" · quality badge, then a fixed slot for UPGRADE / FREE / HIDDEN,
-  // so every badge ends at one x down the whole list
+  // cover · "Artist – Title" over "folder · detail" · quality badge (or the AwayTag of a file that is away), then a
+  // fixed slot for UPGRADE / FREE / HIDDEN, so every badge ends at one x down the whole list
   const COLS = '--row-cols: 28px minmax(0, 1fr) auto';
 </script>
 
@@ -227,12 +227,13 @@
   {#snippet sub()}{[i.folder, i.detail].filter(Boolean).join(' · ')}{/snippet}
   {#snippet trailing()}
     {@const b = rowBadge(i)}
-    <Badge tone={b.quality} text={b.label} />
+    {@const away = rowAway(i)}
+    {#if away}<AwayTag state={away} test="todo-away" />{:else}<Badge tone={b.quality} text={b.label} />{/if}
     <span class="act">{#if i.hidden}<Badge tone="muted" text="HIDDEN" />{:else if i.upgrade_ready}<Badge tone="lossless"
       text="UPGRADE" />{:else if i.free}<span title="The artist gives it away for free"><Badge tone="accent"
       text="FREE" /></span>{/if}</span>
   {/snippet}
-  <ListRow {lead} {name} {sub} {trailing} selected={key === selKey} pick off={rowOff(i)} onclick={() => choose(key)}
+  <ListRow {lead} {name} {sub} {trailing} selected={key === selKey} pick off={rowDim(i)} onclick={() => choose(key)}
     title={artistTitle(i.artist, i.title)} test="todo-row" data-key={key} data-track={i.track_id} />
 {/snippet}
 

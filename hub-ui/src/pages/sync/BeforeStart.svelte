@@ -245,7 +245,8 @@
       {#if reading}<ReadingCard progress={$hub.read_progress} stale={hasPlan || preview.empty === 'up_to_date'} />{/if}
 
       {#if preview.empty === 'up_to_date'}
-        <UpToDate tracks={preview.in_playlists} playlists={preview.folders.length} />
+        <UpToDate tracks={preview.in_playlists} playlists={preview.folders.length}
+          waitingAnswers={preview.waiting_answers} />
         <PlanFolds {preview} busy={neverBusy} blocked={neverBlocked} onagain={again} />
       {:else if preview.empty || !hasPlan}
         <!-- "Read your playlists above" only while that button works; else the card above says why -->

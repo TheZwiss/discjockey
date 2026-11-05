@@ -1189,13 +1189,17 @@
   </section>
 
   <section data-test="gallery-numberedsteps">
-    {@render head('NumberedSteps', 'Steps to follow in order: a number in a ring, the text beside it, a control under the text (Setup\'s Spotify app, Qobuz\'s password steps)')}
+    {@render head('NumberedSteps', 'Steps to follow in order: a number in a ring, the text beside it, a control under the text (Setup\'s Spotify app, Qobuz\'s password steps); tone warn: the steps a warn card asks of you, the numbers in its yellow (To-do\'s In rekordbox)')}
     <div class="col start w480">
       <NumberedSteps test="g-steps">
         <li><span>Open Spotify's developer dashboard and log in.</span></li>
         <li><span>Add this <b>Redirect URI</b>:</span><CopyCode text="http://127.0.0.1:8888/callback" /></li>
         <li><span>Copy the app's <b>Client ID</b> and paste it here:</span>
           <SecretField type="text" mono placeholder="Client ID" label="Client ID" /></li>
+      </NumberedSteps>
+      <NumberedSteps tone="warn" test="g-steps-warn">
+        <li><span>In rekordbox, open <b>Preferences › Advanced</b>.</span></li>
+        <li><span>Choose <b>Relocate</b> for the moved files.</span></li>
       </NumberedSteps>
     </div>
   </section>
