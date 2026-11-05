@@ -129,13 +129,13 @@ describe('fake watched folders', () => {
   it('removes a folder, with its counts, and refuses the Library', async () => {
     const { f, evs } = fake('normal');
     const rows = must(await f.watched_folders()).folders;
-    expect(must(await f.removal_preview(rows[1].id))).toMatchObject({ name: 'Music', files: 1240, redownload: 4 });
+    expect(must(await f.removal_preview(rows[1].id))).toMatchObject({ name: 'Music', files: 24, redownload: 0 });
     for (const bad of [rows[0].id, 99, '2' as unknown as number]) {
       expect(await f.removal_preview(bad)).toMatchObject({ ok: false, kind: 'refused', message: "That folder isn't one of the watched folders." });
       expect(await f.remove_watched_folder(bad)).toMatchObject({ ok: false, kind: 'refused' });
     }
     const start = must(await f.remove_watched_folder(rows[1].id));
-    expect(await finished(evs, start.job_id)).toMatchObject({ kind: 'folders', ok: true, result: { files: 1240, redownload: 4 } });
+    expect(await finished(evs, start.job_id)).toMatchObject({ kind: 'folders', ok: true, result: { files: 24, redownload: 0 } });
     expect(must(await f.watched_folders()).folders.map((r) => r.kind)).toEqual(['library']);
   });
 
@@ -147,7 +147,7 @@ describe('fake watched folders', () => {
     const rows = must(await f.watched_folders()).folders;
     const sidebar = must(await f.sidebar()).watched;
     expect(rows.map((r) => [r.name, r.files])).toEqual([['Library', library], ['Example Drive', sidebar[0].files]]);
-    expect(must(await f.removal_preview(rows[1].id))).toMatchObject({ files: 1240 + 180 });
+    expect(must(await f.removal_preview(rows[1].id))).toMatchObject({ files: 24 + 180 });
   });
 
   it("gives a watched folder one count: Settings' row is the sidebar's number (views.listed_counts)", async () => {
@@ -244,8 +244,9 @@ describe('fake To-do of the import', () => {
     const single = ['rekordbox_check', 'same_song', 'duplicate', 'not_found'];   // the strip counts tracks with a file
     const tracks = todo.groups.filter((g) => !single.includes(g.key)).flatMap((g) => g.items).filter((i) => !i.hidden);
     expect(lib.summary.to_do).toBe(tracks.length);
-    const hiddenLossy = lib.rows.filter((r) => r.hidden && ['good_lossy', 'weak', 'fake'].includes(r.quality)).length;
-    expect(lib.summary.not_lossless - lib.summary.to_do).toBe(hiddenLossy);
+    // ... and by the lossy files that have no To-do item: hidden ones and the user's own songs, which are in no playlist
+    const noItem = lib.rows.filter((r) => (r.hidden || !r.in_playlists) && ['good_lossy', 'weak', 'fake'].includes(r.quality)).length;
+    expect(lib.summary.not_lossless - lib.summary.to_do).toBe(noItem);
   });
 
   it('marks files whose sound is not checked as checked in the Library rows', async () => {
@@ -260,7 +261,7 @@ describe('fake To-do of the import', () => {
     const q = all.summary.by_quality;
     expect(all.summary.not_lossless).toBe(q.good_lossy + q.weak + q.fake);
     expect(must(await f.library('all', null, '', 'weak', 'artist')).summary.not_lossless).toBe(all.summary.not_lossless);
-    expect(must(await f.library('unlisted', null, '', 'all', 'artist')).subtitle).toEqual(['2 tracks', 'in no playlist']);
+    expect(must(await f.library('unlisted', null, '', 'all', 'artist')).subtitle).toEqual(['26 tracks', 'in no playlist']);
     expect(must(await f.library('folder', 'Library/Old_Sets', '', 'all', 'artist')).subtitle).toEqual(
       ['2 tracks', 'no playlist uses it', 'Library › Old_Sets']);
     const hb = must(await f.library('playlist', 'Hard_Bounce', '', 'all', 'artist'));
@@ -341,6 +342,9 @@ describe('fake watched folders hold songs of the user\'s own', () => {
     folders_importing: [['Music', 680], ['Crates', 220]],
     folders_long_names: [['Music', 1238], ['Crates Mix', 95], ['Peak Hour Rarities and Other Long Folder Names', 3010]],
     setup_existing_added: [['Music', 312]],
+    normal: [['Music', 24]],
+    todo_duplicates: [['Music', 24]],
+    sync_waiting_answers: [['Music', 24]],
   };
 
   it.each(Object.keys(LISTED))('%s: the sidebar, Settings\' row and the folder\'s page count the same songs', async (scenario) => {
@@ -365,6 +369,29 @@ describe('fake watched folders hold songs of the user\'s own', () => {
     expect(new Set(own.map((r) => `${r.artist} - ${r.title}`)).size).toBe(own.length);
     expect(new Set(own.map((r) => r.path)).size).toBe(own.length);
     expect(own.every((r) => r.artist && r.title && !r.path!.includes('(v2)'))).toBe(true);
+  });
+
+  it("normal's Music folder holds 24 read songs: each named once, none in a playlist, so none raises a question or a To-do item", async () => {
+    const { f } = fake('normal');
+    const all = must(await f.library('all', null, '', 'all', 'artist')).rows;
+    const own = all.filter((r) => r.own);
+    expect(own).toHaveLength(24);
+    expect(new Set(all.map((r) => `${r.artist} - ${r.title}`)).size).toBe(all.length);   // no playlist song shares a name
+    expect(own.every((r) => !r.in_playlists && r.sound_checked && r.file_state === 'here')).toBe(true);
+    expect(own.filter((r) => r.quality === 'fake').length).toBeGreaterThan(0);   // a few the sound check caught
+    expect(own.filter((r) => r.quality === 'fake').length).toBeLessThan(6);
+    const todo = must(await f.todo('all', false));
+    expect(todo.groups.flatMap((g) => g.items).some((i) => i.own || own.some((r) => r.track_id === i.track_id))).toBe(false);
+  });
+
+  it('a scenario that sets up its own watched folders leaves no song in a folder nobody watches', async () => {
+    for (const scenario of ['library:crates', 'library:first_look', 'library:crates_import_recorded', 'settings:crates']) {
+      const { f } = fake(scenario);
+      const roots = must(await f.watched_folders()).folders.filter((r) => r.kind === 'import').map((r) => r.path);
+      const own = must(await f.library('all', null, '', 'all', 'artist')).rows.filter((r) => r.own && r.track_id.startsWith('own:'));
+      expect(own, scenario).toHaveLength(0);
+      expect(roots.length, scenario).toBeGreaterThan(0);
+    }
   });
 
   it('shows what the import is doing: songs read but not checked, files away, files the import cannot read', async () => {

@@ -1,6 +1,7 @@
 // Library fake scenarios (scenario names get the prefix "library:").
 import type { PageFake } from '$lib/bridge/fake/bridge';
 import type { FakePlaylist, FakeState, FakeTrack } from '$lib/bridge/fake/data';
+import { dropOwnSongs } from '$lib/bridge/fake/own';
 import { QOBUZ_PLAYLIST_LINK, SPOTIFY_HINT, playlistRef } from '$lib/bridge/fake/data';
 
 /** States whose next playable Hard_Bounce track after Get Naughty (THE WEEKEND; Gone Track has no file) has a file the player can't play. */
@@ -43,6 +44,7 @@ function withFavourites(s: FakeState): void {
  *  crates, one with 312 album folders (more than 25, so all hidden at first), one whose drive is away, and a Library
  *  folder no playlist uses. No Favourites yet: `crates` pins four, `first_look` none. */
 function crateFolders(s: FakeState): void {
+  dropOwnSongs(s);  // the default Music folder goes (below), and its songs with it
   const rekordbox = '/Users/you/Music/Rekordbox Library';
   const albums = '/Volumes/Example Drive/Albums';
   const vinyl = '/Volumes/Vinyl Drive/Vinyl Rips';
@@ -119,6 +121,7 @@ function importingCrates(s: FakeState): void {
  *  folders; the record's crates and file counts): DJ Stick Jan, the only import folder, whose crates are all there
  *  from the start and whose 140 files wait; its import (start_import) changes only the row's waiting count. */
 function recordedImport(s: FakeState): void {
+  dropOwnSongs(s);  // the default Music folder goes (below), and its songs with it
   const stick = '/Users/you/Downloads/DJ Stick Jan';
   const crates: [string, number][] = [['Chrome', 35], ['D&B', 8], ['Deep', 12], ['Electro', 10], ['Hardgroove', 14],
     ['Minimal', 9], ['Nibirii', 20], ['Psy-Techno', 1], ['Random', 1], ['Trance', 18], ['Tribal', 12]];

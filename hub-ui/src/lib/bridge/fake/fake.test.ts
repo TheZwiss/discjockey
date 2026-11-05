@@ -82,8 +82,11 @@ describe('fake backend', () => {
     if (!lib.ok) throw new Error();
     expect(lib.rows.length).toBeGreaterThan(1000);
     for (const r of lib.rows) {
-      expect(r.path).toMatch(/^Library\/[^/]+(\/not_lossless)?\/[^/]+ - [^/]+\.aiff$/);
-      expect(r.path).not.toMatch(/\((v?\d+|new)\)|\s\d+\.aiff$/);
+      // a downloaded song sits in the Library as an AIFF; a song of the user's own sits in their watched folder under
+      // the name the import read (a WAV), in the same "Artist - Title" form
+      expect(r.path).toMatch(r.own ? /^\/[^/]+(\/[^/]+)*\/[^/]+ - [^/]+\.wav$/
+        : /^Library\/[^/]+(\/not_lossless)?\/[^/]+ - [^/]+\.aiff$/);
+      expect(r.path).not.toMatch(/\((v?\d+|new)\)|\s\d+\.(aiff|wav)$/);
     }
   });
   it('lists an own song of an imported folder under the folder name, never blank', async () => {
@@ -123,7 +126,8 @@ describe('fake backend', () => {
     expect(up.map((i) => i.detail).sort()).toEqual(['Lossless ready · cues can stay', 'Lossless ready · different edit']);
     const side = await f.sidebar();
     if (!side.ok) throw new Error();
-    expect(side.not_in_playlist).toBe(2);
+    // the two Old_Sets files and the 24 songs of the user's own in Music: none of them is in a playlist
+    expect(side.not_in_playlist).toBe(2 + 24);
     // Elsewhere: files moved there by hand (their songs say another folder), counted where they sit
     expect(side.library_folders).toEqual([{ path: 'Library/Elsewhere', name: 'Elsewhere', files: 3 },
       { path: 'Library/Old_Sets', name: 'Old_Sets', files: 2 }]);

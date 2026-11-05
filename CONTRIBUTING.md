@@ -78,7 +78,9 @@ the engine and the page updates [docs/hub-bridge-contract.md](docs/hub-bridge-co
 browser console and the next call sees it. `s.briefBusy = true` makes both brief saves (Favourites, crate switches)
 answer `busy`; `s.unread` and `s.emptyRead` list the playlist folders the fake treats as never read, or read and empty. Two scenarios build on them:
 `library:crates_busy` is `library:crates` with `briefBusy` on, and `library:first_look` shows its folders and crates with
-no Favourites. The other scenarios are listed in the toolbar.
+no Favourites. The other scenarios are listed in the toolbar. Songs of the user's own come from `fake/own.ts` (a
+deterministic generator): `normal` and the scenarios built on it have a watched Music folder with 24 of them, the
+`folders_*` scenarios thousands, the crate scenarios their own folders, and one function (`listedCounts`) gives the sidebar, Settings and the folder's page the same count.
 
 ## Building the app
 

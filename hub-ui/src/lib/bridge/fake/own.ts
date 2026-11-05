@@ -2,7 +2,7 @@
 // random): the same folder path and count give the same songs every time, so shots and tests never drift. The songs
 // are what the import read ("Artist - Title", with tags); `listedCounts` (library.ts) counts them for the sidebar
 // and Settings' rows, and the folder's page lists the same ones.
-import type { FakeTrack } from './data';
+import type { FakeState, FakeTrack } from './data';
 
 const ARTISTS = ['Mira Nacht', 'Tom Brandt', 'Kalte Welle', 'Nova Strand', 'Eli Brandt', 'Ruth Kessel', 'Jonas Falk',
   'Lena Vogt', 'Max Hollander', 'Ida Sommer', 'Paul Reuter', 'Hanna Wolter', 'Felix Arndt', 'Clara Beck', 'Oskar Lenz',
@@ -53,4 +53,10 @@ export function ownSongs(dir: string, count: number, opts: OwnSongs): FakeTrack[
       own: true, dir, away: opts.away, unchecked: unchecked || undefined,
     };
   });
+}
+
+/** A scenario that sets up its own watched folders (and so drops the default Music folder) calls this first: the
+ *  default folder's generated songs go with it, so none is left in a folder nobody watches. */
+export function dropOwnSongs(s: FakeState): void {
+  s.tracks = s.tracks.filter((t) => !t.track_id.startsWith('own:'));
 }

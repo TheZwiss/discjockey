@@ -268,6 +268,8 @@ export async function runImport(ctx: FakeContext, run: ImportRun, finish: Finish
 
 // ---------- the seed: watched folders and questions per scenario ----------
 const DRIVE = '/Volumes/Example Drive';
+/** The songs of the user's own in the plain scenarios' Music folder (see seedImport). */
+export const PLAIN_SONGS = 24;
 const side = (file_id: number, song_key: string | null, path: string, artist: string, title: string, duration_s: number,
   quality: FileSide['quality'], label: string, inPlaylist = false): FileSide => ({ file_id, song_key, path, artist, title,
   duration_s, quality, quality_label: label, online: true, in_playlist: inPlaylist,
@@ -332,7 +334,14 @@ export function seedImport(s: FakeState, scenario: string): void {
     stock(add({ imported: 312, redownload: 0 }), 312);
     return;
   }
-  const music = add();
+  // The plain scenarios (normal and everything built on it, the To-do and Sync ones): a DJ's own folder of 24 songs,
+  // read and sound-checked, the same ones every time. 24 is more than any one playlist holds and fewer than the 40
+  // playlist songs, so the Library's sidebar reads "Music 24" beside the playlists and the rows stay a screenful or two.
+  // Nothing is waiting or unreadable, so the import holds exactly those files, and none of them is a playlist song's
+  // only copy (`redownload`): the songs are in no playlist, so they raise no question and no To-do.
+  const plain = !scenario.startsWith('folders_');
+  const music = add(plain ? { imported: PLAIN_SONGS, redownload: 0 } : {});
+  if (plain) stock(music, PLAIN_SONGS);
   if (scenario === 'folders_importing') {
     // reading the tags is 340 files in: those 340 are songs whose sound isn't checked yet, 340 more are done, and
     // 1,160 are not read yet (no songs); the folder holds 1,840 files, 1,500 of them waiting
