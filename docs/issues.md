@@ -102,22 +102,14 @@ a playlist" (it was already that value, from the side that names the group). The
 on To-do rows (in place of the quality badge, the row dimmed, as Library) and the "waits for your answer" note on
 Sync's Up-to-date view (`WaitingAnswersNote`, shared with the run panel); the dry run's lines name an own song's folder
 as its run report does. Round C3 closed the removal count (W4): a track only the last read has, a Yes answer for a track
-that left every playlist, and the name a re-keyed song gets back; and it judges a library file again when the sound
-check improves: every verdict is stored with the detector version that gave it (`files.judged_ver`,
-`quality.DETECTOR_VERSION`, bump it whenever a rule could give a file another verdict), and the import's new phase
-judges files of an older one again (only status and cutoff change; nothing moves). The hub starts it by itself like an
-import with files waiting. Open: the words above.
+that left every playlist, and the name a re-keyed song gets back.
 
 Noted while building and reviewing `docs/archive/2026-10-25-library-stage-4-plan.md`.
 
-- **Two files just miss the floor rule** (a 28–29.7 dB fall into a flat floor, the rule needs 30); lowering it would
-  take in looser shapes. The threshold stays at 30 dB.
-- **Words the engine side of the re-judge leaves to a UI round:** an import that only judges files again ends with
-  "Imported 0 files." (`importer.result_words`: the files imported are the new ones; the re-judged ones count in
-  `sound_checked`), and a file it can't read says `importer.REJUDGE_FAILED` in the run's messages, like a scan's
-  `library.NOT_JUDGED`, which still says "It keeps the quality it had" without saying it is not tried again until the
-  file or the tools change. Something should tell the user that a verdict changed after an update (Library shows the
-  new badge; no note says why).
+- ~~**Files judged before the floor rule (fix round E1) keep their old verdict.**~~ User 2026-10-31: no re-judge of old
+  verdicts (the new imports are only test files). The two files that just miss the rule (a 28-29.7 dB fall into a flat
+  floor, the rule needs 30) are a known limit of the 30 dB rule, closed with it; lowering it would take in looser
+  shapes.
 
 ## 25. Library stage 1 leftovers (engine on library.db) — for later stages
 

@@ -8,7 +8,7 @@ import pytest
 from hub_helpers import (LOSSY, PARKED, fake_import, fake_spotify, import_folder, make_api, make_root, music_root,
                          refreshed, wait_job, write)
 
-from discjockey import db, importer, library, quality, run
+from discjockey import db, importer, library, run
 from discjockey.sources import spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.align import Alignment
@@ -666,8 +666,6 @@ def lib(tmp_path, monkeypatch):
     """A hub over a small library (`make_root`) in tmp_path/music, with an import folder of 3 files beside it."""
     fake_spotify(monkeypatch)
     paths = music_root(tmp_path, upgrade=True)
-    with db.connect(paths.db_file) as conn:  # its Library files were judged by the current sound check
-        conn.execute("UPDATE files SET judged_ver = ?", (quality.DETECTOR_VERSION,))
     return paths, import_folder(tmp_path, 3), fake_import(monkeypatch)
 
 

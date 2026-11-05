@@ -38,10 +38,6 @@ WALL_LOW_HZ = 19_500   # from here up to WALL_HIGH_HZ a smaller cliff (LOSSY_CLI
 WALL_HIGH_HZ = 20_400  # encoders low-pass near 20 kHz (Opus, LAME); mastering filters sit higher, so above this a cliff must be CLIFF_DB
 CHUNK_FRAMES = 256
 LOSSLESS_CODECS = {"flac", "alac", "wavpack", "ape", "tta"}
-# The version of the rules that turn a decoded file into a verdict (the thresholds above and how `cutoff_hz` finds a
-# wall). Bump it whenever a change could give a file another verdict: library.db keeps it with each verdict
-# (files.judged_ver) and the import judges the files of an older one again.
-DETECTOR_VERSION = 1  # 1: the floor rule (a steep fall into a flat floor is a wall)
 
 
 @dataclass(frozen=True)

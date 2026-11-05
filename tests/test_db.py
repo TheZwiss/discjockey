@@ -373,8 +373,8 @@ def test_a_writer_upgrades_a_version_4_database_with_source_how_null_and_nothing
     assert meta == {k: v for k, v in before.pop("meta") if k != "schema_version"}
     with db.connect(path) as conn:
         columns = [r[1] for r in conn.execute("PRAGMA table_info(files)")]
-    assert columns[-3:] == ["source_how", "judged_ver", "judge_failed"]
-    assert [row[:-2] for row in after.pop("files")] == [row + (None,) for row in before.pop("files")]  # + source_how
+    assert columns[-2:] == ["source_how", "judge_failed"]
+    assert [row[:-2] for row in after.pop("files")] == before.pop("files")  # every old column as it was
     with db.connect(path) as conn:
         assert conn.execute("SELECT count(*), count(source_how) FROM files").fetchone()[1] == 0  # all NULL
     assert after == before
@@ -396,31 +396,31 @@ def test_a_reader_refuses_a_version_4_database(tmp_path, library, monkeypatch):
     assert str(e.value) == db.OLDER
 
 
-# --- leftovers round C3: the schema step 5 -> 6 (files.judged_ver, files.judge_failed) ---
+# --- leftovers round C3: the schema step 5 -> 6 (files.judge_failed) ---
 
 def version_5(tmp_path, library, monkeypatch, state=None, facts=no_facts):
-    """A database as the sources round built it: version 5, no `judged_ver` / `judge_failed` columns."""
+    """A database as the sources round built it: version 5, no `judge_failed` column."""
     with monkeypatch.context() as m:
         m.setattr(db, "SCHEMA_VERSION", 5)
         m.setattr(db, "UPGRADES", {k: db.UPGRADES[k] for k in (1, 2, 3, 4)})
         return fresh(tmp_path, library, state, facts)
 
 
-def test_a_writer_upgrades_a_version_5_database_with_the_new_columns_null_and_nothing_else_changed(tmp_path, library,
+def test_a_writer_upgrades_a_version_5_database_with_the_new_column_null_and_nothing_else_changed(tmp_path, library,
                                                                                                    monkeypatch):
     path = version_5(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
     before = everything(path)
     with db.connect(path) as conn:
-        assert {"judged_ver", "judge_failed"}.isdisjoint(r[1] for r in conn.execute("PRAGMA table_info(files)"))
+        assert "judge_failed" not in [r[1] for r in conn.execute("PRAGMA table_info(files)")]
         db.check(conn, upgrade=True)
     after = everything(path)
     meta = dict(after.pop("meta"))
     assert meta.pop("schema_version") == "6"
     assert meta == {k: v for k, v in before.pop("meta") if k != "schema_version"}
     with db.connect(path) as conn:
-        assert [r[1] for r in conn.execute("PRAGMA table_info(files)")][-2:] == ["judged_ver", "judge_failed"]
-        assert conn.execute("SELECT count(*), count(judged_ver), count(judge_failed) FROM files").fetchone()[1:] == (0, 0)
-    assert [row[:-2] for row in after.pop("files")] == before.pop("files")  # every old column as it was
+        assert [r[1] for r in conn.execute("PRAGMA table_info(files)")][-1] == "judge_failed"
+        assert conn.execute("SELECT count(*), count(judge_failed) FROM files").fetchone()[1] == 0  # all NULL
+    assert [row[:-1] for row in after.pop("files")] == before.pop("files")  # every old column as it was
     assert after == before
 
 

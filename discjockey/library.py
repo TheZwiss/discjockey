@@ -1131,7 +1131,7 @@ SCANNED = "Checked your Library: {parts}."
 SCAN_PARTS = (("moved", "file you moved", "files you moved"), ("new", "new file", "new files"),
               ("gone", "file gone", "files gone"), ("replaced", "file changed", "files changed"))
 NOT_JUDGED = ("{path} was changed outside Discjockey, but Discjockey couldn't check its sound ({reason}). It keeps "
-              "the quality it had.")
+              "the quality it had and is tried again when it changes or the app's tools are updated.")
 
 
 def scan_library(paths: Paths, emit: Emit = no_emit, *,
