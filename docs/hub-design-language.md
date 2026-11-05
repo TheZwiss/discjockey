@@ -497,7 +497,11 @@ npm run rules -- --page sync --only sync-many,sync-end       # only the named sh
 | `chrome-edge` | with the sidebar showing: the page frame's left edge is not `--sidebar-w` (the chrome's whole width, which the foot's line follows) |
 | `error` | the page logged an error while the shot loaded |
 
-Anything marked `data-dev` (the fake toolbar) is ignored.
+Anything marked `data-dev` (the fake toolbar) is ignored. The gallery is marked `data-catalogue` (only
+`lib/dev/Gallery.svelte` may write it, `lib/guards.test.ts`): it lays many screens' parts side by side with their
+documentation, so only the block rules check it (`overflow`, `max-width`, `button`, `font-size`, `colour`, `error`,
+and `primary` per dialog); the screen rules (`frame`, `primary` per screen, `clipped`, `loose-text`, `chrome-edge`)
+judge a composed screen and skip what is inside it. A toast is a card of its own and marks itself `data-note`.
 
 **Reading a `FAIL` line** (an illustrative line in the real format):
 ```
@@ -584,6 +588,18 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-11-05 · The rule checker's screen rules skip the gallery (`data-catalogue`); `Toast` is a note (issue 28).**
+  What: `scripts/rules-page.js` no longer runs `frame`, `primary` (per screen), `clipped`, `loose-text` and
+  `chrome-edge` inside `[data-catalogue]`, which the gallery's root carries and nothing else may write (a guard test);
+  the block rules still run there, and a dialog in it keeps its one filled button (fixtures `good--catalogue`,
+  `bad-overflow--catalogue`, `bad-primary--catalogue-dialog`). `Toast` marks itself `data-note`. Why: the base page's
+  check had 2,732 FAIL lines in 46 shots, nearly all the gallery's: its section rules and captions are developer
+  documentation (loose text), and it shows four frames, 28 headers and 18 filled buttons because it is a catalogue of
+  them, not a screen; each of its 15 shots repeated the whole page's list. Those rules misfired there; making the
+  catalogue's text grey or shorter would have hidden that. A real page can't opt out: it never has the marker, so
+  every rule still runs on Sync, Library and the rest as before. The gallery broke one block rule for real
+  (`overflow`: AccountPanel's three 320 px columns scrolled sideways at 1100; they wrap now), and the toast's long
+  message was text in a card the checker didn't know as one. Seen: `base-gallery-*`, `base-shell-toasts`.
 - **2026-11-05 · `NumberedSteps tone="warn"`; To-do's subtitle as `PageHeader` parts (issue 30).** What: the step
   numbers of a warn card (To-do's "In rekordbox") are yellow, ring and number, as the mockup drew them; every other
   numbered list stays grey. Why: yellow already means "needs a step from you" (§2, the outcome colours), and these are

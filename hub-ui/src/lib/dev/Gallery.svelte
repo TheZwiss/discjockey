@@ -357,7 +357,8 @@
   {#each Array(n) as _, i (i)}<div class="srow">{prefix} {i + 1}</div>{/each}
 {/snippet}
 
-<div class="gallery">
+<!-- `data-catalogue`: the rule checker runs only the block rules here, not the screen rules (design language §7) -->
+<div class="gallery" data-catalogue>
   <PageHeader title="Design system" sub="every block in every state, with its rule · fake mode only" />
 
   <!-- ─── design-system blocks (spec §7) ─── -->
@@ -1556,7 +1557,7 @@
   .g-marks { display: flex; gap: var(--s-2); }
   .g-ladders { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-4) var(--s-3); align-items: start; }
   .w520 { width: 520px; max-width: 100%; }
-  .g-accounts { display: grid; grid-template-columns: repeat(3, 320px); gap: var(--s-4) var(--s-3); align-items: start; }
+  .g-accounts { display: grid; grid-template-columns: repeat(auto-fill, 320px); gap: var(--s-4) var(--s-3); align-items: start; }
   .grow-demo { height: 300px; }
   .w480 { width: 480px; max-width: 100%; }
   .w640 { width: 640px; max-width: 100%; }

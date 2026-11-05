@@ -44,6 +44,15 @@ describe('pages never write a block marker by hand (final review I5)', () => {
   });
 });
 
+describe('only the gallery is a catalogue', () => {
+  it('data-catalogue (the rule checker skips its screen rules there) is written in lib/dev/Gallery.svelte alone', () => {
+    const src = join(__dirname, '..');
+    const writers = files(src).filter((f) => handWrittenMarkers(readFileSync(f, 'utf8')).includes('data-catalogue'))
+      .map((f) => relative(src, f));
+    expect(writers).toEqual(['lib/dev/Gallery.svelte']);
+  });
+});
+
 describe('the panel breakpoint has one value', () => {
   it("tokens.css --panel-narrow-below is ListPanelFrame's media query", () => {
     const token = /--panel-narrow-below:\s*(\d+)px/.exec(readFileSync(join(__dirname, 'styles/tokens.css'), 'utf8'));

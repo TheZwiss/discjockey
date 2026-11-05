@@ -44,29 +44,6 @@ services.
 - **Live check:** the short-link redirect follows one hop. Confirm that `on.soundcloud.com` goes straight to
   `soundcloud.com/...`.
 
-## 28. Library stage 5a leftovers (layout)
-
-Audit 2026-11-05 (updated by the leftovers UI round): closed are the Playlist column, the selected row (the picked
-track is the orange `--row-picked` wash in Library and To-do, `ListRow pick`), the rail's "99+" pill (it keeps the
-two-digit pill's corner), the dev FAKE pill (in the page's top padding, clear of the title), the rail tooltips (the
-grey key cap is settled; the plan's I7 text is history), the ARIA nit (kept: the section heads must be children of
-the scroll box to stick at its top and bottom, `stick="both"`; per-section `role="group"` wrappers would make each head
-stick only inside its section, and `aria-owns` groups would need the heads `aria-hidden`, hiding their fold and A–Z
-buttons) and "Hide/Show Sidebar" in the View menu (a platform limit: the pinned pywebview 6.2.1 adds custom menus only
-as new top-level menus, its `MenuAction` takes no shortcut, and it rebuilds the main menu on each window focus, so
-⌃⌘S stays key-only). The rule check below was not re-run.
-
-Noted while building and reviewing `docs/archive/2026-10-29-library-stage-5-plan.md`, step A (the layout).
-
-- **The base page's rule check has old failures,** the same before and after this step:
-  `npm run rules -- --page base --force` reports 1,808 FAIL lines in 40 shots, base-gallery 99, mostly the gallery's
-  long section descriptions. Worth a cleanup group.
-- **"Not lossless yet" in the summary strip** has a small pill split into the good-lossy, weak and fake colours instead
-  of the mockup's red dot, because the row counts all three. Settled.
-- **The Playlists A–Z toggle turns orange when pressed** (the plan's `Button icon xs pressed`), where the mockup has it
-  grey. Settled.
-- **The browser's drag edge turns a lighter grey after 300 ms of hover,** so orange still means only "dragging". Settled.
-
 ## 27. Library stage 4 leftovers (import)
 
 Audit 2026-11-05 (updated by leftovers round C2): the Format-row point is closed (sources round). Engine done in C2:
