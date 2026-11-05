@@ -147,6 +147,10 @@ onEvent((e) => {
 
 let inflight: Promise<void> | null = null;
 let again = false;
+/** Numbers every sidebar question, whoever asks (refreshHub or refreshSidebar): an answer is kept only while no newer
+ *  question has been asked. Two readers with their own counters let an older full refresh, answering after a save,
+ *  put the sidebar from before the save back. */
+let sidebarTurn = 0;
 
 /** `no_library` from any call means the music folder is gone (or not chosen). The shell's gate reads it from
  *  setup_status, so read it again here, once for every page. Not while a refresh runs (its own sidebar call answers
@@ -165,6 +169,7 @@ export function refreshHub(): Promise<void> {
     do {
       again = false;
       const updateSeq = get(state).app_update_seq;  // an event during the calls beats app_update()'s older answer
+      const turn = ++sidebarTurn;
       const [js, setup, side, upd] = await Promise.all([api.job_status(), api.setup_status(), api.sidebar(), api.app_update()]);
       state.update((s) => ({
         ...s,
@@ -172,7 +177,7 @@ export function refreshHub(): Promise<void> {
           console_running: js.console_running, read_status: js.read_status,
           sign_in: js.sign_in ?? (s.sign_in && !s.sign_in.running ? s.sign_in : null) } : {}),
         setup: setup.ok ? stripOk(setup) : s.setup,
-        sidebar: side.ok ? stripOk(side) : s.sidebar,
+        sidebar: side.ok && turn === sidebarTurn ? stripOk(side) : s.sidebar,
         app_update: upd.ok && s.app_update_seq === updateSeq ? stripOk(upd) : s.app_update,
       }));
     } while (again);
@@ -186,7 +191,6 @@ function stripOk<T extends { ok: true }>(r: T): Omit<T, 'ok'> {
 
 /** Reads only the sidebar again (a save of the Favourites or a crate switch changes nothing else), without waiting for
  *  job_status, setup_status or app_update. The newest question wins when two overlap. */
-let sidebarTurn = 0;
 async function refreshSidebar(): Promise<void> {
   const turn = ++sidebarTurn;
   const side = await api.sidebar();
