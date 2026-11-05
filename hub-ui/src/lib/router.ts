@@ -1,6 +1,6 @@
 // Hash routes (plan 64.7). Pages get `params` and `query` as props.
 import { readable, type Readable } from 'svelte/store';
-import { NOT_IN_PLAYLIST } from './bridge/types';
+import { NOT_IN_PLAYLIST, type Sidebar } from './bridge/types';
 
 export type Route = { name: string; params: Record<string, string>; query: URLSearchParams; path: string };
 type Pattern = { name: string; re: RegExp; keys: string[]; fixed?: Record<string, string> };
@@ -18,6 +18,7 @@ export const ROUTES: Pattern[] = [
   P('sync', '/sync/run/:run_id'),
   P('todo', '/todo'),
   P('library', '/library'),
+  P('library', '/library/playlist/:playlist'),
   P('library', '/library/folder/:folder'),
   P('library', '/library/not-in-playlist', { folder: NOT_IN_PLAYLIST }),
   P('playlists', '/playlists'),
@@ -73,11 +74,47 @@ export function buildHash(pattern: string, params: Record<string, string> = {},
 export function href(path: string): string {
   return path.startsWith('#') ? path : `#${path.startsWith('/') ? path : `/${path}`}`;
 }
-/** The library route for a folder name (null = All tracks). */
-export function libraryHref(folder: string | null): string {
-  if (folder === null) return '#/library';
-  if (folder === NOT_IN_PLAYLIST) return '#/library/not-in-playlist';
-  return buildHash('/library/folder/:folder', { folder });
+/** What a library route shows (plan library stage 5 I5): every track, the tracks in no playlist, a playlist by its
+ *  folder name (as playlists.txt spells it), or a folder by its path (`Library/<name>`, or an absolute path: an import
+ *  folder or a crate). */
+export type LibraryTarget = { kind: 'all' } | { kind: 'unlisted' } | { kind: 'playlist'; name: string }
+  | { kind: 'folder'; path: string };
+const isPath = (s: string) => s.startsWith('Library/') || s.startsWith('/');
+/** The target of a library route's params. A `folder` param that is no path is a playlist's name: the links of
+ *  before the playlist route (a player queue's href, a bookmark) keep working; `resolveTarget` turns one that names
+ *  a Library folder no playlist uses into that folder once the sidebar is known. */
+export function libraryTarget(params: Record<string, string | undefined>): LibraryTarget {
+  if (params.playlist !== undefined) return { kind: 'playlist', name: params.playlist };
+  const f = params.folder;
+  if (f === undefined) return { kind: 'all' };
+  if (f === NOT_IN_PLAYLIST) return { kind: 'unlisted' };
+  return isPath(f) ? { kind: 'folder', path: f } : { kind: 'playlist', name: f };
+}
+const same = (a: string, b: string): boolean => a.normalize('NFC').toLowerCase() === b.normalize('NFC').toLowerCase();
+/** A playlist target the sidebar doesn't list but names a Library folder of (an old link to a folder no playlist
+ *  uses) → that folder; anything else as it is. Without the sidebar the target stays. */
+export function resolveTarget(t: LibraryTarget, side: Pick<Sidebar, 'playlists' | 'library_folders'> | null): LibraryTarget {
+  if (t.kind !== 'playlist' || !side || side.playlists.some((p) => same(p.name, t.name))) return t;
+  const lib = side.library_folders.find((f) => same(f.name, t.name));
+  return lib ? { kind: 'folder', path: lib.path } : t;
+}
+/** The library route of a target; `libraryTarget(parseHash(libraryHref(t)).params)` gives `t` back. */
+export function libraryHref(t: LibraryTarget): string {
+  if (t.kind === 'all') return '#/library';
+  if (t.kind === 'unlisted') return '#/library/not-in-playlist';
+  if (t.kind === 'playlist') return buildHash('/library/playlist/:playlist', { playlist: t.name });
+  return buildHash('/library/folder/:folder', { folder: t.path });
+}
+/** A target as one string, for comparing two (the page's "the answer is for this route"): null for All tracks. */
+export function targetKey(t: LibraryTarget): string | null {
+  return t.kind === 'all' ? null : t.kind === 'unlisted' ? NOT_IN_PLAYLIST
+    : t.kind === 'playlist' ? `playlist:${t.name}` : `folder:${t.path}`;
+}
+/** `targetKey` back to its target. */
+export function keyTarget(k: string | null): LibraryTarget {
+  if (k === null) return { kind: 'all' };
+  if (k === NOT_IN_PLAYLIST) return { kind: 'unlisted' };
+  return k.startsWith('playlist:') ? { kind: 'playlist', name: k.slice(9) } : { kind: 'folder', path: k.slice(7) };
 }
 /** Settings → Watched folders with an import folder picked, its crates' switches shown (Library's "Show some in the
  *  sidebar…" lands here). */

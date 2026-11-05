@@ -14,6 +14,7 @@
 //   sync:no-qobuz    the long plan for a colleague without Qobuz: YouTube Premium 30/day (26 used), SoundCloud Go+ 60/day
 //   sync:up-to-date-console  up to date while a sync runs in the terminal: no Start, so the shell's banner says it
 //   sync:up-to-date-wait  up to date, and the last run's details take a minute to come (the panel's waiting state)
+//   sync:up-to-date-answers  up to date, with 2 songs that wait for an answer to "Is this the same song?" (issue 27)
 //   sync:qobuz-backup the long plan with Qobuz (10 left today) plus two limited backups behind it: YouTube Premium
 //                    30/day, SoundCloud Go+ 60/day (12 used); their service rows read "backup" with no bar
 //   sync:limit-reached  the long plan with today's 60 Qobuz downloads used up
@@ -25,6 +26,7 @@
 import type { PageFake } from '$lib/bridge/fake/bridge';
 import type { FakeState } from '$lib/bridge/fake/data';
 import { FAKE_MUSIC, SPOTIFY_HINT, coverUri, previewAction, runId, samplePlaylists } from '$lib/bridge/fake/data';
+import { sampleQuestions } from '$lib/bridge/fake/folders';
 import { STREAMS, SYNC_LINES, SYNC_START_LINE } from '$lib/bridge/fake/replay';
 import { setPref } from '$lib/prefs';
 import type { SyncPreview } from '$lib/bridge/types';
@@ -156,6 +158,7 @@ export const scenarios: PageFake['scenarios'] = {
   'up-to-date': (s) => { s.scenario = 'sync:up-to-date'; },
   'up-to-date-console': (s) => { s.scenario = 'sync:up-to-date'; s.console_running = true; },
   'up-to-date-wait': (s) => { s.scenario = 'sync:up-to-date-wait'; },
+  'up-to-date-answers': (s) => { s.scenario = 'sync:up-to-date'; s.imp.questions = sampleQuestions().slice(0, 2); },
   'crashed': (s) => { s.scenario = 'sync:crashed'; },
   'stop-refused': (s) => { s.scenario = 'sync:stop-refused'; },
 };

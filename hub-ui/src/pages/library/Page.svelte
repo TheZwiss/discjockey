@@ -38,23 +38,24 @@
   import { toasts } from '$lib/stores/toasts';
   import { problemCopy } from '$lib/copy';
   import { getPref, setPref } from '$lib/prefs';
-  import { go, libraryHref, settingsFolderHref } from '$lib/router';
+  import { go, keyTarget, libraryHref, libraryTarget, settingsFolderHref, targetKey } from '$lib/router';
   import { markReady } from '$lib/ready';
   import LibraryTable from './LibraryTable.svelte';
   import TrackDetails from './TrackDetails.svelte';
   import {
     LEGACY_SORT_KEY, LIBRARY_FILTERS, allRows, alsoHint, filterKey, hasSubfolders, heldRow, holdApplies, libraryCalls,
     nextSort, offTable, withHeld, type Hold,
-    pageEmpty, playQueue, playlistColumnFor, artistColumnFor, shownSort, rowOf, segOptions, sortKey, subtitleParts, tableKind, todoHref, tooManyFor,
+    pageEmpty, playQueue, playlistColumnFor, artistColumnFor, shownSort, rowOf, segOptions, sortKey, subtitleParts, tableKind, targetTitle, todoHref, tooManyFor,
     viewSort, type LibraryCall,
     type SortColumn,
   } from './libraryModel';
-  import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 
   let { params, query }: { params: Record<string, string>; query: URLSearchParams } = $props();
   type Spec = ComponentProps<typeof Spectrum>['spectrum'];
 
-  const folder = $derived(params.folder ?? null);
+  // the route's collection (router.libraryTarget) as one string: `target` changes only when it does, not on ?track=
+  const folder = $derived(targetKey(libraryTarget(params)));
+  const target = $derived(keyTarget(folder));
   // each view kind's sort: what the user chose here, else what was saved, else the kind's default
   let sorts = $state<Partial<Record<LibraryView, LibrarySort>>>({});
   const sortOf = (v: LibraryView): LibrarySort => sorts[v]
@@ -96,7 +97,7 @@
   $effect(() => {
     const f = folder;
     untrack(() => {
-      const saved = getPref<string>(filterKey(f), 'all');
+      const saved = getPref<string>(filterKey(keyTarget(f)), 'all');
       filter = ((LIBRARY_FILTERS as string[]).includes(saved) ? saved : 'all') as LibraryFilter;
       search = '';
       q = '';
@@ -118,7 +119,7 @@
       const rest = new URLSearchParams(query);
       rest.delete('q');
       const qs = rest.toString();
-      void go(`${libraryHref(folder)}${qs ? `?${qs}` : ''}`, { replace: true });
+      void go(`${libraryHref(target)}${qs ? `?${qs}` : ''}`, { replace: true });
       requestAnimationFrame(() => searchInput?.focus());
     });
   });
@@ -154,7 +155,7 @@
   // comes (a name it lists as a Library folder flips playlist → folder), and a fetch on that flip would ask again in
   // the other sort. Each call takes its own view's sort instead (askLibrary), and a sort chosen by the user (`sorts`)
   // asks again.
-  const view = $derived<LibraryView>(lib && libFor === folder ? lib.view : libraryCalls(folder, $hub.sidebar)[0].view);
+  const view = $derived<LibraryView>(lib && libFor === folder ? lib.view : libraryCalls(target, $hub.sidebar)[0].view);
   const sort = $derived(sortOf(view));
   // whether the Playlist column can say anything (libraryModel.playlistColumnFor): the collection's last answer without
   // search or filter, held while one is on so the columns don't jump; before one, the answer at hand
@@ -168,7 +169,7 @@
     const turn = ++libTurn;
     untrack(() => { loading = true; });
     const order = (v: LibraryView) => chosen[v] ?? sortOf(v);
-    void askLibrary(libraryCalls(args[0], hubNow().sidebar), args[1], args[2], order).then(async (r) => {
+    void askLibrary(libraryCalls(keyTarget(args[0]), hubNow().sidebar), args[1], args[2], order).then(async (r) => {
       if (turn !== libTurn) return;
       if (r.ok) r = await keepHeld(r, order);
       if (turn !== libTurn) return;
@@ -278,7 +279,7 @@
 
   function setFilter(f: LibraryFilter) {
     filter = f;
-    setPref(filterKey(folder), f);
+    setPref(filterKey(target), f);
   }
   function onsort(c: SortColumn) {
     const next = nextSort(shown, c);
@@ -289,7 +290,7 @@
   function select(id: string, pick = true) {
     if (pick) pickTrack();
     selected = id;
-    void go(`${libraryHref(folder)}?track=${encodeURIComponent(id)}`, { replace: true });
+    void go(`${libraryHref(target)}?track=${encodeURIComponent(id)}`, { replace: true });
   }
   // ▶ starts the folder as shown (filter, search and sort applied) as the queue, from this track: a playlist's songs,
   // then the other files of its folder, as the table lists them. The rows come sorted from the engine
@@ -297,7 +298,7 @@
   function play(id: string) {
     const label = (lib?.title ?? 'All tracks') + (q ? ` · “${q}”` : '');
     // the queue holds the rows whose file is there: ⏭ never lands on a file on an ejected drive or a song not downloaded
-    if (!lib || !listen(playQueue(lib), id, { label, href: libraryHref(folder) })) {
+    if (!lib || !listen(playQueue(lib), id, { label, href: libraryHref(target) })) {
       toasts.show({ tone: 'problem', title: "Can't play this file." });
     }
   }
@@ -335,7 +336,7 @@
   const decision = $derived(detail ? decisionFor(todoItems, detail) : null);
   // a duplicate's file playing in the foot links back to this track in this view
   const playSource = $derived(detail ? { label: lib?.title ?? 'All tracks',
-    href: `${libraryHref(folder)}?track=${encodeURIComponent(detail.track_id)}` } : undefined);
+    href: `${libraryHref(target)}?track=${encodeURIComponent(detail.track_id)}` } : undefined);
   const pending = $derived(noFileRow ? { row: noFileRow,
     next: detail?.track_id === noFileRow.track_id ? detail.next_qobuz_check : null, off: lib?.enabled === false,
     link: detail?.track_id === noFileRow.track_id ? detail.track_link : null } : null);
@@ -370,7 +371,7 @@
 {/snippet}
 
 {#snippet main()}
-  <PageHeader title={lib?.title ?? (folder === null ? 'All tracks' : folder === NOT_IN_PLAYLIST ? 'Not in a playlist' : folder)} {sub}
+  <PageHeader title={lib?.title ?? targetTitle(target)} {sub}
     readStatus={neverRead}>
     {#snippet actions()}{#if tooMany}<Button variant="link" size="sm" href={settingsFolderHref(tooMany.path)}
         tip={`${tooMany.crate_count} folders with music, too many for the sidebar: choose which to show in Settings`}

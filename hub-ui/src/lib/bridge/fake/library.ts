@@ -9,9 +9,17 @@ import type {
 import { NOT_IN_PLAYLIST, QUALITIES } from '../types';
 import { needsSetting } from './liked';
 import {
-  SERVICE_NAME, byQuality, isoLocal, pathOf, playlistRef, serviceOfLink, todoGroup, trackRow, type FakeState,
+  SERVICE_NAME, byQuality, dateOnly, isoLocal, pathOf, playlistRef, serviceOfLink, todoGroup, trackRow, type FakeState,
   type FakeTrack,
 } from './data';
+
+/** A not-found row's `next_try` (views.next_due): the day it is looked for again, `next_try_days` from the fake's
+ *  today, or the next sync (null days: never looked yet). */
+function nextTry(days: number | null): string {
+  if (days === null) return 'next_sync';
+  const d = new Date(); d.setDate(d.getDate() + days);
+  return dateOnly(d);
+}
 
 export const BAD_FAVOURITES = "That list of favourites isn't one Discjockey can keep.";
 export const BAD_CRATE = "That isn't a folder Discjockey can show or hide.";
@@ -310,7 +318,7 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
   const sites = sitesOf(s);
   const held = holders(s);
   const mk = (t: FakeTrack, over: Partial<LibraryRow> = {}): Entry => ({ t, row: {
-    ...trackRow(t), sound_checked: !t.unchecked, file_state: pathState(s, t), wait: null, position: null,
+    ...trackRow(t), sound_checked: !t.unchecked, file_state: pathState(s, t), wait: null, next_try: null, position: null,
     place: placeOf(sites, pathOf(t)!), subfolder: null, playlists: held.get(t.track_id) ?? [], track_link: fakeLink(t),
     ...over } });
 
@@ -357,8 +365,9 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
           isrc: null, playlists: [line.folder], upgrade: null, rekordbox_check: null, other: null, next_try_days: null,
           rejected_sources: [] };
         const missing: FakeTrack = { ...name, status: 'missing', source: null, cutoff_hz: null, upgrade: null, away: undefined };
+        const notFound = h.t !== null && todoGroup(h.t) === 'not_found';
         entries.push({ t: null, row: { ...trackRow(missing), sound_checked: true, file_state: 'no_file',
-          wait: h.t !== null && todoGroup(h.t) === 'not_found' ? 'not_found' : 'waiting', position, place: null,
+          wait: notFound ? 'not_found' : 'waiting', next_try: notFound ? nextTry(h.t!.next_try_days) : null, position, place: null,
           subfolder: null, playlists: held.get(h.key) ?? [line.folder], track_link: fakeLink(missing) } });
       }
       also = files.filter((t) => !heldKeys.has(t.track_id) && fold(libraryFolder(pathOf(t)!) ?? '') === fold(line.folder))

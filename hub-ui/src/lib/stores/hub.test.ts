@@ -297,7 +297,8 @@ describe('the sidebar is read again (plan library stage 5, B2.4 and D15)', () =>
   /** a bridge that counts the sidebar reads and keeps the Favourites the way library.db would */
   function bridge(opts: { busy?: boolean; hang?: boolean; busyFrom?: number } = {}) {
     (globalThis as any).window = new EventTarget();
-    const seen = { sidebars: 0, others: 0, saved: [] as unknown[][], stored: ['playlist:a'], crates: [] as string[] };
+    const seen = { sidebars: 0, others: 0, saved: [] as unknown[][], stored: ['playlist:a'], crates: [] as string[],
+      writes: [] as string[][] };
     const never = new Promise<never>(() => {});   // an unrelated call that does not answer
     installBridge({
       job_status: async () => { seen.others++; if (opts.hang) return never; return { ok: true, job: null, refresh_running: false, console_running: false, read_status: null,
@@ -311,6 +312,11 @@ describe('the sidebar is read again (plan library stage 5, B2.4 and D15)', () =>
         if (opts.busy) return { ok: false, kind: 'busy', message: 'Discjockey couldn\'t save that just now.' };
         seen.stored = keys;
         return { ok: true, favourites: keys };
+      },
+      set_crates_shown: async (paths: string[], shown: boolean | null) => {
+        seen.writes.push([...paths]);
+        if (opts.busyFrom !== undefined && seen.writes.length > opts.busyFrom) return { ok: false, kind: 'busy', message: 'Held.' };
+        return { ok: true, paths, shown };
       },
       set_crate_shown: async (path: string, shown: boolean | null) => {
         seen.crates.push(path);
@@ -360,19 +366,25 @@ describe('the sidebar is read again (plan library stage 5, B2.4 and D15)', () =>
     expect(await saveCrateShown('/Volumes/Example Drive/Albums/Aphex', false)).toMatchObject({ ok: true, shown: false });
     expect(seen.sidebars).toBeGreaterThan(before);
   });
-  it('after several crate switches, once, stopping at the first refusal', async () => {
+  it('after several crate switches: one write per stored value, the sidebar read once, stopping at the first refusal', async () => {
     const seen = bridge();
     await refreshHub();
     const before = seen.sidebars;
     const all = ['/A/x', '/A/y', '/A/z'].map((path) => ({ path, shown: true }));
     expect(await saveCratesShown(all)).toEqual({ saved: ['/A/x', '/A/y', '/A/z'], failed: null });
+    expect(seen.writes).toEqual([['/A/x', '/A/y', '/A/z']]);   // one write, no crate saved one by one
+    expect(seen.crates).toEqual([]);
     expect(seen.sidebars).toBe(before + 1);
     const held = bridge({ busyFrom: 1 });
     await refreshHub();
-    const r = await saveCratesShown(all);
-    expect(r.saved).toEqual(['/A/x']);
+    const r = await saveCratesShown([...all, { path: '/A/w', shown: null }]);
+    expect(r.saved).toEqual(['/A/x', '/A/y', '/A/z']);
     expect(r.failed).toMatchObject({ ok: false, kind: 'busy' });
-    expect(held.crates).toEqual(['/A/x', '/A/y']);   // nothing asked after the refusal
+    expect(held.writes).toEqual([['/A/x', '/A/y', '/A/z'], ['/A/w']]);
+    const busy = bridge({ busyFrom: 0 });
+    await refreshHub();
+    expect(await saveCratesShown(all)).toMatchObject({ saved: [], failed: { kind: 'busy' } });
+    expect(busy.writes).toHaveLength(1);
   });
   it('a save reads only the sidebar and does not wait for the other calls', async () => {
     const seen = bridge();

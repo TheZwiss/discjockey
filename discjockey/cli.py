@@ -73,7 +73,8 @@ def sync(paths: library.Paths, args: argparse.Namespace) -> int:
     except run.SetupProblem as e:
         print(e)
         return 2
-    print(rep.render_plan(prep.plan, full=args.dry_run))
+    where = run.folder_names(prep)
+    print(rep.render_plan(prep.plan, full=args.dry_run, where=where))
     for line in waiting_lines(prep.import_waiting, len(prep.plan.questions)):
         print(line)
     if prep.needs_qobuz:
@@ -118,7 +119,8 @@ def sync(paths: library.Paths, args: argparse.Namespace) -> int:
 
     previous = signal.signal(signal.SIGINT, on_ctrl_c)
     try:
-        code, path = run.execute(prep, qobuz, emit=printer, token=token, limit=args.limit, verbose=args.verbose)
+        code, path = run.execute(prep, qobuz, emit=printer, token=token, limit=args.limit, verbose=args.verbose,
+                                 where=where)
     finally:
         signal.signal(signal.SIGINT, previous)
     if code == 130:

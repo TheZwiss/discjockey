@@ -5,7 +5,7 @@ import type {
 import { createFakeBridge } from '$lib/bridge/fake/bridge';
 import {
   dropDecision,
-  FILTER_ORDER, actionsFor, segOptions, filterFrom, flatten, headerSub, itemKey, keepSelection, moveSelection, rowOff,
+  FILTER_ORDER, actionsFor, segOptions, filterFrom, flatten, headerSub, itemKey, keepSelection, moveSelection, rowDim, rowOff,
   cutoffStat, freeHint, qobuzText, selectAfterHide, selectFromTrack,
   NO_VALUE, compareLines, fileFolder, filePlace, fileName, fileQueue, fileState, keepLabel, linkService, queueRows, rowBadge,
   checkCard, editLine, fileFormat, fileWords, groupIdOf, keepWords, lastFolder, localDay, replaceLabel, replacedCard,
@@ -13,7 +13,7 @@ import {
 } from './todoModel';
 import type { RekordboxCheckView } from '$lib/bridge/types';
 import { stepChoice } from '$lib/components/choiceModel';
-import { cueTone } from '$lib/format';
+import { cueTone, rowAway } from '$lib/format';
 
 function item(id: string, group: TodoGroupKey, extra: Partial<TodoItem> = {}): TodoItem {
   return { track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'not_lossless',
@@ -217,13 +217,13 @@ describe('texts', () => {
   });
   it('header line tells the tracks from the questions about the user\'s own files', () => {
     const chips = (all: number, same_song = 0, duplicate = 0) => ({ all, same_song, duplicate });
-    expect(headerSub(chips(16))).toBe('16 tracks are not lossless yet');
-    expect(headerSub(chips(1))).toBe('1 track is not lossless yet');
-    expect(headerSub(chips(0))).toBe('Nothing to do');
-    expect(headerSub(chips(18, 1, 1))).toBe('16 tracks are not lossless yet · 2 questions about your files');
-    expect(headerSub(chips(2, 1, 0))).toBe('1 track is not lossless yet · 1 question about your files');
-    expect(headerSub(chips(3, 2, 1))).toBe('3 questions about your files');
-    expect(headerSub(chips(1, 0, 1))).toBe('1 question about your files');
+    expect(headerSub(chips(16))).toEqual(['16 tracks are not lossless yet']);
+    expect(headerSub(chips(1))).toEqual(['1 track is not lossless yet']);
+    expect(headerSub(chips(0))).toEqual(['Nothing to do']);
+    expect(headerSub(chips(18, 1, 1))).toEqual(['16 tracks are not lossless yet', '2 questions about your files']);
+    expect(headerSub(chips(2, 1, 0))).toEqual(['1 track is not lossless yet', '1 question about your files']);
+    expect(headerSub(chips(3, 2, 1))).toEqual(['3 questions about your files']);
+    expect(headerSub(chips(1, 0, 1))).toEqual(['1 question about your files']);
   });
 });
 
@@ -402,6 +402,19 @@ describe('the import details', () => {
       expect(imp.every((i) => !!i.pair)).toBe(true);
       expect(new Set(flat.map(itemKey)).size).toBe(flat.length);
     }
+  });
+});
+
+describe('a file that is away', () => {
+  it('says so in place of the quality badge, as Library does, and dims the row', () => {
+    expect(rowAway(item('t1', 'weak', { file_state: 'offline' }))).toBe('offline');
+    expect(rowAway(item('t1', 'weak', { file_state: 'folder_missing' }))).toBe('folder_missing');
+    expect(rowAway(item('t1', 'weak'))).toBeNull();
+    expect(rowAway(item('t1', 'not_found', { file_state: 'no_file' }))).toBeNull();
+    expect(rowDim(item('t1', 'weak', { file_state: 'offline' }))).toBe(true);
+    expect(rowDim({ ...question('q1', 101), file_state: 'offline' })).toBe(true);
+    expect(rowDim(item('t1', 'weak'))).toBe(false);
+    expect(rowDim(item('t1', 'weak', { in_playlists: false }))).toBe(true);
   });
 });
 

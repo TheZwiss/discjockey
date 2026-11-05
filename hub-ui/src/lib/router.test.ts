@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildHash, go, href, libraryHref, onRouteChange, parseHash, setLeaveGuard, settingsFolderHref } from './router';
+import { buildHash, go, href, keyTarget, libraryHref, libraryTarget, onRouteChange, parseHash, resolveTarget, setLeaveGuard,
+  settingsFolderHref, targetKey, type LibraryTarget } from './router';
 import { NOT_IN_PLAYLIST } from './bridge/types';
 
 describe('parseHash', () => {
@@ -56,8 +57,34 @@ describe('buildHash and href', () => {
     expect(href('/todo')).toBe('#/todo');
     expect(href('todo')).toBe('#/todo');
     expect(href('#/x')).toBe('#/x');
-    expect(libraryHref(null)).toBe('#/library');
-    expect(libraryHref(NOT_IN_PLAYLIST)).toBe('#/library/not-in-playlist');
+    expect(libraryHref({ kind: 'all' })).toBe('#/library');
+    expect(libraryHref({ kind: 'unlisted' })).toBe('#/library/not-in-playlist');
+  });
+  it('gives every library target its own route and reads it back (I5)', () => {
+    const names = ['Hard Bounce', '100% Vinyl', 'Caf\u0065\u0301 › Sets', 'Café', 'a/b'];
+    const targets: LibraryTarget[] = [{ kind: 'all' }, { kind: 'unlisted' },
+      ...names.map((name) => ({ kind: 'playlist' as const, name })),
+      ...names.map((n) => ({ kind: 'folder' as const, path: `Library/${n}` })),
+      { kind: 'folder', path: '/Volumes/Example Drive/Hard › 2019' }, { kind: 'folder', path: '/Users/you/Music/100% Vinyl' }];
+    for (const t of targets) {
+      const r = parseHash(`${libraryHref(t)}?track=t2`);
+      expect(r.name).toBe('library');
+      expect(libraryTarget(r.params)).toEqual(t);
+      expect(keyTarget(targetKey(t))).toEqual(t);
+    }
+    expect(libraryHref({ kind: 'playlist', name: 'Hard Bounce' })).toBe('#/library/playlist/Hard%20Bounce');
+    expect(libraryHref({ kind: 'folder', path: 'Library/Old Sets' })).toBe('#/library/folder/Library%2FOld%20Sets');
+    // NFC and NFD spellings stay what they were: the engine folds them
+    expect(libraryTarget(parseHash(libraryHref({ kind: 'playlist', name: 'Cafe\u0301' })).params)).toEqual(
+      { kind: 'playlist', name: 'Cafe\u0301' });
+  });
+  it('reads an old folder link that names no path as a playlist, and the sidebar turns it into its Library folder', () => {
+    expect(libraryTarget(parseHash('#/library/folder/Hard_Bounce').params)).toEqual({ kind: 'playlist', name: 'Hard_Bounce' });
+    const side = { playlists: [{ name: 'Techno' }], library_folders: [{ name: 'Old Sets', path: 'Library/Old Sets' }] } as never;
+    expect(resolveTarget({ kind: 'playlist', name: 'old sets' }, side)).toEqual({ kind: 'folder', path: 'Library/Old Sets' });
+    expect(resolveTarget({ kind: 'playlist', name: 'techno' }, side)).toEqual({ kind: 'playlist', name: 'techno' });
+    expect(resolveTarget({ kind: 'playlist', name: 'Gone' }, side)).toEqual({ kind: 'playlist', name: 'Gone' });
+    expect(resolveTarget({ kind: 'playlist', name: 'Old Sets' }, null)).toEqual({ kind: 'playlist', name: 'Old Sets' });
   });
   it('round-trips a watched folder for Settings, whatever its path holds', () => {
     for (const path of ['/Volumes/Example Drive/Albums', '/Users/you/Music/100% Vinyl', '/Users/you/Music/Caf\u0065\u0301 › Sets']) {

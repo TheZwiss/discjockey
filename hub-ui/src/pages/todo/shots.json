@@ -4,7 +4,7 @@
  { "name": "todo-weak-selected", "route": "#/todo?track=t17", "scenario": "normal",
    "steps": [{ "wait": "[data-test=details][data-track=t17]" }, { "sleep": 600 }] },
  { "name": "todo-offline-selected", "route": "#/todo?track=t17", "scenario": "todo:offline",
-   "steps": [{ "wait": "[data-test=details][data-track=t17]" }, { "wait": "[data-test=cutoff] [data-test=spectrum-empty]" }, { "sleep": 600 }] },
+   "steps": [{ "wait": "[data-test=details][data-track=t17]" }, { "wait": "[data-test=cutoff] [data-test=spectrum-empty]" }, { "wait": "[data-test=todo-row][data-track=t17] [data-test=todo-away][data-state=offline]" }, { "sleep": 600 }] },
  { "name": "todo-upgrade-swap", "route": "#/todo?track=t2", "scenario": "normal",
    "steps": [{ "wait": "[data-test=upgrade-box][data-swap=true]" }, { "sleep": 600 }] },
  { "name": "todo-upgrade-replaced-filtered", "route": "#/todo?filter=upgrade_ready&track=t2", "scenario": "todo:upgrade-aiff-same",

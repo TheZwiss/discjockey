@@ -297,8 +297,8 @@ describe('library views of a playlist (D9)', () => {
     expect(v.rows.map((r) => r.position)).toEqual(v.rows.map((_, i) => i + 1));      // the playlist's own order
     const waiting = v.rows.filter((r) => r.file_state === 'no_file');
     // a song the sync found nothing for is Not found; one it has yet to look at (t4) waits
-    expect(waiting.find((r) => r.track_id === 't3')).toMatchObject({ wait: 'not_found', path: null, place: null, quality: 'missing' });
-    expect(waiting.find((r) => r.track_id === 't4')).toMatchObject({ wait: 'waiting', path: null, place: null, title: 'AEIOU' });
+    expect(waiting.find((r) => r.track_id === 't3')).toMatchObject({ wait: 'not_found', next_try: expect.any(String), path: null, place: null, quality: 'missing' });
+    expect(waiting.find((r) => r.track_id === 't4')).toMatchObject({ wait: 'waiting', next_try: null, path: null, place: null, title: 'AEIOU' });
     expect(waiting.every((r) => r.wait === (r.track_id === 't3' ? 'not_found' : 'waiting'))).toBe(true);
     // rows with a file are the only ones counted; one in the playlist's own folder says no place, any other its folder
     expect(v.summary.tracks).toBe(v.rows.length - waiting.length);

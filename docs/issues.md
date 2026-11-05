@@ -44,28 +44,15 @@ services.
 - **Live check:** the short-link redirect follows one hop. Confirm that `on.soundcloud.com` goes straight to
   `soundcloud.com/...`.
 
-## 30. To-do decision panels leftovers
-
-Audit 2026-11-05: both points are still open (the subtitle in `todoModel.headerSub` and the grey step numbers in
-`NumberedSteps.svelte` are unchanged); nothing else is missing.
-
-Noted in the screenshot review of the To-do panels (2026-10-31).
-
-- **The To-do header's subtitle wraps to two lines at 1100×700 when there are questions** ("… not lossless yet · 1 question
-  about your files"), so the header's height changes between the filters. It existed before stage 5.
-- **The step numbers in the "In rekordbox" card stay grey** where the mockup drew them yellow. They come from a shared
-  numbered-list block, so changing the colour there changes every numbered list; decide it centrally, not in To-do.
-
 ## 29. Library stage 5b leftovers (folders)
 
-Audit 2026-11-05 (updated by leftovers round C2): the engine points are done: run reports name an own song's folder
-(`run.select_actions` / `Executor` take `where`, `jobs.folder_names`), `SORTS["length"]` puts songs without a length
-last either way and the playlist's length stands in (`views.sort_rows`), `api.reveal` opens an absolute path inside a
-watched import folder (symlinks followed, nothing else), `set_crates_shown(paths, shown)` saves several crates in one
-write, `set_favourites` no longer builds the sidebar (`views.sidebar_targets`), `set_crate_shown` refuses a path that is
-no crate of a watched folder. Left for the UI round: `libraryTarget` and `/library/playlist/:name`, the row's next-try
-date (also needs the engine to put the date on `LibraryRow`), Show in Finder for watched folders and crates, Settings'
-All / None using `set_crates_shown`, and the points below that are not engine ones.
+Audit 2026-11-05 (updated by the leftovers UI round): the engine points are done (C2: run reports name an own song's
+folder, `SORTS["length"]`, `api.reveal` for watched folders, `set_crates_shown`, `set_favourites` without the sidebar,
+`set_crate_shown` refusing a non-crate), and so are the UI ones: `router.libraryTarget` with `#/library/playlist/:name`
+(a `folder` param that is no path is a playlist name, `resolveTarget` turns an old link's Library folder name into
+that folder), the row's `next_try` (`views.next_due`) as NOT FOUND's tooltip ("Nothing usable found yet, next try in
+5 days. …"), Show in Finder for import folders and crates that are there, and Settings' All · None as one
+`set_crates_shown` write per value. Left: the points below.
 
 Noted while building and reviewing `docs/archive/2026-10-29-library-stage-5-plan.md`, step B (folders), task groups B2 to B7.
 
@@ -73,50 +60,33 @@ Noted while building and reviewing `docs/archive/2026-10-29-library-stage-5-plan
   so the UI tells them apart only by the tooltip (the full path). This is the plan's D8 rule.
 - **Count differences:** the sidebar's count for a watched folder leaves out the files an import still has to work
   through, while Settings' row counts them.
-- **Routes (I5) still open:** `libraryCalls` in `pages/library/libraryModel.ts` asks by the old route param (a name is
-  a playlist when the sidebar lists one, else a Library folder, and a path as a folder view). `/library/playlist/:name`
-  and `libraryTarget` are not built yet.
 - **Paths worded by the UI:** `shortPath` (`musicFolder.ts`) and `filePlace` (`todoModel.ts`) stay: they word
   arbitrary paths (the music folder, a To-do file, Settings' rows, fitted to a width) that carry no engine `place`.
   Only `track()`'s and the rows' `place` and the sidebar's `watched[].place` come from the engine.
 - **Dev fake:** `ctx.s.briefBusy = true` (`window.__fake.ctx.s`) makes both brief saves answer `busy`; `s.unread` and
   `s.emptyRead` make a playlist never read / read and empty. `library:crates_busy` is `library:crates` with
   `briefBusy` on; `library:first_look` is its folders and crates with no Favourites.
-- **NOT FOUND tooltip (UI + engine date):** it can't give To-do's next-try line ("next try in 5 days", I7): `LibraryRow` carries no
-  date, only `track()` does. It reads "Nothing usable found yet: To-do has other ways to get it" until the engine adds the
-  date to the row (additive field) and the tooltip shows it.
-- **Show in Finder for watched folders (UI):** `api.reveal` now opens an import folder and its crates (absolute path inside a
-  watched folder). The sidebar's and Library's menus still offer it only where it used to work; offer it for these too.
-- **Settings' crate switches (UI):** `#/settings/folders/<path encoded>` (`settingsFolderHref`) picks an import folder in
-  Watched folders; Library's "Show some in the sidebar…" opens it. All · None still save one crate after another
-  (`saveCratesShown`); switch it to `set_crates_shown(paths, shown)` (one write, one sidebar read). Under a folder with too
-  many crates, All needs a search that leaves at most 25 rows.
 - **Favourites save and `refreshHub`:** a full `refreshHub` landing during a Favourites save can briefly show the old order.
 - **Later cleanup:** `views.library` is about 140 lines; `_playlist_rows` / `_folder_rows` would split it. `track()`
   recomputes `views.sites` over every file on each pick (linear, fast enough today).
 
 ## 28. Library stage 5a leftovers (layout)
 
-Audit 2026-11-05: the point "No Playlist column in the track table" is closed (`LibraryTable` has the Playlist column and
-Not in a playlist names the Folder). The rest is unchanged: pywebview is still `>=6.2.1,<7`, the selected row is still
-grey, the rule check and the other points were not re-run.
+Audit 2026-11-05 (updated by the leftovers UI round): closed are the Playlist column, the selected row (the picked
+track is the orange `--row-picked` wash in Library and To-do, `ListRow pick`), the rail's "99+" pill (it keeps the
+two-digit pill's corner), the dev FAKE pill (in the page's top padding, clear of the title), the rail tooltips (the
+grey key cap is settled; the plan's I7 text is history), the ARIA nit (kept: the section heads must be children of
+the scroll box to stick at its top and bottom, `stick="both"`; per-section `role="group"` wrappers would make each head
+stick only inside its section, and `aria-owns` groups would need the heads `aria-hidden`, hiding their fold and A–Z
+buttons) and "Hide/Show Sidebar" in the View menu (a platform limit: the pinned pywebview 6.2.1 adds custom menus only
+as new top-level menus, its `MenuAction` takes no shortcut, and it rebuilds the main menu on each window focus, so
+⌃⌘S stays key-only). The rule check below was not re-run.
 
 Noted while building and reviewing `docs/archive/2026-10-29-library-stage-5-plan.md`, step A (the layout).
 
-- **Rail tooltips:** the shortcut shows as a grey key cap per the mockup, not the plan's I7 text "{Page} (⌘n)". The
-  plan's I7 could be updated to match.
-- **"Hide/Show Sidebar" can't go in the View menu:** pywebview 6.2.1 adds custom menus only as new top-level menus, and
-  its items take no shortcut, so ⌃⌘S is key-only.
-- **The rail's "99+" To-do pill** covers most of the To-do icon (the 30 px rail column has no room); the tooltip gives
-  the exact count.
-- **ARIA nit:** while filtering, the browser column's section heads sit inside the listbox (needed so they stick),
-  which ARIA doesn't strictly allow.
-- **The selected table row stays grey,** like To-do's, instead of the mockup's orange wash. Changing it would be one
-  change for both pages.
 - **The base page's rule check has old failures,** the same before and after this step:
   `npm run rules -- --page base --force` reports 1,808 FAIL lines in 40 shots, base-gallery 99, mostly the gallery's
   long section descriptions. Worth a cleanup group.
-- **The dev-only FAKE pill** now sits at the page's top-left corner and touches the page title's top in fake mode.
 - **"Not lossless yet" in the summary strip** has a small pill split into the good-lossy, weak and fake colours instead
   of the mockup's red dot, because the row counts all three. Settled.
 - **The Playlists A–Z toggle turns orange when pressed** (the plan's `Button icon xs pressed`), where the mockup has it
@@ -128,15 +98,13 @@ Noted while building and reviewing `docs/archive/2026-10-29-library-stage-5-plan
 Audit 2026-11-05 (updated by leftovers round C2): the Format-row point is closed (sources round). Engine done in C2:
 every To-do item carries `file_state` (as a Library row's: `here` / `offline` / `folder_missing` / `no_file`; a same-song
 item is about the user's own file) and the duplicate item's `in_playlists` is now explicitly "any side of the group is in
-a playlist" (it was already that value, from the side that names the group). Left for the UI round: the `AwayTag` on
-To-do rows, the "waits for your answer" note in `UpToDate.svelte`; the other two points are unchanged.
+a playlist" (it was already that value, from the side that names the group). The leftovers UI round showed the `AwayTag`
+on To-do rows (in place of the quality badge, the row dimmed, as Library) and the "waits for your answer" note on
+Sync's Up-to-date view (`WaitingAnswersNote`, shared with the run panel); the dry run's lines name an own song's folder
+as its run report does. The other two points are unchanged.
 
 Noted while building and reviewing `docs/archive/2026-10-25-library-stage-4-plan.md`.
 
-- **To-do's list rows don't say a file is away (UI):** the items now carry `file_state`; the row still shows no `AwayTag`. Its
-  rows have no quality column, so the tag's place needs a look of its own (the badge slot, or the detail line).
-- **Sync's Up-to-date view shows no hint when every remaining song waits for an answer;** only the To-do count points
-  at them. Show the "{n} songs wait for your answer" note there too.
 - **The removal count (W4) misses rare cases:** a playlist track matched only at plan time (no stored song) isn't
   counted, and a Yes answer for a track that left every playlist still is. A song re-keyed after the removal keeps
   its file's tag name until the planner updates stored names.

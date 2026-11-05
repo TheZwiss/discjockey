@@ -95,6 +95,21 @@ def test_a_song_of_the_users_own_is_labelled_your_music():
     assert render_line(Result("checked", "A", "Artist", "Song", "t1")).startswith("- [A] Artist - Song")
 
 
+def test_the_plan_names_an_own_songs_folder_as_its_run_report_does():
+    """The dry run's lines file an own song under the folder its file sits in, as the run report does (result_folder,
+    leftovers C2): "your music" only when that can't be told."""
+    own = SourceTrack("1", "Night Drive", ("Example Artist",), "", None, 200000, None, service="local")
+    action = Action("upgrade", "local:1", "", own, (1, 0))
+    state = {"tracks": {"local:1": {"path": "/Users/dj/Music/Rekordbox/Hard/Night Drive.mp3"}}}
+    where = {"/Users/dj/Music/Rekordbox/Hard/Night Drive.mp3": "Rekordbox › Hard"}.get
+    text = render_plan(Plan(state, [action], [], [], []), full=True, where=lambda p: where(p) or "")
+    assert "    [Rekordbox › Hard] Example Artist - Night Drive" in text and "your music" not in text
+    unknown = render_plan(Plan(state, [action], [], [], []), full=True, where=lambda p: "")
+    assert "    [your music] Example Artist - Night Drive" in unknown
+    pl = act("acquire", "t1", reason="new")  # a playlist song keeps its playlist folder, whatever `where` says
+    assert f"    [{pl.folder}] " in render_plan(Plan({"tracks": {}}, [pl], [], [], []), full=True, where=lambda p: "X")
+
+
 def test_render_plan_up_to_date():
     assert "up to date" in render_plan(Plan({"tracks": {}}, [], [], [], []), full=False)
 

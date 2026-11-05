@@ -3,9 +3,9 @@
 import type { Decision } from '$lib/decisions/decisionModel';
 import type { Library, LibraryFilter, LibraryRow, LibrarySort, LibraryView, Quality, Sidebar, TrackDetail,
   TrackRow } from '$lib/bridge/types';
-import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
+import { resolveTarget, type LibraryTarget } from '$lib/router';
 import type { SegOption } from '$lib/components/segmentedModel';
-import { dayMonth } from '$lib/format';
+import { dayMonth, rowAway } from '$lib/format';
 import { EMPTY } from '$lib/copy';
 import { heldRow, putAt } from '$lib/decisions/hold';
 
@@ -187,9 +187,11 @@ export function todoHref(id: string): string {
 }
 
 // ---------- the quality filter ----------
-/** Remembered filter per folder. */
-export function filterKey(folder: string | null): string {
-  return `library.filter.${folder === null ? '__all__' : folder === NOT_IN_PLAYLIST ? '__not_in_playlist__' : folder}`;
+/** Remembered filter per collection (a playlist and a Library folder keep their step A key, the folder's name). */
+export function filterKey(t: LibraryTarget): string {
+  const k = t.kind === 'all' ? '__all__' : t.kind === 'unlisted' ? '__not_in_playlist__' : t.kind === 'playlist' ? t.name
+    : t.path.startsWith('Library/') ? t.path.slice('Library/'.length) : t.path;
+  return `library.filter.${k}`;
 }
 
 const FILTERS: { key: LibraryFilter; label: string; dot: Quality | null }[] = [
@@ -339,10 +341,8 @@ export function rowTitleTip(r: Pick<LibraryRow, 'in_playlists' | 'own' | 'file_s
 export function playable(r: Pick<LibraryRow, 'file_state'>): boolean {
   return r.file_state === 'here';
 }
-/** An away row: dimmed like a leftover one (it can't play), and its `AwayTag` says why. */
-export function rowAway(r: Pick<LibraryRow, 'file_state'>): Exclude<LibraryRow['file_state'], 'here' | 'no_file'> | null {
-  return r.file_state === 'here' || r.file_state === 'no_file' ? null : r.file_state;
-}
+/** An away row: dimmed like a leftover one (it can't play), and its `AwayTag` says why (shared with To-do's rows). */
+export { rowAway };
 /** The row's lead (cover and title) is dimmed: a song that left every playlist, a file that is away, or a playlist
  *  song with no file yet (D6). The quality column tells the three apart: nothing, an `AwayTag`, Waiting / NOT FOUND. */
 export function rowDim(r: Pick<LibraryRow, 'in_playlists' | 'own' | 'file_state'>): boolean {
@@ -360,10 +360,24 @@ export function waitWords(off: boolean): { word: string; tip: string } {
   return off ? { word: OFF_WORD, tip: OFF_TIP } : { word: WAITING_WORD, tip: WAITING_TIP };
 }
 export const NOT_FOUND_WORD = 'NOT FOUND';
-/** The row has no next-try date (only the track's details do), so its tooltip says what To-do offers instead. */
-export const NOT_FOUND_TIP = 'Nothing usable found yet: To-do has other ways to get it';
-/** The same for a song the user hid from To-do: it isn't there, so the tooltip doesn't send anyone. */
-export const NOT_FOUND_HIDDEN_TIP = 'Nothing usable found yet. You hid it from To-do.';
+/** To-do's next-try line for a `next_try` (views.next_due) on `today` (a local ISO day): null when nothing is
+ *  looked for again. */
+export function nextTryLine(nextTry: string | null, today: string): string | null {
+  if (nextTry === null) return null;
+  if (nextTry === 'next_sync' || nextTry <= today) return 'tried again at the next sync';
+  const days = Math.round((Date.parse(`${nextTry}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+  return `next try in ${days} day${days === 1 ? '' : 's'}`;
+}
+/** NOT FOUND's tooltip (I7): what happened, when the sync looks again, and where to go meanwhile (To-do, unless the
+ *  user hid the song there). */
+export function notFoundTip(r: Pick<LibraryRow, 'next_try' | 'hidden'>, today: string): string {
+  const line = nextTryLine(r.next_try, today);
+  return `Nothing usable found yet${line ? `, ${line}` : ''}. ${r.hidden ? 'You hid it from To-do.' : 'To-do has other ways to get it.'}`;
+}
+/** A day as the engine spells it (YYYY-MM-DD), in local time. */
+export function localDay(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 // ---------- the header ----------
 /** The header's second line (I7, the engine's parts). A read playlist's count is its songs with a file, which is what
@@ -491,23 +505,23 @@ export function playlistsLine(t: Pick<TrackDetail, 'in_playlists' | 'playlists'>
 // ---------- the calls ----------
 /** One `library(view, key, …)` call (the engine answers one view of the library per call). */
 export type LibraryCall = { view: LibraryView; key: string | null };
-const same = (a: string, b: string): boolean => a.normalize('NFC').toLowerCase() === b.normalize('NFC').toLowerCase();
-/** The calls that answer the page's `folder` (the route's param: null = All tracks, NOT_IN_PLAYLIST, a path, or a name; the
- *  new routes of plan library stage 5 I5 replace this). A name is a playlist's folder when the sidebar lists one of
- *  that name, else a Library folder no playlist uses (`Library/<name>`); a name nothing lists is asked as a playlist,
- *  which the engine answers with `empty: 'gone'`. Without the sidebar yet (the window just opened) both are tried in
- *  that order: the second only when the first came back gone. */
-export function libraryCalls(folder: string | null, side: Pick<Sidebar, 'playlists' | 'library_folders'> | null): LibraryCall[] {
-  if (folder === null) return [{ view: 'all', key: null }];
-  if (folder === NOT_IN_PLAYLIST) return [{ view: 'unlisted', key: null }];
-  // an import folder or a crate (the browser column links them by their path, plan library stage 5 I5)
-  if (folder.startsWith('/')) return [{ view: 'folder', key: folder }];
-  const asPlaylist: LibraryCall = { view: 'playlist', key: folder };
-  const asFolder: LibraryCall = { view: 'folder', key: `Library/${folder}` };
-  if (!side) return [asPlaylist, asFolder];
-  if (side.playlists.some((p) => same(p.name, folder))) return [asPlaylist];
-  const lib = side.library_folders.find((f) => same(f.name, folder));
-  return lib ? [{ view: 'folder', key: lib.path }] : [asPlaylist];
+/** The calls that answer the page's target (`router.libraryTarget`). A playlist name the sidebar doesn't list but names
+ *  a Library folder of (an old link) is that folder (`resolveTarget`); a name nothing lists is asked as a playlist,
+ *  which the engine answers with `empty: 'gone'`. Without the sidebar yet (the window just opened) an old link's name
+ *  is tried both ways, in that order: the second only when the first came back gone. */
+export function libraryCalls(target: LibraryTarget, side: Pick<Sidebar, 'playlists' | 'library_folders'> | null): LibraryCall[] {
+  const t = resolveTarget(target, side);
+  if (t.kind === 'all') return [{ view: 'all', key: null }];
+  if (t.kind === 'unlisted') return [{ view: 'unlisted', key: null }];
+  if (t.kind === 'folder') return [{ view: 'folder', key: t.path }];
+  const asPlaylist: LibraryCall = { view: 'playlist', key: t.name };
+  return side ? [asPlaylist] : [asPlaylist, { view: 'folder', key: `Library/${t.name}` }];
+}
+/** The header's title before the engine's answer names the collection. */
+export function targetTitle(t: LibraryTarget): string {
+  if (t.kind === 'all') return 'All tracks';
+  if (t.kind === 'unlisted') return 'Not in a playlist';
+  return t.kind === 'playlist' ? t.name : t.path.split('/').filter(Boolean).pop() ?? t.path;
 }
 /** What ▶ queues for a collection asked whole (no search, no filter): the page's own list as the table shows it (a
  *  playlist's songs, then the other files of its folder) and, of it, the rows whose file is there. The browser's Play

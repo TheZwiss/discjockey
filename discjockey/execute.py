@@ -20,20 +20,10 @@ from .names import expected_stem, fold, split_name, strip_id_suffix
 from .planner import (apply_outcome, folder_dir, replacement_dir, searched_since_check, superseded_dir,
                       upgrades_ready_dir)
 from .quality import is_lossless_codec, quality_line, verdict
-from .report import RunLog, buy_links
+from .report import RunLog, buy_links, result_folder
 
 FALLBACK_SOURCES = ("youtube_music", "soundcloud", "youtube")
 NEW_SECTION = {"lossless": "new_lossless", "not_lossless": "new_not_lossless", "fake_lossless": "fake"}
-
-
-def result_folder(a: Action, e: dict | None, where: Callable[[str], str] | None = None) -> str:
-    """The folder a result is filed under in a run report: the action's playlist folder, else (an upgrade check of
-    an own song, which has no playlist) the folder its file sits in, named as Sync names it. "" when that can't be
-    told: the report then says "your music" (report.folder_label)."""
-    if a.folder:
-        return a.folder
-    path = e.get("path") if e else None
-    return (where(path) if where and path else "") or ""
 
 
 @dataclass

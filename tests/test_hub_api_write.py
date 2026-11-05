@@ -1368,18 +1368,18 @@ def test_reveal_refuses_what_only_looks_like_a_watched_place(tmp_path, monkeypat
 
 
 def test_the_report_folder_names_of_a_library_are_the_ones_sync_shows(tmp_path, monkeypatch):
-    """jobs.folder_names: what sync_work gives select_actions and execute for an own song (leftovers C2, issue 29)."""
+    """run.folder_names: what sync_work and the console gives select_actions and execute for an own song (leftovers C2, issue 29)."""
     from types import SimpleNamespace
     from discjockey import playlists_file as pf
     api, rec, paths, folder = crate_library(tmp_path, monkeypatch)
     state = api._state()
     prep = SimpleNamespace(paths=paths, state=state, lines=pf.load(paths.playlists_file).rows)
-    where = jobs.folder_names(prep)
+    where = run.folder_names(prep)
     own = next(e["path"] for e in state["tracks"].values() if (e["path"] or "").startswith(str(folder / "Hard")))
     assert where(own) in ("Music › Hard", "Music › Hard › 2019")
     assert where(str(folder / "House" / "x.aiff")) == "Music › House"
     paths.db_file.unlink()
-    assert jobs.folder_names(prep) is None  # no records: the report says "your music"
+    assert run.folder_names(prep) is None  # no records: the report says "your music"
 
 
 def test_set_favourites_keeps_the_order_and_the_sidebar_resolves_them(tmp_path, monkeypatch):

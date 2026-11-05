@@ -298,7 +298,10 @@ export type JobStatus = { job: JobSnap | null; refresh_running: boolean; console
  *  place in the playlist's read (playlist view only). `playlists`: the playlists whose read holds the song, in
  *  playlists.txt order. */
 export type LibraryRow = TrackRow & { sound_checked: boolean; file_state: Exclude<FileState, 'file_missing'> | 'no_file';
-  wait: 'waiting' | 'not_found' | null; position: number | null; place: string | null; subfolder: string | null;
+  wait: 'waiting' | 'not_found' | null;
+  /** a `not_found` row: the day the sync looks again (ISO; due on and after it) or 'next_sync' (never looked yet);
+   *  null on every other row (views.next_due) */
+  next_try: string | null; position: number | null; place: string | null; subfolder: string | null;
   playlists: string[];
   /** the song's page on its service, for the row menu's "Open in {Service}" (null: no page known; the item is absent) */
   track_link: TrackLink | null };

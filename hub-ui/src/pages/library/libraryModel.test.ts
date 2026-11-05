@@ -4,7 +4,7 @@ import { NOT_IN_PLAYLIST } from '$lib/bridge/types';
 import {
   centerLine, columnThresholds, columnsAt, defaultSort, fileName, folderCell, footAction, gridColumns, hasSubfolders, inTodo,
   isSort, keepLine, lineTop, moveSelection, noFileNote, pageEmpty, placeLine, playQueue, playable,
-  playlistCell, playlistsLine, libraryCalls, nextSort, offTable, optionalColumns, rowAway, rowDim, rowInTodo, rowOf, rowOff,
+  playlistCell, playlistsLine, libraryCalls, filterKey, nextTryLine, notFoundTip, localDay, nextSort, offTable, optionalColumns, rowAway, rowDim, rowInTodo, rowOf, rowOff,
   rowTitleTip, segOptions, selectedIndex, shortUrl, sortKey, sortState, subfolderCell, subtitleParts, tableKind, tableLines,
   titleNote, viewSort, waitWords, windowSlice, alsoHint, playlistColumnFor, artistColumnFor, shownSort, tooManyFor,
   heldRow, holdApplies, withHeld, rowMenu,
@@ -268,7 +268,7 @@ describe('the cells', () => {
 });
 
 const here = (r: TrackRow, file_state: LibraryRow['file_state'] = 'here'): LibraryRow => ({ ...r, sound_checked: true, file_state,
-  wait: null, position: null, place: null, subfolder: null, playlists: [], track_link: null });
+  wait: null, next_try: null, position: null, place: null, subfolder: null, playlists: [], track_link: null });
 
 describe('a dimmed row', () => {
   it('is a downloaded song that left every playlist', () => {
@@ -350,22 +350,50 @@ describe('offTable: the selected track known to be off the table (the details th
 
 describe('which library(view, key, …) call answers the route', () => {
   const side = { playlists: [{ name: 'Hard_Bounce' }, { name: 'Peak_Time' }], library_folders: [{ name: 'Old_Sets', path: 'Library/Old_Sets' }] } as never;
-  it('All tracks and Not in a playlist are views of their own', () => {
-    expect(libraryCalls(null, side)).toEqual([{ view: 'all', key: null }]);
-    expect(libraryCalls(NOT_IN_PLAYLIST, side)).toEqual([{ view: 'unlisted', key: null }]);
-    // an import folder or a crate by its path (the browser column's rows)
-    expect(libraryCalls('/Users/you/Music/Rekordbox Library/Hardtechno', side))
+  const pl = (name: string) => ({ kind: 'playlist' as const, name });
+  it('All tracks and Not in a playlist are views of their own; a folder asks by its path', () => {
+    expect(libraryCalls({ kind: 'all' }, side)).toEqual([{ view: 'all', key: null }]);
+    expect(libraryCalls({ kind: 'unlisted' }, side)).toEqual([{ view: 'unlisted', key: null }]);
+    // an import folder or a crate by its path (the browser column's rows), a Library folder by its own
+    expect(libraryCalls({ kind: 'folder', path: '/Users/you/Music/Rekordbox Library/Hardtechno' }, side))
       .toEqual([{ view: 'folder', key: '/Users/you/Music/Rekordbox Library/Hardtechno' }]);
+    expect(libraryCalls({ kind: 'folder', path: 'Library/Hard_Bounce' }, null)).toEqual([{ view: 'folder', key: 'Library/Hard_Bounce' }]);
   });
-  it('a name the sidebar lists as a playlist is a playlist (case ignored), a Library folder asks by its path', () => {
-    expect(libraryCalls('hard_bounce', side)).toEqual([{ view: 'playlist', key: 'hard_bounce' }]);
-    expect(libraryCalls('Old_Sets', side)).toEqual([{ view: 'folder', key: 'Library/Old_Sets' }]);
+  it('a playlist is a playlist; an old link naming a Library folder no playlist uses asks by its path', () => {
+    expect(libraryCalls(pl('hard_bounce'), side)).toEqual([{ view: 'playlist', key: 'hard_bounce' }]);
+    expect(libraryCalls(pl('Old_Sets'), side)).toEqual([{ view: 'folder', key: 'Library/Old_Sets' }]);
   });
   it('a name nothing lists is asked as a playlist, which the engine answers as gone', () => {
-    expect(libraryCalls('Nowhere', side)).toEqual([{ view: 'playlist', key: 'Nowhere' }]);
+    expect(libraryCalls(pl('Nowhere'), side)).toEqual([{ view: 'playlist', key: 'Nowhere' }]);
   });
   it('without the sidebar yet the playlist is tried first, then the Library folder', () => {
-    expect(libraryCalls('Old_Sets', null)).toEqual([{ view: 'playlist', key: 'Old_Sets' }, { view: 'folder', key: 'Library/Old_Sets' }]);
+    expect(libraryCalls(pl('Old_Sets'), null)).toEqual([{ view: 'playlist', key: 'Old_Sets' }, { view: 'folder', key: 'Library/Old_Sets' }]);
+  });
+  it('remembers a filter per collection, a playlist and a Library folder under their names as before', () => {
+    expect([filterKey({ kind: 'all' }), filterKey({ kind: 'unlisted' }), filterKey(pl('Techno')),
+      filterKey({ kind: 'folder', path: 'Library/Old_Sets' }), filterKey({ kind: 'folder', path: '/Volumes/X/Hard' })]).toEqual([
+      'library.filter.__all__', 'library.filter.__not_in_playlist__', 'library.filter.Techno', 'library.filter.Old_Sets',
+      'library.filter./Volumes/X/Hard']);
+  });
+});
+
+describe("NOT FOUND's tooltip gives To-do's next-try line", () => {
+  it('words the next try against today', () => {
+    expect(nextTryLine('2026-11-10', '2026-11-05')).toBe('next try in 5 days');
+    expect(nextTryLine('2026-11-06', '2026-11-05')).toBe('next try in 1 day');
+    expect(nextTryLine('2026-11-05', '2026-11-05')).toBe('tried again at the next sync');
+    expect(nextTryLine('2026-11-01', '2026-11-05')).toBe('tried again at the next sync');
+    expect(nextTryLine('next_sync', '2026-11-05')).toBe('tried again at the next sync');
+    expect(nextTryLine(null, '2026-11-05')).toBeNull();
+    expect(nextTryLine('2026-04-01', '2026-03-28')).toBe('next try in 4 days'); // across a clock change
+  });
+  it('names To-do, or that the song is hidden there', () => {
+    expect(notFoundTip({ next_try: '2026-11-10', hidden: false }, '2026-11-05'))
+      .toBe('Nothing usable found yet, next try in 5 days. To-do has other ways to get it.');
+    expect(notFoundTip({ next_try: 'next_sync', hidden: true }, '2026-11-05'))
+      .toBe('Nothing usable found yet, tried again at the next sync. You hid it from To-do.');
+    expect(notFoundTip({ next_try: null, hidden: false }, '2026-11-05')).toBe('Nothing usable found yet. To-do has other ways to get it.');
+    expect(localDay(new Date(2026, 0, 3))).toBe('2026-01-03');
   });
 });
 

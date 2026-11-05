@@ -175,7 +175,7 @@ describe('the highlight', () => {
   });
   it('finds the row to open by its key', () => {
     const l = list({ query: 'bou' });
-    expect(rowByKey(l, 'playlist:d')?.href).toBe('#/library/folder/Bouncy');
+    expect(rowByKey(l, 'playlist:d')?.href).toBe('#/library/playlist/Bouncy');
     expect(rowByKey(l, HANDOFF)?.href).toBe('#/library?q=bou');
     expect(rowByKey(list(), 'view:all')?.href).toBe('#/library');
     expect(rowByKey(l, 'nope')).toBeNull();
@@ -183,23 +183,26 @@ describe('the highlight', () => {
 });
 
 describe('the current row', () => {
+  const pl = (name: string) => ({ kind: 'playlist' as const, name });
   it('follows the library route', () => {
     expect(currentTarget(side, undefined)).toBeNull();
-    expect(currentTarget(side, null)).toBe('view:all');
-    expect(currentTarget(side, NOT_IN_PLAYLIST)).toBe('view:unlisted');
-    expect(currentTarget(side, 'Hard_Bounce')).toBe('playlist:b');
-    expect(currentTarget(side, 'Old_Sets')).toBe('folder:Library/Old_Sets');
-    expect(currentTarget(side, '/Volumes/Drive/Sets')).toBe('folder:/Volumes/Drive/Sets');
-    expect(currentTarget(side, 'Gone')).toBeNull();
-    expect(currentTarget(null, 'Hard_Bounce')).toBeNull();
+    expect(currentTarget(side, { kind: 'all' })).toBe('view:all');
+    expect(currentTarget(side, { kind: 'unlisted' })).toBe('view:unlisted');
+    expect(currentTarget(side, pl('Hard_Bounce'))).toBe('playlist:b');
+    expect(currentTarget(side, { kind: 'folder', path: 'Library/Old_Sets' })).toBe('folder:Library/Old_Sets');
+    expect(currentTarget(side, pl('Old_Sets'))).toBe('folder:Library/Old_Sets'); // an old link's name
+    expect(currentTarget(side, { kind: 'folder', path: '/Volumes/Drive/Sets' })).toBe('folder:/Volumes/Drive/Sets');
+    expect(currentTarget(side, pl('Gone'))).toBeNull();
+    expect(currentTarget(null, pl('Hard_Bounce'))).toBeNull();
   });
   it('picks the playlist when a Library folder has the same name', () => {
     const both = { ...side, library_folders: [{ path: 'Library/Hard_Bounce', name: 'Hard_Bounce', files: 1 }] };
-    expect(currentTarget(both, 'Hard_Bounce')).toBe('playlist:b');
+    expect(currentTarget(both, pl('Hard_Bounce'))).toBe('playlist:b');
+    expect(currentTarget(both, { kind: 'folder', path: 'Library/Hard_Bounce' })).toBe('folder:Library/Hard_Bounce');
   });
   it('puts the pill on the first line of a repeated ref, whose row has the plain key', () => {
     const twice = { ...side, playlists: [side.playlists[0], { ...side.playlists[0], name: 'Peak_Time_2' }] };
-    const l = browserList({ side: twice, query: '', az: false, closed: [], current: currentTarget(twice, 'Peak_Time') });
+    const l = browserList({ side: twice, query: '', az: false, closed: [], current: currentTarget(twice, pl('Peak_Time')) });
     const rows = l.sections[1].rows;
     expect(l.on).toBe(rows[0].key);
     expect(rows[1].key).not.toBe(rows[0].key);
@@ -296,8 +299,8 @@ describe('watched folders and their crates', () => {
   it('links an import folder and a crate by path, a Library folder by name', () => {
     const rows = folders();
     expect(rows.find((r) => r.name === 'Hardtechno')!.href).toBe(`#/library/folder/${encodeURIComponent(`${RB}/DJ/Hardtechno`)}`);
-    expect(rows.find((r) => r.name === 'Old_Sets')!.href).toBe('#/library/folder/Old_Sets');
-    expect(folderHref('Library/Old_Sets')).toBe('#/library/folder/Old_Sets');
+    expect(rows.find((r) => r.name === 'Old_Sets')!.href).toBe('#/library/folder/Library%2FOld_Sets');
+    expect(folderHref('Library/Old_Sets')).toBe('#/library/folder/Library%2FOld_Sets');
     expect(parseHash(folderHref(`${RB}/DJ/Hardtechno`)).params.folder).toBe(`${RB}/DJ/Hardtechno`);
   });
   it('words each folder row (I7): place and count, what is hidden, an away drive, too many', () => {
@@ -357,7 +360,7 @@ describe('Favourites', () => {
       ['fav:folder:/Volumes/Vinyl Drive/Vinyl Rips', 'folder:/Volumes/Vinyl Drive/Vinyl Rips', 'warn', false, 6]]);
     expect(rows[1].tip).toBe('Rekordbox Library › DJ › Hardtechno\n9 tracks');
     expect(rows[2].tip).toContain('Offline: connect the drive');
-    expect(rows[0].href).toBe('#/library/folder/Hard_Bounce');
+    expect(rows[0].href).toBe('#/library/playlist/Hard_Bounce');
   });
   it('steps aside while filtering', () => {
     expect(browserList({ side: favs, query: 'hard', az: false, closed: [] }).sections.map((x) => x.key))
@@ -374,7 +377,7 @@ describe('Favourites', () => {
   });
   it('makes the full sidebar\'s shortcuts from the same rows', () => {
     const r = favouriteRow(favs.favourites[0], favs);
-    expect(r).toMatchObject({ name: 'Hard_Bounce', href: '#/library/folder/Hard_Bounce', lead: 'service' });
+    expect(r).toMatchObject({ name: 'Hard_Bounce', href: '#/library/playlist/Hard_Bounce', lead: 'service' });
   });
   it('has its landing row\'s words', () => {
     expect(LANDING_TEXT).toBe('Drag a playlist or folder here');
@@ -421,18 +424,21 @@ describe('the right-click menu', () => {
   it('offers Open, Play, the favourite, Hide on a crate and Show in Finder where it can', () => {
     expect(words(pl)).toEqual(['Open', 'Play', 'Add to favourites', 'Show in Finder']);
     expect(words(pl, ['playlist:b'])).toEqual(['Open', 'Play', 'Remove from favourites', 'Show in Finder']);
-    expect(words(byName('Hardtechno'))).toEqual(['Open', 'Play', 'Add to favourites', 'Hide from sidebar']);
+    expect(words(byName('Hardtechno'))).toEqual(['Open', 'Play', 'Add to favourites', 'Hide from sidebar', 'Show in Finder']);
     expect(menuFor(byName('Hardtechno'), new Set()).find((m) => m.action === 'hide')!.note).toBe('Settings brings it back');
-    expect(words(byName('Rekordbox Library'))).toEqual(['Open', 'Play', 'Add to favourites']);
+    expect(words(byName('Rekordbox Library'))).toEqual(['Open', 'Play', 'Add to favourites', 'Show in Finder']);
     expect(words(byName('Old_Sets'))).toEqual(['Open', 'Play', 'Add to favourites', 'Show in Finder']);
     expect(menuFor(l.views[0], new Set()).map((m) => m.label)).toEqual(['Open', 'Play']);
   });
   it('offers Show in sidebar on a hidden crate the filter found, and no Hide on a favourite', () => {
     const edits = folders({ query: 'edits' })[1];
-    expect(words(edits)).toEqual(['Open', 'Play', 'Add to favourites', 'Show in sidebar']);
+    expect(words(edits)).toEqual(['Open', 'Play', 'Add to favourites', 'Show in sidebar', 'Show in Finder']);
     const fav = favouriteRow({ key: `folder:${RB}/DJ/Hardtechno`, kind: 'folder', name: 'Hardtechno', service: null,
       enabled: true, count: 9, path: `${RB}/DJ/Hardtechno`, state: 'here' }, full);
-    expect(words(fav, [fav.target])).toEqual(['Open', 'Play', 'Remove from favourites']);
+    expect(words(fav, [fav.target])).toEqual(['Open', 'Play', 'Remove from favourites', 'Show in Finder']);
+    const away = favouriteRow({ key: 'folder:/Volumes/Vinyl Drive/Vinyl Rips', kind: 'folder', name: 'Vinyl Rips', service: null,
+      enabled: true, count: 6, path: '/Volumes/Vinyl Drive/Vinyl Rips', state: 'offline' }, full);
+    expect(words(away, [away.target])).toEqual(['Open', 'Play', 'Remove from favourites']); // nothing to show while away
   });
   it('saves only an override that differs from the default', () => {
     expect(crateShownValue(false, false)).toBe(false);
@@ -440,13 +446,14 @@ describe('the right-click menu', () => {
     expect(crateShownValue(true, true)).toBe(true);
     expect(crateShownValue(true, false)).toBeNull();
   });
-  it('plays a row\'s own view and shows in Finder only inside the music folder', () => {
+  it('plays a row\'s own view and shows in Finder any folder that is there', () => {
     expect(playCall(pl)).toEqual({ view: 'playlist', key: 'Hard_Bounce' });
     expect(playCall(byName('Hardtechno'))).toEqual({ view: 'folder', key: `${RB}/DJ/Hardtechno` });
     expect(playCall(l.views[1])).toEqual({ view: 'unlisted', key: null });
     expect(revealPath(pl)).toBe('Library/Hard_Bounce');
     expect(revealPath(byName('Old_Sets'))).toBe('Library/Old_Sets');
-    expect(revealPath(byName('Hardtechno'))).toBeNull();
+    expect(revealPath(byName('Hardtechno'))).toBe(`${RB}/DJ/Hardtechno`);
+    expect(revealPath(byName('Rekordbox Library'))).toBe(RB);
   });
 });
 

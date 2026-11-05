@@ -19,9 +19,10 @@
   import type { SyncAccount } from '$lib/bridge/types';
   import {
     dayBarInput, folderItems, howManyOptions, isKindKey, kindItems, runCount, runTime, serviceRows, type Facet, type HowMany, type Preset,
-    type RunTotals, type Scope, WAITING_ANSWERS_HREF, deferredChecksLine, waitingAnswersLine,
+    type RunTotals, type Scope, deferredChecksLine,
   } from '../planModel';
   import KindIcon from './KindIcon.svelte';
+  import WaitingAnswersNote from './WaitingAnswersNote.svelte';
 
   let { summary, left, limit, accounts, presets, howMany, folders, kinds, scope, onhowmany, onscope, onscopeall,
     start, waitingAnswers = 0, deferredChecks = 0 }: {
@@ -38,7 +39,6 @@
     /** first upgrade checks of imported music left for later runs (SyncPreview.deferred_checks) */
     deferredChecks?: number;
   } = $props();
-  const waitingLine = $derived(waitingAnswersLine(waitingAnswers));
   const deferredLine = $derived(deferredChecksLine(deferredChecks));
 
   const limitReached = $derived(left === 0 && summary.downloads > 0);
@@ -65,11 +65,7 @@
     <StatCard value={run} label="track{run === 1 ? '' : 's'} this run" valueTest="sync-run-count" />
     <StatCard value={time.value} unit={time.unit} label="run time" data-test="sync-time" />
   </div>
-  {#if waitingLine}
-    <NoteCard tone="warn" data-test="sync-waiting-answers">{waitingLine}
-      <div class="act"><Button variant="link" size="sm" href={WAITING_ANSWERS_HREF} data-test="sync-waiting-link">To-do →</Button></div>
-    </NoteCard>
-  {/if}
+  <WaitingAnswersNote n={waitingAnswers} />
   <Surface kind="card" data-test="sync-day">
     <DayBar input={dayBarInput(summary, left)} data-test="sync-daybar" />
     {#if overflow}
@@ -122,7 +118,6 @@
   .limits { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-3); min-width: 0;
     font-size: var(--fs-small); color: var(--text-muted); white-space: nowrap; }
   /* the card's action, on its own line under the sentence */
-  .act { margin-top: var(--s-1); }
   .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .bar { flex: 1 1 auto; min-width: 0; }
   .backup { color: var(--text-label); font-size: var(--fs-small); }

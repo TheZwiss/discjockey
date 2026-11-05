@@ -2,11 +2,14 @@
   // Nothing to do (spec §8): a Surface card with the good tone, a drawn check, "Up to date", one line of numbers
   // ("5 playlists · 49 tracks", §6: labels and numbers, not sentences) and + Add a playlist (link). Read Spotify is
   // not repeated here: it has one place, the page header's Spotify slot right above (spec §5a, §11). The check is drawn (stroke 1.6, as KindIcon and ⊘): a ✓ glyph
-  // renders thin and uneven at small sizes (spec §11). Green + the check shape carry the state (§4).
+  // renders thin and uneven at small sizes (spec §11). Green + the check shape carry the state (§4). Songs that wait for
+  // an answer to "Is this the same song?" are not in the plan, so the view can be up to date with them left: the same
+  // note as the run panel's says so under the card, with the way to To-do (issue 27).
   import { Button, Surface } from '$lib/components';
   import { plural } from '$lib/format';
+  import WaitingAnswersNote from './WaitingAnswersNote.svelte';
 
-  let { tracks, playlists }: { tracks: number | null; playlists: number } = $props();
+  let { tracks, playlists, waitingAnswers = 0 }: { tracks: number | null; playlists: number; waitingAnswers?: number } = $props();
 </script>
 
 <Surface kind="card" tone="good" style="--mark: 28px" data-test="sync-up-to-date">
@@ -22,6 +25,7 @@
     <Button size="sm" variant="link" href="#/playlists" data-test="sync-add-playlist">+ Add a playlist</Button>
   </div>
 </Surface>
+<WaitingAnswersNote n={waitingAnswers} />
 
 <style>
   .done { display: flex; align-items: center; gap: var(--s-3); min-width: 0; }
