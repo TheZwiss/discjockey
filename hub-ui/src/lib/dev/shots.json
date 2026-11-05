@@ -147,7 +147,10 @@
     "click": "[data-test=finish-later]"
    },
    {
-    "wait": "[data-test=banner-read-status]"
+    "wait": "[data-test=dashboard-empty]"
+   },
+   {
+    "eval": "if (document.querySelector('[data-test=banner-read-status]')) throw new Error('a first run without playlists has no service to log in to: the Dashboard says Finish setup, no login banner (read_status.services lists only the services the playlists use)')"
    }
   ]
  },
