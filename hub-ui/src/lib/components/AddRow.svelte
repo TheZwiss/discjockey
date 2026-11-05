@@ -7,25 +7,44 @@
   // folder checks), `onadd` takes the found playlist and its folder name; the page decides what adding means
   // (Playlists: a row in the draft; Setup: saved at once). It answers whether the playlist went in: only then the
   // field and the found card clear, so a refused save keeps them for another try.
+  // The placeholder is "Paste a playlist link here" followed by the four services' logos in the user's order (sources
+  // round problem 1), each with a Tip of its name; they are part of the placeholder, so they go once the field has
+  // text, and the found card then shows the one service it recognised. The words sit where the input's own
+  // placeholder would (the field's padding, its colour), and a click on them or a logo goes to the input.
+  // A link the engine reads only once a Settings choice is on (`setting_off` with its `setting`: Liked music) gets
+  // the "needs a setting" form: the playlist's fixed name, logo + "YouTube Music · yours", the yellow ! line, a Hint
+  // and one primary action the caller names (`settingAction`: Playlists' "Turn on in Settings").
+  // `check(link)` puts a link in the field and checks it, as a paste and Add would (the gallery's states).
   import Button from './Button.svelte';
   import Cover from './Cover.svelte';
   import Hint from './Hint.svelte';
   import ProblemCard from './ProblemCard.svelte';
+  import ServiceMark from './ServiceMark.svelte';
+  import StatusMark from './StatusMark.svelte';
   import Surface from './Surface.svelte';
   import TextField from './TextField.svelte';
+  import { logoOf } from './serviceLogos';
+  import { tip } from './tip';
+  import { GUIDE_SERVICES } from './linkGuideModel';
   import { api } from '../bridge/client';
-  import type { AddedPlaylist, PlaylistService, ProblemKind } from '../bridge/types';
+  import type { AddedPlaylist, PlaylistService, ProblemKind, SettingKey } from '../bridge/types';
   import { networkReadsAllowed, readBlock } from '../stores/hub';
   import { bannersSaidInBody } from '../stores/shell';
-  import { NOT_WHILE_SYNC } from '../copy';
+  import { NOT_WHILE_SYNC, PLAYLIST_SERVICE_NAMES } from '../copy';
   import { plural } from '../format';
-  import { bannerSaysIt, folderProblem, hasLink, ownerText, type PlaylistRef } from './addRowModel';
+  import { bannerSaysIt, folderProblem, hasLink, ownerText, settingForm, type PlaylistRef } from './addRowModel';
 
-  let { draft, onadd, filled = false }: {
+  let { draft, onadd, filled = false, settingAction }: {
     draft: PlaylistRef[]; onadd: (a: AddedPlaylist, folder: string) => boolean | Promise<boolean>;
     /** "Add to the list" is the screen's one filled button (Setup's first playlist, where adding is the step) */
     filled?: boolean;
+    /** the "needs a setting" form's one action: its words and where it goes (Playlists: "Turn on in Settings") */
+    settingAction?: { label: string; onclick: (setting: SettingKey) => void };
   } = $props();
+
+  /** the field's name for VoiceOver, the four services in words (the logos say them to the eye) */
+  const FIELD_LABEL = 'Paste a link from YouTube Music, SoundCloud, Spotify or Qobuz';
+  const PLACEHOLDER = 'Paste a playlist link here';
 
   const DUPLICATE = 'This playlist is already in your list.';
   /** answers whose message is the whole point (W2 "That isn't a playlist link Discjockey can read…", W4 "SoundCloud
@@ -38,13 +57,18 @@
   let result = $state<AddedPlaylist | null>(null);
   let error = $state<{ kind: ProblemKind; message: string; service: PlaylistService | null } | null>(null);
   let note = $state<string | null>(null);
+  /** a link whose read needs a Settings choice that is off: the "needs a setting" form */
+  let needs = $state<{ setting: SettingKey; link: string } | null>(null);
+  const form = $derived(needs ? settingForm(needs.setting) : null);
+  let fieldEl: HTMLElement | undefined = $state();
+  function focusField() { fieldEl?.querySelector('input')?.focus(); }
   let folder = $state('');
   const folderHint = $derived(result ? folderProblem(folder, draft) : null);
 
   async function add() {
     const u = url.trim();
     if (!u || busy) return;
-    error = null; note = null; result = null;
+    error = null; note = null; result = null; needs = null;
     if (!$networkReadsAllowed) { note = NOT_WHILE_SYNC; return; }
     if (hasLink(draft, u)) { note = DUPLICATE; return; }
     busy = true;
@@ -52,6 +76,7 @@
     busy = false;
     if (!r.ok) {
       if (r.kind === 'sync_running') note = NOT_WHILE_SYNC;
+      else if (r.kind === 'setting_off' && r.setting) needs = { setting: r.setting, link: u };
       else error = { kind: r.kind, message: r.message, service: r.service ?? null };
       return;
     }
@@ -75,12 +100,28 @@
     return [r.service_name, r.info ? ownerText(r.info) : '', n == null ? '' : plural(n, 'track')].filter(Boolean)
       .join(' · ');
   }
-  function cancel() { result = null; folder = ''; }
+  function cancel() { result = null; folder = ''; needs = null; }
+  /** a link in the field, checked at once (as a paste and Add) */
+  export function check(link: string) { url = link; void add(); }
 </script>
 
 <div class="add" data-test="add-row">
-  <div class="field">
-    <TextField bind:value={url} placeholder="Paste a Spotify, Qobuz, SoundCloud or YouTube Music link…" onenter={add} name="playlist-link" />
+  <div class="field" bind:this={fieldEl}>
+    <TextField bind:value={url} label={FIELD_LABEL} onenter={add} name="playlist-link" />
+    {#if !url}
+      <!-- the placeholder: the words where the input's own would be, then the logos; the words let a click through
+           to the input, a logo focuses it (its Tip names the service) -->
+      <span class="ph" aria-hidden="true" data-test="add-placeholder">
+        <span class="ph-words">{PLACEHOLDER}</span>
+        <span class="ph-logos">
+          {#each GUIDE_SERVICES as s (s)}
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+            <span class="ph-logo" use:tip={PLAYLIST_SERVICE_NAMES[s]} onclick={focusField}><ServiceMark
+              service={logoOf(s)} label={PLAYLIST_SERVICE_NAMES[s]} /></span>
+          {/each}
+        </span>
+      </span>
+    {/if}
   </div>
   <Button {busy} disabled={!$networkReadsAllowed || !url.trim()} title={$networkReadsAllowed ? undefined : NOT_WHILE_SYNC}
     onclick={add} data-test="add-button">Add</Button>
@@ -98,6 +139,27 @@
       <ProblemCard alert compact kind={error.kind} message={error.message} service={error.service} onretry={add} />
     {/if}
   </div>
+{/if}
+
+{#if needs && form}
+  <Surface kind="card" data-test="add-needs-setting">
+    <div class="found">
+      <Cover url={null} seed={needs.link} size={40} />
+      <div class="what">
+        <span class="name">{form.name}</span>
+        <span class="muted svc"><ServiceMark service={logoOf(form.service)} label={PLAYLIST_SERVICE_NAMES[form.service]} />{`${PLAYLIST_SERVICE_NAMES[form.service]} · ${form.owner}`}</span>
+        <span class="off" data-test="add-needs-line"><StatusMark tone="warn" />{form.line}</span>
+      </div>
+      <Button variant="link" muted size="sm" onclick={cancel} data-test="add-cancel">Cancel</Button>
+    </div>
+    <div class="keep">
+      <span class="why"><Hint text={form.hint} wrap /></span>
+      {#if settingAction}
+        <Button variant={filled ? 'filled' : 'primary'} onclick={() => needs && settingAction.onclick(needs.setting)}
+          data-test="add-setting">{settingAction.label}</Button>
+      {/if}
+    </div>
+  </Surface>
 {/if}
 
 {#if result}
@@ -132,7 +194,17 @@
 
 <style>
   .add { display: flex; gap: var(--s-2); align-items: flex-start; }
-  .field { flex: 1; min-width: 0; }
+  .field { flex: 1; min-width: 0; position: relative; }
+  /* over the input, in its padding (TextField's border + --s-3) and its placeholder colour, one line high */
+  .ph { position: absolute; left: 0; top: 0; height: var(--h-btn); max-width: 100%; display: flex; align-items: center;
+    gap: var(--s-2); padding: 0 calc(var(--s-3) + var(--bw)); pointer-events: none; white-space: nowrap;
+    overflow: hidden; color: var(--text-label); font-size: var(--fs-body); }
+  .ph-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .ph-logos { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+  .ph-logo { display: inline-flex; pointer-events: auto; cursor: text; }
+  .svc { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+  .off { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-small); color: var(--text-muted); }
+  .why { flex: 1; min-width: 0; align-self: center; }
   .found { display: flex; gap: var(--s-3); align-items: center; min-width: 0; }
   .what { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .name { color: var(--text-strong); font-weight: var(--fw-semi); overflow: hidden; text-overflow: ellipsis;

@@ -15,14 +15,16 @@
   // proportion (`stripView.mix`), the not-lossless part of the bar beside it, never one quality's dot (red alone
   // would claim "weak" for the whole group, and red is the Weak segment's dot right below).
   // `summary={null}`: waiting (dashes and the bar's shimmer), the same height.
+  // `waiting` (a read playlist's songs with no file yet, sources round D10): the bar ends in their dashed segment, so
+  // it spans every song of the playlist; a view that is no read playlist passes none and the bar is as before.
   import type { Library } from '../bridge/types';
   import QualityBar from './QualityBar.svelte';
   import Surface from './Surface.svelte';
   import { stripView } from './summaryStripModel';
   import { tip as tipAction } from './tip';
 
-  let { summary, onupgrades, ontodo }: {
-    summary: Library['summary'] | null; onupgrades: () => void; ontodo: () => void;
+  let { summary, onupgrades, ontodo, waiting = 0 }: {
+    summary: Library['summary'] | null; onupgrades: () => void; ontodo: () => void; waiting?: number;
   } = $props();
   const v = $derived(stripView(summary));
 </script>
@@ -59,7 +61,7 @@
       <div class="num"><span data-test="strip-share">{v.share ?? '—'}</span>{#if v.share !== null}<span class="unit">% lossless</span>{/if}</div>
       <div class="label" data-test="strip-line">{v.line}</div>
     </div>
-    <div class="bar"><QualityBar by_quality={summary?.by_quality ?? null} /></div>
+    <div class="bar"><QualityBar by_quality={summary?.by_quality ?? null} {waiting} /></div>
     <div class="rows">
       {@render row('good', v.upgrades.link, onupgrades, v.upgrades.count, 'strip-upgrades', 'Upgrade ready', null, null)}
       {@render row('mix', v.notLossless.link, ontodo, v.notLossless.count, 'strip-todo', 'Not lossless yet',
