@@ -373,11 +373,19 @@ const iso = (d: Date) => {
 };
 export const isoLocal = iso;
 export const dateOnly = (d: Date) => iso(d).slice(0, 10);
+/** A time on the fake clock's own day that has already happened: `d` itself, or, when `d` is still to come at the
+ *  clock's time of day (the fake's "tonight" before it is tonight), a few minutes before the clock, never before
+ *  that day began. The later `d` is in the day, the nearer it lands to the clock, so the order of times is kept. */
+export function notAfter(d: Date, now: Date): Date {
+  if (d.getTime() <= now.getTime()) return d;
+  const dayStart = new Date(now); dayStart.setHours(0, 0, 0, 0);
+  return new Date(Math.max(dayStart.getTime(), now.getTime() - (24 - d.getHours()) * 60000));
+}
 const daysAgo = (now: Date, n: number, h = 21, m = 47) => {
   const d = new Date(now);
   d.setDate(d.getDate() - n);
   d.setHours(h, m, 0, 0);
-  return d;
+  return n === 0 ? notAfter(d, now) : d;
 };
 export const runId = (d: Date) => iso(d).replace('T', '_').replace(/:/g, '');
 
@@ -761,12 +769,4 @@ export function folderList(s: FakeState): { folder: string; listed: boolean }[] 
   const out = s.playlists.map((p) => ({ folder: p.folder, listed: true }));
   for (const f of s.extraFolders) if (!out.some((o) => o.folder === f.folder)) out.push(f);
   return out;
-}
-export function playlistRows(s: FakeState): PlaylistRow[] {
-  return s.playlists.map((p, index) => {
-    const ts = s.tracks.filter((t) => t.playlists.includes(p.folder));
-    const service = serviceOfLink(p.link);
-    return { index, folder: p.folder, link: p.link, playlist_id: playlistRef(p.link), service,
-      service_name: SERVICE_NAME[service], enabled: p.enabled, info: p.info, tracks: ts.length, quality: byQuality(ts) };
-  });
 }

@@ -1,15 +1,15 @@
 // Fake mode only: the logins page scenarios put on the fake Mac (Settings' and Setup's download accounts), so both
 // pages show the same accounts, browsers and checks.
-import type { FakeAccount, FakeState } from './data';
+import { isoLocal, notAfter, type FakeAccount, type FakeState } from './data';
 import { RECOMMENDED } from './limits';
 import type { LastCheck, LoginBrowser } from '../types';
 
-/** today on the fake clock at h:15, as the engine writes a time */
+/** today on the fake clock at h:15, as the engine writes a time; never later than the clock itself (before h:15 it is
+ *  a few minutes before the clock), so a sign dated "today" is in the past at every time of day */
 export function at(s: FakeState, h = 9): string {
   const d = new Date(s.now);
   d.setHours(h, 15, 0, 0);
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00`;
+  return isoLocal(notAfter(d, s.now));
 }
 
 /** an account's last check: good at 256 kbps unless `over` says otherwise */

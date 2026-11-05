@@ -4,11 +4,11 @@
 // Favourites and the user's crate switches. Words and rules are the engine's; a rule that changes there changes here.
 import type {
   Crate, Favourite, FolderState, Library, LibraryFilter, LibraryRow, LibrarySort, LibraryView, PlaylistService,
-  Sidebar, WatchedEntry,
+  PlaylistRow, Sidebar, WatchedEntry,
 } from '../types';
 import { NOT_IN_PLAYLIST, QUALITIES } from '../types';
 import {
-  SERVICE_NAME, byQuality, pathOf, playlistRef, serviceOfLink, todoGroup, trackRow, type FakeState,
+  SERVICE_NAME, byQuality, isoLocal, pathOf, playlistRef, serviceOfLink, todoGroup, trackRow, type FakeState,
   type FakeTrack,
 } from './data';
 
@@ -64,7 +64,22 @@ export function readOf(s: FakeState, folder: string): Read | null {
     if (n.folder === folder) held.push({ key: n.track_id, t: null, artist: n.artist, title: n.title, duration_s: n.duration_s });
   }
   if (!held.length && !s.emptyRead.includes(folder)) return null;
-  return { read_at: s.read_status.read_at ?? s.now.toISOString().slice(0, 19), held };
+  return { read_at: s.read_status.read_at ?? isoLocal(s.now), held };
+}
+/** The Playlists page's rows (views.playlists): the song count and the quality tally come from the same read record
+ *  the Library sidebar counts (`readOf`: the songs of the playlist, downloaded or not, each once), so every page shows
+ *  one number for a playlist. A playlist never read has no record: the service's own count, no tally. */
+export function playlistRows(s: FakeState): PlaylistRow[] {
+  return s.playlists.map((p, index) => {
+    const read = readOf(s, p.folder);
+    const service = serviceOfLink(p.link);
+    const songs = new Map((read?.held ?? []).map((h) => [h.key, h.t]));
+    const quality = byQuality([...songs.values()].filter((t): t is FakeTrack => t !== null));
+    quality.missing += [...songs.values()].filter((t) => t === null).length;
+    return { index, folder: p.folder, link: p.link, playlist_id: playlistRef(p.link), service,
+      service_name: SERVICE_NAME[service], enabled: p.enabled, info: p.info,
+      tracks: read ? songs.size : p.info?.track_count ?? null, quality };
+  });
 }
 /** song key -> the names of the playlists whose read holds it, in playlists.txt order */
 function holders(s: FakeState): Map<string, string[]> {
