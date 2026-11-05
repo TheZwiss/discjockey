@@ -15,7 +15,7 @@ from discjockey.sources import spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.events import ActionFinished, CancelToken, Message, ReadingPlaylist, RunFinished
 from discjockey.library import Paths, empty_state, save_state
-from discjockey.models import FetchedPlaylist, Plan, PlannedMove, SourceTrack
+from discjockey.models import FetchedPlaylist, Plan, PlannedMove, PlaylistLine, SourceTrack
 from discjockey.settings import Account, Settings, save_settings
 
 PLAYLISTS = "Hard_Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n"
@@ -827,6 +827,115 @@ def test_a_run_never_reads_liked_music_while_the_youtube_account_is_paused(liked
     assert [fp.line.folder for fp in prep.fetched] == ["Hard_Bounce"]
     assert (liked.root / LM_FILE).exists() and prep.state["tracks"][LM_KEY]["path"] == LM_FILE
     assert_kept_like_a_failed_read(prep)
+
+
+def test_a_sign_waiting_for_the_lock_pauses_a_run_that_has_it_and_is_recorded_then(liked):
+    """A pasted Liked music link met a bot check while a job held the lock; the sign waits in a file. The next run
+    records it (with the time it was met) before it reads, and so does not ask the account."""
+    from discjockey import pacing, pending_signs
+
+    set_liked(liked)
+    pending_signs.add(liked, [("youtube", "bot_check", "m")], datetime.now())
+    prep = run.prepare(liked)
+    assert LikedYDL.created == [] and LikedYDL.requested == []
+    assert [fp.line.folder for fp in prep.fetched] == ["Hard_Bounce"]
+    assert [s["kind"] for s in library.load_state(liked)["youtube_usage"]["signals"]] == ["bot_check"]
+    assert not liked.pending_signs.exists()
+    assert_kept_like_a_failed_read(prep)
+    assert pacing.account_paused(prep.state, "youtube", date.today())
+
+
+def test_a_sign_waiting_for_the_lock_still_pauses_a_read_that_cannot_have_it(liked):
+    from discjockey import pending_signs
+
+    set_liked(liked)
+    pending_signs.add(liked, [("youtube", "bot_check", "m")], datetime.now())
+
+    @contextmanager
+    def not_ours():
+        yield False
+
+    prep = run.prepare(liked, lock=not_ours)
+    assert LikedYDL.created == [] and LikedYDL.requested == []  # paused by the waiting sign
+    assert len(pending_signs.load(liked)) == 1  # nothing was written, so it still waits
+    assert not library.load_state(liked).get("youtube_usage", {}).get("signals")
+    assert_kept_like_a_failed_read(prep)
+
+
+def test_a_bot_check_met_by_a_read_that_cannot_have_the_lock_waits_in_the_file(liked):
+    from discjockey import pending_signs
+
+    set_liked(liked)
+    LikedYDL.error = Exception("Sign in to confirm you're not a bot")
+
+    @contextmanager
+    def not_ours():
+        yield False
+
+    prep = run.prepare(liked, lock=not_ours)
+    assert [s["kind"] for s in pending_signs.load(liked)] == ["bot_check"]
+    assert not library.load_state(liked).get("youtube_usage", {}).get("signals")  # nothing could be written
+    assert [s["kind"] for s in prep.state["youtube_usage"]["signals"]] == ["bot_check"]  # but this plan knows it
+    run.prepare(liked)  # the next run holds the lock: written once, and read no more today
+    assert [s["kind"] for s in library.load_state(liked)["youtube_usage"]["signals"]] == ["bot_check"]
+    assert len(LikedYDL.requested) == 1 and not liked.pending_signs.exists()
+
+
+def test_a_sign_waiting_from_yesterday_does_not_pause_today_and_is_recorded_with_its_own_day(liked):
+    from datetime import timedelta
+    from discjockey import pending_signs
+
+    set_liked(liked)
+    yesterday = datetime.now() - timedelta(days=1)
+    pending_signs.add(liked, [("youtube", "bot_check", "m")], yesterday)
+    run.prepare(liked)
+    assert LikedYDL.requested == [LM_LINK]  # read as usual
+    signs = library.load_state(liked)["youtube_usage"]["signals"]
+    assert signs[0]["time"].startswith(yesterday.date().isoformat())
+
+
+def test_a_paused_liked_music_keeps_a_song_that_left_its_higher_playlist_by_the_stored_read(liked):
+    """The song is in Liked music and in Hard_Bounce (its folder), and was removed from Hard_Bounce: Liked music is
+    not read today, but its last stored read still holds the song."""
+    from discjockey import pacing
+
+    set_liked(liked)
+    state = library.load_state(liked)
+    state["tracks"][LM_KEY]["folder"] = "Hard_Bounce"
+    pacing.record_signal(state, "auto_stop", "3 requests failed", datetime.now(), "youtube")
+    save_state(liked, state)
+    lm_line = PlaylistLine("Liked_music", "LM", 0, "youtube_music")
+    song = SourceTrack("EXAMPLEalb01", "Example Song One", ("Example Artist",), "Example Album", None, 200000, None,
+                       service="youtube_music")
+    with db.connect(liked.db_file) as conn:
+        db.record_reads(conn, [FetchedPlaylist(lm_line, [song], [])], datetime.now(), {"youtube_music:LM"})
+    prep = run.prepare(liked)
+    assert LikedYDL.requested == [] and prep.unread_members == {"Liked_music": (LM_KEY,)}
+    assert_kept_like_a_failed_read(prep)
+
+
+def test_an_unread_line_without_a_stored_read_still_keeps_the_songs_the_library_knows_it_may_hold(liked):
+    """Liked music is paused and its stored read is gone. The song with a YouTube Music token (it may be in Liked
+    music) is kept even though its folder is a playlist that no longer lists it; a Spotify song that left its
+    playlist is dropped as usual."""
+    from hub_helpers import entry
+    from discjockey import pacing
+
+    set_liked(liked)
+    state = library.load_state(liked)
+    state["tracks"][LM_KEY]["folder"] = "Hard_Bounce"
+    state["tracks"]["sp_gone"] = entry(artist="Example Artist", title="Gone", duration_ms=100000, folder="Hard_Bounce",
+                                       path="Library/Hard_Bounce/gone.aiff", status="lossless", source="qobuz",
+                                       source_id="q2", source_format="flac")
+    pacing.record_signal(state, "auto_stop", "3 requests failed", datetime.now(), "youtube")
+    save_state(liked, state)
+    with db.connect(liked.db_file) as conn:
+        conn.execute("DELETE FROM playlist_reads")
+    prep = run.prepare(liked)
+    assert LikedYDL.requested == [] and prep.unread_members == {"Liked_music": (LM_KEY,)}
+    assert LM_KEY not in prep.plan.dropped and prep.state["tracks"][LM_KEY]["in_playlists"] is True
+    assert "sp_gone" in prep.plan.dropped
+    assert run.replan(prep).plan.dropped == prep.plan.dropped  # replan keeps the same membership
 
 
 def assert_kept_like_a_failed_read(prep):

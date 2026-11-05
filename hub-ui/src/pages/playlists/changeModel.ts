@@ -105,10 +105,11 @@ export function addRow(draft: DraftRow[], a: AddedPlaylist, folder: string): Dra
     needsSetting: null }];
 }
 
-/** Priority numbers: switched-on rows 1…n from the top, switched-off rows "–". */
+/** Priority numbers: rows that are read 1…n from the top, rows that read as off (switched off, or waiting for a
+ *  Settings choice, `readsOff`) "–". */
 export function priorities(draft: DraftRow[]): string[] {
   let n = 0;
-  return draft.map((r) => (r.enabled ? String(++n) : '–'));
+  return draft.map((r) => (readsOff(r) ? '–' : String(++n)));
 }
 
 /** What a row says while the Settings choice it needs is off (sources round, binding words): it reads like a
@@ -142,13 +143,15 @@ export function setupLine(r: DraftRow): { text: string; tone: 'muted' | 'bad' } 
   return { text: `${l.text} · ${plural(r.tracks, 'track')}`, tone: l.tone };
 }
 /** The list head's summary (sources round problem 10: the count left the page header and joins the list's own
- *  counts): "7 on · 1 off · 70 tracks". The tracks are the switched-on playlists'; "off" only when one is. */
+ *  counts): "7 on · 1 off · 70 tracks". The tracks are those of the playlists that are read; a row that reads as off
+ *  (`readsOff`: switched off, or Liked music while its Settings choice is off) counts as off; "off" only when one is. */
 export function listSummary(draft: DraftRow[]): string {
-  const on = draft.filter((r) => r.enabled).length;
+  const on = draft.filter((r) => !readsOff(r)).length;
   const off = draft.length - on;
-  const n = draft.reduce((a, r) => a + (r.enabled ? r.tracks ?? 0 : 0), 0);
+  const n = draft.reduce((a, r) => a + (readsOff(r) ? 0 : r.tracks ?? 0), 0);
   return [`${on} on`, off ? `${off} off` : '', plural(n, 'track')].filter(Boolean).join(' · ');
 }
+/** "6 of 11 lossless" beside a playlist's quality bar; null when nothing is downloaded yet. */
 export function losslessText(q: ByQuality): string | null {
   const n = q.lossless + q.good_lossy + q.weak + q.fake + q.missing;
   return n ? `${q.lossless} of ${n} lossless` : null;

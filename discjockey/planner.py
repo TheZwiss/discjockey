@@ -393,22 +393,36 @@ def desired_folders(fetched: list[FetchedPlaylist], state: dict) -> dict[str, st
 
 
 def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: date, *,
-         first_checks: int | None = None, unread_folders: Collection[str] = ()) -> Plan:
+         first_checks: int | None = None, unread_folders: Collection[str] = (),
+         unread_members: Mapping[str, Collection[str]] | None = None) -> Plan:
     """What a sync does (spec §9; the user's own songs: library-and-sources §10, plan library stage 4 I4).
     `first_checks`: how many first upgrade checks (an `upgrade` of an entry never checked) this run may make; the
     rest wait for later runs and are counted in `deferred_checks` (D9). None: no cap.
     `unread_folders`: folders of playlists that were not read this time (Liked music while the YouTube account is
-    paused, sources-round D6). Their songs keep `in_playlists` as it was: not dropped, nothing else planned for them."""
+    paused, sources-round D6). Their songs keep `in_playlists` as it was: not dropped, nothing else planned for them.
+    `unread_members`: for an unread folder whose line has a stored read, the track tokens of that last read. Such a
+    folder's membership is these tokens (resolved to songs like any track), not the songs' own `folder`: a song that
+    is in the unread line and also in a higher playlist has that playlist as its folder, and must stay while it
+    is removed there. An unread folder without a stored read falls back to the songs' `folder`."""
     new_state = copy.deepcopy(state)
     tracks: dict = new_state["tracks"]
     notes: list[str] = []
     own = _Own(tracks, new_state.get("decisions"), new_state.get("ambiguous") or {})
     wanted = _resolve(fetched, tracks, notes, own)
 
+    unread_members = unread_members or {}
+    by_name = {}
+    for key, e in tracks.items():
+        by_name[key] = key
+        for alias in e.get("aliases", []):
+            by_name[alias] = key
+    held = {by_name[t] for folder in unread_folders for t in unread_members.get(folder, ()) if t in by_name}
+    unrecorded = {f for f in unread_folders if f not in unread_members}
+
     dropped: list[str] = []
     for key, e in tracks.items():
         now_in = key in wanted
-        if not now_in and e.get("folder") in unread_folders:
+        if not now_in and (key in held or e.get("folder") in unrecorded):
             continue
         if e.get("in_playlists", True) and not now_in:
             dropped.append(key)

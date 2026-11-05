@@ -9,6 +9,7 @@ execute() is safe to run in a worker thread; it never touches signals or the ter
 """
 from __future__ import annotations
 
+import copy
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager, contextmanager
@@ -17,14 +18,14 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Callable
 
-from . import config, db, library, planner, playlists_file, quality, report as rep, sources
+from . import config, db, library, pending_signs, planner, playlists_file, quality, report as rep, sources
 from .accounts import ACCOUNTS
 from .acquire import Acquirer, make_ready
 from .events import ActionStarted, Cancelled, CancelToken, Emit, Message, Result, RunFinished, no_emit
 from .execute import Executor
 from .fallback import FallbackSource, stream_url
 from .library import Paths, StateError
-from .models import Action, FetchedPlaylist, Plan, PlaylistLine
+from .models import Action, FetchedPlaylist, Plan, PlaylistLine, split_token
 from .pacing import Budget, Pacer, paused_accounts, record_signal
 from .qobuz import QobuzError, QobuzNotSetUp, QobuzSource
 from .settings import MAX_EXTRA, Settings, SettingsError, load_settings, save_settings
@@ -64,6 +65,7 @@ class Prepared:
     fetched: list[FetchedPlaylist] = field(default_factory=list)  # as read from the playlist services (the playlist page uses it)
     import_waiting: int = 0  # files the next import works through (library.import_left; the console's W10 line)
     unread_folders: frozenset[str] = frozenset()  # folders of lines not read this time (paused Liked music); replan keeps them
+    unread_members: dict = field(default_factory=dict)  # of those, folder -> track tokens of its last stored read
 
     @property
     def needs_qobuz(self) -> bool:
@@ -93,6 +95,8 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
         settings = load_settings(paths.settings_file)
         with lock() as held:
             state = _open(paths, log, emit, dry_run=dry_run) if held else library.load_state(paths)
+            if held:  # signs a read outside a run met while the lock was not ours are recorded first (they pause)
+                state = record_pending(paths, state, lock_held, dry_run)
         import_waiting = library.import_left(paths)
     except config.ConfigError as e:
         raise SetupProblem(str(e), e.kind) from None
@@ -110,7 +114,7 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
     unread: list[PlaylistLine] = []  # lines not read because of a pause: like a failed read, their songs stay in
     try:
         fetched = sources.read(paths, lines, emit=emit, token=token, want_info=want_info,
-                               paused=paused_accounts(state, date.today()),
+                               paused=paused_now(paths, state, date.today()),
                                on_signal=lambda *sign: signs.append(sign), unread=unread)
     except sources.SourceError as e:
         raise SetupProblem(str(e), e.kind, e.service) from None
@@ -123,14 +127,16 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
             log.add_text("skipped", f"[{fp.line.folder}] {item}")
 
     unread_folders = frozenset(line.folder for line in unread)
+    unread_members = recorded_members(paths, unread, state)
     plan = planner.plan(fetched, state, state["files"], date.today(), first_checks=first_check_room(state, settings),
-                        unread_folders=unread_folders)
+                        unread_folders=unread_folders, unread_members=unread_members)
     for key in plan.dropped:
         e = plan.state["tracks"][key]
         log.add(Result("dropped", e["folder"], e["artist"], e["title"], key))
     for key, track, folder, files in plan.ambiguous:
         log.add(Result("ambiguous", folder, track.first_artist, track.title, key, "; ".join(files)))
-    return Prepared(paths, plan.state, settings, plan, log, lines, fetched, import_waiting, unread_folders)
+    return Prepared(paths, plan.state, settings, plan, log, lines, fetched, import_waiting, unread_folders,
+                    unread_members)
 
 
 # How long recording a read waits for another writer (a job's transaction, e.g. an import's scan): long enough to
@@ -158,6 +164,39 @@ def record_reads(paths: Paths, fetched: list[FetchedPlaylist], now: datetime) ->
         logger.warning("couldn't keep the playlists' read records: %s", e)
     except Exception:  # whatever went wrong, the read and what it plans stand
         logger.warning("couldn't keep the playlists' read records", exc_info=True)
+
+
+def recorded_members(paths: Paths, unread: list[PlaylistLine], state: dict | None = None) -> dict[str, tuple[str, ...]]:
+    """For the lines not read this time: folder -> the track tokens the line is known to hold, so the planner keeps
+    those songs' playlist membership by what the playlist held, not by the song's own folder (a song of Liked music
+    and of a higher playlist has the higher one as its folder). The last stored read (the playlists' read records)
+    gives them. A line without a stored read (its record is gone, or it was never read) is held by what the library's
+    own records say: every song of the library that is still in a playlist and has a token of the line's service
+    (its key or an alias), or has the line's folder. That keeps more than it has to, never less: a song of another
+    playlist of that service stays until the line is read again. Best-effort: no library.db or one that can't be
+    read gives the records-less answer only."""
+    if not unread:
+        return {}
+    records: dict = {}
+    if paths.db_file.exists():
+        try:
+            with db.connect(paths.db_file, wait_ms=RECORD_WAIT_MS) as conn:
+                db.check(conn)
+                records = db.playlist_records(conn)
+        except Exception:
+            logger.warning("couldn't read the playlists' read records", exc_info=True)
+    members: dict[str, tuple[str, ...]] = {}
+    for line in unread:
+        record = records.get(line.ref)
+        if record is not None:
+            found = tuple(t.token for t in record.tracks)
+        else:
+            found = tuple(
+                token for key, e in (state or {}).get("tracks", {}).items() if e.get("in_playlists", True)
+                for token in (key, *e.get("aliases", []))
+                if split_token(token)[0] == line.service or e.get("folder") == line.folder)
+        members[line.folder] = members.get(line.folder, ()) + found
+    return members
 
 
 FIRST_CHECKS_PER_RUN = 25  # plan library stage 4, D9: at about 70 s a check, 25 add half an hour to a run
@@ -199,9 +238,9 @@ def replan(prep: Prepared) -> Prepared:
     state = library.load_state(prep.paths)
     settings = load_settings(prep.paths.settings_file)
     plan = planner.plan(prep.fetched, state, state["files"], date.today(), first_checks=first_check_room(state, settings),
-                        unread_folders=prep.unread_folders)
+                        unread_folders=prep.unread_folders, unread_members=prep.unread_members)
     return Prepared(prep.paths, plan.state, settings, plan, rep.RunLog(datetime.now()), prep.lines, prep.fetched,
-                    library.import_left(prep.paths), prep.unread_folders)
+                    library.import_left(prep.paths), prep.unread_folders, prep.unread_members)
 
 
 def link_only(paths: Paths, prep: Prepared, emit: Emit = no_emit) -> Prepared:
@@ -249,23 +288,77 @@ def record_signs(paths: Paths, state: dict, signs: list[tuple[str, str, str]],
     """Records the warning signs a read made with an account's login met, as a download's would be (sources-round D6:
     the account is then paused for the next Liked music reads, and Settings shows the sign). Needs the library lock
     like any state write; where the caller couldn't get it (a preview while a terminal run holds it) or there is no
-    library.db yet, the signs only go into the snapshot the plan works on. Returns the snapshot to plan on: the
-    stored one again after a write, since a save bumps its generation."""
+    library.db yet, the signs go into the snapshot the plan works on and wait in pending_signs.json for the next
+    caller that holds the lock (record_pending). Returns the snapshot to plan on: the stored one again after a
+    write, since a save bumps its generation."""
     now = datetime.now()
+    state, stored = _store_signs(paths, state, [(s, k, m, now) for s, k, m in signs], lock, dry_run)
+    if not stored:
+        pending_signs.add(paths, signs, now)
+        for service, kind, message in signs:
+            record_signal(state, kind, message, now, service)
+    return state
+
+
+def _store_signs(paths: Paths, state: dict, signs: list[tuple[str, str, str, datetime]],
+                 lock: Callable[[], AbstractContextManager[bool]], dry_run: bool) -> tuple[dict, bool]:
+    """Writes the signs ((service, kind, message, time met)) into library.db under `lock`. Returns the stored
+    snapshot and True, or `state` as it was and False when nothing could be written."""
     if paths.db_file.exists():
         try:
             with lock() as held:
                 if held:
                     on_disk = library.open_state(paths) if not dry_run else library.load_state(paths)
-                    for service, kind, message in signs:
-                        record_signal(on_disk, kind, message, now, service)
+                    for service, kind, message, met in signs:
+                        record_signal(on_disk, kind, message, met, service)
                     library.save_state(paths, on_disk)
-                    return library.load_state(paths)
+                    return library.load_state(paths), True
         except (StateError, OSError) as e:
             logger.warning("couldn't record the warning signs of a read: %s", e)
-    for service, kind, message in signs:
-        record_signal(state, kind, message, now, service)
+    return state, False
+
+
+def record_pending(paths: Paths, state: dict, lock: Callable[[], AbstractContextManager[bool]], dry_run: bool) -> dict:
+    """Writes the signs that waited for the library lock (pending_signs.py) into library.db, with the time they were
+    met, and clears them from the file once stored. Called wherever the lock is held: a run's prepare, a hub job's
+    start, the hub's start, a paste or preview. Where nothing can be written they stay in the file. Returns the
+    snapshot to plan on (the stored one after a write, else `state` as given)."""
+    waiting = pending_signs.load(paths)
+    if not waiting:
+        return state
+    entries = []
+    for s in waiting:
+        try:
+            met = datetime.fromisoformat(str(s["time"]))
+        except ValueError:
+            met = datetime.now()
+        entries.append((str(s["service"]), str(s["kind"]), str(s["message"]), met))
+    state, stored = _store_signs(paths, state, entries, lock, dry_run)
+    if stored:
+        pending_signs.remove(paths, waiting)
     return state
+
+
+def with_pending_signs(paths: Paths, state: dict) -> dict:
+    """`state` with the signs still waiting for the lock (pending_signs.py) added to their account's warning signs, for
+    the pages that show them (Settings, Download limits, the sidebar dot). For showing only: the result is never saved
+    (the signs are stored by record_pending, which clears the file)."""
+    waiting = pending_signs.load(paths)
+    if not waiting:
+        return state
+    state = copy.deepcopy(state)
+    for s in waiting:
+        try:
+            met = datetime.fromisoformat(str(s["time"]))
+        except ValueError:
+            continue
+        record_signal(state, str(s["kind"]), str(s["message"]), met, str(s["service"]))
+    return state
+
+
+def paused_now(paths: Paths, state: dict, today: date) -> frozenset[str]:
+    """The account services paused today: by the recorded signs in `state` and by signs still waiting for the lock."""
+    return paused_accounts(state, today) | pending_signs.paused(paths, today)
 
 
 def account_budgets(state: dict, save: Callable[[], None], settings: Settings) -> dict[str, Budget]:

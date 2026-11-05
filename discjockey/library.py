@@ -135,6 +135,11 @@ class Paths(SupportPaths):
         return self.data / "undo"
 
     @property
+    def pending_signs(self) -> Path:
+        """Warning signs not written into library.db yet (pending_signs.py)."""
+        return self.data / "pending_signs.json"
+
+    @property
     def not_lossless_md(self) -> Path:
         return self.data / "not_lossless.md"
 

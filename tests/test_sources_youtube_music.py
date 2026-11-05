@@ -801,6 +801,44 @@ def test_sources_read_leaves_out_an_off_or_paused_liked_music_line(liked, paths)
     assert got == [] and liked.calls == [] and liked.created == []
 
 
+def test_the_reader_itself_never_asks_liked_music_while_the_account_is_paused(liked, paths):
+    """D6, every way in: fetch and info both stop in the reader, before any request or login YoutubeDL."""
+    liked.calls.clear()
+    liked.created.clear()
+    with source.open(paths, CancelToken()) as reader:
+        reader.paused = frozenset({"youtube"})
+        for call in (lambda: reader.fetch(LM_LINE), lambda: reader.info("LM")):
+            with pytest.raises(SourceError) as e:
+                call()
+            assert (str(e.value), e.value.kind, e.value.service) == (source.LIKED_RESTING, "offline", "youtube_music")
+        assert reader.info(ALBUM_ID).name  # any other playlist reads as usual
+    assert [url.split("list=")[1] for url, *_ in liked.calls] == [ALBUM_ID]
+    assert all("cookiesfrombrowser" not in o for o in liked.created)
+
+
+def test_read_infos_asks_no_liked_music_while_paused_or_off_and_still_reads_the_rest(liked, paths):
+    refs = ["youtube_music:LM", f"youtube_music:{ALBUM_ID}"]
+    liked.calls.clear()
+    liked.created.clear()
+    infos = {}
+    sources.read_infos(paths, refs, infos, CancelToken(), frozenset({"youtube"}))
+    assert list(infos) == [refs[1]]
+    assert [url.split("list=")[1] for url, *_ in liked.calls] == [ALBUM_ID]
+    assert all("cookiesfrombrowser" not in o for o in liked.created)
+    set_liked_music(paths, on=False)
+    infos.clear()
+    liked.calls.clear()
+    sources.read_infos(paths, refs, infos, CancelToken())
+    assert list(infos) == [refs[1]] and [url.split("list=")[1] for url, *_ in liked.calls] == [ALBUM_ID]
+
+
+def test_read_infos_passes_a_bot_check_met_by_the_liked_music_read_on(liked, paths):
+    liked.answers["LM"] = Failure(fixture("errors")["bot_check"])
+    signs, infos = [], {}
+    sources.read_infos(paths, ["youtube_music:LM"], infos, CancelToken(), on_signal=lambda *s: signs.append(s))
+    assert infos == {} and [s[:2] for s in signs] == [("youtube", "bot_check")]
+
+
 def test_sources_read_goes_on_after_a_skipped_line(liked, paths):
     liked.answers["LM"] = Failure(fixture("errors")["bot_check"])
     signs, messages = [], []
