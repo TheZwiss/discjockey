@@ -3,7 +3,7 @@ import type {
   AnySignalKind, Budget, EstimateAccount, SyncAccount, LimitCard, Limits, Service, ServiceUsage, WhatIf,
 } from '../types';
 import { daysToLoad } from '../../days';
-import type { FakeService, FakeState } from './data';
+import { dateOnly, type FakeService, type FakeState } from './data';
 
 export const SERVICES: Service[] = ['qobuz', 'youtube', 'soundcloud'];
 export const NAMES: Record<Service, string> = { qobuz: 'Qobuz', youtube: 'YouTube Premium', soundcloud: 'SoundCloud Go+' };
@@ -71,7 +71,7 @@ export function signalsOf(s: FakeState, f: FakeService): ServiceUsage['signals']
     clears_in: 14 - Math.round((day(s.now) - day(new Date(g.time))) / 864e5) }));
 }
 export function cards(s: FakeState): LimitCard[] {
-  const today = s.now.toISOString().slice(0, 10);
+  const today = dateOnly(s.now);
   return SERVICES.map((service) => {
     const f = serviceOf(s, service);
     if (!f) return { service, name: NAMES[service], set_up: false, used: 0, allowance: 0, warnings: 0, new_warnings: 0, paused: false };
@@ -97,7 +97,7 @@ export function limits(s: FakeState, service: Service, count: number): Limits {
   const today = new Date(s.now);
   const days = f.days.map((used, i) => {
     const d = new Date(today); d.setDate(d.getDate() - (13 - i));
-    return { date: d.toISOString().slice(0, 10), used: i === 13 ? f.used_today : used };
+    return { date: dateOnly(d), used: i === 13 ? f.used_today : used };
   });
   const summary: Partial<Record<AnySignalKind, number>> = Object.fromEntries(SIGNAL_KINDS[service].map((k) => [k, 0]));
   for (const g of f.signals) if (g.kind in summary) summary[g.kind] = (summary[g.kind] ?? 0) + 1;

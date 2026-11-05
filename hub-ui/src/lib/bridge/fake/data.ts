@@ -373,11 +373,19 @@ const iso = (d: Date) => {
 };
 export const isoLocal = iso;
 export const dateOnly = (d: Date) => iso(d).slice(0, 10);
+/** A time on the fake clock's own day that has already happened: `d` itself, or, when `d` is still to come at the
+ *  clock's time of day (the fake's "tonight" before it is tonight), a few minutes before the clock, never before
+ *  that day began. The later `d` is in the day, the nearer it lands to the clock, so the order of times is kept. */
+export function notAfter(d: Date, now: Date): Date {
+  if (d.getTime() <= now.getTime()) return d;
+  const dayStart = new Date(now); dayStart.setHours(0, 0, 0, 0);
+  return new Date(Math.max(dayStart.getTime(), now.getTime() - (24 - d.getHours()) * 60000));
+}
 const daysAgo = (now: Date, n: number, h = 21, m = 47) => {
   const d = new Date(now);
   d.setDate(d.getDate() - n);
   d.setHours(h, m, 0, 0);
-  return d;
+  return n === 0 ? notAfter(d, now) : d;
 };
 export const runId = (d: Date) => iso(d).replace('T', '_').replace(/:/g, '');
 
@@ -700,12 +708,25 @@ export function makeState(scenario: string, now = new Date()): FakeState {
     for (let i = 0; i < 8; i++) {
       playlists.push({ folder: `Set_${String(i + 1).padStart(2, '0')}`, link: `https://open.spotify.com/playlist/Set${i}xxxxxxxxxxxxxxxxx`,
         enabled: true, info: { name: `Set ${i + 1}`, owner_name: 'DJ One', yours: true, collaborative: false,
-          readable: true, image_url: null, track_count: 30 + i, hint: SPOTIFY_HINT } });
+          readable: true, image_url: null, track_count: null, hint: SPOTIFY_HINT } });
+      // each set holds 30 + i songs the main playlists already hold (their files stay where they are: the sets come
+      // last in playlists.txt), so the set has a read record and every page counts the same songs
+      const pool = tracks.filter((t) => t.in_playlists && !t.hidden && FOLDERS.includes(t.folder));
+      pool.slice(i * 40, i * 40 + 30 + i).forEach((t) => t.playlists.push(`Set_${String(i + 1).padStart(2, '0')}`));
     }
+  }
+  // the service's own song count of a playlist that was read is the number of songs the read holds (one source of
+  // truth with the Playlists page and the Library sidebar); a count the service doesn't give (null) stays null
+  const newTracksList = newTracks(big ? 60 : 10);
+  for (const p of playlists) {
+    if (!p.info || !p.info.readable || (p.info.track_count === null && !p.folder.startsWith('Set_'))) continue;
+    const held = new Set([...tracks.filter((t) => t.playlists.includes(p.folder)).map((t) => t.track_id),
+      ...newTracksList.filter((n) => n.folder === p.folder).map((n) => n.track_id)]);
+    if (held.size) p.info = { ...p.info, track_count: held.size };
   }
   const days = Array.from({ length: 14 }, (_, i) => (i === 13 ? 37 : [12, 0, 44, 60, 31, 0, 0, 58, 75, 20, 9, 0, 66][i]));
   const s: FakeState = {
-    scenario, folders: {}, pick: '/Users/you/Music/DJ Sets', now, tracks, newTracks: newTracks(big ? 60 : 10),
+    scenario, folders: {}, pick: '/Users/you/Music/DJ Sets', now, tracks, newTracks: newTracksList,
     extraFolders: [{ folder: 'Old_Sets', listed: false }],
     playlists, version: 1, runs: sampleRuns(now, tracks, big ? 30 : 3),
     qobuz: { limit: 60, extra_today: 0, carry_over: 20, used_today: 37, days,
@@ -761,12 +782,4 @@ export function folderList(s: FakeState): { folder: string; listed: boolean }[] 
   const out = s.playlists.map((p) => ({ folder: p.folder, listed: true }));
   for (const f of s.extraFolders) if (!out.some((o) => o.folder === f.folder)) out.push(f);
   return out;
-}
-export function playlistRows(s: FakeState): PlaylistRow[] {
-  return s.playlists.map((p, index) => {
-    const ts = s.tracks.filter((t) => t.playlists.includes(p.folder));
-    const service = serviceOfLink(p.link);
-    return { index, folder: p.folder, link: p.link, playlist_id: playlistRef(p.link), service,
-      service_name: SERVICE_NAME[service], enabled: p.enabled, info: p.info, tracks: ts.length, quality: byQuality(ts) };
-  });
 }

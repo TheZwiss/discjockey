@@ -4,7 +4,7 @@ import type { HubEvent } from '../events';
 import type {
   BatchResult, MoveBatch, MoveBatches, RenameOffer, SaveFiles, SkippedMove, TidyPreview, TidyRow, UndoPreview,
 } from '../types';
-import { pathOf, trackRow, type FakeBatch, type FakeMove, type FakeState, type FakeTrack } from './data';
+import { isoLocal, pathOf, trackRow, type FakeBatch, type FakeMove, type FakeState, type FakeTrack } from './data';
 
 const SKIP_OFFLINE = 'Offline, skipped';
 const SKIP_NOT_FOUND = 'Not where Discjockey last saw it';
@@ -49,7 +49,7 @@ export function seedTidy(s: FakeState): void {
   g.at = elsewhere(g, 2); s.tidy.skips[g.track_id] = 'offline';
   // the log: a tidy-up two days ago (i has been moved by hand since), a save an hour ago
   i.at = 'Elsewhere';
-  const at = (ms: number) => new Date(s.now.getTime() - ms).toISOString().slice(0, 19);
+  const at = (ms: number) => isoLocal(new Date(s.now.getTime() - ms));
   const done = (t: FakeTrack, from: string): FakeMove => ({ kind: 'file', track_id: t.track_id,
     label: `${t.artist} - ${t.title}`, src: `Library/${dirOf(t, from)}/${t.artist} - ${t.title}.aiff`,
     dst: `Library/${dirOf(t, t.folder)}/${t.artist} - ${t.title}.aiff`, state: 'done', reason: null, text: null,
@@ -191,7 +191,7 @@ export function batchResult(s: FakeState, b: FakeBatch, stopped: boolean): Batch
 export async function runBatch(s: FakeState, emit: (e: HubEvent) => void, run: MoveRun, pause: number,
   startedBy: FakeBatch['startedBy'], plan: Planned[], opts: { about?: { from: string; to: string }; undoes?: number } = {},
 ): Promise<{ result: BatchResult; stopped: boolean }> {
-  const batch: FakeBatch = { id: s.tidy.nextBatch++, at: new Date(s.now).toISOString().slice(0, 19), startedBy,
+  const batch: FakeBatch = { id: s.tidy.nextBatch++, at: isoLocal(new Date(s.now)), startedBy,
     about: opts.about ?? null, undoes: opts.undoes ?? null, moves: [] };
   s.tidy.batches.push(batch);
   let stopped = false;

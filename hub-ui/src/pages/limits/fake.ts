@@ -1,7 +1,7 @@
 // Fake scenarios of the Download limits page (fake mode only). Open them with ?scenario=limits:<name>.
 import type { PageFake } from '$lib/bridge/fake/bridge';
 import type { Browser } from '$lib/bridge/types';
-import type { FakeAccount, FakeState } from '$lib/bridge/fake/data';
+import { isoLocal, notAfter, type FakeAccount, type FakeState } from '$lib/bridge/fake/data';
 
 type Mode = 'loading' | 'save-refused';
 const mode = new WeakMap<FakeState, Mode>();
@@ -10,8 +10,7 @@ function at(s: FakeState, daysAgo: number, h: number, m: number): string {
   const d = new Date(s.now);
   d.setDate(d.getDate() - daysAgo);
   d.setHours(h, m, 0, 0);
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(h)}:${p(m)}:00`;
+  return isoLocal(daysAgo === 0 ? notAfter(d, s.now) : d);
 }
 
 const account = (s: FakeState, limit: number, used: number, browser: Browser = 'chrome'): FakeAccount => ({
@@ -28,7 +27,7 @@ const fake: PageFake = {
     // a quiet fortnight: no warning signs at all
     'all-good'(s) { s.qobuz.signals = []; },
     // the warning signs were marked as seen ("Got it") an hour ago
-    seen(s) { s.qobuz.seen = new Date(s.now.getTime() - 3600e3).toISOString().slice(0, 19); },
+    seen(s) { s.qobuz.seen = isoLocal(new Date(s.now.getTime() - 3600e3)); },
     // a long backlog: 120 tracks, about 3 days at 60 a day
     backlog(s) { s.newTracks = s.newTracks.concat(Array.from({ length: 110 }, (_, i) => ({ ...s.newTracks[i % s.newTracks.length], track_id: `bl${i}` }))); },
     // 20 extra downloads allowed for today
