@@ -261,18 +261,16 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   (`pages/todo/UpgradeBox.svelte` etc., a1a15a3), and it is a dead end (Compare plays, no way to act). Fix: every
   place an upgrade or duplicate decision shows uses the same approved panel with its actions (mockup
   `docs/hub-mockups/todo-decisions.html`). Opus build (no shots) + Opus shots.
-- **State 2026-11-05 (resumed by the user):** issue 34 merged into main e843d38; (1) UI minors merged de53b75 (3238
-  py green); fake-data round merged 988c790 (verify 958/0). Running: (2) Opus design round, worktree
-  `.claude/worktrees/design-round` on `design/sources-round` → `docs/hub-mockups/sources-round.html` + notes, then
-  the user's approval. Add to (3): archive the finished stage 1–5 plans (CLAUDE.md rule) and carry open points to issues.
-  Queue: (1) Opus UI minors from issue 32 (FLAC next to .aiff in fake data, empty Playlists counts, likes
-  owner twice, YTM label dropped at 1280, balanced wrapping); (2) design round (Opus mockup: paste field "Paste a
-  playlist link here" + 4 logos, Liked music Settings choice + warning, W20 upload on Sync card, Setup example links,
-  "Open in …", the details panel's FORMAT showing the download's codec ("FLAC") next to an `.aiff` file (contract:
-  `format_line` = format of the download; also used by the upgrade card), Setup's playlist list without the owner, the Library header count dropped at 1280 with details open, the empty
-  Playlists side panel's zero counts (details panel never empty), the Playlists subtitle wrapping at 1100); (3) read-only audit of issues 24–30, close done points; (4) fix rounds for what's still open. Waiting
-  for the user: stage 6 live check on main (paste SC set, you/likes >200, YTM mixed playlist, read, splits; Go+
-  listing assumptions in issue 32).
+- **State 2026-11-05 (resumed by the user):** issue 34 merged e843d38; (1) UI minors merged de53b75; fake-data round
+  merged 988c790 (verify 958/0). (2) design round: mockup `docs/hub-mockups/sources-round.html` approved by the user
+  (rows logo-only OK; Liked music warning + "Add Liked music to Playlists" stay; dashed not-downloaded segment stays
+  with the text count). The designer redrew the window and drifted (sun icon again, Settings ladder): the notes now hold
+  a drift list (72 rows, 39 "mockup error: keep the app"); builds take only the plan's scope table, shots are compared
+  with main's. Plan `docs/2026-11-05-sources-round-plan.md` (groups E1, E2, U1, U2, S2, U3, S3, review), branch
+  `feat/sources-round`, group worktrees `.claude/worktrees/sr-<group>`. The plan's open questions, decided by the
+  orchestrator: (1) words for the other `source_how` values: "found by name" and "picked by you" (plain English, as
+  planned); (2) Library's "All" segment counts the rows it lists (18 incl. waiting songs), so every count matches its
+  list; built in U3. Then: (3) audit of issues 24–30 + archive the finished stage 1–5 plans; (4) fix rounds.
 - **Merge early (user, 2026-10-31):** a finished stage merges into main as soon as its fix rounds, CI and verify are
   green; the user's live check runs on main afterwards and its findings are fixed there. No release without the go.
   Stage 6 merges into main right after the main-into-stage-6 merge is green; its live check and leftovers follow.
