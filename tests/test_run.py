@@ -5,6 +5,7 @@ import threading
 import time
 from contextlib import contextmanager
 from datetime import date, datetime
+from pathlib import Path
 
 import pytest
 from audio_helpers import music, write_aiff
@@ -737,3 +738,130 @@ def test_a_long_job_transaction_holds_the_read_up_briefly_not_for_the_full_wait(
     assert [fp.line.folder for fp in prep.fetched] == ["Hard_Bounce"]
     assert "couldn't keep the playlists' read records" in caplog.text
     assert recorded(paths) == before
+
+
+# --- Liked music (sources-round D5-D7) -------------------------------------------------------------------------------
+
+LM_LINK = "https://music.youtube.com/playlist?list=LM"
+LM_FIXTURE = Path(__file__).parent / "fixtures" / "youtube_music" / "album_playlist.json"
+LM_KEY = "youtube_music:EXAMPLEalb01"
+LM_FILE = "Library/Liked_music/Example Artist - Example Song One.aiff"
+
+
+class LikedYDL:
+    """A yt-dlp that serves Liked music (the recorded album page), or raises `error`; records every use."""
+
+    created: list = []
+    requested: list = []
+    error: Exception | None = None
+
+    def __init__(self, opts):
+        LikedYDL.created.append(opts)
+
+    def extract_info(self, url, download=True, process=True, **kwargs):
+        LikedYDL.requested.append(url)
+        if LikedYDL.error is not None:
+            raise LikedYDL.error
+        return json.loads(LM_FIXTURE.read_text())
+
+    def close(self):
+        pass
+
+
+@pytest.fixture
+def liked(paths, monkeypatch):
+    """A library with a Spotify line and a Liked music line, a Liked music song already downloaded, and a stub yt-dlp."""
+    import yt_dlp
+    from hub_helpers import entry
+
+    LikedYDL.created, LikedYDL.requested, LikedYDL.error = [], [], None
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", LikedYDL)
+    paths.playlists_file.write_text(PLAYLISTS + f"Liked_music = {LM_LINK}\n")
+    state = empty_state()
+    state["tracks"][LM_KEY] = entry(artist="Example Artist", title="Example Song One", duration_ms=200000,
+                                    folder="Liked_music", path=LM_FILE, status="lossless", source="qobuz",
+                                    source_id="q1", source_format="flac")
+    f = paths.root / LM_FILE
+    f.parent.mkdir(parents=True)
+    f.write_bytes(b"audio")
+    save_state(paths, state)
+    return paths
+
+
+def set_liked(paths, on=True, account=True):
+    save_settings(paths.settings_file, Settings(accounts={"youtube": Account("chrome", 30)} if account else {},
+                                                read_liked_music=on))
+
+
+def test_a_run_with_liked_music_off_finishes_without_a_problem_and_keeps_its_files(liked):
+    set_liked(liked, on=False)
+    events = []
+    prep = run.prepare(liked, emit=events.append)  # no SetupProblem, no problem card
+    assert LikedYDL.created == [] and LikedYDL.requested == []  # no request, no YoutubeDL at all
+    assert [fp.line.folder for fp in prep.fetched] == ["Hard_Bounce"]
+    assert all(a.track_id != LM_KEY for a in prep.plan.actions)  # nothing is planned for its song
+    assert (liked.root / LM_FILE).read_bytes() == b"audio"
+    assert prep.state["tracks"][LM_KEY]["path"] == LM_FILE
+    assert not any(isinstance(e, Message) and e.level == "warning" for e in events)
+    assert LM_KEY in prep.plan.dropped and prep.state["tracks"][LM_KEY]["in_playlists"] is False  # acts as an #off# line
+
+
+def test_a_run_with_liked_music_on_reads_it_with_the_login(liked):
+    set_liked(liked)
+    prep = run.prepare(liked)
+    assert [fp.line.folder for fp in prep.fetched] == ["Hard_Bounce", "Liked_music"]
+    assert LikedYDL.requested == [LM_LINK]
+    assert sum("cookiesfrombrowser" in o for o in LikedYDL.created) == 1
+    assert any(a.track_id == "youtube_music:EXAMPLEalb02" for a in prep.plan.actions)  # its songs are planned
+
+
+def test_a_run_never_reads_liked_music_while_the_youtube_account_is_paused(liked):
+    from discjockey import pacing
+
+    set_liked(liked)
+    state = library.load_state(liked)
+    pacing.record_signal(state, "auto_stop", "3 requests failed", datetime.now(), "youtube")
+    save_state(liked, state)
+    prep = run.prepare(liked)
+    assert LikedYDL.created == [] and LikedYDL.requested == []
+    assert [fp.line.folder for fp in prep.fetched] == ["Hard_Bounce"]
+    assert (liked.root / LM_FILE).exists() and prep.state["tracks"][LM_KEY]["path"] == LM_FILE
+    assert_kept_like_a_failed_read(prep)
+
+
+def assert_kept_like_a_failed_read(prep):
+    """D6: the Liked music songs are not dropped (membership unchanged), the report has no "dropped", no problem."""
+    assert prep.state["tracks"][LM_KEY]["in_playlists"] is True
+    assert LM_KEY not in prep.plan.dropped
+    assert not prep.log.section("dropped") and not prep.log.section("errors")
+
+
+def test_a_bot_check_met_by_the_liked_music_read_pauses_the_account_like_a_download(liked):
+    set_liked(liked)
+    LikedYDL.error = Exception("Sign in to confirm you're not a bot. Use --cookies-from-browser")
+    events = []
+    prep = run.prepare(liked, emit=events.append)  # the run goes on without that line
+    assert [fp.line.folder for fp in prep.fetched] == ["Hard_Bounce"]
+    assert any(isinstance(e, Message) and e.level == "warning" and "Liked_music" in e.text for e in events)
+    stored = library.load_state(liked)["youtube_usage"]["signals"]
+    assert [s["kind"] for s in stored] == ["bot_check"] and "Liked music" in stored[0]["message"]
+    assert_kept_like_a_failed_read(prep)
+    assert (liked.root / LM_FILE).exists()
+    assert prep.state["youtube_usage"]["signals"] == stored  # the plan works on the state that holds it
+    # and the next read stays away from the account
+    LikedYDL.created.clear(), LikedYDL.requested.clear()
+    run.prepare(liked)
+    assert LikedYDL.requested == []
+
+
+def test_the_sign_is_kept_in_the_snapshot_when_the_lock_is_not_ours(liked):
+    set_liked(liked)
+    LikedYDL.error = Exception("HTTP Error 429: Too Many Requests")
+
+    @contextmanager
+    def not_held():
+        yield False
+
+    prep = run.prepare(liked, lock=not_held)
+    assert [s["kind"] for s in prep.state["youtube_usage"]["signals"]] == ["rate_limited"]
+    assert "youtube_usage" not in library.load_state(liked) or not library.load_state(liked)["youtube_usage"]["signals"]

@@ -47,6 +47,15 @@ class Settings:
     qobuz_last_check: Mapping | None = field(default=None, hash=False)  # {ok, problem, kbps, at} of the last login
     spotify_skipped: bool = False  # Spotify left out in setup (connect it later in Settings)
     import_skipped: bool = False  # "Your existing music" left out in setup (add folders later in Settings)
+    # Settings' "Read my Liked music" (sources-round D5): YouTube Music's Liked music (`LM`) is read through the YouTube
+    # login, the one thing a playlist read does with an account. Off by default; it can only be turned on with a
+    # YouTube account set up
+    read_liked_music: bool = False
+
+    @property
+    def reads_liked_music(self) -> bool:
+        """Whether an `LM` line is read: the choice is on and a YouTube account is set up to read it with."""
+        return self.read_liked_music and "youtube" in self.accounts
 
     def extra_for(self, day: date) -> int:
         return self.extra_amount if self.extra_date == day.isoformat() else 0
@@ -73,6 +82,9 @@ class Settings:
         """browser None forgets the login (its limit goes with it; the usage history in state.json stays). Another
         browser or profile keeps the limit and drops the last check (it was about the old login)."""
         accounts = {k: v for k, v in self.accounts.items() if k != service}
+        if browser is None and service == "youtube":
+            # nothing to read Liked music with any more; signing in again does not turn it back on by itself
+            return replace(self, accounts=accounts, read_liked_music=False)
         if browser is not None:
             old = self.accounts.get(service)
             accounts[service] = (replace(old, browser=browser, profile=profile, last_check=None) if old
@@ -131,11 +143,15 @@ def load_settings(path: Path) -> Settings:
         import_skipped = data.get("import_skipped", False)
         if not isinstance(import_skipped, bool):
             raise SettingsError(f"{path.name}: import_skipped must be true or false.")
+        read_liked_music = data.get("read_liked_music", False)
+        if not isinstance(read_liked_music, bool):
+            raise SettingsError(f"{path.name}: read_liked_music must be true or false.")
         seen = data.get("warnings_seen") or {}
         if not isinstance(seen, dict) or not all(isinstance(v, str) for v in seen.values()):
             raise SettingsError(f"{path.name}: warnings_seen must map services to times.")
         s = Settings(limit, day, amount, accounts, skipped, {str(k): v for k, v in seen.items()},
-                     _last_check(path, data.get("qobuz_last_check")), spotify_skipped, import_skipped)
+                     _last_check(path, data.get("qobuz_last_check")), spotify_skipped, import_skipped,
+                     read_liked_music)
     except SettingsError:
         raise
     except (ValueError, TypeError, AttributeError, KeyError) as e:
@@ -158,7 +174,8 @@ def _extra_json(day: str | None, amount: int) -> dict | None:
 def save_settings(path: Path, s: Settings) -> None:
     data = {"daily_qobuz_limit": s.daily_qobuz_limit, "extra_today": _extra_json(s.extra_date, s.extra_amount),
             "qobuz_skipped": s.qobuz_skipped, "spotify_skipped": s.spotify_skipped,
-            "import_skipped": s.import_skipped, "warnings_seen": dict(s.warnings_seen),
+            "import_skipped": s.import_skipped, "read_liked_music": s.read_liked_music,
+            "warnings_seen": dict(s.warnings_seen),
             "qobuz_last_check": dict(s.qobuz_last_check) if s.qobuz_last_check else None,
             "accounts": {k: {"browser": a.browser, "profile": a.profile, "daily_limit": a.daily_limit,
                              "extra_today": _extra_json(a.extra_date, a.extra_amount),

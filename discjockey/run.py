@@ -25,7 +25,7 @@ from .execute import Executor
 from .fallback import FallbackSource, stream_url
 from .library import Paths, StateError
 from .models import Action, FetchedPlaylist, Plan, PlaylistLine
-from .pacing import Budget, Pacer, record_signal
+from .pacing import Budget, Pacer, paused_accounts, record_signal
 from .qobuz import QobuzError, QobuzNotSetUp, QobuzSource
 from .settings import MAX_EXTRA, Settings, SettingsError, load_settings, save_settings
 
@@ -63,6 +63,7 @@ class Prepared:
     lines: list[PlaylistLine] = field(default_factory=list)
     fetched: list[FetchedPlaylist] = field(default_factory=list)  # as read from the playlist services (the playlist page uses it)
     import_waiting: int = 0  # files the next import works through (library.import_left; the console's W10 line)
+    unread_folders: frozenset[str] = frozenset()  # folders of lines not read this time (paused Liked music); replan keeps them
 
     @property
     def needs_qobuz(self) -> bool:
@@ -105,22 +106,31 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
         emit(Message("info", f"Allowing {extra} extra Qobuz downloads today."))
 
     emit(Message("info", "Reading your playlists..."))
+    signs: list[tuple[str, str, str]] = []  # warning signs a login-using read met (Liked music), recorded below
+    unread: list[PlaylistLine] = []  # lines not read because of a pause: like a failed read, their songs stay in
     try:
-        fetched = sources.read(paths, lines, emit=emit, token=token, want_info=want_info)
+        fetched = sources.read(paths, lines, emit=emit, token=token, want_info=want_info,
+                               paused=paused_accounts(state, date.today()),
+                               on_signal=lambda *sign: signs.append(sign), unread=unread)
     except sources.SourceError as e:
         raise SetupProblem(str(e), e.kind, e.service) from None
+    finally:
+        if signs:
+            state = record_signs(paths, state, signs, lock, dry_run)
     record_reads(paths, fetched, datetime.now())
     for fp in fetched:
         for item in fp.skipped:
             log.add_text("skipped", f"[{fp.line.folder}] {item}")
 
-    plan = planner.plan(fetched, state, state["files"], date.today(), first_checks=first_check_room(state, settings))
+    unread_folders = frozenset(line.folder for line in unread)
+    plan = planner.plan(fetched, state, state["files"], date.today(), first_checks=first_check_room(state, settings),
+                        unread_folders=unread_folders)
     for key in plan.dropped:
         e = plan.state["tracks"][key]
         log.add(Result("dropped", e["folder"], e["artist"], e["title"], key))
     for key, track, folder, files in plan.ambiguous:
         log.add(Result("ambiguous", folder, track.first_artist, track.title, key, "; ".join(files)))
-    return Prepared(paths, plan.state, settings, plan, log, lines, fetched, import_waiting)
+    return Prepared(paths, plan.state, settings, plan, log, lines, fetched, import_waiting, unread_folders)
 
 
 # How long recording a read waits for another writer (a job's transaction, e.g. an import's scan): long enough to
@@ -188,9 +198,10 @@ def replan(prep: Prepared) -> Prepared:
     when those files can't be read."""
     state = library.load_state(prep.paths)
     settings = load_settings(prep.paths.settings_file)
-    plan = planner.plan(prep.fetched, state, state["files"], date.today(), first_checks=first_check_room(state, settings))
+    plan = planner.plan(prep.fetched, state, state["files"], date.today(), first_checks=first_check_room(state, settings),
+                        unread_folders=prep.unread_folders)
     return Prepared(prep.paths, plan.state, settings, plan, rep.RunLog(datetime.now()), prep.lines, prep.fetched,
-                    library.import_left(prep.paths))
+                    library.import_left(prep.paths), prep.unread_folders)
 
 
 def link_only(paths: Paths, prep: Prepared, emit: Emit = no_emit) -> Prepared:
@@ -231,6 +242,30 @@ def select_actions(prep: Prepared, previewed: set[tuple[str, str, str]], ticked:
         prep.log.add(Result("queued", a.folder, artist, title, a.track_id,
                             LEFT_OUT if key in previewed else NEW_SINCE_PREVIEW))
     prep.plan.actions = kept
+
+
+def record_signs(paths: Paths, state: dict, signs: list[tuple[str, str, str]],
+                  lock: Callable[[], AbstractContextManager[bool]], dry_run: bool) -> dict:
+    """Records the warning signs a read made with an account's login met, as a download's would be (sources-round D6:
+    the account is then paused for the next Liked music reads, and Settings shows the sign). Needs the library lock
+    like any state write; where the caller couldn't get it (a preview while a terminal run holds it) or there is no
+    library.db yet, the signs only go into the snapshot the plan works on. Returns the snapshot to plan on: the
+    stored one again after a write, since a save bumps its generation."""
+    now = datetime.now()
+    if paths.db_file.exists():
+        try:
+            with lock() as held:
+                if held:
+                    on_disk = library.open_state(paths) if not dry_run else library.load_state(paths)
+                    for service, kind, message in signs:
+                        record_signal(on_disk, kind, message, now, service)
+                    library.save_state(paths, on_disk)
+                    return library.load_state(paths)
+        except (StateError, OSError) as e:
+            logger.warning("couldn't record the warning signs of a read: %s", e)
+    for service, kind, message in signs:
+        record_signal(state, kind, message, now, service)
+    return state
 
 
 def account_budgets(state: dict, save: Callable[[], None], settings: Settings) -> dict[str, Budget]:

@@ -200,9 +200,10 @@ Mixes = https://music.youtube.com/playlist?list=...
     for your Mac's password to let Discjockey read the browser's login). A `you/likes` line typed into
     `playlists.txt` uses that login on every read, and a short link only works when pasted in the window.
   - **YouTube Music:** playlists and albums (`music.youtube.com/playlist?list=...`); links from youtube.com
-    (`youtube.com/playlist?list=...`, or a video link with `&list=...`) work too. Not "Liked music", "Watch later" or
-    mixes (they are personal or change on every play): add the songs to a playlist, set it to public or unlisted, and
-    paste that link.
+    (`youtube.com/playlist?list=...`, or a video link with `&list=...`) work too. "Liked music" is read with your
+    YouTube login, only when Settings turns it on (it stays unread while off, and while the YouTube account is paused).
+    Not "Liked videos", "Watch later" or mixes (they are personal or change on every play): add the songs to a
+    playlist, set it to public or unlisted, and paste that link.
 - **Priority:** the line further up wins. A track that is in several playlists goes into the
   folder of the first one.
 - **Switching a playlist off:** put `#` at the start of its line. Its tracks stay where they

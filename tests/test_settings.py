@@ -172,3 +172,34 @@ def test_import_skipped_round_trips_defaults_to_false_and_must_be_true_or_false(
     path.write_text('{"import_skipped": "true"}')
     with pytest.raises(SettingsError, match="import_skipped"):
         load_settings(path)
+
+
+def test_read_liked_music_round_trips_defaults_to_off_and_must_be_true_or_false(tmp_path):
+    path = tmp_path / "settings.json"
+    assert load_settings(path).read_liked_music is False
+    path.write_text('{"daily_qobuz_limit": 60}')  # a settings file from before Liked music
+    assert load_settings(path).read_liked_music is False
+    save_settings(path, Settings(read_liked_music=True))
+    assert load_settings(path).read_liked_music is True
+    path.write_text('{"read_liked_music": "yes"}')
+    with pytest.raises(SettingsError, match="read_liked_music"):
+        load_settings(path)
+
+
+def test_liked_music_is_read_only_with_the_choice_on_and_a_youtube_account():
+    account = Account("chrome", 30)
+    assert not Settings().reads_liked_music
+    assert not Settings(read_liked_music=True).reads_liked_music  # no account to read it with
+    assert not Settings(accounts={"youtube": account}).reads_liked_music
+    assert Settings(accounts={"youtube": account}, read_liked_music=True).reads_liked_music
+    assert not Settings(accounts={"soundcloud": account}, read_liked_music=True).reads_liked_music
+
+
+def test_forgetting_the_youtube_login_turns_liked_music_off_for_good():
+    s = Settings(accounts={"youtube": Account("chrome", 30), "soundcloud": Account("chrome", 60)},
+                 read_liked_music=True)
+    assert s.with_account("soundcloud", None).read_liked_music is True  # another account's login is none of its business
+    forgotten = s.with_account("youtube", None)
+    assert forgotten.read_liked_music is False and "youtube" not in forgotten.accounts
+    assert forgotten.with_account("youtube", "chrome").read_liked_music is False  # signing in again does not resume
+    assert s.with_account("youtube", "firefox").read_liked_music is True  # another browser keeps the choice

@@ -146,6 +146,8 @@ export type FakeState = {
   qobuz: FakeService;
   accounts: { youtube: FakeAccount | null; soundcloud: FakeAccount | null };
   qobuzSkipped: boolean;  // "I don't have Qobuz" in setup
+  /** Settings' "Read my Liked music" (it only counts with a YouTube account: liked.ts `likedOn`) */
+  likedMusic?: boolean;
   /** scenario qobuz_unreadable: add_playlist answers that Qobuz doesn't show a pasted Qobuz playlist */
   qobuzUnreadable?: boolean;
   /** scenario soundcloud_unreadable: add_playlist answers W5 for a pasted SoundCloud playlist */
@@ -688,7 +690,8 @@ export function setupComplete(): SetupStatus {
   return { music: { state: 'ok', path: FAKE_MUSIC, suggested: FAKE_MUSIC }, tools: { ffmpeg: true, ffprobe: true, deno: true }, spotify_app: true, spotify_login: true, qobuz: true,
     playlists: true, complete: true, next_step: null, version: '1.0.0', qobuz_skipped: false,
     spotify_skipped: false, existing: false, import_folders: 0, import_skipped: false,
-    accounts: { youtube: null, soundcloud: null } };
+    accounts: { youtube: null, soundcloud: null },
+    youtube_music: { liked_music: false, can_turn_on: false, listed: false } };
 }
 export function nextStep(s: SetupStatus): SetupStatus {
   const missingTools = !s.tools.ffmpeg || !s.tools.ffprobe || !s.tools.deno;

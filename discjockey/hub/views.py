@@ -1718,14 +1718,21 @@ def undo_preview(batch: BatchRow, moves: list[PlannedMove], files: Iterable[str]
             "moving": moving, "warning": warning, "nothing_left": not running}
 
 
-def playlists(loaded: pf.Loaded, tracks_by_id: dict, infos: dict, state: dict, cover: Url | None = None) -> dict:
+LIKED_MUSIC_SETTING = "read_liked_music"  # settings.json's key of the Liked music choice (a row's `needs_setting`)
+
+
+def playlists(loaded: pf.Loaded, tracks_by_id: dict, infos: dict, state: dict, cover: Url | None = None, *,
+              liked_music_on: bool = False) -> dict:
+    """The playlist page. `liked_music_on`: Settings' Liked music choice is on and can be read; a listed Liked music
+    line while it is not says so in `needs_setting` (the choice's settings.json key), else null."""
     rows = []
     for i, r in enumerate(loaded.rows):
         tracks = tracks_by_id.get(r.ref)
         info = infos.get(r.ref)
         rows.append({"index": i, "folder": r.folder, "link": r.link, "playlist_id": r.ref,
                      "service": r.service, "service_name": PLAYLIST_SERVICES[r.service], "enabled": r.enabled,
-                     "info": info_dict(info),
+                     "info": info_dict(info), "needs_setting": None if r.ref != pf.LIKED_MUSIC_REF or liked_music_on
+                     else LIKED_MUSIC_SETTING,
                      "tracks": len(tracks) if tracks is not None else (info.track_count if info else None),
                      "quality": _quality_of_tracks(tracks, state) if tracks is not None else None})
     by_id = _entries_by_id(state)

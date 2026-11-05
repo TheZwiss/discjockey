@@ -15,10 +15,10 @@ const EXAMPLE: Playlists = {
   rows: [
     { index: 0, folder: 'Hard_Bounce', link: 'https://open.spotify.com/playlist/0DiscjockeyExampleList',
       playlist_id: '0DiscjockeyExampleList', service: 'spotify', service_name: 'Spotify', enabled: true, info: info('Name of 0Dis', 4), tracks: 4,
-      quality: { lossless: 1, good_lossy: 0, weak: 1, fake: 0, missing: 2 } },
+      quality: { lossless: 1, good_lossy: 0, weak: 1, fake: 0, missing: 2 }, needs_setting: null },
     { index: 1, folder: 'Powertrance', link: 'https://open.spotify.com/playlist/3DiscjockeyExampleList',
       playlist_id: '3DiscjockeyExampleList', service: 'spotify', service_name: 'Spotify', enabled: true, info: info('Name of 3Dis', 2), tracks: 2,
-      quality: { lossless: 0, good_lossy: 0, weak: 1, fake: 0, missing: 1 } },
+      quality: { lossless: 0, good_lossy: 0, weak: 1, fake: 0, missing: 1 }, needs_setting: null },
   ],
   overlaps: [{ track_id: 't2', artist: 'Armin Hermann', title: 'Get Naughty', cover_url: 'https://i.scdn.co/image/t2',
     downloaded: true, quality: 'weak', quality_label: '16.0 kHz', folders: ['Hard_Bounce', 'Powertrance'],
