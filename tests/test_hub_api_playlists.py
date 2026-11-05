@@ -340,7 +340,7 @@ def test_rows_from_checks_the_links():
 
 W9 = ("SoundCloud didn't accept the login from Chrome. Log in to SoundCloud there, or use your profile's likes link "
       "(soundcloud.com/your-name/likes).")
-W17 = ("Discjockey can't read your liked songs or Watch later. Add the songs to a playlist, set it to public or "
+W17 = ("Discjockey can't read your liked videos or Watch later. Add the songs to a playlist, set it to public or "
        "unlisted, and paste that link.")
 W18 = "This is a YouTube mix, which changes every time it plays. Save its songs to a playlist and paste that link."
 YTM_FIXTURE = Path(__file__).parent / "fixtures" / "youtube_music" / "video_playlist.json"
@@ -386,7 +386,7 @@ def test_a_youtube_music_link_is_added_with_its_service_and_ref(root, monkeypatc
     assert api._infos[f"youtube_music:{YTM_ID}"].service == "youtube_music"
 
 
-@pytest.mark.parametrize("pid, words", [("LM", W17), ("WL", W17), ("RDEXAMPLEmix0001", W18)])
+@pytest.mark.parametrize("pid, words", [("LL", W17), ("WL", W17), ("RDEXAMPLEmix0001", W18)])
 def test_a_youtube_music_list_that_is_refused_answers_with_its_service(root, monkeypatch, pid, words):
     OneAnswerYDL.requested = []
     monkeypatch.setattr(yt_dlp, "YoutubeDL", OneAnswerYDL)

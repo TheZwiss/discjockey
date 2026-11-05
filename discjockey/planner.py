@@ -217,7 +217,7 @@ def _song_name(artist: str, title: str, duration_ms: int | None) -> tuple[str, s
 
 # what a playlist song without a file takes over from the own song merged into it (rule 2): the file and what the
 # upgrade checks learned about it (a parked upgrade belongs to the file)
-MERGED_FIELDS = ("path", "status", "source", "source_id", "source_format", "cutoff_hz", "source_kbps", "online",
+MERGED_FIELDS = ("path", "status", "source", "source_id", "source_format", "cutoff_hz", "source_kbps", "source_how", "online",
                  "placed_by", "held", "file_id", "import_state", "first_seen", "last_upgrade_check", "upgrade",
                  "free_downloads", "originals_searched", "qobuz_searched", "declined_streams")
 
@@ -393,19 +393,37 @@ def desired_folders(fetched: list[FetchedPlaylist], state: dict) -> dict[str, st
 
 
 def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: date, *,
-         first_checks: int | None = None) -> Plan:
+         first_checks: int | None = None, unread_folders: Collection[str] = (),
+         unread_members: Mapping[str, Collection[str]] | None = None) -> Plan:
     """What a sync does (spec §9; the user's own songs: library-and-sources §10, plan library stage 4 I4).
     `first_checks`: how many first upgrade checks (an `upgrade` of an entry never checked) this run may make; the
-    rest wait for later runs and are counted in `deferred_checks` (D9). None: no cap."""
+    rest wait for later runs and are counted in `deferred_checks` (D9). None: no cap.
+    `unread_folders`: folders of playlists that were not read this time (Liked music while the YouTube account is
+    paused, sources-round D6). Their songs keep `in_playlists` as it was: not dropped, nothing else planned for them.
+    `unread_members`: for an unread folder whose line has a stored read, the track tokens of that last read. Such a
+    folder's membership is these tokens (resolved to songs like any track), not the songs' own `folder`: a song that
+    is in the unread line and also in a higher playlist has that playlist as its folder, and must stay while it
+    is removed there. An unread folder without a stored read falls back to the songs' `folder`."""
     new_state = copy.deepcopy(state)
     tracks: dict = new_state["tracks"]
     notes: list[str] = []
     own = _Own(tracks, new_state.get("decisions"), new_state.get("ambiguous") or {})
     wanted = _resolve(fetched, tracks, notes, own)
 
+    unread_members = unread_members or {}
+    by_name = {}
+    for key, e in tracks.items():
+        by_name[key] = key
+        for alias in e.get("aliases", []):
+            by_name[alias] = key
+    held = {by_name[t] for folder in unread_folders for t in unread_members.get(folder, ()) if t in by_name}
+    unrecorded = {f for f in unread_folders if f not in unread_members}
+
     dropped: list[str] = []
     for key, e in tracks.items():
         now_in = key in wanted
+        if not now_in and (key in held or e.get("folder") in unrecorded):
+            continue
         if e.get("in_playlists", True) and not now_in:
             dropped.append(key)
         e["in_playlists"] = now_in
@@ -550,13 +568,13 @@ ENTRY_KEYS = (
     "aliases", "isrc", "artist", "title", "duration_ms", "folder", "path", "status", "source",
     "source_id", "source_format", "cutoff_hz", "rejected_sources", "in_playlists", "added",
     "last_attempt", "last_upgrade_check", "upgrade", "source_kbps", "free_downloads", "originals_searched",
-    "qobuz_searched",
+    "qobuz_searched", "source_how",
 )
 
 
 def _placed_fields(p: Placed) -> dict:
     return {"path": p.path, "status": p.status, "source": p.source, "source_id": p.source_id,
-            "source_format": p.source_format, "cutoff_hz": p.cutoff_hz, "source_kbps": p.kbps}
+            "source_format": p.source_format, "cutoff_hz": p.cutoff_hz, "source_kbps": p.kbps, "source_how": p.how}
 
 
 def own_key(entry: dict) -> str | None:
@@ -618,7 +636,7 @@ def apply_outcome(entry: dict | None, action: Action, outcome: Outcome, now: dat
         new["file_gone"] = None
     if outcome.kind == "missing":
         new.update(path=None, status="missing", source=None, source_id=None, source_format=None,
-                   cutoff_hz=None, last_attempt=today)
+                   source_how=None, cutoff_hz=None, last_attempt=today)
     elif outcome.kind == "placed":
         new.update(_placed_fields(outcome.placed), last_upgrade_check=today)
         if action.kind == "acquire":

@@ -2,7 +2,7 @@
 // and `draft` (the rows as the user edits them). Nothing here talks to the backend.
 import type {
   AddedPlaylist, ByQuality, ChangePreview, Fail, PlaylistInfo, PlaylistLine, PlaylistRow, PlaylistService,
-  PlaylistTrack, Playlists, Quality,
+  PlaylistTrack, Playlists, Quality, SettingKey,
 } from '$lib/bridge/types';
 import { artistTitle, plural } from '$lib/format';
 import { ownerText } from '$lib/components/addRowModel';
@@ -13,6 +13,8 @@ export type DraftRow = {
   quality: ByQuality; isNew: boolean;
   /** the playlist's service and its name ("Qobuz"), from the row or the add_playlist answer */
   service: PlaylistService; serviceName: string;
+  /** a listed line the engine reads only once a Settings choice is on (Liked music while it is off): that choice */
+  needsSetting: SettingKey | null;
 };
 
 const NO_QUALITY: ByQuality = { lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 };
@@ -25,7 +27,7 @@ export function loadedFrom(p: Pick<Playlists, 'version' | 'rows'>): Loaded {
 export function draftFrom(loaded: Loaded): DraftRow[] {
   return loaded.rows.map((r) => ({ key: `r${r.index}:${r.link}`, folder: r.folder, link: r.link, enabled: r.enabled,
     info: r.info, tracks: r.tracks, quality: r.quality, isNew: false, service: r.service,
-    serviceName: r.service_name }));
+    serviceName: r.service_name, needsSetting: r.needs_setting ?? null }));
 }
 
 /** The lines for preview_playlist_change / save_playlists, top (highest priority) first. */
@@ -99,40 +101,56 @@ let added = 0;
 export function addRow(draft: DraftRow[], a: AddedPlaylist, folder: string): DraftRow[] {
   added++;
   return [...draft, { key: `new${added}:${a.link}`, folder: folder.trim(), link: a.link, enabled: true, info: a.info,
-    tracks: a.tracks, quality: { ...NO_QUALITY }, isNew: true, service: a.service, serviceName: a.service_name }];
+    tracks: a.tracks, quality: { ...NO_QUALITY }, isNew: true, service: a.service, serviceName: a.service_name,
+    needsSetting: null }];
 }
 
-/** Priority numbers: switched-on rows 1…n from the top, switched-off rows "–". */
+/** Priority numbers: rows that are read 1…n from the top, rows that read as off (switched off, or waiting for a
+ *  Settings choice, `readsOff`) "–". */
 export function priorities(draft: DraftRow[]): string[] {
   let n = 0;
-  return draft.map((r) => (r.enabled ? String(++n) : '–'));
+  return draft.map((r) => (readsOff(r) ? '–' : String(++n)));
 }
 
-/** The line under the folder name: the playlist's service, then its name and owner (or its state). The service leads
- *  every row, so a DJ scanning a mixed list sees where each playlist lives (and where to fix it) in one place (plan
- *  stage 3, 6.3). An unreadable playlist says its service's own words (the engine's hint, W5), tone 'bad' = red. A
- *  playlist whose name already says its owner (a SoundCloud likes list) comes with no owner name: just the name. */
-export function infoLine(r: DraftRow): { service: string; text: string; tone: 'muted' | 'bad' } {
-  const service = r.serviceName;
-  if (!r.enabled) return { service, text: 'switched off · files stay', tone: 'muted' };
-  if (!r.info) return { service, text: 'not read yet', tone: 'muted' };
-  if (!r.info.readable) return { service, text: r.info.hint, tone: 'bad' };
-  return { service, text: [`"${r.info.name}"`, ownerText(r.info)].filter(Boolean).join(' · '), tone: 'muted' };
+/** What a row says while the Settings choice it needs is off (sources round, binding words): it reads like a
+ *  switched-off row, with the reason in place of "switched off". */
+export const NEEDS_SETTING_LINE: Record<SettingKey, string> = {
+  read_liked_music: 'Liked music is off in Settings',
+};
+
+/** The row reads like a switched-off one: switched off, or listed while the Settings choice it needs is off (the
+ *  sync leaves it out without a problem; its files stay). */
+export function readsOff(r: Pick<DraftRow, 'enabled' | 'needsSetting'>): boolean {
+  return !r.enabled || !!r.needsSetting;
 }
 
-/** The page header's status line: the tracks of the switched-on playlists ("38 tracks in your playlists"). */
-export function statusLine(draft: DraftRow[]): string {
-  const n = draft.reduce((a, r) => a + (r.enabled ? r.tracks ?? 0 : 0), 0);
-  return `${plural(n, 'track')} in your playlists`;
+/** The line under the folder name, after the service's logo (its Tip names the service; sources round problem 7: the
+ *  name in words left the row): the playlist's name and owner, or its state. An unreadable playlist says its
+ *  service's own words (the engine's hint, W5), tone 'bad' = red. A playlist that names its owner itself (a
+ *  SoundCloud likes list, "Example DJ's likes", owner_name "") is named once. */
+export function infoLine(r: DraftRow): { text: string; tone: 'muted' | 'bad' } {
+  if (!r.enabled) return { text: 'switched off · files stay', tone: 'muted' };
+  if (r.needsSetting) return { text: NEEDS_SETTING_LINE[r.needsSetting], tone: 'muted' };
+  if (!r.info) return { text: 'not read yet', tone: 'muted' };
+  if (!r.info.readable) return { text: r.info.hint, tone: 'bad' };
+  return { text: [`"${r.info.name}"`, ownerText(r.info)].filter(Boolean).join(' · '), tone: 'muted' };
 }
-
-/** The list head's summary: "5 on · 1 off". */
-export function onOffText(draft: DraftRow[]): string {
-  const on = draft.filter((r) => r.enabled).length;
+/** Setup's row line: the Playlists row's line plus its track count when it is known ("Peak Time" · yours · 24 tracks),
+ *  since Setup's rows have no count column. */
+export function setupLine(r: DraftRow): { text: string; tone: 'muted' | 'bad' } {
+  const l = infoLine(r);
+  if (l.tone === 'bad' || readsOff(r) || !r.info || r.tracks == null) return l;
+  return { text: `${l.text} · ${plural(r.tracks, 'track')}`, tone: l.tone };
+}
+/** The list head's summary (sources round problem 10: the count left the page header and joins the list's own
+ *  counts): "7 on · 1 off · 70 tracks". The tracks are those of the playlists that are read; a row that reads as off
+ *  (`readsOff`: switched off, or Liked music while its Settings choice is off) counts as off; "off" only when one is. */
+export function listSummary(draft: DraftRow[]): string {
+  const on = draft.filter((r) => !readsOff(r)).length;
   const off = draft.length - on;
-  return off ? `${on} on · ${off} off` : `${on} on`;
+  const n = draft.reduce((a, r) => a + (readsOff(r) ? 0 : r.tracks ?? 0), 0);
+  return [`${on} on`, off ? `${off} off` : '', plural(n, 'track')].filter(Boolean).join(' · ');
 }
-
 /** "6 of 11 lossless" beside a playlist's quality bar; null when nothing is downloaded yet. */
 export function losslessText(q: ByQuality): string | null {
   const n = q.lossless + q.good_lossy + q.weak + q.fake + q.missing;

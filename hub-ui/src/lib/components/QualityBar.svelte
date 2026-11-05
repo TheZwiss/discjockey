@@ -1,29 +1,30 @@
 <script lang="ts">
-  import type { ByQuality, Quality } from '../bridge/types';
+  import type { ByQuality } from '../bridge/types';
   import { QUALITIES } from '../bridge/types';
+  import { barParts, barTitle, QUALITY_NAMES } from './qualityBarModel';
   // by_quality null: not known yet. The empty track shimmers and the legend holds one line of its own height, so a
   // card that draws its bar later keeps its height (final review I4: placeholders built from the real blocks)
-  let { by_quality, height = 6, legend = false }: { by_quality: ByQuality | null; height?: 4 | 6; legend?: boolean } = $props();
-  const NAMES: Record<Quality, string> = { lossless: 'lossless', good_lossy: 'good lossy', weak: 'weak', fake: 'fake',
-    missing: 'missing' };
-  const known = $derived(by_quality ?? { lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 });
-  const total = $derived(QUALITIES.reduce((a, q) => a + (known[q] ?? 0), 0));
-  const title = $derived(QUALITIES.filter((q) => known[q]).map((q) => `${known[q]} ${NAMES[q]}`).join(' · '));
+  // `waiting`: a playlist's songs with no file yet. They end the bar as a dashed segment, outline only (the dashed
+  // empty cover's look: the house shape for "waiting to be filled"), sized by their share of everything the bar spans
+  // (sources round I4, notes problem 8). The legend doesn't list them: the caption beside the bar says the count.
+  let { by_quality, height = 6, legend = false, waiting = 0 }: {
+    by_quality: ByQuality | null; height?: 4 | 6; legend?: boolean; waiting?: number;
+  } = $props();
+  const parts = $derived(by_quality ? barParts(by_quality, waiting) : []);
+  const title = $derived(barTitle(parts));
 </script>
 
 <div class="qbar" class:wait={!by_quality} style:height="{height}px" role="img"
   aria-label={by_quality ? title || 'No tracks' : 'Loading'} title={title || undefined}>
-  {#if total}
-    {#each QUALITIES as q (q)}
-      {#if known[q]}<span class={q} style:width="{(known[q] / total) * 100}%"></span>{/if}
-    {/each}
-  {/if}
+  {#each parts as p (p.key)}
+    <span class={p.key} style:width="{p.pct}%" data-test={p.key === 'waiting' ? 'quality-bar-waiting' : undefined}></span>
+  {/each}
 </div>
 {#if legend}
   <div class="legend">
     {#if by_quality}
       {#each QUALITIES as q (q)}
-        {#if by_quality[q]}<span><i class={q}></i>{by_quality[q]} {NAMES[q]}</span>{/if}
+        {#if by_quality[q]}<span><i class={q}></i>{by_quality[q]} {QUALITY_NAMES[q]}</span>{/if}
       {/each}
     {:else}<span class="wait line">&nbsp;</span>{/if}
   </div>
@@ -37,6 +38,11 @@
   .weak, .missing { background: var(--q-weak-bar); }
   .fake { background: var(--q-fake-bar); }
   .missing { opacity: .55; }
+  /* no fill of its own: the bar's empty track shows through the dashed outline, as an empty cover's place does. The
+     dashes take the quietest text grey, not the cover's control line: on a 6 px bar that line's 1 px dashes merged
+     with the track and read as nothing; this grey reads as "still to fill" yet stays under every filled colour */
+  .qbar .waiting { box-sizing: border-box; background: transparent; border: var(--bw) dashed var(--text-label);
+    border-radius: 0 3px 3px 0; }
   .legend { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-3); margin-top: 6px; color: var(--text-muted);
     font-size: var(--fs-small); }
   .legend span { display: inline-flex; align-items: center; gap: 5px; }

@@ -4,7 +4,8 @@
 // mark_warnings_seen: 52; downloads_view: 53; the two Qobuz web-player methods gone: 51; Settings' sign-ins: 57; rollback_tools: +1; app_update: +1; tidy_preview, move_batches, undo_preview, tidy_up, undo_moves: +5;
 // the import (library stage 4): watched_folders, check_import_folder, removal_preview, add_watched_folder,
 // remove_watched_folder, start_import, answer_same_song, keep_duplicates, supersede_duplicate, setup_skip_import: +10;
-// set_favourites and set_crate_shown (library stage 5, brief saves, no job): +2; undo_upgrade: +1.)
+// set_favourites and set_crate_shown (library stage 5, brief saves, no job): +2; undo_upgrade: +1;
+// set_read_liked_music and add_liked_music (sources round): +2.)
 export const CONTRACT_METHODS = [
   // read, any time
   'dashboard', 'sidebar', 'sync_preview', 'refresh', 'stop_refresh', 'job_status', 'library', 'track', 'todo',
@@ -20,6 +21,8 @@ export const CONTRACT_METHODS = [
   'tidy_up', 'undo_moves',
   'add_watched_folder', 'remove_watched_folder', 'start_import', 'answer_same_song', 'keep_duplicates',
   'supersede_duplicate',
+  // Liked music (sources round): Settings' choice and "Add Liked music to Playlists"
+  'set_read_liked_music', 'add_liked_music',
   // other
   'show_in_finder', 'reveal', 'open_report', 'open_external', 'app_update', 'quit',
   // setup
@@ -44,4 +47,5 @@ export const LIBRARY_METHODS = [
   'tidy_preview', 'move_batches', 'undo_preview', 'tidy_up', 'undo_moves',
   'watched_folders', 'set_favourites', 'set_crate_shown', 'check_import_folder', 'removal_preview',
   'add_watched_folder', 'remove_watched_folder', 'start_import', 'answer_same_song', 'keep_duplicates', 'supersede_duplicate',
+  'add_liked_music',
 ] as const satisfies readonly ContractMethod[];

@@ -20,7 +20,7 @@
   import { ColumnFrame, ListPanelFrame, Panel } from '../frames';
   import { UpgradeCards } from '../decisions';
   import {
-    AccountPanel, AddRow, CopyCode, NumberedSteps, ChoiceGroup, OutcomeList, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
+    AccountPanel, AddRow, LinkGuide, CopyCode, NumberedSteps, ChoiceGroup, OutcomeList, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
     AwayTag, Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
     Hint, InfoTip, KeyValue, ListRow, ListLine, ListSection, MiddleText, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, tip, SummaryStrip, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
     Segmented, SectionLabel, SelectCard, Skeleton, SortHeader, SourceLadder, Spectrum, Spinner, SplitView, StatCard, StatusMark, Surface, Switch, TextField, Tile, Toast,
@@ -60,6 +60,12 @@
   let inspectorOpen = $state(true);
   let galleryWay = $state<string>('same');
   let galleryUpWay = $state<'swap' | 'add_new'>('swap');
+  /** LinkGuide folded (Setup once a playlist is in): opens on a click */
+  let guideOpen = $state(false);
+  /** AddRow with Liked music pasted while the setting is off (the fake answers setting_off): the needs-setting form */
+  let addNeeds: AddRow | undefined = $state();
+  const LM_LINK = 'https://music.youtube.com/playlist?list=LM';
+  const SPOTIFY_LINK = { url: 'https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC', label: 'Open in Spotify', service: 'spotify' as const };
   let gFolded = $state(['Playlists']);
   // Tip: one tip open at a time, as in the app; the strip picks which example shows its own
   const TIP_SHOW: SegOption<'rail' | 'cut' | 'crate'>[] = [{ key: 'rail', label: 'Rail icon' }, { key: 'cut', label: 'Cut name' },
@@ -317,6 +323,7 @@
     ['YouTube', 'backup', 'Used only when nothing else has the track. The file is lossy.'],
   ];
   onMount(() => {
+    addNeeds?.check(LM_LINK);
     markReady('gallery');
     focusMe?.querySelector('button')?.focus();
   });
@@ -551,6 +558,12 @@
             ontodo={() => toasts.show({ tone: 'info', title: 'Opens To-do' })} />
         </div>
       {/each}
+      <div class="col tight" style="width: 900px; max-width: 100%" data-test="g-strip-waiting">
+        <span class="cap">a playlist: 5 of its 18 songs have no file yet, the bar ends dashed</span>
+        <SummaryStrip summary={strip({ tracks: 13, lossless_share: 9 / 13, upgrades_ready: 1, to_do: 4, not_lossless: 4,
+          by_quality: { lossless: 9, good_lossy: 1, weak: 2, fake: 1, missing: 0 } })} songs={{ listed: 18, with_file: 13 }}
+          onupgrades={() => {}} ontodo={() => {}} />
+      </div>
     </div>
   </section>
 
@@ -688,6 +701,14 @@
           <ToggleRow item={{ key: 'x', label: 'Rename the folder on disk too', on: false }} disabled
             sub="A folder called Powertrance_2026 is already in your Library." onchange={() => {}} />
         </Surface>
+        <span class="cap">locked, with its way out under the reason (action: a link outside the row's button)</span>
+        <Surface kind="list" data-test="g-toggle-action">
+          <ToggleRow item={{ key: 'l', label: 'Read my Liked music', on: false }} disabled sub="Sign in to YouTube Premium first"
+            onchange={() => {}}>
+            {#snippet action()}<Button variant="link" size="sm"
+              onclick={() => toasts.show({ tone: 'info', title: 'Opens Settings at YouTube Premium' })}>Go to YouTube Premium</Button>{/snippet}
+          </ToggleRow>
+        </Surface>
         <span class="cap">one ToggleRow in a list</span>
         <Surface kind="list" label="A single setting">
           <ToggleRow item={auto} test="g-auto" onchange={(_k, on) => (auto = { ...auto, on })} />
@@ -765,6 +786,8 @@
       <span class="cap">4 px</span><QualityBar by_quality={{ lossless: 8, good_lossy: 2, weak: 0, fake: 0, missing: 1 }} height={4} />
       <span class="cap">waiting</span><QualityBar by_quality={null} legend />
       <span class="cap">nothing yet</span><QualityBar by_quality={{ lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 }} />
+      <span class="cap">songs waiting for a file (dashed end)</span><span data-test="g-qbar-waiting"><QualityBar by_quality={{ lossless: 9, good_lossy: 1, weak: 2, fake: 1, missing: 0 }} waiting={5} /></span>
+      <span class="cap">all waiting</span><QualityBar by_quality={{ lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 }} waiting={7} />
     </div>
   </section>
 
@@ -1108,6 +1131,8 @@
       </Surface>
       <Surface label="KeyValue">
         <KeyValue k="Source" v="Qobuz FLAC · verified lossless" />
+        <KeyValue k="Source" sub="exact Qobuz track"><ExternalLink href="https://open.qobuz.com/track/112358" label="Qobuz" />{' · FLAC'}</KeyValue>
+        <KeyValue k="Source" v="SoundCloud · WAV" sub="the playlist's own upload" />
         <KeyValue k="File"><PathText path="Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff" /></KeyValue>
         <KeyValue k="ISRC" />
       </Surface>
@@ -1187,7 +1212,19 @@
 
   <section data-test="gallery-addrow">
     {@render head('AddRow', 'Paste a Spotify, Qobuz, SoundCloud or YouTube Music playlist link, check it, name its folder (Playlists\' list head, Setup\'s first playlist)')}
-    <div class="col w800"><AddRow draft={[]} onadd={(a, f) => { toasts.show({ tone: 'success', title: `Would add ${a.info?.name ?? a.link} as ${f}` }); return true; }} /></div>
+    <div class="col w800" data-test="g-addrow-placeholder"><span class="cap">the placeholder: the words, then the four logos (each with its Tip)</span><AddRow draft={[]} onadd={(a, f) => { toasts.show({ tone: 'success', title: `Would add ${a.info?.name ?? a.link} as ${f}` }); return true; }} /></div>
+    <div class="col w800" data-test="g-addrow-needs"><span class="cap">needs a setting: Liked music pasted while reading it is off</span><AddRow bind:this={addNeeds} draft={[]}
+      onadd={() => true} settingAction={{ label: 'Turn on in Settings', onclick: () => toasts.show({ tone: 'info', title: 'Opens Settings at YouTube Music' }) }} /></div>
+  </section>
+
+  <section data-test="gallery-linkguide">
+    {@render head('LinkGuide', 'Where a playlist\'s link is in each service\'s app: the columns come with its width; folded it is one line with the logos')}
+    <div class="col">
+      <div class="col tight w640" data-test="g-linkguide-open"><span class="cap">640 px: name · where · example link</span><LinkGuide /></div>
+      <div class="col tight w480" data-test="g-linkguide-two"><span class="cap">480 px: name · where</span><LinkGuide data-test="link-guide-two" /></div>
+      <div class="col tight w320" data-test="g-linkguide-narrow"><span class="cap">320 px (a panel): name over where</span><LinkGuide data-test="link-guide-narrow" /></div>
+      <div class="col tight w640" data-test="g-linkguide-folded"><span class="cap">folded: the head and the logos; a click opens it</span><LinkGuide folded bind:open={guideOpen} data-test="link-guide-folded" /></div>
+    </div>
   </section>
 
   <section data-test="gallery-copycode">
@@ -1356,14 +1393,35 @@
           <QualityBadge quality={weak.quality} label={weak.quality_label} />
         </TrackHead>
       </Surface>
+      <Surface kind="card" data-test="g-trackhead-link">
+        <TrackHead track={{ ...weak, cover_url: null }} place={weak.folder} link={SPOTIFY_LINK} word="lossy, audible">
+          {#snippet badge()}<QualityBadge quality={weak.quality} label={weak.quality_label} />{/snippet}
+        </TrackHead>
+      </Surface>
       <Surface kind="card" data-test="g-trackhead-empty">
         <TrackHead track={{ ...weak, cover_url: null, title: 'AEIOU', artist: 'Pegassi' }} place="not downloaded yet" empty>
           <Badge tone="missing" text="NOT FOUND" />
         </TrackHead>
       </Surface>
-      <UpgradeCards track={{ ...weak, audio_url: toneA, format_line: 'Opus · 135 kbps', upgrade: upExact }} current={specCut}
+      <div class="w320" data-test="g-trackhead-narrow">
+        <span class="cap">320 px: the meta line ends in "…" (Tip), the word goes whole (the badge's Tip says it), Hide beside the title</span>
+        <Surface kind="card">
+          <TrackHead track={{ ...weak, cover_url: null, title: 'Get Lost', artist: 'Lio Sander & The Extended Friends' }}
+            place="in Hard_Bounce_Extended_Afterhour" link={SPOTIFY_LINK} word="lossy, audible on a club system">
+            {#snippet action()}<Button variant="link" muted size="sm">Hide</Button>{/snippet}
+            {#snippet badge()}<QualityBadge quality={weak.quality} label={weak.quality_label} />{/snippet}
+          </TrackHead>
+        </Surface>
+      </div>
+      <Surface kind="card" data-test="g-trackhead-waiting">
+        <TrackHead track={{ ...weak, cover_url: null, title: 'AEIOU', artist: 'Pegassi' }} place="not downloaded yet" empty
+          link={{ url: 'https://music.youtube.com/watch?v=EXAMPLEid01', label: 'Open in YouTube Music', service: 'youtube_music' }}>
+          {#snippet badge()}<Badge tone="quiet" text="Waiting" />{/snippet}
+        </TrackHead>
+      </Surface>
+      <UpgradeCards track={{ ...weak, audio_url: toneA, source_format_line: 'Opus · 135 kbps', upgrade: upExact }} current={specCut}
         upgrade={specFull} loading={false} swap way={galleryUpWay} onway={(w) => (galleryUpWay = w)} />
-      <UpgradeCards track={{ ...weak, audio_url: null, format_line: null, upgrade: upDifferent }} current={specCut}
+      <UpgradeCards track={{ ...weak, audio_url: null, source_format_line: null, upgrade: upDifferent }} current={specCut}
         upgrade={null} loading swap={false} way="add_new" onway={() => {}} />
     </div>
   </section>

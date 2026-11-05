@@ -1,8 +1,9 @@
 <script lang="ts">
   // Playlists (spec §5.5, design system mockup design-system/playlists.html): the rows of playlists.txt (top =
   // highest priority), edited as a draft and saved with save_playlists(lines, loaded_version). ListPanelFrame: the
-  // header (read slot: the only Read playlists), the paste field, then one Surface list anchored to the window that
-  // scrolls in place. The panel (ChangePanel) says what the unsaved change does; its foot is Undo · Save, the screen's
+  // header (read slot: the only Read playlists; no sub: the counts are the list's own, in its head), the paste field
+  // (a Liked music link while Settings' choice is off: "Turn on in Settings" opens that row), then one Surface list
+  // anchored to the window that scrolls in place. With no playlist at all the panel says how one comes in. The panel (ChangePanel) says what the unsaved change does; its foot is Undo · Save, the screen's
   // one filled button, or the save question's two saves when the change puts files in another folder. "Tidy up files"
   // (header, beside Read playlists; orange with the count while files are out of place) and an Undo of a recent move
   // open MovesPanel in the panel's place: preview, progress, result. A save that moves files shows its progress there
@@ -17,15 +18,15 @@
   import { dataVersion } from '$lib/stores/hub';
   import { toasts } from '$lib/stores/toasts';
   import { problemCopy, detailLine } from '$lib/copy';
-  import { setLeaveGuard } from '$lib/router';
+  import { go, setLeaveGuard } from '$lib/router';
   import { markReady } from '$lib/ready';
   import Row from './Row.svelte';
   import ChangePanel from './ChangePanel.svelte';
   import MovesPanel, { type MovesEntry } from './MovesPanel.svelte';
   import { problemToTell, type MoveItem } from './tidyModel';
   import {
-    addRow, draftFrom, dropIndex, folderChanges, isDirty, lines, loadedFrom, moveBy, onOffText, priorities, remove,
-    rename, reorder, shiftFor, statusLine, toggle, undo, type DraftRow, type Loaded, type Panel, type PanelTab,
+    addRow, draftFrom, dropIndex, folderChanges, isDirty, lines, listSummary, loadedFrom, moveBy, priorities, remove,
+    rename, reorder, shiftFor, toggle, undo, type DraftRow, type Loaded, type Panel, type PanelTab,
   } from './changeModel';
 
   let { params: _params, query: _query }: { params: Record<string, string>; query: URLSearchParams } = $props();
@@ -172,8 +173,8 @@
 </script>
 
 {#snippet main()}
-  <PageHeader title="Playlists" sub={loaded && draft.length ? statusLine(draft) : undefined} {actions} readStatus={!noPlaylists} />
-  <AddRow {draft} onadd={added} />
+  <PageHeader title="Playlists" {actions} readStatus={!noPlaylists} />
+  <AddRow {draft} onadd={added} settingAction={{ label: 'Turn on in Settings', onclick: () => void go('/settings/youtube_music') }} />
 
   {#if pl?.problem}
     <NoteCard tone="problem" data-test="file-problem">playlists.txt needs fixing: {pl.problem}</NoteCard>
@@ -191,16 +192,16 @@
     <div data-test="playlists-loading"><Skeleton lines={5} height={52} gap={2} /></div>
   {:else if !draft.length}
     <Surface kind="card" data-test="playlists-empty">
-      <EmptyState title="No playlists yet." body="Paste a playlist link from Spotify, Qobuz, SoundCloud or YouTube Music above." action={null} />
+      <EmptyState title="No playlists yet." body="Paste a link above to add your first one." action={null} />
     </Surface>
   {:else}
-    <Surface kind="list" label="Your playlists" summary={onOffText(draft)} grow={{ rows: draft.length, tall: true }}
+    <Surface kind="list" label="Your playlists" summary={listSummary(draft)} grow={{ rows: draft.length, tall: true }}
       style="--row-cols: 76px minmax(0, 1fr) auto; --row-cols-wide: 76px minmax(0, 1fr) 132px auto"
       class={drag ? 'dragging' : ''} role="listbox" aria-label="Playlists, top = highest priority" data-test="list">
       {#snippet header()}
-        <Hint text="top = highest priority · drag ⋮⋮ or ⌥↑ ⌥↓" data-test="priority-hint" />
-        <InfoTip label="About the order">A track in several playlists is downloaded once, into the folder of the
-          highest one.</InfoTip>
+        <Hint text="top = highest priority" data-test="priority-hint" />
+        <InfoTip label="About the order">Drag ⋮⋮ or press ⌥↑ ⌥↓ to change the order. A track in several playlists
+          is downloaded once, into the folder of the highest one.</InfoTip>
       {/snippet}
       {#each draft as row, i (row.key)}
         <Row {row} prio={prios[i]} {draft} delta={changes.get(row.folder) ?? null} offset={offsetOf(i)}
@@ -227,7 +228,7 @@
         onbusy={(b) => (movesBusy = b)} />
     {/key}
   {:else}
-    <ChangePanel {dirty} lines={draftLines} overlaps={pl?.overlaps ?? []} rows={pl?.rows ?? []} {saving} {tab}
+    <ChangePanel {dirty} empty={noPlaylists && !draft.length} lines={draftLines} overlaps={pl?.overlaps ?? []} rows={pl?.rows ?? []} {saving} {tab}
       onpanel={(p) => (panel = p)} ontab={(t) => (tab = t)} onundo={() => loaded && (draft = undo(loaded))}
       onsave={save} onundobatch={(id) => openFlow({ kind: 'undo', batch_id: id })} />
   {/if}

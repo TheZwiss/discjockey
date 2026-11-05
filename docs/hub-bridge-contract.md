@@ -39,10 +39,12 @@ library (lists cut to 2 items, `data` cut).
 | `not_set_up` | Spotify/Qobuz/playlists.txt not set up (SoundCloud and YouTube Music playlists need no login, so they never are) → wizard (`service` names the playlist service that isn't, when it is one). `message` is the inline wording ("Connect Qobuz first." for a pasted link, a read or a sync alike; `JobFinished.service` names the service for a read or sync too); a card's title and route ("Qobuz isn't connected.", "Connect Qobuz →") are the UI's, built from `kind` + `service` |
 | `login_expired` | Spotify login expired → wizard Spotify step. With `service` `soundcloud`: a `soundcloud.com/you/likes` line (or a pasted one) is read through the SoundCloud login of Settings and SoundCloud didn't accept it ("SoundCloud didn't accept the login from {browser}. Log in to SoundCloud there, or use your profile's likes link (soundcloud.com/your-name/likes)."); it blocks reading like any login problem (`read_status.problem` + `problem_service`, the banner's "Connect SoundCloud →" goes to Settings' SoundCloud row) until a login is saved there |
 | `offline` | no connection / a playlist service not answering (`service` says which, for Qobuz: "Qobuz is not responding (…). Try again later."; SoundCloud and YouTube Music say the same with their names, or "{name} asked Discjockey to slow down. Try again in an hour." for too many requests or a bot check) → "No internet connection. Try again when you're online." + Retry |
-| `playlist_unreadable` | a playlist can't be read → the hint of its service (`service` on the answer; `info.hint`). Also a link the service refuses to read at all: YouTube Music's liked songs, Watch later and mixes ("Discjockey can't read your liked songs or Watch later. …", "This is a YouTube mix, …"), and `soundcloud.com/you/likes` without a SoundCloud login ("To read your own likes, use your profile's likes link: …") |
+| `playlist_unreadable` | a playlist can't be read → the hint of its service (`service` on the answer; `info.hint`). Also a link the service refuses to read at all: YouTube Music's liked videos, Watch later and mixes ("Discjockey can't read your liked videos or Watch later. …", "This is a YouTube mix, …"), and `soundcloud.com/you/likes` without a SoundCloud login ("To read your own likes, use your profile's likes link: …"). YouTube Music's Liked music (`list=LM`) is not among them since the sources round: it answers `setting_off` (a choice in Settings); liked videos (`LL`) and Watch later (`WL`) stay refused |
 | `config_invalid` | playlists.txt / settings.json / state.json needs fixing → show message |
 | `qobuz_login_failed` | Qobuz login failed at sync start, or when reading a Qobuz playlist (`add_playlist`, a read; `service` `qobuz`) → wizard Qobuz step |
-| `login_failed` | Spotify login in the wizard failed (port busy, timeout, refused) |
+| `login_failed` | Spotify login in the wizard failed (port busy, timeout, refused). With `service` `youtube_music`: the YouTube login couldn't be read for the Liked music read ("Discjockey couldn't read your YouTube login to read your Liked music. Check it in Settings, YouTube Premium.") |
+| `setting_off` | the playlist needs a choice in Settings that is off (sources round, Liked music): `add_playlist` for `music.youtube.com/playlist?list=LM`, `add_liked_music`, and a direct read; `message` "Reading your Liked music is off. Turn it on in Settings." On `add_playlist`'s answer `service` is `youtube_music` and `setting` names the choice (`read_liked_music`, its key in settings.json); the page shows its "needs a setting" form with a button to that Settings row. It is also what a Liked music line reads as while the choice is off (a `needs_setting` row, no problem card) |
+| `exists` | `add_liked_music`: a Liked music line is in playlists.txt already, switched on or off ("Liked music is in your playlists already.") |
 | `changed` | the track changed since it was shown → re-fetch, show message |
 | `refused` | not possible (bad input, rule) → show message |
 | `failed` | a download / login / tool step failed → show message |
@@ -575,9 +577,11 @@ shows what the playlist holds now, not where the files are. A song of the record
 nothing usable: the song is in To-do's Not found group). A not-found song the user hid in To-do keeps `not_found` and
 carries `hidden: true`: the page doesn't offer "Open in to-do" for it, as To-do doesn't show it. `also` holds the files in the playlist's own Library folder
 whose song the playlist does not hold (null in every other view), by artist, then title. The search narrows `rows` and `also`; the quality
-filter, `chips` and `summary` count only the rows with a file: a playlist's `subtitle` and `summary.tracks` count its songs
-with a file, the table also shows the waiting ones, and the sidebar's `songs` counts them all (so the
-subtitle names both, "13 of 18 downloaded", from `songs`, rather than let the numbers seem to disagree). An empty folder, and a playlist that was
+filter, the quality `chips` and `summary` count only the rows with a file; `chips.all` counts every row the table lists
+under All (a read playlist's songs without a file too, never `also`), so the All segment says 18 beside 18 rows. A
+playlist's `subtitle` and `summary.tracks` count its songs with a file, the table also shows the waiting ones, and the
+sidebar's `songs` counts them all (so the page's strip names both, "13 of 18 downloaded", from `songs`, and the header
+leaves out the subtitle's count, rather than let the numbers seem to disagree). An empty folder, and a playlist that was
 read and holds nothing, both come with `empty: "no_match"` even without search text; the page tells them apart by
 `view`, `folder_kind` and `read_at`.
 
@@ -609,7 +613,7 @@ folder's path; `null` for All and Not in a playlist); `folder` keeps the old mea
 playlist's folder name or the folder's key). `folder_kind` (folder views): `watched`, `crate`, `library`, or `null` for a
 path none of these. `songs` (a read playlist, else `null`): `{"listed", "with_file"}`, the distinct songs it lists
 (what the sidebar's `songs` counts) and how many of them have a file, before any search or filter; the page words the
-subtitle's "13 of 18 downloaded" from it and joins no other call. `read_at`, `enabled` and `service` (playlist views, else `null`): when the playlist was read
+strip's "13 of 18 downloaded" (and its quality bar's dashed end) from it and joins no other call. `read_at`, `enabled` and `service` (playlist views, else `null`): when the playlist was read
 (`null`: never), whether its line is switched on, its service. `empty` adds `gone`.
 
 *Summary and subtitle.* `summary` is the view at a glance and ignores the search and the filter: `by_quality` (as in
@@ -779,8 +783,11 @@ innermost watched folder holding it is offline or not found) puts its words seco
   ],
   "in_playlist_count": 2,
   "quality_line": "YouTube OPUS · cutoff 16.0 kHz",
+  "format_line": "AIFF · 16-bit",
+  "source_format_line": "Opus · 135 kbps",
+  "source_how": "fallback",
   "source_url": "https://www.youtube.com/watch?v=abcdefghijk",
-  "track_link": {"url": "https://open.spotify.com/track/t2", "label": "Open in Spotify"},
+  "track_link": {"url": "https://open.spotify.com/track/t2", "label": "Open in Spotify", "service": "spotify"},
   "next_qobuz_check": null,
   "rejected_sources": [],
   "buy_links": {
@@ -815,7 +822,7 @@ innermost watched folder holding it is offline or not found) puts its words seco
 }
 ```
 `next_qobuz_check`: ISO date, `"next_sync"`, or null. `playlists`: null until the playlists were read.
-`track_link` (stage 3, replaces `spotify_url`): `{url, label}` or null. `url` is the track's page on the service it
+`track_link` (stage 3, replaces `spotify_url`): `{url, label, service}` or null. `service` is the playlist service the page belongs to (`spotify`, `qobuz`, `soundcloud`, `youtube_music`): the hub shows its logo beside "Open in …" from it, never from the label's words. `url` is the track's page on the service it
 was read from: the link of the first fetched track (playlist order) that is this song, else the link its key gives
 (all four services; null for a key with none: SoundCloud's is its player page `https://w.soundcloud.com/player/?url=…/tracks/{id}`, YouTube Music's `https://music.youtube.com/watch?v={id}`; a fetched SoundCloud track carries its real `permalink_url`). `label` is `Open in {service name}` ("Open in Spotify", "Open in Qobuz", "Open in SoundCloud", "Open in YouTube Music").
 `playlists` matches a song by its key and aliases (tokens), so a Qobuz song lists its folders too.
@@ -824,8 +831,8 @@ when `swap_safe && swap_possible`; `cue_text` is the line to show. It combines t
 exact/shifted on a file that can be swapped says the cues stay; on one that can't (MP3, WAV: "Add as new file" is the
 only way in, which rekordbox sees as a new entry) it says it is the same edit but a new rekordbox entry, and that
 relocating the old entry to the new file keeps its cues; a mismatch or unknown keeps its own line (the Library's
-card shows it). `format_line` is the parked version's quality in the words of the current file's `format_line`
-("FLAC · lossless", "AAC · 256 kbps"): the To-do panel's New beside Now. The To-do row's `detail` for
+card shows it). The upgrade block's `format_line` is the parked version's quality in the words of the current
+file's `source_format_line` ("FLAC · lossless", "AAC · 256 kbps"): the To-do panel's New beside Now. The To-do row's `detail` for
 `upgrade_ready` is a short line (`views.upgrade_status`): "Lossless ready · cues can stay" (swap possible),
 "· new rekordbox track" (same edit, no swap), "· different edit", "· not compared" ("256 kbps ready · …" for a better
 lossy stream); the To-do panel words the rest from `alignment` and `swap_possible` (todoModel.upgradeWays).
@@ -841,8 +848,21 @@ SoundCloud's own download button (`url` is then the SoundCloud page). Empty when
 lossy download carries the bitrate when known ("YouTube Music OPUS 135 kbps · cutoff 20.1 kHz"). A dropped bought
 file may be WAV, AIFF, FLAC or MP3.
 
-Also in `track()` (2026-10-18, details redone as facts): `format_line` ("Opus · 135 kbps", "FLAC", "uncompressed PCM";
-the bitrate only for a lossy download) and `source_full` ("YouTube Music", "bought", "your own file" for a file the import found), both null without a file.
+Also in `track()` (2026-10-18, details redone as facts): `source_full` ("YouTube Music", "bought", "your own file"
+for a file the import found), null without a file.
+`track()` says what the file **is** apart from what it was **made from** (sources round, E1): `format_line` is the file
+itself, null without a file: a download is always `"AIFF · 16-bit"` (every download is converted), an own or bought
+file names its container by its extension (`AIFF`, `WAV`, `FLAC`, `MP3`, `AAC`, `ALAC`) plus the bit depth when its
+stored codec is a PCM one (`"WAV · 24-bit"`; a FLAC or MP3 stays `"FLAC"`, `"MP3"`). `source_format_line` is what a
+download was made from ("Opus · 135 kbps", "FLAC", "uncompressed PCM"; the bitrate only for a lossy download), null
+without a file and for an own or bought file (no download). The To-do upgrade card's Now reads `source_format_line`
+(its tooltip says the AIFF was made from it, group U3). `source_how` is how the source was found, one of `exact`
+(the exact Qobuz track a playlist named), `isrc`, `name` (Qobuz searches), `upload` (the playlist's own upload),
+`fallback` (the search on YouTube Music, SoundCloud or YouTube) or `chosen` ("Use this", picked by the user), or null
+(own and bought files, and every file from before it was stored); the UI words it in `copy.ts`. It is stored in
+`library.db` as `files.source_how` (schema 5) and travels with the file: a parked upgrade carries it as `how`, a Swap
+or Add as new file moves it into the entry and an undo puts the old one back. `source_url` is null when it equals
+`track_link.url` (a YouTube Music playlist's own upload), so the details never show one page twice.
 `track()` also carries `place` (plan library stage 5): where the file sits, in the same words as the library rows' `place` (the Folder column's; `null` for a track without a file).
 `track()` also carries `sound_checked: bool` as the library rows do; for a file with `sound_checked: false`,
 `quality_line` ends "sound not checked yet" instead of "verified lossless" ("Your own file (PCM) · sound not checked
@@ -961,6 +981,7 @@ counts each track once, `chips.rekordbox_check` every check (hidden ones too).
 `soundcloud:<user>/sets/<slug>` or `soundcloud:<user>/likes` (the link's path, lower case), `youtube_music:<list id>`); the page keys rows by it. `service` (`spotify|qobuz|soundcloud|youtube_music`) and `service_name` ("Spotify",
 "Qobuz", "SoundCloud", "YouTube Music") name the row's service. `info.hint`: the words of the row's service for a playlist it won't show (Spotify:
 "Follow ≠ own: make your own copy in Spotify."; Qobuz: "Make it public in Qobuz, or use one of your own playlists."; SoundCloud: "Make it public in SoundCloud, or use its private share link."; YouTube Music: "Set it to public or unlisted in YouTube Music."), always set once `info` is. `info.track_count` is `null` when the service gives no count (a SoundCloud likes list); the row's `tracks` is then what the read found. `info.owner_name` is `""` when the name already says it (a SoundCloud likes list is named "{username}'s likes"), so the page names the owner once.
+`needs_setting` (sources round): `"read_liked_music"` for a listed YouTube Music Liked music line (`youtube_music:LM`, on or off in the file) while Settings' choice is off or no YouTube login is set up (the row reads "Liked music is off in Settings", it is not read and raises no problem), else `null`.
 `info` null until read (refresh or add_playlist); `tracks` null when
 neither the tracks nor the playlist's count were read (the row then shows no count). `version` must be sent to
 `save_playlists`. `overlaps` for the panel when nothing is unsaved: each track that is in several switched-on
@@ -981,6 +1002,7 @@ playlists, with `folders` (in list order) and `lands_in` (the first), its `cover
    "service": "spotify",
    "service_name": "Spotify",
    "enabled": true,
+   "needs_setting": null,
    "info": {
     "name": "Name of 0Dis",
     "owner_name": "DJ One",
@@ -1286,6 +1308,7 @@ changes when the file changes (`?v=size-mtime`).
 `spotify_skipped` (stage 3): "I don't use Spotify" was chosen; the `spotify` step then counts as done (`spotify_app` /
 `spotify_login` stay false). Connecting Spotify (`setup_spotify_login`) clears it. A skipped Spotify is no problem in
 the read status unless `playlists.txt` has a Spotify line (`services` lists only the services the lines use).
+`youtube_music` (sources round): YouTube Music's Liked music, `{liked_music, can_turn_on, listed}`: `liked_music` Settings' "Read my Liked music" is on (it only counts with a YouTube account: forgetting that login turns it off for good), `can_turn_on` a YouTube account is set up, `listed` a Liked music line is in playlists.txt, switched on or off. `set_read_liked_music` changes it, `add_liked_music` lists it.
 `accounts`: `youtube` and `soundcloud`, each null or `{browser, browser_name, daily_limit, profile, profile_name,
 last_check}` (`browser`: `safari|chrome|firefox|brave|edge`; `profile` the browser profile's folder, null = the
 default or Safari's only one; `last_check` LastCheck|null, see Settings).
@@ -1314,7 +1337,8 @@ default or Safari's only one; `last_check` LastCheck|null, see Settings).
    "browser_name": "Chrome",
    "daily_limit": 60
   }
- }
+ },
+ "youtube_music": {"liked_music": false, "can_turn_on": false, "listed": false}
 }
 ```
 
@@ -1476,12 +1500,13 @@ must be public or one of yours. Check the link."}` (a Qobuz playlist Qobuz won't
 `{"ok": false, "kind": "not_set_up", "service": "qobuz"|"spotify", "message": "Connect Qobuz first."}` (that service
 isn't connected: nothing is read; SoundCloud and YouTube Music need no login), and, with the words of the engine,
 `{"ok": false, "kind": "playlist_unreadable", "service": "soundcloud", "message": "SoundCloud doesn't show this playlist. It may be private or removed; for a private set, use its private share link."}`,
-`{"ok": false, "kind": "playlist_unreadable", "service": "youtube_music", "message": "This is a YouTube mix, which changes every time it plays. Save its songs to a playlist and paste that link."}` (a mix, or liked songs / Watch later: the YouTube Music reader refuses them before any request),
+`{"ok": false, "kind": "playlist_unreadable", "service": "youtube_music", "message": "This is a YouTube mix, which changes every time it plays. Save its songs to a playlist and paste that link."}` (a mix, or liked videos / Watch later: the YouTube Music reader refuses them before any request),
+`{"ok": false, "kind": "setting_off", "setting": "read_liked_music", "service": "youtube_music", "message": "Reading your Liked music is off. Turn it on in Settings."}` (a `list=LM` link while the choice is off, or on without a YouTube login: nothing is read, there are no other facts; the page shows its "needs a setting" form named `Liked music`, owner `yours`). While it is on, the link is read through the YouTube login like any playlist and answers the normal found card (name, owner, count); while the YouTube account is paused today (a bot check or too many requests recorded for it) the answer is `{"ok": false, "kind": "offline", "service": "youtube_music", …}` before any request, and a bot check met by this read is recorded as that account's warning sign,
 `{"ok": false, "kind": "login_expired", "service": "soundcloud", …}` and `{"ok": false, "kind": "offline", "service": "soundcloud"|"youtube_music", …}`. A link that is no service's is `refused` without `service`: "That isn't a playlist link Discjockey can read. Open the playlist in Spotify, Qobuz, SoundCloud or YouTube Music, choose Share, then Copy link, and paste it here."
 
 `preview_playlist_change(lines)` — `lines`: `[{"folder", "link", "enabled"}]` in the new order (top first).
 A switched-on line whose playlist was not read yet is read once, through its own service's reader; a service that
-isn't connected, or a playlist its service won't show, is skipped without an error (that line then counts as unread).
+isn't connected, or a playlist its service won't show, is skipped without an error (that line then counts as unread). A Liked music line while the choice is off or the YouTube account is paused is not read either.
 `kind`: `moves|rename|reroute|add|switch_off|unknown|none`; `headline` ready to show (for `moves` and `rename` it is
 "{n} files would sit in a different folder" / "1 file would sit in a different folder"); `checklist` 3-4 lines (cut
 here; for `moves` and `rename`: the downloads line, "Nothing is deleted", "Files move only if you choose to", "Moves
@@ -1717,8 +1742,10 @@ still answers. Otherwise `download_tools_problem` is null.
 | `setup_qobuz_login(email, password)` — also stores `qobuz_last_check` (ok, or `login_failed` when Qobuz refuses the login; being offline or a Qobuz hiccup records nothing); a failed login puts the previous streamrip config back. An account made with Google, Apple or Facebook first sets a Qobuz password at `https://www.qobuz.com/signin/forget-password` (the page opens it with `open_external`) | `setup_qobuz_login` | `{}` (`failed` + message) |
 | `setup_skip_qobuz()` — "I don't have Qobuz": the Qobuz step counts as done | `setup_skip_qobuz` | `{}` |
 | `setup_skip_spotify()` — "I don't use Spotify": the Spotify step counts as done and sets `spotify_skipped` (playlists then come from the links of the other services); a later `setup_spotify_login` clears it | `setup_skip_spotify` | `{}` |
+| `set_read_liked_music(on)` — Settings' "Read my Liked music" (sources round): whether YouTube Music's Liked music line is read, through the YouTube login (a `YoutubeDL` of the read's own, never the download path's). Off by default; `on` must be a bool (`refused`); turning it on without a YouTube account fails `not_set_up` ("Sign in to YouTube Premium first: Discjockey reads your Liked music through that login."). Turning it off never touches playlists.txt. While it is off a listed Liked music line is left out of every read like a switched-off line (no request, no problem, its files stay; its tracks are marked as not in a playlist like any switched-off line's); the same while the YouTube account is paused today (an `auto_stop`, `bot_check` or `rate_limited` sign recorded today), and a bot check or "too many requests" met by the Liked music read itself is recorded as the YouTube account's warning sign (Settings shows it, the account is then paused for the next Liked music reads) and ends only that line | `set_read_liked_music` | `{}` |
+| `add_liked_music()` — "Add Liked music to Playlists" (a `LIBRARY_METHODS` member): appends `Liked_music = https://music.youtube.com/playlist?list=LM` to the end of playlists.txt through the writer `save_playlists` uses (YouTube Music shares no link for it; a folder `Liked_music` taken by another playlist becomes `Liked_music_2`, …). Fails `setting_off` while the choice is off and `exists` when a Liked music line is listed already (on or off). A Playlists page with an unsaved draft meets it through its "changed elsewhere" answer (`playlists().version` changes) | `add_liked_music` | `{folder}` |
 | `setup_account(service, browser, profile?)` — `service` `youtube|soundcloud`, `browser` `safari|chrome|firefox|brave|edge`, `profile` that browser's profile folder (null: the default); checks the login in that profile (only cookie names are read), then saves the browser, the profile and the check (`last_check`). A YouTube login without Premium is not saved; a SoundCloud one is. A failed check of the saved login itself (same browser and profile) is recorded on it | `setup_account` | `{service, browser, profile, saved, check}` (`check` = AccountCheck) |
-| `setup_forget_account(service)` — removes the saved browser of that account | `setup_forget_account` | `{service}` |
+| `setup_forget_account(service)` — removes the saved browser of that account (forgetting the YouTube login also turns Liked music off: signing in again does not turn it back on) | `setup_forget_account` | `{service}` |
 | `update_tools()` — the newest yt-dlp (+ the yt-dlp-ejs it pins) from PyPI into the support folder, tested in its own process before use; streamrip only changes with Discjockey releases. `failed` + a plain sentence (never a traceback or an OS error text) when: offline ("Couldn't reach the download server..."), the server answers with an error status ("The download server has a problem right now..."), its answer is not understood, there is no wheel for this Mac, the download was damaged, the disk refuses (the sentence names the reason in plain words: full, not allowed, refused), or the new version failed its test. The tools in use always stay. `stopped` when Stop is pressed (the test process ends too) | `update_tools` | `{before: {"yt-dlp": v}, after: {"yt-dlp": v}, restart}` — `before`/`after` the version the next start uses before/after; `restart` true when that isn't the version this window runs → ask to reopen, then `quit()`; already the newest: `before == after` (`restart` still true when an earlier update waits for a reopen) |
 | `rollback_tools()` — back to the yt-dlp used before the last update (the folder stepped back from is deleted unless this window runs it); `refused` "There is no earlier version to go back to."; disk problems as `update_tools` | `rollback_tools` | `{before, after, restart}` as `update_tools` |
 
@@ -1813,7 +1840,7 @@ a test compares them): `dashboard`, `sidebar`, `sync_preview`, `refresh`, `libra
 `never_download`, `add_bought_file`, `use_candidate`, `use_link`, `reject_current`, `rekordbox_checked`, `upgrade`,
 `undo_upgrade`, `rescan_library`, `show_in_finder`, `reveal`, `open_report`, `tidy_preview`, `move_batches`, `undo_preview`, `tidy_up`,
 `undo_moves`, `watched_folders`, `set_favourites`, `set_crate_shown`, `check_import_folder`, `removal_preview`, `add_watched_folder`,
-`remove_watched_folder`, `start_import`, `answer_same_song`, `keep_duplicates`, `supersede_duplicate`. Everything else works without a music folder, `open_licenses` included (Setup and Settings before one
+`remove_watched_folder`, `start_import`, `answer_same_song`, `keep_duplicates`, `supersede_duplicate`, `add_liked_music`. Everything else works without a music folder, `open_licenses` included (Setup and Settings before one
 is chosen); `downloads_view()` then counts zero tracks.
 
 **Bound but missing.** A folder that vanishes while the hub runs (an unplugged drive) behaves as an unbound one: every

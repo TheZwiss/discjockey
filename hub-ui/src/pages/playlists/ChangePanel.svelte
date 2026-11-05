@@ -9,10 +9,13 @@
   // folder: the rename on disk as a switch, the files as one list, the warning card, Save and move · Save, leave
   // files where they are) or each changed folder's count after the change (DeltaBar) and the tracks without a file
   // that land elsewhere later. A problem is a red NoteCard; Save is off while it shows.
+  // `empty` (no playlist in the file or the draft; sources round problem 9): no Segmented and no "0 tracks" card, but
+  // how a playlist comes in (NumberedSteps) and where its link is (LinkGuide, its two-line form at the panel's width);
+  // the foot stays, grey (disabled controls are never removed). The first added row brings the usual content back.
   import { untrack } from 'svelte';
   import {
-    Button, Cover, DeltaBar, EmptyState, Hint, InfoTip, ListRow, ListSection, NoteCard, ProblemCard, QualityBadge,
-    Segmented, Spinner, StatCard, Surface, ToggleRow, WriteButton,
+    Button, Cover, DeltaBar, EmptyState, Hint, InfoTip, LinkGuide, ListRow, ListSection, NoteCard, NumberedSteps,
+    ProblemCard, QualityBadge, Segmented, Spinner, StatCard, Surface, ToggleRow, WriteButton,
   } from '$lib/components';
   import { Panel } from '$lib/frames';
   import { api } from '$lib/bridge/client';
@@ -30,8 +33,9 @@
     toggleTick, visibleRows, type MoveItem, type SaveQuestion,
   } from './tidyModel';
 
-  let { dirty, lines, overlaps, rows, saving, tab, onpanel, ontab, onundo, onsave, onundobatch }: {
+  let { dirty, empty = false, lines, overlaps, rows, saving, tab, onpanel, ontab, onundo, onsave, onundobatch }: {
     dirty: boolean;                          // the draft differs from the loaded file
+    empty?: boolean;                         // no playlist yet: the panel says how one comes in
     lines: PlaylistLine[];                   // lines(draft), top first
     overlaps: Playlists['overlaps'];         // from playlists(), for the "not dirty" view
     rows: { folder: string; tracks: number | null }[];   // the saved rows, for the playlists' track counts
@@ -121,8 +125,8 @@
   // the backend's headline only when no number or list says the change (rename of an empty folder, nothing changes)
   const headlineOnly = $derived(!!p && !q && !p.new_downloads && !p.stopped && !bars.rows.length && !moving
     && !p.unknown.length);
-  const hasFill = $derived((panel.view === 'overlaps' && (showMoves ? true : cards.length > 0)) || !!(p && q)
-    || !!(p && routes.length));
+  const hasFill = $derived(!empty && ((panel.view === 'overlaps' && (showMoves ? true : cards.length > 0))
+    || !!(p && q) || !!(p && routes.length)));
 </script>
 
 {#snippet track(r: FoldRow)}
@@ -139,7 +143,16 @@
 
 {#snippet head()}
   <div class="part" class:dim={panel.dim} data-test="change-panel" aria-busy={panel.dim || undefined}>
-    {#if panel.view === 'overlaps'}
+    {#if empty && panel.view === 'overlaps'}
+      <Surface kind="card" label="How a playlist comes in" data-test="panel-how">
+        <NumberedSteps test="panel-how-steps">
+          <li><span>Copy its link in the music app</span></li>
+          <li><span>Paste it above: it gets a folder</span></li>
+          <li><span>Sync downloads its songs as AIFF</span></li>
+        </NumberedSteps>
+      </Surface>
+      <LinkGuide data-test="panel-link-guide" />
+    {:else if panel.view === 'overlaps'}
       <Segmented label="What the panel shows" value={tab} onchange={ontab} test="panel-tab"
         options={[{ key: 'overlaps', label: 'In several playlists', count: panel.overlaps.length },
           { key: 'moves', label: 'Recent moves', count: moves?.total ?? null }]} />

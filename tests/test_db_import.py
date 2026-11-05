@@ -137,6 +137,20 @@ def test_an_own_song_links_its_file_with_the_provisional_quality(lib):
     assert lib.save(state) == 0  # an own song round-trips
 
 
+def test_an_imported_file_linked_as_an_own_song_has_no_source_how_even_over_a_downloaded_one(lib):
+    """Sources round E1: how a source was found belongs to a Discjockey download; an own file never has one, also when
+    its row still held the value of the download whose audio the user replaced."""
+    folder = lib.folder().id
+    (a,) = lib.add_files(folder, "A.mp3")
+    with lib.conn() as conn:
+        conn.execute("UPDATE files SET source = 'qobuz', source_id = '123', source_format = 'flac 16/44.1', "
+                     "source_kbps = 256, source_how = 'isrc' WHERE id = ?", (a,))
+    key = lib.own_song(a)
+    assert lib.rows("SELECT source, source_id, source_kbps, source_how FROM files WHERE id = ?", a) == [
+        ("manual", None, None, None)]
+    assert lib.snap()["tracks"][key]["source_how"] is None
+
+
 def test_a_row_with_a_song_is_left_alone(lib):
     folder = lib.folder().id
     (a,) = lib.add_files(folder, "A.mp3")

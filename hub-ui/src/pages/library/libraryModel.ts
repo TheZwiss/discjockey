@@ -371,11 +371,18 @@ export const NOT_FOUND_HIDDEN_TIP = 'Nothing usable found yet. You hid it from T
  *  song (issues #29 "For B6": 13 tracks beside 18 rows and "18 songs" read as a disagreement). So when some have no
  *  file the count names both in one part, "13 of 18 downloaded" (the inspector's "not downloaded yet" for such a
  *  song): one part, so the parts dropping at a narrow width never leave half of it. Both numbers come from the one
- *  answer (`songs`, before any search or filter). */
-export function subtitleParts(lib: Pick<Library, 'subtitle' | 'songs' | 'view' | 'read_at'>): string[] {
+ *  answer (`songs`, before any search or filter).
+ *  `strip`: the SummaryStrip is shown. A read playlist's count then leaves the header (sources round D10, notes
+ *  problem 8): the strip says it at every size ("13 of 18 downloaded", with the bar's dashed end), and a header part
+ *  drops first when the panel is open, so the count was the part that went. The header keeps `{Service} playlist`
+ *  and its breadcrumb. Without the strip (no file yet) the header keeps the count, so it is never gone. */
+export function subtitleParts(lib: Pick<Library, 'subtitle' | 'songs' | 'view' | 'read_at'>, strip = false): string[] {
   const s = lib.songs;
   // a read playlist's count is its second part, after the service (the engine's order); every other view's is its first
   const at = lib.view === 'playlist' ? 1 : 0;
+  if (strip && s && lib.view === 'playlist' && lib.read_at !== null && lib.subtitle.length > at) {
+    return lib.subtitle.filter((_, i) => i !== at);
+  }
   if (!s || s.listed <= s.with_file || (lib.view === 'playlist' && lib.read_at === null) || lib.subtitle.length <= at) {
     return lib.subtitle;
   }
@@ -507,4 +514,17 @@ export function libraryCalls(folder: string | null, side: Pick<Sidebar, 'playlis
  *  uses it, so both start the same queue. */
 export function playQueue(lib: Pick<Library, 'rows' | 'also'>): LibraryRow[] {
   return allRows(lib).filter(playable);
+}
+
+// ---------- the row's context menu ----------
+/** The row menu's items in their order, worked out from the row alone when the menu opens (`link`: the row's own
+ *  `track_link`, so "Open in {Service}" is in the menu from its first frame and nothing joins it later). `todo`: the
+ *  row is on the to-do list; `finder`: its file can be shown in Finder. */
+export type MenuKind = 'details' | 'finder' | 'open' | 'todo';
+export function rowMenu(m: { todo: boolean; finder: boolean; link: LibraryRow['track_link'] }):
+  { kind: MenuKind; label: string; test?: string }[] {
+  return [{ kind: 'details', label: 'Show details', test: 'menu-details' },
+    ...(m.finder ? [{ kind: 'finder' as const, label: 'Show in Finder' }] : []),
+    ...(m.link ? [{ kind: 'open' as const, label: m.link.label, test: 'menu-open-in' }] : []),
+    ...(m.todo ? [{ kind: 'todo' as const, label: 'Open in to-do', test: 'menu-todo' }] : [])];
 }

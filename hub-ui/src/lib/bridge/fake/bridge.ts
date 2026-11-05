@@ -2,17 +2,19 @@
 import type { Bridge } from '../client';
 import type { HubEvent } from '../events';
 import type {
-  BatchResult, Candidate, ChangePreview, Fail, JobStart, LibraryFilter, LibrarySort, LibraryView, PlaylistLine, ProblemKind, Res, Result,
-  AccountCheck, Browser, PlaylistService, SaveFiles, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate,
+  BatchResult, Candidate, ChangePreview, Fail, JobStart, LibraryFilter, LibrarySort, LibraryView, PlaylistInfo, PlaylistLine, ProblemKind, Res, Result,
+  AccountCheck, Browser, PlaylistService, SaveFiles, SettingKey, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate,
 } from '../types';
 import { LIBRARY_METHODS } from '../contract';
 import {
   FAKE_MUSIC, FAKE_NEWEST_YT_DLP, LINK_REFUSED, QOBUZ_UNREADABLE, SOUNDCLOUD_SET_LINK, SERVICE_NAME, SOUNDCLOUD_UNREADABLE, YOUTUBE_MIX_REFUSED, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkStatus, checkView, coverUri, dateOnly, folderList, hash, isoLocal, makeState, nextStep,
   pathOf, previewAction, qualityLabel, qualityLine, qualityOf, result, runDetail, runId,
-  readStatus, sampleCandidates, readOk, todoDetail, todoFree, formatLine, sourceFull, todoGroup, trackRow, type FakeAccount, type FakeFolder, type FakeState,
+  readStatus, sampleCandidates, readOk, todoDetail, todoFree, fileFormatLine, sourceFormatLine, sourceHowOf, sourceFull, todoGroup, trackRow, type FakeAccount, type FakeFolder, type FakeState,
   type FakeTrack,
 } from './data';
-import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, libraryOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
+import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, fakeLink, libraryOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
+import { LIKED_FOLDER, LIKED_LINK, LIKED_LISTED, LIKED_NEEDS_LOGIN, LIKED_OFF, LIKED_SETTING, isLikedLink, likedOn,
+  likedScenarios, likedStatus } from './liked';
 import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, rewrite } from './replay';
 import { daysToLoad } from '../../days';
 import { minutesByDownloads } from './minutes';
@@ -97,7 +99,7 @@ const DOWNLOAD_KINDS = ['sync', 'use_candidate', 'use_link'];
 /** Page extensions: src/pages/<page>/fake.ts may add scenarios and override handlers. */
 const pageFakes = import.meta.glob<PageFake>('/src/pages/*/fake.ts', { eager: true });
 export function pageScenarios(): Record<string, (s: FakeState) => void> {
-  const out: Record<string, (s: FakeState) => void> = {};
+  const out: Record<string, (s: FakeState) => void> = { ...likedScenarios };
   for (const [path, mod] of Object.entries(pageFakes)) {
     const page = path.split('/').at(-2)!;
     for (const [name, fn] of Object.entries(mod.scenarios ?? {})) out[`${page}:${name}`] = fn;
@@ -141,8 +143,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     }
     emitRaw(e);
   };
-  const fail = (kind: ProblemKind, message: string, service?: PlaylistService): Fail =>
-    ({ ok: false, kind, message, ...(service ? { service } : {}) });
+  const fail = (kind: ProblemKind, message: string, service?: PlaylistService, setting?: SettingKey): Fail =>
+    ({ ok: false, kind, message, ...(service ? { service } : {}), ...(setting ? { setting } : {}) });
   const later = <T>(ms: number, value: () => T) => new Promise<T>((r) => setTimeout(() => r(value()), ms / speed));
   const ok = <T extends object>(v: T) => ({ ok: true as const, ...v });
   const syncRunning = () => (job?.running && job.kind === 'sync') || s.console_running;
@@ -376,6 +378,74 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   }
 
   // ---------- the contract ----------
+  // add_playlist's answer for a pasted link; what it finds is kept (`found`), as the engine keeps each read's info
+  // (hub/api.py `_infos`), so a playlist saved right after it lists with its name, owner and tracks, not "not read yet"
+  const found = new Map<string, PlaylistInfo>();
+  async function findPlaylist(url: string) {
+    const block = networkBlock();
+    if (block) return block;
+    const q = /open\.qobuz\.com\/playlist\/(\d+)/.exec(url ?? '');
+    if (q) {
+      if (s.qobuzNotConnected) {
+        return fail('not_set_up', 'Connect Qobuz first.', 'qobuz');
+      }
+      if (s.qobuzUnreadable) return later(700, () => fail('playlist_unreadable', QOBUZ_UNREADABLE, 'qobuz'));
+      const name = `Qobuz playlist ${q[1].slice(-4)}`;
+      return later(700, () => ok({ playlist_id: `qobuz:${q[1]}`, service: 'qobuz' as const, service_name: 'Qobuz',
+        link: `https://open.qobuz.com/playlist/${q[1]}`,
+        info: { name, owner_name: 'Example Curator', yours: false, collaborative: false, readable: true,
+          image_url: null, track_count: 18, hint: hintOf('qobuz') }, tracks: 18, readable: true,
+        suggested_folder: name.replace(/\W+/g, '_'), hint: null }));
+    }
+    // a short link or "you/likes" is expanded first (the real engine: sources.expand); here to the sample set / likes
+    const pasted = (url ?? '').trim().replace(/^https?:\/\/on\.soundcloud\.com\/\w+\/?$/i, SOUNDCLOUD_SET_LINK)
+      .replace(/^(https?:\/\/(?:www\.)?soundcloud\.com\/)you\/likes\/?$/i, '$1example-dj/likes');
+    const sc = /^https?:\/\/(?:www\.)?soundcloud\.com\/([\w-]+(?:\/(?:sets\/[\w-]+(?:\/s-\w+)?|likes))?)\/?$/i.exec(pasted);
+    if (sc) {
+      if (s.soundcloudUnreadable) return later(700, () => fail('playlist_unreadable', SOUNDCLOUD_UNREADABLE, 'soundcloud'));
+      const link = `https://soundcloud.com/${sc[1].toLowerCase()}`;
+      const likes = /\/likes$/.test(link);
+      const name = likes ? "Example DJ's likes" : 'Example Set';
+      return later(700, () => ok({ playlist_id: playlistRef(link)!, service: 'soundcloud' as const,
+        service_name: 'SoundCloud', link,
+        info: { name, owner_name: likes ? '' : 'Example Label', yours: false, collaborative: false,
+          readable: true, image_url: null, track_count: likes ? null : 12, hint: hintOf('soundcloud') },
+        tracks: 12, readable: true, suggested_folder: name.replace(/\W+/g, '_'), hint: null }));
+    }
+    const yt = /^https?:\/\/(?:music\.|www\.|m\.)?youtube\.com\/(?:playlist|watch)\?(?:[^#]*&)?list=([\w-]+)/i.exec((url ?? '').trim());
+    if (yt && isLikedLink(url ?? '')) {
+      // Liked music signs in, so it is a choice in Settings (the engine decides before any request)
+      if (!likedOn(s)) return fail('setting_off', LIKED_OFF, 'youtube_music', LIKED_SETTING);
+      return later(700, () => ok({ playlist_id: 'youtube_music:LM', service: 'youtube_music' as const,
+        service_name: 'YouTube Music', link: LIKED_LINK,
+        info: { name: 'Liked music', owner_name: 'You', yours: true, collaborative: false, readable: true,
+          image_url: null, track_count: 312, hint: hintOf('youtube_music') },
+        tracks: 312, readable: true, suggested_folder: LIKED_FOLDER, hint: null }));
+    }
+    if (yt) {
+      if (s.youtubeMixRefused || /^RD(?!CLAK5uy_)/.test(yt[1])) {
+        return fail('playlist_unreadable', YOUTUBE_MIX_REFUSED, 'youtube_music');
+      }
+      const link = `https://music.youtube.com/playlist?list=${yt[1]}`;
+      return later(700, () => ok({ playlist_id: `youtube_music:${yt[1]}`, service: 'youtube_music' as const,
+        service_name: 'YouTube Music', link,
+        info: { name: 'Example Warm-up', owner_name: 'Example Channel', yours: false, collaborative: false,
+          readable: true, image_url: null, track_count: 20, hint: hintOf('youtube_music') },
+        tracks: 20, readable: true, suggested_folder: 'Example_Warm_up', hint: null }));
+    }
+    const m = /open\.spotify\.com\/playlist\/([A-Za-z0-9]+)/.exec(url ?? '');
+    if (!m) return fail('refused', LINK_REFUSED);
+    const id = m[1];
+    const readable = !/private|follow/i.test(id);
+    const name = `Name of ${id.slice(0, 4)}`;
+    const link = `https://open.spotify.com/playlist/${id}`;
+    return later(700, () => ok({ playlist_id: playlistRef(link) ?? id, service: serviceOfLink(link),
+      service_name: SERVICE_NAME[serviceOfLink(link)], link,
+      info: { name, owner_name: readable ? 'DJ One' : 'Someone else', yours: readable, collaborative: false, readable,
+        image_url: null, track_count: readable ? 24 : 0, hint: hintOf('spotify') }, tracks: readable ? 24 : 0, readable,
+      suggested_folder: name.replace(/\W+/g, '_'), hint: readable ? null : hintOf('spotify') }));
+  }
+
   const h: Handlers = {
     async dashboard() {
       const inPl = s.tracks.filter((t) => t.in_playlists);
@@ -475,16 +545,20 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const q = qualityOf(t);
       const plus = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return dateOnly(d); };
       const query = `${t.artist} ${t.title}`.replace(/ /g, '+');
+      const link = fakeLink(t);
+      // the engine drops the source's link when it is the song's own page (a YouTube Music playlist's own upload)
+      const sourceUrl = t.source === 'youtube' ? 'https://www.youtube.com/watch?v=abcdefghijk'
+        : t.source === 'youtube_music' ? (t.how === 'upload' ? link.url : 'https://music.youtube.com/watch?v=abcdefghijk')
+          : t.source === 'soundcloud' ? null   // as the engine: a SoundCloud id is a number, no page link
+            : t.source === 'qobuz' ? 'https://open.qobuz.com/track/112233' : null;
       return ok({ track: {
         ...trackRow(t), sound_checked: !t.unchecked, file_state: t.away ?? 'here', place: trackPlace(s, t), isrc: t.isrc,
         playlists: s.previewRead ? [...t.playlists] : null,
-        in_playlist_count: t.playlists.length, quality_line: qualityLine(t), format_line: formatLine(t),
+        in_playlist_count: t.playlists.length, quality_line: qualityLine(t), format_line: fileFormatLine(t),
+        source_format_line: sourceFormatLine(t), source_how: sourceHowOf(t),
         source_full: q === 'missing' ? null : sourceFull(t),
-        source_url: t.source === 'youtube' ? 'https://www.youtube.com/watch?v=abcdefghijk'
-          : t.source === 'youtube_music' ? 'https://music.youtube.com/watch?v=abcdefghijk'
-            : t.source === 'soundcloud' ? 'https://soundcloud.com/artist/track'
-              : t.source === 'qobuz' ? 'https://open.qobuz.com/track/112233' : null,
-        track_link: t.link ?? { url: `https://open.spotify.com/track/${t.track_id}`, label: 'Open in Spotify' },
+        source_url: sourceUrl === link.url ? null : sourceUrl,
+        track_link: link,
         next_qobuz_check: q === 'lossless' ? null : q === 'missing' ? (t.next_try_days === 1 ? 'next_sync'
           : plus(t.next_try_days ?? 5)) : plus(4),
         rejected_sources: [...t.rejected_sources],
@@ -548,7 +622,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         existing: imports > 0 || s.imp.skipped, import_folders: imports, import_skipped: s.imp.skipped,
         qobuz_last_check: s.qobuzLastCheck ?? null,
         spotify_user: s.setup.spotify_login ? s.spotifyUser ?? 'DJ One' : null,
-        accounts: { youtube: status(s.accounts.youtube), soundcloud: status(s.accounts.soundcloud) } });
+        accounts: { youtube: status(s.accounts.youtube), soundcloud: status(s.accounts.soundcloud) },
+        youtube_music: likedStatus(s) });
     },
     async select(track_id: string | null) { s.selected = track_id; return ok({}); },
     async downloads_view() {
@@ -642,59 +717,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return later(1200, () => ok({ url: toneUrl(30, 262 + (Math.abs(hash(candidate?.key ?? '')) % 5) * 30) }));
     },
     async add_playlist(url: string) {
-      const block = networkBlock();
-      if (block) return block;
-      const q = /open\.qobuz\.com\/playlist\/(\d+)/.exec(url ?? '');
-      if (q) {
-        if (s.qobuzNotConnected) {
-          return fail('not_set_up', 'Connect Qobuz first.', 'qobuz');
-        }
-        if (s.qobuzUnreadable) return later(700, () => fail('playlist_unreadable', QOBUZ_UNREADABLE, 'qobuz'));
-        const name = `Qobuz playlist ${q[1].slice(-4)}`;
-        return later(700, () => ok({ playlist_id: `qobuz:${q[1]}`, service: 'qobuz' as const, service_name: 'Qobuz',
-          link: `https://open.qobuz.com/playlist/${q[1]}`,
-          info: { name, owner_name: 'Example Curator', yours: false, collaborative: false, readable: true,
-            image_url: null, track_count: 18, hint: hintOf('qobuz') }, tracks: 18, readable: true,
-          suggested_folder: name.replace(/\W+/g, '_'), hint: null }));
-      }
-      // a short link or "you/likes" is expanded first (the real engine: sources.expand); here to the sample set / likes
-      const pasted = (url ?? '').trim().replace(/^https?:\/\/on\.soundcloud\.com\/\w+\/?$/i, SOUNDCLOUD_SET_LINK)
-        .replace(/^(https?:\/\/(?:www\.)?soundcloud\.com\/)you\/likes\/?$/i, '$1example-dj/likes');
-      const sc = /^https?:\/\/(?:www\.)?soundcloud\.com\/([\w-]+(?:\/(?:sets\/[\w-]+(?:\/s-\w+)?|likes))?)\/?$/i.exec(pasted);
-      if (sc) {
-        if (s.soundcloudUnreadable) return later(700, () => fail('playlist_unreadable', SOUNDCLOUD_UNREADABLE, 'soundcloud'));
-        const link = `https://soundcloud.com/${sc[1].toLowerCase()}`;
-        const likes = /\/likes$/.test(link);
-        const name = likes ? "Example DJ's likes" : 'Example Set';
-        return later(700, () => ok({ playlist_id: playlistRef(link)!, service: 'soundcloud' as const,
-          service_name: 'SoundCloud', link,
-          info: { name, owner_name: likes ? '' : 'Example Label', yours: false, collaborative: false,
-            readable: true, image_url: null, track_count: likes ? null : 12, hint: hintOf('soundcloud') },
-          tracks: 12, readable: true, suggested_folder: name.replace(/\W+/g, '_'), hint: null }));
-      }
-      const yt = /^https?:\/\/(?:music\.|www\.|m\.)?youtube\.com\/(?:playlist|watch)\?(?:[^#]*&)?list=([\w-]+)/i.exec((url ?? '').trim());
-      if (yt) {
-        if (s.youtubeMixRefused || /^RD(?!CLAK5uy_)/.test(yt[1])) {
-          return fail('playlist_unreadable', YOUTUBE_MIX_REFUSED, 'youtube_music');
-        }
-        const link = `https://music.youtube.com/playlist?list=${yt[1]}`;
-        return later(700, () => ok({ playlist_id: `youtube_music:${yt[1]}`, service: 'youtube_music' as const,
-          service_name: 'YouTube Music', link,
-          info: { name: 'Example Warm-up', owner_name: 'Example Channel', yours: false, collaborative: false,
-            readable: true, image_url: null, track_count: 20, hint: hintOf('youtube_music') },
-          tracks: 20, readable: true, suggested_folder: 'Example_Warm_up', hint: null }));
-      }
-      const m = /open\.spotify\.com\/playlist\/([A-Za-z0-9]+)/.exec(url ?? '');
-      if (!m) return fail('refused', LINK_REFUSED);
-      const id = m[1];
-      const readable = !/private|follow/i.test(id);
-      const name = `Name of ${id.slice(0, 4)}`;
-      const link = `https://open.spotify.com/playlist/${id}`;
-      return later(700, () => ok({ playlist_id: playlistRef(link) ?? id, service: serviceOfLink(link),
-        service_name: SERVICE_NAME[serviceOfLink(link)], link,
-        info: { name, owner_name: readable ? 'DJ One' : 'Someone else', yours: readable, collaborative: false, readable,
-          image_url: null, track_count: readable ? 24 : 0, hint: hintOf('spotify') }, tracks: readable ? 24 : 0, readable,
-        suggested_folder: name.replace(/\W+/g, '_'), hint: readable ? null : hintOf('spotify') }));
+      const r = await findPlaylist(url);
+      if (r.ok) found.set(r.link, r.info);
+      return r;
     },
     async tidy_preview() { return ok(tidyPreview(s)); },
     async move_batches() { return ok(moveBatches(s)); },
@@ -758,7 +783,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           const before = new Map(s.tracks.map((t) => [t.track_id, pathOf(t) ?? '']));
           const old = new Map(s.playlists.map((p) => [p.link, p]));
           s.playlists = lines.map((l) => ({ folder: l.folder, link: l.link, enabled: l.enabled,
-            info: old.get(l.link)?.info ?? null }));
+            info: old.get(l.link)?.info ?? found.get(l.link) ?? null }));
           for (const t of s.tracks) t.playlists = t.playlists.map((f) => renames.find(([was]) => was === f)?.[1] ?? f);
           s.version++;
           // as the real setup_status, which reads playlists.txt: a saved list counts as "playlists added"
@@ -1087,6 +1112,29 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         finish(true, {});
       }, 300 / speed));
     },
+    async set_read_liked_music(on: boolean) {
+      if (typeof on !== 'boolean') return fail('refused', 'on must be true or false.');
+      return startJob('set_read_liked_music', null, (finish) => setTimeout(() => {
+        if (on && !s.accounts.youtube) return finish(false, null, 'not_set_up', LIKED_NEEDS_LOGIN);
+        s.likedMusic = on;  // turning it off never touches playlists.txt
+        finish(true, {});
+      }, 300 / speed));
+    },
+    async add_liked_music() {
+      return startJob('add_liked_music', null, (finish) => setTimeout(() => {
+        if (!likedOn(s)) return finish(false, null, 'setting_off', LIKED_OFF);
+        if (s.playlists.some((p) => isLikedLink(p.link))) return finish(false, null, 'exists', LIKED_LISTED);
+        let folder = LIKED_FOLDER;
+        for (let n = 2; s.playlists.some((p) => p.folder.toLowerCase() === folder.toLowerCase()); n++) folder = `${LIKED_FOLDER}_${n}`;
+        s.playlists = [...s.playlists, { folder, link: LIKED_LINK, enabled: true,
+          info: { name: 'Liked music', owner_name: 'You', yours: true, collaborative: false, readable: true,
+            image_url: null, track_count: 312, hint: hintOf('youtube_music') } }];
+        s.version++;
+        s.setup = { ...s.setup, playlists: true };
+        s.read_status = { ...s.read_status, stale: true };
+        finish(true, { folder });
+      }, 300 / speed));
+    },
     async setup_account(service: 'youtube' | 'soundcloud', browser: Browser, profile: string | null = null) {
       if (!['youtube', 'soundcloud'].includes(service)) return fail('refused', 'service must be one of youtube, soundcloud');
       if (!(browser in BROWSER_NAMES)) return fail('refused', 'browser must be one of safari, chrome, firefox, brave, edge');
@@ -1107,6 +1155,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     async setup_forget_account(service: 'youtube' | 'soundcloud') {
       return startJob('setup_forget_account', null, (finish) => setTimeout(() => {
         s.accounts[service] = null;
+        if (service === 'youtube') s.likedMusic = false;  // nothing to read it with; signing in again doesn't resume
         finish(true, { service });
       }, 300 / speed));
     },

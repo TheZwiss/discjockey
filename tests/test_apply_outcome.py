@@ -13,8 +13,8 @@ def act(kind, aliases=()):
     return Action(kind, "t1", "A", T, (0, 0), aliases=aliases)
 
 
-def placed(status="lossless", path="Library/A/Artist - Song.aiff", source="qobuz"):
-    return Outcome("placed", Placed(path, status, source, "q1", "flac", None), rejected=("youtube:y1",))
+def placed(status="lossless", path="Library/A/Artist - Song.aiff", source="qobuz", how="isrc"):
+    return Outcome("placed", Placed(path, status, source, "q1", "flac", None, how=how), rejected=("youtube:y1",))
 
 
 def existing(**kw):
@@ -55,6 +55,17 @@ def test_missing():
     assert e["status"] == "missing" and e["path"] is None and e["source"] is None
     assert e["last_attempt"] == "2026-10-20"
     assert e["rejected_sources"] == ["qobuz:5"]
+
+
+def test_placed_stores_how_the_source_was_found_and_a_bought_file_none():
+    assert apply_outcome(None, act("acquire"), placed(), NOW)["source_how"] == "isrc"
+    bought = Outcome("placed", Placed("Library/A/Artist - Song.wav", "lossless", "manual", None, "pcm_s24le", None))
+    assert apply_outcome(existing(source_how="fallback"), act("acquire"), bought, NOW)["source_how"] is None
+
+
+def test_missing_clears_how_the_source_was_found():
+    e = apply_outcome(existing(source_how="fallback"), act("acquire"), Outcome("missing"), NOW)
+    assert e["status"] == "missing" and e["source_how"] is None
 
 
 def test_errored_new_track_creates_nothing():

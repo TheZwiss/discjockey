@@ -1,6 +1,6 @@
 // The checks of AddRow (paste a playlist link, check it, name its folder), shared by Playlists and Setup's first
 // playlist. Pure. Playlists' rows use folderProblem for their rename too.
-import type { PlaylistInfo, PlaylistService, ProblemKind } from '../bridge/types';
+import type { PlaylistInfo, PlaylistService, ProblemKind, SettingKey } from '../bridge/types';
 
 /** What the checks need of a playlist already in the list (Playlists' draft rows are one). */
 export type PlaylistRef = { key: string; folder: string; link: string };
@@ -83,4 +83,33 @@ export function bannerSaysIt(error: { kind: ProblemKind; service: PlaylistServic
   block: { service: PlaylistService } | null, saidInBody: { readStatus?: boolean }): boolean {
   return (error.kind === 'not_set_up' || error.kind === 'login_expired') && !!error.service && !!block
     && block.service === error.service && !saidInBody.readStatus;
+}
+
+/** The found card's "needs a setting" form (sources round D9): a link the engine reads only once a Settings choice is
+ *  on (`add_playlist` answers `setting_off` with the `setting`). No read happened, so the card shows the facts the
+ *  setting itself gives: the playlist's fixed name, its service and owner, what is off and why it is a choice.
+ *  `later` is the Hint where the caller has no way to Settings (Setup): the same why, then when to do it and what to
+ *  do now. The form never turns the setting on itself: Settings' warning is read first (sources round D9, S2). */
+export type SettingForm = { name: string; service: PlaylistService; owner: string; line: string; hint: string;
+  later: string };
+
+const SETTING_FORMS: Record<SettingKey, SettingForm> = {
+  read_liked_music: {
+    name: 'Liked music', service: 'youtube_music', owner: 'yours',
+    line: 'Reading your Liked music is off',
+    hint: "It reads through your YouTube login, so it's a choice in Settings.",
+    later: "It reads through your YouTube login, so it's a choice in Settings. Turn it on there after setup; add another playlist for now.",
+  },
+};
+
+export function settingForm(setting: SettingKey): SettingForm {
+  return SETTING_FORMS[setting];
+}
+
+/** The found card's line under the playlist (sources round row 13): what reading it takes. Liked music is read through
+ *  the user's YouTube login (Settings' choice is on, else the card is the "needs a setting" form), so the card says
+ *  so; every other playlist is read without a login of the user's account. */
+export function readLine(link: string): string {
+  return playlistKey(link) === 'youtube_music:LM' ? 'Discjockey reads it through your YouTube login'
+    : 'Discjockey can read this playlist';
 }

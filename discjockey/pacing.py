@@ -7,7 +7,7 @@ import time
 from datetime import date, datetime, timedelta
 from typing import Callable
 
-from .accounts import SERVICE_NAMES
+from .accounts import ACCOUNTS, SERVICE_NAMES
 from .events import CancelToken, Emit, Waiting, no_emit
 from .settings import Settings
 
@@ -28,6 +28,24 @@ def record_signal(state: dict, kind: str, message: str, now: datetime, service: 
     signals = usage(state, service)["signals"]
     signals.append({"time": now.isoformat(timespec="seconds"), "kind": kind, "message": message})
     del signals[:-KEEP_SIGNALS]
+
+
+# Signs that an account is being held back today: the reads of Liked music (sources-round D6) stay away from it. A bot
+# check or "too many requests" is YouTube already doubting the account; auto_stop is Discjockey's own pause after
+# failed requests in a row (hub/views.limit_cards shows the same pause)
+PAUSE_SIGNALS = frozenset({"auto_stop", "bot_check", "rate_limited"})
+
+
+def account_paused(state: dict, service: str, today: date) -> bool:
+    """Whether `service`'s account is paused today: it has a pause sign (PAUSE_SIGNALS) recorded today. Pure."""
+    day = today.isoformat()
+    return any(s.get("kind") in PAUSE_SIGNALS and str(s.get("time", ""))[:10] == day
+               for s in state.get(f"{service}_usage", {}).get("signals", []))
+
+
+def paused_accounts(state: dict, today: date) -> frozenset[str]:
+    """The account services (accounts.ACCOUNTS) paused today."""
+    return frozenset(s for s in ACCOUNTS if account_paused(state, s, today))
 
 
 class Budget:

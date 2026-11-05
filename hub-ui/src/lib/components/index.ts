@@ -60,6 +60,8 @@ export { default as CopyCode } from './CopyCode.svelte';
 export { default as SecretField } from './SecretField.svelte';
 export { default as AccountPanel } from './AccountPanel.svelte';
 export { default as AddRow } from './AddRow.svelte';
+export { default as LinkGuide } from './LinkGuide.svelte';
+export { GUIDE_SERVICES, guideRows, type GuideRow } from './linkGuideModel';
 export { default as StepStrip, type StripStep } from './StepStrip.svelte';
 export { folderProblem, hasLink, ownerText, playlistKey, type PlaylistRef } from './addRowModel';
 export { copyText } from './clipboard';

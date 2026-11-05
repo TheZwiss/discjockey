@@ -6,6 +6,8 @@
 //   sync:converting  a sync already running, frozen at the StepChanged convert of "non stop" (SYNC_LINES.converting)
 //   sync:own-cover   as sync:converting, but "non stop" has no service picture (the recorded run has none) and its file
 //                    carries artwork: the plan's cover link, saved at Start, fills the live card's cover
+//   sync:downloading-upload  a sync already running, frozen in a download (SYNC_LINES.downloading) whose source is the
+//                    SoundCloud playlist's own upload: the card's from line "SoundCloud · the playlist's own upload"
 //   sync:up-to-date  Spotify read, nothing to do (2 "never download" tracks)
 //   sync:crashed           a sync already running crashes; its crash note is filed as the run's report
 //   sync:stop-refused  a sync already running (as sync:converting) whose Stop safely fails
@@ -143,6 +145,7 @@ export const scenarios: PageFake['scenarios'] = {
   reading: reading(true),
   rereading: reading(false),
   converting: (s) => { s.scenario = 'sync:converting'; },
+  'downloading-upload': (s) => { s.scenario = 'sync:downloading-upload'; },
   'own-cover'(s) {
     s.scenario = 'sync:own-cover';
     // what Start saves: the plan's cover link of "non stop" (t5), the artwork of its file (the run's own events have none)
@@ -189,6 +192,13 @@ export const overrides: PageFake['overrides'] = {
     if (ctx.s.scenario === 'sync:converting' || ctx.s.scenario === 'sync:stop-refused' || ctx.s.scenario === 'sync:own-cover') {
       ctx.startJob('sync', null, () => {
         for (const e of STREAMS.sync.slice(SYNC_START_LINE, SYNC_LINES.converting)) ctx.emit(e);
+      });
+    }
+    if (ctx.s.scenario === 'sync:downloading-upload') {
+      ctx.startJob('sync', null, () => {
+        for (const e of STREAMS.sync.slice(SYNC_START_LINE, SYNC_LINES.downloading)) {
+          ctx.emit(e.type === 'SourceChosen' ? { ...e, source: 'soundcloud', query_kind: 'upload' } : e);
+        }
       });
     }
     if (ctx.s.scenario === 'sync:crashed' && !crashStarted) {

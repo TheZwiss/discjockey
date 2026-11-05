@@ -77,6 +77,8 @@ export interface Bridge {
   rollback_tools(): Promise<JobStart>;
   setup_skip_qobuz(): Promise<JobStart>;
   setup_skip_spotify(): Promise<JobStart>;
+  set_read_liked_music(on: boolean): Promise<JobStart>;
+  add_liked_music(): Promise<JobStart>;
   setup_skip_import(): Promise<Res<{}>>;
   setup_account(service: 'youtube' | 'soundcloud', browser: Browser, profile?: string | null): Promise<JobStart>;
   setup_check_account(service: 'youtube' | 'soundcloud'): Promise<Res<{ service: Service; check: AccountCheck }>>;

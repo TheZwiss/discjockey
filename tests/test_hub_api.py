@@ -30,7 +30,7 @@ CONTRACT = {
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
     "watched_folders", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
     "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate", "setup_skip_import",
-    "set_favourites", "set_crate_shown",
+    "set_favourites", "set_crate_shown", "set_read_liked_music", "add_liked_music",
 }
 READ_ONLY = ["dashboard", "sidebar", "sync_preview", "job_status", "library", "todo", "limits",
              "runs", "setup_status", "playlists", "downloads_view", "tidy_preview", "move_batches", "watched_folders"]
@@ -247,6 +247,15 @@ def test_library_track_and_todo(root):
     todo = api.todo()
     assert [g["key"] for g in todo["groups"]] == ["upgrade_ready", "not_found"]
     assert api.track("nope")["kind"] == "changed"
+
+
+def test_library_rows_carry_the_same_track_link_as_the_details(root):
+    """The row menu's "Open in …" reads the row (there when the menu opens): the same link the details' head has,
+    here from the keys (no read yet); asking for the rows makes no call to a service (fake_spotify only serves reads)."""
+    api, _ = make_api(root)
+    rows = api.library("folder", "Library/Hard_Bounce", "", "all", "title")["rows"]
+    assert rows and all(r["track_link"] == api.track(r["track_id"])["track"]["track_link"] for r in rows)
+    assert all(r["track_link"] and r["track_link"]["label"].startswith("Open in ") for r in rows)
 
 
 def test_sidebar_counts(root):

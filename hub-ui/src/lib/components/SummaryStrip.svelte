@@ -15,16 +15,20 @@
   // proportion (`stripView.mix`), the not-lossless part of the bar beside it, never one quality's dot (red alone
   // would claim "weak" for the whole group, and red is the Weak segment's dot right below).
   // `summary={null}`: waiting (dashes and the bar's shimmer), the same height.
+  // `songs` (a read playlist's `{listed, with_file}`, sources round D10): the caption adds "13 of 18 downloaded" and
+  // the bar ends in a dashed segment for the songs with no file yet, so it spans every song of the playlist; a view
+  // that is no read playlist passes none and the caption and the bar are as before.
   import type { Library } from '../bridge/types';
   import QualityBar from './QualityBar.svelte';
   import Surface from './Surface.svelte';
   import { stripView } from './summaryStripModel';
   import { tip as tipAction } from './tip';
 
-  let { summary, onupgrades, ontodo }: {
-    summary: Library['summary'] | null; onupgrades: () => void; ontodo: () => void;
+  let { summary, onupgrades, ontodo, songs = null }: {
+    summary: Library['summary'] | null; onupgrades: () => void; ontodo: () => void; songs?: Library['songs'];
   } = $props();
-  const v = $derived(stripView(summary));
+  const v = $derived(stripView(summary, songs));
+  const waiting = $derived(songs ? Math.max(0, songs.listed - songs.with_file) : 0);
 </script>
 
 {#snippet chev()}<svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" /></svg>{/snippet}
@@ -59,7 +63,7 @@
       <div class="num"><span data-test="strip-share">{v.share ?? '—'}</span>{#if v.share !== null}<span class="unit">% lossless</span>{/if}</div>
       <div class="label" data-test="strip-line">{v.line}</div>
     </div>
-    <div class="bar"><QualityBar by_quality={summary?.by_quality ?? null} /></div>
+    <div class="bar"><QualityBar by_quality={summary?.by_quality ?? null} {waiting} /></div>
     <div class="rows">
       {@render row('good', v.upgrades.link, onupgrades, v.upgrades.count, 'strip-upgrades', 'Upgrade ready', null, null)}
       {@render row('mix', v.notLossless.link, ontodo, v.notLossless.count, 'strip-todo', 'Not lossless yet',

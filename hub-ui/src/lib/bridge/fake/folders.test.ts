@@ -280,7 +280,8 @@ describe('fake To-do of the import', () => {
     expect(must(await f.library('all', null, '', 'all', '-quality')).rows[0].sound_checked).toBe(false);
     const d = must(await f.track('local:1')).track;
     expect(d).toMatchObject({ sound_checked: false, source_full: 'your own file', source_name: 'own file',
-      quality_line: 'Your own file (PCM) · sound not checked yet', format_line: 'uncompressed PCM' });
+      quality_line: 'Your own file (PCM) · sound not checked yet', format_line: 'WAV · 24-bit',
+      source_format_line: null, source_how: null });
     expect(must(await f.track('local:3')).track.quality_line).toBe('Your own file (PCM) · verified lossless');
     expect(must(await f.todo('all', false)).groups.flatMap((g) => g.items).some((i) => i.track_id.startsWith('local:'))).toBe(false);
   });

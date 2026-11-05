@@ -3,8 +3,18 @@
 Reading a playlist is not a download: it uses none of the download protection (no pacing, no budget, no usage row, no
 auto-stop), and a read error never counts as a failed download. Reads are anonymous: no browser cookies, no login,
 no `extractor_args`. The Premium downloads use the YouTube login, so a read must never carry cookies or any state
-into them (see "State" below), and "Liked music" (`LM`), "Liked videos" (`LL`) and "Watch later" (`WL`) are refused
-(W17) because reading them would need that login.
+into them (see "State" below), and "Liked videos" (`LL`) and "Watch later" (`WL`) are refused (W17) because reading
+them would need that login.
+
+The one exception is "Liked music" (`LM`, sources-round D5-D7), the user's choice in Settings (`Settings.
+read_liked_music`, off by default; it needs a YouTube account). While the choice is off, `left_out` says the line is
+not read at all (the sync treats it as a switched-off line, no problem) and a direct read answers
+`SourceError(.., "setting_off")`. While it is on, the LM line is read through a second `YoutubeDL` of the reader's
+own, created on the first LM read, carrying `accounts.ytdlp_login("youtube", ..)` and closed with the reader: the
+anonymous `YoutubeDL`, every other playlist's read and the download path never see those options. It obeys the
+account's waits (D6): `left_out` also says so while the YouTube account is paused today (`pacing.account_paused`),
+and a bot check or "too many requests" met by the LM read itself is handed to `reader.on_signal` (the sync records
+it as the account's warning sign, the one a download would) and ends that line with `LineSkipped`, not the run.
 
 The reader asks yt-dlp's `youtube:tab` extractor through its own `YoutubeDL`, with `extract_flat` and
 `process=False`: the extractor returns the playlist's facts (title, owner, count, thumbnails) on the outer dict after
@@ -21,25 +31,40 @@ here writes a class attribute; a test snapshots the extractor classes around a r
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING, Callable
 from urllib.parse import parse_qs, urlsplit
 
-from ..accounts import signal_of
+from ..accounts import BROWSERS, signal_of, ytdlp_login
 from ..events import CancelToken, no_emit
 from ..library import SupportPaths
 from ..models import FetchedPlaylist, PlaylistInfo, PlaylistLine, SourceTrack
 from ..titles import clean_uploader, split_title
-from .base import LoginState, SourceError
+from .base import LineSkipped, LoginState, SourceError
+
+if TYPE_CHECKING:
+    from ..settings import Settings
 
 SERVICE = "youtube_music"
+SETTING = "read_liked_music"  # the settings.json key of the Liked music choice
+ACCOUNT = "youtube"  # the download account whose login the Liked music read uses (accounts.ACCOUNT_OF)
 
 UNREADABLE_HINT = "Set it to public or unlisted in YouTube Music."
 UNREADABLE_INFO = "YouTube Music doesn't show this playlist. It must be public or unlisted. Check the link."
 SLOW_DOWN = "YouTube Music asked Discjockey to slow down. Try again in an hour."
-PERSONAL = ("Discjockey can't read your liked songs or Watch later. Add the songs to a playlist, set it to public or "
+PERSONAL = ("Discjockey can't read your liked videos or Watch later. Add the songs to a playlist, set it to public or "
             "unlisted, and paste that link.")
+SETTING_OFF = "Reading your Liked music is off. Turn it on in Settings."
+LIKED_UNREADABLE = ("YouTube Music doesn't show your Liked music. Check that you are signed in to YouTube in your "
+                    "browser (Settings, YouTube Premium) and try again.")
+LIKED_PAUSED = "YouTube asked Discjockey to slow down, so your Liked music was not read this time."
+LIKED_LOGIN = ("Discjockey couldn't read your YouTube login to read your Liked music. Check it in Settings, "
+               "YouTube Premium.")
+LIKED_RESTING = "Your YouTube account is resting after a warning sign today. Try reading your Liked music tomorrow."
 MIX = ("This is a YouTube mix, which changes every time it plays. Save its songs to a playlist and paste that link.")
 
-PERSONAL_IDS = frozenset({"LM", "LL", "WL"})
+LIKED_MUSIC = "LM"  # "Liked music": read only while Settings' choice is on (see the docstring)
+LIKED_MUSIC_FOLDER = "Liked_music"  # the folder name "Add Liked music to Playlists" suggests (D8)
+PERSONAL_IDS = frozenset({"LL", "WL"})  # liked videos and Watch later: never read
 CURATED_MIX_PREFIX = "RDCLAK5uy_"  # YouTube Music's curated playlists are named like mixes but stay put
 REMOVED_TITLES = frozenset({"[deleted video]", "[private video]"})
 TOPIC_SUFFIX = " - Topic"  # YouTube's auto-generated artist channels
@@ -99,8 +124,29 @@ def login_state(paths: SupportPaths) -> LoginState:
     return LoginState("not_needed")
 
 
+def _liked_music_settings(paths: SupportPaths) -> "Settings | None":
+    """The settings when Liked music is on and can be read (the choice is on, a YouTube account is set up), else None
+    (also for a settings.json that cannot be read: the line then reads as off). The only place this module looks at
+    the settings, and only for the Liked music line: any other read never does."""
+    from ..settings import SettingsError, load_settings  # lazily, so a playlist read has no settings in reach
+    try:
+        settings = load_settings(paths.settings_file)
+    except SettingsError:
+        return None
+    return settings if settings.reads_liked_music else None
+
+
+def left_out(paths: SupportPaths, line: PlaylistLine, paused: frozenset[str] = frozenset()) -> bool:
+    """Whether the sync leaves this line unread this time, before any request (D6, D7): the Liked music line while the
+    choice is off (or no YouTube account is set up), or while the YouTube account is paused (`paused`: the account
+    services paused today, `pacing.paused_accounts`). Its files stay; the line is no problem."""
+    return (line.playlist_id == LIKED_MUSIC
+            and (_liked_music_settings(paths) is None or ACCOUNT in paused))
+
+
 def _refusal(playlist_id: str) -> SourceError | None:
-    """Why a recognised id is never read (W17, W18), or None. Decided before any request."""
+    """Why a recognised id is never read (W17, W18), or None. Decided before any request. (Liked music is not here:
+    whether it is read depends on the setting, which the reader checks.)"""
     if playlist_id in PERSONAL_IDS:
         return SourceError(PERSONAL, "playlist_unreadable", SERVICE)
     if playlist_id.startswith("RD") and not playlist_id.startswith(CURATED_MIX_PREFIX):
@@ -193,11 +239,21 @@ def _info_of(outer: dict, playlist_id: str, count: int | None = None) -> Playlis
 
 class YouTubeMusicReader:
     """One anonymous `YoutubeDL` for a whole read. Every page request goes through it; Stop is checked before the
-    playlist's page and before each entry (so before each further page)."""
+    playlist's page and before each entry (so before each further page). The Liked music line alone is asked through
+    a second `YoutubeDL` with the YouTube login (`_liked_music_ydl`).
 
-    def __init__(self, ydl, token: CancelToken):
+    `on_signal(service, kind, message)`: set by the sync; called with the account service ("youtube") when the Liked
+    music read meets a bot check or "too many requests", so the sync can record the warning sign.
+    `paused`: the account services paused today (`pacing.paused_accounts`); while "youtube" is in it the Liked music
+    line is never asked, whichever way in (fetch or info): the guard is `_liked_music_ydl`'s, so no caller can
+    forget it."""
+
+    def __init__(self, ydl, token: CancelToken, paths: SupportPaths | None = None, make_login_ydl=None):
         self._ydl, self.token = ydl, token
+        self._paths, self._make_login_ydl, self._login_ydl = paths, make_login_ydl, None
         self.want_info = False
+        self.on_signal: Callable[[str, str, str], None] | None = None
+        self.paused: frozenset[str] = frozenset()  # set by the caller: the account services paused today (D6)
 
     def __enter__(self) -> "YouTubeMusicReader":
         return self
@@ -206,31 +262,77 @@ class YouTubeMusicReader:
         self.close()
 
     def close(self) -> None:
-        if self._ydl is not None:
+        for name in ("_ydl", "_login_ydl"):
+            ydl = getattr(self, name)
+            if ydl is not None:
+                try:
+                    ydl.close()
+                except Exception:
+                    pass
+            setattr(self, name, None)
+
+    def _liked_music_ydl(self):
+        """The `YoutubeDL` with the YouTube login for the Liked music line, made on the first such read and closed with
+        the reader. SourceError(setting_off) while the choice is off or no account is set up; SourceError(offline)
+        while the YouTube account is paused today: no request is made in either case."""
+        settings = _liked_music_settings(self._paths) if self._paths is not None else None
+        if settings is None:
+            raise SourceError(SETTING_OFF, "setting_off", SERVICE, SETTING)
+        if ACCOUNT in self.paused:
+            raise SourceError(LIKED_RESTING, "offline", SERVICE)
+        if self._login_ydl is None:
+            account = settings.accounts[ACCOUNT]
+            if account.browser not in BROWSERS or self._make_login_ydl is None:
+                raise SourceError(LIKED_LOGIN, "login_failed", SERVICE)
             try:
-                self._ydl.close()
-            except Exception:
-                pass
-        self._ydl = None
+                self._login_ydl = self._make_login_ydl(ytdlp_login(ACCOUNT, account.browser, account.profile))
+            except Exception as e:  # yt-dlp reads the browser's cookies when the YoutubeDL is made
+                if signal_of(e) == "cookies_unreadable":
+                    raise SourceError(LIKED_LOGIN, "login_failed", SERVICE) from None
+                raise SourceError(f"YouTube Music is not responding ({_problem(e)}). Try again later.", "offline",
+                                  SERVICE) from None
+        return self._login_ydl
+
+    def _failed(self, e: Exception, unreadable: SourceError | None, playlist_id: str) -> SourceError:
+        """The error for a failed request. The Liked music read, which signs in, differs in two ways: a bot check or
+        "too many requests" is passed to `on_signal` and ends the line (`LineSkipped`), not the run; an unreadable
+        login says so."""
+        error = _failure(e, unreadable)
+        if playlist_id != LIKED_MUSIC:
+            return error
+        kind = signal_of(e)
+        if kind in ("bot_check", "rate_limited"):
+            if self.on_signal is not None:
+                what = "YouTube's bot check" if kind == "bot_check" else "YouTube's \"too many requests\""
+                self.on_signal(ACCOUNT, kind, f"{what} came up while reading your Liked music.")
+            return LineSkipped(LIKED_PAUSED, "offline", SERVICE)
+        if kind == "cookies_unreadable":
+            return SourceError(LIKED_LOGIN, "login_failed", SERVICE)
+        return error
 
     def _playlist(self, playlist_id: str, unreadable: SourceError) -> dict:
         """The playlist dict (its facts; `entries` still unread) from the playlist's first page."""
         refusal = _refusal(playlist_id)
         if refusal is not None:
             raise refusal
+        ydl = self._liked_music_ydl() if playlist_id == LIKED_MUSIC else self._ydl
         self.token.check()
         try:
-            outer = self._ydl.extract_info(canonical_link(playlist_id), download=False, process=False)
+            outer = ydl.extract_info(canonical_link(playlist_id), download=False, process=False)
         except Exception as e:
-            raise _failure(e, unreadable) from None
+            raise self._failed(e, unreadable, playlist_id) from None
         if not isinstance(outer, dict) or outer.get("_type") not in (None, "playlist") or "entries" not in outer:
             raise unreadable  # a redirect to a single video or a page that is no playlist
         return outer
 
     def fetch(self, line: PlaylistLine) -> FetchedPlaylist:
-        unreadable = SourceError(
-            f"playlists.txt line {line.line_no} ({line.folder}): YouTube Music doesn't show this playlist. It must "
-            "be public or unlisted. Check the link, or put # in front of the line.", "playlist_unreadable", SERVICE)
+        if line.playlist_id == LIKED_MUSIC:
+            unreadable = SourceError(LIKED_UNREADABLE, "playlist_unreadable", SERVICE)
+        else:
+            unreadable = SourceError(
+                f"playlists.txt line {line.line_no} ({line.folder}): YouTube Music doesn't show this playlist. It "
+                "must be public or unlisted. Check the link, or put # in front of the line.",
+                "playlist_unreadable", SERVICE)
         outer = self._playlist(line.playlist_id, unreadable)
         tracks: list[SourceTrack] = []
         skipped: list[str] = []
@@ -243,7 +345,7 @@ class YouTubeMusicReader:
             except StopIteration:
                 break
             except Exception as e:  # a later page: the playlist was found, so this is never "private"
-                raise _failure(e, None) from None
+                raise self._failed(e, None, line.playlist_id) from None
             r = parse_entry(entry)
             (tracks if isinstance(r, SourceTrack) else skipped).append(r)
         info = _info_of(outer, line.playlist_id, len(tracks) + len(skipped)) if self.want_info else None
@@ -251,20 +353,23 @@ class YouTubeMusicReader:
 
     def info(self, playlist_id: str) -> PlaylistInfo:
         """The playlist's facts from its first page alone: the entries are never iterated."""
-        outer = self._playlist(playlist_id, SourceError(UNREADABLE_INFO, "playlist_unreadable", SERVICE))
+        unreadable = LIKED_UNREADABLE if playlist_id == LIKED_MUSIC else UNREADABLE_INFO
+        outer = self._playlist(playlist_id, SourceError(unreadable, "playlist_unreadable", SERVICE))
         return _info_of(outer, playlist_id)
 
 
 def open(paths: SupportPaths, token: CancelToken) -> YouTubeMusicReader:  # noqa: A001 (the source interface's name)
     """A reader with its own `YoutubeDL`: the quiet options and the debug-only logger of `fallback.FallbackSource`,
-    flat playlists, and nothing else (no cookies, no login, no `extractor_args`)."""
+    flat playlists, and nothing else (no cookies, no login, no `extractor_args`). The Liked music line, while it is
+    on, gets a second `YoutubeDL` with the same options plus the YouTube login, made when that line is read."""
     token.check()
     try:
         import yt_dlp
         from ..fallback import _Logger
-        ydl = yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "noprogress": True, "logger": _Logger(no_emit),
-                                "skip_download": True, "extract_flat": "in_playlist", "socket_timeout": 30})
+        options = {"quiet": True, "no_warnings": True, "noprogress": True, "logger": _Logger(no_emit),
+                   "skip_download": True, "extract_flat": "in_playlist", "socket_timeout": 30}
+        ydl = yt_dlp.YoutubeDL(dict(options))
     except Exception as e:
         raise SourceError(f"YouTube Music is not responding ({_problem(e)}). Try again later.", "offline",
                           SERVICE) from None
-    return YouTubeMusicReader(ydl, token)
+    return YouTubeMusicReader(ydl, token, paths, lambda login: yt_dlp.YoutubeDL({**options, **login}))

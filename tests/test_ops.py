@@ -377,6 +377,7 @@ def test_use_a_qobuz_version(paths):
     assert result.section == "replaced" and source.downloads == ["qobuz:q7"]
     assert e["path"] == "Library/A/Artist - Song.aiff" and e["status"] == "lossless"
     assert (e["source"], e["source_id"], e["source_format"]) == ("qobuz", "q7", "flac")
+    assert e["source_how"] == "chosen"  # "Use this" is the user's pick, whatever found the version
     assert (paths.root / e["path"]).read_bytes() == b"new audio"
     assert (paths.root / "Superseded/A/Artist - Song.aiff").read_bytes() == b"old audio"  # never deleted
     assert "youtube_music:y1" in e["rejected_sources"]  # the wrong one is never used again
@@ -480,6 +481,14 @@ def test_none_of_these_forgets_the_old_files_bitrate(paths):
     state["tracks"]["t1aaaaaaa"]["source_kbps"] = 129
     ops.reject_current(paths, state, "t1aaaaaaa")
     assert state["tracks"]["t1aaaaaaa"]["source_kbps"] is None
+
+
+def test_none_of_these_forgets_how_the_old_file_was_found(paths):
+    state = load_state(paths)
+    state["tracks"]["t1aaaaaaa"]["source_how"] = "fallback"
+    ops.reject_current(paths, state, "t1aaaaaaa")
+    assert state["tracks"]["t1aaaaaaa"]["source_how"] is None
+    assert load_state(paths)["tracks"]["t1aaaaaaa"]["source_how"] is None
 
 
 def test_none_of_these_then_the_next_sync_searches_again_without_it(paths):

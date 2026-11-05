@@ -3,7 +3,7 @@ import type {
   FileState, LibraryRow,
   AnySignalKind, AppUpdate, Alignment, Browser, Budget, LastCheck, LoginBrowser, ByQuality, Candidate, PlaylistInfo, PlaylistRow, PreviewAction, Quality, Result, RunDetail,
   DownloadTools, FolderCheck, SetupStatus, SignalKind, Source, ReadStatus, Status, TodoGroupKey, TrackRow, Upgrade, FreeDownload,
-  PlaylistService, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
+  PlaylistService, SourceHow, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
   RekordboxCheckView,
 } from '../types';
 import { QUALITIES } from '../types';
@@ -41,6 +41,8 @@ export type FakeTrack = {
   other: string | null;          // "Other" to-do item text (something is in the way)
   next_try_days: number | null;  // not found: next try in N days
   rejected_sources: string[];
+  /** how its source was found (the engine's `source_how`); unset: the default for its source (see sourceHowOf) */
+  how?: SourceHow | null;
   file_name?: string;            // superseded duplicates may carry a suffix; Library names never do
   kbps?: number;                 // lossy sources: the bitrate
   free_downloads?: FreeDownload[];
@@ -144,6 +146,8 @@ export type FakeState = {
   qobuz: FakeService;
   accounts: { youtube: FakeAccount | null; soundcloud: FakeAccount | null };
   qobuzSkipped: boolean;  // "I don't have Qobuz" in setup
+  /** Settings' "Read my Liked music" (it only counts with a YouTube account: liked.ts `likedOn`) */
+  likedMusic?: boolean;
   /** scenario qobuz_unreadable: add_playlist answers that Qobuz doesn't show a pasted Qobuz playlist */
   qobuzUnreadable?: boolean;
   /** scenario soundcloud_unreadable: add_playlist answers W5 for a pasted SoundCloud playlist */
@@ -280,11 +284,28 @@ export function todoFree(t: FakeTrack, g: TodoGroupKey): boolean {
 }
 const FORMAT_NAMES: Record<string, string> = { opus: 'Opus', aac: 'AAC', mp3: 'MP3', flac: 'FLAC',
   pcm: 'uncompressed PCM' };
-/** As views.format_line. */
-export function formatLine(t: FakeTrack): string | null {
-  if (t.status === 'missing' || !t.codec) return null;
+/** As views.source_format_line: what the download was made from; null for an own or bought file. */
+export function sourceFormatLine(t: FakeTrack): string | null {
+  if (t.status === 'missing' || !t.codec || t.source === 'manual') return null;
   const name = FORMAT_NAMES[t.codec] ?? t.codec.toUpperCase();
   return t.kbps && t.status === 'not_lossless' ? `${name} · ${t.kbps} kbps` : name;
+}
+/** As views.file_format_line: what the file is. A download is always 16-bit AIFF; an own or bought file names its
+ *  container by its extension, plus the bit depth when its codec is PCM. */
+export function fileFormatLine(t: FakeTrack): string | null {
+  if (t.status === 'missing' || !t.source) return null;
+  if (t.source !== 'manual') return 'AIFF · 16-bit';
+  const ext = pathOf(t)?.split('.').pop()?.toLowerCase() ?? '';
+  const name = ({ aiff: 'AIFF', aif: 'AIFF', wav: 'WAV', flac: 'FLAC', mp3: 'MP3' } as Record<string, string>)[ext]
+    ?? (ext ? ext.toUpperCase() : null);
+  if (!name) return null;
+  return t.codec === 'pcm' ? `${name} · 24-bit` : name;
+}
+/** As views.track_detail's source_how: how the source was found; null for an own or bought file. */
+export function sourceHowOf(t: FakeTrack): SourceHow | null {
+  if (t.status === 'missing' || !t.source || t.source === 'manual') return null;
+  if (t.how !== undefined) return t.how;
+  return t.source === 'qobuz' ? 'exact' : 'fallback';
 }
 /** As views.upgrade_status: the To-do row's short line for an upgrade. */
 export function upgradeStatus(up: Upgrade): string {
@@ -434,7 +455,7 @@ export function sampleTracks(now: Date, extra = 35): FakeTrack[] {
   ts.push({ ...base('t6', 'DJ TALLBOY', 'THE WEEKEND', 'Hard_Bounce', 192, now, 9) });
   // the one track of the Qobuz playlist: its page is Qobuz's
   ts.push({ ...base(QOBUZ_TRACK_ID, 'Mira Volt', 'Qobuz Pick', 'Qobuz_Picks', 201, now, 2),
-    link: { url: 'https://open.qobuz.com/track/112358', label: 'Open in Qobuz' } });
+    link: { url: 'https://open.qobuz.com/track/112358', label: 'Open in Qobuz', service: 'qobuz' } });
   for (let i = 0; i < extra; i++) {
     const n = i + 7;
     const id = `t${n}`;
@@ -473,12 +494,15 @@ export function sampleTracks(now: Date, extra = 35): FakeTrack[] {
   }
   // one track for each of the other two services, each with its own page (plan library stage 6, I7)
   ts.push({ ...base(SOUNDCLOUD_TRACK_ID, 'Example Artist', 'Example Title', 'Example_Label', 233, now, 2),
-    link: { url: 'https://soundcloud.com/example-label/example-title', label: 'Open in SoundCloud' } });
+    source: 'soundcloud', how: 'upload',
+    link: { url: 'https://soundcloud.com/example-label/example-title', label: 'Open in SoundCloud', service: 'soundcloud' } });
   ts.push({ ...base(SOUNDCLOUD_LIKED_ID, 'Example Artist', 'Liked Title', 'Example_DJ_likes', 189, now, 2),
     link: { url: 'https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/900000102',
-      label: 'Open in SoundCloud' } });
-  ts.push({ ...base(YOUTUBE_MUSIC_TRACK_ID, 'Example Artist', 'Example Song', 'Example_Channel', 207, now, 2),
-    link: { url: 'https://music.youtube.com/watch?v=EXAMPLEid01', label: 'Open in YouTube Music' } });
+      label: 'Open in SoundCloud', service: 'soundcloud' } });
+  // the playlist's own upload: the source's page is the song's own page, so the details show one link
+  ts.push({ ...lossy(base(YOUTUBE_MUSIC_TRACK_ID, 'Example Artist', 'Example Song', 'Example_Channel', 207, now, 2),
+    'youtube_music', 20000, 'aac'), how: 'upload',
+    link: { url: 'https://music.youtube.com/watch?v=EXAMPLEid01', label: 'Open in YouTube Music', service: 'youtube_music' } });
   return ts;
 }
 
@@ -666,7 +690,8 @@ export function setupComplete(): SetupStatus {
   return { music: { state: 'ok', path: FAKE_MUSIC, suggested: FAKE_MUSIC }, tools: { ffmpeg: true, ffprobe: true, deno: true }, spotify_app: true, spotify_login: true, qobuz: true,
     playlists: true, complete: true, next_step: null, version: '1.0.0', qobuz_skipped: false,
     spotify_skipped: false, existing: false, import_folders: 0, import_skipped: false,
-    accounts: { youtube: null, soundcloud: null } };
+    accounts: { youtube: null, soundcloud: null },
+    youtube_music: { liked_music: false, can_turn_on: false, listed: false } };
 }
 export function nextStep(s: SetupStatus): SetupStatus {
   const missingTools = !s.tools.ffmpeg || !s.tools.ffprobe || !s.tools.deno;

@@ -8,13 +8,13 @@
   // old file goes and the README's tip to quit rekordbox first. The action itself ("Replace with lossless") is the
   // panel foot's filled button (UpgradeFoot, reading the same UpgradeFlow).
   import type { Spectrum as Spec, TrackDetail, Upgrade } from '$lib/bridge/types';
-  import { ChoiceGroup, ComparePlayer, Hint, KeyValue, OutcomeList, Spectrum, Surface } from '$lib/components';
+  import { ChoiceGroup, ComparePlayer, Hint, KeyValue, OutcomeList, Spectrum, Surface, tip } from '$lib/components';
   import type { ChoiceOption } from '$lib/components';
   import { foundText, upgradeLabel } from '$lib/format';
-  import { KEPT_FILE, QUIT_REKORDBOX, editLine, upgradeWays, type Way } from './decisionModel';
+  import { KEPT_FILE, QUIT_REKORDBOX, editLine, nowLabel, nowTip, upgradeWays, type Way } from './decisionModel';
 
   let { track, current, upgrade, loading, swap, way, onway, busy = false }: {
-    track: Pick<TrackDetail, 'audio_url' | 'duration_s' | 'format_line' | 'quality_label'> & { upgrade: Upgrade | null };
+    track: Pick<TrackDetail, 'audio_url' | 'duration_s' | 'source_format_line' | 'quality_label'> & { upgrade: Upgrade | null };
     current: Spec | null; upgrade: Spec | null; loading: boolean;
     /** both ways are possible (canSwap) */
     swap: boolean;
@@ -29,7 +29,7 @@
   const edit = $derived(editLine(up.alignment));
   const options = $derived(ways.options.map((o): ChoiceOption<Way> => ({ key: o.key, name: o.name, summary: o.summary,
     outcomes: o.outcomes, recommended: o.key === 'swap', test: `way-${o.key}` })));
-  const nowLabel = $derived(track.format_line ?? track.quality_label);
+  const now = $derived(nowLabel(track));
 </script>
 
 <Surface kind="card" tone="good" label={upgradeLabel(up.what)} summary={foundText(up.found) || undefined}>
@@ -37,7 +37,8 @@
     <div class="specs">
       <div>
         <Spectrum spectrum={current} height={28} loading={loading && !current} cutoffLabel={false} />
-        <span class="fmt"><span class="caps">Now</span><span class="q" title={nowLabel}>{nowLabel}</span></span>
+        <span class="fmt"><span class="caps">Now</span><span class="q" use:tip={nowTip(track) ?? { text: now, cut: true }}
+          data-test="upgrade-now">{now}</span></span>
       </div>
       <div>
         <Spectrum spectrum={upgrade} height={28} loading={loading && !upgrade} cutoffLabel={false} />

@@ -163,7 +163,7 @@ class Executor:
                 r = res.ready
                 dst = self.names.choose(folder_dir(a.folder, r.status), expected_stem(artist, title), ".aiff",
                                         a.track_id)
-                placed = Placed(dst, r.status, r.source, r.source_id, r.source_format, r.cutoff_hz, r.kbps)
+                placed = Placed(dst, r.status, r.source, r.source_id, r.source_format, r.cutoff_hz, r.kbps, r.how or None)
                 entry = apply_outcome(e, a, Outcome("placed", placed, rejected_now, free_downloads=found), self.now())
                 run_op(self.paths, self.state, a.track_id, [(self._rel(r.path), dst)], entry)
                 self._drop_stale_upgrade(e)
@@ -193,7 +193,7 @@ class Executor:
         dst = self.names.choose(upgrades_ready_dir(e["path"], watched_root(self.paths, e["path"])),
                                 expected_stem(e["artist"], e["title"]), ".aiff", a.track_id)
         upgrade = {"file": dst, "source": r.source, "source_id": r.source_id, "source_format": r.source_format,
-                   "found": self.now().date().isoformat(), "alignment": alignment.to_dict()}
+                   "how": r.how or None, "found": self.now().date().isoformat(), "alignment": alignment.to_dict()}
         if r.status != "lossless":  # a better lossy stream from an account (spec §4); lossless parks stay as before
             upgrade.update(status=r.status, kbps=r.kbps, cutoff_hz=r.cutoff_hz)
         found = None if res.free_downloads is None else tuple(res.free_downloads)

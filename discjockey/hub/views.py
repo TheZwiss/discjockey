@@ -553,6 +553,12 @@ def source_url(source: str | None, source_id: str | None) -> str | None:
     return None  # SoundCloud ids are numbers, not part of a link
 
 
+def own_page_dropped(url: str | None, link: dict | None) -> str | None:
+    """The source's link, or None when it is the song's own page already shown as `track_link` (a YouTube Music
+    playlist's own upload): the details never show the same link twice."""
+    return None if url and link and link["url"] == url else url
+
+
 def next_check(e: dict, today: date) -> str | None:
     """When Discjockey looks on Qobuz again: an ISO date, "next_sync" when due, None when it never does."""
     if not e.get("in_playlists") or e.get("upgrade") or e["status"] == "lossless":
@@ -572,14 +578,41 @@ def buy_links(artist: str, title: str) -> dict:
 FORMAT_NAMES = {"opus": "Opus", "aac": "AAC", "mp3": "MP3", "flac": "FLAC", "vorbis": "Vorbis", "alac": "ALAC"}
 
 
-def format_line(e: dict) -> str | None:
-    """"Opus · 135 kbps", "FLAC": the format of the download (and its bitrate when lossy), None without a file."""
+# the container a file's extension names; .m4a is AAC or ALAC by its codec (file_format_line)
+CONTAINER_NAMES = {".aiff": "AIFF", ".aif": "AIFF", ".wav": "WAV", ".flac": "FLAC", ".mp3": "MP3", ".ogg": "OGG",
+                   ".opus": "Opus"}
+DOWNLOAD_BITS = 16  # audio.convert_to_aiff writes every download as pcm_s16be
+
+
+def source_format_line(e: dict) -> str | None:
+    """"Opus · 135 kbps", "FLAC": the format of what the download was made from (and its bitrate when lossy), None
+    without a file. The SOURCE line of the details and the Now label of an upgrade card."""
     f = e.get("source_format")
     if e["status"] == "missing" or not f:
         return None
     name = "uncompressed PCM" if f.startswith("pcm_") else FORMAT_NAMES.get(f, f.upper())
     kbps = e.get("source_kbps") if e["status"] == "not_lossless" else None
     return f"{name} · {kbps} kbps" if kbps else name
+
+
+def file_format_line(e: dict) -> str | None:
+    """"AIFF · 16-bit", "WAV · 24-bit", "FLAC": what the file is. A download is always 16-bit AIFF (it is converted);
+    a file of the user's own or a bought one names its container by its extension, plus the bit depth when its stored
+    codec is a PCM one (`pcm_s24le`). None without a file."""
+    if e["status"] == "missing" or not e.get("path"):
+        return None
+    ext = PurePosixPath(e["path"]).suffix.lower()
+    codec = e.get("source_format") or ""
+    if e.get("source") != "manual":
+        return f"{CONTAINER_NAMES.get(ext, 'AIFF')} · {DOWNLOAD_BITS}-bit"
+    if ext in (".m4a", ".mp4"):
+        name = "ALAC" if codec == "alac" else "AAC"
+    else:
+        name = CONTAINER_NAMES.get(ext, ext.lstrip(".").upper() or None)
+    if name is None:
+        return None
+    bits = re.fullmatch(r"pcm_[suf](\d+)(?:le|be)?", codec)
+    return f"{name} · {bits.group(1)}-bit" if bits else name
 
 
 def free_downloads(e: dict) -> list[dict]:
@@ -599,17 +632,34 @@ def in_playlists(track_id: str, e: dict, fetched: list) -> list[str] | None:
     return [fp.line.folder for fp in fetched if any(t.key in ids for t in fp.tracks)]
 
 
+def link_finder(fetched: list) -> Callable[[str, dict], dict | None]:
+    """track_link for many songs: the fetched tracks' links indexed once (in memory, from the last read; no call to a
+    service), so a Library view with thousands of rows pays one pass over `fetched`, not one per row."""
+    first: dict[str, tuple[int, str, str]] = {}  # key -> (order in playlist order, link, service), first one wins
+    n = 0
+    for fp in fetched:
+        for t in fp.tracks:
+            n += 1
+            if t.link and t.key not in first:
+                first[t.key] = (n, t.link, t.service)
+
+    def find(track_id: str, e: dict) -> dict | None:
+        ids = {track_id, *(e.get("aliases") or [])}
+        hit = min((first[i] for i in ids if i in first), default=None)  # the earliest of the song's keys in the read
+        link, service = (hit[1], hit[2]) if hit else (key_link(track_id), split_token(track_id)[0])
+        return {"url": link, "label": f"Open in {PLAYLIST_SERVICES[service]}", "service": service} if link else None
+    return find
+
+
 def track_link(track_id: str, e: dict, fetched: list) -> dict | None:
-    """{url, label} of the track's page on its service: the link of the first fetched track (playlist order) that is
-    this song, else the link its key gives; None when neither has one."""
-    ids = {track_id, *(e.get("aliases") or [])}
-    link, service = next(((t.link, t.service) for fp in fetched for t in fp.tracks if t.key in ids and t.link),
-                         (key_link(track_id), split_token(track_id)[0]))
-    return {"url": link, "label": f"Open in {PLAYLIST_SERVICES[service]}"} if link else None
+    """{url, label, service} of the track's page on its service: the link of the first fetched track (playlist order)
+    that is this song, else the link its key gives; None when neither has one. `service` is the playlist service the
+    page belongs to (the hub's logo beside "Open in …" reads it, never the label's words)."""
+    return link_finder(fetched)(track_id, e)
 
 
 def upgrade_format(up: dict) -> str:
-    """The parked version's quality in the words of the current file's `format_line`: "FLAC · lossless",
+    """The parked version's quality in the words of the current file's `source_format_line`: "FLAC · lossless",
     "AAC · 256 kbps" (a better lossy stream), so the To-do panel's Now and New say the same kind of thing."""
     f = up.get("source_format") or "flac"
     name = "PCM" if f.startswith("pcm_") else FORMAT_NAMES.get(f, f.upper())
@@ -705,17 +755,20 @@ def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url 
     folders = in_playlists(track_id, e, fetched)
     state = file_state(e, away, exists)
     has_file = e["status"] != "missing" and e.get("source")
+    link = track_link(track_id, e, fetched)
     return {**track_row(track_id, e, cover), "sound_checked": sound_checked(e), "isrc": e.get("isrc"),
             "file_state": state, "place": place,
             "playlists": folders, "in_playlist_count": len(folders) if folders is not None else None,
             "quality_line": quality_line(e["source"], e.get("source_format") or "?", e["status"], e.get("cutoff_hz"),
                                          e.get("source_kbps"), own=is_own_file(e),
                                          checked=sound_checked(e)) if has_file else None,
-            "format_line": format_line(e) if has_file else None,
+            "format_line": file_format_line(e) if has_file else None,
+            "source_format_line": source_format_line(e) if has_file and e["source"] != "manual" else None,
+            "source_how": e.get("source_how") if has_file else None,
             "source_full": ((OWN_FILE if is_own_file(e) else "bought" if e["source"] == "manual"
                              else SOURCE_NAMES.get(e["source"])) if has_file else None),
-            "source_url": source_url(e.get("source"), e.get("source_id")),
-            "track_link": track_link(track_id, e, fetched),
+            "source_url": own_page_dropped(source_url(e.get("source"), e.get("source_id")), link),
+            "track_link": link,
             "next_qobuz_check": next_check(e, today), "rejected_sources": list(e.get("rejected_sources") or []),
             "buy_links": buy_links(e["artist"], e["title"]), "free_downloads": free_downloads(e),
             "bought_name": f"Library/{e['folder']}/{expected_stem(e['artist'], e['title'])}.wav",
@@ -829,7 +882,8 @@ def _folder_state(away: Mapping[str, str] | None, path: str) -> str:
 
 def library(state: dict, view: str, key: str | None, query: str, filt: str, sort: str | None, cover: Url | None = None,
             away: Mapping[str, str] | None = None, *, lines: Sequence[pf.Row],
-            records: Mapping[str, PlaylistRecord] | None = None, watched: Sequence[WatchedFolder] = ()) -> dict:
+            records: Mapping[str, PlaylistRecord] | None = None, watched: Sequence[WatchedFolder] = (),
+            fetched: list = (), planned: Mapping[str, Sequence[str]] | None = None) -> dict:
     """One view of the library (plan library stage 5, I4, D9-D12). `view`: LIBRARY_VIEWS; `key`: the playlist's folder
     name (as playlists.txt spells it, any case) for "playlist", a folder's snapshot path (`Library/<name>`, or the
     absolute path in an import folder) for "folder", else ignored. filt: LIBRARY_FILTERS. sort: a SORTS key, "-" in
@@ -837,7 +891,9 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
     now (HubApi._away_roots, as track_detail gets it): each row's `file_state` says whether its file is "here",
     "offline" (its drive is not connected) or "folder_missing", decided per folder (file_state without the file
     check: no file is looked at per row, so "file_missing" stays the panel's). `lines`: the playlists.txt lines
-    (playlists_file.load(...).rows); `records`: db.playlist_records; `watched`: db.watched_folders.
+    (playlists_file.load(...).rows); `records`: db.playlist_records; `watched`: db.watched_folders.; `fetched`, `planned`: the last read's
+    playlists and the aliases its linking added (HubApi's prep): they give each row its `track_link`, the row menu's
+    "Open in {Service}", which so is there when the menu opens (no call to a service per row, as track_detail).
 
     All and Not in a playlist list the files. A playlist lists its read record's songs in order, each once (D9):
     one without a file is a row too (`file_state` "no_file", `wait` "waiting" or "not_found"), and `also` holds the
@@ -852,11 +908,15 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
     found = sites(state, lines, watched)
     resolve = _resolver(state)
     holders = _holders(lines, records, resolve)
+    find_link = link_finder(list(fetched))
+
+    def link_of(k: str, e: dict) -> dict | None:  # the aliases the last read's linking added count too, as in track()
+        return find_link(k, {**e, "aliases": [*(e.get("aliases") or []), *((planned or {}).get(k) or ())]})
 
     def row(k: str, e: dict, **extra) -> dict:
         return {**track_row(k, e, cover), "sound_checked": sound_checked(e), "file_state": file_state(e, away),
                 "wait": None, "position": None, "place": found.place(e["path"]), "subfolder": None,
-                "playlists": holders.get(k, []), **extra}
+                "playlists": holders.get(k, []), "track_link": link_of(k, e), **extra}
 
     rows: list[dict] = []
     also = folder_kind = read_at = enabled = service = songs = None
@@ -897,7 +957,7 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
                 rows.append({**track_row(k, base, cover), "sound_checked": True, "file_state": "no_file",
                              "wait": "not_found" if e is not None and _group(e) == "not_found" else "waiting",
                              "position": t.position, "place": None, "subfolder": None,
-                             "playlists": holders.get(k, [line.folder])})
+                             "playlists": holders.get(k, [line.folder]), "track_link": link_of(k, e or {})})
             also = [row(k, e, place=None) for k, e in with_file.items()
                     if k not in held and fold(found.library_folder(e["path"]) or "") == fold(line.folder)]
             if record is not None:  # the playlist's songs (D5: what the sidebar counts) and how many have a file
@@ -950,7 +1010,10 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
     if q:
         rows = [r for r in rows if q in fold(f"{r['artist']} {r['title']}")]
         also = [r for r in also if q in fold(f"{r['artist']} {r['title']}")] if also is not None else None
-    chips = {f: sum(1 for r in rows if r["file_state"] != "no_file" and _matches(r, f)) for f in LIBRARY_FILTERS}
+    # All counts every row the table lists under it (a read playlist's songs without a file too, never `also`); the
+    # quality chips count files, the rows they list
+    chips = {f: sum(1 for r in rows if (f == "all" or r["file_state"] != "no_file") and _matches(r, f))
+             for f in LIBRARY_FILTERS}
     rows = [r for r in rows if _matches(r, filt or "all")]
     also = [r for r in also if _matches(r, filt or "all")] if also is not None else None
     order = (sort or ("order" if view == "playlist" else "artist")).lstrip("-")
@@ -1682,14 +1745,21 @@ def undo_preview(batch: BatchRow, moves: list[PlannedMove], files: Iterable[str]
             "moving": moving, "warning": warning, "nothing_left": not running}
 
 
-def playlists(loaded: pf.Loaded, tracks_by_id: dict, infos: dict, state: dict, cover: Url | None = None) -> dict:
+LIKED_MUSIC_SETTING = "read_liked_music"  # settings.json's key of the Liked music choice (a row's `needs_setting`)
+
+
+def playlists(loaded: pf.Loaded, tracks_by_id: dict, infos: dict, state: dict, cover: Url | None = None, *,
+              liked_music_on: bool = False) -> dict:
+    """The playlist page. `liked_music_on`: Settings' Liked music choice is on and can be read; a listed Liked music
+    line while it is not says so in `needs_setting` (the choice's settings.json key), else null."""
     rows = []
     for i, r in enumerate(loaded.rows):
         tracks = tracks_by_id.get(r.ref)
         info = infos.get(r.ref)
         rows.append({"index": i, "folder": r.folder, "link": r.link, "playlist_id": r.ref,
                      "service": r.service, "service_name": PLAYLIST_SERVICES[r.service], "enabled": r.enabled,
-                     "info": info_dict(info),
+                     "info": info_dict(info), "needs_setting": None if r.ref != pf.LIKED_MUSIC_REF or liked_music_on
+                     else LIKED_MUSIC_SETTING,
                      "tracks": len(tracks) if tracks is not None else (info.track_count if info else None),
                      "quality": _quality_of_tracks(tracks, state) if tracks is not None else None})
     by_id = _entries_by_id(state)

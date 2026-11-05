@@ -4,9 +4,10 @@
 // Favourites and the user's crate switches. Words and rules are the engine's; a rule that changes there changes here.
 import type {
   Crate, Favourite, FolderState, Library, LibraryFilter, LibraryRow, LibrarySort, LibraryView, PlaylistService,
-  PlaylistRow, Sidebar, WatchedEntry,
+  PlaylistRow, Sidebar, TrackLink, WatchedEntry,
 } from '../types';
 import { NOT_IN_PLAYLIST, QUALITIES } from '../types';
+import { needsSetting } from './liked';
 import {
   SERVICE_NAME, byQuality, isoLocal, pathOf, playlistRef, serviceOfLink, todoGroup, trackRow, type FakeState,
   type FakeTrack,
@@ -78,7 +79,7 @@ export function playlistRows(s: FakeState): PlaylistRow[] {
     quality.missing += [...songs.values()].filter((t) => t === null).length;
     return { index, folder: p.folder, link: p.link, playlist_id: playlistRef(p.link), service,
       service_name: SERVICE_NAME[service], enabled: p.enabled, info: p.info,
-      tracks: read ? songs.size : p.info?.track_count ?? null, quality };
+      tracks: read ? songs.size : p.info?.track_count ?? null, quality, needs_setting: needsSetting(s, p.link) };
   });
 }
 /** song key -> the names of the playlists whose read holds it, in playlists.txt order */
@@ -295,6 +296,11 @@ const matches = (e: Entry, filter: string): boolean => filter === 'all'
 export type LibraryFail = { refused: string };
 /** One view of the library, as `HubApi.library` answers it. A request the engine would refuse (a view it doesn't
  *  know, a playlist or folder view without its key, a filter it doesn't know) comes back as `{refused}`. */
+/** A song's page on its service, as the row and the details both carry it (the engine: the read's link, else the one
+ *  its key gives); the fake gives a song without its own `link` a Spotify one. */
+export const fakeLink = (t: FakeTrack): TrackLink =>
+  t.link ?? { url: `https://open.spotify.com/track/${t.track_id}`, label: 'Open in Spotify', service: 'spotify' };
+
 export function libraryOf(s: FakeState, view: string, key: string | null, query: string, filter: string,
   sort: LibrarySort | null): Library | LibraryFail {
   if (!(LIBRARY_VIEWS as readonly string[]).includes(view)) return { refused: `view must be one of ${LIBRARY_VIEWS.join(', ')}` };
@@ -305,7 +311,8 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
   const held = holders(s);
   const mk = (t: FakeTrack, over: Partial<LibraryRow> = {}): Entry => ({ t, row: {
     ...trackRow(t), sound_checked: !t.unchecked, file_state: pathState(s, t), wait: null, position: null,
-    place: placeOf(sites, pathOf(t)!), subfolder: null, playlists: held.get(t.track_id) ?? [], ...over } });
+    place: placeOf(sites, pathOf(t)!), subfolder: null, playlists: held.get(t.track_id) ?? [], track_link: fakeLink(t),
+    ...over } });
 
   let entries: Entry[] = [];
   let also: Entry[] | null = null;
@@ -352,7 +359,7 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
         const missing: FakeTrack = { ...name, status: 'missing', source: null, cutoff_hz: null, upgrade: null, away: undefined };
         entries.push({ t: null, row: { ...trackRow(missing), sound_checked: true, file_state: 'no_file',
           wait: h.t !== null && todoGroup(h.t) === 'not_found' ? 'not_found' : 'waiting', position, place: null,
-          subfolder: null, playlists: held.get(h.key) ?? [line.folder] } });
+          subfolder: null, playlists: held.get(h.key) ?? [line.folder], track_link: fakeLink(missing) } });
       }
       also = files.filter((t) => !heldKeys.has(t.track_id) && fold(libraryFolder(pathOf(t)!) ?? '') === fold(line.folder))
         .map((t) => mk(t, { place: null }));
@@ -400,7 +407,7 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
   entries = search(entries);
   also = also && search(also);
   const chips = Object.fromEntries(LIBRARY_FILTERS.map((f) => [f,
-    entries.filter((e) => e.row.file_state !== 'no_file' && matches(e, f)).length])) as Record<LibraryFilter, number>;
+    entries.filter((e) => (f === 'all' || e.row.file_state !== 'no_file') && matches(e, f)).length])) as Record<LibraryFilter, number>;
   const narrow = (list: Entry[]): Entry[] => list.filter((e) => matches(e, filter || 'all'));
   entries = narrow(entries);
   also = also && narrow(also);

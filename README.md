@@ -159,7 +159,9 @@ line to see it on the right.
   `Library/`, `Superseded/`, `Upgrades ready/` and `playlists.txt`. It also has a hidden
   `.discjockey/` folder with Discjockey's notes about your library: `library.db` (Discjockey's records of your
   tracks and where their files are), `state.v1.json` (a copy of the old records, kept after the update below), the
-  `reports/` and `not_lossless.md`. It can be on an external drive.
+  `reports/`, `not_lossless.md` and, now and then, `pending_signs.json` (a YouTube warning sign Discjockey met while
+  another job had your library busy; it goes into `library.db` as soon as it can, and the file disappears). It can be on
+  an external drive.
 - **Updating from an earlier version:** the first time a new Discjockey opens your library, it says
   "Updating Discjockey's records…" and turns the old records into `library.db`. This happens once and can take a
   minute. Your music files are not touched, and `state.v1.json` stays as a copy of the old records.
@@ -200,9 +202,10 @@ Mixes = https://music.youtube.com/playlist?list=...
     for your Mac's password to let Discjockey read the browser's login). A `you/likes` line typed into
     `playlists.txt` uses that login on every read, and a short link only works when pasted in the window.
   - **YouTube Music:** playlists and albums (`music.youtube.com/playlist?list=...`); links from youtube.com
-    (`youtube.com/playlist?list=...`, or a video link with `&list=...`) work too. Not "Liked music", "Watch later" or
-    mixes (they are personal or change on every play): add the songs to a playlist, set it to public or unlisted, and
-    paste that link.
+    (`youtube.com/playlist?list=...`, or a video link with `&list=...`) work too. "Liked music" is read with your
+    YouTube login, only when Settings turns it on (it stays unread while off, and while the YouTube account is paused).
+    Not "Liked videos", "Watch later" or mixes (they are personal or change on every play): add the songs to a
+    playlist, set it to public or unlisted, and paste that link.
 - **Priority:** the line further up wins. A track that is in several playlists goes into the
   folder of the first one.
 - **Switching a playlist off:** put `#` at the start of its line. Its tracks stay where they
@@ -365,6 +368,11 @@ the room of the browser column, which waits behind the rail until you close them
 brings it back and closes the details; that doesn't count as hiding them, so the next track you click opens them
 again).
 
+In the details, **FORMAT** is the file itself (a downloaded track is always `AIFF · 16-bit`), and **SOURCE** is what it
+was made from (`FLAC`, `Opus · 135 kbps`), with a second line on how Discjockey found it: `exact Qobuz track`, `found
+by ISRC`, `found by name`, `the playlist's own upload` or `picked by you`. Files from before this line existed, and
+your own and bought files, show no second line.
+
 - **Two sidebar forms.** The rail (icons only) is the form Library starts with. Every other page starts with the full
   sidebar (icons and names). **⌃⌘S**, or the button at the top of the sidebar, folds it into the rail or opens it
   again. Library remembers its own form, and all the other pages share another. Point at a rail icon to see its name.
@@ -520,6 +528,11 @@ version is removed because it's no longer needed.
 Downloading with streamrip is against Qobuz's terms of use. The pauses, the daily limit and
 the automatic pause after repeated failures reduce the risk that Qobuz notices, but can't
 remove it.
+
+Reading your **Liked music** signs in to YouTube with your browser's login.
+Many reads in a row can set off YouTube's bot check. Discjockey then pauses YouTube downloads for the rest of the day
+(Settings shows the warning sign) and leaves Liked music unread until tomorrow; its songs stay where they are. Leave
+the setting off, or read it rarely, if that worries you.
 
 ## Licence
 

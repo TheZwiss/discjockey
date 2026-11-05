@@ -4,6 +4,7 @@ from datetime import date, datetime
 import pytest
 
 from discjockey.events import Cancelled, CancelToken, Waiting
+from discjockey import pacing
 from discjockey.pacing import AUTO_STOP_AFTER, Budget, Pacer, record_signal
 from discjockey.settings import Account, Settings
 
@@ -213,3 +214,29 @@ def test_qobuz_waits_carry_their_service():
     p.between_qobuz_downloads()
     p.between_fallback_downloads()
     assert [e.service for e in events if e.remaining == 0] == ["qobuz", "qobuz", ""]
+
+
+def test_an_account_is_paused_today_by_a_pause_sign_of_today():
+    from datetime import date
+
+    today = date(2026, 11, 5)
+    state = {"youtube_usage": {"days": {}, "signals": [
+        {"time": "2026-11-04T23:59:00", "kind": "bot_check", "message": "yesterday"},
+        {"time": "2026-11-05T08:00:00", "kind": "premium_missing", "message": "not a pause"},
+        {"time": "2026-11-05T09:00:00", "kind": "download_rejected", "message": "not a pause"}]}}
+    assert not pacing.account_paused(state, "youtube", today)
+    assert not pacing.account_paused({}, "youtube", today) and not pacing.account_paused(state, "soundcloud", today)
+    for kind in ("bot_check", "rate_limited", "auto_stop"):
+        paused = {"youtube_usage": {"days": {}, "signals": [
+            *state["youtube_usage"]["signals"], {"time": "2026-11-05T10:00:00", "kind": kind, "message": "m"}]}}
+        assert pacing.account_paused(paused, "youtube", today)
+        assert pacing.paused_accounts(paused, today) == {"youtube"}
+        assert pacing.paused_accounts(paused, date(2026, 11, 6)) == frozenset()
+
+
+def test_a_recorded_bot_check_pauses_the_account_for_the_rest_of_the_day():
+    from datetime import date, datetime
+
+    state = {}
+    pacing.record_signal(state, "bot_check", "m", datetime(2026, 11, 5, 10, 0), "youtube")
+    assert pacing.account_paused(state, "youtube", date(2026, 11, 5))

@@ -310,8 +310,8 @@
   }
   const options = $derived(segOptions(lib?.chips, filter));
   // the header's second line: its parts in order of importance, the last dropping first when the header is narrow; a
-  // read playlist's songs without a file are a part of their own after the count
-  const sub = $derived(lib ? subtitleParts(lib) : undefined);
+  // read playlist's count is in the strip while the strip shows (D10)
+  const sub = $derived(lib ? subtitleParts(lib, lib.summary.tracks > 0) : undefined);
   const emptyLibrary = $derived(lib?.empty === 'empty_library');
   // a playlist or folder that isn't there any more: nothing to search and no track to show, so the header keeps only
   // the title (the empty state's All tracks is the way on)
@@ -337,7 +337,8 @@
   const playSource = $derived(detail ? { label: lib?.title ?? 'All tracks',
     href: `${libraryHref(folder)}?track=${encodeURIComponent(detail.track_id)}` } : undefined);
   const pending = $derived(noFileRow ? { row: noFileRow,
-    next: detail?.track_id === noFileRow.track_id ? detail.next_qobuz_check : null, off: lib?.enabled === false } : null);
+    next: detail?.track_id === noFileRow.track_id ? detail.next_qobuz_check : null, off: lib?.enabled === false,
+    link: detail?.track_id === noFileRow.track_id ? detail.track_link : null } : null);
   const playing = $derived($player.playing ? $player.track_id : null);
   function playOrPause(id: string) {
     if ($player.track_id === id && $player.url) player.toggle();
@@ -391,7 +392,8 @@
   {:else}
     {#if libError}<ProblemCard compact kind={libError.kind} message={libError.message} />{/if}
     {#if hasFiles}
-      <SummaryStrip summary={lib.summary} onupgrades={() => setFilter('upgrade_ready')} ontodo={() => void go('/todo')} />
+      <SummaryStrip summary={lib.summary} songs={lib.view === 'playlist' && lib.read_at !== null ? lib.songs : null}
+        onupgrades={() => setFilter('upgrade_ready')} ontodo={() => void go('/todo')} />
       <Segmented {options} value={filter} onchange={setFilter} label="Quality" test="library-filter" />
     {/if}
     {#if empty.page}

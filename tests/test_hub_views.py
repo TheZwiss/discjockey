@@ -473,7 +473,7 @@ def test_track_detail():
     assert d["bought_name"] == "Library/A/Artist - Song.wav"
     assert d["buy_links"]["beatport"] == "https://www.beatport.com/search?q=Artist+Song"
     assert d["upgrade"] is None and "spotify_url" not in d
-    assert d["track_link"] == {"url": "https://open.spotify.com/track/t1", "label": "Open in Spotify"}
+    assert d["track_link"] == {"url": "https://open.spotify.com/track/t1", "label": "Open in Spotify", "service": "spotify"}
 
 
 def test_track_detail_says_why_the_file_is_not_there():
@@ -498,19 +498,60 @@ def test_track_detail_shows_bitrate_and_the_artists_free_downloads():
     d = views.track_detail("t1", e("not_lossless", cutoff=20100, source="youtube_music", source_format="opus",
                                    source_kbps=135, free_downloads=[GATE]), [], TODAY)
     assert d["quality_line"] == "YouTube Music OPUS 135 kbps · cutoff 20.1 kHz"
-    assert d["format_line"] == "Opus · 135 kbps" and d["source_full"] == "YouTube Music"
+    assert d["format_line"] == "AIFF · 16-bit" and d["source_format_line"] == "Opus · 135 kbps"
+    assert d["source_full"] == "YouTube Music"
     assert d["free_downloads"] == [{"url": "https://hypeddit.com/a/b", "host": "hypeddit.com", "direct": False,
                                     "title": "Song (Free DL)", "uploader": "Artist"}]
     assert views.track_detail("t1", e("lossless", free_downloads=[GATE]), [], TODAY)["free_downloads"] == []
     assert views.track_detail("t1", e("missing"), [], TODAY)["free_downloads"] == []  # never looked
 
 
-def test_format_line():
-    assert views.format_line(e("lossless", source="qobuz", source_format="flac")) == "FLAC"
-    assert views.format_line(e("lossless", source="manual", source_format="pcm_s16be")) == "uncompressed PCM"
-    assert views.format_line(e("not_lossless", source="soundcloud", source_format="aac")) == "AAC"  # not looked up yet
-    assert views.format_line(e("fake_lossless", source="qobuz", source_format="flac", source_kbps=900)) == "FLAC"
-    assert views.format_line(e("missing")) is None
+def test_source_format_line():
+    # the old format_line: what the download was made from
+    assert views.source_format_line(e("lossless", source="qobuz", source_format="flac")) == "FLAC"
+    assert views.source_format_line(e("lossless", source="manual", source_format="pcm_s16be")) == "uncompressed PCM"
+    assert views.source_format_line(e("not_lossless", source="soundcloud", source_format="aac")) == "AAC"
+    assert views.source_format_line(e("not_lossless", source="youtube_music", source_format="opus",
+                                      source_kbps=135)) == "Opus · 135 kbps"
+    assert views.source_format_line(e("fake_lossless", source="qobuz", source_format="flac",
+                                      source_kbps=900)) == "FLAC"
+    assert views.source_format_line(e("missing")) is None
+
+
+@pytest.mark.parametrize("entry, line", [
+    (e("lossless", source="qobuz", source_format="flac"), "AIFF · 16-bit"),  # every download is converted
+    (e("not_lossless", source="youtube_music", source_format="opus", source_kbps=135), "AIFF · 16-bit"),
+    (e("lossless", source="manual", source_format="pcm_s24le", path="Music/a.wav"), "WAV · 24-bit"),
+    (e("lossless", source="manual", source_format="pcm_s16be", path="Music/a.aif"), "AIFF · 16-bit"),
+    (e("lossless", source="manual", source_format="flac", path="Music/a.flac"), "FLAC"),
+    (e("not_lossless", source="manual", source_format="mp3", path="Music/a.mp3"), "MP3"),
+    (e("not_lossless", source="manual", source_format="aac", path="Music/a.m4a"), "AAC"),
+    (e("lossless", source="manual", source_format="alac", path="Music/a.m4a"), "ALAC"),
+    (e("missing"), None),
+])
+def test_file_format_line_is_what_the_file_is(entry, line):
+    assert views.file_format_line(entry) == line
+
+
+def test_track_detail_says_how_the_source_was_found_and_for_a_bought_file_nothing():
+    d = views.track_detail("t1", e("lossless", source_format="flac", source_how="isrc"), [], TODAY)
+    assert (d["source_how"], d["format_line"], d["source_format_line"]) == ("isrc", "AIFF · 16-bit", "FLAC")
+    bought = e("lossless", source="manual", source_format="pcm_s24le", path="Music/a.wav", placed_by="app")
+    d = views.track_detail("t1", bought, [], TODAY)
+    assert (d["source_how"], d["format_line"], d["source_format_line"]) == (None, "WAV · 24-bit", None)
+    gone = views.track_detail("t1", e("missing"), [], TODAY)
+    assert (gone["source_how"], gone["format_line"], gone["source_format_line"]) == (None, None, None)
+
+
+def test_source_url_is_dropped_when_it_is_the_songs_own_page():
+    own = e("not_lossless", source="youtube_music", source_id="abc123", source_format="aac", source_how="upload")
+    d = views.track_detail("youtube_music:abc123", own, [], TODAY)
+    assert d["track_link"]["url"] == "https://music.youtube.com/watch?v=abc123" and d["source_url"] is None
+    # a download from another page keeps its link: the Spotify track's page is a different one
+    other = views.track_detail("t1", e("not_lossless", source="youtube", source_id="abc123", source_format="opus"),
+                               [], TODAY)
+    assert other["source_url"] == "https://www.youtube.com/watch?v=abc123"
+
 
 
 def test_todo_rows_say_when_a_free_download_exists():
@@ -1384,16 +1425,72 @@ def test_track_detail_link_is_the_first_fetched_tracks_else_the_keys():
     fetched = [FetchedPlaylist(PlaylistLine("A", "p1", 1, "qobuz"), [qobuz], []),
                FetchedPlaylist(PlaylistLine("B", "p2", 2), [t("t1")], [])]
     d = views.track_detail("t1", entry, fetched, TODAY)
-    assert d["track_link"] == {"url": "https://open.qobuz.com/track/900000001", "label": "Open in Qobuz"}
+    assert d["track_link"] == {"url": "https://open.qobuz.com/track/900000001", "label": "Open in Qobuz", "service": "qobuz"}
     assert d["playlists"] == ["A", "B"]  # a Qobuz track is found by its token, not its bare id
     d = views.track_detail("t1", entry, [], TODAY)  # nothing read yet: the link its key gives
-    assert d["track_link"] == {"url": "https://open.spotify.com/track/t1", "label": "Open in Spotify"}
+    assert d["track_link"] == {"url": "https://open.spotify.com/track/t1", "label": "Open in Spotify", "service": "spotify"}
     d = views.track_detail("qobuz:900000001", e("lossless"), [], TODAY)
-    assert d["track_link"] == {"url": "https://open.qobuz.com/track/900000001", "label": "Open in Qobuz"}
+    assert d["track_link"] == {"url": "https://open.qobuz.com/track/900000001", "label": "Open in Qobuz", "service": "qobuz"}
     assert views.track_detail("soundcloud:900000101", e("lossless"), [], TODAY)["track_link"] == {
         "url": "https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/900000101",
-        "label": "Open in SoundCloud"}
+        "label": "Open in SoundCloud", "service": "soundcloud"}
     assert views.track_detail("youtube:1", e("lossless"), [], TODAY)["track_link"] is None
+
+
+def test_track_link_names_its_service_for_every_playlist_service():
+    """The hub's logo beside "Open in …" reads `service`, never the label's words: a fetched track's own service, else
+    the one its key names."""
+    sc = SourceTrack("900000105", "Song", ("Artist",), "Al", None, 180000, None, service="soundcloud",
+                     link="https://soundcloud.com/artist/song")
+    entry = e("lossless", aliases=["soundcloud:900000105"])
+    fetched = [FetchedPlaylist(PlaylistLine("A", "p1", 1, "soundcloud"), [sc], [])]
+    assert views.track_detail("t1", entry, fetched, TODAY)["track_link"]["service"] == "soundcloud"
+    for key, service in [("t1", "spotify"), ("qobuz:1", "qobuz"), ("soundcloud:2", "soundcloud"),
+                         ("youtube_music:abc", "youtube_music")]:
+        link = views.track_detail(key, e("lossless"), [], TODAY)["track_link"]
+        assert link["service"] == service and link["label"] == f"Open in {views.PLAYLIST_SERVICES[service]}"
+
+
+def test_library_rows_carry_the_track_link_from_data_already_held():
+    """The row menu's "Open in {Service}" reads the row, so it is there when the menu opens. The link is the details'
+    (the read's link by the song's keys and aliases, else the key's), worked out from `fetched` in memory: one index
+    for the view, no call to a service per row."""
+    qobuz = SourceTrack("900000001", "Song", ("Artist",), "Al", None, 180000, None, service="qobuz")
+    st = state(t1=e(title="One"), qobuz_9=e(title="Two"), **{"youtube:1": e(title="Three"),
+                                                             "qobuz:900000002": e(title="Four")})
+    fetched = [FetchedPlaylist(PlaylistLine("A", "p1", 1, "qobuz"), [qobuz], [])]
+    # t1 is tied to the Qobuz token only by the last read's linking: `planned`, as HubApi passes prep's aliases
+    out = views.library(st, "all", None, "", "all", "title", lines=[], fetched=fetched,
+                        planned={"t1": ["qobuz:900000001"]})
+    links = {r["track_id"]: r["track_link"] for r in out["rows"]}
+    assert links["t1"] == {"url": "https://open.qobuz.com/track/900000001", "label": "Open in Qobuz", "service": "qobuz"}
+    assert links["qobuz:900000002"]["service"] == "qobuz"  # the key's own link
+    assert links["qobuz_9"] == {"url": "https://open.spotify.com/track/qobuz_9", "label": "Open in Spotify",
+                                "service": "spotify"}
+    assert links["youtube:1"] is None  # unknown: absent from the start, never later
+    for r in out["rows"]:  # the same link the details' head carries
+        aliases = ["qobuz:900000001"] if r["track_id"] == "t1" else []
+        d = views.track_detail(r["track_id"], {**st["tracks"][r["track_id"]], "aliases": aliases}, fetched, TODAY)
+        assert r["track_link"] == d["track_link"]
+
+
+def test_a_waiting_playlist_row_and_an_also_row_carry_a_track_link_too(monkeypatch):
+    qobuz = SourceTrack("900000001", "Song", ("Artist",), "Al", None, 180000, None, service="qobuz",
+                        link="https://open.qobuz.com/track/900000001")
+    st = state(a=e(folder="Mix", title="Here"), b=e(folder="Mix", title="Also here"))
+    line = Row("Mix", "https://open.qobuz.com/playlist/900000001")
+    rec = PlaylistRecord("qobuz", "2026-11-05T10:00:00",
+                         (RecordedTrack(1, "a", "Artist", "Here", 180000),
+                          RecordedTrack(2, "qobuz:900000001", "Artist", "Waiting", 180000)))
+    built = []
+    real = views.link_finder
+    monkeypatch.setattr(views, "link_finder", lambda f: built.append(1) or real(f))
+    fetched = [FetchedPlaylist(PlaylistLine("Mix", "p1", 1, "qobuz"), [qobuz], [])]
+    out = views.library(st, "playlist", "Mix", "", "all", None, lines=[line], records={line.ref: rec}, fetched=fetched)
+    waiting = next(r for r in out["rows"] if r["file_state"] == "no_file")
+    assert waiting["track_link"]["service"] == "qobuz"
+    assert out["also"] and all(r["track_link"] for r in [*out["rows"], *out["also"]])
+    assert built == [1]  # one index for the whole view, not one per row
 
 
 def test_a_qobuz_keyed_ambiguous_song_shows_on_the_todo_and_in_the_preview_under_its_song_key():
@@ -1978,10 +2075,10 @@ def test_the_files_of_the_playlists_folder_it_does_not_hold_come_below_as_also()
     assert [r["track_id"] for r in playlist_view(sort="-title")["also"]] == ["d"]
 
 
-def test_a_playlists_summary_and_chips_count_its_rows_with_a_file_and_the_search_narrows_rows_and_also():
+def test_a_playlists_summary_and_quality_chips_count_its_rows_with_a_file_and_the_search_narrows_rows_and_also():
     out = playlist_view()
     assert out["summary"]["tracks"] == 3 and out["summary"]["by_quality"]["lossless"] == 2
-    assert out["chips"] == {"all": 3, "lossless": 2, "good_lossy": 1, "weak": 0, "fake": 0, "upgrade_ready": 0}
+    assert out["chips"] == {"all": 5, "lossless": 2, "good_lossy": 1, "weak": 0, "fake": 0, "upgrade_ready": 0}
     assert out["subtitle"] == ["Spotify playlist", "3 tracks", "Library › Techno"]
     hit = playlist_view(query="four")
     assert ([r["track_id"] for r in hit["rows"]], [r["track_id"] for r in hit["also"]]) == ([], ["d"])
@@ -2177,6 +2274,14 @@ def test_a_playlist_view_says_how_many_of_its_songs_have_a_file_whatever_the_sea
     assert playlist_view(records={})["songs"] is None  # never read
     assert views.library(playlist_state(), "all", None, "", "all", None, lines=[TECHNO])["songs"] is None
     assert views.library(playlist_state(), "playlist", "Nowhere", "", "all", None, lines=[TECHNO])["songs"] is None
+
+
+def test_a_playlist_views_all_chip_counts_every_row_it_lists_and_the_quality_chips_only_files():
+    out = playlist_view()
+    assert out["chips"]["all"] == len(out["rows"]) == out["songs"]["listed"] == 5  # 3 files + 2 songs waiting
+    assert sum(out["chips"][f] for f in ("lossless", "good_lossy", "weak", "fake")) <= out["songs"]["with_file"]
+    narrowed = playlist_view(query="one")
+    assert narrowed["chips"]["all"] == len(narrowed["rows"])
 
 
 def test_a_hidden_song_that_was_not_found_still_says_it_is_hidden_so_the_page_sends_nobody_to_the_to_do_list():
