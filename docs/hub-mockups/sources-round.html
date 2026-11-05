@@ -557,7 +557,7 @@
   const stage = document.getElementById('stage');
   function render() {
     const st = STATES.find((s) => s[0] === state);
-    stage.innerHTML = `<div class="sizer"><div class="win" style="width:${W}px;height:${H}px"><div class="body">${st[3]()}</div></div></div>`;
+    stage.innerHTML = `<div class="sizer"><div class="win" data-win style="width:${W}px;height:${H}px"><div class="body">${st[3]()}</div></div></div>`;
     const avail = [stage.clientWidth - 32, stage.clientHeight - 16];
     const k = Math.min(1, avail[0] / W, avail[1] / H);
     const sizer = stage.querySelector('.sizer'); sizer.style.width = `${W * k}px`; sizer.style.height = `${H * k}px`;

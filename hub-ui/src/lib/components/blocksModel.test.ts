@@ -72,6 +72,7 @@ describe('addRow needs-setting form', () => {
       name: 'Liked music', service: 'youtube_music', owner: 'yours',
       line: 'Reading your Liked music is off',
       hint: "It reads through your YouTube login, so it's a choice in Settings.",
+      later: "It reads through your YouTube login, so it's a choice in Settings. Turn it on there after setup; add another playlist for now.",
     });
   });
 });
