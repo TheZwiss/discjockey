@@ -9,6 +9,7 @@ execute() is safe to run in a worker thread; it never touches signals or the ter
 """
 from __future__ import annotations
 
+import copy
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager, contextmanager
@@ -24,7 +25,7 @@ from .events import ActionStarted, Cancelled, CancelToken, Emit, Message, Result
 from .execute import Executor
 from .fallback import FallbackSource, stream_url
 from .library import Paths, StateError
-from .models import Action, FetchedPlaylist, Plan, PlaylistLine
+from .models import Action, FetchedPlaylist, Plan, PlaylistLine, split_token
 from .pacing import Budget, Pacer, paused_accounts, record_signal
 from .qobuz import QobuzError, QobuzNotSetUp, QobuzSource
 from .settings import MAX_EXTRA, Settings, SettingsError, load_settings, save_settings
@@ -126,7 +127,7 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
             log.add_text("skipped", f"[{fp.line.folder}] {item}")
 
     unread_folders = frozenset(line.folder for line in unread)
-    unread_members = recorded_members(paths, unread)
+    unread_members = recorded_members(paths, unread, state)
     plan = planner.plan(fetched, state, state["files"], date.today(), first_checks=first_check_room(state, settings),
                         unread_folders=unread_folders, unread_members=unread_members)
     for key in plan.dropped:
@@ -165,26 +166,36 @@ def record_reads(paths: Paths, fetched: list[FetchedPlaylist], now: datetime) ->
         logger.warning("couldn't keep the playlists' read records", exc_info=True)
 
 
-def recorded_members(paths: Paths, unread: list[PlaylistLine]) -> dict[str, tuple[str, ...]]:
-    """For the lines not read this time: folder -> the track tokens of the line's last stored read (the playlists'
-    read records), so the planner keeps those songs' playlist membership by what the playlist held, not by the
-    song's own folder (a song of Liked music and of a higher playlist has the higher one as its folder). A line
-    without a stored read is not in the result. Best-effort, read-only: no library.db or one that can't be read
-    gives {}."""
-    if not unread or not paths.db_file.exists():
+def recorded_members(paths: Paths, unread: list[PlaylistLine], state: dict | None = None) -> dict[str, tuple[str, ...]]:
+    """For the lines not read this time: folder -> the track tokens the line is known to hold, so the planner keeps
+    those songs' playlist membership by what the playlist held, not by the song's own folder (a song of Liked music
+    and of a higher playlist has the higher one as its folder). The last stored read (the playlists' read records)
+    gives them. A line without a stored read (its record is gone, or it was never read) is held by what the library's
+    own records say: every song of the library that is still in a playlist and has a token of the line's service
+    (its key or an alias), or has the line's folder. That keeps more than it has to, never less: a song of another
+    playlist of that service stays until the line is read again. Best-effort: no library.db or one that can't be
+    read gives the records-less answer only."""
+    if not unread:
         return {}
-    try:
-        with db.connect(paths.db_file, wait_ms=RECORD_WAIT_MS) as conn:
-            db.check(conn)
-            records = db.playlist_records(conn)
-    except Exception:
-        logger.warning("couldn't read the playlists' read records", exc_info=True)
-        return {}
+    records: dict = {}
+    if paths.db_file.exists():
+        try:
+            with db.connect(paths.db_file, wait_ms=RECORD_WAIT_MS) as conn:
+                db.check(conn)
+                records = db.playlist_records(conn)
+        except Exception:
+            logger.warning("couldn't read the playlists' read records", exc_info=True)
     members: dict[str, tuple[str, ...]] = {}
     for line in unread:
         record = records.get(line.ref)
         if record is not None:
-            members[line.folder] = members.get(line.folder, ()) + tuple(t.token for t in record.tracks)
+            found = tuple(t.token for t in record.tracks)
+        else:
+            found = tuple(
+                token for key, e in (state or {}).get("tracks", {}).items() if e.get("in_playlists", True)
+                for token in (key, *e.get("aliases", []))
+                if split_token(token)[0] == line.service or e.get("folder") == line.folder)
+        members[line.folder] = members.get(line.folder, ()) + found
     return members
 
 
@@ -325,6 +336,23 @@ def record_pending(paths: Paths, state: dict, lock: Callable[[], AbstractContext
     state, stored = _store_signs(paths, state, entries, lock, dry_run)
     if stored:
         pending_signs.remove(paths, waiting)
+    return state
+
+
+def with_pending_signs(paths: Paths, state: dict) -> dict:
+    """`state` with the signs still waiting for the lock (pending_signs.py) added to their account's warning signs, for
+    the pages that show them (Settings, Download limits, the sidebar dot). For showing only: the result is never saved
+    (the signs are stored by record_pending, which clears the file)."""
+    waiting = pending_signs.load(paths)
+    if not waiting:
+        return state
+    state = copy.deepcopy(state)
+    for s in waiting:
+        try:
+            met = datetime.fromisoformat(str(s["time"]))
+        except ValueError:
+            continue
+        record_signal(state, str(s["kind"]), str(s["message"]), met, str(s["service"]))
     return state
 
 

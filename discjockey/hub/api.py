@@ -444,6 +444,11 @@ class HubApi:
             if held:
                 run.record_pending(self._paths, self._state(), run.lock_held, False)
 
+    def _shown_state(self) -> dict:
+        """The state for pages that show the warning signs: `_state()` plus the signs waiting for the lock. Not for
+        anything that saves."""
+        return run.with_pending_signs(self._paths, self._state())
+
     def _record_waiting_signs(self) -> None:
         self._record_signs([])
 
@@ -559,7 +564,7 @@ class HubApi:
 
     @bridge
     def dashboard(self) -> dict:
-        return views.dashboard(self._state(), self._settings(), self._store, self._reports(), self._folders(),
+        return views.dashboard(self._shown_state(), self._settings(), self._store, self._reports(), self._folders(),
                                setup_status(self._support, self._paths, self._music_status(), self._svc.which),
                                self._today(), self._svc.now(),
                                self._reading(), self._logins())
@@ -571,7 +576,7 @@ class HubApi:
     def _sidebar_view(self, also: Sequence[str] = ()) -> dict:
         """The sidebar's numbers; `also`: Favourites keys to resolve besides the stored ones (set_favourites asks
         which of the keys it is given exist right now)."""
-        state = self._state()
+        state = self._shown_state()
         count = self._todo(state, "all", False, count_only=True)["chips"]["all"]
         # the dot on "Download limits": a warning sign the user hasn't marked as seen, or a service paused today
         warnings = any(c["new_warnings"] or c["paused"] for c in views.limit_cards(state, self._settings(), self._today()))
@@ -845,7 +850,7 @@ class HubApi:
 
     @bridge
     def limits(self, service: str = "qobuz") -> dict:
-        return views.limits(self._service(service), self._state(), self._settings(), self._store.prep, self._today())
+        return views.limits(self._service(service), self._shown_state(), self._settings(), self._store.prep, self._today())
 
     @bridge
     def limits_what_if(self, service: str, limit: int, extra_today: int = 0) -> dict:
@@ -853,7 +858,7 @@ class HubApi:
         if not 1 <= limit <= MAX_DAILY_LIMIT or not 0 <= extra_today <= MAX_EXTRA:
             raise ValueError(f"The daily limit goes from 1 to {MAX_DAILY_LIMIT}, the extra for today from 0 to "
                              f"{MAX_EXTRA}.")
-        return views.limits_what_if(service, limit, extra_today, self._state(), self._settings(), self._store.prep,
+        return views.limits_what_if(service, limit, extra_today, self._shown_state(), self._settings(), self._store.prep,
                                     self._today())
 
     @bridge
@@ -898,7 +903,7 @@ class HubApi:
         settings = self._settings()
         names = {s: profile_name(a.browser, a.profile, self._svc.home) for s, a in settings.accounts.items()}
         qobuz_ok = setup_status(self._support, self._bound, self._music_status(), self._svc.which)["qobuz"]
-        state = self._state() if self._bound is not None else library.empty_state()
+        state = self._shown_state() if self._bound is not None else library.empty_state()
         return {"downloads": views.downloads(state, settings, qobuz_ok, names, self._today())}
 
     @bridge

@@ -912,10 +912,30 @@ def test_a_paused_liked_music_keeps_a_song_that_left_its_higher_playlist_by_the_
     prep = run.prepare(liked)
     assert LikedYDL.requested == [] and prep.unread_members == {"Liked_music": (LM_KEY,)}
     assert_kept_like_a_failed_read(prep)
-    # without the stored read the song's folder (Hard_Bounce, which was read) decides: it is dropped
+
+
+def test_an_unread_line_without_a_stored_read_still_keeps_the_songs_the_library_knows_it_may_hold(liked):
+    """Liked music is paused and its stored read is gone. The song with a YouTube Music token (it may be in Liked
+    music) is kept even though its folder is a playlist that no longer lists it; a Spotify song that left its
+    playlist is dropped as usual."""
+    from hub_helpers import entry
+    from discjockey import pacing
+
+    set_liked(liked)
+    state = library.load_state(liked)
+    state["tracks"][LM_KEY]["folder"] = "Hard_Bounce"
+    state["tracks"]["sp_gone"] = entry(artist="Example Artist", title="Gone", duration_ms=100000, folder="Hard_Bounce",
+                                       path="Library/Hard_Bounce/gone.aiff", status="lossless", source="qobuz",
+                                       source_id="q2", source_format="flac")
+    pacing.record_signal(state, "auto_stop", "3 requests failed", datetime.now(), "youtube")
+    save_state(liked, state)
     with db.connect(liked.db_file) as conn:
         conn.execute("DELETE FROM playlist_reads")
-    assert LM_KEY in run.prepare(liked).plan.dropped
+    prep = run.prepare(liked)
+    assert LikedYDL.requested == [] and prep.unread_members == {"Liked_music": (LM_KEY,)}
+    assert LM_KEY not in prep.plan.dropped and prep.state["tracks"][LM_KEY]["in_playlists"] is True
+    assert "sp_gone" in prep.plan.dropped
+    assert run.replan(prep).plan.dropped == prep.plan.dropped  # replan keeps the same membership
 
 
 def assert_kept_like_a_failed_read(prep):

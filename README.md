@@ -159,7 +159,9 @@ line to see it on the right.
   `Library/`, `Superseded/`, `Upgrades ready/` and `playlists.txt`. It also has a hidden
   `.discjockey/` folder with Discjockey's notes about your library: `library.db` (Discjockey's records of your
   tracks and where their files are), `state.v1.json` (a copy of the old records, kept after the update below), the
-  `reports/` and `not_lossless.md`. It can be on an external drive.
+  `reports/`, `not_lossless.md` and, now and then, `pending_signs.json` (a YouTube warning sign Discjockey met while
+  another job had your library busy; it goes into `library.db` as soon as it can, and the file disappears). It can be on
+  an external drive.
 - **Updating from an earlier version:** the first time a new Discjockey opens your library, it says
   "Updating Discjockey's records…" and turns the old records into `library.db`. This happens once and can take a
   minute. Your music files are not touched, and `state.v1.json` stays as a copy of the old records.

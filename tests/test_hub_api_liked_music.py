@@ -278,6 +278,24 @@ def test_a_waiting_sign_already_pauses_the_account_and_survives_a_restart(root, 
     assert len(pending_signs.load(root)) == 1  # and not recorded twice
 
 
+def test_a_waiting_sign_shows_on_the_limits_page_the_settings_panel_and_the_dashboard_before_it_is_recorded(root, monkeypatch):
+    api, _ = make_api(root, now=datetime.now)
+    settings(root)
+    pending_signs.add(root, [("youtube", "bot_check", "m")], datetime.now())
+    assert stored_kinds(root) == []
+    page = api.limits("youtube")
+    assert [s["kind"] for s in page["usage"]["signals"]] == ["bot_check"]
+    assert next(c for c in page["cards"] if c["service"] == "youtube")["warnings"] == 1
+    assert page["usage"]["signal_summary"]["bot_check"] == 1
+    state = api._shown_state()
+    assert [s["kind"] for s in state["youtube_usage"]["signals"]] == ["bot_check"]
+    assert stored_kinds(root) == [] and len(pending_signs.load(root)) == 1  # showing it stores nothing
+    assert "youtube_usage" not in library.load_state(root)
+    api.downloads_view()  # the Settings panel reads the same cards
+    api.limits("youtube")  # and again: shown, never doubled
+    assert [s["kind"] for s in api._shown_state()["youtube_usage"]["signals"]] == ["bot_check"]
+
+
 def test_the_start_records_the_signs_the_last_session_left_waiting(root, monkeypatch):
     api, _ = make_api(root)
     settings(root)
