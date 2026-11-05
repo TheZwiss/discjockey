@@ -38,7 +38,7 @@ const fake: PageFake = {
     crates_many_folders(s) {
       crates(s);
       for (const [path, files] of [['/Users/you/Music/Warehouse Rips', 86], ['/Users/you/Music/Festival Sets', 41]] as const) {
-        s.imp.folders.push({ id: s.imp.nextId++, path, kind: 'import', offline: false, files, waiting: 0, redownload: 0 });
+        s.imp.folders.push({ id: s.imp.nextId++, path, kind: 'import', offline: false, imported: files, waiting: 0, redownload: 0 });
       }
     },
     // the user's case: Qobuz only; YouTube's login is in Chrome's second profile (found → Use this login)

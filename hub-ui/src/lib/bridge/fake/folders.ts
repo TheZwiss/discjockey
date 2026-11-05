@@ -8,7 +8,7 @@ import type {
 import { FAKE_MUSIC, pathOf, type FakeDuplicate, type FakeFolder, type FakeQuestion, type FakeState } from './data';
 import type { FakeContext, Finish } from './bridge';
 import { toneUrl } from './audio';
-import { cratesIn } from './library';
+import { cratesIn, listedCounts } from './library';
 
 // ---------- the engine's words ----------
 export const IMPORTING_BUSY = 'Discjockey is importing your music. Stop the import in Settings → Watched folders to do '
@@ -79,11 +79,12 @@ export function checkImportFolder(s: FakeState, path: string): ImportFolderCheck
 export function watchedFolders(s: FakeState): WatchedFolders {
   const phase = s.imp.phase;
   const crates = cratesIn(s);
+  const listed = listedCounts(s);
   const rows: WatchedFolderRow[] = s.imp.folders.map((f) => ({
     id: f.id, path: f.path, name: f.kind === 'library' ? 'Library' : name(f.path), kind: f.kind,
     state: f.kind === 'library' ? (phase === 'scan' ? 'scanning' : 'online')
       : f.offline ? 'offline' : f.missing ? 'missing' : phase === 'scan' ? 'scanning' : phase !== null && f.waiting > 0 ? 'importing' : 'online',
-    files: f.files, waiting: f.waiting,
+    files: listed.get(f.id) ?? 0, waiting: f.waiting,
     unreadable: s.imp.unreadable.filter((u) => u.folder_id === f.id).length,
     crates: crates[f.path]?.crates ?? [], too_many: crates[f.path]?.too_many ?? false,
   }));
@@ -95,12 +96,12 @@ export function folderOf(s: FakeState, id: unknown): FakeFolder | undefined {
 }
 export function removalPreview(s: FakeState, id: unknown): RemovalPreview | Fail {
   const f = folderOf(s, id);
-  return f ? { name: name(f.path), files: f.files, redownload: f.redownload } : fail('refused', NO_FOLDER);
+  return f ? { name: name(f.path), files: f.imported, redownload: f.redownload } : fail('refused', NO_FOLDER);
 }
 export function removeFolder(s: FakeState, f: FakeFolder): { files: number; redownload: number } {
   s.imp.folders = s.imp.folders.filter((x) => x !== f);
   s.imp.unreadable = s.imp.unreadable.filter((u) => u.folder_id !== f.id);
-  return { files: f.files, redownload: f.redownload };
+  return { files: f.imported, redownload: f.redownload };
 }
 
 // ---------- the To-do groups (W8) ----------
@@ -216,7 +217,7 @@ export async function runImport(ctx: FakeContext, run: ImportRun, finish: Finish
   if (!resumed) {
     progress('scan', 0, 0);
     await sleep(700);
-    if (opts.adding) { opts.adding.files += 180; opts.adding.waiting += 180; }
+    if (opts.adding) { opts.adding.imported += 180; opts.adding.waiting += 180; }
   }
   const targets = importFolders(s).filter((f) => !f.offline && !f.missing && f.waiting > 0);
   const initial = new Map(targets.map((f) => [f, f.waiting] as const));
@@ -308,23 +309,23 @@ export const sameSong = (s?: Pick<FakeState, 'tracks'>) => {
 /** Called once by createFakeBridge: the Library, and the scenario's import folders, questions and duplicates. */
 export function seedImport(s: FakeState, scenario: string): void {
   const library: FakeFolder = { id: 1, path: `${FAKE_MUSIC}/Library`, kind: 'library', offline: false,
-    files: s.tracks.filter((t) => t.status !== 'missing').length, waiting: 0, redownload: 0 };
+    imported: s.tracks.filter((t) => t.status !== 'missing').length, waiting: 0, redownload: 0 };
   s.imp.folders = [library];
   const add = (over: Partial<FakeFolder> = {}): FakeFolder => {
-    const f: FakeFolder = { id: s.imp.nextId++, path: `${DRIVE}/Music`, kind: 'import', offline: false, files: 1240,
+    const f: FakeFolder = { id: s.imp.nextId++, path: `${DRIVE}/Music`, kind: 'import', offline: false, imported: 1240,
       waiting: 0, redownload: 4, ...over };
     s.imp.folders.push(f);
     return f;
   };
   if (['first_run', 'no_music', 'music_missing', 'folders_library_only', 'setup_existing_empty'].includes(scenario)) return;
-  if (scenario === 'setup_existing_added') { add({ files: 312, redownload: 0 }); return; }
+  if (scenario === 'setup_existing_added') { add({ imported: 312, redownload: 0 }); return; }
   const music = add();
   if (scenario === 'folders_importing') {
-    music.files = 1840; music.waiting = 1500;
-    add({ path: `${DRIVE}/Crates`, files: 220, redownload: 0 });
+    music.imported = 1840; music.waiting = 1500;
+    add({ path: `${DRIVE}/Crates`, imported: 220, redownload: 0 });
   }
-  if (scenario === 'folders_offline') add({ path: '/Volumes/Old Drive/Music', files: 612, offline: true, redownload: 0 });
-  if (scenario === 'folders_missing') add({ path: '/Users/you/Music/Crates', files: 612, missing: true, redownload: 0 });
+  if (scenario === 'folders_offline') add({ path: '/Volumes/Old Drive/Music', imported: 612, offline: true, redownload: 0 });
+  if (scenario === 'folders_missing') add({ path: '/Users/you/Music/Crates', imported: 612, missing: true, redownload: 0 });
   if (scenario === 'folders_couldnt_read') {
     s.imp.unreadable = [
       { folder_id: music.id, path: `${music.path}/Crates/Neon Riot - Strobe Light.aiff`, reason: NO_ACCESS },
@@ -333,8 +334,8 @@ export function seedImport(s: FakeState, scenario: string): void {
   }
   if (scenario === 'folders_long_names') {
     // names that differ only at their end, and folders on other drives with names of every length
-    const crates = add({ path: '/Volumes/New Volume/Crates Mix', files: 96, redownload: 0 });
-    add({ path: '/Volumes/Backup Drive/DJ Sets/2019/Peak Hour Rarities and Other Long Folder Names', files: 3010, redownload: 0 });
+    const crates = add({ path: '/Volumes/New Volume/Crates Mix', imported: 96, redownload: 0 });
+    add({ path: '/Volumes/Backup Drive/DJ Sets/2019/Peak Hour Rarities and Other Long Folder Names', imported: 3010, redownload: 0 });
     const long = 'Example Artist - A Very Long Title (GUEST ONE x GUEST TWO EDIT)';
     s.imp.unreadable = [
       { folder_id: music.id, path: `${music.path}/Crates/${long}.wav`, reason: EMPTY },

@@ -845,7 +845,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     async add_watched_folder(path: string) {
       const c = checkImportFolder(s, path);
       if (!c.usable) return fail('refused', c.message ?? '');
-      const folder: FakeFolder = { id: s.imp.nextId++, path: c.path, kind: 'import', offline: false, files: 0, waiting: 0,
+      const folder: FakeFolder = { id: s.imp.nextId++, path: c.path, kind: 'import', offline: false, imported: 0, waiting: 0,
         redownload: 0 };
       s.imp.folders.push(folder);
       const started = beginImport({ adding: folder });
@@ -856,7 +856,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       s.imp.stopped = false;
       // the watched folders inside it become part of it, with their files
       for (const inner of s.imp.folders.filter((f) => f.kind === 'import' && c.merges.includes(f.path))) {
-        folder.files += inner.files; folder.waiting += inner.waiting; folder.redownload += inner.redownload;
+        folder.imported += inner.imported; folder.waiting += inner.waiting; folder.redownload += inner.redownload;
         s.imp.unreadable = s.imp.unreadable.map((u) => (u.folder_id === inner.id ? { ...u, folder_id: folder.id } : u));
         s.imp.folders = s.imp.folders.filter((f) => f !== inner);
       }

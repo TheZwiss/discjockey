@@ -81,7 +81,9 @@ describe('fake watched folders', () => {
     const last = evs.filter((e) => e.type === 'ImportProgress' && e.phase === 'sound').at(-1) as { done: number; total: number };
     expect(last.done).toBe(last.total);
     const after = must(await f.watched_folders());
-    expect(after.folders.map((r) => [r.name, r.state, r.files, r.waiting])).toEqual([['Library', 'online', before.folders[0].files, 0], ['Crates', 'online', 180, 0]]);
+    // the fake's import makes no songs, so the new folder lists no track yet (the count is the sidebar's, listedCounts)
+    expect(after.folders.map((r) => [r.name, r.state, r.files, r.waiting])).toEqual([['Library', 'online', before.folders[0].files, 0], ['Crates', 'online', 0, 0]]);
+    expect(must(await f.removal_preview(after.folders[1].id))).toMatchObject({ name: 'Crates', files: 180 });
     const refused = await f.add_watched_folder('/Volumes/Other/Crates');
     expect(refused).toMatchObject({ ok: false, kind: 'refused', message: 'Discjockey watches this folder already.' });
   });
@@ -143,7 +145,20 @@ describe('fake watched folders', () => {
     const start = must(await f.add_watched_folder('/Volumes/Example Drive'));
     await finished(evs, start.job_id);
     const rows = must(await f.watched_folders()).folders;
-    expect(rows.map((r) => [r.name, r.files])).toEqual([['Library', library], ['Example Drive', 1240 + 180]]);
+    const sidebar = must(await f.sidebar()).watched;
+    expect(rows.map((r) => [r.name, r.files])).toEqual([['Library', library], ['Example Drive', sidebar[0].files]]);
+    expect(must(await f.removal_preview(rows[1].id))).toMatchObject({ files: 1240 + 180 });
+  });
+
+  it("gives a watched folder one count: Settings' row is the sidebar's number (views.listed_counts)", async () => {
+    for (const scenario of ['normal', 'folders_importing', 'folders_offline', 'folders_long_names', 'library:crates']) {
+      const { f } = fake(scenario);
+      const rows = must(await f.watched_folders()).folders.filter((r) => r.kind === 'import');
+      const side = must(await f.sidebar()).watched;
+      expect(rows.length, scenario).toBeGreaterThan(0);
+      expect(rows.map((r) => [r.path, r.files]), scenario)
+        .toEqual(rows.map((r) => [r.path, side.find((w) => w.path === r.path)?.files]));
+    }
   });
 });
 
