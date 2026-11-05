@@ -58,6 +58,16 @@ export function placeWords(path: string): string {
 /** the tracks that have a file (what "All tracks" counts) */
 export const filesOf = (s: FakeState): FakeTrack[] => s.tracks.filter((t) => t.status !== 'missing' && !!pathOf(t));
 const importRoots = (s: FakeState): string[] => s.imp.folders.filter((f) => f.kind === 'import').map((f) => f.path);
+/** How many tracks each watched folder lists, by folder id (views.listed_counts): the one count behind the sidebar's
+ *  number and Settings' row, so the two never differ. A folder counts the files at or below it, the rows its page
+ *  lists; the Library counts `Library/...`. Files the import still works through are no tracks yet (`waiting`). */
+export function listedCounts(s: FakeState): Map<number, number> {
+  const paths = filesOf(s).map((t) => nfc(pathOf(t)!));
+  return new Map(s.imp.folders.map((f) => {
+    const root = f.kind === 'library' ? 'Library' : nfc(f.path);
+    return [f.id, paths.filter((p) => p !== root && within(p, root)).length];
+  }));
+}
 
 /** One song of a playlist's read; `t` is the fake's song (None for a song only just read, which the sync has yet to
  *  look at: it waits). */
@@ -232,12 +242,12 @@ export function sidebarOf(s: FakeState, todo: number, limits_warning: boolean): 
       enabled: p.enabled, songs: read ? new Set(read.held.map((h) => h.key)).size : null };
   });
   const found = cratesIn(s);
-  const paths = files.map((t) => nfc(pathOf(t)!));
+  const listed = listedCounts(s);
   const watched: WatchedEntry[] = s.imp.folders.filter((f) => f.kind === 'import')
     .sort((a, b) => (fold(base(a.path) || a.path) < fold(base(b.path) || b.path) ? -1
       : fold(base(a.path) || a.path) > fold(base(b.path) || b.path) ? 1 : a.path < b.path ? -1 : 1))
     .map((f) => ({ path: f.path, name: base(f.path) || f.path, place: placeWords(f.path),
-      files: paths.filter((p) => p !== nfc(f.path) && within(p, nfc(f.path))).length,
+      files: listed.get(f.id) ?? 0,
       state: f.offline ? 'offline' : f.missing ? 'folder_missing' : 'here', ...found[f.path] }));
   const targets = new Map<string, Omit<Favourite, 'key'>>();
   for (const p of playlists) {

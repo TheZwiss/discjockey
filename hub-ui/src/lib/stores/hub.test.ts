@@ -292,6 +292,49 @@ describe('a DrivesChanged event', () => {
   });
 });
 
+describe('a full refreshHub that lands during a Favourites save', () => {
+  afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
+  /** the sidebar answer is what was stored when the call was made, and the first call answers late */
+  function slowFirstSidebar() {
+    (globalThis as any).window = new EventTarget();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    let stored = ['playlist:a'];
+    let calls = 0;
+    installBridge({
+      job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: false, read_status: null,
+        sign_in: null }),
+      setup_status: async () => ({ ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }),
+      app_update: async () => ({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null }),
+      sidebar: async () => {
+        const read = [...stored];
+        if (++calls === 1) await gate;
+        return { ok: true, todo: 0, all_tracks: 0, not_in_playlist: 0, limits_warning: false,
+          favourites: read.map((key) => ({ key })), playlists: [], watched: [], library_folders: [] };
+      },
+      set_favourites: async (keys: string[]) => { stored = keys; return { ok: true, favourites: keys }; },
+    });
+    return release;
+  }
+  const order = () => get(hub).sidebar?.favourites.map((f) => f.key);
+  it('does not put the old order back when its sidebar answer arrives after the save read the new one', async () => {
+    const release = slowFirstSidebar();
+    const refresh = refreshHub();           // its sidebar question was asked before the save wrote
+    await saveFavourites(['playlist:b', 'playlist:a']);
+    expect(order()).toEqual(['playlist:b', 'playlist:a']);
+    release();
+    await refresh;
+    expect(order()).toEqual(['playlist:b', 'playlist:a']);
+  });
+  it('still takes the full refresh answer when no save came after it', async () => {
+    const release = slowFirstSidebar();
+    const refresh = refreshHub();
+    release();
+    await refresh;
+    expect(order()).toEqual(['playlist:a']);
+  });
+});
+
 describe('the sidebar is read again (plan library stage 5, B2.4 and D15)', () => {
   afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
   /** a bridge that counts the sidebar reads and keeps the Favourites the way library.db would */

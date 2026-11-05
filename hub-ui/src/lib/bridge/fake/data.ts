@@ -98,7 +98,10 @@ export const emptyTidy = (): FakeTidy => ({ batches: [], nextBatch: 1, placed: {
   failMove: null, stopAfter: null });
 /** A watched folder as the fake keeps it (folders.ts answers watched_folders from these). */
 export type FakeFolder = {
-  id: number; path: string; kind: 'library' | 'import'; offline: boolean; files: number;
+  id: number; path: string; kind: 'library' | 'import'; offline: boolean;
+  /** every file the import holds here, read or not (db.import_counts): what removing the folder takes away
+   *  (`removal_preview`). The tracks the folder lists, Settings' and the sidebar's number, are `listedCounts`. */
+  imported: number;
   /** the folder isn't found (moved, renamed, deleted) while its drive is there; `offline`: the drive is away */
   missing?: boolean;
   /** files the import still works through (not read yet, or read and not sound-checked) */

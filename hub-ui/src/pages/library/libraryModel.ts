@@ -382,7 +382,7 @@ export function localDay(d: Date): string {
 // ---------- the header ----------
 /** The header's second line (I7, the engine's parts). A read playlist's count is its songs with a file, which is what
  *  the strip and the filter count, while the table also lists the songs still without one and the sidebar counts every
- *  song (issues #29 "For B6": 13 tracks beside 18 rows and "18 songs" read as a disagreement). So when some have no
+ *  song (13 tracks beside 18 rows and "18 songs" would read as a disagreement). So when some have no
  *  file the count names both in one part, "13 of 18 downloaded" (the inspector's "not downloaded yet" for such a
  *  song): one part, so the parts dropping at a narrow width never leave half of it. Both numbers come from the one
  *  answer (`songs`, before any search or filter).
@@ -403,7 +403,7 @@ export function subtitleParts(lib: Pick<Library, 'subtitle' | 'songs' | 'view' |
   return lib.subtitle.map((p, i) => (i === at ? `${s.with_file} of ${s.listed} downloaded` : p));
 }
 
-// ---------- the empty states (I7; issues #29 "For B6") ----------
+// ---------- the empty states (I7) ----------
 /** A playlist with no read record (`read_at` null) while the header's read status (every playlist's) may say "read 2 min
  *  ago": it was added since the last read, or that read couldn't open it. Both stay true side by side. */
 export const NOT_IN_LAST_READ = "This playlist wasn't in the last read.";

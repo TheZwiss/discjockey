@@ -1681,7 +1681,7 @@ def test_the_watched_folders_with_their_states_counts_and_unreadable_files():
     unreadable = [(Path("/Volumes/Example/Music/Sub/bad.aiff"), "macOS doesn't let Discjockey read it")]
 
     def view(phase, stopped=False, away={3: "unmounted"}):
-        return views.watched_folders([lib, one, two], counts, away, 500, unreadable, 25, stopped, phase)
+        return views.watched_folders([lib, one, two], counts, away, {1: 500, 2: 120, 3: 0}, unreadable, 25, stopped, phase)
 
     out = view(None)
     assert out["folders"] == [
@@ -1689,7 +1689,7 @@ def test_the_watched_folders_with_their_states_counts_and_unreadable_files():
          "waiting": 0, "unreadable": 0, "crates": [], "too_many": False},
         {"id": 2, "path": "/Volumes/Example/Music", "name": "Music", "kind": "import", "state": "online",
          "files": 120, "waiting": 25, "unreadable": 2, "crates": [], "too_many": False},
-        {"id": 3, "path": "/Volumes/Gone", "name": "Gone", "kind": "import", "state": "offline", "files": 7,
+        {"id": 3, "path": "/Volumes/Gone", "name": "Gone", "kind": "import", "state": "offline", "files": 0,
          "waiting": 7, "unreadable": 0, "crates": [], "too_many": False}]
     assert out["unreadable"] == [{"folder_id": 2, "path": "/Volumes/Example/Music/Sub/bad.aiff",
                                   "reason": "macOS doesn't let Discjockey read it"}]
@@ -1701,7 +1701,7 @@ def test_the_watched_folders_with_their_states_counts_and_unreadable_files():
     assert [r["state"] for r in view("tags", away={2: "missing", 3: "unmounted"})["folders"]] == [
         "online", "missing", "offline"]
     assert view(None, stopped=True)["stopped"] is True
-    done = views.watched_folders([lib, one], {2: ImportCounts(120, 0, 0, 0)}, {}, 500, [], 0, False, "link")
+    done = views.watched_folders([lib, one], {2: ImportCounts(120, 0, 0, 0)}, {}, {1: 500, 2: 120}, [], 0, False, "link")
     assert [r["state"] for r in done["folders"]] == ["online", "online"]  # nothing of it left to import
 
 
@@ -1734,13 +1734,23 @@ def test_counted_duplicate_groups_count_without_files_and_are_not_listed():
     assert counted["chips"]["all"] == 1 and counted["chips"]["duplicate"] == 0 and counted["groups"] == []
 
 
+def test_listed_counts_count_the_files_at_or_below_each_watched_folder():
+    lib = WatchedFolder(1, Path("/m/Library"), "library")
+    outer = WatchedFolder(2, Path("/Volumes/Example/Music"), "import")
+    inner = WatchedFolder(3, Path("/Volumes/Example/Music/Old"), "import")
+    paths = ["Library/House/a.aiff", "Library/not_lossless/b.mp3", "/Volumes/Example/Music/c.aiff",
+             "/Volumes/Example/Music/Old/d.aiff", "/Volumes/Example/Musical/e.aiff", "/Volumes/Other/f.aiff"]
+    assert views.listed_counts(paths, [lib, outer, inner]) == {1: 2, 2: 2, 3: 1}
+    assert views.listed_counts([], [lib, outer]) == {1: 0, 2: 0}
+
+
 def test_the_library_row_counts_its_own_waiting_and_unreadable_files():
     lib = WatchedFolder(1, Path("/m/Library"), "library")
     one = WatchedFolder(2, Path("/Volumes/Example/Music"), "import")
     counts = {1: ImportCounts(500, 3, 1, 2), 2: ImportCounts(120, 20, 5, 0)}
     unreadable = [(Path("/m/Library/House/bad.aiff"), "macOS doesn't let Discjockey read it"),
                   (Path("/m/Library/worse.wav"), "Discjockey can't find sound it can read in it")]
-    out = views.watched_folders([lib, one], counts, (), 500, unreadable, 29, False, None)
+    out = views.watched_folders([lib, one], counts, (), {1: 500, 2: 120}, unreadable, 29, False, None)
     assert out["folders"][0] == {"id": 1, "path": "/m/Library", "name": "Library", "kind": "library",
                                  "state": "online", "files": 500, "waiting": 4, "unreadable": 2, "crates": [],
                                  "too_many": False}

@@ -1,6 +1,7 @@
 // Library fake scenarios (scenario names get the prefix "library:").
 import type { PageFake } from '$lib/bridge/fake/bridge';
 import type { FakePlaylist, FakeState, FakeTrack } from '$lib/bridge/fake/data';
+import { dropOwnSongs } from '$lib/bridge/fake/own';
 import { QOBUZ_PLAYLIST_LINK, SPOTIFY_HINT, playlistRef } from '$lib/bridge/fake/data';
 
 /** States whose next playable Hard_Bounce track after Get Naughty (THE WEEKEND; Gone Track has no file) has a file the player can't play. */
@@ -43,6 +44,7 @@ function withFavourites(s: FakeState): void {
  *  crates, one with 312 album folders (more than 25, so all hidden at first), one whose drive is away, and a Library
  *  folder no playlist uses. No Favourites yet: `crates` pins four, `first_look` none. */
 function crateFolders(s: FakeState): void {
+  dropOwnSongs(s);  // the default Music folder goes (below), and its songs with it
   const rekordbox = '/Users/you/Music/Rekordbox Library';
   const albums = '/Volumes/Example Drive/Albums';
   const vinyl = '/Volumes/Vinyl Drive/Vinyl Rips';
@@ -72,13 +74,13 @@ function crateFolders(s: FakeState): void {
     s.tracks.push({ ...lib[i], track_id: `old-hardstyle-${i}`, artist: ARTISTS[i], title, folder: 'Old_Hardstyle',
       at: undefined, in_playlists: false, playlists: [], hidden: false });
   });
-  // the watched folders: ids go on after the Library's, and their file counts are what is there
+  // the watched folders: ids go on after the Library's, and the files the import holds are what is there
   const [library] = s.imp.folders;
-  library.files = s.tracks.filter((t) => !t.own && t.status !== 'missing').length;
+  library.imported = s.tracks.filter((t) => !t.own && t.status !== 'missing').length;
   s.imp.folders = [library];
   const watch = (path: string, over: { offline?: boolean } = {}) => {
     const files = s.tracks.filter((t) => t.own && t.dir !== undefined && (t.dir === path || t.dir.startsWith(`${path}/`))).length;
-    s.imp.folders.push({ id: s.imp.nextId++, path, kind: 'import', offline: false, files, waiting: 0, redownload: 0, ...over });
+    s.imp.folders.push({ id: s.imp.nextId++, path, kind: 'import', offline: false, imported: files, waiting: 0, redownload: 0, ...over });
   };
   watch(rekordbox);
   watch(albums);
@@ -89,7 +91,7 @@ function crateFolders(s: FakeState): void {
 /** A watched import folder at `path` that counts the files of the scenario under it. */
 function watchFolder(s: FakeState, path: string, over: { offline?: boolean } = {}): void {
   const files = s.tracks.filter((t) => t.own && t.dir !== undefined && (t.dir === path || t.dir.startsWith(`${path}/`))).length;
-  s.imp.folders.push({ id: s.imp.nextId++, path, kind: 'import', offline: false, files, waiting: 0, redownload: 0, ...over });
+  s.imp.folders.push({ id: s.imp.nextId++, path, kind: 'import', offline: false, imported: files, waiting: 0, redownload: 0, ...over });
 }
 
 /** An import of a folder of many crates under way (the live check of plan library stage 5): Incoming holds 11 crates
@@ -111,7 +113,7 @@ function importingCrates(s: FakeState): void {
     const next = later.shift();
     if (!next) return;
     crate(next);
-    folder.files += 3;
+    folder.imported += 3;
   };
 }
 
@@ -119,6 +121,7 @@ function importingCrates(s: FakeState): void {
  *  folders; the record's crates and file counts): DJ Stick Jan, the only import folder, whose crates are all there
  *  from the start and whose 140 files wait; its import (start_import) changes only the row's waiting count. */
 function recordedImport(s: FakeState): void {
+  dropOwnSongs(s);  // the default Music folder goes (below), and its songs with it
   const stick = '/Users/you/Downloads/DJ Stick Jan';
   const crates: [string, number][] = [['Chrome', 35], ['D&B', 8], ['Deep', 12], ['Electro', 10], ['Hardgroove', 14],
     ['Minimal', 9], ['Nibirii', 20], ['Psy-Techno', 1], ['Random', 1], ['Trance', 18], ['Tribal', 12]];
@@ -185,9 +188,9 @@ const fake: PageFake = {
         { ...ownAway(s, 3, 'Mira Nacht', 'Stille Post', 'lossless', null, 'offline'), dir: STICK },
         ownAway(s, 2, 'Tom Brandt', 'Letzter Zug', 'lossless', null));
       const stick = s.imp.folders.find((f) => f.kind === 'import');
-      if (stick) Object.assign(stick, { path: STICK, offline: true, files: 2, redownload: 0 });
+      if (stick) Object.assign(stick, { path: STICK, offline: true, imported: 2, redownload: 0 });
       s.imp.folders.push({ id: s.imp.nextId++, path: '/Users/you/Music/Old Sets', kind: 'import', offline: false,
-        files: 1, waiting: 0, redownload: 0 });
+        imported: 1, waiting: 0, redownload: 0 });
     },
     // an import folder that was moved, renamed or deleted (its drive is there): "Folder not found" in the panel
     folder_missing: (s) => {
@@ -301,7 +304,7 @@ const fake: PageFake = {
     // a watched import folder with no music in it yet, beside the sidebar's other folders
     empty_watched: (s) => {
       crateFolders(s);
-      s.imp.folders.push({ id: s.imp.nextId++, path: '/Users/you/Music/New Crates', kind: 'import', offline: false, files: 0,
+      s.imp.folders.push({ id: s.imp.nextId++, path: '/Users/you/Music/New Crates', kind: 'import', offline: false, imported: 0,
         waiting: 0, redownload: 0 });
     },
     // the sidebar's folders at their fullest (see crateFolders) and four Favourites in the mockup's order: a playlist, two

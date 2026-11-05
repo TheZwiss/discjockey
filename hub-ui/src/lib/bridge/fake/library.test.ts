@@ -372,7 +372,8 @@ describe('library views of a playlist (D9)', () => {
     expect(all).toMatchObject({ view: 'all', key: null, folder: null, folder_kind: null, also: null, read_at: null, enabled: null });
     expect(all.rows.every((r) => r.wait === null && r.position === null && r.file_state !== 'no_file')).toBe(true);
     const unlisted = must(await f.library('unlisted', null, '', 'all', null));
-    expect(unlisted).toMatchObject({ title: 'Not in a playlist', subtitle: ['2 tracks', 'in no playlist'] });
-    expect(unlisted.rows.map((r) => r.place)).toEqual(['Old_Sets', 'Old_Sets']);
+    expect(unlisted).toMatchObject({ title: 'Not in a playlist', subtitle: ['26 tracks', 'in no playlist'] });
+    // the two Library files nobody lists, and the 24 songs of the user's own in Music (named after their folder)
+    expect(unlisted.rows.map((r) => r.place).sort()).toEqual([...Array(24).fill('Music'), 'Old_Sets', 'Old_Sets']);
   });
 });

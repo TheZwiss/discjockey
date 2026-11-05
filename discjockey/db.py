@@ -1171,12 +1171,6 @@ def library_counts(conn: sqlite3.Connection) -> ImportCounts:
     return ImportCounts(files, waiting, identified, unreadable)
 
 
-def library_files(conn: sqlite3.Connection) -> int:
-    """The file rows of the Library folder (the watched folders list shows them beside the import folders' counts)."""
-    return conn.execute("SELECT COUNT(*) FROM files f JOIN watched_folders w ON w.id = f.folder "
-                        "WHERE w.kind = 'library'").fetchone()[0]
-
-
 def import_left(conn: sqlite3.Connection) -> int:
     """The files the next import works through (the console's W10 line, plan library stage 4): in any watched folder
     (Library/ too: a file moved there before the import finished it, import_waiting), online, not held, not read yet

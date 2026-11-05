@@ -1,6 +1,13 @@
 // Runs in the page. Returns the design-system rule violations of what is on screen (spec §9).
 (() => {
   const SKIP = '[data-dev], [data-dev] *';
+  // The design-system gallery (`data-catalogue`, lib/dev/Gallery.svelte only, lib/guards.test.ts) lays many screens'
+  // parts side by side with their documentation: the block rules (overflow, max-width, button, font-size, colour,
+  // a dialog's one primary, error) check it like any page; the screen rules (one frame and header, one primary per
+  // screen, clipped at 1100 × 700, loose text, the chrome edge) judge a composed screen and skip it (decision log
+  // 2026-11-05).
+  const CATALOGUE = '[data-catalogue]';
+  const catalogued = (el) => !!el.closest(CATALOGUE);
   const DIALOG = 'dialog[open], [role=dialog]';   // the app's Dialog is a native <dialog> without a role
   const visible = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
@@ -43,9 +50,12 @@
     // 2b one frame: a redesigned page draws in exactly one frame, with at most one page header. A page without a frame
     // has no [data-frame-content] to measure, so the width rules above would pass it unseen (final review I5)
     // a frame counts unless display:none (its size can be 0 while its content is positioned)
-    const frames = Array.from(document.querySelectorAll('[data-frame]')).filter((f) => !f.matches(SKIP) && getComputedStyle(f).display !== 'none');
-    if (frames.length !== 1) add('frame', document.body, `${frames.length} frames, want 1`);
-    const headers = Array.from(document.querySelectorAll('[data-page-header]')).filter((h) => !h.matches(SKIP) && visible(h));
+    // a catalogue's frames are examples: the screen showing one has no frame of its own, or one around it
+    const frames = Array.from(document.querySelectorAll('[data-frame]'))
+      .filter((f) => !f.matches(SKIP) && !catalogued(f) && getComputedStyle(f).display !== 'none');
+    const wantFrames = document.querySelector(CATALOGUE) ? [0, 1] : [1];
+    if (!wantFrames.includes(frames.length)) add('frame', document.body, `${frames.length} frames, want 1`);
+    const headers = Array.from(document.querySelectorAll('[data-page-header]')).filter((h) => !h.matches(SKIP) && !catalogued(h) && visible(h));
     if (headers.length > 1) add('frame', document.body, `${headers.length} page headers`);
     // 3 buttons and the one primary
     for (const el of all.filter((e) => e.matches('button, a[role=button], .btn'))) {
@@ -63,17 +73,17 @@
       if (w > natural + 2) add('button', el, `${Math.round(w)} wide, natural ${Math.round(natural)}`); }
     const layers = [document, ...document.querySelectorAll(DIALOG)];
     for (const layer of layers) { const n = Array.from(layer.querySelectorAll('[data-primary]'))
-      .filter((b) => visible(b) && (layer === document ? !b.closest(DIALOG) : true)).length;
+      .filter((b) => visible(b) && (layer === document ? !b.closest(DIALOG) && !catalogued(b) : true)).length;
       if (n > 1) add('primary', layer === document ? document.body : layer, `${n} filled buttons`); }
     // 4 clipped at the minimum size
     if (innerWidth <= 1100 && innerHeight <= 700) {
-      for (const el of all.filter((e) => e.matches('button, a, input, [role=checkbox], [role=switch]'))) {
+      for (const el of all.filter((e) => e.matches('button, a, input, [role=checkbox], [role=switch]') && !catalogued(e))) {
         const r = el.getBoundingClientRect();
         if ((r.bottom > innerHeight || r.right > innerWidth) && !scrolls(el)) add('clipped', el, 'outside the window'); }
-      for (const f of document.querySelectorAll('[data-panel-foot]')) { const r = f.getBoundingClientRect();
+      for (const f of document.querySelectorAll('[data-panel-foot]')) { if (catalogued(f)) continue; const r = f.getBoundingClientRect();
         if (r.bottom > innerHeight + 1 || r.top < 0) add('clipped', f, 'panel foot not fully visible'); } }
     // 5 loose text
-    const SHELTER = '[data-surface], [data-note], [data-infotip], ' + DIALOG;
+    const SHELTER = `[data-surface], [data-note], [data-infotip], ${CATALOGUE}, ${DIALOG}`;
     const looseText = (el) => Array.from(el.childNodes).map((n) => n.nodeType === 3 ? n.textContent
       : n.nodeType === 1 && !n.matches(SHELTER) ? looseText(n) : '').join('');
     for (const el of all) {

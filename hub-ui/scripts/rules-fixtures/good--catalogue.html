@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>good catalogue</title>
+<script src="../rules-page.js"></script>
+<style>
+  :root { --bg: #101114; --surface: #1b1d22; --text: #e8e8ea; --accent: #4f8cff; --on-accent: #ffffff; --border: #2a2d34; --type-scale: 13 22 30;
+    --panel-w: 360px; --panel-w-narrow: 320px; --panel-narrow-below: 1240px; --content-max: 900px; }
+  html, body { margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.4 -apple-system, sans-serif; }
+  h1, h2, p { margin: 0; }
+  h1 { font-size: 30px; }
+  h2 { font-size: 22px; }
+  button { font: inherit; color: var(--text); background: var(--surface); border: 0; padding: 6px 12px; }
+  button[data-primary] { background: var(--accent); color: var(--on-accent); }
+  [data-surface] { background: var(--surface); border: 1px solid var(--border); padding: 12px; }
+</style>
+</head>
+<body>
+<!-- a catalogue (the gallery) shows screens' parts side by side: two frames with their headers, two filled buttons, a
+     panel foot below the 700 px window and documentation text, none of which a screen may have, all pass -->
+<div data-catalogue style="padding: 16px;">
+  <header data-page-header><h1>Design system</h1></header>
+  <p>This catalogue caption runs past ninety characters on purpose: it documents a block, like the gallery's section rules do.</p>
+  <div data-frame style="height: 300px; display: flex; margin-left: 40px;"><div data-frame-content data-max="--content-max" style="flex: 1; max-width: 400px;"><header data-page-header><h1>Example</h1></header></div><aside data-panel style="width: 200px; height: 900px; display: flex; align-items: flex-end;"><div data-panel-foot><button data-primary>Main action</button></div></aside></div>
+  <div data-frame style="height: 300px; display: flex; margin-left: 40px;"><div data-frame-content data-max="--content-max" style="flex: 1; max-width: 400px;"><header data-page-header><h1>Example</h1></header></div><aside data-panel style="width: 200px; height: 900px; display: flex; align-items: flex-end;"><div data-panel-foot><button data-primary>Main action</button></div></aside></div>
+</div>
+</body>
+</html>

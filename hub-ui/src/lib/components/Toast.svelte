@@ -1,10 +1,12 @@
 <script lang="ts">
+  // A toast is a card of its own (border, shadow): its message may run long, so the block marks it `data-note` for
+  // the rule checker's loose-text rule, as NoteCard does.
   import type { Toast } from '../stores/toasts';
   import { link } from '../router';
   let { toast, onclose }: { toast: Toast; onclose: () => void } = $props();
 </script>
 
-<div class="toast {toast.tone}" role={toast.tone === 'problem' ? 'alert' : 'status'}>
+<div class="toast {toast.tone}" role={toast.tone === 'problem' ? 'alert' : 'status'} data-note={toast.tone}>
   <span class="mark" aria-hidden="true">{toast.tone === 'success' ? '✓' : toast.tone === 'problem' ? '!' : 'i'}</span>
   <div class="text">
     <p class="title">{toast.title}</p>

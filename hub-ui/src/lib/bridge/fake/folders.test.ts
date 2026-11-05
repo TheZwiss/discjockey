@@ -81,7 +81,9 @@ describe('fake watched folders', () => {
     const last = evs.filter((e) => e.type === 'ImportProgress' && e.phase === 'sound').at(-1) as { done: number; total: number };
     expect(last.done).toBe(last.total);
     const after = must(await f.watched_folders());
-    expect(after.folders.map((r) => [r.name, r.state, r.files, r.waiting])).toEqual([['Library', 'online', before.folders[0].files, 0], ['Crates', 'online', 180, 0]]);
+    // the fake's import makes no songs, so the new folder lists no track yet (the count is the sidebar's, listedCounts)
+    expect(after.folders.map((r) => [r.name, r.state, r.files, r.waiting])).toEqual([['Library', 'online', before.folders[0].files, 0], ['Crates', 'online', 0, 0]]);
+    expect(must(await f.removal_preview(after.folders[1].id))).toMatchObject({ name: 'Crates', files: 180 });
     const refused = await f.add_watched_folder('/Volumes/Other/Crates');
     expect(refused).toMatchObject({ ok: false, kind: 'refused', message: 'Discjockey watches this folder already.' });
   });
@@ -127,13 +129,13 @@ describe('fake watched folders', () => {
   it('removes a folder, with its counts, and refuses the Library', async () => {
     const { f, evs } = fake('normal');
     const rows = must(await f.watched_folders()).folders;
-    expect(must(await f.removal_preview(rows[1].id))).toMatchObject({ name: 'Music', files: 1240, redownload: 4 });
+    expect(must(await f.removal_preview(rows[1].id))).toMatchObject({ name: 'Music', files: 24, redownload: 0 });
     for (const bad of [rows[0].id, 99, '2' as unknown as number]) {
       expect(await f.removal_preview(bad)).toMatchObject({ ok: false, kind: 'refused', message: "That folder isn't one of the watched folders." });
       expect(await f.remove_watched_folder(bad)).toMatchObject({ ok: false, kind: 'refused' });
     }
     const start = must(await f.remove_watched_folder(rows[1].id));
-    expect(await finished(evs, start.job_id)).toMatchObject({ kind: 'folders', ok: true, result: { files: 1240, redownload: 4 } });
+    expect(await finished(evs, start.job_id)).toMatchObject({ kind: 'folders', ok: true, result: { files: 24, redownload: 0 } });
     expect(must(await f.watched_folders()).folders.map((r) => r.kind)).toEqual(['library']);
   });
 
@@ -143,7 +145,20 @@ describe('fake watched folders', () => {
     const start = must(await f.add_watched_folder('/Volumes/Example Drive'));
     await finished(evs, start.job_id);
     const rows = must(await f.watched_folders()).folders;
-    expect(rows.map((r) => [r.name, r.files])).toEqual([['Library', library], ['Example Drive', 1240 + 180]]);
+    const sidebar = must(await f.sidebar()).watched;
+    expect(rows.map((r) => [r.name, r.files])).toEqual([['Library', library], ['Example Drive', sidebar[0].files]]);
+    expect(must(await f.removal_preview(rows[1].id))).toMatchObject({ files: 24 + 180 });
+  });
+
+  it("gives a watched folder one count: Settings' row is the sidebar's number (views.listed_counts)", async () => {
+    for (const scenario of ['normal', 'folders_importing', 'folders_offline', 'folders_long_names', 'library:crates']) {
+      const { f } = fake(scenario);
+      const rows = must(await f.watched_folders()).folders.filter((r) => r.kind === 'import');
+      const side = must(await f.sidebar()).watched;
+      expect(rows.length, scenario).toBeGreaterThan(0);
+      expect(rows.map((r) => [r.path, r.files]), scenario)
+        .toEqual(rows.map((r) => [r.path, side.find((w) => w.path === r.path)?.files]));
+    }
   });
 });
 
@@ -229,8 +244,9 @@ describe('fake To-do of the import', () => {
     const single = ['rekordbox_check', 'same_song', 'duplicate', 'not_found'];   // the strip counts tracks with a file
     const tracks = todo.groups.filter((g) => !single.includes(g.key)).flatMap((g) => g.items).filter((i) => !i.hidden);
     expect(lib.summary.to_do).toBe(tracks.length);
-    const hiddenLossy = lib.rows.filter((r) => r.hidden && ['good_lossy', 'weak', 'fake'].includes(r.quality)).length;
-    expect(lib.summary.not_lossless - lib.summary.to_do).toBe(hiddenLossy);
+    // ... and by the lossy files that have no To-do item: hidden ones and the user's own songs, which are in no playlist
+    const noItem = lib.rows.filter((r) => (r.hidden || !r.in_playlists) && ['good_lossy', 'weak', 'fake'].includes(r.quality)).length;
+    expect(lib.summary.not_lossless - lib.summary.to_do).toBe(noItem);
   });
 
   it('marks files whose sound is not checked as checked in the Library rows', async () => {
@@ -245,7 +261,7 @@ describe('fake To-do of the import', () => {
     const q = all.summary.by_quality;
     expect(all.summary.not_lossless).toBe(q.good_lossy + q.weak + q.fake);
     expect(must(await f.library('all', null, '', 'weak', 'artist')).summary.not_lossless).toBe(all.summary.not_lossless);
-    expect(must(await f.library('unlisted', null, '', 'all', 'artist')).subtitle).toEqual(['2 tracks', 'in no playlist']);
+    expect(must(await f.library('unlisted', null, '', 'all', 'artist')).subtitle).toEqual(['26 tracks', 'in no playlist']);
     expect(must(await f.library('folder', 'Library/Old_Sets', '', 'all', 'artist')).subtitle).toEqual(
       ['2 tracks', 'no playlist uses it', 'Library › Old_Sets']);
     const hb = must(await f.library('playlist', 'Hard_Bounce', '', 'all', 'artist'));
@@ -314,5 +330,78 @@ describe('fake Setup step "Your existing music"', () => {
     // the later crates came in among the first ones, by name
     expect(after.crates.map((c) => c.label)).toEqual([...after.crates.map((c) => c.label)].sort());
     expect(after.files).toBe(before.files + 13 * 3);
+  });
+});
+
+describe('fake watched folders hold songs of the user\'s own', () => {
+  // scenario -> [folder name, songs it lists]: most read, some waiting, some unreadable, some away
+  const LISTED: Record<string, [string, number][]> = {
+    folders_offline: [['Music', 1240], ['Music', 612]],
+    folders_missing: [['Music', 1240], ['Crates', 612]],
+    folders_couldnt_read: [['Music', 1237]],
+    folders_importing: [['Music', 680], ['Crates', 220]],
+    folders_long_names: [['Music', 1238], ['Crates Mix', 95], ['Peak Hour Rarities and Other Long Folder Names', 3010]],
+    setup_existing_added: [['Music', 312]],
+    normal: [['Music', 24]],
+    todo_duplicates: [['Music', 24]],
+    sync_waiting_answers: [['Music', 24]],
+  };
+
+  it.each(Object.keys(LISTED))('%s: the sidebar, Settings\' row and the folder\'s page count the same songs', async (scenario) => {
+    const { f } = fake(scenario);
+    const rows = must(await f.watched_folders()).folders.filter((r) => r.kind === 'import');
+    expect(rows.map((r) => r.files)).toEqual(LISTED[scenario].map(([, n]) => n));
+    const side = must(await f.sidebar()).watched;
+    for (const r of rows) {
+      expect(side.find((w) => w.path === r.path)?.files, `${r.name} in the sidebar`).toBe(r.files);
+      const page = must(await f.library('folder', r.path, '', 'all', 'artist'));
+      expect(page.rows.length, `${r.name}'s page`).toBe(r.files);
+      expect(page.chips.all, `${r.name}'s All chip`).toBe(r.files);
+    }
+  });
+
+  it('names its songs "Artist - Title" with no name twice, and makes the same ones every time', async () => {
+    const a = must(await fake('folders_long_names').f.library('all', null, '', 'all', 'artist')).rows;
+    const b = must(await fake('folders_long_names').f.library('all', null, '', 'all', 'artist')).rows;
+    expect(a.map((r) => r.track_id)).toEqual(b.map((r) => r.track_id));
+    const own = a.filter((r) => r.own);
+    expect(own.length).toBe(1238 + 95 + 3010);
+    expect(new Set(own.map((r) => `${r.artist} - ${r.title}`)).size).toBe(own.length);
+    expect(new Set(own.map((r) => r.path)).size).toBe(own.length);
+    expect(own.every((r) => r.artist && r.title && !r.path!.includes('(v2)'))).toBe(true);
+  });
+
+  it("normal's Music folder holds 24 read songs: each named once, none in a playlist, so none raises a question or a To-do item", async () => {
+    const { f } = fake('normal');
+    const all = must(await f.library('all', null, '', 'all', 'artist')).rows;
+    const own = all.filter((r) => r.own);
+    expect(own).toHaveLength(24);
+    expect(new Set(all.map((r) => `${r.artist} - ${r.title}`)).size).toBe(all.length);   // no playlist song shares a name
+    expect(own.every((r) => !r.in_playlists && r.sound_checked && r.file_state === 'here')).toBe(true);
+    expect(own.filter((r) => r.quality === 'fake').length).toBeGreaterThan(0);   // a few the sound check caught
+    expect(own.filter((r) => r.quality === 'fake').length).toBeLessThan(6);
+    const todo = must(await f.todo('all', false));
+    expect(todo.groups.flatMap((g) => g.items).some((i) => i.own || own.some((r) => r.track_id === i.track_id))).toBe(false);
+  });
+
+  it('a scenario that sets up its own watched folders leaves no song in a folder nobody watches', async () => {
+    for (const scenario of ['library:crates', 'library:first_look', 'library:crates_import_recorded', 'settings:crates']) {
+      const { f } = fake(scenario);
+      const roots = must(await f.watched_folders()).folders.filter((r) => r.kind === 'import').map((r) => r.path);
+      const own = must(await f.library('all', null, '', 'all', 'artist')).rows.filter((r) => r.own && r.track_id.startsWith('own:'));
+      expect(own, scenario).toHaveLength(0);
+      expect(roots.length, scenario).toBeGreaterThan(0);
+    }
+  });
+
+  it('shows what the import is doing: songs read but not checked, files away, files the import cannot read', async () => {
+    const importing = must(await fake('folders_importing').f.library('all', null, '', 'all', 'artist')).rows.filter((r) => r.own);
+    expect(importing.filter((r) => !r.sound_checked)).toHaveLength(340);
+    const offline = must(await fake('folders_offline').f.library('all', null, '', 'all', 'artist')).rows.filter((r) => r.own);
+    expect(offline.filter((r) => r.file_state === 'offline')).toHaveLength(612);
+    const missing = must(await fake('folders_missing').f.library('all', null, '', 'all', 'artist')).rows.filter((r) => r.own);
+    expect(missing.filter((r) => r.file_state === 'folder_missing')).toHaveLength(612);
+    const bad = must(await fake('folders_couldnt_read').f.watched_folders());
+    expect(bad.folders[1].files + bad.folders[1].unreadable).toBe(1240);
   });
 });

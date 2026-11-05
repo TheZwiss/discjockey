@@ -44,55 +44,6 @@ services.
 - **Live check:** the short-link redirect follows one hop. Confirm that `on.soundcloud.com` goes straight to
   `soundcloud.com/...`.
 
-## 29. Library stage 5b leftovers (folders)
-
-Audit 2026-11-05 (updated by the leftovers UI round): the engine points are done (C2: run reports name an own song's
-folder, `SORTS["length"]`, `api.reveal` for watched folders, `set_crates_shown`, `set_favourites` without the sidebar,
-`set_crate_shown` refusing a non-crate), and so are the UI ones: `router.libraryTarget` with `#/library/playlist/:name`
-(a `folder` param that is no path is a playlist name, `resolveTarget` turns an old link's Library folder name into
-that folder), the row's `next_try` (`views.next_due`) as NOT FOUND's tooltip ("Nothing usable found yet, next try in
-5 days. …"), Show in Finder for import folders and crates that are there, and Settings' All · None as one
-`set_crates_shown` write per value. Left: the points below.
-
-Noted while building and reviewing `docs/archive/2026-10-29-library-stage-5-plan.md`, step B (folders), task groups B2 to B7.
-
-- **Same label for two crates:** two crates under different wrapper folders can get the same label ("Hard › 2019"),
-  so the UI tells them apart only by the tooltip (the full path). This is the plan's D8 rule.
-- **Count differences:** the sidebar's count for a watched folder leaves out the files an import still has to work
-  through, while Settings' row counts them.
-- **Paths worded by the UI:** `shortPath` (`musicFolder.ts`) and `filePlace` (`todoModel.ts`) stay: they word
-  arbitrary paths (the music folder, a To-do file, Settings' rows, fitted to a width) that carry no engine `place`.
-  Only `track()`'s and the rows' `place` and the sidebar's `watched[].place` come from the engine.
-- **Dev fake:** `ctx.s.briefBusy = true` (`window.__fake.ctx.s`) makes both brief saves answer `busy`; `s.unread` and
-  `s.emptyRead` make a playlist never read / read and empty. `library:crates_busy` is `library:crates` with
-  `briefBusy` on; `library:first_look` is its folders and crates with no Favourites.
-- **Favourites save and `refreshHub`:** a full `refreshHub` landing during a Favourites save can briefly show the old order.
-- **Later cleanup:** `views.library` is about 140 lines; `_playlist_rows` / `_folder_rows` would split it. `track()`
-  recomputes `views.sites` over every file on each pick (linear, fast enough today).
-
-## 28. Library stage 5a leftovers (layout)
-
-Audit 2026-11-05 (updated by the leftovers UI round): closed are the Playlist column, the selected row (the picked
-track is the orange `--row-picked` wash in Library and To-do, `ListRow pick`), the rail's "99+" pill (it keeps the
-two-digit pill's corner), the dev FAKE pill (in the page's top padding, clear of the title), the rail tooltips (the
-grey key cap is settled; the plan's I7 text is history), the ARIA nit (kept: the section heads must be children of
-the scroll box to stick at its top and bottom, `stick="both"`; per-section `role="group"` wrappers would make each head
-stick only inside its section, and `aria-owns` groups would need the heads `aria-hidden`, hiding their fold and A–Z
-buttons) and "Hide/Show Sidebar" in the View menu (a platform limit: the pinned pywebview 6.2.1 adds custom menus only
-as new top-level menus, its `MenuAction` takes no shortcut, and it rebuilds the main menu on each window focus, so
-⌃⌘S stays key-only). The rule check below was not re-run.
-
-Noted while building and reviewing `docs/archive/2026-10-29-library-stage-5-plan.md`, step A (the layout).
-
-- **The base page's rule check has old failures,** the same before and after this step:
-  `npm run rules -- --page base --force` reports 1,808 FAIL lines in 40 shots, base-gallery 99, mostly the gallery's
-  long section descriptions. Worth a cleanup group.
-- **"Not lossless yet" in the summary strip** has a small pill split into the good-lossy, weak and fake colours instead
-  of the mockup's red dot, because the row counts all three. Settled.
-- **The Playlists A–Z toggle turns orange when pressed** (the plan's `Button icon xs pressed`), where the mockup has it
-  grey. Settled.
-- **The browser's drag edge turns a lighter grey after 300 ms of hover,** so orange still means only "dragging". Settled.
-
 ## 27. Library stage 4 leftovers (import)
 
 Audit 2026-11-05 (updated by leftovers round C2): the Format-row point is closed (sources round). Engine done in C2:

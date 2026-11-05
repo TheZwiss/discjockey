@@ -88,7 +88,8 @@ export const isDuplicate = (i: TodoItem): i is DuplicateItem => i.group === 'dup
 export type ImportPhase = 'scan' | 'tags' | 'sound' | 'link';
 /** A watched folder (watched_folders()): the Library (always `online`, `scanning` while an import looks for files)
  *  or an import folder; `offline`: its drive isn't connected, `missing`: the folder isn't found (moved, renamed,
- *  deleted). `waiting`: files the import still works through (not read yet, or not sound-checked). */
+ *  deleted). `files`: the tracks the folder lists, the same number the sidebar shows for it; `waiting`: files the
+ *  import still works through (not read yet, or not sound-checked: not in `files` until read). */
 export type WatchedFolderRow = { id: number; path: string; name: string; kind: 'library' | 'import';
   state: 'online' | 'offline' | 'missing' | 'scanning' | 'importing'; files: number; waiting: number; unreadable: number;
   /** all the folder's crates in label order (Settings' switches); `too_many`: more than 25, so they start hidden.

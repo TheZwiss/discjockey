@@ -755,19 +755,18 @@ class HubApi:
         with self._move_log() as conn:
             if conn is None:  # no library.db yet: only the Library, nothing imported; its files as "All tracks" counts
                 rows, counts, unreadable, waiting, overrides = [WatchedFolder(0, paths.library, "library")], {}, [], 0, {}
-                library_files = len(views.tracks_with_file(state))
             else:
                 overrides = db.crate_overrides(conn)
                 rows, counts = db.watched_folders(conn), db.import_counts(conn)
-                library_files, waiting = db.library_files(conn), db.import_left(conn)
+                waiting = db.import_left(conn)
                 unreadable = sorted(db.import_unreadable(conn) + db.import_unreadable(conn, "library"))
                 for f in rows:
                     if f.kind == "library":  # Library/ is listed like an import folder: its own waiting and unreadable
                         counts[f.id] = db.library_counts(conn)
-        crates = views.crates([e["path"] for e in views.tracks_with_file(state)],
-                              [str(f.path) for f in rows if f.kind == "import"], overrides)
-        return views.watched_folders(rows, counts, self._away_folders(rows), library_files, unreadable, waiting, self._import_stopped,
-                                     phase, crates)
+        files = [e["path"] for e in views.tracks_with_file(state)]
+        crates = views.crates(files, [str(f.path) for f in rows if f.kind == "import"], overrides)
+        return views.watched_folders(rows, counts, self._away_folders(rows), views.listed_counts(files, rows), unreadable,
+                                     waiting, self._import_stopped, phase, crates)
 
     def _brief_write(self, write: Callable[[sqlite3.Connection], None]) -> None:
         """A write to the records the hub keeps beside the library (Favourites, crate switches; plan library stage 5
