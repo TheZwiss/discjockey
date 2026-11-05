@@ -584,6 +584,21 @@ Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
 
+- **2026-11-05 · Sources round pages: the service is its logo in playlist rows; every Settings service row has its
+  logo; YouTube Music joins Settings (plan sources round U2).** What: a Playlists row's line and Setup's rows lead
+  with the service's `ServiceMark` (Tip: its name) instead of its name in words (**amends** 2026-10-25 "the service as
+  a word, no mark": stage 5's sidebar logos made the mark the house's way to say a service, and at 1100 the word cut
+  the owner); a problem line keeps its logo and its red words. Setup's rows are Playlists' rows without the controls
+  (cover, folder, logo + "name" · owner · N tracks; never the raw link). Settings' Downloads rows and the Spotify row
+  lead with their coloured logos (YouTube's for Premium), the group `Spotify` became **Reading playlists** with a
+  YouTube Music row and panel (a switch row for Liked music, the warn `NoteCard` in both states, "Add Liked music to
+  Playlists" as the panel's filled foot button, as Connect Spotify is). Playlists' header lost its sub: the counts
+  are the list head's (`7 on · 1 off · 70 tracks`), and the order hint keeps `top = highest priority` with the drag
+  and keys in its ⓘ. The empty Playlists panel shows `NumberedSteps` + `LinkGuide` instead of a Segmented of zeros.
+  Why: a state is said once, where it belongs; the logos read faster than words. Against the mockup: the ⓘ names the
+  app's `⋮⋮` handle (the mockup drew `⠿`), the button sits in the panel foot, not under the warning. Where:
+  `playlists-*`, `playlists-first-run`, `playlists-liked-*`, `setup-playlists-guide`, `setup-playlists-done`,
+  `settings-youtube-music*`.
 - **2026-11-05 · Sources round blocks: `LinkGuide`, AddRow's logo placeholder and needs-setting form, `TrackHead`
   link row and fit rule, `KeyValue sub`, `QualityBar waiting` (plan sources round I4, U1).** What: the paste field's
   placeholder is words plus the four logos (the long list of names was cut at 1100 and read slower than the logos);
