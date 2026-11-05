@@ -6,12 +6,13 @@ import traceback
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 from urllib.parse import quote_plus
 
 from .events import Result
 from .library import Paths
 from . import models
-from .models import SERVICE_NAMES, SOURCE_NAMES, Plan
+from .models import SERVICE_NAMES, SOURCE_NAMES, Action, Plan
 from .names import expected_stem
 
 SECTIONS = [
@@ -100,6 +101,16 @@ class RunLog:
 
 
 OWN_FOLDER_LABEL = "your music"  # a song of the user's own is in no playlist folder (plan library stage 4)
+
+
+def result_folder(a: Action, e: dict | None, where: Callable[[str], str] | None = None) -> str:
+    """The folder a result is filed under in a run report: the action's playlist folder, else (an upgrade check of
+    an own song, which has no playlist) the folder its file sits in, named as Sync names it. "" when that can't be
+    told: the report then says "your music" (folder_label)."""
+    if a.folder:
+        return a.folder
+    path = e.get("path") if e else None
+    return (where(path) if where and path else "") or ""
 
 
 def folder_label(folder: str | None) -> str:
@@ -264,7 +275,9 @@ def write_not_lossless(paths: Paths, state: dict) -> None:
     paths.not_lossless_md.write_text(render_not_lossless(state), encoding="utf-8")
 
 
-def render_plan(plan: Plan, full: bool) -> str:
+def render_plan(plan: Plan, full: bool, where: Callable[[str], str] | None = None) -> str:
+    """The console's plan (the dry run's list, the lines before a run). Each song under the folder its run report
+    files it under (`result_folder`): an own song's by the folder its file sits in (`where`, as Sync names it)."""
     groups: dict[str, list] = {}
     for a in plan.actions:
         groups.setdefault(f"acquire:{a.reason}" if a.kind == "acquire" else a.kind, []).append(a)
@@ -276,7 +289,8 @@ def render_plan(plan: Plan, full: bool) -> str:
         out.append(f"{label}: {len(items)}")
         shown = items if full else items[:20]
         for a in shown:
-            out.append(f"    [{folder_label(a.folder)}] {a.track.first_artist} - {a.track.title}")
+            folder = result_folder(a, plan.state["tracks"].get(a.track_id), where)
+            out.append(f"    [{folder_label(folder)}] {a.track.first_artist} - {a.track.title}")
         if len(shown) < len(items):
             out.append(f"    ... and {len(items) - len(shown)} more")
     if plan.ambiguous:

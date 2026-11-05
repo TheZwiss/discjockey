@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field, replace
@@ -22,7 +23,8 @@ from . import config, db, library, pending_signs, planner, playlists_file, quali
 from .accounts import ACCOUNTS
 from .acquire import Acquirer, make_ready
 from .events import ActionStarted, Cancelled, CancelToken, Emit, Message, Result, RunFinished, no_emit
-from .execute import Executor, result_folder
+from .execute import Executor
+from .hub import views
 from .fallback import FallbackSource, stream_url
 from .library import Paths, StateError
 from .models import Action, FetchedPlaylist, Plan, PlaylistLine, split_token
@@ -270,6 +272,20 @@ def action_key(a: Action) -> tuple[str, str, str]:
     return a.kind, a.track_id, a.dest_dir or f"Library/{a.folder}"
 
 
+def folder_names(prep: Prepared) -> Callable[[str], str] | None:
+    """A file's path -> the name of the folder it sits in, as Sync names it (`hub.views.Sites.place`): what the run
+    report, the console's plan and the dry run file an own song under (it has no playlist). None when the records
+    can't be read: they then say "your music"."""
+    if not prep.paths.db_file.exists():
+        return None
+    try:
+        with db.connect(prep.paths.db_file) as conn:
+            watched = db.watched_folders(conn)
+    except (OSError, sqlite3.Error):
+        return None
+    return views.sites(prep.state, prep.lines, watched).place
+
+
 def select_actions(prep: Prepared, previewed: set[tuple[str, str, str]], ticked: set[tuple[str, str, str]],
                    where: Callable[[str], str] | None = None) -> None:
     """Partial plans (the hub's checkboxes): keeps only actions the user saw and left ticked. Call before
@@ -283,7 +299,7 @@ def select_actions(prep: Prepared, previewed: set[tuple[str, str, str]], ticked:
             continue
         e = prep.state["tracks"].get(a.track_id)
         artist, title = (e["artist"], e["title"]) if e else (a.track.first_artist, a.track.title)
-        prep.log.add(Result("queued", result_folder(a, e, where), artist, title, a.track_id,
+        prep.log.add(Result("queued", rep.result_folder(a, e, where), artist, title, a.track_id,
                             LEFT_OUT if key in previewed else NEW_SINCE_PREVIEW))
     prep.plan.actions = kept
 

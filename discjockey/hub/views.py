@@ -20,7 +20,6 @@ from .. import playlists_file as pf
 from ..accounts import (ACCOUNTS, BROWSERS, DEFAULT_LIMITS, MAX_LIMIT, PREMIUM_MIN_KBPS, SERVICES, SERVICE_NAMES,
                         SERVICE_SIGNALS)
 from ..accounts import assessment as service_assessment, zones as service_zones
-from ..execute import result_folder
 from ..names import expected_stem, fold
 from ..models import (OWN_FILE, SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, DupFile, DuplicateGroup,
                       ImportCounts, MoveRow, PlannedMove, PlaylistRecord, Question, WatchedFolder, is_own, split_token,
@@ -28,7 +27,7 @@ from ..models import (OWN_FILE, SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES
 from ..pacing import KEEP_SIGNALS, Budget
 from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
-from ..report import PLAN_LABELS, check_text
+from ..report import PLAN_LABELS, check_text, result_folder
 from ..settings import Settings
 from ..sources import SOURCES
 from ..upgrades import can_undo, swap_possible, upgrade_name
