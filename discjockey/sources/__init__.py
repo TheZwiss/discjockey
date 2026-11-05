@@ -85,7 +85,8 @@ def left_out(paths: SupportPaths, line: PlaylistLine, paused: frozenset[str] = f
 
 def read(paths: SupportPaths, lines: list[PlaylistLine], *, emit: Emit = no_emit,
          token: CancelToken | None = None, want_info: bool = False, paused: frozenset[str] = frozenset(),
-         on_signal: Callable[[str, str, str], None] | None = None) -> list[FetchedPlaylist]:
+         on_signal: Callable[[str, str, str], None] | None = None,
+         unread: list[PlaylistLine] | None = None) -> list[FetchedPlaylist]:
     """Reads every line's playlist with its own service's reader, in `playlists.txt` order.
 
     Lines that are `left_out` are not read and not in the result (like switched-off lines); a service with none left
@@ -95,9 +96,17 @@ def read(paths: SupportPaths, lines: list[PlaylistLine], *, emit: Emit = no_emit
     `want_info`: the readers also fill `FetchedPlaylist.info` where reading the tracks tells it for free.
     `paused`: the account services paused today. `on_signal(account service, kind, message)`: a read made with an
     account's login met one of its warning signs (accounts.SIGNALS); such a line is skipped (LineSkipped), the read
-    goes on."""
+    goes on.
+    `unread`: filled with the lines whose read did not happen because of a pause (not the switched-off choices): the
+    account is paused today, or the read met a warning sign (LineSkipped). Like a line whose read failed, the planner
+    leaves their songs' playlist membership as it is (planner.plan `unread_folders`), where a line left out by a
+    switched-off choice acts as a switched-off playlist."""
     token = token or CancelToken()
-    lines = [line for line in lines if not left_out(paths, line, paused)]
+    if unread is None:
+        unread = []
+    held_back = [line for line in lines if left_out(paths, line, paused)]
+    unread.extend(line for line in held_back if not left_out(paths, line))  # left out by the pause alone
+    lines = [line for line in lines if line not in held_back]
     services = list(dict.fromkeys(line.service for line in lines))
     for service in services:
         login = SOURCES[service].login_state(paths)
@@ -115,6 +124,7 @@ def read(paths: SupportPaths, lines: list[PlaylistLine], *, emit: Emit = no_emit
             try:
                 fetched.append(readers[line.service].fetch(line))
             except LineSkipped as e:
+                unread.append(line)
                 emit(Message("warning", f"{line.folder}: {e}"))
     return fetched
 

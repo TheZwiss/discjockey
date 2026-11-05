@@ -803,6 +803,7 @@ def test_a_run_with_liked_music_off_finishes_without_a_problem_and_keeps_its_fil
     assert (liked.root / LM_FILE).read_bytes() == b"audio"
     assert prep.state["tracks"][LM_KEY]["path"] == LM_FILE
     assert not any(isinstance(e, Message) and e.level == "warning" for e in events)
+    assert LM_KEY in prep.plan.dropped and prep.state["tracks"][LM_KEY]["in_playlists"] is False  # acts as an #off# line
 
 
 def test_a_run_with_liked_music_on_reads_it_with_the_login(liked):
@@ -825,6 +826,14 @@ def test_a_run_never_reads_liked_music_while_the_youtube_account_is_paused(liked
     assert LikedYDL.created == [] and LikedYDL.requested == []
     assert [fp.line.folder for fp in prep.fetched] == ["Hard_Bounce"]
     assert (liked.root / LM_FILE).exists() and prep.state["tracks"][LM_KEY]["path"] == LM_FILE
+    assert_kept_like_a_failed_read(prep)
+
+
+def assert_kept_like_a_failed_read(prep):
+    """D6: the Liked music songs are not dropped (membership unchanged), the report has no "dropped", no problem."""
+    assert prep.state["tracks"][LM_KEY]["in_playlists"] is True
+    assert LM_KEY not in prep.plan.dropped
+    assert not prep.log.section("dropped") and not prep.log.section("errors")
 
 
 def test_a_bot_check_met_by_the_liked_music_read_pauses_the_account_like_a_download(liked):
@@ -836,6 +845,8 @@ def test_a_bot_check_met_by_the_liked_music_read_pauses_the_account_like_a_downl
     assert any(isinstance(e, Message) and e.level == "warning" and "Liked_music" in e.text for e in events)
     stored = library.load_state(liked)["youtube_usage"]["signals"]
     assert [s["kind"] for s in stored] == ["bot_check"] and "Liked music" in stored[0]["message"]
+    assert_kept_like_a_failed_read(prep)
+    assert (liked.root / LM_FILE).exists()
     assert prep.state["youtube_usage"]["signals"] == stored  # the plan works on the state that holds it
     # and the next read stays away from the account
     LikedYDL.created.clear(), LikedYDL.requested.clear()

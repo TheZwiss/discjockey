@@ -393,10 +393,12 @@ def desired_folders(fetched: list[FetchedPlaylist], state: dict) -> dict[str, st
 
 
 def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: date, *,
-         first_checks: int | None = None) -> Plan:
+         first_checks: int | None = None, unread_folders: Collection[str] = ()) -> Plan:
     """What a sync does (spec §9; the user's own songs: library-and-sources §10, plan library stage 4 I4).
     `first_checks`: how many first upgrade checks (an `upgrade` of an entry never checked) this run may make; the
-    rest wait for later runs and are counted in `deferred_checks` (D9). None: no cap."""
+    rest wait for later runs and are counted in `deferred_checks` (D9). None: no cap.
+    `unread_folders`: folders of playlists that were not read this time (Liked music while the YouTube account is
+    paused, sources-round D6). Their songs keep `in_playlists` as it was: not dropped, nothing else planned for them."""
     new_state = copy.deepcopy(state)
     tracks: dict = new_state["tracks"]
     notes: list[str] = []
@@ -406,6 +408,8 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
     dropped: list[str] = []
     for key, e in tracks.items():
         now_in = key in wanted
+        if not now_in and e.get("folder") in unread_folders:
+            continue
         if e.get("in_playlists", True) and not now_in:
             dropped.append(key)
         e["in_playlists"] = now_in

@@ -26,7 +26,7 @@ UNREADABLE_FETCH = ("playlists.txt line 3 (Album): YouTube Music doesn't show th
                     "unlisted. Check the link, or put # in front of the line.")
 UNREADABLE_INFO = "YouTube Music doesn't show this playlist. It must be public or unlisted. Check the link."
 SLOW_DOWN = "YouTube Music asked Discjockey to slow down. Try again in an hour."
-W17 = ("Discjockey can't read your liked songs or Watch later. Add the songs to a playlist, set it to public or "
+W17 = ("Discjockey can't read your liked videos or Watch later. Add the songs to a playlist, set it to public or "
        "unlisted, and paste that link.")
 W18 = "This is a YouTube mix, which changes every time it plays. Save its songs to a playlist and paste that link."
 

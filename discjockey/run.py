@@ -63,6 +63,7 @@ class Prepared:
     lines: list[PlaylistLine] = field(default_factory=list)
     fetched: list[FetchedPlaylist] = field(default_factory=list)  # as read from the playlist services (the playlist page uses it)
     import_waiting: int = 0  # files the next import works through (library.import_left; the console's W10 line)
+    unread_folders: frozenset[str] = frozenset()  # folders of lines not read this time (paused Liked music); replan keeps them
 
     @property
     def needs_qobuz(self) -> bool:
@@ -106,10 +107,11 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
 
     emit(Message("info", "Reading your playlists..."))
     signs: list[tuple[str, str, str]] = []  # warning signs a login-using read met (Liked music), recorded below
+    unread: list[PlaylistLine] = []  # lines not read because of a pause: like a failed read, their songs stay in
     try:
         fetched = sources.read(paths, lines, emit=emit, token=token, want_info=want_info,
                                paused=paused_accounts(state, date.today()),
-                               on_signal=lambda *sign: signs.append(sign))
+                               on_signal=lambda *sign: signs.append(sign), unread=unread)
     except sources.SourceError as e:
         raise SetupProblem(str(e), e.kind, e.service) from None
     finally:
@@ -120,13 +122,15 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
         for item in fp.skipped:
             log.add_text("skipped", f"[{fp.line.folder}] {item}")
 
-    plan = planner.plan(fetched, state, state["files"], date.today(), first_checks=first_check_room(state, settings))
+    unread_folders = frozenset(line.folder for line in unread)
+    plan = planner.plan(fetched, state, state["files"], date.today(), first_checks=first_check_room(state, settings),
+                        unread_folders=unread_folders)
     for key in plan.dropped:
         e = plan.state["tracks"][key]
         log.add(Result("dropped", e["folder"], e["artist"], e["title"], key))
     for key, track, folder, files in plan.ambiguous:
         log.add(Result("ambiguous", folder, track.first_artist, track.title, key, "; ".join(files)))
-    return Prepared(paths, plan.state, settings, plan, log, lines, fetched, import_waiting)
+    return Prepared(paths, plan.state, settings, plan, log, lines, fetched, import_waiting, unread_folders)
 
 
 # How long recording a read waits for another writer (a job's transaction, e.g. an import's scan): long enough to
@@ -194,9 +198,10 @@ def replan(prep: Prepared) -> Prepared:
     when those files can't be read."""
     state = library.load_state(prep.paths)
     settings = load_settings(prep.paths.settings_file)
-    plan = planner.plan(prep.fetched, state, state["files"], date.today(), first_checks=first_check_room(state, settings))
+    plan = planner.plan(prep.fetched, state, state["files"], date.today(), first_checks=first_check_room(state, settings),
+                        unread_folders=prep.unread_folders)
     return Prepared(prep.paths, plan.state, settings, plan, rep.RunLog(datetime.now()), prep.lines, prep.fetched,
-                    library.import_left(prep.paths))
+                    library.import_left(prep.paths), prep.unread_folders)
 
 
 def link_only(paths: Paths, prep: Prepared, emit: Emit = no_emit) -> Prepared:

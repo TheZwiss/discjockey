@@ -51,7 +51,7 @@ ACCOUNT = "youtube"  # the download account whose login the Liked music read use
 UNREADABLE_HINT = "Set it to public or unlisted in YouTube Music."
 UNREADABLE_INFO = "YouTube Music doesn't show this playlist. It must be public or unlisted. Check the link."
 SLOW_DOWN = "YouTube Music asked Discjockey to slow down. Try again in an hour."
-PERSONAL = ("Discjockey can't read your liked songs or Watch later. Add the songs to a playlist, set it to public or "
+PERSONAL = ("Discjockey can't read your liked videos or Watch later. Add the songs to a playlist, set it to public or "
             "unlisted, and paste that link.")
 SETTING_OFF = "Reading your Liked music is off. Turn it on in Settings."
 LIKED_UNREADABLE = ("YouTube Music doesn't show your Liked music. Check that you are signed in to YouTube in your "
