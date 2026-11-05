@@ -1,0 +1,1 @@
+import{c as t,ah as e,N as n,du as s,f as r}from"./index-DqL3gF45.js";import{E as i}from"./EmptyState-93F__ih0.js";function p(a,o){t(o,!1),e(()=>n("unknown")),s(),i(a,{title:"Nothing here.",action:{label:"Go to the Dashboard →",href:"#/"}}),r()}export{p as default};
