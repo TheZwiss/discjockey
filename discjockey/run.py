@@ -384,7 +384,7 @@ def paused_now(paths: Paths, state: dict, today: date) -> frozenset[str]:
 
 def account_budgets(state: dict, save: Callable[[], None], settings: Settings) -> dict[str, Budget]:
     """A Budget for each account service that is set up (YouTube Premium, SoundCloud Go+), in quality order."""
-    return {s: Budget(state, save, settings, service=s) for s in ACCOUNTS if s in settings.accounts}
+    return {s: Budget(state, save, settings, service=s) for s in ACCOUNTS if s in settings.download_accounts}
 
 
 def budget_text(prep: Prepared) -> str:
@@ -478,7 +478,7 @@ def execute(prep: Prepared, qobuz, *, emit: Emit = no_emit, token: CancelToken |
     budget = Budget(state, save, prep.settings)
     accounts = account_budgets(state, save, prep.settings)
     fallback = FallbackSource(verbose=verbose, emit=emit, check=token.check,
-                              logins={s: (a.browser, a.profile) for s, a in prep.settings.accounts.items()})
+                              logins={s: (a.browser, a.profile) for s, a in prep.settings.download_accounts.items()})
     acquirer = Acquirer(qobuz, fallback, budget, Pacer(emit, token), make_ready, emit=emit, accounts=accounts)
     executor = Executor(paths, state, prep.log, acquirer, quality.inspect, emit=tracking, token=token, limit=limit,
                         where=where)

@@ -456,6 +456,20 @@ def test_execute_hands_the_logins_and_account_budgets_on(paths, monkeypatch):
     assert seen["accounts"]["youtube"].service == "youtube"
 
 
+def test_a_free_youtube_login_is_not_handed_to_downloads(paths, monkeypatch):
+    free = {"ok": False, "problem": "no_premium", "kbps": 129, "at": "2026-10-20T21:47:00"}
+    save_settings(paths.settings_file, Settings(accounts={"soundcloud": Account("firefox", 60),
+                                                          "youtube": Account("chrome", 30, last_check=free)}))
+    seen = {}
+    monkeypatch.setattr(run, "FallbackSource", lambda **kw: seen.update(fallback=kw))
+    monkeypatch.setattr(run, "Acquirer", lambda *a, **kw: seen.update(accounts=kw["accounts"]) or FakeAcquirer())
+    prep = run.prepare(paths)
+    run.execute(prep, None)
+    assert seen["fallback"]["logins"] == {"soundcloud": ("firefox", None)}  # no cookies for YouTube
+    assert list(seen["accounts"]) == ["soundcloud"]  # no YouTube budget: no usage row, no limit, no auto-stop
+    assert [line.split(" today")[0] for line in run.budget_text(prep).splitlines()] == ["Qobuz", "SoundCloud Go+"]
+
+
 # --- the scan before planning (plan library stage 1, task 3.3) ---
 
 def placed(paths, key="t1", rel="Library/Hard_Bounce/Artist - Song 1.aiff"):

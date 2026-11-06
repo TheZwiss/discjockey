@@ -33,6 +33,10 @@ class Account:
     extra_amount: int = 0
     profile: str | None = None  # the browser profile's folder (Chrome "Profile 2", a Firefox profile); None: default
     last_check: Mapping | None = field(default=None, hash=False)  # {ok, problem, kbps, at}
+    # YouTube only: the last check that said anything about Premium found none. Stays until a check finds Premium or
+    # the login changes, so a later check that fails to say (offline, login lost) does not make a free login a
+    # download account (`Settings.download_accounts`)
+    liked_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -56,6 +60,18 @@ class Settings:
     def reads_liked_music(self) -> bool:
         """Whether an `LM` line is read: the choice is on and a YouTube account is set up to read it with."""
         return self.read_liked_music and "youtube" in self.accounts
+
+    @property
+    def download_accounts(self) -> Mapping[str, Account]:
+        """The accounts downloads go through: the one place that decides it. A YouTube login whose last check found no
+        Premium is kept to read Liked music with and is never used for a download (no cookies, no limit, no usage
+        row), so downloads behave as with no YouTube account; it stays that way through checks that say nothing about
+        Premium (`Account.liked_only`). A SoundCloud login without Go+ is used on purpose (it tries Go+ on every
+        track). A check that finds Premium makes the YouTube login a download account."""
+        free = self.accounts.get("youtube")
+        if free is not None and (free.liked_only or (free.last_check or {}).get("problem") == "no_premium"):
+            return {k: v for k, v in self.accounts.items() if k != "youtube"}
+        return self.accounts
 
     def extra_for(self, day: date) -> int:
         return self.extra_amount if self.extra_date == day.isoformat() else 0
@@ -87,16 +103,25 @@ class Settings:
             return replace(self, accounts=accounts, read_liked_music=False)
         if browser is not None:
             old = self.accounts.get(service)
-            accounts[service] = (replace(old, browser=browser, profile=profile, last_check=None) if old
+            accounts[service] = (replace(old, browser=browser, profile=profile, last_check=None, liked_only=False) if old
                                  else Account(browser, DEFAULT_LIMITS[service], profile=profile))
         return replace(self, accounts=accounts)
 
     def with_check(self, service: str, check: Mapping) -> Settings:
-        """The last login check of Qobuz or of a set-up account."""
+        """The last login check of Qobuz or of a set-up account. A YouTube check that found no Premium marks the login
+        `liked_only`, one that found Premium clears it, any other leaves it as it was."""
         if service == "qobuz":
             return replace(self, qobuz_last_check=dict(check))
+        old = self.accounts[service]
+        liked_only = old.liked_only
+        if service == "youtube":
+            liked_only = liked_only or (old.last_check or {}).get("problem") == "no_premium"
+            if check.get("ok"):
+                liked_only = False
+            elif check.get("problem") == "no_premium":
+                liked_only = True
         return replace(self, accounts={**self.accounts,
-                                       service: replace(self.accounts[service], last_check=dict(check))})
+                                       service: replace(old, last_check=dict(check), liked_only=liked_only)})
 
 
 def _extra(data: dict) -> tuple[str | None, int]:
@@ -132,8 +157,11 @@ def load_settings(path: Path) -> Settings:
             profile = a.get("profile")
             if profile is not None and not isinstance(profile, str):
                 raise SettingsError(f"{path.name}: accounts.{service}.profile must be a name.")
+            liked_only = a.get("liked_only", False)
+            if not isinstance(liked_only, bool):
+                raise SettingsError(f"{path.name}: accounts.{service}.liked_only must be true or false.")
             accounts[str(service)] = Account(str(a["browser"]), int(a["daily_limit"]), a_day, a_amount, profile,
-                                             _last_check(path, a.get("last_check")))
+                                             _last_check(path, a.get("last_check")), liked_only)
         skipped = data.get("qobuz_skipped", False)
         if not isinstance(skipped, bool):
             raise SettingsError(f"{path.name}: qobuz_skipped must be true or false.")
@@ -179,7 +207,8 @@ def save_settings(path: Path, s: Settings) -> None:
             "qobuz_last_check": dict(s.qobuz_last_check) if s.qobuz_last_check else None,
             "accounts": {k: {"browser": a.browser, "profile": a.profile, "daily_limit": a.daily_limit,
                              "extra_today": _extra_json(a.extra_date, a.extra_amount),
-                             "last_check": dict(a.last_check) if a.last_check else None}
+                             "last_check": dict(a.last_check) if a.last_check else None,
+                             "liked_only": a.liked_only}
                          for k, a in s.accounts.items()}}
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")

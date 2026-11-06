@@ -173,7 +173,7 @@
       phase: { kind: 'waiting', browser: 'chrome', browserName: 'Chrome' } },
     { key: 'checking', cap: 'checking one song', service: 'youtube', d: gDl(), busy: true, phase: { kind: 'checking', browserName: 'Chrome' } },
     { key: 'works', cap: 'works · nothing in the foot', service: 'youtube', d: gDl({ youtube: ytOn }), phase: { kind: 'working' } },
-    { key: 'no-premium', cap: 'signed in, but no Premium', service: 'youtube', phase: { kind: 'no_premium' },
+    { key: 'no-premium', cap: 'signed in, no Premium: reads Liked music, downloads stay free', service: 'youtube', phase: { kind: 'no_premium' },
       d: gDl({ youtube: gAcc({ state: 'no_premium', browser: 'chrome', browser_name: 'Chrome',
         last_check: { ok: false, problem: 'no_premium', kbps: 160, at: checkedAt } }) }) },
     { key: 'safari', cap: 'Safari without Full Disk Access → Open System Settings', service: 'youtube', d: gDl(),
@@ -704,10 +704,10 @@
         </Surface>
         <span class="cap">locked, with its way out under the reason (action: a link outside the row's button)</span>
         <Surface kind="list" data-test="g-toggle-action">
-          <ToggleRow item={{ key: 'l', label: 'Read my Liked music', on: false }} disabled sub="Sign in to YouTube Premium first"
+          <ToggleRow item={{ key: 'l', label: 'Read my Liked music', on: false }} disabled sub="Sign in to YouTube first"
             onchange={() => {}}>
             {#snippet action()}<Button variant="link" size="sm"
-              onclick={() => toasts.show({ tone: 'info', title: 'Opens Settings at YouTube Premium' })}>Go to YouTube Premium</Button>{/snippet}
+              onclick={() => toasts.show({ tone: 'info', title: 'Opens Settings at the YouTube login' })}>Go to YouTube sign-in</Button>{/snippet}
           </ToggleRow>
         </Surface>
         <span class="cap">one ToggleRow in a list</span>

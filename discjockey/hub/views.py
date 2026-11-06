@@ -137,7 +137,7 @@ def assessment(limit: int, service: str = "qobuz") -> dict:
 def services_of(settings: Settings) -> list[str]:
     """The services with a daily limit that are set up, in quality order. Qobuz counts as set up unless the user said
     "I don't have Qobuz" (a missing login shows up when a sync starts, as before)."""
-    return ([] if settings.qobuz_skipped else ["qobuz"]) + [s for s in ACCOUNTS if s in settings.accounts]
+    return ([] if settings.qobuz_skipped else ["qobuz"]) + [s for s in ACCOUNTS if s in settings.download_accounts]
 
 
 def budget(state: dict, settings: Settings, today: date, service: str = "qobuz") -> dict:
