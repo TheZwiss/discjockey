@@ -436,3 +436,89 @@ def test_a_stage_1_step_stores_neither_entries_nor_label(paths, monkeypatch):
                         lambda p, st, **kw: (seen.append([dict(op) for op in st.get("pending", [])]), real(p, st, **kw)))
     run_op(paths, s, "t1", [("Library/A/x.aiff", "Library/B/x.aiff")], {"path": "Library/B/x.aiff"})
     assert set(seen[0][0]) == {"track_id", "renames", "entry"}
+
+
+# --- what a step leaves its caller (issue 25: pinned before run_op moved off the entry view) ---
+
+def one_song(paths, path="Library/A/S.aiff", status="not_lossless"):
+    touch(paths, path, b"old")
+    s = empty_state()
+    s["tracks"]["t1"] = {"artist": "A", "title": "S", "path": path, "status": status}
+    s["tracks"]["t2"] = {"artist": "B", "title": "T", "path": None, "status": "missing"}
+    save_state(paths, s)
+    return s
+
+
+def test_after_a_step_the_caller_goes_on_saving_its_state(paths):
+    s = one_song(paths)
+    run_op(paths, s, "t1", [("Library/A/S.aiff", "Superseded/A/S.aiff")],
+           {**s["tracks"]["t1"], "path": None, "status": "missing"})
+    assert s["generation"] == load_state(paths)["generation"]
+    s["tracks"]["t2"] = {**s["tracks"]["t2"], "hidden": True}
+    save_state(paths, s)  # not stale
+    saved = load_state(paths)
+    assert saved["tracks"]["t1"]["path"] is None and saved["tracks"]["t1"]["status"] == "missing"
+    assert saved["tracks"]["t2"]["hidden"] is True and saved["pending"] == []
+
+
+def test_a_step_on_a_stale_state_is_refused_before_any_file_moves(paths):
+    s = one_song(paths)
+    other = load_state(paths)
+    other["tracks"]["t2"] = {**other["tracks"]["t2"], "hidden": True}
+    save_state(paths, other)
+    with pytest.raises(library.StateError, match="changed while"):
+        run_op(paths, s, "t1", [("Library/A/S.aiff", "Superseded/A/S.aiff")],
+               {**s["tracks"]["t1"], "path": None, "status": "missing"})
+    assert (paths.root / "Library/A/S.aiff").exists() and not (paths.root / "Superseded/A/S.aiff").exists()
+    saved = load_state(paths)
+    assert saved["pending"] == [] and saved["tracks"]["t1"]["path"] == "Library/A/S.aiff"
+
+
+def test_a_step_cut_off_mid_way_stays_journaled_while_its_caller_goes_on(paths, monkeypatch):
+    """The sync goes on after one action failed (execute.Executor): its next saves keep the half-done step pending,
+    and the next start finishes it."""
+    s = one_song(paths)
+    touch(paths, ".discjockey/.tmp/t1/new.aiff", b"new")
+    real, done = library.safe_rename, []
+
+    def rename(root, src, dst):
+        if done:
+            raise OSError("disk full")
+        done.append(src)
+        real(root, src, dst)
+    monkeypatch.setattr(library, "safe_rename", rename)
+    entry = {**s["tracks"]["t1"], "status": "lossless"}
+    with pytest.raises(OSError):
+        run_op(paths, s, "t1", [("Library/A/S.aiff", "Superseded/A/S.aiff"),
+                                (".discjockey/.tmp/t1/new.aiff", "Library/A/S.aiff")], entry)
+    monkeypatch.undo()
+    assert len(s["pending"]) == 1 and s["tracks"]["t1"]["status"] == "not_lossless"
+    s["tracks"]["t2"] = {**s["tracks"]["t2"], "hidden": True}
+    save_state(paths, s)  # the caller's next save
+    on_disk = load_state(paths)
+    assert len(on_disk["pending"]) == 1 and on_disk["tracks"]["t2"]["hidden"] is True
+    msgs = recover_pending(paths, on_disk)
+    assert msgs == [("Finished an interrupted step for A - S", True)]
+    after = load_state(paths)
+    assert after["pending"] == [] and after["tracks"]["t1"]["status"] == "lossless"
+    assert (paths.root / "Library/A/S.aiff").read_bytes() == b"new"
+
+
+def test_a_step_without_an_entry_changes_no_song(paths):
+    s = one_song(paths, status="lossless")
+    touch(paths, ".discjockey/.tmp/t2/bought.wav", b"bought")
+    before = load_state(paths)["tracks"]
+    run_op(paths, s, "t2", [(".discjockey/.tmp/t2/bought.wav", "Library/A/B - T.wav")], None)
+    saved = load_state(paths)
+    assert saved["tracks"] == before and saved["pending"] == []
+    assert (paths.root / "Library/A/B - T.wav").read_bytes() == b"bought"
+
+
+def test_a_step_onto_another_songs_file_is_refused_by_the_records(paths):
+    s = one_song(paths, status="lossless")
+    touch(paths, ".discjockey/.tmp/t2/new.aiff", b"new")
+    with pytest.raises(library.StateError, match="same file"):
+        run_op(paths, s, "t2", [(".discjockey/.tmp/t2/new.aiff", "Library/A/T.aiff")],
+               {**s["tracks"]["t2"], "path": "Library/A/S.aiff", "status": "lossless"})
+    saved = load_state(paths)
+    assert saved["tracks"]["t1"]["path"] == "Library/A/S.aiff" and saved["tracks"]["t2"]["path"] is None
