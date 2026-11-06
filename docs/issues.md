@@ -3,6 +3,18 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 37. Sync: folders switch in and out of the sync like playlists (user, 2026-11-06)
+
+On Sync the browser column gives only playlists a switch; a Folders row (a watched folder such as "Techno", or a
+Library folder no playlist uses) has none, and a click on it opens Library. Its lossy files still get the weekly
+upgrade check (planner rule 4), so the user can't leave a folder out of the sync. Wanted (user):
+- Every playlist AND folder in the Sync column has a switch; no row there sends the user to Library.
+- Switched off means the collection is completely left out of the sync: nothing at all is done with its files (no
+  download, no check, no move, no replacement), now and for anything the sync does with files later.
+- A song belongs to the sync while ANY playlist or folder it is in is switched on; it is left out only when every
+  collection it is in is off (a user who turns a playlist on must never find one of its tracks missing because
+  another collection is off).
+
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them — needs a design round (user, 2026-10-31)
 
 Audit 2026-11-05: parked, nothing of it is built (no AIFF conversion of imported files, no rekordbox repoint; the New
