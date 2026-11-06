@@ -84,7 +84,9 @@ export const minutesFor = (table: number[], downloads: number): number =>
 export const inRunOrder = (p: SyncPreview | null): PreviewAction[] => allActions(p);
 
 // ---------- scope: which playlists and kinds are in this run ----------
-/** Left out: folders and kinds the user unticked in the panel (remembered, so new ones come in ticked). */
+/** Left out: playlists the user switched off in the browser column and weekly checks switched off in the panel
+ *  (remembered, so new ones come in switched on). Only the two weekly checks switch as kinds (issue 36): new songs,
+ *  files gone and bought files are left out row by row or per playlist with the plan's ticks. */
 export type Scope = { folders: string[]; kinds: KindKey[] };
 export const FULL_SCOPE: Scope = { folders: [], kinds: [] };
 export const inScope = (a: PreviewAction, s: Scope) => !s.folders.includes(a.folder) && !s.kinds.includes(kindOf(a));
@@ -95,31 +97,87 @@ export function toggleScope(s: Scope, what: 'folders' | 'kinds', v: string): Sco
 export function readScope(v: unknown): Scope {
   const o = (v && typeof v === 'object' ? v : {}) as Partial<Scope>;
   const strings = (x: unknown) => (Array.isArray(x) ? x.filter((y): y is string => typeof y === 'string') : []);
-  return { folders: strings(o.folders), kinds: strings(o.kinds).filter(isKindKey) };
+  // a kind left out before issue 36 that no longer has a switch is dropped, so nothing stays out unseen
+  return { folders: strings(o.folders), kinds: strings(o.kinds).filter((k): k is KindKey => isWeeklyKind(k)) };
 }
 
 /** What a playlist or folder is called on the page: never blank, even when an action arrives without a folder name. */
 export const folderLabel = (folder: string): string => folder.trim() || 'Your own music';
 
-export type Facet = { key: string; label: string; count: number };
-/** Whether the panel shows a scope group (Playlists, What to do): whenever it has a row, also a single one (issue 35).
- *  The scope is remembered across runs, so leaving out the only kind planned today (weekly checks, when no retry is
- *  due) still means something, and a playlist or kind left out earlier must stay switchable back on when it is the
- *  only one left; the plan's "left out" note points at these switches. */
-export const scopeGroupShown = (f: Facet[]): boolean => f.length > 0;
-/** The plan's note on what the panel's switches leave out: "4 more tracks left out" under rows, but "4 tracks left
- *  out" when every track is left out and no row is above it (issue 35: weekly checks switched off, nothing else). */
+/** The plan's note on what the switches leave out: "4 more tracks left out" under rows, but "4 tracks left out" when
+ *  every track is left out and no row is above it (issue 35: weekly checks switched off, nothing else). */
 export const leftOutTitle = (hidden: number, shown: number): string =>
   `${plural(hidden, shown > 0 ? 'more track' : 'track')} left out`;
-/** Playlists (playlists.txt order) and kinds that have actions, with their counts. */
-export function facets(actions: PreviewAction[], folderOrder: string[]): { folders: Facet[]; kinds: Facet[] } {
-  const byFolder = new Map<string, number>();
-  for (const a of actions) byFolder.set(a.folder, (byFolder.get(a.folder) ?? 0) + 1);
-  const order = [...folderOrder, ...[...byFolder.keys()].filter((f) => !folderOrder.includes(f))];
-  const folders = order.filter((f) => byFolder.has(f)).map((f) => ({ key: f, label: folderLabel(f), count: byFolder.get(f)! }));
-  const kinds = KINDS.map((k) => ({ key: k.key, label: k.label, count: actions.filter((a) => kindOf(a) === k.key).length }))
-    .filter((k) => k.count > 0);
-  return { folders, kinds };
+/** The note's line: where the switches that leave them out are (issue 36: playlists in the column on the left,
+ *  the weekly checks in the panel on the right). */
+export function leftOutBody(s: Scope): string {
+  const lists = s.folders.length > 0;
+  const kinds = s.kinds.length > 0;
+  return lists && kinds ? 'Playlists switched off on the left and weekly checks switched off on the right.'
+    : kinds ? 'Weekly checks you switched off on the right.' : 'Playlists you switched off on the left.';
+}
+
+// ---------- the kinds at a glance (issue 36: the strip on top of the plan) ----------
+/** The two weekly checks, the kinds with a switch of their own (issue 36). */
+export const WEEKLY_KINDS: KindKey[] = ['retry', 'weekly'];
+export const isWeeklyKind = (k: string): boolean => (WEEKLY_KINDS as string[]).includes(k);
+/** Each kind in the strip: its words, what it means (the row's tooltip) and its colour token. The bar's order:
+ *  the downloads (the blue family), the weekly checks (the teal family), then bought files, which download nothing. */
+export const KIND_SHARE: { key: KindKey; label: string; tip: string; colour: string }[] = [
+  { key: 'new', label: 'New downloads', tip: 'Songs in your playlists with no file yet', colour: 'var(--kind-new)' },
+  { key: 'redownload', label: 'Files gone', tip: 'Downloaded before, but the file isn’t there any more: downloaded again',
+    colour: 'var(--kind-gone)' },
+  { key: 'retry', label: 'Missing songs', tip: 'Not found last time: looked for again once a week', colour: 'var(--kind-retry)' },
+  { key: 'weekly', label: 'Lossy files', tip: 'Files that aren’t lossless: checked once a week for a lossless copy',
+    colour: 'var(--kind-weekly)' },
+  { key: 'bought', label: 'Bought files', tip: 'Files you bought, put in their playlists: nothing to download',
+    colour: 'var(--kind-bought)' },
+];
+export type KindShare = { key: KindKey; label: string; tip: string; colour: string; n: number; off: boolean };
+/** The strip's numbers: the tracks in the playlists switched on, by kind. A kind is listed while the plan has it in
+ *  any playlist (so the rows stay put while playlists switch); `off`: a weekly check switched off (its count stays,
+ *  its part of the bar dims, its row says so). `total` counts what is switched on, kinds and playlists. */
+export function kindShares(ordered: PreviewAction[], s: Scope): { total: number; playlists: number; kinds: KindShare[] } {
+  const listed = ordered.filter((a) => !s.folders.includes(a.folder));
+  const kinds = KIND_SHARE.filter((k) => ordered.some((a) => kindOf(a) === k.key)).map((k) => ({
+    ...k, n: listed.filter((a) => kindOf(a) === k.key).length, off: s.kinds.includes(k.key) }));
+  const on = listed.filter((a) => inScope(a, s));
+  return { total: on.length, playlists: new Set(on.map((a) => a.folder)).size, kinds };
+}
+/** The strip's line under the count. */
+export function stripLine(total: number, playlists: number, everyListOff: boolean): string {
+  if (everyListOff) return 'every playlist switched off';
+  if (!total) return 'everything switched off';
+  // a plan section is a folder: a playlist's, or the folder of your own music a weekly check is about
+  return `to sync in ${plural(playlists, 'folder')}`;
+}
+
+/** The panel's Weekly checks: both switches always (issue 36; issue 35's bug: a switch must never go because its
+ *  kind is the only one, or has no rows today), each with its count in the playlists switched on. */
+export function weeklyItems(ordered: PreviewAction[], s: Scope): ToggleItem[] {
+  const listed = ordered.filter((a) => !s.folders.includes(a.folder));
+  return WEEKLY_KINDS.map((key) => ({ key, label: KIND_SHARE.find((k) => k.key === key)!.label,
+    count: listed.filter((a) => kindOf(a) === key).length, on: !s.kinds.includes(key) }));
+}
+
+/** Per playlist, the tracks the sync would do in it: only the kinds switched on (the old panel counted the weekly
+ *  checks switched off too). The browser column's switch tooltip says it. */
+export function planCounts(ordered: PreviewAction[], s: Scope): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const a of ordered) if (!s.kinds.includes(kindOf(a))) out[a.folder] = (out[a.folder] ?? 0) + 1;
+  return out;
+}
+/** A playlist's switch in the browser column, in words (its tooltip): what it holds for the sync, or why it can't
+ *  switch. `n` null: the plan isn't known (reading, up to date, a run). */
+export function playlistSwitchTip(name: string, o: { enabled: boolean; on: boolean; n: number | null; running: boolean }): string {
+  if (!o.enabled) return `${name} · switched off on the Playlists page`;
+  if (o.running) return `${name} · ${o.on ? 'in' : 'left out of'} this sync · switch it once the sync ends`;
+  if (!o.on) return `${name} · left out of the sync`;
+  return o.n === null ? `${name} · in the sync` : o.n === 0 ? `${name} · nothing to sync` : `${name} · ${plural(o.n, 'track')} to sync`;
+}
+/** The day bar's words while it is empty: why nothing downloads. */
+export function dayBarEmpty(inScope: number, ticked: number): string {
+  return inScope === 0 ? 'Everything switched off' : ticked === 0 ? 'Nothing ticked' : 'No downloads';
 }
 
 // ---------- how many downloads this run ----------
@@ -233,12 +291,6 @@ export function dayBarInput(t: RunTotals, left: number | null): DayBarInput {
   const limited = left !== null;
   return { today: t.uses, later: limited ? t.after : 0, limited, laterDays: limited ? t.days : 0 };
 }
-/** The Playlists group's rows: a playlist is on unless the user left it out of the scope. */
-export const folderItems = (folders: Facet[], scope: Scope): ToggleItem[] =>
-  folders.map((f) => ({ ...f, on: !scope.folders.includes(f.key) }));
-/** The What to do group's rows: a kind is on unless the user left it out of the scope. */
-export const kindItems = (kinds: Facet[], scope: Scope): ToggleItem[] =>
-  kinds.map((k) => ({ ...k, on: !(scope.kinds as string[]).includes(k.key) }));
 /** What a run does today (spec §8, §11 "a run's count is what runs today"): the ticked actions minus the ticked
  * downloads that wait for the next sync (`downloads - uses`). `chosen` ticked actions, `downloads` of them downloads,
  * `uses` the downloads that fit today. The count card and Start both say it. */

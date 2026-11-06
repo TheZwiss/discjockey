@@ -67,6 +67,8 @@ export { folderProblem, hasLink, ownerText, playlistKey, type PlaylistRef } from
 export { copyText } from './clipboard';
 export { default as StatCard } from './StatCard.svelte';
 export { default as SummaryStrip } from './SummaryStrip.svelte';
+export { default as ShareStrip, type ShareRow } from './ShareStrip.svelte';
+export { default as ShareBar, type BarPart } from './ShareBar.svelte';
 export { stripView, type StripView } from './summaryStripModel';
 export { default as Surface } from './Surface.svelte';
 export { default as Switch } from './Switch.svelte';

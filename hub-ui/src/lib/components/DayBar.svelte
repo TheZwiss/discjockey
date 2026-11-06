@@ -10,21 +10,22 @@
   // (`gone`) its label wraps onto a hidden second line, so no half label shows mid-slide, and `title` keeps it.
   // Day mode (`input.day`, Dashboard) draws the whole daily limit: what earlier runs used today (filled, quiet) ahead
   // of this sync, and what is left after it (outline only); all four kinds slide the same way.
-  // Without a daily limit the caption "No daily limit" sits under the bar as a Hint; with nothing ticked the bar is
-  // an empty track. Other attributes (`data-test`) go onto the root.
+  // Without a daily limit the caption "No daily limit" sits under the bar as a Hint; with nothing to download the bar
+  // is an empty track that says why in label grey (`empty`, default "Nothing ticked"; issue 36: an empty grey bar with
+  // no words read as broken). Other attributes (`data-test`) go onto the root.
   import type { HTMLAttributes } from 'svelte/elements';
   import Hint from './Hint.svelte';
   import { dayBar, type DayBarInput, type DaySeg } from './dayBarModel';
 
-  type Props = Omit<HTMLAttributes<HTMLDivElement>, 'children'> & { input: DayBarInput };
-  let { input, class: className, ...rest }: Props = $props();
+  type Props = Omit<HTMLAttributes<HTMLDivElement>, 'children'> & { input: DayBarInput; empty?: string };
+  let { input, empty = 'Nothing ticked', class: className, ...rest }: Props = $props();
   const KINDS: DaySeg['kind'][] = ['used', 'today', 'later', 'free'];
   const bar = $derived(dayBar(input));
   const segOf = $derived(Object.fromEntries(bar.segs.map((s) => [s.kind, s])) as Partial<Record<DaySeg['kind'], DaySeg>>);
   // the present segments' ends: the first takes the bar's left corners and no split before it, the last the right
   const first = $derived(bar.segs[0]?.kind);
   const last = $derived(bar.segs[bar.segs.length - 1]?.kind);
-  const said = $derived(bar.segs.length ? bar.segs.map((s) => s.label).join(' · ') : 'Nothing ticked');
+  const said = $derived(bar.segs.length ? bar.segs.map((s) => s.label).join(' · ') : empty);
   let w = $state<Record<DaySeg['kind'], number>>({ used: 0, today: 0, later: 0, free: 0 });  // the labels' natural widths
   let armed = $state(false);  // transitions on: the first measurements have been drawn
   $effect(() => {
@@ -44,6 +45,7 @@
         <span>{s?.label ?? ''}</span>
       </div>
     {/each}
+    {#if !bar.segs.length}<span class="none" aria-hidden="true" data-test="day-bar-empty">{empty}</span>{/if}
   </div>
   <!-- the labels' twins, measured for the segments' label floor; a new label is measured a frame after it shows and
        the basis retargets mid-slide (a transition starts from where it is) -->
@@ -56,7 +58,10 @@
 <style>
   .day-bar { position: relative; display: flex; flex-direction: column; gap: var(--s-1); min-width: 0; }
   .bar { --h: var(--h-ctl-sm); display: flex; height: var(--h); min-width: 0; border-radius: var(--r-icon); }
-  .bar.empty { background: var(--bg-inset); }
+  .bar.empty { background: var(--bg-inset); position: relative; }
+  /* the empty track's words, on it like a segment's label, in label grey: nothing is coming */
+  .none { position: absolute; inset: 0; display: flex; align-items: center; padding: 0 var(--s-2);
+    font-size: var(--fs-small); color: var(--text-label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .seg {
     flex: 0 1 0; min-width: 0; height: 100%; padding-left: var(--s-2); overflow: hidden;
     /* the label is the second flex item after an empty full-height one: when it doesn't fit beside it, it wraps

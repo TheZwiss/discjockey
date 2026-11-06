@@ -331,6 +331,12 @@ Open Discjockey and click **Sync** in the sidebar. Before anything changes, it s
 new downloads, bought files to add, and tracks no longer in any playlist. Untick what should wait, then click
 **Start sync**.
 
+- **Your playlists stand on the left**, as in Library, each with a switch: switch one off to leave it out of the
+  sync. The strip on top of the plan shows how much of it is new downloads, missing songs looked for again, lossy
+  files checked for a lossless copy, files gone and bought files.
+- **Weekly checks** on the right switch the two weekly checks on or off: songs not found last time, and files that
+  aren't lossless yet.
+
 - A run of 60 downloads takes 1 to 2 hours, because Discjockey waits between Qobuz downloads.
   The Mac stays awake while it runs.
 - **Stopping:** **Stop safely** stops after the current track. Nothing is left half done, and the next sync

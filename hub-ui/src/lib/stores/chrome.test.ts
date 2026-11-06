@@ -273,7 +273,9 @@ describe('the details never stand empty (detailsStand)', () => {
 describe('places', () => {
   it('Library is its own place; every other route shares one', () => {
     expect(placeOf('library')).toBe('library');
-    expect(['dashboard', 'runs', 'sync', 'settings', 'gallery'].map(placeOf)).toEqual(Array(5).fill('other'));
+    expect(['dashboard', 'runs', 'settings', 'gallery'].map(placeOf)).toEqual(Array(4).fill('other'));
+    // issue 36: Sync's playlists switch in the browser column, so Sync stands with Library
+    expect(placeOf('sync')).toBe('library');
   });
   it('libraryReturn keeps the collection and its selected track', () => {
     expect(libraryReturn(parseHash('#/library/folder/Hard%20Bounce?track=t2'))).toBe('#/library/folder/Hard%20Bounce?track=t2');
