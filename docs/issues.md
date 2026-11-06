@@ -14,6 +14,8 @@ planned. Also: nothing on a row tells a weekly check from a song that isn't down
 
 - **Fix:** the weekly checks can always be switched on or off while any are planned; every row shows why it is in the
   list (not downloaded yet, not found last time, weekly check, file gone, bought file) at every window width.
+  The user's idea (2026-11-06): one icon per kind on every row, e.g. weekly checks an orange stopwatch or clock,
+  downloads a download icon (today `KindIcon` draws a calendar for weekly checks and shows only at narrow widths).
 - **Wish:** the Playlists panel on the Sync page shows each playlist's service logo (Spotify, Qobuz, SoundCloud,
   YouTube Music, a watched folder), as the Library sidebar does, so the source shows at a glance.
 
