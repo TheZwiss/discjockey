@@ -22,7 +22,11 @@ export const BROWSER_MAX = 360;
 /** `--panel-narrow-below`: below this window width the browser and the inspector take turns (N7). */
 export const NARROW_BELOW = 1240;
 
-export const placeOf = (routeName: string): Place => (routeName === 'library' ? 'library' : 'other');
+/** `library`: the pages the browser column stands on, Library and Sync (issue 36: Sync's playlists switch in the
+ *  same column). They share one form and the column stays put between them; ⌘I and the step-back stay Library's
+ *  (they follow Library's route: `libraryTrack`). */
+export const BROWSER_PAGES = ['library', 'sync'];
+export const placeOf = (routeName: string): Place => (BROWSER_PAGES.includes(routeName) ? 'library' : 'other');
 
 /** A stored or dragged width, whole pixels within 200–360; anything that isn't a number is the default. */
 export function clampBrowserWidth(w: unknown): number {

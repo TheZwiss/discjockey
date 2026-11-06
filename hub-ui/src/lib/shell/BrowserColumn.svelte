@@ -36,6 +36,15 @@
   // For a screen reader the filter is a combobox over the rows: while filtering the list is a listbox, each row an
   // option with its own id (`bc-…`), and the field's `aria-activedescendant` names the highlighted one, so ↑ ↓ are
   // read out as they move. A switched-off playlist and an away folder say so in words, not only by their look.
+  //
+  // On Sync (issue 36) the column stands too, the same rows in the same places, with one change: a playlist's count
+  // gives its place to a switch that puts the playlist in or out of the sync (`syncScope`), and the whole row is that
+  // switch (a ToggleRow's hit area), its tooltip saying what the playlist holds for the sync (`planCounts`, the kinds
+  // switched on only). A playlist left out dims its logo and name (dim means switched off); one switched off on the
+  // Playlists page keeps its half-strength row and a switch that can't turn on. While a sync runs the switches hold
+  // (its playlists are set). Every other row, the right-click menu, the filter and Favourites' drag are Library's:
+  // a click opens Library at the collection, as the full sidebar's favourites do. While filtering, every row is a
+  // link (the filter finds and opens).
   import { tick } from 'svelte';
   import { flip } from 'svelte/animate';
   import { cubicOut } from 'svelte/easing';
@@ -51,7 +60,10 @@
   import { count as thousands } from '../format';
   import { getPref } from '../prefs';
   import { LEGACY_SORT_KEY, playQueue, sortKey, viewSort } from '../../pages/library/libraryModel';
-  import { Button, ContextMenu, ListSection, SearchField, tip } from '../components';
+  import { Button, ContextMenu, ListSection, SearchField, Switch, tip } from '../components';
+  import { syncRunning } from '../stores/hub';
+  import { planCounts, syncScope, togglePlaylist } from '../stores/syncScope';
+  import { playlistSwitchTip } from '../../pages/sync/planModel';
   import type { MenuItem } from '../components/ContextMenu.svelte';
   import {
     HANDOFF, LANDING_TEXT, browserList, crateShownValue, currentTarget, dropIndex, dropSpring, favouritesIn, inDropZone,
@@ -75,6 +87,18 @@
   const list = $derived(browserList({ side: shownSide, query, az: $playlistsAz, closed: $browserClosed, current,
     shown: pendingShown }));
   const filtering = $derived(list.targets.length > 0);
+  // Sync: a playlist row is its switch for the sync (not while filtering, where every row opens)
+  const onSync = $derived($route.name === 'sync');
+  const switches = (r: CollectionRow) => onSync && !filtering && r.kind === 'playlist';
+  // a playlist switched off on the Playlists page is never planned, so its switch stays off and can't turn on; should
+  // the plan still hold rows of it (a read from before it was switched off), it switches like any other
+  const switchable = (r: CollectionRow) => r.kind === 'playlist' && (r.enabled || !!$planCounts?.[r.name]);
+  const inSync = (r: CollectionRow) => switchable(r) && !$syncScope.folders.includes(r.name);
+  const switchTip = (r: CollectionRow) => playlistSwitchTip(r.name, { enabled: switchable(r),
+    on: inSync(r), n: $planCounts ? ($planCounts[r.name] ?? 0) : null, running: $syncRunning });
+  function flipSync(r: CollectionRow) {
+    if (switchable(r) && !$syncRunning) togglePlaylist(r.name);
+  }
   const hi = $derived(highlightOf(list.targets, moved));
   const at = $derived(list.on);
   const favKeys = $derived(shownSide?.favourites.map((f) => f.key) ?? []);
@@ -495,6 +519,16 @@
 {/snippet}
 
 {#snippet row(r: CollectionRow)}
+  {#if switches(r)}
+    {@const on = inSync(r)}
+    <button type="button" class="row sw-row" class:out={!on} class:off={r.kind === 'playlist' && !r.enabled}
+      class:menu-on={menu?.row.key === r.key} role="switch" aria-checked={on}
+      aria-disabled={!switchable(r) || $syncRunning ? true : undefined} use:tip={switchTip(r)}
+      onclick={() => flipSync(r)} data-key={r.key} id={rowId(r.key)} onpointerdown={(e) => rowDown(e, r)}
+      oncontextmenu={(e) => openMenu(e, r)} onkeydown={(e) => menuKey(e, r)} data-place={r.place} data-test="browser-switch">
+      {@render inner(r, false)}<Switch {on} label={r.name} disabled={$syncRunning && switchable(r)} />
+    </button>
+  {:else}
   <a class="row" class:on={at === r.key} class:kb={hi === r.key} class:off={r.kind === 'playlist' && !r.enabled}
     class:indent={r.indent} class:menu-on={menu?.row.key === r.key}
     href={r.href} use:link use:tip={r.tip} draggable="false" onclick={() => opened(r)} data-key={r.key} id={rowId(r.key)}
@@ -504,6 +538,7 @@
     data-test={r.place === 'favourites' ? 'browser-fav' : r.kind === 'folder' && r.indent ? 'browser-crate' : 'browser-row'}>
     {@render inner(r, true)}
   </a>
+  {/if}
   {#if r.kind === 'folder' && r.fold}
     {@const f = r.fold}
     <button type="button" class="chev" class:open={f.open} aria-expanded={f.open}
@@ -583,7 +618,8 @@
     style:left="{live.left}px" style:top="{live.top}px" style:width="{live.width}px" aria-hidden="true"
     data-test="browser-lifted">
     {#if live.row.indent}<RowLead row={live.row} lead="folder" />{/if}
-    {@render inner(live.row, true)}
+    {@render inner(live.row, !switches(live.row))}
+    {#if switches(live.row)}<Switch on={inSync(live.row)} label={live.row.name} />{/if}
   </div>
 {/if}
 
@@ -622,6 +658,11 @@
   .row.menu-on { color: var(--text); box-shadow: inset 0 0 0 var(--bw) var(--accent-line); }
   /* a switched-off playlist: the one dim in the column, the whole row with its logo */
   .row.off { opacity: var(--dim-locked); }
+  /* Sync: a playlist row is its switch (a button, the row's look); left out of the sync, its logo and name dim (dim
+     means switched off), the switch says it at full strength */
+  .sw-row { width: 100%; border: 0; font: inherit; text-align: left; background-color: transparent; }
+  .sw-row.out:not(.off) > :global(.lead), .sw-row.out:not(.off) > .t { opacity: var(--dim-locked); }
+  .sw-row :global(.sw) { margin-left: var(--s-1); }
   /* a crate under its watched folder: no lead, its name on the names' edge (8 + 14 + 9 px) */
   .row.indent { padding-left: calc(var(--s-2) + 14px + var(--gap-nav)); }
   .lead { width: 14px; height: 14px; flex: none; display: grid; place-items: center; }

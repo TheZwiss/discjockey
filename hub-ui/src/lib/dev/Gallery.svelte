@@ -22,7 +22,7 @@
   import {
     AccountPanel, AddRow, LinkGuide, CopyCode, NumberedSteps, ChoiceGroup, OutcomeList, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
     AwayTag, Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
-    Hint, InfoTip, KeyValue, ListRow, ListLine, ListSection, MiddleText, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, tip, SummaryStrip, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
+    Hint, InfoTip, KeyValue, ListRow, ListLine, ListSection, MiddleText, MiniPlayer, NavIcon, NAV_ICONS, NoteCard, ServiceMark, LOGO_KEYS, LOGO_NAMES, tip, SummaryStrip, ShareBar, PageHeader, PathText, ProblemCard, ProgressBar, QualityBadge, QualityBar, RiskScale, Ring, SearchField,
     Segmented, SectionLabel, SelectCard, Skeleton, SortHeader, SourceLadder, Spectrum, Spinner, SplitView, StatCard, StatusMark, Surface, Switch, TextField, Tile, Toast,
     ToggleGroup, ToggleRow, TrackHead, TrackRow, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
     confirm, envelope, ImportCard, UnreadableList, WatchedFolderList,
@@ -32,7 +32,8 @@
   import Why from '../../pages/sync/plan/Why.svelte';
   import WhyMark from '../../pages/sync/plan/WhyMark.svelte';
   import KindIcon from '../../pages/sync/plan/KindIcon.svelte';
-  import { isKindKey, KINDS, type KindKey } from '../../pages/sync/planModel';
+  import { isKindKey, KINDS, KIND_SHARE, type KindKey } from '../../pages/sync/planModel';
+  import KindStrip from '../../pages/sync/plan/KindStrip.svelte';
 
   const NAV_NAMES = { dashboard: 'Dashboard', sync: 'Sync', todo: 'To-do', playlists: 'Playlists', limits: 'Download limits',
     library: 'Library', settings: 'Settings' } as const;
@@ -570,6 +571,26 @@
     </div>
   </section>
 
+  <section data-test="gallery-sharestrip">
+    {@render head('ShareStrip · ShareBar', 'The strip\'s layout for any whole (issue 36): two rows stack (Library), more stand three to a column, under 620 px they take a line of their own; ShareBar: parts in their colours, a part switched off dims')}
+    <div class="col">
+      {#each [[900, 'five kinds, wide: the rows beside the bar'], [560, 'five kinds, narrow: the rows under the share and the bar'],
+        [900, 'two kinds: Library\'s two-row form'], [900, 'a weekly check switched off: its row dims and says off, its part leaves the bar']] as [w, cap], i (i)}
+        {@const ks = i === 2 ? KIND_SHARE.filter((k) => k.key === 'new' || k.key === 'weekly') : KIND_SHARE}
+        {@const kinds = ks.map((k) => ({ ...k, n: [216, 2, 4, 6, 2][KIND_SHARE.indexOf(k)], off: i === 3 && k.key === 'retry' }))}
+        {@const total = kinds.filter((k) => !k.off).reduce((t, k) => t + k.n, 0)}
+        <div class="col tight" style="width: {w}px; max-width: 100%" data-test="g-kinds-{i}">
+          <span class="cap">{cap}</span>
+          <KindStrip {kinds} {total} line="to sync in 6 folders" />
+        </div>
+      {/each}
+      <div class="col tight" style="width: 400px" data-test="g-share-bar">
+        <span class="cap">ShareBar: nothing to show is the empty track</span>
+        <ShareBar parts={[]} />
+      </div>
+    </div>
+  </section>
+
   <section data-test="gallery-surface">
     {@render head('Surface', 'Everything on screen sits in one: card (padded), list (grouped rows), table (shell); a tone colours only the border (§7)')}
     <div class="grid3">
@@ -763,6 +784,8 @@
       {/each}
       <Surface label="This run · moves with the amount">
         <DayBar input={live} data-test="g-day-live" />
+        <span class="cap">empty: the track says why (issue 36)</span>
+        <DayBar input={{ today: 0, later: 0, limited: true, laterDays: 0 }} empty="Everything switched off" data-test="g-day-empty" />
         <Segmented label="How many" options={AMOUNTS} value={amount} onchange={(k) => (amount = k)} test="g-amount" />
       </Surface>
     </div>

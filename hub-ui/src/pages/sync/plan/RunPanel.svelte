@@ -3,11 +3,11 @@
   // card: the DayBar (today against later under the daily limit), the amount Segmented (✦ marks what fits today) and
   // the line to Download limits; with more than one service their usage as a small list of its own under the card
   // (spec §11: a list nested in the card would be a container in a container); with today's limit used up a yellow
-  // NoteCard, title only (the DayBar and Start already say what still runs). Fill = the Playlists ToggleGroup (takes
-  // the spare height, scrolls inside, search from 7);
-  // after = What to do (natural height). Both show while they have a row, also a single one: the scope is remembered,
-  // so leaving out the only kind planned (weekly checks with no retry due) still counts, and a left-out playlist or kind
-  // that is the only one planned stays switchable back on (issue 35); foot = Start sync and its console note (`start`, built by the page).
+  // NoteCard, title only (the DayBar and Start already say what still runs). After = the Weekly checks ToggleGroup:
+  // missing songs and lossy files, each its own switch, both always there while there is a plan (issue 36; issue 35's
+  // bug: a switch never goes because its kind is the only one or has no rows today). The playlists switch in the
+  // browser column now (issue 36), so the panel has no fill: the run's settings get the room, the spare height sits
+  // above the foot. Foot = Start sync and its console note (`start`, built by the page).
   // Labels and numbers, no sentences (spec §6): the old prose lines ("215 more after this run · ~4 more days…") are
   // now the DayBar's segments.
   // The import's two notes (plan library stage 4, W9) are NoteCards (up to three lines: a Hint is one line, and these
@@ -19,21 +19,25 @@
   import { Button, DayBar, Hint, ListRow, NoteCard, ProgressBar, Segmented, StatCard, Surface, ToggleGroup } from '$lib/components';
   import { Panel } from '$lib/frames';
   import type { SyncAccount } from '$lib/bridge/types';
+  import type { ToggleItem } from '$lib/components/toggleModel';
   import {
-    dayBarInput, folderItems, howManyOptions, isKindKey, kindItems, runCount, runTime, scopeGroupShown, serviceRows, type Facet, type HowMany, type Preset,
-    type RunTotals, type Scope, deferredChecksLine,
+    dayBarInput, howManyOptions, isKindKey, runCount, runTime, serviceRows, type HowMany, type Preset,
+    type RunTotals, deferredChecksLine,
   } from '../planModel';
   import KindIcon from './KindIcon.svelte';
   import WaitingAnswersNote from './WaitingAnswersNote.svelte';
 
-  let { summary, left, limit, accounts, presets, howMany, folders, kinds, scope, onhowmany, onscope, onscopeall,
+  let { summary, left, limit, accounts, presets, howMany, weekly, dayEmpty, onhowmany, onweekly, onweeklyall,
     start, waitingAnswers = 0, deferredChecks = 0 }: {
     /** left null: no daily limit (only free sources are set up) */
     summary: RunTotals; left: number | null; limit: number; accounts: SyncAccount[];
     presets: Preset[]; howMany: HowMany | 'custom';
-    folders: Facet[]; kinds: Facet[]; scope: Scope;
-    onhowmany: (h: HowMany) => void; onscope: (what: 'folders' | 'kinds', key: string) => void;
-    onscopeall: (what: 'folders' | 'kinds', keys: string[], on: boolean) => void;
+    /** the two weekly checks' switches (planModel.weeklyItems) */
+    weekly: ToggleItem[];
+    /** the day bar's words while it is empty (planModel.dayBarEmpty) */
+    dayEmpty: string;
+    onhowmany: (h: HowMany) => void; onweekly: (key: string) => void;
+    onweeklyall: (keys: string[], on: boolean) => void;
     /** Start sync and what goes with it (console note, start problem) */
     start: Snippet;
     /** songs held back until the user answers "Is this the same song?" (SyncPreview.waiting_answers) */
@@ -69,7 +73,7 @@
   </div>
   <WaitingAnswersNote n={waitingAnswers} />
   <Surface kind="card" data-test="sync-day">
-    <DayBar input={dayBarInput(summary, left)} data-test="sync-daybar" />
+    <DayBar input={dayBarInput(summary, left)} empty={dayEmpty} data-test="sync-daybar" />
     {#if overflow}
       <Hint text="{summary.waiting} ticked wait for the next sync" data-test="sync-overflow" />
     {/if}
@@ -97,21 +101,15 @@
   {/if}
 {/snippet}
 
-{#snippet fill()}
-  <ToggleGroup label="Playlists" items={folderItems(folders, scope)} grow test="sync-playlists" rowTest="sync-scope-folder"
-    onchange={(key) => onscope('folders', key)} onall={(on, keys) => onscopeall('folders', keys, on)} />
-{/snippet}
-
 {#snippet after()}
-  <ToggleGroup label="What to do" items={kindItems(kinds, scope)} search={false} test="sync-kinds" rowTest="sync-scope-kind"
-    onchange={(key) => onscope('kinds', key)} onall={(on, keys) => onscopeall('kinds', keys, on)}>
+  <ToggleGroup label="Weekly checks" items={weekly} search={false} test="sync-kinds" rowTest="sync-scope-kind"
+    onchange={(key) => onweekly(key)} onall={(on, keys) => onweeklyall(keys, on)}>
     {#snippet lead(item)}<span class="toggle-icon">{#if isKindKey(item.key)}<KindIcon kind={item.key} />{/if}</span>{/snippet}
   </ToggleGroup>
 {/snippet}
 
 <div class="run-panel" data-test="sync-panel">
-  <!-- both groups stay while they have a row, a single one too (issue 35, scopeGroupShown) -->
-  <Panel {head} fill={scopeGroupShown(folders) ? fill : undefined} after={scopeGroupShown(kinds) ? after : undefined} foot={start} />
+  <Panel {head} {after} foot={start} />
 </div>
 
 <style>

@@ -1,10 +1,11 @@
 <script lang="ts">
-  // Before the start (docs/archive/pre-public/hub-ui-pages/sync-REDESIGN.md): the plan per playlist with ticks and search on the left, "This run" on the
-  // right (how many downloads, which playlists and kinds, Start sync). While the playlists are read, a card says which
+  // Before the start (docs/archive/pre-public/hub-ui-pages/sync-REDESIGN.md; issue 36): the playlists switch in the
+  // browser column on the left (the chrome; `syncScope`), the plan in the middle under the kinds at a glance
+  // (KindStrip) with ticks and search, "This run" on the right (how many downloads, the two weekly checks, Start sync). While the playlists are read, a card says which
   // playlist; nothing to do → "Up to date" with the last sync. They are read by themselves once per app session (the
   // hub when it opens, else this page when it opens first; shouldAutoRead) and by the backend whenever playlists.txt
   // changes; otherwise only with "↻ Read playlists".
-  import { onMount, untrack } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import {
     Button, EmptyState, Hint, NoteCard, PageHeader, ProblemCard, SearchField, Skeleton, WriteButton,
   } from '$lib/components';
@@ -18,18 +19,20 @@
   import { latestOnly } from '$lib/latest';
   import { sayInBody } from '$lib/stores/shell';
   import { artistTitle, plural } from '$lib/format';
+  import { planCounts as publishedCounts, syncScope } from '$lib/stores/syncScope';
   import { PREF_LAST_SELECTION, carryTicks, keyId, picked } from './selection';
   import {
-    PREF_HOW_MANY, PREF_SCOPE, defaultHowMany, facets, inRunOrder, inScope, isDownload, matches, nextSyncSet,
-    mayWaitToday, kindOf, downloadsInScope, presetN, presetTicks, presets, readHowMany, readScope, runTotals, scopeSet, sections, shouldAutoRead, shownPreset,
+    PREF_HOW_MANY, dayBarEmpty, defaultHowMany, inRunOrder, kindShares, leftOutBody, planCounts, stripLine, weeklyItems, inScope, isDownload, matches, nextSyncSet,
+    mayWaitToday, downloadsInScope, presetN, presetTicks, presets, readHowMany, runTotals, scopeSet, sections, shouldAutoRead, shownPreset,
     NOTHING_TODAY, leftOutTitle, readBlockLine, runsNothingToday, sectionCounts, startLabel, toggleScope,
-    type HowMany, type Scope, type Section,
+    type HowMany, type Section,
   } from './planModel';
   import { keepDetail, lastSyncStats, lastSyncView, needsDetail, type LastSyncDetail } from './endModel';
   import ReadingCard from './plan/ReadingCard.svelte';
   import PlanRows from './plan/PlanRows.svelte';
   import PlanFolds from './plan/PlanFolds.svelte';
   import RunPanel from './plan/RunPanel.svelte';
+  import KindStrip from './plan/KindStrip.svelte';
   import UpToDate from './plan/UpToDate.svelte';
   import UpToDatePanel from './plan/UpToDatePanel.svelte';
 
@@ -38,7 +41,7 @@
   let loading = $state(true);
   let ticked = $state(new Set<string>());
   let known = new Set<string>();
-  let scope = $state<Scope>(readScope(getPref<object>(PREF_SCOPE, {})));
+  const scope = $derived($syncScope);
   /** a preset, or 'custom' once ticked by hand; null until the first preview gives the default */
   let howMany = $state<HowMany | 'custom' | null>(readHowMany(getPref<unknown>(PREF_HOW_MANY, null)));
   let query = $state('');
@@ -67,7 +70,13 @@
   const nextSync = $derived(nextSyncSet(ordered, ticked, scope, left));
   // some ticked download may wait while others run today (fixed while the plan is)
   const mayWait = $derived(mayWaitToday(ordered.filter(isDownload).length, left));
-  const facetLists = $derived(facets(ordered, preview?.folders ?? []));
+  const shares = $derived(kindShares(ordered, scope));
+  const weekly = $derived(weeklyItems(ordered, scope));
+  // every playlist that has rows in the plan switched off (the strip says it so, not just "everything")
+  const everyListOff = $derived(ordered.length > 0 && ordered.every((a) => scope.folders.includes(a.folder)));
+  // the column's switch tooltips: what each playlist holds for the sync, only while a plan is on screen
+  $effect(() => { publishedCounts.set(hasPlan ? planCounts(ordered, scope) : null); });
+  onDestroy(() => publishedCounts.set(null));
   const visible = $derived(scoped.filter((a) => matches(a, query)));
   const sectionList = $derived<Section[]>(sections(visible, preview?.folders ?? []).map((s) =>
     ({ ...s, ...sectionCounts(scoped.filter((a) => a.folder === s.folder), ticked, nextSync) })));
@@ -102,7 +111,7 @@
   // body says them in nearly every outcome, and a banner drawn over the skeleton would jump away when the plan comes
   $effect(() => sayInBody({ console: loading || hasPlan, readStatus: loading || (!problem && !!preview) }));
   const startTitle = $derived($hub.console_running ? 'A sync is running in the terminal. Its progress shows there.'
-    : chosen.length === 0 ? 'Nothing ticked' : nothingToday ? NOTHING_TODAY : undefined);
+    : scoped.length === 0 ? 'Everything is switched off' : chosen.length === 0 ? 'Nothing ticked' : nothingToday ? NOTHING_TODAY : undefined);
 
   function applyPreset(h: HowMany) {
     ticked = presetTicks(ordered, scope, presetN(h, total, left));
@@ -182,16 +191,20 @@
     setPref(PREF_HOW_MANY, h);
     applyPreset(h);
   }
-  function changeScope(what: 'folders' | 'kinds', key: string) {
-    scope = toggleScope(scope, what, key);
-    setPref(PREF_SCOPE, scope);
-    if (howMany !== 'custom' && howMany !== null) applyPreset(howMany);
+  // the scope changes here (the weekly checks) and in the browser column (the playlists): a preset follows it
+  let lastScope: object | null = null;
+  $effect(() => {
+    const s = scope;
+    if (s === lastScope) return;
+    lastScope = s;
+    untrack(() => { if (preview && howMany !== 'custom' && howMany !== null) applyPreset(howMany); });
+  });
+  function changeWeekly(key: string) {
+    syncScope.update((s) => toggleScope(s, 'kinds', key));
   }
-  /** All · None in a panel group: the shown rows' keys on or off at once. */
-  function changeScopeAll(what: 'folders' | 'kinds', keys: string[], on: boolean) {
-    scope = scopeSet(scope, what, keys, on);
-    setPref(PREF_SCOPE, scope);
-    if (howMany !== 'custom' && howMany !== null) applyPreset(howMany);
+  /** All · None in the Weekly checks group: both on or off at once. */
+  function changeWeeklyAll(keys: string[], on: boolean) {
+    syncScope.update((s) => scopeSet(s, 'kinds', keys, on));
   }
 
   // ---------- never download ----------
@@ -253,6 +266,7 @@
         {#if !reading}<EmptyState kind={preview.empty ?? 'up_to_date'}
           body={preview.empty === 'no_preview' && $readBlocked ? '' : undefined} />{/if}
       {:else}
+        <KindStrip kinds={shares.kinds} total={shares.total} line={stripLine(shares.total, shares.playlists, everyListOff)} />
         <div class="search">
           <SearchField bind:value={query} placeholder="Find an artist or title…" shortcut="cmd+f" />
         </div>
@@ -274,7 +288,7 @@
             <!-- a NoteCard, not a Hint: the controls it explains sit in the other column, and a Hint goes directly
                  under its own control (design language §2 "everything sits in a container", §5 Text; issue 7) -->
             <NoteCard title={leftOutTitle(hidden, scoped.length)} data-test="sync-hidden">
-              Playlists or kinds you turned off on the right.</NoteCard>
+              {leftOutBody(scope)}</NoteCard>
           {/if}
         </div>
         <PlanFolds {preview} busy={neverBusy} blocked={neverBlocked} onagain={again} />
@@ -296,9 +310,9 @@
   {#if hasPlan}
     <RunPanel summary={totals} left={limitLeft === null ? null : left} {limit} presets={presetList}
       accounts={preview?.estimate?.accounts ?? []}
-      howMany={shownPreset(howMany ?? 'custom', presetList, total, left)} folders={facetLists.folders}
-      kinds={facetLists.kinds} {scope} onhowmany={pickHowMany} onscope={changeScope}
-      onscopeall={changeScopeAll} start={startArea} waitingAnswers={preview?.waiting_answers ?? 0}
+      howMany={shownPreset(howMany ?? 'custom', presetList, total, left)} {weekly}
+      dayEmpty={dayBarEmpty(scoped.length, chosen.length)} onhowmany={pickHowMany} onweekly={changeWeekly}
+      onweeklyall={changeWeeklyAll} start={startArea} waitingAnswers={preview?.waiting_answers ?? 0}
       deferredChecks={preview?.deferred_checks ?? 0} />
   {:else if upToDatePanel}
     <UpToDatePanel last={lastRun ?? null} view={lastView} todo={$hub.sidebar?.todo ?? null} {upgrades} />

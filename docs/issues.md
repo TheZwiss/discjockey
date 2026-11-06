@@ -3,20 +3,6 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
-## 36. Sync page redesign: the Library layout (user, 2026-11-06; no mockup first, ships in 1.2.0)
-
-The user's design, given as a first idea (the designer may refine it within the design language; the user's wishes
-stay):
-
-- **Left:** the Library page's rail copied 1:1 (the main sidebar collapses into the icon strip, the rail with its
-  playlists and folders takes its place, with their service logos). Where a playlist's track count stands, a switch
-  turns that playlist on or off for the sync. Replaces the Playlists panel on the right (and issue 35's logo wish).
-- **Top of the list:** the same design as the "Library health" card on top of the Library page, used to show what
-  share of the outstanding list is a download, a weekly check of a missing song (not found last time), a weekly check
-  for an upgrade of a lossy file, a file gone, a bought file.
-- **Right panel:** the run's settings get the room: tracks and run time, today's limit, and two separate switches,
-  weekly checks of missing songs and weekly checks of lossy files; the Start button stays.
-
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them — needs a design round (user, 2026-10-31)
 
 Audit 2026-11-05: parked, nothing of it is built (no AIFF conversion of imported files, no rekordbox repoint; the New

@@ -59,11 +59,16 @@ right). Chrome joins this frame; it never floats over the page or reserves a str
   the glyph column (18–32 px from the window's edge) and every row (30 px, 2 px apart) stay put, so no icon moves; the
   selected pill becomes a 30 × 30 square. The pages' icons are drawn (`NavIcon`), the only label in the rail, named
   by a `Tip`. Library remembers its form (rail by default), all other pages share one (full by default); ⌃⌘S folds.
-  In Library the frame also holds the **browser column** (the collections and their filter; 200–360 px, 240 by
+  In Library and Sync (issue 36) the frame also holds the **browser column** (the collections and their filter; 200–360 px, 240 by
   default: `--browser-w-min` / `-default` / `-max`), in the same material. `--sidebar-w` is the chrome's whole width
   (the form, plus 1 + the browser's width while it stands), so the page's edge, the foot's line and its seek area
   follow it. **One more line inside the chrome:** the sidebar's right edge while the browser stands beside it, the
   same hairline as the page's edge, so the icon column and the collections read as two levels, pages | collections.
+  Library and Sync are one place for the chrome (`placeOf`): they share the form, and the column stays put between
+  them. On Sync the column is the same, row for row, with one change: a playlist's count gives its place to a switch
+  that puts it in or out of the sync (the whole row is the switch, its tooltip says what it holds for the sync; while
+  a sync runs the switches hold); every other row opens Library at its collection, as the full sidebar's favourites
+  do, and while filtering every row is a link.
   Below 1240 px (`--panel-narrow-below`) Library holds the browser or the details beside the list, not both: an open
   inspector steps the browser back behind the rail, and ⌘K or ♫ brings it back and closes the details.
 - **The fold button and the rail's signals.** The fold button (the macOS sidebar symbol, a Tip "Hide sidebar ⌃⌘S" /
@@ -143,7 +148,7 @@ right). Chrome joins this frame; it never floats over the page or reserves a str
 | Do | Don't |
 |---|---|
 | ![Sync at 1100 × 700 with many playlists](hub-design-language/do-panel-at-1100.png) | No old shot is left. The break was a panel whose button scrolled out of view at 1100 × 700; the checker now fails it (`clipped`). |
-| Sync at 1100 × 700, 17 playlists: Playlists scrolls inside with a peek, What to do follows, Start sync stays in view. | |
+| Sync at 1100 × 700, 17 playlists, before issue 36 (the playlists have since moved to the browser column): Playlists scrolled inside with a peek, What to do followed, Start sync stayed in view. | |
 
 ### Rule: optional columns by container query, never horizontal scroll
 Optional columns appear through `@container` on the list, never window media queries (Sync's why column from 680 px
@@ -234,6 +239,10 @@ verdict, the 14-day bars and a service's status. No other colours. A read in pro
 **An outcome in a decision** (`OutcomeList`, inside a `ChoiceGroup` or a card that states a consequence) has its own
 three: green ✓ = kept (stays as it was, or fits), yellow ⓘ = needs a step from you, red ✕ = something is lost; a file's
 destination is grey with a folder glyph. The glyph carries the meaning too, so the line reads without the colour.
+**Kinds of work** (issue 36): Sync's `KindStrip` alone shows the plan's kinds in five colours of their own
+(`--kind-*`), two families away from every other job: the downloads blue (new, file gone), the weekly checks teal
+(missing songs, lossy files), bought files neutral. Only in that strip's `ShareBar` and its rows' icons; the plan
+rows' kind icons stay in text colour.
 **The one exception:** a service's logo (`ServiceMark`) keeps its own colours. It is an image that names a service,
 not a signal, so it never stands for quality, action or risk (plan library stage 5 D7, the user's wish).
 
@@ -394,8 +403,10 @@ used.
 | `ToggleGroup`, `ToggleRow` | `lib/components/` | `gallery-toggles` | On/off rows; `grow` inside a Panel `fill` (one per Panel); search from `SEARCH_FROM` rows (the query clears below it); `disabledReason`: each row's tooltip and a Hint in the head in place of All · None (gallery "Locked"). `placeholder`: the search's words when the label alone doesn't say what is searched; `allMax`: All is off while more rows than this show (a list whose whole would flood where it switches things on asks for a search first; None stays). A `ToggleItem` may carry `tip` (the row's tooltip) and `find` (more words the search finds it by, e.g. a crate's parent folders). A `ToggleRow` alone in a `Surface kind="list"` is a single setting; its `sub` is a wrapping, balanced second line (the setting's detail, or why it is locked; Playlists' "Rename the folder on disk too"); `action` puts a link under the text, outside the row's button, as a locked row's way out beside its reason (Settings' YouTube Music: "Go to YouTube sign-in" under "Sign in to YouTube first"; gallery `g-toggle-action`). |
 | `Segmented` | `lib/components/Segmented.svelte` | `gallery-segmented` | One of up to 6; counts, dots (none at a count of 0), More, tight mode. |
 | `StatCard` | `lib/components/StatCard.svelte` | `gallery-statcard` | 30 px number + unit + label; a bar or ring as its child; `value={null}` is "—", also its loading state; `wrap`: a label that is a sentence (the cutoff's "a lossy file inside the AIFF") takes a second line whole instead of ending in "…". |
-| `SummaryStrip` | `lib/components/SummaryStrip.svelte` (+ `summaryStripModel.ts`) | `gallery-summarystrip` | A collection at a glance along the page, 72 px, between the header and the filter segments (Library, in place of the panel's summary card): the lossless share in StatCard's type ("63 % lossless" over "290 of 460 checked tracks") · the `QualityBar` (no legend: the segments below carry the dots and counts) · two rows, "Upgrade ready {n}" (the lossless dot) and "Not lossless yet · {all / m / none} in To-do {n}" (a 14 px pill of the good-lossy, weak and fake colours in proportion: the group is mixed, so no single quality's dot), each a link with › only while it leads somewhere (`onupgrades`, `ontodo`); fewer in To-do than not lossless explains itself in a `Tip` under the row (a row that is no link then takes focus for it). Rows highlight, never shrink; without a share the number is a dash with no unit and the line names it ("lossless · none checked yet"); `summary={null}` waits with dashes at the same height. Words in `stripView`. `songs` (a read playlist's `{listed, with_file}`) adds "· 13 of 18 downloaded" to the line ("9 of 13 checked · 13 of 18 downloaded": the playlist's count lives here, not in the header, so it is never the part that drops) and passes the songs without a file to its `QualityBar` as `waiting` (the dashed end, gallery `g-strip-waiting`); a view that is no read playlist passes none and the line stays "… checked tracks". |
-| `DayBar` | `lib/components/DayBar.svelte` | `gallery-daybar` | Today vs later; no limit; limit reached. Day mode (`input.day`, Dashboard): used today (filled, quiet) · this sync · left (outline) or later. Input from `dayBar` (`dayBarModel.ts`). |
+| `SummaryStrip` | `lib/components/SummaryStrip.svelte` (+ `summaryStripModel.ts`) | `gallery-summarystrip` | `ShareStrip` with Library's words: a collection at a glance along the page, 72 px, between the header and the filter segments (Library, in place of the panel's summary card): the lossless share in StatCard's type ("63 % lossless" over "290 of 460 checked tracks") · the `QualityBar` (no legend: the segments below carry the dots and counts) · two rows, "Upgrade ready {n}" (the lossless dot) and "Not lossless yet · {all / m / none} in To-do {n}" (a 14 px pill of the good-lossy, weak and fake colours in proportion: the group is mixed, so no single quality's dot), each a link with › only while it leads somewhere (`onupgrades`, `ontodo`); fewer in To-do than not lossless explains itself in a `Tip` under the row (a row that is no link then takes focus for it). Rows highlight, never shrink; without a share the number is a dash with no unit and the line names it ("lossless · none checked yet"); `summary={null}` waits with dashes at the same height. Words in `stripView`. `songs` (a read playlist's `{listed, with_file}`) adds "· 13 of 18 downloaded" to the line ("9 of 13 checked · 13 of 18 downloaded": the playlist's count lives here, not in the header, so it is never the part that drops) and passes the songs without a file to its `QualityBar` as `waiting` (the dashed end, gallery `g-strip-waiting`); a view that is no read playlist passes none and the line stays "… checked tracks". |
+| `ShareStrip` | `lib/components/ShareStrip.svelte` | `gallery-sharestrip` | The strip's layout for any whole (issue 36): a stat (StatCard's type, a unit, a line under it) · a bar (snippet) · rows of mark, words, a quiet part and a count (`ShareRow`: a link with › when it has `onclick`, a `tip`, `off` dims it). Up to two rows stack in a 300 px column (`SummaryStrip`); more stand three to a column, columns side by side, and under 620 px of strip (a container query) they take a line of their own under the stat and the bar. `mark` draws a row's mark from the row. |
+| `ShareBar` | `lib/components/ShareBar.svelte` | `gallery-sharestrip` | A whole in its parts, 6 px (QualityBar's shape): each part as wide as its share in its own colour token, a part switched off dims; nothing to show is the empty track. One image for a screen reader. |
+| `DayBar` | `lib/components/DayBar.svelte` | `gallery-daybar` | Today vs later; no limit; limit reached; empty, the track says why in label grey (`empty`, default "Nothing ticked"). Day mode (`input.day`, Dashboard): used today (filled, quiet) · this sync · left (outline) or later. Input from `dayBar` (`dayBarModel.ts`). |
 | `DeltaBar` | `lib/components/DeltaBar.svelte` | `gallery-deltabar` | A signed change either side of a centre line, `--w-row-action` wide: a gain grows right in the accent, a loss left in grey; every row of a list passes the same `max`, so lengths compare. The number sits beside it (the caller's). Playlists' move view. |
 | `SelectCard` | `lib/components/SelectCard.svelte` | `gallery-selectcard` | One of a few things to pick, as a card that shows its state where you click (`title`, children: usage bar, status); picked = accent edge, `off` = dashed; a row of them is a tablist, ← / →. |
 | `RiskScale` | `lib/components/RiskScale.svelte` | `gallery-riskscale` | A number on five equal risk steps in the risk colours; handle 1:1 with the pointer (no transition), `saved` as a tick, keys ← → / Page / Home / End. |
@@ -526,19 +537,23 @@ Sync is built on the system in every state. When unsure how something should loo
 
 | State | Frame | Shots (`hub-ui/screenshots/`) |
 |---|---|---|
-| Before the start | `ListPanelFrame` (`pages/sync/BeforeStart.svelte`, `plan/RunPanel.svelte`) | `sync-before`, `sync-many`, `sync-long-plan-all`, `sync-limit-reached`, `sync-no-qobuz`, `sync-qobuz-backup` |
+| Before the start | `ListPanelFrame` (`pages/sync/BeforeStart.svelte`, `plan/KindStrip.svelte`, `plan/RunPanel.svelte`), the browser column's switches | `sync-before`, `sync-many`, `sync-many-all-off`, `sync-weekly-only-off`, `sync-scope`, `sync-long-plan-all`, `sync-limit-reached`, `sync-no-qobuz`, `sync-qobuz-backup` |
 | Reading Spotify, offline, console | same | `sync-reading`, `sync-rereading`, `sync-before-offline`, `sync-before-login-expired`, `sync-before-console` |
 | Up to date | same (`plan/UpToDate.svelte`, `plan/UpToDatePanel.svelte`) | `sync-before-up-to-date`, `sync-before-up-to-date-wait` (`sync-last-wait` on the waiting StatCard), `sync-before-up-to-date-console` |
 | Running, pause, stopping | `ColumnFrame` (`LiveView.svelte`) | `sync-downloading`, `sync-pause`, `sync-break`, `sync-stopping`, `sync-stop-refused` |
 | End, failed, crashed | `ColumnFrame` (`EndScreen.svelte`) | `sync-end`, `sync-end-stopped`, `sync-failed-login-expired`, `sync-crashed` |
 
 Each shot exists at `@1100`, `@1280` and `@2560`. Worth copying:
+- The left: the browser column, each playlist's switch in its count's place (issue 36).
+- The top of the plan: `KindStrip` (`ShareStrip` + `ShareBar`): the tracks to sync, the share of each kind, a row per
+  kind with its icon in the kind's colour; a weekly check switched off keeps its row, dimmed, "off".
 - The panel: count and run time `StatCard`s, the day card (`DayBar`, amount `Segmented`, one line with a link), then
-  Playlists as a `grow` `ToggleGroup` in `fill`, What to do in `after`, Start sync (`filled`, `wide`) in `foot`.
+  Weekly checks (missing songs, lossy files) as a `ToggleGroup` in `after`, Start sync (`filled`, `wide`) in `foot`;
+  no `fill`, the spare height sits above the foot.
 - The plan: one `Surface list` per playlist (`foldable`, `sticky`, `bulk`), rows on `ListRow`, every row's kind icon
   (`WhyMark`), the why column in words only where a section can fill it.
-- The panel's Playlists and What to do stay while they have a row, a single one too (`scopeGroupShown`): the scope is
-  remembered, so one row is still a choice (`sync-weekly-only`, `sync-weekly-only-off`).
+- Both weekly checks' switches are always there while there is a plan (`weeklyItems`): the scope is remembered, so a
+  switch never goes because its kind is the only one or has no rows today (`sync-weekly-only`, `sync-weekly-only-off`).
 - The end screen: three `StatCard`s (added across with the quality bar, then moved · need you), the rest as
   `Surface list`s; Done is the one filled button.
 
@@ -594,6 +609,18 @@ width is not a fix.
 Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-design-system-design.md`). Search it
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
+
+- **2026-11-06 · Sync on Library's layout: the browser column with switches, `ShareStrip` / `ShareBar`, the kinds'
+  colours, two weekly switches (issue 36, the user's design, no mockup).** What: Sync stands with Library in the
+  chrome (`placeOf`), its playlists switch in the browser column where their counts stood (the Playlists panel goes);
+  SummaryStrip's layout becomes `ShareStrip` (Library unchanged), with `ShareBar` for a whole that isn't qualities;
+  Sync's `KindStrip` on top of the plan; the panel keeps the run's settings and two switches, missing songs and lossy
+  files (What to do goes: new songs, files gone and bought files are left out with the plan's ticks; a remembered
+  left-out kind of those three is dropped on read, so nothing stays out unseen); `DayBar` says why it is empty; the
+  colour rule gains the kinds' palette (`--kind-*`). Why: the user could not see where a playlist comes from (the
+  column has the services' logos) nor what share of the work is new downloads against weekly checks; grey parts
+  could not tell five kinds apart (amend the rule, don't go grey), and blue and teal are no other job's colour.
+  Seen: `sync-before`, `sync-many`, `sync-many-all-off`, `sync-downloading`, gallery `gallery-sharestrip`.
 
 - **2026-11-06 · Sync: every plan row shows its kind's icon; the weekly check is a clock; a scope group of one row
   stays (issue 35).** What: `WhyMark` (Sync's kind mark) shows `KindIcon` on every row at every width, a plain new

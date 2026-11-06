@@ -64,6 +64,11 @@
   --q-fake: #c49bff;      --q-fake-bar: #a77ff0;      --q-fake-line: rgba(196, 155, 255, .45);
   --q-other: #9a9aa0;     --q-other-bar: #45454b;     --q-other-line: rgba(154, 154, 160, .4);
   /* "missing" uses the weak (red) set; "upgrade ready ↑" uses the accent set */
+  /* the kinds of work in Sync's plan (issue 36), only in its KindStrip (ShareBar parts, the rows' dots): two families
+     away from every other job's colour, the downloads blue, the weekly checks teal, the darker shade the first kind of
+     each; bought files, which download nothing, neutral */
+  --kind-new: #4f8dff;    --kind-gone: #9dbfff;   --kind-retry: #1fb5a6;   --kind-weekly: #8adbd1;
+  --kind-bought: #7c7c84;
   /* risk (Download limits only): the same three colours with a second, separate job: how safe a pace is.
      Used only on the RiskScale, the verdict, the 14-day bars and a service's status (design language §2) */
   --risk-safe: var(--q-lossless);   --risk-safe-line: var(--q-lossless-line);

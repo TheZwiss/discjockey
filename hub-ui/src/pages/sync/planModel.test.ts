@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { ActionKey, EstimateAccount, PlaylistService, PreviewAction, SyncAccount, SyncPreview } from '$lib/bridge/types';
 import {
-  FULL_SCOPE, type Scope, dayBarInput, defaultHowMany, downloadsInScope, inScope, facets, folderItems, folderLabel, foldText, howManyOptions, inRunOrder, isKindKey, kindItems,
+  FULL_SCOPE, type Scope, dayBarInput, defaultHowMany, downloadsInScope, inScope, folderLabel, foldText, howManyOptions, inRunOrder, isKindKey, kindShares, weeklyItems, planCounts, playlistSwitchTip, dayBarEmpty, leftOutBody, stripLine,
   kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount,
   minutesFor, runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
-  readBlockLine, leftOutTitle, scopeGroupShown, startLabel, tagOf, whyOf, KINDS, toggleScope, waitsWhole, whyColumn,
+  readBlockLine, leftOutTitle, startLabel, tagOf, whyOf, toggleScope, waitsWhole, whyColumn,
   WAITING_ANSWERS_HREF, deferredChecksLine, waitingAnswersLine,
 } from './planModel';
 
@@ -57,35 +57,68 @@ describe('kinds and tags', () => {
   });
 });
 
-describe("the panel's scope groups (issue 35)", () => {
-  it('stay while a single playlist or kind is planned, so it can still be left out or switched back on', () => {
-    const weeklyOnly = facets([act('upgrade', 'a', 'X'), act('upgrade', 'b', 'X')], ['X']);
-    expect(weeklyOnly.kinds.map((k) => k.key)).toEqual(['weekly']);
-    expect(scopeGroupShown(weeklyOnly.kinds)).toBe(true);
-    expect(scopeGroupShown(weeklyOnly.folders)).toBe(true);
-    // left out earlier and now the only kind planned: still listed, switched off, so it can come back
-    expect(kindItems(weeklyOnly.kinds, { folders: [], kinds: ['weekly'] })).toEqual(
-      [{ key: 'weekly', label: KINDS.find((k) => k.key === 'weekly')!.label, count: 2, on: false }]);
+describe("the weekly checks' switches (issues 35, 36)", () => {
+  const plan = [act('upgrade', 'a', 'X'), act('upgrade', 'b', 'Y')];
+  it('are both always there, also with no rows of their kind or switched off', () => {
+    expect(weeklyItems(plan, { folders: [], kinds: ['weekly'] })).toEqual([
+      { key: 'retry', label: 'Missing songs', count: 0, on: true },
+      { key: 'weekly', label: 'Lossy files', count: 2, on: false }]);
+    expect(weeklyItems([], { folders: [], kinds: [] }).map((i) => i.key)).toEqual(['retry', 'weekly']);
+  });
+  it('count only the playlists switched on', () => {
+    expect(weeklyItems(plan, { folders: ['Y'], kinds: [] })[1].count).toBe(1);
   });
   it('say "more" in the left-out note only when rows stand above it', () => {
     expect(leftOutTitle(4, 0)).toBe('4 tracks left out');
     expect(leftOutTitle(1, 0)).toBe('1 track left out');
     expect(leftOutTitle(4, 12)).toBe('4 more tracks left out');
   });
-  it('go only when nothing is planned', () => {
-    expect(scopeGroupShown(facets([], []).kinds)).toBe(false);
-    expect(scopeGroupShown(facets([], []).folders)).toBe(false);
+  it('point the left-out note at the switches that did it', () => {
+    expect(leftOutBody({ folders: ['A'], kinds: [] })).toBe('Playlists you switched off on the left.');
+    expect(leftOutBody({ folders: [], kinds: ['retry'] })).toBe('Weekly checks you switched off on the right.');
+    expect(leftOutBody({ folders: ['A'], kinds: ['retry'] })).toMatch(/on the left and .* on the right/);
   });
 });
 
-describe('scope and facets', () => {
+describe('the kinds at a glance (issue 36)', () => {
+  const all = [act('acquire', 'a', 'A'), act('acquire', 'b', 'A', { reason: 'retry' }), act('upgrade', 'c', 'B'),
+    act('adopt_bought', 'd', 'B'), act('acquire', 'e', 'B', { reason: 'redownload' })];
+  it('lists the kinds the plan has, downloads first, with their counts in the playlists switched on', () => {
+    const k = kindShares(all, { folders: ['B'], kinds: [] });
+    expect(k.kinds.map((x) => [x.key, x.n])).toEqual([['new', 1], ['redownload', 0], ['retry', 1], ['weekly', 0], ['bought', 0]]);
+    expect(k.total).toBe(2);
+    expect(k.playlists).toBe(1);
+  });
+  it('keeps a weekly check switched off in the list, marked off, out of the total', () => {
+    const k = kindShares(all, { folders: [], kinds: ['weekly'] });
+    expect(k.kinds.find((x) => x.key === 'weekly')).toMatchObject({ n: 1, off: true });
+    expect(k.total).toBe(4);
+  });
+  it('words the line under the count', () => {
+    expect(stripLine(12, 3, false)).toBe('to sync in 3 folders');
+    expect(stripLine(0, 0, false)).toBe('everything switched off');
+    expect(stripLine(0, 0, true)).toBe('every playlist switched off');
+  });
+  it('counts a playlist without the weekly checks switched off (the old panel counted them)', () => {
+    expect(planCounts(all, { folders: [], kinds: ['weekly', 'retry'] })).toEqual({ A: 1, B: 2 });
+  });
+  it('says what a playlist switch does', () => {
+    expect(playlistSwitchTip('Techno', { enabled: true, on: true, n: 3, running: false })).toBe('Techno · 3 tracks to sync');
+    expect(playlistSwitchTip('Techno', { enabled: true, on: true, n: 0, running: false })).toBe('Techno · nothing to sync');
+    expect(playlistSwitchTip('Techno', { enabled: true, on: false, n: 3, running: false })).toBe('Techno · left out of the sync');
+    expect(playlistSwitchTip('Techno', { enabled: false, on: true, n: null, running: false })).toMatch(/Playlists page/);
+    expect(playlistSwitchTip('Techno', { enabled: true, on: true, n: null, running: true })).toMatch(/once the sync ends/);
+  });
+  it('words an empty day bar', () => {
+    expect(dayBarEmpty(0, 0)).toBe('Everything switched off');
+    expect(dayBarEmpty(4, 0)).toBe('Nothing ticked');
+    expect(dayBarEmpty(4, 2)).toBe('No downloads');
+  });
+});
+
+describe('scope and sections', () => {
   const all = [act('acquire', 'a', 'Ohne'), act('acquire', 'b', 'Voller'), act('adopt_bought', 'c', 'Voller'),
     act('upgrade', 'd', 'Voller'), act('acquire', 'e', 'Elsewhere')];
-  it('counts per playlist in playlists.txt order, then the rest, and only kinds that are there', () => {
-    const f = facets(all, ['Voller', 'Ohne', 'Empty']);
-    expect(f.folders.map((x) => [x.key, x.count])).toEqual([['Voller', 3], ['Ohne', 1], ['Elsewhere', 1]]);
-    expect(f.kinds.map((x) => [x.key, x.count])).toEqual([['new', 3], ['bought', 1], ['weekly', 1]]);
-  });
   it('toggles a folder or kind in and out', () => {
     const s = toggleScope(toggleScope(FULL_SCOPE, 'folders', 'Ohne'), 'kinds', 'weekly');
     expect(s).toEqual({ folders: ['Ohne'], kinds: ['weekly'] });
@@ -93,7 +126,8 @@ describe('scope and facets', () => {
   });
   it('reads a stored scope safely', () => {
     expect(readScope(null)).toEqual(FULL_SCOPE);
-    expect(readScope({ folders: ['A', 3], kinds: ['new', 'bogus'] })).toEqual({ folders: ['A'], kinds: ['new'] });
+    // only the weekly checks switch as kinds now (issue 36): an older left-out kind is dropped, never kept unseen
+    expect(readScope({ folders: ['A', 3], kinds: ['new', 'bogus', 'retry'] })).toEqual({ folders: ['A'], kinds: ['retry'] });
   });
   it('sections follow playlists.txt and keep the given order inside', () => {
     expect(sections(all, ['Voller', 'Ohne']).map((s) => [s.folder, s.rows.map((r) => r.track_id)]))
@@ -282,24 +316,12 @@ describe('folder names', () => {
     expect(folderLabel('  ')).toBe('Your own music');
     expect(folderLabel('Techno')).toBe('Techno');
   });
-  it('labels an action that came without a folder', () => {
-    const action = { key: ['upgrade', 't', 'Library/'], kind: 'upgrade', reason: 'weekly', track_id: 't', artist: 'A', title: 'T',
-      folder: '', to_dir: 'Library/', to_not_lossless: false, src: null, cover_url: null } as PreviewAction;
-    expect(facets([action], []).folders).toEqual([{ key: '', label: 'Your own music', count: 1 }]);
-  });
 });
 
 describe('panel models', () => {
   const t = { tracks: 69, downloads: 66, uses: 66, minutes: 75, waiting: 0, after: 36, days: 1 };
   it('feeds the day bar', () => expect(dayBarInput(t, 66)).toEqual({ today: 66, later: 36, limited: true, laterDays: 1 }));
   it('has no later without a limit', () => expect(dayBarInput({ ...t, after: 0 }, null)).toMatchObject({ limited: false, later: 0 }));
-  it('marks unticked playlists off', () => {
-    expect(folderItems([{ key: 'A', label: 'A', count: 3 }, { key: 'B', label: 'B', count: 1 }], { folders: ['B'], kinds: [] }))
-      .toEqual([{ key: 'A', label: 'A', count: 3, on: true }, { key: 'B', label: 'B', count: 1, on: false }]);
-  });
-  it('marks unticked kinds off', () => {
-    expect(kindItems([{ key: 'bought', label: 'Bought files', count: 2 }], { folders: [], kinds: ['bought'] })[0].on).toBe(false);
-  });
   it('labels Start by tracks', () => expect(startLabel(69, 66, 66)).toBe('Start sync · 69 tracks'));
   it('labels Start by what still runs when no download fits today', () => expect(startLabel(80, 77, 0)).toBe('Start sync · 3 tracks'));
   it('says just Start sync when nothing is ticked', () => expect(startLabel(0, 0, 0)).toBe('Start sync'));
