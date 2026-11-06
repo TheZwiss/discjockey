@@ -10,7 +10,10 @@
   import KindIcon from './KindIcon.svelte';
 
   let { kinds, total, line }: { kinds: KindShare[]; total: number; line: string } = $props();
-  const parts = $derived(kinds.map((k) => ({ key: k.key, n: k.off ? 0 : k.n, colour: k.colour, label: k.label.toLowerCase(), off: k.off })));
+  // The bar shows what the sync would do: a kind switched off leaves it, and with nothing to sync (`total` 0: every
+  // playlist off, nothing ticked, a limit of 0) it is the empty track, never a kind's colour (a kind colour in an
+  // empty bar reads as a share of that kind). The rows keep their counts.
+  const parts = $derived(kinds.map((k) => ({ key: k.key, n: total && !k.off ? k.n : 0, colour: k.colour, label: k.label.toLowerCase(), off: k.off })));
   const rows = $derived<ShareRow[]>(kinds.map((k) => ({
     key: k.key, words: k.label, quiet: k.off ? 'off' : null, count: count(k.n), test: 'strip-kind', tip: k.tip,
     off: k.off })));
