@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import datetime
 
@@ -230,12 +231,15 @@ def crash_in(monkeypatch, name, half=False):
     return real
 
 
-def crash_and_reload(fake, monkeypatch, name, half=False):
+def crash_and_reload(fake, monkeypatch, name, half=False, earlier=False):
+    """`earlier`: the pending row as a version before issue 25 wrote it (through the snapshot: no op_id)."""
     paths, state = fake
     real = crash_in(monkeypatch, name, half)
     with pytest.raises(Crash):
         swap(paths, state)
     monkeypatch.setattr(upgrades, name, real)
+    if earlier:
+        as_earlier_rows(paths)
     on_disk = load_state(paths)
     assert on_disk["pending"] and on_disk["pending"][0]["kind"] == "swap"
     return paths, on_disk
@@ -247,12 +251,14 @@ def assert_swapped(paths, state, inode):
     assert state["tracks"][TID]["status"] == "lossless" and state["tracks"][TID]["path"] == ROOT_NAME
     assert state["pending"] == [] and not (paths.root / PARKED).exists()
     assert records(load_state(paths)) == records(state)
+    save_state(paths, state)  # the caller's snapshot is current: it goes on saving it
 
 
 def assert_unchanged(paths, state, inode):
     assert (paths.root / CURRENT).read_bytes() == OLD and os.stat(paths.root / CURRENT).st_ino == inode
     assert state["tracks"][TID]["status"] == "not_lossless" and state["tracks"][TID]["upgrade"]
     assert state["pending"] == [] and (paths.root / PARKED).exists()
+    assert records(load_state(paths)) == records(state)
 
 
 def test_crash_after_recording_the_step_starts_again_from_the_backup(fake, monkeypatch):
@@ -373,9 +379,10 @@ def test_a_failed_backup_changes_nothing(fake, monkeypatch):
     assert not (paths.root / "Superseded").exists() and not (paths.tmp / TID).exists()
 
 
-def test_crash_then_foreign_file_at_the_backup_name_backs_up_under_another_name(fake, monkeypatch):
+@pytest.mark.parametrize("earlier", [False, True], ids=["journal", "earlier row"])
+def test_crash_then_foreign_file_at_the_backup_name_backs_up_under_another_name(fake, monkeypatch, earlier):
     inode = os.stat(fake[0].root / CURRENT).st_ino
-    paths, state = crash_and_reload(fake, monkeypatch, "_back_up")
+    paths, state = crash_and_reload(fake, monkeypatch, "_back_up", earlier=earlier)
     (paths.root / BACKUP).parent.mkdir(parents=True)
     (paths.root / BACKUP).write_bytes(FOREIGN)
     [(message, ok)] = recover_pending(paths, state)
@@ -384,6 +391,7 @@ def test_crash_then_foreign_file_at_the_backup_name_backs_up_under_another_name(
     assert (paths.root / "Superseded/A/Artist - Song (lossy) [t1aaaa].aiff").read_bytes() == OLD
     assert (paths.root / ROOT_NAME).read_bytes() == NEW and os.stat(paths.root / ROOT_NAME).st_ino == inode
     assert state["pending"] == [] and state["tracks"][TID]["status"] == "lossless"
+    assert records(load_state(paths)) == records(state)
 
 
 def test_file_changed_before_the_backup_is_left_alone(fake, monkeypatch):
@@ -465,3 +473,117 @@ def test_the_swap_backup_of_an_own_song_in_an_import_folder_mirrors_its_watched_
     upgrades.swap(paths, state, "local:1", dict(own["upgrade"]))
     assert (paths.root / "Superseded/Music/Sub/x (lossy).aiff").read_bytes() == old_bytes  # spec §7, §10.5
     assert state["tracks"]["local:1"]["path"] == current  # swapped in place
+
+
+# --- the journal in library.db (issue 25): what each power cut leaves, and rows an earlier version wrote ---
+
+def stored_ops(paths):
+    with db.connect(paths.db_file) as conn:
+        return db.pending_ops(conn)
+
+
+def as_earlier_rows(paths):
+    """The pending rows as a version before issue 25 wrote them through the snapshot: without an op_id."""
+    with db.connect(paths.db_file) as conn, db.transaction(conn):
+        for i, op in conn.execute("SELECT id, op FROM pending").fetchall():
+            o = json.loads(op)
+            o.pop("op_id", None)
+            conn.execute("UPDATE pending SET op = ? WHERE id = ?",
+                         (json.dumps(o, ensure_ascii=False, sort_keys=True, separators=(",", ":")), i))
+
+
+@pytest.mark.parametrize("crash_at,half,backed_up", [
+    ("_back_up", False, None),  # before the backup: Discjockey has not written to the file
+    ("_write_in_place", False, True),  # after the backup, its mark stored
+    ("_write_in_place", True, True),  # half of the new audio written
+    ("_finish", False, True),  # the new audio in place
+], ids=["before the backup", "after the backup", "half written", "new file in place"])
+def test_each_power_cut_leaves_the_swap_journaled_with_its_backed_up_mark(fake, monkeypatch, crash_at, half,
+                                                                           backed_up):
+    paths, state = crash_and_reload(fake, monkeypatch, crash_at, half)
+    [op] = stored_ops(paths)
+    assert op["kind"] == "swap" and op.get("backed_up") is backed_up and op["target"] == CURRENT
+    assert state["pending"] == [op] and state["tracks"][TID]["path"] == CURRENT  # the entry is not written yet
+
+
+def test_a_power_cut_between_the_backup_and_its_mark_finishes_at_the_next_start(fake, monkeypatch):
+    """The backup is in Superseded/ but its mark never reached the drive: the file is still the old one."""
+    inode = os.stat(fake[0].root / CURRENT).st_ino
+    paths, _ = crash_and_reload(fake, monkeypatch, "_write_in_place")
+    with db.connect(paths.db_file) as conn, db.transaction(conn):
+        conn.execute("UPDATE pending SET op = json_remove(op, '$.backed_up')")
+    state = load_state(paths)
+    assert "backed_up" not in state["pending"][0]
+    [(message, ok)] = recover_pending(paths, state)
+    assert ok and "Finished" in message
+    assert_swapped(paths, state, inode)
+
+
+@pytest.mark.parametrize("crash_at,half", [("_back_up", False), ("_write_in_place", False), ("_write_in_place", True),
+                                           ("_finish", False), ("_hold", False)])
+def test_a_swap_an_earlier_version_journaled_is_finished_at_the_next_start(fake, monkeypatch, crash_at, half):
+    inode = os.stat(fake[0].root / CURRENT).st_ino
+    paths, state = crash_and_reload(fake, monkeypatch, crash_at, half, earlier=True)
+    assert "op_id" not in state["pending"][0]
+    [(message, ok)] = recover_pending(paths, state)
+    assert ok and "Finished" in message
+    assert_swapped(paths, state, inode)
+
+
+@pytest.mark.parametrize("earlier", [False, True], ids=["journal", "earlier row"])
+def test_a_swap_that_needs_help_at_the_next_start_stays_journaled(fake, monkeypatch, earlier):
+    paths, state = crash_and_reload(fake, monkeypatch, "_write_in_place", half=True, earlier=earlier)
+    (paths.root / BACKUP).write_bytes(b"damaged backup")
+    [(message, ok)] = recover_pending(paths, state)
+    assert not ok and "needs your help" in message
+    save_state(paths, state)  # the caller's next save keeps the step for the start after
+    assert [op["kind"] for op in stored_ops(paths)] == ["swap"]
+    assert records(load_state(paths)) == records(state)
+
+
+def test_the_caller_goes_on_saving_after_a_swap(fake):
+    paths, state = fake
+    swap(paths, state)
+    assert state["pending"] == [] and stored_ops(paths) == []
+    assert records(load_state(paths)) == records(state)
+    state["tracks"][TID]["last_attempt"] = "2026-11-06"  # a record-only save afterwards (e.g. ops.run_single's)
+    save_state(paths, state)
+    assert load_state(paths)["tracks"][TID]["last_attempt"] == "2026-11-06"
+
+
+def test_a_failed_write_undone_at_once_leaves_a_current_snapshot(fake, monkeypatch):
+    paths, state = fake
+    real = upgrades._write_in_place
+
+    def disk_full(target, source, sha):
+        if source.name == "swap.aiff":
+            raise OSError("No space left on device")
+        real(target, source, sha)
+
+    monkeypatch.setattr(upgrades, "_write_in_place", disk_full)
+    with pytest.raises(UpgradeProblem, match="No space left"):
+        swap(paths, state)
+    assert state["pending"] == [] and stored_ops(paths) == []
+    assert records(load_state(paths)) == records(state)
+    save_state(paths, state)
+
+
+def test_a_swap_that_needs_help_right_away_stays_journaled_through_the_caller_s_saves(fake, monkeypatch):
+    paths, state = fake
+    real = upgrades._write_in_place
+
+    def damaged(target, source, sha):
+        if source.name == "swap.aiff":
+            with open(target, "r+b") as f:
+                f.write(NEW[:500])
+            (paths.root / BACKUP).write_bytes(b"damaged backup")
+            raise OSError("No space left on device")
+        real(target, source, sha)
+
+    monkeypatch.setattr(upgrades, "_write_in_place", damaged)
+    with pytest.raises(UpgradeProblem, match="needs your help"):
+        swap(paths, state)
+    save_state(paths, state)
+    [op] = stored_ops(paths)
+    assert op["kind"] == "swap" and op["backed_up"] is True and state["pending"] == [op]
+    assert records(load_state(paths)) == records(state)

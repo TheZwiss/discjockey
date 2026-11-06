@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 import pytest
 
-from discjockey import library, ops, upgrades
+from discjockey import db, library, ops, upgrades
 from discjockey.align import Alignment
 from discjockey.hub.views import todo
 from discjockey.library import Paths, clear_tmp, empty_state, load_state, recover_pending, save_state
@@ -75,6 +75,7 @@ def assert_as_before(paths, state, original, inode=None):
     want = {"rekordbox_check": None, **original}  # (an entry read back from library.db also has its file row's fields)
     assert {k: state["tracks"][TID].get(k) for k in want} == want and state["pending"] == []
     assert records(load_state(paths)) == records(state)
+    save_state(paths, state)  # the caller's snapshot is current: it goes on saving it
     assert [k for k, _ in upgrades.ready(state, ["A"])] == [TID]  # the upgrade offer shows again
     assert not paths.undo.exists() or not any(paths.undo.rglob("*.aiff"))
 
@@ -293,14 +294,20 @@ def test_a_crash_while_undoing_add_as_new_is_finished_at_the_next_start(env, mon
         assert_as_before(paths, state, original)
 
 
-def crash_swap_undo(env, monkeypatch, name, half=False):
+def crash_swap_undo(env, monkeypatch, name, half=False, earlier=False, nth=1):
+    """`earlier`: the pending row as a version before issue 25 wrote it (through the snapshot: no op_id). `nth`: the
+    call of `name` the power cut comes at."""
     paths, state = env
     original = copy.deepcopy(state["tracks"][TID])
     inode = os.stat(paths.root / CURRENT).st_ino
     step(paths, state, "swap")
     real = getattr(upgrades, name)
+    calls = []
 
     def boom(*args, **kwargs):
+        calls.append(args)
+        if len(calls) < nth:
+            return real(*args, **kwargs)
         if half:  # _write_in_place(target, source, sha): half of the old content is on disk
             with open(args[0], "r+b") as f:
                 f.write(args[1].read_bytes()[: len(OLD) // 2])
@@ -310,23 +317,45 @@ def crash_swap_undo(env, monkeypatch, name, half=False):
     with pytest.raises(Crash):
         upgrades.undo(paths, state, TID)
     monkeypatch.setattr(upgrades, name, real)
+    if earlier:
+        with db.connect(paths.db_file) as conn, db.transaction(conn):
+            conn.execute("UPDATE pending SET op = json_remove(op, '$.op_id')")
     on_disk = load_state(paths)
     assert [op["kind"] for op in on_disk["pending"]] == ["swap_undo"]
+    if earlier:
+        assert "op_id" not in on_disk["pending"][0]
     return paths, on_disk, original, inode
 
 
-@pytest.mark.parametrize("name,half", [("_write_in_place", False), ("_write_in_place", True), ("safe_rename", False)])
-def test_a_crash_while_undoing_a_swap_is_finished_at_the_next_start(env, monkeypatch, name, half):
-    paths, state, original, inode = crash_swap_undo(env, monkeypatch, name, half)
+@pytest.mark.parametrize("earlier", [False, True], ids=["journal", "earlier row"])
+@pytest.mark.parametrize("name,half,nth", [("_write_in_place", False, 1), ("_write_in_place", True, 1),
+                                           ("safe_rename", False, 1), ("safe_rename", False, 2)],
+                         ids=["before the write-back", "half written back", "written back", "file back home"])
+def test_a_crash_while_undoing_a_swap_is_finished_at_the_next_start(env, monkeypatch, name, half, nth, earlier):
+    paths, state, original, inode = crash_swap_undo(env, monkeypatch, name, half, earlier, nth)
     clear_tmp(paths, state)  # the kept download survives the clean-up while the step is pending
     [(message, ok)] = recover_pending(paths, state)
     assert ok and message == "Finished undoing the swap for Artist - Song"
     assert_as_before(paths, state, original, inode)
 
 
-def test_an_interrupted_swap_undo_without_its_backup_changes_nothing(env, monkeypatch):
-    paths, state, _, _ = crash_swap_undo(env, monkeypatch, "_write_in_place")
+@pytest.mark.parametrize("earlier", [False, True], ids=["journal", "earlier row"])
+def test_an_interrupted_swap_undo_without_its_backup_changes_nothing(env, monkeypatch, earlier):
+    paths, state, _, _ = crash_swap_undo(env, monkeypatch, "_write_in_place", earlier=earlier)
     (paths.root / BACKUP).unlink()
     [(message, ok)] = recover_pending(paths, state)
     assert not ok and "was not undone" in message and state["pending"] == []
     assert read(paths, ROOT_NAME) == NEW and state["tracks"][TID]["status"] == "lossless"
+    assert records(load_state(paths)) == records(state)
+    save_state(paths, state)
+
+
+@pytest.mark.parametrize("earlier", [False, True], ids=["journal", "earlier row"])
+def test_an_interrupted_swap_undo_that_needs_help_stays_journaled(env, monkeypatch, earlier):
+    paths, state, _, _ = crash_swap_undo(env, monkeypatch, "_write_in_place", half=True, earlier=earlier)
+    (paths.root / BACKUP).unlink()
+    [(message, ok)] = recover_pending(paths, state)
+    assert not ok and "needs your help" in message
+    save_state(paths, state)  # the caller's next save keeps the step for the start after
+    assert [op["kind"] for op in load_state(paths)["pending"]] == ["swap_undo"]
+    assert records(load_state(paths)) == records(state)
