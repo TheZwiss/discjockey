@@ -414,6 +414,12 @@ def _shared(path: str, a: dict, b: dict) -> disk.StateError:
     return disk.StateError(SHARED.format(path=path, a=_name(a), b=_name(b)))
 
 
+def _song_name(conn: sqlite3.Connection, song: int) -> dict:
+    """A stored song's artist and title, as an entry's (for SHARED)."""
+    artist, title = conn.execute("SELECT artist, title FROM songs WHERE id = ?", (song,)).fetchone()
+    return {"artist": artist, "title": title}
+
+
 def _insert_song(conn: sqlite3.Connection, key: str, entry: dict) -> int:
     cols = ", ".join(SONG_COLUMNS)
     marks = ", ".join("?" * (len(SONG_COLUMNS) + 2))
@@ -629,12 +635,14 @@ def _save_songs(conn: sqlite3.Connection, tracks: dict, songs: dict, aliases: di
 
 
 def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], removed: list[int],
-                folders: _Folders, facts: Facts, stamp: str, rekeyed: Collection[str]) -> int:
+                folders: _Folders, facts: Facts, stamp: str, rekeyed: Collection[str], *, part: bool = False) -> int:
     """Writes the linked file rows whose entry file fields changed (plan task 1.3). Rows are matched by place: the
     row already at an entry's new path is linked to it (a bought file a scan found), else the song's own row moves
     there (files.id stays with a renamed file), else a new row; each keeps the song's old file's placed_by ('app'
     for a song that had none), except a row found in an import folder, which keeps its own (a merge, stage 4). A row no song keeps is unlinked when its file is
-    still there, deleted when it is gone. Two songs on one file is a ValueError."""
+    still there, deleted when it is gone. Two songs on one file is a ValueError. `part`: `tracks` are only some of
+    the songs (finish_step), so a row at a new place that a song outside them keeps is that song's file: refused as
+    SHARED, as a save of the whole snapshot (which holds that song's entry at that path) refuses it."""
     files = _files(conn)
     linked = _linked(files)
     by_place = {(f["folder"], f["path"]): f for f in files}
@@ -656,6 +664,7 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
         raise _shared(folders.path(folder, rel), tracks[keys[0]], tracks[keys[1]])
 
     released = {old["id"]: old for _, _, old, new in changed if old is not None and new != (old["folder"], old["path"])}
+    mine = set(ids.values())  # the songs being written (all of them, unless `part`)
     released.update({f["id"]: f for song in removed if (f := linked.get(song)) is not None})
     n = 0
     common = ("size = ?, mtime_ns = ?, content_key = ?, " + ", ".join(f"{k} = ?" for k in QUALITY)
@@ -668,6 +677,8 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
         # a song that had no file gets one the app placed
         placed = "app" if old is None else old["placed_by"]
         row = by_place.get(new)
+        if part and row is not None and row["song"] is not None and row["song"] not in mine:
+            raise _shared(folders.path(*new), _song_name(conn, row["song"]), e)
         if row is not None and folders.rows[row["folder"]][1] == "import":
             placed = row["placed_by"]  # an imported file a playlist song takes over (stage 4, I4 rule 2) stays as placed
         if row is not None:  # the song's own row (new audio, same path) or one found there (a bought file)
@@ -942,7 +953,7 @@ def _move(conn: sqlite3.Connection, move_id: int) -> dict:
 
 def finish_move(conn: sqlite3.Connection, move_id: int, *, state: dict | None = None) -> None:
     """A move that happened on disk, written in one transaction: the move becomes `done`. A `file` move's file row
-    (by id) takes `dst`'s place and `placed_after` (a no-op on the place when run_op's save already wrote it; an
+    (by id) takes `dst`'s place and `placed_after` (a no-op on the place when run_op's step already wrote it; an
     unlinked row left at `dst`, whose file isn't there, gives way, as in apply_scan); a move whose file row is gone
     is only marked done. A `folder` move gives every row of its watched folder under `src` + "/" the `dst` prefix
     instead, placed_by untouched (the target folder didn't exist, so no place collides). Finishing a done move again
@@ -1559,7 +1570,7 @@ def group_files(conn: sqlite3.Connection, gid: str) -> list[DupFile]:
             for i, key, folder, rel, status, cutoff, fmt, online, in_playlists, usable in rows]
 
 
-# --- the file journal (plan library stage 4, I6, I7): moves of single files outside run_op's entry view ---
+# --- the file journal (plan library stage 4, I6, I7): moves of single files, past the entry view ---
 
 _BY_OP_ID = "DELETE FROM pending WHERE json_extract(op, '$.op_id') = ?"
 FILE_OPS = frozenset({"tidy_move", "supersede"})
@@ -1575,11 +1586,75 @@ def add_pending(conn: sqlite3.Connection, op: dict) -> str:
     return op_id
 
 
-def drop_pending(conn: sqlite3.Connection, op_id: str) -> None:
-    """Drops a journaled step that did nothing (undone, or never started)."""
+def drop_pending(conn: sqlite3.Connection, op_id: str) -> int:
+    """Drops a journaled step that did nothing (undone, or never started). Returns the generation after it."""
     with transaction(conn):
         if conn.execute(_BY_OP_ID, (op_id,)).rowcount:
-            _bump(conn)
+            return _bump(conn)
+        return _generation(conn)
+
+
+# --- run_op's journal (issue 25): a step that changes songs together with their files, past the entry view ---
+
+STEP = "step"  # the pending kind of a library.run_op step
+
+
+def step_entries(op: dict) -> dict[str, dict]:
+    """The entries a run_op step writes, by song key: `entry` under `track_id` (when given), then `entries`."""
+    out = {} if op.get("entry") is None else {op["track_id"]: op["entry"]}
+    out.update(op.get("entries") or {})
+    return out
+
+
+def journal_step(conn: sqlite3.Connection, op: dict, generation: int | None) -> int:
+    """Journals a run_op step before its first rename (the op gets an `op_id`, uuid4 hex, unless it has one).
+    `generation`: that of the caller's snapshot, which the step's entries come from; when it isn't the stored one
+    the step is refused (StateError STALE) and nothing is written, as a save of that snapshot is refused. Returns
+    the new generation."""
+    op.setdefault("op_id", uuid.uuid4().hex)
+    with transaction(conn):
+        if generation != _generation(conn):
+            raise disk.StateError(STALE)
+        conn.execute("INSERT INTO pending (op) VALUES (?)", (_dumps(op),))
+        return _bump(conn)
+
+
+def finish_step(conn: sqlite3.Connection, op: dict, *, library: Path, facts: Facts, now: datetime,
+                rekeyed: Collection[str] = ()) -> int:
+    """A journaled run_op step that happened on disk, written in one transaction with the end of its journal entry:
+    its entries (step_entries) as end_step writes them. Returns the new generation."""
+    return end_step(conn, op["op_id"], step_entries(op), library=library, facts=facts, now=now, rekeyed=rekeyed)
+
+
+def end_step(conn: sqlite3.Connection, op_id: str, tracks: Mapping[str, dict], *, library: Path, facts: Facts,
+             now: datetime, rekeyed: Collection[str] = ()) -> int:
+    """The end of a journaled step (run_op's, the upgrade swap's and its undo's), in one transaction: `tracks`
+    (song key -> entry; none for a step that changed no entry) as save writes them, but only those songs and their
+    file rows (a new song is inserted; `rekeyed` as in save); the pending row `op_id` goes. A file a song outside
+    the step keeps is StateError (SHARED), a path in no watched folder ValueError; either leaves every row as it
+    was. Returns the new generation."""
+    stamp = now.isoformat(timespec="seconds")
+    tracks = dict(tracks)
+    with transaction(conn):
+        sync_library_path(conn, library)
+        folders = _Folders(conn)
+        ids, _ = _save_songs(conn, tracks, _songs(conn), _aliases(conn))
+        _save_files(conn, tracks, ids, [], folders, facts, stamp, rekeyed, part=True)
+        _drop_dead_decisions(conn)
+        conn.execute(_BY_OP_ID, (op_id,))
+        return _bump(conn)
+
+
+def replace_pending(conn: sqlite3.Connection, op: dict) -> int:
+    """A journaled step's row rewritten as `op` (matched by its `op_id`): a mark the step makes midway (the upgrade
+    swap's `backed_up`, a backup name it had to choose again). A row that is gone is journaled again, so the step
+    is never unjournaled while it runs. Returns the new generation."""
+    row = _dumps(op)
+    with transaction(conn):
+        if not conn.execute("UPDATE pending SET op = ? WHERE json_extract(op, '$.op_id') = ?",
+                            (row, op["op_id"])).rowcount:
+            conn.execute("INSERT INTO pending (op) VALUES (?)", (row,))
+        return _bump(conn)
 
 
 def _supersede(conn: sqlite3.Connection, file_id: int, heir: int | None) -> None:

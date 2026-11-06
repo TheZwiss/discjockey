@@ -28,22 +28,6 @@ same file ("Same track"), and cues and beatgrid stay exact. Two shapes to weigh 
 
 Any write to the user's rekordbox data needs a backup and an undo, and the user's go.
 
-## 25. Library stage 1 leftovers (engine on library.db) — for later stages
-
-Audit 2026-11-05 (updated by leftovers round C2): the Ogg page-header reads, the moved/adopted/conflicts labels, the
-migration's recovered steps in the run report, and the RF64 / streamed WAV / Ogg-FLAC keys are done (a tag edit no longer
-changes their key; a file already keyed whole keeps that key until its bytes change). Round C3 closed the unreadable replaced
-file (a judgment that fails is remembered by the file's key and the tools' stamp, `files.judge_failed`, and tried again
-only when either changes). Still open: `execute.py`, `ops.py`, `upgrades.py` and `tidy.py` call `run_op` on the entry
-view (its own stage).
-
-Noted while moving the engine onto `library.db` (`docs/archive/2026-10-23-library-stage-1-plan.md`, group 3).
-
-- **The sync's file steps still work on the entry view of the database** (the stage 1 seam: `db.snapshot` /
-  `db.save`): the `run_op` callers `execute.py`, `ops.py` and `upgrades.py`, and the folder moves of `tidy.py`. The
-  import, the folders and the file journal (`move_files`) write songs and files explicitly. Move the rest the same
-  way when a stage touches them.
-
 ## 24. Identify files by their sound (AcoustID) — agreed design, a stage after stage 6
 
 Audit 2026-11-05: parked, nothing of it is built (no AcoustID, `fpcalc` or Chromaprint code or licence file, no Settings
