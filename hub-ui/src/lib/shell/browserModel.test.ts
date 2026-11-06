@@ -6,7 +6,7 @@ import {
   EDGE_TIP, HANDOFF, browserList, currentTarget, edgeValueText, filterText, fold, highlightOf, matchName, moveHighlight,
   playlistTip, rowByKey, rowId, searchTracksHref, sortTip, toggleClosed,
   LANDING_TEXT, crateShownValue, dropIndex, inDropZone, dropSpring, favouriteOf, favouriteRow, favouritesIn, folderHref, menuFor,
-  moveKey, nameParts, playCall, revealPath, watchedFoldKey, type CollectionRow, type FolderRow,
+  moveKey, nameParts, playCall, revealPath, watchedFoldKey, type CollectionRow, type FolderRow, foldersAround, noMatch,
 } from './browserModel';
 import type { Crate, WatchedEntry } from '../bridge/types';
 
@@ -479,5 +479,34 @@ describe('browserList with a folder twice in the sidebar', () => {
     const folders = browserList({ side: twice, query: '', az: false, closed: [] }).sections.find((s) => s.key === 'folders')!;
     expect(folders.rows.filter((r) => r.key === 'folder:Library/Powertrance')).toHaveLength(1);
     expect(folders.rows[0]).toMatchObject({ folder: 'watched' });
+  });
+});
+
+describe('Sync\'s column: every row a switch, nothing leads to Library (issue 37)', () => {
+  const sync = (query = '') => browserList({ side: full, query, az: false, closed: [], switching: true });
+  it('leaves out the two views; the sections stay as Library has them', () => {
+    const l = sync();
+    expect(l.views).toEqual([]);
+    expect(l.sections.map((s) => s.key)).toEqual(browserList({ side: full, query: '', az: false, closed: [] })
+      .sections.map((s) => s.key));
+    expect(l.none).toBeNull();
+  });
+  it('the filter finds switches: no hand-off, and a line when nothing matches', () => {
+    const l = sync('hardtechno');
+    expect(l.handoff).toBeNull();
+    expect(l.targets).not.toContain(HANDOFF);
+    expect(l.targets.length).toBeGreaterThan(0);
+    const none = sync('zzz');
+    expect([none.sections.length, none.targets.length, none.handoff]).toEqual([0, 0, null]);
+    expect(none.none).toBe(noMatch('zzz'));
+    expect(noMatch(' zzz ')).toBe('No playlist or folder called “zzz”');
+    expect(browserList({ side: full, query: 'zzz', az: false, closed: [] }).none).toBeNull();   // Library: the hand-off
+  });
+  it('knows the folders around a folder: its watched folder and the crates shown that hold it', () => {
+    expect(foldersAround(full, `${RB}/DJ/Hardtechno/2019`)).toEqual([
+      { target: `folder:${RB}`, name: 'Rekordbox Library' }, { target: `folder:${RB}/DJ/Hardtechno`, name: 'Hardtechno' }]);
+    expect(foldersAround(full, `${RB}/Edits`)).toEqual([{ target: `folder:${RB}`, name: 'Rekordbox Library' }]);
+    expect(foldersAround(full, RB)).toEqual([]);
+    expect(foldersAround(full, 'Library/Old_Sets')).toEqual([]);
   });
 });

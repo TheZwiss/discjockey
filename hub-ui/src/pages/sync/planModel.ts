@@ -83,22 +83,82 @@ export const minutesFor = (table: number[], downloads: number): number =>
 /** Every action in the order the sync works through them (the backend's `run` index). */
 export const inRunOrder = (p: SyncPreview | null): PreviewAction[] => allActions(p);
 
-// ---------- scope: which playlists and kinds are in this run ----------
-/** Left out: playlists the user switched off in the browser column and weekly checks switched off in the panel
- *  (remembered, so new ones come in switched on). Only the two weekly checks switch as kinds (issue 36): new songs,
- *  files gone and bought files are left out row by row or per playlist with the plan's ticks. */
-export type Scope = { folders: string[]; kinds: KindKey[] };
-export const FULL_SCOPE: Scope = { folders: [], kinds: [] };
-export const inScope = (a: PreviewAction, s: Scope) => !s.folders.includes(a.folder) && !s.kinds.includes(kindOf(a));
-export function toggleScope(s: Scope, what: 'folders' | 'kinds', v: string): Scope {
+// ---------- scope: which playlists, folders and kinds are in this run ----------
+/** Left out: the playlists and folders switched off in the browser column (`off`, by their targets: `playlist:<ref>`,
+ *  `folder:<path>`, issue 37) and the weekly checks switched off in the panel (remembered, so new ones come in
+ *  switched on). Only the two weekly checks switch as kinds (issue 36): new songs, files gone and bought files are
+ *  left out row by row or per section with the plan's ticks. `legacy`: playlists switched off before issue 37, by
+ *  name, until `resolveLegacy` turns them into targets. */
+export type Scope = { off: string[]; kinds: KindKey[]; legacy?: string[] };
+export const FULL_SCOPE: Scope = { off: [], kinds: [] };
+export const isPlaylistTarget = (t: string): boolean => t.startsWith('playlist:');
+export const isFolderTarget = (t: string): boolean => t.startsWith('folder:');
+
+/** A collection a row is `in` is switched on (issue 37). A playlist by its own switch; a folder by its own and those
+ *  of the folders around it (`in` lists a row's folders outer to inner): a folder switched off takes the crates in it
+ *  along, and a crate switched off inside a folder switched on is off. */
+export function targetOn(a: Pick<PreviewAction, 'in'>, t: string, s: Scope): boolean {
+  if (!isFolderTarget(t)) return !s.off.includes(t);
+  const folders = a.in.filter(isFolderTarget);
+  const at = folders.indexOf(t);
+  return at >= 0 && folders.slice(0, at + 1).every((f) => !s.off.includes(f));
+}
+/** The song of a row is in the sync (issue 37, the user's rule): while ANY playlist or folder it belongs to is on;
+ *  left out only when every one is off. Its folders are one place (`targetOn` of the innermost). Whatever the row's
+ *  kind, also kinds added later: nothing is done with a song left out. A row in no collection has no switch, so
+ *  nothing can leave it out. */
+export function memberOn(a: Pick<PreviewAction, 'in'>, s: Scope): boolean {
+  if (!a.in.length) return true;
+  if (a.in.some((t) => isPlaylistTarget(t) && !s.off.includes(t))) return true;
+  const folders = a.in.filter(isFolderTarget);
+  return folders.length > 0 && targetOn(a, folders[folders.length - 1], s);
+}
+export const inScope = (a: PreviewAction, s: Scope) => memberOn(a, s) && !s.kinds.includes(kindOf(a));
+/** What Start sends: the ticked rows in scope, nothing else (a row ticked before its collections were switched off
+ *  stays out). */
+export const chosenOf = (ordered: PreviewAction[], ticked: ReadonlySet<string>, s: Scope): PreviewAction[] =>
+  ordered.filter((a) => inScope(a, s) && ticked.has(keyId(a.key)));
+/** Every row is left out by the column's switches (not by the weekly checks). */
+export const everyOff = (ordered: PreviewAction[], s: Scope): boolean =>
+  ordered.length > 0 && ordered.every((a) => !memberOn(a, s));
+
+export function toggleScope(s: Scope, what: 'off' | 'kinds', v: string): Scope {
   const list = s[what] as string[];
   return { ...s, [what]: list.includes(v) ? list.filter((x) => x !== v) : [...list, v] };
 }
 export function readScope(v: unknown): Scope {
-  const o = (v && typeof v === 'object' ? v : {}) as Partial<Scope>;
+  const o = (v && typeof v === 'object' ? v : {}) as Partial<Scope> & { folders?: unknown };
   const strings = (x: unknown) => (Array.isArray(x) ? x.filter((y): y is string => typeof y === 'string') : []);
   // a kind left out before issue 36 that no longer has a switch is dropped, so nothing stays out unseen
-  return { folders: strings(o.folders), kinds: strings(o.kinds).filter((k): k is KindKey => isWeeklyKind(k)) };
+  const out: Scope = { off: strings(o.off).filter((t) => isPlaylistTarget(t) || isFolderTarget(t)),
+    kinds: strings(o.kinds).filter((k): k is KindKey => isWeeklyKind(k)) };
+  // before issue 37 the scope held the names of the playlists switched off (`folders`)
+  const legacy = [...strings(o.folders), ...strings(o.legacy)];
+  return legacy.length ? { ...out, legacy } : out;
+}
+/** The playlists switched off before issue 37 (by name) as targets, once the playlists are known: every line with
+ *  that name; a name no playlist has any more is dropped (it has no switch). */
+export function resolveLegacy(s: Scope, playlists: readonly { name: string; ref: string }[]): Scope {
+  if (!s.legacy?.length) return s;
+  const names = new Set(s.legacy);
+  const off = [...s.off];
+  for (const p of playlists) {
+    const t = `playlist:${p.ref}`;
+    if (names.has(p.name) && !off.includes(t)) off.push(t);
+  }
+  return { off, kinds: s.kinds };
+}
+
+/** The section a row is listed under: its `folder`, as before, while the collection of that name is on; else the
+ *  first collection it is in that is on (a song in two playlists, the first switched off, stands under the second).
+ *  `names`: the preview's `collections`. */
+export function sectionOf(a: PreviewAction, s: Scope, names: Readonly<Record<string, string>>): string {
+  const home = a.in.find((t) => names[t] === a.folder);
+  if (!home || targetOn(a, home, s)) return a.folder;
+  const on = a.in.filter((t) => targetOn(a, t, s));
+  // the first playlist on, else the innermost folder on
+  const pick = on.find(isPlaylistTarget) ?? on[on.length - 1];
+  return (pick && names[pick]) || a.folder;
 }
 
 /** What a playlist or folder is called on the page: never blank, even when an action arrives without a folder name. */
@@ -108,13 +168,16 @@ export const folderLabel = (folder: string): string => folder.trim() || 'Your ow
  *  every track is left out and no row is above it (issue 35: weekly checks switched off, nothing else). */
 export const leftOutTitle = (hidden: number, shown: number): string =>
   `${plural(hidden, shown > 0 ? 'more track' : 'track')} left out`;
-/** The note's line: where the switches that leave them out are (issue 36: playlists in the column on the left,
- *  the weekly checks in the panel on the right). */
+/** The note's line: where the switches that leave them out are (issue 36: playlists and folders in the column on the
+ *  left, the weekly checks in the panel on the right). */
 export function leftOutBody(s: Scope): string {
-  const lists = s.folders.length > 0;
+  const p = s.off.some(isPlaylistTarget);
+  const f = s.off.some(isFolderTarget);
+  const what = p && f ? 'Playlists and folders' : f ? 'Folders' : 'Playlists';
+  const lists = p || f;
   const kinds = s.kinds.length > 0;
-  return lists && kinds ? 'Playlists switched off on the left and weekly checks switched off on the right.'
-    : kinds ? 'Weekly checks you switched off on the right.' : 'Playlists you switched off on the left.';
+  return lists && kinds ? `${what} switched off on the left and weekly checks switched off on the right.`
+    : kinds ? 'Weekly checks you switched off on the right.' : `${what} you switched off on the left.`;
 }
 
 // ---------- the kinds at a glance (issue 36: the strip on top of the plan) ----------
@@ -134,44 +197,70 @@ export const KIND_SHARE: { key: KindKey; label: string; tip: string; colour: str
     colour: 'var(--kind-bought)' },
 ];
 export type KindShare = { key: KindKey; label: string; tip: string; colour: string; n: number; off: boolean };
-/** The strip's numbers: the tracks in the playlists switched on, by kind. A kind is listed while the plan has it in
- *  any playlist (so the rows stay put while playlists switch); `off`: a weekly check switched off (its count stays,
- *  its part of the bar dims, its row says so). `total` counts what is switched on, kinds and playlists. */
-export function kindShares(ordered: PreviewAction[], s: Scope): { total: number; playlists: number; kinds: KindShare[] } {
-  const listed = ordered.filter((a) => !s.folders.includes(a.folder));
+/** The strip's numbers: the tracks of the playlists and folders switched on, by kind. A kind is listed while the plan
+ *  has it in any collection (so the rows stay put while they switch); `off`: a weekly check switched off (its count
+ *  stays, its part of the bar dims, its row says so). `total` counts what is switched on, kinds and collections;
+ *  `playlists` and `folders` the plan's sections that hold it, by what they are. */
+export function kindShares(ordered: PreviewAction[], s: Scope, names: Readonly<Record<string, string>> = {})
+  : { total: number; playlists: number; folders: number; kinds: KindShare[] } {
+  const listed = ordered.filter((a) => memberOn(a, s));
   const kinds = KIND_SHARE.filter((k) => ordered.some((a) => kindOf(a) === k.key)).map((k) => ({
     ...k, n: listed.filter((a) => kindOf(a) === k.key).length, off: s.kinds.includes(k.key) }));
   const on = listed.filter((a) => inScope(a, s));
-  return { total: on.length, playlists: new Set(on.map((a) => a.folder)).size, kinds };
+  const sections = new Map<string, boolean>();   // section -> is a playlist
+  for (const a of on) {
+    const name = sectionOf(a, s, names);
+    if (!sections.has(name)) sections.set(name, a.in.some((t) => isPlaylistTarget(t) && names[t] === name));
+  }
+  const playlists = [...sections.values()].filter(Boolean).length;
+  return { total: on.length, playlists, folders: sections.size - playlists, kinds };
 }
 /** The strip's line under the count. */
-export function stripLine(total: number, playlists: number, everyListOff: boolean): string {
-  if (everyListOff) return 'every playlist switched off';
+export function stripLine(total: number, playlists: number, folders: number, everyCollectionOff: boolean): string {
+  if (everyCollectionOff) return 'every playlist and folder switched off';
   if (!total) return 'everything switched off';
-  // a plan section is a folder: a playlist's, or the folder of your own music a weekly check is about
-  return `to sync in ${plural(playlists, 'folder')}`;
+  // a plan section is a playlist, or a folder of your own music a weekly check is about (issue 37)
+  const where = playlists && folders ? `${plural(playlists, 'playlist')} and ${plural(folders, 'folder')}`
+    : folders ? plural(folders, 'folder') : plural(playlists, 'playlist');
+  return `to sync in ${where}`;
 }
 
 /** The panel's Weekly checks: both switches always (issue 36; issue 35's bug: a switch must never go because its
- *  kind is the only one, or has no rows today), each with its count in the playlists switched on. */
+ *  kind is the only one, or has no rows today), each with its count in the collections switched on. */
 export function weeklyItems(ordered: PreviewAction[], s: Scope): ToggleItem[] {
-  const listed = ordered.filter((a) => !s.folders.includes(a.folder));
+  const listed = ordered.filter((a) => memberOn(a, s));
   return WEEKLY_KINDS.map((key) => ({ key, label: KIND_SHARE.find((k) => k.key === key)!.label,
     count: listed.filter((a) => kindOf(a) === key).length, on: !s.kinds.includes(key) }));
 }
 
-/** Per playlist, the tracks the sync would do in it: only the kinds switched on (the old panel counted the weekly
- *  checks switched off too). The browser column's switch tooltip says it. */
+/** Per collection (by target), the tracks the sync would do in it: the rows `in` it, only the kinds switched on.
+ *  The browser column's switch tooltip says it. */
 export function planCounts(ordered: PreviewAction[], s: Scope): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const a of ordered) if (!s.kinds.includes(kindOf(a))) out[a.folder] = (out[a.folder] ?? 0) + 1;
+  for (const a of ordered) if (!s.kinds.includes(kindOf(a))) for (const t of new Set(a.in)) out[t] = (out[t] ?? 0) + 1;
   return out;
 }
-/** A playlist's switch in the browser column, in words (its tooltip): what it holds for the sync, or why it can't
- *  switch. `n` null: the plan isn't known (reading, up to date, a run). */
-export function playlistSwitchTip(name: string, o: { enabled: boolean; on: boolean; n: number | null; running: boolean }): string {
+/** A folder's switch in the column (issue 37). `around`: the folders around it, outer to inner (`foldersAround`);
+ *  `hidden`: a crate out of the sidebar (only the filter lists it), which has no switch of its own: it goes with the
+ *  folders around it (`follows`, the nearest). A folder switched off takes the folders in it along: their switches
+ *  show off and can't turn on (`under`: the folder to switch on first); each keeps its own setting for then. */
+export type FolderSwitch = { on: boolean; can: boolean; under: string | null; follows: string | null };
+export function folderSwitch(target: string, around: readonly { target: string; name: string }[], hidden: boolean,
+  s: Scope): FolderSwitch {
+  const offAround = around.find((f) => s.off.includes(f.target)) ?? null;
+  if (hidden) return { on: !offAround, can: false, under: offAround?.name ?? null, follows: around[around.length - 1]?.name ?? null };
+  return { on: !offAround && !s.off.includes(target), can: !offAround, under: offAround?.name ?? null, follows: null };
+}
+/** A collection's switch in the browser column, in words (its tooltip): what it holds for the sync, or why it can't
+ *  switch. `n` null: the plan isn't known (reading, up to date, a run). `enabled` false: a playlist switched off on
+ *  the Playlists page; `follows`: a crate out of the sidebar, which goes with that folder; `under`: a folder switched
+ *  off around it. */
+export function switchTip(name: string, o: { enabled: boolean; on: boolean; n: number | null; running: boolean;
+  under?: string | null; follows?: string | null }): string {
   if (!o.enabled) return `${name} · switched off on the Playlists page`;
+  if (o.follows) return `${name} · not in the sidebar, so it goes with ${o.follows}`;
   if (o.running) return `${name} · ${o.on ? 'in' : 'left out of'} this sync · switch it once the sync ends`;
+  if (o.under) return `${name} · left out with ${o.under} · switch ${o.under} on first`;
   if (!o.on) return `${name} · left out of the sync`;
   return o.n === null ? `${name} · in the sync` : o.n === 0 ? `${name} · nothing to sync` : `${name} · ${plural(o.n, 'track')} to sync`;
 }
@@ -317,7 +406,7 @@ export function runTime(minutes: number, n: number): { value: string; unit: stri
   return estimate(minutes);
 }
 /** All · None in a scope group: the given keys turned on (`on`, out of the excluded list) or off; a new scope. */
-export function scopeSet(s: Scope, what: 'folders' | 'kinds', keys: string[], on: boolean): Scope {
+export function scopeSet(s: Scope, what: 'off' | 'kinds', keys: string[], on: boolean): Scope {
   const cur = s[what] as string[];
   const next = on ? cur.filter((k) => !keys.includes(k)) : [...cur, ...keys.filter((k) => !cur.includes(k))];
   return { ...s, [what]: next };
@@ -367,10 +456,12 @@ export const sectionSummary = (ticked: number, total: number, waiting: number): 
 export const whyColumn = (rows: PreviewAction[], mayWait: boolean): boolean =>
   rows.some((a) => tagOf(a) !== null || (mayWait && isDownload(a)));
 
-/** Sections per playlist folder in playlists.txt order; inside, run order. */
-export function sections(rows: PreviewAction[], folderOrder: string[]): { folder: string; rows: PreviewAction[] }[] {
+/** Sections per playlist folder in playlists.txt order, then the other folders; inside, run order. `label`: the
+ *  section a row stands under (`sectionOf`; its `folder` by default). */
+export function sections(rows: PreviewAction[], folderOrder: string[], label: (a: PreviewAction) => string = (a) => a.folder)
+  : { folder: string; rows: PreviewAction[] }[] {
   const by = new Map<string, PreviewAction[]>();
-  for (const a of rows) by.set(a.folder, [...(by.get(a.folder) ?? []), a]);
+  for (const a of rows) by.set(label(a), [...(by.get(label(a)) ?? []), a]);
   const order = [...folderOrder, ...[...by.keys()].filter((f) => !folderOrder.includes(f))];
   return order.filter((f) => by.has(f)).map((folder) => ({ folder, rows: by.get(folder)! }));
 }

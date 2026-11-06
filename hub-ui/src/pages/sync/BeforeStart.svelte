@@ -22,7 +22,7 @@
   import { planCounts as publishedCounts, syncScope } from '$lib/stores/syncScope';
   import { PREF_LAST_SELECTION, carryTicks, keyId, picked } from './selection';
   import {
-    PREF_HOW_MANY, dayBarEmpty, defaultHowMany, inRunOrder, kindShares, leftOutBody, planCounts, stripLine, weeklyItems, inScope, isDownload, matches, nextSyncSet,
+    PREF_HOW_MANY, chosenOf, dayBarEmpty, defaultHowMany, everyOff, inRunOrder, kindShares, leftOutBody, planCounts, sectionOf, stripLine, weeklyItems, inScope, isDownload, matches, nextSyncSet,
     mayWaitToday, downloadsInScope, presetN, presetTicks, presets, readHowMany, runTotals, scopeSet, sections, shouldAutoRead, shownPreset,
     NOTHING_TODAY, leftOutTitle, readBlockLine, runsNothingToday, sectionCounts, startLabel, toggleScope,
     type HowMany, type Section,
@@ -61,7 +61,8 @@
   const scoped = $derived(ordered.filter((a) => inScope(a, scope)));
   const total = $derived(downloadsInScope(ordered, scope));
   const presetList = $derived(presets(total, left));
-  const chosen = $derived(scoped.filter((a) => ticked.has(keyId(a.key))));
+  // what Start sends: only ticked rows in scope (issue 37: a song whose every collection is off is never sent)
+  const chosen = $derived(chosenOf(ordered, ticked, scope));
   // Later counts only what's in scope, so it agrees with "All N" and the days (issue 7)
   const totals = $derived(runTotals(chosen, total, left, limit,
     preview?.estimate?.minutes_by_downloads ?? []));
@@ -70,16 +71,19 @@
   const nextSync = $derived(nextSyncSet(ordered, ticked, scope, left));
   // some ticked download may wait while others run today (fixed while the plan is)
   const mayWait = $derived(mayWaitToday(ordered.filter(isDownload).length, left));
-  const shares = $derived(kindShares(ordered, scope));
+  // the collections' names (the preview's), for the sections a row stands under
+  const names = $derived(preview?.collections ?? {});
+  const sectionName = (a: PreviewAction) => sectionOf(a, scope, names);
+  const shares = $derived(kindShares(ordered, scope, names));
   const weekly = $derived(weeklyItems(ordered, scope));
-  // every playlist that has rows in the plan switched off (the strip says it so, not just "everything")
-  const everyListOff = $derived(ordered.length > 0 && ordered.every((a) => scope.folders.includes(a.folder)));
-  // the column's switch tooltips: what each playlist holds for the sync, only while a plan is on screen
+  // every playlist and folder that has rows in the plan switched off (the strip says it so, not just "everything")
+  const everyListOff = $derived(everyOff(ordered, scope));
+  // the column's switch tooltips: what each playlist and folder holds for the sync, only while a plan is on screen
   $effect(() => { publishedCounts.set(hasPlan ? planCounts(ordered, scope) : null); });
   onDestroy(() => publishedCounts.set(null));
   const visible = $derived(scoped.filter((a) => matches(a, query)));
-  const sectionList = $derived<Section[]>(sections(visible, preview?.folders ?? []).map((s) =>
-    ({ ...s, ...sectionCounts(scoped.filter((a) => a.folder === s.folder), ticked, nextSync) })));
+  const sectionList = $derived<Section[]>(sections(visible, preview?.folders ?? [], sectionName).map((s) =>
+    ({ ...s, ...sectionCounts(scoped.filter((a) => sectionName(a) === s.folder), ticked, nextSync) })));
   const searching = $derived(query.trim() !== '');
   const hidden = $derived(ordered.length - scoped.length);
 
@@ -177,7 +181,7 @@
   }
   function tickFolder(folder: string, on: boolean) {
     const next = new Set(ticked);
-    for (const a of scoped) if (a.folder === folder) { if (on) next.add(keyId(a.key)); else next.delete(keyId(a.key)); }
+    for (const a of scoped) if (sectionName(a) === folder) { if (on) next.add(keyId(a.key)); else next.delete(keyId(a.key)); }
     ticked = next;
     howMany = 'custom';
   }
@@ -266,7 +270,7 @@
         {#if !reading}<EmptyState kind={preview.empty ?? 'up_to_date'}
           body={preview.empty === 'no_preview' && $readBlocked ? '' : undefined} />{/if}
       {:else}
-        <KindStrip kinds={shares.kinds} total={shares.total} line={stripLine(shares.total, shares.playlists, everyListOff)} />
+        <KindStrip kinds={shares.kinds} total={shares.total} line={stripLine(shares.total, shares.playlists, shares.folders, everyListOff)} />
         <div class="search">
           <SearchField bind:value={query} placeholder="Find an artist or title…" shortcut="cmd+f" />
         </div>

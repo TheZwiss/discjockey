@@ -4,14 +4,14 @@ import { carryTicks, keyId, minutesLeft, picked, upNext } from './selection';
 
 const act = (kind: string, id: string, folder = 'Hard_Bounce'): PreviewAction => ({ key: [kind, id, `Library/${folder}`] as
   ActionKey, kind, reason: kind === 'acquire' ? 'new' : null, track_id: id, artist: `Artist ${id}`, title: `Title ${id}`,
-  folder, to_dir: `Library/${folder}`, to_not_lossless: false, src: null, cover_url: null });
+  folder, to_dir: `Library/${folder}`, to_not_lossless: false, src: null, cover_url: null, in: [] });
 const preview = (...actions: PreviewAction[]): SyncPreview => ({
   read_status: { read_at: null, minutes_ago: 0, problem: null, message: '', stale: false, reading: false, offline: false, auto_read: true,
     problem_service: null, services: [] },
   waiting_answers: 0, deferred_checks: 0,
   counts: null, groups: [{ key: 'acquire:new', label: 'Download (new)', actions }], estimate: null, never: [], folders: [],
   in_playlists: null, ambiguous: [],
-  dropped: [], notes: [], empty: null });
+  dropped: [], notes: [], empty: null, collections: {} });
 const ids = (s: Set<string>) => [...s].map((k) => JSON.parse(k)[1]).sort();
 
 describe('ticks across a new preview', () => {

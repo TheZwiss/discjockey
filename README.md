@@ -49,7 +49,7 @@ library follow them.
 ### Review before anything downloads
 
 The Sync page shows the whole plan: new downloads, missing songs looked for again, lossy files checked for a lossless
-copy, files gone from your playlists and files you bought. Switch a playlist off on the left, untick single tracks,
+copy, files gone from your playlists and files you bought. Switch a playlist or folder off on the left, untick single tracks,
 and pick how many downloads run today; the rest waits for the next sync.
 
 <img src="docs/readme/app-sync.png" alt="The Sync page: playlists with switches on the left, the plan with 228 tracks in five kinds in the middle, today's amount, the weekly checks and Start sync on the right">
@@ -409,8 +409,10 @@ Open Discjockey and click **Sync** in the sidebar. Before anything changes, it s
 new downloads, bought files to add, and tracks no longer in any playlist. Untick what should wait, then click
 **Start sync**.
 
-- **Your playlists stand on the left**, as in Library, each with a switch: switch one off to leave it out of the
-  sync. The strip on top of the plan shows how much of it is new downloads, missing songs looked for again, lossy
+- **Your playlists and folders stand on the left**, as in Library, each with a switch: switch one off to leave it
+  out of the sync, and nothing at all is done with its files (no download, no check for a better copy). A track in
+  several playlists or folders stays in while any of them is on. A folder switched off takes the folders inside it
+  along. The strip on top of the plan shows how much of it is new downloads, missing songs looked for again, lossy
   files checked for a lossless copy, files gone and bought files.
 - **The plan** lists every track by playlist, each with a tick and an icon that says why it is there (point at a
   row to read it in words). **Tick all** and **None** work per playlist; the search field above (**⌘F**) finds an

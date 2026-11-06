@@ -115,6 +115,10 @@ def test_sync_preview_lists_the_actions_with_keys(root):
     assert [a["key"] for a in p["groups"][0]["actions"]] == [["acquire", "t4", "Library/Hard_Bounce"],
                                                              ["acquire", "t5", "Library/Powertrance"]]
     assert p["groups"][0]["actions"][0]["cover_url"] == "https://i.scdn.co/image/t4"  # not downloaded yet: Spotify's
+    # issue 37: each row names the playlists it is in, by the browser column's keys, and the preview names them
+    ins = [a["in"] for a in p["groups"][0]["actions"]]
+    assert all(len(i) == 1 and i[0].startswith("playlist:") for i in ins) and ins[0] != ins[1]
+    assert [p["collections"][i[0]] for i in ins] == ["Hard_Bounce", "Powertrance"]
 
 
 def test_never_download_and_back(root):

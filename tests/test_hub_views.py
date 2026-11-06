@@ -157,6 +157,52 @@ def test_sync_preview_names_the_folder_of_an_own_song_never_blank():
     assert all(r["folder"] for r in bare)
 
 
+def test_sync_preview_lists_every_collection_a_song_belongs_to():
+    # issue 37: a row is in every playlist whose read holds it (a song in two playlists is in both, playlists.txt
+    # order) and in every folder of the column its file sits in, outer to inner; a hidden crate has no row, so it is
+    # left out; a file in a playlist's own Library folder is in no folder; a Library folder no playlist uses is one
+    lines = [PlaylistLine("A", "pa", 1), PlaylistLine("B", "pb", 2), PlaylistLine("C", "pc", 3)]
+    st = state(both=e("not_lossless", path="/Volumes/Ex/Music/Techno/2019/Deep/x.mp3"),
+               lib=e("not_lossless", folder="", path="Library/Old Stuff/y.mp3", in_playlists=False),
+               mine=e("not_lossless", folder="A", path="Library/A/z.aiff"),
+               hid=e("not_lossless", folder="", path="/Volumes/Ex/Music/Techno/Hidden/w.mp3", in_playlists=False),
+               other=e("not_lossless", folder="", path="/Volumes/Ex/Music/Techno/Loose/v.mp3", in_playlists=False))
+    fetched = [FetchedPlaylist(lines[0], [t("both"), t("mine")], []), FetchedPlaylist(lines[1], [t("both")], [])]
+    st["never"] = {"both": {"artist": "Artist", "title": "x", "folder": "A", "at": "2026-10-18"}}
+    actions = [a("upgrade", k) for k in ("both", "lib", "mine", "hid")] + [a("acquire", "both", "new")]
+    store = PreviewStore()
+    store.ready(Prepared(None, st, Settings(), Plan(st, actions, [], []), None, lines, fetched), NOW)
+    watched = [WatchedFolder(1, Path("/m/Library"), "library"), WatchedFolder(2, Path("/Volumes/Ex/Music/Techno"), "import")]
+    places = views.song_places(st, [Row(ln.folder, f"https://open.spotify.com/playlist/{ln.playlist_id}", True)
+                                    for ln in lines], watched, {"/Volumes/Ex/Music/Techno/Hidden": False})
+    p = views.sync_preview(store, st, Settings(), TODAY, NOW, False, places=places)
+    rows = {r["track_id"]: r["in"] for g in p["groups"] for r in g["actions"]}
+    techno = "folder:/Volumes/Ex/Music/Techno"
+    assert rows["both"] == ["playlist:pa", "playlist:pb", techno, f"{techno}/2019/Deep"]  # 2019 holds no file: no crate
+    assert rows["lib"] == ["folder:Library/Old Stuff"]
+    assert rows["mine"] == ["playlist:pa"]
+    assert rows["hid"] == [techno]  # its crate is hidden from the sidebar: it goes by its watched folder
+    assert p["never"][0]["in"] == rows["both"]
+    names = p["collections"]
+    assert (names["playlist:pa"], names["playlist:pc"], names[techno], names["folder:Library/Old Stuff"]) == (
+        "A", "C", "Techno", "Old Stuff")
+    assert names[f"{techno}/2019/Deep"].startswith("Techno › ")
+    assert views.sync_preview(PreviewStore(), st, Settings(), TODAY, NOW, False)["collections"] == {}
+
+
+def test_sync_preview_membership_of_a_playlist_not_read_this_time():
+    # a line not read this time (paused Liked music) holds its songs by its last stored read, else by their folder
+    lines = [PlaylistLine("Liked", "LM", 1, "youtube_music"), PlaylistLine("Old", "po", 2)]
+    st = state(s1=e("not_lossless", folder="Liked"), s2=e("not_lossless", folder="Old"), s3=e("not_lossless", folder="Z"))
+    plan = Plan(st, [a("upgrade", "s1"), a("upgrade", "s2"), a("upgrade", "s3")], [], [])
+    store = PreviewStore()
+    store.ready(Prepared(None, st, Settings(), plan, None, lines, [], unread_folders=frozenset({"Liked", "Old"}),
+                         unread_members={"Liked": ["s1"]}), NOW)
+    rows = {r["track_id"]: r["in"] for g in views.sync_preview(store, st, Settings(), TODAY, NOW, False)["groups"]
+            for r in g["actions"]}
+    assert rows == {"s1": ["playlist:youtube_music:LM"], "s2": ["playlist:po"], "s3": []}
+
+
 def test_sync_preview_covers_come_from_the_tracks_own_file_when_the_service_has_none():
     # the live card of the Sync page takes these links for a track whose service gave no picture (a folder track, or
     # one that is not on Spotify): its file's artwork, else nothing (the page draws its placeholder)

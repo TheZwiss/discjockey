@@ -1514,18 +1514,100 @@ def action_row(a, state: dict, cover: Url | None = None, where: Callable[[str], 
             "src": a.src, "cover_url": cover(a.track_id, e) if cover and e else a.track.image_url}
 
 
+Places = Callable[[str], list[tuple[str, str]]]
+
+
+def song_places(state: dict, lines: Sequence[pf.Row], watched: Iterable[WatchedFolder],
+                overrides: Mapping[str, bool] | None = None) -> Places:
+    """A file's path -> the folders of the browser column it sits in (issue 37), outer to inner, as (target, name):
+    `folder:<path>` with the sidebar's own keys. A file in a watched import folder is in that folder (the deepest one,
+    as `crates` decides) and in every crate of it shown in the sidebar that holds it at any depth (a hidden crate has
+    no row, so its files go by the folders around it); a file in a Library folder no playlist uses is in that folder;
+    a file in a playlist's Library folder is in no folder (the folder is the playlist's). Names as Sync's sections
+    name them (`Sites.place`): the watched folder's name, a crate as "Techno › 2019", a Library folder's name.
+    `watched`: db.watched_folders; `overrides`: db.crate_overrides."""
+    imports = [str(f.path) for f in watched if f.kind == "import"]
+    found = crates([e["path"] for e in tracks_with_file(state)], imports, overrides or {})
+    roots = {w: PurePosixPath(w) for w in imports}
+    shown = {w: [(PurePosixPath(c["path"]), c["path"], c["label"]) for c in found[w]["crates"] if not c["hidden"]]
+             for w in imports}
+    used = {fold(r.folder) for r in lines}
+    site = Sites({}, {}, {}, {})
+
+    def places(path: str) -> list[tuple[str, str]]:
+        if (name := site.library_folder(path)) is not None:
+            return [] if fold(name) in used else [(f"folder:Library/{name}", name)]
+        folder = PurePosixPath(path).parent
+        inside = [w for w, r in roots.items() if folder.is_relative_to(r)]
+        if not inside:
+            return []
+        w = max(inside, key=lambda w: len(roots[w].parts))
+        root_name = roots[w].name or w
+        holding = sorted((c for c in shown[w] if folder.is_relative_to(c[0])), key=lambda c: len(c[0].parts))
+        return [(f"folder:{w}", root_name), *((f"folder:{raw}", f"{root_name} › {label}") for _, raw, label in holding)]
+    return places
+
+
+def _members(prep, plan_state: dict, places: Places | None):
+    """Song key -> the collections of the browser column it belongs to (issue 37): every playlist line whose read
+    holds it (playlists.txt order; a line not read this time by its last stored read, or without one by the songs'
+    folder, as the planner keeps them), then the folders its file sits in (`places`). Also returns every collection's
+    name. A song in none of them (it can't normally happen: every planned song is in a read or has a file) goes by the
+    playlist lines of its folder."""
+    resolve = _resolver(plan_state)
+    names: dict[str, str] = {}
+    playlists: dict[str, list[str]] = {}
+    read = {fp.line.line_no: fp for fp in prep.fetched}
+    unread = getattr(prep, "unread_folders", frozenset())
+    stored = getattr(prep, "unread_members", {}) or {}
+    for line in prep.lines:
+        target = f"playlist:{line.ref}"
+        names.setdefault(target, line.folder)
+        if line.line_no in read:
+            keys = {resolve(t.key) for t in read[line.line_no].tracks}
+        elif line.folder in unread and line.folder in stored:
+            keys = {resolve(t) for t in stored[line.folder]}
+        elif line.folder in unread:
+            keys = {k for k, e in plan_state["tracks"].items() if e.get("in_playlists") and e.get("folder") == line.folder}
+        else:
+            keys = set()
+        for k in keys:
+            if target not in (held := playlists.setdefault(k, [])):
+                held.append(target)
+
+    def members(key: str) -> list[str]:
+        out = list(playlists.get(key, []))
+        e = plan_state["tracks"].get(key)
+        if places is not None and e and e.get("path"):
+            for target, name in places(e["path"]):
+                names.setdefault(target, name)
+                if target not in out:
+                    out.append(target)
+        if not out and e and e.get("folder"):
+            out = [f"playlist:{line.ref}" for line in prep.lines if line.folder == e["folder"]]
+        return list(dict.fromkeys(out))
+    return members, names
+
+
 def sync_preview(store, state: dict, settings: Settings, today: date, now: datetime, reading: bool,
                  cover: Url | None = None, logins: Sequence[tuple[str, bool]] = (),
-                 where: Callable[[str], str] | None = None) -> dict:
+                 where: Callable[[str], str] | None = None, places: Places | None = None) -> dict:
     """The check before the start: every planned action in groups, each with the key the page sends back ticked.
-    `where`: a file's path -> its folder's name (`Sites.place`), for the own songs that belong to no playlist."""
+    `where`: a file's path -> its folder's name (`Sites.place`), for the own songs that belong to no playlist.
+    `places`: `song_places`, the folders a file sits in. Each row's `in` lists the collections of the browser column
+    its song belongs to (`_members`; Sync's switches leave a row out only when every one of them is off, issue 37),
+    and `collections` names each of them (target -> name)."""
     prep = store.prep
     status = read_status(store, now, reading, logins)
     if prep is None:
         return {"read_status": status, "counts": None, "groups": [], "estimate": None, "never": [], "folders": [],
                 "in_playlists": None, "ambiguous": [], "dropped": [], "notes": [], "empty": "no_preview",
-                "waiting_answers": 0, "deferred_checks": 0}
+                "waiting_answers": 0, "deferred_checks": 0, "collections": {}}
     plan_state = prep.state
+    members, names = _members(prep, plan_state, places)
+
+    def row(a) -> dict:
+        return {**action_row(a, plan_state, cover, where), "in": members(a.track_id)}
     m = moneys(state, settings, today)
     todo, never = planned(prep, state)
     groups: dict[str, list] = {}
@@ -1535,10 +1617,10 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
     run_index = {id(a): i for i, a in enumerate(todo)}  # the order the sync works through them
     return {"read_status": status, "counts": plan_counts(todo),
             "groups": [{"key": key, "label": label,
-                        "actions": [{**action_row(a, plan_state, cover, where), "run": run_index[id(a)]} for a in groups[key]]}
+                        "actions": [{**row(a), "run": run_index[id(a)]} for a in groups[key]]}
                        for key, label in PLAN_LABELS if key in groups],
             "estimate": sync_estimate(todo, m),
-            "never": [action_row(a, plan_state, cover, where) for a in never],
+            "never": [row(a) for a in never],
             "folders": [line.folder for line in prep.lines],
             "in_playlists": len(in_playlists),
             "ambiguous": [{"track_id": key, "artist": t.first_artist, "title": t.title, "folder": folder,
@@ -1549,7 +1631,9 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
             "notes": list(prep.plan.notes), "empty": None if todo else "up_to_date",
             # W9: songs held for "Is this the same song?", first upgrade checks of imported music the cap left for later
             "waiting_answers": len({q.song_key for q in prep.plan.questions}),
-            "deferred_checks": prep.plan.deferred_checks}
+            "deferred_checks": prep.plan.deferred_checks,
+            # every collection a row is in, by its target (the browser column's key) -> its name (issue 37)
+            "collections": names}
 
 
 # --- watched folders (Settings, Setup; plan library stage 4 I11) ---

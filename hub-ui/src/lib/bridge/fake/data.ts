@@ -604,7 +604,7 @@ export function previewAction(kind: string, reason: string | null, t: { track_id
   cover: number | null = null): PreviewAction {
   const to_dir = `Library/${t.folder}${to_not_lossless ? '/not_lossless' : ''}`;
   return { key: [kind, t.track_id, to_dir], kind, reason, track_id: t.track_id, artist: t.artist, title: t.title,
-    folder: t.folder, to_dir, to_not_lossless, src, cover_url: coverUri(cover) };
+    folder: t.folder, to_dir, to_not_lossless, src, cover_url: coverUri(cover), in: [] };
 }
 
 // ---------- runs ----------

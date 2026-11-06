@@ -79,6 +79,8 @@ export type BrowserList = {
   /** the widest count among the watched folders with a chevron, in digits: their counts take that width, so the
    *  chevrons line up */
   countCh: number;
+  /** Sync's column (`switching`) while no name matches the filter: the line that says so (there is no hand-off) */
+  none: string | null;
 };
 
 export type BrowserInput = {
@@ -87,6 +89,9 @@ export type BrowserInput = {
   current?: string | null;
   /** crate switches saved a moment ago and not read back yet (path → shown), so a hidden crate goes at once */
   shown?: Readonly<Record<string, boolean>>;
+  /** Sync's column (issue 37): every playlist and folder row is a switch, so nothing here leads to Library: the two
+   *  views (Library's own lists of tracks, not collections to sync) and the filter's hand-off are left out */
+  switching?: boolean;
 };
 
 const AWAY_WORDS: Record<Exclude<FolderState, 'here'>, string> = {
@@ -301,15 +306,16 @@ function once<T extends { key: string }>(rows: T[]): T[] {
   return rows.filter((r) => !seen.has(r.key) && !!seen.add(r.key));
 }
 
-export function browserList({ side, query, az, closed: storedClosed, current = null, shown = {} }: BrowserInput): BrowserList {
+export function browserList({ side, query, az, closed: storedClosed, current = null, shown = {}, switching = false }: BrowserInput): BrowserList {
   // a stored value is only checked for its type (getPref), so an object or a string can stand here
   const closed = Array.isArray(storedClosed) ? storedClosed : [];
   const q = filterText(query);
   const filtering = q !== '';
   if (!side) {
-    return { views: [], sections: [], targets: [], handoff: filtering ? handoff(query) : null, on: null, countCh: 1 };
+    return { views: [], sections: [], targets: [], handoff: filtering && !switching ? handoff(query) : null, on: null,
+      countCh: 1, none: null };
   }
-  const views: ViewRow[] = filtering ? [] : [
+  const views: ViewRow[] = filtering || switching ? [] : [
     { kind: 'view', key: ALL, target: ALL, name: 'All tracks', count: side.all_tracks, href: libraryHref({ kind: 'all' }) },
     ...(side.not_in_playlist > 0 ? [{ kind: 'view' as const, key: UNLISTED, target: UNLISTED, name: 'Not in a playlist',
       count: side.not_in_playlist, href: libraryHref({ kind: 'unlisted' }) }] : []),
@@ -366,11 +372,26 @@ export function browserList({ side, query, az, closed: storedClosed, current = n
   if (playlists.length) sections.push(section('playlists', 'Playlists', playlists, side.playlists.length));
   if (onceFolders.length) sections.push(section('folders', 'Folders', onceFolders, null));
 
-  const ho = filtering ? handoff(query) : null;
-  const targets = filtering
-    ? [...sections.flatMap((s) => s.rows.filter((r) => !(r.kind === 'folder' && r.context)).map((r) => r.key)), HANDOFF]
-    : [];
-  return { views, sections, handoff: ho, targets, on: topmostRow(views, sections, current), countCh };
+  const ho = filtering && !switching ? handoff(query) : null;
+  const matched = filtering
+    ? sections.flatMap((s) => s.rows.filter((r) => !(r.kind === 'folder' && r.context)).map((r) => r.key)) : [];
+  const targets = ho ? [...matched, HANDOFF] : matched;
+  const none = switching && filtering && !sections.length ? noMatch(query) : null;
+  return { views, sections, handoff: ho, targets, on: topmostRow(views, sections, current), countCh, none };
+}
+
+/** Sync's column while no playlist or folder name matches the filter. */
+export const noMatch = (raw: string): string => `No playlist or folder called “${raw.trim()}”`;
+
+/** The folders of the column around a folder (issue 37: Sync's switches), outer to inner, itself left out: the
+ *  watched folder it lies in and the crates shown in the sidebar that hold it (a hidden crate has no row and no
+ *  switch). A Library folder or a watched folder has none. */
+export function foldersAround(side: Sidebar, path: string): { target: string; name: string }[] {
+  const w = side.watched.filter((x) => path.startsWith(`${x.path}/`)).sort((a, b) => b.path.length - a.path.length)[0];
+  if (!w) return [];
+  const crates = w.crates.filter((c) => !c.hidden && path.startsWith(`${c.path}/`))
+    .sort((a, b) => a.path.length - b.path.length);
+  return [{ target: folderTarget(w.path), name: w.name }, ...crates.map((c) => ({ target: folderTarget(c.path), name: c.label }))];
 }
 
 /** The row the pill goes on: the topmost shown row of the collection on screen. */

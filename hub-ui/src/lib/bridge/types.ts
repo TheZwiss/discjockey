@@ -251,6 +251,11 @@ export type PreviewAction = {
   key: ActionKey; kind: string; reason: string | null; track_id: string; artist: string; title: string;
   folder: string; to_dir: string; to_not_lossless: boolean; src: string | null;
   cover_url: string | null;
+  /** the collections of the browser column the song belongs to (issue 37), by their targets: every playlist whose
+   *  read holds it (`playlist:<ref>`, playlists.txt order), then the folders its file sits in, outer to inner
+   *  (`folder:<path>`: a watched folder, its crates shown in the sidebar, a Library folder no playlist uses). Sync
+   *  leaves the row out only when every one of them is switched off */
+  in: string[];
   /** the order the sync works through the actions (kind, then playlist order); not on `never` rows */
   run?: number;
 };
@@ -271,6 +276,9 @@ export type SyncPreview = {
   ambiguous: { track_id: string; artist: string; title: string; folder: string; files: string[] }[];
   dropped: { track_id: string; artist: string; title: string; folder: string }[];
   notes: string[]; empty: EmptyKind | null;
+  /** every collection a row is `in`, by its target -> its name as the plan's sections name it ("Techno",
+   *  "Techno › 2019"); {} before the first read */
+  collections: Record<string, string>;
 };
 
 export type PlannedAction = { kind: string; track_id: string; title: string; artist: string; image_url?: string | null };

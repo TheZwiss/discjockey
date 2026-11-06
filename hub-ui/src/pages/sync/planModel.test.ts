@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ActionKey, EstimateAccount, PlaylistService, PreviewAction, SyncAccount, SyncPreview } from '$lib/bridge/types';
 import {
-  FULL_SCOPE, type Scope, dayBarInput, defaultHowMany, downloadsInScope, inScope, folderLabel, foldText, howManyOptions, inRunOrder, isKindKey, kindShares, weeklyItems, planCounts, playlistSwitchTip, dayBarEmpty, leftOutBody, stripLine,
+  chosenOf, everyOff, folderSwitch, memberOn, resolveLegacy, sectionOf,
+  FULL_SCOPE, type Scope, dayBarInput, defaultHowMany, downloadsInScope, inScope, folderLabel, foldText, howManyOptions, inRunOrder, isKindKey, kindShares, weeklyItems, planCounts, switchTip, dayBarEmpty, leftOutBody, stripLine,
   kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount,
   minutesFor, runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
   readBlockLine, leftOutTitle, startLabel, tagOf, whyOf, toggleScope, waitsWhole, whyColumn,
@@ -28,7 +29,9 @@ import { keyId } from './selection';
 const act = (kind: string, id: string, folder = 'Hard_Bounce', more: Partial<PreviewAction> = {}): PreviewAction => ({
   key: [kind, id, `Library/${folder}`] as ActionKey, kind, reason: kind === 'acquire' ? 'new' : null, track_id: id,
   artist: `Artist ${id}`, title: `Title ${id}`, folder, to_dir: `Library/${folder}`,
-  to_not_lossless: false, src: null, cover_url: null, ...more });
+  to_not_lossless: false, src: null, cover_url: null, in: [P(folder)], ...more });
+/** a playlist's target; in these tests a playlist's ref is its name */
+const P = (name: string) => `playlist:${name}`;
 const ids = (s: Set<string>) => [...s].map((k) => JSON.parse(k)[1]).sort();
 
 describe('kinds and tags', () => {
@@ -60,13 +63,13 @@ describe('kinds and tags', () => {
 describe("the weekly checks' switches (issues 35, 36)", () => {
   const plan = [act('upgrade', 'a', 'X'), act('upgrade', 'b', 'Y')];
   it('are both always there, also with no rows of their kind or switched off', () => {
-    expect(weeklyItems(plan, { folders: [], kinds: ['weekly'] })).toEqual([
+    expect(weeklyItems(plan, { off: [], kinds: ['weekly'] })).toEqual([
       { key: 'retry', label: 'Missing songs', count: 0, on: true },
       { key: 'weekly', label: 'Lossy files', count: 2, on: false }]);
-    expect(weeklyItems([], { folders: [], kinds: [] }).map((i) => i.key)).toEqual(['retry', 'weekly']);
+    expect(weeklyItems([], { off: [], kinds: [] }).map((i) => i.key)).toEqual(['retry', 'weekly']);
   });
   it('count only the playlists switched on', () => {
-    expect(weeklyItems(plan, { folders: ['Y'], kinds: [] })[1].count).toBe(1);
+    expect(weeklyItems(plan, { off: [P('Y')], kinds: [] })[1].count).toBe(1);
   });
   it('say "more" in the left-out note only when rows stand above it', () => {
     expect(leftOutTitle(4, 0)).toBe('4 tracks left out');
@@ -74,9 +77,11 @@ describe("the weekly checks' switches (issues 35, 36)", () => {
     expect(leftOutTitle(4, 12)).toBe('4 more tracks left out');
   });
   it('point the left-out note at the switches that did it', () => {
-    expect(leftOutBody({ folders: ['A'], kinds: [] })).toBe('Playlists you switched off on the left.');
-    expect(leftOutBody({ folders: [], kinds: ['retry'] })).toBe('Weekly checks you switched off on the right.');
-    expect(leftOutBody({ folders: ['A'], kinds: ['retry'] })).toMatch(/on the left and .* on the right/);
+    expect(leftOutBody({ off: [P('A')], kinds: [] })).toBe('Playlists you switched off on the left.');
+    expect(leftOutBody({ off: [], kinds: ['retry'] })).toBe('Weekly checks you switched off on the right.');
+    expect(leftOutBody({ off: [P('A')], kinds: ['retry'] })).toMatch(/on the left and .* on the right/);
+    expect(leftOutBody({ off: ['folder:/m/Techno'], kinds: [] })).toBe('Folders you switched off on the left.');
+    expect(leftOutBody({ off: [P('A'), 'folder:/m/Techno'], kinds: [] })).toBe('Playlists and folders you switched off on the left.');
   });
 });
 
@@ -84,30 +89,32 @@ describe('the kinds at a glance (issue 36)', () => {
   const all = [act('acquire', 'a', 'A'), act('acquire', 'b', 'A', { reason: 'retry' }), act('upgrade', 'c', 'B'),
     act('adopt_bought', 'd', 'B'), act('acquire', 'e', 'B', { reason: 'redownload' })];
   it('lists the kinds the plan has, downloads first, with their counts in the playlists switched on', () => {
-    const k = kindShares(all, { folders: ['B'], kinds: [] });
+    const k = kindShares(all, { off: [P('B')], kinds: [] }, { [P('A')]: 'A', [P('B')]: 'B' });
     expect(k.kinds.map((x) => [x.key, x.n])).toEqual([['new', 1], ['redownload', 0], ['retry', 1], ['weekly', 0], ['bought', 0]]);
     expect(k.total).toBe(2);
-    expect(k.playlists).toBe(1);
+    expect([k.playlists, k.folders]).toEqual([1, 0]);
   });
   it('keeps a weekly check switched off in the list, marked off, out of the total', () => {
-    const k = kindShares(all, { folders: [], kinds: ['weekly'] });
+    const k = kindShares(all, { off: [], kinds: ['weekly'] });
     expect(k.kinds.find((x) => x.key === 'weekly')).toMatchObject({ n: 1, off: true });
     expect(k.total).toBe(4);
   });
   it('words the line under the count', () => {
-    expect(stripLine(12, 3, false)).toBe('to sync in 3 folders');
-    expect(stripLine(0, 0, false)).toBe('everything switched off');
-    expect(stripLine(0, 0, true)).toBe('every playlist switched off');
+    expect(stripLine(12, 3, 0, false)).toBe('to sync in 3 playlists');
+    expect(stripLine(12, 1, 2, false)).toBe('to sync in 1 playlist and 2 folders');
+    expect(stripLine(2, 0, 1, false)).toBe('to sync in 1 folder');
+    expect(stripLine(0, 0, 0, false)).toBe('everything switched off');
+    expect(stripLine(0, 0, 0, true)).toBe('every playlist and folder switched off');
   });
   it('counts a playlist without the weekly checks switched off (the old panel counted them)', () => {
-    expect(planCounts(all, { folders: [], kinds: ['weekly', 'retry'] })).toEqual({ A: 1, B: 2 });
+    expect(planCounts(all, { off: [], kinds: ['weekly', 'retry'] })).toEqual({ [P('A')]: 1, [P('B')]: 2 });
   });
   it('says what a playlist switch does', () => {
-    expect(playlistSwitchTip('Techno', { enabled: true, on: true, n: 3, running: false })).toBe('Techno · 3 tracks to sync');
-    expect(playlistSwitchTip('Techno', { enabled: true, on: true, n: 0, running: false })).toBe('Techno · nothing to sync');
-    expect(playlistSwitchTip('Techno', { enabled: true, on: false, n: 3, running: false })).toBe('Techno · left out of the sync');
-    expect(playlistSwitchTip('Techno', { enabled: false, on: true, n: null, running: false })).toMatch(/Playlists page/);
-    expect(playlistSwitchTip('Techno', { enabled: true, on: true, n: null, running: true })).toMatch(/once the sync ends/);
+    expect(switchTip('Techno', { enabled: true, on: true, n: 3, running: false })).toBe('Techno · 3 tracks to sync');
+    expect(switchTip('Techno', { enabled: true, on: true, n: 0, running: false })).toBe('Techno · nothing to sync');
+    expect(switchTip('Techno', { enabled: true, on: false, n: 3, running: false })).toBe('Techno · left out of the sync');
+    expect(switchTip('Techno', { enabled: false, on: true, n: null, running: false })).toMatch(/Playlists page/);
+    expect(switchTip('Techno', { enabled: true, on: true, n: null, running: true })).toMatch(/once the sync ends/);
   });
   it('words an empty day bar', () => {
     expect(dayBarEmpty(0, 0)).toBe('Everything switched off');
@@ -120,14 +127,17 @@ describe('scope and sections', () => {
   const all = [act('acquire', 'a', 'Ohne'), act('acquire', 'b', 'Voller'), act('adopt_bought', 'c', 'Voller'),
     act('upgrade', 'd', 'Voller'), act('acquire', 'e', 'Elsewhere')];
   it('toggles a folder or kind in and out', () => {
-    const s = toggleScope(toggleScope(FULL_SCOPE, 'folders', 'Ohne'), 'kinds', 'weekly');
-    expect(s).toEqual({ folders: ['Ohne'], kinds: ['weekly'] });
-    expect(toggleScope(s, 'folders', 'Ohne').folders).toEqual([]);
+    const s = toggleScope(toggleScope(FULL_SCOPE, 'off', P('Ohne')), 'kinds', 'weekly');
+    expect(s).toEqual({ off: [P('Ohne')], kinds: ['weekly'] });
+    expect(toggleScope(s, 'off', P('Ohne')).off).toEqual([]);
   });
   it('reads a stored scope safely', () => {
     expect(readScope(null)).toEqual(FULL_SCOPE);
     // only the weekly checks switch as kinds now (issue 36): an older left-out kind is dropped, never kept unseen
-    expect(readScope({ folders: ['A', 3], kinds: ['new', 'bogus', 'retry'] })).toEqual({ folders: ['A'], kinds: ['retry'] });
+    expect(readScope({ off: ['playlist:x', 'folder:/m/T', 'junk', 3], kinds: ['new', 'bogus', 'retry'] }))
+      .toEqual({ off: ['playlist:x', 'folder:/m/T'], kinds: ['retry'] });
+    // before issue 37 the playlists switched off were stored by name: kept until the sidebar names their targets
+    expect(readScope({ folders: ['A', 3], kinds: [] })).toEqual({ off: [], kinds: [], legacy: ['A'] });
   });
   it('sections follow playlists.txt and keep the given order inside', () => {
     expect(sections(all, ['Voller', 'Ohne']).map((s) => [s.folder, s.rows.map((r) => r.track_id)]))
@@ -168,8 +178,8 @@ describe('how many', () => {
     const ordered = [act('adopt_bought', 'm', 'Voller'), act('acquire', 'a', 'Voller'), act('acquire', 'b', 'Ohne'),
       act('acquire', 'c', 'Voller'), act('upgrade', 'u', 'Voller')];
     expect(ids(presetTicks(ordered, FULL_SCOPE, 2))).toEqual(['a', 'b', 'm']);
-    expect(ids(presetTicks(ordered, { folders: ['Ohne'], kinds: [] }, 2))).toEqual(['a', 'c', 'm']);
-    expect(ids(presetTicks(ordered, { folders: [], kinds: ['bought'] }, 9))).toEqual(['a', 'b', 'c', 'u']);
+    expect(ids(presetTicks(ordered, { off: [P('Ohne')], kinds: [] }, 2))).toEqual(['a', 'c', 'm']);
+    expect(ids(presetTicks(ordered, { off: [], kinds: ['bought'] }, 9))).toEqual(['a', 'b', 'c', 'u']);
   });
 });
 
@@ -205,7 +215,7 @@ describe('next sync and the summary', () => {
   it('Later counts only the downloads in scope, so Today + Later is "All N" (issue 7)', () => {
     const plan = [act('acquire', 'a'), act('acquire', 'b'), act('acquire', 'c'), act('adopt_bought', 'm'),
       act('acquire', 'x', 'Off_List'), act('acquire', 'y', 'Off_List'), act('upgrade', 'w')];
-    const scope: Scope = { folders: ['Off_List'], kinds: ['weekly'] };
+    const scope: Scope = { off: [P('Off_List')], kinds: ['weekly'] };
     expect(downloadsInScope(plan, scope)).toBe(3);   // a, b, c: not Off_List's two, not the weekly check
     expect(downloadsInScope(plan, FULL_SCOPE)).toBe(6);
     const chosen = plan.filter((a) => inScope(a, scope));
@@ -213,7 +223,7 @@ describe('next sync and the summary', () => {
     expect(t).toMatchObject({ uses: 2, after: 1, days: 1 });
     expect(t.uses + t.after).toBe(presets(downloadsInScope(plan, scope), 2).at(-1)!.n);   // "All 3"
     // nothing in scope: no Later, the switched-off tracks are only the plan's "left out" note
-    expect(runTotals([], downloadsInScope(plan, { folders: ['Hard_Bounce', 'Off_List'], kinds: [] }), 2, 60, table))
+    expect(runTotals([], downloadsInScope(plan, { off: [P('Hard_Bounce'), P('Off_List')], kinds: [] }), 2, 60, table))
       .toMatchObject({ after: 0, days: 0 });
   });
 });
@@ -390,11 +400,11 @@ describe('run panel (9B)', () => {
     expect(isKindKey('something-new')).toBe(false);
   });
   it('turns several playlists off and on at once (All · None)', () => {
-    const s = { folders: ['A'], kinds: [] };
-    expect(scopeSet(s, 'folders', ['A', 'B', 'C'], false)).toEqual({ folders: ['A', 'B', 'C'], kinds: [] });
-    expect(scopeSet({ folders: ['A', 'B', 'C'], kinds: [] }, 'folders', ['A', 'C'], true)).toEqual({ folders: ['B'], kinds: [] });
-    expect(scopeSet({ folders: [], kinds: [] }, 'kinds', ['bought'], false)).toEqual({ folders: [], kinds: ['bought'] });
-    expect(s).toEqual({ folders: ['A'], kinds: [] });   // the input is not changed
+    const s = { off: [P('A')], kinds: [] };
+    expect(scopeSet(s, 'off', [P('A'), P('B'), P('C')], false)).toEqual({ off: [P('A'), P('B'), P('C')], kinds: [] });
+    expect(scopeSet({ off: [P('A'), P('B'), P('C')], kinds: [] }, 'off', [P('A'), P('C')], true)).toEqual({ off: [P('B')], kinds: [] });
+    expect(scopeSet({ off: [], kinds: [] }, 'kinds', ['bought'], false)).toEqual({ off: [], kinds: ['bought'] });
+    expect(s).toEqual({ off: [P('A')], kinds: [] });   // the input is not changed
   });
   it('marks the amount that fits today with ✦', () => {
     expect(howManyOptions(presets(195, 64)).map((o) => [o.key, o.label])).toEqual([
@@ -459,5 +469,88 @@ describe('readBlockLine: what a missing login affects on Sync\'s card', () => {
   it('words an expired login as connecting again, for either service', () => {
     expect(readBlockLine('login_expired', 'spotify', [row('Peak', 'spotify'), row('Q', 'qobuz')]))
       .toBe("Peak isn't read until you connect Spotify again. Your other playlists sync as usual.");
+  });
+});
+
+describe('playlists and folders in and out of the sync (issue 37)', () => {
+  const W = 'folder:/Volumes/Ex/Techno';
+  const C = 'folder:/Volumes/Ex/Techno/2019';
+  const L = 'folder:Library/Old Stuff';
+  const off = (...t: string[]): Scope => ({ off: t, kinds: [] });
+  // a song in two playlists, one in a playlist and a folder's crate, an own song in a crate, one in a Library folder
+  const two = act('upgrade', 'two', 'A', { in: [P('A'), P('B')] });
+  const mixed = act('acquire', 'mixed', 'A', { reason: 'retry', in: [P('A'), W, C] });
+  const own = act('upgrade', 'own', 'Techno › 2019', { in: [W, C] });
+  const lib = act('upgrade', 'lib', 'Old Stuff', { in: [L] });
+  const loose = act('upgrade', 'loose', 'Your own music', { in: [] });
+  const names = { [P('A')]: 'A', [P('B')]: 'B', [W]: 'Techno', [C]: 'Techno › 2019', [L]: 'Old Stuff' };
+
+  it('a song is in while any playlist or folder it belongs to is on, out only when every one is off', () => {
+    expect(memberOn(two, off(P('A')))).toBe(true);    // switching A on or off never takes B's track away
+    expect(memberOn(two, off(P('B')))).toBe(true);
+    expect(memberOn(two, off(P('A'), P('B')))).toBe(false);
+    // a playlist and a folder: the folder switched off leaves it in through the playlist, and the other way round
+    expect(memberOn(mixed, off(W))).toBe(true);
+    expect(memberOn(mixed, off(P('A')))).toBe(true);
+    expect(memberOn(mixed, off(P('A'), W))).toBe(false);
+    expect(memberOn(lib, off(L))).toBe(false);
+    expect(memberOn(lib, off(P('A'), W))).toBe(true);
+  });
+  it('a folder switched off takes its crates along; a crate switched off in a folder that is on is off', () => {
+    expect(memberOn(own, off(W))).toBe(false);
+    expect(memberOn(own, off(C))).toBe(false);
+    expect(memberOn(own, FULL_SCOPE)).toBe(true);
+    expect(memberOn(mixed, off(P('A'), C))).toBe(false);
+  });
+  it('leaves out every kind of row whose song is out, a kind added later too', () => {
+    const odd = act('relocate', 'odd', 'Old Stuff', { in: [L] });
+    expect(inScope(odd, off(L))).toBe(false);
+    expect(inScope(odd, FULL_SCOPE)).toBe(true);
+    // a row in no collection has no switch: nothing leaves it out
+    expect(inScope(loose, off(P('A'), W, L))).toBe(true);
+  });
+  it('Start sends only ticked rows in scope', () => {
+    const plan = [two, mixed, own, lib];
+    const ticked = new Set(plan.map((a) => keyId(a.key)));
+    expect(chosenOf(plan, ticked, off(W, L)).map((a) => a.track_id)).toEqual(['two', 'mixed']);
+    expect(chosenOf(plan, new Set([keyId(own.key)]), off(C)).map((a) => a.track_id)).toEqual([]);
+    expect(everyOff(plan, off(P('A'), P('B'), W, L))).toBe(true);
+    expect(everyOff(plan, off(P('A'), W, L))).toBe(false);
+  });
+  it('a row stands under its own section while that is on, else under the first collection on', () => {
+    expect(sectionOf(two, FULL_SCOPE, names)).toBe('A');
+    expect(sectionOf(two, off(P('A')), names)).toBe('B');
+    expect(sectionOf(mixed, off(P('A')), names)).toBe('Techno › 2019');
+    expect(sectionOf(own, FULL_SCOPE, names)).toBe('Techno › 2019');
+    expect(sectionOf(loose, FULL_SCOPE, names)).toBe('Your own music');
+    const s = kindShares([two, mixed, own, lib], off(P('A')), names);
+    expect([s.total, s.playlists, s.folders]).toEqual([4, 1, 2]);   // B; Techno › 2019 and Old Stuff
+    expect(sections([two, own, lib], ['A', 'B'], (a) => sectionOf(a, off(P('A')), names)).map((x) => x.folder))
+      .toEqual(['B', 'Techno › 2019', 'Old Stuff']);
+  });
+  it('counts per collection for the column\'s tooltips', () => {
+    expect(planCounts([two, mixed, own, lib], FULL_SCOPE)).toEqual({ [P('A')]: 2, [P('B')]: 1, [W]: 2, [C]: 2, [L]: 1 });
+  });
+  it('a folder\'s switch goes by the folders around it; a hidden crate goes with its folder', () => {
+    const around = [{ target: W, name: 'Techno' }];
+    expect(folderSwitch(C, around, false, FULL_SCOPE)).toEqual({ on: true, can: true, under: null, follows: null });
+    expect(folderSwitch(C, around, false, off(C))).toEqual({ on: false, can: true, under: null, follows: null });
+    // its folder off: shown off, can't turn on until the folder is on; its own setting is kept for then
+    expect(folderSwitch(C, around, false, off(W, C))).toEqual({ on: false, can: false, under: 'Techno', follows: null });
+    expect(folderSwitch(C, around, false, off(W))).toMatchObject({ on: false, can: false, under: 'Techno' });
+    expect(folderSwitch(C, around, true, off(C))).toEqual({ on: true, can: false, under: null, follows: 'Techno' });
+    expect(folderSwitch(W, [], false, off(W))).toEqual({ on: false, can: true, under: null, follows: null });
+  });
+  it('says what a folder switch does', () => {
+    expect(switchTip('2019', { enabled: true, on: false, n: 3, running: false, under: 'Techno' }))
+      .toBe('2019 · left out with Techno · switch Techno on first');
+    expect(switchTip('2019', { enabled: true, on: true, n: 3, running: false, follows: 'Techno' }))
+      .toBe('2019 · not in the sidebar, so it goes with Techno');
+  });
+  it('turns the playlists an older version stored by name into targets, dropping names no playlist has', () => {
+    const s = readScope({ folders: ['A', 'Gone'], kinds: ['weekly'] });
+    expect(resolveLegacy(s, [{ name: 'A', ref: 'ra' }, { name: 'A', ref: 'ra2' }, { name: 'B', ref: 'rb' }]))
+      .toEqual({ off: ['playlist:ra', 'playlist:ra2'], kinds: ['weekly'] });
+    expect(resolveLegacy(FULL_SCOPE, [])).toBe(FULL_SCOPE);
   });
 });
