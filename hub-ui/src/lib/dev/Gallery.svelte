@@ -572,7 +572,7 @@
   </section>
 
   <section data-test="gallery-sharestrip">
-    {@render head('ShareStrip · ShareBar', 'The strip\'s layout for any whole (issue 36): two rows stack (Library), more stand three to a column, under 620 px they take a line of their own; ShareBar: parts in their colours, a part switched off dims')}
+    {@render head('ShareStrip · ShareBar', 'The strip\'s layout for any whole (issue 36): two rows stack (Library), more stand three to a column, under 680 px they take a line of their own; ShareBar: parts in their colours, a part switched off dims')}
     <div class="col">
       {#each [[900, 'five kinds, wide: the rows beside the bar'], [560, 'five kinds, narrow: the rows under the share and the bar'],
         [900, 'two kinds: Library\'s two-row form'], [900, 'a weekly check switched off: its row dims and says off, its part leaves the bar']] as [w, cap], i (i)}

@@ -18,7 +18,7 @@
   // and Sync's KindStrip (the plan's tracks, its kinds) are this block with their own words.
   // Up to two rows they stack in one 300 px column, each half the strip's height (Library). More rows stand three to
   // a column, the columns side by side (Sync's five kinds); where the strip is too narrow for them beside the bar
-  // (a container query, under 620 px), the rows take a line of their own under the share and the bar, so nothing is
+  // (a container query, under 680 px), the rows take a line of their own under the share and the bar, so nothing is
   // cut and nothing scrolls sideways.
   // `value` null: "—" and no unit (waiting, nothing to count); `bar` is the strip's bar (QualityBar, ShareBar).
   import Surface from './Surface.svelte';
@@ -111,7 +111,7 @@
   /* more than two rows: three to a column, columns side by side, a rule between them; no › column (a row of many
      is a legend line) */
   .many { container-type: inline-size; }
-  .many .grid { grid-template-columns: auto minmax(80px, 1fr) minmax(0, calc(var(--cols) * 168px)); }
+  .many .grid { grid-template-columns: auto minmax(80px, 1fr) minmax(0, calc(var(--cols) * 192px)); }
   .many .rows { display: grid; grid-template-rows: repeat(3, minmax(0, 1fr)); grid-auto-flow: column;
     grid-auto-columns: minmax(0, 1fr); }
   .many .srow { grid-template-columns: 14px minmax(0, 1fr) auto; gap: var(--s-2); padding: 0 var(--s-3); border-radius: 0; }
@@ -119,7 +119,7 @@
   .many .srow:nth-child(n + 4) { border-left: var(--bw) solid var(--line-soft); }
   .many .srow:last-child { border-bottom-right-radius: calc(var(--r-surface) - var(--bw)); }
   /* too narrow for the rows beside the bar: they take a line of their own under the share and the bar */
-  @container (max-width: 620px) {
+  @container (max-width: 680px) {
     .many .grid { grid-template-columns: auto minmax(80px, 1fr); grid-template-rows: 70px 70px; height: auto;
       padding-left: 0; }
     .many .share { padding-left: var(--s-4); }
