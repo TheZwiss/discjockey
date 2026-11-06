@@ -302,11 +302,13 @@
   const gSorted = (col: 'track' | 'length') => (gSort.col === col ? (gSort.desc ? 'desc' : 'asc') : null);
   let gPlaying = $state<string | null>('c2');
   let focusMe: HTMLDivElement | undefined = $state();
-  // ListRow: the Sync plan's tick list (narrow and wide), a "one of many" list, a list without a button. Narrow, the
-  // why is a mark before ⊘ (WhyMark, a 26 px slot: trailing 60 px); from 680 px list width it is the why column.
-  const LR_COLS = '--row-cols: 52px minmax(0, 1fr) 60px; --row-cols-wide: 52px minmax(0, 1fr) 200px 32px';
-  const LR_ROWS: { id: string; artist: string; title: string; tag: string | null; kind: KindKey | null; next: boolean }[] = [
-    { id: 'a', artist: 'Charlotte de Witte', title: 'Overdrive', tag: null, kind: null, next: false },
+  // ListRow: the Sync plan's tick list (narrow and wide), a "one of many" list, a list without a button. Every row has
+  // its kind's icon before ⊘ (WhyMark, a 26 px slot: trailing 60 px); from 680 px list width the why column says it in
+  // words too (all but a plain new song), and the "next sync" dot moves from the mark into the column.
+  const LR_COLS = '--row-cols: 52px minmax(0, 1fr) 60px; --row-cols-wide: 52px minmax(0, 1fr) 200px 60px';
+  const LR_ROWS: { id: string; artist: string; title: string; tag: string | null; kind: KindKey; next: boolean }[] = [
+    { id: 'a', artist: 'Charlotte de Witte', title: 'Overdrive', tag: null, kind: 'new', next: false },
+    { id: 'w', artist: 'Kölsch', title: 'Grey', tag: 'weekly check', kind: 'weekly', next: false },
     { id: 'b', artist: 'Amelie Lens', title: 'Feel It', tag: 'not found last time', kind: 'retry', next: false },
     { id: 'c', artist: 'Ben Klock, Fadi Mohem, DVS1, Etapp Kyle, Marcel Dettmann, Norman Nodge',
       title: 'Subzero (Extended Original Mix featuring a very long remix credit that has to shorten) [Ostgut Ton]',
@@ -924,15 +926,16 @@
             {#snippet lead()}<Tick {on} /><Cover url={null} seed={r.id} size={28} />{/snippet}
             {#snippet name()}{r.artist} – {r.title}{/snippet}
             {#snippet optional()}<Why tag={r.tag} next={r.next && on} />{/snippet}
-            {#snippet trailing()}<WhyMark kind={r.kind} next={r.next && on} /><NeverButton name="{r.artist} – {r.title}" onclick={() => {}} />{/snippet}
+            {#snippet trailing()}<WhyMark kind={r.kind} next={r.next && on} />{#if r.kind === 'weekly' || r.kind === 'bought'}<span
+              class="never-slot"></span>{:else}<NeverButton name="{r.artist} – {r.title}" onclick={() => {}} />{/if}{/snippet}
           </ListRow>
         {/each}
       </Surface>
     {/snippet}
     <div class="col">
-      <span class="cap">640 px list · the why is a mark before ⊘: kind icon, yellow "next sync" dot (Sync's WhyMark, not a block)</span>
+      <span class="cap">640 px list · every row's kind icon before ⊘, the yellow "next sync" dot beside it (Sync's WhyMark, not a block)</span>
       <div class="w640">{@render tickList('g-rows-narrow', 'Ticks · narrow')}</div>
-      <span class="cap">800 px list · the why column in words</span>
+      <span class="cap">800 px list · the why column in words, the icon stays</span>
       <div class="w800">{@render tickList('g-rows-wide', 'Ticks · wide')}</div>
       <div class="grid2 w800">
         <div class="col tight"><span class="cap">one of many · selected (Vatoz Locoz) · disabled (Mira Volt: name and cover muted, no hover or click while a change runs)</span>
@@ -1602,4 +1605,6 @@
   .g-pill { position: absolute; left: 11px; top: -9px; min-width: 18px; height: 14px; padding: 0 4px; border-radius: var(--r-pill);
     background: var(--rail-pill-bg); box-shadow: 0 0 0 2px var(--sidebar-solid); color: var(--text); font-size: var(--fs-label);
     font-weight: var(--fw-semi); line-height: 14px; text-align: center; font-variant-numeric: tabular-nums; }
+  /* ⊘'s place on a plan row that can't have one (a weekly check, a bought file), as Sync's PlanRows keeps it */
+  .never-slot { flex: none; width: 26px; }
 </style>

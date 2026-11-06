@@ -5,7 +5,9 @@
   // (spec §11: a list nested in the card would be a container in a container); with today's limit used up a yellow
   // NoteCard, title only (the DayBar and Start already say what still runs). Fill = the Playlists ToggleGroup (takes
   // the spare height, scrolls inside, search from 7);
-  // after = What to do (natural height); foot = Start sync and its console note (`start`, built by the page).
+  // after = What to do (natural height). Both show while they have a row, also a single one: the scope is remembered,
+  // so leaving out the only kind planned (weekly checks with no retry due) still counts, and a left-out playlist or kind
+  // that is the only one planned stays switchable back on (issue 35); foot = Start sync and its console note (`start`, built by the page).
   // Labels and numbers, no sentences (spec §6): the old prose lines ("215 more after this run · ~4 more days…") are
   // now the DayBar's segments.
   // The import's two notes (plan library stage 4, W9) are NoteCards (up to three lines: a Hint is one line, and these
@@ -18,7 +20,7 @@
   import { Panel } from '$lib/frames';
   import type { SyncAccount } from '$lib/bridge/types';
   import {
-    dayBarInput, folderItems, howManyOptions, isKindKey, kindItems, runCount, runTime, serviceRows, type Facet, type HowMany, type Preset,
+    dayBarInput, folderItems, howManyOptions, isKindKey, kindItems, runCount, runTime, scopeGroupShown, serviceRows, type Facet, type HowMany, type Preset,
     type RunTotals, type Scope, deferredChecksLine,
   } from '../planModel';
   import KindIcon from './KindIcon.svelte';
@@ -108,7 +110,8 @@
 {/snippet}
 
 <div class="run-panel" data-test="sync-panel">
-  <Panel {head} fill={folders.length > 1 ? fill : undefined} after={kinds.length > 1 ? after : undefined} foot={start} />
+  <!-- both groups stay while they have a row, a single one too (issue 35, scopeGroupShown) -->
+  <Panel {head} fill={scopeGroupShown(folders) ? fill : undefined} after={scopeGroupShown(kinds) ? after : undefined} foot={start} />
 </div>
 
 <style>

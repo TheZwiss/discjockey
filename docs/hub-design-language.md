@@ -435,7 +435,12 @@ used.
 | `EmptyState`, `Skeleton` | `lib/components/` | `gallery-emptystate`, `gallery-skeleton` | Empty content; a placeholder of the content's shape. |
 
 Sync's `Why`, `WhyMark` and `KindIcon` (`hub-ui/src/pages/sync/plan/`) are shared with the gallery. If another page
-needs one, it moves to `lib/components` first (centrally).
+needs one, it moves to `lib/components` first (centrally). `KindIcon` draws one icon per kind of plan action, stroke
+1.6 in the text's colour: New a download arrow, Not found last time an arrow round, File gone a page struck through,
+Bought files a price tag, Weekly checks a clock. `WhyMark` is a plan row's kind mark: that icon on **every** row at
+every width, in a 26 px slot before ⊘ (⊘'s place kept on rows that can't have one), with the yellow "next sync" dot
+beside it below 680 px list width; What to do shows the same icons beside the kinds' names, so the panel is its legend
+(decision log 2026-11-06).
 
 The gallery's "Other components" (WriteButton, Badge, Cover, TrackRow, fields (CopyCode and SecretField have their own
 sections), Banner, Dialog, Ring, Spectrum, player,
@@ -530,8 +535,10 @@ Sync is built on the system in every state. When unsure how something should loo
 Each shot exists at `@1100`, `@1280` and `@2560`. Worth copying:
 - The panel: count and run time `StatCard`s, the day card (`DayBar`, amount `Segmented`, one line with a link), then
   Playlists as a `grow` `ToggleGroup` in `fill`, What to do in `after`, Start sync (`filled`, `wide`) in `foot`.
-- The plan: one `Surface list` per playlist (`foldable`, `sticky`, `bulk`), rows on `ListRow`, the why column only
-  where a section can fill it.
+- The plan: one `Surface list` per playlist (`foldable`, `sticky`, `bulk`), rows on `ListRow`, every row's kind icon
+  (`WhyMark`), the why column in words only where a section can fill it.
+- The panel's Playlists and What to do stay while they have a row, a single one too (`scopeGroupShown`): the scope is
+  remembered, so one row is still a choice (`sync-weekly-only`, `sync-weekly-only-off`).
 - The end screen: three `StatCard`s (added across with the quality bar, then moved · need you), the rest as
   `Surface list`s; Done is the one filled button.
 
@@ -587,6 +594,23 @@ width is not a fix.
 Phase 1's decisions, with their reasons, are in spec §11 (`docs/2026-10-20-hub-design-system-design.md`). Search it
 before reopening anything. New system-level decisions from phase 2 on go here, newest on top, one entry each:
 **what changed** (block or token), **why** (the reason under safeguard 1), **where it was seen** (shot or page).
+
+- **2026-11-06 · Sync: every plan row shows its kind's icon; the weekly check is a clock; a scope group of one row
+  stays (issue 35).** What: `WhyMark` (Sync's kind mark) shows `KindIcon` on every row at every width, a plain new
+  song's download arrow included, in the 26 px slot before ⊘ (before, only a tagged row on a list under 680 px had
+  it); the "next sync" dot joins it below 680 px. `KindIcon`'s weekly check is a clock instead of a calendar. The
+  row's tooltip says why for every kind (`whyOf`: "not downloaded yet" for a new song); the why column keeps its words
+  for all but the new song, so a list of new songs keeps its names' width. RunPanel shows Playlists and What to do
+  while they have a row (`scopeGroupShown`), no longer only from two. Why: seen live, a run with only weekly checks
+  planned (no retry due) hid the What to do group, so the checks could no longer be left out, and a left-out kind that
+  is the only one planned could not be switched back on while the plan's note pointed at "the right". At 1100 the why
+  column hides, so a weekly check and a new song looked the same (a new song had no mark at all). The icons stay in
+  the row's muted text colour, not the user's first idea of an orange clock: orange is action and selection (the
+  ticks, Start), and an orange icon on a list of a hundred checks would read as selected and outshout the ticks; a
+  kind is not a quality, a problem or a wait, so no other colour has the job. Shape, a fixed column and What to do's
+  legend carry it. The calendar's grid lines blurred into a box at 14 px; a clock reads as "regularly" at that size
+  and stays apart from Not found last time's open arrow. Seen: `sync-weekly-only`, `sync-weekly-only-off`,
+  `sync-many`, `sync-many-kinds`, gallery `gallery-listrow`.
 
 - **2026-11-05 · The rule checker's screen rules skip the gallery (`data-catalogue`); `Toast` is a note (issue 28).**
   What: `scripts/rules-page.js` no longer runs `frame`, `primary` (per screen), `clipped`, `loose-text` and

@@ -55,15 +55,18 @@ export function kindOf(a: Pick<PreviewAction, 'kind' | 'reason'>): KindKey {
   return 'weekly';   // upgrade: the sync plans no other kinds (it never moves a file, only places new downloads)
 }
 
-/** The small tag after the name; a plain new track has none. */
-export function tagOf(a: PreviewAction): string | null {
-  switch (kindOf(a)) {
-    case 'retry': return 'not found last time';
-    case 'redownload': return 'file gone';
-    case 'bought': return 'bought file';
-    case 'weekly': return 'weekly check';
-    default: return null;
-  }
+/** Why a row is in the plan, in words, one per kind (issue 35): the row's tooltip says it for every row, the why
+ *  column for all but a plain new song (its download icon says it; a list of new songs keeps its names' width). */
+export const WHY: Record<KindKey, string> = {
+  new: 'not downloaded yet', retry: 'not found last time', redownload: 'file gone', bought: 'bought file',
+  weekly: 'weekly check',
+};
+export const whyOf = (a: Pick<PreviewAction, 'kind' | 'reason'>): string => WHY[kindOf(a)];
+
+/** The small tag after the name, in the why column; a plain new track has none (its icon is enough). */
+export function tagOf(a: Pick<PreviewAction, 'kind' | 'reason'>): string | null {
+  const k = kindOf(a);
+  return k === 'new' ? null : WHY[k];
 }
 
 /** Acquire and upgrade use Qobuz and take time; a bought file takes none. */
@@ -99,6 +102,15 @@ export function readScope(v: unknown): Scope {
 export const folderLabel = (folder: string): string => folder.trim() || 'Your own music';
 
 export type Facet = { key: string; label: string; count: number };
+/** Whether the panel shows a scope group (Playlists, What to do): whenever it has a row, also a single one (issue 35).
+ *  The scope is remembered across runs, so leaving out the only kind planned today (weekly checks, when no retry is
+ *  due) still means something, and a playlist or kind left out earlier must stay switchable back on when it is the
+ *  only one left; the plan's "left out" note points at these switches. */
+export const scopeGroupShown = (f: Facet[]): boolean => f.length > 0;
+/** The plan's note on what the panel's switches leave out: "4 more tracks left out" under rows, but "4 tracks left
+ *  out" when every track is left out and no row is above it (issue 35: weekly checks switched off, nothing else). */
+export const leftOutTitle = (hidden: number, shown: number): string =>
+  `${plural(hidden, shown > 0 ? 'more track' : 'track')} left out`;
 /** Playlists (playlists.txt order) and kinds that have actions, with their counts. */
 export function facets(actions: PreviewAction[], folderOrder: string[]): { folders: Facet[]; kinds: Facet[] } {
   const byFolder = new Map<string, number>();

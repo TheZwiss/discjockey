@@ -23,6 +23,8 @@
 //   sync:many        the long plan plus 12 more playlists (one with a very long name, Peak_Time_Warmup_Selection_2026_Final_v3)
 //                    and actions of all 5 kinds (new, not found last time, file gone, bought, weekly)
 //   sync:long-names  the long plan with three titles over 120 characters and one track by six artists
+//   sync:weekly-only only weekly checks planned (issue 35, seen live): no new songs, and the songs not found last time
+//                    aren't due for another try yet, so What to do has one row, Weekly checks, which can still be switched off
 import type { PageFake } from '$lib/bridge/fake/bridge';
 import type { FakeState } from '$lib/bridge/fake/data';
 import { FAKE_MUSIC, SPOTIFY_HINT, coverUri, previewAction, runId, samplePlaylists } from '$lib/bridge/fake/data';
@@ -144,6 +146,12 @@ export const scenarios: PageFake['scenarios'] = {
   },
   many,
   'long-names': longNames,
+  'weekly-only'(s) {
+    s.scenario = 'sync:weekly-only';
+    s.newTracks = [];
+    // the retries tried this week aren't due again yet (the fake plans a retry only at next_try_days 1)
+    s.tracks = s.tracks.map((t) => (t.status === 'missing' && t.next_try_days === 1 ? { ...t, next_try_days: 6 } : t));
+  },
   reading: reading(true),
   rereading: reading(false),
   converting: (s) => { s.scenario = 'sync:converting'; },
