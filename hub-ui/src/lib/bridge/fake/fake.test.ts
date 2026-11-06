@@ -97,6 +97,18 @@ describe('fake backend', () => {
     expect(all.every((x) => x.folder.trim() !== '')).toBe(true);
     expect(all.find((x) => x.track_id === 'own-techno-1')).toMatchObject({ kind: 'upgrade', folder: 'Techno' });
   });
+  it('names every collection a row belongs to, by the sidebar\'s keys (issue 37)', async () => {
+    const f = createFakeBridge('normal', { speed: 50, emit: () => {} });
+    const p = await f.sync_preview();
+    const side = await f.sidebar();
+    if (!p.ok || !side.ok) throw new Error();
+    const all = [...p.groups.flatMap((g) => g.actions), ...p.never];
+    const keys = new Set([...side.playlists.map((x) => `playlist:${x.ref}`), ...side.watched.flatMap((w) =>
+      [`folder:${w.path}`, ...w.crates.map((c) => `folder:${c.path}`)]), ...side.library_folders.map((x) => `folder:${x.path}`)]);
+    expect(all.every((a) => a.in.length > 0 && a.in.every((t) => keys.has(t) && t in p.collections))).toBe(true);
+    // the own song is in the watched folder its file sits in
+    expect(all.find((x) => x.track_id === 'own-techno-1')!.in).toEqual(['folder:/Volumes/Example Drive/Music']);
+  });
   it('"never download" moves a planned download out of the plan and back, like the backend', async () => {
     const evs: HubEvent[] = [];
     const f = createFakeBridge('normal', { speed: 50, emit: (e) => evs.push(e) });

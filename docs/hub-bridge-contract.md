@@ -404,6 +404,15 @@ again, `adopt_bought` Add a bought file, `upgrade` Look for a better version (we
 `adopt` groups, no `counts.moves` / `counts.adopts` (in `sync_preview` and in the dashboard's `ready.counts`) and no
 `from_folder` on a row any more (library stage 1): a sync moves no files, and files moved by hand are found by the
 scan (`rescan_library`). `key` is `[kind, track_id, to_dir]` (3 strings; example cut).
+Every action row also has `in`: the collections of the browser column its song belongs to (issue 37), by their
+sidebar keys — every playlist line whose read holds it (`playlist:<ref>`, playlists.txt order; a line not read this
+time by its last stored read, else by the songs' folder), then the folders its file sits in, outer to inner
+(`folder:<path>`: the watched import folder, each crate of it shown in the sidebar that holds the file, or a Library
+folder no playlist uses; a file in a playlist's own Library folder is in no folder). Sync leaves a row out only when
+every collection in it is switched off (a folder by its own switch and those of the folders around it); a row with
+an empty `in` has nothing that can switch it off. The preview's `collections` names each of them (target -> name as
+the sections say it: a playlist's folder, "Techno", "Techno › 2019", a Library folder's name; `{}` before the first
+read). `api.sync_preview` passes `views.song_places` (watched folders, crate visibility).
 Every action row also has `run`: its index in the order the sync works through them (bought files, then downloads, then weekly checks; inside each, playlists.txt order). Downloads of tracks in the "never download" list
 are not in `groups` but in `never` (same rows, without `run`); marking or unmarking a track moves it at once, without
 reading Spotify again. `folders` is the playlists.txt order, `in_playlists` the number of unique Spotify tracks read
@@ -464,6 +473,7 @@ ticked count (a larger count takes the last entry) for the service rows and neve
      "to_not_lossless": false,
      "src": null,
      "cover_url": "https://i.scdn.co/image/t4",
+     "in": ["playlist:0DiscjockeyExampleList"],
      "run": 0
     },
     {
@@ -481,6 +491,7 @@ ticked count (a larger count takes the last entry) for the service rows and neve
      "to_not_lossless": false,
      "src": null,
      "cover_url": "https://i.scdn.co/image/t5",
+     "in": ["playlist:3DiscjockeyExampleList"],
      "run": 1
     }
    ]
@@ -516,7 +527,8 @@ ticked count (a larger count takes the last entry) for the service rows and neve
  "ambiguous": [],
  "dropped": [],
  "notes": [],
- "empty": null
+ "empty": null,
+ "collections": {"playlist:0DiscjockeyExampleList": "Hard_Bounce", "playlist:3DiscjockeyExampleList": "Powertrance"}
 }
 ```
 

@@ -65,10 +65,12 @@ right). Chrome joins this frame; it never floats over the page or reserves a str
   follow it. **One more line inside the chrome:** the sidebar's right edge while the browser stands beside it, the
   same hairline as the page's edge, so the icon column and the collections read as two levels, pages | collections.
   Library and Sync are one place for the chrome (`placeOf`): they share the form, and the column stays put between
-  them. On Sync the column is the same, row for row, with one change: a playlist's count gives its place to a switch
-  that puts it in or out of the sync (the whole row is the switch, its tooltip says what it holds for the sync; while
-  a sync runs the switches hold); every other row opens Library at its collection, as the full sidebar's favourites
-  do, and while filtering every row is a link.
+  them. On Sync the column is the same, row for row, with one change: every playlist's and folder's count gives its
+  place to a switch that puts it in or out of the sync (the whole row is the switch, its tooltip says what it holds
+  for the sync; while a sync runs the switches hold). Nothing there leads to Library (issue 37): All tracks and Not in
+  a playlist step aside, the filter finds switches (Enter flips the highlighted one; no hand-off, a quiet "No playlist
+  or folder called …" row when nothing matches). A folder switched off takes its crates along (their switches show
+  off and can't turn on, each keeping its own setting); a crate hidden from the sidebar goes with its folder.
   Below 1240 px (`--panel-narrow-below`) Library holds the browser or the details beside the list, not both: an open
   inspector steps the browser back behind the rail, and ⌘K or ♫ brings it back and closes the details.
 - **The fold button and the rail's signals.** The fold button (the macOS sidebar symbol, a Tip "Hide sidebar ⌃⌘S" /

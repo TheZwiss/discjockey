@@ -12,7 +12,7 @@ import {
   readStatus, sampleCandidates, readOk, todoDetail, todoFree, fileFormatLine, sourceFormatLine, sourceHowOf, sourceFull, todoFileState, todoGroup, trackRow, type FakeAccount, type FakeFolder, type FakeState,
   type FakeTrack,
 } from './data';
-import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, fakeLink, libraryOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
+import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, fakeLink, libraryOf, membersOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
 import { LIKED_FOLDER, LIKED_LINK, LIKED_LISTED, LIKED_NEEDS_LOGIN, LIKED_OFF, LIKED_SETTING, isLikedLink, likedOn,
   likedScenarios, likedStatus } from './liked';
 import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, rewrite } from './replay';
@@ -241,7 +241,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   // the weekly check of an imported file (a song of the user's own): in no playlist, so the engine names its folder
   // after the folder the file sits in ("Techno"), the way the rest of the app does (views.action_folder)
   const OWN_CHECK = [previewAction('upgrade', 'weekly', { track_id: 'own-techno-1', artist: 'Dub Chord', title: 'Night Drive',
-    folder: 'Techno' }, true, '/Volumes/Example/Music/Techno/Dub Chord - Night Drive.mp3', null)];
+    folder: 'Techno' }, true, '/Volumes/Example Drive/Music/Techno/Dub Chord - Night Drive.mp3', null)];
   function preview() {
     type Row = ReturnType<typeof previewAction>;
     const groups: { key: string; label: string; actions: Row[] }[] = [];
@@ -480,8 +480,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const p = preview();
       if (!s.previewRead) return ok({ read_status: readStatus(s), counts: null, groups: [], estimate: null, never: [],
         folders: [], in_playlists: null, ambiguous: [], dropped: [], notes: [], waiting_answers: 0, deferred_checks: 0,
-        empty: 'no_preview' as const });  // like views.sync_preview: never not_set_up
+        empty: 'no_preview' as const, collections: {} });  // like views.sync_preview: never not_set_up
+      // each row's collections, as views._members gives them (issue 37)
+      const m = membersOf(s, sidebarOf(s, 0, false));
+      for (const a of [...p.groups.flatMap((g) => g.actions), ...p.never]) a.in = m.of(a);
       return ok({ read_status: readStatus(s), counts: p.counts, groups: p.groups, estimate: p.estimate, never: p.never,
+        collections: m.names,
         folders: p.folders, in_playlists: p.in_playlists, ambiguous: [], dropped: [], notes: [],
         waiting_answers: s.imp.questions.length, deferred_checks: s.imp.deferred,
         empty: p.actions ? null : 'up_to_date' as const });

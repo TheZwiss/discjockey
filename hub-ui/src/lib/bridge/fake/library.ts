@@ -4,7 +4,7 @@
 // Favourites and the user's crate switches. Words and rules are the engine's; a rule that changes there changes here.
 import type {
   Crate, Favourite, FolderState, Library, LibraryFilter, LibraryRow, LibrarySort, LibraryView, PlaylistService,
-  PlaylistRow, Sidebar, TrackLink, WatchedEntry,
+  PlaylistRow, PreviewAction, Sidebar, TrackLink, WatchedEntry,
 } from '../types';
 import { NOT_IN_PLAYLIST, QUALITIES } from '../types';
 import { needsSetting } from './liked';
@@ -442,4 +442,38 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
   return { title, folder, view: view as LibraryView, key: shownKey, folder_kind: folderKind,
     subtitle: gone ? [] : subtitle(plural(have.length, '1 track', '{n} tracks')), summary, chips, rows, also: alsoRows,
     songs, read_at: readAt, enabled, service, empty };
+}
+
+/** Issue 37: the collections of the browser column a preview row's song belongs to, as views._members gives them:
+ *  every playlist whose read holds it (playlists.txt order; a song no read holds goes by its folder's playlist), then
+ *  the folders its file sits in, outer to inner (the deepest watched folder, its crates shown in the sidebar that hold
+ *  the file, or a Library folder no playlist uses). `names`: each target's name as the plan's sections say it. */
+export function membersOf(s: FakeState, side: Sidebar): { of: (a: PreviewAction) => string[]; names: Record<string, string> } {
+  const names: Record<string, string> = {};
+  for (const p of side.playlists) names[`playlist:${p.ref}`] ??= p.name;
+  const reads = side.playlists.map((p) => ({ target: `playlist:${p.ref}`, keys: new Set(readOf(s, p.name)?.held.map((h) => h.key)) }));
+  const places = (path: string): string[] => {
+    const lib = libraryFolder(path);
+    if (lib !== null) {
+      const f = side.library_folders.find((x) => x.name === lib);
+      if (!f) return [];
+      names[`folder:${f.path}`] = f.name;
+      return [`folder:${f.path}`];
+    }
+    const w = side.watched.filter((x) => path.startsWith(`${x.path}/`)).sort((a, b) => b.path.length - a.path.length)[0];
+    if (!w) return [];
+    names[`folder:${w.path}`] = w.name;
+    const crates = w.crates.filter((c) => !c.hidden && path.startsWith(`${c.path}/`)).sort((a, b) => a.path.length - b.path.length);
+    for (const c of crates) names[`folder:${c.path}`] = `${w.name} › ${c.label}`;
+    return [`folder:${w.path}`, ...crates.map((c) => `folder:${c.path}`)];
+  };
+  const of = (a: PreviewAction): string[] => {
+    const out = reads.filter((r) => r.keys.has(a.track_id)).map((r) => r.target);
+    const t = s.tracks.find((x) => x.track_id === a.track_id);
+    const path = (t && t.status !== 'missing' ? pathOf(t) : null) ?? (a.src?.startsWith('/') ? a.src : null);
+    if (path) out.push(...places(path));
+    if (!out.length) out.push(...side.playlists.filter((p) => p.name === a.folder).map((p) => `playlist:${p.ref}`));
+    return [...new Set(out)];
+  };
+  return { of, names };
 }

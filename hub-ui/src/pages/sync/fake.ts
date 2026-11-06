@@ -25,7 +25,8 @@
 //   sync:long-names  the long plan with three titles over 120 characters and one track by six artists
 //   sync:weekly-only only weekly checks planned (issue 35, seen live): no new songs, and the songs not found last time
 //                    aren't due for another try yet, so What to do has one row, Weekly checks, which can still be switched off
-import type { PageFake } from '$lib/bridge/fake/bridge';
+import type { Bridge } from '$lib/bridge/client';
+import type { FakeContext, PageFake } from '$lib/bridge/fake/bridge';
 import type { FakeState } from '$lib/bridge/fake/data';
 import { FAKE_MUSIC, SPOTIFY_HINT, coverUri, previewAction, runId, samplePlaylists } from '$lib/bridge/fake/data';
 import { sampleQuestions } from '$lib/bridge/fake/folders';
@@ -181,23 +182,7 @@ export const overrides: PageFake['overrides'] = {
     if (ctx.s.scenario === 'sync:up-to-date-wait') await new Promise((r) => setTimeout(r, 60_000));
     return base(run_id);
   },
-  sync_preview: (ctx, base) => async () => {
-    const r = await base();
-    if (!r.ok) return r;
-    if (ctx.s.scenario === 'sync:long-plan' || ctx.s.scenario === 'sync:long-names') return { ...r, ...extendLongPlan(r) };
-    if (ctx.s.scenario === 'sync:downloads-wait') {
-      const p = extendLongPlan(r);
-      return { ...r, ...p, groups: p.groups.filter((g) => g.key.startsWith('acquire')),
-        counts: p.counts && { ...p.counts, bought: 0, weekly_checks: 0 } };
-    }
-    if (ctx.s.scenario === 'sync:many') return { ...r, ...extendLongPlan(r), groups: [...r.groups, ...otherKinds()] };
-    if (ctx.s.scenario === 'sync:up-to-date' || ctx.s.scenario === 'sync:up-to-date-wait') {
-      const never = [ctx.s.newTracks[2], ctx.s.newTracks[5]].filter(Boolean)
-        .map((t, i) => previewAction('acquire', 'new', t, false, null, i + 1));
-      return { ...r, groups: [], counts: { new: 0, retries: 0, redownloads: 0, bought: 0, weekly_checks: 0 }, never, empty: 'up_to_date' as const };
-    }
-    return r;
-  },
+  sync_preview: (ctx, base) => async () => fillMembers(await syncPreview(ctx, base)),
   job_status: (ctx, base) => {
     // a sync that already runs when the window opens, frozen in the conversion of "non stop"
     if (ctx.s.scenario === 'sync:converting' || ctx.s.scenario === 'sync:stop-refused' || ctx.s.scenario === 'sync:own-cover') {
@@ -243,3 +228,34 @@ export const overrides: PageFake['overrides'] = {
     return base;
   },
 };
+
+/** The scenario's preview: the fake bridge's, with the scenario's extra rows. */
+type Preview = Awaited<ReturnType<Bridge['sync_preview']>>;
+async function syncPreview(ctx: FakeContext, base: Bridge['sync_preview']): Promise<Preview> {
+    const r = await base();
+    if (!r.ok) return r;
+    if (ctx.s.scenario === 'sync:long-plan' || ctx.s.scenario === 'sync:long-names') return { ...r, ...extendLongPlan(r) };
+    if (ctx.s.scenario === 'sync:downloads-wait') {
+      const p = extendLongPlan(r);
+      return { ...r, ...p, groups: p.groups.filter((g) => g.key.startsWith('acquire')),
+        counts: p.counts && { ...p.counts, bought: 0, weekly_checks: 0 } };
+    }
+    if (ctx.s.scenario === 'sync:many') return { ...r, ...extendLongPlan(r), groups: [...r.groups, ...otherKinds()] };
+    if (ctx.s.scenario === 'sync:up-to-date' || ctx.s.scenario === 'sync:up-to-date-wait') {
+      const never = [ctx.s.newTracks[2], ctx.s.newTracks[5]].filter(Boolean)
+        .map((t, i) => previewAction('acquire', 'new', t, false, null, i + 1));
+      return { ...r, groups: [], counts: { new: 0, retries: 0, redownloads: 0, bought: 0, weekly_checks: 0 }, never, empty: 'up_to_date' as const };
+    }
+    return r;
+}
+/** Rows a scenario added go by their folder's collection (the fake bridge fills its own rows' `in`, issue 37). */
+function fillMembers(r: Preview): Preview {
+  if (!r.ok) return r;
+  const byName = new Map<string, string>();
+  for (const [target, name] of Object.entries(r.collections)) if (!byName.has(name)) byName.set(name, target);
+  for (const a of [...r.groups.flatMap((g) => g.actions), ...r.never]) {
+    const t = byName.get(a.folder);
+    if (!a.in.length && t) a.in = [t];
+  }
+  return r;
+}

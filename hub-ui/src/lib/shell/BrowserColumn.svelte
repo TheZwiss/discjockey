@@ -37,14 +37,16 @@
   // option with its own id (`bc-…`), and the field's `aria-activedescendant` names the highlighted one, so ↑ ↓ are
   // read out as they move. A switched-off playlist and an away folder say so in words, not only by their look.
   //
-  // On Sync (issue 36) the column stands too, the same rows in the same places, with one change: a playlist's count
-  // gives its place to a switch that puts the playlist in or out of the sync (`syncScope`), and the whole row is that
-  // switch (a ToggleRow's hit area), its tooltip saying what the playlist holds for the sync (`planCounts`, the kinds
-  // switched on only). A playlist left out dims its logo and name (dim means switched off); one switched off on the
-  // Playlists page keeps its half-strength row and a switch that can't turn on. While a sync runs the switches hold
-  // (its playlists are set). Every other row, the right-click menu, the filter and Favourites' drag are Library's:
-  // a click opens Library at the collection, as the full sidebar's favourites do. While filtering, every row is a
-  // link (the filter finds and opens).
+  // On Sync (issues 36, 37) the column stands too, the same rows in the same places, with one change: every
+  // playlist's and folder's count gives its place to a switch that puts the collection in or out of the sync
+  // (`syncScope`), and the whole row is that switch (a ToggleRow's hit area), its tooltip saying what the collection
+  // holds for the sync (`planCounts`, the kinds switched on only). Nothing in the column leads to Library there: the
+  // two views (Library's lists of tracks) step aside, the filter finds switches (Enter flips the highlighted one) and
+  // has no hand-off. A collection left out dims its lead and name (dim means switched off); a playlist switched off on
+  // the Playlists page keeps its half-strength row and a switch that can't turn on. A folder switched off takes the
+  // crates in it along (their switches show off and can't turn on, each keeping its own setting); a crate hidden from
+  // the sidebar (listed only by the filter) has no switch of its own and goes with its folder. While a sync runs the
+  // switches hold (its plan is set). The right-click menu and Favourites' drag are Library's.
   import { tick } from 'svelte';
   import { flip } from 'svelte/animate';
   import { cubicOut } from 'svelte/easing';
@@ -62,11 +64,11 @@
   import { LEGACY_SORT_KEY, playQueue, sortKey, viewSort } from '../../pages/library/libraryModel';
   import { Button, ContextMenu, ListSection, SearchField, Switch, tip } from '../components';
   import { syncRunning } from '../stores/hub';
-  import { planCounts, syncScope, togglePlaylist } from '../stores/syncScope';
-  import { playlistSwitchTip } from '../../pages/sync/planModel';
+  import { planCounts, syncScope, toggleCollection } from '../stores/syncScope';
+  import { folderSwitch, switchTip as collectionTip } from '../../pages/sync/planModel';
   import type { MenuItem } from '../components/ContextMenu.svelte';
   import {
-    HANDOFF, LANDING_TEXT, browserList, crateShownValue, currentTarget, dropIndex, dropSpring, favouritesIn, inDropZone,
+    HANDOFF, LANDING_TEXT, browserList, crateShownValue, currentTarget, dropIndex, dropSpring, favouritesIn, foldersAround, inDropZone,
     foldWatchedTip, highlightOf, menuFor, moveHighlight, moveKey, nameParts, playCall, revealPath, rowByKey, rowId,
     sortTip, toggleClosed, type BrowserRow, type CollectionRow, type MenuAction, type Match, type ViewRow,
   } from './browserModel';
@@ -84,20 +86,33 @@
   const side = $derived($hub.sidebar);
   const shownSide = $derived(side && pendingFavs ? { ...side, favourites: favouritesIn(side, pendingFavs) } : side);
   const current = $derived(currentTarget(side, $route.name === 'library' ? libraryTarget($route.params) : undefined));
-  const list = $derived(browserList({ side: shownSide, query, az: $playlistsAz, closed: $browserClosed, current,
-    shown: pendingShown }));
-  const filtering = $derived(list.targets.length > 0);
-  // Sync: a playlist row is its switch for the sync (not while filtering, where every row opens)
+  // Sync: every playlist and folder row is its switch for the sync, while filtering too (issue 37)
   const onSync = $derived($route.name === 'sync');
-  const switches = (r: CollectionRow) => onSync && !filtering && r.kind === 'playlist';
-  // a playlist switched off on the Playlists page is never planned, so its switch stays off and can't turn on; should
-  // the plan still hold rows of it (a read from before it was switched off), it switches like any other
-  const switchable = (r: CollectionRow) => r.kind === 'playlist' && (r.enabled || !!$planCounts?.[r.name]);
-  const inSync = (r: CollectionRow) => switchable(r) && !$syncScope.folders.includes(r.name);
-  const switchTip = (r: CollectionRow) => playlistSwitchTip(r.name, { enabled: switchable(r),
-    on: inSync(r), n: $planCounts ? ($planCounts[r.name] ?? 0) : null, running: $syncRunning });
+  const list = $derived(browserList({ side: shownSide, query, az: $playlistsAz, closed: $browserClosed, current,
+    shown: pendingShown, switching: onSync }));
+  const filtering = $derived(list.targets.length > 0);
+  const switches = (r: CollectionRow) => onSync && (r.kind === 'playlist' || r.kind === 'folder');
+  /** the filter is a combobox over a listbox of links (Library); on Sync its matches are switches */
+  const listbox = $derived(!onSync);
+  type Sw = { on: boolean; can: boolean; tip: string };
+  /** A row's switch on Sync: on, whether it can switch (`can`; never while a sync runs) and its tooltip. A playlist
+   *  switched off on the Playlists page is never planned, so its switch stays off and can't turn on; should the plan
+   *  still hold rows of it (a read from before it was switched off), it switches like any other. A folder goes by
+   *  the folders around it (`folderSwitch`). */
+  function sw(r: CollectionRow): Sw {
+    const n = $planCounts ? ($planCounts[r.target] ?? 0) : null;
+    const running = $syncRunning;
+    if (r.kind === 'playlist') {
+      const enabled = r.enabled || !!$planCounts?.[r.target];
+      const on = enabled && !$syncScope.off.includes(r.target);
+      return { on, can: enabled && !running, tip: collectionTip(r.name, { enabled, on, n, running }) };
+    }
+    const f = folderSwitch(r.target, side ? foldersAround(side, r.path) : [], !!r.crate?.hidden, $syncScope);
+    return { on: f.on, can: f.can && !running,
+      tip: collectionTip(r.name, { enabled: true, on: f.on, n, running, under: f.under, follows: f.follows }) };
+  }
   function flipSync(r: CollectionRow) {
-    if (switchable(r) && !$syncRunning) togglePlaylist(r.name);
+    if (sw(r).can) toggleCollection(r.target);
   }
   const hi = $derived(highlightOf(list.targets, moved));
   const at = $derived(list.on);
@@ -129,6 +144,8 @@
     if (r.kind !== 'handoff') input?.blur();
   }
   function enter(r: BrowserRow) {
+    // Sync: Enter flips the highlighted switch; the filter stays, so the next one is a few keys away
+    if (r.kind !== 'handoff' && r.kind !== 'view' && switches(r)) return flipSync(r);
     opened(r);
     void go(r.href);
   }
@@ -520,13 +537,15 @@
 
 {#snippet row(r: CollectionRow)}
   {#if switches(r)}
-    {@const on = inSync(r)}
-    <button type="button" class="row sw-row" class:out={!on} class:off={r.kind === 'playlist' && !r.enabled}
-      class:menu-on={menu?.row.key === r.key} role="switch" aria-checked={on}
-      aria-disabled={!switchable(r) || $syncRunning ? true : undefined} use:tip={switchTip(r)}
+    {@const s = sw(r)}
+    <button type="button" class="row sw-row" class:out={!s.on} class:off={r.kind === 'playlist' && !r.enabled}
+      class:indent={r.indent} class:kb={hi === r.key} class:menu-on={menu?.row.key === r.key} role="switch"
+      aria-checked={s.on} aria-disabled={!s.can ? true : undefined} use:tip={s.tip}
       onclick={() => flipSync(r)} data-key={r.key} id={rowId(r.key)} onpointerdown={(e) => rowDown(e, r)}
-      oncontextmenu={(e) => openMenu(e, r)} onkeydown={(e) => menuKey(e, r)} data-place={r.place} data-test="browser-switch">
-      {@render inner(r, false)}<Switch {on} label={r.name} disabled={$syncRunning && switchable(r)} />
+      oncontextmenu={(e) => openMenu(e, r)} onkeydown={(e) => menuKey(e, r)} data-place={r.place}
+      data-test={r.kind === 'folder' ? 'browser-folder-switch' : 'browser-switch'}>
+      {@render inner(r, false)}<Switch on={s.on} label={r.name}
+        disabled={!s.can && !(r.kind === 'playlist' && !r.enabled)} />
     </button>
   {:else}
   <a class="row" class:on={at === r.key} class:kb={hi === r.key} class:off={r.kind === 'playlist' && !r.enabled}
@@ -541,7 +560,7 @@
   {/if}
   {#if r.kind === 'folder' && r.fold}
     {@const f = r.fold}
-    <button type="button" class="chev" class:open={f.open} aria-expanded={f.open}
+    <button type="button" class="chev" class:open={f.open} class:by-switch={switches(r)} aria-expanded={f.open}
       aria-label={foldWatchedTip(f.open, r.name)} use:tip={foldWatchedTip(f.open, r.name)}
       onclick={() => fold(f.key)} data-test="browser-fold-watched"><svg viewBox="0 0 8 8" aria-hidden="true"><path
         d="M2.6 1.2 5.6 4l-3 2.8" /></svg></button>
@@ -551,12 +570,15 @@
 <div class="col" data-test="browser">
   <div class="find">
     <SearchField bind:value={query} bind:input placeholder="Filter playlists, folders" shortcut="cmd+k" fill
-      onkeydown={keydown} test="browser-filter" role="combobox" aria-controls="bc-list" aria-expanded={filtering}
-      aria-autocomplete="list" aria-activedescendant={filtering && hi ? rowId(hi) : undefined} />
+      onkeydown={keydown} test="browser-filter" role={listbox ? 'combobox' : undefined}
+      aria-controls={listbox ? 'bc-list' : undefined} aria-expanded={listbox ? filtering : undefined}
+      aria-autocomplete={listbox ? 'list' : undefined}
+      aria-activedescendant={listbox && filtering && hi ? rowId(hi) : undefined} />
   </div>
 
-  <div class="list" id="bc-list" bind:this={scroller} role={filtering ? 'listbox' : undefined}
-    aria-label={filtering ? 'Matches' : undefined} onclickcapture={clickCapture} data-test="browser-list"
+  <!-- on Sync the matches are switches (Tab reaches each), not a listbox's options -->
+  <div class="list" id="bc-list" bind:this={scroller} role={listbox && filtering ? 'listbox' : undefined}
+    aria-label={listbox && filtering ? 'Matches' : undefined} onclickcapture={clickCapture} data-test="browser-list"
     style:--count-w="{list.countCh}ch">
     {#each list.views as v (v.key)}
       <a class="row" class:on={at === v.key} class:menu-on={menu?.row.key === v.key} href={v.href} use:link
@@ -599,6 +621,10 @@
       {/if}
     {/each}
 
+    {#if list.none}
+      <div class="none" data-test="browser-none">{list.none}</div>
+    {/if}
+
     {#if list.handoff}
       {@const h = list.handoff}
       <a class="row handoff" class:kb={hi === HANDOFF} class:alone={!list.sections.length} href={h.href} use:link
@@ -619,7 +645,7 @@
     data-test="browser-lifted">
     {#if live.row.indent}<RowLead row={live.row} lead="folder" />{/if}
     {@render inner(live.row, !switches(live.row))}
-    {#if switches(live.row)}<Switch on={inSync(live.row)} label={live.row.name} />{/if}
+    {#if switches(live.row)}<Switch on={sw(live.row).on} label={live.row.name} />{/if}
   </div>
 {/if}
 
@@ -690,6 +716,11 @@
   .chev svg { width: 8px; height: 8px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round;
     stroke-linejoin: round; transition: transform var(--t-state) var(--ease); }
   .chev.open svg { transform: rotate(90deg); }
+  /* Sync: the switch stands where the count was, so the chevron sits just before the switch (30 px) */
+  .chev.by-switch { right: calc(var(--s-2) + 30px + 2px); }
+  /* Sync's filter with no match (no hand-off there): one quiet row that says so */
+  .none { height: var(--h-ctl); flex: none; display: flex; align-items: center; padding: 0 var(--s-2);
+    color: var(--text-label); font-size: var(--fs-small); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* Favourites, empty: the one dashed row, where a dragged row lands; lit while a row is over it (the drop zone's
      wash) */
