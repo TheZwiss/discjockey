@@ -21,7 +21,9 @@ export const SIGNAL_KINDS: Record<Service, AnySignalKind[]> = {
 
 export function serviceOf(s: FakeState, service: Service): FakeService | null {
   if (service === 'qobuz') return s.qobuzSkipped ? null : s.qobuz;
-  return s.accounts[service] ?? null;
+  const a = s.accounts[service] ?? null;
+  // as Settings.download_accounts: a YouTube login whose last check found no Premium only reads Liked music
+  return service === 'youtube' && a?.lastCheck?.problem === 'no_premium' ? null : a;
 }
 export const setUp = (s: FakeState): Service[] => SERVICES.filter((k) => serviceOf(s, k));
 

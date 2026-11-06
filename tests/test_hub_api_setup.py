@@ -391,15 +391,44 @@ def test_a_saved_soundcloud_login_clears_the_likes_hint_only(root):
         assert (api._store.problem, api._store.message) == ("playlist_unreadable", words)
 
 
-def test_a_youtube_login_without_premium_is_not_saved(root):
+def test_a_youtube_login_without_premium_is_saved_for_liked_music_only(root):
     CheckingFallback.answer = {"ok": False, "problem": "no_premium", "kbps": 129, "detail": ""}
     try:
         api, rec = make_api(root, fallback=CheckingFallback)
         done = wait_job(api, rec, api.setup_account("youtube", "chrome"))
-        assert not done.result["saved"] and "no Premium formats" in done.result["check"]["message"]
-        assert dict(load_settings(root.settings_file).accounts) == {}
+        message = done.result["check"]["message"]
+        assert done.result["saved"] and "no YouTube Premium" in message and "Liked music" in message
+        s = load_settings(root.settings_file)
+        assert s.accounts["youtube"].last_check["problem"] == "no_premium"
+        assert "youtube" not in s.download_accounts  # never used for a download
+        assert api.setup_status()["youtube_music"]["can_turn_on"]
+        assert api.downloads_view()["downloads"]["youtube"]["state"] == "no_premium"
         done = wait_job(api, rec, api.setup_account("soundcloud", "chrome"))  # SoundCloud: saved with a note
-        assert done.result["saved"]
+        assert done.result["saved"] and "soundcloud" in load_settings(root.settings_file).download_accounts
+    finally:
+        CheckingFallback.answer = {"ok": True, "problem": None, "kbps": 256, "detail": ""}
+
+
+def test_checking_a_free_youtube_login_again_finds_premium_and_it_downloads(root):
+    free = {"ok": False, "problem": "no_premium", "kbps": 129, "at": "2026-10-20T21:47:00"}
+    save_settings(root.settings_file, Settings(accounts={"youtube": Account("chrome", 30, last_check=free)}))
+    api, rec = make_api(root, fallback=CheckingFallback)
+    assert "youtube" not in load_settings(root.settings_file).download_accounts
+    assert api.setup_check_account("youtube")["ok"]  # the stub finds 256 kbps
+    assert "youtube" in load_settings(root.settings_file).download_accounts
+
+
+def test_checking_a_free_youtube_login_again_with_no_login_keeps_it_as_today(root):
+    free = {"ok": False, "problem": "no_premium", "kbps": 129, "at": "2026-10-20T21:47:00"}
+    save_settings(root.settings_file, Settings(accounts={"youtube": Account("chrome", 30, last_check=free)}))
+    CheckingFallback.answer = {"ok": False, "problem": "not_logged_in", "kbps": None, "detail": ""}
+    try:
+        api, rec = make_api(root, fallback=CheckingFallback)
+        done = wait_job(api, rec, api.setup_account("youtube", "chrome"))
+        assert done.ok and not done.result["saved"]
+        a = load_settings(root.settings_file).accounts["youtube"]
+        assert a.last_check["problem"] == "not_logged_in"
+        assert api.downloads_view()["downloads"]["youtube"]["state"] == "off"
     finally:
         CheckingFallback.answer = {"ok": True, "problem": None, "kbps": 256, "detail": ""}
 

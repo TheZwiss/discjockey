@@ -1,9 +1,9 @@
 <script lang="ts">
   // Settings' YouTube Music panel (sources round problem 3, plan D5/D8, I3): public and unlisted playlists need no
-  // login, so the one choice is Liked music, read through the YouTube login the downloads use. The card says what
+  // login, so the one choice is Liked music, read through the YouTube login (Premium is not needed). The card says what
   // needs nothing; one switch row "Read my Liked music" saves at once (set_read_liked_music); the warning stays in both
   // states (before the choice it explains, after it reminds). Without a YouTube login the switch is locked off with
-  // the reason and, in the same card under it, a link to the YouTube Premium row. Once the choice is on and no Liked
+  // the reason and, in the same card under it, a link to the YouTube login row. Once the choice is on and no Liked
   // music line is listed, the panel's one filled button "Add Liked music to Playlists" adds it (add_liked_music),
   // since YouTube Music shares no link for it. The state comes from setup_status's `youtube_music` (the hub store), read again after each job.
   import { api, runJob } from '$lib/bridge/client';
@@ -47,7 +47,7 @@
 
 {#snippet signIn()}
   <Button variant="link" size="sm" onclick={() => void go('/settings/youtube')}
-    data-test="liked-music-sign-in">Go to YouTube Premium</Button>
+    data-test="liked-music-sign-in">Go to YouTube sign-in</Button>
 {/snippet}
 
 {#snippet head()}

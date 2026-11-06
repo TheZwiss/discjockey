@@ -106,8 +106,8 @@ def check_message(service: str, browser: str, check: dict) -> str:
     if problem == "no_premium":
         kbps = check["kbps"] or "?"
         if service == "youtube":
-            return (f"Logged in, but YouTube gives this account no Premium formats ({kbps} kbps). Discjockey keeps using "
-                    "YouTube Music without the login.")
+            return (f"Logged in, but this account has no YouTube Premium ({kbps} kbps). Discjockey keeps the login for "
+                    "your Liked music; downloads stay free.")
         return (f"Logged in, but the test track came at {kbps} kbps. Either the account has no Go+, or this track has "
                 "no Go+ stream. Discjockey tries Go+ on every track and shows what it got.")
     return f"The check didn't work ({check.get('detail') or 'no answer'}). Try again in a minute."

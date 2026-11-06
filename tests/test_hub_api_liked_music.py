@@ -72,8 +72,19 @@ def test_status_says_whether_liked_music_is_on_can_be_turned_on_and_is_listed(ro
 def test_turning_it_on_without_a_youtube_account_is_refused(root):
     api, rec = make_api(root)
     f = wait_job(api, rec, api.set_read_liked_music(True))
-    assert (f.ok, f.problem) == (False, "not_set_up") and "Sign in to YouTube Premium first" in f.message
+    assert (f.ok, f.problem) == (False, "not_set_up") and "Sign in to YouTube first" in f.message and "Premium" not in f.message
     assert not load_settings(root.settings_file).read_liked_music
+
+
+def test_a_free_youtube_login_turns_it_on_and_reads_liked_music(root):
+    free = {"ok": False, "problem": "no_premium", "kbps": 129, "at": "2026-10-20T21:47:00"}
+    save_settings(root.settings_file, Settings(accounts={"youtube": Account("chrome", 30, last_check=free)}))
+    api, rec = make_api(root)
+    assert api.setup_status()["youtube_music"] == {"liked_music": False, "can_turn_on": True, "listed": False}
+    assert wait_job(api, rec, api.set_read_liked_music(True)).ok
+    added = api.add_playlist(LM_LINK)
+    assert added["ok"] and added["readable"] and added["tracks"] == 3
+    assert sum("cookiesfrombrowser" in o for o in LikedYDL.created) == 1  # read with the login, as a Premium one
 
 
 def test_the_choice_is_saved_and_turning_it_off_leaves_playlists_txt_alone(root):

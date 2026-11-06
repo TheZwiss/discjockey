@@ -139,6 +139,9 @@ line to see it on the right.
   your browser's name): click **Always Allow**. Safari's logins can only be read when
   Discjockey has Full Disk Access (System Settings, Privacy & Security); the card has a button
   that opens that page.
+  A YouTube login without Premium is kept too: Discjockey uses it to read your Liked music (see
+  [playlists.txt](#playliststxt)), but YouTube downloads stay free, at about 130 kbps. If you get Premium later,
+  **Check again** turns the login into the Premium one.
 - **Check again** tests a saved login again; **Sign out** forgets it.
 - **Spotify:** shows which account is connected, with **Connect again** and **Sign out**.
   The Spotify app's Client ID can be changed under "Spotify app (Client ID)". If you skipped Spotify in Setup,
@@ -203,7 +206,8 @@ Mixes = https://music.youtube.com/playlist?list=...
     `playlists.txt` uses that login on every read, and a short link only works when pasted in the window.
   - **YouTube Music:** playlists and albums (`music.youtube.com/playlist?list=...`); links from youtube.com
     (`youtube.com/playlist?list=...`, or a video link with `&list=...`) work too. "Liked music" is read with your
-    YouTube login, only when Settings turns it on (it stays unread while off, and while the YouTube account is paused).
+    YouTube login (YouTube Premium is not needed), only when Settings turns it on (it stays unread while off, and
+    while the YouTube account is paused).
     Not "Liked videos", "Watch later" or mixes (they are personal or change on every play): add the songs to a
     playlist, set it to public or unlisted, and paste that link.
 - **Priority:** the line further up wins. A track that is in several playlists goes into the
@@ -530,9 +534,9 @@ the automatic pause after repeated failures reduce the risk that Qobuz notices, 
 remove it.
 
 Reading your **Liked music** signs in to YouTube with your browser's login.
-Many reads in a row can set off YouTube's bot check. Discjockey then pauses YouTube downloads for the rest of the day
-(Settings shows the warning sign) and leaves Liked music unread until tomorrow; its songs stay where they are. Leave
-the setting off, or read it rarely, if that worries you.
+Many reads in a row can set off YouTube's bot check. Discjockey then leaves Liked music unread until tomorrow; its
+songs stay where they are. With YouTube Premium it also pauses YouTube downloads for the rest of the day (Download
+limits shows the warning sign). Leave the setting off, or read it rarely, if that worries you.
 
 ## Licence
 

@@ -5,8 +5,10 @@
 //   settings:liked-off          a YouTube login is set up; the choice is off; no Liked music line
 //   settings:liked-on           the same with the choice on, no Liked music line yet ("Add Liked music to Playlists")
 //   settings:liked-no-login     no YouTube login: the choice can't be turned on
+//   settings:liked-free-off     a YouTube login without Premium (kept for Liked music only); the choice is off
+//   settings:liked-free-on      the same with the choice on
 //   playlists:liked-listed-off  a Liked music line is listed while the choice is off
-import type { FakeState } from './data';
+import { isoLocal, type FakeState } from './data';
 import { account } from './logins';
 import type { SettingKey, SetupStatus } from '../types';
 
@@ -14,7 +16,7 @@ export const LIKED_LINK = 'https://music.youtube.com/playlist?list=LM';
 export const LIKED_FOLDER = 'Liked_music';
 /** The engine's words (youtube_music.SETTING_OFF, hub/api.py) */
 export const LIKED_OFF = 'Reading your Liked music is off. Turn it on in Settings.';
-export const LIKED_NEEDS_LOGIN = 'Sign in to YouTube Premium first: Discjockey reads your Liked music through that login.';
+export const LIKED_NEEDS_LOGIN = 'Sign in to YouTube first: Discjockey reads your Liked music through that login.';
 export const LIKED_LISTED = 'Liked music is in your playlists already.';
 export const LIKED_SETTING: SettingKey = 'read_liked_music';
 
@@ -31,9 +33,15 @@ export function likedStatus(s: FakeState): SetupStatus['youtube_music'] {
 export const needsSetting = (s: FakeState, link: string): SettingKey | null =>
   isLikedLink(link) && !likedOn(s) ? LIKED_SETTING : null;
 
+/** A YouTube login whose last check found no Premium: kept to read Liked music, never used for a download */
+const freeAccount = (s: FakeState) => account(s, 'youtube',
+  { lastCheck: { ok: false, problem: 'no_premium', kbps: 129, at: isoLocal(new Date()) } });
+
 export const likedScenarios: Record<string, (s: FakeState) => void> = {
   'settings:liked-off': (s) => { s.accounts.youtube = account(s, 'youtube'); s.likedMusic = false; },
   'settings:liked-on': (s) => { s.accounts.youtube = account(s, 'youtube'); s.likedMusic = true; },
+  'settings:liked-free-off': (s) => { s.accounts.youtube = freeAccount(s); s.likedMusic = false; },
+  'settings:liked-free-on': (s) => { s.accounts.youtube = freeAccount(s); s.likedMusic = true; },
   'settings:liked-no-login': (s) => { s.accounts.youtube = null; s.likedMusic = false; },
   'playlists:liked-listed-off': (s) => {
     s.accounts.youtube = account(s, 'youtube');

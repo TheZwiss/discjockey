@@ -1010,6 +1010,14 @@ YT = Settings(accounts={"youtube": Account("chrome", 30)})
 BOTH = Settings(accounts={"youtube": Account("chrome", 30), "soundcloud": Account("firefox", 60)})
 
 
+def test_a_free_youtube_login_has_no_limit_card_but_still_reads_no_premium():
+    free = {"ok": False, "problem": "no_premium", "kbps": 129, "at": "2026-10-20T09:00:00"}
+    s = Settings(accounts={"youtube": Account("chrome", 30, last_check=free)})
+    assert views.services_of(s) == ["qobuz"]
+    assert [c["set_up"] for c in views.limit_cards({"tracks": {}}, s, TODAY)] == [True, False, False]
+    assert views.downloads({"tracks": {}}, s, True, {}, TODAY)["youtube"]["state"] == "no_premium"
+
+
 def test_services_of():
     assert views.services_of(Settings()) == ["qobuz"]
     assert views.services_of(BOTH) == ["qobuz", "youtube", "soundcloud"]

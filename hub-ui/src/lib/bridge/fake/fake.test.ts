@@ -199,6 +199,10 @@ describe('fake backend', () => {
     expect(f._ctx.s.accounts.soundcloud).toMatchObject({ profile: 'Profile 2', lastCheck: { ok: true } });
     expect(f._ctx.accountResult('soundcloud', 'firefox', null, { ...works, ok: false, problem: 'no_premium' }).saved)
       .toBe(true);  // SoundCloud without Go+ is saved all the same
+    // YouTube without Premium too: kept for Liked music, never a download account (no limit card)
+    expect(f._ctx.accountResult('youtube', 'chrome', null, { ...works, ok: false, problem: 'no_premium' }).saved).toBe(true);
+    const lim = await f.limits('youtube');
+    expect(lim.ok && lim.cards.find((c) => c.service === 'youtube')?.set_up).toBe(false);
   });
   it('account_sign_in: Cancel stops only the sign-in; Safari without access ends at once', async () => {
     const evs: HubEvent[] = [];

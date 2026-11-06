@@ -144,7 +144,7 @@ def _open_in(browser: str, url: str, profile: str | None = None) -> None:
     subprocess.run(cmd, check=False)
 
 
-LIKED_NEEDS_LOGIN = "Sign in to YouTube Premium first: Discjockey reads your Liked music through that login."
+LIKED_NEEDS_LOGIN = "Sign in to YouTube first: Discjockey reads your Liked music through that login."
 LIKED_LISTED = "Liked music is in your playlists already."
 
 
@@ -1149,7 +1149,7 @@ class HubApi:
             qobuz = self._open_qobuz() if find.needs_qobuz else None
             try:
                 fallback = self._svc.fallback(emit=ctx.emit, check=ctx.token.check,
-                                              logins={s: (a.browser, a.profile) for s, a in self._settings().accounts.items()})
+                                              logins={s: (a.browser, a.profile) for s, a in self._settings().download_accounts.items()})
                 cand = find(qobuz, fallback)
                 return ops.use_candidate(self._paths, state, track_id, cand, qobuz=qobuz, fallback=fallback,
                                          budget=budget, track=self._spotify_track(track_id, e), emit=ctx.emit,
@@ -1898,8 +1898,9 @@ class HubApi:
     @bridge
     def setup_account(self, service: str, browser: str, profile: str | None = None) -> dict:
         """Checks the login in that browser profile (only cookie names are read), then saves the browser and profile
-        with the check. A YouTube login without Premium is not saved; a SoundCloud one is (many tracks have no Go+
-        stream, see check_message). A failed check of the saved login itself is recorded on it."""
+        with the check. A login without Premium or Go+ is saved too: SoundCloud's is used for downloads (many tracks
+        have no Go+ stream, see check_message), YouTube's only to read Liked music (`Settings.download_accounts`). A
+        failed check of the saved login itself is recorded on it."""
         self._account(service, browser)
 
         def work(ctx) -> dict:
@@ -1909,7 +1910,7 @@ class HubApi:
         return {"job_id": self._jobs.start("setup_account", work).id}
 
     def _account_result(self, service: str, browser: str, profile: str | None, check: dict) -> dict:
-        saved = check["ok"] or (service == "soundcloud" and check["problem"] == "no_premium")
+        saved = check["ok"] or check["problem"] == "no_premium"
         record = self._check_record(check)
 
         def change(s: Settings) -> Settings:

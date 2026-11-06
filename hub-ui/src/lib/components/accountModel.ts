@@ -80,8 +80,9 @@ function accountSaid(service: AccountService, a: DownloadsAccount, now: Date): S
         sub: join(kbps, checked) || null };
     case 'no_premium':
       return service === 'youtube'
-        ? { tone: 'warn', row: 'signed in, but no Premium', title: 'Signed in, but no Premium',
-          sub: join(a.last_check?.kbps ? `YouTube gives this account ${a.last_check.kbps} kbps` : null, checked) || null }
+        // a working login, not a problem: the engine keeps it to read Liked music and never downloads with it
+        ? { tone: 'good', row: join('signed in, no Premium', checked), title: 'Signed in, no Premium',
+          sub: 'Reads your Liked music; downloads stay at about 130 kbps' }
         : { tone: 'warn', row: 'signed in · Go+ not confirmed', title: 'Signed in · Go+ not confirmed',
           sub: join('Discjockey still downloads with it', checked) };
     case 'unreadable': {

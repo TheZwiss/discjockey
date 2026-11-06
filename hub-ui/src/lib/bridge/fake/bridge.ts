@@ -163,11 +163,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   }
   const checkRecord = (check: AccountCheck) =>
     ({ ok: check.ok, problem: check.problem, kbps: check.kbps, at: isoLocal(new Date()) });
-  /** setup_account / account_sign_in after the check, as HubApi._account_result: saved when ok (SoundCloud also
-   *  without Go+); a failed check of the saved login itself (same browser and profile) is recorded on it */
+  /** setup_account / account_sign_in after the check, as HubApi._account_result: saved when ok (also without
+   *  Premium or Go+: YouTube's then only reads Liked music); a failed check of the saved login itself (same browser and profile) is recorded on it */
   function accountResult(service: 'youtube' | 'soundcloud', browser: Browser, profile: string | null,
     check: AccountCheck) {
-    const saved = check.ok || (service === 'soundcloud' && check.problem === 'no_premium');
+    const saved = check.ok || check.problem === 'no_premium';
     const old = s.accounts[service];
     if (saved) saveAccount(service, browser, profile, check);
     else if (old && old.browser === browser && (old.profile ?? null) === profile) {

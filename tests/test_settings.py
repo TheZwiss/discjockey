@@ -203,3 +203,21 @@ def test_forgetting_the_youtube_login_turns_liked_music_off_for_good():
     assert forgotten.read_liked_music is False and "youtube" not in forgotten.accounts
     assert forgotten.with_account("youtube", "chrome").read_liked_music is False  # signing in again does not resume
     assert s.with_account("youtube", "firefox").read_liked_music is True  # another browser keeps the choice
+
+
+FREE = {"ok": False, "problem": "no_premium", "kbps": 129, "at": "2026-10-20T21:47:00"}
+PREMIUM = {"ok": True, "problem": None, "kbps": 256, "at": "2026-10-20T21:47:00"}
+
+
+def test_a_youtube_login_without_premium_is_no_download_account():
+    s = Settings(accounts={"youtube": Account("chrome", 30, last_check=FREE),
+                           "soundcloud": Account("firefox", 60, last_check=FREE)})
+    assert list(s.download_accounts) == ["soundcloud"]  # SoundCloud tries Go+ on every track on purpose
+    assert "youtube" in s.accounts and s.reads_liked_music is False
+    assert Settings(accounts=s.accounts, read_liked_music=True).reads_liked_music
+
+
+def test_every_other_youtube_login_downloads():
+    for check in (PREMIUM, None, {**FREE, "problem": "not_logged_in"}, {**FREE, "problem": "failed"}):
+        s = Settings(accounts={"youtube": Account("chrome", 30, last_check=check)})
+        assert list(s.download_accounts) == ["youtube"], check

@@ -57,6 +57,18 @@ class Settings:
         """Whether an `LM` line is read: the choice is on and a YouTube account is set up to read it with."""
         return self.read_liked_music and "youtube" in self.accounts
 
+    @property
+    def download_accounts(self) -> Mapping[str, Account]:
+        """The accounts downloads go through: the one place that decides it. A YouTube login whose last check found no
+        Premium is kept to read Liked music with and is never used for a download (no cookies, no limit, no usage
+        row), so downloads behave as with no YouTube account. A SoundCloud login without Go+ is used on purpose (it
+        tries Go+ on every track). A later check that finds Premium (or none yet) makes the YouTube login a download
+        account."""
+        free = self.accounts.get("youtube")
+        if free is not None and free.last_check and free.last_check.get("problem") == "no_premium":
+            return {k: v for k, v in self.accounts.items() if k != "youtube"}
+        return self.accounts
+
     def extra_for(self, day: date) -> int:
         return self.extra_amount if self.extra_date == day.isoformat() else 0
 
