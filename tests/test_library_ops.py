@@ -192,61 +192,70 @@ def test_run_op_failing_first_rename_leaves_state_clean(paths):
     assert s["pending"] == [] and "t1" not in s["tracks"]
 
 
-def pending_state(paths, renames):
+def pending_state(paths, kind, renames):
+    """A pending step as `kind` journaled it: "step" (run_op's own row, issue 25) or None (a version before issue 25
+    wrote it through the snapshot: no kind, no op_id)."""
     s = empty_state()
-    s["pending"].append({"track_id": "t1", "renames": [list(r) for r in renames],
-                         "entry": {"artist": "A", "title": "S", "path": renames[0][1]}})
+    op = {"track_id": "t1", "renames": [list(r) for r in renames],
+          "entry": {"artist": "A", "title": "S", "path": renames[0][1]}}
+    s["pending"].append({**op, "kind": "step", "op_id": "0" * 32} if kind else op)
     save_state(paths, s)
     return s
 
 
-def test_recover_when_nothing_was_renamed(paths):
+@pytest.mark.parametrize("kind", [None, "step"])
+def test_recover_when_nothing_was_renamed(paths, kind):
     touch(paths, ".discjockey/.tmp/t1/new.aiff")
-    s = pending_state(paths, [(".discjockey/.tmp/t1/new.aiff", "Library/A/S.aiff")])
+    s = pending_state(paths, kind, [(".discjockey/.tmp/t1/new.aiff", "Library/A/S.aiff")])
     msgs = recover_pending(paths, s)
     assert (paths.root / "Library/A/S.aiff").exists()
     assert s["tracks"]["t1"]["path"] == "Library/A/S.aiff" and s["pending"] == []
     assert msgs[0][1] is True
 
 
-def test_recover_when_first_of_two_renames_was_done(paths):
+@pytest.mark.parametrize("kind", [None, "step"])
+def test_recover_when_first_of_two_renames_was_done(paths, kind):
     touch(paths, "Library/A/S.aiff")  # new file already placed
     touch(paths, "Library/A/not_lossless/S.aiff")  # old file not yet superseded
-    s = pending_state(paths, [(".discjockey/.tmp/t1/new.aiff", "Library/A/S.aiff"),
+    s = pending_state(paths, kind, [(".discjockey/.tmp/t1/new.aiff", "Library/A/S.aiff"),
                               ("Library/A/not_lossless/S.aiff", "Superseded/A/S.aiff")])
     recover_pending(paths, s)
     assert (paths.root / "Superseded/A/S.aiff").exists()
     assert "t1" in s["tracks"]
 
 
-def test_recover_when_all_renames_were_done(paths):
+@pytest.mark.parametrize("kind", [None, "step"])
+def test_recover_when_all_renames_were_done(paths, kind):
     touch(paths, "Library/A/S.aiff")
-    s = pending_state(paths, [(".discjockey/.tmp/t1/new.aiff", "Library/A/S.aiff")])
+    s = pending_state(paths, kind, [(".discjockey/.tmp/t1/new.aiff", "Library/A/S.aiff")])
     recover_pending(paths, s)
     assert s["tracks"]["t1"]["path"] == "Library/A/S.aiff"
 
 
-def test_recover_keeps_upgrade_when_old_file_vanished(paths):
+@pytest.mark.parametrize("kind", [None, "step"])
+def test_recover_keeps_upgrade_when_old_file_vanished(paths, kind):
     touch(paths, "Library/A/S.aiff")  # the new file was placed; the old file is gone since
-    s = pending_state(paths, [(".discjockey/.tmp/t1/new.aiff", "Library/A/S.aiff"),
+    s = pending_state(paths, kind, [(".discjockey/.tmp/t1/new.aiff", "Library/A/S.aiff"),
                               ("Library/A/not_lossless/S.aiff", "Superseded/A/S.aiff")])
     msgs = recover_pending(paths, s)
     assert s["tracks"]["t1"]["path"] == "Library/A/S.aiff"
     assert msgs[0][1] is False and s["pending"] == []
 
 
-def test_recover_drops_operation_when_files_are_gone(paths):
-    s = pending_state(paths, [(".discjockey/.tmp/t1/new.aiff", "Library/A/S.aiff")])
+@pytest.mark.parametrize("kind", [None, "step"])
+def test_recover_drops_operation_when_files_are_gone(paths, kind):
+    s = pending_state(paths, kind, [(".discjockey/.tmp/t1/new.aiff", "Library/A/S.aiff")])
     msgs = recover_pending(paths, s)
     assert s["pending"] == [] and "t1" not in s["tracks"]
     assert msgs[0][1] is False
     assert load_state(paths)["pending"] == []
 
 
-def test_recover_drops_operation_when_both_sides_exist(paths):
+@pytest.mark.parametrize("kind", [None, "step"])
+def test_recover_drops_operation_when_both_sides_exist(paths, kind):
     touch(paths, ".discjockey/.tmp/t1/new.aiff")
     touch(paths, "Library/A/S.aiff")
-    s = pending_state(paths, [(".discjockey/.tmp/t1/new.aiff", "Library/A/S.aiff")])
+    s = pending_state(paths, kind, [(".discjockey/.tmp/t1/new.aiff", "Library/A/S.aiff")])
     msgs = recover_pending(paths, s)
     assert msgs[0][1] is False and "t1" not in s["tracks"]
 
@@ -533,3 +542,4 @@ def test_a_step_writes_only_its_own_songs_and_the_callers_next_save_the_rest(pat
     assert saved["tracks"]["t1"]["path"] is None and not saved["tracks"]["t2"].get("hidden")
     save_state(paths, s)
     assert load_state(paths)["tracks"]["t2"]["hidden"] is True
+
