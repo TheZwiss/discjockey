@@ -1,1 +1,0 @@
-import{c as t,ai as e,N as n,dw as s,f as i}from"./index-VpEFVpEA.js";import{E as r}from"./EmptyState-DyCP-FEB.js";function h(a,o){t(o,!1),e(()=>n("unknown")),s(),r(a,{title:"Nothing here.",action:{label:"Go to the Dashboard →",href:"#/"}}),i()}export{h as default};
