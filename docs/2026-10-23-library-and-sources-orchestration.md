@@ -278,8 +278,7 @@ their OK; never lane B between lane A items (user 2026-10-31):**
   1. DONE Liked music (e44ee66).
   2. Issue 35 (`fix/sync-kinds-35`, `.claude/worktrees/sync-35`, Opus agent running, logo goal dropped for 36): read its
      report, check ps, LOOK at its sync shots (whole screen, 1100/1280/2560), fix round by a fresh agent if needed.
-     Don't merge alone if 36 builds on it: 36 branches from it (or merge 35 first after CI + verify, cheaper: merge 35
-     to main after CI + verify, then 36 from main).
+     Then CI + verify + build + smoke, merge 35 into main; 36 branches from main after that.
   3. Issue 36 Sync redesign (issue text in `docs/issues.md` is the brief's core; no mockup; user's ideas are first ideas,
      Opus may refine): Opus build agent (apple-design + emil-design-eng, ~80-call stop, scope lists: build Sync page
      only; reuse the Library rail block and the Library health card block, a missing pattern goes into a block +
