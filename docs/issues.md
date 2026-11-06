@@ -3,6 +3,20 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 35. Sync page: the weekly checks can't be switched off, and rows don't say why they are there (user, 2026-11-06)
+
+Seen live: the user started a sync with weekly checks on. It first retried the songs not found last time (none found
+again), then began the weekly checks of lossy files; the user stopped it. Back on the Sync page, many lossy files were
+still planned for their weekly check, but the "Weekly checks" switch was gone, so they could no longer be left out.
+Likely cause (check first): the retries are not due again this week, so the weekly checks are the only kind left, and
+the kinds panel hides a kind list of one (or the kinds facet drops); the switch must stay whenever weekly checks are
+planned. Also: nothing on a row tells a weekly check from a song that isn't downloaded yet (the user saw no tag).
+
+- **Fix:** the weekly checks can always be switched on or off while any are planned; every row shows why it is in the
+  list (not downloaded yet, not found last time, weekly check, file gone, bought file) at every window width.
+- **Wish:** the Playlists panel on the Sync page shows each playlist's service logo (Spotify, Qobuz, SoundCloud,
+  YouTube Music, a watched folder), as the Library sidebar does, so the source shows at a glance.
+
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them — needs a design round (user, 2026-10-31)
 
 Audit 2026-11-05: parked, nothing of it is built (no AIFF conversion of imported files, no rekordbox repoint; the New
