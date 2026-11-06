@@ -433,6 +433,22 @@ def test_checking_a_free_youtube_login_again_with_no_login_keeps_it_as_today(roo
         CheckingFallback.answer = {"ok": True, "problem": None, "kbps": 256, "detail": ""}
 
 
+def test_a_free_youtube_login_checked_again_while_offline_stays_out_of_downloads(root):
+    free = {"ok": False, "problem": "no_premium", "kbps": 129, "at": "2026-10-20T21:47:00"}
+    save_settings(root.settings_file, Settings(accounts={"youtube": Account("chrome", 30, last_check=free)}))
+    api, rec = make_api(root, fallback=CheckingFallback)
+    CheckingFallback.answer = {"ok": False, "problem": "failed", "kbps": None, "detail": "offline"}
+    try:
+        assert api.setup_check_account("youtube")["check"]["problem"] == "failed"
+        s = load_settings(root.settings_file)
+        assert s.accounts["youtube"].last_check["problem"] == "failed" and "youtube" not in s.download_accounts
+        assert api.setup_status()["youtube_music"]["can_turn_on"]  # the login is still there for Liked music
+    finally:
+        CheckingFallback.answer = {"ok": True, "problem": None, "kbps": 256, "detail": ""}
+    assert api.setup_check_account("youtube")["ok"]
+    assert "youtube" in load_settings(root.settings_file).download_accounts
+
+
 def test_skip_qobuz_and_log_in_again(root):
     api, rec = make_api(root)
     wait_job(api, rec, api.setup_skip_qobuz())

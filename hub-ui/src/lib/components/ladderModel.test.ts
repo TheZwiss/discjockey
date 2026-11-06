@@ -18,8 +18,9 @@ describe('ladderState', () => {
   it('a SoundCloud login without confirmed Go+ is still used, so it lights the rung (R26)', () => {
     expect(ladderState(view('on', 'off', 'no_premium')).accounts).toBe(true);
   });
-  it('a YouTube login without Premium does not light it', () => {
-    expect(ladderState(view('on', 'no_premium', 'off')).accounts).toBe(false);
+  it('a YouTube login without Premium is no download account: it shows as none, lights nothing', () => {
+    expect(ladderState(view('on', 'no_premium', 'off'))).toEqual({ qobuz: 'on', youtube: 'off', soundcloud: 'off', accounts: false });
+    expect(ladderState(view('on', 'no_premium', 'on'))).toEqual({ qobuz: 'on', youtube: 'off', soundcloud: 'on', accounts: true });
   });
   it('a paused, used-up or unreadable account does not light it', () => {
     expect(ladderState(view('on', 'paused', 'off'))).toEqual({ qobuz: 'on', youtube: 'paused', soundcloud: 'off', accounts: false });
@@ -63,7 +64,6 @@ describe('chips', () => {
   it('label says the state in words, with the full account name', () => {
     expect(chipLabel('youtube', 'on')).toBe('YouTube Premium: signed in');
     expect(chipLabel('soundcloud', 'no_premium')).toBe('SoundCloud Go+: Go+ not confirmed');
-    expect(chipLabel('youtube', 'no_premium')).toBe('YouTube Premium: Premium not confirmed');
     expect(chipLabel('youtube', 'paused')).toBe('YouTube Premium: paused today, see Download limits');
     expect(chipLabel('soundcloud', 'used_up')).toBe('SoundCloud Go+: used up today, see Download limits');
     expect(chipLabel('soundcloud', 'unreadable')).toBe("SoundCloud Go+: the login can't be read");
@@ -98,7 +98,10 @@ describe('sub-lines', () => {
     expect(w('paused', 'off', true)).toBe('YouTube paused today');
     expect(w('off', 'used_up')).toBe('SoundCloud Go+ used up today');
     expect(w('unreadable', 'paused')).toBe("can't read the YouTube login");
-    expect(w('no_premium', 'off', true)).toBe('Premium not confirmed');
+    expect(w('no_premium', 'off')).toBe(w('off', 'off'));  // a free YouTube login says what no login says
+    expect(w('no_premium', 'off', true)).toBe('needs Premium or Go+');
+    expect(chipTone(ladderState(view('on', 'no_premium', 'off')).youtube)).toBe('none');
+    expect(chipLabel('youtube', ladderState(view('on', 'no_premium', 'off')).youtube)).toBe('YouTube Premium: not set up');
   });
 });
 

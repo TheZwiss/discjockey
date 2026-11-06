@@ -140,10 +140,10 @@ describe('state line (shared with Settings rows)', () => {
   it('no Premium, Go+ not confirmed, unreadable, lost, not set up', () => {
     const np = view({ youtube: acc({ state: 'no_premium', browser: 'chrome', browser_name: 'Chrome',
       last_check: { ok: false, problem: 'no_premium', kbps: 160, at: '2026-10-21T10:00:00' } }) });
-    // YouTube without Premium works: it reads Liked music, downloads stay free (not a warning)
-    expect(panelLine('youtube', np, NOW)).toEqual({ tone: 'good', title: 'Signed in, no Premium',
+    // YouTube without Premium reads Liked music and downloads stay free: neutral, never a tick (nor a warning)
+    expect(panelLine('youtube', np, NOW)).toEqual({ tone: 'none', title: 'Signed in, no Premium',
       sub: 'Reads your Liked music; downloads stay at about 130 kbps' });
-    expect(stateLine('youtube', np, NOW)).toEqual({ tone: 'good', text: 'signed in, no Premium · checked 21\u00A0Oct' });
+    expect(stateLine('youtube', np, NOW)).toEqual({ tone: 'none', text: 'no Premium · signed in for your Liked music' });
     expect(stateLine('soundcloud', view({ soundcloud: acc({ state: 'no_premium' }) }), NOW)).toEqual(
       { tone: 'warn', text: 'signed in · Go+ not confirmed' });
     expect(panelLine('youtube', view({ youtube: acc({ state: 'unreadable', browser: 'safari', browser_name: 'Safari' }) }), NOW))

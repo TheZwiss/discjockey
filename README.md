@@ -140,8 +140,9 @@ line to see it on the right.
   Discjockey has Full Disk Access (System Settings, Privacy & Security); the card has a button
   that opens that page.
   A YouTube login without Premium is kept too: Discjockey uses it to read your Liked music (see
-  [playlists.txt](#playliststxt)), but YouTube downloads stay free, at about 130 kbps. If you get Premium later,
-  **Check again** turns the login into the Premium one.
+  [playlists.txt](#playliststxt)), but YouTube downloads stay free, at about 130 kbps. Settings says "no Premium"
+  without a tick, and the sources list shows YouTube Premium as not set up. If you get Premium later, **Check again**
+  turns the login into the Premium one.
 - **Check again** tests a saved login again; **Sign out** forgets it.
 - **Spotify:** shows which account is connected, with **Connect again** and **Sign out**.
   The Spotify app's Client ID can be changed under "Spotify app (Client ID)". If you skipped Spotify in Setup,

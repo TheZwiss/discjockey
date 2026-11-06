@@ -21,8 +21,16 @@ function working(service: AccountService, s: RungState): boolean {
   return s === 'on' || (service === 'soundcloud' && s === 'no_premium');
 }
 
+/** The ladder is about downloads, and the engine downloads with no YouTube login that has no Premium (it only reads
+ *  Liked music with it, `Settings.download_accounts`), so such a login shows as no YouTube account at all: a dashed
+ *  chip, no "!". The one place that decides it; SoundCloud's login without Go+ is still used and keeps its state. */
+function downloadState(service: AccountService, s: RungState): RungState {
+  return service === 'youtube' && s === 'no_premium' ? 'off' : s;
+}
+
 export function ladderState(d: DownloadsView): Ladder {
-  const youtube = d.youtube.state as RungState, soundcloud = d.soundcloud.state as RungState;
+  const youtube = downloadState('youtube', d.youtube.state as RungState);
+  const soundcloud = downloadState('soundcloud', d.soundcloud.state as RungState);
   return { qobuz: d.qobuz.state as RungState, youtube, soundcloud,
     accounts: working('youtube', youtube) || working('soundcloud', soundcloud) };
 }
@@ -92,7 +100,6 @@ export function premiumWords(l: Ladder, compact: boolean): string {
       return `${compact ? SERVICE[a] : ACCOUNT_NAME[a]} ${what}`;
     }
     if (s === 'unreadable') return `can't read the ${SERVICE[a]} login`;
-    if (s === 'no_premium') return compact ? `${TIER[a]} not confirmed` : `${ACCOUNT_NAME[a]} not confirmed`;
   }
   return compact ? 'needs Premium or Go+' : `needs ${ACCOUNT_NAME.youtube} or ${ACCOUNT_NAME.soundcloud}`;
 }

@@ -206,8 +206,8 @@ export function updateOutcome(fin: { ok: boolean; problem?: string | null; messa
 }
 
 /** The YouTube Music panel (sources round problem 3, binding words). */
-export const LIKED_WARNING = "Reads sign in with your YouTube account. Many reads can set off YouTube's bot check, "
-  + 'which pauses them (and any YouTube Premium downloads) for a while.';
+export const LIKED_WARNING = 'Reading your Liked music signs in with your YouTube account. Many reads can set off '
+  + "YouTube's bot check, which pauses those reads, and YouTube Premium downloads if you have them, for a while.";
 export const LIKED_NO_LOGIN = 'Sign in to YouTube first';
 export type LikedPanel = {
   /** the switch: the choice as saved, or the one being saved */

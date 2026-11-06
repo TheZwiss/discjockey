@@ -189,6 +189,23 @@ def test_pasting_liked_music_while_the_account_is_paused_reads_nothing(root):
     assert LikedYDL.requested == [] and not any("cookiesfrombrowser" in o for o in LikedYDL.created)
 
 
+def test_a_bot_check_met_by_a_free_youtube_login_pauses_the_reads_and_gives_downloads_nothing(root):
+    free = {"ok": False, "problem": "no_premium", "kbps": 129, "at": "2026-10-20T21:47:00"}
+    save_settings(root.settings_file, Settings(accounts={"youtube": Account("chrome", 30, last_check=free, liked_only=True)},
+                                               read_liked_music=True))
+    api, _ = make_api(root, now=datetime.now)
+    LikedYDL.error = Exception("Sign in to confirm you're not a bot")
+    answer = api.add_playlist(LM_LINK)
+    assert (answer["ok"], answer["kind"]) == (False, "offline")
+    assert pacing.account_paused(library.load_state(root), "youtube", datetime.now().date())  # the reads rest today
+    answer = api.add_playlist(LM_LINK)  # and stay away from the account until tomorrow
+    assert (answer["message"], answer["kind"]) == (youtube_music.LIKED_RESTING, "offline")
+    assert list(api._account_budgets(library.load_state(root))) == []  # no YouTube budget, so no auto-stop of its own
+    assert [c["set_up"] for c in api.limits("youtube")["cards"]] == [True, False, False]  # no card for it
+    assert api.limits("youtube")["usage"] is None
+    assert api.downloads_view()["downloads"]["youtube"]["state"] == "no_premium"
+
+
 def test_a_bot_check_met_while_pasting_is_recorded_as_the_accounts_warning_sign(root):
     api, _ = make_api(root)
     settings(root)

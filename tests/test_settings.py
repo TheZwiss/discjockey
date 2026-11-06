@@ -221,3 +221,26 @@ def test_every_other_youtube_login_downloads():
     for check in (PREMIUM, None, {**FREE, "problem": "not_logged_in"}, {**FREE, "problem": "failed"}):
         s = Settings(accounts={"youtube": Account("chrome", 30, last_check=check)})
         assert list(s.download_accounts) == ["youtube"], check
+
+
+def test_a_free_youtube_login_stays_out_of_downloads_through_checks_that_say_nothing_about_premium(tmp_path):
+    s = Settings(accounts={"youtube": Account("chrome", 30)}).with_check("youtube", FREE)
+    assert s.accounts["youtube"].liked_only and "youtube" not in s.download_accounts
+    for problem in ("failed", "not_logged_in", "cookies_unreadable"):
+        s = s.with_check("youtube", {**FREE, "problem": problem})
+        assert "youtube" not in s.download_accounts, problem  # offline or logged out: still no Premium
+    path = tmp_path / "settings.json"
+    save_settings(path, s)
+    assert "youtube" not in load_settings(path).download_accounts  # kept across a restart
+    s = s.with_check("youtube", PREMIUM)  # Premium found: it downloads again, and stays a download account
+    assert list(s.download_accounts) == ["youtube"]
+    assert list(s.with_check("youtube", {**FREE, "problem": "failed"}).download_accounts) == ["youtube"]
+    # a Premium login that lapses is liked-only until a good check
+    assert "youtube" not in s.with_check("youtube", FREE).download_accounts
+    # another browser or profile is another login: unchecked, so it downloads until its check says
+    assert list(s.with_check("youtube", FREE).with_account("youtube", "firefox").download_accounts) == ["youtube"]
+
+
+def test_a_soundcloud_check_never_marks_the_login_liked_only():
+    s = Settings(accounts={"soundcloud": Account("chrome", 30)}).with_check("soundcloud", FREE)
+    assert not s.accounts["soundcloud"].liked_only and list(s.download_accounts) == ["soundcloud"]
