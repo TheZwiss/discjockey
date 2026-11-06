@@ -1,32 +1,110 @@
-# Discjockey
+<h1 align="center">Discjockey</h1>
 
-Discjockey keeps a lossless DJ library in step with your Spotify, Qobuz, SoundCloud and YouTube Music playlists. It downloads each
-track from Qobuz as lossless 16-bit AIFF, falls back to the best version it can find on
-YouTube Music, YouTube or SoundCloud, and never deletes any of your music files.
+<p align="center">
+  <b>Your streaming playlists, as a lossless DJ library.</b><br>
+  Discjockey turns your Spotify, Qobuz, SoundCloud and YouTube Music playlists into folders of verified lossless
+  files, ready for rekordbox, and keeps them in step as your playlists change.
+</p>
 
-You need a Mac with Apple Silicon and, for lossless files, a Qobuz subscription. Spotify Premium is only needed
-if you sync Spotify playlists (see [Requirements](#requirements)).
+<p align="center">
+  <a href="https://github.com/TheZwiss/discjockey/releases/latest"><b>Download for Mac</b></a>
+  &nbsp;·&nbsp; Apple Silicon, macOS 12 or later &nbsp;·&nbsp; Free and open source (GPL-3.0)
+</p>
 
-<img src="docs/readme/app-dashboard.png" alt="The Discjockey dashboard: 87 % of 366 tracks lossless, the folders and the last runs">
+<img src="docs/readme/app-dashboard.png" alt="The Discjockey dashboard: 54 % of the library lossless, three things that need you, every playlist folder with its quality, and the last runs">
+
+## Why Discjockey
+
+You find music in streaming apps, but you play sets from files. Getting from one to the other by hand means looking
+up every track, buying or downloading it, checking that the "lossless" file really is lossless, naming it, putting it
+in the right folder and doing it all again every time a playlist changes. When a better version turns up later,
+swapping it in usually costs you the cue points you set in rekordbox.
+
+Discjockey does that work for you. Your playlists stay the place where you collect music; Discjockey makes the
+library follow them.
+
+## How it works
+
+1. **Paste your playlist links.** Spotify, Qobuz, SoundCloud (sets and likes) and YouTube Music playlists. Each
+   playlist becomes a folder in your library, and the order of the list decides where a track that sits in several
+   playlists goes. It is downloaded once.
+2. **Review the plan, then sync.** Before anything downloads, Discjockey shows what is new, what it will look for
+   again and what left your playlists. You untick what should wait and choose how much to do today.
+3. **It gets the best version it can find.** Every track is looked for on Qobuz first and saved as 16-bit AIFF. When
+   Qobuz doesn't have it, Discjockey takes the next best source in this order: the artist's own file (SoundCloud's
+   download button), a premium stream through your YouTube Premium or SoundCloud Go+ login, and only then a free stream.
+4. **Every file is checked.** Discjockey measures each file's spectrum and tells real lossless apart from good lossy,
+   audibly weak and "fake lossless" (a lossless file made from a lossy source). Files are named `Artist - Title`, and
+   the comment tag says where each one came from, so you can see it in rekordbox.
+5. **It keeps going.** Each sync adds what is new. Once a week it looks again for songs it couldn't find and for
+   lossless versions of the files that aren't lossless yet. It never deletes a music file: anything it replaces is
+   kept in `Superseded/`.
+
+<img src="docs/readme/app-settings.png" alt="Settings: where your music comes from, best first: Qobuz lossless, the artist's own file, premium streams at about 256 kbps, free streams at about 130 kbps">
+
+<sub><b>Settings</b> shows the order Discjockey tries for every song and which of your logins are working.</sub>
+
+## What you get
+
+### Review before anything downloads
+
+The Sync page shows the whole plan: new downloads, missing songs looked for again, lossy files checked for a lossless
+copy, files gone from your playlists and files you bought. Switch a playlist off on the left, untick single tracks,
+and pick how many downloads run today; the rest waits for the next sync.
+
+<img src="docs/readme/app-sync.png" alt="The Sync page: playlists with switches on the left, the plan with 228 tracks in five kinds in the middle, today's amount, the weekly checks and Start sync on the right">
+
+### Every track, with its quality
+
+The Library lists every track you have, by playlist, by folder or all at once, with its quality at a glance. Select one
+to see its spectrum, where it came from and how it was found, and to listen to it in the window.
+
+<img src="docs/readme/app-library.png" alt="The Library: a playlist's tracks with their quality badges, and the details of a lossless track with its spectrum, player, format and source">
+
+### Upgrades that keep your cues
+
+When Discjockey later finds a lossless version of a lossy track, it doesn't replace anything by itself. The To-do page
+lets you listen to both and shows whether they are the same edit. When they are, the lossless audio goes into your
+existing file, so rekordbox keeps your cue points, loops and beatgrid. Not-found tracks come with buy links, and every replace can be
+undone until you have checked it in rekordbox.
+
+<img src="docs/readme/app-todo.png" alt="The To-do page: upgrades ready, songs not found and weak versions, with an upgrade open on the right comparing the current file and the lossless one">
+
+### And more
 
 <table>
   <tr>
-    <td width="50%" valign="top"><img src="docs/readme/app-sync-finished.png" alt="The end of a sync: 14 tracks added, 12 lossless"><br><sub><b>Sync</b>: what came in, folder by folder</sub></td>
-    <td width="50%" valign="top"><img src="docs/readme/app-todo.png" alt="The To-do page with tracks that are not lossless yet"><br><sub><b>To-do</b>: everything not lossless yet, with buy links</sub></td>
+    <td width="50%" valign="top"><img src="docs/readme/app-sync-running.png" alt="A sync running: track 3 of 5 downloading from YouTube Music, with the steps search, download, check, convert and analyse"><br><sub><b>A sync you can follow</b>: each track's steps, what came in, and what needs you. Stopping is safe at any time.</sub></td>
+    <td width="50%" valign="top"><img src="docs/readme/app-playlists.png" alt="The Playlists page with ten playlists in priority order and the Tidy up files panel listing the files that would move"><br><sub><b>Playlists</b>: drag to set the priority. Tidy up moves files to where the order puts them, with a preview first and undo after.</sub></td>
   </tr>
   <tr>
-    <td width="50%" valign="top"><img src="docs/readme/app-library.png" alt="The Library with a track's spectrum and player"><br><sub><b>Library</b>: every track with its quality and spectrum</sub></td>
-    <td width="50%" valign="top"><img src="docs/readme/app-playlists.png" alt="The Playlists page with eight playlists"><br><sub><b>Playlists</b>: priority order and where shared tracks land</sub></td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top"><img src="docs/readme/app-limits.png" alt="The Download limits page with the last 14 days"><br><sub><b>Download limits</b>: your own safety limits per service</sub></td>
-    <td width="50%" valign="top"><img src="docs/readme/app-settings.png" alt="Settings with the sources, best first"><br><sub><b>Settings</b>: where your music comes from, best first</sub></td>
+    <td width="50%" valign="top"><img src="docs/readme/app-library-folders.png" alt="The Library showing a watched folder of the user's own music with its subfolders as crates"><br><sub><b>Music you already have</b>: watch your existing folders. Discjockey reads them where they are, never downloads a song you already own, and points out duplicates.</sub></td>
+    <td width="50%" valign="top"><img src="docs/readme/app-limits.png" alt="The Download limits page: Qobuz at 37 of 80 today, the daily limit of 60 and the last 14 days"><br><sub><b>Download limits</b>: your own daily limit per service, paced downloads and a pause after repeated failures, to keep your accounts safe.</sub></td>
   </tr>
 </table>
 
+## What you need
+
+- A Mac with Apple Silicon (M1 or later) and macOS 12 Monterey or later.
+- For lossless files, a Qobuz subscription. Without one, Discjockey gets every track from YouTube Music, YouTube or
+  SoundCloud, and only an artist's own file can come in lossless.
+- Spotify Premium only if you sync Spotify playlists. Qobuz, SoundCloud and YouTube Music playlists don't need it.
+
+The details are under [Requirements](#requirements). Please read the [Legal note](#legal-note) and
+[Account risk](#account-risk) before your first sync.
+
+## Manual
+
+Everything below is the full user manual: [Download](#download) · [Requirements](#requirements) ·
+[Legal note](#legal-note) · [Install](#install-and-open-anyway) · [Updates](#updates) · [Setup](#one-time-setup) · [Settings](#settings) ·
+[Where things live](#where-things-live) · [playlists.txt](#playliststxt) · [Your existing music](#your-existing-music) ·
+[Tidying up files](#tidying-up-files) · [Daily use](#daily-use) · [The Library page](#the-library-page) ·
+[Folders](#folders) · [Reports](#reports-and-not_losslessmd) · [Upgrades](#upgrades) · [rekordbox](#rekordbox) ·
+[When something breaks](#when-something-breaks) · [Account risk](#account-risk) · [Licence](#licence)
+
 ## Download
 
-Download `Discjockey-<version>.dmg` (for example `Discjockey-1.0.0.dmg`) from the
+Download `Discjockey-<version>.dmg` (for example `Discjockey-1.2.0.dmg`) from the
 [latest release](https://github.com/TheZwiss/discjockey/releases/latest). It is free.
 
 ## Requirements
@@ -334,8 +412,16 @@ new downloads, bought files to add, and tracks no longer in any playlist. Untick
 - **Your playlists stand on the left**, as in Library, each with a switch: switch one off to leave it out of the
   sync. The strip on top of the plan shows how much of it is new downloads, missing songs looked for again, lossy
   files checked for a lossless copy, files gone and bought files.
+- **The plan** lists every track by playlist, each with a tick and an icon that says why it is there (point at a
+  row to read it in words). **Tick all** and **None** work per playlist; the search field above (**⌘F**) finds an
+  artist or title.
+- **How many** on the right picks how many downloads this run takes: 5, 10, 25, 50 or all of them, and, when not
+  all fit, the number that fits today's download limit (marked ✦). The bar above says how many run today
+  and how many wait for later, with the days that takes.
 - **Weekly checks** on the right switch the two weekly checks on or off: songs not found last time, and files that
   aren't lossless yet.
+- Discjockey reads your playlists by itself once each time you open it and whenever `playlists.txt` changes;
+  **Read playlists** at the top reads them again.
 
 - A run of 60 downloads takes 1 to 2 hours, because Discjockey waits between Qobuz downloads.
   The Mac stays awake while it runs.
