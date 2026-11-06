@@ -28,22 +28,6 @@ same file ("Same track"), and cues and beatgrid stay exact. Two shapes to weigh 
 
 Any write to the user's rekordbox data needs a backup and an undo, and the user's go.
 
-## 32. Library stage 6 leftovers (SoundCloud and YouTube Music playlists)
-
-Noted while reviewing `docs/2026-10-31-library-stage-6-plan.md`. What is left are live checks, which need the real
-services.
-
-- **Live check (a Go+-only SNIP track, stage 6 D9):** that a Go+-only upload seen through an account without Go+ really
-  lists the 30 s preview (`…_preview`) and not a full stream, and that a Go+ account lists a full ~128 kbps one for such
-  an upload (read from yt-dlp's code, not seen live). Two more yt-dlp assumptions, also unseen: for a Go+ track whose
-  `hq` transcoding is DRM-protected, yt-dlp still picks a named, unprotected full format (`http_mp3_128` or an HLS mp3
-  id) for `info["format_id"]` and never a `ctr-`/`cbc-` protocol one, so `stream_kbps` can tell it from "only
-  protected" (then no format is named, or it ends in `_preview`); and `abr`/`tbr` of that format is its own ~128, not
-  the protected stream's. If either is wrong the typical Go+ track's 128 stream is rejected as DRM again (nothing else
-  breaks).
-- **Live check:** the short-link redirect follows one hop. Confirm that `on.soundcloud.com` goes straight to
-  `soundcloud.com/...`.
-
 ## 25. Library stage 1 leftovers (engine on library.db) — for later stages
 
 Audit 2026-11-05 (updated by leftovers round C2): the Ogg page-header reads, the moved/adopted/conflicts labels, the
