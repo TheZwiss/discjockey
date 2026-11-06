@@ -352,16 +352,18 @@ def fake_process(status="lossless", length_ok=True, kbps=None):
     return process
 
 
-def budget_for(state, used=0):
+def budget_for(state, used=0, paths=None):
+    """`paths`: the budget saves what it counts at once, as the hub's does (api._budget)."""
     state["qobuz_usage"]["days"] = {"2026-10-19": 60, "2026-10-20": used}
-    return Budget(state, lambda: None, Settings(60), today=lambda: date(2026, 10, 20), now=lambda: NOW)
+    save = (lambda: None) if paths is None else (lambda: save_state(paths, state))
+    return Budget(state, save, Settings(60), today=lambda: date(2026, 10, 20), now=lambda: NOW)
 
 
 def use(paths, cand, source=None, process=None, used=0, events=None, token=None):
     state = load_state(paths)
     source = source or FakeSource()
     result = ops.use_candidate(paths, state, "t1aaaaaaa", cand, qobuz=source, fallback=source,
-                               budget=budget_for(state, used), emit=(events if events is not None else []).append,
+                               budget=budget_for(state, used, paths), emit=(events if events is not None else []).append,
                                token=token, process=process or fake_process(), now=lambda: NOW)
     return result, state, source
 

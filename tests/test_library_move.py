@@ -246,20 +246,20 @@ def test_recovery_with_only_a_partial_staged_copy_keeps_it_says_neither_exists_a
 def test_a_crash_between_the_copy_taking_its_name_and_the_source_removal_is_finished(paths, other, monkeypatch):
     src = touch(paths.library / "A/x.aiff")
     dst = other / "x.aiff"
-    real_unlink, real_save, saves = os.unlink, library.save_state, []
+    real_unlink, real_records, writes = os.unlink, library._records, []
 
     def unlink(p, *a, **kw):
         if Path(p) == src:
             raise SystemExit("power cut")
         real_unlink(p, *a, **kw)
 
-    def save(paths_, state, **kw):
-        if saves:
-            raise SystemExit("power cut")  # nothing after the cut runs, not even the rollback
-        saves.append(1)
-        real_save(paths_, state, **kw)
+    def records(paths_):
+        if writes:
+            raise SystemExit("power cut")  # nothing after the cut reaches library.db, not even the rollback
+        writes.append(1)
+        return real_records(paths_)
     monkeypatch.setattr(os, "unlink", unlink)
-    monkeypatch.setattr(library, "save_state", save)
+    monkeypatch.setattr(library, "_records", records)
     with pytest.raises(SystemExit):
         run_op(paths, empty_state(), "t1", [("Library/A/x.aiff", str(dst))], None, label="A - S")
     monkeypatch.undo()

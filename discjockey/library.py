@@ -854,12 +854,26 @@ def deferred_interrupt():
 
 def run_op(paths: Paths, state: dict, track_id: str, renames: list[tuple[str, str]], entry: dict | None, *,
            entries: Mapping[str, dict] | None = None, label: str | None = None) -> None:
-    """Record the step as pending, do the renames, then apply the entry. Crash-safe (see recover_pending).
-    `entries` (state key -> entry) are applied together with `entry`: a folder move changes many songs' paths in one
-    step. `label` names the step in recover_pending's messages. The pending step stores either only when given, and
-    `staged` and `size` (journal_crossings) only when a rename crosses drives."""
+    """A step that changes songs together with their files (issue 25: past the entry view, as move_files): the step
+    is journaled in library.db first (db.journal_step: the renames, `entry` for `track_id`, `entries` (state key ->
+    entry; a folder move changes many songs' paths in one step), `label` (names the step in recover_pending's
+    messages) only when given, and `staged` and `size` (journal_crossings) only when a rename crosses drives), then
+    each rename (move_path), then db.finish_step writes those entries, only their songs and file rows, and ends the
+    journal entry, in one transaction. Crash-safe: recover_pending finishes it.
+
+    `state` is the caller's snapshot, which it goes on saving: it must be current (else StateError STALE, nothing
+    moved, as its save would be refused), and it follows each write here: the new generation, and the entries once
+    the step is done. A step that moved nothing is dropped and the error re-raised; one that stopped after a rename
+    (or whose result the records refuse) stays journaled, in `state`'s pending too, so the caller's next saves keep
+    it for the next start. A library without library.db gets it first (as save_state); an old-format state is
+    StateError."""
+    from . import db
+    if state.get("version") != 2:
+        raise StateError(OLD_RECORDS)
+    if not paths.db_file.exists():
+        save_state(paths, state)  # the library's first library.db (or the refusal when state.json is there)
     with deferred_interrupt():
-        op = {"track_id": track_id, "renames": [list(r) for r in renames], "entry": entry}
+        op = {"kind": db.STEP, "track_id": track_id, "renames": [list(r) for r in renames], "entry": entry}
         if entries is not None:
             op["entries"] = dict(entries)
         if label is not None:
@@ -868,21 +882,44 @@ def run_op(paths: Paths, state: dict, track_id: str, renames: list[tuple[str, st
         if staged:
             op.update(staged=staged, size=size)
         roots = watched_roots(paths)
-        state.setdefault("pending", []).append(op)
-        save_state(paths, state)
+        with _records(paths) as conn:
+            state["generation"] = db.journal_step(conn, op, state.get("generation"))
         done = 0
         try:
             for i, (src, dst) in enumerate(renames):
                 move_path(paths.root, src, dst, staged.get(str(i)), roots)
                 done += 1
+            with _records(paths) as conn:
+                state["generation"] = _finish_step(paths, conn, op)
         except BaseException:
             if done == 0:
-                state["pending"].remove(op)
-                save_state(paths, state)
+                with _records(paths) as conn:
+                    state["generation"] = db.drop_pending(conn, op["op_id"])
+            else:
+                state.setdefault("pending", []).append(op)
             raise
         _apply_entries(state, op)
-        state["pending"].remove(op)
-        save_state(paths, state, rekeyed=[dst for _, dst in renames])
+
+
+@contextmanager
+def _records(paths: Paths):
+    """A connection to library.db for one write of a step; a database error is StateError (db.unreadable), as in
+    save_state."""
+    from . import db
+    try:
+        with db.connect(paths.db_file) as conn:
+            yield conn
+    except sqlite3.Error as e:
+        raise db.unreadable(e) from None
+
+
+def _finish_step(paths: Paths, conn: sqlite3.Connection, op: dict) -> int:
+    """db.finish_step for a run_op step whose renames are done: the files it put into Library/ are read again
+    (their audio may be new under an unchanged entry). Returns the new generation."""
+    from . import db
+    rekeyed = [dst for _, dst in op["renames"] if dst.startswith("Library/")]  # Superseded/ and .tmp/ have no rows
+    return db.finish_step(conn, op, library=paths.library, facts=file_facts(paths), now=datetime.now(),
+                          rekeyed=rekeyed)
 
 
 def _apply_entries(state: dict, op: dict) -> None:
@@ -1058,6 +1095,29 @@ def _recover_files(paths: Paths, op: dict, roots: Collection[Path]) -> tuple[tup
     return _recovered(name, r.problem, r.done_any), True
 
 
+def _step_name(op: dict) -> str:
+    """How recover_pending's messages name a run_op step: its label, else its song."""
+    e = op.get("entry") or {}
+    return op.get("label") or f"{e.get('artist', '?')} - {e.get('title', op['track_id'])}"
+
+
+def _recover_step(paths: Paths, op: dict, roots: Collection[Path]) -> tuple[tuple[str, bool] | _Waits, bool]:
+    """A run_op step: its renames finished (_recover_renames), then its entries written (db.finish_step) once a
+    file is in its new place, else its journal entry dropped. Returns the message (a _Waits for a step that stays
+    pending) and whether library.db was written."""
+    from . import db
+    name = _step_name(op)
+    r = _recover_renames(paths.root, op, roots)
+    if r.wait and not r.done_any:
+        return _Waits(name, r, not waits_offline(op, paths.root, roots)), False
+    with _records(paths) as conn:
+        if r.done_any:  # once a file was placed, the entry must point at it, or the next run would mis-adopt it
+            _finish_step(paths, conn, op)
+        else:
+            db.drop_pending(conn, op["op_id"])
+    return _recovered(name, r.problem, r.done_any), True
+
+
 def _refresh(paths: Paths, state: dict) -> None:
     """`state`'s contents replaced in place with a fresh snapshot, for a caller that goes on with it after a write
     past the entry view."""
@@ -1081,7 +1141,7 @@ def waits_offline(op: dict, root: Path, roots: Collection[Path]) -> bool:
 def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
     """Finish or drop steps an earlier run was interrupted in, then close the move batches a crash left open
     (tidy.recover). Returns (message, ok) per step and per batch. A step with a file on a drive that isn't
-    connected waits for it. A `files` step (move_files) and tidy.recover write library.db past `state`, so after
+    connected waits for it. A `files` step (move_files), a `step` (run_op) and tidy.recover write library.db past `state`, so after
     either `state`'s contents are replaced in place with a fresh snapshot: the caller goes on saving a current one."""
     messages: list[tuple[str, bool] | _Waits] = []
     roots = watched_roots(paths) if state.get("version") == 2 else [paths.root]
@@ -1094,14 +1154,14 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
             from .upgrades import recover_swap_undo  # upgrades builds on this module
             messages.append(recover_swap_undo(paths, state, op))
             continue
-        if op.get("kind") == "files":
-            message, wrote = _recover_files(paths, op, roots)
+        if op.get("kind") in ("files", "step"):
+            message, wrote = (_recover_files if op["kind"] == "files" else _recover_step)(paths, op, roots)
             messages.append(message)
             if wrote:
                 _refresh(paths, state)
             continue
-        e = op.get("entry") or {}
-        name = op.get("label") or f"{e.get('artist', '?')} - {e.get('title', op['track_id'])}"
+        # a step journaled in the snapshot's pending (state.json's, or library.db's from before issue 25)
+        name = _step_name(op)
         r = _recover_renames(paths.root, op, roots)
         if r.wait and not r.done_any:
             messages.append(_Waits(name, r, not waits_offline(op, paths.root, roots)))

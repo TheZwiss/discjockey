@@ -42,21 +42,24 @@ same file ("Same track"), and cues and beatgrid stay exact. Two shapes to weigh 
 
 Any write to the user's rekordbox data needs a backup and an undo, and the user's go.
 
-## 25. Library stage 1 leftovers (engine on library.db) — for later stages
+## 25. Library stage 1 leftovers (engine on library.db) — the upgrade swap's journal
 
-Audit 2026-11-05 (updated by leftovers round C2): the Ogg page-header reads, the moved/adopted/conflicts labels, the
-migration's recovered steps in the run report, and the RF64 / streamed WAV / Ogg-FLAC keys are done (a tag edit no longer
-changes their key; a file already keyed whole keeps that key until its bytes change). Round C3 closed the unreadable replaced
-file (a judgment that fails is remembered by the file's key and the tools' stamp, `files.judge_failed`, and tried again
-only when either changes). Still open: `execute.py`, `ops.py`, `upgrades.py` and `tidy.py` call `run_op` on the entry
-view (its own stage).
+Audit 2026-11-05 (leftovers rounds C2, C3) closed the rest of stage 1's list. 2026-11-06: `run_op` no longer goes
+through the entry view (`db.snapshot` / `db.save`): it journals its step in library.db (`db.journal_step`, pending kind
+`step`) and writes only its songs and their file rows (`db.finish_step`), as `move_files` does; so the sync's file steps
+(`execute.py`), the To-do operations (`ops.py`), Add as new and its undo (`upgrades.py`) and the folder moves of
+`tidy.py` are off it. Still on it:
 
-Noted while moving the engine onto `library.db` (`docs/archive/2026-10-23-library-stage-1-plan.md`, group 3).
+- **The upgrade swap and its undo** (`upgrades.swap`, `_undo_swap`, `recover_swap`, `recover_swap_undo`; pending kinds
+  `swap` and `swap_undo`) journal through the snapshot's `pending` and `save_state`, including the mid-step
+  `backed_up` mark. Moving them needs a db write that replaces a journaled op by its `op_id`, and the swap's end
+  written like `finish_step`.
+- **Steps journaled the old way** (no `kind`: state.json's, recovered during the migration, and library.db rows an
+  earlier version left) are still finished through the snapshot (`recover_pending`'s generic branch). It stays while
+  such a library can still be opened.
 
-- **The sync's file steps still work on the entry view of the database** (the stage 1 seam: `db.snapshot` /
-  `db.save`): the `run_op` callers `execute.py`, `ops.py` and `upgrades.py`, and the folder moves of `tidy.py`. The
-  import, the folders and the file journal (`move_files`) write songs and files explicitly. Move the rest the same
-  way when a stage touches them.
+The entry view itself stays: the planner plans on the snapshot, and the record-only saves (`Executor._set_entry`, the
+budgets, `ops.set_hidden`, ...) write it. They move no files.
 
 ## 24. Identify files by their sound (AcoustID) — agreed design, a stage after stage 6
 

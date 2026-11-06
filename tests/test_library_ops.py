@@ -149,14 +149,14 @@ def test_a_crash_after_the_renames_is_finished_by_the_next_start(paths, monkeypa
     s = empty_state()
     s["tracks"]["t1"] = {"artist": "A", "title": "S", "path": None, "status": "missing"}
     save_state(paths, s)
-    real, saves = library.save_state, []
+    real, writes = library._records, []
 
-    def save(paths_, state, **kw):
-        if saves:
-            raise SystemExit("power cut")  # the save that applies the entry never happens
-        saves.append(1)
-        real(paths_, state, **kw)
-    monkeypatch.setattr(library, "save_state", save)
+    def records(paths_):
+        if writes:
+            raise SystemExit("power cut")  # the write that applies the entry never happens
+        writes.append(1)
+        return real(paths_)
+    monkeypatch.setattr(library, "_records", records)
     entry = {**s["tracks"]["t1"], "path": "Library/A/S.aiff", "status": "lossless"}
     with pytest.raises(SystemExit):
         run_op(paths, s, "t1", [(".discjockey/.tmp/t1/new.aiff", "Library/A/S.aiff")], entry)
@@ -406,14 +406,14 @@ def test_run_op_moves_a_folder_and_applies_every_entry(paths):
 
 def test_a_folder_step_crashed_after_the_rename_is_finished_with_its_entries(paths, monkeypatch):
     s = two_songs_in(paths, "Old")
-    real, saves = library.save_state, []
+    real, writes = library._records, []
 
-    def save(paths_, state, **kw):
-        if saves:
-            raise SystemExit("power cut")  # the save that applies the entries never happens
-        saves.append(1)
-        real(paths_, state, **kw)
-    monkeypatch.setattr(library, "save_state", save)
+    def records(paths_):
+        if writes:
+            raise SystemExit("power cut")  # the write that applies the entries never happens
+        writes.append(1)
+        return real(paths_)
+    monkeypatch.setattr(library, "_records", records)
     with pytest.raises(SystemExit):
         run_op(paths, s, "", [("Library/Old", "Library/New")], None, entries=moved_entries(s, "Old", "New"),
                label="the folder rename Old → New")
@@ -427,15 +427,15 @@ def test_a_folder_step_crashed_after_the_rename_is_finished_with_its_entries(pat
     assert after_start["tracks"]["t2"]["path"] == "Library/New/A - T.aiff"
 
 
-def test_a_stage_1_step_stores_neither_entries_nor_label(paths, monkeypatch):
+def test_a_single_songs_step_stores_neither_entries_nor_label(paths, monkeypatch):
+    from discjockey import db
     touch(paths, "Library/A/x.aiff")
     s = empty_state()
     seen = []
-    real = library.save_state
-    monkeypatch.setattr(library, "save_state",
-                        lambda p, st, **kw: (seen.append([dict(op) for op in st.get("pending", [])]), real(p, st, **kw)))
+    real = db.journal_step
+    monkeypatch.setattr(db, "journal_step", lambda conn, op, gen: (seen.append(dict(op)), real(conn, op, gen))[1])
     run_op(paths, s, "t1", [("Library/A/x.aiff", "Library/B/x.aiff")], {"path": "Library/B/x.aiff"})
-    assert set(seen[0][0]) == {"track_id", "renames", "entry"}
+    assert set(seen[0]) == {"kind", "track_id", "renames", "entry"} and seen[0]["kind"] == "step"
 
 
 # --- what a step leaves its caller (issue 25: pinned before run_op moved off the entry view) ---
@@ -522,3 +522,14 @@ def test_a_step_onto_another_songs_file_is_refused_by_the_records(paths):
                {**s["tracks"]["t2"], "path": "Library/A/S.aiff", "status": "lossless"})
     saved = load_state(paths)
     assert saved["tracks"]["t1"]["path"] == "Library/A/S.aiff" and saved["tracks"]["t2"]["path"] is None
+
+
+def test_a_step_writes_only_its_own_songs_and_the_callers_next_save_the_rest(paths):
+    s = one_song(paths)
+    s["tracks"]["t2"] = {**s["tracks"]["t2"], "hidden": True}  # not saved yet
+    run_op(paths, s, "t1", [("Library/A/S.aiff", "Superseded/A/S.aiff")],
+           {**s["tracks"]["t1"], "path": None, "status": "missing"})
+    saved = load_state(paths)
+    assert saved["tracks"]["t1"]["path"] is None and not saved["tracks"]["t2"].get("hidden")
+    save_state(paths, s)
+    assert load_state(paths)["tracks"]["t2"]["hidden"] is True
