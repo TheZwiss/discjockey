@@ -1622,19 +1622,38 @@ def journal_step(conn: sqlite3.Connection, op: dict, generation: int | None) -> 
 def finish_step(conn: sqlite3.Connection, op: dict, *, library: Path, facts: Facts, now: datetime,
                 rekeyed: Collection[str] = ()) -> int:
     """A journaled run_op step that happened on disk, written in one transaction with the end of its journal entry:
-    its entries (step_entries) as save writes them, but only those songs and their file rows (a new song is
-    inserted; `rekeyed` as in save); the pending row `op["op_id"]` goes. A file a song outside the step keeps is
-    StateError (SHARED), a path in no watched folder ValueError; either leaves every row as it was. Returns the new
-    generation."""
+    its entries (step_entries) as end_step writes them. Returns the new generation."""
+    return end_step(conn, op["op_id"], step_entries(op), library=library, facts=facts, now=now, rekeyed=rekeyed)
+
+
+def end_step(conn: sqlite3.Connection, op_id: str, tracks: Mapping[str, dict], *, library: Path, facts: Facts,
+             now: datetime, rekeyed: Collection[str] = ()) -> int:
+    """The end of a journaled step (run_op's, the upgrade swap's and its undo's), in one transaction: `tracks`
+    (song key -> entry; none for a step that changed no entry) as save writes them, but only those songs and their
+    file rows (a new song is inserted; `rekeyed` as in save); the pending row `op_id` goes. A file a song outside
+    the step keeps is StateError (SHARED), a path in no watched folder ValueError; either leaves every row as it
+    was. Returns the new generation."""
     stamp = now.isoformat(timespec="seconds")
-    tracks = step_entries(op)
+    tracks = dict(tracks)
     with transaction(conn):
         sync_library_path(conn, library)
         folders = _Folders(conn)
         ids, _ = _save_songs(conn, tracks, _songs(conn), _aliases(conn))
         _save_files(conn, tracks, ids, [], folders, facts, stamp, rekeyed, part=True)
         _drop_dead_decisions(conn)
-        conn.execute(_BY_OP_ID, (op["op_id"],))
+        conn.execute(_BY_OP_ID, (op_id,))
+        return _bump(conn)
+
+
+def replace_pending(conn: sqlite3.Connection, op: dict) -> int:
+    """A journaled step's row rewritten as `op` (matched by its `op_id`): a mark the step makes midway (the upgrade
+    swap's `backed_up`, a backup name it had to choose again). A row that is gone is journaled again, so the step
+    is never unjournaled while it runs. Returns the new generation."""
+    row = _dumps(op)
+    with transaction(conn):
+        if not conn.execute("UPDATE pending SET op = ? WHERE json_extract(op, '$.op_id') = ?",
+                            (row, op["op_id"])).rowcount:
+            conn.execute("INSERT INTO pending (op) VALUES (?)", (row,))
         return _bump(conn)
 
 

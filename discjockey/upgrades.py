@@ -28,8 +28,8 @@ from .audio import copy_tags
 from .content_key import content_key
 from .events import Result
 from .library import (
-    NameReserver, Paths, deferred_interrupt, delete_parked, fsync_dir, full_fsync, run_op, safe_rename, save_state,
-    upgrade_undo, watched_root,
+    NameReserver, Paths, deferred_interrupt, delete_parked, end_op, fsync_dir, full_fsync, journal_op, mark_op,
+    run_op, safe_rename, save_state, upgrade_undo, watched_root,
 )
 from .models import SOURCE_NAMES
 from .names import expected_stem, fold, split_name, strip_id_suffix
@@ -261,10 +261,10 @@ def _back_up_again(paths: Paths, state: dict, op: dict) -> None:
         p = PurePosixPath(op["backup"])
         stem, ext = split_name(strip_id_suffix(p.name, op["track_id"]))
         op["backup"] = NameReserver(paths.root, state).choose(str(p.parent), stem, ext, op["track_id"])
-        save_state(paths, state)
+        mark_op(paths, state, op)
     _back_up(paths, op)
     op["backed_up"] = True
-    save_state(paths, state)
+    mark_op(paths, state, op)
 
 
 def _finish(paths: Paths, state: dict, op: dict) -> str:
@@ -289,10 +289,8 @@ def _finish(paths: Paths, state: dict, op: dict) -> str:
         entry["rekordbox_check"] = check
     else:
         delete_parked(paths, op["parked"])
-    state["tracks"][op["track_id"]] = entry
     shutil.rmtree(paths.root / PurePosixPath(op["staged"]).parent, ignore_errors=True)
-    state["pending"].remove(op)
-    save_state(paths, state, rekeyed=[path])  # the new audio is in it, whether or not the entry changed
+    end_op(paths, state, op, {op["track_id"]: entry}, rekeyed=[path])  # the new audio is in it, entry changed or not
     return path
 
 
@@ -323,8 +321,7 @@ def _held_place(paths: Paths, track_id: str, parked: str) -> str:
 def _drop(paths: Paths, state: dict, op: dict) -> None:
     """Ends an operation that changed nothing (or was undone); the parked version stays for another try."""
     shutil.rmtree(paths.root / PurePosixPath(op["staged"]).parent, ignore_errors=True)
-    state["pending"].remove(op)
-    save_state(paths, state, rekeyed=[op["target"]])  # an undo may have written the old audio back into it
+    end_op(paths, state, op, {}, rekeyed=[op["target"]])  # an undo may have written the old audio back into it
 
 
 def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compare = align.compare_files,
@@ -364,8 +361,7 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
           "check": {"reason": "swapped", "since": now().date().isoformat(), "match": alignment.result,
                     "offset_ms": alignment.offset_ms}}
     with deferred_interrupt():  # a Ctrl-C waits until the file is complete again
-        state["pending"].append(op)  # step 2
-        save_state(paths, state)
+        journal_op(paths, state, op)  # step 2
         try:
             _back_up(paths, op)  # step 3
         except Exception as err:  # e.g. the name was taken meanwhile: your file was not touched
@@ -373,7 +369,7 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
             raise UpgradeProblem(f"The swap did not work ({err}). Nothing was changed; the "
                                  f"{upgrade_name(upgrade)} is still waiting.") from err
         op["backed_up"] = True  # from here on, recovery knows that Discjockey may have written to the file
-        save_state(paths, state)
+        mark_op(paths, state, op)
         try:
             _write_in_place(paths.root / target, staged, op["new_sha256"])  # step 4
             final = _finish(paths, state, op)  # steps 5 and 6
@@ -545,8 +541,7 @@ def _undo_swap(paths: Paths, state: dict, track_id: str, u: dict, entry: dict) -
           "old_sha256": _sha256(paths.root / u["old"]), "new_sha256": _sha256(paths.root / u["file"]),
           "entry": entry}
     with deferred_interrupt():  # a Ctrl-C waits until the file is complete again
-        state["pending"].append(op)
-        save_state(paths, state)
+        journal_op(paths, state, op)
         try:
             _finish_undo(paths, state, op)
         except _UndoStuck as stuck:
@@ -563,15 +558,13 @@ def _finish_undo(paths: Paths, state: dict, op: dict) -> None:
     name = _track_name(e, op["track_id"])
     where = next((rel for rel in (op["target"], op["home"]) if (paths.root / rel).is_file()), None)
     if where is None:
-        state["pending"].remove(op)
-        save_state(paths, state)
+        end_op(paths, state, op, {})
         raise _UndoStuck(f"Could not undo the swap for {name}: {op['target']} is gone. Nothing more was changed.")
     now = _sha256(paths.root / where)
     if now != op["old_sha256"]:  # not written back yet, or only half
         if not _verified(paths.root / op["backup"], op["old_sha256"]):
             if now == op["new_sha256"]:  # nothing was changed: the swap stays
-                state["pending"].remove(op)
-                save_state(paths, state)
+                end_op(paths, state, op, {})
                 raise _UndoStuck(f"The swap for {name} was not undone: its backup {op['backup']} is missing or "
                                  "changed. Nothing was changed.")
             raise _UndoStuck(f"Undoing the swap for {name} needs your help: {where} may be damaged and its backup "
@@ -586,9 +579,7 @@ def _finish_undo(paths: Paths, state: dict, op: dict) -> None:
         except OSError:  # not empty
             pass
     (paths.root / op["backup"]).unlink(missing_ok=True)  # its audio is in the file again (checked above)
-    state["tracks"][op["track_id"]] = op["entry"]
-    state["pending"].remove(op)
-    save_state(paths, state, rekeyed=[op["home"]])
+    end_op(paths, state, op, {op["track_id"]: op["entry"]}, rekeyed=[op["home"]])
 
 
 def recover_swap_undo(paths: Paths, state: dict, op: dict) -> tuple[str, bool]:

@@ -42,25 +42,6 @@ same file ("Same track"), and cues and beatgrid stay exact. Two shapes to weigh 
 
 Any write to the user's rekordbox data needs a backup and an undo, and the user's go.
 
-## 25. Library stage 1 leftovers (engine on library.db) — the upgrade swap's journal
-
-Audit 2026-11-05 (leftovers rounds C2, C3) closed the rest of stage 1's list. 2026-11-06: `run_op` no longer goes
-through the entry view (`db.snapshot` / `db.save`): it journals its step in library.db (`db.journal_step`, pending kind
-`step`) and writes only its songs and their file rows (`db.finish_step`), as `move_files` does; so the sync's file steps
-(`execute.py`), the To-do operations (`ops.py`), Add as new and its undo (`upgrades.py`) and the folder moves of
-`tidy.py` are off it. Still on it:
-
-- **The upgrade swap and its undo** (`upgrades.swap`, `_undo_swap`, `recover_swap`, `recover_swap_undo`; pending kinds
-  `swap` and `swap_undo`) journal through the snapshot's `pending` and `save_state`, including the mid-step
-  `backed_up` mark. Moving them needs a db write that replaces a journaled op by its `op_id`, and the swap's end
-  written like `finish_step`.
-- **Steps journaled the old way** (no `kind`: state.json's, recovered during the migration, and library.db rows an
-  earlier version left) are still finished through the snapshot (`recover_pending`'s generic branch). It stays while
-  such a library can still be opened.
-
-The entry view itself stays: the planner plans on the snapshot, and the record-only saves (`Executor._set_entry`, the
-budgets, `ops.set_hidden`, ...) write it. They move no files.
-
 ## 24. Identify files by their sound (AcoustID) — agreed design, a stage after stage 6
 
 Audit 2026-11-05: parked, nothing of it is built (no AcoustID, `fpcalc` or Chromaprint code or licence file, no Settings

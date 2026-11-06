@@ -917,9 +917,75 @@ def _finish_step(paths: Paths, conn: sqlite3.Connection, op: dict) -> int:
     """db.finish_step for a run_op step whose renames are done: the files it put into Library/ are read again
     (their audio may be new under an unchanged entry). Returns the new generation."""
     from . import db
-    rekeyed = [dst for _, dst in op["renames"] if dst.startswith("Library/")]  # Superseded/ and .tmp/ have no rows
-    return db.finish_step(conn, op, library=paths.library, facts=file_facts(paths), now=datetime.now(),
-                          rekeyed=rekeyed)
+    return _end_step(paths, conn, op["op_id"], db.step_entries(op), [dst for _, dst in op["renames"]])
+
+
+def _end_step(paths: Paths, conn: sqlite3.Connection, op_id: str, tracks: Mapping[str, dict],
+              rekeyed: Collection[str]) -> int:
+    """db.end_step with this library's facts; of `rekeyed`, only files in Library/ (as save_state). Returns the new
+    generation."""
+    from . import db
+    indexed = [p for p in rekeyed if p.startswith("Library/")]  # Superseded/ and .tmp/ have no rows
+    return db.end_step(conn, op_id, tracks, library=paths.library, facts=file_facts(paths), now=datetime.now(),
+                       rekeyed=indexed)
+
+
+# --- a step that keeps its journal entry in the caller's snapshot while it runs (the upgrade swap and its undo,
+# issue 25): journaled in library.db past the entry view, mirrored in `state["pending"]`, so the caller's saves keep
+# it; `state` follows each write (its generation, the step's entries once it ends) ---
+
+def journal_op(paths: Paths, state: dict, op: dict) -> None:
+    """Journals `op` before its first change on disk (db.journal_step: it gets an `op_id`; StateError STALE, nothing
+    written, when `state` isn't current, as its save would be) and adds it to `state["pending"]`. A library without
+    library.db gets it first (as save_state); an old-format state is StateError."""
+    from . import db
+    if state.get("version") != 2:
+        raise StateError(OLD_RECORDS)
+    if not paths.db_file.exists():
+        save_state(paths, state)  # the library's first library.db (or the refusal when state.json is there)
+    with _records(paths) as conn:
+        state["generation"] = db.journal_step(conn, op, state.get("generation"))
+    state.setdefault("pending", []).append(op)
+
+
+def _mirror(state: dict, op: dict, keep: bool) -> None:
+    """`state["pending"]` as library.db's rows: with `op` in place of its copy (matched by op_id; added when it has
+    none), or without it."""
+    pending = state.setdefault("pending", [])
+    others = [o for o in pending if o.get("op_id") != op["op_id"]]
+    if keep:
+        at = next((i for i, o in enumerate(pending) if o.get("op_id") == op["op_id"]), len(others))
+        others.insert(at, op)
+    pending[:] = others
+
+
+def mark_op(paths: Paths, state: dict, op: dict) -> None:
+    """Stores a change to a journaled `op` made midway (db.replace_pending). An op journaled through the snapshot
+    (no `op_id`: by a version before issue 25) is saved the way it was then, with `state`."""
+    from . import db
+    if "op_id" not in op:
+        save_state(paths, state)
+        return
+    with _records(paths) as conn:
+        state["generation"] = db.replace_pending(conn, op)
+    _mirror(state, op, keep=True)
+
+
+def end_op(paths: Paths, state: dict, op: dict, entries: Mapping[str, dict], *,
+           rekeyed: Collection[str] = ()) -> None:
+    """Ends a journaled `op`: `entries` (song key -> entry; none for a step that changed no entry) and the files
+    `rekeyed` (as save_state's) written with the end of its journal entry, in one transaction (_end_step); then
+    `state` takes the entries and loses the op. An op journaled through the snapshot (no `op_id`: by a version
+    before issue 25) is ended the way it was then: the entries into `state`, the op out of its pending, save_state."""
+    if "op_id" not in op:
+        state["tracks"].update(entries)
+        state["pending"].remove(op)
+        save_state(paths, state, rekeyed=rekeyed)
+        return
+    with _records(paths) as conn:
+        state["generation"] = _end_step(paths, conn, op["op_id"], entries, rekeyed)
+    state["tracks"].update(entries)
+    _mirror(state, op, keep=False)
 
 
 def _apply_entries(state: dict, op: dict) -> None:
@@ -1142,7 +1208,8 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
     """Finish or drop steps an earlier run was interrupted in, then close the move batches a crash left open
     (tidy.recover). Returns (message, ok) per step and per batch. A step with a file on a drive that isn't
     connected waits for it. A `files` step (move_files), a `step` (run_op) and tidy.recover write library.db past `state`, so after
-    either `state`'s contents are replaced in place with a fresh snapshot: the caller goes on saving a current one."""
+    either `state`'s contents are replaced in place with a fresh snapshot: the caller goes on saving a current one. A
+    `swap` / `swap_undo` step writes past it too (end_op), and `state` follows each of its writes."""
     messages: list[tuple[str, bool] | _Waits] = []
     roots = watched_roots(paths) if state.get("version") == 2 else [paths.root]
     for op in list(state.get("pending", [])):

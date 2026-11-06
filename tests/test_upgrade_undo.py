@@ -322,8 +322,7 @@ def crash_swap_undo(env, monkeypatch, name, half=False, earlier=False, nth=1):
             conn.execute("UPDATE pending SET op = json_remove(op, '$.op_id')")
     on_disk = load_state(paths)
     assert [op["kind"] for op in on_disk["pending"]] == ["swap_undo"]
-    if earlier:
-        assert "op_id" not in on_disk["pending"][0]
+    assert ("op_id" in on_disk["pending"][0]) is not earlier  # journaled in library.db (issue 25), or the old way
     return paths, on_disk, original, inode
 
 

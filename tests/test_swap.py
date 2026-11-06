@@ -503,6 +503,7 @@ def test_each_power_cut_leaves_the_swap_journaled_with_its_backed_up_mark(fake, 
     paths, state = crash_and_reload(fake, monkeypatch, crash_at, half)
     [op] = stored_ops(paths)
     assert op["kind"] == "swap" and op.get("backed_up") is backed_up and op["target"] == CURRENT
+    assert len(op["op_id"]) == 32  # journaled in library.db past the entry view (issue 25)
     assert state["pending"] == [op] and state["tracks"][TID]["path"] == CURRENT  # the entry is not written yet
 
 
@@ -549,6 +550,21 @@ def test_the_caller_goes_on_saving_after_a_swap(fake):
     state["tracks"][TID]["last_attempt"] = "2026-11-06"  # a record-only save afterwards (e.g. ops.run_single's)
     save_state(paths, state)
     assert load_state(paths)["tracks"][TID]["last_attempt"] == "2026-11-06"
+
+
+def test_a_swap_writes_only_its_song(fake):
+    """Past the entry view (issue 25): another song's change the caller hasn't saved yet waits for its save."""
+    paths, state = fake
+    other = {**make_entry("Library/A/Other.aiff"), "title": "Other", "upgrade": None}
+    (paths.root / other["path"]).write_bytes(b"other audio")
+    state["tracks"]["t2"] = other
+    save_state(paths, state)
+    state["tracks"]["t2"]["last_attempt"] = "2026-11-06"
+    swap(paths, state)
+    stored = load_state(paths)["tracks"]
+    assert stored[TID]["status"] == "lossless" and stored["t2"]["last_attempt"] == "2026-10-01"
+    save_state(paths, state)
+    assert load_state(paths)["tracks"]["t2"]["last_attempt"] == "2026-11-06"
 
 
 def test_a_failed_write_undone_at_once_leaves_a_current_snapshot(fake, monkeypatch):
