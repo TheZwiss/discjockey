@@ -24,7 +24,7 @@
 {#snippet mark(r: ShareRow)}<span class="km" style:color={colourOf(r.key)} data-kind={r.key}>{#if isKindKey(r.key)}<KindIcon
   kind={r.key} size={13} />{/if}</span>{/snippet}
 
-<ShareStrip value={count(total)} unit={total === 1 ? 'track' : 'tracks'} {line} {bar} {rows} {mark} test="sync-kinds-strip"
+<ShareStrip value={count(total)} unit={total === 1 ? 'track' : 'tracks'} {line} {bar} {rows} {mark} stack test="sync-kinds-strip"
   valueTest="sync-strip-total" lineTest="sync-strip-line" />
 
 <style>

@@ -572,11 +572,12 @@
   </section>
 
   <section data-test="gallery-sharestrip">
-    {@render head('ShareStrip · ShareBar', 'The strip\'s layout for any whole (issue 36): two rows stack (Library), more stand three to a column, under 680 px they take a line of their own; ShareBar: parts in their colours, a part switched off dims')}
+    {@render head('ShareStrip · ShareBar', 'The strip\'s layout for any whole (issue 36): two rows stack (Library), more stand three to a column, under 680 px they take a line of their own (Library\'s two keep their column; `stack`, Sync\'s, gives them that line too); ShareBar: parts in their colours, a part switched off dims')}
     <div class="col">
       {#each [[900, 'five kinds, wide: the rows beside the bar'], [560, 'five kinds, narrow: the rows under the share and the bar'],
-        [900, 'two kinds: Library\'s two-row form'], [900, 'a weekly check switched off: its row dims and says off, its part leaves the bar']] as [w, cap], i (i)}
-        {@const ks = i === 2 ? KIND_SHARE.filter((k) => k.key === 'new' || k.key === 'weekly') : KIND_SHARE}
+        [900, 'two kinds, wide: the two rows in their column'], [900, 'a weekly check switched off: its row dims and says off, its part leaves the bar'],
+        [560, 'two kinds, narrow: both rows under the share and the bar, none of their names cut']] as [w, cap], i (i)}
+        {@const ks = i === 2 || i === 4 ? KIND_SHARE.filter((k) => k.key === 'new' || k.key === 'weekly') : KIND_SHARE}
         {@const kinds = ks.map((k) => ({ ...k, n: [216, 2, 4, 6, 2][KIND_SHARE.indexOf(k)], off: i === 3 && k.key === 'retry' }))}
         {@const total = kinds.filter((k) => !k.off).reduce((t, k) => t + k.n, 0)}
         <div class="col tight" style="width: {w}px; max-width: 100%" data-test="g-kinds-{i}">
