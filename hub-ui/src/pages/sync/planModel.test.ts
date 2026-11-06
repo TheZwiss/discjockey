@@ -4,7 +4,7 @@ import {
   FULL_SCOPE, type Scope, dayBarInput, defaultHowMany, downloadsInScope, inScope, facets, folderItems, folderLabel, foldText, howManyOptions, inRunOrder, isKindKey, kindItems,
   kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount,
   minutesFor, runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
-  readBlockLine, startLabel, tagOf, toggleScope, waitsWhole, whyColumn,
+  readBlockLine, leftOutTitle, scopeGroupShown, startLabel, tagOf, whyOf, KINDS, toggleScope, waitsWhole, whyColumn,
   WAITING_ANSWERS_HREF, deferredChecksLine, waitingAnswersLine,
 } from './planModel';
 
@@ -44,6 +44,37 @@ describe('kinds and tags', () => {
     expect(tagOf(act('acquire', 'a', 'X', { reason: 'retry' }))).toBe('not found last time');
     expect(tagOf(act('adopt_bought', 'a'))).toBe('bought file');
     expect(tagOf(act('upgrade', 'a'))).toBe('weekly check');
+  });
+  it('says why in words for every kind, a plain new track included (issue 35: the row tooltip)', () => {
+    expect(whyOf(act('acquire', 'a'))).toBe('not downloaded yet');
+    expect(whyOf(act('acquire', 'a', 'X', { reason: 'retry' }))).toBe('not found last time');
+    expect(whyOf(act('acquire', 'a', 'X', { reason: 'redownload' }))).toBe('file gone');
+    expect(whyOf(act('adopt_bought', 'a'))).toBe('bought file');
+    expect(whyOf(act('upgrade', 'a'))).toBe('weekly check');
+    // the tag is the same words, left out only for the plain new track
+    for (const a of [act('acquire', 'a', 'X', { reason: 'retry' }), act('upgrade', 'a'), act('adopt_bought', 'a')])
+      expect(tagOf(a)).toBe(whyOf(a));
+  });
+});
+
+describe("the panel's scope groups (issue 35)", () => {
+  it('stay while a single playlist or kind is planned, so it can still be left out or switched back on', () => {
+    const weeklyOnly = facets([act('upgrade', 'a', 'X'), act('upgrade', 'b', 'X')], ['X']);
+    expect(weeklyOnly.kinds.map((k) => k.key)).toEqual(['weekly']);
+    expect(scopeGroupShown(weeklyOnly.kinds)).toBe(true);
+    expect(scopeGroupShown(weeklyOnly.folders)).toBe(true);
+    // left out earlier and now the only kind planned: still listed, switched off, so it can come back
+    expect(kindItems(weeklyOnly.kinds, { folders: [], kinds: ['weekly'] })).toEqual(
+      [{ key: 'weekly', label: KINDS.find((k) => k.key === 'weekly')!.label, count: 2, on: false }]);
+  });
+  it('say "more" in the left-out note only when rows stand above it', () => {
+    expect(leftOutTitle(4, 0)).toBe('4 tracks left out');
+    expect(leftOutTitle(1, 0)).toBe('1 track left out');
+    expect(leftOutTitle(4, 12)).toBe('4 more tracks left out');
+  });
+  it('go only when nothing is planned', () => {
+    expect(scopeGroupShown(facets([], []).kinds)).toBe(false);
+    expect(scopeGroupShown(facets([], []).folders)).toBe(false);
   });
 });
 

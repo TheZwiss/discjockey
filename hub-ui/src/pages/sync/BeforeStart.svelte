@@ -22,7 +22,7 @@
   import {
     PREF_HOW_MANY, PREF_SCOPE, defaultHowMany, facets, inRunOrder, inScope, isDownload, matches, nextSyncSet,
     mayWaitToday, kindOf, downloadsInScope, presetN, presetTicks, presets, readHowMany, readScope, runTotals, scopeSet, sections, shouldAutoRead, shownPreset,
-    NOTHING_TODAY, readBlockLine, runsNothingToday, sectionCounts, startLabel, toggleScope,
+    NOTHING_TODAY, leftOutTitle, readBlockLine, runsNothingToday, sectionCounts, startLabel, toggleScope,
     type HowMany, type Scope, type Section,
   } from './planModel';
   import { keepDetail, lastSyncStats, lastSyncView, needsDetail, type LastSyncDetail } from './endModel';
@@ -273,7 +273,7 @@
           {#if hidden > 0 && !searching}
             <!-- a NoteCard, not a Hint: the controls it explains sit in the other column, and a Hint goes directly
                  under its own control (design language §2 "everything sits in a container", §5 Text; issue 7) -->
-            <NoteCard title="{plural(hidden, 'more track')} left out" data-test="sync-hidden">
+            <NoteCard title={leftOutTitle(hidden, scoped.length)} data-test="sync-hidden">
               Playlists or kinds you turned off on the right.</NoteCard>
           {/if}
         </div>

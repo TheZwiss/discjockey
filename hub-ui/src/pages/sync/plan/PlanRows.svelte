@@ -2,19 +2,20 @@
   // The plan's rows, one list Surface per playlist folder (playlists.txt order), in the order the sync works through
   // them (spec §8). The head: the folder's name (folds the section), "N of M ticked" (plus "· W next sync" while
   // ticked rows wait for a later day), Tick all · None; it stays at the top while a long playlist scrolls by. A row
-  // (ListRow): tick + cover · "Artist – Title" · why the track is in the run and "next sync" (Why) · ⊘ (NeverButton).
+  // (ListRow): tick + cover · "Artist – Title" · why the track is in the run and "next sync" (Why) · the kind's icon
+  // (WhyMark, every row at every width, issue 35) · ⊘ (NeverButton).
   // The why column exists only in a section that can fill it (a tag, or a download that may wait); a section of
   // plain new tracks gives its names the width instead of a blank 200 px. It is fixed for the page (`mayWait` doesn't
   // change with ticks), so ticking never makes the columns jump. The cost, accepted: a section where rows may wait
-  // keeps the column blank until one does, so a very long name ends in "…" before it. On a narrow list (< 680 px) the column hides; tag
-  // and "next sync" stay in the row's tooltip and description. When every ticked row of a section waits, the head
+  // keeps the column blank until one does, so a very long name ends in "…" before it. On a narrow list (< 680 px) the column hides;
+  // the icon stays, "next sync" becomes the mark's yellow dot, and the words stay in the row's tooltip. When every ticked row of a section waits, the head
   // says it once and the rows drop the label (one fact, said once). A folded section stays folded while a search
   // hides and shows it again.
   import { SvelteSet } from 'svelte/reactivity';
   import { Cover, ListRow, Surface } from '$lib/components';
   import type { PreviewAction } from '$lib/bridge/types';
   import { artistTitle } from '$lib/format';
-  import { canNever, folderLabel, kindOf, sectionSummary, tagOf, waitsWhole, whyColumn, type Section } from '../planModel';
+  import { canNever, folderLabel, kindOf, sectionSummary, tagOf, waitsWhole, whyColumn, whyOf, type Section } from '../planModel';
   import { keyId } from '../selection';
   import NeverButton from './NeverButton.svelte';
   import { Tick } from '$lib/components';
@@ -31,11 +32,11 @@
     onnever: (a: PreviewAction) => void;
   } = $props();
 
-  // tick + 8 + cover 28 · name · why (200 px holds "from Hard_Bounce ● next sync") · ⊘
-  const COLS = '--row-cols: 52px minmax(0, 1fr) 32px';
-  // a narrow list (no why column) keeps the why as a mark before ⊘: the kind's icon (as in What to do) and the yellow
-  // "next sync" dot, in a fixed 26 px slot so marks line up down the list (60 = mark 26 + gap 8 + ⊘ 26)
-  const WIDE = '--row-cols: 52px minmax(0, 1fr) 60px; --row-cols-wide: 52px minmax(0, 1fr) 200px 32px';
+  // tick + 8 + cover 28 · name · why (200 px holds "not found last time ● next sync") · kind mark + ⊘. Every row
+  // has the mark (the kind's icon, as in What to do, and on a narrow list the yellow "next sync" dot) in a fixed 26 px
+  // slot before ⊘, so icons and ⊘ line up down the list (60 = mark 26 + gap 8 + ⊘ 26)
+  const COLS = '--row-cols: 52px minmax(0, 1fr) 60px';
+  const WIDE = `${COLS}; --row-cols-wide: 52px minmax(0, 1fr) 200px 60px`;
   const closed = new SvelteSet<string>();
   const setOpen = (folder: string, open: boolean) => { if (open) closed.delete(folder); else closed.add(folder); };
 </script>
@@ -54,22 +55,22 @@
       {@const waits = on && nextSync.has(id)}
       {@const next = waits && !allWait}
       {@const name = artistTitle(a.artist, a.title)}
+      {@const kind = kindOf(a)}
       {#snippet lead()}<Tick {on} /><Cover url={a.cover_url} seed={a.track_id} size={28} />{/snippet}
       {#snippet line()}{name}{/snippet}
       {#snippet why()}<Why {tag} {next} />{/snippet}
       {#snippet end()}
-        <WhyMark kind={tag ? kindOf(a) : null} {next} />
-        {#if canNever(a)}<NeverButton {name} blocked={neverBlocked} onclick={() => onnever(a)} />{:else if tag || next}<span
-          class="slot"></span>{/if}
+        <WhyMark {kind} {next} />
+        {#if canNever(a)}<NeverButton {name} blocked={neverBlocked} onclick={() => onnever(a)} />{:else}<span class="slot"></span>{/if}
       {/snippet}
-      <ListRow {lead} name={line} optional={tag || next ? why : undefined} trailing={canNever(a) || tag || next ? end : undefined}
-        off={!on} checked={on} onclick={() => ontoggle(a)} title={[name, tag, waits && 'next sync'].filter(Boolean).join(' · ')}
+      <ListRow {lead} name={line} optional={tag || next ? why : undefined} trailing={end}
+        off={!on} checked={on} onclick={() => ontoggle(a)} title={[name, whyOf(a), waits && 'next sync'].filter(Boolean).join(' · ')}
         test="sync-item" data-track={a.track_id} />
     {/each}
   </Surface>
 {/each}
 
 <style>
-  /* keeps the mark slot (WhyMark, 26 px) on a row that has a why but no ⊘, so ⊘ columns line up */
+  /* holds ⊘'s place (26 px) on a row that can't have one (a weekly check, a bought file), so the marks line up */
   .slot { flex: none; width: 26px; }
 </style>

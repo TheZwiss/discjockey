@@ -17,23 +17,6 @@ stay):
 - **Right panel:** the run's settings get the room: tracks and run time, today's limit, and two separate switches,
   weekly checks of missing songs and weekly checks of lossy files; the Start button stays.
 
-## 35. Sync page: the weekly checks can't be switched off, and rows don't say why they are there (user, 2026-11-06)
-
-Seen live: the user started a sync with weekly checks on. It first retried the songs not found last time (none found
-again), then began the weekly checks of lossy files; the user stopped it. Back on the Sync page, many lossy files were
-still planned for their weekly check, but the "Weekly checks" switch was gone, so they could no longer be left out.
-Likely cause (check first): the retries are not due again this week, so the weekly checks are the only kind left, and
-the kinds panel hides a kind list of one (or the kinds facet drops); the switch must stay whenever weekly checks are
-planned. Also: nothing on a row tells a weekly check from a song that isn't downloaded yet (the user saw no tag).
-
-- **Fix:** the weekly checks can always be switched on or off while any are planned; every row shows why it is in the
-  list (not downloaded yet, not found last time, weekly check, file gone, bought file) at every window width.
-  The user's idea (2026-11-06): one icon per kind on every row, e.g. weekly checks an orange stopwatch or clock,
-  downloads a download icon (today `KindIcon` draws a calendar for weekly checks and shows only at narrow widths).
-  A first idea, not a rule: the designer may refine it or pick a better one that fits the design language.
-- **Wish:** the Playlists panel on the Sync page shows each playlist's service logo (Spotify, Qobuz, SoundCloud,
-  YouTube Music, a watched folder), as the Library sidebar does, so the source shows at a glance.
-
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them — needs a design round (user, 2026-10-31)
 
 Audit 2026-11-05: parked, nothing of it is built (no AIFF conversion of imported files, no rekordbox repoint; the New
@@ -74,7 +57,6 @@ Noted while moving the engine onto `library.db` (`docs/archive/2026-10-23-librar
   `db.save`): the `run_op` callers `execute.py`, `ops.py` and `upgrades.py`, and the folder moves of `tidy.py`. The
   import, the folders and the file journal (`move_files`) write songs and files explicitly. Move the rest the same
   way when a stage touches them.
-
 
 ## 24. Identify files by their sound (AcoustID) — agreed design, a stage after stage 6
 
