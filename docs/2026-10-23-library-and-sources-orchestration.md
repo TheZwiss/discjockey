@@ -376,8 +376,7 @@ Results:
   (4579499, Opus 216k): groups A0 Sonnet → A1 Opus → A2 Opus → A3 Opus → A4 Sonnet → A5 Sonnet → review + fix.
   Parked for the user: people updating from 1.2.x never see Setup again, so Auto-upgrade is on for them without a word;
   a one-time note (e.g. in the first sync summary)? Stage C, nothing tonight depends on it.
-- Decided (no longer parked): people updating from 1.2.x get one line in their first sync summary after the update
-  that Auto-upgrade is on and where to switch it off (Settings); shown once. Goes into the stage C plan.
+- Dropped: no note for people updating from 1.2.x (the user is the only user; no effort on updater niceties).
 - User ~23:30, new night scope (binding): work through the WHOLE issue 33 design tonight (stages A → B → C → D, then
   E = issue 40 if time is left). No full-page mockups: the UI additions are small, so each UI group gets a precise,
   complete design direction (placement, states, words, reused components, drift guards) and is built by an Opus agent
