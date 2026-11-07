@@ -126,7 +126,8 @@ def ffmpeg_notice() -> tuple[str, str]:
 
 def test_the_hand_kept_folder_has_the_texts():
     names = sorted(p.name for p in (PACKAGING / "licenses").iterdir())
-    assert names == ["GPL-3.0.txt", "deno.txt", "ffmpeg.txt", "svelte.txt", "vite.txt"]
+    assert names == ["GPL-3.0.txt", "deno.txt", "ffmpeg.txt", "openssl.txt", "sqlcipher.txt", "svelte.txt",
+                     "vite.txt"]
 
 
 def test_the_ffmpeg_notice_names_the_pinned_source_and_how_it_is_built():
@@ -257,6 +258,48 @@ def test_the_user_interface_runtime_is_credited():
     assert {"svelte", "vite"} <= names
     label = collect_licenses.hand_kept_label("svelte")
     assert "MIT" in label and "svelte " in label
+
+
+def test_the_sqlcipher_and_openssl_texts_match_the_installed_module():
+    """The texts' first lines name the versions linked into the pinned wheel; a bump of the pin that changes either
+    fails here until the texts follow (docs/2026-11-07-rekordbox-stage-a-plan.md §0.8)."""
+    import sqlcipher3
+    pin = collect_licenses.sqlcipher_pin()
+    assert md.version("sqlcipher3-wheels") == pin
+    con = sqlcipher3.connect(":memory:")
+    con.execute("PRAGMA key = 'x'")  # the provider reports its version once a key is set
+    cipher = con.execute("PRAGMA cipher_version").fetchone()[0]
+    provider = con.execute("PRAGMA cipher_provider_version").fetchone()[0]
+    con.close()
+    sqlcipher = (PACKAGING / "licenses" / "sqlcipher.txt").read_text(encoding="utf-8")
+    openssl = (PACKAGING / "licenses" / "openssl.txt").read_text(encoding="utf-8")
+    version = collect_licenses.text_version("sqlcipher", "SQLCipher")
+    assert cipher == f"{version} community"
+    assert sqlcipher.startswith(f"SQLCipher {cipher} (built into sqlcipher3-wheels {pin}): ")
+    assert provider.startswith(f"OpenSSL {collect_licenses.text_version('openssl', 'OpenSSL')} ")
+    assert openssl.startswith(f"OpenSSL {collect_licenses.text_version('openssl', 'OpenSSL')} "
+                              f"(built into sqlcipher3-wheels {pin}): Apache-2.0")
+    assert "Apache License" in openssl and "ZETETIC" in sqlcipher and "public domain" in sqlcipher
+
+
+def test_the_index_names_the_sqlcipher_and_openssl_versions_and_the_pin(tmp_path):
+    out = tmp_path / "out"
+    licence = tmp_path / "LICENSE.txt"
+    licence.write_text("PSF")
+    assert collect_licenses.collect(out, [], python_licence_file=licence) == []
+    index = (out / "INDEX.txt").read_text()
+    pin = collect_licenses.sqlcipher_pin()
+    assert (f"SQLCipher 4.12.0 community (built into sqlcipher3-wheels {pin}): "
+            f"BSD-3-Clause-style, with SQLite (public domain) -> sqlcipher.txt") in index
+    assert f"OpenSSL 3.6.0 (built into sqlcipher3-wheels {pin}): Apache-2.0 -> openssl.txt" in index
+    assert (out / "sqlcipher.txt").is_file() and (out / "openssl.txt").is_file()
+
+
+def test_a_text_without_its_version_on_the_first_line_is_refused(tmp_path, monkeypatch):
+    (tmp_path / "openssl.txt").write_text("Apache License\n")
+    monkeypatch.setattr(collect_licenses, "HAND_KEPT", tmp_path)
+    with pytest.raises(ValueError, match="must start with 'OpenSSL <version>'"):
+        collect_licenses.text_version("openssl", "OpenSSL")
 
 
 def test_a_distribution_without_a_name_is_reported_not_a_crash(tmp_path):
