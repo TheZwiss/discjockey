@@ -6,7 +6,7 @@ activates, then checks:
 - every engine module and the bundled third-party packages import;
 - ffmpeg, ffprobe and deno answer, and in the app they are the bundled ones (Contents/Resources/bin);
 - a generated one-second tone converts to AIFF with the engine's own settings (audio.convert_to_aiff);
-- a file keyed with a throwaway key opens only with that key (sqlcipher3, which reads rekordbox's library);
+- a file keyed with a throwaway key opens only with that key, through the open that reads rekordbox's library;
 - the built UI (hub/static/index.html) is there with every file it loads;
 - the built-in yt-dlp passes the update check in a process of its own (`--check-tools`), and tool_updates sees its
   version (proves the plain-file copy is found; phase 3 review).
@@ -111,19 +111,19 @@ def check_conversion(work: Path, run: Runner = subprocess.run) -> list[str]:
 
 
 def check_sqlcipher(work: Path, connect: Callable | None = None) -> list[str]:
-    """The SQLCipher binding encrypts for real: a file made with a throwaway key reads back with it, and refuses to
-    be read without the key and with a wrong one. A module built without SQLCipher ignores `PRAGMA key` and would
-    write a plain file; this fails for it. Uses `sqlcipher3` directly (`connect` is for the tests)."""
+    """The SQLCipher binding encrypts for real: a file made with a throwaway key reads back with it through the
+    open that reads rekordbox's library (`rekordbox.master.connect`: read-only, the key as a passphrase), and that
+    open refuses it without the key and with a wrong one. A module built without SQLCipher ignores `PRAGMA key` and
+    would write a plain file; this fails for it. `connect` is the module's connect (for the tests)."""
+    from .rekordbox import master
     if connect is None:
         import sqlcipher3
         connect = sqlcipher3.connect
     path, key = work / "keyed.db", "0f" * 32
 
     def read(with_key: str | None):
-        con = connect(str(path))
+        con = master.connect(path, with_key, driver=connect)
         try:
-            if with_key is not None:
-                con.execute(f"PRAGMA key = '{with_key}'")
             return con.execute("SELECT word FROM t").fetchall()
         finally:
             con.close()
