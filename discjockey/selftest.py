@@ -6,6 +6,7 @@ activates, then checks:
 - every engine module and the bundled third-party packages import;
 - ffmpeg, ffprobe and deno answer, and in the app they are the bundled ones (Contents/Resources/bin);
 - a generated one-second tone converts to AIFF with the engine's own settings (audio.convert_to_aiff);
+- a file keyed with a throwaway key opens only with that key (sqlcipher3, which reads rekordbox's library);
 - the built UI (hub/static/index.html) is there with every file it loads;
 - the built-in yt-dlp passes the update check in a process of its own (`--check-tools`), and tool_updates sees its
   version (proves the plain-file copy is found; phase 3 review).
@@ -29,7 +30,7 @@ import discjockey
 from . import tools
 
 THIRD_PARTY = ("streamrip", "streamrip.client", "streamrip.config", "mutagen", "numpy", "certifi", "requests",
-               "bottle", "webview", "webview.platforms.cocoa", "objc", "AppKit", "Foundation", "WebKit",
+               "bottle", "sqlcipher3", "webview", "webview.platforms.cocoa", "objc", "AppKit", "Foundation", "WebKit",
                tools.YT_DLP, tools.EJS)
 PROGRAMS = {"ffmpeg": ["-version"], "ffprobe": ["-version"], "deno": ["--version"]}
 MIN_MODULES = 30  # the engine has more than 40; fewer means the app was collected without them
@@ -109,6 +110,47 @@ def check_conversion(work: Path, run: Runner = subprocess.run) -> list[str]:
     return problems
 
 
+def check_sqlcipher(work: Path, connect: Callable | None = None) -> list[str]:
+    """The SQLCipher binding encrypts for real: a file made with a throwaway key reads back with it, and refuses to
+    be read without the key and with a wrong one. A module built without SQLCipher ignores `PRAGMA key` and would
+    write a plain file; this fails for it. Uses `sqlcipher3` directly (`connect` is for the tests)."""
+    if connect is None:
+        import sqlcipher3
+        connect = sqlcipher3.connect
+    path, key = work / "keyed.db", "0f" * 32
+
+    def read(with_key: str | None):
+        con = connect(str(path))
+        try:
+            if with_key is not None:
+                con.execute(f"PRAGMA key = '{with_key}'")
+            return con.execute("SELECT word FROM t").fetchall()
+        finally:
+            con.close()
+
+    try:
+        con = connect(str(path))
+        try:
+            con.execute(f"PRAGMA key = '{key}'")
+            con.execute("CREATE TABLE t (word TEXT)")
+            con.execute("INSERT INTO t VALUES ('keyed')")
+            con.commit()
+        finally:
+            con.close()
+        if read(key) != [("keyed",)]:
+            return ["SQLCipher: the keyed file did not read back with its key"]
+    except Exception as e:
+        return [f"SQLCipher: {type(e).__name__}: {e}"]
+    problems = []
+    for label, with_key in (("without its key", None), ("with a wrong key", "ab" * 32)):
+        try:
+            read(with_key)
+        except Exception:
+            continue
+        problems.append(f"SQLCipher: the keyed file opened {label}")
+    return problems
+
+
 def check_ui(index: Path) -> list[str]:
     if not index.is_file():
         return [f"UI: {index} is missing"]
@@ -183,6 +225,7 @@ def run_checks(work: Path, support: Path, bin_dir: Path | None, frozen: bool,
     problems += check_imports()
     problems += check_programs(bin_dir, run)
     problems += check_conversion(work, run)
+    problems += check_sqlcipher(work)
     from .hub import app as hub_app  # only for STATIC; importing it starts nothing
     problems += check_ui(hub_app.STATIC)
     problems += check_download_tools(support, work, run)

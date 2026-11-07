@@ -35,9 +35,28 @@ def canonical(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def sqlcipher_pin() -> str:
+    """The exact version of sqlcipher3-wheels pyproject.toml pins (the wheel that carries SQLCipher and OpenSSL)."""
+    for dep in tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["dependencies"]:
+        found = re.fullmatch(r"sqlcipher3-wheels\s*==\s*(\S+)", dep)
+        if found:
+            return found.group(1)
+    raise ValueError("pyproject.toml pins no sqlcipher3-wheels==<version>")
+
+
+def text_version(stem: str, name: str) -> str:
+    """The version a hand-kept text names on its first line ("<name> <version> …"), so the INDEX cannot disagree
+    with the text. SQLCipher's line reads "SQLCipher 4.12.0 community (…": the version is the number."""
+    first = (HAND_KEPT / f"{stem}.txt").read_text(encoding="utf-8").splitlines()[0]
+    found = re.match(rf"{re.escape(name)} (\d+(?:\.\d+)+)\b", first)
+    if not found:
+        raise ValueError(f"{stem}.txt must start with '{name} <version>', not {first!r}")
+    return found.group(1)
+
+
 def hand_kept_label(stem: str) -> str:
     """The INDEX line for a hand-kept text: what it covers, the version bundled, the licence. Versions come from the
-    pins and from hub-ui/package.json, so they cannot drift from what is built."""
+    pins, from hub-ui/package.json and from the texts' first lines, so they cannot drift from what is built."""
     pins = json.loads(PINS.read_text(encoding="utf-8"))
     ui = json.loads(PACKAGE_JSON.read_text(encoding="utf-8")).get("devDependencies", {})
     labels = {
@@ -46,6 +65,10 @@ def hand_kept_label(stem: str) -> str:
         "deno": f"deno {pins['deno']['version']}: MIT",
         "svelte": f"svelte {ui['svelte']} (in the user interface): MIT",
         "vite": f"vite {ui['vite']} (preload helper in the user interface): MIT",
+        "sqlcipher": f"SQLCipher {text_version('sqlcipher', 'SQLCipher')} community "
+                     f"(built into sqlcipher3-wheels {sqlcipher_pin()}): BSD-3-Clause-style, with SQLite (public domain)",
+        "openssl": f"OpenSSL {text_version('openssl', 'OpenSSL')} "
+                   f"(built into sqlcipher3-wheels {sqlcipher_pin()}): Apache-2.0",
         "GPL-3.0": "GNU General Public License 3.0, full text (Discjockey's own licence, and the one of the ffmpeg build)",
     }
     return labels.get(stem, stem)

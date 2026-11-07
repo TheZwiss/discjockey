@@ -136,12 +136,36 @@ def test_the_self_test_ignores_an_installed_update(tmp_path):
     assert sorted(str(p.relative_to(support)) for p in support.rglob("*")) == before
 
 
+# --- SQLCipher ---
+
+def test_a_keyed_file_opens_only_with_its_key(tmp_path):
+    assert selftest.check_sqlcipher(tmp_path) == []
+
+
+def test_a_module_that_opens_the_file_without_the_key_fails(tmp_path):
+    import sqlite3  # stands in for a build without SQLCipher: it ignores PRAGMA key and writes a plain file
+    problems = selftest.check_sqlcipher(tmp_path, sqlite3.connect)
+    assert problems == ["SQLCipher: the keyed file opened without its key",
+                        "SQLCipher: the keyed file opened with a wrong key"]
+
+
+def test_a_broken_module_is_reported_not_a_crash(tmp_path):
+    def broken(*a, **k):
+        raise OSError("no library")
+    assert selftest.check_sqlcipher(tmp_path, broken) == ["SQLCipher: OSError: no library"]
+
+
+def test_the_run_includes_the_sqlcipher_check(monkeypatch, tmp_path):
+    no_checks(monkeypatch, check_sqlcipher=lambda work: ["s"])
+    assert selftest.run_checks(tmp_path, tmp_path, tmp_path, frozen=False) == ["s"]
+
+
 # --- the failure path: a broken build must exit 1 and say why ---
 
 def no_checks(monkeypatch, **replace):
     """Every check passes (returns []) except the ones in `replace`."""
     for name in ("check_modules", "check_imports", "check_programs", "check_conversion", "check_ui",
-                 "check_download_tools", "check_licenses"):
+                 "check_download_tools", "check_licenses", "check_sqlcipher"):
         monkeypatch.setattr(selftest, name, replace.get(name, lambda *a, **k: []))
 
 
