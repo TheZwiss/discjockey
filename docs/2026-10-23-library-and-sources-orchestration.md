@@ -372,3 +372,7 @@ fixture databases only. A decision only the user can make is parked here and the
 depend on it.
 
 Results:
+- 1 done: design set to auto-upgrade on by default (9ec9975) and stage A plan `docs/2026-11-07-rekordbox-stage-a-plan.md`
+  (4579499, Opus 216k): groups A0 Sonnet → A1 Opus → A2 Opus → A3 Opus → A4 Sonnet → A5 Sonnet → review + fix.
+  Parked for the user: people updating from 1.2.x never see Setup again, so Auto-upgrade is on for them without a word;
+  a one-time note (e.g. in the first sync summary)? Stage C, nothing tonight depends on it.
