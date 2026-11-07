@@ -389,3 +389,5 @@ Results:
 - A0 done (Sonnet 131k): sqlcipher3-wheels 0.5.7 pinned, SQLCipher 4.12.0 + OpenSSL 3.6.0 licence texts, self-test
   keyed open (passes in the frozen app), ad-hoc signing fix 6a7b84b; CI green; merged into feat/rekordbox-a c395cb6.
   Note: the app build's .dmg step failed in the agent's run (no detail); check it before the next release.
+- A1 done (Opus): `discjockey/rekordbox/` read side (locate, key, guards, lookup), 59 tests, fixture schema checked
+  against a copy of the real rekordbox 7 library (15 tables match); CI green; merged into feat/rekordbox-a.
