@@ -36,7 +36,7 @@ Found live by the user on the Playlists page:
 
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them — needs a design round (user, 2026-10-31)
 
-Audit 2026-11-05: parked, nothing of it is built (no AIFF conversion of imported files, no rekordbox repoint; the New
+Design: `docs/2026-11-07-rekordbox-repoint-design.md` (2026-11-07; questions for the user at its end). Audit 2026-11-05: parked, nothing of it is built (no AIFF conversion of imported files, no rekordbox repoint; the New
 track choice still keeps the download as it is).
 
 The user's wish: files of their own (imported, MP3 or other lossy) end up as the library format (16-bit AIFF), with
