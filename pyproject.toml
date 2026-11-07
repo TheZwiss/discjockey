@@ -12,6 +12,7 @@ dependencies = [
     "numpy>=2.0",
     "requests>=2.31",
     "pywebview>=6.2.1,<7",
+    "sqlcipher3-wheels==0.5.7",
 ]
 
 [dependency-groups]

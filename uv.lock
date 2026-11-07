@@ -297,6 +297,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pywebview" },
     { name = "requests" },
+    { name = "sqlcipher3-wheels" },
     { name = "streamrip" },
     { name = "yt-dlp", extra = ["default"] },
 ]
@@ -317,6 +318,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.0" },
     { name = "pywebview", specifier = ">=6.2.1,<7" },
     { name = "requests", specifier = ">=2.31" },
+    { name = "sqlcipher3-wheels", specifier = "==0.5.7" },
     { name = "streamrip", specifier = ">=2.1.0,<3" },
     { name = "yt-dlp", extras = ["default"], specifier = ">=2026.8.19" },
 ]
@@ -951,6 +953,30 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d8/80/f0f10b4045628645a841d3d98b584a8699005ee03a211fc7c45f6c6f0e99/simple_term_menu-1.6.6.tar.gz", hash = "sha256:9813d36f5749d62d200a5599b1ec88469c71378312adc084c00c00bfbb383893", size = 35493, upload-time = "2024-12-02T16:31:50.639Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9c/09/21d993e394c1fe5c44cd90453d88ed44932da8dfca006e424c072d77d29b/simple_term_menu-1.6.6-py3-none-any.whl", hash = "sha256:c2a869efa7a9f7e4a9c25858b42ca6974034951c137d5e281f5339b06ed8c9c2", size = 27600, upload-time = "2024-12-02T16:31:48.934Z" },
+]
+
+[[package]]
+name = "sqlcipher3-wheels"
+version = "0.5.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/61/ec/d79c2e5f5b9246471f217cdd5f703dc8d804bce557a047e1bfad4f33c376/sqlcipher3_wheels-0.5.7.tar.gz", hash = "sha256:5fd344abba62c487c4d857a6fb55cb8dff8a97d4c4fbb4f9394b473e8e315dee", size = 2669821, upload-time = "2026-01-07T09:53:25.48Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1c/35/b5cfcbbc518e664d29a3ed87fabc0d5f9001276db637880bf9ede76921e4/sqlcipher3_wheels-0.5.7-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:b9b8863355922656f2de6aeffcbb9c900b774ae90808e2ba35d9cb95b08ec7d9", size = 4946703, upload-time = "2026-01-07T09:51:01.211Z" },
+    { url = "https://files.pythonhosted.org/packages/93/d8/e7db54de61b3e3cbc29a482ea524e4dd6fb823d2c6bd8213f0f3b90d30d5/sqlcipher3_wheels-0.5.7-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:f0c88e009b1908a98e3a4b7d31c6cad2c356d721a967b1f87a0b3f7f6cee1470", size = 2899147, upload-time = "2026-01-07T09:51:02.89Z" },
+    { url = "https://files.pythonhosted.org/packages/7d/f9/981464b4f8144f8ce5b6ffa80429b24fd342ce1991a48bc9fdc60c438469/sqlcipher3_wheels-0.5.7-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:75636e5eea2669cc0d31d39c639dc69769824020456ba7b181a0c4836b221952", size = 3163917, upload-time = "2026-01-07T09:51:04.231Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/b1/5d2dde330f84030535be9255fba4aa8f2dac5e5297e76d7be92c8391f652/sqlcipher3_wheels-0.5.7-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:ce0e4d4a39d497897a3a4e30ea95a6ad4a3bd4b13523060c97370373d872403c", size = 7263508, upload-time = "2026-01-07T09:51:05.425Z" },
+    { url = "https://files.pythonhosted.org/packages/8e/83/2e41e50e8a29e703e4da6051bc378c949a6a3a4c058de0628dcc7a1aeaf0/sqlcipher3_wheels-0.5.7-cp312-cp312-manylinux_2_28_i686.whl", hash = "sha256:9cbc963a02688513a16b8b5ae02cd662cb32495bd8a59423151901be0fb51e4b", size = 6877267, upload-time = "2026-01-07T09:51:06.865Z" },
+    { url = "https://files.pythonhosted.org/packages/7e/0f/eb7c1c446e3c4248a529635d7532bc8db4718ea47e3bbc4a9597153a2368/sqlcipher3_wheels-0.5.7-cp312-cp312-manylinux_2_28_ppc64le.whl", hash = "sha256:9f17232455013d7d4b14022f22a8213c88bd3c7a9ea478426d60c632ad1a6fee", size = 7415939, upload-time = "2026-01-07T09:51:08.43Z" },
+    { url = "https://files.pythonhosted.org/packages/77/f6/0674c02c4fcab1bb3a30f57992310dc87c0d8111f749be6e1eb2825fc141/sqlcipher3_wheels-0.5.7-cp312-cp312-manylinux_2_28_s390x.whl", hash = "sha256:974d91fc0f7d0d6857a51444e73e7f9af155528b82d45d4293d8ab0befc08d6e", size = 7392879, upload-time = "2026-01-07T09:51:09.723Z" },
+    { url = "https://files.pythonhosted.org/packages/d7/37/95c7dafec2b1506c49f6488be91ef62027ad5a9b273ad45fc3d3d86b1674/sqlcipher3_wheels-0.5.7-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:cc29f97f94f306d955b49a97ac0615f05a7f7524512a906a591a33167503ce54", size = 7042314, upload-time = "2026-01-07T09:51:11.018Z" },
+    { url = "https://files.pythonhosted.org/packages/bf/05/57f9df89b7a49f2d1fc9d2e9ed0d4e416855ef9a7126126da690b06b0411/sqlcipher3_wheels-0.5.7-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:88faaa0d28edc17ae128f021d624c840b5c1f2fe1709e45c0a7b9cc8d730f33f", size = 7254500, upload-time = "2026-01-07T09:51:12.388Z" },
+    { url = "https://files.pythonhosted.org/packages/ff/cf/0af83a64e395522ff30d97bf363fc976881e6ad302ba085d9260589dada5/sqlcipher3_wheels-0.5.7-cp312-cp312-musllinux_1_2_i686.whl", hash = "sha256:b69289a1d8b45bc61c1c05d9a9a4a608845e0d943d5b8e6b78b14a1cde6c6af4", size = 6950266, upload-time = "2026-01-07T09:51:16.221Z" },
+    { url = "https://files.pythonhosted.org/packages/05/b9/fee0906c9e07c374bf6cf28b6ab1c46db04e9ca15ab499e3e030bc3c0c97/sqlcipher3_wheels-0.5.7-cp312-cp312-musllinux_1_2_ppc64le.whl", hash = "sha256:a20e7d55b585cdf70f1f788ed48cdbdeb1b63c12b8a5e64388a0515d1f3bc4d6", size = 7387268, upload-time = "2026-01-07T09:51:17.502Z" },
+    { url = "https://files.pythonhosted.org/packages/d4/38/6da67cbc39721db42311759fada0b69c462ec4f3e96e02f4c40ae424e04d/sqlcipher3_wheels-0.5.7-cp312-cp312-musllinux_1_2_s390x.whl", hash = "sha256:5f2e2d4f81f07a36bd4d4b52af46715256d30ee8bc1df26bf8c43b9578b46e33", size = 7029490, upload-time = "2026-01-07T09:51:18.83Z" },
+    { url = "https://files.pythonhosted.org/packages/72/e0/a3bf9f20f13e11c0f46d79b61e29fd2189e3ed8072173b94ebd0086d78f1/sqlcipher3_wheels-0.5.7-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:b11f442e37885709cc15588676273b8642ac940e27603d1afdfbfa14f3adae05", size = 7063757, upload-time = "2026-01-07T09:51:20.073Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/c8/984bd5318db77fd35c931021107618a31bd17e4ff92b049113ef8e77968b/sqlcipher3_wheels-0.5.7-cp312-cp312-win32.whl", hash = "sha256:6cf1e843d8eb04858adf0c77178882a59db26f0b2b56b751911e2949f9ed1d74", size = 1984588, upload-time = "2026-01-07T09:51:21.325Z" },
+    { url = "https://files.pythonhosted.org/packages/1e/71/3c099a6aebb3cd34370bff3852a5e9f74c543b671bf4582e9bcfe3b17906/sqlcipher3_wheels-0.5.7-cp312-cp312-win_amd64.whl", hash = "sha256:08a06d6876817faf98ac7aeec6b7fb2df0f4f57ebfd8ed9c2c2dad5ee60a41c6", size = 2489710, upload-time = "2026-01-07T09:51:22.569Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/e6/cb6531c3b00b692583230d47c3567909880364aaf38b6f5d24de4d5f27f7/sqlcipher3_wheels-0.5.7-cp312-cp312-win_arm64.whl", hash = "sha256:a92a1e6dea3e120e7c51e9dfeceb79647f90ee2450b92170f93aa2f93b8ce48c", size = 2657500, upload-time = "2026-01-07T09:51:23.706Z" },
 ]
 
 [[package]]
