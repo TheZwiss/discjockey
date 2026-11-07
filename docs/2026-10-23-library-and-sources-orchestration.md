@@ -386,3 +386,6 @@ Results:
   there is no clearly best answer; otherwise decide and note it here.
   New queue: stage A (running) → review/fix → merge main → for each of B, C, D: Opus plan (engine + UI) → groups →
   review → fix → CI + verify → merge main (no release) → issue 40 design + build if time → issue 38 last.
+- A0 done (Sonnet 131k): sqlcipher3-wheels 0.5.7 pinned, SQLCipher 4.12.0 + OpenSSL 3.6.0 licence texts, self-test
+  keyed open (passes in the frozen app), ad-hoc signing fix 6a7b84b; CI green; merged into feat/rekordbox-a c395cb6.
+  Note: the app build's .dmg step failed in the agent's run (no detail); check it before the next release.
