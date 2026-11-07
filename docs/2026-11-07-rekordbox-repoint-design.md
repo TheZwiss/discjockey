@@ -49,7 +49,7 @@ action (§2.2); the hub and the commands use the same one.
 | Scopes | One, a selection (multi-select in Library and To-do), all eligible (Upgrade all, Make all lossless files AIFF, the CDJ group's Convert all, Auto-upgrade) | §2.2–§2.5 |
 | Lossy files | Converted only when the user picks them or from the CDJ group, never by an "all" over the library: AIFF from lossy costs 5–10× the space for no gain in sound | §2.2 |
 | Lossless files | Every one can become a clean AIFF (FLAC, WAV, ALAC, 24-bit or 96 kHz AIFF, an AIFF with a messy name or tags), one at a time or all at once | §2.4 |
-| Auto-upgrade | A Settings switch, off by default: the user's standing go for Same track on upgrades that need no decision, run at the end of a sync while rekordbox is closed | §2.5 |
+| Auto-upgrade | A switch in Setup and Settings, on by default: the user's standing go for Same track on upgrades that need no decision, run at the end of a sync while rekordbox is closed | §2.5 |
 | Timing | New audio shifted onto **rekordbox's** timeline of the old file, measured from `PWV3` and snapped to the codec's known delay | §3 |
 | Format | 16-bit / 44.1 kHz AIFF, the library format, for every source, lossless ones too | §3.5 |
 | Name and tags | The download's name (`names.expected_stem`) and tags (`audio.write_tags`), artwork capped CDJ-safe | §3.5, §4 |
@@ -149,9 +149,12 @@ again. Undo for the whole batch from its check card or `discjockey batch undo`; 
 ### 2.5 Auto-upgrade on sync (Settings)
 
 **The switch.** Settings › Upgrades: "Upgrade automatically when I sync", `settings.json` key `auto_upgrade`,
-**off by default**. It is a standing go to change rekordbox's library and move files with no click; that go must be
-given knowingly, after reading what it does (the row's Hint and InfoTip). It is set like `read_liked_music`: a
+**on by default** (the user's decision, 2026-11-07; a missing key reads as on). It is a standing go to change
+rekordbox's library and move files with no click; the go is the switch being on. So that a new user sees it once,
+**Setup shows it as a switch that starts on**, with one plain line saying what it does (§8), and the user can turn
+it off there or later in Settings (the row's Hint and InfoTip say the same). It is set like `read_liked_music`: a
 `Settings` field, the bridge write `set_auto_upgrade(on)`, the command `discjockey settings auto-upgrade on|off`.
+It still does only measured same-edit upgrades and waits while rekordbox is open (below).
 
 **Which upgrades.** Exactly Upgrade all's set (§2.2): a measured same edit (`exact`/`shifted`, measured again), lossless
 or a better stream. A different edit or an unsure match always waits for the user. Turning the switch on also covers
@@ -188,9 +191,10 @@ Playlists save question, a folder rename on disk): logged in `library.db`, undoa
 > **Files move only in a batch the user started:** a move batch (tidy-up, the Playlists save question, a folder
 > rename on disk) or an AIFF batch (Same track, Convert to AIFF, Give it its clean name, Upgrade all, Make all
 > lossless files AIFF), logged in `library.db` and undoable. The sync itself never moves a file (option A), with one
-> exception the user turns on: **Auto-upgrade** in Settings is their standing go for Same track on upgrades that need
-> no decision. The sync then runs them as one AIFF batch at its end, only while rekordbox is closed, with the same
-> backup, journal and undo as a batch started by hand. It is off by default.
+> exception: **Auto-upgrade**, a switch that is on by default and shown in Setup and Settings, is the user's standing
+> go for Same track on upgrades that need no decision (a measured same edit) while it is on. The sync then runs them
+> as one AIFF batch at its end, only while rekordbox is closed, with the same backup, journal and undo as a batch
+> started by hand. Switched off, the sync moves no file.
 
 ## 3. Timing: lining the AIFF up to rekordbox's timeline
 
@@ -619,7 +623,8 @@ Console: the new commands (and issue 39's agent docs).
 | Result note, kept edit | "Kept your own {title / artist / album / label / comment} in rekordbox." |
 | Format sentence (batch sheet, Convert) | "Every file becomes a 16-bit/44.1 kHz AIFF, the format every CDJ plays and every download has; your original stays in Superseded/." |
 | Upgrade all, before | "{n} upgrades keep their cues. {m} need your choice and stay." |
-| Auto-upgrade switch | "Upgrade automatically when I sync" · Hint "Same-edit upgrades replace your files at the end of a sync while rekordbox is closed; cues stay, and you can undo each one. Also the ones waiting now." |
+| Auto-upgrade switch (Settings, on by default) | "Upgrade automatically when I sync" · Hint "Same-edit upgrades replace your files at the end of a sync while rekordbox is closed; cues stay, and you can undo each one. Also the ones waiting now." |
+| Auto-upgrade switch (Setup, starts on) | "Upgrade automatically when I sync" · line "When a lossless version is the same recording, the sync puts it in place of your file; your cues stay. Only while rekordbox is closed; your old file goes to Superseded/." |
 | Auto-upgrade, sync summary | "Upgraded {n} tracks; your cues stayed." · "{m} wait for rekordbox to be closed." |
 | Auto-upgrade, waiting item | "Waits for rekordbox to be closed: it is upgraded at your next sync, or press Upgrade all." |
 | Check text `repointed` | "The better audio is in a new AIFF with a clean name, and your rekordbox track plays it with its cues, playlists and history. In rekordbox, analyse it again so the waveform shows the full sound (lock the beatgrid first if you set it by hand)." |
@@ -651,7 +656,8 @@ No visuals are designed here. Each list is the states a design round (Opus, with
 
 ### 9.2 Stage C: Auto-upgrade
 
-A small round (Settings row + Sync results; mockup only for the new states): the Settings switch with its Hint and
+A small round (Setup row, Settings row + Sync results; mockup only for the new states): the Setup row, a switch that
+starts on with its one line (§8), where it sits among Setup's steps; the Settings switch with its Hint and
 InfoTip; the sync's result list with the "Upgraded" section and waiting rows; the summary line; an Upgrade ready item
 marked "waits for rekordbox to be closed"; the Sync page's before-start line when rekordbox is open and the switch is on.
 
@@ -775,7 +781,7 @@ ffmpeg has no MP3 encoder, issue 19); FLAC and 24-bit AIFF made in the test. No 
 - **Batches:** one backup for N tracks; one `rekordbox.lock`; per-item skip goes on; Stop between items → `stopped`;
   Resume does only the planned ones and re-checks them; batch undo newest first, a refused track stays listed;
   `rekordbox checked --batch` ends every undo of it.
-- **Auto-upgrade:** off → the sync changes no file; on → only eligible upgrades, at the run's end, one batch;
+- **Auto-upgrade:** a missing `auto_upgrade` key reads as on; off → the sync changes no file; on → only eligible upgrades, at the run's end, one batch;
   rekordbox running → nothing done, all waiting; `auto_refused` skipped until the ANLZ mtime changes; a dry run
   changes nothing; the run's JSON block.
 - **Crash at every step (1–7):** before the commit, recovery restores exactly the old state (files, ANLZ, database,
@@ -823,8 +829,8 @@ batch over them. Checks:
 If 1 fails for 48 kHz, own 48 kHz files render at their own rate and the upgrade is resampled to it. If 7's
 `contentFile` fails, §5.5's fallback; if 3 fails, §5.11's fallback. After the test passes: release on the user's go.
 
-**Stage C: Auto-upgrade on sync (wish A).** After the live test, because it writes without a click. The Settings
-switch, the run's last phase, `auto_refused`, the summary and result section, the run's JSON block, the invariant
+**Stage C: Auto-upgrade on sync (wish A).** After the live test, because it writes without a click. The Setup
+and Settings switch (on by default), the run's last phase, `auto_refused`, the summary and result section, the run's JSON block, the invariant
 text in CLAUDE.md, the README; §9.2's small round.
 
 **Stage D: Convert, Give it its clean name, the CDJ group, Make all lossless files AIFF (wish C).** §9.3's full
