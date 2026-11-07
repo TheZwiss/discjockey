@@ -3,6 +3,18 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 38. Playlists: switching a playlist off says its songs get removed; switching it back on crashes the page (user, 2026-11-07, live in 1.2.1)
+
+Found live by the user on the Playlists page:
+- **Wrong words.** When a playlist is switched off, the right panel (`ChangePanel`, the `switch_off` view) reads as
+  if the playlist's songs get removed. They most likely don't: nothing is ever deleted, and the row itself says
+  "switched off · files stay". Check what the panel says and what really happens to the files and the songs' records
+  when the switch is saved. Then make the words say exactly that, in the same terms as Sync's switch (issue 37: off
+  means the playlist is left out of the sync, its files stay where they are).
+- **Crash.** Switching the same playlist back on shows the page's error screen: "Something went wrong on this
+  screen." with a Reload button. Find the root cause (engine or UI), fix it there, and add a test that pins it.
+  Check the other switch paths on the page too: on → off → on before saving, after saving, and with several rows.
+
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them — needs a design round (user, 2026-10-31)
 
 Audit 2026-11-05: parked, nothing of it is built (no AIFF conversion of imported files, no rekordbox repoint; the New
