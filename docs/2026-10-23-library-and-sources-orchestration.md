@@ -335,3 +335,40 @@ Overnight rules: ONE agent at a time (user 2026-10-31, after the two that ran to
 worktree after each; size from the record (Opus UI build 250–350k, shots 100–150k, Sonnet fix 115–150k, Sonnet group
 150–310k, review 110–140k); never resume an agent above ~150k (fresh one with findings + files); two failed rounds on
 one problem → stop and leave it for the user; never touch the running app, the user's files or the real DB.
+
+### Issue 33 night (2026-11-07 → 08)
+
+State at the start: research done (Opus 180k; the route is a direct `master.db` repoint, proven live by the user on
+2026-10-31 outside Discjockey). Design `docs/2026-11-07-rekordbox-repoint-design.md` written (161c461, Opus 253k) and
+updated with the user's answers (0ee6248, Opus 159k): batches for one/several/all, Upgrade all, Auto-upgrade on sync
+(ON by default, user), Make all lossless files AIFF, text columns written around the user's edits, stages A–E. New
+issues: 38 (Playlists switch-off words + crash, waits: user "33 first"), 39 (agent-ready audit; CLAUDE.md rule
+79618de), 40 (follow Discjockey's own moves = stage E). Plan for stage A: Opus planner running.
+
+User's binding words for the night: licence "we don't tiptoe" (own key in our code); every file can become AIFF incl.
+lossless; Discjockey repoints rekordbox after its OWN moves (issue 40), hand moves stay with rekordbox's Relocate;
+every action for one, a selection or all.
+
+Queue (one agent at a time; after each: `ps`, worktree clean, a one-line result appended here, pushed):
+1. Stage A plan (Opus, running) → commit on main, pushed by me.
+2. Stage A build on `feat/rekordbox-a` in `.claude/worktrees/rb-a`: one agent per plan group, the model the plan marks,
+   each with a ~70–80 tool-call stop. Touched tests per group; full pytest once at the end of each group.
+3. Stage A review (Sonnet, 110–140k) against plan + design; a fresh Sonnet fix round if needed; CI green on the
+   branch; `npm run verify` only if `hub-ui` changed. Merge into main, push. No release.
+4. UI design round (Opus, mockup + companion notes, for the user's approval in the morning): every screen state of
+   stages B–D (To-do multi-select, Upgrade all, the quit-rekordbox step, the rekordbox check card, Library
+   multi-select + Convert + the Make-all sheet, Settings/Setup auto-upgrade row). Mockup rules: the app window + a
+   state switcher only, notes in a companion file, a drift list against the real app, only listed elements (Settings
+   icon never a sun, foot bar unchanged, coloured service logos).
+5. Stage B plan (Opus): engine only (backup, the write, field-level undo, journal and crash recovery, refusals, the
+   batch engine, Upgrade all engine, commands). UI tasks wait for the approved mockup.
+6. Stage B engine build + review + fixes on `feat/rekordbox-b`. Stays on its branch (no merge into main before the
+   user's morning look and the live test).
+7. Only if all of that is done: issue 38 (Opus debug + fix, own branch, verify, merge).
+
+Night rules (besides the overnight rules above): never start, quit or script rekordbox; never write under
+`~/Library/Pioneer` or `~/Music/Discjockey`; no live test, no release; no UI built before an approved mockup; tests use
+fixture databases only. A decision only the user can make is parked here and the queue goes on with what doesn't
+depend on it.
+
+Results:
