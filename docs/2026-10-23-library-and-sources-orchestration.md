@@ -376,3 +376,14 @@ Results:
   (4579499, Opus 216k): groups A0 Sonnet → A1 Opus → A2 Opus → A3 Opus → A4 Sonnet → A5 Sonnet → review + fix.
   Parked for the user: people updating from 1.2.x never see Setup again, so Auto-upgrade is on for them without a word;
   a one-time note (e.g. in the first sync summary)? Stage C, nothing tonight depends on it.
+- Decided (no longer parked): people updating from 1.2.x get one line in their first sync summary after the update
+  that Auto-upgrade is on and where to switch it off (Settings); shown once. Goes into the stage C plan.
+- User ~23:30, new night scope (binding): work through the WHOLE issue 33 design tonight (stages A → B → C → D, then
+  E = issue 40 if time is left). No full-page mockups: the UI additions are small, so each UI group gets a precise,
+  complete design direction (placement, states, words, reused components, drift guards) and is built by an Opus agent
+  with the design skills, then shot and checked; a single-component mockup only where a component is truly new.
+  Writing to the user's real rekordbox `master.db` for testing is allowed (prefer a copy; real file only with
+  rekordbox not running and a full backup first; still never start/quit/script rekordbox). Park a question only when
+  there is no clearly best answer; otherwise decide and note it here.
+  New queue: stage A (running) → review/fix → merge main → for each of B, C, D: Opus plan (engine + UI) → groups →
+  review → fix → CI + verify → merge main (no release) → issue 40 design + build if time → issue 38 last.
