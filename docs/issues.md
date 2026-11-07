@@ -3,6 +3,23 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 40. rekordbox follows Discjockey's own moves; what Discjockey does with moves made by hand (user, 2026-11-07)
+
+**Follow Discjockey's own moves** (issue 33's stage E, after its stage B live test). When Discjockey moves a file (a
+tidy-up and its undo, a folder rename on disk, a swap out of `not_lossless/`, a duplicate to `Superseded/`, any move
+batch), it points rekordbox's track at the new path itself, so the user never needs Relocate for them. The same engine
+and safety as issue 33's design (`docs/2026-11-07-rekordbox-repoint-design.md` §5: rekordbox closed, backup per
+batch, journal, undo per field, refusals). A move never waits for rekordbox: the repoint of a batch made while
+rekordbox runs is queued and done once it is closed, and Relocate still works meanwhile because a move keeps the name.
+Needs its own short design round (where the queue shows, what an undo of the move does to the repoint).
+
+**Not for moves the user makes by hand** in Finder: those stay with rekordbox's own (Auto) Relocate. Instead, an
+audit of what Discjockey itself does, written down and pinned by tests, then said in plain words in the README: a file
+moved or renamed inside one watched folder, between watched folders, to another drive, out of every watched folder
+(gone: is the song downloaded again at the next sync?), copied instead of moved (a duplicate), and a whole watched
+folder moved or renamed (today it waits as "Folder not found"). Today's behaviour: inside `Library/` and the watched
+folders a file is found again by its content key, with no new download or import (README, `scanner.py`).
+
 ## 39. Discjockey fully usable by an AI agent: audit, agent docs, commands (user, 2026-11-07)
 
 The user's wish: any AI agent they point at Discjockey (Claude Code, Codex, …) can run it fully and safely: sync,
@@ -36,7 +53,7 @@ Found live by the user on the Playlists page:
 
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them — needs a design round (user, 2026-10-31)
 
-Design: `docs/2026-11-07-rekordbox-repoint-design.md` (2026-11-07; questions for the user at its end). Audit 2026-11-05: parked, nothing of it is built (no AIFF conversion of imported files, no rekordbox repoint; the New
+Design: `docs/2026-11-07-rekordbox-repoint-design.md` (2026-11-07; the user's answers and wishes A–C built in, stages A–D; stage E is issue 40). Audit 2026-11-05: parked, nothing of it is built (no AIFF conversion of imported files, no rekordbox repoint; the New
 track choice still keeps the download as it is).
 
 The user's wish: files of their own (imported, MP3 or other lossy) end up as the library format (16-bit AIFF), with
