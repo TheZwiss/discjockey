@@ -391,3 +391,7 @@ Results:
   Note: the app build's .dmg step failed in the agent's run (no detail); check it before the next release.
 - A1 done (Opus): `discjockey/rekordbox/` read side (locate, key, guards, lookup), 59 tests, fixture schema checked
   against a copy of the real rekordbox 7 library (15 tables match); CI green; merged into feat/rekordbox-a.
+- A2 done (Opus 191k): ANLZ parser + `timeline_offset`; 19 real tracks (copies) measured, all snapped to the expected
+  offset (max error 1.2 samples); CI green; merged into feat/rekordbox-a. Flaky in parallel runs:
+  `test_hub_api_liked_music.py::test_a_refresh_with_liked_music_listed_and_the_account_paused_makes_no_request`
+  (passes alone and on CI) → goes into the stage A fix round.
