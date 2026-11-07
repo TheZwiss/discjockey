@@ -3,6 +3,25 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 39. Discjockey fully usable by an AI agent: audit, agent docs, commands (user, 2026-11-07)
+
+The user's wish: any AI agent they point at Discjockey (Claude Code, Codex, …) can run it fully and safely: sync,
+upgrades, the To-do answers, Library and folder actions, Settings, and reading every screen's state. The development
+rule is in `CLAUDE.md` ("Agent-ready"). Today the console covers little more than a sync run (`cli.py`: `--yes`,
+`--dry-run`, `--limit`, …). Background: on 2026-10-31 an agent repointed 38 rekordbox entries for the user with
+throwaway scripts of its own rather than through Discjockey.
+- **Audit:** list every hub bridge method (`hub/api.py`) and screen (`hub/views.py`). For each, say whether an agent
+  can reach it today and how (command, flags, output, exit code), and where it can't.
+- **Design the agent surface:** console commands that run without prompts, `--json` output, exit codes for ok, busy
+  and failed, and progress an agent can follow. Weigh whether an MCP server (tool calls) should be added on top, and
+  how an agent finds the user's music folder and support folder.
+- **Agent docs:** what Discjockey is, the safety rules an agent must keep (the invariants: lock, Qobuz protection,
+  never delete, never move outside a batch the user started, dry run first), and every command with an example. Put
+  them where agents look (e.g. `AGENTS.md` at the repo root, plus a README section for users who point their agent
+  at the app).
+- **Pin it:** a test that fails when a bridge method has no command or no agent-docs entry.
+- The 33 work (rekordbox repoint) gets its command under the rule from the start.
+
 ## 38. Playlists: switching a playlist off says its songs get removed; switching it back on crashes the page (user, 2026-11-07, live in 1.2.1)
 
 Found live by the user on the Playlists page:

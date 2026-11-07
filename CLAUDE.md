@@ -130,6 +130,13 @@ their Qobuz daily limit. Long commands run in the background with a status line.
   the better design.
 - **Be independent.** Fix problems you notice on the way; note the ones out of scope in `docs/issues.md`.
 - **No new dependencies without a reason** stated in the commit. Versions in `hub-ui/package.json` are pinned exactly.
+- **Agent-ready.** An AI agent the user points at Discjockey must be able to do everything the user can do in the
+  hub, without the window. That means a console command for every action and every screen's state. Each command runs
+  without prompts (confirmations as flags), can print `--json`, and ends with an exit code that tells success, busy
+  and failure apart. Every command is listed in the agent docs. A new or changed hub action brings its command and
+  its agent-docs entry in the same change. An agent's command counts as the user starting it, so the same invariants
+  hold: the lock, Qobuz protection, never deleting a file, moves only in batches the user started, and a dry run
+  where the hub has one. Issue 39 holds the audit of today's gaps and the first version of the agent docs.
 
 ## Critical rules
 
