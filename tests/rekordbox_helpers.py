@@ -12,12 +12,27 @@ A row is a dict of `djmdContent` columns (`ID`, `FileType`, `usn`, …) plus the
   `djmdSongHistory` and `djmdSongMyTag` rows the track gets.
 `writer(db)` opens the library read-write in WAL mode and keeps `-wal`/`-shm` there: it stands in for a running
 rekordbox.
+
+Analysis files: `make_anlz(path, tags)` writes a PMAI file from `ppth_tag`, `pqtz_tag`, `pwv3_tag` and `unknown_tag`;
+`pwv3_from(audio, sr, extra_s)` gives the waveform heights rekordbox would show for a file whose rekordbox timeline is
+`audio` delayed by `extra_s`; `clicks(seconds, sr)` is a click track to measure on; `write_wav` saves one.
+
+The MP3 fixtures `tests/fixtures/clicks-lame.mp3` (Info/LAME tag: ffmpeg trims 1105 samples) and `clicks-notag.mp3`
+(no tag: ffmpeg trims nothing) were made once with an ffmpeg that has libmp3lame (the bundled one hasn't, issue 19):
+
+    PYTHONPATH=.:tests python -c "from pathlib import Path; from rekordbox_helpers import clicks, write_wav; \
+        write_wav(Path('clicks.wav'), clicks(30, 44100), 44100)"
+    ffmpeg -i clicks.wav -map_metadata -1 -c:a libmp3lame -b:a 64k tests/fixtures/clicks-lame.mp3
+    ffmpeg -i clicks.wav -map_metadata -1 -c:a libmp3lame -b:a 64k -write_xing 0 tests/fixtures/clicks-notag.mp3
 """
 from __future__ import annotations
 
 import os
+import struct
+import wave
 from pathlib import Path
 
+import numpy as np
 import sqlcipher3
 
 from discjockey.rekordbox.master import KEYS
@@ -195,3 +210,83 @@ def snapshot(folder: Path) -> list[tuple[str, int, int]]:
     """Every file under `folder` with its size and mtime: equal before and after means nothing was left or touched."""
     return sorted((str(p.relative_to(folder)), p.stat().st_size, p.stat().st_mtime_ns)
                   for p in folder.rglob("*") if p.is_file())
+
+
+# --- analysis files (ANLZ) and rekordbox's waveform ---
+
+def _tag(fourcc: bytes, fields: tuple[int, ...], body: bytes) -> bytes:
+    header_len = 12 + 4 * len(fields)
+    return struct.pack(f">4sII{len(fields)}I", fourcc, header_len, header_len + len(body), *fields) + body
+
+
+def ppth_tag(path: str) -> bytes:
+    """`PPTH`: the audio file's path, UTF-16BE with a trailing NUL."""
+    body = (path + "\0").encode("utf-16-be")
+    return _tag(b"PPTH", (len(body),), body)
+
+
+def pqtz_tag(beats: int, bpm: float = 120.0) -> bytes:
+    """`PQTZ`: a grid of `beats` beats at `bpm` from 0 ms."""
+    body = b"".join(struct.pack(">HHI", i % 4 + 1, round(bpm * 100), round(i * 60000 / bpm)) for i in range(beats))
+    return _tag(b"PQTZ", (0, 0x00080000, beats), body)
+
+
+def pwv3_tag(heights: np.ndarray, whiteness: bool = True) -> bytes:
+    """`PWV3`: one byte per column; `whiteness` fills the top three bits as rekordbox does (the reader masks them)."""
+    data = np.asarray(heights, dtype=np.uint8) & 0x1F
+    if whiteness:
+        data = data | (np.arange(len(data), dtype=np.uint8) % 8 << 5).astype(np.uint8)
+    return _tag(b"PWV3", (1, len(data), 0x00960000), data.tobytes())
+
+
+def unknown_tag() -> bytes:
+    """A tag the reader doesn't know (shaped like rekordbox's `PVBR`), to be skipped by its length."""
+    return _tag(b"PVB2", (0,), bytes(range(256)) * 2)
+
+
+def make_anlz(path: Path, tags: list[bytes]) -> Path:
+    """A PMAI file at `path` holding `tags` (from the `*_tag` builders), with rekordbox 7's 28-byte file header."""
+    body = b"".join(tags)
+    header = struct.pack(">4sII", b"PMAI", 28, 28 + len(body)) + struct.pack(">IIII", 1, 0x00010000, 0x00010000, 0)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(header + body)
+    return path
+
+
+def pwv3_from(audio: np.ndarray, sr: int, extra_s: float, seed: int = 0) -> np.ndarray:
+    """Waveform heights as rekordbox shows them for a file whose rekordbox timeline is ffmpeg's decode `audio` delayed
+    by `extra_s` (seconds; negative: earlier): the peak per 1/150 s column, scaled to 0–31, with ±1 of noise."""
+    x = np.abs(np.asarray(audio, dtype=np.float64))
+    shift = int(round(extra_s * sr))
+    x = np.concatenate([np.zeros(shift), x]) if shift >= 0 else x[-shift:]
+    col = sr / 150
+    starts = (np.arange(int(len(x) // col)) * col).astype(np.int64)
+    peaks = np.maximum.reduceat(x, starts)
+    noise = np.random.default_rng(seed).integers(-1, 2, len(peaks))
+    return np.clip(np.round(peaks / max(peaks.max(), 1e-9) * 31) + noise, 0, 31).astype(np.uint8)
+
+
+def clicks(seconds: float, sr: int, bpm: float = 120, seed: int = 1) -> np.ndarray:
+    """A click track: a quiet noise bed and one click per beat from 0.5 s, each a decaying noise burst of its own
+    length and level, a few ms off the beat (so its onset falls at a different place in rekordbox's 1/150 s columns
+    each time), so a waveform comparison has one clear, sharp best shift."""
+    rng = np.random.default_rng(seed)
+    n = int(seconds * sr)
+    x = 0.01 * rng.standard_normal(n)
+    step = 60 / bpm
+    for t in np.arange(0.5, seconds - 0.1, step):
+        length = int(rng.integers(sr // 400, sr // 40))
+        start = int((t + rng.uniform(-0.02, 0.02)) * sr)
+        burst = rng.standard_normal(length) * np.exp(-np.arange(length) / (length / 4)) * rng.uniform(0.3, 0.9)
+        x[start:start + length] += burst[:max(0, n - start)]
+    return np.clip(x, -1, 1).astype(np.float32)
+
+
+def write_wav(path: Path, audio: np.ndarray, sr: int) -> Path:
+    """`audio` (mono float) as a 16-bit WAV."""
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes((np.clip(audio, -1, 1) * 32767).astype("<i2").tobytes())
+    return path
