@@ -51,6 +51,13 @@ class FakeMac:
         return subprocess.CompletedProcess(cmd, rc, out, err)
 
 
+def test_an_ad_hoc_requirement_printed_as_a_comment_is_read():
+    """codesign prints an ad-hoc signature's implicit requirement as '# designated => cdhash H"…"'."""
+    def codesign(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 0, 'Executable=/x\n# designated => cdhash H"ab12"\n', "")
+    assert sign_app.designated_requirement(Path("/x/Discjockey.app"), codesign) == 'cdhash H"ab12"'
+
+
 def fake_app(tmp_path: Path) -> Path:
     app = tmp_path / "Disc jockey build" / "Discjockey.app"  # a space, like the real checkout path
     for rel in ("Contents/MacOS/Discjockey", "Contents/Frameworks/bin/ffmpeg",

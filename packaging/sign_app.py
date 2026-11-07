@@ -149,6 +149,7 @@ def sign(app: Path, identity: Identity, run=subprocess.run) -> int:
 def designated_requirement(app: Path, run=subprocess.run) -> str:
     r = run(["codesign", "-d", "-r-", str(app)], capture_output=True, text=True)
     for line in (r.stdout + r.stderr).splitlines():
+        line = line.removeprefix("# ")  # an ad-hoc signature has an implicit requirement, which codesign prints as a comment
         if line.startswith("designated =>"):
             return line.removeprefix("designated =>").strip()
     raise SigningError(f"no designated requirement for {app}: {(r.stdout + r.stderr).strip()}")
