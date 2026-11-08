@@ -413,3 +413,5 @@ Results:
 - B2 done (Opus 230k, one usage-limit stop 03:50–07:50, resumed): `write.py` (repoint, text columns, contentFile,
   USN per row as rekordbox does), PPTH splice (`?/<name>` confirmed on real copies), per-batch backup + restore,
   Session; CI green; merged into feat/rekordbox-b. RH must confirm created lookup rows (NULL SearchStr) show right.
+- B3 done (Opus): `convert.py` Same track for any format (AIFF lined up to rekordbox's timeline, rekordbox repointed),
+  recovery at every crash point (46 tests); CI green; merged into feat/rekordbox-b.
