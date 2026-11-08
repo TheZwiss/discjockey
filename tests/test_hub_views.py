@@ -1004,6 +1004,11 @@ def test_todo_check_in_rekordbox_words_an_added_file_by_what_was_measured():
 @pytest.mark.parametrize("check,text", [
     ({"reason": "swapped"}, "Reload Tag, analyse again"),
     ({"reason": "swapped", "moved": True}, "relocate, Reload Tag, analyse again"),
+    ({"reason": "swapped", "reload_tag": True}, "Reload Tag, analyse again"),
+    ({"reason": "swapped", "reload_tag": False}, "analyse again"),  # Discjockey wrote rekordbox's text (stage B)
+    ({"reason": "swapped", "reload_tag": False, "moved": True}, "relocate, analyse again"),
+    ({"reason": "repointed", "rekordbox": {"entries": ["1"], "kept": []}}, "analyse again"),
+    ({"reason": "repointed", "rekordbox": None}, "a new AIFF, not in rekordbox"),
     ({"reason": "added_as_new", "match": "shifted"}, "relocate, analyse again"),
     ({"reason": "added_as_new", "match": "unknown"}, "analyse, set the cues again"),
     ({"reason": "wrong_song"}, "now the right song: analyse again"),
