@@ -418,3 +418,5 @@ Results:
 - B4 done (Opus): convert undo to the byte (with crash recovery), the swap writes rekordbox's text in a batch + undo
   per field; CI green; merged. For R1: convert undo refuses when the AIFF's whole-file SHA changed; if rekordbox
   writes tags into the file, that blocks undo after any edit in rekordbox → use an audio-only key instead.
+- B5 done (Sonnet 270k): `batches.py` (start/run/resume/undo/checked/recover, Stop, rekordbox-open stop, Busy,
+  batch undo marks items undone), console `s` = batch of one; CI green; merged. Next: R1 engine review (Opus).
