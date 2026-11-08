@@ -116,8 +116,10 @@ export function replaceLabel(up: Upgrade): string {
 /** One numbered step: its words, parts in bold (a rekordbox command), and a muted note after them. */
 export type CheckStep = { parts: { text: string; strong?: boolean }[]; note?: string };
 export type CheckCard = { summary: string; steps: CheckStep[]; hint: string | null };
-const RELOCATE_NEW: CheckStep = { parts: [{ text: 'The track shows as missing: ' }, { text: 'Auto Relocate', strong: true },
-  { text: ' finds the new file by name' }] };
+/** An added file is never found by Auto Relocate (its name or extension can differ, and the old file now sits in
+ *  Superseded/): the user points the old track at it by hand. */
+const RELOCATE_NEW: CheckStep = { parts: [{ text: 'Right-click your old track › ' }, { text: 'Relocate', strong: true },
+  { text: ' › choose the new file' }] };
 
 /** The steps in rekordbox after a swap or an added file (README "Upgrades"); null for any other check (its `text`). */
 export function checkCard(c: RekordboxCheckView | undefined): CheckCard | null {
@@ -135,9 +137,11 @@ export function checkCard(c: RekordboxCheckView | undefined): CheckCard | null {
       hint: 'Shows as missing? Auto Relocate finds it by its name, cues and all.' };
   }
   if (c.reason === 'added_as_new') {
-    const second: CheckStep = c.match === 'exact' ? { parts: [{ text: 'Analyse it again' }], note: '· your cues fit' }
+    const lined = c.aligned && (c.match === 'exact' || c.match === 'shifted');
+    const second: CheckStep = lined ? { parts: [{ text: 'Analyse it again' }], note: '· your cues fit exactly' }
+      : c.match === 'exact' ? { parts: [{ text: 'Analyse it again' }], note: '· your cues fit' }
       : c.match === 'shifted' ? { parts: [{ text: 'Analyse it again' }],
-        note: ms(c) ? `· your cues fit to within ${ms(c)} ms` : '· your cues fit' }
+        note: ms(c) ? `· your cues fit to within ${ms(c)}\u00a0ms` : '· your cues fit' }
       : { parts: [{ text: 'Analyse it again and ' }, { text: 'set the cues again', strong: true }],
         note: c.match === 'different' ? '· a different edit' : "· it couldn't be compared" };
     return { summary: 'a new track', steps: [RELOCATE_NEW, second], hint: null };

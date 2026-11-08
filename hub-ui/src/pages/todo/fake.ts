@@ -34,7 +34,7 @@ function upgradeOf(s: FakeState, match: FakeMatch, aiff: boolean) {
   t.upgrade = makeUpgrade(t, match, dateOnly(s.now), aiff);
 }
 /** t2 after "Replace with lossless" (as the fake upgrade() leaves it): the rekordbox check, its undo while `undo`. */
-function replaced(s: FakeState, reason: 'swapped' | 'added_as_new', match: FakeMatch, undo = true) {
+function replaced(s: FakeState, reason: 'swapped' | 'added_as_new', match: FakeMatch, undo = true, aligned = false) {
   const t = s.tracks.find((x) => x.track_id === 't2');
   if (!t) return;
   const old = pathOf(t)!.split('/').pop()!;
@@ -42,7 +42,7 @@ function replaced(s: FakeState, reason: 'swapped' | 'added_as_new', match: FakeM
     upgrade: makeUpgrade(t, match, dateOnly(s.now)), rekordbox_check: null };
   Object.assign(t, { status: 'lossless', cutoff_hz: null, source: 'qobuz', codec: 'flac', upgrade: null });
   t.rekordbox_check = { reason, since: dateOnly(s.now), match, offset_ms: match === 'shifted' ? 12 : 0,
-    ...(reason === 'swapped' ? { moved: false } : {}), ...(undo ? { undo: before } : {}),
+    ...(reason === 'swapped' ? { moved: false } : { aligned }), ...(undo ? { undo: before } : {}),
     old_path: `Superseded/${t.folder}/${reason === 'swapped' ? old.replace(/\.[^.]+$/, ' (lossy)$&') : old}` };
 }
 
@@ -62,7 +62,10 @@ const fake: PageFake = {
     // After the replace: the rekordbox check with its steps, "Replaced with lossless", Done and Undo the replace.
     // Open each with #/todo?track=t2.
     'after-swap'(s) { replaced(s, 'swapped', 'exact'); },
-    'after-add-same'(s) { replaced(s, 'added_as_new', 'exact'); },
+    // New track rendered lined up with rekordbox's timeline of the old file: the cues fit to the sample.
+    'after-add-same'(s) { replaced(s, 'added_as_new', 'exact', true, true); },
+    // A record from before the lined-up render (or one whose timing was unknown): the download was only renamed.
+    'after-add-shifted-old'(s) { replaced(s, 'added_as_new', 'shifted', true, false); },
     'after-add-different'(s) { replaced(s, 'added_as_new', 'different'); },
     // A swap whose undo is gone (no copy kept): Done only, no Undo, no "Undo puts …" line.
     'after-no-undo'(s) { replaced(s, 'swapped', 'exact', false); },

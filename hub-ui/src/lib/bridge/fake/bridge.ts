@@ -1023,7 +1023,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           rekordbox_check: t.rekordbox_check ? { ...t.rekordbox_check, undo: undefined } : null };
         Object.assign(t, { status: 'lossless', cutoff_hz: null, source: 'qobuz', codec: 'flac', upgrade: null });
         t.rekordbox_check = { reason: mode === 'add_new' ? 'added_as_new' : 'swapped', since: dateOnly(new Date()),
-          match: measured.result, offset_ms: measured.offset_ms ?? 0, ...(mode === 'swap' ? { moved: false } : {}),
+          match: measured.result, offset_ms: measured.offset_ms ?? 0,
+          ...(mode === 'swap' ? { moved: false } : { aligned: measured.result === 'exact' || measured.result === 'shifted' }),
           undo: before, old_path: oldPath };
         finish(true, opResult(t, mode === 'swap' ? 'swapped' : 'added_new', mode === 'swap'
           ? 'swapped, the old file is in Superseded' : 'added as a new file, the old one is in Superseded'));

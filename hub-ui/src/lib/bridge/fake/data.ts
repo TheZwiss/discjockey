@@ -28,7 +28,7 @@ export type FakeAccount = FakeService & { browser: Browser; profile?: string | n
 /** As the state's `rekordbox_check`: an added_as_new and a swapped one also keep what the two files measured as, a
  *  swapped one whether the file moved up out of not_lossless/, and both the undo (here: the fields as they were). */
 export type RekordboxCheck = { reason: 'wrong_song' | 'added_as_new' | 'swapped'; since: string; match?: string;
-  offset_ms?: number; moved?: boolean; undo?: Partial<FakeTrack>;
+  offset_ms?: number; moved?: boolean; aligned?: boolean; undo?: Partial<FakeTrack>;
   /** as the undo record's `old`: where the old file (added) or the copy of the old audio (swap) is now */
   old_path?: string };
 
@@ -333,9 +333,10 @@ export function checkStatus(c: RekordboxCheck | null): string {
 /** As views.check_view. */
 export function checkView(c: RekordboxCheck): RekordboxCheckView {
   return { reason: c.reason, since: c.since, match: c.match ?? null, offset_ms: c.offset_ms ?? null, moved: !!c.moved,
-    text: checkText(c), old_path: c.old_path ?? null };
+    aligned: !!c.aligned, text: checkText(c), old_path: c.old_path ?? null };
 }
-/** As report.check_text: the same edit (exact or shifted) can be relocated in rekordbox and keeps its cues. */
+/** As report.check_text: the same edit (exact or shifted) can be relocated in rekordbox and keeps its cues, exactly
+ *  when the new file was rendered lined up (`aligned`). */
 export function checkText(check: RekordboxCheck): string {
   if (check.reason === 'swapped') {
     return check.moved
@@ -344,6 +345,9 @@ export function checkText(check: RekordboxCheck): string {
   }
   if (check.reason === 'wrong_song') {
     return 'This track now plays the right song. In rekordbox: analyse it again and delete the old cues (they belong to the wrong song).';
+  }
+  if (check.aligned && (check.match === 'exact' || check.match === 'shifted')) {
+    return 'This is the same edit, lined up with your old file to the sample. In rekordbox: relocate your old track to the new file (right-click › Relocate); its cues fit exactly.';
   }
   if (check.match === 'exact') return 'This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit.';
   if (check.match === 'shifted') {
