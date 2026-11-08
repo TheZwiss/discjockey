@@ -25,7 +25,7 @@ function setup(scenario = 'upgrade-multi') {
     const t = (await f.todo('all', false)) as Todo & { ok: true };
     return t.groups.find((g) => g.key === key);
   };
-  return { evs, f, run, group };
+  return { evs, f, run, group, s: (f as any)._ctx.s };
 }
 
 describe('the fake bridge: Same track batches', () => {
@@ -85,5 +85,54 @@ describe('the fake bridge: Same track batches', () => {
     const resumed = await run(f.batch_resume(g!.stopped!.batch_id));
     expect(resumed).toMatchObject({ kind: 'batch_resume', ok: true });
     expect((await group('upgrade_ready'))?.stopped ?? null).toBeNull();
+  });
+  it('Done on tracks with nothing to check starts a job that ends changed, as the engine does', async () => {
+    const { f, run } = setup();
+    expect(await f.rekordbox_checked([])).toMatchObject({ ok: false, kind: 'refused' });
+    const done = await run(f.rekordbox_checked(['t1']));
+    expect(done).toMatchObject({ kind: 'rekordbox_checked', ok: false, problem: 'changed' });
+  });
+
+  it('Upgrade all of one track is a batch of no track; the same one by hand is a batch of one', async () => {
+    const { evs, f, run, group } = setup();
+    const ids = (await group('upgrade_ready'))!.items.filter((i) => i.same_track === null).map((i) => i.track_id);
+    // leave one track eligible: hide the others
+    const keep = ids[0];
+    for (const id of ids.slice(1)) await run(f.hide(id, true));
+    await run(f.upgrade_all());
+    const started = evs.filter((e) => e.type === 'JobStarted' && e.kind === 'upgrade_batch');
+    expect(started).toMatchObject([{ track_id: null }]);
+    await run(f.undo_upgrade([keep]));
+    await run(f.upgrade([keep], 'swap'));
+    expect(evs.filter((e) => e.type === 'JobStarted' && e.kind === 'upgrade_batch').at(-1)).toMatchObject({ track_id: keep });
+  });
+
+  it('a batch of one that cannot go is refused with the item\'s own words', async () => {
+    const { f, s, run, group } = setup();
+    const id = (await group('upgrade_ready'))!.items.find((i) => i.same_track === null)!.track_id;
+    s.batchSkip = { [id]: 'timing' };
+    const done = await run(f.upgrade([id], 'swap'));
+    expect(done).toMatchObject({ ok: false, problem: 'refused' });
+    expect(done.message).toMatch(/line the new file up/);
+    s.batchSkip = {};
+    const ids = (await group('upgrade_ready'))!.items.filter((i) => i.same_track === null).map((i) => i.track_id);
+    s.batchSkip = Object.fromEntries(ids.map((i) => [i, 'timing']));
+    expect((await run(f.upgrade(ids, 'swap'))).message).toBe('None of these can be upgraded right now.');
+  });
+
+  it('Stop ends a New track or Discard list between tracks, the rest planned', async () => {
+    for (const mode of ['add_new', 'discard'] as const) {
+      const { evs, f, run, group } = setup();
+      const ids = (await group('upgrade_ready'))!.items.filter((i) => i.same_track === null).map((i) => i.track_id);
+      const start = f.upgrade(ids, mode);
+      for (let i = 0; i < 400 && !evs.some((e) => e.type === 'BatchProgress'); i++) await new Promise((r) => setTimeout(r, 1));
+      expect(await f.stop()).toMatchObject({ ok: true, stopped: true });
+      const done = await run(start);
+      expect(done).toMatchObject({ ok: false, problem: 'stopped' });
+      const r = done.result as AiffBatchResult;
+      expect([r.batch, r.state, r.stop_reason]).toEqual([null, 'stopped', 'stop']);
+      expect(r.results.filter((x) => x.state === 'planned').length).toBeGreaterThan(0);
+      expect(r.results.map((x) => x.track)).toEqual(ids);
+    }
   });
 });

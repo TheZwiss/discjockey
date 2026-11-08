@@ -413,12 +413,20 @@ export function progressRows(rows: RunRow[], e: { track_id: string | null; name:
   return out;
 }
 /** The rows with the end's answer per track: done, skipped or failed with the engine's words; a track the batch never
- *  reached (stopped) waits. */
-export function endRows(rows: RunRow[], results: ItemResult[]): RunRow[] {
+ *  reached (stopped) waits. A track the answer holds that has no row (a Resume starts with none, a batch found running
+ *  starts from its last event, a track skipped before it was in work) gets one, named by `nameOf` (else its id). */
+export function endRows(rows: RunRow[], results: ItemResult[], nameOf: (track_id: string) => string | null = () => null): RunRow[] {
   // no answer per track (a job that failed outright): what passed stays "passed", nothing is claimed done
   if (!results.length) return rows.map((r) => (r.state === 'now' ? { ...r, state: 'handled' as const } : r));
+  const have = new Set(rows.map((r) => r.track_id));
+  const added: RunRow[] = [];
+  for (const r of results) {
+    if (have.has(r.track)) continue;
+    have.add(r.track);
+    added.push({ track_id: r.track, name: nameOf(r.track) ?? r.track, sub: '', cover_url: null, state: 'waiting', text: null });
+  }
   const by = new Map(results.map((r) => [r.track, r]));
-  return rows.map((r) => {
+  return [...rows, ...added].map((r) => {
     const x = by.get(r.track_id);
     if (!x) return r.state === 'now' || r.state === 'handled' ? { ...r, state: 'done' } : r;
     if (x.state === 'done') return { ...r, state: 'done', text: null };

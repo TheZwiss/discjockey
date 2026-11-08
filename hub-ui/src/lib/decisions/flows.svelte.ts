@@ -203,17 +203,28 @@ export type BatchView = { phase: 'running' | 'ended'; mode: BatchMode; tracks: s
 export class UpgradeBatchFlow {
   view = $state<BatchView | null>(null);
   #off: (() => void) | null = null;
+  /** track_id → "Artist – Title" of the tracks the page or the progress has named, so the end can name a track that
+   *  never had a progress row (a Resume, a batch found running, a track skipped before it was in work) */
+  #known = new Map<string, string>();
+
+  /** The page tells the flow the names of the tracks it lists. */
+  know(names: Iterable<[string, string]>): void {
+    for (const [id, name] of names) this.#known.set(id, name);
+  }
 
   /** Replace (`swap` / `add_new`) or Discard (confirmed first) for the selected items; `all`: the selection is the
    *  whole group, so Same track goes as Upgrade all. Only the items the way replaces are run. */
   async start(mode: BatchMode, items: TodoItem[], all: boolean, name: (i: TodoItem) => string): Promise<void> {
+    if (this.view?.phase === 'running') return; // a second press while one runs (the first call's listener must stay)
     if (mode === 'discard' && !(await confirm(discardConfirm(items.length)))) return;
     const ids = items.map((i) => i.track_id);
+    this.know(items.map((i) => [i.track_id, name(i)]));
     const call = () => mode === 'swap' && all ? api.upgrade_all() : api.upgrade(ids, mode);
     await this.#run(mode, ids, items.map((i) => runRow(i, name(i))), call);
   }
   /** Resume · k left: the stopped batch's planned tracks (their rows come with its progress). */
   async resume(batch_id: number): Promise<void> {
+    if (this.view?.phase === 'running') return;
     await this.#run('swap', null, [], () => api.batch_resume(batch_id));
   }
   /** Stop between tracks (the one in work finishes). */
@@ -236,7 +247,7 @@ export class UpgradeBatchFlow {
     if (!job?.running || job.track_id !== null || !BATCH_JOBS.includes(job.kind) || this.view?.phase === 'running') return;
     const last = job.last?.BatchProgress as { done: number; total: number; track_id: string | null; name: string | null } | undefined;
     this.view = { phase: 'running', mode: MODE_OF[job.kind], tracks: null, rows: last ? progressRows([], last) : [],
-      done: last?.done ?? 0, total: last?.total ?? 0, now: last?.name ?? null, stopping: job.stopping, end: null, again: null };
+      done: last?.done ?? 0, total: last?.total ?? 0, now: last?.name ? last.name.replace(' - ', ' – ') : null, stopping: job.stopping, end: null, again: null };
     this.#listen();
     void this.#follow(job.id);
   }
@@ -271,7 +282,7 @@ export class UpgradeBatchFlow {
       return;
     }
     const v = this.view;
-    const rows = endRows(v?.rows ?? [], out.result?.results ?? []);
+    const rows = endRows(v?.rows ?? [], out.result?.results ?? [], (id) => this.#known.get(id) ?? null);
     this.view = { phase: 'ended', mode, tracks: v?.tracks ?? null, rows, done: end.done, total: end.total || rows.length,
       now: null, stopping: false, end, again: canTryAgain(end) ? again : null };
   }
@@ -284,6 +295,7 @@ export class UpgradeBatchFlow {
       v.done = e.done;
       v.total = e.total;
       v.now = e.name ? e.name.replace(' - ', ' – ') : null;
+      if (e.track_id && v.now) this.#known.set(e.track_id, v.now);
     });
   }
 }

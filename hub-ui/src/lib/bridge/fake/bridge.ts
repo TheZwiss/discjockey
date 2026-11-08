@@ -357,7 +357,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         rekordbox: null })) };
     if (!resuming) aiff.push(b);
     b.state = 'running'; b.stop_reason = null;
-    const quick = ids.length === 1 && !resuming;
+    const quick = started_by === 'user' && ids.length === 1 && !resuming; // the real upgrade_all never carries a track_id
     return startJob(resuming ? 'batch_resume' : 'upgrade_batch', quick ? ids[0] : null, (finish) => {
       const stop = batchStop = { stopped: false };
       const total = b.items.length;
@@ -370,7 +370,10 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         if (!item) {
           emit({ type: 'BatchProgress', batch_id: b.id, done: total, total, track_id: null, name: null } as HubEvent);
           if (b.items.every((i) => i.state === 'skipped')) { b.state = 'done'; batchStop = null;
-            return finish(false, batchBody(b.id, 'done', null, b.items), 'refused', 'None of these can be upgraded right now.'); }
+            // one track: the item's own words (as the engine's Refused), else the general sentence
+            const only = total === 1 ? b.items[0] : null;
+            return finish(false, batchBody(b.id, 'done', null, b.items), 'refused',
+              (only && (only.message ?? (only.reason ? SKIP_WORDS[only.reason] : null))) || 'None of these can be upgraded right now.'); }
           return end('done', null, null);
         }
         const done = total - left().length;
@@ -1125,7 +1128,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const ids = listOf(track_ids);
       if (!ids) return fail('refused', 'No tracks were chosen.');
       const have = ids.filter((id) => track(id)?.rekordbox_check);
-      if (!have.length) return fail('refused', 'There is nothing to check for these tracks any more.');
+      // like the engine: nothing to check is a job that ends `changed`, not a refusal at the call
+      if (!have.length) return startJob('rekordbox_checked', ids.length === 1 ? ids[0] : null, (finish) => setTimeout(() =>
+        finish(false, null, 'changed', 'There is nothing to check for these tracks any more.'), 300 / speed));
       return startJob('rekordbox_checked', ids.length === 1 ? ids[0] : null, (finish) => setTimeout(() => {
         const results = have.map((id) => { const t = track(id)!; t.rekordbox_check = null;
           return opResult(t, 'rekordbox_checked', 'checked in rekordbox').result; });
@@ -1140,9 +1145,18 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (mode === 'swap') return runAiff('user', ids);
       return startJob(`upgrade_${mode}`, ids.length === 1 ? ids[0] : null, (finish) => {
         const results: AiffItemResult[] = [];
+        const stop = batchStop = { stopped: false };
         let n = 0;
         const next = () => {
+          if (stop.stopped && n < ids.length) {
+            // Stop between tracks: the rest is planned, as the engine's _each_work ends it
+            batchStop = null;
+            for (const id of ids.slice(n)) results.push({ track: id, action: mode, state: 'planned', reason: null, message: null,
+              path: null, rekordbox: null });
+            return finish(false, batchBody(null, 'stopped', 'stop', results), 'stopped', `Stopped after ${n} of ${ids.length}.`);
+          }
           if (n >= ids.length) {
+            batchStop = null;
             emit({ type: 'BatchProgress', batch_id: 0, done: ids.length, total: ids.length, track_id: null, name: null } as HubEvent);
             return finish(true, batchBody(null, 'done', null, results));
           }

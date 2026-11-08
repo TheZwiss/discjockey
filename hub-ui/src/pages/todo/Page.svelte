@@ -87,6 +87,11 @@
   const wholeGroup = $derived(!!upGroup && multiUp && upGroup.items.filter((i) => !i.hidden).every((i) => isSelected(sel, itemKey(i))));
   // a batch the hub runs that this window didn't start (it was reloaded): its panel follows it
   $effect(() => { const j = $hub.job; untrack(() => upgradeBatch.adopt(j)); });
+  // the names of the listed upgrades, for a batch's end to name tracks it had no progress row for (Resume, adopt)
+  $effect(() => {
+    const names = items.filter((i) => i.group === 'upgrade_ready').map((i): [string, string] => [i.track_id, artistTitle(i.artist, i.title)]);
+    untrack(() => upgradeBatch.know(names));
+  });
 
   // The item just acted on in the details stays in the list and selected (todoModel TodoHold): the user's own pick,
   // another filter or Show hidden ends it. When that left a re-fetch that had put the item back, the list asks again.
@@ -268,6 +273,7 @@
   function upgradeAll() { picked(selectScope('upgrade_ready', order, scopeOf)); }
   /** "Resume · k left": confirmed when the batch started, so it runs at once; its panel shows the progress. */
   function resume(batch_id: number) {
+    if (upgradeBatch.view?.phase === 'running') return;
     upgradeBatch.clear();
     pinned = true;
     void upgradeBatch.resume(batch_id);
@@ -333,8 +339,8 @@
        the panel's own Resume says it) -->
   {#if headResume}
     {@const r = headResume}
-    <Button variant="link" size="sm" disabled={!!$writeBlockedReason} title={$writeBlockedReason ?? undefined}
-      onclick={() => resume(r.batch_id)} data-test="todo-resume">{resumeLabel(r.left)}</Button>
+    <Button variant="link" size="sm" disabled={!!$writeBlockedReason || upgradeBatch.view?.phase === 'running'}
+      title={$writeBlockedReason ?? undefined} onclick={() => resume(r.batch_id)} data-test="todo-resume">{resumeLabel(r.left)}</Button>
   {:else if !upGroup?.stopped && upGroup?.all?.n}
     <Button variant="link" size="sm" onclick={upgradeAll} data-test="todo-upgrade-all">{upgradeAllLabel(upGroup.all.n)}</Button>
   {/if}

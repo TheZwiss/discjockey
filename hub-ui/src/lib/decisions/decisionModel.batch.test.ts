@@ -96,6 +96,15 @@ describe('a batch running and its end', () => {
     expect(endRows([{ ...rows[0], state: 'now' }], []).map((x) => x.state)).toEqual(['handled']);
     expect(endGroups(endRows(rows, [res('a', 'skipped'), res('b', 'planned')])).left.map((x) => x.track_id)).toEqual(['b']);
   });
+  it('the end adds a row for every result track without one, named by the lookup, else by its id', () => {
+    const names: Record<string, string> = { c: 'Some One – Song' };
+    const r = endRows([rows[0]], [res('a', 'done'), res('c', 'skipped', { reason: 'timing', message: 'analyse it again' }),
+      res('d', 'planned')], (id) => names[id] ?? null);
+    expect(r.map((x) => [x.track_id, x.name === x.track_id ? 'id' : x.name, x.state, x.text])).toEqual([
+      ['a', rows[0].name, 'done', null], ['c', 'Some One – Song', 'skipped', 'Analyse it again'], ['d', 'id', 'waiting', null]]);
+    // a Resume starts with no rows at all
+    expect(endRows([], [res('a', 'done'), res('b', 'done')]).map((x) => [x.track_id, x.state])).toEqual([['a', 'done'], ['b', 'done']]);
+  });
   it('done, with its words', () => {
     const e = batchEnd('swap', { ok: true, result: result([res('a', 'done'), res('b', 'done')]) });
     expect([e.kind, e.done, e.resume, endNote(e), canTryAgain(e)]).toEqual(['done', 2, null, null, false]);
