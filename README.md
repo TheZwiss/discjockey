@@ -603,11 +603,16 @@ backup, a progress line ("3 of 8"), and **Stop**, which finishes the track it is
 after 3 of 8"). **Resume · 5 left** (in the panel, and at the group's head while the batch waits) carries on with the rest
 (Discjockey asks again for each track, so a track that changed meanwhile is skipped with its reason). If you open
 rekordbox during a batch, Discjockey rolls back the track it was on, stops, and waits for you to quit rekordbox and
-press Resume. A track it can't do is skipped with its reason and the others go on. When a batch is done, it shows as
-one line on the To-do page ("12 tracks upgraded"), with the tracks it skipped.
+press Resume. A track it can't do is skipped with its reason and the others go on; the panel lists them when the
+batch ends. A finished batch is one line under **Check in rekordbox** ("12 tracks upgraded · today · Same track"):
+its panel has the steps for all of them in rekordbox (analyse them again; Reload Tag, by name, only for a track whose
+names Discjockey couldn't write itself), every track with its new file and anything kept as you had edited it in
+rekordbox, and **Done, checked in rekordbox** for the whole batch. Checks can be selected several at once too, like
+upgrades, for one **Done** over all of them.
 
 **Changed your mind?** Until you press **Done, checked in rekordbox**, the To-do page offers
-**Undo the replace** under the track, and **Undo all** under a batch: your old file goes back where it was, the new
+**Undo the replace** under the track, **Undo all** under a batch (or **Undo** on one of its tracks), and **Undo 3**
+for several checks selected: your old file goes back where it was, the new
 version waits in `Upgrades ready/` again, and the upgrade is offered as before. For Same track, Discjockey also puts
 rekordbox's track back (it needs rekordbox closed, and keeps cue points you added in the meantime; text you changed
 yourself stays too). Discjockey refuses a track if either file was changed since (for example edited by another

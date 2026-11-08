@@ -5,13 +5,15 @@
 import { api, runJob, type JobOutcome } from '$lib/bridge/client';
 import { onEvent } from '$lib/bridge/events';
 import { waitForJob } from '$lib/stores/jobs';
-import type { AiffBatchResult, DuplicatePair, JobSnap, JobStart, RekordboxCheckView, Result, TodoItem } from '$lib/bridge/types';
+import type {
+  AiffBatchResult, DuplicatePair, JobSnap, JobStart, RekordboxCheckView, Result, TodoItem, UndoResult,
+} from '$lib/bridge/types';
 import { confirm } from '$lib/components/confirm';
 import { toasts } from '$lib/stores/toasts';
 import { problemCopy } from '$lib/copy';
 import {
-  batchEnd, canTryAgain, discardConfirm, endRows, groupIdOf, progressRows, runRow, type BatchEnd, type BatchMode, type DuplicatePick,
-  type RunRow, type UpgradeWays, type Way,
+  batchEnd, canTryAgain, discardConfirm, endRows, groupIdOf, progressRows, runRow, undoManyConfirm, undoProblem, undoneToast, type BatchEnd,
+  type BatchMode, type DuplicatePick, type RunRow, type UndoProblem, type UpgradeWays, type Way,
 } from './decisionModel';
 
 /** The upgrade and the rekordbox check it leaves: Replace (the "In rekordbox" pick), Discard, Done, Undo. `busy`
@@ -129,6 +131,57 @@ export class DuplicateFlow {
     if (moved === 1 && last?.note) toasts.show({ tone: 'success', title: last.note });
     else if (moved > 1) toasts.show({ tone: 'success', title: `Moved ${moved} files to Superseded/.` });
   }
+}
+
+/** The rekordbox checks of a batch card, or of several checks selected (plan stage B §6.4): Done for all of them, Undo
+ *  for all that can (one `undo_upgrade` job, newest first) or for one row. One per panel: `follow` starts over for a
+ *  new pick. An undo that left tracks as they were keeps its words until the next pick (`problem`: the line under the
+ *  buttons, each refused track's reason for its row), also when the list is fetched again under the panel. */
+export class ChecksFlow {
+  /** `done`, `undo` (all) or `undo:<track_id>` (one row) */
+  busy = $state<string | null>(null);
+  problem = $state<UndoProblem | null>(null);
+  #for = '';
+  #onact: (() => void) | undefined;
+
+  /** `onact`: called as an action's job starts (after its confirm), so the page keeps these tracks in its panel
+   *  while the list changes under it (the batch item that becomes a single check, or goes). */
+  constructor(opts: { onact?: () => void } = {}) {
+    this.#onact = opts.onact;
+  }
+  follow(key: string): void {
+    if (key === this.#for) return;
+    this.#for = key;
+    this.problem = null;
+  }
+  /** "Done, checked in rekordbox" for every track of the card (or the selection). */
+  async checked(track_ids: string[]): Promise<void> {
+    if (!track_ids.length || this.busy) return;
+    this.busy = 'done';
+    this.#onact?.();
+    await runJob(api.rekordbox_checked(track_ids));
+    this.busy = null;
+  }
+  /** "Undo all {n}" / "Undo {n}" (asks first), or a row's "Undo this one" (`one`: asks the single card's question). */
+  async undo(track_ids: string[], one?: RekordboxCheckView): Promise<void> {
+    if (!track_ids.length || this.busy) return;
+    const ask = one ? undoOneConfirm(one) : undoManyConfirm(track_ids.length);
+    if (!(await confirm(ask))) return;
+    this.busy = one ? `undo:${track_ids[0]}` : 'undo';
+    this.problem = null;
+    this.#onact?.();
+    const out = await runJob<UndoResult>(api.undo_upgrade(track_ids), { quiet: true, success: false });
+    this.busy = null;
+    this.problem = undoProblem(out);
+    const n = out.result?.undone ?? 0;
+    if (n) toasts.show({ tone: 'success', title: undoneToast(n) });
+  }
+}
+/** The single card's undo question for one row of a batch card (UpgradeFlow.undo asks the same). */
+function undoOneConfirm(c: RekordboxCheckView) {
+  return { title: 'Undo the replace?', confirmLabel: 'Undo the replace',
+    body: c.reason === 'swapped' ? 'Your old audio goes back in the file. The new version waits in Upgrades ready again.'
+      : 'Your old file goes back where it was. The new version waits in Upgrades ready again.' };
 }
 
 /** The write jobs of an upgrade list or batch (contract "Upgrades and batches"): each sends BatchProgress. */
