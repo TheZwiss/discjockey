@@ -1,0 +1,1 @@
+import{g as o,t as r,s as i,o as m,l as d,x,G as c}from"./index-4bdyV0Tq.js";var p=c('<span aria-hidden="true" data-mark=""> </span>');function _(l,a){let t=o(a,"mixed",3,!1);var e=p();let s;var n=x(e,!0);r(()=>{s=i(e,1,"tick svelte-xlgp63",null,s,{on:a.on,mixed:t()}),m(n,a.on?"✓":t()?"–":"")}),d(l,e)}export{_ as T};
