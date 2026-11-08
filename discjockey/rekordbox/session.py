@@ -85,10 +85,11 @@ class Session:
 
     @classmethod
     @contextmanager
-    def open(cls, paths, *, place=_LOCATE, running: Callable[[], bool] = process.running,
+    def open(cls, paths, *, place=_LOCATE, running: Callable[[], bool] | None = None,
              items_need_write: Callable[[RekordboxView | None], bool], batch_id: int | None = None
              ) -> Iterator[Session]:
         place = locate() if place is _LOCATE else place
+        running = process.running if running is None else running  # looked up now: tests replace it
         with _lock(paths.support):
             s = cls(paths, place, running, batch_id)
             try:

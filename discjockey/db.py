@@ -1662,6 +1662,11 @@ def aiff_batches(conn: sqlite3.Connection, limit: int = 20) -> tuple[list[AiffBa
             conn.execute("SELECT COUNT(*) FROM aiff_batches").fetchone()[0])
 
 
+def aiff_backups_in_use(conn: sqlite3.Connection) -> set[str]:
+    """The rekordbox backups of the AIFF batches not yet `done` (`running` or `stopped`): kept by the prune."""
+    return {b for (b,) in conn.execute("SELECT backup FROM aiff_batches WHERE state != 'done' AND backup IS NOT NULL")}
+
+
 def running_aiff_batches(conn: sqlite3.Connection) -> list[int]:
     """The AIFF batches still `running`: after a crash nothing runs them (batches.recover stops them)."""
     return [i for (i,) in conn.execute("SELECT id FROM aiff_batches WHERE state = 'running' ORDER BY id")]
