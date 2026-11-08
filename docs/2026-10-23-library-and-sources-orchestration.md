@@ -441,3 +441,7 @@ Results:
   (≤0.016 ms), title edit + comment kept, USN one per row (rekordbox's own rows mostly the same), Length round-down
   matches rekordbox 6/6, created lookup rows match rekordbox's own (its own SearchStr are NULL too); undo byte-identical.
   Source only copied. Script merged 1d0dfcd (`copy-db`/`copy-tracks` never ran as commands: R2 checks them). Next: U1.
+- U1 (Opus ≈405k incl. a usage-limit stop): To-do multi-select (shared `selectionModel`), selection panel, Upgrade all
+  · n / Resume · k left in the group head, batch progress panel (Playlists moves layout), single panel's non-AIFF
+  outcomes; block changes ListSection/Surface `action`, ListRow `reveal`; vitest 1313, CI green. Merged 595baaf.
+  Next: U2 (running), then S, R2, V.
