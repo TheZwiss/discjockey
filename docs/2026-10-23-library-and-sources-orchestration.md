@@ -399,3 +399,6 @@ Results:
   rekordbox's timeline (falls back to today's rename when unmeasurable), undo of a rendered add; CI green; merged.
 - A4 done (Sonnet): New track card says Relocate by hand, "cues fit exactly" when lined up; contract + README; shots
   looked at; CI green; merged.
+- A5 done (Sonnet 241k): `eligible.py`, `preview.py`, `discjockey rekordbox status|preview` (read-only, --json, exit
+  codes), CONTRIBUTING "Commands for scripts and agents"; CI green; merged. Slip: one by-hand run read the real
+  rekordbox + library.db once (read-only; checked afterwards: no new files, mtimes unchanged). Next: stage A review.
