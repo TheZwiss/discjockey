@@ -424,3 +424,5 @@ Results:
   crash recovery holds. Decided (review's question): rekordbox's comment column and the new file's comment tag are
   written only when empty or Discjockey's own quality line; Mixed In Key's key/energy and user notes stay. Fresh
   Sonnet fix round running.
+- R1 fix round (Sonnet 264k): all 6 Important + 10 Minor fixed (6ceb88b; undo compares audio only, empty values leave
+  rekordbox's field alone, batch undo refuses with rekordbox open, restore takes the lock); CI green. Next: B6.
