@@ -202,3 +202,20 @@ def test_a_failure_while_ending_the_step_leaves_the_item_planned(conn, monkeypat
     monkeypatch.undo()
     assert [s for _, _, s in states(conn, batch)] == ["planned"] * 3
     assert [o["op_id"] for o in db.pending_ops(conn)] == [op_id]
+
+
+def test_unfinished_batches_and_the_item_an_undo_marks(conn):
+    first = db.start_aiff_batch(conn, "upgrade", "user", None, ITEMS, NOW)
+    second = db.start_aiff_batch(conn, "upgrade", "user", None, [("sp2", "same_track")], NOW)
+    assert db.unfinished_aiff_batches(conn) == [first, second]
+    db.set_aiff_batch(conn, first, state="done", ended=LATER)
+    db.set_aiff_batch(conn, second, state="stopped", stop_reason="stop")
+    assert db.unfinished_aiff_batches(conn) == [second]
+    assert db.aiff_item_of(conn, "sp2") is None                       # nothing done yet
+    db.set_aiff_item(conn, first, 1, "done")
+    db.set_aiff_item(conn, second, 0, "done")
+    db.set_aiff_item(conn, first, 0, "skipped", "needs_choice")
+    assert db.aiff_item_of(conn, "sp2") == (second, 0)                # the newest batch's
+    assert db.aiff_item_of(conn, "sp2", first) == (first, 1)
+    assert db.aiff_item_of(conn, "sp1") is None                       # skipped is not done
+    assert db.aiff_item_of(conn, "sp2", 99) is None

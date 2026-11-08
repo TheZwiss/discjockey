@@ -212,14 +212,17 @@ def test_another_rekordbox_library_gets_only_the_files_resolved(tmp_path, monkey
         assert load_state(env.paths)["tracks"][TID]["path"] == NEW
 
 
-@pytest.mark.parametrize("at, item", [("placed", "planned"), ("committed", "done")])
-def test_the_interrupted_batch_is_stopped(tmp_path, monkeypatch, at, item):
+@pytest.mark.parametrize("at, item, batch_state, why", [("placed", "planned", "stopped", "crash"),
+                                                         ("committed", "done", "done", None)])
+def test_the_interrupted_batch_is_stopped(tmp_path, monkeypatch, at, item, batch_state, why):
+    """A batch the crash cut off offers Resume; one whose last item recovery finished has nothing left, so it ends
+    (batches.recover)."""
     env = make_env(tmp_path, monkeypatch)
     batch = start_batch(env)
     crash(env, monkeypatch, at, batch=(batch, 0))
     next_start(env)
     row = batch_row(env, batch)
-    assert (row.state, row.stop_reason, row.items[0].state) == ("stopped", "crash", item)
+    assert (row.state, row.stop_reason, row.items[0].state) == (batch_state, why, item)
 
 
 def test_a_step_with_a_file_on_a_drive_that_is_away_waits(tmp_path, monkeypatch):
