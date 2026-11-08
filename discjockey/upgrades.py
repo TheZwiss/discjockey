@@ -5,11 +5,19 @@ Front-end independent: `discjockey upgrades` (console) and the hub's "Upgrade re
 Callers hold the run lock and have recovered pending operations first. Every action re-checks its
 precondition and returns one events.Result; problems the user should read raise UpgradeProblem.
 
+New track (`add_new`) lines the new file up with rekordbox's timeline of the old one when it can (design
+rekordbox-repoint §3.1, §7.2; plan stage A §1.9): for the same edit, measured again now (`L`), and a known offset `d`
+of rekordbox's timeline for the old file (`rekordbox.timeline_offset`), it renders the download shifted by
+`k = L − d` (`audio.render_aiff`), so rekordbox's cues and grid of the old track fit the new file to the sample; the
+parked download is kept for the undo, as a swap's is. `k == 0` keeps the download as it is (a rename). A different or
+unknown edit, or an unknown `d`, is renamed as before and its check says so (`aligned: false`).
+
 Undo: Swap and Add as new file leave a rekordbox check whose `undo` record (library.upgrade_undo) says how to put
 everything back: the fields the step changed as they were (`before`, the parked upgrade included), where the new and
-the old file are now (`file`, `old`) with their content keys (`file_key`, `old_key`), and for a swap the kept parked
-download (`held`, in .discjockey/undo/). `undo` puts it all back while the check stands; "Done, checked in rekordbox"
-ends it (library.forget_undo). It is refused when either file changed since the step.
+the old file are now (`file`, `old`) with their content keys (`file_key`, `old_key`), and for a swap or a rendered
+New track (`rendered: true`) the kept parked download (`held`, in .discjockey/undo/). `undo` puts it all back while
+the check stands (a render goes into .discjockey/undo/, cleaned up later: its audio is the download's); "Done,
+checked in rekordbox" ends it (library.forget_undo). It is refused when either file changed since the step.
 """
 from __future__ import annotations
 
@@ -17,25 +25,25 @@ import hashlib
 import itertools
 import os
 import shutil
-import subprocess
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
-from . import align
+from . import align, rekordbox
 from .align import Alignment
-from .audio import copy_tags
+from .audio import ConversionError, copy_tags, render_aiff
 from .content_key import content_key
 from .events import Result
 from .library import (
-    NameReserver, Paths, deferred_interrupt, delete_parked, end_op, fsync_dir, full_fsync, journal_op, mark_op,
-    run_op, safe_rename, save_state, upgrade_undo, watched_root,
+    NameReserver, Paths, deferred_interrupt, delete_parked, end_op, forget_undo, fsync_dir, full_fsync, journal_op,
+    mark_op, op_paths, run_op, safe_rename, save_state, upgrade_undo, watched_root,
 )
 from .models import SOURCE_NAMES
 from .names import expected_stem, fold, split_name, strip_id_suffix
 from .planner import declined, own_key, replacement_dir, superseded_dir
 
 Compare = Callable[..., Alignment]  # (current file, new file) -> Alignment
+Offset = Callable[[Path], rekordbox.TimelineOffset]  # (old file) -> where rekordbox's timeline sits for it
 SWAP_EXTS = (".aiff", ".aif")  # the new audio is AIFF; a WAV file cannot take it under its own name
 CHUNK = 1 << 20
 
@@ -139,14 +147,20 @@ def _keys(paths: Paths, new: str, old: str) -> dict | None:
         return None
 
 
-def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict,
-            now: Callable[[], datetime] = datetime.now) -> Result:
-    """The parked file takes the correct name in the current file's folder (`<folder>/<Artist - Title>.aiff`, ID
-    suffix only if another file has it; a playlist folder's root unless it stays lossy, spec §7: `replacement_dir`);
-    the current file moves to Superseded/ (mirroring its folder) first, so the new one can also take the name
-    the old one had. One pending operation with two renames. rekordbox gets a new file, so it makes a new entry; the old
-    entry can be relocated to it. The entry asks for a rekordbox check (added_as_new) and keeps what the two files
-    measured as (`match`, `offset_ms`): the same edit means the old cues fit, the report words it so."""
+def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compare = align.compare_files,
+            offset: Offset | None = None, now: Callable[[], datetime] = datetime.now) -> Result:
+    """The new file takes the correct name in the current file's folder (`<folder>/<Artist - Title>.aiff`, ID suffix
+    only if another file has it; a playlist folder's root unless it stays lossy, spec §7: `replacement_dir`); the
+    current file moves to Superseded/ (mirroring its folder) first, so the new one can also take the name the old one
+    had. One pending operation (run_op). rekordbox gets a new file; the user relocates the old track to it.
+
+    The two files are measured again now (`compare`). For the same edit with a known offset of rekordbox's timeline
+    (`offset`, default rekordbox.timeline_offset), the new file is the parked download rendered shifted by
+    `k = L − d`, so the old track's cues fit to the sample, and the download is kept in .discjockey/undo/ (renames:
+    old → Superseded/, render → the new name, download → kept); `k == 0` renames the download itself. Otherwise the
+    download is renamed as it is. The check (added_as_new) keeps the measurement (`match`, `offset_ms`; the parked
+    one when it can't be measured now) and whether the new file is lined up (`aligned`). A failure before the files
+    move leaves nothing behind (UpgradeProblem)."""
     e = precondition(paths, state, track_id, upgrade, need_current=True)
     names = NameReserver(paths.root, state)
     stem, ext = split_name(strip_id_suffix(PurePosixPath(e["path"]).name, track_id))
@@ -158,16 +172,63 @@ def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict,
         new = target
     else:
         new = names.choose(folder, expected_stem(e["artist"], e["title"]), ".aiff", track_id)
-    measured = upgrade.get("alignment") or {}
+    alignment = compare(paths.root / e["path"], paths.root / upgrade["file"])
+    measured = alignment.to_dict() if alignment.result != "unknown" else (upgrade.get("alignment") or {})
+    shift = _lined_up_shift(paths.root / e["path"], alignment, offset)
     check = {"reason": "added_as_new", "since": now().date().isoformat(), "match": measured.get("result") or "unknown",
-             "offset_ms": measured.get("offset_ms") or 0.0}
-    keys = _keys(paths, upgrade["file"], e["path"])  # read before the move; the move keeps the content
+             "offset_ms": measured.get("offset_ms") or 0.0, "aligned": shift is not None}
+    if not shift:  # nothing to render: the download itself becomes the new file
+        keys = _keys(paths, upgrade["file"], e["path"])  # read before the move; the move keeps the content
+        if keys is not None:
+            check["undo"] = {"kind": "add_new", "before": _before(e), **keys, "file": new, "old": old}
+        entry = {**_upgraded(e, upgrade, new), "rekordbox_check": check}
+        run_op(paths, state, track_id, [(e["path"], old), (upgrade["file"], new)], entry)
+        return _result("added_new", track_id, e, f"new file {new}; the old one moved to {old}", status=status,
+                       source=upgrade["source"], path=new)
+
+    workdir = paths.tmp / track_id
+    staged = workdir / "new.aiff"
+    try:
+        workdir.mkdir(parents=True, exist_ok=True)
+        build_staged(paths.root / upgrade["file"], staged, shift)
+        rendered = staged.relative_to(paths.root).as_posix()
+        keys = _keys(paths, rendered, e["path"])
+        held = _held_place(paths, track_id, upgrade["file"])
+    except BaseException as err:
+        shutil.rmtree(workdir, ignore_errors=True)
+        if not isinstance(err, Exception):  # Ctrl-C: nothing was changed
+            raise
+        detail = str(err) if isinstance(err, UpgradeProblem) else f"Could not prepare the new version ({err})"
+        raise UpgradeProblem(f"{detail.rstrip('. ')}. Nothing was changed; the {upgrade_name(upgrade)} is still "
+                             "waiting.") from err
     if keys is not None:
-        check["undo"] = {"kind": "add_new", "before": _before(e), **keys, "file": new, "old": old}
+        check["undo"] = {"kind": "add_new", "before": _before(e), **keys, "file": new, "old": old, "held": held,
+                         "rendered": True}
     entry = {**_upgraded(e, upgrade, new), "rekordbox_check": check}
-    run_op(paths, state, track_id, [(e["path"], old), (upgrade["file"], new)], entry)
-    return _result("added_new", track_id, e, f"new file {new}; the old one moved to {old}", status=status,
-                   source=upgrade["source"], path=new)
+    try:
+        run_op(paths, state, track_id, [(e["path"], old), (rendered, new), (upgrade["file"], held)], entry)
+    except BaseException:
+        if not any(fold(p) == fold(rendered) for op in state.get("pending", []) for p in op_paths(op)):
+            shutil.rmtree(workdir, ignore_errors=True)  # the step was dropped: the render is nobody's
+        raise
+    shutil.rmtree(workdir, ignore_errors=True)
+    if keys is None:  # no undo (a file couldn't be read): the kept download has no use
+        forget_undo(paths, {"held": held})
+    return _result("added_new", track_id, e, f"new file {new}, lined up with the old one; the old one moved to {old}",
+                   status=status, source=upgrade["source"], path=new)
+
+
+def _lined_up_shift(old_file: Path, alignment: Alignment, offset: Offset | None) -> int | None:
+    """The shift (44.1 kHz samples) that lines the new file up with rekordbox's timeline of `old_file`: `L − d`; None
+    when the files aren't the same edit or `d` is unknown (rekordbox can't tell, or anything in that look fails: New
+    track never refuses, plan §0.4)."""
+    if not alignment.swap_safe:
+        return None
+    try:
+        d = (offset or rekordbox.timeline_offset)(old_file).samples
+    except Exception:  # whatever goes wrong in the look at rekordbox (ffmpeg, its library): New track still renames
+        return None
+    return None if d is None else alignment.offset_samples - d
 
 
 def discard(paths: Paths, state: dict, track_id: str, upgrade: dict) -> Result:
@@ -202,23 +263,16 @@ def _verified(path: Path, sha256: str) -> bool:
 
 
 def build_staged(parked: Path, staged: Path, offset_samples: int) -> None:
-    """The parked audio shifted to line up with the current file (PCM to PCM, no resampling), with its tags.
-    A positive offset trims that many samples at the start, a negative one puts silence in front."""
+    """The parked audio shifted to line up (audio.render_aiff: 16-bit/44.1 kHz PCM keeps its samples), with its
+    tags. A positive offset trims that many samples at the start, a negative one puts silence in front; 0 copies
+    the file as it is."""
     if offset_samples == 0:
         shutil.copyfile(parked, staged)
         return
-    if offset_samples > 0:
-        shift = f"atrim=start_sample={offset_samples},asetpts=PTS-STARTPTS"
-    else:
-        shift = f"adelay=delays={-offset_samples}S:all=1"
-    r = subprocess.run(
-        ["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(parked), "-map", "0:a:0", "-map_metadata", "-1",
-         "-af", shift, "-c:a", "pcm_s16be", "-f", "aiff", str(staged)],
-        capture_output=True, start_new_session=True,
-    )
-    if r.returncode != 0:
-        raise UpgradeProblem("Could not prepare the new version for the swap: "
-                             f"{r.stderr.decode(errors='replace').strip()[-300:]}")
+    try:
+        render_aiff(parked, staged, offset_samples)
+    except ConversionError as err:
+        raise UpgradeProblem(f"Could not prepare the new version: {err}") from None
     copy_tags(parked, staged)
 
 
@@ -496,8 +550,9 @@ def undo(paths: Paths, state: dict, track_id: str) -> Result:
     """Puts a swap or an added file back as it was: the old file at its old path, the entry's fields as they were
     (the parked upgrade waits again, its file back in Upgrades ready/), the new file out of the folder. Refused when
     either file changed since the step, the track's file is another one now, a newer version is waiting, or a file
-    is in the way of a place something goes back to. Crash-safe: Add as new goes back through run_op, a swap
-    through a pending `swap_undo` step (recover_swap_undo)."""
+    is in the way of a place something goes back to. A rendered New track also needs its kept download, which goes
+    back to Upgrades ready/; the render goes into .discjockey/undo/. Crash-safe: Add as new goes back through run_op,
+    a swap through a pending `swap_undo` step (recover_swap_undo)."""
     e = state["tracks"].get(track_id)
     u = upgrade_undo(e)
     if not u:
@@ -511,15 +566,23 @@ def undo(paths: Paths, state: dict, track_id: str) -> Result:
     parked = before["upgrade"]["file"]
     _unchanged(paths, u["file"], u["file_key"])
     _unchanged(paths, u["old"], u["old_key"])
-    if u["kind"] == "swap" and not (paths.root / u["held"]).is_file():
-        raise UpgradeProblem("The copy of the new version Discjockey kept for the undo is gone, so the swap can't be "
-                             "undone. Nothing was changed.")
+    if (u["kind"] == "swap" or u.get("rendered")) and not (paths.root / u["held"]).is_file():
+        step = "swap" if u["kind"] == "swap" else "upgrade"
+        raise UpgradeProblem(f"The copy of the new version Discjockey kept for the undo is gone, so the {step} can't "
+                             "be undone. Nothing was changed.")
     for rel in (before["path"], parked):
         if _in_the_way(paths, state, track_id, rel, u["file"]):
             raise UpgradeProblem(f"Another file is at {rel} now, so the upgrade can't be undone. Nothing was changed.")
     entry = {**e, **before}
     what = upgrade_name(before["upgrade"])
-    if u["kind"] == "add_new":
+    if u["kind"] == "add_new" and u.get("rendered"):
+        # the render first (it may have the old file's name) into .discjockey/undo/, where the clean-up takes it
+        # (library._prune_undo: its audio is the download's), then the kept download and the old file back
+        renames = [(u["file"], _held_place(paths, track_id, u["file"])), (u["held"], parked),
+                   (u["old"], before["path"])]
+        run_op(paths, state, track_id, renames, entry, label=_track_name(e, track_id))
+        note = f"the old file is back at {before['path']}; the {what} waits in {parked} again"
+    elif u["kind"] == "add_new":
         # the new file first: it may have the old file's name (the old one moved away first in add_new)
         run_op(paths, state, track_id, [(u["file"], parked), (u["old"], before["path"])], entry,
                label=_track_name(e, track_id))

@@ -56,11 +56,13 @@ export type TodoItem = TrackRow & { group: TodoGroupKey; detail: string; free: b
   file_state: Exclude<FileState, 'file_missing'> | 'no_file';
   pair?: QuestionPair | DuplicatePair; can_undo?: boolean; check?: RekordboxCheckView };
 /** A `rekordbox_check` item's check (views.check_view): the step that left it, what the two files measured as
- *  (`match`: exact/shifted/different/unknown, null in records from before it), `text` the whole instruction and
+ *  (`match`: exact/shifted/different/unknown, null in records from before it), `aligned` (an added file that
+ *  Discjockey rendered lined up with rekordbox's timeline of the old one: the old track's cues fit it to the sample;
+ *  false for a swap and in records from before it), `text` the whole instruction and
  *  `old_path` where the old file (added) or the copy of the old audio (swap) is now (null without an undo record).
  *  The item's `detail` is the row's short line. */
 export type RekordboxCheckView = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | string; since: string | null;
-  match: string | null; offset_ms: number | null; moved: boolean; text: string; old_path: string | null };
+  match: string | null; offset_ms: number | null; moved: boolean; aligned: boolean; text: string; old_path: string | null };
 
 // --- the import of the user's own music (plan library stage 4, I11; contract "Watched folders and the import") ---
 /** One file of a question or a duplicate group. `path` is absolute for an import folder's file; `audio_url` is null

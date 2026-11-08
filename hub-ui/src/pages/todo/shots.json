@@ -112,6 +112,8 @@
    "steps": [{ "wait": "[data-test=rekordbox-check][data-reason=swapped]" }, { "wait": "[data-test=upgrade-undo]" }, { "sleep": 400 }] },
  { "name": "todo-after-add-same", "mockup": "todo-decisions.html", "mockupState": "added/after/1100", "mockupScale": 1, "route": "#/todo?track=t2", "scenario": "todo:after-add-same",
    "steps": [{ "wait": "[data-test=rekordbox-check][data-reason=added_as_new]" }, { "sleep": 400 }] },
+ { "name": "todo-after-add-shifted-old", "route": "#/todo?track=t2", "scenario": "todo:after-add-shifted-old",
+   "steps": [{ "wait": "[data-test=rekordbox-check][data-reason=added_as_new]" }, { "sleep": 400 }] },
  { "name": "todo-after-add-different", "mockup": "todo-decisions.html", "mockupState": "added-diff/after/1100", "mockupScale": 1, "route": "#/todo?track=t2", "scenario": "todo:after-add-different",
    "steps": [{ "wait": "[data-test=rekordbox-check][data-reason=added_as_new]" }, { "sleep": 400 }] },
  { "name": "todo-after-no-undo", "route": "#/todo?track=t2", "scenario": "todo:after-no-undo",

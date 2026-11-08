@@ -116,8 +116,9 @@ Use the kind for the card/headline; always show `message` as the detail.
   "YYYY-MM-DD"}`.
   `wrong_song`: set by `use_candidate`/`use_link` when the old file was moved away to Superseded/, and by
   `reject_current` ("None of these"). `added_as_new`: set by `upgrade(id, "add_new")`, with `match` (the parked
-  version's measurement: `exact`/`shifted`/`different`/`unknown`) and `offset_ms`; records from before them have
-  neither. `swapped`: set by `upgrade(id, "swap")`, with `match`, `offset_ms` (the fresh measurement) and `moved`
+  version's measurement: `exact`/`shifted`/`different`/`unknown`), `offset_ms` and `aligned` (the new file was
+  rendered lined up with rekordbox's timeline of the old one, so the old track's cues fit it to the sample; false
+  when the timing was unknown and the download was only renamed); records from before them have none of these. `swapped`: set by `upgrade(id, "swap")`, with `match`, `offset_ms` (the fresh measurement) and `moved`
   (the file moved up out of not_lossless/). Both upgrade checks also hold `undo` (engine-internal, see
   `upgrades.py`: the fields as they were, both files' content keys, a swap's kept download in
   `.discjockey/undo/`); checks from before undo existed have none. The page sees `can_undo` and, from the undo
@@ -126,11 +127,15 @@ Use the kind for the card/headline; always show `message` as the detail.
   section `rekordbox_check`; `track()` does not return it. A `rekordbox_check` item carries `detail` (the row's short
   line, `views.check_status`: "Reload Tag, analyse again", "relocate, Reload Tag, analyse again", "relocate, analyse
   again", "analyse, set the cues again", "now the right song: analyse again") and `check` (`views.check_view`):
-  `{reason, since, match, offset_ms, moved, text, old_path}`; `text` is the whole instruction (report.check_text: its
-  words follow `match`: exact/shifted the same edit, relocate, the cues fit (shifted: to within the offset);
-  `different`, `unknown` and old records a different edit, analyse and set the cues again), `old_path` where the old
-  file (added) or the copy of the old audio (swap) is now, null without an undo record. The panel builds its numbered
-  steps from `reason`, `match`, `offset_ms` and `moved`, and keeps `text` for any other reason.
+  `{reason, since, match, offset_ms, moved, aligned, text, old_path}`; `aligned` is true only for an added file
+  rendered lined up (false for a swap and for records from before it); `text` is the whole instruction
+  (report.check_text: its words follow `aligned` and `match`: aligned and exact/shifted "the same edit, lined up with
+  your old file to the sample", relocate, the cues fit exactly; not aligned, exact/shifted the same edit, relocate,
+  the cues fit (shifted: to within the offset); `different`, `unknown` and old records a different edit, analyse and
+  set the cues again), `old_path` where the old file (added) or the copy of the old audio (swap) is now, null
+  without an undo record. The panel builds its numbered steps from `reason`, `match`, `offset_ms`, `moved` and
+  `aligned` (an added file's first step is always a manual Relocate, never Auto Relocate), and keeps `text` for any
+  other reason.
 - `empty` fields: null or a first-run/empty state: `no_playlists`, `not_set_up`, `empty_library`, `no_preview`,
   `up_to_date`, `no_match`, `all_lossless`, `all_hidden`, `nothing_here`.
 
@@ -1668,8 +1673,10 @@ old file was moved away to Superseded/, the entry gets `rekordbox_check` (`wrong
 `upgrade(track_id, "add_new")`: the current file moves to `Superseded/<Folder>/` and the new lossless file gets the
 correct name `Library/<Folder>/<Artist - Title>.aiff` (no "(lossless)"; an ID suffix only if another file has that
 name); the entry gets `rekordbox_check` (`added_as_new`, with the measurement of the two files: `match`,
-`offset_ms`), because rekordbox sees a new file as a new entry; the old entry can be relocated to it and keeps its cues
-when the two are the same edit.
+`offset_ms`, `aligned`), because rekordbox sees a new file as a new entry; the old entry can be relocated to it (by
+hand: right-click › Relocate) and keeps its cues when the two are the same edit. When Discjockey knows rekordbox's
+timeline of the old file, the new file is rendered lined up with it (`aligned: true`) and the cues fit to the sample;
+otherwise the download is only renamed and the cues fit to within the measured offset.
 
 OpResult = `{"track_id", "result": Result, "recovered": [[message, ok], ...]}` (interrupted steps finished first; show
 them). The single operations check that the track still looks as the page last showed it (via `track`, `todo` or

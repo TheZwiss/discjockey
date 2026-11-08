@@ -35,7 +35,7 @@ from .. import app_update as update_check, setup_cmd, tool_updates, tools
 from .. import folders as folders_mod, importer, scanner, sources, tidy
 from ..sources import soundcloud, spotify, youtube_music
 from ..sources.soundcloud import YOU as SOUNDCLOUD_YOU  # the module imports yt-dlp only inside functions
-from .. import report as rep, run, upgrades
+from .. import rekordbox, report as rep, run, upgrades
 from ..accounts import ACCOUNTS, BROWSERS, SERVICE_NAMES, SERVICES, check_message
 from ..acquire import make_ready
 from ..candidates import current_key
@@ -109,6 +109,7 @@ class Services:
     analyze: Callable = quality.inspect
     process: Callable = make_ready
     compare: Callable = align.compare_files
+    timeline_offset: Callable = rekordbox.timeline_offset  # where rekordbox's timeline sits for a file (New track)
     decode: Callable = quality.decode_mono
     now: Callable[[], datetime] = datetime.now
     mounted: Callable[[Path], bool] = os.path.ismount  # whether a /Volumes drive is connected (the scanner's rule)
@@ -1717,7 +1718,8 @@ class HubApi:
             if mode == "swap":
                 return upgrades.swap(self._paths, state, track_id, up, self._svc.compare, now=self._svc.now)
             if mode == "add_new":
-                return upgrades.add_new(self._paths, state, track_id, up, now=self._svc.now)
+                return upgrades.add_new(self._paths, state, track_id, up, self._svc.compare,
+                                        offset=self._svc.timeline_offset, now=self._svc.now)
             return upgrades.discard(self._paths, state, track_id, up)
 
         return self._single(f"upgrade_{mode}", track_id, do)

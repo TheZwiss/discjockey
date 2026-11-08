@@ -161,12 +161,27 @@ def test_report_and_summary_list_the_tracks_to_check_in_rekordbox(tmp_path):
     assert "check in rekordbox" not in summary(RunLog(STARTED), md)
 
 
+ALIGNED = ("This is the same edit, lined up with your old file to the sample. In rekordbox: relocate your old track to "
+           "the new file (right-click › Relocate); its cues fit exactly.")
+
+
 @pytest.mark.parametrize("check,text", [
     ({"reason": "added_as_new", "since": "2026-10-16", "match": "exact", "offset_ms": 0.0},
      "This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit."),
     ({"reason": "added_as_new", "since": "2026-10-16", "match": "shifted", "offset_ms": -23.0},
      "This is the same edit, 23 ms apart. In rekordbox: relocate the old entry to the new file, its cues fit to "
      "within 23 ms."),
+    ({"reason": "added_as_new", "since": "2026-11-08", "match": "exact", "offset_ms": 0.0, "aligned": True},
+     ALIGNED),
+    ({"reason": "added_as_new", "since": "2026-11-08", "match": "shifted", "offset_ms": -23.0, "aligned": True},
+     ALIGNED),  # lined up to the sample: no "within N ms" any more
+    ({"reason": "added_as_new", "since": "2026-11-08", "match": "exact", "offset_ms": 0.0, "aligned": False},
+     "This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit."),
+    ({"reason": "added_as_new", "since": "2026-11-08", "match": "shifted", "offset_ms": 12.0, "aligned": False},
+     "This is the same edit, 12 ms apart. In rekordbox: relocate the old entry to the new file, its cues fit to "
+     "within 12 ms."),  # rekordbox's timing was unknown: renamed as before, today's words
+    ({"reason": "added_as_new", "since": "2026-11-08", "match": "different", "offset_ms": 0.0, "aligned": True},
+     "This is a different edit. In rekordbox: analyse it again and set the cues again."),
     ({"reason": "added_as_new", "since": "2026-10-16", "match": "different", "offset_ms": 0.0},
      "This is a different edit. In rekordbox: analyse it again and set the cues again."),
     ({"reason": "added_as_new", "since": "2026-10-16", "match": "unknown", "offset_ms": 0.0},

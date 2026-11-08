@@ -44,6 +44,51 @@ discjockey update         gets the newest yt-dlp
   on Ctrl-C. It writes a report of what you decided.
 - While a Terminal run is busy, the window's buttons that change something are switched off.
 
+### Commands for scripts and agents
+
+Every command runs without prompts and ends with an exit code. Where it has `--json`, it prints one JSON object:
+`{"ok": true, …}`, or `{"ok": false, "kind": "refused" | "failed", "message": "…"}` (a refusal also has a `reason`).
+Issue 39 gathers these into the agent docs; the entries below are the ones issue 33's stage A added.
+
+**`discjockey rekordbox status [--json]`** says whether rekordbox's library can be read. Read only: it takes no
+library lock and needs no music folder. JSON: `{"ok", "state", "running", "version", "library", "problem",
+"db_version"}`. `state` is `ready`, `none` (no rekordbox library on this Mac) or `unreadable` (Discjockey can't open
+this rekordbox version's library yet). `problem` is `null`, `unclean` (rekordbox didn't close normally: it left
+`-wal` or `-shm` files behind; reading still works), `busy` (rekordbox is open and holds its library), `key`,
+`db_version` or `schema` (why it is unreadable). Exit 0 whenever it answered, 1 on an unexpected error.
+
+**`discjockey rekordbox preview (<track> | --path <file>) [--json]`** says what Same track, Convert to AIFF and Give
+it its clean name would do for one file, and why not. Read only, no lock, nothing written, but it decodes the file
+(1 to 3 seconds). `<track>` is the song's key; `--path` takes any file (a file the library doesn't know still gets the
+rekordbox part, and every action says `not_in_library`). JSON:
+
+```
+{"ok": true, "track": "<key>" | null, "file": "<path>", "codec", "sample_rate", "bits",
+ "new_file": "<path>" | null, "superseded": "<path>" | null,
+ "rekordbox": {"state", "running", "problem"},
+ "timing": {"result", "offset_samples": int | null},
+ "entries": [{"id", "cues", "grid", "pwv3", "offset_ms", "expected_ms", "score", "cloud", "fields_kept": []}],
+ "eligible": {"same_track": null | "<reason>", "convert": null | "<reason>", "rename": null | "<reason>"}}
+```
+
+`eligible` is `null` for an action that can run, else the reason key (`no_upgrade`, `needs_choice`, `file_missing`,
+`away`, `rekordbox_unreadable`, `timing`, `not_analysed`, `cloud`, `downloaded`, `clean_aiff`, `named_already`,
+`needs_convert`, `no_name`, `not_in_library`, `auto_refused`; the list is `rekordbox/eligible.py`'s `REASONS`).
+`timing.result` is how rekordbox's timeline for the file was found: `no_rekordbox`, `not_in_rekordbox`, `format`,
+`no_cues`, `measured` (then `offset_samples` is the exact shift, in 44.1 kHz samples), `not_analysed`, `timing` or
+`unreadable` (the last three: unknown). `new_file` and `superseded` are the paths the first action that can run would
+use (nothing is reserved); `fields_kept` names the text fields of the rekordbox track the user edited, which a later
+repoint would leave alone. Exit 0 when it answered; 1 when it refused (`reason`: `unknown_track`, `file_missing`,
+`away` for a file on a drive that isn't connected) or failed (a file ffmpeg can't read); 2 when a song key was given
+and there is no music folder (`reason: "no_library"`). A usage error (a missing or conflicting argument) also exits 2,
+but prints argparse's usage as text on stderr, not JSON: only a JSON answer with `reason: "no_library"` means the
+music folder is missing.
+
+When you run these two commands by hand on a Mac that has a real rekordbox, always set both overrides first:
+`DISCJOCKEY_SUPPORT=<scratch folder> DISCJOCKEY_REKORDBOX=<a fixture folder or an empty folder> bin/discjockey rekordbox
+status|preview …`. Without them they read the real rekordbox library and your real music folder. An empty
+`DISCJOCKEY_REKORDBOX=` also means "no rekordbox library".
+
 Never start a real sync, upgrade swap or Qobuz download while working on the code unless you mean to: it changes
 your library and counts against your Qobuz daily limit. `--dry-run` changes nothing.
 

@@ -563,8 +563,8 @@ file either way; the only difference is what rekordbox sees, which you pick unde
   still sit on the same beat. Before anything is overwritten, a checked copy of your old file
   is saved in `Superseded/<Folder>/` with "(lossy)" in its name. If the file was in
   `not_lossless/`, it moves up into the folder itself (unless a file with that name is already
-  there). In rekordbox, if the track then shows as missing, use Auto Relocate (the search for
-  missing files in `Library/`): it finds the file by its name, with cues and beatgrid in place.
+  there). In rekordbox, if the track then shows as missing, use Auto Relocate (the swap keeps the file's name; it is the search
+  for missing files in `Library/`): it finds the file by its name, with cues and beatgrid in place.
   The track already plays the lossless audio. Then right-click → **Reload Tag** so the
   comment shows the new source, and analyse it again so the waveform shows the full sound
   (lock the beatgrid first if you adjusted it by hand). The To-do page ("Check in rekordbox")
@@ -573,11 +573,16 @@ file either way; the only difference is what rekordbox sees, which you pick unde
   old file moves to `Superseded/` first, then the lossless
   file goes into the folder under the correct name, `<Artist - Title>.aiff` (files in
   `Library/` always carry the correct name; only a file that is in the way gets an ID added).
-  In rekordbox, if the track shows as missing, use Auto Relocate: it finds the new file by
-  its name and links your old track to it. What to do then depends on how the two versions
-  measured: if they are the same edit (they line up, maybe a few milliseconds apart), your
-  cues and beatgrid still fit; if they are a different edit, analyse the track again and set
-  the cues again. Discjockey tells you which: the run report and the To-do page ("Check in
+  When Discjockey can measure how rekordbox's timeline sits against your old file (it reads
+  rekordbox's library for that, and never changes it) and the two versions are the same edit,
+  the new file is lined up with your old one to the sample, so your cue points fit it exactly.
+  In rekordbox, relocate your old track to the new file by hand: right-click it › **Relocate**
+  and choose the new file (Auto Relocate isn't reliable here, because the new file may have a
+  different name or extension). Then analyse the track again. When Discjockey can't measure
+  rekordbox's timing, the new file is the download as it is: if the two versions are the same
+  edit (they line up, maybe a few milliseconds apart), your cues and beatgrid still fit to
+  within that difference; if they are a different edit, analyse the track again and set the
+  cues again. Discjockey tells you which: the run report and the To-do page ("Check in
   rekordbox") list the track with the steps until you mark it as done.
 - **Discard the new version.** The parked file is deleted and Discjockey never offers that file again.
 - Or leave it: nothing changes, and it waits for next time.
@@ -608,7 +613,10 @@ version is removed because it's no longer needed.
   (with your cue points) goes with it. The bought file is a new entry: set the cues again,
   then remove the old entry.
 - Lossless versions from Qobuz never replace a file on their own: you decide on the To-do page
-  (see [Upgrades](#upgrades)). A swap keeps your cue points; adding as a new file works like a bought copy.
+  (see [Upgrades](#upgrades)). A swap keeps your cue points; adding as a new file means pointing your old
+  track at the new file with rekordbox's Relocate (right-click › **Relocate**). The new file is lined up with the
+  old one to the sample when Discjockey can measure rekordbox's timing, so your cues fit exactly; otherwise they
+  fit to within the measured difference.
 
 ## When something breaks
 

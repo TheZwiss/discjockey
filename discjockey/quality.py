@@ -46,6 +46,8 @@ class AudioInfo:
     sample_rate: int
     duration_s: float
     kbps: int | None = None  # the whole file's average bitrate (for lossy files, the codec's)
+    bits: int | None = None  # bits per sample of a lossless stream (16, 24, ...); None for lossy codecs
+    channels: int | None = None
 
 
 def tools_stamp() -> str:
@@ -65,8 +67,9 @@ def tools_stamp() -> str:
 
 def probe(path: Path) -> AudioInfo:
     r = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "a:0",
-         "-show_entries", "stream=codec_name,sample_rate:format=duration,bit_rate", "-of", "json", str(path)],
+        ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries",
+         "stream=codec_name,sample_rate,channels,bits_per_sample,bits_per_raw_sample:format=duration,bit_rate",
+         "-of", "json", str(path)],
         capture_output=True, text=True, start_new_session=True,
     )
     data = json.loads(r.stdout or "{}") if r.returncode == 0 else {}
@@ -76,7 +79,18 @@ def probe(path: Path) -> AudioInfo:
     s, fmt = streams[0], data["format"]
     rate = fmt.get("bit_rate")
     kbps = round(int(rate) / 1000) if rate and str(rate).isdigit() else None
-    return AudioInfo(s["codec_name"], int(s["sample_rate"]), float(fmt["duration"]), kbps)
+    return AudioInfo(s["codec_name"], int(s["sample_rate"]), float(fmt["duration"]), kbps, _bits(s),
+                     int(s["channels"]) if str(s.get("channels", "")).isdigit() else None)
+
+
+def _bits(stream: dict) -> int | None:
+    """A stream's bits per sample: FLAC and ALAC say it as `bits_per_raw_sample`, PCM as `bits_per_sample`; a lossy
+    codec says 0 for both (None)."""
+    for key in ("bits_per_raw_sample", "bits_per_sample"):
+        value = str(stream.get(key) or "")
+        if value.isdigit() and int(value) > 0:
+            return int(value)
+    return None
 
 
 def decode_mono(path: Path) -> tuple[np.ndarray, int]:

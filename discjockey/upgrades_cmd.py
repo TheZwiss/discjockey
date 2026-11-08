@@ -103,7 +103,7 @@ def _review(paths: Paths, state: dict, track_id: str, log: rep.RunLog, ask: Call
                 if answer == "s":
                     result = upgrades.swap(paths, state, track_id, up, compare, now=now)
                 elif answer == "a":
-                    result = upgrades.add_new(paths, state, track_id, up, now=now)
+                    result = upgrades.add_new(paths, state, track_id, up, compare, now=now)
                 else:
                     result = upgrades.discard(paths, state, track_id, up)
                 log.add(result)

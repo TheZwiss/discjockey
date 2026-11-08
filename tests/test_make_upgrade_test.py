@@ -98,3 +98,35 @@ def test_waits_for_a_running_sync(root):
     with run_lock(root.lock):
         assert script.main(["--root", str(root.root), ORIGINAL]) == 3
     assert "upgrade-test-1" not in load_state(root)["tracks"]
+
+
+def test_keep_lossy_m4a_makes_an_m4a_that_new_track_lines_up(root):
+    """The stage A live check's test track (plan rekordbox stage A §8): the lossy copy stays an .m4a, and New track
+    renders the AIFF where the M4A's audio sits (no rekordbox in tests: d = 0, so k = L)."""
+    from mutagen.mp4 import MP4
+    from discjockey.quality import probe
+    assert script.main(["--root", str(root.root), ORIGINAL, "--keep-lossy", "m4a"]) == 0
+    state = load_state(root)
+    e = state["tracks"]["upgrade-test-1"]
+    m4a = f"Library/_Upgrade test/not_lossless/{TEST_STEM}.m4a"
+    assert (e["path"], e["source_format"]) == (m4a, "aac") and probe(root.root / m4a).codec == "aac"
+    tags = MP4(str(root.root / m4a)).tags
+    assert (tags["\xa9nam"], tags["\xa9ART"]) == (["Gimme Gimme (upgrade test)"], ["Vatoz Locoz"])
+    a = Alignment.from_dict(e["upgrade"]["alignment"])
+    assert a.result == "shifted" and abs(a.offset_ms + 30) < 0.1
+    r = upgrades.add_new(root, state, "upgrade-test-1", dict(e["upgrade"]))
+    check = state["tracks"]["upgrade-test-1"]["rekordbox_check"]
+    assert check["aligned"] is True and check["undo"]["rendered"] is True
+    lined_up = compare_files(root.root / f"Superseded/_Upgrade test/{TEST_STEM}.m4a", root.root / r.path)
+    assert (lined_up.result, lined_up.offset_samples) == ("exact", 0)
+
+
+def test_remove_takes_only_the_test_entry_and_no_file(root, capsys):
+    assert script.main(["--root", str(root.root), ORIGINAL]) == 0
+    files = sorted(p.relative_to(root.root) for p in root.root.rglob("*.aiff"))
+    assert script.main(["--root", str(root.root), "--remove", "11qwPqW58QcUS4BaAclu0j"]) == 2  # not a test entry
+    assert script.main(["--root", str(root.root), "--remove", "upgrade-test-1"]) == 0
+    assert "Removed the test entry upgrade-test-1: Gimme Gimme (upgrade test)" in capsys.readouterr().out
+    tracks = load_state(root)["tracks"]
+    assert "upgrade-test-1" not in tracks and "11qwPqW58QcUS4BaAclu0j" in tracks
+    assert sorted(p.relative_to(root.root) for p in root.root.rglob("*.aiff")) == files

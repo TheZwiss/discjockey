@@ -38,6 +38,11 @@ describe('fake rekordbox check text', () => {
     for (const match of ['different', 'unknown', undefined]) {
       expect(checkText({ reason: 'added_as_new', since, match })).toBe(different);
     }
+    const lined = 'This is the same edit, lined up with your old file to the sample. In rekordbox: relocate your old track to the new file (right-click › Relocate); its cues fit exactly.';
+    for (const match of ['exact', 'shifted']) {
+      expect(checkText({ reason: 'added_as_new', since, match, offset_ms: 12, aligned: true })).toBe(lined);
+    }
+    expect(checkText({ reason: 'added_as_new', since, match: 'different', aligned: true })).toBe(different);
     expect(checkText({ reason: 'wrong_song', since, match: 'exact' })).toMatch(/^This track now plays the right song/);
   });
 });

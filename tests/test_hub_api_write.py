@@ -211,6 +211,20 @@ def test_add_new_and_discard(root):
     assert api.upgrade("t2", "explode")["kind"] == "refused"
 
 
+def test_add_new_measures_and_asks_rekordbox_through_the_services(root):
+    """New track measures the two files again and asks where rekordbox's timeline sits for the old file, both
+    through the hub's Services (tests replace them); same edit, d = 0: the download is renamed, lined up."""
+    from types import SimpleNamespace
+    seen = []
+    api, rec = make_api(root, compare=lambda cur, new: Alignment("exact", 0, 0.0, 0.0, "matches exactly"),
+                        timeline_offset=lambda old: seen.append(old) or SimpleNamespace(samples=0))
+    api.track("t2")
+    assert wait_job(api, rec, api.upgrade("t2", "add_new")).ok
+    assert seen == [root.root / LOSSY]
+    check = load_state(root)["tracks"]["t2"]["rekordbox_check"]
+    assert (check["match"], check["aligned"]) == ("exact", True)
+
+
 def test_undo_upgrade_through_the_bridge(root):
     api, rec = make_api(root)
     api.track("t2")

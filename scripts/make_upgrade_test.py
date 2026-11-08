@@ -1,14 +1,25 @@
-"""Make a test upgrade for the live rekordbox check (plan Task 29), without touching anything that exists.
+"""Make a test upgrade for a live rekordbox check, without touching anything that exists.
 
-    uv run python scripts/make_upgrade_test.py "Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff"
+    uv run python scripts/make_upgrade_test.py "Library/Hard_Bounce/Artist - Title.aiff" [--keep-lossy m4a]
 
 From one lossless AIFF in Library/ (only read, never changed) it makes a separate test track:
 - Library/_Upgrade test/not_lossless/<stem> (upgrade test).aiff: a lossy copy (AAC 128 kbit/s, 16 kHz lowpass,
-  converted back like a YouTube download) with 30 ms of extra silence at the start, so a swap must shift;
+  converted back like a YouTube download) with 30 ms of extra silence at the start, so a swap must shift. With
+  `--keep-lossy m4a` the lossy copy stays an .m4a (<stem> (upgrade test).m4a), as an own file bought or kept as
+  AAC would be: New track then renders the AIFF lined up with rekordbox's timeline of the M4A (rekordbox stage A
+  live check, plan §8 step 3);
 - Upgrades ready/_Upgrade test/<stem> (upgrade test).aiff: the lossless copy, parked;
 - a state entry `upgrade-test-<n>` (not in any playlist) with the measured alignment.
 The distinct "(upgrade test)" name keeps rekordbox's search for missing files from linking the test entry to the
-original file. Remove it all afterwards by hand (plan Task 29, step 6).
+original file.
+
+Removing it afterwards: remove the test track from rekordbox's collection, quit Discjockey, then delete by hand the
+folders `Library/_Upgrade test/`, `Superseded/_Upgrade test/` and `Upgrades ready/_Upgrade test/` (whichever
+exist), and remove the entry:
+
+    uv run python scripts/make_upgrade_test.py --remove upgrade-test-<n>
+
+`--remove` only takes a test entry this script made (its key and its "(upgrade test)" title) and changes no file.
 """
 from __future__ import annotations
 
@@ -23,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mutagen.aiff import AIFF  # noqa: E402
 from mutagen.id3 import COMM, TIT2  # noqa: E402
+from mutagen.mp4 import MP4  # noqa: E402
 
 from discjockey import audio, library, quality, upgrades  # noqa: E402
 from discjockey.align import compare_files  # noqa: E402
@@ -45,6 +57,24 @@ def _retitle(path: Path, title: str, comment: str | None = None) -> None:
         f.tags.delall("COMM")
         f.tags.add(COMM(encoding=1, lang="eng", desc="", text=comment))
     f.save(v2_version=3)
+
+
+def _retitle_m4a(path: Path, artist: str, title: str, comment: str) -> None:
+    f = MP4(str(path))
+    if f.tags is None:
+        f.add_tags()
+    f.tags["\xa9nam"], f.tags["\xa9ART"], f.tags["\xa9cmt"] = [title], [artist], [comment]
+    f.save()
+
+
+def _make_lossy_m4a(src: Path, work: Path) -> Path:
+    """The lossy copy kept as AAC in .m4a, the extra silence encoded in front."""
+    out = work / "current.m4a"
+    silence = round(EXTRA_SILENCE_MS * 44.1)
+    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(src), "-map", "0:a:0", "-map_metadata", "-1",
+                    "-af", f"lowpass=f=16000,adelay=delays={silence}S:all=1", "-c:a", "aac", "-b:a", "128k",
+                    str(out)], check=True)
+    return out
 
 
 def _make_lossy(src: Path, work: Path) -> Path:
@@ -71,14 +101,15 @@ def _free_id(state: dict) -> str:
     return f"upgrade-test-{n}"
 
 
-def make(paths: Paths, source: str, now: datetime) -> str:
-    """Returns the new state key. Raises ValueError with a plain message when something is in the way."""
+def make(paths: Paths, source: str, now: datetime, keep_lossy: str | None = None) -> str:
+    """Returns the new state key. `keep_lossy="m4a"` keeps the lossy copy as an .m4a. Raises ValueError with a plain
+    message when something is in the way."""
     src = Path(source) if Path(source).is_absolute() else paths.root / source
     rel = src.resolve().relative_to(paths.root.resolve()).as_posix() if src.exists() else source
     if not src.is_file() or not fold(rel).startswith("library/") or src.suffix.lower() not in (".aiff", ".aif"):
         raise ValueError(f"{source} is not an AIFF file in Library/.")
     stem = src.stem + SUFFIX
-    current_rel = f"Library/{FOLDER}/not_lossless/{stem}.aiff"
+    current_rel = f"Library/{FOLDER}/not_lossless/{stem}.{keep_lossy or 'aiff'}"
     parked_rel = f"Upgrades ready/{FOLDER}/{stem}.aiff"
     for taken in (current_rel, parked_rel, f"Library/{FOLDER}/{stem}.aiff"):
         if (paths.root / taken).exists():
@@ -92,9 +123,13 @@ def make(paths: Paths, source: str, now: datetime) -> str:
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     try:
-        current = _make_lossy(src, work)
+        current = _make_lossy_m4a(src, work) if keep_lossy else _make_lossy(src, work)
         cutoff = quality.analyze(current, lossy=True)
-        _retitle(current, title, LOSSY_COMMENT.format(khz=(cutoff or 16000) / 1000))
+        comment = LOSSY_COMMENT.format(khz=(cutoff or 16000) / 1000)
+        if keep_lossy:
+            _retitle_m4a(current, artist, title, comment)
+        else:
+            _retitle(current, title, comment)
         parked = work / "parked.aiff"
         shutil.copyfile(src, parked)
         _retitle(parked, title)
@@ -126,11 +161,27 @@ def make(paths: Paths, source: str, now: datetime) -> str:
     return track_id
 
 
+def remove(paths: Paths, track_id: str) -> str:
+    """Removes a test entry this script made (no file is changed). Returns its title; ValueError for anything else."""
+    state = library.open_state(paths)
+    e = state["tracks"].get(track_id)
+    if not track_id.startswith("upgrade-test-") or not e or not e["title"].endswith(SUFFIX):
+        raise ValueError(f"{track_id} is not a test track this script made, so nothing was removed.")
+    del state["tracks"][track_id]
+    library.save_state(paths, state)
+    return e["title"]
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Make a test upgrade from one lossless AIFF in Library/.")
-    p.add_argument("source", help="a lossless AIFF in Library/, e.g. \"Library/Hard_Bounce/Artist - Title.aiff\"")
+    p.add_argument("source", nargs="?",
+                   help="a lossless AIFF in Library/, e.g. \"Library/Hard_Bounce/Artist - Title.aiff\"")
     p.add_argument("--root", type=Path, default=None, help="the music folder (default: the one Discjockey uses)")
+    p.add_argument("--keep-lossy", choices=["m4a"], default=None, help="keep the lossy copy as an .m4a file")
+    p.add_argument("--remove", metavar="ID", default=None, help="remove the test entry ID (its files go by hand)")
     args = p.parse_args(argv)
+    if bool(args.source) == bool(args.remove):
+        p.error("give either a source file or --remove ID")
     resolved = library.resolve_paths()
     paths = Paths(args.root, support=resolved.support) if args.root else resolved.paths
     if paths is None:
@@ -138,7 +189,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         with library.run_lock(paths.lock):
-            make(paths, args.source, datetime.now())
+            if args.remove:
+                print(f"Removed the test entry {args.remove}: {remove(paths, args.remove)}")
+            else:
+                make(paths, args.source, datetime.now(), args.keep_lossy)
     except LockHeld:
         print("Another Discjockey run is still going. Wait until it has finished.")
         return 3

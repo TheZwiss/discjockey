@@ -703,12 +703,15 @@ def check_status(check: dict | None) -> str:
 
 def check_view(check: dict | None) -> dict:
     """RekordboxCheck as the To-do panel reads it: the step that left it and what the two files measured as (its
-    numbered steps follow them), `text` the whole instruction (report.check_text), `old_path` where the old file (an
-    added file) or the copy of the old audio (a swap) is now, from the undo record (null without one)."""
+    numbered steps follow them), `aligned` (an added file: Discjockey rendered the new file lined up with rekordbox's
+    timeline of the old one, so the old track's cues fit it to the sample; false for a swap and for records from before
+    it), `text` the whole instruction (report.check_text), `old_path` where the old file (an added file) or the copy
+    of the old audio (a swap) is now, from the undo record (null without one)."""
     c = check or {}
     undo = c.get("undo") or {}
     return {"reason": c.get("reason"), "since": c.get("since"), "match": c.get("match"),
-            "offset_ms": c.get("offset_ms"), "moved": bool(c.get("moved")), "text": check_text(c),
+            "offset_ms": c.get("offset_ms"), "moved": bool(c.get("moved")), "aligned": bool(c.get("aligned")),
+            "text": check_text(c),
             "old_path": undo.get("old")}
 
 
