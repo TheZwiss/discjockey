@@ -165,7 +165,7 @@ SCHEMA_V7_STEP = (
       scope TEXT,                                 -- what the user picked (a folder, a selection), for the words
       started TEXT NOT NULL, ended TEXT,          -- ISO seconds
       state TEXT NOT NULL CHECK (state IN ('running', 'stopped', 'done')),
-      stop_reason TEXT CHECK (stop_reason IN ('stop', 'rekordbox_open', 'crash')),
+      stop_reason TEXT CHECK (stop_reason IN ('stop', 'rekordbox_open', 'busy', 'crash')),
       backup TEXT)                                -- the rekordbox backup the batch's writes share""",
     """CREATE TABLE aiff_items (
       batch INTEGER NOT NULL REFERENCES aiff_batches (id) ON DELETE CASCADE,
@@ -1602,7 +1602,7 @@ AIFF_STARTED_BY = frozenset({"user", "upgrade_all", "make_aiff", "cdj_all", "aut
 AIFF_ACTIONS = frozenset({"same_track", "convert", "rename"})
 AIFF_ITEM_STATES = ("planned", "done", "skipped", "failed", "undone")
 AIFF_BATCH_STATES = frozenset({"running", "stopped", "done"})
-AIFF_STOP_REASONS = frozenset({"stop", "rekordbox_open", "crash"})
+AIFF_STOP_REASONS = frozenset({"stop", "rekordbox_open", "busy", "crash"})
 _AIFF_COLUMNS = ("id", "kind", "started_by", "scope", "started", "ended", "state", "stop_reason", "backup")
 
 

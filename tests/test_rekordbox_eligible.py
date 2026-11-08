@@ -271,3 +271,31 @@ def test_text_plan_treats_empty_and_missing_alike_and_a_value_already_clean_as_n
     clean = {**TAGS, "title": "Song"}
     assert text_plan(row(title="Song"), {**TAGS, "title": "Something else"}, clean)["title"] == "write"
     assert text_plan(row(title="Café"), {**TAGS, "title": "Café"}, clean)["title"] == "write"  # NFD vs NFC
+
+
+# --- the comment: only Discjockey's own line is ever replaced ---
+
+MIK = "1A - Energy 6"
+OURS = "Qobuz FLAC · verified lossless"
+
+
+def test_a_comment_of_the_users_own_stays_in_the_new_files_text():
+    old = {**TAGS, "comment": MIK}
+    assert expected_tags(entry(source="qobuz", source_format="flac"), old)["comment"] == MIK
+    assert expected_tags(entry(source="manual", source_format="mp3"), old)["comment"] == MIK
+    # empty, or a line Discjockey wrote itself: the quality line, as before
+    assert expected_tags(entry(source="manual", source_format="mp3"), TAGS)["comment"] == "bought file MP3 · verified lossless"
+    assert expected_tags(entry(source="manual", source_format="mp3"), {**TAGS, "comment": OURS})["comment"] == \
+        "bought file MP3 · verified lossless"
+
+
+def test_text_plan_writes_the_comment_only_over_nothing_or_discjockeys_own_line():
+    old = {**TAGS, "comment": MIK}
+    clean = {**TAGS, "comment": OURS}
+    assert text_plan(row(comment=MIK), old, clean)["comment"] == "kept"           # Mixed In Key's: left alone
+    assert text_plan(row(comment=MIK), old, {**TAGS, "comment": MIK})["comment"] == "write"   # nothing to change
+    assert text_plan(row(comment=""), TAGS, clean)["comment"] == "write"
+    assert text_plan(row(comment="  "), TAGS, clean)["comment"] == "write"
+    ours_old = {**TAGS, "comment": "Qobuz FLAC · cutoff 16.0 kHz"}
+    assert text_plan(row(comment="Qobuz FLAC · cutoff 16.0 kHz"), ours_old, clean)["comment"] == "write"
+    assert text_plan(row(comment=OURS), TAGS, {**TAGS, "comment": "Qobuz FLAC · lossy"})["comment"] == "kept"

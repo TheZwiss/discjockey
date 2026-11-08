@@ -34,10 +34,11 @@ from .offset import TimelineOffset
 
 REASONS = ("no_upgrade", "needs_choice", "file_missing", "away", "rekordbox_unreadable", "timing", "not_analysed",
            "cloud", "downloaded", "clean_aiff", "named_already", "needs_convert", "no_name", "not_in_library",
-           "auto_refused", "unclean", "changed", "space", "rekordbox_open", "rename_blocked", "relocated")
+           "auto_refused", "unclean", "changed", "space", "rekordbox_open", "busy", "rename_blocked", "relocated")
 # auto_refused is reserved for stage C; the rest from `unclean` on are what a run finds (stage B): the write is
-# refused (`unclean`, guard 4), the track changed meanwhile, too little room, rekordbox open, a rename the repoint
-# can't follow, and an undo refused because the track was relocated or changed in rekordbox since
+# refused (`unclean`, guard 4), the track changed meanwhile, too little room, rekordbox open, another Discjockey
+# window holding the rekordbox lock (`busy`), a rename the repoint can't follow, and an undo refused because the
+# track was relocated or changed in rekordbox since
 ACTIONS = ("same_track", "convert", "rename")
 AIFF_EXTS = (".aiff", ".aif")
 OWN = "manual"  # the `source` of a file that wasn't downloaded: a bought file or one the import found
@@ -78,10 +79,11 @@ def expected_tags(entry: dict, old_tags: dict[str, str]) -> dict[str, str]:
     """The text the new file would carry, one value per `TEXT_FIELDS`: title and artists (joined by ", ") from the song
     record; album and ISRC from the record when it has them, else the old file's; label from the old file (the record
     has none); the comment is the quality line of the old file's format (a file of the user's own reads "Your own file (MP3)
-    · …"), else the old comment when the record has no source."""
+    · …"), else the old comment when the record has no source, and always the old comment when it is the user's own
+    (not empty, not a quality line Discjockey wrote: Mixed In Key's "1A - Energy 6")."""
     old = {f: old_tags.get(f, "") for f in TEXT_FIELDS}
     comment = old["comment"]
-    if entry.get("source") in SOURCE_NAMES:
+    if entry.get("source") in SOURCE_NAMES and not (_norm(comment) and not quality.is_quality_line(comment)):
         comment = quality.quality_line(entry["source"], entry.get("source_format") or "?",
                                        entry.get("status") or "lossless", entry.get("cutoff_hz"),
                                        entry.get("source_kbps"), own=entry.get("placed_by") == "import")
@@ -101,11 +103,15 @@ def tags_clean(facts: FileFacts, entry: dict) -> bool:
 def text_plan(row: Entry, old_tags: dict[str, str], clean: dict[str, str]) -> dict[str, str]:
     """Per text column of rekordbox's track `row`: "write" where the repoint may put the clean value there, "kept"
     where the user's own edit stays. A field is written when rekordbox's value still equals the old file's tag, or
-    already equals the clean value (nothing to lose); an empty field and a missing tag are equal."""
+    already equals the clean value (nothing to lose); an empty field and a missing tag are equal. The comment is
+    also written only when rekordbox's value is empty or a quality line Discjockey wrote (any other comment, made
+    in rekordbox or in the file's tag, is the user's, like genre and year), or already equals the clean value."""
     plan = {}
     for field in TEXT_FIELDS:
         shown = _norm(getattr(row, field))
         safe = shown in (_norm(old_tags.get(field)), _norm(clean.get(field)))
+        if field == "comment" and shown != _norm(clean.get(field)):
+            safe = safe and (not shown or quality.is_quality_line(shown))
         plan[field] = "write" if safe else "kept"
     return plan
 

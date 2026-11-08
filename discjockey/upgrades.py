@@ -35,7 +35,7 @@ from typing import Callable
 
 from . import align, rekordbox
 from .align import Alignment
-from .audio import ConversionError, copy_tags, file_facts, render_aiff
+from .audio import ConversionError, copy_tags, file_facts, render_aiff, set_comment
 from .content_key import content_key
 from .events import Result
 from .library import (
@@ -44,6 +44,7 @@ from .library import (
 )
 from .models import SOURCE_NAMES
 from .names import expected_stem, fold, split_name, strip_id_suffix
+from .quality import is_quality_line
 from .planner import declined, own_key, replacement_dir, superseded_dir
 from .rekordbox import write as rbwrite
 from .rekordbox.session import BUSY, Session
@@ -280,12 +281,23 @@ def build_staged(parked: Path, staged: Path, offset_samples: int) -> None:
     the file as it is."""
     if offset_samples == 0:
         shutil.copyfile(parked, staged)
-        return
+    else:
+        try:
+            render_aiff(parked, staged, offset_samples)
+        except ConversionError as err:
+            raise UpgradeProblem(f"Could not prepare the new version: {err}") from None
+        copy_tags(parked, staged)
+
+
+def keep_comment(old_file: Path, staged: Path) -> None:
+    """The comment of `old_file`, the file `staged` replaces, stays in the new file unless it is empty or Discjockey's
+    own quality line (a DJ's key and energy, notes, are theirs; the same rule as rekordbox's `Commnt`)."""
     try:
-        render_aiff(parked, staged, offset_samples)
-    except ConversionError as err:
-        raise UpgradeProblem(f"Could not prepare the new version: {err}") from None
-    copy_tags(parked, staged)
+        old = file_facts(old_file).tags["comment"]
+        if old.strip() and not is_quality_line(old):
+            set_comment(staged, old)
+    except (OSError, RuntimeError):  # an unreadable old tag: the download's comment stands
+        pass
 
 
 def _copy_synced(src: Path, dst: Path) -> None:
@@ -353,6 +365,8 @@ def _finish(paths: Paths, state: dict, op: dict) -> str:
         rb = op.get("rekordbox")
         if rb is not None:  # rekordbox's text was written (or may have been: a crash right at its commit)
             check["rekordbox"] = {"entries": list(rb["entries"]), "kept": list(rb["kept"])}
+            if check.get("reload_tag") and _text_stands(rb["record"]):  # recovery: the commit happened
+                check["reload_tag"] = False
         if keys is not None:
             check["undo"] = {"kind": "swap", "before": op["before"], **keys, "held": held}
             if rb is not None:
@@ -368,6 +382,34 @@ def _finish(paths: Paths, state: dict, op: dict) -> str:
     # the new audio is in it, entry changed or not
     end_op(paths, state, op, {op["track_id"]: entry}, rekeyed=[path], item=item)
     return path
+
+
+def _text_stands(record: dict) -> bool:
+    """Whether every row of a swap's rekordbox record holds the values the write put there (one read; False when it
+    can't be told: the answer then stays "Reload Tag"). Recovery uses it to tell a swap whose text commit happened
+    from one cut off before it."""
+    try:
+        place = rekordbox.locate()
+        if place is None or not place.db.is_file():
+            return False
+        running = rekordbox.process.running()
+        left = rekordbox.master.leftovers(place.db)
+        if left and not running and len(left) != 2:
+            return False
+        with rekordbox.open_read(place, running or len(left) == 2) as m:
+            if record.get("dbid") and m.dbid != record["dbid"]:
+                return False
+            for row in record["rows"]:
+                columns = {rbwrite.TEXT_COLUMNS[f]: t["wrote"] for f, t in row["text"].items()}
+                if not columns:
+                    continue
+                now = m.con.execute(f"SELECT {', '.join(columns)} FROM djmdContent WHERE ID = ? "
+                                    "AND IFNULL(rb_local_deleted, 0) = 0", (row["id"],)).fetchone()
+                if now is None or list(now) != list(columns.values()):
+                    return False
+    except Exception:  # unreadable, locked, odd: stay with Reload Tag
+        return False
+    return True
 
 
 def hold_parked(paths: Paths, op: dict) -> str | None:
@@ -477,6 +519,7 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
     workdir.mkdir(parents=True, exist_ok=True)
     staged = workdir / "swap.aiff"
     build_staged(paths.root / upgrade["file"], staged, alignment.offset_samples)  # step 1
+    keep_comment(paths.root / target, staged)
     changes = _text_changes(session, paths.root / target, staged)  # the old file's tags, before the write
 
     names = NameReserver(paths.root, state)
@@ -498,7 +541,7 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
                     "offset_ms": alignment.offset_ms},
           "rekordbox": None, "batch": list(batch) if batch else None, "text": alignment.text}
     if session is not None:  # a batch's swap: whether rekordbox's text was written (without one, as before stage B)
-        op["check"].update(reload_tag=True, rekordbox=None)
+        op["check"].update(reload_tag=True, rekordbox=None, batch=batch[0] if batch else None)
     with deferred_interrupt():  # a Ctrl-C waits until the file is complete again
         journal_op(paths, state, op)  # step 2
         try:
@@ -624,21 +667,31 @@ class UndoRefused(UpgradeProblem):
         self.reason = reason if reason in UNDO_REFUSED else "relocated"
 
 
-def undo_writer(paths: Paths, session: Session | None, stack: ExitStack) -> rekordbox.Writer:
-    """rekordbox's library opened for an undo's write (entered on `stack`): through the batch's `session`, or a
-    session of this undo alone (`rekordbox.lock`, the backup before the write). Raises UndoRefused, nothing changed."""
+def undo_session(paths: Paths, session: Session | None, stack: ExitStack) -> Session:
+    """The rekordbox side of an undo's write: the batch's `session`, or one of this undo alone (entered on `stack`:
+    `rekordbox.lock`, the backup before the write). Raises UndoRefused, nothing changed."""
     try:
         if session is None:
             session = stack.enter_context(Session.open(paths, items_need_write=lambda view: True))
         if session.state.state == "none":
             raise UndoRefused("other_library")
-        return stack.enter_context(session.writer())
+        return session
     except rekordbox.Busy:
         raise UndoRefused("busy") from None
     except rekordbox.RekordboxOpen:
         raise UndoRefused("rekordbox_open") from None
+
+
+def undo_writer(session: Session, stack: ExitStack) -> rekordbox.Writer:
+    """rekordbox's library opened for writing (entered on `stack`; the read-write connection leaves `-wal`/`-shm`
+    beside it while open, so it is open only for the check and, later, for the write itself). Raises UndoRefused,
+    nothing changed."""
+    try:
+        return stack.enter_context(session.writer())
     except rekordbox.WriteRefused as err:
         raise UndoRefused(err.reason) from None
+    except rekordbox.RekordboxOpen:
+        raise UndoRefused("rekordbox_open") from None
     except OSError as err:  # the backup couldn't be made
         raise UpgradeProblem(f"Could not make the rekordbox backup ({err}), so the upgrade wasn't undone. Nothing "
                              "was changed.") from err
@@ -753,19 +806,21 @@ def _undo_swap(paths: Paths, state: dict, track_id: str, u: dict, entry: dict, s
     then leaves the new names in rekordbox, and the answer says so. Returns what to add to the result's note."""
     record = u.get("repoint")
     with ExitStack() as stack:
-        writer = undo_writer(paths, session, stack) if record else None
-        if writer is not None:
+        rb = undo_session(paths, session, stack) if record else None
+        if rb is not None:
             rec = rbwrite.RepointRecord.from_dict(record)
-            try:
-                writer.check_undo(rec, identity=False)
-            except rekordbox.WriteRefused as err:
-                raise UndoRefused(err.reason) from None
+            with ExitStack() as check:  # the connection is closed again before the audio moves
+                try:
+                    undo_writer(rb, check).check_undo(rec, identity=False)
+                except rekordbox.WriteRefused as err:
+                    raise UndoRefused(err.reason) from None
         _undo_swap_audio(paths, state, track_id, u, entry)
-        if writer is None:
+        if rb is None:
             return ""
         try:
-            writer.undo_repoint(rec, identity=False)
-        except (rekordbox.WriteRefused, rekordbox.RekordboxOpened):
+            with ExitStack() as write:
+                undo_writer(rb, write).undo_repoint(rec, identity=False)
+        except (rekordbox.WriteRefused, rekordbox.RekordboxOpened, UndoRefused):
             return SWAP_TEXT_LEFT
     return ""
 

@@ -335,3 +335,33 @@ def test_a_ppth_naming_another_file_is_left_alone(tmp_path):
     place = library(tmp_path, ppth="?/Something else.mp3")
     change, files, others = plan(place)
     assert files == [] and len(others) == 3
+
+
+def test_an_empty_clean_value_leaves_rekordbox_as_it_is(tmp_path):
+    place = library(tmp_path, ISRC="OLDISRC")
+    clean = {**CLEAN, "label": "", "isrc": "", "comment": "", "album": ""}
+    old = {**OLD_TAGS, "isrc": "OLDISRC"}
+    e = entry(place)
+    change = write.row_change(e, NEW, file_size=9000, channels=2, frames=44100 * 31, old_tags=old, clean=clean)
+    for f in ("album", "label", "isrc"):  # rekordbox shows the old file's tag, the download has none
+        assert change.text[f].write is None and not change.text[f].kept
+    files, _others = write.anlz_changes(place, e, NEW)
+    done = repoint(place, change, files)
+    after = entry(place, path=NEW)
+    assert (after.album, after.label, after.isrc) == ("Album", "Label", "OLDISRC")
+    assert {"album", "label", "isrc"}.isdisjoint(done.rows[0].text) and done.rows[0].kept == []
+    assert (after.album_id, after.label_id) == (e.album_id, e.label_id)
+
+
+def test_the_comment_is_written_only_over_nothing_or_discjockeys_own_line(tmp_path):
+    for shown, wrote in (("", True), ("Qobuz FLAC · verified lossless", True), ("1A - Energy 6", False)):
+        place = library(tmp_path / (shown[:3] or "empty"), Commnt=shown)
+        old = {**OLD_TAGS, "comment": shown}
+        e = entry(place)
+        change = write.row_change(e, NEW, file_size=9000, channels=2, frames=44100 * 31, old_tags=old,
+                                  clean={**CLEAN, "comment": "Qobuz FLAC · cutoff 16.0 kHz"})
+        files, _ = write.anlz_changes(place, e, NEW)
+        done = repoint(place, change, files)
+        assert ("comment" in done.rows[0].text) is wrote
+        assert (entry(place, path=NEW).comment == "Qobuz FLAC · cutoff 16.0 kHz") is wrote
+        assert ("comment" in done.rows[0].kept) is (not wrote)

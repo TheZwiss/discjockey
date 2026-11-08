@@ -48,6 +48,7 @@ REASON_WORDS = {
     "changed": "your rekordbox track changed while Discjockey was working on it; try again",
     "space": "there isn't enough free space for the new AIFF file",
     "rekordbox_open": "rekordbox is open; quit rekordbox, then try again",
+    "busy": "another Discjockey window or the Terminal is changing your rekordbox library; try again when it is done",
     "rename_blocked": "Discjockey can only give this file its new name while it can point your rekordbox track at "
                       "it, and it can't right now",
     "relocated": "this track was changed in rekordbox since (relocated?), so Discjockey can't undo it safely",

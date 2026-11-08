@@ -271,7 +271,9 @@ it; AIFF→AIFF stays byte-identical (no resampling when the input is already 16
     ISRC, and the new source's quality line.
   - **From the file itself:** title and artists from the song record; album, ISRC, label and cover from the song
     record when it is linked to a playlist song (`songs.album`, `isrc`, `image_url`), else from the old file's tags.
-    The comment is the quality line of the old file's format.
+    The comment is the quality line of the old file's format, unless the old file's comment is the user's own (not
+    empty, not a quality line Discjockey wrote: Mixed In Key's "1A - Energy 6"): then it stays in the new file, and
+    rekordbox's `Commnt` is written only over nothing or a quality line, like genre and year otherwise.
   - **Carried over from the old file when it has them:** genre (TCON) and year (TDRC/TYER), the user's own. Nothing
     else; the old file keeps all its tags in `Superseded/`. Check first: the import's tag reader for own files
     (`importer` pass 1 / `identify`), to reuse for M4A, FLAC, WAV and AIFF.
@@ -458,7 +460,8 @@ The undo is offered while the rekordbox check stands. It needs rekordbox closed 
 
 Everything the user did in rekordbox since is kept: cues set on the AIFF also fit the old file, because both sit on
 the same timeline. **Undo of a batch** runs the per-track undo for each of its done tracks, newest first, in one job
-with one quit and one `rekordbox.lock`; a track whose undo is refused stays and is listed with its reason. "Done,
+with one quit and one `rekordbox.lock`: rekordbox open at the start undoes nothing, opening meanwhile or Stop ends it
+before the next track (the rest listed as waiting); a track whose undo is refused stays and is listed with its reason. "Done,
 checked in rekordbox" ends the undo for the track or the batch (`forget_undo`) and releases the backup.
 
 ### 5.10 Cloud Library Sync

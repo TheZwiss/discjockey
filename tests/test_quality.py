@@ -240,3 +240,19 @@ def test_the_tools_stamp_changes_when_ffmpeg_or_ffprobe_appears_or_is_replaced(t
     assert both not in (missing, one)
     (tmp_path / "ffmpeg").write_text("#!/bin/sh\necho newer\n")  # an updated ffmpeg: another size
     assert tools_stamp() != both
+
+
+def test_is_quality_line_knows_only_the_lines_discjockey_writes():
+    from discjockey.quality import is_quality_line
+    lines = [quality_line("qobuz", "flac", "lossless", None), quality_line("qobuz", "flac", "fake_lossless", 16100),
+             quality_line("youtube_music", "opus", "not_lossless", 20000),
+             quality_line("manual", "pcm_s16le", "lossless", None),
+             quality_line("soundcloud", "aac", "not_lossless", 17900, 160),
+             quality_line("manual", "mp3", "not_lossless", None), quality_line("youtube", "opus", "lossless", None,
+                                                                                 checked=False),
+             quality_line("manual", "pcm_s16le", "lossless", None, own=True),
+             quality_line("manual", "mp3", "not_lossless", 16000, 320, own=True), "bought file (FLAC)"]
+    assert all(is_quality_line(x) for x in lines), [x for x in lines if not is_quality_line(x)]
+    for mine in ("1A - Energy 6", "", None, "great intro", "Qobuz FLAC", "Qobuz FLAC · verified lossless, bpm 128",
+                 "my note: Qobuz FLAC · verified lossless", "5A - Qobuz"):
+        assert not is_quality_line(mine)

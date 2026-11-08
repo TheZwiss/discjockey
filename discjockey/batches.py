@@ -21,7 +21,7 @@ rekordbox opening during an item rolls that item back (it stays `planned`), and 
 `rekordbox_open`. The batch ends in one of these ways: it returns a `BatchResult` (state `done`; refusals and failures
 are in its items), or raises `Stopped` (Stop; state `stopped`/`stop`), `RekordboxOpen` (`stopped`/`rekordbox_open`;
 nothing changed when it came at the start), `Busy` (another window or the Terminal holds `rekordbox.lock`; nothing
-changed, the batch is `stopped`) or `Refused` (nothing in it could be done; state `done`). Each carries the
+changed, the batch is `stopped`/`busy`) or `Refused` (nothing in it could be done; state `done`). Each carries the
 `BatchResult` as it stands. `resume` runs the `planned` items of a stopped batch again, `undo` puts a batch's (or any
 tracks') done items back, newest first, in one session, `checked` ends the undo for tracks ("Done, checked in
 rekordbox"), `recover` closes what a crash left (`library.recover_pending` calls it).
@@ -47,13 +47,16 @@ from .rekordbox.write import RekordboxOpened
 from .upgrades import NeedsChoice, UndoRefused, UpgradeProblem
 
 __all__ = ["BUSY", "Busy", "BatchResult", "ItemResult", "RekordboxOpen", "Refused", "Stopped", "UndoItem",
-           "UndoResult", "checked", "recover", "result_of", "resume", "run", "start", "tracks_of", "undo"]
+           "UndoResult", "UndoStopped", "checked", "close_unrun", "recover", "result_of", "resume", "run", "start",
+           "tracks_of", "undo"]
 
 RUNNABLE = ("same_track",)  # the actions a batch can run today
 OPERATION = "upgrade_same_track"  # operations.log's name for an item
 NOTHING_ELIGIBLE = "None of these can be upgraded right now."
 STOPPED_BY_REKORDBOX = ("rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox and "
                         "press Resume.")
+STOPPED_UNDO_BY_REKORDBOX = ("rekordbox was opened, so Discjockey stopped the undo after {done} of {total}. Quit "
+                             "rekordbox and undo the rest.")
 _DEFAULT = object()
 
 
@@ -95,7 +98,8 @@ class BatchResult:
 @dataclass(frozen=True)
 class UndoItem:
     """One track of an undo. `state`: undone | refused (nothing changed; `reason` is the refusal key of
-    `UndoRefused`, or None for a record that no longer applies) | failed."""
+    `UndoRefused`, or None for a record that no longer applies) | failed | waiting (not reached: Stop or rekordbox
+    opening ended the undo first; `reason` is `rekordbox_open` or None for Stop; nothing changed)."""
     track: str
     state: str
     reason: str | None
@@ -118,6 +122,15 @@ class UndoResult:
         return asdict(self)
 
 
+class UndoStopped(Cancelled):
+    """Stop during an undo: the tracks done stay undone, the rest is `waiting`; `result` is the undo as far as it
+    went (what `Stopped` is for a batch)."""
+
+    def __init__(self, result: UndoResult):
+        super().__init__()
+        self.result = result
+
+
 class Stopped(Cancelled):
     """Stop between two items: the batch is `stopped` (`stop`), its `planned` items wait for `resume`. Still a
     Cancelled, so a job reports it as stopped; `result` is the batch as far as it went."""
@@ -130,12 +143,18 @@ class Stopped(Cancelled):
 class RekordboxOpen(rbsession.RekordboxOpen):
     """rekordbox runs and the batch needs a rekordbox write (at the start: nothing was changed), or it opened
     during the batch (the item in work was rolled back). The batch is `stopped` (`rekordbox_open`); `resume` after
-    rekordbox is quit. `result` is the batch as it stands; the message is for the user."""
+    rekordbox is quit. `result` is the batch as it stands; the message is for the user. An undo raises it too
+    (`undo`): `result` is then its `UndoResult`, the tracks not reached listed as `waiting`."""
 
-    def __init__(self, result: BatchResult):
-        done = result.total - sum(1 for i in result.results if i.state == "planned")
-        super().__init__(convert.REKORDBOX_OPEN if not done else
-                         STOPPED_BY_REKORDBOX.format(done=done, total=result.total))
+    def __init__(self, result: BatchResult | UndoResult):
+        if isinstance(result, UndoResult):
+            done = sum(1 for i in result.results if i.state != "waiting")
+            super().__init__(upgrades.UNDO_REFUSED["rekordbox_open"] if not done else
+                             STOPPED_UNDO_BY_REKORDBOX.format(done=done, total=result.total))
+        else:
+            done = result.total - sum(1 for i in result.results if i.state == "planned")
+            super().__init__(convert.REKORDBOX_OPEN if not done else
+                             STOPPED_BY_REKORDBOX.format(done=done, total=result.total))
         self.result = result
 
 
@@ -289,8 +308,10 @@ def run(paths, batch_id: int, *, emit: Emit = no_emit, token: CancelToken | None
         compare: upgrades.Compare = align.compare_files, now: Callable[[], datetime] = datetime.now,
         running: Callable[[], bool] | None = None, place=_DEFAULT, state: dict | None = None) -> BatchResult:
     """Works off the `planned` items of the `running` batch `batch_id` (see the module docstring). The caller holds
-    the library lock. `state` is the caller's snapshot, kept current as the steps write (loaded when None);
-    `running` / `place` are rekordbox's process check and library (tests; the real ones when omitted)."""
+    the library lock and has already run `library.recover_pending` (which calls `recover`, marking every `running`
+    batch `stopped`/`crash`): `start` must come after that, or this batch would be stopped before it runs. `state` is
+    the caller's snapshot, kept current as the steps write (loaded when None); `running` / `place` are rekordbox's
+    process check and library (tests; the real ones when omitted)."""
     token = token or CancelToken()
     row = _row(paths, batch_id)
     if row.state != "running":
@@ -331,7 +352,7 @@ def run(paths, batch_id: int, *, emit: Emit = no_emit, token: CancelToken | None
                 if session.backup is not None:
                     backup = session.backup.id
     except Busy:  # another window or the Terminal changes rekordbox's library: nothing was done by this call
-        _stop(paths, batch_id, "stop")
+        _stop(paths, batch_id, "busy")
         raise
     except rbsession.RekordboxOpen:  # at the start: nothing was changed
         raise RekordboxOpen(_stop(paths, batch_id, "rekordbox_open")) from None
@@ -354,6 +375,20 @@ def run(paths, batch_id: int, *, emit: Emit = no_emit, token: CancelToken | None
     if not result.done and not result.failed and result.skipped:
         raise Refused(result)
     return result
+
+
+def close_unrun(paths, batch_id: int, reason: str, message: str, *, now: Callable[[], datetime] = datetime.now
+                ) -> BatchResult:
+    """Ends a batch that did not run (the console's batch of one meeting rekordbox open or `Busy`): its `planned`
+    items are `skipped` with `reason` (an `eligible.REASONS` key) and `message`, the batch is `done`. Leaves nothing
+    for To-do to offer as Resume."""
+    with db.connect(paths.db_file) as conn:
+        row = db.aiff_batch(conn, batch_id)
+        for item in row.items:
+            if item.state == "planned":
+                db.set_aiff_item(conn, batch_id, item.seq, "skipped", reason, {"message": message})
+        db.set_aiff_batch(conn, batch_id, state="done", backup=None, ended=now())
+        return _batch_result(db.aiff_batch(conn, batch_id))
 
 
 def resume(paths, batch_id: int, **options) -> BatchResult:
@@ -407,43 +442,73 @@ def undo(paths, target: int | Sequence[str], *, emit: Emit = no_emit, token: Can
          now: Callable[[], datetime] = datetime.now) -> UndoResult:
     """Puts back a batch's `done` items (`target` an id) or the given tracks, newest first, through one
     `Session` (one `rekordbox.lock`, one backup before the first rekordbox write). A track whose undo is refused
-    (rekordbox open, relocated, a file changed, nothing to undo) stays as it is and is listed with its reason; the
-    others go on. Each undone track's batch item becomes `undone`. Stop between tracks raises Cancelled (what was
-    undone stays undone). Busy when another window holds `rekordbox.lock` (nothing changed)."""
+    (relocated, a file changed, nothing to undo) stays as it is and is listed with its reason; the others go on.
+    Each undone track's batch item becomes `undone`. Like a batch, an undo is one job with one quit: when any
+    track's undo has to change rekordbox and rekordbox runs, nothing is undone (`RekordboxOpen`, every track
+    `waiting`); when rekordbox opens meanwhile, the undo stops before the next track (`RekordboxOpen`, what was
+    undone stays undone, the rest `waiting`). Stop between tracks raises `UndoStopped` the same way. Busy when
+    another window holds `rekordbox.lock` (nothing changed)."""
     token = token or CancelToken()
     state = library.load_state(paths) if state is None else state
     batch = target if isinstance(target, int) else None
     tracks = [i.track for i in reversed(_row(paths, batch).items) if i.state == "done"] if batch is not None \
         else _newest_first(paths, list(dict.fromkeys(target)))
     results: list[UndoItem] = []
-    with Session.open(paths, running=running, items_need_write=lambda view: False,
-                      **({} if place is _DEFAULT else {"place": place})) as session:
-        for n, track in enumerate(tracks):
-            token.check()
-            e = state["tracks"].get(track)
-            if batch is not None:
-                emit(BatchProgress(batch, n, len(tracks), track, _name(e, track)))
-            try:
-                done = upgrades.undo(paths, state, track, session=session)
-            except UndoRefused as err:
-                results.append(UndoItem(track, "refused", err.reason, str(err)))
-            except UpgradeProblem as err:
-                results.append(UndoItem(track, "refused", None, str(err)))
-            except Exception as err:  # noqa: BLE001 - one track's surprise must not stop the others
-                results.append(UndoItem(track, "failed", None,
-                                        f"Could not undo {_name(e, track)} ({type(err).__name__}: {err})."))
-            else:
-                results.append(UndoItem(track, "undone", None, done.note))
-                with db.connect(paths.db_file) as conn:
-                    found = db.aiff_item_of(conn, track, batch)
-                    if found is not None:
-                        db.set_aiff_item(conn, found[0], found[1], "undone")
-                ops.log_operation(paths, now(), track, e, "undo_upgrade", "done", done.note)
+
+    def result() -> UndoResult:
+        count = lambda s: sum(1 for r in results if r.state == s)  # noqa: E731
+        return UndoResult(batch, len(tracks), count("undone"), count("refused"), count("failed"), results)
+
+    def waiting(left: Sequence[str], reason: str | None) -> None:
+        results.extend(UndoItem(t, "waiting", reason, "Not undone yet. Nothing was changed.") for t in left)
+
+    def needs_rekordbox(view) -> bool:  # a track whose step wrote rekordbox needs it closed (plan §0.7)
+        return any((upgrades.upgrade_undo(state["tracks"].get(t)) or {}).get("repoint") for t in tracks)
+
+    stop = None
+    try:
+        with Session.open(paths, running=running, items_need_write=needs_rekordbox,
+                          **({} if place is _DEFAULT else {"place": place})) as session:
+            for n, track in enumerate(tracks):
+                try:
+                    token.check()
+                except Cancelled:
+                    stop = "stop"
+                if stop is None and session.rekordbox_opened():
+                    stop = "rekordbox_open"
+                if stop:
+                    waiting(tracks[n:], "rekordbox_open" if stop == "rekordbox_open" else None)
+                    break
+                e = state["tracks"].get(track)
+                if batch is not None:
+                    emit(BatchProgress(batch, n, len(tracks), track, _name(e, track)))
+                try:
+                    done = upgrades.undo(paths, state, track, session=session)
+                except UndoRefused as err:
+                    results.append(UndoItem(track, "refused", err.reason, str(err)))
+                except UpgradeProblem as err:
+                    results.append(UndoItem(track, "refused", None, str(err)))
+                except Exception as err:  # noqa: BLE001 - one track's surprise must not stop the others
+                    results.append(UndoItem(track, "failed", None,
+                                            f"Could not undo {_name(e, track)} ({type(err).__name__}: {err})."))
+                else:
+                    results.append(UndoItem(track, "undone", None, done.note))
+                    with db.connect(paths.db_file) as conn:
+                        found = db.aiff_item_of(conn, track, batch)
+                        if found is not None:
+                            db.set_aiff_item(conn, found[0], found[1], "undone")
+                    ops.log_operation(paths, now(), track, e, "undo_upgrade", "done", done.note)
+    except rbsession.RekordboxOpen:  # at the start: nothing was changed
+        waiting(tracks, "rekordbox_open")
+        raise RekordboxOpen(result()) from None
     _close_finished(paths, now)
+    if stop == "rekordbox_open":
+        raise RekordboxOpen(result())
+    if stop:
+        raise UndoStopped(result())
     if batch is not None:
         emit(BatchProgress(batch, len(tracks), len(tracks), None, None))
-    count = lambda s: sum(1 for r in results if r.state == s)  # noqa: E731
-    return UndoResult(batch, len(tracks), count("undone"), count("refused"), count("failed"), results)
+    return result()
 
 
 def checked(paths, track_ids: Sequence[str], *, state: dict | None = None,

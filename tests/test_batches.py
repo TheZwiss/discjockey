@@ -21,6 +21,7 @@ from discjockey.events import BatchProgress, CancelToken
 from discjockey.library import Paths, load_state
 from discjockey.rekordbox import backup as rbbackup
 from discjockey.rekordbox import master
+from discjockey.rekordbox import write as rbwrite
 from discjockey.rekordbox import session as rbsession
 from discjockey.rekordbox.locate import Place
 from rekordbox_helpers import (
@@ -166,6 +167,7 @@ def test_a_mixed_batch_uses_one_session_and_one_backup(tmp_path, monkeypatch):
     assert lib.entry(1)["path"] == lib.olds[1] and lib.row(1)["FileSize"] == (lib.paths.root / lib.olds[1]).stat().st_size
     assert result.results[1].rekordbox == {"entries": ["2"], "kept": []}
     assert lib.entry(1)["rekordbox_check"]["reload_tag"] is False
+    assert [lib.entry(i)["rekordbox_check"]["batch"] for i in range(3)] == [batch_id] * 3   # the swap's too
     assert [(e.done, e.total, e.track_id) for e in events] == [
         (0, 3, lib.tracks[0]), (1, 3, lib.tracks[1]), (2, 3, lib.tracks[2]), (3, 3, None)]
     assert all(isinstance(e, BatchProgress) and e.batch_id == batch_id for e in events)
@@ -381,7 +383,8 @@ def test_another_window_holding_the_lock_is_busy(tmp_path, monkeypatch):
     finally:
         os.close(fd)
     assert str(busy.value) == batches.BUSY
-    assert states(lib, batch_id) == ["planned"] and lib.batch(batch_id).state == "stopped"
+    assert states(lib, batch_id) == ["planned"]
+    assert (lib.batch(batch_id).state, lib.batch(batch_id).stop_reason) == ("stopped", "busy")   # not the user's Stop
     assert go(lib, batch_id, resume=True).done == 1
 
 
@@ -469,14 +472,92 @@ def test_batch_undo_goes_newest_first_and_lists_what_was_refused(tmp_path, monke
     assert lib.paths.operations_log.read_text().count('"operation": "undo_upgrade"') == 2
 
 
-def test_undo_while_rekordbox_runs_is_refused_per_track(tmp_path, monkeypatch):
+def test_undo_with_rekordbox_open_at_the_start_changes_nothing(tmp_path, monkeypatch):
     lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
     batch_id = start(lib)
     go(lib, batch_id)
-    result = batches.undo(lib.paths, batch_id, running=lambda: True, place=lib.place)
-    assert [(r.state, r.reason) for r in result.results] == [("refused", "rekordbox_open")] * 2
-    assert "Quit rekordbox" in result.results[0].message and states(lib, batch_id) == ["done", "done"]
-    assert lib.entry(0)["path"].endswith("Song 0.aiff")
+    db_before, music_before = lib.dump(), lib.music()
+    with pytest.raises(batches.RekordboxOpen) as opened:
+        batches.undo(lib.paths, batch_id, running=lambda: True, place=lib.place)
+    assert "Quit rekordbox" in str(opened.value)
+    assert [(r.state, r.reason) for r in opened.value.result.results] == [("waiting", "rekordbox_open")] * 2
+    assert opened.value.result.undone == 0 and states(lib, batch_id) == ["done", "done"]
+    assert lib.dump() == db_before and lib.music() == music_before
+
+
+def test_undo_stops_before_the_next_track_when_rekordbox_opens_meanwhile(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3", "mp3"])
+    batch_id = start(lib)
+    go(lib, batch_id)
+    on = {"v": False}
+    real = upgrades.undo
+
+    def undo_then_open(*a, **k):
+        done = real(*a, **k)
+        on["v"] = True                           # rekordbox starts while the first track is undone
+        return done
+
+    monkeypatch.setattr(upgrades, "undo", undo_then_open)
+    with pytest.raises(batches.RekordboxOpen) as opened:
+        batches.undo(lib.paths, batch_id, running=lambda: on["v"], place=lib.place, now=lambda: NOW)
+    result = opened.value.result
+    assert [(r.track, r.state) for r in result.results] == [
+        (lib.tracks[2], "undone"), (lib.tracks[1], "waiting"), (lib.tracks[0], "waiting")]   # the rest listed
+    assert (result.total, result.undone) == (3, 1) and "stopped the undo after 1 of 3" in str(opened.value)
+    assert states(lib, batch_id) == ["done", "done", "undone"]
+    assert lib.entry(0)["path"].endswith("Song 0.aiff") and lib.entry(2)["path"] == lib.olds[2]
+    on["v"] = False                              # rekordbox quit: the rest goes back
+    monkeypatch.setattr(upgrades, "undo", real)
+    rest = batches.undo(lib.paths, batch_id, running=lambda: on["v"], place=lib.place, now=lambda: NOW)
+    assert [r.state for r in rest.results] == ["undone", "undone"]
+
+
+def test_stop_during_a_batch_undo_wraps_up_and_lists_the_rest(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3"])
+    batch_id = start(lib)
+    go(lib, batch_id)
+    token = CancelToken()
+
+    def emit(event):
+        if event.track_id == lib.tracks[1]:
+            token.cancel()                       # Stop while the first (newest) track is being undone
+
+    with pytest.raises(batches.UndoStopped) as stopped:
+        batches.undo(lib.paths, batch_id, emit=emit, token=token, running=never, place=lib.place, now=lambda: NOW)
+    result = stopped.value.result
+    assert [(r.track, r.state) for r in result.results] == [(lib.tracks[1], "undone"), (lib.tracks[0], "waiting")]
+    assert states(lib, batch_id) == ["done", "undone"] and lib.batch(batch_id).state == "done"  # wrapped up, not left
+
+
+def test_undo_of_steps_that_wrote_no_rekordbox_goes_ahead_while_rekordbox_runs(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3_free"])
+    batch_id = start(lib)
+    go(lib, batch_id, running=lambda: True)
+    result = batches.undo(lib.paths, batch_id, running=lambda: True, place=lib.place, now=lambda: NOW)
+    assert [r.state for r in result.results] == ["undone"] and lib.entry(0)["path"] == lib.olds[0]
+
+
+def test_a_failure_after_the_commit_leaves_the_item_done(tmp_path, monkeypatch):
+    """The commit happened, then something raised (closing the connection, say): recovery finishes the step, and the
+    batch must not overwrite its `done` item with `failed`."""
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3"])
+    real = rbwrite.Writer.repoint
+    calls = []
+
+    def commit_then_fail(self, *a, **k):
+        out = real(self, *a, **k)
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("closing the connection failed")
+        return out
+
+    monkeypatch.setattr(rbwrite.Writer, "repoint", commit_then_fail)
+    batch_id = start(lib)
+    result = go(lib, batch_id)
+    assert (result.state, result.done, result.failed) == ("done", 2, 0)
+    assert states(lib, batch_id) == ["done", "done"]
+    assert lib.row(0)["FolderPath"] == str(lib.paths.root / lib.entry(0)["path"])   # rekordbox follows the new file
+    assert batches.undo(lib.paths, batch_id, running=never, place=lib.place, now=lambda: NOW).undone == 2   # undoable
 
 
 def test_undo_of_some_tracks_marks_their_items(tmp_path, monkeypatch):

@@ -162,3 +162,60 @@ def test_restore_refuses_with_nothing_changed(tmp_path):
     con.close()
     assert e.value.reason == "unclean"
     assert len(backup.backups(paths)) == 1 and os.path.exists(place.db)  # no saved copy was made for a refusal
+
+
+def test_a_later_copy_follows_the_file_when_it_changes_again(tmp_path):
+    """Undo sessions outside a batch all share `later/None/`: a second copy must not keep the first one's bytes."""
+    paths, place = setup(tmp_path)
+    tracks = folders(place, "100")
+    b = backup.Backup.ensure(paths, place, dbid=None, batch_id=None, tracks=tracks)
+    dat = next(tracks[0][1][0].glob("*.DAT"))
+    original = dat.read_bytes()
+    dat.write_bytes(original + b"\1")
+    b.add_tracks(place, None, tracks)
+    assert b.anlz_copy(place, dat, None).read_bytes() == original + b"\1"
+    dat.write_bytes(original + b"\2")
+    b.add_tracks(place, None, tracks)
+    assert b.anlz_copy(place, dat, None).read_bytes() == original + b"\2"
+
+
+def test_restore_waits_for_no_one_but_refuses_while_another_writer_holds_the_lock(tmp_path):
+    from discjockey.rekordbox.session import Busy, Session
+    paths, place = setup(tmp_path)
+    b = backup.Backup.ensure(paths, place, dbid="1234567890", batch_id=1, tracks=folders(place, "100"))
+    b.close(place)
+    touch_db(place)
+    before = snapshot(place.db.parent)
+    with Session.open(paths, place=place, running=lambda: False, items_need_write=lambda v: True):
+        with pytest.raises(Busy):
+            backup.restore(paths, place, b.id, running=lambda: False)
+    assert snapshot(place.db.parent) == before and len(backup.backups(paths)) == 1   # nothing changed, nothing saved
+    backup.restore(paths, place, b.id, running=lambda: False)                          # the lock is free again
+
+
+def test_restore_clears_leftovers_a_crash_left_beside_the_files(tmp_path):
+    paths, place = setup(tmp_path)
+    b = backup.Backup.ensure(paths, place, dbid="1234567890", batch_id=1, tracks=folders(place, "100"))
+    b.close(place)
+    [(_, [anlz_folder])] = folders(place, "100")
+    stray = [place.db.with_name("master.db.dj-new"), *(p.with_name(p.name + ".dj-new") for p in anlz_folder.iterdir())]
+    for p in stray:
+        p.write_bytes(b"half")
+    backup.restore(paths, place, b.id, running=lambda: False)
+    assert not any(p.exists() for p in stray) and not list(place.share.rglob("*.dj-new"))
+
+
+def test_the_running_check_is_looked_up_when_called(tmp_path, monkeypatch):
+    """Left out, `running` is whatever `process.running` is now (tests, and the commands, replace it)."""
+    paths, place = setup(tmp_path)
+    b = backup.Backup.ensure(paths, place, dbid="1234567890", batch_id=1, tracks=[])
+    b.close(place)
+    monkeypatch.setattr("discjockey.rekordbox.process.running", lambda: True)
+    with pytest.raises(backup.RestoreRefused) as e:
+        backup.restore(paths, place, b.id)
+    assert e.value.reason == "rekordbox_open"
+    with pytest.raises(write.WriteRefused) as w, write.open_write(place, dbid=None):
+        pass
+    assert w.value.reason == "rekordbox_open"
+    monkeypatch.setattr("discjockey.rekordbox.process.running", lambda: False)
+    backup.restore(paths, place, b.id)

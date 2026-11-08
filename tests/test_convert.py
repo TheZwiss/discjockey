@@ -92,6 +92,48 @@ def test_the_users_own_rekordbox_title_is_kept_and_said(tmp_path, monkeypatch):
     assert r.note.endswith("Kept your own title in rekordbox.")
 
 
+def set_old_comment(env, text):
+    from mutagen.id3 import COMM, ID3, ID3NoHeaderError
+    path = env.paths.root / env.old
+    try:
+        tags = ID3(str(path))
+    except ID3NoHeaderError:
+        tags = ID3()
+    tags.setall("COMM", [COMM(encoding=3, lang="eng", desc="", text=text)])
+    tags.save(str(path))
+
+
+def new_comment(env) -> str:
+    return str(AIFF(str(env.paths.root / NEW)).tags.getall("COMM")[0].text[0])
+
+
+def test_a_comment_of_the_users_own_stays_in_the_new_file_and_in_rekordbox(tmp_path, monkeypatch):
+    env = make_env(tmp_path, monkeypatch, row={"Commnt": "1A - Energy 6"})
+    set_old_comment(env, "1A - Energy 6")                        # Mixed In Key's: key and energy
+    r, state = run(env)
+    assert new_comment(env) == "1A - Energy 6"                    # the download's quality line did not replace it
+    assert row_of(env)["Commnt"] == "1A - Energy 6" and row_of(env)["ISRC"] == "ISRC00000001"
+    assert state["tracks"][TID]["rekordbox_check"]["rekordbox"]["kept"] == []
+    assert "Kept" not in r.note
+
+
+def test_an_edited_comment_in_rekordbox_stays_when_the_old_file_had_a_quality_line(tmp_path, monkeypatch):
+    env = make_env(tmp_path, monkeypatch, row={"Commnt": "my gig notes"})
+    set_old_comment(env, "YouTube Music OPUS · cutoff 16.0 kHz")
+    _r, state = run(env)
+    assert new_comment(env) == "Qobuz FLAC · verified lossless"    # our own line is replaced in the file
+    assert row_of(env)["Commnt"] == "my gig notes"                 # rekordbox shows another text: the user's
+    assert state["tracks"][TID]["rekordbox_check"]["rekordbox"]["kept"] == ["comment"]
+
+
+def test_a_quality_line_of_ours_in_rekordbox_is_replaced(tmp_path, monkeypatch):
+    env = make_env(tmp_path, monkeypatch, row={"Commnt": "YouTube Music OPUS · cutoff 16.0 kHz"})
+    set_old_comment(env, "YouTube Music OPUS · cutoff 16.0 kHz")
+    _r, state = run(env)
+    assert row_of(env)["Commnt"] == "Qobuz FLAC · verified lossless" == new_comment(env)
+    assert state["tracks"][TID]["rekordbox_check"]["rekordbox"]["kept"] == []
+
+
 def test_a_file_in_not_lossless_moves_up_and_a_taken_name_gets_an_id(tmp_path, monkeypatch):
     env = make_env(tmp_path, monkeypatch, entry={"path": "Library/A/not_lossless/Old Name.mp3"})
     (env.paths.root / NEW).write_bytes(b"someone else's file")
@@ -251,3 +293,17 @@ def test_a_pending_convert_step_and_its_undo_record_keep_their_files():
             "held": ".discjockey/undo/t1/Artist - Song.aiff", "old": "Superseded/A/x.mp3"}
     assert library.undo_paths(undo) == ["Library/A/x.mp3", PARKED, ".discjockey/undo/t1/Artist - Song.aiff",
                                         "Superseded/A/x.mp3"]
+
+
+def test_plan_names_and_space_needed_answer_the_dry_run_without_writing(tmp_path, monkeypatch):
+    env = make_env(tmp_path, monkeypatch)
+    state = load_state(env.paths)
+    music = env.music()
+    new, superseded = convert.plan_names(env.paths, state, TID, state["tracks"][TID], state["tracks"][TID]["upgrade"])
+    assert (new, superseded) == (NEW, env.superseded)
+    places = convert.space_needed(env.paths, env.paths.root / PARKED, new)
+    assert places and all(need > 0 and convert.free_space(place) > 0 for place, need in places)
+    assert len({need for _place, need in places}) == 1 and places[0][0] == env.paths.tmp
+    assert env.music() == music and load_state(env.paths)["pending"] == []        # nothing written, nothing reserved
+    r, _state = run(env)                                                           # and the step names the same
+    assert (r.path, env.superseded) == (new, superseded)

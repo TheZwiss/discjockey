@@ -147,8 +147,8 @@ RepointRow(id, identity_before, identity_after, facts_before, text: {field: {bef
   else a new row with rekordbox's scheme for `ID`, `UUID`, `SearchStr`, `rb_local_usn` and timestamps. **Check first:**
   the scheme from pyrekordbox's published `add_artist`/`add_album`/`add_label` and how it picks a new `ID` (names
   only; no code copied); RH compares created rows with rekordbox's own on the copy. Existing lookup rows are never
-  updated or deleted. A field written only where `text_plan` says `write` and the clean value differs from what is
-  shown. Genre, year, rating, colour, key, BPM, artwork, My Tags: never touched.
+  updated or deleted. A field written only where `text_plan` says `write` and the clean value is not empty and differs from
+  what is shown; `Commnt` also only over nothing or a quality line Discjockey wrote (any other comment is the user's). Genre, year, rating, colour, key, BPM, artwork, My Tags: never touched.
 - **`contentFile`**: per spliced ANLZ file the row with `ContentID` = the track and `Path` = that file's path in the
   analysis folder: `Hash` = MD5 hex of the new bytes, `Size`; `rb_*` flags unchanged. **Check first:** the `Path`
   form (`/PIONEER/USBANLZ/…/ANLZ0000.DAT` like `AnalysisDataPath`, or another root) on pyrekordbox's published
@@ -214,7 +214,7 @@ RekordboxView(master: Master, index: PathIndex, status: Status)
 aiff_batches(id INTEGER PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('upgrade','convert','mixed')),
   started_by TEXT NOT NULL CHECK (started_by IN ('user','upgrade_all','make_aiff','cdj_all','auto_upgrade')),
   scope TEXT, started TEXT NOT NULL, ended TEXT, state TEXT NOT NULL CHECK (state IN ('running','stopped','done')),
-  stop_reason TEXT CHECK (stop_reason IN ('stop','rekordbox_open','crash')), backup TEXT)
+  stop_reason TEXT CHECK (stop_reason IN ('stop','rekordbox_open','busy','crash')), backup TEXT)
 aiff_items(batch INTEGER NOT NULL REFERENCES aiff_batches (id) ON DELETE CASCADE, seq INTEGER NOT NULL,
   track TEXT NOT NULL, action TEXT NOT NULL CHECK (action IN ('same_track','convert','rename')),
   state TEXT NOT NULL CHECK (state IN ('planned','done','skipped','failed','undone')),
@@ -265,8 +265,8 @@ record, the parked download to `held` (as `_hold`). No rekordbox track (or `none
   (`library._Waits` with the words of §3); another `DBID` → files only; the item's batch → `stopped`, `crash`.
   **Check first:** that `recover_pending`'s `_Waits` lets the rest of the run go on (design §14).
 - **Undo** (`undo_convert`, op `convert_undo`, design §5.9): needs rekordbox closed when the step wrote it
-  (`rekordbox_open`), refuses `relocated` (identity changed), checks the new file's SHA-256 and the old file's
-  content key (`_unchanged`); old file back from `Superseded/` (`move_path`), `Writer.undo_repoint`, the new AIFF to
+  (`rekordbox_open`), refuses `relocated` (identity changed), checks the new and the old file's content key (`_unchanged`: a tag
+  edit by rekordbox does not stop the undo, other audio does); old file back from `Superseded/` (`move_path`), `Writer.undo_repoint`, the new AIFF to
   `.discjockey/undo/<track>/` (deleted by `_prune_undo` once no record names it), the held download back to
   `Upgrades ready/`, the entry `before`. Journaled with marks, `recover_convert_undo` finishes or rolls back.
 

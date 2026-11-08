@@ -10,10 +10,11 @@ import subprocess
 from contextlib import contextmanager
 
 import pytest
+from mutagen.aiff import AIFF
 
 from audio_helpers import needs_ffmpeg
-from convert_helpers import EXACT, never
-from discjockey import library, upgrades
+from convert_helpers import EXACT, NOW, never
+from discjockey import db, library, upgrades
 from discjockey.audio import write_tags
 from discjockey.library import Paths, load_state
 from discjockey.planner import ENTRY_KEYS
@@ -193,3 +194,98 @@ def test_a_swap_whose_track_left_rekordbox_since_is_still_undone(env):
     upgrades.undo(paths, load_state(paths), TID)
     assert (paths.root / CURRENT).read_bytes() == old_audio
     assert [c for t, _i, c, _a, _b in diff(gone, dump(place.db)) if t == "djmdContent"] == []  # nothing to put back
+
+
+MIK = "1A - Energy 6"
+
+
+def test_a_comment_of_the_users_own_survives_the_swap_in_the_file_and_in_rekordbox(env):
+    paths, place = env
+    write_tags(paths.root / CURRENT, title="Song", artists=("Artist",), album="", isrc=None, label=None, cover=None,
+               comment=MIK)
+    con = writer(place.db)
+    con.execute("UPDATE djmdContent SET Commnt = ? WHERE ID = '1'", (MIK,))
+    con.commit()
+    con.close()
+    with batch(paths, place) as s:
+        _r, state = swap(paths, s)
+    assert file_comment(paths.root / CURRENT) == MIK                     # the download's quality line did not replace it
+    assert row(place)["Commnt"] == MIK and row(place)["Label"] == "Label"  # the rest is written as before
+    assert state["tracks"][TID]["rekordbox_check"]["rekordbox"] == {"entries": ["1"], "kept": []}
+
+
+def test_a_quality_line_of_ours_in_the_old_file_is_replaced_by_the_downloads(env):
+    paths, place = env
+    write_tags(paths.root / CURRENT, title="Song", artists=("Artist",), album="", isrc=None, label=None, cover=None,
+               comment="YouTube Music OPUS · cutoff 16.0 kHz")
+    with batch(paths, place) as s:
+        swap(paths, s)
+    assert file_comment(paths.root / CURRENT) == "Qobuz FLAC · verified lossless"
+
+
+def file_comment(path) -> str:
+    return str(AIFF(str(path)).tags.getall("COMM")[0].text[0])
+
+
+def test_a_batch_swaps_check_names_its_batch(env):
+    paths, place = env
+    with batch(paths, place) as s:
+        state = load_state(paths)
+        with db.connect(paths.db_file) as conn:
+            batch_id = db.start_aiff_batch(conn, "upgrade", "user", None, [(TID, "same_track")], NOW)
+        upgrades.swap(paths, state, TID, dict(state["tracks"][TID]["upgrade"]), lambda a, b: EXACT, session=s,
+                      batch=(batch_id, 0))
+    assert state["tracks"][TID]["rekordbox_check"]["batch"] == batch_id
+
+
+def test_a_crash_right_after_the_text_commit_finishes_without_reload_tag(env, monkeypatch):
+    paths, place = env
+    real = upgrades.mark_op
+
+    def die_after_commit(p, state, op):
+        if (op.get("check") or {}).get("reload_tag") is False:  # the mark that follows the commit
+            raise PowerOff
+        return real(p, state, op)
+
+    monkeypatch.setattr(upgrades, "mark_op", die_after_commit)
+    with batch(paths, place) as s, pytest.raises(PowerOff):
+        swap(paths, s)
+    monkeypatch.setattr(upgrades, "mark_op", real)
+    state = load_state(paths)
+    library.recover_pending(paths, state)
+    check = state["tracks"][TID]["rekordbox_check"]
+    assert check["reload_tag"] is False and check["rekordbox"]["entries"] == ["1"]   # the text stands: no Reload Tag
+    assert row(place)["Label"] == "Label"
+    assert upgrades._text_stands(check["undo"]["repoint"])
+    con = writer(place.db)  # a record whose values rekordbox doesn't hold (the commit never happened) says no
+    con.execute("UPDATE djmdContent SET ISRC = 'OTHER' WHERE ID = '1'")
+    con.commit()
+    con.close()
+    assert not upgrades._text_stands(check["undo"]["repoint"])
+
+
+def test_the_swap_undo_keeps_rekordboxs_write_connection_closed_while_the_audio_moves(env, monkeypatch):
+    from contextlib import contextmanager
+    paths, place = env
+    with batch(paths, place) as s:
+        swap(paths, s)
+    depth, seen = [0], []
+    real_writer, real_audio = Session.writer, upgrades._undo_swap_audio
+
+    @contextmanager
+    def counting(self, *a, **k):
+        with real_writer(self, *a, **k) as w:
+            depth[0] += 1
+            try:
+                yield w
+            finally:
+                depth[0] -= 1
+
+    def spy(*a, **k):
+        seen.append(depth[0])
+        return real_audio(*a, **k)
+
+    monkeypatch.setattr(Session, "writer", counting)
+    monkeypatch.setattr(upgrades, "_undo_swap_audio", spy)
+    upgrades.undo(paths, load_state(paths), TID)
+    assert seen == [0]

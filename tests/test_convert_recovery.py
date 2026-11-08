@@ -154,6 +154,48 @@ def test_rekordbox_open_while_analysis_files_must_come_back_waits(tmp_path, monk
     assert_as_before(env, before, state)
 
 
+def test_a_leftover_dj_new_file_beside_the_analysis_files_is_removed(tmp_path, monkeypatch):
+    env = make_env(tmp_path, monkeypatch)
+    before = snapshot(env)
+    crash(env, monkeypatch, "placed")
+    splice_now(env)
+    stray = env.dat().with_name(env.dat().name + ".dj-new")
+    stray.write_bytes(b"half a file")               # a crash between the write and the rename
+    _messages, state = next_start(env)
+    assert not stray.exists()
+    assert_as_before(env, before, state)
+    # also after the commit, where the files stay as written
+    (tmp_path / "again").mkdir()
+    env = make_env(tmp_path / "again", monkeypatch)
+    crash(env, monkeypatch, "committed")
+    stray = env.dat().with_name(env.dat().name + ".dj-new")
+    stray.write_bytes(b"half a file")
+    next_start(env)
+    assert not stray.exists() and anlz.ppth(anlz.read(env.dat())) == "?/Artist - Song.aiff"
+
+
+def test_analysis_files_come_back_only_under_the_rekordbox_lock(tmp_path, monkeypatch):
+    import fcntl
+    import os
+    env = make_env(tmp_path, monkeypatch)
+    before = snapshot(env)
+    crash(env, monkeypatch, "placed")
+    splice_now(env)
+    env.paths.support.mkdir(parents=True, exist_ok=True)
+    fd = os.open(env.paths.support / "rekordbox.lock", os.O_RDWR | os.O_CREAT, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_EX)                  # another window (or music folder) is changing rekordbox
+    try:
+        messages, _state = next_start(env)
+        assert messages == [(convert.WAIT_BUSY.format(what="replace", name=NAME), False)]
+        assert len(load_state(env.paths)["pending"]) == 1 and (env.paths.root / NEW).is_file()
+        assert anlz.ppth(anlz.read(env.dat())) == "?/Artist - Song.aiff"       # not touched
+    finally:
+        os.close(fd)
+    messages, state = next_start(env)
+    assert messages == [(convert.NOT_FINISHED.format(name=NAME), False)]
+    assert_as_before(env, before, state)
+
+
 def test_a_commit_still_in_rekordboxs_wal_counts_as_committed(tmp_path, monkeypatch):
     """A crash right after COMMIT leaves the change in master.db-wal (rekordbox's WAL mode); recovery reads it."""
     env = make_env(tmp_path, monkeypatch)

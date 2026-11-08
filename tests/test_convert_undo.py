@@ -159,12 +159,28 @@ def test_undo_refused_for_a_relocated_track(tmp_path, monkeypatch):
     assert_unchanged(env, after, state)
 
 
-def test_undo_refused_when_the_new_file_changed(tmp_path, monkeypatch):
+def test_a_tag_edit_in_the_new_file_does_not_stop_the_undo(tmp_path, monkeypatch):
+    env = make_env(tmp_path, monkeypatch)
+    before, _state = upgraded(env, monkeypatch)
+    f = AIFF(str(env.paths.root / NEW))
+    f.tags["TIT2"].text = ["Edited"]  # rekordbox's info edit: the audio stays (content key), the bytes don't
+    f.save()
+    r, state = undo(env)
+    assert r.section == "upgrade_undone"
+    assert env.music() == before[0]  # every byte of the old file is back, the download waits again
+    kept = [p for p in env.paths.undo.rglob("*.aiff")]
+    assert len(kept) == 1 and AIFF(str(kept[0])).tags["TIT2"].text == ["Edited"]  # the edit stays in the trash
+    assert state["pending"] == []
+
+
+def test_undo_refused_when_the_new_files_audio_changed(tmp_path, monkeypatch):
     env = make_env(tmp_path, monkeypatch)
     upgraded(env, monkeypatch)
-    f = AIFF(str(env.paths.root / NEW))
-    f.tags["TIT2"].text = ["Edited"]  # the audio stays (content key), the bytes don't
-    f.save()
+    path = env.paths.root / NEW
+    data = bytearray(path.read_bytes())
+    at = data.index(b"SSND") + 16
+    data[at:at + 200] = bytes(b ^ 0x55 for b in data[at:at + 200])  # other samples
+    path.write_bytes(bytes(data))
     after = snapshot(env)
     state = load_state(env.paths)
     with pytest.raises(UpgradeProblem, match="changed since the upgrade"):
@@ -274,6 +290,32 @@ def test_analysis_files_a_cut_off_undo_wrote_get_the_new_path_again(tmp_path, mo
     assert_unchanged(env, after, state)
 
 
+def test_a_cut_off_undo_removes_a_leftover_and_waits_while_another_window_writes(tmp_path, monkeypatch):
+    import fcntl
+    import os
+    env = make_env(tmp_path, monkeypatch)
+    before, _state = upgraded(env, monkeypatch)
+    after = snapshot(env)
+    crash(env, monkeypatch, "restored")
+    rec = load_state(env.paths)["pending"][0]["rekordbox"]["record"]
+    for a in rec["anlz"]:
+        rbwrite.replace_bytes(Path(a["path"]), anlz.splice_ppth(anlz.read(Path(a["path"])), a["old_ppth"]))
+    stray = env.dat().with_name(env.dat().name + ".dj-new")
+    stray.write_bytes(b"half a file")
+    fd = os.open(env.paths.support / "rekordbox.lock", os.O_RDWR | os.O_CREAT, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        messages, _state = next_start(env)
+        assert messages == [(convert.WAIT_BUSY.format(what="undo", name=NAME), False)]
+        assert len(load_state(env.paths)["pending"]) == 1
+    finally:
+        os.close(fd)
+    messages, state = next_start(env)
+    assert messages == [(convert.UNDO_NOT_FINISHED.format(name=NAME), False)]
+    assert not stray.exists()
+    assert_unchanged(env, after, state)
+
+
 def test_a_track_rekordbox_changed_during_the_crash_needs_help(tmp_path, monkeypatch):
     env = make_env(tmp_path, monkeypatch)
     upgraded(env, monkeypatch)
@@ -309,3 +351,33 @@ def test_done_checked_deletes_the_kept_download_and_frees_the_backup(tmp_path, m
     library.clear_tmp(env.paths, state)
     assert backup.find(env.paths, named) is None and not (env.paths.root / u["held"]).exists()
     assert (env.paths.root / env.superseded).is_file()  # the old file stays in Superseded/
+
+
+def test_the_undo_keeps_rekordboxs_write_connection_closed_while_files_move(tmp_path, monkeypatch):
+    """An open read-write connection leaves `-wal`/`-shm` beside master.db; a crash then blocks every later write."""
+    from contextlib import contextmanager
+    from discjockey.rekordbox.session import Session
+    env = make_env(tmp_path, monkeypatch)
+    upgraded(env, monkeypatch)
+    depth, seen = [0], []
+    real_writer, real_move = Session.writer, convert.move_path
+
+    @contextmanager
+    def counting(self, *a, **k):
+        with real_writer(self, *a, **k) as w:
+            depth[0] += 1
+            try:
+                yield w
+            finally:
+                depth[0] -= 1
+
+    def spy(*a, **k):
+        seen.append(depth[0])
+        return real_move(*a, **k)
+
+    monkeypatch.setattr(Session, "writer", counting)
+    monkeypatch.setattr(convert, "move_path", spy)
+    undo(env)
+    assert seen and set(seen) == {0}      # no writer open at any file move
+    monkeypatch.setattr(Session, "writer", real_writer)
+    assert not master.leftovers(env.place.db)

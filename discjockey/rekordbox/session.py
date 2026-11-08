@@ -1,7 +1,8 @@
 """The rekordbox side of one batch (design rekordbox-repoint §5.3 guard 6, §5.6, §5.7; plan stage B §0.3, §0.7, §1.6).
 
 `Session.open(paths, items_need_write=…)` is a context manager around a whole batch (and its undo):
-1. takes `<support>/rekordbox.lock` (flock, non-blocking) for its whole life, else `Busy` (another Discjockey window
+1. takes `<support>/rekordbox.lock` (`lock.writer_lock`: flock, non-blocking) for its whole life, else `Busy`
+   (another Discjockey window
    or the Terminal is changing rekordbox's library);
 2. asks once whether rekordbox runs, opens the library once for reading (`master.open_read`: immutable while
    rekordbox is closed) and builds the path index; `state` is the library's `Status` (`none` and `unreadable` are
@@ -20,50 +21,24 @@ plan §0.7). On leaving, the read connection closes and the backup's manifest re
 """
 from __future__ import annotations
 
-import fcntl
-import os
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 from . import master, process
 from .backup import Backup
+from .lock import BUSY, Busy, writer_lock
 from .locate import Place, locate
 from .master import RekordboxView, Status, Unreadable
 from .write import WriteRefused, Writer, open_write
 
-__all__ = ["BUSY", "Busy", "RekordboxOpen", "RekordboxView", "Session"]
+__all__ = ["BUSY", "Busy", "RekordboxOpen", "RekordboxView", "Session", "writer_lock"]
 
-BUSY = "Discjockey is already changing your rekordbox library in another window or the Terminal."
-LOCK_NAME = "rekordbox.lock"
 _LOCATE = object()
-
-
-class Busy(Exception):
-    """Another Discjockey process holds `rekordbox.lock`."""
-
-    def __init__(self):
-        super().__init__(BUSY)
 
 
 class RekordboxOpen(Exception):
     """rekordbox runs and an item of the batch needs a rekordbox write: nothing was changed."""
-
-
-@contextmanager
-def _lock(support: Path) -> Iterator[None]:
-    support.mkdir(parents=True, exist_ok=True)
-    fd = os.open(support / LOCK_NAME, os.O_RDWR | os.O_CREAT, 0o644)
-    try:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise Busy() from None
-        os.ftruncate(fd, 0)
-        os.write(fd, str(os.getpid()).encode())
-        yield
-    finally:
-        os.close(fd)
 
 
 class Session:
@@ -90,7 +65,7 @@ class Session:
              ) -> Iterator[Session]:
         place = locate() if place is _LOCATE else place
         running = process.running if running is None else running  # looked up now: tests replace it
-        with _lock(paths.support):
+        with writer_lock(paths.support):
             s = cls(paths, place, running, batch_id)
             try:
                 s._start(items_need_write)

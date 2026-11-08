@@ -30,8 +30,9 @@ from pathlib import Path
 
 from .. import __version__
 from . import master, process
+from .lock import writer_lock
 from .locate import Place
-from .write import NEW_SUFFIX, WriteRefused, replace_bytes
+from .write import NEW_SUFFIX, WriteRefused, remove_leftover, replace_bytes
 
 KEEP_NEWEST = 3
 MANIFEST = "manifest.json"
@@ -189,7 +190,7 @@ class Backup:
                 _copy_checked(src, kept)
             elif sha256_file(kept) != sha256_file(src):
                 later = self.folder / "later" / str(batch_id) / rel / src.name
-                if not later.exists():
+                if not later.exists() or sha256_file(later) != sha256_file(src):  # not a stale copy of an earlier undo
                     _copy_checked(src, later)
 
     def anlz_copy(self, place: Place, path: Path, batch_id: int | None) -> Path | None:
@@ -255,11 +256,19 @@ def prune(paths, keep_ids: set[str]) -> list[str]:
     return removed
 
 
-def restore(paths, place: Place | None, backup_id: str, *, running: Callable[[], bool] = process.running,
+def restore(paths, place: Place | None, backup_id: str, *, running: Callable[[], bool] | None = None,
             now: Callable[[], datetime] = _now) -> RestoreResult:
     """Puts rekordbox's library back as backup `backup_id` holds it. Refuses (`RestoreRefused`) with nothing changed
     while rekordbox runs, with `-wal`/`-shm` beside the library, for an unknown or damaged backup, or one made from
-    another library. Saves the current library first (`saved_current`)."""
+    another library; raises `Busy` (nothing changed) while another Discjockey writer holds `rekordbox.lock`, which
+    the whole restore holds. Saves the current library first (`saved_current`). `running` is looked up at call time
+    when left out."""
+    with writer_lock(paths.support):
+        return _restore(paths, place, backup_id, running or process.running, now)
+
+
+def _restore(paths, place: Place | None, backup_id: str, running: Callable[[], bool],
+             now: Callable[[], datetime]) -> RestoreResult:
     if place is None or not place.db.is_file():
         raise RestoreRefused("no_rekordbox")
     b = find(paths, backup_id)
@@ -281,13 +290,15 @@ def restore(paths, place: Place | None, backup_id: str, *, running: Callable[[],
     folders = [(t["track"], [place.share / rel for rel in t["folders"]]) for t in b.manifest.get("tracks") or []]
     saved = Backup._new(paths, place, dbid=dbid, batch_id=None, tracks=folders, db_version=db_version, now=now)
     saved.close(place)
-    replace_bytes(place.db, (b.folder / "master.db").read_bytes())
     share = b.folder / "share"
-    if share.is_dir():
-        for src in sorted(p for p in share.rglob("*") if p.is_file()):
-            dst = place.share / src.relative_to(share)
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            replace_bytes(dst, src.read_bytes())
+    targets = [(src, place.share / src.relative_to(share))
+               for src in sorted(p for p in share.rglob("*") if p.is_file())] if share.is_dir() else []
+    for path in (place.db, *(dst for _src, dst in targets)):
+        remove_leftover(path)  # a crash between a write and its rename leaves `<name>.dj-new` behind
+    replace_bytes(place.db, (b.folder / "master.db").read_bytes())
+    for src, dst in targets:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        replace_bytes(dst, src.read_bytes())
     return RestoreResult(saved.id, _missing_after(saved.folder / "master.db", place.db))
 
 

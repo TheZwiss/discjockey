@@ -79,7 +79,9 @@ def _same_track(paths: Paths, state: dict, track_id: str, compare, now: Callable
         outcome = batches.run(paths, batch, compare=compare, now=now, state=state)
     except batches.Refused as err:
         raise UpgradeProblem(str(err)) from None
-    except (batches.RekordboxOpen, batches.Busy) as err:
+    except (batches.RekordboxOpen, batches.Busy) as err:  # nothing ran: no resumable batch of one is left
+        batches.close_unrun(paths, batch, "busy" if isinstance(err, batches.Busy) else "rekordbox_open", str(err),
+                            now=now)
         raise UpgradeProblem(str(err)) from None
     item = outcome.results[0]
     if item.state != "done":

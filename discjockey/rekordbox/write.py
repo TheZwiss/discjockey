@@ -169,13 +169,13 @@ def nfc(text: str) -> str:
 def plan_text(entry: Entry, old_tags: dict[str, str], clean: dict[str, str]) -> dict[str, TextChange]:
     """Per text field what a write does (design §5.11, `eligible.text_plan`): the clean value where rekordbox still
     shows the old file's tag and the value differs, nothing where it already shows the clean value, and the user's
-    own edit kept."""
+    own edit kept. A clean value that is empty never blanks what rekordbox shows (the download lacks that tag)."""
     plan = eligible.text_plan(entry, old_tags, clean)
     out = {}
     for f, what in plan.items():
         shown = getattr(entry, f)
         value = clean.get(f) or ""
-        write = value if what == "write" and _norm(shown) != _norm(value) else None
+        write = value if what == "write" and _norm(value) and _norm(shown) != _norm(value) else None
         out[f] = TextChange(f, shown, write, what == "kept")
     return out
 
@@ -275,11 +275,18 @@ def replace_bytes(path: Path, data: bytes) -> None:
     _fsync_dir(path.parent)
 
 
+def remove_leftover(path: Path) -> None:
+    """Deletes `<name>.dj-new` beside `path`: what a crash between `replace_bytes`' write and its rename leaves."""
+    path.with_name(path.name + NEW_SUFFIX).unlink(missing_ok=True)
+
+
 @contextmanager
-def open_write(place: Place, *, dbid: str | None, running: Callable[[], bool] = process.running,
+def open_write(place: Place, *, dbid: str | None, running: Callable[[], bool] | None = None,
                clock: Callable[[], datetime] = _utcnow) -> Iterator[Writer]:
     """`place`'s library opened for writing after guards 1–4 and 7, closed on leaving. Raises `WriteRefused` with
-    nothing opened for writing. `dbid`: the library the batch read (None skips the compare)."""
+    nothing opened for writing. `dbid`: the library the batch read (None skips the compare). `running` is looked up
+    at call time when left out."""
+    running = running or process.running
     if running():
         raise WriteRefused("rekordbox_open")
     if master.leftovers(place.db):

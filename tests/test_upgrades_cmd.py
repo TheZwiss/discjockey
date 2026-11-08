@@ -274,3 +274,33 @@ def test_same_track_for_a_file_that_is_not_an_aiff_is_a_batch_of_one(tmp_path, m
     with db.connect(env.paths.db_file) as conn:
         [batch] = db.aiff_batches(conn)[0]
     assert (batch.state, batch.counts["done"]) == ("done", 1)
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("why", ["rekordbox_open", "busy"])
+def test_same_track_that_meets_rekordbox_open_or_busy_leaves_no_resumable_batch(tmp_path, monkeypatch, capsys, why):
+    import fcntl
+    import os
+    from convert_helpers import TID, make_env
+    from discjockey import db
+    env = make_env(tmp_path, monkeypatch)
+    fd = None
+    if why == "rekordbox_open":
+        monkeypatch.setattr("discjockey.rekordbox.process.running", lambda: True)
+    else:
+        env.paths.support.mkdir(parents=True, exist_ok=True)
+        fd = os.open(env.paths.support / "rekordbox.lock", os.O_RDWR | os.O_CREAT, 0o644)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        run_upgrades(env.paths, ask=answers("s"), compare=lambda cur, new: EXACT, now=lambda: NOW)
+    finally:
+        if fd is not None:
+            os.close(fd)
+    assert "Replaced." not in capsys.readouterr().out
+    assert load_state(env.paths)["tracks"][TID]["upgrade"]                        # the upgrade still waits
+    with db.connect(env.paths.db_file) as conn:
+        [batch] = db.aiff_batches(conn)[0]
+        assert db.unfinished_aiff_batches(conn) == []                              # nothing for To-do to Resume
+        batch = db.aiff_batch(conn, batch.id)
+    assert (batch.state, batch.stop_reason, batch.counts["planned"], batch.counts["skipped"]) == ("done", None, 0, 1)
+    assert batch.items[0].reason == why
