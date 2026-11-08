@@ -426,3 +426,7 @@ Results:
   Sonnet fix round running.
 - R1 fix round (Sonnet 264k): all 6 Important + 10 Minor fixed (6ceb88b; undo compares audio only, empty values leave
   rekordbox's field alone, batch undo refuses with rekordbox open, restore takes the lock); CI green. Next: B6.
+- B6 (Sonnet 250k, cut by the usage limit, then a fresh Sonnet 221k from its handoff): commands `upgrade`, `batch`,
+  `rekordbox checked|backups|restore`, tests, docs; one bug fixed (`checked --batch`); merged 056aa99, CI green. JSON
+  `ok` stays true when a batch ends with skips/failures (exit 1). Next: B7 (also the `upgrades` `s` key + tip from plan
+  §2 and `upgrade undo` order on same-second ties, left by B6).
