@@ -430,3 +430,9 @@ Results:
   `rekordbox checked|backups|restore`, tests, docs; one bug fixed (`checked --batch`); merged 056aa99, CI green. JSON
   `ok` stays true when a batch ends with skips/failures (exit 1). Next: B7 (also the `upgrades` `s` key + tip from plan
   §2 and `upgrade undo` order on same-second ties, left by B6).
+- B7 (Sonnet 360k, over its 250k estimate): bridge lists of tracks, `upgrade_all`, `batch_resume`, `batch_undo`,
+  `BatchProgress`, the batch check item, fake scenarios `upgrade-multi` + `upgrade-rekordbox-open`; hub batch of one
+  that meets rekordbox open/busy before anything ran is closed (no Resume), bigger batches stay stopped with Resume;
+  `upgrade undo` newest first by operations.log line. Merged 4db7342, CI green.
+- **Paused here by the user (2026-11-08 afternoon).** Next on go: RH (brief ready: scratchpad brief-33-RH.md; Opus;
+  needs worktree rb-b-rh on feat/rekordbox-b-rh from feat/rekordbox-b), then U1, U2, S, R2, V per plan §7.
