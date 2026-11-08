@@ -290,3 +290,24 @@ def write_wav(path: Path, audio: np.ndarray, sr: int) -> Path:
         w.setframerate(sr)
         w.writeframes((np.clip(audio, -1, 1) * 32767).astype("<i2").tobytes())
     return path
+
+
+# --- a Discjockey library for the rekordbox commands ---
+
+def own_entry(path: str | None = "Library/Mine/old name.mp3", **kw) -> dict:
+    """A song record of the user's own file (source "manual") as `library.save_state` takes it; `kw` overrides."""
+    from discjockey.planner import ENTRY_KEYS
+    e = dict.fromkeys(ENTRY_KEYS)
+    e.update(aliases=[], artist="Artist", title="Song", duration_ms=30000, folder="Mine", path=path,
+             status="lossless", source="manual", source_id=None, source_format="mp3", cutoff_hz=None,
+             rejected_sources=[], in_playlists=False, added="2026-10-01T10:00:00")
+    e.update(kw)
+    return e
+
+
+def save_library(paths, tracks: dict[str, dict]) -> None:
+    """The records of `paths`' library: exactly `tracks` (their files must exist first)."""
+    from discjockey.library import empty_state, save_state
+    state = empty_state()
+    state["tracks"].update(tracks)
+    save_state(paths, state)
