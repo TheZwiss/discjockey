@@ -135,7 +135,7 @@ const fake: PageFake = {
     // ... where Undo all can't put one back (relocated in rekordbox since): its row says why, the foot how many.
     'check-batch-undo-refused'(s) {
       const b = batchChecks(s, 3);
-      if (b[1]) s.undoRefuse = { [b[1].track_id]: "This track was changed in rekordbox since (relocated?), so Discjockey can't undo it safely. Nothing was changed." };
+      if (b[1]) s.undoRefuse = { [b[1].track_id]: "This track was moved or removed in rekordbox since the replace, so Discjockey can't put it back safely. Nothing was changed." };
     },
     // ... with rekordbox open: Undo all puts nothing back and says to quit rekordbox (design §8).
     'check-batch-rekordbox-open'(s) { batchChecks(s, 3); s.rekordbox_running = true; },

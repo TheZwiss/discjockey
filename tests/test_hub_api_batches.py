@@ -242,6 +242,41 @@ def test_the_rekordbox_state_is_read_once_per_change_of_master_db(hub, monkeypat
     assert len(calls) == 3
 
 
+def test_the_state_is_not_read_while_any_write_job_runs(hub, monkeypatch):
+    """A sync, import or tidy-up runs the recovery first, which can finish a rekordbox write: no job is known to
+    leave rekordbox alone, so the cached answer stays while one runs."""
+    lib, rb, api, rec = hub(["mp3"])
+    calls = []
+    real = rekordbox.status
+    monkeypatch.setattr(rekordbox, "status", lambda *a, **k: calls.append(1) or real(*a, **k))
+    api.todo()
+    assert len(calls) == 1
+    rb.running = True                                       # rekordbox opened ...
+    with open(lib.place.db, "ab") as f:                     # ... and master.db changed
+        f.write(b"\0")
+    with monkeypatch.context() as m:
+        m.setattr(api._jobs, "running", lambda: type("J", (), {"kind": "sync"})())
+        answer = api.todo()
+        assert len(calls) == 1 and answer["groups"]         # the last value, no open
+    api.todo()                                              # the job is over: the new state is read
+    assert len(calls) == 2
+
+
+def test_upgrade_all_tried_again_leaves_one_stopped_batch(hub):
+    lib, rb, api, rec = hub(["mp3", "mp3"], running=True)
+    first = wait_job(api, rec, api.upgrade_all()).result
+    second = wait_job(api, rec, api.upgrade_all()).result
+    assert first["batch"] != second["batch"] and second["state"] == "stopped"
+    assert group(api, "upgrade_ready")["stopped"] == {"batch_id": second["batch"], "left": 2}   # one Resume
+    with db.connect(lib.paths.db_file) as conn:
+        old = db.aiff_batch(conn, first["batch"])
+    assert (old.state, [i.reason for i in old.items]) == ("done", ["later_batch"] * 2)
+    rb.running = False
+    f = wait_job(api, rec, api.batch_resume(second["batch"]))
+    assert f.ok and f.result["done"] == 2
+    assert api.batch_resume(first["batch"])["kind"] == "refused"          # nothing to resume on the first one
+
+
 def test_no_rekordbox_on_this_mac_is_an_answer_not_a_problem(tmp_path, monkeypatch):
     lib = make_lib(tmp_path, monkeypatch, ["mp3"])
     api, rec = make_api(lib.paths, compare=lambda a, b: EXACT, rekordbox_running=lambda: False,

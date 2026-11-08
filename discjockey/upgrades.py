@@ -160,6 +160,21 @@ def undo_keys(paths: Paths, new: str, old: str) -> dict | None:
         return None
 
 
+def add_new_names(paths: Paths, state: dict, track_id: str, e: dict, status: str) -> tuple[str, str]:
+    """The names New track gives (relative to the music folder; the dry run asks it too): the new AIFF with the
+    correct name in the current file's folder (a 256 kbps version stays in a playlist folder's `not_lossless/`,
+    `replacement_dir`; the target name itself when the old file has it, which moves away first, else a free name) and
+    where the old file goes to in `Superseded/`."""
+    names = NameReserver(paths.root, state)
+    stem, ext = split_name(strip_id_suffix(PurePosixPath(e["path"]).name, track_id))
+    old = names.choose(superseded_dir(e["path"], watched_root(paths, e["path"])), stem, ext, track_id)
+    folder = replacement_dir(e, status)
+    target = f"{folder}/{expected_stem(e['artist'], e['title'])}.aiff"
+    if fold(e["path"]) == fold(target):
+        return target, old
+    return names.choose(folder, expected_stem(e["artist"], e["title"]), ".aiff", track_id), old
+
+
 def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compare = align.compare_files,
             offset: Offset | None = None, now: Callable[[], datetime] = datetime.now) -> Result:
     """The new file takes the correct name in the current file's folder (`<folder>/<Artist - Title>.aiff`, ID suffix
@@ -175,16 +190,8 @@ def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Co
     one when it can't be measured now) and whether the new file is lined up (`aligned`). A failure before the files
     move leaves nothing behind (UpgradeProblem)."""
     e = precondition(paths, state, track_id, upgrade, need_current=True)
-    names = NameReserver(paths.root, state)
-    stem, ext = split_name(strip_id_suffix(PurePosixPath(e["path"]).name, track_id))
-    old = names.choose(superseded_dir(e["path"], watched_root(paths, e["path"])), stem, ext, track_id)
     status = upgrade.get("status", "lossless")
-    folder = replacement_dir(e, status)  # a 256 kbps version stays in a playlist folder's not_lossless/
-    target = f"{folder}/{expected_stem(e['artist'], e['title'])}.aiff"
-    if fold(e["path"]) == fold(target):  # the old file has the name: it moves away (first rename), then the new one
-        new = target
-    else:
-        new = names.choose(folder, expected_stem(e["artist"], e["title"]), ".aiff", track_id)
+    new, old = add_new_names(paths, state, track_id, e, status)
     alignment = compare(paths.root / e["path"], paths.root / upgrade["file"])
     measured = alignment.to_dict() if alignment.result != "unknown" else (upgrade.get("alignment") or {})
     shift = _lined_up_shift(paths.root / e["path"], alignment, offset)
@@ -650,8 +657,8 @@ NOTHING_TO_UNDO = "There is no upgrade to undo for this track."
 UNDO_REFUSED = {
     "rekordbox_open": "Quit rekordbox to undo: Discjockey points your rekordbox track back at your old file only "
                       "while rekordbox is closed.",
-    "relocated": "This track was changed in rekordbox since (relocated?), so Discjockey can't undo it safely. "
-                 "Nothing was changed.",
+    "relocated": "This track was moved or removed in rekordbox since the replace, so Discjockey can't put it "
+                 "back safely. Nothing was changed.",
     "unclean": "rekordbox didn't close normally last time. Open rekordbox, quit it, and try again. Nothing was "
                "changed.",
     "cloud": "This track is in rekordbox's Cloud Library Sync, which Discjockey doesn't change yet. Nothing was "

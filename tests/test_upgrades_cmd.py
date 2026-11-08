@@ -78,7 +78,7 @@ def test_nothing_waiting(tmp_path, capsys):
 def test_each_upgrade_is_shown_like_the_spec(root, capsys):
     assert run(root, "l", "l") == 0
     out = capsys.readouterr().out
-    assert out.startswith("Tip: quit rekordbox first: for a file that isn't AIFF, Discjockey points your rekordbox "
+    assert out.startswith("Quit rekordbox first: for a file that isn't AIFF, Discjockey points your rekordbox "
                           "track at the new file.\n")
     assert ("[Hard_Bounce] BΞNZ0 - Bass Is Coming · lossless version from Qobuz\n"
             "  now:  YouTube Music OPUS · cutoff 20.1 kHz   Library/Hard_Bounce/not_lossless/BΞNZ0 - Bass Is Coming.aiff\n"

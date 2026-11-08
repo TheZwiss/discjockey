@@ -199,6 +199,39 @@ def test_stop_between_items_then_resume(tmp_path, monkeypatch):
         go(lib, batch_id, resume=True)
 
 
+def test_a_song_is_planned_in_one_batch_only(tmp_path, monkeypatch):
+    """A new batch takes over the unrun items of earlier stopped batches for its songs: no dead Resume is left, and
+    the done items of those batches stay."""
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3", "mp3", "mp3"])
+    first = start(lib, [0, 1, 2])
+    with pytest.raises(batches.RekordboxOpen):
+        go(lib, first, running=lambda: True)
+    assert states(lib, first) == ["planned"] * 3 and lib.batch(first).state == "stopped"
+    start(lib, [1, 3])                               # song 1 is planned again; song 3 is new
+    assert states(lib, first) == ["planned", "skipped", "planned"] and lib.batch(first).state == "stopped"
+    assert [i.reason for i in lib.batch(first).items] == [None, "later_batch", None]
+    start(lib, [0, 2])                               # the rest of the first batch: nothing is left, so it ends
+    assert states(lib, first) == ["skipped"] * 3
+    assert (lib.batch(first).state, lib.batch(first).backup) == ("done", None)
+    with pytest.raises(ValueError):
+        go(lib, first, resume=True)                  # nothing to resume any more
+    # a batch that did something keeps its done items when its remaining songs move on
+    token = CancelToken()
+    stopped = start(lib, [0, 1])
+    emitted = []
+
+    def stop_after_first(event):
+        emitted.append(event)
+        if event.track_id == lib.tracks[0]:
+            token.cancel()
+    with pytest.raises(batches.Stopped):
+        batches.run(lib.paths, stopped, emit=stop_after_first, token=token, compare=lambda a, b: EXACT,
+                    now=lambda: NOW, running=never, place=lib.place)
+    assert states(lib, stopped) == ["done", "planned"]
+    start(lib, [1])
+    assert states(lib, stopped) == ["done", "skipped"] and lib.batch(stopped).state == "done"
+
+
 def test_resume_asks_eligibility_again(tmp_path, monkeypatch):
     lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3"])
     token = CancelToken()
@@ -375,7 +408,7 @@ def test_batch_undo_goes_newest_first_and_lists_what_was_refused(tmp_path, monke
     assert [(r.track, r.state) for r in result.results] == [
         (lib.tracks[2], "undone"), (lib.tracks[1], "undone"), (lib.tracks[0], "refused")]
     assert (result.batch, result.total, result.undone, result.refused, result.failed) == (batch_id, 3, 2, 1, 0)
-    assert result.results[2].reason == "relocated" and "relocated" in result.results[2].message
+    assert result.results[2].reason == "relocated" and "moved or removed" in result.results[2].message
     assert states(lib, batch_id) == ["done", "undone", "undone"]
     assert lib.entry(2)["path"] == lib.olds[2] and lib.entry(2)["upgrade"] and lib.entry(0)["path"].endswith("Song 0.aiff")
     assert lib.row(2)["FolderPath"] == str(lib.paths.root / lib.olds[2])

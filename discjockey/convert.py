@@ -395,14 +395,14 @@ def _raise_refusal(err: BaseException) -> None:
                          "waiting.") from err
 
 
-def _kept_note(kept: list[str]) -> str:
+def kept_note(kept: list[str]) -> str:
     return KEPT_NOTE.format(fields=" / ".join(TEXT_NAMES[f] for f in kept)) if kept else ""
 
 
 def _result(track_id: str, e: dict, op: dict) -> Result:
     rb = op["rekordbox"]
     note = f"new file {op['new']}, lined up with rekordbox; the old one moved to {op['superseded']}"
-    extra = NO_TRACK_NOTE if rb is None else _kept_note(rb.get("kept") or [])
+    extra = NO_TRACK_NOTE if rb is None else kept_note(rb.get("kept") or [])
     if extra:
         note += f". {extra}"
     return Result("swapped", e["folder"], e["artist"], e["title"], track_id, note,

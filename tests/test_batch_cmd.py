@@ -14,7 +14,7 @@ import pytest
 
 from batch_helpers import DIFFERENT, Lib, make_lib, needs_ffmpeg, use
 from convert_helpers import EXACT
-from discjockey import align, batch_cmd, cli, db, library
+from discjockey import align, batch_cmd, batches, cli, db, library, report
 from discjockey.events import CancelToken
 from discjockey.library import load_state, save_state
 from discjockey.rekordbox import backup as rbbackup
@@ -148,7 +148,7 @@ def test_apply_all_done_for_every_track_is_exit_0_with_the_words(tmp_path, monke
     code, out, err = run(["upgrade", "apply", "--all", *SAME], capsys)
     assert code == OK
     assert out.splitlines()[:2] == ["Upgraded: Artist - Song 0 → Artist - Song 0.aiff", "Upgraded: Artist - Song 1 → Artist - Song 1.aiff"]
-    assert "2 upgraded, your cues stayed." in out and batch_cmd.USB_STEP in out
+    assert "2 upgraded, your cues stayed." in out and report.USB_STEP in out
     assert err.splitlines() == ["1 of 2: Artist - Song 0", "2 of 2: Artist - Song 1"]   # progress goes to stderr
     assert lib.entry(0)["rekordbox_check"]["batch"] == lib.entry(1)["rekordbox_check"]["batch"]
 
@@ -176,6 +176,25 @@ def test_one_id_several_ids_and_all_give_the_same_results(tmp_path, monkeypatch,
     assert one[1] == [by_ids[1][1]] and one[2] == 1                       # the same per-track result for one id
     again = results("d", lambda lib: ["upgrade", "apply", lib.tracks[0], lib.tracks[0], lib.tracks[1], *SAME])
     assert again[1] == by_ids[1][:2]                                      # a repeated key counts once
+
+
+def test_the_console_and_the_window_give_the_same_results_for_the_same_library(tmp_path, monkeypatch, capsys):
+    """Plan §5.2 B6, "as the bridge": the same library through `api.upgrade(ids, "swap")` and `upgrade apply` ends
+    with the same per-track results (the console does not carry its own rules)."""
+    from hub_helpers import make_api, wait_job
+    kinds = ["mp3", "aiff", "mp3_free", "mp3_plain", "stale"]
+    (tmp_path / "hub").mkdir()
+    hub_lib = make_lib(tmp_path / "hub", monkeypatch, kinds)
+    api, rec = make_api(hub_lib.paths, compare=lambda a, b: EXACT, rekordbox_running=lambda: False,
+                        rekordbox_place=lambda: hub_lib.place)
+    finished = wait_job(api, rec, api.upgrade(hub_lib.tracks, "swap"))
+    console_lib = make(tmp_path, monkeypatch, kinds, "console")
+    code, data = run_json(["upgrade", "apply", *console_lib.tracks, *SAME], capsys)
+    assert code == FAILED and data["ok"] is True               # some were skipped: ran to its end, exit 1
+    assert finished.result["results"] == data["results"]
+    assert [r["state"] for r in data["results"]] == ["done", "done", "done", "skipped", "skipped"]
+    assert {k: finished.result[k] for k in ("state", "total", "done", "skipped", "failed")} == {
+        k: data[k] for k in ("state", "total", "done", "skipped", "failed")}
 
 
 def test_an_unknown_track_is_skipped_and_nothing_to_do_is_refused(tmp_path, monkeypatch, capsys):
@@ -216,6 +235,18 @@ def test_dry_run_changes_nothing_and_takes_no_lock(tmp_path, monkeypatch, capsys
     assert set(place) == {"drive", "needed", "free", "enough"} and place["needed"] > 0 and place["enough"] is True
     assert data["rekordbox"] == {"state": "ready", "running": False, "needs_rekordbox_closed": False}
     assert untouched(lib) == before and not (lib.paths.root / ".discjockey" / "rekordbox").exists()
+
+
+def test_the_new_track_dry_run_names_the_files_the_run_makes(tmp_path, monkeypatch, capsys):
+    """An AIFF that already has the clean name moves away first, so the new file takes that very name (no ID)."""
+    lib = make(tmp_path, monkeypatch, ["aiff", "mp3"])
+    code, plan = run_json(["upgrade", "apply", *lib.tracks, "--way", "new-track", "--dry-run"], capsys)
+    assert code == OK and plan["planned"] == 2
+    code, data = run_json(["upgrade", "apply", *lib.tracks, "--way", "new-track"], capsys)
+    assert code == OK
+    for i, row in enumerate(plan["results"]):
+        assert row["new_file"] == str(lib.paths.root / lib.entry(i)["path"])
+    assert plan["results"][0]["new_file"].endswith("Library/A/Artist - Song 0.aiff")
 
 
 def test_dry_run_names_what_it_would_skip_and_says_when_rekordbox_must_be_closed(tmp_path, monkeypatch, capsys):
@@ -286,6 +317,13 @@ def test_discard_several_and_undo_several(tmp_path, monkeypatch, capsys):
     assert lib2.entry(0)["path"] == lib2.olds[0] and lib2.entry(0)["upgrade"]
     code, out, _ = run(["upgrade", "undo", lib2.tracks[0]], capsys)       # nothing left to undo: refused, exit 1
     assert code == FAILED and "Not undone: Artist - Song 0" in out
+    code, data = run_json(["upgrade", "undo", lib2.tracks[0]], capsys)    # ... and ok is false, as the window's job
+    assert code == FAILED and (data["ok"], data["kind"]) == (False, "refused")
+    assert (data["total"], data["undone"], data["refused"]) == (1, 0, 1)
+    assert data["message"] == data["results"][0]["message"]               # one track: its own words
+    code, data = run_json(["upgrade", "undo", *lib2.tracks], capsys)      # several: the general sentence
+    assert code == FAILED and (data["ok"], data["kind"], data["message"]) == (False, "refused",
+                                                                              batches.NOTHING_UNDONE)
 
 
 # --- Busy, rekordbox open, Stop ---
@@ -319,8 +357,14 @@ def test_rekordbox_lock_held_leaves_the_batch_stopped_and_resumable(tmp_path, mo
         code, data = run_json(["batch", "undo", str(batch)], capsys)               # an undo writes rekordbox too
         assert code == BUSY and (data["ok"], data["kind"], data["message"]) == (False, "busy", rbsession.BUSY)
     assert (lib.music(), lib.dump()) == before
+    # the second try planned the same songs again: the first batch gave its unrun items up (one batch per song)
+    code, data = run_json(["batch", "show", str(batch)], capsys)
+    assert code == OK and data["state"] == "done" and [(r["state"], r["reason"]) for r in data["results"]] == [
+        ("skipped", "later_batch")] * 2
     code, data = run_json(["batch", "resume", str(batch)], capsys)
-    assert code == OK and (data["state"], data["done"], data["batch"]) == ("done", 2, batch)
+    assert code == FAILED and data["reason"] == "not_stopped"
+    code, data = run_json(["batch", "resume", str(batch + 1)], capsys)
+    assert code == OK and (data["state"], data["done"], data["batch"]) == ("done", 2, batch + 1)
 
 
 def test_rekordbox_open_is_exit_4_and_resume_finishes_after_it_quit(tmp_path, monkeypatch, capsys):
@@ -347,6 +391,72 @@ def test_a_batch_that_needs_no_rekordbox_write_runs_while_rekordbox_is_open(tmp_
     rekordbox_open(monkeypatch)
     code, data = run_json(["upgrade", "apply", "--all", *SAME], capsys)
     assert code == OK and data["done"] == 2 and data["backup"] is None
+
+
+def test_a_batch_of_one_that_meets_rekordbox_open_is_closed_not_left_to_resume(tmp_path, monkeypatch, capsys):
+    lib = make(tmp_path, monkeypatch, ["mp3", "mp3"])
+    rekordbox_open(monkeypatch)
+    before = lib.music(), lib.dump()
+    code, data = run_json(["upgrade", "apply", lib.tracks[0], *SAME], capsys)
+    assert code == REKORDBOX_OPEN and (data["ok"], data["kind"], data["reason"]) == (False, "rekordbox_open", "rekordbox_open")
+    assert (data["state"], data["stop_reason"], data["done"], data["total"]) == ("done", None, 0, 1)
+    assert [(r["state"], r["reason"]) for r in data["results"]] == [("skipped", "rekordbox_open")]
+    assert (lib.music(), lib.dump()) == before and lib.entry(0)["upgrade"]       # still waiting in Upgrade ready
+    code, out, _ = run(["upgrade", "apply", lib.tracks[0], *SAME], capsys)
+    assert code == REKORDBOX_OPEN and "resume" not in out.lower()                   # nothing to resume
+    assert "stopped" not in run(["batch", "list"], capsys)[1]
+    code, data = run_json(["batch", "resume", str(data["batch"])], capsys)
+    assert code == FAILED and data["reason"] == "not_stopped"
+    # several tracks, or Upgrade all with one: the batch stays stopped and resumable (as the window's)
+    lib2 = make(tmp_path, monkeypatch, ["mp3"], "two")
+    code, data = run_json(["upgrade", "apply", "--all", *SAME], capsys)
+    assert code == REKORDBOX_OPEN and (data["state"], data["stop_reason"]) == ("stopped", "rekordbox_open")
+    assert lib2.entry(0)["upgrade"]
+
+
+def test_a_batch_of_one_that_meets_the_rekordbox_lock_is_closed_too(tmp_path, monkeypatch, capsys):
+    lib = make(tmp_path, monkeypatch, ["mp3", "aiff"])
+    with rbsession.writer_lock(lib.paths.support):
+        code, data = run_json(["upgrade", "apply", lib.tracks[0], *SAME], capsys)
+        assert code == BUSY and (data["ok"], data["kind"], data["message"]) == (False, "busy", rbsession.BUSY)
+        assert (data["state"], data["done"]) == ("done", 0)
+        assert [(r["state"], r["reason"]) for r in data["results"]] == [("skipped", "busy")]
+        code, out, _ = run(["upgrade", "apply", lib.tracks[0], *SAME], capsys)
+        assert code == BUSY and "resume" not in out.lower()
+    code, data = run_json(["upgrade", "apply", lib.tracks[0], *SAME], capsys)       # the next try works
+    assert code == OK and data["done"] == 1
+
+
+def test_a_batch_stopped_by_rekordbox_midway_tells_the_console_way_on(tmp_path, monkeypatch, capsys):
+    lib = make(tmp_path, monkeypatch, ["mp3", "mp3"])
+    batch = batches.start(lib.paths, [(t, "same_track") for t in lib.tracks])
+    result = batches.BatchResult(batch, "stopped", "rekordbox_open", 2, 1, 0, 0, [
+        batches.ItemResult(lib.tracks[0], "same_track", "done", None, None, None, None),
+        batches.ItemResult(lib.tracks[1], "same_track", "planned", None, None, None, None)], None)
+
+    def call(_token):
+        raise batches.RekordboxOpen(result)
+    args = cli.parse_args(["batch", "resume", str(batch)])
+    code = batch_cmd._finish(args, lib.paths, load_state(lib.paths), (), batch, call)
+    out = capsys.readouterr().out
+    assert code == REKORDBOX_OPEN
+    assert f"stopped after 1 of 2. Quit rekordbox and run: discjockey batch resume {batch}." in out
+    assert "press Resume" not in out                                      # that is the window's button
+
+
+def test_the_done_lines_say_what_was_kept_and_when_rekordbox_had_no_track(tmp_path, monkeypatch):
+    lib = make(tmp_path, monkeypatch, ["mp3"])
+    state = load_state(lib.paths)
+
+    def item(rb):
+        return batches.ItemResult(lib.tracks[0], "same_track", "done", None, None, "Library/A/Song.aiff", rb)
+    assert batch_cmd._item_lines(state, item({"entries": ["1"], "kept": ["title", "album"]})) == [
+        "Upgraded: Artist - Song 0 → Song.aiff", "  Kept your own title / album in rekordbox."]   # the engine's " / "
+    assert batch_cmd._item_lines(state, item({"entries": ["1"], "kept": []})) == [
+        "Upgraded: Artist - Song 0 → Song.aiff"]
+    assert batch_cmd._item_lines(state, item(None)) == [
+        "Upgraded: Artist - Song 0 → Song.aiff", "  This file isn't in your rekordbox collection, so there was nothing "
+        "to keep there."]
 
 
 def test_undo_and_restore_refuse_while_rekordbox_is_open(tmp_path, monkeypatch, capsys):
@@ -533,7 +643,10 @@ def test_batch_undo_lists_a_track_it_cannot_undo_and_is_exit_1(tmp_path, monkeyp
     assert [(r["track"], r["state"], r["reason"]) for r in data["results"]] == [
         (lib.tracks[1], "undone", None), (lib.tracks[0], "refused", "relocated")]
     code, out, _ = run(["batch", "undo", str(batch)], capsys)
-    assert "Not undone: Artist - Song 0 (" in out
+    assert code == FAILED and "Not undone: Artist - Song 0 (" in out
+    code, data = run_json(["batch", "undo", str(batch)], capsys)      # nothing left that can be undone: a refusal
+    assert code == FAILED and (data["ok"], data["kind"], data["undone"], data["refused"]) == (False, "refused", 0, 1)
+    assert "moved or removed in rekordbox" in data["message"]
 
 
 # --- rekordbox checked ---
@@ -557,6 +670,23 @@ def test_checked_by_keys_and_by_batch(tmp_path, monkeypatch, capsys):
 
 
 # --- rekordbox backups / restore ---
+
+def test_checked_writes_operations_log_lines_and_batch_0_is_a_batch(tmp_path, monkeypatch, capsys):
+    lib = make(tmp_path, monkeypatch, ["mp3", "aiff"])
+    run_json(["upgrade", "apply", *lib.tracks, *SAME], capsys)
+    assert run_json(["rekordbox", "checked", lib.tracks[0]], capsys)[0] == OK
+    lines = [json.loads(line) for line in lib.paths.operations_log.read_text(encoding="utf-8").splitlines()]
+    [line] = [x for x in lines if x["operation"] == "rekordbox_checked"]
+    assert (line["track_id"], line["result"], line["artist"], line["title"]) == (
+        lib.tracks[0], "done", "Artist", "Song 0")
+    # `--batch 0` is a batch id (no such batch), not "no --batch given"
+    code, data = run_json(["rekordbox", "checked", "--batch", "0"], capsys)
+    assert code == FAILED and (data["ok"], data["reason"]) == (False, "unknown_batch")
+    with pytest.raises(SystemExit):
+        cli.parse_args(["rekordbox", "checked", lib.tracks[1], "--batch", "0"])      # both given is a usage error
+    with pytest.raises(SystemExit):
+        cli.parse_args(["rekordbox", "checked"])                                     # neither is too
+
 
 def test_backups_and_restore(tmp_path, monkeypatch, capsys):
     lib = make(tmp_path, monkeypatch, ["mp3", "mp3"])

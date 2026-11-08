@@ -346,6 +346,10 @@ design §10 (`kind`: `rekordbox_open` | `refused` | `changed` | `failed` | `busy
 Human output: one line per track ("Upgraded: Artist - Title → Artist - Title.aiff", "Skipped: … (reason in
 words)"), then the summary; the reason words are `preview.REASON_WORDS` plus §3's new ones. `discjockey upgrades`
 (interactive) stays; its `s` runs a batch of one (Same track for any format) and its tip becomes §3's console tip.
+A batch of one named track that meets rekordbox open or a busy `rekordbox.lock` before anything ran is closed, not left
+`stopped` (`batches.close_unrun`, in `apply` as in `upgrades` and the window); a new batch closes the unrun items of
+earlier stopped batches for the same songs (`later_batch`), so each song waits in one batch only. The app's program
+runs these commands too (`app_main.CLI_COMMANDS`), so the README's restore advice can name a path the app has.
 
 **CONTRIBUTING.md** › "Commands for scripts and agents": one entry per command (flags, JSON, exit codes, lock, what it
 changes), the exit-code table, and that an agent's command counts as the user starting it. `docs/issues.md` issue 39:
@@ -377,6 +381,8 @@ Reload Tag step (for a swap whose text write didn't run, and a batch card listin
 | Busy (rekordbox.lock) | "Discjockey is already changing your rekordbox library in another window or the Terminal." |
 | Recovery waits for rekordbox | "Quit rekordbox so Discjockey can finish an interrupted replace for {name}." (design §5.8) |
 | Recovery messages | design §5.8's three |
+| Undo refused (the track was moved or removed in rekordbox since the replace) | "This track was moved or removed in rekordbox since the replace, so Discjockey can't put it back safely. Nothing was changed." (reason words: the same in one clause) |
+| A track planned in a later batch | reason `later_batch`, "it was planned again in a later batch" |
 | Restore, human | "Restored rekordbox's library from {id}. Your library as it was is saved as {saved}." + §0.14's line when tracks point at Superseded/ |
 
 The UI agent may shorten panel rows to fit; each meaning stays, with the reason in its commit.
@@ -394,7 +400,7 @@ Into `docs/hub-bridge-contract.md`, `types.ts` + `contract.ts`, and the fake bac
   three. New problem kind **`rekordbox_open`** (the job's `result` is the stopped `BatchResult` when items ran).
 - **`batch_resume(batch_id)`**, **`batch_undo(batch_id)`**: jobs `batch_resume` / `batch_undo`.
 - **`undo_upgrade(track_ids: list[str])`**: one job, newest first; result `UndoResult {results: [ItemResult]}`;
-  `rekordbox_open`, `refused` per item inside.
+  `rekordbox_open`, `refused` per item inside. It sends no `BatchProgress` (only `batch_undo` does).
 - **`rekordbox_checked(track_ids: list[str])`**: one job; the batch card sends its done tracks.
 - **`upgrade_block`**: `swap_possible` now means "Same track is possible" (`same_track_quick`); new `swap_how`
   (`"in_place" | "new_aiff"`), `rekordbox: {"state", "running"}` (the cached status), `why_not` (a `REASONS` key or
@@ -408,7 +414,8 @@ Into `docs/hub-bridge-contract.md`, `types.ts` + `contract.ts`, and the fake bac
   rows with check + can_undo]}}` (a type guard `isBatch` like `isDuplicate`); a batch of one stays a plain item.
   Counts: a batch counts as one to-do in `chips`.
 - **Cached status:** `api._rekordbox_status()` keyed on `master.db`'s mtime and size plus `running()`; never opened
-  while a job of this hub writes rekordbox (it answers the last value then). Views stay pure: the status is passed in.
+  while any write job of this hub runs (a sync, import or tidy-up runs the recovery first, which can write rekordbox;
+  it answers the last value then). Views stay pure: the status is passed in.
 - **Services:** `Services.rekordbox_running` (default `process.running`) and `Services.rekordbox_place` (default
   `locate`), so tests and the fake never touch a real library.
 - `_single`'s "the entry as the page showed it" check stays for one-track calls of `add_new`/`discard`; a batch

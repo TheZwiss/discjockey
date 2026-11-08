@@ -50,6 +50,11 @@ Every command runs without prompts and ends with an exit code. Where it has `--j
 `{"ok": true, …}`, or `{"ok": false, "kind": "refused" | "failed", "message": "…"}` (a refusal also has a `reason`).
 Issue 39 gathers these into the agent docs; the entries below are the ones issue 33's stages A and B added.
 
+Someone who installed the app has no `discjockey` command, but the app's program takes the same ones: in the
+Terminal, `/Applications/Discjockey.app/Contents/MacOS/Discjockey rekordbox backups` (any of the commands, in place of
+`discjockey`; the README's restore advice uses it). `app_main.py` hands an argument list that starts with one of
+`CLI_COMMANDS` to `cli.main`, and anything else opens the window.
+
 **`discjockey rekordbox status [--json]`** says whether rekordbox's library can be read. Read only: it takes no
 library lock and needs no music folder. JSON: `{"ok", "state", "running", "version", "library", "problem",
 "db_version"}`. `state` is `ready`, `none` (no rekordbox library on this Mac) or `unreadable` (Discjockey can't open
@@ -107,6 +112,9 @@ Artist - Title") go to stderr; with `--json` stdout holds exactly one JSON objec
 | 4 | rekordbox is open: nothing was done, or the batch stopped there (quit rekordbox, then `batch resume <id>`) |
 | 5 | stopped by Ctrl-C between tracks (`batch resume <id>`); the sync's own 130 stays for the sync |
 
+Every command that changes something, when it finished an interrupted step first (`library.recover_pending`), also
+prints `"recovered": [[message, ok], …]` (the messages in words); without such a step the key is absent.
+
 **`ok` and the exit code.** `{"ok": true, …}` means the command ran to its end: a batch that finished with some tracks
 skipped or failed is still `ok: true` (each track's `state` and `reason` are in `results`), and its exit code is 1.
 `{"ok": false, "kind": "refused" | "failed" | "busy" | "rekordbox_open" | "stopped", "reason"?, "message", …}` is for a
@@ -132,8 +140,13 @@ is pointed at it; an AIFF is swapped in place. `--all` is "Upgrade all" (every t
 `batch: null` in the result). `--all` with `new-track` exits 1 (`kind: "refused"`, `reason: "all_needs_same_track"`).
 JSON: `{"ok", "batch": <id> | null, "state": "done", "stop_reason", "total", "done", "skipped", "failed", "results",
 "backup": <backup id> | null}`. When nothing could run the answer is a refusal (`ok: false`, `kind: "refused"`, the
-one track's `reason`, or none for several). Exit 3 holds the batch `stopped` (`stop_reason: "busy"`), exit 4
-`stopped` (`rekordbox_open`), exit 5 `stopped` (`stop`); all three are resumable with `batch resume`.
+one track's `reason`, or none for several). Exit 4 (rekordbox open) and exit 5 (Ctrl-C) leave the batch `stopped`
+(`stop_reason` `rekordbox_open` / `stop`), and exit 3 with `rekordbox.lock` held by another window or Terminal leaves
+it `stopped` (`busy`); those are resumable with `batch resume`. Exit 3 for the library lock records no batch at all.
+A batch of one named track (not `--all`) that meets rekordbox open or `rekordbox.lock` busy before anything ran is
+closed instead (its song is skipped with that reason and stays in Upgrade ready; there is nothing to resume), as the
+window's single Replace does. Starting a batch for songs an earlier stopped batch still has `planned` closes those
+items there (`skipped`, reason `later_batch`), so each song waits in one batch only.
 `--dry-run` takes no lock, writes nothing and decodes nothing: per track `{"track", "action", "state": "planned" |
 "skipped", "reason", "file", "new_file", "superseded"}`, plus `{"ok", "dry_run": true, "way", "total", "planned",
 "skipped", "space": [{"drive", "needed", "free", "enough"}], "rekordbox": {"state", "running",
@@ -144,7 +157,9 @@ one track's `reason`, or none for several). Exit 3 holds the batch `stopped` (`s
 rekordbox's text and path), one job. Both print the batch shape with `batch: null` (discard) or `{"ok", "batch":
 null, "total", "undone", "refused", "failed", "results": [{"track", "state": "undone" | "refused" | "failed" |
 "waiting", "reason", "message"}]}` (undo). Undo with rekordbox open and a rekordbox change to take back exits 4 and
-undoes nothing (`waiting`).
+undoes nothing (`waiting`). An undo that undid nothing at all ends `{"ok": false, "kind": "refused", "message", …}`
+with the same fields (the one track's own message, else "None of these could be undone.") and exit 1, as the window's
+job fails `refused`.
 
 **`discjockey batch list [--json]`** (the newest batches: `{"ok", "count", "batches": [{"batch", "kind",
 "started_by", "state": "running" | "stopped" | "done", "stop_reason", "started", "ended", "total", "done", "skipped",

@@ -60,12 +60,11 @@ from .jobs import (NOT_CONNECTED, UNEXPECTED, AppUpdate, Busy, DrivesChanged, Fi
 RUN_ID = re.compile(r"\d{4}-\d{2}-\d{2}_\d{6}")
 WHICH = ("current", "upgrade")
 UPGRADE_MODES = ("swap", "add_new", "discard")
-REKORDBOX_JOBS = ("upgrade_batch", "batch_resume", "batch_undo", "undo_upgrade")  # jobs that may write rekordbox
 NO_TRACKS = "No tracks were chosen."
 NO_UPGRADES = "None of these can be upgraded right now."
 NO_AIFF_BATCH = "Discjockey has no record of this batch."
 NOT_STOPPED = "This batch is not stopped, so there is nothing to resume."
-UNDO_NONE = "None of these could be undone."
+UNDO_NONE = batches.NOTHING_UNDONE
 NOTHING_TO_CHECK = "There is nothing to check for these tracks any more."
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
 AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
@@ -572,20 +571,22 @@ class HubApi:
                 files = {g.id: db.group_files(conn, g.id) for g in groups if g.id not in counted}
         # the sidebar's number needs neither rekordbox's state nor a look at each file
         rb = None if count_only else self._rekordbox_status()
-        present = None if count_only else (lambda e: batches.present(self._paths, e))
+        present = None if count_only else {k: batches.present(self._paths, e) for k, e in state["tracks"].items()
+                                           if e.get("upgrade")}
         return views.todo(state, filt, show_hidden, self._others(state), self._today(), self._cover(self._images()),
                           questions, groups, files, self._audio, counted, away, rb, present,
                           None if count_only else self._stopped_batch())
 
     def _rekordbox_status(self) -> rekordbox.Status:
         """rekordbox's state for the screens, cached on master.db's modified time and size plus whether rekordbox runs
-        (plan rekordbox B §4): one read open per change, never while a job of this hub may write rekordbox (it answers
-        the last value then, or "readable" when it has none)."""
+        (plan rekordbox B §4): one read open per change, never while any write job of this hub runs (it answers the
+        last value then, or "readable" when it has none): a sync, import or tidy-up runs `recover_pending` first, which
+        can finish a rekordbox write, so no job is known to leave rekordbox alone."""
         running = bool(self._svc.rekordbox_running())
         with self._lock:
             last = self._rb_cache
         job = self._jobs.running()
-        if job is not None and job.kind in REKORDBOX_JOBS:
+        if job is not None:
             return last[1] if last else rekordbox.Status("ready", running, None, None, None, None, None)
         place = self._svc.rekordbox_place()
         stat = None

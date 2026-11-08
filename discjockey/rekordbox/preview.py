@@ -51,7 +51,8 @@ REASON_WORDS = {
     "busy": "another Discjockey window or the Terminal is changing your rekordbox library; try again when it is done",
     "rename_blocked": "Discjockey can only give this file its new name while it can point your rekordbox track at "
                       "it, and it can't right now",
-    "relocated": "this track was changed in rekordbox since (relocated?), so Discjockey can't undo it safely",
+    "later_batch": "it was planned again in a later batch",
+    "relocated": "this track was moved or removed in rekordbox since the replace, so Discjockey can't put it back safely",
 }
 
 

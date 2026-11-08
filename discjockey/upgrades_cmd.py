@@ -13,7 +13,7 @@ from .models import SOURCE_NAMES
 from .quality import quality_line
 from .upgrades import UpgradeProblem
 
-TIP = ("Tip: quit rekordbox first: for a file that isn't AIFF, Discjockey points your rekordbox track at the new "
+TIP = ("Quit rekordbox first: for a file that isn't AIFF, Discjockey points your rekordbox track at the new "
        "file.")
 CHOICES = {"s": "same track", "a": "add as new file", "d": "discard", "f": "show in Finder", "l": "later (default)",
            "q": "quit"}

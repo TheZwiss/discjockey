@@ -155,7 +155,7 @@ def test_undo_refused_for_a_relocated_track(tmp_path, monkeypatch):
     state = load_state(env.paths)
     with pytest.raises(UndoRefused) as err:
         upgrades.undo(env.paths, state, TID)
-    assert err.value.reason == "relocated" and "relocated?" in str(err.value)
+    assert err.value.reason == "relocated" and "moved or removed in rekordbox" in str(err.value)
     assert_unchanged(env, after, state)
 
 

@@ -2478,3 +2478,27 @@ def test_todo_items_carry_the_file_state_of_their_file_like_library_rows():
     # a question is about the user's own file, wherever the playlist song stands
     assert states(away, questions=[question()])["t1"] == "offline"  # its own file local:1 is on the ejected drive
     assert states(questions=[question()])["t1"] == "here"
+
+
+def test_the_upgrade_ready_keys_are_the_todo_lists_upgrade_ready_group():
+    """The window's Upgrade all and the console's `upgrade list` / `apply --all` share one answer (plan B §2)."""
+    up = {"file": "Upgrades ready/x.aiff", "alignment": {"result": "exact"}}
+    st = state(t1=e("not_lossless", upgrade=up), t2=e("not_lossless", upgrade=up, hidden=True),
+               t3=e("not_lossless", upgrade=up, import_state="identified"),
+               t4=e("not_lossless", upgrade=up, in_playlists=False),     # nobody's: not on To-do
+               t5=e("not_lossless", upgrade=up),                          # waits for a "same song?" answer
+               t6=e("not_lossless"),                                      # no better version
+               **{"local:1": own("not_lossless", cutoff=16000, upgrade=up)})
+    listed = [i["track_id"] for g in views.todo(st, "all", False, {}, TODAY, None, [question(song_key="t5")])["groups"]
+              if g["key"] == "upgrade_ready" for i in g["items"]]
+    assert sorted(views.upgrade_ready_keys(st, {"t5"})) == sorted(listed) == ["local:1", "t1"]
+    assert "t5" in views.upgrade_ready_keys(st)          # without a plan (the console) nothing is held
+
+
+def test_todo_takes_the_files_presence_as_a_map_and_does_no_file_check():
+    up = {"file": "Upgrades ready/x.aiff", "alignment": {"result": "exact"}}
+    st = state(t1=e("not_lossless", path="Library/A/x.aiff", upgrade=up))
+    here = views.todo(st, "all", False, {}, TODAY, present={"t1": "here"})["groups"][0]["items"][0]
+    away = views.todo(st, "all", False, {}, TODAY, present={"t1": "away"})["groups"][0]["items"][0]
+    unknown = views.todo(st, "all", False, {}, TODAY)["groups"][0]["items"][0]
+    assert (here["same_track"], away["same_track"]) == (None, "away") and unknown["same_track"] is None

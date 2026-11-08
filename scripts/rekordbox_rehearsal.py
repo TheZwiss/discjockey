@@ -18,7 +18,9 @@ upgrade rendered from its own audio, takes the "before" picture, runs `bin/discj
 same-track --json` and `bin/discjockey batch undo <id> --json` with `DISCJOCKEY_SUPPORT` and `DISCJOCKEY_REKORDBOX`
 pointing into `W`, and checks each step with Discjockey's reader. It prints one PASS/FAIL line per check (tracks by
 their labels only) and writes `W/report.json`. Exit code 0 when every check passes, 1 otherwise, 2 when it refuses.
-Delete `W` afterwards: it holds the copies.
+Delete `W` afterwards: it holds the copies. `copy-db` marks `W` (`.discjockey-rehearsal`); `copy-tracks` and
+`rehearse`, which delete inside `W`, refuse a folder without the mark, and every step refuses a `W` inside the
+rekordbox folder or around it.
 """
 from __future__ import annotations
 
@@ -75,11 +77,26 @@ def refuse_if_unsafe(db: Path) -> None:
         raise Refused(f"{db.name} has -wal/-shm beside it (rekordbox didn't close cleanly): open and quit rekordbox.")
 
 
-def check_work(work: Path) -> Path:
+MARKER = ".discjockey-rehearsal"  # `copy-db` writes it; the steps that delete inside the work folder require it
+
+
+def check_work(work: Path, source: Path | None = None) -> Path:
+    """The work folder, resolved. It lies outside the repo and, when `source` is given, neither inside the source
+    folder nor around it (a work folder around the real library would let `rehearse` delete inside it)."""
     work = work.resolve()
     if work == REPO or REPO in work.parents:
         raise Refused("The work folder must lie outside the repo.")
+    if source is not None:
+        real = source.resolve()
+        if work == real or real in work.parents or work in real.parents:
+            raise Refused("The work folder and the rekordbox folder must be separate folders (neither inside the "
+                          "other).")
     return work
+
+
+def need_marker(work: Path) -> None:
+    if not (work / MARKER).is_file():
+        raise Refused("This folder was not made by `copy-db`: start a new work folder with it.")
 
 
 def env_for(work: Path) -> dict[str, str]:
@@ -166,7 +183,7 @@ def frames_of(path: Path) -> int:
 # --- the commands ---
 
 def copy_db(source: Path, work: Path) -> int:
-    work = check_work(work)
+    work = check_work(work, source)
     db = source / "master.db"
     refuse_if_unsafe(db)
     target = work / "source" / "master.db"
@@ -176,6 +193,7 @@ def copy_db(source: Path, work: Path) -> int:
     shutil.copyfile(db, target)  # before anything opens it; the original is never opened
     if sha256(db) != sha256(target) or master.leftovers(db):
         raise Refused("The library changed while it was copied: quit rekordbox and start again.")
+    (work / MARKER).write_text("a rehearsal's work folder: it holds copies only\n", encoding="utf-8")
     print("Copied master.db into the work folder.")
     return 0
 
@@ -202,7 +220,8 @@ def candidates(work: Path) -> int:
 
 
 def copy_tracks(source: Path, work: Path, tracks: list[str]) -> int:
-    work = check_work(work)
+    work = check_work(work, source)
+    need_marker(work)
     refuse_if_unsafe(source / "master.db")
     picks = []
     con = master.connect(work / "source" / "master.db", master.KEYS[0])
@@ -687,6 +706,7 @@ def check_undo(work: Path, picks: list[dict], ctx: dict, before: dict, undone: d
 
 def rehearse(work: Path, edit_title: str | None) -> int:
     work = check_work(work)
+    need_marker(work)
     picks = json.loads((work / "picks.json").read_text(encoding="utf-8"))
     refuse_if_unsafe(work / "source" / "master.db")
     if edit_title and edit_title not in {p["label"] for p in picks}:

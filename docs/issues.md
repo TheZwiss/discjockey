@@ -62,33 +62,22 @@ Found live by the user on the Playlists page:
   screen." with a Reload button. Find the root cause (engine or UI), fix it there, and add a test that pins it.
   Check the other switch paths on the page too: on → off → on before saving, after saving, and with several rows.
 
-## 33. Lossless AIFF for imported files, with rekordbox pointed at them — needs a design round (user, 2026-10-31)
+## 33. Lossless AIFF for imported files, with rekordbox pointed at them (user, 2026-10-31) — stages C–E open
 
-**Stage A merged into main** (43e6797: read side, New track lined up, `rekordbox status` / `preview`); live check
-pending (`docs/2026-11-07-rekordbox-stage-a-plan.md` §8); stages B–E open.
+Design: `docs/2026-11-07-rekordbox-repoint-design.md` (the user's answers and wishes A–C built in; stage E is issue 40).
 
-Design: `docs/2026-11-07-rekordbox-repoint-design.md` (2026-11-07; the user's answers and wishes A–C built in, stages A–D; stage E is issue 40). Audit 2026-11-05: parked, nothing of it is built (no AIFF conversion of imported files, no rekordbox repoint; the New
-track choice still keeps the download as it is).
+**Stage A** is merged into main (43e6797: the read side, New track lined up, `rekordbox status` / `preview`); its live
+check is pending (`docs/2026-11-07-rekordbox-stage-a-plan.md` §8). **Stage B** is built and reviewed on
+`feat/rekordbox-b` and ready to merge (the V step adds the merge hash): the rekordbox write side, backups and restore,
+Same track for any format as one AIFF batch with undo, Upgrade all, To-do multi-select, the batch check card and the
+console commands (`upgrade …`, `batch …`, `rekordbox checked | backups | restore`); its live test is plan stage B §9.
 
-The user's wish: files of their own (imported, MP3 or other lossy) end up as the library format (16-bit AIFF), with
-rekordbox's entry pointing at the new file automatically. Then every later upgrade is an in-place audio swap inside the
-same file ("Same track"), and cues and beatgrid stay exact. Two shapes to weigh in the design round:
-- **All at once:** at import, convert the whole library to AIFF and repoint rekordbox for every file.
-- **One by one (likely better):** nothing is converted up front. When an upgrade is ready, the lossless AIFF goes in
-  and rekordbox's entry is repointed to it at that moment.
+**Still open:** stage C, Auto-upgrade on sync (wish A, it writes without a click, so after the live test); stage D,
+Convert, Give it its clean name, the CDJ group and "Make all lossless files AIFF" (wish C); stage E is issue 40.
 
-**Bundle with it:** today the "New track" choice keeps the downloaded file as it is. Its cues therefore fit only
-"to within N ms" (`report.SHIFTED_EDIT_CHECK`), while "Same track" shifts the audio sample-exactly
-(`upgrades.build_staged`). If the new file is also shifted, cues fit exactly with either choice.
-
-**Facts to design around** (reference: the rekordbox notes):
-- rekordbox's `master.db` is SQLCipher-encrypted, so "auto point rekordbox" needs a safe route, such as the XML
-  export/import or a relocate rekordbox does itself.
-- Cues and beatgrid live at the rekordbox entry, not in the file.
-- Relocate matches on file name only.
-- rekordbox keeps following files it finds anywhere in the watched folder.
-
-Any write to the user's rekordbox data needs a backup and an undo, and the user's go.
+**Facts the later stages build on:** cues and beatgrid live at rekordbox's track, not in the file; Relocate matches on
+file name only; rekordbox keeps following files it finds anywhere in a watched folder; every write to the user's
+rekordbox library happens with rekordbox closed, after a backup, with an undo.
 
 ## 24. Identify files by their sound (AcoustID) — agreed design, a stage after stage 6
 

@@ -54,8 +54,12 @@ __all__ = ["BUSY", "Busy", "BatchResult", "ItemResult", "RekordboxOpen", "Refuse
 RUNNABLE = ("same_track",)  # the actions a batch can run today
 OPERATION = "upgrade_same_track"  # operations.log's name for an item
 NOTHING_ELIGIBLE = "None of these can be upgraded right now."
+NOTHING_UNDONE = "None of these could be undone."
 STOPPED_BY_REKORDBOX = ("rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox and "
                         "press Resume.")
+# the console's variant of the line above: there is no Resume button to press
+STOPPED_BY_REKORDBOX_CONSOLE = ("rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox "
+                                "and run: discjockey batch resume {batch}.")
 STOPPED_UNDO_BY_REKORDBOX = ("rekordbox was opened, so Discjockey stopped the undo after {done} of {total}. Quit "
                              "rekordbox and undo the rest.")
 _DEFAULT = object()
@@ -219,8 +223,28 @@ def start(paths, items: Sequence[tuple[str, str]], *, started_by: str = "user", 
     for _, action in items:
         if action not in RUNNABLE:
             raise ValueError(f"{action!r} is not an action a batch runs")
+    _close_planned_elsewhere(paths, {track for track, _ in items}, now)
     with db.connect(paths.db_file) as conn:
         return db.start_aiff_batch(conn, "upgrade", started_by, scope, list(items), now())
+
+
+def _close_planned_elsewhere(paths, tracks: set[str], now: Callable[[], datetime]) -> None:
+    """A track is planned in one batch only: the unrun (`planned`) items of earlier stopped batches for `tracks`
+    are skipped (`later_batch`), so repeated tries (Upgrade all meeting an open rekordbox again and again) leave no
+    dead Resume behind. Their done items and Undo stay; a stopped batch with nothing left ends."""
+    with db.connect(paths.db_file) as conn:
+        touched = False
+        for batch_id in db.unfinished_aiff_batches(conn):
+            row = db.aiff_batch(conn, batch_id)
+            if row.state != "stopped":
+                continue
+            for item in row.items:
+                if item.state == "planned" and item.track in tracks:
+                    db.set_aiff_item(conn, batch_id, item.seq, "skipped", "later_batch",
+                                     {"message": _words("later_batch")})
+                    touched = True
+    if touched:
+        _close_finished(paths, now)
 
 
 def present(paths, e: dict) -> eligible.Present:

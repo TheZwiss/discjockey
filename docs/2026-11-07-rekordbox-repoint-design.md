@@ -624,7 +624,7 @@ Console: the new commands (and issue 39's agent docs).
 | Refused, space | "There isn't enough free space for the new AIFF files ({size} needed, {free} free). Nothing was changed." |
 | Refused, rename blocked | "Discjockey can only give this file its new name while it can point your rekordbox track at it, and it can't right now ({reason}). Nothing was changed." |
 | Undo, rekordbox open | "Quit rekordbox to undo: Discjockey points your rekordbox track back at your old file only while rekordbox is closed." |
-| Undo refused | "This track was changed in rekordbox since (relocated?), so Discjockey can't undo it safely. Nothing was changed." |
+| Undo refused | "This track was moved or removed in rekordbox since the replace, so Discjockey can't put it back safely. Nothing was changed." |
 | Result note, no rekordbox track | "This file isn't in your rekordbox collection, so there was nothing to keep there." |
 | Result note, kept edit | "Kept your own {title / artist / album / label / comment} in rekordbox." |
 | Format sentence (batch sheet, Convert) | "Every file becomes a 16-bit/44.1 kHz AIFF, the format every CDJ plays and every download has; your original stays in Superseded/." |

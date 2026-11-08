@@ -1328,6 +1328,24 @@ def _group(e: dict) -> str | None:
     return {"missing": "not_found", "weak": "weak", "good_lossy": "good_lossy", "fake": "fake"}.get(quality_class(e))
 
 
+def todo_listed(k: str, e: dict, held: Collection[str], never: Mapping[str, object]) -> bool:
+    """Whether To-do lists the song at all: it is in a playlist (or is the user's own file with a better version
+    waiting), isn't waiting for an answer to "Is this the same song?" (`held`: the plan's questions) and isn't a
+    "never download" song with no file."""
+    if k in held or (not e.get("in_playlists") and not (is_own(k) and e.get("upgrade"))):
+        return False
+    return not (e["status"] == "missing" and k in never)
+
+
+def upgrade_ready_keys(state: dict, held: Collection[str] = ()) -> list[str]:
+    """The songs of To-do's Upgrade ready list that are not hidden, in state order: the one answer the window's
+    Upgrade all and the console's `upgrade list` / `apply --all` share. The console has no plan, so `held` stays
+    empty there (a song with a question has no file to upgrade)."""
+    never = state.get("never") or {}
+    return [k for k, e in state["tracks"].items()
+            if todo_listed(k, e, held, never) and _group(e) == "upgrade_ready" and not e.get("hidden")]
+
+
 def _detail(group: str, e: dict, today: date, other: str | None, rb: RekordboxStatus | None = None) -> str:
     if group == "upgrade_ready":
         return upgrade_status(e["upgrade"], same_track_format_ok(e, rb))
@@ -1487,7 +1505,7 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
          cover: Url | None = None, questions: Sequence[Question] = (), duplicates: Sequence[DuplicateGroup] = (),
          dup_files: Mapping[str, Sequence[DupFile]] | None = None, audio: Url | None = None,
          counted: Collection[str] = (), away: Mapping[str, str] | None = None,
-         rb: RekordboxStatus | None = None, present: Callable[[dict], str] | None = None,
+         rb: RekordboxStatus | None = None, present: Mapping[str, str] | None = None,
          stopped: tuple[int, int] | None = None) -> dict:
     """Groups in this order: Check in rekordbox, Is this the same song?, Duplicates, Upgrade ready, Not found, Weak,
     Good lossy, Fake lossless, Other. `others`: track id -> what blocks it (a move blocked by another file, several
@@ -1506,8 +1524,9 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     and a duplicate group with a file in one is neither listed nor counted, even if the rows still say online (no
     scan has seen the drive go).
 
-    Stage B (plan rekordbox B §4): `rb` is rekordbox's cached state and `present(entry)` the live answer to whether a
-    track's file is there (`here`/`away`/`missing`; without it the row's `file_state` decides). Every `upgrade_ready`
+    Stage B (plan rekordbox B §4): `rb` is rekordbox's cached state and `present` the live answer, song key ->
+    whether the track's file is there (`here`/`away`/`missing`), worked out by the caller (views do no file I/O); a
+    song without an answer goes by its row's `file_state`. Every `upgrade_ready`
     item carries `same_track`, the quick answer (`same_track_reason`: null when Same track can run, else the reason
     key), and the group `all: {n, m, k}` (Same track can run / the edit needs a choice / waits for something else,
     over the group's tracks that are not hidden) and `stopped: {batch_id, left} | null` (`stopped`: the newest stopped
@@ -1559,8 +1578,7 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
             else:
                 items["rekordbox_check"].append(check_item)
                 listed.add(k)
-        if k in held or (not e.get("in_playlists") and not (is_own(k) and e.get("upgrade"))) \
-                or (e["status"] == "missing" and k in never):
+        if not todo_listed(k, e, held, never):
             continue
         group = _group(e) or ("other" if k in others else None)
         if group is None:
@@ -1572,7 +1590,7 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
         item = {**track_row(k, e, cover), "group": group, "detail": _detail(group, e, today, others.get(k), rb),
                 "free": group in FREE_GROUPS and bool(free_downloads(e)), "file_state": row_file_state(e, away)}
         if group == "upgrade_ready":
-            item["same_track"] = same_track_reason(e, rb, present(e) if present else present_of(item["file_state"]))
+            item["same_track"] = same_track_reason(e, rb, (present or {}).get(k) or present_of(item["file_state"]))
         items[group].append(item)
         listed.add(k)
     for rows in items.values():

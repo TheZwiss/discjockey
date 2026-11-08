@@ -31,18 +31,17 @@ from pathlib import Path, PurePosixPath
 from . import align, batches, convert, db, library, ops, rekordbox, report as rep, upgrades
 from .events import BatchProgress, Cancelled, CancelToken, Result
 from .library import LockHeld, NameReserver, NoLibrary, Paths, StateError
-from .models import is_own
+from .hub import views
 from .rekordbox import backup as rbbackup, eligible
 from .rekordbox.eligible import Skip
 from .rekordbox.preview import REASON_WORDS
-from .rekordbox_cmd import FIELD_WORDS, failed, no_library, say
+from .rekordbox_cmd import failed, no_library, say
 from .upgrades import UpgradeProblem
 
 OK, FAILED, NO_LIBRARY, BUSY, REKORDBOX_OPEN, STOPPED = 0, 1, 2, 3, 4, 5
 CTRL_C_REPEAT_S = 1.0  # as the sync's: uv and caffeinate forward one Ctrl-C a second time
 LOCK_HELD = "Another Discjockey run is still going. Wait until it has finished."
 NOTHING = "None of these can be upgraded right now."
-USB_STEP = "On a USB stick? The stick still plays the old file. Rebuild the stick in rekordbox before your next gig."
 WAYS = {"same-track": "same_track", "new-track": "add_new"}
 RESTORE_WORDS = {
     "no_rekordbox": "There is no rekordbox library on this Mac, so nothing was changed.",
@@ -113,7 +112,8 @@ def check_args(args: argparse.Namespace, parsers: dict[str, argparse.ArgumentPar
     """The argument rules argparse can't state."""
     if args.command == "upgrade" and args.upgrade_command == "apply" and bool(args.tracks) == args.all:
         parsers["apply"].error("give song keys, or --all")
-    if args.command == "rekordbox" and args.rekordbox_command == "checked" and bool(args.tracks) == bool(args.batch):
+    if args.command == "rekordbox" and args.rekordbox_command == "checked" \
+            and bool(args.tracks) == (args.batch is not None):
         parsers["checked"].error("give song keys, or --batch ID")
 
 
@@ -205,9 +205,11 @@ def _item_lines(state: dict, item: batches.ItemResult) -> list[str]:
     if item.state == "done":
         where = f" → {PurePosixPath(item.path).name}" if item.path else ""
         lines = [f"{'Upgraded' if item.action == 'same_track' else 'Done'}: {name}{where}"]
-        kept = (item.rekordbox or {}).get("kept") or []
-        if kept:
-            lines.append("  " + convert.KEPT_NOTE.format(fields=", ".join(FIELD_WORDS.get(f, f) for f in kept)))
+        rb = item.rekordbox
+        if item.action == "same_track" and rb is None:
+            lines.append("  " + convert.NO_TRACK_NOTE)
+        elif kept := convert.kept_note((rb or {}).get("kept") or []):
+            lines.append("  " + kept)
         return lines
     if item.state == "skipped":
         return [f"Skipped: {name} ({_words(item.reason)})"]
@@ -227,7 +229,7 @@ def _batch_lines(state: dict, result: dict, label: str = "upgraded") -> list[str
     if not_done:
         lines.append(f"{not_done} not {label}.")
     if any(i.state == "done" and (i.rekordbox or {}).get("entries") for i in items):
-        lines.append(USB_STEP)
+        lines.append(rep.USB_STEP)
     return lines
 
 
@@ -236,10 +238,11 @@ def _code_of(result: dict) -> int:
 
 
 def _problem(args: argparse.Namespace, state: dict, kind: str, message: str, code: int, result: dict,
-             recovered: Sequence, reason: str | None = None, hint: str | None = None) -> int:
-    """A batch ended without finishing: its fields stay in the JSON, the human text is its tracks and the way on."""
+             recovered: Sequence, reason: str | None = None, hint: str | None = None, items: bool = True) -> int:
+    """A batch ended without finishing: its fields stay in the JSON, the human text is its tracks (`items`) and the
+    way on."""
     data = {"ok": False, "kind": kind, **({"reason": reason} if reason else {}), "message": message, **result}
-    lines = _batch_lines(state, result) + [message] + ([hint] if hint else [])
+    lines = (_batch_lines(state, result) if items else []) + [message] + ([hint] if hint else [])
     _say(args, data, lines, recovered)
     return code
 
@@ -249,8 +252,18 @@ def _resume_hint(result: dict) -> str | None:
 
 
 def _finish(args: argparse.Namespace, paths: Paths, state: dict, recovered: Sequence, batch_id: int,
-            call: Callable[[CancelToken], batches.BatchResult]) -> int:
-    """Runs `call(token)` (batches.run or resume) and turns every way a batch can end into the output and exit code."""
+            call: Callable[[CancelToken], batches.BatchResult], alone: bool = False) -> int:
+    """Runs `call(token)` (batches.run or resume) and turns every way a batch can end into the output and exit code.
+    `alone`: a batch of one track the user named (as the window's single Replace). When it meets rekordbox open or
+    `Busy` before anything ran it is closed (`batches.close_unrun`) instead of left `stopped`: the track simply stays
+    in Upgrade ready, there is nothing to resume."""
+    def unrun(kind: str, error: Exception, d: dict, code: int) -> int | None:
+        if not alone or d["total"] != 1 or d["done"]:
+            return None
+        closed = batches.close_unrun(paths, batch_id, kind, str(error)).to_dict()
+        return _problem(args, state, kind, str(error), code, closed, recovered,
+                        "rekordbox_open" if kind == "rekordbox_open" else None, items=False)
+
     token = CancelToken()
     try:
         with _interruptible(token):
@@ -266,10 +279,18 @@ def _finish(args: argparse.Namespace, paths: Paths, state: dict, recovered: Sequ
                         recovered, hint=_resume_hint(d))
     except batches.RekordboxOpen as e:
         d = e.result.to_dict()
+        if (closed := unrun("rekordbox_open", e, d, REKORDBOX_OPEN)) is not None:
+            return closed
+        done = d["total"] - sum(1 for i in d["results"] if i["state"] == "planned")
+        if done:
+            message = batches.STOPPED_BY_REKORDBOX_CONSOLE.format(done=done, total=d["total"], batch=d["batch"])
+            return _problem(args, state, "rekordbox_open", message, REKORDBOX_OPEN, d, recovered, "rekordbox_open")
         return _problem(args, state, "rekordbox_open", str(e), REKORDBOX_OPEN, d, recovered, "rekordbox_open",
                         "After you quit rekordbox: discjockey batch resume " + str(d["batch"]))
     except batches.Busy as e:
         d = batches.result_of(paths, batch_id).to_dict()
+        if (closed := unrun("busy", e, d, BUSY)) is not None:
+            return closed
         return _problem(args, state, "busy", str(e), BUSY, d, recovered, hint=_resume_hint(d))
     except batches.Refused as e:
         d = e.result.to_dict()
@@ -283,10 +304,10 @@ def _finish(args: argparse.Namespace, paths: Paths, state: dict, recovered: Sequ
 # --- upgrade list ---
 
 def _listed(state: dict, order: list[str]) -> list[tuple[str, dict]]:
-    """The parked upgrades the To-do page lists: the song is in a playlist or is the user's own file, its sound is
-    judged, and it isn't hidden."""
-    return [(k, e) for k, e in upgrades.ready(state, order)
-            if (e.get("in_playlists") or is_own(k)) and e.get("import_state") != "identified" and not e.get("hidden")]
+    """The parked upgrades the To-do page lists (`views.upgrade_ready_keys`, the same answer as the window's Upgrade
+    all), in playlists.txt folder order."""
+    keys = set(views.upgrade_ready_keys(state))
+    return [(k, e) for k, e in upgrades.ready(state, order) if k in keys]
 
 
 def _folder_order(paths: Paths) -> list[str]:
@@ -350,7 +371,9 @@ def _plan_row(paths: Paths, state: dict, key: str, e: dict | None, way: str, rea
     if reason or e is None:
         return row
     try:
-        if upgrades.swap_possible(e) and way == "same-track":
+        if way == "new-track":
+            new, old = upgrades.add_new_names(paths, state, key, e, e["upgrade"].get("status", "lossless"))
+        elif upgrades.swap_possible(e):
             new = e["path"]
             old = upgrades.swap_backup_name(paths, NameReserver(paths.root, state), key, e["path"])
         else:
@@ -516,7 +539,8 @@ def run_upgrade_apply(args: argparse.Namespace) -> int:
         batch_id = batches.start(paths, [(t, "same_track") for t in tracks],
                                  started_by="upgrade_all" if args.all else "user")
         return _finish(args, paths, state, recovered, batch_id, lambda token: batches.run(
-            paths, batch_id, emit=_progress, token=token, compare=align.compare_files, state=state))
+            paths, batch_id, emit=_progress, token=token, compare=align.compare_files, state=state),
+            alone=not args.all and len(tracks) == 1)
     return _in_library(args, work)
 
 
@@ -559,6 +583,11 @@ def _undo(args: argparse.Namespace, paths: Paths, state: dict, recovered: Sequen
     except batches.Busy as e:
         return failed(args, str(e), "busy", code=BUSY)
     d = result.to_dict()
+    if d["total"] and not d["undone"]:  # as the window: nothing at all was undone is a refusal, the results still there
+        message = result.results[0].message if d["total"] == 1 else batches.NOTHING_UNDONE
+        _say(args, {"ok": False, "kind": "refused", "message": message, **d}, _undo_lines(state, d) + [message],
+             recovered)
+        return FAILED
     _say(args, {"ok": True, **d}, _undo_lines(state, d), recovered)
     return OK if not d["refused"] and not d["failed"] else FAILED
 
@@ -654,15 +683,18 @@ def run_batch_undo(args: argparse.Namespace) -> int:
 
 def run_checked(args: argparse.Namespace) -> int:
     def work(paths: Paths, state: dict, recovered: list) -> int:
-        if args.batch:
+        if args.batch is not None:
             if (code := _unknown_batch(args, paths, args.batch)) is not None:
                 return code
             tracks = batches.tracks_of(paths, args.batch)
         else:
             tracks = list(dict.fromkeys(args.tracks))
+        before = {t: state["tracks"].get(t) for t in tracks}
         done = [r.track_id for r in batches.checked(paths, tracks, state=state)]
+        for t in done:  # operations.log, as the window's "Done, checked in rekordbox"
+            ops.log_operation(paths, datetime.now(), t, before[t], "rekordbox_checked", "done", "checked in rekordbox")
         # a batch's tracks checked one by one earlier are not a problem; a key that has nothing to check is
-        missing = [] if args.batch else [t for t in tracks if t not in done]
+        missing = [] if args.batch is not None else [t for t in tracks if t not in done]
         lines = [f"Checked: {_name(state, t)}" for t in done] + [
             f"Nothing to check: {_name(state, t)}" for t in missing]
         _say(args, {"ok": True, "checked": done, "not_checked": missing}, lines or ["No tracks to check."], recovered)

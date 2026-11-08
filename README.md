@@ -662,7 +662,8 @@ time: open rekordbox once and quit it normally).
   "Qobuz FLAC · verified lossless"); Mixed In Key values and your own notes in the comment are left alone.
 - **Backups.** Before the first change of a batch, Discjockey copies rekordbox's library and the analysis files of the
   tracks it will change into `.discjockey/rekordbox/backups/` in your music folder. One backup serves a whole batch.
-  Discjockey keeps the backups an undo still needs, plus the newest three. `discjockey rekordbox backups` lists them.
+  Discjockey keeps the backups an undo still needs, plus the newest three. The Terminal commands under [When something breaks](#when-something-breaks)
+  list them.
 - **Undo** puts the track back, field by field, and keeps what you did in rekordbox since (see [Upgrades](#upgrades)).
 - **A USB stick** you exported before the replace still plays the old file, and Discjockey doesn't write to sticks.
   Rebuild the stick in rekordbox before your next gig. (After a batch, Discjockey says so.)
@@ -680,12 +681,19 @@ time: open rekordbox once and quit it normally).
 - **Qobuz doesn't show a playlist:** it has to be public or one of yours. Check the link, or put `#` in front of
   the line.
 - **"Another Discjockey run is still going":** wait until the other run has finished.
-- **rekordbox looks wrong after a replace and you can't undo it:** quit rekordbox, then in the Terminal run
-  `discjockey rekordbox backups` to see the copies Discjockey made, and `discjockey rekordbox restore <name> --yes` to
-  put rekordbox's whole library back as that copy holds it. This drops every change you made in rekordbox since that
-  backup, and Discjockey saves your current library first (its name is printed). Tracks Discjockey replaced after the
-  backup point at their old files, which are in `Superseded/`: undo those replaces first (`discjockey batch undo
-  <number>`; `discjockey batch list` shows the numbers), or Relocate them in rekordbox.
+- **rekordbox looks wrong after a replace and you can't undo it:** quit rekordbox, then in the Terminal list the
+  copies Discjockey made and put rekordbox's whole library back as one of them holds it (the commands are below).
+  This drops every change you made in rekordbox since that backup, and Discjockey saves your current library first
+  (its name is printed). Tracks Discjockey replaced after the backup point at their old files, which are in
+  `Superseded/`: undo those replaces first (`batch list` shows the numbers), or Relocate them in rekordbox.
+
+```
+/Applications/Discjockey.app/Contents/MacOS/Discjockey rekordbox backups
+/Applications/Discjockey.app/Contents/MacOS/Discjockey rekordbox restore <name> --yes
+/Applications/Discjockey.app/Contents/MacOS/Discjockey batch list
+/Applications/Discjockey.app/Contents/MacOS/Discjockey batch undo <number>
+# In a checkout of the code, bin/discjockey takes the place of the long path.
+```
 
 ## Account risk
 
