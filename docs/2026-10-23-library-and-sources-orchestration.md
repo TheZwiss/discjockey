@@ -408,3 +408,5 @@ Results:
 - Stage B plan `docs/2026-11-07-rekordbox-stage-b-plan.md` (e7c8452, Opus 267k, no mockup needed, no questions):
   B1 S → B2 O → B3 O → B4 O → B5 S → R1 engine review + fix → B6 S → B7 S → RH rehearsal on a copy (O) → U1 O → U2 O →
   S shots → R2 review + fixes → verify → merge main. Building on `feat/rekordbox-b`, groups in `.claude/worktrees/rb-b-<g>`.
+- B1 done (Sonnet 203k): schema 7 (aiff_batches/aiff_items), Entry fields, PathIndex, same_track_quick,
+  timeline_offset on an open view; CI green; merged into feat/rekordbox-b.
