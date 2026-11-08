@@ -3,6 +3,13 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 41. To-do multi-select for the other groups' actions (Hide, Find a version, …) (2026-11-08)
+
+Issue 33's stage B gives To-do a selection model and a selection panel for the Upgrade ready group (Replace, Discard)
+and the check group ("Done, checked in rekordbox"). The other groups still act on one track at a time: Hide, Find a
+version, Mark as bought and the like. Every action should take one track, a selection or all eligible ones (the rule
+for file actions). Reuse the stage B model (`lib/decisions`); each action needs its console command too (issue 39).
+
 ## 40. rekordbox follows Discjockey's own moves; what Discjockey does with moves made by hand (user, 2026-11-07)
 
 **Follow Discjockey's own moves** (issue 33's stage E, after its stage B live test). When Discjockey moves a file (a
@@ -37,8 +44,11 @@ throwaway scripts of its own rather than through Discjockey.
   them where agents look (e.g. `AGENTS.md` at the repo root, plus a README section for users who point their agent
   at the app).
 - **Pin it:** a test that fails when a bridge method has no command or no agent-docs entry.
-- The 33 work (rekordbox repoint) gets its command under the rule from the start. Issue 33 stage A's commands
-  (`rekordbox status`, `rekordbox preview`) are in `CONTRIBUTING.md` › Commands for scripts and agents; gather them.
+- The 33 work (rekordbox repoint) gets its command under the rule from the start. Stage B's commands (`upgrade
+  list | apply | discard | undo`, `batch list | show | resume | undo`, `rekordbox checked | backups | restore`) and
+  stage A's (`rekordbox status`, `rekordbox preview`) are in `CONTRIBUTING.md` › Commands for scripts and agents, with
+  the exit codes and the rule that JSON `ok` stays true when a batch ran to its end with skipped tracks (exit 1);
+  gather them into the agent docs.
 
 ## 38. Playlists: switching a playlist off says its songs get removed; switching it back on crashes the page (user, 2026-11-07, live in 1.2.1)
 

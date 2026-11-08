@@ -35,6 +35,8 @@ A user's data never sits in the repo and none of it is in git — never test aga
 | `discjockey/titles.py` | Pure: splits an uploader's title ("Artist - Title [FREE DL]", a YouTube video title) into artists and a clean title, and cleans a channel name (`split_title`, `clean_uploader`). SoundCloud and YouTube Music sources apply it when they parse an entry, so linking, the Qobuz search and file names see clean names |
 | `discjockey/qobuz.py` | The Qobuz **download** client (streamrip: login, search, download one track). Reading Qobuz playlists is `sources/qobuz.py`, which opens its own login per read |
 | `discjockey/batches.py` | AIFF batches (issue 33): Same track over a list of tracks as one job, rows in library.db (`aiff_batches` / `aiff_items`): `start`, `run` (one `rekordbox.Session`, one backup, per item a skip/fail/done, Stop between items, rekordbox opening stops the batch; raises `Stopped`, `RekordboxOpen`, `Busy` or `Refused` with the `BatchResult`), `resume`, `undo` (newest first, refused tracks listed; rekordbox open at the start undoes nothing, opening meanwhile raises `RekordboxOpen` and Stop `UndoStopped`, the rest `waiting`), `close_unrun` (the console's batch of one that met rekordbox open or `Busy`), `checked`, `recover` (called by `library.recover_pending`) |
+| `discjockey/convert.py` | Same track for a file that isn't AIFF (issue 33): the parked upgrade becomes a new AIFF with the download's name, lined up with rekordbox's timeline of the old file, and every rekordbox track of the old file is pointed at it (`same_track`, one batch item; the journaled `convert` op with its recovery and `convert_undo`). The only code that gives a file a new name outside the download paths |
+| `discjockey/batch_cmd.py` | The console front end of stage B: `upgrade list \| apply \| discard \| undo`, `batch list \| show \| resume \| undo`, `rekordbox checked \| backups \| restore` (exit codes 0–5, `--json`, `--dry-run`; the commands are documented in CONTRIBUTING.md > "Commands for scripts and agents"). `cli.py` wires its parsers and dispatch; `rekordbox_cmd.py` keeps `status` / `preview` and the shared output helpers |
 | `discjockey/tidy.py` | The tidy-up: move batches (tidy-up, save question, folder rename), undo, recovery of batches a crash left open; every move through `run_op` or `library.move_files` (the file journal, staging across drives) |
 | `discjockey/scanner.py` | Walks the watched folders (`Library/` and the import folders) against the index's file rows and returns a `ScanResult`. Reads only, no SQL; `db.apply_scan` writes it, `library.scan_library` ties the two together |
 | `discjockey/identify.py` | Pure: whether a playlist song and a song of the user's own (a file the import read) are the same song (`compare`: certain or plausible), and an own song's name from its tags or file name. The planner calls it on every plan |
@@ -88,7 +90,7 @@ are leftovers of an old layout in the maintainer's checkout; nothing writes them
 | Sign an app by hand | `.venv/bin/python packaging/sign_app.py dist/app/Discjockey.app` (ad-hoc without the identity; `--require-identity` for releases) |
 | Build the app + .dmg | `scripts/build_app.sh` (background, ~5–10 min) → `dist/app/Discjockey.app`, `dist/Discjockey-<version>.dmg`; the app bundles the checkout's `hub/static` and the build fails when `hub-ui` builds something else (`SKIP_UI_BUILD=1` skips that check), `REQUIRE_IDENTITY=1` refuses ad-hoc signing and a checkout with uncommitted changes. Never copy the result into `/Applications` |
 | Self-test of a built app | `DISCJOCKEY_SUPPORT=$(mktemp -d) dist/app/Discjockey.app/Contents/MacOS/Discjockey --self-test` |
-| rekordbox status / preview by hand | `DISCJOCKEY_SUPPORT=<scratch folder> DISCJOCKEY_REKORDBOX=<fixture folder or empty folder> bin/discjockey rekordbox status\|preview …`. Never without both overrides on the maintainer's Mac: they would read the real rekordbox library and music folder |
+| rekordbox and upgrade commands by hand | `DISCJOCKEY_SUPPORT=<scratch folder> DISCJOCKEY_REKORDBOX=<fixture folder or empty folder> bin/discjockey rekordbox status\|preview\|checked\|backups\|restore …`, `bin/discjockey upgrade …`, `bin/discjockey batch …` (all documented in CONTRIBUTING.md > "Commands for scripts and agents"). Never without both overrides on the maintainer's Mac: they would read, and `apply`, `undo` and `restore` write, the real rekordbox library and music folder. Print both variables before running anything |
 | Scratch run (own support folder, asks for a music folder; runs in the terminal) | `DISCJOCKEY_SUPPORT=/tmp/dj bin/discjockey hub` |
 | Public check (before every commit) | `scripts/check_public.sh` (`--dir DIR` scans a folder instead of the tracked files); the maintainer adds `--require-denylist`, which fails when the denylist file is missing, unreadable or empty |
 | Public tree, trial | `scripts/make_public_tree.sh --dry-run --email <id>+TheZwiss@users.noreply.github.com` (the real run only at the go-moment, `docs/issues.md`) |
@@ -106,10 +108,13 @@ their Qobuz daily limit. Long commands run in the background with a status line.
   drives). A new code path that writes into `Library/` or a watched folder without one of them is a bug.
 - **Names in `Library/` are always `Artist - Title.<ext>`** for files Discjockey downloads or adds — no `(v2)`,
   `(new)` or similar suffixes; those exist only in `Superseded/`. The one exception: a file that is in the way of the
-  correct name gets an ID added. **Moving never renames:** a tidy-up and its undo keep each file's name as it is,
-  because rekordbox's Relocate finds files by name.
-- **Files move only in a move batch the user started** (tidy-up, the Playlists save question, a folder rename on
-  disk): logged in `library.db`, undoable; the sync never moves a file (option A).
+  correct name gets an ID added. **Moving never renames:** a move (a tidy-up, its undo, a folder rename) keeps each
+  file's name, so rekordbox's (Auto) Relocate finds it by that name. A file gets a new name only in a step the user
+  chose that points every rekordbox track of that file at the new name itself, while rekordbox is closed (Same track
+  for a file that isn't AIFF). That step is refused when it can't.
+- **Files move only in a batch the user started:** a move batch (tidy-up, the Playlists save question, a folder
+  rename on disk) or an AIFF batch (Same track, Upgrade all), logged in `library.db` and undoable. The sync itself
+  never moves a file (option A).
 - **Qobuz protection stays on:** pacing, the daily limit with carry-over, and the pause after 3 failures in a row.
   Never add a path that skips them, not even for tests against the real service.
 - **Tests are offline and never touch the user's data.** Use `tmp_path` libraries and the fixtures; no real Spotify,
@@ -139,7 +144,7 @@ their Qobuz daily limit. Long commands run in the background with a status line.
   and failure apart. Every command is listed in the agent docs. A new or changed hub action brings its command and
   its agent-docs entry in the same change. An agent's command counts as the user starting it, so the same invariants
   hold: the lock, Qobuz protection, never deleting a file, moves only in batches the user started, and a dry run
-  where the hub has one. Issue 39 holds the audit of today's gaps and the first version of the agent docs.
+  where the hub has one. The commands are listed in CONTRIBUTING.md > "Commands for scripts and agents"; issue 39 holds the audit of today's gaps.
 
 ## Critical rules
 
