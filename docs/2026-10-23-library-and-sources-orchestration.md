@@ -397,3 +397,5 @@ Results:
   (passes alone and on CI) → goes into the stage A fix round.
 - A3 done (Opus 222k, one usage-limit stop, resumed): `render_aiff`, New track renders the same edit lined up with
   rekordbox's timeline (falls back to today's rename when unmeasurable), undo of a rendered add; CI green; merged.
+- A4 done (Sonnet): New track card says Relocate by hand, "cues fit exactly" when lined up; contract + README; shots
+  looked at; CI green; merged.
