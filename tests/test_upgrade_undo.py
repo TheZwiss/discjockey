@@ -1,8 +1,11 @@
 """Undo of an upgrade (upgrades.undo): Swap and Add as new file put back as they were while the rekordbox check
-stands. Temp libraries only; tiny byte files (the content key falls back to the whole file)."""
+stands. Add as new file comes in two kinds: renamed (`add_new`: rekordbox's timing unknown, the download itself is
+the new file) and rendered (`add_new_rendered`: lined up, the download kept for the undo). Temp libraries only; tiny
+byte files (the content key falls back to the whole file)."""
 import copy
 import os
 from datetime import date, datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -55,11 +58,16 @@ def env(tmp_path, monkeypatch):
     return paths, state
 
 
+KINDS = ["swap", "add_new", "add_new_rendered"]
+
+
 def step(paths, state, kind):
     up = dict(state["tracks"][TID]["upgrade"])
     if kind == "swap":
         return upgrades.swap(paths, state, TID, up, compare=lambda cur, new: SHIFT, now=NOW)
-    return upgrades.add_new(paths, state, TID, up, now=NOW)
+    d = 0 if kind == "add_new_rendered" else None  # rekordbox's timing known (an AIFF: 0) or not
+    return upgrades.add_new(paths, state, TID, up, compare=lambda cur, new: SHIFT,
+                            offset=lambda old: SimpleNamespace(samples=d), now=NOW)
 
 
 def read(paths, rel):
@@ -77,6 +85,9 @@ def assert_as_before(paths, state, original, inode=None):
     assert records(load_state(paths)) == records(state)
     save_state(paths, state)  # the caller's snapshot is current: it goes on saving it
     assert [k for k, _ in upgrades.ready(state, ["A"])] == [TID]  # the upgrade offer shows again
+    renders = [p.read_bytes() for p in paths.undo.rglob("*.aiff")] if paths.undo.exists() else []
+    assert renders in ([], [NEW])  # a rendered add's render waits for the clean-up; nothing else is kept
+    clear_tmp(paths, state)
     assert not paths.undo.exists() or not any(paths.undo.rglob("*.aiff"))
 
 
@@ -91,6 +102,31 @@ def test_add_as_new_keeps_an_undo_in_its_check(env):
     assert u["before"]["path"] == CURRENT and u["before"]["upgrade"] == original["upgrade"]
     assert u["file_key"].startswith("1:") and u["old_key"].startswith("1:") and u["file_key"] != u["old_key"]
     assert upgrades.can_undo(state["tracks"][TID])
+
+
+def test_a_rendered_add_keeps_the_download_and_the_renders_key(env):
+    paths, state = env
+    original = copy.deepcopy(state["tracks"][TID])
+    step(paths, state, "add_new_rendered")
+    check = state["tracks"][TID]["rekordbox_check"]
+    assert {k: v for k, v in check.items() if k != "undo"} == {
+        "reason": "added_as_new", "since": "2026-10-31", "match": "shifted", "offset_ms": 0.091, "aligned": True}
+    u = check["undo"]
+    assert (u["kind"], u["file"], u["old"], u["rendered"]) == ("add_new", ROOT_NAME, SUPERSEDED, True)
+    assert u["before"]["upgrade"] == original["upgrade"]
+    assert u["file_key"] == library.content_key(paths.root / ROOT_NAME) and read(paths, ROOT_NAME) == NEW
+    assert u["held"].startswith(f".discjockey/undo/{TID}/") and read(paths, u["held"]) == PARKED_AUDIO
+    assert read(paths, PARKED) is None and not (paths.tmp / TID).exists()
+    assert upgrades.can_undo(state["tracks"][TID])
+
+
+def test_undo_of_a_rendered_add_refused_without_the_kept_download(env):
+    paths, state = env
+    step(paths, state, "add_new_rendered")
+    (paths.root / state["tracks"][TID]["rekordbox_check"]["undo"]["held"]).unlink()
+    with pytest.raises(UpgradeProblem, match="kept for the undo is gone, so the upgrade can't be undone"):
+        upgrades.undo(paths, state, TID)
+    assert read(paths, ROOT_NAME) == NEW and read(paths, SUPERSEDED) == OLD and state["pending"] == []
 
 
 def test_swap_asks_for_a_rekordbox_check_with_an_undo_and_keeps_the_parked_download(env):
@@ -116,7 +152,7 @@ def test_the_to_do_says_whether_undo_is_there(env):
 
 # --- undo ---
 
-@pytest.mark.parametrize("kind", ["swap", "add_new"])
+@pytest.mark.parametrize("kind", KINDS)
 def test_undo_puts_everything_back(env, kind):
     paths, state = env
     original = copy.deepcopy(state["tracks"][TID])
@@ -127,7 +163,7 @@ def test_undo_puts_everything_back(env, kind):
     assert_as_before(paths, state, original, inode if kind == "swap" else None)
 
 
-@pytest.mark.parametrize("kind", ["swap", "add_new"])
+@pytest.mark.parametrize("kind", KINDS)
 def test_the_step_moves_the_parked_how_into_the_entry_and_undo_puts_the_old_one_back(env, kind):
     paths, state = env
     assert state["tracks"][TID]["source_how"] == "fallback"
@@ -145,7 +181,7 @@ def test_an_upgrade_parked_before_how_existed_swaps_in_with_no_how(env):
     assert state["tracks"][TID]["source_how"] is None
 
 
-@pytest.mark.parametrize("kind", ["swap", "add_new"])
+@pytest.mark.parametrize("kind", KINDS)
 def test_undo_then_the_same_step_again_works(env, kind):
     paths, state = env
     step(paths, state, kind)
@@ -154,13 +190,15 @@ def test_undo_then_the_same_step_again_works(env, kind):
     assert upgrades.can_undo(state["tracks"][TID]) and read(paths, ROOT_NAME) is not None
 
 
-def test_undo_of_add_as_new_when_the_old_file_had_the_name(env):
+@pytest.mark.parametrize("kind", ["add_new", "add_new_rendered"])
+def test_undo_of_add_as_new_when_the_old_file_had_the_name(env, kind):
     paths, state = env
     (paths.root / CURRENT).rename(paths.root / ROOT_NAME)
     state["tracks"][TID]["path"] = ROOT_NAME
     original = copy.deepcopy(state["tracks"][TID])
-    step(paths, state, "add_new")
-    assert read(paths, ROOT_NAME) == PARKED_AUDIO and read(paths, SUPERSEDED) == OLD
+    step(paths, state, kind)
+    assert read(paths, ROOT_NAME) == (NEW if kind == "add_new_rendered" else PARKED_AUDIO)
+    assert read(paths, SUPERSEDED) == OLD
     upgrades.undo(paths, state, TID)
     assert read(paths, ROOT_NAME) == OLD and read(paths, PARKED) == PARKED_AUDIO and read(paths, SUPERSEDED) is None
     assert state["tracks"][TID] == {"rekordbox_check": None, **original}
@@ -180,7 +218,7 @@ def files(paths):
     return {p.relative_to(paths.root).as_posix(): p.read_bytes() for p in paths.root.rglob("*.aiff")}
 
 
-@pytest.mark.parametrize("kind", ["swap", "add_new"])
+@pytest.mark.parametrize("kind", KINDS)
 @pytest.mark.parametrize("which", ["file", "old"])
 def test_undo_refused_when_either_file_changed(env, kind, which):
     paths, state = env
@@ -193,7 +231,7 @@ def test_undo_refused_when_either_file_changed(env, kind, which):
     assert files(paths) == before and state["tracks"][TID] == entry and state["pending"] == []
 
 
-@pytest.mark.parametrize("kind", ["swap", "add_new"])
+@pytest.mark.parametrize("kind", KINDS)
 def test_undo_refused_when_a_file_is_gone(env, kind):
     paths, state = env
     step(paths, state, kind)
@@ -203,7 +241,7 @@ def test_undo_refused_when_a_file_is_gone(env, kind):
     assert read(paths, ROOT_NAME) is not None and state["tracks"][TID]["status"] == "lossless"
 
 
-@pytest.mark.parametrize("kind", ["swap", "add_new"])
+@pytest.mark.parametrize("kind", KINDS)
 def test_undo_refused_when_another_file_took_a_place(env, kind):
     paths, state = env
     step(paths, state, kind)
@@ -236,7 +274,7 @@ def test_no_undo_for_a_step_from_before_undo_existed(env):
 
 # --- Done ends it ---
 
-@pytest.mark.parametrize("kind", ["swap", "add_new"])
+@pytest.mark.parametrize("kind", KINDS)
 def test_undo_is_gone_after_done(env, kind):
     paths, state = env
     step(paths, state, kind)
@@ -267,11 +305,12 @@ def test_a_kept_download_no_record_names_is_cleaned_up(env):
 
 # --- crash safety ---
 
-@pytest.mark.parametrize("renames_done", [0, 1])
-def test_a_crash_while_undoing_add_as_new_is_finished_at_the_next_start(env, monkeypatch, renames_done):
+@pytest.mark.parametrize("kind,renames_done", [("add_new", 0), ("add_new", 1), ("add_new_rendered", 0),
+                                                ("add_new_rendered", 1), ("add_new_rendered", 2)])
+def test_a_crash_while_undoing_add_as_new_is_finished_at_the_next_start(env, monkeypatch, kind, renames_done):
     paths, state = env
     original = copy.deepcopy(state["tracks"][TID])
-    step(paths, state, "add_new")
+    step(paths, state, kind)
     real, done = library.move_path, []
 
     def power_off(*args, **kwargs):
