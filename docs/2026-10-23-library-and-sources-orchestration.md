@@ -420,3 +420,7 @@ Results:
   writes tags into the file, that blocks undo after any edit in rekordbox → use an audio-only key instead.
 - B5 done (Sonnet 270k): `batches.py` (start/run/resume/undo/checked/recover, Stop, rekordbox-open stop, Busy,
   batch undo marks items undone), console `s` = batch of one; CI green; merged. Next: R1 engine review (Opus).
+- R1 engine review (Opus 234k): 0 Critical, 6 Important, 10 Minor; nothing loses a file, every write backed up first,
+  crash recovery holds. Decided (review's question): rekordbox's comment column and the new file's comment tag are
+  written only when empty or Discjockey's own quality line; Mixed In Key's key/energy and user notes stay. Fresh
+  Sonnet fix round running.
