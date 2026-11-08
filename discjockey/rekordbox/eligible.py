@@ -34,9 +34,10 @@ from .offset import TimelineOffset
 
 REASONS = ("no_upgrade", "needs_choice", "file_missing", "away", "rekordbox_unreadable", "timing", "not_analysed",
            "cloud", "downloaded", "clean_aiff", "named_already", "needs_convert", "no_name", "not_in_library",
-           "auto_refused", "unclean", "changed", "space", "rekordbox_open", "rename_blocked")
-# auto_refused is reserved for stage C; the last four are what a run finds (stage B): the write is refused, the track
-# changed meanwhile, too little room, rekordbox open. `unclean` is the write's own refusal (guard 4)
+           "auto_refused", "unclean", "changed", "space", "rekordbox_open", "rename_blocked", "relocated")
+# auto_refused is reserved for stage C; the rest from `unclean` on are what a run finds (stage B): the write is
+# refused (`unclean`, guard 4), the track changed meanwhile, too little room, rekordbox open, a rename the repoint
+# can't follow, and an undo refused because the track was relocated or changed in rekordbox since
 ACTIONS = ("same_track", "convert", "rename")
 AIFF_EXTS = (".aiff", ".aif")
 OWN = "manual"  # the `source` of a file that wasn't downloaded: a bought file or one the import found

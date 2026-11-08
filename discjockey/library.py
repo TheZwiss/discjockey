@@ -558,7 +558,9 @@ def undo_paths(undo: dict) -> list[str]:
 
 
 def forget_undo(paths: Paths, undo: dict | None) -> None:
-    """The undo is gone (the rekordbox check is done): the kept parked copy of a swap is deleted."""
+    """The undo is gone (the rekordbox check is done): the kept parked copy of a swap, a rendered New track or a Same
+    track that made a new AIFF (`convert`) is deleted. The old file stays in Superseded/; the rekordbox backup the
+    record named is no longer kept for it (`_prune_undo`)."""
     held = (undo or {}).get("held")
     if not held:
         return
@@ -574,7 +576,9 @@ def forget_undo(paths: Paths, undo: dict | None) -> None:
 
 def _prune_undo(paths: Paths, state: dict) -> None:
     """Deletes the kept parked copies no undo record and no pending step names any more (a check overwritten by a
-    later step, an undo that finished, a crash in between)."""
+    later step, an undo that finished, a crash in between), then the rekordbox backups beyond the newest 3 that no
+    undo record, pending step or unfinished AIFF batch names (`backup.prune`)."""
+    _prune_backups(paths, state)
     if not paths.undo.is_dir():
         return
     keep = {fold(p) for e in state.get("tracks", {}).values() if (u := upgrade_undo(e)) for p in undo_paths(u)}
@@ -589,6 +593,19 @@ def _prune_undo(paths: Paths, state: dict) -> None:
                     f.unlink(missing_ok=True)
         if folder.is_dir() and not folder.is_symlink() and not any(folder.iterdir()):
             folder.rmdir()
+
+
+def _prune_backups(paths: Paths, state: dict) -> None:
+    from .rekordbox import backup  # the rekordbox package builds on this module's paths only
+    if not backup.backups_dir(paths).is_dir():
+        return
+    keep = {u["backup"] for e in state.get("tracks", {}).values() if (u := upgrade_undo(e)) and u.get("backup")}
+    keep |= {rb["backup"] for op in state.get("pending", []) if (rb := op.get("rekordbox")) and rb.get("backup")}
+    if paths.db_file.exists():
+        from . import db
+        with db.connect(paths.db_file) as conn:
+            keep |= db.aiff_backups_in_use(conn)
+    backup.prune(paths, keep)
 
 
 def delete_parked(paths: Paths, rel: str | None) -> None:
@@ -1225,9 +1242,9 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
     (tidy.recover). Returns (message, ok) per step and per batch. A step with a file on a drive that isn't
     connected waits for it. A `files` step (move_files), a `step` (run_op) and tidy.recover write library.db past `state`, so after
     either `state`'s contents are replaced in place with a fresh snapshot: the caller goes on saving a current one. A
-    `swap` / `swap_undo` / `convert` step writes past it too (end_op), and `state` follows each of its writes. A
-    convert step whose analysis files must come back while rekordbox runs waits for it to quit, as a step waits for
-    a drive: the run goes on, the scan is held."""
+    `swap` / `swap_undo` / `convert` / `convert_undo` step writes past it too (end_op), and `state` follows each of
+    its writes. A convert step (or its undo) whose analysis files must come back while rekordbox runs waits for it to
+    quit, as a step waits for a drive: the run goes on, the scan is held."""
     messages: list[tuple[str, bool] | _Waits] = []
     roots = watched_roots(paths) if state.get("version") == 2 else [paths.root]
     for op in list(state.get("pending", [])):
@@ -1242,6 +1259,10 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
         if op.get("kind") == "convert":
             from .convert import recover_convert  # convert builds on this module
             messages.append(recover_convert(paths, state, op, roots))
+            continue
+        if op.get("kind") == "convert_undo":
+            from .convert import recover_convert_undo  # convert builds on this module
+            messages.append(recover_convert_undo(paths, state, op, roots))
             continue
         if op.get("kind") in ("files", "step"):
             message, wrote = (_recover_files if op["kind"] == "files" else _recover_step)(paths, op, roots)

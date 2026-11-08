@@ -49,6 +49,23 @@ SWAPPED_CHECK = ("The lossless audio is in your file, so rekordbox keeps its cue
                  "analyse it again so the waveform shows the full sound.")
 SWAPPED_MOVED_CHECK = ("The lossless audio is in your file, which moved up out of not_lossless/. In rekordbox: Auto "
                        "Relocate finds it by its name with its cues, then Reload Tag and analyse it again.")
+# the swap wrote rekordbox's text itself (plan stage B §0.6: `reload_tag: false`), so no Reload Tag
+SWAPPED_WRITTEN_CHECK = ("The lossless audio is in your file, so rekordbox keeps its cues, and Discjockey updated its "
+                         "names in rekordbox. In rekordbox: analyse it again so the waveform shows the full sound.")
+SWAPPED_MOVED_WRITTEN_CHECK = ("The lossless audio is in your file, which moved up out of not_lossless/, and "
+                               "Discjockey updated its names in rekordbox. In rekordbox: Auto Relocate finds it by its "
+                               "name with its cues, then analyse it again.")
+# design §8 (binding): a Same track that made a new AIFF and pointed rekordbox's track at it
+REPOINTED_CHECK = ("The better audio is in a new AIFF with a clean name, and your rekordbox track plays it with its "
+                   "cues, playlists and history. In rekordbox, analyse it again so the waveform shows the full sound "
+                   "(lock the beatgrid first if you set it by hand).")
+REPOINTED_NO_TRACK_CHECK = ("The better audio is in a new AIFF with a clean name. This file isn't in your rekordbox "
+                            "collection, so there was nothing to keep there.")
+# design §5.11, §8 (binding): the Reload Tag step for tracks whose text Discjockey didn't write (a batch card lists them)
+RELOAD_TAG_STEP = ("In rekordbox's Collection, select the tracks listed here (⌘-click each), right-click › Reload Tag. "
+                   "Don't select all: it replaces every name you changed in rekordbox on the tracks you select.")
+# design §8, result 3 (until the live test settles it)
+USB_STEP = "On a USB stick? The stick still plays the old file. Rebuild the stick in rekordbox before your next gig."
 ALIGNED_EDIT_CHECK = ("This is the same edit, lined up with your old file to the sample. In rekordbox: relocate your "
                       "old track to the new file (right-click › Relocate); its cues fit exactly.")
 SAME_EDIT_CHECK = "This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit."
@@ -171,12 +188,18 @@ def write_crash(paths: Paths, log: RunLog, at: datetime, step: str, error: BaseE
 def check_text(check: dict) -> str:
     """What to do in rekordbox for an entry's `rekordbox_check` ({reason, since}; an added_as_new also has `match`, the
     measurement of the two files, `offset_ms` and `aligned`, whether the new file was lined up with rekordbox's
-    timeline of the old one; a swapped one `moved`, whether the file moved up out of not_lossless/). Same edit
+    timeline of the old one; a swapped one `moved`, whether the file moved up out of not_lossless/, and `reload_tag`,
+    false when Discjockey wrote rekordbox's text itself; a repointed one `rekordbox`, the tracks it pointed at the new
+    AIFF, or None when the file had none). Same edit
     (exact or shifted): the old entry can be relocated to the new file and keeps its cues, exactly when it was lined
     up. A real mismatch, no measurement or a record from before it: analyse and cue again."""
     check = check or {}
     if check.get("reason") == "swapped":
+        if check.get("reload_tag") is False:  # stage B wrote rekordbox's text; older records keep Reload Tag
+            return SWAPPED_MOVED_WRITTEN_CHECK if check.get("moved") else SWAPPED_WRITTEN_CHECK
         return SWAPPED_MOVED_CHECK if check.get("moved") else SWAPPED_CHECK
+    if check.get("reason") == "repointed":
+        return REPOINTED_CHECK if check.get("rekordbox") else REPOINTED_NO_TRACK_CHECK
     if check.get("reason") == "added_as_new":
         if check.get("aligned") and check.get("match") in ("exact", "shifted"):
             return ALIGNED_EDIT_CHECK

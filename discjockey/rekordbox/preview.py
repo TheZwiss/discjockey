@@ -50,6 +50,7 @@ REASON_WORDS = {
     "rekordbox_open": "rekordbox is open; quit rekordbox, then try again",
     "rename_blocked": "Discjockey can only give this file its new name while it can point your rekordbox track at "
                       "it, and it can't right now",
+    "relocated": "this track was changed in rekordbox since (relocated?), so Discjockey can't undo it safely",
 }
 
 

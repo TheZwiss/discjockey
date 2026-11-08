@@ -20,7 +20,8 @@ is open and removes both on a clean close (checked on a copy 2026-11-08), so gua
 - `write_text`: the in-place AIFF swap's write, text columns and `FileSize` only.
 - `undo_repoint`: identity back only while it holds exactly what we wrote (else `relocated`, nothing changed), file
   facts back whatever they hold, each text column back only where it still holds what we wrote, `PPTH` back only where
-  the file still names our path.
+  the file still names our path. `check_undo` answers the same refusals first, without a transaction, so the caller
+  moves no file before it knows; a swap's record (`identity=False`) never checks or writes the path.
 
 Text columns (design §5.11): `Title`, `ISRC`, `Commnt` are written in place; artist, album and label are ids into
 `djmdArtist`/`djmdAlbum`/`djmdLabel`, found (an active row whose `Name` equals the value, NFC exact, lowest id) or
@@ -536,19 +537,46 @@ class Writer:
                 prepared(committed)
         return committed
 
-    def write_text(self, changes: list[RowChange], *, running: Callable[[], bool] | None = None) -> Committed:
-        """The in-place swap's write: text columns and `FileSize` only (no path, no analysis file)."""
+    def write_text(self, changes: list[RowChange], *, running: Callable[[], bool] | None = None,
+                   prepared: Callable[[Committed], None] | None = None) -> Committed:
+        """The in-place swap's write: text columns and `FileSize` only (no path, no analysis file). Its record is
+        undone with `undo_repoint(..., identity=False)`."""
         for c in changes:
             extra = set(c.after) - {"FileSize"}
             if extra:
                 raise ValueError(f"write_text changes only FileSize and text, not {sorted(extra)}")
-        return self.repoint(changes, [], running=running)
+        return self.repoint(changes, [], running=running, prepared=prepared)
 
     # -- undo --
 
-    def undo_repoint(self, record: RepointRecord, *, running: Callable[[], bool] | None = None) -> UndoOutcome:
+    def check_undo(self, record: RepointRecord, *, identity: bool = True) -> None:
+        """Design §5.9 step 1 without a transaction: refuses (`WriteRefused`) as `undo_repoint` would, so the caller
+        changes nothing on disk before it knows the undo can run (rekordbox is closed: nothing changes in between,
+        and `undo_repoint` checks again)."""
+        if record.dbid and self.dbid and record.dbid != self.dbid:
+            raise WriteRefused("other_library")
+        self._undoable(record, self._rows([r.id for r in record.rows]), identity)
+
+    @staticmethod
+    def _undoable(record: RepointRecord, rows: dict[str, dict[str, object]], identity: bool) -> None:
+        for r in record.rows:
+            row = rows.get(r.id)
+            if row is None or int(row["rb_local_deleted"] or 0):
+                if not identity:
+                    continue  # a swap's track removed from rekordbox since: nothing to put back there
+                raise WriteRefused("relocated")
+            if identity and any(row[k] != v for k, v in r.identity_after.items()):
+                raise WriteRefused("relocated")
+            if row["usn"] is not None or int(row["rb_local_synced"] or 0):
+                raise WriteRefused("cloud")
+
+    def undo_repoint(self, record: RepointRecord, *, running: Callable[[], bool] | None = None,
+                     identity: bool = True, prepared: Callable[[UndoOutcome], None] | None = None) -> UndoOutcome:
         """Puts back what `record` wrote (design §5.9 steps 1 and 3). Refuses (`relocated`) with nothing changed when
-        a track's identity no longer holds exactly what was written, or the track is gone."""
+        a track's identity no longer holds exactly what was written, or the track is gone. `identity=False` is the
+        in-place swap's record (`write_text`: no path was written): its identity is neither checked nor written, so a
+        track the user relocated since still gets its text back. `prepared` gets the outcome after every change and
+        before guard 3 and `COMMIT`, as `repoint`'s."""
         if record.dbid and self.dbid and record.dbid != self.dbid:
             raise WriteRefused("other_library")
         stamp = stamp_of(self._clock())
@@ -557,14 +585,7 @@ class Writer:
         anlz_state: dict[str, str] = {}
         with self._transaction(running) as written:
             rows = self._rows([r.id for r in record.rows])
-            for r in record.rows:
-                row = rows.get(r.id)
-                if row is None or int(row["rb_local_deleted"] or 0):
-                    raise WriteRefused("relocated")
-                if any(row[k] != v for k, v in r.identity_after.items()):
-                    raise WriteRefused("relocated")
-                if row["usn"] is not None or int(row["rb_local_synced"] or 0):
-                    raise WriteRefused("cloud")
+            self._undoable(record, rows, identity)
             back: list[tuple[Path, bytes, bytes, dict]] = []  # path, now, put back, record entry
             for a in record.anlz:
                 path = Path(str(a["path"]))
@@ -574,9 +595,12 @@ class Writer:
                     continue
                 back.append((path, parsed.data, anlz.splice_ppth(parsed, str(a["old_ppth"])), a))
             usn = _Usn(self.con)
-            for r in sorted(record.rows, key=lambda r: _id_key(r.id)):
+            present = [r for r in record.rows if r.id in rows and not int(rows[r.id]["rb_local_deleted"] or 0)]
+            for r in sorted(present, key=lambda r: _id_key(r.id)):
                 row = rows[r.id]
-                sets: dict[str, object] = {k: v for k, v in r.identity_before.items() if row[k] != v}
+                sets: dict[str, object] = {}
+                if identity:
+                    sets.update({k: v for k, v in r.identity_before.items() if row[k] != v})
                 sets.update(r.facts_before)
                 restored[r.id], kept[r.id] = [], []
                 for f, t in r.text.items():
@@ -589,7 +613,7 @@ class Writer:
                 sets.update(rb_local_usn=usn.next(), updated_at=stamp)
                 self._set("djmdContent", "ID", r.id, sets)
             back_rels = {self._rel(p): (p, data, entry) for p, _now, data, entry in back}
-            for r in sorted(record.rows, key=lambda r: _id_key(r.id)):
+            for r in sorted(present, key=lambda r: _id_key(r.id)):
                 before = {c["id"]: c for c in r.contentfile_before}
                 for cf_id, path, _hash, _size in self._content_files(r.id, [k for k in back_rels if k]):
                     _p, data, entry = back_rels[path]
@@ -604,4 +628,7 @@ class Writer:
                 written.append((path, now_bytes))
                 replace_bytes(path, data)
                 anlz_state[str(path)] = "restored"
-        return UndoOutcome(usn.value, stamp, restored, kept, anlz_state)
+            outcome = UndoOutcome(usn.value, stamp, restored, kept, anlz_state)
+            if prepared is not None:
+                prepared(outcome)
+        return outcome

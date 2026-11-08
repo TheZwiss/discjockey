@@ -693,7 +693,11 @@ def check_status(check: dict | None) -> str:
     c = check or {}
     reason = c.get("reason")
     if reason == "swapped":
+        if c.get("reload_tag") is False:  # Discjockey wrote rekordbox's text (stage B)
+            return "relocate, analyse again" if c.get("moved") else "analyse again"
         return "relocate, Reload Tag, analyse again" if c.get("moved") else "Reload Tag, analyse again"
+    if reason == "repointed":
+        return "analyse again" if c.get("rekordbox") else "a new AIFF, not in rekordbox"
     if reason == "added_as_new":
         return "relocate, analyse again" if c.get("match") in ("exact", "shifted") else "analyse, set the cues again"
     if reason == "wrong_song":
