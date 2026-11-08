@@ -368,8 +368,8 @@ undo record, if their measurements agree.
 | | `rb_LocalFolderPath` | unchanged (NULL in practice). Check first: if a row has it equal to the old path, treat it like `OrgFolderPath` |
 | | `FileType`, `FileSize`, `BitDepth`, `SampleRate`, `BitRate`, `Length` | 12 (AIFF), the new size, 16, 44100, 1411, whole seconds |
 | | text columns | §5.11's rule |
-| | `rb_local_usn`, `updated_at` | `localUpdateCount + 1`; now as `YYYY-MM-DD HH:MM:SS.fff +00:00` |
-| `agentRegistry` | `localUpdateCount.int_1` | +1 per transaction; `updated_at` the same now |
+| | `rb_local_usn`, `updated_at` | each changed or created row its own next number (`localUpdateCount + 1`, `+ 2`, …: created lookup rows, then tracks, then `contentFile` rows; corrected in stage B from a copy of a rekordbox 7 library, where rekordbox numbers rows one by one); now as `YYYY-MM-DD HH:MM:SS.fff +00:00` |
+| `agentRegistry` | `localUpdateCount.int_1` | the last number given; its `updated_at` is left (rekordbox doesn't refresh it per count) |
 | ANLZ `.DAT` `.EXT` `.2EX` `.3EX` | `PPTH` | `?/<new name>` where it held `?/<old name>`: a byte splice, lengths updated, every other byte kept |
 | `contentFile` | `Hash`, `Size` of each changed ANLZ file | the new MD5 and size (rekordbox's own invariant); `rb_*` flags unchanged |
 
