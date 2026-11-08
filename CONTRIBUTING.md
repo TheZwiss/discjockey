@@ -80,7 +80,14 @@ rekordbox part, and every action says `not_in_library`). JSON:
 use (nothing is reserved); `fields_kept` names the text fields of the rekordbox track the user edited, which a later
 repoint would leave alone. Exit 0 when it answered; 1 when it refused (`reason`: `unknown_track`, `file_missing`,
 `away` for a file on a drive that isn't connected) or failed (a file ffmpeg can't read); 2 when a song key was given
-and there is no music folder (`reason: "no_library"`).
+and there is no music folder (`reason: "no_library"`). A usage error (a missing or conflicting argument) also exits 2,
+but prints argparse's usage as text on stderr, not JSON: only a JSON answer with `reason: "no_library"` means the
+music folder is missing.
+
+When you run these two commands by hand on a Mac that has a real rekordbox, always set both overrides first:
+`DISCJOCKEY_SUPPORT=<scratch folder> DISCJOCKEY_REKORDBOX=<a fixture folder or an empty folder> bin/discjockey rekordbox
+status|preview …`. Without them they read the real rekordbox library and your real music folder. An empty
+`DISCJOCKEY_REKORDBOX=` also means "no rekordbox library".
 
 Never start a real sync, upgrade swap or Qobuz download while working on the code unless you mean to: it changes
 your library and counts against your Qobuz daily limit. `--dry-run` changes nothing.

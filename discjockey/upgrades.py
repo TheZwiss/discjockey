@@ -220,12 +220,13 @@ def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Co
 
 def _lined_up_shift(old_file: Path, alignment: Alignment, offset: Offset | None) -> int | None:
     """The shift (44.1 kHz samples) that lines the new file up with rekordbox's timeline of `old_file`: `L − d`; None
-    when the files aren't the same edit or `d` is unknown (rekordbox can't tell, or ffmpeg can't read the file)."""
+    when the files aren't the same edit or `d` is unknown (rekordbox can't tell, or anything in that look fails: New
+    track never refuses, plan §0.4)."""
     if not alignment.swap_safe:
         return None
     try:
         d = (offset or rekordbox.timeline_offset)(old_file).samples
-    except (RuntimeError, OSError):  # ffmpeg can't read the old file: New track still works, as before
+    except Exception:  # whatever goes wrong in the look at rekordbox (ffmpeg, its library): New track still renames
         return None
     return None if d is None else alignment.offset_samples - d
 

@@ -6,7 +6,8 @@ rekordbox's version (shown and logged, never a guard). No `master.db` means no r
 `datafile.edb` counts as none, because only rekordbox 6 and 7 keep `master.db`.
 
 The order:
-1. `DISCJOCKEY_REKORDBOX=<folder>` replaces everything: `<folder>/master.db` and `<folder>/share`, no version. Tests
+1. `DISCJOCKEY_REKORDBOX=<folder>` replaces everything: `<folder>/master.db` and `<folder>/share`, no version. Set but empty it means no
+   library at all (never the real one). Tests
    set it for every test (`tests/conftest.py`), so no test reads a real rekordbox.
 2. rekordboxAgent's `options.json` (`{"options": [[name, value], ...]}`): `db-path` names the library,
    `analysis-data-root-path` the share folder (when it is missing, `share` beside the library).
@@ -45,8 +46,10 @@ def locate(env: Mapping[str, str] = os.environ, home: Path | None = None,
            apps: Path = APPLICATIONS) -> Place | None:
     """The rekordbox library this Mac uses, or None when there is none. `home` defaults to the user's home and is
     only looked at without the override; `apps` is where the rekordbox apps are installed."""
-    override = env.get(ENV)
-    if override:
+    if ENV in env:  # set but empty means "no library", never the real one
+        override = env[ENV]
+        if not override:
+            return None
         folder = Path(override)
         db = folder / DB_NAME
         return Place(db, folder / "share", "override", None) if db.is_file() else None

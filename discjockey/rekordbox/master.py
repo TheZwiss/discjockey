@@ -251,17 +251,21 @@ def open_read(place: Place, running: bool) -> Iterator[Master]:
         con.close()
 
 
+def status_of(master: Master, running: bool) -> Status:
+    """The `ready` answer for a library that `open_read` has just opened: `status()` without a second keyed open."""
+    problem: Problem | None = "unclean" if not running and leftovers(master.place.db) else None
+    return Status("ready", running, master.place.app_version, str(master.place.db), problem, master.db_version,
+                  master.dbid)
+
+
 def status(place: Place | None, running: Callable[[], bool] | None = None) -> Status:
     """What Discjockey can do with rekordbox's library now. Never raises for a library it can't read."""
     is_running = (running or process.running)()
     if place is None or not place.db.is_file():  # gone since locate(): no library, not a wrong key
         return Status("none", is_running, None, None, None, None, None)
-    version, library = place.app_version, str(place.db)
     try:
         with open_read(place, is_running) as master:
-            db_version, dbid = master.db_version, master.dbid
+            return status_of(master, is_running)
     except Unreadable as e:
         state: State = "ready" if e.problem == "busy" else "unreadable"
-        return Status(state, is_running, version, library, e.problem, e.db_version, e.dbid)
-    problem: Problem | None = "unclean" if not is_running and leftovers(place.db) else None
-    return Status("ready", is_running, version, library, problem, db_version, dbid)
+        return Status(state, is_running, place.app_version, str(place.db), e.problem, e.db_version, e.dbid)

@@ -170,6 +170,15 @@ def test_rename_follows_rekordbox_too():
     assert why(rename(e, aiff(), READY, timing(cloud=True), clean_path="Library/Mine/Artist - Song.aiff")) == "cloud"
 
 
+def test_rename_keeps_the_audio_so_the_timeline_does_not_matter_to_it():
+    e = entry(path="Library/Mine/track01.aiff")
+    target = "Library/Mine/Artist - Song.aiff"
+    for result in ("not_analysed", "timing"):
+        assert why(rename(e, aiff(), READY, timing(result, None), clean_path=target)) is None, result
+        assert why(convert(entry(), facts(), READY, timing(result, None))) == result  # Convert does change it
+    assert why(rename(e, aiff(), READY, timing("unreadable", None), clean_path=target)) == "rekordbox_unreadable"
+
+
 # --- the new file's tags ---
 
 def test_expected_tags_take_the_record_first_and_the_old_file_for_the_rest():
@@ -188,6 +197,9 @@ def test_the_comment_is_the_quality_line_of_the_old_file():
                               source_kbps=128), TAGS)
     assert got["comment"] == "bought file MP3 128 kbps · cutoff 16.0 kHz"
     assert expected_tags(entry(source=None), {**TAGS, "comment": "mine"})["comment"] == "mine"
+    # the user's own file (source "manual", found by the import) reads as "Your own file (FORMAT)"
+    got = expected_tags(entry(source="manual", source_format="flac", placed_by="import", status="lossless"), TAGS)
+    assert got["comment"] == "Your own file (FLAC) · verified lossless"
 
 
 def test_tags_clean_ignores_form_and_spaces():

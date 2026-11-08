@@ -563,8 +563,8 @@ file either way; the only difference is what rekordbox sees, which you pick unde
   still sit on the same beat. Before anything is overwritten, a checked copy of your old file
   is saved in `Superseded/<Folder>/` with "(lossy)" in its name. If the file was in
   `not_lossless/`, it moves up into the folder itself (unless a file with that name is already
-  there). In rekordbox, if the track then shows as missing, use Auto Relocate (the search for
-  missing files in `Library/`): it finds the file by its name, with cues and beatgrid in place.
+  there). In rekordbox, if the track then shows as missing, use Auto Relocate (the swap keeps the file's name; it is the search
+  for missing files in `Library/`): it finds the file by its name, with cues and beatgrid in place.
   The track already plays the lossless audio. Then right-click → **Reload Tag** so the
   comment shows the new source, and analyse it again so the waveform shows the full sound
   (lock the beatgrid first if you adjusted it by hand). The To-do page ("Check in rekordbox")

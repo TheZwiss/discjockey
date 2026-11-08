@@ -54,6 +54,13 @@ def test_the_override_never_looks_at_home(monkeypatch, tmp_path):
     assert place == Place(tmp_path / "rb/master.db", tmp_path / "rb/share", "override", None)
 
 
+def test_an_empty_override_means_no_library_not_the_real_one(monkeypatch, tmp_path):
+    def no_home():
+        raise AssertionError("locate read the home folder")
+    monkeypatch.setattr(Path, "home", staticmethod(no_home))
+    assert locate(env={"DISCJOCKEY_REKORDBOX": ""}, apps=tmp_path / "no-apps") is None
+
+
 def test_an_override_with_only_rekordbox_5s_library_is_none(tmp_path):
     touch(tmp_path / "rb/datafile.edb")
     assert locate(env={"DISCJOCKEY_REKORDBOX": str(tmp_path / "rb")}) is None

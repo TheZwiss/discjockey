@@ -15,6 +15,8 @@ audio than ffmpeg's default decode (it doesn't drop an MP3's encoder delay or an
   applies (`probe.start_trim`). PCM, FLAC, ALAC: 0. MP3: the union `{0, trim, trim + 1152, 1105, 1105 + 1152}` in
   the file's own samples (1105 = LAME's 576 encoder delay + the decoder's 529; rekordbox sometimes adds one more
   1152-sample frame, and a file without a tag can still have the delay). Every other lossy codec: `{0, trim}`.
+  The closest two MP3 values are 1105 and 1152 (47 samples, about 1.07 ms apart, when trim is 0): still more than
+  twice `TOLERANCE_S`, so no measurement is within tolerance of two values and a snap is never ambiguous.
 - `decide(measured, expected)`: accepted when the score is at least `MIN_SCORE` and the measurement lies within
   `TOLERANCE_S` of an expected value; the answer is **that expected value**, exact to the sample. Else `timing`.
 - `agree(values)`: several rekordbox tracks for one file must land on the same value, else `timing`.

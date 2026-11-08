@@ -188,6 +188,23 @@ def clean_aiff(paths, rel):
     return f
 
 
+def test_same_track_keeps_what_the_parked_downloads_text_would_leave_alone(tmp_path, monkeypatch, paths):
+    up = "Upgrades ready/Mine/Artist - Song.aiff"
+    f = put(paths, MP3, LAME)
+    parked_file = paths.root / up
+    parked_file.parent.mkdir(parents=True)
+    write_aiff(parked_file, music(1))
+    audio.write_tags(parked_file, title="Qobuz Title", artists=("Artist",), album="", isrc=None, label=None, cover=None,
+                     comment="x")
+    library(paths, {OWN: entry(upgrade=parked(up))})  # the record says "Song", the download says "Qobuz Title"
+    rekordbox_for(tmp_path, monkeypatch, f, Title="Qobuz Title")
+    got = preview(paths, track=OWN)
+    assert got["eligible"]["same_track"] is None
+    assert got["entries"][0]["fields_kept"] == []  # the new file says what rekordbox shows: nothing to lose
+    parked_file.write_bytes(b"parked")  # a parked file that can't be read: the record's text is the guess
+    assert preview(paths, track=OWN)["entries"][0]["fields_kept"] == ["title"]
+
+
 def test_a_clean_aiff_with_a_messy_name_would_only_be_renamed(paths):
     clean_aiff(paths, "Library/Mine/track01.aiff")
     library(paths, {OWN: entry("Library/Mine/track01.aiff", source_format="pcm_s16be")})

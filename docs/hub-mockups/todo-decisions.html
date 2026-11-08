@@ -445,8 +445,8 @@ function afterStep(s) {
   const steps = swap
     ? ['Right-click the track › <b>Reload Tag</b>', 'Analyse it again, so the waveform shows the full sound <span class="s">(lock the beatgrid first if you set it by hand)</span>']
     : same
-      ? ['The track shows as missing: <b>Auto Relocate</b> finds the new file by its name', 'Analyse it again <span class="s">· your cues fit</span>']
-      : ['The track shows as missing: <b>Auto Relocate</b> finds the new file by its name', 'Analyse it again and <b>set the cues again</b> <span class="s">· a different edit</span>'];
+      ? ['Right-click your old track › <b>Relocate</b> › choose the new file', 'Analyse it again <span class="s">· your cues fit exactly</span>']
+      : ['Right-click your old track › <b>Relocate</b> › choose the new file', 'Analyse it again and <b>set the cues again</b> <span class="s">· a different edit</span>'];
   const title = swap ? 'In rekordbox' : 'In rekordbox';
   const sum = swap ? 'same track, cues kept' : same ? 'a new track' : 'a new track';
   const changed = swap

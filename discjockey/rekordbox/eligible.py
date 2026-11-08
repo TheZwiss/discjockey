@@ -72,7 +72,8 @@ def _artists(entry: dict) -> str:
 def expected_tags(entry: dict, old_tags: dict[str, str]) -> dict[str, str]:
     """The text the new file would carry, one value per `TEXT_FIELDS`: title and artists (joined by ", ") from the song
     record; album and ISRC from the record when it has them, else the old file's; label from the old file (the record
-    has none); the comment is the quality line of the old file's format, else the old comment."""
+    has none); the comment is the quality line of the old file's format (a file of the user's own reads "Your own file (MP3)
+    · …"), else the old comment when the record has no source."""
     old = {f: old_tags.get(f, "") for f in TEXT_FIELDS}
     comment = old["comment"]
     if entry.get("source") in SOURCE_NAMES:
@@ -124,16 +125,17 @@ def _where(present: Present) -> Skip | None:
     return None if present == "here" else Skip("away" if present == "away" else "file_missing")
 
 
-def _rekordbox_blocks(rb: Status, timing: TimelineOffset | None) -> Skip | None:
+def _rekordbox_blocks(rb: Status, timing: TimelineOffset | None, *, audio_changes: bool = True) -> Skip | None:
     """Why rekordbox can't follow a new file for this track, else None: its library can't be read (a file that
-    could be in it can't be repointed), a track in Cloud Library Sync, or no exact timeline offset."""
+    could be in it can't be repointed), a track in Cloud Library Sync, or (`audio_changes`) no exact timeline offset.
+    A rename keeps the audio, so the timeline doesn't matter to it (design §7.1)."""
     if rb.state == "unreadable" or (timing is not None and timing.why == "unreadable"):
         return Skip("rekordbox_unreadable")
     if timing is None:
         return None
     if any(t.entry.cloud for t in timing.entries):
         return Skip("cloud")
-    if timing.why in ("not_analysed", "timing"):
+    if audio_changes and timing.why in ("not_analysed", "timing"):
         return Skip(timing.why)
     return None
 
@@ -184,4 +186,4 @@ def rename(entry: dict, facts: FileFacts | None, rb: Status, timing: TimelineOff
         return Skip("needs_convert")
     if clean_path is not None and fold(clean_path) == fold(entry.get("path") or ""):
         return Skip("named_already")
-    return _rekordbox_blocks(rb, timing) or Eligible()
+    return _rekordbox_blocks(rb, timing, audio_changes=False) or Eligible()

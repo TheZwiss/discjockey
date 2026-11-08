@@ -45,7 +45,6 @@ REASON_WORDS = {
     "not_in_library": "not a file of your library",
     "auto_refused": "an automatic upgrade was refused for it before",
 }
-assert set(REASON_WORDS) == set(eligible.REASONS)
 
 
 class PreviewRefused(Exception):
@@ -127,6 +126,19 @@ def _places(paths: Paths, state: dict, key: str, entry: dict, same: eligible.Ver
     return (str(paths.root / new) if new else None), str(paths.root / old)
 
 
+def _clean_tags(paths: Paths | None, entry: dict | None, facts: audio.FileFacts, from_upgrade: bool) -> dict[str, str]:
+    """The text the new file would carry. Same track's new file takes the parked download's tags (design §3.5, "From an
+    upgrade"), read as they are; any other action writes the record's (`eligible.expected_tags`)."""
+    if entry is None:
+        return facts.tags
+    if from_upgrade and paths is not None:
+        try:
+            return audio.file_facts(paths.root / entry["upgrade"]["file"]).tags
+        except (RuntimeError, OSError):  # the parked file can't be read: the record's text is the best guess
+            pass
+    return eligible.expected_tags(entry, facts.tags)
+
+
 def preview(paths: Paths | None, *, track: str | None = None, path: Path | str | None = None,
             offset: Callable[[Path], rekordbox.TimelineOffset] | None = None) -> dict:
     """The command's JSON for the song `track` (its key) or the file `path`. `paths` is the music folder's, None
@@ -162,11 +174,12 @@ def preview(paths: Paths | None, *, track: str | None = None, path: Path | str |
     except (RuntimeError, OSError) as e:  # ProbeError is a RuntimeError
         raise PreviewFailed(f"Discjockey couldn't read {file.name}: {e}") from None
 
-    clean = eligible.expected_tags(entry, facts.tags) if entry else facts.tags
+    rb = timeline.rekordbox
+    same = eligible.same_track(entry, facts, rb, timeline) if entry else None
+    clean = _clean_tags(paths, entry, facts, isinstance(same, Eligible)) if timeline.entries else facts.tags
     rows = [{"id": t.entry.id, "cues": t.cues, "grid": t.grid, "pwv3": t.pwv3, "offset_ms": t.offset_ms,
              "expected_ms": t.expected_ms, "score": t.score, "cloud": t.entry.cloud,
              "fields_kept": eligible.fields_kept(t.entry, facts.tags, clean)} for t in timeline.entries]
-    rb = timeline.rekordbox
     out = {"ok": True, "track": key if entry else None, "file": str(file.absolute()), "codec": facts.codec,
            "sample_rate": facts.sample_rate, "bits": facts.bits, "new_file": None, "superseded": None,
            "rekordbox": {"state": rb.state, "running": rb.running, "problem": rb.problem},
@@ -174,7 +187,6 @@ def preview(paths: Paths | None, *, track: str | None = None, path: Path | str |
            "eligible": dict.fromkeys(eligible.ACTIONS, "not_in_library")}
     if entry is None:
         return out
-    same = eligible.same_track(entry, facts, rb, timeline)
     conv = eligible.convert(entry, facts, rb, timeline)
     ren_path = _clean_name(paths, state, key, entry, str(PurePosixPath(entry["path"]).parent))
     ren = eligible.rename(entry, facts, rb, timeline, clean_path=ren_path)

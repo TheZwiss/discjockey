@@ -373,6 +373,18 @@ def test_an_old_file_ffmpeg_cant_read_is_renamed_as_before(env):
     assert without_undo(state["tracks"]["t1aaaaaaa"]["rekordbox_check"])["aligned"] is False
 
 
+@pytest.mark.parametrize("error", [ValueError("numpy"), MemoryError(), OSError("disk"),
+                                   __import__("sqlcipher3").DatabaseError("file is not a database")])
+def test_any_error_in_rekordbox_s_look_still_renames(env, error):
+    def failing(old_file):
+        raise error
+
+    paths, state = env
+    add(paths, state, SHIFT, failing)
+    assert (paths.root / NEW_NAME).read_bytes() == b"new audio"
+    assert without_undo(state["tracks"]["t1aaaaaaa"]["rekordbox_check"])["aligned"] is False
+
+
 def test_the_measurement_made_now_wins_over_the_parked_one(env):
     paths, state = env
     add(paths, state, Alignment("different", drift_ms=300.0), timing(0))  # parked as exact

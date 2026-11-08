@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Literal
 
 import numpy as np
+import sqlcipher3
 
 from .. import quality
 from . import anlz, master, probe, process, timing
@@ -92,19 +93,25 @@ def timeline_offset(old_file: Path, *, place=_LOCATE, running: Callable[[], bool
     `quality.probe`, each looked up at call time."""
     place = locate() if place is _LOCATE else place
     is_running = (running or process.running)()
-    rb = master.status(place, lambda: is_running)
-    info = (probe_audio or quality.probe)(old_file)
-    zero = timing.zero_only(info.codec)
-    if rb.state == "none":
-        return TimelineOffset(0, "no_rekordbox", rb, [])
+    if place is None or not place.db.is_file():
+        return TimelineOffset(0, "no_rekordbox", master.status(place, lambda: is_running), [])
+    rb: Status | None = None
+    entries: list[Entry] = []
+    cues: dict[str, int] = {}
     try:
-        if rb.state != "ready" or rb.problem == "busy":
-            raise Unreadable(rb.problem or "key")
-        with master.open_read(place, is_running) as db:
+        with master.open_read(place, is_running) as db:  # one keyed open answers the status and the queries
+            rb = master.status_of(db, is_running)
             entries = db.entries_for(Path(os.path.abspath(old_file)))
             cues = db.cue_counts([e.id for e in entries])
-    except Unreadable:
+    except (Unreadable, sqlcipher3.DatabaseError):  # a read that fails (a busy or damaged file) is "can't read"
+        rb = rb or master.status(place, lambda: is_running)
+        info = (probe_audio or quality.probe)(old_file)
+        zero = timing.zero_only(info.codec)
+        if rb.state == "none":  # the library went away between locate() and the open
+            return TimelineOffset(0, "no_rekordbox", rb, [])
         return TimelineOffset(0 if zero else None, "format" if zero else "unreadable", rb, [])
+    info = (probe_audio or quality.probe)(old_file)
+    zero = timing.zero_only(info.codec)
     if not entries:
         return TimelineOffset(0, "not_in_rekordbox", rb, [])
 

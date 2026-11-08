@@ -9,10 +9,11 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import sqlcipher3
 
 from discjockey import quality
 from discjockey.quality import AudioInfo
-from discjockey.rekordbox import locate, timing
+from discjockey.rekordbox import locate, master, timing
 from discjockey.rekordbox.offset import RATE, timeline_offset
 from discjockey.rekordbox.probe import start_trim
 from discjockey.rekordbox.timing import Decided, Measured, agree, decide, expected, measure
@@ -54,6 +55,14 @@ def test_decide_snaps_within_a_quarter_millisecond_only():
     assert decide(Measured(0.0251, 0.95), [0.0, 0.025]) == Decided(0.025, None)
     assert decide(Measured(0.02526, 0.95), [0.0, 0.025]) == Decided(None, "timing")
     assert decide(Measured(0.025, 0.89), [0.0, 0.025]) == Decided(None, "timing")
+
+
+def test_a_measurement_between_the_two_closest_mp3_values_snaps_to_neither():
+    values = expected("mp3", SR, 0)  # no tag: 0, 1105, 1152, 2257 samples
+    between = (1105 + 1152) / 2 / SR  # 1128.5 samples: 0.54 ms from each, more than the 0.25 ms tolerance
+    assert decide(Measured(between, 0.95), values) == Decided(None, "timing")
+    assert decide(Measured(1105 / SR, 0.95), values) == Decided(1105 / SR, None)
+    assert decide(Measured(1152 / SR, 0.95), values) == Decided(1152 / SR, None)
 
 
 def test_tracks_must_agree():
@@ -105,6 +114,40 @@ def rekordbox(tmp_path, tracks):
 def test_no_rekordbox_is_zero(tmp_path):
     got = timeline_offset(tmp_path / "a.mp3", **stubs())  # conftest: an empty DISCJOCKEY_REKORDBOX
     assert (got.samples, got.why, got.rekordbox.state, got.entries) == (0, "no_rekordbox", "none", [])
+
+
+def test_no_rekordbox_is_answered_before_the_file_is_probed(tmp_path):
+    def broken(path):
+        raise RuntimeError("ffprobe failed")
+    got = timeline_offset(tmp_path / "a.mp3", **{**stubs(), "probe_audio": broken})
+    assert (got.samples, got.why) == (0, "no_rekordbox")
+
+
+def test_a_read_error_in_rekordbox_s_library_is_unreadable_not_a_crash(tmp_path, monkeypatch):
+    f = tmp_path / "a.mp3"
+    place = rekordbox(tmp_path, [(f, 2, 1105, True)])
+
+    def damaged(self, path):
+        raise sqlcipher3.DatabaseError("database disk image is malformed")
+    monkeypatch.setattr(master.Master, "entries_for", damaged)
+    got = timeline_offset(f, place=place, **stubs())
+    assert (got.samples, got.why, got.entries) == (None, "unreadable", [])
+    got = timeline_offset(f, place=place, **stubs("pcm_s16le"))
+    assert (got.samples, got.why) == (0, "format")
+
+
+def test_a_library_is_opened_once_for_one_answer(tmp_path, monkeypatch):
+    f = tmp_path / "a.mp3"
+    place = rekordbox(tmp_path, [(f, 2, 1105, True)])
+    opens = []
+    real = master.open_read
+
+    def counting(place, running):
+        opens.append(1)
+        return real(place, running)
+    monkeypatch.setattr(master, "open_read", counting)
+    got = timeline_offset(f, place=place, **stubs())
+    assert (got.why, got.rekordbox.state) == ("measured", "ready") and len(opens) == 1
 
 
 def test_a_file_no_track_holds_is_zero(tmp_path):
@@ -256,3 +299,29 @@ def test_timeline_offset_measures_real_decodes_exactly(tmp_path, m4a, monkeypatc
         got = timeline_offset(f)  # the defaults: locate(), process.running (conftest: closed), ffmpeg
         assert (got.why, got.samples) == ("measured", round(extra / sr * RATE)), f.name
         assert abs(got.entries[0].offset_ms - extra / sr * 1000) < 0.12
+
+
+@needs_ffmpeg
+def test_a_six_minute_file_is_measured_in_a_few_seconds(tmp_path):
+    """Plan §1.7 aims at 3 s for a 6-minute file, decode included; the guard is looser so a slow machine passes and a
+    regression still shows. The real time is printed with `pytest -s`."""
+    import time
+    long = clicks(360, SR)
+    f = write_wav(tmp_path / "long.wav", long, SR)
+    place = rekordbox_for_audio(tmp_path, f, long)
+    started = time.perf_counter()
+    got = timeline_offset(f, place=place, running=lambda: False)
+    took = time.perf_counter() - started
+    print(f"six-minute measurement: {took:.2f} s")
+    assert (got.why, got.samples) == ("measured", 0)
+    assert took < 6, took
+
+
+def rekordbox_for_audio(tmp_path, f, audio):
+    folder = tmp_path / "rb"
+    make_master(folder, [{"ID": "1", "path": str(f), "cues": 2}])
+    place = locate(env={"DISCJOCKEY_REKORDBOX": str(folder)})
+    dat = place.share / "PIONEER/USBANLZ/000/1/ANLZ0000.DAT"
+    make_anlz(dat, [pqtz_tag(40)])
+    make_anlz(dat.with_suffix(".EXT"), [pwv3_tag(pwv3_from(audio, SR, 0))])
+    return place
