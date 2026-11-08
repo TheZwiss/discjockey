@@ -1,4 +1,5 @@
-"""rekordbox's library `master.db`, read only (design rekordbox-repoint §5.2–§5.4, plan stage A §1.2, §1.4, §1.5).
+"""rekordbox's library `master.db`, read only (design rekordbox-repoint §5.2–§5.4, plan stage A §1.2, §1.4, §1.5; stage
+B plan §1.2). Stage B's write is `write.py`; this module stays the read side.
 
 `master.db` is SQLCipher 4 with one fixed key (`KEYS`, tried in order; the value pyrekordbox publishes), sent as a
 passphrase (`PRAGMA key = '<hex>'`) as the connection's first statement; a read of `sqlite_master` proves it. This
@@ -43,17 +44,22 @@ KEYS: tuple[str, ...] = ("402fd482c38817c35ffa8ffb8c7d93143b749e7d315df7a81732a1
 DB_VERSIONS = frozenset({"6000"})
 STREAMING = 25  # FileType of a streaming service's track (its FolderPath is a link, not a file)
 
-# Every column stage A reads; stage B extends it with what it writes. A table that lacks one is "schema".
+# Every column stage A reads plus every column stage B reads or writes (plan stage B §0.2: one guard list, design §5.3
+# guard 2). A table that lacks one is "schema". djmdLabel has no SearchStr in rekordbox 7 (nor in pyrekordbox's table
+# definitions); djmdArtist and djmdAlbum do.
+_LOOKUP = ("ID", "Name", "UUID", "rb_local_usn", "rb_local_deleted", "created_at", "updated_at")
 READ_COLUMNS: dict[str, tuple[str, ...]] = {
-    "djmdContent": ("ID", "FolderPath", "FileNameL", "FileType", "AnalysisDataPath", "Title", "ArtistID", "AlbumID",
-                    "LabelID", "ISRC", "Commnt", "usn", "rb_local_synced", "rb_local_deleted", "created_at"),
-    "djmdArtist": ("ID", "Name"),
-    "djmdAlbum": ("ID", "Name"),
-    "djmdLabel": ("ID", "Name"),
+    "djmdContent": ("ID", "UUID", "FolderPath", "FileNameL", "OrgFolderPath", "rb_LocalFolderPath", "FileType",
+                    "FileSize", "BitDepth", "SampleRate", "BitRate", "Length", "AnalysisDataPath", "Title", "ArtistID",
+                    "AlbumID", "LabelID", "ISRC", "Commnt", "usn", "rb_local_synced", "rb_local_deleted",
+                    "rb_local_usn", "created_at", "updated_at"),
+    "djmdArtist": (*_LOOKUP, "SearchStr"),
+    "djmdAlbum": (*_LOOKUP, "SearchStr"),
+    "djmdLabel": _LOOKUP,
     "djmdCue": ("ContentID", "rb_local_deleted"),
     "djmdProperty": ("DBID", "DBVersion"),
-    "contentFile": ("ContentID", "Path", "Hash", "Size"),
-    "agentRegistry": ("registry_id", "int_1"),
+    "contentFile": ("ID", "ContentID", "Path", "Hash", "Size", "rb_local_usn", "updated_at"),
+    "agentRegistry": ("registry_id", "int_1", "updated_at"),
 }
 
 Problem = Literal["unclean", "busy", "key", "db_version", "schema"]
@@ -88,6 +94,22 @@ class Entry:
     comment: str
     cloud: bool
     created_at: str | None
+    artist_id: str | None  # the lookup rows this track points at (text columns are written through them)
+    album_id: str | None
+    label_id: str | None
+    org_folder_path: str  # '' when NULL
+    local_folder_path: str | None  # rb_LocalFolderPath
+    file_size: int | None
+    uuid: str | None
+
+
+@dataclass(frozen=True)
+class PathIndex:
+    """One pass over `djmdContent` (not deleted, not streaming) for many lookups: `by_path` maps a track's folded
+    `FolderPath` (NFC, case-folded) to the ids that hold it, `by_name` the folded file name to (id, `FolderPath`) for
+    every row of that name, in the database's order. `Master.entries_for(path, index)` answers from it."""
+    by_path: dict[str, list[str]]
+    by_name: dict[str, list[tuple[str, str]]]
 
 
 class Unreadable(Exception):
@@ -148,6 +170,10 @@ def _text(value) -> str:
     return "" if value is None else str(value)
 
 
+def _id(value) -> str | None:
+    return None if value is None or value == "" else str(value)
+
+
 class Master:
     """An open, read-only `master.db`. It has no method that writes, and its connection refuses writes."""
 
@@ -157,20 +183,32 @@ class Master:
         self.db_version = db_version
         self.dbid = dbid
 
-    def entries_for(self, path: Path) -> list[Entry]:
-        """The rekordbox tracks that hold the file at `path`, in the database's order (none, one, or several)."""
-        target = os.path.abspath(path)
-        folded, name = _fold(target), _fold(os.path.basename(target))
-        rows = self.con.execute(
+    def index(self) -> PathIndex:
+        """The path index of this library: one query, for a batch that looks up many files."""
+        by_path: dict[str, list[str]] = {}
+        by_name: dict[str, list[tuple[str, str]]] = {}
+        for row_id, folder_path in self._candidates():
+            folded = _fold(folder_path)
+            by_path.setdefault(folded, []).append(row_id)
+            by_name.setdefault(folded.rsplit("/", 1)[-1], []).append((row_id, folder_path))
+        return PathIndex(by_path, by_name)
+
+    def _candidates(self) -> list[tuple[str, str]]:
+        return self.con.execute(
             "SELECT ID, FolderPath FROM djmdContent WHERE IFNULL(rb_local_deleted, 0) = 0 "
             "AND IFNULL(FileType, 0) <> ? AND FolderPath IS NOT NULL", (STREAMING,)).fetchall()
-        ids = []
-        for row_id, folder_path in rows:
-            row_folded = _fold(folder_path)
-            if row_folded == folded:
-                ids.append(row_id)
-            elif row_folded.rsplit("/", 1)[-1] == name and _same_file(folder_path, target):
-                ids.append(row_id)
+
+    def entries_for(self, path: Path, index: PathIndex | None = None) -> list[Entry]:
+        """The rekordbox tracks that hold the file at `path`, in the database's order (none, one, or several). With
+        `index` (this library's, from `index()`) the same answer comes without a scan of the table."""
+        target = os.path.abspath(path)
+        folded, name = _fold(target), _fold(os.path.basename(target))
+        if index is None:
+            rows = [(i, p) for i, p in self._candidates() if _fold(p).rsplit("/", 1)[-1] == name]
+        else:  # a folded path ends in the folded name, so the name's rows hold every possible match
+            rows = index.by_name.get(name, [])
+        ids = [row_id for row_id, folder_path in rows
+               if _fold(folder_path) == folded or _same_file(folder_path, target)]
         return self._entries(ids)
 
     def _entries(self, ids: list[str]) -> list[Entry]:
@@ -182,17 +220,22 @@ class Master:
             for row in self.con.execute(
                     "SELECT c.ID, c.FolderPath, c.FileNameL, c.FileType, c.AnalysisDataPath, c.Title, a.Name, "
                     "al.Name, l.Name, c.ISRC, c.Commnt, "
-                    "(c.usn IS NOT NULL OR IFNULL(c.rb_local_synced, 0) <> 0), c.created_at "
+                    "(c.usn IS NOT NULL OR IFNULL(c.rb_local_synced, 0) <> 0), c.created_at, "
+                    "c.ArtistID, c.AlbumID, c.LabelID, c.OrgFolderPath, c.rb_LocalFolderPath, c.FileSize, c.UUID "
                     "FROM djmdContent c LEFT JOIN djmdArtist a ON a.ID = c.ArtistID "
                     "LEFT JOIN djmdAlbum al ON al.ID = c.AlbumID LEFT JOIN djmdLabel l ON l.ID = c.LabelID "
                     f"WHERE c.ID IN ({marks})", chunk):
                 (row_id, folder_path, file_name, file_type, analysis, title, artist, album, label, isrc, comment,
-                 cloud, created_at) = row
+                 cloud, created_at, artist_id, album_id, label_id, org_path, local_path, file_size, uuid) = row
                 found[row_id] = Entry(
                     id=_text(row_id), folder_path=_text(folder_path), file_name=_text(file_name),
                     file_type=int(file_type or 0), analysis_path=analysis or None, title=_text(title),
                     artist=_text(artist), album=_text(album), label=_text(label), isrc=_text(isrc),
-                    comment=_text(comment), cloud=bool(cloud), created_at=None if created_at is None else str(created_at))
+                    comment=_text(comment), cloud=bool(cloud),
+                    created_at=None if created_at is None else str(created_at),
+                    artist_id=_id(artist_id), album_id=_id(album_id), label_id=_id(label_id),
+                    org_folder_path=_text(org_path), local_folder_path=None if local_path is None else str(local_path),
+                    file_size=None if file_size is None else int(file_size), uuid=_id(uuid))
         return [found[i] for i in ids if i in found]
 
     def cue_counts(self, ids: list[str]) -> dict[str, int]:
@@ -205,6 +248,16 @@ class Master:
                     f"AND ContentID IN ({marks}) GROUP BY ContentID", chunk):
                 counts[content_id] = n
         return counts
+
+
+@dataclass(frozen=True)
+class RekordboxView:
+    """What one batch reads of rekordbox: the open library, its path index and its status, taken once (plan stage B
+    §0.4, §1.6; `session.Session.view()` hands it out). `offset.timeline_offset(view=…)` answers from it without
+    opening the library again."""
+    master: Master
+    index: PathIndex
+    status: Status
 
 
 def _chunks(items: list) -> Iterator[list]:

@@ -17,8 +17,8 @@ rekordbox-edit publish; credit to both. No code is copied from either.
 from __future__ import annotations
 
 from .locate import Place, locate
-from .master import KEYS, Entry, Master, Status, Unreadable, open_read, status
+from .master import KEYS, Entry, Master, PathIndex, RekordboxView, Status, Unreadable, open_read, status
 from .offset import EntryTiming, TimelineOffset, timeline_offset
 
-__all__ = ["KEYS", "Entry", "EntryTiming", "Master", "Place", "Status", "TimelineOffset", "Unreadable", "locate",
-           "open_read", "status", "timeline_offset"]
+__all__ = ["KEYS", "Entry", "EntryTiming", "Master", "PathIndex", "Place", "RekordboxView", "Status",
+           "TimelineOffset", "Unreadable", "locate", "open_read", "status", "timeline_offset"]

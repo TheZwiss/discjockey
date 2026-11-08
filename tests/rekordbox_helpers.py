@@ -10,6 +10,7 @@ A row is a dict of `djmdContent` columns (`ID`, `FileType`, `usn`, …) plus the
 - `artist`, `album`, `label`: names; the lookup row is made (one per name) and its id set;
 - `cues`, `playlists`, `history`, `mytags`: how many `djmdCue` (+ one `contentCue`), `djmdSongPlaylist`,
   `djmdSongHistory` and `djmdSongMyTag` rows the track gets.
+`dump(db)` and `diff(before, after)` compare two states of a library row by row (the write tests' whole-database check).
 `writer(db)` opens the library read-write in WAL mode and keeps `-wal`/`-shm` there: it stands in for a running
 rekordbox.
 
@@ -155,7 +156,8 @@ def make_master(folder: Path, rows: list[dict], key: str = KEYS[0], version: str
             return None
         if (table, name) not in lookups:
             lookups[(table, name)] = f"{table[4:].lower()}-{len(lookups) + 1}"
-            put(table, {"ID": lookups[(table, name)], "Name": name, "UUID": f"u-{lookups[(table, name)]}"})
+            put(table, {"ID": lookups[(table, name)], "Name": name, "UUID": f"u-{lookups[(table, name)]}",
+                        "SearchStr": name.casefold(), "rb_local_usn": len(lookups)})  # SearchStr: a fixture value
         return lookups[(table, name)]
 
     serial = 0
@@ -195,6 +197,37 @@ def make_master(folder: Path, rows: list[dict], key: str = KEYS[0], version: str
     leftover = [p.name for p in folder.iterdir() if p.name.startswith("master.db-")]
     assert not leftover, f"make_master left {leftover}"
     return db
+
+
+def dump(db: Path, key: str = KEYS[0]) -> dict[str, list[tuple]]:
+    """Every row of every table of `db`, in rowid order, through a keyed read-only immutable open (nothing is left
+    beside the file): what a write test compares before and after."""
+    from discjockey.rekordbox.master import connect
+    con = connect(db, key)
+    try:
+        tables = [n for (n,) in con.execute("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")]
+        return {t: [tuple(r) for r in con.execute(f"SELECT * FROM {t} ORDER BY rowid")] for t in tables}
+    finally:
+        con.close()
+
+
+def diff(before: dict[str, list[tuple]], after: dict[str, list[tuple]]) -> list[tuple]:
+    """What changed between two `dump`s as `(table, id, column, before, after)`, sorted: a changed cell, or for a row
+    added / removed `(table, id, "<row>", None, row)` / `(table, id, "<row>", row, None)`. A row's id is its first
+    column; the column names are the fixture's `TABLES` (`colN` for a table built with `drop`)."""
+    out = []
+    for table in sorted(before.keys() | after.keys()):
+        names = [n for n, _ in TABLES.get(table, ())]
+        old = {r[0]: r for r in before.get(table, [])}
+        new = {r[0]: r for r in after.get(table, [])}
+        for row_id in sorted(old.keys() | new.keys(), key=str):
+            a, b = old.get(row_id), new.get(row_id)
+            if a is None or b is None:
+                out.append((table, row_id, "<row>", a, b))
+                continue
+            columns = names if len(names) == len(a) else [f"col{i}" for i in range(len(a))]
+            out += [(table, row_id, columns[i], x, y) for i, (x, y) in enumerate(zip(a, b)) if x != y]
+    return out
 
 
 def writer(db: Path, key: str = KEYS[0]):

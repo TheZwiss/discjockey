@@ -9,8 +9,9 @@ the window's). `entry` is the song's snapshot entry (`library.load_state`'s `tra
 (None: not measured, which only matters to a file that isn't an AIFF), `present` whether the file is there:
 `"here"`, `"away"` (its drive isn't connected) or `"missing"`.
 
-What rekordbox does not stop in stage A, and does in stage B: rekordbox being open (a run-time refusal, design §5.6),
-an unclean library, a changed track, too little space. Those join `REASONS` then.
+What only a run can find out (stage B): rekordbox being open (design §5.6), an unclean library, a changed track, too
+little space, a rename the repoint can't follow. They are in `REASONS` as the skip reasons of a batch's items; these
+pure functions never answer them. `same_track_quick` answers what is known without reading the file.
 
 Tags: `expected_tags` is what the new file's text would say (title and artists from the song record, album from the
 record when it has one, the rest from the old file; the comment is the quality line), `tags_clean` whether a file
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 import unicodedata
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Literal
 
 from .. import quality
@@ -32,7 +34,9 @@ from .offset import TimelineOffset
 
 REASONS = ("no_upgrade", "needs_choice", "file_missing", "away", "rekordbox_unreadable", "timing", "not_analysed",
            "cloud", "downloaded", "clean_aiff", "named_already", "needs_convert", "no_name", "not_in_library",
-           "auto_refused")  # auto_refused is reserved for stage C
+           "auto_refused", "unclean", "changed", "space", "rekordbox_open", "rename_blocked")
+# auto_refused is reserved for stage C; the last four are what a run finds (stage B): the write is refused, the track
+# changed meanwhile, too little room, rekordbox open. `unclean` is the write's own refusal (guard 4)
 ACTIONS = ("same_track", "convert", "rename")
 AIFF_EXTS = (".aiff", ".aif")
 OWN = "manual"  # the `source` of a file that wasn't downloaded: a bought file or one the import found
@@ -155,6 +159,23 @@ def same_track(entry: dict, facts: FileFacts | None, rb: Status, timing: Timelin
     if facts is not None and facts.ext in AIFF_EXTS:
         return Eligible()
     return _rekordbox_blocks(rb, timing) or Eligible()
+
+
+def same_track_quick(entry: dict, rb: Status, present: Present = "here") -> Verdict:
+    """`same_track` from what is known without reading the file: a parked upgrade, the file there, the stored
+    alignment `exact` or `shifted`, and for a file that isn't an AIFF (by its path) a rekordbox library that is `ready`
+    or not there (`none`). For counts and screens (Upgrade all's number, `upgrade list`, the window's panels): the
+    full check decodes the file (1-3 s). A track that passes can still be skipped by the run: no waveform, a
+    disagreement in timing, a cloud track, rekordbox open (design §7.2)."""
+    if not entry.get("upgrade"):
+        return Skip("no_upgrade")
+    if (gone := _where(present)) is not None:
+        return gone
+    if (entry["upgrade"].get("alignment") or {}).get("result") not in ("exact", "shifted"):
+        return Skip("needs_choice")
+    if PurePosixPath(entry.get("path") or "").suffix.lower() in AIFF_EXTS:
+        return Eligible()
+    return Skip("rekordbox_unreadable") if rb.state == "unreadable" else Eligible()
 
 
 def convert(entry: dict, facts: FileFacts | None, rb: Status, timing: TimelineOffset | None, *,
