@@ -436,3 +436,8 @@ Results:
   `upgrade undo` newest first by operations.log line. Merged 4db7342, CI green.
 - **Paused here by the user (2026-11-08 afternoon).** Next on go: RH (brief ready: scratchpad brief-33-RH.md; Opus;
   needs worktree rb-b-rh on feat/rekordbox-b-rh from feat/rekordbox-b), then U1, U2, S, R2, V per plan §7.
+- RH (Opus 230k): rehearsal on a copy of the real library, 6 tracks (MP3, 2× M4A 44.1, M4A 48 with a user comment,
+  2× AIFF swap), 117/117 checks pass, no engine bug: columns exact, cues/playlists byte-equal, timing snaps to 0
+  (≤0.016 ms), title edit + comment kept, USN one per row (rekordbox's own rows mostly the same), Length round-down
+  matches rekordbox 6/6, created lookup rows match rekordbox's own (its own SearchStr are NULL too); undo byte-identical.
+  Source only copied. Script merged 1d0dfcd (`copy-db`/`copy-tracks` never ran as commands: R2 checks them). Next: U1.
