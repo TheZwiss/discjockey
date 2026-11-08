@@ -3,7 +3,8 @@
 // what was replaced, Undo), and duplicates ("Which file stays?"). Pure: the words, the choices and their outcomes,
 // and which of them the selected Library track waits for (`decisionFor`). The components beside it render them.
 import type {
-  Alignment, DuplicateItem, FileSide, RekordboxCheckView, TodoItem, TrackDetail, Upgrade,
+  AiffBatchResult, Alignment, DuplicateItem, FileSide, ItemResult, ProblemKind, RekordboxCheckView, TodoItem, TrackDetail,
+  Upgrade,
 } from '$lib/bridge/types';
 import { isDuplicate } from '$lib/bridge/types';
 import type { Outcome } from '$lib/components/choiceModel';
@@ -60,32 +61,69 @@ export type UpgradeWays = {
   /** both ways are possible: the "In rekordbox" card is a choice (Same track recommended) */
   choice: boolean;
   options: WayOption[];
-  /** no choice: what will happen (New track's outcomes) */
+  /** no choice: what will happen */
   fixed: Outcome[];
-  /** why Same track isn't possible; null with a choice */
+  /** why Same track isn't possible, or what it means here (no rekordbox on this Mac); null with a choice */
   reason: string | null;
+  /** the way the foot runs without a choice: New track, or Same track's clean AIFF where there is no rekordbox */
+  way: Way;
+  /** the line under the choice: quit rekordbox first, only where a rekordbox write follows and no outcome says it */
+  tip: string | null;
 };
 export const KEPT_FILE: Outcome = { tone: 'file', text: 'Your old file is kept in Superseded/' };
-export const QUIT_REKORDBOX = 'Tip: quit rekordbox before you replace';
+/** Where a rekordbox write follows (design §8's console tip, plan stage B §6.3) */
+export const QUIT_REKORDBOX = 'Quit rekordbox before you replace';
+const QUIT_STEP: Outcome = { tone: 'step', text: QUIT_REKORDBOX };
+const BECOMES_AIFF: Outcome = { tone: 'file', text: 'Becomes an AIFF file' };
+export const NO_REKORDBOX = 'No rekordbox on this Mac: the new file is a new track';
+/** Why Same track can't run for one track, as the line under the "In rekordbox" card (design §8 where it has words;
+ *  `needs_choice` is said from the measurement, see upgradeWays). */
+const WHY_NOT_LINE: Record<string, string> = {
+  rekordbox_unreadable: 'Same track needs a rekordbox library Discjockey can open',
+  not_analysed: 'Same track needs the track analysed in rekordbox first',
+  timing: 'Same track needs the track analysed again in rekordbox',
+  cloud: "Same track can't change a track in rekordbox's Cloud Library Sync yet",
+  file_missing: "Same track needs your file where Discjockey expects it",
+  away: "Same track needs your file's drive connected",
+};
 /** How far apart the two versions start, in whole ms (an alignment or a check's measurement). */
 const ms = (a: { offset_ms: number | null } | null | undefined) => Math.round(Math.abs(a?.offset_ms ?? 0));
 const fits = (r: string | null | undefined) => r === 'exact' || r === 'shifted';
 
+/** The "In rekordbox" card of one track (plan stage B §6.3). Same track runs for any format now: an AIFF takes the
+ *  audio in place (`swap_how` in_place), any other file becomes a new AIFF that rekordbox's track is pointed at
+ *  (new_aiff: design §8's three outcomes). Without rekordbox on this Mac there is no track to keep: no choice, "a new
+ *  track", and the foot runs Same track's clean AIFF (undoable). */
 export function upgradeWays(up: Upgrade, swap: boolean): UpgradeWays {
   const r = up.alignment?.result;
-  const same: WayOption = { key: 'swap', name: 'Same track', summary: 'Cues and beatgrid stay', outcomes: [
-    { tone: 'kept', text: 'Your track keeps its cues' },
-    ...(r === 'shifted' && ms(up.alignment) ? [{ tone: 'kept' as const, text: `Moved ${ms(up.alignment)} ms to sit on your cues` }] : [])] };
+  const newAiff = up.swap_how === 'new_aiff';
+  const shifted = r === 'shifted' && ms(up.alignment) ? [{ tone: 'kept' as const, text: `Moved ${ms(up.alignment)} ms to sit on your cues` }] : [];
+  const same: WayOption = { key: 'swap', name: 'Same track', summary: 'Cues and beatgrid stay', outcomes: newAiff
+    ? [{ tone: 'kept', text: 'Your track keeps its cues, playlists and history' }, ...shifted, BECOMES_AIFF, QUIT_STEP]
+    : [{ tone: 'kept', text: 'Your track keeps its cues' }, ...shifted] };
   const added: WayOption = { key: 'add_new', name: 'New track',
     summary: fits(r) ? 'Relocate your old track to keep cues' : 'Set the cues again', outcomes: [
       { tone: 'step', text: 'rekordbox lists it as a new track' },
       fits(r) ? { tone: 'kept', text: 'Relocate your old track: cues fit' }
         : r === 'different' ? { tone: 'step', text: 'A different edit: set the cues again' }
         : { tone: 'step', text: 'Unsure if your cues fit: listen first' }] };
-  if (swap) return { choice: true, options: [same, added], fixed: [], reason: null };
-  const reason = r === 'different' ? 'Same track needs the same edit'
-    : !fits(r) ? 'Same track needs a measured match' : 'Same track needs an AIFF file';
-  return { choice: false, options: [added], fixed: added.outcomes, reason };
+  const ready = up.rekordbox?.state !== 'none';
+  if (swap && newAiff && !ready) {
+    return { choice: false, options: [same], fixed: [BECOMES_AIFF], reason: NO_REKORDBOX, way: 'swap', tip: null };
+  }
+  if (swap) {
+    return { choice: true, options: [same, added], fixed: [], reason: null, way: 'swap',
+      tip: !newAiff && up.rekordbox?.state === 'ready' ? QUIT_REKORDBOX : null };
+  }
+  const why = up.why_not && up.why_not !== 'needs_choice' ? WHY_NOT_LINE[up.why_not] : undefined;
+  const reason = why ?? (r === 'different' ? 'Same track needs the same edit'
+    : !fits(r) ? 'Same track needs a measured match' : up.why_not ? "Same track isn't possible for this track right now"
+    : 'Same track needs an AIFF file');
+  return { choice: false, options: [added], fixed: added.outcomes, reason, way: 'add_new', tip: null };
+}
+/** The way the foot runs before the user picks: Same track where it can run, else upgradeWays' fixed way. */
+export function defaultWay(up: Upgrade | null | undefined, swap: boolean): Way {
+  return up ? upgradeWays(up, swap).way : 'add_new';
 }
 
 /** The "Edit" row under the comparison: a fact about the audio (the "In rekordbox" card says what it means). */
@@ -244,4 +282,153 @@ export function decisionFor(items: TodoItem[], track: Pick<TrackDetail, 'track_i
     }
   }
   return track.upgrade ? { kind: 'upgrade' } : null;
+}
+
+// ---------- several upgrades selected (plan stage B §6.2) ----------
+/** Why Same track can't run for a row of the selection (TodoItem `same_track`), in a few words for its sub-line. */
+const SAME_TRACK_WHY: Record<string, string> = {
+  needs_choice: 'needs your choice', no_upgrade: 'no new version waiting', file_missing: 'file not found',
+  away: 'drive not connected', rekordbox_unreadable: "rekordbox's library can't be opened",
+  timing: 'analyse it again in rekordbox', not_analysed: 'not analysed in rekordbox yet',
+  cloud: "in rekordbox's Cloud Library Sync", rekordbox_open: 'rekordbox is open',
+  busy: 'rekordbox is being changed elsewhere', unclean: "rekordbox didn't close normally",
+  changed: 'changed in rekordbox meanwhile', space: 'not enough free space', rename_blocked: "can't be renamed now",
+};
+export function sameTrackWhy(reason: string | null | undefined): string {
+  if (!reason) return 'Same track';
+  return SAME_TRACK_WHY[reason] ?? "can't be upgraded right now";
+}
+/** Reasons that keep a track out of any upgrade, New track too: there is nothing to replace, or no file to replace. */
+const NOWHERE = ['no_upgrade', 'file_missing', 'away'];
+/** Whether an item of the selection is replaced by the way picked. */
+export function goes(i: Pick<TodoItem, 'same_track'>, way: Way): boolean {
+  return way === 'swap' ? !i.same_track : !NOWHERE.includes(i.same_track ?? '');
+}
+const isAiff = (path: string | null) => !!path && /\.aiff?$/i.test(path);
+/** The engine's row line starts "Lossless ready" for a lossless upgrade (views.upgrade_status), "320 kbps ready" else. */
+const lossless = (i: Pick<TodoItem, 'detail'>) => i.detail.startsWith('Lossless');
+const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+
+export type SelectionWays = UpgradeWays & {
+  /** Same track can run / needs your choice / waits for something else (the before-line, design §8) */
+  n: number; m: number; k: number;
+  /** how many each way replaces */
+  count: Record<Way, number>;
+};
+/** The "In rekordbox" card for several upgrades: Same track · n (recommended), whose outcomes carry Upgrade all's
+ *  before-line ("{n} … keep their cues", "{m} need your choice and stay", "{k} wait for something else"), and New
+ *  track · N. With no item for Same track there is no choice: "a new track" and why. */
+export function selectionWays(items: Pick<TodoItem, 'same_track' | 'path'>[]): SelectionWays {
+  const n = items.filter((i) => !i.same_track).length;
+  const m = items.filter((i) => i.same_track === 'needs_choice').length;
+  const k = items.length - n - m;
+  const count = { swap: n, add_new: items.filter((i) => goes(i, 'add_new')).length };
+  const stay: Outcome[] = [
+    ...(m ? [{ tone: 'step' as const, text: `${m} ${plural(m, 'needs your choice and stays', 'need your choice and stay')}` }] : []),
+    ...(k ? [{ tone: 'step' as const, text: `${k} ${plural(k, 'waits for something else', 'wait for something else')}` }] : []),
+  ];
+  const aiffAll = items.filter((i) => goes(i, 'swap')).every((i) => isAiff(i.path));
+  const same: WayOption = { key: 'swap', name: `Same track · ${n}`, summary: 'Cues and beatgrid stay', outcomes: [
+    { tone: 'kept', text: `${n} ${plural(n, 'keeps its cues, playlists and history', 'keep their cues, playlists and history')}` },
+    ...(aiffAll ? [] : [{ tone: 'file' as const, text: "Files that aren't AIFF become AIFF files" }]),
+    QUIT_STEP, ...stay] };
+  const differ = m;
+  const added: WayOption = { key: 'add_new', name: `New track · ${count.add_new}`,
+    summary: differ ? 'Set the cues again' : 'Relocate your old tracks to keep cues', outcomes: [
+      { tone: 'step', text: 'rekordbox lists them as new tracks' },
+      differ ? { tone: 'step', text: `${differ} ${plural(differ, 'is another edit: set its cues again', 'are another edit: set their cues again')}` }
+        : { tone: 'kept', text: 'Relocate your old tracks: cues fit' }] };
+  if (n) return { choice: true, options: [same, added], fixed: [], reason: null, way: 'swap', tip: null, n, m, k, count };
+  const reason = m === items.length ? 'Same track needs the same edit' : 'None of these can stay the same track: each row says why';
+  return { choice: false, options: [added], fixed: added.outcomes, reason, way: 'add_new', tip: null, n, m, k, count };
+}
+/** The selection's main button, named by the result and the count the picked way replaces. */
+export function replaceManyLabel(count: number, items: Pick<TodoItem, 'detail'>[]): string {
+  return items.every(lossless) ? `Replace ${count} with lossless` : `Replace ${count} with the better versions`;
+}
+export const discardLabel = (n: number): string => `Discard ${n} new ${plural(n, 'version', 'versions')}`;
+export const discardConfirm = (n: number) => ({ title: `Throw away ${n} new ${plural(n, 'version', 'versions')}?`,
+  body: 'Your current files stay. These versions are not offered again.', confirmLabel: 'Discard', tone: 'danger' as const });
+export const selectedTitle = (n: number): string => `${n} upgrades selected`;
+export const resumeLabel = (left: number): string => `Resume · ${left} left`;
+export const upgradeAllLabel = (n: number): string => `Upgrade all · ${n}`;
+
+// ---------- a batch running and its end (plan stage B §6.2) ----------
+export type BatchMode = Way | 'discard';
+/** One row of the running panel: `now` the track in work, `handled` passed (done or skipped is only known at the end),
+ *  then the end's own state and words. */
+export type RunRow = { track_id: string; name: string; sub: string; cover_url: string | null;
+  state: 'waiting' | 'now' | 'handled' | 'done' | 'skipped' | 'failed'; text: string | null };
+export const runRow = (i: Pick<TodoItem, 'track_id' | 'folder' | 'cover_url'>, name: string): RunRow =>
+  ({ track_id: i.track_id, name, sub: i.folder, cover_url: i.cover_url, state: 'waiting', text: null });
+/** BatchProgress: the track it names is now in work, the one before it is handled; null after the last. A track the
+ *  rows don't hold (a resumed batch, a batch found running) is added under its name. */
+export function progressRows(rows: RunRow[], e: { track_id: string | null; name: string | null }): RunRow[] {
+  const out = rows.map((r) => (r.state === 'now' && r.track_id !== e.track_id ? { ...r, state: 'handled' as const } : r));
+  if (e.track_id === null) return out;
+  const at = out.findIndex((r) => r.track_id === e.track_id);
+  if (at < 0) return [...out, { track_id: e.track_id, name: (e.name ?? e.track_id).replace(' - ', ' – '), sub: '', cover_url: null,
+    state: 'now', text: null }];
+  out[at] = { ...out[at], state: 'now' };
+  return out;
+}
+/** The rows with the end's answer per track: done, skipped or failed with the engine's words; a track the batch never
+ *  reached (stopped) waits. */
+export function endRows(rows: RunRow[], results: ItemResult[]): RunRow[] {
+  // no answer per track (a job that failed outright): what passed stays "passed", nothing is claimed done
+  if (!results.length) return rows.map((r) => (r.state === 'now' ? { ...r, state: 'handled' as const } : r));
+  const by = new Map(results.map((r) => [r.track, r]));
+  return rows.map((r) => {
+    const x = by.get(r.track_id);
+    if (!x) return r.state === 'now' || r.state === 'handled' ? { ...r, state: 'done' } : r;
+    if (x.state === 'done') return { ...r, state: 'done', text: null };
+    if (x.state === 'skipped' || x.state === 'failed') return { ...r, state: x.state, text: cap(x.message ?? sameTrackWhy(x.reason)) };
+    return { ...r, state: 'waiting', text: null };
+  });
+}
+/** Whether an end is worth the same call again: something outside the batch was in the way (rekordbox open, another
+ *  writer, an error), and its batch can't be resumed. A finished or refused batch would only do the same again. */
+export const canTryAgain = (e: Pick<BatchEnd, 'kind' | 'resume'>): boolean =>
+  !e.resume && (e.kind === 'rekordbox_open' || e.kind === 'busy' || e.kind === 'failed');
+/** The ended panel's lists: the tracks not done (skipped, failed: with their reasons) and those the batch didn't reach. */
+export function endGroups(rows: RunRow[]): { notDone: RunRow[]; left: RunRow[] } {
+  return { notDone: rows.filter((r) => r.state === 'skipped' || r.state === 'failed'),
+    left: rows.filter((r) => r.state === 'waiting') };
+}
+export const leftTitle = (k: number): string => `${k} left`;
+/** How a batch ended, for the panel: `resume` while its batch is stopped with tracks left. */
+export type BatchEnd = { mode: BatchMode; kind: 'done' | 'stopped' | 'rekordbox_open' | 'busy' | 'refused' | 'failed';
+  done: number; total: number; message: string; resume: { batch_id: number; left: number } | null };
+export function batchEnd(mode: BatchMode, out: { ok: boolean; kind?: ProblemKind; message?: string;
+  result?: AiffBatchResult | null }): BatchEnd {
+  const r = out.result ?? null;
+  const done = r ? r.results.filter((x) => x.state === 'done').length : 0;
+  const total = r?.total ?? 0;
+  const left = r ? r.results.filter((x) => x.state === 'planned').length : 0;
+  const resume = r && r.batch !== null && r.state === 'stopped' && left ? { batch_id: r.batch, left } : null;
+  if (out.ok) return { mode, kind: 'done', done, total, message: '', resume: null };
+  const kind = out.kind === 'stopped' || out.kind === 'rekordbox_open' || out.kind === 'busy' || out.kind === 'refused'
+    ? out.kind : 'failed';
+  return { mode, kind, done, total, message: out.message ?? '', resume };
+}
+/** The end's number and its words (§3: "{n} upgraded, your cues stayed."). */
+export function endWords(e: Pick<BatchEnd, 'mode' | 'done'>): { unit: string; label: string } {
+  const unit = plural(e.done, 'track', 'tracks');
+  if (e.mode === 'add_new') return { unit, label: 'added as new tracks' };
+  if (e.mode === 'discard') return { unit: plural(e.done, 'new version', 'new versions'), label: 'discarded' };
+  return { unit, label: e.done ? 'upgraded, your cues stayed' : 'upgraded' };
+}
+export const notDoneTitle = (m: number, mode: BatchMode): string =>
+  `${m} not ${mode === 'discard' ? 'discarded' : 'upgraded'}`;
+/** The note over a batch that ended early (design §8's words; §3's stopped line). */
+export function endNote(e: BatchEnd): { tone: 'info' | 'warn'; text: string } | null {
+  if (e.kind === 'stopped') return { tone: 'info', text: `Stopped after ${e.done} of ${e.total}.` };
+  if (e.kind === 'rekordbox_open') {
+    return { tone: 'warn', text: e.done ? `rekordbox was opened, so Discjockey stopped after ${e.done} of ${e.total}. Quit rekordbox and press Resume.`
+      : 'rekordbox is open. Quit rekordbox, then try again. Discjockey changes your rekordbox tracks only while rekordbox is closed.' };
+  }
+  if (e.kind === 'busy') return { tone: 'warn', text: 'Discjockey is already changing your rekordbox library in another window or the Terminal.' };
+  if (e.kind === 'refused') return { tone: 'warn', text: e.message || 'None of these can be upgraded right now.' };
+  if (e.kind === 'failed') return { tone: 'warn', text: e.message || "That didn't work." };
+  return null;
 }

@@ -46,15 +46,18 @@
   type Props = Omit<HTMLAttributes<HTMLElement>, 'children'> & {
     kind?: 'card' | 'list' | 'table'; label?: string; summary?: string; hint?: string; fitLabel?: string;
     tone?: 'default' | 'good' | 'warn' | 'problem'; header?: Snippet; children: Snippet; padded?: boolean;
+    /** the group's own action at the head's end, before `header` (a `Button variant="link" size="sm"`: To-do's
+     *  "Upgrade all · 12" / "Resume · 3 left"), as ListSection's `action` */
+    action?: Snippet;
     foldable?: boolean; open?: boolean; sticky?: boolean; summaryTest?: string; bulk?: Bulk;
     grow?: { rows: number; tall?: boolean }; columns?: Snippet; scroller?: HTMLElement | null;
     fade?: boolean;
   };
-  let { kind = 'card', label, summary, hint, fitLabel, tone = 'default', header, children, padded, foldable = false, open = $bindable(true),
+  let { kind = 'card', label, summary, hint, fitLabel, tone = 'default', header, action, children, padded, foldable = false, open = $bindable(true),
     sticky = false, summaryTest, bulk, grow, columns, scroller = $bindable(null), fade = false, class: className, ...rest }: Props = $props();
   // a card is padded, a list or table runs edge to edge unless asked otherwise
   const pad = $derived(padded ?? kind === 'card');
-  const hasHead = $derived(!!(label || summary || header || bulk));
+  const hasHead = $derived(!!(label || summary || header || action || bulk));
   const uid = $props.id();
   const shown = $derived(!foldable || open);
   const host = getContext<GrowSpareHost | undefined>(GROW_SPARE);
@@ -73,8 +76,9 @@
     {:else if label}<span class="title" id="{uid}-label">{label}</span>{/if}
     {#if summary}<span class="summary" data-test={summaryTest}>{summary}</span>{/if}
     {#if hint}<span class="hint">{hint}</span>{/if}
-    {#if header || bulk}
+    {#if header || action || bulk}
       <div class="extra">
+        {@render action?.()}
         {@render header?.()}
         {#if bulk}
           <Button variant="link" muted size="sm" disabled={bulk.allOff} onclick={() => bulk.onall(true)}

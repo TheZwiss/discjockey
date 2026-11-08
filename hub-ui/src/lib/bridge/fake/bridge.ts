@@ -201,7 +201,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         good = false; problem = k; message = m; res = null;
       }
       emit({ type: 'JobFinished', job_id: id, kind, ok: good, problem: good ? null : (problem ?? 'failed'), message,
-        result: good ? (res ?? {}) : (problem === 'stopped' || problem === 'rekordbox_open' || problem === 'busy' ? (res ?? null) : null), service } as HubEvent);
+        result: good ? (res ?? {}) : (problem === 'stopped' || problem === 'rekordbox_open' || problem === 'busy' || problem === 'refused' ? (res ?? null) : null), service } as HubEvent);
       me.running = false;
     };
     setTimeout(() => {
@@ -312,6 +312,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       ...(blocked ? { swap_possible: false, why_not: 'rekordbox_unreadable' } : {}) };
   };
   // --- Same track batches (issue 33 stage B): the fake keeps its batch records here ---
+  /** The engine's words for a skip its full check finds (preview.REASON_WORDS, the ones a fake scenario uses). */
+  const SKIP_WORDS: Record<string, string> = {
+    timing: "Discjockey couldn't line the new file up with your rekordbox track exactly; analyse the track again in rekordbox and try again",
+    not_analysed: "rekordbox hasn't analysed this track yet, so Discjockey can't tell exactly where your cues sit; analyse it in rekordbox, quit rekordbox, and try again",
+    changed: 'your rekordbox track changed while Discjockey was working on it; try again',
+  };
   type AiffBatch = { id: number; state: 'running' | 'stopped' | 'done'; stop_reason: AiffBatchResult['stop_reason'];
     items: AiffItemResult[] };
   const aiff: AiffBatch[] = [];
@@ -378,15 +384,17 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         }
         emit({ type: 'BatchProgress', batch_id: b.id, done, total, track_id: item.track, name: t ? `${t.artist} - ${t.title}` : item.track } as HubEvent);
         setTimeout(() => {
+          const late = s.batchSkip?.[item.track];
           if (!t?.upgrade) Object.assign(item, { state: 'skipped', reason: 'no_upgrade' });
           else if (!t.upgrade.swap_safe) Object.assign(item, { state: 'skipped', reason: 'needs_choice' });
+          else if (late) Object.assign(item, { state: 'skipped', reason: late, message: SKIP_WORDS[late] ?? null });
           else {
             apply(t, 'same_track', b.id);
             Object.assign(item, { state: 'done', message: 'Upgraded, your cues stayed.', path: pathOf(t) ?? null,
               rekordbox: t.rekordbox_check?.rekordbox ? { entries: ['1'], kept: [] } : null });
           }
           next();
-        }, 700 / speed);
+        }, (s.batchStep ?? 700) / speed);
       };
       setTimeout(next, 200 / speed);
     });
@@ -1150,7 +1158,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       });
     },
     async upgrade_all() {
-      const ids = s.tracks.filter((t) => t.in_playlists && !t.hidden && t.upgrade?.swap_possible).map((t) => t.track_id);
+      const ids = s.tracks.filter((t) => t.in_playlists && !t.hidden && t.upgrade && sameTrackReason(t) === null).map((t) => t.track_id);
       if (!ids.length) return fail('refused', 'None of these can be upgraded right now.');
       return runAiff('upgrade_all', ids);
     },
@@ -1343,6 +1351,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   function sameTrackReason(t: FakeTrack): string | null {
     if (!t.upgrade) return 'no_upgrade';
     if (!t.upgrade.swap_safe) return 'needs_choice';
+    if (t.away) return 'away';   // its drive isn't connected: the quick check knows that much
     return rbOf(t).why_not ?? null;
   }
   function upgradeAll(rows: TodoItem[]) {

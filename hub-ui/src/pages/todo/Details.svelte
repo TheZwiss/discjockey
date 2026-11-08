@@ -23,7 +23,7 @@
   } from '$lib/components';
   import { CheckCards, CheckFoot, UpgradeCards, UpgradeFlow, UpgradeFoot } from '$lib/decisions';
   import { Panel } from '$lib/frames';
-  import { actionsFor, cutoffStat, dropDecision, freeHint, qobuzText } from './todoModel';
+  import { actionsFor, cutoffStat, dropDecision, freeHint, qobuzText, upgradeWays } from './todoModel';
   import BoughtFile from './BoughtFile.svelte';
 
   let { track, item, onhidden, onversions, onlisten, onacted }: {
@@ -80,7 +80,7 @@
   // the "In rekordbox" pick, the running action and an undo's refusal; a new track starts over
   const flow = new UpgradeFlow({ onact: () => onacted?.() });
   $effect(() => flow.follow(track.track_id));
-  const way = $derived(flow.way(!!act.upgrade?.swap));
+  const way = $derived(flow.way(track.upgrade ? upgradeWays(track.upgrade, !!act.upgrade?.swap) : null));
 
   async function hide() {
     flow.busy = 'hide';

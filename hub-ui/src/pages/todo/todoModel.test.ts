@@ -705,3 +705,114 @@ describe('the item just acted on (the hold)', () => {
     expect(flatten(out).some((i) => itemKey(i) === 'rekordbox_check/t2' && i.check?.reason === 'swapped')).toBe(true);
   });
 });
+
+// ---------- multi-select (issue 33 stage B §6.1) and the U1 states in fake mode (§6.5) ----------
+import { multiScope, upgradeGroup } from './todoModel';
+import { click, keep, selectScope, single } from '$lib/components/selectionModel';
+import type { AiffBatchResult } from '$lib/bridge/types';
+import type { HubEvent } from '$lib/bridge/events';
+
+describe('multi-select in To-do', () => {
+  const list = [item('t1', 'rekordbox_check'), item('t2', 'upgrade_ready'), item('t3', 'upgrade_ready'),
+    item('t4', 'weak'), item('t5', 'upgrade_ready')];
+  const order = list.map(itemKey);
+  const scopeOf = multiScope(list);
+  it('only Upgrade ready takes several; other groups stay one item', () => {
+    expect(scopeOf('upgrade_ready/t2')).toBe('upgrade_ready');
+    expect(scopeOf('weak/t4')).toBeNull();
+    expect(scopeOf('rekordbox_check/t1')).toBeNull();
+    expect(click(single('weak/t4'), 'weak/t4', { meta: true }, order, scopeOf)).toEqual(single('weak/t4'));
+    expect(click(single('upgrade_ready/t2'), 'upgrade_ready/t5', { shift: true }, order, scopeOf).keys)
+      .toEqual(['upgrade_ready/t2', 'upgrade_ready/t3', 'upgrade_ready/t5']);
+  });
+  it('"Upgrade all" selects the group, its first item the anchor', () => {
+    expect(selectScope('upgrade_ready', order, scopeOf)).toEqual({
+      keys: ['upgrade_ready/t2', 'upgrade_ready/t3', 'upgrade_ready/t5'], anchor: 'upgrade_ready/t2' });
+  });
+  it('a replace that took two items away keeps the rest selected, and one left is a single selection', () => {
+    const sel = selectScope('upgrade_ready', order, scopeOf);
+    const after = order.filter((k) => k !== 'upgrade_ready/t2' && k !== 'upgrade_ready/t3');
+    expect(keep(sel, order, after)).toEqual(single('upgrade_ready/t5'));
+  });
+  it('finds the Upgrade ready group of an answer', () => {
+    const t = { groups: [{ key: 'weak', label: '', hint: '', items: [] }, { key: 'upgrade_ready', label: 'U', hint: '',
+      items: [], all: { n: 1, m: 0, k: 0 }, stopped: null }] } as unknown as Todo;
+    expect(upgradeGroup(t)?.all).toEqual({ n: 1, m: 0, k: 0 });
+    expect(upgradeGroup(null)).toBeNull();
+  });
+  it('a single upgrade with no rekordbox on this Mac runs Same track from its foot', () => {
+    const up = upgrade({ swap_how: 'new_aiff', rekordbox: { state: 'none', running: false } });
+    const t = { ...item('t2', 'upgrade_ready'), upgrade: up } as unknown as TrackDetail;
+    expect(actionsFor(t, 'upgrade_ready').upgrade).toEqual({ swap: true, primary: 'swap' });
+  });
+});
+
+describe('the U1 states in fake mode', () => {
+  function setup(scenario: string) {
+    const evs: HubEvent[] = [];
+    const f = createFakeBridge(scenario, { speed: 400, emit: (e) => evs.push(e) });
+    const finished = async (id: number) => {
+      for (let i = 0; i < 400; i++) {
+        const e = evs.find((x) => x.type === 'JobFinished' && x.job_id === id);
+        if (e) return e as Extract<HubEvent, { type: 'JobFinished' }>;
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      throw new Error('the job did not finish');
+    };
+    const group = async () => upgradeGroup((await f.todo('upgrade_ready', false)) as Todo);
+    return { evs, f, finished, group };
+  }
+  it('todo-upgrade-multi / todo-upgrade-all: a mixed group (Same track, a choice, something else)', async () => {
+    const { group } = setup('todo:upgrade-group');
+    const g = await group();
+    expect(g!.all!.n).toBeGreaterThan(1);
+    expect(g!.all!.m).toBeGreaterThan(0);
+    expect(g!.all!.k).toBeGreaterThan(0);
+    expect(g!.items.some((i) => i.same_track === 'away')).toBe(true);
+  });
+  it('todo-upgrade-running / -stopped / todo-resume-link: a slow batch runs, stops, and the group offers Resume', async () => {
+    const { f, evs, finished, group } = setup('todo:upgrade-slow');
+    const start = await f.upgrade_all();
+    expect(start.ok).toBe(true);
+    for (let i = 0; i < 200 && !evs.some((e) => e.type === 'BatchProgress' && e.done === 1); i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(evs.some((e) => e.type === 'BatchProgress' && e.track_id !== null)).toBe(true);
+    await f.stop();
+    const fin = await finished((start as { job_id: number }).job_id);
+    expect(fin.problem).toBe('stopped');
+    const r = fin.result as AiffBatchResult;
+    expect(r.state).toBe('stopped');
+    expect((await group())!.stopped).toEqual({ batch_id: r.batch, left: r.results.filter((x) => x.state === 'planned').length });
+  });
+  it('todo-upgrade-rekordbox-open: the batch stops before it starts and carries its tracks', async () => {
+    const { f, finished } = setup('upgrade-rekordbox-open');
+    const start = await f.upgrade_all();
+    const fin = await finished((start as { job_id: number }).job_id);
+    expect(fin.problem).toBe('rekordbox_open');
+    expect((fin.result as AiffBatchResult).state).toBe('stopped');
+  });
+  it('todo-upgrade-done: a finished batch lists the track its check skipped, with the reason', async () => {
+    const { f, finished } = setup('todo:upgrade-skips');
+    const fin = await finished(((await f.upgrade_all()) as { job_id: number }).job_id);
+    expect(fin.ok).toBe(true);
+    const r = fin.result as AiffBatchResult;
+    expect(r.results.filter((x) => x.state === 'skipped').map((x) => x.reason)).toEqual(['timing']);
+    expect(r.results.find((x) => x.state === 'skipped')!.message).toBeTruthy();
+  });
+  it('todo-upgrade-refused: every track skipped, refused, the batch still in the result', async () => {
+    const { f, finished } = setup('todo:upgrade-refused');
+    const fin = await finished(((await f.upgrade_all()) as { job_id: number }).job_id);
+    expect(fin.problem).toBe('refused');
+    expect((fin.result as AiffBatchResult).results.every((x) => x.state === 'skipped')).toBe(true);
+  });
+  it('todo-upgrade-mp3-same / -unreadable / -no-rekordbox: the single track\'s upgrade block', async () => {
+    const block = async (sc: string) => {
+      const r = await createFakeBridge(sc).track('t2');
+      return (r as { track: TrackDetail }).track.upgrade!;
+    };
+    expect(await block('todo:upgrade-mp3-same')).toMatchObject({ swap_possible: true, swap_how: 'new_aiff' });
+    expect(await block('todo:upgrade-unreadable')).toMatchObject({ swap_possible: false, why_not: 'rekordbox_unreadable' });
+    expect((await block('todo:upgrade-no-rekordbox')).rekordbox.state).toBe('none');
+  });
+});
