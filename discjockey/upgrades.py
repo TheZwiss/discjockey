@@ -493,6 +493,13 @@ def _write_text(paths: Paths, state: dict, op: dict, session: Session, changes: 
     mark_op(paths, state, op)
 
 
+def swap_backup_name(paths: Paths, names: NameReserver, track_id: str, target: str) -> str:
+    """Where a swap keeps the old file: `Superseded/<its folder>/<stem> (lossy)<ext>` (a free name; the dry run asks
+    it too)."""
+    stem, ext = split_name(strip_id_suffix(PurePosixPath(target).name, track_id))
+    return names.choose(superseded_dir(target, watched_root(paths, target)), f"{stem} (lossy)", ext, track_id)
+
+
 def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compare = align.compare_files,
          now: Callable[[], datetime] = datetime.now, *, session: Session | None = None,
          batch: tuple[int, int] | None = None) -> Result:
@@ -524,8 +531,7 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
 
     names = NameReserver(paths.root, state)
     p = PurePosixPath(target)
-    stem, ext = split_name(strip_id_suffix(p.name, track_id))
-    backup = names.choose(superseded_dir(target, watched_root(paths, target)), f"{stem} (lossy)", ext, track_id)
+    backup = swap_backup_name(paths, names, track_id, target)
     renames = []
     # out of not_lossless/ only for a file in a playlist folder's not_lossless/ (spec §7); anywhere else it stays
     home = replacement_dir(e, "lossless")

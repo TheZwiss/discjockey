@@ -25,7 +25,8 @@ def show_in_finder(path: Path) -> None:
     subprocess.run(["open", "-R", str(path)], check=False)
 
 
-def _quality(source: str | None, fmt: str | None, status: str, cutoff: int | None, kbps: int | None = None) -> str:
+def quality_text(source: str | None, fmt: str | None, status: str, cutoff: int | None,
+                 kbps: int | None = None) -> str:
     return quality_line(source, fmt or "?", status, cutoff, kbps) if source else status.replace("_", " ")
 
 
@@ -43,9 +44,10 @@ def _failed(log: rep.RunLog, track_id: str, entry: dict, what: str, err: Excepti
 
 def _show(paths: Paths, entry: dict) -> None:
     up = entry["upgrade"]
-    now = _quality(entry.get("source"), entry.get("source_format"), entry["status"], entry.get("cutoff_hz"),
+    now = quality_text(entry.get("source"), entry.get("source_format"), entry["status"], entry.get("cutoff_hz"),
                    entry.get("source_kbps"))
-    new = _quality(up["source"], up["source_format"], up.get("status", "lossless"), up.get("cutoff_hz"), up.get("kbps"))
+    new = quality_text(up["source"], up["source_format"], up.get("status", "lossless"), up.get("cutoff_hz"),
+                       up.get("kbps"))
     width = max(len(now), len(new)) + 3
     print(f"\n[{entry['folder']}] {entry['artist']} - {entry['title']} · {upgrades.upgrade_name(up)} from "
           f"{SOURCE_NAMES.get(up['source'], up['source'])}")

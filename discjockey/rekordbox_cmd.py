@@ -32,20 +32,31 @@ FIELD_WORDS = {"title": "title", "artist": "artist", "album": "album", "label": 
                "comment": "comment"}
 
 
-def _say(args: argparse.Namespace, data: dict, lines: list[str]) -> None:
+def say(args: argparse.Namespace, data: dict, lines: list[str]) -> None:
     if args.json:
         print(json.dumps(data))
     else:
         print("\n".join(lines))
 
 
-def _failed(args: argparse.Namespace, message: str, kind: str = "failed", reason: str | None = None,
-            code: int = 1) -> int:
+def failed(args: argparse.Namespace, message: str, kind: str = "failed", reason: str | None = None,
+           code: int = 1, extra: dict | None = None, lines: list[str] | None = None) -> int:
+    """The failure shape `{"ok": false, "kind", "message", "reason"?}` (+ `extra`'s keys), printed as JSON or as
+    `lines` (the message alone by default); returns the exit code."""
     data = {"ok": False, "kind": kind, "message": message}
     if reason:
         data["reason"] = reason
-    _say(args, data, [message])
+    data.update(extra or {})
+    say(args, data, [message] if lines is None else lines)
     return code
+
+
+def no_library(args: argparse.Namespace, resolved: library.Resolved) -> int:
+    """Exit 2: there is no music folder to work in (not chosen yet, or its drive isn't there)."""
+    message = (f"Your music folder isn't there: {resolved.music_folder}" if resolved.problem == "missing" else
+               "Discjockey doesn't know your music folder yet. Open the Discjockey window and follow Setup, "
+               "or run: discjockey setup")
+    return failed(args, message, "refused", "no_library", code=2)
 
 
 # --- status ---
@@ -71,10 +82,10 @@ def run_status(args: argparse.Namespace) -> int:
     try:
         st = rekordbox.status(rekordbox.locate())
     except Exception as e:  # an unexpected failure is the one thing that is not an answer
-        return _failed(args, f"Discjockey couldn't look at rekordbox ({type(e).__name__}: {e}).")
+        return failed(args, f"Discjockey couldn't look at rekordbox ({type(e).__name__}: {e}).")
     data = {"ok": True, "state": st.state, "running": st.running, "version": st.version, "library": st.library,
             "problem": st.problem, "db_version": st.db_version}
-    _say(args, data, status_lines(st))
+    say(args, data, status_lines(st))
     return 0
 
 
@@ -121,19 +132,16 @@ def preview_lines(p: dict) -> list[str]:
 def run_preview(args: argparse.Namespace) -> int:
     resolved = library.resolve_paths()
     if args.track and resolved.paths is None:
-        message = (f"Your music folder isn't there: {resolved.music_folder}" if resolved.problem == "missing" else
-                   "Discjockey doesn't know your music folder yet. Open the Discjockey window and follow Setup, "
-                   "or run: discjockey setup")
-        return _failed(args, message, "refused", "no_library", code=2)
+        return no_library(args, resolved)
     try:
         p = previewing.preview(resolved.paths, track=args.track, path=args.path)
     except previewing.PreviewRefused as e:
-        return _failed(args, str(e), "refused", e.reason)
+        return failed(args, str(e), "refused", e.reason)
     except (previewing.PreviewFailed, StateError) as e:
-        return _failed(args, str(e))
+        return failed(args, str(e))
     except Exception as e:
-        return _failed(args, f"Discjockey couldn't preview this file ({type(e).__name__}: {e}).")
-    _say(args, p, preview_lines(p))
+        return failed(args, f"Discjockey couldn't preview this file ({type(e).__name__}: {e}).")
+    say(args, p, preview_lines(p))
     return 0
 
 
