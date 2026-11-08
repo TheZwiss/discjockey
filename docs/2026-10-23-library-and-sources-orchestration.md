@@ -449,3 +449,11 @@ Results:
   card; "Undo all" undoes the card's own tracks (not `batch_undo`); vitest 1345, CI green. Merged 031846d. Sizing
   lesson (user): agents ignore token/call stops; control size by job scope + deliverable stops (memory updated).
   Shots split into S1 (U1 states + drift) and S2 (U2 states), findings only, Sonnet, one after the other.
+- S1 (Sonnet 181k): 3 Important + 9 Minor; S2 (Sonnet 136k): 2 Important + 11 Minor; drift none. R2a (Opus 241k,
+  Python/docs): 0 Critical, 2 Important + 17 Minor; R2b (Opus 220k, hub-ui): 0 Critical, 6 Important + 12 Minor.
+  Findings filed in the scratchpad (review-33-R2a/R2b.md, shots-s1/s2/findings.md). Decided: keep the one-step single
+  check card (Reload Tag only where `reload_tag`), keep the quality chip on the batch row, words saying "tracks" count
+  tracks, app binary gets a CLI entry for restore (README shows it), a new Same track batch closes earlier stopped
+  batches' unrun items for its tracks, rekordbox status not re-read while any write job runs, hub "Undo all" keeps
+  `undo_upgrade` (contract fixed). Fix rounds, one at a time: F1 Python/docs (Sonnet), F2a flows+tests (Sonnet), F2b
+  page logic (Sonnet), F3 selection panel look (Opus), F4 check card look (Opus); then a short shots re-check, V.
