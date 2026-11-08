@@ -1,4 +1,5 @@
-"""ffmpeg conversion to 16-bit/44.1 kHz AIFF, cover download and ID3v2.3 tagging."""
+"""ffmpeg conversion to 16-bit/44.1 kHz AIFF (`convert_to_aiff` for downloads, `render_aiff` for a sample-exact,
+shifted render of any file), cover download and ID3v2.3 tagging."""
 from __future__ import annotations
 
 import subprocess
@@ -9,6 +10,8 @@ from typing import Callable
 
 from mutagen.aiff import AIFF
 from mutagen.id3 import APIC, COMM, TALB, TIT2, TPE1, TPUB, TSRC
+
+from . import quality
 
 # libsoxr is not available in this ffmpeg build, so use swr with a long filter and triangular dither
 RESAMPLE = "aresample=44100:resampler=swr:filter_size=64:dither_method=triangular"
@@ -43,6 +46,35 @@ def convert_to_aiff(src: Path, dst: Path, duration_s: float | None = None,
         if proc.returncode != 0:
             err.seek(0)
             raise ConversionError(err.read().decode(errors="replace").strip()[-500:] or "ffmpeg failed")
+
+
+def render_aiff(src: Path, dst: Path, shift_samples: int) -> None:
+    """`src` (any format) as a 16-bit/44.1 kHz AIFF at `dst`, shifted by `shift_samples` (44.1 kHz samples; positive
+    trims that many at the start, negative puts that much silence in front), in one ffmpeg run; no tags (callers tag).
+    An input that is 16-bit/44.1 kHz PCM already keeps its samples exactly (no resampling, no dither); any other is
+    resampled with RESAMPLE first, so the shift counts output samples (design rekordbox-repoint §3.1). Raises
+    ConversionError."""
+    try:
+        info = quality.probe(src)
+    except RuntimeError as err:
+        raise ConversionError(str(err)) from None
+    filters = []
+    exact = info.codec.startswith("pcm_s16") and info.bits == 16 and info.sample_rate == 44100
+    if not exact:
+        filters.append(RESAMPLE)
+    if shift_samples > 0:
+        filters.append(f"atrim=start_sample={shift_samples},asetpts=PTS-STARTPTS")
+    elif shift_samples < 0:
+        filters.append(f"adelay=delays={-shift_samples}S:all=1")
+    cmd = ["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(src), "-map", "0:a:0", "-map_metadata", "-1"]
+    if filters:
+        cmd += ["-af", ",".join(filters)]
+    if not exact:
+        cmd += ["-sample_fmt", "s16"]
+    cmd += ["-c:a", "pcm_s16be", "-f", "aiff", str(dst)]
+    r = subprocess.run(cmd, capture_output=True, start_new_session=True)
+    if r.returncode != 0:
+        raise ConversionError(r.stderr.decode(errors="replace").strip()[-500:] or "ffmpeg failed")
 
 
 def fetch_cover(url: str | None) -> bytes | None:
