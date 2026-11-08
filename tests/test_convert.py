@@ -237,3 +237,17 @@ def test_an_aiff_is_not_converted(tmp_path, monkeypatch):
     state["tracks"][TID]["path"] = PARKED  # any AIFF
     with session(env, never) as s, pytest.raises(convert.UpgradeProblem):
         convert.same_track(env.paths, state, TID, dict(state["tracks"][TID]["upgrade"]), session=s)
+
+
+def test_a_pending_convert_step_and_its_undo_record_keep_their_files():
+    op = {"kind": "convert", "old": "Library/A/x.mp3", "new": "Library/A/Artist - Song.aiff",
+          "superseded": "Superseded/A/x.mp3", "staged": ".discjockey/.tmp/t1/convert.aiff",
+          "parked": PARKED, "held": ".discjockey/undo/t1/Artist - Song.aiff",
+          "crossing": {"0": "Library/A/.Artist - Song.aiff.discjockey-move"}, "target": "ignored"}
+    assert library.op_paths(op) == ["Library/A/x.mp3", "Library/A/Artist - Song.aiff", "Superseded/A/x.mp3",
+                                    ".discjockey/.tmp/t1/convert.aiff", PARKED, ".discjockey/undo/t1/Artist - Song.aiff",
+                                    "Library/A/.Artist - Song.aiff.discjockey-move"]
+    undo = {"kind": "convert", "before": {"path": "Library/A/x.mp3", "upgrade": {"file": PARKED}},
+            "held": ".discjockey/undo/t1/Artist - Song.aiff", "old": "Superseded/A/x.mp3"}
+    assert library.undo_paths(undo) == ["Library/A/x.mp3", PARKED, ".discjockey/undo/t1/Artist - Song.aiff",
+                                        "Superseded/A/x.mp3"]
