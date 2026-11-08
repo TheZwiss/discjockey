@@ -2,10 +2,10 @@
 
 export type ProblemKind = 'busy' | 'console' | 'sync_running' | 'not_set_up' | 'login_expired' | 'offline'
   | 'playlist_unreadable' | 'config_invalid' | 'qobuz_login_failed' | 'login_failed' | 'changed' | 'refused'
-  | 'failed' | 'stopped' | 'protected' | 'crashed' | 'no_library' | 'setting_off' | 'exists';
+  | 'failed' | 'stopped' | 'protected' | 'crashed' | 'no_library' | 'setting_off' | 'exists' | 'rekordbox_open';
 export const PROBLEM_KINDS: readonly ProblemKind[] = ['busy', 'console', 'sync_running', 'not_set_up',
   'login_expired', 'offline', 'playlist_unreadable', 'config_invalid', 'qobuz_login_failed', 'login_failed',
-  'changed', 'refused', 'failed', 'stopped', 'protected', 'crashed', 'no_library', 'setting_off', 'exists'];
+  'changed', 'refused', 'failed', 'stopped', 'protected', 'crashed', 'no_library', 'setting_off', 'exists', 'rekordbox_open'];
 export type Quality = 'lossless' | 'good_lossy' | 'weak' | 'fake' | 'missing';
 export const QUALITIES: readonly Quality[] = ['lossless', 'good_lossy', 'weak', 'fake', 'missing'];
 export type EmptyKind = 'no_playlists' | 'not_set_up' | 'empty_library' | 'no_preview' | 'up_to_date' | 'no_match'
@@ -54,15 +54,29 @@ export type TodoGroupKey = Exclude<TodoFilter, 'all'>;
  *  every file of it is there. */
 export type TodoItem = TrackRow & { group: TodoGroupKey; detail: string; free: boolean;
   file_state: Exclude<FileState, 'file_missing'> | 'no_file';
-  pair?: QuestionPair | DuplicatePair; can_undo?: boolean; check?: RekordboxCheckView };
+  pair?: QuestionPair | DuplicatePair; can_undo?: boolean; check?: RekordboxCheckView;
+  /** `upgrade_ready` items: why Same track can't run now (an `EligibleReason` key), null when it can */
+  same_track?: string | null;
+  /** a batch's open checks (two or more) are one item: `key` and `track_id` are `batch:<id>` (narrow with `isBatch`) */
+  key?: string; batch?: BatchCheck };
+/** A `BatchCheckItem`'s batch: `size` open checks, `started` the earliest check's date, `tracks` them as single items. */
+export type BatchCheck = { id: number; size: number; started: string | null; tracks: TodoItem[] };
+export type BatchCheckItem = TodoItem & { group: 'rekordbox_check'; key: string; batch: BatchCheck };
+export const isBatch = (i: TodoItem): i is BatchCheckItem => i.group === 'rekordbox_check' && !!i.batch;
 /** A `rekordbox_check` item's check (views.check_view): the step that left it, what the two files measured as
  *  (`match`: exact/shifted/different/unknown, null in records from before it), `aligned` (an added file that
  *  Discjockey rendered lined up with rekordbox's timeline of the old one: the old track's cues fit it to the sample;
  *  false for a swap and in records from before it), `text` the whole instruction and
  *  `old_path` where the old file (added) or the copy of the old audio (swap) is now (null without an undo record).
  *  The item's `detail` is the row's short line. */
-export type RekordboxCheckView = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | string; since: string | null;
-  match: string | null; offset_ms: number | null; moved: boolean; aligned: boolean; text: string; old_path: string | null };
+export type RekordboxCheckView = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | 'repointed' | string; since: string | null;
+  match: string | null; offset_ms: number | null; moved: boolean; aligned: boolean; text: string; old_path: string | null;
+  /** false when Discjockey wrote rekordbox's text itself (no Reload Tag step); true for older records */
+  reload_tag: boolean;
+  /** the AIFF batch that left the check and how many of its checks are still open (null: no batch) */
+  batch: { id: number; size: number } | null;
+  /** what was written in rekordbox: how many tracks, and the fields kept as the user edited them (null: nothing) */
+  rekordbox: { entries: number; kept: string[] } | null };
 
 // --- the import of the user's own music (plan library stage 4, I11; contract "Watched folders and the import") ---
 /** One file of a question or a duplicate group. `path` is absolute for an import folder's file; `audio_url` is null
@@ -346,7 +360,15 @@ export type Alignment = { drift_ms: number | null; offset_ms: number | null; off
 export type Upgrade = {
   file: string; source: Source | string; source_name: string; source_id: string; found: string; what: string;
   quality_line: string; /** "FLAC · lossless": the new version's quality, as the current file's `format_line` */
-  format_line: string; alignment: Alignment; cue_text: string; swap_safe: boolean; swap_possible: boolean;
+  format_line: string; alignment: Alignment; cue_text: string; swap_safe: boolean;
+  /** Same track can run now (any format); `why_not` is the reason key when it can't (null when it can) */
+  swap_possible: boolean; why_not: string | null;
+  /** `in_place`: an AIFF takes the audio; `new_aiff`: a new AIFF with a clean name, rekordbox's track pointed at it */
+  swap_how: 'in_place' | 'new_aiff';
+  /** rekordbox's cached state on this Mac */
+  rekordbox: { state: 'ready' | 'none' | 'unreadable'; running: boolean };
+  /** stage C fills it */
+  auto_refused: string | null;
   audio_url: string | null;
 };
 /** The artist's free download of a SoundCloud version: a gate page (follow, like or e-mail; `host` e.g.
@@ -381,7 +403,11 @@ export type TrackDetail = TrackRow & {
 };
 export type Todo = {
   chips: Record<TodoFilter, number>; hidden_count: number; show_hidden: boolean;
-  groups: { key: TodoGroupKey; label: string; hint: string; items: TodoItem[] }[]; empty: EmptyKind | null;
+  groups: { key: TodoGroupKey; label: string; hint: string; items: TodoItem[];
+    /** `upgrade_ready` only: Upgrade all's counts (Same track can run / the edit needs a choice / waits for something
+     *  else) and the newest stopped Same track batch with items left */
+    all?: { n: number; m: number; k: number }; stopped?: { batch_id: number; left: number } | null }[];
+  empty: EmptyKind | null;
 };
 
 /** `owner_name` is "" when the name already says it (a SoundCloud likes list, "{username}'s likes"). */
@@ -560,6 +586,23 @@ export type ChangePreview = {
 };
 export type OpResult = { track_id: string; result: Result; recovered: [string, boolean][] };
 
+// --- AIFF batches (Same track, Upgrade all, issue 33 stage B; contract "Upgrades and batches") ---
+/** One track of a batch: `reason` an `EligibleReason` key (skipped only), `message` the words, `rekordbox` what was
+ *  written there. */
+export type ItemResult = { track: string; action: string; state: 'planned' | 'done' | 'skipped' | 'failed' | 'undone';
+  reason: string | null; message: string | null; path: string | null;
+  rekordbox: { entries: string[]; kept: string[] } | null };
+/** The result of `upgrade(…, 'swap')`, `upgrade_all` and `batch_resume`; New track and Discard lists have the same shape
+ *  with `batch` null (and a job also carries it when it ends `stopped`, `rekordbox_open`, `busy` or `refused`). */
+export type AiffBatchResult = { batch: number | null; state: 'running' | 'stopped' | 'done';
+  stop_reason: 'stop' | 'rekordbox_open' | 'busy' | 'crash' | null; total: number; done: number; skipped: number;
+  failed: number; results: ItemResult[]; backup: string | null; recovered: [string, boolean][] };
+export type UndoItem = { track: string; state: 'undone' | 'refused' | 'failed' | 'waiting'; reason: string | null;
+  message: string };
+export type UndoResult = { batch: number | null; total: number; undone: number; refused: number; failed: number;
+  results: UndoItem[]; recovered: [string, boolean][] };
+export type CheckedResult = { results: Result[]; checked: string[]; not_checked: string[]; recovered: [string, boolean][] };
+
 // JobFinished.result per job kind (a crashed sync carries its SyncResult too: exit_code 1, report = the crash note)
 export type SyncResult = { exit_code: number; report: string; actions: number; new_since_preview: number };
 export type JobResults = {
@@ -578,8 +621,8 @@ export type JobResults = {
   never_download: { track_id: string; never: boolean };
   scan: { moved: number; new: number; gone: number; changed: number; copies: number };
   hide: OpResult; unhide: OpResult; add_bought_file: OpResult; use_candidate: OpResult; use_link: OpResult;
-  reject_current: OpResult; rekordbox_checked: OpResult; upgrade_swap: OpResult; upgrade_add_new: OpResult;
-  upgrade_discard: OpResult; undo_upgrade: OpResult; setup_save_client_id: Record<string, never>; setup_spotify_login: { user: string };
+  reject_current: OpResult; rekordbox_checked: CheckedResult; upgrade_batch: AiffBatchResult; batch_resume: AiffBatchResult;
+  upgrade_add_new: AiffBatchResult; upgrade_discard: AiffBatchResult; batch_undo: UndoResult; undo_upgrade: UndoResult; setup_save_client_id: Record<string, never>; setup_spotify_login: { user: string };
   setup_qobuz_login: Record<string, never>;
   update_tools: ToolsChange; rollback_tools: ToolsChange;
 };

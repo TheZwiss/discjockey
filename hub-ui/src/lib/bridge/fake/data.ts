@@ -27,8 +27,10 @@ export type FakeAccount = FakeService & { browser: Browser; profile?: string | n
 
 /** As the state's `rekordbox_check`: an added_as_new and a swapped one also keep what the two files measured as, a
  *  swapped one whether the file moved up out of not_lossless/, and both the undo (here: the fields as they were). */
-export type RekordboxCheck = { reason: 'wrong_song' | 'added_as_new' | 'swapped'; since: string; match?: string;
+export type RekordboxCheck = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | 'repointed'; since: string; match?: string;
   offset_ms?: number; moved?: boolean; aligned?: boolean; undo?: Partial<FakeTrack>;
+  /** stage B: the AIFF batch that left it, whether Reload Tag is still needed, what was written in rekordbox */
+  batch?: number; reload_tag?: boolean; rekordbox?: { entries: number; kept: string[] } | null;
   /** as the undo record's `old`: where the old file (added) or the copy of the old audio (swap) is now */
   old_path?: string };
 
@@ -178,6 +180,10 @@ export type FakeState = {
   licensesMissing?: boolean;
   read_status: ReadStatus;
   console_running: boolean;
+  /** the fake rekordbox is open: Same track on a file that isn't AIFF stops with `rekordbox_open` */
+  rekordbox_running?: boolean;
+  /** the fake rekordbox library: `none` (no rekordbox on this Mac) or `unreadable`; unset is `ready` */
+  rekordbox_state?: 'ready' | 'none' | 'unreadable';
   offline: boolean;
   /** app_update(): the update check's answer (scenario update_available: a newer version) */
   appUpdate: AppUpdate;
@@ -317,12 +323,14 @@ export function sourceHowOf(t: FakeTrack): SourceHow | null {
 /** As views.upgrade_status: the To-do row's short line for an upgrade. */
 export function upgradeStatus(up: Upgrade): string {
   const r = up.alignment?.result;
-  const how = r === 'exact' || r === 'shifted' ? (up.swap_possible ? 'cues can stay' : 'new rekordbox track')
+  const how = r === 'exact' || r === 'shifted' ? (up.why_not === 'rekordbox_unreadable' ? 'new rekordbox track' : 'cues can stay')
     : r === 'different' ? 'different edit' : 'not compared';
   return `${up.what === 'lossless version' ? 'Lossless' : up.what.replace(' version', '')} ready · ${how}`;
 }
 /** As views.check_status: the To-do row's short line for a rekordbox check. */
 export function checkStatus(c: RekordboxCheck | null): string {
+  if (c?.reason === 'repointed') return c.rekordbox ? 'analyse again' : 'a new AIFF, not in rekordbox';
+  if (c?.reason === 'swapped' && c.reload_tag === false) return c.moved ? 'relocate, analyse again' : 'analyse again';
   if (c?.reason === 'swapped') return c.moved ? 'relocate, Reload Tag, analyse again' : 'Reload Tag, analyse again';
   if (c?.reason === 'added_as_new') {
     return c.match === 'exact' || c.match === 'shifted' ? 'relocate, analyse again' : 'analyse, set the cues again';
@@ -331,13 +339,19 @@ export function checkStatus(c: RekordboxCheck | null): string {
   return 'check it in rekordbox';
 }
 /** As views.check_view. */
-export function checkView(c: RekordboxCheck): RekordboxCheckView {
+export function checkView(c: RekordboxCheck, batchSize = 1): RekordboxCheckView {
   return { reason: c.reason, since: c.since, match: c.match ?? null, offset_ms: c.offset_ms ?? null, moved: !!c.moved,
-    aligned: !!c.aligned, text: checkText(c), old_path: c.old_path ?? null };
+    aligned: !!c.aligned, reload_tag: c.reload_tag !== false, batch: c.batch ? { id: c.batch, size: batchSize } : null,
+    rekordbox: c.rekordbox ?? null, text: checkText(c), old_path: c.old_path ?? null };
 }
 /** As report.check_text: the same edit (exact or shifted) can be relocated in rekordbox and keeps its cues, exactly
  *  when the new file was rendered lined up (`aligned`). */
 export function checkText(check: RekordboxCheck): string {
+  if (check.reason === 'repointed') {
+    return check.rekordbox
+      ? 'The better audio is in a new AIFF with a clean name, and your rekordbox track plays it with its cues, playlists and history. In rekordbox, analyse it again so the waveform shows the full sound (lock the beatgrid first if you set it by hand).'
+      : "The better audio is in a new AIFF with a clean name. This file isn't in your rekordbox collection, so there was nothing to keep there.";
+  }
   if (check.reason === 'swapped') {
     return check.moved
       ? 'The lossless audio is in your file, which moved up out of not_lossless/. In rekordbox: Auto Relocate finds it by its name with its cues, then Reload Tag and analyse it again.'
@@ -390,8 +404,10 @@ export function makeUpgrade(t: { folder: string; artist: string; title: string }
     source_id: `q${Math.abs(hash(t.title)) % 900000}`, found, what: 'lossless version',
     quality_line: 'Qobuz FLAC · verified lossless',
     format_line: 'FLAC · lossless',
-    alignment: ALIGN[kind], cue_text: cueText(kind, swap_possible),
-    swap_safe: kind === 'exact' || kind === 'shifted', swap_possible, audio_url: null,
+    alignment: ALIGN[kind], cue_text: cueText(kind, true),
+    swap_safe: kind === 'exact' || kind === 'shifted', swap_possible: kind === 'exact' || kind === 'shifted',
+    why_not: kind === 'exact' || kind === 'shifted' ? null : 'needs_choice', swap_how: swap_possible ? 'in_place' : 'new_aiff',
+    rekordbox: { state: 'ready', running: false }, auto_refused: null, audio_url: null,
   };
 }
 export function hash(s: string): number {
@@ -806,6 +822,13 @@ export function makeState(scenario: string, now = new Date()): FakeState {
       services: readServices(false), message: 'Connect Qobuz first.' };
   }
   if (scenario === 'console') s.console_running = true;
+  if (scenario === 'upgrade-multi' || scenario === 'upgrade-rekordbox-open') {
+    // Upgrade all has something to do: two more tracks of the same edit wait, one of them in a file that isn't an AIFF
+    const more = s.tracks.filter((t) => t.in_playlists && !t.upgrade && !t.hidden && !t.rekordbox_check
+      && qualityOf(t) !== 'missing').slice(0, 2);
+    more.forEach((t, i) => { t.upgrade = makeUpgrade(t, 'exact', dateOnly(daysAgo(now, 2)), i === 0); });
+    if (scenario === 'upgrade-rekordbox-open') s.rekordbox_running = true;
+  }
   if (scenario === 'update_available') {
     s.appUpdate = { state: 'available', current: '1.0.0', latest: '1.1.0',
       url: 'https://github.com/TheZwiss/discjockey/releases/tag/v1.1.0' };

@@ -30,7 +30,8 @@ function upgrade(extra: Partial<Upgrade> = {}): Upgrade {
   return { file: 'Upgrades ready/Hard_Bounce/A - x.aiff', source: 'qobuz', source_name: 'Qobuz', source_id: 'q1',
     found: '2026-10-16', what: 'lossless version', quality_line: 'Qobuz FLAC · verified lossless', format_line: 'FLAC · lossless',
     alignment: { drift_ms: 0, offset_ms: 0, offset_samples: 0, result: 'exact', text: 'matches exactly' },
-    cue_text: 'matches exactly, cues stay', swap_safe: true, swap_possible: true, audio_url: 'u2', ...extra };
+    cue_text: 'matches exactly, cues stay', swap_safe: true, swap_possible: true, why_not: null, swap_how: 'in_place',
+    rekordbox: { state: 'ready', running: false }, auto_refused: null, audio_url: 'u2', ...extra };
 }
 function detail(extra: Partial<TrackDetail> = {}): TrackDetail {
   return { ...item('t2', 'weak'), file_state: 'here' as const, isrc: null, playlists: ['Hard_Bounce'], in_playlist_count: 1,
@@ -473,7 +474,8 @@ describe('upgrade decision', () => {
 
 describe('rekordbox check after a replace', () => {
   const check = (extra: Partial<RekordboxCheckView>): RekordboxCheckView => ({ reason: 'swapped', since: '2026-10-31',
-    match: 'exact', offset_ms: 0, moved: false, aligned: false, text: 'long', old_path: 'Superseded/Hard_Bounce/A - x (lossy).aiff', ...extra });
+    match: 'exact', offset_ms: 0, moved: false, aligned: false, text: 'long', old_path: 'Superseded/Hard_Bounce/A - x (lossy).aiff',
+    reload_tag: true, batch: null, rekordbox: null, ...extra });
   const words = (c: RekordboxCheckView) => checkCard(c)!.steps.map((s) => s.parts.map((p) => p.text).join('') + (s.note ? ` ${s.note}` : ''));
   it('a swap: Reload Tag, analyse; the hint about Auto Relocate', () => {
     const c = checkCard(check({}))!;
@@ -677,7 +679,8 @@ describe('the item just acted on (the hold)', () => {
 
   it('a ghost is the row as it was, without what only a to-do has', () => {
     const old = item('t2', 'rekordbox_check', { upgrade_ready: true, can_undo: true, detail: 'Reload Tag',
-      check: { reason: 'swapped', since: null, match: null, offset_ms: null, moved: false, aligned: false, text: 't', old_path: null } });
+      check: { reason: 'swapped', since: null, match: null, offset_ms: null, moved: false, aligned: false, text: 't', old_path: null,
+        reload_tag: true, batch: null, rekordbox: null } });
     const g = ghostOf(old);
     expect(itemKey(g)).toBe(itemKey(old));
     expect(g).toMatchObject({ upgrade_ready: false, can_undo: false, check: undefined, detail: '', title: old.title });
@@ -689,7 +692,7 @@ describe('the item just acted on (the hold)', () => {
     if (!up.ok) throw new Error('todo failed');
     const h = hold();
     expect(findHeld(flatten(up), h)?.group).toBe('upgrade_ready');
-    const job = await b.upgrade('t2', 'swap');
+    const job = await b.upgrade(['t2'], 'swap');
     if (!job.ok) throw new Error('upgrade failed');
     await new Promise((r) => setTimeout(r, 300));
     const view = await b.todo('upgrade_ready', false);

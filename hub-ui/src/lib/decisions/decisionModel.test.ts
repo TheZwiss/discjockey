@@ -87,14 +87,14 @@ describe('the fake backend answers the decisions made from the Library', () => {
   it('replace → the check with its undo → undo → the upgrade again', async () => {
     const { evs, f } = fake('todo:upgrade-aiff-same');
     expect((await at(f, 't2')).d).toEqual({ kind: 'upgrade' });
-    await job(evs, f.upgrade('t2', 'swap'));
+    await job(evs, f.upgrade(['t2'], 'swap'));
     const after = await at(f, 't2');
     expect(after.t.upgrade).toBeNull();
     expect(after.d?.kind).toBe('check');
     if (after.d?.kind !== 'check') return;
     expect(after.d.item.check?.reason).toBe('swapped');
     expect(after.d.item.can_undo).toBe(true);
-    await job(evs, f.undo_upgrade('t2'));
+    await job(evs, f.undo_upgrade(['t2']));
     expect((await at(f, 't2')).d).toEqual({ kind: 'upgrade' });
   });
   it('a Library track in a duplicate group: keeping it moves the other file away and the decision goes', async () => {

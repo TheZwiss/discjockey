@@ -8,6 +8,7 @@ import pytest
 
 from discjockey import report
 from discjockey.hub import views
+from discjockey.rekordbox.master import Status
 from discjockey.hub.jobs import PreviewStore
 from discjockey.models import (Action, BatchResult, BatchRow, FetchedPlaylist, MoveRow, Plan, PlannedMove, PlaylistInfo,
                                PlaylistLine, PlaylistRecord, RecordedTrack, SourceTrack)
@@ -462,15 +463,15 @@ def test_cue_text_by_match_and_swap(alignment, can_swap, text):
 @pytest.mark.parametrize("path,result,swap_safe,swap_possible,text", [
     ("Library/A/x.aiff", "exact", True, True, "matches exactly, cues stay"),
     ("Library/A/x.aif", "exact", True, True, "matches exactly, cues stay"),
-    ("Library/A/x.mp3", "exact", True, False, NO_SWAP_SAME),
-    ("Library/A/x.wav", "exact", True, False, NO_SWAP_SAME),
+    ("Library/A/x.mp3", "exact", True, True, "matches exactly, cues stay"),     # stage B: Same track for any format
+    ("Library/A/x.wav", "exact", True, True, "matches exactly, cues stay"),
     ("Library/A/x.mp3", "different", False, False, "doesn't match: would be a new rekordbox entry"),
-    ("Library/A/x.aiff", "different", False, True, "doesn't match: would be a new rekordbox entry"),
+    ("Library/A/x.aiff", "different", False, False, "doesn't match: would be a new rekordbox entry"),
     ("Library/A/x.mp3", "unknown", False, False, "could not compare the two versions"),
 ])
 def test_the_card_and_the_todo_row_say_what_the_file_can_do(path, result, swap_safe, swap_possible, text):
-    """The card line combines the measurement with whether the file can be swapped (AIFF only); the To-do row says
-    the same, and the UI offers Swap only when swap_safe and swap_possible (todoModel.actionsFor)."""
+    """The card line combines the measurement with whether Same track can run (any format since stage B; `swap_possible`
+    is the quick answer, so a different edit is not possible); the To-do row says the same."""
     entry = e("not_lossless", path=path, upgrade={**UPGRADE, "alignment": {"result": result, "offset_ms": 0.0}})
     up = views.track_detail("t1", entry, [], TODAY)["upgrade"]
     assert (up["swap_safe"], up["swap_possible"], up["cue_text"]) == (swap_safe, swap_possible, text)
@@ -619,9 +620,20 @@ def test_track_detail_with_a_parked_upgrade():
     assert d["next_qobuz_check"] is None and d["playlists"] is None
 
 
-def test_wav_files_cannot_be_swapped():
-    d = views.track_detail("t1", e("not_lossless", path="Library/A/x.wav", upgrade=UPGRADE), [], TODAY)
-    assert d["upgrade"]["swap_safe"] and not d["upgrade"]["swap_possible"]
+def test_wav_files_go_through_same_track_unless_rekordbox_cannot_be_read():
+    wav = e("not_lossless", path="Library/A/x.wav", upgrade=UPGRADE)
+    up = views.track_detail("t1", wav, [], TODAY)["upgrade"]
+    assert up["swap_safe"] and up["swap_possible"] and (up["swap_how"], up["why_not"]) == ("new_aiff", None)
+    unreadable = Status("unreadable", False, None, None, "schema", None, None)
+    up = views.track_detail("t1", wav, [], TODAY, rb=unreadable)["upgrade"]
+    assert not up["swap_possible"] and up["why_not"] == "rekordbox_unreadable"
+    assert up["rekordbox"] == {"state": "unreadable", "running": False} and up["auto_refused"] is None
+    assert up["cue_text"].endswith(", but a new rekordbox entry: relocate the old one to the new file to keep its cues")
+    aiff = e("not_lossless", path="Library/A/x.aiff", upgrade=UPGRADE)
+    up = views.track_detail("t1", aiff, [], TODAY, rb=unreadable)["upgrade"]
+    assert up["swap_possible"] and up["swap_how"] == "in_place"   # an AIFF takes the audio in place
+    gone = views.track_detail("t1", aiff, [], TODAY, exists=False)["upgrade"]
+    assert not gone["swap_possible"] and gone["why_not"] == "file_missing"
 
 
 @pytest.mark.parametrize("entry,when", [
@@ -985,7 +997,7 @@ def test_todo_check_in_rekordbox_group_also_for_lossless_and_hidden_tracks():
     assert by["h"]["detail"] == "analyse, set the cues again"
     assert by["h"]["check"] == {"reason": "added_as_new", "since": "2026-10-16", "match": None, "offset_ms": None,
                                 "moved": False, "aligned": False,
-                                "old_path": None, "text": "This is a different edit. In rekordbox: analyse it again and set the cues again."}
+                                "reload_tag": True, "batch": None, "rekordbox": None, "old_path": None, "text": "This is a different edit. In rekordbox: analyse it again and set the cues again."}
     assert out["chips"]["rekordbox_check"] == 2 and out["chips"]["all"] == 2 and out["hidden_count"] == 1
     both = views.todo(s, "all", True, {}, TODAY)
     assert [g["key"] for g in both["groups"]] == ["rekordbox_check", "not_found"] and both["chips"]["all"] == 2
