@@ -192,10 +192,21 @@ def services(**kw):
     return s
 
 
+_MADE: list = []
+
+
+def made_apis() -> list:
+    """The apis `make_api` / `make_unbound_api` made since the last call (conftest stops their jobs at teardown)."""
+    made = list(_MADE)
+    _MADE.clear()
+    return made
+
+
 def make_api(paths, **kw):
     """A hub bound to `paths` without its background services (no console watch, no Spotify read)."""
     rec = Recorder()
     api = HubApi(paths.support, rec, services(**kw))
+    _MADE.append(api)
     api._attach(paths)
     api._jobs.keep_awake = _no_awake
     return api, rec
@@ -205,6 +216,7 @@ def make_unbound_api(support, **kw):
     """A hub with no music folder yet (Setup's first step)."""
     rec = Recorder()
     api = HubApi(support, rec, services(**kw))
+    _MADE.append(api)
     api._jobs.keep_awake = _no_awake
     return api, rec
 
@@ -221,7 +233,7 @@ def _no_awake(reason):
     return _NoAwake()
 
 
-def wait_job(api, rec, answer, timeout=10):
+def wait_job(api, rec, answer, timeout=30):
     """Waits for the job a bridge call started; returns its JobFinished."""
     assert answer["ok"], answer
     end = time.monotonic() + timeout

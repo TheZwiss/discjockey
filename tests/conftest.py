@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 import yt_dlp
 
@@ -50,3 +52,30 @@ def _no_real_rekordbox_library(tmp_path_factory, monkeypatch):
 def _rekordbox_not_running(monkeypatch):
     """No test depends on whether the maintainer's rekordbox is open: process.running answers False."""
     monkeypatch.setattr(rekordbox_process, "running", lambda: False)
+
+
+_JOB_THREADS = ("hub-job-", "hub-refresh-", "hub-sign-in-")
+
+
+@pytest.fixture(autouse=True)
+def _no_hub_job_outlives_its_test():
+    """A hub job runs on a daemon thread; one a test never waited for would go on into the next test of the same
+    worker and, through the module-level patches (yt_dlp.YoutubeDL, class-level call lists), show up in its asserts.
+    At teardown every api that `hub_helpers` made stops: its jobs are cancelled and its threads joined (a thread that
+    won't end in 5 s fails the test that left it)."""
+    import threading
+    before = set(threading.enumerate())
+    yield
+    helpers = sys.modules.get("hub_helpers")
+    for api in (helpers.made_apis() if helpers is not None else ()):
+        for job in (api._jobs.current, api._jobs.refresh, api._jobs.sign_in):
+            if job is not None:
+                job.token.cancel()
+        api._jobs.close()
+    stuck = []
+    for thread in set(threading.enumerate()) - before:
+        if thread.name.startswith(_JOB_THREADS):
+            thread.join(5)
+            if thread.is_alive():
+                stuck.append(thread.name)
+    assert not stuck, f"a hub job thread outlived its test: {stuck}"

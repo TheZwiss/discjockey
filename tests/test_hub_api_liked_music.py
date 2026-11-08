@@ -2,6 +2,7 @@
 and the shapes the page reads (`setup_status().youtube_music`, `playlists()` rows' `needs_setting`). Offline: a stub
 yt-dlp serves the recorded album page as Liked music."""
 import json
+import threading
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -21,16 +22,25 @@ LM_FIXTURE = Path(__file__).parent / "fixtures" / "youtube_music" / "album_playl
 SETTING_OFF = "Reading your Liked music is off. Turn it on in Settings."
 
 
+def _mine() -> bool:
+    """Whether the calling thread started during this test (its own or its api's jobs): a thread a test before it left
+    running can't decide this file's asserts."""
+    return threading.current_thread() not in LikedYDL.strays
+
+
 class LikedYDL:
     created: list = []
     requested: list = []
     error: Exception | None = None
+    strays: frozenset = frozenset()  # the threads alive when the test began
 
     def __init__(self, opts):
-        LikedYDL.created.append(opts)
+        if _mine():
+            LikedYDL.created.append(opts)
 
     def extract_info(self, url, download=True, process=True, **kwargs):
-        LikedYDL.requested.append(url)
+        if _mine():
+            LikedYDL.requested.append(url)
         if LikedYDL.error is not None:
             raise LikedYDL.error
         return json.loads(LM_FIXTURE.read_text())
@@ -43,6 +53,7 @@ class LikedYDL:
 def root(tmp_path, monkeypatch):
     fake_spotify(monkeypatch)
     LikedYDL.created, LikedYDL.requested, LikedYDL.error = [], [], None
+    LikedYDL.strays = frozenset(threading.enumerate()) - {threading.current_thread()}
     monkeypatch.setattr(yt_dlp, "YoutubeDL", LikedYDL)
     return make_root(tmp_path)
 
@@ -55,6 +66,20 @@ def settings(root, on=True, account=True):
 def listed(root, off=False):
     with root.playlists_file.open("a") as f:
         f.write(f"{'#off# ' if off else ''}Liked_music = {LM_LINK}\n")
+
+
+def test_a_thread_an_earlier_test_left_running_cannot_decide_this_one(root):
+    def stray():
+        ydl = yt_dlp.YoutubeDL({"cookiesfrombrowser": ("chrome",)})
+        ydl.extract_info(LM_LINK)
+
+    thread = threading.Thread(target=stray, name="hub-refresh-1")
+    LikedYDL.strays |= {thread}  # alive before this test began, as far as the fake can tell
+    thread.start()
+    thread.join(5)
+    assert LikedYDL.created == [] and LikedYDL.requested == []
+    yt_dlp.YoutubeDL({}).extract_info(LM_LINK)  # the test's own thread is counted
+    assert len(LikedYDL.created) == 1 and LikedYDL.requested == [LM_LINK]
 
 
 # --- settings: the choice and the status block ---------------------------------------------------------------------
