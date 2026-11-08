@@ -1,15 +1,19 @@
 """ffmpeg conversion to 16-bit/44.1 kHz AIFF (`convert_to_aiff` for downloads, `render_aiff` for a sample-exact,
-shifted render of any file), cover download and ID3v2.3 tagging."""
+shifted render of any file), cover download, ID3v2.3 tagging, and `file_facts` (what a file is and what its tags say,
+for rekordbox's eligibility rules)."""
 from __future__ import annotations
 
 import subprocess
 import tempfile
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+import mutagen
 from mutagen.aiff import AIFF
-from mutagen.id3 import APIC, COMM, TALB, TIT2, TPE1, TPUB, TSRC
+from mutagen.id3 import APIC, COMM, ID3, TALB, TIT2, TPE1, TPUB, TSRC
+from mutagen.mp4 import MP4
 
 from . import quality
 
@@ -118,3 +122,73 @@ def copy_tags(src: Path, dst: Path) -> None:
     for frame in tags.values():
         f.tags.add(frame)
     f.save(v2_version=3)
+
+
+TEXT_FIELDS = ("title", "artist", "album", "label", "isrc", "comment")  # the text columns rekordbox keeps (design §5.11)
+
+
+@dataclass(frozen=True)
+class FileFacts:
+    """What a file is and says: `ext` (lower case, with the dot), the stream's `codec`, `sample_rate`, `bits`
+    (None for a lossy codec), the text `tags` (every one of TEXT_FIELDS, '' when missing or empty) and whether it
+    carries a cover."""
+    ext: str
+    codec: str
+    sample_rate: int
+    bits: int | None
+    tags: dict[str, str]
+    has_cover: bool
+
+
+def _first(values) -> str:
+    return next((str(v).strip() for v in (values or []) if str(v).strip()), "")
+
+
+def _label_and_comment(path: Path) -> tuple[str, str]:
+    """The label and the comment of any audio file ('' for a missing one). A tag mutagen can't read is missing."""
+    try:
+        f = mutagen.File(path)
+        tags = getattr(f, "tags", None)
+        if tags is None:
+            return "", ""
+        if isinstance(tags, ID3):
+            comment = next((_first(frame.text) for frame in tags.getall("COMM") if _first(frame.text)), "")
+            return _first(tags["TPUB"].text) if "TPUB" in tags else "", comment
+        if isinstance(f, MP4):
+            label = tags.get("----:com.apple.iTunes:LABEL") or []
+            return (_first(v.decode("utf-8", "replace") if isinstance(v, bytes) else v for v in label),
+                    _first(tags.get("\xa9cmt")))
+        return (_first(tags.get("label")) or _first(tags.get("organization")),
+                _first(tags.get("comment")) or _first(tags.get("description")))
+    except (mutagen.MutagenError, KeyError, ValueError, TypeError, AttributeError):
+        return "", ""
+
+
+def _has_cover(path: Path) -> bool:
+    try:
+        f = mutagen.File(path)
+        tags = getattr(f, "tags", None)
+        if f is None:
+            return False
+        if isinstance(tags, ID3):
+            return bool(tags.getall("APIC"))
+        if isinstance(f, MP4):
+            return bool((tags or {}).get("covr"))
+        return bool(getattr(f, "pictures", None)) or bool(tags and tags.get("metadata_block_picture"))
+    except (mutagen.MutagenError, KeyError, ValueError, TypeError, AttributeError):
+        return False
+
+
+def file_facts(path: Path) -> FileFacts:
+    """The facts of the audio file at `path`: ffprobe's codec, rate and bit depth (`quality.probe`), the title,
+    artist, album, ISRC the import reads (`importer.read_tags`) plus label and comment, and whether a cover is
+    there. Raises RuntimeError when ffprobe finds no audio (also for a file that isn't there), OSError when mutagen
+    can't open it."""
+    from .importer import read_tags  # lazy: the importer pulls in the whole library
+    path = Path(path)
+    info = quality.probe(path)
+    read = read_tags(path)
+    label, comment = _label_and_comment(path)
+    tags = {"title": read["title"] or "", "artist": read["artist"] or "", "album": read["album"] or "",
+            "label": label, "isrc": read["isrc"] or "", "comment": comment}
+    return FileFacts(path.suffix.lower(), info.codec, info.sample_rate, info.bits, tags, _has_cover(path))

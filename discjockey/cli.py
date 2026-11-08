@@ -22,23 +22,51 @@ def _positive_int(text: str) -> int:
     return n
 
 
+def _sync_flags(p: argparse.ArgumentParser, *, repeated: bool = False) -> None:
+    """The flags of a sync run. A sub-command repeats them (`discjockey upgrades --yes` keeps working) without
+    overwriting what was given before it: `repeated` leaves a flag out of the namespace unless it is typed."""
+    extra = {"default": argparse.SUPPRESS} if repeated else {}
+    p.add_argument("--yes", action="store_true", help="don't ask before starting", **extra)
+    p.add_argument("--dry-run", action="store_true", help="only show what would happen", **extra)
+    p.add_argument("--limit", type=_positive_int, metavar="N", help="download at most N tracks this run", **extra)
+    p.add_argument("--verbose", action="store_true", help="show every search and candidate", **extra)
+    p.add_argument("--extra", type=_positive_int, metavar="N", help="allow N more Qobuz downloads today (one time)",
+                   **extra)
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="discjockey",
         description="Keep your lossless DJ library in sync with your Spotify, Qobuz, SoundCloud and "
-                    "YouTube Music playlists.",
+                    "YouTube Music playlists. Without a command it runs a sync.",
     )
-    p.add_argument("command", nargs="?", choices=["setup", "update", "upgrades", "hub"],
-                   help="setup: one-time logins; update: get the newest yt-dlp; "
-                        "upgrades: go through the better versions found for your lossy tracks; "
-                        "hub: open the Discjockey window")
-    p.add_argument("--yes", action="store_true", help="don't ask before starting")
-    p.add_argument("--dry-run", action="store_true", help="only show what would happen")
-    p.add_argument("--limit", type=_positive_int, metavar="N", help="download at most N tracks this run")
-    p.add_argument("--verbose", action="store_true", help="show every search and candidate")
-    p.add_argument("--extra", type=_positive_int, metavar="N",
-                   help="allow N more Qobuz downloads today (one time)")
-    return p.parse_args(argv)
+    _sync_flags(p)
+    commands = p.add_subparsers(
+        dest="command", metavar="command", title="commands",
+        description="setup: one-time logins; update: get the newest yt-dlp; "
+                    "upgrades: go through the better versions found for your lossy tracks; "
+                    "hub: open the Discjockey window; rekordbox: look at rekordbox's library (read only)")
+    for name, help_text in (("setup", "One-time logins."), ("update", "Get the newest yt-dlp."),
+                            ("upgrades", "Go through the better versions found for your lossy tracks."),
+                            ("hub", "Open the Discjockey window.")):
+        _sync_flags(commands.add_parser(name, description=help_text), repeated=True)
+    box = commands.add_parser("rekordbox", description="Look at rekordbox's library. Both commands only read.")
+    box_commands = box.add_subparsers(dest="rekordbox_command", metavar="command", required=True)
+    status = box_commands.add_parser("status", help="whether Discjockey can read rekordbox's library",
+                                     description="Whether rekordbox's library is on this Mac, can be opened, and "
+                                                 "whether rekordbox is open. Needs no music folder.")
+    preview = box_commands.add_parser(
+        "preview", help="what Same track, Convert and Rename would do for one file",
+        description="Read only: what each action would do for a song of your library (its key) or for any file "
+                    "(--path), and why not when it can't. Decodes the file, which takes a few seconds.")
+    preview.add_argument("track", nargs="?", help="the song's key, as the library's JSON prints it")
+    preview.add_argument("--path", metavar="FILE", help="a file, instead of a song key")
+    for sub in (status, preview):
+        sub.add_argument("--json", action="store_true", help="print one JSON object")
+    args = p.parse_args(argv)
+    if args.command == "rekordbox" and args.rekordbox_command == "preview" and bool(args.track) == bool(args.path):
+        preview.error("give either the song's key or --path FILE")
+    return args
 
 
 TIDY_WAITING = ("{n} files are not where the playlist order puts them; tidy up in the window.",
@@ -141,6 +169,9 @@ def missing_text(folder) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
+    if args.command == "rekordbox":  # read only: no lock, and `status` needs no music folder
+        from . import rekordbox_cmd
+        return rekordbox_cmd.run(args)
     resolved = library.resolve_paths()
     if args.command == "hub":  # opens without a music folder too: Setup (or the missing-folder screen) takes over
         from .hub import app
