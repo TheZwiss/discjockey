@@ -405,3 +405,6 @@ Results:
 - Stage A review (Opus 269k: 0 Critical, 2 Important, 13 Minor) + fresh Sonnet fix round (165k, all fixed; flaky
   liked-music test: likely cause fixed with a teardown guard that joins every test's job threads, not proven);
   verify 1027 shots ok, CI green; **stage A merged into main 43e6797** (no release). Next: stage B plan (Opus).
+- Stage B plan `docs/2026-11-07-rekordbox-stage-b-plan.md` (e7c8452, Opus 267k, no mockup needed, no questions):
+  B1 S → B2 O → B3 O → B4 O → B5 S → R1 engine review + fix → B6 S → B7 S → RH rehearsal on a copy (O) → U1 O → U2 O →
+  S shots → R2 review + fixes → verify → merge main. Building on `feat/rekordbox-b`, groups in `.claude/worktrees/rb-b-<g>`.
