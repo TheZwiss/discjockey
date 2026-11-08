@@ -1244,7 +1244,8 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
     either `state`'s contents are replaced in place with a fresh snapshot: the caller goes on saving a current one. A
     `swap` / `swap_undo` / `convert` / `convert_undo` step writes past it too (end_op), and `state` follows each of
     its writes. A convert step (or its undo) whose analysis files must come back while rekordbox runs waits for it to
-    quit, as a step waits for a drive: the run goes on, the scan is held."""
+    quit, as a step waits for a drive: the run goes on, the scan is held. Last, an AIFF batch a crash left `running`
+    becomes `stopped` and offers Resume (`batches.recover`)."""
     messages: list[tuple[str, bool] | _Waits] = []
     roots = watched_roots(paths) if state.get("version") == 2 else [paths.root]
     for op in list(state.get("pending", [])):
@@ -1290,6 +1291,8 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
             from .tidy import recover  # tidy builds on this module
             messages += recover(paths, state)
             _refresh(paths, state)
+        from .batches import recover as recover_batches  # batches build on this module
+        recover_batches(paths)  # after the steps: an AIFF batch a crash cut off offers Resume
     # W17's form is one for all steps: the scan is held when any step still pending holds it up
     scan_held = any(m.holds for m in messages if isinstance(m, _Waits))
     return [_waiting(m, scan_held) if isinstance(m, _Waits) else m for m in messages]

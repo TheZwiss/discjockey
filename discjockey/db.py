@@ -1672,6 +1672,20 @@ def running_aiff_batches(conn: sqlite3.Connection) -> list[int]:
     return [i for (i,) in conn.execute("SELECT id FROM aiff_batches WHERE state = 'running' ORDER BY id")]
 
 
+def unfinished_aiff_batches(conn: sqlite3.Connection) -> list[int]:
+    """The AIFF batches not `done` (`running` or `stopped`), oldest first."""
+    return [i for (i,) in conn.execute("SELECT id FROM aiff_batches WHERE state != 'done' ORDER BY id")]
+
+
+def aiff_item_of(conn: sqlite3.Connection, track: str, batch: int | None = None) -> tuple[int, int] | None:
+    """(batch, seq) of the newest `done` AIFF item of the song `track` (of `batch` when given): the item an undo
+    marks `undone`. None when no batch did that song."""
+    row = conn.execute("SELECT batch, seq FROM aiff_items WHERE track = ? AND state = 'done' "
+                       "AND (? IS NULL OR batch = ?) ORDER BY batch DESC, seq DESC LIMIT 1",
+                       (track, batch, batch)).fetchone()
+    return None if row is None else (row[0], row[1])
+
+
 def _set_aiff_item(conn: sqlite3.Connection, batch: int, seq: int, state: str, reason: str | None,
                    result: object | None) -> None:
     """set_aiff_item's body, inside the caller's transaction (also end_step's)."""

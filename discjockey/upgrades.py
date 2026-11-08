@@ -64,6 +64,11 @@ class UpgradeProblem(Exception):
         self.forgotten = forgotten
 
 
+class NeedsChoice(UpgradeProblem):
+    """A swap refused because the two versions are not the same edit (measured again now): nothing was done, and
+    in a batch the track is skipped (`needs_choice`), not failed."""
+
+
 def upgrade_name(upgrade: dict) -> str:
     """"lossless version", or "256 kbps version" for a better lossy stream from an account (spec §4)."""
     if upgrade.get("status", "lossless") == "lossless":
@@ -356,7 +361,12 @@ def _finish(paths: Paths, state: dict, op: dict) -> str:
     else:
         delete_parked(paths, op["parked"])
     shutil.rmtree(paths.root / PurePosixPath(op["staged"]).parent, ignore_errors=True)
-    end_op(paths, state, op, {op["track_id"]: entry}, rekeyed=[path])  # the new audio is in it, entry changed or not
+    item = None
+    if op.get("batch"):
+        written = (entry.get("rekordbox_check") or {}).get("rekordbox")
+        item = (op["batch"][0], op["batch"][1], {"path": path, "note": _swap_note(op, path), "rekordbox": written})
+    # the new audio is in it, entry changed or not
+    end_op(paths, state, op, {op["track_id"]: entry}, rekeyed=[path], item=item)
     return path
 
 
@@ -442,7 +452,8 @@ def _write_text(paths: Paths, state: dict, op: dict, session: Session, changes: 
 
 
 def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compare = align.compare_files,
-         now: Callable[[], datetime] = datetime.now, *, session: Session | None = None) -> Result:
+         now: Callable[[], datetime] = datetime.now, *, session: Session | None = None,
+         batch: tuple[int, int] | None = None) -> Result:
     """Swap (spec "Upgrades", steps 1-6). Refused unless the versions line up, measured again now. The entry asks
     for a rekordbox check (swapped: analyse again, and Reload Tag unless rekordbox's text was written; Auto Relocate
     when the file moved up), which holds the undo; the parked download is kept for it.
@@ -451,7 +462,8 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
     the file write, one transaction writes rekordbox's text columns and `FileSize` for the file's tracks (plan stage B
     §0.6, design §5.11; the user's own edits kept), journaled before its commit; the check then says `reload_tag:
     false` and its undo holds what was written. It never runs forward in recovery: if it didn't commit (rekordbox
-    open, cloud, a crash), the swap finishes as before with `reload_tag: true`."""
+    open, cloud, a crash), the swap finishes as before with `reload_tag: true`. `batch` = (AIFF batch, seq): its item
+    is marked done in the transaction that ends the step (also when recovery finishes the step)."""
     e = precondition(paths, state, track_id, upgrade, need_current=True)
     target = e["path"]
     if not swap_possible(e):
@@ -459,8 +471,8 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
                              f"Add the {upgrade_name(upgrade)} as a new file instead.")
     alignment = compare(paths.root / target, paths.root / upgrade["file"])
     if not alignment.swap_safe:
-        raise UpgradeProblem(f"Not swapped: {alignment.text}. Add the {upgrade_name(upgrade)} as a new file instead, "
-                             "or discard it.")
+        raise NeedsChoice(f"Not swapped: {alignment.text}. Add the {upgrade_name(upgrade)} as a new file instead, "
+                          "or discard it.")
     workdir = paths.tmp / track_id
     workdir.mkdir(parents=True, exist_ok=True)
     staged = workdir / "swap.aiff"
@@ -484,7 +496,7 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
           "held": held_place(paths, track_id, upgrade["file"]), "before": fields_before(e),
           "check": {"reason": "swapped", "since": now().date().isoformat(), "match": alignment.result,
                     "offset_ms": alignment.offset_ms},
-          "rekordbox": None}
+          "rekordbox": None, "batch": list(batch) if batch else None, "text": alignment.text}
     if session is not None:  # a batch's swap: whether rekordbox's text was written (without one, as before stage B)
         op["check"].update(reload_tag=True, rekordbox=None)
     with deferred_interrupt():  # a Ctrl-C waits until the file is complete again
@@ -505,11 +517,15 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
         except Exception as err:  # e.g. the disk is full: finish or undo right now, not at the next start
             message, _ = recover_swap(paths, state, op, retry=False)
             raise UpgradeProblem(f"The swap did not work ({err}). {message}") from err
-    note = f"{alignment.text}; the lossy file is kept as {backup}"
-    if final != target:
-        note += f"; moved to {final}"
-    return _result("swapped", track_id, e, note, status=upgrade.get("status", "lossless"),
+    return _result("swapped", track_id, e, _swap_note(op, final), status=upgrade.get("status", "lossless"),
                    source=upgrade["source"], path=final)
+
+
+def _swap_note(op: dict, final: str) -> str:
+    note = f"{op.get('text') or op['check']['match']}; the lossy file is kept as {op['backup']}"
+    if final != op["target"]:
+        note += f"; moved to {final}"
+    return note
 
 
 def _where(paths: Paths, op: dict) -> str | None:

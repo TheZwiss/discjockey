@@ -161,6 +161,18 @@ class MovesProgress:
     total: int
 
 
+@dataclass(frozen=True)
+class BatchProgress:
+    """How far an AIFF batch is (batches.run, plan rekordbox stage B §1.11): `done` of `total` items handled (done,
+    skipped or failed; earlier runs of a resumed batch count); `track_id` / `name` the item now in work, both None
+    after the last one."""
+    batch_id: int
+    done: int
+    total: int
+    track_id: str | None
+    name: str | None
+
+
 ImportPhase = Literal["scan", "tags", "sound", "link"]
 IMPORT_PHASES: tuple[ImportPhase, ...] = ("scan", "tags", "sound", "link")
 
