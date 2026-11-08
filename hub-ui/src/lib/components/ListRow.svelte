@@ -30,16 +30,19 @@
     lead?: Snippet; name: Snippet; sub?: Snippet; optional?: Snippet; trailing?: Snippet;
     off?: boolean; selected?: boolean; pick?: boolean; disabled?: boolean; checked?: boolean; height?: 40 | 52; wrap?: boolean;
     onclick?: (e: MouseEvent) => void; title?: string; test?: string;
+    /** the row scrolls into view when this turns true (default: `selected`): in a multi-selection only the anchor's
+     *  row does, so ⌘A or a range doesn't scroll the list to its last selected row */
+    reveal?: boolean;
   };
   let { lead, name, sub, optional, trailing, off = false, selected = false, pick = false, disabled = false, checked, height, wrap = false,
-    onclick, title, test, class: className, ...rest }: Props = $props();
+    onclick, title, test, reveal, class: className, ...rest }: Props = $props();
 
   const uid = $props.id();
   const isTall = $derived((height ?? (sub ? 52 : 40)) === 52);
   const described = $derived([sub && `${uid}-sub`, optional && `${uid}-opt`].filter(Boolean).join(' ') || undefined);
   function click(e: MouseEvent) { if (!disabled) onclick?.(e); }
   let rowEl = $state<HTMLDivElement>();
-  $effect(() => { if (selected) rowEl?.scrollIntoView?.({ block: 'nearest' }); });
+  $effect(() => { if (reveal ?? selected) rowEl?.scrollIntoView?.({ block: 'nearest' }); });
 </script>
 
 <div {...rest} bind:this={rowEl} class="row {className ?? ''}" class:off class:selected class:pick class:locked={disabled} class:tall={isTall}

@@ -95,3 +95,8 @@ export {
 } from './accountModel';
 export { WatchedFoldersFlow, type AddNote } from './watchedFoldersFlow.svelte';
 export { canContinue, importView, settingsLine, type ImportView } from './watchedFoldersModel';
+export {
+  NONE as NO_SELECTION, click as clickSelect, drop as dropSelected, escape as escapeSelection, isSelected, keep as keepSelected,
+  move as moveSelected, only as onlySelected, scopeOfSel, selectAll, selectScope, single as selectOne,
+  type Mods, type ScopeOf, type Selection,
+} from './selectionModel';

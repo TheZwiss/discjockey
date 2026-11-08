@@ -594,10 +594,13 @@ file either way; the only difference is what rekordbox sees, which you pick unde
 - **Discard the new version.** The parked file is deleted and Discjockey never offers that file again.
 - Or leave it: nothing changes, and it waits for next time.
 
-**Several at once.** Select several tracks on the To-do page to replace or discard them
-together ("Replace 5 with lossless"), or press **Upgrade all** to run Same track for every track it can run for.
-Same track runs the tracks as one **batch**: one rekordbox backup, a progress line ("3 of 8"), and **Stop**, which
-finishes the track it is on and keeps what is done ("Stopped after 3 of 8"). **Resume** carries on with the rest
+**Several at once.** Select several tracks of **Upgrade ready** on the To-do page to replace or discard them
+together ("Replace 5 with lossless"): ⌘-click adds or removes a track, ⇧-click selects a range, ⌘A the whole group,
+and Esc goes back to one. **Upgrade all · 12** at the group's head selects the whole group; the panel then lists the
+tracks and says how many keep their cues and how many need your choice and stay, and Replace runs Same track for
+every track it can run for (✕ on a row leaves it out). Same track runs the tracks as one **batch**: one rekordbox
+backup, a progress line ("3 of 8"), and **Stop**, which finishes the track it is on and keeps what is done ("Stopped
+after 3 of 8"). **Resume · 5 left** (in the panel, and at the group's head while the batch waits) carries on with the rest
 (Discjockey asks again for each track, so a track that changed meanwhile is skipped with its reason). If you open
 rekordbox during a batch, Discjockey rolls back the track it was on, stops, and waits for you to quit rekordbox and
 press Resume. A track it can't do is skipped with its reason and the others go on. When a batch is done, it shows as

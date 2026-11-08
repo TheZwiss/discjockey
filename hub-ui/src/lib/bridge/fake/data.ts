@@ -184,6 +184,10 @@ export type FakeState = {
   rekordbox_running?: boolean;
   /** the fake rekordbox library: `none` (no rekordbox on this Mac) or `unreadable`; unset is `ready` */
   rekordbox_state?: 'ready' | 'none' | 'unreadable';
+  /** a Same track batch takes this long per track (ms; default 700): long enough to see it running and stop it */
+  batchStep?: number;
+  /** tracks a Same track batch skips when it reaches them, with the reason its full check finds (a run-time reason) */
+  batchSkip?: Record<string, string>;
   offline: boolean;
   /** app_update(): the update check's answer (scenario update_available: a newer version) */
   appUpdate: AppUpdate;

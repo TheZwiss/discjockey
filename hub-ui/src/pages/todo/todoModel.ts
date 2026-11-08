@@ -7,7 +7,7 @@ import type {
 } from '$lib/bridge/types';
 import { isDuplicate, isQuestion } from '$lib/bridge/types';
 import { dayMonth, duration, fileAway, rowAway } from '$lib/format';
-import { canSwap, fileName } from '$lib/decisions/decisionModel';
+import { canSwap, defaultWay, fileName } from '$lib/decisions/decisionModel';
 import { heldRow, putAt } from '$lib/decisions/hold';
 import { fitPath } from '$lib/components/watchedFoldersModel';
 
@@ -105,6 +105,23 @@ export function keepSelection(key: string | null, before: TodoItem[], after: Tod
   const pos = before.findIndex((i) => itemKey(i) === key);
   if (pos < 0) return itemKey(after[0]);
   return itemKey(after[Math.min(pos, after.length - 1)]);
+}
+
+// ---------- multi-select (issue 33 stage B §6.1) ----------
+/** The groups whose items can be selected several at once (their actions run on a selection): Upgrade ready. The
+ *  rekordbox checks join with their batch card (stage B U2); the other groups' actions are one track's. */
+export const MULTI_GROUPS: TodoGroupKey[] = ['upgrade_ready'];
+/** selectionModel's scope of a key: its item's group where that group allows several, else null. */
+export function multiScope(items: TodoItem[]): (key: string) => string | null {
+  const groups = new Map(items.map((i) => [itemKey(i), i.group]));
+  return (key) => {
+    const g = groups.get(key);
+    return g && MULTI_GROUPS.includes(g) ? g : null;
+  };
+}
+/** The Upgrade ready group of an answer (its `all` and `stopped` drive the head's link), null when it has none. */
+export function upgradeGroup(t: Todo | null): Todo['groups'][number] | null {
+  return t?.groups.find((g) => g.key === 'upgrade_ready') ?? null;
 }
 
 // ---------- the item just acted on ----------
@@ -276,7 +293,7 @@ export function actionsFor(track: TrackDetail, group: TodoGroupKey | null = null
   const up = track.upgrade;
   const swap = canSwap(up);
   const check = group === 'rekordbox_check';
-  const upgrade = up ? { swap, primary: swap ? 'swap' as const : 'add_new' as const } : null;
+  const upgrade = up ? { swap, primary: defaultWay(up, swap) } : null;
   const finder = group === 'other' && !!track.path && !fileAway(track);   // nothing to show when the file isn't there
   // a lossless version is ready: the upgrade decision is the way to it, so no "Get a lossless file" (buy, drop) under it
   const getBetter = improvable && !(up && up.what === 'lossless version');

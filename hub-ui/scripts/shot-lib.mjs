@@ -68,6 +68,8 @@ export function loadShots(pages, only = null) {
 export async function runSteps(page, steps = []) {
   for (const st of steps) {
     if (st.click) await page.click(st.click);
+    else if (st.metaclick) await page.click(st.metaclick, { modifiers: ['Meta'] });
+    else if (st.shiftclick) await page.click(st.shiftclick, { modifiers: ['Shift'] });
     else if (st.press) await page.keyboard.press(st.press);
     else if (st.fill) await page.fill(st.fill[0], st.fill[1]);
     else if (st.wait) await page.waitForSelector(st.wait, { timeout: 10000 });

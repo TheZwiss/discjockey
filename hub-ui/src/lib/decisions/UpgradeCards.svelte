@@ -4,14 +4,15 @@
   // lossless"), the compare player, and the "Edit" row (a fact about the audio, not a promise about rekordbox).
   // "In rekordbox" is the only place where the two ways differ, so it is the only choice: with an AIFF file and the
   // same edit, Same track (recommended, = Swap) or New track (= Add as new file), the picked row listing what happens;
-  // otherwise no choice, it says what will happen and why Same track isn't possible. Its last section says where the
-  // old file goes and the README's tip to quit rekordbox first. The action itself ("Replace with lossless") is the
+  // otherwise no choice, it says what will happen and why Same track isn't possible (or, with no rekordbox on this
+  // Mac, that the new AIFF is a new track). Its last section says where the old file goes and, where a rekordbox
+  // write follows and no outcome says it, to quit rekordbox first (plan stage B §6.3). The action itself ("Replace with lossless") is the
   // panel foot's filled button (UpgradeFoot, reading the same UpgradeFlow).
   import type { Spectrum as Spec, TrackDetail, Upgrade } from '$lib/bridge/types';
   import { ChoiceGroup, ComparePlayer, Hint, KeyValue, OutcomeList, Spectrum, Surface, tip } from '$lib/components';
   import type { ChoiceOption } from '$lib/components';
   import { foundText, upgradeLabel } from '$lib/format';
-  import { KEPT_FILE, QUIT_REKORDBOX, editLine, nowLabel, nowTip, upgradeWays, type Way } from './decisionModel';
+  import { KEPT_FILE, editLine, nowLabel, nowTip, upgradeWays, type Way } from './decisionModel';
 
   let { track, current, upgrade, loading, swap, way, onway, busy = false }: {
     track: Pick<TrackDetail, 'audio_url' | 'duration_s' | 'source_format_line' | 'quality_label'> & { upgrade: Upgrade | null };
@@ -57,7 +58,7 @@
 
 {#snippet after()}
   <OutcomeList items={[KEPT_FILE]} />
-  <Hint text={QUIT_REKORDBOX} />
+  {#if ways.tip}<Hint text={ways.tip} data-test="upgrade-tip" />{/if}
 {/snippet}
 
 {#if ways.choice}
@@ -67,8 +68,8 @@
   <Surface kind="card" label="In rekordbox" summary="a new track" data-test="upgrade-ways" data-choice="false">
     <div class="fixed">
       <OutcomeList items={[...ways.fixed, KEPT_FILE]} />
-      {#if ways.reason}<Hint text={ways.reason} class="reason" data-test="upgrade-why" />{/if}
-      <Hint text={QUIT_REKORDBOX} />
+      {#if ways.reason}<Hint text={ways.reason} wrap class="reason" data-test="upgrade-why" />{/if}
+      {#if ways.tip}<Hint text={ways.tip} data-test="upgrade-tip" />{/if}
     </div>
   </Surface>
 {/if}

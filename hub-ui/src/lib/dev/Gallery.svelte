@@ -27,6 +27,7 @@
     ToggleGroup, ToggleRow, TrackHead, TrackRow, WriteButton, setOn, type DayBarInput, type SegOption, type ToggleItem,
     confirm, envelope, ImportCard, UnreadableList, WatchedFolderList,
   } from '../components';
+  import { click as clickSelect, isSelected, selectScope, type Selection } from '../components/selectionModel';
   import Tick from '../components/Tick.svelte';
   import NeverButton from '../../pages/sync/plan/NeverButton.svelte';
   import Why from '../../pages/sync/plan/Why.svelte';
@@ -61,6 +62,10 @@
   let inspectorOpen = $state(true);
   let galleryWay = $state<string>('same');
   let galleryUpWay = $state<'swap' | 'add_new'>('swap');
+  // multi-select (selectionModel): four rows of one group
+  const gSelKeys = ['u1', 'u2', 'u3', 'u4'];
+  const gSelScope = (_k: string) => 'u';
+  let gSel = $state<Selection>({ keys: ['u1', 'u3'], anchor: 'u3' });
   /** LinkGuide folded (Setup once a playlist is in): opens on a click */
   let guideOpen = $state(false);
   /** AddRow with Liked music pasted while the setting is off (the fake answers setting_off): the needs-setting form */
@@ -78,6 +83,7 @@
   const weak = t('t2');
   const lossless = t('t1');
   const missing = t('t3');
+  const gSelRows = [t('t1'), t('t2'), t('t3'), t('t17')];
   const fakeQ = tracks.find((x) => x.quality === 'fake')!;
   const good = tracks.find((x) => x.quality === 'good_lossy')!;
   const specCut = fakeSpectrum(16000, 11, 268);
@@ -1107,6 +1113,44 @@
             </ListRow>
           {/each}
         {/each}
+      </Surface>
+    </div>
+  </section>
+
+  <section data-test="gallery-selection">
+    {@render head('Multi-select', 'Several items of one group at once (selectionModel): click one, ⌘-click toggles, ⇧-click a range, ⌘A the group, Esc back to one; every selected row wears the picked wash, only the anchor scrolls into view. The group head\'s action selects it all (ListSection / Surface `action`)')}
+    <div class="col w640" data-test="g-selection">
+      <Surface kind="list" label="All to-dos" style="--row-cols: 28px minmax(0, 1fr) auto">
+        <ListSection label="Upgrade ready" summary={String(gSelRows.length)} hint="a better version is waiting for you">
+          {#snippet action()}<Button variant="link" size="sm" onclick={() => (gSel = selectScope('u', gSelKeys, gSelScope))}
+            data-test="g-selection-all">Upgrade all · {gSelRows.length}</Button>{/snippet}
+        </ListSection>
+        {#each gSelRows as r, ri (ri)}
+          {@const key = gSelKeys[ri]}
+          {@const on = isSelected(gSel, key)}
+          <ListRow selected={on} reveal={on && key === gSel.anchor} pick
+            onclick={(e) => (gSel = clickSelect(gSel, key, { meta: e.metaKey, shift: e.shiftKey }, gSelKeys, gSelScope))}
+            title="{r.artist} – {r.title}">
+            {#snippet lead()}<Cover url={null} seed={r.track_id + ri} size={28} />{/snippet}
+            {#snippet name()}{r.artist} – {r.title}{/snippet}
+            {#snippet sub()}{r.folder}{/snippet}
+            {#snippet trailing()}<Badge tone={r.quality} text={r.quality_label} />{/snippet}
+          </ListRow>
+        {/each}
+      </Surface>
+      <span class="cap">{gSel.keys.length} selected · anchor {gSel.anchor ?? 'none'}</span>
+    </div>
+    <span class="cap">ListSection with `action` and a stopped batch: "Resume · k left" in the action's place</span>
+    <div class="col w640" data-test="g-list-section-action">
+      <Surface kind="list" label="All to-dos" style="--row-cols: 28px minmax(0, 1fr) auto">
+        <ListSection label="Upgrade ready" summary="3" hint="a better version is waiting for you">
+          {#snippet action()}<Button variant="link" size="sm" onclick={() => {}}>Resume · 2 left</Button>{/snippet}
+        </ListSection>
+        <ListRow onclick={() => {}} title="{weak.artist} – {weak.title}">
+          {#snippet lead()}<Cover url={null} seed="ga1" size={28} />{/snippet}
+          {#snippet name()}{weak.artist} – {weak.title}{/snippet}
+          {#snippet trailing()}<Badge tone={weak.quality} text={weak.quality_label} />{/snippet}
+        </ListRow>
       </Surface>
     </div>
   </section>

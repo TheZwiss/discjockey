@@ -2,11 +2,17 @@
 // choice does the same thing on both pages (mockup todo-decisions). One flow per details panel: its cards (the choice,
 // disabled while a job runs) and its foot (the buttons) read the same flow. Every action is a write job through
 // runJob (its toast on a refusal); the finished job bumps filesVersion, and each page re-fetches what it shows.
-import { api, runJob } from '$lib/bridge/client';
-import type { DuplicatePair, RekordboxCheckView, Result } from '$lib/bridge/types';
+import { api, runJob, type JobOutcome } from '$lib/bridge/client';
+import { onEvent } from '$lib/bridge/events';
+import { waitForJob } from '$lib/stores/jobs';
+import type { AiffBatchResult, DuplicatePair, JobSnap, JobStart, RekordboxCheckView, Result, TodoItem } from '$lib/bridge/types';
 import { confirm } from '$lib/components/confirm';
 import { toasts } from '$lib/stores/toasts';
-import { groupIdOf, type DuplicatePick, type Way } from './decisionModel';
+import { problemCopy } from '$lib/copy';
+import {
+  batchEnd, canTryAgain, discardConfirm, endRows, groupIdOf, progressRows, runRow, type BatchEnd, type BatchMode, type DuplicatePick,
+  type RunRow, type UpgradeWays, type Way,
+} from './decisionModel';
 
 /** The upgrade and the rekordbox check it leaves: Replace (the "In rekordbox" pick), Discard, Done, Undo. `busy`
  *  names the running action; a page may set it for one of its own (To-do's Hide), so the buttons wait for that too. */
@@ -31,9 +37,11 @@ export class UpgradeFlow {
     this.picked = null;
     this.undoProblem = null;
   }
-  /** The picked way: Same track (swap) by default where both ways are possible, else New track. */
-  way(swap: boolean): Way {
-    return swap ? (this.picked ?? 'swap') : 'add_new';
+  /** The picked way: Same track (swap) by default where both ways are possible, else the card's one way (New track,
+   *  or Same track's clean AIFF where there is no rekordbox). */
+  way(ways: Pick<UpgradeWays, 'choice' | 'way'> | null): Way {
+    if (!ways) return 'add_new';
+    return ways.choice ? (this.picked ?? 'swap') : ways.way;
   }
   /** Replace with lossless (swap / add_new) or Discard (spec §6.6). A replace needs no confirm: it can be undone until
    *  Done (the hint under it says so); Discard deletes the new version, so it asks. "changed": runJob shows "This
@@ -122,3 +130,109 @@ export class DuplicateFlow {
     else if (moved > 1) toasts.show({ tone: 'success', title: `Moved ${moved} files to Superseded/.` });
   }
 }
+
+/** The write jobs of an upgrade list or batch (contract "Upgrades and batches"): each sends BatchProgress. */
+export const BATCH_JOBS = ['upgrade_batch', 'batch_resume', 'upgrade_add_new', 'upgrade_discard'];
+const MODE_OF: Record<string, BatchMode> = { upgrade_batch: 'swap', batch_resume: 'swap', upgrade_add_new: 'add_new',
+  upgrade_discard: 'discard' };
+/** What the selection panel shows of a batch: running (its rows, the count, Stop) or ended (until the next pick).
+ *  `tracks`: the track ids it was started for (null: found running, or a Resume; it then shows for any selection of
+ *  the group). */
+export type BatchView = { phase: 'running' | 'ended'; mode: BatchMode; tracks: string[] | null; rows: RunRow[];
+  done: number; total: number; now: string | null; stopping: boolean; end: BatchEnd | null;
+  /** runs the same call again (an end with nothing to resume) */
+  again: (() => void) | null };
+
+/** Several upgrades at once (plan stage B §6.2): Replace (Same track as one batch, `upgrade_all` when the selection is
+ *  the whole group; New track and Discard as lists), Stop, Resume, and what came of it. One per window, outside any
+ *  component, so the progress survives the To-do panel switching to another row and back, and a page opened while a
+ *  batch runs finds it (`adopt`, from the hub's job). The one-track decision stays UpgradeFlow's. */
+export class UpgradeBatchFlow {
+  view = $state<BatchView | null>(null);
+  #off: (() => void) | null = null;
+
+  /** Replace (`swap` / `add_new`) or Discard (confirmed first) for the selected items; `all`: the selection is the
+   *  whole group, so Same track goes as Upgrade all. Only the items the way replaces are run. */
+  async start(mode: BatchMode, items: TodoItem[], all: boolean, name: (i: TodoItem) => string): Promise<void> {
+    if (mode === 'discard' && !(await confirm(discardConfirm(items.length)))) return;
+    const ids = items.map((i) => i.track_id);
+    const call = () => mode === 'swap' && all ? api.upgrade_all() : api.upgrade(ids, mode);
+    await this.#run(mode, ids, items.map((i) => runRow(i, name(i))), call);
+  }
+  /** Resume · k left: the stopped batch's planned tracks (their rows come with its progress). */
+  async resume(batch_id: number): Promise<void> {
+    await this.#run('swap', null, [], () => api.batch_resume(batch_id));
+  }
+  /** Stop between tracks (the one in work finishes). */
+  async stop(): Promise<void> {
+    if (!this.view || this.view.phase !== 'running') return;
+    this.view.stopping = true;
+    const r = await api.stop();
+    if (!r.ok && this.view) {
+      this.view.stopping = false;
+      toasts.show({ tone: 'problem', title: "Couldn't stop.", body: r.message || undefined });
+    }
+  }
+  /** Done (or the next pick): the end is put away. A running batch stays. */
+  clear(): void {
+    if (this.view?.phase === 'ended') this.view = null;
+  }
+  /** A batch job the hub reports running that this flow didn't start (the window was reloaded): follow its progress.
+   *  A job for one track (`track_id` set) is that track's own decision panel's, never adopted. */
+  adopt(job: JobSnap | null): void {
+    if (!job?.running || job.track_id !== null || !BATCH_JOBS.includes(job.kind) || this.view?.phase === 'running') return;
+    const last = job.last?.BatchProgress as { done: number; total: number; track_id: string | null; name: string | null } | undefined;
+    this.view = { phase: 'running', mode: MODE_OF[job.kind], tracks: null, rows: last ? progressRows([], last) : [],
+      done: last?.done ?? 0, total: last?.total ?? 0, now: last?.name ?? null, stopping: job.stopping, end: null, again: null };
+    this.#listen();
+    void this.#follow(job.id);
+  }
+  /** Whether the panel shows this batch for a selection: always while it runs or ended for these tracks. */
+  covers(ids: string[]): boolean {
+    const v = this.view;
+    if (!v) return false;
+    return !v.tracks || ids.some((id) => v.tracks!.includes(id));
+  }
+
+  async #run(mode: BatchMode, tracks: string[] | null, rows: RunRow[], call: () => Promise<JobStart>): Promise<void> {
+    this.view = { phase: 'running', mode, tracks, rows, done: 0, total: rows.length, now: null, stopping: false,
+      end: null, again: null };
+    this.#listen();
+    const out = await runJob<AiffBatchResult>(call(), { quiet: true, success: false });
+    this.#end(mode, out, () => void this.#run(mode, tracks, rows.map((r) => ({ ...r, state: 'waiting', text: null })), call));
+  }
+  async #follow(job_id: number): Promise<void> {
+    const fin = await waitForJob(job_id);
+    const mode = this.view?.mode ?? 'swap';
+    this.#end(mode, fin.ok ? { ok: true, job_id, result: fin.result as AiffBatchResult }
+      : { ok: false, job_id, kind: fin.problem ?? 'crashed', message: fin.message, result: (fin.result ?? null) as AiffBatchResult | null }, null);
+  }
+  #end(mode: BatchMode, out: JobOutcome<AiffBatchResult>, again: (() => void) | null): void {
+    this.#off?.();
+    this.#off = null;
+    const end = batchEnd(mode, out);
+    // refused before it started (busy, console, a sync running): nothing ran, the decision stays and a toast says why
+    if (!out.ok && out.job_id === null) {
+      this.view = null;
+      toasts.show({ tone: 'problem', title: problemCopy(out.kind).title, body: out.message || undefined });
+      return;
+    }
+    const v = this.view;
+    const rows = endRows(v?.rows ?? [], out.result?.results ?? []);
+    this.view = { phase: 'ended', mode, tracks: v?.tracks ?? null, rows, done: end.done, total: end.total || rows.length,
+      now: null, stopping: false, end, again: canTryAgain(end) ? again : null };
+  }
+  #listen(): void {
+    this.#off?.();
+    this.#off = onEvent((e) => {
+      if (e.type !== 'BatchProgress' || this.view?.phase !== 'running') return;
+      const v = this.view;
+      v.rows = progressRows(v.rows, e);
+      v.done = e.done;
+      v.total = e.total;
+      v.now = e.name ? e.name.replace(' - ', ' – ') : null;
+    });
+  }
+}
+/** The window's one batch flow. */
+export const upgradeBatch = new UpgradeBatchFlow();
