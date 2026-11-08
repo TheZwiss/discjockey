@@ -64,9 +64,9 @@ to see its spectrum, where it came from and how it was found, and to listen to i
 ### Upgrades that keep your cues
 
 When Discjockey later finds a lossless version of a lossy track, it doesn't replace anything by itself. The To-do page
-lets you listen to both and shows whether they are the same edit. When they are, the lossless audio goes into your
-existing file, so rekordbox keeps your cue points, loops and beatgrid. Not-found tracks come with buy links, and every replace can be
-undone until you have checked it in rekordbox.
+lets you listen to both and shows whether they are the same edit. When they are, the lossless audio takes the place of
+your file (any format, one track or all of them at once) and rekordbox keeps your cue points, loops and beatgrid.
+Not-found tracks come with buy links, and every replace can be undone until you have checked it in rekordbox.
 
 <img src="docs/readme/app-todo.png" alt="The To-do page: upgrades ready, songs not found and weak versions, with an upgrade open on the right comparing the current file and the lossless one">
 
@@ -241,7 +241,8 @@ line to see it on the right.
   `Library/`, `Superseded/`, `Upgrades ready/` and `playlists.txt`. It also has a hidden
   `.discjockey/` folder with Discjockey's notes about your library: `library.db` (Discjockey's records of your
   tracks and where their files are), `state.v1.json` (a copy of the old records, kept after the update below), the
-  `reports/`, `not_lossless.md` and, now and then, `pending_signs.json` (a YouTube warning sign Discjockey met while
+  `reports/`, `not_lossless.md`, `rekordbox/backups/` (the copies of rekordbox's library made before Same track
+  changes it) and, now and then, `pending_signs.json` (a YouTube warning sign Discjockey met while
   another job had your library busy; it goes into `library.db` as soon as it can, and the file disappears). It can be on
   an external drive.
 - **Updating from an earlier version:** the first time a new Discjockey opens your library, it says
@@ -552,24 +553,30 @@ track's details in the **Library** (the same choice, in the same words). For mus
 you imported from your own folders, the first check of each file is spread over several runs (see
 [Your existing music](#your-existing-music)).
 
-**Tip: quit rekordbox first.** For each waiting track you see the file you have now (**Now**) and the new
+**Quit rekordbox first.** For each waiting track you see the file you have now (**Now**) and the new
 one (**New**), side by side with the quality of each, and whether they are the same edit. A small player lets you
 listen to both in the window before you choose. **Replace with lossless** puts the lossless audio in place of your
 file either way; the only difference is what rekordbox sees, which you pick under **In rekordbox**:
 
-- **Same track** (only offered for an AIFF file and the same edit; recommended). The lossless audio goes into your
-  existing file, so rekordbox keeps the track with your cue points, loops and beatgrid. If
-  the new version starts a few milliseconds earlier or later, Discjockey shifts it so your cues
-  still sit on the same beat. Before anything is overwritten, a checked copy of your old file
-  is saved in `Superseded/<Folder>/` with "(lossy)" in its name. If the file was in
-  `not_lossless/`, it moves up into the folder itself (unless a file with that name is already
-  there). In rekordbox, if the track then shows as missing, use Auto Relocate (the swap keeps the file's name; it is the search
-  for missing files in `Library/`): it finds the file by its name, with cues and beatgrid in place.
-  The track already plays the lossless audio. Then right-click → **Reload Tag** so the
-  comment shows the new source, and analyse it again so the waveform shows the full sound
-  (lock the beatgrid first if you adjusted it by hand). The To-do page ("Check in rekordbox")
-  shows these steps until you mark it as done.
-- **New track** (the only way for an MP3 or WAV file, a different edit, or versions that couldn't be compared). Your
+- **Same track** (offered for any format, when it is the same edit; recommended). rekordbox keeps the track with your
+  cue points, loops, beatgrid, playlists and play history. Discjockey points rekordbox's track at the lossless file
+  itself, so it needs rekordbox **closed** (see [rekordbox](#rekordbox) for what it changes there).
+  - An **AIFF** file gets the lossless audio put into it. If the new version starts a few milliseconds earlier or
+    later, Discjockey shifts it so your cues still sit on the same beat. Before anything is overwritten, a checked
+    copy of your old file is saved in `Superseded/<Folder>/` with "(lossy)" in its name. If the file was in
+    `not_lossless/`, it moves up into the folder itself (unless a file with that name is already there). The file
+    keeps its name.
+  - An **MP3, M4A, WAV or other** file becomes a new file, `<Artist - Title>.aiff`, in the same folder; your old file
+    moves to `Superseded/<Folder>/` under its own name. The new file is lined up with your old one to the sample, the
+    way rekordbox's timeline sits against it, so your cues fit exactly. Discjockey needs rekordbox to have analysed the
+    track for that. If it can't tell, or the track is in your Cloud Library, or the disk is too full, it does nothing
+    for that track and says why; you can then use **New track**.
+  - If rekordbox is open, Discjockey doesn't change its library: an AIFF still gets its new audio, and the To-do page
+    ("Check in rekordbox") lists what to do by hand (right-click → **Reload Tag**, analyse the track again). A track
+    that needs the change in rekordbox waits until you quit rekordbox.
+  - Afterwards the To-do page ("Check in rekordbox") asks you to open rekordbox and have a look. On a USB stick the
+    track still plays the old file until you rebuild the stick in rekordbox (see [rekordbox](#rekordbox)).
+- **New track** (for a different edit, or versions that couldn't be compared). Your
   old file moves to `Superseded/` first, then the lossless
   file goes into the folder under the correct name, `<Artist - Title>.aiff` (files in
   `Library/` always carry the correct name; only a file that is in the way gets an ID added).
@@ -587,14 +594,27 @@ file either way; the only difference is what rekordbox sees, which you pick unde
 - **Discard the new version.** The parked file is deleted and Discjockey never offers that file again.
 - Or leave it: nothing changes, and it waits for next time.
 
-**Changed your mind?** Until you press **Done, checked in rekordbox**, the To-do page offers
-**Undo the replace** under it: your old file goes back where it was, the new version waits in
-`Upgrades ready/` again, and the upgrade is offered as before. Discjockey refuses if either
-file was changed since (for example edited by another program). After **Done** there is no
-undo; for a swap Discjockey then deletes the copy of the new version it kept for the undo.
+**Several at once.** Select several tracks on the To-do page to replace or discard them
+together ("Replace 5 with lossless"), or press **Upgrade all** to run Same track for every track it can run for.
+Same track runs the tracks as one **batch**: one rekordbox backup, a progress line ("3 of 8"), and **Stop**, which
+finishes the track it is on and keeps what is done ("Stopped after 3 of 8"). **Resume** carries on with the rest
+(Discjockey asks again for each track, so a track that changed meanwhile is skipped with its reason). If you open
+rekordbox during a batch, Discjockey rolls back the track it was on, stops, and waits for you to quit rekordbox and
+press Resume. A track it can't do is skipped with its reason and the others go on. When a batch is done, it shows as
+one line on the To-do page ("12 tracks upgraded"), with the tracks it skipped.
 
-A swap and its undo are safe to interrupt. If Discjockey or the Mac stops in the middle of one, Discjockey finishes
-it or puts your old file back the next time it works on your library.
+**Changed your mind?** Until you press **Done, checked in rekordbox**, the To-do page offers
+**Undo the replace** under the track, and **Undo all** under a batch: your old file goes back where it was, the new
+version waits in `Upgrades ready/` again, and the upgrade is offered as before. For Same track, Discjockey also puts
+rekordbox's track back (it needs rekordbox closed, and keeps cue points you added in the meantime; text you changed
+yourself stays too). Discjockey refuses a track if either file was changed since (for example edited by another
+program) or if you relocated the track in rekordbox; the others in the batch are still undone, and the refused ones
+are listed. After **Done** there is no undo; for a swap Discjockey then deletes the copy of the new version it kept
+for the undo, and the backup of rekordbox's library is released.
+
+A replace, a batch and an undo are safe to interrupt. If Discjockey or the Mac stops in the middle of one, Discjockey
+finishes it or puts your old file back the next time it works on your library; a batch it was running is stopped,
+and **Resume** carries on.
 
 `Upgrades ready/` only holds Discjockey's own downloads. If you delete a file there by hand,
 Discjockey simply forgets it. If you buy the track or it gets downloaded again, the waiting
@@ -613,10 +633,33 @@ version is removed because it's no longer needed.
   (with your cue points) goes with it. The bought file is a new entry: set the cues again,
   then remove the old entry.
 - Lossless versions from Qobuz never replace a file on their own: you decide on the To-do page
-  (see [Upgrades](#upgrades)). A swap keeps your cue points; adding as a new file means pointing your old
-  track at the new file with rekordbox's Relocate (right-click › **Relocate**). The new file is lined up with the
-  old one to the sample when Discjockey can measure rekordbox's timing, so your cues fit exactly; otherwise they
-  fit to within the measured difference.
+  (see [Upgrades](#upgrades)).
+
+### When Discjockey changes rekordbox's library
+
+Only **Same track** does, and only while rekordbox is closed (if rekordbox is open, it does nothing there and tells
+you; if you open rekordbox while it works, the track it was on is rolled back and the batch stops). It also refuses
+when rekordbox's library looks unusual (a newer version it doesn't know, or rekordbox didn't close properly last
+time: open rekordbox once and quit it normally).
+
+- **What it changes** for the tracks it replaces: the track's file name and place (it points at the new AIFF), the
+  size and format details of the file, and the **text columns**: title, artist, album, label, ISRC and the comment,
+  so you don't need to Reload Tag.
+- **What it never changes:** cue points, loops, the beatgrid, key, BPM, rating, colour, My Tags, play counts,
+  playlists, history and artwork. It never edits or deletes an existing artist, album or label in rekordbox (it
+  reuses the one with the same name, or adds a new one).
+- **The text-column rule: your edits are safe.** A name, title, album, label or ISRC is only changed where rekordbox
+  still shows what the old file's tag says; if you edited it in rekordbox, it stays and the result says "Kept your
+  own title in rekordbox." The comment is written only when it is empty or is Discjockey's own quality line (like
+  "Qobuz FLAC · verified lossless"); Mixed In Key values and your own notes in the comment are left alone.
+- **Backups.** Before the first change of a batch, Discjockey copies rekordbox's library and the analysis files of the
+  tracks it will change into `.discjockey/rekordbox/backups/` in your music folder. One backup serves a whole batch.
+  Discjockey keeps the backups an undo still needs, plus the newest three. `discjockey rekordbox backups` lists them.
+- **Undo** puts the track back, field by field, and keeps what you did in rekordbox since (see [Upgrades](#upgrades)).
+- **A USB stick** you exported before the replace still plays the old file, and Discjockey doesn't write to sticks.
+  Rebuild the stick in rekordbox before your next gig. (After a batch, Discjockey says so.)
+- **Cloud Library Sync:** tracks that rekordbox syncs to your account are not changed for now; Discjockey skips them
+  with a reason.
 
 ## When something breaks
 
@@ -629,6 +672,12 @@ version is removed because it's no longer needed.
 - **Qobuz doesn't show a playlist:** it has to be public or one of yours. Check the link, or put `#` in front of
   the line.
 - **"Another Discjockey run is still going":** wait until the other run has finished.
+- **rekordbox looks wrong after a replace and you can't undo it:** quit rekordbox, then in the Terminal run
+  `discjockey rekordbox backups` to see the copies Discjockey made, and `discjockey rekordbox restore <name> --yes` to
+  put rekordbox's whole library back as that copy holds it. This drops every change you made in rekordbox since that
+  backup, and Discjockey saves your current library first (its name is printed). Tracks Discjockey replaced after the
+  backup point at their old files, which are in `Superseded/`: undo those replaces first (`discjockey batch undo
+  <number>`; `discjockey batch list` shows the numbers), or Relocate them in rekordbox.
 
 ## Account risk
 

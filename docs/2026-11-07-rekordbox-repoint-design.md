@@ -404,7 +404,10 @@ whether panels show rekordbox's live state (`rekordbox_status`).
   caller).
 - **Restoring the whole database** is the last resort (it drops every rekordbox change since): the command
   `rekordbox restore <backup> --yes` (§10), not a hub button. It backs up the current `master.db` first and refuses
-  while rekordbox runs.
+  while rekordbox runs. After a restore, tracks Discjockey repointed since that backup point at their old paths,
+  whose files are in `Superseded/`: the result lists them (`missing_after`, `[{"id", "path", "was"}]`) and the
+  words say "Undo those batches first (`discjockey batch undo`), or Relocate them in rekordbox" (corrected in stage
+  B; plan §0.14).
 
 ### 5.8 Order of one track's step, and crash recovery
 
@@ -693,14 +696,14 @@ old → new name, skip reason; totals; space) and changes nothing.
 | Code | Meaning |
 |---|---|
 | 0 | done for every track (or a dry run that would work) |
-| 1 | refused or failed, or some tracks skipped (each result says why; `kind` in JSON) |
+| 1 | refused or failed, or some tracks skipped or failed (each result says why; `kind` in JSON). JSON `ok` stays `true` when a batch ran to its end with skipped or failed tracks (exit 1); `ok: false` with a `kind` is for a refusal, `busy`, `rekordbox_open` or `stopped` (corrected in stage B) |
 | 2 | no music folder or no setup |
 | 3 | Discjockey is busy (lock held) |
 | 4 | rekordbox is open: nothing done (or the batch stopped there); quit it and run again or resume |
 | 5 | stopped (Ctrl-C or a stop): resume with `batch resume <id>` |
 
 **JSON.** Success `{"ok": true, …}`; failure `{"ok": false, "kind": "rekordbox_open" | "refused" | "changed" |
-"failed", "reason": "<refusal key, §8>", "message": "…", "details": {…}}`. A batch prints `{"ok", "batch": <id>,
+"failed" | "busy" | "stopped", "reason": "<refusal key, §8>", "message": "…", "details": {…}}` (a problem of a batch also carries the batch's fields: `batch`, `state`, `results`, … so the id to resume is there). A batch prints `{"ok", "batch": <id>,
 "state", "results": [{"track", "action", "state", "reason", "path", "rekordbox": {"entries": [ids], "kept": [fields]}
 | null}], "backup": "<id>" | null}`.
 
@@ -711,11 +714,11 @@ old → new name, skip reason; totals; space) and changes nothing.
 | `discjockey upgrade list [--json]` | The parked upgrades as on To-do: id, names, now/new quality, alignment, eligible for Same track and why not, `auto_refused` | B |
 | `discjockey upgrade apply (<track>…\|--all) --way same-track\|new-track [--dry-run] [--json]` | Replace. `--all` only with `same-track`: Upgrade all | B |
 | `discjockey upgrade discard <track>… [--json]` | Discard | B |
-| `discjockey upgrade undo <track> [--json]` | Undo one track's replace | B |
+| `discjockey upgrade undo <track>… [--json]` | Undo the replace of one or several tracks, newest first, as one job (stage B: several tracks, not one) | B |
 | `discjockey batch list [--json]` / `batch show <id> [--json]` | Batches with their state and items | B |
 | `discjockey batch resume <id> [--json]` / `batch undo <id> [--json]` | Resume a stopped batch; undo all its done tracks | B |
 | `discjockey rekordbox checked (<track>…\|--batch <id>) [--json]` | "Done, checked in rekordbox" | B |
-| `discjockey rekordbox backups [--json]` / `rekordbox restore <backup> --yes [--json]` | List backups; the whole database back (§5.7; without `--yes`: code 1) | B |
+| `discjockey rekordbox backups [--json]` / `rekordbox restore <backup> --yes [--json]` | List backups; the whole database back (§5.7; without `--yes`: code 1, `reason: "needs_yes"`; the result lists `missing_after`) | B |
 | `discjockey settings auto-upgrade on\|off [--json]` | The Settings switch | C |
 | `discjockey` (the sync) | With the switch on, the run's `--json` gains `auto_upgrade: {"batch", "done", "waiting", "refused"}`; `--dry-run` lists what it would upgrade | C |
 | `discjockey convert (<track>…\|--all lossless\|cdj) [--in playlist:<name>\|folder:<name>] [--dry-run] [--json]` | Convert to AIFF; `--all lossless` is Make all lossless files AIFF (renames included where only the name is wrong), `--all cdj` the CDJ group | D |

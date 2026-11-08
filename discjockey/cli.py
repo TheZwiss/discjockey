@@ -45,12 +45,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         dest="command", metavar="command", title="commands",
         description="setup: one-time logins; update: get the newest yt-dlp; "
                     "upgrades: go through the better versions found for your lossy tracks; "
-                    "hub: open the Discjockey window; rekordbox: look at rekordbox's library (read only)")
+                    "upgrade: the same, without prompts (list, apply, discard, undo); "
+                    "batch: look at, resume or undo a Same track batch; "
+                    "hub: open the Discjockey window; rekordbox: rekordbox's library (look at it, check tracks, "
+                    "backups)")
     for name, help_text in (("setup", "One-time logins."), ("update", "Get the newest yt-dlp."),
                             ("upgrades", "Go through the better versions found for your lossy tracks."),
                             ("hub", "Open the Discjockey window.")):
         _sync_flags(commands.add_parser(name, description=help_text), repeated=True)
-    box = commands.add_parser("rekordbox", description="Look at rekordbox's library. Both commands only read.")
+    box = commands.add_parser("rekordbox", description="rekordbox's library: status and preview only read; checked, "
+                                                       "backups and restore belong to Same track batches.")
     box_commands = box.add_subparsers(dest="rekordbox_command", metavar="command", required=True)
     status = box_commands.add_parser("status", help="whether Discjockey can read rekordbox's library",
                                      description="Whether rekordbox's library is on this Mac, can be opened, and "
@@ -63,7 +67,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     preview.add_argument("--path", metavar="FILE", help="a file, instead of a song key")
     for sub in (status, preview):
         sub.add_argument("--json", action="store_true", help="print one JSON object")
+    from . import batch_cmd
+    batch_parsers = batch_cmd.add_commands(commands, box_commands)
     args = p.parse_args(argv)
+    batch_cmd.check_args(args, batch_parsers)
     if args.command == "rekordbox" and args.rekordbox_command == "preview" and bool(args.track) == bool(args.path):
         preview.error("give either the song's key or --path FILE")
     return args
@@ -169,9 +176,12 @@ def missing_text(folder) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    if args.command == "rekordbox":  # read only: no lock, and `status` needs no music folder
-        from . import rekordbox_cmd
+    if args.command == "rekordbox" and args.rekordbox_command in ("status", "preview"):
+        from . import rekordbox_cmd  # read only: no lock, and `status` needs no music folder
         return rekordbox_cmd.run(args)
+    if args.command in ("upgrade", "batch", "rekordbox"):  # each takes the library lock itself where it writes
+        from . import batch_cmd
+        return batch_cmd.run(args)
     resolved = library.resolve_paths()
     if args.command == "hub":  # opens without a music folder too: Setup (or the missing-folder screen) takes over
         from .hub import app

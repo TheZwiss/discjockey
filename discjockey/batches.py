@@ -47,8 +47,8 @@ from .rekordbox.write import RekordboxOpened
 from .upgrades import NeedsChoice, UndoRefused, UpgradeProblem
 
 __all__ = ["BUSY", "Busy", "BatchResult", "ItemResult", "RekordboxOpen", "Refused", "Stopped", "UndoItem",
-           "UndoResult", "UndoStopped", "checked", "close_unrun", "recover", "result_of", "resume", "run", "start",
-           "tracks_of", "undo"]
+           "UndoResult", "UndoStopped", "checked", "close_unrun", "present", "recover", "result_of", "resume", "run",
+           "start", "tracks_of", "undo"]
 
 RUNNABLE = ("same_track",)  # the actions a batch can run today
 OPERATION = "upgrade_same_track"  # operations.log's name for an item
@@ -222,7 +222,8 @@ def start(paths, items: Sequence[tuple[str, str]], *, started_by: str = "user", 
         return db.start_aiff_batch(conn, "upgrade", started_by, scope, list(items), now())
 
 
-def _present(paths, e: dict) -> eligible.Present:
+def present(paths, e: dict) -> eligible.Present:
+    """Whether the track's file is `here`, `away` (its drive is not connected) or `missing` (`eligible.Present`)."""
     if not e.get("path"):
         return "missing"
     file = paths.root / e["path"]
@@ -274,7 +275,7 @@ def _item(paths, state: dict, session: Session, batch_id: int, item: AiffItemRow
         _record(paths, batch_id, item, "skipped", reason, message, detail)
         log(track, e, reason, message)
 
-    verdict = eligible.same_track_quick(e, session.state, _present(paths, e)) if e else Skip("no_upgrade")
+    verdict = eligible.same_track_quick(e, session.state, present(paths, e)) if e else Skip("no_upgrade")
     if isinstance(verdict, Skip):
         skip(verdict.reason, _words(verdict.reason))
         return None
