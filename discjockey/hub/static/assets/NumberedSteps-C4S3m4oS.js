@@ -1,1 +1,0 @@
-import{g as n,dm as o,t as m,s as d,B as p,l as c,D as i,G as f}from"./index-GCk6cUhj.js";var u=f("<ol><!></ol>");function _(s,e){let l=n(e,"tone",3,"neutral");var t=u();let a;var r=i(t);o(r,()=>e.children),m(()=>{a=d(t,1,"steps svelte-3r1m0b",null,a,{warn:l()==="warn"}),p(t,"data-test",e.test)}),c(s,t)}export{_ as N};
