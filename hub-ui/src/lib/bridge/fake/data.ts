@@ -188,6 +188,8 @@ export type FakeState = {
   batchStep?: number;
   /** tracks a Same track batch skips when it reaches them, with the reason its full check finds (a run-time reason) */
   batchSkip?: Record<string, string>;
+  /** tracks whose undo is refused when it runs (the engine's words: relocated in rekordbox since, a file changed) */
+  undoRefuse?: Record<string, string>;
   offline: boolean;
   /** app_update(): the update check's answer (scenario update_available: a newer version) */
   appUpdate: AppUpdate;

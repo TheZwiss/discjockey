@@ -9,5 +9,7 @@ export { default as DuplicateChoice } from './DuplicateChoice.svelte';
 export { default as DuplicateFoot } from './DuplicateFoot.svelte';
 export { default as FilePlay } from './FilePlay.svelte';
 export { default as UpgradeSelection } from './UpgradeSelection.svelte';
-export { BATCH_JOBS, DuplicateFlow, UpgradeBatchFlow, UpgradeFlow, upgradeBatch, type BatchView } from './flows.svelte';
+export { default as BatchCheckCards } from './BatchCheckCards.svelte';
+export { default as BatchCheckFoot } from './BatchCheckFoot.svelte';
+export { BATCH_JOBS, ChecksFlow, DuplicateFlow, UpgradeBatchFlow, UpgradeFlow, upgradeBatch, type BatchView } from './flows.svelte';
 export { canSwap, decisionFor, upgradeWays, type Decision, type Way } from './decisionModel';

@@ -4,9 +4,9 @@
 // and which of them the selected Library track waits for (`decisionFor`). The components beside it render them.
 import type {
   AiffBatchResult, Alignment, DuplicateItem, FileSide, ItemResult, ProblemKind, RekordboxCheckView, TodoItem, TrackDetail,
-  Upgrade,
+  UndoResult, Upgrade,
 } from '$lib/bridge/types';
-import { isDuplicate } from '$lib/bridge/types';
+import { isBatch, isDuplicate } from '$lib/bridge/types';
 import type { Outcome } from '$lib/components/choiceModel';
 import type { QueueItem } from '$lib/stores/queueModel';
 import type { PlayerState } from '$lib/stores/player';
@@ -151,28 +151,60 @@ export function replaceLabel(up: Upgrade): string {
 }
 
 // ---------- the rekordbox check after a replace ----------
-/** One numbered step: its words, parts in bold (a rekordbox command), and a muted note after them. */
-export type CheckStep = { parts: { text: string; strong?: boolean }[]; note?: string };
+/** One numbered step: its words, parts in bold (a rekordbox command), a muted note after them, and the tracks it is
+ *  for when it is for some of several (`list`, names under the words: the batch card's Reload Tag). */
+export type CheckStep = { parts: { text: string; strong?: boolean }[]; note?: string; list?: string[] };
 export type CheckCard = { summary: string; steps: CheckStep[]; hint: string | null };
 /** An added file is never found by Auto Relocate (its name or extension can differ, and the old file now sits in
  *  Superseded/): the user points the old track at it by hand. */
 const RELOCATE_NEW: CheckStep = { parts: [{ text: 'Right-click your old track › ' }, { text: 'Relocate', strong: true },
   { text: ' › choose the new file' }] };
 
-/** The steps in rekordbox after a swap or an added file (README "Upgrades"); null for any other check (its `text`). */
+/** The beatgrid note of every "analyse again" step (design §8's check text). */
+const BEATGRID = '(lock the beatgrid first if you set it by hand)';
+/** design §8's USB step, result 3 (until the live test says otherwise). */
+export const USB_STEP: CheckStep = { parts: [{ text: 'On a USB stick? The stick still plays the old file. ' },
+  { text: 'Rebuild the stick', strong: true }, { text: ' in rekordbox before your next gig' }] };
+/** Whether a Same track step left the track in rekordbox (it wrote rekordbox's own track): false for a file rekordbox
+ *  doesn't have (no rekordbox on this Mac, or not in its collection), where there is nothing to do there. A swap from
+ *  before stage B (no `rekordbox` record) is in rekordbox: that is why it left a check. */
+export function inRekordbox(c: Pick<RekordboxCheckView, 'reason' | 'rekordbox'> | undefined): boolean {
+  if (!c) return false;
+  if (c.rekordbox) return c.rekordbox.entries > 0;
+  return c.reason === 'swapped';
+}
+/** "Kept your own title and artist in rekordbox" (design §8's result note, kept edit); '' when nothing was kept. */
+export function keptLine(kept: string[] | undefined | null): string {
+  const k = kept ?? [];
+  if (!k.length) return '';
+  const words = k.length === 1 ? k[0] : `${k.slice(0, -1).join(', ')} and ${k.at(-1)}`;
+  return `Kept your own ${words} in rekordbox`;
+}
+/** design §8's result note for a file rekordbox doesn't have, shortened to a row's sub-line (the same meaning). */
+export const NOT_IN_REKORDBOX = 'Not in your rekordbox collection, so there was nothing to keep there';
+
+/** The steps in rekordbox after a swap, an added file or Same track's new AIFF (README "Upgrades"); null for any
+ *  other check (its `text`), and for a new AIFF rekordbox doesn't have (its text says so). Reload Tag only where
+ *  Discjockey couldn't write rekordbox's text itself (`reload_tag`): where it could, Reload Tag would only overwrite
+ *  the user's own edits. */
 export function checkCard(c: RekordboxCheckView | undefined): CheckCard | null {
   if (!c) return null;
-  const analyse: CheckStep = { parts: [{ text: 'Analyse it again, so the waveform shows the full sound' }],
-    note: '(lock the beatgrid first if you set it by hand)' };
+  const analyse: CheckStep = { parts: [{ text: 'Analyse it again, so the waveform shows the full sound' }], note: BEATGRID };
   const reload: CheckStep = { parts: [{ text: 'Right-click the track › ' }, { text: 'Reload Tag', strong: true }] };
+  const reloads = c.reload_tag ? [reload] : [];
+  if (c.reason === 'repointed') {
+    if (!inRekordbox(c)) return null;
+    return { summary: 'same track, cues kept', steps: [...reloads, analyse, USB_STEP],
+      hint: keptLine(c.rekordbox?.kept) || null };
+  }
   if (c.reason === 'swapped') {
     if (c.moved) {
       return { summary: 'same track, cues kept', hint: null, steps: [
         { parts: [{ text: 'The track shows as missing: ' }, { text: 'Auto Relocate', strong: true },
-          { text: ' finds it by its name, cues and all' }] }, reload, analyse] };
+          { text: ' finds it by its name, cues and all' }] }, ...reloads, analyse] };
     }
-    return { summary: 'same track, cues kept', steps: [reload, analyse],
-      hint: 'Shows as missing? Auto Relocate finds it by its name, cues and all.' };
+    return { summary: 'same track, cues kept', steps: [...reloads, analyse],
+      hint: keptLine(c.rekordbox?.kept) || 'Shows as missing? Auto Relocate finds it by its name, cues and all.' };
   }
   if (c.reason === 'added_as_new') {
     const lined = c.aligned && (c.match === 'exact' || c.match === 'shifted');
@@ -193,7 +225,7 @@ export type ReplacedRow = { icon: 'file' | 'folder'; name: string; where: string
 export type ReplacedCard = { title: string; rows: ReplacedRow[]; undo: string };
 /** "Replaced with lossless": where each file is now, and what Undo puts back. Null for a check of another kind. */
 export function replacedCard(c: RekordboxCheckView | undefined, item: Pick<TodoItem, 'path' | 'quality'>): ReplacedCard | null {
-  if (!c || (c.reason !== 'swapped' && c.reason !== 'added_as_new')) return null;
+  if (!c || (c.reason !== 'swapped' && c.reason !== 'added_as_new' && c.reason !== 'repointed')) return null;
   const title = item.quality === 'lossless' ? 'Replaced with lossless' : 'Replaced with the better version';
   const here = item.path ? `in ${dirOf(item.path)}` : 'in your library';
   const old = c.old_path ? `in ${dirOf(c.old_path)}` : 'in Superseded/';
@@ -202,6 +234,12 @@ export function replacedCard(c: RekordboxCheckView | undefined, item: Pick<TodoI
     return { title, undo: 'Undo puts your old audio back in the file.', rows: [
       { icon: 'file', name: `Your file, now ${now}`, where: here },
       { icon: 'folder', name: 'A copy of the old audio', where: old }] };
+  }
+  if (c.reason === 'repointed') {
+    return { title, undo: inRekordbox(c) ? 'Undo points rekordbox back at your old file.'
+      : 'Undo puts your old file back as it was.', rows: [
+      { icon: 'file', name: `New AIFF, ${now}`, where: here },
+      { icon: 'folder', name: 'Your old file', where: old }] };
   }
   return { title, undo: 'Undo puts both back as they were.', rows: [
     { icon: 'file', name: `New file, ${now}`, where: here },
@@ -276,7 +314,9 @@ export type Decision = { kind: 'check'; item: TodoItem } | { kind: 'duplicate'; 
   | { kind: 'upgrade' } | null;
 export function decisionFor(items: TodoItem[], track: Pick<TrackDetail, 'track_id' | 'path' | 'upgrade'>): Decision {
   for (const i of items) {
-    if (i.group === 'rekordbox_check' && !i.pair && i.track_id === track.track_id) return { kind: 'check', item: i };
+    // a track a batch upgraded is decided on its own here (its single check card): the batch is one item in To-do
+    const own = isBatch(i) ? i.batch.tracks.find((t) => t.track_id === track.track_id) : i;
+    if (own && own.group === 'rekordbox_check' && !own.pair && own.track_id === track.track_id) return { kind: 'check', item: own };
     if (isDuplicate(i) && i.pair.files.some((f) => f.song_key === track.track_id || (!!track.path && f.path === track.path))) {
       return { kind: 'duplicate', item: i };
     }
@@ -431,4 +471,83 @@ export function endNote(e: BatchEnd): { tone: 'info' | 'warn'; text: string } | 
   if (e.kind === 'refused') return { tone: 'warn', text: e.message || 'None of these can be upgraded right now.' };
   if (e.kind === 'failed') return { tone: 'warn', text: e.message || "That didn't work." };
   return null;
+}
+
+// ---------- the rekordbox checks of a batch, and several checks selected (plan stage B §6.4) ----------
+/** The tracks a list of check items stands for: a batch item gives its tracks, every other item itself. */
+export function checkTracks(items: TodoItem[]): TodoItem[] {
+  return items.flatMap((i) => (isBatch(i) ? i.batch.tracks : [i]));
+}
+/** A batch item's row in the to-do list: "{n} tracks upgraded" over "{day} · Same track" (§3). */
+export const batchRowName = (n: number): string => `${n} tracks upgraded`;
+export function batchRowSub(started: string | null, today: string): string {
+  const day = sinceText(started, today);
+  return day ? `${day} · Same track` : 'Same track';
+}
+/** The "In rekordbox" card of a batch: the steps for the tracks rekordbox has (Reload Tag only for the tracks whose
+ *  text Discjockey couldn't write, by name; design §8's words for several tracks), null when rekordbox has none of
+ *  them (each row then says so). */
+export function batchCheckCard(tracks: TodoItem[], nameOf: (i: TodoItem) => string): CheckCard | null {
+  const rb = tracks.filter((t) => inRekordbox(t.check));
+  if (!rb.length) return null;
+  const many = rb.length > 1;
+  const reload = rb.filter((t) => t.check?.reload_tag);
+  const moved = rb.filter((t) => t.check?.reason === 'swapped' && t.check.moved);
+  const steps: CheckStep[] = [];
+  if (moved.length) {
+    steps.push({ parts: [{ text: moved.length > 1 ? 'These show as missing: ' : 'This one shows as missing: ' },
+      { text: 'Auto Relocate', strong: true }, { text: moved.length > 1 ? ' finds them by their names, cues and all'
+        : ' finds it by its name, cues and all' }], list: moved.map(nameOf) });
+  }
+  if (reload.length) {
+    steps.push({ parts: [{ text: "In rekordbox's Collection, select " },
+      { text: reload.length > 1 ? 'these tracks (⌘-click each)' : 'this track' }, { text: ', right-click › ' },
+      { text: 'Reload Tag', strong: true }], note: "· don't select all: it replaces every name you changed in rekordbox",
+      list: reload.map(nameOf) });
+  }
+  steps.push({ parts: [{ text: many ? 'Analyse them again, so the waveform shows the full sound'
+    : 'Analyse it again, so the waveform shows the full sound' }], note: BEATGRID });
+  steps.push(many ? { parts: [{ text: 'On a USB stick? The stick still plays the old files. ' },
+    { text: 'Rebuild the stick', strong: true }, { text: ' in rekordbox before your next gig' }] } : USB_STEP);
+  return { summary: many ? 'same tracks, cues kept' : 'same track, cues kept', steps, hint: null };
+}
+/** One track's row on a batch card or in several selected checks: its new file's name (batch) or what is left to do
+ *  in rekordbox (several checks: the to-do row's own line), and the notes design §8 gives a track's result. */
+export type CheckRow = { track_id: string; name: string; sub: string; notes: string[]; can_undo: boolean;
+  cover_url: string | null };
+export function checkRow(i: TodoItem, name: string, sub: 'file' | 'detail'): CheckRow {
+  const c = i.check;
+  const notes = [keptLine(c?.rekordbox?.kept)];
+  if (c?.reason === 'repointed' && !inRekordbox(c)) notes.push(NOT_IN_REKORDBOX);
+  return { track_id: i.track_id, name, cover_url: i.cover_url, can_undo: !!i.can_undo,
+    sub: sub === 'file' && i.path ? fileName(i.path) : i.detail, notes: notes.filter(Boolean) };
+}
+export const checksTitle = (n: number): string => `${n} ${plural(n, 'check', 'checks')} selected`;
+/** The batch card's "Undo all {n}", the selection's "Undo {n}" (n: the tracks that can be undone). */
+export const undoAllLabel = (n: number): string => `Undo all ${n}`;
+export const undoManyLabel = (n: number): string => `Undo ${n}`;
+export const undoManyConfirm = (n: number) => ({ title: `Undo ${n} ${plural(n, 'replace', 'replaces')}?`,
+  body: n === 1 ? 'Your old file goes back where it was. The new version waits in Upgrades ready again.'
+    : 'Your old files go back where they were. The new versions wait in Upgrades ready again.',
+  confirmLabel: `Undo ${n}` });
+/** The toast after an undo of several, by how many came back (one: the single undo's own words). */
+export const undoneToast = (n: number): string => (n === 1 ? 'Upgrade undone. Your old file is back.'
+  : `${n} upgrades undone. Your old files are back.`);
+/** What an undo of several left to say (design §8's undo words): the tracks not undone with their reasons, shown in
+ *  their rows, and one line under the buttons (rekordbox open: §8's words; a refusal before the job: its words;
+ *  tracks refused: how many, each row says why). Null when everything was undone. */
+export type UndoProblem = { line: string; rows: Record<string, string> };
+export function undoProblem(out: { ok: boolean; kind?: ProblemKind; message?: string; result?: UndoResult | null }):
+  UndoProblem | null {
+  const r = out.result ?? null;
+  const rows: Record<string, string> = {};
+  for (const x of r?.results ?? []) {
+    if (x.state === 'refused' || x.state === 'failed') rows[x.track] = cap(x.message || 'Not undone');
+  }
+  const refused = Object.keys(rows).length;
+  if (!out.ok && (out.kind === 'rekordbox_open' || !refused)) {
+    return { line: out.message || "That didn't work.", rows };
+  }
+  if (!refused) return null;
+  return { line: `${refused} not undone: ${refused > 1 ? 'each row says why' : 'its row says why'}`, rows };
 }

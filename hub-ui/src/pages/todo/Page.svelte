@@ -12,9 +12,12 @@
   // two or more Upgrade ready items show the selection panel (lib/decisions/UpgradeSelection). The group's head
   // carries "Upgrade all · n" (selects the group) or, while a Same track batch is stopped, "Resume · k left". A batch
   // keeps its panel until the next pick, also when its tracks have left the group (`pinned`).
+  // Check in rekordbox (stage B §6.4): a Same track batch's open checks are one row ("3 tracks upgraded", its panel
+  // BatchCheckCards: the steps for all, a row per track, Done and Undo all); two or more checks selected show the
+  // same panel for the selection ("4 checks selected", Done for all, Undo n).
   import { tick, untrack } from 'svelte';
   import { api } from '$lib/bridge/client';
-  import { isDuplicate, isQuestion } from '$lib/bridge/types';
+  import { isBatch, isDuplicate, isQuestion } from '$lib/bridge/types';
   import { hub, writeBlockedReason } from '$lib/stores/hub';
   import type { Fail, Todo, TodoFilter, TodoItem, TrackDetail } from '$lib/bridge/types';
   import { filesVersion } from '$lib/stores/hub';
@@ -22,8 +25,8 @@
     NO_SELECTION, clickSelect, dropSelected, escapeSelection, isSelected, keepSelected, moveSelected, onlySelected,
     selectAll, selectOne, selectScope, type Selection,
   } from '$lib/components';
-  import { UpgradeSelection, upgradeBatch } from '$lib/decisions';
-  import { resumeLabel, upgradeAllLabel } from '$lib/decisions/decisionModel';
+  import { BatchCheckCards, ChecksFlow, UpgradeSelection, upgradeBatch } from '$lib/decisions';
+  import { batchRowName, batchRowSub, checkTracks, localDay, resumeLabel, upgradeAllLabel } from '$lib/decisions/decisionModel';
   import { getPref, setPref } from '$lib/prefs';
   import { markReady } from '$lib/ready';
   import {
@@ -33,8 +36,8 @@
   import { artistTitle, rowAway } from '$lib/format';
   import {
     FILTER_MAX, segOptions, filterFrom, findHeld, flatten, ghostOf, headerSub, holdApplies, itemKey, keepSelection,
-    multiScope, openCount, queueRows, rowBadge, rowDim, selectAfterHide, selectFromTrack, upgradeGroup, withHeldItem,
-    type TodoHold,
+    heldChecks, multiChecks, multiScope, openCount, queueRows, rowBadge, rowDim, selectAfterHide, selectFromTrack, upgradeGroup, withHeldItem,
+    type CheckHold, type TodoHold,
   } from './todoModel';
   import Details from './Details.svelte';
   import QuestionDetails from './QuestionDetails.svelte';
@@ -66,6 +69,20 @@
   const batchShown = $derived(!!upgradeBatch.view && (pinned || multiUp
     || (selected?.group === 'upgrade_ready' && upgradeBatch.covers([selected.track_id]))));
   const selPanel = $derived(multiUp || batchShown);
+  // a batch's checks (one batch row) or several checks selected: one panel for all their tracks; its undo's words stay
+  // until the next pick of the user's own (ChecksFlow), also when the list is fetched again under it
+  const multiCheck = $derived(multiChecks(selItems));
+  const checkBatch = $derived(!multiCheck && selected && isBatch(selected) ? selected : null);
+  // the checks the panel acted on stay in it until the next pick (todoModel heldChecks): a batch that an undo or Done
+  // left with one track is a single check now, and the reason a track wasn't undone belongs beside it
+  let checkHold = $state<CheckHold | null>(null);
+  const held = $derived(checkHold ? heldChecks(items, checkHold) : null);
+  const panelChecks = $derived(held ? { tracks: held.tracks, batch: checkHold?.batch ?? null }
+    : multiCheck ? { tracks: checkTracks(selItems), batch: null }
+    : checkBatch ? { tracks: checkBatch.batch.tracks, batch: checkBatch.batch } : null);
+  const checksFlow = new ChecksFlow({ onact: () => {
+    if (panelChecks) checkHold = { ids: panelChecks.tracks.map((t) => t.track_id), batch: panelChecks.batch };
+  } });
   const upGroup = $derived(upgradeGroup(data));
   const wholeGroup = $derived(!!upGroup && multiUp && upGroup.items.filter((i) => !i.hidden).every((i) => isSelected(sel, itemKey(i))));
   // a batch the hub runs that this window didn't start (it was reloaded): its panel follows it
@@ -155,7 +172,11 @@
       extraKey = held && !fromQuery && put ? itemKey(held) : null;
       error = null;
       const was = sel.anchor;
+      // the checks the panel acted on: the rows that still hold them stay selected; none left ends the hold
+      const checks = !fromQuery && checkHold ? heldChecks(after, checkHold) : null;
+      if (checkHold && !checks) checkHold = null;
       sel = fromQuery ? selectOne(fromQuery) : held ? selectOne(itemKey(held))
+        : checks ? { keys: checks.keys, anchor: checks.keys[0] }
         : keepSelected(sel, before.map(itemKey), after.map(itemKey), (a) => keepSelection(a, before, after));
       if (held && !fromQuery) hold = next;
       if (was !== null && sel.anchor !== was) void focusSelected();
@@ -188,7 +209,7 @@
   let trackError = $state<Fail | null>(null);
   let tseq = 0;
   // the import's items have their panel from the item itself: no track() for them, and no track to select
-  const selId = $derived(selected && !selected.pair ? selected.track_id : null);
+  const selId = $derived(selected && !selected.pair && !isBatch(selected) ? selected.track_id : null);
   let lastSelected: string | null | undefined = undefined;
   $effect(() => {
     const id = selId;
@@ -214,6 +235,8 @@
   /** A pick of the user's own: a batch's end goes away with its panel (a running batch goes on). */
   function picked(next: Selection) {
     sel = next;
+    checkHold = null;
+    checksFlow.follow(next.keys.join('|'));
     pinned = false;
     upgradeBatch.clear();
   }
@@ -285,12 +308,14 @@
 
 {#snippet row(i: TodoItem)}
   {@const key = itemKey(i)}
-  {#snippet lead()}<Cover url={i.cover_url} seed={i.track_id} size={28} />{/snippet}
-  {#snippet name()}{artistTitle(i.artist, i.title)}{/snippet}
-  {#snippet sub()}{[i.folder, i.detail].filter(Boolean).join(' · ')}{/snippet}
+  {@const batch = isBatch(i) ? i.batch : null}
+  <!-- a batch's row: the first track's cover, "{n} tracks upgraded" over "{day} · Same track" -->
+  {#snippet lead()}<Cover url={i.cover_url} seed={batch?.tracks[0]?.track_id ?? i.track_id} size={28} />{/snippet}
+  {#snippet name()}{batch ? batchRowName(batch.size) : artistTitle(i.artist, i.title)}{/snippet}
+  {#snippet sub()}{batch ? batchRowSub(batch.started, localDay(new Date())) : [i.folder, i.detail].filter(Boolean).join(' · ')}{/snippet}
   {#snippet trailing()}
     {@const b = rowBadge(i)}
-    {@const away = rowAway(i)}
+    {@const away = batch ? null : rowAway(i)}
     {#if away}<AwayTag state={away} test="todo-away" />{:else}<Badge tone={b.quality} text={b.label} />{/if}
     <span class="act">{#if i.hidden}<Badge tone="muted" text="HIDDEN" />{:else if i.upgrade_ready}<Badge tone="lossless"
       text="UPGRADE" />{:else if i.free}<span title="The artist gives it away for free"><Badge tone="accent"
@@ -299,7 +324,8 @@
   {@const on = isSelected(sel, key)}
   <ListRow {lead} {name} {sub} {trailing} selected={on} reveal={on && key === sel.anchor} pick off={rowDim(i)}
     onclick={(e) => choose(key, e)}
-    title={artistTitle(i.artist, i.title)} test="todo-row" data-key={key} data-track={i.track_id} />
+    title={batch ? batch.tracks.map((t) => artistTitle(t.artist, t.title)).join('\n') : artistTitle(i.artist, i.title)}
+    test="todo-row" data-key={key} data-track={i.track_id} data-batch={batch?.id} />
 {/snippet}
 
 {#snippet groupAction()}
@@ -353,7 +379,10 @@
 {/snippet}
 
 {#snippet panel()}
-  {#if selPanel}
+  {#if panelChecks}
+    <BatchCheckCards tracks={panelChecks.tracks} batch={panelChecks.batch} nameOf={(i) => artistTitle(i.artist, i.title)}
+      flow={checksFlow} />
+  {:else if selPanel}
     <UpgradeSelection items={selItems.filter((i) => i.group === 'upgrade_ready')} all={wholeGroup}
       nameOf={(i) => artistTitle(i.artist, i.title)} ondrop={(i) => picked(dropSelected(sel, itemKey(i)))}
       ondone={batchDone} onact={() => (pinned = true)} />
@@ -375,7 +404,7 @@
 {/snippet}
 
 <!-- with no to-do left the panel says when it will have something, never blank (mockup todo-decisions) -->
-<ListPanelFrame {main} panel={selected || selPanel ? panel : data?.empty === 'all_lossless' || data?.empty === 'all_hidden' ? nothing : null}
+<ListPanelFrame {main} panel={selected || selPanel || panelChecks ? panel : data?.empty === 'all_lossless' || data?.empty === 'all_hidden' ? nothing : null}
   emptyPanel="Pick a track to see what you can do." />
 
 {#if versionsFor}

@@ -412,6 +412,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       for (const id of ids) {
         const t = track(id);
         const before = t?.rekordbox_check?.undo;
+        const refuse = s.undoRefuse?.[id];
+        if (refuse) { results.push({ track: id, state: 'refused', reason: 'changed', message: refuse }); continue; }
         if (!t || !before || t.upgrade) {
           results.push({ track: id, state: 'refused', reason: null, message: 'There is no upgrade to undo for this track.' });
           continue;

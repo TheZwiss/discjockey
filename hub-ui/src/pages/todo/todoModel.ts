@@ -5,7 +5,7 @@ import type {
   FileSide, FreeDownload, Quality, QuestionPair, QuestionWhy, Todo, TodoFilter,
   TodoGroupKey, TodoItem, TrackDetail,
 } from '$lib/bridge/types';
-import { isDuplicate, isQuestion } from '$lib/bridge/types';
+import { isBatch, isDuplicate, isQuestion } from '$lib/bridge/types';
 import { dayMonth, duration, fileAway, rowAway } from '$lib/format';
 import { canSwap, defaultWay, fileName } from '$lib/decisions/decisionModel';
 import { heldRow, putAt } from '$lib/decisions/hold';
@@ -108,9 +108,14 @@ export function keepSelection(key: string | null, before: TodoItem[], after: Tod
 }
 
 // ---------- multi-select (issue 33 stage B §6.1) ----------
-/** The groups whose items can be selected several at once (their actions run on a selection): Upgrade ready. The
- *  rekordbox checks join with their batch card (stage B U2); the other groups' actions are one track's. */
-export const MULTI_GROUPS: TodoGroupKey[] = ['upgrade_ready'];
+/** The groups whose items can be selected several at once (their actions run on a selection): Upgrade ready and
+ *  Check in rekordbox (a batch item among single checks: Done and Undo for all their tracks, stage B §6.4); the
+ *  other groups' actions are one track's. */
+export const MULTI_GROUPS: TodoGroupKey[] = ['upgrade_ready', 'rekordbox_check'];
+/** Two or more items selected, all checks: the checks' selection panel (BatchCheckCards). */
+export function multiChecks(selected: TodoItem[]): boolean {
+  return selected.length > 1 && selected.every((i) => i.group === 'rekordbox_check');
+}
 /** selectionModel's scope of a key: its item's group where that group allows several, else null. */
 export function multiScope(items: TodoItem[]): (key: string) => string | null {
   const groups = new Map(items.map((i) => [itemKey(i), i.group]));
@@ -118,6 +123,23 @@ export function multiScope(items: TodoItem[]): (key: string) => string | null {
     const g = groups.get(key);
     return g && MULTI_GROUPS.includes(g) ? g : null;
   };
+}
+/** The checks a batch card or a selection of checks acted on (Done, Undo all, Undo this one): the page keeps them in
+ *  its panel until the next pick, whatever shape the list gives them now. `batch`: the panel was that batch's card. */
+export type CheckHold = { ids: string[]; batch: { id: number; started: string | null } | null };
+/** The open checks of a hold in `items` (a batch item gives its tracks), in the list's order, with the keys of the
+ *  rows that hold them; null when none is left (all done or undone). */
+export function heldChecks(items: TodoItem[], h: CheckHold): { keys: string[]; tracks: TodoItem[] } | null {
+  const keys: string[] = [];
+  const tracks: TodoItem[] = [];
+  for (const i of items) {
+    if (i.group !== 'rekordbox_check') continue;
+    const mine = (isBatch(i) ? i.batch.tracks : [i]).filter((t) => h.ids.includes(t.track_id));
+    if (!mine.length) continue;
+    keys.push(itemKey(i));
+    tracks.push(...mine);
+  }
+  return tracks.length ? { keys, tracks } : null;
 }
 /** The Upgrade ready group of an answer (its `all` and `stopped` drive the head's link), null when it has none. */
 export function upgradeGroup(t: Todo | null): Todo['groups'][number] | null {
@@ -185,7 +207,9 @@ export function moveSelection(items: TodoItem[], key: string | null, delta: numb
 export function selectFromTrack(items: TodoItem[], track_id: string | null): string | null {
   const m = track_id ? /^file:(\d+)$/.exec(track_id) : null;
   const i = m ? items.find((x) => filesOf(x).some((f) => f.file_id === Number(m[1])))
-    : track_id ? items.find((x) => x.track_id === track_id) : undefined;
+    : track_id ? items.find((x) => x.track_id === track_id)
+      // a track a batch upgraded is its batch's row (Sync's "Fix →", the Library's link)
+      ?? items.find((x) => isBatch(x) && x.batch.tracks.some((t) => t.track_id === track_id)) : undefined;
   return i ? itemKey(i) : null;
 }
 
@@ -204,17 +228,24 @@ export const rowOff = (i: TodoItem): boolean => !i.pair && !i.in_playlists;
 /** The row's lead is dimmed: a track no playlist holds (`rowOff`) or a file that is away (`rowAway`: offline, its
  *  folder not found), as in Library's table. The trailing column tells the two apart: the quality badge, or the
  *  `AwayTag` in its place, which says why the file can't play. */
-export const rowDim = (i: TodoItem): boolean => rowOff(i) || rowAway(i) !== null;
+export const rowDim = (i: TodoItem): boolean => !isBatch(i) && (rowOff(i) || rowAway(i) !== null);
 
 /** The rows ▶ in a track's details plays through as the to-do queue. The import's items are left out: a question's
  *  song has no file yet and a duplicate group is several files, so neither is a track the queue could ask for. */
 export function queueRows(items: TodoItem[]): TodoItem[] {
-  return items.filter((i) => !i.pair);
+  // a batch's row is its tracks, each one in the queue in the batch's order
+  return items.filter((i) => !i.pair).flatMap((i) => (isBatch(i) ? i.batch.tracks : [i]));
 }
 
 /** The badge a row shows: a question shows the quality of the user's file it asks about (the playlist song waits
  *  for the answer and has no file); every other row its track's. */
-export function rowBadge(i: TodoItem): { quality: Quality; label: string } {
+export function rowBadge(i: TodoItem): { quality: Quality | 'muted'; label: string } {
+  // a batch's row: its tracks' quality when they share one (a Same track batch of lossless versions), else MIXED
+  if (isBatch(i)) {
+    const q = new Set(i.batch.tracks.map((t) => `${t.quality}|${t.quality_label}`));
+    return q.size === 1 ? { quality: i.batch.tracks[0].quality, label: i.batch.tracks[0].quality_label }
+      : { quality: 'muted', label: 'MIXED' };
+  }
   return isQuestion(i) ? { quality: i.pair.file.quality, label: i.pair.file.quality_label }
     : { quality: i.quality, label: i.quality_label };
 }

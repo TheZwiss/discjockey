@@ -717,10 +717,10 @@ describe('multi-select in To-do', () => {
     item('t4', 'weak'), item('t5', 'upgrade_ready')];
   const order = list.map(itemKey);
   const scopeOf = multiScope(list);
-  it('only Upgrade ready takes several; other groups stay one item', () => {
+  it('only Upgrade ready and the rekordbox checks take several; other groups stay one item', () => {
     expect(scopeOf('upgrade_ready/t2')).toBe('upgrade_ready');
     expect(scopeOf('weak/t4')).toBeNull();
-    expect(scopeOf('rekordbox_check/t1')).toBeNull();
+    expect(scopeOf('rekordbox_check/t1')).toBe('rekordbox_check');
     expect(click(single('weak/t4'), 'weak/t4', { meta: true }, order, scopeOf)).toEqual(single('weak/t4'));
     expect(click(single('upgrade_ready/t2'), 'upgrade_ready/t5', { shift: true }, order, scopeOf).keys)
       .toEqual(['upgrade_ready/t2', 'upgrade_ready/t3', 'upgrade_ready/t5']);
@@ -814,5 +814,141 @@ describe('the U1 states in fake mode', () => {
     expect(await block('todo:upgrade-mp3-same')).toMatchObject({ swap_possible: true, swap_how: 'new_aiff' });
     expect(await block('todo:upgrade-unreadable')).toMatchObject({ swap_possible: false, why_not: 'rekordbox_unreadable' });
     expect((await block('todo:upgrade-no-rekordbox')).rekordbox.state).toBe('none');
+  });
+});
+
+// ---------- the rekordbox checks: a batch's row and several checks selected (stage B §6.4), the U2 states (§6.5) ----------
+import { isBatch, type BatchCheckItem, type UndoResult } from '$lib/bridge/types';
+import { escape, selectAll } from '$lib/components/selectionModel';
+import { heldChecks, multiChecks, queueRows as queueOf, rowBadge as badgeOf, rowDim as dimOf, selectFromTrack as fromTrack } from './todoModel';
+
+describe('multi-select of the rekordbox checks', () => {
+  const check = (id: string, extra: Partial<TodoItem> = {}) => item(id, 'rekordbox_check', { can_undo: true, quality: 'lossless',
+    quality_label: 'LOSSLESS', ...extra });
+  const batch: BatchCheckItem = { ...check('batch:7', { key: 'batch:7' }), group: 'rekordbox_check', key: 'batch:7',
+    batch: { id: 7, size: 2, started: '2026-11-08', tracks: [check('b1'), check('b2')] } };
+  const list = [batch, check('c1'), check('c2'), check('c3'), item('u1', 'upgrade_ready'), item('w1', 'weak')];
+  const order = list.map(itemKey);
+  const scopeOf = multiScope(list);
+  const keys = (...ids: string[]) => ids.map((id) => `rekordbox_check/${id}`);
+  const of = (sel: { keys: string[] }) => list.filter((i) => sel.keys.includes(itemKey(i)));
+
+  it('none: nothing selected is no checks panel', () => {
+    expect(multiChecks([])).toBe(false);
+  });
+  it('one: a plain click is one check (the batch row too), never the checks panel', () => {
+    const one = click(single(null), keys('batch:7')[0], {}, order, scopeOf);
+    expect(one).toEqual(single('rekordbox_check/batch:7'));
+    expect(multiChecks(of(one))).toBe(false);
+  });
+  it('several: ⌘-click toggles within the checks, a batch row among single checks', () => {
+    let sel = single(keys('batch:7')[0]);
+    sel = click(sel, keys('c2')[0], { meta: true }, order, scopeOf);
+    expect(sel.keys).toEqual(keys('batch:7', 'c2'));
+    expect(multiChecks(of(sel))).toBe(true);
+    sel = click(sel, keys('c2')[0], { meta: true }, order, scopeOf);
+    expect(sel.keys).toEqual(keys('batch:7'));
+    // ⌘-click in another group starts over there
+    expect(click(single(keys('c1')[0]), 'upgrade_ready/u1', { meta: true }, order, scopeOf)).toEqual(single('upgrade_ready/u1'));
+    expect(multiChecks([check('c1'), item('u1', 'upgrade_ready')])).toBe(false);
+  });
+  it('range: ⇧-click selects anchor…key in list order, inside the checks only', () => {
+    const sel = click(single(keys('c1')[0]), keys('c3')[0], { shift: true }, order, scopeOf);
+    expect(sel.keys).toEqual(keys('c1', 'c2', 'c3'));
+    expect(sel.anchor).toBe(keys('c1')[0]);
+    expect(click(single(keys('c3')[0]), 'weak/w1', { shift: true }, order, scopeOf)).toEqual(single('weak/w1'));
+  });
+  it('all: ⌘A selects every check, Esc goes back to the anchor', () => {
+    const all = selectAll(single(keys('c2')[0]), order, scopeOf);
+    expect(all.keys).toEqual(keys('batch:7', 'c1', 'c2', 'c3'));
+    expect(escape(all)).toEqual(single(keys('c2')[0]));
+  });
+  it('kept or pruned when checks leave: Done on two keeps the rest, one left is a single selection', () => {
+    const all = selectAll(single(keys('c1')[0]), order, scopeOf);
+    const after = order.filter((k) => k !== keys('c1')[0] && k !== keys('batch:7')[0]);
+    expect(keep(all, order, after)).toEqual({ keys: keys('c2', 'c3'), anchor: keys('c2')[0] });
+    const later = after.filter((k) => k !== keys('c2')[0]);
+    expect(keep({ keys: keys('c2', 'c3'), anchor: keys('c2')[0] }, after, later)).toEqual(single(keys('c3')[0]));
+  });
+  it('the checks the panel acted on stay held: a batch left with one track is that single check, none left ends it', () => {
+    const h = { ids: ['b1', 'b2', 'c1'], batch: null };
+    expect(heldChecks(list, h)).toEqual({ keys: keys('batch:7', 'c1'), tracks: [batch.batch.tracks[0], batch.batch.tracks[1], list[1]] });
+    // an undo put b1 and c1 back: the batch is now the single check b2
+    const after = [check('b2'), check('c2')];
+    expect(heldChecks(after, h)).toEqual({ keys: keys('b2'), tracks: [after[0]] });
+    expect(heldChecks([check('c2')], h)).toBeNull();
+  });
+  it('a batch row: its tracks play in the queue, ?track= of one of them selects it, never dimmed, its quality', () => {
+    expect(queueOf(list).map((i) => i.track_id).slice(0, 3)).toEqual(['b1', 'b2', 'c1']);
+    expect(fromTrack(list, 'b2')).toBe('rekordbox_check/batch:7');
+    expect(dimOf({ ...batch, in_playlists: false })).toBe(false);
+    expect(badgeOf(batch)).toEqual({ quality: 'lossless', label: 'LOSSLESS' });
+    const mixed = { ...batch, batch: { ...batch.batch, tracks: [check('b1'), check('b2', { quality: 'good_lossy', quality_label: '20.0 kHz' })] } };
+    expect(badgeOf(mixed)).toEqual({ quality: 'muted', label: 'MIXED' });
+  });
+});
+
+describe('the U2 states in fake mode', () => {
+  function setup(scenario: string) {
+    const evs: HubEvent[] = [];
+    const f = createFakeBridge(scenario, { speed: 400, emit: (e) => evs.push(e) });
+    const finished = async (id: number) => {
+      for (let i = 0; i < 400; i++) {
+        const e = evs.find((x) => x.type === 'JobFinished' && x.job_id === id);
+        if (e) return e as Extract<HubEvent, { type: 'JobFinished' }>;
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      throw new Error('the job did not finish');
+    };
+    const checks = async () => ((await f.todo('rekordbox_check', false)) as Todo).groups[0]?.items ?? [];
+    const theBatch = async () => (await checks()).find(isBatch)!;
+    return { f, finished, checks, theBatch };
+  }
+  it('todo-check-batch: one row for the batch, its tracks with their checks and undo, counted once', async () => {
+    const { f, theBatch } = setup('todo:check-batch');
+    const b = await theBatch();
+    expect(b.key).toBe('batch:7');
+    expect(b.batch.size).toBe(3);
+    expect(b.batch.tracks.map((t) => t.check?.reason)).toEqual(['swapped', 'repointed', 'swapped']);
+    expect(b.batch.tracks.every((t) => t.can_undo && t.check?.reload_tag === false)).toBe(true);
+    const t = (await f.todo('all', false)) as Todo;
+    expect(t.chips.rekordbox_check).toBe(t.groups.find((g) => g.key === 'rekordbox_check')!.items.length);
+  });
+  it('todo-check-batch-kept: kept fields, one track for Reload Tag, one rekordbox doesn\'t have', async () => {
+    const b = await setup('todo:check-batch-kept').theBatch();
+    expect(b.batch.tracks.map((t) => t.check?.rekordbox?.kept)).toEqual([['title'], ['artist', 'comment'], [], []]);
+    expect(b.batch.tracks.map((t) => t.check?.reload_tag)).toEqual([false, false, true, false]);
+    expect(b.batch.tracks[3].check?.rekordbox?.entries).toBe(0);
+  });
+  it('todo-check-batch-undo-refused: Undo all puts two back and lists the one it refused', async () => {
+    const { f, finished, theBatch, checks } = setup('todo:check-batch-undo-refused');
+    const ids = (await theBatch()).batch.tracks.map((t) => t.track_id);
+    const fin = await finished(((await f.undo_upgrade(ids)) as { job_id: number }).job_id);
+    expect(fin.ok).toBe(true);
+    const r = fin.result as UndoResult;
+    expect(r.results.filter((x) => x.state === 'refused').map((x) => x.track)).toEqual([ids[1]]);
+    expect((await checks()).map((i) => i.track_id)).toContain(ids[1]);
+  });
+  it('todo-check-batch-rekordbox-open: Undo all undoes nothing while rekordbox is open', async () => {
+    const { f, finished, theBatch } = setup('todo:check-batch-rekordbox-open');
+    const ids = (await theBatch()).batch.tracks.map((t) => t.track_id);
+    const fin = await finished(((await f.undo_upgrade(ids)) as { job_id: number }).job_id);
+    expect(fin.problem).toBe('rekordbox_open');
+    expect((fin.result as UndoResult).results.every((x) => x.state === 'waiting')).toBe(true);
+  });
+  it('todo-check-multi: Done for a batch and a single check clears all their checks in one job', async () => {
+    const { f, finished, checks } = setup('todo:check-batch');
+    const before = await checks();
+    expect(before.length).toBeGreaterThan(1);
+    const fin = await finished(((await f.rekordbox_checked(
+      [...(before.find(isBatch)!).batch.tracks.map((t) => t.track_id), before.find((i) => !isBatch(i))!.track_id])) as { job_id: number }).job_id);
+    expect(fin.ok).toBe(true);
+    expect((await checks()).length).toBe(before.length - 2);
+  });
+  it('todo-check-repointed: a Same track batch of one is a plain check of its own', async () => {
+    const items = await setup('todo:check-repointed').checks();
+    const one = items.find((i) => i.check?.reason === 'repointed');
+    expect(one && isBatch(one)).toBe(false);
+    expect(one!.check).toMatchObject({ batch: { size: 1 }, reload_tag: false, rekordbox: { entries: 1, kept: [] } });
   });
 });
