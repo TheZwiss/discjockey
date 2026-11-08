@@ -410,3 +410,6 @@ Results:
   S shots → R2 review + fixes → verify → merge main. Building on `feat/rekordbox-b`, groups in `.claude/worktrees/rb-b-<g>`.
 - B1 done (Sonnet 203k): schema 7 (aiff_batches/aiff_items), Entry fields, PathIndex, same_track_quick,
   timeline_offset on an open view; CI green; merged into feat/rekordbox-b.
+- B2 done (Opus 230k, one usage-limit stop 03:50–07:50, resumed): `write.py` (repoint, text columns, contentFile,
+  USN per row as rekordbox does), PPTH splice (`?/<name>` confirmed on real copies), per-batch backup + restore,
+  Session; CI green; merged into feat/rekordbox-b. RH must confirm created lookup rows (NULL SearchStr) show right.
