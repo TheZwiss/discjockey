@@ -30,6 +30,8 @@ from ..quality import quality_line
 from ..report import PLAN_LABELS, check_text, result_folder
 from ..settings import Settings
 from ..sources import SOURCES
+from ..rekordbox import eligible
+from ..rekordbox.master import Status as RekordboxStatus
 from ..upgrades import can_undo, swap_possible, upgrade_name
 
 SECONDS_PER_DOWNLOAD = 70  # average per acquisition or upgrade check: pause, download, conversion, long breaks
@@ -675,10 +677,33 @@ def upgrade_format(up: dict) -> str:
     return f"{name} · {up['kbps']} kbps" if up.get("kbps") else name
 
 
+UNKNOWN_REKORDBOX = RekordboxStatus("ready", False, None, None, None, None, None)
+SAME_TRACK_FORMATS = ("in_place", "new_aiff")
+
+
+def present_of(state: str) -> str:
+    """The `eligible.Present` word for a `file_state` (views.file_state): `here`, `away` (its drive or watched folder
+    isn't there) or `missing`."""
+    return "here" if state == "here" else "missing" if state == "file_missing" else "away"
+
+
+def same_track_reason(e: dict, rb: RekordboxStatus | None, present: str = "here") -> str | None:
+    """Why Same track can't run for this entry now (an `eligible.REASONS` key), None when it can: the quick answer
+    (`eligible.same_track_quick`) every screen and count uses. `rb` None: the library is taken as readable."""
+    verdict = eligible.same_track_quick(e, rb or UNKNOWN_REKORDBOX, present)  # type: ignore[arg-type]
+    return verdict.reason if isinstance(verdict, eligible.Skip) else None
+
+
+def same_track_format_ok(e: dict, rb: RekordboxStatus | None) -> bool:
+    """Whether the file's format can go through Same track at all (an AIFF always; any other format needs a rekordbox
+    library Discjockey can open or none): the part of the answer the cue text depends on."""
+    return swap_possible(e) or (rb or UNKNOWN_REKORDBOX).state != "unreadable"
+
+
 def upgrade_status(up: dict, can_swap: bool) -> str:
     """The To-do row's short line for an upgrade: what is ready, and what replacing means for rekordbox (the panel
-    says the rest). Same edit and an AIFF file: the cues can stay (Swap); same edit otherwise: rekordbox gets a new
-    track; a different edit or no measurement: says so."""
+    says the rest). Same edit and Same track possible (stage B: any format): the cues can stay; same edit otherwise
+    (rekordbox's library can't be opened): rekordbox gets a new track; a different edit or no measurement: says so."""
     what = "Lossless" if up.get("status", "lossless") == "lossless" else f"{up.get('kbps') or '?'} kbps"
     result = (up.get("alignment") or {}).get("result")
     if result in ("exact", "shifted"):
@@ -705,33 +730,51 @@ def check_status(check: dict | None) -> str:
     return "check it in rekordbox"
 
 
-def check_view(check: dict | None) -> dict:
+def check_view(check: dict | None, batch_size: int = 1) -> dict:
     """RekordboxCheck as the To-do panel reads it: the step that left it and what the two files measured as (its
     numbered steps follow them), `aligned` (an added file: Discjockey rendered the new file lined up with rekordbox's
     timeline of the old one, so the old track's cues fit it to the sample; false for a swap and for records from before
     it), `text` the whole instruction (report.check_text), `old_path` where the old file (an added file) or the copy
-    of the old audio (a swap) is now, from the undo record (null without one)."""
+    of the old audio (a swap) is now, from the undo record (null without one). Stage B adds `reload_tag` (a record
+    without it still asks for Reload Tag: True), `batch` ({id, size}: the AIFF batch that left it and how many checks
+    of that batch are open, null for a check of no batch) and `rekordbox` ({entries: how many rekordbox tracks were
+    pointed at the new file or had their text written, kept: the fields left as the user edited them}, null when
+    nothing was written in rekordbox)."""
     c = check or {}
     undo = c.get("undo") or {}
+    rb = c.get("rekordbox")
     return {"reason": c.get("reason"), "since": c.get("since"), "match": c.get("match"),
             "offset_ms": c.get("offset_ms"), "moved": bool(c.get("moved")), "aligned": bool(c.get("aligned")),
+            "reload_tag": c.get("reload_tag", True) is not False,
+            "batch": {"id": c["batch"], "size": batch_size} if c.get("batch") else None,
+            "rekordbox": {"entries": len(rb.get("entries") or []), "kept": list(rb.get("kept") or [])} if rb else None,
             "text": check_text(c),
             "old_path": undo.get("old")}
 
 
-def upgrade_block(up: dict | None, media: Url | None, track_id: str, e: dict) -> dict | None:
+def upgrade_block(up: dict | None, media: Url | None, track_id: str, e: dict,
+                  rb: RekordboxStatus | None = None, present: str = "here") -> dict | None:
+    """The parked version as the panel reads it. `swap_possible` is "Same track is possible" (the quick answer for
+    this file, `same_track_reason`; `why_not` is its reason key, null when it is), `swap_how` how it would go
+    (`in_place`: an AIFF takes the audio; `new_aiff`: a new AIFF with a clean name, rekordbox's track pointed at it),
+    `rekordbox` the cached library state, `auto_refused` stage C's (null)."""
     if not up:
         return None
     alignment = up.get("alignment") or {"result": "unknown"}
+    why_not = same_track_reason(e, rb, present)
     return {"file": up["file"], "source": up["source"], "source_name": SHORT_SOURCE.get(up["source"]),
             "source_id": up.get("source_id"), "found": up.get("found"),
             "what": upgrade_name(up),
             "quality_line": quality_line(up["source"], up.get("source_format") or "flac", up.get("status", "lossless"),
                                          up.get("cutoff_hz"), up.get("kbps")),
             "format_line": upgrade_format(up),
-            "alignment": alignment, "cue_text": cue_text(alignment, swap_possible(e)),
+            "alignment": alignment, "cue_text": cue_text(alignment, same_track_format_ok(e, rb)),
             "swap_safe": alignment.get("result") in ("exact", "shifted"),
-            "swap_possible": swap_possible(e),
+            "swap_possible": why_not is None,
+            "swap_how": "in_place" if swap_possible(e) else "new_aiff",
+            "why_not": why_not,
+            "rekordbox": {"state": (rb or UNKNOWN_REKORDBOX).state, "running": (rb or UNKNOWN_REKORDBOX).running},
+            "auto_refused": None,
             "audio_url": media(track_id, {**e, "path": up["file"]}) if media else None}
 
 
@@ -768,8 +811,9 @@ def file_online(e: dict, away: Mapping[str, str] | None = None) -> bool:
 
 def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url | None = None,
                  media: Url | None = None, away: Mapping[str, str] | None = None, exists: bool = True,
-                 place: str | None = None) -> dict:
-    """`away`, `exists`: see file_state (HubApi._away_roots; whether the file is at its path). Whatever the state but
+                 place: str | None = None, rb: RekordboxStatus | None = None) -> dict:
+    """`rb`: rekordbox's cached state (HubApi._rekordbox_status; None: taken as readable), for the upgrade block's
+    Same track answer. `away`, `exists`: see file_state (HubApi._away_roots; whether the file is at its path). Whatever the state but
     "here", there is no `audio_url`: nothing to play. `place`: where the file sits (Sites.place, D11), the same words
     as the Folder column; None for a track without a file."""
     folders = in_playlists(track_id, e, fetched)
@@ -793,7 +837,7 @@ def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url 
             "buy_links": buy_links(e["artist"], e["title"]), "free_downloads": free_downloads(e),
             "bought_name": f"Library/{e['folder']}/{expected_stem(e['artist'], e['title'])}.wav",
             "audio_url": media(track_id, e) if media and e.get("path") and state == "here" else None,
-            "upgrade": upgrade_block(e.get("upgrade"), media, track_id, e)}
+            "upgrade": upgrade_block(e.get("upgrade"), media, track_id, e, rb, present_of(state))}
 
 
 # --- library ---
@@ -1284,9 +1328,9 @@ def _group(e: dict) -> str | None:
     return {"missing": "not_found", "weak": "weak", "good_lossy": "good_lossy", "fake": "fake"}.get(quality_class(e))
 
 
-def _detail(group: str, e: dict, today: date, other: str | None) -> str:
+def _detail(group: str, e: dict, today: date, other: str | None, rb: RekordboxStatus | None = None) -> str:
     if group == "upgrade_ready":
-        return upgrade_status(e["upgrade"], swap_possible(e))
+        return upgrade_status(e["upgrade"], same_track_format_ok(e, rb))
     if group == "not_found":
         when = next_check(e, today)
         if when is None or when == "next_sync":
@@ -1413,10 +1457,38 @@ def recommend(files: Sequence[DupFile]) -> tuple[int | None, str | None]:
     return None, None
 
 
+def _batch_item(batch_id: int, tracks: list[dict]) -> dict:
+    """The To-do item of an AIFF batch's open checks (two or more): it looks like its first track's row (a TrackRow,
+    so the list can place it) under the key `batch:<id>`; `batch.tracks` are the checks as single items list them."""
+    started = min((t["check"]["since"] for t in tracks if t["check"]["since"]), default=None)
+    key = f"batch:{batch_id}"
+    return {**tracks[0], "track_id": key, "key": key, "group": "rekordbox_check",
+            "detail": f"{started or ''} · Same track".strip(" ·"),
+            "batch": {"id": batch_id, "size": len(tracks), "started": started, "tracks": tracks}}
+
+
+def _upgrade_all(rows: list[dict], stopped: tuple[int, int] | None) -> dict:
+    """`all` and `stopped` of the Upgrade ready group (see `todo`)."""
+    n = m = k = 0
+    for r in rows:
+        if r["hidden"]:
+            continue
+        if r["same_track"] is None:
+            n += 1
+        elif r["same_track"] == "needs_choice":
+            m += 1
+        else:
+            k += 1
+    return {"all": {"n": n, "m": m, "k": k},
+            "stopped": {"batch_id": stopped[0], "left": stopped[1]} if stopped else None}
+
+
 def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], today: date,
          cover: Url | None = None, questions: Sequence[Question] = (), duplicates: Sequence[DuplicateGroup] = (),
          dup_files: Mapping[str, Sequence[DupFile]] | None = None, audio: Url | None = None,
-         counted: Collection[str] = (), away: Mapping[str, str] | None = None) -> dict:
+         counted: Collection[str] = (), away: Mapping[str, str] | None = None,
+         rb: RekordboxStatus | None = None, present: Callable[[dict], str] | None = None,
+         stopped: tuple[int, int] | None = None) -> dict:
     """Groups in this order: Check in rekordbox, Is this the same song?, Duplicates, Upgrade ready, Not found, Weak,
     Good lossy, Fake lossless, Other. `others`: track id -> what blocks it (a move blocked by another file, several
     files that could be it). Hidden tracks are left out unless show_hidden. "Check in rekordbox" lists every track
@@ -1432,8 +1504,23 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     sidebar's count needs no `dup_files` for them. `away`: root -> why for the import folders that are not there now
     (file_state). It decides everything that depends on a file being there: a question's side sends `online: false`
     and a duplicate group with a file in one is neither listed nor counted, even if the rows still say online (no
-    scan has seen the drive go)."""
+    scan has seen the drive go).
+
+    Stage B (plan rekordbox B §4): `rb` is rekordbox's cached state and `present(entry)` the live answer to whether a
+    track's file is there (`here`/`away`/`missing`; without it the row's `file_state` decides). Every `upgrade_ready`
+    item carries `same_track`, the quick answer (`same_track_reason`: null when Same track can run, else the reason
+    key), and the group `all: {n, m, k}` (Same track can run / the edit needs a choice / waits for something else,
+    over the group's tracks that are not hidden) and `stopped: {batch_id, left} | null` (`stopped`: the newest stopped
+    Same track batch that still has items left). The checks of one AIFF batch with two or more tracks open are one
+    item, a `BatchCheckItem` (`key` `batch:<id>`, `batch: {id, size, started, tracks}`), which counts as one in
+    `chips`; one open check of a batch stays a plain item."""
     items: dict[str, list] = {g: [] for g, _, _ in TODO_GROUPS}
+    batch_checks: dict[int, list[str]] = {}
+    for k, e in state["tracks"].items():
+        c = e.get("rekordbox_check")
+        if c and c.get("batch"):
+            batch_checks.setdefault(c["batch"], []).append(k)
+    batched = {b: ks for b, ks in batch_checks.items() if len(ks) > 1}
     never = state.get("never") or {}  # "never download": not a to-do
     hidden = 0
     listed: set[str] = set()
@@ -1455,11 +1542,23 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
             listed.add(g.id)
     for k, e in state["tracks"].items():
         if e.get("rekordbox_check"):
-            items["rekordbox_check"].append({**track_row(k, e, cover), "group": "rekordbox_check",
-                                             "detail": check_status(e["rekordbox_check"]),
-                                             "check": check_view(e["rekordbox_check"]), "can_undo": can_undo(e),
-                                             "file_state": row_file_state(e, away)})
-            listed.add(k)
+            bid = e["rekordbox_check"].get("batch")
+            check_item = {**track_row(k, e, cover), "group": "rekordbox_check",
+                          "detail": check_status(e["rekordbox_check"]),
+                          "check": check_view(e["rekordbox_check"], len(batch_checks.get(bid, ())) or 1),
+                          "can_undo": can_undo(e), "file_state": row_file_state(e, away)}
+            if bid in batched:
+                if k == batched[bid][0]:  # the batch's one item stands where its first track is
+                    items["rekordbox_check"].append(_batch_item(bid, [
+                        {**track_row(t, state["tracks"][t], cover), "group": "rekordbox_check",
+                         "detail": check_status(state["tracks"][t]["rekordbox_check"]),
+                         "check": check_view(state["tracks"][t]["rekordbox_check"], len(batched[bid])),
+                         "can_undo": can_undo(state["tracks"][t]),
+                         "file_state": row_file_state(state["tracks"][t], away)} for t in batched[bid]]))
+                    listed.add(f"batch:{bid}")
+            else:
+                items["rekordbox_check"].append(check_item)
+                listed.add(k)
         if k in held or (not e.get("in_playlists") and not (is_own(k) and e.get("upgrade"))) \
                 or (e["status"] == "missing" and k in never):
             continue
@@ -1470,16 +1569,18 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
             hidden += 1
             if not show_hidden:
                 continue
-        items[group].append({**track_row(k, e, cover), "group": group,
-                             "detail": _detail(group, e, today, others.get(k)),
-                             "free": group in FREE_GROUPS and bool(free_downloads(e)),
-                             "file_state": row_file_state(e, away)})
+        item = {**track_row(k, e, cover), "group": group, "detail": _detail(group, e, today, others.get(k), rb),
+                "free": group in FREE_GROUPS and bool(free_downloads(e)), "file_state": row_file_state(e, away)}
+        if group == "upgrade_ready":
+            item["same_track"] = same_track_reason(e, rb, present(e) if present else present_of(item["file_state"]))
+        items[group].append(item)
         listed.add(k)
     for rows in items.values():
-        rows.sort(key=lambda r: (fold(r["folder"]), fold(r["artist"]), fold(r["title"])))
+        rows.sort(key=lambda r: ("batch" not in r, fold(r["folder"]), fold(r["artist"]), fold(r["title"])))
     chips = {"all": len(listed), **{g: len(v) for g, v in items.items()}}
-    groups = [{"key": g, "label": label, "hint": hint, "items": items[g]} for g, label, hint in TODO_GROUPS
-              if items[g] and (filt in (None, "all") or filt == g)]
+    extra = {"upgrade_ready": _upgrade_all(items["upgrade_ready"], stopped)}
+    groups = [{"key": g, "label": label, "hint": hint, "items": items[g], **extra.get(g, {})}
+              for g, label, hint in TODO_GROUPS if items[g] and (filt in (None, "all") or filt == g)]
     empty = None
     if not chips["all"]:
         empty = "all_lossless" if not hidden else "all_hidden"

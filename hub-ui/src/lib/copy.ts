@@ -24,6 +24,8 @@ export const PROBLEMS: Record<ProblemKind, ProblemCopy> = {
   failed: { title: "That didn't work." },
   protected: { title: 'This version is DRM-protected.' },
   stopped: { title: 'Stopped. Nothing was left half done.' },
+  // Same track needs rekordbox closed (design §8's words); the batch that met it is in the job's result, Resume carries on
+  rekordbox_open: { title: 'rekordbox is open. Quit rekordbox, then try again.' },
   no_library: { title: 'Choose your music folder first.', action: { label: 'Open setup →', href: '#/setup/music' } },
   crashed: { title: 'Something went wrong', action: { label: 'Open report', report: true } },
   // Liked music (sources round): the engine's message is the detail ("Reading your Liked music is off. Turn it on in
@@ -88,10 +90,12 @@ export const SUCCESS: Record<string, string> = {
   use_link: 'New version placed. The old file is in Superseded.',
   reject_current: 'Moved to Superseded. The next sync searches again.',
   rekordbox_checked: 'Marked as checked in rekordbox.',
-  upgrade_swap: 'Swapped. rekordbox keeps the cue points.',
+  upgrade_batch: 'Replaced. rekordbox keeps the cue points.',
+  batch_resume: 'Replaced. rekordbox keeps the cue points.',
   upgrade_add_new: 'Added as a new file.',
   upgrade_discard: 'Upgrade discarded.',
   undo_upgrade: 'Upgrade undone. Your old file is back.',
+  batch_undo: 'Undone. Your old files are back.',
   save_playlists: 'Playlists saved. Changes happen at the next sync.',
   save_limits: 'Daily limit saved.',
   setup_skip_qobuz: 'Qobuz left out.',

@@ -43,14 +43,14 @@ export class UpgradeFlow {
       body: 'Your current file stays. This version is not offered again.', confirmLabel: 'Discard', tone: 'danger' }))) return;
     this.busy = mode;
     this.#onact?.();
-    await runJob(api.upgrade(track_id, mode));
+    await runJob(api.upgrade([track_id], mode));
     this.busy = null;
   }
   /** "Done, checked in rekordbox". */
   async checked(track_id: string): Promise<void> {
     this.busy = 'rekordbox';
     this.#onact?.();
-    await runJob(api.rekordbox_checked(track_id));
+    await runJob(api.rekordbox_checked([track_id]));
     this.busy = null;
   }
   /** "Undo the replace": asks first; a refusal (a file changed since, the step already done) shows as runJob's toast
@@ -64,7 +64,7 @@ export class UpgradeFlow {
     this.busy = 'undo';
     this.undoProblem = null;
     this.#onact?.();
-    const r = await runJob(api.undo_upgrade(track_id));
+    const r = await runJob(api.undo_upgrade([track_id]));
     this.busy = null;
     if (!r.ok) this.undoProblem = r.message;
   }

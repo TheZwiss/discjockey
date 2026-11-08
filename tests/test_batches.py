@@ -14,7 +14,7 @@ import pytest
 
 from batch_helpers import D, DIFFERENT, Lib, PowerOff, make_lib, needs_ffmpeg
 from convert_helpers import EXACT, FIXTURES, NOW, never, song
-from discjockey import batches, convert, db, library, quality, upgrades
+from discjockey import batches, convert, db, library, ops, quality, upgrades
 from discjockey.align import Alignment
 from discjockey.audio import write_tags
 from discjockey.events import BatchProgress, CancelToken
@@ -523,3 +523,21 @@ def test_start_checks_its_items(tmp_path, monkeypatch):
         batches.result_of(lib.paths, 99)
     with pytest.raises(ValueError):
         go(lib, batch_id, resume=True)                                   # running, not stopped
+
+
+def test_undo_of_a_list_goes_newest_first_even_when_the_steps_share_a_timestamp(tmp_path, monkeypatch):
+    """New track steps leave no batch item and operations.log writes to the second: the order is the log's line
+    order (and a batch item's row ids), never the timestamp."""
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3", "mp3"])
+    state = library.load_state(lib.paths)
+    for track in (lib.tracks[1], lib.tracks[0]):                     # finished in this order, in the same second
+        up = state["tracks"][track]["upgrade"]
+        done = upgrades.add_new(lib.paths, state, track, up, lambda a, b: EXACT, now=lambda: NOW)
+        ops.log_operation(lib.paths, NOW, track, state["tracks"][track], "upgrade_add_new", "done", done.note)
+    for given in (lib.tracks, lib.tracks[::-1], [lib.tracks[0], lib.tracks[2], lib.tracks[1]]):
+        got = batches._newest_first(lib.paths, given)
+        assert got[:2] == [lib.tracks[0], lib.tracks[1]], given    # the later step first; the one without a step last
+        assert got[2] == lib.tracks[2]
+    batch_id = start(lib, [2])                                       # a batch step is newer than both
+    go(lib, batch_id)
+    assert batches._newest_first(lib.paths, lib.tracks) == [lib.tracks[2], lib.tracks[0], lib.tracks[1]]

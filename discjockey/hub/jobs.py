@@ -19,8 +19,9 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Callable
 
-from .. import (config, db, events as ev, folders, importer, library, playlists_file, qobuz, report as rep, run,
-                settings, sources, upgrades)
+from .. import (batches, config, db, events as ev, folders, importer, library, playlists_file, qobuz, report as rep,
+                run, settings, sources, upgrades)
+from ..rekordbox import session as rbsession
 from ..events import Cancelled, CancelToken, Emit
 from ..library import LockHeld, Paths
 from ..models import SERVICE_NAMES, Protected
@@ -88,7 +89,7 @@ class DrivesChanged:
 
 
 EVENT_TYPES = (ev.RunStarted, ev.ActionStarted, ev.StepChanged, ev.Progress, ev.Waiting, ev.SourceChosen, ev.Checked,
-               ev.AccountUsage, ev.ActionFinished, ev.RunFinished, ev.Message, ev.ReadingPlaylist, ev.MovesProgress, ev.ImportProgress, JobStarted, JobFinished,
+               ev.AccountUsage, ev.ActionFinished, ev.RunFinished, ev.Message, ev.ReadingPlaylist, ev.MovesProgress, ev.BatchProgress, ev.ImportProgress, JobStarted, JobFinished,
                ConsoleBusy, FileDropped, SignInPhase, AppUpdate, DrivesChanged)
 
 
@@ -241,8 +242,19 @@ def problem_of(e: BaseException) -> tuple[str, str]:
         return "crashed", rep.CRASH_MESSAGE
     if isinstance(e, importer.ImportStopped):  # W6: how many files are left (a file is never half-done: it is written)
         return "stopped", importer.result_words(e.result)
+    if isinstance(e, batches.Stopped):  # Stop between two tracks of an AIFF batch: Resume carries on
+        left = sum(1 for i in e.result.results if i.state == "planned")
+        return "stopped", f"Stopped after {e.result.total - left} of {e.result.total}."
+    if isinstance(e, batches.UndoStopped):
+        return "stopped", "Stopped. The tracks undone so far stay undone."
     if isinstance(e, (Cancelled, KeyboardInterrupt)):
         return "stopped", "Stopped. Nothing was left half-done."
+    if isinstance(e, rbsession.RekordboxOpen):  # a batch or an undo that needs rekordbox closed (design §8's words)
+        return "rekordbox_open", str(e)
+    if isinstance(e, rbsession.Busy):  # another window or the Terminal changes rekordbox's library
+        return "busy", str(e)
+    if isinstance(e, batches.Refused):  # nothing in the batch could be done
+        return "refused", str(e)
     if isinstance(e, library.NoLibrary):
         return "no_library", str(e)
     if isinstance(e, LockHeld):

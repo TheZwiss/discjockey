@@ -31,6 +31,7 @@ Convert / Rename (stage D: their items are `convert` / `rename`; `RUNNABLE` grow
 """
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -432,10 +433,33 @@ def recover(paths, *, now: Callable[[], datetime] = datetime.now) -> list[int]:
         return [i for i in crashed if db.aiff_batch(conn, i).state == "stopped"]
 
 
+def _finished_order(paths) -> dict[str, int]:
+    """Track -> the line of operations.log where its latest finished upgrade step stands. The log is appended in the
+    order steps finish, so the line number tells which came later even when two steps share a timestamp (they are
+    written to the second)."""
+    order: dict[str, int] = {}
+    try:
+        lines = paths.operations_log.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return order
+    for n, line in enumerate(lines):
+        try:
+            op = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(op, dict) and str(op.get("operation", "")).startswith("upgrade_") and op.get("result") == "done":
+            order[op.get("track_id")] = n
+    return order
+
+
 def _newest_first(paths, tracks: Sequence[str]) -> list[str]:
+    """`tracks`, the one whose step finished last first: by the log line of its latest finished upgrade (ties of the
+    timestamps can't confuse it), then by its newest batch item (batch, seq: row ids). A track with neither (a record
+    from before the log) comes last, in the order it was given."""
+    finished = _finished_order(paths)
     with db.connect(paths.db_file) as conn:
-        order = {t: db.aiff_item_of(conn, t) or (-1, -1) for t in tracks}
-    return sorted(tracks, key=order.__getitem__, reverse=True)
+        item = {t: db.aiff_item_of(conn, t) or (-1, -1) for t in tracks}
+    return sorted(tracks, key=lambda t: (finished.get(t, -1), item[t]), reverse=True)
 
 
 def undo(paths, target: int | Sequence[str], *, emit: Emit = no_emit, token: CancelToken | None = None,

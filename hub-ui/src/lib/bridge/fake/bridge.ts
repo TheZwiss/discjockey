@@ -3,8 +3,7 @@ import type { Bridge } from '../client';
 import type { HubEvent } from '../events';
 import type {
   BatchResult, Candidate, ChangePreview, Fail, JobStart, LibraryFilter, LibrarySort, LibraryView, PlaylistInfo, PlaylistLine, ProblemKind, Res, Result,
-  AccountCheck, Browser, PlaylistService, SaveFiles, SettingKey, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate,
-} from '../types';
+  AccountCheck, Browser, PlaylistService, SaveFiles, SettingKey, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate, AiffBatchResult, ItemResult as AiffItemResult, UndoItem } from '../types';
 import { LIBRARY_METHODS } from '../contract';
 import {
   FAKE_MUSIC, FAKE_NEWEST_YT_DLP, LINK_REFUSED, QOBUZ_UNREADABLE, SOUNDCLOUD_SET_LINK, SERVICE_NAME, SOUNDCLOUD_UNREADABLE, YOUTUBE_MIX_REFUSED, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkStatus, checkView, coverUri, dateOnly, folderList, hash, isoLocal, makeState, nextStep,
@@ -202,7 +201,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         good = false; problem = k; message = m; res = null;
       }
       emit({ type: 'JobFinished', job_id: id, kind, ok: good, problem: good ? null : (problem ?? 'failed'), message,
-        result: good ? (res ?? {}) : (problem === 'stopped' ? (res ?? null) : null), service } as HubEvent);
+        result: good ? (res ?? {}) : (problem === 'stopped' || problem === 'rekordbox_open' || problem === 'busy' ? (res ?? null) : null), service } as HubEvent);
       me.running = false;
     };
     setTimeout(() => {
@@ -305,6 +304,121 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       cutoff_hz: t.cutoff_hz, path: pathOf(t), ...more }), recovered: [] as [string, boolean][] });
   const versionHash = () => (Math.abs(hash(`v${s.version}`)).toString(16).padStart(8, '0')).repeat(8);
   const reportPath = (id: string) => `${FAKE_MUSIC}/.discjockey/reports/${id}.md`;
+  /** The upgrade block's rekordbox answer for a track: the fake library's state decides Same track for other formats. */
+  const rbOf = (t: FakeTrack) => {
+    const state = s.rekordbox_state ?? 'ready';
+    const blocked = state === 'unreadable' && t.upgrade!.swap_how === 'new_aiff';
+    return { rekordbox: { state, running: !!s.rekordbox_running },
+      ...(blocked ? { swap_possible: false, why_not: 'rekordbox_unreadable' } : {}) };
+  };
+  // --- Same track batches (issue 33 stage B): the fake keeps its batch records here ---
+  type AiffBatch = { id: number; state: 'running' | 'stopped' | 'done'; stop_reason: AiffBatchResult['stop_reason'];
+    items: AiffItemResult[] };
+  const aiff: AiffBatch[] = [];
+  let batchStop: { stopped: boolean } | null = null;
+  const listOf = (ids: unknown): string[] | null => Array.isArray(ids) && ids.length && ids.every((i) => typeof i === 'string' && i)
+    ? [...new Set(ids as string[])] : null;
+  const itemOf = (t: FakeTrack, action: string, message: string): AiffItemResult => ({ track: t.track_id, action, state: 'done',
+    reason: null, message, path: pathOf(t) ?? null, rekordbox: null });
+  const batchBody = (id: number | null, state: AiffBatchResult['state'], stop_reason: AiffBatchResult['stop_reason'],
+    results: AiffItemResult[]): AiffBatchResult => ({ batch: id, state, stop_reason, total: results.length,
+    done: results.filter((r) => r.state === 'done').length, skipped: results.filter((r) => r.state === 'skipped').length,
+    failed: results.filter((r) => r.state === 'failed').length, results, backup: id ? '20261108T120000Z' : null, recovered: [] });
+  /** What a replace does to a fake track: the swap/add_new/Same track outcome, with its check and undo record. */
+  function apply(t: FakeTrack, mode: 'swap' | 'add_new' | 'same_track', batch: number | null) {
+    const measured = t.upgrade!.alignment;
+    const old = pathOf(t)!;
+    const inPlace = t.upgrade!.swap_how === 'in_place';
+    const oldPath = `Superseded/${t.folder}/${mode === 'add_new' ? old.split('/').pop() : inPlace
+      ? old.split('/').pop()!.replace(/\.[^.]+$/, ' (lossy)$&') : old.split('/').pop()}`;
+    const before = { status: t.status, cutoff_hz: t.cutoff_hz, source: t.source, codec: t.codec, upgrade: t.upgrade,
+      rekordbox_check: t.rekordbox_check ? { ...t.rekordbox_check, undo: undefined } : null };
+    Object.assign(t, { status: 'lossless', cutoff_hz: null, source: 'qobuz', codec: 'flac', upgrade: null });
+    if (mode === 'add_new') {
+      t.rekordbox_check = { reason: 'added_as_new', since: dateOnly(new Date()), match: measured.result,
+        offset_ms: measured.offset_ms ?? 0, aligned: measured.result === 'exact' || measured.result === 'shifted',
+        undo: before, old_path: oldPath };
+    } else {
+      t.rekordbox_check = { reason: inPlace ? 'swapped' : 'repointed', since: dateOnly(new Date()), match: measured.result,
+        offset_ms: measured.offset_ms ?? 0, ...(inPlace ? { moved: false } : { aligned: true }), reload_tag: false,
+        rekordbox: s.rekordbox_state === 'none' ? null : { entries: 1, kept: [] }, ...(batch ? { batch } : {}),
+        undo: before, old_path: oldPath };
+    }
+  }
+  function runAiff(started_by: 'user' | 'upgrade_all', ids: string[], resuming: AiffBatch | null = null): JobStart {
+    const b: AiffBatch = resuming ?? { id: (aiff.at(-1)?.id ?? 0) + 1, state: 'running', stop_reason: null,
+      items: ids.map((id) => ({ track: id, action: 'same_track', state: 'planned', reason: null, message: null, path: null,
+        rekordbox: null })) };
+    if (!resuming) aiff.push(b);
+    b.state = 'running'; b.stop_reason = null;
+    const quick = ids.length === 1 && !resuming;
+    return startJob(resuming ? 'batch_resume' : 'upgrade_batch', quick ? ids[0] : null, (finish) => {
+      const stop = batchStop = { stopped: false };
+      const total = b.items.length;
+      const left = () => b.items.filter((i) => i.state === 'planned');
+      const end = (state: AiffBatch['state'], reason: AiffBatch['stop_reason'], problem: 'stopped' | 'rekordbox_open' | null,
+        message = '') => { b.state = state; b.stop_reason = reason; batchStop = null;
+        finish(!problem, batchBody(b.id, state, reason, b.items), problem, message); };
+      const next = () => {
+        const item = left()[0];
+        if (!item) {
+          emit({ type: 'BatchProgress', batch_id: b.id, done: total, total, track_id: null, name: null } as HubEvent);
+          if (b.items.every((i) => i.state === 'skipped')) { b.state = 'done'; batchStop = null;
+            return finish(false, batchBody(b.id, 'done', null, b.items), 'refused', 'None of these can be upgraded right now.'); }
+          return end('done', null, null);
+        }
+        const done = total - left().length;
+        if (stop.stopped) return end('stopped', 'stop', 'stopped', `Stopped after ${done} of ${total}.`);
+        const t = track(item.track);
+        const needsWrite = !!t?.upgrade && t.upgrade.swap_how === 'new_aiff';
+        if (s.rekordbox_running && (needsWrite || done > 0 || !quick)) {
+          if (quick && done === 0) { item.state = 'skipped'; item.reason = 'rekordbox_open'; }
+          return end(quick && done === 0 ? 'done' : 'stopped', quick && done === 0 ? null : 'rekordbox_open', 'rekordbox_open',
+            'rekordbox is open. Quit rekordbox, then try again. Discjockey changes your rekordbox tracks only while rekordbox is closed.');
+        }
+        emit({ type: 'BatchProgress', batch_id: b.id, done, total, track_id: item.track, name: t ? `${t.artist} - ${t.title}` : item.track } as HubEvent);
+        setTimeout(() => {
+          if (!t?.upgrade) Object.assign(item, { state: 'skipped', reason: 'no_upgrade' });
+          else if (!t.upgrade.swap_safe) Object.assign(item, { state: 'skipped', reason: 'needs_choice' });
+          else {
+            apply(t, 'same_track', b.id);
+            Object.assign(item, { state: 'done', message: 'Upgraded, your cues stayed.', path: pathOf(t) ?? null,
+              rekordbox: t.rekordbox_check?.rekordbox ? { entries: ['1'], kept: [] } : null });
+          }
+          next();
+        }, 700 / speed);
+      };
+      setTimeout(next, 200 / speed);
+    });
+  }
+  function runUndo(kind: string, ids: string[], batch: AiffBatch | null): JobStart {
+    return startJob(kind, kind === 'undo_upgrade' && ids.length === 1 ? ids[0] : null, (finish) => setTimeout(() => {
+      const results: UndoItem[] = [];
+      const needs = ids.some((id) => track(id)?.rekordbox_check?.reason === 'repointed' && track(id)?.rekordbox_check?.rekordbox);
+      const body = () => ({ batch: batch?.id ?? null, total: ids.length, undone: results.filter((r) => r.state === 'undone').length,
+        refused: results.filter((r) => r.state === 'refused').length, failed: 0, results, recovered: [] as [string, boolean][] });
+      if (s.rekordbox_running && needs) {
+        for (const id of ids) results.push({ track: id, state: 'waiting', reason: 'rekordbox_open', message: 'Not undone yet. Nothing was changed.' });
+        return finish(false, body(), 'rekordbox_open', 'Quit rekordbox to undo: Discjockey points your rekordbox track back at your old file only while rekordbox is closed.');
+      }
+      for (const id of ids) {
+        const t = track(id);
+        const before = t?.rekordbox_check?.undo;
+        if (!t || !before || t.upgrade) {
+          results.push({ track: id, state: 'refused', reason: null, message: 'There is no upgrade to undo for this track.' });
+          continue;
+        }
+        Object.assign(t, before);
+        results.push({ track: id, state: 'undone', reason: null, message: 'the old file is back; the new version waits again' });
+        const item = aiff.flatMap((x) => x.items).filter((i) => i.track === id && i.state === 'done').at(-1);
+        if (item) item.state = 'undone';
+      }
+      if (ids.length && !results.some((r) => r.state === 'undone')) {
+        return finish(false, body(), 'refused', ids.length === 1 ? results[0].message : 'None of these could be undone.');
+      }
+      finish(true, body());
+    }, 600 / speed));
+  }
   const media = (t: FakeTrack, which: Which) => toneUrl(which === 'upgrade' ? Math.min(t.duration_s, 90)
     : Math.min(t.duration_s, 120), which === 'upgrade' ? 330 : 196 + (Math.abs(hash(t.track_id)) % 6) * 22);
 
@@ -570,7 +684,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         free_downloads: q === 'lossless' ? [] : [...(t.free_downloads ?? [])],
         bought_name: `Library/${t.folder}/${t.artist} - ${t.title}.wav`,
         audio_url: q === 'missing' || t.away ? null : media(t, 'current'),
-        upgrade: t.upgrade ? { ...t.upgrade, audio_url: media(t, 'upgrade') } : null,
+        upgrade: t.upgrade ? { ...t.upgrade, audio_url: media(t, 'upgrade'), ...rbOf(t) } : null,
       } });
     },
     async todo(filter: TodoFilter, show_hidden: boolean) { return ok(todoView(filter, show_hidden)); },
@@ -760,6 +874,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     },
     async stop() {
       if (importRun && job?.running) { job.stopping = true; importRun.stopped = true; return ok({ stopped: true }); }
+      if (batchStop && job?.running) { job.stopping = true; batchStop.stopped = true; return ok({ stopped: true }); }
       if (moveRun && job?.running) { job.stopping = true; moveRun.stopped = true; return ok({ stopped: true }); }
       if (savePending && job?.running) { job.stopping = true; savePending.stopped = true; return ok({ stopped: true }); }
       if (replay && job?.running) { job.stopping = true; replay.stop(); return ok({ stopped: true }); }
@@ -996,50 +1111,65 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           { path: `Superseded/${t.folder}/${t.artist} - ${t.title}.aiff` }));
       }, 500 / speed));
     },
-    async rekordbox_checked(track_id: string) {
-      const t = track(track_id);
-      if (!t) return fail('refused', 'This track is not in your library any more.');
-      if (!t.rekordbox_check) return fail('refused', 'Nothing to check in rekordbox for this track.');
-      return startJob('rekordbox_checked', track_id, (finish) => setTimeout(() => {
-        t.rekordbox_check = null;
-        finish(true, opResult(t, 'rekordbox_checked', 'checked in rekordbox'));
+    async rekordbox_checked(track_ids: string[]) {
+      const ids = listOf(track_ids);
+      if (!ids) return fail('refused', 'No tracks were chosen.');
+      const have = ids.filter((id) => track(id)?.rekordbox_check);
+      if (!have.length) return fail('refused', 'There is nothing to check for these tracks any more.');
+      return startJob('rekordbox_checked', ids.length === 1 ? ids[0] : null, (finish) => setTimeout(() => {
+        const results = have.map((id) => { const t = track(id)!; t.rekordbox_check = null;
+          return opResult(t, 'rekordbox_checked', 'checked in rekordbox').result; });
+        for (const b of aiff) if (b.state === 'stopped' && !b.items.some((i) => i.state === 'planned')) b.state = 'done';
+        finish(true, { results, checked: have, not_checked: ids.filter((id) => !have.includes(id)), recovered: [] });
       }, 300 / speed));
     },
-    async upgrade(track_id: string, mode: 'swap' | 'add_new' | 'discard') {
-      const t = track(track_id);
-      if (!t?.upgrade) return fail('refused', 'There is no upgrade for this track.');
+    async upgrade(track_ids: string[], mode: 'swap' | 'add_new' | 'discard') {
+      const ids = listOf(track_ids);
+      if (!ids) return fail('refused', 'No tracks were chosen.');
       if (!['swap', 'add_new', 'discard'].includes(mode)) return fail('refused', 'Pick swap, add as new or discard.');
-      if (mode === 'swap' && !t.upgrade.swap_safe) return fail('refused', "The two versions don't match, so a swap would break your cue points.");
-      return startJob(`upgrade_${mode}`, track_id, (finish) => setTimeout(() => {
-        if (mode === 'discard') {
-          t.upgrade = null;
-          return finish(true, opResult(t, 'discarded', 'upgrade discarded'));
-        }
-        const measured = t.upgrade!.alignment;
-        const old = pathOf(t)!;
-        const oldPath = `Superseded/${t.folder}/${mode === 'swap' ? old.split('/').pop()!.replace(/\.[^.]+$/, ' (lossy)$&')
-          : old.split('/').pop()}`;
-        const before = { status: t.status, cutoff_hz: t.cutoff_hz, source: t.source, codec: t.codec, upgrade: t.upgrade,
-          rekordbox_check: t.rekordbox_check ? { ...t.rekordbox_check, undo: undefined } : null };
-        Object.assign(t, { status: 'lossless', cutoff_hz: null, source: 'qobuz', codec: 'flac', upgrade: null });
-        t.rekordbox_check = { reason: mode === 'add_new' ? 'added_as_new' : 'swapped', since: dateOnly(new Date()),
-          match: measured.result, offset_ms: measured.offset_ms ?? 0,
-          ...(mode === 'swap' ? { moved: false } : { aligned: measured.result === 'exact' || measured.result === 'shifted' }),
-          undo: before, old_path: oldPath };
-        finish(true, opResult(t, mode === 'swap' ? 'swapped' : 'added_new', mode === 'swap'
-          ? 'swapped, the old file is in Superseded' : 'added as a new file, the old one is in Superseded'));
-      }, 900 / speed));
+      if (mode === 'swap') return runAiff('user', ids);
+      return startJob(`upgrade_${mode}`, ids.length === 1 ? ids[0] : null, (finish) => {
+        const results: AiffItemResult[] = [];
+        let n = 0;
+        const next = () => {
+          if (n >= ids.length) {
+            emit({ type: 'BatchProgress', batch_id: 0, done: ids.length, total: ids.length, track_id: null, name: null } as HubEvent);
+            return finish(true, batchBody(null, 'done', null, results));
+          }
+          const t = track(ids[n++]);
+          if (!t?.upgrade) results.push({ track: ids[n - 1], action: mode, state: 'skipped', reason: 'no_upgrade', message: null,
+            path: null, rekordbox: null });
+          else {
+            emit({ type: 'BatchProgress', batch_id: 0, done: n - 1, total: ids.length, track_id: t.track_id, name: `${t.artist} - ${t.title}` } as HubEvent);
+            if (mode === 'discard') { t.upgrade = null; results.push(itemOf(t, mode, 'upgrade discarded')); }
+            else { apply(t, 'add_new', null); results.push(itemOf(t, mode, 'added as a new file, the old one is in Superseded')); }
+          }
+          setTimeout(next, 500 / speed);
+        };
+        setTimeout(next, 300 / speed);
+      });
+    },
+    async upgrade_all() {
+      const ids = s.tracks.filter((t) => t.in_playlists && !t.hidden && t.upgrade?.swap_possible).map((t) => t.track_id);
+      if (!ids.length) return fail('refused', 'None of these can be upgraded right now.');
+      return runAiff('upgrade_all', ids);
+    },
+    async batch_resume(batch_id: number) {
+      const b = aiff.find((x) => x.id === batch_id);
+      if (!b) return fail('refused', 'Discjockey has no record of this batch.');
+      if (b.state !== 'stopped') return fail('refused', 'This batch is not stopped, so there is nothing to resume.');
+      return runAiff('user', [], b);
+    },
+    async batch_undo(batch_id: number) {
+      const b = aiff.find((x) => x.id === batch_id);
+      if (!b) return fail('refused', 'Discjockey has no record of this batch.');
+      return runUndo('batch_undo', b.items.filter((i) => i.state === 'done').map((i) => i.track).reverse(), b);
     },
 
-    async undo_upgrade(track_id: string) {
-      const t = track(track_id);
-      if (!t) return fail('refused', 'This track is not in your library any more.');
-      return startJob('undo_upgrade', track_id, (finish) => setTimeout(() => {
-        const before = t.rekordbox_check?.undo;
-        if (!before || t.upgrade) return finish(false, null, 'refused', 'There is no upgrade to undo for this track.');
-        Object.assign(t, before);
-        finish(true, opResult(t, 'upgrade_undone', 'the old file is back; the new version waits again'));
-      }, 600 / speed));
+    async undo_upgrade(track_ids: string[]) {
+      const ids = listOf(track_ids);
+      if (!ids) return fail('refused', 'No tracks were chosen.');
+      return runUndo('undo_upgrade', ids, null);
     },
 
     async show_in_finder() { return ok({}); },
@@ -1209,6 +1339,20 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     finish(true, opResult(t, 'replaced', 'the old file is in Superseded'));
   }
 
+  /** views.same_track_reason for a fake track: null when Same track can run now. */
+  function sameTrackReason(t: FakeTrack): string | null {
+    if (!t.upgrade) return 'no_upgrade';
+    if (!t.upgrade.swap_safe) return 'needs_choice';
+    return rbOf(t).why_not ?? null;
+  }
+  function upgradeAll(rows: TodoItem[]) {
+    const mine = rows.filter((r) => !r.hidden);
+    const stopped = [...aiff].reverse().find((b) => b.state === 'stopped' && b.items.some((i) => i.state === 'planned'));
+    return { all: { n: mine.filter((r) => r.same_track === null).length, m: mine.filter((r) => r.same_track === 'needs_choice').length,
+      k: mine.filter((r) => r.same_track && r.same_track !== 'needs_choice').length },
+      stopped: stopped ? { batch_id: stopped.id, left: stopped.items.filter((i) => i.state === 'planned').length } : null };
+  }
+
   function todoView(filter: TodoFilter, show_hidden: boolean) {
     const order: TodoGroupKey[] = ['rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready', 'not_found', 'weak',
       'good_lossy', 'fake', 'other'];
@@ -1225,26 +1369,44 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     const chips = Object.fromEntries(['all', ...order].map((k) => [k, 0])) as Record<TodoFilter, number>;
     const counted = new Set<string>();
     let hidden_count = 0;
+    const open = new Map<number, FakeTrack[]>();
+    for (const t of s.tracks) if (t.rekordbox_check?.batch) open.set(t.rekordbox_check.batch, [...(open.get(t.rekordbox_check.batch) ?? []), t]);
+    const checkItem = (t: FakeTrack, size = 1): TodoItem => ({ ...trackRow(t), group: 'rekordbox_check',
+      detail: checkStatus(t.rekordbox_check), check: checkView(t.rekordbox_check!, size), free: false,
+      file_state: todoFileState(t), can_undo: !!t.rekordbox_check!.undo && !t.upgrade });
     for (const t of s.tracks) {
       if (t.rekordbox_check) {
-        items.rekordbox_check.push({ ...trackRow(t), group: 'rekordbox_check', detail: checkStatus(t.rekordbox_check),
-          check: checkView(t.rekordbox_check), free: false, file_state: todoFileState(t),
-          can_undo: !!t.rekordbox_check.undo && !t.upgrade });
-        chips.rekordbox_check++;
-        if (!t.hidden) counted.add(t.track_id);
+        const id = t.rekordbox_check.batch;
+        const group = id ? open.get(id)! : [];
+        if (id && group.length > 1) {
+          if (group[0] === t) {
+            const key = `batch:${id}`;
+            const tracks = group.map((x) => checkItem(x, group.length));
+            const started = tracks.map((x) => x.check!.since).filter(Boolean).sort()[0] ?? null;
+            items.rekordbox_check.unshift({ ...tracks[0], track_id: key, key, detail: `${started ?? ''} · Same track`,
+              batch: { id, size: group.length, started, tracks } });
+            chips.rekordbox_check++;
+            counted.add(key);
+          }
+        } else {
+          items.rekordbox_check.push(checkItem(t, group.length || 1));
+          chips.rekordbox_check++;
+          if (!t.hidden) counted.add(t.track_id);
+        }
       }
       const g = t.in_playlists ? todoGroup(t) : null;
       if (!g) continue;
       if (t.hidden) hidden_count++;
       else { chips[g]++; counted.add(t.track_id); }
       if (!t.hidden || show_hidden) items[g].push({ ...trackRow(t), group: g, detail: todoDetail(t, g), free: todoFree(t, g),
-        file_state: todoFileState(t) });
+        file_state: todoFileState(t), ...(g === 'upgrade_ready' ? { same_track: sameTrackReason(t) } : {}) });
     }
     for (const q of questionItems(s)) { items.same_song.push(q); chips.same_song++; counted.add(q.track_id); }
     for (const d of duplicateItems(s)) { items.duplicate.push(d); chips.duplicate++; counted.add(d.track_id); }
     chips.all = counted.size;
     const groups = order.filter((k) => items[k].length && (filter === 'all' || filter === k))
-      .map((k) => ({ key: k, label: LABELS[k][0], hint: LABELS[k][1], items: items[k] }));
+      .map((k) => ({ key: k, label: LABELS[k][0], hint: LABELS[k][1], items: items[k],
+        ...(k === 'upgrade_ready' ? upgradeAll(items[k]) : {}) }));
     const empty = groups.length ? null : !s.tracks.length ? 'empty_library' as const : filter !== 'all'
       ? 'nothing_here' as const : hidden_count ? 'all_hidden' as const : 'all_lossless' as const;
     return { chips, hidden_count, show_hidden, groups, empty };
