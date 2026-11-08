@@ -661,7 +661,8 @@ def run_checked(args: argparse.Namespace) -> int:
         else:
             tracks = list(dict.fromkeys(args.tracks))
         done = [r.track_id for r in batches.checked(paths, tracks, state=state)]
-        missing = [t for t in tracks if t not in done]
+        # a batch's tracks checked one by one earlier are not a problem; a key that has nothing to check is
+        missing = [] if args.batch else [t for t in tracks if t not in done]
         lines = [f"Checked: {_name(state, t)}" for t in done] + [
             f"Nothing to check: {_name(state, t)}" for t in missing]
         _say(args, {"ok": True, "checked": done, "not_checked": missing}, lines or ["No tracks to check."], recovered)

@@ -602,3 +602,24 @@ def test_preview_of_a_key_without_a_music_folder_exits_2(capsys):
     assert (code, data["ok"], data["reason"]) == (2, False, "no_library")
     assert cli.main(["rekordbox", "preview", "t1"]) == 2
     assert "discjockey setup" in capsys.readouterr().out
+
+
+# --- discjockey upgrade / batch / rekordbox checked | backups | restore (issue 33 stage B) ---
+
+def test_apply_needs_song_keys_or_all_and_a_way(capsys):
+    for argv in (["upgrade", "apply", "--way", "same-track"],                       # nothing named
+                 ["upgrade", "apply", "t1", "--all", "--way", "same-track"],        # both
+                 ["upgrade", "apply", "t1"],                                        # no way
+                 ["upgrade", "apply", "t1", "--way", "both"],
+                 ["upgrade", "discard"], ["upgrade", "undo"], ["upgrade"], ["batch"], ["batch", "show"],
+                 ["batch", "resume", "one"], ["rekordbox", "checked"],
+                 ["rekordbox", "checked", "t1", "--batch", "2"], ["rekordbox", "restore"]):
+        with pytest.raises(SystemExit) as e:
+            cli.parse_args(argv)
+        assert e.value.code == 2, argv
+    capsys.readouterr()
+    ok = cli.parse_args(["upgrade", "apply", "t1", "t2", "--way", "new-track", "--json"])
+    assert (ok.tracks, ok.all, ok.way, ok.json) == (["t1", "t2"], False, "new-track", True)
+    assert cli.parse_args(["upgrade", "apply", "--all", "--way", "same-track", "--dry-run"]).dry_run is True
+    assert cli.parse_args(["rekordbox", "checked", "--batch", "3"]).batch == 3
+    assert cli.parse_args(["rekordbox", "restore", "id", "--yes"]).yes is True
