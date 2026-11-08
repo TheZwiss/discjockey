@@ -415,3 +415,6 @@ Results:
   Session; CI green; merged into feat/rekordbox-b. RH must confirm created lookup rows (NULL SearchStr) show right.
 - B3 done (Opus): `convert.py` Same track for any format (AIFF lined up to rekordbox's timeline, rekordbox repointed),
   recovery at every crash point (46 tests); CI green; merged into feat/rekordbox-b.
+- B4 done (Opus): convert undo to the byte (with crash recovery), the swap writes rekordbox's text in a batch + undo
+  per field; CI green; merged. For R1: convert undo refuses when the AIFF's whole-file SHA changed; if rekordbox
+  writes tags into the file, that blocks undo after any edit in rekordbox → use an audio-only key instead.
