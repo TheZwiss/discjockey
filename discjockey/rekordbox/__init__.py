@@ -3,7 +3,10 @@
 Finds rekordbox's library on this Mac (`locate`), opens its encrypted `master.db` and checks it (`master`: the key,
 the guards, finding the tracks that hold a file), and tells whether rekordbox runs (`process`). It reads rekordbox's
 analysis files (`anlz`) and measures where rekordbox's timeline sits for a file (`timing`, pure; `probe`, the ffmpeg
-side; `offset.timeline_offset`, one answer per file). Each module's docstring says what it owns.
+side; `offset.timeline_offset`, one answer per file). `eligible` (pure) says per track what Same track, Convert and
+Rename can do and why not, and `preview` is the read-only answer the `rekordbox preview` command prints (import them
+from their modules: `preview` pulls in `upgrades`, which imports this package). Each module's docstring says what it
+owns.
 
 **Read only in stage A:** nothing here writes `master.db` or an analysis file; every open is read-only and leaves no
 file beside the library. Stage B adds the write beside the read (`master.open_write`), never in place of it.

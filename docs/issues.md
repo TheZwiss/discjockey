@@ -37,7 +37,8 @@ throwaway scripts of its own rather than through Discjockey.
   them where agents look (e.g. `AGENTS.md` at the repo root, plus a README section for users who point their agent
   at the app).
 - **Pin it:** a test that fails when a bridge method has no command or no agent-docs entry.
-- The 33 work (rekordbox repoint) gets its command under the rule from the start.
+- The 33 work (rekordbox repoint) gets its command under the rule from the start. Issue 33 stage A's commands
+  (`rekordbox status`, `rekordbox preview`) are in `CONTRIBUTING.md` › Commands for scripts and agents; gather them.
 
 ## 38. Playlists: switching a playlist off says its songs get removed; switching it back on crashes the page (user, 2026-11-07, live in 1.2.1)
 
@@ -52,6 +53,9 @@ Found live by the user on the Playlists page:
   Check the other switch paths on the page too: on → off → on before saving, after saving, and with several rows.
 
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them — needs a design round (user, 2026-10-31)
+
+**Stage A built** (read side, New track lined up, `rekordbox status` / `preview`), on `feat/rekordbox-a`; live check
+pending (`docs/2026-11-07-rekordbox-stage-a-plan.md` §8); stages B–E open.
 
 Design: `docs/2026-11-07-rekordbox-repoint-design.md` (2026-11-07; the user's answers and wishes A–C built in, stages A–D; stage E is issue 40). Audit 2026-11-05: parked, nothing of it is built (no AIFF conversion of imported files, no rekordbox repoint; the New
 track choice still keeps the download as it is).
