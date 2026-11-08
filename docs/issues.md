@@ -54,7 +54,7 @@ Found live by the user on the Playlists page:
 
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them — needs a design round (user, 2026-10-31)
 
-**Stage A built** (read side, New track lined up, `rekordbox status` / `preview`), on `feat/rekordbox-a`; live check
+**Stage A merged into main** (43e6797: read side, New track lined up, `rekordbox status` / `preview`); live check
 pending (`docs/2026-11-07-rekordbox-stage-a-plan.md` §8); stages B–E open.
 
 Design: `docs/2026-11-07-rekordbox-repoint-design.md` (2026-11-07; the user's answers and wishes A–C built in, stages A–D; stage E is issue 40). Audit 2026-11-05: parked, nothing of it is built (no AIFF conversion of imported files, no rekordbox repoint; the New

@@ -402,3 +402,6 @@ Results:
 - A5 done (Sonnet 241k): `eligible.py`, `preview.py`, `discjockey rekordbox status|preview` (read-only, --json, exit
   codes), CONTRIBUTING "Commands for scripts and agents"; CI green; merged. Slip: one by-hand run read the real
   rekordbox + library.db once (read-only; checked afterwards: no new files, mtimes unchanged). Next: stage A review.
+- Stage A review (Opus 269k: 0 Critical, 2 Important, 13 Minor) + fresh Sonnet fix round (165k, all fixed; flaky
+  liked-music test: likely cause fixed with a teardown guard that joins every test's job threads, not proven);
+  verify 1027 shots ok, CI green; **stage A merged into main 43e6797** (no release). Next: stage B plan (Opus).
