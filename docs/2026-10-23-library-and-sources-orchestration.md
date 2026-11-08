@@ -395,3 +395,5 @@ Results:
   offset (max error 1.2 samples); CI green; merged into feat/rekordbox-a. Flaky in parallel runs:
   `test_hub_api_liked_music.py::test_a_refresh_with_liked_music_listed_and_the_account_paused_makes_no_request`
   (passes alone and on CI) → goes into the stage A fix round.
+- A3 done (Opus 222k, one usage-limit stop, resumed): `render_aiff`, New track renders the same edit lined up with
+  rekordbox's timeline (falls back to today's rename when unmeasurable), undo of a rendered add; CI green; merged.
