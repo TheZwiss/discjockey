@@ -445,3 +445,7 @@ Results:
   · n / Resume · k left in the group head, batch progress panel (Playlists moves layout), single panel's non-AIFF
   outcomes; block changes ListSection/Surface `action`, ListRow `reveal`; vitest 1313, CI green. Merged 595baaf.
   Next: U2 (running), then S, R2, V.
+- U2 (Opus 348k / 107 calls; its own report said 150–170k): batch check card, check multi-select, single repointed
+  card; "Undo all" undoes the card's own tracks (not `batch_undo`); vitest 1345, CI green. Merged 031846d. Sizing
+  lesson (user): agents ignore token/call stops; control size by job scope + deliverable stops (memory updated).
+  Shots split into S1 (U1 states + drift) and S2 (U2 states), findings only, Sonnet, one after the other.
