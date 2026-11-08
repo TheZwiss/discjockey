@@ -7,8 +7,8 @@ import pytest
 from discjockey.audio import TEXT_FIELDS, FileFacts
 from discjockey.rekordbox import Entry, Status, TimelineOffset
 from discjockey.rekordbox.eligible import (
-    ACTIONS, REASONS, Eligible, Skip, convert, expected_tags, fields_kept, reason_of, rename, same_track, tags_clean,
-    text_plan,
+    ACTIONS, REASONS, Eligible, Skip, convert, expected_tags, fields_kept, reason_of, rename, same_track, same_track_quick,
+    tags_clean, text_plan,
 )
 from discjockey.rekordbox.offset import EntryTiming
 from discjockey.rekordbox.preview import REASON_WORDS
@@ -38,7 +38,8 @@ def aiff(**kw):
 
 def row(cloud=False, **kw):
     base = dict(id="1", folder_path="/x", file_name="x", file_type=1, analysis_path=None, title="", artist="",
-                album="", label="", isrc="", comment="", cloud=cloud, created_at=None)
+                album="", label="", isrc="", comment="", cloud=cloud, created_at=None, artist_id=None, album_id=None,
+                label_id=None, org_folder_path="", local_folder_path=None, file_size=None, uuid=None)
     return Entry(**{**base, **kw})
 
 
@@ -61,6 +62,7 @@ def test_every_reason_has_its_words_and_the_actions_are_three():
     assert set(REASON_WORDS) == set(REASONS) and len(set(REASONS)) == len(REASONS)
     assert ACTIONS == ("same_track", "convert", "rename")
     assert reason_of(Eligible()) is None and reason_of(Skip("cloud")) == "cloud"
+    assert {"unclean", "changed", "space", "rekordbox_open", "rename_blocked"} <= set(REASONS)  # stage B: a run finds them
 
 
 # --- Same track ---
@@ -98,6 +100,43 @@ def test_another_format_needs_rekordbox_to_follow():
     assert why(same_track(e, facts(), READY, timing(cloud=True))) == "cloud"
     assert why(same_track(e, facts(), READY, timing("not_analysed", None))) == "not_analysed"
     assert why(same_track(e, facts(), READY, timing("timing", None))) == "timing"
+
+
+# --- Same track, quick (counts and screens: what is known without reading the file) ---
+
+def test_quick_needs_a_parked_upgrade_that_is_the_same_edit_and_the_file_there():
+    assert why(same_track_quick(entry(), READY)) == "no_upgrade"
+    for result in ("different", "unknown", None):
+        assert why(same_track_quick(entry(upgrade=parked(result)), READY)) == "needs_choice", result
+    for result in ("exact", "shifted"):
+        assert why(same_track_quick(entry(upgrade=parked(result)), READY)) is None, result
+    e = entry(upgrade=parked())
+    assert why(same_track_quick(e, READY, "away")) == "away"
+    assert why(same_track_quick(e, READY, "missing")) == "file_missing"
+    assert why(same_track_quick(entry(), READY, "missing")) == "no_upgrade"  # nothing waits: say that
+
+
+def test_quick_lets_an_aiff_through_whatever_rekordbox_is_and_others_need_a_readable_library_or_none():
+    for rb in (READY, NONE, UNREADABLE):
+        assert why(same_track_quick(entry(upgrade=parked(), path="Library/Mine/x.AIFF"), rb)) is None
+        assert why(same_track_quick(entry(upgrade=parked(), path="Library/Mine/x.aif"), rb)) is None
+    for ext in (".mp3", ".m4a", ".flac", ".wav"):
+        e = entry(upgrade=parked(), path=f"Library/Mine/x{ext}")
+        assert why(same_track_quick(e, READY)) is None and why(same_track_quick(e, NONE)) is None, ext
+        assert why(same_track_quick(e, UNREADABLE)) == "rekordbox_unreadable", ext
+    busy = Status("ready", True, "7.0.0", "/rb/master.db", "busy", None, None)  # rekordbox runs and holds the file
+    assert why(same_track_quick(entry(upgrade=parked()), busy)) is None  # the run decides: open rekordbox is its skip
+
+
+@pytest.mark.parametrize("path", ["Library/Mine/x.mp3", "Library/Mine/x.aiff", None])
+@pytest.mark.parametrize("rb", [READY, NONE, UNREADABLE])
+@pytest.mark.parametrize("result", ["exact", "shifted", "different", None])
+@pytest.mark.parametrize("present", ["here", "away", "missing"])
+def test_quick_agrees_with_the_full_check_when_nothing_is_measured(path, rb, result, present):
+    e = entry(upgrade=parked(result), path=path)
+    ext = ".aiff" if path and path.endswith(".aiff") else ".mp3"
+    full = same_track(e, facts(ext, "pcm_s16be" if ext == ".aiff" else "mp3"), rb, None, present=present)
+    assert same_track_quick(e, rb, present) == full
 
 
 def timeline_none():

@@ -21,13 +21,13 @@ from typing import NamedTuple
 from . import library as disk  # "library" is the Library/ path argument everywhere here
 from .events import Emit, Message
 from .identify import compare
-from .models import (OWN_PREFIX, AddedFolder, BatchRow, DupFile, DuplicateGroup, FetchedPlaylist, ImportCounts,
+from .models import (OWN_PREFIX, AddedFolder, AiffBatchRow, AiffItemRow, BatchRow, DupFile, DuplicateGroup, FetchedPlaylist, ImportCounts,
                      ImportRow, KnownFile, MoveRow, NOT_OPENABLE, OwnFacts, PlannedMove, PlaylistRecord, RecordedTrack,
                      RemovalCounts, ScanResult, WatchedFolder, group_id, is_own, split_token, token)
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 NEWER = ("This music folder was last used by a newer Discjockey. Update Discjockey, then try again. "
          "Nothing was changed.")
@@ -155,6 +155,30 @@ SCHEMA_V6_STEP = (
 )
 
 
+# Issue 33 stage B (plan rekordbox stage B §1.7): the AIFF batches (Same track for any format, Upgrade all) and
+# their items, kept beside the move log and outside library state (no generation bump, not in the snapshot)
+SCHEMA_V7_STEP = (
+    """CREATE TABLE aiff_batches (
+      id INTEGER PRIMARY KEY,
+      kind TEXT NOT NULL CHECK (kind IN ('upgrade', 'convert', 'mixed')),
+      started_by TEXT NOT NULL CHECK (started_by IN ('user', 'upgrade_all', 'make_aiff', 'cdj_all', 'auto_upgrade')),
+      scope TEXT,                                 -- what the user picked (a folder, a selection), for the words
+      started TEXT NOT NULL, ended TEXT,          -- ISO seconds
+      state TEXT NOT NULL CHECK (state IN ('running', 'stopped', 'done')),
+      stop_reason TEXT CHECK (stop_reason IN ('stop', 'rekordbox_open', 'crash')),
+      backup TEXT)                                -- the rekordbox backup the batch's writes share""",
+    """CREATE TABLE aiff_items (
+      batch INTEGER NOT NULL REFERENCES aiff_batches (id) ON DELETE CASCADE,
+      seq INTEGER NOT NULL,                       -- order in the batch
+      track TEXT NOT NULL,                        -- the song's key
+      action TEXT NOT NULL CHECK (action IN ('same_track', 'convert', 'rename')),
+      state TEXT NOT NULL CHECK (state IN ('planned', 'done', 'skipped', 'failed', 'undone')),
+      reason TEXT, result TEXT,                   -- a skip reason (eligible.REASONS) or the failure's words; JSON
+      PRIMARY KEY (batch, seq))""",
+    "CREATE INDEX aiff_items_track ON aiff_items (track)",
+)
+
+
 def _statements(statements: tuple[str, ...]) -> Callable[[sqlite3.Connection], None]:
     def step(conn: sqlite3.Connection) -> None:
         for statement in statements:  # one execute each: executescript would commit mid-transaction
@@ -168,7 +192,8 @@ UPGRADES: dict[int, Callable[[sqlite3.Connection], None]] = {1: _statements(SCHE
                                                            2: _statements(SCHEMA_V3_STEP),
                                                            3: _statements(SCHEMA_V4_STEP),
                                                            4: _statements(SCHEMA_V5_STEP),
-                                                           5: _statements(SCHEMA_V6_STEP)}
+                                                           5: _statements(SCHEMA_V6_STEP),
+                                                           6: _statements(SCHEMA_V7_STEP)}
 
 
 class _Connection(sqlite3.Connection):
@@ -1570,6 +1595,114 @@ def group_files(conn: sqlite3.Connection, gid: str) -> list[DupFile]:
             for i, key, folder, rel, status, cutoff, fmt, online, in_playlists, usable in rows]
 
 
+# --- the AIFF batches (plan rekordbox stage B §1.7): Same track / Convert runs over a list of tracks ---
+
+AIFF_KINDS = frozenset({"upgrade", "convert", "mixed"})
+AIFF_STARTED_BY = frozenset({"user", "upgrade_all", "make_aiff", "cdj_all", "auto_upgrade"})
+AIFF_ACTIONS = frozenset({"same_track", "convert", "rename"})
+AIFF_ITEM_STATES = ("planned", "done", "skipped", "failed", "undone")
+AIFF_BATCH_STATES = frozenset({"running", "stopped", "done"})
+AIFF_STOP_REASONS = frozenset({"stop", "rekordbox_open", "crash"})
+_AIFF_COLUMNS = ("id", "kind", "started_by", "scope", "started", "ended", "state", "stop_reason", "backup")
+
+
+def _one_of(value, allowed, what: str):
+    if value not in allowed:
+        raise ValueError(f"{value!r} is not a {what}")
+    return value
+
+
+def start_aiff_batch(conn: sqlite3.Connection, kind: str, started_by: str, scope: str | None,
+                     items: Sequence[tuple[str, str]], now: datetime) -> int:
+    """Records an AIFF batch and every item it plans, in one transaction, before anything runs: `items` are
+    (song key, action) pairs, each `planned`, `seq` its position. An unknown kind, starter or action is a ValueError
+    (nothing written). The batch starts `running`. Returns its id."""
+    _one_of(kind, AIFF_KINDS, "kind of AIFF batch")
+    _one_of(started_by, AIFF_STARTED_BY, "way to start an AIFF batch")
+    for _, action in items:
+        _one_of(action, AIFF_ACTIONS, "kind of AIFF action")
+    with transaction(conn):
+        batch_id = conn.execute("INSERT INTO aiff_batches (kind, started_by, scope, started, state) "
+                                "VALUES (?, ?, ?, ?, 'running')",
+                                (kind, started_by, scope, now.isoformat(timespec="seconds"))).lastrowid
+        conn.executemany("INSERT INTO aiff_items (batch, seq, track, action, state) VALUES (?, ?, ?, ?, 'planned')",
+                         [(batch_id, seq, track, action) for seq, (track, action) in enumerate(items)])
+    return batch_id
+
+
+def _aiff_counts(conn: sqlite3.Connection, batch_id: int) -> dict[str, int]:
+    counts = dict.fromkeys(AIFF_ITEM_STATES, 0)
+    counts.update(conn.execute("SELECT state, COUNT(*) FROM aiff_items WHERE batch = ? GROUP BY state", (batch_id,)))
+    return counts
+
+
+def _aiff_row(conn: sqlite3.Connection, row: tuple, items: bool) -> AiffBatchRow:
+    fields = dict(zip(_AIFF_COLUMNS, row))
+    found = ()
+    if items:
+        found = tuple(AiffItemRow(seq=seq, track=track, action=action, state=state, reason=reason,
+                                  result=None if result is None else json.loads(result))
+                      for seq, track, action, state, reason, result in conn.execute(
+                          "SELECT seq, track, action, state, reason, result FROM aiff_items WHERE batch = ? "
+                          "ORDER BY seq", (fields["id"],)))
+    return AiffBatchRow(**fields, counts=_aiff_counts(conn, fields["id"]), items=found)
+
+
+def aiff_batch(conn: sqlite3.Connection, batch_id: int) -> AiffBatchRow | None:
+    """One AIFF batch with its items in `seq` order; None when there is no such batch."""
+    row = conn.execute(f"SELECT {', '.join(_AIFF_COLUMNS)} FROM aiff_batches WHERE id = ?", (batch_id,)).fetchone()
+    return None if row is None else _aiff_row(conn, row, True)
+
+
+def aiff_batches(conn: sqlite3.Connection, limit: int = 20) -> tuple[list[AiffBatchRow], int]:
+    """The newest `limit` AIFF batches, newest first, with their counts (no items), plus how many there are in all."""
+    rows = conn.execute(f"SELECT {', '.join(_AIFF_COLUMNS)} FROM aiff_batches ORDER BY id DESC LIMIT ?",
+                        (limit,)).fetchall()
+    return ([_aiff_row(conn, r, False) for r in rows],
+            conn.execute("SELECT COUNT(*) FROM aiff_batches").fetchone()[0])
+
+
+def running_aiff_batches(conn: sqlite3.Connection) -> list[int]:
+    """The AIFF batches still `running`: after a crash nothing runs them (batches.recover stops them)."""
+    return [i for (i,) in conn.execute("SELECT id FROM aiff_batches WHERE state = 'running' ORDER BY id")]
+
+
+def _set_aiff_item(conn: sqlite3.Connection, batch: int, seq: int, state: str, reason: str | None,
+                   result: object | None) -> None:
+    """set_aiff_item's body, inside the caller's transaction (also end_step's)."""
+    _one_of(state, AIFF_ITEM_STATES, "state of an AIFF item")
+    changed = conn.execute("UPDATE aiff_items SET state = ?, reason = ?, result = ? WHERE batch = ? AND seq = ?",
+                           (state, reason, None if result is None else _dumps(result), batch, seq)).rowcount
+    if not changed:
+        raise ValueError(f"there is no item {seq} in AIFF batch {batch}")
+
+
+def set_aiff_item(conn: sqlite3.Connection, batch: int, seq: int, state: str, reason: str | None = None,
+                  result: object | None = None) -> None:
+    """An item's new state with its reason (a skip reason, or the failure's words) and result (anything JSON can
+    hold). A batch or item that isn't there, or an unknown state, is a ValueError (nothing written)."""
+    with transaction(conn):
+        _set_aiff_item(conn, batch, seq, state, reason, result)
+
+
+def set_aiff_batch(conn: sqlite3.Connection, batch_id: int, *, state: str, stop_reason: str | None = None,
+                   backup: str | None = None, ended: datetime | None = None) -> None:
+    """A batch's state (`stop_reason` replaced with what is given: None clears it). `backup` is kept when None is
+    given (the first rekordbox write names it once); `ended` is stored when given. A batch that isn't there is a
+    ValueError."""
+    _one_of(state, AIFF_BATCH_STATES, "state of an AIFF batch")
+    if stop_reason is not None:
+        _one_of(stop_reason, AIFF_STOP_REASONS, "reason a batch stopped")
+    with transaction(conn):
+        changed = conn.execute(
+            "UPDATE aiff_batches SET state = ?, stop_reason = ?, backup = COALESCE(?, backup), "
+            "ended = COALESCE(?, ended) WHERE id = ?",
+            (state, stop_reason, backup, None if ended is None else ended.isoformat(timespec="seconds"),
+             batch_id)).rowcount
+        if not changed:
+            raise ValueError(f"there is no AIFF batch {batch_id}")
+
+
 # --- the file journal (plan library stage 4, I6, I7): moves of single files, past the entry view ---
 
 _BY_OP_ID = "DELETE FROM pending WHERE json_extract(op, '$.op_id') = ?"
@@ -1627,12 +1760,16 @@ def finish_step(conn: sqlite3.Connection, op: dict, *, library: Path, facts: Fac
 
 
 def end_step(conn: sqlite3.Connection, op_id: str, tracks: Mapping[str, dict], *, library: Path, facts: Facts,
-             now: datetime, rekeyed: Collection[str] = ()) -> int:
+             now: datetime, rekeyed: Collection[str] = (), item: tuple[int, int, object] | None = None) -> int:
     """The end of a journaled step (run_op's, the upgrade swap's and its undo's), in one transaction: `tracks`
     (song key -> entry; none for a step that changed no entry) as save writes them, but only those songs and their
     file rows (a new song is inserted; `rekeyed` as in save); the pending row `op_id` goes. A file a song outside
     the step keeps is StateError (SHARED), a path in no watched folder ValueError; either leaves every row as it
-    was. Returns the new generation."""
+    was. Returns the new generation.
+
+    `item` = (AIFF batch, seq, result): the batch's item becomes `done` with that result in the same transaction, so
+    a crash never leaves a finished step beside a `planned` item (Resume would skip it as having no upgrade); an item
+    that isn't there is a ValueError and nothing is written."""
     stamp = now.isoformat(timespec="seconds")
     tracks = dict(tracks)
     with transaction(conn):
@@ -1642,6 +1779,8 @@ def end_step(conn: sqlite3.Connection, op_id: str, tracks: Mapping[str, dict], *
         _save_files(conn, tracks, ids, [], folders, facts, stamp, rekeyed, part=True)
         _drop_dead_decisions(conn)
         conn.execute(_BY_OP_ID, (op_id,))
+        if item is not None:
+            _set_aiff_item(conn, item[0], item[1], "done", None, item[2])
         return _bump(conn)
 
 

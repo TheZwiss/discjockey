@@ -374,6 +374,34 @@ class BatchRow:
 
 
 @dataclass(frozen=True)
+class AiffItemRow:
+    """An aiff_items row (db.aiff_batch): one track of an AIFF batch."""
+    seq: int
+    track: str  # the song's key
+    action: str  # "same_track" | "convert" | "rename"
+    state: str  # "planned" | "done" | "skipped" | "failed" | "undone"
+    reason: str | None  # a skip reason (rekordbox.eligible.REASONS) or the failure's plain words
+    result: object | None  # what the item produced (JSON: a dict, or words), None until it ran
+
+
+@dataclass(frozen=True)
+class AiffBatchRow:
+    """An aiff_batches row with its counts per item state; `items` is filled for one batch (db.aiff_batch) and empty
+    in a listing (db.aiff_batches)."""
+    id: int
+    kind: str  # "upgrade" | "convert" | "mixed"
+    started_by: str  # "user" | "upgrade_all" | "make_aiff" | "cdj_all" | "auto_upgrade"
+    scope: str | None
+    started: str
+    ended: str | None
+    state: str  # "running" | "stopped" | "done"
+    stop_reason: str | None  # "stop" | "rekordbox_open" | "crash"
+    backup: str | None  # the rekordbox backup the batch's writes share
+    counts: dict[str, int]  # item state -> how many; every state is there
+    items: tuple[AiffItemRow, ...] = ()
+
+
+@dataclass(frozen=True)
 class BatchResult:
     """What every tidy.py entry point returns; views word it."""
     batch_id: int | None  # None: nothing was asked to move

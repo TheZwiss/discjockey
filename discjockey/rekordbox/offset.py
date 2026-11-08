@@ -16,6 +16,9 @@ not:
   cares (d = 0), and `not_analysed` or `timing` (unknown) when a track couldn't be placed or they disagree;
   `not_analysed` wins over `timing` (analysing the track in rekordbox is what helps first).
 
+`view` (stage B): a batch's `master.RekordboxView` answers instead of an open of its own (two keyed opens per file
+cost ~0.4 s); the answer is the same.
+
 `entries` holds every track's findings for the preview and stage B's batch JSON. The old file is decoded once, only
 when some track has a waveform; its start trim is probed only for a format that can have one. Reads rekordbox's
 library read-only and its analysis files; writes nothing. Raises `RuntimeError` (or `probe.ProbeError`) when ffmpeg
@@ -35,7 +38,7 @@ import sqlcipher3
 from .. import quality
 from . import anlz, master, probe, process, timing
 from .locate import Place, locate
-from .master import Entry, Status, Unreadable
+from .master import Entry, RekordboxView, Status, Unreadable
 
 RATE = 44100
 Why = Literal["no_rekordbox", "not_in_rekordbox", "format", "no_cues", "measured", "not_analysed", "timing",
@@ -87,22 +90,32 @@ def _analysis(place: Place, entry: Entry) -> tuple[bool, np.ndarray | None]:
 
 def timeline_offset(old_file: Path, *, place=_LOCATE, running: Callable[[], bool] | None = None,
                     decode: Callable | None = None, trim: Callable | None = None,
-                    probe_audio: Callable | None = None) -> TimelineOffset:
+                    probe_audio: Callable | None = None, view: RekordboxView | None = None) -> TimelineOffset:
     """Where rekordbox's timeline sits for `old_file`. `place` defaults to `locate()`, `running` to
     `process.running`, `decode` to `quality.decode_mono`, `trim` to `probe.start_trim`, `probe_audio` to
-    `quality.probe`, each looked up at call time."""
-    place = locate() if place is _LOCATE else place
-    is_running = (running or process.running)()
-    if place is None or not place.db.is_file():
-        return TimelineOffset(0, "no_rekordbox", master.status(place, lambda: is_running), [])
+    `quality.probe`, each looked up at call time. `view`: a batch's open library (its index and status): the answer
+    comes from it and nothing is located, asked or opened (`place` and `running` are not used); None opens the
+    library for this one answer."""
     rb: Status | None = None
     entries: list[Entry] = []
     cues: dict[str, int] = {}
+    if view is not None:
+        place, rb = view.master.place, view.status
+        is_running = rb.running
+    else:
+        place = locate() if place is _LOCATE else place
+        is_running = (running or process.running)()
+        if place is None or not place.db.is_file():
+            return TimelineOffset(0, "no_rekordbox", master.status(place, lambda: is_running), [])
     try:
-        with master.open_read(place, is_running) as db:  # one keyed open answers the status and the queries
-            rb = master.status_of(db, is_running)
-            entries = db.entries_for(Path(os.path.abspath(old_file)))
-            cues = db.cue_counts([e.id for e in entries])
+        if view is not None:
+            entries = view.master.entries_for(Path(os.path.abspath(old_file)), view.index)
+            cues = view.master.cue_counts([e.id for e in entries])
+        else:
+            with master.open_read(place, is_running) as db:  # one keyed open answers the status and the queries
+                rb = master.status_of(db, is_running)
+                entries = db.entries_for(Path(os.path.abspath(old_file)))
+                cues = db.cue_counts([e.id for e in entries])
     except (Unreadable, sqlcipher3.DatabaseError):  # a read that fails (a busy or damaged file) is "can't read"
         rb = rb or master.status(place, lambda: is_running)
         info = (probe_audio or quality.probe)(old_file)
