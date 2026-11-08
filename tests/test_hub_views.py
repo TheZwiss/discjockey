@@ -6,6 +6,7 @@ import time
 
 import pytest
 
+from discjockey import report
 from discjockey.hub import views
 from discjockey.hub.jobs import PreviewStore
 from discjockey.models import (Action, BatchResult, BatchRow, FetchedPlaylist, MoveRow, Plan, PlannedMove, PlaylistInfo,
@@ -983,8 +984,8 @@ def test_todo_check_in_rekordbox_group_also_for_lossless_and_hidden_tracks():
                                         "the old cues (they belong to the wrong song).")
     assert by["h"]["detail"] == "analyse, set the cues again"
     assert by["h"]["check"] == {"reason": "added_as_new", "since": "2026-10-16", "match": None, "offset_ms": None,
-                                "moved": False, "old_path": None,
-                                "text": "This is a different edit. In rekordbox: analyse it again and set the cues again."}
+                                "moved": False, "aligned": False,
+                                "old_path": None, "text": "This is a different edit. In rekordbox: analyse it again and set the cues again."}
     assert out["chips"]["rekordbox_check"] == 2 and out["chips"]["all"] == 2 and out["hidden_count"] == 1
     both = views.todo(s, "all", True, {}, TODAY)
     assert [g["key"] for g in both["groups"]] == ["rekordbox_check", "not_found"] and both["chips"]["all"] == 2
@@ -1018,6 +1019,17 @@ def test_check_view_says_where_the_old_file_is_from_the_undo_record():
     v = views.check_view(c)
     assert v["old_path"] == "Superseded/A/x (lossy).aiff" and v["match"] == "shifted" and v["offset_ms"] == 12.0
     assert "undo" not in v and v["text"].startswith("The lossless audio is in your file")
+
+
+def test_check_view_says_whether_the_new_file_was_lined_up():
+    base = {"reason": "added_as_new", "since": "2026-11-08", "match": "exact", "offset_ms": 0.0}
+    aligned = views.check_view({**base, "aligned": True})
+    assert aligned["aligned"] is True and aligned["text"] == report.ALIGNED_EDIT_CHECK
+    old_record = views.check_view(base)  # made before `aligned` existed
+    assert old_record["aligned"] is False and old_record["text"] == report.SAME_EDIT_CHECK
+    assert views.check_view({**base, "aligned": False})["aligned"] is False
+    assert views.check_view(None)["aligned"] is False
+    assert views.check_view({"reason": "swapped", "aligned": True})["text"] == report.SWAPPED_CHECK
 
 
 def test_change_of_tracks_without_a_file_says_where_they_will_go():

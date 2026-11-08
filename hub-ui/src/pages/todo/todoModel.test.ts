@@ -473,7 +473,7 @@ describe('upgrade decision', () => {
 
 describe('rekordbox check after a replace', () => {
   const check = (extra: Partial<RekordboxCheckView>): RekordboxCheckView => ({ reason: 'swapped', since: '2026-10-31',
-    match: 'exact', offset_ms: 0, moved: false, text: 'long', old_path: 'Superseded/Hard_Bounce/A - x (lossy).aiff', ...extra });
+    match: 'exact', offset_ms: 0, moved: false, aligned: false, text: 'long', old_path: 'Superseded/Hard_Bounce/A - x (lossy).aiff', ...extra });
   const words = (c: RekordboxCheckView) => checkCard(c)!.steps.map((s) => s.parts.map((p) => p.text).join('') + (s.note ? ` ${s.note}` : ''));
   it('a swap: Reload Tag, analyse; the hint about Auto Relocate', () => {
     const c = checkCard(check({}))!;
@@ -489,11 +489,26 @@ describe('rekordbox check after a replace', () => {
   });
   it('an added file: relocate, then analyse; the cues by what was measured', () => {
     const add = (match: string | null, offset_ms = 0) => words(check({ reason: 'added_as_new', match, offset_ms }))[1];
-    expect(words(check({ reason: 'added_as_new' }))[0]).toBe('The track shows as missing: Auto Relocate finds the new file by name');
+    expect(words(check({ reason: 'added_as_new' }))[0]).toBe('Right-click your old track › Relocate › choose the new file');
     expect(add('exact')).toBe('Analyse it again · your cues fit');
-    expect(add('shifted', 9)).toBe('Analyse it again · your cues fit to within 9 ms');
+    expect(add('shifted', 9)).toBe('Analyse it again · your cues fit to within 9\u00a0ms');
     expect(add('different')).toBe('Analyse it again and set the cues again · a different edit');
     expect(add(null)).toBe("Analyse it again and set the cues again · it couldn't be compared");
+  });
+  it('an added file lined up with rekordbox: the cues fit exactly', () => {
+    const lined = (match: string | null) => words(check({ reason: 'added_as_new', match, offset_ms: 9, aligned: true }));
+    expect(lined('exact')).toEqual(['Right-click your old track › Relocate › choose the new file', 'Analyse it again · your cues fit exactly']);
+    expect(lined('shifted')[1]).toBe('Analyse it again · your cues fit exactly');
+    // the first step is the same however the file was made; only the note after "Analyse it again" depends on it
+    expect(checkCard(check({ reason: 'added_as_new', aligned: true }))!.steps[0].parts[1]).toEqual({ text: 'Relocate', strong: true });
+    // aligned never speaks for a different edit or an unmeasured one
+    expect(lined('different')[1]).toBe('Analyse it again and set the cues again · a different edit');
+    expect(lined(null)[1]).toBe("Analyse it again and set the cues again · it couldn't be compared");
+    // an old record (aligned false) keeps its words
+    expect(words(check({ reason: 'added_as_new', match: 'shifted', offset_ms: 9 }))[1]).toBe('Analyse it again · your cues fit to within 9\u00a0ms');
+  });
+  it('a swap never says Auto Relocate for an added file, and aligned is ignored on a swap', () => {
+    expect(words(check({ aligned: true }))).toEqual(words(check({})));
   });
   it('a wrong song keeps its note', () => {
     expect(checkCard(check({ reason: 'wrong_song' }))).toBeNull();
@@ -662,7 +677,7 @@ describe('the item just acted on (the hold)', () => {
 
   it('a ghost is the row as it was, without what only a to-do has', () => {
     const old = item('t2', 'rekordbox_check', { upgrade_ready: true, can_undo: true, detail: 'Reload Tag',
-      check: { reason: 'swapped', since: null, match: null, offset_ms: null, moved: false, text: 't', old_path: null } });
+      check: { reason: 'swapped', since: null, match: null, offset_ms: null, moved: false, aligned: false, text: 't', old_path: null } });
     const g = ghostOf(old);
     expect(itemKey(g)).toBe(itemKey(old));
     expect(g).toMatchObject({ upgrade_ready: false, can_undo: false, check: undefined, detail: '', title: old.title });
