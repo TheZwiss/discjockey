@@ -480,8 +480,11 @@ class Writer:
     # -- repoint --
 
     def repoint(self, changes: list[RowChange], anlz_changes: list[AnlzChange], *,
-                running: Callable[[], bool] | None = None) -> Committed:
-        """Points each track of `changes` at its new file and splices `anlz_changes`, in one transaction."""
+                running: Callable[[], bool] | None = None,
+                prepared: Callable[[Committed], None] | None = None) -> Committed:
+        """Points each track of `changes` at its new file and splices `anlz_changes`, in one transaction.
+        `prepared` gets the outcome after every change is made and before guard 3 and `COMMIT`: a caller journals
+        the undo record there, so a crash right after the commit still finds it (an exception rolls back)."""
         stamp = stamp_of(self._clock())
         with self._transaction(running) as written:
             rows = self._check_rows(changes)
@@ -525,10 +528,13 @@ class Writer:
             for path, data in originals:
                 written.append((path, data))
                 replace_bytes(path, next(a.new_bytes for a in anlz_changes if Path(a.path) == path))
-        anlz_record = [{"path": str(a.path), "old_sha256": a.old_sha256, "new_sha256": sha256_of(a.new_bytes),
-                        "backup": None if a.backup is None else str(a.backup), "old_ppth": a.old_ppth,
-                        "new_ppth": a.new_ppth} for a in anlz_changes]
-        return Committed(usn.value, stamp, created, out_rows, anlz_record, self.dbid)
+            anlz_record = [{"path": str(a.path), "old_sha256": a.old_sha256, "new_sha256": sha256_of(a.new_bytes),
+                            "backup": None if a.backup is None else str(a.backup), "old_ppth": a.old_ppth,
+                            "new_ppth": a.new_ppth} for a in anlz_changes]
+            committed = Committed(usn.value, stamp, created, out_rows, anlz_record, self.dbid)
+            if prepared is not None:
+                prepared(committed)
+        return committed
 
     def write_text(self, changes: list[RowChange], *, running: Callable[[], bool] | None = None) -> Committed:
         """The in-place swap's write: text columns and `FileSize` only (no path, no analysis file)."""

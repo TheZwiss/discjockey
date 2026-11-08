@@ -112,7 +112,7 @@ def check(paths: Paths, state: dict, track_id: str, compare: Compare = align.com
     return compare(paths.root / e["path"], paths.root / e["upgrade"]["file"])
 
 
-def _upgraded(entry: dict, upgrade: dict, path: str) -> dict:
+def upgraded_entry(entry: dict, upgrade: dict, path: str) -> dict:
     status = upgrade.get("status", "lossless")
     lossless = status == "lossless"
     return {**entry, "status": status, "source": upgrade["source"], "source_id": upgrade["source_id"],
@@ -129,7 +129,7 @@ UNDO_FIELDS = ("status", "source", "source_id", "source_format", "cutoff_hz", "s
                "upgrade", "rekordbox_check")
 
 
-def _before(e: dict) -> dict:
+def fields_before(e: dict) -> dict:
     """The fields an upgrade changes, as they were: its undo puts them back. A check that stood before keeps its
     words but not its own undo: one step back only (its kept copy goes at the next clean-up, library._prune_undo)."""
     b = {k: e.get(k) for k in UNDO_FIELDS}
@@ -138,7 +138,7 @@ def _before(e: dict) -> dict:
     return b
 
 
-def _keys(paths: Paths, new: str, old: str) -> dict | None:
+def undo_keys(paths: Paths, new: str, old: str) -> dict | None:
     """The content keys of the two files an undo checks, or None (no undo) if one can't be read."""
     try:
         return {"file": new, "file_key": content_key(paths.root / new), "old": old,
@@ -178,10 +178,10 @@ def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Co
     check = {"reason": "added_as_new", "since": now().date().isoformat(), "match": measured.get("result") or "unknown",
              "offset_ms": measured.get("offset_ms") or 0.0, "aligned": shift is not None}
     if not shift:  # nothing to render: the download itself becomes the new file
-        keys = _keys(paths, upgrade["file"], e["path"])  # read before the move; the move keeps the content
+        keys = undo_keys(paths, upgrade["file"], e["path"])  # read before the move; the move keeps the content
         if keys is not None:
-            check["undo"] = {"kind": "add_new", "before": _before(e), **keys, "file": new, "old": old}
-        entry = {**_upgraded(e, upgrade, new), "rekordbox_check": check}
+            check["undo"] = {"kind": "add_new", "before": fields_before(e), **keys, "file": new, "old": old}
+        entry = {**upgraded_entry(e, upgrade, new), "rekordbox_check": check}
         run_op(paths, state, track_id, [(e["path"], old), (upgrade["file"], new)], entry)
         return _result("added_new", track_id, e, f"new file {new}; the old one moved to {old}", status=status,
                        source=upgrade["source"], path=new)
@@ -192,8 +192,8 @@ def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Co
         workdir.mkdir(parents=True, exist_ok=True)
         build_staged(paths.root / upgrade["file"], staged, shift)
         rendered = staged.relative_to(paths.root).as_posix()
-        keys = _keys(paths, rendered, e["path"])
-        held = _held_place(paths, track_id, upgrade["file"])
+        keys = undo_keys(paths, rendered, e["path"])
+        held = held_place(paths, track_id, upgrade["file"])
     except BaseException as err:
         shutil.rmtree(workdir, ignore_errors=True)
         if not isinstance(err, Exception):  # Ctrl-C: nothing was changed
@@ -202,9 +202,9 @@ def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Co
         raise UpgradeProblem(f"{detail.rstrip('. ')}. Nothing was changed; the {upgrade_name(upgrade)} is still "
                              "waiting.") from err
     if keys is not None:
-        check["undo"] = {"kind": "add_new", "before": _before(e), **keys, "file": new, "old": old, "held": held,
+        check["undo"] = {"kind": "add_new", "before": fields_before(e), **keys, "file": new, "old": old, "held": held,
                          "rendered": True}
-    entry = {**_upgraded(e, upgrade, new), "rekordbox_check": check}
+    entry = {**upgraded_entry(e, upgrade, new), "rekordbox_check": check}
     try:
         run_op(paths, state, track_id, [(e["path"], old), (rendered, new), (upgrade["file"], held)], entry)
     except BaseException:
@@ -335,9 +335,9 @@ def _finish(paths: Paths, state: dict, op: dict) -> str:
             pass
     entry = {**op["entry"], "path": path}
     if "check" in op:  # a swap from before undo existed has neither a check nor a kept copy
-        held = _hold(paths, op)
+        held = hold_parked(paths, op)
         check = {**op["check"], "moved": path != op["target"]}
-        keys = _keys(paths, path, op["backup"]) if held else None
+        keys = undo_keys(paths, path, op["backup"]) if held else None
         if keys is not None:
             check["undo"] = {"kind": "swap", "before": op["before"], **keys, "held": held}
         entry["rekordbox_check"] = check
@@ -348,7 +348,7 @@ def _finish(paths: Paths, state: dict, op: dict) -> str:
     return path
 
 
-def _hold(paths: Paths, op: dict) -> str | None:
+def hold_parked(paths: Paths, op: dict) -> str | None:
     """Step 6: the parked download moves to .discjockey/undo/ (kept for the undo) instead of being deleted.
     Returns where it is, or None (no undo) when it can't be kept there: then it is deleted as before."""
     held = op["held"]
@@ -362,7 +362,7 @@ def _hold(paths: Paths, op: dict) -> str | None:
         return None
 
 
-def _held_place(paths: Paths, track_id: str, parked: str) -> str:
+def held_place(paths: Paths, track_id: str, parked: str) -> str:
     """A free place for a swap's kept download: .discjockey/undo/<track>/<its name>, another folder if taken."""
     name = PurePosixPath(parked).name
     for n in itertools.count(1):
@@ -410,8 +410,8 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
     op = {"kind": "swap", "track_id": track_id, "target": target,
           "staged": staged.relative_to(paths.root).as_posix(), "backup": backup,
           "old_sha256": _sha256(paths.root / target), "new_sha256": _sha256(staged), "renames": renames,
-          "parked": upgrade["file"], "entry": _upgraded(e, upgrade, target),
-          "held": _held_place(paths, track_id, upgrade["file"]), "before": _before(e),
+          "parked": upgrade["file"], "entry": upgraded_entry(e, upgrade, target),
+          "held": held_place(paths, track_id, upgrade["file"]), "before": fields_before(e),
           "check": {"reason": "swapped", "since": now().date().isoformat(), "match": alignment.result,
                     "offset_ms": alignment.offset_ms}}
     with deferred_interrupt():  # a Ctrl-C waits until the file is complete again
@@ -578,7 +578,7 @@ def undo(paths: Paths, state: dict, track_id: str) -> Result:
     if u["kind"] == "add_new" and u.get("rendered"):
         # the render first (it may have the old file's name) into .discjockey/undo/, where the clean-up takes it
         # (library._prune_undo: its audio is the download's), then the kept download and the old file back
-        renames = [(u["file"], _held_place(paths, track_id, u["file"])), (u["held"], parked),
+        renames = [(u["file"], held_place(paths, track_id, u["file"])), (u["held"], parked),
                    (u["old"], before["path"])]
         run_op(paths, state, track_id, renames, entry, label=_track_name(e, track_id))
         note = f"the old file is back at {before['path']}; the {what} waits in {parked} again"

@@ -499,14 +499,18 @@ def _walk_files(paths: Paths) -> list[str]:
 
 
 SWAP_PATH_KEYS = ("target", "staged", "backup", "parked", "held", "home")
+# a Same track step for a file that isn't AIFF (convert.py): its files, and `crossing` maps a move's name ("place",
+# "supersede") to its staged copy on another drive
+CONVERT_PATH_KEYS = ("old", "new", "superseded", "staged", "parked", "held", "crossing")
 
 
 def op_paths(op: dict) -> list[str]:
     """Every file a pending step names: its renames, for a swap (and its undo) also target, staged, backup, parked,
-    held and home, and for a step that crosses drives (run_op, move_files: `staged` maps a rename's index to its
-    copy) the staged copies."""
+    held and home, for a convert step (and its undo) its CONVERT_PATH_KEYS, and for a step that crosses drives
+    (run_op, move_files: `staged` maps a rename's index to its copy) the staged copies."""
     out = [p for pair in op.get("renames", []) for p in pair]
-    for k in SWAP_PATH_KEYS:
+    keys = CONVERT_PATH_KEYS if op.get("kind") in ("convert", "convert_undo") else SWAP_PATH_KEYS
+    for k in keys:
         v = op.get(k)
         if isinstance(v, dict):
             out += v.values()
@@ -548,6 +552,8 @@ def undo_paths(undo: dict) -> list[str]:
     copy of a swap. NameReserver keeps them free, _prune_undo keeps the copy."""
     before = undo.get("before") or {}
     out = [before.get("path"), (before.get("upgrade") or {}).get("file"), undo.get("held")]
+    if undo.get("kind") == "convert":  # the old file in Superseded/, which the undo brings back
+        out.append(undo.get("old"))
     return [p for p in out if p]
 
 
@@ -921,13 +927,15 @@ def _finish_step(paths: Paths, conn: sqlite3.Connection, op: dict) -> int:
 
 
 def _end_step(paths: Paths, conn: sqlite3.Connection, op_id: str, tracks: Mapping[str, dict],
-              rekeyed: Collection[str]) -> int:
-    """db.end_step with this library's facts; of `rekeyed`, only files in Library/ (as save_state). Returns the new
+              rekeyed: Collection[str], *, item: tuple[int, int, object] | None = None,
+              app_placed: Collection[str] = ()) -> int:
+    """db.end_step with this library's facts; of `rekeyed`, only files in Library/ (as save_state). `item` and
+    `app_placed` go through (an AIFF batch's item done with the step; files Discjockey placed). Returns the new
     generation."""
     from . import db
     indexed = [p for p in rekeyed if p.startswith("Library/")]  # Superseded/ and .tmp/ have no rows
     return db.end_step(conn, op_id, tracks, library=paths.library, facts=file_facts(paths), now=datetime.now(),
-                       rekeyed=indexed)
+                       rekeyed=indexed, item=item, app_placed=app_placed)
 
 
 # --- a step that keeps its journal entry in the caller's snapshot while it runs (the upgrade swap and its undo,
@@ -972,10 +980,12 @@ def mark_op(paths: Paths, state: dict, op: dict) -> None:
 
 
 def end_op(paths: Paths, state: dict, op: dict, entries: Mapping[str, dict], *,
-           rekeyed: Collection[str] = ()) -> None:
+           rekeyed: Collection[str] = (), item: tuple[int, int, object] | None = None,
+           app_placed: Collection[str] = ()) -> None:
     """Ends a journaled `op`: `entries` (song key -> entry; none for a step that changed no entry) and the files
     `rekeyed` (as save_state's) written with the end of its journal entry, in one transaction (_end_step); then
-    `state` takes the entries and loses the op. An op journaled through the snapshot (no `op_id`: by a version
+    `state` takes the entries and loses the op. `item` (AIFF batch, seq, result) is marked done and the files
+    `app_placed` become Discjockey's (`placed_by = 'app'`) in that transaction. An op journaled through the snapshot (no `op_id`: by a version
     before issue 25) is ended the way it was then: the entries into `state`, the op out of its pending, save_state."""
     if "op_id" not in op:
         state["tracks"].update(entries)
@@ -983,7 +993,8 @@ def end_op(paths: Paths, state: dict, op: dict, entries: Mapping[str, dict], *,
         save_state(paths, state, rekeyed=rekeyed)
         return
     with _records(paths) as conn:
-        state["generation"] = _end_step(paths, conn, op["op_id"], entries, rekeyed)
+        state["generation"] = _end_step(paths, conn, op["op_id"], entries, rekeyed, item=item,
+                                        app_placed=app_placed)
     state["tracks"].update(entries)
     _mirror(state, op, keep=False)
 
@@ -1059,15 +1070,20 @@ def short_path(path: Path | str) -> str:
 
 @dataclass(frozen=True)
 class _Waits:
-    """A step that stays pending, its message still to be worded: `holds` is whether it holds up the scan."""
+    """A step that stays pending, its message still to be worded: `holds` is whether it holds up the scan. `message`:
+    the step's own words for what it waits for (a convert step waiting for rekordbox to quit), else they follow
+    from `r`."""
     name: str
     r: _Recovered
     holds: bool
+    message: str | None = None
 
 
 def _waiting(w: _Waits, scan_held: bool) -> tuple[str, bool]:
     """The message of a step that stays pending: W17 when it waits for a drive (`scan_held`: scan_library holds up
     the scan of the other folders, because any pending step does, else it goes on), else what stands in its way."""
+    if w.message is not None:
+        return w.message, False
     if w.r.drive is not None:
         return (DRIVE_WAITS if scan_held else DRIVE_WAITS_SCAN_GOES_ON).format(path=w.r.drive), False
     return f"Could not finish an interrupted step for {w.name} yet: {w.r.problem}", False
@@ -1209,7 +1225,9 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
     (tidy.recover). Returns (message, ok) per step and per batch. A step with a file on a drive that isn't
     connected waits for it. A `files` step (move_files), a `step` (run_op) and tidy.recover write library.db past `state`, so after
     either `state`'s contents are replaced in place with a fresh snapshot: the caller goes on saving a current one. A
-    `swap` / `swap_undo` step writes past it too (end_op), and `state` follows each of its writes."""
+    `swap` / `swap_undo` / `convert` step writes past it too (end_op), and `state` follows each of its writes. A
+    convert step whose analysis files must come back while rekordbox runs waits for it to quit, as a step waits for
+    a drive: the run goes on, the scan is held."""
     messages: list[tuple[str, bool] | _Waits] = []
     roots = watched_roots(paths) if state.get("version") == 2 else [paths.root]
     for op in list(state.get("pending", [])):
@@ -1220,6 +1238,10 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
         if op.get("kind") == "swap_undo":
             from .upgrades import recover_swap_undo  # upgrades builds on this module
             messages.append(recover_swap_undo(paths, state, op))
+            continue
+        if op.get("kind") == "convert":
+            from .convert import recover_convert  # convert builds on this module
+            messages.append(recover_convert(paths, state, op, roots))
             continue
         if op.get("kind") in ("files", "step"):
             message, wrote = (_recover_files if op["kind"] == "files" else _recover_step)(paths, op, roots)
