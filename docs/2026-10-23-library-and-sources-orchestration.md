@@ -504,7 +504,9 @@ Results:
     U1 running on **Sonnet** (plan says Opus; §6 is a complete direction from existing blocks, no design decisions
     left, same basis as the user-approved Sonnet UI fix rounds; S + Opus R2 judge taste).
     U1 done 6571896 + static (Sonnet **276k**, 108 calls; ToggleRow name wraps with a sub, refusal NoteCard at the top
-    of the upgrade cards); merged into the stage branch 23d206f. U2 (Sonnet, Sync states) running.
+    of the upgrade cards); merged into the stage branch 23d206f. U2 (Sonnet, Sync states) done 23a8056 + static
+    (Sonnet **269k**; rekordbox-open note as warn NoteCard, live card hidden in the phase); merged into the stage branch
+    4439624. S (Sonnet shots, brief-33-SC.md) running; then R2 (Opus stage review), one Sonnet fix round, V.
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
