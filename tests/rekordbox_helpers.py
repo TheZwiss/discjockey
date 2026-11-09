@@ -9,7 +9,15 @@ A row is a dict of `djmdContent` columns (`ID`, `FileType`, `usn`, …) plus the
 - `path`: the file's whole path (`FolderPath`; `FileNameL` is its name, `FileType` follows the extension);
 - `artist`, `album`, `label`: names; the lookup row is made (one per name) and its id set;
 - `cues`, `playlists`, `history`, `mytags`: how many `djmdCue` (+ one `contentCue`), `djmdSongPlaylist`,
-  `djmdSongHistory` and `djmdSongMyTag` rows the track gets.
+  `djmdSongHistory` and `djmdSongMyTag` rows the track gets;
+- `ppth`: what the track's analysis files say in `PPTH` (with `anlz=True`; default `?/<file name>`, rekordbox 7's
+  own form), `anlz`: False leaves one track without analysis files.
+Lookup rows follow rekordbox 7's scheme (read on a copy 2026-11-08): `SearchStr` NULL, the sync flags 0, `usn` NULL.
+`contentFile` rows (one per `.DAT`/`.EXT`/`.2EX`/`.3EX`) have rekordbox's `ID` form (`<folder>_<quoted Path>`),
+`Path` like `AnalysisDataPath` and `rb_local_path` the file's whole path; with `make_master(..., anlz=True)` the
+files are written under `folder/share` and `Hash`/`Size` are their MD5 and size, as rekordbox keeps them.
+`running_after(n)` is a `running()` stub that answers True from its n-th call (rekordbox opening mid-batch).
+`dump(db)` and `diff(before, after)` compare two states of a library row by row (the write tests' whole-database check).
 `writer(db)` opens the library read-write in WAL mode and keeps `-wal`/`-shm` there: it stands in for a running
 rekordbox.
 
@@ -27,8 +35,10 @@ The MP3 fixtures `tests/fixtures/clicks-lame.mp3` (Info/LAME tag: ffmpeg trims 1
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import struct
+import urllib.parse
 import wave
 from pathlib import Path
 
@@ -98,7 +108,8 @@ TABLES: dict[str, tuple[tuple[str, str], ...]] = {
 
 FILE_TYPES = {".mp3": 1, ".m4a": 4, ".flac": 5, ".wav": 11, ".aiff": 12, ".aif": 12}
 STAMP = "2026-01-02 03:04:05.678 +00:00"
-_SHORTCUTS = ("path", "artist", "album", "label", "cues", "playlists", "history", "mytags")
+_SHORTCUTS = ("path", "artist", "album", "label", "cues", "playlists", "history", "mytags", "ppth", "anlz")
+ANLZ_EXTS = ("DAT", "EXT", "2EX", "3EX")
 
 
 def _open(db: Path, key: str):
@@ -122,9 +133,10 @@ def _insert(con, table: str, columns: dict, values: dict) -> None:
 
 
 def make_master(folder: Path, rows: list[dict], key: str = KEYS[0], version: str = "6000",
-                dbid: str = "1234567890", drop: dict[str, tuple[str, ...] | None] | None = None) -> Path:
+                dbid: str = "1234567890", drop: dict[str, tuple[str, ...] | None] | None = None,
+                anlz: bool = False) -> Path:
     """`folder/master.db` holding `rows` (see the module docstring). `drop` leaves columns out of a table, or the
-    whole table with None (for the schema guard)."""
+    whole table with None (for the schema guard). `anlz` writes each track's analysis files under `folder/share`."""
     drop = drop or {}
     folder.mkdir(parents=True, exist_ok=True)
     db = folder / "master.db"
@@ -155,7 +167,8 @@ def make_master(folder: Path, rows: list[dict], key: str = KEYS[0], version: str
             return None
         if (table, name) not in lookups:
             lookups[(table, name)] = f"{table[4:].lower()}-{len(lookups) + 1}"
-            put(table, {"ID": lookups[(table, name)], "Name": name, "UUID": f"u-{lookups[(table, name)]}"})
+            put(table, {"ID": lookups[(table, name)], "Name": name, "UUID": f"u-{lookups[(table, name)]}",
+                        "SearchStr": None, "rb_local_usn": len(lookups)})
         return lookups[(table, name)]
 
     serial = 0
@@ -171,11 +184,20 @@ def make_master(folder: Path, rows: list[dict], key: str = KEYS[0], version: str
                   "LabelID": lookup("djmdLabel", spec.get("label"))}
         values.update({k: v for k, v in spec.items() if k not in _SHORTCUTS})
         put("djmdContent", values)
-        if values["AnalysisDataPath"]:
-            for ext in ("DAT", "EXT"):
+        if values["AnalysisDataPath"] and spec.get("anlz", True):
+            for ext in ANLZ_EXTS:
                 serial += 1
-                put("contentFile", {"ID": f"f{serial}", "ContentID": content_id, "UUID": f"uf{serial}",
-                                    "Path": values["AnalysisDataPath"][:-3] + ext, "Hash": "0" * 32, "Size": 100})
+                rel = values["AnalysisDataPath"][:-3] + ext
+                file = folder / "share" / rel.lstrip("/")
+                digest, size = "0" * 32, 100
+                if anlz:
+                    write_track_anlz(file, ext, spec.get("ppth", "?/" + os.path.basename(path)))
+                    data = file.read_bytes()
+                    digest, size = hashlib.md5(data).hexdigest(), len(data)
+                folder_name = rel.split("/")[3] + rel.split("/")[4]
+                put("contentFile", {"ID": f"{folder_name}_{urllib.parse.quote(rel, safe='')}", "ContentID": content_id,
+                                    "UUID": f"uf{serial}", "Path": rel, "rb_local_path": str(file), "Hash": digest,
+                                    "Size": size, "rb_local_usn": 100 + serial})
         for n in range(spec.get("cues", 0)):
             serial += 1
             put("djmdCue", {"ID": f"c{serial}", "ContentID": content_id, "InMsec": 1000 * n, "Kind": n,
@@ -195,6 +217,61 @@ def make_master(folder: Path, rows: list[dict], key: str = KEYS[0], version: str
     leftover = [p.name for p in folder.iterdir() if p.name.startswith("master.db-")]
     assert not leftover, f"make_master left {leftover}"
     return db
+
+
+def dump(db: Path, key: str = KEYS[0]) -> dict[str, list[tuple]]:
+    """Every row of every table of `db`, in rowid order, through a keyed read-only immutable open (nothing is left
+    beside the file): what a write test compares before and after."""
+    from discjockey.rekordbox.master import connect
+    con = connect(db, key)
+    try:
+        tables = [n for (n,) in con.execute("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")]
+        return {t: [tuple(r) for r in con.execute(f"SELECT * FROM {t} ORDER BY rowid")] for t in tables}
+    finally:
+        con.close()
+
+
+def diff(before: dict[str, list[tuple]], after: dict[str, list[tuple]]) -> list[tuple]:
+    """What changed between two `dump`s as `(table, id, column, before, after)`, sorted: a changed cell, or for a row
+    added / removed `(table, id, "<row>", None, row)` / `(table, id, "<row>", row, None)`. A row's id is its first
+    column; the column names are the fixture's `TABLES` (`colN` for a table built with `drop`)."""
+    out = []
+    for table in sorted(before.keys() | after.keys()):
+        names = [n for n, _ in TABLES.get(table, ())]
+        old = {r[0]: r for r in before.get(table, [])}
+        new = {r[0]: r for r in after.get(table, [])}
+        for row_id in sorted(old.keys() | new.keys(), key=str):
+            a, b = old.get(row_id), new.get(row_id)
+            if a is None or b is None:
+                out.append((table, row_id, "<row>", a, b))
+                continue
+            columns = names if len(names) == len(a) else [f"col{i}" for i in range(len(a))]
+            out += [(table, row_id, columns[i], x, y) for i, (x, y) in enumerate(zip(a, b)) if x != y]
+    return out
+
+
+def running_after(n: int):
+    """A `running()` stub: False for its first n - 1 calls, True from the n-th on (rekordbox opening mid-batch)."""
+    calls = {"n": 0}
+
+    def running() -> bool:
+        calls["n"] += 1
+        return calls["n"] >= n
+    running.calls = calls
+    return running
+
+
+def write_track_anlz(file: Path, ext: str, ppth: str) -> Path:
+    """One analysis file as rekordbox 7 writes them for a track: `.DAT` (path, an unknown tag, a grid), `.EXT` (path,
+    waveform, an unknown tag), `.2EX` (path, an unknown tag), `.3EX` (no PMAI file: a msgpack blob without a path)."""
+    if ext == "3EX":
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_bytes(b"\x81\xa9embedding" + bytes(range(64)))
+        return file
+    tags = {"DAT": [ppth_tag(ppth), unknown_tag(), pqtz_tag(8)],
+            "EXT": [ppth_tag(ppth), pwv3_tag(np.arange(300, dtype=np.uint8) % 32), unknown_tag()],
+            "2EX": [ppth_tag(ppth), unknown_tag()]}[ext]
+    return make_anlz(file, tags)
 
 
 def writer(db: Path, key: str = KEYS[0]):

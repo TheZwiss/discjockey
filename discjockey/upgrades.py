@@ -18,6 +18,9 @@ the old file are now (`file`, `old`) with their content keys (`file_key`, `old_k
 New track (`rendered: true`) the kept parked download (`held`, in .discjockey/undo/). `undo` puts it all back while
 the check stands (a render goes into .discjockey/undo/, cleaned up later: its audio is the download's); "Done,
 checked in rekordbox" ends it (library.forget_undo). It is refused when either file changed since the step.
+A step that wrote rekordbox (a Same track that made a new AIFF, `convert.undo_convert`; a batch's swap that wrote
+rekordbox's text) keeps what it wrote (`repoint`) and is undone there too, only while rekordbox is closed
+(`UndoRefused` with its `reason` otherwise, nothing changed).
 """
 from __future__ import annotations
 
@@ -25,13 +28,14 @@ import hashlib
 import itertools
 import os
 import shutil
+from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
 from . import align, rekordbox
 from .align import Alignment
-from .audio import ConversionError, copy_tags, render_aiff
+from .audio import ConversionError, copy_tags, file_facts, render_aiff, set_comment
 from .content_key import content_key
 from .events import Result
 from .library import (
@@ -40,7 +44,11 @@ from .library import (
 )
 from .models import SOURCE_NAMES
 from .names import expected_stem, fold, split_name, strip_id_suffix
+from .quality import is_quality_line
 from .planner import declined, own_key, replacement_dir, superseded_dir
+from .rekordbox import write as rbwrite
+from .rekordbox.session import BUSY, Session
+from .rekordbox.write import RowChange
 
 Compare = Callable[..., Alignment]  # (current file, new file) -> Alignment
 Offset = Callable[[Path], rekordbox.TimelineOffset]  # (old file) -> where rekordbox's timeline sits for it
@@ -55,6 +63,11 @@ class UpgradeProblem(Exception):
     def __init__(self, message: str, forgotten: bool = False):
         super().__init__(message)
         self.forgotten = forgotten
+
+
+class NeedsChoice(UpgradeProblem):
+    """A swap refused because the two versions are not the same edit (measured again now): nothing was done, and
+    in a batch the track is skipped (`needs_choice`), not failed."""
 
 
 def upgrade_name(upgrade: dict) -> str:
@@ -112,7 +125,7 @@ def check(paths: Paths, state: dict, track_id: str, compare: Compare = align.com
     return compare(paths.root / e["path"], paths.root / e["upgrade"]["file"])
 
 
-def _upgraded(entry: dict, upgrade: dict, path: str) -> dict:
+def upgraded_entry(entry: dict, upgrade: dict, path: str) -> dict:
     status = upgrade.get("status", "lossless")
     lossless = status == "lossless"
     return {**entry, "status": status, "source": upgrade["source"], "source_id": upgrade["source_id"],
@@ -129,7 +142,7 @@ UNDO_FIELDS = ("status", "source", "source_id", "source_format", "cutoff_hz", "s
                "upgrade", "rekordbox_check")
 
 
-def _before(e: dict) -> dict:
+def fields_before(e: dict) -> dict:
     """The fields an upgrade changes, as they were: its undo puts them back. A check that stood before keeps its
     words but not its own undo: one step back only (its kept copy goes at the next clean-up, library._prune_undo)."""
     b = {k: e.get(k) for k in UNDO_FIELDS}
@@ -138,13 +151,28 @@ def _before(e: dict) -> dict:
     return b
 
 
-def _keys(paths: Paths, new: str, old: str) -> dict | None:
+def undo_keys(paths: Paths, new: str, old: str) -> dict | None:
     """The content keys of the two files an undo checks, or None (no undo) if one can't be read."""
     try:
         return {"file": new, "file_key": content_key(paths.root / new), "old": old,
                 "old_key": content_key(paths.root / old)}
     except OSError:
         return None
+
+
+def add_new_names(paths: Paths, state: dict, track_id: str, e: dict, status: str) -> tuple[str, str]:
+    """The names New track gives (relative to the music folder; the dry run asks it too): the new AIFF with the
+    correct name in the current file's folder (a 256 kbps version stays in a playlist folder's `not_lossless/`,
+    `replacement_dir`; the target name itself when the old file has it, which moves away first, else a free name) and
+    where the old file goes to in `Superseded/`."""
+    names = NameReserver(paths.root, state)
+    stem, ext = split_name(strip_id_suffix(PurePosixPath(e["path"]).name, track_id))
+    old = names.choose(superseded_dir(e["path"], watched_root(paths, e["path"])), stem, ext, track_id)
+    folder = replacement_dir(e, status)
+    target = f"{folder}/{expected_stem(e['artist'], e['title'])}.aiff"
+    if fold(e["path"]) == fold(target):
+        return target, old
+    return names.choose(folder, expected_stem(e["artist"], e["title"]), ".aiff", track_id), old
 
 
 def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compare = align.compare_files,
@@ -162,26 +190,18 @@ def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Co
     one when it can't be measured now) and whether the new file is lined up (`aligned`). A failure before the files
     move leaves nothing behind (UpgradeProblem)."""
     e = precondition(paths, state, track_id, upgrade, need_current=True)
-    names = NameReserver(paths.root, state)
-    stem, ext = split_name(strip_id_suffix(PurePosixPath(e["path"]).name, track_id))
-    old = names.choose(superseded_dir(e["path"], watched_root(paths, e["path"])), stem, ext, track_id)
     status = upgrade.get("status", "lossless")
-    folder = replacement_dir(e, status)  # a 256 kbps version stays in a playlist folder's not_lossless/
-    target = f"{folder}/{expected_stem(e['artist'], e['title'])}.aiff"
-    if fold(e["path"]) == fold(target):  # the old file has the name: it moves away (first rename), then the new one
-        new = target
-    else:
-        new = names.choose(folder, expected_stem(e["artist"], e["title"]), ".aiff", track_id)
+    new, old = add_new_names(paths, state, track_id, e, status)
     alignment = compare(paths.root / e["path"], paths.root / upgrade["file"])
     measured = alignment.to_dict() if alignment.result != "unknown" else (upgrade.get("alignment") or {})
     shift = _lined_up_shift(paths.root / e["path"], alignment, offset)
     check = {"reason": "added_as_new", "since": now().date().isoformat(), "match": measured.get("result") or "unknown",
              "offset_ms": measured.get("offset_ms") or 0.0, "aligned": shift is not None}
     if not shift:  # nothing to render: the download itself becomes the new file
-        keys = _keys(paths, upgrade["file"], e["path"])  # read before the move; the move keeps the content
+        keys = undo_keys(paths, upgrade["file"], e["path"])  # read before the move; the move keeps the content
         if keys is not None:
-            check["undo"] = {"kind": "add_new", "before": _before(e), **keys, "file": new, "old": old}
-        entry = {**_upgraded(e, upgrade, new), "rekordbox_check": check}
+            check["undo"] = {"kind": "add_new", "before": fields_before(e), **keys, "file": new, "old": old}
+        entry = {**upgraded_entry(e, upgrade, new), "rekordbox_check": check}
         run_op(paths, state, track_id, [(e["path"], old), (upgrade["file"], new)], entry)
         return _result("added_new", track_id, e, f"new file {new}; the old one moved to {old}", status=status,
                        source=upgrade["source"], path=new)
@@ -192,8 +212,8 @@ def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Co
         workdir.mkdir(parents=True, exist_ok=True)
         build_staged(paths.root / upgrade["file"], staged, shift)
         rendered = staged.relative_to(paths.root).as_posix()
-        keys = _keys(paths, rendered, e["path"])
-        held = _held_place(paths, track_id, upgrade["file"])
+        keys = undo_keys(paths, rendered, e["path"])
+        held = held_place(paths, track_id, upgrade["file"])
     except BaseException as err:
         shutil.rmtree(workdir, ignore_errors=True)
         if not isinstance(err, Exception):  # Ctrl-C: nothing was changed
@@ -202,9 +222,9 @@ def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Co
         raise UpgradeProblem(f"{detail.rstrip('. ')}. Nothing was changed; the {upgrade_name(upgrade)} is still "
                              "waiting.") from err
     if keys is not None:
-        check["undo"] = {"kind": "add_new", "before": _before(e), **keys, "file": new, "old": old, "held": held,
+        check["undo"] = {"kind": "add_new", "before": fields_before(e), **keys, "file": new, "old": old, "held": held,
                          "rendered": True}
-    entry = {**_upgraded(e, upgrade, new), "rekordbox_check": check}
+    entry = {**upgraded_entry(e, upgrade, new), "rekordbox_check": check}
     try:
         run_op(paths, state, track_id, [(e["path"], old), (rendered, new), (upgrade["file"], held)], entry)
     except BaseException:
@@ -268,12 +288,23 @@ def build_staged(parked: Path, staged: Path, offset_samples: int) -> None:
     the file as it is."""
     if offset_samples == 0:
         shutil.copyfile(parked, staged)
-        return
+    else:
+        try:
+            render_aiff(parked, staged, offset_samples)
+        except ConversionError as err:
+            raise UpgradeProblem(f"Could not prepare the new version: {err}") from None
+        copy_tags(parked, staged)
+
+
+def keep_comment(old_file: Path, staged: Path) -> None:
+    """The comment of `old_file`, the file `staged` replaces, stays in the new file unless it is empty or Discjockey's
+    own quality line (a DJ's key and energy, notes, are theirs; the same rule as rekordbox's `Commnt`)."""
     try:
-        render_aiff(parked, staged, offset_samples)
-    except ConversionError as err:
-        raise UpgradeProblem(f"Could not prepare the new version: {err}") from None
-    copy_tags(parked, staged)
+        old = file_facts(old_file).tags["comment"]
+        if old.strip() and not is_quality_line(old):
+            set_comment(staged, old)
+    except (OSError, RuntimeError):  # an unreadable old tag: the download's comment stands
+        pass
 
 
 def _copy_synced(src: Path, dst: Path) -> None:
@@ -335,20 +366,60 @@ def _finish(paths: Paths, state: dict, op: dict) -> str:
             pass
     entry = {**op["entry"], "path": path}
     if "check" in op:  # a swap from before undo existed has neither a check nor a kept copy
-        held = _hold(paths, op)
+        held = hold_parked(paths, op)
         check = {**op["check"], "moved": path != op["target"]}
-        keys = _keys(paths, path, op["backup"]) if held else None
+        keys = undo_keys(paths, path, op["backup"]) if held else None
+        rb = op.get("rekordbox")
+        if rb is not None:  # rekordbox's text was written (or may have been: a crash right at its commit)
+            check["rekordbox"] = {"entries": list(rb["entries"]), "kept": list(rb["kept"])}
+            if check.get("reload_tag") and _text_stands(rb["record"]):  # recovery: the commit happened
+                check["reload_tag"] = False
         if keys is not None:
             check["undo"] = {"kind": "swap", "before": op["before"], **keys, "held": held}
+            if rb is not None:
+                check["undo"].update(repoint=rb["record"], backup=rb.get("backup"))
         entry["rekordbox_check"] = check
     else:
         delete_parked(paths, op["parked"])
     shutil.rmtree(paths.root / PurePosixPath(op["staged"]).parent, ignore_errors=True)
-    end_op(paths, state, op, {op["track_id"]: entry}, rekeyed=[path])  # the new audio is in it, entry changed or not
+    item = None
+    if op.get("batch"):
+        written = (entry.get("rekordbox_check") or {}).get("rekordbox")
+        item = (op["batch"][0], op["batch"][1], {"path": path, "note": _swap_note(op, path), "rekordbox": written})
+    # the new audio is in it, entry changed or not
+    end_op(paths, state, op, {op["track_id"]: entry}, rekeyed=[path], item=item)
     return path
 
 
-def _hold(paths: Paths, op: dict) -> str | None:
+def _text_stands(record: dict) -> bool:
+    """Whether every row of a swap's rekordbox record holds the values the write put there (one read; False when it
+    can't be told: the answer then stays "Reload Tag"). Recovery uses it to tell a swap whose text commit happened
+    from one cut off before it."""
+    try:
+        place = rekordbox.locate()
+        if place is None or not place.db.is_file():
+            return False
+        running = rekordbox.process.running()
+        left = rekordbox.master.leftovers(place.db)
+        if left and not running and len(left) != 2:
+            return False
+        with rekordbox.open_read(place, running or len(left) == 2) as m:
+            if record.get("dbid") and m.dbid != record["dbid"]:
+                return False
+            for row in record["rows"]:
+                columns = {rbwrite.TEXT_COLUMNS[f]: t["wrote"] for f, t in row["text"].items()}
+                if not columns:
+                    continue
+                now = m.con.execute(f"SELECT {', '.join(columns)} FROM djmdContent WHERE ID = ? "
+                                    "AND IFNULL(rb_local_deleted, 0) = 0", (row["id"],)).fetchone()
+                if now is None or list(now) != list(columns.values()):
+                    return False
+    except Exception:  # unreadable, locked, odd: stay with Reload Tag
+        return False
+    return True
+
+
+def hold_parked(paths: Paths, op: dict) -> str | None:
     """Step 6: the parked download moves to .discjockey/undo/ (kept for the undo) instead of being deleted.
     Returns where it is, or None (no undo) when it can't be kept there: then it is deleted as before."""
     held = op["held"]
@@ -362,7 +433,7 @@ def _hold(paths: Paths, op: dict) -> str | None:
         return None
 
 
-def _held_place(paths: Paths, track_id: str, parked: str) -> str:
+def held_place(paths: Paths, track_id: str, parked: str) -> str:
     """A free place for a swap's kept download: .discjockey/undo/<track>/<its name>, another folder if taken."""
     name = PurePosixPath(parked).name
     for n in itertools.count(1):
@@ -378,11 +449,77 @@ def _drop(paths: Paths, state: dict, op: dict) -> None:
     end_op(paths, state, op, {}, rekeyed=[op["target"]])  # an undo may have written the old audio back into it
 
 
+def _text_changes(session: Session | None, target: Path, staged: Path) -> list[RowChange]:
+    """The swap's rekordbox write for `target`'s tracks (plan stage B §0.6): none without a batch's session, while
+    rekordbox runs or ran when the batch began (§0.7), without a readable library, for a file no track holds, or when
+    a track is cloud-synced (that write would be refused); else per track its text plan against the old file's tags
+    and the new `FileSize`."""
+    if session is None or session.running_at_start or session.rekordbox_opened():
+        return []
+    view = session.view()
+    if view is None or view.status.state != "ready" or view.status.problem:
+        return []
+    entries = view.master.entries_for(target, view.index)
+    if not entries or any(x.cloud for x in entries):
+        return []
+    try:
+        old_tags = file_facts(target).tags
+        clean = file_facts(staged).tags
+    except (OSError, RuntimeError):  # a tag that can't be read: the swap goes on, Reload Tag stays
+        return []
+    size = staged.stat().st_size
+    return [rbwrite.text_change(x, file_size=size, old_tags=old_tags, clean=clean) for x in entries]
+
+
+def _write_text(paths: Paths, state: dict, op: dict, session: Session, changes: list[RowChange]) -> None:
+    """The swap's one rekordbox transaction, after the file write. The undo record goes into the journal before the
+    commit (a crash right after it keeps it: the undo puts a field back only where it still holds what was written,
+    so a record of a write that didn't commit undoes nothing); `reload_tag` becomes false only after the commit.
+    Refused or rolled back (rekordbox open, cloud, unclean, changed): nothing written, `reload_tag` stays. Never
+    raises for rekordbox: the swap is done either way."""
+    kept_order = ("title", "artist", "album", "label", "isrc", "comment")
+
+    def prepared(c: rbwrite.Committed) -> None:
+        kept = {f for r in c.rows for f in r.kept}
+        op["rekordbox"] = {"entries": [r.id for r in c.rows], "kept": [f for f in kept_order if f in kept],
+                           "record": c.record().to_dict(),
+                           "backup": None if session.backup is None else session.backup.id}
+        mark_op(paths, state, op)
+
+    try:
+        with session.writer() as w:
+            w.write_text(changes, prepared=prepared)
+    except (rekordbox.WriteRefused, rekordbox.RekordboxOpened):  # nothing written in rekordbox
+        if op["rekordbox"] is not None:
+            op["rekordbox"] = None
+            mark_op(paths, state, op)
+        return
+    except Exception:  # whether it committed is unknown: the journaled record is safe either way, Reload Tag stays
+        return
+    op["check"]["reload_tag"] = False
+    mark_op(paths, state, op)
+
+
+def swap_backup_name(paths: Paths, names: NameReserver, track_id: str, target: str) -> str:
+    """Where a swap keeps the old file: `Superseded/<its folder>/<stem> (lossy)<ext>` (a free name; the dry run asks
+    it too)."""
+    stem, ext = split_name(strip_id_suffix(PurePosixPath(target).name, track_id))
+    return names.choose(superseded_dir(target, watched_root(paths, target)), f"{stem} (lossy)", ext, track_id)
+
+
 def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compare = align.compare_files,
-         now: Callable[[], datetime] = datetime.now) -> Result:
+         now: Callable[[], datetime] = datetime.now, *, session: Session | None = None,
+         batch: tuple[int, int] | None = None) -> Result:
     """Swap (spec "Upgrades", steps 1-6). Refused unless the versions line up, measured again now. The entry asks
-    for a rekordbox check (swapped: Reload Tag and analyse again; Auto Relocate when the file moved up), which holds
-    the undo; the parked download is kept for it."""
+    for a rekordbox check (swapped: analyse again, and Reload Tag unless rekordbox's text was written; Auto Relocate
+    when the file moved up), which holds the undo; the parked download is kept for it.
+
+    With a batch's `session` (rekordbox closed when the batch began and since, the file in its library): right after
+    the file write, one transaction writes rekordbox's text columns and `FileSize` for the file's tracks (plan stage B
+    §0.6, design §5.11; the user's own edits kept), journaled before its commit; the check then says `reload_tag:
+    false` and its undo holds what was written. It never runs forward in recovery: if it didn't commit (rekordbox
+    open, cloud, a crash), the swap finishes as before with `reload_tag: true`. `batch` = (AIFF batch, seq): its item
+    is marked done in the transaction that ends the step (also when recovery finishes the step)."""
     e = precondition(paths, state, track_id, upgrade, need_current=True)
     target = e["path"]
     if not swap_possible(e):
@@ -390,17 +527,18 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
                              f"Add the {upgrade_name(upgrade)} as a new file instead.")
     alignment = compare(paths.root / target, paths.root / upgrade["file"])
     if not alignment.swap_safe:
-        raise UpgradeProblem(f"Not swapped: {alignment.text}. Add the {upgrade_name(upgrade)} as a new file instead, "
-                             "or discard it.")
+        raise NeedsChoice(f"Not swapped: {alignment.text}. Add the {upgrade_name(upgrade)} as a new file instead, "
+                          "or discard it.")
     workdir = paths.tmp / track_id
     workdir.mkdir(parents=True, exist_ok=True)
     staged = workdir / "swap.aiff"
     build_staged(paths.root / upgrade["file"], staged, alignment.offset_samples)  # step 1
+    keep_comment(paths.root / target, staged)
+    changes = _text_changes(session, paths.root / target, staged)  # the old file's tags, before the write
 
     names = NameReserver(paths.root, state)
     p = PurePosixPath(target)
-    stem, ext = split_name(strip_id_suffix(p.name, track_id))
-    backup = names.choose(superseded_dir(target, watched_root(paths, target)), f"{stem} (lossy)", ext, track_id)
+    backup = swap_backup_name(paths, names, track_id, target)
     renames = []
     # out of not_lossless/ only for a file in a playlist folder's not_lossless/ (spec §7); anywhere else it stays
     home = replacement_dir(e, "lossless")
@@ -410,10 +548,13 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
     op = {"kind": "swap", "track_id": track_id, "target": target,
           "staged": staged.relative_to(paths.root).as_posix(), "backup": backup,
           "old_sha256": _sha256(paths.root / target), "new_sha256": _sha256(staged), "renames": renames,
-          "parked": upgrade["file"], "entry": _upgraded(e, upgrade, target),
-          "held": _held_place(paths, track_id, upgrade["file"]), "before": _before(e),
+          "parked": upgrade["file"], "entry": upgraded_entry(e, upgrade, target),
+          "held": held_place(paths, track_id, upgrade["file"]), "before": fields_before(e),
           "check": {"reason": "swapped", "since": now().date().isoformat(), "match": alignment.result,
-                    "offset_ms": alignment.offset_ms}}
+                    "offset_ms": alignment.offset_ms},
+          "rekordbox": None, "batch": list(batch) if batch else None, "text": alignment.text}
+    if session is not None:  # a batch's swap: whether rekordbox's text was written (without one, as before stage B)
+        op["check"].update(reload_tag=True, rekordbox=None, batch=batch[0] if batch else None)
     with deferred_interrupt():  # a Ctrl-C waits until the file is complete again
         journal_op(paths, state, op)  # step 2
         try:
@@ -426,15 +567,21 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
         mark_op(paths, state, op)
         try:
             _write_in_place(paths.root / target, staged, op["new_sha256"])  # step 4
+            if changes:
+                _write_text(paths, state, op, session, changes)
             final = _finish(paths, state, op)  # steps 5 and 6
         except Exception as err:  # e.g. the disk is full: finish or undo right now, not at the next start
             message, _ = recover_swap(paths, state, op, retry=False)
             raise UpgradeProblem(f"The swap did not work ({err}). {message}") from err
-    note = f"{alignment.text}; the lossy file is kept as {backup}"
-    if final != target:
-        note += f"; moved to {final}"
-    return _result("swapped", track_id, e, note, status=upgrade.get("status", "lossless"),
+    return _result("swapped", track_id, e, _swap_note(op, final), status=upgrade.get("status", "lossless"),
                    source=upgrade["source"], path=final)
+
+
+def _swap_note(op: dict, final: str) -> str:
+    note = f"{op.get('text') or op['check']['match']}; the lossy file is kept as {op['backup']}"
+    if final != op["target"]:
+        note += f"; moved to {final}"
+    return note
 
 
 def _where(paths: Paths, op: dict) -> str | None:
@@ -506,6 +653,61 @@ def recover_swap(paths: Paths, state: dict, op: dict, retry: bool = True) -> tup
 # --- Undo: a swap or an added file put back as it was, while its rekordbox check stands ---
 
 NOTHING_TO_UNDO = "There is no upgrade to undo for this track."
+# design §8 (binding) and plan stage B §3: an undo that has to put rekordbox back and can't now; nothing was changed
+UNDO_REFUSED = {
+    "rekordbox_open": "Quit rekordbox to undo: Discjockey points your rekordbox track back at your old file only "
+                      "while rekordbox is closed.",
+    "relocated": "This track was moved or removed in rekordbox since the replace, so Discjockey can't put it "
+                 "back safely. Nothing was changed.",
+    "unclean": "rekordbox didn't close normally last time. Open rekordbox, quit it, and try again. Nothing was "
+               "changed.",
+    "cloud": "This track is in rekordbox's Cloud Library Sync, which Discjockey doesn't change yet. Nothing was "
+             "changed.",
+    "rekordbox_unreadable": "Discjockey can't open your rekordbox library right now, so the upgrade can't be undone. "
+                            "Nothing was changed.",
+    "other_library": "This upgrade changed a rekordbox library this Mac doesn't have (another Mac's?), so Discjockey "
+                     "can't undo it here. Nothing was changed.",
+    "busy": BUSY,
+}
+
+
+class UndoRefused(UpgradeProblem):
+    """An undo that has to put rekordbox back and can't now; nothing was changed. `reason`: a key of UNDO_REFUSED
+    (`rekordbox_open`, `relocated`, … `busy`), for a batch's per-track result."""
+
+    def __init__(self, reason: str):
+        super().__init__(UNDO_REFUSED.get(reason, UNDO_REFUSED["relocated"]))
+        self.reason = reason if reason in UNDO_REFUSED else "relocated"
+
+
+def undo_session(paths: Paths, session: Session | None, stack: ExitStack) -> Session:
+    """The rekordbox side of an undo's write: the batch's `session`, or one of this undo alone (entered on `stack`:
+    `rekordbox.lock`, the backup before the write). Raises UndoRefused, nothing changed."""
+    try:
+        if session is None:
+            session = stack.enter_context(Session.open(paths, items_need_write=lambda view: True))
+        if session.state.state == "none":
+            raise UndoRefused("other_library")
+        return session
+    except rekordbox.Busy:
+        raise UndoRefused("busy") from None
+    except rekordbox.RekordboxOpen:
+        raise UndoRefused("rekordbox_open") from None
+
+
+def undo_writer(session: Session, stack: ExitStack) -> rekordbox.Writer:
+    """rekordbox's library opened for writing (entered on `stack`; the read-write connection leaves `-wal`/`-shm`
+    beside it while open, so it is open only for the check and, later, for the write itself). Raises UndoRefused,
+    nothing changed."""
+    try:
+        return stack.enter_context(session.writer())
+    except rekordbox.WriteRefused as err:
+        raise UndoRefused(err.reason) from None
+    except rekordbox.RekordboxOpen:
+        raise UndoRefused("rekordbox_open") from None
+    except OSError as err:  # the backup couldn't be made
+        raise UpgradeProblem(f"Could not make the rekordbox backup ({err}), so the upgrade wasn't undone. Nothing "
+                             "was changed.") from err
 
 
 def can_undo(entry: dict) -> bool:
@@ -546,13 +748,17 @@ def _in_the_way(paths: Paths, state: dict, track_id: str, rel: str, own: str) ->
                for k, x in state["tracks"].items())
 
 
-def undo(paths: Paths, state: dict, track_id: str) -> Result:
-    """Puts a swap or an added file back as it was: the old file at its old path, the entry's fields as they were
-    (the parked upgrade waits again, its file back in Upgrades ready/), the new file out of the folder. Refused when
-    either file changed since the step, the track's file is another one now, a newer version is waiting, or a file
-    is in the way of a place something goes back to. A rendered New track also needs its kept download, which goes
-    back to Upgrades ready/; the render goes into .discjockey/undo/. Crash-safe: Add as new goes back through run_op,
-    a swap through a pending `swap_undo` step (recover_swap_undo)."""
+def undo(paths: Paths, state: dict, track_id: str, *, session: Session | None = None) -> Result:
+    """Puts a swap, an added file or a Same track that made a new AIFF back as it was: the old file at its old path,
+    the entry's fields as they were (the parked upgrade waits again, its file back in Upgrades ready/), the new file
+    out of the folder. Refused when either file changed since the step, the track's file is another one now, a newer
+    version is waiting, or a file is in the way of a place something goes back to. A rendered New track also needs
+    its kept download, which goes back to Upgrades ready/; the render goes into .discjockey/undo/. Crash-safe: Add as
+    new goes back through run_op, a swap through a pending `swap_undo` step (recover_swap_undo), a new AIFF through a
+    `convert_undo` step (convert.undo_convert).
+
+    A step that wrote rekordbox (`repoint` in its record) is undone in rekordbox too, while rekordbox is closed: the
+    batch's `session`, or one opened for this undo. Its refusals are UndoRefused (`reason`), nothing changed."""
     e = state["tracks"].get(track_id)
     u = upgrade_undo(e)
     if not u:
@@ -566,7 +772,7 @@ def undo(paths: Paths, state: dict, track_id: str) -> Result:
     parked = before["upgrade"]["file"]
     _unchanged(paths, u["file"], u["file_key"])
     _unchanged(paths, u["old"], u["old_key"])
-    if (u["kind"] == "swap" or u.get("rendered")) and not (paths.root / u["held"]).is_file():
+    if (u["kind"] in ("swap", "convert") or u.get("rendered")) and not (paths.root / u["held"]).is_file():
         step = "swap" if u["kind"] == "swap" else "upgrade"
         raise UpgradeProblem(f"The copy of the new version Discjockey kept for the undo is gone, so the {step} can't "
                              "be undone. Nothing was changed.")
@@ -578,7 +784,7 @@ def undo(paths: Paths, state: dict, track_id: str) -> Result:
     if u["kind"] == "add_new" and u.get("rendered"):
         # the render first (it may have the old file's name) into .discjockey/undo/, where the clean-up takes it
         # (library._prune_undo: its audio is the download's), then the kept download and the old file back
-        renames = [(u["file"], _held_place(paths, track_id, u["file"])), (u["held"], parked),
+        renames = [(u["file"], held_place(paths, track_id, u["file"])), (u["held"], parked),
                    (u["old"], before["path"])]
         run_op(paths, state, track_id, renames, entry, label=_track_name(e, track_id))
         note = f"the old file is back at {before['path']}; the {what} waits in {parked} again"
@@ -587,17 +793,53 @@ def undo(paths: Paths, state: dict, track_id: str) -> Result:
         run_op(paths, state, track_id, [(u["file"], parked), (u["old"], before["path"])], entry,
                label=_track_name(e, track_id))
         note = f"the old file is back at {before['path']}; the {what} waits in {parked} again"
+    elif u["kind"] == "convert":
+        from .convert import undo_convert  # convert builds on this module
+        note = undo_convert(paths, state, track_id, u, entry, session=session)
     else:
-        _undo_swap(paths, state, track_id, u, entry)
         note = f"your old audio is back in {before['path']}; the {what} waits in {parked} again"
+        note += _undo_swap(paths, state, track_id, u, entry, session)
     return _result("upgrade_undone", track_id, e, note, status=before["status"], source=before["source"],
                    path=before["path"])
 
 
-def _undo_swap(paths: Paths, state: dict, track_id: str, u: dict, entry: dict) -> None:
+SWAP_TEXT_LEFT = (". rekordbox was opened meanwhile, so it still shows the new version's names; select the track in "
+                  "rekordbox and use Reload Tag")
+
+
+def _undo_swap(paths: Paths, state: dict, track_id: str, u: dict, entry: dict, session: Session | None) -> str:
     """The backup's audio goes back into the file (same inode, so rekordbox keeps its entry), the file back to its
     old place, the kept download back to Upgrades ready/, then the entry; the backup, now the same as the file,
-    is deleted last. One pending step; the file is only ever written while the backup (checked by SHA-256) is there."""
+    is deleted last. One pending step; the file is only ever written while the backup (checked by SHA-256) is there.
+
+    A swap that wrote rekordbox's text (`repoint`) needs rekordbox closed (checked first, nothing changed when not);
+    after the audio is back, one transaction puts each text column back where it still holds what the swap wrote
+    and `FileSize` as it was (`undo_repoint(identity=False)`: no path was written, a relocated track still counts).
+    It is not part of the journaled step (as the swap's write, plan stage B §0.6): a crash or rekordbox opening right
+    then leaves the new names in rekordbox, and the answer says so. Returns what to add to the result's note."""
+    record = u.get("repoint")
+    with ExitStack() as stack:
+        rb = undo_session(paths, session, stack) if record else None
+        if rb is not None:
+            rec = rbwrite.RepointRecord.from_dict(record)
+            with ExitStack() as check:  # the connection is closed again before the audio moves
+                try:
+                    undo_writer(rb, check).check_undo(rec, identity=False)
+                except rekordbox.WriteRefused as err:
+                    raise UndoRefused(err.reason) from None
+        _undo_swap_audio(paths, state, track_id, u, entry)
+        if rb is None:
+            return ""
+        try:
+            with ExitStack() as write:
+                undo_writer(rb, write).undo_repoint(rec, identity=False)
+        except (rekordbox.WriteRefused, rekordbox.RekordboxOpened, UndoRefused):
+            return SWAP_TEXT_LEFT
+    return ""
+
+
+def _undo_swap_audio(paths: Paths, state: dict, track_id: str, u: dict, entry: dict) -> None:
+    """_undo_swap's file side (the journaled `swap_undo` step)."""
     before = u["before"]
     op = {"kind": "swap_undo", "track_id": track_id, "target": u["file"], "home": before["path"],
           "backup": u["old"], "held": u["held"], "parked": before["upgrade"]["file"],

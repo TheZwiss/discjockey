@@ -21,7 +21,7 @@
     Spectrum, StatCard, Surface, TrackHead, envelope,
   } from '$lib/components';
   import {
-    CheckCards, CheckFoot, DuplicateChoice, DuplicateFlow, DuplicateFoot, UpgradeCards, UpgradeFlow, UpgradeFoot, canSwap,
+    CheckCards, CheckFoot, DuplicateChoice, DuplicateFlow, DuplicateFoot, UpgradeCards, UpgradeFlow, UpgradeFoot, canSwap, upgradeWays,
     type Decision,
   } from '$lib/decisions';
   import { Panel } from '$lib/frames';
@@ -63,7 +63,7 @@
   const dupFlow = new DuplicateFlow({ onact: (keep) => onacted?.(keep) });
   $effect(() => { if (t) upFlow.follow(t.track_id); });
   const swap = $derived(canSwap(t?.upgrade));
-  const way = $derived(upFlow.way(swap));
+  const way = $derived(upFlow.way(t?.upgrade ? upgradeWays(t.upgrade, swap) : null));
   const check = $derived(decision?.kind === 'check' ? decision.item : null);
   const dup = $derived(decision?.kind === 'duplicate' ? decision.item : null);
   // every playlist the song is in, by name, whole (the head only says where the file sits); nothing when it is in none

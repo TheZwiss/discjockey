@@ -5,11 +5,12 @@ import type {
   FileSide, FreeDownload, Quality, QuestionPair, QuestionWhy, Todo, TodoFilter,
   TodoGroupKey, TodoItem, TrackDetail,
 } from '$lib/bridge/types';
-import { isDuplicate, isQuestion } from '$lib/bridge/types';
+import { isBatch, isDuplicate, isQuestion } from '$lib/bridge/types';
 import { dayMonth, duration, fileAway, rowAway } from '$lib/format';
-import { canSwap, fileName } from '$lib/decisions/decisionModel';
+import { canSwap, defaultWay, fileName } from '$lib/decisions/decisionModel';
 import { heldRow, putAt } from '$lib/decisions/hold';
 import { fitPath } from '$lib/components/watchedFoldersModel';
+import { keep as keepSelected, type Selection } from '$lib/components/selectionModel';
 
 /** Filter order = the contract's group order (= the list's section order), All first. The import's two groups come
  *  right after rekordbox: they hold downloads back until they are answered (plan library stage 4 D4), and the strip
@@ -43,16 +44,25 @@ export function filterFrom(query: string | null, saved: string): TodoFilter {
 
 /** The page's second line, as `PageHeader` parts in order of importance (issue 30): one line beside the title at every
  *  width, so the header keeps its height between the filters (as one string it wrapped under the title at 1100). The
- *  first part never drops; the questions' part drops whole where it doesn't fit (the strip's Same song and Duplicates
- *  counts say it too) and stays in the tooltip. `chips.all` counts the tracks and, since stage 4, the questions and
- *  duplicate groups about the user's own files too (the engine counts each once); those are often lossless files, so
- *  they get their own part and the rest is what the line always said. */
-export function headerSub(chips: Pick<Record<TodoFilter, number>, 'all' | 'same_song' | 'duplicate'>): string[] {
+ *  first part never drops; the others drop whole where they don't fit (the strip's counts say them too) and stay in the
+ *  tooltip. Every number counts tracks, as its words say (F5):
+ *  - "not lossless yet" is the groups of tracks whose file is below lossless: Upgrade ready (the engine parks an
+ *    upgrade only for a lossy file, so its current file is not lossless yet), Not found, Weak, Good lossy, Fake lossless
+ *    and Other. It is the sum of those chips, not `chips.all` minus the rest: `chips.all` counts a track once however
+ *    many groups it is in, so a track with a check that is also Weak would be taken off twice.
+ *  - the questions (Same song, Duplicates) are about the user's own files, often lossless ones.
+ *  - the checks are tracks just upgraded and lossless: `check_tracks`, because `chips.rekordbox_check` counts items
+ *    and a batch of checks is one item there.
+ *  Nothing left in any of them: "Nothing to do". */
+export function headerSub(t: { chips: Record<TodoFilter, number>; check_tracks: number }): string[] {
+  const { chips } = t;
   const questions = chips.same_song + chips.duplicate;
-  const tracks = Math.max(0, chips.all - questions);
+  const tracks = chips.upgrade_ready + chips.not_found + chips.weak + chips.good_lossy + chips.fake + chips.other;
+  const checks = t.check_tracks;
   const parts = [
     tracks ? (tracks === 1 ? '1 track is not lossless yet' : `${tracks} tracks are not lossless yet`) : null,
     questions ? `${questions} ${questions === 1 ? 'question' : 'questions'} about your files` : null,
+    checks ? `${checks} ${checks === 1 ? 'track' : 'tracks'} to check in rekordbox` : null,
   ].filter((p): p is string => p !== null);
   return parts.length ? parts : ['Nothing to do'];
 }
@@ -105,6 +115,87 @@ export function keepSelection(key: string | null, before: TodoItem[], after: Tod
   const pos = before.findIndex((i) => itemKey(i) === key);
   if (pos < 0) return itemKey(after[0]);
   return itemKey(after[Math.min(pos, after.length - 1)]);
+}
+
+// ---------- multi-select (issue 33 stage B §6.1) ----------
+/** The groups whose items can be selected several at once (their actions run on a selection): Upgrade ready and
+ *  Check in rekordbox (a batch item among single checks: Done and Undo for all their tracks, stage B §6.4); the
+ *  other groups' actions are one track's. */
+export const MULTI_GROUPS: TodoGroupKey[] = ['upgrade_ready', 'rekordbox_check'];
+/** Two or more items selected, all checks: the checks' selection panel (BatchCheckCards). */
+export function multiChecks(selected: TodoItem[]): boolean {
+  return selected.length > 1 && selected.every((i) => i.group === 'rekordbox_check');
+}
+/** selectionModel's scope of a key: its item's group where that group allows several, else null. */
+export function multiScope(items: TodoItem[]): (key: string) => string | null {
+  const groups = new Map(items.map((i) => [itemKey(i), i.group]));
+  return (key) => {
+    const g = groups.get(key);
+    return g && MULTI_GROUPS.includes(g) ? g : null;
+  };
+}
+/** The checks a batch card or a selection of checks acted on (Done, Undo all, Undo this one): the page keeps them in
+ *  its panel until the next pick, whatever shape the list gives them now. `batch`: the panel was that batch's card. */
+export type CheckHold = { ids: string[]; batch: { id: number; started: string | null } | null };
+/** The open checks of a hold in `items` (a batch item gives its tracks), in the list's order, with the keys of the
+ *  rows that hold them; null when none is left (all done or undone). */
+export function heldChecks(items: TodoItem[], h: CheckHold): { keys: string[]; tracks: TodoItem[] } | null {
+  const keys: string[] = [];
+  const tracks: TodoItem[] = [];
+  for (const i of items) {
+    if (i.group !== 'rekordbox_check') continue;
+    const mine = (isBatch(i) ? i.batch.tracks : [i]).filter((t) => h.ids.includes(t.track_id));
+    if (!mine.length) continue;
+    keys.push(itemKey(i));
+    tracks.push(...mine);
+  }
+  return tracks.length ? { keys, tracks } : null;
+}
+/** The Upgrade ready group of an answer (its `all` and `stopped` drive the head's link), null when it has none. */
+export function upgradeGroup(t: Todo | null): Todo['groups'][number] | null {
+  return t?.groups.find((g) => g.key === 'upgrade_ready') ?? null;
+}
+
+/** "Upgrade all · n": the group's items that Upgrade all can reach. A hidden item is left out (the hub's `upgrade_all`
+ *  leaves it out, and the head's n doesn't count it), also with Show hidden on. */
+export function upgradeAllKeys(group: { items: TodoItem[] } | null): string[] {
+  return group ? group.items.filter((i) => !i.hidden).map(itemKey) : [];
+}
+/** Whether the selection is the whole group as Upgrade all means it: every item it can reach, and no hidden one (that
+ *  would be a choice of its own, sent as a list). */
+export function wholeUpgradeGroup(group: { items: TodoItem[] } | null, selected: TodoItem[]): boolean {
+  const keys = upgradeAllKeys(group);
+  const picked = new Set(selected.map(itemKey));
+  return keys.length > 0 && keys.every((k) => picked.has(k)) && selected.every((i) => !i.hidden);
+}
+/** A batch's panel stays until the next pick of the user's own: while it is pinned, a re-fetch keeps only the rows
+ *  still in the list selected (the batch's tracks leave it one by one) and never moves the pick to a neighbour, which
+ *  could be the new check row of the batch just done. */
+export function keepPinned(sel: Selection, before: string[], after: string[]): Selection {
+  return keepSelected(sel, before, after, () => null);
+}
+/** The checks panel gives way to a pinned batch's result: its rows may have become the checks' (the batch's own check
+ *  row appears in another group when it is done). */
+export const checksPanelShows = (pinnedBatch: boolean, hasChecks: boolean): boolean => hasChecks && !pinnedBatch;
+/** The list follows a running batch: one fresh answer per track done. `prev`: the count seen last (-1: no batch ran);
+ *  returns whether to ask again and the count to remember. */
+export function batchListStep(prev: number, v: { phase: 'running' | 'ended'; done: number } | null): { reload: boolean; seen: number } {
+  if (!v || v.phase !== 'running') return { reload: false, seen: -1 };
+  return { reload: prev >= 0 && v.done > prev, seen: v.done };
+}
+/** One run at a time, a call during a run asks for exactly one more after it (the list's fresh answers during a batch:
+ *  a burst of progress events is not a burst of requests). */
+export function coalesce(run: () => Promise<void>): () => void {
+  let busy = false;
+  let again = false;
+  const go = async (): Promise<void> => {
+    if (busy) { again = true; return; }
+    busy = true;
+    try {
+      do { again = false; await run(); } while (again);
+    } finally { busy = false; }
+  };
+  return () => { void go(); };
 }
 
 // ---------- the item just acted on ----------
@@ -168,7 +259,9 @@ export function moveSelection(items: TodoItem[], key: string | null, delta: numb
 export function selectFromTrack(items: TodoItem[], track_id: string | null): string | null {
   const m = track_id ? /^file:(\d+)$/.exec(track_id) : null;
   const i = m ? items.find((x) => filesOf(x).some((f) => f.file_id === Number(m[1])))
-    : track_id ? items.find((x) => x.track_id === track_id) : undefined;
+    : track_id ? items.find((x) => x.track_id === track_id)
+      // a track a batch upgraded is its batch's row (Sync's "Fix →", the Library's link)
+      ?? items.find((x) => isBatch(x) && x.batch.tracks.some((t) => t.track_id === track_id)) : undefined;
   return i ? itemKey(i) : null;
 }
 
@@ -187,17 +280,24 @@ export const rowOff = (i: TodoItem): boolean => !i.pair && !i.in_playlists;
 /** The row's lead is dimmed: a track no playlist holds (`rowOff`) or a file that is away (`rowAway`: offline, its
  *  folder not found), as in Library's table. The trailing column tells the two apart: the quality badge, or the
  *  `AwayTag` in its place, which says why the file can't play. */
-export const rowDim = (i: TodoItem): boolean => rowOff(i) || rowAway(i) !== null;
+export const rowDim = (i: TodoItem): boolean => !isBatch(i) && (rowOff(i) || rowAway(i) !== null);
 
 /** The rows ▶ in a track's details plays through as the to-do queue. The import's items are left out: a question's
  *  song has no file yet and a duplicate group is several files, so neither is a track the queue could ask for. */
 export function queueRows(items: TodoItem[]): TodoItem[] {
-  return items.filter((i) => !i.pair);
+  // a batch's row is its tracks, each one in the queue in the batch's order
+  return items.filter((i) => !i.pair).flatMap((i) => (isBatch(i) ? i.batch.tracks : [i]));
 }
 
 /** The badge a row shows: a question shows the quality of the user's file it asks about (the playlist song waits
  *  for the answer and has no file); every other row its track's. */
-export function rowBadge(i: TodoItem): { quality: Quality; label: string } {
+export function rowBadge(i: TodoItem): { quality: Quality | 'muted'; label: string } {
+  // a batch's row: its tracks' quality when they share one (a Same track batch of lossless versions), else MIXED
+  if (isBatch(i)) {
+    const q = new Set(i.batch.tracks.map((t) => `${t.quality}|${t.quality_label}`));
+    return q.size === 1 ? { quality: i.batch.tracks[0].quality, label: i.batch.tracks[0].quality_label }
+      : { quality: 'muted', label: 'MIXED' };
+  }
   return isQuestion(i) ? { quality: i.pair.file.quality, label: i.pair.file.quality_label }
     : { quality: i.quality, label: i.quality_label };
 }
@@ -276,7 +376,7 @@ export function actionsFor(track: TrackDetail, group: TodoGroupKey | null = null
   const up = track.upgrade;
   const swap = canSwap(up);
   const check = group === 'rekordbox_check';
-  const upgrade = up ? { swap, primary: swap ? 'swap' as const : 'add_new' as const } : null;
+  const upgrade = up ? { swap, primary: defaultWay(up, swap) } : null;
   const finder = group === 'other' && !!track.path && !fileAway(track);   // nothing to show when the file isn't there
   // a lossless version is ready: the upgrade decision is the way to it, so no "Get a lossless file" (buy, drop) under it
   const getBetter = improvable && !(up && up.what === 'lossless version');

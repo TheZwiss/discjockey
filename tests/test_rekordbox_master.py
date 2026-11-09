@@ -71,6 +71,41 @@ def test_a_missing_read_column_is_a_schema_problem(tmp_path, drop):
     assert (st.state, st.problem) == ("unreadable", "schema")
 
 
+# stage B reads or writes these too: a library lacking any one of them is "schema" (the one guard list, plan B §1.2)
+LOOKUP_COLUMNS = ("UUID", "rb_local_usn", "rb_local_deleted", "created_at", "updated_at")
+STAGE_B_COLUMNS = (
+    [("djmdContent", c) for c in ("UUID", "OrgFolderPath", "rb_LocalFolderPath", "FileSize", "BitDepth", "SampleRate",
+                                  "BitRate", "Length", "rb_local_usn", "updated_at")]
+    + [(t, c) for t in ("djmdArtist", "djmdAlbum", "djmdLabel") for c in LOOKUP_COLUMNS]
+    + [("djmdArtist", "SearchStr"), ("djmdAlbum", "SearchStr")]  # djmdLabel has none in rekordbox 7
+    + [("contentFile", c) for c in ("ID", "rb_local_usn", "updated_at")] + [("agentRegistry", "updated_at")])
+
+
+def test_stage_b_added_its_columns_to_the_guard_list():
+    assert all(column in READ_COLUMNS[table] for table, column in STAGE_B_COLUMNS)
+    assert "SearchStr" not in READ_COLUMNS["djmdLabel"]
+
+
+@pytest.mark.parametrize("table, column", STAGE_B_COLUMNS)
+def test_a_library_missing_any_one_stage_b_column_is_a_schema_problem(table, column):
+    import sqlite3
+    from discjockey.rekordbox.master import missing_columns_of
+    con = sqlite3.connect(":memory:")
+    for name, columns in READ_COLUMNS.items():
+        con.execute(f"CREATE TABLE {name} ({', '.join(c for c in columns if (name, c) != (table, column))})")
+    assert missing_columns_of(con, table) == [column]
+    assert [t for t in READ_COLUMNS if t != table and missing_columns_of(con, t)] == []
+
+
+@pytest.mark.parametrize("drop", [{"djmdContent": ("OrgFolderPath",)}, {"djmdContent": ("rb_local_usn",)},
+                                  {"djmdArtist": ("SearchStr",)}, {"djmdAlbum": ("rb_local_deleted",)},
+                                  {"djmdLabel": ("UUID",)}, {"contentFile": ("updated_at",)},
+                                  {"agentRegistry": ("updated_at",)}])
+def test_such_a_library_is_unreadable_through_status(tmp_path, drop):
+    st = status(library(tmp_path, drop=drop), closed)
+    assert (st.state, st.problem) == ("unreadable", "schema")
+
+
 def test_every_read_column_is_in_the_fixture():
     from rekordbox_helpers import TABLES
     for table, columns in READ_COLUMNS.items():
@@ -167,8 +202,11 @@ def test_connect_wants_a_hex_key_and_closes_on_a_wrong_one(tmp_path):
 # --- finding the track ---
 
 def entries(tmp_path, rows, path):
+    """The tracks holding `path`; the answer through the library's path index must be the same one."""
     with open_read(library(tmp_path, rows), False) as master:
-        return master.entries_for(Path(path))
+        found = master.entries_for(Path(path))
+        assert master.entries_for(Path(path), master.index()) == found
+        return found
 
 
 def test_the_entry_carries_its_fields(tmp_path):
@@ -179,6 +217,49 @@ def test_the_entry_carries_its_fields(tmp_path):
     assert (entry.isrc, entry.comment, entry.cloud) == ("GBXXX2600001", "warm-up", False)
     assert entry.analysis_path == "/PIONEER/USBANLZ/000/1/ANLZ0000.DAT"
     assert entry.created_at == "2026-01-02 03:04:05.678 +00:00"
+
+
+def test_the_entry_carries_what_stage_b_writes_through(tmp_path):
+    rows = [{"ID": "1", "path": "/m/a.mp3", "artist": "Artist", "album": "Album", "label": "Label",
+             "OrgFolderPath": "/m/a.mp3", "rb_LocalFolderPath": "/local/a.mp3", "FileSize": 123456,
+             "UUID": "uuid-1"}]
+    [entry] = entries(tmp_path, rows, "/m/a.mp3")
+    assert (entry.artist_id, entry.album_id, entry.label_id) == ("artist-1", "album-2", "label-3")
+    assert (entry.org_folder_path, entry.local_folder_path, entry.file_size, entry.uuid) == (
+        "/m/a.mp3", "/local/a.mp3", 123456, "uuid-1")
+
+
+def test_a_track_without_lookups_or_facts_has_none_and_empty_values(tmp_path):
+    rows = [{"ID": "1", "path": "/m/a.mp3", "OrgFolderPath": None, "FileSize": None, "UUID": ""}]
+    [entry] = entries(tmp_path, rows, "/m/a.mp3")
+    assert (entry.artist_id, entry.album_id, entry.label_id) == (None, None, None)
+    assert (entry.org_folder_path, entry.local_folder_path, entry.file_size, entry.uuid) == ("", None, None, None)
+
+
+# --- the path index ---
+
+def test_the_index_holds_every_live_file_row_by_path_and_by_name(tmp_path):
+    rows = [{"ID": "1", "path": "/m/A.mp3"}, {"ID": "2", "path": "/n/a.mp3"}, {"ID": "3", "path": "/m/b.mp3"},
+            {"ID": "4", "path": "/m/c.mp3", "rb_local_deleted": 1}, {"ID": "5", "path": "/m/d.mp3", "FileType": 25},
+            {"ID": "6", "path": "/m/a.MP3"}]
+    with open_read(library(tmp_path, rows), False) as master:
+        index = master.index()
+    assert index.by_path == {"/m/a.mp3": ["1", "6"], "/n/a.mp3": ["2"], "/m/b.mp3": ["3"]}
+    assert index.by_name == {"a.mp3": [("1", "/m/A.mp3"), ("2", "/n/a.mp3"), ("6", "/m/a.MP3")],
+                             "b.mp3": [("3", "/m/b.mp3")]}
+
+
+def test_an_answer_through_the_index_does_not_scan_the_table(tmp_path):
+    rows = [{"ID": str(i), "path": f"/m/{i}.mp3"} for i in range(1, 50)]
+    with open_read(library(tmp_path, rows), False) as master:
+        index = master.index()
+        scans = []
+        master.con.set_trace_callback(lambda sql: scans.append(sql) if "FolderPath FROM djmdContent" in sql else None)
+        assert [e.id for e in master.entries_for(Path("/m/7.mp3"), index)] == ["7"]
+        assert master.entries_for(Path("/m/none.mp3"), index) == []
+        assert scans == []
+        master.entries_for(Path("/m/7.mp3"))
+        assert len(scans) == 1  # without the index it is one scan
 
 
 def test_no_lookup_ids_give_empty_names_and_no_analysis_is_none(tmp_path):

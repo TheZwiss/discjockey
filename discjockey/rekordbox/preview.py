@@ -44,6 +44,15 @@ REASON_WORDS = {
     "no_name": "no artist or title known",
     "not_in_library": "not a file of your library",
     "auto_refused": "an automatic upgrade was refused for it before",
+    "unclean": "rekordbox didn't close normally last time; open rekordbox, quit it, and try again",
+    "changed": "your rekordbox track changed while Discjockey was working on it; try again",
+    "space": "there isn't enough free space for the new AIFF file",
+    "rekordbox_open": "rekordbox is open; quit rekordbox, then try again",
+    "busy": "another Discjockey window or the Terminal is changing your rekordbox library; try again when it is done",
+    "rename_blocked": "Discjockey can only give this file its new name while it can point your rekordbox track at "
+                      "it, and it can't right now",
+    "later_batch": "it was planned again in a later batch",
+    "relocated": "this track was moved or removed in rekordbox since the replace, so Discjockey can't put it back safely",
 }
 
 

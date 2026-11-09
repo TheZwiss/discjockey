@@ -31,6 +31,35 @@ def test_the_app_activates_then_opens_the_hub(monkeypatch):
     assert order == ["activate", "resolve", ("hub", "resolved")]
 
 
+def test_a_console_command_runs_the_console_not_the_hub(monkeypatch):
+    from discjockey import cli
+    from discjockey.hub import app
+    order = []
+    monkeypatch.setattr(tools, "activate", lambda *a, **k: order.append("activate"))
+    monkeypatch.setattr(cli, "main", lambda argv: order.append(("cli", argv)) or 4)
+    monkeypatch.setattr(app, "main", lambda resolved: pytest.fail("a console command must not open the hub"))
+    assert app_main.main(["rekordbox", "restore", "x", "--yes"]) == 4
+    assert order == ["activate", ("cli", ["rekordbox", "restore", "x", "--yes"])]
+
+
+def test_the_console_commands_are_the_parsers_commands():
+    import argparse
+    from discjockey import cli
+    holder = {}
+    real = argparse.ArgumentParser.parse_args
+
+    def spy(self, args=None, namespace=None):
+        holder["choices"] = next(a.choices for a in self._actions if isinstance(a, argparse._SubParsersAction))
+        return real(self, args, namespace)
+
+    argparse.ArgumentParser.parse_args = spy
+    try:
+        cli.parse_args(["setup"])
+    finally:
+        argparse.ArgumentParser.parse_args = real
+    assert set(holder["choices"]) == set(app_main.CLI_COMMANDS)
+
+
 def test_importing_the_entry_starts_nothing():
     code = ("import sys, discjockey.app_main; "
             "print(sorted(m for m in ('webview', 'AppKit', 'yt_dlp') if m in sys.modules))")

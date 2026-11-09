@@ -28,6 +28,8 @@ export type HubEvent =
   | { type: 'Message'; level: 'info' | 'warning' | 'debug'; text: string }
   | { type: 'ReadingPlaylist'; index: number; total: number; folder: string }
   | { type: 'MovesProgress'; batch_id: number; done: number; total: number }
+  /** an AIFF batch (Same track, Upgrade all): `done` of `total` handled; `track_id`/`name` the one in work (null after the last); `batch_id` 0 for a New track / Discard list (no batch record) */
+  | { type: 'BatchProgress'; batch_id: number; done: number; total: number; track_id: string | null; name: string | null }
   | { type: 'ImportProgress'; phase: 'scan' | 'tags' | 'sound' | 'link'; done: number; total: number; unreadable: number }
   | { type: 'JobStarted'; job_id: number; kind: string; track_id: string | null }
   | { type: 'JobFinished'; job_id: number; kind: string; ok: boolean; problem: ProblemKind | null; message: string;
@@ -41,9 +43,9 @@ export type HubEvent =
   | { type: 'DrivesChanged'; away: number };
 export type EventOf<T extends HubEvent['type']> = Extract<HubEvent, { type: T }>;
 
-/** The 21 names, same order as the schema's oneOf. */
+/** The 22 names, same order as the schema's oneOf. */
 export const EVENT_TYPES = ['RunStarted', 'ActionStarted', 'StepChanged', 'Progress', 'Waiting', 'SourceChosen',
-  'Checked', 'AccountUsage', 'ActionFinished', 'RunFinished', 'Message', 'ReadingPlaylist', 'MovesProgress', 'ImportProgress', 'JobStarted', 'JobFinished', 'ConsoleBusy',
+  'Checked', 'AccountUsage', 'ActionFinished', 'RunFinished', 'Message', 'ReadingPlaylist', 'MovesProgress', 'BatchProgress', 'ImportProgress', 'JobStarted', 'JobFinished', 'ConsoleBusy',
   'FileDropped', 'SignInPhase', 'AppUpdate', 'DrivesChanged'] as const satisfies readonly HubEvent['type'][];
 
 /** Runtime copy of the field names above, so a renamed field breaks a test (spec §9). */
@@ -61,6 +63,7 @@ export const EVENT_FIELDS: { [T in HubEvent['type']]: readonly (keyof EventOf<T>
   Message: ['type', 'level', 'text'],
   ReadingPlaylist: ['type', 'index', 'total', 'folder'],
   MovesProgress: ['type', 'batch_id', 'done', 'total'],
+  BatchProgress: ['type', 'batch_id', 'done', 'total', 'track_id', 'name'],
   ImportProgress: ['type', 'phase', 'done', 'total', 'unreadable'],
   JobStarted: ['type', 'job_id', 'kind', 'track_id'],
   JobFinished: ['type', 'job_id', 'kind', 'ok', 'problem', 'message', 'result', 'service'],

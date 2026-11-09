@@ -192,6 +192,23 @@ ALIGNED = ("This is the same edit, lined up with your old file to the sample. In
      "This track now plays the right song. In rekordbox: analyse it again and delete the old cues (they belong to "
      "the wrong song)."),
     ({"reason": "other"}, "Check this track in rekordbox."),
+    # stage B: a swap whose rekordbox text Discjockey wrote needs no Reload Tag; one whose write didn't run keeps it
+    ({"reason": "swapped", "reload_tag": False},
+     "The lossless audio is in your file, so rekordbox keeps its cues, and Discjockey updated its names in rekordbox. "
+     "In rekordbox: analyse it again so the waveform shows the full sound."),
+    ({"reason": "swapped", "reload_tag": False, "moved": True},
+     "The lossless audio is in your file, which moved up out of not_lossless/, and Discjockey updated its names in "
+     "rekordbox. In rekordbox: Auto Relocate finds it by its name with its cues, then analyse it again."),
+    ({"reason": "swapped", "reload_tag": True},
+     "The lossless audio is in your file, so rekordbox keeps its cues. In rekordbox: Reload Tag, and analyse it "
+     "again so the waveform shows the full sound."),
+    ({"reason": "repointed", "rekordbox": {"entries": ["1"], "kept": []}},  # design §8's words
+     "The better audio is in a new AIFF with a clean name, and your rekordbox track plays it with its cues, "
+     "playlists and history. In rekordbox, analyse it again so the waveform shows the full sound (lock the beatgrid "
+     "first if you set it by hand)."),
+    ({"reason": "repointed", "rekordbox": None},
+     "The better audio is in a new AIFF with a clean name. This file isn't in your rekordbox collection, so there "
+     "was nothing to keep there."),
 ])
 def test_check_text_words_the_check_by_what_the_files_measured_as(check, text):
     assert check_text(check) == text

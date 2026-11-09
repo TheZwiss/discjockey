@@ -923,7 +923,10 @@ fit." when the two files were measured as the same edit; the two `swapped` texts
 `rekordbox_checked(track_id)`. Its items also carry `can_undo` (bool): the check belongs to a swap or an added file
 that `undo_upgrade(track_id)` can still put back (the track still has that file and no newer version waits; whether
 the files changed is checked when it runs). False for every other check and for upgrades from before undo existed. A track can be in two groups (e.g. Check in rekordbox and Not found); `chips.all`
-counts each track once, `chips.rekordbox_check` every check (hidden ones too).
+counts each track once, `chips.rekordbox_check` every check item (hidden ones too; a batch is one item). `check_tracks`
+counts the same checks as **tracks**: a batch counts its `size`, hidden tracks too, whatever the filter. The page header
+says "{n} tracks to check in rekordbox" from it, and "{n} tracks are not lossless yet" from the sum of the chips of the
+groups below lossless (`upgrade_ready`, `not_found`, `weak`, `good_lossy`, `fake`, `other`), never from `chips.all`.
 ```json
 {
  "ok": true,
@@ -939,6 +942,7 @@ counts each track once, `chips.rekordbox_check` every check (hidden ones too).
   "fake": 0,
   "other": 0
  },
+ "check_tracks": 0,
  "hidden_count": 0,
  "show_hidden": false,
  "groups": [
@@ -1632,10 +1636,12 @@ A job's success can carry words in `JobFinished.message`, empty otherwise: the i
 | `use_candidate(track_id, candidate)` | `use_candidate` | OpResult |
 | `use_link(track_id, url)` — Qobuz track / YouTube / YT Music / SoundCloud link | `use_link` | OpResult |
 | `reject_current(track_id)` — "None of these"; sets `rekordbox_check` (`wrong_song`) | `reject_current` | OpResult |
-| `rekordbox_checked(track_id)` — "Done" on a "Check in rekordbox" item: clears `rekordbox_check` | `rekordbox_checked` | OpResult (`result.section` `rekordbox_checked`, note "checked in rekordbox") |
-| `rescan_library()` — the window opened or came back to the front: indexes `Library/` against `library.db`, so files moved, renamed or replaced by hand are found (a write method like the rest; the page ignores a `busy` or `console` answer, a running sync scans by itself). Every sync and dry run scans first too | `scan` | `{moved, new, gone, changed, copies}`, all ints: files found at a new place, new files, songs whose file is gone, files whose audio was replaced outside Discjockey (judged again like a bought file), and `copies` (new files with the audio of a file that is still there; the `Message` counts them as new files). All zero when nothing changed, and when a crash-safe step is still pending (nothing is scanned then). A scan that changed something sends one `Message` |
-| `upgrade(track_id, mode)` — `swap|add_new|discard` | `upgrade_swap` / `upgrade_add_new` / `upgrade_discard` | OpResult |
-| `undo_upgrade(track_id)` — "Undo" next to "Done, checked in rekordbox" on an item with `can_undo`: puts a swap or an added file back (the old file at its old path, the entry as it was, the new version parked in `Upgrades ready/` again, so the upgrade is offered again; the check goes, or the one before the step comes back). Crash-safe; gone once `rekordbox_checked` ran (a swap's kept download is then deleted) | `undo_upgrade` | OpResult (`result.section` `upgrade_undone`, `path` the old file's path); `refused` with the reason when nothing is left to undo ("There is no upgrade to undo for this track."), either file changed or is gone since the step, the track has another file, a newer version waits, or another file is at a place something goes back to — nothing is changed then |
+| `rekordbox_checked(track_ids)` — "Done, checked in rekordbox" for a list (a batch card sends its done tracks): clears `rekordbox_check` and with it the undo | `rekordbox_checked` | `CheckedResult` `{results: Result[], checked: ids, not_checked: ids, recovered}`; `changed` when none had a check |
+| `upgrade(track_ids, mode)` — `swap\|add_new\|discard`, a list (one track is a list of one; a string, an empty list or an unknown mode is `refused`). `swap` is **Same track for any format** and runs one AIFF batch; `add_new` / `discard` run the list one after the other | `upgrade_batch` (swap) / `upgrade_add_new` / `upgrade_discard` | `AiffBatchResult` `{batch, state, stop_reason, total, done, skipped, failed, results: ItemResult[], backup, recovered}`; `add_new`/`discard` give the same shape with `batch: null`, `backup: null`. `ItemResult` `{track, action, state: planned\|done\|skipped\|failed\|undone, reason (an eligibility key, skipped only), message, path, rekordbox: {entries, kept} \| null}`. One-track `add_new`/`discard` keep the old checks (`changed` when the page showed another entry) and a failure ends the job with its own words. A batch ends as a problem that still carries the batch in `JobFinished.result`: `stopped` ("Stopped after {done} of {total}."), `rekordbox_open`, `busy` (another window or the Terminal holds `rekordbox.lock`), `refused` (nothing in it could be done; each reason in `results`). A batch of one track that meets rekordbox open or `busy` before anything ran is closed (`state` done, the item skipped `rekordbox_open`/`busy`), so no Resume is offered; a bigger batch stays `stopped` |
+| `upgrade_all()` — Same track for every parked upgrade the To-do group counts as possible (`all.n`); `refused` ("None of these can be upgraded right now.") when none | `upgrade_batch` (started by `upgrade_all`) | `AiffBatchResult` |
+| `batch_resume(batch_id)` — the planned tracks of a stopped batch, eligibility asked again; `refused` for an unknown batch or one that is not stopped | `batch_resume` | `AiffBatchResult` |
+| `batch_undo(batch_id)` — every track the batch did, newest first. For the console; the hub's batch card and its "Undo all {n}" send `undo_upgrade` over the card's own undoable tracks (`batch_undo` would also try tracks already marked Done and list them as refused) | `batch_undo` | `UndoResult` `{batch, total, undone, refused, failed, results: [{track, state: undone\|refused\|failed\|waiting, reason, message}], recovered}`; `rekordbox_open` (nothing undone, every track `waiting`) or `stopped` carry it; `refused` when nothing could be undone |
+| `undo_upgrade(track_ids)` — "Undo" on `can_undo` items, a list, newest first (the order of the steps in operations.log, then batch/row id: timestamps are only seconds), one job: puts a swap, an added file or a Same track back (the upgrade waits again). Needs rekordbox closed where a step wrote it. Gone once `rekordbox_checked` ran | `undo_upgrade` | `UndoResult`; the job is `refused` (with the one track's own words, or "None of these could be undone.") when nothing was undone, `rekordbox_open` when rekordbox runs |
 
 **BatchResult** (`tidy_up`, `undo_moves`, the items of `save_playlists`' `batches`): `{batch_id, title, moved (files; a folder rename counts the files it carried), headline,
 skipped: [{label, from, to, reason, text}], stopped}`. `headline` "Moved {n} files." / "Moved 1 file." (undo: "... back."),
@@ -1865,8 +1871,8 @@ While no music folder is bound, every method in `LIBRARY_METHODS` answers `no_li
 a test compares them): `dashboard`, `sidebar`, `sync_preview`, `refresh`, `library`, `track`, `todo`, `playlists`,
 `limits`, `limits_what_if`, `save_limits`, `mark_warnings_seen`, `runs`, `run`, `spectrum`, `media_url`,
 `search_candidates`, `preview`, `add_playlist`, `preview_playlist_change`, `start_sync`, `save_playlists`, `hide`,
-`never_download`, `add_bought_file`, `use_candidate`, `use_link`, `reject_current`, `rekordbox_checked`, `upgrade`,
-`undo_upgrade`, `rescan_library`, `show_in_finder`, `reveal`, `open_report`, `tidy_preview`, `move_batches`, `undo_preview`, `tidy_up`,
+`never_download`, `add_bought_file`, `use_candidate`, `use_link`, `reject_current`, `rekordbox_checked`, `upgrade`, `upgrade_all`,
+`undo_upgrade`, `batch_resume`, `batch_undo`, `rescan_library`, `show_in_finder`, `reveal`, `open_report`, `tidy_preview`, `move_batches`, `undo_preview`, `tidy_up`,
 `undo_moves`, `watched_folders`, `set_favourites`, `set_crate_shown`, `check_import_folder`, `removal_preview`, `add_watched_folder`,
 `remove_watched_folder`, `start_import`, `answer_same_song`, `keep_duplicates`, `supersede_duplicate`, `add_liked_music`. Everything else works without a music folder, `open_licenses` included (Setup and Settings before one
 is chosen); `downloads_view()` then counts zero tracks.
@@ -1969,8 +1975,18 @@ the third action).
 | `Message` | `level` `info|warning|debug`, `text` (hide debug) |
 | `ReadingPlaylist` | `index`, `total`, `folder` — before each playlist is read (a refresh, or a sync's start) |
 | `MovesProgress` | `batch_id`, `done`, `total` — after each move of a move batch, during `tidy`, `undo_moves` and a moving `save_playlists` (a folder rename counts as one move) |
+| `BatchProgress` | `batch_id`, `done`, `total`, `track_id`, `name` — before each track of an AIFF batch and after the last (`track_id`/`name` null then), during `upgrade_batch`, `batch_resume`, `batch_undo` and, with `batch_id` 0 (no batch record), `upgrade_add_new` / `upgrade_discard` lists. `done` counts tracks handled, earlier runs of a resumed batch included |
 | `ImportProgress` | `phase` `scan|tags|sound|link`, `done`, `total` (0 of 0 for scan and link), `unreadable` (files this import couldn't read so far) — during an import (importer.run_import), at each phase's start and end and at most every 25 files or 0.5 s between |
 
 Pause card: the pause runs inside the next action after its `ActionStarted` and search, so "next up" is the current
 action and "after that N more" = `total - index`. Progress and Waiting may be coalesced when the page lags (only the
 latest is sent). The pause card's source is the latest `SourceChosen` of the current action.
+
+
+## Upgrades and batches (issue 33 stage B)
+
+- **Problem kind `rekordbox_open`**: a batch or an undo needs rekordbox closed ("rekordbox is open. Quit rekordbox, then try again. Discjockey changes your rekordbox tracks only while rekordbox is closed."; stopped mid-way: "rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox and press Resume."). `JobFinished.result` is the stopped `AiffBatchResult` (or the `UndoResult`) when items ran.
+- **`upgrade` block** (`track().upgrade`): `swap_possible` now means "Same track can run now" (the quick answer: a parked upgrade, the file there, a stored alignment `exact`/`shifted`, and for a file that isn't AIFF a rekordbox library Discjockey can open or none); new `swap_how` (`in_place` for an AIFF, `new_aiff`), `why_not` (an eligibility reason key, null when possible), `rekordbox: {state: ready\|none\|unreadable, running}` (cached, see below), `auto_refused: null` (stage C). `upgrade_status` says "cues can stay" whenever Same track is possible.
+- **`check_view`** (`check`): reasons add `repointed`; new `reload_tag` (a record without it still asks for Reload Tag: `true`), `batch: {id, size} \| null` (size: that batch's checks still open), `rekordbox: {entries: count, kept: [fields]} \| null`.
+- **`todo()`**: every `upgrade_ready` item carries `same_track` (null, or the reason key); the group carries `all: {n, m, k}` (Same track can run / the edit needs a choice / waits for something else, hidden tracks left out) and `stopped: {batch_id, left} \| null` (the newest stopped batch with tracks left). The open checks of one batch with two or more tracks are one item, `BatchCheckItem` (`key` = `track_id` = `batch:<id>`, `group: "rekordbox_check"`, the first track's row fields, `batch: {id, size, started, tracks: [check items]}`; `isBatch`), counted once in `chips`; one open check stays a plain item.
+- **Cached rekordbox state**: `HubApi._rekordbox_status()` keyed on master.db's modified time and size plus whether rekordbox runs; one read open per change, never while any write job of this hub runs (a sync, import or tidy-up runs the recovery first, which can finish a rekordbox write: it answers the last value). Services `rekordbox_running` and `rekordbox_place` are injected (tests and the fake never touch a real library).

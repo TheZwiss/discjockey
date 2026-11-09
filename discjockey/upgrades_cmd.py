@@ -6,25 +6,27 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from . import align, config, library, report as rep, upgrades
+from . import align, batches, config, library, report as rep, upgrades
 from .events import Result
 from .library import Paths, StateError
 from .models import SOURCE_NAMES
 from .quality import quality_line
 from .upgrades import UpgradeProblem
 
-TIP = "Tip: quit rekordbox before swapping."
-CHOICES = {"s": "swap", "a": "add as new file", "d": "discard", "f": "show in Finder", "l": "later (default)",
+TIP = ("Quit rekordbox first: for a file that isn't AIFF, Discjockey points your rekordbox track at the new "
+       "file.")
+CHOICES = {"s": "same track", "a": "add as new file", "d": "discard", "f": "show in Finder", "l": "later (default)",
            "q": "quit"}
-DONE = {"s": "Swapped", "a": "Added as a new file", "d": "Discarded"}
-WHAT = {"s": "swap", "a": "add it as a new file", "d": "discard it"}
+DONE = {"s": "Replaced", "a": "Added as a new file", "d": "Discarded"}
+WHAT = {"s": "replace it", "a": "add it as a new file", "d": "discard it"}
 
 
 def show_in_finder(path: Path) -> None:
     subprocess.run(["open", "-R", str(path)], check=False)
 
 
-def _quality(source: str | None, fmt: str | None, status: str, cutoff: int | None, kbps: int | None = None) -> str:
+def quality_text(source: str | None, fmt: str | None, status: str, cutoff: int | None,
+                 kbps: int | None = None) -> str:
     return quality_line(source, fmt or "?", status, cutoff, kbps) if source else status.replace("_", " ")
 
 
@@ -42,9 +44,10 @@ def _failed(log: rep.RunLog, track_id: str, entry: dict, what: str, err: Excepti
 
 def _show(paths: Paths, entry: dict) -> None:
     up = entry["upgrade"]
-    now = _quality(entry.get("source"), entry.get("source_format"), entry["status"], entry.get("cutoff_hz"),
+    now = quality_text(entry.get("source"), entry.get("source_format"), entry["status"], entry.get("cutoff_hz"),
                    entry.get("source_kbps"))
-    new = _quality(up["source"], up["source_format"], up.get("status", "lossless"), up.get("cutoff_hz"), up.get("kbps"))
+    new = quality_text(up["source"], up["source_format"], up.get("status", "lossless"), up.get("cutoff_hz"),
+                       up.get("kbps"))
     width = max(len(now), len(new)) + 3
     print(f"\n[{entry['folder']}] {entry['artist']} - {entry['title']} · {upgrades.upgrade_name(up)} from "
           f"{SOURCE_NAMES.get(up['source'], up['source'])}")
@@ -61,13 +64,33 @@ def _choices(paths: Paths, state: dict, track_id: str, entry: dict, compare) -> 
     print("  Comparing the two versions...", end="", flush=True)
     alignment = upgrades.check(paths, state, track_id, compare)
     if alignment.swap_safe and upgrades.swap_possible(entry):
-        print(f" {alignment.text}. A swap keeps your cue points.")
+        print(f" {alignment.text}. Same track keeps your cue points.")
         return "sadflq"
     if alignment.swap_safe:
-        print(f" {alignment.text}, but only AIFF files can be swapped. Add it as a new file instead.")
-    else:
-        print(f" {alignment.text}. Add it as a new file, or discard it.")
+        print(f" {alignment.text}. Same track keeps your cue points: the better audio becomes a new AIFF file and "
+              "your rekordbox track is pointed at it.")
+        return "sadflq"
+    print(f" {alignment.text}. Add it as a new file, or discard it.")
     return "adflq"
+
+
+def _same_track(paths: Paths, state: dict, track_id: str, compare, now: Callable[[], datetime]) -> Result:
+    """Same track as a batch of one (batches.run: the same session, backup and journal as a bigger batch)."""
+    batch = batches.start(paths, [(track_id, "same_track")], now=now)
+    try:
+        outcome = batches.run(paths, batch, compare=compare, now=now, state=state)
+    except batches.Refused as err:
+        raise UpgradeProblem(str(err)) from None
+    except (batches.RekordboxOpen, batches.Busy) as err:  # nothing ran: no resumable batch of one is left
+        batches.close_unrun(paths, batch, "busy" if isinstance(err, batches.Busy) else "rekordbox_open", str(err),
+                            now=now)
+        raise UpgradeProblem(str(err)) from None
+    item = outcome.results[0]
+    if item.state != "done":
+        raise UpgradeProblem(item.message or "Nothing was changed.")
+    e = state["tracks"][track_id]
+    return Result("swapped", e["folder"], e["artist"], e["title"], track_id, item.message or "",
+                  status=e["status"], source=e["source"], path=e["path"])
 
 
 def _review(paths: Paths, state: dict, track_id: str, log: rep.RunLog, ask: Callable[[str], str],
@@ -101,7 +124,7 @@ def _review(paths: Paths, state: dict, track_id: str, log: rep.RunLog, ask: Call
         try:
             with library.deferred_interrupt():  # a Ctrl-C waits until the step is done and in the report
                 if answer == "s":
-                    result = upgrades.swap(paths, state, track_id, up, compare, now=now)
+                    result = _same_track(paths, state, track_id, compare, now)
                 elif answer == "a":
                     result = upgrades.add_new(paths, state, track_id, up, compare, now=now)
                 else:

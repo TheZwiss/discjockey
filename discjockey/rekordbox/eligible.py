@@ -9,8 +9,9 @@ the window's). `entry` is the song's snapshot entry (`library.load_state`'s `tra
 (None: not measured, which only matters to a file that isn't an AIFF), `present` whether the file is there:
 `"here"`, `"away"` (its drive isn't connected) or `"missing"`.
 
-What rekordbox does not stop in stage A, and does in stage B: rekordbox being open (a run-time refusal, design §5.6),
-an unclean library, a changed track, too little space. Those join `REASONS` then.
+What only a run can find out (stage B): rekordbox being open (design §5.6), an unclean library, a changed track, too
+little space, a rename the repoint can't follow. They are in `REASONS` as the skip reasons of a batch's items; these
+pure functions never answer them. `same_track_quick` answers what is known without reading the file.
 
 Tags: `expected_tags` is what the new file's text would say (title and artists from the song record, album from the
 record when it has one, the rest from the old file; the comment is the quality line), `tags_clean` whether a file
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 import unicodedata
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Literal
 
 from .. import quality
@@ -32,7 +34,13 @@ from .offset import TimelineOffset
 
 REASONS = ("no_upgrade", "needs_choice", "file_missing", "away", "rekordbox_unreadable", "timing", "not_analysed",
            "cloud", "downloaded", "clean_aiff", "named_already", "needs_convert", "no_name", "not_in_library",
-           "auto_refused")  # auto_refused is reserved for stage C
+           "auto_refused", "unclean", "changed", "space", "rekordbox_open", "busy", "rename_blocked", "relocated",
+           "later_batch")
+# auto_refused is reserved for stage C; the rest from `unclean` on are what a run finds (stage B): the write is
+# refused (`unclean`, guard 4), the track changed meanwhile, too little room, rekordbox open, another Discjockey
+# window holding the rekordbox lock (`busy`), a rename the repoint can't follow, and an undo refused because the
+# track was moved or removed in rekordbox since the replace; `later_batch`: the track was planned again in a later
+# batch, so an earlier stopped batch gave up its unrun item
 ACTIONS = ("same_track", "convert", "rename")
 AIFF_EXTS = (".aiff", ".aif")
 OWN = "manual"  # the `source` of a file that wasn't downloaded: a bought file or one the import found
@@ -73,10 +81,11 @@ def expected_tags(entry: dict, old_tags: dict[str, str]) -> dict[str, str]:
     """The text the new file would carry, one value per `TEXT_FIELDS`: title and artists (joined by ", ") from the song
     record; album and ISRC from the record when it has them, else the old file's; label from the old file (the record
     has none); the comment is the quality line of the old file's format (a file of the user's own reads "Your own file (MP3)
-    · …"), else the old comment when the record has no source."""
+    · …"), else the old comment when the record has no source, and always the old comment when it is the user's own
+    (not empty, not a quality line Discjockey wrote: Mixed In Key's "1A - Energy 6")."""
     old = {f: old_tags.get(f, "") for f in TEXT_FIELDS}
     comment = old["comment"]
-    if entry.get("source") in SOURCE_NAMES:
+    if entry.get("source") in SOURCE_NAMES and not (_norm(comment) and not quality.is_quality_line(comment)):
         comment = quality.quality_line(entry["source"], entry.get("source_format") or "?",
                                        entry.get("status") or "lossless", entry.get("cutoff_hz"),
                                        entry.get("source_kbps"), own=entry.get("placed_by") == "import")
@@ -96,11 +105,15 @@ def tags_clean(facts: FileFacts, entry: dict) -> bool:
 def text_plan(row: Entry, old_tags: dict[str, str], clean: dict[str, str]) -> dict[str, str]:
     """Per text column of rekordbox's track `row`: "write" where the repoint may put the clean value there, "kept"
     where the user's own edit stays. A field is written when rekordbox's value still equals the old file's tag, or
-    already equals the clean value (nothing to lose); an empty field and a missing tag are equal."""
+    already equals the clean value (nothing to lose); an empty field and a missing tag are equal. The comment is
+    also written only when rekordbox's value is empty or a quality line Discjockey wrote (any other comment, made
+    in rekordbox or in the file's tag, is the user's, like genre and year), or already equals the clean value."""
     plan = {}
     for field in TEXT_FIELDS:
         shown = _norm(getattr(row, field))
         safe = shown in (_norm(old_tags.get(field)), _norm(clean.get(field)))
+        if field == "comment" and shown != _norm(clean.get(field)):
+            safe = safe and (not shown or quality.is_quality_line(shown))
         plan[field] = "write" if safe else "kept"
     return plan
 
@@ -155,6 +168,23 @@ def same_track(entry: dict, facts: FileFacts | None, rb: Status, timing: Timelin
     if facts is not None and facts.ext in AIFF_EXTS:
         return Eligible()
     return _rekordbox_blocks(rb, timing) or Eligible()
+
+
+def same_track_quick(entry: dict, rb: Status, present: Present = "here") -> Verdict:
+    """`same_track` from what is known without reading the file: a parked upgrade, the file there, the stored
+    alignment `exact` or `shifted`, and for a file that isn't an AIFF (by its path) a rekordbox library that is `ready`
+    or not there (`none`). For counts and screens (Upgrade all's number, `upgrade list`, the window's panels): the
+    full check decodes the file (1-3 s). A track that passes can still be skipped by the run: no waveform, a
+    disagreement in timing, a cloud track, rekordbox open (design §7.2)."""
+    if not entry.get("upgrade"):
+        return Skip("no_upgrade")
+    if (gone := _where(present)) is not None:
+        return gone
+    if (entry["upgrade"].get("alignment") or {}).get("result") not in ("exact", "shifted"):
+        return Skip("needs_choice")
+    if PurePosixPath(entry.get("path") or "").suffix.lower() in AIFF_EXTS:
+        return Eligible()
+    return Skip("rekordbox_unreadable") if rb.state == "unreadable" else Eligible()
 
 
 def convert(entry: dict, facts: FileFacts | None, rb: Status, timing: TimelineOffset | None, *,

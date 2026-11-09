@@ -23,14 +23,16 @@
   // control inside it is a button over the whole head (`data-row-hit`, as Surface's fold; `aria-expanded`, a Tip "Hide playlists" / "Show playlists").
   // `disabled`: shown open and not foldable (a filter has opened it). `children`: the head's own controls before the
   // chevron (the browser's A–Z toggle), above the fold button so they take their own clicks.
+  // `action` (issue 33 stage B §6.1): the group's own action at the head's end, a `Button variant="link" size="sm"`
+  // (To-do's "Upgrade all · 12", "Resume · 3 left"); the hint gives way to it, the action is never cut.
   import type { Snippet } from 'svelte';
   import { stuckEdge } from './stuckEdge';
   import { tip } from './tip';
 
   type Fold = { open: boolean; toggle: () => void; disabled?: boolean };
   type Props = { label: string; summary?: string; hint?: string; test?: string; stick?: 'top' | 'both';
-    on?: 'list' | 'chrome'; fold?: Fold; children?: Snippet };
-  let { label, summary, hint, test, stick = 'top', on = 'list', fold, children }: Props = $props();
+    on?: 'list' | 'chrome'; fold?: Fold; children?: Snippet; action?: Snippet };
+  let { label, summary, hint, test, stick = 'top', on = 'list', fold, children, action }: Props = $props();
   const open = $derived(!fold || fold.open || !!fold.disabled);
   const foldTip = $derived(fold && !fold.disabled ? `${open ? 'Hide' : 'Show'} ${label.toLowerCase()}` : null);
 </script>
@@ -48,8 +50,9 @@
     aria-hidden={fold ? 'true' : undefined}>{label}</span>
   {#if summary}<span class="summary" aria-hidden={fold ? 'true' : undefined}>{summary}</span>{/if}
   {#if hint}<span class="hint">{hint}</span>{/if}
-  {#if fold || children}<span class="fill"></span>{/if}
+  {#if fold || children || action}<span class="fill"></span>{/if}
   {#if children}<span class="own">{@render children()}</span>{/if}
+  {#if action}<span class="own act">{@render action()}</span>{/if}
   {#if fold}
     <span class="chev" class:open aria-hidden="true"><svg viewBox="0 0 8 8"><path d="M2.6 1.2 5.6 4l-3 2.8" /></svg></span>
   {/if}
@@ -75,6 +78,8 @@
   .hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-label);
     font-size: var(--fs-small); }
   .fill { flex: 1; }
+  /* the action keeps its words; the hint before it gives way ("…"); the link ends on the rows' 16 px inset */
+  .act { flex: none; }
 
   /* folding: one button over the whole head; the words and the chevron are drawn above it but let the pointer through,
      the head's own controls take their clicks */

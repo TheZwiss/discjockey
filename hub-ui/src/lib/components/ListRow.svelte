@@ -10,7 +10,9 @@
   // column empty, so nothing shifts.
   // `sub` is a second, muted line under the name (folder · detail); a row with it is 52 px tall unless `height` says
   // otherwise. Both lines end in "…" on their own; `title` is the full text for the tooltip. `wrap` lets the sub-line
-  // wrap instead (a destination folder or a reason the user must read whole); the row grows by its lines.
+  // wrap instead (a destination folder or a reason the user must read whole); the row grows by its lines. `wrapName`
+  // lets the name take up to two lines too (a batch's rows at 1100, where the reason beside a long name wraps and the
+  // name would otherwise be the one cut: the user needs both to know which track it is).
   // With `onclick`, lead + name + optional are one `<button>` (the row's hit area; `trailing` stays outside it, so ⊘
   // or "Fix →" are their own buttons and own their own disabled state). `checked` makes that button a tick box
   // (`role="checkbox"`), `selected` marks the chosen row of a "one of many" list (wash + `aria-current`; with `pick`, a
@@ -18,7 +20,10 @@
   // when it becomes the chosen one (`block: 'nearest'`, instant: a row already in view does not move; a row reached by
   // its address or by the keyboard, below the fold of a short window, is shown). The
   // button's name is the name line only, so it doesn't change when the optional column appears; `sub` and
-  // `optional` are its description. `off` dims name and lead, except a lead item marked `data-mark` (the tick; an unticked track: the name stays readable, the user
+  // `optional` are its description. `multi` (a list where several rows can be selected: To-do's upgrades and checks)
+  // says the choice as a toggle, `aria-pressed`, instead of `aria-current`, which would then sit on many rows at once:
+  // `aria-selected` / `aria-multiselectable` belong to listbox, grid and tree, whose owned items can't include the
+  // section heads' buttons, so the toggle is the valid way to say it (decision log 2026-11-09). `off` dims name and lead, except a lead item marked `data-mark` (the tick; an unticked track: the name stays readable, the user
   // decides on it — rule 8). `disabled` keeps the row focusable but ignores clicks (like Button) and mutes name and
   // lead. Rows highlight on hover and while held, never shrink (a whole row scaling would jump). The lead is
   // decorative (`aria-hidden`): its meaning goes into `checked` or the name. Other attributes (`data-track`, …) go
@@ -28,25 +33,28 @@
 
   type Props = Omit<HTMLAttributes<HTMLDivElement>, 'children' | 'onclick' | 'title'> & {
     lead?: Snippet; name: Snippet; sub?: Snippet; optional?: Snippet; trailing?: Snippet;
-    off?: boolean; selected?: boolean; pick?: boolean; disabled?: boolean; checked?: boolean; height?: 40 | 52; wrap?: boolean;
+    off?: boolean; selected?: boolean; multi?: boolean; pick?: boolean; disabled?: boolean; checked?: boolean; height?: 40 | 52; wrap?: boolean; wrapName?: boolean;
     onclick?: (e: MouseEvent) => void; title?: string; test?: string;
+    /** the row scrolls into view when this turns true (default: `selected`): in a multi-selection only the anchor's
+     *  row does, so ⌘A or a range doesn't scroll the list to its last selected row */
+    reveal?: boolean;
   };
-  let { lead, name, sub, optional, trailing, off = false, selected = false, pick = false, disabled = false, checked, height, wrap = false,
-    onclick, title, test, class: className, ...rest }: Props = $props();
+  let { lead, name, sub, optional, trailing, off = false, selected = false, multi = false, pick = false, disabled = false, checked, height, wrap = false, wrapName = false,
+    onclick, title, test, reveal, class: className, ...rest }: Props = $props();
 
   const uid = $props.id();
   const isTall = $derived((height ?? (sub ? 52 : 40)) === 52);
   const described = $derived([sub && `${uid}-sub`, optional && `${uid}-opt`].filter(Boolean).join(' ') || undefined);
   function click(e: MouseEvent) { if (!disabled) onclick?.(e); }
   let rowEl = $state<HTMLDivElement>();
-  $effect(() => { if (selected) rowEl?.scrollIntoView?.({ block: 'nearest' }); });
+  $effect(() => { if (reveal ?? selected) rowEl?.scrollIntoView?.({ block: 'nearest' }); });
 </script>
 
 <div {...rest} bind:this={rowEl} class="row {className ?? ''}" class:off class:selected class:pick class:locked={disabled} class:tall={isTall}
-  class:clickable={!!onclick} class:has-lead={!!lead} class:has-trailing={!!trailing} class:wrap data-test={test}>
+  class:clickable={!!onclick} class:has-lead={!!lead} class:has-trailing={!!trailing} class:wrap class:wrap-name={wrapName} data-test={test}>
   {#if onclick}
     <button type="button" class="main" data-row-hit role={checked === undefined ? undefined : 'checkbox'}
-      aria-checked={checked} aria-current={selected || undefined} aria-disabled={disabled || undefined}
+      aria-checked={checked} aria-current={selected && !multi ? true : undefined} aria-pressed={multi ? selected : undefined} aria-disabled={disabled || undefined}
       aria-labelledby="{uid}-name" aria-describedby={described} onclick={click}>
       {@render cells()}
     </button>
@@ -92,6 +100,8 @@
   /* a wrapping sub-line keeps the row's padding rhythm: the lines sit 8 px in from the row's rules */
   .wrap .sub { white-space: normal; overflow-wrap: break-word; line-height: 1.35; }
   .wrap .name { padding: var(--s-2) 0; }
+  .wrap-name .line { white-space: normal; overflow-wrap: break-word; display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2; line-clamp: 2; }
   .optional { grid-column: 3; display: none; align-items: center; gap: var(--s-2); min-width: 0; overflow: hidden;
     color: var(--text-muted); font-size: var(--fs-small); white-space: nowrap; }
   /* what doesn't fit ends in "…" instead of being cut mid-letter */

@@ -48,7 +48,12 @@ discjockey update         gets the newest yt-dlp
 
 Every command runs without prompts and ends with an exit code. Where it has `--json`, it prints one JSON object:
 `{"ok": true, …}`, or `{"ok": false, "kind": "refused" | "failed", "message": "…"}` (a refusal also has a `reason`).
-Issue 39 gathers these into the agent docs; the entries below are the ones issue 33's stage A added.
+Issue 39 gathers these into the agent docs; the entries below are the ones issue 33's stages A and B added.
+
+Someone who installed the app has no `discjockey` command, but the app's program takes the same ones: in the
+Terminal, `/Applications/Discjockey.app/Contents/MacOS/Discjockey rekordbox backups` (any of the commands, in place of
+`discjockey`; the README's restore advice uses it). `app_main.py` hands an argument list that starts with one of
+`CLI_COMMANDS` to `cli.main`, and anything else opens the window.
 
 **`discjockey rekordbox status [--json]`** says whether rekordbox's library can be read. Read only: it takes no
 library lock and needs no music folder. JSON: `{"ok", "state", "running", "version", "library", "problem",
@@ -88,6 +93,95 @@ When you run these two commands by hand on a Mac that has a real rekordbox, alwa
 `DISCJOCKEY_SUPPORT=<scratch folder> DISCJOCKEY_REKORDBOX=<a fixture folder or an empty folder> bin/discjockey rekordbox
 status|preview …`. Without them they read the real rekordbox library and your real music folder. An empty
 `DISCJOCKEY_REKORDBOX=` also means "no rekordbox library".
+
+### Upgrade, batch and rekordbox commands (issue 33, stage B)
+
+These change files, Discjockey's records and, for Same track, rekordbox's library, so each one that changes anything
+takes the library lock the hub takes (and finishes interrupted steps first), and **an agent's command counts as the
+user starting it**: never delete a file (replaced files move to `Superseded/`), Same track writes rekordbox only while
+rekordbox is closed, takes a backup first and can be undone. Read commands take no lock. All of them find the music
+folder like the hub and are meant to be run by hand only with both overrides set (above). Progress lines ("2 of 5:
+Artist - Title") go to stderr; with `--json` stdout holds exactly one JSON object.
+
+| Exit | Meaning |
+|---|---|
+| 0 | done for every track, or a dry run, or a read |
+| 1 | refused or failed, or some tracks were skipped or failed (each result says why) |
+| 2 | no music folder or no setup (`reason: "no_library"`); a usage error also exits 2 with argparse's text on stderr |
+| 3 | busy: the library lock or `rekordbox.lock` is held by another window or Terminal |
+| 4 | rekordbox is open: nothing was done, or the batch stopped there (quit rekordbox, then `batch resume <id>`) |
+| 5 | stopped by Ctrl-C between tracks (`batch resume <id>`); the sync's own 130 stays for the sync |
+
+Every command that changes something, when it finished an interrupted step first (`library.recover_pending`), also
+prints `"recovered": [[message, ok], …]` (the messages in words); without such a step the key is absent.
+
+**`ok` and the exit code.** `{"ok": true, …}` means the command ran to its end: a batch that finished with some tracks
+skipped or failed is still `ok: true` (each track's `state` and `reason` are in `results`), and its exit code is 1.
+`{"ok": false, "kind": "refused" | "failed" | "busy" | "rekordbox_open" | "stopped", "reason"?, "message", …}` is for a
+problem: nothing could start, or the job did not end. A problem of a batch carries the batch's own fields too
+(`batch`, `state`, `stop_reason`, `total`, `done`, `skipped`, `failed`, `results`, `backup`), so the id to resume is
+always there. One result per track: `{"track", "action", "state": "planned" | "done" | "skipped" | "failed",
+"reason", "message", "path", "rekordbox": null | {"entries": [rekordbox track ids], "kept": [fields the DJ edited]}}`;
+`reason` is an `eligible.REASONS` key for a skip.
+
+**Ctrl-C.** Once: stop between tracks (the track in work finishes or rolls back; exit 5). A second press, a second
+later: stop at once; what is finished stays saved.
+
+**`discjockey upgrade list [--json]`** lists the parked better versions as To-do shows them (a song in a playlist or
+the user's own file, its sound judged, not hidden). Read only. JSON: `{"ok", "count", "upgrades": [{"track",
+"artist", "title", "folder", "file", "parked", "now", "new", "alignment", "same_track": null | "<reason>",
+"auto_refused": null}]}`. `same_track` is `null` when Same track can run for it (the quick answer: the run asks again
+and may still skip it), else the reason. Song keys for the commands below come from here.
+
+**`discjockey upgrade apply (<track>… | --all) --way same-track|new-track [--dry-run] [--json]`**. `same-track` is
+one AIFF batch (`aiff_batches` in `library.db`): a file that isn't an AIFF becomes a new AIFF and rekordbox's track
+is pointed at it; an AIFF is swapped in place. `--all` is "Upgrade all" (every track Same track can run for;
+`started_by` `upgrade_all`, else `user`). `new-track` runs the named tracks one after the other (no batch, no backup,
+`batch: null` in the result). `--all` with `new-track` exits 1 (`kind: "refused"`, `reason: "all_needs_same_track"`).
+JSON: `{"ok", "batch": <id> | null, "state": "done", "stop_reason", "total", "done", "skipped", "failed", "results",
+"backup": <backup id> | null}`. When nothing could run the answer is a refusal (`ok: false`, `kind: "refused"`, the
+one track's `reason`, or none for several). Exit 4 (rekordbox open) and exit 5 (Ctrl-C) leave the batch `stopped`
+(`stop_reason` `rekordbox_open` / `stop`), and exit 3 with `rekordbox.lock` held by another window or Terminal leaves
+it `stopped` (`busy`); those are resumable with `batch resume`. Exit 3 for the library lock records no batch at all.
+A batch of one named track (not `--all`) that meets rekordbox open or `rekordbox.lock` busy before anything ran is
+closed instead (its song is skipped with that reason and stays in Upgrade ready; there is nothing to resume), as the
+window's single Replace does. Starting a batch for songs an earlier stopped batch still has `planned` closes those
+items there (`skipped`, reason `later_batch`), so each song waits in one batch only.
+`--dry-run` takes no lock, writes nothing and decodes nothing: per track `{"track", "action", "state": "planned" |
+"skipped", "reason", "file", "new_file", "superseded"}`, plus `{"ok", "dry_run": true, "way", "total", "planned",
+"skipped", "space": [{"drive", "needed", "free", "enough"}], "rekordbox": {"state", "running",
+"needs_rekordbox_closed"}}`. It says the run checks each track again.
+
+**`discjockey upgrade discard <track>… [--json]`** throws the better versions away (the current files stay).
+**`discjockey upgrade undo <track>… [--json]`** puts each track's replace back (files, records and, for Same track,
+rekordbox's text and path), one job. Both print the batch shape with `batch: null` (discard) or `{"ok", "batch":
+null, "total", "undone", "refused", "failed", "results": [{"track", "state": "undone" | "refused" | "failed" |
+"waiting", "reason", "message"}]}` (undo). Undo with rekordbox open and a rekordbox change to take back exits 4 and
+undoes nothing (`waiting`). An undo that undid nothing at all ends `{"ok": false, "kind": "refused", "message", …}`
+with the same fields (the one track's own message, else "None of these could be undone.") and exit 1, as the window's
+job fails `refused`.
+
+**`discjockey batch list [--json]`** (the newest batches: `{"ok", "count", "batches": [{"batch", "kind",
+"started_by", "state": "running" | "stopped" | "done", "stop_reason", "started", "ended", "total", "done", "skipped",
+"failed", "planned", "undone", "backup"}]}`), **`batch show <id> [--json]`** (that row plus `results`),
+**`batch resume <id> [--json]`** (runs the `planned` tracks of a stopped batch again, each asked again; a batch that
+isn't stopped exits 1 with `reason: "not_stopped"`) and **`batch undo <id> [--json]`** (undoes the batch's done
+tracks, newest first; a track that can't be undone stays listed with its reason and the exit is 1). An unknown id
+exits 1 (`reason: "unknown_batch"`).
+
+**`discjockey rekordbox checked (<track>… | --batch <id>) [--json]`** is "Done, checked in rekordbox": the reminder
+goes away and with it the undo. JSON: `{"ok", "checked": [keys], "not_checked": [keys]}`; a key with nothing to check
+exits 1, a batch's tracks checked earlier are not an error.
+
+**`discjockey rekordbox backups [--json]`** lists the copies of rekordbox's library Discjockey made before a batch
+(`.discjockey/rekordbox/backups/`): `{"ok", "backups": [{"id", "created", "batches", "tracks", "size"}]}`.
+**`discjockey rekordbox restore <backup> --yes [--json]`** puts rekordbox's whole library back as the backup holds it
+and drops every change made in rekordbox since; without `--yes` it changes nothing and exits 1 (`reason:
+"needs_yes"`). It refuses while rekordbox is open (exit 4), for an unknown, damaged or foreign backup, and with
+`-wal`/`-shm` files beside the library (exit 1, `reason`: `not_found`, `damaged`, `other_library`, `unclean`,
+`no_rekordbox`). It saves the current library first: `{"ok", "restored", "saved_current", "missing_after": [{"id",
+"path", "was"}]}`. `missing_after` lists the rekordbox tracks that now point at files Discjockey has since moved to
+`Superseded/`; undo those batches first (`batch undo`) or Relocate them in rekordbox.
 
 Never start a real sync, upgrade swap or Qobuz download while working on the code unless you mean to: it changes
 your library and counts against your Qobuz daily limit. `--dry-run` changes nothing.

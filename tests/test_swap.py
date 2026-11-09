@@ -317,7 +317,7 @@ def test_crash_after_writing_finishes(fake, monkeypatch):
 
 def test_crash_after_the_move_to_the_root_finishes(fake, monkeypatch):
     inode = os.stat(fake[0].root / CURRENT).st_ino
-    paths, state = crash_and_reload(fake, monkeypatch, "_hold")  # inside _finish, after the rename
+    paths, state = crash_and_reload(fake, monkeypatch, "hold_parked")  # inside _finish, after the rename
     assert (paths.root / ROOT_NAME).read_bytes() == NEW and not (paths.root / CURRENT).exists()
     recover_pending(paths, state)
     assert_swapped(paths, state, inode)
@@ -521,7 +521,7 @@ def test_a_power_cut_between_the_backup_and_its_mark_finishes_at_the_next_start(
 
 
 @pytest.mark.parametrize("crash_at,half", [("_back_up", False), ("_write_in_place", False), ("_write_in_place", True),
-                                           ("_finish", False), ("_hold", False)])
+                                           ("_finish", False), ("hold_parked", False)])
 def test_a_swap_an_earlier_version_journaled_is_finished_at_the_next_start(fake, monkeypatch, crash_at, half):
     inode = os.stat(fake[0].root / CURRENT).st_ino
     paths, state = crash_and_reload(fake, monkeypatch, crash_at, half, earlier=True)

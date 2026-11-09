@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 
 import pytest
+from audio_helpers import needs_ffmpeg
 from hub_helpers import choose_music
 
 import discjockey.cli as cli
@@ -77,12 +78,13 @@ def test_nothing_waiting(tmp_path, capsys):
 def test_each_upgrade_is_shown_like_the_spec(root, capsys):
     assert run(root, "l", "l") == 0
     out = capsys.readouterr().out
-    assert out.startswith("Tip: quit rekordbox before swapping.\n")
+    assert out.startswith("Quit rekordbox first: for a file that isn't AIFF, Discjockey points your rekordbox "
+                          "track at the new file.\n")
     assert ("[Hard_Bounce] BΞNZ0 - Bass Is Coming · lossless version from Qobuz\n"
             "  now:  YouTube Music OPUS · cutoff 20.1 kHz   Library/Hard_Bounce/not_lossless/BΞNZ0 - Bass Is Coming.aiff\n"
             "  new:  Qobuz FLAC · verified lossless         Upgrades ready/Hard_Bounce/BΞNZ0 - Bass Is Coming.aiff\n"
-            "  Comparing the two versions... matches exactly. A swap keeps your cue points.\n"
-            "  [s] swap  [a] add as new file  [d] discard  [f] show in Finder  [l] later (default)  [q] quit\n"
+            "  Comparing the two versions... matches exactly. Same track keeps your cue points.\n"
+            "  [s] same track  [a] add as new file  [d] discard  [f] show in Finder  [l] later (default)  [q] quit\n"
             ) in out
     assert out.index("[Hard_Bounce]") < out.index("[Powertrance]")  # playlists.txt order, not names
     assert not root.reports.exists()  # nothing changed
@@ -99,7 +101,7 @@ def test_swap_add_and_discard(root, capsys):
     assert "## Better version added as a new file (1)" in text
     assert json.loads((root.reports / "2026-10-20_210000.json").read_text())["exit_code"] == 0
     assert root.not_lossless_md.exists()
-    assert "Swapped." in capsys.readouterr().out
+    assert "Replaced." in capsys.readouterr().out
 
 
 def test_discard_after_invalid_input_and_finder(root, capsys):
@@ -124,7 +126,7 @@ def test_swap_not_offered_when_the_versions_do_not_line_up(root, capsys):
     out = capsys.readouterr().out
     assert "Comparing the two versions... doesn't line up: a swap would shift your cue points. Add it as a new " \
            "file, or discard it." in out
-    assert "[s] swap" not in out and "Please type one of: a, d, f, l, q." in out
+    assert "[s] same track" not in out and "Please type one of: a, d, f, l, q." in out
     assert load_state(root)["tracks"]["t1"]["status"] == "not_lossless"
 
 
@@ -212,7 +214,7 @@ def test_unexpected_error_while_swapping(root, monkeypatch, capsys):
 
     monkeypatch.setattr(upgrades, "build_staged", broken)
     assert run(root, "s", "l") == 1
-    assert "! Could not swap (OSError: Input/output error)" in capsys.readouterr().out
+    assert "! Could not upgrade BΞNZ0 - Bass Is Coming (OSError: Input/output error)" in capsys.readouterr().out
     assert load_state(root)["tracks"]["t1"]["status"] == "not_lossless"
 
 
@@ -254,3 +256,51 @@ def test_a_256_kbps_version_is_named_with_its_bitrate(root, capsys):
     assert "[Hard_Bounce] BΞNZ0 - Bass Is Coming · 256 kbps version from YouTube Music\n" in out
     assert "  new:  YouTube Music AAC 256 kbps · cutoff 20.0 kHz   Upgrades ready/Hard_Bounce/" in out
     assert "[Powertrance] Aaa - First by name, second by folder · lossless version from Qobuz\n" in out
+
+
+@needs_ffmpeg
+def test_same_track_for_a_file_that_is_not_an_aiff_is_a_batch_of_one(tmp_path, monkeypatch, capsys):
+    """`s` offers Same track for any format: the MP3 becomes an AIFF and rekordbox's track follows it."""
+    from convert_helpers import NEW, TID, make_env
+    env = make_env(tmp_path, monkeypatch)
+    answer = answers("s")
+    assert run_upgrades(env.paths, ask=answer, compare=lambda cur, new: EXACT, now=lambda: NOW) == 0
+    out = capsys.readouterr().out
+    assert "[s] same track" in out and "Replaced." in out
+    state = load_state(env.paths)
+    assert state["tracks"][TID]["path"] == NEW and (env.paths.root / env.superseded).is_file()
+    assert "repointed" == state["tracks"][TID]["rekordbox_check"]["reason"]
+    from discjockey import db
+    with db.connect(env.paths.db_file) as conn:
+        [batch] = db.aiff_batches(conn)[0]
+    assert (batch.state, batch.counts["done"]) == ("done", 1)
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("why", ["rekordbox_open", "busy"])
+def test_same_track_that_meets_rekordbox_open_or_busy_leaves_no_resumable_batch(tmp_path, monkeypatch, capsys, why):
+    import fcntl
+    import os
+    from convert_helpers import TID, make_env
+    from discjockey import db
+    env = make_env(tmp_path, monkeypatch)
+    fd = None
+    if why == "rekordbox_open":
+        monkeypatch.setattr("discjockey.rekordbox.process.running", lambda: True)
+    else:
+        env.paths.support.mkdir(parents=True, exist_ok=True)
+        fd = os.open(env.paths.support / "rekordbox.lock", os.O_RDWR | os.O_CREAT, 0o644)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        run_upgrades(env.paths, ask=answers("s"), compare=lambda cur, new: EXACT, now=lambda: NOW)
+    finally:
+        if fd is not None:
+            os.close(fd)
+    assert "Replaced." not in capsys.readouterr().out
+    assert load_state(env.paths)["tracks"][TID]["upgrade"]                        # the upgrade still waits
+    with db.connect(env.paths.db_file) as conn:
+        [batch] = db.aiff_batches(conn)[0]
+        assert db.unfinished_aiff_batches(conn) == []                              # nothing for To-do to Resume
+        batch = db.aiff_batch(conn, batch.id)
+    assert (batch.state, batch.stop_reason, batch.counts["planned"], batch.counts["skipped"]) == ("done", None, 0, 1)
+    assert batch.items[0].reason == why

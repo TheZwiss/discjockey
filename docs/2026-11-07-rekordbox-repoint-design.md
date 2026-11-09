@@ -271,7 +271,9 @@ it; AIFF→AIFF stays byte-identical (no resampling when the input is already 16
     ISRC, and the new source's quality line.
   - **From the file itself:** title and artists from the song record; album, ISRC, label and cover from the song
     record when it is linked to a playlist song (`songs.album`, `isrc`, `image_url`), else from the old file's tags.
-    The comment is the quality line of the old file's format.
+    The comment is the quality line of the old file's format, unless the old file's comment is the user's own (not
+    empty, not a quality line Discjockey wrote: Mixed In Key's "1A - Energy 6"): then it stays in the new file, and
+    rekordbox's `Commnt` is written only over nothing or a quality line, like genre and year otherwise.
   - **Carried over from the old file when it has them:** genre (TCON) and year (TDRC/TYER), the user's own. Nothing
     else; the old file keeps all its tags in `Superseded/`. Check first: the import's tag reader for own files
     (`importer` pass 1 / `identify`), to reuse for M4A, FLAC, WAV and AIFF.
@@ -368,8 +370,8 @@ undo record, if their measurements agree.
 | | `rb_LocalFolderPath` | unchanged (NULL in practice). Check first: if a row has it equal to the old path, treat it like `OrgFolderPath` |
 | | `FileType`, `FileSize`, `BitDepth`, `SampleRate`, `BitRate`, `Length` | 12 (AIFF), the new size, 16, 44100, 1411, whole seconds |
 | | text columns | §5.11's rule |
-| | `rb_local_usn`, `updated_at` | `localUpdateCount + 1`; now as `YYYY-MM-DD HH:MM:SS.fff +00:00` |
-| `agentRegistry` | `localUpdateCount.int_1` | +1 per transaction; `updated_at` the same now |
+| | `rb_local_usn`, `updated_at` | each changed or created row its own next number (`localUpdateCount + 1`, `+ 2`, …: created lookup rows, then tracks, then `contentFile` rows; corrected in stage B from a copy of a rekordbox 7 library, where rekordbox numbers rows one by one); now as `YYYY-MM-DD HH:MM:SS.fff +00:00` |
+| `agentRegistry` | `localUpdateCount.int_1` | the last number given; its `updated_at` is left (rekordbox doesn't refresh it per count) |
 | ANLZ `.DAT` `.EXT` `.2EX` `.3EX` | `PPTH` | `?/<new name>` where it held `?/<old name>`: a byte splice, lengths updated, every other byte kept |
 | `contentFile` | `Hash`, `Size` of each changed ANLZ file | the new MD5 and size (rekordbox's own invariant); `rb_*` flags unchanged |
 
@@ -402,7 +404,10 @@ whether panels show rekordbox's live state (`rekordbox_status`).
   caller).
 - **Restoring the whole database** is the last resort (it drops every rekordbox change since): the command
   `rekordbox restore <backup> --yes` (§10), not a hub button. It backs up the current `master.db` first and refuses
-  while rekordbox runs.
+  while rekordbox runs. After a restore, tracks Discjockey repointed since that backup point at their old paths,
+  whose files are in `Superseded/`: the result lists them (`missing_after`, `[{"id", "path", "was"}]`) and the
+  words say "Undo those batches first (`discjockey batch undo`), or Relocate them in rekordbox" (corrected in stage
+  B; plan §0.14).
 
 ### 5.8 Order of one track's step, and crash recovery
 
@@ -458,7 +463,8 @@ The undo is offered while the rekordbox check stands. It needs rekordbox closed 
 
 Everything the user did in rekordbox since is kept: cues set on the AIFF also fit the old file, because both sit on
 the same timeline. **Undo of a batch** runs the per-track undo for each of its done tracks, newest first, in one job
-with one quit and one `rekordbox.lock`; a track whose undo is refused stays and is listed with its reason. "Done,
+with one quit and one `rekordbox.lock`: rekordbox open at the start undoes nothing, opening meanwhile or Stop ends it
+before the next track (the rest listed as waiting); a track whose undo is refused stays and is listed with its reason. "Done,
 checked in rekordbox" ends the undo for the track or the batch (`forget_undo`) and releases the backup.
 
 ### 5.10 Cloud Library Sync
@@ -618,7 +624,7 @@ Console: the new commands (and issue 39's agent docs).
 | Refused, space | "There isn't enough free space for the new AIFF files ({size} needed, {free} free). Nothing was changed." |
 | Refused, rename blocked | "Discjockey can only give this file its new name while it can point your rekordbox track at it, and it can't right now ({reason}). Nothing was changed." |
 | Undo, rekordbox open | "Quit rekordbox to undo: Discjockey points your rekordbox track back at your old file only while rekordbox is closed." |
-| Undo refused | "This track was changed in rekordbox since (relocated?), so Discjockey can't undo it safely. Nothing was changed." |
+| Undo refused | "This track was moved or removed in rekordbox since the replace, so Discjockey can't put it back safely. Nothing was changed." |
 | Result note, no rekordbox track | "This file isn't in your rekordbox collection, so there was nothing to keep there." |
 | Result note, kept edit | "Kept your own {title / artist / album / label / comment} in rekordbox." |
 | Format sentence (batch sheet, Convert) | "Every file becomes a 16-bit/44.1 kHz AIFF, the format every CDJ plays and every download has; your original stays in Superseded/." |
@@ -690,14 +696,14 @@ old → new name, skip reason; totals; space) and changes nothing.
 | Code | Meaning |
 |---|---|
 | 0 | done for every track (or a dry run that would work) |
-| 1 | refused or failed, or some tracks skipped (each result says why; `kind` in JSON) |
+| 1 | refused or failed, or some tracks skipped or failed (each result says why; `kind` in JSON). JSON `ok` stays `true` when a batch ran to its end with skipped or failed tracks (exit 1); `ok: false` with a `kind` is for a refusal, `busy`, `rekordbox_open` or `stopped` (corrected in stage B) |
 | 2 | no music folder or no setup |
 | 3 | Discjockey is busy (lock held) |
 | 4 | rekordbox is open: nothing done (or the batch stopped there); quit it and run again or resume |
 | 5 | stopped (Ctrl-C or a stop): resume with `batch resume <id>` |
 
 **JSON.** Success `{"ok": true, …}`; failure `{"ok": false, "kind": "rekordbox_open" | "refused" | "changed" |
-"failed", "reason": "<refusal key, §8>", "message": "…", "details": {…}}`. A batch prints `{"ok", "batch": <id>,
+"failed" | "busy" | "stopped", "reason": "<refusal key, §8>", "message": "…", "details": {…}}` (a problem of a batch also carries the batch's fields: `batch`, `state`, `results`, … so the id to resume is there). A batch prints `{"ok", "batch": <id>,
 "state", "results": [{"track", "action", "state", "reason", "path", "rekordbox": {"entries": [ids], "kept": [fields]}
 | null}], "backup": "<id>" | null}`.
 
@@ -708,11 +714,11 @@ old → new name, skip reason; totals; space) and changes nothing.
 | `discjockey upgrade list [--json]` | The parked upgrades as on To-do: id, names, now/new quality, alignment, eligible for Same track and why not, `auto_refused` | B |
 | `discjockey upgrade apply (<track>…\|--all) --way same-track\|new-track [--dry-run] [--json]` | Replace. `--all` only with `same-track`: Upgrade all | B |
 | `discjockey upgrade discard <track>… [--json]` | Discard | B |
-| `discjockey upgrade undo <track> [--json]` | Undo one track's replace | B |
+| `discjockey upgrade undo <track>… [--json]` | Undo the replace of one or several tracks, newest first, as one job (stage B: several tracks, not one) | B |
 | `discjockey batch list [--json]` / `batch show <id> [--json]` | Batches with their state and items | B |
 | `discjockey batch resume <id> [--json]` / `batch undo <id> [--json]` | Resume a stopped batch; undo all its done tracks | B |
 | `discjockey rekordbox checked (<track>…\|--batch <id>) [--json]` | "Done, checked in rekordbox" | B |
-| `discjockey rekordbox backups [--json]` / `rekordbox restore <backup> --yes [--json]` | List backups; the whole database back (§5.7; without `--yes`: code 1) | B |
+| `discjockey rekordbox backups [--json]` / `rekordbox restore <backup> --yes [--json]` | List backups; the whole database back (§5.7; without `--yes`: code 1, `reason: "needs_yes"`; the result lists `missing_after`) | B |
 | `discjockey settings auto-upgrade on\|off [--json]` | The Settings switch | C |
 | `discjockey` (the sync) | With the switch on, the run's `--json` gains `auto_upgrade: {"batch", "done", "waiting", "refused"}`; `--dry-run` lists what it would upgrade | C |
 | `discjockey convert (<track>…\|--all lossless\|cdj) [--in playlist:<name>\|folder:<name>] [--dry-run] [--json]` | Convert to AIFF; `--all lossless` is Make all lossless files AIFF (renames included where only the name is wrong), `--all cdj` the CDJ group | D |

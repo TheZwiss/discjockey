@@ -8,8 +8,11 @@ Rename can do and why not, and `preview` is the read-only answer the `rekordbox 
 from their modules: `preview` pulls in `upgrades`, which imports this package). Each module's docstring says what it
 owns.
 
-**Read only in stage A:** nothing here writes `master.db` or an analysis file; every open is read-only and leaves no
-file beside the library. Stage B adds the write beside the read (`master.open_write`), never in place of it.
+**Reads, and in stage B writes:** `master` only reads (every open is read-only and leaves no file beside the
+library); the write is its own module, `write` (`open_write`, the `Writer`: a track pointed at a new file, its text
+columns, the way back), with `anlz.splice_ppth` for the analysis files. `backup` keeps a copy of the library per batch
+(and restores one), `session` is a batch's rekordbox side (`rekordbox.lock`, the start check, one read open and
+index, the backup before the first write).
 
 The format knowledge (the key, the tables and columns, the analysis files) follows what pyrekordbox (MIT) and
 rekordbox-edit publish; credit to both. No code is copied from either.
@@ -17,8 +20,11 @@ rekordbox-edit publish; credit to both. No code is copied from either.
 from __future__ import annotations
 
 from .locate import Place, locate
-from .master import KEYS, Entry, Master, Status, Unreadable, open_read, status
+from .master import KEYS, Entry, Master, PathIndex, RekordboxView, Status, Unreadable, open_read, status
 from .offset import EntryTiming, TimelineOffset, timeline_offset
+from .session import Busy, RekordboxOpen, Session
+from .write import RekordboxOpened, WriteRefused, Writer, open_write
 
-__all__ = ["KEYS", "Entry", "EntryTiming", "Master", "Place", "Status", "TimelineOffset", "Unreadable", "locate",
-           "open_read", "status", "timeline_offset"]
+__all__ = ["KEYS", "Busy", "Entry", "EntryTiming", "Master", "PathIndex", "Place", "RekordboxOpen", "RekordboxOpened",
+           "RekordboxView", "Session", "Status", "WriteRefused", "Writer", "open_write",
+           "TimelineOffset", "Unreadable", "locate", "open_read", "status", "timeline_offset"]

@@ -61,10 +61,19 @@ export interface Bridge {
   use_candidate(track_id: string, candidate: Candidate): Promise<JobStart>;
   use_link(track_id: string, url: string): Promise<JobStart>;
   reject_current(track_id: string): Promise<JobStart>;
-  rekordbox_checked(track_id: string): Promise<JobStart>;
-  upgrade(track_id: string, mode: 'swap' | 'add_new' | 'discard'): Promise<JobStart>;
-  /** "Undo" on a "Check in rekordbox" item with `can_undo`: puts a swap or an added file back */
-  undo_upgrade(track_id: string): Promise<JobStart>;
+  /** "Done, checked in rekordbox" for tracks (a batch card sends its done tracks) */
+  rekordbox_checked(track_ids: string[]): Promise<JobStart>;
+  /** Replace tracks with their better versions; one track is a list of one. `swap` (Same track, any format) is one
+   *  AIFF batch (job `upgrade_batch`); `add_new` / `discard` run the list one after the other */
+  upgrade(track_ids: string[], mode: 'swap' | 'add_new' | 'discard'): Promise<JobStart>;
+  /** Upgrade all: Same track for every parked upgrade the list counts as possible (job `upgrade_batch`) */
+  upgrade_all(): Promise<JobStart>;
+  /** carries on a stopped batch (job `batch_resume`) */
+  batch_resume(batch_id: number): Promise<JobStart>;
+  /** "Undo all": every track a batch did, newest first (job `batch_undo`) */
+  batch_undo(batch_id: number): Promise<JobStart>;
+  /** "Undo" on "Check in rekordbox" items with `can_undo`: puts swaps, added files and Same tracks back, newest first */
+  undo_upgrade(track_ids: string[]): Promise<JobStart>;
   rescan_library(): Promise<JobStart>;
   // other
   show_in_finder(track_id: string, which: Which): Promise<Res<{}>>;   reveal(rel_path: string): Promise<Res<{}>>;

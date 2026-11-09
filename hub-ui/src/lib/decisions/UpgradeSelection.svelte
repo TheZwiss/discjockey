@@ -1,0 +1,232 @@
+<script lang="ts">
+  // Several upgrades selected (plan issue 33 stage B §6.2), the To-do panel while two or more items of Upgrade ready
+  // are selected (or "Upgrade all" selected the group). One Panel in three phases, the way the Playlists moves panel
+  // reads (MovesPanel: the number and its bar on top, the rows below, Stop in the foot):
+  // - decide: the selected tracks as rows (fill: the one list of unknown length, scrolling in place), each saying how
+  //   it goes under the picked way and dimmed where it stays; "In rekordbox" as the single panel's ChoiceGroup, Same
+  //   track · n (recommended) carrying Upgrade all's before-line in its outcomes, New track · N; the foot's one filled
+  //   button "Replace n with lossless", Discard, and when a replace can be undone;
+  // - running: how many of how many with the track in work and its bar, the rows marked as they pass, Stop;
+  // - ended (until the next pick): the number done in its words, a note when it ended early (stopped, rekordbox open,
+  //   busy, refused) and the tracks not done with their reasons; Done, or Resume · k left / Try again.
+  // The batch itself is the window's UpgradeBatchFlow, so its progress survives a pick of another row.
+  import type { TodoItem } from '$lib/bridge/types';
+  import {
+    Button, ChoiceGroup, Cover, Hint, ListRow, ListSection, NoteCard, OutcomeList, ProgressBar, Spinner, StatCard, StatusMark, Surface,
+    WriteButton, type ChoiceOption, type Outcome,
+  } from '$lib/components';
+  import { untrack } from 'svelte';
+  import { Panel } from '$lib/frames';
+  import { writeBlockedReason } from '$lib/stores/hub';
+  import {
+    beforeLine, endGroups, endNote, endNoteSaysCount, endWords, focusAfterDrop, goes, leftTitle, notDoneTitle, panelFocus, replaceManyLabel,
+    discardLabel, resumeLabel, runLabel, runUnit, sameTrackWhy, selectedTitle, selectionWays, tracksSummary, type RunRow, type Way,
+  } from './decisionModel';
+  import { refocus } from './focus';
+  import { upgradeBatch, type UpgradeBatchFlow } from './flows.svelte';
+
+  let { items, all, nameOf, ondrop, ondone, onact, flow = upgradeBatch }: {
+    /** the selected items, in list order */
+    items: TodoItem[];
+    /** the selection is the whole group: Same track runs as Upgrade all */
+    all: boolean;
+    /** "Artist – Title" of an item */
+    nameOf: (i: TodoItem) => string;
+    /** ✕ on a row: leave it out of the selection */
+    ondrop: (i: TodoItem) => void;
+    /** Done: the end is put away, the page selects the group's first item */
+    ondone: () => void;
+    /** a batch starts from this panel (Replace, Discard, Resume, Try again): the page keeps the panel until the next pick */
+    onact?: () => void;
+    flow?: UpgradeBatchFlow;
+  } = $props();
+
+  const KEPT_FILES: Outcome = { tone: 'file', text: 'Your old files are kept in Superseded/' };
+  let picked = $state<Way | null>(null);
+  const ways = $derived(selectionWays(items));
+  const way = $derived<Way>(ways.choice ? picked ?? 'swap' : ways.way);
+  const count = $derived(ways.count[way]);
+  const options = $derived(ways.options.map((o): ChoiceOption<Way> => ({ key: o.key, name: o.name, summary: o.summary,
+    outcomes: o.outcomes, recommended: o.key === 'swap', test: `way-${o.key}` })));
+  const view = $derived(flow.view);
+  const blocked = $derived($writeBlockedReason);
+
+  const before = $derived(beforeLine(ways));
+  const ended = $derived(view?.phase === 'ended' ? endGroups(view.rows) : { notDone: [], left: [] });
+  const endCount = $derived(ended.notDone.length + ended.left.length);
+  const words = $derived(view?.end ? endWords(view.end) : null);
+  const note = $derived(view?.end ? endNote(view.end) : null);
+
+  function replace() { onact?.(); void flow.start(way, items.filter((i) => goes(i, way)), all && way === 'swap', nameOf); }
+  function discard() { onact?.(); void flow.start('discard', items, false, nameOf); }
+  function resume(batch_id: number) { onact?.(); void flow.resume(batch_id); }
+  function done() { flow.clear(); ondone(); }
+
+  // Focus follows the foot: Replace and Discard, Resume and Try again are gone once pressed, so Stop takes it, and at
+  // the end the filled button (Resume, Try again, Done). Only for a change seen here, never when the panel opens on a
+  // batch already in a phase, and only when focus was lost (decisionModel panelFocus, focus.ts).
+  let root = $state<HTMLElement>();
+  let lastPhase = untrack(() => view?.phase);
+  $effect(() => {
+    const phase = view?.phase;
+    const target = panelFocus(view);
+    untrack(() => {
+      if (phase === lastPhase) return;
+      lastPhase = phase;
+      if (target) void refocus(() => root?.querySelector<HTMLElement>(`[data-test="${target}"]`));
+    });
+  });
+  /** ✕ on a row: the selection gives it up, and the ✕ of the row now in its place takes focus. */
+  function drop(i: TodoItem) {
+    const at = items.indexOf(i);
+    const next = focusAfterDrop(items, at)?.track_id;
+    ondrop(i);
+    if (next) void refocus(() => root?.querySelector<HTMLElement>(`[data-test="selection-row"][data-track="${CSS.escape(next)}"] [data-test="selection-drop"]`));
+  }
+</script>
+
+{#snippet mark(r: RunRow)}
+  <span class="mark" data-mark>
+    {#if r.state === 'now'}<Spinner size={12} label="Working on it" />
+    {:else if r.state === 'handled'}<StatusMark tone="good" quiet />
+    {:else if r.state === 'done'}<StatusMark tone="good" />
+    {:else if r.state === 'skipped'}<StatusMark tone="warn" />
+    {:else if r.state === 'failed'}<StatusMark tone="problem" />
+    {:else if r.state === 'waiting'}<StatusMark tone="none" />{/if}
+  </span>
+{/snippet}
+
+{#snippet runRows(rows: RunRow[])}
+  {#each rows as r (r.track_id)}
+    <ListRow wrap wrapName title={r.name} test="run-row" data-track={r.track_id} data-state={r.state}>
+      {#snippet lead()}<span class="lead">{@render mark(r)}<Cover url={r.cover_url} seed={r.track_id} size={28} /></span>{/snippet}
+      {#snippet name()}{r.name}{/snippet}
+      {#snippet sub()}{#if r.text}<span class={r.state === 'failed' ? 'bad' : 'warn'}>{r.text}</span>{:else}{r.sub}{/if}{/snippet}
+    </ListRow>
+  {/each}
+{/snippet}
+<!-- the title says the count where it has one ("2 left", "3 not upgraded"); the running list's is "4 tracks" -->
+{#snippet runList(rows: RunRow[], label: string, test: string, more?: { label: string; rows: RunRow[] })}
+  <Surface kind="list" {label} style="--row-cols: 52px minmax(0, 1fr)"
+    grow={{ rows: rows.length + (more ? more.rows.length + 1 : 0), tall: true }} data-test={test}>
+    {@render runRows(rows)}
+    {#if more}
+      <ListSection label={more.label} test="batch-left" />
+      {@render runRows(more.rows)}
+    {/if}
+  </Surface>
+{/snippet}
+
+{#snippet head()}
+  {#if !view}
+    <!-- design §8's before-line: what Same track does for these and what stays (said here, not in the choice's rows) -->
+    {#if before}<NoteCard tone="info" data-test="selection-before">{before}</NoteCard>{/if}
+  {:else if view.phase === 'running'}
+    <StatCard value={view.done} unit={runUnit(view.total || view.rows.length)} label={runLabel(view.mode, view.now)}
+      valueTest="batch-done" data-test="batch-progress">
+      <ProgressBar value={view.total ? view.done / view.total : 0} label={runLabel(view.mode, null)} />
+    </StatCard>
+  {:else if view?.phase === 'ended' && view.end && words}
+    <!-- the number only when something was done or the batch finished ("0 upgraded" over a note that says why adds
+         nothing), and not where the note already counts ("Stopped after 2 of 4.") -->
+    {#if (view.done || view.end.kind === 'done') && !endNoteSaysCount(view.end)}
+      <StatCard value={view.done} unit={words.unit} label={words.label} valueTest="batch-result" data-test="batch-result" />
+    {/if}
+    {#if note}<NoteCard tone={note.tone} data-test="batch-note" data-kind={view.end.kind}>{note.text}</NoteCard>{/if}
+  {/if}
+{/snippet}
+
+{#snippet fill()}
+  {#if view?.phase === 'running'}
+    {@render runList(view.rows, tracksSummary(view.rows.length), 'batch-rows')}
+  {:else if view?.phase === 'ended'}
+    {#if ended.notDone.length}
+      {@render runList(ended.notDone, notDoneTitle(ended.notDone.length, view.mode), 'batch-not-done',
+        ended.left.length ? { label: leftTitle(ended.left.length), rows: ended.left } : undefined)}
+    {:else if ended.left.length}
+      {@render runList(ended.left, leftTitle(ended.left.length), 'batch-not-done')}
+    {/if}
+  {:else}
+    <Surface kind="list" label={selectedTitle(items.length)} style="--row-cols: 28px minmax(0, 1fr) var(--h-ctl-sm)"
+      grow={{ rows: items.length, tall: true }} data-test="selection-rows">
+      {#each items as i (i.track_id)}
+        {@const going = goes(i, way)}
+        <ListRow off={!going} title={nameOf(i)} test="selection-row" data-track={i.track_id} data-goes={going}>
+          {#snippet lead()}<Cover url={i.cover_url} seed={i.track_id} size={28} />{/snippet}
+          {#snippet name()}{nameOf(i)}{/snippet}
+          {#snippet sub()}{going ? (way === 'swap' ? 'Same track' : 'New track') : sameTrackWhy(i.same_track)}{/snippet}
+          {#snippet trailing()}
+            <Button variant="icon" size="xs" aria-label="Leave {nameOf(i)} out" tip="Leave out of the selection"
+              onclick={() => drop(i)} data-test="selection-drop">
+              <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6"
+                stroke="currentColor" stroke-width="1.3" stroke-linecap="round" /></svg></Button>
+          {/snippet}
+        </ListRow>
+      {/each}
+    </Surface>
+  {/if}
+{/snippet}
+
+{#snippet keptFiles()}<OutcomeList items={[KEPT_FILES]} />{/snippet}
+
+{#snippet after()}
+  {#if !view}
+    {#if ways.choice}
+      <ChoiceGroup label="In rekordbox" {options} value={way} onchange={(w) => (picked = w)} foot={keptFiles}
+        test="selection-ways" />
+    {:else}
+      <Surface kind="card" label="In rekordbox" summary="new tracks" data-test="selection-ways" data-choice="false">
+        <div class="fixed">
+          <OutcomeList items={[...ways.fixed, KEPT_FILES]} />
+          {#if ways.reason}<Hint text={ways.reason} wrap class="reason" data-test="selection-why" />{/if}
+        </div>
+      </Surface>
+    {/if}
+  {/if}
+{/snippet}
+
+{#snippet foot()}
+  {#if view?.phase === 'running'}
+    <Button wide busy={view.stopping} busyLabel="Stopping" onclick={() => flow.stop()} data-test="batch-stop">Stop</Button>
+  {:else if view?.phase === 'ended' && view.end}
+    {@const end = view.end}
+    {#if end.resume || view.again}
+      <div class="row">
+        <Button onclick={done} data-test="batch-done-plain">Done</Button>
+        {#if end.resume}
+          {@const r = end.resume}
+          <WriteButton variant="filled" wide onclick={() => resume(r.batch_id)} data-test="batch-resume">{resumeLabel(r.left)}</WriteButton>
+        {:else}
+          <WriteButton variant="filled" wide onclick={() => { onact?.(); view?.again?.(); }} data-test="batch-again">Try again</WriteButton>
+        {/if}
+      </div>
+    {:else}
+      <Button variant="filled" wide onclick={done} data-test="batch-close">Done</Button>
+    {/if}
+  {:else}
+    <WriteButton variant="filled" wide disabled={!count} title={count ? undefined : 'None of these can be replaced this way'}
+      onclick={replace} data-test="selection-replace" data-mode={way}>{replaceManyLabel(count, items.filter((i) => goes(i, way)))}</WriteButton>
+    <WriteButton wide onclick={discard} title="Deletes the new versions; they aren't offered again"
+      data-test="selection-discard">{discardLabel(items.length)}</WriteButton>
+    <div class="centered"><Hint text={blocked ?? 'You can undo a replace until you press Done'} /></div>
+  {/if}
+{/snippet}
+
+<div class="sel" bind:this={root} data-test="upgrade-selection" data-phase={view?.phase ?? 'decide'} data-end={view?.end?.kind}>
+  <Panel head={view || before ? head : undefined} fill={view?.phase !== 'ended' || endCount ? fill : undefined} {after} {foot} />
+</div>
+
+<style>
+  .sel { display: contents; }
+  /* mark · cover on a fixed grid, so the covers stay in one column whatever the mark (none, ✓, spinner) */
+  .lead { display: grid; grid-template-columns: 16px 28px; column-gap: var(--s-2); align-items: center; }
+  .mark { display: grid; place-items: center; width: 16px; height: 16px; }
+  .fixed { display: flex; flex-direction: column; gap: var(--s-2); }
+  /* why nothing can stay the same track: a sentence to read, not the faintest line of the card */
+  .fixed :global(.reason) { color: var(--text); }
+  .row { display: flex; gap: var(--s-2); }
+  .centered :global(.hint) { text-align: center; }
+  /* a reason's words in the colours of its mark, as the moves panel's (MovesPanel) */
+  .warn { color: var(--risk-notice); }
+  .bad { color: var(--q-weak); }
+</style>

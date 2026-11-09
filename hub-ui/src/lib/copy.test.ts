@@ -65,4 +65,7 @@ describe('a playlist service missing: one wording and one link per service on ev
     expect(problemCopy('playlist_unreadable', { service: 'qobuz' }).hint).toBeUndefined();
     expect(problemCopy('playlist_unreadable').hint).toBeUndefined();
   });
+  it('rekordbox open: the title is short, the engine\'s message says the rest', () => {
+    expect(problemCopy('rekordbox_open').title).toBe('rekordbox is open.');
+  });
 });

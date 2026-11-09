@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -224,3 +225,15 @@ def quality_line(source: str, codec: str, status: str, cutoff: int | None, kbps:
     if status == "fake_lossless":
         return f"{name} {fmt} · fake lossless, cutoff {khz}"
     return f"{name} {fmt} · cutoff {khz}" if khz else f"{name} {fmt} · lossy"
+
+
+_NAMES = "|".join(re.escape(n) for n in (*SOURCE_NAMES.values(), OWN_FILE[0].upper() + OWN_FILE[1:]))
+_QUALITY_LINE = re.compile(
+    rf"(?:(?:{_NAMES}) (?:\([^)]+\)|\S+(?: \d+ kbps)?) · (?:(?:lossy, )?sound not checked yet|verified lossless|"
+    rf"fake lossless, cutoff [\d.]+ kHz|cutoff [\d.]+ kHz|lossy)|bought file \((?:FLAC|MP3)\))")
+
+
+def is_quality_line(text: str | None) -> bool:
+    """Whether `text` is a comment Discjockey wrote itself: exactly a line `quality_line` produces (or the older
+    "bought file (FLAC)"). Any other comment (a DJ's key and energy, notes) is the user's."""
+    return bool(text) and _QUALITY_LINE.fullmatch(text.strip()) is not None

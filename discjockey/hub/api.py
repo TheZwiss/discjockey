@@ -35,13 +35,14 @@ from .. import app_update as update_check, setup_cmd, tool_updates, tools
 from .. import folders as folders_mod, importer, scanner, sources, tidy
 from ..sources import soundcloud, spotify, youtube_music
 from ..sources.soundcloud import YOU as SOUNDCLOUD_YOU  # the module imports yt-dlp only inside functions
-from .. import rekordbox, report as rep, run, upgrades
+from .. import batches, rekordbox, report as rep, run, upgrades
+from ..rekordbox import process as rb_process
 from ..accounts import ACCOUNTS, BROWSERS, SERVICE_NAMES, SERVICES, check_message
 from ..acquire import make_ready
 from ..candidates import current_key
 from ..fallback import FallbackSource
 from ..library import NoLibrary, Paths, Resolved, StateError, SupportPaths
-from ..events import CancelToken, Result
+from ..events import BatchProgress, Cancelled, CancelToken, Result
 from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, Candidate, PlaylistLine,
                       PlaylistRecord, SaveChoice, SourceTrack, WatchedFolder, token)
 from ..names import fold
@@ -59,6 +60,12 @@ from .jobs import (NOT_CONNECTED, UNEXPECTED, AppUpdate, Busy, DrivesChanged, Fi
 RUN_ID = re.compile(r"\d{4}-\d{2}-\d{2}_\d{6}")
 WHICH = ("current", "upgrade")
 UPGRADE_MODES = ("swap", "add_new", "discard")
+NO_TRACKS = "No tracks were chosen."
+NO_UPGRADES = "None of these can be upgraded right now."
+NO_AIFF_BATCH = "Discjockey has no record of this batch."
+NOT_STOPPED = "This batch is not stopped, so there is nothing to resume."
+UNDO_NONE = batches.NOTHING_UNDONE
+NOTHING_TO_CHECK = "There is nothing to check for these tracks any more."
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
 AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
 NO_DROP = "Drag the bought file onto the window while this track is selected in the to-do list."
@@ -85,7 +92,7 @@ LIBRARY_METHODS = frozenset((
     "limits_what_if", "save_limits", "mark_warnings_seen", "runs", "run", "spectrum", "media_url",
     "search_candidates", "preview", "add_playlist", "preview_playlist_change", "start_sync", "save_playlists",
     "hide", "never_download", "add_bought_file", "use_candidate", "use_link", "reject_current",
-    "rekordbox_checked", "upgrade", "undo_upgrade", "rescan_library", "show_in_finder", "reveal", "open_report",
+    "rekordbox_checked", "upgrade", "upgrade_all", "undo_upgrade", "batch_resume", "batch_undo", "rescan_library", "show_in_finder", "reveal", "open_report",
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
     "watched_folders", "set_favourites", "set_crate_shown", "set_crates_shown", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
     "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate", "add_liked_music",
@@ -110,6 +117,9 @@ class Services:
     process: Callable = make_ready
     compare: Callable = align.compare_files
     timeline_offset: Callable = rekordbox.timeline_offset  # where rekordbox's timeline sits for a file (New track)
+    # whether rekordbox runs and where its library is (late-bound: tests and the fake never touch a real one)
+    rekordbox_running: Callable[[], bool] = lambda: rb_process.running()
+    rekordbox_place: Callable[[], object] = lambda: rekordbox.locate()
     decode: Callable = quality.decode_mono
     now: Callable[[], datetime] = datetime.now
     mounted: Callable[[Path], bool] = os.path.ismount  # whether a /Volumes drive is connected (the scanner's rule)
@@ -292,6 +302,7 @@ class HubApi:
         self._infos: dict = {}  # playlist ref -> models.PlaylistInfo
         self._extra_tracks: dict = {}  # playlist ref -> tracks of playlists read outside a refresh
         self._shown: dict[str, dict] = {}  # track id -> how the page last showed it (ops.snapshot)
+        self._rb_cache: tuple[tuple, rekordbox.Status] | None = None  # (_rekordbox_status's key, its answer)
         self._selected: str | None = None
         self._dropped: dict | None = None
         self._drives_seen: dict[str, str] | None = None  # the away set the drives watch saw last (None: not yet)
@@ -558,8 +569,55 @@ class HubApi:
                 counted = {g.id for g in found} if count_only and not away else set()
                 groups += found
                 files = {g.id: db.group_files(conn, g.id) for g in groups if g.id not in counted}
+        # the sidebar's number needs neither rekordbox's state nor a look at each file
+        rb = None if count_only else self._rekordbox_status()
+        present = None if count_only else {k: batches.present(self._paths, e) for k, e in state["tracks"].items()
+                                           if e.get("upgrade")}
         return views.todo(state, filt, show_hidden, self._others(state), self._today(), self._cover(self._images()),
-                          questions, groups, files, self._audio, counted, away)
+                          questions, groups, files, self._audio, counted, away, rb, present,
+                          None if count_only else self._stopped_batch())
+
+    def _rekordbox_status(self) -> rekordbox.Status:
+        """rekordbox's state for the screens, cached on master.db's modified time and size plus whether rekordbox runs
+        (plan rekordbox B §4): one read open per change, never while any write job of this hub runs (it answers the
+        last value then, or "readable" when it has none): a sync, import or tidy-up runs `recover_pending` first, which
+        can finish a rekordbox write, so no job is known to leave rekordbox alone."""
+        running = bool(self._svc.rekordbox_running())
+        with self._lock:
+            last = self._rb_cache
+        job = self._jobs.running()
+        if job is not None:
+            return last[1] if last else rekordbox.Status("ready", running, None, None, None, None, None)
+        place = self._svc.rekordbox_place()
+        stat = None
+        try:
+            if place is not None:
+                st = place.db.stat()
+                stat = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            stat = None
+        key = (running, str(place.db) if place is not None else None, stat)
+        if last is not None and last[0] == key:
+            return last[1]
+        try:
+            answer = rekordbox.status(place, lambda: running)
+        except Exception:  # noqa: BLE001 - status() never raises for a library it can't read; this is for the rest
+            answer = rekordbox.Status("unreadable", running, None, None, None, None, None)
+        with self._lock:
+            self._rb_cache = (key, answer)
+        return answer
+
+    def _stopped_batch(self) -> tuple[int, int] | None:
+        """(id, items left) of the newest stopped Same track batch that still has items to do, else None: To-do's
+        "Resume · k left"."""
+        with self._move_log() as conn:
+            if conn is None:
+                return None
+            rows, _ = db.aiff_batches(conn, 20)
+        for row in rows:
+            if row.state == "stopped" and row.counts["planned"]:
+                return row.id, row.counts["planned"]
+        return None
 
     # --- read, any time ---
 
@@ -708,7 +766,8 @@ class HubApi:
         lines = pf.load(self._paths.playlists_file).rows
         where = views.sites(state, lines, folders).place(e["path"]) if e.get("path") else None
         detail = views.track_detail(track_id, e, prep.fetched if prep else [], self._today(),
-                                    self._cover(self._images()), self._audio, self._away_by_root(folders), exists, where)
+                                    self._cover(self._images()), self._audio, self._away_by_root(folders), exists, where,
+                                    self._rekordbox_status())
         self._remember(state, [track_id])
         return {"track": detail}
 
@@ -1700,36 +1759,214 @@ class HubApi:
         return self._single("reject_current", track_id,
                             lambda state, ctx: ops.reject_current(self._paths, state, track_id, now=self._svc.now))
 
-    @bridge
-    def rekordbox_checked(self, track_id: str) -> dict:
-        """"Done" on a "Check in rekordbox" item: the reminder goes away."""
-        return self._single("rekordbox_checked", track_id,
-                            lambda state, ctx: ops.rekordbox_checked(self._paths, state, track_id))
+    # --- upgrades, batches and the rekordbox check (issue 33 stage B; every action takes a list) ---
+
+    @staticmethod
+    def _track_list(track_ids: object) -> list[str]:
+        """The tracks an action is about: a non-empty list of song keys (a lone string is bad input), each once."""
+        if not isinstance(track_ids, list) or not track_ids or not all(isinstance(t, str) and t for t in track_ids):
+            raise ValueError(NO_TRACKS)
+        return list(dict.fromkeys(track_ids))
+
+    def _begin(self) -> tuple[dict, list]:
+        """What every upgrade job starts with: the records, interrupted steps finished (before a batch is recorded, or
+        the new batch would be marked crashed), the scratch folder cleared. Returns (state, [[message, ok]])."""
+        state = library.open_state(self._paths)
+        recovered = library.recover_pending(self._paths, state)
+        library.clear_tmp(self._paths, state)
+        return state, [[message, ok] for message, ok in recovered]
+
+    def _rekordbox_options(self, ctx, state: dict) -> dict:
+        return {"emit": ctx.emit, "token": ctx.token, "now": self._svc.now, "state": state,
+                "running": self._svc.rekordbox_running, "place": self._svc.rekordbox_place()}
+
+    def _batch_work(self, make: Callable[[], int] | None, resume: int | None, *, alone: bool):
+        """A Same track batch as a write job: `make()` records a new batch of the chosen tracks (after recovery), or
+        `resume` names a stopped one. The result is a BatchResult dict (+ `recovered`); a Stop, rekordbox opened
+        (`rekordbox_open`), another window changing rekordbox (`busy`) and a batch with nothing to do (`refused`) end
+        the job as a problem that still carries the batch (`JobFinished.result`), so the page can show where it stopped
+        and Resume. `alone`: a batch of one track that meets rekordbox open or busy before anything ran is closed
+        instead of left stopped (the track simply stays in Upgrade ready; `batches.close_unrun`)."""
+        def work(ctx) -> dict:
+            state, recovered = self._begin()
+            batch_id = resume if resume is not None else make()
+            options = self._rekordbox_options(ctx, state)
+            call = batches.resume if resume is not None else batches.run
+            try:
+                result = call(self._paths, batch_id, compare=self._svc.compare, **options)
+            except (batches.Stopped, batches.RekordboxOpen, batches.Refused, batches.Busy) as e:
+                result = e.result if hasattr(e, "result") else batches.result_of(self._paths, batch_id)
+                if alone and not isinstance(e, (batches.Stopped, batches.Refused)) and result.total == 1 \
+                        and not result.done:
+                    result = batches.close_unrun(self._paths, batch_id, "busy" if isinstance(e, batches.Busy)
+                                                 else "rekordbox_open", str(e), now=self._svc.now)
+                ctx.failed_result = {**result.to_dict(), "recovered": recovered}
+                raise
+            return {**result.to_dict(), "recovered": recovered}
+        return work
+
+    def _each_work(self, ids: list[str], mode: str):
+        """New track and Discard on a list: one job, one track after the other (Stop between them, per-track results,
+        no batch record, no Resume: each is quick and has its own undo). One track keeps the old single-track
+        behaviour: the entry as the page showed it is checked and a failure ends the job with its own words. The
+        result is BatchResult-shaped (`batch` null)."""
+        with self._lock:
+            expect = self._shown.get(ids[0]) if len(ids) == 1 else None
+        one = len(ids) == 1
+
+        def work(ctx) -> dict:
+            state, recovered = self._begin()
+            if one and ((e := state["tracks"].get(ids[0])) is None or snapshot(e) != expect):
+                raise OpProblem(ops.CHANGED, "changed")
+            results: list[batches.ItemResult] = []
+            stopped = False
+            for n, key in enumerate(ids):
+                try:
+                    ctx.token.check()
+                except Cancelled:
+                    stopped = True
+                    results += [batches.ItemResult(t, mode, "planned", None, None, None, None) for t in ids[n:]]
+                    break
+                e = state["tracks"].get(key)
+                if not e or not e.get("upgrade"):
+                    if one:
+                        raise OpProblem("No better version is waiting for this track any more.", "changed")
+                    results.append(batches.ItemResult(key, mode, "skipped", "no_upgrade", None, None, None))
+                    continue
+                ctx.emit(BatchProgress(0, n, len(ids), key, f"{e['artist']} - {e['title']}"))
+                up = dict(e["upgrade"])
+                try:
+                    done = (upgrades.add_new(self._paths, state, key, up, self._svc.compare,
+                                             offset=self._svc.timeline_offset, now=self._svc.now)
+                            if mode == "add_new" else upgrades.discard(self._paths, state, key, up))
+                except Exception as err:  # noqa: BLE001 - one track's surprise must not stop the others
+                    ops.log_operation(self._paths, self._svc.now(), key, e, f"upgrade_{mode}", "failed",
+                                      f"{type(err).__name__}: {err}")
+                    if one:
+                        raise
+                    message = str(err) if isinstance(err, (upgrades.UpgradeProblem, OpProblem)) else \
+                        f"Could not {'add' if mode == 'add_new' else 'discard'} {e['artist']} - {e['title']}."
+                    results.append(batches.ItemResult(key, mode, "failed", None, message, None, None))
+                else:
+                    ops.log_operation(self._paths, self._svc.now(), key, e, f"upgrade_{mode}", "done", done.note)
+                    results.append(batches.ItemResult(key, mode, "done", None, done.note, done.path, None))
+            count = lambda st: sum(1 for r in results if r.state == st)  # noqa: E731
+            if count("done"):
+                rep.write_not_lossless(self._paths, state)
+            body = {"batch": None, "state": "stopped" if stopped else "done", "stop_reason": "stop" if stopped else None,
+                    "total": len(results), "done": count("done"), "skipped": count("skipped"), "failed": count("failed"),
+                    "results": [r.to_dict() for r in results], "backup": None, "recovered": recovered}
+            if stopped:
+                ctx.failed_result = body
+                raise batches.Stopped(batches.BatchResult(0, "stopped", "stop", body["total"], body["done"],
+                                                          body["skipped"], body["failed"], results, None))
+            ctx.emit(BatchProgress(0, len(ids), len(ids), None, None))
+            return body
+        return work
+
+    def _undo_work(self, target: list[str] | int):
+        """Undo of tracks (newest first) or of a whole batch, as one job. The result is an UndoResult dict (+
+        `recovered`); rekordbox open and Stop end it as a problem that carries the result. When nothing at all could be
+        undone the job fails `refused` (one track: with that track's own words), the results still in the result."""
+        def work(ctx) -> dict:
+            state, recovered = self._begin()
+            try:
+                result = batches.undo(self._paths, target, **self._rekordbox_options(ctx, state))
+            except (batches.RekordboxOpen, batches.UndoStopped) as e:
+                ctx.failed_result = {**e.result.to_dict(), "recovered": recovered}
+                raise
+            body = {**result.to_dict(), "recovered": recovered}
+            if result.total and not result.undone:
+                ctx.failed_result = body
+                raise OpProblem(result.results[0].message if result.total == 1 else UNDO_NONE, "refused")
+            return body
+        return work
 
     @bridge
-    def upgrade(self, track_id: str, mode: str) -> dict:
+    def rekordbox_checked(self, track_ids: list[str]) -> dict:
+        """"Done, checked in rekordbox" for tracks (a batch card sends its done tracks): the reminders and with them
+        the undo end. A write job (kind "rekordbox_checked"); the result lists the `checked` tracks, those with
+        nothing to check (`not_checked`) and the engine's `results`."""
+        ids = self._track_list(track_ids)
+
+        def work(ctx) -> dict:
+            state, recovered = self._begin()
+            before = {t: state["tracks"].get(t) for t in ids}
+            done = batches.checked(self._paths, ids, state=state, now=self._svc.now)
+            checked = [r.track_id for r in done]
+            if not checked:
+                raise OpProblem(NOTHING_TO_CHECK, "changed")
+            for t in checked:
+                ops.log_operation(self._paths, self._svc.now(), t, before[t], "rekordbox_checked", "done",
+                                  "checked in rekordbox")
+            return {"results": [asdict(r) for r in done], "checked": checked,
+                    "not_checked": [t for t in ids if t not in checked], "recovered": recovered}
+        return {"job_id": self._jobs.start("rekordbox_checked", work, track_id=ids[0] if len(ids) == 1 else None).id}
+
+    @bridge
+    def upgrade(self, track_ids: list[str], mode: str) -> dict:
+        """Replaces tracks with their better versions. `swap` is Same track for any format and runs one AIFF batch (job
+        kind "upgrade_batch", result a BatchResult); `add_new` and `discard` run the tracks one after the other (kinds
+        "upgrade_add_new" / "upgrade_discard", a BatchResult-shaped result without a batch). One track is a list of
+        one. Progress is a BatchProgress event for all three."""
         if mode not in UPGRADE_MODES:
             raise ValueError(f"mode must be one of {', '.join(UPGRADE_MODES)}")
-
-        def do(state: dict, ctx):
-            up = state["tracks"][track_id].get("upgrade")
-            if not up:
-                raise OpProblem("No better version is waiting for this track any more.", "changed")
-            if mode == "swap":
-                return upgrades.swap(self._paths, state, track_id, up, self._svc.compare, now=self._svc.now)
-            if mode == "add_new":
-                return upgrades.add_new(self._paths, state, track_id, up, self._svc.compare,
-                                        offset=self._svc.timeline_offset, now=self._svc.now)
-            return upgrades.discard(self._paths, state, track_id, up)
-
-        return self._single(f"upgrade_{mode}", track_id, do)
+        ids = self._track_list(track_ids)
+        track = ids[0] if len(ids) == 1 else None
+        if mode == "swap":
+            work = self._batch_work(lambda: batches.start(
+                self._paths, [(t, "same_track") for t in ids], started_by="user", now=self._svc.now), None,
+                alone=len(ids) == 1)
+            return {"job_id": self._jobs.start("upgrade_batch", work, track_id=track).id}
+        return {"job_id": self._jobs.start(f"upgrade_{mode}", self._each_work(ids, mode), track_id=track).id}
 
     @bridge
-    def undo_upgrade(self, track_id: str) -> dict:
-        """"Undo" next to "Done, checked in rekordbox": puts a swap or an added file back as it was (the upgrade
-        waits again). Refused (UpgradeProblem) when either file changed since; gone once the check is done."""
-        return self._single("undo_upgrade", track_id,
-                            lambda state, ctx: upgrades.undo(self._paths, state, track_id))
+    def upgrade_all(self) -> dict:
+        """Upgrade all: Same track for every parked upgrade the To-do list shows as possible (the group's `all.n`), as
+        one batch started by `upgrade_all` (job kind "upgrade_batch")."""
+        groups = self._todo(self._state(), "upgrade_ready", False)["groups"]
+        ids = [i["track_id"] for g in groups if g["key"] == "upgrade_ready" for i in g["items"]
+               if i["same_track"] is None]
+        if not ids:
+            raise OpProblem(NO_UPGRADES, "refused")
+        work = self._batch_work(lambda: batches.start(
+            self._paths, [(t, "same_track") for t in ids], started_by="upgrade_all", now=self._svc.now), None,
+            alone=False)
+        return {"job_id": self._jobs.start("upgrade_batch", work).id}
+
+    def _stopped_aiff(self, batch_id: object):
+        if isinstance(batch_id, bool) or not isinstance(batch_id, int):
+            raise ValueError(NO_AIFF_BATCH)
+        with self._move_log() as conn:
+            row = db.aiff_batch(conn, batch_id) if conn is not None else None
+        if row is None:
+            raise ValueError(NO_AIFF_BATCH)
+        return row
+
+    @bridge
+    def batch_resume(self, batch_id: int) -> dict:
+        """Carries on a stopped Same track batch (its planned tracks, their eligibility asked again): a write job (kind
+        "batch_resume"); the result is a BatchResult."""
+        if self._stopped_aiff(batch_id).state != "stopped":
+            raise ValueError(NOT_STOPPED)
+        return {"job_id": self._jobs.start("batch_resume", self._batch_work(None, batch_id, alone=False)).id}
+
+    @bridge
+    def batch_undo(self, batch_id: int) -> dict:
+        """Undoes every track a batch did, newest first ("Undo all"): a write job (kind "batch_undo"); the result is
+        an UndoResult."""
+        self._stopped_aiff(batch_id)
+        return {"job_id": self._jobs.start("batch_undo", self._undo_work(batch_id)).id}
+
+    @bridge
+    def undo_upgrade(self, track_ids: list[str]) -> dict:
+        """"Undo" next to "Done, checked in rekordbox" on items with `can_undo`: puts a swap, an added file or a Same
+        track back as it was (the upgrade waits again), newest first, as one job (kind "undo_upgrade"). The result is an
+        UndoResult; a refusal per track (a file changed since, nothing to undo) is in its results, and when nothing
+        could be undone the job ends `refused`. Needs rekordbox closed where a step wrote it (`rekordbox_open`)."""
+        ids = self._track_list(track_ids)
+        return {"job_id": self._jobs.start("undo_upgrade", self._undo_work(ids),
+                                           track_id=ids[0] if len(ids) == 1 else None).id}
 
 
     # --- setup wizard (spec 5.7); the steps that write files are write jobs ---

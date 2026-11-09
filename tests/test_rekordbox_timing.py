@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -13,7 +14,8 @@ import sqlcipher3
 
 from discjockey import quality
 from discjockey.quality import AudioInfo
-from discjockey.rekordbox import locate, master, timing
+from discjockey.rekordbox import locate, master, process, timing
+from discjockey.rekordbox import offset as offset_module
 from discjockey.rekordbox.offset import RATE, timeline_offset
 from discjockey.rekordbox.probe import start_trim
 from discjockey.rekordbox.timing import Decided, Measured, agree, decide, expected, measure
@@ -148,6 +150,47 @@ def test_a_library_is_opened_once_for_one_answer(tmp_path, monkeypatch):
     monkeypatch.setattr(master, "open_read", counting)
     got = timeline_offset(f, place=place, **stubs())
     assert (got.why, got.rekordbox.state) == ("measured", "ready") and len(opens) == 1
+
+
+@contextmanager
+def view_of(place, running=False):
+    """A batch's view of `place`: the open library, its index and its status (what Session.view() hands out)."""
+    with master.open_read(place, running) as db:
+        yield master.RekordboxView(db, db.index(), master.status_of(db, running))
+
+
+@pytest.mark.parametrize("tracks, want", [
+    ([("a.mp3", 3, 2257, True), ("a.mp3", 0, 2257, True)], (2257, "measured")),
+    ([("a.mp3", 3, 1105, True), ("a.mp3", 2, 2257, True)], (None, "timing")),
+    ([("a.mp3", 2, None, False)], (None, "not_analysed")),
+    ([("a.mp3", 0, None, False)], (0, "no_cues")),
+    ([("other.mp3", 2, None, False)], (0, "not_in_rekordbox")),
+])
+def test_a_view_gives_the_answer_of_the_own_open_and_opens_nothing(tmp_path, monkeypatch, tracks, want):
+    f = tmp_path / "a.mp3"
+    place = rekordbox(tmp_path, [(tmp_path / name, *rest) for name, *rest in tracks])
+    own = timeline_offset(f, place=place, **stubs())
+    assert (own.samples, own.why) == want
+    forbidden = pytest.fail  # nothing may be located, asked or opened while the view answers
+    with view_of(place) as view:
+        monkeypatch.setattr(master, "open_read", forbidden)
+        monkeypatch.setattr(process, "running", forbidden)
+        monkeypatch.setattr(offset_module, "locate", forbidden)
+        with_view = timeline_offset(f, view=view, **{**stubs(), "running": forbidden})
+    assert with_view == own
+
+
+def test_a_view_whose_read_fails_is_unreadable_like_the_own_open(tmp_path, monkeypatch):
+    f = tmp_path / "a.mp3"
+    place = rekordbox(tmp_path, [(f, 1, 1105, True)])
+
+    def damaged(self, path, index=None):
+        raise sqlcipher3.DatabaseError("database disk image is malformed")
+    monkeypatch.setattr(master.Master, "entries_for", damaged)
+    with view_of(place) as view:
+        got = timeline_offset(f, view=view, **stubs())
+        assert (got.samples, got.why, got.entries, got.rekordbox) == (None, "unreadable", [], view.status)
+        assert timeline_offset(f, view=view, **stubs("pcm_s16le")).samples == 0
 
 
 def test_a_file_no_track_holds_is_zero(tmp_path):

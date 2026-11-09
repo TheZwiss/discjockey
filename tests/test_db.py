@@ -60,7 +60,7 @@ def test_a_fresh_database_has_the_current_version(tmp_path, library):
         db.check(conn)
         version = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
         created = conn.execute("SELECT value FROM meta WHERE key = 'created'").fetchone()[0]
-    assert int(version) == db.SCHEMA_VERSION == 6
+    assert int(version) == db.SCHEMA_VERSION == 7
     assert created == "2026-10-23T12:00:00"
 
 
@@ -365,6 +365,7 @@ def test_a_writer_upgrades_a_version_4_database_with_source_how_null_and_nothing
     before = everything(path)
     with db.connect(path) as conn:
         assert "source_how" not in [r[1] for r in conn.execute("PRAGMA table_info(files)")]
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 6)  # up to the leftovers round; 6 -> 7 has its own test
     with db.connect(path) as conn:
         db.check(conn, upgrade=True)
     after = everything(path)
@@ -410,6 +411,7 @@ def test_a_writer_upgrades_a_version_5_database_with_the_new_column_null_and_not
                                                                                                    monkeypatch):
     path = version_5(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
     before = everything(path)
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 6)  # this step alone; 6 -> 7 has its own test
     with db.connect(path) as conn:
         assert "judge_failed" not in [r[1] for r in conn.execute("PRAGMA table_info(files)")]
         db.check(conn, upgrade=True)
@@ -438,6 +440,58 @@ def test_a_reader_refuses_a_version_5_database(tmp_path, library, monkeypatch):
     with db.connect(path) as conn, pytest.raises(StateError) as e:
         db.check(conn)
     assert str(e.value) == db.OLDER
+
+
+# --- issue 33 stage B: the schema step 6 -> 7 (aiff_batches, aiff_items) ---
+
+def version_6(tmp_path, library, monkeypatch, state=None, facts=no_facts):
+    """A database as the leftovers round built it: version 6, no AIFF batch tables."""
+    with monkeypatch.context() as m:
+        m.setattr(db, "SCHEMA_VERSION", 6)
+        m.setattr(db, "UPGRADES", {k: db.UPGRADES[k] for k in (1, 2, 3, 4, 5)})
+        return fresh(tmp_path, library, state, facts)
+
+
+def test_a_writer_upgrades_a_version_6_database_with_two_new_empty_tables_and_nothing_else_changed(tmp_path, library,
+                                                                                                   monkeypatch):
+    path = version_6(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
+    before = everything(path)
+    assert "aiff_batches" not in before and "aiff_items" not in before
+    with db.connect(path) as conn:
+        db.check(conn, upgrade=True)
+    after = everything(path)
+    assert after.pop("aiff_batches") == [] and after.pop("aiff_items") == []
+    assert dict(after.pop("meta"))["schema_version"] == "7"
+    before.pop("meta")
+    assert after.pop("meta", None) is None
+    assert after == before
+
+
+def test_fresh_and_v6_upgraded_databases_have_the_same_schema(tmp_path, library, monkeypatch):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    upgraded = version_6(tmp_path / "a", library, monkeypatch)
+    with db.connect(upgraded) as conn:
+        db.check(conn, upgrade=True)
+    assert schema(upgraded) == schema(fresh(tmp_path / "b", library))
+
+
+def test_a_reader_refuses_a_version_6_database(tmp_path, library, monkeypatch):
+    path = version_6(tmp_path, library, monkeypatch)
+    with db.connect(path) as conn, pytest.raises(StateError) as e:
+        db.check(conn)
+    assert str(e.value) == db.OLDER
+
+
+def test_a_leftovers_round_build_refuses_a_version_7_database(tmp_path, library, monkeypatch):
+    path = fresh(tmp_path, library)
+    before = everything(path)
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 6)  # what a v1.2 Discjockey knows
+    for upgrade in (False, True):
+        with db.connect(path) as conn, pytest.raises(StateError) as e:
+            db.check(conn, upgrade=upgrade)
+        assert str(e.value) == db.NEWER
+    assert everything(path) == before
 
 
 def test_a_sources_round_build_refuses_a_version_6_database(tmp_path, library, monkeypatch):

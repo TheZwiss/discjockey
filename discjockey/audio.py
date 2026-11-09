@@ -111,6 +111,16 @@ def write_tags(path: Path, *, title: str, artists: tuple[str, ...], album: str, 
     f.save(v2_version=3)
 
 
+def set_comment(path: Path, comment: str) -> None:
+    """The one comment frame of an AIFF replaced by `comment` (ID3v2.3); the other tags stay."""
+    f = AIFF(str(path))
+    if f.tags is None:
+        f.add_tags()
+    f.tags.delall("COMM")
+    f.tags.add(COMM(encoding=1, lang="eng", desc="", text=comment))
+    f.save(v2_version=3)
+
+
 def copy_tags(src: Path, dst: Path) -> None:
     """Every ID3 frame of one AIFF onto another (title, artists, cover, comment ...), saved as ID3v2.3."""
     tags = AIFF(str(src)).tags

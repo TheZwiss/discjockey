@@ -147,8 +147,8 @@ RepointRow(id, identity_before, identity_after, facts_before, text: {field: {bef
   else a new row with rekordbox's scheme for `ID`, `UUID`, `SearchStr`, `rb_local_usn` and timestamps. **Check first:**
   the scheme from pyrekordbox's published `add_artist`/`add_album`/`add_label` and how it picks a new `ID` (names
   only; no code copied); RH compares created rows with rekordbox's own on the copy. Existing lookup rows are never
-  updated or deleted. A field written only where `text_plan` says `write` and the clean value differs from what is
-  shown. Genre, year, rating, colour, key, BPM, artwork, My Tags: never touched.
+  updated or deleted. A field written only where `text_plan` says `write` and the clean value is not empty and differs from
+  what is shown; `Commnt` also only over nothing or a quality line Discjockey wrote (any other comment is the user's). Genre, year, rating, colour, key, BPM, artwork, My Tags: never touched.
 - **`contentFile`**: per spliced ANLZ file the row with `ContentID` = the track and `Path` = that file's path in the
   analysis folder: `Hash` = MD5 hex of the new bytes, `Size`; `rb_*` flags unchanged. **Check first:** the `Path`
   form (`/PIONEER/USBANLZ/…/ANLZ0000.DAT` like `AnalysisDataPath`, or another root) on pyrekordbox's published
@@ -214,7 +214,7 @@ RekordboxView(master: Master, index: PathIndex, status: Status)
 aiff_batches(id INTEGER PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('upgrade','convert','mixed')),
   started_by TEXT NOT NULL CHECK (started_by IN ('user','upgrade_all','make_aiff','cdj_all','auto_upgrade')),
   scope TEXT, started TEXT NOT NULL, ended TEXT, state TEXT NOT NULL CHECK (state IN ('running','stopped','done')),
-  stop_reason TEXT CHECK (stop_reason IN ('stop','rekordbox_open','crash')), backup TEXT)
+  stop_reason TEXT CHECK (stop_reason IN ('stop','rekordbox_open','busy','crash')), backup TEXT)
 aiff_items(batch INTEGER NOT NULL REFERENCES aiff_batches (id) ON DELETE CASCADE, seq INTEGER NOT NULL,
   track TEXT NOT NULL, action TEXT NOT NULL CHECK (action IN ('same_track','convert','rename')),
   state TEXT NOT NULL CHECK (state IN ('planned','done','skipped','failed','undone')),
@@ -265,8 +265,8 @@ record, the parked download to `held` (as `_hold`). No rekordbox track (or `none
   (`library._Waits` with the words of §3); another `DBID` → files only; the item's batch → `stopped`, `crash`.
   **Check first:** that `recover_pending`'s `_Waits` lets the rest of the run go on (design §14).
 - **Undo** (`undo_convert`, op `convert_undo`, design §5.9): needs rekordbox closed when the step wrote it
-  (`rekordbox_open`), refuses `relocated` (identity changed), checks the new file's SHA-256 and the old file's
-  content key (`_unchanged`); old file back from `Superseded/` (`move_path`), `Writer.undo_repoint`, the new AIFF to
+  (`rekordbox_open`), refuses `relocated` (identity changed), checks the new and the old file's content key (`_unchanged`: a tag
+  edit by rekordbox does not stop the undo, other audio does); old file back from `Superseded/` (`move_path`), `Writer.undo_repoint`, the new AIFF to
   `.discjockey/undo/<track>/` (deleted by `_prune_undo` once no record names it), the held download back to
   `Upgrades ready/`, the entry `before`. Journaled with marks, `recover_convert_undo` finishes or rolls back.
 
@@ -346,6 +346,10 @@ design §10 (`kind`: `rekordbox_open` | `refused` | `changed` | `failed` | `busy
 Human output: one line per track ("Upgraded: Artist - Title → Artist - Title.aiff", "Skipped: … (reason in
 words)"), then the summary; the reason words are `preview.REASON_WORDS` plus §3's new ones. `discjockey upgrades`
 (interactive) stays; its `s` runs a batch of one (Same track for any format) and its tip becomes §3's console tip.
+A batch of one named track that meets rekordbox open or a busy `rekordbox.lock` before anything ran is closed, not left
+`stopped` (`batches.close_unrun`, in `apply` as in `upgrades` and the window); a new batch closes the unrun items of
+earlier stopped batches for the same songs (`later_batch`), so each song waits in one batch only. The app's program
+runs these commands too (`app_main.CLI_COMMANDS`), so the README's restore advice can name a path the app has.
 
 **CONTRIBUTING.md** › "Commands for scripts and agents": one entry per command (flags, JSON, exit codes, lock, what it
 changes), the exit-code table, and that an agent's command counts as the user starting it. `docs/issues.md` issue 39:
@@ -368,7 +372,7 @@ Reload Tag step (for a swap whose text write didn't run, and a batch card listin
 | Selection panel title | "{N} upgrades selected" / "{N} checks selected" |
 | Selection Replace button | "Replace {n} with lossless" (the better-version wording of `replaceLabel` when any isn't lossless: "Replace {n} with the better versions") |
 | Selection Discard | "Discard {N} new versions" · confirm "Throw away {N} new versions?" / "Your current files stay. These versions are not offered again." |
-| Progress line | "{done} of {total} · {Artist – Title}" under a ProgressBar labelled "Upgrading" |
+| Progress line | "{done} of {total} done" (the number and its unit) over "Upgrading · {Artist – Title}", with a ProgressBar labelled "Upgrading" |
 | Batch done | "{n} upgraded, your cues stayed." · skipped: "{m} not upgraded" with each reason |
 | Stopped by Stop | "Stopped after {done} of {total}." · button "Resume · {k} left" |
 | Batch check row (To-do list) | name "{n} tracks upgraded", sub "{date} · Same track" |
@@ -377,6 +381,8 @@ Reload Tag step (for a swap whose text write didn't run, and a batch card listin
 | Busy (rekordbox.lock) | "Discjockey is already changing your rekordbox library in another window or the Terminal." |
 | Recovery waits for rekordbox | "Quit rekordbox so Discjockey can finish an interrupted replace for {name}." (design §5.8) |
 | Recovery messages | design §5.8's three |
+| Undo refused (the track was moved or removed in rekordbox since the replace) | "This track was moved or removed in rekordbox since the replace, so Discjockey can't put it back safely. Nothing was changed." (reason words: the same in one clause) |
+| A track planned in a later batch | reason `later_batch`, "it was planned again in a later batch" |
 | Restore, human | "Restored rekordbox's library from {id}. Your library as it was is saved as {saved}." + §0.14's line when tracks point at Superseded/ |
 
 The UI agent may shorten panel rows to fit; each meaning stays, with the reason in its commit.
@@ -393,8 +399,9 @@ Into `docs/hub-bridge-contract.md`, `types.ts` + `contract.ts`, and the fake bac
   `upgrade_all()`: job `upgrade_batch`, `started_by` `upgrade_all`. Per-item progress is `BatchProgress` for all
   three. New problem kind **`rekordbox_open`** (the job's `result` is the stopped `BatchResult` when items ran).
 - **`batch_resume(batch_id)`**, **`batch_undo(batch_id)`**: jobs `batch_resume` / `batch_undo`.
+  The hub's batch card ("Undo all {n}") sends `undo_upgrade` over its own undoable tracks; `batch_undo` is for the console.
 - **`undo_upgrade(track_ids: list[str])`**: one job, newest first; result `UndoResult {results: [ItemResult]}`;
-  `rekordbox_open`, `refused` per item inside.
+  `rekordbox_open`, `refused` per item inside. It sends no `BatchProgress` (only `batch_undo` does).
 - **`rekordbox_checked(track_ids: list[str])`**: one job; the batch card sends its done tracks.
 - **`upgrade_block`**: `swap_possible` now means "Same track is possible" (`same_track_quick`); new `swap_how`
   (`"in_place" | "new_aiff"`), `rekordbox: {"state", "running"}` (the cached status), `why_not` (a `REASONS` key or
@@ -408,7 +415,8 @@ Into `docs/hub-bridge-contract.md`, `types.ts` + `contract.ts`, and the fake bac
   rows with check + can_undo]}}` (a type guard `isBatch` like `isDuplicate`); a batch of one stays a plain item.
   Counts: a batch counts as one to-do in `chips`.
 - **Cached status:** `api._rekordbox_status()` keyed on `master.db`'s mtime and size plus `running()`; never opened
-  while a job of this hub writes rekordbox (it answers the last value then). Views stay pure: the status is passed in.
+  while any write job of this hub runs (a sync, import or tidy-up runs the recovery first, which can write rekordbox;
+  it answers the last value then). Views stay pure: the status is passed in.
 - **Services:** `Services.rekordbox_running` (default `process.running`) and `Services.rekordbox_place` (default
   `locate`), so tests and the fake never touch a real library.
 - `_single`'s "the entry as the page showed it" check stays for one-track calls of `add_new`/`discard`; a batch
@@ -503,7 +511,7 @@ one filled button per screen. Choices stay `ChoiceGroup`/`Segmented`/grouped row
   `selected` (one item) is `only(sel)`; held items (`TodoHold`) keep working for a single selection.
 - **Rows:** every selected row gets `ListRow selected pick` (the orange wash) — one look for one or several; focus
   ring stays on the anchor's row. No tick boxes (the wash already says it; tick boxes would add a column to every
-  row). `aria-multiselectable` on the list, `aria-selected` per row.
+  row). Each row of a multi-select group is a toggle (`aria-pressed`), see the design-language decision log 2026-11-09: listbox/grid roles can't own the section heads' buttons.
 - **Group head action (block change):** `ListSection` and `Surface` (list head) gain `action?: Snippet` at the head's
   end, after the summary, a `Button variant="link" size="sm"` (the "Show hidden" style). Used for "Upgrade all · {n}"
   (selects every item of the group, the anchor its first) and, while a stopped upgrade batch exists, "Resume · {k}
@@ -514,8 +522,11 @@ one filled button per screen. Choices stay `ChoiceGroup`/`Segmented`/grouped row
 
 Shown when 2+ items of the group are selected. Same `Panel` frame as the single panel (head, fill, foot).
 
-- **Head:** a `Surface kind="card"` labelled "{N} upgrades selected", summary = the before-line (§3: "{n} upgrades keep
-  their cues. {m} need your choice and stay." + "{k} wait for something else." when k > 0). Inside: the selected
+- **Head (as built, F3):** the before-line (§3: "{n} upgrades keep their cues. {m} need your choice and stay." +
+  "{k} wait for something else." when k > 0) is an info `NoteCard` in the panel head, only when something stays (the
+  choice's "keep their cues" row says it otherwise), said once. The list is labelled "{N} upgrades selected" (the
+  "Upgrade all · n" link counts the ones that go, the note says why the panel's N is larger). Originally: a `Surface
+  kind="card"` labelled "{N} upgrades selected", summary = the before-line. Inside: the selected
   tracks as compact `ListRow`s (cover 28, "Artist – Title", sub = how it goes: "Same track" / "needs your choice" /
   the reason in words), scrolling inside the card after 6 rows, each with a muted ✕ trailing button to drop it from the
   selection.
@@ -546,7 +557,11 @@ Shown when 2+ items of the group are selected. Same `Panel` frame as the single 
 `new_aiff` are design §8's three; for `in_place` as today. No choice: the reason line from `why_not`
 (`rekordbox_unreadable` → "Same track needs a rekordbox library Discjockey can open"; rekordbox `none` and a non-AIFF
 file: the card says "a new track" with "No rekordbox on this Mac: the new file is a new track", and its button runs
-`swap` (the clean AIFF, undoable)); the other reasons as today. The tip line becomes the §8 console tip's meaning
+`swap` (the clean AIFF, undoable); that card is titled "The new file", not "In rekordbox"); the other reasons as today,
+each with its next step (F3, shown as body text): unreadable "… Update Discjockey, or replace it as a new track.", not
+analysed "… Analyse it there, or replace it as a new track.", timing "… Analyse it again, or replace it as a new
+track.", cloud "… Replace it as a new track instead.", file missing "… Put it back, then try again.", away "…
+Connect it, then try again.". The tip line becomes the §8 console tip's meaning
 ("Quit rekordbox before you replace") only where a rekordbox write follows.
 
 ### 6.4 The check card per batch (U2): `lib/decisions/BatchCheckCards.svelte` + foot
@@ -564,7 +579,7 @@ file: the card says "a new track" with "No rekordbox on this Mac: the new file i
   replaces?" / "Your old files go back where they were. The new versions wait in Upgrades ready again."), the undo
   refusal Hint (problem tone) listing refused tracks with reasons; `rekordbox_open` → the §8 undo words.
 - **Several checks selected:** panel "{N} checks selected" with the rows, foot "Done, checked in rekordbox" for all
-  and "Undo {N}" (only when every one can undo; else the count of those that can).
+  and "Undo all {n}" when every track can undo, else "Undo {n}" (those that can) over the muted "{k} can't be undone".
 - **A single `repointed` check** keeps today's card layout: steps (analyse again, USB result 3), "Replaced with
   lossless" rows (new file, old file in `Superseded/`), Undo.
 
