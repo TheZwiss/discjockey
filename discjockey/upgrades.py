@@ -500,6 +500,17 @@ def _write_text(paths: Paths, state: dict, op: dict, session: Session, changes: 
     mark_op(paths, state, op)
 
 
+def keep_measurement(paths: Paths, state: dict, track_id: str, e: dict, alignment: Alignment) -> None:
+    """A measurement taken when a step runs that says "not the same edit" is stored on the parked upgrade (and saved),
+    so the quick answers (`eligible.same_track_quick`: To-do, Upgrade all's count, Auto-upgrade's set) stop offering
+    Same track for it and the sync doesn't decode the two files again every time. An `unknown` measurement (the
+    files could not be compared) changes nothing: the stored one stays."""
+    if alignment.result == "unknown" or not e.get("upgrade"):
+        return
+    state["tracks"][track_id] = {**e, "upgrade": {**e["upgrade"], "alignment": alignment.to_dict()}}
+    save_state(paths, state)
+
+
 def swap_backup_name(paths: Paths, names: NameReserver, track_id: str, target: str) -> str:
     """Where a swap keeps the old file: `Superseded/<its folder>/<stem> (lossy)<ext>` (a free name; the dry run asks
     it too)."""
@@ -527,6 +538,7 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
                              f"Add the {upgrade_name(upgrade)} as a new file instead.")
     alignment = compare(paths.root / target, paths.root / upgrade["file"])
     if not alignment.swap_safe:
+        keep_measurement(paths, state, track_id, e, alignment)
         raise NeedsChoice(f"Not swapped: {alignment.text}. Add the {upgrade_name(upgrade)} as a new file instead, "
                           "or discard it.")
     workdir = paths.tmp / track_id
