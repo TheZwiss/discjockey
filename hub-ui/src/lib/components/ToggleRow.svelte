@@ -6,7 +6,7 @@
   // row reads as unavailable (muted name and count, faded lead, faded switch).
   // Lead: a 24 px Cover, or a glyph in `<span class="toggle-icon">↓</span>` (the bordered icon box styled here).
   // `sub`: a muted second line under the name that wraps, balanced so no word is left alone on a line (a single
-  // setting's detail, or why it is off). `action`: a link under the text of a lone row, outside its button so it is
+  // setting's detail, or why it is off); a row with a `sub` lets its name wrap too (a long name in a narrow panel). `action`: a link under the text of a lone row, outside its button so it is
   // its own click target; a locked row's way out, beside the reason it answers (Settings' YouTube Music: "Go to
   // YouTube Premium" under "Sign in to YouTube Premium first").
   import type { Snippet } from 'svelte';
@@ -29,7 +29,7 @@
   <Switch on={item.on} label={item.label} {disabled} />
   {#if lead}<span class="lead" aria-hidden="true">{@render lead()}</span>{/if}
   {#if sub}
-    <span class="text"><span class="name">{item.label}</span><span class="sub">{sub}</span></span>
+    <span class="text"><span class="name wraps">{item.label}</span><span class="sub">{sub}</span></span>
   {:else}
     <span class="name">{item.label}</span>
   {/if}
@@ -59,6 +59,9 @@
     transition: opacity var(--t-state) var(--ease); }
   .name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     transition: color var(--t-state) var(--ease), opacity var(--t-state) var(--ease); }
+  /* a row with a detail line is a lone setting in a panel: its name wraps, balanced, rather than ending in … ("Upgrade
+     automatically when I sync" in a 320 px panel); a name in a list of many rows stays on one line */
+  .name.wraps { white-space: normal; overflow-wrap: break-word; text-wrap: balance; }
   .count { text-align: right; color: var(--text-muted); font-size: var(--fs-small); font-variant-numeric: tabular-nums;
     white-space: nowrap; transition: color var(--t-state) var(--ease), opacity var(--t-state) var(--ease); }
   /* off stays readable: the user reads an off name to decide whether to turn it on (rule 8, as ListRow); the

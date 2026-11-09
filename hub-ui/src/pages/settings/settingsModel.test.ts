@@ -144,6 +144,26 @@ describe('settings rows', () => {
   });
 });
 
+describe('the Upgrades row', () => {
+  it('says the switch in words: on is good, off the user\'s own choice (neutral, never a problem)', () => {
+    expect(rowLine('upgrades', ctx())).toEqual({ tone: 'good', text: 'Automatic at the end of each sync' });
+    expect(rowLine('upgrades', ctx({ status: status({ auto_upgrade: false }) })))
+      .toEqual({ tone: 'none', text: 'Off: upgrades wait for you in To-do' });
+  });
+  it('waits for the status, and a missing key reads as on', () => {
+    expect(rowLine('upgrades', ctx({ status: null }))).toEqual({ tone: null, text: '' });
+    const old = status();
+    delete (old as Partial<SetupStatus>).auto_upgrade;
+    expect(rowLine('upgrades', ctx({ status: old })).tone).toBe('good');
+  });
+  it('sits in This Mac after Watched folders, leads with the upgrade arrow and never pulls the page open', () => {
+    const mac = ROW_GROUPS.find((g) => g.label === 'This Mac')!.rows;
+    expect(mac.indexOf('upgrades')).toBe(mac.indexOf('folders') + 1);
+    expect(ROW_LEADS.upgrades).toEqual({ glyph: '↑' });
+    expect(firstAttention(ctx({ status: status({ auto_upgrade: false }), downloads: view() }))).toBe('qobuz');
+  });
+});
+
 describe('settings list', () => {
   it('every row has a lead and sits in exactly one group', () => {
     const grouped = ROW_GROUPS.flatMap((g) => g.rows);
@@ -156,7 +176,7 @@ describe('settings list', () => {
     expect(ROW_LEADS.soundcloud).toEqual({ logo: 'soundcloud' });
     expect(ROW_LEADS.spotify).toEqual({ logo: 'spotify' });
     expect(ROW_LEADS.youtube_music).toEqual({ logo: 'youtubemusic' });
-    for (const r of ['music', 'folders', 'programs', 'about', 'reports'] as const) expect('glyph' in ROW_LEADS[r]).toBe(true);
+    for (const r of ['music', 'folders', 'upgrades', 'programs', 'about', 'reports'] as const) expect('glyph' in ROW_LEADS[r]).toBe(true);
   });
   it('Reading playlists holds Spotify and YouTube Music', () => {
     expect(ROW_GROUPS.find((g) => g.label === 'Reading playlists')?.rows).toEqual(['spotify', 'youtube_music']);
@@ -169,9 +189,9 @@ describe('settings list', () => {
     expect(rowLine('youtube_music', ctx({ status: null }))).toEqual({ tone: null, text: '' });
     expect(firstAttention(ctx())).toBe('qobuz');
   });
-  it('This Mac holds the music folder, the watched folders, programs, About and reports', () => {
-    expect(ROW_GROUPS.find((g) => g.label === 'This Mac')?.rows).toEqual(['music', 'folders', 'programs', 'about',
-      'reports']);
+  it('This Mac holds the music folder, the watched folders, upgrades, programs, About and reports', () => {
+    expect(ROW_GROUPS.find((g) => g.label === 'This Mac')?.rows).toEqual(['music', 'folders', 'upgrades', 'programs',
+      'about', 'reports']);
   });
   it('the music folder row shows the folder, short, as good; it never opens first while it is fine', () => {
     expect(rowLine('music', ctx())).toEqual({ tone: 'good', text: '~/Music/Discjockey' });

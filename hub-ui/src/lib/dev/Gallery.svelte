@@ -725,12 +725,15 @@
         </ToggleGroup>
         <span class="cap">empty</span>
         <ToggleGroup label="Empty" items={[]} test="g-empty" onchange={() => {}} onall={() => {}} />
-        <span class="cap">a single setting with its detail (sub wraps) · locked with the reason</span>
+        <span class="cap">a single setting with its detail (sub and a long name wrap) · locked with the reason</span>
         <Surface kind="list" data-test="g-toggle-sub">
           <ToggleRow item={{ key: 'r', label: 'Rename the folder on disk too', on: subOn }} sub="One folder move instead of 7 file moves."
             onchange={(_k, on) => (subOn = on)} />
           <ToggleRow item={{ key: 'x', label: 'Rename the folder on disk too', on: false }} disabled
             sub="A folder called Powertrance_2026 is already in your Library." onchange={() => {}} />
+          <ToggleRow item={{ key: 'u', label: 'Upgrade automatically when I sync', on: true }}
+            sub="Same-edit upgrades replace your files at the end of a sync while rekordbox is closed; cues stay, and you can undo each one. Also the ones waiting now."
+            onchange={() => {}} />
         </Surface>
         <span class="cap">locked, with its way out under the reason (action: a link outside the row's button)</span>
         <Surface kind="list" data-test="g-toggle-action">

@@ -3,7 +3,7 @@
   // The main column answers "where does my music come from?" first (the source ladder, its rungs lit by what is
   // signed in), then lists every setting in three groups, each row with the one line that says its state. The panel
   // is the selected row: an AccountPanel for the download services (what the login gives, its state, the sign-in),
-  // YouTube Music's own panel (its Liked music choice), a RowPanel for the rest. Every service row leads with its
+  // YouTube Music's own panel (its Liked music choice), the Upgrades panel (its one switch), a RowPanel for the rest. Every service row leads with its
   // own logo (ServiceMark), the others with a glyph. `#/settings` opens the first row that needs the user. A click on a ladder rung or chip
   // opens its row, so the ladder doubles as a map of the settings below it.
   import { untrack } from 'svelte';
@@ -20,6 +20,7 @@
   import { sayInBody } from '$lib/stores/shell';
   import FoldersPanel from './FoldersPanel.svelte';
   import RowPanel from './RowPanel.svelte';
+  import UpgradesPanel from './UpgradesPanel.svelte';
   import YouTubeMusicPanel from './YouTubeMusicPanel.svelte';
   import {
     ROW_GROUPS, ROW_LEADS, ROW_NAMES, firstAttention, isAccountRow, isSettingsRow, rowLine, spotifyUsed, type RowContext,
@@ -127,6 +128,8 @@
     <YouTubeMusicPanel status={$hub.setup} disabledWhy={$writeBlockedReason} onchanged={changed} />
   {:else if row === 'folders'}
     <FoldersPanel flow={folders} folder={params.folder} />
+  {:else if row === 'upgrades'}
+    <UpgradesPanel status={$hub.setup} disabledWhy={$writeBlockedReason} onchanged={changed} />
   {:else if row}
     <RowPanel {row} status={$hub.setup} {tools} {toolsError} {reports} disabledWhy={$writeBlockedReason} onchanged={changed}
       onrecheck={load} />

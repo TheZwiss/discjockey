@@ -5,11 +5,15 @@
   // here is a sign-in there. Required: Qobuz signed in, or "I don't have Qobuz" (inside Qobuz's card); the other two
   // are optional. While Qobuz is required its card's main action is the screen's one filled button (filledCard);
   // afterwards Continue is. A click on a rung's name or chip brings its card into view and puts the focus in it.
+  // Under the account cards sits one more card, "Upgrades" (issue 33 stage C plan §6.2): the switch "Upgrade
+  // automatically when I sync", starting on, saved at once (set_auto_upgrade). It is never the filled button and never
+  // blocks Continue.
   import { untrack } from 'svelte';
-  import { api } from '$lib/bridge/client';
+  import { api, runJob } from '$lib/bridge/client';
   import type { DownloadsView, ProblemKind, SetupStatus } from '$lib/bridge/types';
-  import { AccountFlow, AccountPanel, ProblemCard, SourceLadder, accountBlocked } from '$lib/components';
-  import { bumpData, dataVersion, hub } from '$lib/stores/hub';
+  import { AccountFlow, AccountPanel, NoteCard, ProblemCard, SourceLadder, Surface, ToggleRow, accountBlocked } from '$lib/components';
+  import { AUTO_UPGRADE_LABEL, AUTO_UPGRADE_SETUP_SUB, autoUpgradeOn, shownAutoUpgrade } from '$lib/autoUpgrade';
+  import { bumpData, dataVersion, hub, writeBlockedReason } from '$lib/stores/hub';
   import { filledCard } from './setupModel';
 
   // `busy`: one of the cards' flows runs (a sign-in waiting for the browser, a check): the page holds Back, Continue
@@ -53,6 +57,19 @@
   const filled = $derived(filledCard(status));
   const blocked = $derived(accountBlocked($hub));
 
+  // the Upgrades switch: the choice being saved shows at once, until the read-again status says the same
+  let pending = $state<boolean | null>(null);
+  let upgradeError = $state<string | null>(null);
+  $effect(() => { if (pending !== null && autoUpgradeOn(status.auto_upgrade) === pending) pending = null; });
+  async function setAuto(on: boolean) {
+    if ($writeBlockedReason || pending !== null) return;
+    upgradeError = null;
+    pending = on;
+    const r = await runJob(api.set_auto_upgrade(on), { quiet: true, success: false });
+    if (!r.ok) { pending = null; if (r.kind !== 'stopped') upgradeError = r.message; }
+    bumpData();
+  }
+
   let cards = $state<Partial<Record<Service, HTMLElement>>>({});
   function pick(service: Service) {
     const el = cards[service];
@@ -79,6 +96,12 @@
           actions={flow} logins={flow.logins} busy={flow.busy} disabledWhy={blocked} />
       </div>
     {/each}
+    <Surface kind="list" label="Upgrades" data-test="setup-card-upgrades">
+      <ToggleRow item={{ key: 'auto_upgrade', label: AUTO_UPGRADE_LABEL, on: shownAutoUpgrade(status.auto_upgrade, pending) }}
+        sub={AUTO_UPGRADE_SETUP_SUB} disabled={!!$writeBlockedReason} title={$writeBlockedReason ?? undefined}
+        onchange={(_k, on) => void setAuto(on)} test="auto-upgrade-switch" />
+    </Surface>
+    {#if upgradeError}<NoteCard tone="problem" data-test="auto-upgrade-error">{upgradeError}</NoteCard>{/if}
   </div>
 </div>
 
