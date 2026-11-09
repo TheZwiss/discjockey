@@ -1,1 +1,0 @@
-import{z as l,eo as n,t as o,B as d,l as m,G as f}from"./index-BXIULNmK.js";var p=f('<span class="mid svelte-6s6dm6"></span>');function c(a,t){var e=p();l(e,(s,i)=>n?.(s,i),()=>({text:t.text,sep:t.sep})),o(()=>d(e,"title",t.text)),m(a,e)}export{c as M};
