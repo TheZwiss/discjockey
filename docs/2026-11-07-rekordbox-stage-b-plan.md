@@ -372,7 +372,7 @@ Reload Tag step (for a swap whose text write didn't run, and a batch card listin
 | Selection panel title | "{N} upgrades selected" / "{N} checks selected" |
 | Selection Replace button | "Replace {n} with lossless" (the better-version wording of `replaceLabel` when any isn't lossless: "Replace {n} with the better versions") |
 | Selection Discard | "Discard {N} new versions" · confirm "Throw away {N} new versions?" / "Your current files stay. These versions are not offered again." |
-| Progress line | "{done} of {total} · {Artist – Title}" under a ProgressBar labelled "Upgrading" |
+| Progress line | "{done} of {total} done" (the number and its unit) over "Upgrading · {Artist – Title}", with a ProgressBar labelled "Upgrading" |
 | Batch done | "{n} upgraded, your cues stayed." · skipped: "{m} not upgraded" with each reason |
 | Stopped by Stop | "Stopped after {done} of {total}." · button "Resume · {k} left" |
 | Batch check row (To-do list) | name "{n} tracks upgraded", sub "{date} · Same track" |
@@ -522,8 +522,11 @@ one filled button per screen. Choices stay `ChoiceGroup`/`Segmented`/grouped row
 
 Shown when 2+ items of the group are selected. Same `Panel` frame as the single panel (head, fill, foot).
 
-- **Head:** a `Surface kind="card"` labelled "{N} upgrades selected", summary = the before-line (§3: "{n} upgrades keep
-  their cues. {m} need your choice and stay." + "{k} wait for something else." when k > 0). Inside: the selected
+- **Head (as built, F3):** the before-line (§3: "{n} upgrades keep their cues. {m} need your choice and stay." +
+  "{k} wait for something else." when k > 0) is an info `NoteCard` in the panel head, only when something stays (the
+  choice's "keep their cues" row says it otherwise), said once. The list is labelled "{N} upgrades selected" (the
+  "Upgrade all · n" link counts the ones that go, the note says why the panel's N is larger). Originally: a `Surface
+  kind="card"` labelled "{N} upgrades selected", summary = the before-line. Inside: the selected
   tracks as compact `ListRow`s (cover 28, "Artist – Title", sub = how it goes: "Same track" / "needs your choice" /
   the reason in words), scrolling inside the card after 6 rows, each with a muted ✕ trailing button to drop it from the
   selection.
@@ -554,7 +557,11 @@ Shown when 2+ items of the group are selected. Same `Panel` frame as the single 
 `new_aiff` are design §8's three; for `in_place` as today. No choice: the reason line from `why_not`
 (`rekordbox_unreadable` → "Same track needs a rekordbox library Discjockey can open"; rekordbox `none` and a non-AIFF
 file: the card says "a new track" with "No rekordbox on this Mac: the new file is a new track", and its button runs
-`swap` (the clean AIFF, undoable)); the other reasons as today. The tip line becomes the §8 console tip's meaning
+`swap` (the clean AIFF, undoable); that card is titled "The new file", not "In rekordbox"); the other reasons as today,
+each with its next step (F3, shown as body text): unreadable "… Update Discjockey, or replace it as a new track.", not
+analysed "… Analyse it there, or replace it as a new track.", timing "… Analyse it again, or replace it as a new
+track.", cloud "… Replace it as a new track instead.", file missing "… Put it back, then try again.", away "…
+Connect it, then try again.". The tip line becomes the §8 console tip's meaning
 ("Quit rekordbox before you replace") only where a rekordbox write follows.
 
 ### 6.4 The check card per batch (U2): `lib/decisions/BatchCheckCards.svelte` + foot

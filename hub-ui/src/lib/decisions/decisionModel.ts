@@ -76,15 +76,17 @@ export const QUIT_REKORDBOX = 'Quit rekordbox before you replace';
 const QUIT_STEP: Outcome = { tone: 'step', text: QUIT_REKORDBOX };
 const BECOMES_AIFF: Outcome = { tone: 'file', text: 'Becomes an AIFF file' };
 export const NO_REKORDBOX = 'No rekordbox on this Mac: the new file is a new track';
+/** The no-choice card's title: "In rekordbox" would sit over "No rekordbox on this Mac", so there the card is the file's. */
+export const waysTitle = (w: Pick<UpgradeWays, 'reason'>): string => (w.reason === NO_REKORDBOX ? 'The new file' : 'In rekordbox');
 /** Why Same track can't run for one track, as the line under the "In rekordbox" card (design §8 where it has words;
  *  `needs_choice` is said from the measurement, see upgradeWays). */
 const WHY_NOT_LINE: Record<string, string> = {
-  rekordbox_unreadable: 'Same track needs a rekordbox library Discjockey can open',
-  not_analysed: 'Same track needs the track analysed in rekordbox first',
-  timing: 'Same track needs the track analysed again in rekordbox',
-  cloud: "Same track can't change a track in rekordbox's Cloud Library Sync yet",
-  file_missing: "Same track needs your file where Discjockey expects it",
-  away: "Same track needs your file's drive connected",
+  rekordbox_unreadable: 'Same track needs a rekordbox library Discjockey can open. Update Discjockey, or replace it as a new track.',
+  not_analysed: 'Same track needs the track analysed in rekordbox first. Analyse it there, or replace it as a new track.',
+  timing: 'Same track needs the track analysed again in rekordbox. Analyse it again, or replace it as a new track.',
+  cloud: "Same track can't change a track in rekordbox's Cloud Library Sync yet. Replace it as a new track instead.",
+  file_missing: 'Same track needs your file where Discjockey expects it. Put it back, then try again.',
+  away: "Same track needs your file's drive connected. Connect it, then try again.",
 };
 /** How far apart the two versions start, in whole ms (an alignment or a check's measurement). */
 const ms = (a: { offset_ms: number | null } | null | undefined) => Math.round(Math.abs(a?.offset_ms ?? 0));
@@ -355,23 +357,18 @@ export type SelectionWays = UpgradeWays & {
   /** how many each way replaces */
   count: Record<Way, number>;
 };
-/** The "In rekordbox" card for several upgrades: Same track · n (recommended), whose outcomes carry Upgrade all's
- *  before-line ("{n} … keep their cues", "{m} need your choice and stay", "{k} wait for something else"), and New
- *  track · N. With no item for Same track there is no choice: "a new track" and why. */
+/** The "In rekordbox" card for several upgrades: Same track · n (recommended) and New track · N; the before-line
+ *  (`beforeLine`) is the panel head's, said once. With no item for Same track there is no choice: "a new track" and why. */
 export function selectionWays(items: Pick<TodoItem, 'same_track' | 'path'>[]): SelectionWays {
   const n = items.filter((i) => !i.same_track).length;
   const m = items.filter((i) => i.same_track === 'needs_choice').length;
   const k = items.length - n - m;
   const count = { swap: n, add_new: items.filter((i) => goes(i, 'add_new')).length };
-  const stay: Outcome[] = [
-    ...(m ? [{ tone: 'step' as const, text: `${m} ${plural(m, 'needs your choice and stays', 'need your choice and stay')}` }] : []),
-    ...(k ? [{ tone: 'step' as const, text: `${k} ${plural(k, 'waits for something else', 'wait for something else')}` }] : []),
-  ];
   const aiffAll = items.filter((i) => goes(i, 'swap')).every((i) => isAiff(i.path));
   const same: WayOption = { key: 'swap', name: `Same track · ${n}`, summary: 'Cues and beatgrid stay', outcomes: [
     { tone: 'kept', text: `${n} ${plural(n, 'keeps its cues, playlists and history', 'keep their cues, playlists and history')}` },
     ...(aiffAll ? [] : [{ tone: 'file' as const, text: "Files that aren't AIFF become AIFF files" }]),
-    QUIT_STEP, ...stay] };
+    QUIT_STEP] };
   // `needs_choice` is a different edit or one nobody measured (the item doesn't say which): "may be" is true of both
   const differ = m;
   const added: WayOption = { key: 'add_new', name: `New track · ${count.add_new}`,
@@ -383,6 +380,17 @@ export function selectionWays(items: Pick<TodoItem, 'same_track' | 'path'>[]): S
   const reason = m === items.length ? 'Same track needs the same edit' : 'None of these can stay the same track: each row says why';
   return { choice: false, options: [added], fixed: added.outcomes, reason, way: 'add_new', tip: null, n, m, k, count };
 }
+/** The panel head's before-line (design §8: "{n} upgrades keep their cues. {m} need your choice and stay.", plan §3 adds
+ *  "{k} wait for something else."): what Same track does for the selection and what stays. Null when nothing stays (the
+ *  Same track outcome already says all of them keep their cues) or nothing can be Same track (the card says why). */
+export function beforeLine(w: Pick<SelectionWays, 'n' | 'm' | 'k'>): string | null {
+  if (!w.n || !(w.m || w.k)) return null;
+  return [`${w.n} ${plural(w.n, 'upgrade keeps its cues.', 'upgrades keep their cues.')}`,
+    ...(w.m ? [`${w.m} ${plural(w.m, 'needs your choice and stays.', 'need your choice and stay.')}`] : []),
+    ...(w.k ? [`${w.k} ${plural(w.k, 'waits for something else.', 'wait for something else.')}`] : [])].join(' ');
+}
+/** "Upgrade all · n" is offered from two: with one, the row's own button does it. */
+export const upgradeAllShown = (n: number): boolean => n >= 2;
 /** The selection's main button, named by the result and the count the picked way replaces. */
 export function replaceManyLabel(count: number, items: Pick<TodoItem, 'detail'>[]): string {
   return items.every(lossless) ? `Replace ${count} with lossless` : `Replace ${count} with the better versions`;
@@ -445,6 +453,17 @@ export function endGroups(rows: RunRow[]): { notDone: RunRow[]; left: RunRow[] }
     left: rows.filter((r) => r.state === 'waiting') };
 }
 export const leftTitle = (k: number): string => `${k} left`;
+/** The ended panel's number is dropped where the note already says it ("Stopped after 2 of 4.", rekordbox opening
+ *  mid-way): the same count twice in one panel reads as two facts. */
+export const endNoteSaysCount = (e: Pick<BatchEnd, 'kind' | 'done'>): boolean =>
+  e.kind === 'stopped' || (e.kind === 'rekordbox_open' && e.done > 0);
+/** The running panel's number: how many are done, of how many (the track in work is the label's). */
+export const runUnit = (total: number): string => `of ${total} done`;
+/** The running panel's label under the number: what is going on, with the track in work. */
+export function runLabel(mode: BatchMode, now: string | null): string {
+  const what = mode === 'add_new' ? 'Adding as new tracks' : mode === 'discard' ? 'Discarding' : 'Upgrading';
+  return now ? `${what} · ${now}` : what;
+}
 /** How a batch ended, for the panel: `resume` while its batch is stopped with tracks left. */
 export type BatchEnd = { mode: BatchMode; kind: 'done' | 'stopped' | 'rekordbox_open' | 'busy' | 'refused' | 'failed';
   done: number; total: number; message: string; resume: { batch_id: number; left: number } | null };

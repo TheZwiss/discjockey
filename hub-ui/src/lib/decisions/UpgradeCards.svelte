@@ -12,7 +12,7 @@
   import { ChoiceGroup, ComparePlayer, Hint, KeyValue, OutcomeList, Spectrum, Surface, tip } from '$lib/components';
   import type { ChoiceOption } from '$lib/components';
   import { foundText, upgradeLabel } from '$lib/format';
-  import { KEPT_FILE, editLine, nowLabel, nowTip, upgradeWays, type Way } from './decisionModel';
+  import { KEPT_FILE, editLine, nowLabel, nowTip, upgradeWays, waysTitle, type Way } from './decisionModel';
 
   let { track, current, upgrade, loading, swap, way, onway, busy = false }: {
     track: Pick<TrackDetail, 'audio_url' | 'duration_s' | 'source_format_line' | 'quality_label'> & { upgrade: Upgrade | null };
@@ -65,7 +65,7 @@
   <ChoiceGroup label="In rekordbox" {options} value={way} onchange={onway} foot={after} disabled={busy}
     test="upgrade-ways" />
 {:else}
-  <Surface kind="card" label="In rekordbox" summary="a new track" data-test="upgrade-ways" data-choice="false">
+  <Surface kind="card" label={waysTitle(ways)} summary="a new track" data-test="upgrade-ways" data-choice="false">
     <div class="fixed">
       <OutcomeList items={[...ways.fixed, KEPT_FILE]} />
       {#if ways.reason}<Hint text={ways.reason} wrap class="reason" data-test="upgrade-why" />{/if}
@@ -89,5 +89,6 @@
   .dot.good_lossy { background: var(--q-good); }
   .dot.other { background: var(--q-other); }
   .fixed { display: flex; flex-direction: column; gap: var(--s-2); }
-  .fixed :global(.reason) { color: var(--text-label); }
+  /* why Same track can't run, and what to do: read as a sentence, not as the faintest line of the card */
+  .fixed :global(.reason) { color: var(--text); }
 </style>

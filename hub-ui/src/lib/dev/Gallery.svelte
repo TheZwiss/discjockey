@@ -995,10 +995,11 @@
             <ListRow>{#snippet name()}Not found anywhere{/snippet}{#snippet sub()}Searched Qobuz, YouTube Music, SoundCloud and YouTube{/snippet}{#snippet trailing()}<Button variant="link" size="sm">Fix →</Button>{/snippet}</ListRow>
             <ListRow off>{#snippet name()}Bought files (off){/snippet}{#snippet sub()}Nothing to do{/snippet}{#snippet trailing()}0{/snippet}</ListRow>
           </Surface></div>
-        <div class="col tight"><span class="cap">wrap · the sub-line wraps (a destination or a reason read whole)</span>
+        <div class="col tight"><span class="cap">wrap · the sub-line wraps (a destination or a reason read whole); wrapName · the name takes two lines too</span>
           <Surface kind="list" label="Can't move" style="--row-cols: 52px minmax(0, 1fr)" data-test="g-rows-wrap">
             <ListRow wrap>{#snippet lead()}<StatusMark tone="warn" /><Cover url={null} seed="w1" size={28} />{/snippet}{#snippet name()}Bounce Brigade – Rush Hour{/snippet}{#snippet sub()}A file with this name is already in 03_06_2026/not_lossless{/snippet}</ListRow>
             <ListRow wrap>{#snippet lead()}<Tick on /><Cover url={null} seed="w2" size={28} />{/snippet}{#snippet name()}Remo Rush – Kick it Hard{/snippet}{#snippet sub()}Elsewhere/not_lossless → Hard_Bounce/not_lossless{/snippet}</ListRow>
+            <ListRow wrap wrapName>{#snippet lead()}<StatusMark tone="warn" /><Cover url={null} seed="w3" size={28} />{/snippet}{#snippet name()}DJ Fluxkompensator & The Very Long Named Crew – Gravity (Extended Club Mix){/snippet}{#snippet sub()}wrapName: the name takes two lines before it ends in "…"{/snippet}</ListRow>
           </Surface></div>
       </div>
     </div>
@@ -1377,7 +1378,7 @@
     </div>
     <div class="row top">
       <Toast toast={{ id: 1, tone: 'info', title: 'First finished an interrupted step:', body: 'Moved a file back' }} onclose={() => {}} />
-      <Toast toast={{ id: 2, tone: 'success', title: 'Swapped. rekordbox keeps the cue points.' }} onclose={() => {}} />
+      <Toast toast={{ id: 2, tone: 'success', title: 'Replaced. rekordbox keeps the cue points.' }} onclose={() => {}} />
       <Toast toast={{ id: 3, tone: 'problem', title: 'This track changed in the meantime.', body: 'Look at it again.', action: { label: 'Open To-do', href: '#/todo' } }} onclose={() => {}} />
     </div>
     <div class="row">

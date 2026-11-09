@@ -26,7 +26,7 @@
     selectAll, selectOne, type Selection,
   } from '$lib/components';
   import { BatchCheckCards, ChecksFlow, UpgradeSelection, upgradeBatch } from '$lib/decisions';
-  import { batchRowName, batchRowSub, checkTracks, localDay, resumeLabel, upgradeAllLabel } from '$lib/decisions/decisionModel';
+  import { batchRowName, batchRowSub, checkTracks, localDay, resumeLabel, upgradeAllLabel, upgradeAllShown } from '$lib/decisions/decisionModel';
   import { getPref, setPref } from '$lib/prefs';
   import { markReady } from '$lib/ready';
   import {
@@ -359,13 +359,13 @@
 
 {#snippet groupAction()}
   <!-- a stopped batch is resumed, not started again: while one waits the head offers only Resume (or nothing while
-       the panel's own Resume says it) -->
+       the panel's own Resume says it); "Upgrade all · 1" would only be the row's own button, so it needs two -->
   {#if headResume}
     {@const r = headResume}
     <Button variant="link" size="sm" disabled={!!$writeBlockedReason || upgradeBatch.view?.phase === 'running'}
       title={$writeBlockedReason ?? undefined} onclick={() => resume(r.batch_id)} data-test="todo-resume">{resumeLabel(r.left)}</Button>
-  {:else if !upGroup?.stopped && upGroup?.all?.n}
-    <Button variant="link" size="sm" onclick={upgradeAll} data-test="todo-upgrade-all">{upgradeAllLabel(upGroup.all.n)}</Button>
+  {:else if !upGroup?.stopped && upgradeAllShown(upGroup?.all?.n ?? 0)}
+    <Button variant="link" size="sm" onclick={upgradeAll} data-test="todo-upgrade-all">{upgradeAllLabel(upGroup?.all?.n ?? 0)}</Button>
   {/if}
 {/snippet}
 

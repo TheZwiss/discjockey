@@ -19,8 +19,8 @@
   import { Panel } from '$lib/frames';
   import { writeBlockedReason } from '$lib/stores/hub';
   import {
-    endGroups, endNote, endWords, focusAfterDrop, goes, leftTitle, notDoneTitle, panelFocus, replaceManyLabel, discardLabel, resumeLabel,
-    sameTrackWhy, selectedTitle, selectionWays, type RunRow, type Way,
+    beforeLine, endGroups, endNote, endNoteSaysCount, endWords, focusAfterDrop, goes, leftTitle, notDoneTitle, panelFocus, replaceManyLabel,
+    discardLabel, resumeLabel, runLabel, runUnit, sameTrackWhy, selectedTitle, selectionWays, tracksSummary, type RunRow, type Way,
   } from './decisionModel';
   import { refocus } from './focus';
   import { upgradeBatch, type UpgradeBatchFlow } from './flows.svelte';
@@ -51,7 +51,7 @@
   const view = $derived(flow.view);
   const blocked = $derived($writeBlockedReason);
 
-  const RUN_TITLE = { swap: 'Upgrading', add_new: 'Adding as new tracks', discard: 'Discarding' };
+  const before = $derived(beforeLine(ways));
   const ended = $derived(view?.phase === 'ended' ? endGroups(view.rows) : { notDone: [], left: [] });
   const endCount = $derived(ended.notDone.length + ended.left.length);
   const words = $derived(view?.end ? endWords(view.end) : null);
@@ -92,39 +92,44 @@
     {:else if r.state === 'done'}<StatusMark tone="good" />
     {:else if r.state === 'skipped'}<StatusMark tone="warn" />
     {:else if r.state === 'failed'}<StatusMark tone="problem" />
-    {:else if r.state === 'waiting' && view?.phase === 'ended'}<StatusMark tone="none" />{/if}
+    {:else if r.state === 'waiting'}<StatusMark tone="none" />{/if}
   </span>
 {/snippet}
 
 {#snippet runRows(rows: RunRow[])}
   {#each rows as r (r.track_id)}
-    <ListRow wrap title={r.name} test="run-row" data-track={r.track_id} data-state={r.state}>
+    <ListRow wrap wrapName title={r.name} test="run-row" data-track={r.track_id} data-state={r.state}>
       {#snippet lead()}<span class="lead">{@render mark(r)}<Cover url={r.cover_url} seed={r.track_id} size={28} /></span>{/snippet}
       {#snippet name()}{r.name}{/snippet}
       {#snippet sub()}{#if r.text}<span class={r.state === 'failed' ? 'bad' : 'warn'}>{r.text}</span>{:else}{r.sub}{/if}{/snippet}
     </ListRow>
   {/each}
 {/snippet}
+<!-- the title says the count where it has one ("2 left", "3 not upgraded"); the running list's is "4 tracks" -->
 {#snippet runList(rows: RunRow[], label: string, test: string, more?: { label: string; rows: RunRow[] })}
-  <Surface kind="list" {label} summary={String(rows.length)} style="--row-cols: 52px minmax(0, 1fr)"
+  <Surface kind="list" {label} style="--row-cols: 52px minmax(0, 1fr)"
     grow={{ rows: rows.length + (more ? more.rows.length + 1 : 0), tall: true }} data-test={test}>
     {@render runRows(rows)}
     {#if more}
-      <ListSection label={more.label} summary={String(more.rows.length)} test="batch-left" />
+      <ListSection label={more.label} test="batch-left" />
       {@render runRows(more.rows)}
     {/if}
   </Surface>
 {/snippet}
 
 {#snippet head()}
-  {#if view?.phase === 'running'}
-    <StatCard value={view.done} unit="of {view.total || view.rows.length}" label={view.now ?? 'Starting'}
+  {#if !view}
+    <!-- design §8's before-line: what Same track does for these and what stays (said here, not in the choice's rows) -->
+    {#if before}<NoteCard tone="info" data-test="selection-before">{before}</NoteCard>{/if}
+  {:else if view.phase === 'running'}
+    <StatCard value={view.done} unit={runUnit(view.total || view.rows.length)} label={runLabel(view.mode, view.now)}
       valueTest="batch-done" data-test="batch-progress">
-      <ProgressBar value={view.total ? view.done / view.total : 0} label={RUN_TITLE[view.mode]} />
+      <ProgressBar value={view.total ? view.done / view.total : 0} label={runLabel(view.mode, null)} />
     </StatCard>
   {:else if view?.phase === 'ended' && view.end && words}
-    <!-- the number only when something was done or the batch finished: "0 upgraded" over a note that says why adds nothing -->
-    {#if view.done || view.end.kind === 'done'}
+    <!-- the number only when something was done or the batch finished ("0 upgraded" over a note that says why adds
+         nothing), and not where the note already counts ("Stopped after 2 of 4.") -->
+    {#if (view.done || view.end.kind === 'done') && !endNoteSaysCount(view.end)}
       <StatCard value={view.done} unit={words.unit} label={words.label} valueTest="batch-result" data-test="batch-result" />
     {/if}
     {#if note}<NoteCard tone={note.tone} data-test="batch-note" data-kind={view.end.kind}>{note.text}</NoteCard>{/if}
@@ -133,7 +138,7 @@
 
 {#snippet fill()}
   {#if view?.phase === 'running'}
-    {@render runList(view.rows, RUN_TITLE[view.mode], 'batch-rows')}
+    {@render runList(view.rows, tracksSummary(view.rows.length), 'batch-rows')}
   {:else if view?.phase === 'ended'}
     {#if ended.notDone.length}
       {@render runList(ended.notDone, notDoneTitle(ended.notDone.length, view.mode), 'batch-not-done',
@@ -151,7 +156,7 @@
           {#snippet name()}{nameOf(i)}{/snippet}
           {#snippet sub()}{going ? (way === 'swap' ? 'Same track' : 'New track') : sameTrackWhy(i.same_track)}{/snippet}
           {#snippet trailing()}
-            <Button variant="icon" size="sm" muted aria-label="Leave {nameOf(i)} out" tip="Leave out of the selection"
+            <Button variant="icon" size="xs" aria-label="Leave {nameOf(i)} out" tip="Leave out of the selection"
               onclick={() => drop(i)} data-test="selection-drop">
               <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6"
                 stroke="currentColor" stroke-width="1.3" stroke-linecap="round" /></svg></Button>
@@ -208,7 +213,7 @@
 {/snippet}
 
 <div class="sel" bind:this={root} data-test="upgrade-selection" data-phase={view?.phase ?? 'decide'} data-end={view?.end?.kind}>
-  <Panel head={view ? head : undefined} fill={view?.phase !== 'ended' || endCount ? fill : undefined} {after} {foot} />
+  <Panel head={view || before ? head : undefined} fill={view?.phase !== 'ended' || endCount ? fill : undefined} {after} {foot} />
 </div>
 
 <style>
@@ -217,7 +222,8 @@
   .lead { display: grid; grid-template-columns: 16px 28px; column-gap: var(--s-2); align-items: center; }
   .mark { display: grid; place-items: center; width: 16px; height: 16px; }
   .fixed { display: flex; flex-direction: column; gap: var(--s-2); }
-  .fixed :global(.reason) { color: var(--text-label); }
+  /* why nothing can stay the same track: a sentence to read, not the faintest line of the card */
+  .fixed :global(.reason) { color: var(--text); }
   .row { display: flex; gap: var(--s-2); }
   .centered :global(.hint) { text-align: center; }
   /* a reason's words in the colours of its mark, as the moves panel's (MovesPanel) */

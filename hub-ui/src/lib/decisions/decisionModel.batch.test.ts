@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AiffBatchResult, ItemResult, TodoItem, Upgrade } from '$lib/bridge/types';
 import {
-  QUIT_REKORDBOX, batchEnd, canTryAgain, defaultWay, discardConfirm, discardLabel, endGroups, endNote, endRows, endWords,
+  QUIT_REKORDBOX, batchEnd, beforeLine, canTryAgain, endNoteSaysCount, runLabel, runUnit, upgradeAllShown, waysTitle, NO_REKORDBOX, defaultWay, discardConfirm, discardLabel, endGroups, endNote, endRows, endWords,
   focusAfterDrop, focusAfterRowGone, goes, panelFocus, progressRows, replaceManyLabel, resumeLabel, runRow, sameTrackWhy, selectedTitle, selectionWays, upgradeAllLabel,
   upgradeWays, type RunRow,
 } from './decisionModel';
@@ -17,13 +17,14 @@ const item = (id: string, same_track: string | null, extra: Partial<TodoItem> = 
 const mp3 = (id: string, same: string | null = null) => item(id, same, { path: `Library/Hard_Bounce/A - ${id}.mp3` });
 
 describe('several upgrades selected', () => {
-  it('counts Same track, a choice and something else (the before-line) in Same track\'s outcomes', () => {
+  it('counts Same track, a choice and something else; the stays are the head\'s before-line, not outcome rows', () => {
     const w = selectionWays([item('a', null), mp3('b'), item('c', 'needs_choice'), item('d', 'away')]);
     expect([w.n, w.m, w.k, w.choice, w.way]).toEqual([2, 1, 1, true, 'swap']);
     expect(w.options.map((o) => o.name)).toEqual(['Same track · 2', 'New track · 3']);
     expect(w.options[0].outcomes!.map((o) => [o.tone, o.text])).toEqual([
       ['kept', '2 keep their cues, playlists and history'], ['file', "Files that aren't AIFF become AIFF files"],
-      ['step', QUIT_REKORDBOX], ['step', '1 needs your choice and stays'], ['step', '1 waits for something else']]);
+      ['step', QUIT_REKORDBOX]]);
+    expect(beforeLine(w)).toBe('2 upgrades keep their cues. 1 needs your choice and stays. 1 waits for something else.');
     expect(w.count).toEqual({ swap: 2, add_new: 3 });
   });
   it('leaves out the AIFF line when every file going is an AIFF, and the stay lines at zero', () => {
@@ -35,8 +36,14 @@ describe('several upgrades selected', () => {
   it('one going says it in the singular', () => {
     const w = selectionWays([item('a', null), item('b', 'needs_choice'), item('c', 'needs_choice')]);
     expect(w.options[0].outcomes![0].text).toBe('1 keeps its cues, playlists and history');
-    expect(w.options[0].outcomes!.at(-1)!.text).toBe('2 need your choice and stay');
+    expect(beforeLine(w)).toBe('1 upgrade keeps its cues. 2 need your choice and stay.');
     expect(w.options[1].outcomes![1].text).toBe('2 may be another edit: listen first');
+  });
+  it('the before-line is only for a selection where something stays and something goes', () => {
+    expect(beforeLine(selectionWays([item('a', null), item('b', null)]))).toBeNull();
+    expect(beforeLine(selectionWays([item('a', 'needs_choice'), item('b', 'away')]))).toBeNull();
+    expect(beforeLine(selectionWays([item('a', null), item('b', null), item('c', 'away')])))
+      .toBe('2 upgrades keep their cues. 1 waits for something else.');
   });
   it('with none for Same track there is no choice: new tracks, and why', () => {
     const all = selectionWays([item('a', 'needs_choice'), item('b', 'needs_choice')]);
@@ -164,7 +171,7 @@ describe('the single panel: Same track for any format (§6.3)', () => {
     const w = upgradeWays(upgrade({ swap_how: 'new_aiff', swap_possible: false, why_not: 'rekordbox_unreadable',
       rekordbox: { state: 'unreadable', running: false } }), false);
     expect([w.choice, w.way, w.reason, w.tip]).toEqual([false, 'add_new',
-      'Same track needs a rekordbox library Discjockey can open', null]);
+      'Same track needs a rekordbox library Discjockey can open. Update Discjockey, or replace it as a new track.', null]);
   });
   it('no rekordbox on this Mac: no choice, the clean AIFF, and Replace runs Same track', () => {
     const up = upgrade({ swap_how: 'new_aiff', rekordbox: { state: 'none', running: false } });
@@ -175,7 +182,7 @@ describe('the single panel: Same track for any format (§6.3)', () => {
   });
   it('another reason says itself; New track needs no tip', () => {
     const w = upgradeWays(upgrade({ swap_possible: false, why_not: 'not_analysed' }), false);
-    expect([w.reason, w.tip]).toEqual(['Same track needs the track analysed in rekordbox first', null]);
+    expect([w.reason, w.tip]).toEqual(['Same track needs the track analysed in rekordbox first. Analyse it there, or replace it as a new track.', null]);
     expect(defaultWay(null, false)).toBe('add_new');
   });
 });
@@ -202,5 +209,27 @@ describe('where focus goes when a panel changes under it', () => {
     expect(focusAfterRowGone(['a', 'b', 'c'], ['a', 'c'], new Set(['a']))).toBe('a');
     expect(focusAfterRowGone(['a', 'b'], ['a'], new Set())).toBeNull();
     expect(focusAfterRowGone(['a', 'b'], ['a', 'b'], all)).toBeNull();
+  });
+});
+
+describe('the panels\' look and words (F3)', () => {
+  it('Upgrade all is offered from two', () => {
+    expect([0, 1, 2, 5].map(upgradeAllShown)).toEqual([false, false, true, true]);
+  });
+  it('the card without rekordbox is the new file\'s, every other one is "In rekordbox"', () => {
+    expect(waysTitle({ reason: NO_REKORDBOX })).toBe('The new file');
+    expect(waysTitle({ reason: 'Same track needs an AIFF file' })).toBe('In rekordbox');
+    expect(waysTitle({ reason: null })).toBe('In rekordbox');
+  });
+  it('the running number and its label say done and what is going on', () => {
+    expect(runUnit(4)).toBe('of 4 done');
+    expect(runLabel('swap', 'Armin Hermann – Get Naughty')).toBe('Upgrading · Armin Hermann – Get Naughty');
+    expect(runLabel('add_new', null)).toBe('Adding as new tracks');
+    expect(runLabel('discard', 'A – b')).toBe('Discarding · A – b');
+  });
+  it('the ended number gives way to a note that counts', () => {
+    const e = (kind: 'done' | 'stopped' | 'rekordbox_open' | 'busy' | 'refused' | 'failed', done: number) => ({ kind, done });
+    expect([e('stopped', 2), e('rekordbox_open', 1), e('rekordbox_open', 0), e('busy', 1), e('done', 3)]
+      .map(endNoteSaysCount)).toEqual([true, true, false, false, false]);
   });
 });
