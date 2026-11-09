@@ -483,6 +483,10 @@ Results:
   - V done 2026-11-09 ~03:40: verify 1081 shots ok; orchestrator shots of the F3/F4 states fine (✕ reads, cut Current
     file = scroll, kept). F5 (Sonnet **105k**, 845c98a + static 0f345d3): header counted lossless checks and a batch as
     one → "N tracks to check in rekordbox" part, `Todo.check_tracks`. **Stage B merged into main 0c2261b.** No release.
+  - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
+    sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
+    "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
+    planner (Opus, brief-33-PC.md).
   - (done) V (orchestrator, no agent): in the rb-b worktree `cd hub-ui && npm run verify` with `run_in_background` (~20 min,
     read only the tail), `npm run smoke`, CI green on the last push. Look at the verify shots of the F3/F4 states
     (selection head NoteCard, batch rows with `wrapName`, the ✕ colour (F3 #5, measured #7a7a80), the check cards);
