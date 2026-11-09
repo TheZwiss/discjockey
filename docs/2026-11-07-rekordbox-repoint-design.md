@@ -99,7 +99,7 @@ commands call the same function; counts on buttons are its result.
 
 | Action | Eligible when | Never eligible |
 |---|---|---|
-| Same track | a parked upgrade whose alignment is `exact` or `shifted` (measured again when it runs, as `swap` does), the current file on disk, and, for a file that isn't AIFF, rekordbox `ready` or `none` | `different` or `unknown` edit (needs the user's choice: New track or Discard); rekordbox `unreadable` for a non-AIFF file; refused before by Auto-upgrade and nothing changed since (§2.5) |
+| Same track | a parked upgrade whose alignment is `exact` or `shifted` (measured again when it runs, as `swap` does), the current file on disk, and, for a file that isn't AIFF, rekordbox `ready` or `none` | `different` or `unknown` edit (needs the user's choice: New track or Discard); rekordbox `unreadable` for a non-AIFF file; refused before by Auto-upgrade and nothing changed since (§2.5; this steers the sync's phase only: Upgrade all, a selection and a single Replace are the user acting and try the track again; corrected in stage C; plan §0.8) |
 | Convert to AIFF | an own file on disk that isn't a clean AIFF (§2.1), with an artist and title in its record | a file Discjockey downloaded (already clean); a file away (offline drive) |
 | Give it its clean name | an own AIFF 16/44.1 with right tags and a name other than its `expected_stem` (an ID suffix only where the name is taken) | as Convert |
 
@@ -168,11 +168,23 @@ phase between tracks; the rest is eligible again at the next sync.
 swaps included (rekordbox may have the file loaded on a deck). They wait in To-do's Upgrade ready group, marked
 "waits for rekordbox to be closed", and are done at the next sync with rekordbox closed, or at once with Upgrade all.
 If rekordbox opens during the phase, the track in work rolls back at its commit check (§5.8), the phase ends, and the
-rest waits the same way. The engine never waits and never asks to quit.
+rest waits the same way. The engine never waits and never asks to quit. The words differ by when they are said
+(corrected in stage C; plan §3): at the end of a sync the run says what happened (`waiting_line`: "3 upgrades wait for
+rekordbox to be closed."); the Sync page's and the console plan's "rekordbox is open: quit it before you start, so the
+sync can put 3 upgrades in place at the end." (`before_start_line`) is said only before a start.
 
-**A refusal** (timing, not analysed, cloud, space) leaves the upgrade waiting with its reason, recorded on it
-(`auto_refused: {reason, at, anlz_mtime}`). Later syncs skip it until the user acts or rekordbox analyses the track
-again (the ANLZ file's mtime changes), so a sync doesn't decode it again each time.
+**A refusal** (timing, not analysed, cloud, space, or two files that could not be compared at all, `needs_choice`)
+leaves the upgrade waiting with its reason, recorded on it: `auto_refused: {reason, message, at, anlz, free, files}`
+(corrected in stage C; plan §0.6, §0.7). `anlz` is `{path: mtime_ns}` of every analysis file of the track's rekordbox
+entries, `free` the drive's free bytes (`space`), `files` the mtimes of the current and the parked file
+(`needs_choice`); the fields a reason doesn't use are null. Later syncs skip the track while the record holds: for
+`timing`, `not_analysed` and `cloud` while the analysis files are the same set with the same mtimes (rekordbox
+analysing the track again changes them, a first analysis adds files), for `space` while the free space is not larger,
+for `needs_choice` while neither file changed; a record whose stamp could not be read never holds. So a sync doesn't
+decode it again each time. It steers only the phase: the user acting (Upgrade all, a selection, Replace) tries the
+track again. A track that met rekordbox open carries `auto_waits: "<ISO time>"` (the waiting mark) until a phase
+reaches it with rekordbox closed. Other skips (`unclean`, `changed`, `file_missing`, `away`, `rekordbox_unreadable`,
+`busy`) are in that run's results only.
 
 **Backup and undo.** One backup per run's batch. Undo per track and "Undo all from this sync" on the batch's check
 card.
@@ -442,7 +454,7 @@ whether panels show rekordbox's live state (`rekordbox_status`).
   "Quit rekordbox so Discjockey can finish an interrupted replace for {name}." Check first: that `recover_pending`'s
   waits let other work continue.
 - **Another `DBID`:** only the file side is resolved; the message names the rekordbox step left for the other Mac.
-- The batch the crash interrupted is marked `stopped` (§5.12) and offers Resume.
+- The batch the crash interrupted is marked `stopped` (§5.12) and offers Resume; an Auto-upgrade batch is closed instead (corrected in stage C; plan §0.5).
 
 ### 5.9 Undo, per field, per track and per batch
 
@@ -512,7 +524,7 @@ in the collection and lose edits on all of them.)
 - **One job:** `rekordbox.lock` and the library lock for the whole batch; guard 3 at the start; one backup; items in
   order, each its own journaled step (§5.8); `JobProgress` per item; Stop is checked between items.
 - **Stop, crash, rekordbox opening:** the batch is `stopped` with its `planned` items. **Resume** runs them again
-  (eligibility re-checked per item); Auto-upgrade batches aren't resumed (the next sync plans afresh).
+  (eligibility re-checked per item); Auto-upgrade batches aren't resumed (the next sync plans afresh). Corrected in stage C (plan §0.5): when Stop, rekordbox opening, `Busy` or a crash ends an Auto-upgrade batch, `batches.end_auto` closes its `planned` items as `skipped` (`rekordbox_open`, `busy`, or the new reason `not_reached`) and the batch ends `done` with its backup id kept, so To-do never offers Resume for it; its done tracks keep their undo and check card.
 - **The check:** each track keeps its own check and undo record (today's `library.upgrade_undo`), now with the batch
   id; To-do shows them as one card per batch (§7.2).
 
@@ -663,7 +675,9 @@ No visuals are designed here. Each list is the states a design round (Opus, with
 ### 9.2 Stage C: Auto-upgrade
 
 A small round (Setup row, Settings row + Sync results; mockup only for the new states): the Setup row, a switch that
-starts on with its one line (§8), where it sits among Setup's steps; the Settings switch with its Hint and
+starts on with its one line (§8), where it sits among Setup's steps (decided in stage C, plan §0.11, §0.12: in the
+Downloads step as its own card under the account cards; Settings has a row "Upgrades" in the "This Mac" group, after
+Watched folders); the Settings switch with its Hint and
 InfoTip; the sync's result list with the "Upgraded" section and waiting rows; the summary line; an Upgrade ready item
 marked "waits for rekordbox to be closed"; the Sync page's before-start line when rekordbox is open and the switch is on.
 
@@ -711,7 +725,7 @@ old → new name, skip reason; totals; space) and changes nothing.
 |---|---|---|
 | `discjockey rekordbox status [--json]` | `{"state": "ready"\|"none"\|"unreadable", "running", "version", "library", "problem"}`. Read-only, no lock | A |
 | `discjockey rekordbox preview <track> [--json]` | Read-only: what Same track, Convert or Rename would do (`file`, `new_file`, `superseded`, `entries: [{id, cues, grid, offset_ms, expected_ms, score, cloud, fields_kept}]`, `eligible: {action: reason\|null}`) | A |
-| `discjockey upgrade list [--json]` | The parked upgrades as on To-do: id, names, now/new quality, alignment, eligible for Same track and why not, `auto_refused` | B |
+| `discjockey upgrade list [--json]` | The parked upgrades as on To-do: id, names, now/new quality, alignment, eligible for Same track and why not, `auto_refused` (null, or `{reason, message, at}` from stage C), `auto_waits` (stage C) | B |
 | `discjockey upgrade apply (<track>…\|--all) --way same-track\|new-track [--dry-run] [--json]` | Replace. `--all` only with `same-track`: Upgrade all | B |
 | `discjockey upgrade discard <track>… [--json]` | Discard | B |
 | `discjockey upgrade undo <track>… [--json]` | Undo the replace of one or several tracks, newest first, as one job (stage B: several tracks, not one) | B |
@@ -719,8 +733,8 @@ old → new name, skip reason; totals; space) and changes nothing.
 | `discjockey batch resume <id> [--json]` / `batch undo <id> [--json]` | Resume a stopped batch; undo all its done tracks | B |
 | `discjockey rekordbox checked (<track>…\|--batch <id>) [--json]` | "Done, checked in rekordbox" | B |
 | `discjockey rekordbox backups [--json]` / `rekordbox restore <backup> --yes [--json]` | List backups; the whole database back (§5.7; without `--yes`: code 1, `reason: "needs_yes"`; the result lists `missing_after`) | B |
-| `discjockey settings auto-upgrade on\|off [--json]` | The Settings switch | C |
-| `discjockey` (the sync) | With the switch on, the run's `--json` gains `auto_upgrade: {"batch", "done", "waiting", "refused"}`; `--dry-run` lists what it would upgrade | C |
+| `discjockey settings auto-upgrade [on\|off] [--json]` | The Settings switch; without a value it prints the current one (no lock) | C |
+| `discjockey` (the sync) | `--json` (stage C; there was none): one object `{ok, exit_code, dry_run, report, counts, auto_upgrade}`, human lines to stderr, refused without `--yes` or `--dry-run` (`needs_yes`, exit 1). `auto_upgrade` is `null` with the switch off, else `{batch, backup, done, waiting, refused, failed, stopped, dry_run, results: [{track, name, state, reason, message, how}]}` (corrected in stage C; plan §0.10, §1.6). `--dry-run` lists what it would upgrade and the held refusals | C |
 | `discjockey convert (<track>…\|--all lossless\|cdj) [--in playlist:<name>\|folder:<name>] [--dry-run] [--json]` | Convert to AIFF; `--all lossless` is Make all lossless files AIFF (renames included where only the name is wrong), `--all cdj` the CDJ group | D |
 | `discjockey rename (<track>…\|--all) [--in …] [--dry-run] [--json]` | Give it its clean name | D |
 

@@ -18,7 +18,7 @@ from . import tools
 SELF_TEST_FLAG = "--self-test"
 # cli.py's sub-commands. Kept here because cli.py imports yt-dlp and may only be imported after tools.activate();
 # a test pins this list against cli.parse_args.
-CLI_COMMANDS = ("setup", "update", "upgrades", "upgrade", "batch", "hub", "rekordbox")
+CLI_COMMANDS = ("setup", "update", "upgrades", "upgrade", "batch", "hub", "rekordbox", "settings")
 
 
 def main(argv: list[str] | None = None) -> int:
