@@ -488,7 +488,10 @@ Results:
     its 150-190k: the plan's estimates run ~35% low; expect C2 ~250k). R-C1 done ccc6358 (Sonnet **144k**: 2 Important
     (set ≠ Upgrade all's while rekordbox runs; stamps raised on OSError) + 1 Minor ("Rekordbox" capitalised), all fixed).
     C1 merged into the stage branch 591c91e. Stage worktree `.claude/worktrees/rb-c`. C2 done 7325839 + db66c07 (Sonnet **293k**, 82 calls;
-    stage B bug fixed: re-measured "not the same edit" now stored). R-C2 running.
+    stage B bug fixed: re-measured "not the same edit" now stored). R-C2 done 881b21d (Sonnet **186k**: 3 Important
+    (end-of-sync words, `unknown` compare re-decoded each sync → `needs_choice` record on file mtimes, Stop before the
+    quiet-sync phase) + 2 Minor, all fixed). C2 merged into the stage branch 65774a5. Facts for later groups:
+    scratchpad `stage-c-notes.md`. C3 running (Sonnet; no per-group review, R2 covers it).
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
