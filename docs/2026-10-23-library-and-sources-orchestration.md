@@ -483,6 +483,8 @@ Results:
   - V done 2026-11-09 ~03:40: verify 1081 shots ok; orchestrator shots of the F3/F4 states fine (✕ reads, cut Current
     file = scroll, kept). F5 (Sonnet **105k**, 845c98a + static 0f345d3): header counted lossless checks and a batch as
     one → "N tracks to check in rekordbox" part, `Todo.check_tracks`. **Stage B merged into main 0c2261b.** No release.
+  - Stage C plan done 18dba4f (Opus **227k**): 12 steps C1, R-C1, C2, R-C2, C3, C4, RH, U1, U2, S, R2, V (est. 2.2–2.7M).
+    Branch `feat/rekordbox-c`, group worktrees `.claude/worktrees/rb-c-<group>`. C1 running (Sonnet).
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
