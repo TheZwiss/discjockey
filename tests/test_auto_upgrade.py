@@ -10,13 +10,14 @@ import pytest
 
 from batch_helpers import make_lib, needs_ffmpeg
 from convert_helpers import EXACT
-from discjockey import batches, convert
+from discjockey import auto_upgrade, batches, convert
 from discjockey.auto_upgrade import Outcome, Planned, free_now, plan, refusal_holds, stamps
 from discjockey.library import load_state, save_state
 from discjockey.rekordbox import master
 from discjockey.rekordbox.locate import Place
 from discjockey.settings import Settings
 from hub_helpers import make_api
+from rekordbox_helpers import KEYS, _open
 
 never = lambda: False  # noqa: E731
 ON, OFF = Settings(), Settings(auto_upgrade=False)
@@ -114,6 +115,20 @@ def test_stamps_name_every_analysis_file_of_every_rekordbox_track_of_the_file(tm
 
 
 @needs_ffmpeg
+def test_stamps_are_none_for_a_track_whose_analysis_folder_cannot_be_read(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3"])
+    folder = anlz_files(lib, 0)[0].parent
+    folder.chmod(0)
+    try:
+        got = stamps(lib.paths, lib.tracks, load_state(lib.paths), running=never, place=lib.place)
+    finally:
+        folder.chmod(0o755)
+    assert got[lib.tracks[0]] is None and got[lib.tracks[1]]                                # the other one is unaffected
+    record(lib, 0, reason="timing", anlz=got[lib.tracks[0]])
+    assert ready(lib).run == lib.tracks                                                    # no stamp: never holds
+
+
+@needs_ffmpeg
 def test_stamps_take_one_read_open_for_all_tracks_and_none_for_no_tracks(tmp_path, monkeypatch):
     lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3", "aiff"])
     opened = []
@@ -204,13 +219,24 @@ def test_rekordboxs_status_is_asked_once_and_only_when_a_track_of_the_set_is_not
 # --- plan: rekordbox running (§0.4) ---
 
 @needs_ffmpeg
-def test_with_rekordbox_running_every_track_of_the_set_waits_and_nothing_is_read(tmp_path, monkeypatch):
+def test_with_rekordbox_running_every_track_of_the_set_waits_and_no_stamp_is_read(tmp_path, monkeypatch):
     lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff", "stale", "mp3_plain"])
     record(lib, 3, anlz={"x": 1})
-    for name in ("open_read", "status"):
-        monkeypatch.setattr(master, name, lambda *a, **k: pytest.fail("rekordbox's library was opened"))
+    asked = []
+    real = master.status
+    monkeypatch.setattr(master, "status", lambda *a, **k: asked.append(1) or real(*a, **k))
+    monkeypatch.setattr(auto_upgrade, "stamps", lambda *a, **k: pytest.fail("stamps were read while rekordbox runs"))
     answer = ready(lib, running=lambda: True)
     assert answer == Planned([], [(lib.tracks[i], "rekordbox_open") for i in (0, 1, 3)], [], True)
+    assert len(asked) == 1                                   # only its Status, as for Upgrade all's count
+
+
+@needs_ffmpeg
+def test_with_only_aiff_swaps_and_rekordbox_running_the_library_is_not_opened_at_all(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["aiff", "aiff"])
+    for name in ("open_read", "status"):
+        monkeypatch.setattr(master, name, lambda *a, **k: pytest.fail("rekordbox's library was opened"))
+    assert ready(lib, running=lambda: True).waiting == [(k, "rekordbox_open") for k in lib.tracks]
 
 
 @needs_ffmpeg
@@ -334,6 +360,23 @@ def test_the_set_equals_upgrade_alls_list_while_rekordbox_runs_it_waits_instead(
     api = api_for(lib, running=True)
     answer = ready(lib, running=lambda: True)
     assert {k for k, _ in answer.waiting} == upgrade_all_set(api) and answer.run == []
+
+
+def unsupported_version(lib) -> None:
+    """A rekordbox library of a version Discjockey doesn't know: unreadable, running or not."""
+    con = _open(lib.place.db, KEYS[0])
+    con.execute("UPDATE djmdProperty SET DBVersion = '5999'")
+    con.commit()
+    con.close()
+
+
+@needs_ffmpeg
+def test_the_set_equals_upgrade_alls_list_while_rekordbox_runs_on_a_library_it_cannot_read(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff", "mp3_free"])
+    unsupported_version(lib)
+    api = api_for(lib, running=True)
+    answer = ready(lib, running=lambda: True)
+    assert {k for k, _ in answer.waiting} == upgrade_all_set(api) == {lib.tracks[1]}   # the MP3s can't go: not waiting
 
 
 @needs_ffmpeg

@@ -461,8 +461,21 @@ def test_end_auto_after_rekordbox_opened_at_the_start_has_no_backup_to_keep(tmp_
     result = batches.end_auto(lib.paths, batch_id, "rekordbox_open", now=lambda: NOW)
     assert (result.state, result.backup, result.done, result.skipped) == ("done", None, 0, 2)
     assert [(i.reason, i.message) for i in result.results] == [
-        ("rekordbox_open", "Rekordbox is open; quit rekordbox, then try again. Nothing was changed.")] * 2
+        ("rekordbox_open", "rekordbox is open; quit rekordbox, then try again. Nothing was changed.")] * 2
     assert backups_of(lib) == []
+
+
+def test_the_words_of_a_skipped_item_write_rekordbox_in_lower_case_even_at_the_start(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3_plain", "mp3"])
+    batch_id = start(lib, [0, 1], started_by="auto_upgrade")
+    with pytest.raises(batches.RekordboxOpen):
+        batches.run(lib.paths, batch_id, now=lambda: NOW, running=lambda: True, place=lib.place, require_closed=True)
+    said = batches.end_auto(lib.paths, batch_id, "rekordbox_open", now=lambda: NOW).results[0].message
+    assert said == "rekordbox is open; quit rekordbox, then try again. Nothing was changed."
+    third = start(lib, [0], started_by="auto_upgrade")
+    assert batches.end_auto(lib.paths, third, "not_reached", now=lambda: NOW).results[0].message.startswith(
+        "The sync stopped before")                                               # other words are capitalised as before
+    assert batches._words("not_analysed").startswith("rekordbox hasn't analysed")
 
 
 def test_end_auto_refuses_a_batch_the_user_started_an_unknown_reason_and_a_missing_batch(tmp_path, monkeypatch):

@@ -203,6 +203,18 @@ def test_auto_upgrade_is_on_by_default_round_trips_and_must_be_true_or_false(tmp
             load_settings(path)
 
 
+def test_every_other_settings_change_keeps_a_switched_off_auto_upgrade(tmp_path):
+    off = Settings(auto_upgrade=False)
+    for changed in (off.with_limit("qobuz", 90, None, 0), off.with_seen("qobuz", "2026-11-10"),
+                    off.with_account("youtube", "chrome", None),
+                    off.with_account("youtube", "chrome", None).with_account("youtube", None),
+                    off.with_check("qobuz", {"ok": True, "problem": None, "kbps": 320, "at": "2026-11-09T10:00:00"})):
+        assert changed.auto_upgrade is False
+    path = tmp_path / "settings.json"
+    save_settings(path, off.with_limit("qobuz", 90, None, 0))
+    assert load_settings(path).auto_upgrade is False and json.loads(path.read_text())["daily_qobuz_limit"] == 90
+
+
 def test_liked_music_is_read_only_with_the_choice_on_and_a_youtube_account():
     account = Account("chrome", 30)
     assert not Settings().reads_liked_music

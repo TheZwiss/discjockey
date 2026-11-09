@@ -9,9 +9,10 @@ next task group's.
   it leaves alone because a recorded refusal still holds. The set is `views.upgrade_ready_keys(state, held)` (To-do's
   Upgrade ready list, hidden ones left out; `held` are the plan's question keys) filtered by
   `eligible.same_track_quick` with `batches.present` and rekordbox's `Status`: the same test `HubApi.upgrade_all`
-  counts with (`same_track is None`), so the Sync line, To-do's count and the phase can't differ. rekordbox running
-  means everything waits, decided before any read open of its library; the library is asked for its `Status` only
-  when a track of the set isn't an AIFF (an AIFF swap needs nothing from it).
+  counts with (`same_track is None`), so the Sync line, To-do's count and the phase can't differ. The library is
+  asked for its `Status` only when a track of the set isn't an AIFF (an AIFF swap needs nothing from it), running or
+  not, so a library Discjockey can't open keeps its tracks out of the set even while rekordbox runs. rekordbox
+  running then means everything in the set waits, and nothing else of its library is read (no stamps).
 - `auto_refused` (on the parked upgrade, `e["upgrade"]["auto_refused"]`): `{"reason", "message", "at", "anlz":
   {path: mtime_ns} | None, "free": int | None}` for the four refusals the phase records (`timing`, `not_analysed`,
   `cloud`, `space`). `refusal_holds` (pure) says whether one still holds: for the first three, while the analysis
@@ -104,6 +105,19 @@ def refusal_holds(record: dict, anlz_now: Mapping[str, int] | None, free_now: in
     return False
 
 
+def _stamp(place: Place, entries) -> dict[str, int] | None:
+    """The analysis files of `entries` with their mtimes; None when a folder or file can't be read (it vanished, or
+    isn't ours to read), so the record made from it never holds."""
+    found: dict[str, int] = {}
+    try:
+        for entry in entries:
+            for file in analysis_folder_files(place, entry):
+                found[file.relative_to(place.share).as_posix()] = file.stat().st_mtime_ns
+    except OSError:
+        return None
+    return found
+
+
 def stamps(paths, keys: Sequence[str], state: dict, *, running: Callable[[], bool], place: Place | None
            ) -> dict[str, dict[str, int] | None]:
     """The analysis files of each song's rekordbox tracks, `{path under share: mtime_ns}`, with one read open of
@@ -120,17 +134,7 @@ def stamps(paths, keys: Sequence[str], state: dict, *, running: Callable[[], boo
                 e = state["tracks"].get(key)
                 if not e or not e.get("path"):
                     continue
-                found: dict[str, int] | None = {}
-                for entry in m.entries_for(paths.root / e["path"], index):
-                    for file in analysis_folder_files(place, entry):
-                        try:
-                            found[file.relative_to(place.share).as_posix()] = file.stat().st_mtime_ns
-                        except OSError:
-                            found = None
-                            break
-                    if found is None:
-                        break
-                out[key] = found
+                out[key] = _stamp(place, m.entries_for(paths.root / e["path"], index))
     except (master.Unreadable, sqlcipher3.DatabaseError):
         return dict.fromkeys(keys)
     return out
@@ -142,7 +146,8 @@ def plan(paths, state: dict, held: Collection[str], settings: Settings, *, runni
     and library (the real ones are `process.running` and `locate()`); `held` the plan's question keys. `status` is a
     rekordbox `Status` the caller already has (the hub's cached one): used as it is, nothing is opened for it.
 
-    rekordbox running: every track of the set waits (`rekordbox_open`), nothing is read from its library. Otherwise
+    rekordbox running: every track of the set waits (`rekordbox_open`); of its library only the `Status` is read, and
+    only for a set with a file that isn't an AIFF (the same set Upgrade all counts, plan stage C §0.3). Otherwise
     the set runs, minus the tracks a still-holding refusal leaves alone (`refused`); the records of the analysis
     kind are checked with one read open for all of them."""
     if not settings.auto_upgrade:
@@ -158,7 +163,7 @@ def plan(paths, state: dict, held: Collection[str], settings: Settings, *, runni
     rb = status
     if rb is None:
         rb = views.UNKNOWN_REKORDBOX
-        if not is_running and any(not _is_aiff(state["tracks"][k]) for k in eligible_keys(rb)):
+        if any(not _is_aiff(state["tracks"][k]) for k in eligible_keys(rb)):
             rb = master.status(place, lambda: is_running)  # one keyed open, only for a file that isn't an AIFF
     ready = eligible_keys(rb)
     if is_running:

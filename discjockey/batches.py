@@ -188,7 +188,9 @@ def _name(e: dict | None, track_id: str) -> str:
 
 def _words(reason: str) -> str:
     text = REASON_WORDS.get(reason, reason)
-    return f"{text[:1].upper()}{text[1:]}. Nothing was changed."
+    if not text.startswith("rekordbox"):  # rekordbox is written in lower case, a sentence's start included
+        text = f"{text[:1].upper()}{text[1:]}"
+    return f"{text}. Nothing was changed."
 
 
 def _item_result(item: AiffItemRow) -> ItemResult:
@@ -352,7 +354,8 @@ def run(paths, batch_id: int, *, emit: Emit = no_emit, token: CancelToken | None
     the caller's snapshot, kept current as the steps write (loaded when None); `running` / `place` are rekordbox's
     process check and library (tests; the real ones when omitted). `require_closed` (Auto-upgrade): the session's
     start check treats every item as needing a rekordbox write, so rekordbox running when the batch begins raises
-    `RekordboxOpen` with nothing changed and no backup made, whatever the files are (an AIFF swap included)."""
+    `RekordboxOpen` with nothing changed and no backup made, whatever the files are (an AIFF swap included). The
+    session makes that check only when there is a rekordbox library to open; with none there is nothing to protect."""
     token = token or CancelToken()
     row = _row(paths, batch_id)
     if row.state != "running":
