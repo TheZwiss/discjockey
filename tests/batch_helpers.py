@@ -20,7 +20,7 @@ from rekordbox_helpers import (
     clicks, dump, make_anlz, make_master, ppth_tag, pqtz_tag, pwv3_from, pwv3_tag, save_library, write_wav,
 )
 
-__all__ = ["D", "DIFFERENT", "Lib", "PowerOff", "make_lib", "needs_ffmpeg", "use"]
+__all__ = ["D", "DIFFERENT", "Lib", "PowerOff", "make_lib", "needs_ffmpeg", "prepared", "services", "use"]
 
 D = 1105  # rekordbox's offset for clicks-lame.mp3, 44.1 kHz samples
 DIFFERENT = Alignment("different", text="doesn't line up")
@@ -119,3 +119,23 @@ def use(lib: Lib, monkeypatch) -> Paths:
     monkeypatch.setenv(library.SUPPORT_ENV, str(lib.paths.support))
     library.write_music_folder(lib.paths.support, lib.paths.root)
     return lib.paths
+
+
+def prepared(lib: Lib, settings=None, actions=(), questions=()):
+    """A sync's `run.Prepared` for `lib` without a playlist read: its records as the plan state, `actions` as the plan
+    (empty: the run only does its Auto-upgrade phase), the switch on unless `settings` says otherwise."""
+    from datetime import datetime
+
+    from discjockey import run
+    from discjockey.models import Plan
+    from discjockey.report import RunLog
+    from discjockey.settings import Settings
+    state = load_state(lib.paths)
+    plan = Plan(state, list(actions), [], [], questions=list(questions))
+    return run.Prepared(lib.paths, state, settings or Settings(), plan, RunLog(datetime.now()))
+
+
+def services(lib: Lib, *, running=lambda: False, compare=None) -> dict:
+    """The `rekordbox=` argument of `run.execute` / `finish_quietly`: rekordbox's process check, the fixture library
+    and the alignment check (the same edit unless `compare` says otherwise)."""
+    return {"running": running, "place": lib.place, "compare": compare or (lambda a, b: EXACT)}

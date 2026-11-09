@@ -1,9 +1,9 @@
 """Auto-upgrade, the sync's last phase (issue 33 stage C; design rekordbox-repoint §2.5; plan stage C §0, §1.2).
 
 With Settings' `auto_upgrade` on (the default), a sync ends with one AIFF batch that does Same track for exactly the
-set Upgrade all would do, while rekordbox is closed. This module holds what decides that set and what keeps a
-refusal from being decoded again at every sync; the phase itself (`run_phase`, the records, the run's block) is the
-next task group's.
+set Upgrade all would do, while rekordbox is closed. This module holds what decides that set, what keeps a refusal
+from being decoded again at every sync, and the phase itself (`run_phase`), which `run.execute` and
+`run.finish_quietly` call once the run reached its end.
 
 - `plan` says what the phase would do now (`Planned`): the tracks it runs, the ones that wait for rekordbox, the ones
   it leaves alone because a recorded refusal still holds. The set is `views.upgrade_ready_keys(state, held)` (To-do's
@@ -21,17 +21,31 @@ next task group's.
   for `space`, while the drive's free space is not larger than recorded (`free_now`). A record whose `anlz` is None
   (it could not be read) never holds. The record steers only this phase: Upgrade all, a selection and a single
   Replace are the user acting and run the track again.
-- `Outcome` is the run's block (the report, `--json`, the end screen); its keys are plan stage C §1.6.
+- `run_phase` (plan §1.2): `plan`, then, with rekordbox closed, one batch (`batches.start(started_by="auto_upgrade",
+  scope="sync")`, `batches.run(require_closed=True)`). rekordbox running when the phase starts: no batch row at all,
+  every track of the set waits (its `auto_waits` mark is set). Stop, rekordbox opening, `Busy` or Ctrl-C end the batch
+  through `batches.end_auto` (its `planned` items are skipped, so To-do never offers Resume); the results and the
+  records are filed from the batch as it ended. A Ctrl-C is re-raised once they are in the state. A dry run lists
+  what would happen and writes nothing (no record, no log entry). Anything else that escapes is the run's crash.
+- The records on the parked upgrade (plan §0.6): `auto_refused` for a refusal of the four kinds (taken from the
+  batch's item, with the analysis stamps and the free space measured after the batch) and `auto_waits` (the ISO time
+  of the sync that met rekordbox open for it). The phase clears both from every track it tries, and `auto_waits` from
+  every track it reaches with rekordbox closed; both are saved with the run's state. Nothing else is recorded: other
+  skips (`changed`, `unclean`, `busy`, ...) are in this run's results only, so the next sync simply tries again.
+- `Outcome` is the run's block (the report, `--json`, the end screen); its keys are plan stage C §1.6. The results go
+  into the run's log: `upgraded` (done), `upgrade_waits` (waiting, refused, not reached), `errors` (failed).
 """
 from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import PurePosixPath
 
 import sqlcipher3
 
-from . import batches, convert
+from . import align, batches, convert, library, report as rep, upgrades
+from .events import CancelToken, Emit, Message, Result, no_emit
 from .hub import views
 from .rekordbox import eligible, master
 from .rekordbox.eligible import Skip
@@ -39,10 +53,19 @@ from .rekordbox.locate import Place
 from .rekordbox.offset import analysis_folder_files
 from .settings import Settings
 
-__all__ = ["ANLZ_REFUSALS", "REFUSALS", "Outcome", "Planned", "free_now", "plan", "refusal_holds", "stamps"]
+__all__ = ["ANLZ_REFUSALS", "REFUSALS", "STEP", "WAITS", "Outcome", "Planned", "before_start_line", "free_now",
+           "plan", "refusal_holds", "run_phase", "stamps"]
 
 ANLZ_REFUSALS = ("timing", "not_analysed", "cloud")  # recorded with the analysis files' stamps
 REFUSALS = (*ANLZ_REFUSALS, "space")                 # the refusals the phase records on the upgrade
+STEP = "upgrading at the end of the sync"            # what a crash note says the run was doing
+# plan stage C §3 (binding): the waiting rows of the results, by the reason the track did not run
+WAITS = {
+    "rekordbox_open": "Waits for rekordbox to be closed: it is upgraded at your next sync, or press Upgrade all.",
+    "not_reached": "The sync stopped before this one; it is upgraded at your next sync.",
+    "busy": "Another Discjockey window or the Terminal was changing your rekordbox library; it is upgraded at your "
+            "next sync.",
+}
 
 
 @dataclass(frozen=True)
@@ -182,3 +205,173 @@ def plan(paths, state: dict, held: Collection[str], settings: Settings, *, runni
         else:
             run.append(k)
     return Planned(run, [], refused, False)
+
+
+def before_start_line(n: int) -> str:
+    """Plan stage C §3's Sync before-start Hint (also the console's line when the phase meets rekordbox open)."""
+    return (f"rekordbox is open: quit it before you start, so the sync can put {n} "
+            f"upgrade{'s' if n != 1 else ''} in place at the end.")
+
+
+# --- the phase ---
+
+def _name(e: dict) -> str:
+    return f"{e.get('artist') or '?'} – {e.get('title') or '?'}"
+
+
+def _how(e: dict) -> str:
+    return "in_place" if upgrades.swap_possible(e) else "new_aiff"
+
+
+def _folder(e: dict, where: Callable[[str], str] | None) -> str:
+    """The folder a result is filed under: the song's playlist folder, else (an own song) the folder its file sits in,
+    named as Sync names it."""
+    return e.get("folder") or ((where(e["path"]) if where and e.get("path") else "") or "")
+
+
+def _row(e: dict, key: str, state: str, reason: str | None, message: str | None) -> dict:
+    return {"track": key, "name": _name(e), "state": state, "reason": reason, "message": message, "how": _how(e)}
+
+
+def _rows(planned: Planned, before: Mapping[str, dict]) -> list[dict]:
+    """The rows of the tracks the phase does not run: held refusals (their recorded words), then the ones that wait."""
+    return ([_row(before[k], k, "refused", r.get("reason"), r.get("message")) for k, r in planned.refused]
+            + [_row(before[k], k, "waiting", why, WAITS[why]) for k, why in planned.waiting])
+
+
+def _change(state: dict, key: str, *, drop: Sequence[str] = (), add: Mapping[str, object] | None = None) -> bool:
+    """Edits the keys of the parked upgrade's own records; False when the song has none or nothing changes."""
+    e = state["tracks"].get(key)
+    if not e or not e.get("upgrade"):
+        return False
+    up = {k: v for k, v in e["upgrade"].items() if k not in drop}
+    up.update(add or {})
+    if up == e["upgrade"]:
+        return False
+    state["tracks"][key] = {**e, "upgrade": up}
+    return True
+
+
+def _batch(paths, state: dict, batch_id: int, *, emit: Emit, token: CancelToken, running, place, compare, now
+           ) -> tuple[batches.BatchResult, bool, bool]:
+    """Runs the batch and, when Stop, rekordbox opening, `Busy` or Ctrl-C cut it short, ends it (`end_auto`). Returns
+    its result as it ended, whether Stop (or Ctrl-C) did it and whether it was Ctrl-C."""
+    try:
+        return batches.run(paths, batch_id, emit=emit, token=token, compare=compare, now=now, running=running,
+                           place=place, state=state, require_closed=True), False, False
+    except batches.Refused as e:  # nothing could be done: the batch is done already
+        return e.result, False, False
+    except batches.Stopped:
+        return batches.end_auto(paths, batch_id, "not_reached", now=now), True, False
+    except batches.RekordboxOpen:
+        return batches.end_auto(paths, batch_id, "rekordbox_open", now=now), False, False
+    except batches.Busy:
+        return batches.end_auto(paths, batch_id, "busy", now=now), False, False
+    except KeyboardInterrupt:  # the step in work finished (deferred_interrupt); the rest waits
+        return batches.end_auto(paths, batch_id, "not_reached", now=now), True, True
+
+
+def _batch_rows(result: batches.BatchResult, before: Mapping[str, dict]) -> list[dict]:
+    rows = []
+    for item in result.results:
+        e = before[item.track]
+        if item.state == "done":
+            rows.append(_row(e, item.track, "done", None, item.message))
+        elif item.state == "failed":
+            rows.append(_row(e, item.track, "failed", None, item.message))
+        elif item.reason in WAITS:
+            rows.append(_row(e, item.track, "waiting", item.reason, WAITS[item.reason]))
+        else:  # a refusal the phase records, or a skip it only reports
+            rows.append(_row(e, item.track, "refused", item.reason, item.message))
+    return rows
+
+
+def run_phase(paths, state: dict, held: Collection[str], settings: Settings, log: rep.RunLog, *,
+              emit: Emit = no_emit, token: CancelToken | None = None, running: Callable[[], bool],
+              place: Place | None, compare=align.compare_files, now: Callable[[], datetime] = datetime.now,
+              where: Callable[[str], str] | None = None, dry_run: bool = False) -> Outcome | None:
+    """The sync's Auto-upgrade phase (see the module docstring). `state` is the run's snapshot, kept current by the
+    batch's steps and saved by the caller; `held` the plan's question keys; `running` / `place` rekordbox's process
+    check and library, `where` names an own song's folder for the results. Returns None when the switch is off
+    (nothing is read or written), else the run's block, which is also `log.auto_upgrade` (not in a dry run, which
+    touches neither the log nor the records)."""
+    planned = plan(paths, state, held, settings, running=running, place=place)
+    if planned is None:
+        return None
+    token = token or CancelToken()
+    before = {k: state["tracks"][k] for k in (*planned.run, *(k for k, _ in planned.refused),
+                                               *(k for k, _ in planned.waiting))}
+    if dry_run:
+        rows = [_row(before[k], k, "would", None, None) for k in planned.run] + _rows(planned, before)
+        return _outcome(None, None, rows, False, True)
+
+    rows = _rows(planned, before)
+    if planned.waiting:
+        emit(Message("info", before_start_line(len(planned.waiting))))
+    batch_id, backup, stopped, interrupted = None, None, False, False
+    if planned.run:
+        n = len(planned.run)
+        emit(Message("info", f"Upgrading {n} track{'s' if n != 1 else ''} at the end of the sync..."))
+        batch_id = batches.start(paths, [(k, "same_track") for k in planned.run], started_by=batches.AUTO,
+                                 scope="sync", now=now)
+        result, stopped, interrupted = _batch(paths, state, batch_id, emit=emit, token=token, running=running,
+                                              place=place, compare=compare, now=now)
+        backup = result.backup
+        rows = _batch_rows(result, before) + rows
+
+    changed = _write_records(paths, state, planned, rows, running=running, place=place, now=now)
+    if changed:
+        library.save_state(paths, state)
+    _file(log, state, rows, where)
+    outcome = _outcome(batch_id, backup, rows, stopped, False)
+    log.auto_upgrade = outcome.to_dict()
+    if interrupted:
+        raise KeyboardInterrupt
+    return outcome
+
+
+def _outcome(batch: int | None, backup: str | None, rows: list[dict], stopped: bool, dry_run: bool) -> Outcome:
+    count = lambda s: sum(1 for r in rows if r["state"] == s)  # noqa: E731
+    return Outcome(batch, backup, count("done"), count("waiting"), count("refused"), count("failed"), stopped,
+                   dry_run, rows)
+
+
+def _write_records(paths, state: dict, planned: Planned, rows: list[dict], *, running, place, now) -> bool:
+    """Writes the records into `state` (plan §0.6). Returns whether anything changed."""
+    changed = False
+    at = now().isoformat(timespec="seconds")
+    for key in planned.run:  # tried now: what was recorded earlier is out of date
+        changed |= _change(state, key, drop=("auto_refused", "auto_waits"))
+    for key, _ in planned.refused:  # reached with rekordbox closed
+        changed |= _change(state, key, drop=("auto_waits",))
+    new = [r for r in rows if r["track"] in planned.run and r["state"] == "refused" and r["reason"] in REFUSALS]
+    now_stamps = stamps(paths, [r["track"] for r in new if r["reason"] in ANLZ_REFUSALS], state, running=running,
+                        place=place)
+    for r in new:
+        key, e = r["track"], state["tracks"].get(r["track"])
+        if e is None:
+            continue
+        record = {"reason": r["reason"], "message": r["message"], "at": at,
+                  "anlz": now_stamps.get(key) if r["reason"] in ANLZ_REFUSALS else None,
+                  "free": free_now(paths, e) if r["reason"] == "space" else None}
+        changed |= _change(state, key, add={"auto_refused": record})
+    for r in rows:  # met rekordbox open, at the start or mid-phase
+        if r["state"] == "waiting" and r["reason"] == "rekordbox_open":
+            changed |= _change(state, r["track"], add={"auto_waits": at})
+    return changed
+
+
+def _file(log: rep.RunLog, state: dict, rows: list[dict], where) -> None:
+    """The rows as the run's results: `upgraded`, `upgrade_waits` and, for a failure, `errors`."""
+    for r in rows:
+        key = r["track"]
+        e = state["tracks"].get(key) or {}
+        artist, title = e.get("artist") or "", e.get("title") or ""
+        folder = _folder(e, where)
+        if r["state"] == "done":
+            log.add(Result("upgraded", folder, artist, title, key, r["message"] or "", status=e.get("status"),
+                           source=e.get("source"), path=e.get("path")))
+        elif r["state"] == "failed":
+            log.add(Result("errors", folder, artist, title, key, r["message"] or "", error_kind="other"))
+        else:
+            log.add(Result("upgrade_waits", folder, artist, title, key, r["message"] or ""))

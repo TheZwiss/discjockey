@@ -14,6 +14,7 @@ from discjockey.sources.base import LoginState
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.library import Paths, empty_state, run_lock, save_state
 from discjockey.models import FetchedPlaylist, SourceTrack
+from discjockey.settings import Settings, save_settings
 from discjockey.setup_cmd import TEMPLATE
 
 PLAYLISTS = "Hard_Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n"
@@ -283,7 +284,9 @@ def test_sync_says_when_lossless_versions_wait(root, monkeypatch, capsys):
                     "source_format": "flac", "found": "2026-10-01",
                     "alignment": {"result": "exact", "offset_samples": 0, "offset_ms": 0.0, "drift_ms": 0.0,
                                   "text": "matches exactly"}}}
-    save_state(Paths(root, support=root / ".support"), state)
+    paths = Paths(root, support=root / ".support")
+    save_state(paths, state)
+    save_settings(paths.settings_file, Settings(auto_upgrade=False))  # switched on, the sync would put it in place
     assert cli.main([]) == 0  # nothing to do: the parked upgrade stops further checks
     out = capsys.readouterr().out
     assert "1 better version is ready: run `discjockey upgrades`." in out

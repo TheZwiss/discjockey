@@ -19,7 +19,9 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Callable
 
-from . import config, db, library, pending_signs, planner, playlists_file, quality, report as rep, sources
+from . import (
+    align, auto_upgrade, config, db, library, pending_signs, planner, playlists_file, quality, report as rep, sources,
+)
 from .accounts import ACCOUNTS
 from .acquire import Acquirer, make_ready
 from .events import ActionStarted, Cancelled, CancelToken, Emit, Message, Result, RunFinished, no_emit
@@ -30,6 +32,8 @@ from .library import Paths, StateError
 from .models import Action, FetchedPlaylist, Plan, PlaylistLine, split_token
 from .pacing import Budget, Pacer, paused_accounts, record_signal
 from .qobuz import QobuzError, QobuzNotSetUp, QobuzSource
+from .rekordbox import process
+from .rekordbox.locate import locate
 from .settings import MAX_EXTRA, Settings, SettingsError, load_settings, save_settings
 
 logger = logging.getLogger(__name__)  # not `log`: that is a run's RunLog here
@@ -433,13 +437,43 @@ def fill_kbps(state: dict, fallback: FallbackSource, emit: Emit = no_emit) -> in
     return sum(1 for k in rates if k)
 
 
-def finish_quietly(prep: Prepared, emit: Emit = no_emit) -> tuple[int, Path]:
-    """For a plan without actions: save flags and aliases, refresh not_lossless.md, write the report."""
+def upgrade_phase(prep: Prepared, *, emit: Emit, token: CancelToken, rekordbox: dict | None = None,
+                  where: Callable[[str], str] | None = None) -> auto_upgrade.Outcome | None:
+    """The run's last phase, Auto-upgrade (plan stage C §1.4), on the run's state and log. `rekordbox` replaces the real
+    rekordbox services (`running`, `place`, `compare`, optionally `now`): the hub's, or a test's. Returns None with the
+    switch off; a Ctrl-C inside is raised again once the phase's records are in the state."""
+    options = {"running": process.running, "place": locate(), "compare": align.compare_files, "now": datetime.now,
+               **(rekordbox or {})}
+    held = {q.song_key for q in prep.plan.questions}
+    return auto_upgrade.run_phase(prep.paths, prep.state, held, prep.settings, prep.log, emit=emit, token=token,
+                                  where=where, **options)
+
+
+def finish_quietly(prep: Prepared, emit: Emit = no_emit, token: CancelToken | None = None,
+                   rekordbox: dict | None = None, where: Callable[[str], str] | None = None) -> tuple[int, Path]:
+    """For a plan without actions: save flags and aliases, run the Auto-upgrade phase (when its switch is on), refresh
+    not_lossless.md, write the report. Stop or Ctrl-C during the phase ends it with exit code 130; an unexpected
+    error in it is filed like execute's (the report holds the crash note, RunFinished is sent, RunCrashed raised)."""
+    token = token or CancelToken()
     fill_kbps(prep.state, FallbackSource(emit=emit), emit)
+    code, crash = 0, None
+    try:
+        outcome = upgrade_phase(prep, emit=emit, token=token, rekordbox=rekordbox, where=where)
+        if outcome is not None and outcome.stopped:
+            code = 130
+    except KeyboardInterrupt:
+        code = 130
+    except Exception as e:  # noqa: BLE001 - filed with a crash note below, then raised as RunCrashed
+        code, crash = 1, e
     library.save_state(prep.paths, prep.state)
     rep.write_not_lossless(prep.paths, prep.state)
-    code = 1 if prep.log.section("errors") else 0
-    return code, rep.write_run(prep.paths, prep.log, datetime.now(), code, prep.state)
+    if code == 0 and prep.log.section("errors"):
+        code = 1
+    if crash is None:
+        return code, rep.write_run(prep.paths, prep.log, datetime.now(), code, prep.state)
+    path = rep.write_crash(prep.paths, prep.log, datetime.now(), auto_upgrade.STEP, crash, prep.state)
+    emit(RunFinished(code, str(path)))
+    raise RunCrashed(crash, path) from crash
 
 
 STEP_VERBS = {"acquire": "downloading", "upgrade": "looking for a better version of",
@@ -455,8 +489,10 @@ def action_step(event: ActionStarted) -> str:
 
 def execute(prep: Prepared, qobuz, *, emit: Emit = no_emit, token: CancelToken | None = None,
             limit: int | None = None, verbose: bool = False,
-            where: Callable[[str], str] | None = None) -> tuple[int, Path]:
-    """Runs the plan. Returns (exit code, report path); 130 when stopped through the token (or a KeyboardInterrupt).
+            where: Callable[[str], str] | None = None, rekordbox: dict | None = None) -> tuple[int, Path]:
+    """Runs the plan, then (the switch on) the Auto-upgrade phase, `auto_upgrade.run_phase`: only when the plan ran to
+    its end, never after Stop, Ctrl-C or a crash (`rekordbox` as for `upgrade_phase`). Returns (exit code, report
+    path); 130 when stopped through the token (or a KeyboardInterrupt), also during the phase.
     State, not_lossless.md and the report are always written, whatever happens. An unexpected error files the run
     with a crash note as its report (exit code 1, RunFinished sent) and raises RunCrashed."""
     token = token or CancelToken()
@@ -488,6 +524,11 @@ def execute(prep: Prepared, qobuz, *, emit: Emit = no_emit, token: CancelToken |
         if fill_kbps(state, fallback, emit):
             save()
         executor.run(prep.plan.actions)
+        token.check()  # Stop pressed after the last action: the phase does not start
+        step = auto_upgrade.STEP
+        outcome = upgrade_phase(prep, emit=tracking, token=token, rekordbox=rekordbox, where=where)
+        if outcome is not None and outcome.stopped:
+            code = 130
         step = "saving the results"
     except (Cancelled, KeyboardInterrupt):
         code = 130

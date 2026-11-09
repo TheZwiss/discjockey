@@ -22,6 +22,8 @@ SECTIONS = [
     ("upgrade_ready", "Better version found, waiting for you (run discjockey upgrades)"),
     ("swapped", "Swapped in the better version (cue points stay)"),
     ("added_new", "Better version added as a new file"),
+    ("upgraded", "Upgraded (your cues stayed)"),
+    ("upgrade_waits", "Upgrades still waiting"),
     ("discarded", "Better versions you discarded"),
     ("checked", "Looked for a better version, nothing yet"),
     ("bought", "Bought files added"),
@@ -104,6 +106,7 @@ class RunLog:
     started: datetime
     results: list[Result] = field(default_factory=list)
     crashed: str | None = None  # the crash note (crash_note) when the run stopped on an unexpected error
+    auto_upgrade: dict | None = None  # the Auto-upgrade phase's block (auto_upgrade.Outcome.to_dict); None: switch off
     crash_details: str = ""  # the error and its traceback, for a bug report: below the note, never in it
 
     def add(self, result: Result) -> None:
@@ -152,10 +155,14 @@ def render_report(log: RunLog, finished: datetime) -> str:
     out = [f"# Discjockey run {log.started:%Y-%m-%d %H:%M:%S}", "", f"Finished at {finished:%H:%M:%S}.", ""]
     if log.crashed:
         out += [f"## {CRASHED}", "", log.crashed, ""]
+    if line := auto_upgrade_line(log.auto_upgrade):
+        out += [line, ""]
     for key, heading in SECTIONS:
         items = log.section(key)
         if items:
             out += [f"## {heading} ({len(items)})", "", *(render_line(r) for r in items), ""]
+            if key == "upgraded" and (log.auto_upgrade or {}).get("backup"):
+                out += [UPGRADE_BACKUP.format(id=log.auto_upgrade["backup"]), ""]
     if log.is_empty() and not log.crashed:
         out.append("Nothing happened in this run.")
     if log.crash_details:
@@ -164,6 +171,8 @@ def render_report(log: RunLog, finished: datetime) -> str:
 
 
 CRASHED = "The sync stopped unexpectedly"
+# plan stage C §3 (binding)
+UPGRADE_BACKUP = "Backup of your rekordbox library from before these upgrades: {id}"
 
 
 CRASH_SAVED = "Everything done up to then is saved, and the next sync carries on from there."
@@ -231,8 +240,46 @@ def write_run(paths: Paths, log: RunLog, finished: datetime, exit_code: int, sta
             "exit_code": exit_code, "results": [asdict(r) for r in log.results]}
     if log.crashed:
         data["crashed"] = log.crashed
+    if log.auto_upgrade is not None:
+        data["auto_upgrade"] = log.auto_upgrade
     stem.with_suffix(".json").write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     return md
+
+
+def _plural(n: int, one: str, many: str) -> str:
+    return f"{n} {one if n == 1 else many}"
+
+
+def auto_upgrade_line(block: dict | None) -> str | None:
+    """The run's one-line account of its Auto-upgrade phase (plan stage C §3; the console's summary, the report and
+    the end screen). `block` is `auto_upgrade.Outcome.to_dict()`; None when the switch was off or there was nothing to
+    say. Clauses: upgraded; waiting for rekordbox; waiting for the next sync (Stop, another window); refused."""
+    if not block:
+        return None
+    results = block.get("results") or []
+    n = block.get("done") or 0
+    m = sum(1 for r in results if r.get("state") == "waiting" and r.get("reason") == "rekordbox_open")
+    j = sum(1 for r in results if r.get("state") == "waiting" and r.get("reason") != "rekordbox_open")
+    k = block.get("refused") or 0
+    if not (n or m or j or k):
+        return None
+    if n:
+        out = [f"Upgraded {_plural(n, 'track', 'tracks')}; your cues stayed."]
+        if m:
+            out.append(f"{m} {'waits' if m == 1 else 'wait'} for rekordbox to be closed.")
+        if j:
+            out.append(f"{j} {'waits' if j == 1 else 'wait'} for your next sync.")
+        if k:
+            out.append(f"{k} couldn't go in; To-do says why.")
+        return " ".join(out)
+    out = []
+    if m:
+        out.append(f"{_plural(m, 'upgrade waits', 'upgrades wait')} for rekordbox to be closed.")
+    if j:
+        out.append(f"{_plural(j, 'upgrade waits', 'upgrades wait')} for your next sync.")
+    if k:
+        out.append(f"{_plural(k, 'upgrade', 'upgrades')} couldn't go in; To-do says why.")
+    return " ".join(out)
 
 
 def upgrades_waiting(state: dict) -> int:
