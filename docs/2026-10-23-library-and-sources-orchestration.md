@@ -467,3 +467,5 @@ Results:
 - F2b (Sonnet 199k incl. a usage-limit stop, resumed): R2b I2, I3, I5 + m5–m12 fixed (7f0676e + static 17ab8c0),
   vitest 1376, smoke ok, CI green. Sizes never logged: A1, A4, B3, B4, F1, F2a. 2026-11-09: the user asked why A+B took
   ~70% of the week; gate on every dispatch added (§2), F3/F4 go to Sonnet, no shots re-check (§6), queue continues to C.
+- F3 (Sonnet 184k): S1 #1, #2, #4–#12 fixed (1fa27bb + static 4a5bcd9), vitest 1381, smoke ok, CI green; #5 (✕ colour) only
+  made smaller, its colour to be judged in the verify shots. F4 (Sonnet) started.
