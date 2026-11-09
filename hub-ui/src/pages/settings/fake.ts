@@ -25,6 +25,9 @@ const checkFails = new WeakSet<FakeState>();
 
 const fake: PageFake = {
   scenarios: {
+    // Upgrades (issue 33 stage C): the switch on (the default) / off
+    'upgrades-on'(s) { signedQobuz(s); s.setup = { ...s.setup, auto_upgrade: true }; },
+    'upgrades-off'(s) { signedQobuz(s); s.setup = { ...s.setup, auto_upgrade: false }; },
     // Watched folders with crates: the switches of the picked folder (Rekordbox Library, Edits off; Albums: too many)
     crates,
     // the same while a running job holds the library file: a switch's save answers busy, the row goes back (a toast)

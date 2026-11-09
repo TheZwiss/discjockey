@@ -83,6 +83,14 @@ const fake: PageFake = {
       s.accounts.soundcloud = account(s, 'soundcloud', { profile: null, profileName: null });
       s.browsers = { youtube: [chrome(['Profile 2']), safari()], soundcloud: [chrome(['Default']), safari()] };
     },
+    // the whole ladder lit as above, with the Upgrades card under the account cards (switch on, the default)
+    'downloads-auto'(s) {
+      qobuzDone(s);
+      s.accounts.youtube = account(s, 'youtube');
+      s.accounts.soundcloud = account(s, 'soundcloud', { profile: null, profileName: null });
+      s.browsers = { youtube: [chrome(['Profile 2']), safari()], soundcloud: [chrome(['Default']), safari()] };
+      s.setup = { ...s.setup, auto_upgrade: true };
+    },
     // a YouTube login is in Chrome's second profile: YouTube's card offers "Use this login"
     'downloads-yt-found'(s) {
       qobuzDone(s);

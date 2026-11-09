@@ -12,10 +12,11 @@ import {
   type FakeTrack,
 } from './data';
 import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, fakeLink, libraryOf, membersOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
-import { AUTO_BATCH_DETAIL, autoDetail, autoPreview, rekordboxStatus } from './auto';
+import { AUTO_BATCH_DETAIL, autoDetail, autoPreview, autoBlock, backupId, markRefused, markWaiting, phaseEvents, phaseResults,
+  planPhase, readyTracks, rekordboxStatus, sameTrackReasonOf, stopRows, withPhase, AUTO_REFUSED_WORDS, type PhasePlan } from './auto';
 import { LIKED_FOLDER, LIKED_LINK, LIKED_LISTED, LIKED_NEEDS_LOGIN, LIKED_OFF, LIKED_SETTING, isLikedLink, likedOn,
   likedScenarios, likedStatus } from './liked';
-import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, rewrite } from './replay';
+import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, lineOf, rewrite } from './replay';
 import { daysToLoad } from '../../days';
 import { minutesByDownloads } from './minutes';
 import { fakeSpectrum } from './spectrum';
@@ -464,8 +465,15 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     tick();
   }
 
+  /** The recorded sync with Auto-upgrade's last phase before its end (nothing extra when the switch is off). */
+  function autoSync(): { events?: HubEvent[]; phase?: PhasePlan; phaseFrom?: number } {
+    const phase = planPhase(s, (aiff.at(-1)?.id ?? 0) + 1);
+    if (!phase) return {};
+    const { events, at } = withPhase(STREAMS.sync, phaseEvents(phase));
+    return { events, phase, phaseFrom: at };
+  }
   function startReplay(from: number, opts2: { events?: HubEvent[]; crashAfter?: number | null; freeze?: number | null;
-    preRun?: number } = {}): JobStart {
+    preRun?: number; phase?: PhasePlan | null; phaseFrom?: number | null } = {}): JobStart {
     if (s.console_running) return fail('console', MSG.console);
     if (job?.running) return fail('busy', MSG.busy);
     const id = nextId++;
@@ -478,15 +486,17 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       // a sync already running at load: record the first lines silently (job_status shows them), then continue
       for (let i = from - 1; i < opts2.preRun; i++) me.record(rewrite(events[i], id, path));
     }
-    replay = new Replay({ events, from: opts2.preRun ? opts2.preRun + 1 : from, jobId: id, speed,
+    const rp: Replay = new Replay({ events, from: opts2.preRun ? opts2.preRun + 1 : from, jobId: id, speed,
       freeze: opts2.freeze ?? opts.freeze ?? null, reportPath: path, emit, crashAfter: opts2.crashAfter ?? null,
-      onDone: () => { me.running = false; me.stopping = false; replay = null; afterSync(rid, me); } });
-    replay.start();
+      phaseFrom: opts2.phaseFrom ?? null,
+      onDone: () => { me.running = false; me.stopping = false; replay = null; afterSync(rid, me, opts2.phase ?? null, rp.phaseReached); } });
+    replay = rp;
+    rp.start();
     return { ok: true, job_id: id };
   }
   /** After a replayed sync: its run is in the reports, and the plan is worked out again from the sync's own read
    *  and what the run left (like jobs.preview_after_run, issue 20), so what the run did is not offered again. */
-  function afterSync(rid: string, rec: JobRecord) {
+  function afterSync(rid: string, rec: JobRecord, plan: PhasePlan | null = null, phaseReached = false) {
     const results = rec.results.map((e) => e.result as Result);
     const done = new Set(results.filter((r) => r.track_id && r.section !== 'queued' && r.section !== 'errors')
       .map((r) => r.track_id));
@@ -495,8 +505,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     const run = rec.last.RunFinished;
     if (!run) return;
     const started = new Date(rec.started);
+    const stopped = run.exit_code === 130 ? results.length : null;   // before the phase's rows join the results
+    const phase = endPhase(rec, plan, phaseReached, started);
+    if (phase) results.push(...phase.results);
     s.runs.unshift(runDetail(rid, started, Math.round((Date.now() - started.getTime()) / 1000), run.exit_code,
-      results, run.exit_code === 130 ? results.length : null, s.tracks.filter((t) => t.upgrade).length));
+      results, stopped, s.tracks.filter((t) => t.upgrade).length, phase?.block ?? null));
     const t5 = s.newTracks.find((t) => t.track_id === 't5');
     if (t5 && results.some((r) => r.track_id === 't5' && r.section === 'new_not_lossless')) {
       s.newTracks = s.newTracks.filter((t) => t.track_id !== 't5');
@@ -504,6 +517,46 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         in_playlists: true, hidden: false, added: isoLocal(new Date()), cover: 2, isrc: null, playlists: [t5.folder],
         upgrade: null, rekordbox_check: null, other: null, next_try_days: null, rejected_sources: [] });
     }
+  }
+
+  /** The sync's last phase, done when the sync ends (the fake works its outcome out at the start, `planPhase`): the upgrades
+   *  go in as one batch (`apply`, the batch record "started by the sync"), the tracks that waited or were refused get their
+   *  marks, and the rows join the run's results and block. A Stop in the phase ends the batch: the rest were not reached.
+   *  Null: the switch was off, or the run never got to the phase (Stop or a crash came first). */
+  function endPhase(rec: JobRecord, plan: PhasePlan | null, reached: boolean, started: Date) {
+    if (!plan || !reached) return null;
+    const stopped = rec.last.RunFinished?.exit_code === 130;
+    const progress = rec.last.BatchProgress as Extract<HubEvent, { type: 'BatchProgress' }> | undefined;
+    // the track in work when Stop came finishes; the batch had not begun without a first BatchProgress
+    const handled = Math.min(plan.order.length, progress ? progress.done + (progress.track_id ? 1 : 0) : 0);
+    const rows = stopped && plan.batch !== null ? stopRows(plan, handled) : plan.rows;
+    const byId = new Map(rows.map((r) => [r.track, r]));
+    if (plan.batch !== null) {
+      const items: AiffBatch['items'] = plan.order.map((id) => {
+        const r = byId.get(id)!;
+        return { track: id, action: 'same_track', state: r.state === 'done' ? 'done' : 'skipped', reason: r.state === 'done' ? null : r.reason,
+          message: r.message, path: null, rekordbox: null };
+      });
+      const atRekordbox = rows.some((r) => r.reason === 'rekordbox_open');
+      aiff.push({ id: plan.batch, state: stopped || atRekordbox ? 'stopped' : 'done',
+        stop_reason: stopped ? 'stop' : atRekordbox ? 'rekordbox_open' : null, started_by: 'auto_upgrade', items });
+      if (atRekordbox) s.rekordbox_running = true;   // it was opened mid-phase and is still open
+    }
+    for (const r of rows) {
+      const t = track(r.track);
+      if (!t?.upgrade) continue;
+      if (r.state === 'done') {
+        apply(t, 'same_track', plan.batch);
+        const item = aiff.find((b) => b.id === plan.batch)?.items.find((i) => i.track === r.track);
+        if (item) item.path = pathOf(t) ?? null;
+        continue;
+      }
+      t.upgrade.auto_refused = null; t.upgrade.auto_waits = false;   // tried now: what was recorded before is out of date
+      if (r.state === 'refused' && r.reason && r.reason in AUTO_REFUSED_WORDS) markRefused(s, t, r.reason as keyof typeof AUTO_REFUSED_WORDS);
+      if (r.state === 'waiting' && r.reason === 'rekordbox_open') markWaiting(t);
+    }
+    // the way a batch leaves its tracks: no Resume is offered for it (nothing stays planned)
+    return { results: phaseResults(rows, track), block: autoBlock(plan, rows, stopped && plan.batch !== null, plan.batch === null ? null : backupId(started)) };
   }
 
   // ---------- the contract ----------
@@ -887,7 +940,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         return startJob('sync', null, (finish) => setTimeout(() => finish(true, { exit_code: 0, report: '',
           actions: 0, new_since_preview: 0 }), 300 / speed));
       }
-      return startReplay(SYNC_START_LINE);
+      return startReplay(SYNC_START_LINE, autoSync());
     },
     async stop() {
       if (importRun && job?.running) { job.stopping = true; importRun.stopped = true; return ok({ stopped: true }); }
@@ -1375,12 +1428,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   }
 
   /** views.same_track_reason for a fake track: null when Same track can run now. */
-  function sameTrackReason(t: FakeTrack): string | null {
-    if (!t.upgrade) return 'no_upgrade';
-    if (!t.upgrade.swap_safe) return 'needs_choice';
-    if (t.away) return 'away';   // its drive isn't connected: the quick check knows that much
-    return rbOf(t).why_not ?? null;
-  }
+  function sameTrackReason(t: FakeTrack): string | null { return sameTrackReasonOf(s, t); }
   function upgradeAll(rows: TodoItem[]) {
     const mine = rows.filter((r) => !r.hidden);
     const stopped = [...aiff].reverse().find((b) => b.state === 'stopped' && b.items.some((i) => i.state === 'planned'));
@@ -1391,10 +1439,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
 
   /** The upgrades the sync's last phase would put in place now (views/api `_auto_upgrade_ready`): Upgrade all's set,
    *  minus the ones a recorded refusal still holds. */
-  function autoReady(): number {
-    return s.tracks.filter((t) => t.in_playlists && !t.hidden && t.upgrade && sameTrackReason(t) === null
-      && !t.upgrade.auto_refused).length;
-  }
+  function autoReady(): number { return readyTracks(s).length; }
 
   function todoView(filter: TodoFilter, show_hidden: boolean) {
     const order: TodoGroupKey[] = ['rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready', 'not_found', 'weak',
@@ -1581,6 +1626,14 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     at(() => {
       startReplay(SYNC_START_LINE, { events: STREAMS.stopped, preRun: 36 });
       if (job) job.stopping = true;
+    });
+  }
+  if (scenario === 'sync:auto-running') {
+    // the sync is in its last phase, frozen with 3 of the batch's tracks done (the 4th is in work)
+    at(() => {
+      const a = autoSync();
+      const line = lineOf(a.events!, (e) => e.type === 'BatchProgress', 3);
+      startReplay(SYNC_START_LINE, { ...a, preRun: line, freeze: line });
     });
   }
   if (baseScenario === 'folders_importing') {

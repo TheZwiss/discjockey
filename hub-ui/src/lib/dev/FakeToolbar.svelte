@@ -12,6 +12,7 @@
   const all = [...SCENARIOS, ...Object.keys(pageScenarios())];
   let open = $state(false);
   let consoleOn = $state(fake?.ctx.s.console_running ?? false);
+  let rekordboxOn = $state(fake?.ctx.s.rekordbox_running ?? false);
 
   function reload(p: Record<string, string>) {
     const u = new URL(location.href);
@@ -38,6 +39,9 @@
       <button type="button" onclick={() => act(() => fake?.dropFile(false))}>Drop a blocked file</button>
       <button type="button" onclick={() => act(() => { consoleOn = !consoleOn; fake?.consoleBusy(consoleOn); })}>
         {consoleOn ? 'Console ends' : 'Console starts'}</button>
+      <button type="button" aria-pressed={rekordboxOn} data-test="fake-rekordbox-open"
+        onclick={() => act(() => { rekordboxOn = !rekordboxOn; fake?.rekordboxOpen(rekordboxOn); })}>
+        {rekordboxOn ? '☑' : '☐'} rekordbox open</button>
       <button type="button" onclick={() => act(() => fake?.readPlaylists())}>Read playlists</button>
       <div class="row">
         <button type="button" onclick={() => toasts.show({ tone: 'info', title: 'Info toast', body: 'Hides after 5 s.' })}>Info</button>

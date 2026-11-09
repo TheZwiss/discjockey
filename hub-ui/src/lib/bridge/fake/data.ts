@@ -188,6 +188,8 @@ export type FakeState = {
   batchStep?: number;
   /** tracks a Same track batch skips when it reaches them, with the reason its full check finds (a run-time reason) */
   batchSkip?: Record<string, string>;
+  /** the sync's Auto-upgrade phase: the fake rekordbox is opened after this many tracks of the batch (the rest wait) */
+  autoOpensAfter?: number;
   /** who started a scenario's AIFF batch (batch id -> `aiff_batches.started_by`); unset: the user */
   batchStartedBy?: Record<number, 'user' | 'upgrade_all' | 'auto_upgrade'>;
   /** tracks whose undo is refused when it runs (the engine's words: relocated in rekordbox since, a file changed) */
