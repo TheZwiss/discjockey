@@ -2070,7 +2070,9 @@ def playlists(loaded: pf.Loaded, tracks_by_id: dict, infos: dict, state: dict, c
                      "info": info_dict(info), "needs_setting": None if r.ref != pf.LIKED_MUSIC_REF or liked_music_on
                      else LIKED_MUSIC_SETTING,
                      "tracks": len(tracks) if tracks is not None else (info.track_count if info else None),
-                     "quality": _quality_of_tracks(tracks, state) if tracks is not None else None})
+                     # a playlist not read yet (a switched-off one is never read) has no songs to count: all zeros, the
+                     # page's ByQuality, never null (the row's quality bar and "n of m lossless" read it)
+                     "quality": _quality_of_tracks(tracks or [], state)})
     by_id = _entries_by_id(state)
     overlap = [{**_spotify_row(t.key, t, by_id.get(t.key), cover, state.get("never")), "folders": folders,
                 "lands_in": lands}
@@ -2079,6 +2081,7 @@ def playlists(loaded: pf.Loaded, tracks_by_id: dict, infos: dict, state: dict, c
             "empty": None if loaded.rows else "no_playlists", "tidy": {"waiting": out_of_place(state)}}
 
 
+SWITCH_OFF_HEADLINE = "Left out of the sync, its files stay"
 CHECK_NO_DOWNLOADS = "No downloads, no Qobuz quota used"
 CHECK_NOTHING_DELETED = "Nothing is deleted"
 CHECK_NEXT_SYNC = "Happens at the next sync, not right away"
@@ -2143,6 +2146,9 @@ def playlist_change(old: list, new: list, tracks_by_id: dict, state: dict, files
     reroutes = [{**_spotify_row(k, spotify_track(k), tracks.get(k), cover, state.get("never")), "from": frm, "to": to}
                 for k, frm, to in kept]
     renamed = set(renames)
+    # a playlist switched off by this edit, also one whose songs were never read (then nothing is counted as stopped)
+    was_on = {r.ref for r in old if r.enabled and r.ref is not None}
+    turned_off = any(not r.enabled and r.ref in was_on for r in new)
     pairs = {(frm, to) for k, frm, to in [m for m in c.moves if m[0] in shown] + kept}
     days = (1 if c.new else 0) if money is None else days_to_load(len(c.new), money["remaining"], money["limit"])
     n_tracks = len(reroutes)
@@ -2161,8 +2167,8 @@ def playlist_change(old: list, new: list, tracks_by_id: dict, state: dict, files
         kind = "add"
         headline = (f"{len(c.new)} new download{'s' if len(c.new) != 1 else ''}, about {days} "
                     f"day{'s' if days != 1 else ''} at the current limit")
-    elif c.stopped:
-        kind, headline = "switch_off", "Files stay, no more updates"
+    elif c.stopped or turned_off:
+        kind, headline = "switch_off", SWITCH_OFF_HEADLINE
     elif c.unknown:
         kind, headline = "unknown", "Discjockey hasn't read the new playlist yet"
     else:

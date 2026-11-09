@@ -26,7 +26,7 @@
   import { problemToTell, type MoveItem } from './tidyModel';
   import {
     addRow, draftFrom, dropIndex, folderChanges, isDirty, lines, listSummary, loadedFrom, moveBy, priorities, remove,
-    rename, reorder, shiftFor, toggle, undo, type DraftRow, type Loaded, type Panel, type PanelTab,
+    rename, reorder, shiftFor, switchedOffFolders, toggle, undo, type DraftRow, type Loaded, type Panel, type PanelTab,
   } from './changeModel';
 
   let { params: _params, query: _query }: { params: Record<string, string>; query: URLSearchParams } = $props();
@@ -52,7 +52,8 @@
   const noPlaylists = $derived(loaded !== null && !loaded.rows.length);
   const waiting = $derived(noPlaylists ? 0 : pl?.tidy?.waiting ?? 0);
   // what the unsaved change does to each folder, said under its playlist ("gets 27 more")
-  const changes = $derived(dirty ? folderChanges(panel?.preview ?? null) : new Map<string, number>());
+  const changes = $derived(dirty ? folderChanges(panel?.preview ?? null, switchedOffFolders(draft))
+    : new Map<string, number>());
 
   // ---------- loading ----------
   let turn = 0;

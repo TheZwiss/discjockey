@@ -1507,8 +1507,13 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         headline: `${n} new downloads, about ${days} day${days === 1 ? '' : 's'} at the current limit` };
     }
     if (off.length) {
-      return { ...base, kind: 'switch_off', headline: 'Files stay, no more updates', checklist: checklist(0, false),
-        renames: offers, stopped: s.tracks.filter((t) => off.some((o) => o.folder === t.folder)).length };
+      // as the engine: a folder's count is made of the playlists that are on, so a switched-off one counts 0 (its
+      // files do not go anywhere); a song another playlist that is on holds is not stopped
+      const stopped = s.tracks.filter((t) => off.some((o) => o.folder === t.folder)
+        && !t.playlists.some((f) => f !== t.folder && lines.some((l) => l.enabled && l.folder === f))).length;
+      return { ...base, kind: 'switch_off', headline: 'Left out of the sync, its files stay', checklist: checklist(0, false),
+        renames: offers, stopped, folders: off.map((o) => ({ folder: o.folder,
+          before: s.tracks.filter((t) => t.folder === o.folder).length, after: 0 })) };
     }
     return { ...base, kind: 'none', headline: 'Nothing changes in your library', checklist: checklist(0, false), renames: offers };
   }

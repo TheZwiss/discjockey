@@ -3,7 +3,7 @@ import type { AddedPlaylist, Playlists } from '$lib/bridge/types';
 import {
   addRow, draftFrom, dropIndex, infoLine, isDirty, lines, loadedFrom, moveBy, priorities,
   remove, rename, reorder, shiftFor, toggle, undo, panelFor, previewRequests, overlapCards, foldTrack, folderBars, folderChanges, changeText, moveRoutes, listSummary,
-  losslessText, readsOff, setupLine,
+  losslessText, readsOff, setupLine, switchedOffFolders,
   NO_PREVIEW, type PreviewAnswer, type PreviewState,
 } from './changeModel';
 
@@ -293,5 +293,55 @@ describe('panel texts', () => {
     expect(foldTrack({ ...t, downloaded: false, quality: 'missing', quality_label: null }).badge).toBeNull();
     expect(foldTrack({ ...t, downloaded: false, quality: 'missing', quality_label: null, never: true }, '→ P').note)
       .toBe('→ P · never download');
+  });
+});
+
+describe('the switch (issue 38)', () => {
+  const NONE = { lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0 };
+  // as saved: Powertrance switched off and never read (no info, no count, a quality of zeros)
+  const saved = loadedFrom({ ...EXAMPLE, rows: [EXAMPLE.rows[0], { ...EXAMPLE.rows[1], enabled: false, info: null,
+    tracks: null, quality: NONE }] });
+  const f = (folder: string, before: number, after: number) => ({ folder, before, after });
+
+  it('on → off → on before saving is clean, and so is off → on → off', () => {
+    const d = draftFrom(loaded);
+    const off = toggle(d, d[0].key);
+    expect(isDirty(off, loaded)).toBe(true);
+    expect(lines(off)[0].enabled).toBe(false);
+    expect(isDirty(toggle(off, d[0].key), loaded)).toBe(false);
+    const s = draftFrom(saved);
+    expect(isDirty(toggle(toggle(s, s[1].key), s[1].key), saved)).toBe(false);
+  });
+  it('a row saved as off switches on: its line is on, and its quality bar reads "nothing yet" instead of failing', () => {
+    const s = draftFrom(saved);
+    const on = toggle(s, s[1].key);
+    expect(isDirty(on, saved)).toBe(true);
+    expect(lines(on)[1]).toMatchObject({ folder: 'Powertrance', enabled: true });
+    expect(readsOff(on[1])).toBe(false);
+    expect(losslessText(on[1].quality)).toBeNull();
+    expect(infoLine(on[1])).toEqual({ text: 'not read yet', tone: 'muted' });
+    expect(priorities(on)).toEqual(['1', '2']);
+    expect(listSummary(on)).toBe('2 on · 4 tracks');
+  });
+  it('several rows: each switch is its own, Undo brings the saved file back', () => {
+    const s = draftFrom(saved);
+    const flipped = toggle(toggle(s, s[0].key), s[1].key);
+    expect(lines(flipped).map((l) => l.enabled)).toEqual([false, true]);
+    expect(priorities(flipped)).toEqual(['–', '1']);
+    expect(listSummary(flipped)).toBe('1 on · 1 off · 0 tracks');
+    expect(switchedOffFolders(flipped)).toEqual(new Set(['Hard_Bounce']));
+    expect(isDirty(undo(saved), saved)).toBe(false);
+    const three = toggle(toggle(addRow(s, ADDED, 'N'), s[0].key), s[1].key);
+    expect(lines(three).map((l) => l.enabled)).toEqual([false, true, true]);
+  });
+  it('a switched-off playlist keeps its files: its folder is no folder that changes, whatever the engine counts', () => {
+    const fs = [f('Hard_Bounce', 4, 0), f('Powertrance', 1, 2), f('Bouncy', 5, 5)];
+    const off = new Set(['Hard_Bounce']);
+    expect(folderBars(fs, off)).toEqual({ rows: [{ folder: 'Powertrance', after: 2, delta: 1 }], max: 1 });
+    expect(folderBars([f('Hard_Bounce', 4, 0)], off)).toEqual({ rows: [], max: 0 });
+    expect(folderBars(fs).rows.map((r) => r.folder)).toEqual(['Hard_Bounce', 'Powertrance']);
+    const p = { ...(MOVES as Extract<PreviewAnswer, { ok: true }>), folders: fs };
+    expect([...folderChanges(p, off)]).toEqual([['Powertrance', 1]]);
+    expect(switchedOffFolders(draftFrom(loaded)).size).toBe(0);
   });
 });

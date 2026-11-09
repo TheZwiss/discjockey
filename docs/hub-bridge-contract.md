@@ -1013,7 +1013,8 @@ groups below lossless (`upgrade_ready`, `not_found`, `weak`, `good_lossy`, `fake
 "Follow ≠ own: make your own copy in Spotify."; Qobuz: "Make it public in Qobuz, or use one of your own playlists."; SoundCloud: "Make it public in SoundCloud, or use its private share link."; YouTube Music: "Set it to public or unlisted in YouTube Music."), always set once `info` is. `info.track_count` is `null` when the service gives no count (a SoundCloud likes list); the row's `tracks` is then what the read found. `info.owner_name` is `""` when the name already says it (a SoundCloud likes list is named "{username}'s likes"), so the page names the owner once.
 `needs_setting` (sources round): `"read_liked_music"` for a listed YouTube Music Liked music line (`youtube_music:LM`, on or off in the file) while Settings' choice is off or no YouTube login is set up (the row reads "Liked music is off in Settings", it is not read and raises no problem), else `null`.
 `info` null until read (refresh or add_playlist); `tracks` null when
-neither the tracks nor the playlist's count were read (the row then shows no count). `version` must be sent to
+neither the tracks nor the playlist's count were read (the row then shows no count). `quality` is always the five counts, all 0
+while the playlist's tracks were not read (a switched-off playlist is never read), never null: the row reads it when it is switched on. `version` must be sent to
 `save_playlists`. `overlaps` for the panel when nothing is unsaved: each track that is in several switched-on
 playlists, with `folders` (in list order) and `lands_in` (the first), its `cover_url`, `downloaded` (has a file yet),
 `quality` and `quality_label` (null without a state entry), `never` (the user said "never download").
@@ -1541,6 +1542,10 @@ isn't connected, or a playlist its service won't show, is skipped without an err
 "{n} files would sit in a different folder" / "1 file would sit in a different folder"); `checklist` 3-4 lines (cut
 here; for `moves` and `rename`: the downloads line, "Nothing is deleted", "Files move only if you choose to", "Moves
 can be undone on this page"; for the other kinds "Happens at the next sync, not right away").
+`switch_off`: a playlist is switched off by this edit and nothing else changes (also when none of its songs was read: `stopped` 0); its
+`headline` is "Left out of the sync, its files stay" (as Sync's switch: nothing is downloaded for it, no file is deleted or moved). `folders`
+lists a switched-off playlist's folder with `after` 0, because the counts are made of the playlists that are on; the page does not show it
+as a folder whose files change.
 `tidy`: `null`, or `{headline, rows: [TidyRow]}`: the files with a place this change would put elsewhere (a `TidyRow`
 is a row of `tidy_preview()` below; `by_rename` names the old folder whose rename on disk would put the file at its
 target, else null). `renames`: `[{from, to, files, offered, why_not, option, detail}]`, one per playlist whose folder

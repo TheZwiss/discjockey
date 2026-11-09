@@ -867,6 +867,20 @@ def change(new, tracks=PL_TRACKS, **kw):
     return call_change(OLD, new, tracks, PL_STATE, PL_FILES, TODAY, MONEY, **kw)
 
 
+def test_a_playlist_that_was_not_read_has_a_quality_of_all_zeros_never_null():
+    # a switched-off playlist is never read: the page's row type says ByQuality, and the row reads it as soon as it
+    # is switched on (a null there crashed the page, issue 38)
+    zeros = {"lossless": 0, "good_lossy": 0, "weak": 0, "fake": 0, "missing": 0}
+    page = views.playlists(Loaded([OLD[0], Row("Powertrance", OLD[1].link, False)], "v1", None),
+                           {ID1: PL_TRACKS[ID1]}, {}, PL_STATE)
+    first, second = page["rows"]
+    assert second["enabled"] is False and second["tracks"] is None and second["info"] is None
+    assert second["quality"] == zeros
+    assert first["quality"] == {"lossless": 2, "good_lossy": 1, "weak": 0, "fake": 0, "missing": 0}
+    unread_on = views.playlists(Loaded(OLD, "v1", None), {}, {}, PL_STATE)
+    assert [r["quality"] for r in unread_on["rows"]] == [zeros, zeros]
+
+
 def test_playlists_page():
     from discjockey.models import PlaylistInfo
     info = PlaylistInfo("spotify", ID1, "Hard Bounce 2026", "dj1", "DJ One", False, "big", 3, True, True)
@@ -978,9 +992,22 @@ def test_change_add():
 
 def test_change_switch_off_and_nothing():
     c = change([OLD[0], Row("Powertrance", OLD[1].link, False)])
-    assert (c["kind"], c["headline"], c["stopped"]) == ("switch_off", "Files stay, no more updates", 1)
+    assert (c["kind"], c["headline"], c["stopped"]) == ("switch_off", "Left out of the sync, its files stay", 1)
     assert c["tidy"] is None and c["renames"] == [] and c["checklist"][-1] == "Happens at the next sync, not right away"
     assert change(list(OLD))["kind"] == "none"
+
+
+def test_change_switch_off_of_a_playlist_that_was_never_read_still_says_so():
+    # nothing of it was read, so no song counts as stopped; the edit is still a switch-off, not "nothing changes"
+    off = [OLD[0], Row("Powertrance", OLD[1].link, False)]
+    c = change(off, {ID1: PL_TRACKS[ID1]})
+    assert (c["kind"], c["headline"], c["stopped"]) == ("switch_off", "Left out of the sync, its files stay", 0)
+    both = change([Row("Hard_Bounce", OLD[0].link, False), Row("Powertrance", OLD[1].link, False)])
+    assert both["kind"] == "switch_off" and both["stopped"] == 4  # a, b, c and d: each file stays
+    # a switch that is on in both files is no switch-off, and a row that was off already is not switched off by this edit
+    assert change(list(OLD))["kind"] == "none"
+    was_off = [OLD[0], Row("Powertrance", OLD[1].link, False)]
+    assert call_change(was_off, was_off, PL_TRACKS, PL_STATE, PL_FILES, TODAY, MONEY)["kind"] == "none"
 
 
 def test_todo_check_in_rekordbox_group_also_for_lossless_and_hidden_tracks():
