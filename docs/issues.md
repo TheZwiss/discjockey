@@ -67,8 +67,8 @@ Found live by the user on the Playlists page:
 Design: `docs/2026-11-07-rekordbox-repoint-design.md` (the user's answers and wishes A–C built in; stage E is issue 40).
 
 **Stage A** is merged into main (43e6797: the read side, New track lined up, `rekordbox status` / `preview`); its live
-check is pending (`docs/2026-11-07-rekordbox-stage-a-plan.md` §8). **Stage B** is built and reviewed on
-`feat/rekordbox-b` and ready to merge (the V step adds the merge hash): the rekordbox write side, backups and restore,
+check is pending (`docs/2026-11-07-rekordbox-stage-a-plan.md` §8). **Stage B** is merged into main
+(0c2261b, verify 1081 shots green): the rekordbox write side, backups and restore,
 Same track for any format as one AIFF batch with undo, Upgrade all, To-do multi-select, the batch check card and the
 console commands (`upgrade …`, `batch …`, `rekordbox checked | backups | restore`); its live test is plan stage B §9.
 

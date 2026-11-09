@@ -480,7 +480,10 @@ Results:
     shots: the single repointed card's cut "Current file" (F4 left it; judge it). Engine counts a batch as one in the
     To-do header ("N tracks are not lossless yet"); fake now 4-track batches; real fix needs the contract to carry a
     track count → issue on main before merging B.
-  - V (orchestrator, no agent): in the rb-b worktree `cd hub-ui && npm run verify` with `run_in_background` (~20 min,
+  - V done 2026-11-09 ~03:40: verify 1081 shots ok; orchestrator shots of the F3/F4 states fine (✕ reads, cut Current
+    file = scroll, kept). F5 (Sonnet **105k**, 845c98a + static 0f345d3): header counted lossless checks and a batch as
+    one → "N tracks to check in rekordbox" part, `Todo.check_tracks`. **Stage B merged into main 0c2261b.** No release.
+  - (done) V (orchestrator, no agent): in the rb-b worktree `cd hub-ui && npm run verify` with `run_in_background` (~20 min,
     read only the tail), `npm run smoke`, CI green on the last push. Look at the verify shots of the F3/F4 states
     (selection head NoteCard, batch rows with `wrapName`, the ✕ colour (F3 #5, measured #7a7a80), the check cards);
     a real problem → one Sonnet fix round. Then merge `feat/rekordbox-b` into main ("Merge feat/rekordbox-b: rekordbox
