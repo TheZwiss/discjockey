@@ -1,3 +1,4 @@
+import json
 from datetime import date
 
 import pytest
@@ -184,6 +185,22 @@ def test_read_liked_music_round_trips_defaults_to_off_and_must_be_true_or_false(
     path.write_text('{"read_liked_music": "yes"}')
     with pytest.raises(SettingsError, match="read_liked_music"):
         load_settings(path)
+
+
+def test_auto_upgrade_is_on_by_default_round_trips_and_must_be_true_or_false(tmp_path):
+    path = tmp_path / "settings.json"
+    assert Settings().auto_upgrade is True and load_settings(path).auto_upgrade is True    # no file: on
+    path.write_text('{"daily_qobuz_limit": 60}')                                            # a file without the key
+    assert load_settings(path).auto_upgrade is True
+    save_settings(path, Settings(auto_upgrade=False))
+    assert load_settings(path).auto_upgrade is False
+    assert json.loads(path.read_text())["auto_upgrade"] is False
+    save_settings(path, Settings())
+    assert load_settings(path).auto_upgrade is True
+    for bad in ('"yes"', "1", "null"):
+        path.write_text('{"auto_upgrade": %s}' % bad)
+        with pytest.raises(SettingsError, match="auto_upgrade must be true or false"):
+            load_settings(path)
 
 
 def test_liked_music_is_read_only_with_the_choice_on_and_a_youtube_account():

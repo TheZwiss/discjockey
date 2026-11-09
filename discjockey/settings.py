@@ -55,6 +55,10 @@ class Settings:
     # login, the one thing a playlist read does with an account. Off by default; it can only be turned on with a
     # YouTube account set up
     read_liked_music: bool = False
+    # Settings' / Setup's "Upgrade automatically when I sync" (issue 33 stage C): the user's standing go for the sync
+    # to end with one AIFF batch of the upgrades that need no decision (`auto_upgrade.py`). On by default; a settings
+    # file without the key reads as on
+    auto_upgrade: bool = True
 
     @property
     def reads_liked_music(self) -> bool:
@@ -174,12 +178,15 @@ def load_settings(path: Path) -> Settings:
         read_liked_music = data.get("read_liked_music", False)
         if not isinstance(read_liked_music, bool):
             raise SettingsError(f"{path.name}: read_liked_music must be true or false.")
+        auto_upgrade = data.get("auto_upgrade", True)
+        if not isinstance(auto_upgrade, bool):
+            raise SettingsError(f"{path.name}: auto_upgrade must be true or false.")
         seen = data.get("warnings_seen") or {}
         if not isinstance(seen, dict) or not all(isinstance(v, str) for v in seen.values()):
             raise SettingsError(f"{path.name}: warnings_seen must map services to times.")
         s = Settings(limit, day, amount, accounts, skipped, {str(k): v for k, v in seen.items()},
                      _last_check(path, data.get("qobuz_last_check")), spotify_skipped, import_skipped,
-                     read_liked_music)
+                     read_liked_music, auto_upgrade)
     except SettingsError:
         raise
     except (ValueError, TypeError, AttributeError, KeyError) as e:
@@ -203,6 +210,7 @@ def save_settings(path: Path, s: Settings) -> None:
     data = {"daily_qobuz_limit": s.daily_qobuz_limit, "extra_today": _extra_json(s.extra_date, s.extra_amount),
             "qobuz_skipped": s.qobuz_skipped, "spotify_skipped": s.spotify_skipped,
             "import_skipped": s.import_skipped, "read_liked_music": s.read_liked_music,
+            "auto_upgrade": s.auto_upgrade,
             "warnings_seen": dict(s.warnings_seen),
             "qobuz_last_check": dict(s.qobuz_last_check) if s.qobuz_last_check else None,
             "accounts": {k: {"browser": a.browser, "profile": a.profile, "daily_limit": a.daily_limit,

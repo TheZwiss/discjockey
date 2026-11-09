@@ -1,0 +1,344 @@
+"""Auto-upgrade's pure rules (discjockey/auto_upgrade.py; plan stage C §0.3, §0.4, §0.7, §1.2, §5 C1): which tracks
+the phase would run, wait with or leave alone, when a recorded refusal still holds, and the analysis stamps it holds
+on. Libraries and the fixture rekordbox are built in tmp_path (`batch_helpers.make_lib`); nothing real is read."""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import pytest
+
+from batch_helpers import make_lib, needs_ffmpeg
+from convert_helpers import EXACT
+from discjockey import batches, convert
+from discjockey.auto_upgrade import Outcome, Planned, free_now, plan, refusal_holds, stamps
+from discjockey.library import load_state, save_state
+from discjockey.rekordbox import master
+from discjockey.rekordbox.locate import Place
+from discjockey.settings import Settings
+from hub_helpers import make_api
+
+never = lambda: False  # noqa: E731
+ON, OFF = Settings(), Settings(auto_upgrade=False)
+
+
+def ready(lib, **kw) -> Planned:
+    """`plan` for `lib` as the sync would ask it: the switch on, rekordbox closed unless `running` says otherwise."""
+    kw.setdefault("running", never)
+    kw.setdefault("place", lib.place)
+    answer = plan(lib.paths, load_state(lib.paths), kw.pop("held", ()), ON, **kw)
+    assert answer is not None
+    return answer
+
+
+def record(lib, i: int, **fields) -> None:
+    """Writes an `auto_refused` record on track i's parked upgrade."""
+    state = load_state(lib.paths)
+    up = state["tracks"][lib.tracks[i]]["upgrade"]
+    up["auto_refused"] = {"reason": "not_analysed", "message": "m", "at": "2026-11-09T10:00:00", "anlz": None,
+                          "free": None, **fields}
+    save_state(lib.paths, state)
+
+
+def anlz_files(lib, i: int) -> list[Path]:
+    return sorted((lib.folder / "share/PIONEER/USBANLZ").glob(f"*/{i + 1}/ANLZ0000.*"))
+
+
+# --- refusal_holds (pure, plan §0.7) ---
+
+THEN = {"PIONEER/USBANLZ/000/1/ANLZ0000.DAT": 10, "PIONEER/USBANLZ/000/1/ANLZ0000.EXT": 20}
+
+
+@pytest.mark.parametrize("reason", ["timing", "not_analysed", "cloud"])
+def test_an_analysis_refusal_holds_while_the_analysis_files_are_the_same_set_with_the_same_mtimes(reason):
+    rec = {"reason": reason, "anlz": dict(THEN)}
+    assert refusal_holds(rec, dict(THEN), None)
+    assert refusal_holds(rec, dict(reversed(list(THEN.items()))), 123)                   # order and free space don't matter
+    changed = {**THEN, "PIONEER/USBANLZ/000/1/ANLZ0000.EXT": 21}                           # rekordbox analysed it again
+    added = {**THEN, "PIONEER/USBANLZ/000/1/ANLZ0000.2EX": 30}                             # a file that wasn't there
+    removed = {"PIONEER/USBANLZ/000/1/ANLZ0000.DAT": 10}
+    for now in (changed, added, removed, {}):
+        assert not refusal_holds(rec, now, None), now
+
+
+@pytest.mark.parametrize("reason", ["timing", "not_analysed", "cloud"])
+def test_an_analysis_refusal_without_a_readable_stamp_never_holds(reason):
+    assert not refusal_holds({"reason": reason, "anlz": None}, dict(THEN), None)         # the record could not be read
+    assert not refusal_holds({"reason": reason, "anlz": dict(THEN)}, None, None)         # the files can't be read now
+    assert not refusal_holds({"reason": reason, "anlz": None}, None, None)
+    assert not refusal_holds({"reason": reason}, {}, None)                                # no stamp in the record at all
+    assert refusal_holds({"reason": reason, "anlz": {}}, {}, None)                       # "no analysis" is a stamp too
+
+
+def test_a_space_refusal_holds_at_equal_free_space_and_below_not_above():
+    rec = {"reason": "space", "free": 1000, "anlz": None}
+    assert refusal_holds(rec, None, 1000) and refusal_holds(rec, None, 10)
+    assert not refusal_holds(rec, None, 1001)
+    assert not refusal_holds(rec, None, None)                                              # free space not readable
+    assert not refusal_holds({"reason": "space", "free": None}, None, 5)
+    assert not refusal_holds({"reason": "space", "free": True}, None, 0)                   # a bool is no size
+
+
+def test_an_unknown_reason_or_a_record_without_one_never_holds():
+    for rec in ({"reason": "changed", "anlz": dict(THEN), "free": 5}, {"reason": None}, {}):
+        assert not refusal_holds(rec, dict(THEN), 1)
+
+
+def test_the_outcome_is_the_runs_block():
+    out = Outcome(12, "2026-11-09T21-04-11Z", 9, 3, 1, 0, False, False,
+                  [{"track": "local:41", "name": "A - T", "state": "done", "reason": None, "message": "m",
+                    "how": "new_aiff"}])
+    assert list(out.to_dict()) == ["batch", "backup", "done", "waiting", "refused", "failed", "stopped", "dry_run",
+                                   "results"]
+    assert out.to_dict()["results"][0]["state"] == "done" and out.to_dict()["batch"] == 12
+
+
+# --- the stamps of the analysis files ---
+
+@needs_ffmpeg
+def test_stamps_name_every_analysis_file_of_every_rekordbox_track_of_the_file(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3_free", "mp3_plain"])
+    got = stamps(lib.paths, lib.tracks, load_state(lib.paths), running=never, place=lib.place)
+    assert got[lib.tracks[1]] == {}                                                        # rekordbox doesn't hold it
+    assert set(got[lib.tracks[0]]) == {f"PIONEER/USBANLZ/000/1/ANLZ0000.{e}" for e in ("DAT", "EXT", "2EX", "3EX")}
+    assert set(got[lib.tracks[2]]) == {f"PIONEER/USBANLZ/001/3/ANLZ0000.{e}" for e in ("DAT", "2EX", "3EX")}  # no .EXT
+    assert got[lib.tracks[0]] == {f"PIONEER/USBANLZ/000/1/ANLZ0000.{p.suffix[1:]}": p.stat().st_mtime_ns
+                                  for p in anlz_files(lib, 0)}
+    ext = anlz_files(lib, 0)[1]
+    os.utime(ext, ns=(ext.stat().st_atime_ns, ext.stat().st_mtime_ns + 5_000_000_000))      # analysed again
+    after = stamps(lib.paths, lib.tracks, load_state(lib.paths), running=never, place=lib.place)
+    assert after[lib.tracks[0]] != got[lib.tracks[0]] and after[lib.tracks[2]] == got[lib.tracks[2]]
+    (ext.parent / "ANLZ0000.3EX").unlink()                                                 # a file went
+    assert set(stamps(lib.paths, lib.tracks[:1], load_state(lib.paths), running=never, place=lib.place)[
+        lib.tracks[0]]) == {f"PIONEER/USBANLZ/000/1/ANLZ0000.{e}" for e in ("DAT", "EXT", "2EX")}
+
+
+@needs_ffmpeg
+def test_stamps_take_one_read_open_for_all_tracks_and_none_for_no_tracks(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3", "aiff"])
+    opened = []
+    real = master.open_read
+    monkeypatch.setattr(master, "open_read", lambda *a, **k: opened.append(1) or real(*a, **k))
+    stamps(lib.paths, lib.tracks, load_state(lib.paths), running=never, place=lib.place)
+    assert len(opened) == 1
+    assert stamps(lib.paths, [], load_state(lib.paths), running=never, place=lib.place) == {}
+    assert len(opened) == 1
+
+
+@needs_ffmpeg
+def test_stamps_are_none_when_the_library_cannot_be_read(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    state = load_state(lib.paths)
+    assert stamps(lib.paths, lib.tracks, state, running=never, place=None) == dict.fromkeys(lib.tracks)
+    gone = Place(lib.folder / "nothing.db", lib.folder / "share", "override", None)
+    assert stamps(lib.paths, lib.tracks, state, running=never, place=gone) == dict.fromkeys(lib.tracks)
+    lib.place.db.write_bytes(b"not a database")
+    assert stamps(lib.paths, lib.tracks, state, running=never, place=lib.place) == dict.fromkeys(lib.tracks)
+    state["tracks"][lib.tracks[0]]["path"] = None                                          # a song without a file
+    assert stamps(lib.paths, lib.tracks[:1], state, running=never, place=lib.place) == {lib.tracks[0]: None}
+
+
+# --- plan: the set (§0.3) ---
+
+@needs_ffmpeg
+def test_the_switch_off_plans_nothing(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    assert plan(lib.paths, load_state(lib.paths), (), OFF, running=never, place=lib.place) is None
+    assert plan(lib.paths, load_state(lib.paths), (), OFF, running=lambda: True, place=lib.place) is None
+
+
+@needs_ffmpeg
+def test_the_set_is_the_parked_same_edit_upgrades_in_to_dos_order(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "stale", "aiff", "mp3_free", "mp3_plain"])
+    answer = ready(lib)
+    # `stale` is a different edit: it waits for the user's choice, so the phase leaves it out
+    assert answer == Planned([lib.tracks[i] for i in (0, 2, 3, 4)], [], [], False)
+
+
+@needs_ffmpeg
+def test_hidden_held_missing_away_and_unsound_tracks_stay_out_of_the_set(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3", "mp3", "mp3", "aiff", "aiff"])
+    state = load_state(lib.paths)
+    state["tracks"][lib.tracks[0]]["hidden"] = True
+    state["tracks"][lib.tracks[3]]["upgrade"] = None                                       # nothing waiting
+    save_state(lib.paths, state)
+    (lib.paths.root / lib.olds[1]).unlink()                                                # its file is gone
+    real = batches.present
+    monkeypatch.setattr(batches, "present", lambda paths, e: "away" if e["path"] == lib.olds[4] else real(paths, e))
+    answer = ready(lib, held=[lib.tracks[2]])
+    assert answer.run == [lib.tracks[5]] and answer.waiting == [] and answer.refused == []
+    assert ready(lib).run == [lib.tracks[2], lib.tracks[5]]                                 # without the question held
+
+
+@needs_ffmpeg
+def test_an_unreadable_library_keeps_only_the_aiff_swaps(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    lib.place.db.write_bytes(b"not a database")
+    assert ready(lib).run == [lib.tracks[1]]
+
+
+@needs_ffmpeg
+def test_no_rekordbox_library_at_all_keeps_every_track(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff", "mp3_free"])
+    assert ready(lib, place=None).run == lib.tracks
+
+
+@needs_ffmpeg
+def test_rekordboxs_status_is_asked_once_and_only_when_a_track_of_the_set_is_not_an_aiff(tmp_path, monkeypatch):
+    asked = []
+    real = master.status
+    monkeypatch.setattr(master, "status", lambda *a, **k: asked.append(1) or real(*a, **k))
+    for name in "abc":
+        (tmp_path / name).mkdir()
+    only_aiff = make_lib(tmp_path / "a", monkeypatch, ["aiff", "aiff"])
+    assert ready(only_aiff).run == only_aiff.tracks and asked == []
+    mixed = make_lib(tmp_path / "b", monkeypatch, ["aiff", "mp3", "mp3"])
+    assert len(ready(mixed).run) == 3 and len(asked) == 1
+    stale_only = make_lib(tmp_path / "c", monkeypatch, ["aiff", "stale"])                  # the MP3 is not in the set
+    ready(stale_only)
+    assert len(asked) == 1
+    given = master.Status("unreadable", False, None, None, "key", None, None)             # the caller's own answer
+    assert ready(mixed, status=given).run == [mixed.tracks[0]] and len(asked) == 1
+
+
+# --- plan: rekordbox running (§0.4) ---
+
+@needs_ffmpeg
+def test_with_rekordbox_running_every_track_of_the_set_waits_and_nothing_is_read(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff", "stale", "mp3_plain"])
+    record(lib, 3, anlz={"x": 1})
+    for name in ("open_read", "status"):
+        monkeypatch.setattr(master, name, lambda *a, **k: pytest.fail("rekordbox's library was opened"))
+    answer = ready(lib, running=lambda: True)
+    assert answer == Planned([], [(lib.tracks[i], "rekordbox_open") for i in (0, 1, 3)], [], True)
+
+
+@needs_ffmpeg
+def test_running_is_asked_once_by_the_plan_itself(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    calls = []
+    ready(lib, running=lambda: calls.append(1) or False)
+    assert len(calls) == 1
+
+
+# --- plan: recorded refusals (§0.7) ---
+
+@needs_ffmpeg
+def test_a_recorded_analysis_refusal_holds_until_rekordbox_analyses_the_track_again(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3_plain", "mp3"])
+    stamp = stamps(lib.paths, lib.tracks, load_state(lib.paths), running=never, place=lib.place)
+    record(lib, 0, reason="not_analysed", anlz=stamp[lib.tracks[0]])
+    answer = ready(lib)
+    assert answer.run == [lib.tracks[1]] and answer.waiting == []
+    [(key, held)] = answer.refused
+    assert key == lib.tracks[0] and held["reason"] == "not_analysed" and held["anlz"] == stamp[lib.tracks[0]]
+    dat = anlz_files(lib, 0)[0]                                                            # rekordbox analyses it again
+    os.utime(dat, ns=(dat.stat().st_atime_ns, dat.stat().st_mtime_ns + 5_000_000_000))
+    assert ready(lib).run == lib.tracks and ready(lib).refused == []
+    ext = dat.with_suffix(".EXT")                                                          # the first analysis adds a file
+    record(lib, 0, reason="not_analysed", anlz=stamps(lib.paths, lib.tracks[:1], load_state(lib.paths), running=never,
+                                                      place=lib.place)[lib.tracks[0]])
+    assert ready(lib).refused != []
+    ext.write_bytes(dat.read_bytes())
+    assert ready(lib).run == lib.tracks
+
+
+@needs_ffmpeg
+def test_a_record_that_could_not_read_the_analysis_never_holds(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3_plain"])
+    record(lib, 0, reason="timing", anlz=None)
+    assert ready(lib).run == lib.tracks and ready(lib).refused == []
+
+
+@needs_ffmpeg
+def test_all_analysis_records_are_checked_with_one_read_open(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3_plain", "mp3", "mp3", "aiff"])
+    stamp = stamps(lib.paths, lib.tracks, load_state(lib.paths), running=never, place=lib.place)
+    for i, reason in ((0, "not_analysed"), (1, "timing"), (2, "cloud")):
+        record(lib, i, reason=reason, anlz=stamp[lib.tracks[i]])
+    opened = []
+    real = master.open_read
+    monkeypatch.setattr(master, "open_read", lambda *a, **k: opened.append(1) or real(*a, **k))
+    answer = ready(lib)
+    assert [k for k, _ in answer.refused] == lib.tracks[:3] and answer.run == [lib.tracks[3]]
+    assert len(opened) == 2                                  # the status' open (an MP3 is in the set) + one for 3 stamps
+    (tmp_path / "plain").mkdir()
+    plain = make_lib(tmp_path / "plain", monkeypatch, ["mp3", "aiff"])
+    opened.clear()
+    ready(plain)                                             # no record: no stamps, only the status' one open
+    assert len(opened) == 1
+
+
+@needs_ffmpeg
+def test_a_space_refusal_holds_until_the_drive_has_more_room(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3"])
+    record(lib, 0, reason="space", free=5_000_000, anlz=None)
+    free = {"v": 5_000_000}
+    monkeypatch.setattr(convert, "free_space", lambda path: free["v"])
+    assert [k for k, _ in ready(lib).refused] == [lib.tracks[0]] and ready(lib).run == [lib.tracks[1]]
+    free["v"] = 4_000_000
+    assert ready(lib).refused != []
+    free["v"] = 5_000_001
+    assert ready(lib).refused == [] and ready(lib).run == lib.tracks
+    assert free_now(lib.paths, load_state(lib.paths)["tracks"][lib.tracks[0]]) == 5_000_001
+
+
+@needs_ffmpeg
+def test_free_space_is_read_from_the_tracks_folder_and_only_for_space_records(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3"])
+    record(lib, 0, reason="space", free=1)
+    asked = []
+    monkeypatch.setattr(convert, "free_space", lambda path: asked.append(path) or 0)
+    ready(lib)
+    assert asked == [lib.paths.root / "Library/A"]
+    monkeypatch.setattr(convert, "free_space", lambda path: (_ for _ in ()).throw(OSError("gone")))
+    assert free_now(lib.paths, load_state(lib.paths)["tracks"][lib.tracks[0]]) is None
+    assert ready(lib).run == lib.tracks                       # unreadable free space never holds
+
+
+# --- plan against Upgrade all (§0.3) ---
+
+def upgrade_all_set(api) -> set[str]:
+    """What `HubApi.upgrade_all` would start: To-do's Upgrade ready items Same track can run for."""
+    groups = api.todo("all", False)["groups"]
+    return {i["track_id"] for g in groups if g["key"] == "upgrade_ready" for i in g["items"] if i["same_track"] is None}
+
+
+def api_for(lib, running=False):
+    return make_api(lib.paths, compare=lambda a, b: EXACT, rekordbox_running=lambda: running,
+                    rekordbox_place=lambda: lib.place)[0]
+
+
+@needs_ffmpeg
+def test_the_set_equals_upgrade_alls_list(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff", "stale", "mp3_free", "mp3_plain", "mp3", "aiff"])
+    state = load_state(lib.paths)
+    state["tracks"][lib.tracks[0]]["hidden"] = True                                        # hidden
+    save_state(lib.paths, state)
+    (lib.paths.root / lib.olds[6]).unlink()                                                # the file is gone
+    api = api_for(lib)
+    mine = set(ready(lib).run)
+    assert mine == upgrade_all_set(api) == {lib.tracks[i] for i in (1, 3, 4, 5)}
+
+
+@needs_ffmpeg
+def test_the_set_equals_upgrade_alls_list_with_an_unreadable_library(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff", "mp3_free"])
+    lib.place.db.write_bytes(b"not a database")
+    assert set(ready(lib).run) == upgrade_all_set(api_for(lib)) == {lib.tracks[1]}
+
+
+@needs_ffmpeg
+def test_the_set_equals_upgrade_alls_list_while_rekordbox_runs_it_waits_instead(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff", "stale"])
+    api = api_for(lib, running=True)
+    answer = ready(lib, running=lambda: True)
+    assert {k for k, _ in answer.waiting} == upgrade_all_set(api) and answer.run == []
+
+
+@needs_ffmpeg
+def test_a_held_question_keeps_the_song_out_exactly_as_to_do_does(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    from discjockey.hub import views
+    held = {lib.tracks[0]}
+    assert ready(lib, held=held).run == views.upgrade_ready_keys(load_state(lib.paths), held) == [lib.tracks[1]]
