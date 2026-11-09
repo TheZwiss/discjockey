@@ -25,6 +25,11 @@ Opus where judgement is needed and a mistake is expensive. Sonnet where the plan
 - **Sonnet:** wiring a finished engine piece into `api.py` / `jobs.py` / views; contract, `types.ts` and fake-backend
   updates; README and `docs/` updates; a source whose interface the plan fixes (Qobuz, SoundCloud, YouTube Music);
   per-group reviews; re-reviews after a fix round.
+- **Fix rounds go to Sonnet** when the findings already state each fix, UI fixes included (the user, 2026-11-09);
+  Opus only builds new UI and makes design decisions.
+- **Every dispatch passes a gate:** a hook on the orchestrator's Agent tool refuses a brief without a `Dispatch check:`
+  line (model, expected size from the record, deliverable, review plan) and shows the checklist (2026-11-09: issue 33
+  stages A+B used about 70% of a weekly budget).
 
 When a Sonnet task turns out to need decisions the plan didn't make, it stops and reports. It never guesses.
 
@@ -97,6 +102,8 @@ in stage 5, every Opus UI group that also took its own shots used 300–420k (B6
   It does not review the whole stage.
 - **Per stage, before the merge:** one Opus review of the whole stage branch against the spec's sections for that
   stage.
+- **Review budget:** per-group reviews or one stage review, not both; one shots pass per stage; no re-check agent,
+  because `npm run verify` before the merge shoots every page. Each agent's real size goes into the log.
 - **The full Python suite** (about 1,700 tests) runs in parallel by default (pytest-xdist) in about 25 s. Agents run
   it once at the end of their task group, never after each edit, and report only its summary line. CI (`check.yml`)
   runs it again when the orchestrator pushes the stage branch before the merge; the orchestrator reads only the
@@ -457,3 +464,6 @@ Results:
   batches' unrun items for its tracks, rekordbox status not re-read while any write job runs, hub "Undo all" keeps
   `undo_upgrade` (contract fixed). Fix rounds, one at a time: F1 Python/docs (Sonnet), F2a flows+tests (Sonnet), F2b
   page logic (Sonnet), F3 selection panel look (Opus), F4 check card look (Opus); then a short shots re-check, V.
+- F2b (Sonnet 199k incl. a usage-limit stop, resumed): R2b I2, I3, I5 + m5–m12 fixed (7f0676e + static 17ab8c0),
+  vitest 1376, smoke ok, CI green. Sizes never logged: A1, A4, B3, B4, F1, F2a. 2026-11-09: the user asked why A+B took
+  ~70% of the week; gate on every dispatch added (§2), F3/F4 go to Sonnet, no shots re-check (§6), queue continues to C.
