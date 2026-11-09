@@ -471,5 +471,5 @@ Results:
   made smaller, its colour to be judged in the verify shots. F4 (Sonnet) started.
 - **Overnight queue 2026-11-09 (the user asleep, "whatever is best"):** F4 → V (verify, smoke, CI, merge B into main,
   push, no release) → issue 38 (crash in 1.2.1; moved before C on my call) → stage C (plan, build, full reviews +
-  rehearsal on a copy; held on its branch for the live test) → stage D (design direction, build) → issue 40 design
+  rehearsal on a copy; merged into main once CI + verify are green, the user 2026-11-09: "merge it when your tests pass"; no release before its live test) → stage D (design direction, build) → issue 40 design
   round only (its build waits for the stage B live test, per the issue). Every dispatch through the gate (§2).
