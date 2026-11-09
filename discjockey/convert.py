@@ -66,8 +66,8 @@ from .rekordbox.lock import Busy, writer_lock
 from .rekordbox.session import Session
 from .rekordbox.write import RekordboxOpened, WriteRefused
 from .upgrades import (
-    Compare, UpgradeProblem, build_staged, fields_before, hold_parked, held_place, keep_comment, precondition,
-    swap_possible, undo_keys, upgraded_entry,
+    Compare, UpgradeProblem, build_staged, fields_before, hold_parked, held_place, keep_comment, keep_measurement,
+    precondition, swap_possible, undo_keys, upgraded_entry,
 )
 
 STAGED_NAME = "convert.aiff"
@@ -258,6 +258,7 @@ def same_track(paths: Paths, state: dict, track_id: str, upgrade: dict, *, sessi
     old_file, parked = paths.root / old_rel, paths.root / upgrade["file"]
     alignment = compare(old_file, parked)
     if not alignment.swap_safe:
+        keep_measurement(paths, state, track_id, e, alignment)
         raise _skipped("needs_choice", what=alignment.text or alignment.result)
     entries, d = _timeline(session, e, upgrade, alignment, old_file)
 

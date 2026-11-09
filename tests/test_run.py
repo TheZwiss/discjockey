@@ -10,11 +10,14 @@ from pathlib import Path
 
 import pytest
 from audio_helpers import music, write_aiff
+from batch_helpers import Lib, make_lib, needs_ffmpeg, prepared, services
 
-from discjockey import db, library, run
+from discjockey import auto_upgrade, batches, db, library, run
 from discjockey.sources import spotify
 from discjockey.acquire import AcquireResult, Ready
-from discjockey.events import ActionFinished, CancelToken, Message, ReadingPlaylist, RunFinished
+from discjockey.events import (
+    ActionFinished, BatchProgress, Cancelled, CancelToken, Message, ReadingPlaylist, Result, RunFinished,
+)
 from discjockey.library import Paths, empty_state, save_state
 from discjockey.models import FetchedPlaylist, Plan, PlannedMove, PlaylistLine, SourceTrack
 from discjockey.report import RunLog
@@ -1023,3 +1026,260 @@ def test_a_left_out_own_song_is_filed_under_the_folder_sync_names():
     prep.log, prep.plan.actions = RunLog(datetime(2026, 11, 5)), [own]
     run.select_actions(prep, set(), set())  # no way to name it: the report's own "your music"
     assert [r.folder for r in prep.log.section("queued")] == [""]
+
+
+# --- the Auto-upgrade phase at the end of a sync (issue 33 stage C; plan stage C §1.4, §5 C2) ---
+
+class FakeExecutor:
+    """Stands in for the plan's actions: one finished download, then whatever `after` does (Stop, a crash)."""
+    after = None
+
+    def __init__(self, paths, state, log, acquirer, inspect, *, emit, token, limit=None, where=None):
+        self.emit, self.token = emit, token
+
+    def run(self, actions):
+        self.emit(ActionFinished(None, Result("new_lossless", "A", "Artist", "New", "tn")))
+        if FakeExecutor.after:
+            FakeExecutor.after(self)
+
+
+@pytest.fixture
+def fake_executor(monkeypatch):
+    monkeypatch.setattr(run, "Executor", FakeExecutor)
+    monkeypatch.setattr(run, "fill_kbps", lambda *a, **k: 0)
+    FakeExecutor.after = None
+    yield FakeExecutor
+    FakeExecutor.after = None
+
+
+def batch_rows(lib: Lib) -> int:
+    with db.connect(lib.paths.db_file) as conn:
+        return db.aiff_batches(conn)[1]
+
+
+def report_json(path) -> dict:
+    return json.loads(path.with_suffix(".json").read_text())
+
+
+@needs_ffmpeg
+def test_with_the_switch_off_neither_way_of_ending_a_sync_moves_a_file(tmp_path, monkeypatch, fake_executor):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff", "mp3_plain"])
+    off = Settings(auto_upgrade=False)
+    before = (lib.music(), lib.dump(), library.load_state(lib.paths)["tracks"])
+    for ending in ("execute", "finish_quietly"):
+        prep = prepared(lib, off)
+        events = []
+        if ending == "execute":
+            code, path = run.execute(prep, None, emit=events.append, rekordbox=services(lib))
+        else:
+            code, path = run.finish_quietly(prep, events.append, rekordbox=services(lib))
+        assert code == 0 and "auto_upgrade" not in report_json(path)
+        assert not any(isinstance(e, BatchProgress) for e in events)
+        assert (lib.music(), lib.dump(), library.load_state(lib.paths)["tracks"]) == before
+        assert batch_rows(lib) == 0
+        assert "Upgraded" not in path.read_text() and not (lib.paths.data / "rekordbox").exists()
+
+
+@needs_ffmpeg
+def test_the_phase_runs_after_the_downloads_and_only_for_the_set(tmp_path, monkeypatch, fake_executor):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff", "stale", "aiff", "aiff", "mp3_free"])
+    state = library.load_state(lib.paths)
+    state["tracks"][lib.tracks[4]]["hidden"] = True
+    library.save_state(lib.paths, state)
+    (lib.paths.root / lib.olds[3]).unlink()                         # away/missing: its file is not there
+    prep = prepared(lib, questions=[SimpleNamespace(song_key=lib.tracks[5])])     # a held question
+    events = []
+    code, path = run.execute(prep, None, emit=events.append, rekordbox=services(lib))
+    assert code == 0
+    kinds = [type(e).__name__ for e in events]
+    last_download = max(i for i, k in enumerate(kinds) if k == "ActionFinished")
+    assert last_download < kinds.index("BatchProgress") and kinds[-1] == "RunFinished"
+    block = report_json(path)["auto_upgrade"]
+    assert [(r["track"], r["state"]) for r in block["results"]] == [(lib.tracks[0], "done"), (lib.tracks[1], "done")]
+    batch = lib.batch(block["batch"])
+    assert batch.started_by == "auto_upgrade" and batch.backup == block["backup"]
+    assert [r["section"] for r in report_json(path)["results"] if r["section"] in ("upgraded", "upgrade_waits")] == \
+        ["upgraded", "upgraded"]
+    for i in (2, 3, 4, 5):
+        assert library.load_state(lib.paths)["tracks"][lib.tracks[i]]["upgrade"]
+    text = path.read_text()
+    assert "## Upgraded (your cues stayed) (2)" in text and f"from before these upgrades: {block['backup']}" in text
+    assert text.index("Upgraded 2 tracks; your cues stayed.") < text.index("## Upgraded")
+    # the run's save kept both the steps' writes and the phase: the stored records equal the run's
+    assert library.load_state(lib.paths)["tracks"] == prep.state["tracks"]
+
+
+@needs_ffmpeg
+def test_a_plan_without_actions_runs_the_phase_too(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "fill_kbps", lambda *a, **k: 0)
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    events = []
+    code, path = run.finish_quietly(prepared(lib), events.append, rekordbox=services(lib))
+    block = report_json(path)["auto_upgrade"]
+    assert code == 0 and block["done"] == 2 and block["backup"] and "## Upgraded (your cues stayed) (2)" in path.read_text()
+    assert [type(e).__name__ for e in events].count("BatchProgress") == 3
+    assert all(library.load_state(lib.paths)["tracks"][k]["upgrade"] is None for k in lib.tracks)
+
+
+@needs_ffmpeg
+def test_stop_before_the_phase_means_no_phase(tmp_path, monkeypatch, fake_executor):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    before = (lib.music(), lib.dump())
+    token = CancelToken()
+    fake_executor.after = lambda ex: token.cancel()                 # Stop pressed as the last download ended
+    code, path = run.execute(prepared(lib), None, token=token, rekordbox=services(lib))
+    assert code == 130 and "auto_upgrade" not in report_json(path) and batch_rows(lib) == 0
+    assert (lib.music(), lib.dump()) == before
+
+    def stopped(ex):
+        raise Cancelled()
+    fake_executor.after = stopped                                    # Stop inside the downloads
+    code, path = run.execute(prepared(lib), None, rekordbox=services(lib))
+    assert code == 130 and batch_rows(lib) == 0 and (lib.music(), lib.dump()) == before
+
+
+@needs_ffmpeg
+def test_stop_before_a_quiet_syncs_phase_means_no_phase(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "fill_kbps", lambda *a, **k: 0)
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    before = (lib.music(), lib.dump())
+    token = CancelToken()
+    token.cancel()
+    code, path = run.finish_quietly(prepared(lib), token=token, rekordbox=services(lib))
+    assert code == 130 and "auto_upgrade" not in report_json(path) and batch_rows(lib) == 0
+    assert (lib.music(), lib.dump()) == before
+
+
+def test_with_the_switch_off_the_sync_does_not_even_look_for_rekordbox(tmp_path, monkeypatch, fake_executor):
+    """Nothing of rekordbox is read, and a Stop after the last download changes nothing for this run's end."""
+    monkeypatch.setattr(run, "locate", lambda: pytest.fail("looked for rekordbox"))
+    monkeypatch.setattr(run.process, "running", lambda: pytest.fail("asked whether rekordbox runs"))
+    paths = Paths(tmp_path / "m", support=tmp_path / "s")
+    paths.data.mkdir(parents=True)
+    state = library.empty_state()
+    token = CancelToken()
+    token.cancel()
+    fake_executor.after = lambda ex: None
+    for ending in ("execute", "finish_quietly"):
+        prep = run.Prepared(paths, state, Settings(auto_upgrade=False), Plan(state, [], [], []), RunLog(datetime.now()))
+        code, path = (run.execute(prep, None, token=CancelToken()) if ending == "execute"
+                      else run.finish_quietly(prep, token=token))
+        assert code == 0 and "auto_upgrade" not in report_json(path)
+
+
+@needs_ffmpeg
+def test_stop_during_the_phase_ends_it_between_tracks_with_code_130(tmp_path, monkeypatch, fake_executor):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff", "mp3"])
+    token = CancelToken()
+
+    def compare(a, b):
+        token.cancel()
+        return services(lib)["compare"](a, b)
+
+    code, path = run.execute(prepared(lib), None, token=token, rekordbox=services(lib, compare=compare))
+    block = report_json(path)["auto_upgrade"]
+    assert code == 130 and block["stopped"] and (block["done"], block["waiting"]) == (1, 2)
+    assert lib.batch(block["batch"]).state == "done"               # no Resume for it
+    with db.connect(lib.paths.db_file) as conn:
+        assert db.unfinished_aiff_batches(conn) == []
+    assert library.load_state(lib.paths)["tracks"][lib.tracks[0]]["upgrade"] is None     # the done one is saved
+    assert report_json(path)["exit_code"] == 130
+
+
+@needs_ffmpeg
+def test_ctrl_c_during_the_phase_ends_the_run_as_stopped(tmp_path, monkeypatch, fake_executor):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3"])
+    calls = []
+
+    def compare(a, b):
+        calls.append(1)
+        if len(calls) == 2:
+            raise KeyboardInterrupt
+        return services(lib)["compare"](a, b)
+
+    code, path = run.execute(prepared(lib), None, rekordbox=services(lib, compare=compare))
+    block = report_json(path)["auto_upgrade"]
+    assert code == 130 and block["stopped"] and (block["done"], block["waiting"]) == (1, 1)
+    (tmp_path / "q").mkdir()
+    quiet = make_lib(tmp_path / "q", monkeypatch, ["mp3", "mp3"])
+    calls.clear()
+    code, path = run.finish_quietly(prepared(quiet), rekordbox=services(quiet, compare=compare))
+    assert code == 130 and report_json(path)["auto_upgrade"]["stopped"]
+
+
+@needs_ffmpeg
+def test_rekordbox_open_at_the_start_does_nothing_and_the_run_still_ends_normally(tmp_path, monkeypatch, fake_executor):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    before = (lib.music(), lib.dump())
+    events = []
+    code, path = run.execute(prepared(lib), None, emit=events.append, rekordbox=services(lib, running=lambda: True))
+    block = report_json(path)["auto_upgrade"]
+    assert code == 0 and (block["batch"], block["backup"], block["done"], block["waiting"]) == (None, None, 0, 2)
+    assert batch_rows(lib) == 0 and (lib.music(), lib.dump()) == before and not (lib.paths.data / "rekordbox").exists()
+    assert all(library.load_state(lib.paths)["tracks"][k]["upgrade"]["auto_waits"] for k in lib.tracks)
+    assert Message("info", "2 upgrades wait for rekordbox to be closed.") in events
+    assert "2 upgrades wait for rekordbox to be closed." in path.read_text()
+    assert [r["section"] for r in report_json(path)["results"]].count("upgrade_waits") == 2
+
+
+@needs_ffmpeg
+def test_a_crash_in_the_phase_is_filed_with_its_step_and_the_next_start_ends_the_batch(tmp_path, monkeypatch,
+                                                                                      fake_executor):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+
+    def boom(paths, batch_id, **options):
+        raise RuntimeError("power cut")
+
+    monkeypatch.setattr(batches, "run", boom)
+    events = []
+    with pytest.raises(run.RunCrashed) as crashed:
+        run.execute(prepared(lib), None, emit=events.append, rekordbox=services(lib))
+    data = report_json(crashed.value.report)
+    assert data["exit_code"] == 1 and "while upgrading at the end of the sync." in data["crashed"]
+    assert isinstance(events[-1], RunFinished) and events[-1].exit_code == 1
+    with db.connect(lib.paths.db_file) as conn:
+        assert db.unfinished_aiff_batches(conn) == [1]               # left `running`
+    state = library.load_state(lib.paths)
+    library.recover_pending(lib.paths, state)                       # the next start
+    row = lib.batch(1)
+    assert row.state == "done" and [(i.state, i.reason) for i in row.items] == [("skipped", "not_reached")] * 2
+    with db.connect(lib.paths.db_file) as conn:
+        assert db.unfinished_aiff_batches(conn) == []
+
+
+@needs_ffmpeg
+def test_a_crash_in_the_phase_of_a_quiet_sync_is_filed_the_same_way(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "fill_kbps", lambda *a, **k: 0)
+    lib = make_lib(tmp_path, monkeypatch, ["aiff"])
+    monkeypatch.setattr(batches, "run", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("power cut")))
+    events = []
+    with pytest.raises(run.RunCrashed) as crashed:
+        run.finish_quietly(prepared(lib), events.append, rekordbox=services(lib))
+    assert "while upgrading at the end of the sync." in report_json(crashed.value.report)["crashed"]
+    assert events[-1] == RunFinished(1, str(crashed.value.report))
+
+
+@needs_ffmpeg
+def test_a_failed_upgrade_makes_the_run_exit_with_code_1(tmp_path, monkeypatch, fake_executor):
+    lib = make_lib(tmp_path, monkeypatch, ["aiff"])
+    from discjockey import upgrades
+    monkeypatch.setattr(upgrades, "swap", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("disk on fire")))
+    code, path = run.execute(prepared(lib), None, rekordbox=services(lib))
+    assert code == 1 and report_json(path)["auto_upgrade"]["failed"] == 1
+    assert [r["section"] for r in report_json(path)["results"] if r["section"] == "errors"] == ["errors"]
+
+
+def test_the_real_rekordbox_services_are_the_default(tmp_path, monkeypatch):
+    """Without `rekordbox=` the phase gets the real process check and alignment check (the tests' stand-ins here), and
+    the library `locate()` finds."""
+    monkeypatch.setattr(run, "fill_kbps", lambda *a, **k: 0)
+    seen = []
+    monkeypatch.setattr(auto_upgrade, "run_phase", lambda *a, **k: seen.append(k) or None)
+    paths = Paths(tmp_path / "m", support=tmp_path / "s")
+    paths.data.mkdir(parents=True)
+    state = library.empty_state()
+    prep = run.Prepared(paths, state, Settings(), Plan(state, [], [], []), RunLog(datetime.now()))
+    run.finish_quietly(prep)
+    [options] = seen
+    assert options["running"] is run.process.running and options["compare"] is run.align.compare_files
+    assert options["place"] == run.locate() and callable(options["now"])

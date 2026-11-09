@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from datetime import datetime
 
 import pytest
@@ -7,9 +8,8 @@ from discjockey.events import Result
 from discjockey.library import Paths
 from discjockey.models import Action, Plan, SourceTrack
 from discjockey.report import (
-    SECTIONS, RunLog, check_text, render_line, render_not_lossless, render_plan, render_report, summary, upgrades_waiting,
-    write_not_lossless,
-    write_run,
+    SECTIONS, RunLog, auto_upgrade_line, check_text, render_line, render_not_lossless, render_plan, render_report,
+    summary, upgrades_waiting, write_not_lossless, write_run,
 )
 
 STARTED = datetime(2026, 10, 20, 21, 5, 9)
@@ -116,7 +116,7 @@ def test_render_plan_up_to_date():
 
 def test_parked_upgrades_are_listed_near_the_top_of_the_report():
     keys = [k for k, _ in SECTIONS]
-    assert keys.index("upgrade_ready") < keys.index("checked") and "upgraded" not in keys
+    assert keys.index("upgrade_ready") < keys.index("checked")
     log = RunLog(STARTED)
     log.add(Result("upgrade_ready", "A", "Artist", "Song", "t1", "matches exactly · waiting in Upgrades ready/A/x.aiff"))
     assert "## Better version found, waiting for you (run discjockey upgrades) (1)" in render_report(log, FINISHED)
@@ -252,3 +252,100 @@ def test_the_sections_no_run_makes_any_more_are_gone():
     log = RunLog(STARTED)
     log.add(Result("new_lossless", "A", "Artist", "Song", "t1", "q"))
     assert "Moved to another folder" not in render_report(log, FINISHED)
+
+
+# --- Auto-upgrade in the report (issue 33 stage C; plan stage C §1.5, §3) ---
+
+def block(done=0, rekordbox=0, later=0, refused=0, backup="20261109T030639Z", **extra) -> dict:
+    """An Outcome.to_dict() with that many results of each kind: `rekordbox` waits for rekordbox to be closed, `later`
+    for the next sync (Stop, another window)."""
+    results = ([{"track": f"d{i}", "name": "A – T", "state": "done", "reason": None, "message": "m", "how": "in_place"}
+                for i in range(done)]
+               + [{"track": f"r{i}", "name": "A – T", "state": "waiting", "reason": "rekordbox_open", "message": "w",
+                   "how": "in_place"} for i in range(rekordbox)]
+               + [{"track": f"n{i}", "name": "A – T", "state": "waiting", "reason": ["not_reached", "busy"][i % 2],
+                   "message": "w", "how": "in_place"} for i in range(later)]
+               + [{"track": f"x{i}", "name": "A – T", "state": "refused", "reason": "cloud", "message": "c",
+                   "how": "in_place"} for i in range(refused)])
+    return {"batch": 3 if done or later or refused else None, "backup": backup, "done": done,
+            "waiting": rekordbox + later, "refused": refused, "failed": 0, "stopped": False, "dry_run": False,
+            "results": results, **extra}
+
+
+@pytest.mark.parametrize("args, line", [
+    (dict(done=1), "Upgraded 1 track; your cues stayed."),
+    (dict(done=12), "Upgraded 12 tracks; your cues stayed."),
+    (dict(done=12, rekordbox=3, refused=1),
+     "Upgraded 12 tracks; your cues stayed. 3 wait for rekordbox to be closed. 1 couldn't go in; To-do says why."),
+    (dict(done=2, rekordbox=1), "Upgraded 2 tracks; your cues stayed. 1 waits for rekordbox to be closed."),
+    (dict(done=2, later=1), "Upgraded 2 tracks; your cues stayed. 1 waits for your next sync."),
+    (dict(done=2, rekordbox=2, later=3, refused=2),
+     "Upgraded 2 tracks; your cues stayed. 2 wait for rekordbox to be closed. 3 wait for your next sync. "
+     "2 couldn't go in; To-do says why."),
+    (dict(rekordbox=1), "1 upgrade waits for rekordbox to be closed."),
+    (dict(rekordbox=4), "4 upgrades wait for rekordbox to be closed."),
+    (dict(later=1), "1 upgrade waits for your next sync."),
+    (dict(later=2), "2 upgrades wait for your next sync."),
+    (dict(refused=1), "1 upgrade couldn't go in; To-do says why."),
+    (dict(refused=3), "3 upgrades couldn't go in; To-do says why."),
+    (dict(rekordbox=2, later=1, refused=1),
+     "2 upgrades wait for rekordbox to be closed. 1 upgrade waits for your next sync. "
+     "1 upgrade couldn't go in; To-do says why."),
+])
+def test_the_summary_line_for_every_case(args, line):
+    assert auto_upgrade_line(block(**args)) == line
+
+
+def test_the_summary_line_is_none_for_no_block_and_for_nothing_to_say():
+    assert auto_upgrade_line(None) is None and auto_upgrade_line({}) is None
+    assert auto_upgrade_line(block()) is None
+
+
+def test_the_report_has_the_upgraded_section_the_backup_line_and_the_summary_line_on_top():
+    log = RunLog(STARTED)
+    log.add(Result("new_lossless", "A", "Artist", "New", "t1", "Qobuz FLAC · verified lossless"))
+    log.add(Result("upgraded", "A", "Artist", "Song 0", "t2", "new file Library/A/Artist - Song 0.aiff"))
+    log.add(Result("upgraded", "A", "Artist", "Song 1", "t3", "matches exactly"))
+    log.add(Result("upgrade_waits", "A", "Artist", "Song 2", "t4", "Waits for rekordbox to be closed."))
+    log.auto_upgrade = block(done=2, rekordbox=1)
+    text = render_report(log, FINISHED)
+    assert "## Upgraded (your cues stayed) (2)" in text and "## Upgrades still waiting (1)" in text
+    lines = text.splitlines()
+    heading = lines.index("## Upgraded (your cues stayed) (2)")
+    assert lines[heading + 2].startswith("- [A] Artist - Song 0") and lines[heading + 3].startswith("- [A] Artist - Song 1")
+    assert lines[heading + 4] == "" and lines[heading + 5] == \
+        "Backup of your rekordbox library from before these upgrades: 20261109T030639Z"
+    top = "Upgraded 2 tracks; your cues stayed. 1 waits for rekordbox to be closed."
+    assert top in lines and lines.index(top) < lines.index("## New lossless tracks (1)")
+    assert text.index("## Upgraded") < text.index("## Upgrades still waiting")      # after the new-file sections
+    assert text.index("## New lossless tracks") < text.index("## Upgraded")
+
+
+def test_no_backup_line_without_a_backup_or_without_upgraded_tracks():
+    log = RunLog(STARTED)
+    log.add(Result("upgraded", "A", "Artist", "Song", "t2", "n"))
+    log.auto_upgrade = block(done=1, backup=None)
+    assert "from before these upgrades" not in render_report(log, FINISHED)
+    waiting = RunLog(STARTED)
+    waiting.add(Result("upgrade_waits", "A", "Artist", "Song", "t2", "w"))
+    waiting.auto_upgrade = block(rekordbox=1)
+    assert "from before these upgrades" not in render_report(waiting, FINISHED)
+
+
+def test_the_json_carries_the_block_only_when_the_phase_ran(tmp_path):
+    paths = Paths(tmp_path, support=tmp_path / ".support")
+    log = RunLog(STARTED)
+    assert "auto_upgrade" not in json.loads(write_run(paths, log, FINISHED, 0).with_suffix(".json").read_text())
+    log.auto_upgrade = block(done=1)
+    data = json.loads(write_run(paths, log, FINISHED, 0).with_suffix(".json").read_text())
+    assert data["auto_upgrade"] == block(done=1)
+    assert [s for s, _ in SECTIONS].index("upgraded") == [s for s, _ in SECTIONS].index("added_new") + 1
+    assert [s for s, _ in SECTIONS].index("upgrade_waits") == [s for s, _ in SECTIONS].index("upgraded") + 1
+
+
+def test_the_console_summary_counts_the_new_sections():
+    log = RunLog(STARTED)
+    log.add(Result("upgraded", "A", "Artist", "Song", "t2", "n"))
+    log.add(Result("upgrade_waits", "A", "Artist", "Song", "t3", "w"))
+    out = summary(log, Path("/r.md"))
+    assert "Upgraded (your cues stayed): 1" in out and "Upgrades still waiting: 1" in out
