@@ -473,3 +473,16 @@ Results:
   push, no release) → issue 38 (crash in 1.2.1; moved before C on my call) → stage C (plan, build, full reviews +
   rehearsal on a copy; merged into main once CI + verify are green, the user 2026-11-09: "merge it when your tests pass"; no release before its live test) → stage D (design direction, build) → issue 40 design
   round only (its build waits for the stage B live test, per the issue). Every dispatch through the gate (§2).
+- **RESUME HERE after a compact (2026-11-09 ~02:40):**
+  - Running: F4 (Sonnet, agent aaae40266f55be5e7, brief `brief-33-F4.md` in the scratchpad): S2 findings on
+    `feat/rekordbox-b`. On its notice: log its `subagent_tokens`, `ps` check.
+  - V (orchestrator, no agent): in the rb-b worktree `cd hub-ui && npm run verify` with `run_in_background` (~20 min,
+    read only the tail), `npm run smoke`, CI green on the last push. Look at the verify shots of the F3/F4 states
+    (selection head NoteCard, batch rows with `wrapName`, the ✕ colour (F3 #5, measured #7a7a80), the check cards);
+    a real problem → one Sonnet fix round. Then merge `feat/rekordbox-b` into main ("Merge feat/rekordbox-b: rekordbox
+    write side, batches, Same track for any format, Upgrade all"), CI on main, push, add the hash to issue 33 in
+    `docs/issues.md`. No release.
+  - Then issue 38 (one Sonnet agent, systematic debugging, branch `fix/playlists-switch`, merge when green), stage C
+    (Opus planner on design §9 stage C; per-group reviews + Opus stage review + rehearsal on a copy; merge when green;
+    no release before the user's live test), stage D (design direction, build, merge when green), issue 40 design
+    round only. Every dispatch through the gate; log every size; status line for the user at the top of this list.
