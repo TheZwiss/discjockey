@@ -45,6 +45,21 @@ def test_playlists_page_after_a_refresh(root):
     assert [o["track_id"] for o in page["overlaps"]] == ["t2"] and page["version"]
 
 
+def test_a_playlist_switched_off_before_any_read_is_listed_with_a_quality_of_zeros_and_can_be_switched_on(root):
+    # issue 38: nothing was read of the off line, so the row had `quality: null` and the page crashed on its switch
+    api, rec = make_api(root)
+    root.playlists_file.write_text(f"Hard_Bounce = https://open.spotify.com/playlist/{ID1}\n"
+                                   f"#off# Powertrance = https://open.spotify.com/playlist/{ID2}\n")
+    zeros = {"lossless": 0, "good_lossy": 0, "weak": 0, "fake": 0, "missing": 0}
+    rows = api.playlists()["rows"]
+    assert [(r["folder"], r["enabled"], r["quality"]) for r in rows] == [("Hard_Bounce", True, zeros),
+                                                                       ("Powertrance", False, zeros)]
+    on = api.preview_playlist_change(lines(HARD, POWER))  # the switch back on, read once right here
+    assert on["ok"] and on["kind"] == "add" and on["problem"] is None
+    off = api.preview_playlist_change(lines(HARD, (POWER[0], POWER[1], False)))
+    assert off["kind"] == "none"  # unchanged from the file: switched off already
+
+
 def test_add_a_playlist(root):
     api, rec = make_api(root)
     added = api.add_playlist(LINK3)

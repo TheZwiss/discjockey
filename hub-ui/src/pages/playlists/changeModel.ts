@@ -228,17 +228,26 @@ export function overlapCards(overlaps: Overlap[], rows: { folder: string; tracks
   });
 }
 
+/** The folders of the rows that are switched off in the draft. The engine counts a folder's songs by the playlists
+ *  that are on, so a switched-off playlist's folder always "loses" all of them; its files do not move or go anywhere
+ *  (issue 38), so such a folder is never listed as one whose files change. */
+export function switchedOffFolders(draft: Pick<DraftRow, 'folder' | 'enabled'>[]): Set<string> {
+  return new Set(draft.filter((r) => !r.enabled).map((r) => r.folder));
+}
+
 /** The move view's folder rows: each folder whose file count changes, in the backend's order (the new list's), with
- *  its count after the change and the difference; `max` is the biggest difference, the scale of every row's bar. */
-export function folderBars(fs: ChangePreview['folders']): { rows: { folder: string; after: number; delta: number }[];
-  max: number } {
-  const rows = fs.filter((f) => f.after !== f.before).map((f) => ({ folder: f.folder, after: f.after, delta: f.after - f.before }));
+ *  its count after the change and the difference; `max` is the biggest difference, the scale of every row's bar.
+ *  `off`: folders of switched-off playlists, left out (see switchedOffFolders). */
+export function folderBars(fs: ChangePreview['folders'], off: ReadonlySet<string> = new Set()): { rows: { folder: string;
+  after: number; delta: number }[]; max: number } {
+  const rows = fs.filter((f) => f.after !== f.before && !off.has(f.folder))
+    .map((f) => ({ folder: f.folder, after: f.after, delta: f.after - f.before }));
   return { rows, max: Math.max(0, ...rows.map((r) => Math.abs(r.delta))) };
 }
 
 /** What the unsaved change does to each folder (after - before, only the ones that change), for the main list. */
-export function folderChanges(p: ChangePreview | null): Map<string, number> {
-  return new Map((p ? folderBars(p.folders).rows : []).map((r) => [r.folder, r.delta]));
+export function folderChanges(p: ChangePreview | null, off: ReadonlySet<string> = new Set()): Map<string, number> {
+  return new Map((p ? folderBars(p.folders, off).rows : []).map((r) => [r.folder, r.delta]));
 }
 
 /** Under a playlist's name while a change is unsaved: "gets 27 more" / "gives 20 away". */

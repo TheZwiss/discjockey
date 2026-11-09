@@ -5,7 +5,7 @@
   // moves" (the move log, newest first, each with Undo or "Nothing left to undo"). Unsaved:
   // preview_playlist_change(lines), debounced 300 ms; request ids drop answers that arrive out of order; while a newer
   // answer loads the last one stays, dimmed. The preview shows every part that applies, numbers first: new downloads
-  // and their days, tracks that stop updating, then either the save question (a change that puts files in another
+  // and their days, tracks left out of the sync (their files stay), then either the save question (a change that puts files in another
   // folder: the rename on disk as a switch, the files as one list, the warning card, Save and move · Save, leave
   // files where they are) or each changed folder's count after the change (DeltaBar) and the tracks without a file
   // that land elsewhere later. A problem is a red NoteCard; Save is off while it shows.
@@ -23,7 +23,8 @@
   import { dataVersion, networkReadsAllowed } from '$lib/stores/hub';
   import { runWhen } from '$lib/format';
   import {
-    NO_PREVIEW, PREVIEW_AFTER_SYNC, folderBars, moveRoutes, overlapCards, panelFor, previewRequests, type FoldRow,
+    NO_PREVIEW, PREVIEW_AFTER_SYNC, folderBars, moveRoutes, overlapCards, panelFor, previewRequests, switchedOffFolders,
+    type FoldRow,
     type Panel as PanelState, type PanelTab, type PreviewState,
   } from './changeModel';
   import TidyList from './TidyList.svelte';
@@ -119,7 +120,8 @@
   const p = $derived(panel.preview && !panel.preview.problem ? panel.preview : null);
   // the button unmounts with the question, and WebKit fires no pointerleave or blur for that
   $effect(() => { if (!(p && q)) leaving = false; });
-  const bars = $derived(p && !q ? folderBars(p.folders) : { rows: [], max: 0 });
+  // a switched-off playlist's folder keeps its files: it is never a folder that changes (issue 38)
+  const bars = $derived(p && !q ? folderBars(p.folders, switchedOffFolders(lines)) : { rows: [], max: 0 });
   const routes = $derived(p && !q ? moveRoutes(p) : []);
   const moving = $derived(routes.reduce((n, r) => n + r.rows.length, 0));
   // the backend's headline only when no number or list says the change (rename of an empty folder, nothing changes)
@@ -194,7 +196,7 @@
         {/if}
         {#if p.stopped}
           <StatCard value={p.stopped} unit={p.stopped === 1 ? 'track' : 'tracks'}
-            label="stop updating · their files stay" data-test="stat-stopped" />
+            label="left out of the sync · their files stay" data-test="stat-stopped" />
         {/if}
         {#if p.unknown.length}
           <NoteCard title="Discjockey hasn't read the new playlist yet" data-test="preview-unknown">
@@ -211,7 +213,8 @@
         {/if}
         {#if headlineOnly}
           <Surface kind="card" label={p.headline} data-test="preview-headline">
-            <Hint text="Read your playlists after saving to see its tracks." />
+            <Hint text={panel.view === 'switch_off' ? 'Its files stay where they are.'
+              : 'Read your playlists after saving to see its tracks.'} />
           </Surface>
         {/if}
         {#if bars.rows.length}

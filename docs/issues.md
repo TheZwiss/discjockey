@@ -50,18 +50,6 @@ throwaway scripts of its own rather than through Discjockey.
   the exit codes and the rule that JSON `ok` stays true when a batch ran to its end with skipped tracks (exit 1);
   gather them into the agent docs.
 
-## 38. Playlists: switching a playlist off says its songs get removed; switching it back on crashes the page (user, 2026-11-07, live in 1.2.1)
-
-Found live by the user on the Playlists page:
-- **Wrong words.** When a playlist is switched off, the right panel (`ChangePanel`, the `switch_off` view) reads as
-  if the playlist's songs get removed. They most likely don't: nothing is ever deleted, and the row itself says
-  "switched off · files stay". Check what the panel says and what really happens to the files and the songs' records
-  when the switch is saved. Then make the words say exactly that, in the same terms as Sync's switch (issue 37: off
-  means the playlist is left out of the sync, its files stay where they are).
-- **Crash.** Switching the same playlist back on shows the page's error screen: "Something went wrong on this
-  screen." with a Reload button. Find the root cause (engine or UI), fix it there, and add a test that pins it.
-  Check the other switch paths on the page too: on → off → on before saving, after saving, and with several rows.
-
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them (user, 2026-10-31) — stages C–E open
 
 Design: `docs/2026-11-07-rekordbox-repoint-design.md` (the user's answers and wishes A–C built in; stage E is issue 40).
