@@ -497,7 +497,9 @@ Results:
     **363k**, 97 calls: Python bridge + contract + types + run store + fake shapes; the fake phase, 9 scenarios and the
     toolbar toggle left, `c4-handoff.md`). Lesson: a bridge group (Python + contract + TS + fake) should have been split
     bridge vs fake BEFORE dispatch (checklist line 3); the "stop past ~250k" line fired ~110k late. C4b (Sonnet, fake
-    scenarios) running.
+    scenarios) done 6dbc615 (Sonnet **218k**: fake phase, 9 scenarios, toolbar "rekordbox open"); C4 merged into the
+    stage branch 9532047. Routes per state: C4b report, copied into U1/U2 briefs. RH (Sonnet, rehearsal on a copy)
+    running.
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
