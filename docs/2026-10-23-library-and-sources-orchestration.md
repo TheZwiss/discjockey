@@ -491,7 +491,9 @@ Results:
     stage B bug fixed: re-measured "not the same edit" now stored). R-C2 done 881b21d (Sonnet **186k**: 3 Important
     (end-of-sync words, `unknown` compare re-decoded each sync → `needs_choice` record on file mtimes, Stop before the
     quiet-sync phase) + 2 Minor, all fixed). C2 merged into the stage branch 65774a5. Facts for later groups:
-    scratchpad `stage-c-notes.md`. C3 running (Sonnet; no per-group review, R2 covers it).
+    scratchpad `stage-c-notes.md`. C3 done c0a56dc (Sonnet **268k**, 110 calls: sync --json,
+    settings auto-upgrade, CLAUDE.md invariant, README, CONTRIBUTING); merged into the stage branch 8bf2ef1. R2 to
+    check: the console runs a dry-run phase before every sync (double compare cost?). C4 running (Sonnet).
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
