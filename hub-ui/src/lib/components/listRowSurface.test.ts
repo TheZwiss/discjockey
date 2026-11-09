@@ -71,4 +71,14 @@ describe('ListRow', () => {
     expect(attr(button, 'aria-disabled')).toBe('true');
     expect(attr(button, 'role')).toBeUndefined();
   });
+
+  it('a row of a multi-select list is a toggle (aria-pressed), never aria-current on many rows', () => {
+    const on = render(ListRow, { props: { name: html('A'), selected: true, multi: true, onclick: () => {} } }).body.match(/<button\b[^>]*>/)?.[0] ?? '';
+    expect(attr(on, 'aria-pressed')).toBe('true');
+    expect(attr(on, 'aria-current')).toBeUndefined();
+    const off = render(ListRow, { props: { name: html('B'), multi: true, onclick: () => {} } }).body.match(/<button\b[^>]*>/)?.[0] ?? '';
+    expect(attr(off, 'aria-pressed')).toBe('false');
+    const single = render(ListRow, { props: { name: html('C'), onclick: () => {} } }).body.match(/<button\b[^>]*>/)?.[0] ?? '';
+    expect(attr(single, 'aria-pressed')).toBeUndefined();
+  });
 });

@@ -10,6 +10,7 @@ import { dayMonth, duration, fileAway, rowAway } from '$lib/format';
 import { canSwap, defaultWay, fileName } from '$lib/decisions/decisionModel';
 import { heldRow, putAt } from '$lib/decisions/hold';
 import { fitPath } from '$lib/components/watchedFoldersModel';
+import { keep as keepSelected, type Selection } from '$lib/components/selectionModel';
 
 /** Filter order = the contract's group order (= the list's section order), All first. The import's two groups come
  *  right after rekordbox: they hold downloads back until they are answered (plan library stage 4 D4), and the strip
@@ -144,6 +145,48 @@ export function heldChecks(items: TodoItem[], h: CheckHold): { keys: string[]; t
 /** The Upgrade ready group of an answer (its `all` and `stopped` drive the head's link), null when it has none. */
 export function upgradeGroup(t: Todo | null): Todo['groups'][number] | null {
   return t?.groups.find((g) => g.key === 'upgrade_ready') ?? null;
+}
+
+/** "Upgrade all · n": the group's items that Upgrade all can reach. A hidden item is left out (the hub's `upgrade_all`
+ *  leaves it out, and the head's n doesn't count it), also with Show hidden on. */
+export function upgradeAllKeys(group: { items: TodoItem[] } | null): string[] {
+  return group ? group.items.filter((i) => !i.hidden).map(itemKey) : [];
+}
+/** Whether the selection is the whole group as Upgrade all means it: every item it can reach, and no hidden one (that
+ *  would be a choice of its own, sent as a list). */
+export function wholeUpgradeGroup(group: { items: TodoItem[] } | null, selected: TodoItem[]): boolean {
+  const keys = upgradeAllKeys(group);
+  const picked = new Set(selected.map(itemKey));
+  return keys.length > 0 && keys.every((k) => picked.has(k)) && selected.every((i) => !i.hidden);
+}
+/** A batch's panel stays until the next pick of the user's own: while it is pinned, a re-fetch keeps only the rows
+ *  still in the list selected (the batch's tracks leave it one by one) and never moves the pick to a neighbour, which
+ *  could be the new check row of the batch just done. */
+export function keepPinned(sel: Selection, before: string[], after: string[]): Selection {
+  return keepSelected(sel, before, after, () => null);
+}
+/** The checks panel gives way to a pinned batch's result: its rows may have become the checks' (the batch's own check
+ *  row appears in another group when it is done). */
+export const checksPanelShows = (pinnedBatch: boolean, hasChecks: boolean): boolean => hasChecks && !pinnedBatch;
+/** The list follows a running batch: one fresh answer per track done. `prev`: the count seen last (-1: no batch ran);
+ *  returns whether to ask again and the count to remember. */
+export function batchListStep(prev: number, v: { phase: 'running' | 'ended'; done: number } | null): { reload: boolean; seen: number } {
+  if (!v || v.phase !== 'running') return { reload: false, seen: -1 };
+  return { reload: prev >= 0 && v.done > prev, seen: v.done };
+}
+/** One run at a time, a call during a run asks for exactly one more after it (the list's fresh answers during a batch:
+ *  a burst of progress events is not a burst of requests). */
+export function coalesce(run: () => Promise<void>): () => void {
+  let busy = false;
+  let again = false;
+  const go = async (): Promise<void> => {
+    if (busy) { again = true; return; }
+    busy = true;
+    try {
+      do { again = false; await run(); } while (again);
+    } finally { busy = false; }
+  };
+  return () => { void go(); };
 }
 
 // ---------- the item just acted on ----------

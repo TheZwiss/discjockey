@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest';
 import type { BatchCheckItem, RekordboxCheckView, TodoItem, TrackDetail } from '$lib/bridge/types';
 import {
   NOT_IN_REKORDBOX, USB_STEP, batchCheckCard, batchRowName, batchRowSub, checkCard, checkRow, checkTracks, checksTitle,
-  decisionFor, inRekordbox, keptLine, replacedCard, undoAllLabel, undoManyConfirm, undoManyLabel, undoProblem, undoneToast,
+  decisionFor, inRekordbox, keptLine, replacedCard, tracksSummary, undoAllLabel, undoFoot, undoManyConfirm, undoManyLabel, undoProblem,
+  undoneToast,
 } from './decisionModel';
 
 const view = (extra: Partial<RekordboxCheckView> = {}): RekordboxCheckView => ({ reason: 'repointed', since: '2026-11-08',
@@ -111,6 +112,22 @@ describe('several checks selected, and their undo', () => {
     expect(undoManyConfirm(3)).toMatchObject({ title: 'Undo 3 replaces?', confirmLabel: 'Undo 3',
       body: 'Your old files go back where they were. The new versions wait in Upgrades ready again.' });
     expect(undoManyConfirm(1).title).toBe('Undo 1 replace?');
+  });
+  it('the list counts its tracks next to the checks selected (a batch among them has several)', () => {
+    expect([tracksSummary(1), tracksSummary(5)]).toEqual(['1 track', '5 tracks']);
+    expect(checksTitle(1)).toBe('1 check selected');
+    expect(checksTitle(2)).toBe('2 checks selected');
+    expect(checkTracks([batch, check('c1')])).toHaveLength(3);
+  });
+  it('the foot: Undo all n only when every track can go, else Undo n and how many cannot', () => {
+    const all = undoFoot([check('a'), check('b')]);
+    expect([all.ids, all.label, all.cant]).toEqual([['a', 'b'], 'Undo all 2', null]);
+    const some = undoFoot([check('a'), check('b', {}, { can_undo: false }), check('c', {}, { can_undo: false })]);
+    expect([some.ids, some.label, some.cant]).toEqual([['a'], 'Undo 1', "2 can't be undone"]);
+    // a track just refused is not offered again; its row says why, so the muted line doesn't count it
+    const refused = undoFoot([check('a'), check('b')], { b: 'the file changed' });
+    expect([refused.ids, refused.label, refused.cant]).toEqual([['a'], 'Undo 1', null]);
+    expect(undoFoot([check('a', {}, { can_undo: false })]).ids).toEqual([]);
   });
   it('the toast counts what came back', () => {
     expect([undoneToast(1), undoneToast(2)]).toEqual(['Upgrade undone. Your old file is back.',

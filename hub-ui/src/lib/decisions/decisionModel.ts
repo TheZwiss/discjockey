@@ -372,11 +372,12 @@ export function selectionWays(items: Pick<TodoItem, 'same_track' | 'path'>[]): S
     { tone: 'kept', text: `${n} ${plural(n, 'keeps its cues, playlists and history', 'keep their cues, playlists and history')}` },
     ...(aiffAll ? [] : [{ tone: 'file' as const, text: "Files that aren't AIFF become AIFF files" }]),
     QUIT_STEP, ...stay] };
+  // `needs_choice` is a different edit or one nobody measured (the item doesn't say which): "may be" is true of both
   const differ = m;
   const added: WayOption = { key: 'add_new', name: `New track · ${count.add_new}`,
-    summary: differ ? 'Set the cues again' : 'Relocate your old tracks to keep cues', outcomes: [
+    summary: differ ? 'Cues may need setting again' : 'Relocate your old tracks to keep cues', outcomes: [
       { tone: 'step', text: 'rekordbox lists them as new tracks' },
-      differ ? { tone: 'step', text: `${differ} ${plural(differ, 'is another edit: set its cues again', 'are another edit: set their cues again')}` }
+      differ ? { tone: 'step', text: `${differ} may be another edit: listen first` }
         : { tone: 'kept', text: 'Relocate your old tracks: cues fit' }] };
   if (n) return { choice: true, options: [same, added], fixed: [], reason: null, way: 'swap', tip: null, n, m, k, count };
   const reason = m === items.length ? 'Same track needs the same edit' : 'None of these can stay the same track: each row says why';
@@ -462,9 +463,33 @@ export function batchEnd(mode: BatchMode, out: { ok: boolean; kind?: ProblemKind
 /** The end's number and its words (§3: "{n} upgraded, your cues stayed."). */
 export function endWords(e: Pick<BatchEnd, 'mode' | 'done'>): { unit: string; label: string } {
   const unit = plural(e.done, 'track', 'tracks');
-  if (e.mode === 'add_new') return { unit, label: 'added as new tracks' };
+  if (e.mode === 'add_new') return { unit, label: 'added as new' };
   if (e.mode === 'discard') return { unit: plural(e.done, 'new version', 'new versions'), label: 'discarded' };
   return { unit, label: e.done ? 'upgraded, your cues stayed' : 'upgraded' };
+}
+/** Where focus goes when the selection panel's foot changes under it (the pressed button is gone): Stop while a batch
+ *  runs, then at its end the filled button, Resume / Try again / Done. `data-test` of the button; null: no phase. */
+export function panelFocus(v: { phase: 'running' | 'ended'; end: { resume: unknown } | null; again: unknown } | null | undefined):
+  string | null {
+  if (!v) return null;
+  if (v.phase === 'running') return 'batch-stop';
+  return v.end?.resume ? 'batch-resume' : v.again ? 'batch-again' : 'batch-close';
+}
+/** The selection panel's ✕ took a row out: the row that now stands at its place (the last one when it was last), its
+ *  ✕ is where focus goes; null when no row is left (the panel gives way to the details). */
+export function focusAfterDrop<T>(rows: T[], at: number): T | null {
+  const left = rows.filter((_, i) => i !== at);
+  return left.length ? left[Math.min(at, left.length - 1)] : null;
+}
+/** A row of the batch card left (its undo): the next track with an undo of its own, else the one before it; null when
+ *  none is left (focus then goes to Done). `before` / `after`: the track ids in order, `withUndo` those that can still be undone. */
+export function focusAfterRowGone(before: string[], after: string[], withUndo: ReadonlySet<string>): string | null {
+  const gone = before.findIndex((id) => !after.includes(id));
+  if (gone < 0) return null;
+  const later = before.slice(gone + 1).filter((id) => after.includes(id) && withUndo.has(id));
+  if (later.length) return later[0];
+  const earlier = before.slice(0, gone).filter((id) => after.includes(id) && withUndo.has(id));
+  return earlier.at(-1) ?? null;
 }
 export const notDoneTitle = (m: number, mode: BatchMode): string =>
   `${m} not ${mode === 'discard' ? 'discarded' : 'upgraded'}`;
@@ -531,9 +556,22 @@ export function checkRow(i: TodoItem, name: string, sub: 'file' | 'detail'): Che
     sub: sub === 'file' && i.path ? fileName(i.path) : i.detail, notes: notes.filter(Boolean) };
 }
 export const checksTitle = (n: number): string => `${n} ${plural(n, 'check', 'checks')} selected`;
-/** The batch card's "Undo all {n}", the selection's "Undo {n}" (n: the tracks that can be undone). */
+/** The selection list's summary: its tracks (a batch among the checks counts for all of its tracks). */
+export const tracksSummary = (n: number): string => `${n} ${plural(n, 'track', 'tracks')}`;
+/** "Undo all {n}" (every track can go), "Undo {n}" (n: the tracks that can be undone). */
 export const undoAllLabel = (n: number): string => `Undo all ${n}`;
 export const undoManyLabel = (n: number): string => `Undo ${n}`;
+/** The foot's undo for the tracks of a batch card or several checks: the tracks that can be undone now (a track whose
+ *  undo was just refused isn't offered again until the next pick), the button's words ("Undo all {n}" only when every
+ *  track can go, else "Undo {n}") and the muted line for the tracks that have nothing to undo ("{k} can't be undone";
+ *  the refused ones say why in their rows and under the buttons). */
+export function undoFoot(tracks: Pick<TodoItem, 'track_id' | 'can_undo'>[], refused: Record<string, string> = {}):
+  { ids: string[]; label: string; cant: string | null } {
+  const ids = tracks.filter((t) => t.can_undo && !refused[t.track_id]).map((t) => t.track_id);
+  const none = tracks.filter((t) => !t.can_undo).length;
+  return { ids, label: ids.length === tracks.length ? undoAllLabel(ids.length) : undoManyLabel(ids.length),
+    cant: none ? `${none} can't be undone` : null };
+}
 export const undoManyConfirm = (n: number) => ({ title: `Undo ${n} ${plural(n, 'replace', 'replaces')}?`,
   body: n === 1 ? 'Your old file goes back where it was. The new version waits in Upgrades ready again.'
     : 'Your old files go back where they were. The new versions wait in Upgrades ready again.',

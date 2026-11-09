@@ -7,20 +7,27 @@
   //   Tag only for the tracks whose text Discjockey couldn't write, by name; analyse them again; the USB stick), then
   //   "Upgraded n today" with a row per track: its new file, what was kept as the user edited it, a file rekordbox
   //   doesn't have, and "Undo this one" while it can;
-  // - several checks: "{N} checks selected" with a row per track saying what is left to do in rekordbox (each check
-  //   can be of another kind, so the row's own line, as in the to-do list).
-  // The foot is BatchCheckFoot: Done for all of them, Undo all / Undo n. An undo that left tracks as they were says why
-  // in their rows, one line under the buttons.
+  // - several checks: "{N} checks selected" (N list items) over "{n} tracks", with a row per track saying what is left
+  //   to do in rekordbox (each check can be of another kind, so the row's own line, as in the to-do list).
+  // The foot is BatchCheckFoot: Done for all of them, Undo all n (every track can go) / Undo n and how many can't. An
+  // undo that left tracks as they were says why in their rows, one line under the buttons.
+  import { untrack } from 'svelte';
   import type { TodoItem } from '$lib/bridge/types';
   import { Cover, ListRow, NumberedSteps, Surface, WriteButton } from '$lib/components';
   import { Panel } from '$lib/frames';
   import BatchCheckFoot from './BatchCheckFoot.svelte';
-  import { batchCheckCard, checkRow, checksTitle, localDay, sinceText, type CheckRow } from './decisionModel';
+  import {
+    batchCheckCard, checkRow, checksTitle, focusAfterRowGone, localDay, sinceText, tracksSummary, type CheckRow,
+  } from './decisionModel';
+  import { refocus } from './focus';
   import type { ChecksFlow } from './flows.svelte';
 
-  let { tracks, batch = null, nameOf, flow }: {
+  let { tracks, batch = null, selected = tracks.length, nameOf, flow }: {
     /** the checks' tracks, in list order (a batch item's `batch.tracks`, or every selected item with batches opened) */
     tracks: TodoItem[];
+    /** several checks selected: how many list items that is (a batch among them is one item, several tracks); the
+     *  title counts items as the list, tab and chips do, the summary the tracks */
+    selected?: number;
     /** the batch these tracks are (one batch item selected), null for several checks selected */
     batch?: { id: number; started: string | null } | null;
     nameOf: (i: TodoItem) => string;
@@ -32,6 +39,23 @@
   const day = $derived(batch ? sinceText(batch.started, localDay(new Date())) : '');
   const refused = $derived(flow.problem?.rows ?? {});
   const byId = $derived(new Map(tracks.map((t) => [t.track_id, t])));
+
+  // "Undo this one" takes its row out of the list: focus goes to the next row's undo, else Done (only when it was lost)
+  let root = $state<HTMLElement>();
+  let before = untrack(() => rows.map((r) => r.track_id));
+  $effect(() => {
+    const ids = rows.map((r) => r.track_id);
+    const withUndo = new Set(rows.filter((r) => r.can_undo && !refused[r.track_id]).map((r) => r.track_id));
+    untrack(() => {
+      const was = before;
+      before = ids;
+      if (ids.length >= was.length) return;
+      const next = focusAfterRowGone(was, ids, withUndo);
+      void refocus(() => (next
+        ? root?.querySelector<HTMLElement>(`[data-test="check-row"][data-track="${CSS.escape(next)}"] [data-test="check-row-undo"]`)
+        : null) ?? root?.querySelector<HTMLElement>('[data-test="rekordbox-done"]'));
+    });
+  });
 </script>
 
 {#snippet undoGlyph()}
@@ -74,7 +98,7 @@
 
 {#snippet fill()}
   <!-- the row grid: cover · name over its lines · the undo slot, kept on every row so the names end at one x -->
-  <Surface kind="list" label={batch ? 'Upgraded' : checksTitle(tracks.length)} summary={batch ? String(tracks.length) : undefined}
+  <Surface kind="list" label={batch ? 'Upgraded' : checksTitle(selected)} summary={batch ? String(tracks.length) : tracksSummary(tracks.length)}
     hint={batch && day ? (day === 'today' ? 'today' : `on ${day}`) : undefined}
     style="--row-cols: 28px minmax(0, 1fr) var(--h-ctl-sm)" grow={{ rows: rows.length, tall: true }}
     data-test={batch ? 'batch-tracks' : 'check-selection-rows'}>
@@ -82,9 +106,9 @@
   </Surface>
 {/snippet}
 
-{#snippet foot()}<BatchCheckFoot {tracks} {batch} {flow} />{/snippet}
+{#snippet foot()}<BatchCheckFoot {tracks} {flow} />{/snippet}
 
-<div class="checks" data-test="check-batch" data-mode={batch ? 'batch' : 'selection'}>
+<div class="checks" bind:this={root} data-test="check-batch" data-mode={batch ? 'batch' : 'selection'}>
   <Panel head={card ? head : undefined} {fill} {foot} />
 </div>
 

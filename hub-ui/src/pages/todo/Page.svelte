@@ -23,7 +23,7 @@
   import { filesVersion } from '$lib/stores/hub';
   import {
     NO_SELECTION, clickSelect, dropSelected, escapeSelection, isSelected, keepSelected, moveSelected, onlySelected,
-    selectAll, selectOne, selectScope, type Selection,
+    selectAll, selectOne, type Selection,
   } from '$lib/components';
   import { BatchCheckCards, ChecksFlow, UpgradeSelection, upgradeBatch } from '$lib/decisions';
   import { batchRowName, batchRowSub, checkTracks, localDay, resumeLabel, upgradeAllLabel } from '$lib/decisions/decisionModel';
@@ -36,7 +36,8 @@
   import { artistTitle, rowAway } from '$lib/format';
   import {
     FILTER_MAX, segOptions, filterFrom, findHeld, flatten, ghostOf, headerSub, holdApplies, itemKey, keepSelection,
-    heldChecks, multiChecks, multiScope, openCount, queueRows, rowBadge, rowDim, selectAfterHide, selectFromTrack, upgradeGroup, withHeldItem,
+    batchListStep, checksPanelShows, coalesce, heldChecks, keepPinned, multiChecks, multiScope, openCount, queueRows, rowBadge, rowDim,
+    selectAfterHide, selectFromTrack, upgradeAllKeys, upgradeGroup, wholeUpgradeGroup, withHeldItem, MULTI_GROUPS,
     type CheckHold, type TodoHold,
   } from './todoModel';
   import Details from './Details.svelte';
@@ -84,9 +85,27 @@
     if (panelChecks) checkHold = { ids: panelChecks.tracks.map((t) => t.track_id), batch: panelChecks.batch };
   } });
   const upGroup = $derived(upgradeGroup(data));
-  const wholeGroup = $derived(!!upGroup && multiUp && upGroup.items.filter((i) => !i.hidden).every((i) => isSelected(sel, itemKey(i))));
-  // a batch the hub runs that this window didn't start (it was reloaded): its panel follows it
-  $effect(() => { const j = $hub.job; untrack(() => upgradeBatch.adopt(j)); });
+  const wholeGroup = $derived(multiUp && wholeUpgradeGroup(upGroup, selItems));
+  // a batch's panel with its progress or result, kept until the next pick: it comes before the checks' panel, which the
+  // finished batch's own check row (another group, picked by position) would otherwise put in its place
+  const pinnedBatch = $derived(pinned && !!upgradeBatch.view);
+  // a batch the hub runs that this window didn't start (it was reloaded): its panel follows it from the start
+  $effect(() => {
+    const j = $hub.job;
+    untrack(() => {
+      const had = !!upgradeBatch.view;
+      upgradeBatch.adopt(j);
+      if (!had && upgradeBatch.view) pinned = true;
+    });
+  });
+  // the list follows a running batch: a fresh answer per track done, so the rows and counts move as the engine's state does
+  const liveLoad = coalesce(() => load());
+  let seenDone = -1;
+  $effect(() => {
+    const v = upgradeBatch.view;
+    const step = batchListStep(untrack(() => seenDone), v ? { phase: v.phase, done: v.done } : null);
+    untrack(() => { seenDone = step.seen; if (step.reload) liveLoad(); });
+  });
   // the names of the listed upgrades, for a batch's end to name tracks it had no progress row for (Resume, adopt)
   $effect(() => {
     const names = items.filter((i) => i.group === 'upgrade_ready').map((i): [string, string] => [i.track_id, artistTitle(i.artist, i.title)]);
@@ -180,7 +199,8 @@
       // the checks the panel acted on: the rows that still hold them stay selected; none left ends the hold
       const checks = !fromQuery && checkHold ? heldChecks(after, checkHold) : null;
       if (checkHold && !checks) checkHold = null;
-      sel = fromQuery ? selectOne(fromQuery) : held ? selectOne(itemKey(held))
+      sel = fromQuery ? selectOne(fromQuery) : upgradeBatch.view && pinned ? keepPinned(sel, before.map(itemKey), after.map(itemKey))
+        : held ? selectOne(itemKey(held))
         : checks ? { keys: checks.keys, anchor: checks.keys[0] }
         : keepSelected(sel, before.map(itemKey), after.map(itemKey), (a) => keepSelection(a, before, after));
       if (held && !fromQuery) hold = next;
@@ -270,7 +290,10 @@
   }
 
   /** "Upgrade all · n": the group selected, its first item the anchor; the panel then offers it. */
-  function upgradeAll() { picked(selectScope('upgrade_ready', order, scopeOf)); }
+  function upgradeAll() {
+    const keys = upgradeAllKeys(upGroup);
+    picked(keys.length ? { keys, anchor: keys[0] } : NO_SELECTION);
+  }
   /** "Resume · k left": confirmed when the batch started, so it runs at once; its panel shows the progress. */
   function resume(batch_id: number) {
     if (upgradeBatch.view?.phase === 'running') return;
@@ -282,7 +305,7 @@
   function batchDone() {
     pinned = false;
     const first = upGroup?.items[0] ?? items[0];
-    sel = selectOne(first ? itemKey(first) : null);
+    pickOne(first ? itemKey(first) : null);
   }
   // the panel's own Resume says it while it shows that batch's end, so the head doesn't say it twice
   const headResume = $derived(upGroup?.stopped && !(batchShown && upgradeBatch.view?.end?.resume?.batch_id === upGroup.stopped.batch_id)
@@ -328,7 +351,7 @@
       text="FREE" /></span>{/if}</span>
   {/snippet}
   {@const on = isSelected(sel, key)}
-  <ListRow {lead} {name} {sub} {trailing} selected={on} reveal={on && key === sel.anchor} pick off={rowDim(i)}
+  <ListRow {lead} {name} {sub} {trailing} selected={on} multi={MULTI_GROUPS.includes(i.group)} reveal={on && key === sel.anchor} pick off={rowDim(i)}
     onclick={(e) => choose(key, e)}
     title={batch ? batch.tracks.map((t) => artistTitle(t.artist, t.title)).join('\n') : artistTitle(i.artist, i.title)}
     test="todo-row" data-key={key} data-track={i.track_id} data-batch={batch?.id} />
@@ -385,12 +408,15 @@
 {/snippet}
 
 {#snippet panel()}
-  {#if panelChecks}
-    <BatchCheckCards tracks={panelChecks.tracks} batch={panelChecks.batch} nameOf={(i) => artistTitle(i.artist, i.title)}
+  {#if panelChecks && checksPanelShows(pinnedBatch, true)}
+    <BatchCheckCards tracks={panelChecks.tracks} batch={panelChecks.batch} selected={panelChecks.batch ? undefined : selItems.length || undefined} nameOf={(i) => artistTitle(i.artist, i.title)}
       flow={checksFlow} />
   {:else if selPanel}
     <UpgradeSelection items={selItems.filter((i) => i.group === 'upgrade_ready')} all={wholeGroup}
-      nameOf={(i) => artistTitle(i.artist, i.title)} ondrop={(i) => picked(dropSelected(sel, itemKey(i)))}
+      nameOf={(i) => artistTitle(i.artist, i.title)} ondrop={(i) => {
+        picked(dropSelected(sel, itemKey(i)));
+        if (sel.keys.length < 2) void focusSelected();   // the selection panel gives way: focus the row left
+      }}
       ondone={batchDone} onact={() => (pinned = true)} />
   {:else if selected && isQuestion(selected)}
     {#key itemKey(selected)}<QuestionDetails item={selected} />{/key}

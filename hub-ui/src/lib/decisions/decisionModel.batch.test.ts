@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { AiffBatchResult, ItemResult, TodoItem, Upgrade } from '$lib/bridge/types';
 import {
   QUIT_REKORDBOX, batchEnd, canTryAgain, defaultWay, discardConfirm, discardLabel, endGroups, endNote, endRows, endWords,
-  goes, progressRows, replaceManyLabel, resumeLabel, runRow, sameTrackWhy, selectedTitle, selectionWays, upgradeAllLabel,
+  focusAfterDrop, focusAfterRowGone, goes, panelFocus, progressRows, replaceManyLabel, resumeLabel, runRow, sameTrackWhy, selectedTitle, selectionWays, upgradeAllLabel,
   upgradeWays, type RunRow,
 } from './decisionModel';
 
@@ -36,7 +36,7 @@ describe('several upgrades selected', () => {
     const w = selectionWays([item('a', null), item('b', 'needs_choice'), item('c', 'needs_choice')]);
     expect(w.options[0].outcomes![0].text).toBe('1 keeps its cues, playlists and history');
     expect(w.options[0].outcomes!.at(-1)!.text).toBe('2 need your choice and stay');
-    expect(w.options[1].outcomes![1].text).toBe('2 are another edit: set their cues again');
+    expect(w.options[1].outcomes![1].text).toBe('2 may be another edit: listen first');
   });
   it('with none for Same track there is no choice: new tracks, and why', () => {
     const all = selectionWays([item('a', 'needs_choice'), item('b', 'needs_choice')]);
@@ -109,7 +109,7 @@ describe('a batch running and its end', () => {
     const e = batchEnd('swap', { ok: true, result: result([res('a', 'done'), res('b', 'done')]) });
     expect([e.kind, e.done, e.resume, endNote(e), canTryAgain(e)]).toEqual(['done', 2, null, null, false]);
     expect(endWords(e)).toEqual({ unit: 'tracks', label: 'upgraded, your cues stayed' });
-    expect(endWords({ mode: 'add_new', done: 1 })).toEqual({ unit: 'track', label: 'added as new tracks' });
+    expect(endWords({ mode: 'add_new', done: 1 })).toEqual({ unit: 'track', label: 'added as new' });
     expect(endWords({ mode: 'discard', done: 2 })).toEqual({ unit: 'new versions', label: 'discarded' });
   });
   it('stopped by Stop: the line and Resume with the tracks left', () => {
@@ -177,5 +177,30 @@ describe('the single panel: Same track for any format (§6.3)', () => {
     const w = upgradeWays(upgrade({ swap_possible: false, why_not: 'not_analysed' }), false);
     expect([w.reason, w.tip]).toEqual(['Same track needs the track analysed in rekordbox first', null]);
     expect(defaultWay(null, false)).toBe('add_new');
+  });
+});
+
+describe('where focus goes when a panel changes under it', () => {
+  const end = (over: object = {}) => ({ resume: null, ...over });
+  it('Stop while a batch runs, then the filled button of its end', () => {
+    expect(panelFocus(null)).toBeNull();
+    expect(panelFocus({ phase: 'running', end: null, again: null })).toBe('batch-stop');
+    expect(panelFocus({ phase: 'ended', end: end({ resume: { batch_id: 1, left: 2 } }), again: null })).toBe('batch-resume');
+    expect(panelFocus({ phase: 'ended', end: end(), again: () => {} })).toBe('batch-again');
+    expect(panelFocus({ phase: 'ended', end: end(), again: null })).toBe('batch-close');
+  });
+  it('after a ✕ the row now in its place, the last row when it was last, none when none is left', () => {
+    expect(focusAfterDrop(['a', 'b', 'c'], 0)).toBe('b');
+    expect(focusAfterDrop(['a', 'b', 'c'], 1)).toBe('c');
+    expect(focusAfterDrop(['a', 'b', 'c'], 2)).toBe('b');
+    expect(focusAfterDrop(['a'], 0)).toBeNull();
+  });
+  it('after a row is undone the next undo, else the one before it, else nothing (Done)', () => {
+    const all = new Set(['a', 'b', 'c']);
+    expect(focusAfterRowGone(['a', 'b', 'c'], ['a', 'c'], all)).toBe('c');
+    expect(focusAfterRowGone(['a', 'b', 'c'], ['a', 'b'], all)).toBe('b');
+    expect(focusAfterRowGone(['a', 'b', 'c'], ['a', 'c'], new Set(['a']))).toBe('a');
+    expect(focusAfterRowGone(['a', 'b'], ['a'], new Set())).toBeNull();
+    expect(focusAfterRowGone(['a', 'b'], ['a', 'b'], all)).toBeNull();
   });
 });

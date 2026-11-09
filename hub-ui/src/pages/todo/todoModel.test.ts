@@ -10,6 +10,7 @@ import {
   NO_VALUE, compareLines, fileFolder, filePlace, fileName, fileQueue, fileState, keepLabel, linkService, queueRows, rowBadge,
   checkCard, editLine, fileFormat, fileWords, groupIdOf, keepWords, lastFolder, localDay, replaceLabel, replacedCard,
   sinceText, upgradeWays, findHeld, ghostOf, holdApplies, openCount, withHeldItem, type TodoHold,
+  batchListStep, checksPanelShows, coalesce, keepPinned, upgradeAllKeys, wholeUpgradeGroup,
 } from './todoModel';
 import type { RekordboxCheckView } from '$lib/bridge/types';
 import { stepChoice } from '$lib/components/choiceModel';
@@ -950,5 +951,52 @@ describe('the U2 states in fake mode', () => {
     const one = items.find((i) => i.check?.reason === 'repointed');
     expect(one && isBatch(one)).toBe(false);
     expect(one!.check).toMatchObject({ batch: { size: 1 }, reload_tag: false, rekordbox: { entries: 1, kept: [] } });
+  });
+});
+
+describe('Upgrade all and the batch panel (issue 33 stage B)', () => {
+  const group = { items: [item('a', 'upgrade_ready'), item('h', 'upgrade_ready', { hidden: true }), item('b', 'upgrade_ready')] };
+  it('Upgrade all leaves a hidden item out, also with Show hidden on', () => {
+    expect(upgradeAllKeys(group)).toEqual(['upgrade_ready/a', 'upgrade_ready/b']);
+    expect(upgradeAllKeys(null)).toEqual([]);
+  });
+  it('the whole group is every reachable item with no hidden one; else the selection goes as a list', () => {
+    const [a, h, b] = group.items;
+    expect(wholeUpgradeGroup(group, [a, b])).toBe(true);
+    expect(wholeUpgradeGroup(group, [a, h, b])).toBe(false);
+    expect(wholeUpgradeGroup(group, [a])).toBe(false);
+    expect(wholeUpgradeGroup(null, [a])).toBe(false);
+  });
+  it('a pinned batch keeps only the rows still listed selected and never moves to a neighbour', () => {
+    const sel = { keys: ['a', 'b', 'c'], anchor: 'a' };
+    expect(keepPinned(sel, ['a', 'b', 'c', 'x'], ['b', 'c', 'x', 'batch:1'])).toEqual({ keys: ['b', 'c'], anchor: 'b' });
+    expect(keepPinned(sel, ['a', 'b', 'c', 'x'], ['x', 'batch:1'])).toEqual({ keys: [], anchor: null });
+  });
+  it('the checks panel gives way to a pinned batch', () => {
+    expect([checksPanelShows(true, true), checksPanelShows(false, true), checksPanelShows(false, false)]).toEqual([false, true, false]);
+  });
+  it('the list asks again once per track done while a batch runs, never at its start or when it is over', () => {
+    expect(batchListStep(-1, null)).toEqual({ reload: false, seen: -1 });
+    expect(batchListStep(-1, { phase: 'running', done: 0 })).toEqual({ reload: false, seen: 0 });
+    expect(batchListStep(0, { phase: 'running', done: 1 })).toEqual({ reload: true, seen: 1 });
+    expect(batchListStep(1, { phase: 'running', done: 1 })).toEqual({ reload: false, seen: 1 });
+    expect(batchListStep(1, { phase: 'ended', done: 3 })).toEqual({ reload: false, seen: -1 });
+  });
+  it('a burst of asks is one run and one more after it', async () => {
+    let runs = 0;
+    let release: () => void = () => {};
+    const gate = () => new Promise<void>((r) => { release = r; });
+    const go = coalesce(async () => { runs++; await gate(); });
+    go(); go(); go();
+    expect(runs).toBe(1);
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(runs).toBe(2);
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(runs).toBe(2);
+    go();
+    expect(runs).toBe(3);
+    release();
   });
 });

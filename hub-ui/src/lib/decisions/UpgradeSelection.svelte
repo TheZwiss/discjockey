@@ -15,12 +15,14 @@
     Button, ChoiceGroup, Cover, Hint, ListRow, ListSection, NoteCard, OutcomeList, ProgressBar, Spinner, StatCard, StatusMark, Surface,
     WriteButton, type ChoiceOption, type Outcome,
   } from '$lib/components';
+  import { untrack } from 'svelte';
   import { Panel } from '$lib/frames';
   import { writeBlockedReason } from '$lib/stores/hub';
   import {
-    endGroups, endNote, endWords, goes, leftTitle, notDoneTitle, replaceManyLabel, discardLabel, resumeLabel, sameTrackWhy, selectedTitle,
-    selectionWays, type RunRow, type Way,
+    endGroups, endNote, endWords, focusAfterDrop, goes, leftTitle, notDoneTitle, panelFocus, replaceManyLabel, discardLabel, resumeLabel,
+    sameTrackWhy, selectedTitle, selectionWays, type RunRow, type Way,
   } from './decisionModel';
+  import { refocus } from './focus';
   import { upgradeBatch, type UpgradeBatchFlow } from './flows.svelte';
 
   let { items, all, nameOf, ondrop, ondone, onact, flow = upgradeBatch }: {
@@ -59,6 +61,28 @@
   function discard() { onact?.(); void flow.start('discard', items, false, nameOf); }
   function resume(batch_id: number) { onact?.(); void flow.resume(batch_id); }
   function done() { flow.clear(); ondone(); }
+
+  // Focus follows the foot: Replace and Discard, Resume and Try again are gone once pressed, so Stop takes it, and at
+  // the end the filled button (Resume, Try again, Done). Only for a change seen here, never when the panel opens on a
+  // batch already in a phase, and only when focus was lost (decisionModel panelFocus, focus.ts).
+  let root = $state<HTMLElement>();
+  let lastPhase = untrack(() => view?.phase);
+  $effect(() => {
+    const phase = view?.phase;
+    const target = panelFocus(view);
+    untrack(() => {
+      if (phase === lastPhase) return;
+      lastPhase = phase;
+      if (target) void refocus(() => root?.querySelector<HTMLElement>(`[data-test="${target}"]`));
+    });
+  });
+  /** ✕ on a row: the selection gives it up, and the ✕ of the row now in its place takes focus. */
+  function drop(i: TodoItem) {
+    const at = items.indexOf(i);
+    const next = focusAfterDrop(items, at)?.track_id;
+    ondrop(i);
+    if (next) void refocus(() => root?.querySelector<HTMLElement>(`[data-test="selection-row"][data-track="${CSS.escape(next)}"] [data-test="selection-drop"]`));
+  }
 </script>
 
 {#snippet mark(r: RunRow)}
@@ -128,7 +152,7 @@
           {#snippet sub()}{going ? (way === 'swap' ? 'Same track' : 'New track') : sameTrackWhy(i.same_track)}{/snippet}
           {#snippet trailing()}
             <Button variant="icon" size="sm" muted aria-label="Leave {nameOf(i)} out" tip="Leave out of the selection"
-              onclick={() => ondrop(i)} data-test="selection-drop">
+              onclick={() => drop(i)} data-test="selection-drop">
               <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6"
                 stroke="currentColor" stroke-width="1.3" stroke-linecap="round" /></svg></Button>
           {/snippet}
@@ -183,7 +207,7 @@
   {/if}
 {/snippet}
 
-<div class="sel" data-test="upgrade-selection" data-phase={view?.phase ?? 'decide'} data-end={view?.end?.kind}>
+<div class="sel" bind:this={root} data-test="upgrade-selection" data-phase={view?.phase ?? 'decide'} data-end={view?.end?.kind}>
   <Panel head={view ? head : undefined} fill={view?.phase !== 'ended' || endCount ? fill : undefined} {after} {foot} />
 </div>
 

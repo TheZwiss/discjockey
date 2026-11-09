@@ -18,7 +18,10 @@
   // when it becomes the chosen one (`block: 'nearest'`, instant: a row already in view does not move; a row reached by
   // its address or by the keyboard, below the fold of a short window, is shown). The
   // button's name is the name line only, so it doesn't change when the optional column appears; `sub` and
-  // `optional` are its description. `off` dims name and lead, except a lead item marked `data-mark` (the tick; an unticked track: the name stays readable, the user
+  // `optional` are its description. `multi` (a list where several rows can be selected: To-do's upgrades and checks)
+  // says the choice as a toggle, `aria-pressed`, instead of `aria-current`, which would then sit on many rows at once:
+  // `aria-selected` / `aria-multiselectable` belong to listbox, grid and tree, whose owned items can't include the
+  // section heads' buttons, so the toggle is the valid way to say it (decision log 2026-11-09). `off` dims name and lead, except a lead item marked `data-mark` (the tick; an unticked track: the name stays readable, the user
   // decides on it — rule 8). `disabled` keeps the row focusable but ignores clicks (like Button) and mutes name and
   // lead. Rows highlight on hover and while held, never shrink (a whole row scaling would jump). The lead is
   // decorative (`aria-hidden`): its meaning goes into `checked` or the name. Other attributes (`data-track`, …) go
@@ -28,13 +31,13 @@
 
   type Props = Omit<HTMLAttributes<HTMLDivElement>, 'children' | 'onclick' | 'title'> & {
     lead?: Snippet; name: Snippet; sub?: Snippet; optional?: Snippet; trailing?: Snippet;
-    off?: boolean; selected?: boolean; pick?: boolean; disabled?: boolean; checked?: boolean; height?: 40 | 52; wrap?: boolean;
+    off?: boolean; selected?: boolean; multi?: boolean; pick?: boolean; disabled?: boolean; checked?: boolean; height?: 40 | 52; wrap?: boolean;
     onclick?: (e: MouseEvent) => void; title?: string; test?: string;
     /** the row scrolls into view when this turns true (default: `selected`): in a multi-selection only the anchor's
      *  row does, so ⌘A or a range doesn't scroll the list to its last selected row */
     reveal?: boolean;
   };
-  let { lead, name, sub, optional, trailing, off = false, selected = false, pick = false, disabled = false, checked, height, wrap = false,
+  let { lead, name, sub, optional, trailing, off = false, selected = false, multi = false, pick = false, disabled = false, checked, height, wrap = false,
     onclick, title, test, reveal, class: className, ...rest }: Props = $props();
 
   const uid = $props.id();
@@ -49,7 +52,7 @@
   class:clickable={!!onclick} class:has-lead={!!lead} class:has-trailing={!!trailing} class:wrap data-test={test}>
   {#if onclick}
     <button type="button" class="main" data-row-hit role={checked === undefined ? undefined : 'checkbox'}
-      aria-checked={checked} aria-current={selected || undefined} aria-disabled={disabled || undefined}
+      aria-checked={checked} aria-current={selected && !multi ? true : undefined} aria-pressed={multi ? selected : undefined} aria-disabled={disabled || undefined}
       aria-labelledby="{uid}-name" aria-describedby={described} onclick={click}>
       {@render cells()}
     </button>

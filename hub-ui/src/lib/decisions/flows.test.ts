@@ -162,6 +162,19 @@ describe('UpgradeBatchFlow', () => {
     expect(flow.view!.rows.every((r) => r.state === 'done' && !r.name.startsWith('t'))).toBe(true);
   });
 
+  it('the hub answers the list per track while a batch runs: done tracks have left Upgrades ready before its end', async () => {
+    const { ready, group } = setup('upgrade-multi', 60);
+    const items = await ready();
+    const flow = new UpgradeBatchFlow();
+    const run = flow.start('swap', items, false, name);
+    await until(() => flow.view!.done >= 1);
+    const mid = (await ready()).length;
+    expect(flow.view!.phase).toBe('running');
+    expect(mid).toBeLessThan(items.length);
+    await run;
+    expect((await group('rekordbox_check'))!.items.length).toBeGreaterThan(0);
+  });
+
   it('Stop ends a New track list between tracks with the rest planned', async () => {
     const { ready } = setup('upgrade-multi', 25);
     const items = await ready();

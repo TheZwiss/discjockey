@@ -399,6 +399,7 @@ Into `docs/hub-bridge-contract.md`, `types.ts` + `contract.ts`, and the fake bac
   `upgrade_all()`: job `upgrade_batch`, `started_by` `upgrade_all`. Per-item progress is `BatchProgress` for all
   three. New problem kind **`rekordbox_open`** (the job's `result` is the stopped `BatchResult` when items ran).
 - **`batch_resume(batch_id)`**, **`batch_undo(batch_id)`**: jobs `batch_resume` / `batch_undo`.
+  The hub's batch card ("Undo all {n}") sends `undo_upgrade` over its own undoable tracks; `batch_undo` is for the console.
 - **`undo_upgrade(track_ids: list[str])`**: one job, newest first; result `UndoResult {results: [ItemResult]}`;
   `rekordbox_open`, `refused` per item inside. It sends no `BatchProgress` (only `batch_undo` does).
 - **`rekordbox_checked(track_ids: list[str])`**: one job; the batch card sends its done tracks.
@@ -510,7 +511,7 @@ one filled button per screen. Choices stay `ChoiceGroup`/`Segmented`/grouped row
   `selected` (one item) is `only(sel)`; held items (`TodoHold`) keep working for a single selection.
 - **Rows:** every selected row gets `ListRow selected pick` (the orange wash) — one look for one or several; focus
   ring stays on the anchor's row. No tick boxes (the wash already says it; tick boxes would add a column to every
-  row). `aria-multiselectable` on the list, `aria-selected` per row.
+  row). Each row of a multi-select group is a toggle (`aria-pressed`), see the design-language decision log 2026-11-09: listbox/grid roles can't own the section heads' buttons.
 - **Group head action (block change):** `ListSection` and `Surface` (list head) gain `action?: Snippet` at the head's
   end, after the summary, a `Button variant="link" size="sm"` (the "Show hidden" style). Used for "Upgrade all · {n}"
   (selects every item of the group, the anchor its first) and, while a stopped upgrade batch exists, "Resume · {k}
@@ -571,7 +572,7 @@ file: the card says "a new track" with "No rekordbox on this Mac: the new file i
   replaces?" / "Your old files go back where they were. The new versions wait in Upgrades ready again."), the undo
   refusal Hint (problem tone) listing refused tracks with reasons; `rekordbox_open` → the §8 undo words.
 - **Several checks selected:** panel "{N} checks selected" with the rows, foot "Done, checked in rekordbox" for all
-  and "Undo {N}" (only when every one can undo; else the count of those that can).
+  and "Undo all {n}" when every track can undo, else "Undo {n}" (those that can) over the muted "{k} can't be undone".
 - **A single `repointed` check** keeps today's card layout: steps (analyse again, USB result 3), "Replaced with
   lossless" rows (new file, old file in `Superseded/`), Undo.
 

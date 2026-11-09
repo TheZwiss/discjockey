@@ -25,7 +25,7 @@ export const PROBLEMS: Record<ProblemKind, ProblemCopy> = {
   protected: { title: 'This version is DRM-protected.' },
   stopped: { title: 'Stopped. Nothing was left half done.' },
   // Same track needs rekordbox closed (design §8's words); the batch that met it is in the job's result, Resume carries on
-  rekordbox_open: { title: 'rekordbox is open. Quit rekordbox, then try again.' },
+  rekordbox_open: { title: 'rekordbox is open.' },
   no_library: { title: 'Choose your music folder first.', action: { label: 'Open setup →', href: '#/setup/music' } },
   crashed: { title: 'Something went wrong', action: { label: 'Open report', report: true } },
   // Liked music (sources round): the engine's message is the detail ("Reading your Liked music is off. Turn it on in
