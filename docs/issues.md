@@ -48,7 +48,10 @@ throwaway scripts of its own rather than through Discjockey.
   list | apply | discard | undo`, `batch list | show | resume | undo`, `rekordbox checked | backups | restore`) and
   stage A's (`rekordbox status`, `rekordbox preview`) are in `CONTRIBUTING.md` › Commands for scripts and agents, with
   the exit codes and the rule that JSON `ok` stays true when a batch ran to its end with skipped tracks (exit 1);
-  gather them into the agent docs.
+  gather them into the agent docs. Stage C adds the sync's own `--json` (`discjockey --yes --json`, with the run's
+  Auto-upgrade block; `--json` without `--yes` or `--dry-run` is refused) and `settings auto-upgrade [on|off] [--json]`,
+  the first of a `settings` group the other settings join; also in `CONTRIBUTING.md`, and in the agent docs once
+  they exist.
 
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them (user, 2026-10-31) — stages C–E open
 

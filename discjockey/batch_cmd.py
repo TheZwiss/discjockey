@@ -36,12 +36,14 @@ from .rekordbox import backup as rbbackup, eligible
 from .rekordbox.eligible import Skip
 from .rekordbox.preview import REASON_WORDS
 from .rekordbox_cmd import failed, no_library, say
+from .settings import SettingsError, load_settings
 from .upgrades import UpgradeProblem
 
 OK, FAILED, NO_LIBRARY, BUSY, REKORDBOX_OPEN, STOPPED = 0, 1, 2, 3, 4, 5
 CTRL_C_REPEAT_S = 1.0  # as the sync's: uv and caffeinate forward one Ctrl-C a second time
 LOCK_HELD = "Another Discjockey run is still going. Wait until it has finished."
 NOTHING = "None of these can be upgraded right now."
+AUTO_WAITS = "Waited for rekordbox to be closed at your last sync; it is upgraded at your next sync."
 WAYS = {"same-track": "same_track", "new-track": "add_new"}
 RESTORE_WORDS = {
     "no_rekordbox": "There is no rekordbox library on this Mac, so nothing was changed.",
@@ -343,19 +345,31 @@ def run_upgrade_list(args: argparse.Namespace) -> int:
         state = library.load_state(paths)
     except StateError as e:
         return failed(args, str(e))
+    try:
+        auto_on = load_settings(paths.settings_file).auto_upgrade
+    except SettingsError as e:
+        return failed(args, str(e), "refused", "settings_invalid")
     rb = _rekordbox_status()
     rows = []
     for key, e in _listed(state, _folder_order(paths)):
+        found = e["upgrade"].get("auto_refused")  # the sync's Auto-upgrade record (plan stage C §0.6)
+        record = found if isinstance(found, dict) else None
         rows.append({"track": key, "artist": e["artist"], "title": e["title"], "folder": e["folder"],
                      "file": e.get("path"), "parked": e["upgrade"]["file"], "now": _quality(e, "now"),
                      "new": _quality(e, "new"),
                      "alignment": (e["upgrade"].get("alignment") or {}).get("result") or "unknown",
-                     "same_track": _quick(paths, e, rb), "auto_refused": None})
+                     "same_track": _quick(paths, e, rb),
+                     "auto_refused": {k: record.get(k) for k in ("reason", "message", "at")} if record else None,
+                     "auto_waits": auto_on and bool(e["upgrade"].get("auto_waits"))})
     lines = []
     for r in rows:
         lines.append(f"{r['track']}  [{r['folder']}] {r['artist']} - {r['title']}")
         why = "possible" if r["same_track"] is None else f"not now ({_words(r['same_track'])})"
         lines.append(f"    now {r['now']} · new {r['new']} · same edit: {r['alignment']} · Same track: {why}")
+        if r["auto_waits"]:
+            lines.append("    " + AUTO_WAITS)
+        if r["auto_refused"]:
+            lines.append(f"    Not upgraded at your sync: {r['auto_refused']['message']}")
     if not rows:
         lines.append("No better versions are waiting.")
     say(args, {"ok": True, "upgrades": rows, "count": len(rows)}, lines)

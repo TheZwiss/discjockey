@@ -35,6 +35,8 @@ discjockey --limit 10     only the first 10 downloads
 discjockey --extra 20     allows 20 more Qobuz downloads today only
 discjockey upgrades       goes through the waiting lossless versions
 discjockey update         gets the newest yt-dlp
+discjockey --yes --json   runs a sync without a question and prints one JSON object (below)
+discjockey settings auto-upgrade off    turns Auto-upgrade off (below)
 ```
 
 - The Mac stays awake while a run goes (`caffeinate`). Ctrl-C once stops safely after the current track; Ctrl-C
@@ -48,7 +50,7 @@ discjockey update         gets the newest yt-dlp
 
 Every command runs without prompts and ends with an exit code. Where it has `--json`, it prints one JSON object:
 `{"ok": true, …}`, or `{"ok": false, "kind": "refused" | "failed", "message": "…"}` (a refusal also has a `reason`).
-Issue 39 gathers these into the agent docs; the entries below are the ones issue 33's stages A and B added.
+Issue 39 gathers these into the agent docs; the entries below are the ones issue 33's stages A, B and C added.
 
 Someone who installed the app has no `discjockey` command, but the app's program takes the same ones: in the
 Terminal, `/Applications/Discjockey.app/Contents/MacOS/Discjockey rekordbox backups` (any of the commands, in place of
@@ -130,8 +132,11 @@ later: stop at once; what is finished stays saved.
 **`discjockey upgrade list [--json]`** lists the parked better versions as To-do shows them (a song in a playlist or
 the user's own file, its sound judged, not hidden). Read only. JSON: `{"ok", "count", "upgrades": [{"track",
 "artist", "title", "folder", "file", "parked", "now", "new", "alignment", "same_track": null | "<reason>",
-"auto_refused": null}]}`. `same_track` is `null` when Same track can run for it (the quick answer: the run asks again
-and may still skip it), else the reason. Song keys for the commands below come from here.
+"auto_refused": null | {"reason", "message", "at"}, "auto_waits": bool}]}`. `same_track` is `null` when Same track can
+run for it (the quick answer: the run asks again and may still skip it), else the reason. `auto_refused` is the
+refusal the sync's Auto-upgrade recorded on the track (`timing`, `not_analysed`, `cloud`, `space`, `needs_choice`),
+`auto_waits` is `true` when the last sync met rekordbox open for it and Auto-upgrade is on. Song keys for the
+commands below come from here.
 
 **`discjockey upgrade apply (<track>… | --all) --way same-track|new-track [--dry-run] [--json]`**. `same-track` is
 one AIFF batch (`aiff_batches` in `library.db`): a file that isn't an AIFF becomes a new AIFF and rekordbox's track
@@ -182,6 +187,52 @@ and drops every change made in rekordbox since; without `--yes` it changes nothi
 `no_rekordbox`). It saves the current library first: `{"ok", "restored", "saved_current", "missing_after": [{"id",
 "path", "was"}]}`. `missing_after` lists the rekordbox tracks that now point at files Discjockey has since moved to
 `Superseded/`; undo those batches first (`batch undo`) or Relocate them in rekordbox.
+
+### The sync's `--json` and `settings auto-upgrade` (issue 33, stage C)
+
+**`discjockey [--yes | --dry-run] --json`** is the sync with one JSON object on stdout at the end; every human line
+goes to stderr. A command never prompts, so `--json` without `--yes` and without `--dry-run` exits 1 and changes
+nothing (`{"ok": false, "kind": "needs_yes", "message"}`). JSON:
+
+```
+{"ok": true, "exit_code": 0 | 1 | 130, "dry_run": bool, "report": "<path of the .md>" | null,
+ "counts": {"<section>": n}, "auto_upgrade": <block> | null}
+```
+
+`ok` is `true` when the sync ran to its end: `exit_code` 1 is a run with errors (they are in the report's `errors`
+section), 130 a run stopped with Ctrl-C (the first press stops after the current step, a second one, a second later,
+at once; what is finished stays saved). `counts` are the report's sections with their number of results
+(`report.SECTIONS` keys, such as `new_lossless`, `upgraded`, `upgrade_waits`, `errors`); a dry run has `report: null` and
+counts the plan's actions (`acquire:new`, `acquire:retry`, `acquire:redownload`, `adopt_bought`, `upgrade`). Problems
+are `{"ok": false, "kind", "message"}`: exit 2 for a setup problem (`kind` is the setup problem's own: `not_set_up`,
+`login_expired`, `offline`, `playlist_unreadable`, `config_invalid`, `qobuz_login_failed`) or no music folder
+(`kind: "refused"`, `reason: "no_library"`), exit 3 `busy` (another run holds the library lock), exit 1 `crashed` (the
+sync stopped on an unexpected error; `report` names the crash note) or `failed`, 130 `stopped` (Ctrl-C before the run
+started). The exit code 4 of the batch commands is not used: rekordbox being open is a normal end of a sync, and the
+block says so.
+
+`auto_upgrade` is the run's Auto-upgrade block, the same object the report's `.json` holds under `"auto_upgrade"`;
+`null` when the switch is off (the sync then moves no file and looks at nothing of rekordbox):
+
+```
+{"batch": <id> | null, "backup": "<backup id>" | null, "done": n, "waiting": n, "refused": n, "failed": n,
+ "stopped": bool, "dry_run": bool,
+ "results": [{"track": "<key>", "name": "Artist – Title", "state": "done" | "would" | "waiting" | "refused" | "failed",
+              "reason": null | "<key>", "message": "…" | null, "how": "in_place" | "new_aiff"}]}
+```
+
+`waiting` counts the tracks that wait for rekordbox to be closed (`reason: "rekordbox_open"`) or for the next sync
+(`not_reached` after Stop, `busy`); `refused` the ones that did not go in (`reason` is an `eligible.REASONS` key, its
+`message` the words To-do shows; a refusal still held from an earlier sync is listed again, not tried); failures
+are also in the report's `errors`. A dry run has `batch: null`, `done: 0` and `would` rows, and writes nothing.
+`how` is `in_place` for an AIFF swapped in place and `new_aiff` for a new AIFF that rekordbox's track is pointed at.
+
+**`discjockey settings auto-upgrade [on|off] [--json]`** is Settings › Upgrades from the Terminal ("Upgrade
+automatically when I sync", on by default; a settings file without the key reads as on). Without a value it prints
+the current one and takes no lock; with one it takes the library lock, saves, and prints "Upgrade automatically when
+I sync: on|off". JSON `{"ok": true, "auto_upgrade": bool}`. Exit 0; 1 when the settings file can't be read
+(`reason: "settings_invalid"`, nothing is written over it); 2 no music folder; 3 busy (the library lock is held;
+nothing changed). `settings` is a group so the other settings can join it (issue 39).
 
 Never start a real sync, upgrade swap or Qobuz download while working on the code unless you mean to: it changes
 your library and counts against your Qobuz daily limit. `--dry-run` changes nothing.

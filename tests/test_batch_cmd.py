@@ -102,16 +102,45 @@ def test_list_shows_what_waits_and_why_same_track_cannot_run(tmp_path, monkeypat
     assert [r["track"] for r in data["upgrades"]] == lib.tracks[:3]
     first, stale, third = data["upgrades"]
     assert set(first) == {"track", "artist", "title", "folder", "file", "parked", "now", "new", "alignment",
-                          "same_track", "auto_refused"}
+                          "same_track", "auto_refused", "auto_waits"}
     assert (first["artist"], first["title"], first["folder"], first["file"]) == ("Artist", "Song 0", "A", lib.olds[0])
     assert first["parked"] == "Upgrades ready/A/Artist - Song 0.aiff" and first["new"].startswith("Qobuz FLAC")
-    assert (first["alignment"], first["same_track"], first["auto_refused"]) == ("exact", None, None)
+    assert (first["alignment"], first["same_track"], first["auto_refused"], first["auto_waits"]) == (
+        "exact", None, None, False)
     assert (stale["alignment"], stale["same_track"]) == ("different", "needs_choice")
     assert third["same_track"] is None
     code, out, _ = run(["upgrade", "list"], capsys)
     assert code == OK and "Artist - Song 0" in out and "Same track: possible" in out
     assert "Same track: not now (it's a different edit, so you choose)" in out
     assert untouched(lib) == before
+
+
+def test_list_shows_the_syncs_refusal_and_the_waiting_mark_while_the_switch_is_on(tmp_path, monkeypatch, capsys):
+    from dataclasses import replace
+
+    from discjockey.settings import load_settings, save_settings
+    lib = make(tmp_path, monkeypatch, ["mp3", "aiff", "mp3"])
+    state = load_state(lib.paths)
+    record = {"reason": "not_analysed", "message": "rekordbox hasn't analysed this track yet.",
+              "at": "2026-11-09T10:00:00", "anlz": {}, "free": None, "files": None}
+    state["tracks"][lib.tracks[0]]["upgrade"]["auto_refused"] = record
+    state["tracks"][lib.tracks[1]]["upgrade"]["auto_waits"] = "2026-11-09T10:00:00"
+    save_state(lib.paths, state)
+    code, data = run_json(["upgrade", "list"], capsys)
+    first, second, third = data["upgrades"]
+    assert code == OK and first["auto_refused"] == {k: record[k] for k in ("reason", "message", "at")}
+    assert (first["auto_waits"], second["auto_waits"], second["auto_refused"]) == (False, True, None)
+    assert (third["auto_refused"], third["auto_waits"]) == (None, False)
+    code, out, _ = run(["upgrade", "list"], capsys)
+    assert "    Not upgraded at your sync: rekordbox hasn't analysed this track yet." in out
+    assert "    Waited for rekordbox to be closed at your last sync; it is upgraded at your next sync." in out
+    save_settings(lib.paths.settings_file, replace(load_settings(lib.paths.settings_file), auto_upgrade=False))
+    code, data = run_json(["upgrade", "list"], capsys)                  # switch off: the waiting mark is hidden
+    assert [r["auto_waits"] for r in data["upgrades"]] == [False, False, False]
+    assert data["upgrades"][0]["auto_refused"]["reason"] == "not_analysed"
+    lib.paths.settings_file.write_text('{"auto_upgrade": 3}')           # a broken settings file is said, not guessed
+    code, data = run_json(["upgrade", "list"], capsys)
+    assert code == FAILED and (data["ok"], data["reason"]) == (False, "settings_invalid")
 
 
 def test_list_with_nothing_waiting(tmp_path, monkeypatch, capsys):
