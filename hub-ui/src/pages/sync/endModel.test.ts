@@ -81,6 +81,54 @@ describe('end screen', () => {
   });
 });
 
+describe('end screen: the sync\'s Auto-upgrade', () => {
+  const block = (line: string | null) => ({ batch: 3, backup: null, done: 2, waiting: 1, refused: 1, failed: 0, stopped: false,
+    dry_run: false, results: [], line });
+  const PHASE = [
+    r('upgraded', 'Bouncy', 'g1', { status: 'lossless', note: 'Replaced in place; your cues stayed.' }),
+    r('upgraded', 'Bouncy', 'g2', { status: 'lossless' }),
+    r('upgrade_waits', 'Bouncy', 'w1', { note: 'Waits for rekordbox to be closed: it is upgraded at your next sync.' }),
+    r('upgrade_waits', 'Bouncy', 'w2', { note: "Discjockey couldn't line the new file up exactly." }),
+  ];
+  const LINE = 'Upgraded 2 tracks; your cues stayed. 1 waits for rekordbox to be closed. 1 couldn\'t go in; To-do says why.';
+  it('holds the upgraded tracks and the ones still waiting, and the summary line as a note', () => {
+    const m = endModel(run([...RESULTS, ...PHASE], { auto_upgrade: block(LINE) }), null, NOW);
+    expect(m.upgraded.map((x) => x.title)).toEqual(['g1', 'g2']);
+    expect(m.waiting.map((x) => x.title)).toEqual(['w1', 'w2']);
+    expect(m.notes.map((n) => n.test)).toEqual(['sync-auto-upgrade', 'sync-checked']);
+    expect(m.notes[0].text).toBe(LINE);
+  });
+  it('the phase\'s tracks are not new files, nor other changes, nor counted as added', () => {
+    const m = endModel(run([...RESULTS, ...PHASE], { auto_upgrade: block(LINE) }), null, NOW);
+    expect(m.stats.added).toBe(4);
+    expect(m.added.flatMap((g) => g.rows).map((x) => x.title)).not.toContain('g1');
+    expect(m.other.map((x) => x.title)).toEqual(['m1', 'u1']);
+  });
+  it('leaves an empty part out: only waiting tracks, or only upgraded ones', () => {
+    const waitingOnly = endModel(run(PHASE.slice(2), { auto_upgrade: block('2 upgrades wait for rekordbox to be closed.') }), null, NOW);
+    expect(waitingOnly.upgraded).toEqual([]);
+    expect(waitingOnly.waiting).toHaveLength(2);
+    const upgradedOnly = endModel(run(PHASE.slice(0, 2), { auto_upgrade: block('Upgraded 2 tracks; your cues stayed.') }), null, NOW);
+    expect(upgradedOnly.waiting).toEqual([]);
+    expect(upgradedOnly.upgraded).toHaveLength(2);
+  });
+  it('a run with nothing to say has no note (the line is null), and a switch-off run shows neither part', () => {
+    expect(endModel(run(PHASE, { auto_upgrade: block(null) }), null, NOW).notes).toEqual([]);
+    const off = endModel(run(RESULTS), null, NOW);
+    expect(off.upgraded).toEqual([]);
+    expect(off.waiting).toEqual([]);
+    expect(off.notes.map((n) => n.test)).toEqual(['sync-checked']);
+  });
+  it('the note comes after the stop line and before the other notes', () => {
+    const m = endModel(run(PHASE, { exit_code: 130, stopped_after: 2, queued: 3, upgrades_ready: 1, auto_upgrade: block(LINE) }), null, NOW);
+    expect(m.notes.map((n) => n.test)).toEqual(['sync-stopped-line', 'sync-auto-upgrade', 'sync-upgrades']);
+  });
+  it('a track without an id is not listed (no row can open it)', () => {
+    const m = endModel(run([r('upgraded', 'Bouncy', 'g3', { track_id: null })], { auto_upgrade: block(LINE) }), null, NOW);
+    expect(m.upgraded).toEqual([]);
+  });
+});
+
 describe('last sync stats (the up-to-date panel)', () => {
   it('counts what the end screen counts: added by quality, moved, need you', () => {
     expect(lastSyncStats(run(RESULTS))).toEqual({ added: 4, moved: 1, needs: 1,

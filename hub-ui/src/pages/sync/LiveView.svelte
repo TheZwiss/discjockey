@@ -5,6 +5,10 @@
   // While stopping, the title is the one "Stopping…": the time left, the hint and the busy button's words go.
   // The run's numbers sit in their own card under the title instead of the title's status line: a quantity is a
   // number plus a visual (§4), and the status line has no room for a bar.
+  // The sync's last phase, Auto-upgrade (issue 33 stage C): no download is in work, so the card says the batch's
+  // progress in stage B's words ("3 of 8 done" over "Upgrading · Artist - Title", the bar in the accent: the live card
+  // that carried it is not there) in place of "Track x of y", and the live card gives way to it. The time left goes
+  // (it counted downloads); the Qobuz count stays.
   import { estimateText } from '$lib/format';
   import { onMount } from 'svelte';
   import { Button, Hint, PageHeader, ProgressBar, Surface } from '$lib/components';
@@ -13,7 +17,7 @@
   import { markStopping, run } from '$lib/stores/run';
   import { getPref } from '$lib/prefs';
   import { markReady } from '$lib/ready';
-  import { cardState, liveUsage, qobuzFallback } from './cardState';
+  import { cardState, liveUsage, qobuzFallback, upgradeProgress } from './cardState';
   import { PREF_LAST_SELECTION, minutesLeft, type Picked } from './selection';
   import { coverMap, liveMessage } from './results';
   import SyncCard from './SyncCard.svelte';
@@ -40,12 +44,16 @@
   const done = $derived($run.results.map((r) => r.action.track_id));
   const left = $derived(minutesLeft(plan, done));
   const known = $derived($run.total !== null);
-  const position = $derived($run.total === null ? null : `Track ${Math.max($run.index, 1)} of ${$run.total}`);
+  // a Stop in the phase keeps the batch's words (the run store keeps following it)
+  const batch = $derived($run.upgrade && ($run.phase === 'upgrading' || $run.phase === 'stopping')
+    ? upgradeProgress($run.upgrade) : null);
+  const position = $derived(batch ? batch.position
+    : $run.total === null ? null : `Track ${Math.max($run.index, 1)} of ${$run.total}`);
   // the bar counts finished actions, so it reaches the end when the last one is done, not when it starts
-  const share = $derived($run.total ? Math.min(1, $run.results.length / $run.total) : null);
-  const message = $derived(liveMessage($run));
+  const share = $derived(batch ? batch.share : $run.total ? Math.min(1, $run.results.length / $run.total) : null);
+  const message = $derived(batch ? batch.message : liveMessage($run));
   const stopping = $derived($run.phase === 'stopping');
-  const stats = $derived([...(left !== null && known && !stopping ? [`${estimateText(left)} left`] : []),
+  const stats = $derived([...(left !== null && known && !stopping && !batch ? [`${estimateText(left)} left`] : []),
     ...(known ? liveUsage(qobuzToday, $run.usage) : [])]);
 
   async function stop() {
@@ -66,10 +74,10 @@
       {#each stats as s (s)}<span class="stat">{s}</span>{/each}
     </div>
     <!-- muted: the live card's own bars carry the accent; the run's bar is context (§11, Task 10B fix round 1) -->
-    <ProgressBar value={share} tone="muted" pace="live" label="Sync progress" />
+    <ProgressBar value={share} tone={batch ? 'accent' : 'muted'} pace="live" label={batch ? 'Upgrading' : 'Sync progress'} />
     {#if message}<p class="message" data-test="sync-message" title={message}>{message}</p>{/if}
   </Surface>
-  <SyncCard {card} {covers} />
+  {#if card.kind !== 'upgrading'}<SyncCard {card} {covers} />{/if}
   <RunList />
 {/snippet}
 

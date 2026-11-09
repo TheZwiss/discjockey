@@ -1,5 +1,6 @@
 // The end screen of a sync, and of a past run opened from the dashboard: header lines, the stat cards with the quality
-// bar, the new files grouped by playlist folder, what needs the user and the other changes, all from run(run_id).
+// bar, the new files grouped by playlist folder, the sync's Auto-upgrade (Upgraded, Still waiting), what needs the user and the
+// other changes, all from run(run_id).
 import type { ByQuality, Result, RunDetail, RunSummary } from '$lib/bridge/types';
 import { minutesLong, plural, runWhen } from '$lib/format';
 import { verdict } from './cardState';
@@ -20,6 +21,10 @@ export type EndNote = { text: string; test: string; review?: boolean };
 export type EndModel = {
   title: string; sub: string; stats: LastSyncStats; notes: EndNote[];
   needs: Result[]; added: FolderGroup[]; other: Result[]; syncRest: boolean;
+  /** the sync's Auto-upgrade phase (issue 33 stage C): the tracks it put in place (`upgraded`) and the ones that still
+   *  wait with their reason (`upgrade_waits`: rekordbox was open, the sync stopped first, or the engine refused it).
+   *  Both empty for a run whose switch was off; an empty part is left out by the screen. */
+  upgraded: Result[]; waiting: Result[];
 };
 
 export type LastSyncStats = { added: number; moved: number; needs: number; byQuality: ByQuality | null };
@@ -124,8 +129,12 @@ export function endModel(run: RunDetail, newSincePreview: number | null = null, 
     const after = run.stopped_after !== null ? ` after ${plural(run.stopped_after, 'track')}` : '';
     stopped = `Stopped by you${after}. Nothing is half done; ${queued ? waiting(queued) : 'the next sync continues'}.`;
   }
+  // the phase's one-line account (report.auto_upgrade_line) comes right after the stop: it says what the lists below
+  // hold; null when the switch was off or nothing happened
+  const auto = run.auto_upgrade;
   const notes: (EndNote | null)[] = [
     stopped ? { text: stopped, test: 'sync-stopped-line' } : null,
+    auto?.line ? { text: auto.line, test: 'sync-auto-upgrade' } : null,
     run.upgrades_ready
       ? { text: `${plural(run.upgrades_ready, 'upgrade')} ready to review`, test: 'sync-upgrades', review: true } : null,
     newSincePreview
@@ -138,6 +147,8 @@ export function endModel(run: RunDetail, newSincePreview: number | null = null, 
     title: endTitle(run.exit_code), sub: took ? `${when} · took ${took}` : when, stats,
     notes: notes.filter((x): x is EndNote => !!x),
     needs: run.needs_you.filter(isProblem), added: groupByFolder(added, run.folder_order ?? []), other,
+    upgraded: auto ? (run.sections.upgraded ?? []).filter((r) => !!r.track_id) : [],
+    waiting: auto ? (run.sections.upgrade_waits ?? []).filter((r) => !!r.track_id) : [],
     syncRest: stoppedRun && queued > 0,
   };
 }

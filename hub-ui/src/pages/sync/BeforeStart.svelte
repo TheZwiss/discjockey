@@ -10,8 +10,8 @@
     Button, EmptyState, Hint, NoteCard, PageHeader, ProblemCard, SearchField, Skeleton, WriteButton,
   } from '$lib/components';
   import { ListPanelFrame } from '$lib/frames';
-  import { api, runJob } from '$lib/bridge/client';
-  import type { Fail, PlaylistRow, PreviewAction, RunSummary, SyncPreview } from '$lib/bridge/types';
+  import { api, rekordboxStatus, runJob } from '$lib/bridge/client';
+  import type { Fail, PlaylistRow, PreviewAction, RekordboxStatus, RunSummary, SyncPreview } from '$lib/bridge/types';
   import { dataVersion, hub, readBlock, readBlocked, syncRunning, writeBlockedReason } from '$lib/stores/hub';
   import { toasts } from '$lib/stores/toasts';
   import { getPref, setPref } from '$lib/prefs';
@@ -24,7 +24,7 @@
   import {
     PREF_HOW_MANY, chosenOf, dayBarEmpty, defaultHowMany, everyOff, inRunOrder, kindShares, leftOutBody, planCounts, sectionOf, stripLine, weeklyItems, inScope, isDownload, matches, nextSyncSet,
     mayWaitToday, downloadsInScope, presetN, presetTicks, presets, readHowMany, runTotals, scopeSet, sections, shouldAutoRead, shownPreset,
-    NOTHING_TODAY, leftOutTitle, readBlockLine, runsNothingToday, sectionCounts, startLabel, toggleScope,
+    NOTHING_TODAY, leftOutTitle, readBlockLine, runsNothingToday, sectionCounts, startLabel, startNote, toggleScope,
     type HowMany, type Section,
   } from './planModel';
   import { keepDetail, lastSyncStats, lastSyncView, needsDetail, type LastSyncDetail } from './endModel';
@@ -163,7 +163,25 @@
     void runJob(api.refresh(true), { success: false, quiet: true });
   }
 
-  onMount(() => { void load(); });
+  // Auto-upgrade (issue 33 stage C): whether rekordbox runs now, read when the page opens and whenever the window gets
+  // focus back (the user quits rekordbox, then returns to Discjockey); only the newest answer counts. null: not known,
+  // so the note under Start stays out.
+  let rekordbox = $state<RekordboxStatus | null>(null);
+  const rekordboxReads = latestOnly();
+  async function readRekordbox() {
+    const ticket = rekordboxReads.next();
+    const r = await rekordboxStatus();
+    if (rekordboxReads.isLatest(ticket)) rekordbox = r;
+  }
+  onMount(() => {
+    void load();
+    void readRekordbox();
+    const onFocus = () => void readRekordbox();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  });
+  const note = $derived(startNote({ consoleRunning: $hub.console_running, nothingToday, auto: preview?.auto_upgrade ?? null,
+    rekordboxRunning: rekordbox ? rekordbox.running : null }));
   let seen = -1;
   $effect(() => {
     const v = $dataVersion;
@@ -305,8 +323,13 @@
   <WriteButton variant="filled" wide onclick={start} busy={starting} busyLabel="Starting…"
     disabled={chosen.length === 0 || nothingToday || $hub.console_running} title={startTitle} data-test="start-sync">
     {startLabel(chosen.length, totals.downloads, totals.uses)}</WriteButton>
-  {#if $hub.console_running}<Hint text="A sync is running in the terminal" data-test="sync-console" />
-  {:else if nothingToday}<Hint text={NOTHING_TODAY} data-test="sync-nothing-today" />{/if}
+  {#if note?.kind === 'console'}<Hint text={note.text} data-test="sync-console" />
+  {:else if note?.kind === 'nothing-today'}<Hint text={note.text} data-test="sync-nothing-today" />
+  {:else if note?.kind === 'rekordbox-open'}
+    <!-- a NoteCard, not a Hint: the sentence runs over three lines in the 360 px panel (a Hint is one cut line) and warns
+         that something waits (design language §6) -->
+    <NoteCard tone="warn" data-test="sync-rekordbox-open">{note.text}</NoteCard>
+  {/if}
   {#if startProblem}<ProblemCard kind={startProblem.kind} message={startProblem.message} sync compact alert />{/if}
 {/snippet}
 
