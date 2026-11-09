@@ -75,6 +75,19 @@ def analysis_files(place: Place, entry: Entry) -> tuple[Path, Path] | None:
     return dat, dat.with_suffix(".EXT")
 
 
+ANALYSIS_EXTS = (".DAT", ".EXT", ".2EX", ".3EX")  # every file rekordbox keeps for an analysis (.3EX is no PMAI file)
+
+
+def analysis_folder_files(place: Place, entry: Entry) -> list[Path]:
+    """Every analysis file the track has, sorted: all of `ANALYSIS_EXTS` that lie in the folder of its `.DAT`
+    (`analysis_files` is the two that are read; this is what rekordbox rewrites when it analyses the track again, and
+    what a first analysis adds, for Auto-upgrade's "analysed again" stamp). Empty without analysis or a folder."""
+    files = analysis_files(place, entry)
+    if files is None or not files[0].parent.is_dir():
+        return []
+    return sorted(p for p in files[0].parent.iterdir() if p.suffix.upper() in ANALYSIS_EXTS and p.is_file())
+
+
 def _analysis(place: Place, entry: Entry) -> tuple[bool, np.ndarray | None]:
     """Whether the track has a beat grid, and its waveform heights (None without one)."""
     files = analysis_files(place, entry)

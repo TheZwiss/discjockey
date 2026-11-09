@@ -305,6 +305,32 @@ def test_rekordbox_open_at_the_start_changes_nothing(tmp_path, monkeypatch):
     assert lib.dump() == db_before and lib.music() == music_before and backups_of(lib) == []
 
 
+def test_require_closed_refuses_a_batch_of_only_aiff_swaps_while_rekordbox_runs(tmp_path, monkeypatch):
+    """Auto-upgrade's start (plan stage C §0.4): every item counts as a rekordbox write, an AIFF swap included."""
+    lib = make_lib(tmp_path, monkeypatch, ["aiff", "aiff"])
+    batch_id = start(lib, started_by="auto_upgrade")
+    db_before, music_before = lib.dump(), lib.music()
+    with pytest.raises(batches.RekordboxOpen) as opened:
+        batches.run(lib.paths, batch_id, compare=lambda a, b: EXACT, now=lambda: NOW, running=lambda: True,
+                    place=lib.place, require_closed=True)
+    assert (opened.value.result.state, opened.value.result.stop_reason) == ("stopped", "rekordbox_open")
+    assert states(lib, batch_id) == ["planned", "planned"] and lib.batch(batch_id).backup is None
+    assert lib.dump() == db_before and lib.music() == music_before and backups_of(lib) == []
+    assert all(lib.entry(i)["upgrade"] for i in range(2)) and load_state(lib.paths)["pending"] == []
+    # without it the same swaps go ahead (a user's batch: rekordbox is not written)
+    again = go(lib, batch_id, resume=True, running=lambda: True)
+    assert (again.state, again.done) == ("done", 2)
+
+
+def test_require_closed_with_rekordbox_closed_runs_like_any_batch(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["aiff", "mp3"])
+    batch_id = start(lib, started_by="auto_upgrade")
+    result = batches.run(lib.paths, batch_id, compare=lambda a, b: EXACT, now=lambda: NOW, running=never,
+                         place=lib.place, require_closed=True)
+    assert (result.state, result.done) == ("done", 2) and result.backup == lib.batch(batch_id).backup
+    assert len(backups_of(lib)) == 1
+
+
 def test_a_batch_that_needs_no_rekordbox_write_goes_ahead_while_rekordbox_runs(tmp_path, monkeypatch):
     lib = make_lib(tmp_path, monkeypatch, ["aiff", "mp3_free"])
     db_before = lib.dump()
@@ -390,6 +416,135 @@ def test_recover_closes_what_has_nothing_left(tmp_path, monkeypatch):
     other = start(lib)                                                   # a running batch with a planned item
     assert batches.recover(lib.paths, now=lambda: NOW) == [other]
     assert (lib.batch(other).state, lib.batch(other).stop_reason) == ("stopped", "crash")
+
+
+def stopped_auto_batch(lib: Lib, count: int = 3) -> int:
+    """An Auto-upgrade batch of `count` tracks that Stop ended after the first one."""
+    token = CancelToken()
+    batch_id = start(lib, list(range(count)), started_by="auto_upgrade")
+    with pytest.raises(batches.Stopped):
+        batches.run(lib.paths, batch_id, emit=lambda e: token.cancel() if e.track_id == lib.tracks[0] else None, token=token,
+                    compare=lambda a, b: EXACT, now=lambda: NOW, running=never, place=lib.place)
+    assert states(lib, batch_id) == ["done"] + ["planned"] * (count - 1)
+    return batch_id
+
+
+def test_end_auto_skips_the_planned_items_ends_the_batch_and_keeps_its_backup(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3", "aiff"])
+    batch_id = stopped_auto_batch(lib)
+    backup = lib.batch(batch_id).backup
+    assert backup and lib.batch(batch_id).state == "stopped"
+    done_before = lib.batch(batch_id).items[0]
+    result = batches.end_auto(lib.paths, batch_id, "not_reached", now=lambda: NOW)
+    row = lib.batch(batch_id)
+    assert (row.state, row.stop_reason, row.backup) == ("done", None, backup)                # no Resume, backup kept
+    assert row.ended == NOW.isoformat(timespec="seconds")
+    assert row.items[0] == done_before                                                       # the done item untouched
+    assert [(i.state, i.reason) for i in row.items[1:]] == [("skipped", "not_reached")] * 2
+    assert [i.result["message"] for i in row.items[1:]] == [
+        "The sync stopped before it got to this one; it is tried again at your next sync. Nothing was changed."] * 2
+    assert (result.state, result.backup, result.done, result.skipped) == ("done", backup, 1, 2)
+    assert [r.state for r in result.results] == ["done", "skipped", "skipped"]
+    with pytest.raises(ValueError):
+        go(lib, batch_id, resume=True)                                                       # nothing to resume
+    with db.connect(lib.paths.db_file) as conn:
+        assert db.unfinished_aiff_batches(conn) == []
+    assert [b.id for b in backups_of(lib)] == [backup] and lib.entry(0)["rekordbox_check"]["batch"] == batch_id
+    assert lib.entry(1)["upgrade"] and lib.entry(2)["upgrade"]                               # the rest still waits
+
+
+def test_end_auto_after_rekordbox_opened_at_the_start_has_no_backup_to_keep(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["aiff", "mp3"])
+    batch_id = start(lib, started_by="auto_upgrade")
+    with pytest.raises(batches.RekordboxOpen):
+        batches.run(lib.paths, batch_id, now=lambda: NOW, running=lambda: True, place=lib.place, require_closed=True)
+    result = batches.end_auto(lib.paths, batch_id, "rekordbox_open", now=lambda: NOW)
+    assert (result.state, result.backup, result.done, result.skipped) == ("done", None, 0, 2)
+    assert [(i.reason, i.message) for i in result.results] == [
+        ("rekordbox_open", "rekordbox is open; quit rekordbox, then try again. Nothing was changed.")] * 2
+    assert backups_of(lib) == []
+
+
+def test_the_words_of_a_skipped_item_write_rekordbox_in_lower_case_even_at_the_start(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3_plain", "mp3"])
+    batch_id = start(lib, [0, 1], started_by="auto_upgrade")
+    with pytest.raises(batches.RekordboxOpen):
+        batches.run(lib.paths, batch_id, now=lambda: NOW, running=lambda: True, place=lib.place, require_closed=True)
+    said = batches.end_auto(lib.paths, batch_id, "rekordbox_open", now=lambda: NOW).results[0].message
+    assert said == "rekordbox is open; quit rekordbox, then try again. Nothing was changed."
+    third = start(lib, [0], started_by="auto_upgrade")
+    assert batches.end_auto(lib.paths, third, "not_reached", now=lambda: NOW).results[0].message.startswith(
+        "The sync stopped before")                                               # other words are capitalised as before
+    assert batches._words("not_analysed").startswith("rekordbox hasn't analysed")
+
+
+def test_end_auto_refuses_a_batch_the_user_started_an_unknown_reason_and_a_missing_batch(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3"])
+    mine = start(lib)
+    with pytest.raises(ValueError, match="Auto-upgrade"):
+        batches.end_auto(lib.paths, mine, "not_reached", now=lambda: NOW)
+    assert states(lib, mine) == ["planned"] and lib.batch(mine).state == "running"
+    auto = start(lib, started_by="auto_upgrade")
+    with pytest.raises(ValueError, match="not a reason"):
+        batches.end_auto(lib.paths, auto, "because", now=lambda: NOW)
+    with pytest.raises(ValueError, match="no AIFF batch"):
+        batches.end_auto(lib.paths, 99, "not_reached", now=lambda: NOW)
+    first = batches.end_auto(lib.paths, auto, "busy", now=lambda: NOW)
+    assert batches.end_auto(lib.paths, auto, "not_reached", now=lambda: NOW) == first        # done already: as it is
+
+
+def test_recover_ends_a_crashed_auto_batch_but_stops_a_crashed_user_batch(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3", "mp3", "mp3"])
+    auto = start(lib, [0, 1], started_by="auto_upgrade")
+    batches.run(lib.paths, auto, compare=lambda a, b: EXACT, now=lambda: NOW, running=never,
+                place=lib.place, require_closed=True)
+    with db.connect(lib.paths.db_file) as conn:
+        db.set_aiff_batch(conn, auto, state="running")                   # a crash after both items were done
+    other = start(lib, [2], started_by="auto_upgrade")
+    mine = start(lib, [3])
+    assert batches.recover(lib.paths, now=lambda: NOW) == [mine]         # only the user's batch waits for Resume
+    assert (lib.batch(auto).state, lib.batch(auto).stop_reason) == ("done", None) and states(lib, auto) == ["done"] * 2
+    row = lib.batch(other)
+    assert (row.state, row.stop_reason, row.backup) == ("done", None, None)
+    assert [(i.state, i.reason) for i in row.items] == [("skipped", "not_reached")]
+    assert (lib.batch(mine).state, lib.batch(mine).stop_reason) == ("stopped", "crash")
+
+
+def test_recover_also_ends_an_auto_batch_that_was_stopped_but_never_ended(tmp_path, monkeypatch):
+    """The crash came between `run` stopping the batch and the phase's `end_auto`: still no Resume."""
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3"])
+    batch_id = stopped_auto_batch(lib, 2)
+    assert batches.recover(lib.paths, now=lambda: NOW) == []
+    row = lib.batch(batch_id)
+    assert (row.state, row.stop_reason) == ("done", None) and states(lib, batch_id) == ["done", "skipped"]
+    mine = start(lib, [1])                                                # a stopped batch of the user's keeps Resume
+    with pytest.raises(batches.Stopped):
+        token = CancelToken()
+        token.cancel()
+        go(lib, mine, token=token)
+    assert batches.recover(lib.paths, now=lambda: NOW) == [] and lib.batch(mine).state == "stopped"
+
+
+def test_a_crash_in_an_auto_batch_finishes_the_step_first_and_closes_the_rest_not_reached(tmp_path, monkeypatch):
+    """`recover_pending` finishes the interrupted swap (its item becomes done) before `batches.recover` runs, so only
+    the items still planned are closed as `not_reached`: no Resume, the done swap keeps its undo."""
+    lib = make_lib(tmp_path, monkeypatch, ["aiff", "mp3"])
+    batch_id = start(lib, started_by="auto_upgrade")
+
+    def die(*a, **k):
+        raise PowerOff
+
+    monkeypatch.setattr(upgrades, "_write_text", die)                   # after the file write, before the step ends
+    with pytest.raises(PowerOff):
+        batches.run(lib.paths, batch_id, compare=lambda a, b: EXACT, now=lambda: NOW, running=never, place=lib.place,
+                    require_closed=True)
+    monkeypatch.undo()
+    assert states(lib, batch_id) == ["planned", "planned"] and lib.batch(batch_id).state == "running"
+    library.recover_pending(lib.paths, load_state(lib.paths))
+    row = lib.batch(batch_id)
+    assert (row.state, row.stop_reason) == ("done", None)
+    assert [(i.state, i.reason) for i in row.items] == [("done", None), ("skipped", "not_reached")]
+    assert lib.entry(0)["rekordbox_check"]["batch"] == batch_id and lib.entry(1)["upgrade"]
 
 
 # --- undo and "checked" ---

@@ -52,6 +52,7 @@ REASON_WORDS = {
     "rename_blocked": "Discjockey can only give this file its new name while it can point your rekordbox track at "
                       "it, and it can't right now",
     "later_batch": "it was planned again in a later batch",
+    "not_reached": "the sync stopped before it got to this one; it is tried again at your next sync",
     "relocated": "this track was moved or removed in rekordbox since the replace, so Discjockey can't put it back safely",
 }
 

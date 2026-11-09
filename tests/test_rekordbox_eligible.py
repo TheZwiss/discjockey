@@ -63,6 +63,7 @@ def test_every_reason_has_its_words_and_the_actions_are_three():
     assert ACTIONS == ("same_track", "convert", "rename")
     assert reason_of(Eligible()) is None and reason_of(Skip("cloud")) == "cloud"
     assert {"unclean", "changed", "space", "rekordbox_open", "rename_blocked"} <= set(REASONS)  # stage B: a run finds them
+    assert "not_reached" in REASONS                       # stage C: an Auto-upgrade batch that ended before this item
 
 
 # --- Same track ---
