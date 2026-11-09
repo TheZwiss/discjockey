@@ -37,7 +37,7 @@ export const SETUP_STEPS = ['music', 'existing', 'tools', 'spotify', 'downloads'
 /** Setup's retired steps (Qobuz and More sources became Downloads, spec settings-setup §8) → the step they are now. */
 const RETIRED_SETUP_STEPS = new Map([['qobuz', 'downloads'], ['sources', 'downloads']]);
 /** Settings' rows (`#/settings/<row>`), in the page's order. */
-export const SETTINGS_ROWS = ['qobuz', 'youtube', 'soundcloud', 'spotify', 'youtube_music', 'music', 'folders', 'programs', 'about', 'reports'] as const;
+export const SETTINGS_ROWS = ['qobuz', 'youtube', 'soundcloud', 'spotify', 'youtube_music', 'music', 'folders', 'upgrades', 'programs', 'about', 'reports'] as const;
 
 /** "#/library/folder/Hard_Bounce?track=t2" → { name: 'library', params: { folder: 'Hard_Bounce' }, query } */
 export function parseHash(hash: string): Route {

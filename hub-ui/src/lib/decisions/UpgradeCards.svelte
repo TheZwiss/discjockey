@@ -6,13 +6,16 @@
   // same edit, Same track (recommended, = Swap) or New track (= Add as new file), the picked row listing what happens;
   // otherwise no choice, it says what will happen and why Same track isn't possible (or, with no rekordbox on this
   // Mac, that the new AIFF is a new track). Its last section says where the old file goes and, where a rekordbox
-  // write follows and no outcome says it, to quit rekordbox first (plan stage B §6.3). The action itself ("Replace with lossless") is the
+  // write follows and no outcome says it, to quit rekordbox first (plan stage B §6.3). When the sync's Auto-upgrade
+  // refused it (`auto_refused`), a warn NoteCard with the refusal's words opens the cards, above the comparison and the
+  // actions (stage C plan §6.3: it is this panel's news, and at the end of a long body it sat under the foot's fade;
+  // the waiting sentence is UpgradeFoot's Hint). The action itself ("Replace with lossless") is the
   // panel foot's filled button (UpgradeFoot, reading the same UpgradeFlow).
   import type { Spectrum as Spec, TrackDetail, Upgrade } from '$lib/bridge/types';
-  import { ChoiceGroup, ComparePlayer, Hint, KeyValue, OutcomeList, Spectrum, Surface, tip } from '$lib/components';
+  import { ChoiceGroup, ComparePlayer, Hint, KeyValue, NoteCard, OutcomeList, Spectrum, Surface, tip } from '$lib/components';
   import type { ChoiceOption } from '$lib/components';
   import { foundText, upgradeLabel } from '$lib/format';
-  import { KEPT_FILE, editLine, nowLabel, nowTip, upgradeWays, waysTitle, type Way } from './decisionModel';
+  import { KEPT_FILE, autoNotes, editLine, nowLabel, nowTip, upgradeWays, waysTitle, type Way } from './decisionModel';
 
   let { track, current, upgrade, loading, swap, way, onway, busy = false }: {
     track: Pick<TrackDetail, 'audio_url' | 'duration_s' | 'source_format_line' | 'quality_label'> & { upgrade: Upgrade | null };
@@ -31,7 +34,13 @@
   const options = $derived(ways.options.map((o): ChoiceOption<Way> => ({ key: o.key, name: o.name, summary: o.summary,
     outcomes: o.outcomes, recommended: o.key === 'swap', test: `way-${o.key}` })));
   const now = $derived(nowLabel(track));
+  // what the sync's last phase left on it: a refusal says why it was not upgraded (waiting shows under the actions)
+  const refused = $derived(autoNotes(up).refused);
 </script>
+
+{#if refused}
+  <NoteCard tone="warn" data-test="auto-refused" data-reason={refused.reason}>{refused.message}</NoteCard>
+{/if}
 
 <Surface kind="card" tone="good" label={upgradeLabel(up.what)} summary={foundText(up.found) || undefined}>
   <div class="up" data-test="upgrade-box" data-swap={swap}>

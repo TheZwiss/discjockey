@@ -4,16 +4,19 @@
   // it, full width and plain, "Undo all {n}" when every track can be undone, else "Undo {n}" (n the tracks that can
   // still be undone; none: no button) with the muted line "{k} can't be undone" under it. Under them what an undo left
   // as a warn NoteCard at the panel's full width, the colour of the rows' reasons (design §8's words when rekordbox is
-  // open; the track not undone by name, or how many, each row says why).
+  // open; the track not undone by name, or how many, each row says why). A batch the sync started (`fromSync`) names
+  // its undo "Undo all from this sync".
   import type { TodoItem } from '$lib/bridge/types';
   import { Hint, NoteCard, WriteButton } from '$lib/components';
   import { undoFoot, undoProblemLine } from './decisionModel';
   import type { ChecksFlow } from './flows.svelte';
 
-  let { tracks, flow, nameOf }: { tracks: TodoItem[]; flow: ChecksFlow; nameOf: (i: TodoItem) => string } = $props();
+  let { tracks, flow, nameOf, fromSync = false }: { tracks: TodoItem[]; flow: ChecksFlow; nameOf: (i: TodoItem) => string;
+    /** the batch is the sync's Auto-upgrade: its undo reads "Undo all from this sync" */
+    fromSync?: boolean } = $props();
 
   // a track whose undo was just refused isn't offered again until the next pick: it would only be refused again
-  const undo = $derived(undoFoot(tracks, flow.problem?.rows));
+  const undo = $derived(undoFoot(tracks, flow.problem?.rows, fromSync));
   const names = $derived(new Map(tracks.map((t) => [t.track_id, nameOf(t)])));
 </script>
 

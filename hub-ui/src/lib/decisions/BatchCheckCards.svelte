@@ -20,7 +20,7 @@
   import { Panel } from '$lib/frames';
   import BatchCheckFoot from './BatchCheckFoot.svelte';
   import {
-    batchCheckCard, checkRow, checksTitle, focusAfterRowGone, localDay, sinceText, tracksSummary, type CheckRow,
+    batchCheckCard, checkRow, checksTitle, focusAfterRowGone, isAutoBatch, localDay, sinceText, tracksSummary, type CheckRow,
   } from './decisionModel';
   import { refocus } from './focus';
   import type { ChecksFlow } from './flows.svelte';
@@ -32,7 +32,7 @@
      *  title counts items as the list, tab and chips do, the summary the tracks */
     selected?: number;
     /** the batch these tracks are (one batch item selected), null for several checks selected */
-    batch?: { id: number; started: string | null } | null;
+    batch?: { id: number; started: string | null; started_by?: string | null } | null;
     nameOf: (i: TodoItem) => string;
     flow: ChecksFlow;
   } = $props();
@@ -111,7 +111,7 @@
 {#snippet fill()}{@render list(true)}{/snippet}
 {#snippet after()}{@render list(false)}{/snippet}
 
-{#snippet foot()}<BatchCheckFoot {tracks} {flow} {nameOf} />{/snippet}
+{#snippet foot()}<BatchCheckFoot {tracks} {flow} {nameOf} fromSync={isAutoBatch(batch?.started_by)} />{/snippet}
 
 <div class="checks" bind:this={root} data-test="check-batch" data-mode={batch ? 'batch' : 'selection'}>
   <Panel head={card ? head : undefined} fill={card ? undefined : fill} after={card ? after : undefined} {foot} />

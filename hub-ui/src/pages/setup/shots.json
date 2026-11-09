@@ -94,5 +94,7 @@
    "steps": [{ "wait": "[data-test=existing-list-row-2]" }, { "sleep": 400 }] },
  { "name": "setup-existing-importing", "route": "#/setup/existing", "scenario": "setup_existing_empty",
    "steps": [{ "wait": "[data-test=existing-add]" }, { "click": "[data-test=existing-add]" },
-     { "wait": "[data-test=existing-import-line]" }, { "sleep": 400 }] }
+     { "wait": "[data-test=existing-import-line]" }, { "sleep": 400 }] },
+ {"name": "setup-downloads-auto", "route": "#/setup/downloads", "scenario": "setup:downloads-auto", "steps": [{"wait": "[data-test=setup-card-upgrades] [data-test=auto-upgrade-switch][aria-checked=true]"}, {"wait": "[data-test=setup-card-soundcloud] [data-compact]"}, {"sleep": 400}]},
+ {"name": "setup-downloads-auto-off", "route": "#/setup/downloads", "scenario": "setup:downloads-auto", "steps": [{"wait": "[data-test=setup-card-upgrades] [data-test=auto-upgrade-switch][aria-checked=true]"}, {"click": "[data-test=setup-card-upgrades] [data-test=auto-upgrade-switch]"}, {"wait": "[data-test=setup-card-upgrades] [data-test=auto-upgrade-switch][aria-checked=false]"}, {"sleep": 400}]}
 ]
