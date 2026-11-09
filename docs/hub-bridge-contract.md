@@ -923,7 +923,10 @@ fit." when the two files were measured as the same edit; the two `swapped` texts
 `rekordbox_checked(track_id)`. Its items also carry `can_undo` (bool): the check belongs to a swap or an added file
 that `undo_upgrade(track_id)` can still put back (the track still has that file and no newer version waits; whether
 the files changed is checked when it runs). False for every other check and for upgrades from before undo existed. A track can be in two groups (e.g. Check in rekordbox and Not found); `chips.all`
-counts each track once, `chips.rekordbox_check` every check (hidden ones too).
+counts each track once, `chips.rekordbox_check` every check item (hidden ones too; a batch is one item). `check_tracks`
+counts the same checks as **tracks**: a batch counts its `size`, hidden tracks too, whatever the filter. The page header
+says "{n} tracks to check in rekordbox" from it, and "{n} tracks are not lossless yet" from the sum of the chips of the
+groups below lossless (`upgrade_ready`, `not_found`, `weak`, `good_lossy`, `fake`, `other`), never from `chips.all`.
 ```json
 {
  "ok": true,
@@ -939,6 +942,7 @@ counts each track once, `chips.rekordbox_check` every check (hidden ones too).
   "fake": 0,
   "other": 0
  },
+ "check_tracks": 0,
  "hidden_count": 0,
  "show_hidden": false,
  "groups": [

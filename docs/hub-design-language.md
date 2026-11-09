@@ -626,7 +626,12 @@ before reopening anything. New system-level decisions from phase 2 on go here, n
   340 px; plan §3 doesn't list it). The batch row keeps the tracks' quality chip, not plan §6.4's muted "{n}" (the
   name says n; the column is quality on every row; decided by the orchestrator, S2 #10). Counts: a word that says
   "tracks" counts tracks; the bare numbers (strip, sidebar) count list items, where a batch is one (engine `chips`,
-  contract); the fake's batch shots all hold four tracks so their totals agree, and a batch's files carry the user's own
+  contract). F5: the To-do header is the one place words count tracks from items, so it has its own number
+  (`Todo.check_tracks`: tracks with an open check, a batch counts its size) and no longer reads `chips.all`:
+  "{n} tracks are not lossless yet" is the sum of the groups below lossless (Upgrade ready, Not found, Weak, Good lossy,
+  Fake lossless, Other; the engine parks an upgrade only for a lossy file), never "all minus the rest" (`all` counts a
+  track once however many groups hold it, and it held the lossless checks), and a third part "{n} tracks to check in
+  rekordbox" (the group head's words) follows the questions. A batch's files carry the user's own
   names in the folder the row and the card name. Why: each finding of S2 read as unfinished, cut or two-toned. Seen:
   `todo-check-batch`, `-kept`, `-undo-refused`, `-rekordbox-open`, `todo-check-multi`, `todo-check-repointed`.
 

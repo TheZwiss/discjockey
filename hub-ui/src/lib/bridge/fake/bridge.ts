@@ -1434,7 +1434,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         ...(k === 'upgrade_ready' ? upgradeAll(items[k]) : {}) }));
     const empty = groups.length ? null : !s.tracks.length ? 'empty_library' as const : filter !== 'all'
       ? 'nothing_here' as const : hidden_count ? 'all_hidden' as const : 'all_lossless' as const;
-    return { chips, hidden_count, show_hidden, groups, empty };
+    const check_tracks = s.tracks.filter((t) => t.rekordbox_check).length;
+    return { chips, check_tracks, hidden_count, show_hidden, groups, empty };
   }
 
   function linesProblem(lines: PlaylistLine[]): string | null {

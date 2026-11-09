@@ -1003,6 +1003,19 @@ def test_todo_check_in_rekordbox_group_also_for_lossless_and_hidden_tracks():
     assert [g["key"] for g in both["groups"]] == ["rekordbox_check", "not_found"] and both["chips"]["all"] == 2
 
 
+def test_todo_check_tracks_counts_tracks_where_chips_count_items():
+    chk = {"reason": "added_as_new", "since": "2026-10-16"}
+    s = state(a=e(rekordbox_check={**chk, "batch": 7}), b=e(title="B", rekordbox_check={**chk, "batch": 7}),
+              c=e(title="C", rekordbox_check={**chk, "batch": 7}), d=e(title="D", rekordbox_check=chk),
+              h=e("missing", hidden=True, rekordbox_check=chk), w=e("not_lossless", cutoff=16000))
+    for filt in ("all", "rekordbox_check", "weak"):
+        out = views.todo(s, filt, False, {}, TODAY)
+        assert out["check_tracks"] == 5, filt          # a batch of 3, one single check, one hidden track
+    out = views.todo(s, "all", False, {}, TODAY)
+    assert out["chips"]["rekordbox_check"] == 3        # the batch is one item
+    assert views.todo(state(w=e("not_lossless", cutoff=16000)), "all", False, {}, TODAY)["check_tracks"] == 0
+
+
 def test_todo_check_in_rekordbox_words_an_added_file_by_what_was_measured():
     s = state(a=e(rekordbox_check={"reason": "added_as_new", "since": "2026-10-16", "match": "exact"}),
               b=e(title="B", rekordbox_check={"reason": "added_as_new", "since": "2026-10-16", "match": "different"}))

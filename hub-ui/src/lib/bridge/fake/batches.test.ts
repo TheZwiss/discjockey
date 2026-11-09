@@ -29,6 +29,17 @@ function setup(scenario = 'upgrade-multi') {
 }
 
 describe('the fake bridge: Same track batches', () => {
+  it('check_tracks counts the tracks of the checks (a batch its size) whatever the filter; chips count items', async () => {
+    for (const [scenario, items, tracks] of [['todo:check-batch', 2, 5], ['todo:check-repointed', 3, 3], ['normal', 1, 1]] as const) {
+      const { f } = setup(scenario);
+      for (const filter of ['all', 'rekordbox_check', 'weak'] as const) {
+        const t = (await f.todo(filter, false)) as Todo & { ok: true };
+        expect(t.chips.rekordbox_check, `${scenario} chips`).toBe(items);
+        expect(t.check_tracks, `${scenario} ${filter}`).toBe(tracks);
+      }
+    }
+  });
+
   it('bad input is refused like the real bridge', async () => {
     const { f } = setup();
     for (const bad of ['t1', [], [3], null]) {

@@ -44,16 +44,25 @@ export function filterFrom(query: string | null, saved: string): TodoFilter {
 
 /** The page's second line, as `PageHeader` parts in order of importance (issue 30): one line beside the title at every
  *  width, so the header keeps its height between the filters (as one string it wrapped under the title at 1100). The
- *  first part never drops; the questions' part drops whole where it doesn't fit (the strip's Same song and Duplicates
- *  counts say it too) and stays in the tooltip. `chips.all` counts the tracks and, since stage 4, the questions and
- *  duplicate groups about the user's own files too (the engine counts each once); those are often lossless files, so
- *  they get their own part and the rest is what the line always said. */
-export function headerSub(chips: Pick<Record<TodoFilter, number>, 'all' | 'same_song' | 'duplicate'>): string[] {
+ *  first part never drops; the others drop whole where they don't fit (the strip's counts say them too) and stay in the
+ *  tooltip. Every number counts tracks, as its words say (F5):
+ *  - "not lossless yet" is the groups of tracks whose file is below lossless: Upgrade ready (the engine parks an
+ *    upgrade only for a lossy file, so its current file is not lossless yet), Not found, Weak, Good lossy, Fake lossless
+ *    and Other. It is the sum of those chips, not `chips.all` minus the rest: `chips.all` counts a track once however
+ *    many groups it is in, so a track with a check that is also Weak would be taken off twice.
+ *  - the questions (Same song, Duplicates) are about the user's own files, often lossless ones.
+ *  - the checks are tracks just upgraded and lossless: `check_tracks`, because `chips.rekordbox_check` counts items
+ *    and a batch of checks is one item there.
+ *  Nothing left in any of them: "Nothing to do". */
+export function headerSub(t: { chips: Record<TodoFilter, number>; check_tracks: number }): string[] {
+  const { chips } = t;
   const questions = chips.same_song + chips.duplicate;
-  const tracks = Math.max(0, chips.all - questions);
+  const tracks = chips.upgrade_ready + chips.not_found + chips.weak + chips.good_lossy + chips.fake + chips.other;
+  const checks = t.check_tracks;
   const parts = [
     tracks ? (tracks === 1 ? '1 track is not lossless yet' : `${tracks} tracks are not lossless yet`) : null,
     questions ? `${questions} ${questions === 1 ? 'question' : 'questions'} about your files` : null,
+    checks ? `${checks} ${checks === 1 ? 'track' : 'tracks'} to check in rekordbox` : null,
   ].filter((p): p is string => p !== null);
   return parts.length ? parts : ['Nothing to do'];
 }

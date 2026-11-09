@@ -24,7 +24,7 @@ function item(id: string, group: TodoGroupKey, extra: Partial<TodoItem> = {}): T
 }
 function todo(groups: [TodoGroupKey, string[]][]): Todo {
   const chips = { all: 0, rekordbox_check: 0, same_song: 0, duplicate: 0, upgrade_ready: 0, not_found: 0, weak: 0, good_lossy: 0, fake: 0, other: 0 };
-  return { chips, hidden_count: 0, show_hidden: false, empty: null,
+  return { chips, check_tracks: 0, hidden_count: 0, show_hidden: false, empty: null,
     groups: groups.map(([key, ids]) => ({ key, label: key, hint: '', items: ids.map((id) => item(id, key)) })) };
 }
 function upgrade(extra: Partial<Upgrade> = {}): Upgrade {
@@ -217,15 +217,29 @@ describe('texts', () => {
     expect(cutoffStat({ status: 'lossless', cutoff_hz: null })).toBeNull();
     expect(cutoffStat({ status: 'missing', cutoff_hz: null })).toBeNull();
   });
-  it('header line tells the tracks from the questions about the user\'s own files', () => {
-    const chips = (all: number, same_song = 0, duplicate = 0) => ({ all, same_song, duplicate });
-    expect(headerSub(chips(16))).toEqual(['16 tracks are not lossless yet']);
-    expect(headerSub(chips(1))).toEqual(['1 track is not lossless yet']);
-    expect(headerSub(chips(0))).toEqual(['Nothing to do']);
-    expect(headerSub(chips(18, 1, 1))).toEqual(['16 tracks are not lossless yet', '2 questions about your files']);
-    expect(headerSub(chips(2, 1, 0))).toEqual(['1 track is not lossless yet', '1 question about your files']);
-    expect(headerSub(chips(3, 2, 1))).toEqual(['3 questions about your files']);
-    expect(headerSub(chips(1, 0, 1))).toEqual(['1 question about your files']);
+  it('header line tells the tracks, the questions about the user\'s own files and the checks in rekordbox', () => {
+    const none = { all: 0, rekordbox_check: 0, same_song: 0, duplicate: 0, upgrade_ready: 0, not_found: 0, weak: 0,
+      good_lossy: 0, fake: 0, other: 0 };
+    const sub = (chips: Partial<typeof none>, check_tracks = 0) => headerSub({ chips: { ...none, ...chips }, check_tracks });
+    // not lossless yet: every group of tracks below lossless, summed (Upgrade ready included)
+    expect(sub({ weak: 4, good_lossy: 6, fake: 3, not_found: 3, upgrade_ready: 2, other: 1 })).toEqual(['19 tracks are not lossless yet']);
+    expect(sub({ fake: 1 })).toEqual(['1 track is not lossless yet']);
+    // the questions' part
+    expect(sub({ weak: 16, same_song: 1, duplicate: 1 })).toEqual(['16 tracks are not lossless yet', '2 questions about your files']);
+    expect(sub({ weak: 1, same_song: 1 })).toEqual(['1 track is not lossless yet', '1 question about your files']);
+    expect(sub({ same_song: 2, duplicate: 1 })).toEqual(['3 questions about your files']);
+    // checks only: a batch of 4 and one single check are 5 tracks, not 2 items (chips.rekordbox_check) and never "lossy"
+    expect(sub({ all: 2, rekordbox_check: 2 }, 5)).toEqual(['5 tracks to check in rekordbox']);
+    expect(sub({ all: 1, rekordbox_check: 1 }, 1)).toEqual(['1 track to check in rekordbox']);
+    // a track that is a check and also Weak is one lossy track and one check; chips.all counts it once and is not used
+    expect(sub({ all: 1, rekordbox_check: 1, weak: 1 }, 1)).toEqual(['1 track is not lossless yet', '1 track to check in rekordbox']);
+    // all three, in order of importance
+    expect(sub({ all: 20, rekordbox_check: 2, weak: 14, upgrade_ready: 2, same_song: 1, duplicate: 1 }, 5))
+      .toEqual(['16 tracks are not lossless yet', '2 questions about your files', '5 tracks to check in rekordbox']);
+    expect(sub({ weak: 3 }, 4)).toEqual(['3 tracks are not lossless yet', '4 tracks to check in rekordbox']);
+    expect(sub({ duplicate: 1 }, 1)).toEqual(['1 question about your files', '1 track to check in rekordbox']);
+    // nothing left
+    expect(sub({})).toEqual(['Nothing to do']);
   });
 });
 

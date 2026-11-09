@@ -1532,7 +1532,8 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     over the group's tracks that are not hidden) and `stopped: {batch_id, left} | null` (`stopped`: the newest stopped
     Same track batch that still has items left). The checks of one AIFF batch with two or more tracks open are one
     item, a `BatchCheckItem` (`key` `batch:<id>`, `batch: {id, size, started, tracks}`), which counts as one in
-    `chips`; one open check of a batch stays a plain item."""
+    `chips`; one open check of a batch stays a plain item. `check_tracks` is the tracks with an open check (a batch
+    counts its `size`, hidden tracks too, whatever the filter): the page header counts tracks, `chips` counts items."""
     items: dict[str, list] = {g: [] for g, _, _ in TODO_GROUPS}
     batch_checks: dict[int, list[str]] = {}
     for k, e in state["tracks"].items():
@@ -1604,7 +1605,10 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
         empty = "all_lossless" if not hidden else "all_hidden"
     elif not groups:
         empty = "nothing_here"
-    return {"chips": chips, "hidden_count": hidden, "show_hidden": show_hidden, "groups": groups, "empty": empty}
+    # the page header's count of checks is tracks (a batch is one item in `chips` but holds `size` tracks)
+    check_tracks = sum(1 for e in state["tracks"].values() if e.get("rekordbox_check"))
+    return {"chips": chips, "check_tracks": check_tracks, "hidden_count": hidden, "show_hidden": show_hidden,
+            "groups": groups, "empty": empty}
 
 
 def todo_others(prep, last_report: dict | None) -> dict[str, str]:

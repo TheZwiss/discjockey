@@ -466,7 +466,7 @@
       <PageHeader title="To-do" sub="18 tracks are not lossless yet" readStatus
         readStatusState={sp({ offline: true, problem: 'offline', minutes_ago: 184, read_at: new Date(now.getTime() - 184 * 60000).toISOString() })} />
       <!-- a status line too long for the space beside the title wraps under it, whole, after a "·" -->
-      <PageHeader title="To-do" sub="18 tracks are not lossless yet · 5 questions about your files · 3 songs need a look in rekordbox · 2 upgrades are ready" readStatus readStatusState={sp({})} />
+      <PageHeader title="To-do" sub="18 tracks are not lossless yet · 5 questions about your files · 3 tracks to check in rekordbox · 2 upgrades are ready" readStatus readStatusState={sp({})} />
       <PageHeader title="Good morning" readStatus readStatusState={sp({ problem: 'login_expired', message: 'Your Spotify login has expired.' })} />
       <PageHeader title="Good morning" readStatus readStatusState={sp({ read_at: null, minutes_ago: null })} />
       <!-- a used service without its login: Read playlists off, its reason names the service (the banner says it) -->

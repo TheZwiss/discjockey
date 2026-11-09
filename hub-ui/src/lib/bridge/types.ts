@@ -402,7 +402,10 @@ export type TrackDetail = TrackRow & {
   bought_name: string; audio_url: string | null; upgrade: Upgrade | null;
 };
 export type Todo = {
-  chips: Record<TodoFilter, number>; hidden_count: number; show_hidden: boolean;
+  chips: Record<TodoFilter, number>;
+  /** the tracks with an open check in rekordbox, whatever the filter: `chips.rekordbox_check` counts items (a batch is
+   *  one), this counts tracks (a batch counts its `size`), the page header's number */
+  check_tracks: number; hidden_count: number; show_hidden: boolean;
   groups: { key: TodoGroupKey; label: string; hint: string; items: TodoItem[];
     /** `upgrade_ready` only: Upgrade all's counts (Same track can run / the edit needs a choice / waits for something
      *  else) and the newest stopped Same track batch with items left */
