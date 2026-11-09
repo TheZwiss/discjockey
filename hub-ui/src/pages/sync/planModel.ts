@@ -397,6 +397,27 @@ export function runsNothingToday(chosen: number, downloads: number, uses: number
 }
 /** The reason beside the switched-off Start. */
 export const NOTHING_TODAY = 'Nothing to run today · downloads start tomorrow';
+/** The note beside Start while a sync runs in the terminal. */
+export const CONSOLE_RUNNING = 'A sync is running in the terminal';
+
+/** Auto-upgrade's line before a start (plan stage C §3, as auto_upgrade.before_start_line): rekordbox is open, so the
+ *  upgrades the sync would put in place at its end would wait. `n` is `sync_preview().auto_upgrade.ready`. */
+export const rekordboxOpenLine = (n: number): string =>
+  `rekordbox is open: quit it before you start, so the sync can put ${plural(n, 'upgrade')} in place at the end.`;
+
+/** The one note under Start sync (the start's slot, plan stage C §6.4). `console` and `nothing-today` come first when
+ *  they apply; `rekordbox-open` only with the Auto-upgrade switch on, at least one upgrade ready and rekordbox
+ *  running now (`rekordboxRunning` null: the bridge could not say, so nothing is claimed). */
+export type StartNote = { kind: 'console' | 'nothing-today' | 'rekordbox-open'; text: string };
+export function startNote(o: { consoleRunning: boolean; nothingToday: boolean; auto: SyncPreview['auto_upgrade'];
+  rekordboxRunning: boolean | null }): StartNote | null {
+  if (o.consoleRunning) return { kind: 'console', text: CONSOLE_RUNNING };
+  if (o.nothingToday) return { kind: 'nothing-today', text: NOTHING_TODAY };
+  if (o.auto?.on && o.auto.ready >= 1 && o.rekordboxRunning === true) {
+    return { kind: 'rekordbox-open', text: rekordboxOpenLine(o.auto.ready) };
+  }
+  return null;
+}
 
 /** The time card for `n` actions that run today, in the one estimate format (`estimate`: "~75" min, "~2.5" h);
  * bought files only take a minute or two; nothing runs: "0" min, so the card keeps its place. */

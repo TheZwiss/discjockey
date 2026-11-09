@@ -545,8 +545,9 @@ Sync is built on the system in every state. When unsure how something should loo
 | Before the start | `ListPanelFrame` (`pages/sync/BeforeStart.svelte`, `plan/KindStrip.svelte`, `plan/RunPanel.svelte`), the browser column's switches | `sync-before`, `sync-many`, `sync-many-all-off`, `sync-weekly-only-off`, `sync-scope`, `sync-long-plan-all`, `sync-limit-reached`, `sync-no-qobuz`, `sync-qobuz-backup` |
 | Reading Spotify, offline, console | same | `sync-reading`, `sync-rereading`, `sync-before-offline`, `sync-before-login-expired`, `sync-before-console` |
 | Up to date | same (`plan/UpToDate.svelte`, `plan/UpToDatePanel.svelte`) | `sync-before-up-to-date`, `sync-before-up-to-date-wait` (`sync-last-wait` on the waiting StatCard), `sync-before-up-to-date-console` |
-| Running, pause, stopping | `ColumnFrame` (`LiveView.svelte`) | `sync-downloading`, `sync-pause`, `sync-break`, `sync-stopping`, `sync-stop-refused` |
-| End, failed, crashed | `ColumnFrame` (`EndScreen.svelte`) | `sync-end`, `sync-end-stopped`, `sync-failed-login-expired`, `sync-crashed` |
+| Auto-upgrade before the start | same (`BeforeStart.svelte`'s `startNote`, in `RunPanel`'s foot under Start sync) | `sync-before-auto-rekordbox-open`, `sync-before-auto-ready` |
+| Running, pause, stopping | `ColumnFrame` (`LiveView.svelte`) | `sync-downloading`, `sync-pause`, `sync-break`, `sync-stopping`, `sync-stop-refused`, `sync-auto-running` |
+| End, failed, crashed | `ColumnFrame` (`EndScreen.svelte`) | `sync-end`, `sync-end-stopped`, `sync-end-auto`, `sync-end-auto-waiting`, `sync-failed-login-expired`, `sync-crashed` |
 
 Each shot exists at `@1100`, `@1280` and `@2560`. Worth copying:
 - The left: the browser column, each playlist's switch in its count's place (issue 36).
@@ -662,6 +663,21 @@ before reopening anything. New system-level decisions from phase 2 on go here, n
   state says the one thing the user needs where they look. Seen: `settings-upgrades-on`, `-off`, `-toggled`,
   `setup-downloads-auto`, `todo-auto-waits`, `-waits-panel`, `-refused`, `-refused-panel`, `-refused-choice`,
   `todo-auto-batch`.
+
+- **2026-11-09 · The sync's Auto-upgrade on the Sync page (issue 33 stage C U2).** What: before the start, with the
+  switch on, an upgrade ready and rekordbox running (read on page open and on window focus), the note under Start sync
+  is a warn `NoteCard`, not a `Hint` (the sentence is 96 characters and runs three lines in the 360 px panel, a `Hint`
+  is one cut line; `Hint` has no warn tone), after the console-running and nothing-today hints (`startNote`, one slot).
+  While the sync's last phase runs, the progress card says stage B's words in place of "Track x of y" ("3 of 8 done"
+  over "Upgrading · Artist - Title", the bar in the accent because the live card that carried the accent is not
+  there; the time left goes, it counted downloads) and the live card is not shown (`cardState` `upgrading`); Stop safely
+  stays in the foot. The end screen takes the run's one-line account as the first note after the stop line and one list
+  `Surface` after the new-file lists: "Upgraded" (cover, name, the engine's note, the quality badge) and a `ListSection`
+  "Still waiting" (the reason as the second line, Fix → to To-do, no badge: it is no file of this sync); an empty part
+  is left out (a run with everything waiting has only "Still waiting"), a run whose switch was off shows neither. Why: no
+  new block; each state says the one thing the user needs where they look. Seen: `sync-before-auto-rekordbox-open`,
+  `sync-before-auto-ready`, `sync-auto-running`, `sync-end-auto`, `sync-end-auto-waiting`, `sync-end` (the normal run
+  now upgrades one track at its end).
 
 - **2026-11-09 · A row of a multi-select list is a toggle, not "current" (issue 33 stage B review F2b).** What:
   `ListRow multi` says the pick as `aria-pressed` on the row's button; `aria-current` stays for single-select lists
