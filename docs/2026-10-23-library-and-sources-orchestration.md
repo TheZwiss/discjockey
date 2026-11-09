@@ -499,7 +499,10 @@ Results:
     bridge vs fake BEFORE dispatch (checklist line 3); the "stop past ~250k" line fired ~110k late. C4b (Sonnet, fake
     scenarios) done 6dbc615 (Sonnet **218k**: fake phase, 9 scenarios, toolbar "rekordbox open"); C4 merged into the
     stage branch 9532047. Routes per state: C4b report, copied into U1/U2 briefs. RH (Sonnet, rehearsal on a copy)
-    running.
+    done 674cb32 (Sonnet **201k**): 138 checks pass on a copy (switch off byte-equal, dry run, phase 4 done + 1
+    not_analysed, no repeat, re-try after re-analysis, undo all); no engine bug; merged into the stage branch b4df9b5.
+    U1 running on **Sonnet** (plan says Opus; §6 is a complete direction from existing blocks, no design decisions
+    left, same basis as the user-approved Sonnet UI fix rounds; S + Opus R2 judge taste).
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
