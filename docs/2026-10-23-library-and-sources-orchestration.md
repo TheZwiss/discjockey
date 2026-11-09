@@ -493,7 +493,11 @@ Results:
     quiet-sync phase) + 2 Minor, all fixed). C2 merged into the stage branch 65774a5. Facts for later groups:
     scratchpad `stage-c-notes.md`. C3 done c0a56dc (Sonnet **268k**, 110 calls: sync --json,
     settings auto-upgrade, CLAUDE.md invariant, README, CONTRIBUTING); merged into the stage branch 8bf2ef1. R2 to
-    check: the console runs a dry-run phase before every sync (double compare cost?). C4 running (Sonnet).
+    check: the console runs a dry-run phase before every sync (double compare cost?). C4 stopped at its limit: afaa5aa + static 8c58683 (Sonnet
+    **363k**, 97 calls: Python bridge + contract + types + run store + fake shapes; the fake phase, 9 scenarios and the
+    toolbar toggle left, `c4-handoff.md`). Lesson: a bridge group (Python + contract + TS + fake) should have been split
+    bridge vs fake BEFORE dispatch (checklist line 3); the "stop past ~250k" line fired ~110k late. C4b (Sonnet, fake
+    scenarios) running.
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
