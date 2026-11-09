@@ -476,6 +476,10 @@ Results:
 - **RESUME HERE after a compact (2026-11-09 ~02:40):**
   - Running: F4 (Sonnet, agent aaae40266f55be5e7, brief `brief-33-F4.md` in the scratchpad): S2 findings on
     `feat/rekordbox-b`. On its notice: log its `subagent_tokens`, `ps` check.
+  - F4 done 2026-11-09 ~03:00: Sonnet **193k** (62 calls), 73e5fb2 + static f7b4351, CI green. Open for the verify
+    shots: the single repointed card's cut "Current file" (F4 left it; judge it). Engine counts a batch as one in the
+    To-do header ("N tracks are not lossless yet"); fake now 4-track batches; real fix needs the contract to carry a
+    track count → issue on main before merging B.
   - V (orchestrator, no agent): in the rb-b worktree `cd hub-ui && npm run verify` with `run_in_background` (~20 min,
     read only the tail), `npm run smoke`, CI green on the last push. Look at the verify shots of the F3/F4 states
     (selection head NoteCard, batch rows with `wrapName`, the ✕ colour (F3 #5, measured #7a7a80), the check cards);
