@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import syncRaw from '$fixtures/hub_events_sync.jsonl?raw';
 import stoppedRaw from '$fixtures/hub_events_stopped.jsonl?raw';
 import type { HubEvent } from '../bridge/events';
-import { EMPTY_RUN, reduceRun, runFromSnapshot, type RunState } from './run';
+import { ACTIVE_PHASES, EMPTY_RUN, reduceRun, runFromSnapshot, type RunState } from './run';
 import { JobRecord, lineOf } from '../bridge/fake/replay';
 
 const lines = (raw: string): HubEvent[] => raw.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
@@ -117,5 +117,43 @@ describe('runFromSnapshot', () => {
   it('a job that is stopping says so', () => {
     const snap = { ...snapOf(sync.slice(0, 65)), stopping: true };
     expect(runFromSnapshot(snap, 1000).phase).toBe('stopping');
+  });
+});
+
+describe('the sync\'s Auto-upgrade phase (issue 33 stage C)', () => {
+  const batch = (done: number, total: number, name: string | null): HubEvent =>
+    ({ type: 'BatchProgress', batch_id: 4, done, total, track_id: name ? 't1' : null, name });
+  // the recorded sync up to its last ActionFinished: the run's actions are over, the phase starts
+  const afterActions = sync.slice(0, sync.findIndex((e) => e.type === 'RunFinished'));
+
+  it('goes upgrading with where the batch is, and stays there until the run ends', () => {
+    const s = feed([...afterActions, batch(0, 3, 'Artist - One')]);
+    expect(s.phase).toBe('upgrading');
+    expect(s.upgrade).toEqual({ batch_id: 4, done: 0, total: 3, name: 'Artist - One' });
+    const last = reduceRun(reduceRun(s, batch(3, 3, null), 2000), sync.find((e) => e.type === 'RunFinished')!, 3000);
+    expect(last.phase).toBe('upgrading');
+    expect(last.upgrade).toEqual({ batch_id: 4, done: 3, total: 3, name: null });
+    const done = reduceRun(last, sync.find((e) => e.type === 'JobFinished' && e.kind === 'sync')!, 4000);
+    expect(done.phase).toBe('finished');
+  });
+  it('a Stop in the phase stays stopping while the batch goes on', () => {
+    const s = reduceRun({ ...feed([...afterActions, batch(1, 3, 'Artist - Two')]), phase: 'stopping' }, batch(2, 3, 'Artist - Three'), 2000);
+    expect(s.phase).toBe('stopping');
+    expect(s.upgrade?.done).toBe(2);
+  });
+  it('is part of the active phases and ignores the batch events of any other job', () => {
+    expect(ACTIVE_PHASES).toContain('upgrading');
+    expect(reduceRun(EMPTY_RUN, batch(0, 2, 'x'), 1)).toBe(EMPTY_RUN);
+    const other = reduceRun(EMPTY_RUN, { type: 'JobStarted', job_id: 9, kind: 'use_candidate', track_id: 't1' }, 1);
+    expect(reduceRun(other, batch(0, 2, 'x'), 2).upgrade).toBeNull();
+  });
+  it('comes back from a reload with the same state', () => {
+    const evs = [...afterActions, batch(1, 3, 'Artist - Two')];
+    const start = evs.find((e) => e.type === 'JobStarted' && e.kind === 'sync') as Extract<HubEvent, { type: 'JobStarted' }>;
+    const rec = new JobRecord(start.job_id, 'sync', null, '2026-10-16T14:11:00');
+    for (const e of evs.slice(evs.indexOf(start))) rec.record(e);
+    const again = runFromSnapshot(rec.snapshot(), 1000);
+    expect(again.phase).toBe('upgrading');
+    expect(again.upgrade).toEqual({ batch_id: 4, done: 1, total: 3, name: 'Artist - Two' });
   });
 });

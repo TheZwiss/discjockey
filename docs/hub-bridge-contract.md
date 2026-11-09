@@ -102,12 +102,15 @@ Use the kind for the card/headline; always show `message` as the detail.
   reload: the Sync page then never reads by itself).
 - **Budget** (`qobuz_today`, `today`): `used, allowance, limit, carry_over, extra, remaining` (ints). "37 of 80 · 60 + 20 carried over".
 - **RunSummary**: `run_id` (`YYYY-MM-DD_HHMMSS`), `started`, `finished`, `duration_s`, `exit_code` (0 ok, 1 some failed,
-  130 stopped), `counts {lossless, lossy, problems, moved}`, `stopped_after` int|null ("stopped by you after N tracks").
+  130 stopped), `counts {lossless, lossy, problems, moved}`, `stopped_after` int|null ("stopped by you after N tracks"),
+  `auto_upgrade` (stage C: the run's Auto-upgrade block with its `line`, see "Auto-upgrade" below; null when the switch
+  was off for that run and in runs from before it).
 - **Result** (report line; in `ActionFinished.result`, run sections, op results): `section, folder, artist, title,
   track_id|null, note, status|null, source|null, cutoff_hz|null, path|null, error_kind` (`network|qobuz|other|not_found|null`),
   `found_status|null` (`upgrade_ready`: the found file's status — a SoundCloud original can be lossless; `status` stays
   the current file's; null elsewhere. Missing in runs saved before it: then a Qobuz find counts as lossless, any other as lossy).
   Sections: see `discjockey/report.py SECTIONS` (new_lossless, new_not_lossless, fake, upgrade_ready, swapped, added_new,
+  upgraded, upgrade_waits (stage C),
   discarded, checked, bought, replaced, rejected, hidden, unhidden, moved, adopted, redownloaded, dropped, missing,
   queued, ambiguous, conflicts, skipped, recovered, errors). `moved`, `adopted` and `conflicts` are no longer written by
   new runs (a sync moves no files and picks none up by name); they stay in the list because the reports of past runs
@@ -403,7 +406,9 @@ event was added for it. The hub store reads it after every `JobFinished`, which 
 `sync_preview()` — the check before Start. Each action's `key` is sent back ticked to `start_sync`.
 It also carries `waiting_answers: int` (songs held back until the user answers "Is this the same song?", the plan's
 `questions`; they are not downloaded meanwhile) and `deferred_checks: int` (first upgrade checks of imported music
-that the per-run cap left for later runs); both 0 before the first read.
+that the per-run cap left for later runs); both 0 before the first read. It also carries `auto_upgrade` (stage C):
+`{on: true, ready: n}` with n the upgrades the sync's last phase would put in place now, or null (the switch is off,
+settings.json can't be read, or there is no preview yet) — see "Auto-upgrade" below.
 Group `key`s/labels in order: `acquire:new` Download (new), `acquire:retry` Try again, `acquire:redownload` Download
 again, `adopt_bought` Add a bought file, `upgrade` Look for a better version (weekly check). There are no `move` or
 `adopt` groups, no `counts.moves` / `counts.adopts` (in `sync_preview` and in the dashboard's `ready.counts`) and no
@@ -1333,7 +1338,7 @@ would not show it. Files cached before the field existed are made again.
 `media_url(track_id, which="current")` → `{"url"}` playable by `<audio>` / `fetch` (range requests work). The URL
 changes when the file changes (`?v=size-mtime`).
 
-`setup_status()` — `next_step`: `music|tools|spotify|downloads|playlists|null`; open the wizard when `complete` is false. `music` = MusicStatus `{state: ok|not_chosen|missing, path, suggested}`: `ok` the music folder is bound, `not_chosen` Setup's first step, `missing` config.json names a folder that isn't there (an unplugged drive); `path` the bound or missing folder, `suggested` the default to offer (`~/Music/Discjockey`). Unbound, `playlists` is false and `complete` false. `downloads` is Setup's Downloads step (Qobuz and the other download logins): done when Qobuz is signed in or left out. Setup's "Your existing music" step (after `music`) is in the status as `existing: bool` (done: an import folder is watched, or `import_skipped`), `import_folders: int` (the import folders watched) and `import_skipped: bool` (Skip was pressed, `setup_skip_import`); it is not among the required steps: it never changes `next_step` or `complete`, and never blocks Continue.
+`setup_status()` — `next_step`: `music|tools|spotify|downloads|playlists|null`; open the wizard when `complete` is false. `music` = MusicStatus `{state: ok|not_chosen|missing, path, suggested}`: `ok` the music folder is bound, `not_chosen` Setup's first step, `missing` config.json names a folder that isn't there (an unplugged drive); `path` the bound or missing folder, `suggested` the default to offer (`~/Music/Discjockey`). Unbound, `playlists` is false and `complete` false. `downloads` is Setup's Downloads step (Qobuz and the other download logins): done when Qobuz is signed in or left out. Setup's "Your existing music" step (after `music`) is in the status as `existing: bool` (done: an import folder is watched, or `import_skipped`), `import_folders: int` (the import folders watched) and `import_skipped: bool` (Skip was pressed, `setup_skip_import`); it is not among the required steps: it never changes `next_step` or `complete`, and never blocks Continue. `auto_upgrade: bool` (stage C) is Settings' and Setup's "Upgrade automatically when I sync" (on by default; false too when settings.json can't be read, because a sync can't start from it).
 `version`: `discjockey.__version__` (Settings → About shows it).
 `qobuz_skipped`: "I don't have Qobuz" was chosen, the `downloads` step then counts as done (`qobuz` itself stays false).
 `spotify_skipped` (stage 3): "I don't use Spotify" was chosen; the `spotify` step then counts as done (`spotify_app` /
@@ -1628,7 +1633,7 @@ A job's success can carry words in `JobFinished.message`, empty otherwise: the i
 
 | method (positional args) | job kind | JobFinished.result |
 |---|---|---|
-| `start_sync(selected)` — list of ticked `key`s from `sync_preview` | `sync` | `{exit_code, report, actions, new_since_preview}` (`report`: absolute .md path); also on a `crashed` sync (`exit_code` 1, `report` its crash note; `actions` 0 when it crashed before the plan) |
+| `start_sync(selected)` — list of ticked `key`s from `sync_preview` | `sync` | `{exit_code, report, actions, new_since_preview}` (`report`: absolute .md path; with the switch on, the run's last phase is Auto-upgrade: it sends `BatchProgress` events and the report's `.json` carries `auto_upgrade`, see below); also on a `crashed` sync (`exit_code` 1, `report` its crash note; `actions` 0 when it crashed before the plan) |
 | `stop()` → `{"stopped": bool}` (not a job) — Stop safely: current write job (sync, download, Spotify login) | | |
 | `save_playlists(lines, loaded_version, files = null)` — `files` answers the save question when the change retargets files: `null` (nothing to ask) or `{choice: "leave"\|"move", renames: [[old, new]], moves: [[file_id, from_path]]}` (`from_path` as `preview_playlist_change`'s rows send it). `leave` makes the files this save would have moved the user's own placement (a later tidy-up lists them apart); `move` renames the chosen folders on disk (one batch each), then moves the chosen files (one batch). A malformed `files` is `refused` before a job starts | `save_playlists` | `{version, batches}`: `batches` are BatchResults, empty when nothing moved; problem `changed` = "playlists.txt was changed elsewhere…". A Stop after the save ends with problem `stopped` and the same `{version, batches}` as `result` |
 | `tidy_up(moves)` — `moves`: `[[file_id, from_path]]` from `tidy_preview` rows (not empty, else `refused`); each file moves only if it still looks as shown | `tidy` | BatchResult; a Stop ends with problem `stopped` and the batch so far as `result` |
@@ -1782,6 +1787,7 @@ still answers. Otherwise `download_tools_problem` is null.
 | `setup_skip_qobuz()` — "I don't have Qobuz": the Qobuz step counts as done | `setup_skip_qobuz` | `{}` |
 | `setup_skip_spotify()` — "I don't use Spotify": the Spotify step counts as done and sets `spotify_skipped` (playlists then come from the links of the other services); a later `setup_spotify_login` clears it | `setup_skip_spotify` | `{}` |
 | `set_read_liked_music(on)` — Settings' "Read my Liked music" (sources round): whether YouTube Music's Liked music line is read, through the YouTube login (a `YoutubeDL` of the read's own, never the download path's). Off by default; `on` must be a bool (`refused`); turning it on without a YouTube account fails `not_set_up` ("Sign in to YouTube first: Discjockey reads your Liked music through that login."). Turning it off never touches playlists.txt. While it is off a listed Liked music line is left out of every read like a switched-off line (no request, no problem, its files stay; its tracks are marked as not in a playlist like any switched-off line's); the same while the YouTube account is paused today (an `auto_stop`, `bot_check` or `rate_limited` sign recorded today), and a bot check or "too many requests" met by the Liked music read itself is recorded as the YouTube account's warning sign (Settings shows it, the account is then paused for the next Liked music reads) and ends only that line | `set_read_liked_music` | `{}` |
+| `set_auto_upgrade(on)` — "Upgrade automatically when I sync" (Settings › Upgrades, Setup's Downloads step; stage C): whether a sync ends with Same track for every upgrade that needs no decision, while rekordbox is closed. On by default; `on` must be a bool (`refused`: "on must be true or false."). A write job like every settings write (it takes the library lock: `busy` / `console`). Turning it off touches nothing that waits | `set_auto_upgrade` | `{}` |
 | `add_liked_music()` — "Add Liked music to Playlists" (a `LIBRARY_METHODS` member): appends `Liked_music = https://music.youtube.com/playlist?list=LM` to the end of playlists.txt through the writer `save_playlists` uses (YouTube Music shares no link for it; a folder `Liked_music` taken by another playlist becomes `Liked_music_2`, …). Fails `setting_off` while the choice is off and `exists` when a Liked music line is listed already (on or off). A Playlists page with an unsaved draft meets it through its "changed elsewhere" answer (`playlists().version` changes) | `add_liked_music` | `{folder}` |
 | `setup_account(service, browser, profile?)` — `service` `youtube|soundcloud`, `browser` `safari|chrome|firefox|brave|edge`, `profile` that browser's profile folder (null: the default); checks the login in that profile (only cookie names are read), then saves the browser, the profile and the check (`last_check`). A login without Premium or Go+ is saved too (`saved: true`, its check recorded): SoundCloud's is used for downloads, YouTube's only to read Liked music and never for a download (`Settings.download_accounts`: no cookies, no limit card, no usage row, no `premium_missing`). A later check that finds Premium makes it the download account. A failed check of the saved login itself (same browser and profile) is recorded on it | `setup_account` | `{service, browser, profile, saved, check}` (`check` = AccountCheck) |
 | `setup_forget_account(service)` — removes the saved browser of that account (forgetting the YouTube login also turns Liked music off: signing in again does not turn it back on) | `setup_forget_account` | `{service}` |
@@ -1980,7 +1986,7 @@ the third action).
 | `Message` | `level` `info|warning|debug`, `text` (hide debug) |
 | `ReadingPlaylist` | `index`, `total`, `folder` — before each playlist is read (a refresh, or a sync's start) |
 | `MovesProgress` | `batch_id`, `done`, `total` — after each move of a move batch, during `tidy`, `undo_moves` and a moving `save_playlists` (a folder rename counts as one move) |
-| `BatchProgress` | `batch_id`, `done`, `total`, `track_id`, `name` — before each track of an AIFF batch and after the last (`track_id`/`name` null then), during `upgrade_batch`, `batch_resume`, `batch_undo` and, with `batch_id` 0 (no batch record), `upgrade_add_new` / `upgrade_discard` lists. `done` counts tracks handled, earlier runs of a resumed batch included |
+| `BatchProgress` | `batch_id`, `done`, `total`, `track_id`, `name` — before each track of an AIFF batch and after the last (`track_id`/`name` null then), during `upgrade_batch`, `batch_resume`, `batch_undo`, a `sync` (its Auto-upgrade phase, stage C: one batch, `batch_id` its real id) and, with `batch_id` 0 (no batch record), `upgrade_add_new` / `upgrade_discard` lists. `done` counts tracks handled, earlier runs of a resumed batch included |
 | `ImportProgress` | `phase` `scan|tags|sound|link`, `done`, `total` (0 of 0 for scan and link), `unreadable` (files this import couldn't read so far) — during an import (importer.run_import), at each phase's start and end and at most every 25 files or 0.5 s between |
 
 Pause card: the pause runs inside the next action after its `ActionStarted` and search, so "next up" is the current
@@ -1991,7 +1997,60 @@ latest is sent). The pause card's source is the latest `SourceChosen` of the cur
 ## Upgrades and batches (issue 33 stage B)
 
 - **Problem kind `rekordbox_open`**: a batch or an undo needs rekordbox closed ("rekordbox is open. Quit rekordbox, then try again. Discjockey changes your rekordbox tracks only while rekordbox is closed."; stopped mid-way: "rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox and press Resume."). `JobFinished.result` is the stopped `AiffBatchResult` (or the `UndoResult`) when items ran.
-- **`upgrade` block** (`track().upgrade`): `swap_possible` now means "Same track can run now" (the quick answer: a parked upgrade, the file there, a stored alignment `exact`/`shifted`, and for a file that isn't AIFF a rekordbox library Discjockey can open or none); new `swap_how` (`in_place` for an AIFF, `new_aiff`), `why_not` (an eligibility reason key, null when possible), `rekordbox: {state: ready\|none\|unreadable, running}` (cached, see below), `auto_refused: null` (stage C). `upgrade_status` says "cues can stay" whenever Same track is possible.
+- **`upgrade` block** (`track().upgrade`): `swap_possible` now means "Same track can run now" (the quick answer: a parked upgrade, the file there, a stored alignment `exact`/`shifted`, and for a file that isn't AIFF a rekordbox library Discjockey can open or none); new `swap_how` (`in_place` for an AIFF, `new_aiff`), `why_not` (an eligibility reason key, null when possible), `rekordbox: {state: ready\|none\|unreadable, running}` (cached, see below), `auto_refused` (stage C, see "Auto-upgrade" below). `upgrade_status` says "cues can stay" whenever Same track is possible.
 - **`check_view`** (`check`): reasons add `repointed`; new `reload_tag` (a record without it still asks for Reload Tag: `true`), `batch: {id, size} \| null` (size: that batch's checks still open), `rekordbox: {entries: count, kept: [fields]} \| null`.
 - **`todo()`**: every `upgrade_ready` item carries `same_track` (null, or the reason key); the group carries `all: {n, m, k}` (Same track can run / the edit needs a choice / waits for something else, hidden tracks left out) and `stopped: {batch_id, left} \| null` (the newest stopped batch with tracks left). The open checks of one batch with two or more tracks are one item, `BatchCheckItem` (`key` = `track_id` = `batch:<id>`, `group: "rekordbox_check"`, the first track's row fields, `batch: {id, size, started, tracks: [check items]}`; `isBatch`), counted once in `chips`; one open check stays a plain item.
 - **Cached rekordbox state**: `HubApi._rekordbox_status()` keyed on master.db's modified time and size plus whether rekordbox runs; one read open per change, never while any write job of this hub runs (a sync, import or tidy-up runs the recovery first, which can finish a rekordbox write: it answers the last value). Services `rekordbox_running` and `rekordbox_place` are injected (tests and the fake never touch a real library).
+
+
+## Auto-upgrade (issue 33 stage C)
+
+The sync's last phase (`discjockey/auto_upgrade.py`): with Settings' switch on (the default), a sync ends with one AIFF
+batch that does Same track for exactly the set Upgrade all would do, while rekordbox is closed. rekordbox open means
+nothing is upgraded that run and the upgrades are marked as waiting. The hub changes nothing about how a sync starts
+or stops: `sync_work` passes the job's Stop token and the hub's rekordbox services (`rekordbox_running`,
+`rekordbox_place`, `compare`, `now`) to both ways a sync ends, so Stop reaches the phase even when the plan had no
+action.
+
+- **`set_auto_upgrade(on)`** (write job `set_auto_upgrade`, result `{}`): see Settings. **`setup_status().auto_upgrade`**
+  is the switch. `SettingKey` is unchanged (no read needs the switch).
+- **`rekordbox_status()`** (read, any time; works without a music folder, not a `LIBRARY_METHODS` member) →
+  `{state: "ready" | "none" | "unreadable", running: bool}`. `state` is the cached `_rekordbox_status()` (one read open
+  per change of master.db; while a write job of this hub runs it answers its last value), `running` is asked on every
+  call. The Sync page reads it when it opens and when the window gets focus again (no timer); `none`: no rekordbox
+  library on this Mac, `unreadable`: one Discjockey cannot open.
+- **`sync_preview().auto_upgrade`** → `{on: true, ready: n} | null`. `n` = the phase's set now: To-do's Upgrade ready
+  list (hidden left out, songs waiting for an answer to "Is this the same song?" left out) filtered by the quick Same
+  track answer (the cached rekordbox state; nothing of rekordbox's library is opened), minus the tracks a recorded
+  refusal still holds (`auto_refused`): a refusal that only a read of rekordbox's analysis files could tell counts as
+  holding, one of `space` or `needs_choice` is checked. It counts the upgrades that would wait for rekordbox too (rekordbox
+  running does not change `n`). null: the switch is off, settings.json can't be read, or `empty` is `no_preview`.
+  The Sync page's before-start Hint ("rekordbox is open: quit it before you start, so the sync can put {n} upgrades in
+  place at the end.") shows when `ready >= 1` and `rekordbox_status().running`.
+- **`upgrade` block** (`track().upgrade`): `auto_refused` is `{reason, message, at} | null` (was always null; type
+  changes from `string | null`): the refusal the phase recorded on the parked upgrade — `reason` one of `timing`,
+  `not_analysed`, `cloud`, `space`, `needs_choice`, `message` the item's own words, `at` an ISO time; shown whatever
+  the switch says. New `auto_waits: bool`: the phase met rekordbox open for this upgrade; true only while the switch is
+  on and Same track could run now (`swap_possible`).
+- **`todo()`**: an `upgrade_ready` item's `detail` is, in this order: "Waits for rekordbox to be closed" (`auto_waits`
+  as above), "Not upgraded at your sync · {short}" (a recorded refusal that still applies: `short` is `timing`
+  "couldn't line it up", `not_analysed` "not analysed in rekordbox", `cloud` "in Cloud Library Sync", `space` "not
+  enough free space", `needs_choice` "couldn't compare it"; a `needs_choice` record is dropped once a measurement says
+  "a different edit"), else `upgrade_status`. A `BatchCheckItem`'s `batch` gains `started_by`
+  (`aiff_batches.started_by`: `user`, `upgrade_all`, `auto_upgrade`, …; null when unknown) and, for `auto_upgrade`, the
+  item's `detail` is "{date} · Upgraded during your sync" (in place of "{date} · Same track"). The page names the card
+  and its foot from `started_by` ("{n} tracks upgraded", "Undo all from this sync").
+- **`run(run_id)` / `runs()`** (`RunSummary.auto_upgrade`): the report's `.json` key `auto_upgrade` plus `line`
+  (`report.auto_upgrade_line`: "Upgraded 2 tracks; your cues stayed. 1 waits for rekordbox to be closed." …; null when
+  nothing happened), or null. The block: `{batch: int|null, backup: str|null, done, waiting, refused, failed,
+  stopped: bool, dry_run: bool, results: [{track, name, state: "done"|"would"|"waiting"|"refused"|"failed", reason,
+  message, how: "in_place"|"new_aiff"|null}]}`; `waiting` counts `rekordbox_open`, `busy` and `not_reached` results.
+  `sections` carry `upgraded` (done; counted in `counts.lossless` / `lossy` by `status` like `swapped`, and not a new
+  file for rekordbox) and `upgrade_waits` (waiting, refused, not reached; never an error: a failed item is in `errors`).
+- **Events:** a sync job sends `BatchProgress` during its phase, after a `Message` "Upgrading {n} tracks at the end of
+  the sync…" (`done` of `total` handled; `track_id` / `name` the track in work). The phase starts only when the run
+  reached its end: never after Stop or a crash. A Stop during the phase ends the batch (the rest are
+  `skipped` / `not_reached`, no Resume is offered for it) and the sync's `exit_code` is 130.
+- **Fake scenarios:** `sync:auto-done`, `sync:auto-rekordbox-open`, `sync:auto-running`, `todo:auto-waits`,
+  `todo:auto-refused`, `todo:auto-batch`, `settings:upgrades-on`, `settings:upgrades-off`, `setup:downloads-auto`; the
+  dev toolbar's "rekordbox open" toggle sets `rekordbox_status().running`.

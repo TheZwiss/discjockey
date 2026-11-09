@@ -13,7 +13,7 @@ const run = (results: Result[], extra: Partial<RunDetail> = {}): RunDetail => {
   for (const x of results) (sections[x.section] ??= []).push(x);
   return { run_id: '2026-10-19_214700', started: '2026-10-19T21:23:00', finished: '2026-10-19T21:47:00',
     duration_s: 1440, exit_code: 0, counts: { lossless: 0, lossy: 0, problems: 0, moved: 0 }, stopped_after: null,
-    sections, needs_you: results.filter((x) => ['missing', 'errors'].includes(x.section)),
+    auto_upgrade: null, sections, needs_you: results.filter((x) => ['missing', 'errors'].includes(x.section)),
     for_rekordbox: { new_files: 0, folders: [] }, upgrades_ready: 0, report_md: '', queued: 0,
     folder_order: ['Hard_Bounce', 'Powertrance', 'Bouncy'], ...extra };
 };

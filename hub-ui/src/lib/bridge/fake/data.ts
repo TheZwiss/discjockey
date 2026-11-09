@@ -188,6 +188,10 @@ export type FakeState = {
   batchStep?: number;
   /** tracks a Same track batch skips when it reaches them, with the reason its full check finds (a run-time reason) */
   batchSkip?: Record<string, string>;
+  /** the sync's Auto-upgrade phase: the fake rekordbox is opened after this many tracks of the batch (the rest wait) */
+  autoOpensAfter?: number;
+  /** who started a scenario's AIFF batch (batch id -> `aiff_batches.started_by`); unset: the user */
+  batchStartedBy?: Record<number, 'user' | 'upgrade_all' | 'auto_upgrade'>;
   /** tracks whose undo is refused when it runs (the engine's words: relocated in rekordbox since, a file changed) */
   undoRefuse?: Record<string, string>;
   offline: boolean;
@@ -280,9 +284,9 @@ export function todoGroup(t: FakeTrack): TodoGroupKey | null {
   const q = qualityOf(t);
   return q === 'missing' ? 'not_found' : q === 'lossless' ? null : q === 'good_lossy' ? 'good_lossy' : q;
 }
-export function todoDetail(t: FakeTrack, g: TodoGroupKey): string {
+export function todoDetail(t: FakeTrack, g: TodoGroupKey, upgrade?: (plain: string) => string): string {
   if (g === 'rekordbox_check') return checkStatus(t.rekordbox_check);
-  if (g === 'upgrade_ready') return upgradeStatus(t.upgrade!);
+  if (g === 'upgrade_ready') return upgrade ? upgrade(upgradeStatus(t.upgrade!)) : upgradeStatus(t.upgrade!);
   if (g === 'not_found') {
     const d = t.next_try_days;
     return d === null ? 'tried again at the next sync' : `next try in ${d} day${d === 1 ? '' : 's'}`;
@@ -413,7 +417,7 @@ export function makeUpgrade(t: { folder: string; artist: string; title: string }
     alignment: ALIGN[kind], cue_text: cueText(kind, true),
     swap_safe: kind === 'exact' || kind === 'shifted', swap_possible: kind === 'exact' || kind === 'shifted',
     why_not: kind === 'exact' || kind === 'shifted' ? null : 'needs_choice', swap_how: swap_possible ? 'in_place' : 'new_aiff',
-    rekordbox: { state: 'ready', running: false }, auto_refused: null, audio_url: null,
+    rekordbox: { state: 'ready', running: false }, auto_refused: null, auto_waits: false, audio_url: null,
   };
 }
 export function hash(s: string): number {
@@ -643,18 +647,18 @@ const NEW_FILE_SECTIONS = ['new_lossless', 'new_not_lossless', 'fake', 'swapped'
   'moved', 'redownloaded'];
 const PROBLEM_SECTIONS = ['missing', 'errors', 'conflicts', 'ambiguous'];
 export function runDetail(id: string, started: Date, duration_s: number, exit_code: number, results: Result[],
-  stopped_after: number | null, upgrades_ready: number): RunDetail {
+  stopped_after: number | null, upgrades_ready: number, auto_upgrade: RunDetail['auto_upgrade'] = null): RunDetail {
   const sections: Record<string, Result[]> = {};
   for (const r of results) (sections[r.section] ??= []).push(r);
   const newFiles = results.filter((r) => NEW_FILE_SECTIONS.includes(r.section) && r.path).map((r) => r.path!);
   const count = (...ss: string[]) => results.filter((r) => ss.includes(r.section)).length;
   return {
     run_id: id, started: iso(started), finished: iso(new Date(started.getTime() + duration_s * 1000)), duration_s,
-    exit_code, counts: { lossless: count('new_lossless', 'swapped', 'redownloaded'),
+    exit_code, counts: { lossless: count('new_lossless', 'swapped', 'redownloaded', 'upgraded'),
       lossy: count('new_not_lossless', 'fake'), problems: count(...PROBLEM_SECTIONS), moved: count('moved') },
     stopped_after, sections, needs_you: results.filter((r) => PROBLEM_SECTIONS.includes(r.section) && r.track_id),
     for_rekordbox: { new_files: newFiles.length, folders: [...new Set(newFiles.map((p) => p.slice(0, p.lastIndexOf('/'))))].sort() },
-    upgrades_ready, report_md: `reports/${id}.md`, queued: count('queued'), folder_order: [],
+    upgrades_ready, report_md: `reports/${id}.md`, queued: count('queued'), folder_order: [], auto_upgrade,
   };
 }
 export function sampleRuns(now: Date, tracks: FakeTrack[], n = 3): FakeRun[] {
@@ -724,7 +728,7 @@ export function setupComplete(): SetupStatus {
     playlists: true, complete: true, next_step: null, version: '1.0.0', qobuz_skipped: false,
     spotify_skipped: false, existing: false, import_folders: 0, import_skipped: false,
     accounts: { youtube: null, soundcloud: null },
-    youtube_music: { liked_music: false, can_turn_on: false, listed: false } };
+    youtube_music: { liked_music: false, can_turn_on: false, listed: false }, auto_upgrade: true };
 }
 export function nextStep(s: SetupStatus): SetupStatus {
   const missingTools = !s.tools.ffmpeg || !s.tools.ffprobe || !s.tools.deno;

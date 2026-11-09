@@ -35,7 +35,7 @@ from .. import app_update as update_check, setup_cmd, tool_updates, tools
 from .. import folders as folders_mod, importer, scanner, sources, tidy
 from ..sources import soundcloud, spotify, youtube_music
 from ..sources.soundcloud import YOU as SOUNDCLOUD_YOU  # the module imports yt-dlp only inside functions
-from .. import batches, rekordbox, report as rep, run, upgrades
+from .. import auto_upgrade, batches, rekordbox, report as rep, run, upgrades
 from ..rekordbox import process as rb_process
 from ..accounts import ACCOUNTS, BROWSERS, SERVICE_NAMES, SERVICES, check_message
 from ..acquire import make_ready
@@ -249,7 +249,7 @@ def setup_status(support: SupportPaths, paths: Paths | None, music: dict, which:
     try:
         settings = load_settings(support.settings_file)
     except SettingsError:
-        settings = Settings()
+        settings = Settings(auto_upgrade=False)  # a settings file the sync can't read starts no sync, so no upgrades
     import_folders = _import_folders(paths)
     liked_listed = False
     if paths is not None:
@@ -270,6 +270,8 @@ def setup_status(support: SupportPaths, paths: Paths | None, music: dict, which:
             # account is set up) and whether a Liked music line is in playlists.txt (on or off)
             "youtube_music": {"liked_music": settings.reads_liked_music, "can_turn_on": "youtube" in settings.accounts,
                               "listed": liked_listed},
+            # Auto-upgrade (issue 33 stage C): "Upgrade automatically when I sync", on by default (Setup, Settings)
+            "auto_upgrade": settings.auto_upgrade,
             # "Your existing music" (plan library stage 4 I11): done once a folder is watched or the step was skipped;
             # not among `steps`, so it never blocks Continue
             "existing": import_folders > 0 or settings.import_skipped, "import_folders": import_folders,
@@ -397,6 +399,43 @@ class HubApi:
             return load_settings(self._support.settings_file)
         except SettingsError:
             return Settings()
+
+    def _auto_upgrade_on(self) -> bool:
+        """Settings' Auto-upgrade switch, read strictly like a sync reads it (`_settings` would take defaults for a
+        file it can't read): a file the sync refuses is no switch on."""
+        try:
+            return load_settings(self._support.settings_file).auto_upgrade
+        except SettingsError:
+            return False
+
+    def _auto_upgrade_ready(self, state: dict) -> dict | None:
+        """`sync_preview().auto_upgrade`: `{on: true, ready: n}` with n the tracks the sync's last phase would upgrade
+        now (`auto_upgrade.plan`, quick: the cached rekordbox state, no read open of its library; a refusal that can't
+        be told to still hold without one counts as holding), counting those that would wait for rekordbox. None when
+        the switch is off (or the file unreadable) or there is no preview (no plan, so no questions to hold songs)."""
+        prep = self._store.prep
+        if prep is None:
+            return None
+        try:
+            settings = load_settings(self._support.settings_file)
+        except SettingsError:
+            return None
+        planned = auto_upgrade.plan(self._paths, state, {q.song_key for q in prep.plan.questions}, settings,
+                                    running=self._svc.rekordbox_running, place=self._svc.rekordbox_place(),
+                                    status=self._rekordbox_status(), quick=True)
+        return None if planned is None else {"on": True, "ready": len(planned.run) + len(planned.waiting)}
+
+    def _batch_starters(self, state: dict) -> dict[int, str]:
+        """Batch id -> who started it, for the AIFF batches the open rekordbox checks belong to (To-do names the
+        checks of a sync's Auto-upgrade batch differently)."""
+        ids = {c["batch"] for e in state["tracks"].values() if (c := e.get("rekordbox_check")) and c.get("batch")}
+        if not ids:
+            return {}
+        with self._move_log() as conn:
+            if conn is None:
+                return {}
+            rows = (db.aiff_batch(conn, i) for i in sorted(ids))
+            return {r.id: r.started_by for r in rows if r is not None}
 
     def _folders(self) -> list[str]:
         try:
@@ -575,7 +614,8 @@ class HubApi:
                                            if e.get("upgrade")}
         return views.todo(state, filt, show_hidden, self._others(state), self._today(), self._cover(self._images()),
                           questions, groups, files, self._audio, counted, away, rb, present,
-                          None if count_only else self._stopped_batch())
+                          None if count_only else self._stopped_batch(), self._auto_upgrade_on(),
+                          {} if count_only else self._batch_starters(state))
 
     def _rekordbox_status(self) -> rekordbox.Status:
         """rekordbox's state for the screens, cached on master.db's modified time and size plus whether rekordbox runs
@@ -632,6 +672,16 @@ class HubApi:
     def sidebar(self) -> dict:
         return self._sidebar_view()
 
+    @bridge
+    def rekordbox_status(self) -> dict:
+        """rekordbox on this Mac, now (issue 33 stage C): `{state: "ready" | "none" | "unreadable", running}`. The state
+        is the cached answer of `_rekordbox_status` (one read open per change of master.db; while a write job of this
+        hub runs it answers its last value), `running` is asked every time: the Sync page reads it when it opens and
+        when the window gets focus again, to say that rekordbox must be quit before a start. Works without a music
+        folder."""
+        status = self._rekordbox_status()
+        return {"state": status.state, "running": status.running}
+
     def _sidebar_view(self, also: Sequence[str] = ()) -> dict:
         """The sidebar's numbers; `also`: Favourites keys to resolve besides the stored ones (set_favourites asks
         which of the keys it is given exist right now)."""
@@ -656,7 +706,8 @@ class HubApi:
         where = views.sites(state, lines, folders).place
         return views.sync_preview(self._store, state, self._settings(), self._today(), self._svc.now(),
                                   self._reading(), self._cover(self._images()), self._logins(), where,
-                                  views.song_places(state, lines, folders, overrides))
+                                  views.song_places(state, lines, folders, overrides),
+                                  self._auto_upgrade_ready(state))
 
     @bridge
     def refresh(self, auto: bool = False) -> dict:
@@ -767,7 +818,7 @@ class HubApi:
         where = views.sites(state, lines, folders).place(e["path"]) if e.get("path") else None
         detail = views.track_detail(track_id, e, prep.fetched if prep else [], self._today(),
                                     self._cover(self._images()), self._audio, self._away_by_root(folders), exists, where,
-                                    self._rekordbox_status())
+                                    self._rekordbox_status(), self._auto_upgrade_on())
         self._remember(state, [track_id])
         return {"track": detail}
 
@@ -1551,7 +1602,8 @@ class HubApi:
             if not (isinstance(key, (list, tuple)) and len(key) == 3 and all(isinstance(k, str) for k in key)):
                 raise ValueError("Each ticked action is [kind, track_id, to_dir].")
             ticked.add(tuple(key))
-        job = self._jobs.start("sync", sync_work(self._paths, self._store, ticked, self._svc.now))
+        job = self._jobs.start("sync", sync_work(self._paths, self._store, ticked, self._svc.now,
+                                                 self._rekordbox_services()))
         with self._lock:  # the sync has its own auto-stop; "Use this" starts a new streak after it
             self._qobuz_streak = {"failures_in_a_row": 0, "download_failed_in_row": False, "stopped": False}
             self._account_streaks = {}
@@ -1775,6 +1827,12 @@ class HubApi:
         recovered = library.recover_pending(self._paths, state)
         library.clear_tmp(self._paths, state)
         return state, [[message, ok] for message, ok in recovered]
+
+    def _rekordbox_services(self) -> dict:
+        """The sync's Auto-upgrade phase talks to rekordbox through the hub's services (tests and the fake never touch
+        a real one): whether it runs, where its library is, and how two files are compared."""
+        return {"running": self._svc.rekordbox_running, "place": self._svc.rekordbox_place(),
+                "compare": self._svc.compare, "now": self._svc.now}
 
     def _rekordbox_options(self, ctx, state: dict) -> dict:
         return {"emit": ctx.emit, "token": ctx.token, "now": self._svc.now, "state": state,
@@ -2060,6 +2118,20 @@ class HubApi:
             return {}
 
         return {"job_id": self._jobs.start("set_read_liked_music", work).id}
+
+    @bridge
+    def set_auto_upgrade(self, on: bool) -> dict:
+        """"Upgrade automatically when I sync" (Settings, Setup; issue 33 stage C): whether a sync ends with Same track
+        for every upgrade that needs no decision, while rekordbox is closed. On by default. Turning it off never touches
+        the upgrades waiting (they wait in To-do); turning it on moves nothing until the next sync."""
+        if not isinstance(on, bool):
+            raise OpProblem("on must be true or false.", "refused")
+
+        def work(ctx) -> dict:
+            self._update_settings(lambda s: replace(s, auto_upgrade=on))
+            return {}
+
+        return {"job_id": self._jobs.start("set_auto_upgrade", work).id}
 
     @bridge
     def add_liked_music(self) -> dict:

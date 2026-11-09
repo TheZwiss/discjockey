@@ -4,7 +4,7 @@ import type {
   Limits, LibraryFilter, MoveBatches, SaveFiles, TidyPreview, UndoPreview, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res, RunDetail,
   RunSummary, SetupStatus, SetupTools, Sidebar, Spectrum, SyncPreview, Todo, TodoFilter, TrackDetail, WhatIf, Which,
   AccountCheck, Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus, ImportFolderCheck,
-  RemovalPreview, WatchedFolders, LibraryView, FavouritesSaved, CrateSaved, CratesSaved,
+  RemovalPreview, WatchedFolders, LibraryView, FavouritesSaved, CrateSaved, CratesSaved, RekordboxStatus,
 } from './types';
 import { CONTRACT_METHODS } from './contract';
 import { waitForJob } from '../stores/jobs';
@@ -39,6 +39,8 @@ export interface Bridge {
   spectrum(track_id: string, which: Which): Promise<Res<{ spectrum: Spectrum }>>;
   media_url(track_id: string, which: Which): Promise<Res<{ url: string }>>;
   setup_status(): Promise<Res<SetupStatus>>;      select(track_id: string | null): Promise<Res<{}>>;
+  /** rekordbox on this Mac now; works without a music folder. The Sync page reads it when it opens and on window focus */
+  rekordbox_status(): Promise<Res<RekordboxStatus>>;
   // read with network (refused with sync_running during any sync)
   search_candidates(track_id: string): Promise<Res<Candidates>>;
   preview(track_id: string, candidate: Candidate): Promise<Res<{ url: string }>>;
@@ -89,6 +91,8 @@ export interface Bridge {
   setup_skip_qobuz(): Promise<JobStart>;
   setup_skip_spotify(): Promise<JobStart>;
   set_read_liked_music(on: boolean): Promise<JobStart>;
+  /** "Upgrade automatically when I sync" (job `set_auto_upgrade`); on by default */
+  set_auto_upgrade(on: boolean): Promise<JobStart>;
   add_liked_music(): Promise<JobStart>;
   setup_skip_import(): Promise<Res<{}>>;
   setup_account(service: 'youtube' | 'soundcloud', browser: Browser, profile?: string | null): Promise<JobStart>;
@@ -170,6 +174,12 @@ async function call(method: string, args: unknown[]): Promise<unknown> {
 export const api = Object.fromEntries(
   CONTRACT_METHODS.map((m) => [m, (...args: unknown[]) => call(m, args)]),
 ) as unknown as Bridge;
+
+/** rekordbox on this Mac now, or null when the bridge could not say (the Sync page's before-start Hint then stays out). */
+export async function rekordboxStatus(): Promise<RekordboxStatus | null> {
+  const r = await api.rekordbox_status();
+  return r.ok ? { state: r.state, running: r.running } : null;
+}
 
 /** Fake mode: installs an object as window.pywebview.api and fires 'pywebviewready' (as pywebview does). */
 export function installBridge(impl: object): void {

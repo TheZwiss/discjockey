@@ -22,7 +22,7 @@
   import { updateLink } from '../appUpdate';
   import { ExternalLink, NavIcon, Ring, tip } from '../components';
   import { player } from '../stores/player';
-  import { run } from '../stores/run';
+  import { ACTIVE_PHASES, run } from '../stores/run';
   import {
     BROWSER_DEFAULT, BROWSER_MAX, BROWSER_MIN, bringBrowserBack, chromeMotion, edgeCursor, edgeKeyWidth, fold,
     lastLibrary, setBrowserWidth,
@@ -68,7 +68,7 @@
   const side = $derived($hub.sidebar);
   const update = $derived(updateLink($hub.app_update));
   const r = $derived($route);
-  const syncing = $derived($hubSyncRunning && ['preparing', 'running', 'stopping'].includes($run.phase));
+  const syncing = $derived($hubSyncRunning && ACTIVE_PHASES.includes($run.phase));
   const sig: NavSignals = $derived({
     todo: side?.todo ?? 0,
     sync: syncing ? { index: $run.index, total: $run.total, frac: activityProgress($run) } : null,

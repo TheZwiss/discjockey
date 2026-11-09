@@ -59,6 +59,7 @@ const view = (over: Partial<DownloadsView> = {}): DownloadsView => ({
   qobuz: { state: 'on', last_check: { ok: true, problem: null, kbps: null, at: '2026-10-22T09:15:00' }, tracks: 412 },
   youtube: acc(), soundcloud: acc(), library: { lossless: 412, account: 0, free: 31 }, ...over });
 const status = (over: Partial<SetupStatus> = {}): SetupStatus => ({
+  auto_upgrade: true,
   music: { state: 'ok', path: '/Users/you/Music/Discjockey', suggested: '/Users/you/Music/Discjockey' },
   tools: { ffmpeg: true, ffprobe: true, deno: true }, spotify_app: true, spotify_login: true, qobuz: true,
   playlists: true, complete: true, next_step: null, version: '1.0.0', qobuz_skipped: false, spotify_skipped: false, spotify_user: 'dj',

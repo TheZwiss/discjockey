@@ -16,7 +16,9 @@ export type RunState = {
   job_id: number | null; job_kind: string | null;
   /** the job's own track (use_candidate / use_link have no ActionStarted); null for a sync */
   job_track_id: string | null;
-  phase: 'idle' | 'preparing' | 'running' | 'stopping' | 'finished' | 'failed';
+  /** `upgrading`: a sync's last phase, Auto-upgrade (issue 33 stage C), once its AIFF batch sends BatchProgress; `upgrade`
+   *  then says where it is. A Stop in it is `stopping` as before (`upgrade` keeps following the batch). */
+  phase: 'idle' | 'preparing' | 'running' | 'upgrading' | 'stopping' | 'finished' | 'failed';
   total: number | null; index: number;           // 1-based index of the current action
   planned: PlannedAction[];                      // RunStarted.actions: every action in run order ("Up next")
   current: Action | null; step: Step | null;
@@ -33,15 +35,21 @@ export type RunState = {
   job_finished: EventOf<'JobFinished'> | null;
   messages: { level: 'info' | 'warning'; text: string; at: number }[];  // last 20, debug dropped
   started_at: number | null;
+  /** the sync's Auto-upgrade batch as it goes: `done` of `total` tracks handled, `name` the track in work ("Artist - Title";
+   *  null between the last track and the end); null until the first BatchProgress of a sync job */
+  upgrade: { batch_id: number; done: number; total: number; name: string | null } | null;
 };
 
 export const EMPTY_RUN: RunState = Object.freeze({
   job_id: null, job_kind: null, job_track_id: null, phase: 'idle', total: null, index: 0, planned: [],
   current: null, step: null, progress: null, waiting: null, source: null, checked: null, qobuz: null, usage: {}, results: [],
   last_started_at: null, last_finished_at: null, run_finished: null, job_finished: null, messages: [], started_at: null,
+  upgrade: null,
 }) as RunState;
 
-const ACTIVE = new Set<RunState['phase']>(['preparing', 'running', 'stopping']);
+/** The phases of a download job that is still going (the sidebar's and the Sync page's "a sync runs"). */
+export const ACTIVE_PHASES: readonly RunState['phase'][] = ['preparing', 'running', 'upgrading', 'stopping'];
+const ACTIVE = new Set<RunState['phase']>(ACTIVE_PHASES);
 const currentTrack = (s: RunState) => s.current?.track_id ?? s.job_track_id;
 
 export function reduceRun(s: RunState, e: HubEvent, now: number): RunState {
@@ -96,6 +104,10 @@ export function reduceRun(s: RunState, e: HubEvent, now: number): RunState {
       return { ...s, results: [...s.results, e], last_finished_at: now, waiting: null };
     case 'RunFinished':
       return { ...s, run_finished: e, waiting: null };
+    case 'BatchProgress':   // only a sync sends it as part of a download job: its Auto-upgrade phase
+      if (s.job_kind !== 'sync') return s;
+      return { ...s, phase: s.phase === 'stopping' ? 'stopping' : 'upgrading', waiting: null,
+        upgrade: { batch_id: e.batch_id, done: e.done, total: e.total, name: e.name } };
     case 'Message':
       if (e.level === 'debug') return s;
       return { ...s, messages: [...s.messages, { level: e.level, text: e.text, at: now }].slice(-MAX_MESSAGES) };
@@ -142,6 +154,7 @@ export function runFromSnapshot(job: JobSnap, now: number): RunState {
   // the newest AccountUsage of every service; an older bridge only has the newest one overall in `last`
   if (job.usage?.length) for (const u of job.usage) apply(u);
   else apply(last.AccountUsage);
+  apply(last.BatchProgress);
   apply(last.RunFinished);
   if (job.stopping && ACTIVE.has(s.phase)) s = { ...s, phase: 'stopping' };
   if (job.finished) apply(job.finished);

@@ -64,7 +64,8 @@ export class JobRecord {
 }
 
 export function delayOf(e: HubEvent, speed: number): number {
-  return ((e.type === 'Waiting' || e.type === 'Progress') ? 1000 : 150) / Math.max(0.01, speed);
+  // the Auto-upgrade phase's batch takes about 700 ms a track (as the fake's own Same track batches)
+  return ((e.type === 'Waiting' || e.type === 'Progress') ? 1000 : e.type === 'BatchProgress' ? 700 : 150) / Math.max(0.01, speed);
 }
 
 export type ReplayOpts = {
@@ -79,6 +80,9 @@ export type ReplayOpts = {
   /** turns the last part into a crash: stop after this line, then the run filed with its crash note (RunFinished
    *  exit 1) and JobFinished crashed carrying that report, as jobs.sync_work does */
   crashAfter?: number | null;
+  /** the 0-based index in `events` of the first event of the sync's Auto-upgrade phase (or where it would be): the phase
+   *  has been reached once an event from there on is out (`phaseReached`) */
+  phaseFrom?: number | null;
 };
 
 /** Rewrites a fixture event for this replay: the job id, the report path. */
@@ -98,6 +102,9 @@ export class Replay {
   private inDownload = false;
   done = false;
   constructor(private o: ReplayOpts) { this.i = o.from - 1; }
+
+  /** The run got as far as its last phase (a Stop before it means no phase; a Stop in it ends the batch). */
+  get phaseReached(): boolean { return this.o.phaseFrom != null && this.i > this.o.phaseFrom; }
 
   start(): void { this.schedule(); }
   cancel(): void { if (this.timer) clearTimeout(this.timer); this.timer = null; this.done = true; }

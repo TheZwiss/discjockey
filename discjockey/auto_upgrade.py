@@ -185,7 +185,7 @@ def stamps(paths, keys: Sequence[str], state: dict, *, running: Callable[[], boo
 
 
 def plan(paths, state: dict, held: Collection[str], settings: Settings, *, running: Callable[[], bool],
-         place: Place | None, status: master.Status | None = None) -> Planned | None:
+         place: Place | None, status: master.Status | None = None, quick: bool = False) -> Planned | None:
     """What the phase would do now, or None when the switch is off. `running` / `place` are rekordbox's process check
     and library (the real ones are `process.running` and `locate()`); `held` the plan's question keys. `status` is a
     rekordbox `Status` the caller already has (the hub's cached one): used as it is, nothing is opened for it.
@@ -193,7 +193,11 @@ def plan(paths, state: dict, held: Collection[str], settings: Settings, *, runni
     rekordbox running: every track of the set waits (`rekordbox_open`); of its library only the `Status` is read, and
     only for a set with a file that isn't an AIFF (the same set Upgrade all counts, plan stage C §0.3). Otherwise
     the set runs, minus the tracks a still-holding refusal leaves alone (`refused`); the records of the analysis
-    kind are checked with one read open for all of them."""
+    kind are checked with one read open for all of them.
+
+    `quick` is the Sync page's count before a start (plan §4): rekordbox's library is never opened, so a record of the
+    analysis kind can't be checked and counts as holding (the track is `refused`, not counted as ready), and the
+    records are sorted out while rekordbox runs too (its tracks `waiting` are the ones that would run)."""
     if not settings.auto_upgrade:
         return None
     is_running = bool(running())
@@ -210,22 +214,25 @@ def plan(paths, state: dict, held: Collection[str], settings: Settings, *, runni
         if any(not _is_aiff(state["tracks"][k]) for k in eligible_keys(rb)):
             rb = master.status(place, lambda: is_running)  # one keyed open, only for a file that isn't an AIFF
     ready = eligible_keys(rb)
-    if is_running:
+    if is_running and not quick:
         return Planned([], [(k, "rekordbox_open") for k in ready], [], True)
 
     records = {k: r for k in ready if (r := _record(state["tracks"][k])) is not None}
-    now = stamps(paths, [k for k, r in records.items() if r.get("reason") in ANLZ_REFUSALS], state,
-                 running=lambda: is_running, place=place)
+    now = {} if quick else stamps(paths, [k for k, r in records.items() if r.get("reason") in ANLZ_REFUSALS], state,
+                                  running=lambda: is_running, place=place)
     run: list[str] = []
     refused: list[tuple[str, dict]] = []
     for k in ready:
         record, e = records.get(k), state["tracks"][k]
-        if record is not None and refusal_holds(
-                record, now.get(k), free_now(paths, e) if record.get("reason") == "space" else None,
-                file_stamps(paths, e) if record.get("reason") in FILE_REFUSALS else None):
+        if record is not None and (
+                (quick and record.get("reason") in ANLZ_REFUSALS)
+                or refusal_holds(record, now.get(k), free_now(paths, e) if record.get("reason") == "space" else None,
+                                 file_stamps(paths, e) if record.get("reason") in FILE_REFUSALS else None)):
             refused.append((k, record))
         else:
             run.append(k)
+    if is_running:
+        return Planned([], [(k, "rekordbox_open") for k in run], refused, True)
     return Planned(run, [], refused, False)
 
 
