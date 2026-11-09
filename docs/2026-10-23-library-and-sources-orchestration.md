@@ -485,7 +485,9 @@ Results:
     one → "N tracks to check in rekordbox" part, `Todo.check_tracks`. **Stage B merged into main 0c2261b.** No release.
   - Stage C plan done 18dba4f (Opus **227k**): 12 steps C1, R-C1, C2, R-C2, C3, C4, RH, U1, U2, S, R2, V (est. 2.2–2.7M).
     Branch `feat/rekordbox-c`, group worktrees `.claude/worktrees/rb-c-<group>`. C1 done a2d7e51 (Sonnet **258k**, 87 calls, over
-    its 150-190k: the plan's estimates run ~35% low; expect C2 ~250k). R-C1 running.
+    its 150-190k: the plan's estimates run ~35% low; expect C2 ~250k). R-C1 done ccc6358 (Sonnet **144k**: 2 Important
+    (set ≠ Upgrade all's while rekordbox runs; stamps raised on OSError) + 1 Minor ("Rekordbox" capitalised), all fixed).
+    C1 merged into the stage branch 591c91e. Stage worktree `.claude/worktrees/rb-c`. C2 running (Sonnet, brief-33-C2.md).
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
