@@ -441,7 +441,11 @@ def upgrade_phase(prep: Prepared, *, emit: Emit, token: CancelToken, rekordbox: 
                   where: Callable[[str], str] | None = None) -> auto_upgrade.Outcome | None:
     """The run's last phase, Auto-upgrade (plan stage C §1.4), on the run's state and log. `rekordbox` replaces the real
     rekordbox services (`running`, `place`, `compare`, optionally `now`): the hub's, or a test's. Returns None with the
-    switch off; a Ctrl-C inside is raised again once the phase's records are in the state."""
+    switch off, before anything of rekordbox is looked at; a Ctrl-C inside is raised again once the phase's records are
+    in the state. Stop pressed before it starts means it does not start (`Cancelled`)."""
+    if not prep.settings.auto_upgrade:
+        return None
+    token.check()
     options = {"running": process.running, "place": locate(), "compare": align.compare_files, "now": datetime.now,
                **(rekordbox or {})}
     held = {q.song_key for q in prep.plan.questions}
@@ -461,7 +465,7 @@ def finish_quietly(prep: Prepared, emit: Emit = no_emit, token: CancelToken | No
         outcome = upgrade_phase(prep, emit=emit, token=token, rekordbox=rekordbox, where=where)
         if outcome is not None and outcome.stopped:
             code = 130
-    except KeyboardInterrupt:
+    except (Cancelled, KeyboardInterrupt):
         code = 130
     except Exception as e:  # noqa: BLE001 - filed with a crash note below, then raised as RunCrashed
         code, crash = 1, e
@@ -524,7 +528,6 @@ def execute(prep: Prepared, qobuz, *, emit: Emit = no_emit, token: CancelToken |
         if fill_kbps(state, fallback, emit):
             save()
         executor.run(prep.plan.actions)
-        token.check()  # Stop pressed after the last action: the phase does not start
         step = auto_upgrade.STEP
         outcome = upgrade_phase(prep, emit=tracking, token=token, rekordbox=rekordbox, where=where)
         if outcome is not None and outcome.stopped:

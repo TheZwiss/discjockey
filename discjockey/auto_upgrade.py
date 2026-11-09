@@ -14,12 +14,15 @@ from being decoded again at every sync, and the phase itself (`run_phase`), whic
   not, so a library Discjockey can't open keeps its tracks out of the set even while rekordbox runs. rekordbox
   running then means everything in the set waits, and nothing else of its library is read (no stamps).
 - `auto_refused` (on the parked upgrade, `e["upgrade"]["auto_refused"]`): `{"reason", "message", "at", "anlz":
-  {path: mtime_ns} | None, "free": int | None}` for the four refusals the phase records (`timing`, `not_analysed`,
-  `cloud`, `space`). `refusal_holds` (pure) says whether one still holds: for the first three, while the analysis
+  {path: mtime_ns} | None, "free": int | None, "files": {path: mtime_ns} | None}` for the refusals the phase records
+  (`timing`, `not_analysed`, `cloud`, `space`, and `needs_choice` when the two files could not be compared at all).
+  `refusal_holds` (pure) says whether one still holds: for the first three, while the analysis
   files of every rekordbox track of the file are the same set with the same mtimes as recorded (rekordbox analysing
   the track again changes them, a first analysis adds them; `stamps` reads them with one read open of the library);
-  for `space`, while the drive's free space is not larger than recorded (`free_now`). A record whose `anlz` is None
-  (it could not be read) never holds. The record steers only this phase: Upgrade all, a selection and a single
+  for `space`, while the drive's free space is not larger than recorded (`free_now`); for `needs_choice`, while the
+  current file and the parked one have the mtimes recorded (`file_stamps`: a comparison that failed is not repeated
+  at every sync, and a measurement that says "a different edit" is stored on the upgrade by the step instead). A
+  record whose stamp is None (it could not be read) never holds. The record steers only this phase: Upgrade all, a selection and a single
   Replace are the user acting and run the track again.
 - `run_phase` (plan §1.2): `plan`, then, with rekordbox closed, one batch (`batches.start(started_by="auto_upgrade",
   scope="sync")`, `batches.run(require_closed=True)`). rekordbox running when the phase starts: no batch row at all,
@@ -27,10 +30,11 @@ from being decoded again at every sync, and the phase itself (`run_phase`), whic
   through `batches.end_auto` (its `planned` items are skipped, so To-do never offers Resume); the results and the
   records are filed from the batch as it ended. A Ctrl-C is re-raised once they are in the state. A dry run lists
   what would happen and writes nothing (no record, no log entry). Anything else that escapes is the run's crash.
-- The records on the parked upgrade (plan §0.6): `auto_refused` for a refusal of the four kinds (taken from the
-  batch's item, with the analysis stamps and the free space measured after the batch) and `auto_waits` (the ISO time
+- The records on the parked upgrade (plan §0.6): `auto_refused` for a refusal of those kinds (taken from the
+  batch's item, with the stamps and the free space measured after the batch) and `auto_waits` (the ISO time
   of the sync that met rekordbox open for it). The phase clears both from every track it tries, and `auto_waits` from
-  every track it reaches with rekordbox closed; both are saved with the run's state. Nothing else is recorded: other
+  every track it reaches with rekordbox closed; both are saved with the run's state. rekordbox open at the end of a
+  sync is said as `waiting_line` (what happened), never as `before_start_line` (the Sync page's line before a start). Nothing else is recorded: other
   skips (`changed`, `unclean`, `busy`, ...) are in this run's results only, so the next sync simply tries again.
 - `Outcome` is the run's block (the report, `--json`, the end screen); its keys are plan stage C §1.6. The results go
   into the run's log: `upgraded` (done), `upgrade_waits` (waiting, refused, not reached), `errors` (failed).
@@ -53,11 +57,12 @@ from .rekordbox.locate import Place
 from .rekordbox.offset import analysis_folder_files
 from .settings import Settings
 
-__all__ = ["ANLZ_REFUSALS", "REFUSALS", "STEP", "WAITS", "Outcome", "Planned", "before_start_line", "free_now",
-           "plan", "refusal_holds", "run_phase", "stamps"]
+__all__ = ["ANLZ_REFUSALS", "FILE_REFUSALS", "REFUSALS", "STEP", "WAITS", "Outcome", "Planned", "before_start_line",
+           "file_stamps", "free_now", "plan", "refusal_holds", "run_phase", "stamps", "waiting_line"]
 
 ANLZ_REFUSALS = ("timing", "not_analysed", "cloud")  # recorded with the analysis files' stamps
-REFUSALS = (*ANLZ_REFUSALS, "space")                 # the refusals the phase records on the upgrade
+FILE_REFUSALS = ("needs_choice",)                    # the two files could not be compared: recorded with their stamps
+REFUSALS = (*ANLZ_REFUSALS, "space", *FILE_REFUSALS)  # the refusals the phase records on the upgrade
 STEP = "upgrading at the end of the sync"            # what a crash note says the run was doing
 # plan stage C §3 (binding): the waiting rows of the results, by the reason the track did not run
 WAITS = {
@@ -113,19 +118,35 @@ def free_now(paths, e: dict) -> int | None:
         return None
 
 
-def refusal_holds(record: dict, anlz_now: Mapping[str, int] | None, free_now: int | None) -> bool:
+def refusal_holds(record: dict, anlz_now: Mapping[str, int] | None, free_now: int | None,
+                  files_now: Mapping[str, int] | None = None) -> bool:
     """Whether a recorded refusal still holds (plan stage C §0.7): `anlz_now` are the track's analysis files now
-    (`stamps`' value for it), `free_now` the free bytes on its drive now (`free_now`). An unreadable stamp (None, on
-    either side), an unknown reason or a record without its fact never holds, so the track is tried again."""
+    (`stamps`' value for it), `free_now` the free bytes on its drive now (`free_now`), `files_now` the stamps of its
+    two files now (`file_stamps`). `needs_choice` is recorded when the two files could not be compared at all (a
+    measurement that says "a different edit" is stored on the upgrade instead and takes the track out of the set): it
+    holds while neither file has been touched. An unreadable stamp (None, on either side), an unknown reason or a
+    record without its fact never holds, so the track is tried again."""
     reason = record.get("reason")
     if reason in ANLZ_REFUSALS:
         then = record.get("anlz")
         return isinstance(then, Mapping) and anlz_now is not None and dict(then) == dict(anlz_now)
+    if reason in FILE_REFUSALS:
+        then = record.get("files")
+        return isinstance(then, Mapping) and bool(then) and files_now is not None and dict(then) == dict(files_now)
     if reason == "space":
         then = record.get("free")
         return (isinstance(then, int) and not isinstance(then, bool) and free_now is not None
                 and free_now <= then)
     return False
+
+
+def file_stamps(paths, e: dict) -> dict[str, int] | None:
+    """The mtimes of the song's current file and of its parked upgrade, `{path: mtime_ns}`: what a `needs_choice`
+    record holds on. None when either can't be read."""
+    try:
+        return {rel: (paths.root / rel).stat().st_mtime_ns for rel in (e["path"], e["upgrade"]["file"])}
+    except (OSError, KeyError, TypeError):
+        return None
 
 
 def _stamp(place: Place, entries) -> dict[str, int] | None:
@@ -198,9 +219,10 @@ def plan(paths, state: dict, held: Collection[str], settings: Settings, *, runni
     run: list[str] = []
     refused: list[tuple[str, dict]] = []
     for k in ready:
-        record = records.get(k)
+        record, e = records.get(k), state["tracks"][k]
         if record is not None and refusal_holds(
-                record, now.get(k), free_now(paths, state["tracks"][k]) if record.get("reason") == "space" else None):
+                record, now.get(k), free_now(paths, e) if record.get("reason") == "space" else None,
+                file_stamps(paths, e) if record.get("reason") in FILE_REFUSALS else None):
             refused.append((k, record))
         else:
             run.append(k)
@@ -208,9 +230,16 @@ def plan(paths, state: dict, held: Collection[str], settings: Settings, *, runni
 
 
 def before_start_line(n: int) -> str:
-    """Plan stage C §3's Sync before-start Hint (also the console's line when the phase meets rekordbox open)."""
+    """Plan stage C §3's Sync before-start Hint: said before a sync starts (the Sync page, the console's plan). The
+    phase itself, which meets rekordbox open at the end of a sync, says `waiting_line` instead."""
     return (f"rekordbox is open: quit it before you start, so the sync can put {n} "
             f"upgrade{'s' if n != 1 else ''} in place at the end.")
+
+
+def waiting_line(n: int) -> str:
+    """What the phase says when it meets rekordbox open at the end of a sync (the same words as the summary line's
+    clause for n = 0): nothing was upgraded, `n` upgrades wait."""
+    return f"{n} upgrade{' waits' if n == 1 else 's wait'} for rekordbox to be closed."
 
 
 # --- the phase ---
@@ -307,9 +336,12 @@ def run_phase(paths, state: dict, held: Collection[str], settings: Settings, log
 
     rows = _rows(planned, before)
     if planned.waiting:
-        emit(Message("info", before_start_line(len(planned.waiting))))
+        emit(Message("info", waiting_line(len(planned.waiting))))
     batch_id, backup, stopped, interrupted = None, None, False, False
-    if planned.run:
+    if planned.run and token.cancelled:  # Stop came while the phase was being worked out: it does not start
+        rows = [_row(before[k], k, "waiting", "not_reached", WAITS["not_reached"]) for k in planned.run] + rows
+        stopped = True
+    elif planned.run:
         n = len(planned.run)
         emit(Message("info", f"Upgrading {n} track{'s' if n != 1 else ''} at the end of the sync..."))
         batch_id = batches.start(paths, [(k, "same_track") for k in planned.run], started_by=batches.AUTO,
@@ -336,6 +368,13 @@ def _outcome(batch: int | None, backup: str | None, rows: list[dict], stopped: b
                    dry_run, rows)
 
 
+def _still_same_edit(e: dict | None) -> bool:
+    """Whether the song's parked upgrade is still stored as the same edit: a `needs_choice` skip that left it so is a
+    comparison that failed (an unreadable file); one that measured a different edit has stored that, and the track
+    is out of the set anyway."""
+    return bool(e and e.get("upgrade") and (e["upgrade"].get("alignment") or {}).get("result") in ("exact", "shifted"))
+
+
 def _write_records(paths, state: dict, planned: Planned, rows: list[dict], *, running, place, now) -> bool:
     """Writes the records into `state` (plan §0.6). Returns whether anything changed."""
     changed = False
@@ -344,7 +383,8 @@ def _write_records(paths, state: dict, planned: Planned, rows: list[dict], *, ru
         changed |= _change(state, key, drop=("auto_refused", "auto_waits"))
     for key, _ in planned.refused:  # reached with rekordbox closed
         changed |= _change(state, key, drop=("auto_waits",))
-    new = [r for r in rows if r["track"] in planned.run and r["state"] == "refused" and r["reason"] in REFUSALS]
+    new = [r for r in rows if r["track"] in planned.run and r["state"] == "refused" and r["reason"] in REFUSALS
+           and (r["reason"] not in FILE_REFUSALS or _still_same_edit(state["tracks"].get(r["track"])))]
     now_stamps = stamps(paths, [r["track"] for r in new if r["reason"] in ANLZ_REFUSALS], state, running=running,
                         place=place)
     for r in new:
@@ -353,7 +393,8 @@ def _write_records(paths, state: dict, planned: Planned, rows: list[dict], *, ru
             continue
         record = {"reason": r["reason"], "message": r["message"], "at": at,
                   "anlz": now_stamps.get(key) if r["reason"] in ANLZ_REFUSALS else None,
-                  "free": free_now(paths, e) if r["reason"] == "space" else None}
+                  "free": free_now(paths, e) if r["reason"] == "space" else None,
+                  "files": file_stamps(paths, e) if r["reason"] in FILE_REFUSALS else None}
         changed |= _change(state, key, add={"auto_refused": record})
     for r in rows:  # met rekordbox open, at the start or mid-phase
         if r["state"] == "waiting" and r["reason"] == "rekordbox_open":

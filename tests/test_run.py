@@ -1139,6 +1139,35 @@ def test_stop_before_the_phase_means_no_phase(tmp_path, monkeypatch, fake_execut
 
 
 @needs_ffmpeg
+def test_stop_before_a_quiet_syncs_phase_means_no_phase(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "fill_kbps", lambda *a, **k: 0)
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    before = (lib.music(), lib.dump())
+    token = CancelToken()
+    token.cancel()
+    code, path = run.finish_quietly(prepared(lib), token=token, rekordbox=services(lib))
+    assert code == 130 and "auto_upgrade" not in report_json(path) and batch_rows(lib) == 0
+    assert (lib.music(), lib.dump()) == before
+
+
+def test_with_the_switch_off_the_sync_does_not_even_look_for_rekordbox(tmp_path, monkeypatch, fake_executor):
+    """Nothing of rekordbox is read, and a Stop after the last download changes nothing for this run's end."""
+    monkeypatch.setattr(run, "locate", lambda: pytest.fail("looked for rekordbox"))
+    monkeypatch.setattr(run.process, "running", lambda: pytest.fail("asked whether rekordbox runs"))
+    paths = Paths(tmp_path / "m", support=tmp_path / "s")
+    paths.data.mkdir(parents=True)
+    state = library.empty_state()
+    token = CancelToken()
+    token.cancel()
+    fake_executor.after = lambda ex: None
+    for ending in ("execute", "finish_quietly"):
+        prep = run.Prepared(paths, state, Settings(auto_upgrade=False), Plan(state, [], [], []), RunLog(datetime.now()))
+        code, path = (run.execute(prep, None, token=CancelToken()) if ending == "execute"
+                      else run.finish_quietly(prep, token=token))
+        assert code == 0 and "auto_upgrade" not in report_json(path)
+
+
+@needs_ffmpeg
 def test_stop_during_the_phase_ends_it_between_tracks_with_code_130(tmp_path, monkeypatch, fake_executor):
     lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff", "mp3"])
     token = CancelToken()
@@ -1188,7 +1217,7 @@ def test_rekordbox_open_at_the_start_does_nothing_and_the_run_still_ends_normall
     assert code == 0 and (block["batch"], block["backup"], block["done"], block["waiting"]) == (None, None, 0, 2)
     assert batch_rows(lib) == 0 and (lib.music(), lib.dump()) == before and not (lib.paths.data / "rekordbox").exists()
     assert all(library.load_state(lib.paths)["tracks"][k]["upgrade"]["auto_waits"] for k in lib.tracks)
-    assert Message("info", auto_upgrade.before_start_line(2)) in events
+    assert Message("info", "2 upgrades wait for rekordbox to be closed.") in events
     assert "2 upgrades wait for rekordbox to be closed." in path.read_text()
     assert [r["section"] for r in report_json(path)["results"]].count("upgrade_waits") == 2
 

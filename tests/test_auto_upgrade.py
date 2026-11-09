@@ -86,6 +86,20 @@ def test_a_space_refusal_holds_at_equal_free_space_and_below_not_above():
     assert not refusal_holds({"reason": "space", "free": True}, None, 0)                   # a bool is no size
 
 
+FILES = {"Library/A/Artist - Song.mp3": 10, "Library/.upgrades/Song.flac": 20}
+
+
+def test_a_comparison_refusal_holds_while_neither_file_was_touched():
+    rec = {"reason": "needs_choice", "files": dict(FILES)}
+    assert refusal_holds(rec, None, None, dict(FILES)) and refusal_holds(rec, {"x": 1}, 5, dict(reversed(list(FILES.items()))))
+    assert not refusal_holds(rec, None, None, {**FILES, "Library/A/Artist - Song.mp3": 11})     # the file was changed
+    assert not refusal_holds(rec, None, None, {"Library/A/Artist - Song.mp3": 10})              # the parked one is gone
+    assert not refusal_holds(rec, None, None, None) and not refusal_holds(rec, None, None)      # unreadable now
+    assert not refusal_holds({"reason": "needs_choice", "files": None}, None, None, dict(FILES))  # unreadable then
+    assert not refusal_holds({"reason": "needs_choice"}, None, None, dict(FILES))
+    assert not refusal_holds({"reason": "needs_choice", "files": {}}, None, None, {})
+
+
 def test_an_unknown_reason_or_a_record_without_one_never_holds():
     for rec in ({"reason": "changed", "anlz": dict(THEN), "free": 5}, {"reason": None}, {}):
         assert not refusal_holds(rec, dict(THEN), 1)
@@ -557,13 +571,19 @@ def test_rekordbox_open_at_the_start_does_nothing_and_marks_the_tracks_as_waitin
                       lib.tracks[2]: None, lib.tracks[3]: NOW.isoformat(timespec="seconds")}
     assert state["tracks"][lib.tracks[0]]["upgrade"]["auto_waits"] and "auto_refused" not in marked
     assert [(r.section, r.note) for r in log.results] == [("upgrade_waits", auto_upgrade.WAITS["rekordbox_open"])] * 3
-    assert events == [Message("info", auto_upgrade.before_start_line(3))]
+    assert events == [Message("info", "3 upgrades wait for rekordbox to be closed.")]
     assert log.auto_upgrade == out.to_dict()
     # rekordbox closed at the next sync: the marks go, the AIFFs go in, the unanalysed one is refused
     again, _, _, _ = phase(lib)
     assert rows(again) == [(lib.tracks[0], "done", None), (lib.tracks[1], "done", None),
                            (lib.tracks[3], "refused", "not_analysed")]
     assert "auto_waits" not in upgrade_of(lib, 3) and upgrade_of(lib, 3)["auto_refused"]["reason"] == "not_analysed"
+
+
+def test_at_the_end_of_a_sync_the_words_say_what_happened_not_what_to_do_before_starting():
+    assert auto_upgrade.waiting_line(1) == "1 upgrade waits for rekordbox to be closed."
+    assert auto_upgrade.waiting_line(4) == "4 upgrades wait for rekordbox to be closed."
+    assert "before you start" not in auto_upgrade.waiting_line(2)
 
 
 def test_the_before_start_line_in_the_singular():
@@ -664,7 +684,7 @@ def test_a_refusal_is_recorded_with_its_stamps_and_not_decoded_again_until_rekor
     record_ = upgrade_of(lib, 0)["auto_refused"]
     assert record_ == state["tracks"][lib.tracks[0]]["upgrade"]["auto_refused"]
     stamp = stamps(lib.paths, lib.tracks[:1], load_state(lib.paths), running=never, place=lib.place)[lib.tracks[0]]
-    assert record_ == {"reason": "not_analysed", "message": out.results[0]["message"], "free": None, "anlz": stamp,
+    assert record_ == {"reason": "not_analysed", "message": out.results[0]["message"], "free": None, "anlz": stamp, "files": None,
                        "at": NOW.isoformat(timespec="seconds")} and stamp
     assert out.results[0]["message"].startswith("rekordbox hasn't analysed this track yet")
     assert [(r.section, r.note) for r in log.results if r.track_id == lib.tracks[0]] == \
@@ -777,15 +797,67 @@ def test_a_swap_that_measures_a_different_edit_stores_it_so_the_track_stops_bein
 
 
 @needs_ffmpeg
-def test_same_track_that_measures_a_different_edit_stores_it_too_and_an_unknown_measure_changes_nothing(tmp_path,
-                                                                                                       monkeypatch):
+def test_the_stored_measurement_is_saved_with_the_snapshots_other_unsaved_changes(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["aiff", "mp3"])
+    for i in (0, 1):    # a swap (an AIFF) and a Same track (not an AIFF) both store it
+        state = load_state(lib.paths)
+        other = lib.tracks[1 - i]
+        state["tracks"][other]["hidden"] = True                               # an unsaved change of the same run
+        up = dict(state["tracks"][lib.tracks[i]]["upgrade"])
+        with pytest.raises((upgrades.NeedsChoice, convert.Skipped)):
+            if i == 0:
+                upgrades.swap(lib.paths, state, lib.tracks[i], up, lambda a, b: DIFFERENT, lambda: NOW)
+            else:   # the measurement comes before the step needs its rekordbox session
+                convert.same_track(lib.paths, state, lib.tracks[i], up, session=None, compare=lambda a, b: DIFFERENT,
+                                   now=lambda: NOW)
+        saved = load_state(lib.paths)["tracks"]
+        assert saved[lib.tracks[i]]["upgrade"]["alignment"] == DIFFERENT.to_dict()
+        assert saved[other]["hidden"] is True
+
+
+@needs_ffmpeg
+def test_same_track_that_measures_a_different_edit_stores_it_too(tmp_path, monkeypatch):
     lib = make_lib(tmp_path, monkeypatch, ["mp3"])
-    unknown = Counting(Alignment("unknown", text="could not compare the two versions"))
-    out, _, _, _ = phase(lib, compare=unknown)
-    assert rows(out) == [(lib.tracks[0], "refused", "needs_choice")] and unknown.calls == 1
-    assert upgrade_of(lib, 0)["alignment"] == EXACT.to_dict()                          # unknown: the stored one stays
     different = Counting(DIFFERENT)
     out, _, _, _ = phase(lib, compare=different)
     assert rows(out) == [(lib.tracks[0], "refused", "needs_choice")] and "auto_refused" not in upgrade_of(lib, 0)
     assert upgrade_of(lib, 0)["alignment"] == DIFFERENT.to_dict() and lib.entry(0)["path"] == lib.olds[0]
     assert phase(lib, compare=different)[0].results == [] and different.calls == 1
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("kind", ["mp3", "aiff"])
+def test_files_that_cannot_be_compared_are_recorded_and_not_decoded_again_until_one_changes(tmp_path, monkeypatch, kind):
+    lib = make_lib(tmp_path, monkeypatch, [kind])
+    unknown = Counting(Alignment("unknown", text="could not compare the two versions"))
+    out, _, log, _ = phase(lib, compare=unknown)
+    assert rows(out) == [(lib.tracks[0], "refused", "needs_choice")] and unknown.calls == 1
+    up = upgrade_of(lib, 0)
+    assert up["alignment"] == EXACT.to_dict()                          # the stored measurement is not replaced
+    files = {lib.olds[0]: (lib.paths.root / lib.olds[0]).stat().st_mtime_ns,
+             up["file"]: (lib.paths.root / up["file"]).stat().st_mtime_ns}
+    assert up["auto_refused"] == {"reason": "needs_choice", "message": out.results[0]["message"], "anlz": None,
+                                  "free": None, "files": files, "at": NOW.isoformat(timespec="seconds")}
+    assert [r.section for r in log.results] == ["upgrade_waits"]
+    # the next sync: held and listed (the track stays in To-do for the user's choice), nothing decoded
+    again, _, _, _ = phase(lib, compare=unknown)
+    assert rows(again) == [(lib.tracks[0], "refused", "needs_choice")] and unknown.calls == 1 and again.batch is None
+    assert lib.entry(0)["path"] == lib.olds[0]
+    # one of the files is replaced (its mtime moves): tried again, and now it compares
+    parked = lib.paths.root / up["file"]
+    os.utime(parked, ns=(parked.stat().st_atime_ns, parked.stat().st_mtime_ns + 5_000_000_000))
+    third, _, _, _ = phase(lib, compare=lambda a, b: EXACT)
+    assert rows(third) == [(lib.tracks[0], "done", None)]
+
+
+@needs_ffmpeg
+def test_stop_pressed_while_the_phase_is_worked_out_starts_no_batch(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    before = untouched(lib)
+    token = CancelToken()
+    token.cancel()
+    out, _, log, events = phase(lib, token=token, compare=lambda a, b: pytest.fail("compared"))
+    assert rows(out) == [(lib.tracks[i], "waiting", "not_reached") for i in (0, 1)]
+    assert out.stopped and out.batch is None and out.backup is None and events == []
+    assert untouched(lib)[:2] == before[:2] and batch_count(lib) == 0
+    assert [r.section for r in log.results] == ["upgrade_waits"] * 2
