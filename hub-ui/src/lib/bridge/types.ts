@@ -60,7 +60,11 @@ export type TodoItem = TrackRow & { group: TodoGroupKey; detail: string; free: b
   /** a batch's open checks (two or more) are one item: `key` and `track_id` are `batch:<id>` (narrow with `isBatch`) */
   key?: string; batch?: BatchCheck };
 /** A `BatchCheckItem`'s batch: `size` open checks, `started` the earliest check's date, `tracks` them as single items. */
-export type BatchCheck = { id: number; size: number; started: string | null; tracks: TodoItem[] };
+export type BatchCheck = { id: number; size: number; started: string | null;
+  /** who started the batch (`aiff_batches.started_by`): `auto_upgrade` is the sync's Auto-upgrade phase (its item says
+   *  "Upgraded during your sync" and its foot "Undo all from this sync"); null when unknown */
+  started_by: 'user' | 'upgrade_all' | 'make_aiff' | 'cdj_all' | 'auto_upgrade' | (string & {}) | null;
+  tracks: TodoItem[] };
 export type BatchCheckItem = TodoItem & { group: 'rekordbox_check'; key: string; batch: BatchCheck };
 export const isBatch = (i: TodoItem): i is BatchCheckItem => i.group === 'rekordbox_check' && !!i.batch;
 /** A `rekordbox_check` item's check (views.check_view): the step that left it, what the two files measured as
@@ -183,9 +187,20 @@ export type ReadStatus = {
 export type Budget = { used: number; allowance: number; limit: number; carry_over: number; extra: number;
   remaining: number };
 export type RunCounts = { lossless: number; lossy: number; problems: number; moved: number };
+/** One track of the sync's Auto-upgrade phase (auto_upgrade.py). `state` `would` only in a dry run; `reason` a waiting
+ *  row's `rekordbox_open` | `busy` | `not_reached`, a refused row's `EligibleReason` key; `how` the way Same track goes. */
+export type AutoUpgradeResult = { track: string; name: string; state: 'done' | 'would' | 'waiting' | 'refused' | 'failed';
+  reason: string | null; message: string | null; how: 'in_place' | 'new_aiff' | null };
+/** A run's Auto-upgrade block (the report's `.json` key `auto_upgrade`, contract "Auto-upgrade"): `batch` null when no
+ *  batch ran, `waiting` = rekordbox open + busy + not reached. */
+export type AutoUpgradeBlock = { batch: number | null; backup: string | null; done: number; waiting: number;
+  refused: number; failed: number; stopped: boolean; dry_run: boolean; results: AutoUpgradeResult[] };
 export type RunSummary = {
   run_id: string; started: string; finished: string | null; duration_s: number | null; exit_code: number;
   counts: RunCounts; stopped_after: number | null;
+  /** the run's Auto-upgrade phase and its one-line account (`line`: "Upgraded 2 tracks; your cues stayed. 1 waits for
+   *  rekordbox to be closed."; null when nothing happened); null when the switch was off for the run */
+  auto_upgrade: (AutoUpgradeBlock & { line: string | null }) | null;
 };
 export type ErrorKind = 'network' | 'qobuz' | 'other' | 'not_found';
 export type Result = {
@@ -295,6 +310,9 @@ export type SyncPreview = {
   /** every collection a row is `in`, by its target -> its name as the plan's sections name it ("Techno",
    *  "Techno › 2019"); {} before the first read */
   collections: Record<string, string>;
+  /** Auto-upgrade before a start: `ready` = the upgrades the sync's last phase would put in place (those that would wait
+   *  for rekordbox included; nothing of rekordbox's library is opened for it). null: the switch is off, or no preview */
+  auto_upgrade: { on: boolean; ready: number } | null;
 };
 
 export type PlannedAction = { kind: string; track_id: string; title: string; artist: string; image_url?: string | null };
@@ -357,6 +375,8 @@ export type Library = {
 };
 export type Alignment = { drift_ms: number | null; offset_ms: number | null; offset_samples: number | null;
   result: string; text: string };
+export type AutoRefused = { reason: 'timing' | 'not_analysed' | 'cloud' | 'space' | 'needs_choice'; message: string;
+  at: string | null };
 export type Upgrade = {
   file: string; source: Source | string; source_name: string; source_id: string; found: string; what: string;
   quality_line: string; /** "FLAC · lossless": the new version's quality, as the current file's `format_line` */
@@ -367,8 +387,11 @@ export type Upgrade = {
   swap_how: 'in_place' | 'new_aiff';
   /** rekordbox's cached state on this Mac */
   rekordbox: { state: 'ready' | 'none' | 'unreadable'; running: boolean };
-  /** stage C fills it */
-  auto_refused: string | null;
+  /** the refusal the sync's Auto-upgrade phase recorded (`reason`: timing | not_analysed | cloud | space | needs_choice;
+   *  `message` its words, `at` an ISO time); shown whatever the switch says */
+  auto_refused: AutoRefused | null;
+  /** the sync met rekordbox open for this upgrade: only while the switch is on and Same track could run */
+  auto_waits: boolean;
   audio_url: string | null;
 };
 /** The artist's free download of a SoundCloud version: a gate page (follow, like or e-mail; `host` e.g.
@@ -521,7 +544,11 @@ export type SetupStatus = {
   /** YouTube Music's Liked music: the choice, whether it can be turned on (a YouTube account is set up) and whether
    *  a Liked music line is in playlists.txt (on or off) */
   youtube_music: { liked_music: boolean; can_turn_on: boolean; listed: boolean };
+  /** "Upgrade automatically when I sync" (Settings, Setup's Downloads step): on by default */
+  auto_upgrade: boolean;
 };
+/** rekordbox on this Mac now (`rekordbox_status()`): its library's state and whether it runs. */
+export type RekordboxStatus = { state: 'ready' | 'none' | 'unreadable'; running: boolean };
 export type AccountStatus = { browser: Browser; browser_name: string; daily_limit: number; profile?: string | null;
   profile_name?: string | null; last_check?: LastCheck | null };
 /** find_logins(service): the installed browsers, the default first, and which profiles hold a login. */
@@ -617,6 +644,7 @@ export type JobResults = {
   mark_warnings_seen: { service: Service; seen_until: string };
   setup_skip_qobuz: Record<string, never>; setup_skip_spotify: Record<string, never>;
   set_read_liked_music: Record<string, never>; add_liked_music: { folder: string };
+  set_auto_upgrade: Record<string, never>;
   setup_account: { service: Service; browser: Browser; profile: string | null; saved: boolean; check: AccountCheck };
   account_sign_in: { service: Service; browser: Browser; profile: string | null; saved: boolean; check: AccountCheck };
   qobuz_check_login: Record<string, never>; spotify_sign_out: Record<string, never>;

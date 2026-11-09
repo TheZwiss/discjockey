@@ -21,3 +21,16 @@ describe('activityLine (its tooltip)', () => {
     expect(activityLine(activityText(s, 0))).toBe('Sync running · 4 of 6 · Searching · Qobuz 1 of 80 today');
   });
 });
+
+describe('the sync\'s Auto-upgrade phase', () => {
+  const upgrading = run({ phase: 'upgrading', total: 6, index: 6, upgrade: { batch_id: 3, done: 2, total: 9, name: 'Artist - Title' } });
+  it('names the track and how many are done', () => {
+    expect(activityLine(activityText(upgrading, 0))).toBe('Upgrading · Artist - Title · 2 of 9 done');
+    expect(activityShort(upgrading)).toBe('Upgrading 3 of 9');
+  });
+  it('after the last track only the count is left', () => {
+    const end = run({ phase: 'upgrading', total: 6, index: 6, upgrade: { batch_id: 3, done: 9, total: 9, name: null } });
+    expect(activityLine(activityText(end, 0))).toBe('Upgrading · 9 of 9 done');
+    expect(activityShort(end)).toBe('Upgrading 9 of 9');
+  });
+});

@@ -695,11 +695,16 @@ def read_infos(paths: Paths, refs: list[str], infos: dict, token: CancelToken,
 
 
 def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str]],
-              now: Callable[[], datetime] = datetime.now):
+              now: Callable[[], datetime] = datetime.now, rekordbox: dict | None = None):
     """A sync from the preview: a fresh plan (recovery, .tmp cleanup, new Spotify read), only the actions the user saw
     and left ticked, filtered before open_qobuz; nothing left -> finish_quietly. Afterwards the preview is the plan
     worked out again from that read and the library as the run left it (run.replan), so the Sync page shows what is
-    really left without reading Spotify again."""
+    really left without reading Spotify again.
+
+    Auto-upgrade (issue 33 stage C): both ways a sync ends (`execute` after the actions, `finish_quietly` when there
+    were none) get the job's Stop token and `rekordbox`, the hub's services for the phase (`running`, `place`,
+    `compare`, `now`: HubApi._rekordbox_services; None: the real ones), so Stop reaches a quiet sync's phase too and a
+    test's fake rekordbox is the one the phase asks."""
     def work(ctx: JobContext) -> dict:
         previewed = store.keys()
         if not previewed and store.prep is None:
@@ -720,12 +725,14 @@ def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str
             run.select_actions(prep, previewed, ticked, where)
             if not prep.plan.actions:
                 step = "saving the results"
-                code, report = run.finish_quietly(prep, emit=ctx.emit)
+                code, report = run.finish_quietly(prep, emit=ctx.emit, token=ctx.token, rekordbox=rekordbox,
+                                                  where=where)
                 ctx.emit(ev.RunFinished(code, str(report)))
             else:
                 step = "signing in to Qobuz"
                 qobuz_source = run.open_qobuz(prep)
-                code, report = run.execute(prep, qobuz_source, emit=ctx.emit, token=ctx.token, where=where)
+                code, report = run.execute(prep, qobuz_source, emit=ctx.emit, token=ctx.token, where=where,
+                                           rekordbox=rekordbox)
         except run.RunCrashed as e:  # execute filed the run with its crash note and sent RunFinished
             ctx.failed_result = outcome(1, e.report)
             raise

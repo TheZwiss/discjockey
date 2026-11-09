@@ -11,7 +11,7 @@ const preview = (...actions: PreviewAction[]): SyncPreview => ({
   waiting_answers: 0, deferred_checks: 0,
   counts: null, groups: [{ key: 'acquire:new', label: 'Download (new)', actions }], estimate: null, never: [], folders: [],
   in_playlists: null, ambiguous: [],
-  dropped: [], notes: [], empty: null, collections: {} });
+  dropped: [], notes: [], empty: null, collections: {}, auto_upgrade: null });
 const ids = (s: Set<string>) => [...s].map((k) => JSON.parse(k)[1]).sort();
 
 describe('ticks across a new preview', () => {

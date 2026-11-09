@@ -32,7 +32,7 @@ function upgrade(extra: Partial<Upgrade> = {}): Upgrade {
     found: '2026-10-16', what: 'lossless version', quality_line: 'Qobuz FLAC · verified lossless', format_line: 'FLAC · lossless',
     alignment: { drift_ms: 0, offset_ms: 0, offset_samples: 0, result: 'exact', text: 'matches exactly' },
     cue_text: 'matches exactly, cues stay', swap_safe: true, swap_possible: true, why_not: null, swap_how: 'in_place',
-    rekordbox: { state: 'ready', running: false }, auto_refused: null, audio_url: 'u2', ...extra };
+    rekordbox: { state: 'ready', running: false }, auto_refused: null, auto_waits: false, audio_url: 'u2', ...extra };
 }
 function detail(extra: Partial<TrackDetail> = {}): TrackDetail {
   return { ...item('t2', 'weak'), file_state: 'here' as const, isrc: null, playlists: ['Hard_Bounce'], in_playlist_count: 1,
@@ -841,7 +841,7 @@ describe('multi-select of the rekordbox checks', () => {
   const check = (id: string, extra: Partial<TodoItem> = {}) => item(id, 'rekordbox_check', { can_undo: true, quality: 'lossless',
     quality_label: 'LOSSLESS', ...extra });
   const batch: BatchCheckItem = { ...check('batch:7', { key: 'batch:7' }), group: 'rekordbox_check', key: 'batch:7',
-    batch: { id: 7, size: 2, started: '2026-11-08', tracks: [check('b1'), check('b2')] } };
+    batch: { id: 7, size: 2, started: '2026-11-08', started_by: 'user', tracks: [check('b1'), check('b2')] } };
   const list = [batch, check('c1'), check('c2'), check('c3'), item('u1', 'upgrade_ready'), item('w1', 'weak')];
   const order = list.map(itemKey);
   const scopeOf = multiScope(list);

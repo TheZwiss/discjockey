@@ -106,7 +106,7 @@ describe('the batch card', () => {
 
 describe('several checks selected, and their undo', () => {
   const batch: BatchCheckItem = { ...check('batch:7', {}, { key: 'batch:7' }), group: 'rekordbox_check', key: 'batch:7',
-    batch: { id: 7, size: 2, started: '2026-11-08', tracks: [check('b1'), check('b2')] } };
+    batch: { id: 7, size: 2, started: '2026-11-08', started_by: 'user', tracks: [check('b1'), check('b2')] } };
   it('a batch stands for its tracks', () => {
     expect(checkTracks([batch, check('c1')]).map((t) => t.track_id)).toEqual(['b1', 'b2', 'c1']);
   });

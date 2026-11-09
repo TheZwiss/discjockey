@@ -12,6 +12,7 @@ import {
   type FakeTrack,
 } from './data';
 import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, fakeLink, libraryOf, membersOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
+import { AUTO_BATCH_DETAIL, autoDetail, autoPreview, rekordboxStatus } from './auto';
 import { LIKED_FOLDER, LIKED_LINK, LIKED_LISTED, LIKED_NEEDS_LOGIN, LIKED_OFF, LIKED_SETTING, isLikedLink, likedOn,
   likedScenarios, likedStatus } from './liked';
 import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, rewrite } from './replay';
@@ -285,7 +286,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       fits_today: count <= budget(s).remaining };
   };
   const summary = (r: (typeof s.runs)[number]) => ({ run_id: r.run_id, started: r.started, finished: r.finished,
-    duration_s: r.duration_s, exit_code: r.exit_code, counts: r.counts, stopped_after: r.stopped_after });
+    duration_s: r.duration_s, exit_code: r.exit_code, counts: r.counts, stopped_after: r.stopped_after,
+    auto_upgrade: r.auto_upgrade });
   const assessment = (limit: number) => {
     const zones = [['careful', 40], ['normal', 60], ['faster', 79], ['fast', 100], ['risky', 500]] as const;
     const i = zones.findIndex(([, to]) => limit <= to);
@@ -319,7 +321,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     changed: 'your rekordbox track changed while Discjockey was working on it; try again',
   };
   type AiffBatch = { id: number; state: 'running' | 'stopped' | 'done'; stop_reason: AiffBatchResult['stop_reason'];
-    items: AiffItemResult[] };
+    items: AiffItemResult[]; started_by?: 'user' | 'upgrade_all' | 'auto_upgrade' };
   const aiff: AiffBatch[] = [];
   let batchStop: { stopped: boolean } | null = null;
   const listOf = (ids: unknown): string[] | null => Array.isArray(ids) && ids.length && ids.every((i) => typeof i === 'string' && i)
@@ -352,7 +354,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     }
   }
   function runAiff(started_by: 'user' | 'upgrade_all', ids: string[], resuming: AiffBatch | null = null): JobStart {
-    const b: AiffBatch = resuming ?? { id: (aiff.at(-1)?.id ?? 0) + 1, state: 'running', stop_reason: null,
+    const b: AiffBatch = resuming ?? { id: (aiff.at(-1)?.id ?? 0) + 1, state: 'running', stop_reason: null, started_by,
       items: ids.map((id) => ({ track: id, action: 'same_track', state: 'planned', reason: null, message: null, path: null,
         rekordbox: null })) };
     if (!resuming) aiff.push(b);
@@ -607,7 +609,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const p = preview();
       if (!s.previewRead) return ok({ read_status: readStatus(s), counts: null, groups: [], estimate: null, never: [],
         folders: [], in_playlists: null, ambiguous: [], dropped: [], notes: [], waiting_answers: 0, deferred_checks: 0,
-        empty: 'no_preview' as const, collections: {} });  // like views.sync_preview: never not_set_up
+        empty: 'no_preview' as const, collections: {}, auto_upgrade: null });  // like views.sync_preview: never not_set_up
       // each row's collections, as views._members gives them (issue 37)
       const m = membersOf(s, sidebarOf(s, 0, false));
       for (const a of [...p.groups.flatMap((g) => g.actions), ...p.never]) a.in = m.of(a);
@@ -615,6 +617,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         collections: m.names,
         folders: p.folders, in_playlists: p.in_playlists, ambiguous: [], dropped: [], notes: [],
         waiting_answers: s.imp.questions.length, deferred_checks: s.imp.deferred,
+        auto_upgrade: autoPreview(s, autoReady()),
         empty: p.actions ? null : 'up_to_date' as const });
     },
     async refresh(auto = false) {
@@ -757,6 +760,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         youtube_music: likedStatus(s) });
     },
     async select(track_id: string | null) { s.selected = track_id; return ok({}); },
+    async rekordbox_status() { return ok(rekordboxStatus(s)); },
     async downloads_view() {
       const d = downloads(s);
       if (s.setup.music.state === 'ok') return ok({ downloads: d });
@@ -1289,6 +1293,13 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         finish(true, {});
       }, 300 / speed));
     },
+    async set_auto_upgrade(on: boolean) {
+      if (typeof on !== 'boolean') return fail('refused', 'on must be true or false.');
+      return startJob('set_auto_upgrade', null, (finish) => setTimeout(() => {
+        s.setup = { ...s.setup, auto_upgrade: on };   // turning it off touches nothing that waits
+        finish(true, {});
+      }, 300 / speed));
+    },
     async add_liked_music() {
       return startJob('add_liked_music', null, (finish) => setTimeout(() => {
         if (!likedOn(s)) return finish(false, null, 'setting_off', LIKED_OFF);
@@ -1378,6 +1389,13 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       stopped: stopped ? { batch_id: stopped.id, left: stopped.items.filter((i) => i.state === 'planned').length } : null };
   }
 
+  /** The upgrades the sync's last phase would put in place now (views/api `_auto_upgrade_ready`): Upgrade all's set,
+   *  minus the ones a recorded refusal still holds. */
+  function autoReady(): number {
+    return s.tracks.filter((t) => t.in_playlists && !t.hidden && t.upgrade && sameTrackReason(t) === null
+      && !t.upgrade.auto_refused).length;
+  }
+
   function todoView(filter: TodoFilter, show_hidden: boolean) {
     const order: TodoGroupKey[] = ['rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready', 'not_found', 'weak',
       'good_lossy', 'fake', 'other'];
@@ -1408,8 +1426,10 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
             const key = `batch:${id}`;
             const tracks = group.map((x) => checkItem(x, group.length));
             const started = tracks.map((x) => x.check!.since).filter(Boolean).sort()[0] ?? null;
-            items.rekordbox_check.unshift({ ...tracks[0], track_id: key, key, detail: `${started ?? ''} · Same track`,
-              batch: { id, size: group.length, started, tracks } });
+            const started_by = s.batchStartedBy?.[id] ?? aiff.find((b) => b.id === id)?.started_by ?? 'user';
+            items.rekordbox_check.unshift({ ...tracks[0], track_id: key, key,
+              detail: `${started ?? ''} · ${started_by === 'auto_upgrade' ? AUTO_BATCH_DETAIL : 'Same track'}`,
+              batch: { id, size: group.length, started, started_by, tracks } });
             chips.rekordbox_check++;
             counted.add(key);
           }
@@ -1423,7 +1443,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (!g) continue;
       if (t.hidden) hidden_count++;
       else { chips[g]++; counted.add(t.track_id); }
-      if (!t.hidden || show_hidden) items[g].push({ ...trackRow(t), group: g, detail: todoDetail(t, g), free: todoFree(t, g),
+      if (!t.hidden || show_hidden) items[g].push({ ...trackRow(t), group: g, detail: todoDetail(t, g, g === 'upgrade_ready' ? (plain) => autoDetail(s, t, sameTrackReason(t), plain) : undefined), free: todoFree(t, g),
         file_state: todoFileState(t), ...(g === 'upgrade_ready' ? { same_track: sameTrackReason(t) } : {}) });
     }
     for (const q of questionItems(s)) { items.same_song.push(q); chips.same_song++; counted.add(q.track_id); }

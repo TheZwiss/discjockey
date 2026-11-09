@@ -1,11 +1,11 @@
 // Which Sync view shows (plan Task 65, "Which view shows"). Pure, so the routing rule is tested.
 import { writable } from 'svelte/store';
-import type { RunState } from '$lib/stores/run';
+import { ACTIVE_PHASES, type RunState } from '$lib/stores/run';
 import { runIdFromReport } from '$lib/format';
 
 export type SyncView = { view: 'before' } | { view: 'live' } | { view: 'end'; run_id: string | null };
 
-const ACTIVE = new Set(['preparing', 'running', 'stopping']);
+const ACTIVE = new Set<string>(ACTIVE_PHASES);
 
 /**
  * `#/sync/run/:run_id` → end screen. A hub sync running → live view. A sync that finished in this session → its
