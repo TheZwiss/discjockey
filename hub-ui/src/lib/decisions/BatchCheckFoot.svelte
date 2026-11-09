@@ -2,17 +2,19 @@
   // The foot of a batch card or of several checks selected (plan issue 33 stage B §6.4), read as the single check's
   // foot (CheckFoot): "Done, checked in rekordbox" as the screen's one filled button for every track shown, and under
   // it, full width and plain, "Undo all {n}" when every track can be undone, else "Undo {n}" (n the tracks that can
-  // still be undone; none: no button) with the muted line "{k} can't be undone" under it. Under them the one line an
-  // undo left (design §8's words when rekordbox is open; how many weren't undone, each row says why).
+  // still be undone; none: no button) with the muted line "{k} can't be undone" under it. Under them what an undo left
+  // as a warn NoteCard at the panel's full width, the colour of the rows' reasons (design §8's words when rekordbox is
+  // open; the track not undone by name, or how many, each row says why).
   import type { TodoItem } from '$lib/bridge/types';
-  import { Hint, WriteButton } from '$lib/components';
-  import { undoFoot } from './decisionModel';
+  import { Hint, NoteCard, WriteButton } from '$lib/components';
+  import { undoFoot, undoProblemLine } from './decisionModel';
   import type { ChecksFlow } from './flows.svelte';
 
-  let { tracks, flow }: { tracks: TodoItem[]; flow: ChecksFlow } = $props();
+  let { tracks, flow, nameOf }: { tracks: TodoItem[]; flow: ChecksFlow; nameOf: (i: TodoItem) => string } = $props();
 
   // a track whose undo was just refused isn't offered again until the next pick: it would only be refused again
   const undo = $derived(undoFoot(tracks, flow.problem?.rows));
+  const names = $derived(new Map(tracks.map((t) => [t.track_id, nameOf(t)])));
 </script>
 
 <WriteButton variant="filled" wide busy={flow.busy === 'done'} disabled={!!flow.busy && flow.busy !== 'done'}
@@ -27,7 +29,9 @@
     {undo.label}</WriteButton>
 {/if}
 {#if undo.cant}<div class="cant"><Hint text={undo.cant} data-test="undo-cant" /></div>{/if}
-{#if flow.problem}<Hint text={flow.problem.line} tone="problem" wrap data-test="undo-problem" />{/if}
+{#if flow.problem}
+  <NoteCard tone={flow.problem.tone} data-test="undo-problem">{undoProblemLine(flow.problem, (id) => names.get(id) ?? 'A track')}</NoteCard>
+{/if}
 
 <style>
   .undo { width: 14px; height: 14px; flex-shrink: 0; }

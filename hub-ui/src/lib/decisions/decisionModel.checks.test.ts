@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { BatchCheckItem, RekordboxCheckView, TodoItem, TrackDetail } from '$lib/bridge/types';
 import {
   NOT_IN_REKORDBOX, USB_STEP, batchCheckCard, batchRowName, batchRowSub, checkCard, checkRow, checkTracks, checksTitle,
-  decisionFor, inRekordbox, keptLine, replacedCard, tracksSummary, undoAllLabel, undoFoot, undoManyConfirm, undoManyLabel, undoProblem,
+  decisionFor, inRekordbox, keptLine, replacedCard, tracksSummary, undoAllLabel, undoFoot, undoManyConfirm, undoManyLabel, undoProblem, undoProblemLine,
   undoneToast,
 } from './decisionModel';
 
@@ -80,7 +80,11 @@ describe('the batch card', () => {
     expect(words(c.steps[0])).toBe('This one shows as missing: Auto Relocate finds it by its name, cues and all');
     expect(c.steps[1].parts.some((p) => p.strong && p.text === 'Reload Tag')).toBe(true);
     expect(c.steps[1].list).toEqual(['A – a', 'A – d']);
-    expect(c.steps[1].note).toContain("don't select all");
+    // the clause the user must obey is body text with its key words bold, not the muted note
+    expect(c.steps[1].note).toBeUndefined();
+    expect(c.steps[1].parts.some((p) => p.strong && p.text === "don't select all")).toBe(true);
+    expect(words(c.steps[1])).toBe("In rekordbox's Collection, select these tracks (⌘-click each), right-click › Reload Tag · "
+      + "don't select all: it replaces every name you changed in rekordbox");
   });
   it('only the tracks rekordbox has get steps: one of them says "it", none is no card', () => {
     const one = batchCheckCard([check('a'), check('b', { rekordbox: { entries: 0, kept: [] } })], name)!;
@@ -131,7 +135,7 @@ describe('several checks selected, and their undo', () => {
   });
   it('the toast counts what came back', () => {
     expect([undoneToast(1), undoneToast(2)]).toEqual(['Upgrade undone. Your old file is back.',
-      '2 upgrades undone. Your old files are back.']);
+      '2 upgrades undone. Old files are back.']);
   });
   it('an undo that put everything back says nothing', () => {
     expect(undoProblem({ ok: true, result: { batch: null, total: 2, undone: 2, refused: 0, failed: 0, recovered: [],
@@ -141,13 +145,19 @@ describe('several checks selected, and their undo', () => {
     const p = undoProblem({ ok: true, result: { batch: null, total: 3, undone: 2, refused: 1, failed: 0, recovered: [],
       results: [{ track: 'a', state: 'undone', reason: null, message: '' },
         { track: 'b', state: 'refused', reason: 'changed', message: 'this track was changed in rekordbox since' }] } })!;
-    expect(p).toEqual({ line: '1 not undone: its row says why', rows: { b: 'This track was changed in rekordbox since' } });
+    expect(p).toEqual({ line: '1 not undone: its row says why', rows: { b: 'This track was changed in rekordbox since' },
+      tone: 'warn', track: 'b' });
+    // the foot names the one track (its row may be scrolled away), several are counted
+    expect(undoProblemLine(p, (id) => `Name of ${id}`)).toBe('Name of b not undone');
+    const two = undoProblem({ ok: true, result: { batch: null, total: 3, undone: 1, refused: 2, failed: 0, recovered: [],
+      results: [{ track: 'b', state: 'refused', reason: 'changed', message: 'x' }, { track: 'c', state: 'refused', reason: 'changed', message: 'y' }] } })!;
+    expect(undoProblemLine(two, (id) => id)).toBe('2 not undone: each row says why');
   });
   it('rekordbox open: design §8\'s words, nothing per row to say', () => {
     const msg = 'Quit rekordbox to undo: Discjockey points your rekordbox track back at your old file only while rekordbox is closed.';
     expect(undoProblem({ ok: false, kind: 'rekordbox_open', message: msg, result: { batch: null, total: 1, undone: 0,
       refused: 0, failed: 0, recovered: [], results: [{ track: 'a', state: 'waiting', reason: 'rekordbox_open', message: '' }] } }))
-      .toEqual({ line: msg, rows: {} });
+      .toEqual({ line: msg, rows: {}, tone: 'warn', track: null });
     // a refusal before the job (busy): its own words
     expect(undoProblem({ ok: false, kind: 'busy', message: 'Something else is changing your library.' })!.line)
       .toBe('Something else is changing your library.');

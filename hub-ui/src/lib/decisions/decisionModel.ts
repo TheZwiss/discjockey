@@ -554,8 +554,8 @@ export function batchCheckCard(tracks: TodoItem[], nameOf: (i: TodoItem) => stri
   if (reload.length) {
     steps.push({ parts: [{ text: "In rekordbox's Collection, select " },
       { text: reload.length > 1 ? 'these tracks (⌘-click each)' : 'this track' }, { text: ', right-click › ' },
-      { text: 'Reload Tag', strong: true }], note: "· don't select all: it replaces every name you changed in rekordbox",
-      list: reload.map(nameOf) });
+      { text: 'Reload Tag', strong: true }, { text: ' · ' }, { text: "don't select all", strong: true },
+      { text: ': it replaces every name you changed in rekordbox' }], list: reload.map(nameOf) });
   }
   steps.push({ parts: [{ text: many ? 'Analyse them again, so the waveform shows the full sound'
     : 'Analyse it again, so the waveform shows the full sound' }], note: BEATGRID });
@@ -597,11 +597,19 @@ export const undoManyConfirm = (n: number) => ({ title: `Undo ${n} ${plural(n, '
   confirmLabel: `Undo ${n}` });
 /** The toast after an undo of several, by how many came back (one: the single undo's own words). */
 export const undoneToast = (n: number): string => (n === 1 ? 'Upgrade undone. Your old file is back.'
-  : `${n} upgrades undone. Your old files are back.`);
+  : `${n} upgrades undone. Old files are back.`);
 /** What an undo of several left to say (design §8's undo words): the tracks not undone with their reasons, shown in
  *  their rows, and one line under the buttons (rekordbox open: §8's words; a refusal before the job: its words;
- *  tracks refused: how many, each row says why). Null when everything was undone. */
-export type UndoProblem = { line: string; rows: Record<string, string> };
+ *  tracks refused: how many, each row says why). Null when everything was undone. `tone`: a step left for the user
+ *  or something to wait for (rekordbox open, busy, tracks refused, as their rows) is `warn`; only a failure is `problem`. */
+export type UndoProblem = { line: string; rows: Record<string, string>; tone: 'warn' | 'problem';
+  /** the one track the line is about when exactly one wasn't undone (the foot names it), else null */
+  track: string | null };
+/** The line under the buttons: one track not undone is named (the foot works with its row scrolled away), several are
+ *  counted (each row says why), and any other problem (rekordbox open, busy) is its own words. */
+export function undoProblemLine(p: UndoProblem, nameOf: (id: string) => string): string {
+  return p.track ? `${nameOf(p.track)} not undone` : p.line;
+}
 export function undoProblem(out: { ok: boolean; kind?: ProblemKind; message?: string; result?: UndoResult | null }):
   UndoProblem | null {
   const r = out.result ?? null;
@@ -611,8 +619,10 @@ export function undoProblem(out: { ok: boolean; kind?: ProblemKind; message?: st
   }
   const refused = Object.keys(rows).length;
   if (!out.ok && (out.kind === 'rekordbox_open' || !refused)) {
-    return { line: out.message || "That didn't work.", rows };
+    return { line: out.message || "That didn't work.", rows, track: null,
+      tone: out.kind === 'failed' || out.kind === 'crashed' || !out.kind ? 'problem' : 'warn' };
   }
   if (!refused) return null;
-  return { line: `${refused} not undone: ${refused > 1 ? 'each row says why' : 'its row says why'}`, rows };
+  return { line: `${refused} not undone: ${refused > 1 ? 'each row says why' : 'its row says why'}`, rows, tone: 'warn',
+    track: refused === 1 ? Object.keys(rows)[0] : null };
 }

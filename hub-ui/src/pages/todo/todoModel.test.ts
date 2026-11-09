@@ -909,8 +909,12 @@ describe('the U2 states in fake mode', () => {
     const { f, theBatch } = setup('todo:check-batch');
     const b = await theBatch();
     expect(b.key).toBe('batch:7');
-    expect(b.batch.size).toBe(3);
-    expect(b.batch.tracks.map((t) => t.check?.reason)).toEqual(['swapped', 'repointed', 'swapped']);
+    expect(b.batch.size).toBe(4);
+    expect(b.batch.tracks.map((t) => t.check?.reason)).toEqual(['swapped', 'repointed', 'swapped', 'repointed']);
+    // the files are the user's own names, in the folder the row names: not always "Artist - Title"
+    const names = b.batch.tracks.map((t) => t.path!.split('/').pop()!);
+    expect(names.filter((n, i) => n === `${b.batch.tracks[i].artist} - ${b.batch.tracks[i].title}.aiff`).length).toBeLessThan(2);
+    expect(b.batch.tracks.every((t) => t.path!.split('/').at(-2) === t.folder)).toBe(true);
     expect(b.batch.tracks.every((t) => t.can_undo && t.check?.reload_tag === false)).toBe(true);
     const t = (await f.todo('all', false)) as Todo;
     expect(t.chips.rekordbox_check).toBe(t.groups.find((g) => g.key === 'rekordbox_check')!.items.length);

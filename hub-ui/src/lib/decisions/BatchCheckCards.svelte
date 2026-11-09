@@ -9,11 +9,14 @@
   //   doesn't have, and "Undo this one" while it can;
   // - several checks: "{N} checks selected" (N list items) over "{n} tracks", with a row per track saying what is left
   //   to do in rekordbox (each check can be of another kind, so the row's own line, as in the to-do list).
+  // With the steps card the panel is one scroll region: the card, then the list at its own height (a list that
+  // scrolled in place under a card of ~500 px showed a sliver of a row above the foot), the body's end faded above the
+  // foot; with no card (several checks selected, no step to give) the list is `fill`, scrolling in place.
   // The foot is BatchCheckFoot: Done for all of them, Undo all n (every track can go) / Undo n and how many can't. An
   // undo that left tracks as they were says why in their rows, one line under the buttons.
   import { untrack } from 'svelte';
   import type { TodoItem } from '$lib/bridge/types';
-  import { Cover, ListRow, NumberedSteps, Surface, WriteButton } from '$lib/components';
+  import { Cover, ListRow, MiddleText, NumberedSteps, Surface, WriteButton } from '$lib/components';
   import { Panel } from '$lib/frames';
   import BatchCheckFoot from './BatchCheckFoot.svelte';
   import {
@@ -65,10 +68,10 @@
 
 {#snippet row(r: CheckRow)}
   {@const why = refused[r.track_id]}
-  <ListRow wrap title={r.name} test="check-row" data-track={r.track_id} data-refused={why ? 'true' : undefined}>
+  <ListRow wrap wrapName title={r.name} test="check-row" data-track={r.track_id} data-refused={why ? 'true' : undefined}>
     {#snippet lead()}<Cover url={r.cover_url} seed={r.track_id} size={28} />{/snippet}
     {#snippet name()}{r.name}{/snippet}
-    {#snippet sub()}<span class="line one" title={r.sub}>{r.sub}</span>{#each r.notes as n (n)}<span class="line note">{n}</span>{/each}{#if why}<span
+    {#snippet sub()}<span class="line one" title={r.sub}>{#if batch}<MiddleText text={r.sub} />{:else}{r.sub}{/if}</span>{#each r.notes as n (n)}<span class="line note">{n}</span>{/each}{#if why}<span
       class="line warn" data-test="check-row-refused">{why}</span>{/if}{/snippet}
     {#snippet trailing()}
       {#if r.can_undo && !why}
@@ -96,20 +99,22 @@
   {/if}
 {/snippet}
 
-{#snippet fill()}
+{#snippet list(grow: boolean)}
   <!-- the row grid: cover · name over its lines · the undo slot, kept on every row so the names end at one x -->
   <Surface kind="list" label={batch ? 'Upgraded' : checksTitle(selected)} summary={batch ? String(tracks.length) : tracksSummary(tracks.length)}
     hint={batch && day ? (day === 'today' ? 'today' : `on ${day}`) : undefined}
-    style="--row-cols: 28px minmax(0, 1fr) var(--h-ctl-sm)" grow={{ rows: rows.length, tall: true }}
+    style="--row-cols: 28px minmax(0, 1fr) var(--h-ctl-sm)" grow={grow ? { rows: rows.length, tall: true } : undefined}
     data-test={batch ? 'batch-tracks' : 'check-selection-rows'}>
     {#each rows as r (r.track_id)}{@render row(r)}{/each}
   </Surface>
 {/snippet}
+{#snippet fill()}{@render list(true)}{/snippet}
+{#snippet after()}{@render list(false)}{/snippet}
 
-{#snippet foot()}<BatchCheckFoot {tracks} {flow} />{/snippet}
+{#snippet foot()}<BatchCheckFoot {tracks} {flow} {nameOf} />{/snippet}
 
 <div class="checks" bind:this={root} data-test="check-batch" data-mode={batch ? 'batch' : 'selection'}>
-  <Panel head={card ? head : undefined} {fill} {foot} />
+  <Panel head={card ? head : undefined} fill={card ? undefined : fill} after={card ? after : undefined} {foot} />
 </div>
 
 <style>
@@ -117,9 +122,10 @@
   .step { display: block; min-width: 0; font-size: var(--fs-small); line-height: 17px; color: var(--text); }
   .step b { font-weight: var(--fw-semi); }
   .note { color: var(--text-muted); }
-  /* the tracks a step is for, one per line under its words, in the text's colour: names to find in rekordbox */
+  /* the tracks a step is for, one per line under its words, in the text's colour: names to find in rekordbox (grey
+     is only for what the step may skip, the beatgrid note) */
   .names { display: flex; flex-direction: column; margin-top: var(--s-1); min-width: 0; }
-  .name { font-size: var(--fs-small); line-height: 17px; color: var(--text-muted); white-space: nowrap; overflow: hidden;
+  .name { font-size: var(--fs-small); line-height: 17px; color: var(--text); white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; }
   .line { display: block; }
   /* the file's name (or the row's to-do line) stays on one line and ends in "…": only the notes are sentences to wrap */

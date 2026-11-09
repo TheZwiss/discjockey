@@ -2,9 +2,9 @@
   // The rekordbox check's foot (mockup todo-decisions, "After the step"), the same in To-do's and the Library's
   // details: "Done, checked in rekordbox" as the screen's one filled button and, while the replace that left the check
   // can still be undone (item.can_undo), "Undo the replace" under it (full width, plain, the same width as Done), with
-  // an undo's refusal under that until the next track.
+  // an undo's refusal under that until the next track (a warn NoteCard, as the batch card's foot).
   import type { TodoItem } from '$lib/bridge/types';
-  import { Hint, WriteButton } from '$lib/components';
+  import { NoteCard, WriteButton } from '$lib/components';
   import type { UpgradeFlow } from './flows.svelte';
 
   let { item, flow }: { item: TodoItem; flow: UpgradeFlow } = $props();
@@ -19,7 +19,7 @@
     <svg class="undo" viewBox="0 0 14 14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"
       stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 3L2 5.5 4.5 8" /><path d="M2.3 5.5h6.2a3.2 3.2 0 010 6.4H6" /></svg>
     Undo the replace</WriteButton>
-  {#if flow.undoProblem}<Hint text={flow.undoProblem} tone="problem" wrap data-test="undo-problem" />{/if}
+  {#if flow.undoProblem}<NoteCard tone="warn" data-test="undo-problem">{flow.undoProblem}</NoteCard>{/if}
 {/if}
 
 <style>

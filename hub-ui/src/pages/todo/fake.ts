@@ -58,19 +58,33 @@ function moreUpgrades(s: FakeState, n: number): FakeTrack[] {
   return more;
 }
 
+/** A user's own file names, as their files come (a title alone, a downloader's underscores, a track number): the
+ *  batch rows' second line is the file's name, which is not always "Artist - Title". The old and the new file share
+ *  the stem (a Same track swap keeps the name, a convert keeps the stem). */
+function userStem(t: FakeTrack, i: number): string {
+  const n = String(3 + i * 4).padStart(2, '0');
+  return [t.title, `${t.artist}_-_${t.title}_(Original_Mix)`.replace(/ /g, '_'), `${t.artist} - ${t.title}`,
+    `${n} ${t.artist} - ${t.title}`][i % 4];
+}
+
 /** What a Same track batch leaves (as the fake's upgrade() does, plan stage B §6.4): `n` tracks of the playlists
  *  upgraded in batch 7, each with its check and undo record; every other one was an MP3 (a new AIFF, `repointed`),
- *  the rest AIFFs swapped in place. `tune` changes a track's check after (kept fields, Reload Tag, not in rekordbox). */
+ *  the rest AIFFs swapped in place. Each file sits in its playlist's folder (the row's folder, the card's "in
+ *  Library/…" and "Superseded/…" agree) under a name of the user's own. Every batch shot has four tracks, so the
+ *  to-do totals agree between them. `tune` changes a track's check after (kept fields, Reload Tag, not in rekordbox). */
 function batchChecks(s: FakeState, n: number, tune: (c: NonNullable<FakeTrack['rekordbox_check']>, i: number) => void = () => {}):
   FakeTrack[] {
   const some = s.tracks.filter((t) => t.in_playlists && !t.upgrade && !t.hidden && !t.rekordbox_check && !t.away
     && qualityOf(t) !== 'missing' && qualityOf(t) !== 'lossless').slice(0, n);
   some.forEach((t, i) => {
     const mp3 = i % 2 === 1;
-    const old = `${t.artist} - ${t.title}.${mp3 ? 'mp3' : 'aiff'}`;
+    const stem = userStem(t, i);
+    const old = `${stem}.${mp3 ? 'mp3' : 'aiff'}`;
     const before: Partial<FakeTrack> = { status: t.status, cutoff_hz: t.cutoff_hz, source: t.source, codec: t.codec,
       upgrade: makeUpgrade(t, 'exact', dateOnly(s.now), !mp3), rekordbox_check: null };
-    Object.assign(t, { status: 'lossless', cutoff_hz: null, source: 'qobuz', codec: 'flac', upgrade: null });
+    Object.assign(t, { status: 'lossless', cutoff_hz: null, source: 'qobuz', codec: 'flac', upgrade: null,
+      file: `Library/${t.folder}/${stem}.aiff` });
+    delete t.at;
     t.rekordbox_check = { reason: mp3 ? 'repointed' : 'swapped', since: dateOnly(s.now), match: 'exact', offset_ms: 0,
       ...(mp3 ? { aligned: true } : { moved: false }), reload_tag: false, rekordbox: { entries: 1, kept: [] }, batch: 7,
       undo: before, old_path: `Superseded/${t.folder}/${mp3 ? old : old.replace(/\.aiff$/, ' (lossy).aiff')}` };
@@ -121,7 +135,7 @@ const fake: PageFake = {
     'after-no-undo'(s) { replaced(s, 'swapped', 'exact', false); },
     // The rekordbox checks of a Same track batch (plan stage B §6.4), one row "3 tracks upgraded" in Check in
     // rekordbox (open with #/todo?filter=rekordbox_check): its card with the steps, a row per track, Done and Undo all.
-    'check-batch'(s) { batchChecks(s, 3); },
+    'check-batch'(s) { batchChecks(s, 4); },
     // ... with what the write kept as the user edited it, a track whose text Discjockey couldn't write (Reload Tag for
     // it, by name) and a file rekordbox doesn't have.
     'check-batch-kept'(s) {
@@ -134,11 +148,11 @@ const fake: PageFake = {
     },
     // ... where Undo all can't put one back (relocated in rekordbox since): its row says why, the foot how many.
     'check-batch-undo-refused'(s) {
-      const b = batchChecks(s, 3);
+      const b = batchChecks(s, 4);
       if (b[1]) s.undoRefuse = { [b[1].track_id]: "This track was moved or removed in rekordbox since the replace, so Discjockey can't put it back safely. Nothing was changed." };
     },
     // ... with rekordbox open: Undo all puts nothing back and says to quit rekordbox (design §8).
-    'check-batch-rekordbox-open'(s) { batchChecks(s, 3); s.rekordbox_running = true; },
+    'check-batch-rekordbox-open'(s) { batchChecks(s, 4); s.rekordbox_running = true; },
     // Single Same track checks (batches of one): t12 an AIFF swapped in place, t15 an MP3 that became a new AIFF
     // (`repointed`), each its own single card. Open with #/todo?track=t15.
     'check-repointed'(s) { batchChecks(s, 2, (c, i) => { c.batch = 8 + i; }); },
