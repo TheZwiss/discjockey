@@ -162,7 +162,7 @@ const fake: PageFake = {
     // #/todo?track=t15, then t17 and t22; t24 and Get Naughty are plain).
     'auto-waits'(s) { seedUpgrades(s, 4).slice(0, 3).forEach(markWaiting); },
     // ... five parked upgrades the sync's last phase refused, one per reason (timing, not analysed, Cloud Library Sync, space,
-    // couldn't compare): "Not upgraded at your sync · …" in their rows, the reason's sentence in their panel.
+    // couldn't compare): "{Reason} · not upgraded at your sync" in their rows, the reason's sentence in their panel.
     'auto-refused'(s) {
       const reasons = ['timing', 'not_analysed', 'cloud', 'space', 'needs_choice'] as const;
       seedUpgrades(s, reasons.length).forEach((t, i) => markRefused(s, t, reasons[i]));

@@ -28,12 +28,13 @@ export const ROW_NAMES: Record<SettingsRow, string> = {
   folders: 'Watched folders', upgrades: 'Upgrades', programs: 'Programs',
   about: 'About Discjockey', reports: 'Reports',
 };
-/** Each row's lead in one 14 px box: a service's row its own coloured logo (ServiceMark; sources round problem 3:
+/** Each row's lead in one 14 px box (`heavy`: a glyph drawn with thin strokes, the arrow ↑, set bolder and a size up so it
+ *  weighs what the boxy ▤ ◫ ⌘ ☰ weigh in the same group); a service's row its own coloured logo (ServiceMark; sources round problem 3:
  *  every service row has its logo, YouTube's for Premium), the others a glyph in the sidebar's style. */
-export type RowLead = { logo: LogoKey } | { glyph: string };
+export type RowLead = { logo: LogoKey } | { glyph: string; heavy?: boolean };
 export const ROW_LEADS: Record<SettingsRow, RowLead> = {
   qobuz: { logo: 'qobuz' }, youtube: { logo: 'youtube' }, soundcloud: { logo: 'soundcloud' }, spotify: { logo: 'spotify' },
-  youtube_music: { logo: 'youtubemusic' }, music: { glyph: '▤' }, folders: { glyph: '◫' }, upgrades: { glyph: '↑' }, programs: { glyph: '⌘' },
+  youtube_music: { logo: 'youtubemusic' }, music: { glyph: '▤' }, folders: { glyph: '◫' }, upgrades: { glyph: '↑', heavy: true }, programs: { glyph: '⌘' },
   about: { glyph: '©' }, reports: { glyph: '☰' },
 };
 export function isSettingsRow(v: string | undefined): v is SettingsRow {

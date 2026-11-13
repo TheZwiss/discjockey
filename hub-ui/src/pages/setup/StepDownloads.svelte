@@ -6,8 +6,8 @@
   // are optional. While Qobuz is required its card's main action is the screen's one filled button (filledCard);
   // afterwards Continue is. A click on a rung's name or chip brings its card into view and puts the focus in it.
   // Under the account cards sits one more card, "Upgrades" (issue 33 stage C plan §6.2): the switch "Upgrade
-  // automatically when I sync", starting on, saved at once (set_auto_upgrade). It is never the filled button and never
-  // blocks Continue.
+  // automatically when I sync", starting on, saved at once (set_auto_upgrade). It shows once Qobuz is decided (signed
+  // in or left out), still before Continue; it is never the filled button and never blocks Continue.
   import { untrack } from 'svelte';
   import { api, runJob } from '$lib/bridge/client';
   import type { DownloadsView, ProblemKind, SetupStatus } from '$lib/bridge/types';
@@ -96,11 +96,15 @@
           actions={flow} logins={flow.logins} busy={flow.busy} disabledWhy={blocked} />
       </div>
     {/each}
-    <Surface kind="list" label="Upgrades" data-test="setup-card-upgrades">
-      <ToggleRow item={{ key: 'auto_upgrade', label: AUTO_UPGRADE_LABEL, on: shownAutoUpgrade(status.auto_upgrade, pending) }}
-        sub={AUTO_UPGRADE_SETUP_SUB} disabled={!!$writeBlockedReason} title={$writeBlockedReason ?? undefined}
-        onchange={(_k, on) => void setAuto(on)} test="auto-upgrade-switch" />
-    </Surface>
+    <!-- once Qobuz is decided (signed in or left out): before that the card sat below the fold, under three cards the
+         user has to deal with first, and an unseen switch is no choice (stage review B10); still before Continue -->
+    {#if filled === null}
+      <Surface kind="list" label="Upgrades" data-test="setup-card-upgrades">
+        <ToggleRow item={{ key: 'auto_upgrade', label: AUTO_UPGRADE_LABEL, on: shownAutoUpgrade(status.auto_upgrade, pending) }}
+          sub={AUTO_UPGRADE_SETUP_SUB} disabled={!!$writeBlockedReason} title={$writeBlockedReason ?? undefined}
+          onchange={(_k, on) => void setAuto(on)} test="auto-upgrade-switch" />
+      </Surface>
+    {/if}
     {#if upgradeError}<NoteCard tone="problem" data-test="auto-upgrade-error">{upgradeError}</NoteCard>{/if}
   </div>
 </div>

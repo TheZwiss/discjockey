@@ -2033,7 +2033,7 @@ action.
   the switch says. New `auto_waits: bool`: the phase met rekordbox open for this upgrade; true only while the switch is
   on and Same track could run now (`swap_possible`).
 - **`todo()`**: an `upgrade_ready` item's `detail` is, in this order: "Waits for rekordbox to be closed" (`auto_waits`
-  as above), "Not upgraded at your sync · {short}" (a recorded refusal that still applies: `short` is `timing`
+  as above), "{Short} · not upgraded at your sync" (the reason first, so the end of the row can be cut; a recorded refusal that still applies: `short`, capitalised, is `timing`
   "couldn't line it up", `not_analysed` "not analysed in rekordbox", `cloud` "in Cloud Library Sync", `space` "not
   enough free space", `needs_choice` "couldn't compare it"; a `needs_choice` record is dropped once a measurement says
   "a different edit"), else `upgrade_status`. A `BatchCheckItem`'s `batch` gains `started_by`

@@ -159,7 +159,8 @@ describe('the Upgrades row', () => {
   it('sits in This Mac after Watched folders, leads with the upgrade arrow and never pulls the page open', () => {
     const mac = ROW_GROUPS.find((g) => g.label === 'This Mac')!.rows;
     expect(mac.indexOf('upgrades')).toBe(mac.indexOf('folders') + 1);
-    expect(ROW_LEADS.upgrades).toEqual({ glyph: '↑' });
+    expect(ROW_LEADS.upgrades).toEqual({ glyph: '↑', heavy: true });   // a thin arrow, set heavier to weigh what ▤ ◫ ⌘ weigh
+    expect(Object.entries(ROW_LEADS).filter(([, l]) => 'heavy' in l).map(([r]) => r)).toEqual(['upgrades']);
     expect(firstAttention(ctx({ status: status({ auto_upgrade: false }), downloads: view() }))).toBe('qobuz');
   });
 });

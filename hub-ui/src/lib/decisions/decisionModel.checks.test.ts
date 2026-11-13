@@ -161,7 +161,7 @@ describe('several checks selected, and their undo', () => {
     expect(autoNotes({ ...none, auto_refused: refused })).toEqual({ waits: false, refused });
     // both marks: the waiting line wins (views.upgrade_detail), the refusal stays on the record
     expect(autoNotes({ auto_waits: true, auto_refused: refused })).toEqual({ waits: true, refused: null });
-    expect(AUTO_WAITS_HINT).toBe('Waits for rekordbox to be closed: it is upgraded at your next sync, or press Replace.');
+    expect(AUTO_WAITS_HINT).toBe('Waits for rekordbox: it goes in at your next sync, or quit it and press Replace.');
   });
   it('the toast counts what came back', () => {
     expect([undoneToast(1), undoneToast(2)]).toEqual(['Upgrade undone. Your old file is back.',
