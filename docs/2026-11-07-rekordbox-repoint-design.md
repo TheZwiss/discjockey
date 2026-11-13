@@ -100,8 +100,10 @@ commands call the same function; counts on buttons are its result.
 | Action | Eligible when | Never eligible |
 |---|---|---|
 | Same track | a parked upgrade whose alignment is `exact` or `shifted` (measured again when it runs, as `swap` does), the current file on disk, and, for a file that isn't AIFF, rekordbox `ready` or `none` | `different` or `unknown` edit (needs the user's choice: New track or Discard); rekordbox `unreadable` for a non-AIFF file; refused before by Auto-upgrade and nothing changed since (§2.5; this steers the sync's phase only: Upgrade all, a selection and a single Replace are the user acting and try the track again; corrected in stage C; plan §0.8) |
-| Convert to AIFF | an own file on disk that isn't a clean AIFF (§2.1), with an artist and title in its record | a file Discjockey downloaded (already clean); a file away (offline drive) |
+| Convert to AIFF | an own file on disk that isn't a clean AIFF (§2.1), with an artist and title in its record | a file Discjockey downloaded (already clean); a file away (offline drive); a track whose song has a parked upgrade (`upgrade_waits`: "A better version is waiting: Same track makes it an AIFF."; Upgrade ready owns it; corrected in stage D; plan §0.2) |
 | Give it its clean name | an own AIFF 16/44.1 with right tags and a name other than its `expected_stem` (an ID suffix only where the name is taken) | as Convert |
+
+One rule picks the action per file: `eligible.aiff_action` is Convert when Convert is eligible, else Rename when Rename is, else the more telling skip; every "all" scope, every selection and `discjockey convert <track>` use it (corrected in stage D; plan §0.1).
 
 "Right tags" (`tags_clean`) means TIT2, TPE1 and TALB equal what `write_tags` would write from the song record, and a
 cover is there when the record has one. Label, ISRC, comment, genre and year aren't compared: they only add, and a
@@ -110,7 +112,7 @@ user's own genre or year is carried over anyway (§3.5).
 **The "all" scopes:**
 - **Upgrade all** (To-do): every eligible Same track (§2.3).
 - **Make all lossless files AIFF** (Library): every file whose format is lossless (FLAC, WAV, ALAC, AIFF) and that is
-  eligible for Convert or Rename (§2.4).
+  eligible for Convert or Rename (§2.4). "Lossless" is `quality.is_lossless_codec`, the one list the Library uses: `pcm_*`, FLAC, ALAC, WavPack, APE, TTA (corrected in stage D; plan §0.8).
 - **Convert all** in the CDJ group (To-do): every file `cdj_problem` flags (§9.3).
 - **Auto-upgrade**: Upgrade all, started by the sync (§2.5).
 
@@ -130,10 +132,11 @@ selection.
 ### 2.4 Make all lossless files AIFF (Library)
 
 **Where.** In the Library, as an action on the view on screen: All means the whole library, a playlist or folder
-view means its files. It isn't a To-do: it is a tidy-up the user decides to do, not a problem Discjockey found. The
+view means its files. "All" is the view on screen, not the quality filter or the search: a narrower set is a selection
+(⌘A selects the rows on screen) (corrected in stage D; plan §0.6). It isn't a To-do: it is a tidy-up the user decides to do, not a problem Discjockey found. The
 same action is offered for a selection of tracks.
 
-**Before it starts**, a sheet shows (computed by a read-only `aiff_plan(scope)`):
+**Before it starts**, the Library's inspector (details panel) shows, not a modal sheet: a batch runs for many minutes and a modal would lock the window that long (corrected in stage D; plan §0.5), computed by a read-only `aiff_plan(scope)` (the panel's, the dry run's and the job's one answer, plan §0.7):
 - the counts by kind: "FLAC → AIFF 40 · WAV → AIFF 12 · AIFF 24-bit or above 44.1 kHz → 16-bit 9 · new tags 7 ·
   clean name only 30";
 - the skipped ones with their reason (not analysed in rekordbox, Cloud Library Sync, drive away, no artist known);
@@ -293,7 +296,7 @@ it; AIFF→AIFF stays byte-identical (no resampling when the input is already 16
 - **Artwork, CDJ-safe.** A new `audio.cdj_cover(data) -> bytes | None` gives a baseline JPEG of at most 600 × 600 px
   and 500 KB, scaled with the bundled ffmpeg (native `mjpeg`/`png`) when the source is bigger or a PNG. Every write
   goes through it, downloads included; today's 600 px Qobuz covers pass byte-identical. Check first: Pioneer's limit
-  for embedded artwork.
+  for embedded artwork. *Answered in stage D (corrected in stage D; plan §0.11):* no official limit was found, so these caps stay. A converted file's cover is the song record's (`image_url`, fetched as downloads fetch it) when the song is linked to a playlist song, else the old file's embedded picture, either through `audio.cdj_cover`; a fetch that fails falls back to the old file's picture, so a batch never fails on a cover.
 
 ## 4. Where the new file goes, and how it fits the invariants
 
@@ -308,7 +311,7 @@ it; AIFF→AIFF stays byte-identical (no resampling when the input is already 16
   no rekordbox track needs nothing.
 - **How clean the name is depends on the song record.** A linked own song carries the service's names; an unlinked
   one the names the import read. Check first: whether the import cleans own songs' names like `titles.split_title`;
-  if not, that is fixed where the record is made, not in this step.
+  if not, that is fixed where the record is made, not in this step. *Answered in stage D (corrected in stage D; plan §0.12):* `identify.own_name` runs a title tag that holds "Artist - Title …" (with an empty artist tag) and pure tag brackets ("[FREE DL]") through `titles.split_title`'s rules at import, with an empty uploader keeping the artist empty rather than inventing one; existing records keep their names.
 - **The old file** moves to `superseded_dir(path, watched_root(...))` under its own name. **Moving never renames.**
 - **Never delete, never overwrite.** The new file is a new name; the old file is moved, never written.
 - **Every file change through `move_path`** (cross-drive staging with its journal: watched folders can sit on other
@@ -699,6 +702,8 @@ The CDJ rule is one pure function, `cdj_problem(facts) -> str | None` (for examp
 only up to 320 kbps"): AAC or MP3 above 320 kbps, codecs CDJs don't play (Opus, Vorbis, WMA), 32-bit float WAV. Check
 first: Pioneer's format tables for CDJ-3000, CDJ-2000NXS2 and XDJ players, and which of FLAC, ALAC and high rates to
 flag.
+
+*Settled in stage D (corrected in stage D; plan §1.4, §0.4):* `cdj.cdj_problem(audio, ext) -> CdjProblem(reason, short, words) | None` over the file's stored facts, reasons `format`, `bitrate`, `bits`, `rate_high`, `rate_low`, with the limits of the CDJ-3000 and the CDJ-2000NXS2 (the two players in clubs: MP3 and AAC up to 320 kbps and 48 kHz, WAV, AIFF, FLAC and ALAC 16- and 24-bit at 44.1-96 kHz). FLAC, ALAC and 88.2/96 kHz files are **not** flagged (both players play them); players that stop at 48 kHz or lack FLAC/ALAC (XDJ-RX3, XDJ-XZ, XDJ-700, CDJ-2000NXS) are served by Make all lossless files AIFF, which the README names for them. `cdj.group_members(state)` is the one list To-do's group and Convert all share; a track with a parked upgrade is left to Upgrade ready.
 
 ## 10. Commands (agent-ready)
 

@@ -72,6 +72,14 @@ have checked it in rekordbox.
 
 <img src="docs/readme/app-todo.png" alt="The To-do page: upgrades ready, songs not found and weak versions, with an upgrade open on the right comparing the current file and the lossless one">
 
+### Files that play on every player
+
+Your own music keeps whatever format it has until you choose. Select a file in the Library and **Convert to AIFF** makes it
+the format every CDJ plays and every download has (16-bit, 44.1 kHz), with clean tags and the name `Artist - Title`;
+**Make AIFF…** does it for every lossless file in a view. rekordbox's tracks follow the new files with their cues,
+playlists and history, your original goes to `Superseded/`, and every change can be undone. The To-do page also lists
+the files CDJs won't play well, with **Convert all**.
+
 ### And more
 
 <table>
@@ -101,7 +109,8 @@ Everything below is the full user manual: [Download](#download) · [Requirements
 [Legal note](#legal-note) · [Install](#install-and-open-anyway) · [Updates](#updates) · [Setup](#one-time-setup) · [Settings](#settings) ·
 [Where things live](#where-things-live) · [playlists.txt](#playliststxt) · [Your existing music](#your-existing-music) ·
 [Tidying up files](#tidying-up-files) · [Daily use](#daily-use) · [The Library page](#the-library-page) ·
-[Folders](#folders) · [Reports](#reports-and-not_losslessmd) · [Upgrades](#upgrades) · [rekordbox](#rekordbox) ·
+[Folders](#folders) · [Reports](#reports-and-not_losslessmd) · [Upgrades](#upgrades) ·
+[Making files AIFF](#making-files-aiff) · [rekordbox](#rekordbox) ·
 [When something breaks](#when-something-breaks) · [Account risk](#account-risk) · [Licence](#licence)
 
 ## Download
@@ -245,8 +254,8 @@ line to see it on the right.
   `Library/`, `Superseded/`, `Upgrades ready/` and `playlists.txt`. It also has a hidden
   `.discjockey/` folder with Discjockey's notes about your library: `library.db` (Discjockey's records of your
   tracks and where their files are), `state.v1.json` (a copy of the old records, kept after the update below), the
-  `reports/`, `not_lossless.md`, `rekordbox/backups/` (the copies of rekordbox's library made before Same track
-  changes it) and, now and then, `pending_signs.json` (a YouTube warning sign Discjockey met while
+  `reports/`, `not_lossless.md`, `rekordbox/backups/` (the copies of rekordbox's library made before Same track,
+  Convert to AIFF or Give it its clean name changes it) and, now and then, `pending_signs.json` (a YouTube warning sign Discjockey met while
   another job had your library busy; it goes into `library.db` as soon as it can, and the file disappears). It can be on
   an external drive.
 - **Updating from an earlier version:** the first time a new Discjockey opens your library, it says
@@ -343,8 +352,10 @@ Mac or on a drive. Your `Library/` is always watched and is listed first.
 "Importing · {n} waiting" and Settings shows the live phase:
 
 1. *Looking for music files.*
-2. *Reading tags*, for every file: its artist, title, length and format. A file with no tags is named from its file
-   name. Each file becomes a track in Library with the quality its format gives for now ("sound not checked yet").
+2. *Reading tags*, for every file: its artist, title, length and format (the codec, sample rate and bit depth are
+   remembered too, which is how Discjockey knows what a CDJ would make of it). A file with no tags is named from its
+   file name, and a title such as "Artist - Title [FREE DL]" is cleaned into artist and title. Each file becomes a track
+   in Library with the quality its format gives for now ("sound not checked yet").
 3. *Checking the sound*, for every file: the same quality check as for downloads. This takes the longest, which is why
    the tags come first: a sync after a stopped import already knows which songs you have.
 4. *Linking to your playlists:* a playlist song you already own is linked to your file instead of being downloaded.
@@ -369,8 +380,8 @@ Mac or on a drive. Your `Library/` is always watched and is listed first.
   button names the result (for example **Keep the AIFF**); the other files move to `Superseded/`. Nothing is deleted.
   **Keep both** (**Keep all**), the list's last row, leaves them all.
 
-Your own music appears on the To-do page only here and under **Upgrade ready**, never as "weak" or "fake" lossless:
-the Library shows each file's quality.
+Your own music appears on the To-do page only here, under **Upgrade ready** and under **Won't play well on CDJs** (see
+[Making files AIFF](#making-files-aiff)), never as "weak" or "fake" lossless: the Library shows each file's quality.
 
 **Upgrade checks are spread over runs.** The first look on Qobuz for a better version of each imported lossy file
 runs at most 25 per sync, and never more than half of what is left of today's Qobuz allowance, so a big import doesn't
@@ -509,6 +520,9 @@ your own and bought files, show no second line.
   column says which of its folders a track is in, and a **Playlist** column names the playlist that holds the song, if
   any (a **+2** means it is in more playlists; point at it to see their names). A column that would say the same on every row is left out.
 - **Make the column wider or narrower.** Drag its right edge. Double-click the edge to go back to the usual width.
+- **Select several tracks.** ⌘-click adds or removes a track, ⇧-click selects a range, **⌘A** selects every track on
+  screen and Esc goes back to one. The details then show what Discjockey can do for the selection (see
+  [Making files AIFF](#making-files-aiff)). A song that has no file yet can't be part of a selection.
 - **Keys:**
 
 | Key | What it does |
@@ -517,6 +531,7 @@ your own and bought files, show no second line.
 | **⌘,** | Settings |
 | **⌘K** | Opens Library and puts the cursor in the browser's filter |
 | **⌘I** | Opens or closes the details (Library only) |
+| **⌘A** | Selects the tracks on screen (Library's list) |
 | **⌃⌘S** | Folds the sidebar into the rail, or opens it again |
 
 The keys work while you type in a field, but not while a dialog is open.
@@ -663,6 +678,67 @@ and **Resume** carries on.
 Discjockey simply forgets it. If you buy the track or it gets downloaded again, the waiting
 version is removed because it's no longer needed.
 
+## Making files AIFF
+
+A downloaded file is always a 16-bit, 44.1 kHz AIFF with its clean name. Music you added yourself keeps the format and the
+name it came with, which is fine until a player won't play it. Three actions, all in the **Library**, make such a file
+what a download is: **Every file becomes a 16-bit/44.1 kHz AIFF, the format every CDJ plays and every download has; your
+original stays in Superseded/.**
+
+- **Convert to AIFF** (a track's details): the file becomes a new AIFF with the song's tags and cover and the name
+  `Artist - Title.aiff`, in the same folder. The details first show what you have now, what it becomes and how much room
+  it needs. The sound is the same: a 24-bit or 96 kHz original is reduced to 16-bit/44.1 kHz, and a lossy file (MP3,
+  AAC, Opus) becomes an AIFF that sounds the same and takes 5 to 10 times the space, so Discjockey only does that
+  when you pick the file yourself. The new file is lined up with rekordbox's timeline of your old one, so your cues stay
+  on the same beat; for that rekordbox must have analysed the track.
+- **Give it its clean name** (a track's details, for a file that is a clean AIFF already but is named something else, such
+  as `01 Some Song.aiff`): only the name changes, to `Artist - Title.aiff`. Nothing is rendered and no room is needed.
+  If another file already has that name, the song's ID is added.
+- **Make all lossless files AIFF** (**Make AIFF…** at the top of the Library): every lossless file (FLAC, WAV, ALAC,
+  AIFF in another depth or rate, and the rarer WavPack, APE and TTA) in the view on screen, whether that is All tracks,
+  Not in a playlist, a playlist or a folder. The search and the quality filter don't narrow it; **select** the rows
+  with ⌘A instead if you want a part. The details list what happens by kind ("FLAC → AIFF 40 · WAV → AIFF 12 · New tags
+  7 · Clean name only 30"), the files it leaves as they are with the reason, the room it needs on each drive and that
+  your originals (with their size) go to `Superseded/` on the same drive. A view with nothing to do says "Every lossless
+  file here is a clean AIFF already." Lossy files only join when you select them, or through the CDJ group below.
+
+**What is left alone.** Files Discjockey downloaded (they are clean AIFFs already), files on a drive that isn't connected
+and files with no artist or title wait for another time and say why ("Left as they are"). A track with a better version
+waiting under **Upgrade ready** is left to that: **Same track** there makes the better version an AIFF in one step.
+rekordbox's side is the same as for Same track (see [rekordbox](#rekordbox)): rekordbox must be **closed** when a file
+that is in rekordbox changes ("Quit rekordbox before you start"), it must have analysed the track, the track must not be in
+Cloud Library Sync, and Discjockey must be able to open this rekordbox version's library; otherwise the file is left
+as it is and says why, with nothing changed. A file that isn't in rekordbox needs none of that. Your tracks keep their
+cues, playlists and history.
+
+**One batch, one backup, one undo.** Several files are one **batch**, as with Upgrade all: one copy of rekordbox's library
+made first, a progress line ("Converting 3 of 52: Artist - Title"), **Stop** between files and **Resume · {k} left** where
+you started it. It ends with "Made 52 files AIFF" and "{k} left as they are". The finished batch is one line under **Check
+in rekordbox** with the steps for rekordbox (analyse the tracks again so the waveform shows; on a USB stick, sync the
+stick in rekordbox), and **Undo** puts the old files back with their old names and rekordbox's tracks back too, until you
+press **Done, checked in rekordbox**. If Discjockey or the Mac stops halfway, the file in work is finished or put back
+the next time it opens your library.
+
+**Won't play well on CDJs.** A group on the **To-do** page (hint "CDJs refuse or stutter on these files") lists your own
+files that the two players you meet in clubs, the CDJ-3000 and the CDJ-2000NXS2, refuse or stutter on:
+- an MP3 or AAC file above 320 kbps, or above 48 kHz;
+- a format they don't read at all: Opus, Vorbis, WMA, AC-3, WavPack, APE, TTA;
+- a lossless file that isn't 16- or 24-bit (32-bit float, 8-bit);
+- a lossless file above 96 kHz or below 44.1 kHz.
+
+Each row says why in a few words ("AAC 420 kbps · CDJs stop at 320"). **Convert all · {n}** at the group's head makes them all
+AIFFs in one batch, and you can select some rows instead. FLAC, ALAC and 88.2/96 kHz files are not in the group: both
+players play them. A file with a better version waiting is in **Upgrade ready** instead. A file Discjockey hasn't read
+yet isn't listed until it has.
+
+Playing on XDJ players (XDJ-RX3, XDJ-XZ, XDJ-700) or an older CDJ? They stop at 48 kHz and some don't play FLAC or ALAC: Make
+all lossless files AIFF makes every lossless file one they play.
+
+**In the Terminal:** `discjockey convert <track>…`, `convert --all lossless [--in playlist:<name> | folder:<path> |
+unlisted]`, `convert --all cdj` and `rename <track>… | --all` do the same, each with `--dry-run` to see the plan first
+(CONTRIBUTING.md lists them with their JSON). They are for scripts and agents; the window's buttons are the way for
+everyone else.
+
 ## rekordbox
 
 - Import the folders in `Library/` (inside your music folder) into rekordbox.
@@ -672,6 +748,8 @@ version is removed because it's no longer needed.
   rekordbox's Relocate to point it at the new place. Discjockey never renames a file when it moves it, so Relocate
   finds moved files by their file name. Auto Relocate searches only the folders set for it in rekordbox's
   settings: add your music folder there once, and it finds every moved file on its own.
+  The only steps that give a file a new name are the ones you start yourself (Same track, Convert to AIFF and Give it its
+  clean name), and each points rekordbox's track at the new name itself.
 - When you add a bought copy, the old lossy file moves to `Superseded/`, and rekordbox's entry
   (with your cue points) goes with it. The bought file is a new entry: set the cues again,
   then remove the old entry.
@@ -680,15 +758,16 @@ version is removed because it's no longer needed.
 
 ### When Discjockey changes rekordbox's library
 
-Only **Same track** does, and only while rekordbox is closed (if rekordbox is open, it does nothing there and tells
-you; if you open rekordbox while it works, the track it was on is rolled back and the batch stops). You start it on
+Only **Same track**, **Convert to AIFF** and **Give it its clean name** do (see [Making files AIFF](#making-files-aiff)),
+and only while rekordbox is closed (if rekordbox is open, they do nothing there and tell you; if you open rekordbox
+while one works, the track it was on is rolled back and the batch stops). You start it on
 the To-do page, or leave it to **Upgrade automatically when I sync**: with that switch on, which it is at first, a
-sync also changes rekordbox's library at its end, for the same-edit upgrades only. It also refuses
+sync also changes rekordbox's library at its end, for the same-edit upgrades only. They also refuse
 when rekordbox's library looks unusual (a newer version it doesn't know, or rekordbox didn't close properly last
 time: open rekordbox once and quit it normally).
 
-- **What it changes** for the tracks it replaces: the track's file name and place (it points at the new AIFF), the
-  size and format details of the file, and the **text columns**: title, artist, album, label, ISRC and the comment,
+- **What it changes** for the tracks it replaces or converts: the track's file name and place (it points at the new
+  AIFF), the size and format details of the file, and the **text columns**: title, artist, album, label, ISRC and the comment,
   so you don't need to Reload Tag.
 - **What it never changes:** cue points, loops, the beatgrid, key, BPM, rating, colour, My Tags, play counts,
   playlists, history and artwork. It never edits or deletes an existing artist, album or label in rekordbox (it
