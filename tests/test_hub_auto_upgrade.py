@@ -190,6 +190,19 @@ def test_a_recorded_refusal_counts_as_holding_when_only_a_read_of_rekordbox_coul
     assert api.sync_preview()["auto_upgrade"]["ready"] == 2
 
 
+@needs_ffmpeg
+def test_the_preview_ready_equals_what_the_phase_waits_for_with_rekordbox_running(hub):
+    lib, rb, api, rec = hub(["mp3", "mp3", "mp3_plain", "aiff"], running=True)
+    mark(lib, 2, auto_refused={"reason": "not_analysed", "message": "m", "at": "2026-11-09T21:04:00", "anlz": {"x": 1},
+                               "free": None, "files": None})                    # held: not read while rekordbox runs
+    mark(lib, 1, auto_refused={"reason": "space", "message": "m", "at": "2026-11-09T21:04:00", "anlz": None,
+                               "free": 10**15, "files": None})
+    ready = preview(api, lib)["auto_upgrade"]["ready"]
+    planned = auto_upgrade.plan(lib.paths, load_state(lib.paths), set(), Settings(), running=lambda: True,
+                                place=lib.place)
+    assert ready == len(planned.waiting) == 2 and len(planned.refused) == 2     # the end screen says "2 wait" too
+
+
 # --- the marks on a parked upgrade ---
 
 @needs_ffmpeg

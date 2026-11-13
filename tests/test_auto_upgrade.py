@@ -247,8 +247,26 @@ def test_with_rekordbox_running_every_track_of_the_set_waits_and_no_stamp_is_rea
     monkeypatch.setattr(master, "status", lambda *a, **k: asked.append(1) or real(*a, **k))
     monkeypatch.setattr(auto_upgrade, "stamps", lambda *a, **k: pytest.fail("stamps were read while rekordbox runs"))
     answer = ready(lib, running=lambda: True)
-    assert answer == Planned([], [(lib.tracks[i], "rekordbox_open") for i in (0, 1, 3)], [], True)
+    # the held analysis record is sorted as the Sync page's count sorts it (no read open): it holds, it does not wait
+    held = load_state(lib.paths)["tracks"][lib.tracks[3]]["upgrade"]["auto_refused"]
+    assert answer == Planned([], [(lib.tracks[i], "rekordbox_open") for i in (0, 1)], [(lib.tracks[3], held)], True)
     assert len(asked) == 1                                   # only its Status, as for Upgrade all's count
+
+
+@needs_ffmpeg
+def test_with_rekordbox_running_a_held_refusal_stays_a_refusal_and_gets_no_waiting_mark(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3_plain", "mp3", "aiff"])
+    record(lib, 1, reason="not_analysed", anlz={"x": 1})                  # held (analysis kind)
+    record(lib, 2, reason="space", free=10**15)                           # held: the drive has less free
+    state = load_state(lib.paths)
+    state["tracks"][lib.tracks[1]]["upgrade"]["auto_waits"] = "2026-11-08T10:00:00"   # an old mark over the refusal
+    save_state(lib.paths, state)
+    out, state, log, _ = phase(lib, running=lambda: True)
+    assert rows(out) == [(lib.tracks[1], "refused", "not_analysed"), (lib.tracks[2], "refused", "space"),
+                         (lib.tracks[0], "waiting", "rekordbox_open"), (lib.tracks[3], "waiting", "rekordbox_open")]
+    assert (out.waiting, out.refused, out.batch) == (2, 2, None)
+    assert "auto_waits" not in upgrade_of(lib, 1) and "auto_waits" not in upgrade_of(lib, 2)
+    assert all(upgrade_of(lib, i)["auto_waits"] for i in (0, 3))
 
 
 @needs_ffmpeg
@@ -505,7 +523,8 @@ def test_a_dry_run_lists_what_it_would_do_and_writes_nothing(tmp_path, monkeypat
     assert log.results == [] and log.auto_upgrade is None and events == [] and untouched(lib) == before
     assert state == load_state(lib.paths)
     waiting, _, _, _ = phase(lib, dry_run=True, running=lambda: True)
-    assert rows(waiting) == [(lib.tracks[i], "waiting", "rekordbox_open") for i in (0, 1, 2)] and waiting.waiting == 3
+    assert rows(waiting) == [(lib.tracks[2], "refused", "not_analysed")] + [
+        (lib.tracks[i], "waiting", "rekordbox_open") for i in (0, 1)] and waiting.waiting == 2
     assert untouched(lib) == before
 
 
@@ -775,9 +794,10 @@ def test_a_held_refusal_reached_with_rekordbox_closed_loses_only_its_waiting_mar
     out, _, _, _ = phase(lib)
     assert rows(out) == [(lib.tracks[0], "refused", "not_analysed")] and out.batch is None
     assert set(upgrade_of(lib, 0)) >= {"auto_refused"} and "auto_waits" not in upgrade_of(lib, 0)
-    # rekordbox open: a held refusal is not looked at, the track just waits
+    # rekordbox open: the held refusal is sorted as the Sync page sorts it (held), not counted as waiting
     waiting, _, _, _ = phase(lib, running=lambda: True)
-    assert rows(waiting) == [(lib.tracks[0], "waiting", "rekordbox_open")] and "auto_refused" in upgrade_of(lib, 0)
+    assert rows(waiting) == [(lib.tracks[0], "refused", "not_analysed")] and "auto_refused" in upgrade_of(lib, 0)
+    assert "auto_waits" not in upgrade_of(lib, 0)
 
 
 # --- stage B's loose end: a re-measure that says "not the same edit" is stored (plan §7 C2 check first) ---
