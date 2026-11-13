@@ -536,8 +536,10 @@ Results:
   - **Stage D** plan done 908e04f (Opus **288k**, 69 calls): 19 runs D1, R-D1, D2, R-D2, D3, R-D3, D4, R-D4, D5, D6,
     D7, RH, U1 (Sonnet), U2 (Opus: `AiffBatchPanel` layout; no mockup, judged in shots + R2), U3, S1, S2, R2, V; plan
     est. 3.3–3.8M (record says ~+35%: expect ~4.5M). Branch `feat/rekordbox-d`, group worktrees
-    `.claude/worktrees/rb-d-<group>` on `feat/rekordbox-d-<group>`. D1 (Sonnet, brief-33-D1.md) running.
-    Stage D running total 288k.
+    `.claude/worktrees/rb-d-<group>` on `feat/rekordbox-d-<group>`. D1 (Sonnet) done cd2a39f: **304k** (55 calls; cut once by
+    the session limit, resumed; over its ~200k stop): V8 file facts + facts pass, `cdj.py`, `cdj_cover`, `own_name`,
+    `aiff_action`; beyond plan: stream kbps, covers dropped in write_tags. Notes: scratchpad `stage-d-notes.md`.
+    R-D1 (Sonnet review + fixes, brief-33-RD1.md) running. Stage D running total 592k.
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
