@@ -68,6 +68,19 @@ def test_the_chain_says_converted_everywhere_and_carries_the_converts_kept_edits
     assert state["tracks"][TID]["rekordbox_check"]["rekordbox"]["kept"] == kept
 
 
+def test_the_clean_up_keeps_the_backup_the_nested_undo_names(tmp_path, monkeypatch):
+    env = make_chain(tmp_path, monkeypatch)
+    run_file(env)
+    state = load_state(env.paths)
+    outer = state["tracks"][TID]["rekordbox_check"]["undo"]
+    inner = outer["before"]["rekordbox_check"]["undo"]
+    inner["backup"] = "only-the-convert-has-this-one"  # as if the two steps had run in two sessions
+    kept = []
+    monkeypatch.setattr("discjockey.rekordbox.backup.prune", lambda paths, keep: kept.append(set(keep)))
+    library._prune_undo(env.paths, state)
+    assert outer["backup"] in kept[0] and inner["backup"] in kept[0]
+
+
 def test_undo_twice_restores_the_original_name_bytes_and_rekordbox_rows(tmp_path, monkeypatch):
     env = make_chain(tmp_path, monkeypatch)
     music, rows, analysis = env.music(), dump(env.place.db), env.anlz_files()
