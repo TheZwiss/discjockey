@@ -555,7 +555,7 @@ Results:
     f8319935. D3b (Sonnet, brief-33-D3b.md: undo_rename, report, the chain; chain undo keeps the convert's undo in
     the rename's `before`) done 631459a2 + 5db375e5: **219k** (72 calls): undo_rename + recovery, report "renamed",
     the chain (AIFF 24/96 at its clean name ends at the same name 16/44.1; two undos restore). R-D3 (Sonnet, review of
-    D3a+D3b, brief-33-RD3.md; stated fix: the chain's visible check is "converted") running. Stage D total 1.90M.
+    D3a+D3b, brief-33-RD3.md; stated fix: the chain's visible check is "converted") cut by the usage limit, resumed: **203k**, ready (c2777dc3 chain says "converted"; 3b5d0fe9 nested-undo backup kept; 4428 passed, CI green). D3b merged into the stage branch f3db1e4d. Carries in `stage-d-notes.md` (D4: rename items need a write, renamed=True, chain undoes twice; D6: check_view's old_path). D4 split before dispatch: D4a batches (brief-33-D4a.md), D4b aiff_plan + view/CDJ membership + one lossless list (brief-33-D4b.md). Stage D total 2.10M.
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
