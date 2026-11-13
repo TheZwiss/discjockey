@@ -474,7 +474,7 @@ Results:
   rehearsal on a copy; merged into main once CI + verify are green, the user 2026-11-09: "merge it when your tests pass"; no release before its live test) → stage D (design direction, build) → issue 40 design
   round only (its build waits for the stage B live test, per the issue). Every dispatch through the gate (§2).
 - **RESUME HERE after a compact (2026-11-09 ~02:40):**
-  - **NOW (2026-11-13 ~04:00, user asleep, "work through the night"):** fix round B running (Sonnet, agent
+  - **NOW (2026-11-13 ~04:00, user asleep, "work through the night"):** fix round B DONE + merged e01bf13 (was agent
     a3cae3cb1fbba6d5f, brief `brief-33-FB-C.md` in scratchpad a540fc7e…; findings `r2c-findings.md`). On its notice:
     log its `subagent_tokens`, `ps`, `check_public.sh --require-denylist` on its branch, merge `feat/rekordbox-c-fb`
     into `feat/rekordbox-c` (worktree `.claude/worktrees/rb-c`), remove `rb-c-fb` (--force: node_modules symlink).
@@ -524,8 +524,11 @@ Results:
     cut at 1100; no drift). R2 (Opus stage review) **250k** (49 calls; over its ~200k): engine safety holds; needs
     fixes: A code/docs 8 (3 Important: track listed twice, unknown-compare sentence, before-start words vs end check),
     B UI 12 (3 Important). Fix round A (Sonnet **181k**, 89 calls): A1–A8 all fixed, pytest 4211 ok, CI green; merged
-    into the stage branch caa59f7. Fix round B (Sonnet, UI, brief-33-FB-C.md, no shots: I judge verify's) running; then V.
-    Stage C running total ~3.37M (plan said 2.2–2.7M).
+    into the stage branch caa59f7. Fix round B (Sonnet, UI, brief-33-FB-C.md) **306k** (149 calls; far over its ~170k stop: no commit
+    before ~300k, I told it to wrap up): B1–B12 done except B9 (NoteCard kept; judge `todo-auto-refused-choice`); B7 Hint
+    shortened to "{n} upgrades go in at the end; cues stay.", B8 Hint to "Waits for rekordbox: it goes in at your next
+    sync, or quit it and press Replace." (rules' 90-char limit). Merged into the stage branch e01bf13; V running.
+    Stage C running total ~3.68M (plan said 2.2–2.7M). Lesson: a 12-item UI fix round is two rounds (checklist line 3).
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
