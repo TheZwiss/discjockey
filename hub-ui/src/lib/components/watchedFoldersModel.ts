@@ -105,6 +105,7 @@ export function folderMark(f: WatchedFolderRow): FolderMark {
 export function phaseLine(p: Pick<ImportProgress, 'phase' | 'done' | 'total'>): string {
   switch (p.phase) {
     case 'scan': return 'Looking for music files';
+    case 'facts': return `Reading what your files are · ${count(p.done)} of ${count(p.total)}`;
     case 'tags': return `Reading tags · ${count(p.done)} of ${count(p.total)}`;
     case 'sound': return `Checking the sound · ${count(p.done)} of ${count(p.total)}`;
     case 'link': return 'Linking to your playlists';

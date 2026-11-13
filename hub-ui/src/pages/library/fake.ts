@@ -3,10 +3,13 @@ import type { PageFake } from '$lib/bridge/fake/bridge';
 import type { FakePlaylist, FakeState, FakeTrack } from '$lib/bridge/fake/data';
 import { dropOwnSongs } from '$lib/bridge/fake/own';
 import { QOBUZ_PLAYLIST_LINK, SPOTIFY_HINT, playlistRef } from '$lib/bridge/fake/data';
+import { MUSIC_SCOPE, aiffClean, aiffSet, seedBatch } from '$lib/bridge/fake/aiffScenes';
 
 /** States whose next playable Hard_Bounce track after Get Naughty (THE WEEKEND; Gone Track has no file) has a file the player can't play. */
 const cantPlay = new WeakSet<FakeState>();
 const BROKEN = 'data:audio/wav;base64,AAAA';
+/** States whose view plan (Make all) takes 6 s to arrive: the panel's loading state. */
+const slowPlan = new WeakSet<FakeState>();
 
 /** A song of the user's own that the import found; `away`: why its file isn't there (none: it is). */
 function ownAway(s: FakeState, n: number, artist: string, title: string, status: FakeTrack['status'],
@@ -321,10 +324,66 @@ const fake: PageFake = {
     crates_import_recorded: (s) => { recordedImport(s); },
     // no playlist was read yet: no read record, so no playlist knows its songs (the files are in their folders)
     never_read: (s) => { s.unread = s.playlists.map((p) => p.folder); },
+    // ---- Convert, Give it its clean name and Make all lossless files AIFF (issue 33 stage D, plan §6.4 S1) ----
+    // Every one is the plain scenarios' Music folder as a DJ's own folder is (aiffScenes.aiffSet): own:1 FLAC 24-bit 96 kHz,
+    // own:2 FLAC 16/44.1, own:4 ALAC, own:5 AIFF 24-bit, own:6 AIFF with wrong tags, own:7 and own:9 clean AIFFs with a
+    // messy name, own:8 a clean AIFF with its name, own:10 MP3 256, own:11 AAC 256, own:12 MP3 320, own:13 FLAC 24-bit
+    // 192 kHz, own:14 WAV 32-bit float, own:15 Opus, own:16 FLAC 24-bit 176.4 kHz in Cloud Library Sync, own:17 AIFF
+    // 24-bit 192 kHz, own:18 Ogg Vorbis, own:20 a FLAC rekordbox has no track for, the rest 24-bit WAVs. Open the folder
+    // with #/library/folder/%2FVolumes%2FExample%20Drive%2FMusic and add ?track=own%3A<n> for one song's details.
+    // Details of a lossless FLAC (?track=own%3A1): the AIFF card, Convert to AIFF filled.
+    'aiff-flac': (s) => { aiffSet(s); },
+    // A lossy file (?track=own%3A10): the lossy note, the button an outline.
+    'aiff-lossy': (s) => { aiffSet(s); },
+    // A file CDJs refuse (?track=own%3A13): the warn note with its words, the button filled.
+    'aiff-cdj': (s) => { aiffSet(s); },
+    // A clean AIFF with a messy name (?track=own%3A7): Give it its clean name, no space row.
+    'aiff-rename': (s) => { aiffSet(s); },
+    // rekordbox's library can't be opened (?track=own%3A1, also ?track=own%3A7): the button disabled, the reason under it.
+    'aiff-blocked': (s) => { aiffSet(s); s.rekordbox_state = 'unreadable'; },
+    // rekordbox is open (?track=own%3A7 for the rename, ?track=own%3A1 for the convert): the Rename's blocked words. The
+    // fake has no knob for "no free clean name" (the engine's other rename_blocked), so this state is rekordbox running.
+    'aiff-rename-blocked': (s) => { aiffSet(s); s.rekordbox_running = true; },
+    // A Convert that takes 2.5 s (?track=own%3A1, click Convert to AIFF): the button's spinner, then the check card.
+    'aiff-running': (s) => { aiffSet(s); s.batchStep = 2500; },
+    // After the Convert (?track=own%3A1): the check card "Converted to AIFF" with Done and Undo, in rekordbox.
+    'aiff-check-converted': (s) => { aiffSet(s); seedBatch(s, 'library:selection', 'done', ['own:1'], []); },
+    // The table with several songs to select (open the Music folder; select own:1, own:2, own:6, own:7).
+    'aiff-multi': (s) => { aiffSet(s); },
+    // Mixed kinds and left-out songs: select own:1, own:5, own:6, own:7 (a Convert and a Rename), own:8 (a clean AIFF with its
+    // name already) and own:16 (Cloud Library Sync): the panel lists the kinds and "Left as they are".
+    'aiff-selection': (s) => { aiffSet(s); },
+    // Lossy songs among the selection: select own:2, own:10, own:11, own:12: the lossy note and its count.
+    'aiff-selection-lossy': (s) => { aiffSet(s); },
+    // Make all (the header's Make AIFF… on the Music folder): every lossless file that isn't a clean AIFF, by kind, the
+    // space, the rekordbox rows, the waiting ones.
+    'aiff-view': (s) => { aiffSet(s); },
+    // ... while the plan is read (6 s).
+    'aiff-view-loading': (s) => { aiffSet(s); slowPlan.add(s); },
+    // ... in a folder whose lossless files are clean AIFFs with their names: "Every lossless file here is a clean AIFF already."
+    'aiff-view-empty': (s) => { aiffClean(s); },
+    // ... on a drive that is short of room (180 MB free): the space row and the problem Hint, the button off.
+    'aiff-view-space': (s) => { aiffSet(s); s.freeBytes = { '/Volumes/Example Drive': 180_000_000 }; },
+    // ... with rekordbox open: the warn note "Quit rekordbox before you start".
+    'aiff-rekordbox-open': (s) => { aiffSet(s); s.rekordbox_running = true; },
+    // ... a run that takes 2.5 s per file (start it in the panel): progress, Stop.
+    'aiff-panel-running': (s) => { aiffSet(s); s.batchStep = 2500; },
+    // ... a Make all that was stopped with own:1, own:2 and own:4 done: the header says "Resume · n left", the panel too.
+    'aiff-panel-stopped': (s) => {
+      aiffSet(s);
+      seedBatch(s, MUSIC_SCOPE, 'stopped', ['own:1', 'own:2', 'own:4'], ['own:5', 'own:6', 'own:7', 'own:9', 'own:13', 'own:14', 'own:17'],
+        'make_aiff');
+    },
+    // ... a run that ends: start it in the panel; own:6 is skipped (timing), so the end says "Made n files AIFF" and "1 left as they are".
+    'aiff-panel-ended': (s) => { aiffSet(s); s.batchStep = 250; s.batchSkip = { 'own:6': 'timing' }; },
     // now playing: ▶ on Get Naughty, then ⏭ reaches a file that can't be played (the bar says so and waits)
     cant_play: (s) => { cantPlay.add(s); },
   },
   overrides: {
+    aiff_plan: (ctx, base) => async (scope) => {
+      if (slowPlan.has(ctx.s) && scope.kind === 'lossless') await ctx.later(6000, () => null);
+      return base(scope);
+    },
     track: (ctx, base) => async (id) => {
       const r = await base(id);
       if (!r.ok || !cantPlay.has(ctx.s) || r.track.title !== 'THE WEEKEND' || !r.track.audio_url) return r;

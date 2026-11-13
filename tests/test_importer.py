@@ -477,7 +477,7 @@ def test_the_facts_pass_fills_own_rows_that_lack_them_and_reads_nothing_else(pat
     assert len(fakes.probed) == 3 and fakes.inspected == []  # tags and sound are not read again
     assert result == importer.ImportResult(0, 0, 0, 0, 0, False, None)
     assert [(e.phase, e.done, e.total) for e in events if isinstance(e, ImportProgress)][1:3] == [
-        ("tags", 0, 3), ("tags", 3, 3)]
+        ("facts", 0, 3), ("facts", 3, 3)]
     assert importer.files_waiting(paths) == 0
     fakes = Fakes()
     go(paths, fakes)

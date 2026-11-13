@@ -119,7 +119,7 @@ export type DuplicateItem = TodoItem & { group: 'duplicate'; pair: DuplicatePair
 export const isQuestion = (i: TodoItem): i is QuestionItem => i.group === 'same_song' && !!i.pair;
 export const isDuplicate = (i: TodoItem): i is DuplicateItem => i.group === 'duplicate' && !!i.pair;
 
-export type ImportPhase = 'scan' | 'tags' | 'sound' | 'link';
+export type ImportPhase = 'scan' | 'facts' | 'tags' | 'sound' | 'link';
 /** A watched folder (watched_folders()): the Library (always `online`, `scanning` while an import looks for files)
  *  or an import folder; `offline`: its drive isn't connected, `missing`: the folder isn't found (moved, renamed,
  *  deleted). `files`: the tracks the folder lists, the same number the sidebar shows for it; `waiting`: files the

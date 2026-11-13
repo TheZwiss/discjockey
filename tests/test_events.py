@@ -92,6 +92,6 @@ def test_token_sleep_waits_without_stop():
 
 def test_import_progress_is_a_hub_event_with_its_phases():
     assert ImportProgress in jobs.EVENT_TYPES
-    assert IMPORT_PHASES == ("scan", "tags", "sound", "link")
+    assert IMPORT_PHASES == ("scan", "facts", "tags", "sound", "link")
     assert jobs.event_dict(ImportProgress("sound", 3, 10, 1)) == {
         "type": "ImportProgress", "phase": "sound", "done": 3, "total": 10, "unreadable": 1}
