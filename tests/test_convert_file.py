@@ -123,14 +123,19 @@ def run_status(env):
         return s.state
 
 
-def test_the_old_file_holding_the_clean_name_makes_the_new_one_take_the_songs_id(tmp_path, monkeypatch):
-    """Both files exist until rekordbox's commit, so the new AIFF can't take the old one's name (never overwrite)."""
-    env = make_own(tmp_path, monkeypatch, "aiff", entry={"path": CLEAN_NEW, "status": "lossless"})
+def test_the_old_file_holding_the_clean_name_ends_at_the_clean_name(tmp_path, monkeypatch):
+    """An AIFF 24-bit/96 kHz at `Artist - Song.aiff`: both files exist until rekordbox's commit, so the new AIFF takes
+    the song's ID first (never overwrite); the same call then gives it the clean name (the convert→rename chain: the
+    old file sits in Superseded/ by then). Each undo takes one step back (tests/test_convert_chain.py)."""
+    env = make_own(tmp_path, monkeypatch, "aiff96", entry={"path": CLEAN_NEW, "status": "lossless"})
     old = (env.paths.root / CLEAN_NEW).read_bytes()
     r, state = run_file(env)
-    assert r.path == "Library/A/Artist - Song [t1aaaa].aiff"
-    assert (env.paths.root / env.superseded).read_bytes() == old and not (env.paths.root / CLEAN_NEW).exists()
-    assert row_of(env)["FolderPath"] == str(env.paths.root / r.path)
+    assert (r.section, r.path) == ("converted", CLEAN_NEW) and state["tracks"][TID]["path"] == CLEAN_NEW
+    assert (env.paths.root / env.superseded).read_bytes() == old
+    assert not (env.paths.root / "Library/A/Artist - Song [t1aaaa].aiff").exists()
+    assert row_of(env)["FolderPath"] == str(env.paths.root / CLEAN_NEW)
+    info = audio.file_facts(env.paths.root / CLEAN_NEW)
+    assert (info.sample_rate, info.bits) == (44100, 16)
 
 
 # --- the step: files, rows, records ---

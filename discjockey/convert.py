@@ -26,7 +26,11 @@ record's names, the old file's own comment, genre and year kept; the cover the r
 file's picture, both through `audio.cdj_cover`) and ends with the entry's `path` changed and nothing else (`status`,
 `source`, `source_format`, `source_kbps`, `cutoff_hz` stay), a check `reason: "converted"` and the new file's facts
 (`files.file_*`, one transaction with the entry). Its name is the clean one, or with the song's ID when the old file
-holds that name itself (an AIFF with wrong tags: both files coexist until the commit, so the new one can't take it).
+holds that name itself (an AIFF with wrong tags: both files coexist until the commit, so the new one can't take it):
+the same call then runs `rename.rename_file` (`_then_rename`), the old file sits in Superseded/ by then, and the file
+ends at the clean name; each step is journaled and crash-safe on its own, and the rename keeps the Convert's check and
+undo in its `before` (two undos return the original file). The result and the check say "converted": the user's file
+kept its name and became an AIFF.
 Nothing is held for the undo, which hands nothing back to Upgrades ready/.
 A Convert's recovery and undo words say "conversion" where Same track's say "replace" or "upgrade" (`_say`, plan
 stage D §3).
@@ -57,7 +61,7 @@ import shutil
 import unicodedata
 from collections.abc import Callable, Collection, Iterable, Iterator
 from contextlib import ExitStack, contextmanager
-from dataclasses import asdict, astuple
+from dataclasses import asdict, astuple, replace
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
@@ -72,7 +76,7 @@ from .library import (
     drive_away, end_op, file_sha256, journal_crossings, journal_op, mark_op, move_path, short_path, waits_offline,
     watched_root, watched_roots,
 )
-from .names import expected_stem, split_name, strip_id_suffix
+from .names import expected_stem, fold, split_name, strip_id_suffix
 from .planner import replacement_dir, superseded_dir
 from .rekordbox import eligible, master, process
 from .rekordbox import write as rbwrite
@@ -412,7 +416,27 @@ def convert_file(paths: Paths, state: dict, track_id: str, *, session: Session,
         if not isinstance(err, Exception) or isinstance(err, UpgradeProblem):
             raise
         raise UpgradeProblem(f"Could not prepare the new file ({err}). Nothing was changed.") from err
-    return _execute(paths, state, op, session, entries, changes, splices, e)
+    result = _execute(paths, state, op, session, entries, changes, splices, e)
+    if fold(f"{PurePosixPath(new).parent}/{expected_stem(e['artist'], e['title'])}.aiff") == fold(old_rel):
+        return _then_rename(paths, state, track_id, result, session, now, batch)  # the old file held the clean name
+    return result
+
+
+def _then_rename(paths: Paths, state: dict, track_id: str, converted: Result, session: Session,
+                 now: Callable[[], datetime], batch: tuple[int, int] | None) -> Result:
+    """The second half of a Convert whose old file held the clean name (so the new AIFF took the song's ID, the old
+    file went to Superseded/): Give it its clean name, its own journaled and crash-safe step (`rename.rename_file`,
+    `after` = the Convert's result: the check it writes keeps the Convert's check and undo in its `before`, so the
+    first undo brings the "converted" check back and the second returns the original file). A crash between leaves a
+    valid AIFF with the ID name, which Give it its clean name renames later. When the rename can't run now (rekordbox
+    opened meanwhile, a refusal), the Convert stands: its result says the file keeps the ID name for now."""
+    from . import rename  # rename builds on this module
+    try:
+        return rename.rename_file(paths, state, track_id, session=session, now=now, batch=batch, after=converted)
+    except (UpgradeProblem, RekordboxOpened) as err:
+        name = PurePosixPath(converted.path).name
+        why = str(err) or "rekordbox was opened meanwhile."
+        return replace(converted, note=f"{converted.note}. The file keeps the name {name} for now: {why}")
 
 
 def _tag_file(e: dict, old_file: Path, staged: Path, facts: audio.FileFacts) -> None:
@@ -1037,7 +1061,7 @@ def _settle_undo(paths: Paths, state: dict, op: dict, roots: Collection[Path]) -
     return outcome[0]
 
 
-def _anlz_undo_back(op: dict) -> list[tuple[Path, bytes]]:
+def anlz_undo_back(op: dict) -> list[tuple[Path, bytes]]:
     """The analysis files an undo that didn't commit left with the old file's `PPTH` (cut off between writing them
     and the commit), each with its bytes as the upgrade left them (the new path spliced in again)."""
     out = []
@@ -1093,7 +1117,7 @@ def recover_convert_undo(paths: Paths, state: dict, op: dict, roots: Collection[
             ok = not r.problem
         else:
             if side == "old":
-                back = _anlz_undo_back(op)
+                back = anlz_undo_back(op)
                 if back and process.running():
                     return _Waits(name, _Recovered("", False, True), True, _say(op, UNDO_WAIT_REKORDBOX).format(name=name))
                 try:

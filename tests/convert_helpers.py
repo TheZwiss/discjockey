@@ -4,7 +4,8 @@ that puts rekordbox's timeline `d` samples after ffmpeg's decode. For tests/test
 
 Old files: `lame` (tests/fixtures/clicks-lame.mp3: rekordbox at 1105 samples), `notag` (clicks-notag.mp3: 0), `m4a`
 (an AAC made from a click track here: rekordbox at ffmpeg's start trim), `wav48` (a 48 kHz WAV: 0), `flac96` (a 24-bit
-96 kHz FLAC: 0) and `aiff` (a 16-bit/44.1 kHz AIFF with the wrong tags: 0). The parked upgrade is ffmpeg's decode of
+96 kHz FLAC: 0), `aiff` (a 16-bit/44.1 kHz AIFF with the wrong tags: 0) and `aiff96` (a 24-bit/96 kHz AIFF with the right
+tags: 0). The parked upgrade is ffmpeg's decode of
 the old file as a 16-bit/44.1 kHz stereo AIFF with the download's tags, so the two are the same edit with L = 0.
 
 `make_own` is the same library for Convert to AIFF (`convert.convert_file`): the song is the user's own (source
@@ -39,7 +40,8 @@ NEW = "Library/A/Artist - Song.aiff"
 EXACT = Alignment("exact", 0, 0.0, 0.0, "matches exactly")
 NOW = datetime(2026, 11, 8, 12, 0)
 OLD = {"lame": "Library/A/Old Name.mp3", "notag": "Library/A/Old Name.mp3", "m4a": "Library/A/Old Name.m4a",
-       "wav48": "Library/A/Old Name.wav", "flac96": "Library/A/Old Name.flac", "aiff": "Library/A/Old Name.aiff"}
+       "wav48": "Library/A/Old Name.wav", "flac96": "Library/A/Old Name.flac", "aiff": "Library/A/Old Name.aiff",
+       "aiff96": "Library/A/Old Name.aiff"}
 OWN = {"source": "manual", "source_id": None, "source_format": "mp3", "cutoff_hz": None, "upgrade": None,
        "status": "not_lossless", "in_playlists": False}  # the song record of an own file Convert works on
 
@@ -107,6 +109,12 @@ def _old_file(kind: str, dst: Path, scratch: Path) -> None:
         wav = write_wav(scratch / "clicks96.wav", clicks(20, 96000), 96000)
         subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(wav), "-sample_fmt", "s32",
                         "-bits_per_raw_sample", "24", "-c:a", "flac", str(dst)], check=True)
+    elif kind == "aiff96":
+        wav = write_wav(scratch / "clicks96.wav", clicks(20, 96000), 96000)
+        subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(wav), "-c:a", "pcm_s24be", "-f", "aiff",
+                        str(dst)], check=True)
+        write_tags(dst, title="Song", artists=("Artist",), album="Old Album", isrc=None, label=None, cover=None,
+                   comment="")
     elif kind == "aiff":
         write_aiff(dst, clicks(20, 44100))
         write_tags(dst, title="Wrong Title", artists=("Wrong Artist",), album="Old Album", isrc=None, label=None,
@@ -135,7 +143,7 @@ def make_env(tmp_path: Path, monkeypatch, kind: str = "lame", *, rekordbox: bool
     write_tags(parked, title="Song", artists=("Artist",), album="Album", isrc="ISRC00000001", label="Label",
                cover=None, comment="Qobuz FLAC · verified lossless")
     info = quality.probe(old_file)
-    d = {"lame": 1105, "notag": 0, "wav48": 0, "flac96": 0, "aiff": 0}.get(kind)
+    d = {"lame": 1105, "notag": 0, "wav48": 0, "flac96": 0, "aiff": 0, "aiff96": 0}.get(kind)
     if d is None:
         d = round(probe.start_trim(old_file, info.codec, info.sample_rate) * 44100 / info.sample_rate)
     folder = tmp_path / "rb"

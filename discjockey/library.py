@@ -552,13 +552,27 @@ def upgrade_undo(entry: dict | None) -> dict | None:
     return ((entry or {}).get("rekordbox_check") or {}).get("undo") or None
 
 
+def undo_chain(undo: dict) -> list[dict]:
+    """`undo` and the undo records nested in it: a clean name given in the same item as a Convert (rename.rename_file
+    after convert_file) keeps the Convert's check, with its undo, in its own `before`, so a second undo goes on."""
+    out = []
+    while undo:
+        out.append(undo)
+        undo = (((undo.get("before") or {}).get("rekordbox_check") or {}).get("undo")) if undo.get("kind") == "rename" \
+            else None
+    return out
+
+
 def undo_paths(undo: dict) -> list[str]:
     """Every file an upgrade's undo needs: where the old file and the parked one go back to, and the kept parked
-    copy of a swap. NameReserver keeps them free, _prune_undo keeps the copy."""
-    before = undo.get("before") or {}
-    out = [before.get("path"), (before.get("upgrade") or {}).get("file"), undo.get("held")]
-    if undo.get("kind") == "convert":  # the old file in Superseded/, which the undo brings back
-        out.append(undo.get("old"))
+    copy of a swap (also those of the undo records nested in it, `undo_chain`). NameReserver keeps them free,
+    _prune_undo keeps the copy."""
+    out = []
+    for u in undo_chain(undo):
+        before = u.get("before") or {}
+        out += [before.get("path"), (before.get("upgrade") or {}).get("file"), u.get("held")]
+        if u.get("kind") == "convert":  # the old file in Superseded/, which the undo brings back
+            out.append(u.get("old"))
     return [p for p in out if p]
 
 
@@ -604,7 +618,8 @@ def _prune_backups(paths: Paths, state: dict) -> None:
     from .rekordbox import backup  # the rekordbox package builds on this module's paths only
     if not backup.backups_dir(paths).is_dir():
         return
-    keep = {u["backup"] for e in state.get("tracks", {}).values() if (u := upgrade_undo(e)) and u.get("backup")}
+    keep = {x["backup"] for e in state.get("tracks", {}).values() if (u := upgrade_undo(e))
+            for x in undo_chain(u) if x.get("backup")}
     keep |= {rb["backup"] for op in state.get("pending", []) if (rb := op.get("rekordbox")) and rb.get("backup")}
     if paths.db_file.exists():
         from . import db
@@ -1251,7 +1266,7 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
     (tidy.recover). Returns (message, ok) per step and per batch. A step with a file on a drive that isn't
     connected waits for it. A `files` step (move_files), a `step` (run_op) and tidy.recover write library.db past `state`, so after
     either `state`'s contents are replaced in place with a fresh snapshot: the caller goes on saving a current one. A
-    `swap` / `swap_undo` / `convert` / `convert_undo` / `rename` step writes past it too (end_op), and `state`
+    `swap` / `swap_undo` / `convert` / `convert_undo` / `rename` / `rename_undo` step writes past it too (end_op), and `state`
     follows each of its writes. A convert or rename step (or a convert's undo) whose analysis files must come back
     while rekordbox runs waits for it to quit, as a step waits for a drive: the run goes on, the scan is held. Last, an AIFF batch a crash left `running`
     becomes `stopped` and offers Resume (`batches.recover`); the sync's Auto-upgrade batch ends instead, never resumed."""
@@ -1277,6 +1292,10 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
         if op.get("kind") == "rename":
             from .rename import recover_rename  # rename builds on this module
             messages.append(recover_rename(paths, state, op, roots))
+            continue
+        if op.get("kind") == "rename_undo":
+            from .rename import recover_rename_undo  # rename builds on this module
+            messages.append(recover_rename_undo(paths, state, op, roots))
             continue
         if op.get("kind") in ("files", "step"):
             message, wrote = (_recover_files if op["kind"] == "files" else _recover_step)(paths, op, roots)

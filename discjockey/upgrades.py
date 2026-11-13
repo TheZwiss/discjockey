@@ -148,11 +148,13 @@ UNDO_FIELDS = ("status", "source", "source_id", "source_format", "cutoff_hz", "s
                "upgrade", "rekordbox_check")
 
 
-def fields_before(e: dict) -> dict:
+def fields_before(e: dict, *, keep_undo: bool = False) -> dict:
     """The fields an upgrade changes, as they were: its undo puts them back. A check that stood before keeps its
-    words but not its own undo: one step back only (its kept copy goes at the next clean-up, library._prune_undo)."""
+    words but not its own undo: one step back only (its kept copy goes at the next clean-up, library._prune_undo).
+    `keep_undo`: the convert→rename chain (rename.rename_file after convert_file, one item) keeps the Convert's undo
+    too, so the second undo returns the original file."""
     b = {k: e.get(k) for k in UNDO_FIELDS}
-    if b["rekordbox_check"]:
+    if b["rekordbox_check"] and not keep_undo:
         b["rekordbox_check"] = {k: v for k, v in b["rekordbox_check"].items() if k != "undo"}
     return b
 
@@ -691,6 +693,20 @@ UNDO_REFUSED = {
 }
 
 
+# the same refusals for the undo of Give it its clean name (plan stage D §3 has no sentence of its own): "the replace"
+# and "the upgrade" become the clean name, and the old file becomes the file's old name
+UNDO_REFUSED_RENAMED = {
+    "rekordbox_open": "Quit rekordbox to undo: Discjockey points your rekordbox track back at your file's old name "
+                      "only while rekordbox is closed.",
+    "relocated": "This track was moved or removed in rekordbox since it got its clean name, so Discjockey can't put "
+                 "it back safely. Nothing was changed.",
+    "rekordbox_unreadable": "Discjockey can't open your rekordbox library right now, so the clean name can't be "
+                            "undone. Nothing was changed.",
+    "other_library": "This clean name was set in a rekordbox library this Mac doesn't have (another Mac's?), so "
+                     "Discjockey can't undo it here. Nothing was changed.",
+}
+
+
 def conversion_words(text: str) -> str:
     """A Same track's words (design §8: "replace", "upgrade") said for a Convert, whose plan words (stage D §3) have no
     such sentence: "conversion" in the same place. Applied to a template, never to text with a song's name in it."""
@@ -700,42 +716,49 @@ def conversion_words(text: str) -> str:
 class UndoRefused(UpgradeProblem):
     """An undo that has to put rekordbox back and can't now; nothing was changed. `reason`: a key of UNDO_REFUSED
     (`rekordbox_open`, `relocated`, … `busy`), for a batch's per-track result. `converted`: the step was a Convert,
-    whose words say "conversion" where a Same track's say "replace" or "upgrade"."""
+    whose words say "conversion" where a Same track's say "replace" or "upgrade"; `renamed`: the step was Give it its
+    clean name (`UNDO_REFUSED_RENAMED`)."""
 
-    def __init__(self, reason: str, converted: bool = False):
-        text = UNDO_REFUSED.get(reason, UNDO_REFUSED["relocated"])
+    def __init__(self, reason: str, converted: bool = False, renamed: bool = False):
+        reason = reason if reason in UNDO_REFUSED else "relocated"
+        text = UNDO_REFUSED[reason]
+        if renamed:
+            text = UNDO_REFUSED_RENAMED.get(reason, text)
         super().__init__(conversion_words(text) if converted else text)
-        self.reason = reason if reason in UNDO_REFUSED else "relocated"
+        self.reason = reason
 
 
-def undo_session(paths: Paths, session: Session | None, stack: ExitStack, converted: bool = False) -> Session:
+def undo_session(paths: Paths, session: Session | None, stack: ExitStack, converted: bool = False,
+                 renamed: bool = False) -> Session:
     """The rekordbox side of an undo's write: the batch's `session`, or one of this undo alone (entered on `stack`:
     `rekordbox.lock`, the backup before the write). Raises UndoRefused, nothing changed."""
     try:
         if session is None:
             session = stack.enter_context(Session.open(paths, items_need_write=lambda view: True))
         if session.state.state == "none":
-            raise UndoRefused("other_library", converted)
+            raise UndoRefused("other_library", converted, renamed)
         return session
     except rekordbox.Busy:
-        raise UndoRefused("busy", converted) from None
+        raise UndoRefused("busy", converted, renamed) from None
     except rekordbox.RekordboxOpen:
-        raise UndoRefused("rekordbox_open", converted) from None
+        raise UndoRefused("rekordbox_open", converted, renamed) from None
 
 
-def undo_writer(session: Session, stack: ExitStack, converted: bool = False) -> rekordbox.Writer:
+def undo_writer(session: Session, stack: ExitStack, converted: bool = False,
+                renamed: bool = False) -> rekordbox.Writer:
     """rekordbox's library opened for writing (entered on `stack`; the read-write connection leaves `-wal`/`-shm`
     beside it while open, so it is open only for the check and, later, for the write itself). Raises UndoRefused,
     nothing changed."""
     try:
         return stack.enter_context(session.writer())
     except rekordbox.WriteRefused as err:
-        raise UndoRefused(err.reason, converted) from None
+        raise UndoRefused(err.reason, converted, renamed) from None
     except rekordbox.RekordboxOpen:
-        raise UndoRefused("rekordbox_open", converted) from None
+        raise UndoRefused("rekordbox_open", converted, renamed) from None
     except OSError as err:  # the backup couldn't be made
-        raise UpgradeProblem(f"Could not make the rekordbox backup ({err}), so the {'conversion' if converted else 'upgrade'} "
-                             "wasn't undone. Nothing was changed.") from err
+        step = "conversion" if converted else "clean name" if renamed else "upgrade"
+        raise UpgradeProblem(f"Could not make the rekordbox backup ({err}), so the {step} wasn't undone. Nothing was "
+                             "changed.") from err
 
 
 def can_undo(entry: dict) -> bool:
@@ -778,7 +801,7 @@ def _in_the_way(paths: Paths, state: dict, track_id: str, rel: str, own: str) ->
 
 
 def undo(paths: Paths, state: dict, track_id: str, *, session: Session | None = None) -> Result:
-    """Puts a swap, an added file, a Same track or a Convert that made a new AIFF back as it was: the old file at its
+    """Puts a swap, an added file, a Same track, a Convert or a clean name back as it was: the old file at its
     old path, the entry's fields as they were (the parked upgrade waits again, its file back in Upgrades ready/), the
     new file out of the folder. Refused when either file changed since the step, the track's file is another one now,
     a newer version is waiting, or a file is in the way of a place something goes back to. A rendered New track also
@@ -786,7 +809,8 @@ def undo(paths: Paths, state: dict, track_id: str, *, session: Session | None = 
     Add as new goes back through run_op, a swap through a pending `swap_undo` step (recover_swap_undo), a new AIFF
     through a `convert_undo` step (convert.undo_convert). A Convert (`kind` "convert", `source` "file") has no parked upgrade or
     kept download: the old file comes back, the new AIFF goes to .discjockey/undo/, and nothing returns to Upgrades
-    ready/.
+    ready/. Give it its clean name (`kind` "rename") has no old file at all: the same file goes back to its old name
+    (`rename.undo_rename`, a pending `rename_undo` step), refused when another file took that name.
 
     A step that wrote rekordbox (`repoint` in its record) is undone in rekordbox too, while rekordbox is closed: the
     batch's `session`, or one opened for this undo. Its refusals are UndoRefused (`reason`), nothing changed."""
@@ -795,7 +819,8 @@ def undo(paths: Paths, state: dict, track_id: str, *, session: Session | None = 
     if not u:
         raise UpgradeProblem(NOTHING_TO_UNDO)
     converted = u["kind"] == "convert" and u.get("source") == "file"
-    step = "conversion" if converted else "upgrade"
+    renamed = u["kind"] == "rename"
+    step = "conversion" if converted else "clean-name change" if renamed else "upgrade"
     if e.get("path") != u["file"]:
         raise UpgradeProblem(f"This track has another file now, so the {step} can't be undone. Nothing was changed.")
     if e.get("upgrade"):
@@ -804,7 +829,8 @@ def undo(paths: Paths, state: dict, track_id: str, *, session: Session | None = 
     before = u["before"]
     parked = (before.get("upgrade") or {}).get("file")  # None for a Convert: it parked nothing
     _unchanged(paths, u["file"], u["file_key"], step)
-    _unchanged(paths, u["old"], u["old_key"], step)
+    if not renamed:  # a rename keeps no old file: its old name is where the file itself goes back to
+        _unchanged(paths, u["old"], u["old_key"], step)
     if not converted and (u["kind"] in ("swap", "convert") or u.get("rendered")) \
             and not (paths.root / u["held"]).is_file():
         noun = "swap" if u["kind"] == "swap" else "upgrade"
@@ -830,6 +856,9 @@ def undo(paths: Paths, state: dict, track_id: str, *, session: Session | None = 
     elif u["kind"] == "convert":
         from .convert import undo_convert  # convert builds on this module
         note = undo_convert(paths, state, track_id, u, entry, session=session)
+    elif renamed:
+        from .rename import undo_rename  # rename builds on this module
+        note = undo_rename(paths, state, track_id, u, entry, session=session)
     else:
         note = f"your old audio is back in {before['path']}; the {what} waits in {parked} again"
         note += _undo_swap(paths, state, track_id, u, entry, session)
