@@ -1,0 +1,21 @@
+{
+  "_about": "The key sets of every shape issue 33 stage D adds to the bridge, read by tests/test_hub_api_convert.py (the real hub) and hub-ui/src/lib/bridge/fake/convert.test.ts (the fake backend), so a renamed field breaks both sides. docs/hub-bridge-contract.md names each shape.",
+  "track_aiff": ["action", "why_not", "kind", "from", "to", "name_now", "new_name", "bytes", "lossy", "cdj"],
+  "cdj_words": ["short", "words"],
+  "plan": ["scope", "items", "skipped", "waiting", "kinds", "lossy", "total", "space", "superseded_bytes", "rekordbox"],
+  "plan_item": ["track", "name", "action", "kind", "from", "path", "new_path", "superseded", "bytes", "cdj"],
+  "plan_left": ["track", "name", "reason", "message"],
+  "plan_waiting": ["reason", "message", "n"],
+  "plan_kind": ["kind", "label", "n"],
+  "plan_space": ["drive", "needed", "free", "enough"],
+  "plan_rekordbox": ["state", "running", "needs_closed"],
+  "cdj_item_extra": ["cdj", "aiff"],
+  "cdj_why": ["reason", "short", "words"],
+  "cdj_group_all": ["n", "k"],
+  "stopped": ["batch_id", "left"],
+  "check_view": ["reason", "since", "match", "offset_ms", "moved", "aligned", "reload_tag", "batch", "rekordbox", "text", "old_path", "old_name"],
+  "batch": ["id", "size", "started", "started_by", "kind", "tracks"],
+  "batch_result": ["batch", "state", "stop_reason", "total", "done", "skipped", "failed", "results", "backup", "recovered"],
+  "item_result": ["track", "action", "state", "reason", "message", "path", "rekordbox"],
+  "undo_result_success": ["batch", "total", "undone", "refused", "failed", "results", "recovered", "words"]
+}

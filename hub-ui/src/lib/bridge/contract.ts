@@ -6,12 +6,14 @@
 // remove_watched_folder, start_import, answer_same_song, keep_duplicates, supersede_duplicate, setup_skip_import: +10;
 // set_favourites and set_crate_shown (library stage 5, brief saves, no job): +2; undo_upgrade: +1;
 // set_read_liked_music and add_liked_music (sources round): +2; set_crates_shown (leftovers C2): +1;
-// rekordbox_status and set_auto_upgrade (issue 33 stage C): +2.)
+// rekordbox_status and set_auto_upgrade (issue 33 stage C): +2; aiff_plan, convert, rename and make_aiff (stage D): +4.)
 export const CONTRACT_METHODS = [
   // read, any time
   'dashboard', 'sidebar', 'sync_preview', 'refresh', 'stop_refresh', 'job_status', 'library', 'track', 'todo',
   'playlists', 'limits', 'limits_what_if', 'runs', 'run', 'spectrum', 'media_url', 'setup_status', 'select',
   'rekordbox_status',
+  // what Make all, a selection's Convert and the CDJ group's Convert all would do (issue 33 stage D)
+  'aiff_plan',
   'tidy_preview', 'move_batches', 'undo_preview', 'watched_folders', 'check_import_folder', 'removal_preview',
   // brief saves (no job): Favourites and the crate switches
   'set_favourites', 'set_crate_shown', 'set_crates_shown',
@@ -20,7 +22,7 @@ export const CONTRACT_METHODS = [
   // write jobs
   'start_sync', 'stop', 'save_playlists', 'save_limits', 'mark_warnings_seen', 'hide', 'never_download', 'add_bought_file',
   'use_candidate', 'use_link', 'reject_current', 'rekordbox_checked', 'upgrade', 'upgrade_all', 'undo_upgrade',
-  'batch_resume', 'batch_undo', 'rescan_library',
+  'batch_resume', 'batch_undo', 'convert', 'rename', 'make_aiff', 'rescan_library',
   'tidy_up', 'undo_moves',
   'add_watched_folder', 'remove_watched_folder', 'start_import', 'answer_same_song', 'keep_duplicates',
   'supersede_duplicate',
@@ -48,7 +50,8 @@ export const LIBRARY_METHODS = [
   'limits_what_if', 'save_limits', 'mark_warnings_seen', 'runs', 'run', 'spectrum', 'media_url',
   'search_candidates', 'preview', 'add_playlist', 'preview_playlist_change', 'start_sync', 'save_playlists',
   'hide', 'never_download', 'add_bought_file', 'use_candidate', 'use_link', 'reject_current',
-  'rekordbox_checked', 'upgrade', 'upgrade_all', 'undo_upgrade', 'batch_resume', 'batch_undo', 'rescan_library',
+  'rekordbox_checked', 'upgrade', 'upgrade_all', 'undo_upgrade', 'batch_resume', 'batch_undo', 'aiff_plan', 'convert',
+  'rename', 'make_aiff', 'rescan_library',
   'show_in_finder', 'reveal', 'open_report',
   'tidy_preview', 'move_batches', 'undo_preview', 'tidy_up', 'undo_moves',
   'watched_folders', 'set_favourites', 'set_crate_shown', 'set_crates_shown', 'check_import_folder', 'removal_preview',

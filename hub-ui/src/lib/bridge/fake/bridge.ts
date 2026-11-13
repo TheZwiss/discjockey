@@ -3,7 +3,7 @@ import type { Bridge } from '../client';
 import type { HubEvent } from '../events';
 import type {
   BatchResult, Candidate, ChangePreview, Fail, JobStart, LibraryFilter, LibrarySort, LibraryView, PlaylistInfo, PlaylistLine, ProblemKind, Res, Result,
-  AccountCheck, Browser, PlaylistService, SaveFiles, SettingKey, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate, AiffBatchResult, ItemResult as AiffItemResult, UndoItem } from '../types';
+  AccountCheck, Browser, PlaylistService, SaveFiles, SettingKey, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate, AiffBatchResult, AiffScope, ItemResult as AiffItemResult, UndoItem } from '../types';
 import { LIBRARY_METHODS } from '../contract';
 import {
   FAKE_MUSIC, FAKE_NEWEST_YT_DLP, LINK_REFUSED, QOBUZ_UNREADABLE, SOUNDCLOUD_SET_LINK, SERVICE_NAME, SOUNDCLOUD_UNREADABLE, YOUTUBE_MIX_REFUSED, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkStatus, checkView, coverUri, dateOnly, folderList, hash, isoLocal, makeState, nextStep,
@@ -29,6 +29,8 @@ import {
   tidyPreview, tidyRow, tidyWaiting, trackOfId, undoPreview, validMoves, validSaveFiles, moveBatches, outOfPlace,
   type MoveRun,
 } from './tidy';
+import { NONE_CHANGEABLE, NOTHING_TO_CHANGE, SKIP_WORDS as AIFF_SKIP_WORDS, applyItem, cdjAiff, cdjMembers, fileAnswer, heldInRekordbox,
+  planOf, undoneWords } from './convert';
 import { SERVICES, NAMES, RECOMMENDED, serviceOf, limits as limitsOf, whatIf as whatIfOf, gate, syncSplit, cards } from './limits';
 import {
   IMPORTING_BUSY, NO_FOLDER, answerSameSong, checkImportFolder, duplicateItems, folderOf, keepDuplicates, questionItems,
@@ -59,7 +61,8 @@ function accountCheck(service: 'youtube' | 'soundcloud', browser: Browser): Acco
   return { ok: true, problem: null, kbps: 256, message: `✓ ${NAMES[service]} works (256 kbps).` };
 }
 
-export type FakeOptions = { speed?: number; freeze?: number | null; emit?: (e: HubEvent) => void };
+/** `prepare` (tests): sets data on the state after the scenario did, before the bridge reads it */
+export type FakeOptions = { speed?: number; freeze?: number | null; emit?: (e: HubEvent) => void; prepare?: (s: FakeState) => void };
 export type FakeContext = {
   s: FakeState;
   speed: number;
@@ -124,6 +127,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   seedTidy(s);
   seedImport(s, baseScenario);
   pageScenarios()[scenario]?.(s);
+  opts.prepare?.(s);
   const speed = opts.speed ?? 1;
   const emitRaw = opts.emit ?? (() => {});
   let nextId = 1;
@@ -321,18 +325,32 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     not_analysed: "rekordbox hasn't analysed this track yet, so Discjockey can't tell exactly where your cues sit; analyse it in rekordbox, quit rekordbox, and try again",
     changed: 'your rekordbox track changed while Discjockey was working on it; try again',
   };
+  /** `kind` / `scope` as `aiff_batches` has them (Same track: `upgrade`; Convert and Rename: `convert`); `left`: the songs
+   *  of a selection the plan left out, listed as skipped in every result of the batch */
   type AiffBatch = { id: number; state: 'running' | 'stopped' | 'done'; stop_reason: AiffBatchResult['stop_reason'];
-    items: AiffItemResult[]; started_by?: 'user' | 'upgrade_all' | 'auto_upgrade' };
-  const aiff: AiffBatch[] = [];
+    items: AiffItemResult[]; started_by?: 'user' | 'upgrade_all' | 'auto_upgrade' | 'make_aiff' | 'cdj_all';
+    kind: 'upgrade' | 'convert' | 'mixed'; scope: string; left: AiffItemResult[] };
+  const aiff: AiffBatch[] = (s.batches ?? []).map((b, i) => ({ id: i + 1, state: b.state, stop_reason: b.state === 'stopped' ? 'stop' as const : null,
+    started_by: b.started_by ?? 'user', kind: b.kind, scope: b.scope, left: [],
+    items: b.items.map((it) => ({ track: it.track, action: it.action, state: it.state, reason: null, message: null, path: null, rekordbox: null })) }));
+  /** the newest stopped batch with items left, as `views.stopped_batch`: only a scope starting with `scope`, only these kinds */
+  const stoppedBatch = (scope?: string, kinds?: AiffBatch['kind'][]) => {
+    const b = [...aiff].reverse().find((x) => x.state === 'stopped' && x.items.some((i) => i.state === 'planned')
+      && (!scope || x.scope.startsWith(scope)) && (!kinds || kinds.includes(x.kind)));
+    return b ? { batch_id: b.id, left: b.items.filter((i) => i.state === 'planned').length } : null;
+  };
   let batchStop: { stopped: boolean } | null = null;
   const listOf = (ids: unknown): string[] | null => Array.isArray(ids) && ids.length && ids.every((i) => typeof i === 'string' && i)
     ? [...new Set(ids as string[])] : null;
   const itemOf = (t: FakeTrack, action: string, message: string): AiffItemResult => ({ track: t.track_id, action, state: 'done',
     reason: null, message, path: pathOf(t) ?? null, rekordbox: null });
   const batchBody = (id: number | null, state: AiffBatchResult['state'], stop_reason: AiffBatchResult['stop_reason'],
-    results: AiffItemResult[]): AiffBatchResult => ({ batch: id, state, stop_reason, total: results.length,
-    done: results.filter((r) => r.state === 'done').length, skipped: results.filter((r) => r.state === 'skipped').length,
-    failed: results.filter((r) => r.state === 'failed').length, results, backup: id ? '20261108T120000Z' : null, recovered: [] });
+    items: AiffItemResult[], left: AiffItemResult[] = []): AiffBatchResult => {
+    const results = [...items, ...left];
+    return { batch: id, state, stop_reason, total: results.length, done: results.filter((r) => r.state === 'done').length,
+      skipped: results.filter((r) => r.state === 'skipped').length, failed: results.filter((r) => r.state === 'failed').length,
+      results, backup: id ? '20261108T120000Z' : null, recovered: [] };
+  };
   /** What a replace does to a fake track: the swap/add_new/Same track outcome, with its check and undo record. */
   function apply(t: FakeTrack, mode: 'swap' | 'add_new' | 'same_track', batch: number | null) {
     const measured = t.upgrade!.alignment;
@@ -354,20 +372,30 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         undo: before, old_path: oldPath };
     }
   }
-  function runAiff(started_by: 'user' | 'upgrade_all', ids: string[], resuming: AiffBatch | null = null): JobStart {
+  /** One AIFF batch as a write job. Same track (`upgrade_batch`) is the default; with `plan` it is a Convert / Rename /
+   *  Make all batch (`aiff_batch`, stage D): `plan.actions` the items, `plan.scope` the batch's scope, `plan.left` the songs
+   *  a selection leaves out, `plan.quick` a batch of one song (rekordbox open before anything ran closes it, no Resume). */
+  type AiffRun = { actions: [string, string][]; scope: string; left: AiffItemResult[]; quick: boolean; track_id: string | null };
+  function runAiff(started_by: 'user' | 'upgrade_all' | 'make_aiff' | 'cdj_all', ids: string[], resuming: AiffBatch | null = null,
+    plan?: AiffRun): JobStart {
+    const actions = plan?.actions ?? ids.map((id): [string, string] => [id, 'same_track']);
     const b: AiffBatch = resuming ?? { id: (aiff.at(-1)?.id ?? 0) + 1, state: 'running', stop_reason: null, started_by,
-      items: ids.map((id) => ({ track: id, action: 'same_track', state: 'planned', reason: null, message: null, path: null,
+      kind: actions.every(([, a]) => a === 'same_track') ? 'upgrade' : actions.some(([, a]) => a === 'same_track') ? 'mixed' : 'convert',
+      scope: plan?.scope ?? (started_by === 'upgrade_all' ? 'todo:upgrade' : 'todo:selection'), left: plan?.left ?? [],
+      items: actions.map(([track, action]) => ({ track, action, state: 'planned', reason: null, message: null, path: null,
         rekordbox: null })) };
     if (!resuming) aiff.push(b);
     b.state = 'running'; b.stop_reason = null;
-    const quick = started_by === 'user' && ids.length === 1 && !resuming; // the real upgrade_all never carries a track_id
-    return startJob(resuming ? 'batch_resume' : 'upgrade_batch', quick ? ids[0] : null, (finish) => {
+    const quick = plan ? plan.quick : started_by === 'user' && ids.length === 1 && !resuming; // the real upgrade_all never carries a track_id
+    const jobKind = resuming ? 'batch_resume' : plan ? 'aiff_batch' : 'upgrade_batch';
+    return startJob(jobKind, plan ? plan.track_id : quick ? ids[0] : null, (finish) => {
       const stop = batchStop = { stopped: false };
-      const total = b.items.length;
+      const total = b.items.length + b.left.length;
       const left = () => b.items.filter((i) => i.state === 'planned');
+      const body = (state: AiffBatch['state'], reason: AiffBatch['stop_reason']) => batchBody(b.id, state, reason, b.items, b.left);
       const end = (state: AiffBatch['state'], reason: AiffBatch['stop_reason'], problem: 'stopped' | 'rekordbox_open' | null,
         message = '') => { b.state = state; b.stop_reason = reason; batchStop = null;
-        finish(!problem, batchBody(b.id, state, reason, b.items), problem, message); };
+        finish(!problem, body(state, reason), problem, message); };
       const next = () => {
         const item = left()[0];
         if (!item) {
@@ -375,15 +403,21 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           if (b.items.every((i) => i.state === 'skipped')) { b.state = 'done'; batchStop = null;
             // one track: the item's own words (as the engine's Refused), else the general sentence
             const only = total === 1 ? b.items[0] : null;
-            return finish(false, batchBody(b.id, 'done', null, b.items), 'refused',
-              (only && (only.message ?? (only.reason ? SKIP_WORDS[only.reason] : null))) || 'None of these can be upgraded right now.'); }
+            return finish(false, body('done', null), 'refused',
+              (only && (only.message ?? (only.reason ? SKIP_WORDS[only.reason] ?? AIFF_SKIP_WORDS[only.reason] : null)))
+              || (b.kind === 'upgrade' ? 'None of these can be upgraded right now.' : NONE_CHANGEABLE)); }
           return end('done', null, null);
         }
-        const done = total - left().length;
+        const done = b.items.length - left().length;
         if (stop.stopped) return end('stopped', 'stop', 'stopped', `Stopped after ${done} of ${total}.`);
         const t = track(item.track);
-        const needsWrite = !!t?.upgrade && t.upgrade.swap_how === 'new_aiff';
-        if (s.rekordbox_running && (needsWrite || done > 0 || !quick)) {
+        const converting = item.action !== 'same_track';
+        // Same track writes rekordbox only for a new AIFF; Convert and Rename wherever rekordbox holds the file (at the start:
+        // any item's file stops the batch, after that the item in work)
+        const needsWrite = converting ? !!t && heldInRekordbox(s, t) : !!t?.upgrade && t.upgrade.swap_how === 'new_aiff';
+        const blocked = converting ? (done === 0 ? left().some((i) => { const x = track(i.track); return !!x && heldInRekordbox(s, x); }) : needsWrite)
+          : needsWrite || done > 0 || !quick;
+        if (s.rekordbox_running && blocked) {
           if (quick && done === 0) { item.state = 'skipped'; item.reason = 'rekordbox_open'; }
           return end(quick && done === 0 ? 'done' : 'stopped', quick && done === 0 ? null : 'rekordbox_open', 'rekordbox_open',
             'rekordbox is open. Quit rekordbox, then try again. Discjockey changes your rekordbox tracks only while rekordbox is closed.');
@@ -391,7 +425,20 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         emit({ type: 'BatchProgress', batch_id: b.id, done, total, track_id: item.track, name: t ? `${t.artist} - ${t.title}` : item.track } as HubEvent);
         setTimeout(() => {
           const late = s.batchSkip?.[item.track];
-          if (!t?.upgrade) Object.assign(item, { state: 'skipped', reason: 'no_upgrade' });
+          if (converting) {
+            // the item's answer now: a song that changed under the batch is skipped with the new reason (never switched)
+            const r = planOf(s, { kind: 'tracks', tracks: [item.track] }, item.action === 'rename' ? 'rename' : undefined);
+            const now = 'plan' in r ? r.plan : null;
+            const planned = now?.items[0];
+            if (late) Object.assign(item, { state: 'skipped', reason: late, message: AIFF_SKIP_WORDS[late] ?? null });
+            else if (!t || !planned) {
+              const why = now?.skipped[0];
+              Object.assign(item, { state: 'skipped', reason: why?.reason ?? 'file_missing', message: why?.message ?? AIFF_SKIP_WORDS.file_missing });
+            } else {
+              const did = applyItem(s, t, planned, b.id);
+              Object.assign(item, { action: planned.action, state: 'done', message: did.message, path: did.path, rekordbox: did.rekordbox });
+            }
+          } else if (!t?.upgrade) Object.assign(item, { state: 'skipped', reason: 'no_upgrade' });
           else if (!t.upgrade.swap_safe) Object.assign(item, { state: 'skipped', reason: 'needs_choice' });
           else if (late) Object.assign(item, { state: 'skipped', reason: late, message: SKIP_WORDS[late] ?? null });
           else {
@@ -405,6 +452,26 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       setTimeout(next, 200 / speed);
     });
   }
+  /** `convert`, `rename` and `make_aiff` after the plan: a batch of its items, or a refusal that still carries the songs
+   *  it left out (a job that ends `refused` with `batch` null). `only` "rename": Rename's answer alone. */
+  function aiffJob(scope: AiffScope, only: 'rename' | undefined, started_by: 'user' | 'make_aiff' | 'cdj_all', batchScope: string,
+    nothing: string | null): JobStart {
+    const r = planOf(s, scope, only);
+    if ('refused' in r) return fail('refused', r.refused);
+    const plan = r.plan;
+    const selected = scope.kind === 'tracks';
+    const alone = selected && scope.tracks.length === 1;
+    const track_id = alone ? scope.tracks[0] : null;
+    const left: AiffItemResult[] = plan.skipped.map((l) => ({ track: l.track, action: 'convert', state: 'skipped', reason: l.reason,
+      message: l.message, path: null, rekordbox: null }));
+    if (!plan.items.length) {
+      const words = nothing ?? (left.length === 1 ? left[0].message! : NONE_CHANGEABLE);
+      return startJob('aiff_batch', track_id, (finish) => setTimeout(() => finish(false, batchBody(null, 'done', null, [], left),
+        'refused', words), 200 / speed));
+    }
+    return runAiff(started_by, [], null, { actions: plan.items.map((i) => [i.track, i.action]), scope: batchScope, left,
+      quick: alone, track_id });
+  }
   function runUndo(kind: string, ids: string[], batch: AiffBatch | null): JobStart {
     return startJob(kind, kind === 'undo_upgrade' && ids.length === 1 ? ids[0] : null, (finish) => setTimeout(() => {
       const results: UndoItem[] = [];
@@ -415,6 +482,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         for (const id of ids) results.push({ track: id, state: 'waiting', reason: 'rekordbox_open', message: 'Not undone yet. Nothing was changed.' });
         return finish(false, body(), 'rekordbox_open', 'Quit rekordbox to undo: Discjockey points your rekordbox track back at your old file only while rekordbox is closed.');
       }
+      const undone: (string | undefined)[] = [];   // the checks' reasons of the tracks put back (views.undone_words)
       for (const id of ids) {
         const t = track(id);
         const before = t?.rekordbox_check?.undo;
@@ -424,7 +492,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           results.push({ track: id, state: 'refused', reason: null, message: 'There is no upgrade to undo for this track.' });
           continue;
         }
+        const was = t.rekordbox_check?.reason;
         Object.assign(t, before);
+        undone.push(was);
         results.push({ track: id, state: 'undone', reason: null, message: 'the old file is back; the new version waits again' });
         const item = aiff.flatMap((x) => x.items).filter((i) => i.track === id && i.state === 'done').at(-1);
         if (item) item.state = 'undone';
@@ -432,7 +502,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (ids.length && !results.some((r) => r.state === 'undone')) {
         return finish(false, body(), 'refused', ids.length === 1 ? results[0].message : 'None of these could be undone.');
       }
-      finish(true, body());
+      finish(true, { ...body(), words: undoneWords(undone) });
     }, 600 / speed));
   }
   const media = (t: FakeTrack, which: Which) => toneUrl(which === 'upgrade' ? Math.min(t.duration_s, 90)
@@ -543,7 +613,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       });
       const atRekordbox = rows.some((r) => r.reason === 'rekordbox_open');
       // batches.end_auto closes the batch `done` whatever cut it short, with no stop reason: To-do never offers Resume
-      aiff.push({ id: plan.batch, state: 'done', stop_reason: null, started_by: 'auto_upgrade', items });
+      aiff.push({ id: plan.batch, state: 'done', stop_reason: null, started_by: 'auto_upgrade', kind: 'upgrade', scope: 'sync', left: [], items });
       if (atRekordbox) s.rekordbox_running = true;   // it was opened mid-phase and is still open
     }
     for (const r of rows) {
@@ -728,7 +798,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     },
     async library(view: LibraryView, key: string | null, query: string, filter: LibraryFilter, sort: LibrarySort | null) {
       const r = libraryOf(s, view, key, query, filter, sort);
-      return 'refused' in r ? fail('refused', r.refused) : ok(r);
+      return 'refused' in r ? fail('refused', r.refused) : ok({ ...r, aiff_stopped: stoppedBatch('library:') });
     },
     async track(track_id: string) {
       const t = track(track_id);
@@ -758,6 +828,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         bought_name: `Library/${t.folder}/${t.artist} - ${t.title}.wav`,
         audio_url: q === 'missing' || t.away ? null : media(t, 'current'),
         upgrade: t.upgrade ? { ...t.upgrade, audio_url: media(t, 'upgrade'), ...rbOf(t) } : null,
+        aiff: fileAnswer(s, t),
       } });
     },
     async todo(filter: TodoFilter, show_hidden: boolean) { return ok(todoView(filter, show_hidden)); },
@@ -1239,6 +1310,27 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (!ids.length) return fail('refused', 'None of these can be upgraded right now.');
       return runAiff('upgrade_all', ids);
     },
+    async aiff_plan(scope: AiffScope) {
+      const r = planOf(s, scope);
+      return 'refused' in r ? fail('refused', r.refused) : ok({ plan: r.plan });
+    },
+    async convert(track_ids: string[], origin: 'library' | 'todo' = 'library') {
+      const ids = listOf(track_ids);
+      if (!ids) return fail('refused', 'No tracks were chosen.');
+      if (origin !== 'library' && origin !== 'todo') return fail('refused', 'origin must be one of library, todo');
+      return aiffJob({ kind: 'tracks', tracks: ids }, undefined, 'user', `${origin}:selection`, null);
+    },
+    async rename(track_ids: string[]) {
+      const ids = listOf(track_ids);
+      if (!ids) return fail('refused', 'No tracks were chosen.');
+      return aiffJob({ kind: 'tracks', tracks: ids }, 'rename', 'user', 'library:selection', null);
+    },
+    async make_aiff(scope: Extract<AiffScope, { kind: 'lossless' | 'cdj' }>) {
+      if (!scope || (scope.kind !== 'lossless' && scope.kind !== 'cdj')) return fail('refused', 'scope kind must be one of lossless, cdj');
+      if (scope.kind === 'cdj') return aiffJob(scope, undefined, 'cdj_all', 'todo:cdj', NOTHING_TO_CHANGE);
+      const where = [scope.view, scope.key].filter(Boolean).join(':');
+      return aiffJob(scope, undefined, 'make_aiff', `library:${where}`, NOTHING_TO_CHANGE);
+    },
     async batch_resume(batch_id: number) {
       const b = aiff.find((x) => x.id === batch_id);
       if (!b) return fail('refused', 'Discjockey has no record of this batch.');
@@ -1433,12 +1525,18 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
 
   /** views.same_track_reason for a fake track: null when Same track can run now. */
   function sameTrackReason(t: FakeTrack): string | null { return sameTrackReasonOf(s, t); }
+  /** the CDJ group's `all` (Convert all can do n now, k wait: the `cdj` plan's total and waiting) and its stopped batch */
+  function cdjAll() {
+    const r = planOf(s, { kind: 'cdj' });
+    const plan = 'plan' in r ? r.plan : null;
+    return { all: { n: plan?.total ?? 0, k: plan?.waiting.reduce((n, w) => n + w.n, 0) ?? 0 }, stopped: stoppedBatch('todo:') };
+  }
   function upgradeAll(rows: TodoItem[]) {
     const mine = rows.filter((r) => !r.hidden);
-    const stopped = [...aiff].reverse().find((b) => b.state === 'stopped' && b.items.some((i) => i.state === 'planned'));
+    const stopped = stoppedBatch(undefined, ['upgrade']);
     return { all: { n: mine.filter((r) => r.same_track === null).length, m: mine.filter((r) => r.same_track === 'needs_choice').length,
       k: mine.filter((r) => r.same_track && r.same_track !== 'needs_choice').length },
-      stopped: stopped ? { batch_id: stopped.id, left: stopped.items.filter((i) => i.state === 'planned').length } : null };
+      stopped };
   }
 
   /** The upgrades the sync's last phase would put in place now (views/api `_auto_upgrade_ready`): Upgrade all's set,
@@ -1446,13 +1544,14 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   function autoReady(): number { return readyTracks(s).length; }
 
   function todoView(filter: TodoFilter, show_hidden: boolean) {
-    const order: TodoGroupKey[] = ['rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready', 'not_found', 'weak',
+    const order: TodoGroupKey[] = ['rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready', 'cdj', 'not_found', 'weak',
       'good_lossy', 'fake', 'other'];
     const LABELS: Record<TodoGroupKey, [string, string]> = {
       rekordbox_check: ['Check in rekordbox', 'the file changed; rekordbox needs a hand'],
       same_song: ['Is this the same song?', 'a file of yours might be a playlist song'],
       duplicate: ['Duplicates', 'the same song more than once'],
       upgrade_ready: ['Upgrade ready', 'a better version is waiting for you'],
+      cdj: ["Won't play well on CDJs", 'CDJs refuse or stutter on these files'],
       not_found: ['Not found', 'nothing usable anywhere'], weak: ['Weak (≤ 17 kHz)', 'audibly lossy'],
       good_lossy: ['Good lossy (~20 kHz)', 'hard to hear'], fake: ['Fake lossless', 'the Qobuz file is really lossy'],
       other: ['Other', 'something is in the way'],
@@ -1475,10 +1574,15 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
             const key = `batch:${id}`;
             const tracks = group.map((x) => checkItem(x, group.length));
             const started = tracks.map((x) => x.check!.since).filter(Boolean).sort()[0] ?? null;
-            const started_by = s.batchStartedBy?.[id] ?? aiff.find((b) => b.id === id)?.started_by ?? 'user';
-            items.rekordbox_check.unshift({ ...tracks[0], track_id: key, key,
-              detail: `${started ?? ''} · ${started_by === 'auto_upgrade' ? AUTO_BATCH_DETAIL : 'Same track'}`,
-              batch: { id, size: group.length, started, started_by, tracks } });
+            const record = aiff.find((b) => b.id === id);
+            const started_by = s.batchStartedBy?.[id] ?? record?.started_by ?? 'user';
+            // the batch's own kind; a scenario that only sets checks has no record: its checks' reasons say it
+            const kind = record?.kind ?? (tracks.some((x) => ['converted', 'renamed'].includes(x.check!.reason)) ? 'convert' : 'upgrade');
+            // views._batch_how: "Made AIFF" for a Convert batch, "Clean name" when every check is a clean name
+            const how = started_by === 'auto_upgrade' ? AUTO_BATCH_DETAIL : kind === 'upgrade' ? 'Same track'
+              : tracks.every((x) => x.check!.reason === 'renamed') ? 'Clean name' : 'Made AIFF';
+            items.rekordbox_check.unshift({ ...tracks[0], track_id: key, key, detail: `${started ?? ''} · ${how}`,
+              batch: { id, size: group.length, started, started_by, kind, tracks } });
             chips.rekordbox_check++;
             counted.add(key);
           }
@@ -1495,12 +1599,23 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (!t.hidden || show_hidden) items[g].push({ ...trackRow(t), group: g, detail: todoDetail(t, g, g === 'upgrade_ready' ? (plain) => autoDetail(s, t, sameTrackReason(t), plain) : undefined), free: todoFree(t, g),
         file_state: todoFileState(t), ...(g === 'upgrade_ready' ? { same_track: sameTrackReason(t) } : {}) });
     }
+    // stage D: the files CDJs play badly (a song listed there only, hidden as any item)
+    const members = cdjMembers(s, true);
+    const why = cdjAiff(s, [...members.keys()]);
+    for (const t of s.tracks) {
+      const problem = members.get(t.track_id);
+      if (!problem) continue;
+      if (t.hidden) hidden_count++;
+      else { chips.cdj++; counted.add(t.track_id); }
+      if (!t.hidden || show_hidden) items.cdj.push({ ...trackRow(t), group: 'cdj', detail: problem.short, free: false,
+        file_state: todoFileState(t), cdj: problem, aiff: why.get(t.track_id) ?? null });
+    }
     for (const q of questionItems(s)) { items.same_song.push(q); chips.same_song++; counted.add(q.track_id); }
     for (const d of duplicateItems(s)) { items.duplicate.push(d); chips.duplicate++; counted.add(d.track_id); }
     chips.all = counted.size;
     const groups = order.filter((k) => items[k].length && (filter === 'all' || filter === k))
       .map((k) => ({ key: k, label: LABELS[k][0], hint: LABELS[k][1], items: items[k],
-        ...(k === 'upgrade_ready' ? upgradeAll(items[k]) : {}) }));
+        ...(k === 'upgrade_ready' ? upgradeAll(items[k]) : {}), ...(k === 'cdj' ? cdjAll() : {}) }));
     const empty = groups.length ? null : !s.tracks.length ? 'empty_library' as const : filter !== 'all'
       ? 'nothing_here' as const : hidden_count ? 'all_hidden' as const : 'all_lossless' as const;
     const check_tracks = s.tracks.filter((t) => t.rekordbox_check).length;
