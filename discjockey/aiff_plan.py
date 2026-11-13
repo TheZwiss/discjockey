@@ -36,15 +36,21 @@ from .hub import views
 from .library import NameReserver, Paths
 from .models import FileAudio, WatchedFolder, entry_audio
 from .names import expected_stem, fold
-from .rekordbox import eligible
+from .rekordbox import eligible, master
 from .rekordbox.eligible import AIFF_EXTS, Eligible
+from .rekordbox.locate import Place
 from .rekordbox.master import Entry, Status
 from .rekordbox.offset import EntryTiming, TimelineOffset
 
 SCOPE_KINDS = ("tracks", "lossless", "cdj")
 SELECTION_LABEL = "Selection"
 CDJ_LABEL = "Won't play well on CDJs"
+AIFF_LINE = "AIFF · 16-bit · 44.1 kHz"  # what a Convert makes (the details card's BECOMES row)
+# the reasons a one-file answer (`file_answer`) has nothing to say for: no file to speak of, a download, a better
+# version waiting (the upgrade decision stands)
+NO_ANSWER = ("file_missing", "downloaded", "upgrade_waits")
 UNREADABLE = "Discjockey couldn't read this file. Nothing was changed."
+NOTHING_TO_CHANGE = "Nothing to change: these are clean AIFFs already."
 
 # the reasons a file can't run now but may later, in the order `waiting` lists them
 WAITING = ("away", "file_missing", "no_name", "rekordbox_unreadable", "cloud", "rename_blocked", "upgrade_waits")
@@ -378,3 +384,57 @@ def plan(paths: Paths, state: dict, scope: Mapping, *, rb: Status,
         lossy=sum(1 for i in items if i.lossy), space=space_of(paths, items, convert.free_space),
         superseded_bytes=sum(i.old_bytes for i in items),
         rekordbox={"state": rb.state, "running": rb.running, "needs_closed": in_rekordbox or unknown})
+
+
+def read_plan(paths: Paths, state: dict, scope: Mapping, *, place: Place | None, running: bool,
+              only: str | None = None, tags: Callable[[Path], audio.FileFacts] = audio.file_facts,
+              lines: Sequence[pf.Row] | None = None, records: Mapping | None = None,
+              watched: Sequence[WatchedFolder] | None = None) -> AiffPlan:
+    """`plan` with one read-only open of rekordbox's library at `place` (None: there is none) for the lookup of its
+    tracks and its state: what the commands' `--dry-run` and run, and the window's panel and jobs, all ask. `running`:
+    whether rekordbox runs now. A library that can't be opened is `unreadable` (`busy`: another window holds it, taken
+    as `ready` with no lookup)."""
+    if place is None or not place.db.is_file():
+        rb = master.Status("none", running, None, None, None, None, None)
+        return plan(paths, state, scope, rb=rb, entries=None, tags=tags, lines=lines, records=records,
+                    watched=watched, only=only)
+    try:
+        with master.open_read(place, running) as m:
+            index = m.index()
+            return plan(paths, state, scope, rb=master.status_of(m, running), tags=tags, lines=lines,
+                        records=records, watched=watched, only=only, entries=lambda file: m.entries_for(file, index))
+    except master.Unreadable as e:
+        rb = master.Status("ready" if e.problem == "busy" else "unreadable", running, place.app_version,
+                           str(place.db), e.problem, e.db_version, e.dbid)
+    return plan(paths, state, scope, rb=rb, entries=None, tags=tags, lines=lines, records=records, watched=watched,
+                only=only)
+
+
+def file_answer(paths: Paths, state: dict, key: str, *, rb: Status,
+                tags: Callable[[Path], audio.FileFacts] = audio.file_facts) -> dict | None:
+    """What Convert and Rename can do for one track, for its details (plan §4 `track().aiff`): the plan of `{"kind":
+    "tracks", "tracks": [key]}` from the stored facts, one `tags` read of the file when it needs its tags looked at, and
+    rekordbox's cached state `rb` (no read open of its library: a Cloud Library Sync track is found by the run).
+    `{action: "convert" | "rename" | null, why_not: reason | null, kind, from, to, name_now, new_name, bytes, lossy,
+    cdj}`: with an action, `kind` / `to` (`AIFF_LINE` for a Convert, null for a Rename) / `new_name` / `bytes` say what
+    it would do; without, `why_not` is the reason (`eligible.REASONS`), `from` / `lossy` / `cdj` still say what the
+    file is. None when there is nothing to say: no file there, a download or a better version waiting (`NO_ANSWER`)."""
+    found = plan(paths, state, {"kind": "tracks", "tracks": [key]}, rb=rb, entries=None, tags=tags)
+    e = state["tracks"].get(key)
+    if e is None:
+        return None
+    name_now = PurePosixPath(e["path"]).name if e.get("path") else None
+    if found.items:
+        i = found.items[0]
+        return {"action": i.action, "why_not": None, "kind": i.kind, "from": i.source,
+                "to": AIFF_LINE if i.action == "convert" else None, "name_now": PurePosixPath(i.path).name,
+                "new_name": PurePosixPath(i.new_path).name, "bytes": i.bytes, "lossy": i.lossy, "cdj": i.cdj}
+    reason = found.skipped[0].reason
+    if reason in NO_ANSWER or name_now is None:
+        return None
+    stored = entry_audio(e)
+    ext = PurePosixPath(e["path"]).suffix.lower()
+    return {"action": None, "why_not": reason, "kind": None,
+            "from": format_line(stored, ext) if stored else None, "to": None, "name_now": name_now,
+            "new_name": None, "bytes": 0, "lossy": not quality.is_lossless_codec(stored.codec) if stored else False,
+            "cdj": _cdj_dict(cdj.cdj_problem(stored, ext)) if stored else None}

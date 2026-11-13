@@ -21,7 +21,7 @@ CONTRACT = {
     "search_candidates", "preview", "add_playlist", "preview_playlist_change",
     "start_sync", "stop", "save_playlists", "hide", "never_download", "add_bought_file", "use_candidate",
     "use_link", "reject_current", "upgrade", "upgrade_all", "undo_upgrade", "batch_resume", "batch_undo",
-    "rekordbox_checked", "rescan_library",
+    "aiff_plan", "convert", "rename", "make_aiff", "rekordbox_checked", "rescan_library",
     "show_in_finder", "reveal", "open_report", "open_external", "app_update",
     "setup_check_tools", "setup_save_client_id", "setup_spotify_login", "setup_qobuz_login",
     "open_licenses", "update_tools", "rollback_tools", "quit",
