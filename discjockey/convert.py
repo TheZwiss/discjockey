@@ -201,17 +201,18 @@ def _superseded_name(paths: Paths, names: NameReserver, track_id: str, old_rel: 
 Judge = Callable[[TimelineOffset, master.Status], eligible.Verdict]  # what an action says about rekordbox's timeline
 
 
-def _timeline(session: Session, old_file: Path, judge: Judge) -> tuple[list[rekordbox.Entry], int]:
+def _timeline(session: Session, old_file: Path, judge: Judge, *, own_file: bool = False
+              ) -> tuple[list[rekordbox.Entry], int]:
     """rekordbox's tracks of the old file and `d` (44.1 kHz samples); `judge` is the action's own rule
-    (`eligible.same_track` or `eligible.convert`) applied to what the timeline found. Raises Skipped, or
-    RekordboxOpened."""
+    (`eligible.same_track` or `eligible.convert`) applied to what the timeline found; `own_file`: Convert's, so a
+    refusal says the words of the user's own file (`rbstep.OWN_FILE_REFUSED`). Raises Skipped, or RekordboxOpened."""
     view = session.view()
     if view is None:
         if session.state.state == "none":
             return [], 0  # no rekordbox on this Mac: d = 0, nothing to repoint (design §3.4)
         if session.state.running:
             raise RekordboxOpened()
-        raise rbstep.skipped("rekordbox_unreadable")
+        raise rbstep.skipped("rekordbox_unreadable", own_file=own_file)
     try:
         t = rekordbox.timeline_offset(old_file, view=view)
     except Exception as err:  # ffmpeg can't read the old file: a failure of this track, nothing written
@@ -219,7 +220,8 @@ def _timeline(session: Session, old_file: Path, judge: Judge) -> tuple[list[reko
                              "changed.") from err
     verdict = judge(t, view.status)
     if isinstance(verdict, Skip):
-        raise rbstep.skipped(verdict.reason) if verdict.reason in rbstep.REFUSED or verdict.reason in rbstep.CONVERT_REFUSED \
+        raise rbstep.skipped(verdict.reason, own_file=own_file) \
+            if verdict.reason in rbstep.REFUSED or verdict.reason in rbstep.CONVERT_REFUSED \
             else rbstep.Skipped(verdict.reason, verdict.reason)
     entries = [x.entry for x in t.entries]
     if entries:
@@ -317,8 +319,8 @@ def convert_file(paths: Paths, state: dict, track_id: str, *, session: Session,
     if isinstance(verdict, Skip):
         if verdict.reason == "rekordbox_unreadable" and session.state.running:
             raise RekordboxOpened()  # the library can't be read while rekordbox holds it: rekordbox open stops the batch
-        raise rbstep.skipped(verdict.reason)
-    entries, d = _timeline(session, old_file, lambda t, status: eligible.convert(e, facts, status, t))
+        raise rbstep.skipped(verdict.reason, own_file=True)
+    entries, d = _timeline(session, old_file, lambda t, status: eligible.convert(e, facts, status, t), own_file=True)
 
     new, superseded = plan_file_names(paths, state, track_id, e)
     try:

@@ -186,9 +186,26 @@ def test_an_item_whose_answer_changed_is_skipped_with_the_new_reason_never_switc
     assert [(i.state, i.reason) for i in result.results] == [("skipped", "clean_aiff"), ("skipped", "needs_convert")]
     assert result.results[0].message == "This file is a clean AIFF already: Give it its clean name."
     assert result.results[1].message == rbstep.CONVERT_REFUSED["needs_convert"]
+    assert str(refused.value) == batches.NOTHING_FILE_ELIGIBLE and "upgrade" not in str(refused.value)
     assert lib.music() == music and lib.entry(0)["path"] == lib.olds[0]            # nothing switched, nothing moved
     assert lib.entry(1)["path"] == lib.olds[1] and rbbackup.backups(lib.paths) == []
     assert "rekordbox_check" not in lib.entry(0) or not lib.entry(0)["rekordbox_check"]
+
+
+def test_a_library_rekordbox_cant_read_says_the_files_own_words_never_new_track_or_upgrade(tmp_path, monkeypatch):
+    lib = make_own_lib(tmp_path, monkeypatch, ["mp3", "clean"])
+    monkeypatch.setattr("discjockey.rekordbox.master.KEYS", ("00" * 32,))
+    batch_id = start(lib, [(0, "convert"), (1, "rename")])
+    music = lib.music()
+    with pytest.raises(batches.Refused) as refused:
+        go(lib, batch_id)
+    convert_item, rename_item = refused.value.result.results
+    assert (convert_item.reason, convert_item.message) == ("rekordbox_unreadable",
+                                                           rbstep.OWN_FILE_REFUSED["rekordbox_unreadable"])
+    assert rename_item.reason == "rename_blocked" and "rekordbox's library can't be opened" in rename_item.message
+    for item in refused.value.result.results:
+        assert "New track" not in item.message and "upgrade" not in item.message.lower()
+    assert lib.music() == music and rbbackup.backups(lib.paths) == []
 
 
 @pytest.mark.parametrize("change, action, reason, words", [
@@ -307,7 +324,7 @@ def test_batch_undo_goes_newest_first_across_kinds_chain_item_included(tmp_path,
     assert all(not lib.entry(i)["rekordbox_check"] for i in range(4))
     assert [(e.done, e.total) for e in events] == [(n, 4) for n in range(5)]
     log = lib.paths.operations_log.read_text()
-    assert (log.count('"operation": "undo_convert"'), log.count('"operation": "undo_rename"')) == (3, 1)
+    assert (log.count('"operation": "undo_convert"'), log.count('"operation": "undo_rename"')) == (3, 2)   # a chain's two undos log twice
     assert "upgrade" not in " ".join(r.message for r in result.results).lower()
 
 
@@ -333,6 +350,8 @@ def test_the_second_undo_of_a_chain_refused_leaves_the_first_standing(tmp_path, 
     assert item.message.startswith("The clean name is back, but the conversion could not be undone")
     assert states(lib, batch_id) == ["done"]               # it can still be undone later
     assert lib.entry(0)["rekordbox_check"]["reason"] == "converted"
+    log = lib.paths.operations_log.read_text()          # the half that happened is in the log, the other is not
+    assert log.count('"operation": "undo_rename"') == 1 and '"operation": "undo_convert"' not in log
 
 
 def test_undo_with_rekordbox_open_at_the_start_changes_nothing(tmp_path, monkeypatch):
@@ -419,7 +438,9 @@ def test_every_reason_a_file_item_is_skipped_with_has_words_without_upgrade(acti
 def test_the_words_of_the_plan_for_the_reasons_a_file_item_meets():
     assert batches.words("upgrade_waits", "convert") == "A better version is waiting: Same track makes it an AIFF."
     assert batches.words("named_already", "rename") == "A clean AIFF with its clean name already."
+    # two cases, two sentences: a file with only its name left, and a file with nothing left to do
     assert batches.words("clean_aiff", "convert") == "This file is a clean AIFF already: Give it its clean name."
+    assert rbstep.CONVERT_REFUSED["clean_aiff"] != rbstep.CONVERT_REFUSED["named_already"]
     assert batches.words("needs_convert", "rename") == rbstep.CONVERT_REFUSED["needs_convert"]
     assert batches.words("rename_blocked", "rename", why=rename.BLOCKED_WHY["cloud"]) == \
         rbstep.REFUSED["rename_blocked"].format(reason="the track is in Cloud Library Sync")

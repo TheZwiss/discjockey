@@ -210,7 +210,7 @@ def rename_file(paths: Paths, state: dict, track_id: str, *, session: Session,
             if session.state.running:
                 raise RekordboxOpened()
             raise blocked("unreadable")
-        raise rbstep.skipped(verdict.reason)
+        raise rbstep.skipped(verdict.reason, own_file=True)
     entries = _entries(session, old_file)
     new_abs = rbstep.abs_path(paths, new)
     changes = [rbwrite.rename_change(x, new_abs) for x in entries]

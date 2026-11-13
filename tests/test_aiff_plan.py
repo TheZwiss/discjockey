@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -544,12 +545,21 @@ def test_a_rename_of_a_file_in_rekordbox_needs_it_closed_too(lib):
     assert closed(run(paths, state, picked("name"), entries=lambda file: [row()])) is True
 
 
-def test_a_library_that_cannot_be_read_may_hold_any_file_so_the_run_decides(lib):
+def test_a_library_that_cannot_be_read_refuses_every_step_so_every_file_waits(lib):
+    """The step refuses a Convert or Rename whatever the file is (its rekordbox tracks can't be known), and stops the
+    batch when rekordbox runs: nothing is offered as an item, nothing needs rekordbox closed, the files wait."""
     paths, state = lib
-    plan = run(paths, state, picked("flac", "name", "clean"), rb=UNREADABLE, entries=None)
-    assert [i.track for i in plan.items] == ["flac", "name"] and closed(plan) is True
-    assert plan.rekordbox["state"] == "unreadable" and plan.skipped[0].reason == "named_already"
-    assert closed(run(paths, state, picked("clean"), rb=UNREADABLE, entries=None)) is False  # nothing to run
+    for rb in (UNREADABLE, replace(UNREADABLE, running=True)):
+        plan = run(paths, state, picked("flac", "name", "clean", "bought"), rb=rb, entries=None)
+        assert plan.items == () and closed(plan) is False and plan.rekordbox["state"] == "unreadable"
+        assert [(s.track, s.reason) for s in plan.skipped] == [
+            ("flac", "rekordbox_unreadable"), ("name", "rekordbox_unreadable"), ("clean", "named_already"),
+            ("bought", "downloaded")]
+        assert plan.skipped[0].message == rbstep.OWN_FILE_REFUSED["rekordbox_unreadable"]
+        assert [(w["reason"], w["n"]) for w in plan.waiting] == [("rekordbox_unreadable", 2)]  # nothing to do isn't a wait
+    plan = run(paths, state, lossless(), rb=UNREADABLE, entries=None)
+    assert plan.items == () and [(w["reason"], w["n"]) for w in plan.waiting] == [
+        ("no_name", 1), ("rekordbox_unreadable", 7), ("upgrade_waits", 1)]
 
 
 def test_a_track_in_cloud_library_sync_is_skipped(lib):
@@ -565,8 +575,8 @@ def test_to_dict_is_the_bridges_one_shape(lib):
     paths, state = lib
     plan = run(paths, state, picked("flac", "name", "clean"))
     out = plan.to_dict()
-    assert list(out) == ["scope", "items", "skipped", "kinds", "lossy", "total", "space", "superseded_bytes",
-                         "rekordbox"]
+    assert list(out) == ["scope", "items", "skipped", "waiting", "kinds", "lossy", "total", "space",
+                         "superseded_bytes", "rekordbox"]
     assert out["scope"] == {"kind": "tracks", "tracks": ["flac", "name", "clean"], "label": "Selection"}
     assert list(out["items"][0]) == ["track", "name", "action", "kind", "from", "path", "new_path", "superseded",
                                      "bytes", "cdj"]
@@ -580,5 +590,73 @@ def test_to_dict_is_the_bridges_one_shape(lib):
 def test_an_empty_plan_has_the_whole_shape(lib):
     paths, state = lib
     out = run(paths, state, lossless("folder", "Library/Nowhere")).to_dict()
-    assert (out["items"], out["skipped"], out["kinds"], out["space"], out["total"], out["lossy"]) == ([], [], [], [], 0, 0)
+    assert (out["items"], out["skipped"], out["waiting"], out["kinds"], out["space"], out["total"],
+            out["lossy"]) == ([], [], [], [], [], 0, 0)
     assert out["rekordbox"]["needs_closed"] is False
+
+
+# --- what waits ---
+
+def test_files_that_cannot_run_now_are_counted_in_waiting_in_every_scope_and_never_as_items(tmp_path):
+    tracks = songs()
+    tracks["gone"] = own("/Volumes/Nowhere Drive/Music/x.flac", "Gone", "flac", 44100, 16)
+    tracks["absent"] = own("Library/Mine/z.flac", "Absent", "flac", 44100, 16)
+    tracks["noname2"] = own("Library/Mine/n2.flac", "", "flac", 44100, 16)
+    paths, state = library_of(tmp_path, tracks, absent=("absent", "gone"))
+    cloud = lambda file: [row(cloud=True)] if file.name == "g.mp3" else []  # noqa: E731
+    expected = [("away", 1), ("file_missing", 1), ("no_name", 2), ("cloud", 1), ("upgrade_waits", 1)]
+    for scope in (lossless(), picked(*tracks)):
+        plan = run(paths, state, scope, entries=cloud)
+        assert [(w["reason"], w["n"]) for w in plan.waiting if w["reason"] != "cloud"] == [
+            (r, n) for r, n in expected if r != "cloud"]
+        assert not {i.track for i in plan.items} & {"gone", "absent", "noname", "noname2", "up"}
+        assert plan.total == len(plan.items)
+    plan = run(paths, state, picked(*tracks), entries=cloud)
+    assert [(w["reason"], w["n"]) for w in plan.waiting] == expected      # in WAITING's order, only n > 0
+    assert all(w["message"] and list(w) == ["reason", "message", "n"] for w in plan.waiting)
+    assert plan.waiting[0]["message"] == rbstep.CONVERT_REFUSED["away"]
+    assert {s.reason for s in plan.skipped} >= {"away", "file_missing", "no_name", "cloud", "upgrade_waits"}
+    assert run(paths, state, lossless()).skipped == ()                    # the all scopes list no skips
+
+
+def test_nothing_to_do_is_not_a_wait(lib):
+    paths, state = lib
+    plan = run(paths, state, picked("clean", "bought", "flac"))
+    assert [s.reason for s in plan.skipped] == ["named_already", "downloaded"] and plan.waiting == ()
+
+
+def test_the_cdj_scope_counts_its_waits_too(lib):
+    paths, state = lib
+    state["tracks"]["aac"]["path"] = "/Volumes/Nowhere Drive/h.m4a"
+    plan = run(paths, state, {"kind": "cdj"})
+    assert [i.track for i in plan.items] == ["wavpack"]
+    assert [(w["reason"], w["n"]) for w in plan.waiting] == [("away", 1)]
+    assert plan.to_dict()["waiting"] == [{"reason": "away", "message": rbstep.CONVERT_REFUSED["away"], "n": 1}]
+
+
+# --- the room a file's AIFF needs comes from the file ---
+
+def test_a_file_without_a_rekordbox_track_or_a_stored_length_is_sized_from_its_header(lib):
+    paths, state = lib
+    state["tracks"]["flac"]["duration_ms"] = None          # the record has no length: the file's header says
+    state["tracks"]["wav"]["duration_ms"] = None
+    tags = reader(state["tracks"])
+    tags.facts["a.flac"] = FileFacts(".flac", "flac", 96000, 24, {}, False, 90.0)
+    tags.facts["b.wav"] = FileFacts(".wav", "pcm_s24le", 44100, 24, {}, False, None)   # a header with no length
+    plan = run(paths, state, picked("flac", "wav", "mp3"), tags=tags, entries=lambda file: [])  # rekordbox has none
+    items = by_track(plan)
+    assert items["flac"].bytes == convert.needed_bytes(90, 2) and tags.asked == ["a.flac", "b.wav"]
+    assert items["wav"].bytes == convert.needed_bytes(0, 2)
+    assert items["mp3"].bytes == convert.needed_bytes(60, 2)   # the record's own length is not asked of the file
+    assert plan.space[0]["needed"] == sum(i.bytes for i in plan.items)
+
+
+def test_an_unreadable_header_skips_the_file_instead_of_sizing_it_zero(lib):
+    paths, state = lib
+    state["tracks"]["flac"]["duration_ms"] = None
+
+    def broken(path):
+        raise RuntimeError("no audio")
+    plan = run(paths, state, picked("flac", "wav"), tags=broken)
+    assert [(s.track, s.reason) for s in plan.skipped] == [("flac", "file_missing")] and plan.skipped[0].message
+    assert [i.track for i in plan.items] == ["wav"]

@@ -412,6 +412,10 @@ def test_refusals_change_nothing(tmp_path, monkeypatch, case, reason):
     assert err.value.reason == reason
     if case == "space":
         assert err.value.detail["free"] == 1_000_000 and "needed, 1 MB free" in str(err.value)
+    elif case == "unreadable":  # a Convert has no New track to choose and nothing to upgrade
+        words = str(err.value)
+        assert words == rbstep.OWN_FILE_REFUSED[reason] != rbstep.REFUSED[reason]
+        assert "New track" not in words and "upgrade" not in words.lower() and "Rekordbox" not in words
     else:
         assert str(err.value) == (rbstep.REFUSED.get(reason) or rbstep.CONVERT_REFUSED[reason])
     if case == "unclean":

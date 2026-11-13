@@ -75,6 +75,7 @@ OPERATIONS = {"same_track": OPERATION, "convert": "aiff_convert", "rename": "aif
 UNDO_OPERATIONS = {"upgrade": "undo_upgrade", "convert": "undo_convert", "rename": "undo_rename"}
 LOG_PREFIXES = ("upgrade_", "aiff_")  # the log's names of a finished step (`_finished_order`)
 NOTHING_ELIGIBLE = "None of these can be upgraded right now."
+NOTHING_FILE_ELIGIBLE = "None of these can be changed right now."  # the same for a batch with no Same track item
 NOTHING_UNDONE = "None of these could be undone."
 STOPPED_BY_REKORDBOX = ("rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox and "
                         "press Resume.")
@@ -186,12 +187,13 @@ class RekordboxOpen(rbsession.RekordboxOpen):
 
 class Refused(Exception):
     """Nothing in the batch could be done and nothing failed: every item was skipped. The message is the one item's
-    own reason, or the general sentence for several."""
+    own reason, or the general sentence for several (no "upgraded" when no item is a Same track)."""
 
     def __init__(self, result: BatchResult):
         skipped = [i for i in result.results if i.state == "skipped"]
+        general = NOTHING_ELIGIBLE if any(i.action == "same_track" for i in result.results) else NOTHING_FILE_ELIGIBLE
         super().__init__(skipped[0].message if len(result.results) == 1 and skipped and skipped[0].message
-                         else NOTHING_ELIGIBLE)
+                         else general)
         self.result = result
 
 
@@ -199,14 +201,7 @@ def _name(e: dict | None, track_id: str) -> str:
     return f"{e.get('artist', '?')} – {e.get('title', track_id)}" if e else track_id
 
 
-# What a Convert or Rename item says where the Same track's words don't fit (plan stage D §3, "Skipped list": the words
-# of `rbstep.CONVERT_REFUSED`, whole sentences, are used as they stand)
-FILE_WORDS = {
-    "rekordbox_unreadable": "Discjockey can't open this rekordbox version's library yet, so it can't point your "
-                            "rekordbox track at the file. Nothing was changed.",
-    # a Convert item meets `clean_aiff` only when its answer became Rename: the file is a clean AIFF, its name isn't
-    "clean_aiff": "This file is a clean AIFF already: Give it its clean name.",
-}
+# The reason a Convert or Rename item is skipped with when its answer changed under it (never switched to the other action)
 SWITCHED = {"convert": "clean_aiff", "rename": "needs_convert"}  # the reason of an item whose answer changed
 
 
@@ -217,7 +212,7 @@ def words(reason: str, action: str = "same_track", why: str | None = None) -> st
     if action != "same_track":
         if reason == "rename_blocked":
             return rbstep.REFUSED[reason].format(reason=why or rename.BLOCKED_WHY["unreadable"])
-        if text := FILE_WORDS.get(reason) or rbstep.CONVERT_REFUSED.get(reason):
+        if text := rbstep.OWN_FILE_REFUSED.get(reason) or rbstep.CONVERT_REFUSED.get(reason):
             return text
     text = REASON_WORDS.get(reason, reason)
     if not text.startswith("rekordbox"):  # rekordbox is written in lower case, a sentence's start included
@@ -402,9 +397,7 @@ def _item(paths, state: dict, session: Session, batch_id: int, item: AiffItemRow
             result = convert.same_track(paths, state, track, dict(e["upgrade"]), session=session, compare=compare,
                                         now=now, batch=(batch_id, item.seq))
     except rbstep.Skipped as err:
-        # Convert's own library refusal says "Choose New track" (Same track's words): this item says its own
-        skip(err.reason, words(err.reason, action) if err.reason == "rekordbox_unreadable" and action == "convert"
-             else str(err), err.detail)
+        skip(err.reason, str(err), err.detail)
     except NeedsChoice as err:
         skip("needs_choice", str(err))
     except RekordboxOpened:
@@ -691,6 +684,7 @@ def undo(paths, target: int | Sequence[str], *, emit: Emit = no_emit, token: Can
                 else:
                     if kind == "rename" and _undo_kind(state["tracks"].get(track)) == "convert":
                         # the Convert→Rename chain: the clean name is back, the conversion is the second undo
+                        ops.log_operation(paths, now(), track, e, UNDO_OPERATIONS["rename"], "done", done.note)
                         kind = "convert"
                         try:
                             done = upgrades.undo(paths, state, track, session=session)
