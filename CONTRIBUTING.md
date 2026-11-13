@@ -135,7 +135,7 @@ the user's own file, its sound judged, not hidden). Read only. JSON: `{"ok", "co
 "auto_refused": null | {"reason", "message", "at"}, "auto_waits": bool}]}`. `same_track` is `null` when Same track can
 run for it (the quick answer: the run asks again and may still skip it), else the reason. `auto_refused` is the
 refusal the sync's Auto-upgrade recorded on the track (`timing`, `not_analysed`, `cloud`, `space`, `needs_choice`),
-`auto_waits` is `true` when the last sync met rekordbox open for it and Auto-upgrade is on. Song keys for the
+`auto_waits` is `true` when the last sync met rekordbox open for it, Auto-upgrade is on and `same_track` is `null` (the hub's To-do shows the mark under the same condition). Song keys for the
 commands below come from here.
 
 **`discjockey upgrade apply (<track>… | --all) --way same-track|new-track [--dry-run] [--json]`**. `same-track` is
