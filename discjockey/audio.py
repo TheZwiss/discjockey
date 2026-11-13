@@ -288,13 +288,14 @@ TEXT_FIELDS = ("title", "artist", "album", "label", "isrc", "comment")  # the te
 class FileFacts:
     """What a file is and says: `ext` (lower case, with the dot), the stream's `codec`, `sample_rate`, `bits`
     (None for a lossy codec), the text `tags` (every one of TEXT_FIELDS, '' when missing or empty) and whether it
-    carries a cover."""
+    carries a cover; `duration_s` the stream's length from its header (ffprobe, no decoding; None when it says none)."""
     ext: str
     codec: str
     sample_rate: int
     bits: int | None
     tags: dict[str, str]
     has_cover: bool
+    duration_s: float | None = None
 
 
 def _first(values) -> str:
@@ -348,4 +349,5 @@ def file_facts(path: Path) -> FileFacts:
     label, comment = _label_and_comment(path)
     tags = {"title": read["title"] or "", "artist": read["artist"] or "", "album": read["album"] or "",
             "label": label, "isrc": read["isrc"] or "", "comment": comment}
-    return FileFacts(path.suffix.lower(), info.codec, info.sample_rate, info.bits, tags, _has_cover(path))
+    return FileFacts(path.suffix.lower(), info.codec, info.sample_rate, info.bits, tags, _has_cover(path),
+                     info.duration_s or None)

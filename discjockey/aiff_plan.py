@@ -14,17 +14,21 @@ Scopes: `{"kind": "tracks", "tracks": [key, ...]}` (what the user picked: files 
 `skipped` with their reason), `{"kind": "lossless", "view": "all"|"unlisted"|"playlist"|"folder", "key": ...}` (the
 view's own files, as `views.library` lists them without filter or search, whose stored codec is lossless by
 `quality.is_lossless_codec`) and `{"kind": "cdj"}` (`cdj.group_members`). The "all" scopes leave out what has nothing to
-do or can't run now; `skipped` is for a `tracks` scope only.
+do; `skipped` is for a `tracks` scope only. What can't run now but may later (`WAITING`: the drive is away, the
+file is gone, no name, a library rekordbox can't read, a cloud track, no free name, a parked upgrade) is counted in
+`waiting` in every scope, each file once and never as an item, so a panel can say "{n} wait" instead of hiding them;
+a `tracks` scope lists them in `skipped` as well, with their own words.
 
 The action of each file is `eligible.aiff_action`; a Convert item's names are those `convert.plan_file_names` gives (one
 reserver for the whole plan, so two files wanting one name are told apart), a Rename item's `rename.clean_path`. A
-library rekordbox can't read (`unreadable`) is left to the run, as the batch's own check does: the plan answers as if it
-could be read and says `needs_closed`.
+library rekordbox can't read (`unreadable`) refuses every Convert and Rename step, a file rekordbox doesn't hold
+included (its tracks can't be known), and stops the batch when rekordbox runs: so each of those files waits
+(`rekordbox_unreadable`), none is an item, and `needs_closed` is false.
 """
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from . import audio, batches, cdj, convert, db, library, playlists_file as pf, quality, rbstep, rename
@@ -41,6 +45,10 @@ SCOPE_KINDS = ("tracks", "lossless", "cdj")
 SELECTION_LABEL = "Selection"
 CDJ_LABEL = "Won't play well on CDJs"
 UNREADABLE = "Discjockey couldn't read this file. Nothing was changed."
+
+# the reasons a file can't run now but may later, in the order `waiting` lists them
+WAITING = ("away", "file_missing", "no_name", "rekordbox_unreadable", "cloud", "rename_blocked", "upgrade_waits")
+NO_FREE_NAME = "no free file name is left for it"
 
 # the kinds in the order the panel lists them: the lossless formats, then the AIFFs that only need a fix, then the
 # lossy ones; a codec not listed (WMA, ...) follows by name
@@ -95,6 +103,7 @@ class AiffPlan:
     scope: dict
     items: tuple[Item, ...]
     skipped: tuple[Left, ...]
+    waiting: tuple[dict, ...]
     kinds: tuple[dict, ...]
     lossy: int
     space: tuple[dict, ...]
@@ -112,7 +121,8 @@ class AiffPlan:
     def to_dict(self) -> dict:
         """The bridge's and the dry run's one shape (plan §1.3)."""
         return {"scope": self.scope, "items": [i.to_dict() for i in self.items],
-                "skipped": [s.to_dict() for s in self.skipped], "kinds": list(self.kinds), "lossy": self.lossy,
+                "skipped": [s.to_dict() for s in self.skipped], "waiting": list(self.waiting),
+                "kinds": list(self.kinds), "lossy": self.lossy,
                 "total": self.total, "space": list(self.space), "superseded_bytes": self.superseded_bytes,
                 "rekordbox": self.rekordbox}
 
@@ -160,6 +170,12 @@ def format_line(audio_: FileAudio, ext: str) -> str:
     if not quality.is_lossless_codec(audio_.codec) and audio_.kbps:
         parts.append(f"{audio_.kbps} kbps")
     return " · ".join(parts)
+
+
+def waiting_of(counts: Mapping[str, int]) -> tuple[dict, ...]:
+    """`[{"reason", "message", "n"}]` for the files that wait, in `WAITING`'s order, only reasons with files."""
+    return tuple({"reason": r, "message": batches.words(r, "convert", NO_FREE_NAME if r == "rename_blocked" else None),
+                  "n": counts[r]} for r in WAITING if counts.get(r))
 
 
 def space_of(paths: Paths, items: Sequence[Item], free: Callable[[Path], int]) -> tuple[dict, ...]:
@@ -276,18 +292,14 @@ def _judge(paths: Paths, state: dict, key: str, rb: Status, entries: Callable[[P
         except FileExistsError:
             clean = None
     found = list(entries(file)) if entries is not None else []
-    # the library can't be read: every file counts as one that may need rekordbox, and the run decides (as the batch's
-    # own check does, which leaves `rekordbox_unreadable` to the step)
-    asked = replace(rb, state="ready") if rb.state == "unreadable" else rb
-    action, verdict = eligible.aiff_action(e, facts, asked, _timing(asked, found), where, clean)
+    action, verdict = eligible.aiff_action(e, facts, rb, _timing(rb, found), where, clean)
     if not isinstance(verdict, Eligible):
         return None, _Skip(verdict.reason, batches.words(verdict.reason, action)), bool(found)
     if stored is None:
         return None, _Skip("file_missing", UNREADABLE), bool(found)
     if action == "rename":
         if clean is None:  # no free name for it
-            why = "no free file name is left for it"
-            return None, _Skip("rename_blocked", batches.words("rename_blocked", "rename", why)), bool(found)
+            return None, _Skip("rename_blocked", batches.words("rename_blocked", "rename", NO_FREE_NAME)), bool(found)
         names.taken.add(fold(clean))
         new, superseded, needs = clean, None, 0
     else:
@@ -295,7 +307,10 @@ def _judge(paths: Paths, state: dict, key: str, rb: Status, entries: Callable[[P
         chain = fold(f"{PurePosixPath(new).parent}/{expected_stem(e['artist'], e['title'])}.aiff") == fold(e["path"])
         if chain:  # the AIFF takes the ID name, then gives the file its clean name: it ends where the old one was
             new = e["path"]
-        needs = convert.needed_bytes((e.get("duration_ms") or 0) / 1000, 2)
+        try:
+            needs = convert.needed_bytes(_seconds(e, file, facts, tags), 2)
+        except (RuntimeError, OSError):
+            return None, _Skip("file_missing", UNREADABLE), bool(found)
     try:
         old_bytes = file.stat().st_size
     except OSError:
@@ -305,6 +320,15 @@ def _judge(paths: Paths, state: dict, key: str, rb: Status, entries: Callable[[P
                 needs, old_bytes if action == "convert" else 0, not quality.is_lossless_codec(stored.codec),
                 kind_label(kind, stored, ext), _cdj_dict(problem or cdj.cdj_problem(stored, ext)))
     return item, None, bool(found)
+
+
+def _seconds(e: dict, file: Path, facts: audio.FileFacts | None, tags: Callable[[Path], audio.FileFacts]) -> float:
+    """How long the file plays, for the room its AIFF needs: the record's own length when it has one (an own file's is
+    the import's probe), else the file's header (`facts`, or one `tags` read: ffprobe, no decoding). A file whose header
+    says none counts 0 (RuntimeError / OSError when it can't be read at all)."""
+    if e.get("duration_ms"):
+        return e["duration_ms"] / 1000
+    return (facts or tags(file)).duration_s or 0.0
 
 
 def _cdj_dict(problem: cdj.CdjProblem | None) -> dict | None:
@@ -327,19 +351,24 @@ def plan(paths: Paths, state: dict, scope: Mapping, *, rb: Status,
     selected = scope["kind"] == "tracks"
     items: list[Item] = []
     left: list[Left] = []
+    waits: dict[str, int] = {}
     in_rekordbox = False
     for key in keys:
         item, skip, held = _judge(paths, state, key, rb, entries, tags, names, problems.get(key))
         in_rekordbox = in_rekordbox or (item is not None and held)
         if item is not None:
             items.append(item)
-        elif selected:
+            continue
+        if skip.reason in WAITING:
+            waits[skip.reason] = waits.get(skip.reason, 0) + 1
+        if selected:
             e = state["tracks"].get(key)
             left.append(Left(key, rbstep.track_name(e, key) if e else key, skip.reason, skip.message))
-    # a library nobody can read (and one the caller gave no lookup for) may hold any of the files
-    unknown = bool(items) and (rb.state == "unreadable" or (rb.state == "ready" and entries is None))
+    # a library the caller gave no lookup for may hold any of the files
+    unknown = bool(items) and rb.state == "ready" and entries is None
     return AiffPlan(
-        scope={**scope, "label": label}, items=tuple(items), skipped=tuple(left), kinds=kinds_of(items),
+        scope={**scope, "label": label}, items=tuple(items), skipped=tuple(left), waiting=waiting_of(waits),
+        kinds=kinds_of(items),
         lossy=sum(1 for i in items if i.lossy), space=space_of(paths, items, convert.free_space),
         superseded_bytes=sum(i.old_bytes for i in items),
         rekordbox={"state": rb.state, "running": rb.running, "needs_closed": in_rekordbox or unknown})

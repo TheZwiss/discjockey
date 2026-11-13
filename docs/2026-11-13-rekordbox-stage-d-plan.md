@@ -75,8 +75,8 @@ file facts are filled silently, §0.3); a release (the user's live test comes fi
 10. **`rename` is its own module and op** (`discjockey/rename.py`, ops `rename` / `rename_undo`): `move_path(old →
     new)` in the same folder, then rekordbox's identity columns, `PPTH` and `contentFile` in one transaction; audio,
     tags and file facts unchanged; check reason `renamed`. Order: journal → backup → move (`placed`) → rekordbox
-    commit (`committed`) → end. Recovery decides by the rows' `FolderPath` as `convert` does (`convert`'s side
-    helpers become public: `side_of`, `tracks_at`): old path → the file moves back (no rekordbox write, so it never
+    commit (`committed`) → end. Recovery decides by the rows' `FolderPath` as `convert` does (the side
+    helpers `side_of`, `tracks_at` and the rest of the kit both steps share live in `rbstep.py`, D4c): old path → the file moves back (no rekordbox write, so it never
     waits for rekordbox); new path → finish; neither → help. Reason: design §7.1; `convert.py` (881 lines) would pass
     1300 with it.
 11. **The cover of a converted file**: the song record's (`image_url`, fetched as downloads fetch it) when the song is
@@ -118,7 +118,8 @@ file facts are filled silently, §0.3); a release (the user's live test comes fi
 | `cdj.py` (new, pure) | `cdj_problem(audio: FileAudio, ext: str) -> CdjProblem \| None` (§1.4) | D1 |
 | `audio.py` | `cdj_cover(data) -> bytes \| None`; `write_tags` and `copy_tags` callers pass covers through it; `embedded_cover(path) -> bytes \| None` (any format) | D1 |
 | `rekordbox/eligible.py` | `upgrade_waits` in `REASONS` and in `convert`/`rename`; `aiff_action` (§0.1) | D1 |
-| `convert.py` | `convert_file`, the `source` field, `converted` check, public `side_of` / `tracks_at`, `undo_convert` without `held` | D2 |
+| `convert.py` | `convert_file`, the `source` field, `converted` check, `undo_convert` without `held` | D2 |
+| `rbstep.py` (new) | the kit Convert and Rename share, moved out of `convert.py` unchanged: `Skipped` / `skipped`, `REFUSED`, `CONVERT_REFUSED`, `OWN_FILE_REFUSED`, `raise_refusal`, `side_of`, `tracks_at`, the journal entry's rekordbox part, `rekordbox_lock`, recovery words (callers say `rbstep.x`, tests patch `rbstep`) | D4c |
 | `rename.py` (new) | `rename_file`, `recover_rename`, `undo_rename`, `recover_rename_undo` | D3 |
 | `library.py` | `recover_pending` dispatches `rename` / `rename_undo`; their path keys reserved (`RENAME_PATH_KEYS`) | D3 |
 | `upgrades.py` | `undo` dispatches an undo record of kind `rename`; `can_undo` holds for `converted` / `renamed` checks | D2, D3 |
@@ -134,7 +135,7 @@ file facts are filled silently, §0.3); a release (the user's live test comes fi
 convert.convert_file(paths, state, track_id, *, session, now=datetime.now, batch=None) -> Result
 rename.rename_file(paths, state, track_id, *, session, now=datetime.now, batch=None) -> Result
 ```
-Both raise `convert.Skipped(reason, message, detail)` (nothing written), `RekordboxOpened` (nothing written; the batch
+Both raise `rbstep.Skipped(reason, message, detail)` (nothing written), `RekordboxOpened` (nothing written; the batch
 stops) or `UpgradeProblem` (a failure, nothing written, or recovery's words), exactly as `convert.same_track`.
 
 - **`convert_file`**: re-reads the facts (`audio.file_facts`) and asks `eligible.convert` with them and the session's
@@ -171,6 +172,7 @@ plan(paths, state, scope, *, rb: Status, entries: Callable | None, tags: Callabl
  "items":   [{"track", "name", "action": "convert"|"rename", "kind", "from", "path", "new_path", "superseded",
               "bytes", "cdj": {"short", "words"} | null}],
  "skipped": [{"track", "name", "reason", "message"}],
+ "waiting": [{"reason", "message", "n"}],        # in WAITING's order, only n > 0
  "kinds":   [{"kind", "label", "n"}],            # in KIND_ORDER, only n > 0
  "lossy": int, "total": int,
  "space":   [{"drive", "needed", "free", "enough"}], "superseded_bytes": int,
@@ -180,10 +182,19 @@ plan(paths, state, scope, *, rb: Status, entries: Callable | None, tags: Callabl
 `name` (Rename), or the lossy codec (`mp3`, `aac`, `opus`, `vorbis`, …). Which files: `tracks` the given ones;
 `lossless` the view's own files (the same membership `views.library` lists, without filter or search) with a lossless
 `file_codec`; `cdj` the CDJ group's items (§1.5). Files with nothing to do (clean AIFF with its name, a download) are
-`skipped` only in a `tracks` scope (the user picked them); in the "all" scopes they are left out. `bytes`:
-`convert.needed_bytes(duration_s, 2)` for a Convert, 0 for a Rename. `space` per drive as `convert.space_needed`
+`skipped` only in a `tracks` scope (the user picked them); in the "all" scopes they are left out. Files that can't
+run **now** but may later are counted in `waiting` in every scope, each file once and never in `items`
+(`aiff_plan.WAITING`, in this order: `away` the drive is off, `file_missing`, `no_name`, `rekordbox_unreadable`,
+`cloud`, `rename_blocked` (no free name), `upgrade_waits`); `message` is that reason's words (`batches.words`); a
+`tracks` scope lists them in `skipped` as well, with their own words, so a panel shows one of the two lists, not both.
+`bytes`: `convert.needed_bytes(duration_s, 2)` for a Convert, 0 for a Rename; `duration_s` is the record's
+`duration_ms`, else the file's header (one `tags` read, `FileFacts.duration_s`; never a decode), whether or not
+rekordbox holds the file; a file whose header can't be read is skipped, not sized 0. `space` per drive as `convert.space_needed`
 counts it (the `.tmp` drive, plus the target drive when another). `needs_closed`: some item's file has a rekordbox
-track (from `entries`, one read open; with the library `none` false, `unreadable` true for every file not AIFF).
+track (from `entries`, one read open; with the library `none` false). A library rekordbox can't read (`unreadable`)
+refuses every Convert and Rename step, a file rekordbox doesn't hold included, and stops the batch while rekordbox
+runs (the step can't know the file's tracks): each file then waits (`rekordbox_unreadable`), none is an item, and
+`needs_closed` is false.
 The job (`make_aiff`, `convert`) plans again at its start and records the plan's items as the batch; the panel's
 numbers are a preview.
 
@@ -219,8 +230,8 @@ Upgrade ready. An item: an own file (`source == "manual"`) with a file, `cdj_pro
 (§0.2); hidden as any item. It is the one place To-do lists an own file outside Upgrade ready, questions and
 duplicates (D8's rule amended: a problem Discjockey found, the user's answer to design §15). Item fields as any row
 plus `cdj: {reason, short, words}` and `aiff: <aiff_action reason | null>` (the quick answer: Convert with the stored
-facts, `timing` None); `detail` is `short`. The group carries `all: {n, k}` (n Convert can run now; k waits: drive
-away, no name, rekordbox unreadable) and `stopped: {batch_id, left} | null` (the newest stopped batch with
+facts, `timing` None); `detail` is `short`. The group carries `all: {n, k}` (n = the `cdj` plan's `total`, what Convert can run now; k = the sum of its
+`waiting` counts: drive away, no name, rekordbox unreadable, …) and `stopped: {batch_id, left} | null` (the newest stopped batch with
 `scope` `todo:*`).
 
 ### 1.6 Batches (D4)
@@ -274,7 +285,10 @@ unchanged by check record.
 | Skipped list | header "Left as they are · {n}"; each row its reason's words (`batches.words`) |
 | `upgrade_waits` | "A better version is waiting: Same track makes it an AIFF." |
 | `downloaded` (selection) | "Discjockey downloaded it: it is a clean AIFF already." |
-| `clean_aiff` / `named_already` | "A clean AIFF with its clean name already." |
+| `clean_aiff` | "This file is a clean AIFF already: Give it its clean name." (a Convert item whose file needs only its name; `aiff_action` turns it into Rename, so it shows only for an item whose answer changed meanwhile) |
+| `named_already` | "A clean AIFF with its clean name already." (nothing to do) |
+| `rekordbox_unreadable` (Convert, Rename) | "Discjockey can't open this rekordbox version's library yet, so it can't point your rekordbox track at the file. Nothing was changed." (`rbstep.OWN_FILE_REFUSED`: no New track, no upgrade; Rename says design §8's `rename_blocked` words with "rekordbox's library can't be opened") |
+| Waiting (`waiting`) | each `message` with its `n`; the CDJ group's `all.k` is their sum |
 | Empty, view | "Every lossless file here is a clean AIFF already." |
 | Empty, CDJ group gone | (no group; To-do's own empty states) |
 | Buttons | single: "Convert to AIFF" · "Give it its clean name"; several: "Make {k} files AIFF" ("Make 1 file AIFF"); CDJ: "Convert {k} to AIFF" |
@@ -462,7 +476,7 @@ the background with a status line. Sizes are the record's, not hopes: each group
 | R-D1 | Review of D1 | Sonnet, 110–150k | the diff against §0.2–§0.4, §0.11–§0.12, §1.4, §5 D1: no own row left without a path to facts, downloads untouched, every write of a cover through `cdj_cover` | report; fix round (≤ 6 stated fixes, fresh Sonnet 150–200k) if needed |
 | D2 | `convert_file`, its undo and recovery | Sonnet, 180–200k | `convert.py`, `upgrades.py` (undo dispatch, `can_undo`), `report.py` (`converted`), `rekordbox/write.py` only if a helper is missing; tests `test_convert.py`, `test_upgrades_undo.py` (check first the names). **Check first:** `undo_convert` and `recover_convert` without `held`; `render_aiff` copies 16/44.1 samples | every D2 behaviour green on a tmp library with a fixture rekordbox, committed |
 | R-D2 | Review of D2 | Sonnet, 120–160k | against design §3.1, §3.5, §4, §5.5, §5.8, §5.9 and §5 D2: shift sign, the file row, nothing outside `move_path`, crash at every mark | report; fix round as R-D1 |
-| D3 | `rename` | Sonnet, 170–200k | `rename.py`, `convert.py` (public `side_of`/`tracks_at`), `rekordbox/write.py` (`rename_change`), `library.py` (dispatch, path keys), `upgrades.py` (undo kind), `report.py` (`renamed`); tests `test_rename.py` (new) | every D3 behaviour green, committed |
+| D3 | `rename` | Sonnet, 170–200k | `rename.py`, `convert.py`, `rekordbox/write.py` (`rename_change`), `library.py` (dispatch, path keys), `upgrades.py` (undo kind), `report.py` (`renamed`); tests `test_rename.py` (new) | every D3 behaviour green, committed |
 | R-D3 | Review of D3 | Sonnet, 110–150k | against design §7.1, §5.8, §5.9 and §5 D3: identity-only write, collisions, recovery never waits for rekordbox | report; fix round as R-D1 |
 | D4 | Batches and `aiff_plan` | Sonnet, 170–200k | `batches.py`, `aiff_plan.py`, `rekordbox/eligible.py` (words), tests `test_batches.py`, `test_aiff_plan.py` (new). **Check first:** `views.library`'s view membership as a function the plan can call without the view's rows (extract it there if not) | §5 D4 green, committed. **Stop point:** the coordinator reads all four engine reviews before D5 |
 | R-D4 | Review of D4 | Sonnet, 110–150k | against §0.1, §0.6–§0.8, §0.13, §1.3, §1.6, §5 D4 | report; fix round as R-D1 |

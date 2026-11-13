@@ -55,13 +55,23 @@ REFUSED = {
                       "it, and it can't right now ({reason}). Nothing was changed.",
 }
 
+# What a step on the user's own file (Convert, Give it its clean name) says where Same track's words of `REFUSED` don't
+# fit: it has no New track and no better version (`skipped(..., own_file=True)`, `raise_refusal` for a step of source
+# `file` or `rename`). Nothing was changed.
+OWN_FILE_REFUSED = {
+    "rekordbox_unreadable": "Discjockey can't open this rekordbox version's library yet, so it can't point your "
+                            "rekordbox track at the file. Nothing was changed.",
+}
+
 # Convert's own refusals (plan stage D §3, design §8 for the shared ones above); nothing was changed in every case
 CONVERT_REFUSED = {
     "downloaded": "Discjockey downloaded this file: it is a clean AIFF already. Nothing was changed.",
     "no_name": "This song has no artist or title yet, so Discjockey can't give its file a clean name. Nothing was "
                "changed.",
     "upgrade_waits": "A better version is waiting: Same track makes it an AIFF.",
-    "clean_aiff": "A clean AIFF with its clean name already.",
+    # `clean_aiff`: the file is a clean AIFF, only its name is left (Convert's answer, which `aiff_action` turns into
+    # Rename's); `named_already`: nothing is left to do
+    "clean_aiff": "This file is a clean AIFF already: Give it its clean name.",
     "named_already": "A clean AIFF with its clean name already.",
     "needs_convert": "This file isn't a clean AIFF yet: Convert to AIFF gives it its clean name too. Nothing was "
                      "changed.",
@@ -93,10 +103,12 @@ class Skipped(UpgradeProblem):
         self.detail = detail or {}
 
 
-def skipped(reason: str, /, **words) -> Skipped:
+def skipped(reason: str, /, *, own_file: bool = False, **words) -> Skipped:
     """`Skipped(reason)` with the design's words for it (`REFUSED`, `CONVERT_REFUSED`), `words` put into their
-    placeholders; Convert's and Rename's steps raise their refusals through it."""
-    return Skipped(reason, (REFUSED.get(reason) or CONVERT_REFUSED[reason]).format(**words), words or None)
+    placeholders; Convert's and Rename's steps raise their refusals through it. `own_file`: the step works on the
+    user's own file, so a reason in `OWN_FILE_REFUSED` says that sentence instead of Same track's."""
+    text = (own_file and OWN_FILE_REFUSED.get(reason)) or REFUSED.get(reason) or CONVERT_REFUSED[reason]
+    return Skipped(reason, text.format(**words), words or None)
 
 
 def abs_path(paths: Paths, rel: str) -> str:
@@ -179,7 +191,7 @@ def raise_refusal(err: BaseException, op: dict) -> None:
         if err.reason == "rekordbox_open":
             raise RekordboxOpened() from err
         if err.reason in REFUSED and err.reason not in ("needs_choice", "space"):
-            raise skipped(err.reason) from err
+            raise skipped(err.reason, own_file=op.get("source") in ("file", "rename")) from err
         raise Skipped(err.reason, REFUSED["changed"]) from err
     if not isinstance(err, Exception):
         raise err
