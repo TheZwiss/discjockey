@@ -178,7 +178,7 @@ def test_apply_all_done_for_every_track_is_exit_0_with_the_words(tmp_path, monke
     assert code == OK
     assert out.splitlines()[:2] == ["Upgraded: Artist - Song 0 → Artist - Song 0.aiff", "Upgraded: Artist - Song 1 → Artist - Song 1.aiff"]
     assert "2 upgraded, your cues stayed." in out and report.USB_STEP in out
-    assert err.splitlines() == ["1 of 2: Artist - Song 0", "2 of 2: Artist - Song 1"]   # progress goes to stderr
+    assert err.splitlines() == ["1 of 2: Artist – Song 0", "2 of 2: Artist – Song 1"]   # progress goes to stderr
     assert lib.entry(0)["rekordbox_check"]["batch"] == lib.entry(1)["rekordbox_check"]["batch"]
 
 
