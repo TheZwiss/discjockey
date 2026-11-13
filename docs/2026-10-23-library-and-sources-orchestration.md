@@ -510,7 +510,9 @@ Results:
     Important + 15 Minor, top: same track twice on the end screen, refused track under Still waiting, To-do reason
     cut at 1100; no drift). R2 (Opus stage review) **250k** (49 calls; over its ~200k): engine safety holds; needs
     fixes: A code/docs 8 (3 Important: track listed twice, unknown-compare sentence, before-start words vs end check),
-    B UI 12 (3 Important). Fix round A (Sonnet, brief-33-FA-C.md) running; then B (Sonnet), then V.
+    B UI 12 (3 Important). Fix round A (Sonnet **181k**, 89 calls): A1–A8 all fixed, pytest 4211 ok, CI green; merged
+    into the stage branch caa59f7. Fix round B (Sonnet, UI, brief-33-FB-C.md, no shots: I judge verify's) running; then V.
+    Stage C running total ~3.37M (plan said 2.2–2.7M).
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
