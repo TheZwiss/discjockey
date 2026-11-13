@@ -63,8 +63,13 @@ check is pending (`docs/2026-11-07-rekordbox-stage-a-plan.md` §8). **Stage B** 
 Same track for any format as one AIFF batch with undo, Upgrade all, To-do multi-select, the batch check card and the
 console commands (`upgrade …`, `batch …`, `rekordbox checked | backups | restore`); its live test is plan stage B §9.
 
-**Still open:** stage C, Auto-upgrade on sync (wish A, it writes without a click, so after the live test); stage D,
-Convert, Give it its clean name, the CDJ group and "Make all lossless files AIFF" (wish C); stage E is issue 40.
+**Stage C** is merged into main (de95052, verify 1129 shots green): Auto-upgrade on sync (Setup and Settings switch,
+on by default; the sync's last phase as one AIFF batch with its backup and undo; `auto_refused` / `auto_waits`; the
+end screen's Upgraded / Still waiting / Couldn't go in; `settings auto-upgrade`, the run's `--json` block); its live
+test is plan stage C §9, before any release.
+
+**Still open:** stage D, Convert, Give it its clean name, the CDJ group and "Make all lossless files AIFF" (wish C);
+stage E is issue 40.
 
 **Facts the later stages build on:** cues and beatgrid live at rekordbox's track, not in the file; Relocate matches on
 file name only; rekordbox keeps following files it finds anywhere in a watched folder; every write to the user's

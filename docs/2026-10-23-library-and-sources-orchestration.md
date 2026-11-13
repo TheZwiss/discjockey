@@ -474,7 +474,8 @@ Results:
   rehearsal on a copy; merged into main once CI + verify are green, the user 2026-11-09: "merge it when your tests pass"; no release before its live test) → stage D (design direction, build) → issue 40 design
   round only (its build waits for the stage B live test, per the issue). Every dispatch through the gate (§2).
 - **RESUME HERE after a compact (2026-11-09 ~02:40):**
-  - **NOW (2026-11-13 ~04:00, user asleep, "work through the night"):** fix round B DONE + merged e01bf13 (was agent
+  - **NOW (2026-11-13 ~04:00, user asleep, "work through the night"):** STAGE C MERGED de95052; next: stage D planner (brief
+    `brief-33-PD.md` in the scratchpad), then D's groups. (Old: fix round B, agent
     a3cae3cb1fbba6d5f, brief `brief-33-FB-C.md` in scratchpad a540fc7e…; findings `r2c-findings.md`). On its notice:
     log its `subagent_tokens`, `ps`, `check_public.sh --require-denylist` on its branch, merge `feat/rekordbox-c-fb`
     into `feat/rekordbox-c` (worktree `.claude/worktrees/rb-c`), remove `rb-c-fb` (--force: node_modules symlink).
@@ -528,7 +529,10 @@ Results:
     before ~300k, I told it to wrap up): B1–B12 done except B9 (NoteCard kept; judge `todo-auto-refused-choice`); B7 Hint
     shortened to "{n} upgrades go in at the end; cues stay.", B8 Hint to "Waits for rekordbox: it goes in at your next
     sync, or quit it and press Replace." (rules' 90-char limit). Merged into the stage branch e01bf13; V running.
-    Stage C running total ~3.68M (plan said 2.2–2.7M). Lesson: a 12-item UI fix round is two rounds (checklist line 3).
+    Final B size **308k**. V: verify 1129 shots ok, smoke ok, CI green; my look at the
+    B shots: B9's ways sit under the fold at 1100×700 (panel scrolls, Replace = try again): kept. Fix C (Sonnet **49k**):
+    no full stop on an Upgraded row's second line (7eefe3f). **Stage C merged into main de95052.** No release; live test
+    plan C §9 with the user. Stage C total ~3.74M (plan said 2.2–2.7M). Lesson: a 12-item UI fix round is two rounds.
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
