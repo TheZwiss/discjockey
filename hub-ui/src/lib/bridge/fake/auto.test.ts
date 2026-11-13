@@ -2,7 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import { createFakeBridge } from './bridge';
 import type { HubEvent } from '../events';
-import { autoLine, planPhase, phaseEvents, readyTracks } from './auto';
+import { AUTO_REFUSED_SHORT as FAKE_SHORT, autoLine, planPhase, phaseEvents, readyTracks } from './auto';
+import { AUTO_REFUSED_SHORT } from '$lib/decisions/decisionModel';
 import { isBatch } from '../types';
 import type { Fail, RekordboxStatus, RunDetail, SetupStatus, SyncPreview, Todo, TodoItem } from '../types';
 
@@ -107,12 +108,57 @@ describe('fake sync: the Auto-upgrade phase', () => {
     const rows = await ready(m.f);
     expect(rows).toHaveLength(5);                       // 3 waiting + 1 refused + the one edit that needs a choice (a base row)
     expect(rows.filter((r) => r.detail === 'Waits for rekordbox to be closed')).toHaveLength(3);
-    expect(rows.filter((r) => r.detail === "Not upgraded at your sync · couldn't line it up")).toHaveLength(1);
+    expect(rows.filter((r) => r.detail === "Couldn't line it up · not upgraded at your sync")).toHaveLength(1);
     const checks = (await todo(m.f, 'rekordbox_check')).groups[0].items[0];
     expect(isBatch(checks) && checks.batch).toMatchObject({ size: 9, started_by: 'auto_upgrade' });
     expect(checks.detail).toMatch(/Upgraded during your sync$/);
     // the preview counts what is left to do (the refused one is held out; the 3 that wait are still ready)
     expect((await m.f.sync_preview() as SyncPreview & { ok: true }).auto_upgrade).toEqual({ on: true, ready: 3 });
+  });
+
+  it('sync:auto-done mirrors the engine: one row per track, en dash names, how on every row, the batch closed done', async () => {
+    const m = make('sync:auto-done');
+    await preview(m.f);
+    const run = await syncRun(m);
+    const a = run.auto_upgrade!;
+    // a track the phase filed is told once: no upgrade_ready row beside its upgraded / upgrade_waits row (auto_upgrade._file)
+    const phase = new Set([...(run.sections.upgraded ?? []), ...(run.sections.upgrade_waits ?? [])].map((r) => r.track_id));
+    expect((run.sections.upgrade_ready ?? []).filter((r) => phase.has(r.track_id))).toEqual([]);
+    expect(phase.size).toBe(13);
+    expect(a.results.every((r) => r.name.includes(' \u2013 ') && r.how !== null)).toBe(true);   // BatchProgress.name too
+    expect(m.evs.filter((e): e is Ev<'BatchProgress'> => e.type === 'BatchProgress' && !!e.name).every((e) => e.name!.includes(' \u2013 '))).toBe(true);
+    // end_auto closes the batch done, with no stop reason, so To-do never offers Resume for it
+    expect(await m.f.batch_resume(a.batch!)).toMatchObject({ ok: false, message: 'This batch is not stopped, so there is nothing to resume.' });
+    // the refusal is recorded in the engine's own sentence (design \u00a78)
+    expect(a.results.find((r) => r.state === 'refused')!.message)
+      .toBe("Discjockey couldn't line the new file up with your rekordbox track exactly, so nothing was changed. Analyse the track again in rekordbox and try again.");
+  });
+
+  it('the To-do badge counts each row of To-do once, per scenario (a batch of checks is one card)', async () => {
+    const badge = async (m: ReturnType<typeof make>) => ((await m.f.sidebar()) as { ok: true; todo: number }).todo;
+    const groups = async (m: ReturnType<typeof make>) => (await todo(m.f)).groups.map((g) => `${g.key}:${g.items.length}`).join(' ');
+    // normal: 19 rows, 2 of them upgrades ready (Get Naughty and the edit that needs a choice)
+    const n = make('normal');
+    expect(await badge(n)).toBe(19);
+    // sync:auto-done: 12 more upgrades parked, from tracks that were weak or good lossy (they leave those rows): 23 rows
+    const m = make('sync:auto-done');
+    expect(await badge(m)).toBe(23);
+    await syncRun(m);
+    // after the sync the 9 upgraded tracks are one check card (+1), 3 wait and 1 is refused (still ready rows, each
+    // counted once, not again under the report's upgrade_waits), and the 9 are no longer weak or lossy rows
+    expect(await groups(m)).toBe('rekordbox_check:2 upgrade_ready:5 not_found:3 good_lossy:3 fake:3 other:1');
+    expect(await badge(m)).toBe(16);
+    expect(await badge(m)).toBe((await todo(m.f)).chips.all);
+    // sync:auto-rekordbox-open: Get Naughty, the choice edit and 3 more (the same 19 rows); the phase changes no row
+    const w = make('sync:auto-rekordbox-open');
+    const waiting = await badge(w);
+    expect(waiting).toBe(19);
+    await syncRun(w);
+    expect(await badge(w)).toBe(waiting + 1);                  // the +1 is the sync's own download (non stop, a good lossy row), not the phase
+    // todo:auto-refused: one refusal per reason is a row of its own
+    const r = make('todo:auto-refused');
+    expect(await badge(r)).toBe(19);
+    expect(await badge(r)).toBe((await todo(r.f)).chips.all);
   });
 
   it('sync:auto-done keeps an earlier sync with the phase in the reports', async () => {
@@ -157,7 +203,7 @@ describe('fake sync: the Auto-upgrade phase', () => {
     expect(m.evs.some((e) => e.type === 'BatchProgress')).toBe(false);
     expect(run.sections.upgraded).toBeUndefined();
     expect(await ready(m.f)).toHaveLength(14);          // 13 + the edit that needs a choice: nothing was touched
-    expect((await ready(m.f)).filter((r) => r.detail.startsWith('Waits') || r.detail.startsWith('Not upgraded'))).toHaveLength(0);
+    expect((await ready(m.f)).filter((r) => r.detail.startsWith('Waits') || r.detail.endsWith('not upgraded at your sync'))).toHaveLength(0);
   });
 
   it('switch on but nothing ready: the block is there with nothing to say', async () => {
@@ -215,6 +261,9 @@ describe('fake sync: the Auto-upgrade phase', () => {
     expect(js.job.last.RunFinished).toBeUndefined();
   });
 
+  it('the end screen\'s short reasons are To-do\'s (views.AUTO_REFUSED_SHORT), capitalised', () => {
+    expect(Object.fromEntries(Object.entries(FAKE_SHORT).map(([k, v]) => [k, v[0].toUpperCase() + v.slice(1)]))).toEqual(AUTO_REFUSED_SHORT);
+  });
   it('the line is report.auto_upgrade_line: singulars, n = 0, the next-sync clause', () => {
     const r = (state: string, reason: string | null = null) => ({ track: 'x', name: 'x', state, reason, message: null, how: null }) as never;
     expect(autoLine({ done: 1, refused: 0, results: [] })).toBe('Upgraded 1 track; your cues stayed.');
@@ -253,9 +302,9 @@ describe('fake To-do, Settings and Setup: the Auto-upgrade states', () => {
   it('todo:auto-refused: one refusal per reason, each with the engine\'s words', async () => {
     const m = make('todo:auto-refused');
     const rows = await ready(m.f);
-    const refused = rows.filter((r) => r.detail.startsWith('Not upgraded at your sync · '));
-    expect(refused.map((r) => r.detail.split(' · ')[1]).sort()).toEqual(
-      ["couldn't compare it", "couldn't line it up", 'in Cloud Library Sync', 'not analysed in rekordbox', 'not enough free space']);
+    const refused = rows.filter((r) => r.detail.endsWith(' · not upgraded at your sync'));
+    expect(refused.map((r) => r.detail.split(' · ')[0]).sort()).toEqual(
+      ["Couldn't compare it", "Couldn't line it up", 'In Cloud Library Sync', 'Not analysed in rekordbox', 'Not enough free space']);
     const reasons = new Set<string>();
     for (const r of refused) {
       const t = (await m.f.track(r.track_id)) as { ok: true; track: { upgrade: { auto_refused: { reason: string; message: string; at: string } } } };
@@ -266,7 +315,7 @@ describe('fake To-do, Settings and Setup: the Auto-upgrade states', () => {
     }
     expect([...reasons].sort()).toEqual(['cloud', 'needs_choice', 'not_analysed', 'space', 'timing']);
     expect(rows).toHaveLength(7);                       // with Get Naughty and the edit that needs a choice, which are not refused
-    expect(rows.filter((r) => !r.detail.startsWith('Not upgraded')).length).toBe(2);
+    expect(rows.filter((r) => !r.detail.endsWith('not upgraded at your sync')).length).toBe(2);
     expect((await m.f.sync_preview() as SyncPreview & { ok: true }).auto_upgrade?.ready).toBe(1);   // refused ones are held out
   });
 

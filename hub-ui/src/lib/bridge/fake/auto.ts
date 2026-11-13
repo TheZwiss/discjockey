@@ -22,13 +22,14 @@ export const AUTO_REFUSED_SHORT: Record<AutoRefused['reason'], string> = {
 export const AUTO_WAITING_DETAIL = 'Waits for rekordbox to be closed';
 /** views.AUTO_BATCH_DETAIL */
 export const AUTO_BATCH_DETAIL = 'Upgraded during your sync';
-/** The engine's words for a refusal (preview.REASON_WORDS), recorded on the parked upgrade by the sync. */
+/** The engine's words for a refusal, recorded on the parked upgrade by the sync: design §8 (convert.REFUSED), and
+ *  upgrades.COULD_NOT_COMPARE for `needs_choice` (the two files could not be compared at all). */
 export const AUTO_REFUSED_WORDS: Record<AutoRefused['reason'], string> = {
-  timing: "Discjockey couldn't line the new file up with your rekordbox track exactly; analyse the track again in rekordbox and try again",
-  not_analysed: "rekordbox hasn't analysed this track yet, so Discjockey can't tell exactly where your cues sit; analyse it in rekordbox, quit rekordbox, and try again",
-  cloud: 'This track is in rekordbox\'s Cloud Library Sync, which Discjockey does not change; upgrade it by hand',
-  space: 'There is not enough free space on the drive for the new AIFF; free some space and try again',
-  needs_choice: "Discjockey couldn't compare the two files to the sample; open the track and choose how to replace it",
+  timing: "Discjockey couldn't line the new file up with your rekordbox track exactly, so nothing was changed. Analyse the track again in rekordbox and try again.",
+  not_analysed: "rekordbox hasn't analysed this track yet, so Discjockey can't tell exactly where your cues sit. Nothing was changed. Analyse it in rekordbox, quit rekordbox, and try again.",
+  cloud: "This track is in rekordbox's Cloud Library Sync, which Discjockey doesn't change yet. Nothing was changed.",
+  space: "There isn't enough free space for the new AIFF files (640 MB needed, 120 MB free). Nothing was changed.",
+  needs_choice: "Discjockey couldn't compare the two files, so nothing was changed. Try again, or choose New track.",
 };
 
 /** views.auto_waits_mark: the sync met rekordbox open for this upgrade; only while the switch is on and Same track could run. */
@@ -42,7 +43,10 @@ export function autoDetail(s: FakeState, t: FakeTrack, same: string | null, plai
   const r = up.auto_refused;
   if (r && AUTO_REFUSED_SHORT[r.reason]) {
     const different = up.alignment?.result === 'different';
-    if (same === null || (same === r.reason && !different)) return `Not upgraded at your sync · ${AUTO_REFUSED_SHORT[r.reason]}`;
+    if (same === null || (same === r.reason && !different)) {
+      const short = AUTO_REFUSED_SHORT[r.reason];
+      return `${short[0].toUpperCase()}${short.slice(1)} · not upgraded at your sync`;
+    }
   }
   return plain;
 }
@@ -98,7 +102,7 @@ export const AUTO_WAITS_WORDS = {
   busy: 'Another Discjockey window or the Terminal was changing your rekordbox library; it is upgraded at your next sync.',
 } as const;
 export const AUTO_DONE_NOTE = 'Your track keeps its cues, playlists and history';
-const CHANGED_WORDS = 'your rekordbox track changed while Discjockey was working on it; try again';
+const CHANGED_WORDS = 'Your rekordbox track changed while Discjockey was working on it, so nothing was changed. Try again.';
 /** auto_upgrade.waiting_line: what the phase says when it meets rekordbox open at the end of a sync. */
 export const autoWaitingLine = (n: number): string => `${n} upgrade${n === 1 ? ' waits' : 's wait'} for rekordbox to be closed.`;
 export const autoUpgradingLine = (n: number): string => `Upgrading ${n} track${n === 1 ? '' : 's'} at the end of the sync...`;
@@ -133,7 +137,7 @@ export function planPhase(s: FakeState, batchId: number): PhasePlan | null {
   if (!autoOn(s)) return null;
   const set = readyTracks(s);
   const row = (t: FakeTrack, state: AutoUpgradeResult['state'], reason: string | null, message: string | null): AutoUpgradeResult =>
-    ({ track: t.track_id, name: `${t.artist} - ${t.title}`, state, reason, message, how: state === 'done' ? t.upgrade!.swap_how : null });
+    ({ track: t.track_id, name: `${t.artist} \u2013 ${t.title}`, state, reason, message, how: t.upgrade!.swap_how });
   const waits = (t: FakeTrack) => row(t, 'waiting', 'rekordbox_open', AUTO_WAITS_WORDS.rekordbox_open);
   if (!set.length) return { batch: null, order: [], rows: [] };
   if (s.rekordbox_running) return { batch: null, order: [], rows: set.map(waits) };
@@ -142,7 +146,8 @@ export function planPhase(s: FakeState, batchId: number): PhasePlan | null {
     if (i >= opens) return waits(t);
     const late = s.batchSkip?.[t.track_id];
     if (late) return row(t, 'refused', late, (AUTO_REFUSED_WORDS as Record<string, string>)[late] ?? CHANGED_WORDS);
-    return row(t, 'done', null, AUTO_DONE_NOTE);
+    // the second done track had its title edited in rekordbox, which Same track keeps (convert.kept_note)
+    return row(t, 'done', null, i === 1 ? `${AUTO_DONE_NOTE}. Kept your own title in rekordbox.` : AUTO_DONE_NOTE);
   });
   return { batch: batchId, order: set.map((t) => t.track_id), rows };
 }
@@ -173,7 +178,7 @@ export function withPhase(base: HubEvent[], phase: HubEvent[]): { events: HubEve
  *  (so rekordbox opening later in the batch never happens either). */
 export function stopRows(plan: PhasePlan, handled: number): AutoUpgradeResult[] {
   return plan.rows.map((r, i) => (i < handled ? r
-    : { ...r, state: 'waiting', reason: 'not_reached', message: AUTO_WAITS_WORDS.not_reached, how: null }));
+    : { ...r, state: 'waiting', reason: 'not_reached', message: AUTO_WAITS_WORDS.not_reached }));
 }
 
 /** The run's block (the report's `.json` key `auto_upgrade`, with `line`). `backup` is the id of the copy of rekordbox's library. */
@@ -203,7 +208,7 @@ export const backupId = (d: Date): string => d.toISOString().slice(0, 19).replac
  *  block, "Upgraded 3 tracks; your cues stayed."), `daysBack` days ago. Those tracks are lossless now. */
 export function addPastAutoRun(s: FakeState, daysBack = 2): void {
   const tracks = s.tracks.filter((t) => t.in_playlists && !t.upgrade && !t.rekordbox_check && !t.away && qualityOf(t) === 'lossless').slice(0, 3);
-  const rows: AutoUpgradeResult[] = tracks.map((t, i) => ({ track: t.track_id, name: `${t.artist} - ${t.title}`, state: 'done',
+  const rows: AutoUpgradeResult[] = tracks.map((t, i) => ({ track: t.track_id, name: `${t.artist} \u2013 ${t.title}`, state: 'done',
     reason: null, message: AUTO_DONE_NOTE, how: i % 2 ? 'new_aiff' : 'in_place' }));
   const started = new Date(s.now);
   started.setDate(started.getDate() - daysBack);

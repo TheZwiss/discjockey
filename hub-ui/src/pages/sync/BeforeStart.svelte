@@ -320,15 +320,19 @@
 {/snippet}
 
 {#snippet startArea()}
+  {#if note?.kind === 'rekordbox-open'}
+    <!-- a NoteCard, not a Hint: the sentence runs over three lines in the 360 px panel (a Hint is one cut line) and warns
+         that something waits (design language §6). Above Start, not under it: the foot grows upward, so a note under
+         the button moves it when rekordbox quits (stage review B7) -->
+    <NoteCard tone="warn" data-test="sync-rekordbox-open">{note.text}</NoteCard>
+  {/if}
   <WriteButton variant="filled" wide onclick={start} busy={starting} busyLabel="Starting…"
     disabled={chosen.length === 0 || nothingToday || $hub.console_running} title={startTitle} data-test="start-sync">
     {startLabel(chosen.length, totals.downloads, totals.uses)}</WriteButton>
   {#if note?.kind === 'console'}<Hint text={note.text} data-test="sync-console" />
   {:else if note?.kind === 'nothing-today'}<Hint text={note.text} data-test="sync-nothing-today" />
-  {:else if note?.kind === 'rekordbox-open'}
-    <!-- a NoteCard, not a Hint: the sentence runs over three lines in the 360 px panel (a Hint is one cut line) and warns
-         that something waits (design language §6) -->
-    <NoteCard tone="warn" data-test="sync-rekordbox-open">{note.text}</NoteCard>
+  {:else if note?.kind === 'auto-plan'}<Hint text={note.text} data-test="sync-auto-plan" />
+  {:else if note?.kind === 'rekordbox-open'}<span class="slot" aria-hidden="true"></span>
   {/if}
   {#if startProblem}<ProblemCard kind={startProblem.kind} message={startProblem.message} sync compact alert />{/if}
 {/snippet}
@@ -352,6 +356,9 @@
 
 <style>
   .before { display: flex; flex-direction: column; gap: var(--s-3); }
+  /* the line the plan Hint takes under Start while rekordbox is closed, kept free while the warning stands above: the
+     button stays where it is when rekordbox quits */
+  .slot { height: calc(var(--fs-small) * 1.4); }
   .search { display: flex; }
   .search :global(.sf) { flex: 1; }
   .found { display: flex; align-items: center; gap: var(--s-3); color: var(--text-muted); font-size: var(--fs-small); }

@@ -153,8 +153,15 @@ export function replaceLabel(up: Upgrade): string {
 }
 
 // ---------- the sync's Auto-upgrade in the upgrade panel (issue 33 stage C plan §3, §6.3) ----------
-/** Design §8's waiting sentence, with this panel's own action ("press Replace" for the list's "press Upgrade all"). */
-export const AUTO_WAITS_HINT = 'Waits for rekordbox to be closed: it is upgraded at your next sync, or press Replace.';
+/** Design §8's waiting sentence, with this panel's own action: Replace works only with rekordbox closed, so the Hint says
+ *  to quit it first (stage review B8; the list's "press Upgrade all" is the engine's own). */
+export const AUTO_WAITS_HINT = 'Waits for rekordbox to be closed: it goes in at your next sync, or quit rekordbox and press Replace.';
+/** To-do's short word for a refusal the sync's phase recorded (views.AUTO_REFUSED_SHORT, capitalised): the sub of a
+ *  "Couldn't go in" row on the end screen, where the full sentence is the row's tooltip. */
+export const AUTO_REFUSED_SHORT: Record<AutoRefused['reason'], string> = {
+  timing: "Couldn't line it up", not_analysed: 'Not analysed in rekordbox', cloud: 'In Cloud Library Sync',
+  space: 'Not enough free space', needs_choice: "Couldn't compare it",
+};
 /** What the sync's last phase left on a parked upgrade, as the panel shows it: the waiting sentence as a Hint under the
  *  actions, or the refusal as a warn NoteCard above them. One of the two, as the to-do row's line (views.upgrade_detail:
  *  waiting first), so the row and the panel never say two things; Replace works either way (plan §0.8). */

@@ -246,11 +246,11 @@ def test_todo_rows_say_waiting_and_say_why_a_track_was_not_upgraded(hub):
     words = {i["track_id"]: i["detail"] for i in group(api)["items"]}
     assert [words[t] for t in lib.tracks] == [
         "Waits for rekordbox to be closed",
-        "Not upgraded at your sync · couldn't line it up",
-        "Not upgraded at your sync · not analysed in rekordbox",
-        "Not upgraded at your sync · in Cloud Library Sync",
-        "Not upgraded at your sync · not enough free space",
-        "Not upgraded at your sync · couldn't compare it"]
+        "Couldn't line it up · not upgraded at your sync",
+        "Not analysed in rekordbox · not upgraded at your sync",
+        "In Cloud Library Sync · not upgraded at your sync",
+        "Not enough free space · not upgraded at your sync",
+        "Couldn't compare it · not upgraded at your sync"]
 
 
 @needs_ffmpeg
@@ -260,7 +260,7 @@ def test_todo_waiting_beats_a_refusal_and_the_switch_off_shows_the_old_line(hub)
          auto_refused={"reason": "timing", "message": "x", "at": "a", "anlz": {}, "free": None, "files": None})
     assert details(api)[0] == "Waits for rekordbox to be closed"
     save_settings(lib.paths.settings_file, Settings(auto_upgrade=False))
-    assert details(api)[0] == "Not upgraded at your sync · couldn't line it up"      # the refusal is a fact
+    assert details(api)[0] == "Couldn't line it up · not upgraded at your sync"      # the refusal is a fact
     mark(lib, 0, auto_refused=None)
     assert details(api)[0] == "Lossless ready · cues can stay"                      # waiting is not shown while off
 

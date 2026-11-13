@@ -249,11 +249,11 @@ Design §8's Auto-upgrade rows (Settings switch + Hint, Setup switch + line, syn
 | Waiting row, busy | "Another Discjockey window or the Terminal was changing your rekordbox library; it is upgraded at your next sync." |
 | Refused row | the item's own message (design §8's refusal sentences) |
 | To-do row detail, waiting | "Waits for rekordbox to be closed" |
-| To-do row detail, refused | "Not upgraded at your sync · {short}" with short = timing "couldn't line it up", not_analysed "not analysed in rekordbox", cloud "in Cloud Library Sync", space "not enough free space" |
+| To-do row detail, refused | "{Short} · not upgraded at your sync" (reason first: the row cuts its end at 1100; stage review B2) with short, capitalised, = timing "couldn't line it up", not_analysed "not analysed in rekordbox", cloud "in Cloud Library Sync", space "not enough free space" |
 | Sync before-start Hint (switch on, rekordbox open, n ≥ 1) | "rekordbox is open: quit it before the sync ends, so the sync can put {n} upgrades in place." (1: "1 upgrade"; amended by the stage review: the check is made when the phase begins, at the end of the sync, so "before you start" was wrong) |
 | Console plan line | "At the end, {n} upgrades go in place of your files; your cues stay." (1: "1 upgrade goes …") |
-| Live progress (the sync's phase) | stage B's: "{done} of {total} done" over "Upgrading · {Artist – Title}", ProgressBar labelled "Upgrading" |
-| End screen section | "Upgraded" (rows), "Still waiting" (rows with their reason) |
+| Live progress (the sync's phase) | "{done} of {total} upgraded" over "Upgrading · {Artist – Title}", ProgressBar labelled "Upgrading" (and in the foot bar). Not stage B's "of {total} done": next to the downloads' lists "3 of 8 done" read as their count (stage review B3) |
+| End screen section | "Upgraded" (rows, how each went), "Still waiting" (the tracks tried again at the next sync; short reason), "Couldn't go in" (the refusals; To-do's short reason) |
 | Report | headings of §1.5; "Backup of your rekordbox library from before these upgrades: {id}" |
 | Batch check row (To-do) of an auto batch | name "{n} tracks upgraded", sub "{date} · Upgraded during your sync" |
 | Batch card foot of an auto batch | design §2.5 "Undo all from this sync" (in place of "Undo all {n}") |
@@ -382,16 +382,23 @@ cards' column, its width).
 - The batch check item of an auto batch: sub from the view; the foot's second button "Undo all from this sync".
 
 ### 6.4 Sync (U2)
-- **Before start:** with `sync_preview.auto_upgrade.on`, `ready ≥ 1` and `rekordbox_status().running`, the §3 Hint
-  (tone warn) in "This run" directly under Start sync, in the start hint's slot; the console-running and
-  nothing-today hints come first when they apply. `rekordbox_status()` is read on page open and on window `focus`.
-- **Live:** during `phase: 'upgrading'` the run's progress card shows stage B's progress words and bar in place of
-  "Track x of y"; Stop safely stays in the foot, unchanged.
+- **Before start:** with `sync_preview.auto_upgrade.on` and `ready ≥ 1`: rekordbox running (`rekordbox_status().running`)
+  is the §3 sentence as a warn `NoteCard` ABOVE Start sync in "This run" (amended by the stage review B7: a note under
+  the button moved it when rekordbox quit; a one-line spacer under Start keeps its place); rekordbox closed is a
+  one-line `Hint` under Start, "{n} upgrades go in at the end; cues stay." (1: "1 upgrade goes …"; shortened from the
+  console's words, which the panel cuts at 1100). The console-running and nothing-today hints come first when they
+  apply. `rekordbox_status()` is read on page open and on window `focus`.
+- **Live:** during `phase: 'upgrading'` the run's progress card shows "{done} of {total} upgraded" and the bar in place
+  of "Track x of y" (§3; the foot bar says the same); Stop safely stays in the foot, unchanged.
 - **End screen:** the summary line (`run_detail.auto_upgrade.line`) as one more note in the notes under the stat
   cards; a list `Surface` "Upgraded" (`ListSection` head with the count) after the new-file lists and before Other
-  changes: per row `Cover`, Artist – Title, sub = the row's note, the quality badge as other lossless rows; then a
-  `ListSection` "Still waiting" with each row's reason as sub and the existing "fix" link (`fixHref`) to To-do.
-  An empty part is left out; a switch-off run shows neither.
+  changes: per row `Cover`, Artist – Title, the quality badge as other lossless rows, sub = the engine's note only when
+  it holds kept edits or "not in rekordbox", else how it went (the block's `how`); then, split by each track's state in
+  the block (stage review B1, B5, B6), a `ListSection` "Still waiting" (sub "Waits for rekordbox to be closed" for
+  `rekordbox_open`, "Waits for your next sync" for every other waiting reason; Review → to the track) and a
+  `ListSection` "Couldn't go in" (the refused tracks: To-do's short reason as sub, the full sentence as the row's
+  tooltip, Fix →). The counts are the block's `waiting` and `refused`. An empty part is left out; a switch-off run
+  shows none.
 
 ### 6.5 Shots (S)
 `shots.json` entries for every §4 fake scenario: Settings (row list with Upgrades, the panel on and off), Setup

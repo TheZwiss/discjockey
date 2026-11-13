@@ -277,10 +277,10 @@ describe('the sync\'s Auto-upgrade phase (issue 33 stage C)', () => {
   it('a Stop in the phase is the stopping card, as anywhere', () => {
     expect(cardState({ ...at8(3, 'X - Y'), phase: 'stopping' }, 3000)).toEqual({ kind: 'stopping' });
   });
-  it('says its progress in stage B\'s words, the bar counting the tracks handled', () => {
+  it('says its progress as "{done} of {total} upgraded", the bar counting the tracks handled', () => {
     expect(upgradeProgress({ done: 3, total: 8, name: 'Armin Hermann - Get Naughty' })).toEqual(
-      { position: '3 of 8 done', message: 'Upgrading · Armin Hermann - Get Naughty', share: 3 / 8 });
-    expect(upgradeProgress({ done: 8, total: 8, name: null })).toEqual({ position: '8 of 8 done', message: 'Upgrading', share: 1 });
+      { position: '3 of 8 upgraded', message: 'Upgrading · Armin Hermann - Get Naughty', share: 3 / 8 });
+    expect(upgradeProgress({ done: 8, total: 8, name: null })).toEqual({ position: '8 of 8 upgraded', message: 'Upgrading', share: 1 });
     expect(upgradeProgress({ done: 0, total: 0, name: null }).share).toBeNull();
   });
 });

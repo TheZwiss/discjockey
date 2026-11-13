@@ -107,7 +107,7 @@
         {@const line = rowLine(r, ctx)}
         <ListRow height={52} selected={r === row} onclick={() => open(r)} test="settings-row-{r}">
           {#snippet lead()}{@const l = ROW_LEADS[r]}{#if 'logo' in l}<ServiceMark service={l.logo}
-            label={ROW_NAMES[r]} />{:else}<span class="glyph">{l.glyph}</span>{/if}{/snippet}
+            label={ROW_NAMES[r]} />{:else}<span class="glyph" class:heavy={'heavy' in l && l.heavy}>{l.glyph}</span>{/if}{/snippet}
           {#snippet name()}{ROW_NAMES[r]}{/snippet}
           {#snippet sub()}{#if line.text}{line.text}{:else}<Skeleton height={10} width="140px" />{/if}{/snippet}
           {#snippet trailing()}{#if line.tone}<StatusMark tone={line.tone} />{/if}{/snippet}
@@ -143,4 +143,6 @@
   .page { height: 100%; min-height: 0; }
   /* the sidebar's glyph box: mixed glyphs in one 14 px box line up optically, dimmed like a label */
   .glyph { display: inline-block; width: 14px; text-align: center; font-size: var(--fs-small); color: var(--text-muted); }
+  /* the arrow is a thin stroke next to the boxy glyphs of its group: bolder and a size up, so it weighs the same */
+  .glyph.heavy { font-size: var(--fs-body); font-weight: var(--fw-bold); line-height: 1; }
 </style>

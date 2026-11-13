@@ -763,7 +763,7 @@ def check_view(check: dict | None, batch_size: int = 1) -> dict:
 
 # Auto-upgrade's marks on a parked upgrade (plan stage C §3, §4): To-do's row detail and the panel's facts
 AUTO_WAITING_DETAIL = "Waits for rekordbox to be closed"
-AUTO_REFUSED_DETAIL = "Not upgraded at your sync · {short}"
+AUTO_REFUSED_DETAIL = "{short} · not upgraded at your sync"  # the reason first: To-do's row cuts the end at 1100
 AUTO_REFUSED_SHORT = {"timing": "couldn't line it up", "not_analysed": "not analysed in rekordbox",
                       "cloud": "in Cloud Library Sync", "space": "not enough free space",
                       "needs_choice": "couldn't compare it"}  # the five reasons the phase records (auto_upgrade.REFUSALS)
@@ -798,7 +798,8 @@ def upgrade_detail(e: dict, rb: RekordboxStatus | None, auto_on: bool, same_trac
     if refused is not None:
         measured_different = (up.get("alignment") or {}).get("result") == "different"
         if same_track is None or (same_track == refused["reason"] and not measured_different):
-            return AUTO_REFUSED_DETAIL.format(short=AUTO_REFUSED_SHORT[refused["reason"]])
+            short = AUTO_REFUSED_SHORT[refused["reason"]]
+            return AUTO_REFUSED_DETAIL.format(short=short[:1].upper() + short[1:])
     return upgrade_status(up, same_track_format_ok(e, rb))
 
 
@@ -1596,7 +1597,7 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     Stage C (plan §3, §4): `auto_on` is Settings' Auto-upgrade switch and `started_by` the AIFF batches' starters, batch
     id -> `aiff_batches.started_by` (the api reads the batches the open checks belong to). An Upgrade ready row's
     `detail` says "Waits for rekordbox to be closed" while the switch is on and the sync met rekordbox open for it, or
-    "Not upgraded at your sync · {short}" for a refusal the phase recorded (`upgrade_detail`); a batch item carries
+    "{Short} · not upgraded at your sync" for a refusal the phase recorded (`upgrade_detail`); a batch item carries
     `batch.started_by` and, for an Auto-upgrade batch, "Upgraded during your sync" as its detail."""
     items: dict[str, list] = {g: [] for g, _, _ in TODO_GROUPS}
     batch_checks: dict[int, list[str]] = {}

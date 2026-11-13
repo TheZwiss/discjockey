@@ -507,7 +507,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     const started = new Date(rec.started);
     const stopped = run.exit_code === 130 ? results.length : null;   // before the phase's rows join the results
     const phase = endPhase(rec, plan, phaseReached, started);
-    if (phase) results.push(...phase.results);
+    if (phase) {
+      // the sync's own check parked these a moment ago (`upgrade_ready`); the phase's row replaces it (auto_upgrade._file)
+      const filed = new Set(phase.results.map((r) => r.track_id));
+      results.splice(0, results.length, ...results.filter((r) => !(r.section === 'upgrade_ready' && filed.has(r.track_id))), ...phase.results);
+    }
     s.runs.unshift(runDetail(rid, started, Math.round((Date.now() - started.getTime()) / 1000), run.exit_code,
       results, stopped, s.tracks.filter((t) => t.upgrade).length, phase?.block ?? null));
     const t5 = s.newTracks.find((t) => t.track_id === 't5');
@@ -538,8 +542,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           message: r.message, path: null, rekordbox: null };
       });
       const atRekordbox = rows.some((r) => r.reason === 'rekordbox_open');
-      aiff.push({ id: plan.batch, state: stopped || atRekordbox ? 'stopped' : 'done',
-        stop_reason: stopped ? 'stop' : atRekordbox ? 'rekordbox_open' : null, started_by: 'auto_upgrade', items });
+      // batches.end_auto closes the batch `done` whatever cut it short, with no stop reason: To-do never offers Resume
+      aiff.push({ id: plan.batch, state: 'done', stop_reason: null, started_by: 'auto_upgrade', items });
       if (atRekordbox) s.rekordbox_running = true;   // it was opened mid-phase and is still open
     }
     for (const r of rows) {

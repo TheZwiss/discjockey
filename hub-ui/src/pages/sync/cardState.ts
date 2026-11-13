@@ -4,7 +4,7 @@ import type { Dashboard, PlaylistService, ProblemKind, Quality, Result, SourceHo
 import type { LogoKey } from '$lib/components/serviceLogos';
 import type { RunState } from '$lib/stores/run';
 import { STEP_LABEL, sourceHowWords } from '$lib/copy';
-import { runLabel, runUnit } from '$lib/decisions/decisionModel';
+import { runLabel } from '$lib/decisions/decisionModel';
 import { duration, khz, megabytes } from '$lib/format';
 
 export const ANALYSED_MS = 4000;
@@ -147,11 +147,12 @@ export function cardState(r: RunState, now: number,
   return { kind: 'working', action: a, step, steps, detail, source, how };
 }
 
-/** The run's progress card while the sync's Auto-upgrade batch goes, in stage B's words for a batch ("3 of 8 done" over
- *  "Upgrading · Artist - Title", decisionModel.runUnit / runLabel); the bar counts the tracks handled. */
+/** The run's progress card while the sync's Auto-upgrade batch goes: "3 of 8 upgraded" over "Upgrading · Artist - Title"
+ *  (decisionModel.runLabel). Not stage B's "of 8 done": during a sync that reads against the downloads' lists below,
+ *  which count their own tracks; the bar counts the tracks handled. */
 export function upgradeProgress(u: { done: number; total: number; name: string | null }):
   { position: string; message: string; share: number | null } {
-  return { position: `${u.done} ${runUnit(u.total)}`, message: runLabel('swap', u.name),
+  return { position: `${u.done} of ${u.total} upgraded`, message: runLabel('swap', u.name),
     share: u.total > 0 ? Math.min(1, u.done / u.total) : null };
 }
 

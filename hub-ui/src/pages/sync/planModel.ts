@@ -403,18 +403,28 @@ export const CONSOLE_RUNNING = 'A sync is running in the terminal';
 /** Auto-upgrade's line before a start (plan stage C §3, as auto_upgrade.before_start_line): rekordbox is open, so the
  *  upgrades the sync would put in place at its end would wait. `n` is `sync_preview().auto_upgrade.ready`. */
 export const rekordboxOpenLine = (n: number): string =>
-  `rekordbox is open: quit it before you start, so the sync can put ${plural(n, 'upgrade')} in place at the end.`;
+  `rekordbox is open: quit it before the sync ends, so the sync can put ${plural(n, 'upgrade')} in place.`;
 
-/** The one note under Start sync (the start's slot, plan stage C §6.4). `console` and `nothing-today` come first when
- *  they apply; `rekordbox-open` only with the Auto-upgrade switch on, at least one upgrade ready and rekordbox
- *  running now (`rekordboxRunning` null: the bridge could not say, so nothing is claimed). */
-export type StartNote = { kind: 'console' | 'nothing-today' | 'rekordbox-open'; text: string };
+/** Auto-upgrade's one-line Hint under Start while rekordbox is closed: what the sync will do at its end. The console says
+ *  it as "At the end, {n} upgrades go in place of your files; your cues stay."; that is 66 characters, and even 51 were
+ *  cut in the 280 px the panel's text has at 1100, so the same promise is said in 40. */
+export const autoPlanLine = (n: number): string => `${n} ${n === 1 ? 'upgrade goes' : 'upgrades go'} in at the end; cues stay.`;
+
+/** The one note of Start sync (plan stage C §6.4, amended by the stage review B7). `console` and `nothing-today` come
+ *  first when they apply, as Hints under Start. With the Auto-upgrade switch on and at least one upgrade ready, the
+ *  page says what the sync will do: `rekordbox-open` (rekordbox runs now: a warn NoteCard above Start, so the button
+ *  does not jump when rekordbox quits) or `auto-plan` (rekordbox is closed: a Hint under Start). `rekordboxRunning`
+ *  null: the bridge could not say, so nothing is claimed. */
+export type StartNote = { kind: 'console' | 'nothing-today' | 'rekordbox-open' | 'auto-plan'; text: string };
 export function startNote(o: { consoleRunning: boolean; nothingToday: boolean; auto: SyncPreview['auto_upgrade'];
   rekordboxRunning: boolean | null }): StartNote | null {
   if (o.consoleRunning) return { kind: 'console', text: CONSOLE_RUNNING };
   if (o.nothingToday) return { kind: 'nothing-today', text: NOTHING_TODAY };
   if (o.auto?.on && o.auto.ready >= 1 && o.rekordboxRunning === true) {
     return { kind: 'rekordbox-open', text: rekordboxOpenLine(o.auto.ready) };
+  }
+  if (o.auto?.on && o.auto.ready >= 1 && o.rekordboxRunning === false) {
+    return { kind: 'auto-plan', text: autoPlanLine(o.auto.ready) };
   }
   return null;
 }

@@ -725,7 +725,7 @@
         </ToggleGroup>
         <span class="cap">empty</span>
         <ToggleGroup label="Empty" items={[]} test="g-empty" onchange={() => {}} onall={() => {}} />
-        <span class="cap">a single setting with its detail (sub and a long name wrap) · locked with the reason</span>
+        <span class="cap">a single setting with its detail (the sub takes the panel's width, a long name wraps) · locked with the reason</span>
         <Surface kind="list" data-test="g-toggle-sub">
           <ToggleRow item={{ key: 'r', label: 'Rename the folder on disk too', on: subOn }} sub="One folder move instead of 7 file moves."
             onchange={(_k, on) => (subOn = on)} />
