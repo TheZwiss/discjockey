@@ -2,6 +2,7 @@
 // Pure: the page passes in what the bridge answered and the time.
 // The download sources' lines live with the account panel (accountModel), so a row and its panel say the same thing.
 import { aboutLine } from '$lib/appUpdate';
+import { autoUpgradeLine, autoUpgradeOn } from '$lib/autoUpgrade';
 import type {
   AppUpdate, DownloadsView, DownloadTool, DownloadTools, JobSnap, SetupStatus, SetupTools, ReadStatus, WatchedFolders,
 } from '$lib/bridge/types';
@@ -17,21 +18,23 @@ export const ROW_GROUPS: { label: string; rows: SettingsRow[] }[] = [
   { label: 'Downloads', rows: ['qobuz', 'youtube', 'soundcloud'] },
   // the services Discjockey reads playlists from with a choice of their own (sources round problem 3)
   { label: 'Reading playlists', rows: ['spotify', 'youtube_music'] },
-  // the watched folders sit with the music folder: both say where Discjockey looks for music on this Mac
-  { label: 'This Mac', rows: ['music', 'folders', 'programs', 'about', 'reports'] },
+  // the watched folders sit with the music folder: both say where Discjockey looks for music on this Mac; Upgrades acts
+  // on the files and the rekordbox library of this Mac too (stage C plan §0.12)
+  { label: 'This Mac', rows: ['music', 'folders', 'upgrades', 'programs', 'about', 'reports'] },
 ];
 export const ROW_NAMES: Record<SettingsRow, string> = {
   qobuz: 'Qobuz', youtube: 'YouTube Premium', soundcloud: 'SoundCloud Go+', spotify: 'Spotify',
   youtube_music: 'YouTube Music', music: 'Music folder',
-  folders: 'Watched folders', programs: 'Programs',
+  folders: 'Watched folders', upgrades: 'Upgrades', programs: 'Programs',
   about: 'About Discjockey', reports: 'Reports',
 };
-/** Each row's lead in one 14 px box: a service's row its own coloured logo (ServiceMark; sources round problem 3:
+/** Each row's lead in one 14 px box (`heavy`: a glyph drawn with thin strokes, the arrow ↑, set bolder and a size up so it
+ *  weighs what the boxy ▤ ◫ ⌘ ☰ weigh in the same group); a service's row its own coloured logo (ServiceMark; sources round problem 3:
  *  every service row has its logo, YouTube's for Premium), the others a glyph in the sidebar's style. */
-export type RowLead = { logo: LogoKey } | { glyph: string };
+export type RowLead = { logo: LogoKey } | { glyph: string; heavy?: boolean };
 export const ROW_LEADS: Record<SettingsRow, RowLead> = {
   qobuz: { logo: 'qobuz' }, youtube: { logo: 'youtube' }, soundcloud: { logo: 'soundcloud' }, spotify: { logo: 'spotify' },
-  youtube_music: { logo: 'youtubemusic' }, music: { glyph: '▤' }, folders: { glyph: '◫' }, programs: { glyph: '⌘' },
+  youtube_music: { logo: 'youtubemusic' }, music: { glyph: '▤' }, folders: { glyph: '◫' }, upgrades: { glyph: '↑', heavy: true }, programs: { glyph: '⌘' },
   about: { glyph: '©' }, reports: { glyph: '☰' },
 };
 export function isSettingsRow(v: string | undefined): v is SettingsRow {
@@ -109,6 +112,12 @@ export function rowLine(row: SettingsRow, c: RowContext): RowLine {
     }
     case 'folders':
       return settingsLine(c.folders ?? null, c.job ?? null);
+    case 'upgrades': {
+      // the user's own choice, not a problem: off is neutral, on is as Liked music's good
+      if (!c.status) return { tone: null, text: '' };
+      const on = autoUpgradeOn(c.status.auto_upgrade);
+      return { tone: on ? 'good' : 'none', text: autoUpgradeLine(on) };
+    }
     case 'programs': {
       if (!c.tools) return c.toolsFailed ? { tone: 'problem', text: "couldn't check" } : { tone: null, text: '' };
       return c.tools.missing.length ? { tone: 'problem', text: `${c.tools.missing.join(', ')} missing` }

@@ -27,7 +27,7 @@ from ..models import (OWN_FILE, SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES
 from ..pacing import KEEP_SIGNALS, Budget
 from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
-from ..report import PLAN_LABELS, check_text, result_folder
+from ..report import PLAN_LABELS, auto_upgrade_line, check_text, result_folder
 from ..settings import Settings
 from ..sources import SOURCES
 from ..rekordbox import eligible
@@ -41,7 +41,7 @@ SIGNAL_DAYS = 14
 SHORT_SOURCE = {"qobuz": "Qobuz", "youtube_music": "YT Music", "soundcloud": "SoundCloud", "youtube": "YouTube",
                 "manual": "bought"}
 SHORT_OWN = "own file"  # SHORT_SOURCE["manual"] for a file the import found
-LOSSLESS_SECTIONS = ("new_lossless", "redownloaded", "bought", "replaced", "swapped", "added_new")
+LOSSLESS_SECTIONS = ("new_lossless", "redownloaded", "bought", "replaced", "swapped", "added_new", "upgraded")
 LOSSY_SECTIONS = ("new_not_lossless", "fake")
 PROBLEM_SECTIONS = ("missing", "errors", "conflicts", "ambiguous")
 MOVED_SECTIONS = ("moved", "adopted")
@@ -258,6 +258,15 @@ def read_status(store, now: datetime, reading: bool, logins: Sequence[tuple[str,
 
 # --- run history (reports/*.json) ---
 
+def auto_upgrade_view(block: object) -> dict | None:
+    """The run's Auto-upgrade block (the report's `.json` key `auto_upgrade`, plan stage C §1.6) with the one-line
+    account the end screen shows (`line`, report.auto_upgrade_line); None when the switch was off for that run (the key is
+    absent) or the block is not a block."""
+    if not isinstance(block, dict):
+        return None
+    return {**block, "line": auto_upgrade_line(block)}
+
+
 def run_summary(run_id: str, data: dict) -> dict:
     results = data.get("results") or []
 
@@ -279,7 +288,7 @@ def run_summary(run_id: str, data: dict) -> dict:
     return {"run_id": run_id, "started": started, "finished": finished, "duration_s": seconds, "exit_code": code,
             "counts": {"lossless": lossless, "lossy": lossy, "problems": count(PROBLEM_SECTIONS),
                        "moved": count(MOVED_SECTIONS)},
-            "stopped_after": stopped_after}
+            "stopped_after": stopped_after, "auto_upgrade": auto_upgrade_view(data.get("auto_upgrade"))}
 
 
 def runs(reports: list[tuple[str, dict]]) -> list[dict]:
@@ -752,12 +761,56 @@ def check_view(check: dict | None, batch_size: int = 1) -> dict:
             "old_path": undo.get("old")}
 
 
+# Auto-upgrade's marks on a parked upgrade (plan stage C §3, §4): To-do's row detail and the panel's facts
+AUTO_WAITING_DETAIL = "Waits for rekordbox to be closed"
+AUTO_REFUSED_DETAIL = "{short} · not upgraded at your sync"  # the reason first: To-do's row cuts the end at 1100
+AUTO_REFUSED_SHORT = {"timing": "couldn't line it up", "not_analysed": "not analysed in rekordbox",
+                      "cloud": "in Cloud Library Sync", "space": "not enough free space",
+                      "needs_choice": "couldn't compare it"}  # the five reasons the phase records (auto_upgrade.REFUSALS)
+AUTO_BATCH_DETAIL = "Upgraded during your sync"  # the sub of the To-do item of an Auto-upgrade batch's checks
+
+
+def auto_refused_view(up: dict | None) -> dict | None:
+    """The phase's refusal recorded on a parked upgrade, as `{reason, message, at}`; None without one, or when the
+    record isn't one the phase writes (an unknown reason or no words)."""
+    record = (up or {}).get("auto_refused")
+    if not isinstance(record, dict) or record.get("reason") not in AUTO_REFUSED_SHORT or not record.get("message"):
+        return None
+    return {"reason": record["reason"], "message": record["message"], "at": record.get("at")}
+
+
+def auto_waits_mark(up: dict | None, auto_on: bool, same_track: str | None) -> bool:
+    """Whether the upgrade waits for rekordbox to be closed (the phase met it open): the mark is there, the switch is
+    on, and Same track could run (`same_track` the quick answer, None when it can). The mark outlives a switch turned
+    off or a file that changed since, so it is shown only while it is true."""
+    return bool(auto_on and (up or {}).get("auto_waits") and same_track is None)
+
+
+def upgrade_detail(e: dict, rb: RekordboxStatus | None, auto_on: bool, same_track: str | None) -> str:
+    """An Upgrade ready row's short line: waiting for rekordbox, else a refusal of the sync's phase that still applies,
+    else `upgrade_status`. A refusal still applies while Same track could run (the phase tried and met something the
+    quick answer can't know) or the quick answer is the refusal's own reason (`needs_choice`: the files couldn't be
+    compared), unless a measurement since then says "a different edit"."""
+    up = e["upgrade"]
+    if auto_waits_mark(up, auto_on, same_track):
+        return AUTO_WAITING_DETAIL
+    refused = auto_refused_view(up)
+    if refused is not None:
+        measured_different = (up.get("alignment") or {}).get("result") == "different"
+        if same_track is None or (same_track == refused["reason"] and not measured_different):
+            short = AUTO_REFUSED_SHORT[refused["reason"]]
+            return AUTO_REFUSED_DETAIL.format(short=short[:1].upper() + short[1:])
+    return upgrade_status(up, same_track_format_ok(e, rb))
+
+
 def upgrade_block(up: dict | None, media: Url | None, track_id: str, e: dict,
-                  rb: RekordboxStatus | None = None, present: str = "here") -> dict | None:
+                  rb: RekordboxStatus | None = None, present: str = "here", auto_on: bool = True) -> dict | None:
     """The parked version as the panel reads it. `swap_possible` is "Same track is possible" (the quick answer for
     this file, `same_track_reason`; `why_not` is its reason key, null when it is), `swap_how` how it would go
     (`in_place`: an AIFF takes the audio; `new_aiff`: a new AIFF with a clean name, rekordbox's track pointed at it),
-    `rekordbox` the cached library state, `auto_refused` stage C's (null)."""
+    `rekordbox` the cached library state. Stage C: `auto_refused` the sync's refusal recorded on it (`{reason, message,
+    at}` or null; shown whatever the switch says), `auto_waits` that the sync met rekordbox open for it (only while
+    `auto_on`, the switch, and Same track is possible)."""
     if not up:
         return None
     alignment = up.get("alignment") or {"result": "unknown"}
@@ -774,7 +827,7 @@ def upgrade_block(up: dict | None, media: Url | None, track_id: str, e: dict,
             "swap_how": "in_place" if swap_possible(e) else "new_aiff",
             "why_not": why_not,
             "rekordbox": {"state": (rb or UNKNOWN_REKORDBOX).state, "running": (rb or UNKNOWN_REKORDBOX).running},
-            "auto_refused": None,
+            "auto_refused": auto_refused_view(up), "auto_waits": auto_waits_mark(up, auto_on, why_not),
             "audio_url": media(track_id, {**e, "path": up["file"]}) if media else None}
 
 
@@ -811,9 +864,9 @@ def file_online(e: dict, away: Mapping[str, str] | None = None) -> bool:
 
 def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url | None = None,
                  media: Url | None = None, away: Mapping[str, str] | None = None, exists: bool = True,
-                 place: str | None = None, rb: RekordboxStatus | None = None) -> dict:
+                 place: str | None = None, rb: RekordboxStatus | None = None, auto_on: bool = True) -> dict:
     """`rb`: rekordbox's cached state (HubApi._rekordbox_status; None: taken as readable), for the upgrade block's
-    Same track answer. `away`, `exists`: see file_state (HubApi._away_roots; whether the file is at its path). Whatever the state but
+    Same track answer. `auto_on`: Settings' Auto-upgrade switch (the block's `auto_waits` shows only while it is on). `away`, `exists`: see file_state (HubApi._away_roots; whether the file is at its path). Whatever the state but
     "here", there is no `audio_url`: nothing to play. `place`: where the file sits (Sites.place, D11), the same words
     as the Folder column; None for a track without a file."""
     folders = in_playlists(track_id, e, fetched)
@@ -837,7 +890,7 @@ def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url 
             "buy_links": buy_links(e["artist"], e["title"]), "free_downloads": free_downloads(e),
             "bought_name": f"Library/{e['folder']}/{expected_stem(e['artist'], e['title'])}.wav",
             "audio_url": media(track_id, e) if media and e.get("path") and state == "here" else None,
-            "upgrade": upgrade_block(e.get("upgrade"), media, track_id, e, rb, present_of(state))}
+            "upgrade": upgrade_block(e.get("upgrade"), media, track_id, e, rb, present_of(state), auto_on)}
 
 
 # --- library ---
@@ -1346,9 +1399,10 @@ def upgrade_ready_keys(state: dict, held: Collection[str] = ()) -> list[str]:
             if todo_listed(k, e, held, never) and _group(e) == "upgrade_ready" and not e.get("hidden")]
 
 
-def _detail(group: str, e: dict, today: date, other: str | None, rb: RekordboxStatus | None = None) -> str:
+def _detail(group: str, e: dict, today: date, other: str | None, rb: RekordboxStatus | None = None,
+            auto_on: bool = True, same_track: str | None = None) -> str:
     if group == "upgrade_ready":
-        return upgrade_status(e["upgrade"], same_track_format_ok(e, rb))
+        return upgrade_detail(e, rb, auto_on, same_track)
     if group == "not_found":
         when = next_check(e, today)
         if when is None or when == "next_sync":
@@ -1475,14 +1529,18 @@ def recommend(files: Sequence[DupFile]) -> tuple[int | None, str | None]:
     return None, None
 
 
-def _batch_item(batch_id: int, tracks: list[dict]) -> dict:
+def _batch_item(batch_id: int, tracks: list[dict], started_by: str | None = None) -> dict:
     """The To-do item of an AIFF batch's open checks (two or more): it looks like its first track's row (a TrackRow,
-    so the list can place it) under the key `batch:<id>`; `batch.tracks` are the checks as single items list them."""
+    so the list can place it) under the key `batch:<id>`; `batch.tracks` are the checks as single items list them.
+    `started_by`: who started the batch (`aiff_batches.started_by`; None when unknown): a batch of the sync's
+    Auto-upgrade says "Upgraded during your sync" in place of "Same track"."""
     started = min((t["check"]["since"] for t in tracks if t["check"]["since"]), default=None)
     key = f"batch:{batch_id}"
+    how = AUTO_BATCH_DETAIL if started_by == "auto_upgrade" else "Same track"
     return {**tracks[0], "track_id": key, "key": key, "group": "rekordbox_check",
-            "detail": f"{started or ''} · Same track".strip(" ·"),
-            "batch": {"id": batch_id, "size": len(tracks), "started": started, "tracks": tracks}}
+            "detail": f"{started or ''} · {how}".strip(" ·"),
+            "batch": {"id": batch_id, "size": len(tracks), "started": started, "started_by": started_by,
+                      "tracks": tracks}}
 
 
 def _upgrade_all(rows: list[dict], stopped: tuple[int, int] | None) -> dict:
@@ -1506,7 +1564,8 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
          dup_files: Mapping[str, Sequence[DupFile]] | None = None, audio: Url | None = None,
          counted: Collection[str] = (), away: Mapping[str, str] | None = None,
          rb: RekordboxStatus | None = None, present: Mapping[str, str] | None = None,
-         stopped: tuple[int, int] | None = None) -> dict:
+         stopped: tuple[int, int] | None = None, auto_on: bool = True,
+         started_by: Mapping[int, str] | None = None) -> dict:
     """Groups in this order: Check in rekordbox, Is this the same song?, Duplicates, Upgrade ready, Not found, Weak,
     Good lossy, Fake lossless, Other. `others`: track id -> what blocks it (a move blocked by another file, several
     files that could be it). Hidden tracks are left out unless show_hidden. "Check in rekordbox" lists every track
@@ -1533,7 +1592,13 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     Same track batch that still has items left). The checks of one AIFF batch with two or more tracks open are one
     item, a `BatchCheckItem` (`key` `batch:<id>`, `batch: {id, size, started, tracks}`), which counts as one in
     `chips`; one open check of a batch stays a plain item. `check_tracks` is the tracks with an open check (a batch
-    counts its `size`, hidden tracks too, whatever the filter): the page header counts tracks, `chips` counts items."""
+    counts its `size`, hidden tracks too, whatever the filter): the page header counts tracks, `chips` counts items.
+
+    Stage C (plan §3, §4): `auto_on` is Settings' Auto-upgrade switch and `started_by` the AIFF batches' starters, batch
+    id -> `aiff_batches.started_by` (the api reads the batches the open checks belong to). An Upgrade ready row's
+    `detail` says "Waits for rekordbox to be closed" while the switch is on and the sync met rekordbox open for it, or
+    "{Short} · not upgraded at your sync" for a refusal the phase recorded (`upgrade_detail`); a batch item carries
+    `batch.started_by` and, for an Auto-upgrade batch, "Upgraded during your sync" as its detail."""
     items: dict[str, list] = {g: [] for g, _, _ in TODO_GROUPS}
     batch_checks: dict[int, list[str]] = {}
     for k, e in state["tracks"].items():
@@ -1574,7 +1639,8 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
                          "detail": check_status(state["tracks"][t]["rekordbox_check"]),
                          "check": check_view(state["tracks"][t]["rekordbox_check"], len(batched[bid])),
                          "can_undo": can_undo(state["tracks"][t]),
-                         "file_state": row_file_state(state["tracks"][t], away)} for t in batched[bid]]))
+                         "file_state": row_file_state(state["tracks"][t], away)} for t in batched[bid]],
+                        (started_by or {}).get(bid)))
                     listed.add(f"batch:{bid}")
             else:
                 items["rekordbox_check"].append(check_item)
@@ -1588,10 +1654,13 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
             hidden += 1
             if not show_hidden:
                 continue
-        item = {**track_row(k, e, cover), "group": group, "detail": _detail(group, e, today, others.get(k), rb),
-                "free": group in FREE_GROUPS and bool(free_downloads(e)), "file_state": row_file_state(e, away)}
+        state_of = row_file_state(e, away)
+        same = (same_track_reason(e, rb, (present or {}).get(k) or present_of(state_of))
+                if group == "upgrade_ready" else None)
+        item = {**track_row(k, e, cover), "group": group, "detail": _detail(group, e, today, others.get(k), rb, auto_on, same),
+                "free": group in FREE_GROUPS and bool(free_downloads(e)), "file_state": state_of}
         if group == "upgrade_ready":
-            item["same_track"] = same_track_reason(e, rb, (present or {}).get(k) or present_of(item["file_state"]))
+            item["same_track"] = same
         items[group].append(item)
         listed.add(k)
     for rows in items.values():
@@ -1721,8 +1790,11 @@ def _members(prep, plan_state: dict, places: Places | None):
 
 def sync_preview(store, state: dict, settings: Settings, today: date, now: datetime, reading: bool,
                  cover: Url | None = None, logins: Sequence[tuple[str, bool]] = (),
-                 where: Callable[[str], str] | None = None, places: Places | None = None) -> dict:
+                 where: Callable[[str], str] | None = None, places: Places | None = None,
+                 auto_upgrade: dict | None = None) -> dict:
     """The check before the start: every planned action in groups, each with the key the page sends back ticked.
+    `auto_upgrade` (issue 33 stage C): `{on, ready}` from the api (the upgrades the sync's last phase would put in
+    place; None: the switch is off), passed on as it is; null as well while there is no preview.
     `where`: a file's path -> its folder's name (`Sites.place`), for the own songs that belong to no playlist.
     `places`: `song_places`, the folders a file sits in. Each row's `in` lists the collections of the browser column
     its song belongs to (`_members`; Sync's switches leave a row out only when every one of them is off, issue 37),
@@ -1732,7 +1804,7 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
     if prep is None:
         return {"read_status": status, "counts": None, "groups": [], "estimate": None, "never": [], "folders": [],
                 "in_playlists": None, "ambiguous": [], "dropped": [], "notes": [], "empty": "no_preview",
-                "waiting_answers": 0, "deferred_checks": 0, "collections": {}}
+                "waiting_answers": 0, "deferred_checks": 0, "collections": {}, "auto_upgrade": None}
     plan_state = prep.state
     members, names = _members(prep, plan_state, places)
 
@@ -1763,7 +1835,7 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
             "waiting_answers": len({q.song_key for q in prep.plan.questions}),
             "deferred_checks": prep.plan.deferred_checks,
             # every collection a row is in, by its target (the browser column's key) -> its name (issue 37)
-            "collections": names}
+            "collections": names, "auto_upgrade": auto_upgrade}
 
 
 # --- watched folders (Settings, Setup; plan library stage 4 I11) ---

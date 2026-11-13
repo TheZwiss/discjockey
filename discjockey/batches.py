@@ -26,6 +26,13 @@ changed, the batch is `stopped`/`busy`) or `Refused` (nothing in it could be don
 tracks') done items back, newest first, in one session, `checked` ends the undo for tracks ("Done, checked in
 rekordbox"), `recover` closes what a crash left (`library.recover_pending` calls it).
 
+Stage C (Auto-upgrade, plan stage C §0.4, §0.5, §1.3): the sync's last phase starts a batch with
+`started_by="auto_upgrade"` and runs it with `require_closed=True` (rekordbox running at the start refuses the whole
+batch, an AIFF swap included: a track may be loaded on a deck). An auto batch is never resumed: when Stop,
+rekordbox opening or `Busy` ends it, the phase calls `end_auto`, which skips its `planned` items and ends it `done`
+with its backup kept (its done items keep their undo and check cards); `recover` does the same for one a crash left
+`running`, so the next sync plans afresh and To-do never offers Resume for it.
+
 Callers: the hub's jobs and `discjockey upgrade …` / `batch …` (stage B), Upgrade all and Auto-upgrade (stage C) and
 Convert / Rename (stage D: their items are `convert` / `rename`; `RUNNABLE` grows with them).
 """
@@ -48,10 +55,11 @@ from .rekordbox.write import RekordboxOpened
 from .upgrades import NeedsChoice, UndoRefused, UpgradeProblem
 
 __all__ = ["BUSY", "Busy", "BatchResult", "ItemResult", "RekordboxOpen", "Refused", "Stopped", "UndoItem",
-           "UndoResult", "UndoStopped", "checked", "close_unrun", "present", "recover", "result_of", "resume", "run",
-           "start", "tracks_of", "undo"]
+           "UndoResult", "UndoStopped", "checked", "close_unrun", "end_auto", "present", "recover", "result_of",
+           "resume", "run", "start", "tracks_of", "undo"]
 
 RUNNABLE = ("same_track",)  # the actions a batch can run today
+AUTO = "auto_upgrade"  # `started_by` of the sync's Auto-upgrade batch
 OPERATION = "upgrade_same_track"  # operations.log's name for an item
 NOTHING_ELIGIBLE = "None of these can be upgraded right now."
 NOTHING_UNDONE = "None of these could be undone."
@@ -175,12 +183,14 @@ class Refused(Exception):
 
 
 def _name(e: dict | None, track_id: str) -> str:
-    return f"{e.get('artist', '?')} - {e.get('title', track_id)}" if e else track_id
+    return f"{e.get('artist', '?')} – {e.get('title', track_id)}" if e else track_id
 
 
 def _words(reason: str) -> str:
     text = REASON_WORDS.get(reason, reason)
-    return f"{text[:1].upper()}{text[1:]}. Nothing was changed."
+    if not text.startswith("rekordbox"):  # rekordbox is written in lower case, a sentence's start included
+        text = f"{text[:1].upper()}{text[1:]}"
+    return f"{text}. Nothing was changed."
 
 
 def _item_result(item: AiffItemRow) -> ItemResult:
@@ -271,9 +281,13 @@ def _needs_write(paths, state: dict, tracks: Sequence[str]) -> Callable:
     return needs
 
 
-def _session(paths, *, batch_id: int | None, tracks: Sequence[str], state: dict, running, place):
+def _session(paths, *, batch_id: int | None, tracks: Sequence[str], state: dict, running, place,
+             require_closed: bool = False):
     options = {} if place is _DEFAULT else {"place": place}
-    need = _needs_write(paths, state, tracks) if tracks else (lambda view: False)
+    if require_closed:  # every item counts as a rekordbox write: rekordbox running at the start refuses the batch
+        need = lambda view: True  # noqa: E731
+    else:
+        need = _needs_write(paths, state, tracks) if tracks else (lambda view: False)
     return Session.open(paths, running=running, items_need_write=need, batch_id=batch_id, **options)
 
 
@@ -332,12 +346,16 @@ def _item(paths, state: dict, session: Session, batch_id: int, item: AiffItemRow
 
 def run(paths, batch_id: int, *, emit: Emit = no_emit, token: CancelToken | None = None,
         compare: upgrades.Compare = align.compare_files, now: Callable[[], datetime] = datetime.now,
-        running: Callable[[], bool] | None = None, place=_DEFAULT, state: dict | None = None) -> BatchResult:
+        running: Callable[[], bool] | None = None, place=_DEFAULT, state: dict | None = None,
+        require_closed: bool = False) -> BatchResult:
     """Works off the `planned` items of the `running` batch `batch_id` (see the module docstring). The caller holds
-    the library lock and has already run `library.recover_pending` (which calls `recover`, marking every `running`
-    batch `stopped`/`crash`): `start` must come after that, or this batch would be stopped before it runs. `state` is
+    the library lock and has already run `library.recover_pending` (which calls `recover`, ending every `running`
+    batch): `start` must come after that, or this batch would be ended before it runs. `state` is
     the caller's snapshot, kept current as the steps write (loaded when None); `running` / `place` are rekordbox's
-    process check and library (tests; the real ones when omitted)."""
+    process check and library (tests; the real ones when omitted). `require_closed` (Auto-upgrade): the session's
+    start check treats every item as needing a rekordbox write, so rekordbox running when the batch begins raises
+    `RekordboxOpen` with nothing changed and no backup made, whatever the files are (an AIFF swap included). The
+    session makes that check only when there is a rekordbox library to open; with none there is nothing to protect."""
     token = token or CancelToken()
     row = _row(paths, batch_id)
     if row.state != "running":
@@ -355,7 +373,7 @@ def run(paths, batch_id: int, *, emit: Emit = no_emit, token: CancelToken | None
     try:
         if planned:
             with _session(paths, batch_id=batch_id, tracks=[i.track for i in planned], state=state, running=running,
-                          place=place) as session:
+                          place=place, require_closed=require_closed) as session:
                 for item in planned:
                     try:
                         token.check()
@@ -417,6 +435,29 @@ def close_unrun(paths, batch_id: int, reason: str, message: str, *, now: Callabl
         return _batch_result(db.aiff_batch(conn, batch_id))
 
 
+def end_auto(paths, batch_id: int, reason: str, *, now: Callable[[], datetime] = datetime.now) -> BatchResult:
+    """Ends an Auto-upgrade batch that Stop, rekordbox opening, `Busy` or a crash cut short (plan stage C §0.5): every
+    `planned` item is `skipped` with `reason` (an `eligible.REASONS` key: `rekordbox_open`, `not_reached`, `busy`)
+    and its words, and the batch is `done` with its backup id kept (unlike `close_unrun`: the done items still need
+    it for their undo). No stop reason is stored; the items carry it. The done items are not touched. A batch that
+    is `done` already comes back as it is. ValueError for a batch not started by `auto_upgrade` or one that isn't
+    there; `reason` must be an `eligible.REASONS` key."""
+    if reason not in eligible.REASONS:
+        raise ValueError(f"{reason!r} is not a reason an item is skipped for")
+    with db.connect(paths.db_file) as conn:
+        row = db.aiff_batch(conn, batch_id)
+        if row is None:
+            raise ValueError(f"there is no AIFF batch {batch_id}")
+        if row.started_by != AUTO:
+            raise ValueError(f"AIFF batch {batch_id} was not started by Auto-upgrade")
+        if row.state != "done":
+            for item in row.items:
+                if item.state == "planned":
+                    db.set_aiff_item(conn, batch_id, item.seq, "skipped", reason, {"message": _words(reason)})
+            db.set_aiff_batch(conn, batch_id, state="done", ended=now())
+        return _batch_result(db.aiff_batch(conn, batch_id))
+
+
 def resume(paths, batch_id: int, **options) -> BatchResult:
     """Runs the `planned` items of a stopped batch again (their eligibility is asked again, as at the start). A
     stopped batch with nothing left is closed (`done`). ValueError unless the batch is `stopped`. `options` as
@@ -445,13 +486,22 @@ def _close_finished(paths, now: Callable[[], datetime]) -> None:
 
 def recover(paths, *, now: Callable[[], datetime] = datetime.now) -> list[int]:
     """After a crash: every `running` batch is `stopped` (`crash`) and offers Resume, unless nothing is left in it
-    (then it ends); stopped batches with nothing left end too. Returns the ids that wait for Resume because of the
-    crash. Items are never touched: a step's own recovery (`library.recover_pending`) decides them."""
-    crashed = []
+    (then it ends); stopped batches with nothing left end too. An Auto-upgrade batch is never resumed, running or
+    stopped (the crash may have come between `run` ending it and the phase's `end_auto`): it ends through `end_auto`
+    (`not_reached`). Returns the ids that wait for Resume because of the crash. Items are never touched, except an
+    auto batch's `planned` ones: a step's own recovery (`library.recover_pending`, which runs first) decides what
+    the item in work became."""
+    crashed, auto = [], []
     with db.connect(paths.db_file) as conn:
-        for batch_id in db.running_aiff_batches(conn):
-            db.set_aiff_batch(conn, batch_id, state="stopped", stop_reason="crash")
-            crashed.append(batch_id)
+        for batch_id in db.unfinished_aiff_batches(conn):
+            row = db.aiff_batch(conn, batch_id)
+            if row.started_by == AUTO:
+                auto.append(batch_id)
+            elif row.state == "running":
+                db.set_aiff_batch(conn, batch_id, state="stopped", stop_reason="crash")
+                crashed.append(batch_id)
+    for batch_id in auto:
+        end_auto(paths, batch_id, "not_reached", now=now)
     _close_finished(paths, now)
     with db.connect(paths.db_file) as conn:
         return [i for i in crashed if db.aiff_batch(conn, i).state == "stopped"]

@@ -43,3 +43,48 @@ def test_the_steps_that_delete_need_the_mark_copy_db_leaves(script, tmp_path, mo
     monkeypatch.setattr(script.process, "running", lambda: False)
     assert script.copy_db(source, tmp_path / "fresh") == 0
     script.need_marker(tmp_path / "fresh")
+
+
+def test_rehearse_sync_needs_the_mark_and_a_fresh_work_folder(script, tmp_path, monkeypatch):
+    work = tmp_path / "work"
+    (work / "support").mkdir(parents=True)
+    with pytest.raises(script.Refused, match="copy-db"):
+        script.rehearse_sync(work, "MP3 #1")
+    (work / script.MARKER).write_text("", encoding="utf-8")
+    (work / "picks.json").write_text('[{"label": "M4A 44.1 #1"}, {"label": "MP3 #1"}]', encoding="utf-8")
+    (work / "source").mkdir()
+    (work / "source" / "master.db").write_bytes(b"not a real library")
+    monkeypatch.setattr(script.process, "running", lambda: False)
+    for label in ("M4A 44.1 #1", "MP3 #9"):  # not an MP3 / not a pick
+        with pytest.raises(script.Refused, match="label of one of the MP3 tracks"):
+            script.rehearse_sync(work, label)
+    (work / script.SYNC_MARK).write_text("", encoding="utf-8")
+    with pytest.raises(script.Refused, match="ran in this work folder already"):
+        script.rehearse_sync(work, "MP3 #1")
+    assert (work / "support").is_dir()  # nothing was deleted
+
+
+def test_the_rehearsal_playlists_line_reads_nothing(script, tmp_path):
+    """A playlists.txt needs an active line, and this one is Liked music while Settings' choice is off: left out
+    before any request, so the rehearsal's sync reads no playlist and needs no login."""
+    paths = script.Paths(tmp_path / "music", support=tmp_path / "support")
+    lines = script.config.parse_playlists(script.PLAYLISTS)
+    assert len(lines) == 1
+    assert script.sources.left_out(paths, lines[0])
+
+
+def test_a_real_sync_runs_only_after_a_dry_run_planned_no_action(script, tmp_path, monkeypatch):
+    calls = []
+
+    def fake_cli(work, tag, *args, offline=False):
+        calls.append((tag, args, offline))
+        return 0, {"counts": {"upgrade": 1}}, "", 0.1
+
+    monkeypatch.setattr(script, "run_cli", fake_cli)
+    with pytest.raises(script.Refused, match="no real run"):
+        script.real_sync(tmp_path, "rh9-sync")
+    assert calls == [("rh9-sync-guard", ("--dry-run", "--json"), True)]
+    monkeypatch.setattr(script, "run_cli", lambda work, tag, *args, offline=False: (calls.append(tag), (0, {}, "", 0.1))[1])
+    calls.clear()
+    script.real_sync(tmp_path, "rh9-sync")
+    assert calls == ["rh9-sync-guard", "rh9-sync"]

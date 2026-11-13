@@ -35,12 +35,14 @@ from .offset import TimelineOffset
 REASONS = ("no_upgrade", "needs_choice", "file_missing", "away", "rekordbox_unreadable", "timing", "not_analysed",
            "cloud", "downloaded", "clean_aiff", "named_already", "needs_convert", "no_name", "not_in_library",
            "auto_refused", "unclean", "changed", "space", "rekordbox_open", "busy", "rename_blocked", "relocated",
-           "later_batch")
-# auto_refused is reserved for stage C; the rest from `unclean` on are what a run finds (stage B): the write is
-# refused (`unclean`, guard 4), the track changed meanwhile, too little room, rekordbox open, another Discjockey
-# window holding the rekordbox lock (`busy`), a rename the repoint can't follow, and an undo refused because the
-# track was moved or removed in rekordbox since the replace; `later_batch`: the track was planned again in a later
-# batch, so an earlier stopped batch gave up its unrun item
+           "later_batch", "not_reached")
+# `auto_refused` is the Auto-upgrade phase's own skip (stage C: the phase leaves a track out of its batch because a
+# refusal it recorded still holds; `auto_upgrade.plan` lists those, no item carries the key today); the rest from
+# `unclean` on are what a run finds (stage B): the write is refused (`unclean`, guard 4), the track changed
+# meanwhile, too little room, rekordbox open, another Discjockey window holding the rekordbox lock (`busy`), a
+# rename the repoint can't follow, and an undo refused because the track was moved or removed in rekordbox since
+# the replace; `later_batch`: the track was planned again in a later batch, so an earlier stopped batch gave up its
+# unrun item; `not_reached` (stage C): the sync's Auto-upgrade batch ended (Stop, a crash) before this item
 ACTIONS = ("same_track", "convert", "rename")
 AIFF_EXTS = (".aiff", ".aif")
 OWN = "manual"  # the `source` of a file that wasn't downloaded: a bought file or one the import found

@@ -3,7 +3,7 @@
 // what was replaced, Undo), and duplicates ("Which file stays?"). Pure: the words, the choices and their outcomes,
 // and which of them the selected Library track waits for (`decisionFor`). The components beside it render them.
 import type {
-  AiffBatchResult, Alignment, DuplicateItem, FileSide, ItemResult, ProblemKind, RekordboxCheckView, TodoItem, TrackDetail,
+  AiffBatchResult, Alignment, AutoRefused, DuplicateItem, FileSide, ItemResult, ProblemKind, RekordboxCheckView, TodoItem, TrackDetail,
   UndoResult, Upgrade,
 } from '$lib/bridge/types';
 import { isBatch, isDuplicate } from '$lib/bridge/types';
@@ -150,6 +150,24 @@ export const nowTip = (t: Pick<TrackDetail, 'source_format_line'>): string | nul
 /** The main button: what replacing does, named by the result. */
 export function replaceLabel(up: Upgrade): string {
   return up.what === 'lossless version' ? 'Replace with lossless' : 'Replace with the better version';
+}
+
+// ---------- the sync's Auto-upgrade in the upgrade panel (issue 33 stage C plan §3, §6.3) ----------
+/** Design §8's waiting sentence, with this panel's own action: Replace works only with rekordbox closed, so the Hint says
+ *  to quit it first (stage review B8; the list's "press Upgrade all" is the engine's own). */
+export const AUTO_WAITS_HINT = 'Waits for rekordbox: it goes in at your next sync, or quit it and press Replace.';
+/** To-do's short word for a refusal the sync's phase recorded (views.AUTO_REFUSED_SHORT, capitalised): the sub of a
+ *  "Couldn't go in" row on the end screen, where the full sentence is the row's tooltip. */
+export const AUTO_REFUSED_SHORT: Record<AutoRefused['reason'], string> = {
+  timing: "Couldn't line it up", not_analysed: 'Not analysed in rekordbox', cloud: 'In Cloud Library Sync',
+  space: 'Not enough free space', needs_choice: "Couldn't compare it",
+};
+/** What the sync's last phase left on a parked upgrade, as the panel shows it: the waiting sentence as a Hint under the
+ *  actions, or the refusal as a warn NoteCard above them. One of the two, as the to-do row's line (views.upgrade_detail:
+ *  waiting first), so the row and the panel never say two things; Replace works either way (plan §0.8). */
+export function autoNotes(up: Pick<Upgrade, 'auto_waits' | 'auto_refused'>): { waits: boolean; refused: AutoRefused | null } {
+  const waits = !!up.auto_waits;
+  return { waits, refused: waits ? null : up.auto_refused ?? null };
 }
 
 // ---------- the rekordbox check after a replace ----------
@@ -532,9 +550,13 @@ export function checkTracks(items: TodoItem[]): TodoItem[] {
 }
 /** A batch item's row in the to-do list: "{n} tracks upgraded" over "{day} · Same track" (§3). */
 export const batchRowName = (n: number): string => `${n} tracks upgraded`;
-export function batchRowSub(started: string | null, today: string): string {
+/** What a batch's row says it was: "Same track", or for the sync's Auto-upgrade "Upgraded during your sync" (plan §3). */
+export const AUTO_BATCH_SUB = 'Upgraded during your sync';
+export const isAutoBatch = (startedBy: string | null | undefined): boolean => startedBy === 'auto_upgrade';
+export function batchRowSub(started: string | null, today: string, startedBy: string | null = null): string {
   const day = sinceText(started, today);
-  return day ? `${day} · Same track` : 'Same track';
+  const how = isAutoBatch(startedBy) ? AUTO_BATCH_SUB : 'Same track';
+  return day ? `${day} · ${how}` : how;
 }
 /** The "In rekordbox" card of a batch: the steps for the tracks rekordbox has (Reload Tag only for the tracks whose
  *  text Discjockey couldn't write, by name; design §8's words for several tracks), null when rekordbox has none of
@@ -580,15 +602,18 @@ export const tracksSummary = (n: number): string => `${n} ${plural(n, 'track', '
 /** "Undo all {n}" (every track can go), "Undo {n}" (n: the tracks that can be undone). */
 export const undoAllLabel = (n: number): string => `Undo all ${n}`;
 export const undoManyLabel = (n: number): string => `Undo ${n}`;
+/** The sync's batch: "Undo all from this sync" in place of "Undo all {n}" (design §2.5, plan §3). */
+export const UNDO_SYNC_LABEL = 'Undo all from this sync';
 /** The foot's undo for the tracks of a batch card or several checks: the tracks that can be undone now (a track whose
  *  undo was just refused isn't offered again until the next pick), the button's words ("Undo all {n}" only when every
  *  track can go, else "Undo {n}") and the muted line for the tracks that have nothing to undo ("{k} can't be undone";
  *  the refused ones say why in their rows and under the buttons). */
-export function undoFoot(tracks: Pick<TodoItem, 'track_id' | 'can_undo'>[], refused: Record<string, string> = {}):
-  { ids: string[]; label: string; cant: string | null } {
+export function undoFoot(tracks: Pick<TodoItem, 'track_id' | 'can_undo'>[], refused: Record<string, string> = {},
+  fromSync = false): { ids: string[]; label: string; cant: string | null } {
   const ids = tracks.filter((t) => t.can_undo && !refused[t.track_id]).map((t) => t.track_id);
   const none = tracks.filter((t) => !t.can_undo).length;
-  return { ids, label: ids.length === tracks.length ? undoAllLabel(ids.length) : undoManyLabel(ids.length),
+  const all = fromSync ? UNDO_SYNC_LABEL : undoAllLabel(ids.length);
+  return { ids, label: ids.length === tracks.length ? all : undoManyLabel(ids.length),
     cant: none ? `${none} can't be undone` : null };
 }
 export const undoManyConfirm = (n: number) => ({ title: `Undo ${n} ${plural(n, 'replace', 'replaces')}?`,

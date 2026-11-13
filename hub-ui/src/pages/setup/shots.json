@@ -34,9 +34,11 @@
    "steps": [{ "wait": "[data-test=spotify-login]" }, { "click": "[data-test=spotify-login]" },
      { "wait": "[data-test=spotify-failed]" }, { "sleep": 300 }] },
  { "name": "setup-downloads", "route": "#/setup/downloads", "scenario": "setup:downloads",
-   "steps": [{ "wait": "[data-test=setup-card-soundcloud] [data-compact]" }, { "sleep": 400 }] },
+   "steps": [{ "wait": "[data-test=setup-card-soundcloud] [data-compact]" },
+     { "eval": "if (document.querySelector('[data-test=setup-card-upgrades]')) throw new Error('Qobuz is not decided: the Upgrades card waits until it is (signed in or left out)')" }, { "sleep": 400 }] },
  { "name": "setup-downloads-qobuz-only", "route": "#/setup/downloads", "scenario": "setup:downloads-qobuz-only",
-   "steps": [{ "wait": "[data-test=account-youtube-main]" }, { "sleep": 400 }] },
+   "steps": [{ "wait": "[data-test=account-youtube-main]" },
+     { "eval": "if (!document.querySelector('[data-test=setup-card-upgrades] [data-test=auto-upgrade-switch]')) throw new Error('Qobuz is signed in: the Upgrades card shows')" }, { "sleep": 400 }] },
  { "name": "setup-downloads-all", "route": "#/setup/downloads", "scenario": "setup:downloads-all",
    "steps": [{ "wait": "[data-test=account-soundcloud-line]" }, { "sleep": 400 }] },
  { "name": "setup-downloads-yt-found", "route": "#/setup/downloads", "scenario": "setup:downloads-yt-found",
@@ -94,5 +96,7 @@
    "steps": [{ "wait": "[data-test=existing-list-row-2]" }, { "sleep": 400 }] },
  { "name": "setup-existing-importing", "route": "#/setup/existing", "scenario": "setup_existing_empty",
    "steps": [{ "wait": "[data-test=existing-add]" }, { "click": "[data-test=existing-add]" },
-     { "wait": "[data-test=existing-import-line]" }, { "sleep": 400 }] }
+     { "wait": "[data-test=existing-import-line]" }, { "sleep": 400 }] },
+ {"name": "setup-downloads-auto", "route": "#/setup/downloads", "scenario": "setup:downloads-auto", "steps": [{"wait": "[data-test=setup-card-upgrades] [data-test=auto-upgrade-switch][aria-checked=true]"}, {"wait": "[data-test=setup-card-soundcloud] [data-compact]"}, {"sleep": 400}]},
+ {"name": "setup-downloads-auto-off", "route": "#/setup/downloads", "scenario": "setup:downloads-auto", "steps": [{"wait": "[data-test=setup-card-upgrades] [data-test=auto-upgrade-switch][aria-checked=true]"}, {"click": "[data-test=setup-card-upgrades] [data-test=auto-upgrade-switch]"}, {"wait": "[data-test=setup-card-upgrades] [data-test=auto-upgrade-switch][aria-checked=false]"}, {"sleep": 400}]}
 ]

@@ -1245,7 +1245,7 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
     `swap` / `swap_undo` / `convert` / `convert_undo` step writes past it too (end_op), and `state` follows each of
     its writes. A convert step (or its undo) whose analysis files must come back while rekordbox runs waits for it to
     quit, as a step waits for a drive: the run goes on, the scan is held. Last, an AIFF batch a crash left `running`
-    becomes `stopped` and offers Resume (`batches.recover`)."""
+    becomes `stopped` and offers Resume (`batches.recover`); the sync's Auto-upgrade batch ends instead, never resumed."""
     messages: list[tuple[str, bool] | _Waits] = []
     roots = watched_roots(paths) if state.get("version") == 2 else [paths.root]
     for op in list(state.get("pending", [])):

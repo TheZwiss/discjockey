@@ -4,6 +4,7 @@ import type { Dashboard, PlaylistService, ProblemKind, Quality, Result, SourceHo
 import type { LogoKey } from '$lib/components/serviceLogos';
 import type { RunState } from '$lib/stores/run';
 import { STEP_LABEL, sourceHowWords } from '$lib/copy';
+import { runLabel } from '$lib/decisions/decisionModel';
 import { duration, khz, megabytes } from '$lib/format';
 
 export const ANALYSED_MS = 4000;
@@ -50,6 +51,7 @@ export type Card =
   | { kind: 'pause'; waiting: 'between' | 'break'; remaining_s: number; total_s: number; label: string;
       nextUp: Action; afterThat: number; source: string | null }
   | { kind: 'stopping' }
+  | { kind: 'upgrading'; done: number; total: number; name: string | null }
   | { kind: 'finished'; exit_code: number }
   | { kind: 'failed'; problem: ProblemKind; message: string; service: PlaylistService | null };
 
@@ -89,6 +91,10 @@ export function liveUsage(qobuzToday: Count | null, usage: Record<string, Count>
 export function cardState(r: RunState, now: number,
   qobuzToday: { used: number; allowance: number } | null = null): Card {
   if (r.phase === 'stopping') return { kind: 'stopping' };
+  // the sync's last phase, Auto-upgrade (issue 33 stage C): no download is in work, the batch is (LiveView words it)
+  if (r.phase === 'upgrading' && r.upgrade) {
+    return { kind: 'upgrading', done: r.upgrade.done, total: r.upgrade.total, name: r.upgrade.name };
+  }
   if (r.phase === 'failed') {
     return { kind: 'failed', problem: (r.job_finished?.problem ?? 'crashed') as ProblemKind,
       message: r.job_finished?.message ?? '', service: r.job_finished?.service ?? null };
@@ -139,6 +145,15 @@ export function cardState(r: RunState, now: number,
     detail = lengthLine(r.checked) ?? detail;
   }
   return { kind: 'working', action: a, step, steps, detail, source, how };
+}
+
+/** The run's progress card while the sync's Auto-upgrade batch goes: "3 of 8 upgraded" over "Upgrading · Artist - Title"
+ *  (decisionModel.runLabel). Not stage B's "of 8 done": during a sync that reads against the downloads' lists below,
+ *  which count their own tracks; the bar counts the tracks handled. */
+export function upgradeProgress(u: { done: number; total: number; name: string | null }):
+  { position: string; message: string; share: number | null } {
+  return { position: `${u.done} of ${u.total} upgraded`, message: runLabel('swap', u.name),
+    share: u.total > 0 ? Math.min(1, u.done / u.total) : null };
 }
 
 /** Index of the step shown as current (accent); every step before it is done. -1 = all done. */

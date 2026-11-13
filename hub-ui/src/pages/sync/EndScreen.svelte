@@ -1,14 +1,18 @@
 <script lang="ts">
   // End screen (design system §8 End), on ColumnFrame: the page header with Full report, stat cards (added with its
   // quality bar, then moved · need you as a pair: the up-to-date panel's numbers and composition), the notes the cards can't
-  // count (stopped, upgrades to review, waiting), then Needs you, one list per playlist folder of the new files
-  // (under a hint to add them in rekordbox; Show in Finder opens each) and Other changes, all list Surfaces of
-  // ListRows. Every list keeps the action's slot, so the badges share one right edge. The foot holds Done, the one
+  // count (stopped, the sync's Auto-upgrade line, upgrades to review, waiting), then Needs you, one list per playlist
+  // folder of the new files (under a hint to add them in rekordbox; Show in Finder opens each), the sync's Auto-upgrade
+  // (issue 33 stage C: one list in up to three parts, split by each track's state in the run's block: "Upgraded" with
+  // how each went, "Still waiting" with a short sub ("Waits for rekordbox to be closed" / "Waits for your next sync")
+  // and Review →, and "Couldn't go in" with To-do's short reason as the sub, the full sentence as the row's tooltip and
+  // Fix →; an empty part is left out, a run whose switch was off has none) and Other
+  // changes, all list Surfaces of ListRows. Every list keeps the action's slot, so the badges share one right edge. The foot holds Done, the one
   // filled button, or Sync the rest → with Done beside it.
   // A failed sync JobFinished shows its ProblemCard (a problem-tone card) in the same frame; Back to the plan in the
   // foot is the way on. A crash is filed with a crash note as the run's report, so its card opens it (Open report).
   import { onMount } from 'svelte';
-  import { Badge, Button, Cover, ExternalLink, Hint, ListRow, PageHeader, ProblemCard, QualityBar, StatCard,
+  import { Badge, Button, Cover, ExternalLink, Hint, ListRow, ListSection, PageHeader, ProblemCard, QualityBar, StatCard,
     Surface } from '$lib/components';
   import { ColumnFrame } from '$lib/frames';
   import { api } from '$lib/bridge/client';
@@ -55,22 +59,24 @@
 </script>
 
 <!-- one result: cover · Artist – Title over its detail line · badge · action slot (Fix → or Review →) -->
-{#snippet row(r: Result, detailLine: string, action: 'fix' | 'review' | null, shops = false)}
+{#snippet row(r: Result, detailLine: string, action: 'fix' | 'review' | 'review-row' | null, shops = false, badged = true, tip = '')}
   {@const b = rowBadge(r)}
   {@const fix = action === 'fix' ? fixHref(r) : null}
+  {@const reviewRow = action === 'review-row' ? fixHref(r) : null}
   <ListRow test="end-row" data-section={r.section} title={artistTitle(r.artist, r.title)} height={52}>
     {#snippet lead()}<Cover url={r.cover_url ?? null} seed={r.track_id ?? r.title} size={40} />{/snippet}
     {#snippet name()}{artistTitle(r.artist, r.title)}{/snippet}
     {#snippet sub()}
-      {#if detailLine}<span title={detailLine}>{detailLine}</span>{/if}
+      {#if detailLine}<span title={tip || detailLine}>{detailLine}</span>{/if}
       {#if shops}
         {#each noteParts(r.note) as p, j (j)}{#if 'href' in p}<span class="shop"><ExternalLink href={p.href} label={p.label} /></span>{/if}{/each}
       {/if}
     {/snippet}
     {#snippet trailing()}
-      <Badge tone={b.tone} text={b.text} />
+      {#if badged}<Badge tone={b.tone} text={b.text} />{/if}
       <span class="act">
         {#if fix}<Button variant="link" size="sm" href={fix} data-test="end-fix">Fix →</Button>
+        {:else if reviewRow}<Button variant="link" size="sm" href={reviewRow} data-test="end-review">Review →</Button>
         {:else if action === 'review'}<Button variant="link" size="sm" href={REVIEW}>Review →</Button>{/if}
       </span>
     {/snippet}
@@ -148,6 +154,23 @@
           </Surface>
         {/each}
       </div>
+    {/if}
+
+    {#if m.auto.length}
+      <!-- the first part names the list; the others are sections among its rows. No quality badge on the waiting and
+           refused rows: they are not files of this sync, the reason is their second line -->
+      <Surface kind="list" label={m.auto[0].label} summary={String(m.auto[0].rows.length)}
+        data-test="sync-auto-upgrade-list" style={COLS}>
+        {#each m.auto as part, k (part.key)}
+          {#if k > 0}
+            <ListSection label={part.label} summary={String(part.rows.length)} test={`sync-auto-${part.key}`} />
+          {/if}
+          {#each part.rows as x, i (x.r.track_id ?? i)}
+            {@render row(x.r, x.sub, part.key === 'waiting' ? 'review-row' : part.key === 'refused' ? 'fix' : null, false,
+              part.key === 'upgraded', x.tip)}
+          {/each}
+        {/each}
+      </Surface>
     {/if}
 
     {#if m.other.length}

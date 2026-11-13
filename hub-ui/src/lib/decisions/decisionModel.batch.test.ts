@@ -155,7 +155,7 @@ describe('the single panel: Same track for any format (§6.3)', () => {
   const upgrade = (o: Partial<Upgrade> = {}): Upgrade => ({ file: 'x', source: 'qobuz', source_name: 'Qobuz', source_id: '1',
     found: '2026-11-08', what: 'lossless version', quality_line: '', format_line: 'FLAC · lossless', alignment: align,
     cue_text: '', swap_safe: true, swap_possible: true, why_not: null, swap_how: 'in_place',
-    rekordbox: { state: 'ready', running: false }, auto_refused: null, audio_url: null, ...o });
+    rekordbox: { state: 'ready', running: false }, auto_refused: null, auto_waits: false, audio_url: null, ...o });
   it('an AIFF in place: as before, with the quit tip under the choice', () => {
     const w = upgradeWays(upgrade(), true);
     expect([w.choice, w.way, w.tip]).toEqual([true, 'swap', QUIT_REKORDBOX]);

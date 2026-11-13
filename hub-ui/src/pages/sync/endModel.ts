@@ -1,7 +1,9 @@
 // The end screen of a sync, and of a past run opened from the dashboard: header lines, the stat cards with the quality
-// bar, the new files grouped by playlist folder, what needs the user and the other changes, all from run(run_id).
-import type { ByQuality, Result, RunDetail, RunSummary } from '$lib/bridge/types';
+// bar, the new files grouped by playlist folder, the sync's Auto-upgrade (Upgraded, Still waiting), what needs the user and the
+// other changes, all from run(run_id).
+import type { AutoUpgradeResult, ByQuality, Result, RunDetail, RunSummary } from '$lib/bridge/types';
 import { minutesLong, plural, runWhen } from '$lib/format';
+import { AUTO_REFUSED_SHORT } from '$lib/decisions/decisionModel';
 import { verdict } from './cardState';
 import { isProblem } from './results';
 
@@ -17,9 +19,19 @@ export type FolderGroup = { folder: string; reveal: string; rows: Result[] };
 /** One line in the end screen's notes list: what the stat cards can't count. `review` adds the To-do link. */
 export type EndNote = { text: string; test: string; review?: boolean };
 
+/** One row of the sync's Auto-upgrade list: the result, its second line, and the full sentence as the row's tooltip. */
+export type AutoRow = { r: Result; sub: string; tip: string };
+/** A part of that list, in the order shown: the tracks put in place, the ones that wait, the ones the phase refused. */
+export type AutoPart = { key: 'upgraded' | 'waiting' | 'refused'; label: string; rows: AutoRow[] };
+
 export type EndModel = {
   title: string; sub: string; stats: LastSyncStats; notes: EndNote[];
   needs: Result[]; added: FolderGroup[]; other: Result[]; syncRest: boolean;
+  /** the sync's Auto-upgrade phase (issue 33 stage C), split by each track's state in the run's block, as the summary
+   *  line counts them: `upgraded` (put in place), `waiting` (rekordbox was open, or anything that is tried again at the
+   *  next sync: no record) and `refused` (a refusal To-do shows, with its short reason). All empty for a run whose
+   *  switch was off; `auto` is the non-empty parts in order, and the screen leaves an empty part out. */
+  upgraded: AutoRow[]; waiting: AutoRow[]; refused: AutoRow[]; auto: AutoPart[];
 };
 
 export type LastSyncStats = { added: number; moved: number; needs: number; byQuality: ByQuality | null };
@@ -75,6 +87,47 @@ export function endTitle(exit_code: number | null | undefined): string {
   return 'Sync finished';
 }
 
+/** The second line of a waiting row: rekordbox was open (To-do says the same), or anything else is tried again by the
+ *  next sync (it was not reached, another window was working, the track changed meanwhile). */
+export const WAITS_FOR_REKORDBOX = 'Waits for rekordbox to be closed';
+export const WAITS_FOR_SYNC = 'Waits for your next sync';
+/** How an upgraded track went, from the block's `how`, when the engine has nothing of its own to add. */
+export const HOW_WORDS = { new_aiff: 'Now an AIFF file; rekordbox follows it', in_place: 'Same AIFF, lossless audio' } as const;
+/** The clauses of a done note that tell something the default doesn't: the edits kept in rekordbox, or no rekordbox track. */
+const NOTE_EXTRAS = [/Kept your own [^.]*? in rekordbox\./, /This file isn't in your rekordbox collection, so there was nothing to keep there\./];
+
+/**
+ * The second line of an Upgraded row: the engine's note only where it has something of its own (edits kept in
+ * rekordbox, the file not being in rekordbox); every row would otherwise repeat the same promise, so the line says how
+ * this track went (`how` of the run's block), or nothing without it.
+ */
+export function upgradedDetail(note: string, how: AutoUpgradeResult['how'] | undefined): string {
+  // a second line carries no full stop (the other rows' lines have none); the engine's sentence keeps its own
+  const extras = NOTE_EXTRAS.map((re) => re.exec(note)?.[0]?.replace(/\.$/, '')).filter((x): x is string => !!x);
+  if (extras.length) return extras.join(' · ');
+  return how ? HOW_WORDS[how] : '';
+}
+
+/** The Auto-upgrade rows of a run by the block's state per track (a track without a result there waits). */
+function autoRows(run: RunDetail): Pick<EndModel, 'upgraded' | 'waiting' | 'refused'> {
+  const by = new Map((run.auto_upgrade?.results ?? []).map((x) => [x.track, x]));
+  const out: Pick<EndModel, 'upgraded' | 'waiting' | 'refused'> = { upgraded: [], waiting: [], refused: [] };
+  if (!run.auto_upgrade) return out;
+  for (const r of run.sections.upgraded ?? []) {
+    if (r.track_id) out.upgraded.push({ r, sub: upgradedDetail(r.note, by.get(r.track_id)?.how), tip: r.note });
+  }
+  for (const r of run.sections.upgrade_waits ?? []) {
+    if (!r.track_id) continue;
+    const x = by.get(r.track_id);
+    if (x?.state === 'refused') {
+      out.refused.push({ r, sub: AUTO_REFUSED_SHORT[x.reason as keyof typeof AUTO_REFUSED_SHORT] ?? "Couldn't go in", tip: r.note });
+    } else {
+      out.waiting.push({ r, sub: x?.reason === 'rekordbox_open' ? WAITS_FOR_REKORDBOX : WAITS_FOR_SYNC, tip: r.note });
+    }
+  }
+  return out;
+}
+
 const waiting = (n: number) => `${plural(n, 'track')} ${n === 1 ? 'waits' : 'wait'} for the next sync`;
 
 /** The folders in playlists.txt order, the rest after them by name; in each, the tracks by artist and title. */
@@ -124,8 +177,12 @@ export function endModel(run: RunDetail, newSincePreview: number | null = null, 
     const after = run.stopped_after !== null ? ` after ${plural(run.stopped_after, 'track')}` : '';
     stopped = `Stopped by you${after}. Nothing is half done; ${queued ? waiting(queued) : 'the next sync continues'}.`;
   }
+  // the phase's one-line account (report.auto_upgrade_line) comes right after the stop: it says what the lists below
+  // hold; null when the switch was off or nothing happened
+  const auto = run.auto_upgrade;
   const notes: (EndNote | null)[] = [
     stopped ? { text: stopped, test: 'sync-stopped-line' } : null,
+    auto?.line ? { text: auto.line, test: 'sync-auto-upgrade' } : null,
     run.upgrades_ready
       ? { text: `${plural(run.upgrades_ready, 'upgrade')} ready to review`, test: 'sync-upgrades', review: true } : null,
     newSincePreview
@@ -134,10 +191,16 @@ export function endModel(run: RunDetail, newSincePreview: number | null = null, 
     checked ? { text: `${plural(checked, 'track')} checked, nothing better yet`, test: 'sync-checked' } : null,
     !stoppedRun && queued ? { text: waiting(queued), test: 'sync-waits' } : null,
   ];
+  const rows = autoRows(run);
   return {
     title: endTitle(run.exit_code), sub: took ? `${when} · took ${took}` : when, stats,
     notes: notes.filter((x): x is EndNote => !!x),
     needs: run.needs_you.filter(isProblem), added: groupByFolder(added, run.folder_order ?? []), other,
+    ...rows, auto: [
+      { key: 'upgraded' as const, label: 'Upgraded', rows: rows.upgraded },
+      { key: 'waiting' as const, label: 'Still waiting', rows: rows.waiting },
+      { key: 'refused' as const, label: "Couldn't go in", rows: rows.refused },
+    ].filter((part) => part.rows.length),
     syncRest: stoppedRun && queued > 0,
   };
 }

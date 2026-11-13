@@ -402,7 +402,7 @@ used.
 | `Surface` | `lib/components/Surface.svelte` | `gallery-surface` | `card` / `list` / `table`; `label`, `summary`, `tone`, `foldable`, `sticky`, `bulk` (All · None), `hint` (a group's one-line hint after the count, printed like `ListSection`'s: no dot between name, count and hint), `fitLabel` (the label is a folder's path, fitted into the head's free width like a watched folder's: `~` for home, parents giving way in whole folders, the folder's own name last; the full path is the tooltip; a path that is not whole beside the head's links goes on a line of its own and the links wrap below it, and is cut only when even the head's width is too narrow), `header` (a Hint there gives way with the label), `action` (the group's own action before `header`, as ListSection's: To-do's "Upgrade all · 12" when one group shows), `grow` (`{ rows, tall? }`: fills its column up to its rows, 3-row minimum plus a peek, rows scroll inside; shared measuring with ToggleGroup in `growFill.ts`); `columns` (a table's column head, ruled and fixed above the rows, a `list` container of the rows' width so optional columns match) and `scroller` (bindable: the rows' scroller of a `grow` surface, for a table that renders only its visible rows); `fade` (rows that scroll under a height the caller caps in CSS, with `grow`'s faded ends: `edgeFade`); sets `data-surface`, `data-scrolls-itself` with `grow`, the fold `data-row-hit`. |
 | `Button` | `lib/components/Button.svelte` | `gallery-button` | `filled` · `primary` · `secondary` · `danger` · `link` · `icon`; an `icon` can be a toggle (`pressed`: accent text on `--accent-wash-strong` plus a dot, `aria-pressed`, the foot's Shuffle; Library's details toggle) and a toggle switched off by hand that stays so (`switchedOff="Show details"`: its words before the glyph, which keeps its place, in a dashed outline, the house shape for switched off; neutral, since red means weak or a problem and orange means on; the caller passes a struck-through glyph) and `size="xs"` (22 px, a row inside the sidebar). `tip` gives it the house `Tip` (name plus the shortcut's key cap, "Show details ⌘I") in place of a native title. |
 | `ChoiceGroup`, `OutcomeList` | `lib/components/` (`choiceModel.ts`) | `gallery-choicegroup` | One of a few, each with a consequence: radio rows (ring · name · "Recommended" in accent caps · one line) in a `list` Surface with `label`, `summary`, `hint` (one line about the whole choice); a picked row shows its `outcomes`, the others their `summary`, a `disabled` row its `reason`, dimmed; `ruled` sets a "neither" row off; `content` replaces a row's middle, `trail` sits at its end outside the radio (a ▶), `foot` is a ruled last section. Arrow keys move the pick (roving tabindex). `OutcomeList`: short lines with a glyph by kind (`kept` / `step` / `lost` / `file`), spans only, so it sits inside a row's button. |
-| `ToggleGroup`, `ToggleRow` | `lib/components/` | `gallery-toggles` | On/off rows; `grow` inside a Panel `fill` (one per Panel); search from `SEARCH_FROM` rows (the query clears below it); `disabledReason`: each row's tooltip and a Hint in the head in place of All · None (gallery "Locked"). `placeholder`: the search's words when the label alone doesn't say what is searched; `allMax`: All is off while more rows than this show (a list whose whole would flood where it switches things on asks for a search first; None stays). A `ToggleItem` may carry `tip` (the row's tooltip) and `find` (more words the search finds it by, e.g. a crate's parent folders). A `ToggleRow` alone in a `Surface kind="list"` is a single setting; its `sub` is a wrapping, balanced second line (the setting's detail, or why it is locked; Playlists' "Rename the folder on disk too"); `action` puts a link under the text, outside the row's button, as a locked row's way out beside its reason (Settings' YouTube Music: "Go to YouTube sign-in" under "Sign in to YouTube first"; gallery `g-toggle-action`). |
+| `ToggleGroup`, `ToggleRow` | `lib/components/` | `gallery-toggles` | On/off rows; `grow` inside a Panel `fill` (one per Panel); search from `SEARCH_FROM` rows (the query clears below it); `disabledReason`: each row's tooltip and a Hint in the head in place of All · None (gallery "Locked"). `placeholder`: the search's words when the label alone doesn't say what is searched; `allMax`: All is off while more rows than this show (a list whose whole would flood where it switches things on asks for a search first; None stays). A `ToggleItem` may carry `tip` (the row's tooltip) and `find` (more words the search finds it by, e.g. a crate's parent folders). A `ToggleRow` alone in a `Surface kind="list"` is a single setting; its `sub` is a wrapping second line that takes the panel's width (the setting's detail, or why it is locked; Playlists' "Rename the folder on disk too"; a row with a `sub` and no count has no count column, so its text runs to the right padding, and the sub breaks with `text-wrap: pretty`, not `balance`), and a row with a `sub` lets its name wrap too (Upgrades' "Upgrade automatically when I sync" in a 320 px panel); `action` puts a link under the text, outside the row's button, as a locked row's way out beside its reason (Settings' YouTube Music: "Go to YouTube sign-in" under "Sign in to YouTube first"; gallery `g-toggle-action`). |
 | `Segmented` | `lib/components/Segmented.svelte` | `gallery-segmented` | One of up to 6; counts, dots (none at a count of 0), More, tight mode. |
 | `StatCard` | `lib/components/StatCard.svelte` | `gallery-statcard` | 30 px number + unit + label; a bar or ring as its child; `value={null}` is "—", also its loading state; `wrap`: a label that is a sentence (the cutoff's "a lossy file inside the AIFF") takes a second line whole instead of ending in "…". |
 | `SummaryStrip` | `lib/components/SummaryStrip.svelte` (+ `summaryStripModel.ts`) | `gallery-summarystrip` | `ShareStrip` with Library's words: a collection at a glance along the page, 72 px, between the header and the filter segments (Library, in place of the panel's summary card): the lossless share in StatCard's type ("63 % lossless" over "290 of 460 checked tracks") · the `QualityBar` (no legend: the segments below carry the dots and counts) · two rows, "Upgrade ready {n}" (the lossless dot) and "Not lossless yet · {all / m / none} in To-do {n}" (a 14 px pill of the good-lossy, weak and fake colours in proportion: the group is mixed, so no single quality's dot), each a link with › only while it leads somewhere (`onupgrades`, `ontodo`); fewer in To-do than not lossless explains itself in a `Tip` under the row (a row that is no link then takes focus for it). Rows highlight, never shrink; without a share the number is a dash with no unit and the line names it ("lossless · none checked yet"); `summary={null}` waits with dashes at the same height. Words in `stripView`. `songs` (a read playlist's `{listed, with_file}`) adds "· 13 of 18 downloaded" to the line ("9 of 13 checked · 13 of 18 downloaded": the playlist's count lives here, not in the header, so it is never the part that drops) and passes the songs without a file to its `QualityBar` as `waiting` (the dashed end, gallery `g-strip-waiting`); a view that is no read playlist passes none and the line stays "… checked tracks". |
@@ -545,8 +545,9 @@ Sync is built on the system in every state. When unsure how something should loo
 | Before the start | `ListPanelFrame` (`pages/sync/BeforeStart.svelte`, `plan/KindStrip.svelte`, `plan/RunPanel.svelte`), the browser column's switches | `sync-before`, `sync-many`, `sync-many-all-off`, `sync-weekly-only-off`, `sync-scope`, `sync-long-plan-all`, `sync-limit-reached`, `sync-no-qobuz`, `sync-qobuz-backup` |
 | Reading Spotify, offline, console | same | `sync-reading`, `sync-rereading`, `sync-before-offline`, `sync-before-login-expired`, `sync-before-console` |
 | Up to date | same (`plan/UpToDate.svelte`, `plan/UpToDatePanel.svelte`) | `sync-before-up-to-date`, `sync-before-up-to-date-wait` (`sync-last-wait` on the waiting StatCard), `sync-before-up-to-date-console` |
-| Running, pause, stopping | `ColumnFrame` (`LiveView.svelte`) | `sync-downloading`, `sync-pause`, `sync-break`, `sync-stopping`, `sync-stop-refused` |
-| End, failed, crashed | `ColumnFrame` (`EndScreen.svelte`) | `sync-end`, `sync-end-stopped`, `sync-failed-login-expired`, `sync-crashed` |
+| Auto-upgrade before the start | same (`BeforeStart.svelte`'s `startNote`, in `RunPanel`'s foot under Start sync) | `sync-before-auto-rekordbox-open`, `sync-before-auto-ready` |
+| Running, pause, stopping | `ColumnFrame` (`LiveView.svelte`) | `sync-downloading`, `sync-pause`, `sync-break`, `sync-stopping`, `sync-stop-refused`, `sync-auto-running` |
+| End, failed, crashed | `ColumnFrame` (`EndScreen.svelte`) | `sync-end`, `sync-end-stopped`, `sync-end-auto`, `sync-end-auto-waiting`, `sync-failed-login-expired`, `sync-crashed` |
 
 Each shot exists at `@1100`, `@1280` and `@2560`. Worth copying:
 - The left: the browser column, each playlist's switch in its count's place (issue 36).
@@ -647,6 +648,58 @@ before reopening anything. New system-level decisions from phase 2 on go here, n
   fact twice, said it in the faintest colour, or was cut where the user needed the words. Seen: `todo-upgrade-all`,
   `-multi`, `-running`, `-stopped`, `-done`, `-refused`, `-unreadable`, `-no-rekordbox`, `-resume-link`,
   `-mp3-same`, `todo-upgrade-replaced-filtered`.
+
+- **2026-11-09 · A lone setting's name wraps; the sync's Auto-upgrade in Settings, Setup and To-do (issue 33 stage C
+  U1).** What: `ToggleRow` with a `sub` lets its name wrap, balanced (`.name.wraps`); a name in a list of many rows
+  still ends in "…". Settings gets the row `upgrades` ("Upgrades", the sidebar-style glyph ↑, the one To-do's Upgrade
+  ready badge uses) in "This Mac" after Watched folders: line "Automatic at the end of each sync" (good) or "Off:
+  upgrades wait for you in To-do" (neutral: the user's choice, never a problem, never `firstAttention`); its panel is
+  one labelled list `Surface` with the switch (saves at once, shows the pending value) and an ⓘ in the card's head.
+  Setup's Downloads step gets a list `Surface` "Upgrades" with the same switch under the account cards (never the
+  filled button). To-do's upgrade panel says what the sync's phase left on a parked upgrade: the refusal as a warn
+  `NoteCard` at the top of the cards (at the end of the body it sat under the foot's fade), the waiting sentence as a
+  `Hint` under the actions; one of the two, as the row's line (waiting first). The sync's batch row reads "{day} ·
+  Upgraded during your sync" and its foot's undo "Undo all from this sync" (else "Undo {n}"). Why: no new block; each
+  state says the one thing the user needs where they look. Seen: `settings-upgrades-on`, `-off`, `-toggled`,
+  `setup-downloads-auto`, `todo-auto-waits`, `-waits-panel`, `-refused`, `-refused-panel`, `-refused-choice`,
+  `todo-auto-batch`.
+
+- **2026-11-09 · The sync's Auto-upgrade on the Sync page (issue 33 stage C U2).** What: before the start, with the
+  switch on, an upgrade ready and rekordbox running (read on page open and on window focus), the note under Start sync
+  is a warn `NoteCard`, not a `Hint` (the sentence is 96 characters and runs three lines in the 360 px panel, a `Hint`
+  is one cut line; `Hint` has no warn tone), after the console-running and nothing-today hints (`startNote`, one slot).
+  While the sync's last phase runs, the progress card says its own count in place of "Track x of y" ("3 of 8 upgraded" since the stage review; first "3 of 8 done"
+  over "Upgrading · Artist - Title", the bar in the accent because the live card that carried the accent is not
+  there; the time left goes, it counted downloads) and the live card is not shown (`cardState` `upgrading`); Stop safely
+  stays in the foot. The end screen takes the run's one-line account as the first note after the stop line and one list
+  `Surface` after the new-file lists: "Upgraded" (cover, name, the engine's note, the quality badge) and a `ListSection`
+  "Still waiting" (the reason as the second line, Fix → to To-do, no badge: it is no file of this sync); an empty part
+  is left out (a run with everything waiting has only "Still waiting"), a run whose switch was off shows neither
+  (since the stage review the list has a third part and other words: see the 2026-11-12 entry above). Why: no
+  new block; each state says the one thing the user needs where they look. Seen: `sync-before-auto-rekordbox-open`,
+  `sync-before-auto-ready`, `sync-auto-running`, `sync-end-auto`, `sync-end-auto-waiting`, `sync-end` (the normal run
+  now upgrades one track at its end).
+
+- **2026-11-12 · Stage C review, UI round (issue 33 stage C FB).** What: (1) `ToggleRow` with a `sub` and no count drops
+  its count column and breaks the sub with `text-wrap: pretty`: the text takes the panel's width (a lone setting
+  wrapped 44 px early, and `balance` narrowed every line to the shortest that fits); every other page using the row
+  (Settings' Upgrades and YouTube Music, Playlists' rename, Setup's Upgrades, the gallery) gets the wider text, rows
+  with a count are as they were. (2) The sync's end screen splits the Auto-upgrade list by each track's state in the
+  run's block, as the summary line counts them: "Upgraded" (second line: the engine's note only when it holds kept
+  edits or "not in rekordbox", else how it went, "Now an AIFF file; rekordbox follows it" / "Same AIFF, lossless
+  audio"), "Still waiting" (a short second line, "Waits for rekordbox to be closed" or "Waits for your next sync", and
+  Review → to the track) and "Couldn't go in" (To-do's short reason as the second line, the full sentence as the row's
+  tooltip, and Fix →): one sentence never cut by "…". (3) The Sync page's Start: with Auto-upgrade on and an upgrade
+  ready, rekordbox open is a warn `NoteCard` ABOVE Start (the foot grows upward, so a note under the button moved it when
+  rekordbox quit; a one-line spacer under Start keeps its place) and rekordbox closed a one-line `Hint` under it ("13
+  upgrades go in at the end; cues stay.", 40 characters: the console's sentence, and even 51 characters, were cut at
+  the 280 px of text the panel has at 1100). (4) The phase's progress says "3 of 8 upgraded" (run card and foot bar), because "3 of 8 done" read
+  against the downloads' lists. (5) Setup shows the Upgrades card once Qobuz is decided, before Continue. (6) Settings'
+  Upgrades glyph ↑ is set heavy (bold, a size up) to weigh what its group's boxy glyphs weigh. (7) To-do's refused
+  row reads "{Reason} · not upgraded at your sync", the reason first, so the cut end loses nothing. Why: each state says
+  its one thing where the user looks, and nothing is cut that the user has to read. Seen: `sync-end-auto`,
+  `sync-end-auto-waiting`, `sync-before-auto-ready`, `sync-before-auto-rekordbox-open`, `sync-auto-running`,
+  `setup-downloads`, `-qobuz-only`, `-auto`, `settings-upgrades-on`, `todo-auto-refused`.
 
 - **2026-11-09 · A row of a multi-select list is a toggle, not "current" (issue 33 stage B review F2b).** What:
   `ListRow multi` says the pick as `aria-pressed` on the row's button; `aria-current` stays for single-select lists

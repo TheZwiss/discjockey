@@ -32,6 +32,7 @@ from discjockey.library import Paths, empty_state, save_state  # noqa: E402
 from discjockey.models import Candidate, FetchedPlaylist, PlaylistInfo, SourceTrack  # noqa: E402
 from discjockey.pacing import Pacer  # noqa: E402
 from discjockey.planner import ENTRY_KEYS  # noqa: E402
+from discjockey.settings import Settings, save_settings  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
 SHOWN_ROOT = "/Users/you/Music/Discjockey"
@@ -143,6 +144,9 @@ def build(root: Path, audio: Path) -> Paths:
                                         source_id="aBcDeFgHiJk", source_format="aac", cutoff_hz=16000)
     state["qobuz_usage"]["days"] = {"2026-10-15": 60}
     save_state(paths, state)
+    # Auto-upgrade (issue 33 stage C) would put the upgrade this sync finds in place at its end and add the batch's
+    # events; these recordings are the sync's downloads, so the switch is off (the phase has its own scenarios)
+    save_settings(paths.settings_file, Settings(auto_upgrade=False))
     return paths
 
 

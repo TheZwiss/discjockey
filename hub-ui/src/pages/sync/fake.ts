@@ -23,12 +23,18 @@
 //   sync:many        the long plan plus 12 more playlists (one with a very long name, Peak_Time_Warmup_Selection_2026_Final_v3)
 //                    and actions of all 5 kinds (new, not found last time, file gone, bought, weekly)
 //   sync:long-names  the long plan with three titles over 120 characters and one track by six artists
+//   sync:auto-done   Auto-upgrade (issue 33 stage C): 13 upgrades ready; Start puts 9 in place at the end of the sync, rekordbox is
+//                    opened after the 10th (3 wait, marked for To-do), 1 is refused (timing). An earlier sync with the phase
+//                    sits in the reports. Open #/sync, Start (speed=100 for the end screen at once)
+//   sync:auto-rekordbox-open  4 upgrades ready and rekordbox open: the before-start line; Start leaves all 4 waiting (no batch)
+//   sync:auto-running  a sync already in its last phase, frozen with 3 of 8 upgrades done (the 4th in work)
 //   sync:weekly-only only weekly checks planned (issue 35, seen live): no new songs, and the songs not found last time
 //                    aren't due for another try yet, so What to do has one row, Weekly checks, which can still be switched off
 import type { Bridge } from '$lib/bridge/client';
 import type { FakeContext, PageFake } from '$lib/bridge/fake/bridge';
 import type { FakeState } from '$lib/bridge/fake/data';
 import { FAKE_MUSIC, SPOTIFY_HINT, coverUri, previewAction, runId, samplePlaylists } from '$lib/bridge/fake/data';
+import { addPastAutoRun, readyTracks, seedUpgrades } from '$lib/bridge/fake/auto';
 import { sampleQuestions } from '$lib/bridge/fake/folders';
 import { STREAMS, SYNC_LINES, SYNC_START_LINE } from '$lib/bridge/fake/replay';
 import { setPref } from '$lib/prefs';
@@ -164,6 +170,14 @@ export const scenarios: PageFake['scenarios'] = {
       title: 'non stop', artist: 'torbentorben', folder: 'Hard_Bounce', cover_url: coverUri(3) }];
     setPref(PREF_LAST_SELECTION, picked);
   },
+  'auto-done'(s) {
+    addPastAutoRun(s);
+    seedUpgrades(s, 12);                                    // with Get Naughty: 13 ready, in To-do's order
+    s.autoOpensAfter = 10;                                  // rekordbox opens after the 10th: the last 3 wait
+    s.batchSkip = { [readyTracks(s)[4].track_id]: 'timing' };   // the 5th is refused by the full check
+  },
+  'auto-rekordbox-open'(s) { seedUpgrades(s, 3); s.rekordbox_running = true; },
+  'auto-running'(s) { seedUpgrades(s, 7); },
   'up-to-date': (s) => { s.scenario = 'sync:up-to-date'; },
   'up-to-date-console': (s) => { s.scenario = 'sync:up-to-date'; s.console_running = true; },
   'up-to-date-wait': (s) => { s.scenario = 'sync:up-to-date-wait'; },

@@ -16,6 +16,10 @@ export type FakeControl = {
   /** plugs the ejected drive back in (true) or ejects it again (false): its folders and files change state and
    *  DrivesChanged goes out, as the engine's drives watch sends it */
   drive(plugged: boolean): void;
+  /** rekordbox is open (true) or closed (false) on the fake Mac: `rekordbox_status().running`, and what the Same track
+   *  batches, Undo and the sync's last phase meet. The window gets a focus event so a page that reads it on focus
+   *  (the Sync page's before-start line) reads it again. */
+  rekordboxOpen(on: boolean): void;
 };
 declare global {
   interface Window { __fakeCalls?: FakeCall[]; __fake?: FakeControl }
@@ -64,6 +68,10 @@ export function installFake(scenario: string): FakeControl {
       emit({ type: 'ConsoleBusy', running });
     },
     readPlaylists() { void api.refresh(); },
+    rekordboxOpen(on: boolean) {
+      ctx.s.rekordbox_running = on;
+      window.dispatchEvent(new Event('focus'));
+    },
     drive(plugged: boolean) {
       const s = ctx.s;
       if (plugged && !ejected) {

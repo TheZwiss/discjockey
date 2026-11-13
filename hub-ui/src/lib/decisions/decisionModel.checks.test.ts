@@ -1,9 +1,9 @@
 // The rekordbox checks Same track leaves (plan issue 33 stage B §6.4): the single `repointed` card, the batch card's
 // steps and rows, several checks selected, an undo of several, and the Library finding a batch's track.
 import { describe, expect, it } from 'vitest';
-import type { BatchCheckItem, RekordboxCheckView, TodoItem, TrackDetail } from '$lib/bridge/types';
+import type { AutoRefused, BatchCheckItem, RekordboxCheckView, TodoItem, TrackDetail, Upgrade } from '$lib/bridge/types';
 import {
-  NOT_IN_REKORDBOX, USB_STEP, batchCheckCard, batchRowName, batchRowSub, checkCard, checkRow, checkTracks, checksTitle,
+  AUTO_BATCH_SUB, AUTO_WAITS_HINT, NOT_IN_REKORDBOX, UNDO_SYNC_LABEL, USB_STEP, autoNotes, isAutoBatch, batchCheckCard, batchRowName, batchRowSub, checkCard, checkRow, checkTracks, checksTitle,
   decisionFor, inRekordbox, keptLine, replacedCard, tracksSummary, undoAllLabel, undoFoot, undoManyConfirm, undoManyLabel, undoProblem, undoProblemLine,
   undoneToast,
 } from './decisionModel';
@@ -66,6 +66,15 @@ describe('the batch card', () => {
     expect(batchRowSub('2026-11-01', '2026-11-08')).toMatch(/^1\sNov · Same track$/);
     expect(batchRowSub(null, '2026-11-08')).toBe('Same track');
   });
+  it('the sync\'s batch says so in its row, in place of Same track (the user\'s other batches keep their word)', () => {
+    expect(AUTO_BATCH_SUB).toBe('Upgraded during your sync');
+    expect(batchRowSub('2026-11-08', '2026-11-08', 'auto_upgrade')).toBe('today · Upgraded during your sync');
+    expect(batchRowSub(null, '2026-11-08', 'auto_upgrade')).toBe('Upgraded during your sync');
+    for (const by of ['user', 'upgrade_all', null, undefined]) {
+      expect(batchRowSub('2026-11-08', '2026-11-08', by ?? null)).toBe('today · Same track');
+    }
+    expect([isAutoBatch('auto_upgrade'), isAutoBatch('user'), isAutoBatch(null)]).toEqual([true, false, false]);
+  });
   it('steps for all: analyse them again, the USB stick; no Reload Tag when every text was written', () => {
     const c = batchCheckCard([check('a'), check('b')], name)!;
     expect(c.summary).toBe('same tracks, cues kept');
@@ -106,7 +115,7 @@ describe('the batch card', () => {
 
 describe('several checks selected, and their undo', () => {
   const batch: BatchCheckItem = { ...check('batch:7', {}, { key: 'batch:7' }), group: 'rekordbox_check', key: 'batch:7',
-    batch: { id: 7, size: 2, started: '2026-11-08', tracks: [check('b1'), check('b2')] } };
+    batch: { id: 7, size: 2, started: '2026-11-08', started_by: 'user', tracks: [check('b1'), check('b2')] } };
   it('a batch stands for its tracks', () => {
     expect(checkTracks([batch, check('c1')]).map((t) => t.track_id)).toEqual(['b1', 'b2', 'c1']);
   });
@@ -132,6 +141,27 @@ describe('several checks selected, and their undo', () => {
     const refused = undoFoot([check('a'), check('b')], { b: 'the file changed' });
     expect([refused.ids, refused.label, refused.cant]).toEqual([['a'], 'Undo 1', null]);
     expect(undoFoot([check('a', {}, { can_undo: false })]).ids).toEqual([]);
+  });
+  it('the sync\'s batch: "Undo all from this sync" when every track can go, else the plain count', () => {
+    const a = undoFoot([check('a'), check('b')], {}, true);
+    expect([a.ids, a.label, a.cant]).toEqual([['a', 'b'], UNDO_SYNC_LABEL, null]);
+    expect(UNDO_SYNC_LABEL).toBe('Undo all from this sync');
+    const some = undoFoot([check('a'), check('b', {}, { can_undo: false })], {}, true);
+    expect([some.ids, some.label, some.cant]).toEqual([['a'], 'Undo 1', "1 can't be undone"]);
+    const refused = undoFoot([check('a'), check('b')], { b: 'the file changed' }, true);
+    expect(refused.label).toBe('Undo 1');
+    // not the sync's: unchanged
+    expect(undoFoot([check('a'), check('b')]).label).toBe('Undo all 2');
+  });
+  it('the upgrade panel: waiting is a Hint, a refusal a NoteCard; one of the two, as the row\'s line', () => {
+    const refused: AutoRefused = { reason: 'timing', message: 'The two files could not be lined up.', at: '2026-11-08T21:00:00' };
+    const none: Pick<Upgrade, 'auto_waits' | 'auto_refused'> = { auto_waits: false, auto_refused: null };
+    expect(autoNotes(none)).toEqual({ waits: false, refused: null });
+    expect(autoNotes({ ...none, auto_waits: true })).toEqual({ waits: true, refused: null });
+    expect(autoNotes({ ...none, auto_refused: refused })).toEqual({ waits: false, refused });
+    // both marks: the waiting line wins (views.upgrade_detail), the refusal stays on the record
+    expect(autoNotes({ auto_waits: true, auto_refused: refused })).toEqual({ waits: true, refused: null });
+    expect(AUTO_WAITS_HINT).toBe('Waits for rekordbox: it goes in at your next sync, or quit it and press Replace.');
   });
   it('the toast counts what came back', () => {
     expect([undoneToast(1), undoneToast(2)]).toEqual(['Upgrade undone. Your old file is back.',

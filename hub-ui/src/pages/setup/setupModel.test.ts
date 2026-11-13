@@ -11,7 +11,7 @@ const complete: SetupStatus = {
   spotify_login: true, qobuz: true, playlists: true, complete: true, next_step: null, version: '1.0.0',
   qobuz_skipped: false, spotify_skipped: false, existing: false, import_folders: 0, import_skipped: false,
   accounts: { youtube: null, soundcloud: null },
-  youtube_music: { liked_music: false, can_turn_on: false, listed: false } };
+  youtube_music: { liked_music: false, can_turn_on: false, listed: false }, auto_upgrade: true };
 const fresh: SetupStatus = { ...complete, spotify_app: false, spotify_login: false, qobuz: false, playlists: false,
   complete: false, next_step: 'spotify' };
 const status = (over: Partial<SetupStatus>): SetupStatus => ({ ...complete, ...over });

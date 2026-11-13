@@ -65,6 +65,11 @@ class UpgradeProblem(Exception):
         self.forgotten = forgotten
 
 
+# design §8 (binding): what a step says when the two files could not be compared at all (an `unknown` measurement, not
+# "a different edit"); Same track and the swap use these words, the batch records them as `needs_choice`
+COULD_NOT_COMPARE = "Discjockey couldn't compare the two files, so nothing was changed. Try again, or choose New track."
+
+
 class NeedsChoice(UpgradeProblem):
     """A swap refused because the two versions are not the same edit (measured again now): nothing was done, and
     in a batch the track is skipped (`needs_choice`), not failed."""
@@ -500,6 +505,17 @@ def _write_text(paths: Paths, state: dict, op: dict, session: Session, changes: 
     mark_op(paths, state, op)
 
 
+def keep_measurement(paths: Paths, state: dict, track_id: str, e: dict, alignment: Alignment) -> None:
+    """A measurement taken when a step runs that says "not the same edit" is stored on the parked upgrade (and saved),
+    so the quick answers (`eligible.same_track_quick`: To-do, Upgrade all's count, Auto-upgrade's set) stop offering
+    Same track for it and the sync doesn't decode the two files again every time. An `unknown` measurement (the
+    files could not be compared) changes nothing: the stored one stays."""
+    if alignment.result == "unknown" or not e.get("upgrade"):
+        return
+    state["tracks"][track_id] = {**e, "upgrade": {**e["upgrade"], "alignment": alignment.to_dict()}}
+    save_state(paths, state)
+
+
 def swap_backup_name(paths: Paths, names: NameReserver, track_id: str, target: str) -> str:
     """Where a swap keeps the old file: `Superseded/<its folder>/<stem> (lossy)<ext>` (a free name; the dry run asks
     it too)."""
@@ -527,6 +543,9 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
                              f"Add the {upgrade_name(upgrade)} as a new file instead.")
     alignment = compare(paths.root / target, paths.root / upgrade["file"])
     if not alignment.swap_safe:
+        keep_measurement(paths, state, track_id, e, alignment)
+        if alignment.result == "unknown":
+            raise NeedsChoice(COULD_NOT_COMPARE)
         raise NeedsChoice(f"Not swapped: {alignment.text}. Add the {upgrade_name(upgrade)} as a new file instead, "
                           "or discard it.")
     workdir = paths.tmp / track_id

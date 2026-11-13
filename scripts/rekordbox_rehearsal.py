@@ -10,6 +10,7 @@ beside the library it starts from.
     uv run python scripts/rekordbox_rehearsal.py copy-tracks --source ~/Library/Pioneer/rekordbox --work W \
         --track "MP3 #1=<id>" --track "M4A 44.1 #1=<id>" ...
     uv run python scripts/rekordbox_rehearsal.py rehearse --work W [--edit-title "M4A 44.1 #2"]
+    uv run python scripts/rekordbox_rehearsal.py rehearse-sync --work W --no-analysis "MP3 #2"
 
 `rehearse` (plan RH steps 3–7): copies `W/source/master.db` to `W/rb/master.db`, points the chosen tracks at their
 copies in `W/music/Library/Rehearsal/` with Discjockey's own writer (and edits one title, a user edit to keep), makes
@@ -18,6 +19,8 @@ upgrade rendered from its own audio, takes the "before" picture, runs `bin/discj
 same-track --json` and `bin/discjockey batch undo <id> --json` with `DISCJOCKEY_SUPPORT` and `DISCJOCKEY_REKORDBOX`
 pointing into `W`, and checks each step with Discjockey's reader. It prints one PASS/FAIL line per check (tracks by
 their labels only) and writes `W/report.json`. Exit code 0 when every check passes, 1 otherwise, 2 when it refuses.
+`rehearse-sync` (plan stage C §7 RH): the same copies, but the sync's Auto-upgrade phase instead of `upgrade apply`;
+see its docstring. Run it on a work folder that only `copy-db` and `copy-tracks` have touched (it changes the copies).
 Delete `W` afterwards: it holds the copies. `copy-db` marks `W` (`.discjockey-rehearsal`); `copy-tracks` and
 `rehearse`, which delete inside `W`, refuse a folder without the mark, and every step refuses a `W` inside the
 rekordbox folder or around it.
@@ -33,8 +36,9 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import unicodedata
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -42,9 +46,10 @@ sys.path.insert(0, str(REPO))
 
 from mutagen.aiff import AIFF  # noqa: E402
 
-from discjockey import audio, library, quality, upgrades  # noqa: E402
+from discjockey import audio, auto_upgrade, config, library, quality, sources, upgrades  # noqa: E402
 from discjockey.library import Paths  # noqa: E402
 from discjockey.models import OWN_PREFIX  # noqa: E402
+from discjockey.settings import load_settings  # noqa: E402
 from discjockey.names import expected_stem  # noqa: E402
 from discjockey.planner import ENTRY_KEYS  # noqa: E402
 from discjockey.rekordbox import anlz, master, offset, process, timing, write  # noqa: E402
@@ -254,13 +259,19 @@ def copy_tracks(source: Path, work: Path, tracks: list[str]) -> int:
 class Checks:
     def __init__(self):
         self.items: list[dict] = []
+        self.tag: str | None = None  # `rehearse-sync` reuses stage B's checks under its own step names: "step 6" -> tag
+
+    def _name(self, name: str) -> str:
+        return re.sub(r"^step \d+", self.tag, name) if self.tag else name
 
     def add(self, name: str, ok: bool, detail: str = "") -> bool:
+        name = self._name(name)
         self.items.append({"check": name, "ok": bool(ok), "detail": detail})
         print(f"{'PASS' if ok else 'FAIL'}  {name}" + (f": {detail}" if detail else ""))
         return ok
 
     def note(self, name: str, detail: str) -> None:
+        name = self._name(name)
         self.items.append({"check": name, "ok": None, "detail": detail})
         print(f"NOTE  {name}: {detail}")
 
@@ -269,15 +280,38 @@ class Checks:
         return sum(1 for i in self.items if i["ok"] is False)
 
 
-def discjockey(work: Path, *args: str) -> tuple[int, dict]:
+# `offline` runs point every proxy variable at a closed port, so a request that slipped through fails instead of
+# reaching a service. (A sandbox that denies network access can't be used: macOS refuses a setuid program such as
+# /bin/ps inside it, and rekordbox's process check would then always answer "running".)
+DEAD_PROXY = "http://127.0.0.1:9"
+PROXY_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
+
+
+def run_cli(work: Path, tag: str, *args: str, offline: bool = False) -> tuple[int, dict, str, float]:
+    """Runs `bin/discjockey <args>` with both overrides inside `work` (printed first), `offline` with every proxy
+    pointing at a closed port. Returns the exit code, the JSON object on stdout ({} when there is none), stderr and
+    the seconds it took. The output is kept in `work/cli-<tag>.txt`."""
     env = env_for(work)
-    r = subprocess.run([str(REPO / "bin" / "discjockey"), *args], cwd=REPO, env=env, capture_output=True, text=True)
-    (work / f"cli-{args[0]}-{args[1]}.txt").write_text(r.stdout + "\n--- stderr ---\n" + r.stderr, encoding="utf-8")
-    start = r.stdout.find("{")
+    cmd = [str(REPO / "bin" / "discjockey"), *args]
+    if offline:
+        env.update({name: DEAD_PROXY for name in PROXY_VARS})
+        print(f"  network: every proxy points at {DEAD_PROXY} (closed)")
+    print(f"  run: {tag}: discjockey {' '.join(args)}")
+    start = time.monotonic()
+    r = subprocess.run(cmd, cwd=REPO, env=env, capture_output=True, text=True)
+    seconds = time.monotonic() - start
+    (work / f"cli-{tag}.txt").write_text(r.stdout + "\n--- stderr ---\n" + r.stderr, encoding="utf-8")
+    begin = r.stdout.find("{")
     try:
-        return r.returncode, json.loads(r.stdout[start:]) if start >= 0 else {}
+        data = json.loads(r.stdout[begin:]) if begin >= 0 else {}
     except ValueError:
-        return r.returncode, {}
+        data = {}
+    return r.returncode, data, r.stderr, seconds
+
+
+def discjockey(work: Path, *args: str) -> tuple[int, dict]:
+    code, data, _, _ = run_cli(work, f"{args[0]}-{args[1]}", *args)
+    return code, data
 
 
 def own_song(path: str, artist: str, title: str, info, codec: str, parked: str, now: datetime) -> dict:
@@ -761,6 +795,345 @@ def rehearse(work: Path, edit_title: str | None) -> int:
     return 1 if checks.failed else 0
 
 
+# --- the sync's Auto-upgrade phase (plan stage C §7 RH) ---
+
+SYNC_MARK = ".rehearse-sync-ran"  # `rehearse-sync` changes the copies (the PPTH splice): once per work folder
+# Liked music is left out, with no request, while Settings' choice is off (and the scratch support folder has no
+# YouTube login): an active line that reads nothing. A playlists.txt without an active line is a setup problem (exit 2).
+PLAYLISTS = "Liked = https://music.youtube.com/playlist?list=LM\n"
+
+
+def snapshot(work: Path, ctx: dict) -> dict:
+    rb_db = work / "rb" / "master.db"
+    return {"dump": dump(rb_db), "sha": sha256(rb_db), "music": tree(ctx["paths"].root, skip=".discjockey"),
+            "share": tree(work / "rb" / "share")}
+
+
+def same_snapshot(a: dict, b: dict) -> tuple[bool, str]:
+    """Whether the audio tree (with `Superseded/` and `Upgrades ready/`), the analysis files and master.db (its bytes
+    and with them every row) are equal."""
+    parts = {"audio files": a["music"] == b["music"], "analysis files": a["share"] == b["share"],
+             "master.db bytes": a["sha"] == b["sha"]}
+    detail = f"{len(a['music'])} audio files, {len(a['share'])} analysis files; " + ", ".join(
+        f"{k} {'equal' if ok else 'DIFFER'}" for k, ok in parts.items())
+    if not parts["master.db bytes"]:
+        detail += f"; {len(diff(a['dump'], b['dump']))} cells differ"
+    return all(parts.values()), detail
+
+
+def only(ctx: dict, labels: set[str]) -> dict:
+    """`ctx` for a subset of the tracks (stage B's checks loop over `ctx["info"]`)."""
+    return {**ctx, "info": {label: i for label, i in ctx["info"].items() if label in labels}, "created": {}}
+
+
+def by_track(block: dict | None) -> dict[str, dict]:
+    return {r["track"]: r for r in (block or {}).get("results", [])}
+
+
+def defer_checks(paths: Paths) -> None:
+    """Puts the scratch songs' next upgrade check a week ahead (the plan then holds no first check)."""
+    with library.run_lock(paths.lock):
+        state = library.load_state(paths)
+        for e in state["tracks"].values():
+            e["last_upgrade_check"] = date.today().isoformat()
+        library.save_state(paths, state)
+
+
+def real_sync(work: Path, tag: str) -> tuple[int, dict, str, float]:
+    """A sync that changes things (`--yes --json`). Never reaches the network: a dry run first must plan no action
+    (no download, no Qobuz, YouTube or SoundCloud search, no playlist read), or the rehearsal stops."""
+    code, data, _, _ = run_cli(work, f"{tag}-guard", "--dry-run", "--json", offline=True)
+    if code != 0 or data.get("counts"):
+        raise Refused(f"{tag}: the dry run before the sync planned actions ({data.get('counts')}) or failed "
+                      f"(exit {code}): no real run.")
+    return run_cli(work, tag, "--yes", "--json", offline=True)
+
+
+def rh1_dry(work: Path, ctx: dict, checks: Checks) -> None:
+    checks.tag = "RH1"
+    print("RH1: a dry run on the prepared copy plans no action")
+    paths = ctx["paths"]
+    lines = config.load_playlists(paths.playlists_file)
+    checks.add("RH1 playlists.txt: one active line, left out before any request",
+               len(lines) == 1 and all(sources.left_out(paths, line) for line in lines),
+               f"{len(lines)} line, service {lines[0].service}")
+    for attempt in (1, 2):
+        code, data, err, _ = run_cli(work, f"rh1-dry-{attempt}", "--dry-run", "--json", offline=True)
+        counts = data.get("counts") or {}
+        if not counts or attempt == 2:
+            break
+        checks.note("RH1 first upgrade checks planned", f"{counts}: their next-check dates are set ahead")
+        defer_checks(paths)
+    headers = re.findall(r"^\[\d+/\d+\]", err, re.M)
+    block = data.get("auto_upgrade") or {}
+    checks.add("RH1 dry run: exit 0, ok, a dry run", code == 0 and data.get("ok") is True and data.get("dry_run") is True,
+               f"exit {code}")
+    checks.add("RH1 dry run: the action list is empty (no download, no search, no playlist read)",
+               not counts and not headers and "Logging in" not in err,
+               f"actions {counts or 'none'}, action lines {len(headers)}")
+    checks.note("RH1 the dry run's Auto-upgrade rows", f"{block.get('done')} done, "
+                f"{sum(1 for r in block.get('results', []) if r['state'] == 'would')} would")
+    if counts:
+        raise Refused(f"The dry run still plans actions ({counts}): stopped before any real run.")
+
+
+def rh2_off(work: Path, ctx: dict, checks: Checks, state: dict) -> None:
+    checks.tag = "RH2"
+    print("RH2: switch off")
+    code, data, _, _ = run_cli(work, "rh2-setting", "settings", "auto-upgrade", "off", "--json", offline=True)
+    checks.add("RH2 settings auto-upgrade off", code == 0 and data.get("auto_upgrade") is False, f"exit {code}")
+    before = snapshot(work, ctx)
+    code, data, _, seconds = real_sync(work, "rh2-sync")
+    state["off_seconds"] = seconds
+    checks.add("RH2 sync --yes --json: exit 0, the auto_upgrade block is null",
+               code == 0 and data.get("ok") is True and "auto_upgrade" in data and data["auto_upgrade"] is None,
+               f"exit {code}, {seconds:.1f} s")
+    ok, detail = same_snapshot(before, snapshot(work, ctx))
+    checks.add("RH2 audio tree (Superseded/ and Upgrades ready/ with it), analysis files and master.db equal "
+               "to before", ok, detail)
+    code, data, _, _ = run_cli(work, "rh2-batches", "batch", "list", "--json", offline=True)
+    checks.add("RH2 no batch row", code == 0 and data.get("count") == 0, f"{data.get('count')} batches")
+
+
+def rh3_dry_on(work: Path, ctx: dict, picks: list[dict], checks: Checks) -> None:
+    checks.tag = "RH3"
+    print("RH3: dry run with the switch on")
+    code, data, _, _ = run_cli(work, "rh3-setting", "settings", "auto-upgrade", "on", "--json", offline=True)
+    checks.add("RH3 settings auto-upgrade on", code == 0 and data.get("auto_upgrade") is True, f"exit {code}")
+    before = snapshot(work, ctx)
+    code, data, _, _ = run_cli(work, "rh3-dry", "--dry-run", "--json", offline=True)
+    block = data.get("auto_upgrade") or {}
+    rows = block.get("results", [])
+    would = [r for r in rows if r["state"] == "would"]
+    checks.add("RH3 dry run: batch null, done 0, one would row per pick",
+               code == 0 and block.get("dry_run") is True and block.get("batch") is None and block.get("done") == 0
+               and len(would) == len(picks) == len(rows) and not data.get("counts"),
+               f"{len(would)} would of {len(rows)} rows, {len(picks)} picks; "
+               f"{sum(r['how'] == 'in_place' for r in would)} in place, {sum(r['how'] == 'new_aiff' for r in would)} "
+               "new AIFF")
+    ok, detail = same_snapshot(before, snapshot(work, ctx))
+    checks.add("RH3 nothing changed", ok, detail)
+
+
+def rh4_phase(work: Path, ctx: dict, picks: list[dict], drop: dict, checks: Checks, state: dict) -> None:
+    checks.tag = "RH4"
+    print("RH4: the phase")
+    paths, rb_db = ctx["paths"], work / "rb" / "master.db"
+    done_picks = [p for p in picks if p is not drop]
+    before = snapshot(work, ctx)
+    ctx["before"] = before["dump"]
+    state["before"] = before
+    t0 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
+    code, data, err, _ = real_sync(work, "rh4-sync")
+    t1 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
+    block = data.get("auto_upgrade") or {}
+    rows = by_track(block)
+    tid = ctx["info"][drop["label"]]["tid"]
+    checks.add("RH4 sync --yes --json: exit 0, ok", code == 0 and data.get("ok") is True and bool(block),
+               f"exit {code}, counts {data.get('counts')}")
+    checks.add("RH4 no -wal/-shm beside the copy", not master.leftovers(rb_db))
+    checks.add(f"RH4 block: done {len(done_picks)}, refused 1, waiting 0, failed 0, not stopped",
+               (block.get("done"), block.get("refused"), block.get("waiting"), block.get("failed"),
+                block.get("stopped")) == (len(done_picks), 1, 0, 0, False),
+               f"done {block.get('done')}, refused {block.get('refused')}, waiting {block.get('waiting')}, "
+               f"failed {block.get('failed')}")
+    checks.add("RH4 the refused track is the one without analysis, reason not_analysed",
+               rows.get(tid, {}).get("state") == "refused" and rows[tid].get("reason") == "not_analysed",
+               f"{drop['label']} {rows.get(tid, {}).get('state')} {rows.get(tid, {}).get('reason')}")
+    if not block.get("batch"):
+        raise Refused("RH4: the sync ran no batch: stopped before the later steps.")
+    state["batch1"], state["backup1"] = block["batch"], block.get("backup")
+    code, shown, _, _ = run_cli(work, "rh4-show", "batch", "show", str(block.get("batch")), "--json", offline=True)
+    checks.add("RH4 batch show: started_by auto_upgrade, state done", shown.get("started_by") == "auto_upgrade"
+               and shown.get("state") == "done", f"started_by {shown.get('started_by')}, state {shown.get('state')}, "
+               f"{shown.get('total')} items")
+    record = (library.load_state(paths)["tracks"][tid].get("upgrade") or {}).get("auto_refused") or {}
+    state["record"] = record
+    stamps = record.get("anlz")
+    checks.add("RH4 the refusal is recorded with its stamps (analysis files now: none)",
+               record.get("reason") == "not_analysed" and isinstance(stamps, dict) and bool(record.get("at")),
+               f"reason {record.get('reason')}, {len(stamps) if isinstance(stamps, dict) else stamps} analysis files "
+               "stamped")
+    sub = only(ctx, {p["label"] for p in done_picks})
+    check_run(work, done_picks, sub, before["dump"], dump(rb_db), block_as_run(block), (t0, t1), checks)
+    check_backup(work, done_picks, sub, before["sha"], block["batch"], checks)
+    ctx["created"] = sub["created"]
+    report = Path(data["report"]) if data.get("report") else None
+    text = report.read_text(encoding="utf-8") if report and report.is_file() else ""
+    backup_line = auto_upgrade_backup_line(block.get("backup"))
+    checks.add("RH4 the report has the Upgraded section and the backup line with the block's backup id",
+               "Upgraded (your cues stayed)" in text and backup_line in text
+               and (paths.root / ".discjockey" / "rekordbox" / "backups" / str(block.get("backup"))).is_dir(),
+               f"section {'yes' if 'Upgraded (your cues stayed)' in text else 'NO'}, backup line "
+               f"{'yes' if backup_line in text else 'NO'}")
+    state["after4"] = snapshot(work, ctx)
+
+
+def block_as_run(block: dict) -> dict:
+    """`check_run` reads `results` (track, state) and nothing else of a batch's JSON."""
+    return {"results": block.get("results", [])}
+
+
+def auto_upgrade_backup_line(backup_id: str | None) -> str:
+    from discjockey import report as rep
+    return rep.UPGRADE_BACKUP.format(id=backup_id)
+
+
+def rh5_repeat(work: Path, ctx: dict, drop: dict, checks: Checks, state: dict) -> None:
+    checks.tag = "RH5"
+    print("RH5: a second sync decodes nothing")
+    paths = ctx["paths"]
+    tid = ctx["info"][drop["label"]]["tid"]
+    before = state["after4"]
+    code, data, err, seconds = real_sync(work, "rh5-sync")
+    block = data.get("auto_upgrade") or {}
+    rows = by_track(block)
+    checks.add("RH5 no new batch, no new backup: batch null, backup null, done 0",
+               code == 0 and block.get("batch") is None and block.get("backup") is None and block.get("done") == 0
+               and "Upgrading" not in err, f"batch {block.get('batch')}, done {block.get('done')}")
+    checks.add("RH5 the refused one is listed as held (refused, not_analysed, the recorded words)",
+               block.get("refused") == 1 and rows.get(tid, {}).get("state") == "refused"
+               and rows[tid].get("reason") == "not_analysed" and rows[tid].get("message") == state["record"].get("message"),
+               f"refused {block.get('refused')}")
+    record = (library.load_state(paths)["tracks"][tid].get("upgrade") or {}).get("auto_refused") or {}
+    checks.add("RH5 the record is the one from the first sync (not written again)", record == state["record"],
+               f"at {'same' if record.get('at') == state['record'].get('at') else 'CHANGED'}")
+    ok, detail = same_snapshot(before, snapshot(work, ctx))
+    checks.add("RH5 audio tree, analysis files and master.db equal to after RH4", ok, detail)
+    backups = sorted((paths.root / ".discjockey" / "rekordbox" / "backups").iterdir())
+    checks.add("RH5 still one backup", len(backups) == 1, f"{len(backups)} backups")
+    # the time the held refusal costs: the phase's own plan (one read open of the copy for the stamps), measured
+    # in-process; a decode of the file would take 1-3 s
+    settings = load_settings(paths.settings_file)
+    place = Place(work / "rb" / "master.db", work / "rb" / "share", "override", None)
+    loaded = library.load_state(paths)
+    start = time.monotonic()
+    planned = auto_upgrade.plan(paths, loaded, set(), settings, running=lambda: False, place=place)
+    plan_ms = (time.monotonic() - start) * 1000
+    checks.add("RH5 the phase's plan holds the track back without decoding it (refused, nothing to run)",
+               planned is not None and not planned.run and [k for k, _ in planned.refused] == [tid],
+               f"plan took {plan_ms:.0f} ms (it includes the read open for the stamps)")
+    checks.note("RH5 run times", f"RH2 (switch off) {state['off_seconds']:.1f} s, RH5 {seconds:.1f} s, "
+                f"difference {seconds - state['off_seconds']:+.1f} s")
+
+
+def rh6_reanalysed(work: Path, ctx: dict, drop: dict, checks: Checks, state: dict) -> None:
+    checks.tag = "RH6"
+    print("RH6: rekordbox analysed the track again")
+    paths, rb_db = ctx["paths"], work / "rb" / "master.db"
+    label = drop["label"]
+    tid = ctx["info"][label]["tid"]
+    folder = work / "rb" / "share" / drop["anlz_rel"]
+    for name, data in ctx["anlz_before"][label].items():
+        (folder / name).write_bytes(data)  # a new mtime, as rekordbox writing the files again
+    checks.add("RH6 the analysis files are back", sorted(p.name for p in folder.iterdir())
+               == sorted(ctx["anlz_before"][label]), f"{len(ctx['anlz_before'][label])} files")
+    before = snapshot(work, ctx)
+    state["before6"] = before
+    t0 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
+    code, data, err, _ = real_sync(work, "rh6-sync")
+    t1 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
+    block = data.get("auto_upgrade") or {}
+    row_ = by_track(block).get(tid, {})
+    tried = block.get("batch") is not None and row_.get("state") in ("done", "refused", "failed")
+    checks.add("RH6 the track is tried again (a batch ran, the track is done, refused or failed)", code == 0 and tried,
+               f"exit {code}, batch {block.get('batch')}, {drop['label']} {row_.get('state')} {row_.get('reason') or ''}")
+    after = library.load_state(paths)["tracks"][tid]
+    record = (after.get("upgrade") or {}).get("auto_refused")
+    if row_.get("state") == "refused":
+        checks.add("RH6 the record changed (a new time, the analysis files stamped)",
+                   bool(record) and record != state["record"] and bool(record.get("anlz")),
+                   f"reason {record and record.get('reason')}, {len((record or {}).get('anlz') or {})} files stamped")
+    elif row_.get("state") == "done":
+        checks.add("RH6 the record is gone with the parked upgrade", not after.get("upgrade"), "")
+        sub = only(ctx, {label})
+        check_run(work, [drop], sub, before["dump"], dump(rb_db), block_as_run(block), (t0, t1), checks)
+        found = sorted(p for p in (paths.root / ".discjockey" / "rekordbox" / "backups").iterdir() if p.is_dir())
+        manifest = json.loads((found[0] / "manifest.json").read_text(encoding="utf-8")) if found else {}
+        checks.add("RH6 the first backup is reused (master.db was as the first batch left it): still one, listing "
+                   "both batches", len(found) == 1 and block.get("backup") == state["backup1"]
+                   and sorted(manifest.get("batches") or []) == sorted([state["batch1"], block["batch"]]),
+                   f"{len(found)} backups, batches {manifest.get('batches')}")
+        state["batch2"] = block["batch"]
+        state["created2"] = sub["created"]
+        state["tried_done"] = True
+    checks.note("RH6 outcome", f"{drop['label']} {row_.get('state')} {row_.get('reason') or ''}".strip())
+
+
+def rh7_undo(work: Path, ctx: dict, picks: list[dict], drop: dict, checks: Checks, state: dict) -> None:
+    checks.tag = "RH7"
+    print("RH7: Undo all from this sync")
+    rb_db = work / "rb" / "master.db"
+    if state.get("batch2"):  # the newest batch first
+        before = state["before6"]
+        code, result, _, _ = run_cli(work, "rh7-undo2", "batch", "undo", str(state["batch2"]), "--json", offline=True)
+        sub = only(ctx, {drop["label"]})
+        sub["created"] = state["created2"]
+        checks.add("RH7 no -wal/-shm beside the copy after the second batch's undo", not master.leftovers(rb_db))
+        check_undo(work, [drop], sub, before["dump"], dump(rb_db), before["music"], before["share"], code, result, checks)
+    block_batch = state["batch1"]
+    code, result, _, _ = run_cli(work, "rh7-undo1", "batch", "undo", str(block_batch), "--json", offline=True)
+    checks.add("RH7 no -wal/-shm beside the copy after the undo", not master.leftovers(rb_db))
+    final = {**ctx, "created": {**ctx["created"], **{t: ctx["created"].get(t, []) + state.get("created2", {}).get(t, [])
+                                                     for t in state.get("created2", {})}}}
+    before = state["before"]
+    # everything back as it was before RH4, plus the analysis files RH6 put back for the track that had none
+    back = drop["anlz_rel"] + "/"
+    share = {**before["share"], **{k: v for k, v in state["before6"]["share"].items() if k.startswith(back)}}
+    check_undo(work, picks, final, before["dump"], dump(rb_db), before["music"], share, code, result, checks)
+
+
+def rehearse_sync(work: Path, no_analysis: str) -> int:
+    """Plan stage C §7 RH. Over the copies `copy-db` and `copy-tracks` made: a scratch library with the copies as own
+    songs and a parked same-edit upgrade each, the copy of rekordbox's library repointed at the copies, a
+    playlists.txt that reads nothing, and the sync (`bin/discjockey --yes --json`, every run with the proxies closed
+    and a real run only after a dry run planned no action) in five states: RH1 a dry run plans no action; RH2 switch off changes nothing; RH3 dry run with
+    the switch on; RH4 the phase (all but `--no-analysis`'s track, whose analysis files are removed, are upgraded;
+    stage B's checks per track, the backup and the report); RH5 a second sync decodes nothing; RH6 the analysis
+    files are back, the track is tried again; RH7 Undo all from this sync. Prints PASS/FAIL per check, tracks by
+    label only, and writes `W/report.json`. Exit 0 when every check passes, 1 otherwise, 2 when it refuses."""
+    work = check_work(work)
+    need_marker(work)
+    picks = json.loads((work / "picks.json").read_text(encoding="utf-8"))
+    refuse_if_unsafe(work / "source" / "master.db")
+    drop = next((p for p in picks if p["label"] == no_analysis), None)
+    if drop is None or not no_analysis.startswith("MP3"):
+        raise Refused(f"--no-analysis {no_analysis}: give the label of one of the MP3 tracks.")
+    if (work / SYNC_MARK).exists():
+        raise Refused("rehearse-sync ran in this work folder already (it changes the copies): start a new one.")
+    copies = {Path(p["copy"]).name for p in picks}
+    if {f.name for f in (work / "music" / "Library" / FOLDER).iterdir()} != copies:
+        raise Refused("The work folder's copies are not as copy-tracks left them: start a new work folder.")
+    for left in ("before", "support", "music/.discjockey", "music/Upgrades ready", "music/Superseded"):
+        shutil.rmtree(work / left, ignore_errors=True)
+    (work / "rb" / "master.db").unlink(missing_ok=True)
+    (work / SYNC_MARK).write_text("rehearse-sync changed the copies in this folder\n", encoding="utf-8")
+    checks = Checks()
+    state: dict = {}
+    checks.tag = "RH1"
+    print("RH1: prepare the copy and the scratch library")
+    ctx = prepare(work, picks, None, checks)
+    paths = ctx["paths"]
+    paths.playlists_file.write_text(PLAYLISTS, encoding="utf-8")
+    ctx["anlz_before"] = {p["label"]: {f.name: f.read_bytes() for f in anlz_files(work, p)} for p in picks}
+    for f in anlz_files(work, drop):
+        f.unlink()
+    checks.add("RH1 one MP3's analysis files removed", not anlz_files(work, drop),
+               f"{drop['label']}: {len(ctx['anlz_before'][drop['label']])} files")
+    try:
+        rh1_dry(work, ctx, checks)
+        rh2_off(work, ctx, checks, state)
+        rh3_dry_on(work, ctx, picks, checks)
+        rh4_phase(work, ctx, picks, drop, checks, state)
+        rh5_repeat(work, ctx, drop, checks, state)
+        rh6_reanalysed(work, ctx, drop, checks, state)
+        rh7_undo(work, ctx, picks, drop, checks, state)
+    finally:
+        (work / "report.json").write_text(json.dumps(checks.items, indent=1, ensure_ascii=False), encoding="utf-8")
+        print(f"{len([i for i in checks.items if i['ok']])} passed, {checks.failed} failed")
+    return 1 if checks.failed else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Rehearse Same track on a copy of a rekordbox library.")
     sub = p.add_subparsers(dest="command", required=True)
@@ -774,8 +1147,13 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("rehearse")
     s.add_argument("--work", type=Path, required=True)
     s.add_argument("--edit-title", default=None, help="the label of the track whose title gets a user edit")
+    s = sub.add_parser("rehearse-sync")
+    s.add_argument("--work", type=Path, required=True)
+    s.add_argument("--no-analysis", required=True, help="the label of the MP3 track whose analysis files are removed")
     args = p.parse_args(argv)
     try:
+        if args.command == "rehearse-sync":
+            return rehearse_sync(args.work, args.no_analysis)
         if args.command == "copy-db":
             return copy_db(args.source, args.work)
         if args.command == "candidates":

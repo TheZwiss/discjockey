@@ -6,7 +6,7 @@ import { EMPTY_RUN, reduceRun, type RunState } from '$lib/stores/run';
 import type { Budget, LimitCard, Result } from '$lib/bridge/types';
 import { SYNC_LINES, lineOf } from '$lib/bridge/fake/replay';
 import { problemCopy } from '$lib/copy';
-import { cardState, fromLine, kickerLine, lengthLine, liveUsage, qobuzFallback, stepIndex, verdict, type Card } from './cardState';
+import { cardState, fromLine, kickerLine, lengthLine, liveUsage, qobuzFallback, stepIndex, upgradeProgress, verdict, type Card } from './cardState';
 
 const lines = (raw: string): HubEvent[] => raw.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
 const sync = lines(syncRaw);
@@ -256,5 +256,31 @@ describe('the running card says where the file comes from on a line of its own (
     const chosen = sync[started] as Extract<HubEvent, { type: 'SourceChosen' }>;
     const card = cardState(st, 0);
     expect('how' in card && card.how).toBe(chosen.query_kind);
+  });
+});
+
+describe('the sync\'s Auto-upgrade phase (issue 33 stage C)', () => {
+  const progress = (done: number, name: string | null): HubEvent =>
+    ({ type: 'BatchProgress', batch_id: 4, done, total: 8, track_id: name ? 't1' : null, name }) as HubEvent;
+  // the recorded sync up to its last track, then the batch's progress
+  const at8 = (n: number, name: string | null) => {
+    let s = EMPTY_RUN;
+    for (const e of sync) s = reduceRun(s, e, 1000);
+    s = { ...s, phase: 'running' };
+    return reduceRun(s, progress(n, name), 2000);
+  };
+  it('has its own card instead of the last track\'s result', () => {
+    const s = at8(3, 'Armin Hermann - Get Naughty');
+    expect(s.phase).toBe('upgrading');
+    expect(cardState(s, 3000)).toEqual({ kind: 'upgrading', done: 3, total: 8, name: 'Armin Hermann - Get Naughty' });
+  });
+  it('a Stop in the phase is the stopping card, as anywhere', () => {
+    expect(cardState({ ...at8(3, 'X - Y'), phase: 'stopping' }, 3000)).toEqual({ kind: 'stopping' });
+  });
+  it('says its progress as "{done} of {total} upgraded", the bar counting the tracks handled', () => {
+    expect(upgradeProgress({ done: 3, total: 8, name: 'Armin Hermann - Get Naughty' })).toEqual(
+      { position: '3 of 8 upgraded', message: 'Upgrading · Armin Hermann - Get Naughty', share: 3 / 8 });
+    expect(upgradeProgress({ done: 8, total: 8, name: null })).toEqual({ position: '8 of 8 upgraded', message: 'Upgrading', share: 1 });
+    expect(upgradeProgress({ done: 0, total: 0, name: null }).share).toBeNull();
   });
 });

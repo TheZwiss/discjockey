@@ -5,8 +5,11 @@
   // count and lead. `disabled` keeps it focusable (`aria-disabled`, like Button) but ignores clicks, and the whole
   // row reads as unavailable (muted name and count, faded lead, faded switch).
   // Lead: a 24 px Cover, or a glyph in `<span class="toggle-icon">↓</span>` (the bordered icon box styled here).
-  // `sub`: a muted second line under the name that wraps, balanced so no word is left alone on a line (a single
-  // setting's detail, or why it is off). `action`: a link under the text of a lone row, outside its button so it is
+  // `sub`: a muted second line under the name that wraps (a single setting's detail, or why it is off) and takes the
+  // panel's width: a row with a `sub` and no count has no count column, so the text runs to the row's right padding,
+  // and the sub breaks only where it must, with no word left alone on its last line (`text-wrap: pretty`, never
+  // `balance`, which narrows every line to the shortest that fits); a row with a `sub` lets its name wrap too (a long
+  // name in a narrow panel, balanced). `action`: a link under the text of a lone row, outside its button so it is
   // its own click target; a locked row's way out, beside the reason it answers (Settings' YouTube Music: "Go to
   // YouTube Premium" under "Sign in to YouTube Premium first").
   import type { Snippet } from 'svelte';
@@ -19,21 +22,24 @@
       /** the tooltip, e.g. why a disabled row is off (ToggleGroup `disabledReason`) */
       title?: string; test?: string } = $props();
 
+  // a lone setting (a detail line, no count): its text takes the count column's width too
+  const loneSetting = $derived(!!sub && item.count == null);
+
   function click() { if (!disabled) onchange(item.key, !item.on); }
 </script>
 
 {#snippet row()}
 <button type="button" role="switch" aria-checked={item.on} aria-disabled={disabled || undefined} class="row"
-  class:off={!item.on} class:no-lead={!lead} class:locked={disabled} data-key={item.key} data-test={test} {title}
+  class:off={!item.on} class:no-lead={!lead} class:no-count={loneSetting} class:locked={disabled} data-key={item.key} data-test={test} {title}
   onclick={click}>
   <Switch on={item.on} label={item.label} {disabled} />
   {#if lead}<span class="lead" aria-hidden="true">{@render lead()}</span>{/if}
   {#if sub}
-    <span class="text"><span class="name">{item.label}</span><span class="sub">{sub}</span></span>
+    <span class="text"><span class="name wraps">{item.label}</span><span class="sub">{sub}</span></span>
   {:else}
     <span class="name">{item.label}</span>
   {/if}
-  <span class="count">{item.count ?? ''}</span>
+  {#if !loneSetting}<span class="count">{item.count ?? ''}</span>{/if}
 </button>
 {/snippet}
 
@@ -51,6 +57,8 @@
     width: 100%; min-height: var(--h-row); padding: 0 var(--s-4); text-align: left; color: var(--text); font-size: var(--fs-body);
     transition: background var(--t-hover) var(--ease); }
   .row.no-lead { grid-template-columns: 30px 1fr 32px; }
+  .row.no-count { grid-template-columns: 30px 24px minmax(0, 1fr); }
+  .row.no-count.no-lead { grid-template-columns: 30px minmax(0, 1fr); }
   .row:hover:not(.locked) { background: var(--ctl-hover); }
   /* the stretching knob is the press feedback; a whole row shrinking would jump */
   .row:active { transform: none; transition: background var(--t-hover) var(--ease); }
@@ -59,13 +67,16 @@
     transition: opacity var(--t-state) var(--ease); }
   .name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     transition: color var(--t-state) var(--ease), opacity var(--t-state) var(--ease); }
+  /* a row with a detail line is a lone setting in a panel: its name wraps, balanced, rather than ending in … ("Upgrade
+     automatically when I sync" in a 320 px panel); a name in a list of many rows stays on one line */
+  .name.wraps { white-space: normal; overflow-wrap: break-word; text-wrap: balance; }
   .count { text-align: right; color: var(--text-muted); font-size: var(--fs-small); font-variant-numeric: tabular-nums;
     white-space: nowrap; transition: color var(--t-state) var(--ease), opacity var(--t-state) var(--ease); }
   /* off stays readable: the user reads an off name to decide whether to turn it on (rule 8, as ListRow); the
      switch and the faded lead carry the state */
   .text { min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: var(--s-2) 0; }
   .sub { color: var(--text-muted); font-size: var(--fs-small); line-height: 1.35; overflow-wrap: break-word;
-    text-wrap: balance; }
+    text-wrap: pretty; }
   /* the action starts on the text's edge (padding + switch column + gap [+ lead column + gap]), under the sub line,
      and closes the row with the text's own bottom padding */
   .action { padding: 0 var(--s-4) var(--s-3) calc(var(--s-4) + 30px + 24px + 2 * var(--s-3)); margin-top: calc(-1 * var(--s-1));

@@ -3,7 +3,7 @@
   // The main column answers "where does my music come from?" first (the source ladder, its rungs lit by what is
   // signed in), then lists every setting in three groups, each row with the one line that says its state. The panel
   // is the selected row: an AccountPanel for the download services (what the login gives, its state, the sign-in),
-  // YouTube Music's own panel (its Liked music choice), a RowPanel for the rest. Every service row leads with its
+  // YouTube Music's own panel (its Liked music choice), the Upgrades panel (its one switch), a RowPanel for the rest. Every service row leads with its
   // own logo (ServiceMark), the others with a glyph. `#/settings` opens the first row that needs the user. A click on a ladder rung or chip
   // opens its row, so the ladder doubles as a map of the settings below it.
   import { untrack } from 'svelte';
@@ -20,6 +20,7 @@
   import { sayInBody } from '$lib/stores/shell';
   import FoldersPanel from './FoldersPanel.svelte';
   import RowPanel from './RowPanel.svelte';
+  import UpgradesPanel from './UpgradesPanel.svelte';
   import YouTubeMusicPanel from './YouTubeMusicPanel.svelte';
   import {
     ROW_GROUPS, ROW_LEADS, ROW_NAMES, firstAttention, isAccountRow, isSettingsRow, rowLine, spotifyUsed, type RowContext,
@@ -106,7 +107,7 @@
         {@const line = rowLine(r, ctx)}
         <ListRow height={52} selected={r === row} onclick={() => open(r)} test="settings-row-{r}">
           {#snippet lead()}{@const l = ROW_LEADS[r]}{#if 'logo' in l}<ServiceMark service={l.logo}
-            label={ROW_NAMES[r]} />{:else}<span class="glyph">{l.glyph}</span>{/if}{/snippet}
+            label={ROW_NAMES[r]} />{:else}<span class="glyph" class:heavy={'heavy' in l && l.heavy}>{l.glyph}</span>{/if}{/snippet}
           {#snippet name()}{ROW_NAMES[r]}{/snippet}
           {#snippet sub()}{#if line.text}{line.text}{:else}<Skeleton height={10} width="140px" />{/if}{/snippet}
           {#snippet trailing()}{#if line.tone}<StatusMark tone={line.tone} />{/if}{/snippet}
@@ -127,6 +128,8 @@
     <YouTubeMusicPanel status={$hub.setup} disabledWhy={$writeBlockedReason} onchanged={changed} />
   {:else if row === 'folders'}
     <FoldersPanel flow={folders} folder={params.folder} />
+  {:else if row === 'upgrades'}
+    <UpgradesPanel status={$hub.setup} disabledWhy={$writeBlockedReason} onchanged={changed} />
   {:else if row}
     <RowPanel {row} status={$hub.setup} {tools} {toolsError} {reports} disabledWhy={$writeBlockedReason} onchanged={changed}
       onrecheck={load} />
@@ -140,4 +143,6 @@
   .page { height: 100%; min-height: 0; }
   /* the sidebar's glyph box: mixed glyphs in one 14 px box line up optically, dimmed like a label */
   .glyph { display: inline-block; width: 14px; text-align: center; font-size: var(--fs-small); color: var(--text-muted); }
+  /* the arrow is a thin stroke next to the boxy glyphs of its group: bolder and a size up, so it weighs the same */
+  .glyph.heavy { font-size: var(--fs-body); font-weight: var(--fw-bold); line-height: 1; }
 </style>

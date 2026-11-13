@@ -2,6 +2,7 @@
 import type { PageFake } from '$lib/bridge/fake/bridge';
 import type { FakeState } from '$lib/bridge/fake/data';
 import { dateOnly, makeUpgrade, pathOf, qualityOf, type FakeMatch, type FakeTrack } from '$lib/bridge/fake/data';
+import { markRefused, markWaiting, seedUpgrades } from '$lib/bridge/fake/auto';
 import { sameAudio, sameSong } from '$lib/bridge/fake/folders';
 import type { Candidate } from '$lib/bridge/types';
 
@@ -156,6 +157,19 @@ const fake: PageFake = {
     // Single Same track checks (batches of one): t12 an AIFF swapped in place, t15 an MP3 that became a new AIFF
     // (`repointed`), each its own single card. Open with #/todo?track=t15.
     'check-repointed'(s) { batchChecks(s, 2, (c, i) => { c.batch = 8 + i; }); },
+    // Auto-upgrade (issue 33 stage C). Upgrade ready (#/todo?filter=upgrade_ready) with Get Naughty and four more of the same
+    // edit; the first three were met by a sync with rekordbox open: "Waits for rekordbox to be closed" (open one with
+    // #/todo?track=t15, then t17 and t22; t24 and Get Naughty are plain).
+    'auto-waits'(s) { seedUpgrades(s, 4).slice(0, 3).forEach(markWaiting); },
+    // ... five parked upgrades the sync's last phase refused, one per reason (timing, not analysed, Cloud Library Sync, space,
+    // couldn't compare): "{Reason} · not upgraded at your sync" in their rows, the reason's sentence in their panel.
+    'auto-refused'(s) {
+      const reasons = ['timing', 'not_analysed', 'cloud', 'space', 'needs_choice'] as const;
+      seedUpgrades(s, reasons.length).forEach((t, i) => markRefused(s, t, reasons[i]));
+    },
+    // A Same track batch of the sync's last phase (open with #/todo?filter=rekordbox_check): its card is named from the
+    // sync ("4 tracks upgraded", "Upgraded during your sync", "Undo all from this sync").
+    'auto-batch'(s) { batchChecks(s, 4); s.batchStartedBy = { 7: 'auto_upgrade' }; },
     // Duplicates (open with #/todo?filter=duplicate): a clear winner (the lossless AIFF in a playlist against a
     // 16 kHz copy) is picked; a tie (two lossless AIFFs) picks nothing; both together.
     'duplicates-pick'(s) { s.imp.duplicates = [sameSong(s)]; },

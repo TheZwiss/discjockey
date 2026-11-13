@@ -63,10 +63,12 @@ to see its spectrum, where it came from and how it was found, and to listen to i
 
 ### Upgrades that keep your cues
 
-When Discjockey later finds a lossless version of a lossy track, it doesn't replace anything by itself. The To-do page
-lets you listen to both and shows whether they are the same edit. When they are, the lossless audio takes the place of
-your file (any format, one track or all of them at once) and rekordbox keeps your cue points, loops and beatgrid.
-Not-found tracks come with buy links, and every replace can be undone until you have checked it in rekordbox.
+When Discjockey later finds a lossless version of a lossy track, the To-do page lets you listen to both and shows
+whether they are the same edit. When they are, the lossless audio takes the place of your file (any format, one track
+or all of them at once) and rekordbox keeps your cue points, loops and beatgrid. With **Upgrade automatically when I
+sync** on, which it is at first, the same-edit ones go in at the end of each sync while rekordbox is closed; a
+different edit always waits for you. Not-found tracks come with buy links, and every replace can be undone until you
+have checked it in rekordbox.
 
 <img src="docs/readme/app-todo.png" alt="The To-do page: upgrades ready, songs not found and weak versions, with an upgrade open on the right comparing the current file and the lossless one">
 
@@ -185,7 +187,8 @@ back by itself the next time while a needed step is still open.
    If you don't use Spotify playlists, choose **I don't use Spotify**; you can connect it later in Settings.
 5. **Downloads:** sign in to Qobuz, or choose **I don't have Qobuz**. YouTube Premium and
    SoundCloud Go+ are optional; see [Settings](#settings) for how their logins work. Beside
-   the logins, "Where your music comes from" lights up as each one works.
+   the logins, "Where your music comes from" lights up as each one works. Under them, **Upgrades** shows the switch
+   **Upgrade automatically when I sync**, on at first (see [Upgrades](#upgrades)); you can turn it off here or later.
 6. **First playlist:** paste the link of a Spotify, Qobuz, SoundCloud or YouTube Music playlist and click **Add to the list**.
    Add more and change their order later on the Playlists page. **Finish** opens the Sync page.
 
@@ -228,6 +231,7 @@ line to see it on the right.
 - **Watched folders:** the folders Discjockey reads for music you already have, and the import's progress
   (see [Your existing music](#your-existing-music)). Each folder also says which of its crates show in Library's
   sidebar (see [The Library page](#the-library-page)).
+- **Upgrades:** the switch **Upgrade automatically when I sync** (see [Upgrades](#upgrades)).
 - **This Mac:** the **Music folder** (**Change…** picks another one and closes Discjockey so it
   starts again with it; **Show in Finder** opens it), the programs Discjockey uses and its download
   tools: yt-dlp shows its version and "built in" (it came with Discjockey) or "updated". **Update
@@ -374,8 +378,9 @@ use up the downloads of your playlists. The Sync page says how many wait for a l
 
 ## Tidying up files
 
-A sync only adds files; it never moves one that is already in `Library/`. Files move only when you ask for it on the
-**Playlists** page. Nothing is deleted, and every move can be undone there.
+A sync only adds files; it never moves one that is already in `Library/`, apart from the upgrades that go in at its end
+while **Upgrade automatically when I sync** is on (see [Upgrades](#upgrade-automatically-when-i-sync)). Files move only
+when you ask for it on the **Playlists** page. Nothing is deleted, and every move can be undone there.
 
 - **When you save a change that would put files in a different folder,** Discjockey asks first. It tells you how many
   files would sit in a different folder. **Save and move the files** moves them right away.
@@ -546,10 +551,11 @@ waiting for a track, the list says so.
 ## Upgrades
 
 Once a week, Discjockey looks on Qobuz for a lossless version of each track in `not_lossless/`.
-When it finds one, it doesn't replace anything. It **parks** the new file in
+When it finds one, it doesn't replace anything yet. It **parks** the new file in
 `Upgrades ready/<Folder>/` and checks whether the two versions line up exactly (same edit,
 same start). The track then shows on the **To-do** page as "Upgrade ready", and you can decide it there or in the
-track's details in the **Library** (the same choice, in the same words). For music
+track's details in the **Library** (the same choice, in the same words), or let the next sync do it
+(see [Upgrade automatically when I sync](#upgrade-automatically-when-i-sync)). For music
 you imported from your own folders, the first check of each file is spread over several runs (see
 [Your existing music](#your-existing-music)).
 
@@ -593,6 +599,35 @@ file either way; the only difference is what rekordbox sees, which you pick unde
   rekordbox") list the track with the steps until you mark it as done.
 - **Discard the new version.** The parked file is deleted and Discjockey never offers that file again.
 - Or leave it: nothing changes, and it waits for next time.
+
+### Upgrade automatically when I sync
+
+With this switch on, which it is at first, the end of every sync does what **Upgrade all** does: **Same track** for the
+upgrades that need no decision, the ones measured as the same edit as your file. A different edit, or two files
+Discjockey can't compare, always waits for you on the To-do page. You see the switch in **Setup** (Downloads) and in
+**Settings** under **Upgrades**; in the Terminal, `settings auto-upgrade off` (or `on`; without a word it says which)
+does the same, with the program path from [When something breaks](#when-something-breaks) in front of it. Turned off,
+a sync moves no file at all; **Upgrade all** still works by hand. Turning it on also covers the upgrades already
+waiting.
+
+- **Only while rekordbox is closed.** If rekordbox is open when the sync gets to the upgrades, nothing is upgraded in
+  that sync, not even an AIFF (rekordbox may have the file loaded on a deck). The sync says "3 upgrades wait for
+  rekordbox to be closed", and the To-do page marks those tracks "Waits for rekordbox to be closed". They go in at your
+  next sync with rekordbox closed, or at once with **Upgrade all**. The Sync page tells you before you start when
+  rekordbox is open and upgrades are waiting. If you open rekordbox while the upgrades run, the track in work is rolled
+  back and the rest waits the same way. The sync never waits for rekordbox: what can't go in waits for the next one.
+- **A track it can't do waits with its reason.** If rekordbox hasn't analysed the track, the timing can't be lined up,
+  the track is in your Cloud Library, or the disk is too full, it stays in Upgrade ready with that reason. Later syncs
+  leave it alone until something changes (rekordbox analyses the track again, a file changes, or there is more room
+  on the disk), so a sync doesn't try it again each time. **Replace** and **Upgrade all** still try it whenever you
+  press them.
+- **One batch, one backup, one undo.** Each sync's upgrades are one batch with a copy of rekordbox's library made first
+  (see [rekordbox](#rekordbox)). The sync's result list shows them under "Upgraded", and a line such as "Upgraded 12
+  tracks; your cues stayed. 3 wait for rekordbox to be closed." The batch is one line under **Check in rekordbox**,
+  where you can undo a track or, with **Undo all from this sync**, all of them. **Stop safely** stops between tracks; the
+  rest is tried at the next sync.
+- **In a script:** `--yes --json` after the program runs a sync and prints one JSON summary that includes these
+  upgrades (CONTRIBUTING.md lists it with the other commands).
 
 **Several at once.** Select several tracks of **Upgrade ready** on the To-do page to replace or discard them
 together ("Replace 5 with lossless"): ⌘-click adds or removes a track, ⇧-click selects a range, ⌘A the whole group,
@@ -640,13 +675,15 @@ version is removed because it's no longer needed.
 - When you add a bought copy, the old lossy file moves to `Superseded/`, and rekordbox's entry
   (with your cue points) goes with it. The bought file is a new entry: set the cues again,
   then remove the old entry.
-- Lossless versions from Qobuz never replace a file on their own: you decide on the To-do page
-  (see [Upgrades](#upgrades)).
+- A lossless version from Qobuz replaces your file when you decide on the To-do page, or at the end of a sync while
+  **Upgrade automatically when I sync** is on and the two files are the same edit (see [Upgrades](#upgrades)).
 
 ### When Discjockey changes rekordbox's library
 
 Only **Same track** does, and only while rekordbox is closed (if rekordbox is open, it does nothing there and tells
-you; if you open rekordbox while it works, the track it was on is rolled back and the batch stops). It also refuses
+you; if you open rekordbox while it works, the track it was on is rolled back and the batch stops). You start it on
+the To-do page, or leave it to **Upgrade automatically when I sync**: with that switch on, which it is at first, a
+sync also changes rekordbox's library at its end, for the same-edit upgrades only. It also refuses
 when rekordbox's library looks unusual (a newer version it doesn't know, or rekordbox didn't close properly last
 time: open rekordbox once and quit it normally).
 

@@ -15,6 +15,12 @@ export function pauseLeft(s: RunState, now: number): number | null {
 export function activityText(s: RunState, now: number): ActivityText {
   const qobuz = s.qobuz ? `Qobuz ${s.qobuz.used} of ${s.qobuz.allowance} today` : null;
   if (s.phase === 'stopping') return { lead: 'Stopping…', track: null, tail: null, pause: null, qobuz };
+  if (s.phase === 'upgrading' && s.upgrade) {   // the sync's last phase: its Auto-upgrade batch
+    const count = `${s.upgrade.done} of ${s.upgrade.total} upgraded`;
+    return s.upgrade.name
+      ? { lead: 'Upgrading · ', track: s.upgrade.name, tail: ` · ${count}`, pause: null, qobuz }
+      : { lead: `Upgrading · ${count}`, track: null, tail: null, pause: null, qobuz };
+  }
   if (s.phase === 'preparing' || !s.total) return { lead: 'Reading playlists…', track: null, tail: null, pause: null, qobuz };
   const head = `Sync running · ${s.index} of ${s.total} · `;
   const t = s.current?.track;
@@ -30,6 +36,7 @@ export function activityText(s: RunState, now: number): ActivityText {
 /** The short form for the player bar's right end: "Sync 4 of 6"; the long form goes into its tooltip. */
 export function activityShort(s: RunState): string {
   if (s.phase === 'stopping') return 'Stopping…';
+  if (s.phase === 'upgrading' && s.upgrade) return `${s.upgrade.done} of ${s.upgrade.total} upgraded`;
   if (s.phase === 'preparing' || !s.total) return 'Reading playlists…';
   return `Sync ${s.index} of ${s.total}`;
 }

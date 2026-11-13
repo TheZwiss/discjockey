@@ -5,11 +5,13 @@
 // the import (library stage 4): watched_folders, check_import_folder, removal_preview, add_watched_folder,
 // remove_watched_folder, start_import, answer_same_song, keep_duplicates, supersede_duplicate, setup_skip_import: +10;
 // set_favourites and set_crate_shown (library stage 5, brief saves, no job): +2; undo_upgrade: +1;
-// set_read_liked_music and add_liked_music (sources round): +2; set_crates_shown (leftovers C2): +1.)
+// set_read_liked_music and add_liked_music (sources round): +2; set_crates_shown (leftovers C2): +1;
+// rekordbox_status and set_auto_upgrade (issue 33 stage C): +2.)
 export const CONTRACT_METHODS = [
   // read, any time
   'dashboard', 'sidebar', 'sync_preview', 'refresh', 'stop_refresh', 'job_status', 'library', 'track', 'todo',
   'playlists', 'limits', 'limits_what_if', 'runs', 'run', 'spectrum', 'media_url', 'setup_status', 'select',
+  'rekordbox_status',
   'tidy_preview', 'move_batches', 'undo_preview', 'watched_folders', 'check_import_folder', 'removal_preview',
   // brief saves (no job): Favourites and the crate switches
   'set_favourites', 'set_crate_shown', 'set_crates_shown',
@@ -24,6 +26,8 @@ export const CONTRACT_METHODS = [
   'supersede_duplicate',
   // Liked music (sources round): Settings' choice and "Add Liked music to Playlists"
   'set_read_liked_music', 'add_liked_music',
+  // Auto-upgrade (issue 33 stage C): Settings' and Setup's switch
+  'set_auto_upgrade',
   // other
   'show_in_finder', 'reveal', 'open_report', 'open_external', 'app_update', 'quit',
   // setup

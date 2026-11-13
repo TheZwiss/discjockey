@@ -209,6 +209,25 @@ def test_measured_tracks_snap_and_agree(tmp_path):
     assert abs(first.offset_ms - first.expected_ms) < 0.12 and first.score >= 0.9
 
 
+def test_every_analysis_file_of_a_track_is_listed_for_auto_upgrades_stamp(tmp_path):
+    f = tmp_path / "a.mp3"
+    place = rekordbox(tmp_path, [(f, 3, 2257, True)])
+    with master.open_read(place, False) as m:
+        [entry] = m.entries_for(f)
+        names = lambda: [p.name for p in offset_module.analysis_folder_files(place, entry)]  # noqa: E731
+        dat = offset_module.analysis_files(place, entry)[0]
+        assert names() == ["ANLZ0000.DAT", "ANLZ0000.EXT"]                 # what the helper makes
+        for extra in ("ANLZ0000.2EX", "ANLZ0000.3EX"):
+            (dat.parent / extra).write_bytes(b"x")                          # rekordbox 7 adds these
+        assert names() == ["ANLZ0000.2EX", "ANLZ0000.3EX", "ANLZ0000.DAT", "ANLZ0000.EXT"]
+        (dat.parent / "notes.txt").write_text("not an analysis file")
+        (dat.parent / "ANLZ0000.EXT").unlink()
+        assert names() == ["ANLZ0000.2EX", "ANLZ0000.3EX", "ANLZ0000.DAT"]
+        shutil.rmtree(dat.parent)
+        assert names() == []
+        assert offset_module.analysis_folder_files(place, type(entry)(**{**entry.__dict__, "analysis_path": None})) == []
+
+
 def test_two_tracks_that_disagree_are_timing(tmp_path):
     f = tmp_path / "a.mp3"
     got = timeline_offset(f, place=rekordbox(tmp_path, [(f, 3, 1105, True), (f, 2, 2257, True)]), **stubs())

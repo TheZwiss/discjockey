@@ -14,6 +14,7 @@ from discjockey.sources.base import LoginState
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.library import Paths, empty_state, run_lock, save_state
 from discjockey.models import FetchedPlaylist, SourceTrack
+from discjockey.settings import Settings, save_settings
 from discjockey.setup_cmd import TEMPLATE
 
 PLAYLISTS = "Hard_Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n"
@@ -283,7 +284,9 @@ def test_sync_says_when_lossless_versions_wait(root, monkeypatch, capsys):
                     "source_format": "flac", "found": "2026-10-01",
                     "alignment": {"result": "exact", "offset_samples": 0, "offset_ms": 0.0, "drift_ms": 0.0,
                                   "text": "matches exactly"}}}
-    save_state(Paths(root, support=root / ".support"), state)
+    paths = Paths(root, support=root / ".support")
+    save_state(paths, state)
+    save_settings(paths.settings_file, Settings(auto_upgrade=False))  # switched on, the sync would put it in place
     assert cli.main([]) == 0  # nothing to do: the parked upgrade stops further checks
     out = capsys.readouterr().out
     assert "1 better version is ready: run `discjockey upgrades`." in out
@@ -623,3 +626,287 @@ def test_apply_needs_song_keys_or_all_and_a_way(capsys):
     assert cli.parse_args(["upgrade", "apply", "--all", "--way", "same-track", "--dry-run"]).dry_run is True
     assert cli.parse_args(["rekordbox", "checked", "--batch", "3"]).batch == 3
     assert cli.parse_args(["rekordbox", "restore", "id", "--yes"]).yes is True
+
+
+# --- Auto-upgrade in the console (issue 33 stage C; plan stage C §2, §5 C3) ---
+
+import io  # noqa: E402
+
+from batch_helpers import make_lib, use  # noqa: E402
+from convert_helpers import EXACT  # noqa: E402
+from discjockey import align, db  # noqa: E402
+from discjockey.library import load_state  # noqa: E402
+from discjockey.rekordbox import process  # noqa: E402
+
+
+def upgrade_lib(tmp_path, monkeypatch, kinds, running=False):
+    """A library the console finds, whose songs are in a Spotify playlist that is read as they are (so the sync's plan
+    has no action) and whose parked upgrades are all the same edit; the fixture rekordbox holds them."""
+    lib = make_lib(tmp_path, monkeypatch, kinds)
+    use(lib, monkeypatch)
+    monkeypatch.setattr(align, "compare_files", lambda a, b: EXACT)
+    monkeypatch.setattr(process, "running", lambda: running)
+    (lib.paths.root / "playlists.txt").write_text("A = https://open.spotify.com/playlist/0DiscjockeyExampleList\n")
+    state = load_state(lib.paths)
+    fake_spotify(monkeypatch, [SourceTrack(key, state["tracks"][key]["title"], ("Artist",), "Album", None, 30000, None)
+                               for key in lib.tracks])
+    return lib
+
+
+def sync_json(argv, capsys):
+    code = cli.main(argv)
+    out = capsys.readouterr()
+    return code, json.loads(out.out), out.err        # exactly one JSON object on stdout
+
+
+def batches_in(lib) -> int:
+    with db.connect(lib.paths.db_file) as conn:
+        return db.aiff_batches(conn)[1]
+
+
+@needs_ffmpeg
+def test_the_syncs_json_is_one_object_and_the_human_lines_go_to_stderr(tmp_path, monkeypatch, capsys):
+    lib = upgrade_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    code, data, err = sync_json(["--yes", "--json"], capsys)
+    assert code == 0 and set(data) == {"ok", "exit_code", "dry_run", "report", "counts", "auto_upgrade"}
+    assert (data["ok"], data["exit_code"], data["dry_run"]) == (True, 0, False)
+    block = data["auto_upgrade"]
+    assert (block["done"], block["waiting"], block["refused"], block["failed"], block["stopped"]) == (2, 0, 0, 0, False)
+    assert [r["state"] for r in block["results"]] == ["done", "done"] and block["backup"] and block["batch"] == 1
+    report = json.loads(open(data["report"].replace(".md", ".json")).read())
+    assert report["auto_upgrade"] == block                                   # the run's block, as the report has it
+    assert data["counts"]["upgraded"] == 2 and "Upgraded (your cues stayed)" in open(data["report"]).read()
+    assert "At the end, 2 upgrades go in place of your files; your cues stay." in err
+    assert "Upgrading 1 of 2: Artist – Song 0" in err and "Upgraded 2 tracks; your cues stayed." in err
+    assert all(load_state(lib.paths)["tracks"][k]["upgrade"] is None for k in lib.tracks)
+
+
+@needs_ffmpeg
+def test_the_human_sync_says_its_plan_each_track_and_the_summary_line(tmp_path, monkeypatch, capsys):
+    upgrade_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    assert cli.main(["--yes"]) == 0
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+    assert "At the end, 2 upgrades go in place of your files; your cues stay." in lines
+    assert "Upgrading 2 tracks at the end of the sync..." in lines
+    assert "Upgrading 1 of 2: Artist – Song 0" in lines and "Upgrading 2 of 2: Artist – Song 1" in lines
+    report_line = next(i for i, x in enumerate(lines) if x.startswith("No downloads needed. Report: "))
+    assert lines.index("Upgraded 2 tracks; your cues stayed.") > report_line      # the summary line comes last
+
+
+@needs_ffmpeg
+def test_a_sync_with_downloads_ends_with_the_phase_and_its_summary_line(tmp_path, monkeypatch, capsys):
+    lib = upgrade_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    state = load_state(lib.paths)
+    tracks = [SourceTrack(k, state["tracks"][k]["title"], ("Artist",), "Album", None, 30000, None) for k in lib.tracks]
+    fake_spotify(monkeypatch, [*tracks, SourceTrack("tnew", "Fresh", ("Artist",), "Al", None, 180000, None)])
+    monkeypatch.setattr(run.QobuzSource, "open", classmethod(lambda cls, paths: FakeQobuzSource()))
+    monkeypatch.setattr(run, "Acquirer", lambda *a, **k: FakeAcquirer())
+    code, data, err = sync_json(["--yes", "--json"], capsys)
+    assert code == 0 and data["counts"]["new_lossless"] == 1 and data["counts"]["upgraded"] == 2
+    assert data["auto_upgrade"]["done"] == 2 and data["auto_upgrade"]["batch"] == 1
+    lines = err.splitlines()
+    assert lines.index("Upgraded 2 tracks; your cues stayed.") > lines.index("Done.")
+    assert lines.index("[1/1] Downloading [A] Artist - Fresh") < lines.index("Upgrading 2 tracks at the end of the sync...")
+
+
+@needs_ffmpeg
+def test_json_needs_yes_or_dry_run_and_changes_nothing(tmp_path, monkeypatch, capsys):
+    lib = upgrade_lib(tmp_path, monkeypatch, ["mp3"])
+    before = (lib.music(), lib.dump(), load_state(lib.paths)["tracks"])
+    code, data, err = sync_json(["--json"], capsys)
+    assert code == 1 and data == {"ok": False, "kind": "needs_yes", "message": cli.NEEDS_YES}
+    assert data["message"] == ("Add --yes to start the sync without a question, or --dry-run to look first. Nothing "
+                               "was changed.")
+    assert err == "" and (lib.music(), lib.dump(), load_state(lib.paths)["tracks"]) == before
+    assert not lib.paths.reports.exists() and batches_in(lib) == 0
+
+
+@needs_ffmpeg
+def test_the_dry_run_lists_the_upgrades_and_changes_nothing(tmp_path, monkeypatch, capsys):
+    lib = upgrade_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    before = (lib.music(), lib.dump(), load_state(lib.paths)["tracks"])
+    assert cli.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert "At the end, 2 upgrades go in place of your files; your cues stay." in out
+    assert "  Artist - Song 0 (new AIFF)" in out and "  Artist - Song 1 (in place)" in out
+    assert (lib.music(), lib.dump(), load_state(lib.paths)["tracks"]) == before and not lib.paths.reports.exists()
+    code, data, _ = sync_json(["--dry-run", "--json"], capsys)
+    assert code == 0 and (data["ok"], data["dry_run"], data["report"], data["counts"]) == (True, True, None, {})
+    block = data["auto_upgrade"]
+    assert (block["dry_run"], block["batch"], block["backup"], block["done"]) == (True, None, None, 0)
+    assert [(r["state"], r["how"]) for r in block["results"]] == [("would", "new_aiff"), ("would", "in_place")]
+    assert (lib.music(), lib.dump(), load_state(lib.paths)["tracks"]) == before and batches_in(lib) == 0
+
+
+@needs_ffmpeg
+def test_the_dry_run_lists_a_held_refusal_with_its_reason(tmp_path, monkeypatch, capsys):
+    lib = upgrade_lib(tmp_path, monkeypatch, ["mp3_plain", "aiff"])
+    assert cli.main(["--yes"]) == 0                                       # the unanalysed one is refused and recorded
+    capsys.readouterr()
+    record = lib.entry(0)["upgrade"]["auto_refused"]
+    assert cli.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out.count("Not tried this sync (refused before, and nothing changed since):") == 1
+    assert f"  Artist - Song 0: {record['message']}" in out
+    assert not any("(new AIFF)" in x or "(in place)" in x for x in out)    # nothing else is left to upgrade
+    code, data, _ = sync_json(["--dry-run", "--json"], capsys)
+    assert [(r["state"], r["reason"]) for r in data["auto_upgrade"]["results"]] == [("refused", "not_analysed")]
+
+
+@needs_ffmpeg
+def test_rekordbox_open_the_plan_says_so_and_the_sync_upgrades_nothing(tmp_path, monkeypatch, capsys):
+    lib = upgrade_lib(tmp_path, monkeypatch, ["mp3", "aiff"], running=True)
+    before = (lib.music(), lib.dump())
+    assert cli.main(["--yes"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert "rekordbox is open: quit it before the sync ends, so the sync can put 2 upgrades in place." in out
+    assert "2 upgrades wait for rekordbox to be closed." in out and "Upgrading 2 tracks at the end of the sync..." not in out
+    assert (lib.music(), lib.dump()) == before and batches_in(lib) == 0 and not (lib.paths.data / "rekordbox").exists()
+    assert all(lib.entry(i)["upgrade"]["auto_waits"] for i in (0, 1))
+    code, data, _ = sync_json(["--yes", "--json"], capsys)
+    assert code == 0 and data["ok"] is True and data["auto_upgrade"]["waiting"] == 2 and data["counts"] == {
+        "upgrade_waits": 2}
+
+
+@needs_ffmpeg
+def test_with_the_switch_off_the_sync_moves_no_file_and_says_nothing_of_upgrades(tmp_path, monkeypatch, capsys):
+    lib = upgrade_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    assert cli.main(["settings", "auto-upgrade", "off"]) == 0
+    capsys.readouterr()
+    monkeypatch.setattr(cli, "locate", lambda: pytest.fail("looked for rekordbox"))
+    monkeypatch.setattr(process, "running", lambda: pytest.fail("asked whether rekordbox runs"))
+    before = (lib.music(), lib.dump())
+    code, data, err = sync_json(["--yes", "--json"], capsys)
+    assert code == 0 and data["auto_upgrade"] is None and "upgrade" not in err.lower().replace("upgrades", "")
+    assert (lib.music(), lib.dump()) == before and batches_in(lib) == 0
+    assert "auto_upgrade" not in json.loads(open(data["report"].replace(".md", ".json")).read())
+
+
+@needs_ffmpeg
+def test_ctrl_c_in_the_phase_stops_between_tracks_with_130(tmp_path, monkeypatch, capsys):
+    lib = upgrade_lib(tmp_path, monkeypatch, ["mp3", "aiff", "mp3"])
+    calls = []
+
+    def compare(a, b):
+        calls.append(1)
+        if len(calls) == 1:
+            os.kill(os.getpid(), signal.SIGINT)
+        return EXACT
+
+    monkeypatch.setattr(align, "compare_files", compare)
+    code, data, err = sync_json(["--yes", "--json"], capsys)
+    assert code == 130 and (data["ok"], data["exit_code"]) == (True, 130)
+    block = data["auto_upgrade"]
+    assert block["stopped"] is True and block["done"] == 1
+    assert [(r["state"], r["reason"]) for r in block["results"]] == [
+        ("done", None), ("waiting", "not_reached"), ("waiting", "not_reached")]
+    assert "Stopped. Everything finished so far is saved." in err and "Stopping safely" in err
+    assert lib.entry(0)["upgrade"] is None and lib.entry(1)["upgrade"] and signal.getsignal(
+        signal.SIGINT) is signal.default_int_handler
+
+
+def test_the_syncs_json_answers_a_held_library_with_busy(tmp_path, monkeypatch, capsys):
+    paths = choose_music(tmp_path, monkeypatch)
+    with run_lock(paths.lock):
+        code, data, _ = sync_json(["--yes", "--json"], capsys)
+    assert code == 3 and data == {"ok": False, "kind": "busy", "message": cli.LOCK_HELD}
+
+
+def test_the_syncs_json_answers_a_setup_problem_and_a_missing_folder_with_exit_2(tmp_path, monkeypatch, capsys):
+    code, data, _ = sync_json(["--yes", "--json"], capsys)                     # no music folder chosen yet
+    assert code == 2 and (data["ok"], data["kind"], data["reason"]) == (False, "refused", "no_library")
+    assert data["message"] == cli.NOT_CHOSEN_TEXT
+    paths = choose_music(tmp_path, monkeypatch)
+    paths.playlists_file.write_text("Bouncy =\n")
+    code, data, _ = sync_json(["--dry-run", "--json"], capsys)
+    assert code == 2 and data["ok"] is False and "line 1" in data["message"] and data["kind"]
+
+
+def test_a_crash_in_the_phase_is_json_too(tmp_path, monkeypatch, capsys):
+    paths = choose_music(tmp_path, monkeypatch)
+    paths.playlists_file.write_text(PLAYLISTS)
+    fake_spotify(monkeypatch, [])
+
+    real = run.auto_upgrade.run_phase
+
+    def boom(*a, dry_run=False, **k):
+        if dry_run:
+            return real(*a, dry_run=True, **k)
+        raise RuntimeError("disk fell off")
+
+    monkeypatch.setattr(run.auto_upgrade, "run_phase", boom)
+    code, data, _ = sync_json(["--yes", "--json"], capsys)
+    assert code == 1 and (data["ok"], data["kind"]) == (False, "crashed") and "disk fell off" in data["message"]
+    assert "upgrading at the end of the sync" in open(data["report"]).read()
+    monkeypatch.setattr(cli.auto_upgrade, "run_phase", lambda *a, **k: 1 / 0)       # a bug in the plan's preview
+    code, data, _ = sync_json(["--yes", "--json"], capsys)
+    assert code == 1 and (data["ok"], data["kind"]) == (False, "failed") and "ZeroDivisionError" in data["message"]
+
+
+def test_json_belongs_to_the_sync(capsys):
+    for command in ("setup", "update", "upgrades", "hub"):
+        with pytest.raises(SystemExit):
+            cli.parse_args(["--json", command])
+    assert cli.parse_args(["--yes", "--json"]).json is True
+
+
+# --- discjockey settings auto-upgrade ---
+
+def settings_json(argv, capsys):
+    code = cli.main(["settings", "auto-upgrade", *argv, "--json"])
+    return code, json.loads(capsys.readouterr().out)
+
+
+def test_settings_auto_upgrade_reads_sets_and_prints_the_window_value(root, capsys):
+    paths = Paths(root, support=root / ".support")
+    assert cli.main(["settings", "auto-upgrade"]) == 0
+    assert capsys.readouterr().out == "Upgrade automatically when I sync: on\n"          # on by default
+    assert settings_json([], capsys) == (0, {"ok": True, "auto_upgrade": True})
+    assert cli.main(["settings", "auto-upgrade", "off"]) == 0
+    assert capsys.readouterr().out == "Upgrade automatically when I sync: off\n"
+    from discjockey.settings import load_settings
+    assert load_settings(paths.settings_file).auto_upgrade is False
+    assert settings_json([], capsys) == (0, {"ok": True, "auto_upgrade": False})
+    assert settings_json(["on"], capsys) == (0, {"ok": True, "auto_upgrade": True})
+    assert load_settings(paths.settings_file).auto_upgrade is True
+
+
+def test_settings_auto_upgrade_keeps_the_other_settings(root, capsys):
+    paths = Paths(root, support=root / ".support")
+    from dataclasses import replace
+    from discjockey.settings import load_settings
+    save_settings(paths.settings_file, replace(Settings(), daily_qobuz_limit=40, qobuz_skipped=True))
+    assert cli.main(["settings", "auto-upgrade", "off"]) == 0
+    s = load_settings(paths.settings_file)
+    assert (s.auto_upgrade, s.daily_qobuz_limit, s.qobuz_skipped) == (False, 40, True)
+
+
+def test_settings_auto_upgrade_reads_without_the_lock_and_writes_with_it(root, capsys):
+    paths = Paths(root, support=root / ".support")
+    with run_lock(paths.lock):
+        assert settings_json([], capsys) == (0, {"ok": True, "auto_upgrade": True})            # a read: no lock
+        code, data = settings_json(["off"], capsys)
+    assert code == 3 and (data["ok"], data["kind"]) == (False, "busy")
+    assert not paths.settings_file.exists()                                                    # nothing was changed
+    assert cli.main(["settings", "auto-upgrade", "off"]) == 0                                  # the lock is free again
+
+
+def test_settings_auto_upgrade_needs_a_music_folder_and_a_readable_file(root, tmp_path, capsys):
+    paths = Paths(root, support=root / ".support")
+    paths.settings_file.write_text('{"auto_upgrade": "yes"}')
+    code, data = settings_json(["off"], capsys)
+    assert code == 1 and (data["ok"], data["kind"], data["reason"]) == (False, "refused", "settings_invalid")
+    assert "auto_upgrade must be true or false" in data["message"] and "yes" in paths.settings_file.read_text()
+
+
+def test_settings_auto_upgrade_without_a_music_folder_is_exit_2(capsys):
+    code, data = settings_json([], capsys)               # conftest: an empty support folder, Setup never done
+    assert code == 2 and (data["ok"], data["kind"], data["reason"]) == (False, "refused", "no_library")
+
+
+def test_settings_takes_on_or_off_only(capsys):
+    with pytest.raises(SystemExit):
+        cli.parse_args(["settings", "auto-upgrade", "maybe"])
+    with pytest.raises(SystemExit):
+        cli.parse_args(["settings"])

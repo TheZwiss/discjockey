@@ -150,13 +150,15 @@ def test_fake_swap_works(fake):
     assert (paths.root / ROOT_NAME).read_bytes() == NEW and (paths.root / BACKUP).read_bytes() == OLD
 
 
-@pytest.mark.parametrize("alignment", [Alignment("different", text="doesn't line up: a swap would shift your cue "
-                                                                    "points"),
-                                       Alignment("unknown", text="could not compare the two versions")])
-def test_swap_refused_unless_swap_safe(fake, alignment):
+@pytest.mark.parametrize("alignment, words", [
+    (Alignment("different", text="doesn't line up: a swap would shift your cue points"), "Not swapped"),
+    (Alignment("unknown", text="could not compare the two versions"),  # design §8: its own sentence
+     "Discjockey couldn't compare the two files, so nothing was changed. Try again, or choose New track.")])
+def test_swap_refused_unless_swap_safe(fake, alignment, words):
     paths, state = fake
-    with pytest.raises(UpgradeProblem, match="Not swapped"):
+    with pytest.raises(UpgradeProblem, match=words) as refused:
         swap(paths, state, alignment)
+    assert ("Not swapped" in str(refused.value)) == (alignment.result == "different")
     assert (paths.root / CURRENT).read_bytes() == OLD and state["pending"] == []
 
 

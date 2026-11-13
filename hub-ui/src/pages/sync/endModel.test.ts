@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { Result, RunDetail, RunSummary } from '$lib/bridge/types';
+import type { AutoUpgradeResult, Result, RunDetail, RunSummary } from '$lib/bridge/types';
 import {
-  endModel, endTitle, groupByFolder, keepDetail, lastSyncStats, lastSyncView, needsDetail, otherDetail, type LastSyncDetail,
+  endModel, endTitle, groupByFolder, keepDetail, lastSyncStats, lastSyncView, needsDetail, otherDetail, upgradedDetail, type LastSyncDetail,
 } from './endModel';
 
 const r = (section: string, folder: string, title: string, extra: Partial<Result> = {}): Result => ({ section, folder,
@@ -13,7 +13,7 @@ const run = (results: Result[], extra: Partial<RunDetail> = {}): RunDetail => {
   for (const x of results) (sections[x.section] ??= []).push(x);
   return { run_id: '2026-10-19_214700', started: '2026-10-19T21:23:00', finished: '2026-10-19T21:47:00',
     duration_s: 1440, exit_code: 0, counts: { lossless: 0, lossy: 0, problems: 0, moved: 0 }, stopped_after: null,
-    sections, needs_you: results.filter((x) => ['missing', 'errors'].includes(x.section)),
+    auto_upgrade: null, sections, needs_you: results.filter((x) => ['missing', 'errors'].includes(x.section)),
     for_rekordbox: { new_files: 0, folders: [] }, upgrades_ready: 0, report_md: '', queued: 0,
     folder_order: ['Hard_Bounce', 'Powertrance', 'Bouncy'], ...extra };
 };
@@ -78,6 +78,105 @@ describe('end screen', () => {
     expect(otherDetail(r('moved', 'A', 'x', { note: 'odd' }))).toBe('');
     expect(otherDetail(r('upgrade_ready', 'A', 'x'))).toBe('a better version waits for you');
     expect(otherDetail(r('rekordbox_check', 'A', 'x', { note: 'analyse it again' }))).toBe('analyse it again');
+  });
+});
+
+describe('end screen: the sync\'s Auto-upgrade', () => {
+  const res = (track: string, state: AutoUpgradeResult['state'], reason: string | null, how: AutoUpgradeResult['how'] = 'in_place'):
+    AutoUpgradeResult => ({ track, name: `A – ${track}`, state, reason, message: null, how });
+  const block = (line: string | null, results: AutoUpgradeResult[] = BLOCK) => ({ batch: 3, backup: null, done: 2, waiting: 2, refused: 1,
+    failed: 0, stopped: false, dry_run: false, results, line });
+  // two upgraded, one waits for rekordbox, one was not reached (tried again next sync), one refused (timing)
+  const BLOCK = [res('g1', 'done', null, 'new_aiff'), res('g2', 'done', null, 'in_place'), res('w1', 'waiting', 'rekordbox_open', null),
+    res('w2', 'waiting', 'changed', null), res('f1', 'refused', 'timing', null)];
+  const PHASE = [
+    r('upgraded', 'Bouncy', 'g1', { status: 'lossless', note: 'new file A - g1.aiff, lined up with rekordbox; the old one moved to Superseded/' }),
+    r('upgraded', 'Bouncy', 'g2', { status: 'lossless', note: 'Replaced in place. Kept your own title / artist in rekordbox.' }),
+    r('upgrade_waits', 'Bouncy', 'w1', { note: 'Waits for rekordbox to be closed: it is upgraded at your next sync, or press Upgrade all.' }),
+    r('upgrade_waits', 'Bouncy', 'w2', { note: 'Your rekordbox track changed while Discjockey was working on it, so nothing was changed. Try again.' }),
+    r('upgrade_waits', 'Bouncy', 'f1', { note: "Discjockey couldn't line the new file up with your rekordbox track exactly, so nothing was changed. Analyse the track again in rekordbox and try again." }),
+  ];
+  const LINE = "Upgraded 2 tracks; your cues stayed. 1 waits for rekordbox to be closed. 1 waits for your next sync. 1 couldn't go in; To-do says why.";
+  it('splits the phase by each track\'s state in the block: upgraded, still waiting, couldn\'t go in', () => {
+    const m = endModel(run([...RESULTS, ...PHASE], { auto_upgrade: block(LINE) }), null, NOW);
+    expect(m.upgraded.map((x) => x.r.title)).toEqual(['g1', 'g2']);
+    expect(m.waiting.map((x) => x.r.title)).toEqual(['w1', 'w2']);
+    expect(m.refused.map((x) => x.r.title)).toEqual(['f1']);
+    expect(m.auto.map((p) => `${p.label} ${p.rows.length}`)).toEqual(['Upgraded 2', 'Still waiting 2', "Couldn't go in 1"]);
+    expect(m.notes.map((n) => n.test)).toEqual(['sync-auto-upgrade', 'sync-checked']);
+    expect(m.notes[0].text).toBe(LINE);
+  });
+  it('the counts match the block\'s: waiting + refused are the upgrade_waits rows', () => {
+    const m = endModel(run([...RESULTS, ...PHASE], { auto_upgrade: block(LINE) }), null, NOW);
+    const b = run([...RESULTS, ...PHASE], { auto_upgrade: block(LINE) }).auto_upgrade!;
+    expect(m.upgraded.length).toBe(BLOCK.filter((x) => x.state === 'done').length);
+    expect(m.waiting.length).toBe(BLOCK.filter((x) => x.state === 'waiting').length);
+    expect(m.refused.length).toBe(BLOCK.filter((x) => x.state === 'refused').length);
+    expect(b.results).toHaveLength(m.upgraded.length + m.waiting.length + m.refused.length);
+  });
+  it('a waiting row says why in a few words; the engine\'s sentence is its tooltip', () => {
+    const m = endModel(run([...RESULTS, ...PHASE], { auto_upgrade: block(LINE) }), null, NOW);
+    expect(m.waiting.map((x) => x.sub)).toEqual(['Waits for rekordbox to be closed', 'Waits for your next sync']);
+    expect(m.waiting[1].tip).toMatch(/^Your rekordbox track changed/);
+    // not reached and busy are tried again by the next sync as well
+    const more = [res('w1', 'waiting', 'not_reached', null), res('w2', 'waiting', 'busy', null)];
+    const m2 = endModel(run(PHASE.slice(2, 4), { auto_upgrade: block(null, more) }), null, NOW);
+    expect(m2.waiting.map((x) => x.sub)).toEqual(['Waits for your next sync', 'Waits for your next sync']);
+  });
+  it('a refused row carries To-do\'s short reason as its sub and the full sentence as its tooltip', () => {
+    const reasons = ['timing', 'not_analysed', 'cloud', 'space', 'needs_choice'];
+    const results = reasons.map((x, k) => res(`f${k}`, 'refused', x, null));
+    const rows = reasons.map((_, k) => r('upgrade_waits', 'Bouncy', `f${k}`, { note: `Sentence ${k}.` }));
+    const m = endModel(run(rows, { auto_upgrade: block(null, results) }), null, NOW);
+    expect(m.refused.map((x) => x.sub)).toEqual(["Couldn't line it up", 'Not analysed in rekordbox', 'In Cloud Library Sync',
+      'Not enough free space', "Couldn't compare it"]);
+    expect(m.refused.map((x) => x.tip)).toEqual(['Sentence 0.', 'Sentence 1.', 'Sentence 2.', 'Sentence 3.', 'Sentence 4.']);
+    expect(m.waiting).toEqual([]);
+  });
+  it('an Upgraded row says how it went, and keeps the engine\'s note only when it has kept edits or no rekordbox track', () => {
+    const m = endModel(run([...RESULTS, ...PHASE], { auto_upgrade: block(LINE) }), null, NOW);
+    expect(m.upgraded[0].sub).toBe('Now an AIFF file; rekordbox follows it');
+    expect(m.upgraded[1].sub).toBe('Kept your own title / artist in rekordbox');
+    expect(upgradedDetail('x', 'in_place')).toBe('Same AIFF, lossless audio');
+    expect(upgradedDetail("This file isn't in your rekordbox collection, so there was nothing to keep there.", 'new_aiff'))
+      .toBe("This file isn't in your rekordbox collection, so there was nothing to keep there");
+    expect(upgradedDetail("Kept your own title in rekordbox. This file isn't in your rekordbox collection, so there was nothing to keep there.", 'in_place'))
+      .toBe("Kept your own title in rekordbox · This file isn't in your rekordbox collection, so there was nothing to keep there");
+    expect(upgradedDetail('whatever', undefined)).toBe('');
+  });
+  it('the phase\'s tracks are not new files, nor other changes, nor counted as added', () => {
+    const m = endModel(run([...RESULTS, ...PHASE], { auto_upgrade: block(LINE) }), null, NOW);
+    expect(m.stats.added).toBe(4);
+    expect(m.added.flatMap((g) => g.rows).map((x) => x.title)).not.toContain('g1');
+    expect(m.other.map((x) => x.title)).toEqual(['m1', 'u1']);
+  });
+  it('leaves an empty part out: only waiting tracks, only upgraded ones, only refused ones', () => {
+    const waitingOnly = endModel(run(PHASE.slice(2, 4), { auto_upgrade: block('2 upgrades wait.') }), null, NOW);
+    expect(waitingOnly.upgraded).toEqual([]);
+    expect(waitingOnly.refused).toEqual([]);
+    expect(waitingOnly.auto.map((p) => p.key)).toEqual(['waiting']);
+    const upgradedOnly = endModel(run(PHASE.slice(0, 2), { auto_upgrade: block('Upgraded 2 tracks; your cues stayed.') }), null, NOW);
+    expect(upgradedOnly.waiting).toEqual([]);
+    expect(upgradedOnly.auto.map((p) => p.key)).toEqual(['upgraded']);
+    const refusedOnly = endModel(run(PHASE.slice(4), { auto_upgrade: block(null) }), null, NOW);
+    expect(refusedOnly.auto.map((p) => p.key)).toEqual(['refused']);
+  });
+  it('a run with nothing to say has no note (the line is null), and a switch-off run shows no part', () => {
+    expect(endModel(run(PHASE, { auto_upgrade: block(null) }), null, NOW).notes).toEqual([]);
+    const off = endModel(run(RESULTS), null, NOW);
+    expect(off.upgraded).toEqual([]);
+    expect(off.waiting).toEqual([]);
+    expect(off.refused).toEqual([]);
+    expect(off.auto).toEqual([]);
+    expect(off.notes.map((n) => n.test)).toEqual(['sync-checked']);
+  });
+  it('the note comes after the stop line and before the other notes', () => {
+    const m = endModel(run(PHASE, { exit_code: 130, stopped_after: 2, queued: 3, upgrades_ready: 1, auto_upgrade: block(LINE) }), null, NOW);
+    expect(m.notes.map((n) => n.test)).toEqual(['sync-stopped-line', 'sync-auto-upgrade', 'sync-upgrades']);
+  });
+  it('a track without an id is not listed (no row can open it)', () => {
+    const m = endModel(run([r('upgraded', 'Bouncy', 'g3', { track_id: null })], { auto_upgrade: block(LINE) }), null, NOW);
+    expect(m.upgraded).toEqual([]);
   });
 });
 

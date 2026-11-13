@@ -1,7 +1,9 @@
 import io
 
-from discjockey.console import ConsolePrinter, waiting_lines
-from discjockey.events import ActionFinished, ActionStarted, Message, Progress, Result, StepChanged, Waiting
+from discjockey.console import ConsolePrinter, upgrade_lines, waiting_lines
+from discjockey.events import (
+    ActionFinished, ActionStarted, BatchProgress, Message, Progress, Result, StepChanged, Waiting,
+)
 from discjockey.models import Action, SourceTrack
 
 A = Action("acquire", "t1", "Hard_Bounce", SourceTrack("t1", "Song", ("Artist",), "Al", None, 1, None), (0, 0))
@@ -97,3 +99,46 @@ def test_waiting_lines_only_for_counts_above_zero():
     assert waiting_lines(1, 1) == [
         "1 file in your watched folders waits to be imported. Open the window to import it.",
         "1 song waits for your answer in the window (Is this the same song?)."]
+
+
+def test_the_upgrade_phase_prints_one_line_per_track_and_none_for_the_end():
+    p, out = printer()
+    p(BatchProgress(3, 0, 12, "t1", "Artist - Title"))
+    p(BatchProgress(3, 11, 12, "t12", "Other - Song"))
+    p(BatchProgress(3, 12, 12, None, None))
+    assert out.getvalue() == "Upgrading 1 of 12: Artist - Title\nUpgrading 12 of 12: Other - Song\n"
+
+
+def row(track, state, how="in_place", reason=None, message=None):
+    return {"track": track, "name": f"Artist – {track}", "state": state, "reason": reason, "message": message,
+            "how": how}
+
+
+NAMES = lambda key: f"Artist - {key}"  # noqa: E731
+
+
+def test_the_plan_line_counts_the_upgrades_and_the_list_names_each_way_in_a_dry_run():
+    block = {"results": [row("a", "would"), row("b", "would", "new_aiff"), row("c", "refused", message="Not analysed.")]}
+    assert upgrade_lines(block, NAMES, full=False) == [
+        "At the end, 2 upgrades go in place of your files; your cues stay."]
+    assert upgrade_lines(block, NAMES, full=True) == [
+        "At the end, 2 upgrades go in place of your files; your cues stay.",
+        "  Artist - a (in place)", "  Artist - b (new AIFF)",
+        "Not tried this sync (refused before, and nothing changed since):", "  Artist - c: Not analysed."]
+
+
+def test_one_upgrade_is_said_in_the_singular():
+    assert upgrade_lines({"results": [row("a", "would")]}, NAMES, full=False) == [
+        "At the end, 1 upgrade goes in place of your files; your cues stay."]
+
+
+def test_rekordbox_open_adds_the_before_start_line():
+    block = {"results": [row("a", "waiting", reason="rekordbox_open"), row("b", "waiting", reason="rekordbox_open")]}
+    assert upgrade_lines(block, NAMES, full=False) == [
+        "At the end, 2 upgrades go in place of your files; your cues stay.",
+        "rekordbox is open: quit it before the sync ends, so the sync can put 2 upgrades in place."]
+
+
+def test_no_upgrades_and_a_switch_that_is_off_print_nothing():
+    assert upgrade_lines(None, NAMES, full=True) == [] and upgrade_lines({"results": []}, NAMES, full=True) == []
+    assert upgrade_lines({"results": [row("a", "refused", message="m")]}, NAMES, full=False) == []   # held: no plan line
