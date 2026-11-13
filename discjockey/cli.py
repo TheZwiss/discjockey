@@ -8,6 +8,7 @@ run), runs, and ends with the report's summary and Auto-upgrade's summary line. 
 (CONTRIBUTING.md > "Commands for scripts and agents"). Exit codes: 0 done (also when upgrades wait for rekordbox), 1
 errors in the run, a crash or `needs_yes`, 2 setup problem or no music folder, 3 another run holds the library lock,
 130 stopped. The other commands live in `batch_cmd.py` (`upgrade`, `batch`, `rekordbox checked | backups | restore`),
+`convert_cmd.py` (`convert`, `rename`),
 `rekordbox_cmd.py` (`rekordbox status | preview`), `settings_cmd.py` (`settings`) and `setup_cmd.py`/`upgrades_cmd.py`."""
 from __future__ import annotations
 
@@ -62,7 +63,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         description="setup: one-time logins; update: get the newest yt-dlp; "
                     "upgrades: go through the better versions found for your lossy tracks; "
                     "upgrade: the same, without prompts (list, apply, discard, undo); "
-                    "batch: look at, resume or undo a Same track batch; "
+                    "batch: look at, resume or undo an AIFF batch; "
+                    "convert: make files clean AIFFs; rename: give files their clean names; "
                     "settings: change a setting without the window (auto-upgrade); "
                     "hub: open the Discjockey window; rekordbox: rekordbox's library (look at it, check tracks, "
                     "backups)")
@@ -86,10 +88,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         sub.add_argument("--json", action="store_true", help="print one JSON object")
     from . import batch_cmd
     batch_parsers = batch_cmd.add_commands(commands, box_commands)
+    from . import convert_cmd
+    convert_parsers = convert_cmd.add_commands(commands)
     from . import settings_cmd
     settings_cmd.add_commands(commands)
     args = p.parse_args(argv)
     batch_cmd.check_args(args, batch_parsers)
+    convert_cmd.check_args(args, convert_parsers)
     if args.json and args.command in ("setup", "update", "upgrades", "hub"):
         p.error(f"--json belongs to the sync, not to `{args.command}`")
     if args.command == "rekordbox" and args.rekordbox_command == "preview" and bool(args.track) == bool(args.path):
@@ -282,6 +287,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in ("upgrade", "batch", "rekordbox"):  # each takes the library lock itself where it writes
         from . import batch_cmd
         return batch_cmd.run(args)
+    if args.command in ("convert", "rename"):  # take the lock themselves (a dry run only when facts are missing)
+        from . import convert_cmd
+        return convert_cmd.run(args)
     if args.command == "settings":  # takes the lock itself where it writes
         from . import settings_cmd
         return settings_cmd.run(args)

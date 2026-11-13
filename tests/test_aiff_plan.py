@@ -660,3 +660,24 @@ def test_an_unreadable_header_skips_the_file_instead_of_sizing_it_zero(lib):
     plan = run(paths, state, picked("flac", "wav"), tags=broken)
     assert [(s.track, s.reason) for s in plan.skipped] == [("flac", "file_missing")] and plan.skipped[0].message
     assert [i.track for i in plan.items] == ["wav"]
+
+
+# --- only="rename": `discjockey rename`'s plan ---
+
+def test_only_rename_plans_the_names_alone_and_a_file_needing_a_convert_is_left_out(lib):
+    paths, state = lib
+    plan = run(paths, state, lossless(), only="rename")
+    assert [(i.track, i.action) for i in plan.items] == [("name", "rename")]
+    assert plan.skipped == () and plan.kinds[0]["kind"] == "name" and plan.space == ()
+    plan = run(paths, state, picked("name", "flac", "clean", "mp3"), only="rename")
+    assert [i.track for i in plan.items] == ["name"]
+    assert [(s.track, s.reason) for s in plan.skipped] == [("flac", "needs_convert"), ("clean", "named_already"),
+                                                           ("mp3", "needs_convert")]
+    assert "Convert to AIFF gives it its clean name too" in plan.skipped[0].message
+
+
+def test_a_convert_left_out_by_only_rename_does_not_ask_rekordbox_to_close(lib):
+    paths, state = lib
+    holds = lambda file: [row()] if file.name == "a.flac" else []  # noqa: E731 - rekordbox holds only the FLAC
+    assert closed(run(paths, state, picked("flac", "name"), entries=holds, only="rename")) is False
+    assert closed(run(paths, state, picked("flac", "name"), entries=holds)) is True

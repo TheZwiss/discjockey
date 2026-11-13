@@ -260,8 +260,9 @@ def _timing(rb: Status, found: Sequence[Entry]) -> TimelineOffset | None:
 
 def _judge(paths: Paths, state: dict, key: str, rb: Status, entries: Callable[[Path], Sequence[Entry]] | None,
            tags: Callable[[Path], audio.FileFacts], names: NameReserver,
-           problem: cdj.CdjProblem | None) -> tuple[Item | None, _Skip | None, bool]:
-    """One file: its Item (or why it has none) and whether its tracks are in rekordbox's library."""
+           problem: cdj.CdjProblem | None, only: str | None = None) -> tuple[Item | None, _Skip | None, bool]:
+    """One file: its Item (or why it has none) and whether its tracks are in rekordbox's library. `only` "rename":
+    Rename's own answer is wanted, so a file that needs a Convert has no item (`needs_convert`)."""
     e = state["tracks"].get(key)
     if e is None:
         return None, _Skip("file_missing", batches.words("file_missing", "convert")), False
@@ -295,6 +296,8 @@ def _judge(paths: Paths, state: dict, key: str, rb: Status, entries: Callable[[P
     action, verdict = eligible.aiff_action(e, facts, rb, _timing(rb, found), where, clean)
     if not isinstance(verdict, Eligible):
         return None, _Skip(verdict.reason, batches.words(verdict.reason, action)), bool(found)
+    if only is not None and action != only:
+        return None, _Skip("needs_convert", batches.words("needs_convert", only)), bool(found)
     if stored is None:
         return None, _Skip("file_missing", UNREADABLE), bool(found)
     if action == "rename":
@@ -340,12 +343,15 @@ def _cdj_dict(problem: cdj.CdjProblem | None) -> dict | None:
 def plan(paths: Paths, state: dict, scope: Mapping, *, rb: Status,
          entries: Callable[[Path], Sequence[Entry]] | None = None,
          tags: Callable[[Path], audio.FileFacts] = audio.file_facts, lines: Sequence[pf.Row] | None = None,
-         records: Mapping | None = None, watched: Sequence[WatchedFolder] | None = None) -> AiffPlan:
+         records: Mapping | None = None, watched: Sequence[WatchedFolder] | None = None,
+         only: str | None = None) -> AiffPlan:
     """The plan for `scope` (see the module's docstring). `rb`: rekordbox's `master.Status`. `entries`: `path ->` the
     rekordbox tracks that hold that file (`Master.entries_for` on a library opened read-only), None when there is no
     library to read (`rb.state` `none`, or one that can't be read). `tags`: reads one file's `audio.FileFacts`.
-    `lines`, `records`, `watched`: what a playlist or folder view needs, read from `paths` when not given. Raises
-    ValueError for a scope that isn't one of the three."""
+    `lines`, `records`, `watched`: what a playlist or folder view needs, read from `paths` when not given. `only`
+    "rename": the plan of `discjockey rename` (Rename's answer alone: a file that needs a Convert is left out, and in a
+    `tracks` scope listed in `skipped` as `needs_convert`); None: `aiff_action`'s answer. Raises ValueError for a scope
+    that isn't one of the three."""
     label, keys, problems = _pick(paths, state, scope, lines, records, watched)
     names = NameReserver(paths.root, state)
     selected = scope["kind"] == "tracks"
@@ -354,7 +360,7 @@ def plan(paths: Paths, state: dict, scope: Mapping, *, rb: Status,
     waits: dict[str, int] = {}
     in_rekordbox = False
     for key in keys:
-        item, skip, held = _judge(paths, state, key, rb, entries, tags, names, problems.get(key))
+        item, skip, held = _judge(paths, state, key, rb, entries, tags, names, problems.get(key), only)
         in_rekordbox = in_rekordbox or (item is not None and held)
         if item is not None:
             items.append(item)
