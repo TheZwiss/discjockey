@@ -136,10 +136,12 @@ describe('end screen: the sync\'s Auto-upgrade', () => {
   it('an Upgraded row says how it went, and keeps the engine\'s note only when it has kept edits or no rekordbox track', () => {
     const m = endModel(run([...RESULTS, ...PHASE], { auto_upgrade: block(LINE) }), null, NOW);
     expect(m.upgraded[0].sub).toBe('Now an AIFF file; rekordbox follows it');
-    expect(m.upgraded[1].sub).toBe('Kept your own title / artist in rekordbox.');
+    expect(m.upgraded[1].sub).toBe('Kept your own title / artist in rekordbox');
     expect(upgradedDetail('x', 'in_place')).toBe('Same AIFF, lossless audio');
     expect(upgradedDetail("This file isn't in your rekordbox collection, so there was nothing to keep there.", 'new_aiff'))
-      .toBe("This file isn't in your rekordbox collection, so there was nothing to keep there.");
+      .toBe("This file isn't in your rekordbox collection, so there was nothing to keep there");
+    expect(upgradedDetail("Kept your own title in rekordbox. This file isn't in your rekordbox collection, so there was nothing to keep there.", 'in_place'))
+      .toBe("Kept your own title in rekordbox · This file isn't in your rekordbox collection, so there was nothing to keep there");
     expect(upgradedDetail('whatever', undefined)).toBe('');
   });
   it('the phase\'s tracks are not new files, nor other changes, nor counted as added', () => {

@@ -102,8 +102,9 @@ const NOTE_EXTRAS = [/Kept your own [^.]*? in rekordbox\./, /This file isn't in 
  * this track went (`how` of the run's block), or nothing without it.
  */
 export function upgradedDetail(note: string, how: AutoUpgradeResult['how'] | undefined): string {
-  const extras = NOTE_EXTRAS.map((re) => re.exec(note)?.[0]).filter((x): x is string => !!x);
-  if (extras.length) return extras.join(' ');
+  // a second line carries no full stop (the other rows' lines have none); the engine's sentence keeps its own
+  const extras = NOTE_EXTRAS.map((re) => re.exec(note)?.[0]?.replace(/\.$/, '')).filter((x): x is string => !!x);
+  if (extras.length) return extras.join(' · ');
   return how ? HOW_WORDS[how] : '';
 }
 
