@@ -502,14 +502,19 @@ SWAP_PATH_KEYS = ("target", "staged", "backup", "parked", "held", "home")
 # a Same track step for a file that isn't AIFF (convert.py): its files, and `crossing` maps a move's name ("place",
 # "supersede") to its staged copy on another drive
 CONVERT_PATH_KEYS = ("old", "new", "superseded", "staged", "parked", "held", "crossing")
+# a Give it its clean name step (rename.py) and its undo: the file's old and new name (one folder, so no staged copy)
+RENAME_PATH_KEYS = ("old", "new")
 
 
 def op_paths(op: dict) -> list[str]:
     """Every file a pending step names: its renames, for a swap (and its undo) also target, staged, backup, parked,
-    held and home, for a convert step (and its undo) its CONVERT_PATH_KEYS, and for a step that crosses drives
+    held and home, for a convert step (and its undo) its CONVERT_PATH_KEYS, for a rename step (and its undo) its
+    RENAME_PATH_KEYS, and for a step that crosses drives
     (run_op, move_files: `staged` maps a rename's index to its copy) the staged copies."""
     out = [p for pair in op.get("renames", []) for p in pair]
-    keys = CONVERT_PATH_KEYS if op.get("kind") in ("convert", "convert_undo") else SWAP_PATH_KEYS
+    kind = op.get("kind")
+    keys = (CONVERT_PATH_KEYS if kind in ("convert", "convert_undo")
+            else RENAME_PATH_KEYS if kind in ("rename", "rename_undo") else SWAP_PATH_KEYS)
     for k in keys:
         v = op.get(k)
         if isinstance(v, dict):
@@ -1246,9 +1251,9 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
     (tidy.recover). Returns (message, ok) per step and per batch. A step with a file on a drive that isn't
     connected waits for it. A `files` step (move_files), a `step` (run_op) and tidy.recover write library.db past `state`, so after
     either `state`'s contents are replaced in place with a fresh snapshot: the caller goes on saving a current one. A
-    `swap` / `swap_undo` / `convert` / `convert_undo` step writes past it too (end_op), and `state` follows each of
-    its writes. A convert step (or its undo) whose analysis files must come back while rekordbox runs waits for it to
-    quit, as a step waits for a drive: the run goes on, the scan is held. Last, an AIFF batch a crash left `running`
+    `swap` / `swap_undo` / `convert` / `convert_undo` / `rename` step writes past it too (end_op), and `state`
+    follows each of its writes. A convert or rename step (or a convert's undo) whose analysis files must come back
+    while rekordbox runs waits for it to quit, as a step waits for a drive: the run goes on, the scan is held. Last, an AIFF batch a crash left `running`
     becomes `stopped` and offers Resume (`batches.recover`); the sync's Auto-upgrade batch ends instead, never resumed."""
     messages: list[tuple[str, bool] | _Waits] = []
     roots = watched_roots(paths) if state.get("version") == 2 else [paths.root]
@@ -1268,6 +1273,10 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
         if op.get("kind") == "convert_undo":
             from .convert import recover_convert_undo  # convert builds on this module
             messages.append(recover_convert_undo(paths, state, op, roots))
+            continue
+        if op.get("kind") == "rename":
+            from .rename import recover_rename  # rename builds on this module
+            messages.append(recover_rename(paths, state, op, roots))
             continue
         if op.get("kind") in ("files", "step"):
             message, wrote = (_recover_files if op["kind"] == "files" else _recover_step)(paths, op, roots)
