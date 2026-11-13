@@ -37,6 +37,7 @@ discjockey upgrades       goes through the waiting lossless versions
 discjockey update         gets the newest yt-dlp
 discjockey --yes --json   runs a sync without a question and prints one JSON object (below)
 discjockey settings auto-upgrade off    turns Auto-upgrade off (below)
+discjockey convert --all lossless --dry-run    shows what Make all lossless files AIFF would do (below)
 ```
 
 - The Mac stays awake while a run goes (`caffeinate`). Ctrl-C once stops safely after the current track; Ctrl-C
@@ -50,7 +51,7 @@ discjockey settings auto-upgrade off    turns Auto-upgrade off (below)
 
 Every command runs without prompts and ends with an exit code. Where it has `--json`, it prints one JSON object:
 `{"ok": true, …}`, or `{"ok": false, "kind": "refused" | "failed", "message": "…"}` (a refusal also has a `reason`).
-Issue 39 gathers these into the agent docs; the entries below are the ones issue 33's stages A, B and C added.
+Issue 39 gathers these into the agent docs; the entries below are the ones issue 33's stages A, B, C and D added.
 
 Someone who installed the app has no `discjockey` command, but the app's program takes the same ones: in the
 Terminal, `/Applications/Discjockey.app/Contents/MacOS/Discjockey rekordbox backups` (any of the commands, in place of
@@ -187,6 +188,87 @@ and drops every change made in rekordbox since; without `--yes` it changes nothi
 `no_rekordbox`). It saves the current library first: `{"ok", "restored", "saved_current", "missing_after": [{"id",
 "path", "was"}]}`. `missing_after` lists the rekordbox tracks that now point at files Discjockey has since moved to
 `Superseded/`; undo those batches first (`batch undo`) or Relocate them in rekordbox.
+
+### Convert and rename (issue 33, stage D)
+
+Both are AIFF batches like `upgrade apply --way same-track`: they take the library lock, finish interrupted steps
+first, change rekordbox only while it is closed (a file no rekordbox track holds is just moved), take one backup, move
+the old file to `Superseded/` and can be undone. The exit codes, `--json` shapes, progress on stderr, Ctrl-C and
+`batch list | show | resume | undo` are those of the section above; `rekordbox checked --batch <id>` works for them
+too. `batch list` shows `kind` `convert` (Convert and Rename items only), `upgrade` or `mixed`, and `started_by`
+`user`, `make_aiff` or `cdj_all`.
+
+**`discjockey convert (<track>… | --all lossless | --all cdj) [--in playlist:<name> | folder:<path> | unlisted]
+[--dry-run] [--json]`** makes each file a clean AIFF: 16-bit/44.1 kHz, the song record's tags, `Artist - Title.aiff`,
+in the file's own folder. A song key says what its file needs and does that: Convert, or only the name when the file is
+a clean AIFF with the wrong name (the result's `action` says which; `eligible.aiff_action` decides). `--all lossless`
+is Make all lossless files AIFF over the whole library, or over `--in`'s view (`started_by` `make_aiff`); `--all cdj`
+is the To-do group "Won't play well on CDJs" (`cdj_all`; `--in` is refused there). Song keys: `user`. Lossy files join
+only by being named, or by being in the CDJ group.
+
+**`discjockey rename (<track>… | --all) [--in …] [--dry-run] [--json]`** gives a clean AIFF its clean name only (`--all`:
+every own clean AIFF whose name isn't clean, `--in` as above; `started_by` `user`). A file that needs a Convert is not
+renamed: it is `needs_convert`.
+
+Exactly one of the song keys and `--all` is required (argparse's usage error, exit 2, otherwise).
+
+**Dry run.** `--dry-run` writes nothing and starts nothing. JSON: `{"ok": true, "dry_run": true, "plan": <plan>}`. A
+library with own files whose facts aren't stored yet (from before schema 8, or a changed file) has them read first,
+which takes the library lock (exit 3 when it is held); otherwise it takes no lock. The human form is one line per item
+("FLAC → AIFF  Artist - Title  →  Artist - Title.aiff"), the files left as they are, the files that wait, the kinds, the
+room per drive and the rekordbox note. The plan is `aiff_plan.AiffPlan.to_dict()`, the same object the window's panel
+shows:
+
+```
+{"scope": {"kind": "tracks" | "lossless" | "cdj", "tracks": [key…], "view": "all" | "unlisted" | "playlist" | "folder",
+           "key": …, "label": "<words>"},
+ "items": [{"track": "<key>", "name": "Artist - Title", "action": "convert" | "rename", "kind": "<kind>",
+            "from": "FLAC · 24-bit · 96 kHz", "path": "<relative>", "new_path": "<relative>",
+            "superseded": "<relative>" | null, "bytes": int, "cdj": null | {"reason", "short", "words"}}],
+ "skipped": [{"track", "name", "reason", "message"}],
+ "waiting": [{"reason", "message", "n"}],
+ "kinds": [{"kind", "label", "n"}], "lossy": int, "total": int,
+ "space": [{"drive", "needed", "free", "enough"}], "superseded_bytes": int,
+ "rekordbox": {"state", "running", "needs_closed": bool}}
+```
+
+`items` are the files a run would change now (`total` is their number); `kind` is `flac`, `wav`, `alac`, `aiff_hires`
+(an AIFF above 16-bit/44.1 kHz), `tags`, `name` (clean name only), or a codec's own name for a format with no kind of its
+own (`wavpack`, `ape`, `tta`, `mp3`, `aac`, `opus`, `vorbis`…). `skipped` is filled for a song-key scope only (what the
+user named and the plan leaves as it is, with the reason's words). `waiting` counts the files that can't run now but may
+later, each file once and never in `items`, in every scope (`reason`: `away`, `file_missing`, `no_name`,
+`rekordbox_unreadable`, `cloud`, `rename_blocked`, `upgrade_waits`). `lossy` is how many items are lossy files (an AIFF
+made from them takes 5–10 times the space). `space` is per drive, as the run needs it. `needs_closed` is whether some
+item's file has a rekordbox track, so the run needs rekordbox closed.
+
+**A run.** One AIFF batch (`scope` `console`; the batch is planned again at its start: the dry run is a preview, and
+each file is asked again as it runs; a file whose answer changed meanwhile is skipped with the new reason, never
+switched to the other action). Progress on stderr: "Converting 3 of 52: Artist - Title" / "Renaming …", and "Reading
+what your files are: n of m" while the facts are filled. JSON and exit codes are `upgrade apply`'s: `{"ok", "batch",
+"state", "stop_reason", "total", "done", "skipped", "failed", "results": [{"track", "action": "convert" | "rename",
+"state", "reason", "message", "path", "rekordbox"}], "backup"}`; a song key the plan left out is a `skipped` result
+with its reason, and any skipped or failed file makes the exit code 1. A named single song is a batch of one: it
+meets rekordbox open or `rekordbox.lock` busy before anything ran by closing the batch (no Resume). The summary line says
+"Made 2 files AIFF, gave 1 file its clean name." and "n left as they are."
+
+Refusals, all `{"ok": false, "kind": "refused", …}` with exit 1 and no batch (`batch: null`):
+
+| `reason` | When |
+|---|---|
+| `nothing_to_do` | the plan has no item: "Nothing to change: these are clean AIFFs already." (a single named song: that song's own words); the answer also holds `results: []` and the `plan`, whose `waiting` and `skipped` say what is left |
+| `bad_args` | `--in` with song keys, `--in` with `--all cdj`, a malformed `--in`, a playlist or folder that doesn't exist ("No playlist called “X”." / "No folder at X."; an existing empty one is "Nothing to change") |
+| `no_library` | exit 2: no music folder |
+
+**Undo.** `batch undo <id>` puts each file back (newest first), as for any batch. A file Convert made and then renamed
+(an AIFF whose old file held the clean name) takes two undo steps, which `batch undo` does in one. A file that can't be
+undone is listed with its reason, and the exit is 1.
+
+**Reading the two lists agents ask for.** The CDJ group's state is `convert --all cdj --dry-run --json`: `plan.items`
+are the files Convert all would run (each with its `cdj` reason, `short` and `words`), `plan.total` is the group's
+"Convert all" number, and the sum of `plan.waiting[].n` is how many more are in the group but can't run now. A view's
+Make-all state is `convert --all lossless --in playlist:<name> --dry-run --json` (leave `--in` out for the whole
+library; `unlisted` is "Not in a playlist"), and one selection's is `convert <track>… --dry-run --json`, whose `items`,
+`skipped` and `kinds` are what the window's panel shows for the same rows.
 
 ### The sync's `--json` and `settings auto-upgrade` (issue 33, stage C)
 
