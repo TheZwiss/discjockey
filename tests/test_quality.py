@@ -61,8 +61,9 @@ def test_verdict():
 
 
 def test_is_lossless_codec():
-    assert all(is_lossless_codec(c) for c in ("flac", "alac", "pcm_s16le", "pcm_s24be"))
-    assert not any(is_lossless_codec(c) for c in ("mp3", "aac", "opus", "vorbis"))
+    assert all(is_lossless_codec(c) for c in ("flac", "alac", "pcm_s16le", "pcm_s24be", "pcm_f32le", "wavpack", "ape",
+                                              "tta"))
+    assert not any(is_lossless_codec(c) for c in ("mp3", "aac", "opus", "vorbis", "wmav2", ""))
 
 
 def test_quality_line():

@@ -64,7 +64,8 @@ file facts are filled silently, §0.3); a release (the user's live test comes fi
    memory by `(path, size, mtime_ns)` on the hub so reopening the panel is instant. Reason: design §1 ("counts on
    buttons are its result"), with a cost the panel can wait for behind a skeleton.
 8. **Lossy files join only by name or by the CDJ group.** Make all's set is own files whose `file_codec` is
-   lossless (`pcm_*`, `flac`, `alac`). A selection may hold lossy files: they are converted, and the panel says what
+   lossless by `quality.is_lossless_codec`, the one list the Library uses (`pcm_*`, `flac`, `alac`, `wavpack`, `ape`,
+   `tta`; the CDJ group still flags WavPack, APE and TTA as formats CDJs don't play). A selection may hold lossy files: they are converted, and the panel says what
    it costs (§3). Reason: design §2.2.
 9. **Convert from the file itself reuses the `convert` op.** `convert.convert_file` is `same_track`'s sibling: source
    = the current file, shift `k = −round(d · 44100)` (design §3.1), tags from `eligible.expected_tags` plus the
@@ -116,7 +117,7 @@ file facts are filled silently, §0.3); a release (the user's live test comes fi
 | `ops.py` | `add_bought_file` writes the bought file's facts | D1 |
 | `cdj.py` (new, pure) | `cdj_problem(audio: FileAudio, ext: str) -> CdjProblem \| None` (§1.4) | D1 |
 | `audio.py` | `cdj_cover(data) -> bytes \| None`; `write_tags` and `copy_tags` callers pass covers through it; `embedded_cover(path) -> bytes \| None` (any format) | D1 |
-| `rekordbox/eligible.py` | `upgrade_waits` in `REASONS` and in `convert`/`rename`; `aiff_action` (§0.1); `is_lossless_codec(codec)` | D1 |
+| `rekordbox/eligible.py` | `upgrade_waits` in `REASONS` and in `convert`/`rename`; `aiff_action` (§0.1) | D1 |
 | `convert.py` | `convert_file`, the `source` field, `converted` check, public `side_of` / `tracks_at`, `undo_convert` without `held` | D2 |
 | `rename.py` (new) | `rename_file`, `recover_rename`, `undo_rename`, `recover_rename_undo` | D3 |
 | `library.py` | `recover_pending` dispatches `rename` / `rename_undo`; their path keys reserved (`RENAME_PATH_KEYS`) | D3 |
@@ -270,7 +271,7 @@ unchanged by check record.
 | Lossy note (info NoteCard) | "{n} of these are lossy: an AIFF made from them sounds the same and takes 5–10 times the space." (1: "1 of these is lossy: …") |
 | Space rows | "Needs {size} on {drive} · {free} free"; short (problem Hint) "Not enough space on {drive}: {size} needed, {free} free"; "Your originals ({size}) go to Superseded/ on the same drive." |
 | rekordbox outcome rows | "Your tracks keep their cues, playlists and history" (one track: design §8's) · "Quit rekordbox before you start" while it runs (warn NoteCard: design §8 `rekordbox_open` problem words) |
-| Skipped list | header "Left as they are · {n}"; each row its reason's words (`batches._words`) |
+| Skipped list | header "Left as they are · {n}"; each row its reason's words (`batches.words`) |
 | `upgrade_waits` | "A better version is waiting: Same track makes it an AIFF." |
 | `downloaded` (selection) | "Discjockey downloaded it: it is a clean AIFF already." |
 | `clean_aiff` / `named_already` | "A clean AIFF with its clean name already." |

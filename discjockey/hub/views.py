@@ -1018,6 +1018,24 @@ class _Listing(NamedTuple):
     gone: bool = False
 
 
+def _playlist_songs(record: PlaylistRecord | None, resolve: Callable[[str], str]) -> list[tuple[str, object]]:
+    """A playlist's read songs in order, each once, as (the song's key or the token no song has, its read track)."""
+    songs: list[tuple[str, object]] = []
+    held: set[str] = set()
+    for t in record.tracks if record else ():
+        k = resolve(t.token)
+        if k not in held:
+            held.add(k)
+            songs.append((k, t))
+    return songs
+
+
+def _also_keys(line: pf.Row, held: Collection[str], with_file: Mapping[str, dict], found: Sites) -> list[str]:
+    """The files in a playlist's own Library folder whose song the playlist doesn't hold (its view's `also`)."""
+    return [k for k, e in with_file.items()
+            if k not in held and fold(found.library_folder(e["path"]) or "") == fold(line.folder)]
+
+
 def _playlist_rows(line: pf.Row, record: PlaylistRecord | None, state: dict, with_file: Mapping[str, dict], found: Sites,
                    resolve: Callable[[str], str], holders: Mapping[str, list], row: Callable[..., dict],
                    link_of: Callable[[str, dict], dict | None], cover: Url | None) -> _Listing:
@@ -1028,12 +1046,9 @@ def _playlist_rows(line: pf.Row, record: PlaylistRecord | None, state: dict, wit
     label = f"{PLAYLIST_SERVICES[line.service]} playlist" if line.service else "playlist"
     subtitle = ((lambda n: [label, "not read yet"]) if record is None else
                 (lambda n: [label, n, *(["switched off"] if not line.enabled else []), f"Library › {line.folder}"]))
-    held: set[str] = set()
-    for t in record.tracks if record else ():
-        k = resolve(t.token)
-        if k in held:
-            continue
-        held.add(k)
+    songs_read = _playlist_songs(record, resolve)
+    held = {k for k, _ in songs_read}
+    for k, t in songs_read:
         e = state["tracks"].get(k)
         if e is not None and k in with_file:
             own = fold(found.library_folder(e["path"]) or "") == fold(line.folder)
@@ -1049,12 +1064,35 @@ def _playlist_rows(line: pf.Row, record: PlaylistRecord | None, state: dict, wit
                      "next_try": next_due(e) if e is not None and _group(e) == "not_found" else None,
                      "position": t.position, "place": None, "subfolder": None,
                      "playlists": holders.get(k, [line.folder]), "track_link": link_of(k, e or {})})
-    also = [row(k, e, place=None) for k, e in with_file.items()
-            if k not in held and fold(found.library_folder(e["path"]) or "") == fold(line.folder)]
+    also = [row(k, with_file[k], place=None) for k in _also_keys(line, held, with_file, found)]
     # the playlist's songs (D5: what the sidebar counts) and how many have a file
     songs = ({"listed": len(held), "with_file": sum(1 for r in rows if r["file_state"] != "no_file")}
              if record is not None else None)
     return _Listing(rows, subtitle, also, songs, read_at)
+
+
+class _FolderScope(NamedTuple):
+    """Which files a folder view holds: its normalised path, the watched folder it lies in (None: none), its kind
+    ("watched", "crate", "library" or None) and the (key, entry) pairs at or below it."""
+    nkey: str
+    root: str | None
+    kind: str | None
+    inside: list
+
+
+def _folder_title(nkey: str, kind: str | None, found: Sites) -> str:
+    """A folder view's title: a watched folder's name, a crate's label, else the folder's own name."""
+    return found.roots[nkey] if kind == "watched" else found.crates[nkey][1] if nkey in found.crates \
+        else PurePosixPath(nkey).name
+
+
+def _folder_scope(key: str, with_file: Mapping[str, dict], found: Sites) -> _FolderScope:
+    nkey = _nfc(key).rstrip("/")
+    root = max((r for r in found.roots if nkey == r or nkey.startswith(r + "/")), key=len, default=None)
+    kind = ("watched" if root == nkey else "crate" if root is not None
+            else "library" if nkey.startswith("Library/") else None)
+    inside = [(k, e) for k, e in with_file.items() if kind is not None and _nfc(e["path"]).startswith(nkey + "/")]
+    return _FolderScope(nkey, root, kind, inside)
 
 
 def _folder_rows(key: str, with_file: Mapping[str, dict], found: Sites, away: Mapping[str, str] | None,
@@ -1062,14 +1100,8 @@ def _folder_rows(key: str, with_file: Mapping[str, dict], found: Sites, away: Ma
     """A folder's view: the files at or below its path (a path nothing is known by still has its view; a vanished one
     is `gone`). Its kind is "watched" (an import folder), "crate", "library" or None (no such folder). A watched
     folder's rows say their crate as `subfolder`, a crate's the folders between."""
-    nkey = _nfc(key).rstrip("/")
-    root = max((r for r in found.roots if nkey == r or nkey.startswith(r + "/")), key=len, default=None)
-    folder_kind = ("watched" if root == nkey else "crate" if root is not None
-                   else "library" if nkey.startswith("Library/") else None)
-    inside = [(k, e) for k, e in with_file.items()
-              if folder_kind is not None and _nfc(e["path"]).startswith(nkey + "/")]
-    title = (found.roots[nkey] if folder_kind == "watched" else found.crates[nkey][1] if nkey in found.crates
-             else PurePosixPath(nkey).name)
+    nkey, root, folder_kind, inside = _folder_scope(key, with_file, found)
+    title = _folder_title(nkey, folder_kind, found)
     name = PurePosixPath(nkey).name
     gone = folder_kind is None or (folder_kind != "watched" and not inside)
     away_part = [AWAY_WORDS[s]] if (s := _folder_state(away, nkey)) != "here" else []
@@ -1097,6 +1129,48 @@ def _folder_rows(key: str, with_file: Mapping[str, dict], found: Sites, away: Ma
     return _Listing(rows, subtitle, title=title, folder_kind=folder_kind, gone=gone)
 
 
+def _unlisted(with_file: Mapping[str, dict]) -> list[str]:
+    """The keys of the files in no playlist (the "Not in a playlist" view)."""
+    return [k for k, e in with_file.items() if not e.get("in_playlists")]
+
+
+def files_with_file(state: dict) -> dict[str, dict]:
+    """The songs that have a file now, by key, in state order: every view's pool."""
+    return {k: e for k, e in state["tracks"].items() if e["status"] != "missing" and e.get("path")}
+
+
+class LibraryFiles(NamedTuple):
+    """The files of a Library view: its title (as `library`'s) and their keys."""
+    title: str
+    keys: list[str]
+
+
+def library_files(state: dict, view: str, key: str | None, *, lines: Sequence[pf.Row],
+                  records: Mapping[str, PlaylistRecord] | None = None, watched: Iterable[WatchedFolder] = ()
+                  ) -> LibraryFiles:
+    """The title and the keys of the files `library(...)` lists for a view (all LIBRARY_VIEWS, `key` as there), each
+    once, in the view's order, with no filter, search or sort: the set "All" means to Make all lossless files AIFF (plan
+    stage D §0.6). A playlist's are its read songs that have a file in the playlist's order, then the files of its own
+    Library folder it doesn't hold (`also`); a view nothing is known by (an unknown playlist or folder) holds none. It
+    builds no rows and looks at no file."""
+    with_file = files_with_file(state)
+    if view == "all":
+        return LibraryFiles("All tracks", list(with_file))
+    if view == "unlisted":
+        return LibraryFiles("Not in a playlist", _unlisted(with_file))
+    found = sites(state, lines, watched)
+    if view == "playlist":
+        line = next((r for r in lines if fold(r.folder) == fold(key or "")), None)
+        if line is None:
+            return LibraryFiles(key or "", [])
+        songs = _playlist_songs((records or {}).get(line.ref), _resolver(state))
+        held = {k for k, _ in songs}
+        return LibraryFiles(line.folder, [*(k for k, _ in songs if k in with_file),
+                                          *_also_keys(line, held, with_file, found)])
+    scope = _folder_scope(key or "", with_file, found)
+    return LibraryFiles(_folder_title(scope.nkey, scope.kind, found), [k for k, _ in scope.inside])
+
+
 def library(state: dict, view: str, key: str | None, query: str, filt: str, sort: str | None, cover: Url | None = None,
             away: Mapping[str, str] | None = None, *, lines: Sequence[pf.Row],
             records: Mapping[str, PlaylistRecord] | None = None, watched: Sequence[WatchedFolder] = (),
@@ -1121,7 +1195,7 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
     filter: the page words "13 of 18 downloaded" from it. `folder` keeps the old meaning
     (None, NOT_IN_PLAYLIST, the playlist's or the folder's key)."""
     records = records or {}
-    with_file = {k: e for k, e in state["tracks"].items() if e["status"] != "missing" and e.get("path")}
+    with_file = files_with_file(state)
     found = sites(state, lines, watched)
     resolve = _resolver(state)
     holders = _holders(lines, records, resolve)
@@ -1142,7 +1216,7 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
     subtitle: Callable[[str], list[str]] = lambda n: [n, "every folder"]
     if view == "unlisted":
         title, folder = "Not in a playlist", NOT_IN_PLAYLIST
-        rows = [row(k, e) for k, e in with_file.items() if not e.get("in_playlists")]
+        rows = [row(k, with_file[k]) for k in _unlisted(with_file)]
         subtitle = lambda n: [n, "in no playlist"]
     elif view == "all":
         rows = [row(k, e) for k, e in with_file.items()]
@@ -1195,7 +1269,7 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
 
 def tracks_with_file(state: dict) -> list[dict]:
     """The entries that have a file: what "All tracks" counts."""
-    return [e for e in state["tracks"].values() if e["status"] != "missing" and e.get("path")]
+    return list(files_with_file(state).values())
 
 
 CRATE_LIMIT = 25  # more crates than this under one watched folder: the folder is one row, its crates hidden (D8)

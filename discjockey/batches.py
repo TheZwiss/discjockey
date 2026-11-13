@@ -210,7 +210,7 @@ FILE_WORDS = {
 SWITCHED = {"convert": "clean_aiff", "rename": "needs_convert"}  # the reason of an item whose answer changed
 
 
-def _words(reason: str, action: str = "same_track", why: str | None = None) -> str:
+def words(reason: str, action: str = "same_track", why: str | None = None) -> str:
     """The words of a skip (`reason` an `eligible.REASONS` key) for an item of `action`. A Convert or Rename item says
     `convert.CONVERT_REFUSED`'s sentences (rekordbox lower case, no "upgrade"); `why` (a `rename.BLOCKED_WHY` text)
     fills `rename_blocked`'s `{reason}`."""
@@ -287,7 +287,7 @@ def _close_planned_elsewhere(paths, tracks: set[str], now: Callable[[], datetime
             for item in row.items:
                 if item.state == "planned" and item.track in tracks:
                     db.set_aiff_item(conn, batch_id, item.seq, "skipped", "later_batch",
-                                     {"message": _words("later_batch")})
+                                     {"message": words("later_batch")})
                     touched = True
     if touched:
         _close_finished(paths, now)
@@ -368,7 +368,7 @@ def _file_answer(paths, state: dict, session: Session, track: str, e: dict | Non
     if name == action:
         return None
     reason = SWITCHED[action]
-    return reason, _words(reason, action)
+    return reason, words(reason, action)
 
 
 def _item(paths, state: dict, session: Session, batch_id: int, item: AiffItemRow, compare, now, log) -> str | None:
@@ -388,7 +388,7 @@ def _item(paths, state: dict, session: Session, batch_id: int, item: AiffItemRow
     else:
         answer = _file_answer(paths, state, session, track, e, action)
     if answer is not None:
-        skip(answer[0], answer[1] or _words(answer[0], action))
+        skip(answer[0], answer[1] or words(answer[0], action))
         return None
     try:
         if action == "convert":
@@ -403,7 +403,7 @@ def _item(paths, state: dict, session: Session, batch_id: int, item: AiffItemRow
                                         now=now, batch=(batch_id, item.seq))
     except convert.Skipped as err:
         # Convert's own library refusal says "Choose New track" (Same track's words): this item says its own
-        skip(err.reason, _words(err.reason, action) if err.reason == "rekordbox_unreadable" and action == "convert"
+        skip(err.reason, words(err.reason, action) if err.reason == "rekordbox_unreadable" and action == "convert"
              else str(err), err.detail)
     except NeedsChoice as err:
         skip("needs_choice", str(err))
@@ -532,7 +532,7 @@ def end_auto(paths, batch_id: int, reason: str, *, now: Callable[[], datetime] =
         if row.state != "done":
             for item in row.items:
                 if item.state == "planned":
-                    db.set_aiff_item(conn, batch_id, item.seq, "skipped", reason, {"message": _words(reason)})
+                    db.set_aiff_item(conn, batch_id, item.seq, "skipped", reason, {"message": words(reason)})
             db.set_aiff_batch(conn, batch_id, state="done", ended=now())
         return _batch_result(db.aiff_batch(conn, batch_id))
 
