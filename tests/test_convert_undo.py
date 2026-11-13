@@ -11,7 +11,7 @@ import pytest
 from mutagen.aiff import AIFF
 
 from audio_helpers import needs_ffmpeg
-from convert_helpers import NEW, PARKED, TID, make_env, run, session
+from convert_helpers import NEW, PARKED, TID, PowerOff, make_env, next_start, power_off_undo, run, session
 from discjockey import convert, library, upgrades
 from discjockey.library import load_state
 from discjockey.rekordbox import anlz, backup, master
@@ -23,10 +23,6 @@ pytestmark = needs_ffmpeg
 NAME = "Artist - Song"
 STAMPS = {"rb_local_usn", "updated_at"}
 LOOKUPS = {"djmdArtist", "djmdAlbum", "djmdLabel"}
-
-
-class PowerOff(BaseException):
-    """The Mac went off: nothing after it runs."""
 
 
 def snapshot(env):
@@ -207,45 +203,11 @@ def test_rekordbox_opening_at_the_commit_rolls_the_undo_back(tmp_path, monkeypat
 
 # --- a crash at every step ---
 
-MARKS = {"restored": 1, "outcome": 2, "committed_unmarked": 3, "committed": 3}
-
-
-def power_off(monkeypatch, at):
-    def die(*a, **k):
-        raise PowerOff
-
-    if at == "journaled":
-        monkeypatch.setattr(convert, "move_path", die)
-        monkeypatch.setattr(convert, "end_op", die)
-        return
-    if at == "ended":
-        monkeypatch.setattr(convert, "_end_undo", die)
-        return
-    real, calls = convert.mark_op, {"n": 0}
-
-    def mark(paths, state, op):
-        calls["n"] += 1
-        if calls["n"] == MARKS[at]:
-            if at != "committed_unmarked":
-                real(paths, state, op)
-            raise PowerOff
-        real(paths, state, op)
-    monkeypatch.setattr(convert, "mark_op", mark)
-
-
 def crash(env, monkeypatch, at):
     with monkeypatch.context() as m:
-        power_off(m, at)
+        power_off_undo(m, at)
         with pytest.raises(PowerOff):
             undo(env)
-
-
-def next_start(env):
-    state = load_state(env.paths)
-    library.clear_tmp(env.paths, state)
-    messages = library.recover_pending(env.paths, state)
-    library.clear_tmp(env.paths, state)
-    return messages, state
 
 
 @pytest.mark.parametrize("at", ["journaled", "restored", "outcome"])

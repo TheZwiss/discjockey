@@ -3,9 +3,12 @@ rekordbox library (built by make_master in tmp_path) whose track holds the file,
 that puts rekordbox's timeline `d` samples after ffmpeg's decode. For tests/test_convert*.py; nothing real is read.
 
 Old files: `lame` (tests/fixtures/clicks-lame.mp3: rekordbox at 1105 samples), `notag` (clicks-notag.mp3: 0), `m4a`
-(an AAC made from a click track here: rekordbox at ffmpeg's start trim) and `wav48` (a 48 kHz WAV: 0). The parked
-upgrade is ffmpeg's decode of the old file as a 16-bit/44.1 kHz stereo AIFF with the download's tags, so the two
-are the same edit with L = 0.
+(an AAC made from a click track here: rekordbox at ffmpeg's start trim), `wav48` (a 48 kHz WAV: 0), `flac96` (a 24-bit
+96 kHz FLAC: 0) and `aiff` (a 16-bit/44.1 kHz AIFF with the wrong tags: 0). The parked upgrade is ffmpeg's decode of
+the old file as a 16-bit/44.1 kHz stereo AIFF with the download's tags, so the two are the same edit with L = 0.
+
+`make_own` is the same library for Convert to AIFF (`convert.convert_file`): the song is the user's own (source
+"manual", no parked upgrade) and its file row was placed by the import, with the old file's facts stored.
 """
 from __future__ import annotations
 
@@ -17,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from discjockey import convert, db, quality
+from discjockey import convert, db, library, quality
 from discjockey.align import Alignment
 from discjockey.audio import write_tags
 from discjockey.library import Paths, load_state, save_state
@@ -27,6 +30,7 @@ from discjockey.rekordbox.locate import Place
 from discjockey.rekordbox.session import Session
 from rekordbox_helpers import clicks, make_anlz, make_master, ppth_tag, pqtz_tag, pwv3_from, pwv3_tag, save_library
 from rekordbox_helpers import write_wav
+from audio_helpers import write_aiff
 
 FIXTURES = Path(__file__).parent / "fixtures"
 TID = "t1aaaaaaa"
@@ -35,7 +39,9 @@ NEW = "Library/A/Artist - Song.aiff"
 EXACT = Alignment("exact", 0, 0.0, 0.0, "matches exactly")
 NOW = datetime(2026, 11, 8, 12, 0)
 OLD = {"lame": "Library/A/Old Name.mp3", "notag": "Library/A/Old Name.mp3", "m4a": "Library/A/Old Name.m4a",
-       "wav48": "Library/A/Old Name.wav"}
+       "wav48": "Library/A/Old Name.wav", "flac96": "Library/A/Old Name.flac", "aiff": "Library/A/Old Name.aiff"}
+OWN = {"source": "manual", "source_id": None, "source_format": "mp3", "cutoff_hz": None, "upgrade": None,
+       "status": "not_lossless", "in_playlists": False}  # the song record of an own file Convert works on
 
 
 def never() -> bool:
@@ -97,6 +103,14 @@ def _old_file(kind: str, dst: Path, scratch: Path) -> None:
                         str(dst)], check=True)
     elif kind == "wav48":
         write_wav(dst, clicks(20, 48000), 48000)
+    elif kind == "flac96":
+        wav = write_wav(scratch / "clicks96.wav", clicks(20, 96000), 96000)
+        subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(wav), "-sample_fmt", "s32",
+                        "-bits_per_raw_sample", "24", "-c:a", "flac", str(dst)], check=True)
+    elif kind == "aiff":
+        write_aiff(dst, clicks(20, 44100))
+        write_tags(dst, title="Wrong Title", artists=("Wrong Artist",), album="Old Album", isrc=None, label=None,
+                   cover=None, comment="")
     else:
         raise ValueError(kind)
 
@@ -121,7 +135,7 @@ def make_env(tmp_path: Path, monkeypatch, kind: str = "lame", *, rekordbox: bool
     write_tags(parked, title="Song", artists=("Artist",), album="Album", isrc="ISRC00000001", label="Label",
                cover=None, comment="Qobuz FLAC · verified lossless")
     info = quality.probe(old_file)
-    d = {"lame": 1105, "notag": 0, "wav48": 0}.get(kind)
+    d = {"lame": 1105, "notag": 0, "wav48": 0, "flac96": 0, "aiff": 0}.get(kind)
     if d is None:
         d = round(probe.start_trim(old_file, info.codec, info.sample_rate) * 44100 / info.sample_rate)
     folder = tmp_path / "rb"
@@ -186,3 +200,104 @@ def batch_row(env: Env, batch_id: int):
 def file_rows(env: Env) -> list[tuple]:
     with db.connect(env.paths.db_file) as conn:
         return conn.execute("SELECT path, placed_by FROM files ORDER BY path").fetchall()
+
+
+def make_own(tmp_path: Path, monkeypatch, kind: str = "lame", *, entry: dict | None = None, **kw) -> Env:
+    """`make_env` for Convert to AIFF: an own song (`OWN` plus `entry`) whose file row came from the import
+    (`placed_by` "import") with the old file's facts stored."""
+    env = make_env(tmp_path, monkeypatch, kind, entry={**OWN, **(entry or {})}, **kw)
+    path = env.paths.root / load_state(env.paths)["tracks"][TID]["path"]
+    with db.connect(env.paths.db_file) as conn:
+        conn.execute("UPDATE files SET placed_by = 'import'")
+        conn.commit()
+        (file_id,) = conn.execute("SELECT id FROM files").fetchone()
+        db.set_file_facts(conn, file_id, quality.file_audio(quality.probe(path)))
+        conn.commit()
+    return env
+
+
+def run_file(env: Env, *, running=never, batch: tuple[int, int] | None = None, state: dict | None = None):
+    """Convert to AIFF for the song, in its own session; returns (Result, state)."""
+    state = load_state(env.paths) if state is None else state
+    with session(env, running, batch[0] if batch else None) as s:
+        r = convert.convert_file(env.paths, state, TID, session=s, now=lambda: NOW, batch=batch)
+    return r, state
+
+
+def start_file_batch(env: Env) -> int:
+    with db.connect(env.paths.db_file) as conn:
+        return db.start_aiff_batch(conn, "convert", "user", None, [(TID, "convert")], NOW)
+
+
+def file_facts_row(env: Env) -> tuple:
+    """(path, placed_by, file_codec, file_rate, file_bits, file_kbps) of every file row."""
+    with db.connect(env.paths.db_file) as conn:
+        return tuple(conn.execute("SELECT path, placed_by, file_codec, file_rate, file_bits, file_kbps FROM files "
+                                  "ORDER BY path").fetchall())
+
+
+class PowerOff(BaseException):
+    """The Mac went off: nothing after it runs."""
+
+
+STEP_MARKS = {"backed_up": 1, "placed": 2, "record": 3, "committed_unmarked": 4, "committed": 4, "superseded": 5}
+BEFORE_COMMIT = ["rendered", "journaled", "backed_up", "placed", "record"]
+AFTER_COMMIT = ["committed_unmarked", "committed", "superseded", "ended"]
+UNDO_MARKS = {"restored": 1, "outcome": 2, "committed_unmarked": 3, "committed": 3}
+
+
+def power_off(monkeypatch, at: str) -> None:
+    """Cut the step at `at`: after the render, the journal, a mark (written first, except `committed_unmarked`:
+    rekordbox committed, its mark not written), or inside the end."""
+    def die(*a, **k):
+        raise PowerOff
+
+    for name in ("_drop", "_roll_back", "_settle"):  # the step's own clean-up never runs after a power cut
+        monkeypatch.setattr(convert, name, die)
+    if at == "rendered":
+        monkeypatch.setattr(convert, "journal_op", die)
+        return
+    if at == "journaled":
+        monkeypatch.setattr(Session, "ensure_backup", die)
+        return
+    if at == "ended":
+        monkeypatch.setattr(convert, "end_op", die)
+        return
+    _cut_at_mark(monkeypatch, STEP_MARKS[at], at != "committed_unmarked")
+
+
+def power_off_undo(monkeypatch, at: str) -> None:
+    """The same for an undo (`journaled`, `restored`, `outcome`, `committed_unmarked`, `committed`, `ended`)."""
+    def die(*a, **k):
+        raise PowerOff
+
+    if at == "journaled":
+        monkeypatch.setattr(convert, "move_path", die)
+        monkeypatch.setattr(convert, "end_op", die)
+        return
+    if at == "ended":
+        monkeypatch.setattr(convert, "_end_undo", die)
+        return
+    _cut_at_mark(monkeypatch, UNDO_MARKS[at], at != "committed_unmarked")
+
+
+def _cut_at_mark(monkeypatch, number: int, written: bool) -> None:
+    real, calls = convert.mark_op, {"n": 0}
+
+    def mark(paths, state, op):
+        calls["n"] += 1
+        if calls["n"] == number:
+            if written:
+                real(paths, state, op)
+            raise PowerOff
+        real(paths, state, op)
+    monkeypatch.setattr(convert, "mark_op", mark)
+
+
+def next_start(env: Env):
+    """What the next start does: the clean-up of .tmp/, `recover_pending`, the clean-up again. (messages, state)."""
+    state = load_state(env.paths)
+    library.clear_tmp(env.paths, state)
+    messages = library.recover_pending(env.paths, state)
+    library.clear_tmp(env.paths, state)
+    return messages, state
