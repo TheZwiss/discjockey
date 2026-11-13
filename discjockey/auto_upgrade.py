@@ -410,7 +410,10 @@ def _write_records(paths, state: dict, planned: Planned, rows: list[dict], *, ru
 
 
 def _file(log: rep.RunLog, state: dict, rows: list[dict], where) -> None:
-    """The rows as the run's results: `upgraded`, `upgrade_waits` and, for a failure, `errors`."""
+    """The rows as the run's results: `upgraded`, `upgrade_waits` and, for a failure, `errors`. A track the sync's
+    check parked a moment ago (`upgrade_ready`) is told once, by its row here: the phase's result replaces the old one."""
+    filed = {r["track"] for r in rows}
+    log.results = [x for x in log.results if not (x.section == "upgrade_ready" and x.track_id in filed)]
     for r in rows:
         key = r["track"]
         e = state["tracks"].get(key) or {}
