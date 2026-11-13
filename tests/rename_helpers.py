@@ -12,7 +12,7 @@ from pathlib import Path
 
 import convert_helpers as ch
 from convert_helpers import NOW, TID, Env, PowerOff, make_own
-from discjockey import convert, rename
+from discjockey import rbstep, rename
 from discjockey.audio import write_tags
 from discjockey.library import load_state
 from discjockey.rekordbox.session import Session
@@ -80,7 +80,7 @@ def power_off(monkeypatch, at: str) -> None:
             raise PowerOff
         real(paths, state, op)
     monkeypatch.setattr(rename, "mark_op", mark)
-    monkeypatch.setattr(convert, "mark_op", mark)  # the `record` mark is journaled by convert.journal_record
+    monkeypatch.setattr(rbstep, "mark_op", mark)  # the `record` mark is journaled by rbstep.journal_record
 
 
 UNDO_MARKS = {"restored": 1, "outcome": 2, "committed_unmarked": 3, "committed": 3}

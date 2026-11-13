@@ -9,7 +9,7 @@ import pytest
 
 from audio_helpers import needs_ffmpeg
 from convert_helpers import NOW, TID, PowerOff, file_facts_row, make_own, run_file, session, start_file_batch
-from discjockey import audio, convert, library, rename, report, upgrades
+from discjockey import audio, library, rbstep, rename, report, upgrades
 from discjockey.library import load_state
 from discjockey.rekordbox import anlz, master
 from rekordbox_helpers import diff, dump
@@ -124,7 +124,7 @@ def test_a_file_rekordbox_does_not_have_is_converted_and_renamed_without_it(tmp_
     env = make_chain(tmp_path, monkeypatch, holds_file=False)
     rows = dump(env.place.db)
     r, _state = run_file(env)
-    assert r.path == CLEAN and r.note.count(convert.NO_TRACK_NOTE) == 1 and dump(env.place.db) == rows
+    assert r.path == CLEAN and r.note.count(rbstep.NO_TRACK_NOTE) == 1 and dump(env.place.db) == rows
     assert report.check_text(load_state(env.paths)["tracks"][TID]["rekordbox_check"]) == report.CONVERTED_NO_TRACK_CHECK
 
 

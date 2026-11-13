@@ -758,7 +758,7 @@ def staging_path(dst: str) -> str:
     return str(d.with_name(f".{d.name}{STAGED_SUFFIX}"))
 
 
-def _remove_staged(path: Path) -> None:
+def remove_staged(path: Path) -> None:
     """Removes a staged copy, and only a file with the staging name (hidden, STAGED_SUFFIX)."""
     if path.name.startswith(".") and path.name.endswith(STAGED_SUFFIX):
         path.unlink(missing_ok=True)
@@ -826,18 +826,18 @@ def move_path(root: Path, src: str, dst: str, staged: str | None, roots: Collect
     if staged is None or not crosses(root, src, dst):
         safe_rename(root, src, dst)
         if staged is not None:
-            _remove_staged(root / staged)
+            remove_staged(root / staged)
         return
     t = root / staged
     if d.exists():
         raise FileExistsError(f"{dst} already exists")
-    _remove_staged(t)  # a copy an earlier try left; the source is still there
+    remove_staged(t)  # a copy an earlier try left; the source is still there
     try:
         d.parent.mkdir(parents=True, exist_ok=True)
         _copy_verified(s, t)
         safe_rename(root, staged, dst)
     except BaseException:
-        _remove_staged(t)
+        remove_staged(t)
         raise
     _fsync_dir_quietly(d.parent)
     try:
@@ -1096,7 +1096,7 @@ def _finish_files(conn: sqlite3.Connection, op: dict) -> None:
 
 
 @dataclass(frozen=True)
-class _Recovered:
+class Recovered:
     problem: str  # "" when every rename is done
     done_any: bool  # a file is in its new place: the step's result must be written
     wait: bool  # nothing decided: the step stays pending for the next start
@@ -1110,17 +1110,17 @@ def short_path(path: Path | str) -> str:
 
 
 @dataclass(frozen=True)
-class _Waits:
+class Waits:
     """A step that stays pending, its message still to be worded: `holds` is whether it holds up the scan. `message`:
     the step's own words for what it waits for (a convert step waiting for rekordbox to quit), else they follow
     from `r`."""
     name: str
-    r: _Recovered
+    r: Recovered
     holds: bool
     message: str | None = None
 
 
-def _waiting(w: _Waits, scan_held: bool) -> tuple[str, bool]:
+def waiting(w: Waits, scan_held: bool) -> tuple[str, bool]:
     """The message of a step that stays pending: W17 when it waits for a drive (`scan_held`: scan_library holds up
     the scan of the other folders, because any pending step does, else it goes on), else what stands in its way."""
     if w.message is not None:
@@ -1130,7 +1130,7 @@ def _waiting(w: _Waits, scan_held: bool) -> tuple[str, bool]:
     return f"Could not finish an interrupted step for {w.name} yet: {w.r.problem}", False
 
 
-def _recover_renames(root: Path, op: dict, roots: Collection[Path]) -> _Recovered:
+def recover_renames(root: Path, op: dict, roots: Collection[Path]) -> Recovered:
     """A pending step's renames finished as far as the disk allows. A rename with an end on a drive that isn't
     connected waits (nothing is decided from a missing drive: its file may well be there). A rename found done
     counts; one not started is done now. One that crosses drives (op["staged"] has its index) is decided by its
@@ -1147,12 +1147,12 @@ def _recover_renames(root: Path, op: dict, roots: Collection[Path]) -> _Recovere
         s_path, d_path = root / src, root / dst
         if not (online(s_path, roots) and online(d_path, roots)):
             away = short_path(d_path if online(s_path, roots) else s_path)
-            return _Recovered(DRIVE_GONE.format(path=away), done_any, True, drive=away)
+            return Recovered(DRIVE_GONE.format(path=away), done_any, True, drive=away)
         s, d = s_path.exists(), d_path.exists()
         try:
             if d and not s:
                 if copy:
-                    _remove_staged(copy)  # a spare copy beside the moved file
+                    remove_staged(copy)  # a spare copy beside the moved file
                 done_any = True
                 continue
             if s and d and any(fold(src) == fold(later_dst) and not (root / later_src).exists()
@@ -1161,18 +1161,18 @@ def _recover_renames(root: Path, op: dict, roots: Collection[Path]) -> _Recovere
                 continue
             if s and d and copy and s_path.stat().st_size == d_path.stat().st_size \
                     and file_sha256(s_path) == file_sha256(d_path):
-                _remove_staged(copy)
+                remove_staged(copy)
                 try:
                     os.unlink(s_path)  # the verified copy has the target's name: the second half of the move
                 except OSError as e:
-                    return _Recovered(TWO_PLACES.format(src=src, dst=dst, reason=e.strerror or e), done_any, False)
+                    return Recovered(TWO_PLACES.format(src=src, dst=dst, reason=e.strerror or e), done_any, False)
                 done_any = True
                 continue
             if s and not d:
                 try:
                     move_path(root, src, dst, staged.get(str(i)), roots)  # it removes a leftover staged copy first
                 except SourceKept as e:
-                    return _Recovered(SOURCE_STAYS.format(src=src, reason=e.strerror), done_any, False)
+                    return Recovered(SOURCE_STAYS.format(src=src, reason=e.strerror), done_any, False)
                 done_any = True
                 continue
             if not s and not d and copy and copy.is_file() and copy.stat().st_size == sizes.get(str(i)):
@@ -1181,13 +1181,13 @@ def _recover_renames(root: Path, op: dict, roots: Collection[Path]) -> _Recovere
                 done_any = True
                 continue
         except OSError as e:  # e.g. permissions: keep the step pending and try again next start
-            return _Recovered(f"could not move {src} ({e})", done_any, True)
+            return Recovered(f"could not move {src} ({e})", done_any, True)
         if copy and s:
-            _remove_staged(copy)
+            remove_staged(copy)
         elif copy and copy.exists():  # neither end there: it may be the last remnant of a file the user removed
             log.warning("kept the staged copy %s: neither %s nor %s exists", copy, src, dst)
-        return _Recovered(f"both {src} and {dst} exist" if s else f"neither {src} nor {dst} exists", done_any, False)
-    return _Recovered("", done_any, False)
+        return Recovered(f"both {src} and {dst} exist" if s else f"neither {src} nor {dst} exists", done_any, False)
+    return Recovered("", done_any, False)
 
 
 def _recovered(name: str, problem: str, done_any: bool) -> tuple[str, bool]:
@@ -1198,15 +1198,15 @@ def _recovered(name: str, problem: str, done_any: bool) -> tuple[str, bool]:
     return f"Could not finish an interrupted step for {name}: {problem}", False
 
 
-def _recover_files(paths: Paths, op: dict, roots: Collection[Path]) -> tuple[tuple[str, bool] | _Waits, bool]:
-    """A move_files step: its renames finished (_recover_renames), then db.finish_file_op, or the journal entry
-    dropped when no file moved. Returns the message (a _Waits for a step that stays pending) and whether library.db was
+def _recover_files(paths: Paths, op: dict, roots: Collection[Path]) -> tuple[tuple[str, bool] | Waits, bool]:
+    """A move_files step: its renames finished (recover_renames), then db.finish_file_op, or the journal entry
+    dropped when no file moved. Returns the message (a Waits for a step that stays pending) and whether library.db was
     written."""
     from . import db
     name = op.get("label") or "a file"
-    r = _recover_renames(paths.root, op, roots)
+    r = recover_renames(paths.root, op, roots)
     if r.wait and not r.done_any:
-        return _Waits(name, r, not waits_offline(op, paths.root, roots)), False
+        return Waits(name, r, not waits_offline(op, paths.root, roots)), False
     with db.connect(paths.db_file) as conn:
         if not r.done_any:
             db.drop_pending(conn, op["op_id"])
@@ -1224,15 +1224,15 @@ def _step_name(op: dict) -> str:
     return op.get("label") or f"{e.get('artist', '?')} - {e.get('title', op['track_id'])}"
 
 
-def _recover_step(paths: Paths, op: dict, roots: Collection[Path]) -> tuple[tuple[str, bool] | _Waits, bool]:
-    """A run_op step: its renames finished (_recover_renames), then its entries written (db.finish_step) once a
-    file is in its new place, else its journal entry dropped. Returns the message (a _Waits for a step that stays
+def _recover_step(paths: Paths, op: dict, roots: Collection[Path]) -> tuple[tuple[str, bool] | Waits, bool]:
+    """A run_op step: its renames finished (recover_renames), then its entries written (db.finish_step) once a
+    file is in its new place, else its journal entry dropped. Returns the message (a Waits for a step that stays
     pending) and whether library.db was written."""
     from . import db
     name = _step_name(op)
-    r = _recover_renames(paths.root, op, roots)
+    r = recover_renames(paths.root, op, roots)
     if r.wait and not r.done_any:
-        return _Waits(name, r, not waits_offline(op, paths.root, roots)), False
+        return Waits(name, r, not waits_offline(op, paths.root, roots)), False
     with _records(paths) as conn:
         if r.done_any:  # once a file was placed, the entry must point at it, or the next run would mis-adopt it
             _finish_step(paths, conn, op)
@@ -1270,7 +1270,7 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
     follows each of its writes. A convert or rename step (or a convert's undo) whose analysis files must come back
     while rekordbox runs waits for it to quit, as a step waits for a drive: the run goes on, the scan is held. Last, an AIFF batch a crash left `running`
     becomes `stopped` and offers Resume (`batches.recover`); the sync's Auto-upgrade batch ends instead, never resumed."""
-    messages: list[tuple[str, bool] | _Waits] = []
+    messages: list[tuple[str, bool] | Waits] = []
     roots = watched_roots(paths) if state.get("version") == 2 else [paths.root]
     for op in list(state.get("pending", [])):
         if op.get("kind") == "swap":
@@ -1305,9 +1305,9 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
             continue
         # a step journaled in the snapshot's pending (state.json's, or library.db's from before issue 25)
         name = _step_name(op)
-        r = _recover_renames(paths.root, op, roots)
+        r = recover_renames(paths.root, op, roots)
         if r.wait and not r.done_any:
-            messages.append(_Waits(name, r, not waits_offline(op, paths.root, roots)))
+            messages.append(Waits(name, r, not waits_offline(op, paths.root, roots)))
             continue
         if r.done_any:
             # once a file was placed, the entry must point at it, or the next run would mis-adopt it
@@ -1326,8 +1326,8 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
         from .batches import recover as recover_batches  # batches build on this module
         recover_batches(paths)  # after the steps: an AIFF batch a crash cut off offers Resume
     # W17's form is one for all steps: the scan is held when any step still pending holds it up
-    scan_held = any(m.holds for m in messages if isinstance(m, _Waits))
-    return [_waiting(m, scan_held) if isinstance(m, _Waits) else m for m in messages]
+    scan_held = any(m.holds for m in messages if isinstance(m, Waits))
+    return [waiting(m, scan_held) if isinstance(m, Waits) else m for m in messages]
 
 
 # --- the scan (spec library-and-sources §6) ---

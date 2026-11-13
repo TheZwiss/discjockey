@@ -12,7 +12,7 @@ import pytest
 
 from batch_helpers import DIFFERENT, make_lib, needs_ffmpeg
 from convert_helpers import EXACT, NOW
-from discjockey import auto_upgrade, batches, convert, db, report, upgrades
+from discjockey import auto_upgrade, batches, convert, db, rbstep, report, upgrades
 from discjockey.align import Alignment
 from discjockey.auto_upgrade import Outcome, Planned, free_now, plan, refusal_holds, run_phase, stamps
 from discjockey.events import BatchProgress, CancelToken, Message
@@ -751,7 +751,7 @@ def test_a_skip_the_phase_does_not_record_is_tried_at_the_next_sync(tmp_path, mo
 
     def swap(paths, state, track, *a, **k):
         if flag["busy"]:
-            raise convert.Skipped("changed", "Your rekordbox track changed while Discjockey was working on it, so "
+            raise rbstep.Skipped("changed", "Your rekordbox track changed while Discjockey was working on it, so "
                                   "nothing was changed. Try again.")
         return real(paths, state, track, *a, **k)
 
@@ -828,7 +828,7 @@ def test_the_stored_measurement_is_saved_with_the_snapshots_other_unsaved_change
         other = lib.tracks[1 - i]
         state["tracks"][other]["hidden"] = True                               # an unsaved change of the same run
         up = dict(state["tracks"][lib.tracks[i]]["upgrade"])
-        with pytest.raises((upgrades.NeedsChoice, convert.Skipped)):
+        with pytest.raises((upgrades.NeedsChoice, rbstep.Skipped)):
             if i == 0:
                 upgrades.swap(lib.paths, state, lib.tracks[i], up, lambda a, b: DIFFERENT, lambda: NOW)
             else:   # the measurement comes before the step needs its rekordbox session

@@ -8,7 +8,7 @@ import pytest
 
 from batch_helpers import Lib, make_own_lib, needs_ffmpeg
 from convert_helpers import NOW, never
-from discjockey import audio, batches, convert, db, rename, report
+from discjockey import audio, batches, convert, db, rbstep, rename, report
 from discjockey.events import CancelToken
 from discjockey.library import load_state, save_state
 from discjockey.rekordbox import backup as rbbackup
@@ -185,15 +185,15 @@ def test_an_item_whose_answer_changed_is_skipped_with_the_new_reason_never_switc
     result = refused.value.result
     assert [(i.state, i.reason) for i in result.results] == [("skipped", "clean_aiff"), ("skipped", "needs_convert")]
     assert result.results[0].message == "This file is a clean AIFF already: Give it its clean name."
-    assert result.results[1].message == convert.CONVERT_REFUSED["needs_convert"]
+    assert result.results[1].message == rbstep.CONVERT_REFUSED["needs_convert"]
     assert lib.music() == music and lib.entry(0)["path"] == lib.olds[0]            # nothing switched, nothing moved
     assert lib.entry(1)["path"] == lib.olds[1] and rbbackup.backups(lib.paths) == []
     assert "rekordbox_check" not in lib.entry(0) or not lib.entry(0)["rekordbox_check"]
 
 
 @pytest.mark.parametrize("change, action, reason, words", [
-    ({"source": "qobuz"}, "convert", "downloaded", convert.CONVERT_REFUSED["downloaded"]),
-    ({"artist": ""}, "convert", "no_name", convert.CONVERT_REFUSED["no_name"]),
+    ({"source": "qobuz"}, "convert", "downloaded", rbstep.CONVERT_REFUSED["downloaded"]),
+    ({"artist": ""}, "convert", "no_name", rbstep.CONVERT_REFUSED["no_name"]),
     ({"upgrade": {"file": "Upgrades ready/x.aiff", "alignment": {"result": "exact"}}}, "convert", "upgrade_waits",
      "A better version is waiting: Same track makes it an AIFF."),
     ({"upgrade": {"file": "Upgrades ready/x.aiff", "alignment": {"result": "exact"}}}, "rename", "upgrade_waits",
@@ -219,7 +219,7 @@ def test_a_missing_file_and_a_file_that_cannot_be_read_go_on(tmp_path, monkeypat
     result = go(lib, batch_id)
     assert [i.state for i in result.results] == ["skipped", "failed", "done"]
     assert result.results[0].reason == "file_missing" and result.results[0].message == \
-        convert.CONVERT_REFUSED["file_missing"]
+        rbstep.CONVERT_REFUSED["file_missing"]
     assert "couldn't read" in result.results[1].message and "Nothing was changed" in result.results[1].message
     assert lib.entry(1)["path"] == lib.olds[1]
 
@@ -402,7 +402,7 @@ def test_checked_batch_through_the_command_line(tmp_path, monkeypatch, capsys):
 
 # --- words ---
 
-FILE_REASONS = [*convert.CONVERT_REFUSED, "rename_blocked", "rekordbox_unreadable", "cloud", "timing", "not_analysed",
+FILE_REASONS = [*rbstep.CONVERT_REFUSED, "rename_blocked", "rekordbox_unreadable", "cloud", "timing", "not_analysed",
                 "unclean", "changed", "space", "rekordbox_open", "busy", "later_batch", "not_reached"]
 
 
@@ -420,9 +420,9 @@ def test_the_words_of_the_plan_for_the_reasons_a_file_item_meets():
     assert batches.words("upgrade_waits", "convert") == "A better version is waiting: Same track makes it an AIFF."
     assert batches.words("named_already", "rename") == "A clean AIFF with its clean name already."
     assert batches.words("clean_aiff", "convert") == "This file is a clean AIFF already: Give it its clean name."
-    assert batches.words("needs_convert", "rename") == convert.CONVERT_REFUSED["needs_convert"]
+    assert batches.words("needs_convert", "rename") == rbstep.CONVERT_REFUSED["needs_convert"]
     assert batches.words("rename_blocked", "rename", why=rename.BLOCKED_WHY["cloud"]) == \
-        convert.REFUSED["rename_blocked"].format(reason="the track is in Cloud Library Sync")
+        rbstep.REFUSED["rename_blocked"].format(reason="the track is in Cloud Library Sync")
     assert "can't open this rekordbox version's library" in batches.words("rekordbox_unreadable", "convert")
     # Same track's words are as they were
     assert batches.words("rekordbox_unreadable") == "Same track needs a rekordbox library Discjockey can open. " \

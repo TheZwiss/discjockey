@@ -53,7 +53,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
 
-from . import align, audio, convert, db, library, ops, rename, report as rep, upgrades
+from . import align, audio, convert, db, library, ops, rbstep, rename, report as rep, upgrades
 from .events import BatchProgress, Cancelled, CancelToken, Emit, Result, no_emit
 from .models import AiffBatchRow, AiffItemRow
 from .rekordbox import Session, eligible
@@ -200,7 +200,7 @@ def _name(e: dict | None, track_id: str) -> str:
 
 
 # What a Convert or Rename item says where the Same track's words don't fit (plan stage D §3, "Skipped list": the words
-# of `convert.CONVERT_REFUSED`, whole sentences, are used as they stand)
+# of `rbstep.CONVERT_REFUSED`, whole sentences, are used as they stand)
 FILE_WORDS = {
     "rekordbox_unreadable": "Discjockey can't open this rekordbox version's library yet, so it can't point your "
                             "rekordbox track at the file. Nothing was changed.",
@@ -212,12 +212,12 @@ SWITCHED = {"convert": "clean_aiff", "rename": "needs_convert"}  # the reason of
 
 def words(reason: str, action: str = "same_track", why: str | None = None) -> str:
     """The words of a skip (`reason` an `eligible.REASONS` key) for an item of `action`. A Convert or Rename item says
-    `convert.CONVERT_REFUSED`'s sentences (rekordbox lower case, no "upgrade"); `why` (a `rename.BLOCKED_WHY` text)
+    `rbstep.CONVERT_REFUSED`'s sentences (rekordbox lower case, no "upgrade"); `why` (a `rename.BLOCKED_WHY` text)
     fills `rename_blocked`'s `{reason}`."""
     if action != "same_track":
         if reason == "rename_blocked":
-            return convert.REFUSED[reason].format(reason=why or rename.BLOCKED_WHY["unreadable"])
-        if text := FILE_WORDS.get(reason) or convert.CONVERT_REFUSED.get(reason):
+            return rbstep.REFUSED[reason].format(reason=why or rename.BLOCKED_WHY["unreadable"])
+        if text := FILE_WORDS.get(reason) or rbstep.CONVERT_REFUSED.get(reason):
             return text
     text = REASON_WORDS.get(reason, reason)
     if not text.startswith("rekordbox"):  # rekordbox is written in lower case, a sentence's start included
@@ -401,7 +401,7 @@ def _item(paths, state: dict, session: Session, batch_id: int, item: AiffItemRow
         else:
             result = convert.same_track(paths, state, track, dict(e["upgrade"]), session=session, compare=compare,
                                         now=now, batch=(batch_id, item.seq))
-    except convert.Skipped as err:
+    except rbstep.Skipped as err:
         # Convert's own library refusal says "Choose New track" (Same track's words): this item says its own
         skip(err.reason, words(err.reason, action) if err.reason == "rekordbox_unreadable" and action == "convert"
              else str(err), err.detail)

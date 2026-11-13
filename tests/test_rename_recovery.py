@@ -9,7 +9,7 @@ import pytest
 
 from audio_helpers import needs_ffmpeg
 from convert_helpers import PowerOff, TID
-from discjockey import convert, library, rename
+from discjockey import convert, library, rbstep, rename
 from discjockey.library import load_state
 from discjockey.rekordbox import anlz, backup
 from rekordbox_helpers import dump, writer
@@ -210,7 +210,7 @@ def test_a_failure_before_the_commit_puts_the_file_back_and_says_so(tmp_path, mo
 
     def breaks(*a, **k):
         raise RuntimeError("the journal broke")
-    monkeypatch.setattr(convert, "journal_record", breaks)  # raised inside rekordbox's transaction: rolled back
+    monkeypatch.setattr(rbstep, "journal_record", breaks)  # raised inside rekordbox's transaction: rolled back
     with pytest.raises(convert.UpgradeProblem) as err:
         run_rename(env)
     assert "the journal broke" in str(err.value) and rename.NOT_FINISHED.format(name=NAME) in str(err.value)

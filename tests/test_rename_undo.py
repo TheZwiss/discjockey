@@ -10,7 +10,7 @@ import pytest
 
 from audio_helpers import needs_ffmpeg
 from convert_helpers import TID, PowerOff, session
-from discjockey import convert, library, rename, report, upgrades
+from discjockey import library, rbstep, rename, report, upgrades
 from discjockey.library import load_state
 from discjockey.rekordbox import anlz, master
 from discjockey.rekordbox import write as rbwrite
@@ -222,7 +222,7 @@ def test_analysis_files_the_cut_off_write_changed_come_back_once_rekordbox_is_cl
     assert anlz.ppth(anlz.read(env.dat())) == "?/Old Name.aiff"
     monkeypatch.setattr("discjockey.rekordbox.process.running", lambda: True)
     messages, _state = next_start(env)
-    assert messages == [(convert.UNDO_WAIT_REKORDBOX.format(name=NAME), False)]
+    assert messages == [(rbstep.UNDO_WAIT_REKORDBOX.format(name=NAME), False)]
     monkeypatch.setattr("discjockey.rekordbox.process.running", lambda: False)
     messages, state = next_start(env)
     assert messages == [(rename.UNDO_NOT_FINISHED.format(name=NAME), False)]
@@ -259,7 +259,7 @@ def test_an_unreadable_library_or_a_drive_that_is_away_makes_the_undo_wait(tmp_p
     crash(env, monkeypatch, "restored")
     with monkeypatch.context() as m:
         m.setattr(master, "KEYS", ("00" * 32,))
-        assert next_start(env)[0] == [(convert.UNDO_UNREADABLE_WAIT.format(name=NAME), False)]
+        assert next_start(env)[0] == [(rbstep.UNDO_UNREADABLE_WAIT.format(name=NAME), False)]
     with monkeypatch.context() as m:
         m.setattr(library, "online", lambda path, roots: False)
         (message, ok), = next_start(env)[0]

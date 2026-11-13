@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from discjockey import align, aiff_plan, audio, cdj, convert, db, library, quality, rekordbox
+from discjockey import align, aiff_plan, audio, cdj, convert, db, library, quality, rbstep, rekordbox
 from discjockey.audio import FileFacts
 from discjockey.hub import views
 from discjockey.library import Paths
@@ -188,7 +188,7 @@ def test_files_with_nothing_to_do_are_skipped_with_their_words_in_a_selection(li
     assert {s.track: s.reason for s in plan.skipped} == {
         "clean": "named_already", "bought": "downloaded", "up": "upgrade_waits", "noname": "no_name"}
     left = {s.track: s for s in plan.skipped}
-    assert left["clean"].message == convert.CONVERT_REFUSED["named_already"]
+    assert left["clean"].message == rbstep.CONVERT_REFUSED["named_already"]
     assert left["up"].message == "A better version is waiting: Same track makes it an AIFF."
     assert left["clean"].name == "Ann - Clean" and left["noname"].name == "Ann - "
 

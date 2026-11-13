@@ -27,7 +27,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 
-from . import audio, batches, cdj, convert, db, library, playlists_file as pf, quality, rename
+from . import audio, batches, cdj, convert, db, library, playlists_file as pf, quality, rbstep, rename
 from .hub import views
 from .library import NameReserver, Paths
 from .models import FileAudio, WatchedFolder, entry_audio
@@ -301,7 +301,7 @@ def _judge(paths: Paths, state: dict, key: str, rb: Status, entries: Callable[[P
     except OSError:
         old_bytes = 0
     kind = kind_of(action, stored, ext)
-    item = Item(key, convert.track_name(e, key), action, kind, format_line(stored, ext), e["path"], new, superseded,
+    item = Item(key, rbstep.track_name(e, key), action, kind, format_line(stored, ext), e["path"], new, superseded,
                 needs, old_bytes if action == "convert" else 0, not quality.is_lossless_codec(stored.codec),
                 kind_label(kind, stored, ext), _cdj_dict(problem or cdj.cdj_problem(stored, ext)))
     return item, None, bool(found)
@@ -335,7 +335,7 @@ def plan(paths: Paths, state: dict, scope: Mapping, *, rb: Status,
             items.append(item)
         elif selected:
             e = state["tracks"].get(key)
-            left.append(Left(key, convert.track_name(e, key) if e else key, skip.reason, skip.message))
+            left.append(Left(key, rbstep.track_name(e, key) if e else key, skip.reason, skip.message))
     # a library nobody can read (and one the caller gave no lookup for) may hold any of the files
     unknown = bool(items) and (rb.state == "unreadable" or (rb.state == "ready" and entries is None))
     return AiffPlan(
