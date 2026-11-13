@@ -11,6 +11,7 @@ from pathlib import PurePosixPath
 from typing import Literal
 
 from .matching import _DASH, normalize, normalize_artist
+from .titles import split_title, strip_tag_brackets
 
 _COLLAB = re.compile(r"[,&;]|\s+x\s+", re.IGNORECASE)  # how a tag joins several artists: "A, B", "A & B", "A; B", "A x B"
 
@@ -77,14 +78,25 @@ def own_name(tags: Mapping[str, str | None], file_name: str) -> tuple[str, str]:
     """(artist, title) of an own song: the tags when they give a title (the artist tag, or "" without one); else a
     file name "Artist - Title" (split on the first spaced dash, else on the first dash with a space on one side only:
     "Artist- Title", "Artist -Title"; never a bare hyphen as in "Jay-Z"); else the file name without its extension is the
-    title and the artist is ""."""
+    title and the artist is "".
+
+    A title tag that holds "Artist - Title ..." with an empty artist tag is split as an uploader's title is
+    (`titles.split_title` with no uploader, so an artist it finds nothing for stays ""), and whole brackets that are
+    a pure tag ("[FREE DL]") leave the title, so a clean file name can be made from the record later (plan
+    rekordbox stage D §0.12). A title that is clean already comes back as it was."""
     title = (tags.get("title") or "").strip()
     if title:
-        return (tags.get("artist") or "").strip(), title
+        artist = (tags.get("artist") or "").strip()
+        title = strip_tag_brackets(title)
+        if not artist and _DASH.search(title):
+            artists, song = split_title(title, "")
+            if artists:
+                return ", ".join(artists), song
+        return artist, title
     stem = PurePosixPath(file_name).stem.strip()
     parts = _DASH.split(stem, maxsplit=1)
     if len(parts) < 2:
         parts = _ONE_SIDED_DASH.split(stem, maxsplit=1)
     if len(parts) == 2 and parts[0].strip() and parts[1].strip():
-        return parts[0].strip(), parts[1].strip()
-    return "", stem
+        return parts[0].strip(), strip_tag_brackets(parts[1].strip())
+    return "", strip_tag_brackets(stem)

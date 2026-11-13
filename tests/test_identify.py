@@ -160,3 +160,40 @@ def test_own_name_never_splits_on_a_bare_hyphen_or_a_dash_without_a_name_on_a_si
     assert own_name({}, "Example Artist -- Night Drive.mp3") == ("", "Example Artist -- Night Drive")
     assert own_name({}, "-Night Drive.mp3") == ("", "-Night Drive")
     assert own_name({}, "Night Drive -.mp3") == ("", "Night Drive -")
+
+
+# --- stage D §0.12: an own song's name, cleaned where the record is made ---
+
+def test_own_name_splits_a_title_tag_that_holds_artist_and_title_when_the_artist_tag_is_empty():
+    assert own_name({"artist": None, "title": "X - Song [FREE DL]"}, "01.mp3") == ("X", "Song")
+    assert own_name({"artist": "", "title": "Some Artist feat. Guest - Night Drive (Extended Mix)"}, "01.mp3") == (
+        "Some Artist, Guest", "Night Drive (Extended Mix)")
+    assert own_name({"title": "PREMIERE: DJ X – Song"}, "01.mp3") == ("DJ X", "Song")
+
+
+def test_own_name_leaves_the_artist_alone_when_the_split_finds_none():
+    # no spaced dash: nothing to split, and a feat. in the title does not invent an artist
+    assert own_name({"title": "Night Drive (feat. Guest)"}, "01.mp3") == ("", "Night Drive (feat. Guest)")
+    assert own_name({"title": "Jay-Z"}, "01.mp3") == ("", "Jay-Z")
+    # a mix name after the dash is no title: the dash belongs to the title
+    assert own_name({"title": "Night Drive - Extended Mix"}, "01.mp3") == ("", "Night Drive - Extended Mix")
+
+
+def test_own_name_only_drops_tag_brackets_when_the_artist_tag_is_there():
+    assert own_name({"artist": "Jay-Z", "title": "Song [FREE DL]"}, "01.mp3") == ("Jay-Z", "Song")
+    assert own_name({"artist": "A", "title": "Song (Official Video) (Live)"}, "01.mp3") == ("A", "Song (Live)")
+    # an artist tag with a dash title is not split again
+    assert own_name({"artist": "A", "title": "One - Two"}, "01.mp3") == ("A", "One - Two")
+
+
+def test_a_tag_pair_that_is_clean_comes_back_unchanged():
+    for tags in ({"artist": "Example Artist", "title": "Night Drive"},
+                 {"artist": "Jay-Z", "title": "99  Problems (Remix) [Live]"},  # not even its double space is touched
+                 {"artist": "A", "title": "Night Drive (feat. Guest)"}):
+        assert own_name(tags, "x.mp3") == (tags["artist"], tags["title"])
+
+
+def test_own_name_drops_tag_brackets_of_a_file_name_title_too():
+    assert own_name({}, "Example Artist - Night Drive [FREE DL].mp3") == ("Example Artist", "Night Drive")
+    assert own_name({}, "night drive [FREE DL].mp3") == ("", "night drive")
+    assert own_name({}, "[FREE DL].mp3") == ("", "[FREE DL]")  # never an empty title

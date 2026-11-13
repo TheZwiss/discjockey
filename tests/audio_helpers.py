@@ -56,3 +56,24 @@ def to_aac(src: Path, dst: Path, lowpass_hz: int | None = None) -> Path:
     subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(src), *af, "-c:a", "aac", "-b:a", "128k",
                     str(dst)], check=True)
     return dst
+
+
+def picture(width: int, height: int, fmt: str = "jpeg") -> bytes:
+    """A test picture (ffmpeg's test pattern with noise, so it doesn't compress to nothing) as a baseline JPEG or a PNG."""
+    codec, form = ("mjpeg", "image2") if fmt == "jpeg" else ("png", "image2")
+    r = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i",
+                        f"testsrc2=s={width}x{height}:d=1,noise=alls=40:allf=t", "-frames:v", "1", "-pix_fmt",
+                        "yuvj420p" if fmt == "jpeg" else "rgb24", "-c:v", codec, "-q:v", "3", "-f", form, "-"],
+                       capture_output=True, check=True)
+    return r.stdout
+
+
+# a 16 x 16 baseline JPEG (ffmpeg's mjpeg, a red square): small enough to write as a cover without ffmpeg, and within
+# the CDJ limits `audio.cdj_cover` keeps byte for byte
+TINY_JPEG = bytes.fromhex(
+    "ffd8ffe000104a46494600010200000100010000fffe00104c61766336322e32382e31303100ffdb0043000806060706"
+    "070808080808080909090a0a0a090909090a0a0a0a0a0a0c0c0c0a0a0a0a0a0a0a0c0c0c0c0d0e0d0d0d0c0d0e0e0f0f"
+    "0f1212111115151519191fffc4004c000101000000000000000000000000000000060101010000000000000000000000"
+    "0000000607100100000000000000000000000000000000110100000000000000000000000000000000ffc00011080010"
+    "001003012200021100031100ffda000c03010002110311003f008b004d7f7fffd9"
+)

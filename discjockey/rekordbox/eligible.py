@@ -35,19 +35,23 @@ from .offset import TimelineOffset
 REASONS = ("no_upgrade", "needs_choice", "file_missing", "away", "rekordbox_unreadable", "timing", "not_analysed",
            "cloud", "downloaded", "clean_aiff", "named_already", "needs_convert", "no_name", "not_in_library",
            "auto_refused", "unclean", "changed", "space", "rekordbox_open", "busy", "rename_blocked", "relocated",
-           "later_batch", "not_reached")
+           "later_batch", "not_reached", "upgrade_waits")
 # `auto_refused` is the Auto-upgrade phase's own skip (stage C: the phase leaves a track out of its batch because a
 # refusal it recorded still holds; `auto_upgrade.plan` lists those, no item carries the key today); the rest from
 # `unclean` on are what a run finds (stage B): the write is refused (`unclean`, guard 4), the track changed
 # meanwhile, too little room, rekordbox open, another Discjockey window holding the rekordbox lock (`busy`), a
 # rename the repoint can't follow, and an undo refused because the track was moved or removed in rekordbox since
 # the replace; `later_batch`: the track was planned again in a later batch, so an earlier stopped batch gave up its
-# unrun item; `not_reached` (stage C): the sync's Auto-upgrade batch ended (Stop, a crash) before this item
+# unrun item; `not_reached` (stage C): the sync's Auto-upgrade batch ended (Stop, a crash) before this item;
+# `upgrade_waits` (stage D, plan §0.2): the song has a parked better version, so Convert and Rename leave the old
+# file to Same track (converting it first would cost a render and space for nothing)
 ACTIONS = ("same_track", "convert", "rename")
 AIFF_EXTS = (".aiff", ".aif")
 OWN = "manual"  # the `source` of a file that wasn't downloaded: a bought file or one the import found
 
 Present = Literal["here", "away", "missing"]
+
+LOSSLESS_CODEC_NAMES = ("flac", "alac")  # the lossless codecs that are not `pcm_*` (WAV, AIFF)
 
 
 @dataclass(frozen=True)
@@ -136,6 +140,12 @@ def _is_aiff_16_44(facts: FileFacts) -> bool:
     return facts.ext in AIFF_EXTS and facts.codec.startswith("pcm_s16") and facts.bits == 16 and facts.sample_rate == 44100
 
 
+def is_lossless_codec(codec: str | None) -> bool:
+    """Whether a file's stored codec (`file_codec`) is lossless for Make all lossless files AIFF: PCM (WAV, AIFF), FLAC
+    or ALAC (plan stage D §0.8). Lossy codecs and unknown ones (None) are not."""
+    return bool(codec) and (codec.startswith("pcm_") or codec in LOSSLESS_CODEC_NAMES)
+
+
 def _where(present: Present) -> Skip | None:
     return None if present == "here" else Skip("away" if present == "away" else "file_missing")
 
@@ -199,6 +209,8 @@ def convert(entry: dict, facts: FileFacts | None, rb: Status, timing: TimelineOf
         return Skip("downloaded")
     if not (entry.get("artist") or "").strip() or not (entry.get("title") or "").strip():
         return Skip("no_name")
+    if entry.get("upgrade"):
+        return Skip("upgrade_waits")
     if facts is not None and is_clean_aiff(facts, entry):
         return Skip("clean_aiff")
     return _rekordbox_blocks(rb, timing) or Eligible()
@@ -214,8 +226,26 @@ def rename(entry: dict, facts: FileFacts | None, rb: Status, timing: TimelineOff
         return Skip("downloaded")
     if not (entry.get("artist") or "").strip() or not (entry.get("title") or "").strip():
         return Skip("no_name")
+    if entry.get("upgrade"):
+        return Skip("upgrade_waits")
     if facts is None or not is_clean_aiff(facts, entry):
         return Skip("needs_convert")
     if clean_path is not None and fold(clean_path) == fold(entry.get("path") or ""):
         return Skip("named_already")
     return _rekordbox_blocks(rb, timing, audio_changes=False) or Eligible()
+
+
+def aiff_action(entry: dict, facts: FileFacts | None, rb: Status, timing: TimelineOffset | None,
+                present: Present = "here", clean_path: str | None = None) -> tuple[str, Verdict]:
+    """The one rule that says what making a file a clean AIFF means for this track (plan stage D §0.1): ("convert",
+    Eligible) when Convert can run, else ("rename", Eligible) when Rename can, else the more telling refusal:
+    Convert's, except `clean_aiff` (the file is a clean AIFF, so the name is what is left to say): then Rename's
+    answer (`named_already`, or what rekordbox's state says about a rename). Every "all" scope, a selection and
+    `discjockey convert <track>` ask this; only `rename(...)` and `discjockey rename` ask Rename alone."""
+    converting = convert(entry, facts, rb, timing, present=present)
+    if isinstance(converting, Eligible):
+        return "convert", converting
+    renaming = rename(entry, facts, rb, timing, present=present, clean_path=clean_path)
+    if isinstance(renaming, Eligible) or converting.reason == "clean_aiff":
+        return "rename", renaming
+    return "convert", converting

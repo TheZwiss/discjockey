@@ -8,7 +8,7 @@ import pytest
 
 from discjockey import db
 from discjockey.library import StateError, empty_state
-from discjockey.models import OwnFacts, PlannedMove, ScanResult, SeenFile
+from discjockey.models import FileAudio, OwnFacts, PlannedMove, ScanResult, SeenFile
 
 NOW = datetime(2026, 10, 25, 12, 0, 0)
 LATER = datetime(2026, 10, 26, 9, 0, 0)
@@ -721,3 +721,84 @@ def test_a_row_the_import_already_knows_keeps_its_own_state_when_its_entry_canno
     lib.own_song(a)
     lib.scan(ScanResult(unopenable=[(folder, "A.mp3")]), LATER)
     assert lib.rows("SELECT import_state, import_error FROM files WHERE id = ?", a) == [("identified", None)]
+
+
+# --- issue 33 stage D: the file's own facts (schema 8) ---
+
+FLAC = FileAudio("flac", 96000, 24, 2100)
+
+
+def facts_rows(lib, file_id):
+    return lib.rows("SELECT file_codec, file_rate, file_bits, file_kbps FROM files WHERE id = ?", file_id)[0]
+
+
+def test_an_own_song_made_with_audio_facts_stores_them_and_the_snapshot_shows_them_read_only(lib):
+    folder = lib.folder().id
+    (a,) = lib.add_files(folder, "A.flac")
+    key = lib.own_song(a, OwnFacts("X", "Y", None, None, 1000, "flac", "lossless", FLAC))
+    assert facts_rows(lib, a) == ("flac", 96000, 24, 2100)
+    e = lib.snap()["tracks"][key]
+    assert (e["file_codec"], e["file_rate"], e["file_bits"], e["file_kbps"]) == ("flac", 96000, 24, 2100)
+    assert lib.save({**lib.snap(), "tracks": {**lib.snap()["tracks"], key: {**e, "file_codec": "mp3"}}}) == 0
+    assert facts_rows(lib, a) == ("flac", 96000, 24, 2100)  # a save never writes them
+    assert lib.snap()["tracks"]["sp1"]["file_codec"] is None  # a download has none
+
+
+def test_files_without_facts_lists_only_own_online_files_with_a_song_and_no_codec(lib):
+    folder = lib.folder().id
+    other = lib.folder("/Volumes/Other/Music").id
+    a, b, c, d = lib.add_files(folder, "A.mp3", "B.flac", "C.wav", "D.wav")
+    (e,) = lib.add_files(other, "E.mp3")
+    for f in (a, b, c, e):
+        lib.own_song(f)  # D has no song: the import's first pass hasn't read it
+    with lib.conn() as conn:
+        db.set_file_facts(conn, b, FLAC)
+        lib.scan(ScanResult(held=[c], offline=[other]))
+        assert db.files_without_facts(conn) == [(a, Path(DRIVE) / "A.mp3")]  # b filled, c held, d no song, e offline
+        assert db.facts_missing(conn) == 1
+        # a download's row (sp1, source qobuz) is never listed
+        download = conn.execute("SELECT id FROM files WHERE source = 'qobuz'").fetchone()[0]
+        assert download not in [f for f, _ in db.files_without_facts(conn)]
+
+
+def test_set_file_facts_writes_the_four_columns_without_bumping_the_generation(lib):
+    folder = lib.folder().id
+    (a,) = lib.add_files(folder, "A.mp3")
+    lib.own_song(a)
+    before = lib.generation()
+    with lib.conn() as conn:
+        assert db.set_file_facts(conn, a, FileAudio("mp3", 44100, None, 320)) == 1
+        assert db.set_file_facts(conn, 9999, FLAC) == 0  # a row gone meanwhile is left alone
+    assert facts_rows(lib, a) == ("mp3", 44100, None, 320)
+    assert lib.generation() == before
+
+
+def test_a_scan_that_finds_the_audio_replaced_clears_the_facts_but_a_retag_keeps_them(lib):
+    folder = lib.folder().id
+    (a,) = lib.add_files(folder, "A.flac")
+    lib.own_song(a, OwnFacts("X", "Y", None, None, 1000, "flac", "lossless", FLAC))
+    lib.scan(ScanResult(retagged=[(a, SeenFile(folder, "A.flac", 101, 2000, f"key-{folder}-A.flac"))]), LATER)
+    assert facts_rows(lib, a) == ("flac", 96000, 24, 2100)
+    lib.scan(ScanResult(replaced=[(a, SeenFile(folder, "A.flac", 55, 3000, "other-key"))]), LATER)
+    assert facts_rows(lib, a) == (None, None, None, None)
+    with lib.conn() as conn:
+        assert db.facts_missing(conn) == 1  # the fill reads the new audio next
+
+
+def test_a_save_keeps_the_facts_of_an_unchanged_file_and_clears_those_of_new_audio(lib):
+    folder = lib.folder().id
+    (a,) = lib.add_files(folder, "A.flac", key="same")
+    key = lib.own_song(a, OwnFacts("X", "Y", None, None, 1000, "flac", "lossless", FLAC))
+    lib.present.add(f"{DRIVE}/A.flac")
+    state = lib.snap()
+    state["tracks"][key]["status"] = "lossless"  # a quality change under the same content key
+    lib.save(state)
+    assert facts_rows(lib, a) == ("flac", 96000, 24, 2100)
+    lib.present.discard(f"{DRIVE}/A.flac")
+    lib.present.add(f"{DRIVE}/A.flac")
+    state = lib.snap()
+    state["tracks"][key]["source_format"] = "pcm_s16be"
+    with lib.conn() as conn:  # new audio under the same entry: the facts the file's key reports differ now
+        db.save(conn, state, library=lib.library, facts=lambda path: db.FileFacts(7, 7, "new-key"), now=LATER,
+                rekeyed=[f"{DRIVE}/A.flac"])
+    assert facts_rows(lib, a) == (None, None, None, None)

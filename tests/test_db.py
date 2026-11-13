@@ -60,7 +60,7 @@ def test_a_fresh_database_has_the_current_version(tmp_path, library):
         db.check(conn)
         version = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
         created = conn.execute("SELECT value FROM meta WHERE key = 'created'").fetchone()[0]
-    assert int(version) == db.SCHEMA_VERSION == 7
+    assert int(version) == db.SCHEMA_VERSION == 8
     assert created == "2026-10-23T12:00:00"
 
 
@@ -457,6 +457,7 @@ def test_a_writer_upgrades_a_version_6_database_with_two_new_empty_tables_and_no
     path = version_6(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
     before = everything(path)
     assert "aiff_batches" not in before and "aiff_items" not in before
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 7)  # this step alone; 7 -> 8 has its own test
     with db.connect(path) as conn:
         db.check(conn, upgrade=True)
     after = everything(path)
@@ -472,7 +473,7 @@ def test_fresh_and_v6_upgraded_databases_have_the_same_schema(tmp_path, library,
     (tmp_path / "b").mkdir()
     upgraded = version_6(tmp_path / "a", library, monkeypatch)
     with db.connect(upgraded) as conn:
-        db.check(conn, upgrade=True)
+        db.check(conn, upgrade=True)  # through 7 to the current version
     assert schema(upgraded) == schema(fresh(tmp_path / "b", library))
 
 
@@ -1165,3 +1166,52 @@ def test_a_stage_3_snapshot_round_trips_unchanged_apart_from_the_new_keys(tmp_pa
     assert tracks["sp1"]["import_state"] is None and tracks["sp1"]["first_seen"] == "2026-10-23T12:00:00"
     assert tracks["sp2"]["import_state"] is None and tracks["sp2"]["first_seen"] is None
     assert without_read_only(tracks) == {k: {**e, "file_gone": None} for k, e in v1_state()["tracks"].items()}
+
+
+# --- issue 33 stage D: the schema step 7 -> 8 (files.file_codec, file_rate, file_bits, file_kbps) ---
+
+def version_7(tmp_path, library, monkeypatch, state=None, facts=no_facts):
+    """A database as stage C built it: version 7, no file facts columns."""
+    with monkeypatch.context() as m:
+        m.setattr(db, "SCHEMA_VERSION", 7)
+        m.setattr(db, "UPGRADES", {k: db.UPGRADES[k] for k in (1, 2, 3, 4, 5, 6)})
+        return fresh(tmp_path, library, state, facts)
+
+
+FACT_COLUMNS = ["file_codec", "file_rate", "file_bits", "file_kbps"]
+
+
+def test_a_writer_upgrades_a_version_7_database_with_four_null_columns_and_nothing_else_changed(tmp_path, library,
+                                                                                               monkeypatch):
+    path = version_7(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
+    before = everything(path)
+    with db.connect(path) as conn:
+        assert not set(FACT_COLUMNS) & {r[1] for r in conn.execute("PRAGMA table_info(files)")}
+        db.check(conn, upgrade=True)
+    after = everything(path)
+    meta = dict(after.pop("meta"))
+    assert meta.pop("schema_version") == "8"
+    assert meta == {k: v for k, v in before.pop("meta") if k != "schema_version"}
+    with db.connect(path) as conn:
+        assert [r[1] for r in conn.execute("PRAGMA table_info(files)")][-4:] == FACT_COLUMNS
+        assert conn.execute("SELECT count(*) FROM files").fetchone()[0] > 0
+        assert conn.execute("SELECT count(file_codec) + count(file_rate) + count(file_bits) + count(file_kbps) "
+                            "FROM files").fetchone()[0] == 0
+    assert [row[:-4] for row in after.pop("files")] == before.pop("files")  # every old column as it was
+    assert after == before
+
+
+def test_fresh_and_v7_upgraded_databases_have_the_same_schema(tmp_path, library, monkeypatch):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    upgraded = version_7(tmp_path / "a", library, monkeypatch)
+    with db.connect(upgraded) as conn:
+        db.check(conn, upgrade=True)
+    assert schema(upgraded) == schema(fresh(tmp_path / "b", library))
+
+
+def test_a_reader_refuses_a_version_7_database(tmp_path, library, monkeypatch):
+    path = version_7(tmp_path, library, monkeypatch)
+    with db.connect(path) as conn, pytest.raises(StateError) as e:
+        db.check(conn)
+    assert str(e.value) == db.OLDER
