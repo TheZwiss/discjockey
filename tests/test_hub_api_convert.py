@@ -5,7 +5,9 @@ wiring of D6a's views (the CDJ group's counts and Resume, Upgrade ready's Resume
 files and a fixture rekordbox in tmp_path (`batch_helpers.make_own_lib`); the services are replaced."""
 from __future__ import annotations
 
+import json
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -343,3 +345,41 @@ def test_one_song_alone_that_meets_an_open_rekordbox_leaves_no_resume(hub):
     assert (f.result["state"], f.result["done"]) == ("done", 0)          # closed: nothing planned is left
     assert api.library()["aiff_stopped"] is None
     assert api.batch_resume(f.result["batch"])["kind"] == "refused"
+
+
+# --- the shapes, pinned against the fixture the fake backend's test reads too ---
+
+SHAPES = json.loads((Path(__file__).parent / "fixtures" / "hub_convert_shapes.json").read_text())
+
+
+def keys(name):
+    return set(SHAPES[name])
+
+
+def test_every_shape_stage_d_adds_has_the_fixtures_keys(hub):
+    lib, box, api, rec = hub()
+    set_kbps(lib, 0, 400)
+    (lib.paths.root / lib.olds[1]).unlink()                   # a song whose file is gone: it waits
+    aiff = api.track(lib.tracks[0])["track"]["aiff"]
+    assert set(aiff) == keys("track_aiff") and set(aiff["cdj"]) == keys("cdj_words")
+    plan = api.aiff_plan({"kind": "tracks", "tracks": [lib.tracks[0], lib.tracks[1], lib.tracks[4]]})["plan"]
+    assert set(plan) == keys("plan") and set(plan["rekordbox"]) == keys("plan_rekordbox")
+    assert set(plan["items"][0]) == keys("plan_item") and set(plan["items"][0]["cdj"]) == keys("cdj_words")
+    assert set(plan["skipped"][0]) == keys("plan_left") and set(plan["waiting"][0]) == keys("plan_waiting")
+    assert set(plan["kinds"][0]) == keys("plan_kind") and set(plan["space"][0]) == keys("plan_space")
+    cdj = cdj_group(api)
+    assert set(cdj["all"]) == keys("cdj_group_all")
+    assert set(cdj["items"][0]) >= keys("cdj_item_extra") and set(cdj["items"][0]["cdj"]) == keys("cdj_why")
+    f = wait_job(api, rec, api.convert([lib.tracks[0], lib.tracks[2]]))
+    assert set(f.result) == keys("batch_result") and set(f.result["results"][0]) == keys("item_result")
+    item = group(api, "rekordbox_check")["items"][0]
+    assert set(item["batch"]) == keys("batch") and set(item["batch"]["tracks"][0]["check"]) == keys("check_view")
+    assert set(wait_job(api, rec, api.batch_undo(f.result["batch"])).result) == keys("undo_result_success")
+
+
+def test_a_stopped_batch_has_the_fixtures_keys_in_the_library_and_in_to_do(tmp_path, monkeypatch):
+    lib = make_own_lib(tmp_path, monkeypatch, ["mp3", "clean"])
+    box = Box(lib, running=True)
+    api, rec = make_api(lib.paths, **box.services())
+    assert not wait_job(api, rec, api.make_aiff({"kind": "lossless", "view": "all"})).ok
+    assert set(api.library()["aiff_stopped"]) == keys("stopped")

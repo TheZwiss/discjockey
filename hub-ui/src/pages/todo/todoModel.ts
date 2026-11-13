@@ -16,11 +16,11 @@ import { keep as keepSelected, type Selection } from '$lib/components/selectionM
  *  right after rekordbox: they hold downloads back until they are answered (plan library stage 4 D4), and the strip
  *  reads in the order the sections do. With every group present, the later ones go under More (FILTER_MAX). */
 export const FILTER_ORDER: TodoFilter[] = ['all', 'rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready',
-  'not_found', 'weak', 'good_lossy', 'fake', 'other'];
+  'cdj', 'not_found', 'weak', 'good_lossy', 'fake', 'other'];
 /** Short, so the strip holds five and More on one line at 1100 (the section heads carry the full names). */
 const FILTER_LABEL: Record<TodoFilter, string> = {
   all: 'All', rekordbox_check: 'rekordbox', same_song: 'Same song?', duplicate: 'Duplicates', upgrade_ready: 'Upgrades',
-  not_found: 'Not found', weak: 'Weak', good_lossy: 'Good lossy', fake: 'Fake lossless', other: 'Other',
+  cdj: 'CDJs', not_found: 'Not found', weak: 'Weak', good_lossy: 'Good lossy', fake: 'Fake lossless', other: 'Other',
 };
 const FILTER_DOT: Partial<Record<TodoFilter, Quality>> = {
   upgrade_ready: 'lossless', not_found: 'missing', weak: 'weak', good_lossy: 'good_lossy', fake: 'fake',

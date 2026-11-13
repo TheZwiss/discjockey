@@ -24,8 +24,8 @@ export type LibraryFilter = 'all' | 'lossless' | 'good_lossy' | 'weak' | 'fake' 
 /** `order` is a playlist's own order (its read record's); the engine's default there, and `artist` elsewhere. */
 export type LibrarySort = `${'' | '-'}${'title' | 'artist' | 'length' | 'source' | 'quality' | 'added' | 'folder' | 'order'}`;
 // The contract adds `rekordbox_check` (the plan's list predates it) and the import's `same_song` and `duplicate`.
-export type TodoFilter = 'all' | 'rekordbox_check' | 'same_song' | 'duplicate' | 'upgrade_ready' | 'not_found' | 'weak'
-  | 'good_lossy' | 'fake' | 'other';
+export type TodoFilter = 'all' | 'rekordbox_check' | 'same_song' | 'duplicate' | 'upgrade_ready' | 'cdj' | 'not_found'
+  | 'weak' | 'good_lossy' | 'fake' | 'other';
 export type Which = 'current' | 'upgrade';
 export type PlaylistLine = { folder: string; link: string; enabled: boolean };
 export const NOT_IN_PLAYLIST = '__not_in_playlist__';
@@ -57,13 +57,23 @@ export type TodoItem = TrackRow & { group: TodoGroupKey; detail: string; free: b
   pair?: QuestionPair | DuplicatePair; can_undo?: boolean; check?: RekordboxCheckView;
   /** `upgrade_ready` items: why Same track can't run now (an `EligibleReason` key), null when it can */
   same_track?: string | null;
+  /** `cdj` items (issue 33 stage D): what the CDJs refuse in the file, and `aiff`: why Convert can't run now (an
+   *  `EligibleReason` key from the stored facts), null when it can */
+  cdj?: CdjWhy; aiff?: string | null;
   /** a batch's open checks (two or more) are one item: `key` and `track_id` are `batch:<id>` (narrow with `isBatch`) */
   key?: string; batch?: BatchCheck };
+/** Why the CDJ-3000 or the CDJ-2000NXS2 refuses or stutters on a file (`cdj.cdj_problem`): `reason` format | bitrate |
+ *  bits | rate_high | rate_low, `short` To-do's one line, `words` the sentence for the panels. */
+export type CdjWhy = { reason: 'format' | 'bitrate' | 'bits' | 'rate_high' | 'rate_low'; short: string; words: string };
+/** The `cdj` of `track().aiff` and of an `AiffPlanItem`: the same words without the reason key. */
+export type CdjWords = { short: string; words: string };
 /** A `BatchCheckItem`'s batch: `size` open checks, `started` the earliest check's date, `tracks` them as single items. */
 export type BatchCheck = { id: number; size: number; started: string | null;
   /** who started the batch (`aiff_batches.started_by`): `auto_upgrade` is the sync's Auto-upgrade phase (its item says
    *  "Upgraded during your sync" and its foot "Undo all from this sync"); null when unknown */
   started_by: 'user' | 'upgrade_all' | 'make_aiff' | 'cdj_all' | 'auto_upgrade' | (string & {}) | null;
+  /** the batch's own kind (`aiff_batches.kind`): a Convert batch says "Made AIFF"; null when unknown */
+  kind: 'upgrade' | 'convert' | 'mixed' | null;
   tracks: TodoItem[] };
 export type BatchCheckItem = TodoItem & { group: 'rekordbox_check'; key: string; batch: BatchCheck };
 export const isBatch = (i: TodoItem): i is BatchCheckItem => i.group === 'rekordbox_check' && !!i.batch;
@@ -73,14 +83,18 @@ export const isBatch = (i: TodoItem): i is BatchCheckItem => i.group === 'rekord
  *  false for a swap and in records from before it), `text` the whole instruction and
  *  `old_path` where the old file (added) or the copy of the old audio (swap) is now (null without an undo record).
  *  The item's `detail` is the row's short line. */
-export type RekordboxCheckView = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | 'repointed' | string; since: string | null;
+export type RekordboxCheckView = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | 'repointed' | 'converted' | 'renamed' | string;
+  since: string | null;
   match: string | null; offset_ms: number | null; moved: boolean; aligned: boolean; text: string; old_path: string | null;
   /** false when Discjockey wrote rekordbox's text itself (no Reload Tag step); true for older records */
   reload_tag: boolean;
   /** the AIFF batch that left the check and how many of its checks are still open (null: no batch) */
   batch: { id: number; size: number } | null;
   /** what was written in rekordbox: how many tracks, and the fields kept as the user edited them (null: nothing) */
-  rekordbox: { entries: number; kept: string[] } | null };
+  rekordbox: { entries: number; kept: string[] } | null;
+  /** stage D: a `renamed` check's old base name ("Artist - Title [FREE DL].aiff"), null for every other check; a
+   *  `converted` check's `old_path` is where the old file is now (Superseded/), a `renamed` one has none */
+  old_name: string | null };
 
 // --- the import of the user's own music (plan library stage 4, I11; contract "Watched folders and the import") ---
 /** One file of a question or a duplicate group. `path` is absolute for an import folder's file; `audio_url` is null
@@ -371,6 +385,9 @@ export type Library = {
   songs: { listed: number; with_file: number } | null;
   /** a playlist view: when its read was made (null: never read), whether its line is switched on, its service */
   read_at: string | null; enabled: boolean | null; service: PlaylistService | null;
+  /** the newest stopped `library:*` AIFF batch (Make all, a selection's Convert) with items left: the header's
+   *  "Resume · {left} left"; null when none (issue 33 stage D) */
+  aiff_stopped: { batch_id: number; left: number } | null;
   empty: EmptyKind | null;
 };
 export type Alignment = { drift_ms: number | null; offset_ms: number | null; offset_samples: number | null;
@@ -423,16 +440,28 @@ export type TrackDetail = TrackRow & {
   source_url: string | null; track_link: TrackLink | null; next_qobuz_check: string | null;
   rejected_sources: string[]; buy_links: { beatport: string; bandcamp: string }; free_downloads: FreeDownload[];
   bought_name: string; audio_url: string | null; upgrade: Upgrade | null;
+  /** what Convert and "Give it its clean name" can do for this file (issue 33 stage D); null: no file, a download
+   *  or a parked upgrade (the upgrade decision stands) */
+  aiff: TrackAiff | null;
 };
+/** `track().aiff`. With an `action`: `kind` (an `AiffKind`), `from` the file's format line ("FLAC · 24-bit · 96 kHz"),
+ *  `to` what a Convert makes ("AIFF · 16-bit · 44.1 kHz"; null for a rename), `new_name` the file's name when done
+ *  (equal to `name_now` for a Convert whose AIFF ends where the old file was), `bytes` the room the render needs.
+ *  Without: `why_not` is the reason (an `EligibleReason` key such as `named_already`, `away`, `rekordbox_unreadable`),
+ *  `from`, `lossy` and `cdj` still say what the file is, `kind` / `to` / `new_name` null, `bytes` 0. */
+export type TrackAiff = { action: 'convert' | 'rename' | null; why_not: string | null; kind: string | null;
+  from: string | null; to: string | null; name_now: string; new_name: string | null; bytes: number; lossy: boolean;
+  cdj: CdjWords | null };
 export type Todo = {
   chips: Record<TodoFilter, number>;
   /** the tracks with an open check in rekordbox, whatever the filter: `chips.rekordbox_check` counts items (a batch is
    *  one), this counts tracks (a batch counts its `size`), the page header's number */
   check_tracks: number; hidden_count: number; show_hidden: boolean;
   groups: { key: TodoGroupKey; label: string; hint: string; items: TodoItem[];
-    /** `upgrade_ready` only: Upgrade all's counts (Same track can run / the edit needs a choice / waits for something
-     *  else) and the newest stopped Same track batch with items left */
-    all?: { n: number; m: number; k: number }; stopped?: { batch_id: number; left: number } | null }[];
+    /** `upgrade_ready`: Upgrade all's counts (Same track can run / the edit needs a choice / waits for something
+     *  else) and the newest stopped Same track batch with items left. `cdj` (stage D): `all` is `{n, k}` (what Convert
+     *  all can do now / what waits; no `m`) and `stopped` the newest stopped `todo:*` batch with items left */
+    all?: { n: number; m?: number; k: number }; stopped?: { batch_id: number; left: number } | null }[];
   empty: EmptyKind | null;
 };
 
@@ -622,15 +651,47 @@ export type OpResult = { track_id: string; result: Result; recovered: [string, b
 export type ItemResult = { track: string; action: string; state: 'planned' | 'done' | 'skipped' | 'failed' | 'undone';
   reason: string | null; message: string | null; path: string | null;
   rekordbox: { entries: string[]; kept: string[] } | null };
-/** The result of `upgrade(…, 'swap')`, `upgrade_all` and `batch_resume`; New track and Discard lists have the same shape
+/** The result of `upgrade(…, 'swap')`, `upgrade_all`, `batch_resume` and, in stage D, `convert`, `rename` and `make_aiff`
+ *  (job `aiff_batch`); New track and Discard lists have the same shape
  *  with `batch` null (and a job also carries it when it ends `stopped`, `rekordbox_open`, `busy` or `refused`). */
 export type AiffBatchResult = { batch: number | null; state: 'running' | 'stopped' | 'done';
   stop_reason: 'stop' | 'rekordbox_open' | 'busy' | 'crash' | null; total: number; done: number; skipped: number;
   failed: number; results: ItemResult[]; backup: string | null; recovered: [string, boolean][] };
+// --- Convert, clean names, Make all lossless files AIFF (issue 33 stage D; contract "Convert and clean names") ---
+/** What `aiff_plan`, `convert`, `rename` and `make_aiff` take: a selection, a view's lossless files, or the CDJ group. */
+export type AiffScope =
+  | { kind: 'tracks'; tracks: string[] }
+  | { kind: 'lossless'; view: LibraryView; key: string | null }
+  | { kind: 'cdj' };
+/** The kinds of an item in the panel's order: `flac`, `wav`, `alac`, `aiff_hires`, `tags`, `name`, `wavpack`, `ape`,
+ *  `tta`, `mp3`, `aac`, `opus`, `vorbis`, then any other codec by its own name. */
+export type AiffKind = string;
+/** One file the run would change; `path` / `new_path` / `superseded` are relative to the music folder (an own file in
+ *  a watched folder: absolute); `superseded` null for a rename. */
+export type AiffPlanItem = { track: string; name: string; action: 'convert' | 'rename'; kind: AiffKind; from: string;
+  path: string; new_path: string; superseded: string | null; bytes: number; cdj: CdjWords | null };
+/** A file of a `tracks` scope that is left as it is: `reason` an `EligibleReason` key, `message` its words. */
+export type AiffLeft = { track: string; name: string; reason: string; message: string };
+export type AiffPlan = {
+  /** the scope as asked plus `label`: "Selection", "Won't play well on CDJs", else the view's title */
+  scope: AiffScope & { label: string };
+  items: AiffPlanItem[]; skipped: AiffLeft[];
+  /** files that can't run now but may later, each once and never an item, in the order away, file_missing, no_name,
+   *  rekordbox_unreadable, cloud, rename_blocked, upgrade_waits */
+  waiting: { reason: string; message: string; n: number }[];
+  kinds: { kind: AiffKind; label: string; n: number }[];
+  /** how many items have a lossy file now (their AIFF sounds the same, only the format changes) */
+  lossy: number; total: number;
+  /** the room the new files need per drive (`drive` a folder on it); a rename needs none */
+  space: { drive: string; needed: number; free: number; enough: boolean }[];
+  superseded_bytes: number;
+  rekordbox: { state: 'ready' | 'none' | 'unreadable'; running: boolean; needs_closed: boolean } };
 export type UndoItem = { track: string; state: 'undone' | 'refused' | 'failed' | 'waiting'; reason: string | null;
   message: string };
 export type UndoResult = { batch: number | null; total: number; undone: number; refused: number; failed: number;
-  results: UndoItem[]; recovered: [string, boolean][] };
+  results: UndoItem[]; recovered: [string, boolean][];
+  /** stage D: what the undo says when it worked ("Conversion undone. Your old file is back."); only on success */
+  words?: string };
 export type CheckedResult = { results: Result[]; checked: string[]; not_checked: string[]; recovered: [string, boolean][] };
 
 // JobFinished.result per job kind (a crashed sync carries its SyncResult too: exit_code 1, report = the crash note)
@@ -652,7 +713,7 @@ export type JobResults = {
   never_download: { track_id: string; never: boolean };
   scan: { moved: number; new: number; gone: number; changed: number; copies: number };
   hide: OpResult; unhide: OpResult; add_bought_file: OpResult; use_candidate: OpResult; use_link: OpResult;
-  reject_current: OpResult; rekordbox_checked: CheckedResult; upgrade_batch: AiffBatchResult; batch_resume: AiffBatchResult;
+  reject_current: OpResult; rekordbox_checked: CheckedResult; upgrade_batch: AiffBatchResult; aiff_batch: AiffBatchResult; batch_resume: AiffBatchResult;
   upgrade_add_new: AiffBatchResult; upgrade_discard: AiffBatchResult; batch_undo: UndoResult; undo_upgrade: UndoResult; setup_save_client_id: Record<string, never>; setup_spotify_login: { user: string };
   setup_qobuz_login: Record<string, never>;
   update_tools: ToolsChange; rollback_tools: ToolsChange;

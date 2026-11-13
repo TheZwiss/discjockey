@@ -27,12 +27,27 @@ export type FakeAccount = FakeService & { browser: Browser; profile?: string | n
 
 /** As the state's `rekordbox_check`: an added_as_new and a swapped one also keep what the two files measured as, a
  *  swapped one whether the file moved up out of not_lossless/, and both the undo (here: the fields as they were). */
-export type RekordboxCheck = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | 'repointed'; since: string; match?: string;
+export type RekordboxCheck = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | 'repointed' | 'converted' | 'renamed'; since: string; match?: string;
   offset_ms?: number; moved?: boolean; aligned?: boolean; undo?: Partial<FakeTrack>;
   /** stage B: the AIFF batch that left it, whether Reload Tag is still needed, what was written in rekordbox */
   batch?: number; reload_tag?: boolean; rekordbox?: { entries: number; kept: string[] } | null;
   /** as the undo record's `old`: where the old file (added) or the copy of the old audio (swap) is now */
-  old_path?: string };
+  old_path?: string;
+  /** stage D: a `renamed` check's old base name */
+  oldName?: string };
+
+/** The facts the import stored about an own file (`models.FileAudio` plus its extension): what the CDJ rule and the AIFF
+ *  plan read, with no decoding. `codec` is ffprobe's (`flac`, `alac`, `mp3`, `aac`, `opus`, `vorbis`, `pcm_s16le`,
+ *  `pcm_s24le`, `pcm_f32le`, `wmav2` ...); `ext` the file's extension without the dot (the path's own when unset);
+ *  `tagsClean` (an AIFF in the library format only): its tags are the download's, so only its name is left to fix. */
+/** An AIFF batch that exists from the start (`FakeState.batches`): a scenario's stopped Make all, or a finished one whose
+ *  tracks carry their own checks. `id` runs on from 1 in the order given; items `done` are marked done (set the track's
+ *  own `rekordbox_check` for the check), `planned` ones are left (the batch is Resumable when `state` is `stopped`). */
+export type SeedBatch = { kind: 'upgrade' | 'convert' | 'mixed'; scope: string; state: 'stopped' | 'done';
+  started_by?: 'user' | 'make_aiff' | 'cdj_all' | 'upgrade_all' | 'auto_upgrade';
+  items: { track: string; action: 'convert' | 'rename' | 'same_track'; state: 'done' | 'planned' }[] };
+export type FakeAudio = { codec: string; rate: number | null; bits: number | null; kbps: number | null;
+  ext?: string; tagsClean?: boolean };
 
 export type FakeTrack = {
   track_id: string; artist: string; title: string; folder: string; duration_s: number;
@@ -64,6 +79,13 @@ export type FakeTrack = {
   /** an own file that isn't there to play (the contract's file_state): its drive is away, its folder isn't found, or
    *  the file went since the last scan; it has a path, but the player and the spectrum can't reach it */
   away?: Exclude<FileState, 'here'>;
+  /** stage D: the file's stored facts (an own file only). Unset: the WAV the details panel already says (PCM, 24-bit,
+   *  44.1 kHz), see `storedAudio` in convert.ts */
+  audio?: FakeAudio;
+  /** stage D: the song is in rekordbox's Cloud Library Sync, which Convert and Rename leave alone (`cloud`, waiting) */
+  cloud?: boolean;
+  /** stage D: rekordbox holds a track for this file (default true while rekordbox has a library) */
+  inRekordbox?: boolean;
 };
 /** One move of a move batch as the fake keeps it (the engine's `moves` row). */
 export type FakeMove = {
@@ -192,6 +214,10 @@ export type FakeState = {
   autoOpensAfter?: number;
   /** who started a scenario's AIFF batch (batch id -> `aiff_batches.started_by`); unset: the user */
   batchStartedBy?: Record<number, 'user' | 'upgrade_all' | 'auto_upgrade'>;
+  /** stage D: the room per drive (a folder on it, as `AiffPlan.space` says it) in bytes; a drive not listed has 400 GB */
+  freeBytes?: Record<string, number>;
+  /** stage D: AIFF batches that exist before the page does anything, e.g. a stopped Make all (`seedBatches`, convert.ts) */
+  batches?: SeedBatch[];
   /** tracks whose undo is refused when it runs (the engine's words: relocated in rekordbox since, a file changed) */
   undoRefuse?: Record<string, string>;
   offline: boolean;
@@ -251,7 +277,7 @@ export function qualityLabel(t: FakeTrack): string {
 export function pathOf(t: FakeTrack): string | null {
   if (t.status === 'missing') return null;
   if (t.file) return t.file;
-  if (t.own) return `${t.dir ?? '/Volumes/Example/Music'}/${t.artist} - ${t.title}.wav`;
+  if (t.own) return `${t.dir ?? '/Volumes/Example/Music'}/${t.artist} - ${t.title}.${t.audio?.ext ?? 'wav'}`;
   const sub = t.status === 'lossless' ? '' : '/not_lossless';
   return `Library/${t.at ?? t.folder}${sub}/${t.artist} - ${t.title}.aiff`;
 }
@@ -322,6 +348,8 @@ export function fileFormatLine(t: FakeTrack): string | null {
   const name = ({ aiff: 'AIFF', aif: 'AIFF', wav: 'WAV', flac: 'FLAC', mp3: 'MP3' } as Record<string, string>)[ext]
     ?? (ext ? ext.toUpperCase() : null);
   if (!name) return null;
+  // stage D: a file with stored facts says its own depth (a converted file is 16-bit now)
+  if (t.audio) return t.audio.codec.startsWith('pcm_') && t.audio.bits ? `${name} · ${t.audio.bits}-bit` : name;
   return t.codec === 'pcm' ? `${name} · 24-bit` : name;
 }
 /** As views.track_detail's source_how: how the source was found; null for an own or bought file. */
@@ -346,17 +374,30 @@ export function checkStatus(c: RekordboxCheck | null): string {
     return c.match === 'exact' || c.match === 'shifted' ? 'relocate, analyse again' : 'analyse, set the cues again';
   }
   if (c?.reason === 'wrong_song') return 'now the right song: analyse again';
+  if (c?.reason === 'converted') return c.rekordbox ? 'an AIFF now: nothing to redo' : 'an AIFF now, not in rekordbox';
+  if (c?.reason === 'renamed') return 'clean name now';
   return 'check it in rekordbox';
 }
 /** As views.check_view. */
 export function checkView(c: RekordboxCheck, batchSize = 1): RekordboxCheckView {
   return { reason: c.reason, since: c.since, match: c.match ?? null, offset_ms: c.offset_ms ?? null, moved: !!c.moved,
     aligned: !!c.aligned, reload_tag: c.reload_tag !== false, batch: c.batch ? { id: c.batch, size: batchSize } : null,
-    rekordbox: c.rekordbox ?? null, text: checkText(c), old_path: c.old_path ?? null };
+    rekordbox: c.rekordbox ?? null, text: checkText(c), old_path: c.reason === 'renamed' ? null : c.old_path ?? null,
+    old_name: c.reason === 'renamed' ? c.oldName ?? null : null };
 }
 /** As report.check_text: the same edit (exact or shifted) can be relocated in rekordbox and keeps its cues, exactly
  *  when the new file was rendered lined up (`aligned`). */
 export function checkText(check: RekordboxCheck): string {
+  if (check.reason === 'converted') {
+    return check.rekordbox
+      ? 'Your file is now an AIFF with a clean name and tags, and your rekordbox track plays it with its cues, playlists and history. The sound is the same.'
+      : "Your file is now an AIFF with a clean name and tags. This file isn't in your rekordbox collection, so there was nothing to keep there.";
+  }
+  if (check.reason === 'renamed') {
+    return check.rekordbox
+      ? 'Your file has its clean name now, and your rekordbox track follows it with its cues, playlists and history.'
+      : "Your file has its clean name now. This file isn't in your rekordbox collection, so there was nothing to keep there.";
+  }
   if (check.reason === 'repointed') {
     return check.rekordbox
       ? 'The better audio is in a new AIFF with a clean name, and your rekordbox track plays it with its cues, playlists and history. In rekordbox, analyse it again so the waveform shows the full sound (lock the beatgrid first if you set it by hand).'

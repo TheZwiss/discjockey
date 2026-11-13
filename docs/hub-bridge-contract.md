@@ -2057,3 +2057,89 @@ action.
 - **Fake scenarios:** `sync:auto-done`, `sync:auto-rekordbox-open`, `sync:auto-running`, `todo:auto-waits`,
   `todo:auto-refused`, `todo:auto-batch`, `settings:upgrades-on`, `settings:upgrades-off`, `setup:downloads-auto`; the
   dev toolbar's "rekordbox open" toggle sets `rekordbox_status().running`.
+
+
+## Convert and clean names (issue 33 stage D)
+
+Convert to AIFF, Give it its clean name, Make all lossless files AIFF and To-do's "Won't play well on CDJs" group (design
+`docs/2026-11-07-rekordbox-repoint-design.md` §2, plan `docs/2026-11-13-rekordbox-stage-d-plan.md`). The key sets of
+every shape below are pinned by `tests/fixtures/hub_convert_shapes.json`, which `tests/test_hub_api_convert.py` (the real
+hub) and `hub-ui/src/lib/bridge/fake/convert.test.ts` (the fake backend) both read. Types: `types.ts` (`TrackAiff`,
+`AiffScope`, `AiffPlan`, `CdjWhy`, `CdjWords`); the new methods are in `contract.ts` and, as `LIBRARY_METHODS` members,
+answer `no_library` without a music folder.
+
+- **`aiff_plan(scope)`** (read, any time) → `{plan: AiffPlan}` (`aiff_plan.AiffPlan.to_dict`). `scope` is
+  `{kind: "tracks", tracks: [key, …]}` (what the user picked; each song once), `{kind: "lossless", view:
+  "all"\|"unlisted"\|"playlist"\|"folder", key: str\|null}` (the view's own files, as `library()` lists them without filter or
+  search, whose stored codec is lossless; `key` is null for `all` / `unlisted`) or `{kind: "cdj"}` (To-do's group).
+  Anything else is `refused` ("That isn't a set of files Discjockey can make AIFF."; an empty or malformed `tracks`:
+  "No tracks were chosen."). The plan: `{scope: scope + label ("Selection", "Won't play well on CDJs", else the view's
+  title), items, skipped, waiting, kinds, lossy, total, space, superseded_bytes, rekordbox}`.
+  - `items` (the files the run would change, in order): `{track, name, action: "convert"\|"rename", kind, from, path,
+    new_path, superseded: str\|null, bytes, cdj: {short, words}\|null}`. `kind`: `flac`, `wav`, `alac`, `aiff_hires` (an AIFF
+    that isn't 16-bit / 44.1 kHz), `tags` (a 16/44.1 AIFF whose tags aren't the download's), `name` (a rename), `wavpack`,
+    `ape`, `tta`, `mp3`, `aac`, `opus`, `vorbis` or the codec's own name. `from` is the format line ("FLAC · 24-bit · 96 kHz",
+    "MP3 · 44.1 kHz · 320 kbps"); `path` the file now, `new_path` where it will be (a Convert whose AIFF takes the name the old
+    file held ends at the old path), `superseded` where the old file goes (Convert only); `bytes` the room the render needs (a
+    rename needs none).
+  - `skipped` (a `tracks` scope only): `[{track, name, reason, message}]`, the songs left as they are, `reason` an
+    eligibility key (`eligible.REASONS`: `named_already`, `downloaded`, `needs_convert`, `away`, …) with its words.
+  - `waiting`: `[{reason, message, n}]`, the files that can't run now but may later, each file once and never an item, in
+    every scope, in this order: `away`, `file_missing`, `no_name`, `rekordbox_unreadable`, `cloud`, `rename_blocked`,
+    `upgrade_waits`.
+  - `kinds`: `[{kind, label, n}]` for the kinds with files, in the panel's order ("FLAC → AIFF", "WAV → AIFF", "ALAC → AIFF",
+    "AIFF 24-bit or above 44.1 kHz → 16-bit", "New tags", "Clean name only", then "{format} → AIFF").
+  - `lossy`: how many items have a lossy file now. `space`: `[{drive, needed, free, enough}]`, the room per drive
+    (`drive` is a folder on it). `superseded_bytes`: what `Superseded/` takes. `rekordbox`: `{state: ready\|none\|unreadable,
+    running, needs_closed}`, `needs_closed` true when an item's file is in rekordbox's library.
+  - A plan only reads: stored file facts, tags of the own AIFFs whose tags decide, no decoding. Files without stored
+    facts (the import's facts fill hasn't reached them) are left out until it does.
+- **`track().aiff`** (`aiff_plan.file_answer`): `null` (no file, a download, a better version waiting: the upgrade decision
+  stands) or `{action: "convert"\|"rename"\|null, why_not: reason\|null, kind, from, to, name_now, new_name, bytes, lossy,
+  cdj: {short, words}\|null}`. With an `action`: `kind`, `to` ("AIFF · 16-bit · 44.1 kHz" for a Convert, null for a rename),
+  `new_name` (equal to `name_now` for a Convert whose AIFF ends where the old file was), `bytes`. Without: `why_not` is
+  the reason (`named_already`, `away`, `rekordbox_unreadable`, …), `kind` / `to` / `new_name` null, `bytes` 0; `from`, `lossy`
+  and `cdj` still say what the file is. rekordbox is read from the cached state.
+- **Write jobs** `convert(track_ids, origin = "library" \| "todo")`, `rename(track_ids)` and `make_aiff(scope)` (scope
+  `lossless` or `cdj`; any other is `refused`) → `{job_id}`; job kind `aiff_batch`, progress `BatchProgress`, result
+  `AiffBatchResult` (`{batch, state, stop_reason, total, done, skipped, failed, results: [{track, action, state, reason,
+  message, path, rekordbox}], backup, recovered}`, items' `action` `convert` or `rename`). One selected id is a batch
+  "alone" (its job carries the `track_id`).
+  - `convert` does each file's own answer (`eligible.aiff_action`: Convert, or only the name for a clean AIFF); `rename` is
+    Rename's answer alone (a file that needs a Convert is left out as `needs_convert`); `make_aiff` plans again at its start.
+  - The batch's `started_by` / `scope`: `convert` → `user` / `library:selection` or `todo:selection`; `rename` → `user` /
+    `library:selection`; `make_aiff` lossless → `make_aiff` / `library:<view>[:<key>]`; cdj → `cdj_all` / `todo:cdj`. The
+    batch's `kind` (`aiff_batches.kind`) is `convert` (`mixed` with a Same track item).
+  - A selection's results also list the songs the plan left out, as `skipped` items (counted in `total` and `skipped`).
+  - Refusals end the job `refused` with `batch` null, `state` "done" and the skipped items in the result: a selection says
+    the one song's own words, else "None of these can be changed right now."; `make_aiff` with nothing to do says
+    "Nothing to change: these are clean AIFFs already." `rekordbox_open`, `stopped` and `busy` carry the batch as for
+    Same track; one song alone that meets an open rekordbox closes its batch (no Resume), otherwise it is `stopped` and
+    resumable. An item whose answer changed meanwhile is skipped with the new reason, never switched to the other action.
+  - `batch_resume`, `batch_undo`, `undo_upgrade` and `rekordbox_checked` are unchanged; their `UndoResult` gains `words` on
+    success only (`views.undone_words`: "Conversion undone. Your old file is back.", "Clean name undone. Your old name is
+    back.", "Upgrade undone. Your old file is back."; several: "Undone. Your old files are back." / "…old names are
+    back." / "…old files and names are back.").
+  - A job's facts fill emits `ImportProgress` (`phase` `tags`) through the job's events; a page may show import-style progress.
+- **`library()`**: the answer gains `aiff_stopped: {batch_id, left} \| null`, the newest stopped `library:*` batch with
+  items left (the header's Resume). Rows are unchanged.
+- **`todo()`**: `TodoFilter` and the group list gain `cdj` after `upgrade_ready` (label "Won't play well on CDJs", hint "CDJs
+  refuse or stutter on these files"; `chips.cdj`). An item is a row (`TodoItem`) with `group: "cdj"`, `detail` = its `cdj.short`,
+  `free` false, `cdj: {reason: format\|bitrate\|bits\|rate_high\|rate_low, short, words}` and `aiff: reason\|null` (null:
+  Convert can run now). The group lists an own file with stored facts the rule flags (CDJ-3000 and CDJ-2000NXS2: MP3 / AAC up
+  to 320 kbps and 48 kHz, WAV / AIFF / FLAC / ALAC 16- or 24-bit at 44.1-96 kHz; anything else), no parked upgrade (that song
+  is Upgrade ready's), hidden as any item; a song listed there is listed nowhere else. The group carries `all: {n, k}`
+  (what Convert all can do now / what waits, from the `cdj` plan: `total` and the sum of `waiting[].n`; no `m`) and
+  `stopped: {batch_id, left} \| null` (the newest stopped `todo:*` batch). Upgrade ready's `stopped` counts only
+  Same track batches.
+- **Check items**: `check.reason` adds `converted` and `renamed`; `check_status` says "an AIFF now: nothing to redo" (or "an
+  AIFF now, not in rekordbox") and "clean name now". `check_view` gains `old_name` (a `renamed` check: the file's old base
+  name; else null); a `converted` check's `old_path` is where the old file is now (`Superseded/`), a `renamed` one has none.
+  A `BatchCheckItem`'s `batch` gains `kind` (`upgrade`\|`convert`\|`mixed`\|null) and its `detail` is "{day} · Made AIFF" for a
+  Convert batch ("{day} · Clean name" when every check is a clean name).
+- **Fake backend** (`bridge/fake/convert.ts`, ports of `cdj.py` and `aiff_plan.py`): a scenario sets data only. Per track:
+  `audio` (the stored facts: `codec`, `rate`, `bits`, `kbps`, `ext`, `tagsClean`; unset: what the extension suggests, a WAV is
+  24-bit PCM at 44.1 kHz), `file` (the path, to give a file another name), `cloud`, `inRekordbox` (default true), `away`,
+  `upgrade`, `hidden`. On the state: `rekordbox_state`, `rekordbox_running`, `freeBytes` (per drive; default 400 GB),
+  `batchSkip` (a run-time skip reason per track), `batchStep`, and `batches` (batches that exist from the start: `kind`,
+  `scope`, `state` `stopped`\|`done`, `started_by`, `items [{track, action, state: done\|planned}]`).

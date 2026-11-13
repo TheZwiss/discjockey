@@ -23,7 +23,7 @@ function item(id: string, group: TodoGroupKey, extra: Partial<TodoItem> = {}): T
     cover_url: null, group, detail: '', free: false, file_state: 'here', ...extra };
 }
 function todo(groups: [TodoGroupKey, string[]][]): Todo {
-  const chips = { all: 0, rekordbox_check: 0, same_song: 0, duplicate: 0, upgrade_ready: 0, not_found: 0, weak: 0, good_lossy: 0, fake: 0, other: 0 };
+  const chips = { all: 0, rekordbox_check: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0, good_lossy: 0, fake: 0, other: 0 };
   return { chips, check_tracks: 0, hidden_count: 0, show_hidden: false, empty: null,
     groups: groups.map(([key, ids]) => ({ key, label: key, hint: '', items: ids.map((id) => item(id, key)) })) };
 }
@@ -105,7 +105,7 @@ describe('selection helpers', () => {
 });
 
 describe('filter strip', () => {
-  const chips = { all: 9, rekordbox_check: 0, same_song: 0, duplicate: 0, upgrade_ready: 2, not_found: 3, weak: 0, good_lossy: 4, fake: 0, other: 0 };
+  const chips = { all: 9, rekordbox_check: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 2, not_found: 3, weak: 0, good_lossy: 4, fake: 0, other: 0 };
   it('come in spec order with zero ones hidden (All always shown)', () => {
     expect(segOptions(chips, 'all').map((o) => o.key)).toEqual(['all', 'upgrade_ready', 'not_found', 'good_lossy']);
     expect(segOptions({ ...chips, all: 0, upgrade_ready: 0, not_found: 0, good_lossy: 0 }, 'all').map((o) => o.key))
@@ -218,7 +218,7 @@ describe('texts', () => {
     expect(cutoffStat({ status: 'missing', cutoff_hz: null })).toBeNull();
   });
   it('header line tells the tracks, the questions about the user\'s own files and the checks in rekordbox', () => {
-    const none = { all: 0, rekordbox_check: 0, same_song: 0, duplicate: 0, upgrade_ready: 0, not_found: 0, weak: 0,
+    const none = { all: 0, rekordbox_check: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0,
       good_lossy: 0, fake: 0, other: 0 };
     const sub = (chips: Partial<typeof none>, check_tracks = 0) => headerSub({ chips: { ...none, ...chips }, check_tracks });
     // not lossless yet: every group of tracks below lossless, summed (Upgrade ready included)
@@ -285,7 +285,7 @@ const flatOf = (...items: TodoItem[]) => items;
 describe('the import groups on the strip and in navigation', () => {
   it('come right after rekordbox, in the order the sections do', () => {
     expect(FILTER_ORDER.slice(0, 5)).toEqual(['all', 'rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready']);
-    const chips = { all: 12, rekordbox_check: 1, same_song: 2, duplicate: 3, upgrade_ready: 1, not_found: 4, weak: 1,
+    const chips = { all: 12, rekordbox_check: 1, same_song: 2, duplicate: 3, cdj: 0, upgrade_ready: 1, not_found: 4, weak: 1,
       good_lossy: 0, fake: 0, other: 0 };
     const o = segOptions(chips, 'all');
     expect(o.map((x) => x.key)).toEqual(['all', 'rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready',
@@ -490,7 +490,7 @@ describe('upgrade decision', () => {
 describe('rekordbox check after a replace', () => {
   const check = (extra: Partial<RekordboxCheckView>): RekordboxCheckView => ({ reason: 'swapped', since: '2026-10-31',
     match: 'exact', offset_ms: 0, moved: false, aligned: false, text: 'long', old_path: 'Superseded/Hard_Bounce/A - x (lossy).aiff',
-    reload_tag: true, batch: null, rekordbox: null, ...extra });
+    reload_tag: true, batch: null, rekordbox: null, old_name: null, ...extra });
   const words = (c: RekordboxCheckView) => checkCard(c)!.steps.map((s) => s.parts.map((p) => p.text).join('') + (s.note ? ` ${s.note}` : ''));
   it('a swap: Reload Tag, analyse; the hint about Auto Relocate', () => {
     const c = checkCard(check({}))!;
@@ -695,7 +695,7 @@ describe('the item just acted on (the hold)', () => {
   it('a ghost is the row as it was, without what only a to-do has', () => {
     const old = item('t2', 'rekordbox_check', { upgrade_ready: true, can_undo: true, detail: 'Reload Tag',
       check: { reason: 'swapped', since: null, match: null, offset_ms: null, moved: false, aligned: false, text: 't', old_path: null,
-        reload_tag: true, batch: null, rekordbox: null } });
+        reload_tag: true, batch: null, rekordbox: null, old_name: null } });
     const g = ghostOf(old);
     expect(itemKey(g)).toBe(itemKey(old));
     expect(g).toMatchObject({ upgrade_ready: false, can_undo: false, check: undefined, detail: '', title: old.title });
@@ -841,7 +841,7 @@ describe('multi-select of the rekordbox checks', () => {
   const check = (id: string, extra: Partial<TodoItem> = {}) => item(id, 'rekordbox_check', { can_undo: true, quality: 'lossless',
     quality_label: 'LOSSLESS', ...extra });
   const batch: BatchCheckItem = { ...check('batch:7', { key: 'batch:7' }), group: 'rekordbox_check', key: 'batch:7',
-    batch: { id: 7, size: 2, started: '2026-11-08', started_by: 'user', tracks: [check('b1'), check('b2')] } };
+    batch: { id: 7, size: 2, started: '2026-11-08', started_by: 'user', kind: 'upgrade', tracks: [check('b1'), check('b2')] } };
   const list = [batch, check('c1'), check('c2'), check('c3'), item('u1', 'upgrade_ready'), item('w1', 'weak')];
   const order = list.map(itemKey);
   const scopeOf = multiScope(list);
