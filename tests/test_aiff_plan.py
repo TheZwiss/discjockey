@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
+from datetime import date
 from dataclasses import replace
 from pathlib import Path
 
@@ -632,6 +633,21 @@ def test_the_cdj_scope_counts_its_waits_too(lib):
     assert [i.track for i in plan.items] == ["wavpack"]
     assert [(w["reason"], w["n"]) for w in plan.waiting] == [("away", 1)]
     assert plan.to_dict()["waiting"] == [{"reason": "away", "message": rbstep.CONVERT_REFUSED["away"], "n": 1}]
+
+
+def test_the_todo_group_counts_are_the_cdj_plans_and_its_items_are_the_plans_items(lib):
+    """Plan §1.5: To-do's group lists `cdj.group_members`, `all.n` is the plan's `total`, `all.k` the sum of its waits."""
+    paths, state = lib
+    state["tracks"]["aac"]["path"] = "/Volumes/Nowhere Drive/h.m4a"
+    state["tracks"]["wavpack"]["artist"] = ""
+    state["tracks"]["hidden"].update(hidden=False)
+    plan = run(paths, state, {"kind": "cdj"})
+    group = next(g for g in views.todo(state, "all", False, {}, date(2026, 11, 13), away={"/Volumes/Nowhere Drive": "unmounted"},
+                                    cdj_all=views.cdj_counts(plan.to_dict()))["groups"] if g["key"] == "cdj")
+    assert views.cdj_counts(plan.to_dict()) == (plan.total, sum(w["n"] for w in plan.waiting)) == (1, 2)
+    assert group["all"] == {"n": plan.total, "k": 2}
+    assert {i["track_id"] for i in group["items"]} == set(cdj.group_members(state)) == {"wavpack", "aac", "hidden"}
+    assert {i["track_id"] for i in group["items"] if i["aiff"] is None} == {i.track for i in plan.items} == {"hidden"}
 
 
 # --- the room a file's AIFF needs comes from the file ---

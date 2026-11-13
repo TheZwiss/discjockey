@@ -767,7 +767,7 @@ def test_todo_groups_in_order_with_details():
     assert by["m"]["detail"] == "MOVE BLOCKED · a file is in the way"
     assert "h" not in by and "f" not in by and out["hidden_count"] == 1
     assert out["chips"] == {"all": 6, "rekordbox_check": 0, "same_song": 0, "duplicate": 0, "upgrade_ready": 1,
-                            "not_found": 2, "weak": 0, "good_lossy": 1, "fake": 1, "other": 1}
+                            "cdj": 0, "not_found": 2, "weak": 0, "good_lossy": 1, "fake": 1, "other": 1}
     shown = views.todo(s, "weak", True, {}, TODAY)
     assert [g["key"] for g in shown["groups"]] == ["weak"] and shown["groups"][0]["items"][0]["track_id"] == "h"
     assert shown["groups"][0]["items"][0]["hidden"] is True
@@ -1024,7 +1024,7 @@ def test_todo_check_in_rekordbox_group_also_for_lossless_and_hidden_tracks():
     assert by["h"]["detail"] == "analyse, set the cues again"
     assert by["h"]["check"] == {"reason": "added_as_new", "since": "2026-10-16", "match": None, "offset_ms": None,
                                 "moved": False, "aligned": False,
-                                "reload_tag": True, "batch": None, "rekordbox": None, "old_path": None, "text": "This is a different edit. In rekordbox: analyse it again and set the cues again."}
+                                "reload_tag": True, "batch": None, "rekordbox": None, "old_path": None, "old_name": None, "text": "This is a different edit. In rekordbox: analyse it again and set the cues again."}
     assert out["chips"]["rekordbox_check"] == 2 and out["chips"]["all"] == 2 and out["hidden_count"] == 1
     both = views.todo(s, "all", True, {}, TODAY)
     assert [g["key"] for g in both["groups"]] == ["rekordbox_check", "not_found"] and both["chips"]["all"] == 2
@@ -2542,3 +2542,210 @@ def test_todo_takes_the_files_presence_as_a_map_and_does_no_file_check():
     away = views.todo(st, "all", False, {}, TODAY, present={"t1": "away"})["groups"][0]["items"][0]
     unknown = views.todo(st, "all", False, {}, TODAY)["groups"][0]["items"][0]
     assert (here["same_track"], away["same_track"]) == (None, "away") and unknown["same_track"] is None
+
+
+
+# --- stage D: the CDJ group, Convert and clean-name checks, stopped batches, undo words ---
+
+from discjockey import cdj as cdj_rule
+from discjockey.models import AiffBatchRow
+
+
+def cdj_own(codec, rate=44100, bits=16, kbps=None, ext=".aiff", **kw):
+    """An own file of the import with its stored facts."""
+    entry = own(file_codec=codec, file_rate=rate, file_bits=bits, file_kbps=kbps,
+                path=kw.pop("path", f"/Volumes/Example/Music/Example Artist - Song{ext}"))
+    entry.update(kw)
+    return entry
+
+
+def cdj_state():
+    return state(**{
+        "local:1": cdj_own("flac", 192000, 24, ext=".flac", title="B Rate"),
+        "local:2": cdj_own("opus", 48000, None, 128, ".opus", title="A Format"),
+        "local:3": cdj_own("pcm_s16be"),                                    # a clean AIFF: plays everywhere
+        "local:4": cdj_own("mp3", 44100, None, 320, ".mp3"),                 # at the limit, not above
+        "local:5": cdj_own("pcm_f32le", 44100, 32, ext=".wav", hidden=True, title="C Bits"),
+        "local:6": cdj_own("opus", 48000, None, 128, ".opus",
+                           upgrade={"file": "Upgrades ready/x.aiff", "alignment": {"result": "exact"}}),
+        "local:7": own(),                                                   # facts not stored yet
+        "t1": e("lossless", source="qobuz", file_codec="opus"),             # a download: never in it
+    })
+
+
+def cdj_group(out):
+    return next((g for g in out["groups"] if g["key"] == "cdj"), None)
+
+
+def test_the_cdj_group_lists_the_members_of_cdj_group_members_after_upgrade_ready():
+    st = cdj_state()
+    members = cdj_rule.group_members(st)
+    out = views.todo(st, "all", False, {}, TODAY)
+    assert [g["key"] for g in out["groups"]] == ["upgrade_ready", "cdj"]
+    group = cdj_group(out)
+    assert (group["label"], group["hint"]) == ("Won't play well on CDJs", "CDJs refuse or stutter on these files")
+    assert {i["track_id"] for i in group["items"]} == set(members) == {"local:1", "local:2"}
+    assert [i["title"] for i in group["items"]] == ["A Format", "B Rate"]  # the list's own order
+    for item in group["items"]:
+        found = members[item["track_id"]]
+        assert item["group"] == "cdj" and item["detail"] == found.short and item["free"] is False
+        assert item["cdj"] == {"reason": found.reason, "short": found.short, "words": found.words}
+        assert item["file_state"] == "here" and item["aiff"] is None
+    assert (group["items"][0]["cdj"]["reason"], group["items"][1]["cdj"]["reason"]) == ("format", "rate_high")
+    assert out["chips"]["cdj"] == 2 and out["chips"]["all"] == 3 and out["hidden_count"] == 1
+    assert cdj_group(views.todo(st, "cdj", False, {}, TODAY))["key"] == "cdj"
+
+
+def test_a_hidden_cdj_item_is_left_out_unless_shown_and_a_filter_keeps_only_its_group():
+    st = cdj_state()
+    shown = cdj_group(views.todo(st, "all", True, {}, TODAY))
+    assert [i["track_id"] for i in shown["items"]] == ["local:2", "local:1", "local:5"]
+    assert [i["hidden"] for i in shown["items"]] == [False, False, True]
+    assert {k for k in cdj_rule.group_members(st, include_hidden=True)} == {"local:1", "local:2", "local:5"}
+    assert "local:5" not in cdj_rule.group_members(st)
+    only = views.todo(st, "cdj", False, {}, TODAY)
+    assert [g["key"] for g in only["groups"]] == ["cdj"]
+    other = views.todo(st, "weak", False, {}, TODAY)
+    assert other["groups"] == [] and other["empty"] == "nothing_here" and other["chips"]["cdj"] == 2
+    solo = state(a=cdj_own("opus", 48000, None, 128, ".opus", hidden=True))
+    assert views.todo(solo, "all", False, {}, TODAY)["empty"] == "all_hidden"
+
+
+def test_the_cdj_group_carries_the_plans_counts_and_the_stopped_todo_batch():
+    st = cdj_state()
+    bare = cdj_group(views.todo(st, "all", False, {}, TODAY))
+    assert bare["all"] == {"n": 0, "k": 0} and bare["stopped"] is None
+    out = cdj_group(views.todo(st, "all", False, {}, TODAY, cdj_all=(2, 3), cdj_stopped=(9, 4)))
+    assert out["all"] == {"n": 2, "k": 3} and out["stopped"] == {"batch_id": 9, "left": 4}
+    up = next(g for g in views.todo(st, "all", False, {}, TODAY, stopped=(5, 2), cdj_stopped=(9, 4))["groups"]
+              if g["key"] == "upgrade_ready")
+    assert up["stopped"] == {"batch_id": 5, "left": 2}  # Upgrade ready keeps its own
+
+
+def test_a_cdj_items_quick_answer_is_aiff_actions_with_the_stored_facts():
+    st = cdj_state()
+    st["tracks"]["local:2"]["artist"] = ""
+    st["tracks"]["local:1"]["path"] = "/Volumes/Example/Music/b.flac"
+
+    def answers(**kw):
+        return {i["track_id"]: i["aiff"] for i in cdj_group(views.todo(st, "all", False, {}, TODAY, **kw))["items"]}
+
+    assert answers() == {"local:2": "no_name", "local:1": None}
+    assert answers(rb=Status("unreadable", False, None, None, None, None, None))["local:1"] == "rekordbox_unreadable"
+    assert answers(present={"local:1": "away"})["local:1"] == "away"
+    assert answers(present={"local:1": "missing"})["local:1"] == "file_missing"
+    assert answers(away={"/Volumes/Example/Music": "unmounted"}) == {"local:2": "away", "local:1": "away"}  # where first
+
+
+def test_a_song_in_the_cdj_group_is_listed_nowhere_else():
+    st = state(a=cdj_own("opus", 48000, None, 128, ".opus", in_playlists=True, status="not_lossless", cutoff=16000))
+    out = views.todo(st, "all", False, {}, TODAY)
+    assert [g["key"] for g in out["groups"]] == ["cdj"] and out["chips"]["all"] == 1 and out["chips"]["weak"] == 0
+
+
+def test_todo_with_no_cdj_file_has_no_group():
+    out = views.todo(state(a=e()), "all", False, {}, TODAY)
+    assert cdj_group(out) is None and out["chips"]["cdj"] == 0
+
+
+CONVERT_UNDO = {"kind": "convert", "source": "file", "file": "Library/A/x.aiff", "old": "Superseded/A/x.flac"}
+RENAME_UNDO = {"kind": "rename", "old": "Library/A/old name.aiff", "file": "Library/A/x.aiff", "before": {}}
+
+
+@pytest.mark.parametrize("check,text", [
+    ({"reason": "converted", "rekordbox": {"entries": ["1"], "kept": []}}, "an AIFF now: nothing to redo"),
+    ({"reason": "converted", "rekordbox": None}, "an AIFF now, not in rekordbox"),
+    ({"reason": "renamed", "rekordbox": {"entries": ["1"], "kept": []}}, "clean name now"),
+    ({"reason": "renamed", "rekordbox": None}, "clean name now"),
+])
+def test_check_status_knows_converted_and_renamed(check, text):
+    assert views.check_status(check) == text
+
+
+def test_check_view_of_a_convert_says_where_the_old_file_is_and_uses_the_converted_words():
+    c = {"reason": "converted", "since": "2026-11-13", "batch": 4, "undo": CONVERT_UNDO,
+         "rekordbox": {"entries": ["1", "2"], "kept": ["title"]}}
+    v = views.check_view(c, 3)
+    assert v["old_path"] == "Superseded/A/x.flac" and v["old_name"] is None
+    assert v["batch"] == {"id": 4, "size": 3} and v["rekordbox"] == {"entries": 2, "kept": ["title"]}
+    assert v["text"] == report.CONVERTED_CHECK and v["reason"] == "converted"
+    assert views.check_view({**c, "rekordbox": None, "undo": None})["text"] == report.CONVERTED_NO_TRACK_CHECK
+
+
+def test_check_view_of_a_chain_takes_the_converts_old_file_not_the_id_name():
+    outer = {**RENAME_UNDO, "old": "Library/A/x [t1aaaa].aiff",
+             "before": {"rekordbox_check": {"reason": "converted", "undo": CONVERT_UNDO}}}
+    v = views.check_view({"reason": "converted", "since": "2026-11-13", "undo": outer,
+                          "rekordbox": {"entries": ["1"], "kept": []}})
+    assert v["old_path"] == "Superseded/A/x.flac" and v["old_name"] is None
+
+
+def test_check_view_of_a_clean_name_has_no_old_file_but_says_the_old_name():
+    c = {"reason": "renamed", "since": "2026-11-13", "undo": RENAME_UNDO, "rekordbox": {"entries": ["1"], "kept": []}}
+    v = views.check_view(c)
+    assert v["old_path"] is None and v["old_name"] == "old name.aiff" and v["text"] == report.RENAMED_CHECK
+    assert views.check_view({**c, "rekordbox": None})["text"] == report.RENAMED_NO_TRACK_CHECK
+    assert views.check_view({"reason": "renamed"})["old_path"] is None
+
+
+def batch_state(reason, n=2, **extra):
+    return state(**{f"t{i}": e(rekordbox_check={"reason": reason, "since": "2026-11-13", "batch": 8, **extra},
+                               title=f"Song {i}") for i in range(n)})
+
+
+def batch_item(st, **kw):
+    return views.todo(st, "all", False, {}, TODAY, **kw)["groups"][0]["items"][0]
+
+
+def test_a_batch_item_says_what_the_batch_did_by_its_kind():
+    swapped = batch_state("swapped")
+    assert batch_item(swapped)["detail"] == "2026-11-13 · Same track"
+    assert batch_item(swapped, batch_kinds={8: "upgrade"})["detail"] == "2026-11-13 · Same track"
+    assert batch_item(swapped, batch_kinds={8: "upgrade"}, started_by={8: "auto_upgrade"})["detail"] == (
+        "2026-11-13 · Upgraded during your sync")
+    converted = batch_item(batch_state("converted"), batch_kinds={8: "convert"}, started_by={8: "make_aiff"})
+    assert converted["detail"] == "2026-11-13 · Made AIFF" and converted["batch"]["kind"] == "convert"
+    assert batch_item(batch_state("converted"), batch_kinds={8: "mixed"})["detail"] == "2026-11-13 · Made AIFF"
+    names = batch_item(batch_state("renamed"), batch_kinds={8: "convert"})
+    assert names["detail"] == "2026-11-13 · Clean name" and names["batch"]["tracks"][0]["detail"] == "clean name now"
+    assert batch_item(swapped)["batch"]["kind"] is None
+
+
+def aiff_batch(batch_id, state="stopped", scope=None, kind="convert", planned=2):
+    return AiffBatchRow(batch_id, kind, "user", scope, "2026-11-13T10:00:00", None, state, "stop", None,
+                        {"planned": planned, "done": 1, "skipped": 0, "failed": 0, "undone": 0})
+
+
+def test_stopped_batch_is_the_newest_stopped_one_with_items_left_in_its_scope():
+    rows = [aiff_batch(9, scope="library:all"), aiff_batch(8, scope="todo:cdj"), aiff_batch(7, scope="todo:selection"),
+            aiff_batch(6, "done", "todo:cdj"), aiff_batch(5, scope="todo:cdj", planned=0),
+            aiff_batch(4, scope=None, kind="upgrade")]
+    assert views.stopped_batch(rows, scope="todo:") == (8, 2)
+    assert views.stopped_batch(rows, scope="library:") == (9, 2)
+    assert views.stopped_batch(rows, kinds=("upgrade",)) == (4, 2)
+    assert views.stopped_batch(rows) == (9, 2)
+    assert views.stopped_batch(rows[2:], scope="library:") is None and views.stopped_batch([]) is None
+    assert views.stopped_batch([aiff_batch(3, scope="todo:cdj", planned=5)], scope="todo:") == (3, 5)
+
+
+def test_the_library_says_which_stopped_convert_batch_to_resume():
+    st = state(a=e())
+    assert views.library(st, "all", None, "", "all", None, lines=[])["aiff_stopped"] is None
+    out = views.library(st, "all", None, "", "all", None, lines=[], aiff_stopped=(9, 4))
+    assert out["aiff_stopped"] == {"batch_id": 9, "left": 4}
+    assert [r["track_id"] for r in out["rows"]] == ["a"] and "aiff" not in out["rows"][0]  # rows unchanged
+    for view, key in (("unlisted", None), ("folder", "Library/A")):
+        assert views.library(st, view, key, "", "all", None, lines=[], aiff_stopped=(2, 1))["aiff_stopped"] == {
+            "batch_id": 2, "left": 1}
+
+
+def test_undone_words_name_what_was_undone():
+    assert views.undone_words(["swapped"]) == "Upgrade undone. Your old file is back."
+    assert views.undone_words(["repointed"]) == views.UNDONE_UPGRADE and views.undone_words([None]) == views.UNDONE_UPGRADE
+    assert views.undone_words(["converted"]) == "Conversion undone. Your old file is back."
+    assert views.undone_words(["renamed"]) == "Clean name undone. Your old name is back."
+    assert views.undone_words(["converted", "converted"]) == "Undone. Your old files are back."
+    assert views.undone_words(["swapped", "converted"]) == "Undone. Your old files are back."
+    assert views.undone_words(["renamed", "renamed"]) == "Undone. Your old names are back."
+    assert views.undone_words(["renamed", "converted"]) == "Undone. Your old files and names are back."
+    assert "upgrade" not in views.undone_words(["converted", "renamed"]).lower()

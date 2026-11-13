@@ -16,13 +16,13 @@ from pathlib import PurePosixPath
 from typing import Callable, NamedTuple
 from urllib.parse import quote_plus
 
-from .. import playlists_file as pf
+from .. import cdj as cdj_rule, playlists_file as pf
 from ..accounts import (ACCOUNTS, BROWSERS, DEFAULT_LIMITS, MAX_LIMIT, PREMIUM_MIN_KBPS, SERVICES, SERVICE_NAMES,
                         SERVICE_SIGNALS)
 from ..accounts import assessment as service_assessment, zones as service_zones
 from ..names import expected_stem, fold
 from ..models import (CONTAINER_NAMES, FORMAT_NAMES, OWN_FILE, SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES,
-                      BatchResult, BatchRow, DupFile, DuplicateGroup, ImportCounts, MoveRow, PlannedMove,
+                      AiffBatchRow, BatchResult, BatchRow, DupFile, DuplicateGroup, ImportCounts, MoveRow, PlannedMove,
                       PlaylistRecord, Question, WatchedFolder, is_own, split_token, track_link as key_link)
 from ..pacing import KEEP_SIGNALS, Budget
 from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
@@ -32,6 +32,7 @@ from ..settings import Settings
 from ..sources import SOURCES
 from ..rekordbox import eligible
 from ..rekordbox.master import Status as RekordboxStatus
+from ..library import undo_chain
 from ..upgrades import can_undo, swap_possible, upgrade_name
 
 SECONDS_PER_DOWNLOAD = 70  # average per acquisition or upgrade check: pause, download, conversion, long breaks
@@ -732,7 +733,34 @@ def check_status(check: dict | None) -> str:
         return "relocate, analyse again" if c.get("match") in ("exact", "shifted") else "analyse, set the cues again"
     if reason == "wrong_song":
         return "now the right song: analyse again"
+    if reason == "converted":  # Convert to AIFF (issue 33 stage D): rekordbox follows the new file by itself
+        return "an AIFF now: nothing to redo" if c.get("rekordbox") else "an AIFF now, not in rekordbox"
+    if reason == "renamed":
+        return "clean name now"
     return "check it in rekordbox"
+
+
+UNDONE_UPGRADE = "Upgrade undone. Your old file is back."
+UNDONE_CONVERT = "Conversion undone. Your old file is back."
+UNDONE_RENAME = "Clean name undone. Your old name is back."
+UNDONE_FILES = "Undone. Your old files are back."
+UNDONE_NAMES = "Undone. Your old names are back."
+UNDONE_BOTH = "Undone. Your old files and names are back."
+
+
+def undone_words(reasons: Sequence[str | None]) -> str:
+    """What an undo says when it worked (plan stage D §3 adds Convert and Rename to the old "upgrade" words): `reasons`
+    are the `rekordbox_check` reasons the undone tracks had before the undo (a Convert→Rename chain has `converted`,
+    the undo record knows both steps). One track: "Upgrade undone", "Conversion undone" or "Clean name undone" with what
+    came back; several: "Undone. Your old files are back." ("names" when every one was a clean name, "files and
+    names" when both kinds are there). The engine's `UndoResult` carries no section: its `upgrade_undone` name stays
+    internal and never reaches a screen."""
+    names = sum(1 for r in reasons if r == "renamed")
+    if len(reasons) == 1:
+        return {"converted": UNDONE_CONVERT, "renamed": UNDONE_RENAME}.get(reasons[0] or "", UNDONE_UPGRADE)
+    if names == 0:
+        return UNDONE_FILES
+    return UNDONE_NAMES if names == len(reasons) else UNDONE_BOTH
 
 
 def check_view(check: dict | None, batch_size: int = 1) -> dict:
@@ -744,17 +772,28 @@ def check_view(check: dict | None, batch_size: int = 1) -> dict:
     without it still asks for Reload Tag: True), `batch` ({id, size}: the AIFF batch that left it and how many checks
     of that batch are open, null for a check of no batch) and `rekordbox` ({entries: how many rekordbox tracks were
     pointed at the new file or had their text written, kept: the fields left as the user edited them}, null when
-    nothing was written in rekordbox)."""
+    nothing was written in rekordbox).
+
+    Stage D (Convert, Give it its clean name): `old_path` is where the old file is now for a `converted` check too
+    (Superseded/): the Convert's own undo record, which a Convert→Rename chain keeps nested in the rename's
+    (`library.undo_chain`); a `renamed` check has no old file (the same file kept its audio, only its name changed), so
+    `old_path` is null and `old_name` says the name it had (the file's base name), null for every other check."""
     c = check or {}
     undo = c.get("undo") or {}
     rb = c.get("rekordbox")
+    converts = [u for u in undo_chain(undo) if u.get("kind") == "convert"]
+    if converts:
+        old_path = converts[-1].get("old")
+    else:
+        old_path = None if undo.get("kind") == "rename" else undo.get("old")
+    old_name = PurePosixPath(undo["old"]).name if c.get("reason") == "renamed" and undo.get("old") else None
     return {"reason": c.get("reason"), "since": c.get("since"), "match": c.get("match"),
             "offset_ms": c.get("offset_ms"), "moved": bool(c.get("moved")), "aligned": bool(c.get("aligned")),
             "reload_tag": c.get("reload_tag", True) is not False,
             "batch": {"id": c["batch"], "size": batch_size} if c.get("batch") else None,
             "rekordbox": {"entries": len(rb.get("entries") or []), "kept": list(rb.get("kept") or [])} if rb else None,
             "text": check_text(c),
-            "old_path": undo.get("old")}
+            "old_path": old_path, "old_name": old_name}
 
 
 # Auto-upgrade's marks on a parked upgrade (plan stage C §3, §4): To-do's row detail and the panel's facts
@@ -1187,7 +1226,8 @@ def view_known(state: dict, view: str, key: str | None, *, lines: Sequence[pf.Ro
 def library(state: dict, view: str, key: str | None, query: str, filt: str, sort: str | None, cover: Url | None = None,
             away: Mapping[str, str] | None = None, *, lines: Sequence[pf.Row],
             records: Mapping[str, PlaylistRecord] | None = None, watched: Sequence[WatchedFolder] = (),
-            fetched: list = (), planned: Mapping[str, Sequence[str]] | None = None) -> dict:
+            fetched: list = (), planned: Mapping[str, Sequence[str]] | None = None,
+            aiff_stopped: tuple[int, int] | None = None) -> dict:
     """One view of the library (plan library stage 5, I4, D9-D12). `view`: LIBRARY_VIEWS; `key`: the playlist's folder
     name (as playlists.txt spells it, any case) for "playlist", a folder's snapshot path (`Library/<name>`, or the
     absolute path in an import folder) for "folder", else ignored. filt: LIBRARY_FILTERS. sort: a SORTS key, "-" in
@@ -1206,7 +1246,11 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
     file count in `summary` and `chips`; the search narrows the rows and `also`. `songs` (a read playlist, else
     None): `{"listed", "with_file"}`, its distinct songs and how many of them have a file, before any search or
     filter: the page words "13 of 18 downloaded" from it. `folder` keeps the old meaning
-    (None, NOT_IN_PLAYLIST, the playlist's or the folder's key)."""
+    (None, NOT_IN_PLAYLIST, the playlist's or the folder's key).
+
+    Stage D: `aiff_stopped` ({batch_id, left} in the answer, null for none): the newest stopped Convert batch that
+    started in the Library (`stopped_batch(rows, scope="library:")`), for the header's "Resume · {k} left". The rows
+    carry no AIFF answer."""
     records = records or {}
     with_file = files_with_file(state)
     found = sites(state, lines, watched)
@@ -1277,7 +1321,8 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
     return {"title": title, "folder": folder, "view": view, "key": shown_key, "folder_kind": folder_kind,
             "subtitle": [] if gone else subtitle(_plural(len(have), "1 track", "{n} tracks")), "summary": summary, "chips": chips,
             "rows": rows, "also": also, "songs": songs, "read_at": read_at, "enabled": enabled, "service": service,
-            "empty": empty}
+            "empty": empty,
+            "aiff_stopped": {"batch_id": aiff_stopped[0], "left": aiff_stopped[1]} if aiff_stopped else None}
 
 
 def tracks_with_file(state: dict) -> list[dict]:
@@ -1446,6 +1491,7 @@ TODO_GROUPS = [("rekordbox_check", "Check in rekordbox", "the file changed; reko
                ("same_song", "Is this the same song?", "a file of yours might be a playlist song"),
                ("duplicate", "Duplicates", "the same song more than once"),
                ("upgrade_ready", "Upgrade ready", "a better version is waiting for you"),
+               ("cdj", "Won't play well on CDJs", "CDJs refuse or stutter on these files"),
                ("not_found", "Not found", "nothing usable anywhere"),
                ("weak", "Weak (≤ 17 kHz)", "audibly lossy"),
                ("good_lossy", "Good lossy (~20 kHz)", "hard to hear"),
@@ -1612,17 +1658,33 @@ def recommend(files: Sequence[DupFile]) -> tuple[int | None, str | None]:
     return None, None
 
 
-def _batch_item(batch_id: int, tracks: list[dict], started_by: str | None = None) -> dict:
+BATCH_MADE_AIFF = "Made AIFF"  # the sub of the To-do item of a Convert batch's checks (plan stage D §3)
+BATCH_CLEAN_NAME = "Clean name"  # a batch that only gave clean names
+
+
+def _batch_how(started_by: str | None, kind: str | None, tracks: list[dict]) -> str:
+    """The words after the day on a batch item: "Upgraded during your sync" (Auto-upgrade), "Made AIFF" (a batch of
+    Convert or Rename items: `aiff_batches.kind` `convert` or `mixed`; "Clean name" when every check is a clean name),
+    else "Same track"."""
+    if started_by == "auto_upgrade":
+        return AUTO_BATCH_DETAIL
+    if kind in ("convert", "mixed"):
+        return BATCH_CLEAN_NAME if all(t["check"]["reason"] == "renamed" for t in tracks) else BATCH_MADE_AIFF
+    return "Same track"
+
+
+def _batch_item(batch_id: int, tracks: list[dict], started_by: str | None = None, kind: str | None = None) -> dict:
     """The To-do item of an AIFF batch's open checks (two or more): it looks like its first track's row (a TrackRow,
     so the list can place it) under the key `batch:<id>`; `batch.tracks` are the checks as single items list them.
     `started_by`: who started the batch (`aiff_batches.started_by`; None when unknown): a batch of the sync's
-    Auto-upgrade says "Upgraded during your sync" in place of "Same track"."""
+    Auto-upgrade says "Upgraded during your sync" in place of "Same track". `kind`: the batch's own (`aiff_batches.kind`
+    `upgrade` | `convert` | `mixed`; None when unknown): a Convert batch says "Made AIFF" (`_batch_how`)."""
     started = min((t["check"]["since"] for t in tracks if t["check"]["since"]), default=None)
     key = f"batch:{batch_id}"
-    how = AUTO_BATCH_DETAIL if started_by == "auto_upgrade" else "Same track"
+    how = _batch_how(started_by, kind, tracks)
     return {**tracks[0], "track_id": key, "key": key, "group": "rekordbox_check",
             "detail": f"{started or ''} · {how}".strip(" ·"),
-            "batch": {"id": batch_id, "size": len(tracks), "started": started, "started_by": started_by,
+            "batch": {"id": batch_id, "size": len(tracks), "started": started, "started_by": started_by, "kind": kind,
                       "tracks": tracks}}
 
 
@@ -1642,15 +1704,51 @@ def _upgrade_all(rows: list[dict], stopped: tuple[int, int] | None) -> dict:
             "stopped": {"batch_id": stopped[0], "left": stopped[1]} if stopped else None}
 
 
+def _cdj_item(k: str, e: dict, problem: cdj_rule.CdjProblem, cover: Url | None, away: Mapping[str, str] | None,
+              rb: RekordboxStatus | None, present: Mapping[str, str] | None) -> dict:
+    """An item of the CDJ group (see `todo`). `aiff` is `eligible.aiff_action` with the stored facts only (no tag read,
+    no timing): none of these files is a clean AIFF, so the stored facts alone decide Convert's answer."""
+    state_of = row_file_state(e, away)
+    _action, verdict = eligible.aiff_action(e, None, rb or UNKNOWN_REKORDBOX, None,
+                                            present=(present or {}).get(k) or present_of(state_of))  # type: ignore[arg-type]
+    return {**track_row(k, e, cover), "group": "cdj", "detail": problem.short, "free": False, "file_state": state_of,
+            "cdj": {"reason": problem.reason, "short": problem.short, "words": problem.words},
+            "aiff": verdict.reason if isinstance(verdict, eligible.Skip) else None}
+
+
+def cdj_counts(plan: Mapping) -> tuple[int, int]:
+    """The CDJ group's `all: {n, k}` from the `cdj` scope's `AiffPlan.to_dict()` (plan §1.5): n what Convert all can do
+    now (`total`), k what waits (the sum of `waiting[].n`: drive away, no name, rekordbox unreadable, ...)."""
+    return plan["total"], sum(w["n"] for w in plan["waiting"])
+
+
+def stopped_batch(rows: Sequence[AiffBatchRow], *, scope: str | None = None,
+                  kinds: Collection[str] | None = None) -> tuple[int, int] | None:
+    """(id, items left) of the newest stopped AIFF batch that still has items to do, else None: a group's or the Library
+    header's "Resume · k left". `rows`: `db.aiff_batches` (newest first). `scope`: only a batch whose scope starts with
+    it (`todo:` for the CDJ group, `library:` for the Library's header); `kinds`: only these `aiff_batches.kind`s
+    (`("upgrade",)` for Upgrade ready's)."""
+    for row in rows:
+        if row.state != "stopped" or not row.counts["planned"]:
+            continue
+        if scope is not None and not (row.scope or "").startswith(scope):
+            continue
+        if kinds is not None and row.kind not in kinds:
+            continue
+        return row.id, row.counts["planned"]
+    return None
+
+
 def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], today: date,
          cover: Url | None = None, questions: Sequence[Question] = (), duplicates: Sequence[DuplicateGroup] = (),
          dup_files: Mapping[str, Sequence[DupFile]] | None = None, audio: Url | None = None,
          counted: Collection[str] = (), away: Mapping[str, str] | None = None,
          rb: RekordboxStatus | None = None, present: Mapping[str, str] | None = None,
          stopped: tuple[int, int] | None = None, auto_on: bool = True,
-         started_by: Mapping[int, str] | None = None) -> dict:
-    """Groups in this order: Check in rekordbox, Is this the same song?, Duplicates, Upgrade ready, Not found, Weak,
-    Good lossy, Fake lossless, Other. `others`: track id -> what blocks it (a move blocked by another file, several
+         started_by: Mapping[int, str] | None = None, cdj_all: tuple[int, int] = (0, 0),
+         cdj_stopped: tuple[int, int] | None = None, batch_kinds: Mapping[int, str] | None = None) -> dict:
+    """Groups in this order: Check in rekordbox, Is this the same song?, Duplicates, Upgrade ready, Won't play well on
+    CDJs, Not found, Weak, Good lossy, Fake lossless, Other. `others`: track id -> what blocks it (a move blocked by another file, several
     files that could be it). Hidden tracks are left out unless show_hidden. "Check in rekordbox" lists every track
     with a `rekordbox_check`, hidden or not, so a track can be in two groups; chips["all"] counts each track once.
 
@@ -1681,7 +1779,18 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     id -> `aiff_batches.started_by` (the api reads the batches the open checks belong to). An Upgrade ready row's
     `detail` says "Waits for rekordbox to be closed" while the switch is on and the sync met rekordbox open for it, or
     "{Short} · not upgraded at your sync" for a refusal the phase recorded (`upgrade_detail`); a batch item carries
-    `batch.started_by` and, for an Auto-upgrade batch, "Upgraded during your sync" as its detail."""
+    `batch.started_by` and, for an Auto-upgrade batch, "Upgraded during your sync" as its detail.
+
+    Stage D (plan §1.5, §3): the group `cdj` lists `cdj.group_members(state, include_hidden=True)`: the user's own
+    files whose stored facts CDJs play badly, with no parked upgrade, hidden as any item (the one place To-do lists an
+    own file outside Upgrade ready, a question and a duplicate; such a song is listed there only). An item is a row
+    with `detail` = its `short`, `cdj: {reason, short, words}` and `aiff` (`eligible.aiff_action`'s answer from the
+    stored facts and `rb`, rekordbox's state, no timing: null when Convert can run, else the reason key). The group
+    carries `all: {n, k}` (`cdj_all`: n what Convert all can do now, k what waits; the api takes both from the `cdj`
+    `aiff_plan`: `total` and the sum of `waiting[].n`) and `stopped: {batch_id, left} | null` (`cdj_stopped`: the newest
+    stopped `todo:*` batch, `stopped_batch`). `batch_kinds`: AIFF batch id -> `aiff_batches.kind` for the batch items
+    (a Convert batch says "Made AIFF")."""
+    members = cdj_rule.group_members(state, include_hidden=True)
     items: dict[str, list] = {g: [] for g, _, _ in TODO_GROUPS}
     batch_checks: dict[int, list[str]] = {}
     for k, e in state["tracks"].items():
@@ -1723,11 +1832,19 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
                          "check": check_view(state["tracks"][t]["rekordbox_check"], len(batched[bid])),
                          "can_undo": can_undo(state["tracks"][t]),
                          "file_state": row_file_state(state["tracks"][t], away)} for t in batched[bid]],
-                        (started_by or {}).get(bid)))
+                        (started_by or {}).get(bid), (batch_kinds or {}).get(bid)))
                     listed.add(f"batch:{bid}")
             else:
                 items["rekordbox_check"].append(check_item)
                 listed.add(k)
+        if k in members:  # an own file CDJs play badly: this group only (hidden as any item)
+            if e.get("hidden"):
+                hidden += 1
+                if not show_hidden:
+                    continue
+            items["cdj"].append(_cdj_item(k, e, members[k], cover, away, rb, present))
+            listed.add(k)
+            continue
         if not todo_listed(k, e, held, never):
             continue
         group = _group(e) or ("other" if k in others else None)
@@ -1749,7 +1866,9 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     for rows in items.values():
         rows.sort(key=lambda r: ("batch" not in r, fold(r["folder"]), fold(r["artist"]), fold(r["title"])))
     chips = {"all": len(listed), **{g: len(v) for g, v in items.items()}}
-    extra = {"upgrade_ready": _upgrade_all(items["upgrade_ready"], stopped)}
+    extra = {"upgrade_ready": _upgrade_all(items["upgrade_ready"], stopped),
+             "cdj": {"all": {"n": cdj_all[0], "k": cdj_all[1]},
+                     "stopped": {"batch_id": cdj_stopped[0], "left": cdj_stopped[1]} if cdj_stopped else None}}
     groups = [{"key": g, "label": label, "hint": hint, "items": items[g], **extra.get(g, {})}
               for g, label, hint in TODO_GROUPS if items[g] and (filt in (None, "all") or filt == g)]
     empty = None
