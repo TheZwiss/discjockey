@@ -553,7 +553,9 @@ Results:
     convert.py is ~100k before work starts): `rename_file`, `recover_rename`, 57 tests; rekordbox running stops the
     batch (RekordboxOpened, as Convert) instead of a per-track `rename_blocked`: accepted. Merged into the stage branch
     f8319935. D3b (Sonnet, brief-33-D3b.md: undo_rename, report, the chain; chain undo keeps the convert's undo in
-    the rename's `before`) running. Stage D running total 1.68M.
+    the rename's `before`) done 631459a2 + 5db375e5: **219k** (72 calls): undo_rename + recovery, report "renamed",
+    the chain (AIFF 24/96 at its clean name ends at the same name 16/44.1; two undos restore). R-D3 (Sonnet, review of
+    D3a+D3b, brief-33-RD3.md; stated fix: the chain's visible check is "converted") running. Stage D total 1.90M.
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
