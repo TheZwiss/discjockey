@@ -88,3 +88,34 @@ def test_a_real_sync_runs_only_after_a_dry_run_planned_no_action(script, tmp_pat
     calls.clear()
     script.real_sync(tmp_path, "rh9-sync")
     assert calls == ["rh9-sync-guard", "rh9-sync"]
+
+
+def test_rehearse_convert_needs_the_mark_the_right_picks_and_a_fresh_work_folder(script, tmp_path, monkeypatch):
+    work = tmp_path / "work"
+    (work / "support").mkdir(parents=True)
+    with pytest.raises(script.Refused, match="copy-db"):
+        script.rehearse_convert(work)
+    (work / script.MARKER).write_text("", encoding="utf-8")
+    (work / "source").mkdir()
+    (work / "source" / "master.db").write_bytes(b"not a real library")
+    monkeypatch.setattr(script.process, "running", lambda: False)
+    (work / "picks.json").write_text('[{"label": "MP3 #1"}]', encoding="utf-8")
+    with pytest.raises(script.Refused, match="needs exactly these picks"):
+        script.rehearse_convert(work)
+    labels = [script.PCM, *script.LOSSY_SET]
+    (work / "picks.json").write_text("[" + ", ".join(f'{{"label": "{x}"}}' for x in labels) + "]", encoding="utf-8")
+    (work / script.CONVERT_MARK).write_text("", encoding="utf-8")
+    with pytest.raises(script.Refused, match="ran in this work folder already"):
+        script.rehearse_convert(work)
+    assert (work / "support").is_dir()  # nothing was deleted
+
+
+def test_the_samples_helpers_find_the_shift_the_render_makes(script):
+    rng = script.np.random.default_rng(1)
+    old = rng.integers(-20000, 20000, size=(900_000, 2), dtype="<i2")
+    for d in (0, 37, -12):
+        new = script.shifted(old, d)
+        assert len(new) == len(old) + max(d, 0) + min(d, 0)
+        lag, score = script.lag_of(old, new)
+        assert (lag, round(score, 3)) == (d, 1.0)
+    assert not script.np.array_equal(script.shifted(old, 3), script.shifted(old, 4)[:len(old) + 3])
