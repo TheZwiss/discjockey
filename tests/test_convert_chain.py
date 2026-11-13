@@ -43,13 +43,29 @@ def test_an_aiff_24_96_at_its_clean_name_ends_at_the_clean_name_16_44(tmp_path, 
     e = load_state(env.paths)["tracks"][TID]
     assert e["path"] == CLEAN and state["pending"] == []
     check = e["rekordbox_check"]
-    assert check["reason"] == "renamed" and check["undo"]["kind"] == "rename" and check["undo"]["old"] == ID_NAME
+    # the user's file kept its name and became an AIFF: the visible check is the Convert's; the rename is internal
+    assert check["reason"] == "converted" and check["undo"]["kind"] == "rename" and check["undo"]["old"] == ID_NAME
     inner = check["undo"]["before"]["rekordbox_check"]  # the Convert's check, with its own undo
     assert inner["reason"] == "converted" and inner["undo"]["kind"] == "convert" and inner["undo"]["file"] == ID_NAME
     assert row_of(env)["FolderPath"] == str(root / CLEAN) and anlz.ppth(anlz.read(env.dat())) == "?/Artist - Song.aiff"
     ((path, placed_by, codec, rate, bits, _k),) = file_facts_row(env)
     assert (path, placed_by, codec, rate, bits) == ("A/Artist - Song.aiff", "app", "pcm_s16be", 44100, 16)
-    assert upgrades.can_undo(e) and report.check_text(check) == report.RENAMED_CHECK
+    assert upgrades.can_undo(e) and report.check_text(check) == report.CONVERTED_CHECK
+
+
+def test_the_chain_says_converted_everywhere_and_carries_the_converts_kept_edits(tmp_path, monkeypatch):
+    env = make_chain(tmp_path, monkeypatch, row={"Title": "My Edit Name"})
+    r, state = run_file(env)
+    kept = state["tracks"][TID]["rekordbox_check"]["rekordbox"]["kept"]
+    words = f"Kept your own {' / '.join(kept)} in rekordbox."
+    assert "title" in kept and r.section == "converted" and r.note.endswith(words)
+    check = state["tracks"][TID]["rekordbox_check"]
+    assert (check["reason"], check["rekordbox"]) == ("converted", {"entries": ["1"], "kept": kept})
+    assert "renamed" not in r.note and report.RENAMED_CHECK not in report.check_text(check)
+    assert row_of(env)["Title"] == "My Edit Name"  # the rename wrote identity only
+    state = load_state(env.paths)
+    upgrades.undo(env.paths, state, TID)  # the rename's undo brings the Convert's own check back
+    assert state["tracks"][TID]["rekordbox_check"]["rekordbox"]["kept"] == kept
 
 
 def test_undo_twice_restores_the_original_name_bytes_and_rekordbox_rows(tmp_path, monkeypatch):
@@ -96,7 +112,7 @@ def test_a_file_rekordbox_does_not_have_is_converted_and_renamed_without_it(tmp_
     rows = dump(env.place.db)
     r, _state = run_file(env)
     assert r.path == CLEAN and r.note.count(convert.NO_TRACK_NOTE) == 1 and dump(env.place.db) == rows
-    assert report.check_text(load_state(env.paths)["tracks"][TID]["rekordbox_check"]) == report.RENAMED_NO_TRACK_CHECK
+    assert report.check_text(load_state(env.paths)["tracks"][TID]["rekordbox_check"]) == report.CONVERTED_NO_TRACK_CHECK
 
 
 def test_a_crash_between_the_steps_leaves_a_valid_aiff_with_the_id_name(tmp_path, monkeypatch):

@@ -38,8 +38,10 @@ marked `stopped` (`crash`). Every file move goes through `move_path`; a music fi
 **The convert→rename chain**: `convert.convert_file` on an AIFF whose old file held the clean name lands on the ID name
 (both files exist until rekordbox's commit), and then calls `rename_file` with `after` = its result. The rename keeps
 the Convert's check, with its undo, in its `before` (`fields_before(keep_undo=True)`): undoing the rename brings the
-"converted" check back, and a second undo returns the original file. A standalone rename later is "one step back
-only".
+"converted" check back, and a second undo returns the original file. From the user's side the file kept its name and
+became an AIFF, so the chain's result, its check (`reason` "converted", the Convert's kept edits) and its item say
+Convert's words; the rename is an internal second step with an undo of its own (kind `rename`). A standalone rename
+later says "renamed" and is "one step back only".
 
 **Undo** (`undo_rename`, from `upgrades.undo`; design §5.9): the same file back to its old name (refused when another
 file took it), rekordbox's identity columns and `PPTH` back where they still hold what the step wrote (else
@@ -180,7 +182,8 @@ def rename_file(paths: Paths, state: dict, track_id: str, *, session: Session,
     """Give it its clean name for one track's own file (see the module docstring). `batch` = (AIFF batch, seq): its
     item is marked done with the step. `after`: the Convert's result when this is the convert→rename chain's second
     half (`convert.convert_file`): the new check keeps the Convert's check and undo in its `before`, and the result and
-    the item say the Convert's words ("converted", the file now at its final name). Raises `Skipped` (nothing written:
+    the item say the Convert's words ("converted", the file now at its final name; the check's `reason` is "converted"
+    too). Raises `Skipped` (nothing written:
     `eligible.rename`'s reasons, `rename_blocked`, `unclean`), `RekordboxOpened` (nothing written; the batch stops) or
     `UpgradeProblem` (a failure, nothing written, or the words of what recovery did)."""
     e = state["tracks"].get(track_id)
@@ -217,9 +220,12 @@ def rename_file(paths: Paths, state: dict, track_id: str, *, session: Session,
           "old": old, "new": new, "new_sha256": sha, "file_key": content_key(old_file),
           "entry": convert.with_audio({**e, "path": new}, file_audio),
           "before": fields_before(e, keep_undo=after is not None),
-          "chain": None if after is None else {"note": after.note.replace(after.path, new, 1)},
+          "chain": None if after is None else {"note": after.note.replace(after.path, new, 1),
+                                               "kept": list(((e.get("rekordbox_check") or {}).get("rekordbox")
+                                                             or {}).get("kept") or [])},
           "audio": asdict(file_audio), "rekordbox": convert.op_rekordbox(session, changes, splices),
-          "check": {"reason": "renamed", "since": now().date().isoformat(), "batch": batch[0] if batch else None},
+          "check": {"reason": "renamed" if after is None else "converted", "since": now().date().isoformat(),
+                    "batch": batch[0] if batch else None},
           "marks": {"backed_up": False, "placed": False, "committed": False}}
     return _execute(paths, state, op, session, entries, changes, splices)
 
@@ -292,8 +298,9 @@ def _finish(paths: Paths, state: dict, op: dict) -> Result:
     the check with its undo record, with the end of the journal entry."""
     track_id = op["track_id"]
     rb = op["rekordbox"]
+    kept = list((op.get("chain") or {}).get("kept") or [])  # the Convert's kept edits, in a chain
     check = {**op["check"], "rekordbox": None if rb is None else {"entries": [r["id"] for r in rb["rows"]],
-                                                                   "kept": []}}
+                                                                   "kept": kept}}
     check["undo"] = {"kind": "rename", "before": op["before"], "old": op["old"], "file": op["new"],
                      "file_key": op["file_key"], "file_sha256": op["new_sha256"], "audio": op["audio"],
                      "repoint": None if rb is None else rb.get("record"),

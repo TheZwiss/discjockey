@@ -29,7 +29,8 @@ file's picture, both through `audio.cdj_cover`) and ends with the entry's `path`
 holds that name itself (an AIFF with wrong tags: both files coexist until the commit, so the new one can't take it):
 the same call then runs `rename.rename_file` (`_then_rename`), the old file sits in Superseded/ by then, and the file
 ends at the clean name; each step is journaled and crash-safe on its own, and the rename keeps the Convert's check and
-undo in its `before` (two undos return the original file).
+undo in its `before` (two undos return the original file). The result and the check say "converted": the user's file
+kept its name and became an AIFF.
 Nothing is held for the undo, which hands nothing back to Upgrades ready/.
 A Convert's recovery and undo words say "conversion" where Same track's say "replace" or "upgrade" (`_say`, plan
 stage D §3).
