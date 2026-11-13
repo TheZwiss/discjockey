@@ -43,6 +43,12 @@ export function megabytes(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) return NONE;
   return (bytes / 1e6).toFixed(1);
 }
+/** A size for the user's eyes, as the engine says it (convert.py `size_words`): 1_240_000_000 → "1.2 GB", 35_400_000 →
+ *  "35 MB"; under a megabyte "1 MB". */
+export function sizeWords(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) return NONE;
+  return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`;
+}
 /** 0.7412 → "74 %"; null → "—". */
 export function percent(share: number | null | undefined): string {
   if (share === null || share === undefined || !Number.isFinite(share)) return NONE;

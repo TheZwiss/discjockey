@@ -74,7 +74,7 @@ export const KEPT_FILE: Outcome = { tone: 'file', text: 'Your old file is kept i
 /** Where a rekordbox write follows (design §8's console tip, plan stage B §6.3) */
 export const QUIT_REKORDBOX = 'Quit rekordbox before you replace';
 const QUIT_STEP: Outcome = { tone: 'step', text: QUIT_REKORDBOX };
-const BECOMES_AIFF: Outcome = { tone: 'file', text: 'Becomes an AIFF file' };
+export const BECOMES_AIFF: Outcome = { tone: 'file', text: 'Becomes an AIFF file' };
 export const NO_REKORDBOX = 'No rekordbox on this Mac: the new file is a new track';
 /** The no-choice card's title: "In rekordbox" would sit over "No rekordbox on this Mac", so there the card is the file's. */
 export const waysTitle = (w: Pick<UpgradeWays, 'reason'>): string => (w.reason === NO_REKORDBOX ? 'The new file' : 'In rekordbox');

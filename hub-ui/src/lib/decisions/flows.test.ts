@@ -10,7 +10,7 @@ import { answerConfirm, confirmRequest } from '../components/confirm';
 import { _resetJobs, waitForJob } from '../stores/jobs';
 import { toasts } from '../stores/toasts';
 import { artistTitle } from '../format';
-import { ChecksFlow, UpgradeBatchFlow } from './flows.svelte';
+import { AiffFlow, ChecksFlow, UpgradeBatchFlow } from './flows.svelte';
 
 function setup(scenario = 'upgrade-multi', speed = 400) {
   (globalThis as any).window = new EventTarget();
@@ -271,5 +271,61 @@ describe('ChecksFlow', () => {
     expect(onact).not.toHaveBeenCalled();
     await flow.checked(checks.map((t) => t.track_id));
     expect(onact).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('AiffFlow (Convert and Give it its clean name for one track)', () => {
+  it('runs Convert from the Library, shows the button busy meanwhile and ends without a problem; a second press does nothing', async () => {
+    setup('library:aiff-flac', 1000);
+    const convert = vi.spyOn(api, 'convert');
+    const flow = new AiffFlow();
+    const first = flow.run('own:1', 'convert');
+    expect(flow.busy).toBe(true);
+    await flow.run('own:1', 'convert');
+    await first;
+    expect(convert).toHaveBeenCalledTimes(1);
+    expect(convert).toHaveBeenCalledWith(['own:1'], 'library');
+    expect([flow.busy, flow.problem]).toEqual([false, null]);
+  });
+  it('a Rename calls rename, a To-do flow says todo as the origin', async () => {
+    setup('library:aiff-rename', 1000);
+    const rename = vi.spyOn(api, 'rename');
+    const flow = new AiffFlow({ origin: 'todo' });
+    await flow.run('own:7', 'rename');
+    expect(rename).toHaveBeenCalledWith(['own:7']);
+    const convert = vi.spyOn(api, 'convert');
+    await flow.run('own:1', 'convert');
+    expect(convert).toHaveBeenCalledWith(['own:1'], 'todo');
+  });
+  it('calls onact as the job starts, so the page keeps the track in view', async () => {
+    setup('library:aiff-flac', 1000);
+    const onact = vi.fn();
+    await new AiffFlow({ onact }).run('own:1', 'convert');
+    expect(onact).toHaveBeenCalledTimes(1);
+  });
+  it('rekordbox open: the refusal stays as the card\'s problem, no toast, until the next track', async () => {
+    setup('library:aiff-rekordbox-open', 1000);
+    const flow = new AiffFlow();
+    await flow.run('own:1', 'convert');
+    expect(flow.problem).toMatch(/^rekordbox is open\. Quit rekordbox/);
+    expect(get(toasts)).toEqual([]);
+    flow.follow('own:2');
+    expect(flow.problem).toBeNull();
+  });
+  it('asks rekordbox when it attaches and when the window gets focus back; detaching stops it', async () => {
+    const { s } = setup('library:aiff-flac', 1000);
+    const flow = new AiffFlow();
+    expect(flow.rekordbox).toBeNull();
+    const off = flow.attach();
+    await until(() => flow.rekordbox !== null);
+    expect(flow.rekordbox).toEqual({ state: 'ready', running: false });
+    s.rekordbox_running = true;
+    window.dispatchEvent(new Event('focus'));
+    await until(() => flow.rekordbox?.running === true);
+    off();
+    s.rekordbox_running = false;
+    window.dispatchEvent(new Event('focus'));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(flow.rekordbox?.running).toBe(true);
   });
 });
