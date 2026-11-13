@@ -677,7 +677,7 @@ def test_the_syncs_json_is_one_object_and_the_human_lines_go_to_stderr(tmp_path,
     assert report["auto_upgrade"] == block                                   # the run's block, as the report has it
     assert data["counts"]["upgraded"] == 2 and "Upgraded (your cues stayed)" in open(data["report"]).read()
     assert "At the end, 2 upgrades go in place of your files; your cues stay." in err
-    assert "Upgrading 1 of 2: Artist - Song 0" in err and "Upgraded 2 tracks; your cues stayed." in err
+    assert "Upgrading 1 of 2: Artist – Song 0" in err and "Upgraded 2 tracks; your cues stayed." in err
     assert all(load_state(lib.paths)["tracks"][k]["upgrade"] is None for k in lib.tracks)
 
 
@@ -689,7 +689,7 @@ def test_the_human_sync_says_its_plan_each_track_and_the_summary_line(tmp_path, 
     lines = out.splitlines()
     assert "At the end, 2 upgrades go in place of your files; your cues stay." in lines
     assert "Upgrading 2 tracks at the end of the sync..." in lines
-    assert "Upgrading 1 of 2: Artist - Song 0" in lines and "Upgrading 2 of 2: Artist - Song 1" in lines
+    assert "Upgrading 1 of 2: Artist – Song 0" in lines and "Upgrading 2 of 2: Artist – Song 1" in lines
     report_line = next(i for i, x in enumerate(lines) if x.startswith("No downloads needed. Report: "))
     assert lines.index("Upgraded 2 tracks; your cues stayed.") > report_line      # the summary line comes last
 
@@ -760,7 +760,7 @@ def test_rekordbox_open_the_plan_says_so_and_the_sync_upgrades_nothing(tmp_path,
     before = (lib.music(), lib.dump())
     assert cli.main(["--yes"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert "rekordbox is open: quit it before you start, so the sync can put 2 upgrades in place at the end." in out
+    assert "rekordbox is open: quit it before the sync ends, so the sync can put 2 upgrades in place." in out
     assert "2 upgrades wait for rekordbox to be closed." in out and "Upgrading 2 tracks at the end of the sync..." not in out
     assert (lib.music(), lib.dump()) == before and batches_in(lib) == 0 and not (lib.paths.data / "rekordbox").exists()
     assert all(lib.entry(i)["upgrade"]["auto_waits"] for i in (0, 1))

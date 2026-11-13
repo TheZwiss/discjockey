@@ -1035,7 +1035,7 @@ class FakeExecutor:
     after = None
 
     def __init__(self, paths, state, log, acquirer, inspect, *, emit, token, limit=None, where=None):
-        self.emit, self.token = emit, token
+        self.emit, self.token, self.log = emit, token, log
 
     def run(self, actions):
         self.emit(ActionFinished(None, Result("new_lossless", "A", "Artist", "New", "tn")))
@@ -1110,6 +1110,29 @@ def test_the_phase_runs_after_the_downloads_and_only_for_the_set(tmp_path, monke
 
 
 @needs_ffmpeg
+def test_an_upgrade_parked_and_done_in_one_sync_is_told_once(tmp_path, monkeypatch, fake_executor):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff", "stale"])
+
+    def parked(ex):  # the sync's own check parked these three a moment ago
+        for k in lib.tracks:
+            ex.log.add(Result("upgrade_ready", "A", "Artist", "Song", k, "same edit · waiting in Upgrades ready"))
+        ex.log.add(Result("upgrade_ready", "A", "Artist", "Other", "elsewhere", "waiting in Upgrades ready"))
+
+    fake_executor.after = parked
+    code, path = run.execute(prepared(lib), None, rekordbox=services(lib))
+    sections = [(r["section"], r["track_id"]) for r in report_json(path)["results"]
+                if r["section"] != "rekordbox_check"]
+    for key in lib.tracks[:2]:                                      # parked and done: only under `upgraded`
+        assert [sec for sec, t in sections if t == key] == ["upgraded"]
+    # a track the phase did not file keeps the sync's own line
+    assert [sec for sec, t in sections if t == lib.tracks[2]] == ["upgrade_ready"]
+    assert ("upgrade_ready", "elsewhere") in sections
+    text = path.read_text()
+    assert "## Upgraded (your cues stayed) (2)" in text
+    assert "## Better version found, waiting for you (run discjockey upgrades) (2)" in text   # stale + elsewhere
+
+
+@needs_ffmpeg
 def test_a_plan_without_actions_runs_the_phase_too(tmp_path, monkeypatch):
     monkeypatch.setattr(run, "fill_kbps", lambda *a, **k: 0)
     lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
@@ -1136,6 +1159,26 @@ def test_stop_before_the_phase_means_no_phase(tmp_path, monkeypatch, fake_execut
     fake_executor.after = stopped                                    # Stop inside the downloads
     code, path = run.execute(prepared(lib), None, rekordbox=services(lib))
     assert code == 130 and batch_rows(lib) == 0 and (lib.music(), lib.dump()) == before
+
+
+@needs_ffmpeg
+def test_a_crash_in_the_plans_actions_runs_no_phase(tmp_path, monkeypatch, fake_executor):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    before = (lib.music(), lib.dump())
+
+    def boom(ex):
+        raise RuntimeError("power cut")
+
+    fake_executor.after = boom
+    events = []
+    with pytest.raises(run.RunCrashed) as crashed:
+        run.execute(prepared(lib), None, emit=events.append, rekordbox=services(lib))
+    data = report_json(crashed.value.report)
+    assert data["exit_code"] == 1 and "auto_upgrade" not in data and data["crashed"]
+    assert "upgrading at the end of the sync" not in data["crashed"]
+    assert batch_rows(lib) == 0 and (lib.music(), lib.dump()) == before
+    assert not any(isinstance(e, BatchProgress) for e in events)
+    assert isinstance(events[-1], RunFinished) and events[-1].exit_code == 1
 
 
 @needs_ffmpeg

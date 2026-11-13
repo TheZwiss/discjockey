@@ -615,7 +615,7 @@ waiting.
   rekordbox to be closed", and the To-do page marks those tracks "Waits for rekordbox to be closed". They go in at your
   next sync with rekordbox closed, or at once with **Upgrade all**. The Sync page tells you before you start when
   rekordbox is open and upgrades are waiting. If you open rekordbox while the upgrades run, the track in work is rolled
-  back and the rest waits the same way. Discjockey never waits for rekordbox and never asks you to quit it.
+  back and the rest waits the same way. The sync never waits for rekordbox: what can't go in waits for the next one.
 - **A track it can't do waits with its reason.** If rekordbox hasn't analysed the track, the timing can't be lined up,
   the track is in your Cloud Library, or the disk is too full, it stays in Upgrade ready with that reason. Later syncs
   leave it alone until something changes (rekordbox analyses the track again, a file changes, or there is more room

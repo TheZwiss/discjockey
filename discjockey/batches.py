@@ -183,7 +183,7 @@ class Refused(Exception):
 
 
 def _name(e: dict | None, track_id: str) -> str:
-    return f"{e.get('artist', '?')} - {e.get('title', track_id)}" if e else track_id
+    return f"{e.get('artist', '?')} – {e.get('title', track_id)}" if e else track_id
 
 
 def _words(reason: str) -> str:

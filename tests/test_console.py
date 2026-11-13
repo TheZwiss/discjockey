@@ -136,7 +136,7 @@ def test_rekordbox_open_adds_the_before_start_line():
     block = {"results": [row("a", "waiting", reason="rekordbox_open"), row("b", "waiting", reason="rekordbox_open")]}
     assert upgrade_lines(block, NAMES, full=False) == [
         "At the end, 2 upgrades go in place of your files; your cues stay.",
-        "rekordbox is open: quit it before you start, so the sync can put 2 upgrades in place at the end."]
+        "rekordbox is open: quit it before the sync ends, so the sync can put 2 upgrades in place."]
 
 
 def test_no_upgrades_and_a_switch_that_is_off_print_nothing():

@@ -12,7 +12,7 @@ import pytest
 
 from batch_helpers import DIFFERENT, make_lib, needs_ffmpeg
 from convert_helpers import EXACT, NOW
-from discjockey import auto_upgrade, batches, convert, db, upgrades
+from discjockey import auto_upgrade, batches, convert, db, report, upgrades
 from discjockey.align import Alignment
 from discjockey.auto_upgrade import Outcome, Planned, free_now, plan, refusal_holds, run_phase, stamps
 from discjockey.events import BatchProgress, CancelToken, Message
@@ -247,8 +247,26 @@ def test_with_rekordbox_running_every_track_of_the_set_waits_and_no_stamp_is_rea
     monkeypatch.setattr(master, "status", lambda *a, **k: asked.append(1) or real(*a, **k))
     monkeypatch.setattr(auto_upgrade, "stamps", lambda *a, **k: pytest.fail("stamps were read while rekordbox runs"))
     answer = ready(lib, running=lambda: True)
-    assert answer == Planned([], [(lib.tracks[i], "rekordbox_open") for i in (0, 1, 3)], [], True)
+    # the held analysis record is sorted as the Sync page's count sorts it (no read open): it holds, it does not wait
+    held = load_state(lib.paths)["tracks"][lib.tracks[3]]["upgrade"]["auto_refused"]
+    assert answer == Planned([], [(lib.tracks[i], "rekordbox_open") for i in (0, 1)], [(lib.tracks[3], held)], True)
     assert len(asked) == 1                                   # only its Status, as for Upgrade all's count
+
+
+@needs_ffmpeg
+def test_with_rekordbox_running_a_held_refusal_stays_a_refusal_and_gets_no_waiting_mark(tmp_path, monkeypatch):
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3_plain", "mp3", "aiff"])
+    record(lib, 1, reason="not_analysed", anlz={"x": 1})                  # held (analysis kind)
+    record(lib, 2, reason="space", free=10**15)                           # held: the drive has less free
+    state = load_state(lib.paths)
+    state["tracks"][lib.tracks[1]]["upgrade"]["auto_waits"] = "2026-11-08T10:00:00"   # an old mark over the refusal
+    save_state(lib.paths, state)
+    out, state, log, _ = phase(lib, running=lambda: True)
+    assert rows(out) == [(lib.tracks[1], "refused", "not_analysed"), (lib.tracks[2], "refused", "space"),
+                         (lib.tracks[0], "waiting", "rekordbox_open"), (lib.tracks[3], "waiting", "rekordbox_open")]
+    assert (out.waiting, out.refused, out.batch) == (2, 2, None)
+    assert "auto_waits" not in upgrade_of(lib, 1) and "auto_waits" not in upgrade_of(lib, 2)
+    assert all(upgrade_of(lib, i)["auto_waits"] for i in (0, 3))
 
 
 @needs_ffmpeg
@@ -505,7 +523,8 @@ def test_a_dry_run_lists_what_it_would_do_and_writes_nothing(tmp_path, monkeypat
     assert log.results == [] and log.auto_upgrade is None and events == [] and untouched(lib) == before
     assert state == load_state(lib.paths)
     waiting, _, _, _ = phase(lib, dry_run=True, running=lambda: True)
-    assert rows(waiting) == [(lib.tracks[i], "waiting", "rekordbox_open") for i in (0, 1, 2)] and waiting.waiting == 3
+    assert rows(waiting) == [(lib.tracks[2], "refused", "not_analysed")] + [
+        (lib.tracks[i], "waiting", "rekordbox_open") for i in (0, 1)] and waiting.waiting == 2
     assert untouched(lib) == before
 
 
@@ -587,9 +606,9 @@ def test_at_the_end_of_a_sync_the_words_say_what_happened_not_what_to_do_before_
 
 
 def test_the_before_start_line_in_the_singular():
-    assert auto_upgrade.before_start_line(1) == ("rekordbox is open: quit it before you start, so the sync can put 1 "
-                                                 "upgrade in place at the end.")
-    assert auto_upgrade.before_start_line(4).endswith("put 4 upgrades in place at the end.")
+    assert auto_upgrade.before_start_line(1) == ("rekordbox is open: quit it before the sync ends, so the sync can put "
+                                                 "1 upgrade in place.")
+    assert auto_upgrade.before_start_line(4).endswith("put 4 upgrades in place.")
 
 
 @needs_ffmpeg
@@ -738,7 +757,11 @@ def test_a_skip_the_phase_does_not_record_is_tried_at_the_next_sync(tmp_path, mo
 
     monkeypatch.setattr(upgrades, "swap", swap)
     out, _, log, _ = phase(lib)
-    assert rows(out) == [(lib.tracks[0], "done", None), (lib.tracks[1], "refused", "changed")] and out.refused == 1
+    # not a refusal To-do shows (nothing is recorded): it waits for the next sync, with its own words
+    assert rows(out) == [(lib.tracks[0], "done", None), (lib.tracks[1], "waiting", "changed")]
+    assert (out.done, out.waiting, out.refused) == (1, 1, 0) and out.results[1]["message"].startswith("Your rekordbox track")
+    assert "changed" not in auto_upgrade.REFUSALS
+    assert report.auto_upgrade_line(out.to_dict()) == "Upgraded 1 track; your cues stayed. 1 waits for your next sync."
     assert "auto_refused" not in upgrade_of(lib, 1) and [r.section for r in log.results] == ["upgraded", "upgrade_waits"]
     flag["busy"] = False
     again, _, _, _ = phase(lib)
@@ -775,9 +798,10 @@ def test_a_held_refusal_reached_with_rekordbox_closed_loses_only_its_waiting_mar
     out, _, _, _ = phase(lib)
     assert rows(out) == [(lib.tracks[0], "refused", "not_analysed")] and out.batch is None
     assert set(upgrade_of(lib, 0)) >= {"auto_refused"} and "auto_waits" not in upgrade_of(lib, 0)
-    # rekordbox open: a held refusal is not looked at, the track just waits
+    # rekordbox open: the held refusal is sorted as the Sync page sorts it (held), not counted as waiting
     waiting, _, _, _ = phase(lib, running=lambda: True)
-    assert rows(waiting) == [(lib.tracks[0], "waiting", "rekordbox_open")] and "auto_refused" in upgrade_of(lib, 0)
+    assert rows(waiting) == [(lib.tracks[0], "refused", "not_analysed")] and "auto_refused" in upgrade_of(lib, 0)
+    assert "auto_waits" not in upgrade_of(lib, 0)
 
 
 # --- stage B's loose end: a re-measure that says "not the same edit" is stored (plan §7 C2 check first) ---
@@ -833,6 +857,8 @@ def test_files_that_cannot_be_compared_are_recorded_and_not_decoded_again_until_
     out, _, log, _ = phase(lib, compare=unknown)
     assert rows(out) == [(lib.tracks[0], "refused", "needs_choice")] and unknown.calls == 1
     up = upgrade_of(lib, 0)
+    assert out.results[0]["message"] == ("Discjockey couldn't compare the two files, so nothing was changed. Try "
+                                         "again, or choose New track.")    # its own sentence, not "isn't the same edit"
     assert up["alignment"] == EXACT.to_dict()                          # the stored measurement is not replaced
     files = {lib.olds[0]: (lib.paths.root / lib.olds[0]).stat().st_mtime_ns,
              up["file"]: (lib.paths.root / up["file"]).stat().st_mtime_ns}

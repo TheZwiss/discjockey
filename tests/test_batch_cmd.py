@@ -115,6 +115,19 @@ def test_list_shows_what_waits_and_why_same_track_cannot_run(tmp_path, monkeypat
     assert untouched(lib) == before
 
 
+def test_the_waiting_mark_is_listed_only_while_same_track_can_run(tmp_path, monkeypatch, capsys):
+    lib = make(tmp_path, monkeypatch, ["mp3", "stale"])      # the second one is stored as a different edit
+    state = load_state(lib.paths)
+    for key in lib.tracks:
+        state["tracks"][key]["upgrade"]["auto_waits"] = "2026-11-09T10:00:00"
+    save_state(lib.paths, state)
+    code, data = run_json(["upgrade", "list"], capsys)
+    assert code == OK and [(r["same_track"], r["auto_waits"]) for r in data["upgrades"]] == [
+        (None, True), ("needs_choice", False)]               # the hub's To-do shows no "waits" over it either
+    code, out, _ = run(["upgrade", "list"], capsys)
+    assert out.count("Waited for rekordbox to be closed at your last sync") == 1
+
+
 def test_list_shows_the_syncs_refusal_and_the_waiting_mark_while_the_switch_is_on(tmp_path, monkeypatch, capsys):
     from dataclasses import replace
 
@@ -178,7 +191,7 @@ def test_apply_all_done_for_every_track_is_exit_0_with_the_words(tmp_path, monke
     assert code == OK
     assert out.splitlines()[:2] == ["Upgraded: Artist - Song 0 → Artist - Song 0.aiff", "Upgraded: Artist - Song 1 → Artist - Song 1.aiff"]
     assert "2 upgraded, your cues stayed." in out and report.USB_STEP in out
-    assert err.splitlines() == ["1 of 2: Artist - Song 0", "2 of 2: Artist - Song 1"]   # progress goes to stderr
+    assert err.splitlines() == ["1 of 2: Artist – Song 0", "2 of 2: Artist – Song 1"]   # progress goes to stderr
     assert lib.entry(0)["rekordbox_check"]["batch"] == lib.entry(1)["rekordbox_check"]["batch"]
 
 

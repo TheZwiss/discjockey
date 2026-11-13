@@ -354,13 +354,14 @@ def run_upgrade_list(args: argparse.Namespace) -> int:
     for key, e in _listed(state, _folder_order(paths)):
         found = e["upgrade"].get("auto_refused")  # the sync's Auto-upgrade record (plan stage C §0.6)
         record = found if isinstance(found, dict) else None
+        same_track = _quick(paths, e, rb)
         rows.append({"track": key, "artist": e["artist"], "title": e["title"], "folder": e["folder"],
                      "file": e.get("path"), "parked": e["upgrade"]["file"], "now": _quality(e, "now"),
                      "new": _quality(e, "new"),
                      "alignment": (e["upgrade"].get("alignment") or {}).get("result") or "unknown",
-                     "same_track": _quick(paths, e, rb),
+                     "same_track": same_track,
                      "auto_refused": {k: record.get(k) for k in ("reason", "message", "at")} if record else None,
-                     "auto_waits": auto_on and bool(e["upgrade"].get("auto_waits"))})
+                     "auto_waits": views.auto_waits_mark(e["upgrade"], auto_on, same_track)})
     lines = []
     for r in rows:
         lines.append(f"{r['track']}  [{r['folder']}] {r['artist']} - {r['title']}")

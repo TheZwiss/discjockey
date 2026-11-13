@@ -82,7 +82,7 @@ def test_a_mixed_batch_uses_one_session_and_one_backup(tmp_path, monkeypatch):
     assert [(e.done, e.total, e.track_id) for e in events] == [
         (0, 3, lib.tracks[0]), (1, 3, lib.tracks[1]), (2, 3, lib.tracks[2]), (3, 3, None)]
     assert all(isinstance(e, BatchProgress) and e.batch_id == batch_id for e in events)
-    assert events[0].name == "Artist - Song 0" and events[-1].name is None
+    assert events[0].name == "Artist – Song 0" and events[-1].name is None
     log = lib.paths.operations_log.read_text()
     assert log.count('"operation": "upgrade_same_track"') == 3 and log.count('"result": "done"') == 3
     assert lib.paths.not_lossless_md.exists()

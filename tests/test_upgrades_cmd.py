@@ -214,7 +214,7 @@ def test_unexpected_error_while_swapping(root, monkeypatch, capsys):
 
     monkeypatch.setattr(upgrades, "build_staged", broken)
     assert run(root, "s", "l") == 1
-    assert "! Could not upgrade BΞNZ0 - Bass Is Coming (OSError: Input/output error)" in capsys.readouterr().out
+    assert "! Could not upgrade BΞNZ0 – Bass Is Coming (OSError: Input/output error)" in capsys.readouterr().out
     assert load_state(root)["tracks"]["t1"]["status"] == "not_lossless"
 
 

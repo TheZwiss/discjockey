@@ -12,7 +12,10 @@ from being decoded again at every sync, and the phase itself (`run_phase`), whic
   counts with (`same_track is None`), so the Sync line, To-do's count and the phase can't differ. The library is
   asked for its `Status` only when a track of the set isn't an AIFF (an AIFF swap needs nothing from it), running or
   not, so a library Discjockey can't open keeps its tracks out of the set even while rekordbox runs. rekordbox
-  running then means everything in the set waits, and nothing else of its library is read (no stamps).
+  running then means everything in the set waits, except the tracks a recorded refusal still holds (sorted as the
+  Sync page's count sorts them, so the two always agree: an analysis record counts as holding, `space` and
+  `needs_choice` are checked against the drive and the two files), and nothing else of its library is read (no
+  stamps).
 - `auto_refused` (on the parked upgrade, `e["upgrade"]["auto_refused"]`): `{"reason", "message", "at", "anlz":
   {path: mtime_ns} | None, "free": int | None, "files": {path: mtime_ns} | None}` for the refusals the phase records
   (`timing`, `not_analysed`, `cloud`, `space`, and `needs_choice` when the two files could not be compared at all).
@@ -26,7 +29,8 @@ from being decoded again at every sync, and the phase itself (`run_phase`), whic
   Replace are the user acting and run the track again.
 - `run_phase` (plan §1.2): `plan`, then, with rekordbox closed, one batch (`batches.start(started_by="auto_upgrade",
   scope="sync")`, `batches.run(require_closed=True)`). rekordbox running when the phase starts: no batch row at all,
-  every track of the set waits (its `auto_waits` mark is set). Stop, rekordbox opening, `Busy` or Ctrl-C end the batch
+  every track of the set waits (its `auto_waits` mark is set), except those a held refusal leaves alone (listed as
+  refused). Stop, rekordbox opening, `Busy` or Ctrl-C end the batch
   through `batches.end_auto` (its `planned` items are skipped, so To-do never offers Resume); the results and the
   records are filed from the batch as it ended. A Ctrl-C is re-raised once they are in the state. A dry run lists
   what would happen and writes nothing (no record, no log entry). Anything else that escapes is the run's crash.
@@ -86,7 +90,10 @@ class Planned:
 @dataclass(frozen=True)
 class Outcome:
     """The run's Auto-upgrade block. `results`: one dict per track, `{"track", "name", "state": "done" | "would" |
-    "waiting" | "refused" | "failed", "reason", "message", "how"}` (`how`: `in_place` | `new_aiff` | None)."""
+    "waiting" | "refused" | "failed", "reason", "message", "how"}` (`how`: `in_place` | `new_aiff` | None).
+    `refused` (state and count) is only a reason in `REFUSALS`, the ones To-do shows and the next sync leaves alone;
+    a skip nothing is recorded for (`changed`, `unclean`, `other_library`, ...) is `waiting` for the next sync with
+    its own reason and words."""
     batch: int | None
     backup: str | None
     done: int
@@ -190,14 +197,15 @@ def plan(paths, state: dict, held: Collection[str], settings: Settings, *, runni
     and library (the real ones are `process.running` and `locate()`); `held` the plan's question keys. `status` is a
     rekordbox `Status` the caller already has (the hub's cached one): used as it is, nothing is opened for it.
 
-    rekordbox running: every track of the set waits (`rekordbox_open`); of its library only the `Status` is read, and
-    only for a set with a file that isn't an AIFF (the same set Upgrade all counts, plan stage C §0.3). Otherwise
-    the set runs, minus the tracks a still-holding refusal leaves alone (`refused`); the records of the analysis
-    kind are checked with one read open for all of them.
+    rekordbox running: the tracks of the set wait (`rekordbox_open`) except those a recorded refusal still holds
+    (`refused`: the library is never read for them, so a record of the analysis kind counts as holding); of its
+    library only the `Status` is read, and only for a set with a file that isn't an AIFF (the same set Upgrade all
+    counts, plan stage C §0.3). Otherwise the set runs, minus the tracks a still-holding refusal leaves alone
+    (`refused`); the records of the analysis kind are checked with one read open for all of them.
 
     `quick` is the Sync page's count before a start (plan §4): rekordbox's library is never opened, so a record of the
-    analysis kind can't be checked and counts as holding (the track is `refused`, not counted as ready), and the
-    records are sorted out while rekordbox runs too (its tracks `waiting` are the ones that would run)."""
+    analysis kind can't be checked and counts as holding (the track is `refused`, not counted as ready). A phase that
+    meets rekordbox running sorts the records the same way, so its waiting count equals that page's `ready`."""
     if not settings.auto_upgrade:
         return None
     is_running = bool(running())
@@ -214,18 +222,17 @@ def plan(paths, state: dict, held: Collection[str], settings: Settings, *, runni
         if any(not _is_aiff(state["tracks"][k]) for k in eligible_keys(rb)):
             rb = master.status(place, lambda: is_running)  # one keyed open, only for a file that isn't an AIFF
     ready = eligible_keys(rb)
-    if is_running and not quick:
-        return Planned([], [(k, "rekordbox_open") for k in ready], [], True)
+    unchecked = quick or is_running  # rekordbox's library is not read for the stamps: analysis records count as holding
 
     records = {k: r for k in ready if (r := _record(state["tracks"][k])) is not None}
-    now = {} if quick else stamps(paths, [k for k, r in records.items() if r.get("reason") in ANLZ_REFUSALS], state,
-                                  running=lambda: is_running, place=place)
+    now = {} if unchecked else stamps(paths, [k for k, r in records.items() if r.get("reason") in ANLZ_REFUSALS],
+                                      state, running=lambda: is_running, place=place)
     run: list[str] = []
     refused: list[tuple[str, dict]] = []
     for k in ready:
         record, e = records.get(k), state["tracks"][k]
         if record is not None and (
-                (quick and record.get("reason") in ANLZ_REFUSALS)
+                (unchecked and record.get("reason") in ANLZ_REFUSALS)
                 or refusal_holds(record, now.get(k), free_now(paths, e) if record.get("reason") == "space" else None,
                                  file_stamps(paths, e) if record.get("reason") in FILE_REFUSALS else None)):
             refused.append((k, record))
@@ -238,9 +245,10 @@ def plan(paths, state: dict, held: Collection[str], settings: Settings, *, runni
 
 def before_start_line(n: int) -> str:
     """Plan stage C §3's Sync before-start Hint: said before a sync starts (the Sync page, the console's plan). The
-    phase itself, which meets rekordbox open at the end of a sync, says `waiting_line` instead."""
-    return (f"rekordbox is open: quit it before you start, so the sync can put {n} "
-            f"upgrade{'s' if n != 1 else ''} in place at the end.")
+    check happens when the phase begins, at the end of the sync, so rekordbox may still be quit until then. The phase
+    itself, which meets rekordbox open at that moment, says `waiting_line` instead."""
+    return (f"rekordbox is open: quit it before the sync ends, so the sync can put {n} "
+            f"upgrade{'s' if n != 1 else ''} in place.")
 
 
 def waiting_line(n: int) -> str:
@@ -317,8 +325,10 @@ def _batch_rows(result: batches.BatchResult, before: Mapping[str, dict]) -> list
             rows.append(_row(e, item.track, "failed", None, item.message))
         elif item.reason in WAITS:
             rows.append(_row(e, item.track, "waiting", item.reason, WAITS[item.reason]))
-        else:  # a refusal the phase records, or a skip it only reports
+        elif item.reason in REFUSALS:  # a refusal the phase records: To-do says why
             rows.append(_row(e, item.track, "refused", item.reason, item.message))
+        else:  # a skip it only reports (`changed`, `unclean`, ...): nothing is recorded, the next sync tries again
+            rows.append(_row(e, item.track, "waiting", item.reason, item.message))
     return rows
 
 
@@ -410,7 +420,10 @@ def _write_records(paths, state: dict, planned: Planned, rows: list[dict], *, ru
 
 
 def _file(log: rep.RunLog, state: dict, rows: list[dict], where) -> None:
-    """The rows as the run's results: `upgraded`, `upgrade_waits` and, for a failure, `errors`."""
+    """The rows as the run's results: `upgraded`, `upgrade_waits` and, for a failure, `errors`. A track the sync's
+    check parked a moment ago (`upgrade_ready`) is told once, by its row here: the phase's result replaces the old one."""
+    filed = {r["track"] for r in rows}
+    log.results = [x for x in log.results if not (x.section == "upgrade_ready" and x.track_id in filed)]
     for r in rows:
         key = r["track"]
         e = state["tracks"].get(key) or {}
