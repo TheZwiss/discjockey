@@ -16,8 +16,9 @@ WAVE_FORMAT_EXTENSIBLE header (docs/issues.md).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 
-from .models import CONTAINER_NAMES, FORMAT_NAMES, FileAudio
+from .models import CONTAINER_NAMES, FORMAT_NAMES, FileAudio, entry_audio
 
 REASONS = ("format", "bitrate", "bits", "rate_high", "rate_low")
 
@@ -93,3 +94,18 @@ def cdj_problem(audio: FileAudio, ext: str) -> CdjProblem | None:
             return CdjProblem("rate_low", f"{name} {_khz(audio.rate)} kHz · CDJs need 44.1 kHz",
                               f"{name} at {_khz(audio.rate)} kHz: CDJs play {name} from 44.1 kHz.")
     return None
+
+
+def group_members(state: dict) -> dict[str, CdjProblem]:
+    """The songs of To-do's "Won't play well on CDJs" group (plan §1.5), each with its problem, in state order: an own
+    file (source "manual", bought or imported) that has a file with stored facts the rule flags, no parked upgrade (that
+    is Upgrade ready's, plan §0.2) and not hidden. The one answer To-do's group and Convert all (`aiff_plan`'s `cdj`
+    scope) share. A file whose facts aren't stored yet is not in it."""
+    found = {}
+    for key, e in state["tracks"].items():
+        if (e.get("source") != "manual" or e["status"] == "missing" or not e.get("path") or e.get("upgrade")
+                or e.get("hidden") or (audio := entry_audio(e)) is None):
+            continue
+        if (problem := cdj_problem(audio, PurePosixPath(e["path"]).suffix.lower())) is not None:
+            found[key] = problem
+    return found

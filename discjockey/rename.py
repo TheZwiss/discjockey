@@ -124,18 +124,19 @@ def blocked(why: str) -> Skipped:
     return skipped("rename_blocked", reason=BLOCKED_WHY[why])
 
 
-def clean_path(paths: Paths, state: dict, track_id: str, e: dict) -> str | None:
+def clean_path(paths: Paths, state: dict, track_id: str, e: dict, names: NameReserver | None = None) -> str | None:
     """The path Give it its clean name gives the track's file (relative to the music folder), without writing
     anything: `<its folder>/<Artist - Title>.aiff`, or with the song's ID when another file holds that name. The
     file's own name counts as free (it moves away first), and so do the names the track's own undo record reserves
     (the check this step writes replaces that record: a Convert that landed on the ID name because its old file held
     the clean one leaves that name reserved for its undo). The path the file has already when that is the answer
     (`eligible.rename` then says `named_already`, a case-only difference included). None for a song with no artist
-    or title. FileExistsError when no name is free."""
+    or title. FileExistsError when no name is free. `names`: a reserver to ask instead of a fresh one (the caller marks
+    what it hands out as taken)."""
     if not (e.get("artist") or "").strip() or not (e.get("title") or "").strip():
         return None
     old = e["path"]
-    names = NameReserver(paths.root, state)
+    names = names or NameReserver(paths.root, state)  # a plan over many files shares one (the names it hands out stay)
     names.release(old)
     if (u := upgrade_undo(e)) is not None:
         for p in undo_paths(u):

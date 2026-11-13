@@ -475,7 +475,7 @@ def test_the_words_of_a_skipped_item_write_rekordbox_in_lower_case_even_at_the_s
     third = start(lib, [0], started_by="auto_upgrade")
     assert batches.end_auto(lib.paths, third, "not_reached", now=lambda: NOW).results[0].message.startswith(
         "The sync stopped before")                                               # other words are capitalised as before
-    assert batches._words("not_analysed").startswith("rekordbox hasn't analysed")
+    assert batches.words("not_analysed").startswith("rekordbox hasn't analysed")
 
 
 def test_end_auto_refuses_a_batch_the_user_started_an_unknown_reason_and_a_missing_batch(tmp_path, monkeypatch):

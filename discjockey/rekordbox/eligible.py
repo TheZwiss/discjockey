@@ -51,8 +51,6 @@ OWN = "manual"  # the `source` of a file that wasn't downloaded: a bought file o
 
 Present = Literal["here", "away", "missing"]
 
-LOSSLESS_CODEC_NAMES = ("flac", "alac")  # the lossless codecs that are not `pcm_*` (WAV, AIFF)
-
 
 @dataclass(frozen=True)
 class Eligible:
@@ -130,20 +128,15 @@ def fields_kept(row: Entry, old_tags: dict[str, str], clean: dict[str, str]) -> 
 
 # --- the three actions ---
 
+def is_aiff_16_44(ext: str, codec: str, bits: int | None, rate: int | None) -> bool:
+    """Whether a file with this extension (lower case, with the dot) and stored audio is an AIFF in the library format
+    (16-bit PCM, 44.1 kHz): the only kind whose tags can still need a rewrite, so the only one the plans read."""
+    return ext in AIFF_EXTS and codec.startswith("pcm_s16") and bits == 16 and rate == 44100
+
+
 def is_clean_aiff(facts: FileFacts, entry: dict) -> bool:
     """An AIFF in the library format (16-bit, 44.1 kHz) whose tags are the download's."""
-    return (facts.ext in AIFF_EXTS and facts.codec.startswith("pcm_s16") and facts.bits == 16
-            and facts.sample_rate == 44100 and tags_clean(facts, entry))
-
-
-def _is_aiff_16_44(facts: FileFacts) -> bool:
-    return facts.ext in AIFF_EXTS and facts.codec.startswith("pcm_s16") and facts.bits == 16 and facts.sample_rate == 44100
-
-
-def is_lossless_codec(codec: str | None) -> bool:
-    """Whether a file's stored codec (`file_codec`) is lossless for Make all lossless files AIFF: PCM (WAV, AIFF), FLAC
-    or ALAC (plan stage D §0.8). Lossy codecs and unknown ones (None) are not."""
-    return bool(codec) and (codec.startswith("pcm_") or codec in LOSSLESS_CODEC_NAMES)
+    return is_aiff_16_44(facts.ext, facts.codec, facts.bits, facts.sample_rate) and tags_clean(facts, entry)
 
 
 def _where(present: Present) -> Skip | None:

@@ -194,6 +194,16 @@ def needed_bytes(duration_s: float, channels: int) -> int:
     return math.ceil(duration_s * 44100) * 2 * channels + 4096
 
 
+def space_places(paths: Paths, new: str) -> list[Path]:
+    """The folders whose drives a render that ends at `new` (relative to the music folder) needs room on:
+    .discjockey/.tmp's, and once more the new file's when the move crosses drives (`move_path` stages a copy there)."""
+    target = (paths.root / new).parent
+    places = [paths.tmp]
+    if library.device(paths.tmp) != library.device(target):
+        places.append(target)
+    return places
+
+
 def space_needed(paths: Paths, source: Path, new: str) -> list[tuple[Path, int]]:
     """Where the render needs room and how much, without decoding: .discjockey/.tmp's drive, and once more the new
     file's drive when the move crosses drives (move_path stages a copy there). One `(a folder on the drive, bytes)`
@@ -201,11 +211,7 @@ def space_needed(paths: Paths, source: Path, new: str) -> list[tuple[Path, int]]
     parked download, or the file itself for Convert; RuntimeError when it can't)."""
     info = quality.probe(source)
     need = needed_bytes(info.duration_s, info.channels or 2)
-    target = (paths.root / new).parent
-    places = [paths.tmp]
-    if library.device(paths.tmp) != library.device(target):
-        places.append(target)
-    return [(place, need) for place in places]
+    return [(place, need) for place in space_places(paths, new)]
 
 
 def check_space(paths: Paths, source: Path, new: str) -> None:
@@ -228,12 +234,13 @@ def plan_names(paths: Paths, state: dict, track_id: str, e: dict, upgrade: dict)
     return new, _superseded_name(paths, names, track_id, old_rel)
 
 
-def plan_file_names(paths: Paths, state: dict, track_id: str, e: dict) -> tuple[str, str]:
+def plan_file_names(paths: Paths, state: dict, track_id: str, e: dict, names: NameReserver | None = None
+                    ) -> tuple[str, str]:
     """The names Convert gives a track's own file, without writing anything: the new AIFF with the clean name (in the
     old file's folder, or its playlist folder by `replacement_dir`; the song's status stays, so a lossy file's AIFF
     stays in `not_lossless/`) and where the old file goes (Superseded/). An old file that holds the clean name itself
     (an AIFF with wrong tags) is taken: the new file gets the song's ID until the old one is gone (plan stage D §1.2)."""
-    names = NameReserver(paths.root, state)
+    names = names or NameReserver(paths.root, state)  # a plan over many files shares one, so its names stay apart
     new = names.choose(replacement_dir(e, e.get("status") or "lossless"), expected_stem(e["artist"], e["title"]),
                        ".aiff", track_id)
     return new, _superseded_name(paths, names, track_id, e["path"])

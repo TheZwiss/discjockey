@@ -410,24 +410,24 @@ FILE_REASONS = [*convert.CONVERT_REFUSED, "rename_blocked", "rekordbox_unreadabl
 @pytest.mark.parametrize("reason", FILE_REASONS)
 def test_every_reason_a_file_item_is_skipped_with_has_words_without_upgrade(action, reason):
     assert reason in REASONS
-    words = batches._words(reason, action)
+    words = batches.words(reason, action)
     assert words[0].isupper() or words.startswith("rekordbox")           # a sentence; rekordbox in lower case
     assert not words.startswith("Rekordbox") and "upgrade" not in words.lower() and "new track" not in words.lower()
     assert reason == "upgrade_waits" or "same track" not in words.lower()
 
 
 def test_the_words_of_the_plan_for_the_reasons_a_file_item_meets():
-    assert batches._words("upgrade_waits", "convert") == "A better version is waiting: Same track makes it an AIFF."
-    assert batches._words("named_already", "rename") == "A clean AIFF with its clean name already."
-    assert batches._words("clean_aiff", "convert") == "This file is a clean AIFF already: Give it its clean name."
-    assert batches._words("needs_convert", "rename") == convert.CONVERT_REFUSED["needs_convert"]
-    assert batches._words("rename_blocked", "rename", why=rename.BLOCKED_WHY["cloud"]) == \
+    assert batches.words("upgrade_waits", "convert") == "A better version is waiting: Same track makes it an AIFF."
+    assert batches.words("named_already", "rename") == "A clean AIFF with its clean name already."
+    assert batches.words("clean_aiff", "convert") == "This file is a clean AIFF already: Give it its clean name."
+    assert batches.words("needs_convert", "rename") == convert.CONVERT_REFUSED["needs_convert"]
+    assert batches.words("rename_blocked", "rename", why=rename.BLOCKED_WHY["cloud"]) == \
         convert.REFUSED["rename_blocked"].format(reason="the track is in Cloud Library Sync")
-    assert "can't open this rekordbox version's library" in batches._words("rekordbox_unreadable", "convert")
+    assert "can't open this rekordbox version's library" in batches.words("rekordbox_unreadable", "convert")
     # Same track's words are as they were
-    assert batches._words("rekordbox_unreadable") == "Same track needs a rekordbox library Discjockey can open. " \
+    assert batches.words("rekordbox_unreadable") == "Same track needs a rekordbox library Discjockey can open. " \
                                                      "Nothing was changed."
-    assert batches._words("away") == "Its drive isn't connected. Nothing was changed."
+    assert batches.words("away") == "Its drive isn't connected. Nothing was changed."
 
 
 def test_the_usb_step_is_for_a_converted_file_with_rekordbox_tracks_only():

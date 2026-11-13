@@ -7,8 +7,8 @@ import pytest
 from discjockey.audio import TEXT_FIELDS, FileFacts
 from discjockey.rekordbox import Entry, Status, TimelineOffset
 from discjockey.rekordbox.eligible import (
-    ACTIONS, REASONS, Eligible, Skip, aiff_action, convert, expected_tags, fields_kept, is_lossless_codec, reason_of,
-    rename, same_track, same_track_quick, tags_clean, text_plan,
+    ACTIONS, REASONS, Eligible, Skip, aiff_action, convert, expected_tags, fields_kept, reason_of, rename, same_track,
+    same_track_quick, tags_clean, text_plan,
 )
 from discjockey.rekordbox.offset import EntryTiming
 from discjockey.rekordbox.preview import REASON_WORDS
@@ -358,8 +358,10 @@ def test_aiff_action_accepts_its_arguments_by_position():
     assert (kind, why(verdict)) == ("rename", None)
 
 
-def test_which_codecs_are_lossless_for_make_all():
-    for codec in ("pcm_s16be", "pcm_s16le", "pcm_s24le", "pcm_f32le", "flac", "alac"):
-        assert is_lossless_codec(codec), codec
-    for codec in ("mp3", "aac", "opus", "vorbis", "wmav2", "", None):
-        assert not is_lossless_codec(codec), codec
+def test_the_library_format_is_a_16_bit_44_1_khz_aiff():
+    from discjockey.rekordbox.eligible import is_aiff_16_44
+    assert is_aiff_16_44(".aiff", "pcm_s16be", 16, 44100) and is_aiff_16_44(".aif", "pcm_s16le", 16, 44100)
+    assert not is_aiff_16_44(".wav", "pcm_s16le", 16, 44100)
+    assert not is_aiff_16_44(".aiff", "pcm_s24be", 24, 44100)
+    assert not is_aiff_16_44(".aiff", "pcm_s16be", 16, 48000)
+    assert not is_aiff_16_44(".aiff", "pcm_s16be", None, 44100)
