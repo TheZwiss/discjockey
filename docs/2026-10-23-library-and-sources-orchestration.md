@@ -539,7 +539,10 @@ Results:
     `.claude/worktrees/rb-d-<group>` on `feat/rekordbox-d-<group>`. D1 (Sonnet) done cd2a39f: **304k** (55 calls; cut once by
     the session limit, resumed; over its ~200k stop): V8 file facts + facts pass, `cdj.py`, `cdj_cover`, `own_name`,
     `aiff_action`; beyond plan: stream kbps, covers dropped in write_tags. Notes: scratchpad `stage-d-notes.md`.
-    R-D1 (Sonnet review + fixes, brief-33-RD1.md) running. Stage D running total 592k.
+    R-D1 (Sonnet) **189k**: ready, one test added; carries noted in `stage-d-notes.md` (D4: one lossless-codec list,
+    quality's; D5: console facts fill + a failed-probe mark so an unreadable file doesn't re-import every launch).
+    D1 merged into the stage branch 92bb5229 (stage worktree `.claude/worktrees/rb-d`). D2 (Sonnet, brief-33-D2.md)
+    running. Stage D running total 781k.
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
