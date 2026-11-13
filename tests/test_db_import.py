@@ -761,6 +761,57 @@ def test_files_without_facts_lists_only_own_online_files_with_a_song_and_no_code
         assert download not in [f for f, _ in db.files_without_facts(conn)]
 
 
+def listed(lib):
+    with lib.conn() as conn:
+        return [f for f, _ in db.files_without_facts(conn)], db.facts_missing(conn)
+
+
+def test_a_failed_probe_mark_leaves_the_file_out_until_its_size_or_mtime_changes(lib):
+    folder = lib.folder().id
+    a, b = lib.add_files(folder, "A.mp3", "B.mp3")
+    lib.own_song(a)
+    lib.own_song(b)
+    with lib.conn() as conn:
+        assert db.set_facts_failed(conn, a) == 1
+    assert lib.rows("SELECT facts_failed FROM files WHERE id = ?", a)[0][0] == "100:1000"  # the size and mtime it had
+    assert listed(lib) == ([b], 1)  # a is not tried again, b is
+    lib.scan(ScanResult(retagged=[(a, SeenFile(folder, "A.mp3", 100, 1000, f"key-{folder}-A.mp3"))]), LATER)
+    assert listed(lib) == ([b], 1)  # seen again, nothing changed
+    lib.scan(ScanResult(retagged=[(a, SeenFile(folder, "A.mp3", 100, 2000, f"key-{folder}-A.mp3"))]), LATER)
+    assert listed(lib) == ([a, b], 2)  # a new mtime: tried again
+    with lib.conn() as conn:
+        db.set_facts_failed(conn, a)
+    lib.scan(ScanResult(retagged=[(a, SeenFile(folder, "A.mp3", 101, 2000, f"key-{folder}-A.mp3"))]), LATER)
+    assert listed(lib) == ([a, b], 2)  # a new size: tried again
+
+
+def test_a_scan_that_finds_other_audio_clears_the_failed_probe_mark_even_at_the_same_size_and_mtime(lib):
+    folder = lib.folder().id
+    (a,) = lib.add_files(folder, "A.mp3")
+    lib.own_song(a)
+    with lib.conn() as conn:
+        db.set_facts_failed(conn, a)
+    assert listed(lib) == ([], 0)
+    lib.scan(ScanResult(replaced=[(a, SeenFile(folder, "A.mp3", 100, 1000, "other-key"))]), LATER)
+    assert lib.rows("SELECT facts_failed FROM files WHERE id = ?", a)[0][0] is None
+    assert listed(lib) == ([a], 1)
+
+
+def test_storing_the_facts_clears_the_mark_and_a_row_without_size_or_mtime_is_not_marked(lib):
+    folder = lib.folder().id
+    a, b = lib.add_files(folder, "A.mp3", "B.mp3")
+    lib.own_song(a)
+    lib.own_song(b)
+    with lib.conn() as conn:
+        db.set_facts_failed(conn, a)
+        db.set_file_facts(conn, a, FLAC)
+        conn.execute("UPDATE files SET size = NULL WHERE id = ?", (b,))
+        assert db.set_facts_failed(conn, b) == 0 and db.set_facts_failed(conn, 9999) == 0
+    assert lib.rows("SELECT facts_failed FROM files WHERE id = ?", a)[0][0] is None
+    assert facts_rows(lib, a) == ("flac", 96000, 24, 2100)
+    assert listed(lib) == ([b], 1)
+
+
 def test_set_file_facts_writes_the_four_columns_without_bumping_the_generation(lib):
     folder = lib.folder().id
     (a,) = lib.add_files(folder, "A.mp3")

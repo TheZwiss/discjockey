@@ -16,13 +16,14 @@ nothing. A run takes the library lock, finishes interrupted steps (`library.reco
 AIFF batch (`batches.start`, scope `console`) that `batch_cmd._finish` runs: the exit codes 0-5, the `--json` shapes and
 Ctrl-C are exactly those of `upgrade apply` (batch_cmd's docstring). A plan with nothing in it is exit 1,
 `{"ok": false, "kind": "refused", "reason": "nothing_to_do", "message", "batch": null, "results": [], "plan"}`;
-`bad_args` (exit 1) is a combination of arguments that means nothing. `batch list | show | resume | undo` and
+`bad_args` (exit 1) is a combination of arguments that means nothing, or an `--in` playlist or folder that doesn't exist
+("No playlist called “X”."; an existing empty one is "Nothing to change"). `batch list | show | resume | undo` and
 `rekordbox checked --batch` work for these batches as for any other.
 
 A library whose own files come from before schema 8 has no stored audio facts until an import ran, and the plan reads
 them. So both commands, a dry run included, first fill the missing facts (`importer.fill_facts`: it only reads the
 files) under the library lock, with a progress line on stderr; a dry run that finds none takes no lock and writes
-nothing. `batches.run` does the rest: one rekordbox session, one backup, Stop between files.
+nothing. A file ffprobe can't read is marked once (`db.set_facts_failed`) and no longer counts as missing facts. `batches.run` does the rest: one rekordbox session, one backup, Stop between files.
 """
 from __future__ import annotations
 
@@ -36,6 +37,7 @@ from pathlib import Path, PurePosixPath
 from . import aiff_plan, batch_cmd, batches, convert, db, importer, library, rekordbox
 from .batch_cmd import BUSY, FAILED, LOCK_HELD, NO_LIBRARY, OK, STOPPED
 from .events import BatchProgress, Cancelled, CancelToken, ImportProgress
+from .hub import views
 from .library import LockHeld, NoLibrary, Paths, StateError
 from .rekordbox import master, process
 from .rekordbox_cmd import failed, no_library, say
@@ -47,6 +49,8 @@ READING = "Reading what your files are: {done} of {total}"
 VERBS = {"convert": "Converting", "rename": "Renaming"}
 LOSSY_NOTE = "{n} of these {are} lossy: an AIFF made from them sounds the same and takes 5–10 times the space."
 BAD_IN_FORM = "--in is playlist:<name>, folder:<path> or unlisted."
+NO_PLAYLIST = "No playlist called “{name}”."
+NO_FOLDER = "No folder at {path}."
 BAD_IN_WITH_TRACKS = "--in narrows --all; it means nothing with named songs."
 BAD_IN_WITH_CDJ = "--all cdj is the whole group of files CDJs won't play well; --in can't narrow it."
 
@@ -162,6 +166,19 @@ def _needs_fill(paths: Paths) -> bool:
         return True
 
 
+def _check_view(paths: Paths, state: dict, job: Job) -> None:
+    """`--in` names a playlist or folder that exists: one that doesn't is BadArgs with its name (an existing empty one
+    is "Nothing to change")."""
+    view, key = job.scope.get("view"), job.scope.get("key")
+    if view not in ("playlist", "folder"):
+        return
+    lines, _, watched = aiff_plan.view_inputs(paths, view, None, None, None)
+    if view == "folder" and (paths.root / key).is_dir():  # a folder on disk that holds no file yet is empty, not wrong
+        return
+    if not views.view_known(state, view, key, lines=lines, watched=watched):
+        raise BadArgs(NO_PLAYLIST.format(name=key) if view == "playlist" else NO_FOLDER.format(path=key))
+
+
 def _plan(paths: Paths, state: dict, job: Job) -> aiff_plan.AiffPlan:
     """`aiff_plan.plan` for the job, with one read open of rekordbox's library for the lookup of its tracks."""
     place = rekordbox.locate()
@@ -246,12 +263,20 @@ def _dry_run(args: argparse.Namespace, paths: Paths, job: Job) -> int:
         return failed(args, LOCK_HELD, "busy", code=BUSY)
     except StateError as e:
         return failed(args, str(e))
+    try:
+        _check_view(paths, state, job)
+    except BadArgs as e:
+        return failed(args, str(e), "refused", "bad_args")
     plan = _plan(paths, state, job)
     say(args, {"ok": True, "dry_run": True, "plan": plan.to_dict()}, _plan_lines(plan, job))
     return OK
 
 
 def _run(args: argparse.Namespace, paths: Paths, state: dict, recovered: list, job: Job) -> int:
+    try:
+        _check_view(paths, state, job)  # before the fill: a typo costs no reading
+    except BadArgs as e:
+        return failed(args, str(e), "refused", "bad_args")
     if not _fill_facts(paths):
         return failed(args, STOPPED_WORDS, "stopped", code=STOPPED)
     state = library.load_state(paths)  # the fill wrote the facts the plan reads

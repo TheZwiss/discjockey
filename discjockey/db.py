@@ -28,7 +28,7 @@ from .models import (FILE_AUDIO_KEYS, OWN_PREFIX, AddedFolder, AiffBatchRow, Aif
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 NEWER = ("This music folder was last used by a newer Discjockey. Update Discjockey, then try again. "
          "Nothing was changed.")
@@ -191,6 +191,14 @@ SCHEMA_V8_STEP = (
 )
 FILE_AUDIO_COLUMNS = FILE_AUDIO_KEYS  # the four columns carry the entry keys' names
 
+# Issue 33 stage D (D5b): a file ffprobe answered for but found no audio facts in (`set_facts_failed`). The mark is the
+# size and mtime the row had then ("<size>:<mtime_ns>"); `files_without_facts` skips the row while the row's size and
+# mtime still say that, so the file is retried once it changes (and the scan's content-key change clears the mark)
+SCHEMA_V9_STEP = (
+    "ALTER TABLE files ADD COLUMN facts_failed TEXT",
+)
+_FACT_COLUMNS = (*FILE_AUDIO_COLUMNS, "facts_failed")  # what a row's old facts say nothing about once the audio changes
+
 
 def _statements(statements: tuple[str, ...]) -> Callable[[sqlite3.Connection], None]:
     def step(conn: sqlite3.Connection) -> None:
@@ -207,7 +215,8 @@ UPGRADES: dict[int, Callable[[sqlite3.Connection], None]] = {1: _statements(SCHE
                                                            4: _statements(SCHEMA_V5_STEP),
                                                            5: _statements(SCHEMA_V6_STEP),
                                                            6: _statements(SCHEMA_V7_STEP),
-                                                           7: _statements(SCHEMA_V8_STEP)}
+                                                           7: _statements(SCHEMA_V8_STEP),
+                                                           8: _statements(SCHEMA_V9_STEP)}
 
 
 class _Connection(sqlite3.Connection):
@@ -489,11 +498,11 @@ def _fact_values(facts: Facts, path: str) -> tuple:
     return (None, None, None) if f is None else (f.size, f.mtime_ns, f.content_key)
 
 
-# SQL for an UPDATE that gives a row new facts (size, mtime, content key = `?` four more times, once per column): the
+# SQL for an UPDATE that gives a row new facts (size, mtime, content key = `?` once more per `_FACT_COLUMNS` column): the
 # file's own audio facts stay while the content key is the same and are cleared when it differs (a row's old facts
 # say nothing about new audio); the right-hand sides read the row as it was before the update
-_KEEP_FILE_AUDIO = ", ".join(f"{c} = CASE WHEN content_key IS ? THEN {c} END" for c in FILE_AUDIO_COLUMNS)
-_CLEAR_FILE_AUDIO = ", ".join(f"{c} = NULL" for c in FILE_AUDIO_COLUMNS)
+_KEEP_FILE_AUDIO = ", ".join(f"{c} = CASE WHEN content_key IS ? THEN {c} END" for c in _FACT_COLUMNS)
+_CLEAR_FILE_AUDIO = ", ".join(f"{c} = NULL" for c in _FACT_COLUMNS)
 
 
 def _insert_file(conn, song: int, folder: int, rel: str, entry: dict, facts: Facts, path: str, now: str,
@@ -720,7 +729,7 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
         if new is None:
             continue
         seen = _fact_values(facts, e["path"])
-        values = (*seen, *(e.get(k) for k in QUALITY), *(seen[2],) * len(FILE_AUDIO_COLUMNS))
+        values = (*seen, *(e.get(k) for k in QUALITY), *(seen[2],) * len(_FACT_COLUMNS))
         # a song's file stays the user's when the app replaces or renames it (stage 2's tidy-up leaves those alone);
         # a song that had no file gets one the app placed
         placed = "app" if old is None else old["placed_by"]
@@ -749,8 +758,8 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
         if row is not None and (f := facts(path)) is not None:  # a file gone meanwhile: its row is the scan's
             n += conn.execute(f"UPDATE files SET size = ?, mtime_ns = ?, content_key = ?, last_seen = ?, "
                               f"{_KEEP_FILE_AUDIO} WHERE id = ?",
-                              (f.size, f.mtime_ns, f.content_key, stamp, f.content_key, f.content_key,
-                               f.content_key, f.content_key, row["id"])).rowcount
+                              (f.size, f.mtime_ns, f.content_key, stamp, *(f.content_key,) * len(_FACT_COLUMNS),
+                               row["id"])).rowcount
     for f in released.values():
         if facts(folders.path(f["folder"], f["path"])) is not None:
             n += conn.execute("UPDATE files SET song = NULL, ambiguous = NULL WHERE id = ?", (f["id"],)).rowcount
@@ -1291,20 +1300,33 @@ def set_file_facts(conn: sqlite3.Connection, file_id: int, audio: FileAudio) -> 
     ffprobe found. Derived records, not library state: no generation bump (a snapshot taken before only lacks the
     values, and a save never writes them). A row gone meanwhile is left alone. Returns the rows written."""
     assignments = ", ".join(f"{c} = ?" for c in FILE_AUDIO_COLUMNS)
-    return conn.execute(f"UPDATE files SET {assignments} WHERE id = ?",
+    return conn.execute(f"UPDATE files SET {assignments}, facts_failed = NULL WHERE id = ?",
                         (audio.codec, audio.rate, audio.bits, audio.kbps, file_id)).rowcount
 
 
 # an own file (source 'manual': a bought or imported one) the facts fill still has to read: its song, a place to read
-# it at (online, not held) and no codec stored yet
+# it at (online, not held) and no codec stored yet, and no failed-probe mark that still fits the file (`facts_failed`
+# is "<size>:<mtime_ns>" of the row when ffprobe found nothing in it; a row whose size or mtime moved on, or is unknown,
+# is tried again)
 _WITHOUT_FACTS = ("FROM files f JOIN watched_folders w ON w.id = f.folder WHERE f.source = 'manual' "
-                  "AND f.song IS NOT NULL AND f.online = 1 AND f.held = 0 AND f.file_codec IS NULL")
+                  "AND f.song IS NOT NULL AND f.online = 1 AND f.held = 0 AND f.file_codec IS NULL "
+                  "AND (f.facts_failed IS NULL OR f.facts_failed IS NOT f.size || ':' || f.mtime_ns)")
+
+
+def set_facts_failed(conn: sqlite3.Connection, file_id: int) -> int:
+    """Marks the file as one ffprobe answered for but found no audio facts in, keyed on the row's size and mtime:
+    `files_without_facts` leaves it out until either changes (or the scan finds other audio and clears the mark).
+    A row without a size or mtime, or gone, is not marked. Derived records, no generation bump. Returns the rows
+    marked."""
+    return conn.execute("UPDATE files SET facts_failed = size || ':' || mtime_ns "
+                        "WHERE id = ? AND size IS NOT NULL AND mtime_ns IS NOT NULL", (file_id,)).rowcount
 
 
 def files_without_facts(conn: sqlite3.Connection) -> list[tuple[int, Path]]:
     """(file id, absolute path) of every own file whose facts aren't stored yet (rows from before schema 8, a row
-    whose audio the scan found replaced, one a caller couldn't read), online and not held, by id. Downloads are
-    never listed: the CDJ rule and the Make-AIFF plan look only at own files."""
+    whose audio the scan found replaced, one a caller couldn't read), online and not held, by id. A file ffprobe
+    couldn't read is left out while its failed-probe mark fits (`set_facts_failed`). Downloads are never listed:
+    the CDJ rule and the Make-AIFF plan look only at own files."""
     return [(i, Path(root) / rel)
             for i, root, rel in conn.execute(f"SELECT f.id, w.path, f.path {_WITHOUT_FACTS} ORDER BY f.id")]
 

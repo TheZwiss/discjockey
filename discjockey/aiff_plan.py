@@ -208,7 +208,7 @@ def _is_lossless(e: dict) -> bool:
     return found is not None and quality.is_lossless_codec(found.codec)
 
 
-def _view_inputs(paths: Paths, view: str, lines, records, watched) -> tuple[list[pf.Row], Mapping, Sequence]:
+def view_inputs(paths: Paths, view: str, lines, records, watched) -> tuple[list[pf.Row], Mapping, Sequence]:
     """The playlists.txt lines, read records and watched folders `views.library_files` needs, from the files unless the
     caller has them already (the hub does)."""
     if lines is None:
@@ -236,7 +236,7 @@ def _pick(paths: Paths, state: dict, scope: Mapping, lines, records, watched
             raise ValueError(f"view must be one of {', '.join(views.LIBRARY_VIEWS)}")
         if view in ("playlist", "folder") and not key:
             raise ValueError(f"a {view} view needs its key")
-        lines, records, watched = _view_inputs(paths, view, lines, records, watched)
+        lines, records, watched = view_inputs(paths, view, lines, records, watched)
         found = views.library_files(state, view, key, lines=lines, records=records, watched=watched)
         return found.title, [k for k in found.keys if _is_lossless(state["tracks"][k])], {}
     raise ValueError(f"scope kind must be one of {', '.join(SCOPE_KINDS)}")

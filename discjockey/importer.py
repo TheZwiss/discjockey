@@ -184,18 +184,19 @@ def _reason(e: BaseException, path: Path) -> str:
     return NO_SOUND
 
 
-def _gone(row: ImportRow) -> bool:
+def _gone(row: ImportRow | Path) -> bool:
     """The file isn't at its path (removed, moved or its drive unplugged since the scan): the row is left for the
     next scan, which knows what happened to it, and never marked unreadable."""
-    return not os.path.lexists(row.path)
+    return not os.path.lexists(row if isinstance(row, Path) else row.path)
 
 
 def fill_facts(paths: Paths, *, emit: Emit = no_emit, token: CancelToken | None = None,
                probe: Callable[[Path], quality.AudioInfo] = quality.probe, unreadable: int = 0) -> int:
     """The facts pass: probe every own file that has no audio facts stored and store them (plan rekordbox stage D
     §0.3; the import's first pass, and what `discjockey convert` / `rename` run first for a library whose files are from
-    before schema 8). A file that can't be read is left as it is (its row stays listed: the next fill tries again; it
-    is no import failure). Progress goes out as the "tags" phase; `unreadable` is the import's count so far. The caller
+    before schema 8). A file ffprobe can't read is no import failure: its row is marked (`db.set_facts_failed`,
+    keyed on its size and mtime) and left out of later fills until the file changes; when ffprobe itself is missing
+    or can't run, nothing is marked and the next fill tries again. Progress goes out as the "tags" phase; `unreadable` is the import's count so far. The caller
     holds the library lock. Returns the rows filled."""
     token = token or CancelToken()
     filled = 0
@@ -208,8 +209,11 @@ def fill_facts(paths: Paths, *, emit: Emit = no_emit, token: CancelToken | None 
             token.check()
             try:
                 audio = quality.file_audio(probe(path))
-            except Exception:  # noqa: BLE001 - gone, unreadable or no sound: the tags pass and the scan say so
-                pass
+            except Exception as e:  # noqa: BLE001 - gone, unreadable or no sound: the tags pass and the scan say so
+                # ffprobe ran and found nothing in the file: marked, so the next fill skips it until the file changes.
+                # An OSError is ffprobe missing or not runnable (or the file unreachable): nothing to hold against it
+                if not isinstance(e, OSError) and not _gone(path):
+                    db.set_facts_failed(conn, file_id)
             else:
                 db.set_file_facts(conn, file_id, audio)
                 filled += 1
