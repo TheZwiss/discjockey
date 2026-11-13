@@ -201,6 +201,16 @@ def test_a_jpeg_over_the_size_limit_or_in_pixels_is_made_to_fit():
     assert jpeg_size(out) == (600, 600) and len(out) <= COVER_MAX_BYTES
 
 
+def test_a_baseline_jpeg_of_600px_that_is_over_the_byte_limit_is_made_to_fit():
+    from discjockey.audio import COVER_MAX_BYTES, cdj_cover
+    data = picture(600, 600)
+    ballast = b"\xff\xfe" + (65535).to_bytes(2, "big") + b"x" * 65533  # a comment segment: valid, 65 KB of nothing
+    padded = data[:2] + ballast * 8 + data[2:]
+    assert jpeg_size(padded) == (600, 600) and len(padded) > COVER_MAX_BYTES
+    out = cdj_cover(padded)
+    assert jpeg_size(out) == (600, 600) and len(out) <= COVER_MAX_BYTES
+
+
 def test_a_progressive_jpeg_is_not_taken_as_baseline():
     from discjockey.audio import _baseline_jpeg_size
     data = bytearray(picture(300, 300))
