@@ -238,9 +238,10 @@ def plan(paths, state: dict, held: Collection[str], settings: Settings, *, runni
 
 def before_start_line(n: int) -> str:
     """Plan stage C §3's Sync before-start Hint: said before a sync starts (the Sync page, the console's plan). The
-    phase itself, which meets rekordbox open at the end of a sync, says `waiting_line` instead."""
-    return (f"rekordbox is open: quit it before you start, so the sync can put {n} "
-            f"upgrade{'s' if n != 1 else ''} in place at the end.")
+    check happens when the phase begins, at the end of the sync, so rekordbox may still be quit until then. The phase
+    itself, which meets rekordbox open at that moment, says `waiting_line` instead."""
+    return (f"rekordbox is open: quit it before the sync ends, so the sync can put {n} "
+            f"upgrade{'s' if n != 1 else ''} in place.")
 
 
 def waiting_line(n: int) -> str:

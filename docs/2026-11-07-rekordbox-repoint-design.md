@@ -168,10 +168,11 @@ phase between tracks; the rest is eligible again at the next sync.
 swaps included (rekordbox may have the file loaded on a deck). They wait in To-do's Upgrade ready group, marked
 "waits for rekordbox to be closed", and are done at the next sync with rekordbox closed, or at once with Upgrade all.
 If rekordbox opens during the phase, the track in work rolls back at its commit check (§5.8), the phase ends, and the
-rest waits the same way. The engine never waits and never asks to quit. The words differ by when they are said
+rest waits the same way. The engine never waits (the Sync page and the console only say that quitting rekordbox before the sync ends lets the upgrades go in). The words differ by when they are said
 (corrected in stage C; plan §3): at the end of a sync the run says what happened (`waiting_line`: "3 upgrades wait for
-rekordbox to be closed."); the Sync page's and the console plan's "rekordbox is open: quit it before you start, so the
-sync can put 3 upgrades in place at the end." (`before_start_line`) is said only before a start.
+rekordbox to be closed."); the Sync page's and the console plan's "rekordbox is open: quit it before the sync ends, so the
+sync can put 3 upgrades in place." (`before_start_line`; amended by the stage review: rekordbox is checked when the phase
+begins, at the end of the sync, so quitting it any time before then is enough) is said only before a start.
 
 **A refusal** (timing, not analysed, cloud, space, or two files that could not be compared at all, `needs_choice`)
 leaves the upgrade waiting with its reason, recorded on it: `auto_refused: {reason, message, at, anlz, free, files}`

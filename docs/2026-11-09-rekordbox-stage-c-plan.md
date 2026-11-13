@@ -248,7 +248,7 @@ Design §8's Auto-upgrade rows (Settings switch + Hint, Setup switch + line, syn
 | Refused row | the item's own message (design §8's refusal sentences) |
 | To-do row detail, waiting | "Waits for rekordbox to be closed" |
 | To-do row detail, refused | "Not upgraded at your sync · {short}" with short = timing "couldn't line it up", not_analysed "not analysed in rekordbox", cloud "in Cloud Library Sync", space "not enough free space" |
-| Sync before-start Hint (switch on, rekordbox open, n ≥ 1) | "rekordbox is open: quit it before you start, so the sync can put {n} upgrades in place at the end." (1: "1 upgrade") |
+| Sync before-start Hint (switch on, rekordbox open, n ≥ 1) | "rekordbox is open: quit it before the sync ends, so the sync can put {n} upgrades in place." (1: "1 upgrade"; amended by the stage review: the check is made when the phase begins, at the end of the sync, so "before you start" was wrong) |
 | Console plan line | "At the end, {n} upgrades go in place of your files; your cues stay." (1: "1 upgrade goes …") |
 | Live progress (the sync's phase) | stage B's: "{done} of {total} done" over "Upgrading · {Artist – Title}", ProgressBar labelled "Upgrading" |
 | End screen section | "Upgraded" (rows), "Still waiting" (rows with their reason) |

@@ -587,9 +587,9 @@ def test_at_the_end_of_a_sync_the_words_say_what_happened_not_what_to_do_before_
 
 
 def test_the_before_start_line_in_the_singular():
-    assert auto_upgrade.before_start_line(1) == ("rekordbox is open: quit it before you start, so the sync can put 1 "
-                                                 "upgrade in place at the end.")
-    assert auto_upgrade.before_start_line(4).endswith("put 4 upgrades in place at the end.")
+    assert auto_upgrade.before_start_line(1) == ("rekordbox is open: quit it before the sync ends, so the sync can put "
+                                                 "1 upgrade in place.")
+    assert auto_upgrade.before_start_line(4).endswith("put 4 upgrades in place.")
 
 
 @needs_ffmpeg

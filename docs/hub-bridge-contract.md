@@ -2025,8 +2025,8 @@ action.
   refusal still holds (`auto_refused`): a refusal that only a read of rekordbox's analysis files could tell counts as
   holding, one of `space` or `needs_choice` is checked. It counts the upgrades that would wait for rekordbox too (rekordbox
   running does not change `n`). null: the switch is off, settings.json can't be read, or `empty` is `no_preview`.
-  The Sync page's before-start Hint ("rekordbox is open: quit it before you start, so the sync can put {n} upgrades in
-  place at the end.") shows when `ready >= 1` and `rekordbox_status().running`.
+  The Sync page's before-start Hint ("rekordbox is open: quit it before the sync ends, so the sync can put {n} upgrades in
+  place.", "1 upgrade" for one) shows when `ready >= 1` and `rekordbox_status().running`.
 - **`upgrade` block** (`track().upgrade`): `auto_refused` is `{reason, message, at} | null` (was always null; type
   changes from `string | null`): the refusal the phase recorded on the parked upgrade — `reason` one of `timing`,
   `not_analysed`, `cloud`, `space`, `needs_choice`, `message` the item's own words, `at` an ISO time; shown whatever

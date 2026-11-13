@@ -760,7 +760,7 @@ def test_rekordbox_open_the_plan_says_so_and_the_sync_upgrades_nothing(tmp_path,
     before = (lib.music(), lib.dump())
     assert cli.main(["--yes"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert "rekordbox is open: quit it before you start, so the sync can put 2 upgrades in place at the end." in out
+    assert "rekordbox is open: quit it before the sync ends, so the sync can put 2 upgrades in place." in out
     assert "2 upgrades wait for rekordbox to be closed." in out and "Upgrading 2 tracks at the end of the sync..." not in out
     assert (lib.music(), lib.dump()) == before and batches_in(lib) == 0 and not (lib.paths.data / "rekordbox").exists()
     assert all(lib.entry(i)["upgrade"]["auto_waits"] for i in (0, 1))
