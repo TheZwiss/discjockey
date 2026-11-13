@@ -701,7 +701,7 @@ def test_start_checks_its_items(tmp_path, monkeypatch):
     with pytest.raises(ValueError):
         batches.start(lib.paths, [], now=lambda: NOW)
     with pytest.raises(ValueError):
-        batches.start(lib.paths, [(lib.tracks[0], "convert")], now=lambda: NOW)
+        batches.start(lib.paths, [(lib.tracks[0], "discard")], now=lambda: NOW)
     batch_id = start(lib, started_by="upgrade_all")
     row = lib.batch(batch_id)
     assert (row.kind, row.started_by, row.state) == ("upgrade", "upgrade_all", "running")

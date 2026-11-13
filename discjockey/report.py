@@ -235,6 +235,16 @@ def check_text(check: dict) -> str:
     return REKORDBOX_CHECK.get(check.get("reason"), "Check this track in rekordbox.")
 
 
+def usb_step(check: dict | None) -> str | None:
+    """The USB step a check card shows (design §8, result 3): for a repointed or converted file that rekordbox has
+    tracks of, whose USB sticks still play the old file; None for every other check (a clean name keeps the file
+    itself, so the stick still plays it)."""
+    check = check or {}
+    if check.get("reason") in ("repointed", "converted") and (check.get("rekordbox") or {}).get("entries"):
+        return USB_STEP
+    return None
+
+
 def rekordbox_checks(state: dict) -> list[tuple[str, dict]]:
     """Tracks whose file changed in a way rekordbox does not notice by itself (until the user says it is done)."""
     return [(k, e) for k, e in state["tracks"].items() if e.get("rekordbox_check")]
