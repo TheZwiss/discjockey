@@ -1916,7 +1916,7 @@ Every word below is the engine's (`folders.py`, `importer.py`, `jobs.py`, `views
 | `set_crate_shown(path, shown)` | brief save | `{path, shown}`: shows (`true`) or hides (`false`) the crate at snapshot path `path` in the sidebar, or goes back to the default (`null`: shown, hidden under a folder with more than 25 crates). Settings' switch. Same rules, answers and refusals as `set_favourites` (`refused` for an empty path or a `shown` that is neither bool nor null); the path is not checked against the crates |
 | `setup_skip_import()` | brief save | `{}`: sets `import_skipped` in settings.json (Setup's "Your existing music" step counts as done). Not a job; `busy` while a job writes, `console` while a terminal run does |
 
-**Jobs.** `import` runs the import: `ImportProgress` events (phase `scan` · `tags` · `sound` · `link`, `done` of `total`
+**Jobs.** `import` runs the import: `ImportProgress` events (phase `scan` · `facts` · `tags` · `sound` · `link`, `done` of `total`
 files of that phase, `unreadable` so far), then ends. `JobFinished.result` is ImportResult `{files, own_songs,
 sound_checked, unreadable, left, stopped, link_note}`: `files` the files imported (read in either pass, not unreadable
 now), `left` the files the next import still works through, `link_note` null or the words of a link that didn't happen
@@ -1987,7 +1987,7 @@ the third action).
 | `ReadingPlaylist` | `index`, `total`, `folder` — before each playlist is read (a refresh, or a sync's start) |
 | `MovesProgress` | `batch_id`, `done`, `total` — after each move of a move batch, during `tidy`, `undo_moves` and a moving `save_playlists` (a folder rename counts as one move) |
 | `BatchProgress` | `batch_id`, `done`, `total`, `track_id`, `name` — before each track of an AIFF batch and after the last (`track_id`/`name` null then), during `upgrade_batch`, `batch_resume`, `batch_undo`, a `sync` (its Auto-upgrade phase, stage C: one batch, `batch_id` its real id) and, with `batch_id` 0 (no batch record), `upgrade_add_new` / `upgrade_discard` lists. `done` counts tracks handled, earlier runs of a resumed batch included |
-| `ImportProgress` | `phase` `scan|tags|sound|link`, `done`, `total` (0 of 0 for scan and link), `unreadable` (files this import couldn't read so far) — during an import (importer.run_import), at each phase's start and end and at most every 25 files or 0.5 s between |
+| `ImportProgress` | `phase` `scan|facts|tags|sound|link`, `done`, `total` (0 of 0 for scan and link), `unreadable` (files this import couldn't read so far) — during an import (importer.run_import), at each phase's start and end and at most every 25 files or 0.5 s between |
 
 Pause card: the pause runs inside the next action after its `ActionStarted` and search, so "next up" is the current
 action and "after that N more" = `total - index`. Progress and Waiting may be coalesced when the page lags (only the
@@ -2120,7 +2120,7 @@ answer `no_library` without a music folder.
     success only (`views.undone_words`: "Conversion undone. Your old file is back.", "Clean name undone. Your old name is
     back.", "Upgrade undone. Your old file is back."; several: "Undone. Your old files are back." / "…old names are
     back." / "…old files and names are back.").
-  - A job's facts fill emits `ImportProgress` (`phase` `tags`) through the job's events; a page may show import-style progress.
+  - A job's facts fill emits `ImportProgress` (`phase` `facts`, "Reading what your files are") through the job's events; a page may show import-style progress.
 - **`library()`**: the answer gains `aiff_stopped: {batch_id, left} \| null`, the newest stopped `library:*` batch with
   items left (the header's Resume). Rows are unchanged.
 - **`todo()`**: `TodoFilter` and the group list gain `cdj` after `upgrade_ready` (label "Won't play well on CDJs", hint "CDJs

@@ -262,7 +262,8 @@ def test_the_facts_of_files_from_before_they_were_stored_are_filled_first(hub):
     assert api.aiff_plan({"kind": "lossless", "view": "all"})["plan"]["total"] == 0     # nothing known yet
     f = wait_job(api, rec, api.make_aiff({"kind": "lossless", "view": "all"}))
     assert f.ok and f.result["done"] == 2
-    assert any(type(e).__name__ == "ImportProgress" for e in rec.events)
+    progress = [(e.phase, e.done, e.total) for e in rec.events if type(e).__name__ == "ImportProgress"]
+    assert progress == [("facts", 0, 2), ("facts", 2, 2)]     # its own phase: the hub says "Reading what your files are"
 
 
 # --- stopped, resumed, undone ---

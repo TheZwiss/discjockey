@@ -452,6 +452,7 @@
           "type": "string",
           "enum": [
             "scan",
+            "facts",
             "tags",
             "sound",
             "link"

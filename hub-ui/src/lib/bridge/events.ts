@@ -30,7 +30,7 @@ export type HubEvent =
   | { type: 'MovesProgress'; batch_id: number; done: number; total: number }
   /** an AIFF batch (Same track, Upgrade all): `done` of `total` handled; `track_id`/`name` the one in work (null after the last); `batch_id` 0 for a New track / Discard list (no batch record) */
   | { type: 'BatchProgress'; batch_id: number; done: number; total: number; track_id: string | null; name: string | null }
-  | { type: 'ImportProgress'; phase: 'scan' | 'tags' | 'sound' | 'link'; done: number; total: number; unreadable: number }
+  | { type: 'ImportProgress'; phase: 'scan' | 'facts' | 'tags' | 'sound' | 'link'; done: number; total: number; unreadable: number }
   | { type: 'JobStarted'; job_id: number; kind: string; track_id: string | null }
   | { type: 'JobFinished'; job_id: number; kind: string; ok: boolean; problem: ProblemKind | null; message: string;
       result: any | null; service?: PlaylistService | null }

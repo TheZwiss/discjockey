@@ -196,7 +196,7 @@ def fill_facts(paths: Paths, *, emit: Emit = no_emit, token: CancelToken | None 
     §0.3; the import's first pass, and what `discjockey convert` / `rename` run first for a library whose files are from
     before schema 8). A file ffprobe can't read is no import failure: its row is marked (`db.set_facts_failed`,
     keyed on its size and mtime) and left out of later fills until the file changes; when ffprobe itself is missing
-    or can't run, nothing is marked and the next fill tries again. Progress goes out as the "tags" phase; `unreadable` is the import's count so far. The caller
+    or can't run, nothing is marked and the next fill tries again. Progress goes out as the "facts" phase; `unreadable` is the import's count so far. The caller
     holds the library lock. Returns the rows filled."""
     token = token or CancelToken()
     filled = 0
@@ -204,7 +204,7 @@ def fill_facts(paths: Paths, *, emit: Emit = no_emit, token: CancelToken | None 
         rows = db.files_without_facts(conn)
         if not rows:
             return 0
-        pacer = _Pacer(emit, "tags", len(rows), unreadable)
+        pacer = _Pacer(emit, "facts", len(rows), unreadable)
         for done, (file_id, path) in enumerate(rows, 1):
             token.check()
             try:
