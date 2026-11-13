@@ -213,23 +213,42 @@ def _item_lines(state: dict, item: batches.ItemResult) -> list[str]:
         elif kept := convert.kept_note((rb or {}).get("kept") or []):
             lines.append("  " + kept)
         return lines
-    if item.state == "skipped":
-        return [f"Skipped: {name} ({_words(item.reason)})"]
+    if item.state == "skipped":  # a Convert or Rename item says its own words (no "upgrade"); Same track the preview's
+        why = item.message if item.action != "same_track" and item.message else _words(item.reason)
+        return [f"Skipped: {name} ({why})"]
     if item.state == "failed":
         return [f"Failed: {name} ({item.message})"]
+    if item.state == "undone":
+        return [f"Undone: {name}"]
     return [f"Waiting: {name}"]
 
 
-def _batch_lines(state: dict, result: dict, label: str = "upgraded") -> list[str]:
-    """The human text of a batch-shaped dict (`BatchResult.to_dict()` or `_each`'s)."""
+def _done_line(items: Sequence[batches.ItemResult], done: int, label: str | None) -> str:
+    """The summary line of the finished items: a batch with a Same track item (or `label`, "done" for New track and
+    Discard) as always, a Convert / Rename batch in plan stage D's §3 words."""
+    if label == "done":
+        return f"{done} done."
+    if label is None and any(i.action == "same_track" for i in items):
+        return f"{done} upgraded, your cues stayed."
+    made = sum(1 for i in items if i.state == "done" and i.action == "convert")
+    named = sum(1 for i in items if i.state == "done" and i.action == "rename")
+    plural = lambda n: f"{n} file{'s' if n != 1 else ''}"  # noqa: E731
+    parts = ([f"made {plural(made)} AIFF"] if made else []) + (
+        [f"gave {plural(named)} {'its' if named == 1 else 'their'} clean name"] if named else [])
+    return f"{parts[0][:1].upper()}{parts[0][1:]}{''.join(', ' + p for p in parts[1:])}."
+
+
+def _batch_lines(state: dict, result: dict, label: str | None = None) -> list[str]:
+    """The human text of a batch-shaped dict (`BatchResult.to_dict()` or `_each`'s). `label` "done" is `_each`'s."""
     items = [batches.ItemResult(**i) for i in result["results"]]
     lines = [line for item in items for line in _item_lines(state, item)]
     if result["done"]:
-        lines.append(f"{result['done']} {label}, your cues stayed." if label == "upgraded"
-                     else f"{result['done']} {label}.")
+        lines.append(_done_line(items, result["done"], label))
     not_done = result["skipped"] + result["failed"]
     if not_done:
-        lines.append(f"{not_done} not {label}.")
+        convert_only = label is None and not any(i.action == "same_track" for i in items)
+        lines.append(f"{not_done} left as they are." if convert_only else
+                     f"{not_done} not {'done' if label == 'done' else 'upgraded'}.")
     if any(i.state == "done" and i.action != "rename" and (i.rekordbox or {}).get("entries") for i in items):
         # (a clean name keeps the file itself: the USB step is for a file rekordbox's tracks were pointed away from)
         lines.append(rep.USB_STEP)
@@ -255,11 +274,14 @@ def _resume_hint(result: dict) -> str | None:
 
 
 def _finish(args: argparse.Namespace, paths: Paths, state: dict, recovered: Sequence, batch_id: int,
-            call: Callable[[CancelToken], batches.BatchResult], alone: bool = False) -> int:
+            call: Callable[[CancelToken], batches.BatchResult], alone: bool = False,
+            left: Sequence[batches.ItemResult] = ()) -> int:
     """Runs `call(token)` (batches.run or resume) and turns every way a batch can end into the output and exit code.
     `alone`: a batch of one track the user named (as the window's single Replace). When it meets rekordbox open or
     `Busy` before anything ran it is closed (`batches.close_unrun`) instead of left `stopped`: the track simply stays
-    in Upgrade ready, there is nothing to resume."""
+    in Upgrade ready, there is nothing to resume. `left`: tracks the caller named that never became a batch item
+    (`convert` / `rename`'s plan left them as they are): a batch that ends normally lists them as skipped, so the exit
+    code is 1 as for any skipped track."""
     def unrun(kind: str, error: Exception, d: dict, code: int) -> int | None:
         if not alone or d["total"] != 1 or d["done"]:
             return None
@@ -300,6 +322,9 @@ def _finish(args: argparse.Namespace, paths: Paths, state: dict, recovered: Sequ
         only = d["results"][0]["reason"] if len(d["results"]) == 1 else None
         return _problem(args, state, "refused", str(e), FAILED, d, recovered, only)
     d = result.to_dict()
+    if left:
+        d = {**d, "total": d["total"] + len(left), "skipped": d["skipped"] + len(left),
+             "results": [*d["results"], *(r.to_dict() for r in left)]}
     _say(args, {"ok": True, **d}, _batch_lines(state, d), recovered)
     return _code_of(d)
 

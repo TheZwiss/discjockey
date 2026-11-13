@@ -190,6 +190,33 @@ def _gone(row: ImportRow) -> bool:
     return not os.path.lexists(row.path)
 
 
+def fill_facts(paths: Paths, *, emit: Emit = no_emit, token: CancelToken | None = None,
+               probe: Callable[[Path], quality.AudioInfo] = quality.probe, unreadable: int = 0) -> int:
+    """The facts pass: probe every own file that has no audio facts stored and store them (plan rekordbox stage D
+    §0.3; the import's first pass, and what `discjockey convert` / `rename` run first for a library whose files are from
+    before schema 8). A file that can't be read is left as it is (its row stays listed: the next fill tries again; it
+    is no import failure). Progress goes out as the "tags" phase; `unreadable` is the import's count so far. The caller
+    holds the library lock. Returns the rows filled."""
+    token = token or CancelToken()
+    filled = 0
+    with db.connect(paths.db_file) as conn:
+        rows = db.files_without_facts(conn)
+        if not rows:
+            return 0
+        pacer = _Pacer(emit, "tags", len(rows), unreadable)
+        for done, (file_id, path) in enumerate(rows, 1):
+            token.check()
+            try:
+                audio = quality.file_audio(probe(path))
+            except Exception:  # noqa: BLE001 - gone, unreadable or no sound: the tags pass and the scan say so
+                pass
+            else:
+                db.set_file_facts(conn, file_id, audio)
+                filled += 1
+            pacer.step(done, unreadable)
+    return filled
+
+
 class _Run:
     def __init__(self, paths: Paths, emit: Emit, token: CancelToken, read_tags, probe, inspect):
         self.paths, self.emit, self.token = paths, emit, token
@@ -213,22 +240,7 @@ class _Run:
         self.failed.add(row.file_id)
 
     def facts(self) -> None:
-        """The facts pass: probe every own file that has no audio facts stored and store them. A file that can't be
-        read is left as it is (its row stays listed: the next import tries again; it is no import failure)."""
-        with db.connect(self.paths.db_file) as conn:
-            rows = db.files_without_facts(conn)
-            if not rows:
-                return
-            pacer = _Pacer(self.emit, "tags", len(rows), len(self.failed))
-            for done, (file_id, path) in enumerate(rows, 1):
-                self.token.check()
-                try:
-                    audio = quality.file_audio(self.probe(path))
-                except Exception:  # noqa: BLE001 - gone, unreadable or no sound: the tags pass and the scan say so
-                    pass
-                else:
-                    db.set_file_facts(conn, file_id, audio)
-                pacer.step(done, len(self.failed))
+        fill_facts(self.paths, emit=self.emit, token=self.token, probe=self.probe, unreadable=len(self.failed))
 
     def tags(self) -> None:
         with db.connect(self.paths.db_file) as conn:
