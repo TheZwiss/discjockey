@@ -222,8 +222,10 @@ block says so.
 ```
 
 `waiting` counts the tracks that wait for rekordbox to be closed (`reason: "rekordbox_open"`) or for the next sync
-(`not_reached` after Stop, `busy`); `refused` the ones that did not go in (`reason` is an `eligible.REASONS` key, its
-`message` the words To-do shows; a refusal still held from an earlier sync is listed again, not tried); failures
+(`not_reached` after Stop, `busy`, and any skip nothing is recorded for, such as `changed` or `unclean`: its row keeps
+that reason and its specific `message`); `refused` only the ones To-do says why about (`reason` one of `timing`,
+`not_analysed`, `cloud`, `space`, `needs_choice`, its `message` the words To-do shows; a refusal still held from an
+earlier sync is listed again, not tried, also while rekordbox is open); failures
 are also in the report's `errors`. A dry run has `batch: null`, `done: 0` and `would` rows, and writes nothing.
 `how` is `in_place` for an AIFF swapped in place and `new_aiff` for a new AIFF that rekordbox's track is pointed at.
 

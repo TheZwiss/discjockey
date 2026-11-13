@@ -204,8 +204,10 @@ def stamps(paths, keys, state, *, running, place) -> dict[str, dict | None]     
               "message": "Your track keeps its cues, playlists and history", "how": "new_aiff"}]}
 ```
 
-`waiting` counts `rekordbox_open`, `busy` and `not_reached`; `refused` the four recorded reasons plus the unrecorded
-skips; a dry run has `batch: null`, `done: 0` and `would` rows. The sync's JSON:
+`waiting` counts `rekordbox_open`, `busy` and `not_reached` and (amended by the stage review) the unrecorded skips
+(`changed`, `unclean`, `other_library`, `rekordbox_unreadable`, ...: To-do never shows them, so they are not
+"couldn't go in"; the row keeps its own reason and words, and the summary line puts them with the next sync); `refused`
+only the five recorded reasons (`auto_upgrade.REFUSALS`: held or new); a dry run has `batch: null`, `done: 0` and `would` rows. The sync's JSON:
 `{"ok": true, "exit_code": 0|1|130, "dry_run": bool, "report": "<path>"|null, "counts": {section: n},
 "auto_upgrade": <block>|null}`; a setup problem `{"ok": false, "kind", "message"}` (exit 2), the lock held
 `{"ok": false, "kind": "busy", …}` (exit 3), `needs_yes` (exit 1). The rekordbox exit code 4 is not used by the sync:
@@ -239,7 +241,7 @@ Design §8's Auto-upgrade rows (Settings switch + Hint, Setup switch + line, syn
 
 | Where | Text |
 |---|---|
-| Summary line (`auto_upgrade_line`), n > 0 | "Upgraded {n} tracks; your cues stayed." (1: "Upgraded 1 track; your cues stayed.") then, when m > 0, " {m} wait for rekordbox to be closed." (1: "1 waits …"), when k > 0, " {k} couldn't go in; To-do says why." |
+| Summary line (`auto_upgrade_line`), n > 0 | "Upgraded {n} tracks; your cues stayed." (1: "Upgraded 1 track; your cues stayed.") then, when m > 0, " {m} wait for rekordbox to be closed." (1: "1 waits …"), when j > 0 (Stop, another window, a skip nothing is recorded for) " {j} wait for your next sync.", when k > 0 (only the five recorded reasons, §1.6), " {k} couldn't go in; To-do says why." |
 | Summary line, n = 0 | "{m} upgrades wait for rekordbox to be closed." (1: "1 upgrade waits …"); "{k} upgrades couldn't go in; To-do says why." (1: "1 upgrade …") |
 | Summary line, waiting for another reason | not reached (Stop) and busy ones get their own clause after the rekordbox one: " {j} wait for your next sync." (1: "1 waits …"; n = 0: "{j} upgrades wait for your next sync.") |
 | Waiting row (results, To-do panel), rekordbox | design §8 "Waits for rekordbox to be closed: it is upgraded at your next sync, or press Upgrade all." |

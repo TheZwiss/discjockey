@@ -90,7 +90,10 @@ class Planned:
 @dataclass(frozen=True)
 class Outcome:
     """The run's Auto-upgrade block. `results`: one dict per track, `{"track", "name", "state": "done" | "would" |
-    "waiting" | "refused" | "failed", "reason", "message", "how"}` (`how`: `in_place` | `new_aiff` | None)."""
+    "waiting" | "refused" | "failed", "reason", "message", "how"}` (`how`: `in_place` | `new_aiff` | None).
+    `refused` (state and count) is only a reason in `REFUSALS`, the ones To-do shows and the next sync leaves alone;
+    a skip nothing is recorded for (`changed`, `unclean`, `other_library`, ...) is `waiting` for the next sync with
+    its own reason and words."""
     batch: int | None
     backup: str | None
     done: int
@@ -322,8 +325,10 @@ def _batch_rows(result: batches.BatchResult, before: Mapping[str, dict]) -> list
             rows.append(_row(e, item.track, "failed", None, item.message))
         elif item.reason in WAITS:
             rows.append(_row(e, item.track, "waiting", item.reason, WAITS[item.reason]))
-        else:  # a refusal the phase records, or a skip it only reports
+        elif item.reason in REFUSALS:  # a refusal the phase records: To-do says why
             rows.append(_row(e, item.track, "refused", item.reason, item.message))
+        else:  # a skip it only reports (`changed`, `unclean`, ...): nothing is recorded, the next sync tries again
+            rows.append(_row(e, item.track, "waiting", item.reason, item.message))
     return rows
 
 

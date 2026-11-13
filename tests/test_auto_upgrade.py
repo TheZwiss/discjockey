@@ -12,7 +12,7 @@ import pytest
 
 from batch_helpers import DIFFERENT, make_lib, needs_ffmpeg
 from convert_helpers import EXACT, NOW
-from discjockey import auto_upgrade, batches, convert, db, upgrades
+from discjockey import auto_upgrade, batches, convert, db, report, upgrades
 from discjockey.align import Alignment
 from discjockey.auto_upgrade import Outcome, Planned, free_now, plan, refusal_holds, run_phase, stamps
 from discjockey.events import BatchProgress, CancelToken, Message
@@ -757,7 +757,11 @@ def test_a_skip_the_phase_does_not_record_is_tried_at_the_next_sync(tmp_path, mo
 
     monkeypatch.setattr(upgrades, "swap", swap)
     out, _, log, _ = phase(lib)
-    assert rows(out) == [(lib.tracks[0], "done", None), (lib.tracks[1], "refused", "changed")] and out.refused == 1
+    # not a refusal To-do shows (nothing is recorded): it waits for the next sync, with its own words
+    assert rows(out) == [(lib.tracks[0], "done", None), (lib.tracks[1], "waiting", "changed")]
+    assert (out.done, out.waiting, out.refused) == (1, 1, 0) and out.results[1]["message"].startswith("Your rekordbox track")
+    assert "changed" not in auto_upgrade.REFUSALS
+    assert report.auto_upgrade_line(out.to_dict()) == "Upgraded 1 track; your cues stayed. 1 waits for your next sync."
     assert "auto_refused" not in upgrade_of(lib, 1) and [r.section for r in log.results] == ["upgraded", "upgrade_waits"]
     flag["busy"] = False
     again, _, _, _ = phase(lib)
