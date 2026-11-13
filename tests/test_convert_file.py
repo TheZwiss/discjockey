@@ -77,6 +77,22 @@ def test_the_new_aiff_sits_on_rekordboxs_timeline(tmp_path, monkeypatch, kind):
     assert (info.sample_rate, info.bits_per_sample) == (44100, 16)
 
 
+def test_worked_example_of_the_shift_sign(tmp_path, monkeypatch):
+    """Design §3.1, by the numbers: the LAME fixture's rekordbox timeline sits d = 1105 samples after ffmpeg's decode
+    (25.06 ms), so a click ffmpeg decodes at sample S is at S + 1105 on rekordbox's timeline and the AIFF must hold it
+    there: render_aiff gets k = -1105 (negative = silence in front), never +1105 (which would trim the start and put
+    every cue 2 x 25 ms early)."""
+    env = make_own(tmp_path, monkeypatch, "lame")
+    assert env.d == 1105
+    seen = []
+    real = audio.render_aiff
+    monkeypatch.setattr(audio, "render_aiff", lambda src, dst, shift: (seen.append(shift), real(src, dst, shift))[1])
+    r, _state = run_file(env)
+    assert seen == [-1105]
+    old, new = onsets(mono(env.paths.root / env.superseded)), onsets(mono(env.paths.root / r.path))
+    assert new[0] == old[0] + 1105 and np.all(mono(env.paths.root / r.path)[:1105] == 0)
+
+
 def test_a_24_bit_96_khz_flac_becomes_16_bit_44_khz(tmp_path, monkeypatch):
     env = make_own(tmp_path, monkeypatch, "flac96", **CLEAN)
     r, state = run_file(env)

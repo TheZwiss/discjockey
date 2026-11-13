@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import itertools
 import os
+import re
 import shutil
 from contextlib import ExitStack
 from datetime import datetime
@@ -690,43 +691,51 @@ UNDO_REFUSED = {
 }
 
 
+def conversion_words(text: str) -> str:
+    """A Same track's words (design §8: "replace", "upgrade") said for a Convert, whose plan words (stage D §3) have no
+    such sentence: "conversion" in the same place. Applied to a template, never to text with a song's name in it."""
+    return re.sub(r"\b(replace|upgrade)\b", "conversion", text)
+
+
 class UndoRefused(UpgradeProblem):
     """An undo that has to put rekordbox back and can't now; nothing was changed. `reason`: a key of UNDO_REFUSED
-    (`rekordbox_open`, `relocated`, … `busy`), for a batch's per-track result."""
+    (`rekordbox_open`, `relocated`, … `busy`), for a batch's per-track result. `converted`: the step was a Convert,
+    whose words say "conversion" where a Same track's say "replace" or "upgrade"."""
 
-    def __init__(self, reason: str):
-        super().__init__(UNDO_REFUSED.get(reason, UNDO_REFUSED["relocated"]))
+    def __init__(self, reason: str, converted: bool = False):
+        text = UNDO_REFUSED.get(reason, UNDO_REFUSED["relocated"])
+        super().__init__(conversion_words(text) if converted else text)
         self.reason = reason if reason in UNDO_REFUSED else "relocated"
 
 
-def undo_session(paths: Paths, session: Session | None, stack: ExitStack) -> Session:
+def undo_session(paths: Paths, session: Session | None, stack: ExitStack, converted: bool = False) -> Session:
     """The rekordbox side of an undo's write: the batch's `session`, or one of this undo alone (entered on `stack`:
     `rekordbox.lock`, the backup before the write). Raises UndoRefused, nothing changed."""
     try:
         if session is None:
             session = stack.enter_context(Session.open(paths, items_need_write=lambda view: True))
         if session.state.state == "none":
-            raise UndoRefused("other_library")
+            raise UndoRefused("other_library", converted)
         return session
     except rekordbox.Busy:
-        raise UndoRefused("busy") from None
+        raise UndoRefused("busy", converted) from None
     except rekordbox.RekordboxOpen:
-        raise UndoRefused("rekordbox_open") from None
+        raise UndoRefused("rekordbox_open", converted) from None
 
 
-def undo_writer(session: Session, stack: ExitStack) -> rekordbox.Writer:
+def undo_writer(session: Session, stack: ExitStack, converted: bool = False) -> rekordbox.Writer:
     """rekordbox's library opened for writing (entered on `stack`; the read-write connection leaves `-wal`/`-shm`
     beside it while open, so it is open only for the check and, later, for the write itself). Raises UndoRefused,
     nothing changed."""
     try:
         return stack.enter_context(session.writer())
     except rekordbox.WriteRefused as err:
-        raise UndoRefused(err.reason) from None
+        raise UndoRefused(err.reason, converted) from None
     except rekordbox.RekordboxOpen:
-        raise UndoRefused("rekordbox_open") from None
+        raise UndoRefused("rekordbox_open", converted) from None
     except OSError as err:  # the backup couldn't be made
-        raise UpgradeProblem(f"Could not make the rekordbox backup ({err}), so the upgrade wasn't undone. Nothing "
-                             "was changed.") from err
+        raise UpgradeProblem(f"Could not make the rekordbox backup ({err}), so the {'conversion' if converted else 'upgrade'} "
+                             "wasn't undone. Nothing was changed.") from err
 
 
 def can_undo(entry: dict) -> bool:

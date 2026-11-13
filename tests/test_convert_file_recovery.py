@@ -25,6 +25,7 @@ NEW = "Library/A/not_lossless/Artist - Song.aiff"
 OLD_FACTS = (("A/Old Name.mp3", "import", "mp3", 44100, None, 64),)
 STAMPS = {"rb_local_usn", "updated_at"}
 LOOKUPS = {"djmdArtist", "djmdAlbum", "djmdLabel"}
+said = upgrades.conversion_words  # a Convert says "conversion" where Same track says "replace" or "upgrade"
 
 
 def snapshot(env):
@@ -60,7 +61,7 @@ def test_a_crash_before_the_commit_puts_everything_back(tmp_path, monkeypatch, a
     before = snapshot(env)
     crash(env, monkeypatch, at)
     messages, state = next_start(env)
-    assert messages == ([] if at == "rendered" else [(convert.NOT_FINISHED.format(name=NAME), False)])
+    assert messages == ([] if at == "rendered" else [(said(convert.NOT_FINISHED).format(name=NAME), False)])
     assert_as_before(env, before, state)
     _r, state = run_file(env)  # and the step can be run again
     assert state["tracks"][TID]["path"] == NEW
@@ -72,7 +73,7 @@ def test_a_crash_after_the_commit_finishes_the_step(tmp_path, monkeypatch, at):
     old = (env.paths.root / env.old).read_bytes()
     crash(env, monkeypatch, at)
     messages, state = next_start(env)
-    assert messages == [(convert.FINISHED.format(name=NAME), True)]
+    assert messages == [(said(convert.FINISHED).format(name=NAME), True)]
     now = load_state(env.paths)
     e = now["tracks"][TID]
     assert state["pending"] == [] and now["pending"] == []
@@ -96,7 +97,7 @@ def test_a_crash_without_rekordbox_is_decided_by_whether_the_new_file_is_in_plac
             run_file(env)
     assert (env.paths.root / NEW).is_file() and (env.paths.root / env.old).is_file()
     messages, state = next_start(env)
-    assert messages == [(convert.FINISHED.format(name=NAME), True)]
+    assert messages == [(said(convert.FINISHED).format(name=NAME), True)]
     assert load_state(env.paths)["tracks"][TID]["path"] == NEW and not (env.paths.root / env.old).exists()
     assert file_facts_row(env)[0][1:5] == ("app", "pcm_s16be", 44100, 16)
     assert before[1] == dump(env.place.db)  # rekordbox never touched
@@ -122,10 +123,10 @@ def test_analysis_files_written_before_a_crash_come_back_from_the_backup(tmp_pat
         path.write_bytes(anlz.splice_ppth(anlz.read(path), "?/Artist - Song.aiff"))
     monkeypatch.setattr("discjockey.rekordbox.process.running", lambda: True)
     messages, _state = next_start(env)
-    assert messages == [(convert.WAIT_REKORDBOX.format(name=NAME), False)]  # waits for rekordbox to quit
+    assert messages == [(said(convert.WAIT_REKORDBOX).format(name=NAME), False)]  # waits for rekordbox to quit
     monkeypatch.setattr("discjockey.rekordbox.process.running", lambda: False)
     messages, state = next_start(env)
-    assert messages == [(convert.NOT_FINISHED.format(name=NAME), False)]
+    assert messages == [(said(convert.NOT_FINISHED).format(name=NAME), False)]
     assert_as_before(env, before, state)
 
 
@@ -138,7 +139,7 @@ def test_a_track_rekordbox_changed_during_the_crash_needs_help(tmp_path, monkeyp
     con.close()
     messages, state = next_start(env)
     (message, ok), = messages
-    assert not ok and message == convert.NEEDS_HELP.format(name=NAME, old=env.old, new=NEW)
+    assert not ok and message == said(convert.NEEDS_HELP).format(name=NAME, old=env.old, new=NEW)
     assert load_state(env.paths)["tracks"][TID]["path"] == env.old and (env.paths.root / env.old).is_file()
     assert not (env.paths.root / NEW).exists() and file_facts_row(env) == OLD_FACTS
 
@@ -262,7 +263,7 @@ def test_undo_refused_for_a_relocated_track(tmp_path, monkeypatch):
     state = load_state(env.paths)
     with pytest.raises(UndoRefused) as err:
         upgrades.undo(env.paths, state, TID)
-    assert err.value.reason == "relocated" and "moved or removed in rekordbox" in str(err.value)
+    assert err.value.reason == "relocated" and "moved or removed in rekordbox since the conversion" in str(err.value)
     assert_unchanged(env, after, state)
 
 
@@ -351,7 +352,7 @@ def test_a_crash_before_the_undos_commit_leaves_the_conversion_standing(tmp_path
     after = snapshot(env)
     crash_undo(env, monkeypatch, at)
     messages, state = next_start(env)
-    assert messages == [(convert.UNDO_NOT_FINISHED.format(name=NAME), False)]
+    assert messages == [(said(convert.UNDO_NOT_FINISHED).format(name=NAME), False)]
     assert_unchanged(env, after, state)
     _r, state = undo(env)  # and it can be undone again
     assert_back(env, before, state)
@@ -363,7 +364,7 @@ def test_a_crash_after_the_undos_commit_finishes_it(tmp_path, monkeypatch, at):
     before, _state = converted(env)
     crash_undo(env, monkeypatch, at)
     messages, state = next_start(env)
-    assert messages == [(convert.UNDO_FINISHED.format(name=NAME), True)]
+    assert messages == [(said(convert.UNDO_FINISHED).format(name=NAME), True)]
     assert_back(env, before, state)
 
 
@@ -375,7 +376,7 @@ def test_a_crash_in_the_undo_without_rekordbox_is_finished(tmp_path, monkeypatch
         with pytest.raises(PowerOff):
             undo(env)
     messages, state = next_start(env)
-    assert messages == [(convert.UNDO_FINISHED.format(name=NAME), True)]
+    assert messages == [(said(convert.UNDO_FINISHED).format(name=NAME), True)]
     assert_back(env, before, state)
 
 
@@ -397,3 +398,22 @@ def test_done_checked_frees_the_backup_and_leaves_no_kept_file(tmp_path, monkeyp
     library.clear_tmp(env.paths, state)
     assert backup.find(env.paths, u["backup"]) is None
     assert (env.paths.root / env.superseded).is_file()  # the old file stays in Superseded/
+
+
+# --- words: a Convert never says "replace" or "upgrade" (plan stage D §3: "conversion" in the same sentence shape) ---
+
+def test_a_converts_words_say_conversion_where_same_track_says_replace_or_upgrade():
+    assert said(convert.FINISHED).format(name=NAME) == "Finished an interrupted conversion for Artist - Song."
+    assert said(convert.NOT_FINISHED).format(name=NAME).startswith("The conversion for Artist - Song was not finished")
+    assert said(convert.UNDO_FINISHED).format(name=NAME) == "Finished undoing the conversion for Artist - Song."
+    assert said(convert.UNDO_NOT_FINISHED).format(name=NAME).startswith(
+        "Undoing the conversion for Artist - Song was not finished: the conversion stands as it was")
+    texts = [convert.WAIT_REKORDBOX, convert.NOT_FINISHED, convert.FINISHED, convert.NEEDS_HELP, convert.OTHER_MAC_DONE,
+             convert.OTHER_MAC_UNDONE, convert.UNREADABLE_WAIT, convert.UNCLEAN_WAIT, convert.FINISHED_MOST,
+             convert.COULD_NOT_FINISH, convert.STEP_FAILED, convert.STEP_NOT_FINISHED, convert.UNDO_FINISHED,
+             convert.UNDO_NOT_FINISHED, convert.UNDO_NEEDS_HELP, convert.UNDO_WAIT_REKORDBOX, convert.UNDO_OTHER_MAC_DONE,
+             convert.UNDO_OTHER_MAC_UNDONE, convert.UNDO_UNREADABLE_WAIT, convert.UNDO_UNCLEAN_WAIT, *UNDO_REFUSED.values()]
+    for text in texts:
+        assert "replace" not in said(text) and "upgrade" not in said(text).lower(), text
+    assert "since the conversion" in UndoRefused("relocated", True).args[0]
+    assert "since the replace" in UndoRefused("relocated").args[0]  # Same track's words stay
