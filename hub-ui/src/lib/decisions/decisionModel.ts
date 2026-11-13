@@ -155,7 +155,7 @@ export function replaceLabel(up: Upgrade): string {
 // ---------- the sync's Auto-upgrade in the upgrade panel (issue 33 stage C plan §3, §6.3) ----------
 /** Design §8's waiting sentence, with this panel's own action: Replace works only with rekordbox closed, so the Hint says
  *  to quit it first (stage review B8; the list's "press Upgrade all" is the engine's own). */
-export const AUTO_WAITS_HINT = 'Waits for rekordbox to be closed: it goes in at your next sync, or quit rekordbox and press Replace.';
+export const AUTO_WAITS_HINT = 'Waits for rekordbox: it goes in at your next sync, or quit it and press Replace.';
 /** To-do's short word for a refusal the sync's phase recorded (views.AUTO_REFUSED_SHORT, capitalised): the sub of a
  *  "Couldn't go in" row on the end screen, where the full sentence is the row's tooltip. */
 export const AUTO_REFUSED_SHORT: Record<AutoRefused['reason'], string> = {
