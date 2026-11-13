@@ -2,6 +2,8 @@
 stage B §1.8, §1.9, stage D §1.2): the parked upgrade (`same_track`) or the user's own file itself (`convert_file`)
 becomes a new 16-bit/44.1 kHz AIFF with the download's name, lined up with rekordbox's timeline of the old file, and
 every rekordbox track of the old file is pointed at it, so cues, playlists and history stay.
+What Convert and `rename.py` share (the refusal, the journal entry's rekordbox part, the commit point's side and the
+lock) lives in `rbstep.py`; both reach it as `rbstep.name`.
 
 `same_track(paths, state, track_id, upgrade, session=…)` is one track's step (a batch's item, `batches.run`; the
 caller holds the library lock and the batch's `rekordbox.Session`). Before anything is written it measures the two
@@ -56,24 +58,21 @@ write left with the old path get the new one again, waiting for rekordbox to qui
 from __future__ import annotations
 
 import math
-import os
 import shutil
-import unicodedata
-from collections.abc import Callable, Collection, Iterable, Iterator
-from contextlib import ExitStack, contextmanager
-from dataclasses import asdict, astuple, replace
+from collections.abc import Callable, Collection
+from contextlib import ExitStack
+from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 from mutagen.aiff import AIFF
 
-from . import align, audio, db, library, quality, rekordbox
-from .rekordbox import anlz
+from . import align, audio, library, quality, rbstep, rekordbox
 from .events import Result
-from .models import FILE_AUDIO_KEYS, FileAudio
+from .models import FileAudio
 from .library import (
-    DRIVE_GONE, NameReserver, Paths, _Recovered, _recover_renames, _remove_staged, _Waits, deferred_interrupt,
-    drive_away, end_op, file_sha256, journal_crossings, journal_op, mark_op, move_path, short_path, waits_offline,
+    DRIVE_GONE, NameReserver, Paths, Recovered, Waits, deferred_interrupt, drive_away, end_op, file_sha256,
+    journal_crossings, journal_op, mark_op, move_path, recover_renames, remove_staged, short_path, waits_offline,
     watched_root, watched_roots,
 )
 from .names import expected_stem, fold, split_name, strip_id_suffix
@@ -81,7 +80,7 @@ from .planner import replacement_dir, superseded_dir
 from .rekordbox import eligible, master, process
 from .rekordbox import write as rbwrite
 from .rekordbox.eligible import Skip
-from .rekordbox.lock import Busy, writer_lock
+from .rekordbox.lock import Busy
 from .rekordbox.session import Session
 from .rekordbox.write import RekordboxOpened, WriteRefused
 from .rekordbox.offset import TimelineOffset
@@ -91,47 +90,9 @@ from .upgrades import (
 )
 
 STAGED_NAME = "convert.aiff"
-TEXT_NAMES = {"title": "title", "artist": "artist", "album": "album", "label": "label", "isrc": "ISRC",
-              "comment": "comment"}
 
-# Design §8 (binding): what a refusal says. Nothing was changed in every case.
-REFUSED = {
-    "needs_choice": "The new version isn't the same edit ({what}), so nothing was changed. Choose New track, or "
-                    "discard it.",
-    "rekordbox_unreadable": "Discjockey can't open this rekordbox version's library yet, so nothing was changed. "
-                            "Choose New track, or update Discjockey.",
-    "not_analysed": "rekordbox hasn't analysed this track yet, so Discjockey can't tell exactly where your cues sit. "
-                    "Nothing was changed. Analyse it in rekordbox, quit rekordbox, and try again.",
-    "timing": "Discjockey couldn't line the new file up with your rekordbox track exactly, so nothing was changed. "
-              "Analyse the track again in rekordbox and try again.",
-    "cloud": "This track is in rekordbox's Cloud Library Sync, which Discjockey doesn't change yet. Nothing was "
-             "changed.",
-    "unclean": "rekordbox didn't close normally last time. Open rekordbox, quit it, and try again. Nothing was "
-               "changed.",
-    "changed": "Your rekordbox track changed while Discjockey was working on it, so nothing was changed. Try again.",
-    "other_library": "Your rekordbox library changed while Discjockey was working on it, so nothing was changed. Try "
-                     "again.",
-    "space": "There isn't enough free space for the new AIFF files ({size} needed, {free} free). Nothing was changed.",
-    "rename_blocked": "Discjockey can only give this file its new name while it can point your rekordbox track at "
-                      "it, and it can't right now ({reason}). Nothing was changed.",
-}
-# Convert's own refusals (plan stage D §3, design §8 for the shared ones above); nothing was changed in every case
-CONVERT_REFUSED = {
-    "downloaded": "Discjockey downloaded this file: it is a clean AIFF already. Nothing was changed.",
-    "no_name": "This song has no artist or title yet, so Discjockey can't give its file a clean name. Nothing was "
-               "changed.",
-    "upgrade_waits": "A better version is waiting: Same track makes it an AIFF.",
-    "clean_aiff": "A clean AIFF with its clean name already.",
-    "named_already": "A clean AIFF with its clean name already.",
-    "needs_convert": "This file isn't a clean AIFF yet: Convert to AIFF gives it its clean name too. Nothing was "
-                     "changed.",
-    "away": "The file's drive isn't connected, so nothing was changed.",
-    "file_missing": "Discjockey can't find the file where it expects it. Run a sync first, so it can find the file "
-                    "again. Nothing was changed.",
-}
 REKORDBOX_OPEN = ("rekordbox is open. Quit rekordbox, then try again. Discjockey changes your rekordbox tracks only "
                   "while rekordbox is closed.")
-NO_TRACK_NOTE = "This file isn't in your rekordbox collection, so there was nothing to keep there."
 KEPT_NOTE = "Kept your own {fields} in rekordbox."
 # Recovery (design §5.8, plan §3)
 WAIT_REKORDBOX = "Quit rekordbox so Discjockey can finish an interrupted replace for {name}."
@@ -159,22 +120,6 @@ def _say(op: dict, text: str) -> str:
     """`text` (a Same track's words, design §8) as the journal entry `op`'s step says it: a Convert (`source` "file")
     says "conversion" where Same track says "replace" or "upgrade". Applied to a template, before the names are put in."""
     return conversion_words(text) if op.get("source") == "file" else text
-
-
-class Skipped(UpgradeProblem):
-    """The track's step can't run now and nothing was changed: `reason` is an `eligible.REASONS` key, the message the
-    design's words; `detail` adds what the item's result shows (the sizes of a `space` refusal)."""
-
-    def __init__(self, reason: str, message: str, detail: dict | None = None):
-        super().__init__(message)
-        self.reason = reason
-        self.detail = detail or {}
-
-
-def skipped(reason: str, /, **words) -> Skipped:
-    """`Skipped(reason)` with the design's words for it (`REFUSED`, `CONVERT_REFUSED`), `words` put into their
-    placeholders; Convert's and Rename's steps raise their refusals through it."""
-    return Skipped(reason, (REFUSED.get(reason) or CONVERT_REFUSED[reason]).format(**words), words or None)
 
 
 def free_space(path: Path) -> int:
@@ -219,7 +164,7 @@ def check_space(paths: Paths, source: Path, new: str) -> None:
     for place, need in space_needed(paths, source, new):
         free = free_space(place)
         if free < need:
-            raise Skipped("space", REFUSED["space"].format(size=size_text(need), free=size_text(free)),
+            raise rbstep.Skipped("space", rbstep.REFUSED["space"].format(size=size_text(need), free=size_text(free)),
                           {"needed": need, "free": free})
 
 
@@ -251,15 +196,6 @@ def _superseded_name(paths: Paths, names: NameReserver, track_id: str, old_rel: 
     return names.choose(superseded_dir(old_rel, watched_root(paths, old_rel)), stem, ext, track_id)
 
 
-def abs_path(paths: Paths, rel: str) -> str:
-    """The file's whole path as rekordbox keeps it (NFC)."""
-    return unicodedata.normalize("NFC", os.path.abspath(paths.root / rel))
-
-
-def track_name(e: dict, track_id: str) -> str:
-    return f"{e.get('artist', '?')} - {e.get('title', track_id)}"
-
-
 # --- the timeline and the plan ---
 
 Judge = Callable[[TimelineOffset, master.Status], eligible.Verdict]  # what an action says about rekordbox's timeline
@@ -275,7 +211,7 @@ def _timeline(session: Session, old_file: Path, judge: Judge) -> tuple[list[reko
             return [], 0  # no rekordbox on this Mac: d = 0, nothing to repoint (design §3.4)
         if session.state.running:
             raise RekordboxOpened()
-        raise skipped("rekordbox_unreadable")
+        raise rbstep.skipped("rekordbox_unreadable")
     try:
         t = rekordbox.timeline_offset(old_file, view=view)
     except Exception as err:  # ffmpeg can't read the old file: a failure of this track, nothing written
@@ -283,14 +219,14 @@ def _timeline(session: Session, old_file: Path, judge: Judge) -> tuple[list[reko
                              "changed.") from err
     verdict = judge(t, view.status)
     if isinstance(verdict, Skip):
-        raise skipped(verdict.reason) if verdict.reason in REFUSED or verdict.reason in CONVERT_REFUSED \
-            else Skipped(verdict.reason, verdict.reason)
+        raise rbstep.skipped(verdict.reason) if verdict.reason in rbstep.REFUSED or verdict.reason in rbstep.CONVERT_REFUSED \
+            else rbstep.Skipped(verdict.reason, verdict.reason)
     entries = [x.entry for x in t.entries]
     if entries:
         if session.running_at_start or session.rekordbox_opened():
             raise RekordboxOpened()
         if view.status.problem == "unclean":
-            raise skipped("unclean")
+            raise rbstep.skipped("unclean")
     return entries, t.samples or 0
 
 
@@ -306,21 +242,7 @@ def _plan_rekordbox(session: Session, entries: list[rekordbox.Entry], old_file: 
     size = staged.stat().st_size
     changes = [rbwrite.row_change(entry, new_abs, file_size=size, channels=info.channels, frames=frames,
                                   old_tags=old_tags, clean=clean) for entry in entries]
-    return changes, plan_splices(session, entries, new_abs)
-
-
-def plan_splices(session: Session, entries: list[rekordbox.Entry], new_abs: str) -> list[rbwrite.AnlzChange]:
-    """The `PPTH` splices of the analysis files of `entries` (one per file, however many tracks share it) for the new
-    file at `new_abs`; Convert's and Rename's step plan them the same way."""
-    splices: list[rbwrite.AnlzChange] = []
-    seen: set[str] = set()
-    for entry in entries:
-        found, _others = rbwrite.anlz_changes(session.place, entry, new_abs)
-        for a in found:
-            if str(a.path) not in seen:
-                seen.add(str(a.path))
-                splices.append(a)
-    return splices
+    return changes, rbstep.plan_splices(session, entries, new_abs)
 
 
 # --- the step ---
@@ -340,8 +262,8 @@ def same_track(paths: Paths, state: dict, track_id: str, upgrade: dict, *, sessi
     if not alignment.swap_safe:
         keep_measurement(paths, state, track_id, e, alignment)
         if alignment.result == "unknown":  # not "a different edit": the files could not be compared at all
-            raise Skipped("needs_choice", COULD_NOT_COMPARE)
-        raise skipped("needs_choice", what=alignment.text or alignment.result)
+            raise rbstep.Skipped("needs_choice", COULD_NOT_COMPARE)
+        raise rbstep.skipped("needs_choice", what=alignment.text or alignment.result)
     measured = {**e, "upgrade": {**upgrade, "alignment": alignment.to_dict()}}
     entries, d = _timeline(session, old_file, lambda t, status: eligible.same_track(measured, None, status, t))
 
@@ -353,7 +275,7 @@ def same_track(paths: Paths, state: dict, track_id: str, upgrade: dict, *, sessi
 
     workdir = paths.tmp / track_id
     staged = workdir / STAGED_NAME
-    new_abs = abs_path(paths, new)
+    new_abs = rbstep.abs_path(paths, new)
     try:  # step 1: the render and the plan; a failure leaves nothing
         workdir.mkdir(parents=True, exist_ok=True)
         staged.unlink(missing_ok=True)
@@ -384,7 +306,7 @@ def convert_file(paths: Paths, state: dict, track_id: str, *, session: Session,
     old_rel = e["path"]
     old_file = paths.root / old_rel
     if not old_file.is_file():
-        raise skipped("file_missing" if library.online(old_file, watched_roots(paths)) else "away")
+        raise rbstep.skipped("file_missing" if library.online(old_file, watched_roots(paths)) else "away")
     try:
         info = quality.probe(old_file)
         facts = audio.file_facts(old_file)
@@ -395,7 +317,7 @@ def convert_file(paths: Paths, state: dict, track_id: str, *, session: Session,
     if isinstance(verdict, Skip):
         if verdict.reason == "rekordbox_unreadable" and session.state.running:
             raise RekordboxOpened()  # the library can't be read while rekordbox holds it: rekordbox open stops the batch
-        raise skipped(verdict.reason)
+        raise rbstep.skipped(verdict.reason)
     entries, d = _timeline(session, old_file, lambda t, status: eligible.convert(e, facts, status, t))
 
     new, superseded = plan_file_names(paths, state, track_id, e)
@@ -406,7 +328,7 @@ def convert_file(paths: Paths, state: dict, track_id: str, *, session: Session,
 
     workdir = paths.tmp / track_id
     staged = workdir / STAGED_NAME
-    new_abs = abs_path(paths, new)
+    new_abs = rbstep.abs_path(paths, new)
     try:  # step 1: the render, its tags and the plan; a failure leaves nothing
         workdir.mkdir(parents=True, exist_ok=True)
         staged.unlink(missing_ok=True)
@@ -478,12 +400,12 @@ def _execute(paths: Paths, state: dict, op: dict, session: Session, entries: lis
         rb = op["rekordbox"]
         if rb is not None:  # step 3: the batch's backup holds this track's analysis folders
             try:
-                backup_tracks(session, track_id, entries, rb)
+                rbstep.backup_tracks(session, track_id, entries, rb)
                 op["marks"]["backed_up"] = True
                 mark_op(paths, state, op)
             except BaseException as err:
                 _drop(paths, state, op)
-                raise_refusal(err, op)
+                rbstep.raise_refusal(err, op)
         try:  # step 4
             move_path(paths.root, op["staged"], new, op["crossing"].get("0"), roots)
         except BaseException as err:
@@ -491,19 +413,19 @@ def _execute(paths: Paths, state: dict, op: dict, session: Session, entries: lis
             if not isinstance(err, Exception):
                 raise
             raise UpgradeProblem(f"Could not put the new file in place ({err}). Nothing was changed"
-                                 f"{_WAITING[op.get('source', 'upgrade')]}") from err
+                                 f"{rbstep.WAITING[op.get('source', 'upgrade')]}") from err
         op["marks"]["placed"] = True
         mark_op(paths, state, op)
         if rb is not None:  # step 5: the commit point
             try:
                 with session.writer() as w:
-                    w.repoint(changes, splices, prepared=lambda c: journal_record(paths, state, op, c))
+                    w.repoint(changes, splices, prepared=lambda c: rbstep.journal_record(paths, state, op, c))
             except (WriteRefused, RekordboxOpened) as err:  # rolled back, analysis files as they were
                 _roll_back(paths, state, op, roots)
-                raise_refusal(err, op)
+                rbstep.raise_refusal(err, op)
             except Exception as err:  # decided by the track's path now, as after a crash
                 message = _settle(paths, state, op, roots)
-                if finished_at(state, op, track_id, new):  # it failed after the commit and recovery finished it
+                if rbstep.finished_at(state, op, track_id, new):  # it failed after the commit and recovery finished it
                     return _result(track_id, e, op)
                 raise UpgradeProblem(_say(op, STEP_FAILED).format(err=err, message=message)) from err
             op["marks"]["committed"] = True
@@ -515,33 +437,10 @@ def _execute(paths: Paths, state: dict, op: dict, session: Session, entries: lis
             result = _finish(paths, state, op)  # step 7
         except Exception as err:  # finish right now if the disk allows, else at the next start
             message = _settle(paths, state, op, roots)
-            if finished_at(state, op, track_id, new):
+            if rbstep.finished_at(state, op, track_id, new):
                 return _result(track_id, e, op)
             raise UpgradeProblem(_say(op, STEP_NOT_FINISHED).format(err=err, message=message)) from err
     return result
-
-
-# what a refusal says about the step's source (the journal entry's `source`)
-_WAITING = {"upgrade": "; the upgrade is still waiting.", "file": ".", "rename": "."}
-
-
-def finished_at(state: dict, op: dict, track_id: str, path: str) -> bool:
-    """Whether the step is over (no longer pending) and the track's file is `path` now."""
-    return (not any(o.get("op_id") == op["op_id"] for o in state.get("pending", []))
-            and state["tracks"][track_id].get("path") == path)
-
-
-def op_rekordbox(session: Session, changes: list[rbwrite.RowChange], splices: list[rbwrite.AnlzChange]) -> dict | None:
-    """The `rekordbox` part of a step's journal entry: the library's DBID, per row the before and after values, per
-    analysis file its hashes, and the slots the step fills (`backup`, `record`, `kept`); None for a file no rekordbox
-    track holds."""
-    if not changes:
-        return None
-    return {"dbid": session.dbid, "backup": None,
-            "rows": [{"id": c.id, "before": dict(c.before), "after": dict(c.after)} for c in changes],
-            "anlz": [{"path": str(a.path), "old_sha256": a.old_sha256,
-                      "new_sha256": rbwrite.sha256_of(a.new_bytes), "backup": None} for a in splices],
-            "record": None, "kept": []}
 
 
 def _base_op(paths: Paths, track_id: str, batch: tuple[int, int] | None, old: str, new: str, superseded: str,
@@ -551,7 +450,7 @@ def _base_op(paths: Paths, track_id: str, batch: tuple[int, int] | None, old: st
     files; the caller adds `source`, `parked`, `held`, `entry`, `before`, `check` and the marks."""
     staged_rel = staged.relative_to(paths.root).as_posix()
     crossing, size = journal_crossings(paths.root, [(staged_rel, new), (old, superseded)])
-    rb = op_rekordbox(session, changes, splices)
+    rb = rbstep.op_rekordbox(session, changes, splices)
     return {"kind": "convert", "track_id": track_id, "batch": list(batch) if batch else None,
             "old": old, "new": new, "superseded": superseded, "staged": staged_rel, "crossing": crossing,
             "size": size, "old_sha256": file_sha256(paths.root / old), "new_sha256": file_sha256(staged),
@@ -576,66 +475,20 @@ def _file_op(paths: Paths, track_id: str, e: dict, now: Callable[[], datetime], 
     entry changes only its path, and the files' facts (`audio` the new file's, `old_audio` the old file's, which its
     undo puts back) are written with the end."""
     return {**_base_op(paths, track_id, batch, e["path"], new, superseded, staged, session, changes, splices),
-            "source": "file", "parked": None, "held": None, "entry": with_audio({**e, "path": new, "placed_by": "app"}, new_audio),
+            "source": "file", "parked": None, "held": None, "entry": rbstep.with_audio({**e, "path": new, "placed_by": "app"}, new_audio),
             "before": fields_before(e), "audio": asdict(new_audio), "old_audio": asdict(old_audio),
             "old_placed_by": e.get("placed_by"),
             "check": {"reason": "converted", "since": now().date().isoformat(), "batch": batch[0] if batch else None}}
 
 
-def with_audio(entry: dict, audio_facts: FileAudio | None) -> dict:
-    """`entry` with its read-only `file_*` keys (what the snapshot shows of the file at `path`) set to `audio_facts`,
-    so the caller's snapshot is right until it reads another; a save never writes them."""
-    if audio_facts is None:
-        return entry
-    return {**entry, **dict(zip(FILE_AUDIO_KEYS, astuple(audio_facts)))}
-
-
-def backup_tracks(session: Session, track_id: str, entries: list[rekordbox.Entry], rb: dict) -> None:
-    """Step 3: the batch's backup holds the analysis folders of `entries` (the track's rekordbox rows) and each
-    analysis file's copy; its id and the copies' paths go into the journal entry's `rekordbox` part `rb` (the caller
-    marks `backed_up`). Raises `WriteRefused` (nothing written) or the backup's own error."""
-    folders = [f for x in entries if (f := rbwrite.analysis_folder(session.place, x)) is not None]
-    b = session.ensure_backup([(track_id, folders)])
-    rb["backup"] = b.id
-    for a in rb["anlz"]:
-        copy = b.anlz_copy(session.place, Path(a["path"]), session.batch_id)
-        a["backup"] = None if copy is None else str(copy)
-
-
-def journal_record(paths: Paths, state: dict, op: dict, c: rbwrite.Committed) -> None:
-    """Inside the rekordbox transaction, before its COMMIT: the undo record and the fields kept go into the journal,
-    so a crash after the commit finishes the step with them."""
-    rb = op["rekordbox"]
-    rb["record"] = c.record().to_dict()
-    kept = {f for r in c.rows for f in r.kept}
-    rb["kept"] = [f for f in TEXT_NAMES if f in kept]
-    mark_op(paths, state, op)
-
-
-def raise_refusal(err: BaseException, op: dict) -> None:
-    """A refusal of the backup or the write (nothing changed) as this step's answer (`op`: the step's journal entry)."""
-    if isinstance(err, RekordboxOpened):
-        raise err
-    if isinstance(err, WriteRefused):
-        if err.reason == "rekordbox_open":
-            raise RekordboxOpened() from err
-        if err.reason in REFUSED and err.reason not in ("needs_choice", "space"):
-            raise skipped(err.reason) from err
-        raise Skipped(err.reason, REFUSED["changed"]) from err
-    if not isinstance(err, Exception):
-        raise err
-    raise UpgradeProblem(f"Could not make the rekordbox backup ({err}). Nothing was changed"
-                         f"{_WAITING[op.get('source', 'upgrade')]}") from err
-
-
 def kept_note(kept: list[str]) -> str:
-    return KEPT_NOTE.format(fields=" / ".join(TEXT_NAMES[f] for f in kept)) if kept else ""
+    return KEPT_NOTE.format(fields=" / ".join(rbstep.TEXT_NAMES[f] for f in kept)) if kept else ""
 
 
 def _result(track_id: str, e: dict, op: dict) -> Result:
     rb = op["rekordbox"]
     note = f"new file {op['new']}, lined up with rekordbox; the old one moved to {op['superseded']}"
-    extra = NO_TRACK_NOTE if rb is None else kept_note(rb.get("kept") or [])
+    extra = rbstep.NO_TRACK_NOTE if rb is None else kept_note(rb.get("kept") or [])
     if extra:
         note += f". {extra}"
     return Result("converted" if op.get("source") == "file" else "swapped", e["folder"], e["artist"], e["title"],
@@ -678,23 +531,16 @@ def _drop(paths: Paths, state: dict, op: dict) -> None:
     end_op(paths, state, op, {})
 
 
-def ours(path: Path, sha256: str) -> bool:
-    try:
-        return path.is_file() and file_sha256(path) == sha256
-    except OSError:
-        return False
-
-
 def _take_back(paths: Paths, op: dict, roots: Collection[Path]) -> None:
     """The placed new file (Discjockey's own render, by its SHA-256) back to .tmp/, where `_drop` removes it; a
     staged copy a move to another drive left beside it goes too. Another file at that name is left alone."""
     new, staged = paths.root / op["new"], paths.root / op["staged"]
     copy = op["crossing"].get("0")
     if copy:
-        _remove_staged(paths.root / copy)
-    if not ours(new, op["new_sha256"]):
+        remove_staged(paths.root / copy)
+    if not rbstep.ours(new, op["new_sha256"]):
         return
-    if ours(staged, op["new_sha256"]):  # a move to another drive that only had the source's removal left
+    if rbstep.ours(staged, op["new_sha256"]):  # a move to another drive that only had the source's removal left
         new.unlink()
         return
     back = library.staging_path(op["staged"]) if library.crosses(paths.root, op["new"], op["staged"]) else None
@@ -707,120 +553,25 @@ def _roll_back(paths: Paths, state: dict, op: dict, roots: Collection[Path]) -> 
     _drop(paths, state, op)
 
 
-WAIT_BUSY = ("Another window is changing rekordbox, so Discjockey can't finish an interrupted {what} for {name} yet; "
-             "it tries again at the next start.")
-
-
-@contextmanager
-def rekordbox_lock(paths: Paths, held: bool) -> Iterator[None]:
-    """`rekordbox.lock` for a write into rekordbox's analysis files (raises `Busy`); `held`: the caller's batch or
-    undo session already has it."""
-    if held:
-        yield
-        return
-    with writer_lock(paths.support):
-        yield
-
-
-def clear_leftovers(paths: Paths, files: Iterable[object], held: bool) -> None:
-    """Deletes the `<name>.dj-new` a crash left beside rekordbox's analysis files `files` (under the lock; while
-    another writer holds it they stay for the next start)."""
-    found = [Path(str(f)) for f in files if Path(str(f)).with_name(Path(str(f)).name + rbwrite.NEW_SUFFIX).exists()]
-    if not found:
-        return
-    try:
-        with rekordbox_lock(paths, held):
-            for f in found:
-                rbwrite.remove_leftover(f)
-    except Busy:
-        pass
-
-
 def _settle(paths: Paths, state: dict, op: dict, roots: Collection[Path]) -> str:
     """recover_convert right after a failure in the step, as words (the batch runs on: it is not stopped)."""
     outcome = recover_convert(paths, state, op, roots, crashed=False)
-    if isinstance(outcome, _Waits):
-        return library._waiting(outcome, True)[0]
+    if isinstance(outcome, Waits):
+        return library.waiting(outcome, True)[0]
     return outcome[0]
 
 
 # --- recovery ---
 
-def stop_batch(paths: Paths, op: dict) -> None:
-    """The batch the crash interrupted: `stopped` (`crash`), so it offers Resume."""
-    batch = op.get("batch")
-    if not batch:
-        return
-    with db.connect(paths.db_file) as conn:
-        row = db.aiff_batch(conn, batch[0])
-        if row is not None and row.state == "running":
-            db.set_aiff_batch(conn, batch[0], state="stopped", stop_reason="crash")
 
-
-def side_of(paths: Paths, op: dict) -> str:
-    """Which side of the commit the step is on: "new" (rekordbox's tracks play the new file), "old", "neither"
-    (rekordbox changed a track since), "other" (another rekordbox library, or none, on this Mac: decided by the
-    marks), "unreadable", "unclean"."""
-    rb = op["rekordbox"]
-    if rb is None:  # no rekordbox step: by whether the new file is in place
-        return "new" if ours(paths.root / op["new"], op["new_sha256"]) else "old"
-    return tracks_at(rb["dbid"], {r["id"]: (r["after"]["FolderPath"], r["before"]["FolderPath"])
-                                  for r in rb["rows"]})
-
-
-def tracks_at(dbid: str, paths_of: dict[str, tuple[str, str]]) -> str:
-    """Where rekordbox's tracks `paths_of` (id -> (new path, old path)) point now: "new" when every one holds its new
-    path, "old" when every one holds its old path, else "neither"; "other" for another rekordbox library (or none) on
-    this Mac, "unreadable", "unclean" (a `-wal` or `-shm` alone beside the library while rekordbox is closed)."""
-    place = rekordbox.locate()
-    if place is None or not place.db.is_file():
-        return "other"
-    running = process.running()
-    left = master.leftovers(place.db)
-    if left and not running and len(left) != 2:
-        return "unclean"
-    try:  # with -wal and -shm there (a crash with the write open), a shared open sees what was committed
-        with master.open_read(place, running or len(left) == 2) as m:
-            if m.dbid != dbid:
-                return "other"
-            ids = list(paths_of)
-            marks = ",".join("?" * len(ids))
-            now = {str(i): p for i, p in m.con.execute(
-                f"SELECT ID, FolderPath FROM djmdContent WHERE ID IN ({marks}) AND IFNULL(rb_local_deleted, 0) = 0",
-                ids)}
-    except master.Unreadable:
-        return "unreadable"
-    if all(now.get(i) == new for i, (new, _old) in paths_of.items()):
-        return "new"
-    if all(now.get(i) == old for i, (_new, old) in paths_of.items()):
-        return "old"
-    return "neither"
-
-
-def anlz_back(op: dict) -> tuple[list[tuple[Path, Path]], bool]:
-    """The analysis files that hold the step's new bytes, each with its backup copy; and whether any of them has no
-    good copy (it is then left as it is)."""
-    out, lost = [], False
-    for a in (op["rekordbox"] or {}).get("anlz", []):
-        path = Path(a["path"])
-        if not ours(path, a["new_sha256"]):
-            continue  # as it was (the write rolled back), or rekordbox's own since
-        copy = Path(a["backup"]) if a.get("backup") else None
-        if copy is None or not ours(copy, a["old_sha256"]):
-            lost = True
-            continue
-        out.append((path, copy))
-    return out, lost
-
-
-def _finish_forward(paths: Paths, state: dict, op: dict, roots: Collection[Path]) -> tuple[str, bool] | _Waits:
+def _finish_forward(paths: Paths, state: dict, op: dict, roots: Collection[Path]) -> tuple[str, bool] | Waits:
     """Steps 6 and 7 after the commit (or the placement, without rekordbox)."""
-    name = track_name(op.get("entry") or {}, op["track_id"])
+    name = rbstep.track_name(op.get("entry") or {}, op["track_id"])
     step = {"renames": [[op["old"], op["superseded"]]], "size": {"0": (op.get("size") or {}).get("1")},
             "staged": {"0": op["crossing"]["1"]} if op["crossing"].get("1") else {}}
-    r = _recover_renames(paths.root, step, roots)
+    r = recover_renames(paths.root, step, roots)
     if r.wait:
-        return _Waits(name, r, not waits_offline(op, paths.root, roots))
+        return Waits(name, r, not waits_offline(op, paths.root, roots))
     _finish(paths, state, op)
     if r.problem and not r.done_any and not (paths.root / op["old"]).exists():
         return _say(op, FINISHED).format(name=name), True  # the old file was gone already (moved by hand)
@@ -830,31 +581,31 @@ def _finish_forward(paths: Paths, state: dict, op: dict, roots: Collection[Path]
 
 
 def recover_convert(paths: Paths, state: dict, op: dict, roots: Collection[Path] | None = None, *,
-                    crashed: bool = True) -> tuple[str, bool] | _Waits:
+                    crashed: bool = True) -> tuple[str, bool] | Waits:
     """Finishes or rolls back a convert step an earlier run was interrupted in (see the module docstring). Returns
-    (message, finished), or a `library._Waits` for a step that stays pending (a drive away, rekordbox open while
+    (message, finished), or a `library.Waits` for a step that stays pending (a drive away, rekordbox open while
     analysis files must come back, a library that can't be read). `crashed`: the step's batch is marked `stopped`
     (False right after a failure inside a running batch)."""
     roots = watched_roots(paths) if roots is None else roots
-    name = track_name(op.get("entry") or {}, op["track_id"])
+    name = rbstep.track_name(op.get("entry") or {}, op["track_id"])
     try:
         away = drive_away(op, paths.root, roots)
         if away is not None:
             short = short_path(away)
-            return _Waits(name, _Recovered(DRIVE_GONE.format(path=short), False, True, drive=short),
+            return Waits(name, Recovered(DRIVE_GONE.format(path=short), False, True, drive=short),
                           not waits_offline(op, paths.root, roots))
         if crashed:
-            stop_batch(paths, op)
-        side = side_of(paths, op)
+            rbstep.stop_batch(paths, op)
+        side = rbstep.side_of(paths, op)
         if side == "unreadable":
-            return _Waits(name, _Recovered("", False, True), True, _say(op, UNREADABLE_WAIT).format(name=name))
+            return Waits(name, Recovered("", False, True), True, _say(op, UNREADABLE_WAIT).format(name=name))
         if side == "unclean":
-            return _Waits(name, _Recovered("", False, True), True, _say(op, UNCLEAN_WAIT).format(name=name))
-        clear_leftovers(paths, (a["path"] for a in (op["rekordbox"] or {}).get("anlz", [])), not crashed)
+            return Waits(name, Recovered("", False, True), True, _say(op, UNCLEAN_WAIT).format(name=name))
+        rbstep.clear_leftovers(paths, (a["path"] for a in (op["rekordbox"] or {}).get("anlz", [])), not crashed)
         if side == "other":
             if op["marks"].get("committed"):
                 outcome = _finish_forward(paths, state, op, roots)
-                if isinstance(outcome, _Waits) or not outcome[1]:
+                if isinstance(outcome, Waits) or not outcome[1]:
                     return outcome
                 return _say(op, OTHER_MAC_DONE).format(name=name, new=op["new"]), True
             _roll_back(paths, state, op, roots)
@@ -864,15 +615,15 @@ def recover_convert(paths: Paths, state: dict, op: dict, roots: Collection[Path]
         if side == "neither":
             _roll_back(paths, state, op, roots)
             return _say(op, NEEDS_HELP).format(name=name, old=op["old"], new=op["new"]), False
-        back, lost = anlz_back(op)  # side "old": not committed
+        back, lost = rbstep.anlz_back(op)  # side "old": not committed
         if back and process.running():
-            return _Waits(name, _Recovered("", False, True), True, _say(op, WAIT_REKORDBOX).format(name=name))
+            return Waits(name, Recovered("", False, True), True, _say(op, WAIT_REKORDBOX).format(name=name))
         try:
-            with rekordbox_lock(paths, not crashed or not back):
+            with rbstep.rekordbox_lock(paths, not crashed or not back):
                 for path, copy in back:
                     rbwrite.replace_bytes(path, copy.read_bytes())
         except Busy:
-            return _Waits(name, _Recovered("", False, True), True, WAIT_BUSY.format(what=_say(op, "replace"), name=name))
+            return Waits(name, Recovered("", False, True), True, rbstep.WAIT_BUSY.format(what=_say(op, "replace"), name=name))
         _roll_back(paths, state, op, roots)
         return _say(op, NOT_FINISHED).format(name=name) + (ANLZ_LOST if lost else ""), False
     except Exception as err:  # e.g. permissions: the step stays and is tried again at the next start
@@ -887,17 +638,11 @@ UNDO_NOT_FINISHED = ("Undoing the upgrade for {name} was not finished: the upgra
 UNDO_NEEDS_HELP = ("An interrupted undo for {name} needs your help: your rekordbox track was changed since and points "
                    "at neither {old} nor {new}. Discjockey left rekordbox alone; the upgrade stands, with your file "
                    "at {new}.")
-UNDO_WAIT_REKORDBOX = "Quit rekordbox so Discjockey can finish an interrupted undo for {name}."
-COULD_NOT_FINISH_UNDO = "Could not finish an interrupted undo for {name} yet: {err}"
 UNDO_OTHER_MAC_DONE = ("Finished undoing the upgrade for {name} on this Mac's side. Its rekordbox step was made in "
                        "another rekordbox library than this Mac's: open that one to check the track plays {old}.")
 UNDO_OTHER_MAC_UNDONE = ("Undoing the upgrade for {name} was not finished: the upgrade stands as it was. Its rekordbox "
                          "step was made in another rekordbox library than this Mac's: check there that the track "
                          "plays {new}.")
-UNDO_UNREADABLE_WAIT = ("Couldn't finish an interrupted undo for {name} yet: Discjockey can't read your rekordbox "
-                        "library to tell how far it got.")
-UNDO_UNCLEAN_WAIT = ("Couldn't finish an interrupted undo for {name} yet: rekordbox didn't close normally. Open "
-                     "rekordbox, quit it, and Discjockey finishes the undo.")
 
 
 def undo_convert(paths: Paths, state: dict, track_id: str, u: dict, entry: dict, *,
@@ -967,9 +712,9 @@ def undo_convert(paths: Paths, state: dict, track_id: str, u: dict, entry: dict,
                     raise UpgradeProblem(f"The undo did not work ({err}). {message}") from err
                 op["marks"]["committed"] = True
                 mark_op(paths, state, op)
-                kept = sorted({f for fields in outcome.kept.values() for f in fields}, key=list(TEXT_NAMES).index)
+                kept = sorted({f for fields in outcome.kept.values() for f in fields}, key=list(rbstep.TEXT_NAMES).index)
                 if kept:
-                    note += f". {KEPT_NOTE.format(fields=' / '.join(TEXT_NAMES[f] for f in kept))}"
+                    note += f". {KEPT_NOTE.format(fields=' / '.join(rbstep.TEXT_NAMES[f] for f in kept))}"
             try:  # step 4
                 move_path(paths.root, op["new"], op["staged"], op["crossing"].get("1"), roots)
                 if op["held"]:
@@ -998,7 +743,7 @@ def _undo_op(paths: Paths, track_id: str, u: dict, entry: dict, record: dict | N
     return {"kind": "convert_undo", "track_id": track_id, "source": u.get("source", "upgrade"),
             "old": before["path"], "superseded": u["old"],
             "new": u["file"], "staged": trash, "held": u.get("held"), "parked": parked, "audio": u.get("audio"), "placed_by": u.get("placed_by"),
-            "crossing": crossing, "size": size, "entry": with_audio(_placed_again(entry, u), _audio_of(u.get("audio"))),
+            "crossing": crossing, "size": size, "entry": rbstep.with_audio(_placed_again(entry, u), _audio_of(u.get("audio"))),
             "rekordbox": None if not record else {"dbid": record["dbid"], "record": record, "outcome": None},
             "marks": {"restored": False, "committed": False}}
 
@@ -1032,30 +777,30 @@ def _end_undo(paths: Paths, state: dict, op: dict) -> None:
             pass
 
 
-def _undo_back(paths: Paths, state: dict, op: dict, roots: Collection[Path]) -> _Recovered:
+def _undo_back(paths: Paths, state: dict, op: dict, roots: Collection[Path]) -> Recovered:
     """An undo that didn't reach rekordbox's commit: the old file back to Superseded/, the step ends with nothing
     changed. A staged copy the way back left is removed first."""
     copy = op["crossing"].get("0")
     if copy:
-        _remove_staged(paths.root / copy)
+        remove_staged(paths.root / copy)
     staged, size = {}, {}
     if library.crosses(paths.root, op["old"], op["superseded"]):
         staged = {"0": library.staging_path(op["superseded"])}
         size = {"0": (paths.root / op["old"]).stat().st_size}
-    r = _recover_renames(paths.root, {"renames": [[op["old"], op["superseded"]]], "staged": staged, "size": size},
+    r = recover_renames(paths.root, {"renames": [[op["old"], op["superseded"]]], "staged": staged, "size": size},
                          roots)
     if not r.wait:
         end_op(paths, state, op, {})
     return r
 
 
-def _undo_forward(paths: Paths, state: dict, op: dict, roots: Collection[Path]) -> _Recovered:
+def _undo_forward(paths: Paths, state: dict, op: dict, roots: Collection[Path]) -> Recovered:
     """Every move of the undo still to do, then its end."""
     renames = [[op["superseded"], op["old"]], [op["new"], op["staged"]]]
     if op.get("held"):
         renames.append([op["held"], op["parked"]])
     step = {"renames": renames, "staged": op["crossing"], "size": op.get("size") or {}}
-    r = _recover_renames(paths.root, step, roots)
+    r = recover_renames(paths.root, step, roots)
     if not r.wait:
         _end_undo(paths, state, op)
     return r
@@ -1063,27 +808,13 @@ def _undo_forward(paths: Paths, state: dict, op: dict, roots: Collection[Path]) 
 
 def _settle_undo(paths: Paths, state: dict, op: dict, roots: Collection[Path]) -> str:
     outcome = recover_convert_undo(paths, state, op, roots, held=True)
-    if isinstance(outcome, _Waits):
-        return library._waiting(outcome, True)[0]
+    if isinstance(outcome, Waits):
+        return library.waiting(outcome, True)[0]
     return outcome[0]
 
 
-def anlz_undo_back(op: dict) -> list[tuple[Path, bytes]]:
-    """The analysis files an undo that didn't commit left with the old file's `PPTH` (cut off between writing them
-    and the commit), each with its bytes as the upgrade left them (the new path spliced in again)."""
-    out = []
-    for a in op["rekordbox"]["record"].get("anlz", []):
-        if not a.get("old_ppth") or a.get("old_ppth") == a.get("new_ppth"):
-            continue
-        path = Path(str(a["path"]))
-        parsed = anlz.read(path)
-        if parsed is not None and anlz.ppth(parsed) == a["old_ppth"]:
-            out.append((path, anlz.splice_ppth(parsed, str(a["new_ppth"]))))
-    return out
-
-
 def recover_convert_undo(paths: Paths, state: dict, op: dict, roots: Collection[Path] | None = None, *,
-                         held: bool = False) -> tuple[str, bool] | _Waits:
+                         held: bool = False) -> tuple[str, bool] | Waits:
     """Finishes or rolls back an undo an earlier run was interrupted in. Its commit point is rekordbox's transaction,
     so a step with a rekordbox record is decided by the tracks' `FolderPath` now: the old file's → finished (step 4);
     still the new file's → rolled back (analysis files the cut-off write left with the old path get the new one
@@ -1092,25 +823,25 @@ def recover_convert_undo(paths: Paths, state: dict, op: dict, roots: Collection[
     mark. A step without rekordbox is finished. Analysis files are only written under `rekordbox.lock` (`held`: the
     undo's own session has it); another holder makes the step wait."""
     roots = watched_roots(paths) if roots is None else roots
-    name = track_name(op.get("entry") or {}, op["track_id"])
+    name = rbstep.track_name(op.get("entry") or {}, op["track_id"])
     try:
         away = drive_away(op, paths.root, roots)
         if away is not None:
             short = short_path(away)
-            return _Waits(name, _Recovered(DRIVE_GONE.format(path=short), False, True, drive=short),
+            return Waits(name, Recovered(DRIVE_GONE.format(path=short), False, True, drive=short),
                           not waits_offline(op, paths.root, roots))
         rb = op.get("rekordbox")
         side = "done"
         if rb is not None:
             rows = rb["record"]["rows"]
-            side = tracks_at(rb["dbid"], {r["id"]: (r["identity_before"]["FolderPath"],
+            side = rbstep.tracks_at(rb["dbid"], {r["id"]: (r["identity_before"]["FolderPath"],
                                                     r["identity_after"]["FolderPath"]) for r in rows})
         if side == "unreadable":
-            return _Waits(name, _Recovered("", False, True), True, _say(op, UNDO_UNREADABLE_WAIT).format(name=name))
+            return Waits(name, Recovered("", False, True), True, _say(op, rbstep.UNDO_UNREADABLE_WAIT).format(name=name))
         if side == "unclean":
-            return _Waits(name, _Recovered("", False, True), True, _say(op, UNDO_UNCLEAN_WAIT).format(name=name))
+            return Waits(name, Recovered("", False, True), True, _say(op, rbstep.UNDO_UNCLEAN_WAIT).format(name=name))
         if rb is not None:
-            clear_leftovers(paths, (a["path"] for a in rb["record"].get("anlz", [])), held)
+            rbstep.clear_leftovers(paths, (a["path"] for a in rb["record"].get("anlz", [])), held)
         if side == "other":
             side = "done" if op["marks"].get("committed") else "back"
             words = UNDO_OTHER_MAC_DONE if side == "done" else UNDO_OTHER_MAC_UNDONE
@@ -1124,23 +855,23 @@ def recover_convert_undo(paths: Paths, state: dict, op: dict, roots: Collection[
             ok = not r.problem
         else:
             if side == "old":
-                back = anlz_undo_back(op)
+                back = rbstep.anlz_undo_back(op)
                 if back and process.running():
-                    return _Waits(name, _Recovered("", False, True), True, _say(op, UNDO_WAIT_REKORDBOX).format(name=name))
+                    return Waits(name, Recovered("", False, True), True, _say(op, rbstep.UNDO_WAIT_REKORDBOX).format(name=name))
                 try:
-                    with rekordbox_lock(paths, held or not back):
+                    with rbstep.rekordbox_lock(paths, held or not back):
                         for path, data in back:
                             rbwrite.replace_bytes(path, data)
                 except Busy:
-                    return _Waits(name, _Recovered("", False, True), True,
-                                  WAIT_BUSY.format(what="undo", name=name))
+                    return Waits(name, Recovered("", False, True), True,
+                                  rbstep.WAIT_BUSY.format(what="undo", name=name))
             r = _undo_back(paths, state, op, roots)
             ok = False
         if r.wait:
-            return _Waits(name, r, not waits_offline(op, paths.root, roots))
+            return Waits(name, r, not waits_offline(op, paths.root, roots))
         message = words.format(name=name, old=op["old"], new=op["new"])
         if r.problem:
             message += f" ({r.problem})"
         return message, ok
     except Exception as err:  # e.g. permissions: the step stays and is tried again at the next start
-        return COULD_NOT_FINISH_UNDO.format(name=name, err=err), False
+        return rbstep.COULD_NOT_FINISH_UNDO.format(name=name, err=err), False

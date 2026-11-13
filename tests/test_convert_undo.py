@@ -12,7 +12,7 @@ from mutagen.aiff import AIFF
 
 from audio_helpers import needs_ffmpeg
 from convert_helpers import NEW, PARKED, TID, PowerOff, make_env, next_start, power_off_undo, run, session
-from discjockey import convert, library, upgrades
+from discjockey import convert, library, rbstep, upgrades
 from discjockey.library import load_state
 from discjockey.rekordbox import anlz, backup, master
 from discjockey.rekordbox import write as rbwrite
@@ -244,7 +244,7 @@ def test_analysis_files_a_cut_off_undo_wrote_get_the_new_path_again(tmp_path, mo
     assert env.anlz_files() != after[2]
     monkeypatch.setattr("discjockey.rekordbox.process.running", lambda: True)
     messages, state = next_start(env)
-    assert messages == [(convert.UNDO_WAIT_REKORDBOX.format(name=NAME), False)]
+    assert messages == [(rbstep.UNDO_WAIT_REKORDBOX.format(name=NAME), False)]
     assert len(load_state(env.paths)["pending"]) == 1
     monkeypatch.setattr("discjockey.rekordbox.process.running", lambda: False)
     messages, state = next_start(env)
@@ -268,7 +268,7 @@ def test_a_cut_off_undo_removes_a_leftover_and_waits_while_another_window_writes
     fcntl.flock(fd, fcntl.LOCK_EX)
     try:
         messages, _state = next_start(env)
-        assert messages == [(convert.WAIT_BUSY.format(what="undo", name=NAME), False)]
+        assert messages == [(rbstep.WAIT_BUSY.format(what="undo", name=NAME), False)]
         assert len(load_state(env.paths)["pending"]) == 1
     finally:
         os.close(fd)

@@ -13,7 +13,7 @@ from mutagen.id3 import APIC, COMM, ID3, TCON, TDRC, ID3NoHeaderError
 
 from audio_helpers import TINY_JPEG, needs_ffmpeg, pcm, picture
 from convert_helpers import NOW, TID, batch_row, file_facts_row, make_own, run_file, session, start_file_batch
-from discjockey import audio, convert, library, report, upgrades
+from discjockey import audio, convert, library, rbstep, report, upgrades
 from discjockey.library import load_state
 from discjockey.rekordbox import anlz, backup, eligible, master
 from discjockey.rekordbox import write as rbwrite
@@ -338,7 +338,7 @@ def test_without_a_rekordbox_track_it_is_a_plain_conversion_and_the_check_says_s
     before = dump(env.place.db) if rekordbox else None
     analysis = env.anlz_files()
     r, state = run_file(env)
-    assert r.path == NEW and (env.paths.root / env.superseded).is_file() and r.note.endswith(convert.NO_TRACK_NOTE)
+    assert r.path == NEW and (env.paths.root / env.superseded).is_file() and r.note.endswith(rbstep.NO_TRACK_NOTE)
     check = state["tracks"][TID]["rekordbox_check"]
     assert check["rekordbox"] is None and check["undo"]["repoint"] is None
     assert report.check_text(check) == report.CONVERTED_NO_TRACK_CHECK
@@ -357,7 +357,7 @@ def test_a_flac_without_a_waveform_needs_none_but_an_mp3_with_cues_does(tmp_path
     sub = tmp_path / "mp3"
     sub.mkdir()
     env = make_own(sub, monkeypatch, "lame", analysed=False)
-    with pytest.raises(convert.Skipped) as err:
+    with pytest.raises(rbstep.Skipped) as err:
         run_file(env)
     assert err.value.reason == "not_analysed"
 
@@ -407,13 +407,13 @@ def test_refusals_change_nothing(tmp_path, monkeypatch, case, reason):
         monkeypatch.setattr("discjockey.rekordbox.master.KEYS", ("00" * 32,))
     music, master_rows, analysis = env.music(), dump(env.place.db), env.anlz_files()
     entry = load_state(env.paths)["tracks"][TID]
-    with pytest.raises(convert.Skipped) as err:
+    with pytest.raises(rbstep.Skipped) as err:
         run_file(env)
     assert err.value.reason == reason
     if case == "space":
         assert err.value.detail["free"] == 1_000_000 and "needed, 1 MB free" in str(err.value)
     else:
-        assert str(err.value) == (convert.REFUSED.get(reason) or convert.CONVERT_REFUSED[reason])
+        assert str(err.value) == (rbstep.REFUSED.get(reason) or rbstep.CONVERT_REFUSED[reason])
     if case == "unclean":
         env.place.db.with_name("master.db-wal").unlink()
     assert_nothing_changed(env, music, master_rows, analysis, entry)
@@ -431,7 +431,7 @@ def test_a_file_that_is_gone_or_on_a_drive_that_is_away_is_refused(tmp_path, mon
         monkeypatch.setattr(library, "online", lambda path, roots: False)
         (env.paths.root / env.old).rename(env.paths.root / "A.bak")
         music = env.music()
-    with pytest.raises(convert.Skipped) as err:
+    with pytest.raises(rbstep.Skipped) as err:
         run_file(env)
     assert err.value.reason == ("file_missing" if case == "missing" else "away")
     assert env.music() == music and dump(env.place.db) == master_rows and env.anlz_files() == analysis
@@ -481,9 +481,9 @@ def test_a_track_changed_meanwhile_is_refused_and_rolled_back(tmp_path, monkeypa
         self.con.execute("UPDATE djmdContent SET FolderPath = '/Users/dj/Music/Elsewhere.mp3' WHERE ID = '1'")
         return real(self, changes, splices, **kw)
     monkeypatch.setattr(rbwrite.Writer, "repoint", moved_meanwhile)
-    with pytest.raises(convert.Skipped) as err:
+    with pytest.raises(rbstep.Skipped) as err:
         run_file(env)
-    assert err.value.reason == "changed" and str(err.value) == convert.REFUSED["changed"]
+    assert err.value.reason == "changed" and str(err.value) == rbstep.REFUSED["changed"]
     assert env.music() == music and env.anlz_files() == analysis
 
 

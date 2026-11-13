@@ -13,7 +13,7 @@ from convert_helpers import (
     AFTER_COMMIT, BEFORE_COMMIT, TID, PowerOff, batch_row, file_facts_row, make_own, next_start, power_off,
     power_off_undo, run_file, session, start_file_batch,
 )
-from discjockey import convert, library, upgrades
+from discjockey import convert, library, rbstep, upgrades
 from discjockey.library import load_state
 from discjockey.rekordbox import anlz, backup, master
 from discjockey.upgrades import UNDO_REFUSED, UndoRefused, UpgradeProblem
@@ -411,8 +411,8 @@ def test_a_converts_words_say_conversion_where_same_track_says_replace_or_upgrad
     texts = [convert.WAIT_REKORDBOX, convert.NOT_FINISHED, convert.FINISHED, convert.NEEDS_HELP, convert.OTHER_MAC_DONE,
              convert.OTHER_MAC_UNDONE, convert.UNREADABLE_WAIT, convert.UNCLEAN_WAIT, convert.FINISHED_MOST,
              convert.COULD_NOT_FINISH, convert.STEP_FAILED, convert.STEP_NOT_FINISHED, convert.UNDO_FINISHED,
-             convert.UNDO_NOT_FINISHED, convert.UNDO_NEEDS_HELP, convert.UNDO_WAIT_REKORDBOX, convert.UNDO_OTHER_MAC_DONE,
-             convert.UNDO_OTHER_MAC_UNDONE, convert.UNDO_UNREADABLE_WAIT, convert.UNDO_UNCLEAN_WAIT, *UNDO_REFUSED.values()]
+             convert.UNDO_NOT_FINISHED, convert.UNDO_NEEDS_HELP, rbstep.UNDO_WAIT_REKORDBOX, convert.UNDO_OTHER_MAC_DONE,
+             convert.UNDO_OTHER_MAC_UNDONE, rbstep.UNDO_UNREADABLE_WAIT, rbstep.UNDO_UNCLEAN_WAIT, *UNDO_REFUSED.values()]
     for text in texts:
         assert "replace" not in said(text) and "upgrade" not in said(text).lower(), text
     assert "since the conversion" in UndoRefused("relocated", True).args[0]

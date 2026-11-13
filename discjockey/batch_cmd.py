@@ -28,7 +28,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
-from . import align, batches, convert, db, library, ops, rekordbox, report as rep, upgrades
+from . import align, batches, convert, db, library, ops, rbstep, rekordbox, report as rep, upgrades
 from .events import BatchProgress, Cancelled, CancelToken, Result
 from .library import LockHeld, NameReserver, NoLibrary, Paths, StateError
 from .hub import views
@@ -52,7 +52,7 @@ RESTORE_WORDS = {
                "was changed.",
     "other_library": "This backup was made from another rekordbox library than this Mac's, so nothing was changed.",
     "rekordbox_open": convert.REKORDBOX_OPEN,
-    "unclean": convert.REFUSED["unclean"],
+    "unclean": rbstep.REFUSED["unclean"],
 }
 NEEDS_YES = ("This puts rekordbox's whole library back as it was in the backup, and drops every change made in "
              "rekordbox since. Run it again with --yes to do it. Nothing was changed.")
@@ -209,7 +209,7 @@ def _item_lines(state: dict, item: batches.ItemResult) -> list[str]:
         lines = [f"{'Upgraded' if item.action == 'same_track' else 'Done'}: {name}{where}"]
         rb = item.rekordbox
         if item.action == "same_track" and rb is None:
-            lines.append("  " + convert.NO_TRACK_NOTE)
+            lines.append("  " + rbstep.NO_TRACK_NOTE)
         elif kept := convert.kept_note((rb or {}).get("kept") or []):
             lines.append("  " + kept)
         return lines

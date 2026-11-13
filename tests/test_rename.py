@@ -12,7 +12,7 @@ from mutagen.aiff import AIFF
 
 from audio_helpers import needs_ffmpeg
 from convert_helpers import NOW, TID, file_facts_row, make_own, run_file, session
-from discjockey import audio, convert, library, rename
+from discjockey import audio, convert, library, rbstep, rename
 from discjockey.library import load_state, save_state
 from discjockey.names import fold
 from discjockey.planner import ENTRY_KEYS
@@ -176,7 +176,7 @@ def test_two_items_wanting_one_name_the_second_gets_the_id(tmp_path, monkeypatch
 def test_the_file_that_holds_the_id_name_because_the_clean_one_is_taken_is_named_already(tmp_path, monkeypatch):
     env = make_clean(tmp_path, monkeypatch, entry={"path": ID_NAME})
     (env.paths.root / CLEAN).write_bytes(b"another file")
-    with pytest.raises(convert.Skipped) as err:
+    with pytest.raises(rbstep.Skipped) as err:
         run_rename(env)
     assert err.value.reason == "named_already"
 
@@ -185,9 +185,9 @@ def test_the_file_that_holds_the_id_name_because_the_clean_one_is_taken_is_named
 def test_a_case_only_difference_is_named_already(tmp_path, monkeypatch, path):
     env = make_clean(tmp_path, monkeypatch, entry={"path": path})
     music, master_rows = env.music(), dump(env.place.db)
-    with pytest.raises(convert.Skipped) as err:
+    with pytest.raises(rbstep.Skipped) as err:
         run_rename(env)
-    assert err.value.reason == "named_already" and str(err.value) == convert.CONVERT_REFUSED["named_already"]
+    assert err.value.reason == "named_already" and str(err.value) == rbstep.CONVERT_REFUSED["named_already"]
     assert env.music() == music and dump(env.place.db) == master_rows
     assert fold(rename.clean_path(env.paths, load_state(env.paths), TID, load_state(env.paths)["tracks"][TID])) \
         == fold(path)
@@ -209,7 +209,7 @@ def test_a_file_with_no_rekordbox_track_is_only_moved(tmp_path, monkeypatch, cas
     analysis = env.anlz_files()
     r, state = run_rename(env)
     assert r.path == CLEAN and (env.paths.root / CLEAN).is_file() and not (env.paths.root / OLD).exists()
-    assert r.note.endswith(convert.NO_TRACK_NOTE)
+    assert r.note.endswith(rbstep.NO_TRACK_NOTE)
     assert env.place is None or dump(env.place.db) == master_rows  # rekordbox untouched
     assert env.anlz_files() == analysis and not backup.backups(env.paths)
     check = state["tracks"][TID]["rekordbox_check"]
@@ -248,14 +248,14 @@ def test_refusals_change_nothing(tmp_path, monkeypatch, case, reason, why):
         monkeypatch.setattr("discjockey.rekordbox.master.KEYS", ("00" * 32,))
     music, master_rows, analysis = env.music(), dump(env.place.db), env.anlz_files()
     entry = load_state(env.paths)["tracks"][TID]
-    with pytest.raises(convert.Skipped) as err:
+    with pytest.raises(rbstep.Skipped) as err:
         run_rename(env)
     assert err.value.reason == reason
     if why:  # design §8's words with the cause's own
         assert str(err.value) == ("Discjockey can only give this file its new name while it can point your rekordbox "
                                   f"track at it, and it can't right now ({why}). Nothing was changed.")
     else:
-        assert str(err.value) == (convert.REFUSED.get(reason) or convert.CONVERT_REFUSED[reason])
+        assert str(err.value) == (rbstep.REFUSED.get(reason) or rbstep.CONVERT_REFUSED[reason])
     if case == "unclean":
         env.place.db.with_name("master.db-wal").unlink()
     assert_nothing_changed(env, music, master_rows, analysis, entry)
@@ -314,9 +314,9 @@ def test_a_track_changed_meanwhile_is_refused_and_the_file_goes_back(tmp_path, m
         self.con.execute("UPDATE djmdContent SET FolderPath = '/Users/dj/Music/Elsewhere.aiff' WHERE ID = '1'")
         return real(self, changes, splices, **kw)
     monkeypatch.setattr(rbwrite.Writer, "repoint", moved_meanwhile)
-    with pytest.raises(convert.Skipped) as err:
+    with pytest.raises(rbstep.Skipped) as err:
         run_rename(env)
-    assert err.value.reason == "changed" and str(err.value) == convert.REFUSED["changed"]
+    assert err.value.reason == "changed" and str(err.value) == rbstep.REFUSED["changed"]
     assert env.music() == music and env.anlz_files() == analysis
     assert load_state(env.paths)["pending"] == [] and load_state(env.paths)["tracks"][TID]["path"] == OLD
 
@@ -330,7 +330,7 @@ def test_a_file_that_is_gone_or_on_a_drive_that_is_away_is_refused(tmp_path, mon
         monkeypatch.setattr(library, "online", lambda path, roots: False)
     (env.paths.root / OLD).rename(env.paths.root / "A.bak")
     music = env.music()
-    with pytest.raises(convert.Skipped) as err:
+    with pytest.raises(rbstep.Skipped) as err:
         run_rename(env)
     assert err.value.reason == ("file_missing" if case == "missing" else "away")
     assert env.music() == music and dump(env.place.db) == master_rows and env.anlz_files() == analysis
@@ -427,9 +427,9 @@ def test_a_pending_rename_reserves_both_of_its_names(tmp_path, monkeypatch):
 def test_side_of_and_tracks_at_are_public(tmp_path, monkeypatch):
     env = make_clean(tmp_path, monkeypatch)
     old, new = str(env.paths.root / OLD), str(env.paths.root / CLEAN)
-    assert convert.tracks_at("1234567890", {"1": (new, old)}) == "old"
-    assert convert.tracks_at("1234567890", {"1": (old, new)}) == "new"
-    assert convert.tracks_at("1234567890", {"1": (new, "/Users/dj/x.aiff")}) == "neither"
-    assert convert.tracks_at("another dbid", {"1": (new, old)}) == "other"
-    assert convert.side_of(env.paths, {"rekordbox": None, "new": OLD, "new_sha256": sha(env.paths.root / OLD)}) == "new"
-    assert convert.side_of(env.paths, {"rekordbox": None, "new": CLEAN, "new_sha256": "0" * 64}) == "old"
+    assert rbstep.tracks_at("1234567890", {"1": (new, old)}) == "old"
+    assert rbstep.tracks_at("1234567890", {"1": (old, new)}) == "new"
+    assert rbstep.tracks_at("1234567890", {"1": (new, "/Users/dj/x.aiff")}) == "neither"
+    assert rbstep.tracks_at("another dbid", {"1": (new, old)}) == "other"
+    assert rbstep.side_of(env.paths, {"rekordbox": None, "new": OLD, "new_sha256": sha(env.paths.root / OLD)}) == "new"
+    assert rbstep.side_of(env.paths, {"rekordbox": None, "new": CLEAN, "new_sha256": "0" * 64}) == "old"

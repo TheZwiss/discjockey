@@ -598,8 +598,8 @@ def test_a_redo_that_no_longer_crosses_removes_the_staged_copy(paths, other, mon
 def test_only_a_file_with_the_staging_name_is_removed_as_a_staged_copy(paths):
     music = touch(paths.library / "A/x.aiff")
     hidden_music = touch(paths.library / "A/.x.aiff")
-    library._remove_staged(music)
-    library._remove_staged(hidden_music)
+    library.remove_staged(music)
+    library.remove_staged(hidden_music)
     assert music.exists() and hidden_music.exists()
 
 

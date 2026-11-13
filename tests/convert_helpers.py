@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from discjockey import convert, db, library, quality
+from discjockey import convert, db, library, quality, rbstep
 from discjockey.align import Alignment
 from discjockey.audio import write_tags
 from discjockey.library import Paths, load_state, save_state
@@ -300,6 +300,7 @@ def _cut_at_mark(monkeypatch, number: int, written: bool) -> None:
             raise PowerOff
         real(paths, state, op)
     monkeypatch.setattr(convert, "mark_op", mark)
+    monkeypatch.setattr(rbstep, "mark_op", mark)  # the `record` mark is journaled by rbstep.journal_record
 
 
 def next_start(env: Env):

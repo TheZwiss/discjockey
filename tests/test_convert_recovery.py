@@ -12,7 +12,7 @@ from audio_helpers import needs_ffmpeg
 from convert_helpers import (
     AFTER_COMMIT, BEFORE_COMMIT, NEW, TID, PowerOff, batch_row, make_env, next_start, power_off, run, start_batch,
 )
-from discjockey import convert, library
+from discjockey import convert, library, rbstep
 from discjockey.library import load_state
 from discjockey.rekordbox import anlz, master
 from rekordbox_helpers import dump, make_master, writer
@@ -141,7 +141,7 @@ def test_analysis_files_come_back_only_under_the_rekordbox_lock(tmp_path, monkey
     fcntl.flock(fd, fcntl.LOCK_EX)                  # another window (or music folder) is changing rekordbox
     try:
         messages, _state = next_start(env)
-        assert messages == [(convert.WAIT_BUSY.format(what="replace", name=NAME), False)]
+        assert messages == [(rbstep.WAIT_BUSY.format(what="replace", name=NAME), False)]
         assert len(load_state(env.paths)["pending"]) == 1 and (env.paths.root / NEW).is_file()
         assert anlz.ppth(anlz.read(env.dat())) == "?/Artist - Song.aiff"       # not touched
     finally:
