@@ -549,7 +549,11 @@ Results:
     recovery decides on FolderPath). Decided: chain, no new op kind: when Convert lands on the ID name because the old
     file held the clean name, the same item runs Rename to the clean name (D3b builds it). D2 merged into the stage
     branch 288ad697. D3 split before dispatch (checklist line 3): D3a step + recovery, D3b undo + report + chain.
-    D3a (Sonnet, brief-33-D3a.md) running. Stage D running total 1.37M.
+    D3a (Sonnet) done 201d2d0f: **304k** (80 calls; even a half group lands ~300k: reading CLAUDE.md + plan + notes +
+    convert.py is ~100k before work starts): `rename_file`, `recover_rename`, 57 tests; rekordbox running stops the
+    batch (RekordboxOpened, as Convert) instead of a per-track `rename_blocked`: accepted. Merged into the stage branch
+    f8319935. D3b (Sonnet, brief-33-D3b.md: undo_rename, report, the chain; chain undo keeps the convert's undo in
+    the rename's `before`) running. Stage D running total 1.68M.
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
