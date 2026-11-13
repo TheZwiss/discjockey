@@ -541,8 +541,11 @@ Results:
     `aiff_action`; beyond plan: stream kbps, covers dropped in write_tags. Notes: scratchpad `stage-d-notes.md`.
     R-D1 (Sonnet) **189k**: ready, one test added; carries noted in `stage-d-notes.md` (D4: one lossless-codec list,
     quality's; D5: console facts fill + a failed-probe mark so an unreadable file doesn't re-import every launch).
-    D1 merged into the stage branch 92bb5229 (stage worktree `.claude/worktrees/rb-d`). D2 (Sonnet, brief-33-D2.md)
-    running. Stage D running total 781k.
+    D1 merged into the stage branch 92bb5229 (stage worktree `.claude/worktrees/rb-d`). D2 (Sonnet) done 534d2670:
+    **384k** (131 calls; plan said 180-200k, stop line ~200k ignored again): `convert_file`, undo/recovery without
+    `held`, 75 tests. R-D2 (Sonnet, brief-33-RD2.md) running with two stated fixes: an AIFF at its clean name converts
+    in place (no ID name), convert's words. Stage D running total 1.17M. Lesson: the plan's 170-200k engine groups
+    land at 300-380k; D3/D4 likely the same.
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
