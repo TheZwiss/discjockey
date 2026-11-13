@@ -65,6 +65,11 @@ class UpgradeProblem(Exception):
         self.forgotten = forgotten
 
 
+# design §8 (binding): what a step says when the two files could not be compared at all (an `unknown` measurement, not
+# "a different edit"); Same track and the swap use these words, the batch records them as `needs_choice`
+COULD_NOT_COMPARE = "Discjockey couldn't compare the two files, so nothing was changed. Try again, or choose New track."
+
+
 class NeedsChoice(UpgradeProblem):
     """A swap refused because the two versions are not the same edit (measured again now): nothing was done, and
     in a batch the track is skipped (`needs_choice`), not failed."""
@@ -539,6 +544,8 @@ def swap(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Compa
     alignment = compare(paths.root / target, paths.root / upgrade["file"])
     if not alignment.swap_safe:
         keep_measurement(paths, state, track_id, e, alignment)
+        if alignment.result == "unknown":
+            raise NeedsChoice(COULD_NOT_COMPARE)
         raise NeedsChoice(f"Not swapped: {alignment.text}. Add the {upgrade_name(upgrade)} as a new file instead, "
                           "or discard it.")
     workdir = paths.tmp / track_id

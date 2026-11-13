@@ -188,8 +188,12 @@ def different(current, new):
     return Alignment("different", text="doesn't line up: a swap would shift your cue points")
 
 
+def unknown(current, new):
+    return Alignment("unknown", text="could not compare the two versions")
+
+
 @pytest.mark.parametrize("case, reason", [
-    ("different_edit", "needs_choice"), ("not_analysed", "not_analysed"), ("timing", "timing"), ("cloud", "cloud"),
+    ("different_edit", "needs_choice"), ("unknown_edit", "needs_choice"), ("not_analysed", "not_analysed"), ("timing", "timing"), ("cloud", "cloud"),
     ("space", "space"), ("unclean", "unclean"), ("unreadable", "rekordbox_unreadable")])
 def test_refusals_change_nothing(tmp_path, monkeypatch, case, reason):
     kw = {"not_analysed": {"analysed": False}, "timing": {"extra_s": 0.03},
@@ -203,11 +207,16 @@ def test_refusals_change_nothing(tmp_path, monkeypatch, case, reason):
         monkeypatch.setattr("discjockey.rekordbox.master.KEYS", ("00" * 32,))
     music, master, analysis = env.music(), dump(env.place.db), env.anlz_files()
     with pytest.raises(convert.Skipped) as e:
-        run(env, compare=different if case == "different_edit" else exact)
+        run(env, compare=different if case == "different_edit" else unknown if case == "unknown_edit" else exact)
     assert e.value.reason == reason
+    if case == "unknown_edit":  # design §8: the files could not be compared; never "isn't the same edit"
+        assert str(e.value) == ("Discjockey couldn't compare the two files, so nothing was changed. Try again, or "
+                                "choose New track.")
+    if case == "different_edit":
+        assert "isn't the same edit" in str(e.value)
     if case == "space":
         assert e.value.detail["free"] == 1_000_000 and "needed, 1 MB free" in str(e.value)
-    elif reason in convert.REFUSED and case != "different_edit":
+    elif reason in convert.REFUSED and case not in ("different_edit", "unknown_edit"):
         assert str(e.value) == convert.REFUSED[reason]
     if case == "unclean":
         env.place.db.with_name("master.db-wal").unlink()

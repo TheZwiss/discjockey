@@ -630,6 +630,7 @@ Console: the new commands (and issue 39's agent docs).
 | Refused, unreadable | "Discjockey can't open this rekordbox version's library yet, so nothing was changed. Choose New track, or update Discjockey." |
 | Refused, not analysed | "rekordbox hasn't analysed this track yet, so Discjockey can't tell exactly where your cues sit. Nothing was changed. Analyse it in rekordbox, quit rekordbox, and try again." |
 | Refused, timing | "Discjockey couldn't line the new file up with your rekordbox track exactly, so nothing was changed. Analyse the track again in rekordbox and try again." |
+| Refused, files couldn't be compared (`needs_choice` from an `unknown` measurement, in Same track, the swap and the sync's phase; "a different edit" keeps its own words) | "Discjockey couldn't compare the two files, so nothing was changed. Try again, or choose New track." |
 | Refused, cloud | "This track is in rekordbox's Cloud Library Sync, which Discjockey doesn't change yet. Nothing was changed." |
 | Refused, unclean | "rekordbox didn't close normally last time. Open rekordbox, quit it, and try again. Nothing was changed." |
 | Refused, changed | "Your rekordbox track changed while Discjockey was working on it, so nothing was changed. Try again." |

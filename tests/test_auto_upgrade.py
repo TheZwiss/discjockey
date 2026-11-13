@@ -833,6 +833,8 @@ def test_files_that_cannot_be_compared_are_recorded_and_not_decoded_again_until_
     out, _, log, _ = phase(lib, compare=unknown)
     assert rows(out) == [(lib.tracks[0], "refused", "needs_choice")] and unknown.calls == 1
     up = upgrade_of(lib, 0)
+    assert out.results[0]["message"] == ("Discjockey couldn't compare the two files, so nothing was changed. Try "
+                                         "again, or choose New track.")    # its own sentence, not "isn't the same edit"
     assert up["alignment"] == EXACT.to_dict()                          # the stored measurement is not replaced
     files = {lib.olds[0]: (lib.paths.root / lib.olds[0]).stat().st_mtime_ns,
              up["file"]: (lib.paths.root / up["file"]).stat().st_mtime_ns}
