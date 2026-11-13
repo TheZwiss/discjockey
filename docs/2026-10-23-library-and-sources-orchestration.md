@@ -544,8 +544,12 @@ Results:
     D1 merged into the stage branch 92bb5229 (stage worktree `.claude/worktrees/rb-d`). D2 (Sonnet) done 534d2670:
     **384k** (131 calls; plan said 180-200k, stop line ~200k ignored again): `convert_file`, undo/recovery without
     `held`, 75 tests. R-D2 (Sonnet, brief-33-RD2.md) running with two stated fixes: an AIFF at its clean name converts
-    in place (no ID name), convert's words. Stage D running total 1.17M. Lesson: the plan's 170-200k engine groups
-    land at 300-380k; D3/D4 likely the same.
+    in place (no ID name), convert's words. Lesson: the plan's 170-200k engine groups land at 300-380k.
+    R-D2 (Sonnet) **203k**: ready, words fixed (53f9a6a0); in-place convert NOT possible on the swap machinery (its
+    recovery decides on FolderPath). Decided: chain, no new op kind: when Convert lands on the ID name because the old
+    file held the clean name, the same item runs Rename to the clean name (D3b builds it). D2 merged into the stage
+    branch 288ad697. D3 split before dispatch (checklist line 3): D3a step + recovery, D3b undo + report + chain.
+    D3a (Sonnet, brief-33-D3a.md) running. Stage D running total 1.37M.
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
