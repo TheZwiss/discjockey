@@ -21,9 +21,9 @@ from ..accounts import (ACCOUNTS, BROWSERS, DEFAULT_LIMITS, MAX_LIMIT, PREMIUM_M
                         SERVICE_SIGNALS)
 from ..accounts import assessment as service_assessment, zones as service_zones
 from ..names import expected_stem, fold
-from ..models import (OWN_FILE, SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, DupFile, DuplicateGroup,
-                      ImportCounts, MoveRow, PlannedMove, PlaylistRecord, Question, WatchedFolder, is_own, split_token,
-                      track_link as key_link)
+from ..models import (CONTAINER_NAMES, FORMAT_NAMES, OWN_FILE, SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES,
+                      BatchResult, BatchRow, DupFile, DuplicateGroup, ImportCounts, MoveRow, PlannedMove,
+                      PlaylistRecord, Question, WatchedFolder, is_own, split_token, track_link as key_link)
 from ..pacing import KEEP_SIGNALS, Budget
 from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
@@ -593,12 +593,8 @@ def buy_links(artist: str, title: str) -> dict:
     return {"beatport": f"https://www.beatport.com/search?q={q}", "bandcamp": f"https://bandcamp.com/search?q={q}"}
 
 
-FORMAT_NAMES = {"opus": "Opus", "aac": "AAC", "mp3": "MP3", "flac": "FLAC", "vorbis": "Vorbis", "alac": "ALAC"}
-
-
-# the container a file's extension names; .m4a is AAC or ALAC by its codec (file_format_line)
-CONTAINER_NAMES = {".aiff": "AIFF", ".aif": "AIFF", ".wav": "WAV", ".flac": "FLAC", ".mp3": "MP3", ".ogg": "OGG",
-                   ".opus": "Opus"}
+# FORMAT_NAMES (a codec's name) and CONTAINER_NAMES (the container an extension names; .m4a is AAC or ALAC by its
+# codec, file_format_line) live in models: the CDJ rule's words use them too
 DOWNLOAD_BITS = 16  # audio.convert_to_aiff writes every download as pcm_s16be
 
 

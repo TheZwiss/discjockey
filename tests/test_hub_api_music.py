@@ -453,7 +453,8 @@ def test_a_file_of_an_import_folder_gives_its_embedded_artwork_as_the_cover(tmp_
     paths, folder, api, rec = watched(tmp_path, monkeypatch, n=2)
     api._media = MediaServer(paths)
     api._media.bind(paths, api._file_path)
-    jpeg = b"\xff\xd8\xff\xe0" + b"jpeg data" * 10
+    from audio_helpers import TINY_JPEG
+    jpeg = TINY_JPEG  # a baseline JPEG within the CDJ limits is written as it is
     tiny_aiff(folder / "Example Artist - Song 1.aiff")
     audio.write_tags(folder / "Example Artist - Song 1.aiff", title="Song 1", artists=("Example Artist",), album="",
                      isrc=None, label=None, cover=jpeg, comment="x")

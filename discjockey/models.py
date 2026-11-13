@@ -459,8 +459,41 @@ class PlaylistRecord(NamedTuple):
 
 
 @dataclass(frozen=True)
+class FileAudio:
+    """What the file at a row's `path` is (issue 33 stage D, plan §0.3): ffprobe's codec name, sample rate (Hz), bit
+    depth (None for a lossy codec) and average bitrate (kbps; None when unknown). Not `source_format`, which says
+    what a file was made from and stays the old file's after a Convert. Stored in `files.file_*`, read-only entry
+    keys `file_codec`, `file_rate`, `file_bits`, `file_kbps`."""
+    codec: str
+    rate: int | None
+    bits: int | None
+    kbps: int | None
+
+
+# the snapshot entry keys that carry a FileAudio, in FileAudio's field order (db.files has the columns)
+FILE_AUDIO_KEYS = ("file_codec", "file_rate", "file_bits", "file_kbps")
+
+
+def entry_audio(entry: dict) -> FileAudio | None:
+    """The `FileAudio` an entry's file has stored, None while it isn't known (a download's file, which never needs
+    it, or an own file the facts fill hasn't reached yet)."""
+    codec = entry.get("file_codec")
+    if not codec:
+        return None
+    return FileAudio(codec, entry.get("file_rate"), entry.get("file_bits"), entry.get("file_kbps"))
+
+
+# how the player-facing words name a file's codec and container (the Library's format line, the CDJ rule's words)
+FORMAT_NAMES = {"opus": "Opus", "aac": "AAC", "mp3": "MP3", "flac": "FLAC", "vorbis": "Vorbis", "alac": "ALAC"}
+# the container a file's extension names; .m4a is AAC or ALAC by its codec
+CONTAINER_NAMES = {".aiff": "AIFF", ".aif": "AIFF", ".wav": "WAV", ".flac": "FLAC", ".mp3": "MP3", ".ogg": "OGG",
+                   ".opus": "Opus"}
+
+
+@dataclass(frozen=True)
 class OwnFacts:
-    """What the import's first pass read from a file, for its own song (db.add_own_song)."""
+    """What the import's first pass read from a file, for its own song (db.add_own_song). `audio`: the file's own
+    facts (None where a caller has none: the facts fill reads them later)."""
     artist: str
     title: str
     album: str | None
@@ -468,6 +501,7 @@ class OwnFacts:
     duration_ms: int | None
     codec: str  # the file's source_format
     status: str  # provisional from the codec until the sound check (D1)
+    audio: FileAudio | None = None
 
 
 @dataclass(frozen=True)

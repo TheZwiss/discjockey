@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -26,7 +27,7 @@ from .events import AccountUsage, CancelToken, Emit, Result, SourceChosen, Track
 from .execute import Executor
 from .fallback import short_error
 from .library import NameReserver, Paths, delete_parked, full_fsync, run_op
-from .models import Action, Candidate, Protected, SourceTrack, track_of
+from .models import Action, Candidate, FileAudio, Protected, SourceTrack, track_of
 from .names import expected_stem, split_name, strip_id_suffix
 from .pacing import NoPacer
 from .planner import replacement_dir, superseded_dir
@@ -188,6 +189,7 @@ def add_bought_file(paths: Paths, state: dict, track_id: str, src: Path, *,
                 flac, staged = staged, workdir / "bought.aiff"
                 _flac_to_aiff(flac, staged, e)
             found = found or analyze(staged)  # before anything is placed: a file without audio stays out
+            audio_facts = _probed(staged)  # what the file is, stored with its row below
         except OpProblem:
             raise
         except Exception as err:
@@ -206,7 +208,31 @@ def add_bought_file(paths: Paths, state: dict, track_id: str, src: Path, *,
     if result.section == "errors":
         raise OpProblem(f"The file is in {dest}, but adding it did not work ({result.note}). The next sync tries "
                         "again.", "failed")
+    if audio_facts is not None:
+        _store_file_facts(paths, result.path, audio_facts)
     return result
+
+
+def _probed(path: Path) -> FileAudio | None:
+    """The file's own facts, None when ffprobe can't tell (the sound check already accepted the file, so this is not a
+    reason to refuse it: the import's facts pass tries again)."""
+    try:
+        return quality.file_audio(quality.probe(path))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _store_file_facts(paths: Paths, path: str | None, audio_facts: FileAudio) -> None:
+    """The bought file's own facts onto its row (plan rekordbox stage D §0.3). Derived records: a row that can't be
+    written now is filled by the import's facts pass, so a failure here never fails the add."""
+    from . import db
+    try:
+        with db.connect(paths.db_file) as conn:
+            file_id = db.file_id_at(conn, path) if path else None
+            if file_id is not None:
+                db.set_file_facts(conn, file_id, audio_facts)
+    except (library.StateError, sqlite3.Error, ValueError):
+        pass
 
 
 def _superseded_name(paths: Paths, state: dict, track_id: str, e: dict) -> str:

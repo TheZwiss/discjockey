@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from mutagen.aiff import AIFF
 
+from audio_helpers import picture
 from discjockey.audio import convert_to_aiff, write_tags
 from discjockey.quality import probe
 
@@ -34,14 +35,14 @@ def test_write_id3v23_tags(tmp_path):
     make_flac(src, seconds=1)
     convert_to_aiff(src, dst)
     write_tags(dst, title="Gimme Gimme", artists=("Vatoz Locoz", "Other"), album="Album",
-               isrc="DECE72605755", label="Label", cover=b"\xff\xd8\xff\xe0fake", comment="Qobuz FLAC · verified lossless")
+               isrc="DECE72605755", label="Label", cover=picture(300, 300), comment="Qobuz FLAC · verified lossless")
     tags = AIFF(str(dst)).tags
     assert tags.version[:2] == (2, 3)
     assert str(tags["TIT2"]) == "Gimme Gimme"
     assert str(tags["TPE1"]) == "Vatoz Locoz, Other"
     assert str(tags["TSRC"]) == "DECE72605755"
     assert str(tags["TPUB"]) == "Label"
-    assert tags.getall("APIC")[0].data.startswith(b"\xff\xd8")
+    assert tags.getall("APIC")[0].data.startswith(b"\xff\xd8") and tags.getall("APIC")[0].mime == "image/jpeg"
     assert tags.getall("COMM")[0].text == ["Qobuz FLAC · verified lossless"]
 
 
@@ -80,7 +81,7 @@ def test_copy_tags(tmp_path):
     convert_to_aiff(src, a)
     convert_to_aiff(src, b)
     write_tags(a, title="Song", artists=("Artist",), album="Album", isrc=None, label=None,
-               cover=b"\xff\xd8\xff\xe0fake", comment="Qobuz FLAC · verified lossless")
+               cover=picture(300, 300), comment="Qobuz FLAC · verified lossless")
     copy_tags(a, b)
     tags = AIFF(str(b)).tags
     assert tags.version[:2] == (2, 3) and str(tags["TIT2"]) == "Song"
@@ -162,3 +163,123 @@ def test_render_puts_the_audio_where_rekordboxs_timeline_has_it(tmp_path):
             timeline = np.interp(t, np.arange(len(timeline)) / sr, timeline).astype(np.float32)
         out = _mono(_render(src, tmp_path, -d, f"{src.stem}-{extra}.aiff"))
         assert abs(_lag(out, timeline)) <= 1, (src.name, extra)
+
+
+# --- issue 33 stage D: CDJ-safe artwork (plan §0.11), a file's own picture, the stream's bitrate ---
+
+def jpeg_size(data):
+    from discjockey.audio import _baseline_jpeg_size
+    return _baseline_jpeg_size(data)
+
+
+def test_a_large_png_becomes_a_small_baseline_jpeg():
+    from discjockey.audio import COVER_MAX_BYTES, cdj_cover
+    out = cdj_cover(picture(3000, 3000, "png"))
+    assert out is not None and len(out) <= COVER_MAX_BYTES
+    assert jpeg_size(out) == (600, 600)  # baseline (SOF0) and scaled down
+
+
+def test_a_wide_picture_keeps_its_proportions_and_a_small_one_is_never_scaled_up():
+    from discjockey.audio import cdj_cover
+    assert jpeg_size(cdj_cover(picture(1800, 900, "png"))) == (600, 300)
+    out = cdj_cover(picture(200, 100, "png"))
+    assert jpeg_size(out) == (200, 100)
+
+
+def test_a_600px_baseline_jpeg_comes_back_byte_identical():
+    from discjockey.audio import cdj_cover
+    data = picture(600, 600)
+    assert jpeg_size(data) == (600, 600)
+    assert cdj_cover(data) == data
+
+
+def test_a_jpeg_over_the_size_limit_or_in_pixels_is_made_to_fit():
+    from discjockey.audio import COVER_MAX_BYTES, cdj_cover
+    big = picture(2000, 2000)
+    assert jpeg_size(big) == (2000, 2000)
+    out = cdj_cover(big)
+    assert jpeg_size(out) == (600, 600) and len(out) <= COVER_MAX_BYTES
+
+
+def test_a_progressive_jpeg_is_not_taken_as_baseline():
+    from discjockey.audio import _baseline_jpeg_size
+    data = bytearray(picture(300, 300))
+    i = data.index(b"\xff\xc0")
+    data[i + 1] = 0xC2  # the frame header names progressive DCT
+    assert _baseline_jpeg_size(bytes(data)) is None
+
+
+def test_garbage_and_empty_data_are_no_cover():
+    from discjockey.audio import cdj_cover
+    assert cdj_cover(b"") is None
+    assert cdj_cover(b"not a picture at all") is None
+    assert cdj_cover(b"\xff\xd8\xff\xe0 tiny cover \xff\xd9") is None
+
+
+def test_write_tags_and_copy_tags_pass_covers_through_cdj_cover(tmp_path):
+    from discjockey.audio import copy_tags
+    src, a, b = tmp_path / "in.flac", tmp_path / "a.aiff", tmp_path / "b.aiff"
+    make_flac(src, seconds=1)
+    convert_to_aiff(src, a)
+    convert_to_aiff(src, b)
+    write_tags(a, title="Song", artists=("Artist",), album="Album", isrc=None, label=None,
+               cover=picture(2000, 2000, "png"), comment="c")
+    assert jpeg_size(AIFF(str(a)).tags.getall("APIC")[0].data) == (600, 600)
+    # a big cover already in a file (written by something else) is made CDJ-safe on its way to the new file
+    from mutagen.id3 import APIC
+    f = AIFF(str(a))
+    f.tags.setall("APIC", [APIC(encoding=1, mime="image/png", type=3, desc="", data=picture(1500, 1500, "png"))])
+    f.save(v2_version=3)
+    copy_tags(a, b)
+    frame = AIFF(str(b)).tags.getall("APIC")[0]
+    assert frame.mime == "image/jpeg" and jpeg_size(frame.data) == (600, 600)
+    c = tmp_path / "c.aiff"
+    convert_to_aiff(src, c)
+    write_tags(c, title="Song", artists=("Artist",), album="Album", isrc=None, label=None, cover=b"garbage",
+               comment="c")
+    assert not AIFF(str(c)).tags.getall("APIC")  # a cover that can't be made safe is left out
+
+
+def test_embedded_cover_reads_the_picture_of_any_format(tmp_path):
+    from mutagen.flac import FLAC, Picture
+    from mutagen.mp4 import MP4, MP4Cover
+
+    from audio_helpers import music, to_aac, write_aiff
+    from discjockey.audio import embedded_cover
+    pic = picture(300, 300)
+    aiff = write_aiff(tmp_path / "a.aiff", music(1))
+    assert embedded_cover(aiff) is None
+    m4a = to_aac(aiff, tmp_path / "a.m4a")  # before the picture: ffmpeg would take it for a video stream
+    write_tags(aiff, title="T", artists=("A",), album="", isrc=None, label=None, cover=pic, comment="")
+    assert embedded_cover(aiff) == pic
+    f = MP4(str(m4a))
+    f["covr"] = [MP4Cover(pic, imageformat=MP4Cover.FORMAT_JPEG)]
+    f.save()
+    assert embedded_cover(m4a) == pic
+    flac = tmp_path / "a.flac"
+    make_flac(flac, seconds=1)
+    picture_block = Picture()
+    picture_block.data, picture_block.type, picture_block.mime = pic, 3, "image/jpeg"
+    f = FLAC(str(flac))
+    f.add_picture(picture_block)
+    f.save()
+    assert embedded_cover(flac) == pic
+    assert embedded_cover(tmp_path / "nothing.mp3") is None  # not there
+
+
+def test_the_stored_bitrate_is_the_streams_not_the_files_with_its_cover(tmp_path):
+    """ffprobe's format bit rate counts embedded artwork: a 320 kbps MP3 with a big picture must not read above 320."""
+    from audio_helpers import music, write_aiff
+    from discjockey.quality import file_audio
+    mp3 = tmp_path / "a.mp3"
+    wav = write_aiff(tmp_path / "a.aiff", music(3))
+    pic = tmp_path / "cover.jpg"
+    pic.write_bytes(picture(1500, 1500))
+    r = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(wav), "-i", str(pic), "-map", "0:a",
+                        "-map", "1:v", "-c:a", "libmp3lame", "-b:a", "320k", "-c:v", "copy", "-id3v2_version", "3",
+                        str(mp3)], capture_output=True)
+    if r.returncode != 0:
+        pytest.skip("this ffmpeg has no MP3 encoder")
+    info = probe(mp3)
+    assert info.kbps > 320 and info.stream_kbps == 320
+    assert file_audio(info).kbps == 320

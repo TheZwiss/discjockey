@@ -7,8 +7,8 @@ import pytest
 from discjockey.audio import TEXT_FIELDS, FileFacts
 from discjockey.rekordbox import Entry, Status, TimelineOffset
 from discjockey.rekordbox.eligible import (
-    ACTIONS, REASONS, Eligible, Skip, convert, expected_tags, fields_kept, reason_of, rename, same_track, same_track_quick,
-    tags_clean, text_plan,
+    ACTIONS, REASONS, Eligible, Skip, aiff_action, convert, expected_tags, fields_kept, is_lossless_codec, reason_of,
+    rename, same_track, same_track_quick, tags_clean, text_plan,
 )
 from discjockey.rekordbox.offset import EntryTiming
 from discjockey.rekordbox.preview import REASON_WORDS
@@ -64,6 +64,7 @@ def test_every_reason_has_its_words_and_the_actions_are_three():
     assert reason_of(Eligible()) is None and reason_of(Skip("cloud")) == "cloud"
     assert {"unclean", "changed", "space", "rekordbox_open", "rename_blocked"} <= set(REASONS)  # stage B: a run finds them
     assert "not_reached" in REASONS                       # stage C: an Auto-upgrade batch that ended before this item
+    assert "upgrade_waits" in REASONS                     # stage D: a parked upgrade wins over Convert and Rename
 
 
 # --- Same track ---
@@ -300,3 +301,65 @@ def test_text_plan_writes_the_comment_only_over_nothing_or_discjockeys_own_line(
     ours_old = {**TAGS, "comment": "Qobuz FLAC · cutoff 16.0 kHz"}
     assert text_plan(row(comment="Qobuz FLAC · cutoff 16.0 kHz"), ours_old, clean)["comment"] == "write"
     assert text_plan(row(comment=OURS), TAGS, {**TAGS, "comment": "Qobuz FLAC · lossy"})["comment"] == "kept"
+
+
+# --- stage D: a parked upgrade wins, and the one rule "make it a clean AIFF" (plan §0.1, §0.2) ---
+
+TARGET = "Library/Mine/Artist - Song.aiff"
+
+
+def test_a_parked_upgrade_makes_convert_and_rename_wait_for_same_track():
+    up = parked("needs_choice")  # any parked upgrade, whatever its alignment says
+    assert why(convert(entry(upgrade=up), facts(), READY, None)) == "upgrade_waits"
+    assert why(rename(entry(path="Library/Mine/t.aiff", upgrade=up), aiff(), READY, None, clean_path=TARGET)) == "upgrade_waits"
+    # the file's own refusals that come first still say what they said
+    assert why(convert(entry(upgrade=up, source="qobuz"), facts(), READY, None)) == "downloaded"
+    assert why(convert(entry(upgrade=up), facts(), READY, None, present="away")) == "away"
+    assert why(convert(entry(upgrade=up, artist=""), facts(), READY, None)) == "no_name"
+    assert why(convert(entry(upgrade=None), facts(), READY, None)) is None
+
+
+def action(e, f, rb=READY, tm=None, **kw):
+    kind, verdict = aiff_action(e, f, rb, tm, **kw)
+    return kind, why(verdict)
+
+
+def test_aiff_action_converts_what_convert_can_and_renames_what_only_rename_can():
+    assert action(entry(), facts()) == ("convert", None)  # an MP3
+    assert action(entry(), facts(".flac", "flac", 96000, 24)) == ("convert", None)
+    assert action(entry(), aiff(tags={"title": "Other"})) == ("convert", None)  # wrong tags: a new file with new tags
+    assert action(entry(), None) == ("convert", None)  # facts not known: the run reads them
+    clean = aiff()
+    assert action(entry(path="Library/Mine/t.aiff"), clean, clean_path=TARGET) == ("rename", None)
+    assert action(entry(path=TARGET), clean, clean_path=TARGET) == ("rename", "named_already")  # Rename's answer
+
+
+def test_aiff_action_gives_the_more_telling_skip():
+    for e, f, expected in (
+            (entry(source="qobuz"), facts(), "downloaded"),
+            (entry(artist=""), facts(), "no_name"),
+            (entry(upgrade=parked()), facts(), "upgrade_waits"),
+            (entry(upgrade=parked()), aiff(), "upgrade_waits")):
+        assert action(e, f, clean_path=TARGET) == ("convert", expected), expected
+    assert action(entry(), facts(), present="away") == ("convert", "away")
+    assert action(entry(), facts(), present="missing") == ("convert", "file_missing")
+    assert action(entry(), facts(), rb=UNREADABLE) == ("convert", "rekordbox_unreadable")
+    assert action(entry(), facts(), tm=timing(cloud=True)) == ("convert", "cloud")
+    assert action(entry(), facts(), tm=timing("not_analysed", None)) == ("convert", "not_analysed")
+    # a clean AIFF is not "clean_aiff" but what the name and rekordbox say
+    e = entry(path="Library/Mine/t.aiff")
+    assert action(e, aiff(), rb=UNREADABLE, clean_path=TARGET) == ("rename", "rekordbox_unreadable")
+    assert action(e, aiff(), tm=timing(cloud=True), clean_path=TARGET) == ("rename", "cloud")
+    assert action(e, aiff(), tm=timing("timing", None), clean_path=TARGET) == ("rename", None)  # audio untouched
+
+
+def test_aiff_action_accepts_its_arguments_by_position():
+    kind, verdict = aiff_action(entry(path="Library/Mine/t.aiff"), aiff(), READY, None, "here", TARGET)
+    assert (kind, why(verdict)) == ("rename", None)
+
+
+def test_which_codecs_are_lossless_for_make_all():
+    for codec in ("pcm_s16be", "pcm_s16le", "pcm_s24le", "pcm_f32le", "flac", "alac"):
+        assert is_lossless_codec(codec), codec
+    for codec in ("mp3", "aac", "opus", "vorbis", "wmav2", "", None):
+        assert not is_lossless_codec(codec), codec

@@ -296,7 +296,8 @@ def test_bought_mp3_stays_lossy_and_takes_the_old_files_name(paths, tmp_path):
     #   ffmpeg -f lavfi -i anoisesrc=d=1:c=white:r=44100:a=0.3 -ac 1 -c:a libmp3lame -b:a 128k -write_xing 1 -id3v2_version 0 noise-128k.mp3
     # (generated noise, no licence). The test gives its copy the ID3 tag an artist's download has.
     shutil.copyfile(Path(__file__).parent / "fixtures" / "noise-128k.mp3", src)
-    cover = b"\xff\xd8\xff\xe0 tiny cover \xff\xd9"
+    from audio_helpers import picture
+    cover = picture(64, 64)  # a baseline JPEG within the CDJ limits is written as it is
     id3 = ID3()
     id3.add(TALB(encoding=3, text="Free EP"))
     id3.add(APIC(encoding=3, mime="image/jpeg", type=3, desc="", data=cover))
@@ -310,6 +311,10 @@ def test_bought_mp3_stays_lossy_and_takes_the_old_files_name(paths, tmp_path):
     assert str(tags["TIT2"]) == "Song" and str(tags["TALB"]) == "Free EP"  # the MP3's album
     assert [f.data for f in tags.getall("APIC")] == [cover]  # and its cover
     assert result.section == "bought" and src.exists()
+    from discjockey import db
+    with db.connect(paths.db_file) as conn:  # the bought file's own facts: the AIFF it is now (plan stage D §0.3)
+        assert conn.execute("SELECT file_codec, file_rate, file_bits FROM files WHERE source = 'manual'").fetchall() == [
+            ("pcm_s16be", 44100, 16)]
 
 
 def test_through_run_single(paths, tmp_path):

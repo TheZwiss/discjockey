@@ -70,6 +70,15 @@ def _drop_tag_brackets(text: str, uploader: str) -> str:
     return _SPACES.sub(" ", _BRACKET.sub(repl, text)).strip()
 
 
+def strip_tag_brackets(title: str) -> str:
+    """`title` without its whole brackets that are a pure tag ("[FREE DL]", "(Premiere)", "[Official Video]"; rule 3's
+    list), the space they leave closed. Any other bracket stays, and a title with no such bracket (or nothing but
+    one) is returned exactly as it came."""
+    collapsed = _SPACES.sub(" ", title).strip()
+    cleaned = _drop_tag_brackets(collapsed, "")
+    return cleaned if cleaned and cleaned != collapsed else title
+
+
 def _names(text: str) -> list[str]:
     """Rule 7: the artists inside one artist part. Splits at feat./ft./featuring (also in brackets), `, ` and a
     lowercase ` x `; `&`, `and` and `vs` stay inside one name ("Chase & Status" is one band)."""

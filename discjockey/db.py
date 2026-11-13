@@ -21,13 +21,14 @@ from typing import NamedTuple
 from . import library as disk  # "library" is the Library/ path argument everywhere here
 from .events import Emit, Message
 from .identify import compare
-from .models import (OWN_PREFIX, AddedFolder, AiffBatchRow, AiffItemRow, BatchRow, DupFile, DuplicateGroup, FetchedPlaylist, ImportCounts,
-                     ImportRow, KnownFile, MoveRow, NOT_OPENABLE, OwnFacts, PlannedMove, PlaylistRecord, RecordedTrack,
-                     RemovalCounts, ScanResult, WatchedFolder, group_id, is_own, split_token, token)
+from .models import (FILE_AUDIO_KEYS, OWN_PREFIX, AddedFolder, AiffBatchRow, AiffItemRow, BatchRow, DupFile,
+                     DuplicateGroup, FetchedPlaylist, FileAudio, ImportCounts, ImportRow, KnownFile, MoveRow,
+                     NOT_OPENABLE, OwnFacts, PlannedMove, PlaylistRecord, RecordedTrack, RemovalCounts, ScanResult,
+                     WatchedFolder, group_id, is_own, split_token, token)
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 NEWER = ("This music folder was last used by a newer Discjockey. Update Discjockey, then try again. "
          "Nothing was changed.")
@@ -179,6 +180,18 @@ SCHEMA_V7_STEP = (
 )
 
 
+# Issue 33 stage D (plan rekordbox stage D §0.3): what the file at `path` is (`models.FileAudio`), for the CDJ rule and
+# the Make-AIFF plan. NULL until known: an own file's row gets them at the import's first pass, from a bought file's
+# add, from a convert/rename step, or from the facts fill (`files_without_facts`); a download's row never needs them
+SCHEMA_V8_STEP = (
+    "ALTER TABLE files ADD COLUMN file_codec TEXT",
+    "ALTER TABLE files ADD COLUMN file_rate INTEGER",
+    "ALTER TABLE files ADD COLUMN file_bits INTEGER",
+    "ALTER TABLE files ADD COLUMN file_kbps INTEGER",
+)
+FILE_AUDIO_COLUMNS = FILE_AUDIO_KEYS  # the four columns carry the entry keys' names
+
+
 def _statements(statements: tuple[str, ...]) -> Callable[[sqlite3.Connection], None]:
     def step(conn: sqlite3.Connection) -> None:
         for statement in statements:  # one execute each: executescript would commit mid-transaction
@@ -193,7 +206,8 @@ UPGRADES: dict[int, Callable[[sqlite3.Connection], None]] = {1: _statements(SCHE
                                                            3: _statements(SCHEMA_V4_STEP),
                                                            4: _statements(SCHEMA_V5_STEP),
                                                            5: _statements(SCHEMA_V6_STEP),
-                                                           6: _statements(SCHEMA_V7_STEP)}
+                                                           6: _statements(SCHEMA_V7_STEP),
+                                                           7: _statements(SCHEMA_V8_STEP)}
 
 
 class _Connection(sqlite3.Connection):
@@ -316,7 +330,7 @@ QUALITY = FILE_FIELDS[1:]
 # entry keys the snapshot adds and save ignores; file_id only on an entry with a linked file (plan library
 # stage 2, I2)
 # stage 4, I2: import_state and first_seen are the linked file's (None without one)
-READ_ONLY = frozenset({"online", "placed_by", "held", "file_id", "import_state", "first_seen"})
+READ_ONLY = frozenset({"online", "placed_by", "held", "file_id", "import_state", "first_seen", *FILE_AUDIO_KEYS})
 # top-level keys the snapshot adds and save ignores; `generation` save checks (I2), `decisions` has its own writer
 SNAPSHOT_ONLY = frozenset({"version", "ambiguous", "files", "generation", "decisions"})
 NOT_EXTRA = frozenset(SONG_COLUMNS) | frozenset(FILE_FIELDS) | READ_ONLY | {"aliases"}
@@ -374,11 +388,12 @@ def _entry(values: tuple, aliases: list[str], file: dict | None, path: str | Non
     e["aliases"] = aliases
     if file is None:
         e.update(path=None, status="missing", source=None, source_id=None, source_format=None, cutoff_hz=None,
-                 source_kbps=None, source_how=None, online=False, placed_by=None, held=False, import_state=None, first_seen=None)
+                 source_kbps=None, source_how=None, online=False, placed_by=None, held=False, import_state=None, first_seen=None,
+                 **dict.fromkeys(FILE_AUDIO_KEYS))
     else:
         e.update({k: file[k] for k in QUALITY}, path=path, online=bool(file["online"]), placed_by=file["placed_by"],
                  held=bool(file["held"]), file_id=file["id"], import_state=file["import_state"],
-                 first_seen=file["first_seen"])
+                 first_seen=file["first_seen"], **{k: file[k] for k in FILE_AUDIO_KEYS})
     for k in absent:  # keys the entry didn't have stay absent: the planner tells "absent" from None (rule 5)
         e.pop(k, None)
     return e
@@ -474,6 +489,13 @@ def _fact_values(facts: Facts, path: str) -> tuple:
     return (None, None, None) if f is None else (f.size, f.mtime_ns, f.content_key)
 
 
+# SQL for an UPDATE that gives a row new facts (size, mtime, content key = `?` four more times, once per column): the
+# file's own audio facts stay while the content key is the same and are cleared when it differs (a row's old facts
+# say nothing about new audio); the right-hand sides read the row as it was before the update
+_KEEP_FILE_AUDIO = ", ".join(f"{c} = CASE WHEN content_key IS ? THEN {c} END" for c in FILE_AUDIO_COLUMNS)
+_CLEAR_FILE_AUDIO = ", ".join(f"{c} = NULL" for c in FILE_AUDIO_COLUMNS)
+
+
 def _insert_file(conn, song: int, folder: int, rel: str, entry: dict, facts: Facts, path: str, now: str,
                  placed_by: str = "app") -> int:
     return conn.execute(
@@ -532,7 +554,7 @@ def create(path: Path, state: dict, *, library: Path, facts: Facts, now: datetim
 
 
 _FILE_COLUMNS = ("id", "song", "folder", "path", "online", "held", "placed_by", "ambiguous", "import_state",
-                 "first_seen") + QUALITY
+                 "first_seen") + QUALITY + FILE_AUDIO_COLUMNS
 
 
 def _generation(conn: sqlite3.Connection) -> int:
@@ -693,11 +715,12 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
     released.update({f["id"]: f for song in removed if (f := linked.get(song)) is not None})
     n = 0
     common = ("size = ?, mtime_ns = ?, content_key = ?, " + ", ".join(f"{k} = ?" for k in QUALITY)
-              + ", judge_failed = NULL")
+              + f", judge_failed = NULL, {_KEEP_FILE_AUDIO}")
     for song, e, old, new in changed:
         if new is None:
             continue
-        values = (*_fact_values(facts, e["path"]), *(e.get(k) for k in QUALITY))
+        seen = _fact_values(facts, e["path"])
+        values = (*seen, *(e.get(k) for k in QUALITY), *(seen[2],) * len(FILE_AUDIO_COLUMNS))
         # a song's file stays the user's when the app replaces or renames it (stage 2's tidy-up leaves those alone);
         # a song that had no file gets one the app placed
         placed = "app" if old is None else old["placed_by"]
@@ -724,8 +747,10 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
     for path in {unicodedata.normalize("NFC", p) for p in rekeyed} - written:  # new audio under an unchanged entry: only the facts change
         row = by_place.get(folders.locate(path))
         if row is not None and (f := facts(path)) is not None:  # a file gone meanwhile: its row is the scan's
-            n += conn.execute("UPDATE files SET size = ?, mtime_ns = ?, content_key = ?, last_seen = ? WHERE id = ?",
-                              (f.size, f.mtime_ns, f.content_key, stamp, row["id"])).rowcount
+            n += conn.execute(f"UPDATE files SET size = ?, mtime_ns = ?, content_key = ?, last_seen = ?, "
+                              f"{_KEEP_FILE_AUDIO} WHERE id = ?",
+                              (f.size, f.mtime_ns, f.content_key, stamp, f.content_key, f.content_key,
+                               f.content_key, f.content_key, row["id"])).rowcount
     for f in released.values():
         if facts(folders.path(f["folder"], f["path"])) is not None:
             n += conn.execute("UPDATE files SET song = NULL, ambiguous = NULL WHERE id = ?", (f["id"],)).rowcount
@@ -869,8 +894,11 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
                 n += conn.execute("UPDATE files SET online = 0 WHERE folder = ? AND online = 1 "
                                   "AND substr(path, 1, ?) = ?", (outer, len(prefix), prefix)).rowcount
         facts = "size = ?, mtime_ns = ?, content_key = ?, last_seen = ?, ambiguous = NULL"
-        for file_id, seen in (*result.retagged, *result.replaced):
+        for file_id, seen in result.retagged:
             n += conn.execute(f"UPDATE files SET {facts} WHERE id = ?",
+                              (seen.size, seen.mtime_ns, seen.content_key, stamp, file_id)).rowcount
+        for file_id, seen in result.replaced:  # other audio: what the row knew of the old file's own audio is gone
+            n += conn.execute(f"UPDATE files SET {facts}, {_CLEAR_FILE_AUDIO} WHERE id = ?",
                               (seen.size, seen.mtime_ns, seen.content_key, stamp, file_id)).rowcount
         for file_id, seen in result.moved:
             # an earlier scan's candidate at the target (an unlinked row) gives way to the file that moved there
@@ -1252,8 +1280,46 @@ def add_own_song(conn: sqlite3.Connection, file_id: int, facts: OwnFacts) -> str
                      "cutoff_hz = NULL, source_kbps = NULL, source_how = NULL, import_state = 'identified', "
                      "import_error = NULL "
                      "WHERE id = ?", (song, facts.status, facts.codec, file_id))
+        if facts.audio is not None:
+            set_file_facts(conn, file_id, facts.audio)
         _bump(conn)
         return key
+
+
+def set_file_facts(conn: sqlite3.Connection, file_id: int, audio: FileAudio) -> int:
+    """What the file at the row's `path` is (plan rekordbox stage D §0.3): the codec, rate, bit depth and bitrate
+    ffprobe found. Derived records, not library state: no generation bump (a snapshot taken before only lacks the
+    values, and a save never writes them). A row gone meanwhile is left alone. Returns the rows written."""
+    assignments = ", ".join(f"{c} = ?" for c in FILE_AUDIO_COLUMNS)
+    return conn.execute(f"UPDATE files SET {assignments} WHERE id = ?",
+                        (audio.codec, audio.rate, audio.bits, audio.kbps, file_id)).rowcount
+
+
+# an own file (source 'manual': a bought or imported one) the facts fill still has to read: its song, a place to read
+# it at (online, not held) and no codec stored yet
+_WITHOUT_FACTS = ("FROM files f JOIN watched_folders w ON w.id = f.folder WHERE f.source = 'manual' "
+                  "AND f.song IS NOT NULL AND f.online = 1 AND f.held = 0 AND f.file_codec IS NULL")
+
+
+def files_without_facts(conn: sqlite3.Connection) -> list[tuple[int, Path]]:
+    """(file id, absolute path) of every own file whose facts aren't stored yet (rows from before schema 8, a row
+    whose audio the scan found replaced, one a caller couldn't read), online and not held, by id. Downloads are
+    never listed: the CDJ rule and the Make-AIFF plan look only at own files."""
+    return [(i, Path(root) / rel)
+            for i, root, rel in conn.execute(f"SELECT f.id, w.path, f.path {_WITHOUT_FACTS} ORDER BY f.id")]
+
+
+def facts_missing(conn: sqlite3.Connection) -> int:
+    """How many files `files_without_facts` lists."""
+    return conn.execute(f"SELECT COUNT(*) {_WITHOUT_FACTS}").fetchone()[0]
+
+
+def file_id_at(conn: sqlite3.Connection, path: str) -> int | None:
+    """The id of the file row at a snapshot path (`Library/...` or an absolute path), else None. A path in no watched
+    folder is ValueError."""
+    folder, rel = _Folders(conn).locate(path)
+    row = conn.execute("SELECT id FROM files WHERE folder = ? AND path = ?", (folder, rel)).fetchone()
+    return None if row is None else row[0]
 
 
 def set_sound(conn: sqlite3.Connection, file_id: int, status: str, cutoff_hz: int | None,

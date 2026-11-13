@@ -6,8 +6,11 @@ files of import folders, recording each file's progress on its own row (`files.i
 resumes by construction:
 
   scan   finish interrupted steps, empty .tmp/, scan the watched folders (new files become `new` rows);
+  facts  own files whose own audio facts aren't stored yet (rows from before schema 8, a row whose audio the scan
+         found replaced) are probed and filled (plan rekordbox stage D §0.3); a filled row is done, so a stop resumes;
   tags   pass 1, every waiting file: its tags, its name (identify.own_name), its codec and length (probe), then a
-         song of its own with the quality the codec gives for now (lossless codec → lossless, else not_lossless);
+         song of its own with the quality the codec gives for now (lossless codec → lossless, else not_lossless) and
+         the file's own audio facts (codec, rate, bit depth, bitrate);
   sound  pass 2, every file read so far: the sound check (inspect → quality.verdict);
   link   the playlists planned again on the records as they are now and only the songs' links saved (run.link_only),
          so a playlist song the user already has is linked rather than downloaded.
@@ -119,12 +122,14 @@ def read_tags(path: Path) -> dict[str, str | None]:
 
 
 def files_waiting(paths: Paths) -> int:
-    """The files an import would work through now (db.import_left): the window's start condition (D14). An offline
-    drive's files are left out: they wait until it is back, so they never start an import."""
+    """The files an import would work through now (db.import_left) plus the own files whose facts it would fill
+    (db.facts_missing): the window's start condition (D14), so the facts of files from before schema 8 are filled by
+    the import the window starts by itself. An offline drive's files are left out: they wait until it is back, so
+    they never start an import."""
     if not paths.db_file.exists():
         return 0
     with db.connect(paths.db_file) as conn:
-        return db.import_left(conn)
+        return db.import_left(conn) + db.facts_missing(conn)
 
 
 def link_playlists(paths: Paths, prep: Prepared | None = None, *, emit: Emit = no_emit, token: CancelToken | None = None) -> str | None:
@@ -207,6 +212,24 @@ class _Run:
         self.read.add(row.file_id)
         self.failed.add(row.file_id)
 
+    def facts(self) -> None:
+        """The facts pass: probe every own file that has no audio facts stored and store them. A file that can't be
+        read is left as it is (its row stays listed: the next import tries again; it is no import failure)."""
+        with db.connect(self.paths.db_file) as conn:
+            rows = db.files_without_facts(conn)
+            if not rows:
+                return
+            pacer = _Pacer(self.emit, "tags", len(rows), len(self.failed))
+            for done, (file_id, path) in enumerate(rows, 1):
+                self.token.check()
+                try:
+                    audio = quality.file_audio(self.probe(path))
+                except Exception:  # noqa: BLE001 - gone, unreadable or no sound: the tags pass and the scan say so
+                    pass
+                else:
+                    db.set_file_facts(conn, file_id, audio)
+                pacer.step(done, len(self.failed))
+
     def tags(self) -> None:
         with db.connect(self.paths.db_file) as conn:
             # a file the sound check couldn't read has its own song already: only the sound check is tried again
@@ -222,7 +245,8 @@ class _Run:
                         info = self.probe(row.path)
                         status = "lossless" if quality.is_lossless_codec(info.codec) else "not_lossless"
                         facts = OwnFacts(artist, title, tags.get("album"), tags.get("isrc"),
-                                         round(info.duration_s * 1000) if info.duration_s else None, info.codec, status)
+                                         round(info.duration_s * 1000) if info.duration_s else None, info.codec, status,
+                                         quality.file_audio(info))
                     except Exception as e:  # an unreadable file is listed, never the end of the import
                         self.unreadable(conn, row, e)
                     else:  # import_waiting's rows have no song yet (judged_later's have): a new own song
@@ -272,6 +296,7 @@ def run_import(paths: Paths, *, emit: Emit = no_emit, token: CancelToken, link: 
     library.scan_library(paths, emit, analyze=inspect, shown=[m for m, _ in recovered])
     try:
         token.check()
+        run.facts()
         run.tags()
         run.sound()
         token.check()

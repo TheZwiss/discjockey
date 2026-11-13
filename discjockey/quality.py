@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .models import OWN_FILE, SOURCE_NAMES
+from .models import OWN_FILE, SOURCE_NAMES, FileAudio
 
 FRAME = 8192
 HOP = 4096
@@ -49,6 +49,7 @@ class AudioInfo:
     kbps: int | None = None  # the whole file's average bitrate (for lossy files, the codec's)
     bits: int | None = None  # bits per sample of a lossless stream (16, 24, ...); None for lossy codecs
     channels: int | None = None
+    stream_kbps: int | None = None  # the audio stream's own bitrate: `kbps` counts embedded cover art and tags too
 
 
 def tools_stamp() -> str:
@@ -69,7 +70,7 @@ def tools_stamp() -> str:
 def probe(path: Path) -> AudioInfo:
     r = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries",
-         "stream=codec_name,sample_rate,channels,bits_per_sample,bits_per_raw_sample:format=duration,bit_rate",
+         "stream=codec_name,sample_rate,channels,bits_per_sample,bits_per_raw_sample,bit_rate:format=duration,bit_rate",
          "-of", "json", str(path)],
         capture_output=True, text=True, start_new_session=True,
     )
@@ -80,8 +81,17 @@ def probe(path: Path) -> AudioInfo:
     s, fmt = streams[0], data["format"]
     rate = fmt.get("bit_rate")
     kbps = round(int(rate) / 1000) if rate and str(rate).isdigit() else None
+    stream_rate = str(s.get("bit_rate") or "")
     return AudioInfo(s["codec_name"], int(s["sample_rate"]), float(fmt["duration"]), kbps, _bits(s),
-                     int(s["channels"]) if str(s.get("channels", "")).isdigit() else None)
+                     int(s["channels"]) if str(s.get("channels", "")).isdigit() else None,
+                     round(int(stream_rate) / 1000) if stream_rate.isdigit() else None)
+
+
+def file_audio(info: AudioInfo) -> FileAudio:
+    """The facts a file row stores about the file itself (`files.file_*`) from what ffprobe found. The bitrate is the
+    audio stream's own where ffprobe gives it: the file's average counts embedded cover art, so a 320 kbps MP3 with a
+    big picture would read above the CDJs' 320 kbps limit."""
+    return FileAudio(info.codec, info.sample_rate, info.bits, info.stream_kbps or info.kbps)
 
 
 def _bits(stream: dict) -> int | None:
