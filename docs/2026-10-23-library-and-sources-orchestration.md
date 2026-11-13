@@ -474,6 +474,19 @@ Results:
   rehearsal on a copy; merged into main once CI + verify are green, the user 2026-11-09: "merge it when your tests pass"; no release before its live test) → stage D (design direction, build) → issue 40 design
   round only (its build waits for the stage B live test, per the issue). Every dispatch through the gate (§2).
 - **RESUME HERE after a compact (2026-11-09 ~02:40):**
+  - **NOW (2026-11-13 ~04:00, user asleep, "work through the night"):** fix round B running (Sonnet, agent
+    a3cae3cb1fbba6d5f, brief `brief-33-FB-C.md` in scratchpad a540fc7e…; findings `r2c-findings.md`). On its notice:
+    log its `subagent_tokens`, `ps`, `check_public.sh --require-denylist` on its branch, merge `feat/rekordbox-c-fb`
+    into `feat/rekordbox-c` (worktree `.claude/worktrees/rb-c`), remove `rb-c-fb` (--force: node_modules symlink).
+    Then V: in `rb-c/hub-ui` `npm run verify` with run_in_background (~20 min, tail only), `npm run smoke`, CI green
+    on the stage branch; look at the verify shots of the B states (sync-end-auto, -waiting, sync-before-auto-*,
+    sync-auto-running, todo-auto-refused-panel/-choice @1100, setup-downloads, settings rows with ToggleRow). A real
+    problem → one small Sonnet fix round. Merge "Merge feat/rekordbox-c: Auto-upgrade on sync" into main, push, CI on
+    main, issue 33 in `docs/issues.md` gets the hash, remove the rb-c worktree. No release.
+    Then stage D (design §9.3): Opus planner with a precise UI direction (no full mockup; single-component mockup only
+    for a truly new block), split groups per checklist line 3, per-group reviews (it writes files + master.db),
+    rehearsal on a copy, one shots pass, Opus stage review, fix rounds, V, merge into main. Then issue 40 design round
+    only (Opus). Tell the user each dispatch's size + the stage's running total (C ≈ 3.37M before B).
   - Running: F4 (Sonnet, agent aaae40266f55be5e7, brief `brief-33-F4.md` in the scratchpad): S2 findings on
     `feat/rekordbox-b`. On its notice: log its `subagent_tokens`, `ps` check.
   - F4 done 2026-11-09 ~03:00: Sonnet **193k** (62 calls), 73e5fb2 + static f7b4351, CI green. Open for the verify
