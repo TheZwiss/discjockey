@@ -16,3 +16,6 @@ export { default as BatchCheckFoot } from './BatchCheckFoot.svelte';
 export { BATCH_JOBS, AiffFlow, ChecksFlow, DuplicateFlow, UpgradeBatchFlow, UpgradeFlow, upgradeBatch, type BatchView } from './flows.svelte';
 export { aiffAction, aiffBlocked, aiffLabel, aiffShown, aiffVariant } from './aiffModel';
 export { canSwap, decisionFor, upgradeWays, type Decision, type Way } from './decisionModel';
+export { default as AiffBatchPanel } from './AiffBatchPanel.svelte';
+export { AiffBatchFlow, aiffBatch, type AiffPlanRead, type AiffRunView } from './flows.svelte';
+export { scopeKey as aiffScopeKey, type AiffOrigin } from './aiffBatchModel';
