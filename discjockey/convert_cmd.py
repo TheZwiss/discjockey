@@ -39,11 +39,11 @@ from .batch_cmd import BUSY, FAILED, LOCK_HELD, NO_LIBRARY, OK, STOPPED
 from .events import BatchProgress, Cancelled, CancelToken, ImportProgress
 from .hub import views
 from .library import LockHeld, NoLibrary, Paths, StateError
-from .rekordbox import master, process
+from .rekordbox import process
 from .rekordbox_cmd import failed, no_library, say
 
 GROUPS = ("lossless", "cdj")
-NOTHING_TO_DO = "Nothing to change: these are clean AIFFs already."
+NOTHING_TO_DO = aiff_plan.NOTHING_TO_CHANGE
 STOPPED_WORDS = "Stopped. Everything finished so far is saved."
 READING = "Reading what your files are: {done} of {total}"
 VERBS = {"convert": "Converting", "rename": "Renaming"}
@@ -180,21 +180,9 @@ def _check_view(paths: Paths, state: dict, job: Job) -> None:
 
 
 def _plan(paths: Paths, state: dict, job: Job) -> aiff_plan.AiffPlan:
-    """`aiff_plan.plan` for the job, with one read open of rekordbox's library for the lookup of its tracks."""
-    place = rekordbox.locate()
-    running = process.running()
-    if place is None or not place.db.is_file():
-        rb = master.Status("none", running, None, None, None, None, None)
-        return aiff_plan.plan(paths, state, job.scope, rb=rb, entries=None, only=job.only)
-    try:
-        with master.open_read(place, running) as m:
-            index = m.index()
-            return aiff_plan.plan(paths, state, job.scope, rb=master.status_of(m, running), only=job.only,
-                                  entries=lambda file: m.entries_for(file, index))
-    except master.Unreadable as e:
-        rb = master.Status("ready" if e.problem == "busy" else "unreadable", running, place.app_version,
-                           str(place.db), e.problem, e.db_version, e.dbid)
-    return aiff_plan.plan(paths, state, job.scope, rb=rb, entries=None, only=job.only)
+    """`aiff_plan.read_plan` for the job: one read open of rekordbox's library for the lookup of its tracks."""
+    return aiff_plan.read_plan(paths, state, job.scope, place=rekordbox.locate(), running=process.running(),
+                               only=job.only)
 
 
 # --- output ---

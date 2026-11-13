@@ -30,7 +30,7 @@ from typing import Callable
 from urllib.parse import quote
 
 from .. import __version__, align, browsers, candidates, config, db, library, ops, planner, playlists_file as pf, qobuz
-from .. import quality
+from .. import aiff_plan as plans, audio, cdj, quality
 from .. import app_update as update_check, setup_cmd, tool_updates, tools
 from .. import folders as folders_mod, importer, scanner, sources, tidy
 from ..sources import soundcloud, spotify, youtube_music
@@ -43,7 +43,8 @@ from ..candidates import current_key
 from ..fallback import FallbackSource
 from ..library import NoLibrary, Paths, Resolved, StateError, SupportPaths
 from ..events import BatchProgress, Cancelled, CancelToken, Result
-from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, Candidate, PlaylistLine,
+from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, AiffBatchRow, BatchResult, BatchRow, Candidate,
+                      PlaylistLine,
                       PlaylistRecord, SaveChoice, SourceTrack, WatchedFolder, token)
 from ..names import fold
 from ..ops import OpProblem, snapshot
@@ -62,6 +63,9 @@ WHICH = ("current", "upgrade")
 UPGRADE_MODES = ("swap", "add_new", "discard")
 NO_TRACKS = "No tracks were chosen."
 NO_UPGRADES = "None of these can be upgraded right now."
+BAD_AIFF_SCOPE = "That isn't a set of files Discjockey can make AIFF."
+AIFF_ORIGINS = ("library", "todo")  # where a Convert was started: the batch's scope says so ("library:selection")
+TAG_CACHE_MAX = 50000  # file tag reads kept in memory (plan stage D §0.7); a library past it starts the cache over
 NO_AIFF_BATCH = "Discjockey has no record of this batch."
 NOT_STOPPED = "This batch is not stopped, so there is nothing to resume."
 UNDO_NONE = batches.NOTHING_UNDONE
@@ -92,7 +96,8 @@ LIBRARY_METHODS = frozenset((
     "limits_what_if", "save_limits", "mark_warnings_seen", "runs", "run", "spectrum", "media_url",
     "search_candidates", "preview", "add_playlist", "preview_playlist_change", "start_sync", "save_playlists",
     "hide", "never_download", "add_bought_file", "use_candidate", "use_link", "reject_current",
-    "rekordbox_checked", "upgrade", "upgrade_all", "undo_upgrade", "batch_resume", "batch_undo", "rescan_library", "show_in_finder", "reveal", "open_report",
+    "rekordbox_checked", "upgrade", "upgrade_all", "undo_upgrade", "batch_resume", "batch_undo", "aiff_plan", "convert",
+    "rename", "make_aiff", "rescan_library", "show_in_finder", "reveal", "open_report",
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
     "watched_folders", "set_favourites", "set_crate_shown", "set_crates_shown", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
     "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate", "add_liked_music",
@@ -305,6 +310,9 @@ class HubApi:
         self._extra_tracks: dict = {}  # playlist ref -> tracks of playlists read outside a refresh
         self._shown: dict[str, dict] = {}  # track id -> how the page last showed it (ops.snapshot)
         self._rb_cache: tuple[tuple, rekordbox.Status] | None = None  # (_rekordbox_status's key, its answer)
+        # what a file's tags said (plan stage D §0.7): (path, size, mtime_ns) -> audio.FileFacts, so reopening the panel
+        # reads no file again; a changed file has a new key
+        self._tag_cache: dict[tuple[str, int, int], audio.FileFacts] = {}
         self._selected: str | None = None
         self._dropped: dict | None = None
         self._drives_seen: dict[str, str] | None = None  # the away set the drives watch saw last (None: not yet)
@@ -425,9 +433,9 @@ class HubApi:
                                     status=self._rekordbox_status(), quick=True)
         return None if planned is None else {"on": True, "ready": len(planned.run) + len(planned.waiting)}
 
-    def _batch_starters(self, state: dict) -> dict[int, str]:
-        """Batch id -> who started it, for the AIFF batches the open rekordbox checks belong to (To-do names the
-        checks of a sync's Auto-upgrade batch differently)."""
+    def _checked_batches(self, state: dict) -> dict[int, AiffBatchRow]:
+        """The AIFF batches the open rekordbox checks belong to, by id: To-do names the checks of a sync's Auto-upgrade
+        batch differently (`started_by`) and says "Made AIFF" for a Convert batch (`kind`)."""
         ids = {c["batch"] for e in state["tracks"].values() if (c := e.get("rekordbox_check")) and c.get("batch")}
         if not ids:
             return {}
@@ -435,7 +443,7 @@ class HubApi:
             if conn is None:
                 return {}
             rows = (db.aiff_batch(conn, i) for i in sorted(ids))
-            return {r.id: r.started_by for r in rows if r is not None}
+            return {r.id: r for r in rows if r is not None}
 
     def _folders(self) -> list[str]:
         try:
@@ -610,12 +618,20 @@ class HubApi:
                 files = {g.id: db.group_files(conn, g.id) for g in groups if g.id not in counted}
         # the sidebar's number needs neither rekordbox's state nor a look at each file
         rb = None if count_only else self._rekordbox_status()
+        # the files whose presence the page needs live: a parked upgrade's (Same track) and the CDJ group's (Convert)
+        members = {} if count_only else cdj.group_members(state, include_hidden=True)
         present = None if count_only else {k: batches.present(self._paths, e) for k, e in state["tracks"].items()
-                                           if e.get("upgrade")}
+                                           if e.get("upgrade") or k in members}
+        rows = [] if count_only else self._aiff_batches()
+        checked = {} if count_only else self._checked_batches(state)
+        # Convert all's counts: what the CDJ plan can run now and what waits (only a page that shows the group asks)
+        cdj_all = (views.cdj_counts(self._planned(state, {"kind": "cdj"}).to_dict())
+                   if members and filt in (None, "all", "cdj") else (0, 0))
         return views.todo(state, filt, show_hidden, self._others(state), self._today(), self._cover(self._images()),
                           questions, groups, files, self._audio, counted, away, rb, present,
-                          None if count_only else self._stopped_batch(), self._auto_upgrade_on(),
-                          {} if count_only else self._batch_starters(state))
+                          views.stopped_batch(rows, kinds=("upgrade",)), self._auto_upgrade_on(),
+                          {i: r.started_by for i, r in checked.items()}, cdj_all,
+                          views.stopped_batch(rows, scope="todo:"), {i: r.kind for i, r in checked.items()})
 
     def _rekordbox_status(self) -> rekordbox.Status:
         """rekordbox's state for the screens, cached on master.db's modified time and size plus whether rekordbox runs
@@ -647,17 +663,54 @@ class HubApi:
             self._rb_cache = (key, answer)
         return answer
 
-    def _stopped_batch(self) -> tuple[int, int] | None:
-        """(id, items left) of the newest stopped Same track batch that still has items to do, else None: To-do's
-        "Resume · k left"."""
+    def _aiff_batches(self) -> list[AiffBatchRow]:
+        """The newest AIFF batches, newest first: where a stopped one is looked for (`views.stopped_batch`: Upgrade
+        ready's, the CDJ group's and the Library header's "Resume · k left")."""
         with self._move_log() as conn:
             if conn is None:
-                return None
-            rows, _ = db.aiff_batches(conn, 20)
-        for row in rows:
-            if row.state == "stopped" and row.counts["planned"]:
-                return row.id, row.counts["planned"]
-        return None
+                return []
+            return db.aiff_batches(conn, 20)[0]
+
+    def _tags(self, file: Path) -> audio.FileFacts:
+        """`audio.file_facts` of a file, remembered by (path, size, mtime_ns) so that reopening the panel reads no file
+        again (plan stage D §0.7). A file that can't be read raises as `file_facts` does and is not remembered."""
+        stat = file.stat()
+        key = (str(file), stat.st_size, stat.st_mtime_ns)
+        with self._lock:
+            found = self._tag_cache.get(key)
+        if found is not None:
+            return found
+        found = audio.file_facts(file)
+        with self._lock:
+            if len(self._tag_cache) >= TAG_CACHE_MAX:
+                self._tag_cache.clear()
+            self._tag_cache[key] = found
+        return found
+
+    def _planned(self, state: dict, scope: dict, only: str | None = None, *, in_job: bool = False) -> plans.AiffPlan:
+        """`aiff_plan.read_plan` for `scope` with one read open of rekordbox's library (the lookup of its tracks). A
+        read asked while a write job runs takes rekordbox's cached state and no lookup instead (as `_rekordbox_status`:
+        that job may be finishing a rekordbox write); a job plans for itself (`in_job`, after its recovery)."""
+        if not in_job and self._jobs.running() is not None:
+            return plans.plan(self._paths, state, scope, rb=self._rekordbox_status(), entries=None, tags=self._tags,
+                              only=only)
+        return plans.read_plan(self._paths, state, scope, place=self._svc.rekordbox_place(),
+                               running=bool(self._svc.rekordbox_running()), only=only, tags=self._tags)
+
+    def _aiff_scope(self, scope: object, kinds: Sequence[str] = plans.SCOPE_KINDS) -> dict:
+        """A scope from the page as `aiff_plan.plan` takes it, or ValueError: `{kind: "tracks", tracks}`, `{kind:
+        "lossless", view, key}` or `{kind: "cdj"}` (only those in `kinds`)."""
+        kind = scope.get("kind") if isinstance(scope, dict) else None
+        if kind not in kinds:
+            raise ValueError(BAD_AIFF_SCOPE)
+        if kind == "tracks":
+            return {"kind": "tracks", "tracks": self._track_list(scope.get("tracks"))}
+        if kind == "cdj":
+            return {"kind": "cdj"}
+        view, key = scope.get("view", "all"), scope.get("key")
+        if view not in views.LIBRARY_VIEWS or (view in ("playlist", "folder") and not (isinstance(key, str) and key)):
+            raise ValueError(BAD_AIFF_SCOPE)
+        return {"kind": "lossless", "view": view, "key": key if view in ("playlist", "folder") else None}
 
     # --- read, any time ---
 
@@ -797,7 +850,8 @@ class HubApi:
                             self._away_by_root(folders), lines=pf.load(self._paths.playlists_file).rows,
                             records=records, watched=folders, fetched=prep.fetched if prep else [],
                             planned={k: t["aliases"] for k, t in (prep.state["tracks"] if prep else {}).items()
-                                     if t.get("aliases")})
+                                     if t.get("aliases")},
+                            aiff_stopped=views.stopped_batch(self._aiff_batches(), scope="library:"))
         # a row without a file (a playlist song that waits) is no track the page can act on
         self._remember(state, [r["track_id"] for r in (*out["rows"], *(out["also"] or ())) if r["file_state"] != "no_file"])
         return out
@@ -816,11 +870,22 @@ class HubApi:
             folders = db.watched_folders(conn) if conn is not None else []
         lines = pf.load(self._paths.playlists_file).rows
         where = views.sites(state, lines, folders).place(e["path"]) if e.get("path") else None
+        rb = self._rekordbox_status()
         detail = views.track_detail(track_id, e, prep.fetched if prep else [], self._today(),
                                     self._cover(self._images()), self._audio, self._away_by_root(folders), exists, where,
-                                    self._rekordbox_status(), self._auto_upgrade_on())
+                                    rb, self._auto_upgrade_on())
+        # what Convert and Rename would do for this file (null: no file, a download, a better version waiting)
+        detail["aiff"] = plans.file_answer(self._paths, state, track_id, rb=rb, tags=self._tags) if exists else None
         self._remember(state, [track_id])
         return {"track": detail}
+
+    @bridge
+    def aiff_plan(self, scope: dict) -> dict:
+        """What Make all lossless files AIFF, a selection's Convert or the CDJ group's Convert all would do (`{plan:
+        AiffPlan}`, aiff_plan.AiffPlan.to_dict): `scope` `{kind: "tracks", tracks: [key, …]}`, `{kind: "lossless", view,
+        key}` or `{kind: "cdj"}`. One read, off the window's thread like `spectrum` (pywebview gives every call its own);
+        the tags of the files that need them are remembered, so reopening the panel is quick. The run plans again."""
+        return {"plan": self._planned(self._state(), self._aiff_scope(scope)).to_dict()}
 
     @bridge
     def todo(self, filter: str = "all", show_hidden: bool = False) -> dict:
@@ -1840,27 +1905,64 @@ class HubApi:
 
     def _batch_work(self, make: Callable[[], int] | None, resume: int | None, *, alone: bool):
         """A Same track batch as a write job: `make()` records a new batch of the chosen tracks (after recovery), or
-        `resume` names a stopped one. The result is a BatchResult dict (+ `recovered`); a Stop, rekordbox opened
-        (`rekordbox_open`), another window changing rekordbox (`busy`) and a batch with nothing to do (`refused`) end
-        the job as a problem that still carries the batch (`JobFinished.result`), so the page can show where it stopped
-        and Resume. `alone`: a batch of one track that meets rekordbox open or busy before anything ran is closed
-        instead of left stopped (the track simply stays in Upgrade ready; `batches.close_unrun`)."""
+        `resume` names a stopped one (a Convert batch too). The result is a BatchResult dict (+ `recovered`); a Stop,
+        rekordbox opened (`rekordbox_open`), another window changing rekordbox (`busy`) and a batch with nothing to do
+        (`refused`) end the job as a problem that still carries the batch (`JobFinished.result`), so the page can show
+        where it stopped and Resume. `alone`: a batch of one track that meets rekordbox open or busy before anything
+        ran is closed instead of left stopped (the track simply stays where it was; `batches.close_unrun`)."""
         def work(ctx) -> dict:
             state, recovered = self._begin()
             batch_id = resume if resume is not None else make()
-            options = self._rekordbox_options(ctx, state)
-            call = batches.resume if resume is not None else batches.run
-            try:
-                result = call(self._paths, batch_id, compare=self._svc.compare, **options)
-            except (batches.Stopped, batches.RekordboxOpen, batches.Refused, batches.Busy) as e:
-                result = e.result if hasattr(e, "result") else batches.result_of(self._paths, batch_id)
-                if alone and not isinstance(e, (batches.Stopped, batches.Refused)) and result.total == 1 \
-                        and not result.done:
-                    result = batches.close_unrun(self._paths, batch_id, "busy" if isinstance(e, batches.Busy)
-                                                 else "rekordbox_open", str(e), now=self._svc.now)
-                ctx.failed_result = {**result.to_dict(), "recovered": recovered}
-                raise
-            return {**result.to_dict(), "recovered": recovered}
+            return self._run_batch(ctx, state, recovered, batch_id, resume is not None, alone)
+        return work
+
+    def _run_batch(self, ctx, state: dict, recovered: list, batch_id: int, resuming: bool, alone: bool,
+                   left: Sequence[batches.ItemResult] = ()) -> dict:
+        """Runs (or resumes) AIFF batch `batch_id` as `_batch_work` says. `left`: the songs a Convert or Rename plan left
+        out of the batch (never items): a batch that ends normally lists them as skipped, as the console does."""
+        options = self._rekordbox_options(ctx, state)
+        call = batches.resume if resuming else batches.run
+        try:
+            result = call(self._paths, batch_id, compare=self._svc.compare, **options)
+        except (batches.Stopped, batches.RekordboxOpen, batches.Refused, batches.Busy) as e:
+            result = e.result if hasattr(e, "result") else batches.result_of(self._paths, batch_id)
+            if alone and not isinstance(e, (batches.Stopped, batches.Refused)) and result.total == 1 \
+                    and not result.done:
+                result = batches.close_unrun(self._paths, batch_id, "busy" if isinstance(e, batches.Busy)
+                                             else "rekordbox_open", str(e), now=self._svc.now)
+            ctx.failed_result = {**result.to_dict(), "recovered": recovered}
+            raise
+        body = result.to_dict()
+        if left:
+            body = {**body, "total": body["total"] + len(left), "skipped": body["skipped"] + len(left),
+                    "results": [*body["results"], *(r.to_dict() for r in left)]}
+        return {**body, "recovered": recovered}
+
+    def _aiff_work(self, scope: dict, *, only: str | None, started_by: str, batch_scope: str):
+        """Convert, Give it its clean name and Make all lossless files AIFF as one write job: recovery, the facts fill
+        (own files with no stored audio facts, as the console does first), the plan again for `scope` (`only` "rename":
+        Rename's answer alone), the batch of its items (`batches.start`) and its run. A plan with nothing in it ends
+        the job `refused` with the words of `batches.Refused` (the one song's own, or "None of these can be changed
+        right now.") for a selection and `NOTHING_TO_CHANGE` for a view or the CDJ group; the songs left as they are
+        come in the result as skipped. A selection of one is `alone` (see `_batch_work`)."""
+        alone = scope["kind"] == "tracks" and len(scope["tracks"]) == 1
+
+        def work(ctx) -> dict:
+            state, recovered = self._begin()
+            importer.fill_facts(self._paths, emit=ctx.emit, token=ctx.token)
+            state = library.load_state(self._paths)  # the fill wrote the facts the plan reads
+            found = self._planned(state, scope, only, in_job=True)
+            action = only or "convert"
+            left = [batches.ItemResult(s.track, action, "skipped", s.reason, s.message, None, None)
+                    for s in found.skipped]
+            if not found.total:
+                empty = batches.BatchResult(0, "done", None, len(left), 0, len(left), 0, left, None)
+                ctx.failed_result = {**empty.to_dict(), "batch": None, "recovered": recovered}
+                raise OpProblem(str(batches.Refused(empty)) if scope["kind"] == "tracks" else plans.NOTHING_TO_CHANGE,
+                                "refused")
+            batch_id = batches.start(self._paths, found.actions(), started_by=started_by, scope=batch_scope,
+                                     now=self._svc.now)
+            return self._run_batch(ctx, state, recovered, batch_id, False, alone, left)
         return work
 
     def _each_work(self, ids: list[str], mode: str):
@@ -1928,12 +2030,16 @@ class HubApi:
         undone the job fails `refused` (one track: with that track's own words), the results still in the result."""
         def work(ctx) -> dict:
             state, recovered = self._begin()
+            # what each track's check said before the undo took it away: the words of a Convert's or a clean name's undo
+            asked = batches.tracks_of(self._paths, target) if isinstance(target, int) else target
+            was = {t: ((state["tracks"].get(t) or {}).get("rekordbox_check") or {}).get("reason") for t in asked}
             try:
                 result = batches.undo(self._paths, target, **self._rekordbox_options(ctx, state))
             except (batches.RekordboxOpen, batches.UndoStopped) as e:
                 ctx.failed_result = {**e.result.to_dict(), "recovered": recovered}
                 raise
-            body = {**result.to_dict(), "recovered": recovered}
+            body = {**result.to_dict(), "recovered": recovered,
+                    "words": views.undone_words([was.get(r.track) for r in result.results if r.state == "undone"])}
             if result.total and not result.undone:
                 ctx.failed_result = body
                 raise OpProblem(result.results[0].message if result.total == 1 else UNDO_NONE, "refused")
@@ -1991,6 +2097,45 @@ class HubApi:
             self._paths, [(t, "same_track") for t in ids], started_by="upgrade_all", now=self._svc.now), None,
             alone=False)
         return {"job_id": self._jobs.start("upgrade_batch", work).id}
+
+    def _selection_job(self, kind_only: str | None, track_ids: list[str], origin: str):
+        """Convert and Give it its clean name on songs: one AIFF batch (job kind "aiff_batch", result a BatchResult;
+        a refusal still carries the songs left as they are). `origin` is where the page started it; the batch's scope
+        says so ("library:selection", "todo:selection") for Resume to show in the same place."""
+        if origin not in AIFF_ORIGINS:
+            raise ValueError(f"origin must be one of {', '.join(AIFF_ORIGINS)}")
+        scope = self._aiff_scope({"kind": "tracks", "tracks": track_ids})
+        work = self._aiff_work(scope, only=kind_only, started_by="user", batch_scope=f"{origin}:selection")
+        return {"job_id": self._jobs.start("aiff_batch", work,
+                                           track_id=scope["tracks"][0] if len(scope["tracks"]) == 1 else None).id}
+
+    @bridge
+    def convert(self, track_ids: list[str], origin: str = "library") -> dict:
+        """Convert to AIFF for songs, or "only the name" for a clean AIFF (`eligible.aiff_action` decides per file, so
+        the page never has to): one AIFF batch, job kind "aiff_batch", result a BatchResult, progress BatchProgress.
+        `origin` "library" | "todo". One song is a batch of one (`alone`: rekordbox open or busy before anything ran
+        closes it instead of leaving a Resume)."""
+        return self._selection_job(None, self._track_list(track_ids), origin)
+
+    @bridge
+    def rename(self, track_ids: list[str]) -> dict:
+        """Give it its clean name for songs (Rename's answer alone: a file that needs a Convert is left as it is): one
+        AIFF batch like `convert`, started from the Library."""
+        return self._selection_job("rename", self._track_list(track_ids), "library")
+
+    @bridge
+    def make_aiff(self, scope: dict) -> dict:
+        """Make all lossless files AIFF (`{kind: "lossless", view, key}`) or the CDJ group's Convert all (`{kind:
+        "cdj"}`): plans again at its start and runs the plan's items as one AIFF batch (`started_by` `make_aiff` /
+        `cdj_all`, scope "library:<view>[:<key>]" / "todo:cdj"). Job kind "aiff_batch"; nothing to change ends it
+        `refused` ("Nothing to change: these are clean AIFFs already.")."""
+        found = self._aiff_scope(scope, ("lossless", "cdj"))
+        if found["kind"] == "cdj":
+            work = self._aiff_work(found, only=None, started_by="cdj_all", batch_scope="todo:cdj")
+        else:
+            where = ":".join(p for p in (found["view"], found["key"]) if p)
+            work = self._aiff_work(found, only=None, started_by="make_aiff", batch_scope=f"library:{where}")
+        return {"job_id": self._jobs.start("aiff_batch", work).id}
 
     def _stopped_aiff(self, batch_id: object):
         if isinstance(batch_id, bool) or not isinstance(batch_id, int):
