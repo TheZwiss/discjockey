@@ -508,8 +508,9 @@ Results:
     (Sonnet **269k**; rekordbox-open note as warn NoteCard, live card hidden in the phase); merged into the stage branch
     4439624. S (Sonnet shots) cut off by the session limit on 2026-11-09, resumed 2026-11-13: **240k** (38 shots, 4
     Important + 15 Minor, top: same track twice on the end screen, refused track under Still waiting, To-do reason
-    cut at 1100; no drift). R2 (Opus stage review, brief-33-R2C.md) running: merges its list with S's into a code/docs
-    part and a UI part, one fresh Sonnet fix round each, then V.
+    cut at 1100; no drift). R2 (Opus stage review) **250k** (49 calls; over its ~200k): engine safety holds; needs
+    fixes: A code/docs 8 (3 Important: track listed twice, unknown-compare sentence, before-start words vs end check),
+    B UI 12 (3 Important). Fix round A (Sonnet, brief-33-FA-C.md) running; then B (Sonnet), then V.
   - Issue 38 done: Sonnet **213k** (114 calls, over its 130-190k: root-cause hunt + verify). Root cause views.playlists()
     sent `quality: null` for an unread (off) playlist → `null.lossless` in Row.svelte. Engine sends zero counts; words
     "left out of the sync · their files stay". Verify 1081 ok, CI green. Merged into main (see git log). Next: stage C
