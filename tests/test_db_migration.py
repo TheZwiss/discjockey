@@ -250,7 +250,7 @@ def test_opening_runs_the_version_check_and_follows_a_moved_music_folder(tmp_pat
     run(moved)
     with db.connect(db.db_file(moved)) as conn:
         assert conn.execute("SELECT path FROM watched_folders").fetchone()[0] == moved.library.as_posix()
-        conn.execute("UPDATE meta SET value = '9' WHERE key = 'schema_version'")
+        conn.execute("UPDATE meta SET value = '10' WHERE key = 'schema_version'")
     with pytest.raises(StateError, match="newer Discjockey"):
         run(moved)
 

@@ -499,13 +499,54 @@ def test_a_stop_in_the_facts_pass_resumes_with_the_rows_not_filled_yet(paths, tm
     assert [row[0] for row in facts_columns(paths)].count(None) == 0
 
 
-def test_a_file_the_facts_pass_cannot_read_stays_listed_and_fails_nothing(paths, tmp_path):
+def test_a_file_the_facts_pass_cannot_read_fails_nothing_and_is_marked_so_it_is_not_tried_at_every_start(paths, tmp_path):
     songs_folder(paths, tmp_path, n=2)
     go(paths, Fakes())
     forget_facts(paths)
     fakes = Fakes()
     fakes.probe_fails = {"Example Artist - Song 1.aiff"}
     result = go(paths, fakes)
-    assert result.unreadable == 0
+    assert result.unreadable == 0 and result.files == 0
     assert [row[0] for row in facts_columns(paths)].count(None) == 1
-    assert importer.files_waiting(paths) == 1
+    assert importer.files_waiting(paths) == 0  # marked: the window starts no import for it at the next start
+    again = Fakes()
+    again.probe_fails = {"Example Artist - Song 1.aiff"}
+    assert go(paths, again).files == 0
+    assert again.probed == []  # not tried again
+
+
+def test_a_marked_file_is_read_again_once_the_file_changes(paths, tmp_path):
+    folder = songs_folder(paths, tmp_path, n=2)
+    go(paths, Fakes())
+    forget_facts(paths)
+    name = "Example Artist - Song 1.aiff"
+    fakes = Fakes()
+    fakes.probe_fails = {name}
+    go(paths, fakes)
+    assert importer.files_waiting(paths) == 0
+    with (folder / name).open("ab") as f:  # another size and mtime
+        f.write(b"\0" * 64)
+    assert importer.files_waiting(paths) == 0  # until a scan has seen it
+    again = Fakes()
+    go(paths, again)
+    assert name in again.probed  # read again: the fill found the file changed
+    assert [row[0] for row in facts_columns(paths)].count(None) == 0
+
+
+def test_a_probe_that_could_not_run_marks_nothing(paths, tmp_path):
+    songs_folder(paths, tmp_path, n=2)
+    go(paths, Fakes())
+    forget_facts(paths)
+
+    class NoFfprobe(Fakes):
+        def probe(self, path):
+            self.probed.append(path.name)
+            raise FileNotFoundError(2, "No such file or directory", "ffprobe")
+
+    go(paths, NoFfprobe())
+    assert importer.files_waiting(paths) == 2  # ffprobe missing is no verdict on the files
+    with db.connect(paths.db_file) as conn:
+        assert conn.execute("SELECT count(facts_failed) FROM files").fetchone()[0] == 0
+    fixed = Fakes()
+    go(paths, fixed)
+    assert len(fixed.probed) == 2 and [row[0] for row in facts_columns(paths)].count(None) == 0

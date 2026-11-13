@@ -1171,6 +1171,19 @@ def library_files(state: dict, view: str, key: str | None, *, lines: Sequence[pf
     return LibraryFiles(_folder_title(scope.nkey, scope.kind, found), [k for k, _ in scope.inside])
 
 
+def view_known(state: dict, view: str, key: str | None, *, lines: Sequence[pf.Row],
+               watched: Iterable[WatchedFolder] = ()) -> bool:
+    """Whether a Library view is one something is known by: a playlist named on a playlists.txt line, a folder that is
+    a watched import folder, a crate, or a Library folder holding files. `library_files` of an unknown playlist or folder is
+    empty, as of one that is empty; this tells them apart (all and unlisted are always known). It looks at no file."""
+    if view == "playlist":
+        return any(fold(r.folder) == fold(key or "") for r in lines)
+    if view == "folder":
+        scope = _folder_scope(key or "", files_with_file(state), sites(state, lines, watched))
+        return scope.kind == "watched" or (scope.kind is not None and bool(scope.inside))
+    return True
+
+
 def library(state: dict, view: str, key: str | None, query: str, filt: str, sort: str | None, cover: Url | None = None,
             away: Mapping[str, str] | None = None, *, lines: Sequence[pf.Row],
             records: Mapping[str, PlaylistRecord] | None = None, watched: Sequence[WatchedFolder] = (),

@@ -60,7 +60,7 @@ def test_a_fresh_database_has_the_current_version(tmp_path, library):
         db.check(conn)
         version = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
         created = conn.execute("SELECT value FROM meta WHERE key = 'created'").fetchone()[0]
-    assert int(version) == db.SCHEMA_VERSION == 8
+    assert int(version) == db.SCHEMA_VERSION == 9
     assert created == "2026-10-23T12:00:00"
 
 
@@ -1185,6 +1185,7 @@ def test_a_writer_upgrades_a_version_7_database_with_four_null_columns_and_nothi
                                                                                                monkeypatch):
     path = version_7(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
     before = everything(path)
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 8)  # this step alone; 8 -> 9 has its own test
     with db.connect(path) as conn:
         assert not set(FACT_COLUMNS) & {r[1] for r in conn.execute("PRAGMA table_info(files)")}
         db.check(conn, upgrade=True)
@@ -1206,12 +1207,57 @@ def test_fresh_and_v7_upgraded_databases_have_the_same_schema(tmp_path, library,
     (tmp_path / "b").mkdir()
     upgraded = version_7(tmp_path / "a", library, monkeypatch)
     with db.connect(upgraded) as conn:
-        db.check(conn, upgrade=True)
+        db.check(conn, upgrade=True)  # through 8 to the current version
     assert schema(upgraded) == schema(fresh(tmp_path / "b", library))
 
 
 def test_a_reader_refuses_a_version_7_database(tmp_path, library, monkeypatch):
     path = version_7(tmp_path, library, monkeypatch)
+    with db.connect(path) as conn, pytest.raises(StateError) as e:
+        db.check(conn)
+    assert str(e.value) == db.OLDER
+
+
+# --- issue 33 stage D (D5b): the schema step 8 -> 9 (files.facts_failed) ---
+
+def version_8(tmp_path, library, monkeypatch, state=None, facts=no_facts):
+    """A database as D1 to D5a built it: version 8, no failed-probe mark."""
+    with monkeypatch.context() as m:
+        m.setattr(db, "SCHEMA_VERSION", 8)
+        m.setattr(db, "UPGRADES", {k: db.UPGRADES[k] for k in (1, 2, 3, 4, 5, 6, 7)})
+        return fresh(tmp_path, library, state, facts)
+
+
+def test_a_writer_upgrades_a_version_8_database_with_one_null_column_and_nothing_else_changed(tmp_path, library,
+                                                                                            monkeypatch):
+    path = version_8(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
+    before = everything(path)
+    with db.connect(path) as conn:
+        assert "facts_failed" not in {r[1] for r in conn.execute("PRAGMA table_info(files)")}
+        db.check(conn, upgrade=True)
+    after = everything(path)
+    meta = dict(after.pop("meta"))
+    assert meta.pop("schema_version") == "9"
+    assert meta == {k: v for k, v in before.pop("meta") if k != "schema_version"}
+    with db.connect(path) as conn:
+        assert [r[1] for r in conn.execute("PRAGMA table_info(files)")][-1] == "facts_failed"
+        assert conn.execute("SELECT count(*) FROM files").fetchone()[0] > 0
+        assert conn.execute("SELECT count(facts_failed) FROM files").fetchone()[0] == 0
+    assert [row[:-1] for row in after.pop("files")] == before.pop("files")  # every old column as it was
+    assert after == before
+
+
+def test_fresh_and_v8_upgraded_databases_have_the_same_schema(tmp_path, library, monkeypatch):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    upgraded = version_8(tmp_path / "a", library, monkeypatch)
+    with db.connect(upgraded) as conn:
+        db.check(conn, upgrade=True)
+    assert schema(upgraded) == schema(fresh(tmp_path / "b", library))
+
+
+def test_a_reader_refuses_a_version_8_database(tmp_path, library, monkeypatch):
+    path = version_8(tmp_path, library, monkeypatch)
     with db.connect(path) as conn, pytest.raises(StateError) as e:
         db.check(conn)
     assert str(e.value) == db.OLDER

@@ -246,8 +246,10 @@ def test_rename_all_plans_only_the_names(tmp_path, monkeypatch, capsys):
 
 def test_the_in_forms_narrow_the_view(tmp_path, monkeypatch, capsys):
     lib = make(tmp_path, monkeypatch)
+    lib.paths.playlists_file.write_text("Empty Mix = https://open.spotify.com/playlist/0DiscjockeyExampleList\n")
+    (lib.paths.root / "Library" / "B").mkdir()            # a folder on disk that holds no file
     for where, tracks in (("unlisted", [2, 3, 5]), ("folder:Library/A", [2, 3, 5]), ("folder:Library/B", []),
-                          ("playlist:Nothing", [])):
+                          ("playlist:Empty Mix", [])):
         code, data = run_json(["convert", "--all", "lossless", "--in", where, "--dry-run"], capsys)
         assert code == OK, where
         assert [i["track"] for i in data["plan"]["items"]] == [lib.tracks[i] for i in tracks], where
@@ -257,6 +259,33 @@ def test_the_in_forms_narrow_the_view(tmp_path, monkeypatch, capsys):
     assert code == OK and "Nothing to change: these are clean AIFFs already." in out
     code, data = run_json(["rename", "--all", "--in", "unlisted", "--dry-run"], capsys)
     assert code == OK and data["plan"]["total"] == 2
+
+
+@pytest.mark.parametrize("argv, words", [
+    (["convert", "--all", "lossless", "--in", "playlist:Hard Bouncee"], "No playlist called “Hard Bouncee”."),
+    (["convert", "--all", "lossless", "--in", "folder:Library/Techo"], "No folder at Library/Techo."),
+    (["convert", "--all", "lossless", "--in", "folder:/Volumes/Nowhere/Crate"], "No folder at /Volumes/Nowhere/Crate."),
+    (["rename", "--all", "--in", "playlist:Hard Bouncee"], "No playlist called “Hard Bouncee”."),
+    (["rename", "--all", "--in", "folder:Library/Techo"], "No folder at Library/Techo."),
+], ids=lambda v: v if isinstance(v, str) else " ".join(v))
+def test_an_in_name_that_does_not_exist_is_bad_args_not_nothing_to_change(argv, words, tmp_path, monkeypatch, capsys):
+    lib = make(tmp_path, monkeypatch)
+    lib.paths.playlists_file.write_text("Hard Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n")
+    before = untouched(lib)
+    for extra in ([], ["--dry-run"]):
+        code, data = run_json([*argv, *extra], capsys)
+        assert code == FAILED and (data["ok"], data["kind"], data["reason"]) == (False, "refused", "bad_args")
+        assert data["message"] == words
+    code, out, _ = run([*argv, "--dry-run"], capsys)
+    assert code == FAILED and words in out and "Nothing to change" not in out
+    assert untouched(lib) == before                      # no batch, no lock work, no file moved
+
+
+def test_a_playlist_name_is_found_in_any_case(tmp_path, monkeypatch, capsys):
+    lib = make(tmp_path, monkeypatch)
+    lib.paths.playlists_file.write_text("Hard Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n")
+    code, data = run_json(["convert", "--all", "lossless", "--in", "playlist:hard bounce", "--dry-run"], capsys)
+    assert code == OK and data["plan"]["items"] == []
 
 
 def test_the_cdj_group_is_the_files_cdjs_wont_play_well(tmp_path, monkeypatch, capsys):
@@ -296,6 +325,21 @@ def test_a_dry_run_fills_the_missing_facts_first_under_the_lock(tmp_path, monkey
     assert code == OK and err == ""
     with library.run_lock(lib.paths.lock):
         assert run(["rename", "--all", "--dry-run"], capsys)[0] == OK
+
+
+def test_a_file_that_cannot_be_read_is_marked_once_so_a_dry_run_takes_no_lock_after_it(tmp_path, monkeypatch, capsys):
+    lib = make(tmp_path, monkeypatch)
+    forget_facts(lib)
+    (lib.paths.root / lib.olds[3]).write_bytes(b"not audio at all" * 20)     # ffprobe finds no sound in it
+    code, out, err = run(["rename", "--all", "--dry-run"], capsys)           # the fill reads every file once
+    assert code == OK and err.splitlines()[0] == "Reading what your files are: 0 of 6"
+    with db.connect(lib.paths.db_file) as conn:
+        assert [r[0] for r in conn.execute("SELECT id FROM files WHERE facts_failed IS NOT NULL")] == [4]
+        assert db.facts_missing(conn) == 0
+    with library.run_lock(lib.paths.lock):                                    # nothing to fill now: no lock needed
+        code, out, err = run(["rename", "--all", "--dry-run"], capsys)
+        assert code == OK and err == ""
+        assert run(["convert", "--all", "lossless", "--dry-run"], capsys)[0] == OK
 
 
 def test_a_run_fills_the_missing_facts_before_it_plans(tmp_path, monkeypatch, capsys):
