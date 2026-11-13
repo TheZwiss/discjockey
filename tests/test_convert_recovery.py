@@ -9,53 +9,16 @@ import shutil
 import pytest
 
 from audio_helpers import needs_ffmpeg
-from convert_helpers import NEW, TID, batch_row, make_env, run, start_batch
+from convert_helpers import (
+    AFTER_COMMIT, BEFORE_COMMIT, NEW, TID, PowerOff, batch_row, make_env, next_start, power_off, run, start_batch,
+)
 from discjockey import convert, library
 from discjockey.library import load_state
 from discjockey.rekordbox import anlz, master
-from discjockey.rekordbox.session import Session
 from rekordbox_helpers import dump, make_master, writer
 
 pytestmark = needs_ffmpeg
 NAME = "Artist - Song"
-
-
-class PowerOff(BaseException):
-    """The Mac went off: nothing after it runs."""
-
-
-MARKS = {"backed_up": 1, "placed": 2, "record": 3, "committed_unmarked": 4, "committed": 4, "superseded": 5}
-BEFORE_COMMIT = ["rendered", "journaled", "backed_up", "placed", "record"]
-AFTER_COMMIT = ["committed_unmarked", "committed", "superseded", "ended"]
-
-
-def power_off(monkeypatch, at: str) -> None:
-    """Cut the step at `at`: after the render, the journal, a mark (written first, except `committed_unmarked`:
-    rekordbox committed, its mark not written), or inside the end."""
-    def die(*a, **k):
-        raise PowerOff
-
-    for name in ("_drop", "_roll_back", "_settle"):  # the step's own clean-up never runs after a power cut
-        monkeypatch.setattr(convert, name, die)
-    if at == "rendered":
-        monkeypatch.setattr(convert, "journal_op", die)
-        return
-    if at == "journaled":
-        monkeypatch.setattr(Session, "ensure_backup", die)
-        return
-    if at == "ended":
-        monkeypatch.setattr(convert, "end_op", die)
-        return
-    real, calls = convert.mark_op, {"n": 0}
-
-    def mark(paths, state, op):
-        calls["n"] += 1
-        if calls["n"] == MARKS[at]:
-            if at != "committed_unmarked":
-                real(paths, state, op)
-            raise PowerOff
-        real(paths, state, op)
-    monkeypatch.setattr(convert, "mark_op", mark)
 
 
 def crash(env, monkeypatch, at, batch=None):
@@ -63,14 +26,6 @@ def crash(env, monkeypatch, at, batch=None):
         power_off(m, at)
         with pytest.raises(PowerOff):
             run(env, batch=batch)
-
-
-def next_start(env):
-    state = load_state(env.paths)
-    library.clear_tmp(env.paths, state)
-    messages = library.recover_pending(env.paths, state)
-    library.clear_tmp(env.paths, state)
-    return messages, state
 
 
 def snapshot(env):

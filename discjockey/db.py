@@ -1846,7 +1846,8 @@ def finish_step(conn: sqlite3.Connection, op: dict, *, library: Path, facts: Fac
 
 def end_step(conn: sqlite3.Connection, op_id: str, tracks: Mapping[str, dict], *, library: Path, facts: Facts,
              now: datetime, rekeyed: Collection[str] = (), item: tuple[int, int, object] | None = None,
-             app_placed: Collection[str] = ()) -> int:
+             app_placed: Collection[str] = (), audio: Mapping[str, FileAudio] | None = None,
+             placed_by: Mapping[str, str] | None = None) -> int:
     """The end of a journaled step (run_op's, the upgrade swap's and its undo's), in one transaction: `tracks`
     (song key -> entry; none for a step that changed no entry) as save writes them, but only those songs and their
     file rows (a new song is inserted; `rekeyed` as in save); the pending row `op_id` goes. A file a song outside
@@ -1857,7 +1858,10 @@ def end_step(conn: sqlite3.Connection, op_id: str, tracks: Mapping[str, dict], *
     a crash never leaves a finished step beside a `planned` item (Resume would skip it as having no upgrade); an item
     that isn't there is a ValueError and nothing is written. The files at `app_placed` (entry paths) become
     Discjockey's (`placed_by = 'app'`): a file the step made and named itself (stage B's Same track for a file that
-    isn't AIFF)."""
+    isn't AIFF). `audio` (entry path -> FileAudio) stores the facts of the file at that path in the same transaction
+    (stage D's Convert: the new AIFF's, or the old file's after its undo; the rows' facts were cleared with their
+    content key). `placed_by` (entry path -> 'app' | 'user' | 'import') gives the file at that path its `placed_by`
+    back (a Convert's undo: the user's own file is the user's again)."""
     stamp = now.isoformat(timespec="seconds")
     tracks = dict(tracks)
     with transaction(conn):
@@ -1868,6 +1872,12 @@ def end_step(conn: sqlite3.Connection, op_id: str, tracks: Mapping[str, dict], *
         _drop_dead_decisions(conn)
         for path in app_placed:
             conn.execute("UPDATE files SET placed_by = 'app' WHERE folder = ? AND path = ?", folders.locate(path))
+        for path, who in (placed_by or {}).items():
+            conn.execute("UPDATE files SET placed_by = ? WHERE folder = ? AND path = ?", (who, *folders.locate(path)))
+        for path, file_audio in (audio or {}).items():
+            file_id = conn.execute("SELECT id FROM files WHERE folder = ? AND path = ?", folders.locate(path)).fetchone()
+            if file_id is not None:
+                set_file_facts(conn, file_id[0], file_audio)
         conn.execute(_BY_OP_ID, (op_id,))
         if item is not None:
             _set_aiff_item(conn, item[0], item[1], "done", None, item[2])

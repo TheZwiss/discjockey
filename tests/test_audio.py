@@ -293,3 +293,31 @@ def test_the_stored_bitrate_is_the_streams_not_the_files_with_its_cover(tmp_path
     info = probe(mp3)
     assert info.kbps > 320 and info.stream_kbps == 320
     assert file_audio(info).kbps == 320
+
+
+def test_genre_and_year_are_read_from_any_format_and_set_on_an_aiff(tmp_path):
+    """The two tags Convert carries over from the user's file (design rekordbox-repoint §3.5): ID3, MP4 atoms and Vorbis
+    comments; missing ones read ''; set on an AIFF they are TCON and TDRC (saved as ID3v2.3's TYER)."""
+    from audio_helpers import music, write_aiff
+    from discjockey.audio import genre_year, set_genre_year
+    wav = write_aiff(tmp_path / "a.aiff", music(2))
+    for ext, codec in ((".m4a", "aac"), (".flac", "flac")):
+        out = tmp_path / f"tagged{ext}"
+        subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(wav), "-c:a", codec, "-metadata",
+                        "genre=Deep House", "-metadata", "date=2019", str(out)], check=True)
+        assert genre_year(out) == ("Deep House", "2019"), ext
+    assert genre_year(wav) == ("", "")  # no tags at all
+    set_genre_year(wav, "Techno", "2021")
+    assert genre_year(wav) == ("Techno", "2021")
+    tags = AIFF(str(wav)).tags
+    assert tags.version == (2, 3, 0) and str(tags["TCON"]) == "Techno" and str(tags["TDRC"]) == "2021"  # read as v2.4
+    raw = wav.read_bytes()
+    assert b"TYER" in raw and b"TDRC" not in raw  # the frame an ID3v2.3 reader (rekordbox) knows, not v2.4's
+    set_genre_year(wav, "", "")  # nothing given, or a date with no four-digit year: nothing changes
+    set_genre_year(wav, "", "unknown")
+    assert genre_year(wav) == ("Techno", "2021")
+    set_genre_year(wav, "", "2019-03-01")  # the year of a full date
+    assert genre_year(wav) == ("Techno", "2019")
+    set_genre_year(wav, "House", "")  # a genre alone leaves the year a v2.3 frame
+    assert genre_year(wav) == ("House", "2019") and b"TDRC" not in wav.read_bytes()
+    assert genre_year(tmp_path / "nothing.mp3") == ("", "")

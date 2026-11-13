@@ -5,6 +5,7 @@ eligibility rules)."""
 from __future__ import annotations
 
 import base64
+import re
 import struct
 import subprocess
 import tempfile
@@ -16,7 +17,7 @@ from typing import Callable
 import mutagen
 from mutagen.aiff import AIFF
 from mutagen.flac import Picture
-from mutagen.id3 import APIC, COMM, ID3, TALB, TIT2, TPE1, TPUB, TSRC
+from mutagen.id3 import APIC, COMM, ID3, TALB, TCON, TIT2, TPE1, TPUB, TSRC, TYER
 from mutagen.mp4 import MP4
 
 from . import quality
@@ -218,6 +219,46 @@ def set_comment(path: Path, comment: str) -> None:
         f.add_tags()
     f.tags.delall("COMM")
     f.tags.add(COMM(encoding=1, lang="eng", desc="", text=comment))
+    f.save(v2_version=3)
+
+
+def genre_year(path: Path) -> tuple[str, str]:
+    """The genre and the year (the date as the tag has it) of an audio file of any format, each '' when missing. They
+    are the user's own and the only tags a convert carries over beyond the download's set (design rekordbox-repoint
+    §3.5). A tag mutagen can't read is missing."""
+    try:
+        f = mutagen.File(path)
+        tags = getattr(f, "tags", None)
+        if tags is None:
+            return "", ""
+        if isinstance(tags, ID3):
+            genre, date = tags.get("TCON"), tags.get("TDRC") or tags.get("TYER")
+            return (_first(genre.text) if genre is not None else "", _first(date.text) if date is not None else "")
+        if isinstance(f, MP4):
+            return _first(tags.get("\xa9gen")), _first(tags.get("\xa9day"))
+        return _first(tags.get("genre")), _first(tags.get("date")) or _first(tags.get("year"))
+    except (mutagen.MutagenError, KeyError, ValueError, TypeError, AttributeError):
+        return "", ""
+
+
+def set_genre_year(path: Path, genre: str, year: str) -> None:
+    """The genre (TCON) and the year (TYER: ID3v2.3 has no TDRC, which mutagen would write as it is, and rekordbox
+    reads v2.3) of an AIFF set, where given; the other tags stay. `year` is the date as the old file had it; only its
+    four-digit year is carried."""
+    found = re.match(r"\d{4}", year.strip())
+    if not genre and not found:
+        return
+    f = AIFF(str(path))
+    if f.tags is None:
+        f.add_tags()
+    if genre:
+        f.tags.add(TCON(encoding=1, text=genre))
+    if found:
+        f.tags.delall("TDRC")
+        f.tags.add(TYER(encoding=1, text=found.group()))
+    elif (kept := f.tags.get("TDRC")) is not None and (again := re.match(r"\d{4}", str(kept.text[0]))):
+        f.tags.delall("TDRC")  # mutagen read a TYER the file already had as v2.4's TDRC; written back as it was
+        f.tags.add(TYER(encoding=1, text=again.group()))
     f.save(v2_version=3)
 
 
