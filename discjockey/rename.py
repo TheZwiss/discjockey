@@ -34,11 +34,23 @@ back at its old name, "needs your help". Another rekordbox library (or none) on 
 step without rekordbox rows is decided by whether the file is at its new name. The batch the crash interrupted is
 marked `stopped` (`crash`). Every file move goes through `move_path`; a music file is never deleted or overwritten
 (`safe_rename` refuses a taken name).
+
+**The convert→rename chain**: `convert.convert_file` on an AIFF whose old file held the clean name lands on the ID name
+(both files exist until rekordbox's commit), and then calls `rename_file` with `after` = its result. The rename keeps
+the Convert's check, with its undo, in its `before` (`fields_before(keep_undo=True)`): undoing the rename brings the
+"converted" check back, and a second undo returns the original file. A standalone rename later is "one step back
+only".
+
+**Undo** (`undo_rename`, from `upgrades.undo`; design §5.9): the same file back to its old name (refused when another
+file took it), rekordbox's identity columns and `PPTH` back where they still hold what the step wrote (else
+`upgrades.UndoRefused("relocated")`, nothing changed); the journaled op `rename_undo`, decided after a crash by the
+tracks' `FolderPath` (`recover_rename_undo`, dispatched in `library.recover_pending`).
 """
 from __future__ import annotations
 
 import os
 from collections.abc import Callable, Collection
+from contextlib import ExitStack
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -49,8 +61,8 @@ from . import audio, convert, library, quality, rekordbox
 from .content_key import content_key
 from .convert import Skipped, skipped, track_name
 from .library import (
-    DRIVE_GONE, NameReserver, Paths, _Recovered, _Waits, deferred_interrupt, drive_away, end_op, file_sha256,
-    journal_op, mark_op, move_path, short_path, undo_paths, upgrade_undo, waits_offline, watched_roots,
+    DRIVE_GONE, NameReserver, Paths, _Recovered, _recover_renames, _Waits, deferred_interrupt, drive_away, end_op,
+    file_sha256, journal_op, mark_op, move_path, short_path, undo_paths, upgrade_undo, waits_offline, watched_roots,
 )
 from .events import Result
 from .models import FileAudio
@@ -88,6 +100,21 @@ STEP_FAILED = "Giving the file its clean name did not work ({err}). {message}"
 STEP_NOT_FINISHED = "Giving the file its clean name did not finish ({err}). {message}"
 ANLZ_LOST = (" The analysis files of the track couldn't be put back from the backup; analyse the track again in "
              "rekordbox.")
+
+
+# Undo (design §5.9, plan stage D §3 has no sentence of its own): Same track's undo words with "the clean name" in the
+# place of "the upgrade"; the sentences that say no step reuse convert's (UNDO_WAIT_REKORDBOX, UNDO_UNREADABLE_WAIT, …)
+UNDO_FINISHED = "Finished undoing the clean name for {name}."
+UNDO_NOT_FINISHED = ("Undoing the clean name for {name} was not finished: the clean name stands as it was, and you "
+                     "can undo it again.")
+UNDO_NEEDS_HELP = ("An interrupted undo for {name} needs your help: your rekordbox track was changed since and points "
+                   "at neither {old} nor {new}. Discjockey left rekordbox alone; the clean name stands, with your "
+                   "file at {new}.")
+UNDO_OTHER_MAC_DONE = ("Finished undoing the clean name for {name} on this Mac's side. Its rekordbox step was made in "
+                       "another rekordbox library than this Mac's: open that one to check the track plays {old}.")
+UNDO_OTHER_MAC_UNDONE = ("Undoing the clean name for {name} was not finished: the clean name stands as it was. Its "
+                         "rekordbox step was made in another rekordbox library than this Mac's: check there that the "
+                         "track plays {new}.")
 
 
 def blocked(why: str) -> Skipped:
@@ -148,11 +175,14 @@ def _entries(session: Session, old_file: Path) -> list[rekordbox.Entry]:
 
 
 def rename_file(paths: Paths, state: dict, track_id: str, *, session: Session,
-                now: Callable[[], datetime] = datetime.now, batch: tuple[int, int] | None = None) -> Result:
+                now: Callable[[], datetime] = datetime.now, batch: tuple[int, int] | None = None,
+                after: Result | None = None) -> Result:
     """Give it its clean name for one track's own file (see the module docstring). `batch` = (AIFF batch, seq): its
-    item is marked done with the step. Raises `Skipped` (nothing written: `eligible.rename`'s reasons,
-    `rename_blocked`, `unclean`), `RekordboxOpened` (nothing written; the batch stops) or `UpgradeProblem` (a failure,
-    nothing written, or the words of what recovery did)."""
+    item is marked done with the step. `after`: the Convert's result when this is the convert→rename chain's second
+    half (`convert.convert_file`): the new check keeps the Convert's check and undo in its `before`, and the result and
+    the item say the Convert's words ("converted", the file now at its final name). Raises `Skipped` (nothing written:
+    `eligible.rename`'s reasons, `rename_blocked`, `unclean`), `RekordboxOpened` (nothing written; the batch stops) or
+    `UpgradeProblem` (a failure, nothing written, or the words of what recovery did)."""
     e = state["tracks"].get(track_id)
     if e is None or not e.get("path"):
         raise UpgradeProblem("This track has no file to rename. Nothing was changed.")
@@ -185,7 +215,9 @@ def rename_file(paths: Paths, state: dict, track_id: str, *, session: Session,
     sha = file_sha256(old_file)
     op = {"kind": "rename", "source": "rename", "track_id": track_id, "batch": list(batch) if batch else None,
           "old": old, "new": new, "new_sha256": sha, "file_key": content_key(old_file),
-          "entry": convert.with_audio({**e, "path": new}, file_audio), "before": fields_before(e),
+          "entry": convert.with_audio({**e, "path": new}, file_audio),
+          "before": fields_before(e, keep_undo=after is not None),
+          "chain": None if after is None else {"note": after.note.replace(after.path, new, 1)},
           "audio": asdict(file_audio), "rekordbox": convert.op_rekordbox(session, changes, splices),
           "check": {"reason": "renamed", "since": now().date().isoformat(), "batch": batch[0] if batch else None},
           "marks": {"backed_up": False, "placed": False, "committed": False}}
@@ -245,6 +277,9 @@ def _execute(paths: Paths, state: dict, op: dict, session: Session, entries: lis
 
 def _result(op: dict) -> Result:
     e, rb = op["entry"], op["rekordbox"]
+    if op.get("chain"):  # the second half of a Convert: it says what the Convert said
+        return Result("converted", e["folder"], e["artist"], e["title"], op["track_id"], op["chain"]["note"],
+                      status=e.get("status"), source=e.get("source"), path=op["new"])
     note = f"now named {PurePosixPath(op['new']).name}"
     if rb is None:
         note += f". {convert.NO_TRACK_NOTE}"
@@ -359,3 +394,184 @@ def recover_rename(paths: Paths, state: dict, op: dict, roots: Collection[Path] 
         return NOT_FINISHED.format(name=name) + (ANLZ_LOST if lost else ""), False
     except Exception as err:  # e.g. permissions: the step stays and is tried again at the next start
         return COULD_NOT_FINISH.format(name=name, err=err), False
+
+
+# --- undo (design §5.9; plan stage D §1.2) ---
+
+def undo_rename(paths: Paths, state: dict, track_id: str, u: dict, entry: dict, *,
+                session: Session | None = None) -> str:
+    """Undoes one Give it its clean name (`u`: the check's undo record, kind `rename`; `entry`: the song as it was;
+    `upgrades.undo` checked the rest first: the track still has the file, the file's audio is as it was, no other file
+    holds the old name). Design §5.9, as the journaled op `rename_undo`; there is no old file to bring back and no
+    new file to put away: it is the same file.
+
+    1. decide, nothing changed yet: when the step wrote rekordbox, rekordbox is closed (else
+       `UndoRefused("rekordbox_open")`) and every track still plays the file exactly as written (identity columns as
+       the step wrote them, else `relocated`; `cloud`, `other_library`, …);
+    2. the file back to its old name (`restored`; `move_path` refuses a name another file took);
+    3. rekordbox in one transaction (`Writer.undo_repoint`, the commit point): `FolderPath`, `FileNameL` and
+       `OrgFolderPath` back, `PPTH` back where the file still names the new path, `contentFile` for the files
+       spliced (`committed`); refused or rolled back there → the file goes back to its new name, nothing changed;
+    4. the entry as it was (its check: the one before the step, with its own undo when the step was the second half
+       of a Convert), the file row at the old name with its facts.
+    Returns the result's note. `recover_rename_undo` finishes or rolls back a step a crash cut off."""
+    from .upgrades import UndoRefused, undo_session, undo_writer  # upgrades imports this module lazily
+    record = u.get("repoint")
+    audio_facts = FileAudio(**u["audio"]) if u.get("audio") else None
+    with ExitStack() as stack:
+        rb, rec = None, None
+        if record:  # step 1; the read-write connection is closed again before any file moves (it leaves -wal/-shm)
+            rb = undo_session(paths, session, stack, renamed=True)
+            rec = rbwrite.RepointRecord.from_dict(record)
+            with ExitStack() as check:
+                try:
+                    undo_writer(rb, check, renamed=True).check_undo(rec)
+                except WriteRefused as err:
+                    raise UndoRefused(err.reason, renamed=True) from None
+        op = {"kind": "rename_undo", "source": "rename", "track_id": track_id, "old": u["before"]["path"],
+              "new": u["file"], "audio": u.get("audio"), "entry": convert.with_audio(entry, audio_facts),
+              "rekordbox": None if not record else {"dbid": record["dbid"], "record": record, "outcome": None},
+              "marks": {"restored": False, "committed": False}}
+        roots = watched_roots(paths)
+        with deferred_interrupt():  # a Ctrl-C waits until the step is at a safe point
+            journal_op(paths, state, op)
+            try:  # step 2
+                move_path(paths.root, op["new"], op["old"], None, roots)
+            except BaseException as err:
+                end_op(paths, state, op, {})
+                if not isinstance(err, Exception):
+                    raise
+                raise UpgradeProblem(f"Could not put your file back at its old name ({err}). Nothing was "
+                                     "changed.") from err
+            op["marks"]["restored"] = True
+            mark_op(paths, state, op)
+            if rb is not None:  # step 3: the commit point
+                try:
+                    with ExitStack() as write:
+                        undo_writer(rb, write, renamed=True).undo_repoint(
+                            rec, prepared=lambda o: _undo_outcome(paths, state, op, o))
+                except UndoRefused:  # the library could not be opened for the write: nothing changed there
+                    _undo_back(paths, state, op, roots)
+                    raise
+                except (WriteRefused, RekordboxOpened) as err:  # rolled back, analysis files as they were
+                    _undo_back(paths, state, op, roots)
+                    reason = "rekordbox_open" if isinstance(err, RekordboxOpened) else err.reason
+                    raise UndoRefused(reason, renamed=True) from None
+                except Exception as err:  # decided by the track's path now, as after a crash
+                    message = _settle_undo(paths, state, op, roots)
+                    raise UpgradeProblem(f"The undo did not work ({err}). {message}") from err
+                op["marks"]["committed"] = True
+                mark_op(paths, state, op)
+            try:  # step 4
+                if _undo_forward(paths, state, op, roots).wait:
+                    raise OSError("a drive is away")
+            except Exception as err:  # finish right now if the disk allows, else at the next start
+                message = _settle_undo(paths, state, op, roots)
+                if not any(o.get("op_id") == op["op_id"] for o in state.get("pending", [])) and \
+                        state["tracks"][track_id].get("path") == op["old"]:
+                    return f"the file is named {PurePosixPath(op['old']).name} again"
+                raise UpgradeProblem(f"The undo did not finish ({err}). {message}") from err
+    return f"the file is named {PurePosixPath(op['old']).name} again"
+
+
+def _undo_outcome(paths: Paths, state: dict, op: dict, outcome: rbwrite.UndoOutcome) -> None:
+    """Inside the undo's transaction, before its COMMIT: what it put back, into the journal."""
+    op["rekordbox"]["outcome"] = {"restored": outcome.restored, "kept": outcome.kept, "anlz": outcome.anlz}
+    mark_op(paths, state, op)
+
+
+def _end_undo(paths: Paths, state: dict, op: dict) -> None:
+    """The undo's end: the song as it was, the file row at the old name with its facts (the same row), the end of the
+    journal entry."""
+    audio_facts = FileAudio(**op["audio"]) if op.get("audio") else None
+    end_op(paths, state, op, {op["track_id"]: op["entry"]}, rekeyed=[op["old"]],
+           audio={op["old"]: audio_facts} if audio_facts else None)
+
+
+def _undo_back(paths: Paths, state: dict, op: dict, roots: Collection[Path]) -> _Recovered:
+    """An undo that didn't reach rekordbox's commit: the file back at its new name, the step ends with nothing
+    changed."""
+    r = _recover_renames(paths.root, {"renames": [[op["old"], op["new"]]], "staged": {}, "size": {}}, roots)
+    if not r.wait:
+        end_op(paths, state, op, {})
+    return r
+
+
+def _undo_forward(paths: Paths, state: dict, op: dict, roots: Collection[Path]) -> _Recovered:
+    """The file at its old name (the move still to do, if any), then the undo's end."""
+    r = _recover_renames(paths.root, {"renames": [[op["new"], op["old"]]], "staged": {}, "size": {}}, roots)
+    if not r.wait:
+        _end_undo(paths, state, op)
+    return r
+
+
+def _settle_undo(paths: Paths, state: dict, op: dict, roots: Collection[Path]) -> str:
+    """recover_rename_undo right after a failure inside the undo (its own session holds `rekordbox.lock`)."""
+    outcome = recover_rename_undo(paths, state, op, roots, held=True)
+    if isinstance(outcome, _Waits):
+        return library._waiting(outcome, True)[0]
+    return outcome[0]
+
+
+def recover_rename_undo(paths: Paths, state: dict, op: dict, roots: Collection[Path] | None = None, *,
+                        held: bool = False) -> tuple[str, bool] | _Waits:
+    """Finishes or rolls back an undo an earlier run was interrupted in. Its commit point is rekordbox's transaction,
+    so a step with a rekordbox record is decided by the tracks' `FolderPath` now: the old name's → finished (step 4);
+    still the new name's → rolled back (analysis files the cut-off write left with the old `PPTH` get the new one
+    again, which needs rekordbox closed: until then the step waits; the file back at its new name); neither →
+    rekordbox left alone, rolled back, "needs your help". Another rekordbox library (or none): by the `committed`
+    mark. A step without rekordbox is finished. Analysis files are only written under `rekordbox.lock` (`held`: the
+    undo's own session has it); another holder makes the step wait."""
+    roots = watched_roots(paths) if roots is None else roots
+    name = track_name(op.get("entry") or {}, op["track_id"])
+    try:
+        away = drive_away(op, paths.root, roots)
+        if away is not None:
+            short = short_path(away)
+            return _Waits(name, _Recovered(DRIVE_GONE.format(path=short), False, True, drive=short),
+                          not waits_offline(op, paths.root, roots))
+        rb = op.get("rekordbox")
+        side = "done"
+        if rb is not None:
+            rows = rb["record"]["rows"]
+            side = convert.tracks_at(rb["dbid"], {r["id"]: (r["identity_before"]["FolderPath"],
+                                                            r["identity_after"]["FolderPath"]) for r in rows})
+        if side == "unreadable":
+            return _Waits(name, _Recovered("", False, True), True, convert.UNDO_UNREADABLE_WAIT.format(name=name))
+        if side == "unclean":
+            return _Waits(name, _Recovered("", False, True), True, convert.UNDO_UNCLEAN_WAIT.format(name=name))
+        if rb is not None:
+            convert.clear_leftovers(paths, (a["path"] for a in rb["record"].get("anlz", [])), held)
+        if side == "other":
+            side = "done" if op["marks"].get("committed") else "back"
+            words = UNDO_OTHER_MAC_DONE if side == "done" else UNDO_OTHER_MAC_UNDONE
+        elif side == "neither":
+            words = UNDO_NEEDS_HELP
+        else:
+            words = UNDO_FINISHED if side in ("done", "new") else UNDO_NOT_FINISHED
+        if side in ("done", "new"):
+            r = _undo_forward(paths, state, op, roots)
+            ok = not r.problem
+        else:
+            if side == "old":
+                back = convert.anlz_undo_back(op)
+                if back and process.running():
+                    return _Waits(name, _Recovered("", False, True), True,
+                                  convert.UNDO_WAIT_REKORDBOX.format(name=name))
+                try:
+                    with convert.rekordbox_lock(paths, held or not back):
+                        for path, data in back:
+                            rbwrite.replace_bytes(path, data)
+                except Busy:
+                    return _Waits(name, _Recovered("", False, True), True,
+                                  convert.WAIT_BUSY.format(what="undo", name=name))
+            r = _undo_back(paths, state, op, roots)
+            ok = False
+        if r.wait:
+            return _Waits(name, r, not waits_offline(op, paths.root, roots))
+        message = words.format(name=name, old=op["old"], new=op["new"])
+        if r.problem:
+            message += f" ({r.problem})"
+        return message, ok
+    except Exception as err:  # e.g. permissions: the step stays and is tried again at the next start
+        return convert.COULD_NOT_FINISH_UNDO.format(name=name, err=err), False

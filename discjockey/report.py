@@ -25,6 +25,7 @@ SECTIONS = [
     ("upgraded", "Upgraded (your cues stayed)"),
     ("upgrade_waits", "Upgrades still waiting"),
     ("converted", "Converted to AIFF (your cues stayed)"),
+    ("renamed", "Given its clean name (your cues stayed)"),
     ("discarded", "Better versions you discarded"),
     ("checked", "Looked for a better version, nothing yet"),
     ("bought", "Bought files added"),
@@ -69,6 +70,11 @@ CONVERTED_CHECK = ("Your file is now an AIFF with a clean name and tags, and you
                    "cues, playlists and history. The sound is the same.")
 CONVERTED_NO_TRACK_CHECK = ("Your file is now an AIFF with a clean name and tags. This file isn't in your rekordbox "
                             "collection, so there was nothing to keep there.")
+# design §8 (binding): Give it its clean name; the audio and the tags didn't change, so there is no analyse step
+RENAMED_CHECK = ("Your file has its clean name now, and your rekordbox track follows it with its cues, playlists "
+                 "and history.")
+RENAMED_NO_TRACK_CHECK = ("Your file has its clean name now. This file isn't in your rekordbox collection, so there "
+                          "was nothing to keep there.")
 # design §5.11, §8 (binding): the Reload Tag step for tracks whose text Discjockey didn't write (a batch card lists them)
 RELOAD_TAG_STEP = ("In rekordbox's Collection, select the tracks listed here (⌘-click each), right-click › Reload Tag. "
                    "Don't select all: it replaces every name you changed in rekordbox on the tracks you select.")
@@ -204,8 +210,8 @@ def check_text(check: dict) -> str:
     """What to do in rekordbox for an entry's `rekordbox_check` ({reason, since}; an added_as_new also has `match`, the
     measurement of the two files, `offset_ms` and `aligned`, whether the new file was lined up with rekordbox's
     timeline of the old one; a swapped one `moved`, whether the file moved up out of not_lossless/, and `reload_tag`,
-    false when Discjockey wrote rekordbox's text itself; a repointed or converted one `rekordbox`, the tracks it pointed
-    at the new AIFF, or None when the file had none). Same edit
+    false when Discjockey wrote rekordbox's text itself; a repointed, converted or renamed one `rekordbox`, the tracks it
+    pointed at the new AIFF or name, or None when the file had none). Same edit
     (exact or shifted): the old entry can be relocated to the new file and keeps its cues, exactly when it was lined
     up. A real mismatch, no measurement or a record from before it: analyse and cue again."""
     check = check or {}
@@ -217,6 +223,8 @@ def check_text(check: dict) -> str:
         return REPOINTED_CHECK if check.get("rekordbox") else REPOINTED_NO_TRACK_CHECK
     if check.get("reason") == "converted":
         return CONVERTED_CHECK if check.get("rekordbox") else CONVERTED_NO_TRACK_CHECK
+    if check.get("reason") == "renamed":
+        return RENAMED_CHECK if check.get("rekordbox") else RENAMED_NO_TRACK_CHECK
     if check.get("reason") == "added_as_new":
         if check.get("aligned") and check.get("match") in ("exact", "shifted"):
             return ALIGNED_EDIT_CHECK

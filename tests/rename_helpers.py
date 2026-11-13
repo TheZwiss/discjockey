@@ -83,6 +83,36 @@ def power_off(monkeypatch, at: str) -> None:
     monkeypatch.setattr(convert, "mark_op", mark)  # the `record` mark is journaled by convert.journal_record
 
 
+UNDO_MARKS = {"restored": 1, "outcome": 2, "committed_unmarked": 3, "committed": 3}
+
+
+def power_off_undo(monkeypatch, at: str) -> None:
+    """The same for an undo (`journaled`, `restored`, `outcome`: inside rekordbox's transaction, `committed_unmarked`,
+    `committed`, `ended`); the undo's own clean-up never runs after a power cut."""
+    def die(*a, **k):
+        raise PowerOff
+
+    for name in ("_undo_back", "_settle_undo"):
+        monkeypatch.setattr(rename, name, die)
+    if at == "journaled":
+        monkeypatch.setattr(rename, "move_path", die)
+        monkeypatch.setattr(rename, "end_op", die)
+        return
+    if at == "ended":
+        monkeypatch.setattr(rename, "_end_undo", die)
+        return
+    real, calls = rename.mark_op, {"n": 0}
+
+    def mark(paths, state, op):
+        calls["n"] += 1
+        if calls["n"] == UNDO_MARKS[at]:
+            if at != "committed_unmarked":
+                real(paths, state, op)
+            raise PowerOff
+        real(paths, state, op)
+    monkeypatch.setattr(rename, "mark_op", mark)
+
+
 next_start = ch.next_start
 file_facts_row = ch.file_facts_row
 batch_row = ch.batch_row

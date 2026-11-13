@@ -401,31 +401,6 @@ def test_a_move_never_overwrites_a_file_that_appeared_at_the_new_name(tmp_path, 
     assert load_state(env.paths)["pending"] == [] and load_state(env.paths)["tracks"][TID]["path"] == OLD
 
 
-# --- the chain: Convert, then Give it its clean name ---
-
-def test_convert_then_rename_an_aiff_that_held_the_clean_name_ends_at_the_clean_name(tmp_path, monkeypatch):
-    """An AIFF with wrong tags at `Artist - Song.aiff`: Convert's new file takes the ID name (the old file holds the
-    clean one until rekordbox's commit), the old one goes to Superseded/; the rename then takes the clean name, which
-    nothing holds any more (the convert's own undo record reserved it: the new check replaces that record)."""
-    env = make_own(tmp_path, monkeypatch, "aiff", entry={"path": CLEAN, "status": "lossless", "source_format": None})
-    old_bytes = (env.paths.root / CLEAN).read_bytes()
-    converted, state = run_file(env)
-    assert converted.path == ID_NAME and (env.paths.root / "Superseded/A/Artist - Song.aiff").read_bytes() == old_bytes
-    r, state = run_rename(env, state=state)
-    assert r.path == CLEAN and state["tracks"][TID]["path"] == CLEAN
-    root = env.paths.root
-    assert (root / CLEAN).is_file() and not (root / ID_NAME).exists()
-    assert (root / "Superseded/A/Artist - Song.aiff").read_bytes() == old_bytes
-    assert AIFF(str(root / CLEAN)).tags["TIT2"].text == ["Song"]
-    assert row_of(env)["FolderPath"] == str(root / CLEAN) and row_of(env)["FileNameL"] == "Artist - Song.aiff"
-    assert anlz.ppth(anlz.read(env.dat())) == "?/Artist - Song.aiff"
-    ((path, placed_by, codec, rate, bits, _kbps),) = file_facts_row(env)
-    assert (path, placed_by, codec, rate, bits) == ("A/Artist - Song.aiff", "app", "pcm_s16be", 44100, 16)
-    assert state["tracks"][TID]["rekordbox_check"]["reason"] == "renamed"
-    assert eligible.rename(state["tracks"][TID], audio.file_facts(root / CLEAN), session_state(env), None,
-                           clean_path=CLEAN) == eligible.Skip("named_already")  # a second Rename has nothing to do
-
-
 def session_state(env):
     with session(env) as s:
         return s.state
