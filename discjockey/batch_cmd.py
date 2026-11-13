@@ -230,7 +230,8 @@ def _batch_lines(state: dict, result: dict, label: str = "upgraded") -> list[str
     not_done = result["skipped"] + result["failed"]
     if not_done:
         lines.append(f"{not_done} not {label}.")
-    if any(i.state == "done" and (i.rekordbox or {}).get("entries") for i in items):
+    if any(i.state == "done" and i.action != "rename" and (i.rekordbox or {}).get("entries") for i in items):
+        # (a clean name keeps the file itself: the USB step is for a file rekordbox's tracks were pointed away from)
         lines.append(rep.USB_STEP)
     return lines
 

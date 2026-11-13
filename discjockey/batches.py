@@ -34,7 +34,17 @@ with its backup kept (its done items keep their undo and check cards); `recover`
 `running`, so the next sync plans afresh and To-do never offers Resume for it.
 
 Callers: the hub's jobs and `discjockey upgrade …` / `batch …` (stage B), Upgrade all and Auto-upgrade (stage C) and
-Convert / Rename (stage D: their items are `convert` / `rename`; `RUNNABLE` grows with them).
+Convert / Rename (stage D).
+
+Stage D (plan §0.13, §1.6): an item's action is `same_track`, `convert` (`convert.convert_file`) or `rename`
+(`rename.rename_file`); the batch's kind follows (`upgrade`, `convert`, or `mixed` with a `same_track` item). A Convert
+or Rename item asks `eligible.aiff_action` with the file's fresh facts first: an item whose answer changed (a Convert
+whose file is a clean AIFF now, a Rename whose file needs converting) is `skipped` with the new answer's reason and
+words, never switched to the other action. The steps ask again and refuse what only they can find out. A Convert that
+lands on the song's ID because its old file held the clean name goes on to give the file its clean name in the same
+item (`convert._then_rename`): one item, the final result. A batch's session counts a Convert or Rename item as a
+rekordbox write when its file is in rekordbox's library, whatever its format; operations.log names the steps
+`aiff_convert` / `aiff_rename` (a Same track item stays `upgrade_same_track`).
 """
 from __future__ import annotations
 
@@ -43,7 +53,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
 
-from . import align, convert, db, library, ops, report as rep, upgrades
+from . import align, audio, convert, db, library, ops, rename, report as rep, upgrades
 from .events import BatchProgress, Cancelled, CancelToken, Emit, Result, no_emit
 from .models import AiffBatchRow, AiffItemRow
 from .rekordbox import Session, eligible
@@ -58,9 +68,12 @@ __all__ = ["BUSY", "Busy", "BatchResult", "ItemResult", "RekordboxOpen", "Refuse
            "UndoResult", "UndoStopped", "checked", "close_unrun", "end_auto", "present", "recover", "result_of",
            "resume", "run", "start", "tracks_of", "undo"]
 
-RUNNABLE = ("same_track",)  # the actions a batch can run today
+RUNNABLE = ("same_track", "convert", "rename")  # the actions a batch can run
 AUTO = "auto_upgrade"  # `started_by` of the sync's Auto-upgrade batch
-OPERATION = "upgrade_same_track"  # operations.log's name for an item
+OPERATION = "upgrade_same_track"  # operations.log's name for a Same track item
+OPERATIONS = {"same_track": OPERATION, "convert": "aiff_convert", "rename": "aiff_rename"}  # ... for each action
+UNDO_OPERATIONS = {"upgrade": "undo_upgrade", "convert": "undo_convert", "rename": "undo_rename"}
+LOG_PREFIXES = ("upgrade_", "aiff_")  # the log's names of a finished step (`_finished_order`)
 NOTHING_ELIGIBLE = "None of these can be upgraded right now."
 NOTHING_UNDONE = "None of these could be undone."
 STOPPED_BY_REKORDBOX = ("rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox and "
@@ -186,7 +199,26 @@ def _name(e: dict | None, track_id: str) -> str:
     return f"{e.get('artist', '?')} – {e.get('title', track_id)}" if e else track_id
 
 
-def _words(reason: str) -> str:
+# What a Convert or Rename item says where the Same track's words don't fit (plan stage D §3, "Skipped list": the words
+# of `convert.CONVERT_REFUSED`, whole sentences, are used as they stand)
+FILE_WORDS = {
+    "rekordbox_unreadable": "Discjockey can't open this rekordbox version's library yet, so it can't point your "
+                            "rekordbox track at the file. Nothing was changed.",
+    # a Convert item meets `clean_aiff` only when its answer became Rename: the file is a clean AIFF, its name isn't
+    "clean_aiff": "This file is a clean AIFF already: Give it its clean name.",
+}
+SWITCHED = {"convert": "clean_aiff", "rename": "needs_convert"}  # the reason of an item whose answer changed
+
+
+def _words(reason: str, action: str = "same_track", why: str | None = None) -> str:
+    """The words of a skip (`reason` an `eligible.REASONS` key) for an item of `action`. A Convert or Rename item says
+    `convert.CONVERT_REFUSED`'s sentences (rekordbox lower case, no "upgrade"); `why` (a `rename.BLOCKED_WHY` text)
+    fills `rename_blocked`'s `{reason}`."""
+    if action != "same_track":
+        if reason == "rename_blocked":
+            return convert.REFUSED[reason].format(reason=why or rename.BLOCKED_WHY["unreadable"])
+        if text := FILE_WORDS.get(reason) or convert.CONVERT_REFUSED.get(reason):
+            return text
     text = REASON_WORDS.get(reason, reason)
     if not text.startswith("rekordbox"):  # rekordbox is written in lower case, a sentence's start included
         text = f"{text[:1].upper()}{text[1:]}"
@@ -227,15 +259,19 @@ def tracks_of(paths, batch_id: int) -> list[str]:
 def start(paths, items: Sequence[tuple[str, str]], *, started_by: str = "user", scope: str | None = None,
           now: Callable[[], datetime] = datetime.now) -> int:
     """Records a batch of `items` ((song key, action) pairs, all `planned`) before anything runs; it starts
-    `running`. Returns its id. ValueError for no items, an action no batch runs yet or an unknown starter."""
+    `running`. Returns its id. The batch's kind follows its actions (plan stage D §0.13): `same_track` only →
+    `upgrade`, `convert` / `rename` only → `convert`, both → `mixed`. ValueError for no items, an action no batch
+    runs or an unknown starter."""
     if not items:
         raise ValueError("a batch needs at least one track")
     for _, action in items:
         if action not in RUNNABLE:
             raise ValueError(f"{action!r} is not an action a batch runs")
+    actions = {action for _, action in items}
+    kind = "upgrade" if actions == {"same_track"} else "convert" if "same_track" not in actions else "mixed"
     _close_planned_elsewhere(paths, {track for track, _ in items}, now)
     with db.connect(paths.db_file) as conn:
-        return db.start_aiff_batch(conn, "upgrade", started_by, scope, list(items), now())
+        return db.start_aiff_batch(conn, kind, started_by, scope, list(items), now())
 
 
 def _close_planned_elsewhere(paths, tracks: set[str], now: Callable[[], datetime]) -> None:
@@ -267,13 +303,16 @@ def present(paths, e: dict) -> eligible.Present:
     return "missing" if library.online(file, library.watched_roots(paths)) else "away"
 
 
-def _needs_write(paths, state: dict, tracks: Sequence[str]) -> Callable:
-    """Session's start question: whether any of `tracks` needs a rekordbox write (plan §0.7): a file that isn't an
-    AIFF and is in rekordbox's library (any such file, when the library can't be read while rekordbox runs)."""
+def _needs_write(paths, state: dict, items: Sequence[tuple[str, str]]) -> Callable:
+    """Session's start question: whether any of `items` ((track, action) pairs) needs a rekordbox write (plan §0.7,
+    §1.6): a Same track item whose file isn't an AIFF and is in rekordbox's library, a Convert or Rename item whose
+    file is in it, whatever its format (any such file, when the library can't be read while rekordbox runs)."""
     def needs(view) -> bool:
-        for track in tracks:
+        for track, action in items:
             e = state["tracks"].get(track)
-            if not e or not e.get("upgrade") or not e.get("path") or upgrades.swap_possible(e):
+            if not e or not e.get("path"):
+                continue
+            if action == "same_track" and (not e.get("upgrade") or upgrades.swap_possible(e)):
                 continue
             if view is None or view.master.entries_for(paths.root / e["path"], view.index):
                 return True
@@ -281,13 +320,13 @@ def _needs_write(paths, state: dict, tracks: Sequence[str]) -> Callable:
     return needs
 
 
-def _session(paths, *, batch_id: int | None, tracks: Sequence[str], state: dict, running, place,
+def _session(paths, *, batch_id: int | None, items: Sequence[tuple[str, str]], state: dict, running, place,
              require_closed: bool = False):
     options = {} if place is _DEFAULT else {"place": place}
     if require_closed:  # every item counts as a rekordbox write: rekordbox running at the start refuses the batch
         need = lambda view: True  # noqa: E731
     else:
-        need = _needs_write(paths, state, tracks) if tracks else (lambda view: False)
+        need = _needs_write(paths, state, items) if items else (lambda view: False)
     return Session.open(paths, running=running, items_need_write=need, batch_id=batch_id, **options)
 
 
@@ -305,42 +344,82 @@ def _record(paths, batch_id: int, item: AiffItemRow, state: str, reason: str | N
                          {"message": message, **({"detail": detail} if detail else {})})
 
 
+def _file_answer(paths, state: dict, session: Session, track: str, e: dict | None, action: str
+                 ) -> tuple[str, str | None] | None:
+    """What a Convert or Rename item's file says now (plan §1.6: fresh facts, `eligible.aiff_action`): None when the
+    item's own action can run (the step asks again and may still refuse), else (reason, message or None) of its skip.
+    An item whose answer changed (a Convert whose file is a clean AIFF now, a Rename whose file isn't one any more) is
+    skipped with the new answer's reason, never switched. A library rekordbox can't be read (`rekordbox_unreadable`)
+    is left to the step: it knows whether rekordbox runs (the batch stops) or Rename is blocked."""
+    where = present(paths, e) if e else "missing"
+    if where != "here":
+        return ("away" if where == "away" else "file_missing"), None
+    try:
+        facts = audio.file_facts(paths.root / e["path"])
+    except (RuntimeError, OSError):
+        return None  # the step reads it again and says what is wrong with it
+    try:
+        clean = rename.clean_path(paths, state, track, e)
+    except FileExistsError:
+        clean = None  # the step says there is no free name
+    name, verdict = eligible.aiff_action(e, facts, session.state, None, where, clean)
+    if isinstance(verdict, Skip):
+        return None if verdict.reason == "rekordbox_unreadable" else (verdict.reason, None)
+    if name == action:
+        return None
+    reason = SWITCHED[action]
+    return reason, _words(reason, action)
+
+
 def _item(paths, state: dict, session: Session, batch_id: int, item: AiffItemRow, compare, now, log) -> str | None:
     """One item. Returns "rekordbox_open" when rekordbox opened under it (the item is `planned` still), else None."""
     track = item.track
+    action = item.action
     e = state["tracks"].get(track)
+    operation = OPERATIONS[action]
 
     def skip(reason: str, message: str, detail: dict | None = None) -> None:
         _record(paths, batch_id, item, "skipped", reason, message, detail)
-        log(track, e, reason, message)
+        log(track, e, reason, message, operation)
 
-    verdict = eligible.same_track_quick(e, session.state, present(paths, e)) if e else Skip("no_upgrade")
-    if isinstance(verdict, Skip):
-        skip(verdict.reason, _words(verdict.reason))
+    if action == "same_track":
+        verdict = eligible.same_track_quick(e, session.state, present(paths, e)) if e else Skip("no_upgrade")
+        answer = (verdict.reason, None) if isinstance(verdict, Skip) else None
+    else:
+        answer = _file_answer(paths, state, session, track, e, action)
+    if answer is not None:
+        skip(answer[0], answer[1] or _words(answer[0], action))
         return None
-    upgrade = dict(e["upgrade"])
     try:
-        if upgrades.swap_possible(e):
-            result = upgrades.swap(paths, state, track, upgrade, compare, now, session=session,
+        if action == "convert":
+            result = convert.convert_file(paths, state, track, session=session, now=now, batch=(batch_id, item.seq))
+        elif action == "rename":
+            result = rename.rename_file(paths, state, track, session=session, now=now, batch=(batch_id, item.seq))
+        elif upgrades.swap_possible(e):
+            result = upgrades.swap(paths, state, track, dict(e["upgrade"]), compare, now, session=session,
                                    batch=(batch_id, item.seq))
         else:
-            result = convert.same_track(paths, state, track, upgrade, session=session, compare=compare, now=now,
-                                        batch=(batch_id, item.seq))
+            result = convert.same_track(paths, state, track, dict(e["upgrade"]), session=session, compare=compare,
+                                        now=now, batch=(batch_id, item.seq))
     except convert.Skipped as err:
-        skip(err.reason, str(err), err.detail)
+        # Convert's own library refusal says "Choose New track" (Same track's words): this item says its own
+        skip(err.reason, _words(err.reason, action) if err.reason == "rekordbox_unreadable" and action == "convert"
+             else str(err), err.detail)
     except NeedsChoice as err:
         skip("needs_choice", str(err))
     except RekordboxOpened:
         return "rekordbox_open"
     except UpgradeProblem as err:
         _record(paths, batch_id, item, "failed", None, str(err))
-        log(track, e, "failed", str(err))
+        log(track, e, "failed", str(err), operation)
     except Exception as err:  # noqa: BLE001 - one track's surprise must not stop the batch
-        message = f"Could not upgrade {_name(e, track)} ({type(err).__name__}: {err}). Nothing more was changed."
+        what = {"convert": "convert {name}", "rename": "give {name} its clean name"}.get(action, "upgrade {name}")
+        message = f"Could not {what.format(name=_name(e, track))} ({type(err).__name__}: {err}). " \
+                  "Nothing more was changed."
         _record(paths, batch_id, item, "failed", None, message)
-        log(track, e, "failed", message)
+        log(track, e, "failed", message, operation)
     else:
-        log(track, e, "done", result.note)
+        log(track, e, "done", result.note, operation)
     return None
 
 
@@ -367,13 +446,13 @@ def run(paths, batch_id: int, *, emit: Emit = no_emit, token: CancelToken | None
     stop = None
     backup = row.backup
 
-    def log(track: str, entry: dict | None, result: str, message: str) -> None:
-        ops.log_operation(paths, now(), track, entry, OPERATION, result, message)
+    def log(track: str, entry: dict | None, result: str, message: str, operation: str = OPERATION) -> None:
+        ops.log_operation(paths, now(), track, entry, operation, result, message)
 
     try:
         if planned:
-            with _session(paths, batch_id=batch_id, tracks=[i.track for i in planned], state=state, running=running,
-                          place=place, require_closed=require_closed) as session:
+            with _session(paths, batch_id=batch_id, items=[(i.track, i.action) for i in planned], state=state,
+                          running=running, place=place, require_closed=require_closed) as session:
                 for item in planned:
                     try:
                         token.check()
@@ -521,7 +600,8 @@ def _finished_order(paths) -> dict[str, int]:
             op = json.loads(line)
         except ValueError:
             continue
-        if isinstance(op, dict) and str(op.get("operation", "")).startswith("upgrade_") and op.get("result") == "done":
+        if isinstance(op, dict) and str(op.get("operation", "")).startswith(LOG_PREFIXES) \
+                and op.get("result") == "done":
             order[op.get("track_id")] = n
     return order
 
@@ -536,6 +616,15 @@ def _newest_first(paths, tracks: Sequence[str]) -> list[str]:
     return sorted(tracks, key=lambda t: (finished.get(t, -1), item[t]), reverse=True)
 
 
+def _undo_kind(e: dict | None) -> str:
+    """What the track's undo puts back: `rename` (Give it its clean name, or a Convert→Rename chain's second half),
+    `convert` (Convert to AIFF) or `upgrade` (anything else)."""
+    u = upgrades.upgrade_undo(e) if e else None
+    if u and u.get("kind") == "rename":
+        return "rename"
+    return "convert" if u and u.get("kind") == "convert" and u.get("source") == "file" else "upgrade"
+
+
 def undo(paths, target: int | Sequence[str], *, emit: Emit = no_emit, token: CancelToken | None = None,
          running: Callable[[], bool] | None = None, place=_DEFAULT, state: dict | None = None,
          now: Callable[[], datetime] = datetime.now) -> UndoResult:
@@ -546,7 +635,15 @@ def undo(paths, target: int | Sequence[str], *, emit: Emit = no_emit, token: Can
     track's undo has to change rekordbox and rekordbox runs, nothing is undone (`RekordboxOpen`, every track
     `waiting`); when rekordbox opens meanwhile, the undo stops before the next track (`RekordboxOpen`, what was
     undone stays undone, the rest `waiting`). Stop between tracks raises `UndoStopped` the same way. Busy when
-    another window holds `rekordbox.lock` (nothing changed)."""
+    another window holds `rekordbox.lock` (nothing changed).
+
+    A Convert or a Give it its clean name is undone like a Same track (`upgrades.undo` dispatches by the track's undo
+    record; the refusals say "conversion" / "clean name" through the step's own `UndoRefused(converted=/renamed=)`).
+    A Convert→Rename chain (the old file held the clean name: `convert._then_rename`) is two undos, newest first:
+    the rename's, then the Convert's, one `undone` result with the Convert's note and one batch item `undone`. When
+    the second is refused the first stands (the clean name is back, the conversion stays) and the track is listed
+    `refused` / `failed` with words that say so; its item stays `done`. The result's section stays `upgrade_undone`
+    for all three kinds (the UI maps it, D6)."""
     token = token or CancelToken()
     state = library.load_state(paths) if state is None else state
     batch = target if isinstance(target, int) else None
@@ -581,6 +678,7 @@ def undo(paths, target: int | Sequence[str], *, emit: Emit = no_emit, token: Can
                 e = state["tracks"].get(track)
                 if batch is not None:
                     emit(BatchProgress(batch, n, len(tracks), track, _name(e, track)))
+                kind = _undo_kind(e)
                 try:
                     done = upgrades.undo(paths, state, track, session=session)
                 except UndoRefused as err:
@@ -588,15 +686,28 @@ def undo(paths, target: int | Sequence[str], *, emit: Emit = no_emit, token: Can
                 except UpgradeProblem as err:
                     results.append(UndoItem(track, "refused", None, str(err)))
                 except Exception as err:  # noqa: BLE001 - one track's surprise must not stop the others
-                    results.append(UndoItem(track, "failed", None,
-                                            f"Could not undo {_name(e, track)} ({type(err).__name__}: {err})."))
+                    results.append(UndoItem(track, "failed", None, f"Could not undo {_name(e, track)} "
+                                                                   f"({type(err).__name__}: {err})."))
                 else:
+                    if kind == "rename" and _undo_kind(state["tracks"].get(track)) == "convert":
+                        # the Convert→Rename chain: the clean name is back, the conversion is the second undo
+                        kind = "convert"
+                        try:
+                            done = upgrades.undo(paths, state, track, session=session)
+                        except Exception as err:  # noqa: BLE001 - the first half stands; say so, go on
+                            half = (f"The clean name is back, but the conversion could not be undone: {err}"
+                                    if isinstance(err, UpgradeProblem) else
+                                    f"The clean name is back, but the conversion could not be undone for "
+                                    f"{_name(e, track)} ({type(err).__name__}: {err}).")
+                            results.append(UndoItem(track, "refused" if isinstance(err, UpgradeProblem) else "failed",
+                                                    getattr(err, "reason", None), half))
+                            continue
                     results.append(UndoItem(track, "undone", None, done.note))
                     with db.connect(paths.db_file) as conn:
                         found = db.aiff_item_of(conn, track, batch)
                         if found is not None:
                             db.set_aiff_item(conn, found[0], found[1], "undone")
-                    ops.log_operation(paths, now(), track, e, "undo_upgrade", "done", done.note)
+                    ops.log_operation(paths, now(), track, e, UNDO_OPERATIONS[kind], "done", done.note)
     except rbsession.RekordboxOpen:  # at the start: nothing was changed
         waiting(tracks, "rekordbox_open")
         raise RekordboxOpen(result()) from None

@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from audio_helpers import needs_ffmpeg
-from convert_helpers import EXACT, FIXTURES, song
+from audio_helpers import write_aiff
+from convert_helpers import EXACT, FIXTURES, OWN, song
 from discjockey import db, library, quality
 from discjockey.align import Alignment
 from discjockey.audio import write_tags
@@ -20,7 +21,8 @@ from rekordbox_helpers import (
     clicks, dump, make_anlz, make_master, ppth_tag, pqtz_tag, pwv3_from, pwv3_tag, save_library, write_wav,
 )
 
-__all__ = ["D", "DIFFERENT", "Lib", "PowerOff", "make_lib", "needs_ffmpeg", "prepared", "services", "use"]
+__all__ = ["D", "DIFFERENT", "Lib", "PowerOff", "make_lib", "make_own_lib", "needs_ffmpeg", "prepared", "services",
+           "use"]
 
 D = 1105  # rekordbox's offset for clicks-lame.mp3, 44.1 kHz samples
 DIFFERENT = Alignment("different", text="doesn't line up")
@@ -109,6 +111,64 @@ def make_lib(tmp_path: Path, monkeypatch, kinds: list[str]) -> Lib:
             audio, rate = quality.decode_mono(paths.root / olds[i])
             make_anlz(dat.with_suffix(".EXT"), [ppth_tag("?/" + name), pwv3_tag(pwv3_from(audio, rate, D / 44100))])
     save_library(paths, library_)
+    monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(folder))
+    return Lib(paths, Place(folder / "master.db", folder / "share", "override", None), folder, list(library_), olds)
+
+
+def make_own_lib(tmp_path: Path, monkeypatch, kinds: list[str]) -> Lib:
+    """One own song (source "manual", nothing parked) per kind, for Convert and Rename batches (plan stage D §5 D4):
+    `mp3` (rekordbox holds it, analysed: Convert), `mp3_free` (rekordbox doesn't hold it), `clean` (an own AIFF
+    16/44.1 with the right tags under a messy name that rekordbox holds: Rename), `clean_free` (the same, not in
+    rekordbox), `named` (a clean AIFF at its clean name already), `chain` (an AIFF 24/96 at its clean name that
+    rekordbox holds: Convert lands on the song's ID, then gives the file its clean name). Song i is "Artist - Song i";
+    every file row came from the import with its facts stored (as `convert_helpers.make_own`)."""
+    paths = Paths(tmp_path / "music", support=tmp_path / "support")
+    folder, scratch = tmp_path / "rb", tmp_path / "scratch"
+    scratch.mkdir(exist_ok=True)
+    rows, library_, olds, offsets = [], {}, [], {}
+    for i, kind in enumerate(kinds):
+        tid = f"t{i}aaaaaaa"
+        clean = f"Library/A/Artist - Song {i}.aiff"
+        old = {"mp3": f"Library/A/Old {i}.mp3", "mp3_free": f"Library/A/Old {i}.mp3",
+               "clean": f"Library/A/Messy {i}.aiff", "clean_free": f"Library/A/Messy {i}.aiff", "named": clean,
+               "chain": clean}[kind]
+        file = paths.root / old
+        file.parent.mkdir(parents=True, exist_ok=True)
+        if kind in ("mp3", "mp3_free"):
+            shutil.copyfile(FIXTURES / "clicks-lame.mp3", file)
+        elif kind == "chain":
+            wav = write_wav(scratch / "clicks96.wav", clicks(20, 96000), 96000)
+            subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(wav), "-c:a", "pcm_s24be", "-f",
+                            "aiff", str(file)], check=True)
+        else:
+            write_aiff(file, clicks(20, 44100))
+        if kind not in ("mp3", "mp3_free"):
+            write_tags(file, title=f"Song {i}", artists=("Artist",), album="", isrc=None, label=None, cover=None,
+                       comment="")
+        lossy = kind in ("mp3", "mp3_free")
+        library_[tid] = song(old, title=f"Song {i}", **{**OWN, **({} if lossy else {"status": "lossless",
+                                                                                    "source_format": None})})
+        olds.append(old)
+        if not kind.endswith("_free"):
+            rows.append({"ID": str(i + 1), "path": os.path.abspath(file), "cues": 2, "artist": "Artist",
+                         "album": "", "Title": ""})
+            offsets[i] = D if kind == "mp3" else 0
+    make_master(folder, rows, anlz=True)
+    for n, row in enumerate(rows):
+        i = int(row["ID"]) - 1
+        name = os.path.basename(paths.root / olds[i])
+        dat = folder / f"share/PIONEER/USBANLZ/{n:03x}/{i + 1}/ANLZ0000.DAT"
+        make_anlz(dat, [ppth_tag("?/" + name), pqtz_tag(40)])
+        audio, rate = quality.decode_mono(paths.root / olds[i])
+        make_anlz(dat.with_suffix(".EXT"), [ppth_tag("?/" + name), pwv3_tag(pwv3_from(audio, rate,
+                                                                                    offsets[i] / 44100))])
+    save_library(paths, library_)
+    with db.connect(paths.db_file) as conn:
+        for old in olds:
+            file_id = db.file_id_at(conn, old)
+            conn.execute("UPDATE files SET placed_by = 'import' WHERE id = ?", (file_id,))
+            db.set_file_facts(conn, file_id, quality.file_audio(quality.probe(paths.root / old)))
+        conn.commit()
     monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(folder))
     return Lib(paths, Place(folder / "master.db", folder / "share", "override", None), folder, list(library_), olds)
 
