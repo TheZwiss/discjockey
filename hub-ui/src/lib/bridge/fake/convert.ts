@@ -303,6 +303,8 @@ function wouldDo(s: FakeState, t: FakeTrack, reason: string): Pick<TrackAiff, 'a
  *  file, a download, a better version waiting). `why_not` set means the action is blocked: for `BLOCKED` the action,
  *  `kind`, `to`, `new_name` and `bytes` are still the step's own; any other reason has no action. */
 export function fileAnswer(s: FakeState, t: FakeTrack): TrackAiff | null {
+  // a download says nothing, also while its drive is away (the plan names a missing drive before a download)
+  if (!isOwn(t)) return null;
   const r = planOf(s, { kind: 'tracks', tracks: [t.track_id] });
   if ('refused' in r) return null;
   const path = pathOf(t);

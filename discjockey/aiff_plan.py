@@ -457,10 +457,11 @@ def file_answer(paths: Paths, state: dict, key: str, *, rb: Status,
     reason (`eligible.REASONS`) there is no action and `kind` / `to` / `new_name` are null, `bytes` 0. `from` / `lossy` /
     `cdj` always say what the file is. None when there is nothing to say: no file there, a download or a better
     version waiting (`NO_ANSWER`)."""
-    found = plan(paths, state, {"kind": "tracks", "tracks": [key]}, rb=rb, entries=None, tags=tags)
     e = state["tracks"].get(key)
-    if e is None:
+    # a download says nothing, also while its drive is away (the plan names a missing drive before a download)
+    if e is None or e.get("source") != eligible.OWN:
         return None
+    found = plan(paths, state, {"kind": "tracks", "tracks": [key]}, rb=rb, entries=None, tags=tags)
     name_now = PurePosixPath(e["path"]).name if e.get("path") else None
     if found.items:
         i = found.items[0]

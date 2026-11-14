@@ -2101,7 +2101,7 @@ answer `no_library` without a music folder.
     running, needs_closed}`, `needs_closed` true when an item's file is in rekordbox's library.
   - A plan only reads: stored file facts, tags of the own AIFFs whose tags decide, no decoding. Files without stored
     facts (the import's facts fill hasn't reached them) are left out until it does.
-- **`track().aiff`** (`aiff_plan.file_answer`): `null` (no file, a download, a better version waiting: the upgrade decision
+- **`track().aiff`** (`aiff_plan.file_answer`): `null` (no file, a download (also while its drive is away), a better version waiting: the upgrade decision
   stands) or `{action: "convert"\|"rename"\|null, why_not: reason\|null, kind, from, to, name_now, new_name, bytes, lossy,
   cdj: {short, words}\|null}`. `kind`, `to` ("AIFF · 16-bit · 44.1 kHz" for a Convert, null for a rename), `new_name`
   (equal to `name_now` for a Convert whose AIFF ends where the old file was) and `bytes` say what the step would do.

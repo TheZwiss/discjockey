@@ -600,6 +600,18 @@ def test_a_one_file_answer_blocked_for_any_other_reason_has_no_action(lib):
         (None, "named_already", None, None, None, 0)
     (paths.root / state["tracks"]["flac"]["path"]).unlink()
     assert answer_of(paths, state, "flac") is None               # no file: no answer at all
+    assert answer_of(paths, state, "bought") is None             # a download: no answer at all
+
+
+def test_a_download_on_a_missing_drive_has_no_answer(tmp_path):
+    """The plan names a missing drive before a download; the details still have nothing to say for a download."""
+    tracks = songs()
+    tracks["gone"] = {**tracks["bought"], "path": "/Volumes/Nowhere Drive/Music/Ann - Bought.aiff"}
+    tracks["away"] = own("/Volumes/Nowhere Drive/Music/x.flac", "Away", "flac", 44100, 16)
+    paths, state = library_of(tmp_path, tracks, absent=("gone", "away"))
+    assert answer_of(paths, state, "gone") is None
+    away = answer_of(paths, state, "away")                       # the user's own file says why it waits
+    assert (away["action"], away["why_not"]) == (None, "away") and away["from"].startswith("FLAC")
 
 
 def test_a_track_in_cloud_library_sync_is_skipped(lib):

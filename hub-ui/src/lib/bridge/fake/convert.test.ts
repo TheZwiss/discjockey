@@ -100,6 +100,11 @@ describe('the fake bridge: the CDJ rule and the plan', () => {
     s.tracks.find((t) => t.track_id === 'd7-mp3')!.cloud = false;
     const download = s.tracks.find((t) => t.source === 'qobuz' && t.status === 'lossless')!;
     expect((await detail(download.track_id)).aiff).toBeNull();
+    download.away = 'offline';                                             // a download on a missing drive: still no answer
+    expect((await detail(download.track_id)).aiff).toBeNull();
+    download.away = undefined;
+    own(s, 'away', FLAC(44100, 16), { away: 'offline' });                  // the user's own file says why it waits
+    expect((await detail('d7-away')).aiff).toMatchObject({ action: null, why_not: 'away', from: 'FLAC · 16-bit · 44.1 kHz' });
     const up = s.tracks.find((t) => t.upgrade)!;
     expect((await detail(up.track_id)).aiff).toBeNull();                   // the upgrade decision stands
     void f;
