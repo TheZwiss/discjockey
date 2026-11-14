@@ -144,7 +144,7 @@ describe('the sync\'s Auto-upgrade phase (issue 33 stage C)', () => {
   it('is part of the active phases and ignores the batch events of any other job', () => {
     expect(ACTIVE_PHASES).toContain('upgrading');
     expect(reduceRun(EMPTY_RUN, batch(0, 2, 'x'), 1)).toBe(EMPTY_RUN);
-    const other = reduceRun(EMPTY_RUN, { type: 'JobStarted', job_id: 9, kind: 'use_candidate', track_id: 't1' }, 1);
+    const other = reduceRun(EMPTY_RUN, { type: 'JobStarted', job_id: 9, kind: 'use_candidate', track_id: 't1', batch_kind: null }, 1);
     expect(reduceRun(other, batch(0, 2, 'x'), 2).upgrade).toBeNull();
   });
   it('comes back from a reload with the same state', () => {

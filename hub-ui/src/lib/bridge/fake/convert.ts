@@ -121,12 +121,26 @@ export function cdjProblem(a: FakeAudio, ext: string): CdjWhy | null {
   return null;
 }
 
+/** views.decided_songs: the songs whose own file an open "Is this the same song?" question or a listed duplicate group
+ *  (every file of it here) asks about: that decision comes first, so the CDJ group leaves them out. */
+export function decidedSongs(s: FakeState): Set<string> {
+  const held = new Set<string>();
+  for (const q of s.imp.questions) held.add(q.own_key);
+  for (const g of s.imp.duplicates) {
+    if (g.files.length < 2 || !g.files.every((f) => f.online)) continue;
+    for (const f of g.files) if (f.song_key) held.add(f.song_key);
+  }
+  return held;
+}
+
 /** cdj.group_members: the songs of To-do's "Won't play well on CDJs" group with their problems, in library order: an own
- *  file with a path and stored facts the rule flags, no parked upgrade, hidden only with `includeHidden`. */
+ *  file with a path and stored facts the rule flags, no parked upgrade, hidden only with `includeHidden`, and not a song
+ *  an open question or duplicate group asks about (`decidedSongs`). */
 export function cdjMembers(s: FakeState, includeHidden = false): Map<string, CdjWhy> {
   const found = new Map<string, CdjWhy>();
+  const held = decidedSongs(s);
   for (const t of s.tracks) {
-    if (t.upgrade || (t.hidden && !includeHidden)) continue;
+    if (t.upgrade || held.has(t.track_id) || (t.hidden && !includeHidden)) continue;
     const a = storedAudio(t);
     const problem = a && cdjProblem(a, extOfTrack(t, a));
     if (problem) found.set(t.track_id, problem);

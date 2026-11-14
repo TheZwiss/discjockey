@@ -560,7 +560,8 @@ Settings). `job`: null or `{id, kind, track_id, started, batch_kind, running, st
 `null`: `"upgrade"` for Same track (`upgrade`, `upgrade_all`, add as new, discard), `"convert"` for what Convert, Give it
 its clean name, Make all and the CDJ group's Convert all start, and, for `batch_resume`, the stopped batch's own kind
 (`upgrade` / `convert` / `mixed`), so a reloaded window can tell a resumed Convert batch from Same track's. The `JobStarted`
-event has no kind. `usage`: the newest `AccountUsage` event of each service, in the order the
+event carries the same `batch_kind`, so a snapshot built from the live event says what `job_status` says after a reload.
+`usage`: the newest `AccountUsage` event of each service, in the order the
 services first reported (`last` keeps only the newest one overall) — the "Qobuz 42 of 80 today" lines after a reload; `[]` until
 a download counted. `actions`: the run's planned actions in the order the run does them (copied from
 `RunStarted.actions`; `[]` until a run started, and for jobs without a run) — "Up next" and the time left after a
@@ -1971,7 +1972,7 @@ the third action).
 
 | type | fields |
 |---|---|
-| `JobStarted` | `job_id` int, `kind` str, `track_id` str\|null |
+| `JobStarted` | `job_id` int, `kind` str, `track_id` str\|null, `batch_kind` `"upgrade"\|"convert"\|"mixed"`\|null (an AIFF batch job's kind as the snapshot's; null for any other job) |
 | `JobFinished` | `job_id`, `kind`, `ok` bool, `problem` kind\|null, `message` str, `result` object\|null, `service` `spotify\|qobuz\|soundcloud\|youtube_music`\|null (the playlist service a failed job's problem is about — a sync or read that stops at a missing login, a rejected login, an unreadable playlist, a service not answering; null for everything else and for success) |
 | `ConsoleBusy` | `running` bool (terminal run started/ended → banner, read-only) |
 | `FileDropped` | `track_id` str\|null, `name` str, `readable` bool, `message` str ("macOS didn't let Discjockey read this file…" / "Select the track…") |
@@ -2142,10 +2143,15 @@ answer `no_library` without a music folder.
   Convert can run now; the reason is the one the head's `all.k` counts: a file the `cdj` plan holds back says its reason there, a
   Cloud Library Sync file's `cloud` among them, so the group's not-hidden rows with `aiff` null are exactly `all.n`). The group lists an own file with stored facts the rule flags (CDJ-3000 and CDJ-2000NXS2: MP3 / AAC up
   to 320 kbps and 48 kHz, WAV / AIFF / FLAC / ALAC 16- or 24-bit at 44.1-96 kHz; anything else), no parked upgrade (that song
-  is Upgrade ready's), hidden as any item; a song listed there is listed nowhere else. The group carries `all: {n, k}`
+  is Upgrade ready's), hidden as any item, and not a song whose own file an open "Is this the same song?" question or a
+  listed duplicate group asks about (that decision comes first: the question's `own_key`, the songs of the group's files; a
+  group with a file away is not listed, so its songs stay here); a song listed there is listed nowhere else, and the `cdj`
+  plan (head, Convert all) leaves the same songs out. The group carries `all: {n, k}`
   (what Convert all can do now / what waits, from the `cdj` plan: `total` and the sum of `waiting[].n`; no `m`) and
   `stopped: {batch_id, left} \| null` (the newest stopped `todo:*` batch). Upgrade ready's `stopped` counts only
-  Same track batches.
+  Same track batches. The `cdj` plan behind `all` and the rows' `aiff` is remembered on the records' generation, rekordbox's
+  cache key (master.db's change, whether it runs), the folders away and the decided songs: a To-do read that changed none of
+  them opens no library of rekordbox's.
 - **Check items**: `check.reason` adds `converted` and `renamed`; `check_status` says "an AIFF now: nothing to redo" (or "an
   AIFF now, not in rekordbox") and "clean name now". `check_view` gains `old_name` (a `renamed` check: the file's old base
   name; else null); a `converted` check's `old_path` is where the old file is now (`Superseded/`), a `renamed` one has none.

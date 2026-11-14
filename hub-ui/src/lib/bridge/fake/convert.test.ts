@@ -202,7 +202,7 @@ describe('the fake bridge: the CDJ group in To-do', () => {
   });
 
   it('Resume on the group is a stopped Convert all, and Upgrade ready shows none of it', async () => {
-    const { f, s, run, group, plan } = setup();
+    const { f, s, run, group, plan, evs } = setup();
     own(s, 'mp3', MP3(400));
     own(s, 'flac', FLAC(192000));
     s.rekordbox_running = true;
@@ -220,8 +220,31 @@ describe('the fake bridge: the CDJ group in To-do', () => {
     expect(resumed).toMatchObject({ kind: 'batch_resume', ok: true });
     const snap = async () => ((await f.job_status()) as { job: { kind: string; batch_kind: string | null } }).job;
     expect(await snap()).toMatchObject({ kind: 'batch_resume', batch_kind: 'convert' });   // a reload tells whose batch it was
+    const started = evs.filter((e) => e.type === 'JobStarted' && e.kind === 'batch_resume');
+    expect(started.map((e) => (e as Extract<HubEvent, { type: 'JobStarted' }>).batch_kind)).toEqual(['convert']);   // and so does the live event
     expect((await group('cdj'))).toBeUndefined();
     expect((await plan({ kind: 'cdj' })).total).toBe(0);
+  });
+});
+
+describe('the fake bridge: a file a question or a duplicate group asks about', () => {
+  it('is in that decision and not in the CDJ group as well, head and rows alike (A8)', async () => {
+    const { f, s, plan, group } = setup();
+    own(s, 'ask', MP3(400));
+    own(s, 'dup', MP3(400));
+    own(s, 'alone', FLAC(192000));
+    expect((await group('cdj'))!.items.map((i) => i.track_id).sort()).toEqual(['d7-alone', 'd7-ask', 'd7-dup']);
+    const side = (id: number, key: string | null) => ({ file_id: id, song_key: key, path: `${DIR}/${id}.mp3`, artist: 'A', title: 'T',
+      duration_s: 200, quality: 'lossless', quality_label: 'LOSSLESS', online: true, audio_url: null, in_playlist: false });
+    s.imp.questions = [{ song_key: 't9', own_key: 'd7-ask', why: 'artist', delta_s: null,
+      track: { artist: 'A', title: 'T', duration_s: 200, folder: 'A', link: '' }, file: side(1, 'd7-ask') } as any];
+    s.imp.duplicates = [{ group_id: 'dup:2-3', why: 'same_audio', files: [side(2, 'd7-dup'), side(3, null)] } as any];
+    const cdj = (await group('cdj'))!;
+    expect(cdj.items.map((i) => i.track_id)).toEqual(['d7-alone']);
+    expect(cdj.all).toEqual({ n: 1, k: 0 });
+    expect((await plan({ kind: 'cdj' })).total).toBe(1);
+    s.imp.duplicates[0].files[1].online = false;                      // a copy is away: the group is not listed, the file is back
+    expect((await group('cdj'))!.items.map((i) => i.track_id).sort()).toEqual(['d7-alone', 'd7-dup']);
   });
 });
 

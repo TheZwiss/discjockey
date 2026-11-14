@@ -2749,3 +2749,27 @@ def test_undone_words_name_what_was_undone():
     assert views.undone_words(["renamed", "renamed"]) == "Undone. Your old names are back."
     assert views.undone_words(["renamed", "converted"]) == "Undone. Your old files and names are back."
     assert "upgrade" not in views.undone_words(["converted", "renamed"]).lower()
+
+
+# --- A8: a file a question or a duplicate group asks about is not in the CDJ group as well ---
+
+def test_the_songs_an_open_question_or_a_listed_duplicate_group_asks_about_are_decided_first():
+    st = state(t1=e("missing", folder="A"), **{"local:1": cdj_own("opus", 48000, None, 128, ".opus", title="Q"),
+                                                "local:2": cdj_own("opus", 48000, None, 128, ".opus", title="D1"),
+                                                "local:3": cdj_own("opus", 48000, None, 128, ".opus", title="D2"),
+                                                "local:4": cdj_own("opus", 48000, None, 128, ".opus", title="Far"),
+                                                "local:5": cdj_own("opus", 48000, None, 128, ".opus", title="Own")})
+    group = DuplicateGroup("dup:2-3", "same_song", (2, 3))
+    away = DuplicateGroup("dup:4-9", "same_audio", (4, 9))
+    files = {group.id: [dup_file(2, "local:2"), dup_file(3, "local:3")],
+             away.id: [dup_file(4, "local:4"), dup_file(9, None, online=False)]}      # a copy is not here: not listed
+    held = views.decided_songs(st, [question(own_key="local:1")], [group, away], files, set(), None, {})
+    assert held == {"local:1", "local:2", "local:3"}
+    counted = views.decided_songs(st, [], [group], {}, {group.id}, None, {2: "local:2", 3: "local:3"})
+    assert counted == {"local:2", "local:3"}                       # a counted group's files are not read: db.file_songs
+    gone = views.decided_songs(st, [question(own_key="local:99")], [], {}, set(), None, {})
+    assert gone == set()                                           # a stale question holds nothing back
+    out = views.todo(st, "all", False, {}, TODAY, None, [question(own_key="local:1")], [group, away], files, decided=held)
+    assert [i["track_id"] for i in cdj_group(out)["items"]] == ["local:4", "local:5"]
+    assert cdj_rule.group_members(st, held=held).keys() == {"local:4", "local:5"}
+    assert len(cdj_group(views.todo(st, "all", False, {}, TODAY))["items"]) == 5                       # none held: all five

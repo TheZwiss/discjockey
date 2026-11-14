@@ -6,6 +6,7 @@ files and a fixture rekordbox in tmp_path (`batch_helpers.make_own_lib`); the se
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -38,12 +39,21 @@ class Box:
 
 @pytest.fixture
 def hub(tmp_path, monkeypatch):
-    def build(kinds=KINDS, running=False):
+    def build(kinds=KINDS, running=False, same_bytes=False):
         lib = make_own_lib(tmp_path, monkeypatch, kinds)
+        if not same_bytes:
+            apart(lib)
         box = Box(lib, running)
         api, rec = make_api(lib.paths, **box.services())
         return lib, box, api, rec
     return build
+
+
+def apart(lib):
+    """The fixture's files of one kind hold the same bytes, which To-do shows as a duplicate group (whose decision comes
+    first, A8): every file gets a content key of its own, so these tests are about the convert side only."""
+    with db.connect(lib.paths.db_file) as conn:
+        conn.execute("UPDATE files SET content_key = 'own:' || id")
 
 
 def progress(rec):
@@ -127,6 +137,23 @@ def test_the_plan_read_answers_every_scope_in_one_shape(hub):
     assert [i["track"] for i in every["items"]] == [lib.tracks[2], lib.tracks[3], lib.tracks[5]]   # lossy mp3s are not in
     assert every["skipped"] == []
     assert api.aiff_plan({"kind": "cdj"})["plan"]["total"] == 0
+
+
+def test_the_plan_read_while_a_write_job_runs_takes_rekordbox_as_last_seen_and_opens_nothing(hub, monkeypatch):
+    lib, box, api, rec = hub(["mp3", "clean"])
+    assert api.rekordbox_status()["state"] == "ready"         # the cached state the read will take
+    gate = threading.Event()
+    job = api._jobs.start("sync", lambda ctx: gate.wait(5) and None)
+    try:
+        def boom(*a, **kw):
+            raise AssertionError("a plan read while a job writes must not open rekordbox's library")
+        monkeypatch.setattr(aiff_plan.master, "open_read", boom)
+        plan = api.aiff_plan({"kind": "tracks", "tracks": [lib.tracks[0], lib.tracks[1]]})["plan"]
+    finally:
+        gate.set()
+        wait_job(api, rec, {"ok": True, "job_id": job.id})
+    assert plan["total"] == 2 and plan["rekordbox"]["state"] == "ready"
+    assert plan["rekordbox"]["needs_closed"] is True          # no lookup: any file may be in rekordbox
 
 
 @pytest.mark.parametrize("scope", [None, "cdj", {}, {"kind": "all"}, {"kind": "tracks", "tracks": []},
@@ -241,6 +268,49 @@ def test_the_cdj_group_counts_and_convert_all_runs_it(hub):
     assert (row.started_by, row.scope) == ("cdj_all", "todo:cdj") and f.result["done"] == 2
 
 
+def test_the_cdj_group_opens_rekordbox_only_when_something_it_depends_on_changed(hub, monkeypatch):
+    lib, box, api, rec = hub(["mp3", "mp3_free"])
+    set_kbps(lib, 0, 400)
+    set_kbps(lib, 1, 400)
+    reads = []
+    real = aiff_plan.read_plan
+    monkeypatch.setattr(aiff_plan, "read_plan", lambda *a, **kw: reads.append(1) or real(*a, **kw))
+    assert cdj_group(api)["all"] == {"n": 2, "k": 0} and len(reads) == 1
+    assert cdj_group(api)["all"] == {"n": 2, "k": 0} and api.todo("cdj")["chips"]["cdj"] == 2
+    api.todo("all", True)
+    assert len(reads) == 1                                    # three more To-do reads, no library opened again
+    api.sidebar()
+    assert len(reads) == 1
+    box.running = True                                        # rekordbox started: its state is part of the key
+    assert cdj_group(api)["all"]["k"] == 0 and len(reads) == 2
+    (lib.paths.root / lib.olds[1]).unlink()
+    wait_job(api, rec, api.rescan_library())                  # a change of the records (their generation)
+    assert cdj_group(api) is None or cdj_group(api)["all"]["n"] + cdj_group(api)["all"]["k"] == 1
+    assert len(reads) == 3
+
+
+def test_a_cdj_file_in_a_duplicate_group_is_in_the_duplicate_group_only_until_it_is_answered(hub):
+    lib, box, api, rec = hub(["mp3", "mp3_free", "chain"], same_bytes=True)   # songs 0 and 1 hold the same bytes
+    for i in (0, 1):
+        set_kbps(lib, i, 400)
+    set_rate(lib, 2, 192000)                                  # a file of its own that CDJs refuse
+    out = api.todo("all")
+    dup = group(api, "duplicate")
+    assert [g["key"] for g in out["groups"]] == ["duplicate", "cdj"]
+    assert [i["track_id"] for i in cdj_group(api)["items"]] == [lib.tracks[2]]        # not the two copies
+    assert cdj_group(api)["all"] == {"n": 1, "k": 0}          # the head counts what the rows hold
+    assert api.aiff_plan({"kind": "cdj"})["plan"]["total"] == 1
+    assert out["chips"]["all"] == 2 and api.sidebar()["todo"] == 2          # the group and the lone file, each once
+    f = wait_job(api, rec, api.make_aiff({"kind": "cdj"}))
+    assert f.ok and f.result["done"] == 1
+    assert all((lib.paths.root / lib.olds[i]).is_file() for i in (0, 1))   # the two copies were left alone
+    answer = wait_job(api, rec, api.keep_duplicates(dup["items"][0]["pair"]["group_id"],
+                                                    [s["path"] for s in dup["items"][0]["pair"]["files"]]))
+    assert answer.ok
+    assert [i["track_id"] for i in cdj_group(api)["items"]] == [lib.tracks[0], lib.tracks[1]]   # decided: they are in
+    assert cdj_group(api)["all"] == {"n": 2, "k": 0}
+
+
 def test_the_cdj_groups_rows_and_head_agree_on_what_can_run_now(hub):
     lib, box, api, rec = hub(["mp3", "mp3_free", "clean"])
     for i in (0, 1):
@@ -311,6 +381,25 @@ def test_a_job_snapshot_carries_its_batch_kind_so_a_reload_tells_whose_batch_run
     assert snap()["kind"] == "aiff_batch" and snap()["batch_kind"] == "convert"
     assert wait_job(api, rec, api.rescan_library()).ok         # a job that is no batch has none
     assert snap()["batch_kind"] is None
+
+
+def test_a_stopped_convert_batch_resumes_through_the_hub_with_the_batch_result_and_its_own_kind(hub):
+    lib, box, api, rec = hub(["mp3", "mp3", "clean"], running=True)
+    f = wait_job(api, rec, api.convert([lib.tracks[0], lib.tracks[1], lib.tracks[2]], "todo"))
+    assert (f.ok, f.problem) == (False, "rekordbox_open")
+    stopped = batch_row(lib, f.result["batch"])
+    assert (stopped.kind, stopped.state, stopped.stop_reason) == ("convert", "stopped", "rekordbox_open")
+    box.running = False
+    answer = api.batch_resume(f.result["batch"])
+    assert api.job_status()["job"]["batch_kind"] == "convert"          # from the start, not only once it ended
+    started = [e for e in rec.events if type(e).__name__ == "JobStarted" and e.kind == "batch_resume"]
+    assert [e.batch_kind for e in started] == ["convert"]               # the live event says it too (A10)
+    done = wait_job(api, rec, answer)
+    assert done.ok and set(done.result) == keys("batch_result") and set(done.result["results"][0]) == keys("item_result")
+    assert (done.result["batch"], done.result["state"], done.result["done"]) == (f.result["batch"], "done", 3)
+    assert api.job_status()["job"]["kind"] == "batch_resume" and api.job_status()["job"]["batch_kind"] == "convert"
+    assert batch_row(lib, f.result["batch"]).state == "done"
+    assert api.batch_resume(f.result["batch"])["kind"] == "refused"    # nothing stopped is left
 
 
 def test_a_stopped_cdj_batch_is_the_groups_resume_and_not_upgrade_readys(tmp_path, monkeypatch):

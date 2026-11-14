@@ -211,7 +211,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       me.running = false;
     };
     setTimeout(() => {
-      emit({ type: 'JobStarted', job_id: id, kind, track_id });
+      emit({ type: 'JobStarted', job_id: id, kind, track_id, batch_kind });
       body(finish);
     }, 0);
     return { ok: true, job_id: id };
@@ -764,7 +764,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         if (refreshJob?.id === id) emit({ type: 'ReadingPlaylist', index: i + 1, total: folders.length, folder });
       }, (100 + (i * 2300) / Math.max(1, folders.length)) / speed));
       setTimeout(() => {
-        emit({ type: 'JobStarted', job_id: id, kind: 'refresh', track_id: null });
+        emit({ type: 'JobStarted', job_id: id, kind: 'refresh', track_id: null, batch_kind: null });
         emit(msg);
       }, 0);
       refreshJob = { id, timer: setTimeout(() => {
@@ -920,7 +920,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       };
       signInStop = () => end(false, null, 'stopped', 'Stopped. Nothing was changed.');
       timers.push(setTimeout(() => {
-        send({ type: 'JobStarted', job_id: id, kind: 'account_sign_in', track_id: null });
+        send({ type: 'JobStarted', job_id: id, kind: 'account_sign_in', track_id: null, batch_kind: null });
         if (b.problem === 'no_access') {
           end(false, null, 'failed', accountCheck(service, 'safari').message);
           return;

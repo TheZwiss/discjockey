@@ -359,8 +359,9 @@ def test_no_free_name_is_a_failure_with_nothing_changed(tmp_path, monkeypatch):
     for name in ("Artist - Song", "Artist - Song [t1aaaa]", "Artist - Song [t1aaaaaaa]"):
         (env.paths.root / "Library/A" / f"{name}.aiff").write_bytes(b"x")
     music = env.music()
-    with pytest.raises(convert.UpgradeProblem, match="no free name"):
+    with pytest.raises(convert.UpgradeProblem) as caught:
         run_rename(env)
+    assert str(caught.value) == rbstep.NO_FREE_NAME_WORDS      # as the plan says it (A6): no word of rekordbox, no "found"
     assert env.music() == music
 
 

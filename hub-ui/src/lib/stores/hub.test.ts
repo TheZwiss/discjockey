@@ -8,18 +8,22 @@ import type { SetupStatus, ReadStatus } from '../bridge/types';
 
 describe('reduceHub', () => {
   it('tracks the write job from JobStarted to JobFinished', () => {
-    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 3, kind: 'sync', track_id: null });
+    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 3, kind: 'sync', track_id: null, batch_kind: null });
     expect(s.job).toMatchObject({ id: 3, kind: 'sync', running: true });
     s = reduceHub(s, { type: 'RunStarted', total: 1, actions: [{ kind: 'acquire', track_id: 't4', title: 'AEIOU', artist: 'Pegassi' }] });
     expect(s.job?.actions).toHaveLength(1);
     s = reduceHub(s, { type: 'JobFinished', job_id: 3, kind: 'sync', ok: true, problem: null, message: '', result: null });
     expect(s.job).toMatchObject({ id: 3, running: false });
   });
+  it('the snapshot a live JobStarted builds carries its batch kind, as job_status does after a reload', () => {
+    const s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 4, kind: 'batch_resume', track_id: null, batch_kind: 'convert' });
+    expect(s.job).toMatchObject({ id: 4, kind: 'batch_resume', batch_kind: 'convert', running: true });
+  });
   it('a sign-in waits in its own slot and never blocks a write', () => {
-    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 5, kind: 'account_sign_in', track_id: null });
+    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 5, kind: 'account_sign_in', track_id: null, batch_kind: null });
     expect(s.job).toBeNull();
     expect(s.sign_in).toMatchObject({ id: 5, running: true });
-    s = reduceHub(s, { type: 'JobStarted', job_id: 6, kind: 'sync', track_id: null });
+    s = reduceHub(s, { type: 'JobStarted', job_id: 6, kind: 'sync', track_id: null, batch_kind: null });
     expect(s.job).toMatchObject({ id: 6, running: true });
     s = reduceHub(s, { type: 'JobFinished', job_id: 5, kind: 'account_sign_in', ok: true, problem: null, message: '',
       result: null });
@@ -29,9 +33,9 @@ describe('reduceHub', () => {
   it("keeps the running import's last ImportProgress on its job, and only there", () => {
     const p = { type: 'ImportProgress' as const, phase: 'tags' as const, done: 40, total: 300, unreadable: 1 };
     expect(reduceHub(EMPTY_HUB, p)).toBe(EMPTY_HUB);
-    const sync = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 2, kind: 'sync', track_id: null });
+    const sync = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 2, kind: 'sync', track_id: null, batch_kind: null });
     expect(reduceHub(sync, p).job?.last.ImportProgress).toBeUndefined();
-    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 3, kind: 'import', track_id: null });
+    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 3, kind: 'import', track_id: null, batch_kind: null });
     s = reduceHub(s, p);
     expect(s.job?.last.ImportProgress).toEqual(p);
     s = reduceHub(s, { type: 'JobFinished', job_id: 3, kind: 'import', ok: true, problem: null, message: 'Imported 300 files.',
@@ -39,26 +43,26 @@ describe('reduceHub', () => {
     expect(reduceHub(s, { ...p, done: 41 }).job?.last.ImportProgress).toEqual(p);
   });
   it('a refresh is not a write job', () => {
-    const s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 1, kind: 'refresh', track_id: null });
+    const s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 1, kind: 'refresh', track_id: null, batch_kind: null });
     expect(s.job).toBeNull();
     expect(s.refresh_running).toBe(true);
     expect(reduceHub(s, { type: 'JobFinished', job_id: 1, kind: 'refresh', ok: true, problem: null, message: '',
       result: null }).refresh_running).toBe(false);
   });
   it('remembers that the read was stopped until the next read starts', () => {
-    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 1, kind: 'refresh', track_id: null });
+    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 1, kind: 'refresh', track_id: null, batch_kind: null });
     expect(s.read_stopped).toBe(false);
     s = reduceHub(s, { type: 'JobFinished', job_id: 1, kind: 'refresh', ok: false, problem: 'stopped',
       message: 'Stopped.', result: null });
     expect(s.refresh_running).toBe(false);
     expect(s.read_stopped).toBe(true);
-    s = reduceHub(s, { type: 'JobStarted', job_id: 2, kind: 'refresh', track_id: null });
+    s = reduceHub(s, { type: 'JobStarted', job_id: 2, kind: 'refresh', track_id: null, batch_kind: null });
     expect(s.read_stopped).toBe(false);
     expect(reduceHub(s, { type: 'JobFinished', job_id: 2, kind: 'refresh', ok: true, problem: null, message: '',
       result: null }).read_stopped).toBe(false);
   });
   it('keeps which playlist is being read until the read ends', () => {
-    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 1, kind: 'refresh', track_id: null });
+    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 1, kind: 'refresh', track_id: null, batch_kind: null });
     s = reduceHub(s, { type: 'ReadingPlaylist', index: 3, total: 7, folder: 'Powertrance' });
     expect(s.read_progress).toEqual({ index: 3, total: 7, folder: 'Powertrance' });
     s = reduceHub(s, { type: 'JobFinished', job_id: 1, kind: 'refresh', ok: true, problem: null, message: '',
@@ -66,33 +70,33 @@ describe('reduceHub', () => {
     expect(s.read_progress).toBeNull();
   });
   it("a sync's own read ends at RunStarted", () => {
-    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 2, kind: 'sync', track_id: null });
+    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 2, kind: 'sync', track_id: null, batch_kind: null });
     s = reduceHub(s, { type: 'ReadingPlaylist', index: 1, total: 2, folder: 'Hard_Bounce' });
     expect(s.read_progress?.index).toBe(1);
     expect(reduceHub(s, { type: 'RunStarted', total: 0, actions: [] }).read_progress).toBeNull();
   });
   it('a background scan is no activity: it keeps the job slot, the reading progress and the reading line', () => {
-    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 2, kind: 'sync', track_id: null });
+    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 2, kind: 'sync', track_id: null, batch_kind: null });
     s = reduceHub(s, { type: 'ReadingPlaylist', index: 1, total: 2, folder: 'Hard_Bounce' });
-    s = reduceHub(s, { type: 'JobStarted', job_id: 3, kind: 'scan', track_id: null });
+    s = reduceHub(s, { type: 'JobStarted', job_id: 3, kind: 'scan', track_id: null, batch_kind: null });
     expect(s.job).toMatchObject({ id: 2, kind: 'sync', running: true });
     s = reduceHub(s, { type: 'JobFinished', job_id: 3, kind: 'scan', ok: true, problem: null, message: '', result: null });
     expect(s.job).toMatchObject({ id: 2, running: true });
     expect(s.read_progress).toEqual({ index: 1, total: 2, folder: 'Hard_Bounce' });
   });
   it('a scan alone leaves the job slot empty', () => {
-    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 3, kind: 'scan', track_id: null });
+    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 3, kind: 'scan', track_id: null, batch_kind: null });
     s = reduceHub(s, { type: 'JobFinished', job_id: 3, kind: 'scan', ok: true, problem: null, message: '', result: null });
     expect(s.job).toBeNull();
   });
   it("a sync's finish ends the reading line; another write job's finish does not", () => {
-    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 2, kind: 'sync', track_id: null });
+    let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 2, kind: 'sync', track_id: null, batch_kind: null });
     s = reduceHub(s, { type: 'ReadingPlaylist', index: 1, total: 2, folder: 'Hard_Bounce' });
     expect(reduceHub(s, { type: 'JobFinished', job_id: 2, kind: 'sync', ok: false, problem: 'crashed', message: '',
       result: null }).read_progress).toBeNull();
-    let t = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 4, kind: 'refresh', track_id: null });
+    let t = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 4, kind: 'refresh', track_id: null, batch_kind: null });
     t = reduceHub(t, { type: 'ReadingPlaylist', index: 1, total: 2, folder: 'Hard_Bounce' });
-    t = reduceHub(t, { type: 'JobStarted', job_id: 5, kind: 'download_track', track_id: 't1' });
+    t = reduceHub(t, { type: 'JobStarted', job_id: 5, kind: 'download_track', track_id: 't1', batch_kind: null });
     expect(reduceHub(t, { type: 'JobFinished', job_id: 5, kind: 'download_track', ok: true, problem: null, message: '',
       result: null }).read_progress).not.toBeNull();
   });

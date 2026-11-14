@@ -232,7 +232,7 @@ export const overrides: PageFake['overrides'] = {
         if (!readStarted) {
           readStarted = true;
           setTimeout(() => {
-            ctx.emit({ type: 'JobStarted', job_id: 900, kind: 'refresh', track_id: null });
+            ctx.emit({ type: 'JobStarted', job_id: 900, kind: 'refresh', track_id: null, batch_kind: null });
             ctx.emit({ type: 'ReadingPlaylist', index: 3, total: 7, folder: 'Bouncy' });
           }, 50);
         }

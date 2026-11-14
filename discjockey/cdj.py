@@ -15,6 +15,7 @@ WAVE_FORMAT_EXTENSIBLE header (docs/issues.md).
 """
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
@@ -96,15 +97,17 @@ def cdj_problem(audio: FileAudio, ext: str) -> CdjProblem | None:
     return None
 
 
-def group_members(state: dict, include_hidden: bool = False) -> dict[str, CdjProblem]:
+def group_members(state: dict, include_hidden: bool = False, held: Collection[str] = ()) -> dict[str, CdjProblem]:
     """The songs of To-do's "Won't play well on CDJs" group (plan §1.5), each with its problem, in state order: an own
     file (source "manual", bought or imported) that has a file with stored facts the rule flags, no parked upgrade (that
     is Upgrade ready's, plan §0.2) and not hidden. The one answer To-do's group and Convert all (`aiff_plan`'s `cdj`
     scope) share. A file whose facts aren't stored yet is not in it. `include_hidden`: the hidden songs too (To-do lists
-    them behind "Show hidden"; the plan's scope never holds them)."""
+    them behind "Show hidden"; the plan's scope never holds them). `held`: the songs an open question or duplicate
+    group of To-do shows (`views.decided_songs`): their decision comes first, as a parked upgrade's, so they are not
+    members while it stands (A8)."""
     found = {}
     for key, e in state["tracks"].items():
-        if (e.get("source") != "manual" or e["status"] == "missing" or not e.get("path") or e.get("upgrade")
+        if (key in held or e.get("source") != "manual" or e["status"] == "missing" or not e.get("path") or e.get("upgrade")
                 or (e.get("hidden") and not include_hidden) or (audio := entry_audio(e)) is None):
             continue
         if (problem := cdj_problem(audio, PurePosixPath(e["path"]).suffix.lower())) is not None:

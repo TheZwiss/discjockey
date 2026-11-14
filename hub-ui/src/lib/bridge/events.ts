@@ -31,7 +31,7 @@ export type HubEvent =
   /** an AIFF batch (Same track, Upgrade all): `done` of `total` handled; `track_id`/`name` the one in work (null after the last); `batch_id` 0 for a New track / Discard list (no batch record) */
   | { type: 'BatchProgress'; batch_id: number; done: number; total: number; track_id: string | null; name: string | null }
   | { type: 'ImportProgress'; phase: 'scan' | 'facts' | 'tags' | 'sound' | 'link'; done: number; total: number; unreadable: number }
-  | { type: 'JobStarted'; job_id: number; kind: string; track_id: string | null }
+  | { type: 'JobStarted'; job_id: number; kind: string; track_id: string | null; batch_kind: 'upgrade' | 'convert' | 'mixed' | null }
   | { type: 'JobFinished'; job_id: number; kind: string; ok: boolean; problem: ProblemKind | null; message: string;
       result: any | null; service?: PlaylistService | null }
   | { type: 'ConsoleBusy'; running: boolean }
@@ -65,7 +65,7 @@ export const EVENT_FIELDS: { [T in HubEvent['type']]: readonly (keyof EventOf<T>
   MovesProgress: ['type', 'batch_id', 'done', 'total'],
   BatchProgress: ['type', 'batch_id', 'done', 'total', 'track_id', 'name'],
   ImportProgress: ['type', 'phase', 'done', 'total', 'unreadable'],
-  JobStarted: ['type', 'job_id', 'kind', 'track_id'],
+  JobStarted: ['type', 'job_id', 'kind', 'track_id', 'batch_kind'],
   JobFinished: ['type', 'job_id', 'kind', 'ok', 'problem', 'message', 'result', 'service'],
   ConsoleBusy: ['type', 'running'],
   FileDropped: ['type', 'track_id', 'name', 'readable', 'message'],

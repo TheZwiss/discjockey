@@ -21,7 +21,7 @@ import tomllib
 import traceback
 import unicodedata
 import webbrowser
-from collections.abc import Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime
 from pathlib import Path, PurePosixPath
@@ -310,6 +310,9 @@ class HubApi:
         self._extra_tracks: dict = {}  # playlist ref -> tracks of playlists read outside a refresh
         self._shown: dict[str, dict] = {}  # track id -> how the page last showed it (ops.snapshot)
         self._rb_cache: tuple[tuple, rekordbox.Status] | None = None  # (_rekordbox_status's key, its answer)
+        # the CDJ group's plan (To-do's `all {n,k}` and its rows' waits): (state generation, rekordbox's key, drives
+        # away) -> the plan, so each To-do read doesn't open rekordbox's library again (A7)
+        self._cdj_cache: tuple[tuple, plans.AiffPlan] | None = None
         # what a file's tags said (plan stage D §0.7): (path, size, mtime_ns) -> audio.FileFacts, so reopening the panel
         # reads no file again; a changed file has a new key
         self._tag_cache: dict[tuple[str, int, int], audio.FileFacts] = {}
@@ -608,6 +611,7 @@ class HubApi:
         groups = list(prep.plan.duplicates) if prep else []
         files: dict[str, list] = {}
         counted: set[str] = set()
+        owners: dict[int, str] = {}
         away = self._away_roots()
         with self._move_log() as conn:
             if conn is not None:
@@ -616,23 +620,47 @@ class HubApi:
                 counted = {g.id for g in found} if count_only and not away else set()
                 groups += found
                 files = {g.id: db.group_files(conn, g.id) for g in groups if g.id not in counted}
+                owners = db.file_songs(conn, {i for g in groups if g.id in counted for i in g.file_ids})
+        # the songs an open question or duplicate group asks about leave the CDJ group (their decision comes first)
+        decided = views.decided_songs(state, questions, groups, files, counted, away, owners)
         # the sidebar's number needs neither rekordbox's state nor a look at each file
         rb = None if count_only else self._rekordbox_status()
         # the files whose presence the page needs live: a parked upgrade's (Same track) and the CDJ group's (Convert)
-        members = {} if count_only else cdj.group_members(state, include_hidden=True)
+        members = {} if count_only else cdj.group_members(state, include_hidden=True, held=decided)
         present = None if count_only else {k: batches.present(self._paths, e) for k, e in state["tracks"].items()
                                            if e.get("upgrade") or k in members}
         rows = [] if count_only else self._aiff_batches()
         checked = {} if count_only else self._checked_batches(state)
         # Convert all's counts: what the CDJ plan can run now and what waits (only a page that shows the group asks)
-        cdj_plan = self._planned(state, {"kind": "cdj"}) if members and filt in (None, "all", "cdj") else None
+        cdj_plan = self._cdj_plan(state, away, decided) if members and filt in (None, "all", "cdj") else None
         cdj_all = views.cdj_counts(cdj_plan.to_dict()) if cdj_plan else (0, 0)
         return views.todo(state, filt, show_hidden, self._others(state), self._today(), self._cover(self._images()),
                           questions, groups, files, self._audio, counted, away, rb, present,
                           views.stopped_batch(rows, kinds=("upgrade",)), self._auto_upgrade_on(),
                           {i: r.started_by for i, r in checked.items()}, cdj_all,
                           views.stopped_batch(rows, scope="todo:"), {i: r.kind for i, r in checked.items()},
-                          cdj_plan.waits if cdj_plan else None)
+                          cdj_plan.waits if cdj_plan else None, decided)
+
+    def _cdj_plan(self, state: dict, away: Mapping[str, str], decided: frozenset[str] | set[str]) -> plans.AiffPlan:
+        """The `cdj` scope's plan for To-do, remembered on the records' generation (every write of songs, files or
+        decisions bumps it), rekordbox's cache key (`_rekordbox_status`: master.db's change, whether it runs) and the
+        folders away now: a To-do read that changed none of them opens no library of rekordbox's again. A state that
+        carries no generation is planned every time. `decided`: `views.decided_songs`, which the plan leaves out."""
+        self._rekordbox_status()  # first: it refreshes the key below
+        with self._lock:
+            rb_key = self._rb_cache[0] if self._rb_cache else None
+            last = self._cdj_cache
+        generation = state.get("generation")
+        key = ((generation, rb_key, tuple(sorted(away.items())), tuple(sorted(decided)))
+               if generation is not None else None)
+        if key is not None and last is not None and last[0] == key:
+            return last[1]
+        plan = self._planned(state, {"kind": "cdj"}, held=decided)
+        # a plan made while a write job runs took rekordbox's cached state and no lookup: not kept for later reads
+        if key is not None and self._jobs.running() is None:
+            with self._lock:
+                self._cdj_cache = (key, plan)
+        return plan
 
     def _rekordbox_status(self) -> rekordbox.Status:
         """rekordbox's state for the screens, cached on master.db's modified time and size plus whether rekordbox runs
@@ -688,15 +716,32 @@ class HubApi:
             self._tag_cache[key] = found
         return found
 
-    def _planned(self, state: dict, scope: dict, only: str | None = None, *, in_job: bool = False) -> plans.AiffPlan:
+    def _decided_now(self, state: dict) -> set[str]:
+        """`views.decided_songs` for the records and the import's last plan as they are now: the songs the `cdj` scope
+        leaves out (a Convert all and the plan read ask; To-do computes its own from what it has read)."""
+        prep = self._store.prep
+        questions = list(prep.plan.questions) if prep else []
+        groups = list(prep.plan.duplicates) if prep else []
+        files: dict[str, list] = {}
+        with self._move_log() as conn:
+            if conn is not None:
+                groups += db.duplicate_groups(conn)
+                files = {g.id: db.group_files(conn, g.id) for g in groups}
+        return views.decided_songs(state, questions, groups, files, (), self._away_roots(), {})
+
+    def _planned(self, state: dict, scope: dict, only: str | None = None, *, in_job: bool = False,
+                 held: Collection[str] | None = None) -> plans.AiffPlan:
         """`aiff_plan.read_plan` for `scope` with one read open of rekordbox's library (the lookup of its tracks). A
         read asked while a write job runs takes rekordbox's cached state and no lookup instead (as `_rekordbox_status`:
-        that job may be finishing a rekordbox write); a job plans for itself (`in_job`, after its recovery)."""
+        that job may be finishing a rekordbox write); a job plans for itself (`in_job`, after its recovery). The `cdj`
+        scope leaves out `held` (`_decided_now` when not given: what To-do shows as a question or a duplicate)."""
+        if held is None:
+            held = self._decided_now(state) if scope.get("kind") == "cdj" else ()
         if not in_job and self._jobs.running() is not None:
             return plans.plan(self._paths, state, scope, rb=self._rekordbox_status(), entries=None, tags=self._tags,
-                              only=only)
+                              only=only, held=held)
         return plans.read_plan(self._paths, state, scope, place=self._svc.rekordbox_place(),
-                               running=bool(self._svc.rekordbox_running()), only=only, tags=self._tags)
+                               running=bool(self._svc.rekordbox_running()), only=only, tags=self._tags, held=held)
 
     def _aiff_scope(self, scope: object, kinds: Sequence[str] = plans.SCOPE_KINDS) -> dict:
         """A scope from the page as `aiff_plan.plan` takes it, or ValueError: `{kind: "tracks", tracks}`, `{kind:

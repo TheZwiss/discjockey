@@ -27,7 +27,7 @@ included (its tracks can't be known), and stops the batch when rekordbox runs: s
 """
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
@@ -230,14 +230,14 @@ def view_inputs(paths: Paths, view: str, lines, records, watched) -> tuple[list[
     return lines, records or {}, watched or ()
 
 
-def _pick(paths: Paths, state: dict, scope: Mapping, lines, records, watched
+def _pick(paths: Paths, state: dict, scope: Mapping, lines, records, watched, held: Collection[str] = ()
           ) -> tuple[str, list[str], Mapping[str, cdj.CdjProblem]]:
-    """The scope's label, its files' keys in order, and (the `cdj` scope) each one's CDJ problem."""
+    """The scope's label, its files' keys in order, and (the `cdj` scope) each one's CDJ problem. `held`: see `plan`."""
     kind = scope.get("kind")
     if kind == "tracks":
         return SELECTION_LABEL, list(dict.fromkeys(scope["tracks"])), {}
     if kind == "cdj":
-        problems = cdj.group_members(state)
+        problems = cdj.group_members(state, held=held)
         return CDJ_LABEL, list(problems), problems
     if kind == "lossless":
         view, key = scope.get("view", "all"), scope.get("key")
@@ -353,15 +353,16 @@ def plan(paths: Paths, state: dict, scope: Mapping, *, rb: Status,
          entries: Callable[[Path], Sequence[Entry]] | None = None,
          tags: Callable[[Path], audio.FileFacts] = audio.file_facts, lines: Sequence[pf.Row] | None = None,
          records: Mapping | None = None, watched: Sequence[WatchedFolder] | None = None,
-         only: str | None = None) -> AiffPlan:
+         only: str | None = None, held: Collection[str] = ()) -> AiffPlan:
     """The plan for `scope` (see the module's docstring). `rb`: rekordbox's `master.Status`. `entries`: `path ->` the
     rekordbox tracks that hold that file (`Master.entries_for` on a library opened read-only), None when there is no
     library to read (`rb.state` `none`, or one that can't be read). `tags`: reads one file's `audio.FileFacts`.
     `lines`, `records`, `watched`: what a playlist or folder view needs, read from `paths` when not given. `only`
     "rename": the plan of `discjockey rename` (Rename's answer alone: a file that needs a Convert is left out, and in a
     `tracks` scope listed in `skipped` as `needs_convert`); None: `aiff_action`'s answer. Raises ValueError for a scope
-    that isn't one of the three."""
-    label, keys, problems = _pick(paths, state, scope, lines, records, watched)
+    that isn't one of the three. `held`: the songs To-do shows in an open question or duplicate group, which the `cdj`
+    scope leaves out (`cdj.group_members`); the commands, which have no To-do, give none."""
+    label, keys, problems = _pick(paths, state, scope, lines, records, watched, held)
     names = NameReserver(paths.root, state)
     selected = scope["kind"] == "tracks"
     items: list[Item] = []
@@ -370,8 +371,8 @@ def plan(paths: Paths, state: dict, scope: Mapping, *, rb: Status,
     waiting_keys: dict[str, str] = {}
     in_rekordbox = False
     for key in keys:
-        item, skip, held = _judge(paths, state, key, rb, entries, tags, names, problems.get(key), only)
-        in_rekordbox = in_rekordbox or (item is not None and held)
+        item, skip, in_rb = _judge(paths, state, key, rb, entries, tags, names, problems.get(key), only)
+        in_rekordbox = in_rekordbox or (item is not None and in_rb)
         if item is not None:
             items.append(item)
             continue
@@ -395,7 +396,7 @@ def plan(paths: Paths, state: dict, scope: Mapping, *, rb: Status,
 def read_plan(paths: Paths, state: dict, scope: Mapping, *, place: Place | None, running: bool,
               only: str | None = None, tags: Callable[[Path], audio.FileFacts] = audio.file_facts,
               lines: Sequence[pf.Row] | None = None, records: Mapping | None = None,
-              watched: Sequence[WatchedFolder] | None = None) -> AiffPlan:
+              watched: Sequence[WatchedFolder] | None = None, held: Collection[str] = ()) -> AiffPlan:
     """`plan` with one read-only open of rekordbox's library at `place` (None: there is none) for the lookup of its
     tracks and its state: what the commands' `--dry-run` and run, and the window's panel and jobs, all ask. `running`:
     whether rekordbox runs now. A library that can't be opened is `unreadable` (`busy`: another window holds it, taken
@@ -403,17 +404,18 @@ def read_plan(paths: Paths, state: dict, scope: Mapping, *, place: Place | None,
     if place is None or not place.db.is_file():
         rb = master.Status("none", running, None, None, None, None, None)
         return plan(paths, state, scope, rb=rb, entries=None, tags=tags, lines=lines, records=records,
-                    watched=watched, only=only)
+                    watched=watched, only=only, held=held)
     try:
         with master.open_read(place, running) as m:
             index = m.index()
             return plan(paths, state, scope, rb=master.status_of(m, running), tags=tags, lines=lines,
-                        records=records, watched=watched, only=only, entries=lambda file: m.entries_for(file, index))
+                        records=records, watched=watched, only=only, held=held,
+                        entries=lambda file: m.entries_for(file, index))
     except master.Unreadable as e:
         rb = master.Status("ready" if e.problem == "busy" else "unreadable", running, place.app_version,
                            str(place.db), e.problem, e.db_version, e.dbid)
     return plan(paths, state, scope, rb=rb, entries=None, tags=tags, lines=lines, records=records, watched=watched,
-                only=only)
+                only=only, held=held)
 
 
 # the reasons whose one-file answer still says what the step would do, once the block is gone (rekordbox's library

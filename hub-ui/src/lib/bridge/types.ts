@@ -334,7 +334,8 @@ export type JobSnap = {
   id: number; kind: string; track_id: string | null; started: string; running: boolean; stopping: boolean;
   /** an AIFF batch job's (`upgrade_batch`, `aiff_batch`, `batch_resume`) batch kind, else null: after a reload it says
    *  whose batch runs (a resumed Convert batch is `convert`, not Same track's). `convert` is also what Convert,
-   *  Give it its clean name and Make all start. Absent on the snapshot a live `JobStarted` builds (the event has no kind) */
+   *  Give it its clean name and Make all start. The live `JobStarted` event carries it too, so a snapshot built from the
+   *  event says the same as `job_status` after a reload */
   batch_kind?: 'upgrade' | 'convert' | 'mixed' | null;
   // last event of each type (see events.ts); typed loosely here to avoid a cycle
   last: Partial<Record<string, any>>;

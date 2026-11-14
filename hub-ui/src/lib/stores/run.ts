@@ -128,7 +128,7 @@ export function reduceRun(s: RunState, e: HubEvent, now: number): RunState {
  * Progress only for the current step.
  */
 export function runFromSnapshot(job: JobSnap, now: number): RunState {
-  let s = reduceRun(EMPTY_RUN, { type: 'JobStarted', job_id: job.id, kind: job.kind, track_id: job.track_id }, now);
+  let s = reduceRun(EMPTY_RUN, { type: 'JobStarted', job_id: job.id, kind: job.kind, track_id: job.track_id, batch_kind: job.batch_kind ?? null }, now);
   if (s.phase === 'idle') return s;
   const started = Date.parse(job.started);
   s = { ...s, started_at: Number.isNaN(started) ? now : started };
