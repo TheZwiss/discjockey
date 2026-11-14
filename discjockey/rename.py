@@ -206,7 +206,7 @@ def rename_file(paths: Paths, state: dict, track_id: str, *, session: Session,
     try:
         new = clean_path(paths, state, track_id, e)
     except FileExistsError as err:
-        raise UpgradeProblem(f"Discjockey found no free name for this file ({err}). Nothing was changed.") from err
+        raise UpgradeProblem(rbstep.NO_FREE_NAME_WORDS) from err        # the plan's own sentence (A6, A11)
     verdict = eligible.rename(e, facts, session.state, None, clean_path=new)
     if isinstance(verdict, Skip):
         if verdict.reason == "rekordbox_unreadable":  # the library can't be read, so the file's tracks are unknown

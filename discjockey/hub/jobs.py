@@ -35,6 +35,7 @@ class JobStarted:
     job_id: int
     kind: str  # see Jobs.start
     track_id: str | None
+    batch_kind: str | None = None  # an AIFF batch job's kind ("upgrade" | "convert" | "mixed"), as the snapshot's (A10)
 
 
 @dataclass(frozen=True)
@@ -519,7 +520,7 @@ class Jobs:
 
     def _run(self, job: Job, work, write: bool) -> None:
         emit = self._job_emit(job)
-        emit(JobStarted(job.id, job.kind, job.track_id))
+        emit(JobStarted(job.id, job.kind, job.track_id, job.batch_kind))
         ok, problem, message, result, service = True, None, "", None, None
         ctx = JobContext(job.id, job.kind, job.token, emit)
         try:

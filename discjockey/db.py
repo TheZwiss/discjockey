@@ -1668,6 +1668,18 @@ def duplicate_groups(conn: sqlite3.Connection) -> list[DuplicateGroup]:
     return sorted((g for g in groups if g.id not in kept), key=lambda g: g.file_ids[0])
 
 
+def file_songs(conn: sqlite3.Connection, ids: Collection[int]) -> dict[int, str]:
+    """File id -> the key of the song it is linked to, for the ids that have one (no file is read)."""
+    ids = sorted(ids)
+    out: dict[int, str] = {}
+    for start in range(0, len(ids), 500):
+        part = ids[start:start + 500]
+        out.update(conn.execute(
+            f"SELECT f.id, s.key FROM files f JOIN songs s ON s.id = f.song WHERE f.id IN ({', '.join('?' * len(part))})",
+            part))
+    return out
+
+
 def group_files(conn: sqlite3.Connection, gid: str) -> list[DupFile]:
     """The files of a duplicate group as the question shows them, by id; ids whose row is gone are left out. A
     malformed id is ValueError."""

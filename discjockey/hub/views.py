@@ -1602,11 +1602,41 @@ def _question_item(q: Question, state: dict, cover: Url | None, audio: Url | Non
             "file_state": row_file_state(own, away), "pair": pair}
 
 
+def _duplicate_online(g: DuplicateGroup, files: Sequence[DupFile], away: Mapping[str, str] | None
+                      ) -> dict[int, bool] | None:
+    """Each file's online-ness when every file of the group is there to act on (online now, not held), else None."""
+    online = {f.file_id: file_online({"path": f.path, "online": f.online}, away) for f in files}
+    if len(files) != len(g.file_ids) or len(files) < 2 or not all(online[f.file_id] and f.usable for f in files):
+        return None
+    return online
+
+
+def decided_songs(state: dict, questions: Sequence[Question], duplicates: Sequence[DuplicateGroup],
+                  dup_files: Mapping[str, Sequence[DupFile]], counted: Collection[str],
+                  away: Mapping[str, str] | None, owners: Mapping[int, str]) -> set[str]:
+    """The songs whose own file an open "Is this the same song?" question or a listed duplicate group asks about: that
+    decision comes first, so the CDJ group leaves them out (as a parked upgrade's song, `cdj.group_members`'s `held`;
+    A8). A question's own song counts while its item lists (`_question_item`); a group's files' songs while the group
+    lists or is `counted`. `owners`: file id -> song key (`db.file_songs`), for a counted group's files, whose
+    `dup_files` aren't read."""
+    held: set[str] = set()
+    for q in questions:
+        own = state["tracks"].get(q.own_key)
+        if own is not None and own.get("path"):
+            held.add(q.own_key)
+    for g in duplicates:
+        if g.id in counted:
+            held.update(owners[i] for i in g.file_ids if i in owners)
+        elif (files := dup_files.get(g.id, ())) and _duplicate_online(g, files, away) is not None:
+            held.update(f.song_key for f in files if f.song_key)
+    return held
+
+
 def _duplicate_item(g: DuplicateGroup, files: Sequence[DupFile], state: dict, cover: Url | None,
                     audio: Url | None, away: Mapping[str, str] | None = None) -> dict | None:
     """The To-do item of a duplicate group; None unless every file of it is there to act on (online now, not held)."""
-    online = {f.file_id: file_online({"path": f.path, "online": f.online}, away) for f in files}
-    if len(files) != len(g.file_ids) or len(files) < 2 or not all(online[f.file_id] and f.usable for f in files):
+    online = _duplicate_online(g, files, away)
+    if online is None:
         return None
     sides = []
     for f in sorted(files, key=lambda f: f.file_id):
@@ -1752,7 +1782,7 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
          stopped: tuple[int, int] | None = None, auto_on: bool = True,
          started_by: Mapping[int, str] | None = None, cdj_all: tuple[int, int] = (0, 0),
          cdj_stopped: tuple[int, int] | None = None, batch_kinds: Mapping[int, str] | None = None,
-         cdj_waits: Mapping[str, str] | None = None) -> dict:
+         cdj_waits: Mapping[str, str] | None = None, decided: Collection[str] = ()) -> dict:
     """Groups in this order: Check in rekordbox, Is this the same song?, Duplicates, Upgrade ready, Won't play well on
     CDJs, Not found, Weak, Good lossy, Fake lossless, Other. `others`: track id -> what blocks it (a move blocked by another file, several
     files that could be it). Hidden tracks are left out unless show_hidden. "Check in rekordbox" lists every track
@@ -1797,8 +1827,10 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     carries `all: {n, k}` (`cdj_all`: n what Convert all can do now, k what waits; the api takes both from the `cdj`
     `aiff_plan`: `total` and the sum of `waiting[].n`) and `stopped: {batch_id, left} | null` (`cdj_stopped`: the newest
     stopped `todo:*` batch, `stopped_batch`). `batch_kinds`: AIFF batch id -> `aiff_batches.kind` for the batch items
-    (a Convert batch says "Made AIFF")."""
-    members = cdj_rule.group_members(state, include_hidden=True)
+    (a Convert batch says "Made AIFF"). `decided`: the songs an open question or duplicate group asks about
+    (`decided_songs`): the CDJ group leaves them out, their decision comes first, and so does the `cdj` plan the
+    counts come from."""
+    members = cdj_rule.group_members(state, include_hidden=True, held=decided)
     items: dict[str, list] = {g: [] for g, _, _ in TODO_GROUPS}
     batch_checks: dict[int, list[str]] = {}
     for k, e in state["tracks"].items():
