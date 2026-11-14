@@ -7,7 +7,8 @@ import {
   AIFF_LINE, CONVERT_LABEL, LOSSY_NOTE, REKORDBOX_OPEN_WORDS, RENAME_LABEL, aiffAction, aiffBlocked, aiffLabel, aiffNotes, aiffOutcomes,
   aiffProblem, aiffRows, aiffShown, aiffVariant,
 } from './aiffModel';
-import { QUIT_REKORDBOX } from './decisionModel';
+import { formatWords } from '$lib/format';
+import { QUIT_FIRST } from './aiffBatchModel';
 
 const CDJ = { short: 'FLAC: CDJs refuse it', words: 'Most CDJs and XDJs refuse FLAC.' };
 const convert = (extra: Partial<TrackAiff> = {}): TrackAiff => ({ action: 'convert', why_not: null, kind: 'flac',
@@ -100,7 +101,7 @@ describe('why the button is off', () => {
 describe('the rows', () => {
   it('a Convert says NOW, BECOMES, NAME (old over new) and SPACE', () => {
     expect(aiffRows(convert())).toEqual([
-      { key: 'now', k: 'Now', v: 'FLAC · 24-bit · 96 kHz' }, { key: 'becomes', k: 'Becomes', v: AIFF_LINE },
+      { key: 'now', k: 'Now', v: 'FLAC · 24\u2011bit · 96 kHz' }, { key: 'becomes', k: 'Becomes', v: formatWords(AIFF_LINE) },
       { key: 'name', k: 'Name', v: null, from: 'Neon Riot - Neonfieber.flac', to: 'Neon Riot - Neonfieber.aiff' },
       { key: 'space', k: 'Space', v: '+61 MB; your original goes to Superseded/' }]);
   });
@@ -116,7 +117,7 @@ describe('the rows', () => {
       to: 'Neon Riot - Neonfieber.aiff' }]);
   });
   it('a file with no step says what it is now, nothing else', () => {
-    expect(aiffRows(none('cloud'))).toEqual([{ key: 'now', k: 'Now', v: 'FLAC · 24-bit · 96 kHz' }]);
+    expect(aiffRows(none('cloud'))).toEqual([{ key: 'now', k: 'Now', v: 'FLAC · 24\u2011bit · 96 kHz' }]);
     expect(aiffRows(none('cloud', { from: null }))).toEqual([]);
   });
   it('a blocked step shows the rows of the step it would run: Now, Becomes, Name, Space', () => {
@@ -133,7 +134,7 @@ describe('the outcome rows of a Convert', () => {
     expect(aiffOutcomes(convert(), rb('ready', false)).map((o) => [o.tone, o.text])).toEqual([
       ['kept', 'Your track keeps its cues, playlists and history'], ['file', 'Becomes an AIFF file']]);
     expect(aiffOutcomes(convert(), rb('ready', true)).map((o) => [o.tone, o.text])).toEqual([
-      ['kept', 'Your track keeps its cues, playlists and history'], ['file', 'Becomes an AIFF file'], ['step', QUIT_REKORDBOX]]);
+      ['kept', 'Your track keeps its cues, playlists and history'], ['file', 'Becomes an AIFF file'], ['step', QUIT_FIRST]]);
   });
   it('none without a rekordbox Discjockey can open, while its state is unknown, or for a Rename or a card that can\'t run', () => {
     expect(aiffOutcomes(convert(), rb('none'))).toEqual([]);

@@ -233,9 +233,13 @@ export class ChecksFlow {
     if (n) toasts.show({ tone: 'success', title: out.result?.words || undoneToast(n) });
   }
 }
-/** The jobs the window's AIFF batch flow runs (its `batch_resume` too, a kind it shares with Same track), so the
- *  upgrade batch flow never takes one of them for its own when a page asks it to follow the hub's job. */
-const aiffJobs = new Set<number>();
+/** Which flow follows a batch job the window didn't start (the window was reloaded). `batch_resume` is one kind for
+ *  Same track's batches and for Convert's, so the job's `batch_kind` decides: `convert` and `mixed` are the AIFF
+ *  batch flow's, `upgrade` the upgrade batch flow's. A resume with no kind (`null` or missing: a hub that doesn't say)
+ *  is neither's: guessing would show a Convert batch under Same track's words (or the other way round), so the window
+ *  follows none and only learns of its end from the list and the events. */
+const resumeIsAiff = (job: JobSnap): boolean => job.batch_kind === 'convert' || job.batch_kind === 'mixed';
+const resumeIsUpgrade = (job: JobSnap): boolean => job.batch_kind === 'upgrade';
 
 /** The write jobs of an upgrade list or batch (contract "Upgrades and batches"): each sends BatchProgress. */
 export const BATCH_JOBS = ['upgrade_batch', 'batch_resume', 'upgrade_add_new', 'upgrade_discard'];
@@ -297,8 +301,8 @@ export class UpgradeBatchFlow {
   /** A batch job the hub reports running that this flow didn't start (the window was reloaded): follow its progress.
    *  A job for one track (`track_id` set) is that track's own decision panel's, never adopted. */
   adopt(job: JobSnap | null): void {
-    if (!job?.running || job.track_id !== null || !BATCH_JOBS.includes(job.kind) || this.view?.phase === 'running'
-      || aiffJobs.has(job.id)) return;
+    if (!job?.running || job.track_id !== null || !BATCH_JOBS.includes(job.kind) || this.view?.phase === 'running') return;
+    if (job.kind === 'batch_resume' && !resumeIsUpgrade(job)) return;
     const last = job.last?.BatchProgress as { done: number; total: number; track_id: string | null; name: string | null } | undefined;
     this.view = { phase: 'running', mode: MODE_OF[job.kind], tracks: null, rows: last ? progressRows([], last) : [],
       done: last?.done ?? 0, total: last?.total ?? 0, now: last?.name ? last.name.replace(' - ', ' – ') : null, stopping: job.stopping, end: null, again: null };
@@ -435,12 +439,12 @@ export class AiffBatchFlow {
   clear(): void {
     if (this.view?.phase === 'ended') this.view = null;
   }
-  /** A batch the hub runs that this window didn't start (it was reloaded): follow its progress. Only `aiff_batch` for
-   *  several files: one file's job (`track_id` set) is its card's, and a `batch_resume` found running can't be told
-   *  from Same track's, which UpgradeBatchFlow follows. */
+  /** A batch the hub runs that this window didn't start (it was reloaded): follow its progress. `aiff_batch` for
+   *  several files (one file's job, `track_id` set, is its card's), and a `batch_resume` whose batch kind is a
+   *  Convert's or a mixed one (`resumeIsAiff`); a resume of Same track's batch is UpgradeBatchFlow's. */
   adopt(job: JobSnap | null): void {
-    if (!job?.running || job.track_id !== null || job.kind !== 'aiff_batch' || this.view?.phase === 'running') return;
-    aiffJobs.add(job.id);
+    if (!job?.running || job.track_id !== null || this.view?.phase === 'running') return;
+    if (job.kind !== 'aiff_batch' && !(job.kind === 'batch_resume' && resumeIsAiff(job))) return;
     const last = job.last?.BatchProgress as { done: number; total: number; track_id: string | null; name: string | null } | undefined;
     this.view = { phase: 'running', scope: null, rows: last ? progressRows([], last) : [], done: last?.done ?? 0,
       total: last?.total ?? 0, now: last?.name ?? null, stopping: job.stopping, renames: false, end: null, again: null };
@@ -457,9 +461,7 @@ export class AiffBatchFlow {
     this.view = { phase: 'running', scope, rows, done: 0, total: rows.length, now: null, stopping: false, renames, end: null,
       again: null };
     this.#listen();
-    const start = call();
-    void start.then((r) => { if (r?.ok) aiffJobs.add(r.job_id); }, () => {});
-    const out = await runJob<AiffBatchResult>(start, { quiet: true, success: false });
+    const out = await runJob<AiffBatchResult>(call(), { quiet: true, success: false });
     this.#end(out, () => void this.#run(scope, rows.map((r) => ({ ...r, state: 'waiting', text: null })), renames, call));
   }
   async #follow(job_id: number): Promise<void> {

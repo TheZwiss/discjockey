@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { AiffPlan, AiffPlanItem, AiffScope } from '$lib/bridge/types';
 import {
   EMPTY_VIEW, FILES_MAX, NOTHING_TO_CHANGE, QUIT_FIRST, aiffEndNote, aiffRunLabel, blockReason, driveName, emptyWords, leftCount,
-  leftRows, listShape, lossyNote, madeWords, panelHead, panelPhase, planOutcomes, runLabel, scopeKey, showsFormat, spaceRows,
+  kindLabel, leftRows, listShape, lossyNote, madeWords, panelHead, panelPhase, planOutcomes, runLabel, scopeKey, showsFormat, spaceRows,
 } from './aiffBatchModel';
 import { resumeLabel, type BatchEnd } from './decisionModel';
 
@@ -186,5 +186,14 @@ describe('running and ended words', () => {
   });
   it('Resume · {k} left', () => {
     expect(resumeLabel(7)).toBe('Resume · 7 left');
+  });
+});
+
+describe('kindLabel: no break inside a bit depth', () => {
+  it('prints the plan\'s label with a no-break hyphen; an unknown kind stays as it is', () => {
+    const p = plan({ kinds: [{ kind: 'aiff_hires', label: 'AIFF 24-bit or above 44.1 kHz → 16-bit', n: 1 }, { kind: 'flac', label: 'FLAC → AIFF', n: 2 }] });
+    expect(kindLabel(p, 'aiff_hires')).toBe('AIFF 24\u2011bit or above 44.1 kHz → 16\u2011bit');
+    expect(kindLabel(p, 'flac')).toBe('FLAC → AIFF');
+    expect(kindLabel(p, 'mystery')).toBe('mystery');
   });
 });

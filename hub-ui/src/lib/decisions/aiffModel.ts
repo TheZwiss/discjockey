@@ -4,8 +4,9 @@
 import type { AiffBatchResult, RekordboxStatus, TrackAiff } from '$lib/bridge/types';
 import type { JobOutcome } from '$lib/bridge/client';
 import type { Outcome } from '$lib/components/choiceModel';
-import { sizeWords } from '$lib/format';
-import { BECOMES_AIFF, QUIT_REKORDBOX, type Decision } from './decisionModel';
+import { formatWords, sizeWords } from '$lib/format';
+import { QUIT_FIRST } from './aiffBatchModel';
+import { BECOMES_AIFF, type Decision } from './decisionModel';
 
 /** What a Convert makes, as `track().aiff.to` says it. */
 export const AIFF_LINE = 'AIFF · 16-bit · 44.1 kHz';
@@ -16,7 +17,8 @@ export const CONVERT_LABEL = 'Convert to AIFF';
 export const RENAME_LABEL = 'Give it its clean name';
 /** Design §8's one-track outcome rows of a Convert (the "Same track" ones: its rekordbox track stays). */
 export const KEPT_TRACK: Outcome = { tone: 'kept', text: 'Your track keeps its cues, playlists and history' };
-const QUIT_STEP: Outcome = { tone: 'step', text: QUIT_REKORDBOX };
+/** The Convert card's step is the panel's words (§3: "Quit rekordbox before you start"); Same track keeps its own. */
+const QUIT_STEP: Outcome = { tone: 'step', text: QUIT_FIRST };
 /** Plan §3: the lossy note (info). */
 export const LOSSY_NOTE = 'An AIFF made from this sounds the same and takes 5–10 times the space.';
 /** `rename.BLOCKED_WHY`: the `{reason}` of design §8's "Refused, rename blocked". */
@@ -76,10 +78,10 @@ export type AiffRow = { key: 'now' | 'becomes' | 'name' | 'space'; k: string; v:
  *  format; nothing else is known). A name that doesn't change (an AIFF that stays where it was), or a rename with no
  *  free name, is the name once. */
 export function aiffRows(a: TrackAiff): AiffRow[] {
-  if (a.action === null) return a.from ? [{ key: 'now', k: 'Now', v: a.from }] : [];
+  if (a.action === null) return a.from ? [{ key: 'now', k: 'Now', v: formatWords(a.from) }] : [];
   const name: AiffRow = { key: 'name', k: 'Name', v: null, from: a.name_now, to: a.new_name && a.new_name !== a.name_now ? a.new_name : undefined };
   if (a.action === 'rename') return [name];
-  return [{ key: 'now', k: 'Now', v: a.from }, { key: 'becomes', k: 'Becomes', v: a.to ?? AIFF_LINE }, name,
+  return [{ key: 'now', k: 'Now', v: a.from === null ? null : formatWords(a.from) }, { key: 'becomes', k: 'Becomes', v: formatWords(a.to ?? AIFF_LINE) }, name,
     { key: 'space', k: 'Space', v: `+${sizeWords(a.bytes)}; your original goes to Superseded/` }];
 }
 

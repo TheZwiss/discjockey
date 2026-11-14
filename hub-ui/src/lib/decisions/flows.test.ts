@@ -458,20 +458,23 @@ describe('AiffBatchFlow (Make all lossless files AIFF, a selection\'s Convert, t
     await waitForJob(job_id);
   });
 
-  it('adopts only a running aiff_batch for several files; its batch_resume is never the upgrade flow\'s', async () => {
+  it('adopts an aiff_batch for several files and a resume of a Convert batch; never one file\'s job', async () => {
     const { f } = setup('library:aiff-panel-stopped', 1000);
     const flow = new AiffBatchFlow();
     const ups = new UpgradeBatchFlow();
     flow.adopt(snap({ id: 9, kind: 'aiff_batch', track_id: 'own:1' }));
-    flow.adopt(snap({ id: 9, kind: 'batch_resume' }));
     flow.adopt(snap({ id: 9, kind: 'aiff_batch', running: false }));
+    flow.adopt(snap({ id: 9, kind: 'batch_resume', batch_kind: 'convert', track_id: 'own:1' }));
     expect(flow.view).toBeNull();
-    // a Resume this flow starts is its own: the upgrade flow, asked to follow the hub's job, leaves it alone
+    // a Resume this flow starts is its own, on the live job and on a reload alike: the upgrade flow, asked to follow
+    // the hub's job (its snapshot says `convert`), leaves it alone
     const batch = (await f.library('folder', '/Volumes/Example Drive/Music', '', 'all', null) as { aiff_stopped: { batch_id: number } }).aiff_stopped;
     const resume = vi.spyOn(api, 'batch_resume');
     const run = flow.resume(batch.batch_id);
     const jobId = ((await resume.mock.results[0].value) as { job_id: number }).job_id;
-    ups.adopt(snap({ id: jobId, kind: 'batch_resume' }));
+    const live = ((await f.job_status()) as { job: JobSnap }).job;
+    expect(live).toMatchObject({ id: jobId, kind: 'batch_resume', batch_kind: 'convert' });
+    ups.adopt(live);
     expect(ups.view).toBeNull();
     await run;
     // a running aiff_batch the window didn't start is followed to its end
@@ -481,6 +484,72 @@ describe('AiffBatchFlow (Make all lossless files AIFF, a selection\'s Convert, t
     expect(flow.view).toMatchObject({ phase: 'running', scope: null });
     await until(() => flow.view?.phase === 'ended');
     expect(flow.view!.end).toMatchObject({ kind: 'done' });
+  });
+});
+
+describe('a resumed batch is followed by its batch kind after a reload', () => {
+  const resumed = async (scenario: string): Promise<{ f: ReturnType<typeof setup>['f']; snap: JobSnap }> => {
+    const { f, ready } = setup(scenario, scenario === 'upgrade-multi' ? 60 : 1000);
+    let id: number;
+    if (scenario === 'upgrade-multi') {
+      const ids = (await ready()).map((i) => i.track_id).slice(0, 3);
+      const start = (await f.upgrade(ids, 'swap')) as { job_id: number };
+      let progressed = false;
+      const off = onEvent((e) => { if (e.type === 'BatchProgress') progressed = true; });
+      await until(() => progressed);
+      off();
+      await f.stop();
+      await waitForJob(start.job_id);
+      const t = (await f.todo('all', false)) as Todo & { ok: true };
+      const stopped = t.groups.find((g) => g.key === 'upgrade_ready')!.stopped!;
+      id = ((await f.batch_resume(stopped.batch_id)) as { job_id: number }).job_id;
+    } else {
+      const batch = (await f.library('folder', '/Volumes/Example Drive/Music', '', 'all', null) as { aiff_stopped: { batch_id: number } }).aiff_stopped;
+      id = ((await f.batch_resume(batch.batch_id)) as { job_id: number }).job_id;
+    }
+    const job = ((await f.job_status()) as { job: JobSnap }).job;
+    expect(job).toMatchObject({ id, kind: 'batch_resume', running: true });
+    return { f, snap: job };
+  };
+
+  it('Same track\'s resume is the upgrade flow\'s, never the AIFF batch flow\'s', async () => {
+    const { snap: job } = await resumed('upgrade-multi');
+    expect(job.batch_kind).toBe('upgrade');
+    const aiff = new AiffBatchFlow();
+    const ups = new UpgradeBatchFlow();
+    aiff.adopt(job);
+    expect(aiff.view).toBeNull();
+    ups.adopt(job);
+    expect(ups.view).toMatchObject({ phase: 'running', mode: 'swap' });
+    await until(() => ups.view?.phase === 'ended');
+  });
+
+  it('a Convert batch\'s resume is the AIFF batch flow\'s, never the upgrade flow\'s', async () => {
+    const { snap: job } = await resumed('library:aiff-panel-stopped');
+    expect(job.batch_kind).toBe('convert');
+    const aiff = new AiffBatchFlow();
+    const ups = new UpgradeBatchFlow();
+    ups.adopt(job);
+    expect(ups.view).toBeNull();
+    aiff.adopt(job);
+    expect(aiff.view).toMatchObject({ phase: 'running', scope: null });
+    await until(() => aiff.view?.phase === 'ended');
+  });
+
+  it('a mixed batch is the AIFF batch flow\'s; a resume with no known kind is neither\'s', () => {
+    const aiff = new AiffBatchFlow();
+    const ups = new UpgradeBatchFlow();
+    for (const batch_kind of [null, undefined]) {
+      const job = snap({ id: 9, kind: 'batch_resume', batch_kind });
+      aiff.adopt(job);
+      ups.adopt(job);
+    }
+    expect([aiff.view, ups.view]).toEqual([null, null]);
+    ups.adopt(snap({ id: 9, kind: 'batch_resume', batch_kind: 'mixed' }));
+    expect(ups.view).toBeNull();
+    // the job kinds that say whose they are need no batch kind
+    ups.adopt(snap({ id: 9, kind: 'upgrade_discard', batch_kind: null }));
+    expect(ups.view).toMatchObject({ phase: 'running', mode: 'discard' });
   });
 });
 

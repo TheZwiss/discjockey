@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
+from datetime import datetime
 
 import pytest
 
@@ -27,9 +28,18 @@ KINDS = ["mp3", "mp3_free", "clean", "clean_free", "named", "chain"]
 CLEAN = "Library/A/Artist - Song {i}.aiff"
 
 
+def apart(lib: Lib) -> None:
+    """The fixture's files of one kind hold the same bytes, which To-do shows as a duplicate group (whose decision comes
+    first, and the CDJ group leaves its songs out): every file gets a content key of its own, so the tests are about the
+    convert side only, and the one that is about the duplicate groups puts two together again."""
+    with db.connect(lib.paths.db_file) as conn:
+        conn.execute("UPDATE files SET content_key = 'own:' || id")
+
+
 def make(tmp_path, monkeypatch, kinds: list[str] = KINDS) -> Lib:
     lib = make_own_lib(tmp_path, monkeypatch, kinds)
     use(lib, monkeypatch)
+    apart(lib)
     return lib
 
 
@@ -297,6 +307,23 @@ def test_the_cdj_group_is_the_files_cdjs_wont_play_well(tmp_path, monkeypatch, c
     [item] = data["plan"]["items"]
     assert code == OK and (item["track"], item["action"]) == (lib.tracks[5], "convert") and item["cdj"]["short"]
     assert data["plan"]["scope"] == {"kind": "cdj", "label": "Won't play well on CDJs"}
+
+
+def test_the_cdj_group_leaves_out_the_songs_of_a_listed_duplicate_group_as_the_hub_does(tmp_path, monkeypatch, capsys):
+    lib = make(tmp_path, monkeypatch)
+    for i in (0, 1, 5):
+        set_rate(lib, i, 192000)                            # CDJs refuse all three
+    with db.connect(lib.paths.db_file) as conn:             # songs 0 and 1 hold the same bytes: a duplicate group
+        conn.execute("UPDATE files SET content_key = 'same' WHERE id IN (?, ?)",
+                     (db.file_id_at(conn, lib.olds[0]), db.file_id_at(conn, lib.olds[1])))
+        [group] = db.duplicate_groups(conn)
+    code, data = run_json(["convert", "--all", "cdj", "--dry-run"], capsys)
+    assert code == OK and [i["track"] for i in data["plan"]["items"]] == [lib.tracks[5]]   # its decision comes first
+    assert data["plan"]["total"] == 1
+    with db.connect(lib.paths.db_file) as conn:             # answered (keep both): the songs are in the CDJ group again
+        db.set_decision(conn, "keep_both", group.id, "", "keep", datetime.now())
+    code, data = run_json(["convert", "--all", "cdj", "--dry-run"], capsys)
+    assert sorted(i["track"] for i in data["plan"]["items"]) == sorted(lib.tracks[i] for i in (0, 1, 5))
 
 
 # --- the facts fill before a plan ---
