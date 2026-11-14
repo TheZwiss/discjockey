@@ -489,6 +489,13 @@ Results:
     Opus stage review), fresh-agent test with only AGENTS.md on a copy library, V, merge. No release. Est. ~5M total.
     Morning summary for the user: the CLI for an agent, what changed vs today's commands and why, what review found.
     Technical choices are mine (don't ask the user to review the design).
+    User's addition (2026-11-14 night): coverage also from what the app is FOR, not only its functions. The designer
+    (step 2) gets a required section: from README "Why Discjockey"/"How it works", the user's goals and the questions
+    they'd ask an agent ("is my library ready for Saturday's gig?", "why didn't X download?", "what did the last sync
+    do?", "undo yesterday's work", "does rekordbox match my files?"), each shown answerable/doable by commands. Covers:
+    judgements made by looking/listening (spectrum → numbers + verdict), reasons and next steps as data, a cross-screen
+    overview, time (waits, what changed since), goal-level health checks, recovery/history, a concept model in the
+    agent docs. Step 3's review and the fresh-agent test use these goal-level tasks too.
   - **NOW (2026-11-14 evening, user active):** STAGE D MERGED into main a72530d1 (issue 33 stages A–D all on main, none
     released). No agent running, no worktrees, nothing in the background. First after a compact: check CI on main once
     (`gh run list --branch main --limit 2`; the merge run was cancelled by the next push, the docs push run covers it).
